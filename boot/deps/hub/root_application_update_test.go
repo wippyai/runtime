@@ -36,6 +36,7 @@ func TestDependencyHandler_RootApplicationUpdatePreservesNestedDependencyRoots(t
 	adminPolicyID := regapi.NewID("deployment.security", "admin")
 	artifacts := map[selection][]byte{
 		{"acme/app", "v1.0.0"}: buildWappBytes(t, []wapp.Entry{
+			{ID: wapp.NewID("acme.app", "definition"), Kind: regapi.NamespaceDefinition},
 			{ID: wapp.NewID("acme.app", "service"), Kind: "service", Data: map[string]any{"version": "v1"}},
 			{ID: wapp.NewID(adminPolicyID.NS, adminPolicyID.Name), Kind: "security.policy", Data: map[string]any{"allow": true}},
 			{ID: wapp.NewID(workerRootID.NS, workerRootID.Name), Kind: regapi.NamespaceDependency,
@@ -45,6 +46,7 @@ func TestDependencyHandler_RootApplicationUpdatePreservesNestedDependencyRoots(t
 				}},
 		}),
 		{"acme/app", "v2.0.0"}: buildWappBytes(t, []wapp.Entry{
+			{ID: wapp.NewID("acme.app", "definition"), Kind: regapi.NamespaceDefinition},
 			{ID: wapp.NewID("acme.app", "service"), Kind: "service", Data: map[string]any{"version": "v2"}},
 			{ID: wapp.NewID(workerRootID.NS, workerRootID.Name), Kind: regapi.NamespaceDependency,
 				Data: map[string]any{
@@ -52,9 +54,10 @@ func TestDependencyHandler_RootApplicationUpdatePreservesNestedDependencyRoots(t
 					"parameters": []any{map[string]any{"name": "acme.worker:router", "value": "app:api"}},
 				}},
 		}),
-		{"acme/worker", "v1.0.0"}: buildWappBytes(t, []wapp.Entry{{
-			ID: wapp.NewID("acme.worker", "service"), Kind: "service",
-		}}),
+		{"acme/worker", "v1.0.0"}: buildWappBytes(t, []wapp.Entry{
+			{ID: wapp.NewID("acme.worker", "definition"), Kind: regapi.NamespaceDefinition},
+			{ID: wapp.NewID("acme.worker", "service"), Kind: "service"},
+		}),
 	}
 	digests := make(map[selection]string, len(artifacts))
 	for selected, artifact := range artifacts {
@@ -137,8 +140,12 @@ modules:
 	snapshot := regapi.State{
 		appRoot,
 		workerRoot,
+		markModuleIdentity(regapi.Entry{ID: regapi.NewID("acme.app", "definition"), Kind: regapi.NamespaceDefinition},
+			"acme/app", "v1.0.0", "sha256:old-app"),
 		markModuleIdentity(regapi.Entry{ID: regapi.NewID("acme.app", "service"), Kind: "service"},
 			"acme/app", "v1.0.0", "sha256:old-app"),
+		markModuleIdentity(regapi.Entry{ID: regapi.NewID("acme.worker", "definition"), Kind: regapi.NamespaceDefinition},
+			"acme/worker", "v1.0.0", digests[selection{"acme/worker", "v1.0.0"}]),
 		markModuleIdentity(regapi.Entry{ID: regapi.NewID("acme.worker", "service"), Kind: "service"},
 			"acme/worker", "v1.0.0", digests[selection{"acme/worker", "v1.0.0"}]),
 	}
