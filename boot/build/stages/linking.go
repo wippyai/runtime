@@ -290,7 +290,7 @@ func normalizeBindings(
 		owned := ownedAddressIndex(dep, reqIDs, requirements)
 
 		for _, param := range dep.definition.Parameters {
-			for _, reqID := range resolveParameter(param.Name, owned) {
+			for _, reqID := range resolveParameter(param.Name, requirements, owned) {
 				bindings[reqID] = append(bindings[reqID], binding{
 					value:         param.Value,
 					dependencyID:  depID,
@@ -346,14 +346,22 @@ func ownedAddressIndex(
 }
 
 // resolveParameter maps a single parameter name to the set of concrete
-// requirement ids it addresses. Both bare names and full ids resolve only
-// through the dependency's owned index, so a dependency cannot configure a
-// requirement outside its referenced module. A name that addresses nothing
+// requirement ids it addresses. A canonical ns:name is already a complete
+// registry address and selects that exact requirement. A bare name uses the
+// dependency component's declared namespace index. Package identities are
+// never converted into registry namespaces. A name that addresses nothing
 // returns an empty set.
 func resolveParameter(
 	name string,
+	requirements map[string]decodedRequirement,
 	owned map[string][]string,
 ) []string {
+	if strings.Contains(name, ":") {
+		if _, exists := requirements[name]; exists {
+			return []string{name}
+		}
+		return nil
+	}
 	return owned[name]
 }
 

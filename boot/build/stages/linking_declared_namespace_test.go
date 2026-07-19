@@ -25,7 +25,7 @@ func TestLinkUsesDeclaredModuleNamespace(t *testing.T) {
 		{name: "bare name", parameter: "router", want: "app:configured"},
 		{name: "canonical requirement id", parameter: "identity.account.api:router", want: "app:configured"},
 		{name: "package-derived namespace is not an address", parameter: "example.accounts:router", want: "app:default"},
-		{name: "foreign requirement id is not an address", parameter: "analytics.report:router", want: "app:default"},
+		{name: "unknown canonical requirement id is not an address", parameter: "analytics.report:router", want: "app:default"},
 	}
 
 	for _, tt := range tests {
@@ -41,6 +41,34 @@ func TestLinkUsesDeclaredModuleNamespace(t *testing.T) {
 			assert.Equal(t, tt.want, target.Meta["router"])
 		})
 	}
+}
+
+func TestLinkCanonicalRequirementAddressDoesNotInferOwnership(t *testing.T) {
+	ctx, _ := setupTestContext()
+	entries := []registry.Entry{
+		moduleDefinition(fixtureComponent, fixtureNamespace),
+		dependencyEntry(fixtureComponent, "workflow.scheduler:process_host", "app:processes"),
+		requirementEntry(fixtureComponent, "workflow.scheduler", "process_host", "app:scheduler", "app:default"),
+		targetEntry("scheduler"),
+	}
+
+	err := Link().Execute(ctx, &entries)
+	require.NoError(t, err)
+	assert.Equal(t, "app:processes", findEntry(entries, "app", "scheduler").Meta["router"])
+}
+
+func TestLinkBareRequirementDoesNotEscapeDeclaredNamespace(t *testing.T) {
+	ctx, _ := setupTestContext()
+	entries := []registry.Entry{
+		moduleDefinition(fixtureComponent, fixtureNamespace),
+		dependencyEntry(fixtureComponent, "process_host", "app:processes"),
+		requirementEntry(fixtureComponent, "workflow.scheduler", "process_host", "app:scheduler", "app:default"),
+		targetEntry("scheduler"),
+	}
+
+	err := Link().Execute(ctx, &entries)
+	require.NoError(t, err)
+	assert.Equal(t, "app:default", findEntry(entries, "app", "scheduler").Meta["router"])
 }
 
 func TestLinkDeclaredNamespaceOwnsChildrenOnly(t *testing.T) {
