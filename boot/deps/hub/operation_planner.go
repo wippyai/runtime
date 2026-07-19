@@ -29,9 +29,10 @@ func entriesEqual(a, b regapi.Entry) bool {
 }
 
 type operationPlanOptions struct {
-	controlledModules map[string]struct{}
-	mutableModules    map[string]struct{}
-	originalKey       string
+	controlledModules     map[string]struct{}
+	mutableModules        map[string]struct{}
+	deploymentRootModules map[string]struct{}
+	originalKey           string
 }
 
 type operationPlanner struct {
@@ -56,7 +57,7 @@ func (p operationPlanner) plan(current regapi.State, desired []regapi.Entry, opt
 			continue
 		}
 		if existing, ok := currentByID[key]; ok {
-			if entryConflict(existing, entry) {
+			if entryConflictForPlan(existing, entry, opts) {
 				return nil, NewDependencyEntryConflictError(entry.ID.String(), entryModule(existing), entryModule(entry))
 			}
 			if !entriesEqual(existing, entry) {
@@ -236,4 +237,29 @@ func entryConflict(existing, desired regapi.Entry) bool {
 	}
 	existingModule := entryModule(existing)
 	return existingModule == "" || existingModule != desiredModule
+}
+
+func entryConflictForPlan(existing, desired regapi.Entry, opts operationPlanOptions) bool {
+	if !entryConflict(existing, desired) {
+		return false
+	}
+
+	// A published deployment root is initially loaded as the application
+	// baseline. Its authored dependency declarations are deliberately unowned
+	// even though the rest of the package keeps module provenance. A prior
+	// direct update of one of those declarations may also clear DependencyRoot,
+	// so transient root provenance cannot be the authority check. When that same
+	// active application is installed as a history root for an in-place update,
+	// it may adopt only unowned dependency IDs that its new artifact actually
+	// declares. This is not a general host-entry takeover: ordinary host entries
+	// and any package other than a root selected by the deployment lock still
+	// conflict.
+	desiredModule := entryModule(desired)
+	if _, activeRoot := opts.deploymentRootModules[desiredModule]; !activeRoot {
+		return true
+	}
+	return entryModule(existing) != "" ||
+		existing.Kind != regapi.NamespaceDependency ||
+		desired.Kind != regapi.NamespaceDependency ||
+		desired.DependencyRoot
 }

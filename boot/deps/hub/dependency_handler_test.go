@@ -1957,6 +1957,89 @@ func TestDependencyHandler_Expand_RejectsNewModuleClaimingExistingHostEntry(t *t
 	assert.Equal(t, "kickside/security", apiErr.Details().GetString("desired_module", ""))
 }
 
+func TestDependencyHandler_Expand_ActiveApplicationAdoptsDeploymentRootDependencies(t *testing.T) {
+	ctx := newTestContext()
+	tmpDir := t.TempDir()
+	vendorDir := filepath.Join(tmpDir, ".wippy")
+	lockPath := filepath.Join(tmpDir, "wippy.lock")
+	require.NoError(t, os.WriteFile(lockPath, []byte(`directories:
+  modules: .wippy
+modules:
+  - name: acme/application
+    version: v1.0.0
+    root: true
+  - name: acme/service
+    version: v1.0.0
+`), 0o600))
+
+	writeWapp(t, filepath.Join(vendorDir, "acme", "application-v2.0.0.wapp"), []wapp.Entry{{
+		ID: wapp.NewID("app.deps", "service"), Kind: regapi.NamespaceDependency,
+		Data: map[string]any{"component": "acme/service", "version": "v2.0.0"},
+	}, {
+		ID: wapp.NewID("app", "gateway"), Kind: "http.service",
+		Data: map[string]any{"generation": "v2"},
+	}})
+	writeWapp(t, filepath.Join(vendorDir, "acme", "service-v2.0.0.wapp"), []wapp.Entry{{
+		ID: wapp.NewID("acme.service", "worker"), Kind: "service",
+		Data: map[string]any{"generation": "v2"},
+	}})
+
+	handler, err := NewDependencyHandler(DependencyHandlerOptions{
+		Hub: &fakeHub{getManifest: func(_ context.Context, org, module, _ string) (*ModuleManifest, error) {
+			manifest := &ModuleManifest{Org: org, Name: module, Version: "v2.0.0"}
+			if module == "application" {
+				manifest.Dependencies = []ManifestDep{{Org: "acme", Name: "service", Version: "v2.0.0"}}
+			}
+			return manifest, nil
+		}},
+		Logger: zap.NewNop(), LockPath: lockPath, VendorDir: vendorDir,
+	})
+	require.NoError(t, err)
+
+	deploymentDependency := regapi.Entry{
+		ID: regapi.NewID("app.deps", "service"), Kind: regapi.NamespaceDependency,
+		DependencyRoot: true,
+		Data:           payload.New(map[string]any{"component": "acme/service", "version": "v2.0.0"}),
+	}
+	applicationEntry := regapi.Entry{
+		ID: regapi.NewID("app", "gateway"), Kind: "http.service",
+		Meta: attrs.NewBagFrom(map[string]any{
+			metaModuleKey: "acme/application", metaModuleVersionKey: "v1.0.0",
+		}),
+		Data: payload.New(map[string]any{"generation": "v1"}),
+	}
+	serviceEntry := regapi.Entry{
+		ID: regapi.NewID("acme.service", "worker"), Kind: "service",
+		Meta: attrs.NewBagFrom(map[string]any{
+			metaModuleKey: "acme/service", metaModuleVersionKey: "v1.0.0",
+		}),
+		Data: payload.New(map[string]any{"generation": "v1"}),
+	}
+	applicationRoot := regapi.Entry{
+		ID: regapi.NewID("app.deps", "application"), Kind: regapi.NamespaceDependency,
+		Data: payload.New(map[string]any{"component": "acme/application", "version": "v2.0.0"}),
+	}
+
+	result, err := handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: applicationRoot}, regapi.State{
+		deploymentDependency, applicationEntry, serviceEntry,
+	})
+	require.NoError(t, err)
+	require.True(t, result.Applied)
+
+	var adopted *regapi.Entry
+	for _, scoped := range result.Additional {
+		if scoped.Operation.Kind == regapi.EntryUpdate && idsEqual(scoped.Operation.Entry.ID, deploymentDependency.ID) {
+			entry := scoped.Operation.Entry
+			adopted = &entry
+			break
+		}
+	}
+	require.NotNil(t, adopted)
+	assert.Equal(t, "acme/application", entryModule(*adopted))
+	assert.Equal(t, "v2.0.0", moduleVersion(*adopted))
+	assert.False(t, adopted.DependencyRoot)
+}
+
 func TestDependencyHandler_Expand_AppliesCanonicalComponentParametersToAliasNamespaceRequirements(t *testing.T) {
 	ctx := newTestContext()
 	tmpDir := t.TempDir()

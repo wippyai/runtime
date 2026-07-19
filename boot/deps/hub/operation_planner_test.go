@@ -141,6 +141,114 @@ func TestOperationPlanner_DependencyRootTransitionsRemainEffective(t *testing.T)
 	}
 }
 
+func TestOperationPlanner_ActiveApplicationAdoptsOnlyDeploymentRootDeclarations(t *testing.T) {
+	const application = "acme/application"
+	current := regapi.Entry{
+		ID:             regapi.NewID("app.deps", "service"),
+		Kind:           regapi.NamespaceDependency,
+		DependencyRoot: true,
+		Data:           payload.New(map[string]any{"component": "acme/service", "version": "*"}),
+	}
+	desired := clonePlannerTestEntry(current)
+	desired.DependencyRoot = false
+	desired.Meta = attrs.NewBagFrom(map[string]any{
+		metaModuleKey:        application,
+		metaModuleVersionKey: "v2.0.0",
+		metaModuleDigestKey:  "sha256:new",
+	})
+	desired.Data = payload.New(map[string]any{"component": "acme/service", "version": ">=v2.0.0"})
+
+	ops, err := (operationPlanner{}).plan(regapi.State{current}, []regapi.Entry{desired}, operationPlanOptions{
+		controlledModules:     map[string]struct{}{application: {}},
+		mutableModules:        map[string]struct{}{application: {}},
+		deploymentRootModules: map[string]struct{}{application: {}},
+	})
+	require.NoError(t, err)
+	require.Len(t, ops, 1)
+	assert.Equal(t, regapi.EntryUpdate, ops[0].Kind)
+	assert.Equal(t, desired, ops[0].Entry)
+}
+
+func TestOperationPlanner_ActiveApplicationAdoptsPreviouslyUpdatedDependencyDeclaration(t *testing.T) {
+	const application = "acme/application"
+	current := regapi.Entry{
+		ID:   regapi.NewID("app.deps", "service"),
+		Kind: regapi.NamespaceDependency,
+		Data: payload.New(map[string]any{"component": "acme/service", "version": ">=v1.0.0"}),
+	}
+	desired := clonePlannerTestEntry(current)
+	desired.Meta = attrs.NewBagFrom(map[string]any{metaModuleKey: application})
+	desired.Data = payload.New(map[string]any{"component": "acme/service", "version": ">=v2.0.0"})
+
+	ops, err := (operationPlanner{}).plan(regapi.State{current}, []regapi.Entry{desired}, operationPlanOptions{
+		deploymentRootModules: map[string]struct{}{application: {}},
+	})
+	require.NoError(t, err)
+	require.Len(t, ops, 1)
+	assert.Equal(t, regapi.EntryUpdate, ops[0].Kind)
+	assert.Equal(t, application, entryModule(ops[0].Entry))
+}
+
+func TestOperationPlanner_ApplicationAdoptionBoundaryRejectsOtherClaims(t *testing.T) {
+	const application = "acme/application"
+	baseCurrent := regapi.Entry{
+		ID:             regapi.NewID("app.deps", "service"),
+		Kind:           regapi.NamespaceDependency,
+		DependencyRoot: true,
+		Data:           payload.New(map[string]any{"component": "acme/service", "version": "*"}),
+	}
+	baseDesired := clonePlannerTestEntry(baseCurrent)
+	baseDesired.DependencyRoot = false
+	baseDesired.Meta = attrs.NewBagFrom(map[string]any{metaModuleKey: application})
+
+	tests := []struct {
+		mutate func(*regapi.Entry, *regapi.Entry)
+		roots  map[string]struct{}
+		name   string
+	}{
+		{
+			name:  "package is not the active deployment root",
+			roots: map[string]struct{}{"acme/other": {}},
+		},
+		{
+			name: "ordinary unowned host entry",
+			mutate: func(current, desired *regapi.Entry) {
+				current.Kind = "http.service"
+				desired.Kind = "http.service"
+			},
+			roots: map[string]struct{}{application: {}},
+		},
+		{
+			name: "declaration remains a deployment root",
+			mutate: func(_, desired *regapi.Entry) {
+				desired.DependencyRoot = true
+			},
+			roots: map[string]struct{}{application: {}},
+		},
+		{
+			name: "declaration belongs to another module",
+			mutate: func(current, _ *regapi.Entry) {
+				current.Meta = attrs.NewBagFrom(map[string]any{metaModuleKey: "acme/owner"})
+			},
+			roots: map[string]struct{}{application: {}},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			current := clonePlannerTestEntry(baseCurrent)
+			desired := clonePlannerTestEntry(baseDesired)
+			if test.mutate != nil {
+				test.mutate(&current, &desired)
+			}
+			_, err := (operationPlanner{}).plan(regapi.State{current}, []regapi.Entry{desired}, operationPlanOptions{
+				deploymentRootModules: test.roots,
+			})
+			require.Error(t, err)
+		})
+	}
+}
+
 func TestOperationPlanner_NilMutableSetUsesNormalDiff(t *testing.T) {
 	current := plannerTestEntry("service", "acme/service", "v1.0.0", "sha256:old", "same")
 	desired := clonePlannerTestEntry(current)

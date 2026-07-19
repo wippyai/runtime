@@ -343,9 +343,10 @@ func (h *DependencyHandler) expand(
 	}
 
 	additional, err := (operationPlanner{resolver: h.resolver}).plan(snapshot, combined, operationPlanOptions{
-		originalKey:       idKey(op.Entry.ID),
-		controlledModules: controlledModules,
-		mutableModules:    mutableModules,
+		originalKey:           idKey(op.Entry.ID),
+		controlledModules:     controlledModules,
+		mutableModules:        mutableModules,
+		deploymentRootModules: h.deploymentRootModules(),
 	})
 	if err != nil {
 		return regapi.DirectiveResult{}, err
@@ -756,8 +757,9 @@ func (h *DependencyHandler) ReconcileResolution(
 	// and restart unrelated services during undo/redo (including the governance
 	// worker itself).
 	additional, err := (operationPlanner{resolver: h.resolver}).plan(target, combined, operationPlanOptions{
-		controlledModules: controlled,
-		mutableModules:    mutable,
+		controlledModules:     controlled,
+		mutableModules:        mutable,
+		deploymentRootModules: h.deploymentRootModules(),
 	})
 	if err != nil {
 		return regapi.DirectiveResult{}, err
@@ -1704,6 +1706,13 @@ func stringSet(values []string) map[string]struct{} {
 		}
 	}
 	return out
+}
+
+func (h *DependencyHandler) deploymentRootModules() map[string]struct{} {
+	if h == nil || h.lock == nil {
+		return nil
+	}
+	return stringSet(h.lock.GetRootModules())
 }
 
 func sortedSetKeys(values map[string]struct{}) []string {
