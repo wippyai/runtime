@@ -177,7 +177,15 @@ func runWithUseCase(cmd *cobra.Command, args []string, useCase string) error {
 
 	logger.Info("initializing runtime", zap.String("memory_limit", formatBytes(memLimit)))
 
-	cfg, err := loadRuntimeConfig(cmd, logger)
+	// A Hub deployment is restarted from wippy.lock, without resolving the Hub
+	// reference again. Its selected root pack is therefore the same authority
+	// for published runtime defaults as it was on the first run.
+	runtimeDefaults, err := loadLockRootRuntimeDefaults(defaultLockFile, logger)
+	if err != nil {
+		logger.Error("failed to load deployment runtime defaults", zap.Error(err))
+		return err
+	}
+	cfg, err := loadRuntimeConfigWithDefaults(cmd, logger, runtimeDefaults)
 	if err != nil {
 		logger.Error("failed to resolve runtime config", zap.Error(err))
 		return err
