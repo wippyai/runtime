@@ -37,8 +37,18 @@ func loadLockRootRuntimeDefaults(lockPath string, logger *zap.Logger) (boot.Conf
 		if loadPath.Module != root || !loadPath.Root {
 			continue
 		}
-		if !strings.EqualFold(filepath.Ext(loadPath.Path), ".wapp") {
+		info, statErr := os.Stat(loadPath.Path)
+		if statErr != nil {
+			if os.IsNotExist(statErr) {
+				return nil, fmt.Errorf("selected deployment root %s is not installed; run wippy install", root)
+			}
+			return nil, fmt.Errorf("inspect selected deployment root %s: %w", root, statErr)
+		}
+		if info.IsDir() {
 			return nil, nil
+		}
+		if !info.Mode().IsRegular() || !strings.EqualFold(filepath.Ext(loadPath.Path), ".wapp") {
+			return nil, fmt.Errorf("selected deployment root %s has unsupported artifact %s", root, loadPath.Path)
 		}
 		return loadPackRuntimeDefaults(loadPath.Path, logger)
 	}
