@@ -634,59 +634,6 @@ func (r *Reg) findStoredVersion(v registry.Version) (registry.Version, error) {
 	return nil, NewVersionNotFoundError(v.ID())
 }
 
-// collectTransitionChangesets builds a source-to-target transition from parent
-// edges. Numeric version IDs are allocation order only; they do not tell us
-// whether two versions are ancestors or siblings on different branches.
-func (r *Reg) collectTransitionChangesets(source, target registry.Version) (registry.ChangeSet, error) {
-	if source == nil || target == nil {
-		return nil, NewComputePathError(0, 0, ErrNoCommonAncestor)
-	}
-
-	sourceAncestors := make(map[uint]registry.Version)
-	for current := source; current != nil; current = current.Previous() {
-		sourceAncestors[current.ID()] = current
-	}
-
-	var (
-		commonAncestor registry.Version
-		targetTail     []registry.Version
-	)
-	for current := target; current != nil; current = current.Previous() {
-		if ancestor, ok := sourceAncestors[current.ID()]; ok {
-			commonAncestor = ancestor
-			break
-		}
-		targetTail = append(targetTail, current)
-	}
-	if commonAncestor == nil {
-		return nil, NewComputePathError(source.ID(), target.ID(), ErrNoCommonAncestor)
-	}
-
-	changesets := make([]registry.ChangeSet, 0, len(targetTail)+1)
-	for current := source; current != nil && current.ID() != commonAncestor.ID(); current = current.Previous() {
-		cs, err := r.history.Get(current)
-		if err != nil {
-			return nil, NewGetChangesetError(current.ID(), err)
-		}
-		canonicalizeChangeSetIDs(cs)
-		reversed, err := r.builder.ReverseChangeset(cs)
-		if err != nil {
-			return nil, NewReverseChangesetError(err)
-		}
-		changesets = append(changesets, reversed)
-	}
-	for i := len(targetTail) - 1; i >= 0; i-- {
-		cs, err := r.history.Get(targetTail[i])
-		if err != nil {
-			return nil, NewGetChangesetError(targetTail[i].ID(), err)
-		}
-		canonicalizeChangeSetIDs(cs)
-		changesets = append(changesets, cs)
-	}
-
-	return r.builder.SquashChangesets(changesets), nil
-}
-
 func (r *Reg) collectBackwardChangesets(path []registry.Version, targetVersion registry.Version) (registry.ChangeSet, error) {
 	commonAncestorIdx := -1
 	for i, ver := range path {
