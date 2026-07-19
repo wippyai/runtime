@@ -76,6 +76,18 @@ func hardeningModuleEntry(id, module, version string) regapi.Entry {
 	}
 }
 
+func hardeningModuleDefinition(namespace, module, version string) regapi.Entry {
+	return regapi.Entry{
+		ID:   regapi.NewID(namespace, "definition"),
+		Kind: regapi.NamespaceDefinition,
+		Meta: attrs.NewBagFrom(map[string]any{
+			metaModuleKey:        module,
+			metaModuleVersionKey: version,
+			metaModuleDigestKey:  hardeningDigest,
+		}),
+	}
+}
+
 func hardeningResolution(roots ...regapi.Entry) *regapi.DependencyResolution {
 	desired := make([]desiredDependency, 0, len(roots))
 	modules := make([]ResolvedModule, 0, len(roots))

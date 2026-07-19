@@ -81,9 +81,10 @@ func (h *DependencyHandler) deploymentBaselineDigest(
 	})
 
 	data, err := json.Marshal(struct {
+		Model   string           `json:"model"`
 		Modules []lockedModule   `json:"modules"`
 		Roots   []deploymentRoot `json:"roots"`
-	}{Modules: modules, Roots: roots})
+	}{Model: "deployment-overlay-v1", Modules: modules, Roots: roots})
 	if err != nil {
 		return "", fmt.Errorf("encode deployment dependency baseline: %w", err)
 	}

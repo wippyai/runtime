@@ -185,6 +185,10 @@ func TestIsRootDependencyKeepsOwnershipSeparate(t *testing.T) {
 	transitive := root
 	transitive.DependencyRoot = false
 	assert.False(t, isRootDependency(transitive))
+
+	unowned := transitive
+	unowned.Meta = nil
+	assert.True(t, isRootDependency(unowned), "registry-authored dependencies are user overlay roots")
 }
 
 // --- markModuleMeta ---

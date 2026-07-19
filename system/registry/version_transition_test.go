@@ -76,6 +76,91 @@ func (f directiveFunc) Expand(ctx context.Context, op registry.Operation, snap r
 	return f(ctx, op, snap)
 }
 
+type baselineOverlayDirective struct {
+	policyID registry.ID
+}
+
+func (d baselineOverlayDirective) Expand(_ context.Context, op registry.Operation, snapshot registry.State) (registry.DirectiveResult, error) {
+	resolution := (&registry.DependencyResolution{InputDigest: "sha256:test"}).Canonical()
+	result := registry.DirectiveResult{Applied: true, Resolution: resolution}
+	if op.Kind != registry.EntryDelete {
+		for _, entry := range snapshot {
+			if entry.ID == d.policyID {
+				result.Additional = append(result.Additional, registry.ScopedOperation{
+					Operation: registry.Operation{Kind: registry.EntryDelete, Entry: entry},
+					Scope:     registry.ScopeBaseline,
+				})
+				break
+			}
+		}
+	}
+	return result, nil
+}
+
+func (d baselineOverlayDirective) ReconcileResolutionTransition(
+	_ context.Context,
+	_ registry.State,
+	target registry.State,
+	resolution *registry.DependencyResolution,
+) (registry.DirectiveResult, error) {
+	result := registry.DirectiveResult{Applied: true, Resolution: resolution}
+	for _, entry := range target {
+		if entry.Kind != registry.NamespaceDependency {
+			continue
+		}
+		for _, candidate := range target {
+			if candidate.ID == d.policyID {
+				result.Additional = append(result.Additional, registry.ScopedOperation{
+					Operation: registry.Operation{Kind: registry.EntryDelete, Entry: candidate},
+					Scope:     registry.ScopeBaseline,
+				})
+				return result, nil
+			}
+		}
+	}
+	return result, nil
+}
+
+func TestApplyVersion_ComposesTargetHistoryOverImmutableBaseline(t *testing.T) {
+	ctx := context.Background()
+	history := historymem.New()
+	runner := NewTestRunner()
+	policyID := registry.NewID("deployment.security", "admin")
+	directive := baselineOverlayDirective{policyID: policyID}
+	reg := NewRegistry(
+		history,
+		runner,
+		topology.NewStateBuilder(zap.NewNop(), nil),
+		nil,
+		zap.NewNop(),
+		WithKindDirective(registry.NamespaceDependency, directive),
+	)
+	baseline := registry.State{{ID: policyID, Kind: "security.policy", Data: payload.New(true)}}
+	v0 := version.FromParent(nil, registry.RootVersion)
+	require.NoError(t, reg.LoadState(ctx, baseline, v0))
+
+	overlay := registry.Entry{
+		ID: registry.NewID("workspace.packages", "application"), Kind: registry.NamespaceDependency,
+		Data: payload.New(map[string]any{"component": "acme/application", "version": "v2.0.0"}),
+	}
+	v1, err := reg.Apply(ctx, registry.ChangeSet{{Kind: registry.EntryCreate, Entry: overlay}})
+	require.NoError(t, err)
+	_, err = reg.GetEntry(policyID)
+	require.Error(t, err, "fixture overlay must hide the deployment policy")
+
+	require.NoError(t, reg.ApplyVersion(ctx, v0))
+	_, err = reg.GetEntry(policyID)
+	require.NoError(t, err, "undo must reveal the immutable deployment baseline")
+	_, err = reg.GetEntry(overlay.ID)
+	require.Error(t, err)
+
+	require.NoError(t, reg.ApplyVersion(ctx, v1))
+	_, err = reg.GetEntry(policyID)
+	require.Error(t, err, "redo must reapply the overlay-derived state")
+	_, err = reg.GetEntry(overlay.ID)
+	require.NoError(t, err)
+}
+
 func TestApplyVersion_ForwardWithSquashing(t *testing.T) {
 	ctx := context.Background()
 	logger := zap.NewNop()

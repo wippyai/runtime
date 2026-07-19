@@ -248,17 +248,10 @@ func (h *DependencyHandler) expand(
 		desiredDepEntries = append(desiredDepEntries, dep.entry)
 	}
 
-	var resolved []ResolvedModule
 	desiredRoots := dependencyDefinitions(desiredDeps)
-	if len(desiredRoots) > 0 {
-		var err error
-		resolved, err = h.resolveModules(ctx, desiredRoots, lockedVersions)
-		if err != nil {
-			return regapi.DirectiveResult{}, err
-		}
-		if err = h.completeResolvedModuleIdentities(ctx, resolved); err != nil {
-			return regapi.DirectiveResult{}, err
-		}
+	resolved, err := h.resolveEffectiveModules(ctx, desiredRoots, lockedVersions)
+	if err != nil {
+		return regapi.DirectiveResult{}, err
 	}
 	for _, ref := range refDeps {
 		selected, ok := selectedModuleVersion(resolved, ref.definition.Component)
@@ -559,14 +552,7 @@ func (h *DependencyHandler) refreshResolvedModules(
 			}
 		}
 	}
-	resolved, err := h.resolveModules(ctx, dependencyDefinitions(desiredDeps), lockedVersions)
-	if err != nil {
-		return nil, err
-	}
-	if err = h.completeResolvedModuleIdentities(ctx, resolved); err != nil {
-		return nil, err
-	}
-	return resolved, nil
+	return h.resolveEffectiveModules(ctx, dependencyDefinitions(desiredDeps), lockedVersions)
 }
 
 // ReconcileResolution materializes a previously selected graph. An unchanged
@@ -790,9 +776,9 @@ func (h *DependencyHandler) ReconcileResolution(
 }
 
 // changedDependencyParameterModules returns the modules whose authored root
-// parameters differ across a history transition. A root parameter normally
-// configures its own component. Fully-qualified requirement IDs may address a
-// requirement in another module, so those owners are included as well.
+// parameters differ across a history transition. Dependency parameters belong
+// to the referenced component's declared namespace and cannot mutate another
+// module, including through a fully qualified requirement ID.
 func changedDependencyParameterModules(
 	ctx context.Context,
 	current regapi.State,
@@ -848,22 +834,6 @@ func changedDependencyParameterModules(
 			}
 			if item.definition.Component != "" {
 				changed[item.definition.Component] = struct{}{}
-			}
-			for _, parameter := range item.definition.Parameters {
-				if !strings.Contains(parameter.Name, ":") {
-					continue
-				}
-				requirementID := regapi.ParseID(parameter.Name)
-				for _, state := range []regapi.State{current, target} {
-					for _, entry := range state {
-						if entry.ID != requirementID || entry.Kind != regapi.NamespaceRequirement {
-							continue
-						}
-						if module := entryModule(entry); module != "" {
-							changed[module] = struct{}{}
-						}
-					}
-				}
 			}
 		}
 	}
@@ -1345,6 +1315,50 @@ func (h *DependencyHandler) resolveModules(ctx context.Context, deps []Dependenc
 	return result.Modules, nil
 }
 
+// resolveEffectiveModules returns the complete module selection controlled by
+// the current deployment plus authored registry roots. Lock-selected root
+// modules are implicit deployment inputs: a history overlay may replace one,
+// but removing that overlay must reveal the locked root again rather than
+// uninstalling the deployment itself.
+func (h *DependencyHandler) resolveEffectiveModules(
+	ctx context.Context,
+	deps []DependencyDefinition,
+	lockedVersions map[string]string,
+) ([]ResolvedModule, error) {
+	resolved, err := h.resolveModules(ctx, deps, lockedVersions)
+	if err != nil {
+		return nil, err
+	}
+	selected := make(map[string]struct{}, len(resolved))
+	for _, mod := range resolved {
+		selected[mod.Org+"/"+mod.Name] = struct{}{}
+	}
+	if h.lock != nil {
+		for _, locked := range h.lock.GetModules() {
+			if !locked.Root || locked.Name == "" || locked.Version == "" {
+				continue
+			}
+			if _, exists := selected[locked.Name]; exists {
+				continue
+			}
+			name, parseErr := graph.ParseName(locked.Name)
+			if parseErr != nil {
+				return nil, NewDependencyResolutionError(parseErr)
+			}
+			resolved = append(resolved, ResolvedModule{
+				Org: name.Organization, Name: name.Module,
+				Version: locked.Version, VersionID: locked.Version,
+				Digest: locked.Hash,
+			})
+			selected[locked.Name] = struct{}{}
+		}
+	}
+	if err := h.completeResolvedModuleIdentities(ctx, resolved); err != nil {
+		return nil, err
+	}
+	return resolved, nil
+}
+
 func validateModuleArtifactIdentity(name graph.Name, version, digest string) error {
 	if !validModuleIdentifier(name.Organization) || !validModuleIdentifier(name.Module) {
 		return fmt.Errorf("invalid module name %q: organization and module must be lowercase alphanumeric with hyphens", name.String())
@@ -1755,6 +1769,7 @@ func (h *DependencyHandler) loadModuleEntries(ctx context.Context, modules []Res
 
 	for _, mod := range modules {
 		moduleName := mod.Org + "/" + mod.Name
+		deploymentRootModule := h.lock != nil && h.lock.IsRootModule(moduleName)
 		moduleEntries, staged, err := h.loadEntriesForModulePlan(ctx, transcoder, mod)
 		if err != nil {
 			_ = plan.cleanup()
@@ -1762,6 +1777,15 @@ func (h *DependencyHandler) loadModuleEntries(ctx context.Context, modules []Res
 		}
 		plan.add(staged)
 		for i := range moduleEntries {
+			// Cold boot marks dependency declarations from the selected root
+			// application as deployment roots. Loading that same application
+			// through a live Hub update must produce the identical topology;
+			// otherwise the update silently turns its application dependencies
+			// into transitive module entries and the next update loses their
+			// host bindings.
+			if deploymentRootModule && moduleEntries[i].Kind == regapi.NamespaceDependency {
+				moduleEntries[i].DependencyRoot = true
+			}
 			if keep, ok := preserveHostSnapshotEntry(moduleEntries[i], moduleName, snapshotByID, installedRoots); ok {
 				moduleEntries[i] = keep
 				continue
