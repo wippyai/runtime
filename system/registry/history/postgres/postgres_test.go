@@ -120,6 +120,18 @@ func TestPostgresHistory_SaveAndGet(t *testing.T) {
 	storedResolution, err := hist.GetDependencyResolution(v2)
 	require.NoError(t, err)
 	require.Equal(t, resolution.Digest, storedResolution.Digest)
+	baselineGraph := func(baseline, input string) *registry.DependencyResolution {
+		return (&registry.DependencyResolution{BaselineDigest: baseline, InputDigest: input}).Canonical()
+	}
+	baselineA := baselineGraph("sha256:baseline-a", "postgres-rebased-a")
+	require.NoError(t, hist.CompareAndSetHeadWithDependencyResolution(v2, v2, baselineA), "legacy graphs may bind to a deployment baseline")
+	require.Error(t, hist.CompareAndSetHeadWithDependencyResolution(v2, v2,
+		baselineGraph("sha256:baseline-a", "postgres-rewrite")), "same-baseline graphs remain immutable")
+	baselineB := baselineGraph("sha256:baseline-b", "postgres-rebased-b")
+	require.NoError(t, hist.CompareAndSetHeadWithDependencyResolution(v2, v2, baselineB))
+	storedResolution, err = hist.GetDependencyResolution(v2)
+	require.NoError(t, err)
+	require.Equal(t, baselineB.Digest, storedResolution.Digest)
 	var replayed int
 	require.NoError(t, hist.ReplayChanges(context.Background(), v2, func(registry.ChangeSet) error {
 		replayed++
@@ -224,4 +236,61 @@ func TestPostgresHistory_ConcurrentColdOpenInitializesRootOnce(t *testing.T) {
 	).Scan(&changesets)
 	require.NoError(t, err)
 	assert.Equal(t, 1, changesets)
+}
+
+func TestPostgresHistory_ReferencedResolutionRoundTrips(t *testing.T) {
+	dsn := os.Getenv("WIPPY_POSTGRES_HISTORY_TEST_DSN")
+	if strings.TrimSpace(dsn) == "" {
+		t.Skip("WIPPY_POSTGRES_HISTORY_TEST_DSN is not set")
+	}
+
+	schemaName := fmt.Sprintf("wippy_registry_refs_%d", os.Getpid())
+	db, err := sql.Open("postgres", dsn)
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+	_, err = db.ExecContext(context.Background(), fmt.Sprintf("DROP SCHEMA IF EXISTS %q CASCADE", schemaName))
+	require.NoError(t, err)
+	defer func() {
+		_, _ = db.ExecContext(context.Background(), fmt.Sprintf("DROP SCHEMA IF EXISTS %q CASCADE", schemaName))
+	}()
+
+	hist, err := NewPostgres(dsn, schemaName, zap.NewNop())
+	require.NoError(t, err)
+	defer func() { _ = hist.Close() }()
+
+	base := (&registry.DependencyResolution{
+		InputDigest: "roots",
+		Roots: []registry.DependencyRoot{{
+			ID: "app.deps:crm", Component: "acme/crm", Version: ">=1.0.0",
+		}},
+		Modules: []registry.ResolvedModule{{
+			Name: "acme/crm", Version: "v1.6.0", VersionID: "crm-16", Digest: "sha256:crm",
+		}},
+	}).Canonical()
+	referenced := (&registry.DependencyResolution{
+		InputDigest: base.InputDigest,
+		Roots:       append([]registry.DependencyRoot(nil), base.Roots...),
+		References: []registry.DependencyRoot{{
+			ID: "acme.pkg:__dependency.acme.crm", Component: "acme/crm", Version: ">=1.0.0",
+		}},
+		Modules: append([]registry.ResolvedModule(nil), base.Modules...),
+	}).Canonical()
+	require.NotEqual(t, base.Digest, referenced.Digest)
+
+	v0, err := hist.Head()
+	require.NoError(t, err)
+	v1 := version.FromParent(v0, 1)
+	require.NoError(t, hist.SaveWithDependencyResolution(v1, registry.ChangeSet{{
+		Kind: registry.EntryCreate, Entry: registry.Entry{ID: registry.NewID("app.deps", "crm")},
+	}}, base, true))
+	v2 := version.FromParent(v1, 2)
+	require.NoError(t, hist.SaveWithDependencyResolution(v2, registry.ChangeSet{{
+		Kind: registry.EntryCreate, Entry: registry.Entry{ID: registry.NewID("acme.pkg", "__dependency.acme.crm")},
+	}}, referenced, true))
+
+	got, err := hist.GetDependencyResolution(v2)
+	require.NoError(t, err)
+	require.Equal(t, referenced, got)
+	require.Len(t, got.References, 1)
+	require.True(t, got.Valid())
 }

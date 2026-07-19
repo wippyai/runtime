@@ -421,6 +421,35 @@ func TestHistory_ResolutionReferenceIsImmutableAndCorruptionIsNotLegacy(t *testi
 	require.False(t, errors.Is(err, registry.ErrDependencyResolutionNotFound), "a dangling graph reference is corruption, not a legacy version")
 }
 
+func TestHistory_AtomicResolutionHeadCASAllowsOnlyDeploymentBaselineRebase(t *testing.T) {
+	hist, err := NewSQLite(filepath.Join(t.TempDir(), "history.db"), zap.NewNop())
+	require.NoError(t, err)
+	defer func() { _ = hist.Close() }()
+
+	v0, err := hist.Head()
+	require.NoError(t, err)
+	v1 := version.FromParent(v0, 1)
+	resolution := func(baseline, selected string) *registry.DependencyResolution {
+		return (&registry.DependencyResolution{
+			BaselineDigest: baseline,
+			InputDigest:    "roots",
+			Modules: []registry.ResolvedModule{{
+				Name: "acme/app", Version: selected, Digest: "sha256:" + selected,
+			}},
+		}).Canonical()
+	}
+	first := resolution("sha256:baseline-a", "v1")
+	sameBaseline := resolution("sha256:baseline-a", "v2")
+	newBaseline := resolution("sha256:baseline-b", "v2")
+	require.NoError(t, hist.SaveWithDependencyResolution(v1, nil, first, true))
+	require.Error(t, hist.CompareAndSetHeadWithDependencyResolution(v1, v1, sameBaseline))
+	require.NoError(t, hist.CompareAndSetHeadWithDependencyResolution(v1, v1, newBaseline))
+	stored, err := hist.GetDependencyResolution(v1)
+	require.NoError(t, err)
+	require.Equal(t, newBaseline.Digest, stored.Digest)
+	require.Error(t, hist.CheckpointDependencyResolution(v1, first), "non-CAS checkpoints remain immutable")
+}
+
 func TestHistory_Persistence(t *testing.T) {
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "test.db")
@@ -774,4 +803,64 @@ func TestSQLitePersistence_OriginalEntry(t *testing.T) {
 		}
 	}
 	assert.True(t, found, "Entry should exist after rollback")
+}
+
+func TestHistory_ReferencedResolutionRoundTripsAndStaysContentDistinct(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "history.db")
+	hist, err := NewSQLite(dbPath, zap.NewNop())
+	require.NoError(t, err)
+	defer func() { _ = hist.Close() }()
+
+	base := (&registry.DependencyResolution{
+		InputDigest: "roots",
+		Roots: []registry.DependencyRoot{{
+			ID: "app.deps:crm", Component: "acme/crm", Version: ">=1.0.0",
+		}},
+		Modules: []registry.ResolvedModule{{
+			Name: "acme/crm", Version: "v1.6.0", VersionID: "crm-16", Digest: "sha256:crm",
+		}},
+	}).Canonical()
+	referenced := (&registry.DependencyResolution{
+		InputDigest: base.InputDigest,
+		Roots:       append([]registry.DependencyRoot(nil), base.Roots...),
+		References: []registry.DependencyRoot{{
+			ID: "acme.pkg:__dependency.acme.crm", Component: "acme/crm", Version: ">=1.0.0",
+		}},
+		Modules: append([]registry.ResolvedModule(nil), base.Modules...),
+	}).Canonical()
+	require.NotEqual(t, base.Digest, referenced.Digest,
+		"a referenced graph must never collide with its reference-free shape in the content-addressed store")
+
+	v0, err := hist.Head()
+	require.NoError(t, err)
+	v1 := version.FromParent(v0, 1)
+	require.NoError(t, hist.SaveWithDependencyResolution(v1, registry.ChangeSet{{
+		Kind: registry.EntryCreate, Entry: registry.Entry{ID: registry.NewID("app.deps", "crm")},
+	}}, base, true))
+	v2 := version.FromParent(v1, 2)
+	require.NoError(t, hist.SaveWithDependencyResolution(v2, registry.ChangeSet{{
+		Kind: registry.EntryCreate, Entry: registry.Entry{ID: registry.NewID("acme.pkg", "__dependency.acme.crm")},
+	}}, referenced, true))
+
+	got, err := hist.GetDependencyResolution(v2)
+	require.NoError(t, err)
+	require.Equal(t, referenced, got)
+	require.Len(t, got.References, 1)
+	require.True(t, got.Valid())
+
+	// Both graph payloads exist side by side.
+	var graphs int
+	require.NoError(t, hist.db.QueryRowContext(context.Background(), "SELECT COUNT(*) FROM resolution_graphs").Scan(&graphs))
+	require.Equal(t, 2, graphs)
+
+	// Close and reopen: the referenced graph replays intact from disk.
+	require.NoError(t, hist.Close())
+	reopened, err := NewSQLite(dbPath, zap.NewNop())
+	require.NoError(t, err)
+	defer func() { _ = reopened.Close() }()
+	restored, err := reopened.GetDependencyResolution(v2)
+	require.NoError(t, err)
+	require.Equal(t, referenced.Digest, restored.Digest)
+	require.Len(t, restored.References, 1)
+	require.True(t, restored.Valid())
 }

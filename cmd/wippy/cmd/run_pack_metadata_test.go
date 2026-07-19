@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/boot/deps/config"
@@ -204,6 +205,76 @@ override:
 		effective.GetString("override.app.env:defaults:values.PUBLIC_API_URL", ""),
 	)
 	require.Equal(t, "", effective.GetString("logger.level", ""))
+}
+
+func TestRawPackRuntimeProfilesSurvivePackRoundTrip(t *testing.T) {
+	projectDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(projectDir, "wippy.yaml"), []byte(`
+organization: acme
+module: app
+type: application
+publish:
+  runtime:
+    sections:
+      - registry
+`), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(projectDir, ".wippy.yaml"), []byte(`
+version: "1.0"
+registry:
+  enable_history: true
+  history_type: sqlite
+vars:
+  postgres_host: localhost
+  publisher_secret: "${env:PUBLISHER_SECRET}"
+profiles:
+  postgres:
+    vars:
+      postgres_host: db.internal
+    registry:
+      history_type: postgres
+      postgres_host: "${postgres_host}"
+workspace:
+  replacements:
+    acme/database: ../database
+`), 0o600))
+
+	metadata := attrs.Bag{}
+	require.NoError(t, addPackRuntimeMetadata(metadata, projectDir))
+
+	packPath := filepath.Join(t.TempDir(), "application.wapp")
+	require.NoError(t, writeTestPack(packPath, wapp.Metadata(metadata)))
+	packDefaults, err := loadPackRuntimeDefaults(packPath, zap.NewNop())
+	require.NoError(t, err)
+	require.NotNil(t, packDefaults)
+
+	destinationDir := t.TempDir()
+	previousDir, err := os.Getwd()
+	require.NoError(t, err)
+	require.NoError(t, os.Chdir(destinationDir))
+	t.Cleanup(func() { require.NoError(t, os.Chdir(previousDir)) })
+	setTestConfigFiles(t)
+
+	previousProfiler := profiler
+	profiler = false
+	t.Cleanup(func() { profiler = previousProfiler })
+
+	cmd := &cobra.Command{}
+	cmd.Flags().StringArray("profile", nil, "")
+	require.NoError(t, cmd.Flags().Set("profile", "postgres"))
+
+	effective, err := loadRuntimeConfigWithDefaults(cmd, zap.NewNop(), packDefaults)
+	require.NoError(t, err)
+	require.True(t, effective.GetBool("registry.enable_history", false))
+	require.Equal(t, "postgres", effective.GetString("registry.history_type", ""))
+	require.Equal(t, "db.internal", effective.GetString("registry.postgres_host", ""))
+	require.Equal(t, "", effective.GetString("vars.publisher_secret", ""))
+	require.Empty(t, effective.Sub("workspace").Keys())
+}
+
+func TestAddPackRuntimeMetadataWithoutManifestIsNoop(t *testing.T) {
+	metadata := attrs.Bag{"description": "snapshot"}
+	require.NoError(t, addPackRuntimeMetadata(metadata, t.TempDir()))
+	require.Equal(t, attrs.Bag{"description": "snapshot"}, metadata)
 }
 
 func writeTestPack(path string, metadata wapp.Metadata) error {

@@ -6,6 +6,7 @@ import (
 	"context"
 	"reflect"
 	"sort"
+	"strings"
 
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/internal/version"
@@ -390,8 +391,54 @@ func (b *StateBuilder) ReverseChangeset(changeset registry.ChangeSet) (registry.
 	return reversed, nil
 }
 
+// ValidateUniqueEntryIDs rejects a state carrying two entries under one
+// canonical ID; side names the input in the error (e.g. "baseline"). Raw
+// externally supplied states must pass through this before map construction,
+// which keeps whichever duplicate came last.
+func ValidateUniqueEntryIDs(side string, state registry.State) error {
+	if dup, ok := firstDuplicateID(state); ok {
+		return NewDuplicateEntryIDError(side, dup.NS, dup.Name)
+	}
+	return nil
+}
+
+// firstDuplicateID reports the first entry ID that occurs more than once in a
+// state, by canonical identity.
+func firstDuplicateID(state registry.State) (registry.ID, bool) {
+	seen := make(map[registry.ID]struct{}, len(state))
+	for _, entry := range state {
+		ns, name := entry.ID.NS, entry.ID.Name
+		if strings.TrimSpace(ns) == "" && strings.Contains(name, ":") {
+			// Hydrated spelling {Name: "ns:name"} names the same entry as the
+			// split form; normalize so the duplicate is caught here, not as an
+			// invalid-resolution error far from the cause.
+			parsed := registry.ParseID(name)
+			if parsed.NS != "" || parsed.Name != "" {
+				ns, name = parsed.NS, parsed.Name
+			}
+		}
+		id := registry.NewID(strings.TrimSpace(ns), strings.TrimSpace(name))
+		if _, ok := seen[id]; ok {
+			return id, true
+		}
+		seen[id] = struct{}{}
+	}
+	return registry.ID{}, false
+}
+
 // BuildDelta calculates the changes required to transition from one state to another.
 func (b *StateBuilder) BuildDelta(from, to registry.State) (registry.ChangeSet, error) {
+	// A state carrying two entries under one ID has no single target shape: the
+	// delta would emit duplicate operations that fail mid-apply with a rollback
+	// far from the real cause (typically the same source loaded through two
+	// paths). Reject it here, naming the entry.
+	if dup, ok := firstDuplicateID(to); ok {
+		return nil, NewDuplicateEntryIDError("target", dup.NS, dup.Name)
+	}
+	if dup, ok := firstDuplicateID(from); ok {
+		return nil, NewDuplicateEntryIDError("source", dup.NS, dup.Name)
+	}
+
 	fromState := NewStateMap(from)
 	toState := NewStateMap(to)
 

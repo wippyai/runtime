@@ -8,6 +8,9 @@ import (
 	"encoding/json"
 	"errors"
 	"sort"
+	"strings"
+
+	"github.com/wippyai/runtime/api/semver"
 )
 
 // ErrDependencyResolutionNotFound means a history version predates durable
@@ -45,10 +48,34 @@ type DependencyRoot struct {
 // InputDigest identifies the declared root set; Digest identifies the complete
 // immutable selection independently of mutable download URLs.
 type DependencyResolution struct {
-	Digest      string           `json:"digest"`
-	InputDigest string           `json:"input_digest"`
-	Roots       []DependencyRoot `json:"roots"`
-	Modules     []ResolvedModule `json:"modules"`
+	Digest         string           `json:"digest"`
+	InputDigest    string           `json:"input_digest"`
+	BaselineDigest string           `json:"baseline_digest,omitempty"`
+	Roots          []DependencyRoot `json:"roots"`
+	// References are root-shaped declarations folded into an existing root for
+	// the same component: a workspace package declaring a dependency the
+	// deployment already installs. They are recorded facts of the selection —
+	// their constraints joined the solve — but they do not control install or
+	// uninstall and stay outside InputDigest, so the declared root-set identity
+	// is unchanged; a reference-free Digest stays byte-identical to prior
+	// releases while referenced graphs are content-distinct.
+	References []DependencyRoot `json:"references,omitempty"`
+	Modules    []ResolvedModule `json:"modules"`
+}
+
+// CanRebaseDependencyResolution reports whether next may replace the graph
+// checkpoint for the same declarative registry version. A registry version is
+// immutable within one deployment baseline, but its effective graph must be
+// recomputed when that independently versioned baseline changes. An unbound
+// legacy graph may be upgraded once to a baseline-bound graph.
+func CanRebaseDependencyResolution(existing, next *DependencyResolution) bool {
+	if existing == nil || next == nil || !existing.Valid() || !next.Valid() {
+		return false
+	}
+	if next.BaselineDigest == "" || existing.Digest == next.Digest {
+		return false
+	}
+	return existing.BaselineDigest == "" || existing.BaselineDigest != next.BaselineDigest
 }
 
 // Canonical returns a detached, deterministically ordered resolution and
@@ -58,19 +85,17 @@ func (r *DependencyResolution) Canonical() *DependencyResolution {
 		return nil
 	}
 	out := &DependencyResolution{
-		InputDigest: r.InputDigest,
-		Roots:       append([]DependencyRoot(nil), r.Roots...),
-		Modules:     append([]ResolvedModule(nil), r.Modules...),
+		InputDigest:    r.InputDigest,
+		BaselineDigest: r.BaselineDigest,
+		Roots:          append([]DependencyRoot(nil), r.Roots...),
+		References:     append([]DependencyRoot(nil), r.References...),
+		Modules:        append([]ResolvedModule(nil), r.Modules...),
 	}
-	sort.Slice(out.Roots, func(i, j int) bool {
-		if out.Roots[i].ID != out.Roots[j].ID {
-			return out.Roots[i].ID < out.Roots[j].ID
-		}
-		if out.Roots[i].Component != out.Roots[j].Component {
-			return out.Roots[i].Component < out.Roots[j].Component
-		}
-		return out.Roots[i].Version < out.Roots[j].Version
-	})
+	if len(out.References) == 0 {
+		out.References = nil
+	}
+	sortDependencyRoots(out.Roots)
+	sortDependencyRoots(out.References)
 	sort.Slice(out.Modules, func(i, j int) bool {
 		left, right := out.Modules[i], out.Modules[j]
 		if left.Name != right.Name {
@@ -94,6 +119,18 @@ func (r *DependencyResolution) Canonical() *DependencyResolution {
 	return out
 }
 
+func sortDependencyRoots(roots []DependencyRoot) {
+	sort.Slice(roots, func(i, j int) bool {
+		if roots[i].ID != roots[j].ID {
+			return roots[i].ID < roots[j].ID
+		}
+		if roots[i].Component != roots[j].Component {
+			return roots[i].Component < roots[j].Component
+		}
+		return roots[i].Version < roots[j].Version
+	})
+}
+
 // Valid reports whether the stored digest matches the canonical resolution.
 func (r *DependencyResolution) Valid() bool {
 	if r == nil || r.Digest == "" {
@@ -114,7 +151,24 @@ func (r *DependencyResolution) Valid() bool {
 		rootIDs[root.ID] = struct{}{}
 		components[root.Component] = struct{}{}
 	}
-	modules := make(map[string]struct{}, len(r.Modules))
+	rootComponents := components
+	referenceIDs := make(map[string]struct{}, len(r.References))
+	for _, reference := range r.References {
+		if reference.ID == "" || reference.Component == "" || reference.Version == "" {
+			return false
+		}
+		if _, duplicate := referenceIDs[reference.ID]; duplicate {
+			return false
+		}
+		if _, collides := rootIDs[reference.ID]; collides {
+			return false
+		}
+		if _, anchored := rootComponents[reference.Component]; !anchored {
+			return false
+		}
+		referenceIDs[reference.ID] = struct{}{}
+	}
+	modules := make(map[string]string, len(r.Modules))
 	for _, module := range r.Modules {
 		if module.Name == "" || module.Version == "" || module.Digest == "" {
 			return false
@@ -122,20 +176,63 @@ func (r *DependencyResolution) Valid() bool {
 		if _, duplicate := modules[module.Name]; duplicate {
 			return false
 		}
-		modules[module.Name] = struct{}{}
+		modules[module.Name] = module.Version
+	}
+	// A graph that selects no module for one of its own declarations, or
+	// selects a version a declaration provably excludes, is not a resolution
+	// of those declarations and must not enter durable stores.
+	for _, root := range r.Roots {
+		selected, present := modules[root.Component]
+		if !present || !constraintPermitsSelection(root.Version, selected) {
+			return false
+		}
+	}
+	for _, reference := range r.References {
+		// Anchoring above guarantees the component has a selected module.
+		if !constraintPermitsSelection(reference.Version, modules[reference.Component]) {
+			return false
+		}
 	}
 	return r.Digest == r.Canonical().Digest
 }
 
+// constraintPermitsSelection rejects only provable mismatches: the check binds
+// when the declared spelling is a semver constraint and the selected version
+// parses under the same grammar. Channel pins ("@beta"), branch selections,
+// and exact literals carry hub semantics the model cannot interpret; the
+// resolver validates those at solve time.
+func constraintPermitsSelection(constraint, selected string) bool {
+	constraint = strings.TrimSpace(constraint)
+	if !semver.IsConstraint(constraint) {
+		return true
+	}
+	parsed, err := semver.ParseConstraint(constraint)
+	if err != nil {
+		return true
+	}
+	version, err := semver.ParseVersion(strings.TrimSpace(selected))
+	if err != nil {
+		return true
+	}
+	return parsed.Match(version)
+}
+
 func (r *DependencyResolution) computeDigest() string {
 	payload := struct {
-		InputDigest string           `json:"input_digest"`
-		Roots       []DependencyRoot `json:"roots"`
-		Modules     []ResolvedModule `json:"modules"`
+		InputDigest    string           `json:"input_digest"`
+		BaselineDigest string           `json:"baseline_digest,omitempty"`
+		Roots          []DependencyRoot `json:"roots"`
+		// omitempty keeps a reference-free digest byte-identical to prior
+		// releases while distinct reference sets produce distinct graphs in
+		// content-addressed stores.
+		References []DependencyRoot `json:"references,omitempty"`
+		Modules    []ResolvedModule `json:"modules"`
 	}{
-		InputDigest: r.InputDigest,
-		Roots:       r.Roots,
-		Modules:     r.Modules,
+		InputDigest:    r.InputDigest,
+		BaselineDigest: r.BaselineDigest,
+		Roots:          r.Roots,
+		References:     r.References,
+		Modules:        r.Modules,
 	}
 	data, _ := json.Marshal(payload) // Struct contains only JSON-safe primitives.
 	sum := sha256.Sum256(data)
@@ -157,5 +254,9 @@ type ResolutionHistory interface {
 // unmodified, so a losing rollback cannot freeze a graph that was never live.
 type ResolutionHeadCASHistory interface {
 	ResolutionHistory
+	// CompareAndSetHeadWithDependencyResolution atomically moves the history
+	// head and checkpoints the effective graph. It may rebind an existing
+	// version only when CanRebaseDependencyResolution permits a deployment
+	// baseline transition.
 	CompareAndSetHeadWithDependencyResolution(expected, target Version, resolution *DependencyResolution) error
 }

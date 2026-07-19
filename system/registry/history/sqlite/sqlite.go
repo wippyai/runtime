@@ -748,7 +748,7 @@ func (h *History) CompareAndSetHeadWithDependencyResolution(expected, target reg
 	if err = ensureResolutionGraph(ctx, tx, canonical.Digest); err != nil {
 		return NewDecodeChangesetError(err)
 	}
-	if err = setVersionResolution(ctx, tx, target.ID(), canonical.Digest); err != nil {
+	if err = rebindVersionResolution(ctx, tx, target.ID(), canonical); err != nil {
 		return NewInsertChangesetError(err)
 	}
 	result, err := tx.ExecContext(ctx, `UPDATE metadata SET value = ?
@@ -817,6 +817,49 @@ func setVersionResolution(ctx context.Context, tx *sql.Tx, versionID uint, diges
 	}
 	if stored != digest {
 		return fmt.Errorf("version %d already references dependency resolution %s, refusing %s", versionID, stored, digest)
+	}
+	return nil
+}
+
+func rebindVersionResolution(ctx context.Context, tx *sql.Tx, versionID uint, next *registry.DependencyResolution) error {
+	result, err := tx.ExecContext(ctx, "INSERT OR IGNORE INTO version_resolutions (version_id, resolution_digest) VALUES (?, ?)", versionID, next.Digest)
+	if err != nil {
+		return err
+	}
+	inserted, err := result.RowsAffected()
+	if err != nil || inserted == 1 {
+		return err
+	}
+	var storedDigest string
+	if err := tx.QueryRowContext(ctx, "SELECT resolution_digest FROM version_resolutions WHERE version_id = ?", versionID).Scan(&storedDigest); err != nil {
+		return err
+	}
+	if storedDigest == next.Digest {
+		return nil
+	}
+	var data []byte
+	if err := tx.QueryRowContext(ctx, "SELECT data FROM resolution_graphs WHERE digest = ?", storedDigest).Scan(&data); err != nil {
+		return err
+	}
+	existing, err := decodeResolutionGraph(storedDigest, data)
+	if err != nil {
+		return err
+	}
+	if !registry.CanRebaseDependencyResolution(existing, next) {
+		return fmt.Errorf("version %d already references dependency resolution %s for baseline %s, refusing %s for baseline %s",
+			versionID, storedDigest, existing.BaselineDigest, next.Digest, next.BaselineDigest)
+	}
+	updated, err := tx.ExecContext(ctx, "UPDATE version_resolutions SET resolution_digest = ? WHERE version_id = ? AND resolution_digest = ?",
+		next.Digest, versionID, storedDigest)
+	if err != nil {
+		return err
+	}
+	rows, err := updated.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows != 1 {
+		return fmt.Errorf("version %d dependency resolution changed concurrently", versionID)
 	}
 	return nil
 }
