@@ -482,7 +482,8 @@ func TestReconcile_ParameterDisagreementBootsThenConflictsOnNextOperation(t *tes
 	root := paramRoot("app.deps:a", "acme/a", "v1.0.0", map[string]any{"db": "app:db"})
 	disagreeing := paramRoot("acme.pkg:__dependency.acme.a", "acme/a", ">=1.0.0", map[string]any{"db": "other:db"})
 	moduleEntry := hardeningModuleEntry("acme.a:entry", "acme/a", "v1.0.0")
-	state := regapi.State{root, disagreeing, moduleEntry}
+	moduleDefinition := hardeningModuleDefinition("acme.a", "acme/a", "v1.0.0")
+	state := regapi.State{root, disagreeing, moduleDefinition, moduleEntry}
 
 	transcoder := payload.GetTranscoder(ctx)
 	baseline, err := handler.deploymentBaselineDigest(ctx, state, transcoder)
