@@ -327,7 +327,7 @@ func downloadHubModule(ctx context.Context, ref string, registryURL string) ([]s
 
 		isRoot := m.Org == org && m.Name == module
 		if err := updateLockFile(moduleName, m.Version, m.Digest, isRoot); err != nil {
-			fmt.Printf("%s Warning: could not update lock file for %s: %v\n", dimStyle.Render(""), moduleName, err)
+			return nil, err
 		}
 
 		// A Hub reference is a deployment bootstrap, not a disposable cache run.

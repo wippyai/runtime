@@ -44,6 +44,17 @@ func TestLoadLockRootRuntimeDefaults(t *testing.T) {
 	require.True(t, resolved.GetBool("registry.enabled", false))
 }
 
+func TestLoadLockRootRuntimeDefaultsRejectsMissingSelectedPack(t *testing.T) {
+	lockPath := filepath.Join(t.TempDir(), defaultLockFile)
+	lockObj, err := lock.New(lockPath)
+	require.NoError(t, err)
+	lockObj.SetModule(lock.Module{Name: "acme/app", Version: "1.2.3", Root: true})
+	require.NoError(t, lockObj.Write())
+
+	_, err = loadLockRootRuntimeDefaults(lockPath, zap.NewNop())
+	require.ErrorContains(t, err, "selected deployment root acme/app is not installed")
+}
+
 func TestMaterializeHubRunPackInstallsExactLockArtifact(t *testing.T) {
 	projectDir := t.TempDir()
 	previousDir, err := os.Getwd()
