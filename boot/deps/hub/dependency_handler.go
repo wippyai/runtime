@@ -1755,6 +1755,7 @@ func (h *DependencyHandler) loadModuleEntries(ctx context.Context, modules []Res
 
 	for _, mod := range modules {
 		moduleName := mod.Org + "/" + mod.Name
+		deploymentRootModule := h.lock != nil && h.lock.IsRootModule(moduleName)
 		moduleEntries, staged, err := h.loadEntriesForModulePlan(ctx, transcoder, mod)
 		if err != nil {
 			_ = plan.cleanup()
@@ -1762,6 +1763,15 @@ func (h *DependencyHandler) loadModuleEntries(ctx context.Context, modules []Res
 		}
 		plan.add(staged)
 		for i := range moduleEntries {
+			// Cold boot marks dependency declarations from the selected root
+			// application as deployment roots. Loading that same application
+			// through a live Hub update must produce the identical topology;
+			// otherwise the update silently turns its application dependencies
+			// into transitive module entries and the next update loses their
+			// host bindings.
+			if deploymentRootModule && moduleEntries[i].Kind == regapi.NamespaceDependency {
+				moduleEntries[i].DependencyRoot = true
+			}
 			if keep, ok := preserveHostSnapshotEntry(moduleEntries[i], moduleName, snapshotByID, installedRoots); ok {
 				moduleEntries[i] = keep
 				continue
