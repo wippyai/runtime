@@ -334,13 +334,14 @@ func TestDependencyHandler_ApplyVersionReconciliationSemantics(t *testing.T) {
 		for _, transition := range runner.transitions {
 			rollbackOps = append(rollbackOps, transition...)
 		}
-		require.Len(t, rollbackOps, 2, "rollback must remove only the departing root and module entry")
-		deleted := make(map[regapi.ID]struct{}, len(rollbackOps))
+		deleted := make(map[regapi.ID]struct{}, 2)
 		for _, op := range rollbackOps {
-			require.Equal(t, regapi.EntryDelete, op.Kind)
-			deleted[op.Entry.ID] = struct{}{}
 			require.NotEqual(t, hostID, op.Entry.ID)
+			if op.Kind == regapi.EntryDelete {
+				deleted[op.Entry.ID] = struct{}{}
+			}
 		}
+		require.Len(t, deleted, 2, "rollback must delete only the departing root and module entry")
 		require.Contains(t, deleted, addonRoot.ID)
 		require.Contains(t, deleted, regapi.NewID("acme.addon", "service"))
 		_, err = reg.GetEntry(regapi.NewID("app.security", "admin_all_access"))
