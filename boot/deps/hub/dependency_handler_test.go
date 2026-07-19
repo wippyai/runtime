@@ -3375,10 +3375,10 @@ func buildWappBytes(t *testing.T, entries []wapp.Entry) []byte {
 func completeArtifactFixture(entries []wapp.Entry) []wapp.Entry {
 	hasRequirement := false
 	for _, entry := range entries {
-		if entry.Kind == string(regapi.NamespaceDefinition) {
+		if entry.Kind == regapi.NamespaceDefinition {
 			return entries
 		}
-		if entry.Kind == string(regapi.NamespaceRequirement) {
+		if entry.Kind == regapi.NamespaceRequirement {
 			hasRequirement = true
 		}
 	}
@@ -3388,7 +3388,7 @@ func completeArtifactFixture(entries []wapp.Entry) []wapp.Entry {
 	completed := append([]wapp.Entry(nil), entries...)
 	completed = append(completed, wapp.Entry{
 		ID:   wapp.NewID(entries[0].ID.Namespace, "definition"),
-		Kind: string(regapi.NamespaceDefinition),
+		Kind: regapi.NamespaceDefinition,
 	})
 	return completed
 }

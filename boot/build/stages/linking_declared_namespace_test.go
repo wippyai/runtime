@@ -85,9 +85,10 @@ func TestLinkAllowsUnloadedDependencyDuringSourceBuild(t *testing.T) {
 
 func TestLinkRejectsConflictingModuleDefinitions(t *testing.T) {
 	tests := []struct {
-		name    string
+		name string
+		want string
+
 		entries []registry.Entry
-		want    string
 	}{
 		{
 			name: "one module declares two roots",
