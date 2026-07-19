@@ -468,76 +468,27 @@ func TestExecutor_Stderr(t *testing.T) {
 	process, err := nativeExecutor.NewProcess(command, exec.ProcessOptions{})
 	assert.NoError(t, err)
 
-	// Start reading BEFORE starting the process to avoid race conditions
-	sb := new(strings.Builder)
-	readDone := make(chan struct{})
-	processDone := make(chan struct{})
-	readStarted := make(chan struct{})
-
+	// StderrPipe requires the reader to finish before Wait closes the pipe.
+	// Waiting concurrently can discard buffered output when the child exits
+	// quickly, which made this test race the implementation it was testing.
+	assert.NoError(t, process.Start())
+	var output []byte
+	readDone := make(chan error, 1)
 	go func() {
-		defer close(readDone)
-		close(readStarted)
-		timeout := time.After(3 * time.Second)
-
-		for {
-			select {
-			case <-timeout:
-				t.Logf("Timeout reached, stderr output: %q", sb.String())
-				return
-			default:
-				buf := make([]byte, 1024)
-				n, err := process.Stderr().Read(buf)
-				if err != nil {
-					if errors.Is(err, io.EOF) || errors.Is(err, io.ErrClosedPipe) || errors.Is(err, fs.ErrClosed) {
-						return
-					}
-					t.Errorf("Error reading stderr: %v", err)
-					return
-				}
-				if n > 0 {
-					sb.Write(buf[:n])
-				}
-			}
-		}
+		var readErr error
+		output, readErr = io.ReadAll(process.Stderr())
+		readDone <- readErr
 	}()
 
-	// Wait for reading goroutine to start
-	<-readStarted
-
-	// Now start the process
-	err = process.Start()
-	assert.NoError(t, err)
-
-	// Wait for the process to complete in a separate goroutine
-	go func() {
-		defer close(processDone)
-		_ = process.Wait()
-	}()
-
-	// Wait for both the process to complete and reading to finish
+	var readErr error
 	select {
-	case <-processDone:
-		// Process completed, give a little time for reading to finish
-		select {
-		case <-readDone:
-			// Reading completed
-		case <-time.After(1 * time.Second):
-			// Reading timed out, but process is done
-		}
-	case <-readDone:
-		// Reading completed, give a little time for process to finish
-		select {
-		case <-processDone:
-			// Process completed
-		case <-time.After(1 * time.Second):
-			// Process timed out, but reading is done
-		}
+	case readErr = <-readDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out draining stderr")
 	}
-
-	output := sb.String()
-	if !strings.Contains(output, "error message") {
-		t.Errorf("Expected stderr to contain 'error message', got: %q", output)
-	}
+	assert.NoError(t, readErr)
+	assert.NoError(t, process.Wait())
+	assert.Contains(t, string(output), "error message")
 }
 
 func TestExecutor_ReadWithInvalidCommand(t *testing.T) {
