@@ -248,17 +248,10 @@ func (h *DependencyHandler) expand(
 		desiredDepEntries = append(desiredDepEntries, dep.entry)
 	}
 
-	var resolved []ResolvedModule
 	desiredRoots := dependencyDefinitions(desiredDeps)
-	if len(desiredRoots) > 0 {
-		var err error
-		resolved, err = h.resolveModules(ctx, desiredRoots, lockedVersions)
-		if err != nil {
-			return regapi.DirectiveResult{}, err
-		}
-		if err = h.completeResolvedModuleIdentities(ctx, resolved); err != nil {
-			return regapi.DirectiveResult{}, err
-		}
+	resolved, err := h.resolveEffectiveModules(ctx, desiredRoots, lockedVersions)
+	if err != nil {
+		return regapi.DirectiveResult{}, err
 	}
 	for _, ref := range refDeps {
 		selected, ok := selectedModuleVersion(resolved, ref.definition.Component)
@@ -559,14 +552,7 @@ func (h *DependencyHandler) refreshResolvedModules(
 			}
 		}
 	}
-	resolved, err := h.resolveModules(ctx, dependencyDefinitions(desiredDeps), lockedVersions)
-	if err != nil {
-		return nil, err
-	}
-	if err = h.completeResolvedModuleIdentities(ctx, resolved); err != nil {
-		return nil, err
-	}
-	return resolved, nil
+	return h.resolveEffectiveModules(ctx, dependencyDefinitions(desiredDeps), lockedVersions)
 }
 
 // ReconcileResolution materializes a previously selected graph. An unchanged
@@ -1343,6 +1329,50 @@ func (h *DependencyHandler) resolveModules(ctx context.Context, deps []Dependenc
 	}
 
 	return result.Modules, nil
+}
+
+// resolveEffectiveModules returns the complete module selection controlled by
+// the current deployment plus authored registry roots. Lock-selected root
+// modules are implicit deployment inputs: a history overlay may replace one,
+// but removing that overlay must reveal the locked root again rather than
+// uninstalling the deployment itself.
+func (h *DependencyHandler) resolveEffectiveModules(
+	ctx context.Context,
+	deps []DependencyDefinition,
+	lockedVersions map[string]string,
+) ([]ResolvedModule, error) {
+	resolved, err := h.resolveModules(ctx, deps, lockedVersions)
+	if err != nil {
+		return nil, err
+	}
+	selected := make(map[string]struct{}, len(resolved))
+	for _, mod := range resolved {
+		selected[mod.Org+"/"+mod.Name] = struct{}{}
+	}
+	if h.lock != nil {
+		for _, locked := range h.lock.GetModules() {
+			if !locked.Root || locked.Name == "" || locked.Version == "" {
+				continue
+			}
+			if _, exists := selected[locked.Name]; exists {
+				continue
+			}
+			name, parseErr := graph.ParseName(locked.Name)
+			if parseErr != nil {
+				return nil, NewDependencyResolutionError(parseErr)
+			}
+			resolved = append(resolved, ResolvedModule{
+				Org: name.Organization, Name: name.Module,
+				Version: locked.Version, VersionID: locked.Version,
+				Digest: locked.Hash,
+			})
+			selected[locked.Name] = struct{}{}
+		}
+	}
+	if err := h.completeResolvedModuleIdentities(ctx, resolved); err != nil {
+		return nil, err
+	}
+	return resolved, nil
 }
 
 func validateModuleArtifactIdentity(name graph.Name, version, digest string) error {
