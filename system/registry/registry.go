@@ -427,7 +427,10 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 		stateMap := topology.NewStateMap(targetState)
 		declarations := topology.StateMapToSlice(stateMap)
 		for _, entry := range declarations {
-			if targetResolution != nil || len(r.directivesByKind[entry.Kind]) == 0 {
+			if targetResolution != nil && entry.Kind == registry.NamespaceDependency {
+				continue // One dependency expansion resolves the complete root graph.
+			}
+			if len(r.directivesByKind[entry.Kind]) == 0 {
 				continue
 			}
 			intermediate := topology.StateMapToSlice(stateMap)
