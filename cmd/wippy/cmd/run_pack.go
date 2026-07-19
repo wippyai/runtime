@@ -5,6 +5,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -19,6 +20,7 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	bootpkg "github.com/wippyai/runtime/boot"
 	bootauth "github.com/wippyai/runtime/boot/deps/auth"
+	"github.com/wippyai/runtime/boot/deps/graph"
 	"github.com/wippyai/runtime/boot/deps/hub"
 	"github.com/wippyai/runtime/boot/deps/lock"
 	"github.com/wippyai/runtime/cmd/internal/banner"
@@ -325,7 +327,15 @@ func downloadHubModule(ctx context.Context, ref string, registryURL string) ([]s
 
 		isRoot := m.Org == org && m.Name == module
 		if err := updateLockFile(moduleName, m.Version, m.Digest, isRoot); err != nil {
-			fmt.Printf("%s Warning: could not update lock file for %s: %v\n", dimStyle.Render(""), moduleName, err)
+			return nil, err
+		}
+
+		// A Hub reference is a deployment bootstrap, not a disposable cache run.
+		// Materialize every verified pack under the lock's vendor directory so a
+		// subsequent bare `wippy run` is fully local and uses the exact lock graph.
+		packPath, err = materializeHubRunPack(packPath, moduleName, m.Version, m.Digest, m.SizeBytes)
+		if err != nil {
+			return nil, err
 		}
 
 		if m.Org == org && m.Name == module {
@@ -343,6 +353,70 @@ func downloadHubModule(ctx context.Context, ref string, registryURL string) ([]s
 
 	fmt.Println()
 	return packPaths, nil
+}
+
+func materializeHubRunPack(sourcePath, moduleName, version, digest string, size uint64) (string, error) {
+	lockObj, err := lock.New(defaultLockFile)
+	if err != nil {
+		return "", fmt.Errorf("load deployment lock: %w", err)
+	}
+	name, err := graph.ParseName(moduleName)
+	if err != nil {
+		return "", fmt.Errorf("invalid resolved module %q: %w", moduleName, err)
+	}
+	lockDir := filepath.Dir(lockObj.Path())
+	vendorDir := lock.ResolveLockPath(lockDir, lockObj.GetVendorPath())
+	destination := filepath.Join(vendorDir, lock.WappPath(name, version))
+	if filepath.Clean(sourcePath) == filepath.Clean(destination) {
+		return destination, nil
+	}
+	if err := hub.VerifyDownloadedArtifact(destination, digest, size); err == nil {
+		return destination, nil
+	} else if !os.IsNotExist(err) {
+		return "", fmt.Errorf("verify installed %s@%s: %w", moduleName, version, err)
+	}
+	if err := os.MkdirAll(filepath.Dir(destination), 0o755); err != nil {
+		return "", fmt.Errorf("create deployment vendor directory: %w", err)
+	}
+
+	source, err := os.Open(sourcePath)
+	if err != nil {
+		return "", fmt.Errorf("open cached %s@%s: %w", moduleName, version, err)
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(destination), ".hub-run-pack-*")
+	if err != nil {
+		_ = source.Close()
+		return "", fmt.Errorf("stage %s@%s: %w", moduleName, version, err)
+	}
+	tmpPath := tmp.Name()
+	committed := false
+	defer func() {
+		_ = source.Close()
+		_ = tmp.Close()
+		if !committed {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+	if _, err := io.Copy(tmp, source); err != nil {
+		return "", fmt.Errorf("copy %s@%s into deployment: %w", moduleName, version, err)
+	}
+	if err := source.Close(); err != nil {
+		return "", fmt.Errorf("close cached %s@%s: %w", moduleName, version, err)
+	}
+	if err := tmp.Sync(); err != nil {
+		return "", fmt.Errorf("sync staged %s@%s: %w", moduleName, version, err)
+	}
+	if err := tmp.Close(); err != nil {
+		return "", fmt.Errorf("close staged %s@%s: %w", moduleName, version, err)
+	}
+	if err := hub.VerifyDownloadedArtifact(tmpPath, digest, size); err != nil {
+		return "", fmt.Errorf("verify staged %s@%s: %w", moduleName, version, err)
+	}
+	if err := os.Rename(tmpPath, destination); err != nil {
+		return "", fmt.Errorf("install %s@%s: %w", moduleName, version, err)
+	}
+	committed = true
+	return destination, nil
 }
 
 func ensureHubPackCached(ctx context.Context, client hubPackDownloader, m hub.ResolvedModule, packPath, moduleName, registryURL string) error {

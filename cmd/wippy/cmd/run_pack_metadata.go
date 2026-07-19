@@ -5,15 +5,55 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
 	"github.com/wippyai/runtime/api/boot"
+	"github.com/wippyai/runtime/boot/deps/lock"
 	"github.com/wippyai/wapp"
 	"go.uber.org/zap"
 )
 
 const runtimeMetadataPrefix = "runtime."
+
+// loadLockRootRuntimeDefaults reads published host configuration from the
+// selected deployment root. Hub bootstrap and offline lock restart therefore
+// share one configuration authority; dependency packs never configure the host.
+func loadLockRootRuntimeDefaults(lockPath string, logger *zap.Logger) (boot.Config, error) {
+	lockObj, err := lock.New(lockPath)
+	if err != nil {
+		return nil, fmt.Errorf("load deployment lock %s: %w", lockPath, err)
+	}
+	roots := lockObj.GetRootModules()
+	if len(roots) == 0 {
+		return nil, nil
+	}
+	if len(roots) != 1 {
+		return nil, fmt.Errorf("deployment lock must select exactly one root module")
+	}
+	root := roots[0]
+	for _, loadPath := range lockObj.GetModuleLoadPaths() {
+		if loadPath.Module != root || !loadPath.Root {
+			continue
+		}
+		info, statErr := os.Stat(loadPath.Path)
+		if statErr != nil {
+			if os.IsNotExist(statErr) {
+				return nil, fmt.Errorf("selected deployment root %s is not installed; run wippy install", root)
+			}
+			return nil, fmt.Errorf("inspect selected deployment root %s: %w", root, statErr)
+		}
+		if info.IsDir() {
+			return nil, nil
+		}
+		if !info.Mode().IsRegular() || !strings.EqualFold(filepath.Ext(loadPath.Path), ".wapp") {
+			return nil, fmt.Errorf("selected deployment root %s has unsupported artifact %s", root, loadPath.Path)
+		}
+		return loadPackRuntimeDefaults(loadPath.Path, logger)
+	}
+	return nil, fmt.Errorf("selected deployment root %s is not installed; run wippy install", root)
+}
 
 // loadPackRuntimeDefaults reads runtime defaults from a single pack metadata.
 func loadPackRuntimeDefaults(packPath string, logger *zap.Logger) (boot.Config, error) {
