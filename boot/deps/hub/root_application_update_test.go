@@ -26,7 +26,9 @@ func TestDependencyHandler_RootApplicationUpdatePreservesNestedDependencyRoots(t
 	vendorDir := filepath.Join(tmpDir, "vendor")
 
 	type selection struct{ module, version string }
-	workerRootID := regapi.NewID("app.deps", "worker")
+	// Root provenance is selected by the lock graph, not by an app.deps naming
+	// convention. Use deliberately arbitrary managed namespaces in this proof.
+	workerRootID := regapi.NewID("workspace.modules", "worker")
 	artifacts := map[selection][]byte{
 		{"acme/app", "v2.0.0"}: buildWappBytes(t, []wapp.Entry{
 			{ID: wapp.NewID("acme.app", "service"), Kind: "service"},
@@ -99,7 +101,7 @@ modules:
 	require.NoError(t, err)
 
 	appRoot := regapi.Entry{
-		ID: regapi.NewID("app.deps", "app"), Kind: regapi.NamespaceDependency, DependencyRoot: true,
+		ID: regapi.NewID("deployment.packages", "app"), Kind: regapi.NamespaceDependency, DependencyRoot: true,
 		Data: payload.New(map[string]any{"component": "acme/app", "version": "v1.0.0"}),
 	}
 	workerRoot := markModuleIdentity(regapi.Entry{
