@@ -28,13 +28,13 @@ func TestLoadEntriesFromLockPaths_NilLock(t *testing.T) {
 	}
 }
 
-func TestLoadEntriesFromLockPaths_ResolvesLegacyAliasRequirementByModuleMeta(t *testing.T) {
+func TestLoadEntriesFromLockPaths_ResolvesDeclaredModuleNamespace(t *testing.T) {
 	ctx := setupLoaderContext(t)
 	logger := zap.NewNop()
 	tmpDir := t.TempDir()
 
 	appDir := filepath.Join(tmpDir, "app")
-	moduleDir := filepath.Join(tmpDir, ".wippy", "vendor", "userspace", "users")
+	moduleDir := filepath.Join(tmpDir, ".wippy", "vendor", "example", "accounts")
 
 	if err := os.MkdirAll(appDir, 0o755); err != nil {
 		t.Fatalf("mkdir app dir: %v", err)
@@ -46,9 +46,9 @@ func TestLoadEntriesFromLockPaths_ResolvesLegacyAliasRequirementByModuleMeta(t *
 	appYAML := `version: "1.0"
 namespace: app.deps
 entries:
-  - name: users
+  - name: accounts
     kind: ns.dependency
-    component: userspace/users
+    component: example/accounts
     parameters:
       - name: public_router
         value: app:api.public
@@ -58,8 +58,10 @@ entries:
 	}
 
 	moduleYAML := `version: "1.0"
-namespace: userspace
+namespace: identity.account
 entries:
+  - name: definition
+    kind: ns.definition
   - name: public_router
     kind: ns.requirement
     targets:
@@ -84,7 +86,7 @@ entries:
 		Src:     "app",
 	})
 	lockObj.SetModule(lock.Module{
-		Name:    "userspace/users",
+		Name:    "example/accounts",
 		Version: "v1.0.0",
 	})
 	if err := lockObj.Write(); err != nil {
@@ -100,7 +102,7 @@ entries:
 	module := ""
 	moduleVersion := ""
 	for _, entry := range loaded {
-		if entry.ID.String() != "userspace:login.endpoint" {
+		if entry.ID.String() != "identity.account:login.endpoint" {
 			continue
 		}
 		router = entry.Meta.GetString("router", "")
@@ -111,8 +113,8 @@ entries:
 	if router != "app:api.public" {
 		t.Fatalf("router = %q, want app:api.public", router)
 	}
-	if module != "userspace/users" {
-		t.Fatalf("module = %q, want userspace/users", module)
+	if module != "example/accounts" {
+		t.Fatalf("module = %q, want example/accounts", module)
 	}
 	if moduleVersion != "v1.0.0" {
 		t.Fatalf("module_version = %q, want v1.0.0", moduleVersion)

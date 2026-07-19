@@ -1367,15 +1367,6 @@ func TestDependencyHandler_Expand_RootParametersOverrideModuleOwnedTransitivePar
 				"parameters":[{"name":"wippy.views:api_router","value":"app:api.views"}]
 			}`, payload.JSON),
 		},
-		{
-			ID:   regapi.NewID("app.deps", "kickside_ui"),
-			Kind: regapi.NamespaceDependency,
-			Data: payload.NewPayload(`{
-				"component":"kickside/ui",
-				"version":"v1.0.0",
-				"parameters":[{"name":"api_router","value":"app:api"}]
-			}`, payload.JSON),
-		},
 	}
 	rootDep := regapi.Entry{
 		ID:   regapi.NewID("app.deps", "sessions"),
@@ -1957,23 +1948,23 @@ func TestDependencyHandler_Expand_RejectsNewModuleClaimingExistingHostEntry(t *t
 	assert.Equal(t, "kickside/security", apiErr.Details().GetString("desired_module", ""))
 }
 
-func TestDependencyHandler_Expand_AppliesCanonicalComponentParametersToAliasNamespaceRequirements(t *testing.T) {
+func TestDependencyHandler_Expand_AppliesCanonicalParametersToDeclaredNamespace(t *testing.T) {
 	ctx := newTestContext()
 	tmpDir := t.TempDir()
 	vendorDir := filepath.Join(tmpDir, "vendor")
 
-	writeWapp(t, filepath.Join(vendorDir, "butschster", "telegram-0.3.0.wapp"), []wapp.Entry{
+	writeWapp(t, filepath.Join(vendorDir, "example", "accounts-0.3.0.wapp"), []wapp.Entry{
 		{
-			ID:   wapp.NewID("telegram", "env_storage"),
+			ID:   wapp.NewID("identity.account", "env_storage"),
 			Kind: regapi.NamespaceRequirement,
 			Data: map[string]any{
 				"targets": []any{
-					map[string]any{"entry": "telegram:webhook_url", "path": ".storage"},
+					map[string]any{"entry": "identity.account:callback_url", "path": ".storage"},
 				},
 			},
 		},
 		{
-			ID:   wapp.NewID("telegram", "webhook_url"),
+			ID:   wapp.NewID("identity.account", "callback_url"),
 			Kind: "env.variable",
 			Data: map[string]any{},
 		},
@@ -1995,12 +1986,12 @@ func TestDependencyHandler_Expand_AppliesCanonicalComponentParametersToAliasName
 	require.NoError(t, err)
 
 	rootDep := regapi.Entry{
-		ID:   regapi.NewID("app.deps", "telegram"),
+		ID:   regapi.NewID("app.deps", "accounts"),
 		Kind: regapi.NamespaceDependency,
 		Data: payload.NewPayload(`{
-			"component":"butschster/telegram",
+			"component":"example/accounts",
 			"version":"0.3.0",
-			"parameters":[{"name":"butschster.telegram:env_storage","value":"app.env:file"}]
+			"parameters":[{"name":"identity.account:env_storage","value":"app.env:file"}]
 		}`, payload.JSON),
 	}
 
@@ -2008,17 +1999,17 @@ func TestDependencyHandler_Expand_AppliesCanonicalComponentParametersToAliasName
 	require.NoError(t, err)
 	assert.True(t, result.Applied)
 
-	var webhookURL *regapi.Entry
+	var callbackURL *regapi.Entry
 	for _, scoped := range result.Additional {
 		op := scoped.Operation
-		if op.Kind == regapi.EntryCreate && op.Entry.ID == regapi.NewID("telegram", "webhook_url") {
+		if op.Kind == regapi.EntryCreate && op.Entry.ID == regapi.NewID("identity.account", "callback_url") {
 			entry := op.Entry
-			webhookURL = &entry
+			callbackURL = &entry
 			break
 		}
 	}
-	require.NotNil(t, webhookURL, "expected module env.variable to be created")
-	data, ok := webhookURL.Data.Data().(map[string]any)
+	require.NotNil(t, callbackURL, "expected module env.variable to be created")
+	data, ok := callbackURL.Data.Data().(map[string]any)
 	require.True(t, ok, "created env.variable data must be a map")
 	assert.Equal(t, "app.env:file", data["storage"])
 }
@@ -2032,24 +2023,24 @@ func TestDependencyHandler_Expand_FailsBeforeRegistryApplyWhenRequirementTargetI
 	require.NoError(t, err)
 	lockObj.SetDirectories(lock.Directories{Modules: ".wippy", Src: "."})
 	lockObj.SetOptions(lock.Options{UnpackModules: true})
-	lockObj.SetModule(lock.Module{Name: "butschster/telegram", Version: "0.3.0"})
+	lockObj.SetModule(lock.Module{Name: "example/accounts", Version: "0.3.0"})
 	require.NoError(t, lockObj.Write())
 
-	writeWapp(t, filepath.Join(vendorDir, "butschster", "telegram-0.3.0.wapp"), []wapp.Entry{
+	writeWapp(t, filepath.Join(vendorDir, "example", "accounts-0.3.0.wapp"), []wapp.Entry{
 		{
-			ID:   wapp.NewID("telegram", "webhook_router"),
+			ID:   wapp.NewID("identity.account", "public_router"),
 			Kind: regapi.NamespaceRequirement,
 			Data: map[string]any{
 				"targets": []any{
-					map[string]any{"entry": "telegram.handler:webhook_endpoint", "path": ".meta.router"},
+					map[string]any{"entry": "identity.account.api:login_endpoint", "path": ".meta.router"},
 				},
 			},
 		},
 		{
-			ID:   wapp.NewID("telegram.handler", "webhook.endpoint"),
+			ID:   wapp.NewID("identity.account.api", "login.endpoint"),
 			Kind: "http.endpoint",
-			Meta: map[string]any{"router": "telegram:router"},
-			Data: map[string]any{"method": "POST", "path": "/webhook"},
+			Meta: map[string]any{"router": "identity.account:router"},
+			Data: map[string]any{"method": "POST", "path": "/login"},
 		},
 	})
 
@@ -2070,21 +2061,21 @@ func TestDependencyHandler_Expand_FailsBeforeRegistryApplyWhenRequirementTargetI
 	require.NoError(t, err)
 
 	rootDep := regapi.Entry{
-		ID:   regapi.NewID("app.deps", "telegram"),
+		ID:   regapi.NewID("app.deps", "accounts"),
 		Kind: regapi.NamespaceDependency,
 		Data: payload.NewPayload(`{
-			"component":"butschster/telegram",
+			"component":"example/accounts",
 			"version":"0.3.0",
-			"parameters":[{"name":"butschster.telegram:webhook_router","value":"app:api"}]
+			"parameters":[{"name":"identity.account:public_router","value":"app:api"}]
 		}`, payload.JSON),
 	}
 
 	result, err := handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: rootDep}, nil)
 	require.ErrorContains(t, err, "dependency pipeline failed")
-	require.ErrorContains(t, err, "telegram.handler:webhook_endpoint")
+	require.ErrorContains(t, err, "identity.account.api:login_endpoint")
 	assert.False(t, result.Applied)
 	assert.Empty(t, result.Additional)
-	staging, globErr := filepath.Glob(filepath.Join(vendorDir, "butschster", ".telegram.stage-*"))
+	staging, globErr := filepath.Glob(filepath.Join(vendorDir, "example", ".accounts.stage-*"))
 	require.NoError(t, globErr)
 	assert.Empty(t, staging, "planning errors must remove private extracted trees")
 }
@@ -3371,8 +3362,33 @@ func mustReadFile(t *testing.T, path string) []byte {
 
 func buildWappBytes(t *testing.T, entries []wapp.Entry) []byte {
 	t.Helper()
+	entries = completeArtifactFixture(entries)
 	var buf bytes.Buffer
 	writer := wapp.NewWriter()
 	require.NoError(t, writer.PackEntries(wapp.Metadata{}, entries, &buf))
 	return buf.Bytes()
+}
+
+// completeArtifactFixture gives compact artifact fixtures the same mandatory
+// root definition as a published module. Tests that exercise namespace
+// semantics provide their definition explicitly.
+func completeArtifactFixture(entries []wapp.Entry) []wapp.Entry {
+	hasRequirement := false
+	for _, entry := range entries {
+		if entry.Kind == string(regapi.NamespaceDefinition) {
+			return entries
+		}
+		if entry.Kind == string(regapi.NamespaceRequirement) {
+			hasRequirement = true
+		}
+	}
+	if !hasRequirement || len(entries) == 0 || entries[0].ID.Namespace == "" {
+		return entries
+	}
+	completed := append([]wapp.Entry(nil), entries...)
+	completed = append(completed, wapp.Entry{
+		ID:   wapp.NewID(entries[0].ID.Namespace, "definition"),
+		Kind: string(regapi.NamespaceDefinition),
+	})
+	return completed
 }

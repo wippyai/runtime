@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/boot"
 	contextapi "github.com/wippyai/runtime/api/context"
 	logapi "github.com/wippyai/runtime/api/logs"
@@ -273,6 +275,98 @@ entries:
 	}
 	if got := loaded[0].Meta.GetString("module", ""); got != "" {
 		t.Fatalf("application source ownership = %q, want empty", got)
+	}
+}
+
+func TestLoadEntriesFromModuleLoadPathsLinksDeclaredNamespaceForPackedAndUnpackedModules(t *testing.T) {
+	ctx := setupTestContext(t)
+	tmpDir := t.TempDir()
+	logger := zap.NewNop()
+
+	appDir := filepath.Join(tmpDir, "app")
+	if err := os.MkdirAll(appDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	appYAML := `version: "1.0"
+namespace: app.dependencies
+entries:
+  - name: accounts
+    kind: ns.dependency
+    component: example/accounts
+    parameters:
+      - name: public_router
+        value: app:api.public
+`
+	if err := os.WriteFile(filepath.Join(appDir, "_index.yaml"), []byte(appYAML), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	moduleDir := filepath.Join(tmpDir, "accounts")
+	if err := os.MkdirAll(moduleDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	moduleYAML := `version: "1.0"
+namespace: identity.account
+entries:
+  - name: definition
+    kind: ns.definition
+  - name: public_router
+    kind: ns.requirement
+    targets:
+      - entry: login.endpoint
+        path: meta.router
+  - name: login.endpoint
+    kind: http.endpoint
+    meta:
+      router: unresolved
+`
+	if err := os.WriteFile(filepath.Join(moduleDir, "_index.yaml"), []byte(moduleYAML), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	packedPath := createTestWappFile(t, tmpDir, "accounts", []wapp.Entry{
+		{ID: wapp.NewID("identity.account", "definition"), Kind: "ns.definition"},
+		{
+			ID:   wapp.NewID("identity.account", "public_router"),
+			Kind: "ns.requirement",
+			Data: map[string]any{
+				"targets": []any{
+					map[string]any{"entry": "login.endpoint", "path": "meta.router"},
+				},
+			},
+		},
+		{
+			ID:   wapp.NewID("identity.account", "login.endpoint"),
+			Kind: "http.endpoint",
+			Meta: wapp.Metadata{"router": "unresolved"},
+		},
+	})
+
+	tests := []struct {
+		name string
+		path string
+	}{
+		{name: "unpacked directory", path: moduleDir},
+		{name: "packed archive", path: packedPath},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			loaded, err := LoadEntriesFromModuleLoadPaths(ctx, []lock.ModuleLoadPath{
+				{Path: appDir},
+				{Path: tt.path, Module: "example/accounts", Version: "1.0.0"},
+			}, logger)
+			require.NoError(t, err)
+
+			var endpoint *regapi.Entry
+			for i := range loaded {
+				if loaded[i].ID.String() == "identity.account:login.endpoint" {
+					endpoint = &loaded[i]
+					break
+				}
+			}
+			require.NotNil(t, endpoint)
+			assert.Equal(t, "app:api.public", endpoint.Meta.GetString("router", ""))
+		})
 	}
 }
 
@@ -725,86 +819,6 @@ func TestLoadEntriesFromPathsMultipleWappsWithDifferentKinds(t *testing.T) {
 	}
 	if kinds["myapp:run"] != "process.lua" {
 		t.Errorf("myapp:run kind = %v, want process.lua", kinds["myapp:run"])
-	}
-}
-
-func TestLoadEntriesFromModuleLoadPaths_ResolvesLegacyAliasRequirementByModuleMeta(t *testing.T) {
-	ctx := setupTestContext(t)
-	logger := zap.NewNop()
-	tmpDir := t.TempDir()
-
-	moduleDir := filepath.Join(tmpDir, "module")
-	if err := os.MkdirAll(moduleDir, 0o755); err != nil {
-		t.Fatalf("mkdir module dir: %v", err)
-	}
-	moduleYAML := `version: "1.0"
-namespace: userspace
-entries:
-  - name: public_router
-    kind: ns.requirement
-    targets:
-      - entry: login.endpoint
-        path: meta.router
-  - name: login.endpoint
-    kind: http.endpoint
-    meta:
-      router: public_router
-`
-	if err := os.WriteFile(filepath.Join(moduleDir, "_index.yaml"), []byte(moduleYAML), 0o644); err != nil {
-		t.Fatalf("write module _index.yaml: %v", err)
-	}
-
-	appDir := filepath.Join(tmpDir, "app")
-	if err := os.MkdirAll(appDir, 0o755); err != nil {
-		t.Fatalf("mkdir app dir: %v", err)
-	}
-	appYAML := `version: "1.0"
-namespace: app.deps
-entries:
-  - name: users
-    kind: ns.dependency
-    component: userspace/users
-    parameters:
-      - name: public_router
-        value: app:api.public
-`
-	if err := os.WriteFile(filepath.Join(appDir, "_index.yaml"), []byte(appYAML), 0o644); err != nil {
-		t.Fatalf("write app _index.yaml: %v", err)
-	}
-
-	flatEntries, err := LoadEntriesFromPaths(ctx, []string{appDir, moduleDir}, logger)
-	if err != nil {
-		t.Fatalf("LoadEntriesFromPaths failed: %v", err)
-	}
-
-	routerFlat := ""
-	for _, entry := range flatEntries {
-		if entry.ID.String() != "userspace:login.endpoint" {
-			continue
-		}
-		routerFlat = entry.Meta.GetString("router", "")
-	}
-	if routerFlat != "public_router" {
-		t.Fatalf("flat load router = %q, want unresolved alias", routerFlat)
-	}
-
-	moduleAwareEntries, err := LoadEntriesFromModuleLoadPaths(ctx, []lock.ModuleLoadPath{
-		{Path: appDir},
-		{Path: moduleDir, Module: "userspace/users", Version: "1.0.0"},
-	}, logger)
-	if err != nil {
-		t.Fatalf("LoadEntriesFromModuleLoadPaths failed: %v", err)
-	}
-
-	routerResolved := ""
-	for _, entry := range moduleAwareEntries {
-		if entry.ID.String() != "userspace:login.endpoint" {
-			continue
-		}
-		routerResolved = entry.Meta.GetString("router", "")
-	}
-	if routerResolved != "app:api.public" {
-		t.Fatalf("module-aware load router = %q, want app:api.public", routerResolved)
 	}
 }
 
@@ -1443,16 +1457,21 @@ func TestNormalizeEntries_PreLinkOverrideAffectsRequirementDefaults(t *testing.T
 func TestNormalizeEntries_PostLinkOverrideWinsFinalValue(t *testing.T) {
 	ctx := setupTestContext(t)
 	cfg := boot.NewConfig(boot.WithSection("override", map[string]any{
-		"userspace.user:login.endpoint:meta.router": "app:api.final",
+		"identity.account:login.endpoint:meta.router": "app:api.final",
 	}))
 	ctx = boot.WithConfig(ctx, cfg)
 
 	items := []regapi.Entry{
 		{
-			ID:   regapi.NewID("app.deps", "users"),
+			ID:   regapi.NewID("identity.account", "definition"),
+			Kind: regapi.NamespaceDefinition,
+			Meta: map[string]any{"module": "example/accounts"},
+		},
+		{
+			ID:   regapi.NewID("app.deps", "accounts"),
 			Kind: regapi.NamespaceDependency,
 			Data: payload.New(map[string]any{
-				"component": "userspace/users",
+				"component": "example/accounts",
 				"parameters": []any{
 					map[string]any{
 						"name":  "public_router",
@@ -1462,8 +1481,9 @@ func TestNormalizeEntries_PostLinkOverrideWinsFinalValue(t *testing.T) {
 			}),
 		},
 		{
-			ID:   regapi.NewID("userspace.user", "public_router"),
+			ID:   regapi.NewID("identity.account", "public_router"),
 			Kind: regapi.NamespaceRequirement,
+			Meta: map[string]any{"module": "example/accounts"},
 			Data: payload.New(map[string]any{
 				"targets": []any{
 					map[string]any{
@@ -1474,11 +1494,11 @@ func TestNormalizeEntries_PostLinkOverrideWinsFinalValue(t *testing.T) {
 			}),
 		},
 		{
-			ID:   regapi.NewID("userspace.user", "login.endpoint"),
+			ID:   regapi.NewID("identity.account", "login.endpoint"),
 			Kind: "http.endpoint",
 			Meta: map[string]any{
 				"router": "public_router",
-				"module": "userspace/users",
+				"module": "example/accounts",
 			},
 			Data: payload.New(map[string]any{
 				"path":   "/user/token",
@@ -1494,7 +1514,7 @@ func TestNormalizeEntries_PostLinkOverrideWinsFinalValue(t *testing.T) {
 
 	got := ""
 	for _, entry := range items {
-		if entry.ID.String() == "userspace.user:login.endpoint" {
+		if entry.ID.String() == "identity.account:login.endpoint" {
 			got = entry.Meta.GetString("router", "")
 			break
 		}

@@ -776,9 +776,9 @@ func (h *DependencyHandler) ReconcileResolution(
 }
 
 // changedDependencyParameterModules returns the modules whose authored root
-// parameters differ across a history transition. A root parameter normally
-// configures its own component. Fully-qualified requirement IDs may address a
-// requirement in another module, so those owners are included as well.
+// parameters differ across a history transition. Dependency parameters belong
+// to the referenced component's declared namespace and cannot mutate another
+// module, including through a fully qualified requirement ID.
 func changedDependencyParameterModules(
 	ctx context.Context,
 	current regapi.State,
@@ -834,22 +834,6 @@ func changedDependencyParameterModules(
 			}
 			if item.definition.Component != "" {
 				changed[item.definition.Component] = struct{}{}
-			}
-			for _, parameter := range item.definition.Parameters {
-				if !strings.Contains(parameter.Name, ":") {
-					continue
-				}
-				requirementID := regapi.ParseID(parameter.Name)
-				for _, state := range []regapi.State{current, target} {
-					for _, entry := range state {
-						if entry.ID != requirementID || entry.Kind != regapi.NamespaceRequirement {
-							continue
-						}
-						if module := entryModule(entry); module != "" {
-							changed[module] = struct{}{}
-						}
-					}
-				}
 			}
 		}
 	}

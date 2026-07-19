@@ -35,7 +35,8 @@ func TestReconcile_ParameterDriftOnControllerStillBoots(t *testing.T) {
 	root := paramRoot("app.deps:a", "acme/a", "v1.0.0", map[string]any{"db": "app:db"})
 	reference := paramRoot("acme.pkg:__dependency.acme.a", "acme/a", ">=1.0.0", map[string]any{"db": "app:db"})
 	moduleEntry := hardeningModuleEntry("acme.a:entry", "acme/a", "v1.0.0")
-	recordedState := regapi.State{root, reference, moduleEntry}
+	moduleDefinition := hardeningModuleDefinition("acme.a", "acme/a", "v1.0.0")
+	recordedState := regapi.State{root, reference, moduleDefinition, moduleEntry}
 
 	transcoder := payload.GetTranscoder(ctx)
 	baseline, err := handler.deploymentBaselineDigest(ctx, recordedState, transcoder)
@@ -46,7 +47,7 @@ func TestReconcile_ParameterDriftOnControllerStillBoots(t *testing.T) {
 
 	// ...then the controller's parameters change on disk.
 	driftedRoot := paramRoot("app.deps:a", "acme/a", "v1.0.0", map[string]any{"db": "other:db"})
-	driftedState := regapi.State{driftedRoot, reference, moduleEntry}
+	driftedState := regapi.State{driftedRoot, reference, moduleDefinition, moduleEntry}
 
 	result, err := handler.ReconcileResolution(ctx, driftedState, driftedState, resolution)
 	require.NoError(t, err, "parameter drift must not wedge reconciliation")
