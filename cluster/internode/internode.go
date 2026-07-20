@@ -6,6 +6,7 @@ import (
 	"context"
 	"net"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/wippyai/runtime/api/cluster"
@@ -223,17 +224,33 @@ func (s *Service) connectToNode(nodeInfo cluster.NodeInfo) {
 		return
 	}
 	port, err := strconv.Atoi(portStr)
-	if err != nil {
+	if err != nil || port < 1 || port > 65535 {
 		s.logger.Error("Invalid 'internode_port' metadata for node",
 			zap.String("node_id", nodeInfo.ID), zap.String("port", portStr), zap.Error(err))
 		return
 	}
 
-	// nodeInfo.Addr is in "IP:port" format from memberlist (gossip address).
-	// Extract just the IP since we use the internode port from metadata.
+	// The v1 endpoint remains memberlist IP + internode_port. v2 metadata is
+	// additive, so a new node can use a relay while an old node ignores it and
+	// continues dialing the preserved v1 endpoint.
 	addr := nodeInfo.Addr
 	if host, _, splitErr := net.SplitHostPort(addr); splitErr == nil {
 		addr = host
+	}
+	advertiseAddr, hasAddr := nodeInfo.Meta["internode_advertise_addr"]
+	advertisePort, hasPort := nodeInfo.Meta["internode_advertise_port"]
+	if hasAddr != hasPort {
+		s.logger.Warn("Incomplete v2 internode endpoint metadata for node",
+			zap.String("node_id", nodeInfo.ID))
+	} else if hasAddr {
+		advertiseAddr = strings.TrimSpace(advertiseAddr)
+		advertisePortNumber, parseErr := strconv.Atoi(advertisePort)
+		if net.ParseIP(advertiseAddr) == nil || parseErr != nil || advertisePortNumber < 1 || advertisePortNumber > 65535 {
+			s.logger.Warn("Invalid v2 internode endpoint metadata for node",
+				zap.String("node_id", nodeInfo.ID), zap.String("addr", advertiseAddr), zap.String("port", advertisePort))
+		} else {
+			addr, port = advertiseAddr, advertisePortNumber
+		}
 	}
 
 	s.connMan.EnsureConnection(nodeInfo.ID, addr, port)

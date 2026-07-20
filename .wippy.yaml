@@ -136,6 +136,10 @@ cluster:
   internode:
     bind_addr: "0.0.0.0"        # Bind address for TCP internode communication
     bind_port: 0                # Bind port (0 = auto-select available port)
+    # Optional v2 relay endpoint for upgraded peers. v1 metadata remains the
+    # direct bind endpoint, so older peers keep working during a rolling upgrade.
+    advertise_addr: ""         # IP literal only; empty disables the v2 endpoint
+    advertise_port: 0           # 0 = bind_port; requires advertise_addr
     auto_port: true             # Automatically select port if bind_port unavailable
   membership:
     bind_addr: "0.0.0.0"        # Bind address for gossip protocol

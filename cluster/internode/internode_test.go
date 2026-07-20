@@ -268,6 +268,35 @@ func TestService_Start_WithPreExistingNodes(t *testing.T) {
 	_ = service.Stop()
 }
 
+func TestService_Start_UsesAdvertisedInternodeEndpoint(t *testing.T) {
+	logger := zap.NewNop()
+	connMan := newMockConnectionManager()
+	codec := &mockCodec{}
+	bus := eventbus.NewBus()
+	localNode := cluster.NodeInfo{ID: "local-node", Addr: "127.0.0.1:7946", Meta: cluster.NodeMeta{"internode_port": "9000"}}
+	remoteNode := cluster.NodeInfo{
+		ID:   "remote-node",
+		Addr: "192.168.1.100:7946",
+		Meta: cluster.NodeMeta{
+			"internode_port":           "9001", // v1 endpoint retained for old peers
+			"internode_advertise_addr": "127.0.0.1",
+			"internode_advertise_port": "19001",
+		},
+	}
+	membership := &mockMembership{localNode: localNode, nodes: []cluster.NodeInfo{localNode, remoteNode}}
+	service := NewService(logger, connMan, codec, func(_ *relay.Package) error { return nil }, bus, membership)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	require.NoError(t, service.Start(ctx))
+	connMan.mu.Lock()
+	require.Len(t, connMan.ensuredConns, 1)
+	assert.Equal(t, "127.0.0.1", connMan.ensuredConns[0].addr)
+	assert.Equal(t, 19001, connMan.ensuredConns[0].port)
+	connMan.mu.Unlock()
+	_ = service.Stop()
+}
+
 func TestService_Start_ConnectionManagerError(t *testing.T) {
 	service, connMan, _, _, ctx, cancel := setupService(t)
 	defer cancel()

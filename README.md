@@ -32,6 +32,7 @@ Each process is sandboxed to the capabilities you grant it, your data stays on i
 ## Features
 
 **Process System**
+
 - Erlang-style supervision trees with configurable restart policies
 - Process isolation with message passing (no shared state)
 - Go-style channels and coroutines for concurrency
@@ -40,6 +41,7 @@ Each process is sandboxed to the capabilities you grant it, your data stays on i
 - Location-transparent PIDs across cluster nodes
 
 **Registry**
+
 - Versioned component store with transactional updates
 - Hot-reload without service interruption
 - Dependency-aware ordering for safe updates
@@ -47,6 +49,7 @@ Each process is sandboxed to the capabilities you grant it, your data stays on i
 - Rollback to any previous version
 
 **Security**
+
 - Attribute-based access control (ABAC)
 - Expression policies via expr-lang for complex rules
 - Token authentication with HMAC signing
@@ -54,6 +57,7 @@ Each process is sandboxed to the capabilities you grant it, your data stays on i
 - Configurable strict mode for security contexts
 
 **Lua Runtime**
+
 - 40+ built-in modules for common operations
 - Proto caching for fast script loading
 - Function interceptors (retry, metrics, tracing)
@@ -62,6 +66,7 @@ Each process is sandboxed to the capabilities you grant it, your data stays on i
 - Native command execution and Docker containers
 
 **Networking**
+
 - HTTP server with dynamic route registration
 - WebSocket client and server support
 - Middleware: CORS, rate limiting, compression, real IP
@@ -69,6 +74,7 @@ Each process is sandboxed to the capabilities you grant it, your data stays on i
 - SSE and chunked transfer encoding
 
 **Storage**
+
 - KV stores with memory and SQL backends
 - SQL databases: Postgres, MySQL, SQLite, MSSQL
 - Vector search in SQLite and Postgres for embeddings and RAG
@@ -77,6 +83,7 @@ Each process is sandboxed to the capabilities you grant it, your data stays on i
 - Environment variable providers (OS, file, memory, composite)
 
 **Observability**
+
 - OpenTelemetry traces and metrics
 - Prometheus exporter endpoint
 - Structured logging with Zap
@@ -84,6 +91,7 @@ Each process is sandboxed to the capabilities you grant it, your data stays on i
 - HTTP request tracing
 
 **Clustering**
+
 - Bounded Raft consensus core (voters, standbys, gossip-only clients)
 - SWIM gossip membership with gossip-driven bootstrap (`bootstrap_expect`)
 - Cluster-wide process names with consistency scopes: local, eventual, consistent, strong
@@ -92,6 +100,7 @@ Each process is sandboxed to the capabilities you grant it, your data stays on i
 - Location-transparent process messaging via relay; encrypted gossip
 
 **Extensibility**
+
 - Pluggable command dispatchers
 - Custom Lua module registration
 - Function interceptor chains
@@ -246,6 +255,10 @@ cluster:
   internode:
     bind_addr: 0.0.0.0
     bind_port: 0
+    # Optional v2 relay endpoint for upgraded peers. v1 metadata remains the
+    # direct bind endpoint, so older peers keep working during rolling upgrades.
+    advertise_addr: ""
+    advertise_port: 0 # 0 = bind_port; requires advertise_addr
     auto_port: true
 
 extensions:
