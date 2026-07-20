@@ -10,6 +10,7 @@ import (
 
 	"go.uber.org/zap"
 
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/internal/version"
 	regexp "github.com/wippyai/runtime/system/registry/expansion"
@@ -165,6 +166,7 @@ func (r *Reg) Apply(ctx context.Context, changes registry.ChangeSet) (registry.V
 	baseVersion = r.currentVersion
 	resolution = r.currentResolution
 	r.mu.RUnlock()
+	changes = preserveManagedEntryMetadata(changes, snapshot)
 
 	if len(r.directivesByKind) > 0 {
 		planner = regexp.NewPlanner(r.directivesByKind, r.resolver, r.log.Named("expansion"))
@@ -310,6 +312,48 @@ func (r *Reg) Apply(ctx context.Context, changes registry.ChangeSet) (registry.V
 		}
 	}
 	return r.currentVersion, nil
+}
+
+// preserveManagedEntryMetadata keeps registry-owned provenance stable when a
+// caller updates an entry's declarative data. These fields are attached by the
+// module loader and dependency linker; omitting them from an update payload
+// must not turn an installed entry into an unowned host entry.
+func preserveManagedEntryMetadata(changes registry.ChangeSet, snapshot registry.State) registry.ChangeSet {
+	const (
+		moduleKey        = "module"
+		moduleVersionKey = "module_version"
+		moduleDigestKey  = "module_digest"
+	)
+	managedKeys := [...]string{moduleKey, moduleVersionKey, moduleDigestKey}
+	state := make(registry.StateMap, len(snapshot)+len(changes))
+	for _, entry := range snapshot {
+		state[entry.ID] = entry
+	}
+	for i := range changes {
+		op := &changes[i]
+		switch op.Kind {
+		case registry.EntryCreate:
+			state[op.Entry.ID] = op.Entry
+		case registry.EntryUpdate:
+			existing, ok := state[op.Entry.ID]
+			if ok {
+				meta := attrs.NewBagFrom(op.Entry.Meta)
+				for _, key := range managedKeys {
+					if _, supplied := meta[key]; supplied {
+						continue
+					}
+					if value, present := existing.Meta[key]; present {
+						meta[key] = value
+					}
+				}
+				op.Entry.Meta = meta
+			}
+			state[op.Entry.ID] = op.Entry
+		case registry.EntryDelete:
+			delete(state, op.Entry.ID)
+		}
+	}
+	return changes
 }
 
 // patchDepIndex folds committed ops back into the inverse-dependency index so

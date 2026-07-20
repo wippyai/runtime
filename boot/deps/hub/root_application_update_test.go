@@ -206,6 +206,20 @@ modules:
 	require.Equal(t, "v1.0.0", resolutionModuleVersion(v0Resolution, "acme/app"),
 		"the durable baseline graph must include its lock-selected root module")
 
+	// Keeper updates dependency data and intentionally omits loader-owned
+	// provenance. The registry must retain that provenance in both live state
+	// and history; otherwise the next sibling/root update compares an ownerless
+	// declaration with the root application's materialized entry and conflicts.
+	installedWorker, err := reg.GetEntry(workerRootID)
+	require.NoError(t, err)
+	workerUpdate := installedWorker
+	workerUpdate.Meta = nil
+	_, err = reg.Apply(ctx, regapi.ChangeSet{{Kind: regapi.EntryUpdate, Entry: workerUpdate}})
+	require.NoError(t, err)
+	installedWorker, err = reg.GetEntry(workerRootID)
+	require.NoError(t, err)
+	require.Equal(t, "acme/app", entryModule(installedWorker))
+
 	overlayRoot := regapi.Entry{
 		ID: regapi.NewID("deployment.packages", "application"), Kind: regapi.NamespaceDependency,
 		Data: payload.New(map[string]any{"component": "acme/app", "version": "v2.0.0"}),
