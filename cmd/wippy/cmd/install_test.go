@@ -3,7 +3,6 @@
 package cmd
 
 import (
-	"os"
 	"path/filepath"
 	"testing"
 
@@ -52,38 +51,6 @@ func TestShouldBypassInstallCache(t *testing.T) {
 			t.Fatal("expected cache bypass to be true for --repair")
 		}
 	})
-}
-
-func TestPruneReplacedModuleArtifacts(t *testing.T) {
-	tmpDir := t.TempDir()
-	lockObj, err := lock.New(filepath.Join(tmpDir, lock.DefaultFilename), lock.WithWorkspaceReplacements([]lock.Replacement{{
-		From: "acme/ui",
-		To:   "../local-ui",
-	}}))
-	if err != nil {
-		t.Fatalf("create lock: %v", err)
-	}
-	lockObj.SetModule(lock.Module{Name: "acme/ui", Version: "v1.0.0"})
-	lockObj.SetModule(lock.Module{Name: "wippy/dataflow", Version: "v0.4.10"})
-
-	vendorDir := filepath.Join(tmpDir, ".wippy", "vendor")
-	for _, path := range []string{
-		filepath.Join(vendorDir, "acme", "ui", "keep.txt"),
-		filepath.Join(vendorDir, "acme", "ui-v1.0.0", "keep.txt"),
-		filepath.Join(vendorDir, "acme", "ui-v1.0.0.wapp"),
-		filepath.Join(vendorDir, "wippy", "dataflow", "keep.txt"),
-	} {
-		mustWriteFile(t, path)
-	}
-
-	pruneReplacedModuleArtifacts(lockObj, zap.NewNop())
-
-	assertPathMissing(t, filepath.Join(vendorDir, "acme", "ui"))
-	assertPathMissing(t, filepath.Join(vendorDir, "acme", "ui-v1.0.0"))
-	assertPathMissing(t, filepath.Join(vendorDir, "acme", "ui-v1.0.0.wapp"))
-	if _, err := os.Stat(filepath.Join(vendorDir, "wippy", "dataflow", "keep.txt")); err != nil {
-		t.Fatalf("unrelated module artifact was removed: %v", err)
-	}
 }
 
 func TestSelectInstallModulesSkipsReplacements(t *testing.T) {

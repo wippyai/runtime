@@ -29,7 +29,7 @@ func hardeningRoot(id, component, version string) regapi.Entry {
 	}
 }
 
-func TestReplacementResolutionTreatsRebuiltLocalSourceAsCurrent(t *testing.T) {
+func TestReplacementResolutionRevalidatesCurrentTree(t *testing.T) {
 	tmpDir := t.TempDir()
 	lockPath := filepath.Join(tmpDir, lock.DefaultFilename)
 	replacementPath := filepath.Join(tmpDir, "local-http")
@@ -60,7 +60,7 @@ func TestReplacementResolutionTreatsRebuiltLocalSourceAsCurrent(t *testing.T) {
 	require.True(t, handler.hasCurrentUnpackedModule(module))
 
 	require.NoError(t, os.WriteFile(filepath.Join(replacementPath, "entry.yaml"), []byte("changed"), 0o600))
-	require.True(t, handler.hasCurrentUnpackedModule(module), "a configured local replacement must remain live after a rebuild")
+	require.False(t, handler.hasCurrentUnpackedModule(module), "history must not trust stale entry metadata after replacement content changes")
 }
 
 func TestDependencyHandler_ReconcileReloadsRebuiltReplacement(t *testing.T) {
@@ -116,8 +116,6 @@ replacements:
 		Source: moduleSourceReplacementTreeV1, Digest: beforeDigest, SizeBytes: beforeSize,
 	}})
 
-	// A static rebuild changes local source without changing the entry manifest.
-	// The next boot reconciliation must accept and resnapshot that tree.
 	require.NoError(t, os.WriteFile(staticBundle, []byte("window.build = 'two';\n"), 0o600))
 	afterDigest, _, err := digestReplacementTree(replacementPath)
 	require.NoError(t, err)

@@ -127,6 +127,47 @@ func TestPreserveReplacements_KeepsAll(t *testing.T) {
 	}
 }
 
+func TestEffectiveReplacementModulesIncludesWorkspaceOverlay(t *testing.T) {
+	lockObj, err := lock.New(filepath.Join(t.TempDir(), lock.DefaultFilename), lock.WithWorkspaceReplacements([]lock.Replacement{
+		{From: "local/component", To: "../component"},
+	}))
+	require.NoError(t, err)
+
+	require.Equal(t, map[string]bool{"local/component": true}, effectiveReplacementModules(lockObj))
+}
+
+func TestLoadDependencyScanEntriesIncludesWorkspaceReplacement(t *testing.T) {
+	ctx := setupLoaderContext(t)
+	ldr := bootapi.GetLoader(ctx)
+	require.NotNil(t, ldr)
+
+	tmpDir := t.TempDir()
+	appDir := filepath.Join(tmpDir, "app")
+	replacementDir := filepath.Join(tmpDir, "local", "component")
+	require.NoError(t, os.MkdirAll(appDir, 0o755))
+	require.NoError(t, os.MkdirAll(replacementDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(replacementDir, "_index.yaml"), []byte(`version: "1.0"
+namespace: local.component
+entries:
+  - name: runtime
+    kind: ns.dependency
+    component: acme/runtime
+    version: v1.0.0
+`), 0o644))
+
+	lockObj, err := lock.New(filepath.Join(tmpDir, lock.DefaultFilename), lock.WithWorkspaceReplacements([]lock.Replacement{{
+		From: "local/component",
+		To:   "local/component",
+	}}))
+	require.NoError(t, err)
+	lockObj.SetDirectories(lock.Directories{Modules: ".wippy", Src: "app"})
+
+	loaded, err := loadDependencyScanEntries(ctx, ldr, appDir, lockObj, zap.NewNop())
+	require.NoError(t, err)
+	dependencies := extractRootDependencies(loaded, payload.GetTranscoder(ctx))
+	require.Equal(t, []dependencyRequest{{Org: "acme", Module: "runtime", Constraint: "v1.0.0"}}, dependencies)
+}
+
 func TestPruneStaleVendorArtifacts_RemovesStaleArtifacts(t *testing.T) {
 	tmpDir := t.TempDir()
 	lockPath := filepath.Join(tmpDir, "wippy.lock")
@@ -280,43 +321,6 @@ entries:
 	if _, ok := got["bad/excluded"]; ok {
 		t.Fatalf("replacement scan ignored manifest source exclusions: got %v", got)
 	}
-}
-
-func TestLoadDependencyScanEntriesAppliesWorkspaceReplacementExcludes(t *testing.T) {
-	ctx := setupLoaderContext(t)
-	ldr := bootapi.GetLoader(ctx)
-	require.NotNil(t, ldr)
-
-	tmpDir := t.TempDir()
-	appDir := filepath.Join(tmpDir, "app")
-	replacementDir := filepath.Join(tmpDir, "local", "mcp")
-	require.NoError(t, os.MkdirAll(appDir, 0o755))
-	require.NoError(t, os.MkdirAll(replacementDir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(replacementDir, "_index.yaml"), []byte(`version: "1.0"
-namespace: local.mcp
-entries:
-  - name: runtime
-    kind: ns.dependency
-    component: acme/runtime
-    version: v1.0.0
-  - name: instrument
-    kind: ns.dependency
-    component: acme/instrument
-    version: v1.0.0
-`), 0o644))
-
-	lockObj, err := lock.New(filepath.Join(tmpDir, lock.DefaultFilename), lock.WithWorkspaceReplacements([]lock.Replacement{{
-		From:    "local/mcp",
-		To:      "local/mcp",
-		Exclude: []string{"local.mcp:instrument"},
-	}}))
-	require.NoError(t, err)
-	lockObj.SetDirectories(lock.Directories{Modules: ".wippy", Src: "app"})
-
-	loaded, err := loadDependencyScanEntries(ctx, ldr, appDir, lockObj, zap.NewNop())
-	require.NoError(t, err)
-	dependencies := extractRootDependencies(loaded, payload.GetTranscoder(ctx))
-	require.Equal(t, []dependencyRequest{{Org: "acme", Module: "runtime", Constraint: "v1.0.0"}}, dependencies)
 }
 
 func mustWriteFile(t *testing.T, path string) {

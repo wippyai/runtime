@@ -26,8 +26,6 @@ import (
 	yamlpayload "github.com/wippyai/runtime/system/payload/yaml"
 	"github.com/wippyai/wapp"
 	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
-	"go.uber.org/zap/zaptest/observer"
 	"gopkg.in/yaml.v3"
 )
 
@@ -923,59 +921,6 @@ func TestEnsureModulesInstalledSkipsReplacedModules(t *testing.T) {
 	}
 }
 
-func TestEnsureModulesInstalledLogsModuleSourceInventory(t *testing.T) {
-	tmpDir := t.TempDir()
-	lockPath := filepath.Join(tmpDir, lock.DefaultFilename)
-	lockObj, err := lock.New(lockPath, lock.WithWorkspaceReplacements([]lock.Replacement{{
-		From: "acme/ui",
-		To:   "local/ui",
-	}}))
-	require.NoError(t, err)
-	lockObj.SetModule(lock.Module{Name: "acme/ui", Version: "v1.0.0"})
-	lockObj.SetModule(lock.Module{Name: "acme/published", Version: "v2.0.0"})
-	require.NoError(t, os.MkdirAll(filepath.Join(tmpDir, "local", "ui"), 0o755))
-	require.NoError(t, os.MkdirAll(filepath.Join(tmpDir, ".wippy", "vendor", "acme", "published"), 0o755))
-
-	core, observed := observer.New(zapcore.InfoLevel)
-	require.NoError(t, ensureModulesInstalledFromLock(context.Background(), lockObj, zap.New(core)))
-
-	sources := observed.FilterMessage("module source").All()
-	require.Len(t, sources, 2)
-	require.Equal(t, "acme/published", sources[0].ContextMap()["module"])
-	require.Equal(t, "published", sources[0].ContextMap()["source"])
-	require.Equal(t, "v2.0.0", sources[0].ContextMap()["version"])
-	require.Equal(t, "acme/ui", sources[1].ContextMap()["module"])
-	require.Equal(t, "local", sources[1].ContextMap()["source"])
-	require.Equal(t, "v1.0.0", sources[1].ContextMap()["version"])
-	require.Equal(t, filepath.Join(tmpDir, "local", "ui"), sources[1].ContextMap()["path"])
-
-	summary := observed.FilterMessage("module source inventory").All()
-	require.Len(t, summary, 1)
-	require.Equal(t, int64(1), summary[0].ContextMap()["local"])
-	require.Equal(t, int64(1), summary[0].ContextMap()["published"])
-}
-
-func TestEnsureModulesInstalledLogsUninstalledReplacement(t *testing.T) {
-	tmpDir := t.TempDir()
-	lockObj, err := lock.New(filepath.Join(tmpDir, lock.DefaultFilename), lock.WithWorkspaceReplacements([]lock.Replacement{{
-		From: "acme/local",
-		To:   "local",
-	}}))
-	require.NoError(t, err)
-	replacementDir := filepath.Join(tmpDir, "local")
-	require.NoError(t, os.MkdirAll(replacementDir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(replacementDir, "wippy.yaml"), []byte("version: v0.2.0\n"), 0o644))
-
-	core, observed := observer.New(zapcore.InfoLevel)
-	require.NoError(t, ensureModulesInstalledFromLock(context.Background(), lockObj, zap.New(core)))
-
-	sources := observed.FilterMessage("module source").All()
-	require.Len(t, sources, 1)
-	require.Equal(t, "acme/local", sources[0].ContextMap()["module"])
-	require.Equal(t, "local", sources[0].ContextMap()["source"])
-	require.Equal(t, "v0.2.0", sources[0].ContextMap()["version"])
-}
-
 func TestLoadEntriesFromModuleLoadPaths_AppliesSourceModuleExcludesToVersionedDependencies(t *testing.T) {
 	ctx := setupTestContext(t)
 	logger := zap.NewNop()
@@ -1111,31 +1056,6 @@ entries:
 	if got := real.Meta.GetString("module", ""); got != "wippy/dataflow" {
 		t.Fatalf("module meta = %q, want wippy/dataflow", got)
 	}
-}
-
-func TestLoadEntriesFromModuleLoadPaths_AppliesReplacementExcludes(t *testing.T) {
-	ctx := setupTestContext(t)
-	moduleDir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(moduleDir, "_index.yaml"), []byte(`version: "1.0"
-namespace: local.mcp
-entries:
-  - name: runtime
-    kind: function.lua
-    source: |
-      return {}
-  - name: instrument
-    kind: http.static
-    path: /instrument
-`), 0o644))
-
-	loaded, err := LoadEntriesFromModuleLoadPaths(ctx, []lock.ModuleLoadPath{{
-		Path:    moduleDir,
-		Module:  "local/mcp",
-		Exclude: []string{"local.mcp:instrument"},
-	}}, zap.NewNop())
-	require.NoError(t, err)
-	require.Len(t, loaded, 1)
-	require.Equal(t, "local.mcp:runtime", loaded[0].ID.String())
 }
 
 // Mirrors the reported bug: a replacement points at a module's source tree

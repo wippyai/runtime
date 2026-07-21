@@ -14,7 +14,6 @@ import (
 	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/payload"
 	regapi "github.com/wippyai/runtime/api/registry"
-	"github.com/wippyai/runtime/boot/build/stages"
 	bootauth "github.com/wippyai/runtime/boot/deps/auth"
 	depconfig "github.com/wippyai/runtime/boot/deps/config"
 	"github.com/wippyai/runtime/boot/deps/graph"
@@ -152,13 +151,9 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	rootDeps := extractRootDependencies(entries, app.Transcoder)
 	logger.Info("found root dependencies", zap.Int("count", len(rootDeps)))
 
-	// Build set of replaced modules to exclude from hub resolution
-	replacedModules := make(map[string]bool)
-	if oldLockObj != nil {
-		for _, repl := range oldLockObj.GetReplacements() {
-			replacedModules[repl.From] = true
-		}
-	}
+	// Local replacements participate in the active graph but are never resolved
+	// from the Hub.
+	replacedModules := effectiveReplacementModules(oldLockObj)
 
 	resolvedModules := make([]hub.ResolvedModule, 0)
 	if len(rootDeps) == 0 {
@@ -326,10 +321,7 @@ func runTargetedUpdate(cmd *cobra.Command, lockFilePath, srcDir, modulesDir stri
 
 	oldLockObj := lockObj
 
-	replacedModules := make(map[string]bool)
-	for _, repl := range lockObj.GetReplacements() {
-		replacedModules[repl.From] = true
-	}
+	replacedModules := effectiveReplacementModules(lockObj)
 
 	effectiveTargets := make([]string, 0, len(targetModules))
 	for _, moduleName := range targetModules {
@@ -505,25 +497,17 @@ func loadDependencyScanEntries(ctx context.Context, ldr boot.Loader, srcDir stri
 		moduleRoot = filepath.Dir(lockObj.Path())
 	}
 	paths := []struct {
-		label   string
-		path    string
-		root    string
-		exclude []string
+		label string
+		path  string
+		root  string
 	}{
 		{label: "source", path: srcDir, root: moduleRoot},
 	}
 
 	if lockObj != nil {
-		replacements := make(map[string]lock.Replacement)
-		for _, repl := range lockObj.GetReplacements() {
-			replacements[repl.From] = repl
-		}
+		replacements := effectiveReplacementModules(lockObj)
 		for _, mp := range lockObj.GetModuleLoadPaths() {
-			if mp.Module == "" {
-				continue
-			}
-			replacement, ok := replacements[mp.Module]
-			if !ok || replacement.To == "" {
+			if mp.Module == "" || !replacements[mp.Module] {
 				continue
 			}
 			replacementRoot := mp.SourceRoot
@@ -531,15 +515,13 @@ func loadDependencyScanEntries(ctx context.Context, ldr boot.Loader, srcDir stri
 				replacementRoot = mp.Path
 			}
 			paths = append(paths, struct {
-				label   string
-				path    string
-				root    string
-				exclude []string
+				label string
+				path  string
+				root  string
 			}{
-				label:   "replacement " + mp.Module,
-				path:    mp.Path,
-				root:    replacementRoot,
-				exclude: append([]string(nil), mp.Exclude...),
+				label: "replacement " + mp.Module,
+				path:  mp.Path,
+				root:  replacementRoot,
 			})
 		}
 	}
@@ -566,16 +548,21 @@ func loadDependencyScanEntries(ctx context.Context, ldr boot.Loader, srcDir stri
 		if err != nil {
 			return nil, fmt.Errorf("%s path %s: %w", scanPath.label, absPath, err)
 		}
-		if len(scanPath.exclude) > 0 {
-			stage := stages.DisableWithOptions(stages.DisableOptions{Entries: scanPath.exclude})
-			if err := stage.Execute(ctx, &loaded); err != nil {
-				return nil, fmt.Errorf("filter %s path %s: %w", scanPath.label, absPath, err)
-			}
-		}
 		entries = append(entries, loaded...)
 	}
 
 	return entries, nil
+}
+
+func effectiveReplacementModules(lockObj *lock.Lock) map[string]bool {
+	modules := make(map[string]bool)
+	if lockObj == nil {
+		return modules
+	}
+	for _, replacement := range lockObj.GetReplacements() {
+		modules[replacement.From] = true
+	}
+	return modules
 }
 
 func logChanges(logger *zap.Logger, changes *lock.Changes) {

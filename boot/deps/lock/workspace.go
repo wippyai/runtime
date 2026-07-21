@@ -11,10 +11,7 @@ import (
 	"github.com/wippyai/runtime/api/boot"
 )
 
-const (
-	workspaceReplacementPrefix        = "replacements."
-	workspaceReplacementExcludePrefix = "replacement_excludes."
-)
+const workspaceReplacementPrefix = "replacements."
 
 // WithWorkspaceConfig applies the effective .wippy.yaml workspace settings to
 // a lock without making them part of the persisted lock data.
@@ -37,8 +34,6 @@ func WithWorkspaceConfig(cfg boot.Config) Option {
 //
 //	replacements:
 //	  acme/http: ../http
-//	replacement_excludes:
-//	  acme/http: ["acme.http:onboarding"]
 func WorkspaceReplacements(cfg boot.Config) ([]Replacement, error) {
 	if cfg == nil {
 		return nil, nil
@@ -48,7 +43,7 @@ func WorkspaceReplacements(cfg boot.Config) ([]Replacement, error) {
 	keys := workspace.Keys()
 	sort.Strings(keys)
 
-	replacements := make(map[string]Replacement, len(keys))
+	replacements := make([]Replacement, 0, len(keys))
 	for _, key := range keys {
 		if !strings.HasPrefix(key, workspaceReplacementPrefix) {
 			continue
@@ -72,57 +67,7 @@ func WorkspaceReplacements(cfg boot.Config) ([]Replacement, error) {
 		if configDir != "" && !filepath.IsAbs(path) {
 			path = filepath.Join(configDir, path)
 		}
-		replacements[module] = Replacement{From: module, To: path}
+		replacements = append(replacements, Replacement{From: module, To: path})
 	}
-	for _, key := range keys {
-		if !strings.HasPrefix(key, workspaceReplacementExcludePrefix) {
-			continue
-		}
-		module := strings.TrimPrefix(key, workspaceReplacementExcludePrefix)
-		if module == "" {
-			return nil, fmt.Errorf("workspace replacement exclude has an empty module name")
-		}
-		value, ok := workspace.Get(key)
-		if !ok || value == nil {
-			continue
-		}
-		exclude, err := replacementExcludePatterns(module, value)
-		if err != nil {
-			return nil, err
-		}
-		replacement := replacements[module]
-		replacement.From = module
-		replacement.Exclude = exclude
-		replacements[module] = replacement
-	}
-
-	modules := make([]string, 0, len(replacements))
-	for module := range replacements {
-		modules = append(modules, module)
-	}
-	sort.Strings(modules)
-	result := make([]Replacement, 0, len(modules))
-	for _, module := range modules {
-		result = append(result, replacements[module])
-	}
-	return result, nil
-}
-
-func replacementExcludePatterns(module string, value any) ([]string, error) {
-	values, ok := value.([]any)
-	if !ok {
-		if patterns, ok := value.([]string); ok {
-			return append([]string(nil), patterns...), nil
-		}
-		return nil, fmt.Errorf("workspace replacement exclude %q must be a list of entry patterns or null", module)
-	}
-	patterns := make([]string, len(values))
-	for i, value := range values {
-		pattern, ok := value.(string)
-		if !ok || strings.TrimSpace(pattern) == "" {
-			return nil, fmt.Errorf("workspace replacement exclude %q must contain non-empty entry patterns", module)
-		}
-		patterns[i] = pattern
-	}
-	return patterns, nil
+	return replacements, nil
 }

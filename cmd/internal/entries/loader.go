@@ -9,7 +9,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"sort"
 
 	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/boot"
@@ -88,61 +87,6 @@ func LoadFromLockFile(ctx context.Context, logger *zap.Logger) error {
 
 // EnsureModulesInstalled checks if modules from the lock file are installed,
 // and auto-installs them if missing using the hub client.
-func logModuleSourceInventory(lockObj *lock.Lock, vendorPath string, logger *zap.Logger) {
-	if lockObj == nil || logger == nil {
-		return
-	}
-
-	modules := append([]lock.Module(nil), lockObj.GetModules()...)
-	sort.Slice(modules, func(i, j int) bool { return modules[i].Name < modules[j].Name })
-	seen := make(map[string]struct{}, len(modules))
-	localCount := 0
-	publishedCount := 0
-	lockDir := filepath.Dir(lockObj.Path())
-	for _, module := range modules {
-		seen[module.Name] = struct{}{}
-		if replacement, ok := lockObj.GetReplacement(module.Name); ok {
-			localCount++
-			logger.Info("module source",
-				zap.String("module", module.Name),
-				zap.String("source", "local"),
-				zap.String("version", module.Version),
-				zap.String("path", lock.ResolveLockPath(lockDir, replacement.To)))
-			continue
-		}
-		publishedCount++
-		path := ""
-		if name, err := graph.ParseName(module.Name); err == nil {
-			path = lock.ResolveModuleDir(vendorPath, name, module.Version).Path
-		}
-		logger.Info("module source",
-			zap.String("module", module.Name),
-			zap.String("source", "published"),
-			zap.String("version", module.Version),
-			zap.String("path", path))
-	}
-	for _, replacement := range lockObj.GetReplacements() {
-		if _, exists := seen[replacement.From]; exists {
-			continue
-		}
-		localCount++
-		version := ""
-		root := lock.ResolveLockPath(lockDir, replacement.To)
-		if cfg, err := depconfig.Load(root); err == nil {
-			version = cfg.Version
-		}
-		logger.Info("module source",
-			zap.String("module", replacement.From),
-			zap.String("source", "local"),
-			zap.String("version", version),
-			zap.String("path", root))
-	}
-	logger.Info("module source inventory",
-		zap.Int("local", localCount),
-		zap.Int("published", publishedCount),
-		zap.Int("total", localCount+publishedCount))
-}
-
 func EnsureModulesInstalled(ctx context.Context, lockPath string, logger *zap.Logger) error {
 	lockObj, err := lock.New(lockPath, lock.WithWorkspaceConfig(boot.GetConfig(ctx)))
 	if err != nil {
@@ -167,6 +111,9 @@ func warnTrackedLockReplacements(lockObj *lock.Lock, logger *zap.Logger) {
 
 func ensureModulesInstalledFromLock(ctx context.Context, lockObj *lock.Lock, logger *zap.Logger) error {
 	modules := lockObj.GetModules()
+	if len(modules) == 0 {
+		return nil
+	}
 
 	lockDir := filepath.Dir(lockObj.Path())
 	vendorPath := lock.ResolveLockPath(lockDir, lockObj.GetVendorPath())
@@ -174,10 +121,6 @@ func ensureModulesInstalledFromLock(ctx context.Context, lockObj *lock.Lock, log
 	logger.Debug("checking modules installation",
 		zap.String("vendor_path", vendorPath),
 		zap.Bool("unpack_modules", shouldUnpack))
-	logModuleSourceInventory(lockObj, vendorPath, logger)
-	if len(modules) == 0 {
-		return nil
-	}
 
 	// Check which modules need installation
 	var missingModules []lock.Module
@@ -456,8 +399,6 @@ func applyModuleConfigFilters(
 		configDir = mp.Path
 	}
 
-	entryExcludes := append([]string(nil), mp.Exclude...)
-	var excludeMeta map[string][]string
 	cfg, err := depconfig.Load(configDir)
 	if err != nil {
 		if logger != nil {
@@ -466,18 +407,17 @@ func applyModuleConfigFilters(
 				zap.String("path", configDir),
 				zap.Error(err))
 		}
-	} else {
-		entryExcludes = append(entryExcludes, cfg.EntryExcludes()...)
-		excludeMeta = cfg.ExcludeMeta
+		return entries, nil
 	}
-	if len(entryExcludes) == 0 && len(excludeMeta) == 0 {
+	entryExcludes := cfg.EntryExcludes()
+	if len(entryExcludes) == 0 && len(cfg.ExcludeMeta) == 0 {
 		return entries, nil
 	}
 
 	filtered := append([]regapi.Entry(nil), entries...)
 	stage := stages.DisableWithOptions(stages.DisableOptions{
 		Entries:     entryExcludes,
-		MetaFilters: excludeMeta,
+		MetaFilters: cfg.ExcludeMeta,
 	})
 	if err := stage.Execute(ctx, &filtered); err != nil {
 		return nil, err

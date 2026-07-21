@@ -27,9 +27,6 @@ profiles:
       replacements:
         acme/http: ../local-http
         acme/extra: ../extra
-      replacement_excludes:
-        acme/http:
-          - acme.http:onboarding
   clean:
     workspace:
       replacements:
@@ -45,7 +42,7 @@ profiles:
 	require.NoError(t, err)
 	require.Equal(t, []lock.Replacement{
 		{From: "acme/extra", To: "../extra"},
-		{From: "acme/http", To: "../local-http", Exclude: []string{"acme.http:onboarding"}},
+		{From: "acme/http", To: "../local-http"},
 	}, replacements)
 }
 

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	regapi "github.com/wippyai/runtime/api/registry"
@@ -124,15 +125,12 @@ func (h *DependencyHandler) buildModuleFilesystemEffect(
 
 func (h *DependencyHandler) hasCurrentUnpackedModule(mod ResolvedModule) bool {
 	if mod.Source == moduleSourceReplacementTreeV1 {
-		// Replacements are live source: a rebuilt local tree is still current.
-		// Tree digests protect a load in progress, not later filesystem edits.
-
 		path, ok := h.replacementPath(mod.Org + "/" + mod.Name)
 		if !ok {
 			return false
 		}
-		info, err := os.Stat(path)
-		return err == nil && info.IsDir()
+		digest, size, err := digestReplacementTree(path)
+		return err == nil && strings.EqualFold(digest, mod.Digest) && (mod.SizeBytes == 0 || size == mod.SizeBytes)
 	}
 	if !h.shouldUnpackModules() {
 		return true

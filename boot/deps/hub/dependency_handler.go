@@ -657,13 +657,13 @@ func (h *DependencyHandler) ReconcileResolution(
 			))
 		}
 	}
-	if _, err := h.refreshReplacementModuleIdentities(resolved); err != nil {
+	if err := h.refreshReplacementModuleIdentities(resolved); err != nil {
 		return regapi.DirectiveResult{}, err
 	}
-	// A replacement tree is mutable, while a stored resolution is immutable
-	// for its history version. The refreshed module identity reloads entries,
-	// but the resolution checkpoint remains unchanged so boot does not try to
-	// rebind that version to a different graph.
+	// A local replacement is a mutable development source. Reconciliation uses
+	// its current identity to decide which resident entries must be reloaded,
+	// while effectiveResolution remains the immutable checkpoint for this
+	// history version.
 
 	desiredModules := resolvedModuleSet(resolved)
 	// A stored graph is authoritative by content identity, not merely version.
@@ -698,7 +698,7 @@ func (h *DependencyHandler) ReconcileResolution(
 		if !artifactDigestsEqual(installedDigest, mod.Digest) {
 			mutable[module] = struct{}{}
 			touched[module] = struct{}{}
-		} else if !h.hasCurrentUnpackedModule(mod) {
+		} else if _, replacement := h.replacementPath(module); !replacement && !h.hasCurrentUnpackedModule(mod) {
 			touched[module] = struct{}{}
 		}
 	}
@@ -1409,11 +1409,11 @@ func validateStoredModuleArtifactIdentity(name graph.Name, version, source, dige
 	return nil
 }
 
-// refreshReplacementModuleIdentities snapshots each configured replacement tree
-// for the current resolution attempt. Local source is mutable between attempts,
-// but must remain stable while one attempt reads it.
-func (h *DependencyHandler) refreshReplacementModuleIdentities(modules []ResolvedModule) (bool, error) {
-	changed := false
+// refreshReplacementModuleIdentities snapshots every configured local source
+// for one reconciliation attempt. ensureModuleAvailable verifies the same
+// identity again before loading, so a concurrent rebuild fails closed instead
+// of mixing files from two source generations.
+func (h *DependencyHandler) refreshReplacementModuleIdentities(modules []ResolvedModule) error {
 	for i := range modules {
 		mod := &modules[i]
 		replacement, ok := h.replacementPath(mod.Org + "/" + mod.Name)
@@ -1422,23 +1422,20 @@ func (h *DependencyHandler) refreshReplacementModuleIdentities(modules []Resolve
 		}
 		digest, size, err := digestReplacementTree(replacement)
 		if err != nil {
-			return false, NewDependencyIntegrityError(modKey(*mod), err, mod.Digest, mod.SizeBytes)
-		}
-		if mod.Source != moduleSourceReplacementTreeV1 || !artifactDigestsEqual(mod.Digest, digest) || mod.SizeBytes != size {
-			changed = true
+			return NewDependencyIntegrityError(modKey(*mod), err, mod.Digest, mod.SizeBytes)
 		}
 		mod.Digest = digest
 		mod.Source = moduleSourceReplacementTreeV1
 		mod.SizeBytes = size
 		mod.URL = ""
 	}
-	return changed, nil
+	return nil
 }
 
 // completeResolvedModuleIdentities upgrades legacy Hub responses and local
 // replacements to a content-pinned graph before that graph is persisted.
 func (h *DependencyHandler) completeResolvedModuleIdentities(ctx context.Context, modules []ResolvedModule) error {
-	if _, err := h.refreshReplacementModuleIdentities(modules); err != nil {
+	if err := h.refreshReplacementModuleIdentities(modules); err != nil {
 		return err
 	}
 	for i := range modules {
@@ -1597,7 +1594,7 @@ func (p *replacementManifestProvider) GetManifest(ctx context.Context, org, modu
 	name := org + "/" + module
 	if path, ok := p.handler.replacementPath(name); ok {
 		if version := p.replacedVersion(name, constraint); version != "" {
-			dependencies, err := p.localReplacementDependencies(ctx, name, path)
+			dependencies, err := p.localReplacementDependencies(ctx, path)
 			if err != nil {
 				return nil, err
 			}
@@ -1613,7 +1610,7 @@ func (p *replacementManifestProvider) GetManifest(ctx context.Context, org, modu
 	return p.base.GetManifest(ctx, org, module, constraint)
 }
 
-func (p *replacementManifestProvider) localReplacementDependencies(ctx context.Context, moduleName, path string) ([]ManifestDep, error) {
+func (p *replacementManifestProvider) localReplacementDependencies(ctx context.Context, path string) ([]ManifestDep, error) {
 	transcoder := payload.GetTranscoder(ctx)
 	if transcoder == nil {
 		return nil, ErrDependencyTranscoderMissing
@@ -1623,7 +1620,7 @@ func (p *replacementManifestProvider) localReplacementDependencies(ctx context.C
 	if err != nil {
 		return nil, err
 	}
-	entries, err = p.handler.applyModuleConfigFilters(ctx, moduleName, path, entries)
+	entries, err = p.handler.applyModuleConfigFilters(ctx, path, entries)
 	if err != nil {
 		return nil, err
 	}
@@ -1889,7 +1886,7 @@ func (h *DependencyHandler) loadEntriesForModulePlan(ctx context.Context, transc
 		}
 		return nil, nil, err
 	}
-	entries, err = h.applyModuleConfigFilters(ctx, mod.Org+"/"+mod.Name, modulePath, entries)
+	entries, err = h.applyModuleConfigFilters(ctx, modulePath, entries)
 	if err != nil {
 		if staged != nil {
 			_ = os.RemoveAll(staged.stagingDir)
@@ -1914,23 +1911,22 @@ func (h *DependencyHandler) loadEntriesForModulePlan(ctx context.Context, transc
 // picks up the module's own fixtures (test/_index.yaml under namespace "app"),
 // which then collide with the host's real entries during linking. .wapp packs
 // are skipped: they were already filtered at publish time.
-func (h *DependencyHandler) applyModuleConfigFilters(ctx context.Context, moduleName, modulePath string, entries []regapi.Entry) ([]regapi.Entry, error) {
+func (h *DependencyHandler) applyModuleConfigFilters(ctx context.Context, modulePath string, entries []regapi.Entry) ([]regapi.Entry, error) {
 	if filepath.Ext(modulePath) == ".wapp" {
 		return entries, nil
 	}
-	entryExcludes := append([]string(nil), h.replacements[moduleName].Exclude...)
-	var excludeMeta map[string][]string
-	if cfg, err := depconfig.Load(modulePath); err == nil {
-		entryExcludes = append(entryExcludes, cfg.EntryExcludes()...)
-		excludeMeta = cfg.ExcludeMeta
+	cfg, err := depconfig.Load(modulePath)
+	if err != nil {
+		return entries, nil
 	}
-	if len(entryExcludes) == 0 && len(excludeMeta) == 0 {
+	entryExcludes := cfg.EntryExcludes()
+	if len(entryExcludes) == 0 && len(cfg.ExcludeMeta) == 0 {
 		return entries, nil
 	}
 	filtered := append([]regapi.Entry(nil), entries...)
 	stage := stages.DisableWithOptions(stages.DisableOptions{
 		Entries:     entryExcludes,
-		MetaFilters: excludeMeta,
+		MetaFilters: cfg.ExcludeMeta,
 	})
 	if err := stage.Execute(ctx, &filtered); err != nil {
 		return nil, NewDependencyLoadError(modulePath, err)

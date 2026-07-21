@@ -32,9 +32,8 @@ type Module struct {
 
 // Replacement represents a local module override for development.
 type Replacement struct {
-	From    string   `yaml:"from"`              // Module name to replace
-	To      string   `yaml:"to"`                // Local filesystem path (relative to lock file)
-	Exclude []string `yaml:"exclude,omitempty"` // Entry IDs/namespaces excluded from this local source
+	From string `yaml:"from"` // Module name to replace
+	To   string `yaml:"to"`   // Local filesystem path (relative to lock file)
 }
 
 // Changes represents the differences between two lock files.
