@@ -955,6 +955,27 @@ func TestEnsureModulesInstalledLogsModuleSourceInventory(t *testing.T) {
 	require.Equal(t, int64(1), summary[0].ContextMap()["published"])
 }
 
+func TestEnsureModulesInstalledLogsUninstalledReplacement(t *testing.T) {
+	tmpDir := t.TempDir()
+	lockObj, err := lock.New(filepath.Join(tmpDir, lock.DefaultFilename), lock.WithWorkspaceReplacements([]lock.Replacement{{
+		From: "acme/local",
+		To:   "local",
+	}}))
+	require.NoError(t, err)
+	replacementDir := filepath.Join(tmpDir, "local")
+	require.NoError(t, os.MkdirAll(replacementDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(replacementDir, "wippy.yaml"), []byte("version: v0.2.0\n"), 0o644))
+
+	core, observed := observer.New(zapcore.InfoLevel)
+	require.NoError(t, ensureModulesInstalledFromLock(context.Background(), lockObj, zap.New(core)))
+
+	sources := observed.FilterMessage("module source").All()
+	require.Len(t, sources, 1)
+	require.Equal(t, "acme/local", sources[0].ContextMap()["module"])
+	require.Equal(t, "local", sources[0].ContextMap()["source"])
+	require.Equal(t, "v0.2.0", sources[0].ContextMap()["version"])
+}
+
 func TestLoadEntriesFromModuleLoadPaths_AppliesSourceModuleExcludesToVersionedDependencies(t *testing.T) {
 	ctx := setupTestContext(t)
 	logger := zap.NewNop()
