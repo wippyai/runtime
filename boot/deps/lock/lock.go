@@ -418,8 +418,8 @@ type ModuleLoadPath struct {
 	Module     string   // module name in org/module format, empty for app source
 	Version    string   // module version, empty for app source
 	SourceRoot string   // module root for module-relative resources; defaults to Path
-	Root       bool     // selected deployment root from the lock graph
 	Exclude    []string // replacement-only entry ID/namespace exclusion patterns
+	Root       bool     // selected deployment root from the lock graph
 }
 
 // GetModuleLoadPaths returns load paths annotated with module ownership.
