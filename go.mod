@@ -49,7 +49,7 @@ require (
 	github.com/moby/moby/client v0.5.0
 	github.com/muesli/termenv v0.16.0
 	github.com/prometheus/client_golang v1.24.0
-	github.com/rabbitmq/amqp091-go v1.12.0
+	github.com/rabbitmq/amqp091-go v1.13.0
 	github.com/sergi/go-diff v1.4.0
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.11.1
