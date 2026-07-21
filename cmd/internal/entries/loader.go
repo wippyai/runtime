@@ -399,6 +399,8 @@ func applyModuleConfigFilters(
 		configDir = mp.Path
 	}
 
+	entryExcludes := append([]string(nil), mp.Exclude...)
+	var excludeMeta map[string][]string
 	cfg, err := depconfig.Load(configDir)
 	if err != nil {
 		if logger != nil {
@@ -407,17 +409,18 @@ func applyModuleConfigFilters(
 				zap.String("path", configDir),
 				zap.Error(err))
 		}
-		return entries, nil
+	} else {
+		entryExcludes = append(entryExcludes, cfg.EntryExcludes()...)
+		excludeMeta = cfg.ExcludeMeta
 	}
-	entryExcludes := cfg.EntryExcludes()
-	if len(entryExcludes) == 0 && len(cfg.ExcludeMeta) == 0 {
+	if len(entryExcludes) == 0 && len(excludeMeta) == 0 {
 		return entries, nil
 	}
 
 	filtered := append([]regapi.Entry(nil), entries...)
 	stage := stages.DisableWithOptions(stages.DisableOptions{
 		Entries:     entryExcludes,
-		MetaFilters: cfg.ExcludeMeta,
+		MetaFilters: excludeMeta,
 	})
 	if err := stage.Execute(ctx, &filtered); err != nil {
 		return nil, err
