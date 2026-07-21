@@ -657,13 +657,13 @@ func (h *DependencyHandler) ReconcileResolution(
 			))
 		}
 	}
-	if refreshed, err := h.refreshReplacementModuleIdentities(resolved); err != nil {
+	if _, err := h.refreshReplacementModuleIdentities(resolved); err != nil {
 		return regapi.DirectiveResult{}, err
-	} else if refreshed {
-		effectiveResolution = dependencyResolution(rootDeps, refDeps, resolved)
-		effectiveResolution.BaselineDigest = baselineDigest
-		effectiveResolution = effectiveResolution.Canonical()
 	}
+	// A replacement tree is mutable, while a stored resolution is immutable
+	// for its history version. The refreshed module identity reloads entries,
+	// but the resolution checkpoint remains unchanged so boot does not try to
+	// rebind that version to a different graph.
 
 	desiredModules := resolvedModuleSet(resolved)
 	// A stored graph is authoritative by content identity, not merely version.

@@ -80,6 +80,8 @@ replacements:
 
 	history, err := historysqlite.NewSQLite(registryPath, zap.NewNop())
 	require.NoError(t, err)
+	initialHistory := history
+	t.Cleanup(func() { _ = initialHistory.Close() })
 	registry := newRegistry(history, newHandler())
 	root := regapi.Entry{
 		ID:   regapi.NewID("app.deps", "local"),

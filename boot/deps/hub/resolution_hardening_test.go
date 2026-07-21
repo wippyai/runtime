@@ -126,7 +126,8 @@ replacements:
 	result, err := handler.ReconcileResolution(ctx, regapi.State{root, oldEntry}, regapi.State{root, oldEntry}, resolution)
 	require.NoError(t, err)
 	require.Len(t, result.Resolution.Modules, 1)
-	require.Equal(t, afterDigest, result.Resolution.Modules[0].Digest)
+	require.Equal(t, beforeDigest, result.Resolution.Modules[0].Digest,
+		"a history version keeps its original resolution checkpoint")
 
 	var updated *regapi.Entry
 	for _, scoped := range result.Additional {
