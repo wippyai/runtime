@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	bootapi "github.com/wippyai/runtime/api/boot"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/boot/deps/hub"
@@ -279,6 +280,43 @@ entries:
 	if _, ok := got["bad/excluded"]; ok {
 		t.Fatalf("replacement scan ignored manifest source exclusions: got %v", got)
 	}
+}
+
+func TestLoadDependencyScanEntriesAppliesWorkspaceReplacementExcludes(t *testing.T) {
+	ctx := setupLoaderContext(t)
+	ldr := bootapi.GetLoader(ctx)
+	require.NotNil(t, ldr)
+
+	tmpDir := t.TempDir()
+	appDir := filepath.Join(tmpDir, "app")
+	replacementDir := filepath.Join(tmpDir, "local", "mcp")
+	require.NoError(t, os.MkdirAll(appDir, 0o755))
+	require.NoError(t, os.MkdirAll(replacementDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(replacementDir, "_index.yaml"), []byte(`version: "1.0"
+namespace: local.mcp
+entries:
+  - name: runtime
+    kind: ns.dependency
+    component: acme/runtime
+    version: v1.0.0
+  - name: instrument
+    kind: ns.dependency
+    component: acme/instrument
+    version: v1.0.0
+`), 0o644))
+
+	lockObj, err := lock.New(filepath.Join(tmpDir, lock.DefaultFilename), lock.WithWorkspaceReplacements([]lock.Replacement{{
+		From:    "local/mcp",
+		To:      "local/mcp",
+		Exclude: []string{"local.mcp:instrument"},
+	}}))
+	require.NoError(t, err)
+	lockObj.SetDirectories(lock.Directories{Modules: ".wippy", Src: "app"})
+
+	loaded, err := loadDependencyScanEntries(ctx, ldr, appDir, lockObj, zap.NewNop())
+	require.NoError(t, err)
+	dependencies := extractRootDependencies(loaded, payload.GetTranscoder(ctx))
+	require.Equal(t, []dependencyRequest{{Org: "acme", Module: "runtime", Constraint: "v1.0.0"}}, dependencies)
 }
 
 func mustWriteFile(t *testing.T, path string) {
