@@ -167,9 +167,6 @@ func warnTrackedLockReplacements(lockObj *lock.Lock, logger *zap.Logger) {
 
 func ensureModulesInstalledFromLock(ctx context.Context, lockObj *lock.Lock, logger *zap.Logger) error {
 	modules := lockObj.GetModules()
-	if len(modules) == 0 {
-		return nil
-	}
 
 	lockDir := filepath.Dir(lockObj.Path())
 	vendorPath := lock.ResolveLockPath(lockDir, lockObj.GetVendorPath())
@@ -178,6 +175,9 @@ func ensureModulesInstalledFromLock(ctx context.Context, lockObj *lock.Lock, log
 		zap.String("vendor_path", vendorPath),
 		zap.Bool("unpack_modules", shouldUnpack))
 	logModuleSourceInventory(lockObj, vendorPath, logger)
+	if len(modules) == 0 {
+		return nil
+	}
 
 	// Check which modules need installation
 	var missingModules []lock.Module
