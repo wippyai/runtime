@@ -80,15 +80,25 @@ func (l *Lock) effectiveReplacements() []Replacement {
 	capacity := len(l.data.Replacements) + len(l.workspaceOverlay)
 	index := make(map[string]int, capacity)
 	merged := make([]Replacement, 0, capacity)
-	for _, layer := range [][]Replacement{l.data.Replacements, l.workspaceOverlay} {
-		for _, replacement := range layer {
-			if i, ok := index[replacement.From]; ok {
-				merged[i] = replacement
-				continue
+	for _, replacement := range l.data.Replacements {
+		index[replacement.From] = len(merged)
+		merged = append(merged, replacement)
+	}
+	for _, replacement := range l.workspaceOverlay {
+		if i, ok := index[replacement.From]; ok {
+			if replacement.To != "" {
+				merged[i].To = replacement.To
 			}
-			index[replacement.From] = len(merged)
-			merged = append(merged, replacement)
+			if replacement.Exclude != nil {
+				merged[i].Exclude = append([]string(nil), replacement.Exclude...)
+			}
+			continue
 		}
+		if replacement.To == "" {
+			continue
+		}
+		index[replacement.From] = len(merged)
+		merged = append(merged, replacement)
 	}
 	return merged
 }
@@ -405,10 +415,11 @@ func WappPath(name graph.Name, version string) string {
 // ModuleLoadPath pairs a filesystem path with its owning module metadata.
 type ModuleLoadPath struct {
 	Path       string
-	Module     string // module name in org/module format, empty for app source
-	Version    string // module version, empty for app source
-	SourceRoot string // module root for module-relative resources; defaults to Path
-	Root       bool   // selected deployment root from the lock graph
+	Module     string   // module name in org/module format, empty for app source
+	Version    string   // module version, empty for app source
+	SourceRoot string   // module root for module-relative resources; defaults to Path
+	Root       bool     // selected deployment root from the lock graph
+	Exclude    []string // replacement-only entry ID/namespace exclusion patterns
 }
 
 // GetModuleLoadPaths returns load paths annotated with module ownership.
@@ -428,17 +439,19 @@ func (l *Lock) GetModuleLoadPaths() []ModuleLoadPath {
 
 	replaced := make(map[string]struct{}, len(replacements))
 	for _, repl := range replacements {
-		replaced[repl.From] = struct{}{}
-		if repl.To != "" {
-			root := ResolveLockPath(lockDir, repl.To)
-			path := moduleEntryLoadPath(root)
-			paths = append(paths, ModuleLoadPath{
-				Path:       path,
-				Module:     repl.From,
-				SourceRoot: root,
-				Root:       l.IsRootModule(repl.From),
-			})
+		if repl.To == "" {
+			continue
 		}
+		replaced[repl.From] = struct{}{}
+		root := ResolveLockPath(lockDir, repl.To)
+		path := moduleEntryLoadPath(root)
+		paths = append(paths, ModuleLoadPath{
+			Path:       path,
+			Module:     repl.From,
+			SourceRoot: root,
+			Root:       l.IsRootModule(repl.From),
+			Exclude:    append([]string(nil), repl.Exclude...),
+		})
 	}
 
 	vendorDir := l.GetVendorPath()
