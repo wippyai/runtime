@@ -63,6 +63,83 @@ func TestReplacementResolutionTreatsRebuiltLocalSourceAsCurrent(t *testing.T) {
 	require.True(t, handler.hasCurrentUnpackedModule(module), "a configured local replacement must remain live after a rebuild")
 }
 
+func TestDependencyHandler_ReconcileReloadsRebuiltReplacement(t *testing.T) {
+	ctx := newTestContext()
+	tmpDir := t.TempDir()
+	lockPath := filepath.Join(tmpDir, lock.DefaultFilename)
+	replacementPath := filepath.Join(tmpDir, "local-mod")
+	replacementIndex := filepath.Join(replacementPath, "_index.json")
+	require.NoError(t, os.MkdirAll(replacementPath, 0o755))
+	require.NoError(t, os.WriteFile(lockPath, []byte(`directories:
+  modules: .wippy
+  src: ./src
+replacements:
+  - from: local/mod
+    to: ./local-mod
+`), 0o600))
+	require.NoError(t, os.WriteFile(replacementIndex, []byte(`{
+  "namespace": "local.mod",
+  "entries": [{"name": "svc", "kind": "registry.entry", "data": {"generation": "one"}}]
+}`), 0o600))
+
+	beforeDigest, beforeSize, err := digestReplacementTree(replacementPath)
+	require.NoError(t, err)
+	handler, err := NewDependencyHandler(DependencyHandlerOptions{
+		Hub:       &fakeHub{},
+		Logger:    zap.NewNop(),
+		LockPath:  lockPath,
+		VendorDir: t.TempDir(),
+	})
+	require.NoError(t, err)
+
+	root := hardeningRoot("app.deps:local", "local/mod", "v0.1.0")
+	oldEntry := regapi.Entry{
+		ID:   regapi.NewID("local.mod", "svc"),
+		Kind: regapi.EntryKind,
+		Meta: attrs.NewBagFrom(map[string]any{
+			metaModuleKey:        "local/mod",
+			metaModuleVersionKey: "v0.1.0",
+			metaModuleDigestKey:  beforeDigest,
+		}),
+		Data: payload.New(map[string]any{"generation": "one"}),
+	}
+	resolution := dependencyResolution([]desiredDependency{{
+		entry: root,
+		definition: DependencyDefinition{
+			Component: "local/mod",
+			Version:   "v0.1.0",
+		},
+	}}, nil, []ResolvedModule{{
+		Org: "local", Name: "mod", Version: "v0.1.0",
+		Source: moduleSourceReplacementTreeV1, Digest: beforeDigest, SizeBytes: beforeSize,
+	}})
+
+	require.NoError(t, os.WriteFile(replacementIndex, []byte(`{
+  "namespace": "local.mod",
+  "entries": [{"name": "svc", "kind": "registry.entry", "data": {"generation": "two"}}]
+}`), 0o600))
+	afterDigest, _, err := digestReplacementTree(replacementPath)
+	require.NoError(t, err)
+	require.NotEqual(t, beforeDigest, afterDigest)
+
+	result, err := handler.ReconcileResolution(ctx, regapi.State{root, oldEntry}, regapi.State{root, oldEntry}, resolution)
+	require.NoError(t, err)
+	require.Len(t, result.Resolution.Modules, 1)
+	require.Equal(t, afterDigest, result.Resolution.Modules[0].Digest)
+
+	var updated *regapi.Entry
+	for _, scoped := range result.Additional {
+		if scoped.Operation.Kind == regapi.EntryUpdate && scoped.Operation.Entry.ID == oldEntry.ID {
+			entry := scoped.Operation.Entry
+			updated = &entry
+			break
+		}
+	}
+	require.NotNil(t, updated)
+	require.Equal(t, afterDigest, moduleDigest(*updated))
+	require.Equal(t, "two", updated.Data.Data().(map[string]any)["generation"])
+}
+
 func hardeningModuleEntry(id, module, version string) regapi.Entry {
 	return regapi.Entry{
 		ID:   regapi.ParseID(id),
