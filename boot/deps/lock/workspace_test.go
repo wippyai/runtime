@@ -38,6 +38,23 @@ func TestWorkspaceReplacementsRejectsNonStringPath(t *testing.T) {
 	require.ErrorContains(t, err, "path must be a string or null")
 }
 
+func TestWorkspaceReplacementExcludesComposeWithPaths(t *testing.T) {
+	cfg := boot.NewConfig(
+		boot.WithSection("workspace", map[string]any{
+			"replacements.acme/mcp":         "../mcp",
+			"replacement_excludes.acme/mcp": []any{"acme.mcp:instrument", "acme.mcp.onboarding:**"},
+		}),
+	)
+
+	replacements, err := WorkspaceReplacements(cfg)
+	require.NoError(t, err)
+	require.Equal(t, []Replacement{{
+		From:    "acme/mcp",
+		To:      "../mcp",
+		Exclude: []string{"acme.mcp:instrument", "acme.mcp.onboarding:**"},
+	}}, replacements)
+}
+
 func TestWorkspaceReplacementWinsOverTracked(t *testing.T) {
 	tmpDir := t.TempDir()
 	lockPath := filepath.Join(tmpDir, DefaultFilename)
