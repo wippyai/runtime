@@ -2875,6 +2875,44 @@ replacements:
 	assert.False(t, created[regapi.NewID("local.mod.test", "excluded_dependency")])
 }
 
+func TestReplacementManifestProviderAppliesReplacementExcludes(t *testing.T) {
+	ctx := newTestContext()
+	tmpDir := t.TempDir()
+	lockPath := filepath.Join(tmpDir, "wippy.lock")
+	replacementPath := filepath.Join(tmpDir, "local-mod")
+	require.NoError(t, os.MkdirAll(replacementPath, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(replacementPath, "wippy.yaml"), []byte("organization: local\nmodule: mod\nversion: v0.1.0\n"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(replacementPath, "_index.json"), []byte(`{
+  "namespace": "local.mod",
+  "entries": [
+    {"name": "runtime", "kind": "ns.dependency", "data": {"component": "acme/good", "version": "v1.0.0"}},
+    {"name": "instrument", "kind": "ns.dependency", "data": {"component": "invalid", "version": "v1.0.0"}}
+  ]
+}`), 0o600))
+	require.NoError(t, os.WriteFile(lockPath, []byte(`directories:
+  modules: .wippy
+  src: ./src
+replacements:
+  - from: local/mod
+    to: ./local-mod
+    exclude:
+      - local.mod:instrument
+`), 0o600))
+
+	handler, err := NewDependencyHandler(DependencyHandlerOptions{
+		Hub:       &fakeHub{},
+		Logger:    zap.NewNop(),
+		LockPath:  lockPath,
+		VendorDir: t.TempDir(),
+	})
+	require.NoError(t, err)
+
+	provider := replacementManifestProvider{handler: handler, base: &fakeHub{}}
+	manifest, err := provider.GetManifest(ctx, "local", "mod", "v0.1.0")
+	require.NoError(t, err)
+	require.Equal(t, []ManifestDep{{Org: "acme", Name: "good", Version: "v1.0.0"}}, manifest.Dependencies)
+}
+
 func TestDependencyHandler_ResolveModules_ReplacedModuleRangeConstraintFromLocalManifest(t *testing.T) {
 	ctx := newTestContext()
 	tmpDir := t.TempDir()
