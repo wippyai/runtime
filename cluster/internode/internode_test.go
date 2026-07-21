@@ -298,23 +298,20 @@ func TestService_Start_UsesAdvertisedInternodeEndpoint(t *testing.T) {
 }
 
 func TestService_ConnectToNode_InvalidAdvertisedEndpointFailsClosed(t *testing.T) {
-	tests := []struct {
-		name string
-		meta cluster.NodeMeta
-	}{
-		{name: "missing advertised port", meta: cluster.NodeMeta{"internode_port": "9001", "internode_advertise_addr": "relay.internal"}},
-		{name: "missing advertised address", meta: cluster.NodeMeta{"internode_port": "9001", "internode_advertise_port": "19001"}},
-		{name: "invalid advertised address", meta: cluster.NodeMeta{"internode_port": "9001", "internode_advertise_addr": "relay.internal:19001", "internode_advertise_port": "19001"}},
-		{name: "invalid advertised port", meta: cluster.NodeMeta{"internode_port": "9001", "internode_advertise_addr": "relay.internal", "internode_advertise_port": "not-a-port"}},
+	tests := map[string]cluster.NodeMeta{
+		"missing advertised port":    {"internode_port": "9001", "internode_advertise_addr": "relay.internal"},
+		"missing advertised address": {"internode_port": "9001", "internode_advertise_port": "19001"},
+		"invalid advertised address": {"internode_port": "9001", "internode_advertise_addr": "relay.internal:19001", "internode_advertise_port": "19001"},
+		"invalid advertised port":    {"internode_port": "9001", "internode_advertise_addr": "relay.internal", "internode_advertise_port": "not-a-port"},
 	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, meta := range tests {
+		t.Run(name, func(t *testing.T) {
 			service, connMan, _, _, ctx, cancel := setupService(t)
 			defer cancel()
 			require.NoError(t, service.Start(ctx))
 			defer func() { _ = service.Stop() }()
 
-			service.connectToNode(cluster.NodeInfo{ID: "remote-node", Addr: "192.168.1.100:7946", Meta: tc.meta})
+			service.connectToNode(cluster.NodeInfo{ID: "remote-node", Addr: "192.168.1.100:7946", Meta: meta})
 
 			connMan.mu.Lock()
 			assert.Empty(t, connMan.ensuredConns)
