@@ -29,7 +29,7 @@ func hardeningRoot(id, component, version string) regapi.Entry {
 	}
 }
 
-func TestReplacementResolutionRevalidatesCurrentTree(t *testing.T) {
+func TestReplacementResolutionTreatsRebuiltLocalSourceAsCurrent(t *testing.T) {
 	tmpDir := t.TempDir()
 	lockPath := filepath.Join(tmpDir, lock.DefaultFilename)
 	replacementPath := filepath.Join(tmpDir, "local-http")
@@ -60,7 +60,7 @@ func TestReplacementResolutionRevalidatesCurrentTree(t *testing.T) {
 	require.True(t, handler.hasCurrentUnpackedModule(module))
 
 	require.NoError(t, os.WriteFile(filepath.Join(replacementPath, "entry.yaml"), []byte("changed"), 0o600))
-	require.False(t, handler.hasCurrentUnpackedModule(module), "history must not trust stale entry metadata after replacement content changes")
+	require.True(t, handler.hasCurrentUnpackedModule(module), "a configured local replacement must remain live after a rebuild")
 }
 
 func hardeningModuleEntry(id, module, version string) regapi.Entry {

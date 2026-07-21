@@ -102,6 +102,8 @@ func runInstall(cmd *cobra.Command, args []string) error {
 		return NewInvalidLockFileError(fmt.Errorf("lock file %s: %w", lockObj.Path(), err))
 	}
 
+	pruneReplacedModuleArtifacts(lockObj, logger)
+
 	selection := selectInstallModules(lockObj, args, logger)
 	modules := selection.modules
 	if len(args) > 0 && selection.matched == 0 {
@@ -278,6 +280,27 @@ type installSelection struct {
 	modules         []lock.Module
 	matched         int
 	skippedReplaced int
+}
+
+func pruneReplacedModuleArtifacts(lockObj *lock.Lock, logger *zap.Logger) {
+	if lockObj == nil {
+		return
+	}
+
+	modules := make(map[string]lock.Module, len(lockObj.GetModules()))
+	for _, module := range lockObj.GetModules() {
+		modules[module.Name] = module
+	}
+
+	lockDir := filepath.Dir(lockObj.Path())
+	vendorDir := lock.ResolveLockPath(lockDir, lockObj.GetVendorPath())
+	for _, replacement := range lockObj.GetReplacements() {
+		module, ok := modules[replacement.From]
+		if !ok || module.Version == "" {
+			continue
+		}
+		pruneModuleArtifacts(vendorDir, module.Name, module.Version, true, logger)
+	}
 }
 
 func selectInstallModules(lockObj *lock.Lock, requested []string, logger *zap.Logger) installSelection {
