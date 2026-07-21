@@ -69,7 +69,8 @@ func TestDependencyHandler_ReconcileReloadsRebuiltReplacement(t *testing.T) {
 	lockPath := filepath.Join(tmpDir, lock.DefaultFilename)
 	replacementPath := filepath.Join(tmpDir, "local-mod")
 	replacementIndex := filepath.Join(replacementPath, "_index.json")
-	require.NoError(t, os.MkdirAll(replacementPath, 0o755))
+	staticBundle := filepath.Join(replacementPath, "static", "app.js")
+	require.NoError(t, os.MkdirAll(filepath.Dir(staticBundle), 0o755))
 	require.NoError(t, os.WriteFile(lockPath, []byte(`directories:
   modules: .wippy
   src: ./src
@@ -81,6 +82,7 @@ replacements:
   "namespace": "local.mod",
   "entries": [{"name": "svc", "kind": "registry.entry", "data": {"generation": "one"}}]
 }`), 0o600))
+	require.NoError(t, os.WriteFile(staticBundle, []byte("window.build = 'one';\n"), 0o600))
 
 	beforeDigest, beforeSize, err := digestReplacementTree(replacementPath)
 	require.NoError(t, err)
@@ -114,10 +116,9 @@ replacements:
 		Source: moduleSourceReplacementTreeV1, Digest: beforeDigest, SizeBytes: beforeSize,
 	}})
 
-	require.NoError(t, os.WriteFile(replacementIndex, []byte(`{
-  "namespace": "local.mod",
-  "entries": [{"name": "svc", "kind": "registry.entry", "data": {"generation": "two"}}]
-}`), 0o600))
+	// A static rebuild changes local source without changing the entry manifest.
+	// The next boot reconciliation must accept and resnapshot that tree.
+	require.NoError(t, os.WriteFile(staticBundle, []byte("window.build = 'two';\n"), 0o600))
 	afterDigest, _, err := digestReplacementTree(replacementPath)
 	require.NoError(t, err)
 	require.NotEqual(t, beforeDigest, afterDigest)
@@ -137,7 +138,7 @@ replacements:
 	}
 	require.NotNil(t, updated)
 	require.Equal(t, afterDigest, moduleDigest(*updated))
-	require.Equal(t, "two", updated.Data.Data().(map[string]any)["generation"])
+	require.Equal(t, "one", updated.Data.Data().(map[string]any)["generation"])
 }
 
 func hardeningModuleEntry(id, module, version string) regapi.Entry {
