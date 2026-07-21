@@ -615,6 +615,9 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *tea
 	if err := parseMetadataFlags(metaFlags, metadata, logger); err != nil {
 		return NewParseMetadataError(err)
 	}
+	if err := addPackRuntimeMetadata(metadata, folderPath); err != nil {
+		return NewPackConfigError(err)
+	}
 
 	p.Send(progressMsg{stage: stageWrite, percent: 0.8, status: "Writing pack file..."})
 
@@ -665,6 +668,33 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *tea
 		metadata: metadata,
 	})
 
+	return nil
+}
+
+// addPackRuntimeMetadata gives raw snapshot packs the same declarative runtime
+// metadata contract as application packs produced by publish. The manifest's
+// publish allow-lists remain the authority, so machine-local settings and
+// publisher environment values cannot leak into the pack.
+//
+// A manifest is optional for raw pack users. When one is present, however, a
+// malformed manifest or invalid publication contract must fail the pack rather
+// than silently produce a snapshot that cannot be configured as declared.
+func addPackRuntimeMetadata(metadata attrs.Bag, configDir string) error {
+	manifestPath := filepath.Join(configDir, moduleconfig.DefaultConfigFile)
+	if _, err := os.Stat(manifestPath); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("read pack manifest %s: %w", manifestPath, err)
+	}
+
+	manifest, err := moduleconfig.Load(configDir)
+	if err != nil {
+		return err
+	}
+	if err := addPublishedRuntimeMetadata(metadata, configDir, manifest.Publish); err != nil {
+		return fmt.Errorf("collect pack runtime metadata: %w", err)
+	}
 	return nil
 }
 

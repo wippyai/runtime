@@ -14,6 +14,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/attrs"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/boot/loader"
@@ -31,6 +32,32 @@ import (
 	historynil "github.com/wippyai/runtime/system/registry/history/nil"
 	"github.com/wippyai/runtime/system/registry/topology"
 )
+
+func TestPreserveManagedEntryMetadata(t *testing.T) {
+	id := registry.NewID("app.deps", "core")
+	snapshot := registry.State{{
+		ID: id, Kind: registry.NamespaceDependency,
+		Meta: attrs.NewBagFrom(map[string]any{
+			"module": "acme/app", "module_version": "1.0.0", "module_digest": "sha256:old", "title": "Old",
+		}),
+		Data: payload.New(map[string]any{"component": "acme/core", "version": "1.0.0"}),
+	}}
+	changes := registry.ChangeSet{{
+		Kind: registry.EntryUpdate,
+		Entry: registry.Entry{
+			ID: id, Kind: registry.NamespaceDependency,
+			Meta: attrs.NewBagFrom(map[string]any{"title": "New"}),
+			Data: payload.New(map[string]any{"component": "acme/core", "version": "2.0.0"}),
+		},
+	}}
+
+	got := preserveManagedEntryMetadata(changes, snapshot)
+	require.Len(t, got, 1)
+	require.Equal(t, "acme/app", got[0].Entry.Meta.GetString("module", ""))
+	require.Equal(t, "1.0.0", got[0].Entry.Meta.GetString("module_version", ""))
+	require.Equal(t, "sha256:old", got[0].Entry.Meta.GetString("module_digest", ""))
+	require.Equal(t, "New", got[0].Entry.Meta.GetString("title", ""))
+}
 
 // MockRunner is a mock implementation of the registry.process interface for testing.
 type MockRunner struct {

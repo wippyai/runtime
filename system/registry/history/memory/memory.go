@@ -383,7 +383,8 @@ func (m *Storage) CompareAndSetHeadWithDependencyResolution(expected, target reg
 	if !memoryHeadMatchesParent(m.head, expected) {
 		return fmt.Errorf("history head changed: expected version %d", expected.ID())
 	}
-	if existing, ok := m.resolutions[target.ID()]; ok && existing.Digest != canonical.Digest {
+	if existing, ok := m.resolutions[target.ID()]; ok && existing.Digest != canonical.Digest &&
+		!registry.CanRebaseDependencyResolution(existing, canonical) {
 		return fmt.Errorf("version %d already references dependency resolution %s, refusing %s", target.ID(), existing.Digest, canonical.Digest)
 	}
 	m.resolutions[target.ID()] = canonical

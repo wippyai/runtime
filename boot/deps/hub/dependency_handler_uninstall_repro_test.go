@@ -21,7 +21,7 @@ import (
 // mcpServerWappEntries mirrors the real butschster/mcp-server layout: entries
 // live in the "mcp" namespace (not org.module), three SSE endpoints default to
 // router app:api.public at /mcp, and a module-owned ns.requirement relocates
-// their meta.router. Installing with param butschster.mcp-server:router=app:api
+// their meta.router. Installing with the canonical param mcp:router=app:api
 // moves them off app:api.public so they stop colliding with the host's own
 // public MCP endpoint on that router.
 func mcpServerWappEntries() []wapp.Entry {
@@ -66,6 +66,11 @@ func installedMcpSnapshotEntries(routerValue string) []regapi.Entry {
 	}
 	return []regapi.Entry{
 		{
+			ID:   regapi.NewID("mcp", "definition"),
+			Kind: regapi.NamespaceDefinition,
+			Meta: attrs.NewBagFrom(mod),
+		},
+		{
 			ID:   regapi.NewID("mcp", "router"),
 			Kind: regapi.NamespaceRequirement,
 			Meta: attrs.NewBagFrom(mod),
@@ -81,7 +86,7 @@ func mcpRootDep() regapi.Entry {
 	return regapi.Entry{
 		ID:   regapi.NewID("app.deps", "mcp-server"),
 		Kind: regapi.NamespaceDependency,
-		Data: payload.NewPayload(`{"component":"butschster/mcp-server","version":"1.6.2","parameters":[{"name":"butschster.mcp-server:router","value":"app:api"}]}`, payload.JSON),
+		Data: payload.NewPayload(`{"component":"butschster/mcp-server","version":"1.6.2","parameters":[{"name":"mcp:router","value":"app:api"}]}`, payload.JSON),
 	}
 }
 
@@ -165,7 +170,7 @@ func TestReproDeleteUnrelatedRootPreservesMcpRouterParam(t *testing.T) {
 	dummyRoot := regapi.Entry{
 		ID:   regapi.NewID("app.deps", "dummy"),
 		Kind: regapi.NamespaceDependency,
-		Data: payload.NewPayload(`{"component":"wippy/dummy","version":"v1.0.0","parameters":[{"name":"wippy.dummy:router_req","value":"app:api"}]}`, payload.JSON),
+		Data: payload.NewPayload(`{"component":"wippy/dummy","version":"v1.0.0","parameters":[{"name":"dummy:router_req","value":"app:api"}]}`, payload.JSON),
 	}
 	dummyReq := regapi.Entry{
 		ID:   regapi.NewID("dummy", "router_req"),

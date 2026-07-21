@@ -28,6 +28,14 @@ var (
 	ErrEmptyPatternPath = apierror.New(apierror.Invalid, "pattern path cannot be empty").WithRetryable(apierror.False)
 )
 
+// NewDuplicateEntryIDError creates an error when a delta input state carries
+// two entries under one ID; side names which input ("source" or "target").
+func NewDuplicateEntryIDError(side, ns, name string) apierror.Error {
+	return apierror.New(apierror.Invalid, "duplicate entry id in "+side+" state: {ns: "+ns+", name: "+name+"} — the same entry is defined more than once (commonly one source loaded through two paths)").
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"side": side, "namespace": ns, "name": name}))
+}
+
 // NewEntryExistsError creates an error when an entry already exists
 func NewEntryExistsError(ns, name string) apierror.Error {
 	return apierror.New(apierror.Conflict, "entry already exists: {ns: "+ns+", name: "+name+"}").

@@ -13,7 +13,6 @@ import (
 	"github.com/wippyai/runtime/api/logs"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
-	"github.com/wippyai/runtime/boot/deps/graph"
 	"github.com/wippyai/runtime/system/entry"
 	"go.uber.org/zap"
 )
@@ -139,7 +138,12 @@ func (s *linkStage) Execute(ctx context.Context, entries *[]registry.Entry) erro
 		}
 	}
 
-	dependencies, err := s.collectDependencies(ctx, transcoder, entries)
+	moduleNamespaces, err := declaredModuleNamespaces(*entries)
+	if err != nil {
+		return err
+	}
+
+	dependencies, err := s.collectDependencies(ctx, transcoder, entries, moduleNamespaces)
 	if err != nil {
 		return err
 	}
@@ -194,7 +198,12 @@ func (s *linkStage) shouldFailUnresolvedRequirement(req decodedRequirement) bool
 	return true
 }
 
-func (s *linkStage) collectDependencies(ctx context.Context, transcoder payload.Transcoder, entries *[]registry.Entry) (map[string]decodedDependency, error) {
+func (s *linkStage) collectDependencies(
+	ctx context.Context,
+	transcoder payload.Transcoder,
+	entries *[]registry.Entry,
+	moduleNamespaces map[string]string,
+) (map[string]decodedDependency, error) {
 	source := *entries
 	if s.explicitDeps {
 		source = s.dependencyEntries
@@ -210,16 +219,19 @@ func (s *linkStage) collectDependencies(ctx context.Context, transcoder payload.
 		if err != nil {
 			return nil, NewDecodeDependencyError(e.ID.String(), err)
 		}
-		moduleNamespace, err := componentToNamespace(def.Component)
-		if err != nil {
-			return nil, NewInvalidDependencyComponentError(e.ID.String(), def.Component, err)
+		ownedNamespace := moduleNamespaces[def.Component]
+		if ownedNamespace == "" && len(def.Parameters) > 0 && loadedModule(*entries, def.Component) {
+			return nil, fmt.Errorf(
+				"dependency %s cannot bind parameters for component %s: loaded module has no ns.definition root namespace",
+				e.ID.String(),
+				def.Component,
+			)
 		}
 
 		dependencies[e.ID.String()] = decodedDependency{
-			definition:      def,
-			moduleNamespace: moduleNamespace,
-			component:       def.Component,
-			transitive:      requirementModuleFromEntry(e) != "" && !e.DependencyRoot,
+			definition:     def,
+			ownedNamespace: ownedNamespace,
+			transitive:     requirementModuleFromEntry(e) != "" && !e.DependencyRoot,
 		}
 	}
 
@@ -232,28 +244,19 @@ type decodedRequirement struct {
 }
 
 type decodedDependency struct {
-	definition      *DependencyDefinition
-	moduleNamespace string
-	component       string
+	definition     *DependencyDefinition
+	ownedNamespace string
 	// transitive marks a dependency injected by a package, as opposed to an
 	// explicitly selected deployment root. Ownership and root provenance are
 	// independent for published application modules.
 	transitive bool
 }
 
-// owns reports whether a dependency addresses a requirement. Dotted namespaces
-// are globally scoped and must live in the dependency component namespace or one
-// of its child namespaces. The meta.module bridge is kept only for legacy
-// one-segment alias namespaces such as "telegram".
+// owns reports whether a dependency addresses a requirement. A module owns its
+// declared ns.definition namespace and its children. Package names never
+// participate in registry namespace ownership.
 func (d decodedDependency) owns(req decodedRequirement) bool {
-	if req.entry.ID.NS == d.moduleNamespace || strings.HasPrefix(req.entry.ID.NS, d.moduleNamespace+".") {
-		return true
-	}
-	if !isLegacyAliasNamespace(req.entry.ID.NS) {
-		return false
-	}
-	module := requirementModuleFromEntry(req.entry)
-	return module != "" && module == d.component
+	return req.entry.ID.NS == d.ownedNamespace || strings.HasPrefix(req.entry.ID.NS, d.ownedNamespace+".")
 }
 
 // binding records one dependency parameter resolved to a single concrete
@@ -271,10 +274,10 @@ type binding struct {
 // normalizeBindings maps every dependency parameter to the set of concrete
 // requirement ids it addresses, grouped by requirement id. A bare parameter
 // fans out through the dependency's owned addressing index to every owned
-// requirement of that bare name; a full ns:name parameter addresses the exact
-// requirement id when one exists, otherwise fans out through the owned index.
-// A parameter addressing nothing is dropped. Iteration is sorted so the result
-// is independent of entry ordering.
+// requirement of that bare name; a full ns:name parameter addresses that exact
+// requirement only when it belongs to the referenced module. A parameter
+// addressing nothing is dropped. Iteration is sorted so the result is
+// independent of entry ordering.
 func normalizeBindings(
 	requirements map[string]decodedRequirement,
 	dependencies map[string]decodedDependency,
@@ -314,7 +317,7 @@ func normalizeBindings(
 
 // ownedAddressIndex maps each address key a dependency accepts to the concrete
 // requirement ids it fans out to. Every owned requirement registers under both
-// its bare name and its module-qualified moduleNS:name form. Two or more owned
+// its bare name and its canonical registry id. Two or more owned
 // requirements sharing one bare name is the fan-out set: a bare parameter of
 // that name feeds its value to all of them. A given requirement id appears at
 // most once per key.
@@ -331,7 +334,7 @@ func ownedAddressIndex(
 		}
 		keys := []string{
 			req.entry.ID.Name,
-			dep.moduleNamespace + ":" + req.entry.ID.Name,
+			reqID,
 		}
 		for _, key := range keys {
 			if !containsID(owned[key], reqID) {
@@ -343,19 +346,21 @@ func ownedAddressIndex(
 }
 
 // resolveParameter maps a single parameter name to the set of concrete
-// requirement ids it addresses. A full ns:name addresses the exact requirement
-// id when one exists, bypassing the owned index. Otherwise the name fans out
-// through the dependency's owned index to every owned requirement of that name.
-// A name that addresses nothing returns an empty set.
+// requirement ids it addresses. A canonical ns:name is already a complete
+// registry address and selects that exact requirement. A bare name uses the
+// dependency component's declared namespace index. Package identities are
+// never converted into registry namespaces. A name that addresses nothing
+// returns an empty set.
 func resolveParameter(
 	name string,
 	requirements map[string]decodedRequirement,
 	owned map[string][]string,
 ) []string {
 	if strings.Contains(name, ":") {
-		if _, exact := requirements[name]; exact {
+		if _, exists := requirements[name]; exists {
 			return []string{name}
 		}
+		return nil
 	}
 	return owned[name]
 }
@@ -531,10 +536,6 @@ func (s *linkStage) findTargetEntries(
 	return results
 }
 
-func isLegacyAliasNamespace(ns string) bool {
-	return ns != "" && !strings.Contains(ns, ".")
-}
-
 func requirementModuleFromEntry(entry registry.Entry) string {
 	if entry.Meta == nil {
 		return ""
@@ -545,10 +546,53 @@ func requirementModuleFromEntry(entry registry.Entry) string {
 	return ""
 }
 
-func componentToNamespace(component string) (string, error) {
-	name, err := graph.ParseName(component)
-	if err != nil {
-		return "", err
+func loadedModule(entries []registry.Entry, module string) bool {
+	for _, entry := range entries {
+		if requirementModuleFromEntry(entry) == module {
+			return true
+		}
 	}
-	return name.Organization + "." + name.Module, nil
+	return false
+}
+
+// declaredModuleNamespaces returns the canonical registry namespace exported
+// by each loaded module. Publishing requires exactly one ns.definition per
+// module, and the loader records the containing module on that entry. This is
+// the authoritative bridge between a Hub component name (org/module) and its
+// registry namespace; neither spelling nor pluralization is inferred.
+func declaredModuleNamespaces(entries []registry.Entry) (map[string]string, error) {
+	namespaces := make(map[string]string)
+	owners := make(map[string]string)
+	for _, entry := range entries {
+		if entry.Kind != registry.NamespaceDefinition {
+			continue
+		}
+		module := requirementModuleFromEntry(entry)
+		if module == "" {
+			continue
+		}
+		namespace := strings.TrimSpace(entry.ID.NS)
+		if namespace == "" {
+			continue
+		}
+		if existing := namespaces[module]; existing != "" && existing != namespace {
+			return nil, fmt.Errorf(
+				"module %s declares multiple namespaces: %s and %s",
+				module,
+				existing,
+				namespace,
+			)
+		}
+		if owner := owners[namespace]; owner != "" && owner != module {
+			return nil, fmt.Errorf(
+				"namespace %s is declared by multiple modules: %s and %s",
+				namespace,
+				owner,
+				module,
+			)
+		}
+		namespaces[module] = namespace
+		owners[namespace] = module
+	}
+	return namespaces, nil
 }

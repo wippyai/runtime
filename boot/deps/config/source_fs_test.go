@@ -64,3 +64,28 @@ func TestSourcePrefix(t *testing.T) {
 	assert.Equal(t, "src/components", SourcePrefix(root, filepath.Join(root, "src", "components")))
 	assert.Empty(t, SourcePrefix(root, root+"-sibling"))
 }
+
+func TestNewSourceFSHidesNestedRuntimeState(t *testing.T) {
+	base := fstest.MapFS{
+		".wippy.yaml":                           {Data: []byte("application")},
+		"src/_index.yaml":                       {Data: []byte("source")},
+		"src/.wippy/vendor/example/_index.yaml": {Data: []byte("dependency")},
+	}
+
+	filtered := NewSourceFS(base, nil, ".", ".")
+	var paths []string
+	require.NoError(t, fs.WalkDir(filtered, ".", func(name string, _ fs.DirEntry, err error) error {
+		require.NoError(t, err)
+		paths = append(paths, name)
+		return nil
+	}))
+
+	assert.Equal(t, []string{
+		".",
+		".wippy.yaml",
+		"src",
+		"src/_index.yaml",
+	}, paths)
+	_, err := fs.Stat(filtered, "src/.wippy/vendor/example/_index.yaml")
+	assert.ErrorIs(t, err, fs.ErrNotExist)
+}

@@ -1090,10 +1090,11 @@ func TestDependencyHandler_CollectDesiredDependencies_TreatsHydratedSameIDAsSame
 		Data: payload.NewPayload(`{"component":"acme/bootloader","version":"*"}`, payload.JSON),
 	}
 
-	deps, err := handler.collectDesiredDependencies(ctx,
+	deps, _, err := handler.collectDesiredDependencies(ctx,
 		regapi.Operation{Kind: regapi.EntryCreate, Entry: updatedDep},
 		regapi.State{hydratedDep},
 		transcoder,
+		nil,
 	)
 	require.NoError(t, err)
 	require.Len(t, deps, 1)
@@ -1102,10 +1103,10 @@ func TestDependencyHandler_CollectDesiredDependencies_TreatsHydratedSameIDAsSame
 	assert.Equal(t, "*", deps[0].definition.Version)
 }
 
-func TestValidateRootDependencyComponents_AllowsSameRootIDReplacement(t *testing.T) {
+func TestFoldRootDependencyComponents_AllowsSameRootIDReplacement(t *testing.T) {
 	rootID := regapi.NewID("app.deps", "tools")
 	hydratedID := regapi.ID{Name: "app.deps:tools"}
-	err := validateRootDependencyComponents([]desiredDependency{
+	roots, refs, err := foldRootDependencyComponents([]desiredDependency{
 		{
 			entry:      regapi.Entry{ID: hydratedID, Kind: regapi.NamespaceDependency},
 			definition: DependencyDefinition{Component: "acme/tools", Version: "0.1.0"},
@@ -1114,20 +1115,162 @@ func TestValidateRootDependencyComponents_AllowsSameRootIDReplacement(t *testing
 			entry:      regapi.Entry{ID: rootID, Kind: regapi.NamespaceDependency},
 			definition: DependencyDefinition{Component: "acme/tools", Version: "0.2.0"},
 		},
-	}, rootID)
+	}, map[string]struct{}{idKey(rootID): {}}, true)
 	require.NoError(t, err)
+	require.Len(t, roots, 2)
+	require.Empty(t, refs)
+}
 
-	err = validateRootDependencyComponents([]desiredDependency{
-		{
-			entry:      regapi.Entry{ID: regapi.NewID("app.deps", "tools"), Kind: regapi.NamespaceDependency},
-			definition: DependencyDefinition{Component: "acme/tools", Version: "0.1.0"},
+func TestFoldRootDependencyComponents_FoldsDuplicateIntoReference(t *testing.T) {
+	appRoot := desiredDependency{
+		entry:      regapi.Entry{ID: regapi.NewID("app.deps", "acme_tools"), Kind: regapi.NamespaceDependency},
+		definition: DependencyDefinition{Component: "acme/tools", Version: ">=0.1.0"},
+	}
+	packageRef := desiredDependency{
+		entry:      regapi.Entry{ID: regapi.NewID("acme.pkg", "__dependency.acme.tools"), Kind: regapi.NamespaceDependency},
+		definition: DependencyDefinition{Component: "acme/tools", Version: ">=0.1.0"},
+	}
+	fresh := map[string]struct{}{idKey(packageRef.entry.ID): {}}
+
+	// A fresh declaration folds under the established root regardless of input
+	// order or namespace naming.
+	for _, input := range [][]desiredDependency{{appRoot, packageRef}, {packageRef, appRoot}} {
+		roots, refs, err := foldRootDependencyComponents(input, fresh, true)
+		require.NoError(t, err)
+		require.Len(t, roots, 1)
+		require.Len(t, refs, 1)
+		assert.Equal(t, "app.deps:acme_tools", roots[0].entry.ID.String())
+		assert.Equal(t, "acme.pkg:__dependency.acme.tools", refs[0].entry.ID.String())
+	}
+
+	// Without a fresh set (reconcile), the lowest canonical key controls.
+	roots, refs, err := foldRootDependencyComponents([]desiredDependency{appRoot, packageRef}, nil, false)
+	require.NoError(t, err)
+	require.Len(t, roots, 1)
+	require.Len(t, refs, 1)
+	assert.Equal(t, "acme.pkg:__dependency.acme.tools", roots[0].entry.ID.String())
+}
+
+func TestFoldRootDependencyComponents_ParameterCarrierControlsForever(t *testing.T) {
+	paramRoot := desiredDependency{
+		entry: regapi.Entry{ID: regapi.NewID("app.deps", "acme_tools"), Kind: regapi.NamespaceDependency},
+		definition: DependencyDefinition{
+			Component:  "acme/tools",
+			Version:    ">=0.1.0",
+			Parameters: []Parameter{{Name: "db", Value: "app:db"}},
 		},
-		{
-			entry:      regapi.Entry{ID: regapi.NewID("app.deps", "other_tools"), Kind: regapi.NamespaceDependency},
-			definition: DependencyDefinition{Component: "acme/tools", Version: "0.2.0"},
+	}
+	bareRef := desiredDependency{
+		entry:      regapi.Entry{ID: regapi.NewID("acme.pkg", "__dependency.acme.tools"), Kind: regapi.NamespaceDependency},
+		definition: DependencyDefinition{Component: "acme/tools", Version: ">=0.1.0"},
+	}
+
+	// Creation: the parameter carrier controls even though the reference has
+	// the lower canonical key.
+	roots, refs, err := foldRootDependencyComponents([]desiredDependency{bareRef, paramRoot},
+		map[string]struct{}{idKey(bareRef.entry.ID): {}}, true)
+	require.NoError(t, err)
+	require.Len(t, roots, 1)
+	require.Len(t, refs, 1)
+	assert.Equal(t, "app.deps:acme_tools", roots[0].entry.ID.String())
+
+	// Every later evaluation — any other operation, and the zero-op reconcile
+	// fold — elects the same controller: the recorded state stays foldable.
+	for _, fresh := range []map[string]struct{}{nil, {idKey(regapi.NewID("app.deps", "other")): {}}} {
+		roots, refs, err = foldRootDependencyComponents([]desiredDependency{paramRoot, bareRef}, fresh, true)
+		require.NoError(t, err)
+		require.Len(t, roots, 1)
+		require.Len(t, refs, 1)
+		assert.Equal(t, "app.deps:acme_tools", roots[0].entry.ID.String())
+	}
+}
+
+func TestFoldRootDependencyComponents_ParameterDisagreementConflictsOnlyStrictly(t *testing.T) {
+	appRoot := desiredDependency{
+		entry: regapi.Entry{ID: regapi.NewID("app.deps", "acme_tools"), Kind: regapi.NamespaceDependency},
+		definition: DependencyDefinition{
+			Component:  "acme/tools",
+			Version:    ">=0.1.0",
+			Parameters: []Parameter{{Name: "db", Value: "app:db"}},
 		},
-	}, rootID)
+	}
+	conflicting := desiredDependency{
+		entry: regapi.Entry{ID: regapi.NewID("acme.pkg", "__dependency.acme.tools"), Kind: regapi.NamespaceDependency},
+		definition: DependencyDefinition{
+			Component:  "acme/tools",
+			Version:    ">=0.1.0",
+			Parameters: []Parameter{{Name: "db", Value: "other:db"}},
+		},
+	}
+	_, _, err := foldRootDependencyComponents([]desiredDependency{appRoot, conflicting},
+		map[string]struct{}{idKey(conflicting.entry.ID): {}}, true)
 	require.Error(t, err)
+
+	// Committed state reconciles leniently: parameter drift never wedges boot.
+	roots, refs, err := foldRootDependencyComponents([]desiredDependency{appRoot, conflicting}, nil, false)
+	require.NoError(t, err)
+	require.Len(t, roots, 1)
+	require.Len(t, refs, 1)
+
+	identical := conflicting
+	identical.definition.Parameters = []Parameter{{Name: "db", Value: "app:db"}}
+	roots, refs, err = foldRootDependencyComponents([]desiredDependency{appRoot, identical},
+		map[string]struct{}{idKey(identical.entry.ID): {}}, true)
+	require.NoError(t, err)
+	require.Len(t, roots, 1)
+	require.Len(t, refs, 1)
+
+	parameterless := conflicting
+	parameterless.definition.Parameters = nil
+	roots, refs, err = foldRootDependencyComponents([]desiredDependency{appRoot, parameterless},
+		map[string]struct{}{idKey(parameterless.entry.ID): {}}, true)
+	require.NoError(t, err)
+	require.Len(t, roots, 1)
+	require.Len(t, refs, 1)
+}
+
+func TestFoldRootDependencyComponents_NormalizesReferenceConstraints(t *testing.T) {
+	root := desiredDependency{
+		entry:      regapi.Entry{ID: regapi.NewID("app.deps", "acme_tools"), Kind: regapi.NamespaceDependency},
+		definition: DependencyDefinition{Component: "acme/tools", Version: ">=0.1.0"},
+	}
+	padded := desiredDependency{
+		entry:      regapi.Entry{ID: regapi.NewID("acme.pkg", "__dependency.acme.tools"), Kind: regapi.NamespaceDependency},
+		definition: DependencyDefinition{Component: "acme/tools", Version: "  >=1.0.0  "},
+	}
+	bare := desiredDependency{
+		entry:      regapi.Entry{ID: regapi.NewID("acme.other", "__dependency.acme.tools"), Kind: regapi.NamespaceDependency},
+		definition: DependencyDefinition{Component: "acme/tools"},
+	}
+	fresh := map[string]struct{}{
+		idKey(padded.entry.ID): {},
+		idKey(bare.entry.ID):   {},
+	}
+	roots, refs, err := foldRootDependencyComponents([]desiredDependency{root, padded, bare}, fresh, true)
+	require.NoError(t, err)
+	require.Len(t, roots, 1)
+	require.Equal(t, "app.deps:acme_tools", roots[0].entry.ID.String())
+	require.Len(t, refs, 2)
+	versions := map[string]string{}
+	for _, ref := range refs {
+		versions[ref.entry.ID.String()] = ref.definition.Version
+	}
+	// Trimmed and wildcard-normalized at the fold: the durable record, the
+	// solver input, and strict replay all see one spelling.
+	assert.Equal(t, ">=1.0.0", versions["acme.pkg:__dependency.acme.tools"])
+	assert.Equal(t, "*", versions["acme.other:__dependency.acme.tools"])
+}
+
+func TestDependencyParametersEqualIsSymmetric(t *testing.T) {
+	a := []Parameter{{Name: "x", Value: 1}, {Name: "x", Value: 2}}
+	b := []Parameter{{Name: "x", Value: 2}, {Name: "x", Value: 2}}
+	assert.Equal(t, dependencyParametersEqual(a, b), dependencyParametersEqual(b, a))
+	assert.False(t, dependencyParametersEqual(a, b))
+
+	c := []Parameter{{Name: "db", Value: "app:db"}, {Name: "mode", Value: "fast"}}
+	d := []Parameter{{Name: "mode", Value: "fast"}, {Name: "db", Value: "app:db"}}
+	assert.True(t, dependencyParametersEqual(c, d))
+	assert.True(t, dependencyParametersEqual(d, c))
 }
 
 func TestDependencyHandler_Expand_RootParametersOverrideModuleOwnedTransitiveParameters(t *testing.T) {
@@ -1222,15 +1365,6 @@ func TestDependencyHandler_Expand_RootParametersOverrideModuleOwnedTransitivePar
 				"component":"wippy/views",
 				"version":"v1.0.0",
 				"parameters":[{"name":"wippy.views:api_router","value":"app:api.views"}]
-			}`, payload.JSON),
-		},
-		{
-			ID:   regapi.NewID("app.deps", "kickside_ui"),
-			Kind: regapi.NamespaceDependency,
-			Data: payload.NewPayload(`{
-				"component":"kickside/ui",
-				"version":"v1.0.0",
-				"parameters":[{"name":"api_router","value":"app:api"}]
 			}`, payload.JSON),
 		},
 	}
@@ -1814,23 +1948,23 @@ func TestDependencyHandler_Expand_RejectsNewModuleClaimingExistingHostEntry(t *t
 	assert.Equal(t, "kickside/security", apiErr.Details().GetString("desired_module", ""))
 }
 
-func TestDependencyHandler_Expand_AppliesCanonicalComponentParametersToAliasNamespaceRequirements(t *testing.T) {
+func TestDependencyHandler_Expand_AppliesCanonicalParametersToDeclaredNamespace(t *testing.T) {
 	ctx := newTestContext()
 	tmpDir := t.TempDir()
 	vendorDir := filepath.Join(tmpDir, "vendor")
 
-	writeWapp(t, filepath.Join(vendorDir, "butschster", "telegram-0.3.0.wapp"), []wapp.Entry{
+	writeWapp(t, filepath.Join(vendorDir, "example", "accounts-0.3.0.wapp"), []wapp.Entry{
 		{
-			ID:   wapp.NewID("telegram", "env_storage"),
+			ID:   wapp.NewID("identity.account", "env_storage"),
 			Kind: regapi.NamespaceRequirement,
 			Data: map[string]any{
 				"targets": []any{
-					map[string]any{"entry": "telegram:webhook_url", "path": ".storage"},
+					map[string]any{"entry": "identity.account:callback_url", "path": ".storage"},
 				},
 			},
 		},
 		{
-			ID:   wapp.NewID("telegram", "webhook_url"),
+			ID:   wapp.NewID("identity.account", "callback_url"),
 			Kind: "env.variable",
 			Data: map[string]any{},
 		},
@@ -1852,12 +1986,12 @@ func TestDependencyHandler_Expand_AppliesCanonicalComponentParametersToAliasName
 	require.NoError(t, err)
 
 	rootDep := regapi.Entry{
-		ID:   regapi.NewID("app.deps", "telegram"),
+		ID:   regapi.NewID("app.deps", "accounts"),
 		Kind: regapi.NamespaceDependency,
 		Data: payload.NewPayload(`{
-			"component":"butschster/telegram",
+			"component":"example/accounts",
 			"version":"0.3.0",
-			"parameters":[{"name":"butschster.telegram:env_storage","value":"app.env:file"}]
+			"parameters":[{"name":"identity.account:env_storage","value":"app.env:file"}]
 		}`, payload.JSON),
 	}
 
@@ -1865,17 +1999,17 @@ func TestDependencyHandler_Expand_AppliesCanonicalComponentParametersToAliasName
 	require.NoError(t, err)
 	assert.True(t, result.Applied)
 
-	var webhookURL *regapi.Entry
+	var callbackURL *regapi.Entry
 	for _, scoped := range result.Additional {
 		op := scoped.Operation
-		if op.Kind == regapi.EntryCreate && op.Entry.ID == regapi.NewID("telegram", "webhook_url") {
+		if op.Kind == regapi.EntryCreate && op.Entry.ID == regapi.NewID("identity.account", "callback_url") {
 			entry := op.Entry
-			webhookURL = &entry
+			callbackURL = &entry
 			break
 		}
 	}
-	require.NotNil(t, webhookURL, "expected module env.variable to be created")
-	data, ok := webhookURL.Data.Data().(map[string]any)
+	require.NotNil(t, callbackURL, "expected module env.variable to be created")
+	data, ok := callbackURL.Data.Data().(map[string]any)
 	require.True(t, ok, "created env.variable data must be a map")
 	assert.Equal(t, "app.env:file", data["storage"])
 }
@@ -1889,24 +2023,24 @@ func TestDependencyHandler_Expand_FailsBeforeRegistryApplyWhenRequirementTargetI
 	require.NoError(t, err)
 	lockObj.SetDirectories(lock.Directories{Modules: ".wippy", Src: "."})
 	lockObj.SetOptions(lock.Options{UnpackModules: true})
-	lockObj.SetModule(lock.Module{Name: "butschster/telegram", Version: "0.3.0"})
+	lockObj.SetModule(lock.Module{Name: "example/accounts", Version: "0.3.0"})
 	require.NoError(t, lockObj.Write())
 
-	writeWapp(t, filepath.Join(vendorDir, "butschster", "telegram-0.3.0.wapp"), []wapp.Entry{
+	writeWapp(t, filepath.Join(vendorDir, "example", "accounts-0.3.0.wapp"), []wapp.Entry{
 		{
-			ID:   wapp.NewID("telegram", "webhook_router"),
+			ID:   wapp.NewID("identity.account", "public_router"),
 			Kind: regapi.NamespaceRequirement,
 			Data: map[string]any{
 				"targets": []any{
-					map[string]any{"entry": "telegram.handler:webhook_endpoint", "path": ".meta.router"},
+					map[string]any{"entry": "identity.account.api:login_endpoint", "path": ".meta.router"},
 				},
 			},
 		},
 		{
-			ID:   wapp.NewID("telegram.handler", "webhook.endpoint"),
+			ID:   wapp.NewID("identity.account.api", "login.endpoint"),
 			Kind: "http.endpoint",
-			Meta: map[string]any{"router": "telegram:router"},
-			Data: map[string]any{"method": "POST", "path": "/webhook"},
+			Meta: map[string]any{"router": "identity.account:router"},
+			Data: map[string]any{"method": "POST", "path": "/login"},
 		},
 	})
 
@@ -1927,21 +2061,21 @@ func TestDependencyHandler_Expand_FailsBeforeRegistryApplyWhenRequirementTargetI
 	require.NoError(t, err)
 
 	rootDep := regapi.Entry{
-		ID:   regapi.NewID("app.deps", "telegram"),
+		ID:   regapi.NewID("app.deps", "accounts"),
 		Kind: regapi.NamespaceDependency,
 		Data: payload.NewPayload(`{
-			"component":"butschster/telegram",
+			"component":"example/accounts",
 			"version":"0.3.0",
-			"parameters":[{"name":"butschster.telegram:webhook_router","value":"app:api"}]
+			"parameters":[{"name":"identity.account:public_router","value":"app:api"}]
 		}`, payload.JSON),
 	}
 
 	result, err := handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: rootDep}, nil)
 	require.ErrorContains(t, err, "dependency pipeline failed")
-	require.ErrorContains(t, err, "telegram.handler:webhook_endpoint")
+	require.ErrorContains(t, err, "identity.account.api:login_endpoint")
 	assert.False(t, result.Applied)
 	assert.Empty(t, result.Additional)
-	staging, globErr := filepath.Glob(filepath.Join(vendorDir, "butschster", ".telegram.stage-*"))
+	staging, globErr := filepath.Glob(filepath.Join(vendorDir, "example", ".accounts.stage-*"))
 	require.NoError(t, globErr)
 	assert.Empty(t, staging, "planning errors must remove private extracted trees")
 }
@@ -2340,10 +2474,11 @@ func TestDependencyHandler_CollectDesiredDependencies_IgnoresModuleOwnedDependen
 		Data: payload.NewPayload(`{"component":"acme/child","version":"v1.0.0"}`, payload.JSON),
 	}
 
-	deps, err := handler.collectDesiredDependencies(ctx,
+	deps, _, err := handler.collectDesiredDependencies(ctx,
 		regapi.Operation{Kind: regapi.EntryUpdate, Entry: rootDep},
 		regapi.State{rootDep, moduleDep},
 		transcoder,
+		nil,
 	)
 	require.NoError(t, err)
 	require.Len(t, deps, 1)
@@ -2386,10 +2521,11 @@ func TestDependencyHandler_CollectDesiredDependencies_PreservesExistingDeclaredV
 		},
 	}
 
-	deps, err := handler.collectDesiredDependencies(ctx,
+	deps, _, err := handler.collectDesiredDependencies(ctx,
 		regapi.Operation{Kind: regapi.EntryCreate, Entry: newDep},
 		snapshot,
 		transcoder,
+		nil,
 	)
 	require.NoError(t, err)
 
@@ -2924,10 +3060,11 @@ func TestDependencyHandler_CollectDesiredDependencies_DoesNotPinUpdatedDependenc
 		},
 	}
 
-	deps, err := handler.collectDesiredDependencies(ctx,
+	deps, _, err := handler.collectDesiredDependencies(ctx,
 		regapi.Operation{Kind: regapi.EntryUpdate, Entry: updatedDep},
 		snapshot,
 		transcoder,
+		nil,
 	)
 	require.NoError(t, err)
 	require.Len(t, deps, 1)
@@ -3225,8 +3362,33 @@ func mustReadFile(t *testing.T, path string) []byte {
 
 func buildWappBytes(t *testing.T, entries []wapp.Entry) []byte {
 	t.Helper()
+	entries = completeArtifactFixture(entries)
 	var buf bytes.Buffer
 	writer := wapp.NewWriter()
 	require.NoError(t, writer.PackEntries(wapp.Metadata{}, entries, &buf))
 	return buf.Bytes()
+}
+
+// completeArtifactFixture gives compact artifact fixtures the same mandatory
+// root definition as a published module. Tests that exercise namespace
+// semantics provide their definition explicitly.
+func completeArtifactFixture(entries []wapp.Entry) []wapp.Entry {
+	hasRequirement := false
+	for _, entry := range entries {
+		if entry.Kind == regapi.NamespaceDefinition {
+			return entries
+		}
+		if entry.Kind == regapi.NamespaceRequirement {
+			hasRequirement = true
+		}
+	}
+	if !hasRequirement || len(entries) == 0 || entries[0].ID.Namespace == "" {
+		return entries
+	}
+	completed := append([]wapp.Entry(nil), entries...)
+	completed = append(completed, wapp.Entry{
+		ID:   wapp.NewID(entries[0].ID.Namespace, "definition"),
+		Kind: regapi.NamespaceDefinition,
+	})
+	return completed
 }

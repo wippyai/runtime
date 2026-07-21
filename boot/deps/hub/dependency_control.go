@@ -10,9 +10,9 @@ import (
 )
 
 func isRootDependency(entry regapi.Entry) bool {
-	// DependencyRoot is authoritative for every current source and pack ingest
-	// path. The ownership fallback is retained only so registries persisted
-	// before dependency_root was introduced remain upgradeable.
+	// Deployment ingestion marks source-owned roots explicitly. A dependency
+	// authored through the registry API has no module owner and is a user overlay
+	// root. Module-owned declarations without root provenance are transitive.
 	return entry.Kind == regapi.NamespaceDependency && (entry.DependencyRoot || entryModule(entry) == "")
 }
 

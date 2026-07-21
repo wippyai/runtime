@@ -108,7 +108,8 @@ func (n *History) CompareAndSetHeadWithDependencyResolution(expected, target reg
 	if target.ID() != expected.ID() {
 		return ErrHistoryNotAvailable
 	}
-	if n.resolution != nil && n.resolutionVersion == target.ID() && n.resolution.Digest != canonical.Digest {
+	if n.resolution != nil && n.resolutionVersion == target.ID() && n.resolution.Digest != canonical.Digest &&
+		!registry.CanRebaseDependencyResolution(n.resolution, canonical) {
 		return ErrHistoryNotAvailable
 	}
 	n.resolution = canonical

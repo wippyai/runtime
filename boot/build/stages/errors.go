@@ -68,12 +68,6 @@ func NewDecodeDependencyError(entryID string, cause error) apierror.Error {
 	return apierror.New(apierror.Internal, fmt.Sprintf("failed to decode dependency %s", entryID)).WithCause(cause)
 }
 
-func NewInvalidDependencyComponentError(entryID, component string, cause error) apierror.Error {
-	return apierror.New(apierror.Invalid, fmt.Sprintf("invalid dependency component %s", component)).
-		WithDetails(attrs.NewBagFrom(map[string]any{"entry_id": entryID, "component": component})).
-		WithCause(cause)
-}
-
 func NewRequirementError(requirementName, namespace string, cause error) apierror.Error {
 	return apierror.New(apierror.Internal, fmt.Sprintf("requirement %s in namespace %s failed", requirementName, namespace)).WithCause(cause)
 }

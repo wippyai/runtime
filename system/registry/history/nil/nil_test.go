@@ -255,6 +255,24 @@ func TestHistory_AtomicResolutionInitializesRootHead(t *testing.T) {
 	}
 }
 
+func TestHistory_AtomicResolutionRebasesOnlyAcrossDeploymentBaselines(t *testing.T) {
+	hist := New()
+	v0 := version.New(registry.RootVersion)
+	graph := func(baseline, input string) *registry.DependencyResolution {
+		return (&registry.DependencyResolution{BaselineDigest: baseline, InputDigest: input}).Canonical()
+	}
+	first := graph("sha256:baseline-a", "first")
+	if err := hist.CompareAndSetHeadWithDependencyResolution(v0, v0, first); err != nil {
+		t.Fatalf("initialize resolution: %v", err)
+	}
+	if err := hist.CompareAndSetHeadWithDependencyResolution(v0, v0, graph("sha256:baseline-a", "rewrite")); err == nil {
+		t.Fatal("expected same-baseline rewrite rejection")
+	}
+	if err := hist.CompareAndSetHeadWithDependencyResolution(v0, v0, graph("sha256:baseline-b", "rebased")); err != nil {
+		t.Fatalf("rebase resolution: %v", err)
+	}
+}
+
 func TestHistory_RejectsMalformedResolutionWithoutMutation(t *testing.T) {
 	hist := New()
 	malformed := (&registry.DependencyResolution{Roots: []registry.DependencyRoot{
@@ -268,5 +286,45 @@ func TestHistory_RejectsMalformedResolutionWithoutMutation(t *testing.T) {
 	}
 	if _, err := hist.Head(); err == nil {
 		t.Fatal("malformed resolution advanced nil history head")
+	}
+}
+
+func TestHistory_ReferencedResolutionRoundTripsAndRejectsUnsound(t *testing.T) {
+	hist := New()
+	v0 := version.New(registry.RootVersion)
+	v1 := version.FromParent(v0, 1)
+	if err := hist.Save(v0, registry.ChangeSet{}, true); err != nil {
+		t.Fatalf("save v0: %v", err)
+	}
+
+	referenced := (&registry.DependencyResolution{
+		InputDigest: "sha256:input",
+		Roots: []registry.DependencyRoot{
+			{ID: "app.deps:tools", Component: "acme/tools", Version: ">=1.0.0"},
+		},
+		References: []registry.DependencyRoot{
+			{ID: "acme.pkg:__dependency.acme.tools", Component: "acme/tools", Version: ">=1.2.0"},
+		},
+		Modules: []registry.ResolvedModule{
+			{Name: "acme/tools", Version: "1.4.0", Digest: "sha256:mod"},
+		},
+	}).Canonical()
+	if err := hist.SaveWithDependencyResolution(v1, nil, referenced, true); err != nil {
+		t.Fatalf("save referenced: %v", err)
+	}
+	stored, err := hist.GetDependencyResolution(v1)
+	if err != nil {
+		t.Fatalf("get referenced: %v", err)
+	}
+	if stored.Digest != referenced.Digest || len(stored.References) != 1 {
+		t.Fatalf("referenced graph must round trip, got %+v", stored)
+	}
+
+	unsound := referenced.Canonical()
+	unsound.References[0].Version = ">=2.0.0"
+	unsound = unsound.Canonical()
+	v2 := version.FromParent(v1, 2)
+	if err := hist.SaveWithDependencyResolution(v2, nil, unsound, true); !errors.Is(err, registry.ErrInvalidDependencyResolution) {
+		t.Fatalf("expected ErrInvalidDependencyResolution, got %v", err)
 	}
 }
