@@ -15,6 +15,7 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	regapi "github.com/wippyai/runtime/api/registry"
 	bootauth "github.com/wippyai/runtime/boot/deps/auth"
+	"github.com/wippyai/runtime/boot/build/stages"
 	depconfig "github.com/wippyai/runtime/boot/deps/config"
 	"github.com/wippyai/runtime/boot/deps/graph"
 	"github.com/wippyai/runtime/boot/deps/hub"
@@ -154,7 +155,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	// Build set of replaced modules to exclude from hub resolution
 	replacedModules := make(map[string]bool)
 	if oldLockObj != nil {
-		for _, repl := range oldLockObj.GetTrackedReplacements() {
+		for _, repl := range oldLockObj.GetReplacements() {
 			replacedModules[repl.From] = true
 		}
 	}
@@ -326,7 +327,7 @@ func runTargetedUpdate(cmd *cobra.Command, lockFilePath, srcDir, modulesDir stri
 	oldLockObj := lockObj
 
 	replacedModules := make(map[string]bool)
-	for _, repl := range lockObj.GetTrackedReplacements() {
+	for _, repl := range lockObj.GetReplacements() {
 		replacedModules[repl.From] = true
 	}
 
@@ -504,20 +505,25 @@ func loadDependencyScanEntries(ctx context.Context, ldr boot.Loader, srcDir stri
 		moduleRoot = filepath.Dir(lockObj.Path())
 	}
 	paths := []struct {
-		label string
-		path  string
-		root  string
+		label   string
+		path    string
+		root    string
+		exclude []string
 	}{
 		{label: "source", path: srcDir, root: moduleRoot},
 	}
 
 	if lockObj != nil {
-		replacements := make(map[string]bool)
-		for _, repl := range lockObj.GetTrackedReplacements() {
-			replacements[repl.From] = true
+		replacements := make(map[string]lock.Replacement)
+		for _, repl := range lockObj.GetReplacements() {
+			replacements[repl.From] = repl
 		}
 		for _, mp := range lockObj.GetModuleLoadPaths() {
-			if mp.Module == "" || !replacements[mp.Module] {
+			if mp.Module == "" {
+				continue
+			}
+			replacement, ok := replacements[mp.Module]
+			if !ok || replacement.To == "" {
 				continue
 			}
 			replacementRoot := mp.SourceRoot
@@ -525,13 +531,15 @@ func loadDependencyScanEntries(ctx context.Context, ldr boot.Loader, srcDir stri
 				replacementRoot = mp.Path
 			}
 			paths = append(paths, struct {
-				label string
-				path  string
-				root  string
+				label   string
+				path    string
+				root    string
+				exclude []string
 			}{
-				label: "replacement " + mp.Module,
-				path:  mp.Path,
-				root:  replacementRoot,
+				label:   "replacement " + mp.Module,
+				path:    mp.Path,
+				root:    replacementRoot,
+				exclude: append([]string(nil), mp.Exclude...),
 			})
 		}
 	}
@@ -557,6 +565,12 @@ func loadDependencyScanEntries(ctx context.Context, ldr boot.Loader, srcDir stri
 		loaded, err := ldr.LoadFS(ctx, sourceFS)
 		if err != nil {
 			return nil, fmt.Errorf("%s path %s: %w", scanPath.label, absPath, err)
+		}
+		if len(scanPath.exclude) > 0 {
+			stage := stages.DisableWithOptions(stages.DisableOptions{Entries: scanPath.exclude})
+			if err := stage.Execute(ctx, &loaded); err != nil {
+				return nil, fmt.Errorf("filter %s path %s: %w", scanPath.label, absPath, err)
+			}
 		}
 		entries = append(entries, loaded...)
 	}
