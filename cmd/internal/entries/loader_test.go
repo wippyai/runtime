@@ -1058,6 +1058,31 @@ entries:
 	}
 }
 
+func TestLoadEntriesFromModuleLoadPaths_AppliesReplacementExcludes(t *testing.T) {
+	ctx := setupTestContext(t)
+	moduleDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(moduleDir, "_index.yaml"), []byte(`version: "1.0"
+namespace: local.mcp
+entries:
+  - name: runtime
+    kind: function.lua
+    source: |
+      return {}
+  - name: instrument
+    kind: http.static
+    path: /instrument
+`), 0o644))
+
+	loaded, err := LoadEntriesFromModuleLoadPaths(ctx, []lock.ModuleLoadPath{{
+		Path:    moduleDir,
+		Module:  "local/mcp",
+		Exclude: []string{"local.mcp:instrument"},
+	}}, zap.NewNop())
+	require.NoError(t, err)
+	require.Len(t, loaded, 1)
+	require.Equal(t, "local.mcp:runtime", loaded[0].ID.String())
+}
+
 // Mirrors the reported bug: a replacement points at a module's source tree
 // that ships a test/_index.yaml defining entries under a namespace the host
 // also uses. Without manifest filtering, the test fixture and the host's real
