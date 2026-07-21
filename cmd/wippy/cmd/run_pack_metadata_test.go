@@ -71,7 +71,11 @@ func TestMaterializeHubRunPackInstallsExactLockArtifact(t *testing.T) {
 
 	destination, err := materializeHubRunPack(source, "acme/app", "1.2.3", digest, uint64(len(content)))
 	require.NoError(t, err)
-	require.Equal(t, filepath.Join(projectDir, ".wippy", "vendor", "acme", "app-1.2.3.wapp"), destination)
+	expected, err := filepath.EvalSymlinks(filepath.Join(projectDir, ".wippy", "vendor", "acme", "app-1.2.3.wapp"))
+	require.NoError(t, err)
+	actual, err := filepath.EvalSymlinks(destination)
+	require.NoError(t, err)
+	require.Equal(t, expected, actual)
 	installed, err := os.ReadFile(destination)
 	require.NoError(t, err)
 	require.Equal(t, content, installed)
