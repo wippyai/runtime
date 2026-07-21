@@ -37,6 +37,8 @@ func WithWorkspaceConfig(cfg boot.Config) Option {
 //
 //	replacements:
 //	  acme/http: ../http
+//	replacement_excludes:
+//	  acme/http: ["acme.http:onboarding"]
 func WorkspaceReplacements(cfg boot.Config) ([]Replacement, error) {
 	if cfg == nil {
 		return nil, nil
@@ -109,8 +111,8 @@ func WorkspaceReplacements(cfg boot.Config) ([]Replacement, error) {
 func replacementExcludePatterns(module string, value any) ([]string, error) {
 	values, ok := value.([]any)
 	if !ok {
-		if strings, ok := value.([]string); ok {
-			return append([]string(nil), strings...), nil
+		if patterns, ok := value.([]string); ok {
+			return append([]string(nil), patterns...), nil
 		}
 		return nil, fmt.Errorf("workspace replacement exclude %q must be a list of entry patterns or null", module)
 	}
