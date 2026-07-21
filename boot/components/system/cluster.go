@@ -5,7 +5,6 @@ package system
 import (
 	"context"
 	"fmt"
-	"net"
 	"os"
 	"strconv"
 	"strings"
@@ -59,8 +58,8 @@ func internodeAdvertiseEndpoint(clusterCfg boot.Config, bindPort int) (string, i
 		}
 		return "", bindPort, nil
 	}
-	if net.ParseIP(addr) == nil {
-		return "", 0, fmt.Errorf("cluster.internode.advertise_addr must be an IP literal, got %q", addr)
+	if !internode.ValidEndpointHost(addr) {
+		return "", 0, fmt.Errorf("cluster.internode.advertise_addr must be an IP address or DNS hostname, got %q", addr)
 	}
 	if configuredPort == 0 {
 		configuredPort = bindPort
@@ -222,18 +221,18 @@ func Cluster() boot.Component {
 			// leader thrashes on the failing operation.
 			raftEligible := clusterRaftEnabled(clusterCfg) && clusterCfg.GetBool(ClusterRaftEligible, true)
 			nodeMeta := clusterapi.NodeMeta{
-				"version":        "1.0.0",
-				"role":           "wippy",
-				"internode_port": strconv.Itoa(actualPort),
-				"raft_eligible":  strconv.FormatBool(raftEligible),
-				"raft_priority":  strconv.Itoa(clusterCfg.GetInt(ClusterRaftPriority, 100)),
-				"failure_domain": clusterCfg.GetString(ClusterFailureDomain, ""),
+				"version":              "1.0.0",
+				"role":                 "wippy",
+				internode.MetadataPort: strconv.Itoa(actualPort),
+				"raft_eligible":        strconv.FormatBool(raftEligible),
+				"raft_priority":        strconv.Itoa(clusterCfg.GetInt(ClusterRaftPriority, 100)),
+				"failure_domain":       clusterCfg.GetString(ClusterFailureDomain, ""),
 			}
 			if advertiseAddr != "" {
 				// v2 metadata is additive: old peers ignore it and keep using
 				// internode_port plus the memberlist address.
-				nodeMeta["internode_advertise_addr"] = advertiseAddr
-				nodeMeta["internode_advertise_port"] = strconv.Itoa(advertisePort)
+				nodeMeta[internode.MetadataAdvertiseAddr] = advertiseAddr
+				nodeMeta[internode.MetadataAdvertisePort] = strconv.Itoa(advertisePort)
 			}
 
 			// Create membership service config

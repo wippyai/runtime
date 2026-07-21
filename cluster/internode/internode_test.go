@@ -279,7 +279,7 @@ func TestService_Start_UsesAdvertisedInternodeEndpoint(t *testing.T) {
 		Addr: "192.168.1.100:7946",
 		Meta: cluster.NodeMeta{
 			"internode_port":           "9001", // v1 endpoint retained for old peers
-			"internode_advertise_addr": "127.0.0.1",
+			"internode_advertise_addr": "relay.internal",
 			"internode_advertise_port": "19001",
 		},
 	}
@@ -291,10 +291,36 @@ func TestService_Start_UsesAdvertisedInternodeEndpoint(t *testing.T) {
 	require.NoError(t, service.Start(ctx))
 	connMan.mu.Lock()
 	require.Len(t, connMan.ensuredConns, 1)
-	assert.Equal(t, "127.0.0.1", connMan.ensuredConns[0].addr)
+	assert.Equal(t, "relay.internal", connMan.ensuredConns[0].addr)
 	assert.Equal(t, 19001, connMan.ensuredConns[0].port)
 	connMan.mu.Unlock()
 	_ = service.Stop()
+}
+
+func TestService_ConnectToNode_InvalidAdvertisedEndpointFailsClosed(t *testing.T) {
+	tests := []struct {
+		name string
+		meta cluster.NodeMeta
+	}{
+		{name: "missing advertised port", meta: cluster.NodeMeta{"internode_port": "9001", "internode_advertise_addr": "relay.internal"}},
+		{name: "missing advertised address", meta: cluster.NodeMeta{"internode_port": "9001", "internode_advertise_port": "19001"}},
+		{name: "invalid advertised address", meta: cluster.NodeMeta{"internode_port": "9001", "internode_advertise_addr": "relay.internal:19001", "internode_advertise_port": "19001"}},
+		{name: "invalid advertised port", meta: cluster.NodeMeta{"internode_port": "9001", "internode_advertise_addr": "relay.internal", "internode_advertise_port": "not-a-port"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			service, connMan, _, _, ctx, cancel := setupService(t)
+			defer cancel()
+			require.NoError(t, service.Start(ctx))
+			defer func() { _ = service.Stop() }()
+
+			service.connectToNode(cluster.NodeInfo{ID: "remote-node", Addr: "192.168.1.100:7946", Meta: tc.meta})
+
+			connMan.mu.Lock()
+			assert.Empty(t, connMan.ensuredConns)
+			connMan.mu.Unlock()
+		})
+	}
 }
 
 func TestService_Start_ConnectionManagerError(t *testing.T) {

@@ -20,7 +20,8 @@ func TestInternodeAdvertiseEndpoint(t *testing.T) {
 		{name: "defaults to v1 endpoint", section: map[string]any{}, wantPort: 7947},
 		{name: "explicit relay endpoint", section: map[string]any{"internode.advertise_addr": "127.0.0.1", "internode.advertise_port": 19001}, wantAddr: "127.0.0.1", wantPort: 19001},
 		{name: "default port with relay IP", section: map[string]any{"internode.advertise_addr": "127.0.0.1"}, wantAddr: "127.0.0.1", wantPort: 7947},
-		{name: "reject hostname", section: map[string]any{"internode.advertise_addr": "proxy.local"}, wantErr: "IP literal"},
+		{name: "accept DNS relay", section: map[string]any{"internode.advertise_addr": "proxy.internal", "internode.advertise_port": 19001}, wantAddr: "proxy.internal", wantPort: 19001},
+		{name: "reject host with port", section: map[string]any{"internode.advertise_addr": "proxy.internal:19001"}, wantErr: "IP address or DNS hostname"},
 		{name: "reject port without address", section: map[string]any{"internode.advertise_port": 19001}, wantErr: "requires advertise_addr"},
 	}
 	for _, tc := range cases {

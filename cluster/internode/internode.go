@@ -23,6 +23,14 @@ import (
 // zero evictions.
 const orphanSweepInterval = 60 * time.Second
 
+// Membership metadata keys form the rolling-upgrade wire contract between
+// nodes. Older peers consume MetadataPort and ignore the additive v2 fields.
+const (
+	MetadataPort          = "internode_port"
+	MetadataAdvertiseAddr = "internode_advertise_addr"
+	MetadataAdvertisePort = "internode_advertise_port"
+)
+
 type PackageCallback func(*relay.Package) error
 
 type Service struct {
@@ -217,7 +225,7 @@ func (s *Service) handleMembershipEvent(e event.Event) {
 }
 
 func (s *Service) connectToNode(nodeInfo cluster.NodeInfo) {
-	portStr, ok := nodeInfo.Meta["internode_port"]
+	portStr, ok := nodeInfo.Meta[MetadataPort]
 	if !ok {
 		s.logger.Warn("Node metadata missing 'internode_port', cannot connect",
 			zap.String("node_id", nodeInfo.ID))
@@ -226,7 +234,7 @@ func (s *Service) connectToNode(nodeInfo cluster.NodeInfo) {
 	port, err := strconv.Atoi(portStr)
 	if err != nil || port < 1 || port > 65535 {
 		s.logger.Error("Invalid 'internode_port' metadata for node",
-			zap.String("node_id", nodeInfo.ID), zap.String("port", portStr), zap.Error(err))
+			zap.String("node_id", nodeInfo.ID), zap.String("port", portStr))
 		return
 	}
 
@@ -237,21 +245,46 @@ func (s *Service) connectToNode(nodeInfo cluster.NodeInfo) {
 	if host, _, splitErr := net.SplitHostPort(addr); splitErr == nil {
 		addr = host
 	}
-	advertiseAddr, hasAddr := nodeInfo.Meta["internode_advertise_addr"]
-	advertisePort, hasPort := nodeInfo.Meta["internode_advertise_port"]
+	advertiseAddr, hasAddr := nodeInfo.Meta[MetadataAdvertiseAddr]
+	advertisePort, hasPort := nodeInfo.Meta[MetadataAdvertisePort]
 	if hasAddr != hasPort {
-		s.logger.Warn("Incomplete v2 internode endpoint metadata for node",
+		s.logger.Error("Incomplete v2 internode endpoint metadata for node",
 			zap.String("node_id", nodeInfo.ID))
+		return
 	} else if hasAddr {
 		advertiseAddr = strings.TrimSpace(advertiseAddr)
 		advertisePortNumber, parseErr := strconv.Atoi(advertisePort)
-		if net.ParseIP(advertiseAddr) == nil || parseErr != nil || advertisePortNumber < 1 || advertisePortNumber > 65535 {
-			s.logger.Warn("Invalid v2 internode endpoint metadata for node",
+		if !ValidEndpointHost(advertiseAddr) || parseErr != nil || advertisePortNumber < 1 || advertisePortNumber > 65535 {
+			s.logger.Error("Invalid v2 internode endpoint metadata for node",
 				zap.String("node_id", nodeInfo.ID), zap.String("addr", advertiseAddr), zap.String("port", advertisePort))
-		} else {
-			addr, port = advertiseAddr, advertisePortNumber
+			return
 		}
+		addr, port = advertiseAddr, advertisePortNumber
 	}
 
 	s.connMan.EnsureConnection(nodeInfo.ID, addr, port)
+}
+
+// ValidEndpointHost reports whether host is an IP literal or an ASCII DNS
+// hostname suitable for net.JoinHostPort. Endpoint ports are carried
+// separately and are therefore rejected here.
+func ValidEndpointHost(host string) bool {
+	if net.ParseIP(host) != nil {
+		return true
+	}
+	host = strings.TrimSuffix(host, ".")
+	if host == "" || len(host) > 253 {
+		return false
+	}
+	for _, label := range strings.Split(host, ".") {
+		if label == "" || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+			return false
+		}
+		for _, ch := range label {
+			if (ch < 'a' || ch > 'z') && (ch < 'A' || ch > 'Z') && (ch < '0' || ch > '9') && ch != '-' {
+				return false
+			}
+		}
+	}
+	return true
 }
