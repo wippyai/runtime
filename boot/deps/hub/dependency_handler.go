@@ -1597,7 +1597,7 @@ func (p *replacementManifestProvider) GetManifest(ctx context.Context, org, modu
 	name := org + "/" + module
 	if path, ok := p.handler.replacementPath(name); ok {
 		if version := p.replacedVersion(name, constraint); version != "" {
-			dependencies, err := p.localReplacementDependencies(ctx, path)
+			dependencies, err := p.localReplacementDependencies(ctx, name, path)
 			if err != nil {
 				return nil, err
 			}
@@ -1613,7 +1613,7 @@ func (p *replacementManifestProvider) GetManifest(ctx context.Context, org, modu
 	return p.base.GetManifest(ctx, org, module, constraint)
 }
 
-func (p *replacementManifestProvider) localReplacementDependencies(ctx context.Context, path string) ([]ManifestDep, error) {
+func (p *replacementManifestProvider) localReplacementDependencies(ctx context.Context, moduleName, path string) ([]ManifestDep, error) {
 	transcoder := payload.GetTranscoder(ctx)
 	if transcoder == nil {
 		return nil, ErrDependencyTranscoderMissing
@@ -1623,7 +1623,7 @@ func (p *replacementManifestProvider) localReplacementDependencies(ctx context.C
 	if err != nil {
 		return nil, err
 	}
-	entries, err = p.handler.applyModuleConfigFilters(ctx, path, entries)
+	entries, err = p.handler.applyModuleConfigFilters(ctx, moduleName, path, entries)
 	if err != nil {
 		return nil, err
 	}
@@ -1889,7 +1889,7 @@ func (h *DependencyHandler) loadEntriesForModulePlan(ctx context.Context, transc
 		}
 		return nil, nil, err
 	}
-	entries, err = h.applyModuleConfigFilters(ctx, modulePath, entries)
+	entries, err = h.applyModuleConfigFilters(ctx, mod.Org+"/"+mod.Name, modulePath, entries)
 	if err != nil {
 		if staged != nil {
 			_ = os.RemoveAll(staged.stagingDir)
@@ -1914,22 +1914,23 @@ func (h *DependencyHandler) loadEntriesForModulePlan(ctx context.Context, transc
 // picks up the module's own fixtures (test/_index.yaml under namespace "app"),
 // which then collide with the host's real entries during linking. .wapp packs
 // are skipped: they were already filtered at publish time.
-func (h *DependencyHandler) applyModuleConfigFilters(ctx context.Context, modulePath string, entries []regapi.Entry) ([]regapi.Entry, error) {
+func (h *DependencyHandler) applyModuleConfigFilters(ctx context.Context, moduleName, modulePath string, entries []regapi.Entry) ([]regapi.Entry, error) {
 	if filepath.Ext(modulePath) == ".wapp" {
 		return entries, nil
 	}
-	cfg, err := depconfig.Load(modulePath)
-	if err != nil {
-		return entries, nil
+	entryExcludes := append([]string(nil), h.replacements[moduleName].Exclude...)
+	var excludeMeta map[string][]string
+	if cfg, err := depconfig.Load(modulePath); err == nil {
+		entryExcludes = append(entryExcludes, cfg.EntryExcludes()...)
+		excludeMeta = cfg.ExcludeMeta
 	}
-	entryExcludes := cfg.EntryExcludes()
-	if len(entryExcludes) == 0 && len(cfg.ExcludeMeta) == 0 {
+	if len(entryExcludes) == 0 && len(excludeMeta) == 0 {
 		return entries, nil
 	}
 	filtered := append([]regapi.Entry(nil), entries...)
 	stage := stages.DisableWithOptions(stages.DisableOptions{
 		Entries:     entryExcludes,
-		MetaFilters: cfg.ExcludeMeta,
+		MetaFilters: excludeMeta,
 	})
 	if err := stage.Execute(ctx, &filtered); err != nil {
 		return nil, NewDependencyLoadError(modulePath, err)
