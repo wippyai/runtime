@@ -657,6 +657,13 @@ func (h *DependencyHandler) ReconcileResolution(
 			))
 		}
 	}
+	if err := h.refreshReplacementModuleIdentities(resolved); err != nil {
+		return regapi.DirectiveResult{}, err
+	}
+	// A local replacement is a mutable development source. Reconciliation uses
+	// its current identity to decide which resident entries must be reloaded,
+	// while effectiveResolution remains the immutable checkpoint for this
+	// history version.
 
 	desiredModules := resolvedModuleSet(resolved)
 	// A stored graph is authoritative by content identity, not merely version.
@@ -691,7 +698,7 @@ func (h *DependencyHandler) ReconcileResolution(
 		if !artifactDigestsEqual(installedDigest, mod.Digest) {
 			mutable[module] = struct{}{}
 			touched[module] = struct{}{}
-		} else if !h.hasCurrentUnpackedModule(mod) {
+		} else if _, replacement := h.replacementPath(module); !replacement && !h.hasCurrentUnpackedModule(mod) {
 			touched[module] = struct{}{}
 		}
 	}
@@ -1402,22 +1409,39 @@ func validateStoredModuleArtifactIdentity(name graph.Name, version, source, dige
 	return nil
 }
 
+// refreshReplacementModuleIdentities snapshots every configured local source
+// for one reconciliation attempt. ensureModuleAvailable verifies the same
+// identity again before loading, so a concurrent rebuild fails closed instead
+// of mixing files from two source generations.
+func (h *DependencyHandler) refreshReplacementModuleIdentities(modules []ResolvedModule) error {
+	for i := range modules {
+		mod := &modules[i]
+		replacement, ok := h.replacementPath(mod.Org + "/" + mod.Name)
+		if !ok {
+			continue
+		}
+		digest, size, err := digestReplacementTree(replacement)
+		if err != nil {
+			return NewDependencyIntegrityError(modKey(*mod), err, mod.Digest, mod.SizeBytes)
+		}
+		mod.Digest = digest
+		mod.Source = moduleSourceReplacementTreeV1
+		mod.SizeBytes = size
+		mod.URL = ""
+	}
+	return nil
+}
+
 // completeResolvedModuleIdentities upgrades legacy Hub responses and local
 // replacements to a content-pinned graph before that graph is persisted.
 func (h *DependencyHandler) completeResolvedModuleIdentities(ctx context.Context, modules []ResolvedModule) error {
+	if err := h.refreshReplacementModuleIdentities(modules); err != nil {
+		return err
+	}
 	for i := range modules {
 		mod := &modules[i]
 		name := graph.Name{Organization: mod.Org, Module: mod.Name}
-		if replacement, ok := h.replacementPath(name.String()); ok {
-			digest, size, err := digestReplacementTree(replacement)
-			if err != nil {
-				return NewDependencyIntegrityError(modKey(*mod), err, mod.Digest, mod.SizeBytes)
-			}
-			mod.Digest = digest
-			mod.Source = moduleSourceReplacementTreeV1
-			mod.SizeBytes = size
-			mod.URL = ""
-		} else if mod.Digest == "" {
+		if _, replacement := h.replacementPath(name.String()); !replacement && mod.Digest == "" {
 			// Older manifest APIs omitted artifact identity. Prefer metadata from
 			// the exact download endpoint, then fall back to hashing the cached or
 			// freshly downloaded artifact itself.

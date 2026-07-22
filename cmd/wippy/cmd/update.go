@@ -151,13 +151,9 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	rootDeps := extractRootDependencies(entries, app.Transcoder)
 	logger.Info("found root dependencies", zap.Int("count", len(rootDeps)))
 
-	// Build set of replaced modules to exclude from hub resolution
-	replacedModules := make(map[string]bool)
-	if oldLockObj != nil {
-		for _, repl := range oldLockObj.GetTrackedReplacements() {
-			replacedModules[repl.From] = true
-		}
-	}
+	// Local replacements participate in the active graph but are never resolved
+	// from the Hub.
+	replacedModules := effectiveReplacementModules(oldLockObj)
 
 	resolvedModules := make([]hub.ResolvedModule, 0)
 	if len(rootDeps) == 0 {
@@ -325,10 +321,7 @@ func runTargetedUpdate(cmd *cobra.Command, lockFilePath, srcDir, modulesDir stri
 
 	oldLockObj := lockObj
 
-	replacedModules := make(map[string]bool)
-	for _, repl := range lockObj.GetTrackedReplacements() {
-		replacedModules[repl.From] = true
-	}
+	replacedModules := effectiveReplacementModules(lockObj)
 
 	effectiveTargets := make([]string, 0, len(targetModules))
 	for _, moduleName := range targetModules {
@@ -512,10 +505,7 @@ func loadDependencyScanEntries(ctx context.Context, ldr boot.Loader, srcDir stri
 	}
 
 	if lockObj != nil {
-		replacements := make(map[string]bool)
-		for _, repl := range lockObj.GetTrackedReplacements() {
-			replacements[repl.From] = true
-		}
+		replacements := effectiveReplacementModules(lockObj)
 		for _, mp := range lockObj.GetModuleLoadPaths() {
 			if mp.Module == "" || !replacements[mp.Module] {
 				continue
@@ -562,6 +552,17 @@ func loadDependencyScanEntries(ctx context.Context, ldr boot.Loader, srcDir stri
 	}
 
 	return entries, nil
+}
+
+func effectiveReplacementModules(lockObj *lock.Lock) map[string]bool {
+	modules := make(map[string]bool)
+	if lockObj == nil {
+		return modules
+	}
+	for _, replacement := range lockObj.GetReplacements() {
+		modules[replacement.From] = true
+	}
+	return modules
 }
 
 func logChanges(logger *zap.Logger, changes *lock.Changes) {
