@@ -200,82 +200,6 @@ func newProcessLeakProcess(t *testing.T, script string) *engine.Process {
 	return proc
 }
 
-// processSubSampler reads proc.LiveSubscriptionCount() on a ticker, bounded to
-// the process's live phase by lifecycle hooks: begin() fires from OnStart
-// (after Process.Init allocated the subs map) and end() fires from OnComplete
-// before Process.Close. LiveSubscriptionCount takes the subs RLock that the
-// step thread also holds for map mutations, so reads inside this window never
-// race.
-type processSubSampler struct {
-	proc     *engine.Process
-	beginCh  chan struct{}
-	stopCh   chan struct{}
-	doneCh   chan struct{}
-	maxLive  int
-	lastLive int
-	samples  int
-}
-
-func newProcessSubSampler(proc *engine.Process) *processSubSampler {
-	s := &processSubSampler{
-		proc:    proc,
-		beginCh: make(chan struct{}),
-		stopCh:  make(chan struct{}),
-		doneCh:  make(chan struct{}),
-	}
-	go func() {
-		defer close(s.doneCh)
-		select {
-		case <-s.beginCh:
-		case <-s.stopCh:
-			return
-		}
-		live := s.proc.LiveSubscriptionCount()
-		s.samples++
-		s.lastLive = live
-		if live > s.maxLive {
-			s.maxLive = live
-		}
-		ticker := stdtime.NewTicker(100 * stdtime.Microsecond)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-s.stopCh:
-				return
-			case <-ticker.C:
-				live := s.proc.LiveSubscriptionCount()
-				s.samples++
-				s.lastLive = live
-				if live > s.maxLive {
-					s.maxLive = live
-				}
-			}
-		}
-	}()
-	return s
-}
-
-func (s *processSubSampler) begin() {
-	select {
-	case <-s.beginCh:
-	default:
-		close(s.beginCh)
-	}
-}
-
-func (s *processSubSampler) end() {
-	select {
-	case <-s.stopCh:
-	default:
-		close(s.stopCh)
-	}
-	<-s.doneCh
-}
-
-func (s *processSubSampler) results() (int, int, int) {
-	return s.maxLive, s.lastLive, s.samples
-}
-
 func extractProcessInt64(v any) int64 {
 	switch val := v.(type) {
 	case int64:
@@ -290,9 +214,9 @@ func extractProcessInt64(v any) int64 {
 	return 0
 }
 
-// liveTopicCounts returns the byTopic / byChannel / handler map sizes. Read
-// after the worker pool is stopped so Process.Close has run on a joined
-// goroutine, establishing a happens-before edge with this read.
+// liveTopicCounts returns the byTopic / byChannel / handler map sizes. The
+// Process accessors take the subscription locks, so lifecycle hooks can inspect
+// the live state before Close and tests can inspect the final state afterward.
 func liveTopicCounts(proc *engine.Process) (int, int, int) {
 	return proc.LiveSubscriptionCount(), proc.LiveChannelSubscriptionCount(), proc.TopicHandlerCount()
 }
@@ -338,13 +262,18 @@ func TestLeak_ProcessListenUnlistenLoopNoAccumulation(t *testing.T) {
 	frameCtx, runPID := tc.frameCtxPID(t)
 	proc := newProcessLeakProcess(t, script)
 
-	sampler := newProcessSubSampler(proc)
-	tc.scheduler.setLifecycleHooks(runPID, sampler.begin, sampler.end)
+	// OnComplete runs before Process.Close. Capture the maps there so the test
+	// proves unlisten reclaimed every subscription itself; observing after Close
+	// would allow process teardown to hide an unlisten leak.
+	beforeClose := make(chan [3]int, 1)
+	tc.scheduler.setLifecycleHooks(runPID, nil, func() {
+		subs, chans, handlers := liveTopicCounts(proc)
+		beforeClose <- [3]int{subs, chans, handlers}
+	})
 
 	ctx, cancel := context.WithTimeout(frameCtx, 60*stdtime.Second)
 	defer cancel()
 	result, err := tc.scheduler.Execute(ctx, runPID, proc, "", nil)
-	maxSeen, lastSeen, sampleCount := sampler.results()
 
 	require.NoError(t, err)
 	require.NotNil(t, result)
@@ -352,10 +281,8 @@ func TestLeak_ProcessListenUnlistenLoopNoAccumulation(t *testing.T) {
 	require.NotNil(t, result.Value)
 	assert.Equal(t, int64(iterations), extractProcessInt64(result.Value.Data()), "every cycle must receive a real message")
 
-	t.Logf("process listen/unlisten loop: %d iterations, %d samples, max live subscriptions=%d, last=%d", iterations, sampleCount, maxSeen, lastSeen)
-
-	require.GreaterOrEqual(t, sampleCount, 1, "sampler never observed the process")
-	assert.LessOrEqualf(t, maxSeen, 8, "live subscriptions climbed to %d over %d listen/unlisten cycles (leak: should stay ~1)", maxSeen, iterations)
+	live := <-beforeClose
+	assert.Equal(t, [3]int{}, live, "unlisten left subscription state before process teardown")
 
 	// Stop the worker pool to join the goroutine that ran Process.Close before
 	// reading map sizes. After hundreds of listen/unlisten cycles every topic,
