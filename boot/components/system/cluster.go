@@ -46,6 +46,30 @@ func clusterRaftEnabled(clusterCfg boot.Config) bool {
 	return !strings.EqualFold(clusterCfg.GetString(ClusterRaftRole, raftRoleServer), raftRoleClient)
 }
 
+// internodeAdvertiseEndpoint returns an optional v2 endpoint for upgraded
+// peers. It leaves v1 internode_port metadata unchanged, so old peers continue
+// to use the membership IP and bound port during a rolling upgrade.
+func internodeAdvertiseEndpoint(clusterCfg boot.Config, bindPort int) (string, int, error) {
+	addr := strings.TrimSpace(clusterCfg.GetString(ClusterInternodeAdvertiseAddr, ""))
+	configuredPort := clusterCfg.GetInt(ClusterInternodeAdvertisePort, 0)
+	if addr == "" {
+		if configuredPort != 0 {
+			return "", 0, fmt.Errorf("cluster.internode.advertise_port requires advertise_addr")
+		}
+		return "", bindPort, nil
+	}
+	if !internode.ValidEndpointHost(addr) {
+		return "", 0, fmt.Errorf("cluster.internode.advertise_addr must be an IP address or DNS hostname, got %q", addr)
+	}
+	if configuredPort == 0 {
+		configuredPort = bindPort
+	}
+	if configuredPort < 1 || configuredPort > 65535 {
+		return "", 0, fmt.Errorf("cluster.internode.advertise_port must be between 1 and 65535, got %d", configuredPort)
+	}
+	return addr, configuredPort, nil
+}
+
 // discoverInternodePort starts a throwaway connection manager just long
 // enough to learn the actual listen port (AutoPort picks an ephemeral one),
 // then stops it. The discovered port is pinned on the real manager's config
@@ -179,8 +203,13 @@ func Cluster() boot.Component {
 			connManagerCfg.AutoPort = false
 			connMgr = internode.NewConnectionManager(connManagerCfg, metricsapi.GetCollector(ctx))
 
-			// Create node metadata with internode port and raft-eligibility hints.
-			// raft_eligible / raft_priority / failure_domain are advertised so the
+			advertiseAddr, advertisePort, err := internodeAdvertiseEndpoint(clusterCfg, actualPort)
+			if err != nil {
+				return ctx, err
+			}
+
+			// Create node metadata with the externally reachable internode endpoint
+			// and raft-eligibility hints. raft_eligible / raft_priority / failure_domain are advertised so the
 			// Raft membership reconciler can pick voters without a separate channel.
 			//
 			// raft_eligible is forced to false on any node that won't run a
@@ -192,12 +221,18 @@ func Cluster() boot.Component {
 			// leader thrashes on the failing operation.
 			raftEligible := clusterRaftEnabled(clusterCfg) && clusterCfg.GetBool(ClusterRaftEligible, true)
 			nodeMeta := clusterapi.NodeMeta{
-				"version":        "1.0.0",
-				"role":           "wippy",
-				"internode_port": strconv.Itoa(actualPort),
-				"raft_eligible":  strconv.FormatBool(raftEligible),
-				"raft_priority":  strconv.Itoa(clusterCfg.GetInt(ClusterRaftPriority, 100)),
-				"failure_domain": clusterCfg.GetString(ClusterFailureDomain, ""),
+				"version":              "1.0.0",
+				"role":                 "wippy",
+				internode.MetadataPort: strconv.Itoa(actualPort),
+				"raft_eligible":        strconv.FormatBool(raftEligible),
+				"raft_priority":        strconv.Itoa(clusterCfg.GetInt(ClusterRaftPriority, 100)),
+				"failure_domain":       clusterCfg.GetString(ClusterFailureDomain, ""),
+			}
+			if advertiseAddr != "" {
+				// v2 metadata is additive: old peers ignore it and keep using
+				// internode_port plus the memberlist address.
+				nodeMeta[internode.MetadataAdvertiseAddr] = advertiseAddr
+				nodeMeta[internode.MetadataAdvertisePort] = strconv.Itoa(advertisePort)
 			}
 
 			// Create membership service config

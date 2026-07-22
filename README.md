@@ -246,6 +246,10 @@ cluster:
   internode:
     bind_addr: 0.0.0.0
     bind_port: 0
+    # Optional v2 relay endpoint for upgraded peers. v1 metadata remains the
+    # direct bind endpoint, so older peers keep working during rolling upgrades.
+    advertise_addr: ""
+    advertise_port: 0 # 0 = bind_port; requires advertise_addr
     auto_port: true
 
 extensions:
