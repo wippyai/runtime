@@ -18,6 +18,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/semver"
 	bootpkg "github.com/wippyai/runtime/boot"
 	bootauth "github.com/wippyai/runtime/boot/deps/auth"
 	"github.com/wippyai/runtime/boot/deps/graph"
@@ -233,6 +234,56 @@ func isHubModuleRef(s string) bool {
 
 func hasWappExtension(path string) bool {
 	return strings.EqualFold(filepath.Ext(path), ".wapp")
+}
+
+// useLockedHubDeployment decides whether a Hub-looking run argument identifies
+// an already established deployment. The lock file is the authority boundary:
+// its absence permits bootstrap resolution, while its presence forbids an
+// implicit graph change.
+func useLockedHubDeployment(ref, lockPath string) (bool, error) {
+	if _, err := os.Stat(lockPath); err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, fmt.Errorf("inspect deployment lock %s: %w", lockPath, err)
+	}
+
+	requested, err := parseModuleRef(ref)
+	if err != nil {
+		return false, err
+	}
+	requestedName := requested.Org + "/" + requested.Module
+
+	lockObj, err := lock.New(lockPath)
+	if err != nil {
+		return false, fmt.Errorf("load deployment lock %s: %w", lockPath, err)
+	}
+	roots := lockObj.GetRootModules()
+	if len(roots) != 1 {
+		return false, fmt.Errorf("deployment lock %s must select exactly one root module; remove it to bootstrap a new deployment", lockPath)
+	}
+	root := roots[0]
+	rootModule, _ := lockObj.GetModule(root)
+	if requestedName != root {
+		return false, fmt.Errorf("deployment lock %s selects %s@%s, not %s; use a fresh directory to bootstrap another application", lockPath, root, rootModule.Version, requestedName)
+	}
+	if requested.Version == "" {
+		return true, nil
+	}
+
+	requestedVersion, err := semver.ParseVersion(requested.Version)
+	if err != nil {
+		return false, fmt.Errorf("deployment lock %s already pins %s@%s; selector @%s requires Hub resolution, so use 'wippy update' or omit the selector to restart", lockPath, root, rootModule.Version, requested.Version)
+	}
+	lockedVersion, err := semver.ParseVersion(rootModule.Version)
+	if err != nil {
+		return false, fmt.Errorf("deployment lock %s contains invalid root version %q for %s", lockPath, rootModule.Version, root)
+	}
+	if requestedVersion != lockedVersion {
+		return false, fmt.Errorf("deployment lock %s pins %s@%s, not @%s; use 'wippy update' to change the deployment", lockPath, root, rootModule.Version, requested.Version)
+	}
+
+	return true, nil
 }
 
 // downloadHubModule resolves dependency graph for a hub reference, downloads

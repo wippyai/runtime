@@ -46,7 +46,9 @@ var runCmd = &cobra.Command{
 Without arguments, starts the full runtime from wippy.lock.
 With a command name, executes the matching process entry.
 With a .wapp file, runs directly from the pack file.
-With an org/module reference, downloads from hub and runs.
+With an org/module reference, bootstraps from hub when wippy.lock is absent.
+When wippy.lock exists, the reference must match its selected deployment root
+and the runtime starts from the locked graph without resolving hub again.
 
 Use 'wippy run list' to see available commands.
 
@@ -56,9 +58,9 @@ Examples:
   wippy run greet                           # Run a named entrypoint
   wippy run -x app:cli                      # Execute specific process
   wippy run snapshot.wapp                   # Run from pack file
-  wippy run acme/http                       # Run latest from hub
-  wippy run acme/http@1.2.3                 # Run specific version
-  wippy run acme/http@latest                # Run latest label`,
+  wippy run acme/http                       # Bootstrap latest when no lock exists
+  wippy run acme/http@1.2.3                 # Bootstrap a specific version
+  wippy run acme/http                       # Restart the established locked deployment`,
 	Args:               cobra.ArbitraryArgs,
 	DisableFlagParsing: false,
 	RunE:               runApp,
@@ -150,11 +152,22 @@ func runWithUseCase(cmd *cobra.Command, args []string, useCase string) error {
 		}
 
 		if isHubModuleRef(commandName) {
-			packPaths, err := downloadHubModule(cmd.Context(), commandName, registryURL)
+			useLock, err := useLockedHubDeployment(commandName, defaultLockFile)
 			if err != nil {
 				return err
 			}
-			return runFromPackFiles(cmd, packPaths, commandArgs, useCase)
+			if useLock {
+				// A module reference identifies the established deployment; it is
+				// not an update instruction or a named process entrypoint.
+				commandName = ""
+				commandArgs = nil
+			} else {
+				packPaths, err := downloadHubModule(cmd.Context(), commandName, registryURL)
+				if err != nil {
+					return err
+				}
+				return runFromPackFiles(cmd, packPaths, commandArgs, useCase)
+			}
 		}
 	}
 

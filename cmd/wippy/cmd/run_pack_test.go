@@ -238,6 +238,102 @@ func TestIsHubModuleRef_WithUppercaseWappExtension(t *testing.T) {
 	}
 }
 
+func TestUseLockedHubDeployment(t *testing.T) {
+	tests := []struct {
+		name        string
+		ref         string
+		root        string
+		version     string
+		wantErr     string
+		writeLock   bool
+		wantUseLock bool
+	}{
+		{
+			name:      "absent lock permits bootstrap",
+			ref:       "acme/app",
+			writeLock: false,
+		},
+		{
+			name:        "unversioned matching root reuses lock",
+			ref:         "acme/app",
+			root:        "acme/app",
+			version:     "1.2.3",
+			writeLock:   true,
+			wantUseLock: true,
+		},
+		{
+			name:        "matching explicit version reuses lock",
+			ref:         "acme/app@v1.2.3",
+			root:        "acme/app",
+			version:     "1.2.3",
+			writeLock:   true,
+			wantUseLock: true,
+		},
+		{
+			name:      "different root is rejected",
+			ref:       "acme/other",
+			root:      "acme/app",
+			version:   "1.2.3",
+			writeLock: true,
+			wantErr:   "use a fresh directory to bootstrap another application",
+		},
+		{
+			name:      "different version is rejected",
+			ref:       "acme/app@1.2.4",
+			root:      "acme/app",
+			version:   "1.2.3",
+			writeLock: true,
+			wantErr:   "use 'wippy update' to change the deployment",
+		},
+		{
+			name:      "label is rejected against established lock",
+			ref:       "acme/app@latest",
+			root:      "acme/app",
+			version:   "1.2.3",
+			writeLock: true,
+			wantErr:   "use 'wippy update' or omit the selector to restart",
+		},
+		{
+			name:      "lock without deployment root is rejected",
+			ref:       "acme/app",
+			root:      "",
+			version:   "1.2.3",
+			writeLock: true,
+			wantErr:   "must select exactly one root module",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			lockPath := filepath.Join(t.TempDir(), lock.DefaultFilename)
+			if tc.writeLock {
+				lockObj, err := lock.New(lockPath)
+				if err != nil {
+					t.Fatalf("new lock: %v", err)
+				}
+				lockObj.SetModule(lock.Module{Name: "acme/app", Version: tc.version, Root: tc.root == "acme/app"})
+				if err := lockObj.Write(); err != nil {
+					t.Fatalf("write lock: %v", err)
+				}
+			}
+
+			got, err := useLockedHubDeployment(tc.ref, lockPath)
+			if tc.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("useLockedHubDeployment error = %v, want substring %q", err, tc.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("useLockedHubDeployment unexpected error: %v", err)
+			}
+			if got != tc.wantUseLock {
+				t.Fatalf("useLockedHubDeployment = %v, want %v", got, tc.wantUseLock)
+			}
+		})
+	}
+}
+
 func TestSelectEntrypoint(t *testing.T) {
 	run := func(name, entryID string, main bool) packCommand {
 		return packCommand{name: name, entryID: entryID, useCase: defaultUseCase, main: main}
