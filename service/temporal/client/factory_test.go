@@ -51,6 +51,7 @@ func TestDefaultClientFactory_buildClientOptions(t *testing.T) {
 		assert.Equal(t, "default", opts.Namespace)
 		assert.NotNil(t, opts.Logger)
 		assert.Len(t, opts.ContextPropagators, 1)
+		assert.Len(t, opts.Interceptors, 1)
 		assert.NotNil(t, opts.FailureConverter)
 		assert.NotEmpty(t, opts.ConnectionOptions.DialOptions)
 	})
@@ -85,7 +86,7 @@ func TestDefaultClientFactory_buildClientOptions(t *testing.T) {
 		opts, err := factory.buildClientOptions(zap.NewNop(), config)
 
 		require.NoError(t, err)
-		assert.Len(t, opts.Interceptors, 1)
+		assert.Len(t, opts.Interceptors, 2)
 	})
 }
 

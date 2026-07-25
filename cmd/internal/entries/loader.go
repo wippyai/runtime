@@ -23,6 +23,7 @@ import (
 	"github.com/wippyai/runtime/boot/deps/graph"
 	"github.com/wippyai/runtime/boot/deps/hub"
 	"github.com/wippyai/runtime/boot/deps/lock"
+	"github.com/wippyai/runtime/boot/deps/wappextract"
 	"github.com/wippyai/runtime/cmd/internal/hubclient"
 	embedpkg "github.com/wippyai/runtime/service/fs/embed"
 	regtop "github.com/wippyai/runtime/system/registry/topology"
@@ -110,6 +111,22 @@ func warnTrackedLockReplacements(lockObj *lock.Lock, logger *zap.Logger) {
 		zap.String("lock_file", lockObj.Path()))
 }
 
+func verifyModuleArtifact(path, lockedDigest, servedDigest string, size uint64) error {
+	if lockedDigest == "" {
+		return ErrModuleMissingHash
+	}
+	if err := hub.VerifyDownloadedArtifact(path, lockedDigest, size); err != nil {
+		return err
+	}
+	if servedDigest != "" {
+		if err := hub.VerifyDownloadedArtifact(path, servedDigest, size); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 func ensureModulesInstalledFromLock(ctx context.Context, lockObj *lock.Lock, logger *zap.Logger) error {
 	modules := lockObj.GetModules()
 	if len(modules) == 0 {
@@ -139,22 +156,21 @@ func ensureModulesInstalledFromLock(ctx context.Context, lockObj *lock.Lock, log
 			continue
 		}
 
-		resolved := lock.ResolveModuleDir(vendorPath, name, mod.Version)
-		if resolved.IsWapp {
+		wappPath := filepath.Join(vendorPath, lock.WappPath(name, mod.Version))
+		if _, err := os.Stat(wappPath); err == nil {
+			if err := verifyModuleArtifact(wappPath, mod.Hash, "", 0); err != nil {
+				return NewModuleIntegrityError(mod.Name, err)
+			}
 			if shouldUnpack {
-				// Migrate legacy .wapp to extracted directory when unpack is enabled
 				dirPath := filepath.Join(vendorPath, lock.ModulePath(name))
-				logger.Info("unpacking .wapp to directory", zap.String("module", mod.Name))
-				if err := ExtractWappToDir(resolved.Path, dirPath); err != nil {
+				logger.Info("refreshing unpacked module from verified archive", zap.String("module", mod.Name))
+				if err := wappextract.ExtractWappToDirKeepSource(wappPath, dirPath); err != nil {
 					return NewExtractModuleError(mod.Name, err)
 				}
 			}
-			// When unpack=false, keep .wapp as-is (already installed)
 			continue
-		}
-
-		if _, err := os.Stat(resolved.Path); err == nil {
-			continue
+		} else if !os.IsNotExist(err) {
+			return NewModuleIntegrityError(mod.Name, err)
 		}
 
 		missingModules = append(missingModules, mod)
@@ -203,25 +219,42 @@ func ensureModulesInstalledFromLock(ctx context.Context, lockObj *lock.Lock, log
 			return NewNoContentDownloadedError(moduleRef)
 		}
 
-		// Download .wapp file
 		wappPath := lock.WappPath(name, mod.Version)
 		fullWappPath := filepath.Join(vendorPath, wappPath)
-
-		if err := hubClient.DownloadToFile(ctx, downloadInfo.URL, fullWappPath); err != nil {
+		if err := os.MkdirAll(filepath.Dir(fullWappPath), 0o755); err != nil {
+			return NewStoreModuleError(moduleRef, err)
+		}
+		staged, err := os.CreateTemp(filepath.Dir(fullWappPath), "."+filepath.Base(fullWappPath)+".verify-*")
+		if err != nil {
+			return NewStoreModuleError(moduleRef, err)
+		}
+		stagedPath := staged.Name()
+		if err := staged.Close(); err != nil {
+			_ = os.Remove(stagedPath)
+			return NewStoreModuleError(moduleRef, err)
+		}
+		if err := os.Remove(stagedPath); err != nil {
+			return NewStoreModuleError(moduleRef, err)
+		}
+		if err := hubClient.DownloadToFile(ctx, downloadInfo.URL, stagedPath); err != nil {
+			_ = os.Remove(stagedPath)
 			return NewDownloadModuleError(moduleRef, err)
 		}
+		if err := verifyModuleArtifact(stagedPath, mod.Hash, downloadInfo.Digest, downloadInfo.Size); err != nil {
+			_ = os.Remove(stagedPath)
+			return NewModuleIntegrityError(moduleRef, err)
+		}
 
+		if err := os.Rename(stagedPath, fullWappPath); err != nil {
+			_ = os.Remove(stagedPath)
+			return NewStoreModuleError(moduleRef, err)
+		}
 		if shouldUnpack {
-			// Extract .wapp to source directory and remove the .wapp file
 			dirPath := filepath.Join(vendorPath, lock.ModulePath(name))
-			if err := os.RemoveAll(dirPath); err != nil {
-				return NewExtractModuleError(moduleRef, err)
-			}
-			if err := ExtractWappToDir(fullWappPath, dirPath); err != nil {
+			if err := wappextract.ExtractWappToDirKeepSource(fullWappPath, dirPath); err != nil {
 				return NewExtractModuleError(moduleRef, err)
 			}
 		}
-		// When unpack=false, keep .wapp file as-is
 	}
 
 	logger.Info("modules installed successfully")

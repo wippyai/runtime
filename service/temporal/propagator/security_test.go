@@ -16,22 +16,27 @@ import (
 	commonpb "go.temporal.io/api/common/v1"
 )
 
+var testSecurityHMACKey = []byte("0123456789abcdef0123456789abcdef")
+
+const testSecurityAudience = "workflow-test"
+
 func TestSecurityPayloadSerialization(t *testing.T) {
 	dc := newTestDataConverter()
 	t.Run("serialize actor only", func(t *testing.T) {
 		payload := &SecurityPayload{
+			Audience: testSecurityAudience,
 			Actor: &ActorPayload{
 				ID:   "user-123",
 				Meta: map[string]any{"role": "admin"},
 			},
 		}
 
-		header, err := AddSecurityToHeader(dc, nil, payload)
+		header, err := AddSecurityToHeader(dc, nil, payload, testSecurityHMACKey)
 		require.NoError(t, err)
 		require.NotNil(t, header)
 		require.NotNil(t, header.Fields[SecurityHeaderKey])
 
-		extracted, err := ExtractSecurityFromHeader(dc, header)
+		extracted, err := ExtractSecurityFromHeader(dc, header, testSecurityAudience, testSecurityHMACKey)
 		require.NoError(t, err)
 		require.NotNil(t, extracted)
 		assert.Equal(t, "user-123", extracted.Actor.ID)
@@ -40,13 +45,14 @@ func TestSecurityPayloadSerialization(t *testing.T) {
 
 	t.Run("serialize policies", func(t *testing.T) {
 		payload := &SecurityPayload{
+			Audience: testSecurityAudience,
 			Policies: []string{"policies:admin", "policies:readonly"},
 		}
 
-		header, err := AddSecurityToHeader(dc, nil, payload)
+		header, err := AddSecurityToHeader(dc, nil, payload, testSecurityHMACKey)
 		require.NoError(t, err)
 
-		extracted, err := ExtractSecurityFromHeader(dc, header)
+		extracted, err := ExtractSecurityFromHeader(dc, header, testSecurityAudience, testSecurityHMACKey)
 		require.NoError(t, err)
 		assert.Len(t, extracted.Policies, 2)
 		assert.Contains(t, extracted.Policies, "policies:admin")
@@ -59,14 +65,14 @@ func TestSecurityPayloadSerialization(t *testing.T) {
 	})
 
 	t.Run("nil header returns nil payload", func(t *testing.T) {
-		payload, err := ExtractSecurityFromHeader(dc, nil)
+		payload, err := ExtractSecurityFromHeader(dc, nil, "")
 		require.NoError(t, err)
 		assert.Nil(t, payload)
 	})
 
 	t.Run("empty header returns nil payload", func(t *testing.T) {
 		header := &commonpb.Header{}
-		payload, err := ExtractSecurityFromHeader(dc, header)
+		payload, err := ExtractSecurityFromHeader(dc, header, "")
 		require.NoError(t, err)
 		assert.Nil(t, payload)
 	})
@@ -115,6 +121,7 @@ func TestApplySecurityPayload(t *testing.T) {
 				ID:   "user-789",
 				Meta: map[string]any{"level": 5},
 			},
+			Scope: true,
 		}
 
 		err := ApplySecurityPayload(ctx, payload)
@@ -172,7 +179,7 @@ func TestExtractSecurityPayloadWithScope(t *testing.T) {
 	ctx = ctxapi.WithAppContext(ctx, appCtx)
 	ctx, _ = ctxapi.OpenFrameContext(ctx)
 
-	// Create scope with policies
+	require.NoError(t, secapi.SetActor(ctx, secapi.Actor{ID: "user"}))
 	policies := []secapi.Policy{
 		&mockPolicy{id: registry.NewID("policies", "admin")},
 		&mockPolicy{id: registry.NewID("policies", "read")},
@@ -184,6 +191,7 @@ func TestExtractSecurityPayloadWithScope(t *testing.T) {
 	// Extract
 	payload := ExtractSecurityPayload(ctx)
 	require.NotNil(t, payload)
+	assert.True(t, payload.Scope)
 	assert.Len(t, payload.Policies, 2)
 	assert.Contains(t, payload.Policies, "policies:admin")
 	assert.Contains(t, payload.Policies, "policies:read")

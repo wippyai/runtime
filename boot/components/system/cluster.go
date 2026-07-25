@@ -4,7 +4,10 @@ package system
 
 import (
 	"context"
+	"crypto/ed25519"
+	"encoding/base64"
 	"fmt"
+	"net"
 	"os"
 	"strconv"
 	"strings"
@@ -180,6 +183,35 @@ func Cluster() boot.Component {
 				}
 			}
 
+			secretKey, err := membership.ResolveSecretKey(
+				clusterCfg.GetString(ClusterMembershipSecret, ""),
+				clusterCfg.GetString(ClusterMembershipSecretFile, ""),
+			)
+			if err != nil {
+				return ctx, membership.NewLoadSecretKeyError(err)
+			}
+			signingKey, err := internode.ResolveIdentityKey(
+				clusterCfg.GetString(ClusterInternodeIdentityKey, ""),
+				clusterCfg.GetString(ClusterInternodeIdentityKeyFile, ""),
+			)
+			if err != nil {
+				return ctx, err
+			}
+			publicKey := signingKey.Public().(ed25519.PublicKey)
+			trustedPeerKeys := make(map[clusterapi.NodeID]ed25519.PublicKey)
+			trustedKeysCfg := clusterCfg.Sub(ClusterInternodeTrustedPeerKeys)
+			for _, id := range trustedKeysCfg.Keys() {
+				trustedKey, err := internode.ParseIdentityPublicKey(trustedKeysCfg.GetString(id, ""))
+				if err != nil {
+					return ctx, fmt.Errorf("invalid trusted internode key for %q: %w", id, err)
+				}
+				trustedPeerKeys[id] = trustedKey
+			}
+			trustedLocalKey, ok := trustedPeerKeys[nodeName]
+			if !ok || !publicKey.Equal(trustedLocalKey) {
+				return ctx, fmt.Errorf("trusted internode key for local node %q is required and must match its identity", nodeName)
+			}
+
 			// Create message codec
 			messageCodec := internode.NewMessageCodec(dtt)
 
@@ -190,6 +222,30 @@ func Cluster() boot.Component {
 			connManagerCfg.BindPort = clusterCfg.GetInt(ClusterInternodeBindPort, 0)
 			connManagerCfg.AutoPort = clusterCfg.GetBool(ClusterInternodeAutoPort, true)
 			connManagerCfg.Logger = logger.Named("internode.conn")
+			connManagerCfg.AuthenticationKey = secretKey
+			connManagerCfg.SigningKey = signingKey
+			connManagerCfg.RequireAuthentication = true
+			connManagerCfg.ResolvePeerKey = func(id clusterapi.NodeID) (ed25519.PublicKey, bool) {
+				trustedKey, trusted := trustedPeerKeys[id]
+				if !trusted || id == "" || id == nodeName || membershipSvc == nil {
+					return nil, false
+				}
+				for _, nodeInfo := range membershipSvc.Nodes() {
+					if nodeInfo.ID != id {
+						continue
+					}
+					advertisedKey, err := internode.ParseIdentityPublicKey(nodeInfo.Meta[internode.MetadataPublicKey])
+					if err != nil || !advertisedKey.Equal(trustedKey) {
+						return nil, false
+					}
+					return trustedKey, true
+				}
+				return nil, false
+			}
+			connManagerCfg.AuthorizePeer = func(id clusterapi.NodeID, _ net.Addr) bool {
+				_, ok := connManagerCfg.ResolvePeerKey(id)
+				return ok
+			}
 
 			// Discover the actual internode port (AutoPort picks an
 			// ephemeral one) before the real start, since it's advertised in
@@ -221,12 +277,13 @@ func Cluster() boot.Component {
 			// leader thrashes on the failing operation.
 			raftEligible := clusterRaftEnabled(clusterCfg) && clusterCfg.GetBool(ClusterRaftEligible, true)
 			nodeMeta := clusterapi.NodeMeta{
-				"version":              "1.0.0",
-				"role":                 "wippy",
-				internode.MetadataPort: strconv.Itoa(actualPort),
-				"raft_eligible":        strconv.FormatBool(raftEligible),
-				"raft_priority":        strconv.Itoa(clusterCfg.GetInt(ClusterRaftPriority, 100)),
-				"failure_domain":       clusterCfg.GetString(ClusterFailureDomain, ""),
+				"version":                   "1.0.0",
+				"role":                      "wippy",
+				internode.MetadataPort:      strconv.Itoa(actualPort),
+				internode.MetadataPublicKey: base64.RawStdEncoding.EncodeToString(publicKey),
+				"raft_eligible":             strconv.FormatBool(raftEligible),
+				"raft_priority":             strconv.Itoa(clusterCfg.GetInt(ClusterRaftPriority, 100)),
+				"failure_domain":            clusterCfg.GetString(ClusterFailureDomain, ""),
 			}
 			if advertiseAddr != "" {
 				// v2 metadata is additive: old peers ignore it and keep using
@@ -237,13 +294,12 @@ func Cluster() boot.Component {
 
 			// Create membership service config
 			memberCfg := membership.Config{
-				NodeName:     nodeName,
-				BindAddr:     clusterCfg.GetString(ClusterMembershipBindAddr, "0.0.0.0"),
-				BindPort:     clusterCfg.GetInt(ClusterMembershipBindPort, 7946),
-				JoinAddrs:    joinAddrs,
-				SecretFile:   clusterCfg.GetString(ClusterMembershipSecretFile, ""),
-				SecretString: clusterCfg.GetString(ClusterMembershipSecret, ""),
-				AdvertiseIP:  clusterCfg.GetString(ClusterMembershipAdvertise, ""),
+				NodeName:    nodeName,
+				BindAddr:    clusterCfg.GetString(ClusterMembershipBindAddr, "0.0.0.0"),
+				BindPort:    clusterCfg.GetInt(ClusterMembershipBindPort, 7946),
+				JoinAddrs:   joinAddrs,
+				SecretKey:   secretKey,
+				AdvertiseIP: clusterCfg.GetString(ClusterMembershipAdvertise, ""),
 				GossipInterval: clusterCfg.GetDuration(
 					ClusterMembershipGossipInterval,
 					membership.DefaultGossipInterval,

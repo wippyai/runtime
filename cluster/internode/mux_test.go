@@ -167,7 +167,7 @@ func TestMux_UnknownClassOnWireSurfaceProtocolError(t *testing.T) {
 // class skip the default onMessage callback and arrive at the receiver
 // instead. Frames of other classes continue to flow through onMessage.
 func TestMux_RegisterClassReceiverRoutesPerClass(t *testing.T) {
-	cfg := DefaultManagerConfig()
+	cfg := insecureManagerConfig()
 	cfg.Logger = zap.NewNop()
 	cfg.LocalNodeID = "node-A"
 	cfg.AutoPort = true
@@ -194,7 +194,7 @@ func TestMux_RegisterClassReceiverRoutesPerClass(t *testing.T) {
 		func(_ string, _ []byte) {}), "second registration must fail")
 
 	// Spin up the peer leg manually so we can stay inside the package.
-	cfgB := DefaultManagerConfig()
+	cfgB := insecureManagerConfig()
 	cfgB.Logger = zap.NewNop()
 	cfgB.LocalNodeID = "node-B"
 	cfgB.BindAddr = "127.0.0.1"

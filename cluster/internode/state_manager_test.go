@@ -15,7 +15,7 @@ import (
 )
 
 func setupStateManager() *NodeStateManager {
-	config := DefaultManagerConfig()
+	config := insecureManagerConfig()
 	config.Logger = zap.NewNop()
 	logger := zap.NewNop()
 	return NewNodeStateManager(config, newTelemetry(nil), logger)
@@ -24,7 +24,7 @@ func setupStateManager() *NodeStateManager {
 // setupStateManagerSmallCaps builds a manager whose per-class caps are
 // small so overflow can be driven deterministically in a unit test.
 func setupStateManagerSmallCaps(cap int) *NodeStateManager {
-	config := DefaultManagerConfig()
+	config := insecureManagerConfig()
 	config.Logger = zap.NewNop()
 	config.GossipQueueCap = cap
 	return NewNodeStateManager(config, newTelemetry(nil), zap.NewNop())

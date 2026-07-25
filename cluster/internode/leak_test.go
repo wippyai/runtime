@@ -11,7 +11,7 @@ import (
 )
 
 func TestReliableQueue_RaftControl_GrowsPastConfiguredCap(t *testing.T) {
-	cfg := DefaultManagerConfig()
+	cfg := insecureManagerConfig()
 	cfg.Logger = zap.NewNop()
 	nsm := NewNodeStateManager(cfg, newTelemetry(nil), zap.NewNop())
 	const node cluster.NodeID = "peer"
@@ -37,7 +37,7 @@ func TestReliableQueue_RaftControl_GrowsPastConfiguredCap(t *testing.T) {
 }
 
 func TestReliableQueue_PGBroadcast_GrowsPastConfiguredCap(t *testing.T) {
-	cfg := DefaultManagerConfig()
+	cfg := insecureManagerConfig()
 	cfg.Logger = zap.NewNop()
 	nsm := NewNodeStateManager(cfg, newTelemetry(nil), zap.NewNop())
 	const node cluster.NodeID = "peer"
@@ -63,7 +63,7 @@ func TestReliableQueue_PGBroadcast_GrowsPastConfiguredCap(t *testing.T) {
 }
 
 func TestQueueIsBounded_Gossip_RejectsNewest(t *testing.T) {
-	cfg := DefaultManagerConfig()
+	cfg := insecureManagerConfig()
 	cfg.Logger = zap.NewNop()
 	cfg.GossipQueueCap = 4
 	nsm := NewNodeStateManager(cfg, newTelemetry(nil), zap.NewNop())
@@ -96,7 +96,7 @@ func TestQueueIsBounded_Gossip_RejectsNewest(t *testing.T) {
 }
 
 func TestDrainPriority_ControlBeforeBroadcast(t *testing.T) {
-	cfg := DefaultManagerConfig()
+	cfg := insecureManagerConfig()
 	cfg.Logger = zap.NewNop()
 	nsm := NewNodeStateManager(cfg, newTelemetry(nil), zap.NewNop())
 	const node cluster.NodeID = "peer"
@@ -118,7 +118,7 @@ func TestDrainPriority_ControlBeforeBroadcast(t *testing.T) {
 }
 
 func TestGossipRequeueRespectsCap(t *testing.T) {
-	cfg := DefaultManagerConfig()
+	cfg := insecureManagerConfig()
 	cfg.Logger = zap.NewNop()
 	cfg.GossipQueueCap = 4
 	nsm := NewNodeStateManager(cfg, newTelemetry(nil), zap.NewNop())

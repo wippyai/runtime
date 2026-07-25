@@ -203,10 +203,15 @@ func (d *Definition) executeContinueAsNew() {
 		}
 	}
 
+	header, err := d.getContextHeader()
+	if err != nil {
+		d.env.Complete(nil, fmt.Errorf("upgrade: %w", err))
+		return
+	}
 	continueErr := &bindings.ContinueAsNewError{
 		WorkflowType:  &bindings.WorkflowType{Name: workflowType},
 		Input:         input,
-		Header:        d.getContextHeader(),
+		Header:        header,
 		TaskQueueName: d.env.WorkflowInfo().TaskQueueName,
 	}
 

@@ -42,18 +42,22 @@ type dialRecord struct {
 // recordingService implements netapi.Service and records all DialContext calls.
 // It dials the real destination (allowing HTTP requests to succeed) while recording.
 type recordingService struct {
-	calls []dialRecord
-	mu    sync.Mutex
+	destination string
+	calls       []dialRecord
+	mu          sync.Mutex
 }
 
 func (s *recordingService) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
 	s.mu.Lock()
 	s.calls = append(s.calls, dialRecord{Network: network, Address: address})
+	destination := s.destination
 	s.mu.Unlock()
 
-	// Actually dial the destination so HTTP requests work
+	if destination == "" {
+		destination = address
+	}
 	var d net.Dialer
-	return d.DialContext(ctx, network, address)
+	return d.DialContext(ctx, network, destination)
 }
 
 func (s *recordingService) Listen(_ context.Context, _, _ string) (net.Listener, error) {
@@ -163,6 +167,30 @@ func TestHandler_OverlayNetworkRouting(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("timeout waiting for response")
 	}
+}
+
+func TestHandler_OverlayStrictModeIgnoresLocalProxyPeer(t *testing.T) {
+	ts := httptest.NewServer(gohttp.HandlerFunc(func(w gohttp.ResponseWriter, _ *gohttp.Request) {
+		_, _ = w.Write([]byte("overlay-routed"))
+	}))
+	defer ts.Close()
+
+	overlaySvc := &recordingService{destination: ts.Listener.Addr().String()}
+	reg := newMockNetworkRegistry()
+	reg.register("network:test-overlay", overlaySvc, netapi.KindSOCKS5)
+	ctx := ctxapi.NewRootContext()
+	secapi.SetStrictMode(ctx, true)
+	pool := NewClientPool()
+	defer pool.Close()
+
+	resp := executeRequest(ctx, pool, reg, &httpapi.RequestCmd{
+		Method:         "GET",
+		URL:            "http://public.example/",
+		OverlayNetwork: "network:test-overlay",
+	}, false)
+
+	require.Empty(t, resp.Error)
+	require.Equal(t, "overlay-routed", string(resp.Body))
 }
 
 func TestHandler_OverlayNetworkNotFound(t *testing.T) {
