@@ -1568,11 +1568,10 @@ func validModuleIdentifier(value string) bool {
 	return true
 }
 
-// replacementManifestProvider resolves locally-replaced modules from their lock
-// replacement instead of the Hub. A replaced module's source of truth is local,
-// so it must never be re-fetched from the Hub during live changeset expansion —
-// otherwise installing any module fails when an already-installed, locally-sourced
-// module is absent from the Hub. Non-replaced modules delegate to the base provider.
+// replacementManifestProvider loads entries and declared dependencies from a
+// local replacement tree. A replacement with no explicit source version still
+// delegates release availability to the Hub; a satisfying lock avoids that call.
+// Non-replaced modules delegate to the base provider.
 type replacementManifestProvider struct {
 	base           ManifestProvider
 	handler        *DependencyHandler
@@ -1580,32 +1579,50 @@ type replacementManifestProvider struct {
 	lockedDigests  map[string]string
 }
 
-func (p *replacementManifestProvider) replacedVersion(name, constraint string) string {
-	if version := p.lockedVersions[name]; version != "" {
-		return version
-	}
+// replacementVersion returns the version whose local source tree should be
+// loaded. An explicit source version is authoritative. Otherwise the resolver's
+// exact selection is authoritative; the lock is only a checkpoint for requests
+// that do not already name a selected release.
+func (p *replacementManifestProvider) replacementVersion(name, constraint string) string {
 	if version := p.handler.replacementModuleVersion(name); version != "" {
 		return version
 	}
-	return strings.TrimPrefix(constraint, "@")
+	if isExactModuleVersion(constraint) {
+		return constraint
+	}
+	return p.lockedVersions[name]
+}
+
+func isExactModuleVersion(value string) bool {
+	_, err := hubsemver.ParseVersion(strings.TrimSpace(value))
+	return err == nil
 }
 
 func (p *replacementManifestProvider) GetManifest(ctx context.Context, org, module, constraint string) (*ModuleManifest, error) {
 	name := org + "/" + module
 	if path, ok := p.handler.replacementPath(name); ok {
-		if version := p.replacedVersion(name, constraint); version != "" {
-			dependencies, err := p.localReplacementDependencies(ctx, path)
+		version := p.replacementVersion(name, constraint)
+		if version == "" {
+			// Labels do not identify a concrete release. Ask the Hub only to
+			// resolve the label, then keep the local replacement tree as the
+			// content and dependency source of truth.
+			manifest, err := p.base.GetManifest(ctx, org, module, constraint)
 			if err != nil {
 				return nil, err
 			}
-			return &ModuleManifest{
-				Org:          org,
-				Name:         module,
-				Version:      version,
-				Digest:       p.lockedDigests[name+"@"+version],
-				Dependencies: dependencies,
-			}, nil
+			version = manifest.Version
 		}
+		dependencies, err := p.localReplacementDependencies(ctx, path)
+		if err != nil {
+			return nil, err
+		}
+		return &ModuleManifest{
+			Org:          org,
+			Name:         module,
+			Version:      version,
+			Digest:       p.lockedDigests[name+"@"+version],
+			Dependencies: dependencies,
+		}, nil
 	}
 	return p.base.GetManifest(ctx, org, module, constraint)
 }
@@ -1699,9 +1716,13 @@ func loadReplacementEntries(
 func (p *replacementManifestProvider) ListAllVersions(ctx context.Context, org, module string) ([]VersionInfo, error) {
 	name := org + "/" + module
 	if _, ok := p.handler.replacementPath(name); ok {
-		if version := p.replacedVersion(name, ""); version != "" {
+		// An explicit source version is the complete candidate set. Without
+		// one, the local tree supplies bytes but the Hub remains authoritative
+		// for which released versions are available to satisfy live ranges.
+		if version := p.handler.replacementModuleVersion(name); version != "" {
 			return []VersionInfo{{Version: version}}, nil
 		}
+		return p.base.ListAllVersions(ctx, org, module)
 	}
 	return p.base.ListAllVersions(ctx, org, module)
 }
