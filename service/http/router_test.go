@@ -5,6 +5,7 @@ package http
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -213,6 +214,40 @@ func TestRouteManager_MethodAgnosticCatchAllCoexistsWithStaticMount(t *testing.T
 			assert.Equal(t, tt.expected, rec.Body.String())
 		})
 	}
+}
+
+func TestRouteManager_BuildReturnsMethodAgnosticConflicts(t *testing.T) {
+	rm, err := NewRouteManager()
+	require.NoError(t, err)
+
+	routerID := registry.NewID("test", "router")
+	require.NoError(t, rm.AddRouter(routerID, "", nil, nil))
+	require.NoError(t, rm.AddRoute(
+		routerID,
+		registry.NewID("test", "index"),
+		config.MethodAny,
+		"/index.html",
+		registry.NewID("test", "index_handler"),
+		http.NotFoundHandler(),
+	))
+	require.NoError(t, rm.AddRoute(
+		routerID,
+		registry.NewID("test", "get_fallback"),
+		http.MethodGet,
+		"/{path...}",
+		registry.NewID("test", "fallback_handler"),
+		http.NotFoundHandler(),
+	))
+
+	var buildErr error
+	require.NotPanics(t, func() {
+		buildErr = rm.Build()
+	})
+	require.Error(t, buildErr)
+
+	var apiErr apierror.Error
+	require.ErrorAs(t, buildErr, &apiErr)
+	assert.Equal(t, apierror.Conflict, apiErr.Kind())
 }
 
 func TestRouteManager_MultipleRouters(t *testing.T) {
@@ -453,6 +488,32 @@ func benchmarkRouteManagerServeHTTPCatchAll(b *testing.B, method string, withSta
 	b.ResetTimer()
 	for b.Loop() {
 		rm.ServeHTTP(&w, req)
+	}
+}
+
+func BenchmarkRouteManagerBuild(b *testing.B) {
+	rm, err := NewRouteManager()
+	require.NoError(b, err)
+
+	routerID := registry.NewID("benchmark", "router")
+	require.NoError(b, rm.AddRouter(routerID, "", nil, nil))
+	for i := range 100 {
+		require.NoError(b, rm.AddRoute(
+			routerID,
+			registry.NewID("benchmark", fmt.Sprintf("endpoint_%d", i)),
+			http.MethodGet,
+			fmt.Sprintf("/routes/%d/{id}", i),
+			registry.NewID("benchmark", "handler"),
+			http.NotFoundHandler(),
+		))
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		if err := rm.Build(); err != nil {
+			b.Fatal(err)
+		}
 	}
 }
 
