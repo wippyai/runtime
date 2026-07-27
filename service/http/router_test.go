@@ -216,6 +216,38 @@ func TestRouteManager_MethodAgnosticCatchAllCoexistsWithStaticMount(t *testing.T
 	}
 }
 
+func TestRouteManager_RestWildcardRouteInfoUsesDeclaredName(t *testing.T) {
+	rm, err := NewRouteManager()
+	require.NoError(t, err)
+
+	routerID := registry.NewID("test", "router")
+	require.NoError(t, rm.AddRouter(routerID, "", nil, nil))
+
+	var capturedPath string
+	require.NoError(t, rm.AddRoute(
+		routerID,
+		registry.NewID("test", "fallback"),
+		config.MethodAny,
+		"/{path...}",
+		registry.NewID("test", "fallback_handler"),
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			routeInfo, ok := config.GetRouteInfo(r.Context())
+			require.True(t, ok)
+			capturedPath = routeInfo.Params["path"]
+			w.WriteHeader(http.StatusOK)
+		}),
+	))
+	require.NoError(t, rm.Build())
+
+	ctx, _ := contextapi.OpenFrameContext(context.Background())
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(ctx, http.MethodGet, "/projects/42/settings", nil)
+	rm.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "projects/42/settings", capturedPath)
+}
+
 func TestRouteManager_BuildReturnsMethodAgnosticConflicts(t *testing.T) {
 	rm, err := NewRouteManager()
 	require.NoError(t, err)
