@@ -143,11 +143,14 @@ func (rm *RouteManager) AddRoute(routerID registry.ID, id registry.ID, method, p
 	// Validate method
 	method = strings.ToUpper(method)
 	switch method {
-	case http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete,
+	case httpapi.MethodAny, http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete,
 		http.MethodPatch, http.MethodHead, http.MethodOptions, http.MethodTrace:
 		// Valid method
 	default:
 		return httpapi.NewInvalidHTTPMethodError(method)
+	}
+	if method == httpapi.MethodAny {
+		method = ""
 	}
 
 	// Validate path
@@ -355,7 +358,7 @@ func (rm *RouteManager) Build() error {
 			allPatterns = append(allPatterns, patternEntry{handler, pattern})
 
 			// Auto-generate OPTIONS handler so CORS middleware can intercept preflight
-			if route.method != "OPTIONS" {
+			if route.method != "" && route.method != http.MethodOptions {
 				optionsPattern := buildPattern("OPTIONS", routerEntry.prefix, route.path)
 				if !registeredOptions[optionsPattern] {
 					optionsHandler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -462,6 +465,9 @@ func buildPattern(method, prefix, path string) string {
 
 	// Build full path
 	fullPath := prefix + path
+	if method == "" {
+		return fullPath
+	}
 
 	return method + " " + fullPath
 }
