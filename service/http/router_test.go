@@ -168,6 +168,53 @@ func TestRouteManager_ServeHTTP(t *testing.T) {
 	server.Close()
 }
 
+func TestRouteManager_MethodAgnosticCatchAllCoexistsWithStaticMount(t *testing.T) {
+	rm, err := NewRouteManager()
+	require.NoError(t, err)
+
+	routerID := registry.NewID("test", "router")
+	require.NoError(t, rm.AddRouter(routerID, "", nil, nil))
+	require.NoError(t, rm.AddRoute(
+		routerID,
+		registry.NewID("test", "fallback"),
+		config.MethodAny,
+		"/{path...}",
+		registry.NewID("test", "fallback_handler"),
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, _ = w.Write([]byte("dynamic:" + r.Method))
+		}),
+	))
+	require.NoError(t, rm.Mount("/app", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("static"))
+	})))
+	require.NoError(t, rm.Build())
+
+	tests := []struct {
+		name     string
+		method   string
+		path     string
+		expected string
+	}{
+		{name: "GET deep link", method: http.MethodGet, path: "/home", expected: "dynamic:GET"},
+		{name: "POST deep link", method: http.MethodPost, path: "/home", expected: "dynamic:POST"},
+		{name: "OPTIONS deep link", method: http.MethodOptions, path: "/home", expected: "dynamic:OPTIONS"},
+		{name: "extension method deep link", method: "PROPFIND", path: "/home", expected: "dynamic:PROPFIND"},
+		{name: "GET static asset", method: http.MethodGet, path: "/app/main.js", expected: "static"},
+		{name: "POST static asset", method: http.MethodPost, path: "/app/main.js", expected: "static"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequestWithContext(context.Background(), tt.method, tt.path, nil)
+			rm.ServeHTTP(rec, req)
+
+			assert.Equal(t, http.StatusOK, rec.Code)
+			assert.Equal(t, tt.expected, rec.Body.String())
+		})
+	}
+}
+
 func TestRouteManager_MultipleRouters(t *testing.T) {
 	rm, err := NewRouteManager()
 	require.NoError(t, err)
