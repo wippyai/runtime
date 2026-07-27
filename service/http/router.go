@@ -413,7 +413,8 @@ func extractParamNames(path string) []string {
 		if ch == '{' {
 			start = i + 1
 		} else if ch == '}' && start >= 0 {
-			names = append(names, path[start:i])
+			name := path[start:i]
+			names = append(names, strings.TrimSuffix(name, "..."))
 			start = -1
 		}
 	}
