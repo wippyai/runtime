@@ -6,6 +6,7 @@ import (
 	"context"
 	"sync"
 	"syscall"
+	"time"
 
 	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/runtime/resource"
@@ -44,6 +45,48 @@ func NewProcess(ctx context.Context, handle apiexec.Process) *Process {
 	}
 
 	return p
+}
+
+// reapGrace bounds how long a released process may take to exit before it is
+// killed. It only applies to a child that ignores SIGTERM; one that exits
+// normally is reaped as soon as it does.
+const reapGrace = 10 * time.Second
+
+// reapReleased waits on a process whose handle the caller has given up.
+//
+// Wait is the only call that releases the child's entry in the OS process
+// table. close() deliberately puts the handle beyond the caller's reach, so
+// unless the reap happens here it never happens at all: the child is signalled,
+// exits, and remains a zombie for the lifetime of the runtime -- one per
+// close(), accumulating without bound.
+//
+// It runs detached because close() must not block a Lua coroutine on a child
+// that is slow to exit, and it escalates because a goroutine parked forever on
+// an unresponsive child would trade a process leak for a goroutine leak. A
+// child still alive after the grace period is killed, which Wait then observes.
+//
+// Wait closes the stdout and stderr pipes it created. That is inherent to
+// reaping and is the documented consequence of close(): the process is finished
+// with, and its streams along with it.
+func reapReleased(handle apiexec.Process, killed bool) {
+	exited := make(chan struct{})
+	go func() {
+		defer close(exited)
+		_ = handle.Wait()
+	}()
+
+	if killed {
+		// The caller already sent SIGKILL; there is nothing to escalate to.
+		<-exited
+		return
+	}
+
+	select {
+	case <-exited:
+	case <-time.After(reapGrace):
+		_ = handle.Signal(int(syscall.SIGKILL))
+		<-exited
+	}
 }
 
 var processMethods = map[string]lua.LGoFunc{
@@ -321,6 +364,7 @@ func procClose(l *lua.LState) int {
 	p.closed = true
 	handle := p.handle
 	p.handle = nil
+	started := p.started
 	cancel := p.cancelCleanup
 	p.cancelCleanup = nil
 	p.mu.Unlock()
@@ -335,6 +379,13 @@ func procClose(l *lua.LState) int {
 			sig = syscall.SIGKILL
 		}
 		_ = handle.Signal(int(sig))
+
+		// Only a started process has an OS child to reap; waiting on one that
+		// never ran would just report that. Signalling is left unconditional so
+		// close() behaves exactly as it did before.
+		if started {
+			go reapReleased(handle, forceStop)
+		}
 	}
 
 	l.Push(lua.LTrue)
