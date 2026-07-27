@@ -356,6 +356,48 @@ func TestRouteManager_RouteUpdates(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+type benchmarkResponseWriter struct {
+	header http.Header
+}
+
+func (w *benchmarkResponseWriter) Header() http.Header {
+	return w.header
+}
+
+func (w *benchmarkResponseWriter) Write(body []byte) (int, error) {
+	return len(body), nil
+}
+
+func (w *benchmarkResponseWriter) WriteHeader(int) {}
+
+func BenchmarkRouteManagerServeHTTPConcreteCatchAll(b *testing.B) {
+	rm, err := NewRouteManager()
+	require.NoError(b, err)
+
+	routerID := registry.NewID("benchmark", "router")
+	require.NoError(b, rm.AddRouter(routerID, "", nil, nil))
+	require.NoError(b, rm.AddRoute(
+		routerID,
+		registry.NewID("benchmark", "endpoint"),
+		http.MethodGet,
+		"/{path...}",
+		registry.NewID("benchmark", "handler"),
+		http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}),
+	))
+	require.NoError(b, rm.Build())
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/deep/link", nil)
+	w := benchmarkResponseWriter{header: make(http.Header)}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		rm.ServeHTTP(&w, req)
+	}
+}
+
 func testGet(t *testing.T, url string) (*http.Response, error) {
 	t.Helper()
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
