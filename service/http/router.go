@@ -263,7 +263,7 @@ func (rm *RouteManager) Unmount(path string) error {
 
 // Build rebuilds the entire router from the current configuration
 func (rm *RouteManager) Build() error {
-	// Collect all patterns first to check for conflicts
+	// Collect all patterns before constructing the replacement mux.
 	type patternEntry struct {
 		handler http.Handler
 		pattern string
