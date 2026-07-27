@@ -489,6 +489,10 @@ func BenchmarkRouteManagerServeHTTPConcreteCatchAll(b *testing.B) {
 }
 
 func BenchmarkRouteManagerServeHTTPMethodAgnosticCatchAll(b *testing.B) {
+	benchmarkRouteManagerServeHTTPCatchAll(b, config.MethodAny, false)
+}
+
+func BenchmarkRouteManagerServeHTTPMethodAgnosticCatchAllWithStaticMount(b *testing.B) {
 	benchmarkRouteManagerServeHTTPCatchAll(b, config.MethodAny, true)
 }
 
