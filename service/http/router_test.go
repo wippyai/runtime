@@ -418,6 +418,14 @@ func (w *benchmarkResponseWriter) Write(body []byte) (int, error) {
 func (w *benchmarkResponseWriter) WriteHeader(int) {}
 
 func BenchmarkRouteManagerServeHTTPConcreteCatchAll(b *testing.B) {
+	benchmarkRouteManagerServeHTTPCatchAll(b, http.MethodGet, false)
+}
+
+func BenchmarkRouteManagerServeHTTPMethodAgnosticCatchAll(b *testing.B) {
+	benchmarkRouteManagerServeHTTPCatchAll(b, config.MethodAny, true)
+}
+
+func benchmarkRouteManagerServeHTTPCatchAll(b *testing.B, method string, withStaticMount bool) {
 	rm, err := NewRouteManager()
 	require.NoError(b, err)
 
@@ -426,13 +434,16 @@ func BenchmarkRouteManagerServeHTTPConcreteCatchAll(b *testing.B) {
 	require.NoError(b, rm.AddRoute(
 		routerID,
 		registry.NewID("benchmark", "endpoint"),
-		http.MethodGet,
+		method,
 		"/{path...}",
 		registry.NewID("benchmark", "handler"),
 		http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusOK)
 		}),
 	))
+	if withStaticMount {
+		require.NoError(b, rm.Mount("/app", http.NotFoundHandler()))
+	}
 	require.NoError(b, rm.Build())
 
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/deep/link", nil)
