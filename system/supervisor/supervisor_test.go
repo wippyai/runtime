@@ -543,6 +543,7 @@ func TestSupervisor_StopCancelsFailedAutoStartRetryTransition(t *testing.T) {
 					MaxAttempts:  0,
 					InitialDelay: 100 * time.Millisecond,
 					MaxDelay:     100 * time.Millisecond,
+					Jitter:       -1, // Zero is defaulted to 0.1; negative disables jitter.
 				},
 			},
 		},
