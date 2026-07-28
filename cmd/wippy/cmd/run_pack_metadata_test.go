@@ -69,9 +69,11 @@ func TestMaterializeHubRunPackInstallsExactLockArtifact(t *testing.T) {
 	sum := sha256.Sum256(content)
 	digest := "sha256:" + hex.EncodeToString(sum[:])
 
+	canonicalProjectDir, err := filepath.EvalSymlinks(projectDir)
+	require.NoError(t, err)
 	destination, err := materializeHubRunPack(source, "acme/app", "1.2.3", digest, uint64(len(content)))
 	require.NoError(t, err)
-	require.Equal(t, filepath.Join(projectDir, ".wippy", "vendor", "acme", "app-1.2.3.wapp"), destination)
+	require.Equal(t, filepath.Join(canonicalProjectDir, ".wippy", "vendor", "acme", "app-1.2.3.wapp"), destination)
 	installed, err := os.ReadFile(destination)
 	require.NoError(t, err)
 	require.Equal(t, content, installed)
@@ -79,6 +81,36 @@ func TestMaterializeHubRunPackInstallsExactLockArtifact(t *testing.T) {
 	second, err := materializeHubRunPack(source, "acme/app", "1.2.3", digest, uint64(len(content)))
 	require.NoError(t, err)
 	require.Equal(t, destination, second)
+}
+
+func TestMaterializeHubRunPackCanonicalizesSymlinkWorkingDirectory(t *testing.T) {
+	realProjectDir := t.TempDir()
+	projectAlias := filepath.Join(t.TempDir(), "project")
+	if err := os.Symlink(realProjectDir, projectAlias); err != nil {
+		t.Skipf("symlink fixture unavailable: %v", err)
+	}
+	previousDir, err := os.Getwd()
+	require.NoError(t, err)
+	require.NoError(t, os.Chdir(projectAlias))
+	t.Cleanup(func() { require.NoError(t, os.Chdir(previousDir)) })
+
+	source := filepath.Join(t.TempDir(), "app.wapp")
+	require.NoError(t, writeTestPack(source, wapp.Metadata{"name": "app"}))
+	content, err := os.ReadFile(source)
+	require.NoError(t, err)
+	sum := sha256.Sum256(content)
+
+	canonicalProjectDir, err := filepath.EvalSymlinks(realProjectDir)
+	require.NoError(t, err)
+	destination, err := materializeHubRunPack(
+		source,
+		"acme/app",
+		"1.2.3",
+		"sha256:"+hex.EncodeToString(sum[:]),
+		uint64(len(content)),
+	)
+	require.NoError(t, err)
+	require.Equal(t, filepath.Join(canonicalProjectDir, ".wippy", "vendor", "acme", "app-1.2.3.wapp"), destination)
 }
 
 func configForProfile(defaults boot.Config, profile string) (boot.Config, error) {
