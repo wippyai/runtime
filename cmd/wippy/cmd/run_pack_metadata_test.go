@@ -73,7 +73,9 @@ func TestMaterializeHubRunPackInstallsExactLockArtifact(t *testing.T) {
 	require.NoError(t, err)
 	destination, err := materializeHubRunPack(source, "acme/app", "1.2.3", digest, uint64(len(content)))
 	require.NoError(t, err)
-	require.Equal(t, filepath.Join(canonicalProjectDir, ".wippy", "vendor", "acme", "app-1.2.3.wapp"), destination)
+	canonicalDestination, err := filepath.EvalSymlinks(destination)
+	require.NoError(t, err)
+	require.Equal(t, filepath.Join(canonicalProjectDir, ".wippy", "vendor", "acme", "app-1.2.3.wapp"), canonicalDestination)
 	installed, err := os.ReadFile(destination)
 	require.NoError(t, err)
 	require.Equal(t, content, installed)
@@ -110,7 +112,9 @@ func TestMaterializeHubRunPackCanonicalizesSymlinkWorkingDirectory(t *testing.T)
 		uint64(len(content)),
 	)
 	require.NoError(t, err)
-	require.Equal(t, filepath.Join(canonicalProjectDir, ".wippy", "vendor", "acme", "app-1.2.3.wapp"), destination)
+	canonicalDestination, err := filepath.EvalSymlinks(destination)
+	require.NoError(t, err)
+	require.Equal(t, filepath.Join(canonicalProjectDir, ".wippy", "vendor", "acme", "app-1.2.3.wapp"), canonicalDestination)
 }
 
 func configForProfile(defaults boot.Config, profile string) (boot.Config, error) {
