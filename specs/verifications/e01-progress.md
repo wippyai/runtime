@@ -46,8 +46,8 @@
 ## Final Verification
 
 - Attested source head: `0fa36ce9d5fe59625072788e69fa422934fb83ca`
-- Gate contract: version 4;
-- Review status: cap exhausted (5/5); one reviewer approved 96/100, one rejected 93/100; final jitter finding corrected afterward; human decision required 165 fingerprints + 50 exposed existing leaves - 15 removals = +200
+- Gate contract: version 4; 165 fingerprints + 50 exposed existing leaves - 15 removals = +200
+- Review status: cap exhausted (5/5); one reviewer approved 96/100, one rejected 93/100; final jitter finding corrected afterward; user accepted the correction and instructed release progression at `2026-07-28T23:46:42Z`
 - Authoritative profile: Linux/amd64, CGO enabled, `-short`, tags `fts5 sqlite_vec treesitter`
 - `make test`: PASS
 - `make lint`: PASS, 0 issues
@@ -72,3 +72,5 @@
 - Linux base JSON: `/tmp/runtime-test-expansion-linux-amd64/base/test.json`, SHA-256 `17b55144ca7e8f5053ef76fe1c1d9d6516ca0649beaef71284ac597bc08eb2c4`
 - Windows package list: `/tmp/runtime-test-expansion-windows-packages.txt`, SHA-256 `d41dddc1bb0c751e3ed076c2f3859c4807b259d0f322a1dbcb3199d0733291b0`
 - Windows compile attestation: `/tmp/runtime-test-expansion-windows-compile-final.log`, SHA-256 `729bea0c517c31e77b79f25364f254a237c4fa8e88e8cd19b964b1598f57f5c7`
+- Fresh release security gate: `specs/security/REVIEW.md` — APPROVED, zero unresolved HIGH findings at confidence 8/10 or higher
+- Traceability gate: `specs/verifications/TRACE-e01.md` — WAIVED because generic matrix tooling is absent; Gate v4 provides explicit story/workstream/fingerprint trace

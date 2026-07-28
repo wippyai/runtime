@@ -34,4 +34,6 @@ This correction occurred after the final review result. Per the five-round hard 
 - Windows evidence is compile-only without native CGO/runtime tags.
 - Live provider integrations remain outside the local short profile.
 
-A human must choose whether to accept the post-review deterministic test correction or require a separately authorized new review cycle.
+## Human Decision
+
+At `2026-07-28T23:46:42Z`, the user instructed the task to continue after receiving the complete cap-exhaustion report. This explicitly accepts the verified post-review deterministic test correction for release progression; it does not retroactively convert the failed dual-review AND gate into an approval.

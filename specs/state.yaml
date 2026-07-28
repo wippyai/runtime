@@ -1,12 +1,12 @@
 active_flow: build_epic
 active_epic_id: e01
 active_story_id: e01s12
-phase: review_blocked
+phase: release_ready
 git:
   branch: test/runtime-behavior-expansion
   base: 55bc0336f205b3158d62d32ef434149a5f14275b
 handoff:
-  next_skill: human-decision
+  next_skill: release-branch
 metrics:
   story_start: '2026-07-28T18:04:34Z'
 decisions:
@@ -21,7 +21,12 @@ decisions:
   parallel_writers: isolated-worktrees-only
   test_identity: SuiteID+Name
   review_rounds_used: 5
-  review_and_gate: failed
+  review_and_gate: human-accepted-after-cap
   final_review_a_score: 96
   final_review_b_score: 93
   post_review_jitter_fix: 0fa36ce9
+  human_decision: continue-after-post-review-fix
+  human_decision_at: '2026-07-28T23:46:42Z'
+  traceability_gate: WAIVED
+  traceability_reason: task-specific-gate-v4-replaces-unavailable-generic-matrix
+  security_gate: APPROVED

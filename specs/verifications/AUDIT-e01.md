@@ -2,7 +2,7 @@
 
 ## Verdict
 
-**EXECUTABLE GATES PASS; REVIEW BLOCKED — cap exhausted (5/5), human decision required.**
+**RELEASE READY BY HUMAN DECISION — executable and security gates pass; review cap exhausted (5/5), post-review correction accepted by the user.**
 
 ## Supply Chain and Security
 
@@ -43,7 +43,9 @@
 
 ## Red-Flag Accounting
 
-- Independent review did not pass its dual-review AND gate: Reviewer A approved 96/100; Reviewer B rejected 93/100 for default jitter. The jitter was disabled in `0fa36ce9`, but the five-round cap forbids claiming a subsequent approval.
+- Independent review did not pass its dual-review AND gate: Reviewer A approved 96/100; Reviewer B rejected 93/100 for default jitter. The jitter was disabled in `0fa36ce9`; the five-round cap forbids claiming a subsequent approval. The user explicitly accepted that verified correction and instructed release progression at `2026-07-28T23:46:42Z`.
+- Fresh release security review `specs/security/REVIEW.md` approved the exact 29-commit release range with zero unresolved HIGH findings at confidence 8/10 or higher.
+- Generic traceability tooling is absent, so `specs/verifications/TRACE-e01.md` records WAIVED; Gate v4 remains the task-specific executable trace for all 12 stories and 165 fingerprints.
 - Performance benchmarking was not run because `/opt/workspace/wippy/CLAUDE.md` explicitly exempts projects under this workspace from performance and memory testing. Correctness, race, and coverage gates were still run.
 - Live cloud, Kubernetes, and production infrastructure were not mutated; all integration-dependent paths remained disabled or read-only. Local Docker executed only the read-only Linux/amd64 test container.
 - The exact final Linux JSON report attests code head `0fa36ce9`.
