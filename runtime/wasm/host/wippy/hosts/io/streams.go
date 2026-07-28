@@ -43,6 +43,10 @@ func (h *StreamsHost) MethodInputStreamRead(_ context.Context, self uint32, leng
 		return nil, &preview2.StreamError{Closed: true}
 	}
 
+	if length > preview2.MaxAllocationSize {
+		return nil, &preview2.StreamError{LastOpFailed: true}
+	}
+
 	data, err := stream.Read(length)
 	if err != nil {
 		var se *preview2.StreamError
