@@ -4,7 +4,7 @@
 
 Add a first wave of 165 deterministic, semantically distinct executable Go test leaves across 12 isolated workstreams, while removing 15 tests that assert copied or synthetic behavior.
 
-The authoritative machine-readable plan is [`specs/test-expansion/gate0.json`](specs/test-expansion/gate0.json).
+The authoritative machine-readable plan is [`../../test-expansion/gate0.json`](../../test-expansion/gate0.json).
 
 ## Baseline
 
@@ -67,7 +67,7 @@ After each cherry-pick, run the workstream's exact focused command. After each w
 
 1. Exact fingerprint execution audit from JSON: every planned test passes exactly once and has no children.
 2. Zero duplicate `(Package, Test)` terminal identities.
-3. No new skips relative to the authoritative Linux profile.
+3. No planned fingerprint may skip; any newly visible pre-existing integration skip must be reported explicitly.
 4. `make test` with race detection.
 5. Inclusive tagged short lane across `./...`.
 6. Focused new-test race repetition, then all affected packages under race once.
@@ -75,3 +75,15 @@ After each cherry-pick, run the workstream's exact focused command. After each w
 8. Tagged binary build and end-user `--help` smoke.
 9. Coverage must not fall below the 61.4% same-profile baseline; coverage growth is not a substitute for behavior.
 10. Fresh-context correctness, test-quality, security, and simplicity review before integration.
+
+## Verified Outcome
+
+- 165 planned fingerprints passed exactly once with no descendants or skips.
+- 15 copied/synthetic leaves were removed.
+- Truthful short-mode SQS execution exposed 49 existing unit leaves and one existing Docker conformance skip that had previously been hidden by `TestMain` exiting before `m.Run`.
+- Final executable leaves: 13,381 (**+200**).
+- Final passes: 13,128 (**+199**).
+- Final visible skips: 253 (**+1**, `TestSQSDriver_Conformance`).
+- Statement coverage: 62.8%, up from 61.4%.
+- Differential coverage of changed production statements: 80.9%.
+- Canonical race suite, lint, inclusive tagged suite, sanitized supplemental harness, and binary smoke all passed.

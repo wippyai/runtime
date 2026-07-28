@@ -1,17 +1,22 @@
 active_flow: build_epic
 active_epic_id: e01
-active_story_id: e01s01
-phase: execute
+active_story_id: e01s12
+phase: verify
 git:
   branch: test/runtime-behavior-expansion
   base: 55bc0336f205b3158d62d32ef434149a5f14275b
 handoff:
-  next_skill: dispatch-agents
+  next_skill: request-review
 metrics:
   story_start: '2026-07-28T18:04:34Z'
 decisions:
   authoritative_inventory_profile: linux-amd64-cgo-short-runtime-tags
   planned_new_leaves: 165
   planned_removed_leaves: 15
+  verified_leaf_identities: 13381
+  verified_passing_leaves: 13128
+  verified_visible_skips: 253
+  verified_statement_coverage_percent: 62.8
+  verified_differential_coverage_percent: 80.9
   parallel_writers: isolated-worktrees-only
   test_identity: SuiteID+Name
