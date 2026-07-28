@@ -1,0 +1,59 @@
+id: e01
+slug: runtime-test-expansion
+title: Runtime behavioral test expansion
+risk: P0
+status: in_progress
+objective: Add 165 genuine executable leaves and remove 15 false-confidence leaves.
+stories:
+  - id: e01s01
+    title: WASI HTTP protocol and ownership
+    workstream: WS01
+    risk: P0
+  - id: e01s02
+    title: WASI socket async state and adoption
+    workstream: WS02
+    risk: P0
+  - id: e01s03
+    title: WASI IO filesystem async and random boundaries
+    workstream: WS03
+    risk: P1
+  - id: e01s04
+    title: API adapter and store boundaries
+    workstream: WS04
+    risk: P1
+  - id: e01s05
+    title: Boot and CLI fail-closed artifacts
+    workstream: WS05
+    risk: P0
+  - id: e01s06
+    title: System lifecycle and transaction integrity
+    workstream: WS06
+    risk: P0
+  - id: e01s07
+    title: Local data-service failure boundaries
+    workstream: WS07
+    risk: P0
+  - id: e01s08
+    title: Network and external-client ownership
+    workstream: WS08
+    risk: P0
+  - id: e01s09
+    title: Temporal workflow production router
+    workstream: WS09
+    risk: P1
+  - id: e01s10
+    title: Process-wide health registry
+    workstream: WS10
+    risk: P1
+  - id: e01s11
+    title: Lua engine configuration and composition
+    workstream: WS11
+    risk: P1
+  - id: e01s12
+    title: WebSocket relay production middleware
+    workstream: WS12
+    risk: P1
+verify:
+  manifest: specs/test-expansion/gate0.json
+  canonical: make test
+  inclusive: go test -short -tags 'fts5 sqlite_vec treesitter' ./...

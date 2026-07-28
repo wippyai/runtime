@@ -1,0 +1,41 @@
+initiative: runtime-behavioral-test-expansion
+status: approved
+objective: >-
+  Add 165 deterministic, production-invoking Go test leaves across twelve
+  isolated runtime workstreams while removing fifteen false-confidence leaves.
+in_scope:
+  - WASI HTTP, sockets, IO, filesystem, async values, and random boundaries
+  - API queue, resource, store, payload, propagation, and structured errors
+  - boot and CLI fail-closed loaders and atomic artifacts
+  - system lifecycle, rollback, resource, process, and health contracts
+  - local data, HTTP, Temporal, I2P, Lua, and WebSocket boundaries
+out_of_scope:
+  - live AWS, Kubernetes, Temporal, brokers, databases, public DNS, or internet
+  - generated protobuf or Connect getter coverage
+  - load, soak, benchmark, seed, duration, permutation, or name-only expansion
+  - skipped tests, synthetic reports, parent-suite counting, and copied production logic
+  - dependency additions and broad architectural refactors
+acceptance:
+  planned_new_leaves: 165
+  planned_removed_leaves: 15
+  expected_net_leaves: 150
+  minimum_statement_coverage_percent: 61.4
+  unique_identity: SuiteID+Name
+  authoritative_profile: linux-amd64-cgo-short-runtime-tags
+prior_art:
+  - candidate: existing package-local Go tests and fakes
+    source: repository *_test.go files
+    verdict: extend
+    notes: reuse package-local recording fakes and deterministic channel barriers
+  - candidate: WASI host tests for poll, clocks, and preopens
+    source: runtime/wasm/host/wippy/hosts
+    verdict: compose
+    notes: reuse ResourceTable and direct host-method testing patterns
+  - candidate: queue driver and cluster test fabrics
+    source: service/queue/drivertest and cluster/clustertest
+    verdict: compose
+    notes: use only when the boundary cannot be proven at a lower level
+  - candidate: external test libraries or dependencies
+    source: go.mod and registry research
+    verdict: reject
+    notes: no new dependency is needed; standard library and existing fakes cover the wave
