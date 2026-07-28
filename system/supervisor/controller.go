@@ -157,6 +157,8 @@ func (c *Controller) runCommand(op ctrlOp) error {
 				return NewStopError(err)
 			}
 			return err
+		case <-opDone:
+			return op.ctx.Err()
 		case <-c.ctx.Done():
 			return NewSupervisorStoppedError(c.ctx.Err())
 		}

@@ -541,8 +541,8 @@ func TestSupervisor_StopCancelsFailedAutoStartRetryTransition(t *testing.T) {
 				StopTimeout:  500 * time.Millisecond,
 				RetryPolicy: supervisor.RetryPolicy{
 					MaxAttempts:  0,
-					InitialDelay: 500 * time.Millisecond,
-					MaxDelay:     500 * time.Millisecond,
+					InitialDelay: 100 * time.Millisecond,
+					MaxDelay:     100 * time.Millisecond,
 				},
 			},
 		},
@@ -578,7 +578,11 @@ func TestSupervisor_StopCancelsFailedAutoStartRetryTransition(t *testing.T) {
 	gotStopDeadline := <-stopDeadline
 	require.WithinDuration(t, shutdownDeadline, gotStopDeadline, time.Millisecond)
 
-	time.Sleep(200 * time.Millisecond)
+	select {
+	case <-attemptCh:
+		t.Fatal("service retried after supervisor stop")
+	case <-time.After(250 * time.Millisecond):
+	}
 	require.Equal(t, int32(1), attempts.Load(), "service retried after supervisor stop")
 }
 
