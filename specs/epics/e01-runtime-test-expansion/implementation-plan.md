@@ -85,5 +85,6 @@ After each cherry-pick, run the workstream's exact focused command. After each w
 - Final passes: 13,129 (**+199**).
 - Final visible skips: 253 (**+1**, `TestSQSDriver_Conformance`).
 - Statement coverage: 62.9%, up from 61.4%.
-- Differential coverage of changed production statements: 81.5%.
+- Differential coverage of changed production statements: 80.9%.
+- Gate v2 reconciles the +200 inventory delta and the one accepted pre-existing SQS Docker skip exposed by short-mode `m.Run`.
 - Canonical race suite, lint, Linux/amd64 inclusive tagged suite, Windows/amd64 changed-package compile, sanitized supplemental harness, and binary smoke all passed.

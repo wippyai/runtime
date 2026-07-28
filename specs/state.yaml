@@ -17,6 +17,6 @@ decisions:
   verified_passing_leaves: 13129
   verified_visible_skips: 253
   verified_statement_coverage_percent: 62.9
-  verified_differential_coverage_percent: 81.5
+  verified_differential_coverage_percent: 80.9
   parallel_writers: isolated-worktrees-only
   test_identity: SuiteID+Name
