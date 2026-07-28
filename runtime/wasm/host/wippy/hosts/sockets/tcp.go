@@ -53,6 +53,27 @@ func (a *IPSocketAddress) String() string {
 	return net.JoinHostPort(a.Address, strconv.Itoa(int(a.Port)))
 }
 
+func closeAsyncSocketResult(value any) {
+	switch result := value.(type) {
+	case *socketapi.ConnectResult:
+		if result != nil && result.Conn != nil {
+			_ = result.Conn.Close()
+		}
+	case *socketapi.ListenResult:
+		if result != nil && result.Listener != nil {
+			_ = result.Listener.Close()
+		}
+	case *socketapi.AcceptResult:
+		if result != nil && result.Conn != nil {
+			_ = result.Conn.Close()
+		}
+	case *socketapi.BindResult:
+		if result != nil && result.Conn != nil {
+			_ = result.Conn.Close()
+		}
+	}
+}
+
 func (h *TCPHost) getSocket(handle uint32) (*preview2.TCPSocketResource, *NetworkError) {
 	r, ok := h.resources.Get(handle)
 	if !ok {
@@ -120,7 +141,11 @@ func (h *TCPHost) MethodTCPSocketStartConnect(ctx context.Context, self uint32, 
 			panic(fmt.Sprintf("tcp start-connect: token %d not found", result))
 		}
 
-		connectResult := data.(*socketapi.ConnectResult)
+		connectResult, ok := data.(*socketapi.ConnectResult)
+		if !ok || connectResult == nil {
+			closeAsyncSocketResult(data)
+			return &NetworkError{Code: NetworkErrorInvalidArgument}
+		}
 		socket, err := h.getSocket(self)
 		if err != nil {
 			if connectResult.Conn != nil {
@@ -225,7 +250,11 @@ func (h *TCPHost) MethodTCPSocketStartListen(ctx context.Context, self uint32) *
 			panic(fmt.Sprintf("tcp start-listen: token %d not found", result))
 		}
 
-		listenResult := data.(*socketapi.ListenResult)
+		listenResult, ok := data.(*socketapi.ListenResult)
+		if !ok || listenResult == nil {
+			closeAsyncSocketResult(data)
+			return &NetworkError{Code: NetworkErrorInvalidArgument}
+		}
 		socket, err := h.getSocket(self)
 		if err != nil {
 			if listenResult.Listener != nil {
@@ -320,7 +349,11 @@ func (h *TCPHost) MethodTCPSocketAccept(ctx context.Context, self uint32) (uint3
 			panic(fmt.Sprintf("tcp accept: token %d not found", result))
 		}
 
-		acceptResult := data.(*socketapi.AcceptResult)
+		acceptResult, ok := data.(*socketapi.AcceptResult)
+		if !ok || acceptResult == nil {
+			closeAsyncSocketResult(data)
+			return 0, 0, 0, &NetworkError{Code: NetworkErrorInvalidArgument}
+		}
 		if acceptResult.Err != nil {
 			return 0, 0, 0, mapNetError(acceptResult.Err)
 		}

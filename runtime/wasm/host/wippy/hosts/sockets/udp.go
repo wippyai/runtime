@@ -81,7 +81,11 @@ func (h *UDPHost) MethodUDPSocketStartBind(ctx context.Context, self uint32, _ u
 			panic(fmt.Sprintf("udp start-bind: token %d not found", result))
 		}
 
-		bindResult := data.(*socketapi.BindResult)
+		bindResult, ok := data.(*socketapi.BindResult)
+		if !ok || bindResult == nil {
+			closeAsyncSocketResult(data)
+			return &NetworkError{Code: NetworkErrorInvalidArgument}
+		}
 		socket, err := h.getSocket(self)
 		if err != nil {
 			if bindResult.Conn != nil {
