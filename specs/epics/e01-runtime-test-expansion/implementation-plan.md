@@ -10,8 +10,8 @@ The authoritative machine-readable plan is [`../../test-expansion/gate0.json`](.
 
 - Base commit: `55bc0336f205b3158d62d32ef434149a5f14275b`
 - Baseline command: `go test -short -tags 'fts5 sqlite_vec treesitter' ./... -count=1 -json`
-- Executable leaf identities: 13,181
-- Passed: 12,929
+- Executable leaf identities: 13,182
+- Passed: 12,930
 - Skipped: 252
 - Aggregate parent nodes excluded: 1,211
 - Statement coverage: 61.4%
@@ -81,9 +81,9 @@ After each cherry-pick, run the workstream's exact focused command. After each w
 - 165 planned fingerprints passed exactly once with no descendants or skips.
 - 15 copied/synthetic leaves were removed.
 - Truthful short-mode SQS execution exposed 49 existing unit leaves and one existing Docker conformance skip that had previously been hidden by `TestMain` exiting before `m.Run`.
-- Final executable leaves: 13,381 (**+200**).
-- Final passes: 13,128 (**+199**).
+- Final executable leaves: 13,382 (**+200**).
+- Final passes: 13,129 (**+199**).
 - Final visible skips: 253 (**+1**, `TestSQSDriver_Conformance`).
-- Statement coverage: 62.8%, up from 61.4%.
-- Differential coverage of changed production statements: 80.9%.
-- Canonical race suite, lint, inclusive tagged suite, sanitized supplemental harness, and binary smoke all passed.
+- Statement coverage: 62.9%, up from 61.4%.
+- Differential coverage of changed production statements: 81.5%.
+- Canonical race suite, lint, Linux/amd64 inclusive tagged suite, Windows/amd64 changed-package compile, sanitized supplemental harness, and binary smoke all passed.

@@ -8,7 +8,7 @@
 
 - ✓ No dependency, lockfile, generated-code, Makefile, or workflow changes.
 - ✓ Diff credential/private-key scan found no secrets.
-- ✓ Fresh-context security review approved `55bc0336..ce1f7f30`; no concrete finding reached confidence 8/10.
+- ✓ Fresh-context security review approved `55bc0336..006b3b26`; no concrete finding reached confidence 8/10.
 - ✓ Changed SQL remains parameterized; changed URL/path, origin, artifact, and lifecycle boundaries fail closed.
 
 ## Scope and Clarity
@@ -29,9 +29,10 @@
 - ✓ No new test uses `t.Run`, `t.Skip`, arbitrary sleeps, random seeds, or live infrastructure.
 - ✓ Canonical `make test`, focused race repetitions, inclusive tagged short suite, sanitized supplemental harness, and CLI smoke passed.
 - ✓ `make lint` passed with zero issues; full LSP scan reported zero errors.
-- ✓ Leaf count is 13,381: 13,128 pass and 253 visible skip.
+- ✓ Authoritative Linux/amd64 leaf count is 13,382: 13,129 pass and 253 visible skip.
 - ✓ The one newly visible SQS conformance skip is pre-existing Docker coverage uncovered by fixing short-mode `TestMain`; no planned fingerprint skips.
-- ✓ Statement coverage rose from 61.4% to 62.8%; changed-statement coverage is 80.9%.
+- ✓ Statement coverage rose from 61.4% to 62.9%; changed-statement coverage is 81.5%.
+- ✓ All 36 changed Go packages cross-compiled for Windows/amd64.
 
 ## Safety, Performance, and Complexity
 
@@ -43,5 +44,5 @@
 ## Red-Flag Accounting
 
 - Performance benchmarking was not run because `/opt/workspace/wippy/CLAUDE.md` explicitly exempts projects under this workspace from performance and memory testing. Correctness, race, and coverage gates were still run.
-- Live cloud, Kubernetes, Docker, and production infrastructure were not mutated; all integration-dependent paths remained disabled or read-only.
-- The exact final JSON report attests code head `4da25af2`; the later commits only relocate/update specifications and add this audit.
+- Live cloud, Kubernetes, and production infrastructure were not mutated; all integration-dependent paths remained disabled or read-only. Local Docker executed only the read-only Linux/amd64 test container.
+- The exact final Linux JSON report attests code head `006b3b26`; later changes only update specifications and review records.

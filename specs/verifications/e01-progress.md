@@ -45,22 +45,28 @@
 
 ## Final Verification
 
-- Head before this documentation checkpoint: `4da25af28dc14f4501700b9e2258466d1df0f482`
+- Attested source head: `006b3b265a2133eff256cd0030defe42abd9b904`
+- Authoritative profile: Linux/amd64, CGO enabled, `-short`, tags `fts5 sqlite_vec treesitter`
 - `make test`: PASS
 - `make lint`: PASS, 0 issues
 - Inclusive tagged short suite: PASS across 355 packages
 - Planned fingerprints: 165 terminal passes, zero skips, zero descendants
-- Leaf identities: 13,381 (`+200` from 13,181)
-- Passing leaves: 13,128 (`+199` from 12,929)
+- Leaf identities: 13,382 (`+200` from Linux baseline 13,182)
+- Passing leaves: 13,129 (`+199` from Linux baseline 12,930)
 - Visible skips: 253 (`+1`)
 - Newly visible skip: `service/aws/sqs.TestSQSDriver_Conformance`; the pre-existing Docker integration test was previously hidden because short-mode `TestMain` exited before unit tests ran
 - False-confidence leaves removed: 15
 - Duplicate terminal identities: 0
-- Statement coverage: 62.8% (baseline 61.4%)
-- Differential changed-statement coverage: 80.9%
+- Statement coverage: 62.9% (Linux baseline 61.4%)
+- Differential changed-statement coverage: 81.5%
 - Sanitized `test.sh`: PASS with Docker disabled and CDC DSNs unset
 - Tagged binary build, `version --short`, and `--help`: PASS
-- Final JSON: `/tmp/runtime-test-expansion-final.json`, SHA-256 `cef2944ccc36352f74ca0809dba3006a5039315cfbf7df40fddc9eb98a12beab`
-- Coverage profile: `/tmp/runtime-test-expansion-final.cover`, SHA-256 `cb0dff8f8075867b0fa84e95c230247409482fdf4d386d62fcf74e668024097b`
-- Summary: `/tmp/runtime-test-expansion-final-summary.json`, SHA-256 `29a81029b55a44fda6f3a830263f0cb770d5c58c81206cdcea9c765185f2928f`
-- Differential coverage: `/tmp/runtime-test-expansion-diff-coverage.json`, SHA-256 `c8f472b05bdf995651fbac2bf80b846ccde0c433325e1f0586d6cf103f75e7f1`
+- Windows/amd64 compatibility: all 36 changed Go packages cross-compiled with `CGO_ENABLED=0`
+- Linux final JSON: `/tmp/runtime-test-expansion-linux-amd64/out/test.json`, SHA-256 `c866bc60dc05d28cec0c37ffbcb3f3a326f9e8ebb80612838c873d4b4bfc7749`
+- Linux coverage profile: `/tmp/runtime-test-expansion-linux-amd64/out/coverage.out`, SHA-256 `a6e41202c881da13a68c8601c7f8ddd89b82969e96b2b7725acd633181a063ca`
+- Linux platform attestation: `/tmp/runtime-test-expansion-linux-amd64/out/platform.txt`, SHA-256 `b12a35e4de9722e4a7d0194a34db49bd72a050f6063fe310132b35cc878f227e`
+- Linux summary: `/tmp/runtime-test-expansion-linux-amd64/out/summary.json`, SHA-256 `34484c248f3201e4653c6ef68d5a8879c7046791e5f125236438c8d8f1adbb4d`
+- Linux differential coverage: `/tmp/runtime-test-expansion-linux-amd64/out/differential-coverage.json`, SHA-256 `f465e2ecf449635e4ce1d129a1c2e31a0068b3fd16691070a35e1df0e5eee7ed`
+- Linux base JSON: `/tmp/runtime-test-expansion-linux-amd64/base/test.json`, SHA-256 `17b55144ca7e8f5053ef76fe1c1d9d6516ca0649beaef71284ac597bc08eb2c4`
+- Windows package list: `/tmp/runtime-test-expansion-windows-packages.txt`, SHA-256 `d41dddc1bb0c751e3ed076c2f3859c4807b259d0f322a1dbcb3199d0733291b0`
+- Windows compile log: `/tmp/runtime-test-expansion-windows-compile.log`, SHA-256 `cfee181ecdc6868853ce900115ed617af7b799cd08ae811341436d4d4f1fc66a`

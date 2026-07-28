@@ -13,10 +13,10 @@ decisions:
   authoritative_inventory_profile: linux-amd64-cgo-short-runtime-tags
   planned_new_leaves: 165
   planned_removed_leaves: 15
-  verified_leaf_identities: 13381
-  verified_passing_leaves: 13128
+  verified_leaf_identities: 13382
+  verified_passing_leaves: 13129
   verified_visible_skips: 253
-  verified_statement_coverage_percent: 62.8
-  verified_differential_coverage_percent: 80.9
+  verified_statement_coverage_percent: 62.9
+  verified_differential_coverage_percent: 81.5
   parallel_writers: isolated-worktrees-only
   test_identity: SuiteID+Name
