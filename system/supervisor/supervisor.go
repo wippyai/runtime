@@ -210,7 +210,9 @@ func (s *Supervisor) StopContext(ctx context.Context) error {
 
 		controllers := s.snapshotControllers()
 		s.cancelActiveStarts(controllers)
-		s.stopFailedStartRetries(controllers)
+		if err := s.stopFailedStartRetries(ctx, controllers); err != nil {
+			s.stopErr = err
+		}
 
 		operations := make([]operation, 0)
 		for id, ctrl := range controllers {
@@ -254,8 +256,9 @@ func (s *Supervisor) cancelActiveStarts(controllers map[string]*Controller) {
 	}
 }
 
-func (s *Supervisor) stopFailedStartRetries(controllers map[string]*Controller) {
+func (s *Supervisor) stopFailedStartRetries(ctx context.Context, controllers map[string]*Controller) error {
 	var wg sync.WaitGroup
+	boundErrors := make(chan error, len(controllers))
 	for id, ctrl := range controllers {
 		state := ctrl.State()
 		if state.Desired != supervisor.StatusRunning || state.Status != supervisor.StatusFailed {
@@ -265,14 +268,26 @@ func (s *Supervisor) stopFailedStartRetries(controllers map[string]*Controller) 
 		wg.Add(1)
 		go func(id string, ctrl *Controller) {
 			defer wg.Done()
-			if err := ctrl.Stop(); err != nil {
+			if err := ctrl.StopContext(ctx); err != nil {
 				s.logger.Warn("failed to stop retrying service before shutdown",
 					zap.String("serviceID", id),
 					zap.Error(err))
+				var boundErr *controllerStopBoundError
+				if errors.As(err, &boundErr) {
+					boundErrors <- boundErr.cause
+				}
 			}
 		}(id, ctrl)
 	}
 	wg.Wait()
+	close(boundErrors)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	for err := range boundErrors {
+		return err
+	}
+	return nil
 }
 
 func (s *Supervisor) handleEvent(e event.Event) {

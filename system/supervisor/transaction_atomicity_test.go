@@ -31,6 +31,9 @@ func assertCanceledCommitRemovesController(ctx context.Context, t *testing.T, se
 	sup.ctx = ctx
 	existing := NewController(context.Background(), newTestService(), apisupervisor.LifecycleConfig{}, nil)
 	defer existing.cancel()
+	existing.state.setDesiredStatus(apisupervisor.StatusRunning)
+	existing.updateState(apisupervisor.StatusFailed, "retained failure sentinel")
+	existingState := existing.State()
 	sup.controllers["existing-service"] = existing
 	tx := newRegTx(zap.NewNop())
 	tx.open = true
@@ -53,6 +56,7 @@ func assertCanceledCommitRemovesController(ctx context.Context, t *testing.T, se
 	_, provisionalExists := sup.controllers[serviceID]
 	sup.mu.RUnlock()
 	require.Same(t, existing, retained)
+	require.Equal(t, existingState, retained.State())
 	require.False(t, provisionalExists)
 	require.Len(t, sup.GetAllStates(), 1)
 }
