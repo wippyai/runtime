@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -34,8 +35,10 @@ var sessionCounter uint64
 // the first payload segment) are still delivered to callers.
 type streamConn struct {
 	net.Conn
-	reader *bufio.Reader
-	ctrl   net.Conn
+	reader    *bufio.Reader
+	ctrl      net.Conn
+	closeOnce sync.Once
+	closeErr  error
 }
 
 func (c *streamConn) Read(p []byte) (int, error) {
@@ -43,9 +46,11 @@ func (c *streamConn) Read(p []byte) (int, error) {
 }
 
 func (c *streamConn) Close() error {
-	err := c.Conn.Close()
-	c.ctrl.Close()
-	return err
+	c.closeOnce.Do(func() {
+		c.closeErr = c.Conn.Close()
+		_ = c.ctrl.Close()
+	})
+	return c.closeErr
 }
 
 // Service routes connections through an I2P SAM v3 bridge.

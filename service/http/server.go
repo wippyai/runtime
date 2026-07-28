@@ -307,6 +307,14 @@ func (s *ServerService) Start(ctx context.Context) (<-chan any, error) {
 	}()
 
 	if err := s.ensureRunning(ctx, probe); err != nil {
+		_ = ln.Close()
+		_ = srv.Close()
+		s.mu.Lock()
+		if s.server == srv {
+			s.server = nil
+			s.host = nil
+		}
+		s.mu.Unlock()
 		s.started.Store(false)
 		return nil, NewStartupCheckError(err)
 	}

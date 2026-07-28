@@ -24,14 +24,16 @@ var listenerCounter uint64
 // closing the listener closes the control connection and destroys the
 // session, which in turn causes any in-flight STREAM ACCEPTs to error out.
 type samListener struct {
-	ctrlConn  net.Conn
-	closeCh   chan struct{}
-	pending   map[net.Conn]struct{}
-	samAddr   string
-	sessionID string
-	ourDest   string
-	closeOnce sync.Once
-	mu        sync.Mutex
+	ctrlConn    net.Conn
+	closeCh     chan struct{}
+	pending     map[net.Conn]struct{}
+	samAddr     string
+	sessionID   string
+	ourDest     string
+	dialContext func(context.Context, string, string) (net.Conn, error)
+	beforeAdopt func()
+	closeOnce   sync.Once
+	mu          sync.Mutex
 }
 
 // samAddr is the net.Addr reported by listeners and accepted connections
@@ -93,12 +95,13 @@ func (s *Service) Listen(ctx context.Context, _, _ string) (net.Listener, error)
 	ctrlConn.SetDeadline(time.Time{}) //nolint:errcheck
 
 	return &samListener{
-		samAddr:   s.addr,
-		sessionID: sessionID,
-		ctrlConn:  ctrlConn,
-		ourDest:   ourDest,
-		closeCh:   make(chan struct{}),
-		pending:   make(map[net.Conn]struct{}),
+		samAddr:     s.addr,
+		sessionID:   sessionID,
+		ctrlConn:    ctrlConn,
+		ourDest:     ourDest,
+		closeCh:     make(chan struct{}),
+		pending:     make(map[net.Conn]struct{}),
+		dialContext: (&net.Dialer{}).DialContext,
 	}, nil
 }
 
@@ -112,7 +115,6 @@ func (l *samListener) Accept() (net.Conn, error) {
 	default:
 	}
 
-	d := net.Dialer{}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -125,7 +127,11 @@ func (l *samListener) Accept() (net.Conn, error) {
 		}
 	}()
 
-	socket, err := d.DialContext(ctx, "tcp", l.samAddr)
+	dialContext := l.dialContext
+	if dialContext == nil {
+		dialContext = (&net.Dialer{}).DialContext
+	}
+	socket, err := dialContext(ctx, "tcp", l.samAddr)
 	if err != nil {
 		select {
 		case <-l.closeCh:
@@ -135,7 +141,13 @@ func (l *samListener) Accept() (net.Conn, error) {
 		return nil, netservice.NewProtocolError("i2p", "SAM bridge connect", err)
 	}
 
-	l.trackPending(socket)
+	if l.beforeAdopt != nil {
+		l.beforeAdopt()
+	}
+	if !l.trackPending(socket) {
+		_ = socket.Close()
+		return nil, net.ErrClosed
+	}
 	defer l.untrackPending(socket)
 
 	reader := bufio.NewReader(socket)
@@ -204,12 +216,14 @@ func (l *samListener) Addr() net.Addr {
 	return samAddr{dest: l.ourDest, session: l.sessionID}
 }
 
-func (l *samListener) trackPending(c net.Conn) {
+func (l *samListener) trackPending(c net.Conn) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if l.pending != nil {
-		l.pending[c] = struct{}{}
+	if l.pending == nil {
+		return false
 	}
+	l.pending[c] = struct{}{}
+	return true
 }
 
 func (l *samListener) untrackPending(c net.Conn) {
