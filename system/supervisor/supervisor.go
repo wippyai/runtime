@@ -232,8 +232,12 @@ func (s *Supervisor) StopContext(ctx context.Context) error {
 		// close all controllers in proper dependency order
 		if err := s.runTransition(ctx, operations); err != nil {
 			s.logger.Error("failed to stop controllers during shutdown", zap.Error(err))
-			if ctxErr := ctx.Err(); ctxErr != nil {
-				s.stopErr = ctxErr
+			var boundErr *controllerStopBoundError
+			switch {
+			case errors.As(err, &boundErr):
+				s.stopErr = boundErr.cause
+			case ctx.Err() != nil:
+				s.stopErr = ctx.Err()
 			}
 		}
 

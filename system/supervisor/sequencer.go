@@ -329,6 +329,15 @@ func detectStartCycle(dependencies map[string]map[string]struct{}) error {
 	return nil
 }
 
+func stopControllable(ctx context.Context, controller controllable) error {
+	if stopper, ok := controller.(interface {
+		StopContext(context.Context) error
+	}); ok {
+		return stopper.StopContext(ctx)
+	}
+	return controller.Stop()
+}
+
 func (sp *sequencer) processStopOperations(ctx context.Context, operations []operation) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -383,7 +392,7 @@ func (sp *sequencer) processStopOperations(ctx context.Context, operations []ope
 						zap.String("service_id", op.id),
 						zap.Int("level", i))
 
-					if err := op.controller.Stop(); err != nil {
+					if err := stopControllable(ctx, op.controller); err != nil {
 						errChan <- NewServiceStopError(op.id, err)
 					}
 				}(op)

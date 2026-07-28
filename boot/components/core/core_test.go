@@ -4,10 +4,12 @@ package core
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/event"
 	logapi "github.com/wippyai/runtime/api/logs"
 	"github.com/wippyai/runtime/api/process"
@@ -18,18 +20,20 @@ import (
 )
 
 type coreManagedService struct {
-	started  chan struct{}
-	stopped  chan struct{}
-	updates  chan any
-	startOne sync.Once
-	stopOne  sync.Once
+	started      chan struct{}
+	stopped      chan struct{}
+	stopDeadline chan time.Time
+	updates      chan any
+	startOne     sync.Once
+	stopOne      sync.Once
 }
 
 func newCoreManagedService() *coreManagedService {
 	return &coreManagedService{
-		started: make(chan struct{}),
-		stopped: make(chan struct{}),
-		updates: make(chan any),
+		started:      make(chan struct{}),
+		stopped:      make(chan struct{}),
+		stopDeadline: make(chan time.Time, 1),
+		updates:      make(chan any),
 	}
 }
 
@@ -38,12 +42,18 @@ func (s *coreManagedService) Start(context.Context) (<-chan any, error) {
 	return s.updates, nil
 }
 
-func (s *coreManagedService) Stop(context.Context) error {
+func (s *coreManagedService) Stop(ctx context.Context) error {
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		return errors.New("managed stop context has no deadline")
+	}
+	s.stopDeadline <- deadline
+	<-ctx.Done()
 	s.stopOne.Do(func() {
 		close(s.updates)
 		close(s.stopped)
 	})
-	return nil
+	return ctx.Err()
 }
 
 func TestCorePlugins(t *testing.T) {
@@ -75,8 +85,13 @@ func TestCorePlugins(t *testing.T) {
 		t.Error("PID generator not available in context")
 	}
 
+	lifecycleLoader, err := bootpkg.NewLoader(Registry(), Supervisor())
+	require.NoError(t, err)
+	ctx, err = lifecycleLoader.Load(ctx)
+	require.NoError(t, err)
 	runtimeCtx, cancelRuntime := context.WithCancel(ctx)
-	if err := loader.Start(runtimeCtx); err != nil {
+	defer cancelRuntime()
+	if err := lifecycleLoader.Start(runtimeCtx); err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}
 	service := newCoreManagedService()
@@ -91,7 +106,7 @@ func TestCorePlugins(t *testing.T) {
 			Config: supervisorapi.LifecycleConfig{
 				AutoStart:    true,
 				StartTimeout: time.Second,
-				StopTimeout:  time.Second,
+				StopTimeout:  500 * time.Millisecond,
 			},
 		},
 	})
@@ -101,16 +116,32 @@ func TestCorePlugins(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("managed service did not start")
 	}
-
-	cancelRuntime()
-	shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), time.Second)
+	barrier := make(chan event.Event, 1)
+	_, err = bus.SubscribeP(runtimeCtx, "test", "barrier", barrier)
+	require.NoError(t, err)
+	bus.Send(runtimeCtx, event.Event{System: "test", Kind: "barrier"})
+	select {
+	case <-barrier:
+	case <-time.After(time.Second):
+		t.Fatal("event barrier did not complete")
+	}
+	shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancelShutdown()
-	if err := loader.Shutdown(shutdownCtx); err != nil {
-		t.Fatalf("Shutdown() error = %v", err)
+	shutdownDeadline, _ := shutdownCtx.Deadline()
+	shutdownStarted := time.Now()
+	if err := lifecycleLoader.Shutdown(shutdownCtx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Shutdown() error = %v, want deadline exceeded", err)
+	}
+	if elapsed := time.Since(shutdownStarted); elapsed > 250*time.Millisecond {
+		t.Fatalf("Shutdown() elapsed = %v, want shutdown context to bound service stop", elapsed)
+	}
+	stopDeadline := <-service.stopDeadline
+	if delta := stopDeadline.Sub(shutdownDeadline); delta < -time.Millisecond || delta > time.Millisecond {
+		t.Fatalf("managed stop deadline = %v, want shutdown deadline %v", stopDeadline, shutdownDeadline)
 	}
 	select {
 	case <-service.stopped:
 	default:
-		t.Fatal("managed service was not stopped with the shutdown context")
+		t.Fatal("managed service did not observe shutdown cancellation")
 	}
 }

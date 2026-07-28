@@ -27,7 +27,8 @@ func assertAtomicPackFailure(t *testing.T, output string, err error) {
 
 func TestB06PackWriterFailurePreservesDestination(t *testing.T) {
 	output := filepath.Join(t.TempDir(), "snapshot.wapp")
-	require.NoError(t, os.WriteFile(output, []byte("sentinel"), 0o644))
+	require.NoError(t, os.WriteFile(output, []byte("sentinel"), 0o640))
+	require.NoError(t, os.Chmod(output, 0o640))
 	cause := errors.New("injected writer failure")
 
 	_, err := writePackAtomically(output, nil, func(w io.Writer) error {
@@ -45,7 +46,7 @@ func TestB06PackWriterFailurePreservesDestination(t *testing.T) {
 	require.NoError(t, err)
 	info, statErr := os.Stat(output)
 	require.NoError(t, statErr)
-	require.Equal(t, os.FileMode(0o644), info.Mode().Perm())
+	require.Equal(t, os.FileMode(0o640), info.Mode().Perm())
 }
 
 func TestB07PackIntegrityFailurePreservesDestination(t *testing.T) {

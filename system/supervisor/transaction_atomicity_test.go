@@ -29,6 +29,9 @@ func assertCanceledCommitRemovesController(ctx context.Context, t *testing.T, se
 	defer bus.Stop()
 	sup := NewSupervisor(bus, zap.NewNop())
 	sup.ctx = ctx
+	existing := NewController(context.Background(), newTestService(), apisupervisor.LifecycleConfig{}, nil)
+	defer existing.cancel()
+	sup.controllers["existing-service"] = existing
 	tx := newRegTx(zap.NewNop())
 	tx.open = true
 	tx.register[serviceID] = &apisupervisor.Entry{
@@ -45,5 +48,11 @@ func assertCanceledCommitRemovesController(ctx context.Context, t *testing.T, se
 	require.Error(t, err)
 	_, stateErr := sup.GetState(serviceID)
 	require.Error(t, stateErr)
-	require.Empty(t, sup.GetAllStates())
+	sup.mu.RLock()
+	retained := sup.controllers["existing-service"]
+	_, provisionalExists := sup.controllers[serviceID]
+	sup.mu.RUnlock()
+	require.Same(t, existing, retained)
+	require.False(t, provisionalExists)
+	require.Len(t, sup.GetAllStates(), 1)
 }
