@@ -235,7 +235,10 @@ func forwardStartStateChanges(
 ) {
 	for {
 		select {
-		case <-source:
+		case _, ok := <-source:
+			if !ok {
+				return
+			}
 			select {
 			case target <- struct{}{}:
 			default:
@@ -326,7 +329,11 @@ func detectStartCycle(dependencies map[string]map[string]struct{}) error {
 	return nil
 }
 
-func (sp *sequencer) processStopOperations(_ context.Context, operations []operation) error {
+func (sp *sequencer) processStopOperations(ctx context.Context, operations []operation) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	g := graph.New[string, any]()
 	opMap := make(map[string]operation)
 
@@ -358,6 +365,10 @@ func (sp *sequencer) processStopOperations(_ context.Context, operations []opera
 	// Process each level in sequence
 	allLevels := levels.AllLevels()
 	for i, levelNodes := range allLevels {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
 		var wg sync.WaitGroup
 		errChan := make(chan error, len(levelNodes))
 
@@ -386,6 +397,9 @@ func (sp *sequencer) processStopOperations(_ context.Context, operations []opera
 			if err != nil {
 				allErrors = append(allErrors, err)
 			}
+		}
+		if err := ctx.Err(); err != nil {
+			return err
 		}
 	}
 
