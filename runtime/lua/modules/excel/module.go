@@ -111,6 +111,7 @@ var workbookMethods = map[string]lua.LGoFunc{
 	"rows":           workbookRows,
 	"set_cell_value": workbookSetCellValue,
 	"write_to":       workbookWriteTo,
+	"bytes":          workbookBytes,
 	"close":          workbookClose,
 }
 
@@ -334,6 +335,26 @@ func workbookWriteTo(l *lua.LState) int {
 
 	l.Push(lua.LNil)
 	return 1
+}
+
+func workbookBytes(l *lua.LState) int {
+	wb := checkWorkbook(l, 1)
+	if wb == nil {
+		return invalidError(l, "workbook expected")
+	}
+
+	if wb.closed {
+		return internalErrorMsg(l, "workbook is closed")
+	}
+
+	buf, err := wb.file.WriteToBuffer()
+	if err != nil {
+		return internalError(l, err, "write workbook")
+	}
+
+	l.Push(lua.LString(buf.String()))
+	l.Push(lua.LNil)
+	return 2
 }
 
 func workbookClose(l *lua.LState) int {

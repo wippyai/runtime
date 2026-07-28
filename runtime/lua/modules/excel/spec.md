@@ -61,6 +61,7 @@ Returned by `excel.new()` and `excel.open()`. Represents an Excel .xlsx workbook
 | rows | (sheet: string) → Rows, error | Streaming cursor | Reads rows incrementally, constant memory |
 | set_cell_value | (sheet: string, cell: string, value: any) → error | - | Sets single cell value |
 | write_to | (writer: File) → error | - | Writes workbook to writer |
+| bytes | () → string, error | xlsx bytes | Serializes workbook to a binary string |
 | close | () → error | - | Closes workbook, releases resources |
 
 #### workbook:new_sheet(name: string) → integer, error
@@ -213,6 +214,28 @@ Writes workbook to a writer object.
 - Writer must be opened for writing before calling
 - Does not close the writer
 - Call `writer:close()` separately after writing
+
+#### workbook:bytes() → string, error
+
+Serializes the workbook to .xlsx and returns it as a binary string. Use this
+instead of `write_to` when the destination is not a filesystem writer (e.g.,
+uploading to object storage or sending over HTTP).
+
+**Returns:**
+- Success: `string, nil` - complete .xlsx file contents
+- Error: `nil, error` - structured error
+
+**Errors (structured):**
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| invalid workbook | errors.INVALID | no |
+| workbook closed | errors.INTERNAL | no |
+| write failed | errors.INTERNAL | no |
+
+**Notes:**
+- The whole file is materialized in memory; prefer `write_to` for very large workbooks
+- Does not close the workbook; it remains usable afterwards
 
 #### workbook:close() → error
 
