@@ -42,29 +42,41 @@ func verifyPackedResource(reader *wapp.Reader, res wapp.ResourceSpec) error {
 		return fmt.Errorf("open packed resource %s: %w", res.ID.String(), err)
 	}
 
-	return fs.WalkDir(res.FS, ".", func(filePath string, d fs.DirEntry, walkErr error) error {
+	expected := make(map[string]struct{})
+	if err := fs.WalkDir(res.FS, ".", func(filePath string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return fmt.Errorf("walk source resource %s: %w", res.ID.String(), walkErr)
 		}
 		if d.IsDir() {
 			return nil
 		}
-
+		expected[filePath] = struct{}{}
 		source, err := fs.ReadFile(res.FS, filePath)
 		if err != nil {
 			return fmt.Errorf("read source resource %s file %q: %w", res.ID.String(), filePath, err)
 		}
-
 		packed, err := fs.ReadFile(packedFS, filePath)
 		if err != nil {
 			return fmt.Errorf("read packed resource %s file %q: %w", res.ID.String(), filePath, err)
 		}
-
 		if !bytes.Equal(packed, source) {
-			return fmt.Errorf("packed resource %s file %q content mismatch: source=%d bytes packed=%d bytes",
-				res.ID.String(), filePath, len(source), len(packed))
+			return fmt.Errorf("packed resource %s file %q content mismatch: source=%d bytes packed=%d bytes", res.ID.String(), filePath, len(source), len(packed))
 		}
+		return nil
+	}); err != nil {
+		return err
+	}
 
+	return fs.WalkDir(packedFS, ".", func(filePath string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return fmt.Errorf("walk packed resource %s: %w", res.ID.String(), walkErr)
+		}
+		if d.IsDir() {
+			return nil
+		}
+		if _, ok := expected[filePath]; !ok {
+			return fmt.Errorf("packed resource %s contains unexpected file %q", res.ID.String(), filePath)
+		}
 		return nil
 	})
 }

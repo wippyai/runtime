@@ -5,6 +5,7 @@ package cmd
 import (
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -632,43 +633,93 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *tea
 
 	packWriter := wapp.NewWriter(wapp.WithProgressCallback(progressCallback))
 
-	file, err := os.Create(outputFile)
-	if err != nil {
-		return NewCreatePackFileError(fmt.Errorf("pack file %s: %w", outputFile, err))
-	}
-	defer func() { _ = file.Close() }()
-
 	wappEntries := entries.ConvertToWappEntries(loadedEntries)
 	wappMetadata := wapp.Metadata(metadata)
-
-	if len(resources) > 0 {
-		if err := packWriter.PackWithResources(wappMetadata, wappEntries, resources, file); err != nil {
-			return NewPackWithResourcesError(fmt.Errorf("pack file %s: %w", outputFile, err))
+	fileSize, err := writePackAtomically(outputFile, paths, func(file io.Writer) error {
+		if len(resources) > 0 {
+			if err := packWriter.PackWithResources(wappMetadata, wappEntries, resources, file); err != nil {
+				return NewPackWithResourcesError(fmt.Errorf("pack file %s: %w", outputFile, err))
+			}
+			return nil
 		}
-	} else {
 		if err := packWriter.PackEntries(wappMetadata, wappEntries, file); err != nil {
 			return NewPackEntriesError(fmt.Errorf("pack file %s: %w", outputFile, err))
 		}
-	}
-
-	if err := file.Close(); err != nil {
-		return NewClosePackFileError(fmt.Errorf("pack file %s: %w", outputFile, err))
-	}
-
-	if err := verifyPackedResources(outputFile, resources); err != nil {
-		return NewPackIntegrityError(fmt.Errorf("pack file %s: %w", outputFile, err))
-	}
-
-	fileInfo, err := os.Stat(outputFile)
-	if err != nil {
-		return NewStatOutputFileError(fmt.Errorf("pack file %s: %w", outputFile, err))
-	}
-	p.Send(completedMsg{
-		fileSize: fileInfo.Size(),
-		metadata: metadata,
+		return nil
+	}, func(path string) error {
+		if err := verifyPackedResources(path, resources); err != nil {
+			return NewPackIntegrityError(fmt.Errorf("pack file %s: %w", outputFile, err))
+		}
+		return nil
 	})
+	if err != nil {
+		return err
+	}
+	p.Send(completedMsg{fileSize: fileSize, metadata: metadata})
 
 	return nil
+}
+
+func writePackAtomically(outputFile string, inputPaths []string, write func(io.Writer) error, verify func(string) error) (int64, error) {
+	outputAbs, err := filepath.Abs(outputFile)
+	if err != nil {
+		return 0, NewCreatePackFileError(fmt.Errorf("resolve pack output %s: %w", outputFile, err))
+	}
+	outputInfo, outputStatErr := os.Stat(outputFile)
+	if outputStatErr != nil && !os.IsNotExist(outputStatErr) {
+		return 0, NewCreatePackFileError(fmt.Errorf("stat pack output %s: %w", outputFile, outputStatErr))
+	}
+	for _, inputPath := range inputPaths {
+		inputAbs, err := filepath.Abs(inputPath)
+		if err != nil {
+			return 0, fmt.Errorf("resolve pack input %s: %w", inputPath, err)
+		}
+		same := filepath.Clean(inputAbs) == filepath.Clean(outputAbs)
+		if !same && outputStatErr == nil {
+			if inputInfo, statErr := os.Stat(inputPath); statErr == nil {
+				same = os.SameFile(inputInfo, outputInfo)
+			}
+		}
+		if same {
+			return 0, fmt.Errorf("pack output %s aliases input %s", outputFile, inputPath)
+		}
+	}
+
+	dir := filepath.Dir(outputFile)
+	temp, err := os.CreateTemp(dir, "."+filepath.Base(outputFile)+".tmp-*")
+	if err != nil {
+		return 0, NewCreatePackFileError(fmt.Errorf("pack file %s: %w", outputFile, err))
+	}
+	tempPath := temp.Name()
+	published := false
+	defer func() {
+		_ = temp.Close()
+		if !published {
+			_ = os.Remove(tempPath)
+		}
+	}()
+
+	if err := write(temp); err != nil {
+		return 0, err
+	}
+	if err := temp.Sync(); err != nil {
+		return 0, NewClosePackFileError(fmt.Errorf("sync pack file %s: %w", outputFile, err))
+	}
+	if err := temp.Close(); err != nil {
+		return 0, NewClosePackFileError(fmt.Errorf("pack file %s: %w", outputFile, err))
+	}
+	if err := verify(tempPath); err != nil {
+		return 0, err
+	}
+	if err := os.Rename(tempPath, outputFile); err != nil {
+		return 0, NewCreatePackFileError(fmt.Errorf("publish pack file %s: %w", outputFile, err))
+	}
+	published = true
+	info, err := os.Stat(outputFile)
+	if err != nil {
+		return 0, NewStatOutputFileError(fmt.Errorf("pack file %s: %w", outputFile, err))
+	}
+	return info.Size(), nil
 }
 
 // addPackRuntimeMetadata gives raw snapshot packs the same declarative runtime

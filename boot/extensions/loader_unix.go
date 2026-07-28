@@ -81,20 +81,12 @@ func LoadWithReserved(ctx context.Context, cfg boot.Config, reserved map[string]
 			return ctx, result, err
 		}
 
-		if manifest.Init != nil {
-			next, err := manifest.Init(ctx)
-			if err != nil {
-				name := manifest.Name
-				if name == "" {
-					name = filepath.Base(resolved)
-				}
-				logger.Error("extension init failed", zap.String("name", name), zap.String("path", resolved), zap.Error(err))
-				return ctx, result, newInitError(name, err)
-			}
-			if next != nil {
-				ctx = next
-			}
+		next, err := validateAndInitManifest(ctx, manifest, resolved, seenComponents, reserved)
+		if err != nil {
+			logger.Error("extension validation or init failed", zap.String("path", resolved), zap.Error(err))
+			return ctx, result, err
 		}
+		ctx = next
 
 		name := manifest.Name
 		if name == "" {
@@ -168,6 +160,51 @@ func normalizePaths(paths []string) []string {
 	return out
 }
 
+func validateAndInitManifest(ctx context.Context, manifest *extensionapi.Manifest, resolved string, seenComponents, reserved map[string]struct{}) (context.Context, error) {
+	if err := validateComponents(manifest, resolved, seenComponents, reserved); err != nil {
+		return ctx, err
+	}
+	if manifest.Init == nil {
+		return ctx, nil
+	}
+	next, err := manifest.Init(ctx)
+	if err != nil {
+		name := manifest.Name
+		if name == "" {
+			name = filepath.Base(resolved)
+		}
+		return ctx, newInitError(name, err)
+	}
+	if next != nil {
+		return next, nil
+	}
+	return ctx, nil
+}
+
+func validateComponents(manifest *extensionapi.Manifest, resolved string, seenComponents, reserved map[string]struct{}) error {
+	staged := make(map[string]struct{}, len(manifest.Components))
+	for _, comp := range manifest.Components {
+		if comp == nil {
+			continue
+		}
+		name := comp.Name()
+		if name == "" {
+			return newManifestError(resolved, "component name is empty")
+		}
+		if _, exists := reserved[name]; exists {
+			return newManifestError(resolved, fmt.Sprintf("component name collides with existing component: %s", name))
+		}
+		if _, exists := seenComponents[name]; exists {
+			return newManifestError(resolved, fmt.Sprintf("duplicate component name: %s", name))
+		}
+		if _, exists := staged[name]; exists {
+			return newManifestError(resolved, fmt.Sprintf("duplicate component name: %s", name))
+		}
+		staged[name] = struct{}{}
+	}
+	return nil
+}
+
 func appendComponents(
 	result *Result,
 	manifest *extensionapi.Manifest,
@@ -178,23 +215,14 @@ func appendComponents(
 	if manifest == nil || len(manifest.Components) == 0 {
 		return nil
 	}
+	if err := validateComponents(manifest, resolved, seenComponents, reserved); err != nil {
+		return err
+	}
 	for _, comp := range manifest.Components {
 		if comp == nil {
 			continue
 		}
-		compName := comp.Name()
-		if compName == "" {
-			return newManifestError(resolved, "component name is empty")
-		}
-		if reserved != nil {
-			if _, exists := reserved[compName]; exists {
-				return newManifestError(resolved, fmt.Sprintf("component name collides with existing component: %s", compName))
-			}
-		}
-		if _, exists := seenComponents[compName]; exists {
-			return newManifestError(resolved, fmt.Sprintf("duplicate component name: %s", compName))
-		}
-		seenComponents[compName] = struct{}{}
+		seenComponents[comp.Name()] = struct{}{}
 		result.Components = append(result.Components, comp)
 	}
 	return nil

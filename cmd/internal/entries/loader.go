@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/boot"
@@ -250,7 +251,7 @@ func LoadEntriesFromPaths(ctx context.Context, paths []string, logger *zap.Logge
 	for _, path := range paths {
 		var loadedEntries []regapi.Entry
 
-		if filepath.Ext(path) == ".wapp" {
+		if strings.EqualFold(filepath.Ext(path), ".wapp") {
 			// Wapp file: load via PackReader
 			var err error
 			loadedEntries, err = loadEntriesFromWapp(path, dtt)
@@ -304,7 +305,7 @@ func LoadEntriesFromModuleLoadPaths(
 func registerModuleSourceRoots(ctx context.Context, modulePaths []lock.ModuleLoadPath) {
 	roots := moduleapi.SourceRoots{}
 	for _, mp := range modulePaths {
-		if mp.Module == "" || filepath.Ext(mp.Path) == ".wapp" {
+		if mp.Module == "" || strings.EqualFold(filepath.Ext(mp.Path), ".wapp") {
 			continue
 		}
 
@@ -385,7 +386,7 @@ func shouldApplyModuleConfigFilters(mp lock.ModuleLoadPath) bool {
 	// dedup. .wapp files are skipped: they were filtered at publish time, and
 	// re-running the filter would require parsing a manifest the archive does
 	// not expose.
-	return mp.Module != "" && filepath.Ext(mp.Path) != ".wapp"
+	return mp.Module != "" && !strings.EqualFold(filepath.Ext(mp.Path), ".wapp")
 }
 
 func applyModuleConfigFilters(
@@ -461,7 +462,7 @@ func NormalizeEntries(ctx context.Context, entries *[]regapi.Entry) error {
 // filters are applied separately after decoding.
 func loadEntriesFromModulePath(ctx context.Context, mp lock.ModuleLoadPath, ldr boot.Loader, dtt payload.Transcoder, logger *zap.Logger) ([]regapi.Entry, error) {
 	path := mp.Path
-	if filepath.Ext(path) == ".wapp" {
+	if strings.EqualFold(filepath.Ext(path), ".wapp") {
 		return loadEntriesFromWapp(path, dtt)
 	}
 
@@ -724,35 +725,58 @@ func ConvertToWappEntries(entries []regapi.Entry) []wapp.Entry {
 func registerWappWithEmbedRegistry(ctx context.Context, modulePaths []lock.ModuleLoadPath, logger *zap.Logger) error {
 	embedReg := embedpkg.GetRegistryFromContext(ctx)
 	if embedReg == nil {
-		return nil // No embed registry, skip
+		return nil
+	}
+
+	type stagedPack struct {
+		path, module, version string
+		file                  *os.File
+		reader                *wapp.Reader
+	}
+	staged := make([]stagedPack, 0, len(modulePaths))
+	seenResources := make(map[wapp.ID]string)
+	closeStaged := func() {
+		for _, pack := range staged {
+			_ = pack.file.Close()
+		}
 	}
 
 	for _, mp := range modulePaths {
-		if filepath.Ext(mp.Path) != ".wapp" {
+		if !strings.EqualFold(filepath.Ext(mp.Path), ".wapp") {
 			continue
 		}
-
 		f, err := os.Open(mp.Path)
 		if err != nil {
+			closeStaged()
 			return NewOpenWappError(mp.Path, err)
 		}
-
 		reader, err := wapp.NewReader(f)
 		if err != nil {
-			f.Close()
+			_ = f.Close()
+			closeStaged()
 			return NewReadWappError(mp.Path, err)
 		}
-
-		if err := embedReg.RegisterPack(mp.Path, mp.Module, mp.Version, reader, f); err != nil {
-			f.Close()
-			return NewRegisterEmbedResourcesError(err)
+		for _, resource := range reader.ListResources() {
+			if previous, exists := seenResources[resource.ID]; exists {
+				_ = f.Close()
+				closeStaged()
+				return NewRegisterEmbedResourcesError(fmt.Errorf("duplicate embedded resource %s in %s and %s", resource.ID.String(), previous, mp.Path))
+			}
+			seenResources[resource.ID] = mp.Path
 		}
-
-		logger.Debug("registered wapp with embed registry",
-			zap.String("path", mp.Path),
-			zap.String("module", mp.Module),
-			zap.String("version", mp.Version))
+		staged = append(staged, stagedPack{path: mp.Path, module: mp.Module, version: mp.Version, file: f, reader: reader})
 	}
 
+	for i, pack := range staged {
+		if err := embedReg.RegisterPack(pack.path, pack.module, pack.version, pack.reader, pack.file); err != nil {
+			for j := 0; j < i; j++ {
+				_ = embedReg.UnregisterPack(staged[j].path)
+				staged[j].file = nil
+			}
+			closeStaged()
+			return NewRegisterEmbedResourcesError(err)
+		}
+		logger.Debug("registered wapp with embed registry", zap.String("path", pack.path), zap.String("module", pack.module), zap.String("version", pack.version))
+	}
 	return nil
 }
