@@ -69,6 +69,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	if err != nil {
 		return queuesvc.NewConfigError("failed to acquire aws config resource", fmt.Errorf("sqs: acquire aws config resource %q: %w", cfg.AWSConfig.String(), err))
 	}
+	defer rsc.Release()
 
 	gotConfig, err := rsc.Get()
 	if err != nil {

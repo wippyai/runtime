@@ -352,15 +352,30 @@ func (s *Storage) DeleteObjects(ctx context.Context, keys []string) error {
 		},
 	}
 
-	_, err := s.client.DeleteObjects(ctx, input)
+	output, err := s.client.DeleteObjects(ctx, input)
 	if err != nil {
 		s.log.Error("delete objects failed",
 			zap.Int("keyCount", len(keys)),
 			zap.Error(err))
 		return err
 	}
+	if len(output.Errors) == 0 {
+		return nil
+	}
 
-	return nil
+	var message strings.Builder
+	message.WriteString("delete objects failed: ")
+	for i, failure := range output.Errors {
+		if i > 0 {
+			message.WriteString("; ")
+		}
+		message.WriteString("key \"")
+		message.WriteString(aws.ToString(failure.Key))
+		message.WriteString("\" [")
+		message.WriteString(aws.ToString(failure.Code))
+		message.WriteByte(']')
+	}
+	return errors.New(message.String())
 }
 
 // PresignedGetURL generates a presigned URL for downloading an object from S3.
