@@ -14,15 +14,24 @@ import (
 )
 
 func TestY02FailedSupervisorCommitRemovesController(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
+	canceledCtx, cancel := context.WithCancel(context.Background())
 	cancel()
+	assertCanceledCommitRemovesController(canceledCtx, t, "canceled-service")
+
+	deadlineCtx, deadlineCancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer deadlineCancel()
+	assertCanceledCommitRemovesController(deadlineCtx, t, "deadline-service")
+}
+
+func assertCanceledCommitRemovesController(ctx context.Context, t *testing.T, serviceID string) {
+	t.Helper()
 	bus := eventbus.NewBus()
 	defer bus.Stop()
 	sup := NewSupervisor(bus, zap.NewNop())
 	sup.ctx = ctx
 	tx := newRegTx(zap.NewNop())
 	tx.open = true
-	tx.register["service"] = &apisupervisor.Entry{
+	tx.register[serviceID] = &apisupervisor.Entry{
 		Service: newTestService(),
 		Config: apisupervisor.LifecycleConfig{
 			AutoStart:    true,
@@ -34,7 +43,7 @@ func TestY02FailedSupervisorCommitRemovesController(t *testing.T) {
 	err := sup.execute(ctx, tx)
 
 	require.Error(t, err)
-	_, stateErr := sup.GetState("service")
+	_, stateErr := sup.GetState(serviceID)
 	require.Error(t, stateErr)
 	require.Empty(t, sup.GetAllStates())
 }

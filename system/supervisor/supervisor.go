@@ -56,6 +56,7 @@ type (
 		tx                 *regTx
 		subscriber         *eventbus.Subscriber
 		logger             *zap.Logger
+		stopErr            error
 		wg                 sync.WaitGroup
 		lifecycleMu        sync.RWMutex
 		mu                 sync.RWMutex
@@ -156,8 +157,9 @@ func (s *Supervisor) GetAllStates() map[string]State {
 // Start initializes the supervisor and begins listening for events.
 // It sets up event subscriptions and starts the main control loop.
 func (s *Supervisor) Start(ctx context.Context) error {
-	// Set context before launching goroutine to avoid race with Stop()
-	s.ctx = ctx
+	// Controllers outlive cancellation of the run loop so shutdown can stop
+	// services with its own bounded context.
+	s.ctx = context.WithoutCancel(ctx)
 
 	// Subscribe to all relevant events using a single subscriber with patterns
 	sub, err := eventbus.NewSubscriber(
@@ -185,6 +187,14 @@ func (s *Supervisor) Start(ctx context.Context) error {
 // Stop gracefully shuts down the supervisor and all managed services.
 // It ensures all services are properly stopped and resources are cleaned up.
 func (s *Supervisor) Stop() error {
+	return s.StopContext(context.Background())
+}
+
+// StopContext shuts down the supervisor using ctx to bound stop sequencing.
+func (s *Supervisor) StopContext(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	s.stopOnce.Do(func() {
 		s.logger.Info("stopping supervisor")
 
@@ -220,15 +230,18 @@ func (s *Supervisor) Stop() error {
 		}
 
 		// close all controllers in proper dependency order
-		if err := s.runTransition(s.ctx, operations); err != nil {
+		if err := s.runTransition(ctx, operations); err != nil {
 			s.logger.Error("failed to stop controllers during shutdown", zap.Error(err))
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				s.stopErr = ctxErr
+			}
 		}
 
 		s.wg.Wait()
 
 		s.logger.Info("supervisor stopped")
 	})
-	return nil
+	return s.stopErr
 }
 
 func (s *Supervisor) cancelActiveStarts(controllers map[string]*Controller) {
@@ -614,7 +627,8 @@ func (s *Supervisor) execute(ctx context.Context, tx *regTx) (err error) {
 	s.mu.Unlock()
 
 	defer func() {
-		if !errors.Is(err, context.Canceled) {
+		cancellation := ctx.Err()
+		if cancellation == nil || !errors.Is(err, cancellation) {
 			return
 		}
 		for _, ctrl := range created {

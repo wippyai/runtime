@@ -78,6 +78,8 @@ func TestW04MalformedRelayHeaderReturnsBadRequest(t *testing.T) {
 	manager := newRecordingRelayManager(context.Background(), events)
 	handler := manager.middlewareHandler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set(RelayHeader, "{malformed")
+		w.WriteHeader(http.StatusAccepted)
+		_, _ = w.Write([]byte("downstream response must not commit"))
 	}), nil)
 	writer := newUpgradeRecordingWriter()
 
@@ -85,6 +87,7 @@ func TestW04MalformedRelayHeaderReturnsBadRequest(t *testing.T) {
 
 	assert.Equal(t, http.StatusBadRequest, writer.Code)
 	assert.Contains(t, writer.Body.String(), "Invalid relay configuration")
+	assert.NotContains(t, writer.Body.String(), "downstream response")
 	assert.Zero(t, writer.hijacks.Load(), "malformed configuration must fail before websocket upgrade")
 	assert.Empty(t, events.snapshot(), "malformed configuration must not attach")
 	assert.Zero(t, manager.topo.(*wsRecordingTopology).operationCount(), "malformed configuration must not mutate topology")

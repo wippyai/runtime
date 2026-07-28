@@ -140,6 +140,22 @@ func TestR05InputReadForwardsBoundedLength(t *testing.T) {
 	if len(input.readCalls) != 1 {
 		t.Fatalf("Read calls = %d, want oversize rejected before second call", len(input.readCalls))
 	}
+
+	if _, gotErr := host.MethodInputStreamSkip(context.Background(), handle, preview2.MaxAllocationSize); gotErr != nil {
+		t.Fatalf("maximum-size skip error = %v", gotErr)
+	}
+	if len(input.readCalls) != 2 || input.readCalls[1] != preview2.MaxAllocationSize {
+		t.Fatalf("Read lengths = %v, want bounded read followed by bounded skip", input.readCalls)
+	}
+	if _, gotErr := host.MethodInputStreamSkip(context.Background(), handle, preview2.MaxAllocationSize+1); gotErr == nil || !gotErr.LastOpFailed {
+		t.Fatalf("oversize skip error = %#v, want last-operation-failed", gotErr)
+	}
+	if _, gotErr := host.MethodInputStreamBlockingSkip(context.Background(), handle, preview2.MaxAllocationSize+1); gotErr == nil || !gotErr.LastOpFailed {
+		t.Fatalf("oversize blocking skip error = %#v, want last-operation-failed", gotErr)
+	}
+	if len(input.readCalls) != 2 {
+		t.Fatalf("Read calls = %d, want oversize skips rejected before reading", len(input.readCalls))
+	}
 }
 
 func TestR06StreamDropCleanupOnce(t *testing.T) {

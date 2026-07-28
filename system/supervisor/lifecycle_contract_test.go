@@ -23,11 +23,28 @@ func TestY03SupervisorStopIdempotent(t *testing.T) {
 	bus := eventbus.NewBus()
 	defer bus.Stop()
 	sup := NewSupervisor(bus, zap.New(core))
-	require.NoError(t, sup.Start(context.Background()))
+	startCtx, cancelStart := context.WithCancel(context.Background())
+	require.NoError(t, sup.Start(startCtx))
+
+	service := newTestService()
+	tx := newRegTx(zap.NewNop())
+	tx.open = true
+	tx.register["managed"] = &apisupervisor.Entry{
+		Service: service,
+		Config: apisupervisor.LifecycleConfig{
+			AutoStart:    true,
+			StartTimeout: time.Second,
+			StopTimeout:  time.Second,
+		},
+	}
+	require.NoError(t, sup.execute(startCtx, tx))
+	require.True(t, service.IsStarted())
+	cancelStart()
 
 	first := make(chan error, 1)
-	go func() { first <- sup.Stop() }()
+	go func() { first <- sup.StopContext(context.Background()) }()
 	require.NoError(t, <-first)
+	require.True(t, service.IsStopped())
 
 	second := make(chan error, 1)
 	go func() { second <- sup.Stop() }()

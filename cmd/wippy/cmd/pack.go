@@ -685,10 +685,20 @@ func writePackAtomically(outputFile string, inputPaths []string, write func(io.W
 		}
 	}
 
+	mode := os.FileMode(0o644)
+	if outputStatErr == nil {
+		mode = outputInfo.Mode().Perm()
+	}
+
 	dir := filepath.Dir(outputFile)
 	temp, err := os.CreateTemp(dir, "."+filepath.Base(outputFile)+".tmp-*")
 	if err != nil {
 		return 0, NewCreatePackFileError(fmt.Errorf("pack file %s: %w", outputFile, err))
+	}
+	if err := temp.Chmod(mode); err != nil {
+		_ = temp.Close()
+		_ = os.Remove(temp.Name())
+		return 0, NewCreatePackFileError(fmt.Errorf("set pack file mode %s: %w", outputFile, err))
 	}
 	tempPath := temp.Name()
 	published := false

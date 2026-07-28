@@ -37,6 +37,15 @@ func TestB06PackWriterFailurePreservesDestination(t *testing.T) {
 	}, func(string) error { return nil })
 	require.ErrorIs(t, err, cause)
 	assertAtomicPackFailure(t, output, err)
+
+	_, err = writePackAtomically(output, nil, func(w io.Writer) error {
+		_, writeErr := w.Write([]byte("published pack"))
+		return writeErr
+	}, func(string) error { return nil })
+	require.NoError(t, err)
+	info, statErr := os.Stat(output)
+	require.NoError(t, statErr)
+	require.Equal(t, os.FileMode(0o644), info.Mode().Perm())
 }
 
 func TestB07PackIntegrityFailurePreservesDestination(t *testing.T) {
