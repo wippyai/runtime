@@ -147,6 +147,7 @@ func (m *RelayManager) middlewareHandler(h http.Handler, originPatterns []string
 		var config RelayCommand
 		if err := json.Unmarshal([]byte(relayConfigStr), &config); err != nil {
 			logger.Error("Invalid relay configuration", zap.Error(err))
+			http.Error(w, "Invalid relay configuration", http.StatusBadRequest)
 			return
 		}
 
