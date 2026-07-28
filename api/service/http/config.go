@@ -27,6 +27,9 @@ const (
 	// Static identifies a static file server component
 	Static registry.Kind = "http.static"
 
+	// MethodAny registers an endpoint for every HTTP method.
+	MethodAny = "*"
+
 	// ServerID is the key used to identify the server in configuration metadata
 	ServerID string = "server"
 	// RouterID is the key used to identify the router in configuration metadata
@@ -112,7 +115,7 @@ type (
 	EndpointConfig struct {
 		Meta   attrs.Bag   `json:"meta"`   // Metadata, todo: migrate to avoid use of this
 		Path   string      `json:"path"`   // URL path
-		Method string      `json:"method"` // Timeouts method
+		Method string      `json:"method"` // HTTP method, or MethodAny for every method
 		Func   registry.ID `json:"func"`   // Func function
 	}
 
@@ -310,7 +313,7 @@ func (c *EndpointConfig) Validate() error {
 	}
 
 	switch c.Method {
-	case http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete,
+	case MethodAny, http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete,
 		http.MethodPatch, http.MethodHead, http.MethodOptions, http.MethodTrace:
 	default:
 		return NewInvalidHTTPMethodError(c.Method)

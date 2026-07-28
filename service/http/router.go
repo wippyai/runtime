@@ -3,6 +3,7 @@
 package http
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
 	"sync"
@@ -143,11 +144,14 @@ func (rm *RouteManager) AddRoute(routerID registry.ID, id registry.ID, method, p
 	// Validate method
 	method = strings.ToUpper(method)
 	switch method {
-	case http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete,
+	case httpapi.MethodAny, http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete,
 		http.MethodPatch, http.MethodHead, http.MethodOptions, http.MethodTrace:
 		// Valid method
 	default:
 		return httpapi.NewInvalidHTTPMethodError(method)
+	}
+	if method == httpapi.MethodAny {
+		method = ""
 	}
 
 	// Validate path
@@ -257,74 +261,9 @@ func (rm *RouteManager) Unmount(path string) error {
 	return nil
 }
 
-// patternSegments parses a pattern into method and path segments for conflict detection
-type patternSegments struct {
-	method   string
-	segments []string
-	isWild   []bool // true if segment is a wildcard like {id}
-}
-
-func parsePattern(pattern string) patternSegments {
-	parts := strings.SplitN(pattern, " ", 2)
-	method := parts[0]
-	path := "/"
-	if len(parts) > 1 {
-		path = parts[1]
-	}
-
-	segs := strings.Split(strings.Trim(path, "/"), "/")
-	isWild := make([]bool, len(segs))
-	for i, seg := range segs {
-		isWild[i] = strings.HasPrefix(seg, "{") && strings.HasSuffix(seg, "}")
-	}
-
-	return patternSegments{method: method, segments: segs, isWild: isWild}
-}
-
-// patternsConflict checks if two patterns can match overlapping paths without one being more specific
-func patternsConflict(a, b patternSegments) bool {
-	if a.method != b.method {
-		return false
-	}
-	if len(a.segments) != len(b.segments) {
-		return false
-	}
-
-	// Check if patterns can match same paths
-	canOverlap := true
-	for i := range a.segments {
-		aLit := !a.isWild[i]
-		bLit := !b.isWild[i]
-		if aLit && bLit && a.segments[i] != b.segments[i] {
-			canOverlap = false
-			break
-		}
-	}
-	if !canOverlap {
-		return false
-	}
-
-	// Check if one is strictly more specific
-	aMoreSpecific := false
-	bMoreSpecific := false
-	for i := range a.segments {
-		if !a.isWild[i] && b.isWild[i] {
-			aMoreSpecific = true
-		}
-		if a.isWild[i] && !b.isWild[i] {
-			bMoreSpecific = true
-		}
-	}
-
-	// No conflict if exactly one is strictly more specific (ServeMux handles precedence)
-	// Conflict only if both have specificity in different segments (ambiguous)
-	// or neither has specificity (identical wildcard patterns)
-	return aMoreSpecific == bMoreSpecific
-}
-
 // Build rebuilds the entire router from the current configuration
 func (rm *RouteManager) Build() error {
-	// Collect all patterns first to check for conflicts
+	// Collect all patterns before constructing the replacement mux.
 	type patternEntry struct {
 		handler http.Handler
 		pattern string
@@ -355,7 +294,7 @@ func (rm *RouteManager) Build() error {
 			allPatterns = append(allPatterns, patternEntry{handler, pattern})
 
 			// Auto-generate OPTIONS handler so CORS middleware can intercept preflight
-			if route.method != "OPTIONS" {
+			if route.method != "" && route.method != http.MethodOptions {
 				optionsPattern := buildPattern("OPTIONS", routerEntry.prefix, route.path)
 				if !registeredOptions[optionsPattern] {
 					optionsHandler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -372,34 +311,30 @@ func (rm *RouteManager) Build() error {
 		}
 	}
 
-	// Check for conflicts before registering
-	var conflicts []string
-	parsed := make([]patternSegments, len(allPatterns))
-	for i, p := range allPatterns {
-		parsed[i] = parsePattern(p.pattern)
-	}
-
-	for i := 0; i < len(parsed); i++ {
-		for j := i + 1; j < len(parsed); j++ {
-			if patternsConflict(parsed[i], parsed[j]) {
-				conflicts = append(conflicts, allPatterns[i].pattern+" conflicts with "+allPatterns[j].pattern)
-			}
-		}
-	}
-
-	if len(conflicts) > 0 {
-		return NewRouteConflictsError(conflicts)
-	}
-
-	// Register all patterns
+	// Let ServeMux apply its complete method, path, wildcard, and subtree
+	// precedence rules. Convert registration panics into configuration errors so
+	// an invalid route set cannot crash the process during a rebuild.
 	mux := http.NewServeMux()
 	for _, p := range allPatterns {
-		mux.Handle(p.pattern, p.handler)
+		if err := registerPattern(mux, p.pattern, p.handler); err != nil {
+			return err
+		}
 	}
 
 	var h http.Handler = mux
 	rm.router.Store(&h)
 
+	return nil
+}
+
+func registerPattern(mux *http.ServeMux, pattern string, handler http.Handler) (err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = NewRouteConflictsError([]string{fmt.Sprint(recovered)})
+		}
+	}()
+
+	mux.Handle(pattern, handler)
 	return nil
 }
 
@@ -462,6 +397,9 @@ func buildPattern(method, prefix, path string) string {
 
 	// Build full path
 	fullPath := prefix + path
+	if method == "" {
+		return fullPath
+	}
 
 	return method + " " + fullPath
 }
@@ -475,7 +413,8 @@ func extractParamNames(path string) []string {
 		if ch == '{' {
 			start = i + 1
 		} else if ch == '}' && start >= 0 {
-			names = append(names, path[start:i])
+			name := path[start:i]
+			names = append(names, strings.TrimSuffix(name, "..."))
 			start = -1
 		}
 	}
