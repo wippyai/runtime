@@ -32,6 +32,7 @@ import (
 
 func Engine() boot.Component {
 	var funcs *funclua.Manager
+	var started bool
 
 	return boot.New(boot.P{
 		Name:      EngineName,
@@ -39,85 +40,27 @@ func Engine() boot.Component {
 		Load: func(ctx context.Context) (context.Context, error) {
 			glua.ConfigureErrorMetadataExtractor(extractLuaErrorMetadata)
 
+			disp := dispatcherapi.GetDispatcher(ctx)
+			if disp == nil {
+				return ctx, ErrDispatcherNotFound
+			}
+
 			logger := logapi.GetLogger(ctx)
 			bus := event.GetBus(ctx)
 			handlers := bootpkg.GetHandlerRegistry(ctx)
-			cfg := boot.GetConfig(ctx)
-
-			// Get cache sizes from config with defaults
-			protoCacheSize := 60000
-			mainCacheSize := 10000
-			typeCheckEnabled := false
-			typeCheckStrict := false
-			invalidationWaitTimeout := code.DefaultInvalidationWaitTimeout
-			cacheCfg := cache.Config{
-				Enabled:          false,
-				Dir:              cache.DefaultDir,
-				Mode:             cache.ModeReadWrite,
-				CompileEnabled:   true,
-				TypecheckEnabled: true,
-			}
-			if cfg != nil {
-				registryCfg := cfg.Sub(corecomponents.RegistryName)
-				if registryCfg != nil {
-					invalidationWaitTimeout = registryCfg.GetDuration(corecomponents.RegistryEventWaitTimeout, invalidationWaitTimeout)
-				}
-				luaCfg := cfg.Sub("lua")
-				if luaCfg != nil {
-					protoCacheSize = luaCfg.GetInt("proto_cache_size", protoCacheSize)
-					mainCacheSize = luaCfg.GetInt("main_cache_size", mainCacheSize)
-					invalidationWaitTimeout = luaCfg.GetDuration("invalidation_wait_timeout", invalidationWaitTimeout)
-					typeSysCfg := luaCfg.Sub("type_system")
-					if typeSysCfg != nil {
-						typeCheckEnabled = typeSysCfg.GetBool("enabled", false)
-						typeCheckStrict = typeSysCfg.GetBool("strict", typeCheckStrict)
-					}
-					cacheCfg.Enabled = typeCheckEnabled
-					if _, ok := luaCfg.Get("cache.enabled"); ok {
-						cacheCfg.Enabled = luaCfg.GetBool("cache.enabled", cacheCfg.Enabled)
-					}
-					cacheCfg.Dir = luaCfg.GetString("cache.dir", cacheCfg.Dir)
-					if cacheCfg.Dir != "" && !filepath.IsAbs(cacheCfg.Dir) {
-						if baseDir := cfg.GetString("boot.config_dir", ""); baseDir != "" {
-							cacheCfg.Dir = filepath.Join(baseDir, cacheCfg.Dir)
-						}
-					}
-					cacheCfg.Mode = cache.ParseMode(luaCfg.GetString("cache.mode", string(cacheCfg.Mode)))
-					cacheCfg.CompileEnabled = luaCfg.GetBool("cache.compile.enabled", cacheCfg.CompileEnabled)
-					cacheCfg.TypecheckEnabled = luaCfg.GetBool("cache.typecheck.enabled", cacheCfg.TypecheckEnabled)
-				}
+			settings := resolveEngineSettings(boot.GetConfig(ctx))
+			settings.Modules = []*luaapi.ModuleDef{
+				ostime.Module,
+				processmod.Module,
+				engine.ChannelModule,
 			}
 
-			codeManager, err := code.NewCodeManager(
-				logger.Named("lua"),
-				bus,
-				code.Config{
-					Modules: []*luaapi.ModuleDef{
-						ostime.Module,
-						processmod.Module,
-						engine.ChannelModule,
-					},
-					ProtoCacheSize: protoCacheSize,
-					MainCacheSize:  mainCacheSize,
-					TypeCheck: code.TypeCheckConfig{
-						Enabled: typeCheckEnabled,
-						Strict:  typeCheckStrict,
-					},
-					Cache:                   cacheCfg,
-					InvalidationWaitTimeout: invalidationWaitTimeout,
-				},
-			)
+			codeManager, err := code.NewCodeManager(logger.Named("lua"), bus, settings)
 			if err != nil {
 				return ctx, err
 			}
 
 			ctx = SetCodeManager(ctx, codeManager)
-
-			// Get dispatcher from context
-			disp := dispatcherapi.GetDispatcher(ctx)
-			if disp == nil {
-				return ctx, ErrDispatcherNotFound
-			}
 
 			// Get filesystem registry
 			fsReg := fsapi.GetRegistry(ctx)
@@ -147,18 +90,70 @@ func Engine() boot.Component {
 			return ctx, nil
 		},
 		Start: func(ctx context.Context) error {
-			if funcs != nil {
-				return funcs.Start(ctx)
+			if funcs == nil || started {
+				return nil
 			}
+			if err := funcs.Start(ctx); err != nil {
+				return err
+			}
+			started = true
 			return nil
 		},
 		Stop: func(_ context.Context) error {
-			if funcs != nil {
-				funcs.Stop()
+			if funcs == nil || !started {
+				return nil
 			}
+			funcs.Stop()
+			started = false
 			return nil
 		},
 	})
+}
+
+func resolveEngineSettings(cfg boot.Config) code.Config {
+	settings := code.Config{
+		ProtoCacheSize: 60000,
+		MainCacheSize:  10000,
+		Cache: cache.Config{
+			Dir:              cache.DefaultDir,
+			Mode:             cache.ModeReadWrite,
+			CompileEnabled:   true,
+			TypecheckEnabled: true,
+		},
+		InvalidationWaitTimeout: code.DefaultInvalidationWaitTimeout,
+	}
+	if cfg == nil {
+		return settings
+	}
+
+	registryCfg := cfg.Sub(corecomponents.RegistryName)
+	settings.InvalidationWaitTimeout = registryCfg.GetDuration(
+		corecomponents.RegistryEventWaitTimeout,
+		settings.InvalidationWaitTimeout,
+	)
+
+	luaCfg := cfg.Sub("lua")
+	settings.ProtoCacheSize = luaCfg.GetInt("proto_cache_size", settings.ProtoCacheSize)
+	settings.MainCacheSize = luaCfg.GetInt("main_cache_size", settings.MainCacheSize)
+	settings.InvalidationWaitTimeout = luaCfg.GetDuration("invalidation_wait_timeout", settings.InvalidationWaitTimeout)
+
+	typeSystemCfg := luaCfg.Sub("type_system")
+	settings.TypeCheck.Enabled = typeSystemCfg.GetBool("enabled", false)
+	settings.TypeCheck.Strict = typeSystemCfg.GetBool("strict", false)
+	settings.Cache.Enabled = settings.TypeCheck.Enabled
+	if _, ok := luaCfg.Get("cache.enabled"); ok {
+		settings.Cache.Enabled = luaCfg.GetBool("cache.enabled", settings.Cache.Enabled)
+	}
+	settings.Cache.Dir = luaCfg.GetString("cache.dir", settings.Cache.Dir)
+	if settings.Cache.Dir != "" && !filepath.IsAbs(settings.Cache.Dir) {
+		if baseDir := cfg.GetString("boot.config_dir", ""); baseDir != "" {
+			settings.Cache.Dir = filepath.Join(baseDir, settings.Cache.Dir)
+		}
+	}
+	settings.Cache.Mode = cache.ParseMode(luaCfg.GetString("cache.mode", string(settings.Cache.Mode)))
+	settings.Cache.CompileEnabled = luaCfg.GetBool("cache.compile.enabled", settings.Cache.CompileEnabled)
+	settings.Cache.TypecheckEnabled = luaCfg.GetBool("cache.typecheck.enabled", settings.Cache.TypecheckEnabled)
+	return settings
 }
 
 func extractLuaErrorMetadata(err error) *glua.ErrorMetadata {
