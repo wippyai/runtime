@@ -30,6 +30,8 @@ local function main()
 	local data2, err2 = wb:bytes()
 	assert.is_nil(data2, "data should be nil on closed workbook")
 	assert.not_nil(err2, "closed workbook should error")
+	assert.eq(err2:kind(), errors.INTERNAL, "error kind should be INTERNAL")
+	assert.eq(err2:retryable(), false, "error should not be retryable")
 
 	return true
 end
