@@ -46,7 +46,7 @@ require (
 	github.com/mattn/go-sqlite3 v1.14.48
 	github.com/microcosm-cc/bluemonday v1.0.27
 	github.com/moby/moby/api v1.55.0
-	github.com/moby/moby/client v0.5.0
+	github.com/moby/moby/client v0.5.1
 	github.com/muesli/termenv v0.16.0
 	github.com/prometheus/client_golang v1.24.0
 	github.com/rabbitmq/amqp091-go v1.13.0
