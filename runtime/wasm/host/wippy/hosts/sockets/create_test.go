@@ -14,8 +14,8 @@ func TestS15CreateRejectsUnknownFamily(t *testing.T) {
 	tcpHost := NewTCPCreateSocketHost(resources)
 	udpHost := NewUDPCreateSocketHost(resources)
 	creators := []struct {
-		name   string
 		create func(context.Context, uint8) (uint32, *NetworkError)
+		name   string
 	}{
 		{name: "TCP", create: tcpHost.CreateTCPSocket},
 		{name: "UDP", create: udpHost.CreateUDPSocket},

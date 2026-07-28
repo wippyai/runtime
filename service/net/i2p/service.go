@@ -35,10 +35,10 @@ var sessionCounter uint64
 // the first payload segment) are still delivered to callers.
 type streamConn struct {
 	net.Conn
-	reader    *bufio.Reader
 	ctrl      net.Conn
-	closeOnce sync.Once
 	closeErr  error
+	reader    *bufio.Reader
+	closeOnce sync.Once
 }
 
 func (c *streamConn) Read(p []byte) (int, error) {

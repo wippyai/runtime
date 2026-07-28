@@ -52,8 +52,8 @@ func (sqsBoundaryTranscoder) Transcode(p payload.Payload, _ payload.Format) (pay
 }
 
 type recordingBus struct {
-	mu     sync.Mutex
 	events []event.Event
+	mu     sync.Mutex
 }
 
 func (*recordingBus) Subscribe(context.Context, event.System, chan<- event.Event) (event.SubscriberID, error) {

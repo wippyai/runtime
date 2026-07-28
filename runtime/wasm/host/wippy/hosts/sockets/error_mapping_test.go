@@ -12,8 +12,8 @@ import (
 
 func TestS14NetworkErrorMappingInvariant(t *testing.T) {
 	cases := []struct {
-		name     string
 		mapError func() *NetworkError
+		name     string
 		want     NetworkErrorCode
 	}{
 		{

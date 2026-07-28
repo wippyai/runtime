@@ -17,10 +17,10 @@ import (
 
 type faultFS struct {
 	fs.FS
-	openPath string
 	openErr  error
-	readPath string
 	readErr  error
+	openPath string
+	readPath string
 }
 
 func (f faultFS) Open(name string) (fs.File, error) {

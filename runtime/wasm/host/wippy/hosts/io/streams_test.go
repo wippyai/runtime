@@ -30,8 +30,8 @@ func (s *testInputStream) Read(length uint64) ([]byte, error) {
 }
 
 type testOutputStream struct {
-	writes     [][]byte
 	writeErr   error
+	writes     [][]byte
 	flushCalls int
 	dropCalls  int
 	dropped    bool

@@ -11,8 +11,8 @@ import (
 )
 
 type boundaryWakeRecorder struct {
-	calls int
 	queue *EventQueue
+	calls int
 	gen   uint64
 }
 

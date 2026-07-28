@@ -4,6 +4,7 @@ package net
 
 import (
 	"context"
+	"errors"
 	"net"
 	"testing"
 
@@ -15,8 +16,8 @@ import (
 
 type reentrantCloseService struct {
 	registry *Registry
-	id       registry.ID
 	observed chan bool
+	id       registry.ID
 }
 
 func (s *reentrantCloseService) DialContext(context.Context, string, string) (net.Conn, error) {
@@ -34,7 +35,7 @@ func (s *reentrantCloseService) LookupHost(context.Context, string) ([]string, e
 func (s *reentrantCloseService) Close() error {
 	s.observed <- s.registry.HasNetwork(s.id)
 	_, err := s.registry.GetNetwork(s.id)
-	s.observed <- err == netapi.ErrNetworkNotFound
+	s.observed <- errors.Is(err, netapi.ErrNetworkNotFound)
 	return nil
 }
 

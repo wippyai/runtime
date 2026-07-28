@@ -18,8 +18,8 @@ import (
 )
 
 type recordingBus struct {
-	mu     sync.Mutex
 	events []event.Event
+	mu     sync.Mutex
 }
 
 func (b *recordingBus) Subscribe(context.Context, event.System, chan<- event.Event) (event.SubscriberID, error) {

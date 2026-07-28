@@ -32,7 +32,7 @@ func boundaryHandlers() map[dispatcher.CommandID]dispatcher.Handler {
 	return handlers
 }
 
-func awaitBoundaryResult(t *testing.T, ctx context.Context, results <-chan boundaryDispatchResult) boundaryDispatchResult {
+func awaitBoundaryResult(ctx context.Context, t *testing.T, results <-chan boundaryDispatchResult) boundaryDispatchResult {
 	t.Helper()
 	select {
 	case result := <-results:
@@ -66,7 +66,7 @@ func TestD12DispatcherRollbackRemovesWrite(t *testing.T) {
 	results := make(boundaryDispatchReceiver, 1)
 	err = boundaryHandlers()[sqlapi.TxRollback].Handle(ctx, &sqlapi.TxRollbackCmd{Tx: tx}, 1, results)
 	require.NoError(t, err)
-	result := awaitBoundaryResult(t, ctx, results)
+	result := awaitBoundaryResult(ctx, t, results)
 	require.NoError(t, result.err)
 	require.Nil(t, result.data, "rollback must not fabricate success metadata")
 
@@ -103,7 +103,7 @@ func TestD13TransactionQueryIsolation(t *testing.T) {
 		Tx: tx, Query: `SELECT COUNT(*) FROM entries`,
 	}, 1, results)
 	require.NoError(t, err)
-	result := awaitBoundaryResult(t, ctx, results)
+	result := awaitBoundaryResult(ctx, t, results)
 	require.NoError(t, result.err)
 	inside := result.data.(sqlapi.QueryResponse)
 	require.NoError(t, inside.Error)

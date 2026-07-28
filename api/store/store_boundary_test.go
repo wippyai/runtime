@@ -30,20 +30,20 @@ func (*boundaryBaseStore) Delete(context.Context, registry.ID) error      { retu
 func (*boundaryBaseStore) Has(context.Context, registry.ID) (bool, error) { return false, nil }
 
 type boundaryAtomicStore struct {
+	casErr         error
+	versionedErr   error
+	setIfAbsentErr error
 	*boundaryBaseStore
-	versioned       VersionedEntry
-	versionedErr    error
-	versionedCalls  int
-	setIfAbsentOK   bool
-	setIfAbsentErr  error
-	setIfAbsentCall int
-	setIfAbsentArg  Entry
-	casOK           bool
-	casErr          error
-	casCalls        int
 	casKey          registry.ID
-	casExpected     Version
 	casEntry        Entry
+	setIfAbsentArg  Entry
+	versioned       VersionedEntry
+	versionedCalls  int
+	casCalls        int
+	setIfAbsentCall int
+	casExpected     Version
+	casOK           bool
+	setIfAbsentOK   bool
 }
 
 func (s *boundaryAtomicStore) GetVersioned(context.Context, registry.ID) (VersionedEntry, error) {
@@ -64,11 +64,11 @@ func (s *boundaryAtomicStore) SetIfAbsent(_ context.Context, entry Entry) (bool,
 }
 
 type boundaryScannerStore struct {
+	scanErr error
 	*boundaryBaseStore
-	entries   []Entry
-	scanErr   error
-	scanCalls int
 	scanOpts  ScanOptions
+	entries   []Entry
+	scanCalls int
 }
 
 func (s *boundaryScannerStore) Scan(_ context.Context, opts ScanOptions, fn func(Entry) bool) error {
@@ -83,9 +83,9 @@ func (s *boundaryScannerStore) Scan(_ context.Context, opts ScanOptions, fn func
 }
 
 type boundaryEntryStore struct {
+	entryErr error
 	*boundaryAtomicStore
 	entry      VersionedEntry
-	entryErr   error
 	entryCalls int
 }
 

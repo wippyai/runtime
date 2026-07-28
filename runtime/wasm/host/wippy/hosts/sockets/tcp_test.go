@@ -309,7 +309,7 @@ func TestS09TCPDropRejectsLateConnect(t *testing.T) {
 func TestS10TCPListenAcceptDropOwnership(t *testing.T) {
 	resources := preview2.NewResourceTable()
 	host := NewTCPHost(resources)
-	rawListener, err := net.Listen("tcp4", "127.0.0.1:0")
+	rawListener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp4", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
@@ -319,7 +319,7 @@ func TestS10TCPListenAcceptDropOwnership(t *testing.T) {
 	parent.SetListener(listener)
 	parentHandle := resources.Add(parent)
 
-	client, err := net.DialTimeout("tcp4", rawListener.Addr().String(), 2*time.Second)
+	client, err := (&net.Dialer{Timeout: 2 * time.Second}).DialContext(t.Context(), "tcp4", rawListener.Addr().String())
 	if err != nil {
 		t.Fatalf("dial listener: %v", err)
 	}

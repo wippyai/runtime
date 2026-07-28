@@ -729,9 +729,11 @@ func registerWappWithEmbedRegistry(ctx context.Context, modulePaths []lock.Modul
 	}
 
 	type stagedPack struct {
-		path, module, version string
-		file                  *os.File
-		reader                *wapp.Reader
+		file    *os.File
+		reader  *wapp.Reader
+		path    string
+		module  string
+		version string
 	}
 	staged := make([]stagedPack, 0, len(modulePaths))
 	seenResources := make(map[wapp.ID]string)

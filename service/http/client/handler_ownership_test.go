@@ -132,8 +132,8 @@ func TestN04RedirectFailureDoesNotDoubleCloseBody(t *testing.T) {
 }
 
 type partialErrorReader struct {
-	read bool
 	err  error
+	read bool
 }
 
 func (r *partialErrorReader) Read(p []byte) (int, error) {

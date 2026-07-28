@@ -48,19 +48,19 @@ type (
 	Supervisor struct {
 		ctx                context.Context
 		bus                event.Bus
-		subscriber         *eventbus.Subscriber
-		logger             *zap.Logger
+		sequencer          *sequencer
+		dependencyResolver supervisor.DependencyResolver
 		controllers        map[string]*Controller
 		actions            chan action
 		done               chan struct{}
 		tx                 *regTx
-		sequencer          *sequencer
-		dependencyResolver supervisor.DependencyResolver
-		transitionMu       sync.Mutex
-		lifecycleMu        sync.RWMutex
-		stopOnce           sync.Once
+		subscriber         *eventbus.Subscriber
+		logger             *zap.Logger
 		wg                 sync.WaitGroup
+		lifecycleMu        sync.RWMutex
 		mu                 sync.RWMutex
+		stopOnce           sync.Once
+		transitionMu       sync.Mutex
 		stopped            bool
 	}
 

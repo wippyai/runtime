@@ -38,7 +38,7 @@ func TestD15TransactionPreparedRollback(t *testing.T) {
 		Tx: tx, Query: `INSERT INTO entries (value) VALUES (?)`,
 	}, 1, prepareResults)
 	require.NoError(t, err)
-	prepared := awaitBoundaryResult(t, ctx, prepareResults)
+	prepared := awaitBoundaryResult(ctx, t, prepareResults)
 	require.NoError(t, prepared.err)
 	prepareResponse := prepared.data.(sqlapi.PrepareResponse)
 	require.NoError(t, prepareResponse.Error)
@@ -50,7 +50,7 @@ func TestD15TransactionPreparedRollback(t *testing.T) {
 		Stmt: prepareResponse.Stmt, Params: []any{"pending"},
 	}, 2, executeResults)
 	require.NoError(t, err)
-	executed := awaitBoundaryResult(t, ctx, executeResults)
+	executed := awaitBoundaryResult(ctx, t, executeResults)
 	require.NoError(t, executed.err)
 	executeResponse := executed.data.(sqlapi.ExecuteResponse)
 	require.NoError(t, executeResponse.Error)
@@ -59,7 +59,7 @@ func TestD15TransactionPreparedRollback(t *testing.T) {
 	rollbackResults := make(boundaryDispatchReceiver, 1)
 	err = handlers[sqlapi.TxRollback].Handle(ctx, &sqlapi.TxRollbackCmd{Tx: tx}, 3, rollbackResults)
 	require.NoError(t, err)
-	rolledBack := awaitBoundaryResult(t, ctx, rollbackResults)
+	rolledBack := awaitBoundaryResult(ctx, t, rollbackResults)
 	require.NoError(t, rolledBack.err)
 
 	var count int

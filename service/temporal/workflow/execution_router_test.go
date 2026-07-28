@@ -33,26 +33,26 @@ import (
 )
 
 type recordedTimer struct {
-	duration time.Duration
 	callback bindings.ResultHandler
+	duration time.Duration
 }
 
 type recordedSignal struct {
+	arg               any
+	input             *commonpb.Payloads
+	header            *commonpb.Header
+	callback          bindings.ResultHandler
 	namespace         string
 	workflowID        string
 	runID             string
 	topic             string
-	input             *commonpb.Payloads
-	arg               any
-	header            *commonpb.Header
 	childWorkflowOnly bool
-	callback          bindings.ResultHandler
 }
 
 type recordedEnvironment struct {
 	bindings.WorkflowEnvironment
-	info         *workflow.Info
 	dc           converter.DataConverter
+	info         *workflow.Info
 	timers       []recordedTimer
 	activities   []bindings.ExecuteActivityParams
 	activityDone []bindings.ResultHandler
@@ -60,8 +60,8 @@ type recordedEnvironment struct {
 	children     []bindings.ExecuteWorkflowParams
 	childDone    []bindings.ResultHandler
 	versions     []versionCall
-	version      workflow.Version
 	completions  []completionCall
+	version      workflow.Version
 }
 
 type versionCall struct {

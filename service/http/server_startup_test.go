@@ -41,7 +41,7 @@ func (s *failingProbeService) LookupHost(ctx context.Context, host string) ([]st
 }
 
 func TestN01ServerProbeFailureRollsBack(t *testing.T) {
-	reserved, err := net.Listen("tcp", "127.0.0.1:0")
+	reserved, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	addr := reserved.Addr().String()
 	require.NoError(t, reserved.Close())
@@ -84,7 +84,7 @@ func TestN01ServerProbeFailureRollsBack(t *testing.T) {
 	require.False(t, server.started.Load(), "failed startup must reset started state")
 	require.Nil(t, server.server, "failed startup must discard the server")
 
-	rebound, err := net.Listen("tcp", addr)
+	rebound, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", addr)
 	require.NoError(t, err, "failed startup left its listener bound")
 	require.NoError(t, rebound.Close())
 }

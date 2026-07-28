@@ -27,11 +27,11 @@ type samListener struct {
 	ctrlConn    net.Conn
 	closeCh     chan struct{}
 	pending     map[net.Conn]struct{}
+	dialContext func(context.Context, string, string) (net.Conn, error)
+	beforeAdopt func()
 	samAddr     string
 	sessionID   string
 	ourDest     string
-	dialContext func(context.Context, string, string) (net.Conn, error)
-	beforeAdopt func()
 	closeOnce   sync.Once
 	mu          sync.Mutex
 }

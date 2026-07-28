@@ -7,6 +7,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func isolateRegistry(t *testing.T) {
@@ -50,9 +52,10 @@ func TestG01RegisterReplacesCheck(t *testing.T) {
 	if len(results) != 1 {
 		t.Fatalf("Run() returned %d results, want 1: %#v", len(results), results)
 	}
-	if results[0].Name != "database" || results[0].Err != replacementErr {
-		t.Fatalf("Run()[0] = %#v, want database with replacement error", results[0])
+	if results[0].Name != "database" {
+		t.Fatalf("Run()[0].Name = %q, want database", results[0].Name)
 	}
+	require.Same(t, replacementErr, results[0].Err)
 	if got := oldCalls.Load(); got != 0 {
 		t.Fatalf("old check calls = %d, want 0", got)
 	}
@@ -100,9 +103,7 @@ func TestG03RunSortsAndPreservesErrors(t *testing.T) {
 		if results[i].Name != wantNames[i] {
 			t.Fatalf("Run()[%d].Name = %q, want %q; results: %#v", i, results[i].Name, wantNames[i], results)
 		}
-		if results[i].Err != wantErrors[i] {
-			t.Fatalf("Run()[%d].Err = %v, want sentinel %v", i, results[i].Err, wantErrors[i])
-		}
+		require.Same(t, wantErrors[i], results[i].Err)
 	}
 }
 
@@ -117,9 +118,10 @@ func TestG04DisableAndEnableCheck(t *testing.T) {
 	Disable("queue")
 
 	disabledResults := Run()
-	if len(disabledResults) != 1 || disabledResults[0].Name != "queue" || disabledResults[0].Err != errDisabled {
-		t.Fatalf("Run() while disabled = %#v, want queue with errDisabled", disabledResults)
+	if len(disabledResults) != 1 || disabledResults[0].Name != "queue" {
+		t.Fatalf("Run() while disabled = %#v, want queue result", disabledResults)
 	}
+	require.Same(t, errDisabled, disabledResults[0].Err)
 	if got := calls.Load(); got != 0 {
 		t.Fatalf("disabled check calls = %d, want 0", got)
 	}
@@ -185,9 +187,10 @@ func TestG06PanicBecomesErrorAndContinues(t *testing.T) {
 	if len(results) != 2 {
 		t.Fatalf("Run() returned %d results, want 2: %#v", len(results), results)
 	}
-	if results[0].Name != "alpha-panic" || results[0].Err != errCheckPanic {
-		t.Fatalf("panic result = %#v, want alpha-panic with errCheckPanic", results[0])
+	if results[0].Name != "alpha-panic" {
+		t.Fatalf("panic result name = %q, want alpha-panic", results[0].Name)
 	}
+	require.Same(t, errCheckPanic, results[0].Err)
 	if results[1].Name != "beta-continues" || results[1].Err != nil {
 		t.Fatalf("continuation result = %#v, want successful beta-continues", results[1])
 	}
@@ -261,7 +264,14 @@ func TestG07ConcurrentHealthSnapshots(t *testing.T) {
 			t.Fatalf("stable checks returned errors: %#v", results)
 		}
 		bravoErr := results[1].Err
-		if bravoErr != firstVersionErr && bravoErr != secondVersionErr && bravoErr != errDisabled {
+		switch bravoErr.Error() {
+		case firstVersionErr.Error():
+			require.Same(t, firstVersionErr, bravoErr)
+		case secondVersionErr.Error():
+			require.Same(t, secondVersionErr, bravoErr)
+		case errDisabled.Error():
+			require.Same(t, errDisabled, bravoErr)
+		default:
 			t.Fatalf("bravo error = %v, want a registered version error or errDisabled", bravoErr)
 		}
 	}

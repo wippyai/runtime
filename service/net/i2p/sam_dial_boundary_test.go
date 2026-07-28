@@ -25,24 +25,24 @@ const (
 )
 
 type samScriptResult struct {
+	err    error
 	opened int32
 	closed int32
-	err    error
 }
 
 type scriptedSAM struct {
 	listener net.Listener
+	done     chan samScriptResult
 	failAt   string
 	payload  string
+	once     sync.Once
 	opened   atomic.Int32
 	closed   atomic.Int32
-	done     chan samScriptResult
-	once     sync.Once
 }
 
 func newScriptedSAM(t *testing.T, failAt, payload string) *scriptedSAM {
 	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	ln, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	s := &scriptedSAM{
 		listener: ln,

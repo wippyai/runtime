@@ -36,7 +36,7 @@ func TestW01SameOriginDefaultEnforcement(t *testing.T) {
 	defer server.Close()
 
 	matchingHeader := http.Header{"Origin": {server.URL}}
-	matchingConn, matchingResponse, err := websocket.Dial(t.Context(), websocketURL(server.URL), &websocket.DialOptions{HTTPHeader: matchingHeader})
+	matchingConn, matchingResponse, err := websocket.Dial(t.Context(), websocketURL(server.URL), &websocket.DialOptions{HTTPHeader: matchingHeader}) //nolint:bodyclose // coder/websocket transfers the successful response body to Conn.
 	require.NoError(t, err)
 	require.Equal(t, http.StatusSwitchingProtocols, matchingResponse.StatusCode)
 	matchingConn.CloseNow()
@@ -59,7 +59,7 @@ func TestW02ExplicitOriginMiddlewareEnforcement(t *testing.T) {
 	defer server.Close()
 
 	listedHeader := http.Header{"Origin": {"https://listed.example"}}
-	listedConn, listedResponse, err := websocket.Dial(t.Context(), websocketURL(server.URL), &websocket.DialOptions{HTTPHeader: listedHeader})
+	listedConn, listedResponse, err := websocket.Dial(t.Context(), websocketURL(server.URL), &websocket.DialOptions{HTTPHeader: listedHeader}) //nolint:bodyclose // coder/websocket transfers the successful response body to Conn.
 	require.NoError(t, err)
 	require.Equal(t, http.StatusSwitchingProtocols, listedResponse.StatusCode)
 	listedConn.CloseNow()
@@ -168,7 +168,7 @@ func TestW06RelayUpgradeCleanupOwnership(t *testing.T) {
 	defer server.Close()
 
 	header := http.Header{"Origin": {server.URL}}
-	conn, response, err := websocket.Dial(t.Context(), websocketURL(server.URL), &websocket.DialOptions{HTTPHeader: header})
+	conn, response, err := websocket.Dial(t.Context(), websocketURL(server.URL), &websocket.DialOptions{HTTPHeader: header}) //nolint:bodyclose // coder/websocket transfers the successful response body to Conn.
 	require.NoError(t, err)
 	require.Equal(t, http.StatusSwitchingProtocols, response.StatusCode)
 	require.NoError(t, conn.Close(websocket.StatusNormalClosure, "peer closed"))
@@ -246,8 +246,8 @@ func (w *upgradeRecordingWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 }
 
 type wsEventLog struct {
-	mu     sync.Mutex
 	events []string
+	mu     sync.Mutex
 }
 
 func (l *wsEventLog) add(event string) {

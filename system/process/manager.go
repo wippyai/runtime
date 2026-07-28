@@ -73,7 +73,7 @@ func (m *Manager) Start(ctx context.Context, start *api.Start) (pid.PID, error) 
 		return procPID, err
 	}
 
-	if start != nil && start.Options != nil && m.node != nil {
+	if start.Options != nil && m.node != nil {
 		parent, ok := start.Options.Get(api.ProcessParentKey)
 		if ok {
 			if parentPID, ok := parent.(pid.PID); ok && parentPID.UniqID != "" {

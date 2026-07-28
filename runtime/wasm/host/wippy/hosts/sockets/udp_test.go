@@ -4,6 +4,7 @@ package sockets
 
 import (
 	"context"
+	"errors"
 	"net"
 	"testing"
 	"time"
@@ -117,8 +118,11 @@ func TestS12UDPSendRequiresDestination(t *testing.T) {
 	buffer := make([]byte, 32)
 	if _, _, err := peer.ReadFromUDP(buffer); err == nil {
 		t.Fatal("peer received a packet without a destination")
-	} else if netErr, ok := err.(net.Error); !ok || !netErr.Timeout() {
-		t.Fatalf("peer read error = %v, want deadline timeout", err)
+	} else {
+		var netErr net.Error
+		if !errors.As(err, &netErr) || !netErr.Timeout() {
+			t.Fatalf("peer read error = %v, want deadline timeout", err)
+		}
 	}
 }
 

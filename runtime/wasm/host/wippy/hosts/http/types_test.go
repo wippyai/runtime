@@ -95,7 +95,7 @@ func TestH06IncomingRequestProjection(t *testing.T) {
 	ctx := context.Background()
 	resources := preview2.NewResourceTable()
 	host := NewTypesHost(resources)
-	request, err := http.NewRequest(http.MethodPatch, "https://api.example:8443/items?q=a%20b", nil)
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodPatch, "https://api.example:8443/items?q=a%20b", nil)
 	if err != nil {
 		t.Fatalf("create request: %v", err)
 	}

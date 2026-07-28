@@ -26,10 +26,10 @@ func (l *boundaryLease) Revoke(context.Context) error  { l.revokes.Add(1); retur
 func (*boundaryLease) Done() <-chan struct{}           { return make(chan struct{}) }
 
 type boundaryKVEngine struct {
-	lease           *boundaryLease
 	setWithLeaseErr error
-	absentOK        bool
 	absentErr       error
+	lease           *boundaryLease
+	absentOK        bool
 }
 
 func (*boundaryKVEngine) Get(string) (kvapi.Entry, error)           { return kvapi.Entry{}, kvapi.ErrKeyNotFound }

@@ -20,10 +20,10 @@ import (
 
 type linearizationTemporalClient struct {
 	temporalclient.Client
-	closeCalls atomic.Int32
-	closeOnce  sync.Once
 	closeHit   chan struct{}
 	closeGate  chan struct{}
+	closeOnce  sync.Once
+	closeCalls atomic.Int32
 }
 
 func (c *linearizationTemporalClient) Close() {

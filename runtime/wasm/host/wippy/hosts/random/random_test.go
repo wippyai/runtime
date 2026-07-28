@@ -10,8 +10,8 @@ import (
 func TestR14RandomHostsCapOversize(t *testing.T) {
 	ctx := context.Background()
 	hosts := []struct {
-		name string
 		get  func(context.Context, uint64) []byte
+		name string
 	}{
 		{name: "secure", get: NewSecureRandomHost().GetRandomBytes},
 		{name: "insecure", get: NewInsecureRandomHost().GetInsecureRandomBytes},
