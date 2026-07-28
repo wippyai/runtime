@@ -141,7 +141,7 @@ func TestCorePlugins(t *testing.T) {
 	}
 	select {
 	case <-service.stopped:
-	default:
+	case <-time.After(100 * time.Millisecond):
 		t.Fatal("managed service did not observe shutdown cancellation")
 	}
 }

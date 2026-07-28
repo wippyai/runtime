@@ -429,6 +429,11 @@ func (c *Controller) tryStop(ctx context.Context) error {
 	}()
 	select {
 	case err := <-resultCh:
+		var boundErr *controllerStopBoundError
+		if errors.As(context.Cause(ctx), &boundErr) {
+			c.updateState(supervisor.StatusFailed, boundErr)
+			return boundErr
+		}
 		c.updateState(supervisor.StatusStopped, err)
 		return err
 	case <-stopCtx.Done():
