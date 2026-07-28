@@ -248,12 +248,13 @@ func TestL07EngineRelativeCacheDirectory(t *testing.T) {
 }
 
 func TestL08EngineAbsoluteCacheDirectory(t *testing.T) {
+	absoluteCacheDir := filepath.Join(t.TempDir(), "cache")
 	cfg := boot.NewConfig(
-		boot.WithSection("lua", map[string]any{"cache.dir": "/var/cache/wippy/lua"}),
-		boot.WithSection("boot", map[string]any{"config_dir": "/srv/wippy/config"}),
+		boot.WithSection("lua", map[string]any{"cache.dir": absoluteCacheDir}),
+		boot.WithSection("boot", map[string]any{"config_dir": filepath.Join(t.TempDir(), "config")}),
 	)
-	if got := resolveEngineSettings(cfg).Cache.Dir; got != "/var/cache/wippy/lua" {
-		t.Fatalf("absolute cache directory = %q, want %q", got, "/var/cache/wippy/lua")
+	if got := resolveEngineSettings(cfg).Cache.Dir; got != absoluteCacheDir {
+		t.Fatalf("absolute cache directory = %q, want %q", got, absoluteCacheDir)
 	}
 }
 
