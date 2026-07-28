@@ -30,15 +30,15 @@
 
 | ID | Commit | Focused | Repeat/race | Review | Integrated |
 | --- | --- | --- | --- | --- | --- |
-| WS01 | pending | pending | pending | pending | no |
-| WS02 | pending | pending | pending | pending | no |
-| WS03 | pending | pending | pending | pending | no |
-| WS04 | pending | pending | pending | pending | no |
-| WS05 | pending | pending | pending | pending | no |
-| WS06 | pending | pending | pending | pending | no |
-| WS07 | pending | pending | pending | pending | no |
-| WS08 | pending | pending | pending | pending | no |
-| WS09 | pending | pending | pending | pending | no |
-| WS10 | pending | pending | pending | pending | no |
-| WS11 | pending | pending | pending | pending | no |
-| WS12 | pending | pending | pending | pending | no |
+| WS01 | `7355f0c9` | pass | pass | follow-up pending | no |
+| WS02 | `c88912b5` | pass | pass | approved | no |
+| WS03 | `3302ad22` | pass | pass | approved | yes |
+| WS04 | `2ede5376` | pass | pass | approved | yes |
+| WS05 | `a789d123` | pass | pass | approved | yes |
+| WS06 | `cd006d23` | pass | pass | follow-up pending | no |
+| WS07 | `2946623b` | pass | pass | approved | yes |
+| WS08 | `1df5a511` | pass | pass | approved | yes |
+| WS09 | `2a607746` | pass | pass | approved | yes |
+| WS10 | `73e46eae` | pass | pass | approved | yes |
+| WS11 | `aa47fa01` | pass | pass | approved | yes |
+| WS12 | `77761e0a` | pass | pass | approved | yes |
