@@ -462,6 +462,9 @@ func packModule(ctx context.Context, app *appinit.Context, cfg *config.ModuleCon
 		return nil, NewPublishMultipleDefinitionsError(definitionCount)
 	}
 
+	if err := cfg.ValidateRuntimeVersion(version.Short()); err != nil {
+		return nil, NewPublishConfigError(err)
+	}
 	provenance := frontendProvenance{}
 	for _, entry := range srcEntries {
 		if entry.Kind != regapi.NamespaceBuildDependency {
@@ -476,6 +479,9 @@ func packModule(ctx context.Context, app *appinit.Context, cfg *config.ModuleCon
 			return nil, NewPublishConfigError(lockErr)
 		}
 		break
+	}
+	if len(provenance.Imports) > 0 && strings.TrimSpace(cfg.RequiresWippy) == "" {
+		return nil, NewPublishConfigError(fmt.Errorf("ns.build_dependency requires requires_wippy in wippy.yaml"))
 	}
 
 	disableOpts := stages.DisableOptions{
@@ -508,6 +514,9 @@ func packModule(ctx context.Context, app *appinit.Context, cfg *config.ModuleCon
 		"wippy_commit":  version.Commit,
 		"packed_at":     time.Now().UTC().Format(time.RFC3339),
 		"entry_count":   len(srcEntries),
+	}
+	if cfg.RequiresWippy != "" {
+		metadata["requires_wippy"] = cfg.RequiresWippy
 	}
 	if len(provenance.Imports) > 0 {
 		metadata["fe_provenance"] = provenance
