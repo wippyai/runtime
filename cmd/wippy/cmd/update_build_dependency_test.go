@@ -154,6 +154,22 @@ func TestExtractRootDependenciesRuntimeWinsThroughReplacement(t *testing.T) {
 	}}, graph.replacements)
 }
 
+func TestGeneratedLockValidatesWorkspaceBuildOnlyReplacement(t *testing.T) {
+	root := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "local", "frontend"), 0o755))
+	oldLock, err := lock.New(filepath.Join(root, lock.DefaultFilename), lock.WithWorkspaceReplacements([]lock.Replacement{{
+		From: "local/frontend", To: "local/frontend",
+	}}))
+	require.NoError(t, err)
+	newLock, err := convertResolvedToLock(oldLock.Path(), nil, ".wippy", ".", effectiveReplacementOption(oldLock))
+	require.NoError(t, err)
+	preserveBuildOnlyReplacementModules(newLock, oldLock, []dependencyRequest{{
+		Org: "local", Module: "frontend", Constraint: "1.0.0", BuildOnly: true,
+	}})
+
+	require.NoError(t, lock.Validate(newLock))
+}
+
 func TestPreserveBuildOnlyReplacementModulesRetainsRoleAndRejectsRootTransition(t *testing.T) {
 	oldLock, err := lock.New(filepath.Join(t.TempDir(), "old.lock"))
 	require.NoError(t, err)

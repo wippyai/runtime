@@ -192,7 +192,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Convert resolved modules to lock file
-	newLockObj, err := convertResolvedToLock(lockFilePath, resolvedModules, modulesDir, srcDir)
+	newLockObj, err := convertResolvedToLock(lockFilePath, resolvedModules, modulesDir, srcDir, effectiveReplacementOption(oldLockObj))
 	if err != nil {
 		return NewLoadLockFileError(err)
 	}
@@ -385,8 +385,8 @@ func decodeDependencyDeclarations(entries []regapi.Entry, dtt payload.Transcoder
 	return declarations, nil
 }
 
-func convertResolvedToLock(lockFilePath string, modules []hub.ResolvedModule, modulesDir, srcDir string) (*lock.Lock, error) {
-	lockObj, err := lock.New(lockFilePath)
+func convertResolvedToLock(lockFilePath string, modules []hub.ResolvedModule, modulesDir, srcDir string, options ...lock.Option) (*lock.Lock, error) {
+	lockObj, err := lock.New(lockFilePath, options...)
 	if err != nil {
 		return nil, fmt.Errorf("lock file %s: %w", lockFilePath, err)
 	}
@@ -488,7 +488,7 @@ func runTargetedUpdate(cmd *cobra.Command, lockFilePath, srcDir, modulesDir stri
 	}
 
 	// Build new lock file
-	newLockObj, err := convertResolvedToLock(lockFilePath, result.Modules, modulesDir, srcDir)
+	newLockObj, err := convertResolvedToLock(lockFilePath, result.Modules, modulesDir, srcDir, effectiveReplacementOption(oldLockObj))
 	if err != nil {
 		return NewLoadLockFileError(err)
 	}
@@ -652,6 +652,13 @@ func loadDependencyScanEntries(ctx context.Context, ldr boot.Loader, srcDir stri
 	}
 
 	return entries, nil
+}
+
+func effectiveReplacementOption(lockObj *lock.Lock) lock.Option {
+	if lockObj == nil {
+		return lock.WithWorkspaceReplacements(nil)
+	}
+	return lock.WithWorkspaceReplacements(lockObj.GetReplacements())
 }
 
 func effectiveReplacementModules(lockObj *lock.Lock) map[string]bool {
