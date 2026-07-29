@@ -3,12 +3,25 @@
 package cmd
 
 import (
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/payload"
 	regapi "github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/boot/deps/hub"
 )
+
+func TestConvertResolvedToLockPreservesBuildOnlyRole(t *testing.T) {
+	lockObj, err := convertResolvedToLock(filepath.Join(t.TempDir(), "wippy.lock"), []hub.ResolvedModule{
+		{Org: "acme", Name: "frontend", Version: "2.0.0", BuildOnly: true},
+	}, ".wippy", ".")
+	require.NoError(t, err)
+
+	module, ok := lockObj.GetModule("acme/frontend")
+	require.True(t, ok)
+	require.True(t, module.BuildOnly)
+}
 
 func TestExtractRootDependenciesPreservesBuildRole(t *testing.T) {
 	ctx := setupLoaderContext(t)
