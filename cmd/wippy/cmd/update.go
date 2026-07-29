@@ -738,6 +738,18 @@ func preserveReplacements(lockObj *lock.Lock, replacements []lock.Replacement) {
 }
 
 func preserveBuildReplacementModules(lockObj, oldLockObj *lock.Lock, replacements []dependencyRequest) {
+	oldModules := make(map[string]lock.Module)
+	if oldLockObj != nil {
+		for _, module := range oldLockObj.GetModules() {
+			oldModules[module.Name] = module
+		}
+	}
+	modules := lockObj.GetModules()
+	indexes := make(map[string]int, len(modules)+len(replacements))
+	for index, module := range modules {
+		indexes[module.Name] = index
+	}
+
 	for _, replacement := range replacements {
 		if !replacement.BuildDependency {
 			continue
@@ -747,14 +759,18 @@ func preserveBuildReplacementModules(lockObj, oldLockObj *lock.Lock, replacement
 			Name: name, Version: replacement.Constraint,
 			BuildOnly: replacement.BuildOnly, BuildDependency: true,
 		}
-		if oldLockObj != nil {
-			if oldModule, ok := oldLockObj.GetModule(name); ok {
-				module.Version = oldModule.Version
-				module.Root = oldModule.Root
-			}
+		if oldModule, ok := oldModules[name]; ok {
+			module.Version = oldModule.Version
+			module.Root = oldModule.Root
 		}
-		lockObj.SetModule(module)
+		if index, exists := indexes[name]; exists {
+			modules[index] = module
+			continue
+		}
+		indexes[name] = len(modules)
+		modules = append(modules, module)
 	}
+	lockObj.ReplaceModules(modules)
 }
 
 func pruneStaleVendorArtifacts(lockObj *lock.Lock, changes *lock.Changes, logger *zap.Logger) {

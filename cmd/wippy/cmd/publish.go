@@ -158,6 +158,9 @@ func runPublish(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return NewInitAppError(err)
 	}
+	if err := loadPublishRuntimeConfig(cmd, app); err != nil {
+		return err
+	}
 
 	outputFile := filepath.Join(os.TempDir(), cfg.OutputFileName())
 	defer os.Remove(outputFile)
@@ -249,6 +252,15 @@ func runPublish(cmd *cobra.Command, _ []string) error {
 
 	fmt.Println()
 
+	return nil
+}
+
+func loadPublishRuntimeConfig(cmd *cobra.Command, app *appinit.Context) error {
+	cfg, err := loadRuntimeConfig(cmd, app.Logger.Named("publish"))
+	if err != nil {
+		return err
+	}
+	boot.WithConfig(app.Ctx, cfg)
 	return nil
 }
 

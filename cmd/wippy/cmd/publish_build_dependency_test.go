@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
-	bootapi "github.com/wippyai/runtime/api/boot"
 	"github.com/wippyai/runtime/api/payload"
 	regapi "github.com/wippyai/runtime/api/registry"
 	depconfig "github.com/wippyai/runtime/boot/deps/config"
@@ -72,7 +72,7 @@ entries:
 	require.JSONEq(t, fmt.Sprintf(`{"manifest_version":1,"imports":[{"entry":"app:frontend","module":"acme/frontend","version":"2.0.0","digest":%q}]}`, digest), string(encoded))
 }
 
-func TestPackModuleRejectsWorkspaceBuildReplacement(t *testing.T) {
+func TestLoadPublishRuntimeConfigRejectsWorkspaceBuildReplacement(t *testing.T) {
 	root := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "src"), 0o755))
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "local", "frontend"), 0o755))
@@ -91,12 +91,16 @@ entries:
 	digest := writeBuildArtifact(t, lockObj, "acme/frontend", "2.0.0", []byte("remote package"))
 	lockObj.SetModule(lock.Module{Name: "acme/frontend", Version: "2.0.0", Hash: digest, BuildOnly: true, BuildDependency: true})
 	require.NoError(t, lockObj.Write())
+	runtimeConfigPath := filepath.Join(root, ".wippy.yaml")
+	require.NoError(t, os.WriteFile(runtimeConfigPath, []byte(`version: "1.0"
+workspace:
+  replacements:
+    acme/frontend: local/frontend
+`), 0o644))
+	setTestConfigFiles(t, runtimeConfigPath)
 	app, err := appinit.Init(context.Background(), false, false, false, true, time.Now())
 	require.NoError(t, err)
-	bootapi.WithConfig(app.Ctx, bootapi.NewConfig(
-		bootapi.WithSection("boot", map[string]any{"config_dir": root}),
-		bootapi.WithSection("workspace", map[string]any{"replacements.acme/frontend": "local/frontend"}),
-	))
+	require.NoError(t, loadPublishRuntimeConfig(&cobra.Command{}, app))
 
 	_, err = packModule(app.Ctx, app, &depconfig.ModuleConfig{
 		Organization: "acme", ModuleName: "consumer", Version: "1.0.0", RequiresWippy: ">=1.2.0",
