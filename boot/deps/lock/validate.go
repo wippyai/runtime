@@ -21,6 +21,9 @@ func Validate(l *Lock) error {
 			return NewModuleEmptyVersionError(mod.Name)
 		}
 		if mod.Root {
+			if mod.BuildOnly {
+				return NewBuildOnlyRootError(mod.Name)
+			}
 			rootCount++
 		}
 	}

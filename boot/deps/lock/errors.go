@@ -30,6 +30,10 @@ func NewMultipleRootModulesError() apierror.Error {
 	return apierror.New(apierror.Invalid, "lock file selects more than one deployment root").WithRetryable(apierror.False)
 }
 
+func NewBuildOnlyRootError(moduleName string) apierror.Error {
+	return apierror.New(apierror.Invalid, fmt.Sprintf("deployment root %s cannot be build-only", moduleName)).WithRetryable(apierror.False)
+}
+
 func NewInvalidReplacementsError(cause error) apierror.Error {
 	return apierror.New(apierror.Invalid, "invalid replacements").WithCause(cause)
 }
