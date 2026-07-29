@@ -148,7 +148,10 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Extract root dependencies from entries
-	rootDeps := extractRootDependencies(entries, app.Transcoder)
+	rootDeps, err := extractRootDependencies(entries, app.Transcoder)
+	if err != nil {
+		return NewLoadEntriesFromSourceError(err)
+	}
 	logger.Info("found root dependencies", zap.Int("count", len(rootDeps)))
 
 	// Local replacements participate in the active graph but are never resolved
@@ -163,7 +166,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 		hubDeps := make([]hub.DependencySpec, 0, len(rootDeps))
 		for _, dep := range rootDeps {
 			depName := dep.Org + "/" + dep.Module
-			if replacedModules[depName] {
+			if replacedModules[depName] && !dep.BuildOnly {
 				logger.Info("skipping replaced module from hub resolution", zap.String("module", depName))
 				continue
 			}
@@ -171,6 +174,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 				Org:        dep.Org,
 				Name:       dep.Module,
 				Constraint: dep.Constraint,
+				BuildOnly:  dep.BuildOnly,
 			})
 		}
 
@@ -236,26 +240,32 @@ type dependencyRequest struct {
 	Org        string
 	Module     string
 	Constraint string
+	BuildOnly  bool
 }
 
-func extractRootDependencies(entries []regapi.Entry, dtt payload.Transcoder) []dependencyRequest {
+func extractRootDependencies(entries []regapi.Entry, dtt payload.Transcoder) ([]dependencyRequest, error) {
 	deps := make([]dependencyRequest, 0, len(entries))
-	seen := make(map[string]bool)
+	seen := make(map[string]int)
 
 	for _, entry := range entries {
-		if entry.Kind != "ns.dependency" {
+		if entry.Kind != regapi.NamespaceDependency && entry.Kind != regapi.NamespaceBuildDependency {
 			continue
 		}
 
 		var depData struct {
-			Component string `json:"component"`
-			Version   string `json:"version"`
+			Component  string `json:"component"`
+			Version    string `json:"version"`
+			Parameters []any  `json:"parameters"`
 		}
 
 		if err := dtt.Unmarshal(entry.Data, &depData); err != nil {
-			continue
+			return nil, fmt.Errorf("decode dependency %s: %w", entry.ID.String(), err)
 		}
 
+		buildOnly := entry.Kind == regapi.NamespaceBuildDependency
+		if buildOnly && len(depData.Parameters) > 0 {
+			return nil, fmt.Errorf("build dependency %s cannot declare parameters", entry.ID.String())
+		}
 		if depData.Component == "" {
 			continue
 		}
@@ -266,19 +276,21 @@ func extractRootDependencies(entries []regapi.Entry, dtt payload.Transcoder) []d
 		}
 
 		key := depData.Component + "@" + depData.Version
-		if seen[key] {
+		if index, ok := seen[key]; ok {
+			deps[index].BuildOnly = deps[index].BuildOnly && buildOnly
 			continue
 		}
-		seen[key] = true
+		seen[key] = len(deps)
 
 		deps = append(deps, dependencyRequest{
 			Org:        parts[0],
 			Module:     parts[1],
 			Constraint: depData.Version,
+			BuildOnly:  buildOnly,
 		})
 	}
 
-	return deps
+	return deps, nil
 }
 
 func convertResolvedToLock(lockFilePath string, modules []hub.ResolvedModule, modulesDir, srcDir string) (*lock.Lock, error) {
@@ -345,11 +357,14 @@ func runTargetedUpdate(cmd *cobra.Command, lockFilePath, srcDir, modulesDir stri
 	}
 
 	// Extract source constraints
-	rootDeps := extractRootDependencies(entries, app.Transcoder)
-	sourceConstraints := make(map[string]string)
+	rootDeps, err := extractRootDependencies(entries, app.Transcoder)
+	if err != nil {
+		return NewLoadEntriesFromSourceError(err)
+	}
+	sourceConstraints := make(map[string]dependencyRequest)
 	for _, dep := range rootDeps {
 		key := fmt.Sprintf("%s/%s", dep.Org, dep.Module)
-		sourceConstraints[key] = dep.Constraint
+		sourceConstraints[key] = dep
 	}
 
 	// Build frozen constraints from lock file (all modules except targets and replaced)
@@ -375,12 +390,13 @@ func runTargetedUpdate(cmd *cobra.Command, lockFilePath, srcDir, modulesDir stri
 			Org:        parts[0],
 			Name:       parts[1],
 			Constraint: "=" + mod.Version,
+			BuildOnly:  mod.BuildOnly,
 		})
 	}
 
 	// Add target modules with source constraints
 	for _, moduleName := range effectiveTargets {
-		constraint, ok := sourceConstraints[moduleName]
+		dependency, ok := sourceConstraints[moduleName]
 		if !ok {
 			logger.Warn("module not found in source dependencies", zap.String("module", moduleName))
 			continue
@@ -394,7 +410,8 @@ func runTargetedUpdate(cmd *cobra.Command, lockFilePath, srcDir, modulesDir stri
 		hubDeps = append(hubDeps, hub.DependencySpec{
 			Org:        parts[0],
 			Name:       parts[1],
-			Constraint: constraint,
+			Constraint: dependency.Constraint,
+			BuildOnly:  dependency.BuildOnly,
 		})
 	}
 

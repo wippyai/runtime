@@ -63,6 +63,8 @@ const (
 	// NamespaceDependency represents a module dependency entry
 	NamespaceDependency Kind = "ns.dependency"
 
+	NamespaceBuildDependency Kind = "ns.build_dependency"
+
 	// NamespaceDefinition represents module metadata (readme, license, authors, etc.)
 	NamespaceDefinition Kind = "ns.definition"
 )
