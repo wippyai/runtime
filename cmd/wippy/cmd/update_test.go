@@ -161,6 +161,7 @@ entries:
 	}}))
 	require.NoError(t, err)
 	lockObj.SetDirectories(lock.Directories{Modules: ".wippy", Src: "app"})
+	lockObj.SetModule(lock.Module{Name: "local/component", Version: "v1.0.0", BuildOnly: true})
 
 	loaded, err := loadDependencyScanEntries(ctx, ldr, appDir, lockObj, zap.NewNop())
 	require.NoError(t, err)
