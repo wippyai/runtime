@@ -9,6 +9,27 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestDiffReportsBuildRoleChanges(t *testing.T) {
+	oldLock, err := New(filepath.Join(t.TempDir(), "old.lock"))
+	require.NoError(t, err)
+	oldLock.SetModule(Module{Name: "acme/shared", Version: "1.0.0", Hash: "sha256:shared", BuildOnly: true})
+	newLock, err := New(filepath.Join(t.TempDir(), "new.lock"))
+	require.NoError(t, err)
+	newLock.SetModule(Module{Name: "acme/shared", Version: "1.0.0", Hash: "sha256:shared"})
+
+	changes := Diff(oldLock, newLock)
+	require.Equal(t, []ModuleChange{
+		{
+			Name:         "acme/shared",
+			OldVersion:   "1.0.0",
+			NewVersion:   "1.0.0",
+			OldHash:      "sha256:shared",
+			NewHash:      "sha256:shared",
+			OldBuildOnly: true,
+		},
+	}, changes.Updated)
+}
+
 func TestValidateRejectsBuildOnlyDeploymentRoot(t *testing.T) {
 	lockObj, err := New(filepath.Join(t.TempDir(), DefaultFilename))
 	require.NoError(t, err)
