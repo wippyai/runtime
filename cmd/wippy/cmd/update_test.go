@@ -165,9 +165,23 @@ entries:
 
 	loaded, err := loadDependencyScanEntries(ctx, ldr, appDir, lockObj, zap.NewNop())
 	require.NoError(t, err)
-	dependencies, err := extractRootDependencies(loaded, payload.GetTranscoder(ctx))
+	dependencies, err := extractRootDependencies(loaded, payload.GetTranscoder(ctx), effectiveReplacementModules(lockObj))
 	require.NoError(t, err)
-	require.Equal(t, []dependencyRequest{{Org: "acme", Module: "runtime", Constraint: "v1.0.0"}}, dependencies)
+	require.Equal(t, []dependencyRequest{{Org: "acme", Module: "runtime", Constraint: "v1.0.0", BuildOnly: true}}, dependencies)
+}
+
+func TestPruneStaleVendorArtifactsKeepsRoleOnlyUpdates(t *testing.T) {
+	tmpDir := t.TempDir()
+	lockObj, err := lock.New(filepath.Join(tmpDir, lock.DefaultFilename))
+	require.NoError(t, err)
+	artifact := filepath.Join(tmpDir, ".wippy", "vendor", "acme", "shared-1.0.0.wapp")
+	mustWriteFile(t, artifact)
+
+	pruneStaleVendorArtifacts(lockObj, &lock.Changes{Updated: []lock.ModuleChange{{
+		Name: "acme/shared", OldVersion: "1.0.0", NewVersion: "1.0.0", OldHash: "sha256:same", NewHash: "sha256:same", OldBuildOnly: true,
+	}}}, zap.NewNop())
+
+	require.FileExists(t, artifact)
 }
 
 func TestPruneStaleVendorArtifacts_RemovesStaleArtifacts(t *testing.T) {
@@ -305,7 +319,7 @@ entries:
 		t.Fatalf("loadDependencyScanEntries failed: %v", err)
 	}
 
-	deps, err := extractRootDependencies(loaded, payload.GetTranscoder(ctx))
+	deps, err := extractRootDependencies(loaded, payload.GetTranscoder(ctx), effectiveReplacementModules(lockObj))
 	if err != nil {
 		t.Fatalf("extractRootDependencies failed: %v", err)
 	}

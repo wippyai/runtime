@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/payload"
 	regapi "github.com/wippyai/runtime/api/registry"
 	depconfig "github.com/wippyai/runtime/boot/deps/config"
@@ -52,10 +53,81 @@ func TestExtractRootDependenciesPreservesBuildRole(t *testing.T) {
 		},
 	}
 
-	dependencies, err := extractRootDependencies(entries, payload.GetTranscoder(ctx))
+	dependencies, err := extractRootDependencies(entries, payload.GetTranscoder(ctx), nil)
 	require.NoError(t, err)
 	require.Equal(t, []dependencyRequest{
 		{Org: "acme", Module: "runtime", Constraint: "1.0.0"},
 		{Org: "acme", Module: "frontend", Constraint: "2.0.0", BuildOnly: true},
 	}, dependencies)
+}
+
+func TestExtractRootDependenciesPropagatesBuildRoleThroughReplacement(t *testing.T) {
+	ctx := setupLoaderContext(t)
+	entries := []regapi.Entry{
+		{
+			ID:   regapi.NewID("app.deps", "frontend"),
+			Kind: regapi.NamespaceBuildDependency,
+			Data: payload.New(map[string]any{"component": "local/frontend", "version": "1.0.0"}),
+		},
+		{
+			ID:   regapi.NewID("local.frontend", "runtime"),
+			Kind: regapi.NamespaceDependency,
+			Data: payload.New(map[string]any{"component": "acme/runtime", "version": "2.0.0"}),
+			Meta: attrs.NewBagFrom(map[string]any{"module": "local/frontend"}),
+		},
+	}
+
+	dependencies, err := extractRootDependencies(entries, payload.GetTranscoder(ctx), map[string]bool{"local/frontend": true})
+	require.NoError(t, err)
+	require.Equal(t, []dependencyRequest{{
+		Org: "acme", Module: "runtime", Constraint: "2.0.0", BuildOnly: true,
+	}}, dependencies)
+}
+
+func TestExtractRootDependenciesRuntimeWinsThroughReplacement(t *testing.T) {
+	ctx := setupLoaderContext(t)
+	entries := []regapi.Entry{
+		{
+			ID:   regapi.NewID("app.deps", "frontend-runtime"),
+			Kind: regapi.NamespaceDependency,
+			Data: payload.New(map[string]any{"component": "local/frontend", "version": "1.0.0"}),
+		},
+		{
+			ID:   regapi.NewID("app.deps", "frontend-build"),
+			Kind: regapi.NamespaceBuildDependency,
+			Data: payload.New(map[string]any{"component": "local/frontend", "version": "2.0.0"}),
+		},
+		{
+			ID:   regapi.NewID("local.frontend", "runtime"),
+			Kind: regapi.NamespaceDependency,
+			Data: payload.New(map[string]any{"component": "acme/runtime", "version": "3.0.0"}),
+			Meta: attrs.NewBagFrom(map[string]any{"module": "local/frontend"}),
+		},
+	}
+
+	dependencies, err := extractRootDependencies(entries, payload.GetTranscoder(ctx), map[string]bool{"local/frontend": true})
+	require.NoError(t, err)
+	require.Equal(t, []dependencyRequest{{
+		Org: "acme", Module: "runtime", Constraint: "3.0.0",
+	}}, dependencies)
+}
+
+func TestExtractRootDependenciesRejectsMalformedBuildComponent(t *testing.T) {
+	ctx := setupLoaderContext(t)
+	entries := []regapi.Entry{{
+		ID:   regapi.NewID("app.deps", "frontend"),
+		Kind: regapi.NamespaceBuildDependency,
+		Data: payload.New(map[string]any{"component": "frontend", "version": "1.0.0"}),
+	}}
+
+	_, err := extractRootDependencies(entries, payload.GetTranscoder(ctx), nil)
+	require.EqualError(t, err, "build dependency app.deps:frontend has invalid component frontend")
+}
+
+func TestContainsBuildDependencyChecksDeclarationsBeforeRuntimeWins(t *testing.T) {
+	entries := []regapi.Entry{
+		{Kind: regapi.NamespaceDependency},
+		{Kind: regapi.NamespaceBuildDependency},
+	}
+	require.True(t, containsBuildDependency(entries))
 }
