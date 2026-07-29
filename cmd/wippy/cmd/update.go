@@ -14,6 +14,7 @@ import (
 	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/payload"
 	regapi "github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/version"
 	bootauth "github.com/wippyai/runtime/boot/deps/auth"
 	depconfig "github.com/wippyai/runtime/boot/deps/config"
 	"github.com/wippyai/runtime/boot/deps/graph"
@@ -152,6 +153,15 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return NewLoadEntriesFromSourceError(err)
 	}
+	if containsBuildDependency(rootDeps) {
+		moduleCfg, loadErr := depconfig.Load(projectDir)
+		if loadErr != nil {
+			return NewLoadEntriesFromSourceError(loadErr)
+		}
+		if validateErr := validateBuildDependencyRuntime(moduleCfg, rootDeps, version.Short()); validateErr != nil {
+			return NewLoadEntriesFromSourceError(validateErr)
+		}
+	}
 	logger.Info("found root dependencies", zap.Int("count", len(rootDeps)))
 
 	// Local replacements participate in the active graph but are never resolved
@@ -241,6 +251,25 @@ type dependencyRequest struct {
 	Module     string
 	Constraint string
 	BuildOnly  bool
+}
+
+func containsBuildDependency(dependencies []dependencyRequest) bool {
+	for _, dependency := range dependencies {
+		if dependency.BuildOnly {
+			return true
+		}
+	}
+	return false
+}
+
+func validateBuildDependencyRuntime(cfg *depconfig.ModuleConfig, dependencies []dependencyRequest, current string) error {
+	if !containsBuildDependency(dependencies) {
+		return nil
+	}
+	if cfg == nil || strings.TrimSpace(cfg.RequiresWippy) == "" {
+		return fmt.Errorf("ns.build_dependency requires requires_wippy in wippy.yaml")
+	}
+	return cfg.ValidateRuntimeVersion(current)
 }
 
 func extractRootDependencies(entries []regapi.Entry, dtt payload.Transcoder) ([]dependencyRequest, error) {
@@ -361,6 +390,15 @@ func runTargetedUpdate(cmd *cobra.Command, lockFilePath, srcDir, modulesDir stri
 	rootDeps, err := extractRootDependencies(entries, app.Transcoder)
 	if err != nil {
 		return NewLoadEntriesFromSourceError(err)
+	}
+	if containsBuildDependency(rootDeps) {
+		moduleCfg, loadErr := depconfig.Load(filepath.Dir(lockObj.Path()))
+		if loadErr != nil {
+			return NewLoadEntriesFromSourceError(loadErr)
+		}
+		if validateErr := validateBuildDependencyRuntime(moduleCfg, rootDeps, version.Short()); validateErr != nil {
+			return NewLoadEntriesFromSourceError(validateErr)
+		}
 	}
 	sourceConstraints := make(map[string]dependencyRequest)
 	for _, dep := range rootDeps {
