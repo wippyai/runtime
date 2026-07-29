@@ -20,10 +20,10 @@ import (
 // reapProbe records whether the process was waited on, which is the only thing
 // that releases a child's entry in the OS process table.
 type reapProbe struct {
-	mu           sync.Mutex
-	signals      []int
-	waitCalled   int
 	waitReleased chan struct{}
+	signals      []int
+	mu           sync.Mutex
+	waitCalled   int
 	blockWait    bool
 }
 
@@ -85,7 +85,7 @@ func waitFor(t *testing.T, timeout time.Duration, cond func() bool) bool {
 	return cond()
 }
 
-// A signalled child that is never waited on stays a zombie for the lifetime of
+// A signaled child that is never waited on stays a zombie for the lifetime of
 // the runtime, and close() is the documented way to stop a process.
 func TestReapReleasedWaitsOnGracefulStop(t *testing.T) {
 	probe := newReapProbe()
@@ -106,7 +106,7 @@ func TestReapReleasedWaitsOnForcedStop(t *testing.T) {
 		t.Fatalf("expected the killed process to be waited on once, got %d", probe.waits())
 	}
 	if sent := probe.sent(); len(sent) != 0 {
-		t.Fatalf("a process the caller already killed must not be signalled again, got %v", sent)
+		t.Fatalf("a process the caller already killed must not be signaled again, got %v", sent)
 	}
 }
 
@@ -149,7 +149,7 @@ func TestClosedProcessIsNotLeftAsZombie(t *testing.T) {
 		t.Skip("sleep not available")
 	}
 
-	cmd := exec.Command("sleep", "30")
+	cmd := exec.CommandContext(t.Context(), "sleep", "30")
 	// Pipes are created the same way the native executor creates them, because
 	// Wait closes them and that interaction is part of what is being checked.
 	stdout, err := cmd.StdoutPipe()
@@ -172,7 +172,7 @@ func TestClosedProcessIsNotLeftAsZombie(t *testing.T) {
 	// in state Z until the parent exits.
 	if !waitFor(t, 15*time.Second, func() bool { return !processExists(pid) }) {
 		if isZombie(pid) {
-			t.Fatalf("process %d was left as a zombie: it was signalled but never reaped", pid)
+			t.Fatalf("process %d was left as a zombie: it was signaled but never reaped", pid)
 		}
 		t.Fatalf("process %d was still present after close and reap", pid)
 	}
@@ -228,7 +228,7 @@ func procStatPath(pid int) string {
 	return "/proc/" + strconv.Itoa(pid) + "/stat"
 }
 
-// The regression this change exists to prevent: close() signalled the child and
+// The regression this change exists to prevent: close() signaled the child and
 // then discarded the handle, after which every method -- wait included -- reports
 // "process is closed". Nothing could reap it, so each close() left a zombie.
 //
@@ -256,7 +256,7 @@ func TestProcessCloseReapsTheChild(t *testing.T) {
 }
 
 // A process that was never started has no OS child to reap, and waiting on one
-// would only report that it never ran. Signalling stays unconditional: this
+// would only report that it never ran. Signaling stays unconditional: this
 // change fixes the leak without altering what close() sends.
 func TestProcessCloseDoesNotReapUnstartedProcess(t *testing.T) {
 	probe := newReapProbe()
@@ -273,7 +273,7 @@ func TestProcessCloseDoesNotReapUnstartedProcess(t *testing.T) {
 	if probe.waits() != 0 {
 		t.Fatalf("an unstarted process must not be waited on, got %d waits", probe.waits())
 	}
-	// Signalling is unchanged from before the fix, so it is still expected here.
+	// Signaling is unchanged from before the fix, so it is still expected here.
 	if sent := probe.sent(); len(sent) != 1 || sent[0] != int(syscall.SIGTERM) {
 		t.Fatalf("expected close to signal as it always has, got %v", sent)
 	}

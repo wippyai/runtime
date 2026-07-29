@@ -56,7 +56,7 @@ const reapGrace = 10 * time.Second
 //
 // Wait is the only call that releases the child's entry in the OS process
 // table. close() deliberately puts the handle beyond the caller's reach, so
-// unless the reap happens here it never happens at all: the child is signalled,
+// unless the reap happens here it never happens at all: the child is signaled,
 // exits, and remains a zombie for the lifetime of the runtime -- one per
 // close(), accumulating without bound.
 //
@@ -381,7 +381,7 @@ func procClose(l *lua.LState) int {
 		_ = handle.Signal(int(sig))
 
 		// Only a started process has an OS child to reap; waiting on one that
-		// never ran would just report that. Signalling is left unconditional so
+		// never ran would just report that. Signaling is left unconditional so
 		// close() behaves exactly as it did before.
 		if started {
 			go reapReleased(handle, forceStop)
