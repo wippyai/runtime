@@ -76,3 +76,7 @@
 - Windows compile attestation: `/tmp/runtime-test-expansion-windows-compile-final.log`, SHA-256 `729bea0c517c31e77b79f25364f254a237c4fa8e88e8cd19b964b1598f57f5c7`
 - Fresh release security gate: `specs/security/REVIEW.md` — APPROVED, zero unresolved HIGH findings at confidence 8/10 or higher
 - Traceability gate: `specs/verifications/TRACE-e01.md` — WAIVED because generic matrix tooling is absent; Gate v4 provides explicit story/workstream/fingerprint trace
+- Primary release merged: <https://github.com/wippyai/runtime/pull/531> at `acbb814c`
+- Post-merge Ubuntu exposed a startup-ordering flake in `TestCorePlugins`; root cause and correction are recorded in `specs/bugs/BUG-coreplugins-shutdown-sync.md`
+- Stability fix merged: <https://github.com/wippyai/runtime/pull/532> at `e21f708c`
+- Final post-merge CI: lint, Ubuntu, Windows, and CodeQL PASS — <https://github.com/wippyai/runtime/actions/runs/30413330164> and <https://github.com/wippyai/runtime/actions/runs/30413330244>

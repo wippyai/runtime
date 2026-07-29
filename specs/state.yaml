@@ -1,12 +1,13 @@
-active_flow: build_epic
+active_flow: release_complete
 active_epic_id: e01
-active_story_id: e01s12
-phase: release_ready
+active_story_id: null
+phase: complete
 git:
-  branch: test/runtime-behavior-expansion
+  branch: main
   base: 55bc0336f205b3158d62d32ef434149a5f14275b
+  landed_head: e21f708cffbd1d22be7178a8870c47db5cb1fbdb
 handoff:
-  next_skill: release-branch
+  next_skill: survey-context
 metrics:
   story_start: '2026-07-28T18:04:34Z'
 decisions:
@@ -32,10 +33,13 @@ decisions:
   security_gate: APPROVED
 release:
   pr: https://github.com/wippyai/runtime/pull/531
-  code_head: b8be4156b77377cf6d2e8e02066dc7b7645549cd
+  merge_commit: acbb814ccb7cfc722bb0296025ffe4000e5d826c
+  stability_pr: https://github.com/wippyai/runtime/pull/532
+  stability_merge_commit: e21f708cffbd1d22be7178a8870c47db5cb1fbdb
+  code_head: e21f708cffbd1d22be7178a8870c47db5cb1fbdb
   ci_verified: true
-  ci_run: https://github.com/wippyai/runtime/actions/runs/30409751006
-  codeql_run: https://github.com/wippyai/runtime/actions/runs/30409749369
+  ci_run: https://github.com/wippyai/runtime/actions/runs/30413330164
+  codeql_run: https://github.com/wippyai/runtime/actions/runs/30413330244
   checks:
     lint: pass
     codeql: pass
