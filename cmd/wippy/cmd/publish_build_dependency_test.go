@@ -40,9 +40,10 @@ entries:
 	require.NoError(t, err)
 	output := filepath.Join(root, "consumer.wapp")
 	_, err = packModule(app.Ctx, app, &depconfig.ModuleConfig{
-		Organization: "acme",
-		ModuleName:   "consumer",
-		Version:      "1.0.0",
+		Organization:  "acme",
+		ModuleName:    "consumer",
+		Version:       "1.0.0",
+		RequiresWippy: ">=1.2.0",
 	}, root, output, nil)
 	require.NoError(t, err)
 
@@ -58,6 +59,7 @@ entries:
 	}
 	metadata, err := reader.GetMetadata()
 	require.NoError(t, err)
+	require.Equal(t, ">=1.2.0", metadata["requires_wippy"])
 	encoded, err := json.Marshal(metadata["fe_provenance"])
 	require.NoError(t, err)
 	require.JSONEq(t, `{"manifest_version":1,"imports":[{"entry":"app:frontend","module":"acme/frontend","version":"2.0.0","digest":"sha256:frontend"}]}`, string(encoded))
