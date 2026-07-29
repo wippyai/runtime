@@ -2,7 +2,7 @@ id: e01
 slug: runtime-test-expansion
 title: Runtime behavioral test expansion
 risk: P0
-status: release_ready
+status: done
 objective: Add 165 genuine executable leaves and remove 15 false-confidence leaves.
 stories:
   - id: e01s01

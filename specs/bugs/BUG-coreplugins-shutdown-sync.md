@@ -43,7 +43,8 @@ Verification completed locally:
 - canonical `make test`, `go test ./boot/... -race -short`, vet, and lint passed;
 - independent review approved with zero must-fix findings.
 
-Release gates still required:
+Release gates completed:
 
-- Ubuntu and Windows CI on the fix PR;
-- post-merge CI green.
+- fix PR merged: <https://github.com/wippyai/runtime/pull/532> at `e21f708c`;
+- PR lint, CodeQL, Ubuntu, and Windows checks passed: <https://github.com/wippyai/runtime/actions/runs/30412868979> and <https://github.com/wippyai/runtime/actions/runs/30412867979>;
+- post-merge lint, Ubuntu, Windows, and CodeQL passed: <https://github.com/wippyai/runtime/actions/runs/30413330164> and <https://github.com/wippyai/runtime/actions/runs/30413330244>.

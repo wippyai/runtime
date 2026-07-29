@@ -2,13 +2,13 @@
 
 ## Verdict
 
-**RELEASE READY BY HUMAN DECISION — executable and security gates pass; review cap exhausted (5/5), post-review correction accepted by the user.**
+**RELEASED — primary and stability PRs merged; final post-merge Linux, Windows, lint, and CodeQL gates pass.**
 
 ## Supply Chain and Security
 
 - ✓ No dependency, lockfile, generated-code, Makefile, or workflow changes.
 - ✓ Diff credential/private-key scan found no secrets.
-- ✓ Fresh-context security review approved `55bc0336..5bd49e4d`; the only later source change (`0fa36ce9`) disables test jitter and does not alter production.
+- ✓ Fresh-context security review approved `55bc0336..5bd49e4d`; all later source changes are test-only determinism or portability corrections and do not alter production.
 - ✓ Changed SQL remains parameterized; changed URL/path, origin, artifact, and lifecycle boundaries fail closed.
 
 ## Scope and Clarity
@@ -33,7 +33,9 @@
 - ✓ The one newly visible SQS conformance skip is pre-existing Docker coverage uncovered by fixing short-mode `TestMain`; no planned fingerprint skips.
 - ✓ Statement coverage rose from 61.4% to 62.9%; changed-statement coverage is 82.5%.
 - ✓ All 36 changed Go packages cross-compiled for Windows/amd64.
-- ✓ Native Windows CI exposed and then verified the platform-native L08 absolute-path correction in `b8be4156`; the final lint, CodeQL, Ubuntu, and Windows checks are green.
+- ✓ Native Windows CI exposed and then verified the platform-native L08 absolute-path correction in `b8be4156`.
+- ✓ Post-merge Ubuntu exposed a startup-ordering flaw in the `TestCorePlugins` precondition; PR <https://github.com/wippyai/runtime/pull/532> synchronizes on `StatusRunning`, passed 500 race repetitions and independent review, and merged at `e21f708c`.
+- ✓ Final post-merge lint, CodeQL, Ubuntu, and Windows checks are green.
 
 ## Safety, Performance, and Complexity
 
@@ -49,5 +51,7 @@
 - Generic traceability tooling is absent, so `specs/verifications/TRACE-e01.md` records WAIVED; Gate v4 remains the task-specific executable trace for all 12 stories and 165 fingerprints.
 - Performance benchmarking was not run because `/opt/workspace/wippy/CLAUDE.md` explicitly exempts projects under this workspace from performance and memory testing. Correctness, race, and coverage gates were still run.
 - Live cloud, Kubernetes, and production infrastructure were not mutated; all integration-dependent paths remained disabled or read-only. Local Docker executed only the read-only Linux/amd64 test container.
-- The exact final Linux JSON report attests code head `0fa36ce9`; the only later source commit makes L08's absolute path platform-native, without changing test identity or production.
+- The exact final Linux JSON report attests code head `0fa36ce9`; later source commits only make L08 platform-native and synchronize the boot shutdown test's running-state precondition, without changing test identity or production.
+- Primary PR <https://github.com/wippyai/runtime/pull/531> merged at `acbb814c`; stability PR <https://github.com/wippyai/runtime/pull/532> merged at `e21f708c`.
+- Final post-merge CI: <https://github.com/wippyai/runtime/actions/runs/30413330164> and <https://github.com/wippyai/runtime/actions/runs/30413330244>.
 - Gate v4 explicitly approves the two boot/core WS06 review-fix paths, +200 inventory arithmetic, one pre-existing accepted SQS Docker skip, and the valid Windows compile-only profile.
