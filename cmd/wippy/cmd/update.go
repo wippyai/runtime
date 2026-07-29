@@ -524,7 +524,7 @@ func loadDependencyScanEntries(ctx context.Context, ldr boot.Loader, srcDir stri
 
 	if lockObj != nil {
 		replacements := effectiveReplacementModules(lockObj)
-		for _, mp := range lockObj.GetModuleLoadPaths() {
+		for _, mp := range lockObj.GetArtifactModuleLoadPaths() {
 			if mp.Module == "" || !replacements[mp.Module] {
 				continue
 			}
