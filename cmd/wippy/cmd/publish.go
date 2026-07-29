@@ -20,12 +20,14 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/boot"
+	regapi "github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/version"
 	"github.com/wippyai/runtime/boot/build"
 	"github.com/wippyai/runtime/boot/build/stages"
 	bootauth "github.com/wippyai/runtime/boot/deps/auth"
 	"github.com/wippyai/runtime/boot/deps/config"
 	"github.com/wippyai/runtime/boot/deps/hub"
+	"github.com/wippyai/runtime/boot/deps/lock"
 	appinit "github.com/wippyai/runtime/cmd/internal/app"
 	"github.com/wippyai/runtime/cmd/internal/entries"
 	"github.com/wippyai/wapp"
@@ -460,6 +462,22 @@ func packModule(ctx context.Context, app *appinit.Context, cfg *config.ModuleCon
 		return nil, NewPublishMultipleDefinitionsError(definitionCount)
 	}
 
+	provenance := frontendProvenance{}
+	for _, entry := range srcEntries {
+		if entry.Kind != regapi.NamespaceBuildDependency {
+			continue
+		}
+		lockObj, lockErr := lock.New(filepath.Join(srcDir, lock.DefaultFilename))
+		if lockErr != nil {
+			return nil, NewPublishConfigError(lockErr)
+		}
+		srcEntries, provenance, lockErr = stripBuildDependencies(ctx, app.Transcoder, srcEntries, lockObj)
+		if lockErr != nil {
+			return nil, NewPublishConfigError(lockErr)
+		}
+		break
+	}
+
 	disableOpts := stages.DisableOptions{
 		Entries:     cfg.EntryExcludes(),
 		MetaFilters: cfg.ExcludeMeta,
@@ -490,6 +508,9 @@ func packModule(ctx context.Context, app *appinit.Context, cfg *config.ModuleCon
 		"wippy_commit":  version.Commit,
 		"packed_at":     time.Now().UTC().Format(time.RFC3339),
 		"entry_count":   len(srcEntries),
+	}
+	if len(provenance.Imports) > 0 {
+		metadata["fe_provenance"] = provenance
 	}
 
 	if cfg.Description != "" {
