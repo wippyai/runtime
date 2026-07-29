@@ -23,12 +23,14 @@ type ResolvedModule struct {
 	URL       string
 	SizeBytes uint64
 	Protected bool
+	BuildOnly bool
 }
 
 type DependencySpec struct {
 	Org        string
 	Name       string
 	Constraint string
+	BuildOnly  bool
 }
 
 type ResolutionError struct {

@@ -53,7 +53,11 @@ func Resolve(ctx context.Context, provider ManifestProvider, roots []DependencyS
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		r.addConstraint(root.Org+"/"+root.Name, rootSource(i), root.Constraint)
+		source := rootSource(i)
+		r.addConstraint(root.Org+"/"+root.Name, source, root.Constraint)
+		if !root.BuildOnly {
+			r.runtimeRoots[source] = struct{}{}
+		}
 	}
 
 	if err := r.run(ctx); err != nil {
@@ -90,8 +94,9 @@ type resolver struct {
 	signature map[string]string
 	pending   map[string]ResolutionError
 
-	queue  []string
-	queued map[string]bool
+	queue        []string
+	queued       map[string]bool
+	runtimeRoots map[string]struct{}
 
 	errors     []ResolutionError
 	maxDepth   int
@@ -113,6 +118,7 @@ func newResolver(provider ManifestProvider, maxDepth, maxModules int, lockedVers
 		signature:      make(map[string]string),
 		pending:        make(map[string]ResolutionError),
 		queued:         make(map[string]bool),
+		runtimeRoots:   make(map[string]struct{}),
 	}
 }
 
@@ -535,6 +541,7 @@ func (r *resolver) conflictMessage(key string) string {
 // collectModules returns the resolved modules in a deterministic, walk-order
 // independent order.
 func (r *resolver) collectModules() []ResolvedModule {
+	runtimeModules := r.runtimeModules()
 	keys := make([]string, 0, len(r.modules))
 	for key := range r.modules {
 		keys = append(keys, key)
@@ -543,9 +550,34 @@ func (r *resolver) collectModules() []ResolvedModule {
 
 	out := make([]ResolvedModule, 0, len(keys))
 	for _, key := range keys {
-		out = append(out, r.modules[key])
+		module := r.modules[key]
+		_, runtime := runtimeModules[key]
+		module.BuildOnly = !runtime
+		out = append(out, module)
 	}
 	return out
+}
+
+func (r *resolver) runtimeModules() map[string]struct{} {
+	runtime := make(map[string]struct{}, len(r.modules))
+	queue := make([]string, 0, len(r.modules))
+	for source := range r.runtimeRoots {
+		queue = append(queue, r.edges[source]...)
+	}
+	for len(queue) > 0 {
+		key := queue[0]
+		queue = queue[1:]
+		version, selected := r.resolved[key]
+		if !selected {
+			continue
+		}
+		if _, seen := runtime[key]; seen {
+			continue
+		}
+		runtime[key] = struct{}{}
+		queue = append(queue, r.edges[moduleSource(key, version)]...)
+	}
+	return runtime
 }
 
 // collectErrors returns resolution errors deterministically: any global failure
