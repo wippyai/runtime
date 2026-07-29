@@ -434,10 +434,16 @@ func (l *Lock) getModuleLoadPaths(runtimeOnly bool) []ModuleLoadPath {
 		})
 	}
 
+	modules := make(map[string]Module, len(l.data.Modules))
+	for _, module := range l.data.Modules {
+		modules[module.Name] = module
+	}
+
 	replaced := make(map[string]struct{}, len(replacements))
 	for _, repl := range replacements {
 		replaced[repl.From] = struct{}{}
-		if runtimeOnly && l.isBuildOnlyModule(repl.From) {
+		module := modules[repl.From]
+		if runtimeOnly && module.BuildOnly {
 			continue
 		}
 		if repl.To != "" {
@@ -447,7 +453,7 @@ func (l *Lock) getModuleLoadPaths(runtimeOnly bool) []ModuleLoadPath {
 				Path:       path,
 				Module:     repl.From,
 				SourceRoot: root,
-				Root:       l.IsRootModule(repl.From),
+				Root:       module.Root,
 			})
 		}
 	}
@@ -479,11 +485,6 @@ func (l *Lock) getModuleLoadPaths(runtimeOnly bool) []ModuleLoadPath {
 	}
 
 	return paths
-}
-
-func (l *Lock) isBuildOnlyModule(name string) bool {
-	module, ok := l.GetModule(name)
-	return ok && module.BuildOnly
 }
 
 func moduleEntryLoadPath(root string) string {

@@ -146,6 +146,14 @@ func TestLoadDependencyScanEntriesIncludesWorkspaceReplacement(t *testing.T) {
 	replacementDir := filepath.Join(tmpDir, "local", "component")
 	require.NoError(t, os.MkdirAll(appDir, 0o755))
 	require.NoError(t, os.MkdirAll(replacementDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(appDir, "_index.yaml"), []byte(`version: "1.0"
+namespace: app.dependencies
+entries:
+  - name: component
+    kind: ns.build_dependency
+    component: local/component
+    version: v1.0.0
+`), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(replacementDir, "_index.yaml"), []byte(`version: "1.0"
 namespace: local.component
 entries:
@@ -253,6 +261,10 @@ entries:
     kind: ns.dependency
     component: wippy/facade
     version: ">=v0.5.39"
+  - name: local_ui
+    kind: ns.dependency
+    component: acme/ui
+    version: "v1.0.0"
 `
 	if err := os.WriteFile(filepath.Join(appDir, "_index.yaml"), []byte(appYAML), 0o644); err != nil {
 		t.Fatalf("write app index: %v", err)

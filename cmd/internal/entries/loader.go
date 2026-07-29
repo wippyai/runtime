@@ -16,6 +16,7 @@ import (
 	moduleapi "github.com/wippyai/runtime/api/modules"
 	"github.com/wippyai/runtime/api/payload"
 	regapi "github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/version"
 	bootpkg "github.com/wippyai/runtime/boot"
 	"github.com/wippyai/runtime/boot/build"
 	"github.com/wippyai/runtime/boot/build/stages"
@@ -71,6 +72,22 @@ func LoadFromLockFile(ctx context.Context, logger *zap.Logger) error {
 		return NewLoadEntriesFromPathsError(err)
 	}
 
+	var moduleCfg *depconfig.ModuleConfig
+	for _, entry := range entries {
+		if entry.Kind != regapi.NamespaceBuildDependency {
+			continue
+		}
+		moduleCfg, err = depconfig.Load(filepath.Dir(lockObj.Path()))
+		if err != nil {
+			return NewLoadEntriesFromPathsError(err)
+		}
+		break
+	}
+	entries, err = prepareRuntimeEntries(entries, moduleCfg, version.Short())
+	if err != nil {
+		return NewLoadEntriesFromPathsError(err)
+	}
+
 	logger.Info("loaded entries", zap.Int("count", len(entries)))
 
 	// Register .wapp files with embed registry for fs.embed support
@@ -84,6 +101,32 @@ func LoadFromLockFile(ctx context.Context, logger *zap.Logger) error {
 
 	logger.Info("entries loaded to registry successfully")
 	return nil
+}
+
+func prepareRuntimeEntries(entries []regapi.Entry, cfg *depconfig.ModuleConfig, currentVersion string) ([]regapi.Entry, error) {
+	buildCount := 0
+	for _, entry := range entries {
+		if entry.Kind == regapi.NamespaceBuildDependency {
+			buildCount++
+		}
+	}
+	if buildCount == 0 {
+		return entries, nil
+	}
+	if cfg == nil || strings.TrimSpace(cfg.RequiresWippy) == "" {
+		return nil, fmt.Errorf("ns.build_dependency requires requires_wippy in wippy.yaml")
+	}
+	if err := cfg.ValidateRuntimeVersion(currentVersion); err != nil {
+		return nil, err
+	}
+
+	runtimeEntries := make([]regapi.Entry, 0, len(entries)-buildCount)
+	for _, entry := range entries {
+		if entry.Kind != regapi.NamespaceBuildDependency {
+			runtimeEntries = append(runtimeEntries, entry)
+		}
+	}
+	return runtimeEntries, nil
 }
 
 // EnsureModulesInstalled checks if modules from the lock file are installed,

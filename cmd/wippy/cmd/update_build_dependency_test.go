@@ -15,14 +15,14 @@ import (
 )
 
 func TestValidateBuildDependencyRuntimeRequiresCompatibleDeclaration(t *testing.T) {
-	dependencies := []dependencyRequest{{Org: "acme", Module: "frontend", BuildOnly: true}}
+	entries := []regapi.Entry{{Kind: regapi.NamespaceBuildDependency}}
 	require.EqualError(t,
-		validateBuildDependencyRuntime(&depconfig.ModuleConfig{}, dependencies, "1.2.0"),
+		validateBuildDependencyRuntime(&depconfig.ModuleConfig{}, entries, "1.2.0"),
 		"ns.build_dependency requires requires_wippy in wippy.yaml",
 	)
-	require.NoError(t, validateBuildDependencyRuntime(&depconfig.ModuleConfig{RequiresWippy: ">=1.2.0"}, dependencies, "1.2.0"))
+	require.NoError(t, validateBuildDependencyRuntime(&depconfig.ModuleConfig{RequiresWippy: ">=1.2.0"}, entries, "1.2.0"))
 	require.EqualError(t,
-		validateBuildDependencyRuntime(&depconfig.ModuleConfig{RequiresWippy: ">=1.3.0"}, dependencies, "1.2.0"),
+		validateBuildDependencyRuntime(&depconfig.ModuleConfig{RequiresWippy: ">=1.3.0"}, entries, "1.2.0"),
 		"wippy 1.2.0 does not satisfy requires_wippy >=1.3.0",
 	)
 }

@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/boot"
 	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/payload"
@@ -148,25 +149,21 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 		return NewLoadEntriesFromSourceError(err)
 	}
 
-	// Extract root dependencies from entries
-	rootDeps, err := extractRootDependencies(entries, app.Transcoder)
+	replacedModules := effectiveReplacementModules(oldLockObj)
+	rootDeps, err := extractRootDependencies(entries, app.Transcoder, replacedModules)
 	if err != nil {
 		return NewLoadEntriesFromSourceError(err)
 	}
-	if containsBuildDependency(rootDeps) {
+	if containsBuildDependency(entries) {
 		moduleCfg, loadErr := depconfig.Load(projectDir)
 		if loadErr != nil {
 			return NewLoadEntriesFromSourceError(loadErr)
 		}
-		if validateErr := validateBuildDependencyRuntime(moduleCfg, rootDeps, version.Short()); validateErr != nil {
+		if validateErr := validateBuildDependencyRuntime(moduleCfg, entries, version.Short()); validateErr != nil {
 			return NewLoadEntriesFromSourceError(validateErr)
 		}
 	}
 	logger.Info("found root dependencies", zap.Int("count", len(rootDeps)))
-
-	// Local replacements participate in the active graph but are never resolved
-	// from the Hub.
-	replacedModules := effectiveReplacementModules(oldLockObj)
 
 	resolvedModules := make([]hub.ResolvedModule, 0)
 	if len(rootDeps) == 0 {
@@ -175,11 +172,6 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 		// Convert to hub dependency specs, skipping replaced modules
 		hubDeps := make([]hub.DependencySpec, 0, len(rootDeps))
 		for _, dep := range rootDeps {
-			depName := dep.Org + "/" + dep.Module
-			if replacedModules[depName] && !dep.BuildOnly {
-				logger.Info("skipping replaced module from hub resolution", zap.String("module", depName))
-				continue
-			}
 			hubDeps = append(hubDeps, hub.DependencySpec{
 				Org:        dep.Org,
 				Name:       dep.Module,
@@ -215,6 +207,9 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	// Preserve all replacements from old lock file
 	if oldLockObj != nil {
 		preserveReplacements(newLockObj, oldLockObj.GetTrackedReplacements())
+	}
+	if err := lock.Validate(newLockObj); err != nil {
+		return NewInvalidLockFileError(fmt.Errorf("generated lock file %s: %w", newLockObj.Path(), err))
 	}
 
 	// Save lock file
@@ -253,17 +248,17 @@ type dependencyRequest struct {
 	BuildOnly  bool
 }
 
-func containsBuildDependency(dependencies []dependencyRequest) bool {
-	for _, dependency := range dependencies {
-		if dependency.BuildOnly {
+func containsBuildDependency(entries []regapi.Entry) bool {
+	for _, entry := range entries {
+		if entry.Kind == regapi.NamespaceBuildDependency {
 			return true
 		}
 	}
 	return false
 }
 
-func validateBuildDependencyRuntime(cfg *depconfig.ModuleConfig, dependencies []dependencyRequest, current string) error {
-	if !containsBuildDependency(dependencies) {
+func validateBuildDependencyRuntime(cfg *depconfig.ModuleConfig, entries []regapi.Entry, current string) error {
+	if !containsBuildDependency(entries) {
 		return nil
 	}
 	if cfg == nil || strings.TrimSpace(cfg.RequiresWippy) == "" {
@@ -272,54 +267,102 @@ func validateBuildDependencyRuntime(cfg *depconfig.ModuleConfig, dependencies []
 	return cfg.ValidateRuntimeVersion(current)
 }
 
-func extractRootDependencies(entries []regapi.Entry, dtt payload.Transcoder) ([]dependencyRequest, error) {
-	deps := make([]dependencyRequest, 0, len(entries))
+type dependencyDeclaration struct {
+	dependencyRequest
+	owner string
+}
+
+func extractRootDependencies(entries []regapi.Entry, dtt payload.Transcoder, replacedModules map[string]bool) ([]dependencyRequest, error) {
+	declarations, err := decodeDependencyDeclarations(entries, dtt)
+	if err != nil {
+		return nil, err
+	}
+
+	byOwner := make(map[string][]dependencyRequest)
+	for _, declaration := range declarations {
+		byOwner[declaration.owner] = append(byOwner[declaration.owner], declaration.dependencyRequest)
+	}
+
+	type reachability struct {
+		module    string
+		buildOnly bool
+	}
+	queue := []reachability{{}}
+	replacementRoles := make(map[string]bool)
+	dependencies := make([]dependencyRequest, 0, len(declarations))
 	seen := make(map[string]int)
 
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+		for _, dependency := range byOwner[current.module] {
+			dependency.BuildOnly = current.buildOnly || dependency.BuildOnly
+			component := dependency.Org + "/" + dependency.Module
+			if replacedModules[component] {
+				previous, visited := replacementRoles[component]
+				if !visited || previous && !dependency.BuildOnly {
+					replacementRoles[component] = dependency.BuildOnly
+					queue = append(queue, reachability{module: component, buildOnly: dependency.BuildOnly})
+				}
+				continue
+			}
+
+			key := component + "@" + dependency.Constraint
+			if index, ok := seen[key]; ok {
+				dependencies[index].BuildOnly = dependencies[index].BuildOnly && dependency.BuildOnly
+				continue
+			}
+			seen[key] = len(dependencies)
+			dependencies = append(dependencies, dependency)
+		}
+	}
+
+	return dependencies, nil
+}
+
+func decodeDependencyDeclarations(entries []regapi.Entry, dtt payload.Transcoder) ([]dependencyDeclaration, error) {
+	declarations := make([]dependencyDeclaration, 0, len(entries))
 	for _, entry := range entries {
 		if entry.Kind != regapi.NamespaceDependency && entry.Kind != regapi.NamespaceBuildDependency {
 			continue
 		}
 
-		var depData struct {
+		var data struct {
 			Component  string `json:"component"`
 			Version    string `json:"version"`
 			Parameters []any  `json:"parameters"`
 		}
-
-		if err := dtt.Unmarshal(entry.Data, &depData); err != nil {
+		if err := dtt.Unmarshal(entry.Data, &data); err != nil {
 			return nil, fmt.Errorf("decode dependency %s: %w", entry.ID.String(), err)
 		}
 
 		buildOnly := entry.Kind == regapi.NamespaceBuildDependency
-		if buildOnly && len(depData.Parameters) > 0 {
+		if buildOnly && len(data.Parameters) > 0 {
 			return nil, fmt.Errorf("build dependency %s cannot declare parameters", entry.ID.String())
 		}
-		if depData.Component == "" {
+		parts := strings.SplitN(data.Component, "/", 2)
+		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+			if buildOnly {
+				return nil, fmt.Errorf("build dependency %s has invalid component %s", entry.ID.String(), data.Component)
+			}
 			continue
 		}
 
-		parts := strings.SplitN(depData.Component, "/", 2)
-		if len(parts) != 2 {
-			continue
+		owner := ""
+		if entry.Meta != nil {
+			owner = entry.Meta.GetString("module", "")
 		}
-
-		key := depData.Component + "@" + depData.Version
-		if index, ok := seen[key]; ok {
-			deps[index].BuildOnly = deps[index].BuildOnly && buildOnly
-			continue
-		}
-		seen[key] = len(deps)
-
-		deps = append(deps, dependencyRequest{
-			Org:        parts[0],
-			Module:     parts[1],
-			Constraint: depData.Version,
-			BuildOnly:  buildOnly,
+		declarations = append(declarations, dependencyDeclaration{
+			dependencyRequest: dependencyRequest{
+				Org:        parts[0],
+				Module:     parts[1],
+				Constraint: data.Version,
+				BuildOnly:  buildOnly,
+			},
+			owner: owner,
 		})
 	}
-
-	return deps, nil
+	return declarations, nil
 }
 
 func convertResolvedToLock(lockFilePath string, modules []hub.ResolvedModule, modulesDir, srcDir string) (*lock.Lock, error) {
@@ -386,76 +429,41 @@ func runTargetedUpdate(cmd *cobra.Command, lockFilePath, srcDir, modulesDir stri
 		return NewLoadEntriesFromSourceError(err)
 	}
 
-	// Extract source constraints
-	rootDeps, err := extractRootDependencies(entries, app.Transcoder)
+	rootDeps, err := extractRootDependencies(entries, app.Transcoder, replacedModules)
 	if err != nil {
 		return NewLoadEntriesFromSourceError(err)
 	}
-	if containsBuildDependency(rootDeps) {
+	if containsBuildDependency(entries) {
 		moduleCfg, loadErr := depconfig.Load(filepath.Dir(lockObj.Path()))
 		if loadErr != nil {
 			return NewLoadEntriesFromSourceError(loadErr)
 		}
-		if validateErr := validateBuildDependencyRuntime(moduleCfg, rootDeps, version.Short()); validateErr != nil {
+		if validateErr := validateBuildDependencyRuntime(moduleCfg, entries, version.Short()); validateErr != nil {
 			return NewLoadEntriesFromSourceError(validateErr)
 		}
 	}
-	sourceConstraints := make(map[string]dependencyRequest)
-	for _, dep := range rootDeps {
-		key := fmt.Sprintf("%s/%s", dep.Org, dep.Module)
-		sourceConstraints[key] = dep
-	}
 
-	// Build frozen constraints from lock file (all modules except targets and replaced)
-	targetSet := make(map[string]bool)
+	targetSet := make(map[string]bool, len(effectiveTargets))
 	for _, name := range effectiveTargets {
+		parts := strings.SplitN(name, "/", 2)
+		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+			return NewParseModuleNameError(name, fmt.Errorf("invalid format, expected org/module"))
+		}
 		targetSet[name] = true
 	}
 
-	modules := lockObj.GetModules()
-	hubDeps := make([]hub.DependencySpec, 0, len(modules)+len(targetModules))
-
-	for _, mod := range modules {
-		parts := strings.SplitN(mod.Name, "/", 2)
-		if len(parts) != 2 {
-			continue
-		}
-
-		if targetSet[mod.Name] || replacedModules[mod.Name] {
-			continue
-		}
-
+	hubDeps := make([]hub.DependencySpec, 0, len(rootDeps))
+	for _, dependency := range rootDeps {
 		hubDeps = append(hubDeps, hub.DependencySpec{
-			Org:        parts[0],
-			Name:       parts[1],
-			Constraint: "=" + mod.Version,
-			BuildOnly:  mod.BuildOnly,
-		})
-	}
-
-	// Add target modules with source constraints
-	for _, moduleName := range effectiveTargets {
-		dependency, ok := sourceConstraints[moduleName]
-		if !ok {
-			logger.Warn("module not found in source dependencies", zap.String("module", moduleName))
-			continue
-		}
-
-		parts := strings.SplitN(moduleName, "/", 2)
-		if len(parts) != 2 {
-			return NewParseModuleNameError(moduleName, fmt.Errorf("invalid format, expected org/module"))
-		}
-
-		hubDeps = append(hubDeps, hub.DependencySpec{
-			Org:        parts[0],
-			Name:       parts[1],
+			Org:        dependency.Org,
+			Name:       dependency.Module,
 			Constraint: dependency.Constraint,
 			BuildOnly:  dependency.BuildOnly,
 		})
 	}
 
 	logger.Info("resolving with frozen dependencies")
-	result, err := hub.Resolve(app.Ctx, hubClient, hubDeps, nil)
+	result, err := hub.Resolve(app.Ctx, hubClient, hubDeps, targetedResolveOptions(lockObj, targetSet, replacedModules))
 	if err != nil {
 		return NewBuildDependencyGraphError(err)
 	}
@@ -476,6 +484,9 @@ func runTargetedUpdate(cmd *cobra.Command, lockFilePath, srcDir, modulesDir stri
 
 	// Preserve all replacements from current lock file
 	preserveReplacements(newLockObj, lockObj.GetTrackedReplacements())
+	if err := lock.Validate(newLockObj); err != nil {
+		return NewInvalidLockFileError(fmt.Errorf("generated lock file %s: %w", newLockObj.Path(), err))
+	}
 
 	// Detect changes
 	changes := lock.Diff(oldLockObj, newLockObj)
@@ -553,9 +564,10 @@ func loadDependencyScanEntries(ctx context.Context, ldr boot.Loader, srcDir stri
 		moduleRoot = filepath.Dir(lockObj.Path())
 	}
 	paths := []struct {
-		label string
-		path  string
-		root  string
+		label  string
+		path   string
+		root   string
+		module string
 	}{
 		{label: "source", path: srcDir, root: moduleRoot},
 	}
@@ -571,13 +583,15 @@ func loadDependencyScanEntries(ctx context.Context, ldr boot.Loader, srcDir stri
 				replacementRoot = mp.Path
 			}
 			paths = append(paths, struct {
-				label string
-				path  string
-				root  string
+				label  string
+				path   string
+				root   string
+				module string
 			}{
-				label: "replacement " + mp.Module,
-				path:  mp.Path,
-				root:  replacementRoot,
+				label:  "replacement " + mp.Module,
+				path:   mp.Path,
+				root:   replacementRoot,
+				module: mp.Module,
 			})
 		}
 	}
@@ -604,6 +618,16 @@ func loadDependencyScanEntries(ctx context.Context, ldr boot.Loader, srcDir stri
 		if err != nil {
 			return nil, fmt.Errorf("%s path %s: %w", scanPath.label, absPath, err)
 		}
+		if scanPath.module != "" {
+			for i := range loaded {
+				meta := attrs.NewBag()
+				if loaded[i].Meta != nil {
+					meta = attrs.NewBagFrom(loaded[i].Meta)
+				}
+				meta.Set("module", scanPath.module)
+				loaded[i].Meta = meta
+			}
+		}
 		entries = append(entries, loaded...)
 	}
 
@@ -619,6 +643,21 @@ func effectiveReplacementModules(lockObj *lock.Lock) map[string]bool {
 		modules[replacement.From] = true
 	}
 	return modules
+}
+
+func targetedResolveOptions(lockObj *lock.Lock, targets, replacements map[string]bool) *hub.ResolveOptions {
+	versions := make(map[string]string)
+	digests := make(map[string]string)
+	for _, module := range lockObj.GetModules() {
+		if targets[module.Name] || replacements[module.Name] {
+			continue
+		}
+		versions[module.Name] = module.Version
+		if module.Hash != "" {
+			digests[module.Name] = module.Hash
+		}
+	}
+	return &hub.ResolveOptions{LockedVersions: versions, LockedDigests: digests}
 }
 
 func logChanges(logger *zap.Logger, changes *lock.Changes) {
@@ -669,6 +708,9 @@ func pruneStaleVendorArtifacts(lockObj *lock.Lock, changes *lock.Changes, logger
 		pruneModuleArtifacts(vendorDir, removed.Name, removed.Version, true, logger)
 	}
 	for _, updated := range changes.Updated {
+		if updated.OldVersion == updated.NewVersion && updated.OldHash == updated.NewHash {
+			continue
+		}
 		pruneModuleArtifacts(vendorDir, updated.Name, updated.OldVersion, true, logger)
 	}
 }

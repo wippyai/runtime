@@ -9,6 +9,7 @@ import (
 
 	"github.com/wippyai/runtime/api/payload"
 	regapi "github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/semver"
 	"github.com/wippyai/runtime/boot/deps/lock"
 )
 
@@ -42,6 +43,7 @@ func stripBuildDependencies(
 		}
 		var definition struct {
 			Component  string `json:"component"`
+			Version    string `json:"version"`
 			Parameters []any  `json:"parameters"`
 		}
 		if err := transcoder.Unmarshal(entry.Data, &definition); err != nil {
@@ -56,6 +58,14 @@ func stripBuildDependencies(
 		module, ok := lockObj.GetModule(definition.Component)
 		if !ok || module.Version == "" || module.Hash == "" {
 			return nil, frontendProvenance{}, fmt.Errorf("build dependency %s is not pinned with a digest", definition.Component)
+		}
+		constraint, err := semver.ParseConstraint(definition.Version)
+		if err != nil {
+			return nil, frontendProvenance{}, fmt.Errorf("build dependency %s has invalid version %s: %w", entry.ID.String(), definition.Version, err)
+		}
+		lockedVersion, err := semver.ParseVersion(module.Version)
+		if err != nil || !constraint.Match(lockedVersion) {
+			return nil, frontendProvenance{}, fmt.Errorf("build dependency %s requires %s@%s but lock selects %s", entry.ID.String(), definition.Component, definition.Version, module.Version)
 		}
 		provenance.Imports = append(provenance.Imports, frontendImportProvenance{
 			Entry:   entry.ID.String(),
