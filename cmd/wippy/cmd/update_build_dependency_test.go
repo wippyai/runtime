@@ -9,8 +9,22 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/payload"
 	regapi "github.com/wippyai/runtime/api/registry"
+	depconfig "github.com/wippyai/runtime/boot/deps/config"
 	"github.com/wippyai/runtime/boot/deps/hub"
 )
+
+func TestValidateBuildDependencyRuntimeRequiresCompatibleDeclaration(t *testing.T) {
+	dependencies := []dependencyRequest{{Org: "acme", Module: "frontend", BuildOnly: true}}
+	require.EqualError(t,
+		validateBuildDependencyRuntime(&depconfig.ModuleConfig{}, dependencies, "1.2.0"),
+		"ns.build_dependency requires requires_wippy in wippy.yaml",
+	)
+	require.NoError(t, validateBuildDependencyRuntime(&depconfig.ModuleConfig{RequiresWippy: ">=1.2.0"}, dependencies, "1.2.0"))
+	require.EqualError(t,
+		validateBuildDependencyRuntime(&depconfig.ModuleConfig{RequiresWippy: ">=1.3.0"}, dependencies, "1.2.0"),
+		"wippy 1.2.0 does not satisfy requires_wippy >=1.3.0",
+	)
+}
 
 func TestConvertResolvedToLockPreservesBuildOnlyRole(t *testing.T) {
 	lockObj, err := convertResolvedToLock(filepath.Join(t.TempDir(), "wippy.lock"), []hub.ResolvedModule{
