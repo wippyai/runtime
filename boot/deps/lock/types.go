@@ -46,9 +46,11 @@ type Changes struct {
 
 // ModuleChange represents a module that changed between lock files.
 type ModuleChange struct {
-	Name       string // Module name
-	OldVersion string // Previous version
-	NewVersion string // New version
-	OldHash    string // Previous hash
-	NewHash    string // New hash
+	Name         string // Module name
+	OldVersion   string // Previous version
+	NewVersion   string // New version
+	OldHash      string // Previous hash
+	NewHash      string // New hash
+	OldBuildOnly bool
+	NewBuildOnly bool
 }

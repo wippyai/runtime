@@ -633,7 +633,8 @@ func logChanges(logger *zap.Logger, changes *lock.Changes) {
 		}
 		for _, mod := range changes.Updated {
 			logger.Info("~ updating", zap.String("module", mod.Name),
-				zap.String("old", mod.OldVersion), zap.String("new", mod.NewVersion))
+				zap.String("old", mod.OldVersion), zap.String("new", mod.NewVersion),
+				zap.Bool("old_build_only", mod.OldBuildOnly), zap.Bool("new_build_only", mod.NewBuildOnly))
 		}
 		for _, mod := range changes.Removed {
 			logger.Info("- removing", zap.String("module", mod.Name), zap.String("version", mod.Version))
