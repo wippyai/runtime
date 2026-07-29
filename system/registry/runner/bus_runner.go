@@ -137,6 +137,10 @@ func (br *BusRunner) Transition(
 			newState, opErr := br.applyOperation(ctx, currentState, op)
 			if opErr == nil {
 				currentState = newState
+				if ctxErr := ctx.Err(); ctxErr != nil {
+					rolled := br.cancelTransition(ctx, txParticipants, txPath, originalState, currentState, ctxErr)
+					return stateMapToSlice(rolled), ctxErr
+				}
 				progressed = true
 				if !deferredFirstP {
 					retriedCount++
@@ -148,7 +152,8 @@ func (br *BusRunner) Transition(
 				continue
 			}
 			if ctx.Err() != nil {
-				return nil, opErr
+				rolled := br.cancelTransition(ctx, txParticipants, txPath, originalState, currentState, opErr)
+				return stateMapToSlice(rolled), opErr
 			}
 			if isDeferrable(opErr) {
 				lastDeferErr = opErr
@@ -203,8 +208,16 @@ func (br *BusRunner) Transition(
 		remaining = deferred
 	}
 
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		rolled := br.cancelTransition(ctx, txParticipants, txPath, originalState, currentState, ctxErr)
+		return stateMapToSlice(rolled), ctxErr
+	}
 	if err := br.dispatchTransaction(ctx, txParticipants, registry.TxCommit, txPath, nil); err != nil {
 		br.log.Error("transaction commit failed, initiating rollback", zap.Error(err))
+		if ctx.Err() != nil {
+			newState := br.cancelTransition(ctx, txParticipants, txPath, originalState, currentState, err)
+			return stateMapToSlice(newState), err
+		}
 		newState := br.rollback(ctx, originalState, currentState)
 		if discardErr := br.dispatchTransaction(ctx, txParticipants, registry.TxDiscard, txPath, err); discardErr != nil {
 			br.log.Error("failed to discard transaction after commit failure", zap.Error(discardErr))
@@ -213,6 +226,23 @@ func (br *BusRunner) Transition(
 	}
 
 	return stateMapToSlice(currentState), nil
+}
+
+func (br *BusRunner) cancelTransition(
+	ctx context.Context,
+	participants []string,
+	txPath event.Path,
+	originalState, currentState registry.StateMap,
+	cause error,
+) registry.StateMap {
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), br.waitTimeout)
+	defer cancel()
+
+	rolled := br.rollback(cleanupCtx, originalState, currentState)
+	if err := br.dispatchTransaction(cleanupCtx, participants, registry.TxDiscard, txPath, cause); err != nil {
+		br.log.Error("failed to discard canceled transaction", zap.Error(err))
+	}
+	return rolled
 }
 
 // isDeferrable reports whether a failed operation can be retried after the

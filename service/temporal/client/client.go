@@ -23,13 +23,15 @@ var _ supervisor.Service = (*Client)(nil)
 
 // Client wraps a Temporal SDK client with lifecycle management
 type Client struct {
-	client client.Client
-	log    *zap.Logger
-	config *api.ClientConfig
-	cancel context.CancelFunc
-	id     registry.ID
-	wg     sync.WaitGroup
-	closed atomic.Bool
+	client      client.Client
+	log         *zap.Logger
+	config      *api.ClientConfig
+	cancel      context.CancelFunc
+	id          registry.ID
+	lifecycleMu sync.Mutex
+	healthWG    sync.WaitGroup
+	borrowWG    sync.WaitGroup
+	closed      atomic.Bool
 }
 
 // NewClient creates a new wrapped Temporal client
@@ -62,10 +64,16 @@ func (c *Client) Start(ctx context.Context) (<-chan any, error) {
 	// Start health check goroutine if enabled
 	if c.config.HealthCheck.Enabled {
 		healthCtx, cancel := context.WithCancel(context.Background())
+		c.lifecycleMu.Lock()
+		if c.closed.Load() {
+			c.lifecycleMu.Unlock()
+			cancel()
+			return nil, fmt.Errorf("client is closed")
+		}
 		c.cancel = cancel
-		c.wg.Add(1)
-
+		c.healthWG.Add(1)
 		go c.healthCheckLoop(healthCtx, statusCh)
+		c.lifecycleMu.Unlock()
 	}
 
 	return statusCh, nil
@@ -73,21 +81,26 @@ func (c *Client) Start(ctx context.Context) (<-chan any, error) {
 
 // Stop gracefully shuts down the client
 func (c *Client) Stop(ctx context.Context) error {
+	c.lifecycleMu.Lock()
 	if !c.closed.CompareAndSwap(false, true) {
+		c.lifecycleMu.Unlock()
 		return nil // Already stopped
 	}
+	cancel := c.cancel
+	c.lifecycleMu.Unlock()
 
 	c.log.Info("stopping temporal client", zap.String("id", c.id.String()))
 
 	// Cancel health check goroutine
-	if c.cancel != nil {
-		c.cancel()
+	if cancel != nil {
+		cancel()
 	}
 
-	// Wait for health check goroutine to finish (with timeout from context)
+	// Wait for health checks and accepted borrows to finish (with timeout from context).
 	done := make(chan struct{})
 	go func() {
-		c.wg.Wait()
+		c.healthWG.Wait()
+		c.borrowWG.Wait()
 		close(done)
 	}()
 
@@ -107,21 +120,23 @@ func (c *Client) Stop(ctx context.Context) error {
 
 // Acquire returns a resource handle for this client
 func (c *Client) Acquire(_ context.Context, _ registry.ID, _ resource.AccessMode) (resource.Resource[any], error) {
+	c.lifecycleMu.Lock()
+	defer c.lifecycleMu.Unlock()
 	if c.closed.Load() {
 		return nil, fmt.Errorf("client is closed")
 	}
 
-	c.wg.Add(1)
+	c.borrowWG.Add(1)
 	return &clientResourceImpl{
 		client: c.client,
 		prefix: c.config.TQPrefix,
-		wg:     &c.wg,
+		wg:     &c.borrowWG,
 	}, nil
 }
 
 // healthCheckLoop periodically checks the Temporal connection health
 func (c *Client) healthCheckLoop(ctx context.Context, statusCh chan<- any) {
-	defer c.wg.Done()
+	defer c.healthWG.Done()
 
 	ticker := time.NewTicker(c.config.HealthCheck.Interval)
 	defer ticker.Stop()

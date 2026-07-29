@@ -25,7 +25,7 @@ func Perform(ctx context.Context, loader *bootloader.Loader, logger *zap.Logger,
 	}
 
 	// Create shutdown context with timeout
-	shutdownCtx, cancel := context.WithTimeout(ctx, timeout)
+	shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), timeout)
 	defer cancel()
 
 	if !silent {

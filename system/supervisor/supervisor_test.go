@@ -512,14 +512,19 @@ func TestSupervisor_StopCancelsFailedAutoStartRetryTransition(t *testing.T) {
 
 	var attempts atomic.Int32
 	attemptCh := make(chan struct{}, 10)
+	stopDeadline := make(chan time.Time, 1)
 	svc := &mockService{
 		startFunc: func(_ context.Context) (<-chan any, error) {
 			attempts.Add(1)
 			attemptCh <- struct{}{}
 			return nil, errors.New("bind failed")
 		},
-		stopFunc: func(_ context.Context) error {
-			return nil
+		stopFunc: func(ctx context.Context) error {
+			deadline, ok := ctx.Deadline()
+			require.True(t, ok)
+			stopDeadline <- deadline
+			<-ctx.Done()
+			return ctx.Err()
 		},
 	}
 
@@ -533,11 +538,12 @@ func TestSupervisor_StopCancelsFailedAutoStartRetryTransition(t *testing.T) {
 			Config: supervisor.LifecycleConfig{
 				AutoStart:    true,
 				StartTimeout: 200 * time.Millisecond,
-				StopTimeout:  200 * time.Millisecond,
+				StopTimeout:  500 * time.Millisecond,
 				RetryPolicy: supervisor.RetryPolicy{
 					MaxAttempts:  0,
-					InitialDelay: 75 * time.Millisecond,
-					MaxDelay:     75 * time.Millisecond,
+					InitialDelay: 100 * time.Millisecond,
+					MaxDelay:     100 * time.Millisecond,
+					Jitter:       -1, // Zero is defaulted to 0.1; negative disables jitter.
 				},
 			},
 		},
@@ -549,20 +555,35 @@ func TestSupervisor_StopCancelsFailedAutoStartRetryTransition(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("service never attempted to start")
 	}
+	require.Eventually(t, func() bool {
+		state, stateErr := h.sup.GetState("retrying-service")
+		return stateErr == nil && state.Status == supervisor.StatusFailed && state.Desired == supervisor.StatusRunning
+	}, time.Second, time.Millisecond)
 
+	shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancelShutdown()
+	shutdownDeadline, _ := shutdownCtx.Deadline()
+	shutdownStarted := time.Now()
 	done := make(chan error, 1)
 	go func() {
-		done <- h.sup.Stop()
+		done <- h.sup.StopContext(shutdownCtx)
 	}()
 
 	select {
 	case err := <-done:
-		require.NoError(t, err)
+		require.ErrorIs(t, err, context.DeadlineExceeded)
 	case <-time.After(time.Second):
 		t.Fatal("supervisor stop remained blocked behind retrying start transition")
 	}
+	require.Less(t, time.Since(shutdownStarted), 250*time.Millisecond)
+	gotStopDeadline := <-stopDeadline
+	require.WithinDuration(t, shutdownDeadline, gotStopDeadline, time.Millisecond)
 
-	time.Sleep(200 * time.Millisecond)
+	select {
+	case <-attemptCh:
+		t.Fatal("service retried after supervisor stop")
+	case <-time.After(250 * time.Millisecond):
+	}
 	require.Equal(t, int32(1), attempts.Load(), "service retried after supervisor stop")
 }
 

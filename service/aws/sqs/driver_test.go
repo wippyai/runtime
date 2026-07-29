@@ -34,7 +34,7 @@ func TestMain(m *testing.M) {
 	flag.Parse()
 	if testing.Short() {
 		fmt.Println("skipping SQS integration tests in short mode")
-		os.Exit(0)
+		os.Exit(m.Run())
 	}
 
 	if os.Getenv("SQS_ENDPOINT") != "" {

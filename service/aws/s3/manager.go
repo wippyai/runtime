@@ -188,6 +188,7 @@ func (m *Manager) set(ctx context.Context, entry registry.Entry) (attrs.Bag, err
 	if err != nil {
 		return nil, NewAcquireResourceError(err)
 	}
+	defer rsc.Release()
 
 	gotConfig, err := rsc.Get()
 	if err != nil {

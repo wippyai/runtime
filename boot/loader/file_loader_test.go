@@ -3,6 +3,9 @@
 package loader
 
 import (
+	"errors"
+	"io/fs"
+	"strings"
 	"testing"
 	"testing/fstest"
 
@@ -11,6 +14,87 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	"go.uber.org/zap"
 )
+
+type faultFS struct {
+	fs.FS
+	openErr  error
+	readErr  error
+	openPath string
+	readPath string
+}
+
+func (f faultFS) Open(name string) (fs.File, error) {
+	if name == f.openPath {
+		return nil, f.openErr
+	}
+	file, err := f.FS.Open(name)
+	if err != nil {
+		return nil, err
+	}
+	if name == f.readPath {
+		return &faultReadFile{File: file, err: f.readErr}, nil
+	}
+	return file, nil
+}
+
+type faultReadFile struct {
+	fs.File
+	err error
+}
+
+func (f *faultReadFile) Read([]byte) (int, error) { return 0, f.err }
+
+func TestB01LoadFSOpenFailureIsAtomic(t *testing.T) {
+	cause := errors.New("injected open failure")
+	fSys := faultFS{FS: fstest.MapFS{
+		"a.json": &fstest.MapFile{Data: []byte(`{"ok":true}`)},
+		"z.yaml": &fstest.MapFile{Data: []byte("ok: true")},
+	}, openPath: "z.yaml", openErr: cause}
+
+	got, err := NewFileLoader(zap.NewNop()).LoadFS(fSys)
+	require.Error(t, err)
+	require.Nil(t, got)
+	require.True(t, errors.Is(err, cause), "error must preserve cause: %v", err)
+	require.True(t, strings.Contains(err.Error(), "z.yaml"), "error must identify path: %v", err)
+}
+
+func TestB02LoadFSReadFailureIsAtomic(t *testing.T) {
+	cause := errors.New("injected read failure")
+	fSys := faultFS{FS: fstest.MapFS{
+		"a.json": &fstest.MapFile{Data: []byte(`{"ok":true}`)},
+		"z.yaml": &fstest.MapFile{Data: []byte("ok: true")},
+	}, readPath: "z.yaml", readErr: cause}
+
+	got, err := NewFileLoader(zap.NewNop()).LoadFS(fSys)
+	require.Error(t, err)
+	require.Nil(t, got)
+	require.True(t, errors.Is(err, cause), "error must preserve cause: %v", err)
+	require.Contains(t, err.Error(), "z.yaml")
+}
+
+func TestB03LoadDirUnreadableSupportedFile(t *testing.T) {
+	cause := errors.New("unreadable manifest")
+	fSys := faultFS{FS: fstest.MapFS{
+		"dir/a.json": &fstest.MapFile{Data: []byte(`{"ok":true}`)},
+		"dir/z.yml":  &fstest.MapFile{Data: []byte("ok: true")},
+	}, readPath: "dir/z.yml", readErr: cause}
+
+	got, err := NewFileLoader(zap.NewNop()).LoadDir(fSys, "dir")
+	require.Error(t, err)
+	require.Nil(t, got)
+	require.True(t, errors.Is(err, cause), "error must preserve cause: %v", err)
+	require.Contains(t, err.Error(), "dir/z.yml")
+}
+
+func TestB04NilLoggerLoaderFailure(t *testing.T) {
+	cause := errors.New("injected open failure")
+	fSys := faultFS{FS: fstest.MapFS{"bad.json": &fstest.MapFile{}}, openPath: "bad.json", openErr: cause}
+
+	got, err := NewFileLoader(nil).LoadFS(fSys)
+	require.Error(t, err)
+	require.Nil(t, got)
+	require.True(t, errors.Is(err, cause))
+}
 
 func TestFileLoader_SkipTemporalDirs(t *testing.T) {
 	t.Setenv("SKIP_TEMPORAL_TESTS", "1")

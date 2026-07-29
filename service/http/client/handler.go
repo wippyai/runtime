@@ -294,10 +294,8 @@ func executeRequest(ctx context.Context, pool *Pool, networkReg netapi.NetworkRe
 
 	resp, err := client.Do(httpReq)
 	if err != nil {
-		// Per Go docs, resp may be non-nil even on error and body needs closing
-		if resp != nil && resp.Body != nil {
-			_ = resp.Body.Close()
-		}
+		// A non-nil response is only returned for CheckRedirect failures, and
+		// net/http has already closed its body before returning it.
 		return httpapi.Response{Error: err.Error()}
 	}
 

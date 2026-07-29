@@ -219,6 +219,12 @@ func (s *Store) Set(ctx context.Context, entry store.Entry) error {
 
 	var exists bool
 	err = h.db.QueryRowContext(ctx, existsSQL, existsArgs...).Scan(&exists)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		s.log.Error("failed to probe entry existence",
+			zap.String("error", err.Error()),
+			zap.String("key", entry.Key.String()))
+		return err
+	}
 
 	var querySQL string
 	var args []any

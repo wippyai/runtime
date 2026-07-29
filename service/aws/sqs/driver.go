@@ -766,12 +766,14 @@ func (d *Driver) Stop(_ context.Context) error {
 
 	if d.cancel != nil {
 		d.cancel()
+		d.cancel = nil
 	}
 
 	d.queues = make(map[registry.ID]*declaredQueue)
 
 	if d.statusChan != nil {
 		close(d.statusChan)
+		d.statusChan = nil
 	}
 
 	d.logger.Info("sqs driver stopped", zap.String("id", d.id.String()))

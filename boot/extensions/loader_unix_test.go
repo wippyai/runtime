@@ -5,11 +5,31 @@
 package extensions
 
 import (
+	"context"
 	"testing"
 
 	"github.com/wippyai/runtime/api/boot"
 	extensionapi "github.com/wippyai/runtime/api/extension"
 )
+
+func TestB05ExtensionValidationPrecedesInit(t *testing.T) {
+	initCalls := 0
+	manifest := &extensionapi.Manifest{
+		Components: []boot.Component{boot.New(boot.P{Name: "reserved"})},
+		Init: func(ctx context.Context) (context.Context, error) {
+			initCalls++
+			return ctx, nil
+		},
+	}
+
+	_, err := validateAndInitManifest(context.Background(), manifest, "extension.so", map[string]struct{}{}, map[string]struct{}{"reserved": {}})
+	if err == nil {
+		t.Fatal("expected reserved component validation error")
+	}
+	if initCalls != 0 {
+		t.Fatalf("Init called %d times before validation, want 0", initCalls)
+	}
+}
 
 func TestParsePaths_Normalize(t *testing.T) {
 	cfg := boot.NewConfig(boot.WithSection("extensions", map[string]any{
