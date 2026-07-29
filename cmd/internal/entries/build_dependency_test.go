@@ -35,6 +35,12 @@ func TestExtractInstalledBuildModulePreservesVerifiedArtifact(t *testing.T) {
 	valid, err := hub.VerifyCachedArtifact(wappPath, fmt.Sprintf("sha256:%x", digest))
 	require.NoError(t, err)
 	require.True(t, valid)
+
+	tamperedPath := filepath.Join(dirPath, "tampered.txt")
+	require.NoError(t, os.WriteFile(tamperedPath, []byte("tampered"), 0o644))
+	require.NoError(t, extractInstalledModule(wappPath, dirPath, true))
+	require.NoFileExists(t, tamperedPath)
+	require.FileExists(t, wappPath)
 }
 
 func TestVerifyCachedArtifactRejectsCorruption(t *testing.T) {

@@ -176,12 +176,18 @@ func ensureModulesInstalledFromLock(ctx context.Context, lockObj *lock.Lock, log
 
 		dirPath := filepath.Join(vendorPath, lock.ModulePath(name))
 		wappPath := filepath.Join(vendorPath, lock.WappPath(name, mod.Version))
+		buildDependency := mod.BuildDependency || mod.BuildOnly
 		cachedArtifact, verifyErr := hub.VerifyCachedArtifact(wappPath, mod.Hash)
 		if cachedArtifact {
-			if shouldUnpack {
+			if shouldUnpack && buildDependency {
+				logger.Info("refreshing build dependency directory", zap.String("module", mod.Name))
+				if err := extractInstalledModule(wappPath, dirPath, true); err != nil {
+					return NewExtractModuleError(mod.Name, err)
+				}
+			} else if shouldUnpack {
 				if _, err := os.Stat(dirPath); os.IsNotExist(err) {
 					logger.Info("unpacking .wapp to directory", zap.String("module", mod.Name))
-					if err := extractInstalledModule(wappPath, dirPath, mod.BuildOnly); err != nil {
+					if err := extractInstalledModule(wappPath, dirPath, false); err != nil {
 						return NewExtractModuleError(mod.Name, err)
 					}
 				} else if err != nil {
@@ -198,7 +204,7 @@ func ensureModulesInstalledFromLock(ctx context.Context, lockObj *lock.Lock, log
 			if err := os.RemoveAll(dirPath); err != nil {
 				return NewExtractModuleError(mod.Name, err)
 			}
-		} else if !mod.BuildOnly || mod.Hash == "" {
+		} else if !buildDependency || mod.Hash == "" {
 			resolved := lock.ResolveModuleDir(vendorPath, name, mod.Version)
 			if _, err := os.Stat(resolved.Path); err == nil {
 				continue
@@ -254,7 +260,8 @@ func ensureModulesInstalledFromLock(ctx context.Context, lockObj *lock.Lock, log
 		if err != nil {
 			return NewDownloadModuleError(moduleRef, err)
 		}
-		if mod.BuildOnly && expectedDigest == "" {
+		buildDependency := mod.BuildDependency || mod.BuildOnly
+		if buildDependency && expectedDigest == "" {
 			return NewDownloadModuleError(moduleRef, fmt.Errorf("build dependency has no artifact digest"))
 		}
 
@@ -275,7 +282,7 @@ func ensureModulesInstalledFromLock(ctx context.Context, lockObj *lock.Lock, log
 			if err := os.RemoveAll(dirPath); err != nil {
 				return NewExtractModuleError(moduleRef, err)
 			}
-			if err := extractInstalledModule(fullWappPath, dirPath, mod.BuildOnly); err != nil {
+			if err := extractInstalledModule(fullWappPath, dirPath, buildDependency); err != nil {
 				return NewExtractModuleError(moduleRef, err)
 			}
 		}

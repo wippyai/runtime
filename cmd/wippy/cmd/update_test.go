@@ -176,7 +176,7 @@ entries:
 	require.NoError(t, err)
 	dependencies, err := extractRootDependencies(loaded, payload.GetTranscoder(ctx), effectiveReplacementModules(lockObj))
 	require.NoError(t, err)
-	require.Equal(t, []dependencyRequest{{Org: "acme", Module: "runtime", Constraint: "v1.0.0", BuildOnly: true}}, dependencies)
+	require.Equal(t, []dependencyRequest{{Org: "acme", Module: "runtime", Constraint: "v1.0.0", BuildOnly: true, BuildDependency: true}}, dependencies)
 }
 
 func TestPruneStaleVendorArtifactsKeepsRoleOnlyUpdates(t *testing.T) {

@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"connectrpc.com/connect"
@@ -39,7 +38,7 @@ func ExpectedArtifactDigest(pinned, served string) (string, error) {
 	if pinned == "" {
 		return served, nil
 	}
-	if served != "" && !strings.EqualFold(pinned, served) {
+	if served != "" && !artifactDigestsEqual(pinned, served) {
 		return "", fmt.Errorf("artifact digest mismatch: lock pins %s, download reports %s", pinned, served)
 	}
 	return pinned, nil

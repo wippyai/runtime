@@ -166,10 +166,11 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 		hubDeps := make([]hub.DependencySpec, 0, len(rootDeps))
 		for _, dep := range rootDeps {
 			hubDeps = append(hubDeps, hub.DependencySpec{
-				Org:        dep.Org,
-				Name:       dep.Module,
-				Constraint: dep.Constraint,
-				BuildOnly:  dep.BuildOnly,
+				Org:             dep.Org,
+				Name:            dep.Module,
+				Constraint:      dep.Constraint,
+				BuildOnly:       dep.BuildOnly,
+				BuildDependency: dep.BuildDependency,
 			})
 		}
 
@@ -201,7 +202,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	if oldLockObj != nil {
 		preserveReplacements(newLockObj, oldLockObj.GetTrackedReplacements())
 	}
-	preserveBuildOnlyReplacementModules(newLockObj, oldLockObj, dependencyGraph.replacements)
+	preserveBuildReplacementModules(newLockObj, oldLockObj, dependencyGraph.replacements)
 	if err := lock.Validate(newLockObj); err != nil {
 		return NewInvalidLockFileError(fmt.Errorf("generated lock file %s: %w", newLockObj.Path(), err))
 	}
@@ -236,10 +237,11 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 }
 
 type dependencyRequest struct {
-	Org        string
-	Module     string
-	Constraint string
-	BuildOnly  bool
+	Org             string
+	Module          string
+	Constraint      string
+	BuildOnly       bool
+	BuildDependency bool
 }
 
 func containsBuildDependency(entries []regapi.Entry) bool {
@@ -288,11 +290,12 @@ func resolveDependencyGraph(entries []regapi.Entry, dtt payload.Transcoder, repl
 	}
 
 	type reachability struct {
-		module    string
-		buildOnly bool
+		module  string
+		runtime bool
+		build   bool
 	}
-	queue := []reachability{{}}
-	replacementRoles := make(map[string]bool)
+	queue := []reachability{{runtime: true}}
+	replacementRoles := make(map[string]reachability)
 	replacementIndexes := make(map[string]int)
 	replacements := make([]dependencyRequest, 0, len(replacedModules))
 	dependencies := make([]dependencyRequest, 0, len(declarations))
@@ -302,19 +305,28 @@ func resolveDependencyGraph(entries []regapi.Entry, dtt payload.Transcoder, repl
 		current := queue[0]
 		queue = queue[1:]
 		for _, dependency := range byOwner[current.module] {
-			dependency.BuildOnly = current.buildOnly || dependency.BuildOnly
+			edgeBuild := dependency.BuildDependency
+			dependency.BuildOnly = !(current.runtime && !edgeBuild)
+			dependency.BuildDependency = current.build || edgeBuild
 			component := dependency.Org + "/" + dependency.Module
 			if replacedModules[component] {
 				previous, visited := replacementRoles[component]
+				combined := reachability{
+					module:  component,
+					runtime: previous.runtime || !dependency.BuildOnly,
+					build:   previous.build || dependency.BuildDependency,
+				}
 				if !visited {
-					replacementRoles[component] = dependency.BuildOnly
 					replacementIndexes[component] = len(replacements)
 					replacements = append(replacements, dependency)
-					queue = append(queue, reachability{module: component, buildOnly: dependency.BuildOnly})
-				} else if previous && !dependency.BuildOnly {
-					replacementRoles[component] = false
-					replacements[replacementIndexes[component]].BuildOnly = false
-					queue = append(queue, reachability{module: component})
+				} else {
+					index := replacementIndexes[component]
+					replacements[index].BuildOnly = !combined.runtime
+					replacements[index].BuildDependency = combined.build
+				}
+				if !visited || combined.runtime != previous.runtime || combined.build != previous.build {
+					replacementRoles[component] = combined
+					queue = append(queue, combined)
 				}
 				continue
 			}
@@ -322,6 +334,7 @@ func resolveDependencyGraph(entries []regapi.Entry, dtt payload.Transcoder, repl
 			key := component + "@" + dependency.Constraint
 			if index, ok := seen[key]; ok {
 				dependencies[index].BuildOnly = dependencies[index].BuildOnly && dependency.BuildOnly
+				dependencies[index].BuildDependency = dependencies[index].BuildDependency || dependency.BuildDependency
 				continue
 			}
 			seen[key] = len(dependencies)
@@ -374,10 +387,11 @@ func decodeDependencyDeclarations(entries []regapi.Entry, dtt payload.Transcoder
 		}
 		declarations = append(declarations, dependencyDeclaration{
 			dependencyRequest: dependencyRequest{
-				Org:        parts[0],
-				Module:     parts[1],
-				Constraint: data.Version,
-				BuildOnly:  buildOnly,
+				Org:             parts[0],
+				Module:          parts[1],
+				Constraint:      data.Version,
+				BuildOnly:       buildOnly,
+				BuildDependency: buildOnly,
 			},
 			owner: owner,
 		})
@@ -399,10 +413,11 @@ func convertResolvedToLock(lockFilePath string, modules []hub.ResolvedModule, mo
 	lockedModules := make([]lock.Module, 0, len(modules))
 	for _, m := range modules {
 		lockedModules = append(lockedModules, lock.Module{
-			Name:      fmt.Sprintf("%s/%s", m.Org, m.Name),
-			Version:   m.Version,
-			Hash:      m.Digest,
-			BuildOnly: m.BuildOnly,
+			Name:            fmt.Sprintf("%s/%s", m.Org, m.Name),
+			Version:         m.Version,
+			Hash:            m.Digest,
+			BuildOnly:       m.BuildOnly,
+			BuildDependency: m.BuildDependency,
 		})
 	}
 	lockObj.ReplaceModules(lockedModules)
@@ -466,10 +481,11 @@ func runTargetedUpdate(cmd *cobra.Command, lockFilePath, srcDir, modulesDir stri
 	hubDeps := make([]hub.DependencySpec, 0, len(rootDeps))
 	for _, dependency := range rootDeps {
 		hubDeps = append(hubDeps, hub.DependencySpec{
-			Org:        dependency.Org,
-			Name:       dependency.Module,
-			Constraint: dependency.Constraint,
-			BuildOnly:  dependency.BuildOnly,
+			Org:             dependency.Org,
+			Name:            dependency.Module,
+			Constraint:      dependency.Constraint,
+			BuildOnly:       dependency.BuildOnly,
+			BuildDependency: dependency.BuildDependency,
 		})
 	}
 
@@ -495,7 +511,7 @@ func runTargetedUpdate(cmd *cobra.Command, lockFilePath, srcDir, modulesDir stri
 
 	// Preserve all replacements from current lock file
 	preserveReplacements(newLockObj, lockObj.GetTrackedReplacements())
-	preserveBuildOnlyReplacementModules(newLockObj, oldLockObj, dependencyGraph.replacements)
+	preserveBuildReplacementModules(newLockObj, oldLockObj, dependencyGraph.replacements)
 	if err := lock.Validate(newLockObj); err != nil {
 		return NewInvalidLockFileError(fmt.Errorf("generated lock file %s: %w", newLockObj.Path(), err))
 	}
@@ -700,7 +716,8 @@ func logChanges(logger *zap.Logger, changes *lock.Changes) {
 		for _, mod := range changes.Updated {
 			logger.Info("~ updating", zap.String("module", mod.Name),
 				zap.String("old", mod.OldVersion), zap.String("new", mod.NewVersion),
-				zap.Bool("old_build_only", mod.OldBuildOnly), zap.Bool("new_build_only", mod.NewBuildOnly))
+				zap.Bool("old_build_only", mod.OldBuildOnly), zap.Bool("new_build_only", mod.NewBuildOnly),
+				zap.Bool("old_build_dependency", mod.OldBuildDependency), zap.Bool("new_build_dependency", mod.NewBuildDependency))
 		}
 		for _, mod := range changes.Removed {
 			logger.Info("- removing", zap.String("module", mod.Name), zap.String("version", mod.Version))
@@ -720,13 +737,16 @@ func preserveReplacements(lockObj *lock.Lock, replacements []lock.Replacement) {
 	}
 }
 
-func preserveBuildOnlyReplacementModules(lockObj, oldLockObj *lock.Lock, replacements []dependencyRequest) {
+func preserveBuildReplacementModules(lockObj, oldLockObj *lock.Lock, replacements []dependencyRequest) {
 	for _, replacement := range replacements {
-		if !replacement.BuildOnly {
+		if !replacement.BuildDependency {
 			continue
 		}
 		name := replacement.Org + "/" + replacement.Module
-		module := lock.Module{Name: name, Version: replacement.Constraint, BuildOnly: true}
+		module := lock.Module{
+			Name: name, Version: replacement.Constraint,
+			BuildOnly: replacement.BuildOnly, BuildDependency: true,
+		}
 		if oldLockObj != nil {
 			if oldModule, ok := oldLockObj.GetModule(name); ok {
 				module.Version = oldModule.Version

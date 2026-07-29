@@ -470,7 +470,7 @@ func packModule(ctx context.Context, app *appinit.Context, cfg *config.ModuleCon
 		if entry.Kind != regapi.NamespaceBuildDependency {
 			continue
 		}
-		lockObj, lockErr := lock.New(filepath.Join(srcDir, lock.DefaultFilename))
+		lockObj, lockErr := lock.New(filepath.Join(srcDir, lock.DefaultFilename), lock.WithWorkspaceConfig(boot.GetConfig(ctx)))
 		if lockErr != nil {
 			return nil, NewPublishConfigError(lockErr)
 		}

@@ -23,12 +23,13 @@ type Directories struct {
 
 // Module represents a locked dependency.
 type Module struct {
-	Name      string `yaml:"name"`                 // Module identifier in org/module format
-	Version   string `yaml:"version"`              // Semantic version (e.g., v0.0.11)
-	Hash      string `yaml:"hash,omitempty"`       // Manifest digest (e.g. sha256:...), populated on install
-	LocalHash string `yaml:"local_hash,omitempty"` // Computed hash from loaded entries for verification
-	Root      bool   `yaml:"root,omitempty"`       // Selected deployment root, not a transitive module
-	BuildOnly bool   `yaml:"build_only,omitempty"`
+	Name            string `yaml:"name"`                 // Module identifier in org/module format
+	Version         string `yaml:"version"`              // Semantic version (e.g., v0.0.11)
+	Hash            string `yaml:"hash,omitempty"`       // Manifest digest (e.g. sha256:...), populated on install
+	LocalHash       string `yaml:"local_hash,omitempty"` // Computed hash from loaded entries for verification
+	Root            bool   `yaml:"root,omitempty"`       // Selected deployment root, not a transitive module
+	BuildOnly       bool   `yaml:"build_only,omitempty"`
+	BuildDependency bool   `yaml:"build_dependency,omitempty"`
 }
 
 // Replacement represents a local module override for development.
@@ -46,11 +47,13 @@ type Changes struct {
 
 // ModuleChange represents a module that changed between lock files.
 type ModuleChange struct {
-	Name         string // Module name
-	OldVersion   string // Previous version
-	NewVersion   string // New version
-	OldHash      string // Previous hash
-	NewHash      string // New hash
-	OldBuildOnly bool
-	NewBuildOnly bool
+	Name               string // Module name
+	OldVersion         string // Previous version
+	NewVersion         string // New version
+	OldHash            string // Previous hash
+	NewHash            string // New hash
+	OldBuildOnly       bool
+	NewBuildOnly       bool
+	OldBuildDependency bool
+	NewBuildDependency bool
 }

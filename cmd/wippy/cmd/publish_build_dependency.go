@@ -46,6 +46,7 @@ func stripBuildDependencies(
 		replacements[replacement.From] = struct{}{}
 	}
 	vendorDir := lock.ResolveLockPath(filepath.Dir(lockObj.Path()), lockObj.GetVendorPath())
+	verifiedArtifacts := make(map[string]struct{})
 
 	provenance := frontendProvenance{ManifestVersion: 1}
 	filtered := make([]regapi.Entry, 0, len(entries))
@@ -91,8 +92,12 @@ func stripBuildDependencies(
 			return nil, frontendProvenance{}, fmt.Errorf("build dependency %s has invalid component: %w", entry.ID.String(), err)
 		}
 		artifactPath := filepath.Join(vendorDir, lock.WappPath(moduleName, module.Version))
-		if err := hub.VerifyDownloadedArtifact(artifactPath, module.Hash, 0); err != nil {
-			return nil, frontendProvenance{}, fmt.Errorf("verify build dependency %s@%s: %w", definition.Component, module.Version, err)
+		verificationKey := artifactPath + "@" + module.Hash
+		if _, verified := verifiedArtifacts[verificationKey]; !verified {
+			if err := hub.VerifyDownloadedArtifact(artifactPath, module.Hash, 0); err != nil {
+				return nil, frontendProvenance{}, fmt.Errorf("verify build dependency %s@%s: %w", definition.Component, module.Version, err)
+			}
+			verifiedArtifacts[verificationKey] = struct{}{}
 		}
 		provenance.Imports = append(provenance.Imports, frontendImportProvenance{
 			Entry:   entry.ID.String(),

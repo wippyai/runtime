@@ -18,6 +18,8 @@ import (
 	"go.uber.org/zap"
 )
 
+const testBuildArtifactDigest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+
 func TestValidateBuildDependencyRuntimeRequiresCompatibleDeclaration(t *testing.T) {
 	entries := []regapi.Entry{{Kind: regapi.NamespaceBuildDependency}}
 	require.EqualError(t,
@@ -33,14 +35,15 @@ func TestValidateBuildDependencyRuntimeRequiresCompatibleDeclaration(t *testing.
 
 func TestConvertResolvedToLockPreservesBuildOnlyRole(t *testing.T) {
 	lockObj, err := convertResolvedToLock(filepath.Join(t.TempDir(), "wippy.lock"), []hub.ResolvedModule{
-		{Org: "acme", Name: "frontend", Version: "2.0.0", Digest: "sha256:frontend", BuildOnly: true},
+		{Org: "acme", Name: "frontend", Version: "2.0.0", Digest: testBuildArtifactDigest, BuildOnly: true, BuildDependency: true},
 	}, ".wippy", ".")
 	require.NoError(t, err)
 
 	module, ok := lockObj.GetModule("acme/frontend")
 	require.True(t, ok)
 	require.True(t, module.BuildOnly)
-	require.Equal(t, "sha256:frontend", module.Hash)
+	require.Equal(t, testBuildArtifactDigest, module.Hash)
+	require.True(t, module.BuildDependency)
 	require.NoError(t, lock.Validate(lockObj))
 }
 
@@ -63,7 +66,7 @@ func TestExtractRootDependenciesPreservesBuildRole(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []dependencyRequest{
 		{Org: "acme", Module: "runtime", Constraint: "1.0.0"},
-		{Org: "acme", Module: "frontend", Constraint: "2.0.0", BuildOnly: true},
+		{Org: "acme", Module: "frontend", Constraint: "2.0.0", BuildOnly: true, BuildDependency: true},
 	}, dependencies)
 }
 
@@ -86,10 +89,10 @@ func TestExtractRootDependenciesPropagatesBuildRoleThroughReplacement(t *testing
 	graph, err := resolveDependencyGraph(entries, payload.GetTranscoder(ctx), map[string]bool{"local/frontend": true})
 	require.NoError(t, err)
 	require.Equal(t, []dependencyRequest{{
-		Org: "acme", Module: "runtime", Constraint: "2.0.0", BuildOnly: true,
+		Org: "acme", Module: "runtime", Constraint: "2.0.0", BuildOnly: true, BuildDependency: true,
 	}}, graph.dependencies)
 	require.Equal(t, []dependencyRequest{{
-		Org: "local", Module: "frontend", Constraint: "1.0.0", BuildOnly: true,
+		Org: "local", Module: "frontend", Constraint: "1.0.0", BuildOnly: true, BuildDependency: true,
 	}}, graph.replacements)
 }
 
@@ -116,10 +119,10 @@ func TestExtractRootDependenciesPropagatesBuildRoleThroughNestedReplacements(t *
 		"local/frontend": true, "local/theme": true,
 	})
 	require.NoError(t, err)
-	require.Equal(t, []dependencyRequest{{Org: "acme", Module: "tokens", Constraint: "3.0.0", BuildOnly: true}}, graph.dependencies)
+	require.Equal(t, []dependencyRequest{{Org: "acme", Module: "tokens", Constraint: "3.0.0", BuildOnly: true, BuildDependency: true}}, graph.dependencies)
 	require.Equal(t, []dependencyRequest{
-		{Org: "local", Module: "frontend", Constraint: "1.0.0", BuildOnly: true},
-		{Org: "local", Module: "theme", Constraint: "2.0.0", BuildOnly: true},
+		{Org: "local", Module: "frontend", Constraint: "1.0.0", BuildOnly: true, BuildDependency: true},
+		{Org: "local", Module: "theme", Constraint: "2.0.0", BuildOnly: true, BuildDependency: true},
 	}, graph.replacements)
 }
 
@@ -147,10 +150,10 @@ func TestExtractRootDependenciesRuntimeWinsThroughReplacement(t *testing.T) {
 	graph, err := resolveDependencyGraph(entries, payload.GetTranscoder(ctx), map[string]bool{"local/frontend": true})
 	require.NoError(t, err)
 	require.Equal(t, []dependencyRequest{{
-		Org: "acme", Module: "runtime", Constraint: "3.0.0",
+		Org: "acme", Module: "runtime", Constraint: "3.0.0", BuildDependency: true,
 	}}, graph.dependencies)
 	require.Equal(t, []dependencyRequest{{
-		Org: "local", Module: "frontend", Constraint: "1.0.0",
+		Org: "local", Module: "frontend", Constraint: "1.0.0", BuildDependency: true,
 	}}, graph.replacements)
 }
 
@@ -163,8 +166,8 @@ func TestGeneratedLockValidatesWorkspaceBuildOnlyReplacement(t *testing.T) {
 	require.NoError(t, err)
 	newLock, err := convertResolvedToLock(oldLock.Path(), nil, ".wippy", ".", effectiveReplacementOption(oldLock))
 	require.NoError(t, err)
-	preserveBuildOnlyReplacementModules(newLock, oldLock, []dependencyRequest{{
-		Org: "local", Module: "frontend", Constraint: "1.0.0", BuildOnly: true,
+	preserveBuildReplacementModules(newLock, oldLock, []dependencyRequest{{
+		Org: "local", Module: "frontend", Constraint: "1.0.0", BuildOnly: true, BuildDependency: true,
 	}})
 
 	require.NoError(t, lock.Validate(newLock))
@@ -177,8 +180,8 @@ func TestPreserveBuildOnlyReplacementModulesRetainsRoleAndRejectsRootTransition(
 	newLock, err := lock.New(filepath.Join(t.TempDir(), "new.lock"))
 	require.NoError(t, err)
 
-	preserveBuildOnlyReplacementModules(newLock, oldLock, []dependencyRequest{{
-		Org: "local", Module: "frontend", Constraint: "2.0.0", BuildOnly: true,
+	preserveBuildReplacementModules(newLock, oldLock, []dependencyRequest{{
+		Org: "local", Module: "frontend", Constraint: "2.0.0", BuildOnly: true, BuildDependency: true,
 	}})
 
 	module, ok := newLock.GetModule("local/frontend")

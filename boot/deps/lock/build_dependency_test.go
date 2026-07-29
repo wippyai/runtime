@@ -5,6 +5,8 @@ package lock
 import (
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -13,7 +15,7 @@ import (
 func TestDiffReportsBuildRoleChanges(t *testing.T) {
 	oldLock, err := New(filepath.Join(t.TempDir(), "old.lock"))
 	require.NoError(t, err)
-	oldLock.SetModule(Module{Name: "acme/shared", Version: "1.0.0", Hash: "sha256:shared", BuildOnly: true})
+	oldLock.SetModule(Module{Name: "acme/shared", Version: "1.0.0", Hash: "sha256:shared", BuildOnly: true, BuildDependency: true})
 	newLock, err := New(filepath.Join(t.TempDir(), "new.lock"))
 	require.NoError(t, err)
 	newLock.SetModule(Module{Name: "acme/shared", Version: "1.0.0", Hash: "sha256:shared"})
@@ -21,12 +23,13 @@ func TestDiffReportsBuildRoleChanges(t *testing.T) {
 	changes := Diff(oldLock, newLock)
 	require.Equal(t, []ModuleChange{
 		{
-			Name:         "acme/shared",
-			OldVersion:   "1.0.0",
-			NewVersion:   "1.0.0",
-			OldHash:      "sha256:shared",
-			NewHash:      "sha256:shared",
-			OldBuildOnly: true,
+			Name:               "acme/shared",
+			OldVersion:         "1.0.0",
+			NewVersion:         "1.0.0",
+			OldHash:            "sha256:shared",
+			NewHash:            "sha256:shared",
+			OldBuildOnly:       true,
+			OldBuildDependency: true,
 		},
 	}, changes.Updated)
 }
@@ -36,6 +39,22 @@ func TestValidateRejectsRemoteBuildOnlyModuleWithoutDigest(t *testing.T) {
 	require.NoError(t, err)
 	lockObj.SetModule(Module{Name: "acme/frontend", Version: "1.0.0", BuildOnly: true})
 	require.EqualError(t, Validate(lockObj), "build-only module acme/frontend requires an artifact digest")
+}
+
+func TestValidateRejectsMalformedBuildDigests(t *testing.T) {
+	for _, digest := range []string{
+		" ",
+		"md5:" + strings.Repeat("a", 32),
+		"sha256:abc",
+		"sha256:" + strings.Repeat("z", 64),
+	} {
+		t.Run(digest, func(t *testing.T) {
+			lockObj, err := New(filepath.Join(t.TempDir(), DefaultFilename))
+			require.NoError(t, err)
+			lockObj.SetModule(Module{Name: "acme/frontend", Version: "1.0.0", Hash: digest, BuildOnly: true})
+			require.EqualError(t, Validate(lockObj), "build module acme/frontend has invalid artifact digest "+strconv.Quote(digest))
+		})
+	}
 }
 
 func TestValidateAllowsBuildOnlyReplacementWithoutDigest(t *testing.T) {

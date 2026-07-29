@@ -25,15 +25,18 @@ func Diff(old, newLock *Lock) *Changes {
 		oldMod, existed := oldModules[name]
 		if !existed {
 			changes.Installed = append(changes.Installed, newMod)
-		} else if oldMod.Version != newMod.Version || oldMod.Hash != newMod.Hash || oldMod.BuildOnly != newMod.BuildOnly {
+		} else if oldMod.Version != newMod.Version || oldMod.Hash != newMod.Hash ||
+			oldMod.BuildOnly != newMod.BuildOnly || oldMod.BuildDependency != newMod.BuildDependency {
 			changes.Updated = append(changes.Updated, ModuleChange{
-				Name:         name,
-				OldVersion:   oldMod.Version,
-				NewVersion:   newMod.Version,
-				OldHash:      oldMod.Hash,
-				NewHash:      newMod.Hash,
-				OldBuildOnly: oldMod.BuildOnly,
-				NewBuildOnly: newMod.BuildOnly,
+				Name:               name,
+				OldVersion:         oldMod.Version,
+				NewVersion:         newMod.Version,
+				OldHash:            oldMod.Hash,
+				NewHash:            newMod.Hash,
+				OldBuildOnly:       oldMod.BuildOnly,
+				NewBuildOnly:       newMod.BuildOnly,
+				OldBuildDependency: oldMod.BuildDependency,
+				NewBuildDependency: newMod.BuildDependency,
 			})
 		}
 	}

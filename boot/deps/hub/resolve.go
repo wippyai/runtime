@@ -58,6 +58,9 @@ func Resolve(ctx context.Context, provider ManifestProvider, roots []DependencyS
 		if !root.BuildOnly {
 			r.runtimeRoots[source] = struct{}{}
 		}
+		if root.BuildOnly || root.BuildDependency {
+			r.buildRoots[source] = struct{}{}
+		}
 	}
 
 	if err := r.run(ctx); err != nil {
@@ -97,6 +100,7 @@ type resolver struct {
 	queue        []string
 	queued       map[string]bool
 	runtimeRoots map[string]struct{}
+	buildRoots   map[string]struct{}
 
 	errors     []ResolutionError
 	maxDepth   int
@@ -119,6 +123,7 @@ func newResolver(provider ManifestProvider, maxDepth, maxModules int, lockedVers
 		pending:        make(map[string]ResolutionError),
 		queued:         make(map[string]bool),
 		runtimeRoots:   make(map[string]struct{}),
+		buildRoots:     make(map[string]struct{}),
 	}
 }
 
@@ -541,7 +546,8 @@ func (r *resolver) conflictMessage(key string) string {
 // collectModules returns the resolved modules in a deterministic, walk-order
 // independent order.
 func (r *resolver) collectModules() []ResolvedModule {
-	runtimeModules := r.runtimeModules()
+	runtimeModules := r.reachableModules(r.runtimeRoots)
+	buildModules := r.reachableModules(r.buildRoots)
 	keys := make([]string, 0, len(r.modules))
 	for key := range r.modules {
 		keys = append(keys, key)
@@ -552,16 +558,18 @@ func (r *resolver) collectModules() []ResolvedModule {
 	for _, key := range keys {
 		module := r.modules[key]
 		_, runtime := runtimeModules[key]
+		_, buildDependency := buildModules[key]
 		module.BuildOnly = !runtime
+		module.BuildDependency = buildDependency
 		out = append(out, module)
 	}
 	return out
 }
 
-func (r *resolver) runtimeModules() map[string]struct{} {
-	runtime := make(map[string]struct{}, len(r.modules))
+func (r *resolver) reachableModules(roots map[string]struct{}) map[string]struct{} {
+	reachable := make(map[string]struct{}, len(r.modules))
 	queue := make([]string, 0, len(r.modules))
-	for source := range r.runtimeRoots {
+	for source := range roots {
 		queue = append(queue, r.edges[source]...)
 	}
 	for len(queue) > 0 {
@@ -571,13 +579,13 @@ func (r *resolver) runtimeModules() map[string]struct{} {
 		if !selected {
 			continue
 		}
-		if _, seen := runtime[key]; seen {
+		if _, seen := reachable[key]; seen {
 			continue
 		}
-		runtime[key] = struct{}{}
+		reachable[key] = struct{}{}
 		queue = append(queue, r.edges[moduleSource(key, version)]...)
 	}
-	return runtime
+	return reachable
 }
 
 // collectErrors returns resolution errors deterministically: any global failure
@@ -647,7 +655,7 @@ func (r *resolver) fetchManifest(ctx context.Context, org, name, version string)
 	}
 
 	expected := r.lockedDigests[org+"/"+name+"@"+version]
-	if expected == "" || manifest.Digest == expected {
+	if expected == "" || artifactDigestsEqual(manifest.Digest, expected) {
 		return manifest, nil
 	}
 
@@ -656,7 +664,7 @@ func (r *resolver) fetchManifest(ctx context.Context, org, name, version string)
 		if ferr != nil {
 			return nil, ferr
 		}
-		if fresh != nil && fresh.Digest == expected {
+		if fresh != nil && artifactDigestsEqual(fresh.Digest, expected) {
 			return fresh, nil
 		}
 		if fresh != nil {

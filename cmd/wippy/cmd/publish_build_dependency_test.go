@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	bootapi "github.com/wippyai/runtime/api/boot"
 	"github.com/wippyai/runtime/api/payload"
 	regapi "github.com/wippyai/runtime/api/registry"
 	depconfig "github.com/wippyai/runtime/boot/deps/config"
@@ -21,6 +22,8 @@ import (
 	appinit "github.com/wippyai/runtime/cmd/internal/app"
 	"github.com/wippyai/wapp"
 )
+
+const validBuildDigest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
 func TestPackModuleStripsBuildDependencies(t *testing.T) {
 	root := t.TempDir()
@@ -69,6 +72,38 @@ entries:
 	require.JSONEq(t, fmt.Sprintf(`{"manifest_version":1,"imports":[{"entry":"app:frontend","module":"acme/frontend","version":"2.0.0","digest":%q}]}`, digest), string(encoded))
 }
 
+func TestPackModuleRejectsWorkspaceBuildReplacement(t *testing.T) {
+	root := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "src"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "local", "frontend"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "src", "_index.yaml"), []byte(`version: "1.0"
+namespace: app
+entries:
+  - name: module
+    kind: ns.definition
+  - name: frontend
+    kind: ns.build_dependency
+    component: acme/frontend
+    version: "2.0.0"
+`), 0o644))
+	lockObj, err := lock.New(filepath.Join(root, lock.DefaultFilename))
+	require.NoError(t, err)
+	digest := writeBuildArtifact(t, lockObj, "acme/frontend", "2.0.0", []byte("remote package"))
+	lockObj.SetModule(lock.Module{Name: "acme/frontend", Version: "2.0.0", Hash: digest, BuildOnly: true, BuildDependency: true})
+	require.NoError(t, lockObj.Write())
+	app, err := appinit.Init(context.Background(), false, false, false, true, time.Now())
+	require.NoError(t, err)
+	bootapi.WithConfig(app.Ctx, bootapi.NewConfig(
+		bootapi.WithSection("boot", map[string]any{"config_dir": root}),
+		bootapi.WithSection("workspace", map[string]any{"replacements.acme/frontend": "local/frontend"}),
+	))
+
+	_, err = packModule(app.Ctx, app, &depconfig.ModuleConfig{
+		Organization: "acme", ModuleName: "consumer", Version: "1.0.0", RequiresWippy: ">=1.2.0",
+	}, root, filepath.Join(root, "consumer.wapp"), nil)
+	require.ErrorContains(t, err, "build dependency acme/frontend uses a local replacement")
+}
+
 func TestStripBuildDependenciesRejectsStaleLockVersion(t *testing.T) {
 	ctx := setupLoaderContext(t)
 	lockObj, err := lock.New(filepath.Join(t.TempDir(), lock.DefaultFilename))
@@ -76,7 +111,7 @@ func TestStripBuildDependenciesRejectsStaleLockVersion(t *testing.T) {
 	lockObj.SetModule(lock.Module{
 		Name:      "acme/frontend",
 		Version:   "1.0.0",
-		Hash:      "sha256:frontend",
+		Hash:      validBuildDigest,
 		BuildOnly: true,
 	})
 	entries := []regapi.Entry{{
@@ -94,7 +129,7 @@ func TestStripBuildDependenciesRejectsVersionRanges(t *testing.T) {
 	lockObj, err := lock.New(filepath.Join(t.TempDir(), lock.DefaultFilename))
 	require.NoError(t, err)
 	lockObj.SetModule(lock.Module{
-		Name: "acme/frontend", Version: "2.0.0", Hash: "sha256:frontend", BuildOnly: true,
+		Name: "acme/frontend", Version: "2.0.0", Hash: validBuildDigest, BuildOnly: true,
 	})
 	entries := []regapi.Entry{{
 		ID:   regapi.NewID("app.deps", "frontend"),

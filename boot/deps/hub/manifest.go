@@ -14,23 +14,25 @@ import (
 )
 
 type ResolvedModule struct {
-	Org       string
-	Name      string
-	Version   string
-	VersionID string
-	Source    string
-	Digest    string
-	URL       string
-	SizeBytes uint64
-	Protected bool
-	BuildOnly bool
+	Org             string
+	Name            string
+	Version         string
+	VersionID       string
+	Source          string
+	Digest          string
+	URL             string
+	SizeBytes       uint64
+	Protected       bool
+	BuildOnly       bool
+	BuildDependency bool
 }
 
 type DependencySpec struct {
-	Org        string
-	Name       string
-	Constraint string
-	BuildOnly  bool
+	Org             string
+	Name            string
+	Constraint      string
+	BuildOnly       bool
+	BuildDependency bool
 }
 
 type ResolutionError struct {

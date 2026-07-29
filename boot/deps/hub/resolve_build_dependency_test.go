@@ -22,6 +22,7 @@ func TestResolveRuntimeWinsAcrossDifferentRootConstraints(t *testing.T) {
 	require.Len(t, result.Modules, 1)
 	require.Equal(t, "1.1.0", result.Modules[0].Version)
 	require.False(t, result.Modules[0].BuildOnly)
+	require.True(t, result.Modules[0].BuildDependency)
 }
 
 func TestResolveClassifiesBuildOnlyReachability(t *testing.T) {
@@ -41,8 +42,11 @@ func TestResolveClassifiesBuildOnlyReachability(t *testing.T) {
 	require.NoError(t, err)
 
 	roles := make(map[string]bool, len(result.Modules))
+	buildDependencies := make(map[string]bool, len(result.Modules))
 	for _, module := range result.Modules {
-		roles[module.Org+"/"+module.Name] = module.BuildOnly
+		name := module.Org + "/" + module.Name
+		roles[name] = module.BuildOnly
+		buildDependencies[name] = module.BuildDependency
 	}
 	require.Equal(t, map[string]bool{
 		"acme/frontend":      true,
@@ -50,4 +54,10 @@ func TestResolveClassifiesBuildOnlyReachability(t *testing.T) {
 		"acme/runtime":       false,
 		"acme/shared":        false,
 	}, roles)
+	require.Equal(t, map[string]bool{
+		"acme/frontend":      true,
+		"acme/frontend-only": true,
+		"acme/runtime":       false,
+		"acme/shared":        true,
+	}, buildDependencies)
 }

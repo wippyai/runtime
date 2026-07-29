@@ -3,6 +3,7 @@
 package lock
 
 import (
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"strings"
@@ -31,8 +32,13 @@ func Validate(l *Lock) error {
 			}
 			rootCount++
 		}
-		if _, replaced := replacements[mod.Name]; mod.BuildOnly && mod.Hash == "" && !replaced {
+		_, replaced := replacements[mod.Name]
+		buildDependency := mod.BuildDependency || mod.BuildOnly
+		if buildDependency && mod.Hash == "" && !replaced {
 			return NewBuildOnlyDigestError(mod.Name)
+		}
+		if buildDependency && mod.Hash != "" && !replaced && !validBuildDigest(mod.Hash) {
+			return NewInvalidBuildDigestError(mod.Name, mod.Hash)
 		}
 	}
 	if rootCount > 1 {
@@ -52,6 +58,18 @@ func Validate(l *Lock) error {
 	}
 
 	return nil
+}
+
+func validBuildDigest(digest string) bool {
+	if digest != strings.TrimSpace(digest) {
+		return false
+	}
+	parts := strings.SplitN(digest, ":", 2)
+	if len(parts) != 2 || !strings.EqualFold(parts[0], "sha256") || len(parts[1]) != 64 {
+		return false
+	}
+	_, err := hex.DecodeString(parts[1])
+	return err == nil
 }
 
 // ValidateReplacements checks that all replacement paths exist.

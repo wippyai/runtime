@@ -177,14 +177,20 @@ func runInstall(cmd *cobra.Command, args []string) error {
 
 		dirPath := filepath.Join(vendorDir, lock.ModulePath(modName))
 		wappPath := filepath.Join(vendorDir, lock.WappPath(modName, module.Version))
+		buildDependency := module.BuildDependency || module.BuildOnly
 
 		if !refresh {
 			cachedArtifact, verifyErr := hub.VerifyCachedArtifact(wappPath, module.Hash)
 			if cachedArtifact {
-				if shouldUnpack {
+				if shouldUnpack && buildDependency {
+					logger.Info("refreshing build dependency directory", zap.String("module", module.Name))
+					if err := extractInstalledModule(wappPath, dirPath, true); err != nil {
+						return NewExtractModuleError(module.Name, err)
+					}
+				} else if shouldUnpack {
 					if _, err := os.Stat(dirPath); os.IsNotExist(err) {
 						logger.Info("unpacking .wapp to directory", zap.String("module", module.Name))
-						if err := extractInstalledModule(wappPath, dirPath, module.BuildOnly); err != nil {
+						if err := extractInstalledModule(wappPath, dirPath, false); err != nil {
 							return NewExtractModuleError(module.Name, err)
 						}
 					} else if err != nil {
@@ -202,7 +208,7 @@ func runInstall(cmd *cobra.Command, args []string) error {
 				if err := os.RemoveAll(dirPath); err != nil {
 					return NewStoreModuleError(moduleRef, err)
 				}
-			} else if !module.BuildOnly || module.Hash == "" {
+			} else if !buildDependency || module.Hash == "" {
 				resolved := lock.ResolveModuleDir(vendorDir, modName, module.Version)
 				if _, err := os.Stat(resolved.Path); err == nil {
 					logger.Info("module already installed, skipping download",
@@ -236,7 +242,7 @@ func runInstall(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return NewDownloadModuleError(moduleRef, err)
 		}
-		if module.BuildOnly && expectedDigest == "" {
+		if buildDependency && expectedDigest == "" {
 			return NewDownloadModuleError(moduleRef, fmt.Errorf("build dependency has no artifact digest"))
 		}
 
@@ -259,7 +265,7 @@ func runInstall(cmd *cobra.Command, args []string) error {
 			if err := os.RemoveAll(dirPath); err != nil {
 				return NewStoreModuleError(moduleRef, err)
 			}
-			if err := extractInstalledModule(wappPath, dirPath, module.BuildOnly); err != nil {
+			if err := extractInstalledModule(wappPath, dirPath, buildDependency); err != nil {
 				return NewExtractModuleError(moduleRef, err)
 			}
 		}
