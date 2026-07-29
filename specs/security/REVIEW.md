@@ -3,7 +3,8 @@
 **Verdict: APPROVED**
 
 - Exact reviewed range: `55bc0336f205b3158d62d32ef434149a5f14275b..72ba2d307e44cb2c536b21c07c7c1afd7c04bb0e`
-- Release head: `72ba2d307e44cb2c536b21c07c7c1afd7c04bb0e`
+- Reviewed head: `72ba2d307e44cb2c536b21c07c7c1afd7c04bb0e`
+- Release code head after CI portability correction: `b8be4156b77377cf6d2e8e02066dc7b7645549cd`
 - Security-attested production head: `5bd49e4dfd3e22efa9c3812caac85ce93790b87e`
 - Scope: 29 commits, 106 changed files, including all 35 changed non-test Go files.
 - Gate: zero unresolved HIGH findings at confidence 8/10 or higher.
@@ -20,12 +21,13 @@
 - **Correct — crypto and secrets:** No dependency or lockfile changed, no changed production crypto primitive was introduced, and the diff credential/private-key signature scan found no concrete secret. Test-only placeholder credentials were suppressed as required.
 - **Correct — post-attestation release delta:** `5bd49e4dfd3e22efa9c3812caac85ce93790b87e` is an ancestor of the release head. The three later commits are `4c78ea95a18979a91962acfd68a762ac72353295` (spec/review documents and Gate JSON), `0fa36ce9d5fe59625072788e69fa422934fb83ca` (only `system/supervisor/supervisor_test.go`), and `72ba2d307e44cb2c536b21c07c7c1afd7c04bb0e` (spec/review documents). The sole Go delta is deterministic retry-test configuration, `Jitter: -1`, at `system/supervisor/supervisor_test.go:542-547`; no production source changed after attestation.
 - **Correct — Gate v4:** `specs/test-expansion/gate0.json` parses with base `55bc0336f205b3158d62d32ef434149a5f14275b`, version 4, 12 workstreams, 165 unique fingerprint IDs and suite/test identities, net arithmetic `165 + 50 - 15 = 200`, 112 unique allow paths, and coverage of all 92 changed Go paths.
+- **Correct — post-review CI delta:** `72ba2d30..b8be4156` changes specifications plus two unit-test-only files. `b8be4156` replaces L08's Unix path literals with `t.TempDir()`-derived platform-native absolute paths. Unit-test-only changes are a hard security-review exclusion, and no production file changed.
 - **Blocker:** None. No HIGH-severity finding at confidence 8/10 or higher remains unresolved.
 
 ## Category Disposition
 
 | Category | Disposition |
-|---|---|
+| --- | --- |
 | SQL injection | No finding |
 | XSS | No finding |
 | SSRF | No finding; policy/private-IP checks remain before dispatch |

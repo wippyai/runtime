@@ -30,3 +30,14 @@ decisions:
   traceability_gate: WAIVED
   traceability_reason: task-specific-gate-v4-replaces-unavailable-generic-matrix
   security_gate: APPROVED
+release:
+  pr: https://github.com/wippyai/runtime/pull/531
+  code_head: b8be4156b77377cf6d2e8e02066dc7b7645549cd
+  ci_verified: true
+  ci_run: https://github.com/wippyai/runtime/actions/runs/30409751006
+  codeql_run: https://github.com/wippyai/runtime/actions/runs/30409749369
+  checks:
+    lint: pass
+    codeql: pass
+    ubuntu: pass
+    windows: pass

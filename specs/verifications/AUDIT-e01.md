@@ -33,6 +33,7 @@
 - ✓ The one newly visible SQS conformance skip is pre-existing Docker coverage uncovered by fixing short-mode `TestMain`; no planned fingerprint skips.
 - ✓ Statement coverage rose from 61.4% to 62.9%; changed-statement coverage is 82.5%.
 - ✓ All 36 changed Go packages cross-compiled for Windows/amd64.
+- ✓ Native Windows CI exposed and then verified the platform-native L08 absolute-path correction in `b8be4156`; the final lint, CodeQL, Ubuntu, and Windows checks are green.
 
 ## Safety, Performance, and Complexity
 
@@ -48,5 +49,5 @@
 - Generic traceability tooling is absent, so `specs/verifications/TRACE-e01.md` records WAIVED; Gate v4 remains the task-specific executable trace for all 12 stories and 165 fingerprints.
 - Performance benchmarking was not run because `/opt/workspace/wippy/CLAUDE.md` explicitly exempts projects under this workspace from performance and memory testing. Correctness, race, and coverage gates were still run.
 - Live cloud, Kubernetes, and production infrastructure were not mutated; all integration-dependent paths remained disabled or read-only. Local Docker executed only the read-only Linux/amd64 test container.
-- The exact final Linux JSON report attests code head `0fa36ce9`.
+- The exact final Linux JSON report attests code head `0fa36ce9`; the only later source commit makes L08's absolute path platform-native, without changing test identity or production.
 - Gate v4 explicitly approves the two boot/core WS06 review-fix paths, +200 inventory arithmetic, one pre-existing accepted SQS Docker skip, and the valid Windows compile-only profile.

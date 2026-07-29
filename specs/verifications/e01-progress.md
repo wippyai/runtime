@@ -64,6 +64,8 @@
 - Sanitized `test.sh`: PASS with Docker disabled and CDC DSNs unset
 - Tagged binary build, `version --short`, and `--help`: PASS
 - Windows/amd64 compatibility: all 36 changed Go packages cross-compiled with `CGO_ENABLED=0`, `-exec=true`, and runtime tags intentionally omitted
+- GitHub CI first exposed that L08 used a Unix-only absolute path literal; `b8be4156` replaced it with a platform-native absolute temporary path without changing the fingerprint identity or oracle
+- GitHub CI at code head `b8be4156`: lint, CodeQL, Ubuntu tests, and native Windows tests PASS — <https://github.com/wippyai/runtime/actions/runs/30409751006> and <https://github.com/wippyai/runtime/actions/runs/30409749369>
 - Linux final JSON: `/tmp/runtime-test-expansion-linux-amd64/out/test.json`, SHA-256 `c41e732e5368330694637f8315dd491aeb4a592bd11d283a80e4756b43c2a811`
 - Linux coverage profile: `/tmp/runtime-test-expansion-linux-amd64/out/coverage.out`, SHA-256 `b4f966a5a2a183ee5c80e42ec0dc03d24f3cbbc2a5200503b2cc9016ae9880c5`
 - Linux platform attestation: `/tmp/runtime-test-expansion-linux-amd64/out/platform.txt`, SHA-256 `bb62c952d3ed329eb5ea9f46099b66becdc27abe5cf84d41d46bdf37f13d86f3`
