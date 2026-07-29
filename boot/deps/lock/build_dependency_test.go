@@ -3,6 +3,7 @@
 package lock
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -28,6 +29,23 @@ func TestDiffReportsBuildRoleChanges(t *testing.T) {
 			OldBuildOnly: true,
 		},
 	}, changes.Updated)
+}
+
+func TestValidateRejectsRemoteBuildOnlyModuleWithoutDigest(t *testing.T) {
+	lockObj, err := New(filepath.Join(t.TempDir(), DefaultFilename))
+	require.NoError(t, err)
+	lockObj.SetModule(Module{Name: "acme/frontend", Version: "1.0.0", BuildOnly: true})
+	require.EqualError(t, Validate(lockObj), "build-only module acme/frontend requires an artifact digest")
+}
+
+func TestValidateAllowsBuildOnlyReplacementWithoutDigest(t *testing.T) {
+	root := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "local", "frontend"), 0o755))
+	lockObj, err := New(filepath.Join(root, DefaultFilename))
+	require.NoError(t, err)
+	lockObj.SetModule(Module{Name: "acme/frontend", Version: "1.0.0", BuildOnly: true})
+	lockObj.SetReplacement(Replacement{From: "acme/frontend", To: "local/frontend"})
+	require.NoError(t, Validate(lockObj))
 }
 
 func TestValidateRejectsBuildOnlyDeploymentRoot(t *testing.T) {
