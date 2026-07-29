@@ -19,16 +19,17 @@ const (
 )
 
 type ModuleConfig struct {
-	ExcludeMeta  map[string][]string `yaml:"exclude_meta,omitempty"`
-	Metadata     map[string]any      `yaml:"metadata,omitempty"`
-	Publish      PublishConfig       `yaml:"publish,omitempty"`
-	Repository   string              `yaml:"repository,omitempty"`
-	Description  string              `yaml:"description,omitempty"`
-	License      string              `yaml:"license,omitempty"`
-	Version      string              `yaml:"version"`
-	Homepage     string              `yaml:"homepage,omitempty"`
-	ModuleName   string              `yaml:"module"`
-	Organization string              `yaml:"organization"`
+	ExcludeMeta   map[string][]string `yaml:"exclude_meta,omitempty"`
+	Metadata      map[string]any      `yaml:"metadata,omitempty"`
+	Publish       PublishConfig       `yaml:"publish,omitempty"`
+	Repository    string              `yaml:"repository,omitempty"`
+	Description   string              `yaml:"description,omitempty"`
+	License       string              `yaml:"license,omitempty"`
+	Version       string              `yaml:"version"`
+	Homepage      string              `yaml:"homepage,omitempty"`
+	ModuleName    string              `yaml:"module"`
+	Organization  string              `yaml:"organization"`
+	RequiresWippy string              `yaml:"requires_wippy,omitempty"`
 	// Type is the module's kind on the hub: library, application, agent or
 	// plugin. Declaring it here makes the manifest the source of truth — hub
 	// requires it to create a module, and reclassifies the module when it
@@ -128,10 +129,36 @@ func (c *ModuleConfig) Validate() error {
 	if err := ValidateModuleType(c.Type); err != nil {
 		return err
 	}
+	if err := c.ValidateRuntimeVersion("dev"); err != nil {
+		return err
+	}
 	if err := c.validatePublishOwnership(); err != nil {
 		return err
 	}
 
+	return nil
+}
+
+func (c *ModuleConfig) ValidateRuntimeVersion(current string) error {
+	required := strings.TrimSpace(c.RequiresWippy)
+	if required == "" {
+		return nil
+	}
+	constraint, err := semver.NewConstraint(required)
+	if err != nil {
+		return fmt.Errorf("requires_wippy must be a valid semver constraint: %w", err)
+	}
+	current = strings.TrimSpace(current)
+	if current == "dev" {
+		return nil
+	}
+	currentVersion, err := semver.NewVersion(current)
+	if err != nil {
+		return fmt.Errorf("wippy version %q is not valid semver: %w", current, err)
+	}
+	if !constraint.Check(currentVersion) {
+		return fmt.Errorf("wippy %s does not satisfy requires_wippy %s", current, required)
+	}
 	return nil
 }
 
@@ -165,6 +192,9 @@ func (c *ModuleConfig) ValidateForLabel() error {
 	}
 
 	if err := ValidateModuleType(c.Type); err != nil {
+		return err
+	}
+	if err := c.ValidateRuntimeVersion("dev"); err != nil {
 		return err
 	}
 	if err := c.validatePublishOwnership(); err != nil {
