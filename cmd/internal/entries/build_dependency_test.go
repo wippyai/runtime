@@ -15,8 +15,27 @@ import (
 	depconfig "github.com/wippyai/runtime/boot/deps/config"
 	"github.com/wippyai/runtime/boot/deps/hub"
 	"github.com/wippyai/runtime/boot/deps/lock"
+	"github.com/wippyai/wapp"
 	"go.uber.org/zap"
 )
+
+func TestExtractInstalledBuildModulePreservesVerifiedArtifact(t *testing.T) {
+	root := t.TempDir()
+	wappPath := createTestWappFile(t, root, "frontend", []wapp.Entry{{
+		ID: wapp.NewID("frontend", "package"), Kind: "ns.definition",
+	}})
+	content, err := os.ReadFile(wappPath)
+	require.NoError(t, err)
+	digest := sha256.Sum256(content)
+	dirPath := filepath.Join(root, "frontend")
+
+	require.NoError(t, extractInstalledModule(wappPath, dirPath, true))
+	require.FileExists(t, wappPath)
+	require.DirExists(t, dirPath)
+	valid, err := hub.VerifyCachedArtifact(wappPath, fmt.Sprintf("sha256:%x", digest))
+	require.NoError(t, err)
+	require.True(t, valid)
+}
 
 func TestVerifyCachedArtifactRejectsCorruption(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "module.wapp")
@@ -82,6 +101,33 @@ entries:
 	require.NoError(t, err)
 	require.Len(t, loaded, 1)
 	require.Equal(t, regapi.Kind("function.lua"), loaded[0].Kind)
+}
+
+func TestValidateBuildOnlyReplacementSourcesUsesArtifactPaths(t *testing.T) {
+	ctx := setupTestContext(t)
+	root := t.TempDir()
+	replacementRoot := filepath.Join(root, "replacement")
+	require.NoError(t, os.MkdirAll(filepath.Join(replacementRoot, "src"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(replacementRoot, "wippy.yaml"), []byte("organization: local\nmodule: frontend\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(replacementRoot, "src", "_index.yaml"), []byte(`version: "1.0"
+namespace: local.frontend
+entries:
+  - name: package
+    kind: ns.build_dependency
+    component: acme/package
+    version: 2.0.0
+`), 0o644))
+	lockObj, err := lock.New(filepath.Join(root, lock.DefaultFilename))
+	require.NoError(t, err)
+	lockObj.SetModule(lock.Module{Name: "local/frontend", Version: "1.0.0", BuildOnly: true})
+	lockObj.SetReplacement(lock.Replacement{From: "local/frontend", To: "replacement"})
+	require.NoError(t, lock.Validate(lockObj))
+
+	err = validateBuildOnlyReplacementSources(ctx, lockObj, zap.NewNop())
+	require.EqualError(t, err, "ns.build_dependency requires requires_wippy in wippy.yaml")
+
+	require.NoError(t, os.WriteFile(filepath.Join(replacementRoot, "wippy.yaml"), []byte("organization: local\nmodule: frontend\nrequires_wippy: '>=0.0.0'\n"), 0o644))
+	require.NoError(t, validateBuildOnlyReplacementSources(ctx, lockObj, zap.NewNop()))
 }
 
 func TestPrepareRuntimeEntriesStripsCompatibleBuildDependencies(t *testing.T) {

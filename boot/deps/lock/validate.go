@@ -11,6 +11,11 @@ import (
 // Validate validates the entire lock file structure.
 // Returns an error if any validation fails.
 func Validate(l *Lock) error {
+	replacements := make(map[string]struct{})
+	for _, replacement := range l.GetReplacements() {
+		replacements[replacement.From] = struct{}{}
+	}
+
 	rootCount := 0
 	for _, mod := range l.data.Modules {
 		if err := ValidateModuleName(mod.Name); err != nil {
@@ -25,6 +30,9 @@ func Validate(l *Lock) error {
 				return NewBuildOnlyRootError(mod.Name)
 			}
 			rootCount++
+		}
+		if _, replaced := replacements[mod.Name]; mod.BuildOnly && mod.Hash == "" && !replaced {
+			return NewBuildOnlyDigestError(mod.Name)
 		}
 	}
 	if rootCount > 1 {

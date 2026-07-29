@@ -184,7 +184,7 @@ func runInstall(cmd *cobra.Command, args []string) error {
 				if shouldUnpack {
 					if _, err := os.Stat(dirPath); os.IsNotExist(err) {
 						logger.Info("unpacking .wapp to directory", zap.String("module", module.Name))
-						if err := entries.ExtractWappToDir(wappPath, dirPath); err != nil {
+						if err := extractInstalledModule(wappPath, dirPath, module.BuildOnly); err != nil {
 							return NewExtractModuleError(module.Name, err)
 						}
 					} else if err != nil {
@@ -202,7 +202,7 @@ func runInstall(cmd *cobra.Command, args []string) error {
 				if err := os.RemoveAll(dirPath); err != nil {
 					return NewStoreModuleError(moduleRef, err)
 				}
-			} else if module.Hash == "" {
+			} else if !module.BuildOnly || module.Hash == "" {
 				resolved := lock.ResolveModuleDir(vendorDir, modName, module.Version)
 				if _, err := os.Stat(resolved.Path); err == nil {
 					logger.Info("module already installed, skipping download",
@@ -259,7 +259,7 @@ func runInstall(cmd *cobra.Command, args []string) error {
 			if err := os.RemoveAll(dirPath); err != nil {
 				return NewStoreModuleError(moduleRef, err)
 			}
-			if err := entries.ExtractWappToDir(wappPath, dirPath); err != nil {
+			if err := extractInstalledModule(wappPath, dirPath, module.BuildOnly); err != nil {
 				return NewExtractModuleError(moduleRef, err)
 			}
 		}
@@ -296,6 +296,13 @@ func runInstall(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+func extractInstalledModule(wappPath, dirPath string, buildOnly bool) error {
+	if buildOnly {
+		return entries.ExtractWappToDirKeepSource(wappPath, dirPath)
+	}
+	return entries.ExtractWappToDir(wappPath, dirPath)
 }
 
 type installSelection struct {

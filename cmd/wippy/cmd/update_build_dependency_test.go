@@ -33,13 +33,15 @@ func TestValidateBuildDependencyRuntimeRequiresCompatibleDeclaration(t *testing.
 
 func TestConvertResolvedToLockPreservesBuildOnlyRole(t *testing.T) {
 	lockObj, err := convertResolvedToLock(filepath.Join(t.TempDir(), "wippy.lock"), []hub.ResolvedModule{
-		{Org: "acme", Name: "frontend", Version: "2.0.0", BuildOnly: true},
+		{Org: "acme", Name: "frontend", Version: "2.0.0", Digest: "sha256:frontend", BuildOnly: true},
 	}, ".wippy", ".")
 	require.NoError(t, err)
 
 	module, ok := lockObj.GetModule("acme/frontend")
 	require.True(t, ok)
 	require.True(t, module.BuildOnly)
+	require.Equal(t, "sha256:frontend", module.Hash)
+	require.NoError(t, lock.Validate(lockObj))
 }
 
 func TestExtractRootDependenciesPreservesBuildRole(t *testing.T) {

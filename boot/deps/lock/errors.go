@@ -34,6 +34,10 @@ func NewBuildOnlyRootError(moduleName string) apierror.Error {
 	return apierror.New(apierror.Invalid, fmt.Sprintf("deployment root %s cannot be build-only", moduleName)).WithRetryable(apierror.False)
 }
 
+func NewBuildOnlyDigestError(moduleName string) apierror.Error {
+	return apierror.New(apierror.Invalid, fmt.Sprintf("build-only module %s requires an artifact digest", moduleName)).WithRetryable(apierror.False)
+}
+
 func NewInvalidReplacementsError(cause error) apierror.Error {
 	return apierror.New(apierror.Invalid, "invalid replacements").WithCause(cause)
 }

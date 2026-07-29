@@ -10,3 +10,7 @@ import "github.com/wippyai/runtime/boot/deps/wappextract"
 func ExtractWappToDir(wappPath, targetDir string) error {
 	return wappextract.ExtractWappToDir(wappPath, targetDir)
 }
+
+func ExtractWappToDirKeepSource(wappPath, targetDir string) error {
+	return wappextract.ExtractWappToDirKeepSource(wappPath, targetDir)
+}

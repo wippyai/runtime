@@ -54,6 +54,9 @@ func LoadFromLockFile(ctx context.Context, logger *zap.Logger) error {
 	if err := lock.Validate(lockObj); err != nil {
 		return NewInvalidLockFileError(fmt.Errorf("lock file %s: %w", lockObj.Path(), err))
 	}
+	if err := validateBuildOnlyReplacementSources(ctx, lockObj, logger); err != nil {
+		return NewLoadEntriesFromPathsError(err)
+	}
 
 	if err := ensureModulesInstalledFromLock(ctx, lockObj, logger); err != nil {
 		return NewEnsureModulesInstalledError(err)
@@ -178,7 +181,7 @@ func ensureModulesInstalledFromLock(ctx context.Context, lockObj *lock.Lock, log
 			if shouldUnpack {
 				if _, err := os.Stat(dirPath); os.IsNotExist(err) {
 					logger.Info("unpacking .wapp to directory", zap.String("module", mod.Name))
-					if err := ExtractWappToDir(wappPath, dirPath); err != nil {
+					if err := extractInstalledModule(wappPath, dirPath, mod.BuildOnly); err != nil {
 						return NewExtractModuleError(mod.Name, err)
 					}
 				} else if err != nil {
@@ -195,7 +198,7 @@ func ensureModulesInstalledFromLock(ctx context.Context, lockObj *lock.Lock, log
 			if err := os.RemoveAll(dirPath); err != nil {
 				return NewExtractModuleError(mod.Name, err)
 			}
-		} else if mod.Hash == "" {
+		} else if !mod.BuildOnly || mod.Hash == "" {
 			resolved := lock.ResolveModuleDir(vendorPath, name, mod.Version)
 			if _, err := os.Stat(resolved.Path); err == nil {
 				continue
@@ -272,7 +275,7 @@ func ensureModulesInstalledFromLock(ctx context.Context, lockObj *lock.Lock, log
 			if err := os.RemoveAll(dirPath); err != nil {
 				return NewExtractModuleError(moduleRef, err)
 			}
-			if err := ExtractWappToDir(fullWappPath, dirPath); err != nil {
+			if err := extractInstalledModule(fullWappPath, dirPath, mod.BuildOnly); err != nil {
 				return NewExtractModuleError(moduleRef, err)
 			}
 		}
@@ -281,6 +284,13 @@ func ensureModulesInstalledFromLock(ctx context.Context, lockObj *lock.Lock, log
 
 	logger.Info("modules installed successfully")
 	return nil
+}
+
+func extractInstalledModule(wappPath, dirPath string, buildOnly bool) error {
+	if buildOnly {
+		return ExtractWappToDirKeepSource(wappPath, dirPath)
+	}
+	return ExtractWappToDir(wappPath, dirPath)
 }
 
 // createHubClient creates a hub client using stored credentials.
@@ -400,27 +410,9 @@ func loadEntriesWithModuleMeta(ctx context.Context, modulePaths []lock.ModuleLoa
 	var entries []regapi.Entry
 
 	for _, mp := range modulePaths {
-		loaded, err := loadEntriesFromModulePath(ctx, mp, ldr, dtt, logger)
+		loaded, err := loadPreparedEntriesFromModulePath(ctx, mp, ldr, dtt, logger)
 		if err != nil {
 			return nil, err
-		}
-
-		if shouldApplyModuleConfigFilters(mp) {
-			loaded, err = applyModuleConfigFilters(ctx, mp, loaded, logger)
-			if err != nil {
-				return nil, err
-			}
-		}
-
-		if countBuildDependencies(loaded) > 0 {
-			moduleCfg, err := depconfig.Load(mp.SourceRoot)
-			if err != nil {
-				return nil, err
-			}
-			loaded, err = prepareRuntimeEntries(loaded, moduleCfg, version.Short())
-			if err != nil {
-				return nil, err
-			}
 		}
 
 		for i := range loaded {
@@ -440,6 +432,56 @@ func loadEntriesWithModuleMeta(ctx context.Context, modulePaths []lock.ModuleLoa
 	}
 
 	return entries, nil
+}
+
+func validateBuildOnlyReplacementSources(ctx context.Context, lockObj *lock.Lock, logger *zap.Logger) error {
+	dtt := payload.GetTranscoder(ctx)
+	if dtt == nil {
+		return ErrTranscoderNotFound
+	}
+	ldr := boot.GetLoader(ctx)
+	if ldr == nil {
+		return ErrLoaderNotFound
+	}
+
+	modules := make(map[string]lock.Module)
+	for _, module := range lockObj.GetModules() {
+		modules[module.Name] = module
+	}
+	for _, modulePath := range lockObj.GetArtifactModuleLoadPaths() {
+		module, exists := modules[modulePath.Module]
+		if !exists || !module.BuildOnly {
+			continue
+		}
+		if _, replaced := lockObj.GetReplacement(modulePath.Module); !replaced {
+			continue
+		}
+		if _, err := loadPreparedEntriesFromModulePath(ctx, modulePath, ldr, dtt, logger); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func loadPreparedEntriesFromModulePath(ctx context.Context, modulePath lock.ModuleLoadPath, ldr boot.Loader, dtt payload.Transcoder, logger *zap.Logger) ([]regapi.Entry, error) {
+	loaded, err := loadEntriesFromModulePath(ctx, modulePath, ldr, dtt, logger)
+	if err != nil {
+		return nil, err
+	}
+	if shouldApplyModuleConfigFilters(modulePath) {
+		loaded, err = applyModuleConfigFilters(ctx, modulePath, loaded, logger)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if countBuildDependencies(loaded) == 0 {
+		return loaded, nil
+	}
+	moduleCfg, err := depconfig.Load(modulePath.SourceRoot)
+	if err != nil {
+		return nil, err
+	}
+	return prepareRuntimeEntries(loaded, moduleCfg, version.Short())
 }
 
 func shouldApplyModuleConfigFilters(mp lock.ModuleLoadPath) bool {
