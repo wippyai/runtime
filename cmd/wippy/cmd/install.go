@@ -176,27 +176,41 @@ func runInstall(cmd *cobra.Command, args []string) error {
 		}
 
 		dirPath := filepath.Join(vendorDir, lock.ModulePath(modName))
+		wappPath := filepath.Join(vendorDir, lock.WappPath(modName, module.Version))
 
 		if !refresh {
-			resolved := lock.ResolveModuleDir(vendorDir, modName, module.Version)
-			if resolved.IsWapp {
+			cachedArtifact, verifyErr := hub.VerifyCachedArtifact(wappPath, module.Hash)
+			if cachedArtifact {
 				if shouldUnpack {
-					// Unpack .wapp to directory when unpack is enabled
-					logger.Info("unpacking .wapp to directory", zap.String("module", module.Name))
-					if err := entries.ExtractWappToDir(resolved.Path, dirPath); err != nil {
-						return NewExtractModuleError(module.Name, err)
+					if _, err := os.Stat(dirPath); os.IsNotExist(err) {
+						logger.Info("unpacking .wapp to directory", zap.String("module", module.Name))
+						if err := entries.ExtractWappToDir(wappPath, dirPath); err != nil {
+							return NewExtractModuleError(module.Name, err)
+						}
+					} else if err != nil {
+						return NewStoreModuleError(moduleRef, err)
 					}
 				}
-				// When unpack=false, keep .wapp as-is (already installed)
 				cached++
 				continue
 			}
-			if _, err := os.Stat(resolved.Path); err == nil {
-				logger.Info("module already installed, skipping download",
-					zap.String("module", module.Name),
-					zap.String("version", module.Version))
-				cached++
-				continue
+			if verifyErr != nil {
+				logger.Warn("cached module failed integrity check", zap.String("module", module.Name), zap.Error(verifyErr))
+				if err := os.Remove(wappPath); err != nil && !os.IsNotExist(err) {
+					return NewStoreModuleError(moduleRef, err)
+				}
+				if err := os.RemoveAll(dirPath); err != nil {
+					return NewStoreModuleError(moduleRef, err)
+				}
+			} else if module.Hash == "" {
+				resolved := lock.ResolveModuleDir(vendorDir, modName, module.Version)
+				if _, err := os.Stat(resolved.Path); err == nil {
+					logger.Info("module already installed, skipping download",
+						zap.String("module", module.Name),
+						zap.String("version", module.Version))
+					cached++
+					continue
+				}
 			}
 		}
 
@@ -218,15 +232,26 @@ func runInstall(cmd *cobra.Command, args []string) error {
 			return NewNoContentDownloadedError(moduleRef)
 		}
 
+		expectedDigest, err := hub.ExpectedArtifactDigest(module.Hash, downloadInfo.Digest)
+		if err != nil {
+			return NewDownloadModuleError(moduleRef, err)
+		}
+		if module.BuildOnly && expectedDigest == "" {
+			return NewDownloadModuleError(moduleRef, fmt.Errorf("build dependency has no artifact digest"))
+		}
+
 		// Download .wapp file. Prefer the hub-mediated download path
 		// (one HTTPS hop to the hub, hub-side retry into S3) — same
 		// motivation as publish: a direct-to-S3 GET from a client on a
 		// flaky network fails without retry. Fall back to the legacy
 		// presigned-URL flow only if the new endpoint is missing on
 		// this hub deployment.
-		wappPath := filepath.Join(vendorDir, lock.WappPath(modName, module.Version))
 		if err := downloadWappViaHubOrLegacy(app.Ctx, hubClient, downloadInfo, wappPath); err != nil {
 			return NewDownloadModuleError(moduleRef, err)
+		}
+		if err := hub.VerifyDownloadedArtifact(wappPath, expectedDigest, downloadInfo.Size); err != nil {
+			_ = os.Remove(wappPath)
+			return NewDownloadModuleError(moduleRef, fmt.Errorf("artifact integrity check failed: %w", err))
 		}
 
 		if shouldUnpack {
@@ -240,9 +265,8 @@ func runInstall(cmd *cobra.Command, args []string) error {
 		}
 		// When unpack=false, keep .wapp file as-is
 
-		// Update hash from download info if available
-		if downloadInfo.Digest != "" && module.Hash != downloadInfo.Digest {
-			module.Hash = downloadInfo.Digest
+		if module.Hash == "" && expectedDigest != "" {
+			module.Hash = expectedDigest
 			lockObj.SetModule(module)
 		}
 

@@ -3,16 +3,19 @@
 package cmd
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/attrs"
+	bootapi "github.com/wippyai/runtime/api/boot"
 	"github.com/wippyai/runtime/api/payload"
 	regapi "github.com/wippyai/runtime/api/registry"
 	depconfig "github.com/wippyai/runtime/boot/deps/config"
 	"github.com/wippyai/runtime/boot/deps/hub"
 	"github.com/wippyai/runtime/boot/deps/lock"
+	"go.uber.org/zap"
 )
 
 func TestValidateBuildDependencyRuntimeRequiresCompatibleDeclaration(t *testing.T) {
@@ -88,6 +91,36 @@ func TestExtractRootDependenciesPropagatesBuildRoleThroughReplacement(t *testing
 	}}, graph.replacements)
 }
 
+func TestExtractRootDependenciesPropagatesBuildRoleThroughNestedReplacements(t *testing.T) {
+	ctx := setupLoaderContext(t)
+	entries := []regapi.Entry{
+		{
+			ID: regapi.NewID("app.deps", "frontend"), Kind: regapi.NamespaceBuildDependency,
+			Data: payload.New(map[string]any{"component": "local/frontend", "version": "1.0.0"}),
+		},
+		{
+			ID: regapi.NewID("local.frontend", "theme"), Kind: regapi.NamespaceDependency,
+			Data: payload.New(map[string]any{"component": "local/theme", "version": "2.0.0"}),
+			Meta: attrs.NewBagFrom(map[string]any{"module": "local/frontend"}),
+		},
+		{
+			ID: regapi.NewID("local.theme", "tokens"), Kind: regapi.NamespaceDependency,
+			Data: payload.New(map[string]any{"component": "acme/tokens", "version": "3.0.0"}),
+			Meta: attrs.NewBagFrom(map[string]any{"module": "local/theme"}),
+		},
+	}
+
+	graph, err := resolveDependencyGraph(entries, payload.GetTranscoder(ctx), map[string]bool{
+		"local/frontend": true, "local/theme": true,
+	})
+	require.NoError(t, err)
+	require.Equal(t, []dependencyRequest{{Org: "acme", Module: "tokens", Constraint: "3.0.0", BuildOnly: true}}, graph.dependencies)
+	require.Equal(t, []dependencyRequest{
+		{Org: "local", Module: "frontend", Constraint: "1.0.0", BuildOnly: true},
+		{Org: "local", Module: "theme", Constraint: "2.0.0", BuildOnly: true},
+	}, graph.replacements)
+}
+
 func TestExtractRootDependenciesRuntimeWinsThroughReplacement(t *testing.T) {
 	ctx := setupLoaderContext(t)
 	entries := []regapi.Entry{
@@ -147,7 +180,7 @@ func TestTargetedResolveOptionsPinsOnlyNonTargets(t *testing.T) {
 
 	options := targetedResolveOptions(lockObj, map[string]bool{"acme/target": true}, map[string]bool{"local/replaced": true})
 	require.Equal(t, map[string]string{"acme/frozen": "1.0.0"}, options.LockedVersions)
-	require.Equal(t, map[string]string{"acme/frozen": "sha256:frozen"}, options.LockedDigests)
+	require.Equal(t, map[string]string{"acme/frozen@1.0.0": "sha256:frozen"}, options.LockedDigests)
 }
 
 func TestExtractRootDependenciesRejectsMalformedBuildComponent(t *testing.T) {
@@ -162,6 +195,19 @@ func TestExtractRootDependenciesRejectsMalformedBuildComponent(t *testing.T) {
 	require.EqualError(t, err, "build dependency app.deps:frontend has invalid component frontend")
 }
 
+func TestExtractRootDependenciesPreservesMalformedRuntimeDependencyBehavior(t *testing.T) {
+	ctx := setupLoaderContext(t)
+	entries := []regapi.Entry{{
+		ID:   regapi.NewID("app.deps", "legacy"),
+		Kind: regapi.NamespaceDependency,
+		Data: payload.New("malformed"),
+	}}
+
+	dependencies, err := extractRootDependencies(entries, payload.GetTranscoder(ctx), nil)
+	require.NoError(t, err)
+	require.Empty(t, dependencies)
+}
+
 func TestExtractRootDependenciesRejectsBuildVersionRanges(t *testing.T) {
 	ctx := setupLoaderContext(t)
 	entries := []regapi.Entry{{
@@ -172,6 +218,47 @@ func TestExtractRootDependenciesRejectsBuildVersionRanges(t *testing.T) {
 
 	_, err := extractRootDependencies(entries, payload.GetTranscoder(ctx), nil)
 	require.EqualError(t, err, "build dependency app.deps:frontend must use an exact semver version: >=1.0.0")
+}
+
+func TestLoadDependencyScanEntriesValidatesReplacementRequiresWippy(t *testing.T) {
+	ctx := setupLoaderContext(t)
+	loader := bootapi.GetLoader(ctx)
+	require.NotNil(t, loader)
+	tmpDir := t.TempDir()
+	appDir := filepath.Join(tmpDir, "app")
+	replacementDir := filepath.Join(tmpDir, "local", "frontend")
+	require.NoError(t, os.MkdirAll(appDir, 0o755))
+	require.NoError(t, os.MkdirAll(replacementDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "wippy.yaml"), []byte("requires_wippy: '>=0.0.0'\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(appDir, "_index.yaml"), []byte(`version: "1.0"
+namespace: app.dependencies
+entries:
+  - name: frontend
+    kind: ns.dependency
+    component: local/frontend
+    version: 1.0.0
+`), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(replacementDir, "_index.yaml"), []byte(`version: "1.0"
+namespace: local.frontend
+entries:
+  - name: package
+    kind: ns.build_dependency
+    component: acme/package
+    version: 2.0.0
+`), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(replacementDir, "wippy.yaml"), []byte("organization: local\nmodule: frontend\n"), 0o644))
+
+	lockObj, err := lock.New(filepath.Join(tmpDir, lock.DefaultFilename))
+	require.NoError(t, err)
+	lockObj.SetReplacement(lock.Replacement{From: "local/frontend", To: "local/frontend"})
+	lockObj.SetModule(lock.Module{Name: "local/frontend", Version: "1.0.0"})
+
+	_, err = loadDependencyScanEntries(ctx, loader, appDir, lockObj, zap.NewNop())
+	require.EqualError(t, err, "replacement local/frontend: ns.build_dependency requires requires_wippy in wippy.yaml")
+
+	require.NoError(t, os.WriteFile(filepath.Join(replacementDir, "wippy.yaml"), []byte("organization: local\nmodule: frontend\nrequires_wippy: '>=0.0.0'\n"), 0o644))
+	_, err = loadDependencyScanEntries(ctx, loader, appDir, lockObj, zap.NewNop())
+	require.NoError(t, err)
 }
 
 func TestContainsBuildDependencyChecksDeclarationsBeforeRuntimeWins(t *testing.T) {

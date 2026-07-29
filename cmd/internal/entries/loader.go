@@ -72,22 +72,6 @@ func LoadFromLockFile(ctx context.Context, logger *zap.Logger) error {
 		return NewLoadEntriesFromPathsError(err)
 	}
 
-	var moduleCfg *depconfig.ModuleConfig
-	for _, entry := range entries {
-		if entry.Kind != regapi.NamespaceBuildDependency {
-			continue
-		}
-		moduleCfg, err = depconfig.Load(filepath.Dir(lockObj.Path()))
-		if err != nil {
-			return NewLoadEntriesFromPathsError(err)
-		}
-		break
-	}
-	entries, err = prepareRuntimeEntries(entries, moduleCfg, version.Short())
-	if err != nil {
-		return NewLoadEntriesFromPathsError(err)
-	}
-
 	logger.Info("loaded entries", zap.Int("count", len(entries)))
 
 	// Register .wapp files with embed registry for fs.embed support
@@ -104,12 +88,7 @@ func LoadFromLockFile(ctx context.Context, logger *zap.Logger) error {
 }
 
 func prepareRuntimeEntries(entries []regapi.Entry, cfg *depconfig.ModuleConfig, currentVersion string) ([]regapi.Entry, error) {
-	buildCount := 0
-	for _, entry := range entries {
-		if entry.Kind == regapi.NamespaceBuildDependency {
-			buildCount++
-		}
-	}
+	buildCount := countBuildDependencies(entries)
 	if buildCount == 0 {
 		return entries, nil
 	}
@@ -127,6 +106,16 @@ func prepareRuntimeEntries(entries []regapi.Entry, cfg *depconfig.ModuleConfig, 
 		}
 	}
 	return runtimeEntries, nil
+}
+
+func countBuildDependencies(entries []regapi.Entry) int {
+	count := 0
+	for _, entry := range entries {
+		if entry.Kind == regapi.NamespaceBuildDependency {
+			count++
+		}
+	}
+	return count
 }
 
 // EnsureModulesInstalled checks if modules from the lock file are installed,
@@ -182,22 +171,35 @@ func ensureModulesInstalledFromLock(ctx context.Context, lockObj *lock.Lock, log
 			continue
 		}
 
-		resolved := lock.ResolveModuleDir(vendorPath, name, mod.Version)
-		if resolved.IsWapp {
+		dirPath := filepath.Join(vendorPath, lock.ModulePath(name))
+		wappPath := filepath.Join(vendorPath, lock.WappPath(name, mod.Version))
+		cachedArtifact, verifyErr := hub.VerifyCachedArtifact(wappPath, mod.Hash)
+		if cachedArtifact {
 			if shouldUnpack {
-				// Migrate legacy .wapp to extracted directory when unpack is enabled
-				dirPath := filepath.Join(vendorPath, lock.ModulePath(name))
-				logger.Info("unpacking .wapp to directory", zap.String("module", mod.Name))
-				if err := ExtractWappToDir(resolved.Path, dirPath); err != nil {
+				if _, err := os.Stat(dirPath); os.IsNotExist(err) {
+					logger.Info("unpacking .wapp to directory", zap.String("module", mod.Name))
+					if err := ExtractWappToDir(wappPath, dirPath); err != nil {
+						return NewExtractModuleError(mod.Name, err)
+					}
+				} else if err != nil {
 					return NewExtractModuleError(mod.Name, err)
 				}
 			}
-			// When unpack=false, keep .wapp as-is (already installed)
 			continue
 		}
-
-		if _, err := os.Stat(resolved.Path); err == nil {
-			continue
+		if verifyErr != nil {
+			logger.Warn("cached module failed integrity check", zap.String("module", mod.Name), zap.Error(verifyErr))
+			if err := os.Remove(wappPath); err != nil && !os.IsNotExist(err) {
+				return NewExtractModuleError(mod.Name, err)
+			}
+			if err := os.RemoveAll(dirPath); err != nil {
+				return NewExtractModuleError(mod.Name, err)
+			}
+		} else if mod.Hash == "" {
+			resolved := lock.ResolveModuleDir(vendorPath, name, mod.Version)
+			if _, err := os.Stat(resolved.Path); err == nil {
+				continue
+			}
 		}
 
 		missingModules = append(missingModules, mod)
@@ -245,13 +247,23 @@ func ensureModulesInstalledFromLock(ctx context.Context, lockObj *lock.Lock, log
 		if downloadInfo.URL == "" {
 			return NewNoContentDownloadedError(moduleRef)
 		}
+		expectedDigest, err := hub.ExpectedArtifactDigest(mod.Hash, downloadInfo.Digest)
+		if err != nil {
+			return NewDownloadModuleError(moduleRef, err)
+		}
+		if mod.BuildOnly && expectedDigest == "" {
+			return NewDownloadModuleError(moduleRef, fmt.Errorf("build dependency has no artifact digest"))
+		}
 
-		// Download .wapp file
 		wappPath := lock.WappPath(name, mod.Version)
 		fullWappPath := filepath.Join(vendorPath, wappPath)
 
 		if err := hubClient.DownloadToFile(ctx, downloadInfo.URL, fullWappPath); err != nil {
 			return NewDownloadModuleError(moduleRef, err)
+		}
+		if err := hub.VerifyDownloadedArtifact(fullWappPath, expectedDigest, downloadInfo.Size); err != nil {
+			_ = os.Remove(fullWappPath)
+			return NewDownloadModuleError(moduleRef, fmt.Errorf("artifact integrity check failed: %w", err))
 		}
 
 		if shouldUnpack {
@@ -395,6 +407,17 @@ func loadEntriesWithModuleMeta(ctx context.Context, modulePaths []lock.ModuleLoa
 
 		if shouldApplyModuleConfigFilters(mp) {
 			loaded, err = applyModuleConfigFilters(ctx, mp, loaded, logger)
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		if countBuildDependencies(loaded) > 0 {
+			moduleCfg, err := depconfig.Load(mp.SourceRoot)
+			if err != nil {
+				return nil, err
+			}
+			loaded, err = prepareRuntimeEntries(loaded, moduleCfg, version.Short())
 			if err != nil {
 				return nil, err
 			}

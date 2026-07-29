@@ -3,13 +3,40 @@
 package cmd
 
 import (
+	"crypto/sha256"
+	"fmt"
+	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/spf13/cobra"
+	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/boot/deps/hub"
 	"github.com/wippyai/runtime/boot/deps/lock"
 	"go.uber.org/zap"
 )
+
+func TestVerifyCachedArtifactChecksPinnedDigest(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "module.wapp")
+	content := []byte("module")
+	require.NoError(t, os.WriteFile(path, content, 0o644))
+	digest := sha256.Sum256(content)
+
+	valid, err := hub.VerifyCachedArtifact(path, fmt.Sprintf("sha256:%x", digest))
+	require.NoError(t, err)
+	require.True(t, valid)
+
+	require.NoError(t, os.WriteFile(path, []byte("corrupted"), 0o644))
+	valid, err = hub.VerifyCachedArtifact(path, fmt.Sprintf("sha256:%x", digest))
+	require.False(t, valid)
+	require.ErrorContains(t, err, "digest mismatch")
+}
+
+func TestVerifyCachedArtifactTreatsMissingFileAsCacheMiss(t *testing.T) {
+	valid, err := hub.VerifyCachedArtifact(filepath.Join(t.TempDir(), "missing.wapp"), "sha256:missing")
+	require.NoError(t, err)
+	require.False(t, valid)
+}
 
 func TestShouldBypassInstallCache(t *testing.T) {
 	t.Run("returns false when no flags exist", func(t *testing.T) {

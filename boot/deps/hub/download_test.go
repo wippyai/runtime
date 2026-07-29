@@ -13,6 +13,17 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestExpectedArtifactDigestPreservesPinnedDigest(t *testing.T) {
+	digest, err := ExpectedArtifactDigest("sha256:abc", "sha256:ABC")
+	require.NoError(t, err)
+	require.Equal(t, "sha256:abc", digest)
+}
+
+func TestExpectedArtifactDigestRejectsServerDrift(t *testing.T) {
+	_, err := ExpectedArtifactDigest("sha256:abc", "sha256:def")
+	require.EqualError(t, err, "artifact digest mismatch: lock pins sha256:abc, download reports sha256:def")
+}
+
 func TestDownloadToFileRetriesTransientStatus(t *testing.T) {
 	var attempts int
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

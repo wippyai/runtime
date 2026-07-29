@@ -9,6 +9,21 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestResolveRuntimeWinsAcrossDifferentRootConstraints(t *testing.T) {
+	provider := newFakeProvider()
+	provider.addModule("acme", "shared", "1.0.0")
+	provider.addModule("acme", "shared", "1.1.0")
+
+	result, err := Resolve(context.Background(), provider, []DependencySpec{
+		{Org: "acme", Name: "shared", Constraint: ">=1.0.0"},
+		{Org: "acme", Name: "shared", Constraint: "1.1.0", BuildOnly: true},
+	}, nil)
+	require.NoError(t, err)
+	require.Len(t, result.Modules, 1)
+	require.Equal(t, "1.1.0", result.Modules[0].Version)
+	require.False(t, result.Modules[0].BuildOnly)
+}
+
 func TestResolveClassifiesBuildOnlyReachability(t *testing.T) {
 	provider := newFakeProvider()
 	provider.addModule("acme", "runtime", "1.0.0", ManifestDep{Org: "acme", Name: "shared", Version: "1.0.0"})

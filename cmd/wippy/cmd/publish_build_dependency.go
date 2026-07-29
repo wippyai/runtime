@@ -5,11 +5,14 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"sort"
 
 	"github.com/wippyai/runtime/api/payload"
 	regapi "github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/semver"
+	"github.com/wippyai/runtime/boot/deps/graph"
+	"github.com/wippyai/runtime/boot/deps/hub"
 	"github.com/wippyai/runtime/boot/deps/lock"
 )
 
@@ -31,6 +34,19 @@ func stripBuildDependencies(
 	entries []regapi.Entry,
 	lockObj *lock.Lock,
 ) ([]regapi.Entry, frontendProvenance, error) {
+	if err := lock.Validate(lockObj); err != nil {
+		return nil, frontendProvenance{}, fmt.Errorf("validate build dependency lock: %w", err)
+	}
+	modules := make(map[string]lock.Module)
+	for _, module := range lockObj.GetModules() {
+		modules[module.Name] = module
+	}
+	replacements := make(map[string]struct{})
+	for _, replacement := range lockObj.GetReplacements() {
+		replacements[replacement.From] = struct{}{}
+	}
+	vendorDir := lock.ResolveLockPath(filepath.Dir(lockObj.Path()), lockObj.GetVendorPath())
+
 	provenance := frontendProvenance{ManifestVersion: 1}
 	filtered := make([]regapi.Entry, 0, len(entries))
 	for _, entry := range entries {
@@ -55,7 +71,10 @@ func stripBuildDependencies(
 		if len(definition.Parameters) > 0 {
 			return nil, frontendProvenance{}, fmt.Errorf("build dependency %s cannot declare parameters", entry.ID.String())
 		}
-		module, ok := lockObj.GetModule(definition.Component)
+		if _, replaced := replacements[definition.Component]; replaced {
+			return nil, frontendProvenance{}, fmt.Errorf("build dependency %s uses a local replacement", definition.Component)
+		}
+		module, ok := modules[definition.Component]
 		if !ok || module.Version == "" || module.Hash == "" {
 			return nil, frontendProvenance{}, fmt.Errorf("build dependency %s is not pinned with a digest", definition.Component)
 		}
@@ -66,6 +85,14 @@ func stripBuildDependencies(
 		lockedVersion, err := semver.ParseVersion(module.Version)
 		if err != nil || !declaredVersion.Equal(lockedVersion) {
 			return nil, frontendProvenance{}, fmt.Errorf("build dependency %s requires %s@%s but lock selects %s", entry.ID.String(), definition.Component, definition.Version, module.Version)
+		}
+		moduleName, err := graph.ParseName(definition.Component)
+		if err != nil {
+			return nil, frontendProvenance{}, fmt.Errorf("build dependency %s has invalid component: %w", entry.ID.String(), err)
+		}
+		artifactPath := filepath.Join(vendorDir, lock.WappPath(moduleName, module.Version))
+		if err := hub.VerifyDownloadedArtifact(artifactPath, module.Hash, 0); err != nil {
+			return nil, frontendProvenance{}, fmt.Errorf("verify build dependency %s@%s: %w", definition.Component, module.Version, err)
 		}
 		provenance.Imports = append(provenance.Imports, frontendImportProvenance{
 			Entry:   entry.ID.String(),

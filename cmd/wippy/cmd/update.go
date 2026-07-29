@@ -156,15 +156,6 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 		return NewLoadEntriesFromSourceError(err)
 	}
 	rootDeps := dependencyGraph.dependencies
-	if containsBuildDependency(entries) {
-		moduleCfg, loadErr := depconfig.Load(projectDir)
-		if loadErr != nil {
-			return NewLoadEntriesFromSourceError(loadErr)
-		}
-		if validateErr := validateBuildDependencyRuntime(moduleCfg, entries, version.Short()); validateErr != nil {
-			return NewLoadEntriesFromSourceError(validateErr)
-		}
-	}
 	logger.Info("found root dependencies", zap.Int("count", len(rootDeps)))
 
 	resolvedModules := make([]hub.ResolvedModule, 0)
@@ -348,16 +339,26 @@ func decodeDependencyDeclarations(entries []regapi.Entry, dtt payload.Transcoder
 			continue
 		}
 
+		buildOnly := entry.Kind == regapi.NamespaceBuildDependency
 		var data struct {
 			Component  string `json:"component"`
 			Version    string `json:"version"`
 			Parameters []any  `json:"parameters"`
 		}
 		if err := dtt.Unmarshal(entry.Data, &data); err != nil {
-			return nil, fmt.Errorf("decode dependency %s: %w", entry.ID.String(), err)
+			if buildOnly {
+				return nil, fmt.Errorf("decode dependency %s: %w", entry.ID.String(), err)
+			}
+			continue
 		}
 
-		buildOnly := entry.Kind == regapi.NamespaceBuildDependency
+		parts := strings.SplitN(data.Component, "/", 2)
+		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+			if buildOnly {
+				return nil, fmt.Errorf("build dependency %s has invalid component %s", entry.ID.String(), data.Component)
+			}
+			continue
+		}
 		if buildOnly && len(data.Parameters) > 0 {
 			return nil, fmt.Errorf("build dependency %s cannot declare parameters", entry.ID.String())
 		}
@@ -365,13 +366,6 @@ func decodeDependencyDeclarations(entries []regapi.Entry, dtt payload.Transcoder
 			if _, err := semver.ParseVersion(data.Version); err != nil {
 				return nil, fmt.Errorf("build dependency %s must use an exact semver version: %s", entry.ID.String(), data.Version)
 			}
-		}
-		parts := strings.SplitN(data.Component, "/", 2)
-		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-			if buildOnly {
-				return nil, fmt.Errorf("build dependency %s has invalid component %s", entry.ID.String(), data.Component)
-			}
-			continue
 		}
 
 		owner := ""
@@ -460,16 +454,6 @@ func runTargetedUpdate(cmd *cobra.Command, lockFilePath, srcDir, modulesDir stri
 		return NewLoadEntriesFromSourceError(err)
 	}
 	rootDeps := dependencyGraph.dependencies
-	if containsBuildDependency(entries) {
-		moduleCfg, loadErr := depconfig.Load(filepath.Dir(lockObj.Path()))
-		if loadErr != nil {
-			return NewLoadEntriesFromSourceError(loadErr)
-		}
-		if validateErr := validateBuildDependencyRuntime(moduleCfg, entries, version.Short()); validateErr != nil {
-			return NewLoadEntriesFromSourceError(validateErr)
-		}
-	}
-
 	targetSet := make(map[string]bool, len(effectiveTargets))
 	for _, name := range effectiveTargets {
 		parts := strings.SplitN(name, "/", 2)
@@ -640,11 +624,19 @@ func loadDependencyScanEntries(ctx context.Context, ldr boot.Loader, srcDir stri
 			zap.String("kind", scanPath.label),
 			zap.String("path", absPath))
 
-		cfg, _ := depconfig.Load(scanPath.root)
+		cfg, configErr := depconfig.Load(scanPath.root)
 		sourceFS := depconfig.NewSourceFS(os.DirFS(absPath), cfg, scanPath.root, absPath)
 		loaded, err := ldr.LoadFS(ctx, sourceFS)
 		if err != nil {
 			return nil, fmt.Errorf("%s path %s: %w", scanPath.label, absPath, err)
+		}
+		if containsBuildDependency(loaded) {
+			if configErr != nil {
+				return nil, fmt.Errorf("%s config: %w", scanPath.label, configErr)
+			}
+			if err := validateBuildDependencyRuntime(cfg, loaded, version.Short()); err != nil {
+				return nil, fmt.Errorf("%s: %w", scanPath.label, err)
+			}
 		}
 		if scanPath.module != "" {
 			for i := range loaded {
@@ -682,7 +674,7 @@ func targetedResolveOptions(lockObj *lock.Lock, targets, replacements map[string
 		}
 		versions[module.Name] = module.Version
 		if module.Hash != "" {
-			digests[module.Name] = module.Hash
+			digests[module.Name+"@"+module.Version] = module.Hash
 		}
 	}
 	return &hub.ResolveOptions{LockedVersions: versions, LockedDigests: digests}

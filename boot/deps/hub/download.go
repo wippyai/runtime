@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"connectrpc.com/connect"
@@ -32,6 +33,29 @@ type DownloadInfo struct {
 	Version   string
 	Size      uint64
 	Protected bool
+}
+
+func ExpectedArtifactDigest(pinned, served string) (string, error) {
+	if pinned == "" {
+		return served, nil
+	}
+	if served != "" && !strings.EqualFold(pinned, served) {
+		return "", fmt.Errorf("artifact digest mismatch: lock pins %s, download reports %s", pinned, served)
+	}
+	return pinned, nil
+}
+
+func VerifyCachedArtifact(path, digest string) (bool, error) {
+	if _, err := os.Stat(path); err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	if err := VerifyDownloadedArtifact(path, digest, 0); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 type DownloadParams struct {

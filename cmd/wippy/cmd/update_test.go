@@ -146,6 +146,7 @@ func TestLoadDependencyScanEntriesIncludesWorkspaceReplacement(t *testing.T) {
 	replacementDir := filepath.Join(tmpDir, "local", "component")
 	require.NoError(t, os.MkdirAll(appDir, 0o755))
 	require.NoError(t, os.MkdirAll(replacementDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "wippy.yaml"), []byte("requires_wippy: '>=0.0.0'\n"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(appDir, "_index.yaml"), []byte(`version: "1.0"
 namespace: app.dependencies
 entries:
