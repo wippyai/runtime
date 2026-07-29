@@ -264,8 +264,8 @@ func validateBuildDependencyRuntime(cfg *depconfig.ModuleConfig, entries []regap
 }
 
 type dependencyDeclaration struct {
-	dependencyRequest
 	owner string
+	dependencyRequest
 }
 
 type resolvedDependencyGraph struct {
@@ -306,7 +306,7 @@ func resolveDependencyGraph(entries []regapi.Entry, dtt payload.Transcoder, repl
 		queue = queue[1:]
 		for _, dependency := range byOwner[current.module] {
 			edgeBuild := dependency.BuildDependency
-			dependency.BuildOnly = !(current.runtime && !edgeBuild)
+			dependency.BuildOnly = !current.runtime || edgeBuild
 			dependency.BuildDependency = current.build || edgeBuild
 			component := dependency.Org + "/" + dependency.Module
 			if replacedModules[component] {
