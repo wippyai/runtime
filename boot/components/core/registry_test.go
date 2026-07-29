@@ -67,7 +67,7 @@ func TestRegistryPostgresHistoryRequiresDSN(t *testing.T) {
 	ctx, err := bootpkg.NewBootstrapContext(zap.NewNop(), cfg)
 	require.NoError(t, err)
 
-	loader, err := bootpkg.NewLoader(Registry())
+	loader, err := bootpkg.NewLoader(Artifacts(), Registry())
 	require.NoError(t, err)
 
 	_, err = loader.Load(ctx)

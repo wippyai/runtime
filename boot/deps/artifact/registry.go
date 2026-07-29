@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: MPL-2.0
 
-// Package artifact defines CLI-time artifact format discovery and validation.
+// Package artifact defines format discovery, validation, and materialization
+// for filesystem resources carried by WAPPs.
 //
 // Artifacts remain ordinary WAPP filesystem resources. A resource opts into
-// format-specific validation through meta.artifact.format. This package is not
-// part of runtime boot or registry composition.
+// format-specific handling through meta.artifact.format. Module selection,
+// downloading, integrity verification, and dependency resolution stay with
+// their existing owners.
 package artifact
 
 import (
@@ -50,14 +52,14 @@ type InspectInput struct {
 
 // Format validates one artifact filesystem and derives its identity and stable
 // materialization path. Formats do not download modules, invoke package
-// managers, mutate locks, or participate in runtime boot.
+// managers, mutate locks, or register themselves globally.
 type Format interface {
 	Name() string
 	Inspect(context.Context, InspectInput) (Descriptor, error)
 }
 
-// Registry contains the formats available to a specific CLI operation.
-// Construction is explicit so tests and commands do not share global state.
+// Registry contains the formats available to one explicitly composed caller.
+// Construction is explicit so commands, boot, and tests do not share globals.
 type Registry struct {
 	formats map[string]Format
 }

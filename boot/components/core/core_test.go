@@ -82,7 +82,7 @@ func TestCorePlugins(t *testing.T) {
 		t.Error("PID generator not available in context")
 	}
 
-	lifecycleLoader, err := bootpkg.NewLoader(Registry(), Supervisor())
+	lifecycleLoader, err := bootpkg.NewLoader(Artifacts(), Registry(), Supervisor())
 	require.NoError(t, err)
 	ctx, err = lifecycleLoader.Load(ctx)
 	require.NoError(t, err)

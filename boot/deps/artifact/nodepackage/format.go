@@ -14,7 +14,7 @@ import (
 	"strings"
 
 	"github.com/Masterminds/semver/v3"
-	"github.com/wippyai/runtime/cmd/internal/artifact"
+	"github.com/wippyai/runtime/boot/deps/artifact"
 )
 
 const (

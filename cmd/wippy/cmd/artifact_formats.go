@@ -6,8 +6,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/wippyai/runtime/cmd/internal/artifact"
-	"github.com/wippyai/runtime/cmd/internal/artifact/nodepackage"
+	"github.com/wippyai/runtime/boot/deps/artifact"
+	"github.com/wippyai/runtime/boot/deps/artifact/nodepackage"
 	"github.com/wippyai/wapp"
 )
 
@@ -30,4 +30,20 @@ func validateArtifactResources(
 	}
 	_, err = artifact.InspectResources(ctx, registry, resources, moduleVersion)
 	return err
+}
+
+func materializeArtifactWAPPs(
+	ctx context.Context,
+	packs []artifact.WAPP,
+	root string,
+) error {
+	registry, err := newArtifactRegistry()
+	if err != nil {
+		return err
+	}
+	_, err = artifact.MaterializeWAPPs(ctx, registry, packs, root)
+	if err != nil {
+		return fmt.Errorf("materialize module artifacts: %w", err)
+	}
+	return nil
 }

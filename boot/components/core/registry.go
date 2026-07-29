@@ -16,6 +16,7 @@ import (
 	logapi "github.com/wippyai/runtime/api/logs"
 	regapi "github.com/wippyai/runtime/api/registry"
 	bootpkg "github.com/wippyai/runtime/boot"
+	"github.com/wippyai/runtime/boot/deps/artifact"
 	hubdeps "github.com/wippyai/runtime/boot/deps/hub"
 	"github.com/wippyai/runtime/boot/deps/lock"
 	"github.com/wippyai/runtime/system/registry"
@@ -33,7 +34,7 @@ func Registry() boot.Component {
 
 	return boot.New(boot.P{
 		Name:      RegistryName,
-		DependsOn: []boot.Name{},
+		DependsOn: []boot.Name{ArtifactName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			logger := logapi.GetLogger(ctx).Named("registry")
 			bus := event.GetBus(ctx)
@@ -119,7 +120,7 @@ func Registry() boot.Component {
 
 			registryOpts := []registry.Option{}
 
-			depHandler, err := newDependencyHandler(cfg, logger.Named("dependency"), resolver)
+			depHandler, err := newDependencyHandler(ctx, cfg, logger.Named("dependency"), resolver)
 			if err != nil {
 				logger.Warn("dependency handler disabled", zap.Error(err))
 			} else if depHandler != nil {
@@ -220,6 +221,7 @@ func readKindSlice(cfg boot.Config, key boot.Name) ([]regapi.Kind, bool) {
 }
 
 func newDependencyHandler(
+	ctx context.Context,
 	cfg boot.Config,
 	logger *zap.Logger,
 	resolver regapi.DependencyResolver,
@@ -233,6 +235,11 @@ func newDependencyHandler(
 		Logger:   logger,
 		Resolver: resolver,
 	}
+	artifactRegistry := artifact.GetRegistry(ctx)
+	if artifactRegistry == nil {
+		return nil, fmt.Errorf("artifact registry is not initialized")
+	}
+	opts.Artifacts = artifactRegistry
 	workspaceReplacements, err := lock.WorkspaceReplacements(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("load workspace replacements: %w", err)
@@ -244,6 +251,7 @@ func newDependencyHandler(
 		opts.DownloadTimeout = registryCfg.GetDuration(RegistryDependencyDownloadTimeout, 0)
 		opts.LockPath = registryCfg.GetString(RegistryDependencyLockPath, "")
 		opts.VendorDir = registryCfg.GetString(RegistryDependencyVendorDir, "")
+		opts.ArtifactRoot = registryCfg.GetString(RegistryDependencyArtifactRoot, "")
 	}
 
 	return hubdeps.NewDependencyHandler(opts)

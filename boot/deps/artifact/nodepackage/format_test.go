@@ -8,7 +8,7 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/wippyai/runtime/cmd/internal/artifact"
+	"github.com/wippyai/runtime/boot/deps/artifact"
 	"github.com/wippyai/wapp"
 )
 

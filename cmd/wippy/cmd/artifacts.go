@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"github.com/wippyai/runtime/cmd/internal/artifact"
+	"github.com/wippyai/runtime/boot/deps/artifact"
 	"github.com/wippyai/wapp"
 )
 

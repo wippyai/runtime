@@ -145,7 +145,7 @@ func ensureModulesInstalledFromLock(ctx context.Context, lockObj *lock.Lock, log
 				// Migrate legacy .wapp to extracted directory when unpack is enabled
 				dirPath := filepath.Join(vendorPath, lock.ModulePath(name))
 				logger.Info("unpacking .wapp to directory", zap.String("module", mod.Name))
-				if err := ExtractWappToDir(resolved.Path, dirPath); err != nil {
+				if err := ExtractWappToDirKeepSource(resolved.Path, dirPath); err != nil {
 					return NewExtractModuleError(mod.Name, err)
 				}
 			}
@@ -210,14 +210,21 @@ func ensureModulesInstalledFromLock(ctx context.Context, lockObj *lock.Lock, log
 		if err := hubClient.DownloadToFile(ctx, downloadInfo.URL, fullWappPath); err != nil {
 			return NewDownloadModuleError(moduleRef, err)
 		}
+		if err := hub.VerifyDownloadedArtifact(
+			fullWappPath, downloadInfo.Digest, downloadInfo.Size,
+		); err != nil {
+			_ = os.Remove(fullWappPath)
+			return NewDownloadModuleError(moduleRef, fmt.Errorf("verify downloaded WAPP: %w", err))
+		}
 
 		if shouldUnpack {
-			// Extract .wapp to source directory and remove the .wapp file
+			// Extract to the module directory while retaining the canonical
+			// WAPP for artifact reconciliation and repair.
 			dirPath := filepath.Join(vendorPath, lock.ModulePath(name))
 			if err := os.RemoveAll(dirPath); err != nil {
 				return NewExtractModuleError(moduleRef, err)
 			}
-			if err := ExtractWappToDir(fullWappPath, dirPath); err != nil {
+			if err := ExtractWappToDirKeepSource(fullWappPath, dirPath); err != nil {
 				return NewExtractModuleError(moduleRef, err)
 			}
 		}

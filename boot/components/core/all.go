@@ -13,6 +13,7 @@ func All() []boot.Component {
 		Dispatcher(),
 		WASMIsolation(),
 		Profiler(),
+		Artifacts(),
 		Registry(),
 		Finder(),
 		Security(),
