@@ -539,6 +539,9 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *tea
 			"count": len(carriedResources),
 		}})
 	}
+	if err := validateArtifactResources(app.Ctx, resources, ""); err != nil {
+		return NewPackWithResourcesError(fmt.Errorf("validate artifacts: %w", err))
+	}
 
 	var resInfos []resourceInfo
 	if len(resources) > 0 {
