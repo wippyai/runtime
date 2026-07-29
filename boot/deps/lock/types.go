@@ -28,6 +28,7 @@ type Module struct {
 	Hash      string `yaml:"hash,omitempty"`       // Manifest digest (e.g. sha256:...), populated on install
 	LocalHash string `yaml:"local_hash,omitempty"` // Computed hash from loaded entries for verification
 	Root      bool   `yaml:"root,omitempty"`       // Selected deployment root, not a transitive module
+	BuildOnly bool   `yaml:"build_only,omitempty"`
 }
 
 // Replacement represents a local module override for development.

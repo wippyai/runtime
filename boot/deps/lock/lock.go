@@ -415,6 +415,14 @@ type ModuleLoadPath struct {
 // App source has empty Module/Version.
 // Replacement paths carry Module from replacement "from" and empty Version.
 func (l *Lock) GetModuleLoadPaths() []ModuleLoadPath {
+	return l.getModuleLoadPaths(true)
+}
+
+func (l *Lock) GetArtifactModuleLoadPaths() []ModuleLoadPath {
+	return l.getModuleLoadPaths(false)
+}
+
+func (l *Lock) getModuleLoadPaths(runtimeOnly bool) []ModuleLoadPath {
 	lockDir := filepath.Dir(l.path)
 	replacements := l.effectiveReplacements()
 	paths := make([]ModuleLoadPath, 0, 1+len(replacements)+len(l.data.Modules))
@@ -429,6 +437,9 @@ func (l *Lock) GetModuleLoadPaths() []ModuleLoadPath {
 	replaced := make(map[string]struct{}, len(replacements))
 	for _, repl := range replacements {
 		replaced[repl.From] = struct{}{}
+		if runtimeOnly && l.isBuildOnlyModule(repl.From) {
+			continue
+		}
 		if repl.To != "" {
 			root := ResolveLockPath(lockDir, repl.To)
 			path := moduleEntryLoadPath(root)
@@ -448,6 +459,9 @@ func (l *Lock) GetModuleLoadPaths() []ModuleLoadPath {
 		if _, hasReplacement := replaced[mod.Name]; hasReplacement {
 			continue
 		}
+		if runtimeOnly && mod.BuildOnly {
+			continue
+		}
 
 		name, err := graph.ParseName(mod.Name)
 		if err != nil {
@@ -465,6 +479,11 @@ func (l *Lock) GetModuleLoadPaths() []ModuleLoadPath {
 	}
 
 	return paths
+}
+
+func (l *Lock) isBuildOnlyModule(name string) bool {
+	module, ok := l.GetModule(name)
+	return ok && module.BuildOnly
 }
 
 func moduleEntryLoadPath(root string) string {
