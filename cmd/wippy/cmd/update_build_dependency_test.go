@@ -12,6 +12,7 @@ import (
 	regapi "github.com/wippyai/runtime/api/registry"
 	depconfig "github.com/wippyai/runtime/boot/deps/config"
 	"github.com/wippyai/runtime/boot/deps/hub"
+	"github.com/wippyai/runtime/boot/deps/lock"
 )
 
 func TestValidateBuildDependencyRuntimeRequiresCompatibleDeclaration(t *testing.T) {
@@ -77,11 +78,14 @@ func TestExtractRootDependenciesPropagatesBuildRoleThroughReplacement(t *testing
 		},
 	}
 
-	dependencies, err := extractRootDependencies(entries, payload.GetTranscoder(ctx), map[string]bool{"local/frontend": true})
+	graph, err := resolveDependencyGraph(entries, payload.GetTranscoder(ctx), map[string]bool{"local/frontend": true})
 	require.NoError(t, err)
 	require.Equal(t, []dependencyRequest{{
 		Org: "acme", Module: "runtime", Constraint: "2.0.0", BuildOnly: true,
-	}}, dependencies)
+	}}, graph.dependencies)
+	require.Equal(t, []dependencyRequest{{
+		Org: "local", Module: "frontend", Constraint: "1.0.0", BuildOnly: true,
+	}}, graph.replacements)
 }
 
 func TestExtractRootDependenciesRuntimeWinsThroughReplacement(t *testing.T) {
@@ -105,11 +109,45 @@ func TestExtractRootDependenciesRuntimeWinsThroughReplacement(t *testing.T) {
 		},
 	}
 
-	dependencies, err := extractRootDependencies(entries, payload.GetTranscoder(ctx), map[string]bool{"local/frontend": true})
+	graph, err := resolveDependencyGraph(entries, payload.GetTranscoder(ctx), map[string]bool{"local/frontend": true})
 	require.NoError(t, err)
 	require.Equal(t, []dependencyRequest{{
 		Org: "acme", Module: "runtime", Constraint: "3.0.0",
-	}}, dependencies)
+	}}, graph.dependencies)
+	require.Equal(t, []dependencyRequest{{
+		Org: "local", Module: "frontend", Constraint: "1.0.0",
+	}}, graph.replacements)
+}
+
+func TestPreserveBuildOnlyReplacementModulesRetainsRoleAndRejectsRootTransition(t *testing.T) {
+	oldLock, err := lock.New(filepath.Join(t.TempDir(), "old.lock"))
+	require.NoError(t, err)
+	oldLock.SetModule(lock.Module{Name: "local/frontend", Version: "1.0.0", Root: true})
+	newLock, err := lock.New(filepath.Join(t.TempDir(), "new.lock"))
+	require.NoError(t, err)
+
+	preserveBuildOnlyReplacementModules(newLock, oldLock, []dependencyRequest{{
+		Org: "local", Module: "frontend", Constraint: "2.0.0", BuildOnly: true,
+	}})
+
+	module, ok := newLock.GetModule("local/frontend")
+	require.True(t, ok)
+	require.Equal(t, "1.0.0", module.Version)
+	require.True(t, module.BuildOnly)
+	require.True(t, module.Root)
+	require.EqualError(t, lock.Validate(newLock), "deployment root local/frontend cannot be build-only")
+}
+
+func TestTargetedResolveOptionsPinsOnlyNonTargets(t *testing.T) {
+	lockObj, err := lock.New(filepath.Join(t.TempDir(), lock.DefaultFilename))
+	require.NoError(t, err)
+	lockObj.SetModule(lock.Module{Name: "acme/target", Version: "2.0.0", Hash: "sha256:target", BuildOnly: true})
+	lockObj.SetModule(lock.Module{Name: "acme/frozen", Version: "1.0.0", Hash: "sha256:frozen"})
+	lockObj.SetModule(lock.Module{Name: "local/replaced", Version: "3.0.0", Hash: "sha256:replaced"})
+
+	options := targetedResolveOptions(lockObj, map[string]bool{"acme/target": true}, map[string]bool{"local/replaced": true})
+	require.Equal(t, map[string]string{"acme/frozen": "1.0.0"}, options.LockedVersions)
+	require.Equal(t, map[string]string{"acme/frozen": "sha256:frozen"}, options.LockedDigests)
 }
 
 func TestExtractRootDependenciesRejectsMalformedBuildComponent(t *testing.T) {
@@ -122,6 +160,18 @@ func TestExtractRootDependenciesRejectsMalformedBuildComponent(t *testing.T) {
 
 	_, err := extractRootDependencies(entries, payload.GetTranscoder(ctx), nil)
 	require.EqualError(t, err, "build dependency app.deps:frontend has invalid component frontend")
+}
+
+func TestExtractRootDependenciesRejectsBuildVersionRanges(t *testing.T) {
+	ctx := setupLoaderContext(t)
+	entries := []regapi.Entry{{
+		ID:   regapi.NewID("app.deps", "frontend"),
+		Kind: regapi.NamespaceBuildDependency,
+		Data: payload.New(map[string]any{"component": "acme/frontend", "version": ">=1.0.0"}),
+	}}
+
+	_, err := extractRootDependencies(entries, payload.GetTranscoder(ctx), nil)
+	require.EqualError(t, err, "build dependency app.deps:frontend must use an exact semver version: >=1.0.0")
 }
 
 func TestContainsBuildDependencyChecksDeclarationsBeforeRuntimeWins(t *testing.T) {

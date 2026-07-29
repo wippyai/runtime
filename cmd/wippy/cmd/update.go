@@ -15,6 +15,7 @@ import (
 	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/payload"
 	regapi "github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/semver"
 	"github.com/wippyai/runtime/api/version"
 	bootauth "github.com/wippyai/runtime/boot/deps/auth"
 	depconfig "github.com/wippyai/runtime/boot/deps/config"
@@ -150,10 +151,11 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	}
 
 	replacedModules := effectiveReplacementModules(oldLockObj)
-	rootDeps, err := extractRootDependencies(entries, app.Transcoder, replacedModules)
+	dependencyGraph, err := resolveDependencyGraph(entries, app.Transcoder, replacedModules)
 	if err != nil {
 		return NewLoadEntriesFromSourceError(err)
 	}
+	rootDeps := dependencyGraph.dependencies
 	if containsBuildDependency(entries) {
 		moduleCfg, loadErr := depconfig.Load(projectDir)
 		if loadErr != nil {
@@ -208,6 +210,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	if oldLockObj != nil {
 		preserveReplacements(newLockObj, oldLockObj.GetTrackedReplacements())
 	}
+	preserveBuildOnlyReplacementModules(newLockObj, oldLockObj, dependencyGraph.replacements)
 	if err := lock.Validate(newLockObj); err != nil {
 		return NewInvalidLockFileError(fmt.Errorf("generated lock file %s: %w", newLockObj.Path(), err))
 	}
@@ -272,10 +275,20 @@ type dependencyDeclaration struct {
 	owner string
 }
 
+type resolvedDependencyGraph struct {
+	dependencies []dependencyRequest
+	replacements []dependencyRequest
+}
+
 func extractRootDependencies(entries []regapi.Entry, dtt payload.Transcoder, replacedModules map[string]bool) ([]dependencyRequest, error) {
+	graph, err := resolveDependencyGraph(entries, dtt, replacedModules)
+	return graph.dependencies, err
+}
+
+func resolveDependencyGraph(entries []regapi.Entry, dtt payload.Transcoder, replacedModules map[string]bool) (resolvedDependencyGraph, error) {
 	declarations, err := decodeDependencyDeclarations(entries, dtt)
 	if err != nil {
-		return nil, err
+		return resolvedDependencyGraph{}, err
 	}
 
 	byOwner := make(map[string][]dependencyRequest)
@@ -289,6 +302,8 @@ func extractRootDependencies(entries []regapi.Entry, dtt payload.Transcoder, rep
 	}
 	queue := []reachability{{}}
 	replacementRoles := make(map[string]bool)
+	replacementIndexes := make(map[string]int)
+	replacements := make([]dependencyRequest, 0, len(replacedModules))
 	dependencies := make([]dependencyRequest, 0, len(declarations))
 	seen := make(map[string]int)
 
@@ -300,9 +315,15 @@ func extractRootDependencies(entries []regapi.Entry, dtt payload.Transcoder, rep
 			component := dependency.Org + "/" + dependency.Module
 			if replacedModules[component] {
 				previous, visited := replacementRoles[component]
-				if !visited || previous && !dependency.BuildOnly {
+				if !visited {
 					replacementRoles[component] = dependency.BuildOnly
+					replacementIndexes[component] = len(replacements)
+					replacements = append(replacements, dependency)
 					queue = append(queue, reachability{module: component, buildOnly: dependency.BuildOnly})
+				} else if previous && !dependency.BuildOnly {
+					replacementRoles[component] = false
+					replacements[replacementIndexes[component]].BuildOnly = false
+					queue = append(queue, reachability{module: component})
 				}
 				continue
 			}
@@ -317,7 +338,7 @@ func extractRootDependencies(entries []regapi.Entry, dtt payload.Transcoder, rep
 		}
 	}
 
-	return dependencies, nil
+	return resolvedDependencyGraph{dependencies: dependencies, replacements: replacements}, nil
 }
 
 func decodeDependencyDeclarations(entries []regapi.Entry, dtt payload.Transcoder) ([]dependencyDeclaration, error) {
@@ -339,6 +360,11 @@ func decodeDependencyDeclarations(entries []regapi.Entry, dtt payload.Transcoder
 		buildOnly := entry.Kind == regapi.NamespaceBuildDependency
 		if buildOnly && len(data.Parameters) > 0 {
 			return nil, fmt.Errorf("build dependency %s cannot declare parameters", entry.ID.String())
+		}
+		if buildOnly {
+			if _, err := semver.ParseVersion(data.Version); err != nil {
+				return nil, fmt.Errorf("build dependency %s must use an exact semver version: %s", entry.ID.String(), data.Version)
+			}
 		}
 		parts := strings.SplitN(data.Component, "/", 2)
 		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
@@ -429,10 +455,11 @@ func runTargetedUpdate(cmd *cobra.Command, lockFilePath, srcDir, modulesDir stri
 		return NewLoadEntriesFromSourceError(err)
 	}
 
-	rootDeps, err := extractRootDependencies(entries, app.Transcoder, replacedModules)
+	dependencyGraph, err := resolveDependencyGraph(entries, app.Transcoder, replacedModules)
 	if err != nil {
 		return NewLoadEntriesFromSourceError(err)
 	}
+	rootDeps := dependencyGraph.dependencies
 	if containsBuildDependency(entries) {
 		moduleCfg, loadErr := depconfig.Load(filepath.Dir(lockObj.Path()))
 		if loadErr != nil {
@@ -484,6 +511,7 @@ func runTargetedUpdate(cmd *cobra.Command, lockFilePath, srcDir, modulesDir stri
 
 	// Preserve all replacements from current lock file
 	preserveReplacements(newLockObj, lockObj.GetTrackedReplacements())
+	preserveBuildOnlyReplacementModules(newLockObj, oldLockObj, dependencyGraph.replacements)
 	if err := lock.Validate(newLockObj); err != nil {
 		return NewInvalidLockFileError(fmt.Errorf("generated lock file %s: %w", newLockObj.Path(), err))
 	}
@@ -690,6 +718,23 @@ func preserveReplacements(lockObj *lock.Lock, replacements []lock.Replacement) {
 
 	for _, repl := range replacements {
 		lockObj.SetReplacement(repl)
+	}
+}
+
+func preserveBuildOnlyReplacementModules(lockObj, oldLockObj *lock.Lock, replacements []dependencyRequest) {
+	for _, replacement := range replacements {
+		if !replacement.BuildOnly {
+			continue
+		}
+		name := replacement.Org + "/" + replacement.Module
+		module := lock.Module{Name: name, Version: replacement.Constraint, BuildOnly: true}
+		if oldLockObj != nil {
+			if oldModule, ok := oldLockObj.GetModule(name); ok {
+				module.Version = oldModule.Version
+				module.Root = oldModule.Root
+			}
+		}
+		lockObj.SetModule(module)
 	}
 }
 

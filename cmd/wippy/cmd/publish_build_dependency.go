@@ -59,12 +59,12 @@ func stripBuildDependencies(
 		if !ok || module.Version == "" || module.Hash == "" {
 			return nil, frontendProvenance{}, fmt.Errorf("build dependency %s is not pinned with a digest", definition.Component)
 		}
-		constraint, err := semver.ParseConstraint(definition.Version)
+		declaredVersion, err := semver.ParseVersion(definition.Version)
 		if err != nil {
-			return nil, frontendProvenance{}, fmt.Errorf("build dependency %s has invalid version %s: %w", entry.ID.String(), definition.Version, err)
+			return nil, frontendProvenance{}, fmt.Errorf("build dependency %s must use an exact semver version: %s", entry.ID.String(), definition.Version)
 		}
 		lockedVersion, err := semver.ParseVersion(module.Version)
-		if err != nil || !constraint.Match(lockedVersion) {
+		if err != nil || !declaredVersion.Equal(lockedVersion) {
 			return nil, frontendProvenance{}, fmt.Errorf("build dependency %s requires %s@%s but lock selects %s", entry.ID.String(), definition.Component, definition.Version, module.Version)
 		}
 		provenance.Imports = append(provenance.Imports, frontendImportProvenance{
