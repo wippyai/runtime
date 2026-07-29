@@ -164,7 +164,8 @@ entries:
 
 	loaded, err := loadDependencyScanEntries(ctx, ldr, appDir, lockObj, zap.NewNop())
 	require.NoError(t, err)
-	dependencies := extractRootDependencies(loaded, payload.GetTranscoder(ctx))
+	dependencies, err := extractRootDependencies(loaded, payload.GetTranscoder(ctx))
+	require.NoError(t, err)
 	require.Equal(t, []dependencyRequest{{Org: "acme", Module: "runtime", Constraint: "v1.0.0"}}, dependencies)
 }
 
@@ -303,7 +304,10 @@ entries:
 		t.Fatalf("loadDependencyScanEntries failed: %v", err)
 	}
 
-	deps := extractRootDependencies(loaded, payload.GetTranscoder(ctx))
+	deps, err := extractRootDependencies(loaded, payload.GetTranscoder(ctx))
+	if err != nil {
+		t.Fatalf("extractRootDependencies failed: %v", err)
+	}
 	got := map[string]string{}
 	for _, dep := range deps {
 		got[dep.Org+"/"+dep.Module] = dep.Constraint
