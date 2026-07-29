@@ -9,6 +9,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestValidateRejectsBuildOnlyDeploymentRoot(t *testing.T) {
+	lockObj, err := New(filepath.Join(t.TempDir(), DefaultFilename))
+	require.NoError(t, err)
+	lockObj.SetModule(Module{Name: "acme/app", Version: "1.0.0", Root: true, BuildOnly: true})
+	require.EqualError(t, Validate(lockObj), "deployment root acme/app cannot be build-only")
+}
+
 func TestLockSeparatesRuntimeAndArtifactModulePaths(t *testing.T) {
 	lockPath := filepath.Join(t.TempDir(), DefaultFilename)
 	lockObj, err := New(lockPath)
