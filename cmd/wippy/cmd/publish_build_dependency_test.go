@@ -3,14 +3,65 @@
 package cmd
 
 import (
+	"context"
+	"encoding/json"
+	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/payload"
 	regapi "github.com/wippyai/runtime/api/registry"
+	depconfig "github.com/wippyai/runtime/boot/deps/config"
 	"github.com/wippyai/runtime/boot/deps/lock"
+	appinit "github.com/wippyai/runtime/cmd/internal/app"
+	"github.com/wippyai/wapp"
 )
+
+func TestPackModuleStripsBuildDependencies(t *testing.T) {
+	root := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "src"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "src", "_index.yaml"), []byte(`version: "1.0"
+namespace: app
+entries:
+  - name: module
+    kind: ns.definition
+  - name: frontend
+    kind: ns.build_dependency
+    component: acme/frontend
+    version: "2.0.0"
+`), 0o644))
+	lockObj, err := lock.New(filepath.Join(root, lock.DefaultFilename))
+	require.NoError(t, err)
+	lockObj.SetModule(lock.Module{Name: "acme/frontend", Version: "2.0.0", Hash: "sha256:frontend", BuildOnly: true})
+	require.NoError(t, lockObj.Write())
+	app, err := appinit.Init(context.Background(), false, false, false, true, time.Now())
+	require.NoError(t, err)
+	output := filepath.Join(root, "consumer.wapp")
+	_, err = packModule(app.Ctx, app, &depconfig.ModuleConfig{
+		Organization: "acme",
+		ModuleName:   "consumer",
+		Version:      "1.0.0",
+	}, root, output, nil)
+	require.NoError(t, err)
+
+	file, err := os.Open(output)
+	require.NoError(t, err)
+	defer file.Close()
+	reader, err := wapp.NewReader(file)
+	require.NoError(t, err)
+	packedEntries, err := reader.GetEntries()
+	require.NoError(t, err)
+	for _, entry := range packedEntries {
+		require.NotEqual(t, regapi.NamespaceBuildDependency, entry.Kind)
+	}
+	metadata, err := reader.GetMetadata()
+	require.NoError(t, err)
+	encoded, err := json.Marshal(metadata["fe_provenance"])
+	require.NoError(t, err)
+	require.JSONEq(t, `{"manifest_version":1,"imports":[{"entry":"app:frontend","module":"acme/frontend","version":"2.0.0","digest":"sha256:frontend"}]}`, string(encoded))
+}
 
 func TestStripBuildDependenciesRecordsLockedProvenance(t *testing.T) {
 	ctx := setupLoaderContext(t)
