@@ -16,21 +16,19 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	supervisorapi "github.com/wippyai/runtime/api/supervisor"
 	bootpkg "github.com/wippyai/runtime/boot"
+	systemsupervisor "github.com/wippyai/runtime/system/supervisor"
 	"go.uber.org/zap"
 )
 
 type coreManagedService struct {
-	started      chan struct{}
 	stopped      chan struct{}
 	stopDeadline chan time.Time
 	updates      chan any
-	startOne     sync.Once
 	stopOne      sync.Once
 }
 
 func newCoreManagedService() *coreManagedService {
 	return &coreManagedService{
-		started:      make(chan struct{}),
 		stopped:      make(chan struct{}),
 		stopDeadline: make(chan time.Time, 1),
 		updates:      make(chan any),
@@ -38,7 +36,6 @@ func newCoreManagedService() *coreManagedService {
 }
 
 func (s *coreManagedService) Start(context.Context) (<-chan any, error) {
-	s.startOne.Do(func() { close(s.started) })
 	return s.updates, nil
 }
 
@@ -96,6 +93,14 @@ func TestCorePlugins(t *testing.T) {
 	}
 	service := newCoreManagedService()
 	bus := event.GetBus(ctx)
+	stateUpdates := make(chan event.Event, 8)
+	stateSubscriber, err := bus.SubscribeP(
+		runtimeCtx,
+		supervisorapi.System,
+		supervisorapi.ServiceUpdate,
+		stateUpdates,
+	)
+	require.NoError(t, err)
 	bus.Send(runtimeCtx, event.Event{System: registry.System, Kind: registry.TxBegin})
 	bus.Send(runtimeCtx, event.Event{
 		System: supervisorapi.System,
@@ -111,20 +116,21 @@ func TestCorePlugins(t *testing.T) {
 		},
 	})
 	bus.Send(runtimeCtx, event.Event{System: registry.System, Kind: registry.TxCommit})
-	select {
-	case <-service.started:
-	case <-time.After(time.Second):
-		t.Fatal("managed service did not start")
+	startTimeout := time.NewTimer(time.Second)
+	defer startTimeout.Stop()
+serviceRunning:
+	for {
+		select {
+		case update := <-stateUpdates:
+			state, ok := update.Data.(systemsupervisor.State)
+			if update.Path == "test:shutdown" && ok && state.Status == supervisorapi.StatusRunning {
+				break serviceRunning
+			}
+		case <-startTimeout.C:
+			t.Fatal("managed service did not reach running state")
+		}
 	}
-	barrier := make(chan event.Event, 1)
-	_, err = bus.SubscribeP(runtimeCtx, "test", "barrier", barrier)
-	require.NoError(t, err)
-	bus.Send(runtimeCtx, event.Event{System: "test", Kind: "barrier"})
-	select {
-	case <-barrier:
-	case <-time.After(time.Second):
-		t.Fatal("event barrier did not complete")
-	}
+	bus.Unsubscribe(runtimeCtx, stateSubscriber)
 	shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancelShutdown()
 	shutdownDeadline, _ := shutdownCtx.Deadline()
