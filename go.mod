@@ -53,6 +53,7 @@ require (
 	github.com/sergi/go-diff v1.4.0
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.11.1
+	github.com/tetratelabs/wazero v1.12.0
 	github.com/tmc/langchaingo v0.1.14
 	github.com/tree-sitter-grammars/tree-sitter-lua v0.5.0
 	github.com/tree-sitter/go-tree-sitter v0.25.0
@@ -82,7 +83,7 @@ require (
 	go.opentelemetry.io/otel/trace v1.44.0
 	go.temporal.io/api v1.63.4
 	go.temporal.io/sdk v1.46.0
-	go.temporal.io/sdk/contrib/opentelemetry v0.8.0
+	go.temporal.io/sdk/contrib/opentelemetry v0.8.1
 	go.uber.org/zap v1.28.0
 	golang.org/x/crypto v0.54.0
 	golang.org/x/net v0.57.0
@@ -213,7 +214,6 @@ require (
 	github.com/tailscale/peercred v0.0.0-20250107143737-35a0c7bd7edc // indirect
 	github.com/tailscale/web-client-prebuilt v0.0.0-20250124233751-d4cd19a26976 // indirect
 	github.com/tailscale/wireguard-go v0.0.0-20260715223240-2e01ba5b00f0 // indirect
-	github.com/tetratelabs/wazero v1.12.0 // indirect
 	github.com/tiendc/go-deepcopy v1.7.2 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
