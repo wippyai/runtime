@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 
 	"github.com/spf13/cobra"
-	bootcore "github.com/wippyai/runtime/boot/components/core"
 	"github.com/wippyai/runtime/boot/deps/artifact"
 	bootauth "github.com/wippyai/runtime/boot/deps/auth"
 	"github.com/wippyai/runtime/boot/deps/graph"
@@ -109,13 +108,7 @@ func runInstall(cmd *cobra.Command, args []string) error {
 	lockDir := filepath.Dir(lockObj.Path())
 	vendorPath := lockObj.GetVendorPath()
 	vendorDir := lock.ResolveLockPath(lockDir, vendorPath)
-	artifactRoot := filepath.Dir(vendorDir)
-	if runtimeCfg != nil {
-		artifactRoot = runtimeCfg.Sub(bootcore.RegistryName).GetString(
-			bootcore.RegistryDependencyArtifactRoot,
-			artifactRoot,
-		)
-	}
+	artifactRoot := artifact.ConfiguredRoot(runtimeCfg, filepath.Dir(vendorDir))
 	shouldUnpack := lockObj.ShouldUnpackModules()
 	if len(args) > 0 && selection.matched == 0 {
 		logger.Warn("no matching modules found in lock file", zap.Strings("requested", args))

@@ -2,14 +2,17 @@
 
 package core
 
-import "github.com/wippyai/runtime/api/boot"
+import (
+	"github.com/wippyai/runtime/api/boot"
+	"github.com/wippyai/runtime/boot/deps/artifact"
+)
 
 const (
 	// PIDGenName is the name for the PID generator component
 	PIDGenName         boot.Name = "pidgen"
 	SecurityName       boot.Name = "security"
 	SecurityPolicyName boot.Name = "security.policy"
-	ArtifactName       boot.Name = "artifact"
+	ArtifactName       boot.Name = artifact.ConfigName
 	RegistryName       boot.Name = "registry"
 	FinderName         boot.Name = "finder"
 	SupervisorName     boot.Name = "supervisor"
@@ -50,6 +53,4 @@ const (
 	RegistryDependencyLockPath boot.Name = "dependency_lock_path"
 	// RegistryDependencyVendorDir overrides vendor directory for dependency installs.
 	RegistryDependencyVendorDir boot.Name = "dependency_vendor_dir"
-	// RegistryDependencyArtifactRoot overrides the root for materialized dependency artifacts.
-	RegistryDependencyArtifactRoot boot.Name = "dependency_artifact_root"
 )

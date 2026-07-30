@@ -251,8 +251,8 @@ func newDependencyHandler(
 		opts.DownloadTimeout = registryCfg.GetDuration(RegistryDependencyDownloadTimeout, 0)
 		opts.LockPath = registryCfg.GetString(RegistryDependencyLockPath, "")
 		opts.VendorDir = registryCfg.GetString(RegistryDependencyVendorDir, "")
-		opts.ArtifactRoot = registryCfg.GetString(RegistryDependencyArtifactRoot, "")
 	}
+	opts.ArtifactRoot = artifact.ConfiguredRoot(cfg, "")
 
 	return hubdeps.NewDependencyHandler(opts)
 }
