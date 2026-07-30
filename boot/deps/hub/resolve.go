@@ -66,10 +66,14 @@ func Resolve(ctx context.Context, provider ManifestProvider, roots []DependencyS
 	}, nil
 }
 
-// errConstraintsIncompatible marks a live constraint set that no available
-// version can satisfy simultaneously. The resolver reports it as a conflict
-// error naming the module and every requester.
+// errConstraintsIncompatible marks constraints that cannot be interpreted
+// together (for example, a label mixed with a semantic-version range).
 var errConstraintsIncompatible = errors.New("constraints incompatible")
+
+// errNoAvailableVersion marks a valid live constraint set for which the
+// provider has no published candidate. This is deliberately distinct from an
+// incompatible constraint expression: a newer release may make it resolvable.
+var errNoAvailableVersion = errors.New("no available version satisfies constraints")
 
 // resolver resolves a dependency graph to a fixpoint. Every constraint and every
 // dependency edge is tagged with its source (a root slot or a parent@version), so
@@ -394,7 +398,8 @@ func (r *resolver) resolveVersion(ctx context.Context, org, name string, live []
 }
 
 // resolveIntersection selects the highest available version satisfying every
-// constraint, or errConstraintsIncompatible when none does.
+// constraint, or errNoAvailableVersion when the provider has no matching
+// candidate.
 //
 // The constraints are matched individually rather than concatenated into one
 // string and reparsed: the parser caps a constraint at maxConstraintParts, a
@@ -412,7 +417,7 @@ func (r *resolver) resolveIntersection(ctx context.Context, org, name string, co
 	for _, c := range constraints {
 		p, err := semver.ParseConstraint(c)
 		if err != nil {
-			return "", fmt.Errorf("invalid constraint %q: %w", c, err)
+			return "", fmt.Errorf("%w: %q", errConstraintsIncompatible, c)
 		}
 		parsed = append(parsed, p)
 	}
@@ -447,7 +452,7 @@ func (r *resolver) resolveIntersection(ctx context.Context, org, name string, co
 		return best.Version, nil
 	}
 
-	return "", errConstraintsIncompatible
+	return "", errNoAvailableVersion
 }
 
 // matchesAll reports whether a version satisfies every constraint.
@@ -494,6 +499,15 @@ func (r *resolver) resolutionError(key string, live []string, err error) Resolut
 			Message:    r.conflictMessage(key),
 		}
 	}
+	if errors.Is(err, errNoAvailableVersion) {
+		return ResolutionError{
+			Err:        err,
+			Org:        org,
+			Name:       name,
+			Constraint: strings.Join(live, ", "),
+			Message:    r.availabilityMessage(key),
+		}
+	}
 	return ResolutionError{
 		Err:        err,
 		Org:        org,
@@ -503,9 +517,19 @@ func (r *resolver) resolutionError(key string, live []string, err error) Resolut
 	}
 }
 
+// availabilityMessage names the module and each requester whose valid ranges
+// need a release the provider does not currently offer.
+func (r *resolver) availabilityMessage(key string) string {
+	return r.demandMessage(key, "no available version of")
+}
+
 // conflictMessage names the module and each requester's constraint in deterministic
 // order.
 func (r *resolver) conflictMessage(key string) string {
+	return r.demandMessage(key, "conflicting version constraints for")
+}
+
+func (r *resolver) demandMessage(key, prefix string) string {
 	type demand struct {
 		source     string
 		constraint string
@@ -522,7 +546,7 @@ func (r *resolver) conflictMessage(key string) string {
 	})
 
 	var b strings.Builder
-	fmt.Fprintf(&b, "conflicting version constraints for %s: ", key)
+	fmt.Fprintf(&b, "%s %s: ", prefix, key)
 	for i, d := range demands {
 		if i > 0 {
 			b.WriteString(", ")
@@ -691,7 +715,7 @@ func (r *resolver) resolveConstraint(ctx context.Context, org, name, constraint 
 
 	best, err := parsed.FindBestMatch(semverVersions)
 	if err != nil {
-		return "", fmt.Errorf("no version matching %q", constraint)
+		return "", fmt.Errorf("%w: %s", errNoAvailableVersion, constraint)
 	}
 
 	for _, iv := range indexed {

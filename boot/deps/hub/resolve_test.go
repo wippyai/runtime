@@ -328,7 +328,8 @@ func TestResolve_NoMatchingVersion(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, result.Modules)
 	require.Len(t, result.Errors, 1)
-	assert.Contains(t, result.Errors[0].Message, "no version matching")
+	assert.Contains(t, result.Errors[0].Message, "no available version of acme/lib")
+	assert.NotContains(t, result.Errors[0].Message, "conflicting version constraints")
 }
 
 func TestResolve_PartialSuccess(t *testing.T) {
@@ -786,13 +787,17 @@ func TestResolve_LabelWithDivergentSemverConflicts(t *testing.T) {
 	}, nil)
 	require.NoError(t, err)
 
-	hasConflict := false
+	var conflict *ResolutionError
 	for _, e := range result.Errors {
 		if e.Name == "x" {
-			hasConflict = true
+			conflict = &e
+			break
 		}
 	}
-	assert.True(t, hasConflict, "label vs divergent semver is not deterministically intersectable")
+	require.NotNil(t, conflict, "label vs divergent semver is not deterministically intersectable")
+	assert.Contains(t, conflict.Message, "conflicting version constraints for acme/x")
+	assert.Contains(t, conflict.Message, "@latest")
+	assert.Contains(t, conflict.Message, "^1.0.0")
 }
 
 func TestResolve_MaxDepthEnforcedAgainstLiveDepthAfterRetraction(t *testing.T) {
@@ -1141,9 +1146,9 @@ func TestResolve_ManyParentsWithCompatibleRanges(t *testing.T) {
 	t.Fatal("wippy/dataflow was not resolved at all")
 }
 
-// A genuinely unsatisfiable set must still be reported as a conflict: matching
-// each constraint individually must not turn an incompatibility into a resolve.
-func TestResolve_IncompatibleRangesStillConflict(t *testing.T) {
+// A valid but unsatisfied range set is an availability failure, not a parser
+// conflict. Publishing a compatible release may make it resolvable.
+func TestResolve_IncompatibleRangesReportAvailability(t *testing.T) {
 	p := newFakeProvider()
 	p.addModule("acme", "alpha", "1.0.0", ManifestDep{
 		Org: "wippy", Name: "dataflow", Version: "0.4.31", Constraint: ">=v0.4.10 <v0.5.0",
@@ -1161,6 +1166,7 @@ func TestResolve_IncompatibleRangesStillConflict(t *testing.T) {
 	}, nil)
 	require.NoError(t, err)
 
-	require.NotEmpty(t, result.Errors, "no version satisfies both ranges; this must conflict")
-	assert.Contains(t, result.Errors[0].Message, "conflicting version constraints")
+	require.NotEmpty(t, result.Errors, "no version satisfies both ranges")
+	assert.Contains(t, result.Errors[0].Message, "no available version of wippy/dataflow")
+	assert.NotContains(t, result.Errors[0].Message, "conflicting version constraints")
 }
