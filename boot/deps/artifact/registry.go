@@ -182,8 +182,9 @@ func stringMap(value any) (map[string]any, bool) {
 func (r *Registry) Inspect(ctx context.Context, declaration Declaration, input InspectInput) (Descriptor, error) {
 	format, ok := r.Resolve(declaration.Format)
 	if !ok {
-		return Descriptor{}, fmt.Errorf("%w %q (registered: %s)",
-			ErrUnknownFormat, declaration.Format, strings.Join(r.Names(), ", "))
+		return Descriptor{}, fmt.Errorf("%w %q for artifact %s (registered: %s)",
+			ErrUnknownFormat, declaration.Format, input.ResourceID.String(),
+			strings.Join(r.Names(), ", "))
 	}
 	descriptor, err := format.Inspect(ctx, input)
 	if err != nil {

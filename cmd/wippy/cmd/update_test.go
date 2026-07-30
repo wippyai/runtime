@@ -215,6 +215,36 @@ func TestPruneStaleVendorArtifacts_RemovesStaleArtifacts(t *testing.T) {
 	assertPathMissing(t, updatedOldWapp)
 }
 
+func TestPruneStaleVendorArtifacts_PreservesSameVersionUpdate(t *testing.T) {
+	tmpDir := t.TempDir()
+	lockObj, err := lock.New(filepath.Join(tmpDir, "wippy.lock"))
+	if err != nil {
+		t.Fatalf("create lock: %v", err)
+	}
+
+	vendorDir := filepath.Join(tmpDir, ".wippy", "vendor")
+	currentDir := filepath.Join(vendorDir, "demo", "sql")
+	legacyDir := filepath.Join(vendorDir, "demo", "sql-v1.0.0")
+	currentWapp := filepath.Join(vendorDir, "demo", "sql-v1.0.0.wapp")
+	mustWriteFile(t, filepath.Join(currentDir, "current.txt"))
+	mustWriteFile(t, filepath.Join(legacyDir, "current.txt"))
+	mustWriteFile(t, currentWapp)
+
+	pruneStaleVendorArtifacts(lockObj, &lock.Changes{
+		Updated: []lock.ModuleChange{{
+			Name:       "demo/sql",
+			OldVersion: "v1.0.0",
+			NewVersion: "v1.0.0",
+		}},
+	}, zap.NewNop())
+
+	for _, artifactPath := range []string{currentDir, legacyDir, currentWapp} {
+		if _, err := os.Stat(artifactPath); err != nil {
+			t.Fatalf("same-version artifact %s was pruned: %v", artifactPath, err)
+		}
+	}
+}
+
 func TestLoadDependencyScanEntriesIncludesReplacementSources(t *testing.T) {
 	ctx := setupLoaderContext(t)
 	ldr := bootapi.GetLoader(ctx)

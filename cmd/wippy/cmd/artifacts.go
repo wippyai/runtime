@@ -36,7 +36,10 @@ func init() {
 }
 
 func runArtifactsMaterialize(cmd *cobra.Command, args []string) error {
-	root, _ := cmd.Flags().GetString("root")
+	root, err := cmd.Flags().GetString("root")
+	if err != nil {
+		return fmt.Errorf("read artifact root: %w", err)
+	}
 	resourceID, err := parseArtifactResourceID(args[1])
 	if err != nil {
 		return err
@@ -104,8 +107,14 @@ func runArtifactsMaterialize(cmd *cobra.Command, args []string) error {
 }
 
 func parseArtifactResourceID(value string) (wapp.ID, error) {
-	namespace, name, found := strings.Cut(strings.TrimSpace(value), ":")
-	if !found || namespace == "" || name == "" || strings.Contains(name, ":") {
+	trimmed := strings.TrimSpace(value)
+	namespace, name, found := strings.Cut(trimmed, ":")
+	if !found ||
+		namespace == "" ||
+		name == "" ||
+		namespace != strings.TrimSpace(namespace) ||
+		name != strings.TrimSpace(name) ||
+		strings.Contains(name, ":") {
 		return wapp.ID{}, fmt.Errorf(
 			"invalid artifact resource %q: expected full namespace:name", value)
 	}

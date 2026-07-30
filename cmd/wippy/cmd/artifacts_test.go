@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"testing/fstest"
 
@@ -64,9 +65,21 @@ func TestArtifactsMaterializeFromWapp(t *testing.T) {
 }
 
 func TestParseArtifactResourceIDRequiresFullID(t *testing.T) {
-	for _, invalid := range []string{"", "package", ":package", "ns:", "ns:one:two"} {
+	for _, invalid := range []string{
+		"", "package", ":package", "ns:", "ns:one:two", "ns: name", "ns :name",
+	} {
 		if _, err := parseArtifactResourceID(invalid); err == nil {
 			t.Fatalf("parse %q succeeded", invalid)
 		}
+	}
+}
+
+func TestArtifactsMaterializeRequiresRootFlag(t *testing.T) {
+	err := runArtifactsMaterialize(
+		&cobra.Command{},
+		[]string{"package.wapp", "example:package"},
+	)
+	if err == nil || !strings.Contains(err.Error(), "read artifact root") {
+		t.Fatalf("error = %v, want missing root flag error", err)
 	}
 }

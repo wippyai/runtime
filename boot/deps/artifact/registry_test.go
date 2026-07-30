@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"strings"
 	"testing"
 	"testing/fstest"
 
@@ -90,9 +91,16 @@ func TestRegistryExplicitRegistration(t *testing.T) {
 		t.Fatalf("identity = %q", got.Identity)
 	}
 
-	_, err = registry.Inspect(context.Background(), Declaration{Format: "missing"}, InspectInput{})
+	_, err = registry.Inspect(
+		context.Background(),
+		Declaration{Format: "missing"},
+		InspectInput{ResourceID: wapp.NewID("acme", "missing")},
+	)
 	if !errors.Is(err, ErrUnknownFormat) {
 		t.Fatalf("unknown error = %v", err)
+	}
+	if !strings.Contains(err.Error(), "acme:missing") {
+		t.Fatalf("unknown error lacks resource ID: %v", err)
 	}
 }
 

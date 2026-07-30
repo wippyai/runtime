@@ -609,6 +609,9 @@ func pruneStaleVendorArtifacts(lockObj *lock.Lock, changes *lock.Changes, logger
 		pruneModuleArtifacts(vendorDir, removed.Name, removed.Version, true, logger)
 	}
 	for _, updated := range changes.Updated {
+		if updated.OldVersion == updated.NewVersion {
+			continue
+		}
 		// The current extracted directory now belongs to the newly installed
 		// version. Only versioned storage for the old selection is stale.
 		pruneModuleArtifacts(vendorDir, updated.Name, updated.OldVersion, false, logger)
