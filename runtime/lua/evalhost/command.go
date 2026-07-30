@@ -46,6 +46,8 @@ type RunCmd struct {
 	AllowClasses  []string               // Additional classes to allow (e.g., "process")
 	CustomModules map[string]any         // Custom Lua tables to inject as modules
 	AllowYields   []dispatcher.CommandID // Allowed yield command IDs (empty = no yields)
+	MaxSteps      uint64                 // Scheduler step limit; zero is unlimited when explicitly set.
+	MaxStepsSet   bool                   // Distinguishes an explicit zero from an omitted limit.
 }
 
 func (c RunCmd) CmdID() dispatcher.CommandID {
