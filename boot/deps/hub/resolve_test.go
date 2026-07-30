@@ -787,13 +787,17 @@ func TestResolve_LabelWithDivergentSemverConflicts(t *testing.T) {
 	}, nil)
 	require.NoError(t, err)
 
-	hasConflict := false
+	var conflict *ResolutionError
 	for _, e := range result.Errors {
 		if e.Name == "x" {
-			hasConflict = true
+			conflict = &e
+			break
 		}
 	}
-	assert.True(t, hasConflict, "label vs divergent semver is not deterministically intersectable")
+	require.NotNil(t, conflict, "label vs divergent semver is not deterministically intersectable")
+	assert.Contains(t, conflict.Message, "conflicting version constraints for acme/x")
+	assert.Contains(t, conflict.Message, "@latest")
+	assert.Contains(t, conflict.Message, "^1.0.0")
 }
 
 func TestResolve_MaxDepthEnforcedAgainstLiveDepthAfterRetraction(t *testing.T) {

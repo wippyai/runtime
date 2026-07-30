@@ -417,7 +417,7 @@ func (r *resolver) resolveIntersection(ctx context.Context, org, name string, co
 	for _, c := range constraints {
 		p, err := semver.ParseConstraint(c)
 		if err != nil {
-			return "", fmt.Errorf("invalid constraint %q: %w", c, err)
+			return "", fmt.Errorf("%w: %q", errConstraintsIncompatible, c)
 		}
 		parsed = append(parsed, p)
 	}
