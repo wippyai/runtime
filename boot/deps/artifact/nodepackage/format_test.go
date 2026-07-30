@@ -16,21 +16,21 @@ func TestInspect(t *testing.T) {
 	input := artifact.InspectInput{
 		Filesystem: fstest.MapFS{
 			"package.json": &fstest.MapFile{Data: []byte(
-				`{"name":"@example/ui-kit","version":"0.1.6","scripts":{"build":"vite build"}}`,
+				`{"name":"@example/package","version":"0.1.6","scripts":{"build":"tsc"}}`,
 			)},
 			"dist/index.js": &fstest.MapFile{Data: []byte("export {}")},
 		},
 		ModuleVersion: "0.1.6",
-		ResourceID:    wapp.NewID("example.ui_kit", "package"),
+		ResourceID:    wapp.NewID("example.package", "package"),
 	}
 	got, err := New().Inspect(context.Background(), input)
 	if err != nil {
 		t.Fatalf("inspect: %v", err)
 	}
-	if got.Identity != "@example/ui-kit" || got.Version != "0.1.6" {
+	if got.Identity != "@example/package" || got.Version != "0.1.6" {
 		t.Fatalf("descriptor = %+v", got)
 	}
-	if got.RelativePath != "npm/@example/ui-kit" {
+	if got.RelativePath != "npm/@example/package" {
 		t.Fatalf("relative path = %q", got.RelativePath)
 	}
 }

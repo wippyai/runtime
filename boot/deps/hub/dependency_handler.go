@@ -364,7 +364,7 @@ func (h *DependencyHandler) expand(
 	}
 
 	var effects []regapi.Effect
-	artifactEffect, err := h.buildArtifactEffect(ctx, resolved)
+	artifactEffect, err := h.buildArtifactEffect(ctx, resolved, combined)
 	if err != nil {
 		return regapi.DirectiveResult{}, err
 	}
@@ -782,7 +782,7 @@ func (h *DependencyHandler) ReconcileResolution(
 		return regapi.DirectiveResult{}, err
 	}
 	var effects []regapi.Effect
-	artifactEffect, err := h.buildArtifactEffect(ctx, resolved)
+	artifactEffect, err := h.buildArtifactEffect(ctx, resolved, combined)
 	if err != nil {
 		return regapi.DirectiveResult{}, err
 	}

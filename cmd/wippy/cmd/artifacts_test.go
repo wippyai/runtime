@@ -14,14 +14,14 @@ import (
 )
 
 func TestArtifactsMaterializeFromWapp(t *testing.T) {
-	packPath := filepath.Join(t.TempDir(), "ui-kit.wapp")
+	packPath := filepath.Join(t.TempDir(), "package.wapp")
 	pack, err := os.Create(packPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	resourceID := wapp.NewID("example.ui_kit", "package")
+	resourceID := wapp.NewID("example.package", "package")
 	err = wapp.NewWriter().PackWithResources(
-		wapp.Metadata{"name": "ui-kit", "version": "0.1.6"},
+		wapp.Metadata{"name": "package", "version": "0.1.6"},
 		nil,
 		[]wapp.ResourceSpec{{
 			ID: resourceID,
@@ -30,7 +30,7 @@ func TestArtifactsMaterializeFromWapp(t *testing.T) {
 			},
 			FS: fstest.MapFS{
 				"package.json": &fstest.MapFile{Data: []byte(
-					`{"name":"@example/ui-kit","version":"0.1.6"}`,
+					`{"name":"@example/package","version":"0.1.6"}`,
 				)},
 				"dist/index.js": &fstest.MapFile{Data: []byte("export {}")},
 			},
@@ -54,7 +54,7 @@ func TestArtifactsMaterializeFromWapp(t *testing.T) {
 	); err != nil {
 		t.Fatalf("materialize: %v", err)
 	}
-	data, err := os.ReadFile(filepath.Join(root, "npm", "@example", "ui-kit", "dist", "index.js"))
+	data, err := os.ReadFile(filepath.Join(root, "npm", "@example", "package", "dist", "index.js"))
 	if err != nil {
 		t.Fatal(err)
 	}

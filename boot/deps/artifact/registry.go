@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"io/fs"
 	"path"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -51,10 +52,13 @@ type InspectInput struct {
 }
 
 // Format validates one artifact filesystem and derives its identity and stable
-// materialization path. Formats do not download modules, invoke package
-// managers, mutate locks, or register themselves globally.
+// materialization path. Root names the format-managed subtree below the
+// configured artifact root; exact reconciliation may replace that entire
+// subtree. Formats do not download modules, invoke package managers, mutate
+// locks, or register themselves globally.
 type Format interface {
 	Name() string
+	Root() string
 	Inspect(context.Context, InspectInput) (Descriptor, error)
 }
 
@@ -76,9 +80,24 @@ func (r *Registry) Register(format Format) error {
 	if name == "" {
 		return errors.New("artifact format name is empty")
 	}
+	root := strings.TrimSpace(format.Root())
+	if err := validatePortablePath(root); err != nil {
+		return fmt.Errorf("artifact format %q has invalid root: %w", name, err)
+	}
 
 	if _, exists := r.formats[name]; exists {
 		return fmt.Errorf("%w: %s", ErrDuplicateFormat, name)
+	}
+	for registeredName, registered := range r.formats {
+		registeredRoot := path.Clean(registered.Root())
+		if root != registeredRoot &&
+			(strings.HasPrefix(root, registeredRoot+"/") ||
+				strings.HasPrefix(registeredRoot, root+"/")) {
+			return fmt.Errorf(
+				"artifact format roots overlap: %q owns %q and %q owns %q",
+				registeredName, registeredRoot, name, root,
+			)
+		}
 	}
 	r.formats[name] = format
 	return nil
@@ -102,6 +121,24 @@ func (r *Registry) Names() []string {
 	}
 	sort.Strings(names)
 	return names
+}
+
+// Roots returns the non-overlapping materialization subtrees owned by the
+// registered formats. Multiple formats may intentionally share one root.
+func (r *Registry) Roots() []string {
+	if r == nil {
+		return nil
+	}
+	unique := make(map[string]struct{}, len(r.formats))
+	for _, format := range r.formats {
+		unique[path.Clean(format.Root())] = struct{}{}
+	}
+	roots := make([]string, 0, len(unique))
+	for root := range unique {
+		roots = append(roots, root)
+	}
+	sort.Strings(roots)
+	return roots
 }
 
 // ParseDeclaration reads meta.artifact.format. Metadata without an artifact
@@ -160,6 +197,14 @@ func (r *Registry) Inspect(ctx context.Context, declaration Declaration, input I
 		return Descriptor{}, fmt.Errorf("artifact format returned invalid relative path: %w", err)
 	}
 	descriptor.RelativePath = path.Clean(descriptor.RelativePath)
+	root := path.Clean(format.Root())
+	if descriptor.RelativePath != root &&
+		!strings.HasPrefix(descriptor.RelativePath, root+"/") {
+		return Descriptor{}, fmt.Errorf(
+			"artifact format %q returned path %q outside its root %q",
+			declaration.Format, descriptor.RelativePath, root,
+		)
+	}
 	return descriptor, nil
 }
 
@@ -194,4 +239,12 @@ func isWindowsReservedName(name string) bool {
 	default:
 		return false
 	}
+}
+
+func pathsOverlap(left, right string) bool {
+	left = strings.ToLower(path.Clean(filepath.ToSlash(left)))
+	right = strings.ToLower(path.Clean(filepath.ToSlash(right)))
+	return left == right ||
+		strings.HasPrefix(left, right+"/") ||
+		strings.HasPrefix(right, left+"/")
 }

@@ -9,6 +9,10 @@ import (
 	"testing"
 	"testing/fstest"
 
+	"github.com/wippyai/runtime/api/attrs"
+	"github.com/wippyai/runtime/api/payload"
+	regapi "github.com/wippyai/runtime/api/registry"
+	dirapi "github.com/wippyai/runtime/api/service/fs/directory"
 	"github.com/wippyai/runtime/boot/deps/artifact"
 	"github.com/wippyai/runtime/boot/deps/artifact/nodepackage"
 	"github.com/wippyai/runtime/boot/deps/graph"
@@ -40,7 +44,7 @@ func TestBuildArtifactEffectMaterializesVerifiedResolvedWAPP(t *testing.T) {
 		Org:     name.Organization,
 		Name:    name.Module,
 		Version: "1.0.0",
-	}})
+	}}, nil)
 	if err != nil {
 		t.Fatalf("build artifact effect: %v", err)
 	}
@@ -60,6 +64,120 @@ func TestBuildArtifactEffectMaterializesVerifiedResolvedWAPP(t *testing.T) {
 	}
 	if string(data) != "export {}" {
 		t.Fatalf("materialized content = %q", data)
+	}
+}
+
+func TestBuildArtifactEffectMaterializesLocalReplacement(t *testing.T) {
+	root := t.TempDir()
+	replacement := t.TempDir()
+	if err := os.WriteFile(
+		filepath.Join(replacement, "package.json"),
+		[]byte(`{"name":"@example/package","version":"1.0.0"}`),
+		0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(replacement, "dist"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(replacement, "dist", "index.js"), []byte("local"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	registry := artifact.NewRegistry()
+	if err := registry.Register(nodepackage.New()); err != nil {
+		t.Fatal(err)
+	}
+	handler := &DependencyHandler{
+		artifacts:    registry,
+		artifactRoot: root,
+		replacements: map[string]lock.Replacement{
+			"example/package": {From: "example/package", To: replacement},
+		},
+		logger: zap.NewNop(),
+	}
+	state := regapi.State{{
+		ID:   regapi.NewID("example.package", "artifact"),
+		Kind: dirapi.Kind,
+		Meta: attrs.NewBagFrom(map[string]any{
+			metaModuleKey: "example/package",
+			"artifact":    map[string]any{"format": "node-package"},
+		}),
+		Data: payload.New(map[string]any{
+			"directory": ".",
+			"base":      dirapi.BaseModule,
+		}),
+	}}
+	effect, err := handler.buildArtifactEffect(newTestContext(), []ResolvedModule{{
+		Org:     "example",
+		Name:    "package",
+		Version: "1.0.0",
+		Source:  moduleSourceReplacementTreeV1,
+	}}, state)
+	if err != nil {
+		t.Fatalf("build artifact effect: %v", err)
+	}
+	if err := effect.Prepare(context.Background()); err != nil {
+		t.Fatalf("prepare: %v", err)
+	}
+	if err := effect.Commit(context.Background()); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+	if finalizer, ok := effect.(regapi.FinalizingEffect); ok {
+		if err := finalizer.Finalize(context.Background()); err != nil {
+			t.Fatalf("finalize: %v", err)
+		}
+	}
+
+	data, err := os.ReadFile(filepath.Join(root, "npm", "@example", "package", "dist", "index.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "local" {
+		t.Fatalf("materialized content = %q", data)
+	}
+}
+
+func TestBuildArtifactEffectRemovesOutputsWhenGraphIsEmpty(t *testing.T) {
+	root := t.TempDir()
+	stale := filepath.Join(root, "npm", "@example", "removed", "index.js")
+	if err := os.MkdirAll(filepath.Dir(stale), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(stale, []byte("stale"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	registry := artifact.NewRegistry()
+	if err := registry.Register(nodepackage.New()); err != nil {
+		t.Fatal(err)
+	}
+	handler := &DependencyHandler{
+		artifacts:    registry,
+		artifactRoot: root,
+		replacements: map[string]lock.Replacement{},
+		logger:       zap.NewNop(),
+	}
+	effect, err := handler.buildArtifactEffect(context.Background(), nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if effect == nil {
+		t.Fatal("expected exact reconciliation effect")
+	}
+	if err := effect.Prepare(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := effect.Commit(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if finalizer, ok := effect.(regapi.FinalizingEffect); ok {
+		if err := finalizer.Finalize(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := os.Stat(stale); !os.IsNotExist(err) {
+		t.Fatalf("removed artifact remains: %v", err)
 	}
 }
 

@@ -35,6 +35,12 @@ func InspectResources(
 		if !declared {
 			continue
 		}
+		if resource.FS == nil {
+			return nil, fmt.Errorf("resource %s has no filesystem", resource.ID.String())
+		}
+		if _, err := digestTree(resource.FS); err != nil {
+			return nil, fmt.Errorf("validate artifact resource %s: %w", resource.ID.String(), err)
+		}
 		descriptor, err := registry.Inspect(ctx, declaration, InspectInput{
 			Filesystem:    resource.FS,
 			ModuleVersion: moduleVersion,
@@ -44,10 +50,14 @@ func InspectResources(
 			return nil, err
 		}
 		destinationKey := strings.ToLower(descriptor.RelativePath)
-		if previous, exists := destinations[destinationKey]; exists {
-			return nil, fmt.Errorf(
-				"artifact resources %s and %s materialize to the same path %q",
-				previous.String(), resource.ID.String(), descriptor.RelativePath)
+		for previousPath, previous := range destinations {
+			if pathsOverlap(destinationKey, previousPath) {
+				return nil, fmt.Errorf(
+					"artifact resources %s at %q and %s at %q have overlapping outputs",
+					previous.String(), previousPath,
+					resource.ID.String(), descriptor.RelativePath,
+				)
+			}
 		}
 		destinations[destinationKey] = resource.ID
 		inspected = append(inspected, InspectedResource{

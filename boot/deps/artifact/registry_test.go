@@ -5,6 +5,7 @@ package artifact
 import (
 	"context"
 	"errors"
+	"os"
 	"testing"
 	"testing/fstest"
 
@@ -13,10 +14,17 @@ import (
 
 type testFormat struct {
 	name       string
+	root       string
 	descriptor Descriptor
 }
 
 func (f testFormat) Name() string { return f.name }
+func (f testFormat) Root() string {
+	if f.root == "" {
+		return "artifacts"
+	}
+	return f.root
+}
 
 func (f testFormat) Inspect(context.Context, InspectInput) (Descriptor, error) {
 	return f.descriptor, nil
@@ -107,5 +115,69 @@ func TestInspectResourcesRejectsDestinationCollision(t *testing.T) {
 	}, "")
 	if err == nil {
 		t.Fatal("expected destination collision")
+	}
+}
+
+func TestRegistryRejectsOverlappingOwnedRoots(t *testing.T) {
+	registry := NewRegistry()
+	if err := registry.Register(testFormat{name: "one", root: "generated"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.Register(testFormat{name: "two", root: "generated/nested"}); err == nil {
+		t.Fatal("expected overlapping root error")
+	}
+	if err := registry.Register(testFormat{name: "three", root: "other"}); err != nil {
+		t.Fatalf("register non-overlapping root: %v", err)
+	}
+}
+
+func TestRegistryRejectsDescriptorOutsideOwnedRoot(t *testing.T) {
+	registry := NewRegistry()
+	if err := registry.Register(testFormat{
+		name: "test",
+		root: "generated",
+		descriptor: Descriptor{
+			Identity:     "outside",
+			RelativePath: "other/outside",
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_, err := registry.Inspect(
+		context.Background(),
+		Declaration{Format: "test"},
+		InspectInput{ResourceID: wapp.NewID("example", "outside")},
+	)
+	if err == nil {
+		t.Fatal("expected descriptor root error")
+	}
+}
+
+func TestInspectResourcesRejectsNonRegularArtifactTree(t *testing.T) {
+	registry := NewRegistry()
+	if err := registry.Register(testFormat{
+		name: "test",
+		root: "artifacts",
+		descriptor: Descriptor{
+			Identity:     "unsafe",
+			RelativePath: "artifacts/unsafe",
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_, err := InspectResources(
+		context.Background(),
+		registry,
+		[]wapp.ResourceSpec{{
+			ID:   wapp.NewID("example", "unsafe"),
+			Meta: wapp.Metadata{"artifact": map[string]any{"format": "test"}},
+			FS: fstest.MapFS{
+				"link": &fstest.MapFile{Mode: os.ModeSymlink},
+			},
+		}},
+		"",
+	)
+	if err == nil {
+		t.Fatal("expected non-regular artifact tree error")
 	}
 }

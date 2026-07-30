@@ -25,6 +25,7 @@ func TestMaterializeCreatesExactMirror(t *testing.T) {
 	registry := NewRegistry()
 	if err := registry.Register(testFormat{
 		name: "test",
+		root: "npm",
 		descriptor: Descriptor{
 			Identity:     "@example/ui",
 			Version:      "1.0.0",
@@ -79,6 +80,7 @@ func TestMaterializeRejectsNonPortableResourcePaths(t *testing.T) {
 			registry := NewRegistry()
 			if err := registry.Register(testFormat{
 				name: "test",
+				root: "artifacts",
 				descriptor: Descriptor{
 					Identity:     "example",
 					RelativePath: "artifacts/example",
@@ -104,6 +106,7 @@ func TestMaterializeRejectsEscapingFormatPath(t *testing.T) {
 	registry := NewRegistry()
 	if err := registry.Register(testFormat{
 		name: "test",
+		root: "artifacts",
 		descriptor: Descriptor{
 			Identity:     "escape",
 			RelativePath: "../escape",
@@ -120,5 +123,43 @@ func TestMaterializeRejectsEscapingFormatPath(t *testing.T) {
 	)
 	if err == nil {
 		t.Fatal("expected escaping path error")
+	}
+}
+
+func TestMaterializeRejectsSymlinkedDestinationParent(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(root, "npm")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	registry := NewRegistry()
+	if err := registry.Register(testFormat{
+		name: "test",
+		root: "npm",
+		descriptor: Descriptor{
+			Identity:     "package",
+			RelativePath: "npm/package",
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err := Materialize(
+		context.Background(),
+		registry,
+		Declaration{Format: "test"},
+		InspectInput{
+			Filesystem: fstest.MapFS{
+				"package.json": &fstest.MapFile{Data: []byte("{}")},
+			},
+			ResourceID: wapp.NewID("example", "package"),
+		},
+		root,
+	)
+	if err == nil {
+		t.Fatal("expected symlinked destination parent error")
+	}
+	if _, err := os.Stat(filepath.Join(outside, "package")); !os.IsNotExist(err) {
+		t.Fatalf("materialized outside root: %v", err)
 	}
 }

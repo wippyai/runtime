@@ -208,7 +208,9 @@ func TestPruneStaleVendorArtifacts_RemovesStaleArtifacts(t *testing.T) {
 	assertPathMissing(t, removedDir)
 	assertPathMissing(t, removedLegacyDir)
 	assertPathMissing(t, removedWapp)
-	assertPathMissing(t, updatedDir)
+	if _, err := os.Stat(updatedDir); err != nil {
+		t.Fatalf("updated current module directory was pruned: %v", err)
+	}
 	assertPathMissing(t, updatedLegacyDir)
 	assertPathMissing(t, updatedOldWapp)
 }

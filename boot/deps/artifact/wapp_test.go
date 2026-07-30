@@ -114,6 +114,82 @@ func TestWAPPEffectRejectsPackCollisionBeforeMutation(t *testing.T) {
 	assertFileContent(t, destination, "old")
 }
 
+func TestWAPPEffectReconcilesRegisteredRootToExactSet(t *testing.T) {
+	root := t.TempDir()
+	stale := filepath.Join(root, "npm", "@example", "stale", "index.js")
+	if err := os.MkdirAll(filepath.Dir(stale), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(stale, []byte("stale"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	effect, err := artifact.NewWAPPEffect(testArtifactRegistry(t), nil, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := effect.Prepare(context.Background()); err != nil {
+		t.Fatalf("prepare: %v", err)
+	}
+	if err := effect.Commit(context.Background()); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+	if err := effect.Finalize(context.Background()); err != nil {
+		t.Fatalf("finalize: %v", err)
+	}
+
+	if _, err := os.Stat(stale); !os.IsNotExist(err) {
+		t.Fatalf("stale artifact remains: %v", err)
+	}
+	info, err := os.Stat(filepath.Join(root, "npm"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !info.IsDir() {
+		t.Fatal("managed artifact root is not a directory")
+	}
+}
+
+func TestPartialWAPPEffectPreservesUnselectedOutputs(t *testing.T) {
+	root := t.TempDir()
+	packPath := filepath.Join(t.TempDir(), "selected.wapp")
+	writeArtifactWAPP(t, packPath, "@example/selected", "1.0.0", "new")
+
+	unselected := filepath.Join(root, "npm", "@example", "unselected", "index.js")
+	if err := os.MkdirAll(filepath.Dir(unselected), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(unselected, []byte("keep"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	effect, err := artifact.NewPartialEffect(
+		testArtifactRegistry(t),
+		[]artifact.WAPP{{Path: packPath, ModuleVersion: "1.0.0"}},
+		nil,
+		root,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := effect.Prepare(context.Background()); err != nil {
+		t.Fatalf("prepare: %v", err)
+	}
+	if err := effect.Commit(context.Background()); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+	if err := effect.Finalize(context.Background()); err != nil {
+		t.Fatalf("finalize: %v", err)
+	}
+
+	assertFileContent(t, unselected, "keep")
+	assertFileContent(
+		t,
+		filepath.Join(root, "npm", "@example", "selected", "dist", "index.js"),
+		"new",
+	)
+}
+
 func testArtifactRegistry(t *testing.T) *artifact.Registry {
 	t.Helper()
 	registry := artifact.NewRegistry()

@@ -20,6 +20,7 @@ import (
 const (
 	FormatName          = "node-package"
 	maxPackageJSONBytes = 1 << 20
+	maxPackageNameBytes = 214
 )
 
 type Format struct{}
@@ -30,6 +31,10 @@ func New() *Format {
 
 func (*Format) Name() string {
 	return FormatName
+}
+
+func (*Format) Root() string {
+	return "npm"
 }
 
 type manifest struct {
@@ -133,6 +138,9 @@ func requiredString(raw json.RawMessage, field string) (string, error) {
 }
 
 func validatePackageName(name string) error {
+	if len(name) > maxPackageNameBytes {
+		return fmt.Errorf("package name exceeds %d bytes", maxPackageNameBytes)
+	}
 	parts := []string{name}
 	if strings.HasPrefix(name, "@") {
 		parts = strings.Split(strings.TrimPrefix(name, "@"), "/")
@@ -143,7 +151,8 @@ func validatePackageName(name string) error {
 		return fmt.Errorf("invalid package name %q", name)
 	}
 	for _, part := range parts {
-		if part == "" || part == "." || part == ".." {
+		if part == "" || part == "." || part == ".." ||
+			strings.HasPrefix(part, ".") || strings.HasPrefix(part, "_") {
 			return fmt.Errorf("invalid package name %q", name)
 		}
 		for _, char := range part {
@@ -153,6 +162,9 @@ func validatePackageName(name string) error {
 			}
 			return fmt.Errorf("invalid package name %q", name)
 		}
+	}
+	if len(parts) == 1 && (parts[0] == "node_modules" || parts[0] == "favicon.ico") {
+		return fmt.Errorf("invalid package name %q", name)
 	}
 	return nil
 }
