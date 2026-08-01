@@ -342,12 +342,37 @@ func loadEntriesWithModuleMeta(ctx context.Context, modulePaths []lock.ModuleLoa
 		return nil, ErrLoaderNotFound
 	}
 
+	replacementOwners := make(map[string]struct{})
+	for _, mp := range modulePaths {
+		if mp.Replacement && mp.Module != "" {
+			replacementOwners[mp.Module] = struct{}{}
+		}
+	}
+
 	var entries []regapi.Entry
 
 	for _, mp := range modulePaths {
+		moduleDigest := ""
+		if mp.Replacement {
+			// Replacements are authoritative. If the configured source cannot be
+			// identified, fail instead of silently restoring an embedded generation.
+			root := mp.SourceRoot
+			if root == "" {
+				root = mp.Path
+			}
+			var digestErr error
+			moduleDigest, _, digestErr = hub.ReplacementTreeIdentity(root)
+			if digestErr != nil {
+				return nil, fmt.Errorf("identify replacement module %s: %w", mp.Module, digestErr)
+			}
+		}
+
 		loaded, err := loadEntriesFromModulePath(ctx, mp, ldr, dtt, logger)
 		if err != nil {
 			return nil, err
+		}
+		if !mp.Replacement && len(replacementOwners) > 0 {
+			loaded = excludeReplacementOwnedEntries(loaded, replacementOwners)
 		}
 
 		if shouldApplyModuleConfigFilters(mp) {
@@ -359,7 +384,7 @@ func loadEntriesWithModuleMeta(ctx context.Context, modulePaths []lock.ModuleLoa
 
 		for i := range loaded {
 			if mp.Module != "" {
-				loaded[i] = markModuleMeta(loaded[i], mp.Module, mp.Version)
+				loaded[i] = markModuleIdentity(loaded[i], mp.Module, mp.Version, moduleDigest, mp.Replacement)
 			}
 			if mp.Root && loaded[i].Kind == regapi.NamespaceDependency {
 				loaded[i].DependencyRoot = true
@@ -374,6 +399,21 @@ func loadEntriesWithModuleMeta(ctx context.Context, modulePaths []lock.ModuleLoa
 	}
 
 	return entries, nil
+}
+
+func excludeReplacementOwnedEntries(entries []regapi.Entry, replacementOwners map[string]struct{}) []regapi.Entry {
+	filtered := entries[:0]
+	for _, entry := range entries {
+		owner := ""
+		if entry.Meta != nil {
+			owner = entry.Meta.GetString("module", "")
+		}
+		if _, replaced := replacementOwners[owner]; replaced {
+			continue
+		}
+		filtered = append(filtered, entry)
+	}
+	return filtered
 }
 
 func shouldApplyModuleConfigFilters(mp lock.ModuleLoadPath) bool {
@@ -507,6 +547,26 @@ func markModuleMeta(entry regapi.Entry, moduleName, moduleVersion string) regapi
 	meta.Set("module", moduleName)
 	if moduleVersion != "" {
 		meta.Set("module_version", moduleVersion)
+	}
+	entry.Meta = meta
+	return entry
+}
+
+func markModuleIdentity(entry regapi.Entry, moduleName, moduleVersion, moduleDigest string, replacement bool) regapi.Entry {
+	entry = markModuleMeta(entry, moduleName, moduleVersion)
+	if moduleDigest == "" && !replacement {
+		return entry
+	}
+	meta := attrs.NewBagFrom(entry.Meta)
+	if replacement {
+		if moduleVersion == "" {
+			delete(meta, "module_version")
+		} else {
+			meta.Set("module_version", moduleVersion)
+		}
+	}
+	if moduleDigest != "" {
+		meta.Set("module_digest", moduleDigest)
 	}
 	entry.Meta = meta
 	return entry

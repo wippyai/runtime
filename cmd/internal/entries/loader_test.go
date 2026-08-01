@@ -21,6 +21,7 @@ import (
 	regapi "github.com/wippyai/runtime/api/registry"
 	bootpkg "github.com/wippyai/runtime/boot"
 	"github.com/wippyai/runtime/boot/components/core"
+	"github.com/wippyai/runtime/boot/deps/hub"
 	"github.com/wippyai/runtime/boot/deps/lock"
 	transcoder "github.com/wippyai/runtime/system/payload"
 	yamlpayload "github.com/wippyai/runtime/system/payload/yaml"
@@ -243,6 +244,93 @@ entries:
 	if got := loaded[0].Meta.GetString("module", ""); got != "acme/app" {
 		t.Fatalf("package ownership = %q, want acme/app", got)
 	}
+}
+
+func TestLoadEntriesFromReplacementCarriesCanonicalTreeIdentity(t *testing.T) {
+	ctx := setupTestContext(t)
+	moduleRoot := t.TempDir()
+	sourceDir := filepath.Join(moduleRoot, "src")
+	require.NoError(t, os.MkdirAll(sourceDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(sourceDir, "_index.yaml"), []byte(`version: "1.0"
+namespace: replacement.test
+entries:
+  - name: value
+    kind: test.value
+    data: local
+`), 0o600))
+
+	wantDigest, _, err := hub.ReplacementTreeIdentity(moduleRoot)
+	require.NoError(t, err)
+	loaded, err := LoadEntriesFromModuleLoadPaths(ctx, []lock.ModuleLoadPath{{
+		Path: sourceDir, Module: "acme/replacement", Version: "1.2.3", SourceRoot: moduleRoot, Replacement: true,
+	}}, zap.NewNop())
+	require.NoError(t, err)
+	require.Len(t, loaded, 1)
+	assert.Equal(t, "acme/replacement", loaded[0].Meta.GetString("module", ""))
+	assert.Equal(t, "1.2.3", loaded[0].Meta.GetString("module_version", ""))
+	assert.Equal(t, wantDigest, loaded[0].Meta.GetString("module_digest", ""))
+}
+
+func TestLoadEntriesFromMissingReplacementFailsClosed(t *testing.T) {
+	ctx := setupTestContext(t)
+	missing := filepath.Join(t.TempDir(), "missing")
+
+	_, err := LoadEntriesFromModuleLoadPaths(ctx, []lock.ModuleLoadPath{{
+		Path: missing, Module: "acme/replacement", SourceRoot: missing, Replacement: true,
+	}}, zap.NewNop())
+	require.ErrorContains(t, err, "identify replacement module acme/replacement")
+}
+
+func TestLoadEntriesFromReplacementOwnsEntriesOverApplicationSnapshot(t *testing.T) {
+	ctx := setupTestContext(t)
+	appDir := t.TempDir()
+	replacementRoot := t.TempDir()
+	replacementSource := filepath.Join(replacementRoot, "src")
+	require.NoError(t, os.MkdirAll(replacementSource, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(appDir, "_index.yaml"), []byte(`version: "1.0"
+namespace: ownership.test
+entries:
+  - name: value
+    kind: test.value
+    meta:
+      module: acme/replacement
+      module_version: 0.9.0
+      module_digest: sha256-tree-v1:stale
+    data: stale
+  - name: app_value
+    kind: test.value
+    data: application
+`), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(replacementSource, "_index.yaml"), []byte(`version: "1.0"
+namespace: ownership.test
+entries:
+  - name: value
+    kind: test.value
+    meta:
+      module: acme/replacement
+      module_version: 0.9.0
+      module_digest: sha256-tree-v1:stale
+    data: local
+`), 0o600))
+
+	wantDigest, _, err := hub.ReplacementTreeIdentity(replacementRoot)
+	require.NoError(t, err)
+	loaded, err := LoadEntriesFromModuleLoadPaths(ctx, []lock.ModuleLoadPath{
+		{Path: appDir, Root: true},
+		{Path: replacementSource, Module: "acme/replacement", SourceRoot: replacementRoot, Replacement: true},
+	}, zap.NewNop())
+	require.NoError(t, err)
+	require.Len(t, loaded, 2)
+	byID := make(map[regapi.ID]regapi.Entry, len(loaded))
+	for _, entry := range loaded {
+		byID[entry.ID] = entry
+	}
+	owned := byID[regapi.NewID("ownership.test", "value")]
+	assert.Equal(t, "local", owned.Data.Data())
+	assert.Equal(t, "acme/replacement", owned.Meta.GetString("module", ""))
+	assert.Equal(t, wantDigest, owned.Meta.GetString("module_digest", ""))
+	assert.Empty(t, owned.Meta.GetString("module_version", ""))
+	assert.Equal(t, "application", byID[regapi.NewID("ownership.test", "app_value")].Data.Data())
 }
 
 func TestLoadEntriesFromModuleLoadPathsMarksUnownedAppSourceDependencyRoot(t *testing.T) {

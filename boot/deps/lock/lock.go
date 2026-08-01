@@ -404,16 +404,19 @@ func WappPath(name graph.Name, version string) string {
 
 // ModuleLoadPath pairs a filesystem path with its owning module metadata.
 type ModuleLoadPath struct {
-	Path       string
-	Module     string // module name in org/module format, empty for app source
-	Version    string // module version, empty for app source
-	SourceRoot string // module root for module-relative resources; defaults to Path
-	Root       bool   // selected deployment root from the lock graph
+	Path        string
+	Module      string // module name in org/module format, empty for app source
+	Version     string // module version, empty for app source
+	SourceRoot  string // module root for module-relative resources; defaults to Path
+	Root        bool   // selected deployment root from the lock graph
+	Replacement bool   // source is an effective workspace replacement
 }
 
 // GetModuleLoadPaths returns load paths annotated with module ownership.
 // App source has empty Module/Version.
-// Replacement paths carry Module from replacement "from" and empty Version.
+// Replacement paths carry Module from replacement "from" and retain the
+// selected lock version when one exists. The replacement changes source
+// ownership, not the resolved release identity.
 func (l *Lock) GetModuleLoadPaths() []ModuleLoadPath {
 	lockDir := filepath.Dir(l.path)
 	replacements := l.effectiveReplacements()
@@ -426,6 +429,11 @@ func (l *Lock) GetModuleLoadPaths() []ModuleLoadPath {
 		})
 	}
 
+	selectedVersions := make(map[string]string, len(l.data.Modules))
+	for _, mod := range l.data.Modules {
+		selectedVersions[mod.Name] = mod.Version
+	}
+
 	replaced := make(map[string]struct{}, len(replacements))
 	for _, repl := range replacements {
 		replaced[repl.From] = struct{}{}
@@ -433,10 +441,12 @@ func (l *Lock) GetModuleLoadPaths() []ModuleLoadPath {
 			root := ResolveLockPath(lockDir, repl.To)
 			path := moduleEntryLoadPath(root)
 			paths = append(paths, ModuleLoadPath{
-				Path:       path,
-				Module:     repl.From,
-				SourceRoot: root,
-				Root:       l.IsRootModule(repl.From),
+				Path:        path,
+				Module:      repl.From,
+				Version:     selectedVersions[repl.From],
+				SourceRoot:  root,
+				Root:        l.IsRootModule(repl.From),
+				Replacement: true,
 			})
 		}
 	}
