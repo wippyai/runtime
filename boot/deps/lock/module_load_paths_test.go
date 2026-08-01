@@ -44,8 +44,8 @@ func TestLock_GetModuleLoadPaths(t *testing.T) {
 			t.Fatalf("src path = %+v, want root app path with empty module/version", got)
 		}
 
-		if got := paths[1]; got.Path != filepath.Join(tmpDir, "local/users") || got.SourceRoot != filepath.Join(tmpDir, "local/users") || got.Module != "userspace/users" || got.Version != "" {
-			t.Fatalf("replacement path = %+v, want replacement module and empty version", got)
+		if got := paths[1]; got.Path != filepath.Join(tmpDir, "local/users") || got.SourceRoot != filepath.Join(tmpDir, "local/users") || got.Module != "userspace/users" || got.Version != "v1.2.3" || !got.Replacement {
+			t.Fatalf("replacement path = %+v, want replacement module with selected version", got)
 		}
 
 		if got := paths[2]; got.Path != filepath.Join(tmpDir, ".wippy", "vendor", "demo", "sql") || got.SourceRoot != filepath.Join(tmpDir, ".wippy", "vendor", "demo", "sql") || got.Module != "demo/sql" || got.Version != "v2.0.0" {
@@ -231,8 +231,11 @@ func TestLock_GetModuleLoadPaths(t *testing.T) {
 		if got.Module != "acme/ui" {
 			t.Fatalf("module = %q, want acme/ui", got.Module)
 		}
-		if got.Version != "" {
-			t.Fatalf("replacement version = %q, want empty", got.Version)
+		if got.Version != "v1.0.0" {
+			t.Fatalf("replacement version = %q, want selected version v1.0.0", got.Version)
+		}
+		if !got.Replacement {
+			t.Fatal("replacement path was not marked as replacement source")
 		}
 	})
 
@@ -264,6 +267,12 @@ func TestLock_GetModuleLoadPaths(t *testing.T) {
 		}
 		if got.SourceRoot != replacementDir {
 			t.Fatalf("source root = %q, want replacement root %q", got.SourceRoot, replacementDir)
+		}
+		if got.Version != "" {
+			t.Fatalf("workspace-only replacement version = %q, want empty", got.Version)
+		}
+		if !got.Replacement {
+			t.Fatal("workspace-only source was not marked as replacement")
 		}
 	})
 }
