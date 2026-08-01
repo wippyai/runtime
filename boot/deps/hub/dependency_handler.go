@@ -1940,16 +1940,8 @@ func (h *DependencyHandler) applyModuleConfigFilters(ctx context.Context, module
 	if err != nil {
 		return entries, nil
 	}
-	entryExcludes := cfg.EntryExcludes()
-	if len(entryExcludes) == 0 && len(cfg.ExcludeMeta) == 0 {
-		return entries, nil
-	}
-	filtered := append([]regapi.Entry(nil), entries...)
-	stage := stages.DisableWithOptions(stages.DisableOptions{
-		Entries:     entryExcludes,
-		MetaFilters: cfg.ExcludeMeta,
-	})
-	if err := stage.Execute(ctx, &filtered); err != nil {
+	filtered, err := stages.FilterModuleEntries(ctx, cfg, entries)
+	if err != nil {
 		return nil, NewDependencyLoadError(modulePath, err)
 	}
 	return filtered, nil

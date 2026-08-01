@@ -5,12 +5,21 @@ package modules
 
 import (
 	"context"
+	"errors"
+	"sort"
 	"sync"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
+	regapi "github.com/wippyai/runtime/api/registry"
 )
 
 var sourceRootsKey = &ctxapi.Key{Name: "modules.source_roots"}
+
+var ErrSourceLoaderUnavailable = errors.New("effective deployment source loader unavailable")
+
+// SourceLoader rebuilds the normalized deployment baseline from its established
+// application, packed dependency, and local replacement sources.
+type SourceLoader func(context.Context) ([]regapi.Entry, error)
 
 // SourceRoots maps module names in org/module form to their local load roots.
 type SourceRoots map[string]string
@@ -18,8 +27,9 @@ type SourceRoots map[string]string
 // SourceRootRegistry stores module roots behind a mutex so runtime loaders can
 // add roots after AppContext is sealed without mutating the AppContext itself.
 type SourceRootRegistry struct {
-	roots SourceRoots
-	mu    sync.RWMutex
+	roots  SourceRoots
+	loader SourceLoader
+	mu     sync.RWMutex
 }
 
 // NewSourceRootRegistry creates an empty source root registry.
@@ -102,6 +112,48 @@ func (r *SourceRootRegistry) Get(module string) (string, bool) {
 	return root, ok && root != ""
 }
 
+// Modules returns the names of modules with local directory sources.
+// The paths remain private to Runtime; callers receive capability identifiers.
+func (r *SourceRootRegistry) Modules() []string {
+	if r == nil {
+		return nil
+	}
+
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	modules := make([]string, 0, len(r.roots))
+	for module, root := range r.roots {
+		if module != "" && root != "" {
+			modules = append(modules, module)
+		}
+	}
+	sort.Strings(modules)
+	return modules
+}
+
+func (r *SourceRootRegistry) SetLoader(loader SourceLoader) {
+	if r == nil || loader == nil {
+		return
+	}
+	r.mu.Lock()
+	r.loader = loader
+	r.mu.Unlock()
+}
+
+func (r *SourceRootRegistry) Load(ctx context.Context) ([]regapi.Entry, error) {
+	if r == nil {
+		return nil, ErrSourceLoaderUnavailable
+	}
+	r.mu.RLock()
+	loader := r.loader
+	r.mu.RUnlock()
+	if loader == nil {
+		return nil, ErrSourceLoaderUnavailable
+	}
+	return loader(ctx)
+}
+
 // WithSourceRootRegistry stores an empty registry in AppContext during boot.
 func WithSourceRootRegistry(ctx context.Context) context.Context {
 	ac := ctxapi.AppFromContext(ctx)
@@ -165,4 +217,50 @@ func SourceRoot(ctx context.Context, module string) (string, bool) {
 	}
 
 	return reg.Get(module)
+}
+
+// SourceModules returns stable capability identifiers for modules whose
+// effective source is locally available as a directory.
+func SourceModules(ctx context.Context) []string {
+	ac := ctxapi.AppFromContext(ctx)
+	if ac == nil {
+		return nil
+	}
+
+	reg, ok := ac.Get(sourceRootsKey).(*SourceRootRegistry)
+	if !ok || reg == nil {
+		return nil
+	}
+	return reg.Modules()
+}
+
+// WithSourceLoader registers the deployment's authoritative source reloader.
+func WithSourceLoader(ctx context.Context, loader SourceLoader) context.Context {
+	ac := ctxapi.AppFromContext(ctx)
+	if ac == nil || loader == nil {
+		return ctx
+	}
+	reg, _ := ac.Get(sourceRootsKey).(*SourceRootRegistry)
+	if reg == nil {
+		if ac.IsSealed() {
+			return ctx
+		}
+		reg = NewSourceRootRegistry()
+		ac.With(sourceRootsKey, reg)
+	}
+	reg.SetLoader(loader)
+	return ctx
+}
+
+// LoadSources rebuilds the same normalized baseline used by a restart.
+func LoadSources(ctx context.Context) ([]regapi.Entry, error) {
+	ac := ctxapi.AppFromContext(ctx)
+	if ac == nil {
+		return nil, ErrSourceLoaderUnavailable
+	}
+	reg, ok := ac.Get(sourceRootsKey).(*SourceRootRegistry)
+	if !ok || reg == nil {
+		return nil, ErrSourceLoaderUnavailable
+	}
+	return reg.Load(ctx)
 }

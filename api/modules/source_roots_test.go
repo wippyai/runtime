@@ -4,9 +4,11 @@ package modules
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
+	regapi "github.com/wippyai/runtime/api/registry"
 )
 
 func TestSourceRoots(t *testing.T) {
@@ -40,6 +42,35 @@ func TestSourceRoots(t *testing.T) {
 	root, ok = SourceRoot(ctx, "acme/plugin")
 	if !ok || root != "/repo/plugin" {
 		t.Fatalf("new SourceRoot = %q, %v; want /repo/plugin, true", root, ok)
+	}
+}
+
+func TestSourceModulesAreStableAndPathFree(t *testing.T) {
+	ctx := ctxapi.NewRootContext()
+	ctx = WithSourceRoots(ctx, SourceRoots{
+		"acme/zeta":  "/private/zeta",
+		"acme/alpha": "/private/alpha",
+		"":           "/ignored",
+	})
+
+	got := SourceModules(ctx)
+	if !slices.Equal(got, []string{"acme/alpha", "acme/zeta"}) {
+		t.Fatalf("SourceModules = %v", got)
+	}
+}
+
+func TestSourceLoaderUsesRegisteredDeploymentCapability(t *testing.T) {
+	ctx := ctxapi.NewRootContext()
+	WithSourceLoader(ctx, func(context.Context) ([]regapi.Entry, error) {
+		return []regapi.Entry{{ID: regapi.NewID("example", "entry"), Kind: "registry.entry"}}, nil
+	})
+
+	entries, err := LoadSources(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].ID.String() != "example:entry" {
+		t.Fatalf("LoadSources = %v", entries)
 	}
 }
 

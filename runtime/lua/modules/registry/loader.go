@@ -5,11 +5,14 @@ package registry
 import (
 	lua "github.com/wippyai/go-lua"
 	fsapi "github.com/wippyai/runtime/api/fs"
+	moduleapi "github.com/wippyai/runtime/api/modules"
 	"github.com/wippyai/runtime/api/payload"
+	regapi "github.com/wippyai/runtime/api/registry"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/boot/loader"
 	"github.com/wippyai/runtime/boot/loader/interpolate"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
+	"github.com/wippyai/runtime/runtime/security"
 	"go.uber.org/zap"
 )
 
@@ -61,11 +64,35 @@ func NewLoaderModule(opts LoaderOptions) *luaapi.ModuleDef {
 		Description: "Registry loader for filesystem-bound loading",
 		Class:       []string{luaapi.ClassStorage, luaapi.ClassIO},
 		Build: func() (*lua.LTable, []luaapi.YieldType) {
-			mod := lua.CreateTable(0, 1)
+			mod := lua.CreateTable(0, 2)
 			mod.RawSetString("new", makeCreateLoader(opts.Log))
+			mod.RawSetString("load_sources", makeLoadSources())
 			mod.Immutable = true
 			return mod, nil
 		},
+		Types: LoaderTypes,
+	}
+}
+
+// makeLoadSources rebuilds the normalized deployment baseline. Runtime retains
+// source and path authority; Lua receives only decoded entries.
+func makeLoadSources() lua.LGoFunc {
+	return func(l *lua.LState) int {
+		ctx := l.Context()
+		if !security.IsAllowed(ctx, "system.read", "module_sources", nil) {
+			l.Push(lua.LNil)
+			l.Push(lua.NewLuaError(l, "permission denied: system.read on module_sources").
+				WithKind(lua.PermissionDenied).WithRetryable(false))
+			return 2
+		}
+
+		entries, loadErr := moduleapi.LoadSources(ctx)
+		if loadErr != nil {
+			l.Push(lua.LNil)
+			l.Push(lua.WrapErrorWithLua(l, loadErr, "load deployment sources").WithKind(lua.Internal).WithRetryable(false))
+			return 2
+		}
+		return pushLoaderEntries(l, entries)
 	}
 }
 
@@ -161,23 +188,7 @@ func loaderLoadDirectory(l *lua.LState) int {
 		return 2
 	}
 
-	entriesTable := l.CreateTable(len(entries), 0)
-	for i, entry := range entries {
-		entryTable, convErr := entryToLuaTable(l, entry)
-		if convErr != nil {
-			err := lua.WrapErrorWithLua(l, convErr, "convert entry").
-				WithKind(lua.Internal).
-				WithRetryable(false)
-			l.Push(lua.LNil)
-			l.Push(err)
-			return 2
-		}
-		entriesTable.RawSetInt(i+1, entryTable)
-	}
-
-	l.Push(entriesTable)
-	l.Push(lua.LNil)
-	return 2
+	return pushLoaderEntries(l, entries)
 }
 
 // loaderLoadFile loads entries from a single file
@@ -207,6 +218,10 @@ func loaderLoadFile(l *lua.LState) int {
 		return 2
 	}
 
+	return pushLoaderEntries(l, entries)
+}
+
+func pushLoaderEntries(l *lua.LState, entries []regapi.Entry) int {
 	entriesTable := l.CreateTable(len(entries), 0)
 	for i, entry := range entries {
 		entryTable, convErr := entryToLuaTable(l, entry)
