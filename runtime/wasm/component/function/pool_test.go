@@ -65,6 +65,21 @@ func poolTestFactory() process.FactoryFunc {
 	}
 }
 
+func TestProcessFactory_DefaultRetainedComponentUsesIsolatedModuleFactory(t *testing.T) {
+	m := NewManager(zap.NewNop(), nil, poolTestDispatcher{}, nil)
+	cfg := &configEntry{
+		component: true,
+		transport: wasmapi.TransportTypePayload,
+	}
+
+	factory := m.processFactory(cfg, nil).Create()
+	proc, err := factory()
+	if err == nil {
+		proc.Close()
+		t.Fatal("factory() unexpectedly succeeded without an isolated module config")
+	}
+}
+
 func TestProcessFactory_RetainedComponentUsesIsolatedModuleFactory(t *testing.T) {
 	m := NewManager(zap.NewNop(), nil, poolTestDispatcher{}, nil)
 	cfg := &configEntry{
@@ -81,6 +96,23 @@ func TestProcessFactory_RetainedComponentUsesIsolatedModuleFactory(t *testing.T)
 		proc.Close()
 		t.Fatal("factory() unexpectedly succeeded without an isolated module config")
 	}
+}
+
+func TestProcessFactory_ExplicitZeroRetainedLimitUsesSharedModule(t *testing.T) {
+	m := NewManager(zap.NewNop(), nil, poolTestDispatcher{}, nil)
+	limits := wasmapi.LimitsConfig{}
+	limits.SetMaxRetainedMemoryBytes(0)
+	cfg := &configEntry{
+		component: true,
+		transport: wasmapi.TransportTypePayload,
+		limits:    limits,
+	}
+
+	proc, err := m.processFactory(cfg, nil).Create()()
+	if err != nil {
+		t.Fatalf("factory() error = %v", err)
+	}
+	proc.Close()
 }
 
 func TestAutoSelectPool_SelectsExpectedImplementation(t *testing.T) {
