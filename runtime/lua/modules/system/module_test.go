@@ -8,6 +8,7 @@ import (
 
 	lua "github.com/wippyai/go-lua"
 	ctxapi "github.com/wippyai/runtime/api/context"
+	moduleapi "github.com/wippyai/runtime/api/modules"
 	"github.com/wippyai/runtime/api/security"
 )
 
@@ -44,6 +45,50 @@ func TestLoad(t *testing.T) {
 	// Check functions exist
 	checkFunction(t, l, "system", "exit")
 	checkFunction(t, l, "system", "modules")
+	checkFunction(t, l, "system", "source_modules")
+}
+
+func TestSourceModulesExposeNamesWithoutPaths(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+
+	ctx := security.SetStrictMode(ctxapi.NewRootContext(), false)
+	moduleapi.WithSourceRoots(ctx, moduleapi.SourceRoots{
+		"acme/zeta":  "/private/zeta",
+		"acme/alpha": "/private/alpha",
+	})
+	l.SetContext(ctx)
+
+	tbl, _ := Module.Build()
+	l.SetGlobal("system", tbl)
+	if err := l.DoString(`
+		local sources, err = system.source_modules()
+		assert(err == nil)
+		assert(#sources == 2)
+		assert(sources[1] == "acme/alpha")
+		assert(sources[2] == "acme/zeta")
+		assert(not string.find(sources[1], "/private", 1, true))
+	`); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSourceModulesRequiresPermission(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+
+	ctx := security.SetStrictMode(ctxapi.NewRootContext(), true)
+	l.SetContext(ctx)
+
+	tbl, _ := Module.Build()
+	l.SetGlobal("system", tbl)
+	if err := l.DoString(`
+		local sources, err = system.source_modules()
+		assert(sources == nil)
+		assert(err ~= nil)
+	`); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestLoadReuse(t *testing.T) {

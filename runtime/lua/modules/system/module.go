@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	lua "github.com/wippyai/go-lua"
+	moduleapi "github.com/wippyai/runtime/api/modules"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/api/supervisor"
 	"github.com/wippyai/runtime/runtime/security"
@@ -22,7 +23,7 @@ var (
 )
 
 func initModuleTable() {
-	mod := lua.CreateTable(0, 12)
+	mod := lua.CreateTable(0, 13)
 
 	mod.RawSetString("memory", createMemoryTable())
 	mod.RawSetString("gc", createGCTable())
@@ -36,6 +37,7 @@ func initModuleTable() {
 	mod.RawSetString("hosts", createHostsTable())
 	mod.RawSetString("exit", lua.LGoFunc(exit))
 	mod.RawSetString("modules", lua.LGoFunc(modules))
+	mod.RawSetString("source_modules", lua.LGoFunc(sourceModules))
 
 	mod.Immutable = true
 	moduleTable = mod
@@ -463,6 +465,24 @@ func modules(l *lua.LState) int {
 		result.RawSetInt(i+1, modTable)
 	}
 
+	l.Push(result)
+	l.Push(lua.LNil)
+	return 2
+}
+
+func sourceModules(l *lua.LState) int {
+	if !security.IsAllowed(l.Context(), "system.read", "module_sources", nil) {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "permission denied: system.read on module_sources").
+			WithKind(lua.PermissionDenied).WithRetryable(false))
+		return 2
+	}
+
+	modules := moduleapi.SourceModules(l.Context())
+	result := l.CreateTable(len(modules), 0)
+	for i, module := range modules {
+		result.RawSetInt(i+1, lua.LString(module))
+	}
 	l.Push(result)
 	l.Push(lua.LNil)
 	return 2

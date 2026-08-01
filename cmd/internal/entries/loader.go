@@ -60,14 +60,13 @@ func LoadFromLockFile(ctx context.Context, logger *zap.Logger) error {
 	}
 
 	modulePaths := lockObj.GetModuleLoadPaths()
-	registerModuleSourceRoots(ctx, modulePaths)
 	flatPaths := make([]string, len(modulePaths))
 	for i, mp := range modulePaths {
 		flatPaths[i] = mp.Path
 	}
 	logger.Debug("load paths from lock file", zap.Strings("paths", flatPaths))
 
-	entries, err := loadEntriesWithModuleMeta(ctx, modulePaths, logger)
+	entries, err := LoadEntriesFromModuleLoadPaths(ctx, modulePaths, logger)
 	if err != nil {
 		return NewLoadEntriesFromPathsError(err)
 	}
@@ -332,6 +331,10 @@ func LoadEntriesFromModuleLoadPaths(
 	logger *zap.Logger,
 ) ([]regapi.Entry, error) {
 	registerModuleSourceRoots(ctx, modulePaths)
+	paths := append([]lock.ModuleLoadPath(nil), modulePaths...)
+	moduleapi.WithSourceLoader(ctx, func(loadCtx context.Context) ([]regapi.Entry, error) {
+		return loadEntriesWithModuleMeta(loadCtx, paths, logger)
+	})
 	return loadEntriesWithModuleMeta(ctx, modulePaths, logger)
 }
 
@@ -483,17 +486,8 @@ func applyModuleConfigFilters(
 		}
 		return entries, nil
 	}
-	entryExcludes := cfg.EntryExcludes()
-	if len(entryExcludes) == 0 && len(cfg.ExcludeMeta) == 0 {
-		return entries, nil
-	}
-
-	filtered := append([]regapi.Entry(nil), entries...)
-	stage := stages.DisableWithOptions(stages.DisableOptions{
-		Entries:     entryExcludes,
-		MetaFilters: cfg.ExcludeMeta,
-	})
-	if err := stage.Execute(ctx, &filtered); err != nil {
+	filtered, err := stages.FilterModuleEntries(ctx, cfg, entries)
+	if err != nil {
 		return nil, err
 	}
 
