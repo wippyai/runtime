@@ -94,7 +94,7 @@ func snapshotModuleDigests(snapshot regapi.State) map[string]string {
 		if _, bad := ambiguous[module]; bad {
 			continue
 		}
-		if existing, seen := digests[module]; seen && !strings.EqualFold(existing, digest) {
+		if existing, seen := digests[module]; seen && !artifactDigestsEqual(existing, digest) {
 			delete(digests, module)
 			ambiguous[module] = struct{}{}
 			continue

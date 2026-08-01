@@ -12,6 +12,7 @@ import (
 	contextapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/event"
 	logapi "github.com/wippyai/runtime/api/logs"
+	moduleapi "github.com/wippyai/runtime/api/modules"
 	"github.com/wippyai/runtime/api/payload"
 	relayapi "github.com/wippyai/runtime/api/relay"
 	topapi "github.com/wippyai/runtime/api/topology"
@@ -56,6 +57,7 @@ func NewBootstrapContext(logger *zap.Logger, cfg boot.Config) (context.Context, 
 	// Create AppContext and attach config
 	appCtx := contextapi.NewAppContext()
 	ctx := contextapi.WithAppContext(context.Background(), appCtx)
+	ctx = moduleapi.WithSourceRegistry(ctx, moduleapi.NewSourceRegistry())
 	if cfg != nil {
 		ctx = boot.WithConfig(ctx, cfg)
 	}

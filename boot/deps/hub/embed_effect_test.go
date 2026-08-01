@@ -358,6 +358,28 @@ func TestBuildEmbedPackEffect_RejectsSameVersionDifferentDigest(t *testing.T) {
 	assert.Equal(t, "old", readHubResource(t, reg, moduleEntry("ui", "app", "org/mod", "1.0.0"), "v.txt"))
 }
 
+func TestBuildEmbedPackEffectAcceptsEquivalentDigestEncoding(t *testing.T) {
+	reg := embedpkg.NewRegistry()
+	defer func() { require.NoError(t, reg.Close()) }()
+	ctx := embedapi.WithRegistry(newTestContext(), reg)
+	require.NoError(t, reg.RegisterPack("org/mod-1.0.0.wapp", "org/mod", "1.0.0",
+		createHubResourceReader(t, "ui", "app", map[string]string{"v.txt": "old"}), nil))
+	handler := &DependencyHandler{logger: zap.NewNop()}
+	digestValue := strings.Repeat("1", 64)
+	snapshotEntry := markModuleIdentity(
+		moduleEntry("ui", "app", "org/mod", "1.0.0"),
+		"org/mod",
+		"1.0.0",
+		digestValue,
+	)
+
+	effect, err := handler.buildEmbedPackEffect(ctx, []ResolvedModule{{
+		Org: "org", Name: "mod", Version: "1.0.0", Digest: "sha256:" + digestValue,
+	}}, regapi.State{snapshotEntry}, map[string]struct{}{"org/mod": {}})
+	require.NoError(t, err)
+	assert.Nil(t, effect)
+}
+
 func TestBuildEmbedPackEffect_StagesUnchangedPackWhenRegistryMissing(t *testing.T) {
 	reg := embedpkg.NewRegistry()
 	defer func() { require.NoError(t, reg.Close()) }()
@@ -738,19 +760,21 @@ func TestMaterializeModuleForLoad_DownloadsPrivatelyUntilPrepare(t *testing.T) {
 	assert.FileExists(t, filepath.Join(dirPath, "stale.txt"), "history failure must restore the old tree")
 }
 
-func TestSourceRootEffect_UnpackedModulePrepareAndRollback(t *testing.T) {
+func TestSourceEffectUnpackedModulePrepareAndRollback(t *testing.T) {
 	projectDir := t.TempDir()
 	vendorDir := filepath.Join(projectDir, ".wippy", "vendor")
 	lockPath := filepath.Join(projectDir, lock.DefaultFilename)
 	packPath := filepath.Join(vendorDir, "org", "mod-1.0.0.wapp")
 	dirPath := filepath.Join(vendorDir, "org", "mod")
 	writeEmbeddedFSWapp(t, packPath, "ui", "app", map[string]string{"asset.txt": "new"})
+	packDigest, packSize, err := artifactIdentityFromPath(packPath)
+	require.NoError(t, err)
 
 	lockObj, err := lock.New(lockPath)
 	require.NoError(t, err)
 	lockObj.SetDirectories(lock.Directories{Modules: ".wippy", Src: "."})
 	lockObj.SetOptions(lock.Options{UnpackModules: true})
-	lockObj.SetModule(lock.Module{Name: "org/mod", Version: "1.0.0"})
+	lockObj.SetModule(lock.Module{Name: "org/mod", Version: "1.0.0", Root: true})
 	require.NoError(t, lockObj.Write())
 
 	handler, err := NewDependencyHandler(DependencyHandlerOptions{
@@ -766,7 +790,9 @@ func TestSourceRootEffect_UnpackedModulePrepareAndRollback(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	ctx := moduleapi.WithSourceRootRegistry(newTestContext())
+	ctx := newTestContext()
+	sourceRegistry := moduleapi.NewSourceRegistry()
+	ctx = moduleapi.WithSourceRegistry(ctx, sourceRegistry)
 	transcoder := payload.GetTranscoder(ctx)
 	register, ok := transcoder.(payload.TranscoderRegister)
 	require.True(t, ok)
@@ -774,12 +800,17 @@ func TestSourceRootEffect_UnpackedModulePrepareAndRollback(t *testing.T) {
 	ac := ctxapi.AppFromContext(ctx)
 	require.NotNil(t, ac)
 	ac.Seal()
-	moduleapi.WithSourceRoots(ctx, moduleapi.SourceRoots{
-		"org/removed":   "/old/removed",
-		"org/unrelated": "/old/unrelated",
+	sourceRegistry.Set(moduleapi.Sources{
+		"org/removed":   {LoadPath: "/old/removed", ResourceRoot: "/old/removed", Owner: "org/removed", Sequence: 1},
+		"org/unrelated": {LoadPath: "/old/unrelated", ResourceRoot: "/old/unrelated", Owner: "org/unrelated", Sequence: 2},
+	})
+	var loadedSources moduleapi.Sources
+	sourceRegistry.SetLoader(func(_ context.Context, sources moduleapi.Sources) ([]regapi.Entry, error) {
+		loadedSources = sources
+		return nil, nil
 	})
 
-	resolved := ResolvedModule{Org: "org", Name: "mod", Version: "1.0.0"}
+	resolved := ResolvedModule{Org: "org", Name: "mod", Version: "1.0.0", Digest: packDigest, SizeBytes: packSize}
 	entries, err := handler.loadEntriesForModule(
 		ctx,
 		transcoder,
@@ -789,10 +820,10 @@ func TestSourceRootEffect_UnpackedModulePrepareAndRollback(t *testing.T) {
 	require.Len(t, entries, 1)
 	assert.Equal(t, regapi.NewID("ui", "app"), entries[0].ID)
 	assert.Equal(t, regapi.Kind("fs.directory"), entries[0].Kind)
-	_, ok = moduleapi.SourceRoot(ctx, "org/mod")
+	_, ok = sourceRegistry.ResourceRoot("org/mod")
 	require.False(t, ok, "planning must not publish a source root before effect preparation")
 
-	effect, err := handler.buildSourceRootEffect(
+	effect, err := handler.buildSourceEffect(
 		[]ResolvedModule{resolved},
 		map[string]struct{}{"org/mod": {}, "org/removed": {}},
 	)
@@ -800,32 +831,90 @@ func TestSourceRootEffect_UnpackedModulePrepareAndRollback(t *testing.T) {
 	require.NotNil(t, effect)
 	require.NoError(t, effect.Prepare(ctx))
 
-	root, ok := moduleapi.SourceRoot(ctx, "org/mod")
+	root, ok := sourceRegistry.ResourceRoot("org/mod")
 	require.True(t, ok)
 	assert.Equal(t, dirPath, root)
-	_, ok = moduleapi.SourceRoot(ctx, "org/removed")
+	_, err = sourceRegistry.Load(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, moduleapi.Source{
+		LoadPath:       dirPath,
+		ResourceRoot:   dirPath,
+		Owner:          "org/mod",
+		Version:        "1.0.0",
+		Digest:         packDigest,
+		Sequence:       3,
+		DeploymentRoot: true,
+	}, loadedSources["org/mod"])
+	_, ok = sourceRegistry.ResourceRoot("org/removed")
 	require.False(t, ok)
-	root, ok = moduleapi.SourceRoot(ctx, "org/unrelated")
+	root, ok = sourceRegistry.ResourceRoot("org/unrelated")
 	require.True(t, ok)
 	assert.Equal(t, "/old/unrelated", root)
 
 	require.NoError(t, effect.Commit(ctx))
 	require.NoError(t, effect.Rollback(ctx))
-	_, ok = moduleapi.SourceRoot(ctx, "org/mod")
+	_, ok = sourceRegistry.ResourceRoot("org/mod")
 	require.False(t, ok)
-	root, ok = moduleapi.SourceRoot(ctx, "org/removed")
+	root, ok = sourceRegistry.ResourceRoot("org/removed")
 	require.True(t, ok)
 	assert.Equal(t, "/old/removed", root)
-	root, ok = moduleapi.SourceRoot(ctx, "org/unrelated")
+	root, ok = sourceRegistry.ResourceRoot("org/unrelated")
 	require.True(t, ok)
 	assert.Equal(t, "/old/unrelated", root)
+	_, err = sourceRegistry.Load(ctx)
+	require.NoError(t, err)
+	assert.NotContains(t, loadedSources, "org/mod")
+	assert.Equal(t, moduleapi.Source{LoadPath: "/old/removed", ResourceRoot: "/old/removed", Owner: "org/removed", Sequence: 1}, loadedSources["org/removed"])
 
 	// Lifecycle cleanup is idempotent; a duplicate rollback must not remove the
 	// restored roots.
 	require.NoError(t, effect.Rollback(ctx))
-	root, ok = moduleapi.SourceRoot(ctx, "org/removed")
+	root, ok = sourceRegistry.ResourceRoot("org/removed")
 	require.True(t, ok)
 	assert.Equal(t, "/old/removed", root)
+}
+
+func TestSourceEffectPackedModuleTracksLoadIdentityWithoutExposingRoot(t *testing.T) {
+	vendorDir := t.TempDir()
+	handler := &DependencyHandler{vendorDir: vendorDir}
+	ctx := newTestContext()
+	sourceRegistry := moduleapi.NewSourceRegistry()
+	ctx = moduleapi.WithSourceRegistry(ctx, sourceRegistry)
+	var loadedSources moduleapi.Sources
+	sourceRegistry.SetLoader(func(_ context.Context, sources moduleapi.Sources) ([]regapi.Entry, error) {
+		loadedSources = sources
+		return nil, nil
+	})
+
+	packPath := filepath.Join(vendorDir, "org", "mod-1.0.0.wapp")
+	writeEmbeddedFSWapp(t, packPath, "ui", "app", map[string]string{"asset.txt": "packed"})
+	packDigest, packSize, err := artifactIdentityFromPath(packPath)
+	require.NoError(t, err)
+	immutablePath, err := handler.immutableArtifactPath(graph.Name{Organization: "org", Module: "mod"}, "1.0.0", packDigest)
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(filepath.Dir(immutablePath), 0o755))
+	require.NoError(t, os.Rename(packPath, immutablePath))
+	resolved := ResolvedModule{Org: "org", Name: "mod", Version: "1.0.0", Digest: packDigest, SizeBytes: packSize}
+	effect, err := handler.buildSourceEffect([]ResolvedModule{resolved}, map[string]struct{}{"org/mod": {}})
+	require.NoError(t, err)
+	require.NotNil(t, effect)
+	require.NoError(t, effect.Prepare(ctx))
+
+	_, ok := sourceRegistry.ResourceRoot("org/mod")
+	assert.False(t, ok)
+	_, err = sourceRegistry.Load(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, moduleapi.Source{
+		LoadPath: immutablePath,
+		Version:  "1.0.0",
+		Digest:   packDigest,
+		Sequence: 1,
+	}, loadedSources["org/mod"])
+
+	require.NoError(t, effect.Rollback(ctx))
+	_, err = sourceRegistry.Load(ctx)
+	require.NoError(t, err)
+	assert.NotContains(t, loadedSources, "org/mod")
 }
 
 func moduleEntry(ns, name, module, version string) regapi.Entry {

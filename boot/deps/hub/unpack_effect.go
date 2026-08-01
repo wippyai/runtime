@@ -90,12 +90,12 @@ func (ops moduleFilesystemOps) withDefaults() moduleFilesystemOps {
 	return ops
 }
 
-// moduleFilesystemEffect activates unpacked module trees and publishes their
-// source roots as one transaction. Backups are retained until Finalize, after
-// registry history is durable.
+// moduleFilesystemEffect activates unpacked module trees and their effective
+// load identities as one transaction. Backups are retained until Finalize,
+// after registry history is durable.
 type moduleFilesystemEffect struct {
 	ops       moduleFilesystemOps
-	roots     *sourceRootEffect
+	sources   *sourceEffect
 	staged    []stagedModuleDirectory
 	activated []activatedModuleDirectory
 	mu        sync.Mutex
@@ -107,19 +107,19 @@ func (h *DependencyHandler) buildModuleFilesystemEffect(
 	controlled map[string]struct{},
 	plan *unpackPlan,
 ) (regapi.Effect, error) {
-	roots, err := h.buildSourceRootEffect(resolved, controlled)
+	sources, err := h.buildSourceEffect(resolved, controlled)
 	if err != nil {
 		return nil, err
 	}
 	if plan == nil || len(plan.staged) == 0 {
-		if roots == nil {
+		if sources == nil {
 			return nil, nil
 		}
-		return roots, nil
+		return sources, nil
 	}
 	return &moduleFilesystemEffect{
-		staged: plan.take(),
-		roots:  roots,
+		staged:  plan.take(),
+		sources: sources,
 	}, nil
 }
 
@@ -155,41 +155,42 @@ func (e *moduleFilesystemEffect) Prepare(ctx context.Context) error {
 	}
 
 	ops := e.ops.withDefaults()
-	for i, staged := range e.staged {
-		activated, err := activateModuleDirectory(staged, ops)
-		if err != nil {
-			if activated.backupDir != "" || activated.discardDir != "" {
-				e.activated = append(e.activated, activated)
+	activate := func() error {
+		for i, staged := range e.staged {
+			activated, err := activateModuleDirectory(staged, ops)
+			if err != nil {
+				if activated.backupDir != "" || activated.discardDir != "" {
+					e.activated = append(e.activated, activated)
+				}
+				remaining := e.staged[i:]
+				cleanupErr := cleanupStagedModuleDirectories(remaining, ops.removeAll)
+				if cleanupErr == nil {
+					e.staged = nil
+				} else {
+					e.staged = remaining
+				}
+				rollbackErr := e.restoreActivated(ops)
+				if cleanupErr == nil && rollbackErr == nil {
+					e.state = filesystemEffectRolledBack
+				} else {
+					e.state = filesystemEffectRollbackPending
+				}
+				return errors.Join(err, cleanupErr, rollbackErr)
 			}
-			remaining := e.staged[i:]
-			cleanupErr := cleanupStagedModuleDirectories(remaining, ops.removeAll)
-			if cleanupErr == nil {
-				e.staged = nil
-			} else {
-				e.staged = remaining
-			}
-			rollbackErr := e.restoreActivated(ops)
-			if cleanupErr == nil && rollbackErr == nil {
-				e.state = filesystemEffectRolledBack
-			} else {
-				e.state = filesystemEffectRollbackPending
-			}
-			return errors.Join(err, cleanupErr, rollbackErr)
+			e.activated = append(e.activated, activated)
 		}
-		e.activated = append(e.activated, activated)
+		e.staged = nil
+		return nil
 	}
-	e.staged = nil
 
-	if e.roots != nil {
-		if err := e.roots.Prepare(ctx); err != nil {
-			rollbackErr := e.restoreActivated(ops)
-			if rollbackErr == nil {
-				e.state = filesystemEffectRolledBack
-			} else {
-				e.state = filesystemEffectRollbackPending
-			}
-			return errors.Join(err, rollbackErr)
-		}
+	var err error
+	if e.sources != nil {
+		err = e.sources.prepareWith(ctx, activate)
+	} else {
+		err = activate()
+	}
+	if err != nil {
+		return err
 	}
 	e.state = filesystemEffectPrepared
 	return nil
@@ -218,15 +219,21 @@ func (e *moduleFilesystemEffect) Rollback(ctx context.Context) error {
 	if e.state == filesystemEffectFinalized {
 		return fmt.Errorf("rollback finalized module filesystem effect")
 	}
-	var errs []error
 	ops := e.ops.withDefaults()
 	if e.state == filesystemEffectPlanned {
-		if err := cleanupStagedModuleDirectories(e.staged, ops.removeAll); err != nil {
-			errs = append(errs, err)
-		} else {
+		err := cleanupStagedModuleDirectories(e.staged, ops.removeAll)
+		if err == nil {
 			e.staged = nil
 		}
-	} else {
+		if err == nil {
+			e.state = filesystemEffectRolledBack
+		} else {
+			e.state = filesystemEffectRollbackPending
+		}
+		return err
+	}
+	restore := func() error {
+		var errs []error
 		errs = append(errs, e.restoreActivated(ops))
 		if len(e.staged) > 0 {
 			if err := cleanupStagedModuleDirectories(e.staged, ops.removeAll); err != nil {
@@ -235,11 +242,14 @@ func (e *moduleFilesystemEffect) Rollback(ctx context.Context) error {
 				e.staged = nil
 			}
 		}
+		return errors.Join(errs...)
 	}
-	if e.roots != nil {
-		errs = append(errs, e.roots.Rollback(ctx))
+	var err error
+	if e.sources != nil {
+		err = e.sources.rollbackWith(ctx, restore)
+	} else {
+		err = restore()
 	}
-	err := errors.Join(errs...)
 	if err == nil {
 		e.state = filesystemEffectRolledBack
 	} else {

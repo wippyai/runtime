@@ -29,10 +29,12 @@ func TestLock_GetModuleLoadPaths(t *testing.T) {
 		l.SetModule(Module{
 			Name:    "userspace/users",
 			Version: "v1.2.3",
+			Hash:    "sha256:users",
 		})
 		l.SetModule(Module{
 			Name:    "demo/sql",
 			Version: "v2.0.0",
+			Hash:    "sha256:sql",
 		})
 
 		paths := l.GetModuleLoadPaths()
@@ -44,11 +46,11 @@ func TestLock_GetModuleLoadPaths(t *testing.T) {
 			t.Fatalf("src path = %+v, want root app path with empty module/version", got)
 		}
 
-		if got := paths[1]; got.Path != filepath.Join(tmpDir, "local/users") || got.SourceRoot != filepath.Join(tmpDir, "local/users") || got.Module != "userspace/users" || got.Version != "v1.2.3" || !got.Replacement {
+		if got := paths[1]; got.Path != filepath.Join(tmpDir, "local/users") || got.SourceRoot != filepath.Join(tmpDir, "local/users") || got.Module != "userspace/users" || got.Version != "v1.2.3" || got.Digest != "sha256:users" || !got.Replacement {
 			t.Fatalf("replacement path = %+v, want replacement module with selected version", got)
 		}
 
-		if got := paths[2]; got.Path != filepath.Join(tmpDir, ".wippy", "vendor", "demo", "sql") || got.SourceRoot != filepath.Join(tmpDir, ".wippy", "vendor", "demo", "sql") || got.Module != "demo/sql" || got.Version != "v2.0.0" {
+		if got := paths[2]; got.Path != filepath.Join(tmpDir, ".wippy", "vendor", "demo", "sql") || got.SourceRoot != filepath.Join(tmpDir, ".wippy", "vendor", "demo", "sql") || got.Module != "demo/sql" || got.Version != "v2.0.0" || got.Digest != "sha256:sql" {
 			t.Fatalf("module path = %+v, want vendor module path with metadata", got)
 		}
 	})
@@ -137,6 +139,38 @@ func TestLock_GetModuleLoadPaths(t *testing.T) {
 		}
 		if got.SourceRoot != unpackedPath {
 			t.Fatalf("source root = %q, want unpacked path %q", got.SourceRoot, unpackedPath)
+		}
+	})
+
+	t.Run("uses unpacked src entry tree when present", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		lockPath := filepath.Join(tmpDir, DefaultFilename)
+
+		l, err := New(lockPath)
+		if err != nil {
+			t.Fatalf("New failed: %v", err)
+		}
+
+		l.SetDirectories(Directories{Modules: ".wippy", Src: "."})
+		l.SetOptions(Options{UnpackModules: true})
+		l.SetModule(Module{Name: "userspace/users", Version: "v1.2.3"})
+
+		unpackedRoot := filepath.Join(tmpDir, ".wippy", "vendor", "userspace", "users")
+		entryRoot := filepath.Join(unpackedRoot, "src")
+		if err := os.MkdirAll(entryRoot, 0o755); err != nil {
+			t.Fatalf("mkdir unpacked src: %v", err)
+		}
+
+		paths := l.GetModuleLoadPaths()
+		if len(paths) != 2 {
+			t.Fatalf("path count = %d, want 2", len(paths))
+		}
+		got := paths[1]
+		if got.Path != entryRoot {
+			t.Fatalf("module path = %q, want entry root %q", got.Path, entryRoot)
+		}
+		if got.SourceRoot != unpackedRoot {
+			t.Fatalf("source root = %q, want module root %q", got.SourceRoot, unpackedRoot)
 		}
 	})
 

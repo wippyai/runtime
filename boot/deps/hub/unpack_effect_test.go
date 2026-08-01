@@ -16,7 +16,7 @@ import (
 	"go.uber.org/zap"
 )
 
-func TestModuleFilesystemEffect_HistoryFailureRestoresDirectoryAndSourceRoots(t *testing.T) {
+func TestModuleFilesystemEffectHistoryFailureRestoresDirectoryAndSources(t *testing.T) {
 	parent := t.TempDir()
 	target := filepath.Join(parent, "mod")
 	stage := filepath.Join(parent, ".mod.stage-test")
@@ -24,21 +24,25 @@ func TestModuleFilesystemEffect_HistoryFailureRestoresDirectoryAndSourceRoots(t 
 	writeTreeMarker(t, stage, "new")
 
 	ctx := newTestContext()
-	moduleapi.WithSourceRoots(ctx, moduleapi.SourceRoots{
-		"org/mod":     "/previous/mod",
-		"org/removed": "/previous/removed",
+	sourceRegistry := moduleapi.NewSourceRegistry()
+	ctx = moduleapi.WithSourceRegistry(ctx, sourceRegistry)
+	sourceRegistry.Set(moduleapi.Sources{
+		"org/mod":     {LoadPath: "/previous/mod", ResourceRoot: "/previous/mod", Owner: "org/mod"},
+		"org/removed": {LoadPath: "/previous/removed", ResourceRoot: "/previous/removed", Owner: "org/removed"},
 	})
 	effect := &moduleFilesystemEffect{
 		staged: []stagedModuleDirectory{{module: "org/mod", stagingDir: stage, targetDir: target}},
-		roots: &sourceRootEffect{
-			desired: moduleapi.SourceRoots{"org/mod": target},
+		sources: &sourceEffect{
+			desired: moduleapi.Sources{
+				"org/mod": {LoadPath: target, ResourceRoot: target, Owner: "org/mod"},
+			},
 			modules: []string{"org/mod", "org/removed"},
 		},
 	}
 
 	require.NoError(t, effect.Prepare(ctx))
 	assert.Equal(t, "new", readTreeMarker(t, target))
-	root, ok := moduleapi.SourceRoot(ctx, "org/mod")
+	root, ok := sourceRegistry.ResourceRoot("org/mod")
 	require.True(t, ok)
 	assert.Equal(t, target, root)
 	require.NoError(t, effect.Commit(ctx))
@@ -46,10 +50,10 @@ func TestModuleFilesystemEffect_HistoryFailureRestoresDirectoryAndSourceRoots(t 
 	// Registry history/CAS failure calls Rollback after Commit.
 	require.NoError(t, effect.Rollback(ctx))
 	assert.Equal(t, "old", readTreeMarker(t, target))
-	root, ok = moduleapi.SourceRoot(ctx, "org/mod")
+	root, ok = sourceRegistry.ResourceRoot("org/mod")
 	require.True(t, ok)
 	assert.Equal(t, "/previous/mod", root)
-	root, ok = moduleapi.SourceRoot(ctx, "org/removed")
+	root, ok = sourceRegistry.ResourceRoot("org/removed")
 	require.True(t, ok)
 	assert.Equal(t, "/previous/removed", root)
 }
