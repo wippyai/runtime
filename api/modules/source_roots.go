@@ -15,6 +15,8 @@ import (
 
 var sourceRootsKey = &ctxapi.Key{Name: "modules.source_roots"}
 
+// ErrSourceLoaderUnavailable indicates that boot did not register the
+// deployment's normalized source reloader.
 var ErrSourceLoaderUnavailable = errors.New("effective deployment source loader unavailable")
 
 // SourceLoader rebuilds the normalized deployment baseline from its established
@@ -132,6 +134,7 @@ func (r *SourceRootRegistry) Modules() []string {
 	return modules
 }
 
+// SetLoader atomically registers the deployment's normalized source reloader.
 func (r *SourceRootRegistry) SetLoader(loader SourceLoader) {
 	if r == nil || loader == nil {
 		return
@@ -141,6 +144,8 @@ func (r *SourceRootRegistry) SetLoader(loader SourceLoader) {
 	r.mu.Unlock()
 }
 
+// Load rebuilds the normalized deployment baseline through the registered
+// source reloader.
 func (r *SourceRootRegistry) Load(ctx context.Context) ([]regapi.Entry, error) {
 	if r == nil {
 		return nil, ErrSourceLoaderUnavailable
