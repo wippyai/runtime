@@ -34,29 +34,32 @@ type Transport interface {
 // Asyncified modules run through session-based yield/resume; synchronous
 // modules execute as direct calls.
 type Process struct {
-	resolvedTransport Transport
-	ctx               context.Context
-	execCtx           context.Context
-	result            payload.Payload
-	fsReg             fsapi.Registry
-	cancel            context.CancelFunc
-	inst              *wasmrt.Instance
-	session           *wasmrt.CallSession
-	asyncValues       *wippyhost.AsyncValueStore
-	pendingYield      *wasmengine.YieldResult
-	module            *wasmrt.Module
-	transport         string
-	method            string
-	wasi              wasmapi.WASIConfig
-	callArgs          []any
-	input             payload.Payloads
-	limits            wasmapi.LimitsConfig
-	pendingTag        uint64
-	yieldSeq          uint64
-	waitingYield      bool
-	ownedModule       bool
-	done              bool
-	started           bool
+	resolvedTransport           Transport
+	ctx                         context.Context
+	execCtx                     context.Context
+	result                      payload.Payload
+	fsReg                       fsapi.Registry
+	cancel                      context.CancelFunc
+	inst                        *wasmrt.Instance
+	session                     *wasmrt.CallSession
+	asyncValues                 *wippyhost.AsyncValueStore
+	pendingYield                *wasmengine.YieldResult
+	module                      *wasmrt.Module
+	transport                   string
+	method                      string
+	wasi                        wasmapi.WASIConfig
+	callArgs                    []any
+	input                       payload.Payloads
+	limits                      wasmapi.LimitsConfig
+	pendingTag                  uint64
+	yieldSeq                    uint64
+	retainedMemoryCheckCalls    int
+	retainedMemoryCheckInterval int
+	waitingYield                bool
+	ownedModule                 bool
+	hasMemory                   bool
+	done                        bool
+	started                     bool
 }
 
 // NewProcess creates a scheduler process for WASM execution.
@@ -67,12 +70,20 @@ func NewProcess(
 	limits wasmapi.LimitsConfig,
 	fsReg fsapi.Registry,
 ) *Process {
+	defaultRetainedMemoryLimit := !limits.HasMaxRetainedMemoryBytes()
+	retainedMemoryCheckInterval := 1
+	if defaultRetainedMemoryLimit || limits.RetainedMemoryCheckInterval > 0 {
+		retainedMemoryCheckInterval = limits.EffectiveRetainedMemoryCheckInterval()
+	}
+	limits.MaxRetainedMemoryBytes = limits.EffectiveMaxRetainedMemoryBytes()
 	return &Process{
-		module:    module,
-		transport: transport,
-		wasi:      wasi,
-		limits:    limits,
-		fsReg:     fsReg,
+		module:                      module,
+		transport:                   transport,
+		wasi:                        wasi,
+		limits:                      limits,
+		fsReg:                       fsReg,
+		retainedMemoryCheckCalls:    retainedMemoryCheckInterval - 1,
+		retainedMemoryCheckInterval: retainedMemoryCheckInterval,
 	}
 }
 
@@ -257,6 +268,7 @@ func (p *Process) startExecution() error {
 			return runtimewasm.NewInstantiateModuleError(err)
 		}
 		p.inst = inst
+		p.hasMemory = inst.HasMemory()
 	}
 
 	args, err := p.prepareArgs(execCtx)
@@ -308,10 +320,19 @@ func (p *Process) shouldReplaceAfterSync() bool {
 }
 
 func (p *Process) shouldRecycleRetainedInstance() bool {
-	if p.inst == nil || p.limits.MaxRetainedMemoryBytes <= 0 {
+	if p.inst == nil || !p.hasMemory || p.limits.MaxRetainedMemoryBytes <= 0 {
 		return false
 	}
-	return int64(p.inst.MemorySize()) > p.limits.MaxRetainedMemoryBytes
+	p.retainedMemoryCheckCalls++
+	if p.retainedMemoryCheckCalls < p.retainedMemoryCheckInterval {
+		return false
+	}
+	p.retainedMemoryCheckCalls = 0
+	return retainedMemoryExceedsLimit(p.inst.MemorySize(), p.limits.MaxRetainedMemoryBytes)
+}
+
+func retainedMemoryExceedsLimit(size uint32, limit int64) bool {
+	return size == 0 || int64(size) > limit
 }
 
 // softReset clears per-call state while keeping the instance warm for reuse.

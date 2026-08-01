@@ -4,6 +4,7 @@
 package wasm
 
 import (
+	"encoding/json"
 	"path"
 	"strings"
 
@@ -30,10 +31,18 @@ type (
 	LimitsConfig struct {
 		MaxExecutionMS int `json:"max_execution_ms,omitempty"`
 
-		// MaxRetainedMemoryBytes closes a warm synchronous instance after a
-		// completed call when its guest linear memory is above this size.
-		// 0 disables retained-memory recycling.
+		// MaxRetainedMemoryBytes is a post-call per-worker recycling trigger.
+		// An omitted value uses DefaultMaxRetainedMemoryBytes. An explicit 0
+		// disables retained-memory recycling.
 		MaxRetainedMemoryBytes int64 `json:"max_retained_memory_bytes,omitempty"`
+
+		// RetainedMemoryCheckInterval optionally amortizes post-call memory
+		// inspection. When omitted, the built-in limit uses
+		// DefaultRetainedMemoryCheckInterval and an explicit limit is checked after
+		// every call.
+		RetainedMemoryCheckInterval int `json:"retained_memory_check_interval,omitempty"`
+
+		maxRetainedMemoryBytesSet bool
 	}
 
 	// WASIEnvVarConfig maps an env registry variable ID to a guest env var name.
@@ -87,6 +96,88 @@ type (
 		Limits    LimitsConfig  `json:"limits,omitempty"`
 	}
 )
+
+type limitsConfigJSON struct {
+	MaxRetainedMemoryBytes      *int64 `json:"max_retained_memory_bytes,omitempty" yaml:"max_retained_memory_bytes,omitempty"`
+	MaxExecutionMS              int    `json:"max_execution_ms,omitempty" yaml:"max_execution_ms,omitempty"`
+	RetainedMemoryCheckInterval int    `json:"retained_memory_check_interval,omitempty" yaml:"retained_memory_check_interval,omitempty"`
+}
+
+func (c *LimitsConfig) UnmarshalJSON(data []byte) error {
+	var decoded limitsConfigJSON
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+
+	c.applyDecoded(decoded)
+	return nil
+}
+
+func (c *LimitsConfig) UnmarshalYAML(unmarshal func(any) error) error {
+	var decoded limitsConfigJSON
+	if err := unmarshal(&decoded); err != nil {
+		return err
+	}
+	c.applyDecoded(decoded)
+	return nil
+}
+
+func (c *LimitsConfig) applyDecoded(decoded limitsConfigJSON) {
+	*c = LimitsConfig{
+		MaxExecutionMS:              decoded.MaxExecutionMS,
+		RetainedMemoryCheckInterval: decoded.RetainedMemoryCheckInterval,
+	}
+	if decoded.MaxRetainedMemoryBytes != nil {
+		c.SetMaxRetainedMemoryBytes(*decoded.MaxRetainedMemoryBytes)
+	}
+}
+
+func (c LimitsConfig) MarshalJSON() ([]byte, error) {
+	return json.Marshal(c.encoded())
+}
+
+func (c LimitsConfig) MarshalYAML() (any, error) {
+	return c.encoded(), nil
+}
+
+func (c LimitsConfig) encoded() limitsConfigJSON {
+	encoded := limitsConfigJSON{
+		MaxExecutionMS:              c.MaxExecutionMS,
+		RetainedMemoryCheckInterval: c.RetainedMemoryCheckInterval,
+	}
+	if c.HasMaxRetainedMemoryBytes() {
+		value := c.MaxRetainedMemoryBytes
+		encoded.MaxRetainedMemoryBytes = &value
+	}
+	return encoded
+}
+
+func (c LimitsConfig) HasMaxRetainedMemoryBytes() bool {
+	return c.maxRetainedMemoryBytesSet || c.MaxRetainedMemoryBytes != 0
+}
+
+func (c *LimitsConfig) SetMaxRetainedMemoryBytes(value int64) {
+	c.MaxRetainedMemoryBytes = value
+	c.maxRetainedMemoryBytesSet = true
+}
+
+func (c LimitsConfig) EffectiveMaxRetainedMemoryBytes() int64 {
+	if c.HasMaxRetainedMemoryBytes() {
+		return c.MaxRetainedMemoryBytes
+	}
+	return DefaultMaxRetainedMemoryBytes
+}
+
+func (c LimitsConfig) Validate() error {
+	return validateLimits(c)
+}
+
+func (c LimitsConfig) EffectiveRetainedMemoryCheckInterval() int {
+	if c.RetainedMemoryCheckInterval > 0 {
+		return c.RetainedMemoryCheckInterval
+	}
+	return DefaultRetainedMemoryCheckInterval
+}
 
 // EffectiveTransport returns the transport, defaulting to payload.
 func (c *WATFunctionConfig) EffectiveTransport() string {
@@ -220,6 +311,9 @@ func validateLimits(limits LimitsConfig) error {
 	}
 	if limits.MaxRetainedMemoryBytes < 0 {
 		return ErrInvalidRetainedMemoryLimit
+	}
+	if limits.RetainedMemoryCheckInterval < 0 {
+		return ErrInvalidRetainedMemoryCheckInterval
 	}
 	return nil
 }
