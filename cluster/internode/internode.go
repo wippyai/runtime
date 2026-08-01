@@ -29,6 +29,7 @@ const (
 	MetadataPort          = "internode_port"
 	MetadataAdvertiseAddr = "internode_advertise_addr"
 	MetadataAdvertisePort = "internode_advertise_port"
+	MetadataPublicKey     = "internode_public_key"
 )
 
 type PackageCallback func(*relay.Package) error

@@ -39,7 +39,7 @@ func (r *mockSecurityRegistry) ListPolicies() []registry.ID { return nil }
 // --- ExtractSecurityFromHeader edge cases ---
 
 func TestExtractSecurityFromHeader_NilDataConverter(t *testing.T) {
-	_, err := ExtractSecurityFromHeader(nil, &commonpb.Header{})
+	_, err := ExtractSecurityFromHeader(nil, &commonpb.Header{}, "")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "data converter not available")
 }
@@ -51,7 +51,7 @@ func TestExtractSecurityFromHeader_MissingSecurityKey(t *testing.T) {
 			"other-key": {},
 		},
 	}
-	payload, err := ExtractSecurityFromHeader(dc, header)
+	payload, err := ExtractSecurityFromHeader(dc, header, "")
 	require.NoError(t, err)
 	assert.Nil(t, payload)
 }
@@ -70,9 +70,9 @@ func TestAddSecurityToHeader_AddsToExistingHeader(t *testing.T) {
 			"existing-key": {},
 		},
 	}
-	payload := &SecurityPayload{Actor: &ActorPayload{ID: "user-1"}}
+	payload := &SecurityPayload{Actor: &ActorPayload{ID: "user-1"}, Audience: testSecurityAudience}
 
-	header, err := AddSecurityToHeader(dc, existing, payload)
+	header, err := AddSecurityToHeader(dc, existing, payload, testSecurityHMACKey)
 	require.NoError(t, err)
 	assert.Contains(t, header.Fields, "existing-key")
 	assert.Contains(t, header.Fields, SecurityHeaderKey)
@@ -81,9 +81,9 @@ func TestAddSecurityToHeader_AddsToExistingHeader(t *testing.T) {
 func TestAddSecurityToHeader_HeaderWithNilFields(t *testing.T) {
 	dc := newTestDataConverter()
 	existing := &commonpb.Header{}
-	payload := &SecurityPayload{Actor: &ActorPayload{ID: "user-1"}}
+	payload := &SecurityPayload{Actor: &ActorPayload{ID: "user-1"}, Audience: testSecurityAudience}
 
-	header, err := AddSecurityToHeader(dc, existing, payload)
+	header, err := AddSecurityToHeader(dc, existing, payload, testSecurityHMACKey)
 	require.NoError(t, err)
 	assert.Contains(t, header.Fields, SecurityHeaderKey)
 }
@@ -100,9 +100,8 @@ func TestApplySecurityPayload_NoRegistry(t *testing.T) {
 		Policies: []string{"policies:admin"},
 	}
 
-	// No registry in context - should succeed silently
 	err := ApplySecurityPayload(ctx, payload)
-	require.NoError(t, err)
+	require.Error(t, err)
 }
 
 func TestApplySecurityPayload_WithRegistryAndPolicies(t *testing.T) {
@@ -120,7 +119,9 @@ func TestApplySecurityPayload_WithRegistryAndPolicies(t *testing.T) {
 	ctx, _ = ctxapi.OpenFrameContext(ctx)
 
 	payload := &SecurityPayload{
+		Actor:    &ActorPayload{ID: "user"},
 		Policies: []string{"policies:admin", "policies:read"},
+		Scope:    true,
 	}
 
 	err := ApplySecurityPayload(ctx, payload)
@@ -131,7 +132,7 @@ func TestApplySecurityPayload_WithRegistryAndPolicies(t *testing.T) {
 	assert.Len(t, scope.Policies(), 2)
 }
 
-func TestApplySecurityPayload_SkipsMissingPolicies(t *testing.T) {
+func TestApplySecurityPayload_RejectsMissingPolicies(t *testing.T) {
 	ctx := context.Background()
 	appCtx := ctxapi.NewAppContext()
 	ctx = ctxapi.WithAppContext(ctx, appCtx)
@@ -145,15 +146,16 @@ func TestApplySecurityPayload_SkipsMissingPolicies(t *testing.T) {
 	ctx, _ = ctxapi.OpenFrameContext(ctx)
 
 	payload := &SecurityPayload{
+		Actor:    &ActorPayload{ID: "user"},
 		Policies: []string{"policies:admin", "policies:nonexistent"},
+		Scope:    true,
 	}
 
 	err := ApplySecurityPayload(ctx, payload)
-	require.NoError(t, err)
+	require.Error(t, err)
 
-	scope, hasScope := secapi.GetScope(ctx)
-	require.True(t, hasScope)
-	assert.Len(t, scope.Policies(), 1)
+	_, hasScope := secapi.GetScope(ctx)
+	assert.False(t, hasScope)
 }
 
 func TestApplySecurityPayload_AllPoliciesMissing(t *testing.T) {
@@ -168,12 +170,13 @@ func TestApplySecurityPayload_AllPoliciesMissing(t *testing.T) {
 	ctx, _ = ctxapi.OpenFrameContext(ctx)
 
 	payload := &SecurityPayload{
+		Actor:    &ActorPayload{ID: "user"},
 		Policies: []string{"policies:missing1", "policies:missing2"},
+		Scope:    true,
 	}
 
-	// All policies missing - no scope set, no error
 	err := ApplySecurityPayload(ctx, payload)
-	require.NoError(t, err)
+	require.Error(t, err)
 }
 
 func TestApplySecurityPayload_ActorAndPolicies(t *testing.T) {
@@ -195,6 +198,7 @@ func TestApplySecurityPayload_ActorAndPolicies(t *testing.T) {
 			Meta: map[string]any{"level": 10},
 		},
 		Policies: []string{"policies:admin"},
+		Scope:    true,
 	}
 
 	err := ApplySecurityPayload(ctx, payload)
@@ -251,6 +255,7 @@ func TestSecurityPayload_RoundTrip(t *testing.T) {
 	dc := newTestDataConverter()
 
 	original := &SecurityPayload{
+		Audience: testSecurityAudience,
 		Actor: &ActorPayload{
 			ID:   "roundtrip-user",
 			Meta: map[string]any{"org": "acme", "tier": "premium"},
@@ -258,10 +263,10 @@ func TestSecurityPayload_RoundTrip(t *testing.T) {
 		Policies: []string{"policies:admin", "policies:write"},
 	}
 
-	header, err := AddSecurityToHeader(dc, nil, original)
+	header, err := AddSecurityToHeader(dc, nil, original, testSecurityHMACKey)
 	require.NoError(t, err)
 
-	extracted, err := ExtractSecurityFromHeader(dc, header)
+	extracted, err := ExtractSecurityFromHeader(dc, header, testSecurityAudience, testSecurityHMACKey)
 	require.NoError(t, err)
 	require.NotNil(t, extracted)
 

@@ -30,17 +30,19 @@ const (
 
 // ClientConfig defines the configuration for a Temporal client connection
 type ClientConfig struct {
-	Meta              attrs.Bag                  `json:"meta"`
-	TLS               *TLSConfig                 `json:"tls,omitempty"`
-	Auth              AuthConfig                 `json:"auth"`
-	Address           string                     `json:"address"`
-	Namespace         string                     `json:"namespace,omitempty"`
-	TQPrefix          string                     `json:"tq_prefix,omitempty"`
-	Lifecycle         supervisor.LifecycleConfig `json:"lifecycle,omitempty"`
-	HealthCheck       HealthCheckConfig          `json:"health_check,omitempty"`
-	ConnectionTimeout time.Duration              `json:"connection_timeout,omitzero,format:units"`
-	KeepAliveTime     time.Duration              `json:"keep_alive_time,omitzero,format:units"`
-	KeepAliveTimeout  time.Duration              `json:"keep_alive_timeout,omitzero,format:units"`
+	Meta                     attrs.Bag                  `json:"meta"`
+	TLS                      *TLSConfig                 `json:"tls,omitempty"`
+	SecurityHMACKey          []byte                     `json:"security_hmac_key,omitempty"`
+	SecurityHMACPreviousKeys [][]byte                   `json:"security_hmac_previous_keys,omitempty"`
+	Auth                     AuthConfig                 `json:"auth"`
+	Address                  string                     `json:"address"`
+	Namespace                string                     `json:"namespace,omitempty"`
+	TQPrefix                 string                     `json:"tq_prefix,omitempty"`
+	Lifecycle                supervisor.LifecycleConfig `json:"lifecycle,omitempty"`
+	HealthCheck              HealthCheckConfig          `json:"health_check,omitempty"`
+	ConnectionTimeout        time.Duration              `json:"connection_timeout,omitzero,format:units"`
+	KeepAliveTime            time.Duration              `json:"keep_alive_time,omitzero,format:units"`
+	KeepAliveTimeout         time.Duration              `json:"keep_alive_timeout,omitzero,format:units"`
 }
 
 // AuthConfig defines authentication settings for a Temporal client.
@@ -109,6 +111,17 @@ func (c *ClientConfig) InitDefaults() {
 func (c *ClientConfig) Validate() error {
 	if c.Address == "" {
 		return ErrAddressRequired
+	}
+	if len(c.SecurityHMACKey) > 0 && len(c.SecurityHMACKey) < 32 {
+		return ErrSecurityHMACKeyInvalid
+	}
+	if len(c.SecurityHMACPreviousKeys) > 0 && len(c.SecurityHMACKey) == 0 {
+		return ErrSecurityHMACKeyInvalid
+	}
+	for _, key := range c.SecurityHMACPreviousKeys {
+		if len(key) < 32 {
+			return ErrSecurityHMACKeyInvalid
+		}
 	}
 
 	// Validate auth configuration

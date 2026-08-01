@@ -13,6 +13,7 @@ import (
 	"encoding/pem"
 	"io"
 	"math/big"
+	"net"
 	gohttp "net/http"
 	"net/http/httptest"
 	"strings"
@@ -21,12 +22,82 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/attrs"
+	contextapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/dispatcher"
+	"github.com/wippyai/runtime/api/registry"
+	securityapi "github.com/wippyai/runtime/api/security"
 	httpapi "github.com/wippyai/runtime/api/service/http"
+	securitysystem "github.com/wippyai/runtime/system/security"
 )
 
 type testReceiver struct {
 	fn func(data any)
+}
+
+type outboundPolicy struct {
+	allowedURLs        map[string]struct{}
+	allowedUnixSockets map[string]struct{}
+	id                 registry.ID
+	allowPrivate       bool
+}
+
+func (p *outboundPolicy) ID() registry.ID {
+	return p.id
+}
+
+func (p *outboundPolicy) Evaluate(_ securityapi.Actor, action, resource string, _ attrs.Bag) securityapi.Result {
+	if action == "http_client.private_ip" && p.allowPrivate {
+		return securityapi.Allow
+	}
+	if action == "http_client.request" {
+		if _, ok := p.allowedURLs[resource]; ok {
+			return securityapi.Allow
+		}
+	}
+	if action == "http_client.unix_socket" {
+		if _, ok := p.allowedUnixSockets[resource]; ok {
+			return securityapi.Allow
+		}
+	}
+
+	return securityapi.Deny
+}
+
+func outboundContext(t *testing.T, urls ...string) context.Context {
+	t.Helper()
+	return outboundContextWithPrivate(t, true, urls...)
+}
+
+func outboundContextWithPrivate(t *testing.T, allowPrivate bool, urls ...string) context.Context {
+	t.Helper()
+	return outboundContextWithPermissions(t, allowPrivate, nil, urls...)
+}
+
+func outboundContextWithPermissions(t *testing.T, allowPrivate bool, unixSockets []string, urls ...string) context.Context {
+	t.Helper()
+	allowed := make(map[string]struct{}, len(urls))
+	for _, url := range urls {
+		allowed[url] = struct{}{}
+	}
+	allowedUnixSockets := make(map[string]struct{}, len(unixSockets))
+	for _, socket := range unixSockets {
+		allowedUnixSockets[socket] = struct{}{}
+	}
+	ctx := contextapi.NewRootContext()
+	ctx, frame := contextapi.OpenFrameContext(ctx)
+	t.Cleanup(func() { contextapi.ReleaseFrameContext(frame) })
+	require.NoError(t, securityapi.SetActor(ctx, securityapi.Actor{ID: "http-test"}))
+	require.NoError(t, securityapi.SetScope(ctx, securitysystem.NewScope([]securityapi.Policy{
+		&outboundPolicy{
+			id:                 registry.NewID("policies", "http-test"),
+			allowedURLs:        allowed,
+			allowedUnixSockets: allowedUnixSockets,
+			allowPrivate:       allowPrivate,
+		},
+	})))
+	return ctx
 }
 
 func (r *testReceiver) CompleteYield(_ uint64, data any, _ error) {
@@ -85,6 +156,18 @@ func TestClientPoolUnixSocket(t *testing.T) {
 	if c1 == c4 || c3 == c4 {
 		t.Error("socket client should differ from default")
 	}
+}
+
+func TestExecuteRequestAuthorizesUnixSocket(t *testing.T) {
+	const socket = "/var/run/runtime-security-test.sock"
+	request := &httpapi.RequestCmd{Method: "GET", URL: "http://localhost/", UnixSocket: socket}
+
+	denied := executeRequest(outboundContext(t, request.URL), NewClientPool(), nil, request, false)
+	require.Equal(t, "not allowed: unix socket "+socket, denied.Error)
+
+	allowedCtx := outboundContextWithPermissions(t, true, []string{socket}, request.URL)
+	allowed := executeRequest(allowedCtx, NewClientPool(), nil, request, false)
+	require.NotContains(t, allowed.Error, "not allowed: unix socket")
 }
 
 func TestClientPoolConcurrentAccess(t *testing.T) {
@@ -179,6 +262,113 @@ func TestDispatcher_Request(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("timeout")
 	}
+}
+
+func TestDispatcher_RedirectAuthorization(t *testing.T) {
+	var targetHits atomic.Int32
+	target := httptest.NewServer(gohttp.HandlerFunc(func(w gohttp.ResponseWriter, _ *gohttp.Request) {
+		targetHits.Add(1)
+		_, _ = w.Write([]byte("internal"))
+	}))
+	defer target.Close()
+	targetURL := target.URL + "/metadata"
+
+	origin := httptest.NewServer(gohttp.HandlerFunc(func(w gohttp.ResponseWriter, r *gohttp.Request) {
+		gohttp.Redirect(w, r, targetURL, gohttp.StatusFound)
+	}))
+	defer origin.Close()
+	originURL := origin.URL + "/allowed"
+
+	t.Run("denied target", func(t *testing.T) {
+		pool := NewClientPool()
+		defer pool.Close()
+		resp := executeRequest(outboundContext(t, originURL), pool, nil, &httpapi.RequestCmd{
+			Method: gohttp.MethodGet,
+			URL:    originURL,
+		}, false)
+		if resp.Error == "" {
+			t.Fatal("expected redirect authorization error")
+		}
+		if targetHits.Load() != 0 {
+			t.Fatalf("denied redirect reached target %d times", targetHits.Load())
+		}
+	})
+
+	t.Run("allowed target", func(t *testing.T) {
+		pool := NewClientPool()
+		defer pool.Close()
+		resp := executeRequest(outboundContext(t, originURL, targetURL), pool, nil, &httpapi.RequestCmd{
+			Method: gohttp.MethodGet,
+			URL:    originURL,
+		}, false)
+		if resp.Error != "" {
+			t.Fatalf("unexpected response error: %s", resp.Error)
+		}
+		if string(resp.Body) != "internal" {
+			t.Fatalf("body = %q", resp.Body)
+		}
+	})
+}
+
+func TestDispatcher_ReauthorizesPooledPeer(t *testing.T) {
+	var hits atomic.Int32
+	target := httptest.NewServer(gohttp.HandlerFunc(func(w gohttp.ResponseWriter, _ *gohttp.Request) {
+		hits.Add(1)
+		_, _ = w.Write([]byte("private"))
+	}))
+	defer target.Close()
+	pool := NewClientPool()
+	defer pool.Close()
+
+	first := executeRequest(outboundContext(t, target.URL), pool, nil, &httpapi.RequestCmd{
+		Method: gohttp.MethodGet,
+		URL:    target.URL,
+	}, false)
+	require.Empty(t, first.Error)
+
+	second := executeRequest(outboundContextWithPrivate(t, false, target.URL), pool, nil, &httpapi.RequestCmd{
+		Method: gohttp.MethodGet,
+		URL:    target.URL,
+	}, false)
+	require.NotEmpty(t, second.Error)
+	require.Equal(t, int32(1), hits.Load())
+}
+
+func TestPrivateHTTPIPIncludesSpecialUseRanges(t *testing.T) {
+	for _, raw := range []string{
+		"100.64.0.1",
+		"192.0.2.1",
+		"198.18.0.1",
+		"198.51.100.1",
+		"203.0.113.1",
+		"224.0.0.1",
+		"240.0.0.1",
+		"2001:db8::1",
+		"ff02::1",
+	} {
+		t.Run(raw, func(t *testing.T) {
+			if !isPrivateHTTPIP(net.ParseIP(raw)) {
+				t.Fatalf("special-use address %s was treated as public", raw)
+			}
+		})
+	}
+}
+
+func TestDialHTTPContextAuthorizesResolvedAddress(t *testing.T) {
+	listenerConfig := net.ListenConfig{}
+	listener, err := listenerConfig.Listen(context.Background(), "tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer listener.Close()
+	dialer := &net.Dialer{Timeout: time.Second}
+
+	conn, err := dialHTTPContext(contextapi.NewRootContext(), dialer, "tcp", listener.Addr().String())
+	require.Error(t, err)
+	require.Nil(t, conn)
+
+	ctx := securityapi.SetStrictMode(contextapi.NewRootContext(), false)
+	conn, err = dialHTTPContext(ctx, dialer, "tcp", listener.Addr().String())
+	require.NoError(t, err)
+	require.NoError(t, conn.Close())
 }
 
 func TestDispatcher_RequestPost(t *testing.T) {

@@ -48,11 +48,16 @@ func (d *Definition) executeFunctionCall(cmd *function.CallCmd, tag uint64) erro
 		return nil
 	}
 
+	opts.ActivityID = d.securityActivityID(d.execCtx, opts.ActivityID)
+	header, err := d.getContextHeaderForAudience(d.execCtx, opts.ActivityID)
+	if err != nil {
+		return err
+	}
 	d.env.ExecuteActivity(bindings.ExecuteActivityParams{
 		ExecuteActivityOptions: opts,
 		ActivityType:           bindings.ActivityType{Name: activityName},
 		Input:                  args,
-		Header:                 d.getContextHeader(),
+		Header:                 header,
 	}, func(result *commonpb.Payloads, err error) {
 		d.handleFunctionCallResult(tag, result, err)
 	})
@@ -85,12 +90,17 @@ func (d *Definition) executeFunctionAsyncStart(cmd *function.AsyncStartCmd, tag 
 		d.asyncActivities = make(map[string]bindings.ActivityID, 4)
 	}
 
+	opts.ActivityID = d.securityActivityID(d.execCtx, opts.ActivityID)
+	header, err := d.getContextHeaderForAudience(d.execCtx, opts.ActivityID)
+	if err != nil {
+		return err
+	}
 	topic := cmd.Topic
 	activityID := d.env.ExecuteActivity(bindings.ExecuteActivityParams{
 		ExecuteActivityOptions: opts,
 		ActivityType:           bindings.ActivityType{Name: activityName},
 		Input:                  args,
-		Header:                 d.getContextHeader(),
+		Header:                 header,
 	}, func(result *commonpb.Payloads, err error) {
 		d.handleFunctionAsyncResult(topic, result, err)
 	})
@@ -256,7 +266,6 @@ func (d *Definition) executeWorkflowExec(cmd *workflowapi.ExecCmd, tag uint64) e
 	params := bindings.ExecuteWorkflowParams{
 		WorkflowType: &bindings.WorkflowType{Name: workflowName},
 		Input:        args,
-		Header:       d.getContextHeader(),
 		WorkflowOptions: bindings.WorkflowOptions{
 			TaskQueueName: d.env.WorkflowInfo().TaskQueueName,
 		},
@@ -286,6 +295,13 @@ func (d *Definition) executeWorkflowExec(cmd *workflowapi.ExecCmd, tag uint64) e
 			return nil
 		}
 	}
+	params.WorkflowID = d.securityChildWorkflowID(d.execCtx, params.WorkflowID)
+	header, err := d.getContextHeaderForAudience(d.execCtx, params.WorkflowID)
+	if err != nil {
+		d.resumeProcess(tag, workflowapi.ExecResult{Error: err}, nil)
+		return nil
+	}
+	params.Header = header
 
 	d.env.ExecuteChildWorkflow(params, func(result *commonpb.Payloads, err error) {
 		if err != nil {

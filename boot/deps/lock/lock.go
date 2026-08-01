@@ -455,6 +455,12 @@ func (l *Lock) GetModuleLoadPaths() []ModuleLoadPath {
 		}
 
 		resolved := ResolveModuleDir(fullVendorDir, name, mod.Version)
+		if !l.ShouldUnpackModules() {
+			wappPath := filepath.Join(fullVendorDir, WappPath(name, mod.Version))
+			if _, err := os.Stat(wappPath); err == nil {
+				resolved = ResolvedPath{Path: wappPath}
+			}
+		}
 		paths = append(paths, ModuleLoadPath{
 			Path:       resolved.Path,
 			Module:     mod.Name,

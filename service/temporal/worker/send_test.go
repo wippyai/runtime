@@ -18,6 +18,7 @@ import (
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/resource"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
+	securityapi "github.com/wippyai/runtime/api/security"
 	api "github.com/wippyai/runtime/api/service/temporal"
 	"github.com/wippyai/runtime/internal/uniqid"
 	"github.com/wippyai/runtime/runtime/lua/code"
@@ -26,6 +27,8 @@ import (
 	processmod "github.com/wippyai/runtime/runtime/lua/modules/process"
 	timemod "github.com/wippyai/runtime/runtime/lua/modules/time"
 	"github.com/wippyai/runtime/service/temporal/dataconverter"
+	"github.com/wippyai/runtime/service/temporal/internal/securitykeys"
+	"github.com/wippyai/runtime/service/temporal/propagator"
 	"github.com/wippyai/runtime/service/temporal/worker"
 	"github.com/wippyai/runtime/service/temporal/workflow"
 	"github.com/wippyai/runtime/system/eventbus"
@@ -34,8 +37,11 @@ import (
 	jsonpayload "github.com/wippyai/runtime/system/payload/json"
 	msgpayload "github.com/wippyai/runtime/system/payload/msgpack"
 	sysprocess "github.com/wippyai/runtime/system/process"
+	securitysystem "github.com/wippyai/runtime/system/security"
 	"go.temporal.io/sdk/client"
+	"go.temporal.io/sdk/interceptor"
 	"go.temporal.io/sdk/testsuite"
+	temporalworkflow "go.temporal.io/sdk/workflow"
 	"go.uber.org/zap"
 )
 
@@ -98,6 +104,10 @@ func TestWorkerSend_Integration(t *testing.T) {
 	funcRegistry := sysfunc.NewFunctionRegistry(bus, logger.Named("function"))
 
 	ctx := ctxapi.NewRootContext()
+	ctx, securityFrame := ctxapi.OpenFrameContext(ctx)
+	defer ctxapi.ReleaseFrameContext(securityFrame)
+	require.NoError(t, securityapi.SetActor(ctx, securityapi.Actor{ID: "integration-user"}))
+	require.NoError(t, securityapi.SetScope(ctx, securitysystem.NewScope(nil)))
 	awaitSvc := eventbus.NewAwaitService(bus)
 	require.NoError(t, awaitSvc.Start(ctx))
 	defer func() { _ = awaitSvc.Stop() }()
@@ -153,9 +163,16 @@ func TestWorkerSend_Integration(t *testing.T) {
 
 	dc := dataconverter.NewDataConverter(newSendTestTranscoder())
 
+	securityKey := []byte("0123456789abcdef0123456789abcdef")
 	server, err := testsuite.StartDevServer(ctx, testsuite.DevServerOptions{
-		LogLevel:      "error",
-		ClientOptions: &client.Options{DataConverter: dc},
+		LogLevel: "error",
+		ClientOptions: &client.Options{
+			DataConverter: dc,
+			Interceptors:  []interceptor.ClientInterceptor{propagator.NewSecurityAudienceInterceptor()},
+			ContextPropagators: []temporalworkflow.ContextPropagator{
+				propagator.New(dc, securityKey),
+			},
+		},
 	})
 	require.NoError(t, err)
 	defer func() { _ = server.Stop() }()
@@ -164,9 +181,9 @@ func TestWorkerSend_Integration(t *testing.T) {
 	defer temporalClient.Close()
 
 	resourceReg := newSendTestResourceRegistry()
-	clientResource := api.ClientResource{
+	clientResource := securitykeys.NewResource(api.ClientResource{
 		Client: temporalClient,
-	}
+	}, [][]byte{securityKey})
 	clientID := registry.NewID("test", "client")
 	resourceReg.resources[clientID] = clientResource
 

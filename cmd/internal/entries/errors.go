@@ -44,6 +44,10 @@ func NewNoContentDownloadedError(module string) apierror.Error {
 	return apierror.New(apierror.Internal, "no content downloaded for module: "+module).WithRetryable(apierror.False)
 }
 
+func NewModuleIntegrityError(module string, cause error) apierror.Error {
+	return apierror.New(apierror.PermissionDenied, "module integrity verification failed: "+module).WithCause(cause).WithRetryable(apierror.False)
+}
+
 func NewStoreModuleError(module string, cause error) apierror.Error {
 	return apierror.New(apierror.Internal, "failed to store module: "+module).WithCause(cause).WithRetryable(apierror.False)
 }

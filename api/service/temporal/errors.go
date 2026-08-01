@@ -19,6 +19,7 @@ var (
 	ErrKeepAliveTimeInvalid                    = apierror.New(apierror.Invalid, "keep alive time must be >= 0").WithRetryable(apierror.False)
 	ErrKeepAliveTimeoutInvalid                 = apierror.New(apierror.Invalid, "keep alive timeout must be >= 0").WithRetryable(apierror.False)
 	ErrHealthCheckIntervalInvalid              = apierror.New(apierror.Invalid, "health check interval must be > 0 when enabled").WithRetryable(apierror.False)
+	ErrSecurityHMACKeyInvalid                  = apierror.New(apierror.Invalid, "security HMAC key must be at least 32 bytes").WithRetryable(apierror.False)
 	ErrClientReferenceEmpty                    = apierror.New(apierror.Invalid, "client reference is required").WithRetryable(apierror.False)
 	ErrTaskQueueEmpty                          = apierror.New(apierror.Invalid, "task queue is required").WithRetryable(apierror.False)
 	ErrMaxConcurrentActivityInvalid            = apierror.New(apierror.Invalid, "max concurrent activity execution size must be > 0").WithRetryable(apierror.False)

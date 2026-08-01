@@ -5,9 +5,12 @@ package entries
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -871,6 +874,125 @@ func TestRegisterModuleSourceRoots_DirectoryModulesOnly(t *testing.T) {
 	if _, ok := moduleapi.SourceRoot(ctx, "acme/missing"); ok {
 		t.Fatal("missing module directory should not register a source root")
 	}
+}
+
+func TestEnsureModulesInstalledVerifiesCachedWapp(t *testing.T) {
+	tests := []struct {
+		digest    func([]byte) string
+		name      string
+		wantError bool
+	}{
+		{
+			name: "matching digest",
+			digest: func(data []byte) string {
+				sum := sha256.Sum256(data)
+				return "sha256:" + hex.EncodeToString(sum[:])
+			},
+		},
+		{
+			name:      "mismatched digest",
+			digest:    func([]byte) string { return "sha256:" + strings.Repeat("0", 64) },
+			wantError: true,
+		},
+		{
+			name:      "missing digest",
+			digest:    func([]byte) string { return "" },
+			wantError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmpDir := t.TempDir()
+			lockObj, err := lock.New(filepath.Join(tmpDir, lock.DefaultFilename))
+			require.NoError(t, err)
+			lockObj.SetOptions(lock.Options{UnpackModules: false})
+
+			vendorDir := filepath.Join(tmpDir, ".wippy", "vendor", "acme")
+			require.NoError(t, os.MkdirAll(vendorDir, 0o755))
+			packPath := createTestWappFile(t, vendorDir, "ui-v1.0.0", []wapp.Entry{
+				{ID: wapp.NewID("acme.ui", "entry"), Kind: "code.lua", Data: "return true"},
+			})
+			data, err := os.ReadFile(packPath)
+			require.NoError(t, err)
+			lockObj.SetModule(lock.Module{Name: "acme/ui", Version: "v1.0.0", Hash: tt.digest(data)})
+
+			err = ensureModulesInstalledFromLock(context.Background(), lockObj, zap.NewNop())
+			if tt.wantError {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestEnsureModulesInstalledRefreshesUnpackedModuleFromVerifiedWapp(t *testing.T) {
+	tmpDir := t.TempDir()
+	lockObj, err := lock.New(filepath.Join(tmpDir, lock.DefaultFilename))
+	require.NoError(t, err)
+	lockObj.SetOptions(lock.Options{UnpackModules: true})
+
+	vendorDir := filepath.Join(tmpDir, ".wippy", "vendor", "acme")
+	require.NoError(t, os.MkdirAll(vendorDir, 0o755))
+	packPath := createTestWappFile(t, vendorDir, "ui-v1.0.0", []wapp.Entry{
+		{ID: wapp.NewID("acme.ui", "entry"), Kind: "code.lua", Data: "return true"},
+	})
+	data, err := os.ReadFile(packPath)
+	require.NoError(t, err)
+	sum := sha256.Sum256(data)
+	lockObj.SetModule(lock.Module{
+		Name:    "acme/ui",
+		Version: "v1.0.0",
+		Hash:    "sha256:" + hex.EncodeToString(sum[:]),
+	})
+
+	extractedDir := filepath.Join(vendorDir, "ui")
+	require.NoError(t, os.MkdirAll(extractedDir, 0o755))
+	tamperedPath := filepath.Join(extractedDir, "attacker.lua")
+	require.NoError(t, os.WriteFile(tamperedPath, []byte("return 'owned'"), 0o600))
+
+	require.NoError(t, ensureModulesInstalledFromLock(context.Background(), lockObj, zap.NewNop()))
+	_, err = os.Stat(tamperedPath)
+	require.ErrorIs(t, err, os.ErrNotExist)
+	_, err = os.Stat(packPath)
+	require.NoError(t, err)
+}
+
+func TestPackedModuleLoadPathIgnoresExtractedDirectory(t *testing.T) {
+	tmpDir := t.TempDir()
+	lockObj, err := lock.New(filepath.Join(tmpDir, lock.DefaultFilename))
+	require.NoError(t, err)
+	lockObj.SetOptions(lock.Options{UnpackModules: false})
+	lockObj.SetModule(lock.Module{Name: "acme/ui", Version: "v1.0.0", Hash: "sha256:digest"})
+
+	vendorDir := filepath.Join(tmpDir, ".wippy", "vendor", "acme")
+	require.NoError(t, os.MkdirAll(filepath.Join(vendorDir, "ui"), 0o755))
+	packPath := filepath.Join(vendorDir, "ui-v1.0.0.wapp")
+	require.NoError(t, os.WriteFile(packPath, []byte("archive"), 0o600))
+
+	paths := lockObj.GetModuleLoadPaths()
+	var modulePath string
+	for _, path := range paths {
+		if path.Module == "acme/ui" {
+			modulePath = path.Path
+		}
+	}
+	require.Equal(t, packPath, modulePath)
+}
+
+func TestVerifyModuleArtifactRequiresEveryProvidedDigest(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "module.wapp")
+	data := []byte("artifact")
+	require.NoError(t, os.WriteFile(path, data, 0o600))
+	sum := sha256.Sum256(data)
+	matching := "sha256:" + hex.EncodeToString(sum[:])
+	mismatched := "sha256:" + strings.Repeat("0", 64)
+
+	require.NoError(t, verifyModuleArtifact(path, matching, matching, uint64(len(data))))
+	require.ErrorIs(t, verifyModuleArtifact(path, "", matching, uint64(len(data))), ErrModuleMissingHash)
+	require.Error(t, verifyModuleArtifact(path, matching, mismatched, uint64(len(data))))
+	require.Error(t, verifyModuleArtifact(path, "", "", uint64(len(data))))
 }
 
 func TestEnsureModulesInstalledSkipsReplacedModules(t *testing.T) {

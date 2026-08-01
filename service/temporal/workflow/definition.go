@@ -19,6 +19,7 @@ import (
 	workflowapi "github.com/wippyai/runtime/api/runtime/workflow"
 	temporalapi "github.com/wippyai/runtime/api/service/temporal"
 	temporalerrors "github.com/wippyai/runtime/service/temporal/errors"
+	"github.com/wippyai/runtime/service/temporal/internal/securitykeys"
 	"github.com/wippyai/runtime/service/temporal/propagator"
 	commonpb "go.temporal.io/api/common/v1"
 	"go.temporal.io/sdk/converter"
@@ -114,6 +115,8 @@ type Definition struct {
 	// the SDK has set command event sequencing for the current workflow task.
 	pendingCompletions []process.Event
 	output             process.StepOutput
+	childSequence      uint64
+	activitySequence   uint64
 	canceled           bool
 	completed          bool
 }
@@ -191,13 +194,19 @@ func (d *Definition) Execute(env bindings.WorkflowEnvironment, header *commonpb.
 		}
 	}
 
-	if secPayload, err := propagator.ExtractSecurityFromHeader(d.dc, header); err != nil {
-		d.replayLog.Warn("failed to extract security from header", zap.Error(err))
+	workflowInfo := env.WorkflowInfo()
+	expectedAudience := workflowInfo.WorkflowExecution.ID
+	securityKeys := securitykeys.Keys(d.ctx)
+	if secPayload, err := propagator.ExtractSecurityFromHeader(d.dc, header, expectedAudience, securityKeys...); err != nil {
+		d.env.Complete(nil, fmt.Errorf("failed to verify security context: %w", err))
+		return
 	} else if secPayload != nil {
 		if err := propagator.ApplySecurityPayload(execCtx, secPayload); err != nil {
-			d.replayLog.Warn("failed to apply security context", zap.Error(err))
+			d.env.Complete(nil, fmt.Errorf("failed to apply security context: %w", err))
+			return
 		}
 	}
+	execCtx = propagator.WithSecurityAudience(execCtx, workflowInfo.WorkflowExecution.ID)
 
 	timeRef := &workflowTimeRef{env: env}
 	if err := clockapi.WithTimeReference(execCtx, timeRef); err != nil {
@@ -283,15 +292,49 @@ func (d *Definition) completeWithResult() {
 }
 
 // getContextHeader creates a header from current FrameContext values for propagation.
-func (d *Definition) getContextHeader() *commonpb.Header {
+func (d *Definition) getContextHeader() (*commonpb.Header, error) {
 	return d.getContextHeaderFrom(d.execCtx, nil)
 }
 
-func (d *Definition) getContextHeaderWithValues(extra map[string]any) *commonpb.Header {
-	return d.getContextHeaderFrom(d.execCtx, extra)
+func (d *Definition) getContextHeaderWithValuesForAudience(extra map[string]any, audience string) (*commonpb.Header, error) {
+	return d.getContextHeaderFrom(propagator.WithSecurityAudience(d.execCtx, audience), extra)
 }
 
-func (d *Definition) getContextHeaderFrom(ctx context.Context, extra map[string]any) *commonpb.Header {
+func (d *Definition) getContextHeaderForAudience(ctx context.Context, audience string) (*commonpb.Header, error) {
+	return d.getContextHeaderFrom(propagator.WithSecurityAudience(ctx, audience), nil)
+}
+
+func hasSecurityContext(ctx context.Context) bool {
+	return propagator.ExtractSecurityPayload(ctx) != nil
+}
+
+func (d *Definition) securityChildWorkflowID(ctx context.Context, workflowID string) string {
+	if workflowID == "" && hasSecurityContext(ctx) {
+		return d.nextChildWorkflowID()
+	}
+	return workflowID
+}
+
+func (d *Definition) securityActivityID(ctx context.Context, activityID string) string {
+	if activityID == "" && hasSecurityContext(ctx) {
+		return d.nextActivityID()
+	}
+	return activityID
+}
+
+func (d *Definition) nextChildWorkflowID() string {
+	d.childSequence++
+	info := d.env.WorkflowInfo().WorkflowExecution
+	return fmt.Sprintf("%s-%s-child-%d", info.ID, info.RunID, d.childSequence)
+}
+
+func (d *Definition) nextActivityID() string {
+	d.activitySequence++
+	info := d.env.WorkflowInfo().WorkflowExecution
+	return fmt.Sprintf("%s-%s-activity-%d", info.ID, info.RunID, d.activitySequence)
+}
+
+func (d *Definition) getContextHeaderFrom(ctx context.Context, extra map[string]any) (*commonpb.Header, error) {
 	var header *commonpb.Header
 
 	values := ctxapi.GetValues(ctx)
@@ -314,20 +357,20 @@ func (d *Definition) getContextHeaderFrom(ctx context.Context, extra map[string]
 		var err error
 		header, err = propagator.CreateHeader(d.dc, data)
 		if err != nil {
-			d.replayLog.Warn("failed to create context header", zap.Error(err))
+			return nil, fmt.Errorf("create context header: %w", err)
 		}
 	}
 
 	secPayload := propagator.ExtractSecurityPayload(ctx)
 	if secPayload != nil {
 		var err error
-		header, err = propagator.AddSecurityToHeader(d.dc, header, secPayload)
+		header, err = propagator.AddSecurityToHeader(d.dc, header, secPayload, securitykeys.Keys(d.ctx)...)
 		if err != nil {
-			d.replayLog.Warn("failed to add security to header", zap.Error(err))
+			return nil, fmt.Errorf("sign security context: %w", err)
 		}
 	}
 
-	return header
+	return header, nil
 }
 
 // StackTrace implements WorkflowDefinition.StackTrace.

@@ -20,10 +20,13 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	runtimeapi "github.com/wippyai/runtime/api/runtime"
 	workflowapi "github.com/wippyai/runtime/api/runtime/workflow"
+	securityapi "github.com/wippyai/runtime/api/security"
 	enginepayload "github.com/wippyai/runtime/runtime/lua/engine/payload"
 	"github.com/wippyai/runtime/service/temporal/dataconverter"
+	"github.com/wippyai/runtime/service/temporal/internal/securitykeys"
 	"github.com/wippyai/runtime/service/temporal/propagator"
 	syspayload "github.com/wippyai/runtime/system/payload"
+	securitysystem "github.com/wippyai/runtime/system/security"
 	commonpb "go.temporal.io/api/common/v1"
 	"go.temporal.io/sdk/converter"
 	bindings "go.temporal.io/sdk/internalbindings"
@@ -267,6 +270,13 @@ func TestT04ProcessSelfSendIsLocal(t *testing.T) {
 
 func TestT05ProcessTemporalSendProjectsSignal(t *testing.T) {
 	d, env := newRouterDefinition(t, nil)
+	key := []byte("0123456789abcdef0123456789abcdef")
+	require.NoError(t, securityapi.SetActor(d.execCtx, securityapi.Actor{ID: "literal-user"}))
+	require.NoError(t, securityapi.SetScope(d.execCtx, securitysystem.NewScope(nil)))
+	initialSecurity := propagator.ExtractSecurityPayload(d.execCtx)
+	require.NotNil(t, initialSecurity)
+	require.NotNil(t, initialSecurity.Actor)
+	d.ctx = securitykeys.WithKeys(d.ctx, key)
 	cmd := &process.SendCmd{
 		To:       pid.PID{Node: "literal-client", Host: "temporal", UniqID: "target-workflow"},
 		Topic:    "literal-signal-topic",
@@ -285,6 +295,13 @@ func TestT05ProcessTemporalSendProjectsSignal(t *testing.T) {
 	require.False(t, signal.childWorkflowOnly)
 	requireHeaderValue(t, d, signal.header, "trace", "literal-header")
 	requireHeaderValue(t, d, signal.header, "temporal.signal.from", "{literal-client@literal-worker|self-workflow}")
+	require.Contains(t, signal.header.Fields, propagator.SecurityHeaderKey)
+	require.Contains(t, signal.header.Fields, propagator.SecuritySignatureHeaderKey)
+	securityPayload, err := propagator.ExtractSecurityFromHeader(d.dc, signal.header, "target-workflow", key)
+	require.NoError(t, err)
+	require.Equal(t, "literal-user", securityPayload.Actor.ID)
+	_, err = propagator.ExtractRelaySignalTicket(d.dc, signal.header, "target-workflow", "literal-signal-topic", key)
+	require.NoError(t, err)
 
 	signal.callback(nil, nil)
 	event := requirePendingCompletion(t, d, 45)

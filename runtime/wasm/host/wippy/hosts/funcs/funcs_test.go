@@ -7,10 +7,12 @@ import (
 	"errors"
 	"testing"
 
+	contextapi "github.com/wippyai/runtime/api/context"
 	functionapi "github.com/wippyai/runtime/api/function"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	runtimeapi "github.com/wippyai/runtime/api/runtime"
+	securityapi "github.com/wippyai/runtime/api/security"
 	"github.com/wippyai/runtime/runtime/wasm"
 )
 
@@ -23,6 +25,10 @@ func (m *mockFunctionRegistry) Call(ctx context.Context, task runtimeapi.Task) (
 		return nil, nil
 	}
 	return m.callFn(ctx, task)
+}
+
+func insecureContext() context.Context {
+	return securityapi.SetStrictMode(contextapi.NewRootContext(), false)
 }
 
 func TestHost_CallString(t *testing.T) {
@@ -41,7 +47,7 @@ func TestHost_CallString(t *testing.T) {
 		},
 	})
 
-	out, err := host.CallString(context.Background(), "app:test", "hello")
+	out, err := host.CallString(insecureContext(), "app:test", "hello")
 	if err != nil {
 		t.Fatalf("CallString error: %v", err)
 	}
@@ -64,7 +70,7 @@ func TestHost_CallBytes(t *testing.T) {
 		},
 	})
 
-	out, err := host.CallBytes(context.Background(), "app:test", []byte("abc"))
+	out, err := host.CallBytes(insecureContext(), "app:test", []byte("abc"))
 	if err != nil {
 		t.Fatalf("CallBytes error: %v", err)
 	}
@@ -74,9 +80,10 @@ func TestHost_CallBytes(t *testing.T) {
 }
 
 func TestHost_Errors(t *testing.T) {
+	ctx := insecureContext()
 	t.Run("registry missing", func(t *testing.T) {
 		host := NewHost(nil)
-		_, err := host.CallString(context.Background(), "app:test", "x")
+		_, err := host.CallString(ctx, "app:test", "x")
 		if !errors.Is(err, wasm.ErrFunctionRegistryNotFound) {
 			t.Fatalf("expected ErrFunctionRegistryNotFound, got %v", err)
 		}
@@ -84,7 +91,7 @@ func TestHost_Errors(t *testing.T) {
 
 	t.Run("invalid target", func(t *testing.T) {
 		host := NewHost(&mockFunctionRegistry{})
-		_, err := host.CallString(context.Background(), "invalid", "x")
+		_, err := host.CallString(ctx, "invalid", "x")
 		if err == nil {
 			t.Fatal("expected invalid target error")
 		}
@@ -96,7 +103,7 @@ func TestHost_Errors(t *testing.T) {
 				return nil, errors.New("boom")
 			},
 		})
-		_, err := host.CallString(context.Background(), "app:test", "x")
+		_, err := host.CallString(ctx, "app:test", "x")
 		if err == nil || err.Error() != "boom" {
 			t.Fatalf("expected boom, got %v", err)
 		}
@@ -108,7 +115,7 @@ func TestHost_Errors(t *testing.T) {
 				return &runtimeapi.Result{Error: errors.New("denied")}, nil
 			},
 		})
-		_, err := host.CallString(context.Background(), "app:test", "x")
+		_, err := host.CallString(ctx, "app:test", "x")
 		if err == nil || err.Error() != "denied" {
 			t.Fatalf("expected denied, got %v", err)
 		}
@@ -120,7 +127,7 @@ func TestHost_Errors(t *testing.T) {
 				return &runtimeapi.Result{Value: nil}, nil
 			},
 		})
-		out, err := host.CallString(context.Background(), "app:test", "x")
+		out, err := host.CallString(ctx, "app:test", "x")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -128,6 +135,26 @@ func TestHost_Errors(t *testing.T) {
 			t.Fatalf("expected empty output, got %q", out)
 		}
 	})
+}
+
+func TestHost_DeniesUnauthorizedCalls(t *testing.T) {
+	calls := 0
+	host := NewHost(&mockFunctionRegistry{
+		callFn: func(_ context.Context, _ runtimeapi.Task) (*runtimeapi.Result, error) {
+			calls++
+			return &runtimeapi.Result{Value: payload.NewString("secret")}, nil
+		},
+	})
+
+	if _, err := host.CallString(contextapi.NewRootContext(), "app:secret", ""); err == nil {
+		t.Fatal("expected unauthorized string call to fail")
+	}
+	if _, err := host.CallBytes(contextapi.NewRootContext(), "app:secret", nil); err == nil {
+		t.Fatal("expected unauthorized bytes call to fail")
+	}
+	if calls != 0 {
+		t.Fatalf("registry called %d times", calls)
+	}
 }
 
 var _ functionapi.Registry = (*mockFunctionRegistry)(nil)

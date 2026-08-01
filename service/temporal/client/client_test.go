@@ -14,6 +14,7 @@ import (
 	"github.com/wippyai/runtime/api/resource"
 	api "github.com/wippyai/runtime/api/service/temporal"
 	"github.com/wippyai/runtime/api/supervisor"
+	"github.com/wippyai/runtime/service/temporal/internal/securitykeys"
 	"go.uber.org/zap"
 )
 
@@ -205,7 +206,8 @@ func TestClient_Acquire(t *testing.T) {
 		logger := zap.NewNop()
 		temporalClient := &mockTemporalClient{}
 		config := &api.ClientConfig{
-			TQPrefix: "dev:",
+			TQPrefix:        "dev:",
+			SecurityHMACKey: []byte("0123456789abcdef0123456789abcdef"),
 			HealthCheck: api.HealthCheckConfig{
 				Enabled: false,
 			},
@@ -226,6 +228,19 @@ func TestClient_Acquire(t *testing.T) {
 		clientRes, ok := res.(*clientResourceImpl)
 		require.True(t, ok)
 		assert.Equal(t, "dev:", clientRes.prefix)
+		public, err := clientRes.Get()
+		require.NoError(t, err)
+		_, ok = public.(api.ClientResource)
+		require.True(t, ok)
+
+		securedRes, err := client.Acquire(securitykeys.WithAccess(ctx), registry.NewID("test", "client1"), resource.ModeNormal)
+		require.NoError(t, err)
+		secured, err := securedRes.Get()
+		require.NoError(t, err)
+		_, ok = secured.(securitykeys.Resource)
+		require.True(t, ok)
+		res.Release()
+		securedRes.Release()
 	})
 
 	t.Run("cannot acquire from closed client", func(t *testing.T) {
@@ -300,17 +315,30 @@ func TestClientResource_Get(t *testing.T) {
 		wg.Add(1)
 
 		res := &clientResourceImpl{
-			client: temporalClient,
-			prefix: "dev:",
-			wg:     &wg,
+			client:               temporalClient,
+			prefix:               "dev:",
+			securityKey:          []byte("0123456789abcdef0123456789abcdef"),
+			securityPreviousKeys: [][]byte{[]byte("abcdef0123456789abcdef0123456789")},
+			revealSecurityKeys:   true,
+			wg:                   &wg,
 		}
 
 		result, err := res.Get()
 		require.NoError(t, err)
-		clientRes, ok := result.(api.ClientResource)
+		secured, ok := result.(securitykeys.Resource)
 		require.True(t, ok)
+		clientRes := secured.Client()
 		assert.Equal(t, temporalClient, clientRes.Client)
 		assert.Equal(t, "dev:", clientRes.TQPrefix)
+		keys := secured.Keys()
+		require.Len(t, keys, 2)
+		keys[0][0] = 'x'
+		keys[1][0] = 'x'
+		second, err := res.Get()
+		require.NoError(t, err)
+		secondKeys := second.(securitykeys.Resource).Keys()
+		assert.Equal(t, byte('0'), secondKeys[0][0])
+		assert.Equal(t, byte('a'), secondKeys[1][0])
 	})
 
 	t.Run("get from released resource fails", func(t *testing.T) {

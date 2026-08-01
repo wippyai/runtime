@@ -23,6 +23,7 @@ import (
 	"github.com/wippyai/runtime/api/supervisor"
 	"github.com/wippyai/runtime/internal/uniqid"
 	temporalerrors "github.com/wippyai/runtime/service/temporal/errors"
+	"github.com/wippyai/runtime/service/temporal/internal/securitykeys"
 	temporalprop "github.com/wippyai/runtime/service/temporal/propagator"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/client"
@@ -141,7 +142,7 @@ func (w *Worker) Start(ctx context.Context) (<-chan any, error) {
 	}
 
 	// Acquire client resource
-	clientRes, err := w.resourceReg.Acquire(ctx, w.config.Client, resource.ModeNormal)
+	clientRes, err := w.resourceReg.Acquire(securitykeys.WithAccess(ctx), w.config.Client, resource.ModeNormal)
 	if err != nil {
 		statusCh <- supervisor.StatusFailed
 		return statusCh, fmt.Errorf("failed to acquire client: %w", err)
@@ -155,8 +156,15 @@ func (w *Worker) Start(ctx context.Context) (<-chan any, error) {
 		return statusCh, fmt.Errorf("failed to get client: %w", err)
 	}
 
-	temporalRes, ok := clientAny.(api.ClientResource)
-	if !ok {
+	var temporalRes api.ClientResource
+	var securityKeys [][]byte
+	switch value := clientAny.(type) {
+	case api.ClientResource:
+		temporalRes = value
+	case securitykeys.Resource:
+		temporalRes = value.Client()
+		securityKeys = value.Keys()
+	default:
 		clientRes.Release()
 		statusCh <- supervisor.StatusFailed
 		return statusCh, fmt.Errorf("invalid client type: expected temporal.ClientResource, got %T", clientAny)
@@ -189,6 +197,9 @@ func (w *Worker) Start(ctx context.Context) (<-chan any, error) {
 	// Client ID identifies the Temporal node; worker ID identifies host-level PID identity.
 	appCtx := api.WithClientID(ctx, w.config.Client.String())
 	appCtx = api.WithWorkerID(appCtx, w.id.String())
+	appCtx = securitykeys.WithKeys(appCtx, securityKeys...)
+	workerInterceptors := append([]interceptor.WorkerInterceptor(nil), w.interceptors...)
+	workerInterceptors = append(workerInterceptors, temporalprop.NewSecurityAudienceWorkerInterceptor())
 
 	// Create worker options
 	options := worker.Options{
@@ -199,7 +210,7 @@ func (w *Worker) Start(ctx context.Context) (<-chan any, error) {
 		MaxConcurrentEagerActivityExecutionSize: w.config.WorkerOptions.MaxConcurrentEagerActivityExecutionSize,
 		MaxConcurrentActivityTaskPollers:        w.config.WorkerOptions.MaxConcurrentActivityTaskPollers,
 		MaxConcurrentWorkflowTaskPollers:        w.config.WorkerOptions.MaxConcurrentWorkflowTaskPollers,
-		Interceptors:                            w.interceptors,
+		Interceptors:                            workerInterceptors,
 	}
 
 	// Apply optional settings
@@ -561,10 +572,9 @@ func (w *Worker) createActivityHandler(runtimeState *workerRuntime, funcID regis
 
 		execCtx, release, err := temporalprop.MergeActivityContext(execCtx, activityCtx)
 		if err != nil {
-			w.log.Warn("failed to merge activity context", zap.Error(err))
-		} else {
-			defer release()
+			return nil, temporalerrors.ToApplicationError(err)
 		}
+		defer release()
 
 		result, err := runtimeState.funcRegistry.Call(execCtx, runtime.Task{
 			ID:       funcID,
@@ -672,7 +682,7 @@ func (w *Worker) Send(pkg *relay.Package) error {
 			zap.String("signal", msg.Topic),
 			zap.Int("payloads", len(msg.Payloads)))
 
-		ctx := runtimeState.ctx
+		ctx := temporalprop.WithRelaySignal(runtimeState.ctx, workflowID, msg.Topic)
 		var frame ctxapi.FrameContext
 		if pkg.Source.Node != "" || pkg.Source.Host != "" || pkg.Source.UniqID != "" {
 			ctx, frame = ctxapi.ForkFrameContext(ctx)

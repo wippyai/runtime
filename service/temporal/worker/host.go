@@ -180,6 +180,7 @@ func (w *Worker) signalMessages(ctx context.Context, workflowID string, messages
 			continue
 		}
 		signalCtx, fc := withSignalSender(ctx, sender)
+		signalCtx = temporalprop.WithRelaySignal(signalCtx, workflowID, msg.Topic)
 		err := runtimeState.temporalClient.SignalWorkflow(signalCtx, workflowID, "", msg.Topic, signalArg(msg))
 		releaseSignalFrame(fc)
 		if err != nil {
@@ -201,6 +202,7 @@ func (w *Worker) signalWithStartMessage(
 	sender := resolveSignalSender(start)
 	signalCtx, fc := withSignalSender(ctx, sender)
 	defer releaseSignalFrame(fc)
+	signalCtx = temporalprop.WithRelaySignal(signalCtx, workflowID, msg.Topic)
 
 	return runtimeState.temporalClient.SignalWithStartWorkflow(
 		signalCtx,

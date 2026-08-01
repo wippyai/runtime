@@ -8,6 +8,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"math"
 	"net"
@@ -17,9 +18,11 @@ import (
 	"sync/atomic"
 	"time"
 
+	contextapi "github.com/wippyai/runtime/api/context"
 	netapi "github.com/wippyai/runtime/api/net"
 	httpapi "github.com/wippyai/runtime/api/service/http"
 	lru "github.com/wippyai/runtime/internal/cache"
+	"github.com/wippyai/runtime/runtime/security"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
@@ -391,6 +394,42 @@ func createClientWithDialer(timeout time.Duration, dialFn func(ctx context.Conte
 	}
 }
 
+func dialHTTPContext(ctx context.Context, dialer *net.Dialer, network, address string) (net.Conn, error) {
+	if contextapi.AppFromContext(ctx) == nil {
+		return dialer.DialContext(ctx, network, address)
+	}
+	host, port, err := net.SplitHostPort(address)
+	if err != nil {
+		return nil, err
+	}
+	var ips []net.IP
+	if ip := net.ParseIP(host); ip != nil {
+		ips = []net.IP{ip}
+	} else {
+		ips, err = net.DefaultResolver.LookupIP(ctx, "ip", host)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	var dialErrors []error
+	for _, ip := range ips {
+		if isPrivateHTTPIP(ip) && !security.IsAllowed(ctx, "http_client.private_ip", ip.String(), nil) {
+			dialErrors = append(dialErrors, fmt.Errorf("not allowed: private IP %s", ip.String()))
+			continue
+		}
+		conn, err := dialer.DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
+		if err == nil {
+			return conn, nil
+		}
+		dialErrors = append(dialErrors, err)
+	}
+	if len(dialErrors) == 0 {
+		return nil, fmt.Errorf("no addresses resolved for %s", host)
+	}
+	return nil, errors.Join(dialErrors...)
+}
+
 // createClient builds an HTTP client with optional TLS configuration.
 // SSRF protection happens at runtime level via security policies.
 func createClient(timeout time.Duration, unixSocket string, maxIdleConns, maxIdlePerHost int, idleConnTimeout time.Duration, tlsCfg ...*tls.Config) *gohttp.Client {
@@ -406,7 +445,9 @@ func createClient(timeout time.Duration, unixSocket string, maxIdleConns, maxIdl
 		TLSHandshakeTimeout:   defaultTLSHandshake,
 		ExpectContinueTimeout: defaultExpectContinue,
 		ForceAttemptHTTP2:     true,
-		DialContext:           dialer.DialContext,
+		DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
+			return dialHTTPContext(ctx, dialer, network, address)
+		},
 	}
 
 	if len(tlsCfg) > 0 && tlsCfg[0] != nil {

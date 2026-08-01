@@ -10,6 +10,7 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	runtimeapi "github.com/wippyai/runtime/api/runtime"
+	"github.com/wippyai/runtime/runtime/security"
 	runtimewasm "github.com/wippyai/runtime/runtime/wasm"
 )
 
@@ -49,6 +50,9 @@ func (h *Host) CallString(ctx context.Context, target string, input string) (str
 	if err != nil {
 		return "", err
 	}
+	if err := authorizeCall(ctx, target); err != nil {
+		return "", err
+	}
 
 	result, err := h.registry.Call(ctx, runtimeapi.Task{
 		ID:       id,
@@ -80,6 +84,9 @@ func (h *Host) CallBytes(ctx context.Context, target string, input []byte) ([]by
 	if err != nil {
 		return nil, err
 	}
+	if err := authorizeCall(ctx, target); err != nil {
+		return nil, err
+	}
 
 	result, err := h.registry.Call(ctx, runtimeapi.Task{
 		ID:       id,
@@ -99,6 +106,14 @@ func (h *Host) CallBytes(ctx context.Context, target string, input []byte) ([]by
 	}
 
 	return payloadToBytes(result.Value), nil
+}
+
+func authorizeCall(ctx context.Context, target string) error {
+	if !security.IsAllowed(ctx, "funcs.call", target, nil) {
+		return fmt.Errorf("not allowed: %s", target)
+	}
+
+	return nil
 }
 
 func parseTargetID(target string) (registry.ID, error) {
