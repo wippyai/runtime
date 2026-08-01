@@ -360,6 +360,14 @@ func runFunc(l *lua.LState) int {
 		})
 	}
 
+	maxSteps, maxStepsSet, limitsErr := parseMaxSteps(config)
+	if limitsErr != "" {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, limitsErr).
+			WithKind(lua.Invalid).WithRetryable(false))
+		return 2
+	}
+
 	yield := AcquireRunYield()
 	yield.Source = source
 	yield.Method = method
@@ -370,7 +378,43 @@ func runFunc(l *lua.LState) int {
 	yield.Context = contextVals
 	yield.AllowClasses = allowClasses
 	yield.CustomModules = customModules
+	yield.MaxSteps = maxSteps
+	yield.MaxStepsSet = maxStepsSet
 
 	l.Push(yield)
 	return -1
+}
+
+func parseMaxSteps(config *lua.LTable) (uint64, bool, string) {
+	rawLimits := config.RawGetString("limits")
+	if rawLimits == lua.LNil {
+		return 0, false, ""
+	}
+
+	limits, ok := rawLimits.(*lua.LTable)
+	if !ok {
+		return 0, false, "limits must be a table"
+	}
+
+	var maxSteps uint64
+	var maxStepsSet bool
+	var parseErr string
+	limits.ForEach(func(key, value lua.LValue) {
+		if parseErr != "" {
+			return
+		}
+		name, ok := key.(lua.LString)
+		if !ok || name != "max_steps" {
+			parseErr = "limits contains unknown or non-string field"
+			return
+		}
+		n, ok := value.(lua.LInteger)
+		if !ok || n < 0 {
+			parseErr = "limits.max_steps must be a non-negative integer"
+			return
+		}
+		maxSteps = uint64(n)
+		maxStepsSet = true
+	})
+	return maxSteps, maxStepsSet, parseErr
 }

@@ -20,6 +20,17 @@ const defaultEvalCacheSize = 256
 
 const EvalHostName boot.Name = "runtime.lua.eval"
 
+func evalMaxSteps(luaCfg boot.Config) (uint64, error) {
+	if luaCfg == nil {
+		return evalhost.DefaultMaxSteps, nil
+	}
+	configured := luaCfg.GetInt("eval.max_steps", int(evalhost.DefaultMaxSteps))
+	if configured < 0 {
+		return 0, fmt.Errorf("lua.eval.max_steps cannot be negative")
+	}
+	return uint64(configured), nil
+}
+
 // Eval creates the eval host boot component.
 func Eval() boot.Component {
 	return boot.New(boot.P{
@@ -42,10 +53,16 @@ func Eval() boot.Component {
 			// evaluated source).
 			evalCacheSize := defaultEvalCacheSize
 			var evalCacheTTL time.Duration
+			maxSteps := evalhost.DefaultMaxSteps
 			if cfg := boot.GetConfig(ctx); cfg != nil {
 				if luaCfg := cfg.Sub("lua"); luaCfg != nil {
 					evalCacheSize = luaCfg.GetInt("eval.cache_size", evalCacheSize)
 					evalCacheTTL = luaCfg.GetDuration("eval.cache_ttl", evalCacheTTL)
+					resolvedMaxSteps, err := evalMaxSteps(luaCfg)
+					if err != nil {
+						return ctx, err
+					}
+					maxSteps = resolvedMaxSteps
 				}
 			}
 
@@ -58,6 +75,7 @@ func Eval() boot.Component {
 					CacheSize: evalCacheSize,
 					CacheTTL:  evalCacheTTL,
 				}),
+				evalhost.WithDefaultMaxSteps(maxSteps),
 			)
 
 			// Set up import loader to load library sources from code manager

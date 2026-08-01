@@ -94,6 +94,8 @@ type RunYield struct {
 	AllowClasses  []string
 	CustomModules map[string]any
 	AllowYields   []dispatcher.CommandID
+	MaxSteps      uint64
+	MaxStepsSet   bool
 }
 
 var runYieldPool = sync.Pool{
@@ -115,6 +117,8 @@ func ReleaseRunYield(y *RunYield) {
 	y.AllowClasses = nil
 	y.CustomModules = nil
 	y.AllowYields = nil
+	y.MaxSteps = 0
+	y.MaxStepsSet = false
 	runYieldPool.Put(y)
 }
 
@@ -134,6 +138,8 @@ func (y *RunYield) ToCommand() dispatcher.Command {
 		AllowClasses:  y.AllowClasses,
 		CustomModules: y.CustomModules,
 		AllowYields:   y.AllowYields,
+		MaxSteps:      y.MaxSteps,
+		MaxStepsSet:   y.MaxStepsSet,
 	}
 }
 

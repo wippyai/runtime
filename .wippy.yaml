@@ -68,6 +68,8 @@ functions:
 lua:
   proto_cache_size: 60000     # Lua proto cache size
   main_cache_size: 10000      # Lua main cache size
+  eval:
+    max_steps: 10000          # Default eval scheduler-step budget; 0 is unlimited
   type_system:
     enabled: true             # Enable type checking during compilation
     strict: true              # Strict mode treats all issues as compile errors

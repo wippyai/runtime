@@ -120,7 +120,7 @@ func (ts *testScheduler) Context() context.Context {
 	return ctx
 }
 
-func newTestScheduler() *testScheduler {
+func newTestScheduler(evalOptions ...evalhost.HostOption) *testScheduler {
 	ts := &testScheduler{
 		pending: make(map[string]chan *runtime.Result),
 	}
@@ -143,7 +143,7 @@ func newTestScheduler() *testScheduler {
 
 	// Register eval handlers with http_client module
 	modules := []*luaapi.ModuleDef{json.Module, timemod.Module, httpclient.Module, Module}
-	host := evalhost.NewHost(zap.NewNop(), func() []*luaapi.ModuleDef { return modules })
+	host := evalhost.NewHost(zap.NewNop(), func() []*luaapi.ModuleDef { return modules }, evalOptions...)
 	evalSvc := evalhost.NewDispatcher(host)
 	evalSvc.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
 		reg.Register(id, h)
