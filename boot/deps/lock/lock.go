@@ -407,6 +407,7 @@ type ModuleLoadPath struct {
 	Path        string
 	Module      string // module name in org/module format, empty for app source
 	Version     string // module version, empty for app source
+	Digest      string // selected module digest, empty for app and workspace-only source
 	SourceRoot  string // module root for module-relative resources; defaults to Path
 	Root        bool   // selected deployment root from the lock graph
 	Replacement bool   // source is an effective workspace replacement
@@ -430,8 +431,10 @@ func (l *Lock) GetModuleLoadPaths() []ModuleLoadPath {
 	}
 
 	selectedVersions := make(map[string]string, len(l.data.Modules))
+	selectedDigests := make(map[string]string, len(l.data.Modules))
 	for _, mod := range l.data.Modules {
 		selectedVersions[mod.Name] = mod.Version
+		selectedDigests[mod.Name] = mod.Hash
 	}
 
 	replaced := make(map[string]struct{}, len(replacements))
@@ -439,11 +442,12 @@ func (l *Lock) GetModuleLoadPaths() []ModuleLoadPath {
 		replaced[repl.From] = struct{}{}
 		if repl.To != "" {
 			root := ResolveLockPath(lockDir, repl.To)
-			path := moduleEntryLoadPath(root)
+			path := ModuleEntryLoadPath(root)
 			paths = append(paths, ModuleLoadPath{
 				Path:        path,
 				Module:      repl.From,
 				Version:     selectedVersions[repl.From],
+				Digest:      selectedDigests[repl.From],
 				SourceRoot:  root,
 				Root:        l.IsRootModule(repl.From),
 				Replacement: true,
@@ -472,9 +476,10 @@ func (l *Lock) GetModuleLoadPaths() []ModuleLoadPath {
 			}
 		}
 		paths = append(paths, ModuleLoadPath{
-			Path:       resolved.Path,
+			Path:       ModuleEntryLoadPath(resolved.Path),
 			Module:     mod.Name,
 			Version:    mod.Version,
+			Digest:     mod.Hash,
 			SourceRoot: resolved.Path,
 			Root:       mod.Root,
 		})
@@ -483,7 +488,8 @@ func (l *Lock) GetModuleLoadPaths() []ModuleLoadPath {
 	return paths
 }
 
-func moduleEntryLoadPath(root string) string {
+// ModuleEntryLoadPath resolves the entry tree within a module source root.
+func ModuleEntryLoadPath(root string) string {
 	src := filepath.Join(root, "src")
 	info, err := os.Stat(src)
 	if err == nil && info.IsDir() {

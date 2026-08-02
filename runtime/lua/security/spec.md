@@ -156,7 +156,7 @@ Resource identifiers follow the format `namespace:name` and are used to scope pe
 - `registry.apply_version` - Apply specific registry versions
 
 ### System Information
-- `system.read` - Read system information (resource types: "memory", "goroutines", "hostname", "pid", "cpu", "gomaxprocs", "gc_percent")
+- `system.read` - Read system information (resource types: "memory", "goroutines", "hostname", "pid", "cpu", "gomaxprocs", "gc_percent", "sources")
 - `system.gc` - Force garbage collection (resource: "gc" or "gc_percent")
 - `system.control` - Control system settings (resource: "gomaxprocs")
 

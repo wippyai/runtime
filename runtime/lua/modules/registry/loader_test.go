@@ -3,13 +3,10 @@
 package registry
 
 import (
-	"context"
 	"errors"
 	"testing"
 
 	lua "github.com/wippyai/go-lua"
-	moduleapi "github.com/wippyai/runtime/api/modules"
-	regapi "github.com/wippyai/runtime/api/registry"
 	"go.uber.org/zap"
 )
 
@@ -53,64 +50,6 @@ func TestLoaderModuleInfo(t *testing.T) {
 
 	if len(module.Class) == 0 {
 		t.Error("expected at least one class")
-	}
-}
-
-func TestLoadSourcesUsesRegisteredCapability(t *testing.T) {
-	ctx := setupContextWithTranscoder()
-	moduleapi.WithSourceLoader(ctx, func(context.Context) ([]regapi.Entry, error) {
-		return []regapi.Entry{{ID: regapi.NewID("example.source", "probe"), Kind: "registry.entry"}}, nil
-	})
-	l := lua.NewState()
-	defer l.Close()
-	l.SetContext(ctx)
-
-	module := NewLoaderModule(DefaultLoaderOptions())
-	table, _ := module.Build()
-	l.SetGlobal("loader", table)
-	if err := l.DoString(`
-		local entries, err = loader.load_sources()
-		assert(err == nil, tostring(err))
-		assert(#entries == 1)
-		assert(entries[1].id == "example.source:probe")
-	`); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestLoadSourcesRejectsMissingCapability(t *testing.T) {
-	ctx := setupContextWithTranscoder()
-	l := lua.NewState()
-	defer l.Close()
-	l.SetContext(ctx)
-
-	module := NewLoaderModule(DefaultLoaderOptions())
-	table, _ := module.Build()
-	l.SetGlobal("loader", table)
-	if err := l.DoString(`
-		local entries, err = loader.load_sources()
-		assert(entries == nil)
-		assert(err ~= nil)
-	`); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestLoadSourcesRequiresPermission(t *testing.T) {
-	ctx := setupStrictContextWithTranscoder()
-	l := lua.NewState()
-	defer l.Close()
-	l.SetContext(ctx)
-
-	module := NewLoaderModule(DefaultLoaderOptions())
-	table, _ := module.Build()
-	l.SetGlobal("loader", table)
-	if err := l.DoString(`
-		local entries, err = loader.load_sources()
-		assert(entries == nil)
-		assert(err ~= nil)
-	`); err != nil {
-		t.Fatal(err)
 	}
 }
 

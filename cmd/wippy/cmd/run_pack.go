@@ -597,6 +597,11 @@ func runFromPackFile(cmd *cobra.Command, packFile string, args []string, useCase
 	}
 
 	runLogger.Info("loaded entries from pack", zap.Int("count", len(packEntries)))
+	sourcePaths, err := packSourcePaths([]string{packFile}, mainModule)
+	if err != nil {
+		return err
+	}
+	entries.ConfigureSourceLoader(ctx, sourcePaths, runLogger)
 
 	return runPackEntries(ctx, loader, runLogger, packEntries, args, useCase, mainModule)
 }
@@ -645,8 +650,30 @@ func runFromPackFiles(cmd *cobra.Command, packFiles []string, args []string, use
 	}
 
 	runLogger.Info("loaded entries from packs", zap.Int("count", len(packEntries)))
+	sourcePaths, err := packSourcePaths(packFiles, mainModule)
+	if err != nil {
+		return err
+	}
+	entries.ConfigureSourceLoader(ctx, sourcePaths, runLogger)
 
 	return runPackEntries(ctx, loader, runLogger, packEntries, args, useCase, mainModule)
+}
+
+func packSourcePaths(packFiles []string, rootModule string) ([]lock.ModuleLoadPath, error) {
+	paths := make([]lock.ModuleLoadPath, 0, len(packFiles))
+	for _, packFile := range packFiles {
+		module, version, err := moduleIdentityFromPackFile(packFile)
+		if err != nil {
+			return nil, fmt.Errorf("load source identity from %s: %w", packFile, err)
+		}
+		paths = append(paths, lock.ModuleLoadPath{
+			Path:    packFile,
+			Module:  module,
+			Version: version,
+			Root:    module != "" && module == rootModule,
+		})
+	}
+	return paths, nil
 }
 
 // runPackEntries starts runtime, applies pack entries to registry, optionally

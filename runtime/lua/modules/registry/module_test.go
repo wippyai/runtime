@@ -655,17 +655,6 @@ func setupContextWithTranscoder() context.Context {
 	return ctx
 }
 
-func setupStrictContextWithTranscoder() context.Context {
-	appCtx := ctxapi.NewAppContext()
-	ctx := ctxapi.WithAppContext(context.Background(), appCtx)
-
-	dtt := transcoder.GlobalTranscoder()
-	json.Register(dtt)
-	luapayload.Register(dtt)
-	ctx = payload.WithTranscoder(ctx, dtt)
-	return security.SetStrictMode(ctx, true)
-}
-
 func TestRegistryGetWithEntryData(t *testing.T) {
 	// Create context with transcoder
 	ctx := setupContextWithTranscoder()

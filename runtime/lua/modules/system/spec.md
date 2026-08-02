@@ -53,17 +53,20 @@ Returns list of all loaded Lua modules with metadata.
 
 **Permissions:** Requires `system.read` on `modules`.
 
-### source_modules() → string[], error
+## system.source
 
-Returns stable module identifiers for dependencies whose effective source is
-available locally as a directory. Paths are not exposed. Packed dependencies
-are absent.
+### load() → table, error
 
-Use `loader.load_sources()` to rebuild the normalized deployment baseline.
-These identifiers describe which module owners are locally authoritative; they
-do not expose filesystem paths.
+Rebuilds the normalized registry baseline from the current deployment source
+generation. The returned table contains `entries`, the decoded registry
+entries, and `owners`, the stable identifiers authoritative over those entries.
+The application owner is `application`. Packed module normalization inputs do
+not claim ownership, and filesystem paths are never exposed.
 
-**Permissions:** Requires `system.read` on `module_sources`.
+The owners and entries are derived atomically from the same source generation,
+including during dynamic install, update, uninstall, replacement, and rollback.
+
+**Permissions:** Requires `system.read` on `sources`.
 
 ## system.memory
 

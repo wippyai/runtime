@@ -33,8 +33,6 @@ func LoaderTypes() *typio.Manifest {
 	m.SetExport(typ.NewInterface(loaderModuleName, []typ.Method{
 		{Name: "new", Type: typ.Func().Param("filesystem", typ.String).
 			Returns(loaderInstanceType, typ.NewOptional(typ.LuaError)).Build()},
-		{Name: "load_sources", Type: typ.Func().
-			Returns(typ.NewArray(loaderEntryType), typ.NewOptional(typ.LuaError)).Build()},
 	}))
 	return m
 }

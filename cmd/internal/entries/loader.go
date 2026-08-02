@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/wippyai/runtime/api/attrs"
@@ -40,6 +41,7 @@ func LoadFromLockFile(ctx context.Context, logger *zap.Logger) error {
 	lockPath, err := lock.Find(".", lockFilePath)
 	if err != nil {
 		logger.Info("no lock file found, starting with empty registry")
+		ConfigureSourceLoader(ctx, nil, logger)
 		return nil
 	}
 
@@ -330,39 +332,113 @@ func LoadEntriesFromModuleLoadPaths(
 	modulePaths []lock.ModuleLoadPath,
 	logger *zap.Logger,
 ) ([]regapi.Entry, error) {
-	registerModuleSourceRoots(ctx, modulePaths)
-	paths := append([]lock.ModuleLoadPath(nil), modulePaths...)
-	moduleapi.WithSourceLoader(ctx, func(loadCtx context.Context) ([]regapi.Entry, error) {
-		return loadEntriesWithModuleMeta(loadCtx, paths, logger)
-	})
+	ConfigureSourceLoader(ctx, modulePaths, logger)
 	return loadEntriesWithModuleMeta(ctx, modulePaths, logger)
 }
 
-func registerModuleSourceRoots(ctx context.Context, modulePaths []lock.ModuleLoadPath) {
-	roots := moduleapi.SourceRoots{}
-	for _, mp := range modulePaths {
-		if mp.Module == "" || strings.EqualFold(filepath.Ext(mp.Path), ".wapp") {
-			continue
+// ConfigureSourceLoader registers the current deployment inputs and the
+// normalization path used to reload them.
+func ConfigureSourceLoader(ctx context.Context, modulePaths []lock.ModuleLoadPath, logger *zap.Logger) {
+	registry := registerSources(ctx, modulePaths)
+	if registry == nil {
+		return
+	}
+	registry.SetLoader(func(loadCtx context.Context, sources moduleapi.Sources) ([]regapi.Entry, error) {
+		ids := make([]string, 0, len(sources))
+		for id := range sources {
+			ids = append(ids, id)
 		}
-
-		rootPath := mp.SourceRoot
-		if rootPath == "" {
-			rootPath = mp.Path
+		sort.Slice(ids, func(i, j int) bool {
+			leftSequence := sources[ids[i]].Sequence
+			rightSequence := sources[ids[j]].Sequence
+			if leftSequence != rightSequence {
+				return leftSequence < rightSequence
+			}
+			return ids[i] < ids[j]
+		})
+		paths := make([]lock.ModuleLoadPath, 0, len(ids))
+		for _, id := range ids {
+			source := sources[id]
+			sourceRoot := source.ResourceRoot
+			if sourceRoot == "" {
+				sourceRoot = source.LoadPath
+			}
+			module := id
+			if source.Owner == moduleapi.ApplicationSourceID {
+				module = ""
+			}
+			paths = append(paths, lock.ModuleLoadPath{
+				Path:        source.LoadPath,
+				Module:      module,
+				Version:     source.Version,
+				Digest:      source.Digest,
+				SourceRoot:  sourceRoot,
+				Root:        source.DeploymentRoot,
+				Replacement: source.Replacement,
+			})
 		}
+		return loadEntriesWithModuleMeta(loadCtx, paths, logger)
+	})
+}
 
-		stat, err := os.Stat(rootPath)
-		if err != nil || !stat.IsDir() {
-			continue
-		}
-
-		root, err := filepath.Abs(rootPath)
+func registerSources(ctx context.Context, modulePaths []lock.ModuleLoadPath) *moduleapi.SourceRegistry {
+	registry := moduleapi.GetSourceRegistry(ctx)
+	if registry == nil {
+		moduleapi.WithSourceRegistry(ctx, moduleapi.NewSourceRegistry())
+		registry = moduleapi.GetSourceRegistry(ctx)
+	}
+	if registry == nil {
+		return nil
+	}
+	sources := moduleapi.Sources{}
+	applicationIndex := 0
+	for index, mp := range modulePaths {
+		path, err := filepath.Abs(mp.Path)
 		if err != nil {
 			continue
 		}
-		roots[mp.Module] = root
+		root := ""
+		if !strings.EqualFold(filepath.Ext(mp.Path), ".wapp") {
+			rootPath := mp.SourceRoot
+			if rootPath == "" {
+				rootPath = mp.Path
+			}
+			stat, statErr := os.Stat(rootPath)
+			if statErr != nil || !stat.IsDir() {
+				continue
+			}
+			root, err = filepath.Abs(rootPath)
+			if err != nil {
+				continue
+			}
+		}
+		id := mp.Module
+		if id == "" {
+			id = moduleapi.ApplicationSourceID
+			if applicationIndex > 0 {
+				id = fmt.Sprintf("%s#%08d", moduleapi.ApplicationSourceID, applicationIndex)
+			}
+			applicationIndex++
+		}
+		owner := ""
+		if mp.Module == "" {
+			owner = moduleapi.ApplicationSourceID
+		} else if root != "" {
+			owner = mp.Module
+		}
+		sources[id] = moduleapi.Source{
+			LoadPath:       path,
+			ResourceRoot:   root,
+			Owner:          owner,
+			Version:        mp.Version,
+			Digest:         mp.Digest,
+			Sequence:       uint64(index) + 1,
+			DeploymentRoot: mp.Root,
+			Replacement:    mp.Replacement,
+		}
 	}
-
-	moduleapi.WithSourceRoots(ctx, roots)
+	registry.Set(sources)
+	return registry
 }
 
 // loadEntriesWithModuleMeta loads entries from annotated paths and tags module entries
@@ -388,7 +464,7 @@ func loadEntriesWithModuleMeta(ctx context.Context, modulePaths []lock.ModuleLoa
 	var entries []regapi.Entry
 
 	for _, mp := range modulePaths {
-		moduleDigest := ""
+		moduleDigest := mp.Digest
 		if mp.Replacement {
 			// Replacements are authoritative. If the configured source cannot be
 			// identified, fail instead of silently restoring an embedded generation.

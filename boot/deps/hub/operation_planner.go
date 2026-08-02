@@ -144,8 +144,11 @@ func (p operationPlanner) kindReplacementClosure(
 			if !entryDependsOnSet(effective, recreate, universe, p.resolver) {
 				continue
 			}
-			if !present || key == opts.originalKey {
-				return nil, fmt.Errorf("cannot replace registry entry kind for live dependent %s outside desired state", current.ID.String())
+			if !present {
+				return nil, fmt.Errorf("cannot replace registry entry kind for live dependent %s absent from desired state", current.ID.String())
+			}
+			if key == opts.originalKey {
+				return nil, fmt.Errorf("cannot replace registry entry kind for original operation target %s", current.ID.String())
 			}
 			recreate[key] = struct{}{}
 			changed = true

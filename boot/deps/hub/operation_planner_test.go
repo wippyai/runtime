@@ -259,6 +259,35 @@ func TestOperationPlanner_KindReplacementDoesNotRecreateRewiredDependent(t *test
 	assert.Equal(t, 0, countPlannerOperation(ops, dependent.ID, regapi.EntryCreate))
 }
 
+func TestOperationPlanner_KindReplacementReportsUnplannedDependent(t *testing.T) {
+	provider := plannerTestEntry("test.provider", "acme/provider", "v1.0.0", "sha256:a", "provider")
+	provider.ID = regapi.NewID("test", "provider")
+	dependent := plannerTestEntry("test.dependent", "acme/dependent", "v1.0.0", "sha256:b", "dependent")
+	dependent.ID = regapi.NewID("test", "dependent")
+	dependent.Meta.Set(regapi.TagDependsOn, []string{provider.ID.Name})
+
+	desiredProvider := clonePlannerTestEntry(provider)
+	desiredProvider.Kind = "test.provider.v2"
+	planner := operationPlanner{resolver: regtop.NewResolver()}
+
+	_, err := planner.plan(
+		regapi.State{provider, dependent},
+		[]regapi.Entry{desiredProvider},
+		operationPlanOptions{controlledModules: map[string]struct{}{"acme/provider": {}}},
+	)
+	require.ErrorContains(t, err, "live dependent test:dependent absent from desired state")
+
+	_, err = planner.plan(
+		regapi.State{provider, dependent},
+		[]regapi.Entry{desiredProvider, dependent},
+		operationPlanOptions{
+			controlledModules: map[string]struct{}{"acme/provider": {}, "acme/dependent": {}},
+			originalKey:       idKey(dependent.ID),
+		},
+	)
+	require.ErrorContains(t, err, "original operation target test:dependent")
+}
+
 func countPlannerOperation(ops []regapi.Operation, id regapi.ID, kind string) int {
 	count := 0
 	for _, op := range ops {

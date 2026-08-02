@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/wippyai/runtime/api/attrs"
 	apierror "github.com/wippyai/runtime/api/error"
@@ -173,7 +172,7 @@ func (h *DependencyHandler) buildEmbedPackEffect(
 			// when both generations have durable identities; legacy snapshots that
 			// predate module digests retain the existing behavior.
 			if installedDigest := installedDigests[name]; installedDigest != "" && mod.Digest != "" &&
-				!strings.EqualFold(installedDigest, mod.Digest) {
+				!artifactDigestsEqual(installedDigest, mod.Digest) {
 				return nil, NewDependencyIntegrityError(
 					modKey(mod),
 					errors.New("cannot replace an active embedded pack at the same module version"),

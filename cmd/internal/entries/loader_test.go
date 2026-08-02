@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -233,7 +234,7 @@ entries:
 	}
 
 	loaded, err := LoadEntriesFromModuleLoadPaths(ctx, []lock.ModuleLoadPath{{
-		Path: moduleDir, Module: "acme/app", Version: "1.0.0", SourceRoot: moduleDir, Root: true,
+		Path: moduleDir, Module: "acme/app", Version: "1.0.0", Digest: "sha256:app", SourceRoot: moduleDir, Root: true,
 	}}, zap.NewNop())
 	if err != nil {
 		t.Fatal(err)
@@ -246,6 +247,9 @@ entries:
 	}
 	if got := loaded[0].Meta.GetString("module", ""); got != "acme/app" {
 		t.Fatalf("package ownership = %q, want acme/app", got)
+	}
+	if got := loaded[0].Meta.GetString("module_digest", ""); got != "sha256:app" {
+		t.Fatalf("package digest = %q, want sha256:app", got)
 	}
 }
 
@@ -334,6 +338,169 @@ entries:
 	assert.Equal(t, wantDigest, owned.Meta.GetString("module_digest", ""))
 	assert.Empty(t, owned.Meta.GetString("module_version", ""))
 	assert.Equal(t, "application", byID[regapi.NewID("ownership.test", "app_value")].Data.Data())
+}
+
+func TestSourceRegistryTracksDynamicModuleLifecycle(t *testing.T) {
+	ctx := setupTestContext(t)
+	appDir := t.TempDir()
+	moduleV1 := t.TempDir()
+	moduleV2 := t.TempDir()
+
+	writeEntry := func(dir, namespace, name, value string) {
+		t.Helper()
+		manifest := fmt.Sprintf(`version: "1.0"
+namespace: %s
+entries:
+  - name: %s
+    kind: test.value
+    data: %s
+`, namespace, name, value)
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "_index.yaml"), []byte(manifest), 0o600))
+	}
+	writeEntry(appDir, "source.lifecycle", "host", "host")
+	writeEntry(moduleV1, "source.lifecycle", "module", "v1")
+	writeEntry(moduleV2, "source.lifecycle", "module", "v2")
+
+	_, err := LoadEntriesFromModuleLoadPaths(ctx, []lock.ModuleLoadPath{{Path: appDir, Root: true}}, zap.NewNop())
+	require.NoError(t, err)
+
+	loadByID := func() map[regapi.ID]regapi.Entry {
+		t.Helper()
+		loaded, loadErr := moduleapi.GetSourceRegistry(ctx).Load(ctx)
+		require.NoError(t, loadErr)
+		byID := make(map[regapi.ID]regapi.Entry, len(loaded.Entries))
+		for _, entry := range loaded.Entries {
+			byID[entry.ID] = entry
+		}
+		return byID
+	}
+
+	byID := loadByID()
+	require.Contains(t, byID, regapi.NewID("source.lifecycle", "host"))
+	require.NotContains(t, byID, regapi.NewID("source.lifecycle", "module"))
+
+	registry := moduleapi.GetSourceRegistry(ctx)
+	v1 := moduleapi.Source{LoadPath: moduleV1, ResourceRoot: moduleV1, Owner: "acme/source", Version: "1.0.0", Digest: "sha256:v1", Sequence: 2}
+	previous, err := registry.Transition(moduleapi.Sources{"acme/source": v1}, nil, "acme/source")
+	require.NoError(t, err)
+	require.Empty(t, previous)
+	byID = loadByID()
+	moduleEntry := byID[regapi.NewID("source.lifecycle", "module")]
+	assert.Equal(t, "v1", moduleEntry.Data.Data())
+	assert.Equal(t, "acme/source", moduleEntry.Meta.GetString("module", ""))
+	assert.Equal(t, "1.0.0", moduleEntry.Meta.GetString("module_version", ""))
+	assert.Equal(t, "sha256:v1", moduleEntry.Meta.GetString("module_digest", ""))
+
+	v2 := moduleapi.Source{LoadPath: moduleV2, ResourceRoot: moduleV2, Owner: "acme/source", Version: "2.0.0", Digest: "sha256:v2", Sequence: 2}
+	previous, err = registry.Transition(moduleapi.Sources{"acme/source": v2}, nil, "acme/source")
+	require.NoError(t, err)
+	assert.Equal(t, v1, previous["acme/source"])
+	byID = loadByID()
+	moduleEntry = byID[regapi.NewID("source.lifecycle", "module")]
+	assert.Equal(t, "v2", moduleEntry.Data.Data())
+	assert.Equal(t, "2.0.0", moduleEntry.Meta.GetString("module_version", ""))
+	assert.Equal(t, "sha256:v2", moduleEntry.Meta.GetString("module_digest", ""))
+
+	_, err = registry.Transition(previous, nil, "acme/source")
+	require.NoError(t, err)
+	assert.Equal(t, "v1", loadByID()[regapi.NewID("source.lifecycle", "module")].Data.Data())
+
+	_, err = registry.Transition(nil, nil, "acme/source")
+	require.NoError(t, err)
+	byID = loadByID()
+	require.Contains(t, byID, regapi.NewID("source.lifecycle", "host"))
+	require.NotContains(t, byID, regapi.NewID("source.lifecycle", "module"))
+}
+
+func TestSourceRegistryPreservesMultipleApplicationInputs(t *testing.T) {
+	ctx := setupTestContext(t)
+	first := t.TempDir()
+	second := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(first, "_index.yaml"), []byte(`version: "1.0"
+namespace: source.inputs
+entries:
+  - name: first
+    kind: test.value
+    data: first
+`), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(second, "_index.yaml"), []byte(`version: "1.0"
+namespace: source.inputs
+entries:
+  - name: second
+    kind: test.value
+    data: second
+`), 0o600))
+
+	initial, err := LoadEntriesFromModuleLoadPaths(ctx, []lock.ModuleLoadPath{{Path: first}, {Path: second}}, zap.NewNop())
+	require.NoError(t, err)
+	loaded, err := moduleapi.GetSourceRegistry(ctx).Load(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, []string{moduleapi.ApplicationSourceID}, loaded.Owners)
+	ids := make([]regapi.ID, 0, len(loaded.Entries))
+	for _, entry := range loaded.Entries {
+		ids = append(ids, entry.ID)
+	}
+	wantIDs := []regapi.ID{
+		regapi.NewID("source.inputs", "first"),
+		regapi.NewID("source.inputs", "second"),
+	}
+	initialIDs := make([]regapi.ID, 0, len(initial))
+	for _, entry := range initial {
+		initialIDs = append(initialIDs, entry.ID)
+	}
+	assert.Equal(t, wantIDs, initialIDs)
+	assert.Equal(t, initialIDs, ids)
+}
+
+func TestSourceRegistryPreservesDeploymentInputOrder(t *testing.T) {
+	ctx := setupTestContext(t)
+	first := t.TempDir()
+	second := t.TempDir()
+	writeManifest := func(dir, name string) {
+		t.Helper()
+		manifest := fmt.Sprintf(`version: "1.0"
+namespace: source.order
+entries:
+  - name: %s
+    kind: test.value
+    data: %s
+`, name, name)
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "_index.yaml"), []byte(manifest), 0o600))
+	}
+	writeManifest(first, "first")
+	writeManifest(second, "second")
+
+	paths := []lock.ModuleLoadPath{
+		{Path: first, Module: "zeta/first"},
+		{Path: second, Module: "alpha/second"},
+	}
+	initial, err := LoadEntriesFromModuleLoadPaths(ctx, paths, zap.NewNop())
+	require.NoError(t, err)
+	loaded, err := moduleapi.GetSourceRegistry(ctx).Load(ctx)
+	require.NoError(t, err)
+
+	initialIDs := make([]regapi.ID, 0, len(initial))
+	for _, entry := range initial {
+		initialIDs = append(initialIDs, entry.ID)
+	}
+	loadedIDs := make([]regapi.ID, 0, len(loaded.Entries))
+	for _, entry := range loaded.Entries {
+		loadedIDs = append(loadedIDs, entry.ID)
+	}
+	assert.Equal(t, []regapi.ID{
+		regapi.NewID("source.order", "first"),
+		regapi.NewID("source.order", "second"),
+	}, initialIDs)
+	assert.Equal(t, initialIDs, loadedIDs)
+}
+
+func TestConfigureSourceLoaderSupportsEmptyDeployment(t *testing.T) {
+	ctx := setupTestContext(t)
+	ConfigureSourceLoader(ctx, nil, zap.NewNop())
+	loaded, err := moduleapi.GetSourceRegistry(ctx).Load(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, loaded.Owners)
+	assert.Empty(t, loaded.Entries)
 }
 
 func TestLoadEntriesFromModuleLoadPathsMarksUnownedAppSourceDependencyRoot(t *testing.T) {
@@ -913,7 +1080,7 @@ func TestLoadEntriesFromPathsMultipleWappsWithDifferentKinds(t *testing.T) {
 	}
 }
 
-func TestRegisterModuleSourceRoots_DirectoryModulesOnly(t *testing.T) {
+func TestRegisterSourcesExposesDirectoryRootsOnly(t *testing.T) {
 	ctx := setupTestContext(t)
 	tmpDir := t.TempDir()
 
@@ -932,7 +1099,7 @@ func TestRegisterModuleSourceRoots_DirectoryModulesOnly(t *testing.T) {
 		t.Fatalf("write packed path: %v", err)
 	}
 
-	registerModuleSourceRoots(ctx, []lock.ModuleLoadPath{
+	registry := registerSources(ctx, []lock.ModuleLoadPath{
 		{Path: appDir},
 		{Path: replacementDir, Module: "acme/local"},
 		{Path: unpackedDir, Module: "acme/ui", Version: "1.2.3"},
@@ -940,7 +1107,7 @@ func TestRegisterModuleSourceRoots_DirectoryModulesOnly(t *testing.T) {
 		{Path: missingDir, Module: "acme/missing", Version: "1.0.0"},
 	})
 
-	replacementRoot, ok := moduleapi.SourceRoot(ctx, "acme/local")
+	replacementRoot, ok := registry.ResourceRoot("acme/local")
 	if !ok {
 		t.Fatal("replacement module source root not registered")
 	}
@@ -948,7 +1115,7 @@ func TestRegisterModuleSourceRoots_DirectoryModulesOnly(t *testing.T) {
 		t.Fatalf("replacement root = %q, want %q", replacementRoot, replacementDir)
 	}
 
-	unpackedRoot, ok := moduleapi.SourceRoot(ctx, "acme/ui")
+	unpackedRoot, ok := registry.ResourceRoot("acme/ui")
 	if !ok {
 		t.Fatal("unpacked module source root not registered")
 	}
@@ -956,12 +1123,27 @@ func TestRegisterModuleSourceRoots_DirectoryModulesOnly(t *testing.T) {
 		t.Fatalf("unpacked root = %q, want %q", unpackedRoot, unpackedDir)
 	}
 
-	if _, ok := moduleapi.SourceRoot(ctx, "acme/packed"); ok {
+	if _, ok := registry.ResourceRoot("acme/packed"); ok {
 		t.Fatal("packed .wapp module should not register a source root")
 	}
-	if _, ok := moduleapi.SourceRoot(ctx, "acme/missing"); ok {
+	if _, ok := registry.ResourceRoot("acme/missing"); ok {
 		t.Fatal("missing module directory should not register a source root")
 	}
+}
+
+func TestRegisterSourcesAssignsCanonicalIDToFirstValidApplicationInput(t *testing.T) {
+	ctx := setupTestContext(t)
+	validDir := t.TempDir()
+	missingDir := filepath.Join(t.TempDir(), "missing")
+
+	registry := registerSources(ctx, []lock.ModuleLoadPath{
+		{Path: missingDir},
+		{Path: validDir},
+	})
+	require.NotNil(t, registry)
+	root, ok := registry.ResourceRoot(moduleapi.ApplicationSourceID)
+	require.True(t, ok)
+	assert.Equal(t, validDir, root)
 }
 
 func TestEnsureModulesInstalledVerifiesCachedWapp(t *testing.T) {

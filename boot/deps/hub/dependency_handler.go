@@ -1747,7 +1747,7 @@ func touchedModuleIdentities(
 		}
 		name := mod.Org + "/" + mod.Name
 		version, known := installedVersions[name]
-		digestMatches := mod.Digest == "" || strings.EqualFold(installedDigests[name], mod.Digest)
+		digestMatches := mod.Digest == "" || artifactDigestsEqual(installedDigests[name], mod.Digest)
 		if !known || version != mod.Version || !digestMatches || name == opComponent {
 			names = append(names, name)
 		}
