@@ -5,6 +5,7 @@ package terminal
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -58,16 +59,34 @@ func (m *mockTranscoder) Transcode(p payload.Payload, _ payload.Format) (payload
 	return p, nil
 }
 
-type mockFactory struct{}
-
-func (m *mockFactory) Create(_ registry.ID) (process.Process, *process.Meta, error) {
-	return &mockProcess{}, nil, nil
+type mockFactory struct {
+	meta *process.Meta
+	proc process.Process
 }
 
-type mockProcess struct{}
+func (m *mockFactory) Create(_ registry.ID) (process.Process, *process.Meta, error) {
+	if m.proc != nil {
+		return m.proc, m.meta, nil
+	}
+	return &mockProcess{}, m.meta, nil
+}
 
-func (m *mockProcess) Init(context.Context, string, payload.Payloads) error {
+type mockProcess struct {
+	initContext context.Context
+	mu          sync.Mutex
+}
+
+func (m *mockProcess) Init(ctx context.Context, _ string, _ payload.Payloads) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.initContext = ctx
 	return nil
+}
+
+func (m *mockProcess) context() context.Context {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.initContext
 }
 
 func (m *mockProcess) Step([]process.Event, *process.StepOutput) error {

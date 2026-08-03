@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/attrs"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/dispatcher"
@@ -19,7 +20,9 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
+	securityapi "github.com/wippyai/runtime/api/security"
 	"github.com/wippyai/runtime/system/scheduler"
+	securitysys "github.com/wippyai/runtime/system/security"
 )
 
 // UpgradeProcess requests process upgrade
@@ -288,6 +291,53 @@ func TestUpgradeSuccess(t *testing.T) {
 	if result.Error != nil {
 		t.Fatalf("unexpected error: %v", result.Error)
 	}
+}
+
+type actorAssertingProcess struct {
+	actorID string
+}
+
+func (p *actorAssertingProcess) Init(ctx context.Context, _ string, _ payload.Payloads) error {
+	actor, ok := securityapi.GetActor(ctx)
+	if !ok || actor.ID != p.actorID {
+		return fmt.Errorf("actor = %q, want %q", actor.ID, p.actorID)
+	}
+	return nil
+}
+
+func (p *actorAssertingProcess) Step(_ []process.Event, out *process.StepOutput) error {
+	out.Done(nil)
+	return nil
+}
+
+func (p *actorAssertingProcess) Send(*relay.Package) error { return nil }
+func (p *actorAssertingProcess) Close()                    {}
+
+func TestUpgradeSuccess_NilTargetMetadataRestoresBaselineSecurity(t *testing.T) {
+	reg := scheduler.NewRegistry()
+	te := newTestExecutorWithRegistry(1, reg)
+	te.Start()
+	defer te.Stop()
+
+	ctx, fc := ctxapi.OpenFrameContext(ctxapi.NewRootContext())
+	defer ctxapi.ReleaseFrameContext(fc)
+	require.NoError(t, securityapi.SetActor(ctx, securityapi.Actor{ID: "caller"}))
+	ctx = securitysys.ApplyProcessSecurityConfig(ctx, &securityapi.Config{Actor: securityapi.Actor{ID: "source"}})
+	require.True(t, securitysys.HasProcessSecurityConfig(ctx))
+	process.WithFactory(ctx, &mockFactory{
+		createFunc: func(_ registry.ID) (process.Process, *process.Meta, error) {
+			return &actorAssertingProcess{actorID: "caller"}, nil, nil
+		},
+	})
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	result, err := te.Execute(ctx, pidapi.PID{UniqID: "upgrade-nil-meta-security"}, &UpgradeProcess{
+		upgradeReq: &process.UpgradeRequest{Source: registry.ID{Name: "target"}},
+	}, "", nil)
+
+	require.NoError(t, err)
+	require.NoError(t, result.Error)
 }
 
 func TestUpgradeSuccess_ForksSealedFrameForReplacementProcess(t *testing.T) {

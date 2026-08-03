@@ -14,6 +14,7 @@ import (
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/runtime"
 	sysprocess "github.com/wippyai/runtime/system/process"
+	securitysys "github.com/wippyai/runtime/system/security"
 )
 
 type Worker struct {
@@ -450,6 +451,13 @@ func (w *Worker) executeOne(proc *Processor) {
 				w.scheduler.complete(proc, nil, fmt.Errorf("upgrade: preserve pid failed: %w", err))
 				return
 			}
+		}
+		if meta != nil {
+			if meta.Security != nil || securitysys.HasProcessSecurityConfig(upgradeCtx) {
+				upgradeCtx = securitysys.ApplyProcessSecurityConfig(upgradeCtx, meta.Security)
+			}
+		} else if securitysys.HasProcessSecurityConfig(upgradeCtx) {
+			upgradeCtx = securitysys.ApplyProcessSecurityConfig(upgradeCtx, nil)
 		}
 		if err := newProc.Init(upgradeCtx, method, req.Input); err != nil {
 			proc.Process.Close()

@@ -16,6 +16,7 @@ import (
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/runtime"
+	"github.com/wippyai/runtime/api/security"
 )
 
 func TestStepOutput_Result(t *testing.T) {
@@ -331,8 +332,10 @@ func TestStart(t *testing.T) {
 }
 
 func TestMeta(t *testing.T) {
-	meta := Meta{Method: "handler"}
+	securityConfig := &security.Config{Actor: security.Actor{ID: "process:runner"}}
+	meta := Meta{Method: "handler", Security: securityConfig}
 	assert.Equal(t, "handler", meta.Method)
+	assert.Same(t, securityConfig, meta.Security)
 }
 
 func TestFactoryEntry(t *testing.T) {

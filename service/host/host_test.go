@@ -19,6 +19,7 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
+	"github.com/wippyai/runtime/api/security"
 	hostapi "github.com/wippyai/runtime/api/service/host"
 	"github.com/wippyai/runtime/api/topology"
 	"github.com/wippyai/runtime/internal/uniqid"
@@ -45,12 +46,23 @@ func namedOptions(name string) attrs.Bag {
 
 // mockProcess implements process.Process for testing.
 type mockProcess struct {
-	initErr  error
-	stepFunc func([]process.Event, *process.StepOutput) error
+	initContext context.Context
+	initErr     error
+	stepFunc    func([]process.Event, *process.StepOutput) error
+	mu          sync.Mutex
 }
 
-func (m *mockProcess) Init(_ context.Context, _ string, _ payload.Payloads) error {
+func (m *mockProcess) Init(ctx context.Context, _ string, _ payload.Payloads) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.initContext = ctx
 	return m.initErr
+}
+
+func (m *mockProcess) context() context.Context {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.initContext
 }
 
 func (m *mockProcess) Step(events []process.Event, out *process.StepOutput) error {
@@ -335,6 +347,25 @@ func TestHost_RunWithMeta(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.NotEqual(t, pid.PID{}, resultPID)
+}
+
+func TestHost_RunAppliesProcessSecurity(t *testing.T) {
+	processInstance := &mockProcess{}
+	th := newTestHost(func(th *testHost) {
+		th.factory.proc = processInstance
+		th.factory.meta = &process.Meta{
+			Security: &security.Config{Actor: security.Actor{ID: "process:runner"}},
+		}
+	})
+	th.start(t)
+	defer th.stop()
+
+	_, err := th.host.Run(ctxWithAppContext(), &process.Start{Source: registry.NewID("test", "proc")})
+
+	require.NoError(t, err)
+	actor, ok := security.GetActor(processInstance.context())
+	require.True(t, ok)
+	assert.Equal(t, "process:runner", actor.ID)
 }
 
 func TestHost_RunWithMessages(t *testing.T) {

@@ -21,6 +21,7 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
+	"github.com/wippyai/runtime/api/security"
 	terminalapi "github.com/wippyai/runtime/api/service/terminal"
 	"github.com/wippyai/runtime/internal/uniqid"
 	"github.com/wippyai/runtime/system/logs"
@@ -250,6 +251,30 @@ func TestHost_Run_ShuttingDown(t *testing.T) {
 
 	h.shutdown.Store(false)
 	_ = h.Stop(context.Background())
+}
+
+func TestHost_RunAppliesProcessSecurity(t *testing.T) {
+	id := registry.ID{NS: "test", Name: "host1"}
+	cfg := &terminalapi.HostConfig{}
+	processInstance := &mockProcess{}
+	factory := &mockFactory{
+		proc: processInstance,
+		meta: &process.Meta{Security: &security.Config{Actor: security.Actor{ID: "process:runner"}}},
+	}
+	logCtrl := logs.NewConfigurator(nil, zap.NewNop())
+	scheduler := actor.NewScheduler(&mockCommandRegistry{}, actor.WithWorkers(1))
+	h := NewHost(id, cfg, scheduler, factory, logCtrl, zap.NewNop())
+	ctx := process.WithPIDGenerator(ctxapi.NewRootContext(), newTestPIDGen())
+	_, err := h.Start(ctx)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, h.Stop(context.Background())) }()
+
+	_, err = h.Run(ctx, &process.Start{Source: registry.ID{NS: "test", Name: "process"}})
+
+	require.NoError(t, err)
+	actor, ok := security.GetActor(processInstance.context())
+	require.True(t, ok)
+	assert.Equal(t, "process:runner", actor.ID)
 }
 
 func TestHost_Send_ShuttingDown(t *testing.T) {

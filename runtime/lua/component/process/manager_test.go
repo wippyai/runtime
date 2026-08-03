@@ -17,6 +17,7 @@ import (
 	processapi "github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/registry"
 	api "github.com/wippyai/runtime/api/runtime/lua"
+	"github.com/wippyai/runtime/api/security"
 	"github.com/wippyai/runtime/runtime/lua/code"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	systempayload "github.com/wippyai/runtime/system/payload"
@@ -193,6 +194,27 @@ func TestManager_Invalidate(_ *testing.T) {
 	manager.Invalidate(context.Background(), ids)
 }
 
+func TestManager_registerFactoryCarriesSecurity(t *testing.T) {
+	log := zap.NewNop()
+	codeManager := &code.Manager{}
+	bus := &mockEventBus{}
+	fsReg := &mockFSRegistry{}
+	factory := &mockCompiledFactory{}
+	manager := NewManager(log, codeManager, bus, fsReg, factory)
+	securityConfig := &security.Config{Actor: security.Actor{ID: "process:runner"}}
+	awaitSvc := &mockPrepareAwaitService{result: event.AwaitResult{Accepted: true}}
+	ctx := event.WithAwaitService(ctxapi.NewRootContext(), awaitSvc)
+
+	err := manager.registerFactory(ctx, registry.NewID("app.test", "process"), "", securityConfig)
+
+	require.NoError(t, err)
+	require.Len(t, bus.events, 1)
+	entry, ok := bus.events[0].Data.(*processapi.FactoryEntry)
+	require.True(t, ok)
+	assert.Equal(t, "main", entry.Meta.Method)
+	assert.Same(t, securityConfig, entry.Meta.Security)
+}
+
 func TestManager_registerFactory_PreparesBeforeSend(t *testing.T) {
 	log := zap.NewNop()
 	codeManager := &code.Manager{}
@@ -212,7 +234,7 @@ func TestManager_registerFactory_PreparesBeforeSend(t *testing.T) {
 	}
 
 	ctx := event.WithAwaitService(ctxapi.NewRootContext(), awaitSvc)
-	err := manager.registerFactory(ctx, registry.NewID("app.test", "process"), "main")
+	err := manager.registerFactory(ctx, registry.NewID("app.test", "process"), "main", nil)
 	require.NoError(t, err)
 	assert.False(t, sendBeforePrepare, "factory register was sent before await prepare")
 }

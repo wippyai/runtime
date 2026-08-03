@@ -70,6 +70,58 @@ func TestWithSecurityConfig_PreservesExistingActorWhenConfigHasNoActor(t *testin
 	assert.Equal(t, "caller", actor.ID)
 }
 
+func TestApplyProcessSecurityConfigRestoresBaselineOnUpgrade(t *testing.T) {
+	reg := NewPolicyRegistry(eventbus.NewBus(), nil)
+	basePolicy := newMockPolicy("base", security.Allow)
+	sourcePolicy := newMockPolicy("source", security.Allow)
+	targetPolicy := newMockPolicy("target", security.Allow)
+	for _, policy := range []security.Policy{sourcePolicy, targetPolicy} {
+		policyID := policy.ID()
+		reg.handleEvent(event.Event{
+			Kind: security.PolicyRegister,
+			Path: policyID.String(),
+			Data: &security.PolicyEntry{Policy: policy},
+		})
+	}
+
+	ctx := security.WithRegistry(ctxapi.NewRootContext(), reg)
+	ctx, fc := ctxapi.OpenFrameContext(ctx)
+	t.Cleanup(func() { ctxapi.ReleaseFrameContext(fc) })
+	require.NoError(t, security.SetActor(ctx, security.Actor{ID: "caller"}))
+	require.NoError(t, security.SetScope(ctx, NewScope([]security.Policy{basePolicy})))
+
+	ctx = ApplyProcessSecurityConfig(ctx, &security.Config{
+		Actor:    security.Actor{ID: "source"},
+		Policies: []registry.ID{sourcePolicy.ID()},
+	})
+	scope, ok := security.GetScope(ctx)
+	require.True(t, ok)
+	assert.True(t, scope.Contains(basePolicy.ID()))
+	assert.True(t, scope.Contains(sourcePolicy.ID()))
+	assert.True(t, HasProcessSecurityConfig(ctx))
+
+	ctx = ApplyProcessSecurityConfig(ctx, &security.Config{Policies: []registry.ID{targetPolicy.ID()}})
+	actor, ok := security.GetActor(ctx)
+	require.True(t, ok)
+	assert.Equal(t, "caller", actor.ID)
+	scope, ok = security.GetScope(ctx)
+	require.True(t, ok)
+	assert.True(t, scope.Contains(basePolicy.ID()))
+	assert.True(t, scope.Contains(targetPolicy.ID()))
+	assert.False(t, scope.Contains(sourcePolicy.ID()))
+
+	ctx = ApplyProcessSecurityConfig(ctx, nil)
+	actor, ok = security.GetActor(ctx)
+	require.True(t, ok)
+	assert.Equal(t, "caller", actor.ID)
+	scope, ok = security.GetScope(ctx)
+	require.True(t, ok)
+	assert.True(t, scope.Contains(basePolicy.ID()))
+	assert.False(t, scope.Contains(sourcePolicy.ID()))
+	assert.False(t, scope.Contains(targetPolicy.ID()))
+	assert.False(t, HasProcessSecurityConfig(ctx))
+}
+
 func TestWithSecurityConfig_MergesPoliciesIntoExistingScope(t *testing.T) {
 	reg := NewPolicyRegistry(eventbus.NewBus(), nil)
 	existingPolicy := newMockPolicy("existing", security.Allow)
