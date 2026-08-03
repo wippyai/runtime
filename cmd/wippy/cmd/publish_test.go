@@ -14,6 +14,50 @@ import (
 	"github.com/wippyai/runtime/boot/deps/hub"
 )
 
+func TestPublishOutputPath(t *testing.T) {
+	tests := []struct {
+		name        string
+		output      string
+		wantPath    string
+		dryRun      bool
+		wantCleanup bool
+		wantError   bool
+	}{
+		{name: "default", wantPath: "default.wapp", wantCleanup: true},
+		{name: "dry-run output", dryRun: true, output: "release.wapp", wantPath: "release.wapp"},
+		{name: "upload output", output: "release.wapp", wantError: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			actualPath, cleanup, err := publishOutputPath(test.dryRun, test.output, "default.wapp")
+			if (err != nil) != test.wantError {
+				t.Fatalf("publishOutputPath() error = %v", err)
+			}
+			if err == nil && (actualPath != test.wantPath || cleanup != test.wantCleanup) {
+				t.Fatalf("publishOutputPath() = (%q, %t), want (%q, %t)", actualPath, cleanup, test.wantPath, test.wantCleanup)
+			}
+		})
+	}
+}
+
+func TestPublishPackedAt_SourceDateEpoch(t *testing.T) {
+	t.Setenv("SOURCE_DATE_EPOCH", "1749513600")
+	actual, err := publishPackedAt()
+	if err != nil {
+		t.Fatalf("publishPackedAt() error = %v", err)
+	}
+	if actual != "2025-06-10T00:00:00Z" {
+		t.Fatalf("publishPackedAt() = %q", actual)
+	}
+}
+
+func TestPublishPackedAt_InvalidSourceDateEpoch(t *testing.T) {
+	t.Setenv("SOURCE_DATE_EPOCH", "invalid")
+	if _, err := publishPackedAt(); err == nil {
+		t.Fatal("publishPackedAt() error = nil")
+	}
+}
+
 func TestPublishViaHubOrLegacy_LabelUploadKeepsVersionHeader(t *testing.T) {
 	tmpDir := t.TempDir()
 	wappPath := filepath.Join(tmpDir, "module.wapp")

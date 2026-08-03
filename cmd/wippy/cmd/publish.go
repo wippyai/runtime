@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -55,6 +56,7 @@ func init() {
 
 	publishCmd.Flags().String("version", "", "version to publish (overrides wippy.yaml)")
 	publishCmd.Flags().Bool("dry-run", false, "pack only, don't upload")
+	publishCmd.Flags().String("output", "", "keep the dry-run pack at this path")
 	publishCmd.Flags().String("label", "", "publish as mutable label instead of version")
 	publishCmd.Flags().String("release-notes", "", "release notes text")
 	publishCmd.Flags().Bool("protected", false, "mark version as protected")
@@ -72,6 +74,7 @@ func runPublish(cmd *cobra.Command, _ []string) error {
 
 	configDir, _ := cmd.Flags().GetString("config")
 	dryRun, _ := cmd.Flags().GetBool("dry-run")
+	outputFlag, _ := cmd.Flags().GetString("output")
 	versionFlag, _ := cmd.Flags().GetString("version")
 	label, _ := cmd.Flags().GetString("label")
 	releaseNotes, _ := cmd.Flags().GetString("release-notes")
@@ -157,8 +160,13 @@ func runPublish(cmd *cobra.Command, _ []string) error {
 		return NewInitAppError(err)
 	}
 
-	outputFile := filepath.Join(os.TempDir(), cfg.OutputFileName())
-	defer os.Remove(outputFile)
+	outputFile, removeOutput, err := publishOutputPath(dryRun, outputFlag, filepath.Join(os.TempDir(), cfg.OutputFileName()))
+	if err != nil {
+		return err
+	}
+	if removeOutput {
+		defer os.Remove(outputFile)
+	}
 
 	printStatus("Packing module...")
 
@@ -482,13 +490,17 @@ func packModule(ctx context.Context, app *appinit.Context, cfg *config.ModuleCon
 
 	resources := stages.GetResources(ctx)
 
+	packedAt, err := publishPackedAt()
+	if err != nil {
+		return nil, err
+	}
 	metadata := attrs.Bag{
 		"name":          cfg.ModuleName,
 		"namespace":     cfg.Namespace(),
 		"version":       cfg.Version,
 		"wippy_version": version.Version,
 		"wippy_commit":  version.Commit,
-		"packed_at":     time.Now().UTC().Format(time.RFC3339),
+		"packed_at":     packedAt,
 		"entry_count":   len(srcEntries),
 	}
 
@@ -569,6 +581,28 @@ func packModule(ctx context.Context, app *appinit.Context, cfg *config.ModuleCon
 		Size:   stat.Size(),
 		Digest: digest,
 	}, nil
+}
+
+func publishOutputPath(dryRun bool, outputPath, defaultPath string) (string, bool, error) {
+	if outputPath == "" {
+		return defaultPath, true, nil
+	}
+	if !dryRun {
+		return "", false, fmt.Errorf("--output requires --dry-run")
+	}
+	return outputPath, false, nil
+}
+
+func publishPackedAt() (string, error) {
+	epoch := os.Getenv("SOURCE_DATE_EPOCH")
+	if epoch == "" {
+		return time.Now().UTC().Format(time.RFC3339), nil
+	}
+	seconds, err := strconv.ParseInt(epoch, 10, 64)
+	if err != nil || seconds < 0 {
+		return "", fmt.Errorf("invalid SOURCE_DATE_EPOCH %q", epoch)
+	}
+	return time.Unix(seconds, 0).UTC().Format(time.RFC3339), nil
 }
 
 func computeFileDigest(path string) (string, error) {
