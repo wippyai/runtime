@@ -360,8 +360,8 @@ github.com/mattn/go-pointer v0.0.1 h1:n+XhsuGeVO6MEAp7xyEukFINEa+Quek5psIR/ylA6o
 github.com/mattn/go-pointer v0.0.1/go.mod h1:2zXcozF6qYGgmsG+SeTZz3oAbFLdD3OWqnUbNvJZAlc=
 github.com/mattn/go-runewidth v0.0.23 h1:7ykA0T0jkPpzSvMS5i9uoNn2Xy3R383f9HDx3RybWcw=
 github.com/mattn/go-runewidth v0.0.23/go.mod h1:XBkDxAl56ILZc9knddidhrOlY5R/pDhgLpndooCuJAs=
-github.com/mattn/go-sqlite3 v1.14.48 h1:7XHIgl0a8HwOaiK4E47ozLkST78rR9+OtNGx27D/TFs=
-github.com/mattn/go-sqlite3 v1.14.48/go.mod h1:6JTjA44L93a0QCyJef5YvlPoKXntQPjzWv5gtm9sB6w=
+github.com/mattn/go-sqlite3 v1.14.49 h1:B8jBHC3xhxZgxztrgruTuLucebnULQnx4W7cF7SAE9w=
+github.com/mattn/go-sqlite3 v1.14.49/go.mod h1:6JTjA44L93a0QCyJef5YvlPoKXntQPjzWv5gtm9sB6w=
 github.com/matttproud/golang_protobuf_extensions v1.0.1/go.mod h1:D8He9yQNgCq6Z5Ld7szi9bcBfOoFv/3dc6xSMkL2PC0=
 github.com/mdlayher/genetlink v1.3.2 h1:KdrNKe+CTu+IbZnm/GVUMXSqBBLqcGpRDa0xkQy56gw=
 github.com/mdlayher/genetlink v1.3.2/go.mod h1:tcC3pkCrPUGIKKsCsp0B3AdaaKuHtaxoJRz3cc+528o=
@@ -560,8 +560,6 @@ github.com/wippyai/tree-sitter-sql v0.0.4 h1:0hJyjkV6/lhoGA5FJAaf96od2xyo+OJINSE
 github.com/wippyai/tree-sitter-sql v0.0.4/go.mod h1:QN9CfIO55fwQNVNk1p/7pjxrLk7iKxrQs42Zh6lrr84=
 github.com/wippyai/wapp v0.1.2 h1:fCoxKr9s3gk+pWx4XcnIQmOVgPiuimXf3QcE9mHbdmw=
 github.com/wippyai/wapp v0.1.2/go.mod h1:ndCkYR80+osLGbd7AFWlP+3DxwooR+R6cxQYPZhksg4=
-github.com/wippyai/wasm-runtime v0.0.0-20260719152804-ec6962b31c64 h1:ETP3ZooZzg4hUZYnfz/ZPdqvpWAduQ9nHK+XqkOBkj8=
-github.com/wippyai/wasm-runtime v0.0.0-20260719152804-ec6962b31c64/go.mod h1:81IhzsGQBNRyLqynOAYK9WLsMx9CoqtwsEf0B6PwL5k=
 github.com/wippyai/wasm-runtime v0.0.0-20260801221046-f2256f280d2d h1:qOaBGJJLy3x3M8fTqees5KyS1UtGgJR2wJzlLO+Xhsw=
 github.com/wippyai/wasm-runtime v0.0.0-20260801221046-f2256f280d2d/go.mod h1:81IhzsGQBNRyLqynOAYK9WLsMx9CoqtwsEf0B6PwL5k=
 github.com/x448/float16 v0.8.4 h1:qLwI1I70+NjRFUR3zs1JPUCgaCXSh3SW62uAKT1mSBM=
