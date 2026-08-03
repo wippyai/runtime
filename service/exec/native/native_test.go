@@ -456,8 +456,7 @@ func TestExecutor_Stderr(t *testing.T) {
 	// Use a cross-platform way to generate stderr output
 	var command string
 	if runtime.GOOS == "windows" {
-		// On Windows, use PowerShell for reliable stderr redirection
-		command = "powershell -Command \"[Console]::Error.WriteLine('error message')\""
+		command = "cmd /c \"echo error message 1>&2\""
 	} else {
 		// On Unix systems - use sh instead of bash for better compatibility
 		command = "sh -c 'echo error message >&2'"
