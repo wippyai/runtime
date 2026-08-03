@@ -315,10 +315,10 @@ github.com/jsimonetti/rtnetlink v1.4.1/go.mod h1:xJjT7t59UIZ62GLZbv6PLLo8VFrostJ
 github.com/json-iterator/go v1.1.6/go.mod h1:+SdeFBvtyEkXs7REEP0seUULqWtbJapLOCVDaaPEHmU=
 github.com/json-iterator/go v1.1.9/go.mod h1:KdQUCv79m/52Kvf8AW2vK1V8akMuk1QjK/uOdHXbAo4=
 github.com/julienschmidt/httprouter v1.2.0/go.mod h1:SYymIcj16QtmaHHD7aYtjjsJG7VTCxuUUipMqKk8s4w=
-github.com/kaptinlin/jsonpointer v0.4.27 h1:5FOnhlkqQ4/lvHudaAWS8HJCXjN4yAHSIGl7aPKHI0Q=
-github.com/kaptinlin/jsonpointer v0.4.27/go.mod h1:dfub/n58cWS32Dyf3AZsnKblSAgrz9PyOU76GDPpx8Q=
-github.com/kaptinlin/jsonschema v0.9.3 h1:uDVd3w4aXwO0tbycblKYvFofhl3hVuE31vOl5JkDXI0=
-github.com/kaptinlin/jsonschema v0.9.3/go.mod h1:LvtQ/mO0E1e/3c3DiOWTj05LTeot8cTv7DyQq7eJMQg=
+github.com/kaptinlin/jsonpointer v0.4.28 h1:PyxOfdml9PGpxQz+JnNLGsyzQ+Rnm+OVNTGcgbVLqgg=
+github.com/kaptinlin/jsonpointer v0.4.28/go.mod h1:JzeIDw1+60bryzOFea9P3zjKg8pfJHd+UIA/zfZ70x8=
+github.com/kaptinlin/jsonschema v0.9.6 h1:RNqurZUqduQm+mINsCFbRzBQR0uKbAcRPBj3BqRA/I8=
+github.com/kaptinlin/jsonschema v0.9.6/go.mod h1:TP7RFmFBNExjBE0b3fsM6RpA/9PeOzfg2g4weXqOrDg=
 github.com/kisielk/errcheck v1.5.0/go.mod h1:pFxgyoBC7bSaBwPgfKdkLd5X25qrDl4LWUI2bnpBCr8=
 github.com/kisielk/gotool v1.0.0/go.mod h1:XhKaO+MFFWcvkIS/tQcRk01m1F5IRFswLeQ+oQHNcck=
 github.com/klauspost/compress v1.19.1 h1:VsB4HPswih7mmZ8WleSFQ75c/Ui1M4trX5oAsJnhSlk=
@@ -560,8 +560,6 @@ github.com/wippyai/tree-sitter-sql v0.0.4 h1:0hJyjkV6/lhoGA5FJAaf96od2xyo+OJINSE
 github.com/wippyai/tree-sitter-sql v0.0.4/go.mod h1:QN9CfIO55fwQNVNk1p/7pjxrLk7iKxrQs42Zh6lrr84=
 github.com/wippyai/wapp v0.1.2 h1:fCoxKr9s3gk+pWx4XcnIQmOVgPiuimXf3QcE9mHbdmw=
 github.com/wippyai/wapp v0.1.2/go.mod h1:ndCkYR80+osLGbd7AFWlP+3DxwooR+R6cxQYPZhksg4=
-github.com/wippyai/wasm-runtime v0.0.0-20260719152804-ec6962b31c64 h1:ETP3ZooZzg4hUZYnfz/ZPdqvpWAduQ9nHK+XqkOBkj8=
-github.com/wippyai/wasm-runtime v0.0.0-20260719152804-ec6962b31c64/go.mod h1:81IhzsGQBNRyLqynOAYK9WLsMx9CoqtwsEf0B6PwL5k=
 github.com/wippyai/wasm-runtime v0.0.0-20260801221046-f2256f280d2d h1:qOaBGJJLy3x3M8fTqees5KyS1UtGgJR2wJzlLO+Xhsw=
 github.com/wippyai/wasm-runtime v0.0.0-20260801221046-f2256f280d2d/go.mod h1:81IhzsGQBNRyLqynOAYK9WLsMx9CoqtwsEf0B6PwL5k=
 github.com/x448/float16 v0.8.4 h1:qLwI1I70+NjRFUR3zs1JPUCgaCXSh3SW62uAKT1mSBM=

@@ -30,6 +30,7 @@ require (
 	github.com/expr-lang/expr v1.17.8
 	github.com/fatih/color v1.19.0
 	github.com/go-sql-driver/mysql v1.10.0
+	github.com/goccy/go-yaml v1.19.2
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/google/uuid v1.6.0
 	github.com/hashicorp/go-hclog v1.6.3
@@ -40,7 +41,7 @@ require (
 	github.com/hashicorp/raft-wal v0.4.2
 	github.com/jackc/pglogrepl v0.0.0-20260401131349-e37c41485510
 	github.com/jackc/pgx/v5 v5.10.0
-	github.com/kaptinlin/jsonschema v0.9.3
+	github.com/kaptinlin/jsonschema v0.9.6
 	github.com/klauspost/compress v1.19.1
 	github.com/lib/pq v1.12.3
 	github.com/mattn/go-sqlite3 v1.14.48
@@ -150,7 +151,6 @@ require (
 	github.com/go-json-experiment/json v0.0.0-20260623181947-01eb4420fa68 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
-	github.com/goccy/go-yaml v1.19.2 // indirect
 	github.com/godbus/dbus/v5 v5.2.2 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang/groupcache v0.0.0-20241129210726-2c02b8208cf8 // indirect
@@ -173,7 +173,7 @@ require (
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jsimonetti/rtnetlink v1.4.1 // indirect
-	github.com/kaptinlin/jsonpointer v0.4.27 // indirect
+	github.com/kaptinlin/jsonpointer v0.4.28 // indirect
 	github.com/lann/builder v0.0.0-20180802200727-47ae307949d0 // indirect
 	github.com/lann/ps v0.0.0-20150810152359-62de8c46ede0 // indirect
 	github.com/lucasb-eyer/go-colorful v1.4.0 // indirect
