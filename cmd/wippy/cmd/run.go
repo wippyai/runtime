@@ -33,6 +33,7 @@ import (
 	"github.com/wippyai/runtime/cmd/internal/shutdown"
 	embedpkg "github.com/wippyai/runtime/service/fs/embed"
 	supervisorpkg "github.com/wippyai/runtime/system/supervisor"
+	lua "github.com/wippyai/go-lua"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
@@ -289,12 +290,42 @@ func runWithUseCase(cmd *cobra.Command, args []string, useCase string) error {
 	waitForShutdownSignal(sigChan, logger, nil)
 
 	exitCode := shutdown.Perform(ctx, loader, logger, silentLogs)
+	if lua.CoverageEnabled() {
+		dumpCoverage()
+	}
 	if exitCode != 0 {
 		_ = logger.Sync()
 		os.Exit(exitCode)
 	}
 
 	return nil
+}
+
+// dumpCoverage writes an LCOV tracefile when WIPPY_COVERAGE is set. It runs both
+// on a clean exit (return nil) and before os.Exit on a failing run, so coverage
+// is captured even when tests fail. Configured via env:
+//
+//	WIPPY_COVERAGE_FILE    output path (default: coverage.info)
+//	WIPPY_COVERAGE_FILTER  substring the source name must contain (default: all)
+func dumpCoverage() {
+	prefix := os.Getenv("WIPPY_COVERAGE_FILTER")
+	filter := func(src string) bool {
+		return prefix == "" || strings.Contains(src, prefix)
+	}
+	path := os.Getenv("WIPPY_COVERAGE_FILE")
+	if path == "" {
+		path = "coverage.info"
+	}
+	if err := lua.WriteCoverageLCOV(path, filter); err != nil {
+		fmt.Fprintf(os.Stderr, "coverage: write failed: %v\n", err)
+		return
+	}
+	lf, lh := lua.CoverageSummary(filter)
+	pct := 0.0
+	if lf > 0 {
+		pct = float64(lh) / float64(lf) * 100
+	}
+	fmt.Fprintf(os.Stderr, "coverage: %d/%d lines (%.1f%%) filter=%q -> %s\n", lh, lf, pct, prefix, path)
 }
 
 // loadRuntimeConfig resolves the effective runtime configuration for run-like
