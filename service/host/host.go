@@ -18,6 +18,7 @@ import (
 	hostapi "github.com/wippyai/runtime/api/service/host"
 	"github.com/wippyai/runtime/api/topology"
 	"github.com/wippyai/runtime/system/scheduler/actor"
+	securitysys "github.com/wippyai/runtime/system/security"
 	"go.uber.org/zap"
 )
 
@@ -98,6 +99,9 @@ func (h *Host) Run(ctx context.Context, start *process.Start) (pid.PID, error) {
 
 	processID := h.preparePID(ctx, start)
 	frameCtx := h.prepareContext(ctx, processID, start)
+	if meta != nil && meta.Security != nil {
+		frameCtx = securitysys.WithSecurityConfig(frameCtx, meta.Security)
+	}
 
 	method := "main"
 	if meta != nil && meta.Method != "" {

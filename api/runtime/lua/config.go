@@ -79,11 +79,12 @@ type (
 
 	// ProcessConfig defines the configuration for a Lua processes.
 	ProcessConfig struct {
-		Meta    attrs.Bag              `json:"meta"`               // Metadata for the terminal
-		Source  string                 `json:"source" resolve:"-"` // Lua source code
-		Method  string                 `json:"method"`             // Alias of the Lua method to execute
-		Imports map[string]registry.ID `json:"imports,omitempty"`  // Imports aliases for the library
-		Modules []string               `json:"modules,omitempty"`  // Shortcut for importing modules
+		Meta     attrs.Bag              `json:"meta"`               // Metadata for the terminal
+		Security *security.Config       `json:"security,omitempty" yaml:"security,omitempty"`
+		Source   string                 `json:"source" resolve:"-"` // Lua source code
+		Method   string                 `json:"method"`             // Alias of the Lua method to execute
+		Imports  map[string]registry.ID `json:"imports,omitempty"`  // Imports aliases for the library
+		Modules  []string               `json:"modules,omitempty"`  // Shortcut for importing modules
 	}
 
 	// WorkflowConfig defines the configuration for a Lua workflow.
@@ -131,13 +132,14 @@ type (
 
 	// BytecodeProcessConfig defines configuration for a precompiled Lua process.
 	BytecodeProcessConfig struct {
-		Imports map[string]registry.ID `json:"imports,omitempty"`
-		Meta    attrs.Bag              `json:"meta,omitempty"`
-		FS      string                 `json:"fs"`
-		Path    string                 `json:"path"`
-		Hash    string                 `json:"hash"`
-		Method  string                 `json:"method"`
-		Modules []string               `json:"modules,omitempty"`
+		Imports  map[string]registry.ID `json:"imports,omitempty"`
+		Meta     attrs.Bag              `json:"meta,omitempty"`
+		Security *security.Config       `json:"security,omitempty" yaml:"security,omitempty"`
+		FS       string                 `json:"fs"`
+		Path     string                 `json:"path"`
+		Hash     string                 `json:"hash"`
+		Method   string                 `json:"method"`
+		Modules  []string               `json:"modules,omitempty"`
 	}
 
 	// BytecodeWorkflowConfig defines configuration for a precompiled Lua workflow.

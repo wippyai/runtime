@@ -212,7 +212,7 @@ func TestManager_registerFactory_PreparesBeforeSend(t *testing.T) {
 	}
 
 	ctx := event.WithAwaitService(ctxapi.NewRootContext(), awaitSvc)
-	err := manager.registerFactory(ctx, registry.NewID("app.test", "process"), "main")
+	err := manager.registerFactory(ctx, registry.NewID("app.test", "process"), "main", nil)
 	require.NoError(t, err)
 	assert.False(t, sendBeforePrepare, "factory register was sent before await prepare")
 }

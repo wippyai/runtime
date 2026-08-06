@@ -19,6 +19,7 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
+	secapi "github.com/wippyai/runtime/api/security"
 	hostapi "github.com/wippyai/runtime/api/service/host"
 	"github.com/wippyai/runtime/api/topology"
 	"github.com/wippyai/runtime/internal/uniqid"
@@ -746,6 +747,66 @@ func TestHost_ConcurrentSend(t *testing.T) {
 	}
 
 	wg.Wait()
+}
+
+// --- Entry Security ---
+
+type stubPolicy struct{ id registry.ID }
+
+func (p stubPolicy) ID() registry.ID { return p.id }
+func (p stubPolicy) Evaluate(_ secapi.Actor, _, _ string, _ attrs.Bag) secapi.Result {
+	return secapi.Allow
+}
+
+type stubPolicyRegistry struct{ policy secapi.Policy }
+
+func (r stubPolicyRegistry) GetPolicy(id registry.ID) (secapi.Policy, error) {
+	if r.policy != nil && r.policy.ID() == id {
+		return r.policy, nil
+	}
+	return nil, errors.New("policy not found")
+}
+func (r stubPolicyRegistry) GetPolicyGroup(registry.ID) (secapi.Scope, error) {
+	return nil, errors.New("group not found")
+}
+func (r stubPolicyRegistry) ListGroups() []registry.ID   { return nil }
+func (r stubPolicyRegistry) ListPolicies() []registry.ID { return nil }
+
+func TestHost_RunAppliesEntrySecurity(t *testing.T) {
+	policyID := registry.NewID("test", "allow_all")
+
+	var gotActor secapi.Actor
+	var hasActor bool
+	var allowed bool
+	done := make(chan struct{})
+
+	th := newTestHost(func(th *testHost) {
+		th.factory.meta = &process.Meta{
+			Security: &secapi.Config{
+				Actor:    secapi.Actor{ID: "test:entry-actor"},
+				Policies: []registry.ID{policyID},
+			},
+		}
+		th.lifecycle.onStartFunc = func(ctx context.Context, _ pid.PID, _ process.Process) {
+			gotActor, hasActor = secapi.GetActor(ctx)
+			allowed = secapi.IsAllowed(ctx, "process.spawn", "test:child", nil)
+			close(done)
+		}
+	})
+	ctx := secapi.WithRegistry(ctxWithAppContext(), stubPolicyRegistry{policy: stubPolicy{id: policyID}})
+	_, err := th.host.Start(ctx)
+	require.NoError(t, err)
+	defer th.stop()
+
+	_, err = th.host.Run(ctx, &process.Start{
+		Source: registry.NewID("test", "proc"),
+	})
+	require.NoError(t, err)
+
+	<-done
+	require.True(t, hasActor, "entry security actor must be set on the process frame context")
+	assert.Equal(t, "test:entry-actor", gotActor.ID)
+	assert.True(t, allowed, "entry security policies must be evaluable on the process frame context")
 }
 
 // --- Interface Compliance ---
