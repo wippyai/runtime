@@ -95,6 +95,16 @@ func changesUpdate(l *lua.LState) int {
 		return 2
 	}
 
+	// An update that says nothing about root status inherits the stored one.
+	// Absence means "unchanged" here, not "false": a writer unaware of the
+	// field would otherwise demote a deployment root on every rewrite, and a
+	// demoted root loses its parameters at the next boot's link stage.
+	if entryTable.RawGetString("root") == lua.LNil && changes.snapshot != nil {
+		if stored, storedErr := changes.snapshot.GetEntry(entry.ID); storedErr == nil {
+			entry.DependencyRoot = stored.DependencyRoot
+		}
+	}
+
 	changes.ops = append(changes.ops, regapi.Operation{
 		Kind:  regapi.EntryUpdate,
 		Entry: entry,
