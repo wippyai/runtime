@@ -472,25 +472,23 @@ func TestExecutor_Stderr(t *testing.T) {
 	// Waiting concurrently can discard buffered output when the child exits
 	// quickly, which made this test race the implementation it was testing.
 	assert.NoError(t, process.Start())
-	type readResult struct {
-		output []byte
-		err    error
-	}
-	readDone := make(chan readResult, 1)
+	var output []byte
+	readDone := make(chan error, 1)
 	go func() {
-		output, readErr := io.ReadAll(process.Stderr())
-		readDone <- readResult{output: output, err: readErr}
+		var readErr error
+		output, readErr = io.ReadAll(process.Stderr())
+		readDone <- readErr
 	}()
 
-	var result readResult
+	var readErr error
 	select {
-	case result = <-readDone:
+	case readErr = <-readDone:
 	case <-time.After(5 * time.Second):
 		t.Fatal("timed out draining stderr")
 	}
-	assert.NoError(t, result.err)
+	assert.NoError(t, readErr)
 	assert.NoError(t, process.Wait())
-	assert.Contains(t, string(result.output), "error message")
+	assert.Contains(t, string(output), "error message")
 }
 
 func TestExecutor_ReadWithInvalidCommand(t *testing.T) {
