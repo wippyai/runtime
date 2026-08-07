@@ -18,6 +18,7 @@ import (
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/registry"
 	api "github.com/wippyai/runtime/api/runtime/lua"
+	"github.com/wippyai/runtime/runtime/lua/code/cache"
 	"github.com/wippyai/runtime/system/eventbus"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -974,6 +975,61 @@ func TestManager_Compile_TypeCallsFromManifest(t *testing.T) {
 	require.NoError(t, err)
 	if got := l.Get(-1).String(); got != "ok" {
 		t.Fatalf("expected 'ok', got %q", got)
+	}
+}
+
+func TestManager_TypecheckCachePropagatesDependencyManifest(t *testing.T) {
+	logger := zap.NewNop()
+	bus := &testEventBus{}
+	cacheDir := t.TempDir()
+	typeCfg := DefaultTypeCheckConfig()
+	typeCfg.Enabled = true
+	typeCfg.Strict = true
+	cfg := Config{
+		Cache: cache.Config{
+			Dir:              cacheDir,
+			Enabled:          true,
+			CompileEnabled:   true,
+			TypecheckEnabled: true,
+		},
+		TypeCheck: typeCfg,
+	}
+
+	libID := registry.NewID("test.cache", "consts")
+	lib := Node{
+		ID:     libID,
+		Kind:   api.Library,
+		Source: `return { VALUE = "ok" }`,
+	}
+
+	// Populate the disk cache in one manager, as a previous runtime would.
+	warm, err := NewCodeManager(logger, bus, cfg)
+	require.NoError(t, err)
+	require.NoError(t, warm.AddNode(context.Background(), lib, nil))
+	_, err = warm.Compile(libID, nil)
+	require.NoError(t, err)
+
+	// A new runtime loads the dependency from disk for the first root. A later
+	// root may reuse its in-memory proto, so the decoded manifest must also have
+	// been propagated to the manager graph.
+	cold, err := NewCodeManager(logger, bus, cfg)
+	require.NoError(t, err)
+	require.NoError(t, cold.AddNode(context.Background(), lib, nil))
+
+	for _, name := range []string{"first", "second"} {
+		id := registry.NewID("test.cache", name)
+		require.NoError(t, cold.AddNode(context.Background(), Node{
+			ID:     id,
+			Kind:   api.Function,
+			Source: `local consts = require("consts"); return consts.VALUE`,
+			Method: "main",
+		}, []Import{{Alias: "consts", ID: libID}}))
+		_, err = cold.Compile(id, nil)
+		require.NoError(t, err)
+		cachedLib, getErr := cold.memGraph.GetNode(libID)
+		require.NoError(t, getErr)
+		require.NotNil(t, cachedLib.Manifest,
+			"a disk-cached manifest must propagate to later graph snapshots")
 	}
 }
 
