@@ -165,6 +165,20 @@ entries:
       - registry
       - funcs
 
+  - name: dependency_root_field
+    kind: function.lua
+    meta:
+      type: test
+      suite: registry
+      order: 82
+      description: root survives a Lua write and a read-modify-write
+    source: file://dependency_root_field.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - registry
+
   - name: restore_dependency_delete_order
     kind: function.lua
     meta:

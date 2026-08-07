@@ -13,12 +13,15 @@ var idType = typ.NewRecord().
 	Field("name", typ.String).
 	Build()
 
-// Entry type represents a registry entry
+// Entry type represents a registry entry. root marks an ns.dependency selected
+// as a deployment root. It is optional on the way in and always present on the
+// way out, so a writer may omit it while a reader can always carry it back.
 var entryType = typ.NewRecord().
 	Field("id", typ.String).
 	Field("kind", typ.String).
 	Field("meta", typ.NewMap(typ.String, typ.Any)).
 	Field("data", typ.Any).
+	OptField("root", typ.Boolean).
 	Build()
 
 // Forward declarations for self-referential types
