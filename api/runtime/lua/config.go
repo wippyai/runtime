@@ -79,7 +79,7 @@ type (
 
 	// ProcessConfig defines the configuration for a Lua processes.
 	ProcessConfig struct {
-		Meta     attrs.Bag              `json:"meta"`               // Metadata for the terminal
+		Meta     attrs.Bag              `json:"meta"` // Metadata for the terminal
 		Security *security.Config       `json:"security,omitempty" yaml:"security,omitempty"`
 		Source   string                 `json:"source" resolve:"-"` // Lua source code
 		Method   string                 `json:"method"`             // Alias of the Lua method to execute

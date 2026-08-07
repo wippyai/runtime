@@ -26,8 +26,8 @@ import (
 type configEntry struct {
 	source   *api.ProcessConfig
 	bytecode *api.BytecodeProcessConfig
-	method   string
 	security *security.Config
+	method   string
 }
 
 // Manager handles both source and bytecode Lua process components.
