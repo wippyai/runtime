@@ -53,14 +53,17 @@ type packCommand struct {
 
 // commandsFromEntries projects registry entries into the command entrypoints
 // they declare, ignoring entries without process kind or command meta.
-func commandsFromEntries(items []registry.Entry) []packCommand {
+func commandsFromEntries(items []registry.Entry) ([]packCommand, error) {
 	var commands []packCommand
 	for _, e := range items {
 		if !isProcessKind(e.Kind) {
 			continue
 		}
 
-		cmdMeta := extractCommandMeta(e.Meta)
+		cmdMeta, err := extractCommandMeta(e.Meta)
+		if err != nil {
+			return nil, fmt.Errorf("decode command metadata for %s: %w", e.ID.String(), err)
+		}
 		if cmdMeta == nil {
 			continue
 		}
@@ -73,7 +76,7 @@ func commandsFromEntries(items []registry.Entry) []packCommand {
 		})
 	}
 
-	return commands
+	return commands, nil
 }
 
 // collectCommands gathers every command entrypoint declared in the loaded registry.
@@ -88,7 +91,7 @@ func collectCommands(ctx context.Context) ([]packCommand, error) {
 		return nil, fmt.Errorf("failed to query registry for commands: %w", err)
 	}
 
-	return commandsFromEntries(allEntries), nil
+	return commandsFromEntries(allEntries)
 }
 
 func collectPackCommands(ctx context.Context, mainModule string) ([]packCommand, error) {
@@ -109,7 +112,7 @@ func collectPackCommands(ctx context.Context, mainModule string) ([]packCommand,
 		}
 		filtered = append(filtered, entry)
 	}
-	return commandsFromEntries(filtered), nil
+	return commandsFromEntries(filtered)
 }
 
 // commandForUseCase maps a declared use case to the top-level CLI command that
