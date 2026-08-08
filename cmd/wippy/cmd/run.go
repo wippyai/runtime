@@ -112,15 +112,15 @@ func init() {
 
 // commandMeta represents the command metadata from entry.Meta
 type commandMeta struct {
-	Name    string `json:"name"`
-	Short   string `json:"short"`
-	UseCase string `json:"use_case"`
-	Main    bool   `json:"main"`
 	// Security is the security context the command runs under when launched
 	// from the CLI. It lives inside meta.command on purpose: it applies only
 	// to the trusted terminal-launcher path, never to ordinary spawns of the
 	// same process entry.
 	Security *secapi.Config `json:"security"`
+	Name     string         `json:"name"`
+	Short    string         `json:"short"`
+	UseCase  string         `json:"use_case"`
+	Main     bool           `json:"main"`
 }
 
 // runApp is the primary `wippy run` execution flow.
