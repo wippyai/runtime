@@ -21,6 +21,7 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
+	secapi "github.com/wippyai/runtime/api/security"
 	terminalapi "github.com/wippyai/runtime/api/service/terminal"
 	"github.com/wippyai/runtime/internal/uniqid"
 	"github.com/wippyai/runtime/system/logs"
@@ -250,6 +251,66 @@ func TestHost_Run_ShuttingDown(t *testing.T) {
 
 	h.shutdown.Store(false)
 	_ = h.Stop(context.Background())
+}
+
+type securityCaptureProcess struct {
+	actor chan secapi.Actor
+}
+
+func (p *securityCaptureProcess) Init(ctx context.Context, _ string, _ payload.Payloads) error {
+	actor, _ := secapi.GetActor(ctx)
+	p.actor <- actor
+	return nil
+}
+
+func (*securityCaptureProcess) Step([]process.Event, *process.StepOutput) error { return nil }
+func (*securityCaptureProcess) Close()                                          {}
+
+type securityFactory struct {
+	proc process.Process
+	meta *process.Meta
+}
+
+func (f securityFactory) Create(registry.ID) (process.Process, *process.Meta, error) {
+	return f.proc, f.meta, nil
+}
+
+func TestHost_RunAppliesEntrySecurity(t *testing.T) {
+	actorCh := make(chan secapi.Actor, 1)
+	factory := securityFactory{
+		proc: &securityCaptureProcess{actor: actorCh},
+		meta: &process.Meta{Security: &secapi.Config{
+			Actor: secapi.Actor{ID: "test:entry-actor"},
+		}},
+	}
+	scheduler := actor.NewScheduler(&mockCommandRegistry{}, actor.WithWorkers(1))
+	h := NewHost(
+		registry.NewID("test", "host"),
+		&terminalapi.HostConfig{},
+		scheduler,
+		factory,
+		logs.NewConfigurator(nil, zap.NewNop()),
+		zap.NewNop(),
+	)
+	ctx := process.WithPIDGenerator(ctxapi.NewRootContext(), newTestPIDGen())
+	_, err := h.Start(ctx)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, h.Stop(context.Background())) })
+
+	_, err = h.Run(ctx, &process.Start{
+		Source: registry.NewID("test", "process"),
+		Context: []ctxapi.Pair{
+			secapi.ActorPair(secapi.Actor{ID: "test:launch-actor"}),
+		},
+	})
+	require.NoError(t, err)
+
+	select {
+	case got := <-actorCh:
+		assert.Equal(t, "test:entry-actor", got.ID)
+	case <-time.After(3 * time.Second):
+		t.Fatal("terminal process did not initialize")
+	}
 }
 
 func TestHost_Send_ShuttingDown(t *testing.T) {

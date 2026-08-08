@@ -17,6 +17,7 @@ import (
 	processapi "github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/registry"
 	api "github.com/wippyai/runtime/api/runtime/lua"
+	"github.com/wippyai/runtime/api/security"
 	"github.com/wippyai/runtime/runtime/lua/code"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	systempayload "github.com/wippyai/runtime/system/payload"
@@ -212,7 +213,12 @@ func TestManager_registerFactory_PreparesBeforeSend(t *testing.T) {
 	}
 
 	ctx := event.WithAwaitService(ctxapi.NewRootContext(), awaitSvc)
-	err := manager.registerFactory(ctx, registry.NewID("app.test", "process"), "main")
+	securityConfig := &security.Config{Actor: security.Actor{ID: "app.test:process"}}
+	err := manager.registerFactory(ctx, registry.NewID("app.test", "process"), "main", securityConfig)
 	require.NoError(t, err)
 	assert.False(t, sendBeforePrepare, "factory register was sent before await prepare")
+	require.Len(t, bus.events, 1)
+	registered, ok := bus.events[0].Data.(*processapi.FactoryEntry)
+	require.True(t, ok)
+	assert.Same(t, securityConfig, registered.Meta.Security)
 }
