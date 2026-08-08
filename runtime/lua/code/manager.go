@@ -181,6 +181,7 @@ func NewCodeManager(log *zap.Logger, bus event.Bus, cfg Config) (*Manager, error
 					tcDeps = deps
 					if manifest, cachedDiagnostics, ok := cm.loadTypecheckCache(node.ID, fingerprint); ok {
 						node.Manifest = manifest
+						cm.memGraph.SetManifestIfRevision(node.ID, node.Version.Revision, manifest)
 						diagnostics = cachedDiagnostics
 					}
 				}
