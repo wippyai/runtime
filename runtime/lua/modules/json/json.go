@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"sort"
 	"strconv"
@@ -638,7 +639,7 @@ func compileSchema(schemaJSON []byte) (*jsonschema.Schema, error) {
 		return schema, nil
 	}
 
-	compiler := jsonschema.NewCompiler()
+	compiler := jsonschema.NewCompiler().WithDecoderJSON(decodeSchemaInstance)
 	schema, err := compiler.Compile(schemaJSON)
 	if err != nil {
 		return nil, err
@@ -646,6 +647,23 @@ func compileSchema(schemaJSON []byte) (*jsonschema.Schema, error) {
 
 	_ = globalSchemaCache.Set(cacheKey, schema)
 	return schema, nil
+}
+
+func decodeSchemaInstance(data []byte, value any) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	if err := decoder.Decode(value); err != nil {
+		return err
+	}
+
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return errors.New("multiple JSON values")
+		}
+		return err
+	}
+	return nil
 }
 
 func hashSchemaJSON(data []byte) string {

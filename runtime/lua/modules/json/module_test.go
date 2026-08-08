@@ -280,6 +280,41 @@ func TestValidateStringSuccess(t *testing.T) {
 	}
 }
 
+func TestValidateStringPreservesExactNumbers(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	bindJSON(l)
+
+	err := l.DoString(`
+		local schema = '{"type":"integer","const":9007199254740993}'
+		local valid, validation_err = json.validate_string(schema, '9007199254740993')
+		if not valid then error("expected exact integer to validate: " .. tostring(validation_err)) end
+
+		valid, validation_err = json.validate_string(schema, '9007199254740992')
+		if valid then error("adjacent integer must not match exact const") end
+		if validation_err == nil then error("expected validation error") end
+	`)
+	if err != nil {
+		t.Errorf("validate_string exact number test failed: %v", err)
+	}
+}
+
+func TestValidateStringRejectsTrailingJSONValue(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	bindJSON(l)
+
+	err := l.DoString(`
+		local schema = {type = "object"}
+		local valid, validation_err = json.validate_string(schema, '{} {}')
+		if valid then error("expected trailing JSON value to be rejected") end
+		if validation_err == nil then error("expected validation error") end
+	`)
+	if err != nil {
+		t.Errorf("validate_string trailing value test failed: %v", err)
+	}
+}
+
 func TestValidateMissingSchema(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
