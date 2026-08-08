@@ -166,6 +166,59 @@ func TestMaterializeRejectsSymlinkedDestinationParent(t *testing.T) {
 	}
 }
 
+func TestPartialMaterializationDoesNotTouchUnselectedFormatRoot(t *testing.T) {
+	root := t.TempDir()
+	registry := NewRegistry()
+	if err := registry.Register(testFormat{
+		name: "selected",
+		root: "selected",
+		descriptor: Descriptor{
+			Identity:     "example",
+			RelativePath: "selected/example",
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.Register(testFormat{
+		name: "unselected",
+		root: "unselected",
+		descriptor: Descriptor{
+			Identity:     "other",
+			RelativePath: "unselected/other",
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	unselected := filepath.Join(root, "unselected")
+	if err := os.WriteFile(unselected, []byte("owned elsewhere"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, destination, err := materializeTestResource(
+		context.Background(),
+		registry,
+		Declaration{Format: "selected"},
+		InspectInput{
+			Filesystem: fstest.MapFS{"value": &fstest.MapFile{Data: []byte("selected")}},
+			ResourceID: wapp.NewID("example", "artifact"),
+		},
+		root,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(unselected)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "owned elsewhere" {
+		t.Fatalf("unselected root content = %q", data)
+	}
+	if _, err := os.Stat(filepath.Join(destination, "value")); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func materializeTestResource(
 	ctx context.Context,
 	registry *Registry,

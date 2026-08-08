@@ -158,11 +158,12 @@ func (e *Effect) Prepare(ctx context.Context) error {
 		closePacks()
 		return errors.Join(fmt.Errorf("resolve artifact root: %w", rootErr), e.releaseLock())
 	}
-	if recoveryErr := recoverInterruptedRoots(root, e.registry.Roots()); recoveryErr != nil {
+	managedRoots := e.managedRoots(candidates)
+	if recoveryErr := recoverInterruptedRoots(root, managedRoots); recoveryErr != nil {
 		closePacks()
 		return errors.Join(recoveryErr, e.releaseLock())
 	}
-	staged, stageErr := e.stage(candidates)
+	staged, stageErr := e.stage(candidates, managedRoots)
 	closePacks()
 	if stageErr != nil {
 		return errors.Join(stageErr, e.releaseLock())
@@ -432,7 +433,25 @@ func (e *Effect) inspect(ctx context.Context) ([]artifactCandidate, func(), erro
 	return candidates, closePacks, nil
 }
 
-func (e *Effect) stage(candidates []artifactCandidate) ([]stagedRoot, error) {
+func (e *Effect) managedRoots(candidates []artifactCandidate) []string {
+	roots := e.registry.Roots()
+	if e.exact {
+		return roots
+	}
+	selected := make(map[string]struct{}, len(candidates))
+	for _, candidate := range candidates {
+		selected[candidate.root] = struct{}{}
+	}
+	managed := make([]string, 0, len(selected))
+	for _, root := range roots {
+		if _, exists := selected[root]; exists {
+			managed = append(managed, root)
+		}
+	}
+	return managed
+}
+
+func (e *Effect) stage(candidates []artifactCandidate, managedRoots []string) ([]stagedRoot, error) {
 	root, err := filepath.Abs(e.root)
 	if err != nil {
 		return nil, fmt.Errorf("resolve artifact root: %w", err)
@@ -446,7 +465,7 @@ func (e *Effect) stage(candidates []artifactCandidate) ([]stagedRoot, error) {
 	}
 
 	var staged []stagedRoot
-	for _, managedRoot := range e.registry.Roots() {
+	for _, managedRoot := range managedRoots {
 		destination := filepath.Join(root, filepath.FromSlash(managedRoot))
 		parent := filepath.Dir(destination)
 		if err := ensureDirectoryBelowRoot(root, parent); err != nil {
