@@ -501,7 +501,10 @@ func TestCommandsFromEntries(t *testing.T) {
 		},
 	}
 
-	got := commandsFromEntries(entries)
+	got, err := commandsFromEntries(entries)
+	if err != nil {
+		t.Fatalf("commandsFromEntries: %v", err)
+	}
 	want := []packCommand{
 		{name: "serve", entryID: "app:serve", useCase: defaultUseCase, main: true},
 		{name: "test", entryID: "app:runner", useCase: "test"},

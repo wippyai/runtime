@@ -4,6 +4,7 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/signal"
@@ -383,76 +384,35 @@ func isProcessKind(kind registry.Kind) bool {
 	return strings.HasPrefix(kind, "process.")
 }
 
-// extractCommandMeta extracts command metadata from entry.Meta
-func extractCommandMeta(meta map[string]any) *commandMeta {
+// extractCommandMeta decodes command metadata from entry.Meta. Decoding the
+// complete typed structure keeps command discovery and launch on the same
+// schema, including nested actor metadata.
+func extractCommandMeta(meta map[string]any) (*commandMeta, error) {
 	if meta == nil {
-		return nil
+		return nil, nil
 	}
 
 	cmdData, ok := meta["command"]
 	if !ok {
-		return nil
+		return nil, nil
 	}
 
-	cmdMap, ok := cmdData.(map[string]any)
-	if !ok {
-		return nil
+	encoded, err := json.Marshal(cmdData)
+	if err != nil {
+		return nil, fmt.Errorf("encode command metadata: %w", err)
+	}
+	var command commandMeta
+	if err := json.Unmarshal(encoded, &command); err != nil {
+		return nil, fmt.Errorf("decode command metadata: %w", err)
+	}
+	if command.Name == "" {
+		return nil, nil
+	}
+	if command.UseCase == "" {
+		command.UseCase = defaultUseCase
 	}
 
-	name, _ := cmdMap["name"].(string)
-	if name == "" {
-		return nil
-	}
-
-	short, _ := cmdMap["short"].(string)
-	main, _ := cmdMap["main"].(bool)
-	useCase, _ := cmdMap["use_case"].(string)
-	if useCase == "" {
-		useCase = defaultUseCase
-	}
-
-	return &commandMeta{Name: name, Short: short, UseCase: useCase, Main: main,
-		Security: extractCommandSecurity(cmdMap)}
-}
-
-// extractCommandSecurity parses meta.command.security into a security config:
-// an actor id plus policy/group references the CLI launcher resolves when it
-// starts the command.
-func extractCommandSecurity(cmdMap map[string]any) *secapi.Config {
-	secData, ok := cmdMap["security"].(map[string]any)
-	if !ok {
-		return nil
-	}
-
-	cfg := &secapi.Config{}
-	if actorMap, ok := secData["actor"].(map[string]any); ok {
-		cfg.Actor.ID, _ = actorMap["id"].(string)
-	}
-	cfg.PolicyGroups = parseIDList(secData["groups"])
-	cfg.Policies = parseIDList(secData["policies"])
-
-	if cfg.Actor.ID == "" && len(cfg.PolicyGroups) == 0 && len(cfg.Policies) == 0 {
-		return nil
-	}
-	return cfg
-}
-
-// parseIDList converts a YAML list of "namespace:name" strings to registry IDs.
-func parseIDList(value any) []registry.ID {
-	items, ok := value.([]any)
-	if !ok {
-		return nil
-	}
-	ids := make([]registry.ID, 0, len(items))
-	for _, item := range items {
-		if s, ok := item.(string); ok && s != "" {
-			ids = append(ids, registry.ParseID(s))
-		}
-	}
-	if len(ids) == 0 {
-		return nil
-	}
-	return ids
+	return &command, nil
 }
 
 // runList prints all command-enabled process entries from resolved lock modules.
@@ -491,7 +451,10 @@ func runList(cmd *cobra.Command, _ []string) error {
 			continue
 		}
 
-		cmdMeta := extractCommandMeta(e.Meta)
+		cmdMeta, err := extractCommandMeta(e.Meta)
+		if err != nil {
+			return fmt.Errorf("decode command metadata for %s: %w", e.ID.String(), err)
+		}
 		if cmdMeta == nil {
 			continue
 		}
@@ -884,6 +847,12 @@ func launchExecProcess(ctx context.Context, logger *zap.Logger, execSpec, hostID
 	if err != nil {
 		return NewInvalidExecSpecError(err)
 	}
+	source := registry.NewID(namespace, entry)
+
+	securityPairs, err := resolveCommandSecurity(ctx, source)
+	if err != nil {
+		return fmt.Errorf("resolve command security for %s: %w", source.String(), err)
+	}
 
 	if hostID == "" {
 		hostID, err = findTerminalHost(ctx)
@@ -900,8 +869,6 @@ func launchExecProcess(ctx context.Context, logger *zap.Logger, execSpec, hostID
 	if err := waitForHostRunning(ctx, hostID); err != nil {
 		return err
 	}
-
-	source := registry.NewID(namespace, entry)
 
 	var input payload.Payloads
 	for _, arg := range args {
@@ -920,7 +887,7 @@ func launchExecProcess(ctx context.Context, logger *zap.Logger, execSpec, hostID
 	// launcher resolves the declared context and attaches it to the start
 	// context. Without it a command under strict security mode executes with
 	// an incomplete context and every check denies.
-	start.Context = append(start.Context, resolveCommandSecurity(ctx, source)...)
+	start.Context = append(start.Context, securityPairs...)
 
 	pid, err := manager.Start(ctx, start)
 	if err != nil {
@@ -938,21 +905,24 @@ func launchExecProcess(ctx context.Context, logger *zap.Logger, execSpec, hostID
 
 // resolveCommandSecurity reads meta.command.security from the command entry
 // and resolves it into context pairs for the process start. Entries without a
-// command security block, and unknown entries, resolve to no pairs — the
-// command then runs with the caller's context, as before.
-func resolveCommandSecurity(ctx context.Context, source registry.ID) []ctxapi.Pair {
+// command security block resolve to no pairs, preserving the caller context.
+// A declared but invalid security block fails closed before the process starts.
+func resolveCommandSecurity(ctx context.Context, source registry.ID) ([]ctxapi.Pair, error) {
 	reg := registry.GetRegistry(ctx)
 	if reg == nil {
-		return nil
+		return nil, fmt.Errorf("registry not available")
 	}
 	entry, err := reg.GetEntry(source)
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("get command entry: %w", err)
 	}
 
-	cmdMeta := extractCommandMeta(entry.Meta)
+	cmdMeta, err := extractCommandMeta(entry.Meta)
+	if err != nil {
+		return nil, err
+	}
 	if cmdMeta == nil || cmdMeta.Security == nil {
-		return nil
+		return nil, nil
 	}
 
 	return securitysys.ResolveConfigPairs(ctx, cmdMeta.Security)
