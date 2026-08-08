@@ -57,6 +57,11 @@ func TestBuildArtifactEffectMaterializesVerifiedResolvedWAPP(t *testing.T) {
 	if err := effect.Commit(context.Background()); err != nil {
 		t.Fatalf("commit: %v", err)
 	}
+	if finalizer, ok := effect.(regapi.FinalizingEffect); ok {
+		if err := finalizer.Finalize(context.Background()); err != nil {
+			t.Fatalf("finalize: %v", err)
+		}
+	}
 
 	data, err := os.ReadFile(filepath.Join(root, "npm", "@example", "package", "dist", "index.js"))
 	if err != nil {
