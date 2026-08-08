@@ -14,12 +14,14 @@ import (
 	"time"
 
 	"github.com/wippyai/runtime/api/boot"
+	moduleapi "github.com/wippyai/runtime/api/modules"
 	"github.com/wippyai/runtime/api/payload"
 	regapi "github.com/wippyai/runtime/api/registry"
 	supervisorapi "github.com/wippyai/runtime/api/supervisor"
 	"github.com/wippyai/runtime/boot/build"
 	"github.com/wippyai/runtime/boot/build/stages"
 	"github.com/wippyai/runtime/boot/deps/lock"
+	entryloader "github.com/wippyai/runtime/cmd/internal/entries"
 	"github.com/wippyai/runtime/cmd/internal/shutdown"
 	embedpkg "github.com/wippyai/runtime/service/fs/embed"
 	"github.com/wippyai/wapp"
@@ -717,6 +719,42 @@ func TestLoadPackEntries_RawLoadSkipsLinkPipeline(t *testing.T) {
 	}
 	if len(packEntries) != 2 {
 		t.Fatalf("entry count = %d, want 2", len(packEntries))
+	}
+}
+
+func TestPackSourcesUseCommonDeploymentLoader(t *testing.T) {
+	tmpDir := t.TempDir()
+	packPath := createTestPackFileWithMetadata(t, tmpDir, "source-app", wapp.Metadata{}, []wapp.Entry{{
+		ID:   wapp.NewID("source.pack", "probe"),
+		Kind: "registry.entry",
+	}})
+	ctx, componentLoader, logger, embedReg, err := bootstrapPackRuntime(nil, zap.NewNop())
+	if err != nil {
+		t.Fatalf("bootstrap pack runtime: %v", err)
+	}
+	t.Cleanup(func() { _ = embedReg.Close() })
+
+	paths, err := packSourcePaths([]string{packPath}, "")
+	if err != nil {
+		t.Fatalf("pack source paths: %v", err)
+	}
+	entryloader.ConfigureSourceLoader(ctx, paths, logger)
+	if err := componentLoader.Start(ctx); err != nil {
+		t.Fatalf("start pack runtime: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = shutdown.Perform(ctx, componentLoader, logger, true)
+	})
+
+	loaded, err := moduleapi.GetSourceRegistry(ctx).Load(ctx)
+	if err != nil {
+		t.Fatalf("load pack sources: %v", err)
+	}
+	if len(loaded.Owners) != 1 || loaded.Owners[0] != moduleapi.ApplicationSourceID {
+		t.Fatalf("owners = %v, want [application]", loaded.Owners)
+	}
+	if len(loaded.Entries) != 1 || loaded.Entries[0].ID != regapi.NewID("source.pack", "probe") {
+		t.Fatalf("entries = %#v", loaded.Entries)
 	}
 }
 

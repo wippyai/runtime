@@ -16,7 +16,10 @@ package cluster
 
 import (
 	"context"
+	"crypto/ed25519"
+	"encoding/base64"
 	"fmt"
+	"net"
 	"strconv"
 	"sync"
 	"time"
@@ -71,6 +74,9 @@ type StackConfig struct {
 	MembershipAdvertise           string
 	SecretKey                     string
 	SecretFile                    string
+	InternodeIdentityKey          string
+	InternodeIdentityKeyFile      string
+	InternodeTrustedPeerKeys      map[string]string
 	InternodeBindAddr             string
 	JoinAddrs                     []string
 	MembershipGossipInterval      time.Duration
@@ -105,6 +111,27 @@ func AssembleStack(cfg StackConfig) (*Stack, error) {
 		return nil, fmt.Errorf("cluster: Collector is required")
 	}
 
+	secretKey, err := membership.ResolveSecretKey(cfg.SecretKey, cfg.SecretFile)
+	if err != nil {
+		return nil, fmt.Errorf("cluster: resolve secret key: %w", err)
+	}
+	signingKey, err := internode.ResolveIdentityKey(cfg.InternodeIdentityKey, cfg.InternodeIdentityKeyFile)
+	if err != nil {
+		return nil, fmt.Errorf("cluster: resolve internode identity: %w", err)
+	}
+	publicKey := signingKey.Public().(ed25519.PublicKey)
+	trustedPeerKeys := make(map[clusterapi.NodeID]ed25519.PublicKey, len(cfg.InternodeTrustedPeerKeys))
+	for id, encoded := range cfg.InternodeTrustedPeerKeys {
+		trustedKey, err := internode.ParseIdentityPublicKey(encoded)
+		if err != nil {
+			return nil, fmt.Errorf("cluster: invalid trusted internode key for %q: %w", id, err)
+		}
+		trustedPeerKeys[id] = trustedKey
+	}
+	trustedLocalKey, ok := trustedPeerKeys[cfg.NodeName]
+	if !ok || !publicKey.Equal(trustedLocalKey) {
+		return nil, fmt.Errorf("cluster: trusted internode key for local node %q is required and must match its identity", cfg.NodeName)
+	}
 	logger := cfg.Logger.Named("cluster")
 
 	node := relay.NewNode(cfg.NodeName)
@@ -118,6 +145,31 @@ func AssembleStack(cfg StackConfig) (*Stack, error) {
 	mgrCfg.BindPort = cfg.InternodeBindPort
 	mgrCfg.AutoPort = cfg.InternodeAutoPort
 	mgrCfg.Logger = logger.Named("internode.conn")
+	mgrCfg.AuthenticationKey = secretKey
+	mgrCfg.SigningKey = signingKey
+	mgrCfg.RequireAuthentication = true
+	var memSvc *membership.Service
+	mgrCfg.ResolvePeerKey = func(id clusterapi.NodeID) (ed25519.PublicKey, bool) {
+		trustedKey, trusted := trustedPeerKeys[id]
+		if !trusted || id == "" || id == cfg.NodeName || memSvc == nil {
+			return nil, false
+		}
+		for _, nodeInfo := range memSvc.Nodes() {
+			if nodeInfo.ID != id {
+				continue
+			}
+			advertisedKey, err := internode.ParseIdentityPublicKey(nodeInfo.Meta[internode.MetadataPublicKey])
+			if err != nil || !advertisedKey.Equal(trustedKey) {
+				return nil, false
+			}
+			return trustedKey, true
+		}
+		return nil, false
+	}
+	mgrCfg.AuthorizePeer = func(id clusterapi.NodeID, _ net.Addr) bool {
+		_, ok := mgrCfg.ResolvePeerKey(id)
+		return ok
+	}
 
 	tempMgr := internode.NewConnectionManager(mgrCfg, cfg.Collector)
 	tempCtx, tempCancel := context.WithCancel(context.Background())
@@ -142,15 +194,15 @@ func AssembleStack(cfg StackConfig) (*Stack, error) {
 	for k, v := range cfg.Meta {
 		meta[k] = v
 	}
-	meta["internode_port"] = strconv.Itoa(actualPort)
+	meta[internode.MetadataPort] = strconv.Itoa(actualPort)
+	meta[internode.MetadataPublicKey] = base64.RawStdEncoding.EncodeToString(publicKey)
 
 	memCfg := membership.Config{
 		NodeName:            cfg.NodeName,
 		BindAddr:            stringOr(cfg.MembershipBindAddr, "0.0.0.0"),
 		BindPort:            intOr(cfg.MembershipBindPort, 7946),
 		JoinAddrs:           cfg.JoinAddrs,
-		SecretFile:          cfg.SecretFile,
-		SecretString:        cfg.SecretKey,
+		SecretKey:           secretKey,
 		AdvertiseIP:         cfg.MembershipAdvertise,
 		GossipInterval:      cfg.MembershipGossipInterval,
 		PushPullInterval:    cfg.MembershipPushPullInterval,
@@ -162,7 +214,7 @@ func AssembleStack(cfg StackConfig) (*Stack, error) {
 		Meta:                meta,
 	}
 
-	memSvc := membership.NewService(
+	memSvc = membership.NewService(
 		memCfg, cfg.Bus, logger.Named("membership"),
 		cfg.Collector, cfg.MeterProvider, cfg.TraceProvider,
 	)

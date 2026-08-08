@@ -9,137 +9,104 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/registry"
 	secapi "github.com/wippyai/runtime/api/security"
+	commonpb "go.temporal.io/api/common/v1"
 )
 
-// ApplySecurityPayload accepts any actor ID from the payload without
-// cryptographic verification. An attacker controlling Temporal headers
-// can impersonate any user.
+func TestExtractSecurityFromHeader_RejectsUnsignedClaims(t *testing.T) {
+	dc := newTestDataConverter()
+	claims, err := dc.ToPayload(&SecurityPayload{
+		Actor:    &ActorPayload{ID: "system-admin"},
+		Audience: testSecurityAudience,
+		Policies: []string{"policies:admin"},
+		Scope:    true,
+	})
+	require.NoError(t, err)
+	header := &commonpb.Header{Fields: map[string]*commonpb.Payload{
+		SecurityHeaderKey: claims,
+	}}
 
-func TestApplySecurityPayload_ArbitraryActorIDAccepted(t *testing.T) {
-	ctx := context.Background()
-	appCtx := ctxapi.NewAppContext()
-	ctx = ctxapi.WithAppContext(ctx, appCtx)
-	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	_, err = ExtractSecurityFromHeader(dc, header, testSecurityAudience, testSecurityHMACKey)
+	require.Error(t, err)
+}
 
-	payload := &SecurityPayload{
-		Actor: &ActorPayload{
-			ID: "system-admin",
-			Meta: map[string]any{
-				"role":   "superuser",
-				"bypass": true,
-			},
-		},
-	}
+func TestExtractSecurityFromHeader_RejectsTamperedClaims(t *testing.T) {
+	dc := newTestDataConverter()
+	header, err := AddSecurityToHeader(dc, nil, &SecurityPayload{
+		Actor:    &ActorPayload{ID: "user"},
+		Audience: testSecurityAudience,
+		Scope:    true,
+	}, testSecurityHMACKey)
+	require.NoError(t, err)
+	header.Fields[SecurityHeaderKey].Data = append(header.Fields[SecurityHeaderKey].Data, byte('x'))
 
-	err := ApplySecurityPayload(ctx, payload)
+	_, err = ExtractSecurityFromHeader(dc, header, testSecurityAudience, testSecurityHMACKey)
+	require.Error(t, err)
+}
+
+func TestExtractSecurityFromHeader_RejectsDifferentAudience(t *testing.T) {
+	dc := newTestDataConverter()
+	header, err := AddSecurityToHeader(dc, nil, &SecurityPayload{
+		Actor:    &ActorPayload{ID: "user"},
+		Audience: "workflow-a",
+		Scope:    true,
+	}, testSecurityHMACKey)
 	require.NoError(t, err)
 
-	actor, hasActor := secapi.GetActor(ctx)
-	require.True(t, hasActor)
-	assert.Equal(t, "system-admin", actor.ID, "arbitrary actor ID accepted without signature verification")
-	assert.Equal(t, "superuser", actor.Meta["role"], "arbitrary meta accepted without validation")
+	_, err = ExtractSecurityFromHeader(dc, header, "workflow-b", testSecurityHMACKey)
+	require.ErrorContains(t, err, "audience")
 }
 
-func TestApplySecurityPayload_EmptyActorIDAccepted(t *testing.T) {
-	ctx := context.Background()
-	appCtx := ctxapi.NewAppContext()
-	ctx = ctxapi.WithAppContext(ctx, appCtx)
-	ctx, _ = ctxapi.OpenFrameContext(ctx)
-
-	payload := &SecurityPayload{
-		Actor: &ActorPayload{ID: ""},
-	}
-
-	err := ApplySecurityPayload(ctx, payload)
+func TestExtractSecurityFromHeader_AcceptsPreviousRotationKey(t *testing.T) {
+	dc := newTestDataConverter()
+	previousKey := []byte("previous-0123456789abcdef01234567")
+	activeKey := []byte("active---0123456789abcdef01234567")
+	header, err := AddSecurityToHeader(dc, nil, &SecurityPayload{
+		Actor:    &ActorPayload{ID: "user"},
+		Audience: testSecurityAudience,
+		Scope:    true,
+	}, previousKey)
 	require.NoError(t, err)
 
-	actor, hasActor := secapi.GetActor(ctx)
-	assert.True(t, hasActor, "empty actor ID is accepted as a valid actor")
-	assert.Empty(t, actor.ID)
+	payload, err := ExtractSecurityFromHeader(dc, header, testSecurityAudience, activeKey, previousKey)
+	require.NoError(t, err)
+	require.Equal(t, "user", payload.Actor.ID)
 }
 
-// When registry is unavailable, ApplySecurityPayload sets the actor
-// but silently discards all policies. The result is an authenticated
-// context with no authorization (actor set, scope not set).
-
-func TestApplySecurityPayload_AuthenticatedWithoutAuthorization(t *testing.T) {
-	ctx := context.Background()
-	appCtx := ctxapi.NewAppContext()
-	ctx = ctxapi.WithAppContext(ctx, appCtx)
+func TestApplySecurityPayload_RejectsIncompleteContext(t *testing.T) {
+	ctx := ctxapi.WithAppContext(context.Background(), ctxapi.NewAppContext())
 	ctx, _ = ctxapi.OpenFrameContext(ctx)
 
-	payload := &SecurityPayload{
-		Actor:    &ActorPayload{ID: "user-1"},
-		Policies: []string{"policies:admin", "policies:write"},
-	}
-
-	// No registry in context - policies cannot be resolved
-	err := ApplySecurityPayload(ctx, payload)
-	require.NoError(t, err, "silent success despite unresolvable policies")
-
-	// Actor IS set - identity established
-	actor, hasActor := secapi.GetActor(ctx)
-	assert.True(t, hasActor)
-	assert.Equal(t, "user-1", actor.ID)
-
-	// Scope is NOT set - authorization silently lost
-	_, hasScope := secapi.GetScope(ctx)
-	assert.False(t, hasScope, "all authorization policies silently dropped")
+	err := ApplySecurityPayload(ctx, &SecurityPayload{Actor: &ActorPayload{ID: "user"}})
+	require.Error(t, err)
+	_, hasActor := secapi.GetActor(ctx)
+	assert.False(t, hasActor)
 }
 
-// When all policy IDs in the payload are fabricated/missing, no scope
-// is set and no error is returned. The payload's security intent
-// is completely lost.
-
-func TestApplySecurityPayload_AllPoliciesFabricatedNoError(t *testing.T) {
-	ctx := context.Background()
-	appCtx := ctxapi.NewAppContext()
-	ctx = ctxapi.WithAppContext(ctx, appCtx)
-
-	reg := &mockSecurityRegistry{
-		policies: map[string]secapi.Policy{},
-	}
-	ctx = secapi.WithRegistry(ctx, reg)
+func TestApplySecurityPayload_RejectsEmptyActor(t *testing.T) {
+	ctx := ctxapi.WithAppContext(context.Background(), ctxapi.NewAppContext())
 	ctx, _ = ctxapi.OpenFrameContext(ctx)
 
-	// Payload claims policies that don't exist
-	payload := &SecurityPayload{
+	err := ApplySecurityPayload(ctx, &SecurityPayload{Actor: &ActorPayload{}, Scope: true})
+	require.Error(t, err)
+}
+
+func TestApplySecurityPayload_RejectsUnknownPolicyWithoutPartialState(t *testing.T) {
+	ctx := ctxapi.WithAppContext(context.Background(), ctxapi.NewAppContext())
+	ctx = secapi.WithRegistry(ctx, &mockSecurityRegistry{policies: map[string]secapi.Policy{
+		"policies:admin": &mockPolicy{id: registry.NewID("policies", "admin")},
+	}})
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
+
+	err := ApplySecurityPayload(ctx, &SecurityPayload{
 		Actor:    &ActorPayload{ID: "attacker"},
-		Policies: []string{"policies:fabricated1", "policies:fabricated2"},
-	}
-
-	err := ApplySecurityPayload(ctx, payload)
-	require.NoError(t, err, "fabricated policy IDs produce no error")
-
-	// Actor is set
-	actor, hasActor := secapi.GetActor(ctx)
-	assert.True(t, hasActor)
-	assert.Equal(t, "attacker", actor.ID)
-
-	// No scope set because all policies were missing
+		Policies: []string{"policies:admin", "policies:missing"},
+		Scope:    true,
+	})
+	require.Error(t, err)
+	_, hasActor := secapi.GetActor(ctx)
 	_, hasScope := secapi.GetScope(ctx)
-	assert.False(t, hasScope, "no scope set - fabricated policies silently dropped")
-}
-
-// WithSecurityCtx/GetSecurityFromCtx uses plain context.WithValue
-// with no integrity check. Any code with context access can inject
-// a security payload.
-
-func TestWithSecurityCtx_NoIntegrityProtection(t *testing.T) {
-	ctx := context.Background()
-
-	injected := &SecurityPayload{
-		Actor: &ActorPayload{
-			ID: "injected-admin",
-		},
-		Policies: []string{"policies:root"},
-	}
-
-	ctx = WithSecurityCtx(ctx, injected)
-	recovered := GetSecurityFromCtx(ctx)
-
-	require.NotNil(t, recovered)
-	assert.Equal(t, "injected-admin", recovered.Actor.ID,
-		"security payload injected into context without verification")
+	assert.False(t, hasActor)
+	assert.False(t, hasScope)
 }

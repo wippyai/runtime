@@ -213,7 +213,7 @@ func (m *Manager) runtimeInstance(component bool) *wasmrt.Runtime {
 }
 
 func (m *Manager) processFactory(cfg *configEntry, module *wasmrt.Module) *wasmengine.Factory {
-	if cfg.component && cfg.limits.MaxRetainedMemoryBytes > 0 {
+	if cfg.component && cfg.limits.EffectiveMaxRetainedMemoryBytes() > 0 {
 		return wasmengine.NewFactoryWithModuleFactory(func() (*wasmrt.Module, error) {
 			return m.loadIsolatedModule(m.ctx, cfg)
 		}, cfg.transport, cfg.wasi, cfg.limits, m.fsRegistry)

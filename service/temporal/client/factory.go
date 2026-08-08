@@ -105,14 +105,16 @@ func (f *DefaultClientFactory) buildClientOptions(logger *zap.Logger, config *ap
 	opts.DataConverter = dc
 	opts.FailureConverter = temporalerrors.NewFailureConverter(dc)
 
-	// Set client interceptors if available
-	if len(f.clientInterceptors) > 0 {
-		opts.Interceptors = f.clientInterceptors
-	}
+	opts.Interceptors = append([]interceptor.ClientInterceptor(nil), f.clientInterceptors...)
+	opts.Interceptors = append(opts.Interceptors, propagator.NewSecurityAudienceInterceptor())
 
-	// Add context propagator for wippy context values
+	securityKeys := make([][]byte, 0, 1+len(config.SecurityHMACPreviousKeys))
+	if len(config.SecurityHMACKey) > 0 {
+		securityKeys = append(securityKeys, config.SecurityHMACKey)
+		securityKeys = append(securityKeys, config.SecurityHMACPreviousKeys...)
+	}
 	opts.ContextPropagators = []workflow.ContextPropagator{
-		propagator.New(dc),
+		propagator.New(dc, securityKeys...),
 	}
 
 	// Configure authentication

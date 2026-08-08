@@ -123,6 +123,7 @@ func (s *Service) SendUserMessage(targetNodeID string, kind byte, payload []byte
 type Config struct {
 	Transport           memberlist.Transport
 	Meta                cluster.NodeMeta
+	SecretKey           []byte
 	SecretString        string
 	NodeName            string
 	BindAddr            string
@@ -292,7 +293,7 @@ func (s *Service) Start(ctx context.Context) error {
 	mlConfig.LogOutput = newMemberlistLogWriter(s.logger.Named("memberlist"), s.config.VeryVerbose)
 
 	// Load secret key if provided
-	if s.config.SecretFile != "" || s.config.SecretString != "" {
+	if len(s.config.SecretKey) > 0 || s.config.SecretFile != "" || s.config.SecretString != "" {
 		secretKey, err := s.loadSecretKey()
 		if err != nil {
 			return NewLoadSecretKeyError(err)
@@ -613,27 +614,28 @@ func cloneMeta(m cluster.NodeMeta) cluster.NodeMeta {
 	return out
 }
 
-// loadSecretKey loads encryption key from file or string
-func (s *Service) loadSecretKey() ([]byte, error) {
-	var keyStr string
-
-	// Load from file if specified
+func ResolveSecretKey(secretString, secretFile string) ([]byte, error) {
+	var keyString string
 	switch {
-	case s.config.SecretFile != "":
-		data, err := os.ReadFile(s.config.SecretFile)
+	case secretFile != "":
+		data, err := os.ReadFile(secretFile)
 		if err != nil {
 			return nil, NewReadSecretFileError(err)
 		}
-		keyStr = strings.TrimSpace(string(data))
-	case s.config.SecretString != "":
-		// Use string directly
-		keyStr = s.config.SecretString
+		keyString = strings.TrimSpace(string(data))
+	case secretString != "":
+		keyString = secretString
 	default:
 		return nil, ErrNoSecretKeyProvided
 	}
+	return base64.StdEncoding.DecodeString(keyString)
+}
 
-	// Decode base64 key
-	return base64.StdEncoding.DecodeString(keyStr)
+func (s *Service) loadSecretKey() ([]byte, error) {
+	if len(s.config.SecretKey) > 0 {
+		return append([]byte(nil), s.config.SecretKey...), nil
+	}
+	return ResolveSecretKey(s.config.SecretString, s.config.SecretFile)
 }
 
 // refreshMemberStateGauges recomputes the gossip_members gauge across the

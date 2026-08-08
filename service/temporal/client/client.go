@@ -15,6 +15,7 @@ import (
 	"github.com/wippyai/runtime/api/resource"
 	api "github.com/wippyai/runtime/api/service/temporal"
 	"github.com/wippyai/runtime/api/supervisor"
+	"github.com/wippyai/runtime/service/temporal/internal/securitykeys"
 	"go.temporal.io/sdk/client"
 	"go.uber.org/zap"
 )
@@ -119,7 +120,7 @@ func (c *Client) Stop(ctx context.Context) error {
 }
 
 // Acquire returns a resource handle for this client
-func (c *Client) Acquire(_ context.Context, _ registry.ID, _ resource.AccessMode) (resource.Resource[any], error) {
+func (c *Client) Acquire(ctx context.Context, _ registry.ID, _ resource.AccessMode) (resource.Resource[any], error) {
 	c.lifecycleMu.Lock()
 	defer c.lifecycleMu.Unlock()
 	if c.closed.Load() {
@@ -128,9 +129,12 @@ func (c *Client) Acquire(_ context.Context, _ registry.ID, _ resource.AccessMode
 
 	c.borrowWG.Add(1)
 	return &clientResourceImpl{
-		client: c.client,
-		prefix: c.config.TQPrefix,
-		wg:     &c.borrowWG,
+		client:               c.client,
+		prefix:               c.config.TQPrefix,
+		securityKey:          append([]byte(nil), c.config.SecurityHMACKey...),
+		securityPreviousKeys: cloneSecurityKeys(c.config.SecurityHMACPreviousKeys),
+		revealSecurityKeys:   securitykeys.Requested(ctx),
+		wg:                   &c.borrowWG,
 	}, nil
 }
 
@@ -187,10 +191,21 @@ func (c *Client) TemporalClient() client.Client {
 
 // clientResourceImpl is the internal implementation of a Temporal client resource
 type clientResourceImpl struct {
-	client   client.Client
-	wg       *sync.WaitGroup
-	prefix   string
-	released atomic.Bool
+	client               client.Client
+	wg                   *sync.WaitGroup
+	prefix               string
+	securityKey          []byte
+	securityPreviousKeys [][]byte
+	revealSecurityKeys   bool
+	released             atomic.Bool
+}
+
+func cloneSecurityKeys(keys [][]byte) [][]byte {
+	cloned := make([][]byte, len(keys))
+	for i, key := range keys {
+		cloned[i] = append([]byte(nil), key...)
+	}
+	return cloned
 }
 
 // Get returns the public ClientResource struct
@@ -198,10 +213,16 @@ func (r *clientResourceImpl) Get() (any, error) {
 	if r.released.Load() {
 		return nil, fmt.Errorf("resource has been released")
 	}
-	return api.ClientResource{
-		Client:   r.client,
-		TQPrefix: r.prefix,
-	}, nil
+	public := api.ClientResource{Client: r.client, TQPrefix: r.prefix}
+	if !r.revealSecurityKeys {
+		return public, nil
+	}
+	keys := make([][]byte, 0, 1+len(r.securityPreviousKeys))
+	if len(r.securityKey) > 0 {
+		keys = append(keys, r.securityKey)
+		keys = append(keys, r.securityPreviousKeys...)
+	}
+	return securitykeys.NewResource(public, keys), nil
 }
 
 // Release decrements the resource wait group

@@ -82,6 +82,13 @@ Compiles and executes Lua code in one operation.
 | modules | string[] | no | nil | Module names allowed in code |
 | args | any[] | no | nil | Arguments passed to method |
 | context | {[string]: any} | no | nil | Context values available to code |
+| limits | table | no | nil | Execution limits for the evaluation |
+
+**limits fields:**
+
+| Field | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| max_steps | non-negative integer | no | host default | Optional scheduler step limit. An explicit `0` means unlimited. A step is consumed per resume, so pressure comes from yields (module calls), not Lua loops. |
 
 **Returns:**
 - Success: `result, nil` - return value from executed code (type depends on code)
@@ -94,6 +101,8 @@ Compiles and executes Lua code in one operation.
 | no context | errors.INTERNAL | no |
 | permission denied | errors.PERMISSION_DENIED | no |
 | source is required | errors.INVALID | no |
+| limits is not a table or contains an unsupported field | errors.INVALID | no |
+| limits.max_steps is not a non-negative integer | errors.INVALID | no |
 | compilation failed | errors.INTERNAL | no |
 | execution failed | errors.INTERNAL | no |
 

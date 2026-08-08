@@ -12,11 +12,58 @@ import (
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/topology"
+	temporalprop "github.com/wippyai/runtime/service/temporal/propagator"
+	commonpb "go.temporal.io/api/common/v1"
+	"go.temporal.io/sdk/client"
+	"go.temporal.io/sdk/converter"
 	"go.uber.org/zap"
 )
 
+type signalCapturingClient struct {
+	client.Client
+	ctx context.Context
+}
+
+type relaySignalHeaderWriter struct {
+	fields map[string]*commonpb.Payload
+}
+
+func (w *relaySignalHeaderWriter) Set(key string, value *commonpb.Payload) {
+	w.fields[key] = value
+}
+
+func (c *signalCapturingClient) SignalWorkflow(ctx context.Context, _ string, _ string, _ string, _ interface{}) error {
+	c.ctx = ctx
+	return nil
+}
+
 type mockRouter struct {
 	packages []*relay.Package
+}
+
+func TestReceiverSignalMarksRelayDelivery(t *testing.T) {
+	temporalClient := &signalCapturingClient{}
+	r := NewReceiver(context.Background(), "temporal-client", temporalClient, &mockRouter{}, zap.NewNop())
+	t.Cleanup(r.Stop)
+
+	err := r.signalWorkflow(
+		pid.PID{Node: "local", Host: "host", UniqID: "sender"},
+		pid.PID{UniqID: "workflow-1"},
+		&relay.Message{Topic: "message"},
+	)
+	require.NoError(t, err)
+	key := []byte("0123456789abcdef0123456789abcdef")
+	dc := converter.GetDefaultDataConverter()
+	writer := &relaySignalHeaderWriter{fields: make(map[string]*commonpb.Payload)}
+	require.NoError(t, temporalprop.New(dc, key).Inject(temporalClient.ctx, writer))
+	_, err = temporalprop.ExtractRelaySignalTicket(
+		dc,
+		&commonpb.Header{Fields: writer.fields},
+		"workflow-1",
+		"message",
+		key,
+	)
+	require.NoError(t, err)
 }
 
 func (m *mockRouter) Send(pkg *relay.Package) error {

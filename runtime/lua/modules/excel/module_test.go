@@ -951,6 +951,62 @@ func TestWorkbook_WriteTo(t *testing.T) {
 	})
 }
 
+func TestWorkbook_Bytes(t *testing.T) {
+	t.Run("returns xlsx bytes", func(t *testing.T) {
+		l := setupTestVM(t)
+		defer l.Close()
+
+		err := l.DoString(`
+			local wb = excel.new()
+
+			wb:new_sheet("TestSheet")
+			wb:set_cell_value("TestSheet", "A1", "Test Data")
+
+			local data, err = wb:bytes()
+			assert(err == nil, "bytes should succeed")
+			assert(type(data) == "string", "data should be a string")
+			assert(#data > 0, "data should not be empty")
+			assert(data:sub(1, 2) == "PK", "data should be a zip archive")
+
+			-- workbook remains usable after bytes()
+			local rows, rows_err = wb:get_rows("TestSheet")
+			assert(rows_err == nil, "workbook should remain usable")
+			assert(rows[1][1] == "Test Data", "cell value should be intact")
+
+			result = data
+			wb:close()
+		`)
+		require.NoError(t, err)
+
+		data := l.GetGlobal("result")
+		require.Equal(t, lua.LTString, data.Type())
+
+		f, err := excelize.OpenReader(bytes.NewReader([]byte(string(data.(lua.LString)))))
+		require.NoError(t, err)
+
+		val, err := f.GetCellValue("TestSheet", "A1")
+		assert.NoError(t, err)
+		assert.Equal(t, "Test Data", val)
+		_ = f.Close()
+	})
+
+	t.Run("closed workbook error", func(t *testing.T) {
+		l := setupTestVM(t)
+		defer l.Close()
+
+		err := l.DoString(`
+			local wb = excel.new()
+			wb:close()
+
+			local data, err = wb:bytes()
+			assert(data == nil, "data should be nil")
+			assert(err ~= nil, "should get error")
+			assert(err:kind() == errors.INTERNAL, "error kind should be INTERNAL")
+		`)
+		assert.NoError(t, err)
+	})
+}
+
 func TestIntegrationWorkflow(t *testing.T) {
 	l := setupTestVM(t)
 	defer l.Close()

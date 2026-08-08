@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/wippyai/runtime/api/attrs"
@@ -23,6 +24,7 @@ import (
 	"github.com/wippyai/runtime/boot/deps/graph"
 	"github.com/wippyai/runtime/boot/deps/hub"
 	"github.com/wippyai/runtime/boot/deps/lock"
+	"github.com/wippyai/runtime/boot/deps/wappextract"
 	"github.com/wippyai/runtime/cmd/internal/hubclient"
 	embedpkg "github.com/wippyai/runtime/service/fs/embed"
 	regtop "github.com/wippyai/runtime/system/registry/topology"
@@ -39,6 +41,7 @@ func LoadFromLockFile(ctx context.Context, logger *zap.Logger) error {
 	lockPath, err := lock.Find(".", lockFilePath)
 	if err != nil {
 		logger.Info("no lock file found, starting with empty registry")
+		ConfigureSourceLoader(ctx, nil, logger)
 		return nil
 	}
 
@@ -59,14 +62,13 @@ func LoadFromLockFile(ctx context.Context, logger *zap.Logger) error {
 	}
 
 	modulePaths := lockObj.GetModuleLoadPaths()
-	registerModuleSourceRoots(ctx, modulePaths)
 	flatPaths := make([]string, len(modulePaths))
 	for i, mp := range modulePaths {
 		flatPaths[i] = mp.Path
 	}
 	logger.Debug("load paths from lock file", zap.Strings("paths", flatPaths))
 
-	entries, err := loadEntriesWithModuleMeta(ctx, modulePaths, logger)
+	entries, err := LoadEntriesFromModuleLoadPaths(ctx, modulePaths, logger)
 	if err != nil {
 		return NewLoadEntriesFromPathsError(err)
 	}
@@ -110,6 +112,22 @@ func warnTrackedLockReplacements(lockObj *lock.Lock, logger *zap.Logger) {
 		zap.String("lock_file", lockObj.Path()))
 }
 
+func verifyModuleArtifact(path, lockedDigest, servedDigest string, size uint64) error {
+	if lockedDigest == "" {
+		return ErrModuleMissingHash
+	}
+	if err := hub.VerifyDownloadedArtifact(path, lockedDigest, size); err != nil {
+		return err
+	}
+	if servedDigest != "" {
+		if err := hub.VerifyDownloadedArtifact(path, servedDigest, size); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 func ensureModulesInstalledFromLock(ctx context.Context, lockObj *lock.Lock, logger *zap.Logger) error {
 	modules := lockObj.GetModules()
 	if len(modules) == 0 {
@@ -139,22 +157,21 @@ func ensureModulesInstalledFromLock(ctx context.Context, lockObj *lock.Lock, log
 			continue
 		}
 
-		resolved := lock.ResolveModuleDir(vendorPath, name, mod.Version)
-		if resolved.IsWapp {
+		wappPath := filepath.Join(vendorPath, lock.WappPath(name, mod.Version))
+		if _, err := os.Stat(wappPath); err == nil {
+			if err := verifyModuleArtifact(wappPath, mod.Hash, "", 0); err != nil {
+				return NewModuleIntegrityError(mod.Name, err)
+			}
 			if shouldUnpack {
-				// Migrate legacy .wapp to extracted directory when unpack is enabled
 				dirPath := filepath.Join(vendorPath, lock.ModulePath(name))
-				logger.Info("unpacking .wapp to directory", zap.String("module", mod.Name))
-				if err := ExtractWappToDirKeepSource(resolved.Path, dirPath); err != nil {
+				logger.Info("refreshing unpacked module from verified archive", zap.String("module", mod.Name))
+				if err := wappextract.ExtractWappToDirKeepSource(wappPath, dirPath); err != nil {
 					return NewExtractModuleError(mod.Name, err)
 				}
 			}
-			// When unpack=false, keep .wapp as-is (already installed)
 			continue
-		}
-
-		if _, err := os.Stat(resolved.Path); err == nil {
-			continue
+		} else if !os.IsNotExist(err) {
+			return NewModuleIntegrityError(mod.Name, err)
 		}
 
 		missingModules = append(missingModules, mod)
@@ -203,32 +220,42 @@ func ensureModulesInstalledFromLock(ctx context.Context, lockObj *lock.Lock, log
 			return NewNoContentDownloadedError(moduleRef)
 		}
 
-		// Download .wapp file
 		wappPath := lock.WappPath(name, mod.Version)
 		fullWappPath := filepath.Join(vendorPath, wappPath)
-
-		if err := hubClient.DownloadToFile(ctx, downloadInfo.URL, fullWappPath); err != nil {
+		if err := os.MkdirAll(filepath.Dir(fullWappPath), 0o755); err != nil {
+			return NewStoreModuleError(moduleRef, err)
+		}
+		staged, err := os.CreateTemp(filepath.Dir(fullWappPath), "."+filepath.Base(fullWappPath)+".verify-*")
+		if err != nil {
+			return NewStoreModuleError(moduleRef, err)
+		}
+		stagedPath := staged.Name()
+		if err := staged.Close(); err != nil {
+			_ = os.Remove(stagedPath)
+			return NewStoreModuleError(moduleRef, err)
+		}
+		if err := os.Remove(stagedPath); err != nil {
+			return NewStoreModuleError(moduleRef, err)
+		}
+		if err := hubClient.DownloadToFile(ctx, downloadInfo.URL, stagedPath); err != nil {
+			_ = os.Remove(stagedPath)
 			return NewDownloadModuleError(moduleRef, err)
 		}
-		if err := hub.VerifyDownloadedArtifact(
-			fullWappPath, downloadInfo.Digest, downloadInfo.Size,
-		); err != nil {
-			_ = os.Remove(fullWappPath)
-			return NewDownloadModuleError(moduleRef, fmt.Errorf("verify downloaded WAPP: %w", err))
+		if err := verifyModuleArtifact(stagedPath, mod.Hash, downloadInfo.Digest, downloadInfo.Size); err != nil {
+			_ = os.Remove(stagedPath)
+			return NewModuleIntegrityError(moduleRef, err)
 		}
 
+		if err := os.Rename(stagedPath, fullWappPath); err != nil {
+			_ = os.Remove(stagedPath)
+			return NewStoreModuleError(moduleRef, err)
+		}
 		if shouldUnpack {
-			// Extract to the module directory while retaining the canonical
-			// WAPP for artifact reconciliation and repair.
 			dirPath := filepath.Join(vendorPath, lock.ModulePath(name))
-			if err := os.RemoveAll(dirPath); err != nil {
-				return NewExtractModuleError(moduleRef, err)
-			}
-			if err := ExtractWappToDirKeepSource(fullWappPath, dirPath); err != nil {
+			if err := wappextract.ExtractWappToDirKeepSource(fullWappPath, dirPath); err != nil {
 				return NewExtractModuleError(moduleRef, err)
 			}
 		}
-		// When unpack=false, keep .wapp file as-is
 	}
 
 	logger.Info("modules installed successfully")
@@ -305,35 +332,113 @@ func LoadEntriesFromModuleLoadPaths(
 	modulePaths []lock.ModuleLoadPath,
 	logger *zap.Logger,
 ) ([]regapi.Entry, error) {
-	registerModuleSourceRoots(ctx, modulePaths)
+	ConfigureSourceLoader(ctx, modulePaths, logger)
 	return loadEntriesWithModuleMeta(ctx, modulePaths, logger)
 }
 
-func registerModuleSourceRoots(ctx context.Context, modulePaths []lock.ModuleLoadPath) {
-	roots := moduleapi.SourceRoots{}
-	for _, mp := range modulePaths {
-		if mp.Module == "" || strings.EqualFold(filepath.Ext(mp.Path), ".wapp") {
-			continue
+// ConfigureSourceLoader registers the current deployment inputs and the
+// normalization path used to reload them.
+func ConfigureSourceLoader(ctx context.Context, modulePaths []lock.ModuleLoadPath, logger *zap.Logger) {
+	registry := registerSources(ctx, modulePaths)
+	if registry == nil {
+		return
+	}
+	registry.SetLoader(func(loadCtx context.Context, sources moduleapi.Sources) ([]regapi.Entry, error) {
+		ids := make([]string, 0, len(sources))
+		for id := range sources {
+			ids = append(ids, id)
 		}
-
-		rootPath := mp.SourceRoot
-		if rootPath == "" {
-			rootPath = mp.Path
+		sort.Slice(ids, func(i, j int) bool {
+			leftSequence := sources[ids[i]].Sequence
+			rightSequence := sources[ids[j]].Sequence
+			if leftSequence != rightSequence {
+				return leftSequence < rightSequence
+			}
+			return ids[i] < ids[j]
+		})
+		paths := make([]lock.ModuleLoadPath, 0, len(ids))
+		for _, id := range ids {
+			source := sources[id]
+			sourceRoot := source.ResourceRoot
+			if sourceRoot == "" {
+				sourceRoot = source.LoadPath
+			}
+			module := id
+			if source.Owner == moduleapi.ApplicationSourceID {
+				module = ""
+			}
+			paths = append(paths, lock.ModuleLoadPath{
+				Path:        source.LoadPath,
+				Module:      module,
+				Version:     source.Version,
+				Digest:      source.Digest,
+				SourceRoot:  sourceRoot,
+				Root:        source.DeploymentRoot,
+				Replacement: source.Replacement,
+			})
 		}
+		return loadEntriesWithModuleMeta(loadCtx, paths, logger)
+	})
+}
 
-		stat, err := os.Stat(rootPath)
-		if err != nil || !stat.IsDir() {
-			continue
-		}
-
-		root, err := filepath.Abs(rootPath)
+func registerSources(ctx context.Context, modulePaths []lock.ModuleLoadPath) *moduleapi.SourceRegistry {
+	registry := moduleapi.GetSourceRegistry(ctx)
+	if registry == nil {
+		moduleapi.WithSourceRegistry(ctx, moduleapi.NewSourceRegistry())
+		registry = moduleapi.GetSourceRegistry(ctx)
+	}
+	if registry == nil {
+		return nil
+	}
+	sources := moduleapi.Sources{}
+	applicationIndex := 0
+	for index, mp := range modulePaths {
+		path, err := filepath.Abs(mp.Path)
 		if err != nil {
 			continue
 		}
-		roots[mp.Module] = root
+		root := ""
+		if !strings.EqualFold(filepath.Ext(mp.Path), ".wapp") {
+			rootPath := mp.SourceRoot
+			if rootPath == "" {
+				rootPath = mp.Path
+			}
+			stat, statErr := os.Stat(rootPath)
+			if statErr != nil || !stat.IsDir() {
+				continue
+			}
+			root, err = filepath.Abs(rootPath)
+			if err != nil {
+				continue
+			}
+		}
+		id := mp.Module
+		if id == "" {
+			id = moduleapi.ApplicationSourceID
+			if applicationIndex > 0 {
+				id = fmt.Sprintf("%s#%08d", moduleapi.ApplicationSourceID, applicationIndex)
+			}
+			applicationIndex++
+		}
+		owner := ""
+		if mp.Module == "" {
+			owner = moduleapi.ApplicationSourceID
+		} else if root != "" {
+			owner = mp.Module
+		}
+		sources[id] = moduleapi.Source{
+			LoadPath:       path,
+			ResourceRoot:   root,
+			Owner:          owner,
+			Version:        mp.Version,
+			Digest:         mp.Digest,
+			Sequence:       uint64(index) + 1,
+			DeploymentRoot: mp.Root,
+			Replacement:    mp.Replacement,
+		}
 	}
-
-	moduleapi.WithSourceRoots(ctx, roots)
+	registry.Set(sources)
+	return registry
 }
 
 // loadEntriesWithModuleMeta loads entries from annotated paths and tags module entries
@@ -349,12 +454,37 @@ func loadEntriesWithModuleMeta(ctx context.Context, modulePaths []lock.ModuleLoa
 		return nil, ErrLoaderNotFound
 	}
 
+	replacementOwners := make(map[string]struct{})
+	for _, mp := range modulePaths {
+		if mp.Replacement && mp.Module != "" {
+			replacementOwners[mp.Module] = struct{}{}
+		}
+	}
+
 	var entries []regapi.Entry
 
 	for _, mp := range modulePaths {
+		moduleDigest := mp.Digest
+		if mp.Replacement {
+			// Replacements are authoritative. If the configured source cannot be
+			// identified, fail instead of silently restoring an embedded generation.
+			root := mp.SourceRoot
+			if root == "" {
+				root = mp.Path
+			}
+			var digestErr error
+			moduleDigest, _, digestErr = hub.ReplacementTreeIdentity(root)
+			if digestErr != nil {
+				return nil, fmt.Errorf("identify replacement module %s: %w", mp.Module, digestErr)
+			}
+		}
+
 		loaded, err := loadEntriesFromModulePath(ctx, mp, ldr, dtt, logger)
 		if err != nil {
 			return nil, err
+		}
+		if !mp.Replacement && len(replacementOwners) > 0 {
+			loaded = excludeReplacementOwnedEntries(loaded, replacementOwners)
 		}
 
 		if shouldApplyModuleConfigFilters(mp) {
@@ -366,7 +496,7 @@ func loadEntriesWithModuleMeta(ctx context.Context, modulePaths []lock.ModuleLoa
 
 		for i := range loaded {
 			if mp.Module != "" {
-				loaded[i] = markModuleMeta(loaded[i], mp.Module, mp.Version)
+				loaded[i] = markModuleIdentity(loaded[i], mp.Module, mp.Version, moduleDigest, mp.Replacement)
 			}
 			if mp.Root && loaded[i].Kind == regapi.NamespaceDependency {
 				loaded[i].DependencyRoot = true
@@ -381,6 +511,21 @@ func loadEntriesWithModuleMeta(ctx context.Context, modulePaths []lock.ModuleLoa
 	}
 
 	return entries, nil
+}
+
+func excludeReplacementOwnedEntries(entries []regapi.Entry, replacementOwners map[string]struct{}) []regapi.Entry {
+	filtered := entries[:0]
+	for _, entry := range entries {
+		owner := ""
+		if entry.Meta != nil {
+			owner = entry.Meta.GetString("module", "")
+		}
+		if _, replaced := replacementOwners[owner]; replaced {
+			continue
+		}
+		filtered = append(filtered, entry)
+	}
+	return filtered
 }
 
 func shouldApplyModuleConfigFilters(mp lock.ModuleLoadPath) bool {
@@ -417,17 +562,8 @@ func applyModuleConfigFilters(
 		}
 		return entries, nil
 	}
-	entryExcludes := cfg.EntryExcludes()
-	if len(entryExcludes) == 0 && len(cfg.ExcludeMeta) == 0 {
-		return entries, nil
-	}
-
-	filtered := append([]regapi.Entry(nil), entries...)
-	stage := stages.DisableWithOptions(stages.DisableOptions{
-		Entries:     entryExcludes,
-		MetaFilters: cfg.ExcludeMeta,
-	})
-	if err := stage.Execute(ctx, &filtered); err != nil {
+	filtered, err := stages.FilterModuleEntries(ctx, cfg, entries)
+	if err != nil {
 		return nil, err
 	}
 
@@ -514,6 +650,26 @@ func markModuleMeta(entry regapi.Entry, moduleName, moduleVersion string) regapi
 	meta.Set("module", moduleName)
 	if moduleVersion != "" {
 		meta.Set("module_version", moduleVersion)
+	}
+	entry.Meta = meta
+	return entry
+}
+
+func markModuleIdentity(entry regapi.Entry, moduleName, moduleVersion, moduleDigest string, replacement bool) regapi.Entry {
+	entry = markModuleMeta(entry, moduleName, moduleVersion)
+	if moduleDigest == "" && !replacement {
+		return entry
+	}
+	meta := attrs.NewBagFrom(entry.Meta)
+	if replacement {
+		if moduleVersion == "" {
+			delete(meta, "module_version")
+		} else {
+			meta.Set("module_version", moduleVersion)
+		}
+	}
+	if moduleDigest != "" {
+		meta.Set("module_digest", moduleDigest)
 	}
 	entry.Meta = meta
 	return entry

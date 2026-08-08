@@ -16,10 +16,37 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
 	temporalapi "github.com/wippyai/runtime/api/service/temporal"
+	temporalprop "github.com/wippyai/runtime/service/temporal/propagator"
+	commonpb "go.temporal.io/api/common/v1"
 	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/api/serviceerror"
 	"go.temporal.io/sdk/client"
+	"go.temporal.io/sdk/converter"
 )
+
+type relaySignalHeaderWriter struct {
+	fields map[string]*commonpb.Payload
+}
+
+func (w *relaySignalHeaderWriter) Set(key string, value *commonpb.Payload) {
+	w.fields[key] = value
+}
+
+func requireRelaySignalContext(ctx context.Context, t *testing.T, workflowID, signal string) {
+	t.Helper()
+	key := []byte("0123456789abcdef0123456789abcdef")
+	dc := converter.GetDefaultDataConverter()
+	writer := &relaySignalHeaderWriter{fields: make(map[string]*commonpb.Payload)}
+	require.NoError(t, temporalprop.New(dc, key).Inject(ctx, writer))
+	_, err := temporalprop.ExtractRelaySignalTicket(
+		dc,
+		&commonpb.Header{Fields: writer.fields},
+		workflowID,
+		signal,
+		key,
+	)
+	require.NoError(t, err)
+}
 
 // testTemporalClient embeds client.Client and overrides only the methods Worker uses.
 type testTemporalClient struct {
@@ -104,6 +131,22 @@ func newHostTestWorker(tc client.Client) *Worker {
 	w.temporalClient = tc
 	w.workflowPrefix = "test-wf"
 	return w
+}
+
+func TestWorkerSendMarksRelaySignalDelivery(t *testing.T) {
+	var signalCtx context.Context
+	tc := &testTemporalClient{signalWorkflowFn: func(ctx context.Context, _ string, _ string, _ string, _ interface{}) error {
+		signalCtx = ctx
+		return nil
+	}}
+	w := newHostTestWorker(tc)
+
+	err := w.Send(&relay.Package{
+		Target:   pid.PID{UniqID: "workflow-1"},
+		Messages: []*relay.Message{{Topic: "message"}},
+	})
+	require.NoError(t, err)
+	requireRelaySignalContext(signalCtx, t, "workflow-1", "message")
 }
 
 func namedOptions(name string) attrs.Bag {
@@ -431,13 +474,16 @@ func TestWorker_Run_ExecuteError(t *testing.T) {
 func TestWorker_Run_WithMessages(t *testing.T) {
 	var signalCalls int
 	var signalWithStartCalls int
+	var signalWithStartCtx context.Context
+	var signalCtx context.Context
 	tc := &testTemporalClient{
 		executeWorkflowFn: func(_ context.Context, _ client.StartWorkflowOptions, _ interface{}, _ ...interface{}) (client.WorkflowRun, error) {
 			require.Fail(t, "ExecuteWorkflow should not be called when startup messages exist")
 			return nil, nil
 		},
-		signalWithStartWorkflowFn: func(_ context.Context, workflowID string, signalName string, signalArg interface{}, opts client.StartWorkflowOptions, workflow interface{}, workflowArgs ...interface{}) (client.WorkflowRun, error) {
+		signalWithStartWorkflowFn: func(ctx context.Context, workflowID string, signalName string, signalArg interface{}, opts client.StartWorkflowOptions, workflow interface{}, workflowArgs ...interface{}) (client.WorkflowRun, error) {
 			signalWithStartCalls++
+			signalWithStartCtx = ctx
 			assert.Equal(t, "init", signalName)
 			assert.Equal(t, "test-wf_0x00001", workflowID)
 			assert.Equal(t, "test-wf_0x00001", opts.ID)
@@ -445,8 +491,9 @@ func TestWorker_Run_WithMessages(t *testing.T) {
 			require.Len(t, workflowArgs, 1)
 			return &testWorkflowRun{}, nil
 		},
-		signalWorkflowFn: func(_ context.Context, _ string, _ string, _ string, _ interface{}) error {
+		signalWorkflowFn: func(ctx context.Context, _ string, _ string, _ string, _ interface{}) error {
 			signalCalls++
+			signalCtx = ctx
 			return nil
 		},
 	}
@@ -464,6 +511,8 @@ func TestWorker_Run_WithMessages(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, signalWithStartCalls)
 	assert.Equal(t, 1, signalCalls)
+	requireRelaySignalContext(signalWithStartCtx, t, "test-wf_0x00001", "init")
+	requireRelaySignalContext(signalCtx, t, "test-wf_0x00001", "config")
 }
 
 func TestWorker_Run_WithMessages_AlreadyStarted_UseExisting(t *testing.T) {
@@ -639,9 +688,11 @@ func TestWorker_SignalMessages_Empty(t *testing.T) {
 
 func TestWorker_SignalMessages_SkipsNilAndEmptyTopic(t *testing.T) {
 	var calls int
+	var signalCtx context.Context
 	tc := &testTemporalClient{
-		signalWorkflowFn: func(_ context.Context, _ string, _ string, _ string, _ interface{}) error {
+		signalWorkflowFn: func(ctx context.Context, _ string, _ string, _ string, _ interface{}) error {
 			calls++
+			signalCtx = ctx
 			return nil
 		},
 	}
@@ -655,6 +706,7 @@ func TestWorker_SignalMessages_SkipsNilAndEmptyTopic(t *testing.T) {
 	err := w.signalMessages(context.Background(), "wf-1", msgs, nil)
 	require.NoError(t, err)
 	assert.Equal(t, 1, calls)
+	requireRelaySignalContext(signalCtx, t, "wf-1", "valid")
 }
 
 func TestWorker_SignalMessages_Error(t *testing.T) {

@@ -7,9 +7,16 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	contextapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
+	securityapi "github.com/wippyai/runtime/api/security"
 	temporalapi "github.com/wippyai/runtime/api/service/temporal"
+	"github.com/wippyai/runtime/service/temporal/internal/securitykeys"
+	"github.com/wippyai/runtime/service/temporal/propagator"
+	securitysystem "github.com/wippyai/runtime/system/security"
+	"go.temporal.io/sdk/converter"
 	"go.uber.org/zap"
 )
 
@@ -103,6 +110,48 @@ func TestDefinitionFactory_WithContextCapturesIDs(t *testing.T) {
 	assert.True(t, ok)
 	assert.Equal(t, "app.test.temporal:test_client", def.clientID)
 	assert.Equal(t, "app.test.temporal:test_worker", def.workerID)
+}
+
+func TestDefinitionPreservesTemporalGeneratedIDsWithoutSecurity(t *testing.T) {
+	d := &Definition{}
+	ctx := context.Background()
+
+	require.Empty(t, d.securityActivityID(ctx, ""))
+	require.Empty(t, d.securityChildWorkflowID(ctx, ""))
+	require.Equal(t, "activity-id", d.securityActivityID(ctx, "activity-id"))
+	require.Equal(t, "workflow-id", d.securityChildWorkflowID(ctx, "workflow-id"))
+	require.Zero(t, d.activitySequence)
+	require.Zero(t, d.childSequence)
+}
+
+func TestDefinitionSecurityHeaderSigningFailsClosed(t *testing.T) {
+	ctx := contextapi.NewRootContext()
+	ctx, frame := contextapi.OpenFrameContext(ctx)
+	defer contextapi.ReleaseFrameContext(frame)
+	require.NoError(t, securityapi.SetActor(ctx, securityapi.Actor{ID: "user"}))
+	require.NoError(t, securityapi.SetScope(ctx, securitysystem.NewScope(nil)))
+	ctx = propagator.WithSecurityAudience(ctx, "workflow-test")
+	d := &Definition{ctx: ctx, execCtx: ctx, dc: converter.GetDefaultDataConverter()}
+
+	_, err := d.getContextHeader()
+	require.Error(t, err)
+	d.ctx = securitykeys.WithKeys(ctx, []byte("0123456789abcdef0123456789abcdef"))
+	_, err = d.getContextHeader()
+	require.NoError(t, err)
+}
+
+func TestVerifyRelaySignalHeader(t *testing.T) {
+	dc := converter.GetDefaultDataConverter()
+	key := []byte("0123456789abcdef0123456789abcdef")
+	header, err := propagator.AddRelaySignalToHeader(dc, nil, propagator.RelaySignalTicket{
+		Audience:  "workflow-test",
+		Operation: propagator.RelaySignalOperation,
+		Signal:    "message",
+	}, key)
+	require.NoError(t, err)
+	require.NoError(t, verifyRelaySignalHeader(dc, header, "workflow-test", "message", key))
+	require.Error(t, verifyRelaySignalHeader(dc, nil, "workflow-test", "message", key))
+	require.Error(t, verifyRelaySignalHeader(dc, header, "workflow-test", "other", key))
 }
 
 func TestDefinitionResolveIDs(t *testing.T) {

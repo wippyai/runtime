@@ -69,6 +69,19 @@ entries:
     imports:
       assert_primitives: app.lib:assert
 
+  - name: bytes
+    kind: function.lua
+    meta:
+      type: test
+      suite: excel
+      description: excel workbook bytes serialization
+    source: file://bytes.lua
+    method: main
+    modules:
+      - excel
+    imports:
+      assert_primitives: app.lib:assert
+
   - name: errors
     kind: function.lua
     meta:

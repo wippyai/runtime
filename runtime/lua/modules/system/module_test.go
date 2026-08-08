@@ -3,11 +3,15 @@
 package system
 
 import (
+	"context"
+	"errors"
 	"os"
 	"testing"
 
 	lua "github.com/wippyai/go-lua"
 	ctxapi "github.com/wippyai/runtime/api/context"
+	moduleapi "github.com/wippyai/runtime/api/modules"
+	regapi "github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/security"
 )
 
@@ -40,10 +44,97 @@ func TestLoad(t *testing.T) {
 	checkTable(t, l, "system", "raft")
 	checkTable(t, l, "system", "lock")
 	checkTable(t, l, "system", "supervisor")
+	checkTable(t, l, "system", "source")
 
 	// Check functions exist
 	checkFunction(t, l, "system", "exit")
 	checkFunction(t, l, "system", "modules")
+}
+
+func TestSourceLoadReturnsAtomicOwnersAndEntriesWithoutPaths(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+
+	ctx := security.SetStrictMode(ctxapi.NewRootContext(), false)
+	sources := moduleapi.NewSourceRegistry()
+	sources.Set(moduleapi.Sources{
+		moduleapi.ApplicationSourceID: {LoadPath: "/private/app", Owner: moduleapi.ApplicationSourceID},
+		"acme/zeta":                   {LoadPath: "/private/zeta", ResourceRoot: "/private/zeta", Owner: "acme/zeta"},
+		"acme/alpha":                  {LoadPath: "/private/alpha", ResourceRoot: "/private/alpha", Owner: "acme/alpha"},
+		"acme/packed":                 {LoadPath: "/private/packed.wapp"},
+	})
+	sources.SetLoader(func(context.Context, moduleapi.Sources) ([]regapi.Entry, error) {
+		return []regapi.Entry{{ID: regapi.NewID("example.source", "probe"), Kind: "registry.entry"}}, nil
+	})
+	ctx = moduleapi.WithSourceRegistry(ctx, sources)
+	l.SetContext(ctx)
+
+	tbl, _ := Module.Build()
+	l.SetGlobal("system", tbl)
+	if err := l.DoString(`
+		local sources, err = system.source.load()
+		assert(err == nil)
+		assert(#sources.owners == 3)
+		assert(sources.owners[1] == "application")
+		assert(sources.owners[2] == "acme/alpha")
+		assert(sources.owners[3] == "acme/zeta")
+		assert(#sources.entries == 1)
+		assert(sources.entries[1].id == "example.source:probe")
+		for _, owner in ipairs(sources.owners) do
+			assert(not string.find(owner, "/private", 1, true))
+		end
+	`); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSourceLoadRequiresPermission(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+
+	ctx := security.SetStrictMode(ctxapi.NewRootContext(), true)
+	l.SetContext(ctx)
+
+	tbl, _ := Module.Build()
+	l.SetGlobal("system", tbl)
+	if err := l.DoString(`
+		local sources, err = system.source.load()
+		assert(sources == nil)
+		assert(err ~= nil)
+	`); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSourceLoadDoesNotExposePrivatePathInError(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+
+	ctx := security.SetStrictMode(ctxapi.NewRootContext(), false)
+	sources := moduleapi.NewSourceRegistry()
+	sources.Set(moduleapi.Sources{
+		moduleapi.ApplicationSourceID: {
+			LoadPath: "/private/application/source",
+			Owner:    moduleapi.ApplicationSourceID,
+		},
+	})
+	sources.SetLoader(func(context.Context, moduleapi.Sources) ([]regapi.Entry, error) {
+		return nil, errors.New("open /private/application/source/_index.yaml: permission denied")
+	})
+	ctx = moduleapi.WithSourceRegistry(ctx, sources)
+	l.SetContext(ctx)
+
+	tbl, _ := Module.Build()
+	l.SetGlobal("system", tbl)
+	if err := l.DoString(`
+		local loaded, err = system.source.load()
+		assert(loaded == nil)
+		assert(err ~= nil)
+		assert(err:message() == "failed to load deployment sources")
+		assert(not string.find(tostring(err), "/private", 1, true))
+	`); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestLoadReuse(t *testing.T) {

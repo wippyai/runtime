@@ -13,6 +13,7 @@ import (
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
 	temporalerrors "github.com/wippyai/runtime/service/temporal/errors"
+	"github.com/wippyai/runtime/service/temporal/internal/securitykeys"
 	temporaloptions "github.com/wippyai/runtime/service/temporal/options"
 	"github.com/wippyai/runtime/service/temporal/propagator"
 	commonpb "go.temporal.io/api/common/v1"
@@ -79,9 +80,25 @@ func (d *Definition) signalExternalWorkflow(cmd *process.SendCmd, tag uint64) er
 	}
 
 	from := d.selfPID()
-	header := d.getContextHeaderWithValues(map[string]any{
+	header, err := d.getContextHeaderWithValuesForAudience(map[string]any{
 		propagator.SignalFromValueKey: from.String(),
-	})
+	}, cmd.To.UniqID)
+	if err != nil {
+		d.resumeProcess(tag, process.SendResult{Error: err}, nil)
+		return nil
+	}
+	keys := securitykeys.Keys(d.ctx)
+	if len(keys) > 0 {
+		header, err = propagator.AddRelaySignalToHeader(d.dc, header, propagator.RelaySignalTicket{
+			Audience:  cmd.To.UniqID,
+			Operation: propagator.RelaySignalOperation,
+			Signal:    cmd.Topic,
+		}, keys...)
+		if err != nil {
+			d.resumeProcess(tag, process.SendResult{Error: err}, nil)
+			return nil
+		}
+	}
 
 	d.env.SignalExternalWorkflow(
 		"",
@@ -163,7 +180,6 @@ func (d *Definition) executeProcessSpawn(cmd *process.SpawnCmd, tag uint64) erro
 	params := bindings.ExecuteWorkflowParams{
 		WorkflowType: &bindings.WorkflowType{Name: workflowName},
 		Input:        args,
-		Header:       d.getContextHeader(),
 		WorkflowOptions: bindings.WorkflowOptions{
 			TaskQueueName: d.env.WorkflowInfo().TaskQueueName,
 		},
@@ -175,19 +191,28 @@ func (d *Definition) executeProcessSpawn(cmd *process.SpawnCmd, tag uint64) erro
 		}, nil)
 		return nil
 	}
-
+	params.WorkflowID = d.securityChildWorkflowID(d.execCtx, params.WorkflowID)
 	if cmd.Start.HostID != "" {
 		params.TaskQueueName = cmd.Start.HostID
 	}
+
+	headerCtx := d.execCtx
+	var headerFrame ctxapi.FrameContext
 	if len(cmd.Start.Context) > 0 {
-		spawnCtx, fc := ctxapi.ForkFrameContext(d.execCtx)
-		if err := fc.SetMultiple(cmd.Start.Context...); err != nil {
-			ctxapi.ReleaseFrameContext(fc)
+		headerCtx, headerFrame = ctxapi.ForkFrameContext(d.execCtx)
+		if err := headerFrame.SetMultiple(cmd.Start.Context...); err != nil {
+			ctxapi.ReleaseFrameContext(headerFrame)
 			d.resumeProcess(tag, process.SpawnResult{Error: fmt.Errorf("failed to apply spawn context: %w", err)}, nil)
 			return nil
 		}
-		params.Header = d.getContextHeaderFrom(spawnCtx, nil)
-		ctxapi.ReleaseFrameContext(fc)
+	}
+	params.Header, err = d.getContextHeaderForAudience(headerCtx, params.WorkflowID)
+	if headerFrame != nil {
+		ctxapi.ReleaseFrameContext(headerFrame)
+	}
+	if err != nil {
+		d.resumeProcess(tag, process.SpawnResult{Error: err}, nil)
+		return nil
 	}
 
 	selfPID := d.selfPID()
@@ -320,7 +345,6 @@ func (d *Definition) executeProcessExec(cmd *process.ExecCmd, tag uint64) error 
 	params := bindings.ExecuteWorkflowParams{
 		WorkflowType: &bindings.WorkflowType{Name: workflowName},
 		Input:        args,
-		Header:       d.getContextHeader(),
 		WorkflowOptions: bindings.WorkflowOptions{
 			TaskQueueName: d.env.WorkflowInfo().TaskQueueName,
 		},
@@ -329,6 +353,13 @@ func (d *Definition) executeProcessExec(cmd *process.ExecCmd, tag uint64) error 
 	if cmd.HostID != "" {
 		params.TaskQueueName = cmd.HostID
 	}
+	params.WorkflowID = d.securityChildWorkflowID(d.execCtx, params.WorkflowID)
+	header, err := d.getContextHeaderForAudience(d.execCtx, params.WorkflowID)
+	if err != nil {
+		d.resumeProcess(tag, process.ExecResult{Result: &runtime.Result{Error: err}}, nil)
+		return nil
+	}
+	params.Header = header
 
 	d.env.ExecuteChildWorkflow(params, func(result *commonpb.Payloads, err error) {
 		if err != nil {

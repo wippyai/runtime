@@ -404,16 +404,20 @@ func WappPath(name graph.Name, version string) string {
 
 // ModuleLoadPath pairs a filesystem path with its owning module metadata.
 type ModuleLoadPath struct {
-	Path       string
-	Module     string // module name in org/module format, empty for app source
-	Version    string // module version, empty for app source
-	SourceRoot string // module root for module-relative resources; defaults to Path
-	Root       bool   // selected deployment root from the lock graph
+	Path        string
+	Module      string // module name in org/module format, empty for app source
+	Version     string // module version, empty for app source
+	Digest      string // selected module digest, empty for app and workspace-only source
+	SourceRoot  string // module root for module-relative resources; defaults to Path
+	Root        bool   // selected deployment root from the lock graph
+	Replacement bool   // source is an effective workspace replacement
 }
 
 // GetModuleLoadPaths returns load paths annotated with module ownership.
 // App source has empty Module/Version.
-// Replacement paths carry Module from replacement "from" and empty Version.
+// Replacement paths carry Module from replacement "from" and retain the
+// selected lock version when one exists. The replacement changes source
+// ownership, not the resolved release identity.
 func (l *Lock) GetModuleLoadPaths() []ModuleLoadPath {
 	lockDir := filepath.Dir(l.path)
 	replacements := l.effectiveReplacements()
@@ -426,17 +430,27 @@ func (l *Lock) GetModuleLoadPaths() []ModuleLoadPath {
 		})
 	}
 
+	selectedVersions := make(map[string]string, len(l.data.Modules))
+	selectedDigests := make(map[string]string, len(l.data.Modules))
+	for _, mod := range l.data.Modules {
+		selectedVersions[mod.Name] = mod.Version
+		selectedDigests[mod.Name] = mod.Hash
+	}
+
 	replaced := make(map[string]struct{}, len(replacements))
 	for _, repl := range replacements {
 		replaced[repl.From] = struct{}{}
 		if repl.To != "" {
 			root := ResolveLockPath(lockDir, repl.To)
-			path := moduleEntryLoadPath(root)
+			path := ModuleEntryLoadPath(root)
 			paths = append(paths, ModuleLoadPath{
-				Path:       path,
-				Module:     repl.From,
-				SourceRoot: root,
-				Root:       l.IsRootModule(repl.From),
+				Path:        path,
+				Module:      repl.From,
+				Version:     selectedVersions[repl.From],
+				Digest:      selectedDigests[repl.From],
+				SourceRoot:  root,
+				Root:        l.IsRootModule(repl.From),
+				Replacement: true,
 			})
 		}
 	}
@@ -455,10 +469,17 @@ func (l *Lock) GetModuleLoadPaths() []ModuleLoadPath {
 		}
 
 		resolved := ResolveModuleDir(fullVendorDir, name, mod.Version)
+		if !l.ShouldUnpackModules() {
+			wappPath := filepath.Join(fullVendorDir, WappPath(name, mod.Version))
+			if _, err := os.Stat(wappPath); err == nil {
+				resolved = ResolvedPath{Path: wappPath}
+			}
+		}
 		paths = append(paths, ModuleLoadPath{
-			Path:       resolved.Path,
+			Path:       ModuleEntryLoadPath(resolved.Path),
 			Module:     mod.Name,
 			Version:    mod.Version,
+			Digest:     mod.Hash,
 			SourceRoot: resolved.Path,
 			Root:       mod.Root,
 		})
@@ -467,7 +488,8 @@ func (l *Lock) GetModuleLoadPaths() []ModuleLoadPath {
 	return paths
 }
 
-func moduleEntryLoadPath(root string) string {
+// ModuleEntryLoadPath resolves the entry tree within a module source root.
+func ModuleEntryLoadPath(root string) string {
 	src := filepath.Join(root, "src")
 	info, err := os.Stat(src)
 	if err == nil && info.IsDir() {

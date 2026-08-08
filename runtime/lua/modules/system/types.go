@@ -33,6 +33,22 @@ var moduleInfoType = typ.NewRecord().
 	Field("class", typ.NewArray(typ.String)).
 	Build()
 
+var sourceEntryType = typ.NewRecord().
+	Field("id", typ.String).
+	Field("kind", typ.String).
+	Field("meta", typ.NewMap(typ.String, typ.Unknown)).
+	Field("data", typ.Unknown).
+	Build()
+
+var loadedSourcesType = typ.NewRecord().
+	Field("owners", typ.NewArray(typ.String)).
+	Field("entries", typ.NewArray(sourceEntryType)).
+	Build()
+
+var sourceType = typ.NewInterface("system.source", []typ.Method{
+	{Name: "load", Type: typ.Func().Returns(loadedSourcesType, typ.NewOptional(typ.LuaError)).Build()},
+})
+
 // memory submodule type
 var memoryType = typ.NewInterface("system.memory", []typ.Method{
 	{Name: "stats", Type: typ.Func().Returns(memStatsType, typ.NewOptional(typ.LuaError)).Build()},
@@ -163,6 +179,8 @@ func ModuleTypes() *io.Manifest {
 	m.DefineType("HostStats", hostStatsType)
 	m.DefineType("ProcessStats", processStatsType)
 	m.DefineType("NodeInfo", nodeInfoType)
+	m.DefineType("SourceEntry", sourceEntryType)
+	m.DefineType("LoadedSources", loadedSourcesType)
 
 	// Submodule fields
 	submodulesType := typ.NewRecord().
@@ -176,6 +194,7 @@ func ModuleTypes() *io.Manifest {
 		Field("cluster", clusterType).
 		Field("raft", raftType).
 		Field("lock", lockType).
+		Field("source", sourceType).
 		Build()
 
 	// Combine methods and fields via intersection

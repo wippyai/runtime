@@ -11,11 +11,14 @@ import (
 	"mime/multipart"
 	"net"
 	gohttp "net/http"
+	"net/http/httptrace"
+	"net/netip"
 	"net/url"
 	"strings"
 	"sync"
 	"time"
 
+	contextapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/dispatcher"
 	netapi "github.com/wippyai/runtime/api/net"
 	"github.com/wippyai/runtime/api/registry"
@@ -168,8 +171,7 @@ func checkOverlayPrivateIP(ctx context.Context, rawURL string) error {
 		return nil // hostname — let the overlay resolve it remotely
 	}
 
-	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
-		ip.IsLinkLocalMulticast() || ip.IsUnspecified() {
+	if isPrivateHTTPIP(ip) {
 		if !security.IsAllowed(ctx, "http_client.private_ip", host, nil) {
 			return fmt.Errorf("not allowed: private IP %s via overlay network", host)
 		}
@@ -178,6 +180,109 @@ func checkOverlayPrivateIP(ctx context.Context, rawURL string) error {
 }
 
 // executeRequest performs a single HTTP request and returns the response.
+func redirectClient(ctx context.Context, base *gohttp.Client, overlay bool) *gohttp.Client {
+	client := *base
+	baseCheckRedirect := base.CheckRedirect
+	client.CheckRedirect = func(req *gohttp.Request, via []*gohttp.Request) error {
+		if len(via) >= 10 {
+			return fmt.Errorf("stopped after 10 redirects")
+		}
+		if contextapi.AppFromContext(ctx) != nil {
+			target := req.URL.String()
+			if !security.IsAllowed(ctx, "http_client.request", target, nil) {
+				return fmt.Errorf("not allowed: %s", target)
+			}
+			var err error
+			if overlay {
+				err = checkOverlayPrivateIP(ctx, target)
+			} else {
+				err = checkClearnetPrivateIP(ctx, target)
+			}
+			if err != nil {
+				return err
+			}
+		}
+		if baseCheckRedirect != nil {
+			return baseCheckRedirect(req, via)
+		}
+		return nil
+	}
+	return &client
+}
+
+func checkClearnetPrivateIP(ctx context.Context, rawURL string) error {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return err
+	}
+	host := u.Hostname()
+	if host == "" {
+		return nil
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		if isPrivateHTTPIP(ip) && !security.IsAllowed(ctx, "http_client.private_ip", host, nil) {
+			return fmt.Errorf("not allowed: private IP %s", host)
+		}
+		return nil
+	}
+	ips, err := net.DefaultResolver.LookupIP(ctx, "ip", host)
+	if err != nil {
+		return err
+	}
+	for _, ip := range ips {
+		if isPrivateHTTPIP(ip) && !security.IsAllowed(ctx, "http_client.private_ip", ip.String(), nil) {
+			return fmt.Errorf("not allowed: private IP %s", ip.String())
+		}
+	}
+	return nil
+}
+
+var nonPublicHTTPPrefixes = []netip.Prefix{
+	netip.MustParsePrefix("100.64.0.0/10"),
+	netip.MustParsePrefix("192.0.0.0/24"),
+	netip.MustParsePrefix("192.0.2.0/24"),
+	netip.MustParsePrefix("198.18.0.0/15"),
+	netip.MustParsePrefix("198.51.100.0/24"),
+	netip.MustParsePrefix("203.0.113.0/24"),
+	netip.MustParsePrefix("224.0.0.0/4"),
+	netip.MustParsePrefix("240.0.0.0/4"),
+	netip.MustParsePrefix("2001:db8::/32"),
+	netip.MustParsePrefix("ff00::/8"),
+}
+
+func isPrivateHTTPIP(ip net.IP) bool {
+	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
+		ip.IsLinkLocalMulticast() || ip.IsUnspecified() {
+		return true
+	}
+	address, ok := netip.AddrFromSlice(ip)
+	if !ok {
+		return false
+	}
+	address = address.Unmap()
+	for _, prefix := range nonPublicHTTPPrefixes {
+		if prefix.Contains(address) {
+			return true
+		}
+	}
+	return false
+}
+
+func authorizeHTTPPeer(ctx context.Context, address net.Addr) error {
+	if contextapi.AppFromContext(ctx) == nil || address == nil {
+		return nil
+	}
+	host, _, err := net.SplitHostPort(address.String())
+	if err != nil {
+		return nil
+	}
+	ip := net.ParseIP(host)
+	if ip != nil && isPrivateHTTPIP(ip) && !security.IsAllowed(ctx, "http_client.private_ip", ip.String(), nil) {
+		return fmt.Errorf("not allowed: private IP %s", ip.String())
+	}
+	return nil
+}
+
 func executeRequest(ctx context.Context, pool *Pool, networkReg netapi.NetworkRegistry, req *httpapi.RequestCmd, allowStream bool) httpapi.Response {
 	reqURL := req.URL
 	if len(req.Query) > 0 {
@@ -260,6 +365,9 @@ func executeRequest(ctx context.Context, pool *Pool, networkReg netapi.NetworkRe
 	if overlayID == "" {
 		overlayID = netapi.GetDefaultNetwork(ctx)
 	}
+	if overlayID == "" && req.UnixSocket != "" && !security.IsAllowed(ctx, "http_client.unix_socket", req.UnixSocket, nil) {
+		return httpapi.Response{Error: "not allowed: unix socket " + req.UnixSocket}
+	}
 
 	var client *gohttp.Client
 	if overlayID != "" {
@@ -292,7 +400,30 @@ func executeRequest(ctx context.Context, pool *Pool, networkReg netapi.NetworkRe
 		client = pool.GetClient(req.Timeout, req.UnixSocket)
 	}
 
+	client = redirectClient(ctx, client, overlayID != "")
+	var peerErr error
+	var peerErrMu sync.Mutex
+	if overlayID == "" {
+		trace := &httptrace.ClientTrace{GotConn: func(info httptrace.GotConnInfo) {
+			if err := authorizeHTTPPeer(ctx, info.Conn.RemoteAddr()); err != nil {
+				peerErrMu.Lock()
+				peerErr = err
+				peerErrMu.Unlock()
+				_ = info.Conn.Close()
+			}
+		}}
+		httpReq = httpReq.WithContext(httptrace.WithClientTrace(httpReq.Context(), trace))
+	}
 	resp, err := client.Do(httpReq)
+	peerErrMu.Lock()
+	authorizationErr := peerErr
+	peerErrMu.Unlock()
+	if authorizationErr != nil {
+		if resp != nil && resp.Body != nil {
+			_ = resp.Body.Close()
+		}
+		return httpapi.Response{Error: authorizationErr.Error()}
+	}
 	if err != nil {
 		// A non-nil response is only returned for CheckRedirect failures, and
 		// net/http has already closed its body before returning it.

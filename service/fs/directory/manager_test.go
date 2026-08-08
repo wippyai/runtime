@@ -496,9 +496,11 @@ func TestManager_RegisterFS(t *testing.T) {
 func TestResolveDirectoryPath(t *testing.T) {
 	moduleRoot := t.TempDir()
 	ctx := ctxapi.NewRootContext()
-	ctx = moduleapi.WithSourceRoots(ctx, moduleapi.SourceRoots{
-		"acme/ui": moduleRoot,
-	})
+	sources := moduleapi.NewSourceRegistry()
+	sources.Set(moduleapi.Sources{"acme/ui": {
+		LoadPath: moduleRoot, ResourceRoot: moduleRoot, Owner: "acme/ui",
+	}})
+	ctx = moduleapi.WithSourceRegistry(ctx, sources)
 
 	entry := registry.Entry{
 		ID: registry.NewID("acme.ui", "static_fs"),
@@ -575,9 +577,11 @@ func TestResolveDirectoryPath(t *testing.T) {
 func TestManager_AddUsesModuleBaseForDirectoryPath(t *testing.T) {
 	moduleRoot := t.TempDir()
 	ctx := ctxapi.NewRootContext()
-	ctx = moduleapi.WithSourceRoots(ctx, moduleapi.SourceRoots{
-		"acme/ui": moduleRoot,
-	})
+	sources := moduleapi.NewSourceRegistry()
+	sources.Set(moduleapi.Sources{"acme/ui": {
+		LoadPath: moduleRoot, ResourceRoot: moduleRoot, Owner: "acme/ui",
+	}})
+	ctx = moduleapi.WithSourceRegistry(ctx, sources)
 
 	factory := NewMockFactory(&MockFS{}, nil)
 	manager := NewDirectoryManager(eventbus.NewBus(), &MockTranscoder{}, factory, zap.NewNop())
@@ -608,9 +612,11 @@ func TestManager_AddUsesModuleBaseForDirectoryPath(t *testing.T) {
 func TestManager_AddResolvesModuleRelativePathWhenBaseOmitted(t *testing.T) {
 	moduleRoot := t.TempDir()
 	ctx := ctxapi.NewRootContext()
-	ctx = moduleapi.WithSourceRoots(ctx, moduleapi.SourceRoots{
-		"wippy/facade": moduleRoot,
-	})
+	sources := moduleapi.NewSourceRegistry()
+	sources.Set(moduleapi.Sources{"wippy/facade": {
+		LoadPath: moduleRoot, ResourceRoot: moduleRoot, Owner: "wippy/facade",
+	}})
+	ctx = moduleapi.WithSourceRegistry(ctx, sources)
 
 	factory := NewMockFactory(&MockFS{}, nil)
 	manager := NewDirectoryManager(eventbus.NewBus(), &MockTranscoder{}, factory, zap.NewNop())

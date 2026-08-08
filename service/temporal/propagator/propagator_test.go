@@ -11,8 +11,11 @@ import (
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/payload"
 	secapi "github.com/wippyai/runtime/api/security"
+	securitysystem "github.com/wippyai/runtime/system/security"
 	commonpb "go.temporal.io/api/common/v1"
+	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/converter"
+	"go.temporal.io/sdk/interceptor"
 	"go.temporal.io/sdk/testsuite"
 	"go.temporal.io/sdk/workflow"
 )
@@ -20,6 +23,50 @@ import (
 func TestNew(t *testing.T) {
 	p := New(newTestDataConverter())
 	require.NotNil(t, p)
+}
+
+type audienceCaptureInterceptor struct {
+	interceptor.ClientOutboundInterceptorBase
+	audience string
+}
+
+func (i *audienceCaptureInterceptor) ExecuteWorkflow(ctx context.Context, _ *interceptor.ClientExecuteWorkflowInput) (client.WorkflowRun, error) {
+	i.audience = GetSecurityAudience(ctx)
+	return nil, nil
+}
+
+func (i *audienceCaptureInterceptor) SignalWorkflow(ctx context.Context, _ *interceptor.ClientSignalWorkflowInput) error {
+	i.audience = GetSecurityAudience(ctx)
+	return nil
+}
+
+func (i *audienceCaptureInterceptor) QueryWorkflow(ctx context.Context, _ *interceptor.ClientQueryWorkflowInput) (converter.EncodedValue, error) {
+	i.audience = GetSecurityAudience(ctx)
+	return nil, nil
+}
+
+func (i *audienceCaptureInterceptor) UpdateWorkflow(ctx context.Context, _ *interceptor.ClientUpdateWorkflowInput) (client.WorkflowUpdateHandle, error) {
+	i.audience = GetSecurityAudience(ctx)
+	return nil, nil
+}
+
+func TestSecurityAudienceClientInterceptor(t *testing.T) {
+	capture := &audienceCaptureInterceptor{}
+	outbound := NewSecurityAudienceInterceptor().InterceptClient(capture)
+	_, err := outbound.ExecuteWorkflow(context.Background(), &interceptor.ClientExecuteWorkflowInput{
+		Options: &client.StartWorkflowOptions{ID: "workflow-start"},
+	})
+	require.NoError(t, err)
+	require.Equal(t, "workflow-start", capture.audience)
+
+	require.NoError(t, outbound.SignalWorkflow(context.Background(), &interceptor.ClientSignalWorkflowInput{WorkflowID: "workflow-signal"}))
+	require.Equal(t, "workflow-signal", capture.audience)
+	_, err = outbound.QueryWorkflow(context.Background(), &interceptor.ClientQueryWorkflowInput{WorkflowID: "workflow-query"})
+	require.NoError(t, err)
+	require.Equal(t, "workflow-query", capture.audience)
+	_, err = outbound.UpdateWorkflow(context.Background(), &interceptor.ClientUpdateWorkflowInput{WorkflowID: "workflow-update"})
+	require.NoError(t, err)
+	require.Equal(t, "workflow-update", capture.audience)
 }
 
 func TestWithValues(t *testing.T) {
@@ -197,6 +244,29 @@ func TestPropagator_Inject(t *testing.T) {
 		err := p.Inject(context.Background(), writer)
 		require.NoError(t, err)
 		assert.NotContains(t, writer.fields, HeaderKey)
+	})
+
+	t.Run("signed security context", func(t *testing.T) {
+		dc := newTestDataConverter()
+		p := New(dc, testSecurityHMACKey)
+		writer := &mockHeaderWriter{fields: make(map[string]*commonpb.Payload)}
+		ctx := ctxapi.NewRootContext()
+		ctx = WithSecurityAudience(ctx, testSecurityAudience)
+		ctx, frame := ctxapi.OpenFrameContext(ctx)
+		defer ctxapi.ReleaseFrameContext(frame)
+		require.NoError(t, secapi.SetActor(ctx, secapi.Actor{ID: "user"}))
+		require.NoError(t, secapi.SetScope(ctx, securitysystem.NewScope(nil)))
+
+		require.NoError(t, p.Inject(ctx, writer))
+		assert.Contains(t, writer.fields, SecurityHeaderKey)
+		assert.Contains(t, writer.fields, SecuritySignatureHeaderKey)
+		extractCtx := WithSecurityAudience(context.Background(), testSecurityAudience)
+		extracted, err := p.Extract(extractCtx, &mockHeaderReader{fields: writer.fields})
+		require.NoError(t, err)
+		assert.Equal(t, "user", GetSecurityFromCtx(extracted).Actor.ID)
+		delete(writer.fields, SecuritySignatureHeaderKey)
+		_, err = p.Extract(extractCtx, &mockHeaderReader{fields: writer.fields})
+		require.Error(t, err)
 	})
 }
 
@@ -539,6 +609,7 @@ func TestMergeActivityContext_WithSecurityPayload(t *testing.T) {
 			ID:   "user-123",
 			Meta: map[string]any{"role": "admin"},
 		},
+		Scope: true,
 	})
 
 	merged, release, err := MergeActivityContext(appCtx, activityCtx)
@@ -561,6 +632,7 @@ func TestMergeActivityContext_WithValuesAndSecurity(t *testing.T) {
 	activityCtx = WithValues(activityCtx, map[string]any{"key": "value"})
 	activityCtx = WithSecurityCtx(activityCtx, &SecurityPayload{
 		Actor: &ActorPayload{ID: "user-456"},
+		Scope: true,
 	})
 
 	merged, release, err := MergeActivityContext(appCtx, activityCtx)

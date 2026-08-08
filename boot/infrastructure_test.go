@@ -12,6 +12,7 @@ import (
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/event"
 	logapi "github.com/wippyai/runtime/api/logs"
+	moduleapi "github.com/wippyai/runtime/api/modules"
 	"github.com/wippyai/runtime/api/payload"
 	relayapi "github.com/wippyai/runtime/api/relay"
 	"go.uber.org/zap"
@@ -29,6 +30,7 @@ func TestNewBootstrapContext(t *testing.T) {
 		// Verify AppContext
 		appCtx := ctxapi.AppFromContext(ctx)
 		assert.NotNil(t, appCtx, "AppContext should be initialized")
+		assert.NotNil(t, moduleapi.GetSourceRegistry(ctx), "source registry should be initialized")
 
 		// Verify Config
 		loadedCfg := boot.GetConfig(ctx)

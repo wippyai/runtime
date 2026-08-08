@@ -29,7 +29,7 @@ func TestIntegration_TwoNodeCommunication(t *testing.T) {
 	var node1Received, node2Received atomic.Int32
 
 	// Create connection managers for two nodes
-	config1 := DefaultManagerConfig()
+	config1 := insecureManagerConfig()
 	config1.LocalNodeID = "node-1"
 	config1.BindAddr = "127.0.0.1"
 	config1.AutoPort = true
@@ -37,7 +37,7 @@ func TestIntegration_TwoNodeCommunication(t *testing.T) {
 	config1.InitialRetryDelay = 10 * time.Millisecond
 	config1.MaxRetryDelay = 100 * time.Millisecond
 
-	config2 := DefaultManagerConfig()
+	config2 := insecureManagerConfig()
 	config2.LocalNodeID = "node-2"
 	config2.BindAddr = "127.0.0.1"
 	config2.AutoPort = true
@@ -124,7 +124,7 @@ func TestIntegration_ConnectionRetryOnFailure(t *testing.T) {
 	var node2Received atomic.Int32
 
 	// Create node-1 config
-	config1 := DefaultManagerConfig()
+	config1 := insecureManagerConfig()
 	config1.LocalNodeID = "node-1"
 	config1.BindAddr = "127.0.0.1"
 	config1.AutoPort = true
@@ -147,7 +147,7 @@ func TestIntegration_ConnectionRetryOnFailure(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 
 	// Now start node-2 on a different port
-	config2 := DefaultManagerConfig()
+	config2 := insecureManagerConfig()
 	config2.LocalNodeID = "node-2"
 	config2.BindAddr = "127.0.0.1"
 	config2.BindPort = 19998
@@ -197,7 +197,7 @@ func TestIntegration_EnsureConnectionUpdatesDoNotRaceWithDial(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	config := DefaultManagerConfig()
+	config := insecureManagerConfig()
 	config.LocalNodeID = "node-1"
 	config.BindAddr = "127.0.0.1"
 	config.AutoPort = true
@@ -229,13 +229,13 @@ func TestIntegration_GracefulDisconnect(t *testing.T) {
 	defer cancel()
 	logger := zap.NewNop()
 
-	config1 := DefaultManagerConfig()
+	config1 := insecureManagerConfig()
 	config1.LocalNodeID = "node-1"
 	config1.BindAddr = "127.0.0.1"
 	config1.AutoPort = true
 	config1.Logger = logger
 
-	config2 := DefaultManagerConfig()
+	config2 := insecureManagerConfig()
 	config2.LocalNodeID = "node-2"
 	config2.BindAddr = "127.0.0.1"
 	config2.AutoPort = true
@@ -303,7 +303,7 @@ func TestIntegration_ThreeNodeCluster(t *testing.T) {
 	managers := make([]ConnectionManager, 3)
 
 	for i := 0; i < 3; i++ {
-		configs[i] = DefaultManagerConfig()
+		configs[i] = insecureManagerConfig()
 		configs[i].LocalNodeID = "node-" + string(rune('A'+i))
 		configs[i].BindAddr = "127.0.0.1"
 		configs[i].AutoPort = true
@@ -398,14 +398,14 @@ func TestIntegration_LargeMessages(t *testing.T) {
 	var receivedSizes []int
 	var mu sync.Mutex
 
-	config1 := DefaultManagerConfig()
+	config1 := insecureManagerConfig()
 	config1.LocalNodeID = "node-1"
 	config1.BindAddr = "127.0.0.1"
 	config1.AutoPort = true
 	config1.Logger = logger
 	config1.MaxMessageSize = 10 * 1024 * 1024 // 10MB
 
-	config2 := DefaultManagerConfig()
+	config2 := insecureManagerConfig()
 	config2.LocalNodeID = "node-2"
 	config2.BindAddr = "127.0.0.1"
 	config2.AutoPort = true
@@ -485,14 +485,14 @@ func TestIntegration_HighThroughput(t *testing.T) {
 
 	var received atomic.Int32
 
-	config1 := DefaultManagerConfig()
+	config1 := insecureManagerConfig()
 	config1.LocalNodeID = "sender"
 	config1.BindAddr = "127.0.0.1"
 	config1.AutoPort = true
 	config1.Logger = logger
 	config1.DrainBatchSize = 256 // Larger batch for high throughput
 
-	config2 := DefaultManagerConfig()
+	config2 := insecureManagerConfig()
 	config2.LocalNodeID = "receiver"
 	config2.BindAddr = "127.0.0.1"
 	config2.AutoPort = true
@@ -565,7 +565,7 @@ func TestIntegration_ShortNetworkDisruption(t *testing.T) {
 
 	var received atomic.Int32
 
-	config1 := DefaultManagerConfig()
+	config1 := insecureManagerConfig()
 	config1.LocalNodeID = "node-1"
 	config1.BindAddr = "127.0.0.1"
 	config1.AutoPort = true
@@ -575,7 +575,7 @@ func TestIntegration_ShortNetworkDisruption(t *testing.T) {
 	config1.MaxRetryAttempts = 30
 	config1.DrainBatchSize = 128
 
-	config2 := DefaultManagerConfig()
+	config2 := insecureManagerConfig()
 	config2.LocalNodeID = "node-2"
 	config2.BindAddr = "127.0.0.1"
 	config2.AutoPort = true
@@ -694,7 +694,7 @@ func TestIntegration_MultipleReconnections(t *testing.T) {
 
 	var received atomic.Int32
 
-	config1 := DefaultManagerConfig()
+	config1 := insecureManagerConfig()
 	config1.LocalNodeID = "node-1"
 	config1.BindAddr = "127.0.0.1"
 	config1.AutoPort = true
@@ -704,7 +704,7 @@ func TestIntegration_MultipleReconnections(t *testing.T) {
 	config1.MaxRetryAttempts = 50
 	config1.DrainBatchSize = 128
 
-	config2 := DefaultManagerConfig()
+	config2 := insecureManagerConfig()
 	config2.LocalNodeID = "node-2"
 	config2.BindAddr = "127.0.0.1"
 	config2.AutoPort = true
@@ -782,14 +782,14 @@ func TestIntegration_BidirectionalCommunication(t *testing.T) {
 
 	var node1Received, node2Received atomic.Int32
 
-	config1 := DefaultManagerConfig()
+	config1 := insecureManagerConfig()
 	config1.LocalNodeID = "node-1"
 	config1.BindAddr = "127.0.0.1"
 	config1.AutoPort = true
 	config1.Logger = logger
 	config1.DrainBatchSize = 128
 
-	config2 := DefaultManagerConfig()
+	config2 := insecureManagerConfig()
 	config2.LocalNodeID = "node-2"
 	config2.BindAddr = "127.0.0.1"
 	config2.AutoPort = true

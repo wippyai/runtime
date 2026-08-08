@@ -34,6 +34,13 @@ func digestReplacementTree(root string) (string, uint64, error) {
 	return digestDirectoryTreeFiltered(root, cfg.ExcludesSourcePath)
 }
 
+// ReplacementTreeIdentity returns the canonical identity used for a local
+// replacement. Baseline loading and dependency reconciliation must use the
+// same identity or the same source tree can appear as two module generations.
+func ReplacementTreeIdentity(root string) (string, uint64, error) {
+	return digestReplacementTree(root)
+}
+
 func digestDirectoryTreeFiltered(root string, excluded func(string) bool) (string, uint64, error) {
 	hash := sha256.New()
 	var total uint64

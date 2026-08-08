@@ -12,6 +12,7 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	regapi "github.com/wippyai/runtime/api/registry"
 	regtop "github.com/wippyai/runtime/system/registry/topology"
+	"go.uber.org/zap"
 )
 
 func TestOperationPlanner_MutableArtifactBoundary(t *testing.T) {
@@ -183,6 +184,118 @@ func TestOperationPlanner_LiveDependentRetainsControlledEntry(t *testing.T) {
 	)
 	require.NoError(t, err)
 	assert.Empty(t, ops)
+}
+
+func TestOperationPlanner_KindReplacementRecreatesLiveDependentClosure(t *testing.T) {
+	provider := plannerTestEntry("test.provider", "acme/provider", "v1.0.0", "sha256:a", "provider")
+	provider.ID = regapi.NewID("test", "provider")
+	dependent := plannerTestEntry("test.dependent", "acme/dependent", "v1.0.0", "sha256:b", "dependent")
+	dependent.ID = regapi.NewID("test", "dependent")
+	dependent.Meta.Set(regapi.TagDependsOn, []string{provider.ID.Name})
+	outer := plannerTestEntry("test.outer", "acme/outer", "v1.0.0", "sha256:c", "outer")
+	outer.ID = regapi.NewID("test", "outer")
+	outer.Meta.Set(regapi.TagDependsOn, []string{dependent.ID.Name})
+	unrelated := plannerTestEntry("test.unrelated", "acme/unrelated", "v1.0.0", "sha256:d", "unrelated")
+	unrelated.ID = regapi.NewID("test", "unrelated")
+
+	desiredProvider := clonePlannerTestEntry(provider)
+	desiredProvider.Kind = "test.provider.v2"
+	current := regapi.State{provider, dependent, outer, unrelated}
+	desired := []regapi.Entry{desiredProvider, dependent, outer, unrelated}
+	resolver := regtop.NewResolver()
+	ops, err := (operationPlanner{resolver: resolver}).plan(current, desired, operationPlanOptions{
+		controlledModules: map[string]struct{}{
+			"acme/provider": {}, "acme/dependent": {}, "acme/outer": {}, "acme/unrelated": {},
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, ops, 6)
+
+	counts := make(map[string]map[string]int)
+	for _, op := range ops {
+		key := idKey(op.Entry.ID)
+		if counts[key] == nil {
+			counts[key] = make(map[string]int)
+		}
+		counts[key][op.Kind]++
+	}
+	for _, id := range []regapi.ID{provider.ID, dependent.ID, outer.ID} {
+		assert.Equal(t, 1, counts[idKey(id)][regapi.EntryDelete])
+		assert.Equal(t, 1, counts[idKey(id)][regapi.EntryCreate])
+	}
+	assert.Nil(t, counts[idKey(unrelated.ID)])
+
+	builder := regtop.NewStateBuilder(zap.NewNop(), resolver)
+	sorted, err := builder.SortChangeSet(current, ops)
+	require.NoError(t, err)
+	state := regtop.NewStateMap(current)
+	for _, op := range sorted {
+		state, err = builder.ApplyOperation(state, op)
+		require.NoError(t, err)
+	}
+	assertPlannerStatesEqual(t, desired, regtop.StateMapToSlice(state))
+}
+
+func TestOperationPlanner_KindReplacementDoesNotRecreateRewiredDependent(t *testing.T) {
+	provider := plannerTestEntry("test.provider", "acme/provider", "v1.0.0", "sha256:a", "provider")
+	provider.ID = regapi.NewID("test", "provider")
+	dependent := plannerTestEntry("test.dependent", "acme/dependent", "v1.0.0", "sha256:b", "dependent")
+	dependent.ID = regapi.NewID("test", "dependent")
+	dependent.Meta.Set(regapi.TagDependsOn, []string{provider.ID.Name})
+
+	desiredProvider := clonePlannerTestEntry(provider)
+	desiredProvider.Kind = "test.provider.v2"
+	desiredDependent := clonePlannerTestEntry(dependent)
+	desiredDependent.Meta.Set(regapi.TagDependsOn, []string{})
+	ops, err := (operationPlanner{resolver: regtop.NewResolver()}).plan(
+		regapi.State{provider, dependent},
+		[]regapi.Entry{desiredProvider, desiredDependent},
+		operationPlanOptions{controlledModules: map[string]struct{}{"acme/provider": {}, "acme/dependent": {}}},
+	)
+	require.NoError(t, err)
+	require.Len(t, ops, 3)
+	assert.Equal(t, 1, countPlannerOperation(ops, dependent.ID, regapi.EntryUpdate))
+	assert.Equal(t, 0, countPlannerOperation(ops, dependent.ID, regapi.EntryDelete))
+	assert.Equal(t, 0, countPlannerOperation(ops, dependent.ID, regapi.EntryCreate))
+}
+
+func TestOperationPlanner_KindReplacementReportsUnplannedDependent(t *testing.T) {
+	provider := plannerTestEntry("test.provider", "acme/provider", "v1.0.0", "sha256:a", "provider")
+	provider.ID = regapi.NewID("test", "provider")
+	dependent := plannerTestEntry("test.dependent", "acme/dependent", "v1.0.0", "sha256:b", "dependent")
+	dependent.ID = regapi.NewID("test", "dependent")
+	dependent.Meta.Set(regapi.TagDependsOn, []string{provider.ID.Name})
+
+	desiredProvider := clonePlannerTestEntry(provider)
+	desiredProvider.Kind = "test.provider.v2"
+	planner := operationPlanner{resolver: regtop.NewResolver()}
+
+	_, err := planner.plan(
+		regapi.State{provider, dependent},
+		[]regapi.Entry{desiredProvider},
+		operationPlanOptions{controlledModules: map[string]struct{}{"acme/provider": {}}},
+	)
+	require.ErrorContains(t, err, "live dependent test:dependent absent from desired state")
+
+	_, err = planner.plan(
+		regapi.State{provider, dependent},
+		[]regapi.Entry{desiredProvider, dependent},
+		operationPlanOptions{
+			controlledModules: map[string]struct{}{"acme/provider": {}, "acme/dependent": {}},
+			originalKey:       idKey(dependent.ID),
+		},
+	)
+	require.ErrorContains(t, err, "original operation target test:dependent")
+}
+
+func countPlannerOperation(ops []regapi.Operation, id regapi.ID, kind string) int {
+	count := 0
+	for _, op := range ops {
+		if op.Entry.ID == id && op.Kind == kind {
+			count++
+		}
+	}
+	return count
 }
 
 func TestOperationPlanner_PlanConvergesAndIsIdempotent(t *testing.T) {

@@ -9,8 +9,10 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/topology"
+	"github.com/wippyai/runtime/service/temporal/internal/securitykeys"
 	"github.com/wippyai/runtime/service/temporal/propagator"
 	commonpb "go.temporal.io/api/common/v1"
+	"go.temporal.io/sdk/converter"
 	bindings "go.temporal.io/sdk/internalbindings"
 	"go.uber.org/zap"
 )
@@ -29,8 +31,36 @@ func (d *Definition) handleCancel() {
 	})
 }
 
+func (d *Definition) verifyRelaySignal(name string, header *commonpb.Header) error {
+	if propagator.ExtractSecurityPayload(d.execCtx) == nil {
+		return nil
+	}
+	audience := d.env.WorkflowInfo().WorkflowExecution.ID
+	return verifyRelaySignalHeader(d.dc, header, audience, name, securitykeys.Keys(d.ctx)...)
+}
+
+func verifyRelaySignalHeader(
+	dc converter.DataConverter,
+	header *commonpb.Header,
+	audience string,
+	name string,
+	keys ...[]byte,
+) error {
+	ticket, err := propagator.ExtractRelaySignalTicket(dc, header, audience, name, keys...)
+	if err != nil {
+		return fmt.Errorf("verify temporal relay signal: %w", err)
+	}
+	if ticket == nil {
+		return fmt.Errorf("secured workflow requires a signed temporal relay signal")
+	}
+	return nil
+}
+
 // handleSignal queues incoming signals for delivery to the process.
 func (d *Definition) handleSignal(name string, input *commonpb.Payloads, header *commonpb.Header) error {
+	if err := d.verifyRelaySignal(name, header); err != nil {
+		return err
+	}
 	if len(d.signals) >= maxSignalQueueSize {
 		d.replayLog.Warn("signal queue full, dropping signal", zap.String("name", name))
 		return nil

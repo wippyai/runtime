@@ -31,7 +31,11 @@ func ResolveDirectory(ctx context.Context, entry registry.Entry, cfg *Config) st
 		return cfg.Directory
 	}
 
-	root, ok := modules.SourceRoot(ctx, moduleName)
+	sourceRegistry := modules.GetSourceRegistry(ctx)
+	if sourceRegistry == nil {
+		return cfg.Directory
+	}
+	root, ok := sourceRegistry.ResourceRoot(moduleName)
 	if !ok {
 		return cfg.Directory
 	}

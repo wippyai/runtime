@@ -28,7 +28,9 @@ import (
 // Note: The Compiler caches module definitions but has no persistent resources.
 // All process lifecycle is managed by frame context cleanup.
 
-const maxEvalSteps = 10000
+// DefaultMaxSteps preserves the historical eval scheduler-step budget when a
+// run does not explicitly select a limit.
+const DefaultMaxSteps uint64 = 10000
 
 // ImportLoader loads a library's Lua source code by registry ID.
 // Returns the source code string or an error if not found.
@@ -100,6 +102,7 @@ type Host struct {
 	compiler     *Compiler
 	importLoader ImportLoader
 	programCache *lru.Cache[string, *Program]
+	defaultSteps uint64
 }
 
 // HostConfig configures optional Host behavior.
@@ -130,11 +133,22 @@ func WithProgramCache(cfg HostConfig) HostOption {
 	}
 }
 
+// WithDefaultMaxSteps sets the scheduler-step budget inherited by runs that do
+// not explicitly provide limits.max_steps. Zero makes the inherited default
+// unlimited; an explicit per-run zero remains distinguishable through
+// RunCmd.MaxStepsSet.
+func WithDefaultMaxSteps(maxSteps uint64) HostOption {
+	return func(h *Host) {
+		h.defaultSteps = maxSteps
+	}
+}
+
 // NewHost creates a new eval host with a module provider.
 func NewHost(log *zap.Logger, provider ModuleProvider, opts ...HostOption) *Host {
 	h := &Host{
-		log:      log,
-		compiler: NewCompiler(provider),
+		log:          log,
+		compiler:     NewCompiler(provider),
+		defaultSteps: DefaultMaxSteps,
 	}
 	for _, opt := range opts {
 		opt(h)
@@ -265,10 +279,15 @@ func (h *Host) Run(ctx context.Context, cmd RunCmd) (any, error) {
 	// Step until done
 	var output process.StepOutput
 	var events []process.Event
-	stepCount := 0
+	maxSteps := h.defaultSteps
+	if cmd.MaxStepsSet {
+		maxSteps = cmd.MaxSteps
+	}
+
+	var stepCount uint64
 	for {
 		stepCount++
-		if stepCount > maxEvalSteps {
+		if maxSteps > 0 && stepCount > maxSteps {
 			return nil, ErrMaxStepsExceeded
 		}
 

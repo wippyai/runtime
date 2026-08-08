@@ -21,6 +21,7 @@ var workbookType = typ.NewInterface("excel.Workbook", []typ.Method{
 	{Name: "rows", Type: typ.Func().Param("self", typ.Self).Param("sheet", typ.String).Returns(rowsType, typ.NewOptional(typ.LuaError)).Build()},
 	{Name: "set_cell_value", Type: typ.Func().Param("self", typ.Self).Param("sheet", typ.String).Param("cell", typ.String).Param("value", typ.Any).Returns(typ.NewOptional(typ.LuaError)).Build()},
 	{Name: "write_to", Type: typ.Func().Param("self", typ.Self).Param("dest", typ.Any).Returns(typ.NewOptional(typ.LuaError)).Build()},
+	{Name: "bytes", Type: typ.Func().Param("self", typ.Self).Returns(typ.String, typ.NewOptional(typ.LuaError)).Build()},
 	{Name: "close", Type: typ.Func().Param("self", typ.Self).Returns(typ.NewOptional(typ.LuaError)).Build()},
 })
 
