@@ -18,8 +18,8 @@ import (
 
 type commandEntryRegistry struct {
 	registry.Registry
-	entry registry.Entry
 	err   error
+	entry registry.Entry
 }
 
 func (r *commandEntryRegistry) GetEntry(registry.ID) (registry.Entry, error) {
