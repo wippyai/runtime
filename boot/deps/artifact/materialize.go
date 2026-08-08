@@ -3,7 +3,6 @@
 package artifact
 
 import (
-	"context"
 	"crypto/sha256"
 	"errors"
 	"fmt"
@@ -15,48 +14,6 @@ import (
 	"strconv"
 	"strings"
 )
-
-// Materialize validates a resource with its format and transactionally mirrors
-// it below root at the format-derived path.
-func Materialize(
-	ctx context.Context,
-	registry *Registry,
-	declaration Declaration,
-	input InspectInput,
-	root string,
-) (Descriptor, string, error) {
-	descriptor, err := registry.Inspect(ctx, declaration, input)
-	if err != nil {
-		return Descriptor{}, "", err
-	}
-
-	rootAbs, err := filepath.Abs(root)
-	if err != nil {
-		return Descriptor{}, "", fmt.Errorf("resolve artifact root: %w", err)
-	}
-	if err := ensureMaterializationRoot(rootAbs); err != nil {
-		return Descriptor{}, "", err
-	}
-	destination := filepath.Join(rootAbs, filepath.FromSlash(descriptor.RelativePath))
-	if err := ensureWithinRoot(rootAbs, destination); err != nil {
-		return Descriptor{}, "", err
-	}
-	unlock, err := acquireArtifactLock(ctx, rootAbs)
-	if err != nil {
-		return Descriptor{}, "", err
-	}
-	if err := exactMirror(input.Filesystem, rootAbs, destination); err != nil {
-		return Descriptor{}, "", fmt.Errorf(
-			"materialize %s: %w",
-			input.ResourceID.String(),
-			errors.Join(err, unlock()),
-		)
-	}
-	if err := unlock(); err != nil {
-		return Descriptor{}, "", fmt.Errorf("unlock artifact root: %w", err)
-	}
-	return descriptor, destination, nil
-}
 
 func ensureWithinRoot(root, destination string) error {
 	relative, err := filepath.Rel(root, destination)
@@ -120,65 +77,6 @@ func ensureDirectoryBelowRoot(root, directory string) error {
 		}
 		if !info.IsDir() {
 			return fmt.Errorf("artifact directory %q is not a directory", current)
-		}
-	}
-	return nil
-}
-
-func exactMirror(source fs.FS, root, destination string) error {
-	parent := filepath.Dir(destination)
-	if err := ensureDirectoryBelowRoot(root, parent); err != nil {
-		return fmt.Errorf("prepare destination parent: %w", err)
-	}
-
-	stage, err := os.MkdirTemp(parent, "."+filepath.Base(destination)+".stage-*")
-	if err != nil {
-		return fmt.Errorf("create staging directory: %w", err)
-	}
-	stageActive := true
-	defer func() {
-		if stageActive {
-			_ = os.RemoveAll(stage)
-		}
-	}()
-
-	if err := copyTree(source, stage); err != nil {
-		return err
-	}
-
-	backup, err := os.MkdirTemp(parent, "."+filepath.Base(destination)+".backup-*")
-	if err != nil {
-		return fmt.Errorf("reserve backup path: %w", err)
-	}
-	if err := os.Remove(backup); err != nil {
-		return fmt.Errorf("prepare backup path: %w", err)
-	}
-	hadDestination := false
-	if _, err := os.Lstat(destination); err == nil {
-		if err := os.Rename(destination, backup); err != nil {
-			return fmt.Errorf("stage existing destination: %w", err)
-		}
-		hadDestination = true
-	} else if !os.IsNotExist(err) {
-		return fmt.Errorf("stat destination: %w", err)
-	}
-
-	if err := os.Rename(stage, destination); err != nil {
-		if hadDestination {
-			if restoreErr := os.Rename(backup, destination); restoreErr != nil {
-				return fmt.Errorf(
-					"activate staged artifact: %w (restore previous destination: %w)",
-					err,
-					restoreErr,
-				)
-			}
-		}
-		return fmt.Errorf("activate staged artifact: %w", err)
-	}
-	stageActive = false
-	if hadDestination {
-		if err := os.RemoveAll(backup); err != nil {
-			return fmt.Errorf("remove artifact backup: %w", err)
 		}
 	}
 	return nil

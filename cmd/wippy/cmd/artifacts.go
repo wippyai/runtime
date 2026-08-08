@@ -3,6 +3,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -59,7 +60,7 @@ func runArtifactsMaterialize(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	declaration, declared, err := artifact.ParseDeclaration(info.Meta)
+	_, declared, err := artifact.ParseDeclaration(info.Meta)
 	if err != nil {
 		return fmt.Errorf("resource %s: %w", resourceID.String(), err)
 	}
@@ -79,20 +80,37 @@ func runArtifactsMaterialize(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("read WAPP metadata: %w", err)
 	}
-	descriptor, destination, err := artifact.Materialize(
-		cmd.Context(),
+	effect, err := artifact.NewPartialEffect(
 		registry,
-		declaration,
-		artifact.InspectInput{
+		nil,
+		[]artifact.Resource{{
 			Filesystem:    filesystem,
+			Meta:          info.Meta,
 			ModuleVersion: metadataString(packMetadata, "version"),
 			ResourceID:    resourceID,
-		},
+			Source:        args[0],
+		}},
 		root,
 	)
 	if err != nil {
 		return err
 	}
+	if err := effect.Prepare(cmd.Context()); err != nil {
+		return err
+	}
+	if err := effect.Commit(cmd.Context()); err != nil {
+		return errors.Join(err, effect.Rollback(cmd.Context()))
+	}
+	results := effect.Results()
+	if len(results) != 1 {
+		_ = effect.Rollback(cmd.Context())
+		return fmt.Errorf("materialized %d artifacts, expected 1", len(results))
+	}
+	if err := effect.Finalize(cmd.Context()); err != nil {
+		return err
+	}
+	descriptor := results[0].Descriptor
+	destination := results[0].Destination
 	_, err = fmt.Fprintf(
 		cmd.OutOrStdout(),
 		"Materialized %s@%s to %s\n",

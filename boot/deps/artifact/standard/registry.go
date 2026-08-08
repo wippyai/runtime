@@ -10,10 +10,16 @@ import (
 	"github.com/wippyai/runtime/boot/deps/artifact/nodepackage"
 )
 
-func NewRegistry() (*artifact.Registry, error) {
+// NewRegistry composes Wippy's built-in formats followed by caller-provided
+// formats. Additional formats use the same duplicate-name and root-ownership
+// validation as built-ins.
+func NewRegistry(additional ...artifact.Format) (*artifact.Registry, error) {
 	registry := artifact.NewRegistry()
-	if err := registry.Register(nodepackage.New()); err != nil {
-		return nil, fmt.Errorf("register built-in artifact format: %w", err)
+	formats := append([]artifact.Format{nodepackage.New()}, additional...)
+	for _, format := range formats {
+		if err := registry.Register(format); err != nil {
+			return nil, fmt.Errorf("register artifact format: %w", err)
+		}
 	}
 	return registry, nil
 }

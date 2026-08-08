@@ -4,6 +4,8 @@ package artifact
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -38,7 +40,7 @@ func TestMaterializeCreatesExactMirror(t *testing.T) {
 		"package.json":  &fstest.MapFile{Data: []byte(`{"name":"@example/ui"}`)},
 		"dist/index.js": &fstest.MapFile{Data: []byte("export {}")},
 	}
-	_, gotDestination, err := Materialize(
+	_, gotDestination, err := materializeTestResource(
 		context.Background(),
 		registry,
 		Declaration{Format: "test"},
@@ -88,7 +90,7 @@ func TestMaterializeRejectsNonPortableResourcePaths(t *testing.T) {
 			}); err != nil {
 				t.Fatal(err)
 			}
-			_, _, err := Materialize(
+			_, _, err := materializeTestResource(
 				context.Background(),
 				registry,
 				Declaration{Format: "test"},
@@ -114,7 +116,7 @@ func TestMaterializeRejectsEscapingFormatPath(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	_, _, err := Materialize(
+	_, _, err := materializeTestResource(
 		context.Background(),
 		registry,
 		Declaration{Format: "test"},
@@ -144,7 +146,7 @@ func TestMaterializeRejectsSymlinkedDestinationParent(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	_, _, err := Materialize(
+	_, _, err := materializeTestResource(
 		context.Background(),
 		registry,
 		Declaration{Format: "test"},
@@ -162,4 +164,39 @@ func TestMaterializeRejectsSymlinkedDestinationParent(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(outside, "package")); !os.IsNotExist(err) {
 		t.Fatalf("materialized outside root: %v", err)
 	}
+}
+
+func materializeTestResource(
+	ctx context.Context,
+	registry *Registry,
+	declaration Declaration,
+	input InspectInput,
+	root string,
+) (Descriptor, string, error) {
+	effect, err := NewPartialEffect(registry, nil, []Resource{{
+		Filesystem:    input.Filesystem,
+		Meta:          wapp.Metadata{MetadataKey: map[string]any{"format": declaration.Format}},
+		ModuleVersion: input.ModuleVersion,
+		ResourceID:    input.ResourceID,
+	}}, root)
+	if err != nil {
+		return Descriptor{}, "", err
+	}
+	if err := effect.Prepare(ctx); err != nil {
+		return Descriptor{}, "", err
+	}
+	if err := effect.Commit(ctx); err != nil {
+		return Descriptor{}, "", errors.Join(err, effect.Rollback(ctx))
+	}
+	results := effect.Results()
+	if len(results) != 1 {
+		return Descriptor{}, "", errors.Join(
+			fmt.Errorf("materialized %d artifacts, expected 1", len(results)),
+			effect.Rollback(ctx),
+		)
+	}
+	if err := effect.Finalize(ctx); err != nil {
+		return Descriptor{}, "", err
+	}
+	return results[0].Descriptor, results[0].Destination, nil
 }

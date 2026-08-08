@@ -153,6 +153,15 @@ func (e *Effect) Prepare(ctx context.Context) error {
 		return lockErr
 	}
 	e.unlock = unlock
+	root, rootErr := filepath.Abs(e.root)
+	if rootErr != nil {
+		closePacks()
+		return errors.Join(fmt.Errorf("resolve artifact root: %w", rootErr), e.releaseLock())
+	}
+	if recoveryErr := recoverInterruptedRoots(root, e.registry.Roots()); recoveryErr != nil {
+		closePacks()
+		return errors.Join(recoveryErr, e.releaseLock())
+	}
 	staged, stageErr := e.stage(candidates)
 	closePacks()
 	if stageErr != nil {
@@ -284,31 +293,6 @@ func (e *Effect) releaseLock() error {
 	unlock := e.unlock
 	e.unlock = nil
 	return unlock()
-}
-
-// MaterializeWAPPs runs the same effect lifecycle for non-registry callers.
-func MaterializeWAPPs(
-	ctx context.Context,
-	registry *Registry,
-	packs []WAPP,
-	root string,
-) ([]Materialized, error) {
-	effect, err := NewWAPPEffect(registry, packs, root)
-	if err != nil {
-		return nil, err
-	}
-	if err := effect.Prepare(ctx); err != nil {
-		return nil, err
-	}
-	if err := effect.Commit(ctx); err != nil {
-		rollbackErr := effect.Rollback(ctx)
-		return nil, errors.Join(err, rollbackErr)
-	}
-	results := effect.Results()
-	if err := effect.Finalize(ctx); err != nil {
-		return nil, err
-	}
-	return results, nil
 }
 
 type artifactCandidate struct {
@@ -660,6 +644,79 @@ func cleanupStagedRoots(staged []stagedRoot) error {
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// recoverInterruptedRoots repairs swap state left by a process that stopped
+// after staging or activation. The caller must hold the artifact-root lock.
+func recoverInterruptedRoots(root string, managedRoots []string) error {
+	for _, managedRoot := range managedRoots {
+		destination := filepath.Join(root, filepath.FromSlash(managedRoot))
+		parent := filepath.Dir(destination)
+		base := filepath.Base(destination)
+
+		staged, backups, err := interruptedRootPaths(parent, base)
+		if err != nil {
+			return fmt.Errorf("find interrupted artifact swaps for %q: %w", managedRoot, err)
+		}
+
+		_, destinationErr := os.Lstat(destination)
+		switch {
+		case destinationErr == nil:
+			for _, backup := range backups {
+				if err := os.RemoveAll(backup); err != nil {
+					return fmt.Errorf("remove completed artifact backup %q: %w", backup, err)
+				}
+			}
+		case errors.Is(destinationErr, os.ErrNotExist):
+			if len(backups) > 1 {
+				return fmt.Errorf("recover artifact root %q: found %d backups", managedRoot, len(backups))
+			}
+			if len(backups) == 1 {
+				backupInfo, err := os.Lstat(backups[0])
+				if err != nil {
+					return fmt.Errorf("inspect interrupted artifact backup %q: %w", backups[0], err)
+				}
+				if !backupInfo.IsDir() {
+					return fmt.Errorf("interrupted artifact backup %q is not a directory", backups[0])
+				}
+				if err := os.Rename(backups[0], destination); err != nil {
+					return fmt.Errorf("restore interrupted artifact root %q: %w", managedRoot, err)
+				}
+			}
+		default:
+			return fmt.Errorf("inspect interrupted artifact root %q: %w", managedRoot, destinationErr)
+		}
+
+		for _, stage := range staged {
+			if err := os.RemoveAll(stage); err != nil {
+				return fmt.Errorf("remove interrupted artifact stage %q: %w", stage, err)
+			}
+		}
+	}
+	return nil
+}
+
+func interruptedRootPaths(parent, base string) ([]string, []string, error) {
+	entries, err := os.ReadDir(parent)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil, nil
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+	stagePrefix := "." + base + ".artifact-stage-"
+	backupPrefix := "." + base + ".artifact-backup-"
+	var staged []string
+	var backups []string
+	for _, entry := range entries {
+		switch {
+		case strings.HasPrefix(entry.Name(), stagePrefix):
+			staged = append(staged, filepath.Join(parent, entry.Name()))
+		case strings.HasPrefix(entry.Name(), backupPrefix):
+			backups = append(backups, filepath.Join(parent, entry.Name()))
+		}
+	}
+	return staged, backups, nil
 }
 
 func reserveSiblingPath(parent, pattern string) (string, error) {
