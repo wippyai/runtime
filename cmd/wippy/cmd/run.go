@@ -16,11 +16,13 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 	"github.com/wippyai/runtime/api/boot"
+	ctxapi "github.com/wippyai/runtime/api/context"
 	logapi "github.com/wippyai/runtime/api/logs"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
+	secapi "github.com/wippyai/runtime/api/security"
 	embedapi "github.com/wippyai/runtime/api/service/fs/embed"
 	supervisorapi "github.com/wippyai/runtime/api/supervisor"
 	bootpkg "github.com/wippyai/runtime/boot"
@@ -32,6 +34,7 @@ import (
 	"github.com/wippyai/runtime/cmd/internal/entries"
 	"github.com/wippyai/runtime/cmd/internal/shutdown"
 	embedpkg "github.com/wippyai/runtime/service/fs/embed"
+	securitysys "github.com/wippyai/runtime/system/security"
 	supervisorpkg "github.com/wippyai/runtime/system/supervisor"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -113,6 +116,11 @@ type commandMeta struct {
 	Short   string `json:"short"`
 	UseCase string `json:"use_case"`
 	Main    bool   `json:"main"`
+	// Security is the security context the command runs under when launched
+	// from the CLI. It lives inside meta.command on purpose: it applies only
+	// to the trusted terminal-launcher path, never to ordinary spawns of the
+	// same process entry.
+	Security *secapi.Config `json:"security"`
 }
 
 // runApp is the primary `wippy run` execution flow.
@@ -403,7 +411,48 @@ func extractCommandMeta(meta map[string]any) *commandMeta {
 		useCase = defaultUseCase
 	}
 
-	return &commandMeta{Name: name, Short: short, UseCase: useCase, Main: main}
+	return &commandMeta{Name: name, Short: short, UseCase: useCase, Main: main,
+		Security: extractCommandSecurity(cmdMap)}
+}
+
+// extractCommandSecurity parses meta.command.security into a security config:
+// an actor id plus policy/group references the CLI launcher resolves when it
+// starts the command.
+func extractCommandSecurity(cmdMap map[string]any) *secapi.Config {
+	secData, ok := cmdMap["security"].(map[string]any)
+	if !ok {
+		return nil
+	}
+
+	cfg := &secapi.Config{}
+	if actorMap, ok := secData["actor"].(map[string]any); ok {
+		cfg.Actor.ID, _ = actorMap["id"].(string)
+	}
+	cfg.PolicyGroups = parseIDList(secData["groups"])
+	cfg.Policies = parseIDList(secData["policies"])
+
+	if cfg.Actor.ID == "" && len(cfg.PolicyGroups) == 0 && len(cfg.Policies) == 0 {
+		return nil
+	}
+	return cfg
+}
+
+// parseIDList converts a YAML list of "namespace:name" strings to registry IDs.
+func parseIDList(value any) []registry.ID {
+	items, ok := value.([]any)
+	if !ok {
+		return nil
+	}
+	ids := make([]registry.ID, 0, len(items))
+	for _, item := range items {
+		if s, ok := item.(string); ok && s != "" {
+			ids = append(ids, registry.ParseID(s))
+		}
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	return ids
 }
 
 // runList prints all command-enabled process entries from resolved lock modules.
@@ -865,6 +914,14 @@ func launchExecProcess(ctx context.Context, logger *zap.Logger, execSpec, hostID
 		Input:  input,
 	}
 
+	// A command entry may declare its own security context (actor + policy
+	// scope). The CLI launcher is the trust anchor for terminal commands —
+	// the operator started this command on their own deployment — so the
+	// launcher resolves the declared context and attaches it to the start
+	// context. Without it a command under strict security mode executes with
+	// an incomplete context and every check denies.
+	start.Context = append(start.Context, resolveCommandSecurity(ctx, source)...)
+
 	pid, err := manager.Start(ctx, start)
 	if err != nil {
 		return NewStartProcessError(hostID, err)
@@ -877,6 +934,28 @@ func launchExecProcess(ctx context.Context, logger *zap.Logger, execSpec, hostID
 		zap.Strings("args", args))
 
 	return nil
+}
+
+// resolveCommandSecurity reads meta.command.security from the command entry
+// and resolves it into context pairs for the process start. Entries without a
+// command security block, and unknown entries, resolve to no pairs — the
+// command then runs with the caller's context, as before.
+func resolveCommandSecurity(ctx context.Context, source registry.ID) []ctxapi.Pair {
+	reg := registry.GetRegistry(ctx)
+	if reg == nil {
+		return nil
+	}
+	entry, err := reg.GetEntry(source)
+	if err != nil {
+		return nil
+	}
+
+	cmdMeta := extractCommandMeta(entry.Meta)
+	if cmdMeta == nil || cmdMeta.Security == nil {
+		return nil
+	}
+
+	return securitysys.ResolveConfigPairs(ctx, cmdMeta.Security)
 }
 
 // waitForHostRunning waits until host is both running in supervisor state and
