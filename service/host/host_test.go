@@ -8,6 +8,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -24,6 +25,7 @@ import (
 	"github.com/wippyai/runtime/api/topology"
 	"github.com/wippyai/runtime/internal/uniqid"
 	"github.com/wippyai/runtime/system/scheduler/actor"
+	securitysys "github.com/wippyai/runtime/system/security"
 	"go.uber.org/zap"
 )
 
@@ -773,40 +775,51 @@ func (r stubPolicyRegistry) ListGroups() []registry.ID   { return nil }
 func (r stubPolicyRegistry) ListPolicies() []registry.ID { return nil }
 
 func TestHost_RunAppliesEntrySecurity(t *testing.T) {
-	policyID := registry.NewID("test", "allow_all")
+	entryPolicyID := registry.NewID("test", "entry_allow")
+	launchPolicy := stubPolicy{id: registry.NewID("test", "launch_allow")}
 
 	var gotActor secapi.Actor
-	var hasActor bool
-	var allowed bool
+	var gotScope secapi.Scope
 	done := make(chan struct{})
 
 	th := newTestHost(func(th *testHost) {
 		th.factory.meta = &process.Meta{
 			Security: &secapi.Config{
 				Actor:    secapi.Actor{ID: "test:entry-actor"},
-				Policies: []registry.ID{policyID},
+				Policies: []registry.ID{entryPolicyID},
 			},
 		}
 		th.lifecycle.onStartFunc = func(ctx context.Context, _ pid.PID, _ process.Process) {
-			gotActor, hasActor = secapi.GetActor(ctx)
-			allowed = secapi.IsAllowed(ctx, "process.spawn", "test:child", nil)
+			gotActor, _ = secapi.GetActor(ctx)
+			gotScope, _ = secapi.GetScope(ctx)
 			close(done)
 		}
 	})
-	ctx := secapi.WithRegistry(ctxWithAppContext(), stubPolicyRegistry{policy: stubPolicy{id: policyID}})
+	ctx := secapi.WithRegistry(ctxWithAppContext(), stubPolicyRegistry{
+		policy: stubPolicy{id: entryPolicyID},
+	})
 	_, err := th.host.Start(ctx)
 	require.NoError(t, err)
 	defer th.stop()
 
 	_, err = th.host.Run(ctx, &process.Start{
 		Source: registry.NewID("test", "proc"),
+		Context: []ctxapi.Pair{
+			secapi.ActorPair(secapi.Actor{ID: "test:launch-actor"}),
+			secapi.ScopePair(securitysys.NewScope([]secapi.Policy{launchPolicy})),
+		},
 	})
 	require.NoError(t, err)
 
-	<-done
-	require.True(t, hasActor, "entry security actor must be set on the process frame context")
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("process did not start")
+	}
 	assert.Equal(t, "test:entry-actor", gotActor.ID)
-	assert.True(t, allowed, "entry security policies must be evaluable on the process frame context")
+	require.NotNil(t, gotScope)
+	assert.True(t, gotScope.Contains(entryPolicyID), "entry policy must be present")
+	assert.True(t, gotScope.Contains(launchPolicy.ID()), "launch policy must be preserved")
 }
 
 // --- Interface Compliance ---
