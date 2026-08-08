@@ -216,6 +216,16 @@ func runInstall(cmd *cobra.Command, args []string) error {
 					if err := hub.VerifyDownloadedArtifact(wappPath, module.Hash, 0); err != nil {
 						return NewStoreModuleError(moduleRef, fmt.Errorf("verify cached WAPP: %w", err))
 					}
+					if shouldUnpack {
+						logger.Info("refreshing unpacked module from canonical WAPP",
+							zap.String("module", module.Name),
+							zap.String("version", module.Version))
+						pendingExtractions = append(pendingExtractions, pendingExtraction{
+							wappPath: wappPath,
+							dirPath:  dirPath,
+							module:   moduleRef,
+						})
+					}
 					logger.Info("module already installed, skipping download",
 						zap.String("module", module.Name),
 						zap.String("version", module.Version))
