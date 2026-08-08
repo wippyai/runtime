@@ -44,7 +44,7 @@ require (
 	github.com/kaptinlin/jsonschema v0.9.3
 	github.com/klauspost/compress v1.19.1
 	github.com/lib/pq v1.12.3
-	github.com/mattn/go-sqlite3 v1.14.48
+	github.com/mattn/go-sqlite3 v1.14.49
 	github.com/microcosm-cc/bluemonday v1.0.27
 	github.com/moby/moby/api v1.55.0
 	github.com/moby/moby/client v0.5.1
