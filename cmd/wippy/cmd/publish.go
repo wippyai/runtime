@@ -481,6 +481,13 @@ func packModule(ctx context.Context, app *appinit.Context, cfg *config.ModuleCon
 	}
 
 	resources := stages.GetResources(ctx)
+	if err := validateArtifactResources(
+		ctx,
+		resources,
+		cfg.Version,
+	); err != nil {
+		return nil, NewPackWithResourcesError(fmt.Errorf("validate artifacts: %w", err))
+	}
 
 	metadata := attrs.Bag{
 		"name":          cfg.ModuleName,

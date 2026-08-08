@@ -26,6 +26,7 @@ import (
 	hubsemver "github.com/wippyai/runtime/api/semver"
 	"github.com/wippyai/runtime/boot/build"
 	"github.com/wippyai/runtime/boot/build/stages"
+	"github.com/wippyai/runtime/boot/deps/artifact"
 	"github.com/wippyai/runtime/boot/deps/auth"
 	depconfig "github.com/wippyai/runtime/boot/deps/config"
 	"github.com/wippyai/runtime/boot/deps/graph"
@@ -48,9 +49,11 @@ const (
 type DependencyHandlerOptions struct {
 	Hub                   HubClient
 	Resolver              regapi.DependencyResolver
+	Artifacts             *artifact.Registry
 	Logger                *zap.Logger
 	LockPath              string
 	VendorDir             string
+	ArtifactRoot          string
 	WorkspaceReplacements []lock.Replacement
 	ResolveTimeout        time.Duration
 	DownloadTimeout       time.Duration
@@ -62,6 +65,8 @@ type DependencyHandler struct {
 	manifestCache   *ManifestCache
 	logger          *zap.Logger
 	lock            *lock.Lock
+	artifacts       *artifact.Registry
+	artifactRoot    string
 	replacements    map[string]lock.Replacement
 	vendorDir       string
 	resolveTimeout  time.Duration
@@ -136,6 +141,10 @@ func NewDependencyHandler(opts DependencyHandlerOptions) (*DependencyHandler, er
 	if vendorDir == "" {
 		vendorDir = filepath.Join(".wippy", "vendor")
 	}
+	artifactRoot := opts.ArtifactRoot
+	if artifactRoot == "" {
+		artifactRoot = filepath.Dir(vendorDir)
+	}
 
 	replacements := make(map[string]lock.Replacement)
 	if lockObj != nil {
@@ -149,6 +158,8 @@ func NewDependencyHandler(opts DependencyHandlerOptions) (*DependencyHandler, er
 		manifestCache:   NewManifestCache(client),
 		logger:          logger,
 		resolver:        opts.Resolver,
+		artifacts:       opts.Artifacts,
+		artifactRoot:    artifactRoot,
 		vendorDir:       vendorDir,
 		resolveTimeout:  opts.ResolveTimeout,
 		downloadTimeout: opts.DownloadTimeout,
@@ -353,6 +364,10 @@ func (h *DependencyHandler) expand(
 	}
 
 	var effects []regapi.Effect
+	artifactEffect, err := h.buildArtifactEffect(ctx, resolved, combined)
+	if err != nil {
+		return regapi.DirectiveResult{}, err
+	}
 	packEffect, err := h.buildEmbedPackEffect(ctx, resolved, snapshot, controlledModules)
 	if err != nil {
 		return regapi.DirectiveResult{}, err
@@ -360,6 +375,9 @@ func (h *DependencyHandler) expand(
 	filesystemEffect, err := h.buildModuleFilesystemEffect(resolved, controlledModules, unpackPlan)
 	if err != nil {
 		return regapi.DirectiveResult{}, err
+	}
+	if artifactEffect != nil {
+		effects = append(effects, artifactEffect)
 	}
 	if filesystemEffect != nil {
 		effects = append(effects, filesystemEffect)
@@ -764,9 +782,16 @@ func (h *DependencyHandler) ReconcileResolution(
 		return regapi.DirectiveResult{}, err
 	}
 	var effects []regapi.Effect
+	artifactEffect, err := h.buildArtifactEffect(ctx, resolved, combined)
+	if err != nil {
+		return regapi.DirectiveResult{}, err
+	}
 	filesystemEffect, err := h.buildModuleFilesystemEffect(resolved, controlled, unpackPlan)
 	if err != nil {
 		return regapi.DirectiveResult{}, err
+	}
+	if artifactEffect != nil {
+		effects = append(effects, artifactEffect)
 	}
 	if filesystemEffect != nil {
 		effects = append(effects, filesystemEffect)

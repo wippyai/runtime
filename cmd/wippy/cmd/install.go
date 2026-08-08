@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 
 	"github.com/spf13/cobra"
+	"github.com/wippyai/runtime/boot/deps/artifact"
 	bootauth "github.com/wippyai/runtime/boot/deps/auth"
 	"github.com/wippyai/runtime/boot/deps/graph"
 	"github.com/wippyai/runtime/boot/deps/hub"
@@ -104,16 +105,29 @@ func runInstall(cmd *cobra.Command, args []string) error {
 
 	selection := selectInstallModules(lockObj, args, logger)
 	modules := selection.modules
+	lockDir := filepath.Dir(lockObj.Path())
+	vendorPath := lockObj.GetVendorPath()
+	vendorDir := lock.ResolveLockPath(lockDir, vendorPath)
+	artifactRoot := artifact.ConfiguredRoot(runtimeCfg, filepath.Dir(vendorDir))
+	shouldUnpack := lockObj.ShouldUnpackModules()
 	if len(args) > 0 && selection.matched == 0 {
 		logger.Warn("no matching modules found in lock file", zap.Strings("requested", args))
 		return nil
 	}
 	if len(modules) == 0 {
 		if selection.skippedReplaced > 0 {
-			logger.Info("all selected modules are local replacements; nothing to install",
+			logger.Info("all selected modules are local replacements",
 				zap.Int("skipped_replaced", selection.skippedReplaced))
 		} else {
 			logger.Info("no remote modules to install")
+		}
+		include := requestedModuleSet(args)
+		packs, resources, err := installedArtifactInputs(app.Ctx, lockObj, vendorDir, logger, include)
+		if err != nil {
+			return NewStoreModuleError("artifacts", err)
+		}
+		if err := materializeArtifacts(app.Ctx, packs, resources, artifactRoot, len(args) == 0); err != nil {
+			return NewStoreModuleError("artifacts", err)
 		}
 		return nil
 	}
@@ -151,11 +165,6 @@ func runInstall(cmd *cobra.Command, args []string) error {
 		return NewCreateHubClientError(fmt.Errorf("registry %s: %w", registryURL, err))
 	}
 
-	lockDir := filepath.Dir(lockObj.Path())
-	vendorPath := lockObj.GetVendorPath()
-	vendorDir := lock.ResolveLockPath(lockDir, vendorPath)
-	shouldUnpack := lockObj.ShouldUnpackModules()
-
 	refresh := shouldBypassInstallCache(cmd)
 	if refresh {
 		logger.Info("refresh enabled, bypassing module cache")
@@ -163,6 +172,13 @@ func runInstall(cmd *cobra.Command, args []string) error {
 
 	installed := 0
 	cached := 0
+	type pendingExtraction struct {
+		wappPath string
+		dirPath  string
+		module   string
+	}
+	var pendingExtractions []pendingExtraction
+	var installedModules []lock.Module
 
 	for _, module := range modules {
 		modName, err := graph.ParseName(module.Name)
@@ -180,23 +196,45 @@ func runInstall(cmd *cobra.Command, args []string) error {
 		if !refresh {
 			resolved := lock.ResolveModuleDir(vendorDir, modName, module.Version)
 			if resolved.IsWapp {
-				if shouldUnpack {
-					// Unpack .wapp to directory when unpack is enabled
-					logger.Info("unpacking .wapp to directory", zap.String("module", module.Name))
-					if err := entries.ExtractWappToDir(resolved.Path, dirPath); err != nil {
-						return NewExtractModuleError(module.Name, err)
-					}
+				if err := hub.VerifyDownloadedArtifact(resolved.Path, module.Hash, 0); err != nil {
+					return NewStoreModuleError(moduleRef, fmt.Errorf("verify cached WAPP: %w", err))
 				}
-				// When unpack=false, keep .wapp as-is (already installed)
+				if shouldUnpack {
+					logger.Info("unpacking .wapp to directory", zap.String("module", module.Name))
+					pendingExtractions = append(pendingExtractions, pendingExtraction{
+						wappPath: resolved.Path,
+						dirPath:  dirPath,
+						module:   moduleRef,
+					})
+				}
 				cached++
 				continue
 			}
 			if _, err := os.Stat(resolved.Path); err == nil {
-				logger.Info("module already installed, skipping download",
+				wappPath := filepath.Join(vendorDir, lock.WappPath(modName, module.Version))
+				if info, statErr := os.Stat(wappPath); statErr == nil && info.Mode().IsRegular() {
+					if err := hub.VerifyDownloadedArtifact(wappPath, module.Hash, 0); err != nil {
+						return NewStoreModuleError(moduleRef, fmt.Errorf("verify cached WAPP: %w", err))
+					}
+					if shouldUnpack {
+						logger.Info("refreshing unpacked module from canonical WAPP",
+							zap.String("module", module.Name),
+							zap.String("version", module.Version))
+						pendingExtractions = append(pendingExtractions, pendingExtraction{
+							wappPath: wappPath,
+							dirPath:  dirPath,
+							module:   moduleRef,
+						})
+					}
+					logger.Info("module already installed, skipping download",
+						zap.String("module", module.Name),
+						zap.String("version", module.Version))
+					cached++
+					continue
+				}
+				logger.Info("installed module is missing its canonical WAPP; repairing",
 					zap.String("module", module.Name),
 					zap.String("version", module.Version))
-				cached++
-				continue
 			}
 		}
 
@@ -228,17 +266,17 @@ func runInstall(cmd *cobra.Command, args []string) error {
 		if err := downloadWappViaHubOrLegacy(app.Ctx, hubClient, downloadInfo, wappPath); err != nil {
 			return NewDownloadModuleError(moduleRef, err)
 		}
-
-		if shouldUnpack {
-			// Remove old directory (handles version updates) and extract
-			if err := os.RemoveAll(dirPath); err != nil {
-				return NewStoreModuleError(moduleRef, err)
-			}
-			if err := entries.ExtractWappToDir(wappPath, dirPath); err != nil {
-				return NewExtractModuleError(moduleRef, err)
-			}
+		if err := hub.VerifyDownloadedArtifact(wappPath, downloadInfo.Digest, downloadInfo.Size); err != nil {
+			_ = os.Remove(wappPath)
+			return NewDownloadModuleError(moduleRef, fmt.Errorf("verify downloaded WAPP: %w", err))
 		}
-		// When unpack=false, keep .wapp file as-is
+		if shouldUnpack {
+			pendingExtractions = append(pendingExtractions, pendingExtraction{
+				wappPath: wappPath,
+				dirPath:  dirPath,
+				module:   moduleRef,
+			})
+		}
 
 		// Update hash from download info if available
 		if downloadInfo.Digest != "" && module.Hash != downloadInfo.Digest {
@@ -246,10 +284,31 @@ func runInstall(cmd *cobra.Command, args []string) error {
 			lockObj.SetModule(module)
 		}
 
+		installedModules = append(installedModules, module)
+		installed++
+	}
+
+	for _, pending := range pendingExtractions {
+		if err := entries.ExtractWappToDirKeepSource(pending.wappPath, pending.dirPath); err != nil {
+			return NewExtractModuleError(pending.module, err)
+		}
+	}
+	include := requestedModuleSet(args)
+	artifactPacks, artifactResources, err := installedArtifactInputs(
+		app.Ctx, lockObj, vendorDir, logger, include,
+	)
+	if err != nil {
+		return NewStoreModuleError("artifacts", err)
+	}
+	if err := materializeArtifacts(
+		app.Ctx, artifactPacks, artifactResources, artifactRoot, len(args) == 0,
+	); err != nil {
+		return NewStoreModuleError("artifacts", err)
+	}
+	for _, module := range installedModules {
 		logger.Info("installed module",
 			zap.String("module", module.Name),
 			zap.String("version", module.Version))
-		installed++
 	}
 
 	// Save updated lock file
@@ -272,6 +331,114 @@ func runInstall(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+func installedArtifactPacks(
+	lockObj *lock.Lock,
+	vendorDir string,
+	include map[string]struct{},
+) ([]artifact.WAPP, error) {
+	if lockObj == nil {
+		return nil, nil
+	}
+	packs := make([]artifact.WAPP, 0, len(lockObj.GetModules()))
+	for _, module := range lockObj.GetModules() {
+		if len(include) > 0 {
+			if _, selected := include[module.Name]; !selected {
+				continue
+			}
+		}
+		if _, replaced := lockObj.GetReplacement(module.Name); replaced {
+			continue
+		}
+		name, err := graph.ParseName(module.Name)
+		if err != nil {
+			return nil, fmt.Errorf("parse module %q: %w", module.Name, err)
+		}
+		path := filepath.Join(vendorDir, lock.WappPath(name, module.Version))
+		info, err := os.Stat(path)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"canonical WAPP for %s@%s is unavailable; run wippy install --refresh: %w",
+				module.Name, module.Version, err,
+			)
+		}
+		if !info.Mode().IsRegular() {
+			return nil, fmt.Errorf("canonical WAPP for %s@%s is not a regular file", module.Name, module.Version)
+		}
+		if err := hub.VerifyDownloadedArtifact(path, module.Hash, 0); err != nil {
+			return nil, fmt.Errorf("verify canonical WAPP for %s@%s: %w", module.Name, module.Version, err)
+		}
+		packs = append(packs, artifact.WAPP{
+			Path:          path,
+			ModuleVersion: module.Version,
+		})
+	}
+	return packs, nil
+}
+
+func installedArtifactInputs(
+	ctx context.Context,
+	lockObj *lock.Lock,
+	vendorDir string,
+	logger *zap.Logger,
+	include map[string]struct{},
+) ([]artifact.WAPP, []artifact.Resource, error) {
+	packs, err := installedArtifactPacks(lockObj, vendorDir, include)
+	if err != nil {
+		return nil, nil, err
+	}
+	if lockObj == nil {
+		return packs, nil, nil
+	}
+
+	var replacementPaths []lock.ModuleLoadPath
+	versions := make(map[string]string)
+	for _, module := range lockObj.GetModules() {
+		versions[module.Name] = module.Version
+	}
+	for _, modulePath := range lockObj.GetModuleLoadPaths() {
+		if len(include) > 0 {
+			if _, selected := include[modulePath.Module]; !selected {
+				continue
+			}
+		}
+		if _, replaced := lockObj.GetReplacement(modulePath.Module); replaced {
+			replacementPaths = append(replacementPaths, modulePath)
+		}
+	}
+	if len(replacementPaths) == 0 {
+		return packs, nil, nil
+	}
+
+	loaded, err := entries.LoadEntriesFromModuleLoadPaths(ctx, replacementPaths, logger)
+	if err != nil {
+		return nil, nil, fmt.Errorf("load replacement artifacts: %w", err)
+	}
+	roots := make(map[string]string, len(replacementPaths))
+	for _, modulePath := range replacementPaths {
+		root := modulePath.SourceRoot
+		if root == "" {
+			root = modulePath.Path
+		}
+		roots[modulePath.Module] = root
+	}
+	resources, err := artifact.DirectoryResources(ctx, loaded, roots, versions)
+	if err != nil {
+		return nil, nil, err
+	}
+	return packs, resources, nil
+}
+
+func requestedModuleSet(requested []string) map[string]struct{} {
+	if len(requested) == 0 {
+		return nil
+	}
+	selected := make(map[string]struct{}, len(requested))
+	for _, module := range requested {
+		selected[module] = struct{}{}
+	}
+	return selected
 }
 
 type installSelection struct {

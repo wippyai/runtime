@@ -2,13 +2,17 @@
 
 package core
 
-import "github.com/wippyai/runtime/api/boot"
+import (
+	"github.com/wippyai/runtime/api/boot"
+	"github.com/wippyai/runtime/boot/deps/artifact"
+)
 
 const (
 	// PIDGenName is the name for the PID generator component
 	PIDGenName         boot.Name = "pidgen"
 	SecurityName       boot.Name = "security"
 	SecurityPolicyName boot.Name = "security.policy"
+	ArtifactName       boot.Name = artifact.ConfigName
 	RegistryName       boot.Name = "registry"
 	FinderName         boot.Name = "finder"
 	SupervisorName     boot.Name = "supervisor"

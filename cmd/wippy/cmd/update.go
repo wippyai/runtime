@@ -215,18 +215,15 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	if oldLockObj != nil {
 		changes = lock.Diff(oldLockObj, newLockObj)
 		logChanges(logger, changes)
-		pruneStaleVendorArtifacts(newLockObj, changes, logger)
 	}
 
-	if len(resolvedModules) > 0 {
-		// Run install to download modules
-		logger.Info("running install to download modules")
-		if err := runInstall(cmd, []string{}); err != nil {
-			return NewInstallFailedError(err)
-		}
-	} else if len(replacedModules) == 0 {
-		logger.Info("no modules to install after update")
+	// Run install even for an empty or replacement-only graph so managed
+	// artifact roots converge and stale outputs are removed.
+	logger.Info("running install to converge modules and artifacts")
+	if err := runInstall(cmd, []string{}); err != nil {
+		return NewInstallFailedError(err)
 	}
+	pruneStaleVendorArtifacts(newLockObj, changes, logger)
 
 	logger.Info("update completed successfully")
 	return nil
@@ -472,13 +469,13 @@ func runTargetedUpdate(cmd *cobra.Command, lockFilePath, srcDir, modulesDir stri
 
 	logger.Info("lock file updated")
 	logChanges(logger, changes)
-	pruneStaleVendorArtifacts(newLockObj, changes, logger)
 
 	// Run install
 	logger.Info("running install to download modules")
 	if err := runInstall(cmd, []string{}); err != nil {
 		return NewInstallFailedError(err)
 	}
+	pruneStaleVendorArtifacts(newLockObj, changes, logger)
 
 	logger.Info("update completed successfully")
 	return nil
@@ -612,7 +609,12 @@ func pruneStaleVendorArtifacts(lockObj *lock.Lock, changes *lock.Changes, logger
 		pruneModuleArtifacts(vendorDir, removed.Name, removed.Version, true, logger)
 	}
 	for _, updated := range changes.Updated {
-		pruneModuleArtifacts(vendorDir, updated.Name, updated.OldVersion, true, logger)
+		if updated.OldVersion == updated.NewVersion {
+			continue
+		}
+		// The current extracted directory now belongs to the newly installed
+		// version. Only versioned storage for the old selection is stale.
+		pruneModuleArtifacts(vendorDir, updated.Name, updated.OldVersion, false, logger)
 	}
 }
 
