@@ -23,13 +23,15 @@ import (
 )
 
 var (
-	ErrRegistryRequired = errors.New("cdc manager: registry is required")
-	ErrEventBusRequired = errors.New("cdc manager: event bus is required")
-	ErrDriverRequired   = errors.New("cdc manager: driver is required")
-	ErrUnsupportedKind  = errors.New("cdc manager: unsupported source kind")
-	ErrSourceExists     = errors.New("cdc manager: source already exists")
-	ErrSourceNotFound   = errors.New("cdc manager: source not found")
-	ErrSourceKindChange = errors.New("cdc manager: source kind cannot change")
+	ErrRegistryRequired   = errors.New("cdc manager: registry is required")
+	ErrEventBusRequired   = errors.New("cdc manager: event bus is required")
+	ErrDriverRequired     = errors.New("cdc manager: driver is required")
+	ErrUnsupportedKind    = errors.New("cdc manager: unsupported source kind")
+	ErrSourceExists       = errors.New("cdc manager: source already exists")
+	ErrSourceNotFound     = errors.New("cdc manager: source not found")
+	ErrSourceKindChange   = errors.New("cdc manager: source kind cannot change")
+	ErrSourceKindMismatch = errors.New("cdc manager: source kind does not match entry")
+	ErrExclusiveOwned     = errors.New("cdc manager: exclusive resource is already owned")
 )
 
 // Dependencies are the shared collaborators available to concrete drivers.
@@ -107,7 +109,14 @@ type Manager struct {
 	deps     Dependencies
 	log      *zap.Logger
 	drivers  map[registry.Kind]Driver
+	leases   map[string]resourceLease
+	leaseSeq uint64
 	mu       sync.Mutex
+}
+
+type resourceLease struct {
+	id    registry.ID
+	token uint64
 }
 
 func NewManager(
@@ -137,6 +146,7 @@ func NewManager(
 		},
 		log:     log,
 		drivers: make(map[registry.Kind]Driver),
+		leases:  make(map[string]resourceLease),
 	}
 	for _, opt := range opts {
 		if opt != nil {
@@ -166,8 +176,18 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	if isNilSource(source) {
 		return ErrDriverRequired
 	}
+	key := exclusiveResourceKey(source)
+	leaseToken, err := m.reserveLeaseLocked(key, id)
+	if err != nil {
+		_ = stopSource(ctx, source)
+		return err
+	}
 	slot := newSourceSlot(id, entry.Kind, source, m.log.With(zap.String("id", id.String())))
+	slot.setRetiredCleanupHook(func(retiredKey string, retiredToken uint64) {
+		go m.releaseLease(id, retiredKey, retiredToken)
+	})
 	if err := m.registry.Register(id, slot, entry.Kind); err != nil {
+		m.releaseLeaseLocked(id, key, leaseToken)
 		_ = source.Stop(ctx)
 		return err
 	}
@@ -180,21 +200,23 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	id := canonicalID(entry.ID)
+	existing, exists := m.registry.Get(id)
+	if exists {
+		existingKind, knownKind := sourceKind(existing)
+		if !knownKind {
+			return errors.New("cdc manager: registered source has no kind")
+		}
+		if existingKind != entry.Kind {
+			return fmt.Errorf("%w: %s -> %s", ErrSourceKindChange, existingKind, entry.Kind)
+		}
+	}
 	driver, ok := m.drivers[entry.Kind]
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrUnsupportedKind, entry.Kind)
 	}
-	id := canonicalID(entry.ID)
-	existing, exists := m.registry.Get(id)
 	if !exists {
 		return fmt.Errorf("%w: %s", ErrSourceNotFound, id.String())
-	}
-	existingKind, knownKind := sourceKind(existing)
-	if !knownKind {
-		return errors.New("cdc manager: registered source has no kind")
-	}
-	if existingKind != entry.Kind {
-		return fmt.Errorf("%w: %s -> %s", ErrSourceKindChange, existingKind, entry.Kind)
 	}
 	// Build the replacement before changing visibility. A malformed entry or
 	// failed dependency acquisition leaves the old source untouched.
@@ -210,21 +232,56 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 		_ = replacement.Stop(ctx)
 		return errors.New("cdc manager: source is not managed by a stable slot")
 	}
+	oldKey := exclusiveResourceKey(managedSlot.currentSource())
+	newKey := exclusiveResourceKey(replacement)
+	oldToken := m.leaseTokenLocked(oldKey, id)
+	reservedNew := oldKey != newKey
+	newToken := oldToken
+	if reservedNew {
+		if managedSlot.hasRetiredKey(newKey) {
+			_ = stopSource(ctx, replacement)
+			return ErrSourceBusy
+		}
+		newToken, err = m.reserveLeaseLocked(newKey, id)
+		if err != nil {
+			_ = stopSource(ctx, replacement)
+			return err
+		}
+	}
 	oldLifecycle := normalizeLifecycleConfig(managedSlot.LifecycleConfig())
-	if err := managedSlot.Replace(ctx, replacement); err != nil {
-		return err
+	if replaceErr := managedSlot.Replace(ctx, replacement, oldToken); replaceErr != nil {
+		// A failed candidate start leaves the old generation current and the
+		// speculative lease can be released. A retired-resource cleanup error
+		// leaves the candidate current but faulted; retain its lease until it is
+		// healthy or deleted.
+		committed := managedSlot.currentSource() == replacement
+		if reservedNew && !committed {
+			m.releaseLeaseLocked(id, newKey, newToken)
+		}
+		if committed {
+			m.reconfigureSupervisorIfChanged(ctx, id, managedSlot, oldLifecycle)
+		}
+		return replaceErr
 	}
-	newLifecycle := normalizeLifecycleConfig(managedSlot.LifecycleConfig())
-	if !reflect.DeepEqual(oldLifecycle, newLifecycle) {
-		// ServiceUpdate is emitted by the supervisor for status changes and is
-		// not a reconfiguration primitive. Re-register the same stable slot in
-		// order, so its controller rebuilds security/dependency/autostart state
-		// without exposing a second source identity.
-		m.unregisterSupervisor(ctx, id)
-		m.registerSupervisorWithConfig(ctx, id, managedSlot, newLifecycle)
+	if oldKey != newKey && !managedSlot.hasRetiredKey(oldKey) {
+		m.releaseLeaseLocked(id, oldKey, oldToken)
 	}
+	m.reconfigureSupervisorIfChanged(ctx, id, managedSlot, oldLifecycle)
 	m.log.Info("updated cdc source", zap.String("id", id.String()), zap.String("kind", entry.Kind))
 	return nil
+}
+
+func (m *Manager) reconfigureSupervisorIfChanged(ctx context.Context, id registry.ID, source *sourceSlot, old supervisor.LifecycleConfig) {
+	newLifecycle := normalizeLifecycleConfig(source.LifecycleConfig())
+	if reflect.DeepEqual(old, newLifecycle) {
+		return
+	}
+	// ServiceUpdate is emitted by the supervisor for status changes and is
+	// not a reconfiguration primitive. Re-register the same stable slot in
+	// order, so its controller rebuilds security/dependency/autostart state
+	// without exposing a second source identity.
+	m.unregisterSupervisor(ctx, id)
+	m.registerSupervisorWithConfig(ctx, id, source, newLifecycle)
 }
 
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
@@ -235,6 +292,12 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	source, ok := m.registry.Get(id)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrSourceNotFound, id.String())
+	}
+	if entry.Kind != "" {
+		kind, known := sourceKind(source)
+		if !known || kind != entry.Kind {
+			return fmt.Errorf("%w: %s", ErrSourceKindMismatch, entry.Kind)
+		}
 	}
 	var err error
 	if disposable, ok := source.(Disposable); ok {
@@ -249,6 +312,11 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	}
 	if _, ok := m.registry.Unregister(id); !ok {
 		return fmt.Errorf("%w: %s", ErrSourceNotFound, id.String())
+	}
+	if slot, ok := source.(*sourceSlot); ok {
+		for _, key := range slot.resourceKeys() {
+			m.releaseLeaseLocked(id, key, m.leaseTokenLocked(key, id))
+		}
 	}
 	m.unregisterSupervisor(ctx, id)
 	m.log.Info("removed cdc source", zap.String("id", id.String()))
@@ -291,6 +359,47 @@ func (m *Manager) unregisterSupervisor(ctx context.Context, id registry.ID) {
 		Kind:   supervisor.ServiceRemove,
 		Path:   id.String(),
 	})
+}
+
+func (m *Manager) reserveLeaseLocked(key string, id registry.ID) (uint64, error) {
+	if key == "" {
+		return 0, nil
+	}
+	if owner, ok := m.leases[key]; ok {
+		if owner.id != id {
+			return 0, fmt.Errorf("%w: %s (owner %s)", ErrExclusiveOwned, key, owner.id)
+		}
+		return owner.token, nil
+	}
+	m.leaseSeq++
+	owner := resourceLease{id: id, token: m.leaseSeq}
+	m.leases[key] = owner
+	return owner.token, nil
+}
+
+func (m *Manager) releaseLease(id registry.ID, key string, token uint64) {
+	m.mu.Lock()
+	m.releaseLeaseLocked(id, key, token)
+	m.mu.Unlock()
+}
+
+func (m *Manager) releaseLeaseLocked(id registry.ID, key string, token uint64) {
+	if key == "" {
+		return
+	}
+	if owner, ok := m.leases[key]; ok && owner.id == id && owner.token == token {
+		delete(m.leases, key)
+	}
+}
+
+func (m *Manager) leaseTokenLocked(key string, id registry.ID) uint64 {
+	if key == "" {
+		return 0
+	}
+	if owner, ok := m.leases[key]; ok && owner.id == id {
+		return owner.token
+	}
+	return 0
 }
 
 func stopSource(ctx context.Context, source api.Source) error {

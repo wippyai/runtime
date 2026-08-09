@@ -40,16 +40,24 @@ type sourceSlot struct {
 	opMu sync.Mutex
 	mu   sync.RWMutex
 
-	current    ManagedSource
-	log        *zap.Logger
-	generation uint64
-	state      slotState
-	runCtx     context.Context
-	runCancel  context.CancelFunc
-	status     chan any
-	statusDone bool
-	replacing  bool
-	disposing  bool
+	current     ManagedSource
+	log         *zap.Logger
+	generation  uint64
+	state       slotState
+	runCtx      context.Context
+	runCancel   context.CancelFunc
+	status      chan any
+	statusDone  bool
+	replacing   bool
+	disposing   bool
+	retired     []retiredSource
+	retiredHook func(string, uint64)
+}
+
+type retiredSource struct {
+	source ManagedSource
+	key    string
+	token  uint64
 }
 
 func newSourceSlot(id registry.ID, kind registry.Kind, source ManagedSource, logs ...*zap.Logger) *sourceSlot {
@@ -166,12 +174,25 @@ func (s *sourceSlot) Start(ctx context.Context) (<-chan any, error) {
 	s.replacing = false
 	s.mu.Unlock()
 
+	if err := s.retryRetired(ctx); err != nil {
+		_ = stopSource(ctx, current)
+		s.mu.Lock()
+		s.state = slotFaulted
+		s.closeStatusLocked()
+		s.runCtx = nil
+		s.runCancel = nil
+		s.mu.Unlock()
+		return nil, err
+	}
+
 	underlying, err := startSource(ctx, runCtx, current)
 	if err != nil {
 		_ = stopSource(ctx, current)
 		s.mu.Lock()
 		s.state = slotFaulted
 		s.closeStatusLocked()
+		s.runCtx = nil
+		s.runCancel = nil
 		s.mu.Unlock()
 		return nil, err
 	}
@@ -196,14 +217,16 @@ func (s *sourceSlot) Stop(ctx context.Context) error {
 
 	s.mu.Lock()
 	if s.disposing {
-		if s.state == slotStopped || s.state == slotFaulted {
+		if (s.state == slotStopped || s.state == slotFaulted) && len(s.retired) == 0 {
 			s.mu.Unlock()
 			return nil
 		}
-		s.mu.Unlock()
-		return ErrSourceBusy
+		if s.state != slotStopped && s.state != slotFaulted {
+			s.mu.Unlock()
+			return ErrSourceBusy
+		}
 	}
-	if s.state == slotStopped {
+	if s.state == slotStopped && len(s.retired) == 0 {
 		s.mu.Unlock()
 		return nil
 	}
@@ -216,6 +239,9 @@ func (s *sourceSlot) Stop(ctx context.Context) error {
 		cancel()
 	}
 	err := stopSource(ctx, current)
+	if err == nil {
+		err = s.retryRetired(ctx)
+	}
 
 	s.mu.Lock()
 	if err != nil {
@@ -259,6 +285,9 @@ func (s *sourceSlot) Dispose(ctx context.Context) error {
 	} else {
 		err = stopSource(ctx, current)
 	}
+	if err == nil {
+		err = s.retryRetired(ctx)
+	}
 
 	s.mu.Lock()
 	if err != nil {
@@ -277,8 +306,8 @@ func (s *sourceSlot) Dispose(ctx context.Context) error {
 // Replace starts a candidate before changing visibility whenever the slot is
 // running or the candidate is configured for auto-start. Failure leaves the
 // old generation current and untouched.
-func (s *sourceSlot) Replace(ctx context.Context, candidate ManagedSource) error {
-	if candidate == nil {
+func (s *sourceSlot) Replace(ctx context.Context, candidate ManagedSource, retiredTokens ...uint64) error {
+	if isNilSource(candidate) {
 		return ErrDriverRequired
 	}
 	if ctx == nil {
@@ -293,14 +322,23 @@ func (s *sourceSlot) Replace(ctx context.Context, candidate ManagedSource) error
 	runCtx := s.runCtx
 	runCancel := s.runCancel
 	disposing := s.disposing
+	hasRetired := len(s.retired) > 0
 	s.mu.RUnlock()
 	if disposing {
 		return ErrSourceBusy
 	}
+	if hasRetired {
+		return ErrSourceBusy
+	}
+	retiredToken := uint64(0)
+	if len(retiredTokens) > 0 {
+		retiredToken = retiredTokens[0]
+	}
 
 	startCandidate := state == slotRunning || lifecycleAutoStart(candidate)
-	sameExclusive := state == slotRunning && exclusiveResourceKey(old) != "" &&
-		exclusiveResourceKey(old) == exclusiveResourceKey(candidate)
+	oldKey := exclusiveResourceKey(old)
+	candidateKey := exclusiveResourceKey(candidate)
+	sameExclusive := oldKey != "" && oldKey == candidateKey
 	var underlying <-chan any
 	var err error
 	oldStopped := false
@@ -316,7 +354,7 @@ func (s *sourceSlot) Replace(ctx context.Context, candidate ManagedSource) error
 		s.replacing = true
 		s.mu.Unlock()
 	}
-	if sameExclusive {
+	if sameExclusive && state == slotRunning {
 		// A source such as PostgreSQL may not start a second generation while
 		// the old generation owns the same slot. Stop the old generation first;
 		// if the candidate fails, restore the old generation before returning.
@@ -337,7 +375,11 @@ func (s *sourceSlot) Replace(ctx context.Context, candidate ManagedSource) error
 		}
 		underlying, err = startSource(ctx, runCtx, candidate)
 		if err != nil {
-			_ = stopSource(ctx, candidate)
+			if sameExclusive {
+				_ = stopSource(ctx, candidate)
+			} else {
+				_ = cleanupSource(ctx, candidate)
+			}
 			if sameExclusive {
 				var restartErr error
 				underlying, restartErr = startSource(ctx, runCtx, old)
@@ -364,11 +406,31 @@ func (s *sourceSlot) Replace(ctx context.Context, candidate ManagedSource) error
 			return err
 		}
 	}
+	if !sameExclusive && !oldStopped && !isNilSource(old) {
+		// Candidate startup is deliberately speculative. The stable slot and
+		// registry continue to expose the old generation until its non-
+		// destructive Stop succeeds, so a failed handoff cannot publish an
+		// unowned or half-stopped replacement.
+		if err := stopSource(ctx, old); err != nil {
+			if sameExclusive {
+				_ = stopSource(ctx, candidate)
+			} else {
+				_ = cleanupSource(ctx, candidate)
+			}
+			s.mu.Lock()
+			s.state = slotFaulted
+			s.closeStatusLocked()
+			s.replacing = false
+			s.mu.Unlock()
+			return err
+		}
+		oldStopped = true
+	}
 
 	s.mu.Lock()
 	if s.state == slotStopping {
 		s.mu.Unlock()
-		_ = stopSource(ctx, candidate)
+		_ = cleanupSource(ctx, candidate)
 		return ErrSourceBusy
 	}
 	s.current = candidate
@@ -390,13 +452,118 @@ func (s *sourceSlot) Replace(ctx context.Context, candidate ManagedSource) error
 		s.mu.Unlock()
 	}
 
-	if old != nil && !oldStopped {
-		if err := stopSource(ctx, old); err != nil {
-			s.log.Warn("old cdc source failed to stop after replacement",
-				zap.String("id", s.id.String()), zap.Error(err))
+	if old != nil && oldStopped && !sameExclusive {
+		if disposable, ok := old.(Disposable); ok {
+			if err := disposable.Dispose(ctx); err != nil {
+				s.recordRetired(old, oldKey, retiredToken)
+				if runCancel != nil {
+					runCancel()
+				}
+				_ = stopSource(ctx, candidate)
+				s.mu.Lock()
+				s.state = slotFaulted
+				s.closeStatusLocked()
+				s.runCtx = nil
+				s.runCancel = nil
+				s.replacing = false
+				s.mu.Unlock()
+				return err
+			}
 		}
 	}
 	return nil
+}
+
+func cleanupSource(ctx context.Context, source api.Source) error {
+	if isNilSource(source) {
+		return nil
+	}
+	if disposable, ok := source.(Disposable); ok {
+		return disposable.Dispose(ctx)
+	}
+	return stopSource(ctx, source)
+}
+
+func (s *sourceSlot) recordRetired(source ManagedSource, key string, token uint64) {
+	if isNilSource(source) {
+		return
+	}
+	s.mu.Lock()
+	s.retired = append(s.retired, retiredSource{source: source, key: key, token: token})
+	s.mu.Unlock()
+}
+
+func (s *sourceSlot) retryRetired(ctx context.Context) error {
+	for {
+		s.mu.RLock()
+		if len(s.retired) == 0 {
+			s.mu.RUnlock()
+			return nil
+		}
+		retired := s.retired[0]
+		s.mu.RUnlock()
+
+		if err := cleanupSource(ctx, retired.source); err != nil {
+			return err
+		}
+
+		s.mu.Lock()
+		if len(s.retired) > 0 && s.retired[0].source == retired.source {
+			s.retired = s.retired[1:]
+		}
+		hook := s.retiredHook
+		s.mu.Unlock()
+		if hook != nil && retired.key != "" {
+			hook(retired.key, retired.token)
+		}
+	}
+}
+
+func (s *sourceSlot) setRetiredCleanupHook(hook func(string, uint64)) {
+	s.mu.Lock()
+	s.retiredHook = hook
+	s.mu.Unlock()
+}
+
+func (s *sourceSlot) hasRetiredKey(key string) bool {
+	if key == "" {
+		return false
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, retired := range s.retired {
+		if retired.key == key {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *sourceSlot) resourceKeys() []string {
+	s.mu.RLock()
+	current := s.current
+	retired := append([]retiredSource(nil), s.retired...)
+	s.mu.RUnlock()
+	keys := make([]string, 0, len(retired)+1)
+	if key := exclusiveResourceKey(current); key != "" {
+		keys = append(keys, key)
+	}
+	for _, item := range retired {
+		if item.key == "" {
+			continue
+		}
+		seen := false
+		for _, key := range keys {
+			if key == item.key {
+				seen = true
+				break
+			}
+		}
+		if !seen {
+			keys = append(keys, item.key)
+		}
+	}
+	return keys
 }
 
 func (s *sourceSlot) LifecycleConfig() supervisor.LifecycleConfig {
@@ -457,6 +624,13 @@ func (s *sourceSlot) currentGeneration() uint64 {
 	generation := s.generation
 	s.mu.RUnlock()
 	return generation
+}
+
+func (s *sourceSlot) currentSource() ManagedSource {
+	s.mu.RLock()
+	source := s.current
+	s.mu.RUnlock()
+	return source
 }
 
 func (s *sourceSlot) closeStatusLocked() {
