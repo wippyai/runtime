@@ -268,10 +268,13 @@ func (s *Source) Start(ctx context.Context) (<-chan any, error) {
 		return nil, startErr
 	}
 
-	startLSN, snapshotName, err := s.prepareSlot(runCtx, conn, adminDB, cp, sysident.XLogPos)
+	startLSN, snapshotName, slotCreated, err := s.prepareSlot(runCtx, conn, adminDB, cp, sysident.XLogPos)
 	if err != nil {
 		_ = conn.Close(context.Background())
 		_ = adminDB.Close()
+		if slotCreated {
+			s.cleanupFreshSlot()
+		}
 		failStart(err)
 		return nil, err
 	}
@@ -286,6 +289,9 @@ func (s *Source) Start(ctx context.Context) (<-chan any, error) {
 		s.mu.Unlock()
 		_ = conn.Close(context.Background())
 		_ = adminDB.Close()
+		if slotCreated {
+			s.cleanupFreshSlot()
+		}
 		failStart(ErrSourceClosed)
 		return nil, ErrSourceClosed
 	}
@@ -304,7 +310,7 @@ func (s *Source) Start(ctx context.Context) (<-chan any, error) {
 	}
 
 	s.coll = metrics.GetCollector(runCtx)
-	go s.run(runCtx, conn, adminDB, cp, startLSN, snapshotName, publication, s.coll, status, done)
+	go s.run(runCtx, conn, adminDB, cp, startLSN, snapshotName, slotCreated, publication, s.coll, status, done)
 	return status, nil
 }
 
@@ -315,7 +321,7 @@ func (s *Source) Stop(ctx context.Context) error {
 
 	s.mu.Lock()
 	if s.state == sourceStopped {
-		drop := s.dropSlot.Load() && !s.temporary
+		drop := s.dropSlot.Load()
 		s.mu.Unlock()
 		if drop {
 			return s.dropSlotAndCheckpoint(ctx)
@@ -327,7 +333,7 @@ func (s *Source) Stop(ctx context.Context) error {
 		s.cancel = nil
 		s.mu.Unlock()
 		s.closeSubscriptions()
-		if s.dropSlot.Load() && !s.temporary {
+		if s.dropSlot.Load() {
 			return s.dropSlotAndCheckpoint(ctx)
 		}
 		return nil
@@ -355,7 +361,7 @@ func (s *Source) Stop(ctx context.Context) error {
 		}
 	}
 
-	if s.dropSlot.Load() && !s.temporary {
+	if s.dropSlot.Load() {
 		return s.dropSlotAndCheckpoint(ctx)
 	}
 	return nil
@@ -368,6 +374,7 @@ func (s *Source) run(
 	cp Checkpointer,
 	startLSN pglogrepl.LSN,
 	snapshotName string,
+	slotCreated bool,
 	publication string,
 	mc metrics.Collector,
 	status chan any,
@@ -393,7 +400,7 @@ func (s *Source) run(
 
 	if snapshotName != "" {
 		if err := s.snapshotExisting(ctx, adminDB, publication, snapshotName); err != nil {
-			s.abortFreshSnapshot(conn)
+			s.abortFreshSlot(conn, slotCreated)
 			s.fail(ctx, status, err)
 			return
 		}
@@ -403,18 +410,28 @@ func (s *Source) run(
 	if s.streaming {
 		protoVersion = config.StreamingProtocolVersion
 	}
+	publicationLiteral, err := quotePostgresLiteral(publication, "publication")
+	if err != nil {
+		s.abortFreshSlot(conn, slotCreated)
+		s.fail(ctx, status, err)
+		return
+	}
 	pluginArgs := []string{
 		fmt.Sprintf("proto_version '%d'", protoVersion),
-		fmt.Sprintf("publication_names '%s'", publication),
+		fmt.Sprintf("publication_names %s", publicationLiteral),
 	}
 	if s.streaming {
 		pluginArgs = append(pluginArgs, "streaming 'on'")
 	}
-	if err := pglogrepl.StartReplication(ctx, conn, s.slot, startLSN,
+	slotIdentifier, err := quotePostgresIdentifier(s.slot, "slot_name")
+	if err != nil {
+		s.abortFreshSlot(conn, slotCreated)
+		s.fail(ctx, status, err)
+		return
+	}
+	if err := pglogrepl.StartReplication(ctx, conn, slotIdentifier, startLSN,
 		pglogrepl.StartReplicationOptions{PluginArgs: pluginArgs}); err != nil {
-		if snapshotName != "" {
-			s.abortFreshSnapshot(conn)
-		}
+		s.abortFreshSlot(conn, slotCreated)
 		s.fail(ctx, status, err)
 		return
 	}
@@ -623,11 +640,11 @@ func (s *Source) prepareSlot(
 	adminDB *sql.DB,
 	cp Checkpointer,
 	fallback pglogrepl.LSN,
-) (pglogrepl.LSN, string, error) {
+) (pglogrepl.LSN, string, bool, error) {
 	var start pglogrepl.LSN
 	resumed := false
 	if cpLSN, ok, err := cp.Load(ctx, s.slot); err != nil {
-		return 0, "", err
+		return 0, "", false, err
 	} else if ok {
 		start = cpLSN
 		resumed = true
@@ -638,7 +655,17 @@ func (s *Source) prepareSlot(
 		var err error
 		exists, err = slotExists(ctx, adminDB, s.slot)
 		if err != nil {
-			return 0, "", err
+			return 0, "", false, err
+		}
+		if !exists && resumed {
+			// A local offset is meaningful only for the server-side slot
+			// incarnation that produced it. If that slot disappeared, do not
+			// reuse the old LSN for a newly-created slot.
+			if err := cp.Delete(ctx, s.slot); err != nil {
+				return 0, "", false, fmt.Errorf("delete stale cdc checkpoint: %w", err)
+			}
+			start = 0
+			resumed = false
 		}
 		if exists && !resumed {
 			// A persistent slot is the server-side durable cursor. Never fall
@@ -646,28 +673,42 @@ func (s *Source) prepareSlot(
 			// state is missing; doing so can skip retained logical changes.
 			confirmed, valid, err := slotConfirmedFlush(ctx, adminDB, s.slot)
 			if err != nil {
-				return 0, "", err
+				return 0, "", false, err
 			}
 			if valid {
 				start = confirmed
 			}
 		}
+	} else if resumed {
+		// Temporary slots are destroyed with their replication connection, so
+		// any persisted offset belongs to an older slot incarnation.
+		if err := cp.Delete(ctx, s.slot); err != nil {
+			return 0, "", false, fmt.Errorf("delete stale cdc checkpoint: %w", err)
+		}
+		start = 0
+		resumed = false
 	}
 
 	snapshotName := ""
+	slotCreated := false
 	if !exists {
+		slotIdentifier, err := quotePostgresIdentifier(s.slot, "slot_name")
+		if err != nil {
+			return 0, "", false, err
+		}
 		opts := pglogrepl.CreateReplicationSlotOptions{Temporary: s.temporary}
 		wantSnapshot := s.snapshot && !resumed
 		if wantSnapshot {
 			opts.SnapshotAction = "EXPORT_SNAPSHOT"
 		}
-		res, err := pglogrepl.CreateReplicationSlot(ctx, conn, s.slot, config.OutputPlugin, opts)
+		res, err := pglogrepl.CreateReplicationSlot(ctx, conn, slotIdentifier, config.OutputPlugin, opts)
 		if err != nil {
-			return 0, "", fmt.Errorf("create replication slot: %w", err)
+			return 0, "", false, fmt.Errorf("create replication slot: %w", err)
 		}
+		slotCreated = true
 		cpoint, err := pglogrepl.ParseLSN(res.ConsistentPoint)
 		if err != nil {
-			return 0, "", fmt.Errorf("parse consistent point %q: %w", res.ConsistentPoint, err)
+			return 0, "", slotCreated, fmt.Errorf("parse consistent point %q: %w", res.ConsistentPoint, err)
 		}
 		if cpoint > start {
 			start = cpoint
@@ -679,18 +720,22 @@ func (s *Source) prepareSlot(
 
 	if s.failover && !s.temporary {
 		if err := s.setSlotFailover(ctx, conn); err != nil {
-			return 0, "", err
+			return 0, "", slotCreated, err
 		}
 	}
 
 	if start == 0 {
 		start = fallback
 	}
-	return start, snapshotName, nil
+	return start, snapshotName, slotCreated, nil
 }
 
 func (s *Source) setSlotFailover(ctx context.Context, conn *pgconn.PgConn) error {
-	cmd := fmt.Sprintf("ALTER_REPLICATION_SLOT %s ( FAILOVER )", s.slot)
+	slotIdentifier, err := quotePostgresIdentifier(s.slot, "slot_name")
+	if err != nil {
+		return err
+	}
+	cmd := fmt.Sprintf("ALTER_REPLICATION_SLOT %s ( FAILOVER )", slotIdentifier)
 	if err := conn.Exec(ctx, cmd).Close(); err != nil {
 		return fmt.Errorf("set slot failover: %w", err)
 	}
@@ -874,12 +919,35 @@ func slotConfirmedFlush(ctx context.Context, adminDB *sql.DB, slot string) (pglo
 
 func (s *Source) ensurePublication(ctx context.Context, adminDB *sql.DB) (string, error) {
 	if s.publication != "" {
+		if err := validatePostgresIdentifier(s.publication, "publication"); err != nil {
+			return "", err
+		}
 		return s.publication, nil
 	}
 	if len(s.tables) == 0 {
 		return "", ErrNoPublication
 	}
 	name := s.slot + "_pub"
+	quotedName, err := quotePostgresIdentifier(name, "publication")
+	if err != nil {
+		return "", err
+	}
+	quotedTables := make([]string, 0, len(s.tables))
+	seenTables := make(map[string]struct{}, len(s.tables))
+	for _, table := range s.tables {
+		quotedTable, err := quoteQualifiedIdent(table)
+		if err != nil {
+			return "", err
+		}
+		if _, exists := seenTables[quotedTable]; exists {
+			continue
+		}
+		seenTables[quotedTable] = struct{}{}
+		quotedTables = append(quotedTables, quotedTable)
+	}
+	if len(quotedTables) == 0 {
+		return "", ErrNoPublication
+	}
 
 	var n int
 	if err := adminDB.QueryRowContext(ctx,
@@ -887,28 +955,40 @@ func (s *Source) ensurePublication(ctx context.Context, adminDB *sql.DB) (string
 		return "", fmt.Errorf("check publication: %w", err)
 	}
 	if n == 0 {
-		quoted := make([]string, len(s.tables))
-		for i, t := range s.tables {
-			quoted[i] = quoteQualifiedIdent(t)
-		}
 		stmt := fmt.Sprintf("CREATE PUBLICATION %s FOR TABLE %s",
-			pq.QuoteIdentifier(name), strings.Join(quoted, ", "))
+			quotedName, strings.Join(quotedTables, ", "))
 		if _, err := adminDB.ExecContext(ctx, stmt); err != nil {
 			return "", fmt.Errorf("create publication: %w", err)
+		}
+	} else {
+		// The generated name is owned by this source configuration. Reconcile
+		// its membership exactly on every start so an update cannot silently
+		// continue publishing an old table set. User-supplied publications take
+		// the early return above and are never altered or dropped.
+		stmt := fmt.Sprintf("ALTER PUBLICATION %s SET TABLE %s",
+			quotedName, strings.Join(quotedTables, ", "))
+		if _, err := adminDB.ExecContext(ctx, stmt); err != nil {
+			return "", fmt.Errorf("reconcile publication: %w", err)
 		}
 	}
 	return name, nil
 }
 
-func (s *Source) abortFreshSnapshot(conn *pgconn.PgConn) {
-	_ = conn.Close(context.Background())
-	if s.temporary {
+func (s *Source) abortFreshSlot(conn *pgconn.PgConn, created bool) {
+	if conn != nil {
+		_ = conn.Close(context.Background())
+	}
+	if !created {
 		return
 	}
+	s.cleanupFreshSlot()
+}
+
+func (s *Source) cleanupFreshSlot() {
 	cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := s.dropSlotAndCheckpoint(cleanupCtx); err != nil {
-		s.log.Warn("cdc cleanup after snapshot failure failed",
+		s.log.Warn("cdc cleanup after fresh slot failure failed",
 			zap.String("slot", s.slot), zap.Error(err))
 	}
 }
@@ -973,10 +1053,18 @@ func dropReplicationSlot(ctx context.Context, adminDB *sql.DB, slot string) erro
 	return lastErr
 }
 
-func quoteQualifiedIdent(name string) string {
+func quoteQualifiedIdent(name string) (string, error) {
 	parts := strings.Split(name, ".")
-	for i, p := range parts {
-		parts[i] = pq.QuoteIdentifier(p)
+	if len(parts) < 1 || len(parts) > 2 {
+		return "", fmt.Errorf("%w: table", ErrInvalidIdentifier)
 	}
-	return strings.Join(parts, ".")
+	quoted := make([]string, len(parts))
+	for i, p := range parts {
+		quotedPart, err := quotePostgresIdentifier(p, "table")
+		if err != nil {
+			return "", err
+		}
+		quoted[i] = quotedPart
+	}
+	return strings.Join(quoted, "."), nil
 }

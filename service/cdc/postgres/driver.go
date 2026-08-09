@@ -4,7 +4,6 @@ package postgres
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net"
 	"strconv"
@@ -39,6 +38,23 @@ func (Driver) Create(ctx context.Context, entry registry.Entry, deps cdcservice.
 	if err := cfg.Validate(); err != nil {
 		return nil, NewInvalidConfigError(err)
 	}
+	if err := validatePostgresIdentifier(cfg.SlotName, "slot_name"); err != nil {
+		return nil, NewInvalidConfigError(err)
+	}
+	if cfg.Publication != "" {
+		if err := validatePostgresIdentifier(cfg.Publication, "publication"); err != nil {
+			return nil, NewInvalidConfigError(err)
+		}
+	} else {
+		for _, table := range cfg.Tables {
+			if _, err := quoteQualifiedIdent(table); err != nil {
+				return nil, NewInvalidConfigError(err)
+			}
+		}
+		if _, err := quotePostgresIdentifier(cfg.SlotName+"_pub", "publication"); err != nil {
+			return nil, NewInvalidConfigError(err)
+		}
+	}
 	standby, _ := cfg.StandbyDuration()
 	status, _ := cfg.StatusDuration()
 	replDSN, adminDSN, err := buildDSNs(cfg)
@@ -69,7 +85,6 @@ func (Driver) Create(ctx context.Context, entry registry.Entry, deps cdcservice.
 	}
 	return &sourceAdapter{
 		source:       NewSource(opts),
-		opts:         opts,
 		lifecycle:    cfg.Lifecycle,
 		exclusiveKey: postgresExclusiveKey(cfg),
 	}, nil
@@ -82,7 +97,6 @@ func (Driver) Create(ctx context.Context, entry registry.Entry, deps cdcservice.
 type sourceAdapter struct {
 	mu           sync.RWMutex
 	source       *Source
-	opts         SourceOptions
 	lifecycle    supervisor.LifecycleConfig
 	exclusiveKey string
 }
@@ -161,24 +175,7 @@ func (s *sourceAdapter) Subscribe(ctx context.Context, opts config.StreamOptions
 func (s *sourceAdapter) Start(ctx context.Context) (<-chan any, error) {
 	s.mu.RLock()
 	source := s.source
-	opts := s.opts
 	s.mu.RUnlock()
-	status, err := source.Start(ctx)
-	if !errors.Is(err, ErrSourceClosed) {
-		return status, err
-	}
-
-	// Source deliberately makes a stopped generation terminal so a stale
-	// replication connection can never be reused. The stable manager slot can
-	// still restart the logical generation by constructing a fresh source with
-	// the same immutable configuration and checkpoint identity.
-	fresh := NewSource(opts)
-	s.mu.Lock()
-	if s.source == source {
-		s.source = fresh
-	}
-	source = s.source
-	s.mu.Unlock()
 	return source.Start(ctx)
 }
 
@@ -217,7 +214,7 @@ func (s *sourceAdapter) ExclusiveResourceKey() string {
 func postgresExclusiveKey(cfg *config.Config) string {
 	host := strings.ToLower(strings.TrimSuffix(strings.TrimSpace(cfg.Host), "."))
 	endpoint := net.JoinHostPort(host, strconv.Itoa(cfg.Port))
-	return "postgres/" + endpoint + "/" + cfg.Database + "/slot/" + cfg.SlotName
+	return "postgres/" + endpoint + "/slot/" + cfg.SlotName
 }
 
 func postgresSourceState(state sourceState) config.SourceState {

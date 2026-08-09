@@ -49,3 +49,11 @@ func TestSourceStopAfterDisposeCleanupIsIdempotent(t *testing.T) {
 	require.NoError(t, source.Stop(nil))
 	require.NoError(t, source.Stop(nil))
 }
+
+func TestPostgresExclusiveKeyIsClusterWide(t *testing.T) {
+	first := &cconfig.Config{Host: "db.internal", Port: 5432, Database: "one", SlotName: "events"}
+	second := &cconfig.Config{Host: "db.internal", Port: 5432, Database: "two", SlotName: "events"}
+
+	assert.Equal(t, postgresExclusiveKey(first), postgresExclusiveKey(second))
+	assert.NotContains(t, postgresExclusiveKey(first), "password")
+}
