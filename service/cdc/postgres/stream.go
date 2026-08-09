@@ -24,23 +24,25 @@ var errSubscriberOverflow = errors.New("postgres cdc subscriber backlog overflow
 var errSnapshotNotActive = errors.New("postgres cdc snapshot is no longer active")
 
 type sourceSubscription struct {
-	err          error
-	tables       map[string]struct{}
-	source       *Source
-	done         chan struct{}
-	notify       chan struct{}
-	relayDone    chan struct{}
-	ops          map[string]struct{}
-	out          chan config.Change
-	queue        []queuedChange
-	pending      []queuedChange
-	maxBytes     int64
-	maxChanges   int
-	id           uint64
-	queuedBytes  int64
-	mu           sync.Mutex
-	closed       bool
-	snapshotting bool
+	err            error
+	tables         map[string]struct{}
+	source         *Source
+	done           chan struct{}
+	notify         chan struct{}
+	relayDone      chan struct{}
+	snapshotDone   chan struct{}
+	snapshotCancel context.CancelFunc
+	ops            map[string]struct{}
+	out            chan config.Change
+	queue          []queuedChange
+	pending        []queuedChange
+	maxBytes       int64
+	maxChanges     int
+	id             uint64
+	queuedBytes    int64
+	mu             sync.Mutex
+	closed         bool
+	snapshotting   bool
 }
 
 type queuedChange struct {
@@ -177,6 +179,9 @@ func (s *Source) closeSubscriptionsWithError(err error) {
 		sub.closeWithError(err)
 	}
 	for _, sub := range subs {
+		sub.waitSnapshot()
+	}
+	for _, sub := range subs {
 		sub.waitRelay()
 	}
 }
@@ -187,6 +192,7 @@ func (s *sourceSubscription) Changes() <-chan config.Change {
 
 func (s *sourceSubscription) Close() {
 	s.closeWithError(nil)
+	s.waitSnapshot()
 	s.waitRelay()
 }
 
@@ -200,9 +206,44 @@ func (s *sourceSubscription) Err() error {
 func (s *sourceSubscription) closeWithError(err error) {
 	s.mu.Lock()
 	parent, id := s.closeLocked(err)
+	cancel := s.snapshotCancel
 	s.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
 	if parent != nil {
 		parent.removeSubscription(id)
+	}
+}
+
+func (s *sourceSubscription) registerSnapshot(cancel context.CancelFunc, done chan struct{}) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return false
+	}
+	s.snapshotCancel = cancel
+	s.snapshotDone = done
+	return true
+}
+
+func (s *sourceSubscription) finishSnapshotWorker() {
+	s.mu.Lock()
+	done := s.snapshotDone
+	s.snapshotDone = nil
+	s.snapshotCancel = nil
+	s.mu.Unlock()
+	if done != nil {
+		close(done)
+	}
+}
+
+func (s *sourceSubscription) waitSnapshot() {
+	s.mu.Lock()
+	done := s.snapshotDone
+	s.mu.Unlock()
+	if done != nil {
+		<-done
 	}
 }
 

@@ -100,6 +100,114 @@ func TestSnapshotHandoffWaitsForReplicationFence(t *testing.T) {
 	}
 }
 
+func TestIdleKeepaliveAdvancesSnapshotWatermark(t *testing.T) {
+	src := NewSource(SourceOptions{Name: "test:cdc", Slot: "slot_a"})
+	done := make(chan struct{})
+	src.mu.Lock()
+	src.done = done
+	src.streamPosition = 0
+	src.mu.Unlock()
+
+	fence, err := pglogrepl.ParseLSN("0/40")
+	require.NoError(t, err)
+	waited := make(chan error, 1)
+	go func() { waited <- src.waitStreamPosition(context.Background(), fence) }()
+	select {
+	case err := <-waited:
+		t.Fatalf("idle snapshot released before keepalive: %v", err)
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	src.observeKeepalive(done, pglogrepl.PrimaryKeepaliveMessage{ServerWALEnd: fence})
+	select {
+	case err := <-waited:
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("idle keepalive did not advance snapshot watermark")
+	}
+}
+
+func TestSnapshotGateSerializesPerSourceAndIsolatesSources(t *testing.T) {
+	first := NewSource(SourceOptions{Name: "db-one", Slot: "slot_one"})
+	second := NewSource(SourceOptions{Name: "db-two", Slot: "slot_two"})
+	ctx, cancel := context.WithCancel(context.Background())
+	require.NoError(t, first.acquireSnapshot(ctx))
+
+	waiting := make(chan error, 1)
+	go func() { waiting <- first.acquireSnapshot(ctx) }()
+	select {
+	case err := <-waiting:
+		t.Fatalf("same-source snapshot gate was not serialized: %v", err)
+	case <-time.After(20 * time.Millisecond):
+	}
+	require.NoError(t, second.acquireSnapshot(context.Background()))
+	second.releaseSnapshot()
+	cancel()
+	select {
+	case err := <-waiting:
+		require.ErrorIs(t, err, context.Canceled)
+	case <-time.After(time.Second):
+		t.Fatal("cancelled snapshot did not leave the per-source gate")
+	}
+	first.releaseSnapshot()
+}
+
+func TestSubscriptionCloseWaitsForSnapshotWorker(t *testing.T) {
+	src := NewSource(SourceOptions{Name: "test:cdc", Slot: "slot_a"})
+	sub := src.newSubscription(cdcapi.StreamOptions{Snapshot: true})
+	cancelled := make(chan struct{})
+	workerDone := make(chan struct{})
+	require.True(t, sub.registerSnapshot(func() { close(cancelled) }, workerDone))
+	go func() {
+		<-cancelled
+		sub.finishSnapshotWorker()
+	}()
+
+	sub.Close()
+	select {
+	case <-workerDone:
+	default:
+		t.Fatal("subscription Close returned before its snapshot worker joined")
+	}
+}
+
+func TestStopJoinsSnapshotWorkerBeforeGenerationReset(t *testing.T) {
+	src := NewSource(SourceOptions{Name: "test:cdc", Slot: "slot_a"})
+	sub := src.newSubscription(cdcapi.StreamOptions{Snapshot: true})
+	cancelled := make(chan struct{})
+	release := make(chan struct{})
+	workerDone := make(chan struct{})
+	require.True(t, sub.registerSnapshot(func() { close(cancelled) }, workerDone))
+	src.snapshotWG.Add(1)
+	go func() {
+		<-cancelled
+		<-release
+		sub.finishSnapshotWorker()
+		src.snapshotWG.Done()
+	}()
+
+	stopped := make(chan error, 1)
+	go func() { stopped <- src.Stop(context.Background()) }()
+	select {
+	case err := <-stopped:
+		t.Fatalf("Stop returned before snapshot worker joined: %v", err)
+	case <-time.After(20 * time.Millisecond):
+	}
+	src.mu.Lock()
+	assert.Equal(t, sourceStopping, src.state)
+	src.mu.Unlock()
+	close(release)
+	select {
+	case err := <-stopped:
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("Stop did not complete after snapshot worker release")
+	}
+	src.mu.Lock()
+	assert.Equal(t, sourceStopped, src.state)
+	src.mu.Unlock()
+}
+
 func TestSourceSubscribeFiltersChanges(t *testing.T) {
 	src := NewSource(SourceOptions{Name: "test:cdc", Slot: "slot_a"})
 	stream := src.Subscribe(cdcapi.StreamOptions{

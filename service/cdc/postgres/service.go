@@ -83,6 +83,7 @@ type Source struct {
 	done                  chan struct{}
 	subs                  map[uint64]*sourceSubscription
 	streamNotify          chan struct{}
+	snapshotGate          chan struct{} // one temporary logical snapshot per source
 	replDSN               string
 	adminDSN              string
 	name                  string
@@ -187,6 +188,7 @@ func NewSource(opts SourceOptions) *Source {
 		maxInflightChanges:    limits.maxInflightChanges,
 		maxInflightBytes:      limits.maxInflightBytes,
 		streamNotify:          make(chan struct{}),
+		snapshotGate:          make(chan struct{}, 1),
 	}
 }
 
@@ -350,9 +352,6 @@ func (s *Source) Stop(ctx context.Context) error {
 	if s.state == sourceStopped {
 		drop := s.dropSlot.Load()
 		s.mu.Unlock()
-		if err := s.waitSnapshots(ctx); err != nil {
-			return err
-		}
 		if drop {
 			return s.dropSlotAndCheckpoint(ctx)
 		}
@@ -360,13 +359,21 @@ func (s *Source) Stop(ctx context.Context) error {
 	}
 	if s.state == sourceNew || s.state == sourceFailed {
 		if s.state == sourceNew {
-			s.state = sourceStopped
+			// Keep the generation stopping until all snapshot workers have
+			// joined. This prevents a concurrent Start from resetting state
+			// while a worker can still call WaitGroup.Done.
+			s.state = sourceStopping
 			s.cancel = nil
 			s.mu.Unlock()
 			s.closeSubscriptions()
 			if err := s.waitSnapshots(ctx); err != nil {
 				return err
 			}
+			s.mu.Lock()
+			if s.state == sourceStopping {
+				s.state = sourceStopped
+			}
+			s.mu.Unlock()
 			if s.dropSlot.Load() {
 				return s.dropSlotAndCheckpoint(ctx)
 			}
@@ -392,10 +399,6 @@ func (s *Source) Stop(ctx context.Context) error {
 	if done != nil {
 		select {
 		case <-done:
-			s.mu.Lock()
-			s.state = sourceStopped
-			s.cancel = nil
-			s.mu.Unlock()
 		case <-ctx.Done():
 			return ctx.Err()
 		}
@@ -410,6 +413,12 @@ func (s *Source) Stop(ctx context.Context) error {
 	if err := s.waitSnapshots(ctx); err != nil {
 		return err
 	}
+	s.mu.Lock()
+	if s.state == sourceStopping {
+		s.state = sourceStopped
+		s.cancel = nil
+	}
+	s.mu.Unlock()
 
 	if s.dropSlot.Load() {
 		return s.dropSlotAndCheckpoint(ctx)
@@ -420,8 +429,15 @@ func (s *Source) Stop(ctx context.Context) error {
 func (s *Source) startSnapshot(ctx context.Context, sub *sourceSubscription) {
 	snapshotCtx, cancel := context.WithCancel(ctx)
 	s.snapshotWG.Add(1)
+	snapshotDone := make(chan struct{})
+	if !sub.registerSnapshot(cancel, snapshotDone) {
+		s.snapshotWG.Done()
+		cancel()
+		return
+	}
 	go func() {
 		defer s.snapshotWG.Done()
+		defer sub.finishSnapshotWorker()
 		watchDone := make(chan struct{})
 		go func() {
 			select {
@@ -433,6 +449,12 @@ func (s *Source) startSnapshot(ctx context.Context, sub *sourceSubscription) {
 		}()
 		defer close(watchDone)
 
+		if err := s.acquireSnapshot(snapshotCtx); err != nil {
+			sub.finishSnapshot(0, err)
+			return
+		}
+		defer s.releaseSnapshot()
+
 		fence, err := s.snapshotCurrentTo(snapshotCtx, sub)
 		if err != nil {
 			sub.finishSnapshot(0, err)
@@ -440,6 +462,19 @@ func (s *Source) startSnapshot(ctx context.Context, sub *sourceSubscription) {
 		}
 		sub.finishSnapshot(fence, nil)
 	}()
+}
+
+func (s *Source) acquireSnapshot(ctx context.Context) error {
+	select {
+	case s.snapshotGate <- struct{}{}:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (s *Source) releaseSnapshot() {
+	<-s.snapshotGate
 }
 
 func (s *Source) waitSnapshots(ctx context.Context) error {
@@ -457,10 +492,11 @@ func (s *Source) waitSnapshots(ctx context.Context) error {
 }
 
 // advanceStreamPosition publishes the replication receive watermark after a
-// complete XLogData message has been decoded and emitted. Snapshot handoff
-// waits for this watermark before releasing its pending live queue, so a
-// change at or before the exported snapshot fence cannot arrive late and be
-// duplicated after the handoff.
+// complete XLogData message has been decoded and emitted, or after a server
+// keepalive reports its WAL end. Snapshot handoff waits for this watermark
+// before releasing its pending live queue, so a change at or before the
+// exported snapshot fence cannot arrive late and be duplicated after the
+// handoff. It never updates the transaction-safe checkpoint.
 func (s *Source) advanceStreamPosition(done chan struct{}, position pglogrepl.LSN) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -470,6 +506,10 @@ func (s *Source) advanceStreamPosition(done chan struct{}, position pglogrepl.LS
 	s.streamPosition = position
 	close(s.streamNotify)
 	s.streamNotify = make(chan struct{})
+}
+
+func (s *Source) observeKeepalive(done chan struct{}, keepalive pglogrepl.PrimaryKeepaliveMessage) {
+	s.advanceStreamPosition(done, keepalive.ServerWALEnd)
 }
 
 func (s *Source) waitStreamPosition(ctx context.Context, fence pglogrepl.LSN) error {
@@ -506,8 +546,6 @@ func (s *Source) run(
 		current := s.done == done
 		if current {
 			switch s.state {
-			case sourceStopping:
-				s.state = sourceStopped
 			case sourceRunning, sourceStarting:
 				s.state = sourceFailed
 			}
@@ -665,6 +703,10 @@ func (s *Source) run(
 				s.fail(ctx, status, kaErr)
 				return
 			}
+			// ServerWALEnd is the receive watermark used by an in-flight
+			// snapshot handoff. It is deliberately independent from safePos:
+			// keepalives must not advance the transaction-safe checkpoint.
+			s.observeKeepalive(done, ka)
 			if ka.ReplyRequested {
 				if err := saveSafe(); err != nil {
 					s.fail(ctx, status, err)
