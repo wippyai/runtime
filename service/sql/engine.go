@@ -11,7 +11,6 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	config "github.com/wippyai/runtime/api/service/sql"
-	sqlapi "github.com/wippyai/runtime/api/service/sql"
 	"go.uber.org/zap"
 )
 
@@ -56,7 +55,7 @@ type DBOpener interface {
 // cannot be accidentally shared between unrelated pool generations.
 type OpenedDB struct {
 	DB       *sql.DB
-	Observer sqlapi.CommittedMutationSource
+	Observer config.CommittedMutationSource
 }
 
 // createPool runs the generic create lifecycle for a known engine.

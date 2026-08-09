@@ -40,9 +40,9 @@ const (
 // one SQL pool. It intentionally uses sql.OpenDB instead of sql.Register, so
 // no process-global driver name or file-path registry is involved.
 type sqliteConnector struct {
-	dsn     string
 	driver  *sqlite3.SQLiteDriver
 	backend *sqliteBackend
+	dsn     string
 }
 
 func (c *sqliteConnector) Connect(context.Context) (driver.Conn, error) {
@@ -90,12 +90,12 @@ func openSQLite(_ context.Context, dsn string, limits ...int) (*sql.DB, sqlapi.C
 type sqliteBackend struct {
 	db         *sql.DB
 	streams    map[*mutationStream]struct{}
-	mu         sync.Mutex
 	fence      chan struct{}
 	maxChanges int
 	maxBytes   int
-	closed     bool
 	sequence   atomic.Uint64
+	mu         sync.Mutex
+	closed     bool
 }
 
 func newSQLiteBackend(maxChanges, maxBytes int) *sqliteBackend {
@@ -222,7 +222,7 @@ func tablesForValidation(conn *sqlite3.SQLiteConn, requested []string) ([]snapsh
 		values := make([]driver.Value, len(rows.Columns()))
 		for {
 			err := rows.Next(values)
-			if err == io.EOF {
+			if errors.Is(err, io.EOF) {
 				break
 			}
 			if err != nil {
@@ -411,7 +411,7 @@ func validateSnapshotTablesTx(ctx context.Context, tx *sql.Tx, requested []strin
 			return errors.New("sqlite snapshot does not support TEMP tables")
 		}
 		var definition sql.NullString
-		query := fmt.Sprintf("SELECT sql FROM %s.sqlite_master WHERE type = 'table' AND name = ?", quoteIdentifier(table.schema))
+		query := sqliteMasterQuery(table.schema)
 		if err := tx.QueryRowContext(ctx, query, table.name).Scan(&definition); err != nil {
 			return fmt.Errorf("inspect sqlite snapshot table %s.%s: %w", table.schema, table.name, err)
 		}
@@ -477,9 +477,7 @@ func scanSnapshotTable(ctx context.Context, tx *sql.Tx, stream *mutationStream, 
 
 func (b *sqliteBackend) remove(stream *mutationStream, err error) {
 	b.mu.Lock()
-	if _, ok := b.streams[stream]; ok {
-		delete(b.streams, stream)
-	}
+	delete(b.streams, stream)
 	b.mu.Unlock()
 
 	stream.closeWithError(err)
@@ -554,28 +552,28 @@ func (b *sqliteBackend) Close() error {
 // driver wrappers after Exec/Commit/Rows completion, when statement rollback
 // and savepoint effects are known.
 type sqliteConnectionState struct {
-	backend                *sqliteBackend
+	unsupported            error
+	failed                 error
 	sqlite                 *sqlite3.SQLiteConn
-	pending                []sqlapi.Mutation
-	pendingBytes           int
-	maxChanges             int
-	maxBytes               int
-	savepoints             []savepoint
-	statementMark          int
+	backend                *sqliteBackend
 	statementSavepointVerb string
 	statementSavepointName string
-	rollbackSeen           bool
-	rollbackUnconfirmed    bool
-	commitPending          bool
+	savepoints             []savepoint
+	pending                []sqlapi.Mutation
 	commitEnds             []int
+	prepareMeta            statementMeta
+	statementMark          int
+	maxBytes               int
+	maxChanges             int
+	pendingBytes           int
 	confirmedEnds          int
-	fenceHeld              bool
+	rollbackSeen           bool
 	ddlInTxn               bool
 	dmlInTxn               bool
-	failed                 error
+	fenceHeld              bool
 	statementDDL           bool
-	unsupported            error
-	prepareMeta            statementMeta
+	commitPending          bool
+	rollbackUnconfirmed    bool
 }
 
 // statementMeta is collected by SQLite's authorizer while a statement is
@@ -584,11 +582,11 @@ type sqliteConnectionState struct {
 // to its later execution; direct Exec/Query paths merge it after the driver's
 // native prepare loop returns.
 type statementMeta struct {
-	ddl            bool
 	unsupported    error
 	savepointVerb  string
 	savepointName  string
 	savepointCount int
+	ddl            bool
 }
 
 type savepoint struct {
@@ -602,13 +600,6 @@ func (s *sqliteConnectionState) bind(conn *sqlite3.SQLiteConn) {
 	conn.RegisterRollbackHook(s.rollback)
 	conn.RegisterAuthorizer(s.authorizer)
 	s.sqlite = conn
-}
-
-func (s *sqliteConnectionState) clear(conn *sqlite3.SQLiteConn) {
-	conn.RegisterPreUpdateHook(nil)
-	conn.RegisterCommitHook(nil)
-	conn.RegisterRollbackHook(nil)
-	conn.RegisterAuthorizer(nil)
 }
 
 func (s *sqliteConnectionState) authorizer(action int, arg1, arg2, _ string) int {
@@ -1182,9 +1173,9 @@ type mutationKey struct {
 }
 
 type netMutation struct {
-	mutation sqlapi.Mutation
 	first    string
 	last     string
+	mutation sqlapi.Mutation
 }
 
 // netChanges retains the earliest before-image for each row and the latest
@@ -1288,7 +1279,7 @@ func (s *sqliteConnectionState) validateTable(schema, table string) error {
 	if strings.EqualFold(schema, "temp") {
 		return errors.New("sqlite mutation observer does not support TEMP tables")
 	}
-	query := fmt.Sprintf("SELECT sql FROM %s.sqlite_master WHERE type = 'table' AND name = ?", quoteIdentifier(schema))
+	query := sqliteMasterQuery(schema)
 	rows, err := s.sqlite.Query(query, []driver.Value{table})
 	if err != nil {
 		return fmt.Errorf("inspect sqlite table %s.%s: %w", schema, table, err)
@@ -1296,7 +1287,7 @@ func (s *sqliteConnectionState) validateTable(schema, table string) error {
 	defer rows.Close()
 	values := make([]driver.Value, len(rows.Columns()))
 	if err := rows.Next(values); err != nil {
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			return fmt.Errorf("sqlite table %s.%s disappeared", schema, table)
 		}
 		return err
@@ -1332,6 +1323,10 @@ func quoteIdentifier(value string) string {
 	return `"` + strings.ReplaceAll(value, `"`, `""`) + `"`
 }
 
+func sqliteMasterQuery(schema string) string {
+	return "SELECT sql FROM " + quoteIdentifier(schema) + ".sqlite_master WHERE type = 'table' AND name = ?"
+}
+
 func scanSQLiteRow(data *sqlite3.SQLitePreUpdateData, count int, isNew bool) ([]any, error) {
 	if count <= 0 {
 		return nil, nil
@@ -1364,8 +1359,6 @@ type observedConn struct {
 func (c *observedConn) bindIfActive() {
 	c.state.bind(c.sqlite)
 }
-
-func (c *observedConn) clearHooks() { c.state.clear(c.sqlite) }
 
 func (c *observedConn) Prepare(query string) (driver.Stmt, error) {
 	c.state.prepareMeta = statementMeta{}
@@ -1440,6 +1433,7 @@ func (c *observedConn) Close() error {
 }
 
 func (c *observedConn) Begin() (driver.Tx, error) {
+	//nolint:staticcheck // driver.Conn requires Begin for legacy driver compatibility.
 	tx, err := c.raw.Begin()
 	if err != nil {
 		return nil, err
@@ -1514,6 +1508,7 @@ func (s *observedStmt) QueryContext(ctx context.Context, args []driver.NamedValu
 }
 
 func (s *observedStmt) ColumnConverter(index int) driver.ValueConverter {
+	//nolint:staticcheck // Preserve the optional legacy converter exposed by the wrapped driver.
 	if converter, ok := s.raw.(driver.ColumnConverter); ok {
 		return converter.ColumnConverter(index)
 	}
@@ -1522,6 +1517,7 @@ func (s *observedStmt) ColumnConverter(index int) driver.ValueConverter {
 
 func (s *observedStmt) Exec(args []driver.Value) (driver.Result, error) {
 	s.conn.state.statementBeginWithMeta(s.meta)
+	//nolint:staticcheck // driver.Stmt requires Exec for legacy driver compatibility.
 	result, err := s.raw.Exec(args)
 	s.conn.state.statementEndWithMeta(err, s.meta)
 	return result, err
@@ -1529,6 +1525,7 @@ func (s *observedStmt) Exec(args []driver.Value) (driver.Result, error) {
 
 func (s *observedStmt) Query(args []driver.Value) (driver.Rows, error) {
 	s.conn.state.statementBeginWithMeta(s.meta)
+	//nolint:staticcheck // driver.Stmt requires Query for legacy driver compatibility.
 	rows, err := s.raw.Query(args)
 	if err != nil {
 		s.conn.state.statementEndWithMeta(err, s.meta)
@@ -1550,7 +1547,7 @@ func (r *observedRows) Columns() []string { return r.raw.Columns() }
 
 func (r *observedRows) Next(dest []driver.Value) error {
 	err := r.raw.Next(dest)
-	if err == io.EOF || err != nil {
+	if errors.Is(err, io.EOF) || err != nil {
 		r.finish(err)
 	}
 	return err
@@ -1609,23 +1606,23 @@ func (r *observedRows) finish(err error) {
 }
 
 type mutationStream struct {
-	backend       *sqliteBackend
-	opts          sqlapi.MutationOptions
+	err           error
 	changes       chan sqlapi.MutationBatch
 	notify        chan struct{}
 	done          chan struct{}
-	mu            sync.Mutex
-	err           error
-	closed        bool
-	snapshotting  bool
+	cancel        context.CancelFunc
+	backend       *sqliteBackend
 	watermark     string
 	queue         []sqlapi.MutationBatch
 	pending       []sqlapi.MutationBatch
+	opts          sqlapi.MutationOptions
 	queuedChanges int
 	queuedBytes   int
-	cancel        context.CancelFunc
 	maxChanges    int
 	maxBytes      int
+	mu            sync.Mutex
+	snapshotting  bool
+	closed        bool
 }
 
 func newMutationStream(backend *sqliteBackend, opts sqlapi.MutationOptions) *mutationStream {

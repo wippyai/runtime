@@ -62,8 +62,8 @@ type SnapshotStream interface {
 // belongs to one database transaction; an empty batch is not emitted.
 type MutationBatch struct {
 	Transaction string
-	Snapshot    bool
 	Changes     []Mutation
+	Snapshot    bool
 }
 
 // Mutation is a driver-neutral row mutation. Values retain the database/sql
@@ -72,14 +72,14 @@ type MutationBatch struct {
 type Mutation struct {
 	Schema  string
 	Table   string
+	Op      string
 	Columns []string
+	Before  []any
+	After   []any
 	// OldRowID is the row identifier before the change. It is zero for an
 	// insert; RowID is the identifier after the change and is zero for a
 	// delete. Drivers that cannot provide a stable row identifier must fail
 	// closed rather than emit an ambiguous mutation.
 	OldRowID int64
 	RowID    int64
-	Before   []any
-	After    []any
-	Op       string
 }

@@ -8,8 +8,6 @@ import (
 	"sync"
 	"sync/atomic"
 
-	config "github.com/wippyai/runtime/api/service/sql"
-
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/resource"
 	sqlapi "github.com/wippyai/runtime/api/service/sql"
@@ -18,30 +16,30 @@ import (
 // ConnPool represents a database connection pool that acts both as a service
 // and a resource provider
 type ConnPool struct {
-	db          *sql.DB
+	driver      Driver
+	stopErr     error
+	stopDone    chan struct{}
 	current     *dbGeneration
 	status      chan any
 	config      atomic.Pointer[any]
+	db          *sql.DB
 	kind        registry.Kind
-	driver      Driver
-	mu          sync.RWMutex
 	wg          sync.WaitGroup
-	closed      atomic.Bool
+	mu          sync.RWMutex
 	stopMu      sync.Mutex
-	stopDone    chan struct{}
-	stopErr     error
+	closed      atomic.Bool
 	stopStarted bool
 }
 
 type dbGeneration struct {
+	closeErr error
+	observer sqlapi.CommittedMutationSource
 	db       *sql.DB
 	closed   chan struct{}
-	closeErr error
-	closeMu  sync.Mutex
 	once     sync.Once
+	closeMu  sync.Mutex
 	refs     atomic.Int32
 	closing  atomic.Bool
-	observer sqlapi.CommittedMutationSource
 }
 
 func newDBGeneration(db *sql.DB, observers ...sqlapi.CommittedMutationSource) *dbGeneration {
@@ -213,7 +211,7 @@ func (p *ConnPool) UpdateConfig(cfg any) error {
 		return ErrPoolClosed
 	}
 
-	ec, ok := cfg.(config.EngineConfig)
+	ec, ok := cfg.(sqlapi.EngineConfig)
 	if !ok {
 		return NewUnsupportedConfigTypeError(p.kind)
 	}
@@ -225,7 +223,7 @@ func (p *ConnPool) UpdateConfig(cfg any) error {
 	return p.updateConfig(context.Background(), p.driver, ec)
 }
 
-func (p *ConnPool) updateConfig(ctx context.Context, driver Driver, ec config.EngineConfig) error {
+func (p *ConnPool) updateConfig(ctx context.Context, driver Driver, ec sqlapi.EngineConfig) error {
 	if p.closed.Load() {
 		return ErrPoolClosed
 	}
@@ -323,9 +321,9 @@ type DBConn struct {
 
 // DBResource contains both the database connection and its type
 type DBResource struct {
+	Observer sqlapi.CommittedMutationSource
 	DB       *sql.DB       // The database connection
 	Type     registry.Kind // The database type (postgres, mysql, sqlite, etc.)
-	Observer sqlapi.CommittedMutationSource
 }
 
 // newDBConn creates a new database resource
