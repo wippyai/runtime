@@ -77,9 +77,10 @@ func TestSourceSubscriptionCloseReleasesChannel(t *testing.T) {
 	select {
 	case _, ok := <-stream.Changes():
 		assert.False(t, ok)
-	case <-time.After(time.Second):
-		t.Fatal("timed out waiting for closed cdc stream")
+	default:
+		t.Fatal("stream channel was not closed synchronously")
 	}
+	assert.NoError(t, stream.Err())
 }
 
 func TestSourceSubscriptionRetainsTerminalError(t *testing.T) {
@@ -91,10 +92,27 @@ func TestSourceSubscriptionRetainsTerminalError(t *testing.T) {
 	select {
 	case _, ok := <-stream.Changes():
 		assert.False(t, ok)
-	case <-time.After(time.Second):
-		t.Fatal("stream did not close")
+	default:
+		t.Fatal("stream channel was not closed synchronously")
 	}
 	assert.ErrorIs(t, stream.(interface{ Err() error }).Err(), err)
+}
+
+func TestSourceSubscriptionChurnDetachesImmediately(t *testing.T) {
+	src := NewSource(SourceOptions{Name: "test:cdc", Slot: "slot_a"})
+	for i := 0; i < 1000; i++ {
+		stream := src.Subscribe(cdcapi.StreamOptions{Buffer: 1})
+		stream.Close()
+		select {
+		case _, ok := <-stream.Changes():
+			require.False(t, ok)
+		default:
+			t.Fatal("churned stream channel was not closed")
+		}
+	}
+	src.subMu.RLock()
+	defer src.subMu.RUnlock()
+	assert.Empty(t, src.subs)
 }
 
 func TestSourceSubscriptionIsPrunedWhenStopWins(t *testing.T) {

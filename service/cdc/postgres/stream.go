@@ -7,7 +7,6 @@ import (
 	"errors"
 	"strings"
 	"sync"
-	"sync/atomic"
 
 	config "github.com/wippyai/runtime/api/service/cdc"
 )
@@ -26,13 +25,12 @@ type sourceSubscription struct {
 	err    error
 	source *Source
 	out    chan config.Change
-	done   chan struct{}
 	tables map[string]struct{}
 	ops    map[string]struct{}
 	id     uint64
 	once   sync.Once
 	sendMu sync.Mutex
-	closed atomic.Bool
+	closed bool
 	errMu  sync.RWMutex
 }
 
@@ -82,14 +80,12 @@ func (s *Source) newSubscription(opts config.StreamOptions) config.Stream {
 		// out is the only event queue. sendMu serializes producers with
 		// terminal close so a slow consumer cannot retain a second buffer.
 		out:    make(chan config.Change, buffer),
-		done:   make(chan struct{}),
 		tables: filterSet(opts.Tables),
 		ops:    filterSet(opts.Ops),
 	}
 	s.subs[sub.id] = sub
 	s.subMu.Unlock()
 
-	go sub.run()
 	return sub
 }
 
@@ -148,34 +144,31 @@ func (s *sourceSubscription) Err() error {
 
 func (s *sourceSubscription) closeWithError(err error) {
 	s.once.Do(func() {
-		// Serialize the terminal transition with send. The run goroutine closes
-		// out under the same lock after done, so no producer can send to a
-		// closed channel.
-		s.sendMu.Lock()
-		s.closed.Store(true)
-		s.sendMu.Unlock()
+		// Publish the terminal error before closing Changes. Err is therefore
+		// immediately observable when the caller receives the closed channel.
 		if err != nil {
 			s.errMu.Lock()
 			s.err = err
 			s.errMu.Unlock()
 		}
+		// Serialize the terminal transition with send and close the event
+		// queue synchronously. No forwarding goroutine is needed, and no
+		// producer can send to a closed channel.
+		s.sendMu.Lock()
+		s.closed = true
+		close(s.out)
+		s.sendMu.Unlock()
+		// Detach outside sendMu: source removal takes subMu and must never
+		// participate in the producer/close critical section.
 		if s.source != nil {
 			s.source.removeSubscription(s.id)
 		}
-		close(s.done)
 	})
-}
-
-func (s *sourceSubscription) run() {
-	<-s.done
-	s.sendMu.Lock()
-	close(s.out)
-	s.sendMu.Unlock()
 }
 
 func (s *sourceSubscription) send(_ context.Context, change config.Change) {
 	s.sendMu.Lock()
-	if s.closed.Load() {
+	if s.closed {
 		s.sendMu.Unlock()
 		return
 	}
