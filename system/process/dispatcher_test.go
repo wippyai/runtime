@@ -714,6 +714,7 @@ func TestDispatcher_HandleExec_ContextCanceled(t *testing.T) {
 	topo.On("Register", mock.Anything).Return(nil)
 	topo.On("Remove", mock.Anything).Return()
 	manager.On("Start", mock.Anything, mock.Anything).Return(processPID, nil)
+	manager.On("Cancel", mock.Anything, mock.Anything, processPID, mock.Anything).Return(nil)
 
 	d := NewDispatcher(manager, router, topo, nil)
 
@@ -749,6 +750,7 @@ func TestDispatcher_HandleExec_ContextCanceled(t *testing.T) {
 
 	assert.NotNil(t, receiver.err)
 	assert.ErrorIs(t, receiver.err, context.Canceled)
+	manager.AssertCalled(t, "Cancel", mock.Anything, mock.Anything, processPID, mock.Anything)
 }
 
 func TestDispatcher_HandleExec_StartError(t *testing.T) {

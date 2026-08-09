@@ -3,6 +3,7 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -35,6 +36,7 @@ import (
 	"github.com/wippyai/runtime/cmd/internal/entries"
 	"github.com/wippyai/runtime/cmd/internal/shutdown"
 	embedpkg "github.com/wippyai/runtime/service/fs/embed"
+	terminalservice "github.com/wippyai/runtime/service/terminal"
 	securitysys "github.com/wippyai/runtime/system/security"
 	supervisorpkg "github.com/wippyai/runtime/system/supervisor"
 	"go.uber.org/zap"
@@ -289,9 +291,16 @@ func runWithUseCase(cmd *cobra.Command, args []string, useCase string) error {
 
 	// Handle exec: launch process and wait for completion
 	if execSpec != "" {
-		if err := launchExecProcess(ctx, logger, execSpec, execHost, args); err != nil {
-			logger.Error("exec launch failed", zap.Error(err))
-			return err
+		execCtx, stopExecSignals := newExecSignalContext(ctx)
+		execErr := launchExecProcess(execCtx, logger, execSpec, execHost, args)
+		interrupted := execWasInterrupted(execCtx, ctx, execErr)
+		stopExecSignals()
+		if execErr != nil && !interrupted {
+			logger.Error("exec launch failed", zap.Error(execErr))
+			return execErr
+		}
+		if interrupted {
+			logger.Info("exec interrupted", zap.String("signal", "SIGINT"))
 		}
 	}
 
@@ -401,18 +410,62 @@ func extractCommandMeta(meta map[string]any) (*commandMeta, error) {
 	if err != nil {
 		return nil, fmt.Errorf("encode command metadata: %w", err)
 	}
+	var commandFields map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &commandFields); err != nil {
+		return nil, fmt.Errorf("decode command metadata fields: %w", err)
+	}
 	var command commandMeta
 	if err := json.Unmarshal(encoded, &command); err != nil {
 		return nil, fmt.Errorf("decode command metadata: %w", err)
 	}
 	if command.Name == "" {
+		if _, declared := commandFields["security"]; declared {
+			return nil, fmt.Errorf("decode command metadata: security requires a command name")
+		}
 		return nil, nil
 	}
 	if command.UseCase == "" {
 		command.UseCase = defaultUseCase
 	}
 
+	if securityData, declared := commandFields["security"]; declared {
+		if bytes.Equal(bytes.TrimSpace(securityData), []byte("null")) {
+			return nil, fmt.Errorf("decode command metadata: security must be an object")
+		}
+
+		var config secapi.Config
+		decoder := json.NewDecoder(bytes.NewReader(securityData))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&config); err != nil {
+			return nil, fmt.Errorf("decode command security metadata: %w", err)
+		}
+		if err := validateCommandSecurityConfig(&config); err != nil {
+			return nil, fmt.Errorf("decode command security metadata: %w", err)
+		}
+		command.Security = &config
+	}
+
 	return &command, nil
+}
+
+func validateCommandSecurityConfig(config *secapi.Config) error {
+	if config == nil {
+		return fmt.Errorf("security configuration is nil")
+	}
+	if config.Actor.ID == "" && len(config.Actor.Meta) == 0 && len(config.PolicyGroups) == 0 && len(config.Policies) == 0 {
+		return fmt.Errorf("security configuration is empty")
+	}
+	for _, groupID := range config.PolicyGroups {
+		if groupID.NS == "" && groupID.Name == "" {
+			return fmt.Errorf("security policy group reference is empty")
+		}
+	}
+	for _, policyID := range config.Policies {
+		if policyID.NS == "" && policyID.Name == "" {
+			return fmt.Errorf("security policy reference is empty")
+		}
+	}
+	return nil
 }
 
 // runList prints all command-enabled process entries from resolved lock modules.
@@ -861,11 +914,6 @@ func launchExecProcess(ctx context.Context, logger *zap.Logger, execSpec, hostID
 		}
 	}
 
-	manager := process.GetManager(ctx)
-	if manager == nil {
-		return ErrProcessManagerNotAvailable
-	}
-
 	if err := waitForHostRunning(ctx, hostID); err != nil {
 		return err
 	}
@@ -875,30 +923,32 @@ func launchExecProcess(ctx context.Context, logger *zap.Logger, execSpec, hostID
 		input = append(input, payload.NewString(arg))
 	}
 
-	start := &process.Start{
-		HostID: hostID,
-		Source: source,
-		Input:  input,
-	}
-
 	// A command entry may declare its own security context (actor + policy
 	// scope). The CLI launcher is the trust anchor for terminal commands —
 	// the operator started this command on their own deployment — so the
 	// launcher resolves the declared context and attaches it to the start
 	// context. Without it a command under strict security mode executes with
 	// an incomplete context and every check denies.
-	start.Context = append(start.Context, securityPairs...)
-
-	pid, err := manager.Start(ctx, start)
+	result, err := waitForExecResult(ctx, &process.ExecCmd{
+		HostID:  hostID,
+		Source:  source,
+		Input:   input,
+		Context: securityPairs,
+	})
 	if err != nil {
-		return NewStartProcessError(hostID, err)
+		return fmt.Errorf("execute %s: %w", source.String(), err)
 	}
 
-	logger.Debug("exec process started",
-		zap.String("pid", pid.String()),
+	// The terminal host also performs this transition from its lifecycle hook,
+	// but the CLI owns the awaited ExecResult and must bridge it to the shell
+	// even if a host implementation does not emit its own shutdown signal.
+	exitCode := terminalservice.ExitCode(result)
+	supervisorapi.TriggerShutdown(ctx, exitCode)
+	logger.Debug("exec process completed",
 		zap.String("host", hostID),
 		zap.String("source", source.String()),
-		zap.Strings("args", args))
+		zap.Strings("args", args),
+		zap.Int("exit_code", exitCode))
 
 	return nil
 }

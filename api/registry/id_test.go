@@ -107,6 +107,12 @@ func TestID_UnmarshalJSON(t *testing.T) {
 	}
 }
 
+func TestID_UnmarshalJSON_RejectsUnknownObjectFields(t *testing.T) {
+	var id ID
+	err := json.Unmarshal([]byte(`{"ns":"app","name":"runner","secret":"nope"}`), &id)
+	assert.ErrorContains(t, err, "unknown field")
+}
+
 // TestID_UnmarshalJSON_RealWorld tests the UnmarshalJSON method with more realistic examples
 func TestID_UnmarshalJSON_RealWorld(t *testing.T) {
 	tests := []struct {

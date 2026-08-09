@@ -44,12 +44,13 @@ type Controller struct {
 	service       supervisor.Service
 	root          context.Context
 	ctx           context.Context
-	state         *internalState
-	onStateChange func(supervisor.Status, any)
+	securityErr   error
 	stateChanged  chan struct{}
+	onStateChange func(supervisor.Status, any)
 	cancel        context.CancelFunc
 	ops           chan ctrlOp
 	startCancel   context.CancelFunc
+	state         *internalState
 	config        supervisor.LifecycleConfig
 	startMu       sync.Mutex
 }
@@ -76,7 +77,11 @@ func NewController(
 	ctx, fc := ctxapi.ForkFrameContext(ctx)
 
 	if config.Security != nil {
-		ctx = securitysys.WithSecurityConfig(ctx, config.Security)
+		var securityErr error
+		ctx, securityErr = securitysys.WithSecurityConfigE(ctx, config.Security)
+		if securityErr != nil {
+			ctrl.securityErr = fmt.Errorf("resolve service security: %w", securityErr)
+		}
 	}
 
 	// Seal the frame since this is service-level and won't be modified
@@ -94,11 +99,20 @@ func NewController(
 // Start initiates the service and transitions it to the running state.
 func (c *Controller) Start() error {
 	c.state.setDesiredStatus(supervisor.StatusRunning)
+	if c.securityErr != nil {
+		c.updateState(supervisor.StatusExited, c.securityErr)
+		return c.securityErr
+	}
 	return c.runCommand(ctrlOp{kind: ctrlStart})
 }
 
 // Stop gracefully stops the service and transitions it to the stopped state.
 func (c *Controller) Stop() error {
+	if c.securityErr != nil {
+		c.state.setDesiredStatus(supervisor.StatusStopped)
+		c.cancel()
+		return nil
+	}
 	return c.StopContext(context.Background())
 }
 
@@ -106,6 +120,11 @@ func (c *Controller) Stop() error {
 func (c *Controller) StopContext(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()
+	}
+	if c.securityErr != nil {
+		c.state.setDesiredStatus(supervisor.StatusStopped)
+		c.cancel()
+		return nil
 	}
 	c.state.setDesiredStatus(supervisor.StatusStopped)
 	return c.runCommand(ctrlOp{kind: ctrlStop, ctx: ctx})

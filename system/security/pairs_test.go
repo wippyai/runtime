@@ -42,20 +42,59 @@ func TestResolveConfigPairs(t *testing.T) {
 			Actor:    security.Actor{ID: "wippy.test:runner"},
 			Policies: []registry.ID{registry.NewID("test", "policy")},
 		})
-		require.Len(t, pairs, 1)
+		assert.Nil(t, pairs)
 		require.EqualError(t, err, "security registry not available")
 	})
 
-	t.Run("unresolvable references return partial pairs and an error", func(t *testing.T) {
+	t.Run("unresolvable references return no partial pairs", func(t *testing.T) {
 		reg := NewPolicyRegistry(eventbus.NewBus(), nil)
 		regCtx := security.WithRegistry(ctx, reg)
 		pairs, err := ResolveConfigPairs(regCtx, &security.Config{
 			Actor:    security.Actor{ID: "a"},
 			Policies: []registry.ID{registry.NewID("test", "missing")},
 		})
-		require.Len(t, pairs, 1)
+		assert.Nil(t, pairs)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "test:missing")
+	})
+
+	t.Run("mixed valid and missing references are atomic", func(t *testing.T) {
+		reg := NewPolicyRegistry(eventbus.NewBus(), nil)
+		valid := newMockPolicy("valid", security.Allow)
+		validID := valid.ID()
+		reg.handleEvent(event.Event{
+			Kind: security.PolicyRegister,
+			Path: validID.String(),
+			Data: &security.PolicyEntry{Policy: valid},
+		})
+		regCtx := security.WithRegistry(ctx, reg)
+		pairs, err := ResolveConfigPairs(regCtx, &security.Config{
+			Actor: security.Actor{ID: "a"},
+			Policies: []registry.ID{
+				validID,
+				registry.NewID("test", "missing"),
+			},
+		})
+		assert.Nil(t, pairs)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "test:missing")
+	})
+
+	t.Run("empty declared group is rejected", func(t *testing.T) {
+		reg := NewPolicyRegistry(eventbus.NewBus(), nil)
+		groupID := registry.NewID("test", "empty")
+		reg.groups.Store(groupID, []registry.ID{})
+		emptyRoot := ctxapi.NewRootContext()
+		regCtx, emptyFrame := ctxapi.OpenFrameContext(emptyRoot)
+		t.Cleanup(func() { ctxapi.ReleaseFrameContext(emptyFrame) })
+		regCtx = security.WithRegistry(regCtx, reg)
+		pairs, err := ResolveConfigPairs(regCtx, &security.Config{
+			Actor:        security.Actor{ID: "a"},
+			PolicyGroups: []registry.ID{groupID},
+		})
+		assert.Nil(t, pairs)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "no policies")
 	})
 
 	t.Run("pairs install actor and scope into a frame context", func(t *testing.T) {

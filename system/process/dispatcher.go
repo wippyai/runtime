@@ -229,7 +229,20 @@ func (d *Dispatcher) handleExec(ctx context.Context, cmd dispatcher.Command, tag
 		for {
 			select {
 			case <-ctx.Done():
-				// Context canceled - cleanup and return error but don't cancel child
+				// process.exec owns the child for the lifetime of this request. A
+				// canceled CLI/request context must therefore cancel the child as
+				// well; otherwise a timed-out exec can outlive its watcher and leak
+				// work after the caller has already returned.
+				if cancelErr := d.manager.Cancel(
+					context.WithoutCancel(ctx),
+					watcherPID,
+					processPID,
+					"process.exec canceled: "+ctx.Err().Error(),
+				); cancelErr != nil {
+					d.logger.Warn("failed to cancel exec process",
+						zap.String("pid", processPID.String()),
+						zap.Error(cancelErr))
+				}
 				receiver.CompleteYield(tag, api.ExecResult{}, ctx.Err())
 				return
 
