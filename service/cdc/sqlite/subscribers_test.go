@@ -125,6 +125,36 @@ func TestPublishNeverBlocksAndClosesLaggard(t *testing.T) {
 	}
 }
 
+func TestOverflowedSubscriberDetachesImmediately(t *testing.T) {
+	subs := newSubscribers()
+	stream := subs.subscribe("s", config.StreamOptions{Buffer: 1})
+	change := config.Change{Op: "insert", Table: "users"}
+
+	stream.send(change)
+	stream.send(change)
+
+	assert.ErrorIs(t, stream.Err(), errSubscriberOverflow)
+	subs.mu.RLock()
+	remaining := len(subs.m)
+	subs.mu.RUnlock()
+	assert.Zero(t, remaining)
+}
+
+func TestOverflowedSubscriberChurnDoesNotRetainParentEntries(t *testing.T) {
+	subs := newSubscribers()
+	change := config.Change{Op: "insert", Table: "users"}
+	for i := 0; i < 1000; i++ {
+		stream := subs.subscribe("s", config.StreamOptions{Buffer: 1})
+		stream.send(change)
+		stream.send(change)
+	}
+
+	subs.mu.RLock()
+	remaining := len(subs.m)
+	subs.mu.RUnlock()
+	assert.Zero(t, remaining)
+}
+
 func TestSubscribersFilterByOp(t *testing.T) {
 	subs := newSubscribers()
 	stream := subs.subscribe("s", config.StreamOptions{Ops: []string{"delete"}})

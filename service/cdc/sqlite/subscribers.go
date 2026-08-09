@@ -127,27 +127,40 @@ func (s *subscription) send(change config.Change) {
 		return
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.closed {
-		return
+	var parent *subscribers
+	var id uint64
+	if !s.closed {
+		select {
+		case s.changes <- change:
+		default:
+			s.closeLocked(errSubscriberOverflow)
+			parent = s.parent
+			id = s.id
+		}
 	}
-	select {
-	case s.changes <- change:
-	default:
-		s.closeLocked(errSubscriberOverflow)
+	s.mu.Unlock()
+	// Detach after releasing the subscription lock. Taking the parent lock
+	// while holding s.mu would invert the order used by closeWithError and
+	// make concurrent publish/close able to deadlock.
+	if parent != nil {
+		parent.remove(id)
 	}
 }
 
 func (s *subscription) closeWithError(err error) {
 	s.mu.Lock()
+	var parent *subscribers
+	var id uint64
 	if s.closed {
 		s.mu.Unlock()
 		return
 	}
 	s.closeLocked(err)
+	parent = s.parent
+	id = s.id
 	s.mu.Unlock()
-	if s.parent != nil {
-		s.parent.remove(s.id)
+	if parent != nil {
+		parent.remove(id)
 	}
 }
 

@@ -49,12 +49,14 @@ func (r *testDBResource) Release() {
 }
 
 type testObserver struct {
-	stream   *testMutationStream
-	snapshot *testSnapshotStream
-	subOpts  sqlapi.MutationOptions
-	mu       sync.Mutex
-	closeN   atomic.Int32
-	closed   bool
+	stream              *testMutationStream
+	snapshot            *testSnapshotStream
+	snapshotStarted     chan struct{}
+	subOpts             sqlapi.MutationOptions
+	snapshotCancelDelay time.Duration
+	mu                  sync.Mutex
+	closeN              atomic.Int32
+	closed              bool
 }
 
 func (o *testObserver) Subscribe(ctx context.Context, opts sqlapi.MutationOptions) (sqlapi.MutationStream, error) {
@@ -74,6 +76,17 @@ func (o *testObserver) Subscribe(ctx context.Context, opts sqlapi.MutationOption
 func (o *testObserver) Snapshot(ctx context.Context, _ sqlapi.SnapshotOptions) (sqlapi.SnapshotStream, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
+	}
+	if o.snapshotStarted != nil {
+		select {
+		case o.snapshotStarted <- struct{}{}:
+		default:
+		}
+		<-ctx.Done()
+		if o.snapshotCancelDelay > 0 {
+			time.Sleep(o.snapshotCancelDelay)
+		}
+		return nil, ctx.Err()
 	}
 	o.mu.Lock()
 	defer o.mu.Unlock()
@@ -410,6 +423,43 @@ func TestSourceSnapshotOverflowClosesUpstream(t *testing.T) {
 	assert.Eventually(t, func() bool { return upstream.closeN.Load() == 1 }, time.Second, time.Millisecond)
 	assert.ErrorIs(t, subscriber.Err(), errSubscriberOverflow)
 	stream.Close()
+}
+
+func TestSourceStopWaitsForBlockedSnapshotAcquisition(t *testing.T) {
+	observer := &testObserver{
+		snapshotStarted:     make(chan struct{}, 1),
+		snapshotCancelDelay: 50 * time.Millisecond,
+	}
+	source := newTestSource(t, observer, sourceOptions{})
+	_, err := source.Start(context.Background())
+	require.NoError(t, err)
+
+	subscribeDone := make(chan error, 1)
+	go func() {
+		_, subscribeErr := source.Subscribe(context.Background(), cdcapi.StreamOptions{Snapshot: true})
+		subscribeDone <- subscribeErr
+	}()
+	select {
+	case <-observer.snapshotStarted:
+	case <-time.After(time.Second):
+		t.Fatal("snapshot acquisition did not start")
+	}
+
+	stopDone := make(chan error, 1)
+	go func() { stopDone <- source.Stop(context.Background()) }()
+	select {
+	case err := <-stopDone:
+		t.Fatalf("Stop returned before the blocked snapshot acquisition ended: %v", err)
+	case <-time.After(20 * time.Millisecond):
+	}
+	require.NoError(t, <-stopDone)
+	assert.Error(t, <-subscribeDone)
+
+	source.mu.RLock()
+	assert.Empty(t, source.snapshotAcq)
+	assert.Empty(t, source.snapshotSubs)
+	assert.Equal(t, cdcapi.SourceStateStopped, source.state)
+	source.mu.RUnlock()
 }
 
 func TestSourceStopsWithoutClosingSQLGeneration(t *testing.T) {

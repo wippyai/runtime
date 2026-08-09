@@ -39,7 +39,7 @@ type Source struct {
 	res            resource.Registry
 	observerSource sqlapi.CommittedMutationSource
 	observer       sqlapi.MutationStream
-	runDone        chan struct{}
+	snapshotAcq    map[uint64]*snapshotAcquisition
 	runCancel      context.CancelFunc
 	status         chan any
 	startCancel    context.CancelFunc
@@ -47,14 +47,16 @@ type Source struct {
 	log            *zap.Logger
 	startDone      chan struct{}
 	snapshotSubs   map[*subscription]sqlapi.MutationStream
-	id             registry.ID
+	runDone        chan struct{}
 	dbResID        registry.ID
+	id             registry.ID
 	name           string
 	generation     string
 	state          config.SourceState
 	tables         []string
 	lifecycle      configLifecycle
 	snapshotWG     sync.WaitGroup
+	nextSnapshotID uint64
 	statusTick     time.Duration
 	mu             sync.RWMutex
 	snapshot       bool
@@ -65,6 +67,10 @@ type Source struct {
 // configLifecycle is an alias kept local to this package so the Source does
 // not expose configuration implementation details through its API.
 type configLifecycle = supervisor.LifecycleConfig
+
+type snapshotAcquisition struct {
+	cancel context.CancelFunc
+}
 
 func buildSource(opts sourceOptions) (managedSource, error) {
 	log := opts.log
@@ -101,6 +107,7 @@ func buildSource(opts sourceOptions) (managedSource, error) {
 		snapshot:     opts.snapshot,
 		subs:         newSubscribers(),
 		snapshotSubs: make(map[*subscription]sqlapi.MutationStream),
+		snapshotAcq:  make(map[uint64]*snapshotAcquisition),
 		state:        config.SourceStateUnknown,
 	}, nil
 }
@@ -430,6 +437,7 @@ func (s *Source) fail(err error) {
 	s.observerSource = nil
 	snapshotSubscriptions := make([]*subscription, 0, len(s.snapshotSubs))
 	snapshotSubs := make([]sqlapi.MutationStream, 0, len(s.snapshotSubs))
+	snapshotCancels := s.snapshotAcquisitionCancelsLocked()
 	for sub, snapshotStream := range s.snapshotSubs {
 		snapshotSubscriptions = append(snapshotSubscriptions, sub)
 		snapshotSubs = append(snapshotSubs, snapshotStream)
@@ -439,6 +447,9 @@ func (s *Source) fail(err error) {
 	s.mu.Unlock()
 
 	s.subs.closeWithError(err)
+	for _, cancel := range snapshotCancels {
+		cancel()
+	}
 	for _, sub := range snapshotSubscriptions {
 		sub.closeWithError(err)
 	}
@@ -478,6 +489,7 @@ func (s *Source) Stop(ctx context.Context) error {
 	stream := s.observer
 	snapshotStreams := make([]sqlapi.MutationStream, 0, len(s.snapshotSubs))
 	snapshotSubscriptions := make([]*subscription, 0, len(s.snapshotSubs))
+	snapshotCancels := s.snapshotAcquisitionCancelsLocked()
 	for sub, snapshotStream := range s.snapshotSubs {
 		snapshotSubscriptions = append(snapshotSubscriptions, sub)
 		snapshotStreams = append(snapshotStreams, snapshotStream)
@@ -493,6 +505,9 @@ func (s *Source) Stop(ctx context.Context) error {
 	}
 	if stream != nil {
 		_ = stream.Close()
+	}
+	for _, cancel := range snapshotCancels {
+		cancel()
 	}
 	for _, sub := range snapshotSubscriptions {
 		sub.closeWithError(nil)
@@ -544,6 +559,44 @@ func waitDone(ctx context.Context, done <-chan struct{}) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+}
+
+func (s *Source) beginSnapshotAcquisition(ctx context.Context, observer sqlapi.CommittedMutationSource) (context.Context, uint64, error) {
+	acquisitionCtx, cancel := context.WithCancel(ctx)
+	s.mu.Lock()
+	if s.state != config.SourceStateRunning || s.stopping || s.observerSource != observer {
+		s.mu.Unlock()
+		cancel()
+		return nil, 0, config.ErrSourceNotReady
+	}
+	s.nextSnapshotID++
+	id := s.nextSnapshotID
+	s.snapshotAcq[id] = &snapshotAcquisition{cancel: cancel}
+	s.snapshotWG.Add(1)
+	s.mu.Unlock()
+	return acquisitionCtx, id, nil
+}
+
+func (s *Source) finishSnapshotAcquisition(id uint64) {
+	s.mu.Lock()
+	acquisition, ok := s.snapshotAcq[id]
+	if ok {
+		delete(s.snapshotAcq, id)
+	}
+	s.mu.Unlock()
+	if !ok {
+		return
+	}
+	acquisition.cancel()
+	s.snapshotWG.Done()
+}
+
+func (s *Source) snapshotAcquisitionCancelsLocked() []context.CancelFunc {
+	cancels := make([]context.CancelFunc, 0, len(s.snapshotAcq))
+	for _, acquisition := range s.snapshotAcq {
+		cancels = append(cancels, acquisition.cancel)
+	}
+	return cancels
 }
 
 // Subscribe exposes committed changes. Cursor resume remains unsupported
@@ -599,13 +652,19 @@ func (s *Source) subscribeSnapshot(ctx context.Context, observer sqlapi.Committe
 		return sub, nil
 	}
 
-	stream, err := observer.Snapshot(ctx, sqlapi.SnapshotOptions{
-		Tables: tables,
-	})
+	acquisitionCtx, acquisitionID, err := s.beginSnapshotAcquisition(ctx, observer)
 	if err != nil {
 		return nil, err
 	}
+	stream, err := observer.Snapshot(acquisitionCtx, sqlapi.SnapshotOptions{
+		Tables: tables,
+	})
+	if err != nil {
+		s.finishSnapshotAcquisition(acquisitionID)
+		return nil, err
+	}
 	if stream == nil {
+		s.finishSnapshotAcquisition(acquisitionID)
 		return nil, errors.New("sqlite snapshot observer returned a nil stream")
 	}
 
@@ -615,23 +674,31 @@ func (s *Source) subscribeSnapshot(ctx context.Context, observer sqlapi.Committe
 	if s.state != config.SourceStateRunning || s.stopping || s.observerSource != observer {
 		s.mu.Unlock()
 		_ = stream.Close()
+		s.finishSnapshotAcquisition(acquisitionID)
+		return nil, config.ErrSourceNotReady
+	}
+	if _, ok := s.snapshotAcq[acquisitionID]; !ok {
+		s.mu.Unlock()
+		_ = stream.Close()
+		s.finishSnapshotAcquisition(acquisitionID)
 		return nil, config.ErrSourceNotReady
 	}
 	s.snapshotSubs[sub] = stream
 	s.snapshotWG.Add(1)
 	s.mu.Unlock()
 
-	go s.runSnapshot(ctx, stream, sub)
+	go s.runSnapshot(acquisitionCtx, stream, sub, acquisitionID)
 	return sub, nil
 }
 
-func (s *Source) runSnapshot(ctx context.Context, stream sqlapi.SnapshotStream, sub *subscription) {
+func (s *Source) runSnapshot(ctx context.Context, stream sqlapi.SnapshotStream, sub *subscription, acquisitionID uint64) {
 	defer s.snapshotWG.Done()
 	defer func() {
 		s.mu.Lock()
 		delete(s.snapshotSubs, sub)
 		s.mu.Unlock()
 	}()
+	defer s.finishSnapshotAcquisition(acquisitionID)
 	// The SQL observer owns the snapshot read transaction and scan worker. A
 	// subscriber can end for any reason (upstream error, downstream overflow,
 	// cancellation, or normal close), so every return path must release that
