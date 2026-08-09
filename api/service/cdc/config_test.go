@@ -122,6 +122,28 @@ func TestConfigSnapshotFetchSizeRejectsNegative(t *testing.T) {
 	require.ErrorIs(t, c.Validate(), ErrInvalidSnapshotFetchSize)
 }
 
+func TestConfigTransactionLimitsUseFiniteDefaults(t *testing.T) {
+	c := validConfig()
+	assert.Equal(t, DefaultPostgresMaxTransactionChanges, c.EffectiveMaxTransactionChanges())
+	assert.Equal(t, int64(DefaultPostgresMaxTransactionBytes), c.EffectiveMaxTransactionBytes())
+
+	c.MaxTransactionChanges = 123
+	c.MaxTransactionBytes = 456
+	assert.Equal(t, 123, c.EffectiveMaxTransactionChanges())
+	assert.Equal(t, int64(456), c.EffectiveMaxTransactionBytes())
+	require.NoError(t, c.Validate())
+}
+
+func TestConfigTransactionLimitsRejectNegative(t *testing.T) {
+	c := validConfig()
+	c.MaxTransactionChanges = -1
+	require.ErrorIs(t, c.Validate(), ErrInvalidMaxTransactionChanges)
+
+	c = validConfig()
+	c.MaxTransactionBytes = -1
+	require.ErrorIs(t, c.Validate(), ErrInvalidMaxTransactionBytes)
+}
+
 func TestConfigFailoverRequiresPersistentSlot(t *testing.T) {
 	c := validConfig()
 	c.Failover = true

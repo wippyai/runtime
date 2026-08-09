@@ -9,6 +9,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/lib/pq"
+	config "github.com/wippyai/runtime/api/service/cdc"
 )
 
 // PostgreSQL stores ordinary identifiers in NameData, whose default
@@ -48,6 +49,26 @@ func quotePostgresIdentifier(value, field string) (string, error) {
 
 func validatePostgresIdentifier(value, field string) error {
 	_, err := quotePostgresIdentifier(value, field)
+	return err
+}
+
+// validateConfigIdentifiers applies the same SQL-grammar checks to both the
+// driver-backed source and the retained legacy manager path. Keeping this
+// policy in one helper prevents either construction path from creating an
+// auto-publication before rejecting its slot name.
+func validateConfigIdentifiers(cfg *config.Config) error {
+	if _, err := quoteReplicationSlotName(cfg.SlotName); err != nil {
+		return err
+	}
+	if cfg.Publication != "" {
+		return validatePostgresIdentifier(cfg.Publication, "publication")
+	}
+	for _, table := range cfg.Tables {
+		if _, err := quoteQualifiedIdent(table); err != nil {
+			return err
+		}
+	}
+	_, err := quotePostgresIdentifier(cfg.SlotName+"_pub", "publication")
 	return err
 }
 

@@ -37,3 +37,27 @@ func TestStopBeforeStartIsSafe(t *testing.T) {
 	require.NoError(t, s.Stop(ctx))
 	require.NoError(t, s.Stop(ctx))
 }
+
+func TestFailedSourceCanBeStoppedAndRetried(t *testing.T) {
+	s := NewSource(SourceOptions{})
+	s.mu.Lock()
+	s.state = sourceFailed
+	s.mu.Unlock()
+
+	require.NoError(t, s.Stop(context.Background()))
+
+	// A canceled start fails during setup, but it must not be rejected as a
+	// permanently closed source. Supervisors use this path after a fault.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := s.Start(ctx)
+	require.Error(t, err)
+	assert.NotErrorIs(t, err, ErrSourceClosed)
+}
+
+func TestClosePermanentlyRetiresSource(t *testing.T) {
+	s := NewSource(SourceOptions{})
+	require.NoError(t, s.Close(context.Background()))
+	_, err := s.Start(context.Background())
+	require.ErrorIs(t, err, ErrSourceClosed)
+}

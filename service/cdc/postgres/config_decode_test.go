@@ -27,17 +27,19 @@ func decodeConfig(t *testing.T, raw map[string]any) *config.Config {
 
 func TestConfigWireFormatMapsAndBuildsDSN(t *testing.T) {
 	cfg := decodeConfig(t, map[string]any{
-		"host":             "db.internal",
-		"port":             5432,
-		"username":         "cdc_repl",
-		"password":         "secret",
-		"database":         "appdb",
-		"slot_name":        "wippy_slot",
-		"publication":      "wippy_pub",
-		"snapshot":         true,
-		"standby_interval": "5s",
-		"status_interval":  "1m",
-		"tables":           []any{"public.accounts", "public.orders"},
+		"host":                    "db.internal",
+		"port":                    5432,
+		"username":                "cdc_repl",
+		"password":                "secret",
+		"database":                "appdb",
+		"slot_name":               "wippy_slot",
+		"publication":             "wippy_pub",
+		"snapshot":                true,
+		"max_transaction_changes": 1234,
+		"max_transaction_bytes":   65536,
+		"standby_interval":        "5s",
+		"status_interval":         "1m",
+		"tables":                  []any{"public.accounts", "public.orders"},
 	})
 	require.NoError(t, cfg.Validate())
 
@@ -48,6 +50,8 @@ func TestConfigWireFormatMapsAndBuildsDSN(t *testing.T) {
 	assert.Equal(t, "wippy_slot", cfg.SlotName)
 	assert.Equal(t, "wippy_pub", cfg.Publication)
 	assert.True(t, cfg.Snapshot)
+	assert.Equal(t, 1234, cfg.MaxTransactionChanges)
+	assert.Equal(t, int64(65536), cfg.MaxTransactionBytes)
 	assert.Equal(t, "5s", cfg.StandbyInterval)
 	assert.Equal(t, []string{"public.accounts", "public.orders"}, cfg.Tables)
 

@@ -38,22 +38,8 @@ func (Driver) Create(ctx context.Context, entry registry.Entry, deps cdcservice.
 	if err := cfg.Validate(); err != nil {
 		return nil, NewInvalidConfigError(err)
 	}
-	if _, err := quoteReplicationSlotName(cfg.SlotName); err != nil {
+	if err := validateConfigIdentifiers(cfg); err != nil {
 		return nil, NewInvalidConfigError(err)
-	}
-	if cfg.Publication != "" {
-		if err := validatePostgresIdentifier(cfg.Publication, "publication"); err != nil {
-			return nil, NewInvalidConfigError(err)
-		}
-	} else {
-		for _, table := range cfg.Tables {
-			if _, err := quoteQualifiedIdent(table); err != nil {
-				return nil, NewInvalidConfigError(err)
-			}
-		}
-		if _, err := quotePostgresIdentifier(cfg.SlotName+"_pub", "publication"); err != nil {
-			return nil, NewInvalidConfigError(err)
-		}
 	}
 	standby, _ := cfg.StandbyDuration()
 	status, _ := cfg.StatusDuration()

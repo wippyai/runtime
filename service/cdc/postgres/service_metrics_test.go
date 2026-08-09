@@ -15,12 +15,12 @@ import (
 
 func TestSource_FailEmitsErrorCounter(t *testing.T) {
 	rec := telemetrytest.NewRecorder()
-	s := &Source{log: zap.NewNop(), slot: "test_slot", coll: rec}
+	s := &Source{log: zap.NewNop(), name: "test:source", slot: "test_slot", coll: rec}
 
 	status := make(chan any, 1)
 	s.fail(context.Background(), status, errors.New("boom"))
 
-	assert.Equal(t, 1.0, rec.CounterValue(errorsCounter, metrics.Labels{"slot": "test_slot"}))
+	assert.Equal(t, 1.0, rec.CounterValue(errorsCounter, metrics.Labels{"source": "test:source"}))
 }
 
 func TestSource_FailNilCollector(t *testing.T) {
