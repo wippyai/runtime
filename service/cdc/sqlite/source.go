@@ -39,25 +39,27 @@ type Source struct {
 	res            resource.Registry
 	observerSource sqlapi.CommittedMutationSource
 	observer       sqlapi.MutationStream
-	snapshotAcq    map[uint64]*snapshotAcquisition
-	runCancel      context.CancelFunc
 	status         chan any
+	runCancel      context.CancelFunc
+	stopGate       chan struct{}
 	startCancel    context.CancelFunc
 	subs           *subscribers
 	log            *zap.Logger
 	startDone      chan struct{}
 	snapshotSubs   map[*subscription]sqlapi.MutationStream
 	runDone        chan struct{}
-	dbResID        registry.ID
+	snapshotWait   chan struct{}
+	snapshotAcq    map[uint64]*snapshotAcquisition
 	id             registry.ID
+	dbResID        registry.ID
 	name           string
-	generation     string
 	state          config.SourceState
+	generation     string
 	tables         []string
 	lifecycle      configLifecycle
 	snapshotWG     sync.WaitGroup
-	nextSnapshotID uint64
 	statusTick     time.Duration
+	nextSnapshotID uint64
 	mu             sync.RWMutex
 	snapshot       bool
 	statusClosed   bool
@@ -94,6 +96,8 @@ func buildSource(opts sourceOptions) (managedSource, error) {
 	if name == "" {
 		name = "sqlite"
 	}
+	stopGate := make(chan struct{}, 1)
+	stopGate <- struct{}{}
 
 	return &Source{
 		res:          opts.res,
@@ -108,6 +112,7 @@ func buildSource(opts sourceOptions) (managedSource, error) {
 		subs:         newSubscribers(),
 		snapshotSubs: make(map[*subscription]sqlapi.MutationStream),
 		snapshotAcq:  make(map[uint64]*snapshotAcquisition),
+		stopGate:     stopGate,
 		state:        config.SourceStateUnknown,
 	}, nil
 }
@@ -165,6 +170,10 @@ func (s *Source) Start(ctx context.Context) (<-chan any, error) {
 	}
 
 	s.mu.Lock()
+	if s.stopping {
+		s.mu.Unlock()
+		return nil, ErrSourceClosed
+	}
 	if s.state == config.SourceStateRunning {
 		status := s.status
 		s.mu.Unlock()
@@ -174,11 +183,6 @@ func (s *Source) Start(ctx context.Context) (<-chan any, error) {
 		s.mu.Unlock()
 		return nil, fmt.Errorf("%w: start already in progress", config.ErrSourceNotReady)
 	}
-	if s.stopping {
-		s.mu.Unlock()
-		return nil, ErrSourceClosed
-	}
-
 	startCtx, startCancel := context.WithCancel(ctx)
 	startDone := make(chan struct{})
 	status := make(chan any, 8)
@@ -196,13 +200,13 @@ func (s *Source) Start(ctx context.Context) (<-chan any, error) {
 		startCancel()
 		s.mu.Lock()
 		s.sourceErr = err
-		if s.stopping {
-			s.state = config.SourceStateStopped
-		} else {
+		if !s.stopping {
 			s.state = config.SourceStateFaulted
 		}
 		s.startCancel = nil
-		s.closeStatusLocked()
+		if !s.stopping {
+			s.closeStatusLocked()
+		}
 		s.mu.Unlock()
 		return nil, err
 	}
@@ -216,13 +220,13 @@ func (s *Source) Start(ctx context.Context) (<-chan any, error) {
 		startCancel()
 		s.mu.Lock()
 		s.sourceErr = err
-		if s.stopping {
-			s.state = config.SourceStateStopped
-		} else {
+		if !s.stopping {
 			s.state = config.SourceStateFaulted
 		}
 		s.startCancel = nil
-		s.closeStatusLocked()
+		if !s.stopping {
+			s.closeStatusLocked()
+		}
 		s.mu.Unlock()
 		return nil, fmt.Errorf("subscribe sqlite mutation observer: %w", err)
 	}
@@ -475,13 +479,21 @@ func (s *Source) Stop(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	// Serialize cleanup attempts. A timed-out attempt leaves the source in its
+	// pre-stop state with stopping set, so a later caller must be able to retry
+	// the same cleanup without racing the first attempt or observing a false
+	// successful stop.
+	if err := s.acquireStop(ctx); err != nil {
+		return err
+	}
+	defer s.releaseStop()
+
 	s.mu.Lock()
-	if s.state == config.SourceStateStopped {
+	if s.state == config.SourceStateStopped && !s.stopping {
 		s.mu.Unlock()
 		return nil
 	}
 	s.stopping = true
-	s.state = config.SourceStateStopped
 	startCancel := s.startCancel
 	runCancel := s.runCancel
 	startDone := s.startDone
@@ -516,24 +528,32 @@ func (s *Source) Stop(ctx context.Context) error {
 		_ = snapshotStream.Close()
 	}
 
-	waitCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cleanupTimeout)
+	s.mu.Lock()
+	snapshotDone := s.snapshotWait
+	if snapshotDone == nil {
+		snapshotDone = make(chan struct{})
+		s.snapshotWait = snapshotDone
+		go func() {
+			s.snapshotWG.Wait()
+			close(snapshotDone)
+		}()
+	}
+	s.mu.Unlock()
+
+	stopTimeout := cleanupTimeout
+	if s.lifecycle.StopTimeout > 0 {
+		stopTimeout = s.lifecycle.StopTimeout
+	}
+	waitCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), stopTimeout)
 	defer cancel()
 	if err := waitDone(waitCtx, startDone); err != nil {
-		s.subs.closeWithError(err)
-		return err
+		return s.stopFailed(err)
 	}
 	if err := waitDone(waitCtx, runDone); err != nil {
-		s.subs.closeWithError(err)
-		return err
+		return s.stopFailed(err)
 	}
-	snapshotDone := make(chan struct{})
-	go func() {
-		s.snapshotWG.Wait()
-		close(snapshotDone)
-	}()
 	if err := waitDone(waitCtx, snapshotDone); err != nil {
-		s.subs.closeWithError(err)
-		return err
+		return s.stopFailed(err)
 	}
 
 	s.subs.closeAll()
@@ -544,9 +564,39 @@ func (s *Source) Stop(ctx context.Context) error {
 	s.observerSource = nil
 	s.startCancel = nil
 	s.runCancel = nil
+	s.snapshotWait = nil
 	s.closeStatusLocked()
 	s.mu.Unlock()
 	return nil
+}
+
+func (s *Source) acquireStop(ctx context.Context) error {
+	if s.stopGate == nil {
+		return nil
+	}
+	select {
+	case <-s.stopGate:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (s *Source) releaseStop() {
+	if s.stopGate != nil {
+		s.stopGate <- struct{}{}
+	}
+}
+
+func (s *Source) stopFailed(err error) error {
+	s.subs.closeWithError(err)
+	s.mu.Lock()
+	if s.state != config.SourceStateStopped {
+		s.state = config.SourceStateFaulted
+		s.sourceErr = err
+	}
+	s.mu.Unlock()
+	return err
 }
 
 func waitDone(ctx context.Context, done <-chan struct{}) error {
@@ -607,6 +657,9 @@ func (s *Source) Subscribe(ctx context.Context, opts config.StreamOptions) (conf
 		ctx = context.Background()
 	}
 	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := opts.Validate(); err != nil {
 		return nil, err
 	}
 	if opts.After != "" {

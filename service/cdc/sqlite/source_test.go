@@ -19,6 +19,7 @@ import (
 	"github.com/wippyai/runtime/api/resource"
 	cdcapi "github.com/wippyai/runtime/api/service/cdc"
 	sqlapi "github.com/wippyai/runtime/api/service/sql"
+	"github.com/wippyai/runtime/api/supervisor"
 	sqlservice "github.com/wippyai/runtime/service/sql"
 )
 
@@ -460,6 +461,145 @@ func TestSourceStopWaitsForBlockedSnapshotAcquisition(t *testing.T) {
 	assert.Empty(t, source.snapshotSubs)
 	assert.Equal(t, cdcapi.SourceStateStopped, source.state)
 	source.mu.RUnlock()
+}
+
+func TestSourceStopTimeoutIsRetryableAndRestartable(t *testing.T) {
+	observer := &testObserver{
+		snapshotStarted:     make(chan struct{}, 1),
+		snapshotCancelDelay: 50 * time.Millisecond,
+	}
+	source := newTestSource(t, observer, sourceOptions{
+		lifecycle: supervisor.LifecycleConfig{StopTimeout: 10 * time.Millisecond},
+	})
+	_, err := source.Start(context.Background())
+	require.NoError(t, err)
+
+	subscribeDone := make(chan error, 1)
+	go func() {
+		_, subscribeErr := source.Subscribe(context.Background(), cdcapi.StreamOptions{Snapshot: true})
+		subscribeDone <- subscribeErr
+	}()
+	select {
+	case <-observer.snapshotStarted:
+	case <-time.After(time.Second):
+		t.Fatal("snapshot acquisition did not start")
+	}
+
+	err = source.Stop(context.Background())
+	assert.ErrorIs(t, err, context.DeadlineExceeded)
+	assert.ErrorIs(t, func() error {
+		_, startErr := source.Start(context.Background())
+		return startErr
+	}(), ErrSourceClosed)
+	source.mu.RLock()
+	assert.Equal(t, cdcapi.SourceStateFaulted, source.state, "a timed-out stop reports failure without publishing Stopped")
+	assert.True(t, source.stopping, "a timed-out stop remains retryable")
+	source.mu.RUnlock()
+
+	assert.Error(t, <-subscribeDone)
+	require.NoError(t, source.Stop(context.Background()))
+	assert.Equal(t, cdcapi.SourceStateStopped, source.Info().State)
+
+	_, err = source.Start(context.Background())
+	require.NoError(t, err)
+	require.NoError(t, source.Stop(context.Background()))
+}
+
+func TestSourceFaultCancelsBlockedSnapshotAcquisition(t *testing.T) {
+	observer := &testObserver{snapshotStarted: make(chan struct{}, 1)}
+	source := newTestSource(t, observer, sourceOptions{})
+	_, err := source.Start(context.Background())
+	require.NoError(t, err)
+
+	subscribeDone := make(chan error, 1)
+	go func() {
+		_, subscribeErr := source.Subscribe(context.Background(), cdcapi.StreamOptions{Snapshot: true})
+		subscribeDone <- subscribeErr
+	}()
+	select {
+	case <-observer.snapshotStarted:
+	case <-time.After(time.Second):
+		t.Fatal("snapshot acquisition did not start")
+	}
+
+	observer.currentStream(t).closeWithError(errors.New("observer generation failed"))
+	assert.Error(t, <-subscribeDone)
+	assert.Eventually(t, func() bool {
+		return source.Info().State == cdcapi.SourceStateFaulted
+	}, time.Second, time.Millisecond)
+	require.NoError(t, source.Stop(context.Background()))
+}
+
+func TestSourceLifecycleIsolationAcrossResources(t *testing.T) {
+	firstObserver := &testObserver{
+		snapshotStarted:     make(chan struct{}, 1),
+		snapshotCancelDelay: 50 * time.Millisecond,
+	}
+	first := newTestSource(t, firstObserver, sourceOptions{
+		id:        registry.NewID("app", "cdc-first"),
+		res:       &testResourceRegistry{observer: firstObserver},
+		lifecycle: supervisor.LifecycleConfig{StopTimeout: 10 * time.Millisecond},
+	})
+	secondObserver := &testObserver{}
+	second := newTestSource(t, secondObserver, sourceOptions{
+		id:  registry.NewID("app", "cdc-second"),
+		res: &testResourceRegistry{observer: secondObserver},
+	})
+	_, err := first.Start(context.Background())
+	require.NoError(t, err)
+	_, err = second.Start(context.Background())
+	require.NoError(t, err)
+	defer func() {
+		_ = first.Stop(context.Background())
+		_ = second.Stop(context.Background())
+	}()
+
+	_, err = first.Subscribe(context.Background(), cdcapi.StreamOptions{})
+	require.NoError(t, err)
+	secondLive, err := second.Subscribe(context.Background(), cdcapi.StreamOptions{})
+	require.NoError(t, err)
+
+	snapshotDone := make(chan error, 1)
+	go func() {
+		_, snapshotErr := first.Subscribe(context.Background(), cdcapi.StreamOptions{Snapshot: true})
+		snapshotDone <- snapshotErr
+	}()
+	select {
+	case <-firstObserver.snapshotStarted:
+	case <-time.After(time.Second):
+		t.Fatal("first snapshot acquisition did not start")
+	}
+
+	assert.ErrorIs(t, first.Stop(context.Background()), context.DeadlineExceeded)
+	secondObserver.currentStream(t).push(sqlapi.MutationBatch{
+		Transaction: "second-while-first-stopping",
+		Changes: []sqlapi.Mutation{{
+			Schema: "main", Table: "t", Columns: []string{"id"},
+			After: []any{int64(2)}, Op: "insert",
+		}},
+	})
+	assert.Equal(t, int64(2), receiveChange(t, secondLive).After["id"])
+	assert.Equal(t, cdcapi.SourceStateRunning, second.Info().State)
+
+	assert.Error(t, <-snapshotDone)
+	require.NoError(t, first.Stop(context.Background()))
+	assert.Equal(t, cdcapi.SourceStateStopped, first.Info().State)
+	assert.Equal(t, cdcapi.SourceStateRunning, second.Info().State)
+	assert.Equal(t, int32(0), secondObserver.closeN.Load(), "stopping one source must not close another SQL observer")
+
+	_, err = first.Start(context.Background())
+	require.NoError(t, err)
+	firstLive, err := first.Subscribe(context.Background(), cdcapi.StreamOptions{})
+	require.NoError(t, err)
+	firstObserver.currentStream(t).push(sqlapi.MutationBatch{
+		Transaction: "first-after-restart",
+		Changes: []sqlapi.Mutation{{
+			Schema: "main", Table: "t", Columns: []string{"id"},
+			After: []any{int64(1)}, Op: "insert",
+		}},
+	})
+	assert.Equal(t, int64(1), receiveChange(t, firstLive).After["id"])
+	assert.Equal(t, cdcapi.SourceStateRunning, second.Info().State)
 }
 
 func TestSourceStopsWithoutClosingSQLGeneration(t *testing.T) {
