@@ -9,9 +9,20 @@ import (
 )
 
 var (
-	ErrNilPackage      = apierror.New(apierror.Invalid, "cannot send nil package").WithRetryable(apierror.False)
-	ErrAlreadyAttached = apierror.New(apierror.AlreadyExists, "receiver already attached").WithRetryable(apierror.False)
+	ErrNilPackage         = apierror.New(apierror.Invalid, "cannot send nil package").WithRetryable(apierror.False)
+	ErrAlreadyAttached    = apierror.New(apierror.AlreadyExists, "receiver already attached").WithRetryable(apierror.False)
+	ErrContextUnsupported = apierror.New(apierror.Unavailable, "receiver does not support cancellable delivery").WithRetryable(apierror.False)
 )
+
+// NewContextUnsupportedError identifies a host that cannot bind delivery to
+// a caller context. SendContext must fail rather than invoke a legacy Send
+// method that may block past the caller's lifecycle.
+func NewContextUnsupportedError(hostID pid.HostID, nodeID pid.NodeID) apierror.Error {
+	return apierror.New(apierror.Unavailable, "receiver does not support cancellable delivery").
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"host_id": hostID, "node_id": nodeID})).
+		WithCause(ErrContextUnsupported)
+}
 
 // NewInvalidHostTypeError creates an error when host has invalid type.
 func NewInvalidHostTypeError(hostID pid.HostID, nodeID pid.NodeID) apierror.Error {

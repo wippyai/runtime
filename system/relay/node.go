@@ -102,6 +102,9 @@ func (n *Node) send(ctx context.Context, pkg *api.Package) error {
 	if sender, ok := receiver.(api.ContextSender); ok {
 		return sender.SendContext(ctx, pkg)
 	}
+	if ctx.Done() != nil {
+		return NewContextUnsupportedError(pkg.Target.Host, n.nodeID)
+	}
 	return receiver.Send(pkg)
 }
 
