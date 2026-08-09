@@ -58,8 +58,8 @@ func (f *fakeSource) Subscribe(context.Context, cdcapi.StreamOptions) (cdcapi.St
 }
 
 type fakeRegistry struct {
-	all    []cdcapi.SourceInfo
 	source cdcapi.Source
+	all    []cdcapi.SourceInfo
 }
 
 func (f *fakeRegistry) List() []cdcapi.SourceInfo { return f.all }
