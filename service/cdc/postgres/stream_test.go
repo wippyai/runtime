@@ -41,6 +41,29 @@ func TestSourceSubscribePublishesMatchingChanges(t *testing.T) {
 	}
 }
 
+func TestSourceSubscribePreparesStartupSnapshotBeforeStart(t *testing.T) {
+	src := NewSource(SourceOptions{Name: "test:cdc", Slot: "slot_a"})
+	stream, err := src.subscribe(context.Background(), cdcapi.StreamOptions{Buffer: 1})
+	require.NoError(t, err)
+	require.NotNil(t, stream)
+	defer stream.Close()
+
+	src.publishChange(context.Background(), cdcapi.Change{
+		Op:     "snapshot",
+		Table:  "accounts",
+		After:  map[string]any{"id": int64(1)},
+		Source: "test:cdc",
+	})
+
+	select {
+	case got := <-stream.Changes():
+		require.Equal(t, "snapshot", got.Op)
+		require.Equal(t, "accounts", got.Table)
+	case <-time.After(time.Second):
+		t.Fatal("pre-start subscription did not retain startup snapshot")
+	}
+}
+
 func TestSourceSubscribeFiltersChanges(t *testing.T) {
 	src := NewSource(SourceOptions{Name: "test:cdc", Slot: "slot_a"})
 	stream := src.Subscribe(cdcapi.StreamOptions{

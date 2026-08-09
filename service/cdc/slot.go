@@ -116,12 +116,18 @@ func (s *sourceSlot) Info() api.SourceInfo {
 	return info
 }
 
+// Subscribe delegates pre-start subscriptions to drivers that can retain the
+// registration until Start establishes the generation. This is required for
+// source-owned startup snapshots; drivers without that handoff return
+// ErrSourceNotReady. The stable slot still rejects stopped, replacing, and
+// disposing generations.
 func (s *sourceSlot) Subscribe(ctx context.Context, opts api.StreamOptions) (api.Stream, error) {
 	if err := opts.Validate(); err != nil {
 		return nil, err
 	}
 	s.mu.RLock()
-	if s.state != slotRunning || isNilSource(s.current) || s.disposing || s.replacing {
+	preStart := s.state == slotIdle || s.state == slotStarting
+	if (!preStart && s.state != slotRunning) || isNilSource(s.current) || s.disposing || s.replacing {
 		s.mu.RUnlock()
 		return nil, api.ErrSourceNotReady
 	}
@@ -137,7 +143,8 @@ func (s *sourceSlot) Subscribe(ctx context.Context, opts api.StreamOptions) (api
 	}
 
 	s.mu.RLock()
-	stillCurrent := s.state == slotRunning && s.current == current && s.generation == generation && !s.replacing
+	stillCurrent := (s.state == slotIdle || s.state == slotStarting || s.state == slotRunning) &&
+		s.current == current && s.generation == generation && !s.replacing
 	s.mu.RUnlock()
 	if !stillCurrent {
 		stream.Close()
@@ -365,7 +372,13 @@ func (s *sourceSlot) Replace(ctx context.Context, candidate ManagedSource, oldLe
 	s.mu.Unlock()
 
 	startCandidate := oldState == slotRunning || lifecycleAutoStart(candidate)
-	shouldStopOld := !isNilSource(old) && (oldState != slotStopped && oldState != slotIdle || differentResource || oldKey == "")
+	// A source configured with a startup snapshot may have accepted a
+	// pre-start subscription while the stable slot was idle. Stop that old
+	// generation on replacement so its driver can close the prepared stream;
+	// ordinary idle sources retain the historical no-op handoff.
+	oldHasStartupSnapshot := oldState == slotIdle && !isNilSource(old) && old.Info().Snapshot
+	shouldStopOld := !isNilSource(old) &&
+		(oldState != slotStopped && oldState != slotIdle || differentResource || oldKey == "" || oldHasStartupSnapshot)
 
 	var (
 		underlying <-chan any

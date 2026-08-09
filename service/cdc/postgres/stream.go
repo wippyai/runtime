@@ -50,7 +50,7 @@ func (s *Source) Subscribe(opts config.StreamOptions) config.Stream {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.state != sourceNew && s.state != sourceRunning {
+	if s.state != sourceNew && s.state != sourceStarting && s.state != sourceRunning {
 		return nil
 	}
 	return s.newSubscription(opts)
@@ -70,7 +70,8 @@ func (s *Source) subscribe(ctx context.Context, opts config.StreamOptions) (conf
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.state != sourceRunning || s.permanentlyClosed || s.sourceErr != nil {
+	if (s.state != sourceNew && s.state != sourceStarting && s.state != sourceRunning) ||
+		s.permanentlyClosed || s.sourceErr != nil {
 		return nil, config.ErrSourceNotReady
 	}
 	return s.newSubscription(opts), nil

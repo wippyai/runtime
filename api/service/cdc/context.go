@@ -50,8 +50,10 @@ type Stream interface {
 type ErrStream = Stream
 
 // Source is the common source contract implemented by every CDC driver.
-// Subscribe receives a context so a source can reject subscriptions while it
-// is not ready and can bind snapshot work to the caller's lifetime.
+// Subscribe receives a context so a source can bind snapshot work to the
+// caller's lifetime. A source that supports startup snapshot handoff may
+// accept subscriptions while it is idle or starting; sources that cannot
+// establish that handoff return ErrSourceNotReady until they are running.
 type Source interface {
 	Info() SourceInfo
 	Subscribe(context.Context, StreamOptions) (Stream, error)

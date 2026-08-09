@@ -55,12 +55,26 @@ type blockingStopSource struct {
 	stopOnce    sync.Once
 }
 
+type startupSnapshotSource struct {
+	*managedTestSource
+	snapshot api.Change
+}
+
 func newBlockingStopSource(source *managedTestSource) *blockingStopSource {
 	return &blockingStopSource{
 		managedTestSource: source,
 		stopEntered:       make(chan struct{}),
 		releaseStop:       make(chan struct{}),
 	}
+}
+
+func (s *startupSnapshotSource) Start(ctx context.Context) (<-chan any, error) {
+	status, err := s.managedTestSource.Start(ctx)
+	if err != nil {
+		return status, err
+	}
+	s.stream.changes <- s.snapshot
+	return status, nil
 }
 
 func (s *blockingStopSource) Stop(ctx context.Context) error {
@@ -210,6 +224,75 @@ func TestManagerRoutesCanonicalIDsAndOwnsLifecycle(t *testing.T) {
 	require.EqualValues(t, 1, created[0].stopCount.Load())
 	_, ok = m.Get(id)
 	require.False(t, ok)
+}
+
+func TestManagerPreStartSubscriptionsReceiveIndependentStartupSnapshots(t *testing.T) {
+	kind := registry.Kind("db.cdc.test")
+	aID := registry.NewID("app", "db-a")
+	bID := registry.NewID("app", "db-b")
+	aSource := &startupSnapshotSource{
+		managedTestSource: &managedTestSource{
+			info:   api.SourceInfo{Snapshot: true},
+			stream: &testStream{changes: make(chan api.Change, 1)},
+		},
+		snapshot: api.Change{Op: "snapshot", Table: "a"},
+	}
+	bSource := &startupSnapshotSource{
+		managedTestSource: &managedTestSource{
+			info:   api.SourceInfo{Snapshot: true},
+			stream: &testStream{changes: make(chan api.Change, 1)},
+		},
+		snapshot: api.Change{Op: "snapshot", Table: "b"},
+	}
+	driver := testDriver{
+		kind: kind,
+		create: func(entry registry.Entry) (ManagedSource, error) {
+			switch entry.ID {
+			case aID:
+				return aSource, nil
+			case bID:
+				return bSource, nil
+			default:
+				return nil, errors.New("unexpected source id")
+			}
+		},
+	}
+	m, _ := newManagerTest(t, driver)
+	require.NoError(t, m.Add(context.Background(), registry.Entry{ID: aID, Kind: kind}))
+	require.NoError(t, m.Add(context.Background(), registry.Entry{ID: bID, Kind: kind}))
+
+	aStream, err := mustSlot(t, m, aID).Subscribe(context.Background(), api.StreamOptions{})
+	require.NoError(t, err)
+	bStream, err := mustSlot(t, m, bID).Subscribe(context.Background(), api.StreamOptions{})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		aStream.Close()
+		bStream.Close()
+	})
+
+	_, err = mustSlot(t, m, aID).Start(context.Background())
+	require.NoError(t, err)
+	_, err = mustSlot(t, m, bID).Start(context.Background())
+	require.NoError(t, err)
+
+	select {
+	case change := <-aStream.Changes():
+		require.Equal(t, "a", change.Table)
+		require.Equal(t, aID, change.SourceID)
+		require.Equal(t, aID.String(), change.Source)
+	case <-time.After(time.Second):
+		t.Fatal("source A startup snapshot was lost")
+	}
+	select {
+	case change := <-bStream.Changes():
+		require.Equal(t, "b", change.Table)
+		require.Equal(t, bID, change.SourceID)
+		require.Equal(t, bID.String(), change.Source)
+	case <-time.After(time.Second):
+		t.Fatal("source B startup snapshot was lost")
+	}
+	require.NoError(t, m.Delete(context.Background(), registry.Entry{ID: aID, Kind: kind}))
+	require.NoError(t, m.Delete(context.Background(), registry.Entry{ID: bID, Kind: kind}))
 }
 
 func TestManagerDeleteInvokesDisposeOnlyAfterUnregister(t *testing.T) {
