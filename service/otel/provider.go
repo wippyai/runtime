@@ -146,24 +146,37 @@ func createHTTPExporter(ctx context.Context, cfg otelapi.Config, logger *zap.Log
 	return otlptracehttp.New(ctx, opts...)
 }
 
-// createResource creates an OTEL resource with service information
+// createResource creates an OTEL resource with service information, merged
+// onto the SDK default resource so every exported span and metric also carries
+// standard process/host/os semconv attributes (host.name, process.pid,
+// os.type, etc.).
 func createResource(cfg otelapi.Config) (*resource.Resource, error) {
-	attrs := []resource.Option{
+	opts := []resource.Option{
 		resource.WithAttributes(
 			semconv.ServiceName(cfg.ServiceName),
 		),
+		resource.WithHost(),
+		resource.WithProcess(),
+		resource.WithOS(),
+		resource.WithTelemetrySDK(),
 	}
 
 	if cfg.ServiceVersion != "" {
-		attrs = append(attrs, resource.WithAttributes(
+		opts = append(opts, resource.WithAttributes(
 			semconv.ServiceVersion(cfg.ServiceVersion),
 		))
 	}
 
-	return resource.New(
-		context.Background(),
-		attrs...,
-	)
+	res, err := resource.New(context.Background(), opts...)
+	if err != nil {
+		return nil, err
+	}
+
+	merged, err := resource.Merge(resource.Default(), res)
+	if err != nil {
+		return nil, err
+	}
+	return merged, nil
 }
 
 // createSampler creates a trace sampler based on sample rate
@@ -298,6 +311,23 @@ func ShutdownMeterProvider(ctx context.Context, mp metric.MeterProvider, logger 
 			return newShutdownMeterProviderError(err)
 		}
 		logger.Debug("OTEL meter provider shutdown complete")
+	}
+	return nil
+}
+
+// ShutdownTracerProvider gracefully shuts down the tracer provider, flushing
+// any spans still held by the BatchSpanProcessor. Without this call the
+// processor's bounded queue is dropped on exit.
+func ShutdownTracerProvider(ctx context.Context, tp trace.TracerProvider, logger *zap.Logger) error {
+	if logger == nil {
+		logger = zap.NewNop()
+	}
+	if sdkTP, ok := tp.(*sdktrace.TracerProvider); ok {
+		logger.Debug("shutting down OTEL tracer provider")
+		if err := sdkTP.Shutdown(ctx); err != nil {
+			return newShutdownTracerProviderError(err)
+		}
+		logger.Debug("OTEL tracer provider shutdown complete")
 	}
 	return nil
 }

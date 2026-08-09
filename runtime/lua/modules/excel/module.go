@@ -27,6 +27,10 @@ func init() {
 		map[string]lua.LGoFunc{"__tostring": workbookToString},
 		workbookMethods)
 
+	rowsMetatable = value.RegisterTypeMethods(nil, rowsTypeName,
+		map[string]lua.LGoFunc{"__tostring": rowsToString},
+		rowsMethods)
+
 	moduleTable = lua.CreateTable(0, 2)
 	moduleTable.RawSetString("new", lua.LGoFunc(excelNew))
 	moduleTable.RawSetString("open", lua.LGoFunc(excelOpen))
@@ -48,6 +52,7 @@ var Module = &luaapi.ModuleDef{
 type Workbook struct {
 	file          *excelize.File
 	cancelCleanup func()
+	cursors       map[*Rows]struct{}
 	closed        bool
 }
 
@@ -61,6 +66,7 @@ func newWorkbook(ctx context.Context, file *excelize.File) *Workbook {
 	if store := resource.GetStore(ctx); store != nil {
 		wb.cancelCleanup = store.AddCleanup(func() error {
 			if !wb.closed && wb.file != nil {
+				wb.closeCursors()
 				_ = wb.file.Close()
 				wb.closed = true
 			}
@@ -71,12 +77,13 @@ func newWorkbook(ctx context.Context, file *excelize.File) *Workbook {
 	return wb
 }
 
-// Close closes the workbook and cancels cleanup registration.
+// Close closes the workbook, its open row cursors, and cancels cleanup registration.
 func (wb *Workbook) Close() {
 	if wb.closed {
 		return
 	}
 
+	wb.closeCursors()
 	if wb.file != nil {
 		_ = wb.file.Close()
 	}
@@ -88,12 +95,23 @@ func (wb *Workbook) Close() {
 	}
 }
 
+// closeCursors closes all row cursors still open on this workbook.
+func (wb *Workbook) closeCursors() {
+	for r := range wb.cursors {
+		r.closed = true
+		_ = r.release()
+	}
+	wb.cursors = nil
+}
+
 var workbookMethods = map[string]lua.LGoFunc{
 	"new_sheet":      workbookNewSheet,
 	"get_sheet_list": workbookGetSheetList,
 	"get_rows":       workbookGetRows,
+	"rows":           workbookRows,
 	"set_cell_value": workbookSetCellValue,
 	"write_to":       workbookWriteTo,
+	"bytes":          workbookBytes,
 	"close":          workbookClose,
 }
 
@@ -107,6 +125,15 @@ func checkWorkbook(l *lua.LState, _ int) *Workbook {
 
 func invalidError(l *lua.LState, msg string) int {
 	err := lua.NewLuaError(l, msg).
+		WithKind(lua.Invalid).
+		WithRetryable(false)
+	l.Push(lua.LNil)
+	l.Push(err)
+	return 2
+}
+
+func invalidWrapError(l *lua.LState, goErr error, context string) int {
+	err := lua.WrapErrorWithLua(l, goErr, context).
 		WithKind(lua.Invalid).
 		WithRetryable(false)
 	l.Push(lua.LNil)
@@ -308,6 +335,26 @@ func workbookWriteTo(l *lua.LState) int {
 
 	l.Push(lua.LNil)
 	return 1
+}
+
+func workbookBytes(l *lua.LState) int {
+	wb := checkWorkbook(l, 1)
+	if wb == nil {
+		return invalidError(l, "workbook expected")
+	}
+
+	if wb.closed {
+		return internalErrorMsg(l, "workbook is closed")
+	}
+
+	buf, err := wb.file.WriteToBuffer()
+	if err != nil {
+		return internalError(l, err, "write workbook")
+	}
+
+	l.Push(lua.LString(buf.String()))
+	l.Push(lua.LNil)
+	return 2
 }
 
 func workbookClose(l *lua.LState) int {

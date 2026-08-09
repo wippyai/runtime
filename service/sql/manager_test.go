@@ -710,13 +710,14 @@ func TestManager_ResolveEnv(t *testing.T) {
 		assert.Equal(t, "test-host-value", decoded.Host)
 	})
 
-	t.Run("Configured but unresolvable env field fails fast", func(t *testing.T) {
+	t.Run("Unresolvable env field keeps inline value", func(t *testing.T) {
+		// A directive naming no registered variable is not applied; the inline
+		// field value is kept rather than failing the decode.
 		data := validDBData()
 		data["database_env"] = "NONEXISTENT_VAR"
-		_, err := entryutil.DecodeEntryConfig[apiconfig.DBConfig](ctx, &jsonDBTranscoder{}, dbEntryWithData(data))
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "could not be resolved")
-		assert.Contains(t, err.Error(), "environment variable not found")
+		decoded, err := entryutil.DecodeEntryConfig[apiconfig.DBConfig](ctx, &jsonDBTranscoder{}, dbEntryWithData(data))
+		require.NoError(t, err)
+		assert.Equal(t, "inline-db", decoded.Database)
 	})
 }
 
@@ -738,9 +739,12 @@ func TestManager_AddWithUnresolvableEnv(t *testing.T) {
 		Data: payload.New(unresolvableEnvData()),
 	}
 
+	// The username directive names an unregistered variable, so it is not
+	// applied and leaves username empty with no inline fallback; the config's
+	// own validation rejects the entry and no pool is created.
 	err := manager.Add(ctx, entry)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "could not be resolved")
+	assert.Contains(t, err.Error(), "username is required")
 	assert.Empty(t, factory.standardPoolCalls)
 }
 
@@ -856,7 +860,7 @@ func TestManager_UpdateWithUnresolvableEnvDoesNotMutatePool(t *testing.T) {
 		Data: payload.New(unresolvableEnvData()),
 	})
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "could not be resolved")
+	assert.Contains(t, err.Error(), "username is required")
 
 	after := currentPoolDBConfig(t, manager.services[id])
 	assert.Equal(t, before.Host, after.Host)

@@ -3,6 +3,7 @@
 package directory
 
 import (
+	"context"
 	"path/filepath"
 	"testing"
 
@@ -18,6 +19,16 @@ func moduleEntry(module string) registry.Entry {
 		e.Meta = attrs.NewBagFrom(map[string]any{"module": module})
 	}
 	return e
+}
+
+func withSourceRoot(ctx context.Context, module, root string) context.Context {
+	sources := modules.NewSourceRegistry()
+	sources.Set(modules.Sources{module: {
+		LoadPath:     root,
+		ResourceRoot: root,
+		Owner:        module,
+	}})
+	return modules.WithSourceRegistry(ctx, sources)
 }
 
 func TestResolveDirectory(t *testing.T) {
@@ -43,7 +54,7 @@ func TestResolveDirectory(t *testing.T) {
 
 	t.Run("project base stays working-dir relative", func(t *testing.T) {
 		ctx := ctxapi.NewRootContext()
-		modules.WithSourceRoots(ctx, modules.SourceRoots{"acme/ui": abs})
+		ctx = withSourceRoot(ctx, "acme/ui", abs)
 		cfg := &Config{Directory: "./static", Base: BaseProject}
 		if got := ResolveDirectory(ctx, moduleEntry("acme/ui"), cfg); got != "./static" {
 			t.Fatalf("got %q, want ./static", got)
@@ -52,7 +63,7 @@ func TestResolveDirectory(t *testing.T) {
 
 	t.Run("no module meta stays unchanged", func(t *testing.T) {
 		ctx := ctxapi.NewRootContext()
-		modules.WithSourceRoots(ctx, modules.SourceRoots{"acme/ui": abs})
+		ctx = withSourceRoot(ctx, "acme/ui", abs)
 		if got := ResolveDirectory(ctx, moduleEntry(""), &Config{Directory: "./static"}); got != "./static" {
 			t.Fatalf("got %q, want ./static", got)
 		}
@@ -66,7 +77,7 @@ func TestResolveDirectory(t *testing.T) {
 
 	t.Run("module meta with source root joins", func(t *testing.T) {
 		ctx := ctxapi.NewRootContext()
-		modules.WithSourceRoots(ctx, modules.SourceRoots{"acme/ui": abs})
+		ctx = withSourceRoot(ctx, "acme/ui", abs)
 		want := filepath.Join(abs, "static")
 		if got := ResolveDirectory(ctx, moduleEntry("acme/ui"), &Config{Directory: "./static"}); got != want {
 			t.Fatalf("got %q, want %q", got, want)

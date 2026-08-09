@@ -214,7 +214,7 @@ func messageHeader(l *lua.LState) int {
 		return 2
 	}
 
-	l.Push(toLuaValue(val))
+	l.Push(normalizeHeaderValue(val))
 	l.Push(lua.LNil)
 	return 2
 }
@@ -228,7 +228,7 @@ func messageHeaders(l *lua.LState) int {
 	headers := msg.delivery.Message.Headers
 	tbl := lua.CreateTable(0, len(headers))
 	for key, val := range headers {
-		tbl.RawSetString(key, toLuaValue(val))
+		tbl.RawSetString(key, normalizeHeaderValue(val))
 	}
 	l.Push(tbl)
 	l.Push(lua.LNil)
@@ -353,7 +353,11 @@ func info(l *lua.LState) int {
 
 	tbl := lua.CreateTable(0, len(bag))
 	for k, v := range bag {
-		tbl.RawSetString(k, toLuaValue(v))
+		lv, convErr := luaconv.GoToLua(v)
+		if convErr != nil {
+			return internalError(l, convErr, "convert queue info")
+		}
+		tbl.RawSetString(k, lv)
 	}
 	l.Push(tbl)
 	l.Push(lua.LNil)
@@ -377,18 +381,21 @@ func toGoValue(v lua.LValue) any {
 	}
 }
 
-func toLuaValue(val any) lua.LValue {
+// normalizeHeaderValue gives Lua consumers one stable header contract across
+// drivers. The internal attrs.Bag remains typed because drivers need numbers,
+// booleans, and binary values while publishing, but consumed metadata is
+// exposed as a string just like other header-oriented runtime APIs.
+//
+// A nil value is treated as absent. Raw bytes become a Lua string without the
+// "[1 2 3]" formatting that fmt.Sprint would otherwise produce.
+func normalizeHeaderValue(val any) lua.LValue {
 	switch v := val.(type) {
 	case string:
 		return lua.LString(v)
-	case int:
-		return lua.LNumber(v)
-	case int64:
-		return lua.LNumber(v)
-	case float64:
-		return lua.LNumber(v)
-	case bool:
-		return lua.LBool(v)
+	case []byte:
+		return lua.LString(string(v))
+	case nil:
+		return lua.LNil
 	default:
 		return lua.LString(fmt.Sprintf("%v", v))
 	}

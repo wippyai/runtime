@@ -10,7 +10,7 @@ local function main()
 	local http = require("http_client")
 	local json = require("json")
 
-	local resp, err = http.get("http://localhost:8085/hello", {
+	local resp, err = http.get("http://localhost:18085/hello", {
 		timeout = "2s",
 	})
 	assert.is_nil(err, "clearnet GET failed: " .. tostring(err))

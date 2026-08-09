@@ -5,12 +5,18 @@ package entries
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/boot"
 	contextapi "github.com/wippyai/runtime/api/context"
 	logapi "github.com/wippyai/runtime/api/logs"
@@ -19,6 +25,7 @@ import (
 	regapi "github.com/wippyai/runtime/api/registry"
 	bootpkg "github.com/wippyai/runtime/boot"
 	"github.com/wippyai/runtime/boot/components/core"
+	"github.com/wippyai/runtime/boot/deps/hub"
 	"github.com/wippyai/runtime/boot/deps/lock"
 	transcoder "github.com/wippyai/runtime/system/payload"
 	yamlpayload "github.com/wippyai/runtime/system/payload/yaml"
@@ -209,6 +216,416 @@ func setupTestContext(t *testing.T) context.Context {
 	}
 
 	return ctx
+}
+
+func TestLoadEntriesFromModuleLoadPathsPreservesRootAndOwnership(t *testing.T) {
+	ctx := setupTestContext(t)
+	moduleDir := t.TempDir()
+	manifest := `version: "1.0"
+namespace: workspace.modules
+entries:
+  - name: search
+    kind: ns.dependency
+    component: acme/search
+    version: "*"
+`
+	if err := os.WriteFile(filepath.Join(moduleDir, "_index.yaml"), []byte(manifest), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	loaded, err := LoadEntriesFromModuleLoadPaths(ctx, []lock.ModuleLoadPath{{
+		Path: moduleDir, Module: "acme/app", Version: "1.0.0", Digest: "sha256:app", SourceRoot: moduleDir, Root: true,
+	}}, zap.NewNop())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded) != 1 {
+		t.Fatalf("entries = %d, want 1", len(loaded))
+	}
+	if !loaded[0].DependencyRoot {
+		t.Fatal("selected lock root dependency lost root provenance")
+	}
+	if got := loaded[0].Meta.GetString("module", ""); got != "acme/app" {
+		t.Fatalf("package ownership = %q, want acme/app", got)
+	}
+	if got := loaded[0].Meta.GetString("module_digest", ""); got != "sha256:app" {
+		t.Fatalf("package digest = %q, want sha256:app", got)
+	}
+}
+
+func TestLoadEntriesFromReplacementCarriesCanonicalTreeIdentity(t *testing.T) {
+	ctx := setupTestContext(t)
+	moduleRoot := t.TempDir()
+	sourceDir := filepath.Join(moduleRoot, "src")
+	require.NoError(t, os.MkdirAll(sourceDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(sourceDir, "_index.yaml"), []byte(`version: "1.0"
+namespace: replacement.test
+entries:
+  - name: value
+    kind: test.value
+    data: local
+`), 0o600))
+
+	wantDigest, _, err := hub.ReplacementTreeIdentity(moduleRoot)
+	require.NoError(t, err)
+	loaded, err := LoadEntriesFromModuleLoadPaths(ctx, []lock.ModuleLoadPath{{
+		Path: sourceDir, Module: "acme/replacement", Version: "1.2.3", SourceRoot: moduleRoot, Replacement: true,
+	}}, zap.NewNop())
+	require.NoError(t, err)
+	require.Len(t, loaded, 1)
+	assert.Equal(t, "acme/replacement", loaded[0].Meta.GetString("module", ""))
+	assert.Equal(t, "1.2.3", loaded[0].Meta.GetString("module_version", ""))
+	assert.Equal(t, wantDigest, loaded[0].Meta.GetString("module_digest", ""))
+}
+
+func TestLoadEntriesFromMissingReplacementFailsClosed(t *testing.T) {
+	ctx := setupTestContext(t)
+	missing := filepath.Join(t.TempDir(), "missing")
+
+	_, err := LoadEntriesFromModuleLoadPaths(ctx, []lock.ModuleLoadPath{{
+		Path: missing, Module: "acme/replacement", SourceRoot: missing, Replacement: true,
+	}}, zap.NewNop())
+	require.ErrorContains(t, err, "identify replacement module acme/replacement")
+}
+
+func TestLoadEntriesFromReplacementOwnsEntriesOverApplicationSnapshot(t *testing.T) {
+	ctx := setupTestContext(t)
+	appDir := t.TempDir()
+	replacementRoot := t.TempDir()
+	replacementSource := filepath.Join(replacementRoot, "src")
+	require.NoError(t, os.MkdirAll(replacementSource, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(appDir, "_index.yaml"), []byte(`version: "1.0"
+namespace: ownership.test
+entries:
+  - name: value
+    kind: test.value
+    meta:
+      module: acme/replacement
+      module_version: 0.9.0
+      module_digest: sha256-tree-v1:stale
+    data: stale
+  - name: app_value
+    kind: test.value
+    data: application
+`), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(replacementSource, "_index.yaml"), []byte(`version: "1.0"
+namespace: ownership.test
+entries:
+  - name: value
+    kind: test.value
+    meta:
+      module: acme/replacement
+      module_version: 0.9.0
+      module_digest: sha256-tree-v1:stale
+    data: local
+`), 0o600))
+
+	wantDigest, _, err := hub.ReplacementTreeIdentity(replacementRoot)
+	require.NoError(t, err)
+	loaded, err := LoadEntriesFromModuleLoadPaths(ctx, []lock.ModuleLoadPath{
+		{Path: appDir, Root: true},
+		{Path: replacementSource, Module: "acme/replacement", SourceRoot: replacementRoot, Replacement: true},
+	}, zap.NewNop())
+	require.NoError(t, err)
+	require.Len(t, loaded, 2)
+	byID := make(map[regapi.ID]regapi.Entry, len(loaded))
+	for _, entry := range loaded {
+		byID[entry.ID] = entry
+	}
+	owned := byID[regapi.NewID("ownership.test", "value")]
+	assert.Equal(t, "local", owned.Data.Data())
+	assert.Equal(t, "acme/replacement", owned.Meta.GetString("module", ""))
+	assert.Equal(t, wantDigest, owned.Meta.GetString("module_digest", ""))
+	assert.Empty(t, owned.Meta.GetString("module_version", ""))
+	assert.Equal(t, "application", byID[regapi.NewID("ownership.test", "app_value")].Data.Data())
+}
+
+func TestSourceRegistryTracksDynamicModuleLifecycle(t *testing.T) {
+	ctx := setupTestContext(t)
+	appDir := t.TempDir()
+	moduleV1 := t.TempDir()
+	moduleV2 := t.TempDir()
+
+	writeEntry := func(dir, namespace, name, value string) {
+		t.Helper()
+		manifest := fmt.Sprintf(`version: "1.0"
+namespace: %s
+entries:
+  - name: %s
+    kind: test.value
+    data: %s
+`, namespace, name, value)
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "_index.yaml"), []byte(manifest), 0o600))
+	}
+	writeEntry(appDir, "source.lifecycle", "host", "host")
+	writeEntry(moduleV1, "source.lifecycle", "module", "v1")
+	writeEntry(moduleV2, "source.lifecycle", "module", "v2")
+
+	_, err := LoadEntriesFromModuleLoadPaths(ctx, []lock.ModuleLoadPath{{Path: appDir, Root: true}}, zap.NewNop())
+	require.NoError(t, err)
+
+	loadByID := func() map[regapi.ID]regapi.Entry {
+		t.Helper()
+		loaded, loadErr := moduleapi.GetSourceRegistry(ctx).Load(ctx)
+		require.NoError(t, loadErr)
+		byID := make(map[regapi.ID]regapi.Entry, len(loaded.Entries))
+		for _, entry := range loaded.Entries {
+			byID[entry.ID] = entry
+		}
+		return byID
+	}
+
+	byID := loadByID()
+	require.Contains(t, byID, regapi.NewID("source.lifecycle", "host"))
+	require.NotContains(t, byID, regapi.NewID("source.lifecycle", "module"))
+
+	registry := moduleapi.GetSourceRegistry(ctx)
+	v1 := moduleapi.Source{LoadPath: moduleV1, ResourceRoot: moduleV1, Owner: "acme/source", Version: "1.0.0", Digest: "sha256:v1", Sequence: 2}
+	previous, err := registry.Transition(moduleapi.Sources{"acme/source": v1}, nil, "acme/source")
+	require.NoError(t, err)
+	require.Empty(t, previous)
+	byID = loadByID()
+	moduleEntry := byID[regapi.NewID("source.lifecycle", "module")]
+	assert.Equal(t, "v1", moduleEntry.Data.Data())
+	assert.Equal(t, "acme/source", moduleEntry.Meta.GetString("module", ""))
+	assert.Equal(t, "1.0.0", moduleEntry.Meta.GetString("module_version", ""))
+	assert.Equal(t, "sha256:v1", moduleEntry.Meta.GetString("module_digest", ""))
+
+	v2 := moduleapi.Source{LoadPath: moduleV2, ResourceRoot: moduleV2, Owner: "acme/source", Version: "2.0.0", Digest: "sha256:v2", Sequence: 2}
+	previous, err = registry.Transition(moduleapi.Sources{"acme/source": v2}, nil, "acme/source")
+	require.NoError(t, err)
+	assert.Equal(t, v1, previous["acme/source"])
+	byID = loadByID()
+	moduleEntry = byID[regapi.NewID("source.lifecycle", "module")]
+	assert.Equal(t, "v2", moduleEntry.Data.Data())
+	assert.Equal(t, "2.0.0", moduleEntry.Meta.GetString("module_version", ""))
+	assert.Equal(t, "sha256:v2", moduleEntry.Meta.GetString("module_digest", ""))
+
+	_, err = registry.Transition(previous, nil, "acme/source")
+	require.NoError(t, err)
+	assert.Equal(t, "v1", loadByID()[regapi.NewID("source.lifecycle", "module")].Data.Data())
+
+	_, err = registry.Transition(nil, nil, "acme/source")
+	require.NoError(t, err)
+	byID = loadByID()
+	require.Contains(t, byID, regapi.NewID("source.lifecycle", "host"))
+	require.NotContains(t, byID, regapi.NewID("source.lifecycle", "module"))
+}
+
+func TestSourceRegistryPreservesMultipleApplicationInputs(t *testing.T) {
+	ctx := setupTestContext(t)
+	first := t.TempDir()
+	second := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(first, "_index.yaml"), []byte(`version: "1.0"
+namespace: source.inputs
+entries:
+  - name: first
+    kind: test.value
+    data: first
+`), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(second, "_index.yaml"), []byte(`version: "1.0"
+namespace: source.inputs
+entries:
+  - name: second
+    kind: test.value
+    data: second
+`), 0o600))
+
+	initial, err := LoadEntriesFromModuleLoadPaths(ctx, []lock.ModuleLoadPath{{Path: first}, {Path: second}}, zap.NewNop())
+	require.NoError(t, err)
+	loaded, err := moduleapi.GetSourceRegistry(ctx).Load(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, []string{moduleapi.ApplicationSourceID}, loaded.Owners)
+	ids := make([]regapi.ID, 0, len(loaded.Entries))
+	for _, entry := range loaded.Entries {
+		ids = append(ids, entry.ID)
+	}
+	wantIDs := []regapi.ID{
+		regapi.NewID("source.inputs", "first"),
+		regapi.NewID("source.inputs", "second"),
+	}
+	initialIDs := make([]regapi.ID, 0, len(initial))
+	for _, entry := range initial {
+		initialIDs = append(initialIDs, entry.ID)
+	}
+	assert.Equal(t, wantIDs, initialIDs)
+	assert.Equal(t, initialIDs, ids)
+}
+
+func TestSourceRegistryPreservesDeploymentInputOrder(t *testing.T) {
+	ctx := setupTestContext(t)
+	first := t.TempDir()
+	second := t.TempDir()
+	writeManifest := func(dir, name string) {
+		t.Helper()
+		manifest := fmt.Sprintf(`version: "1.0"
+namespace: source.order
+entries:
+  - name: %s
+    kind: test.value
+    data: %s
+`, name, name)
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "_index.yaml"), []byte(manifest), 0o600))
+	}
+	writeManifest(first, "first")
+	writeManifest(second, "second")
+
+	paths := []lock.ModuleLoadPath{
+		{Path: first, Module: "zeta/first"},
+		{Path: second, Module: "alpha/second"},
+	}
+	initial, err := LoadEntriesFromModuleLoadPaths(ctx, paths, zap.NewNop())
+	require.NoError(t, err)
+	loaded, err := moduleapi.GetSourceRegistry(ctx).Load(ctx)
+	require.NoError(t, err)
+
+	initialIDs := make([]regapi.ID, 0, len(initial))
+	for _, entry := range initial {
+		initialIDs = append(initialIDs, entry.ID)
+	}
+	loadedIDs := make([]regapi.ID, 0, len(loaded.Entries))
+	for _, entry := range loaded.Entries {
+		loadedIDs = append(loadedIDs, entry.ID)
+	}
+	assert.Equal(t, []regapi.ID{
+		regapi.NewID("source.order", "first"),
+		regapi.NewID("source.order", "second"),
+	}, initialIDs)
+	assert.Equal(t, initialIDs, loadedIDs)
+}
+
+func TestConfigureSourceLoaderSupportsEmptyDeployment(t *testing.T) {
+	ctx := setupTestContext(t)
+	ConfigureSourceLoader(ctx, nil, zap.NewNop())
+	loaded, err := moduleapi.GetSourceRegistry(ctx).Load(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, loaded.Owners)
+	assert.Empty(t, loaded.Entries)
+}
+
+func TestLoadEntriesFromModuleLoadPathsMarksUnownedAppSourceDependencyRoot(t *testing.T) {
+	ctx := setupTestContext(t)
+	appDir := t.TempDir()
+	manifest := `version: "1.0"
+namespace: custom.dependencies
+entries:
+  - name: search
+    kind: ns.dependency
+    component: acme/search
+    version: "*"
+`
+	if err := os.WriteFile(filepath.Join(appDir, "_index.yaml"), []byte(manifest), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	loaded, err := LoadEntriesFromModuleLoadPaths(ctx, []lock.ModuleLoadPath{{
+		Path: appDir,
+		Root: true,
+	}}, zap.NewNop())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded) != 1 {
+		t.Fatalf("entries = %d, want 1", len(loaded))
+	}
+	if !loaded[0].DependencyRoot {
+		t.Fatal("application source dependency was not marked as a deployment root")
+	}
+	if got := loaded[0].Meta.GetString("module", ""); got != "" {
+		t.Fatalf("application source ownership = %q, want empty", got)
+	}
+}
+
+func TestLoadEntriesFromModuleLoadPathsLinksDeclaredNamespaceForPackedAndUnpackedModules(t *testing.T) {
+	ctx := setupTestContext(t)
+	tmpDir := t.TempDir()
+	logger := zap.NewNop()
+
+	appDir := filepath.Join(tmpDir, "app")
+	if err := os.MkdirAll(appDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	appYAML := `version: "1.0"
+namespace: app.dependencies
+entries:
+  - name: accounts
+    kind: ns.dependency
+    component: example/accounts
+    parameters:
+      - name: public_router
+        value: app:api.public
+`
+	if err := os.WriteFile(filepath.Join(appDir, "_index.yaml"), []byte(appYAML), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	moduleDir := filepath.Join(tmpDir, "accounts")
+	if err := os.MkdirAll(moduleDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	moduleYAML := `version: "1.0"
+namespace: identity.account
+entries:
+  - name: definition
+    kind: ns.definition
+  - name: public_router
+    kind: ns.requirement
+    targets:
+      - entry: login.endpoint
+        path: meta.router
+  - name: login.endpoint
+    kind: http.endpoint
+    meta:
+      router: unresolved
+`
+	if err := os.WriteFile(filepath.Join(moduleDir, "_index.yaml"), []byte(moduleYAML), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	packedPath := createTestWappFile(t, tmpDir, "accounts", []wapp.Entry{
+		{ID: wapp.NewID("identity.account", "definition"), Kind: "ns.definition"},
+		{
+			ID:   wapp.NewID("identity.account", "public_router"),
+			Kind: "ns.requirement",
+			Data: map[string]any{
+				"targets": []any{
+					map[string]any{"entry": "login.endpoint", "path": "meta.router"},
+				},
+			},
+		},
+		{
+			ID:   wapp.NewID("identity.account", "login.endpoint"),
+			Kind: "http.endpoint",
+			Meta: wapp.Metadata{"router": "unresolved"},
+		},
+	})
+
+	tests := []struct {
+		name string
+		path string
+	}{
+		{name: "unpacked directory", path: moduleDir},
+		{name: "packed archive", path: packedPath},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			loaded, err := LoadEntriesFromModuleLoadPaths(ctx, []lock.ModuleLoadPath{
+				{Path: appDir},
+				{Path: tt.path, Module: "example/accounts", Version: "1.0.0"},
+			}, logger)
+			require.NoError(t, err)
+
+			var endpoint *regapi.Entry
+			for i := range loaded {
+				if loaded[i].ID.String() == "identity.account:login.endpoint" {
+					endpoint = &loaded[i]
+					break
+				}
+			}
+			require.NotNil(t, endpoint)
+			assert.Equal(t, "app:api.public", endpoint.Meta.GetString("router", ""))
+		})
+	}
 }
 
 func TestLoadEntriesFromPathsSingleWapp(t *testing.T) {
@@ -663,87 +1080,7 @@ func TestLoadEntriesFromPathsMultipleWappsWithDifferentKinds(t *testing.T) {
 	}
 }
 
-func TestLoadEntriesFromModuleLoadPaths_ResolvesRequirementByModuleMeta(t *testing.T) {
-	ctx := setupTestContext(t)
-	logger := zap.NewNop()
-	tmpDir := t.TempDir()
-
-	moduleDir := filepath.Join(tmpDir, "module")
-	if err := os.MkdirAll(moduleDir, 0o755); err != nil {
-		t.Fatalf("mkdir module dir: %v", err)
-	}
-	moduleYAML := `version: "1.0"
-namespace: userspace.user
-entries:
-  - name: public_router
-    kind: ns.requirement
-    targets:
-      - entry: login.endpoint
-        path: meta.router
-  - name: login.endpoint
-    kind: http.endpoint
-    meta:
-      router: public_router
-`
-	if err := os.WriteFile(filepath.Join(moduleDir, "_index.yaml"), []byte(moduleYAML), 0o644); err != nil {
-		t.Fatalf("write module _index.yaml: %v", err)
-	}
-
-	appDir := filepath.Join(tmpDir, "app")
-	if err := os.MkdirAll(appDir, 0o755); err != nil {
-		t.Fatalf("mkdir app dir: %v", err)
-	}
-	appYAML := `version: "1.0"
-namespace: app.deps
-entries:
-  - name: users
-    kind: ns.dependency
-    component: userspace/users
-    parameters:
-      - name: public_router
-        value: app:api.public
-`
-	if err := os.WriteFile(filepath.Join(appDir, "_index.yaml"), []byte(appYAML), 0o644); err != nil {
-		t.Fatalf("write app _index.yaml: %v", err)
-	}
-
-	flatEntries, err := LoadEntriesFromPaths(ctx, []string{appDir, moduleDir}, logger)
-	if err != nil {
-		t.Fatalf("LoadEntriesFromPaths failed: %v", err)
-	}
-
-	routerFlat := ""
-	for _, entry := range flatEntries {
-		if entry.ID.String() != "userspace.user:login.endpoint" {
-			continue
-		}
-		routerFlat = entry.Meta.GetString("router", "")
-	}
-	if routerFlat != "public_router" {
-		t.Fatalf("flat load router = %q, want unresolved alias", routerFlat)
-	}
-
-	moduleAwareEntries, err := LoadEntriesFromModuleLoadPaths(ctx, []lock.ModuleLoadPath{
-		{Path: appDir},
-		{Path: moduleDir, Module: "userspace/users", Version: "1.0.0"},
-	}, logger)
-	if err != nil {
-		t.Fatalf("LoadEntriesFromModuleLoadPaths failed: %v", err)
-	}
-
-	routerResolved := ""
-	for _, entry := range moduleAwareEntries {
-		if entry.ID.String() != "userspace.user:login.endpoint" {
-			continue
-		}
-		routerResolved = entry.Meta.GetString("router", "")
-	}
-	if routerResolved != "app:api.public" {
-		t.Fatalf("module-aware load router = %q, want app:api.public", routerResolved)
-	}
-}
-
-func TestRegisterModuleSourceRoots_DirectoryModulesOnly(t *testing.T) {
+func TestRegisterSourcesExposesDirectoryRootsOnly(t *testing.T) {
 	ctx := setupTestContext(t)
 	tmpDir := t.TempDir()
 
@@ -762,7 +1099,7 @@ func TestRegisterModuleSourceRoots_DirectoryModulesOnly(t *testing.T) {
 		t.Fatalf("write packed path: %v", err)
 	}
 
-	registerModuleSourceRoots(ctx, []lock.ModuleLoadPath{
+	registry := registerSources(ctx, []lock.ModuleLoadPath{
 		{Path: appDir},
 		{Path: replacementDir, Module: "acme/local"},
 		{Path: unpackedDir, Module: "acme/ui", Version: "1.2.3"},
@@ -770,7 +1107,7 @@ func TestRegisterModuleSourceRoots_DirectoryModulesOnly(t *testing.T) {
 		{Path: missingDir, Module: "acme/missing", Version: "1.0.0"},
 	})
 
-	replacementRoot, ok := moduleapi.SourceRoot(ctx, "acme/local")
+	replacementRoot, ok := registry.ResourceRoot("acme/local")
 	if !ok {
 		t.Fatal("replacement module source root not registered")
 	}
@@ -778,7 +1115,7 @@ func TestRegisterModuleSourceRoots_DirectoryModulesOnly(t *testing.T) {
 		t.Fatalf("replacement root = %q, want %q", replacementRoot, replacementDir)
 	}
 
-	unpackedRoot, ok := moduleapi.SourceRoot(ctx, "acme/ui")
+	unpackedRoot, ok := registry.ResourceRoot("acme/ui")
 	if !ok {
 		t.Fatal("unpacked module source root not registered")
 	}
@@ -786,12 +1123,146 @@ func TestRegisterModuleSourceRoots_DirectoryModulesOnly(t *testing.T) {
 		t.Fatalf("unpacked root = %q, want %q", unpackedRoot, unpackedDir)
 	}
 
-	if _, ok := moduleapi.SourceRoot(ctx, "acme/packed"); ok {
+	if _, ok := registry.ResourceRoot("acme/packed"); ok {
 		t.Fatal("packed .wapp module should not register a source root")
 	}
-	if _, ok := moduleapi.SourceRoot(ctx, "acme/missing"); ok {
+	if _, ok := registry.ResourceRoot("acme/missing"); ok {
 		t.Fatal("missing module directory should not register a source root")
 	}
+}
+
+func TestRegisterSourcesAssignsCanonicalIDToFirstValidApplicationInput(t *testing.T) {
+	ctx := setupTestContext(t)
+	validDir := t.TempDir()
+	missingDir := filepath.Join(t.TempDir(), "missing")
+
+	registry := registerSources(ctx, []lock.ModuleLoadPath{
+		{Path: missingDir},
+		{Path: validDir},
+	})
+	require.NotNil(t, registry)
+	root, ok := registry.ResourceRoot(moduleapi.ApplicationSourceID)
+	require.True(t, ok)
+	assert.Equal(t, validDir, root)
+}
+
+func TestEnsureModulesInstalledVerifiesCachedWapp(t *testing.T) {
+	tests := []struct {
+		digest    func([]byte) string
+		name      string
+		wantError bool
+	}{
+		{
+			name: "matching digest",
+			digest: func(data []byte) string {
+				sum := sha256.Sum256(data)
+				return "sha256:" + hex.EncodeToString(sum[:])
+			},
+		},
+		{
+			name:      "mismatched digest",
+			digest:    func([]byte) string { return "sha256:" + strings.Repeat("0", 64) },
+			wantError: true,
+		},
+		{
+			name:      "missing digest",
+			digest:    func([]byte) string { return "" },
+			wantError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmpDir := t.TempDir()
+			lockObj, err := lock.New(filepath.Join(tmpDir, lock.DefaultFilename))
+			require.NoError(t, err)
+			lockObj.SetOptions(lock.Options{UnpackModules: false})
+
+			vendorDir := filepath.Join(tmpDir, ".wippy", "vendor", "acme")
+			require.NoError(t, os.MkdirAll(vendorDir, 0o755))
+			packPath := createTestWappFile(t, vendorDir, "ui-v1.0.0", []wapp.Entry{
+				{ID: wapp.NewID("acme.ui", "entry"), Kind: "code.lua", Data: "return true"},
+			})
+			data, err := os.ReadFile(packPath)
+			require.NoError(t, err)
+			lockObj.SetModule(lock.Module{Name: "acme/ui", Version: "v1.0.0", Hash: tt.digest(data)})
+
+			err = ensureModulesInstalledFromLock(context.Background(), lockObj, zap.NewNop())
+			if tt.wantError {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestEnsureModulesInstalledRefreshesUnpackedModuleFromVerifiedWapp(t *testing.T) {
+	tmpDir := t.TempDir()
+	lockObj, err := lock.New(filepath.Join(tmpDir, lock.DefaultFilename))
+	require.NoError(t, err)
+	lockObj.SetOptions(lock.Options{UnpackModules: true})
+
+	vendorDir := filepath.Join(tmpDir, ".wippy", "vendor", "acme")
+	require.NoError(t, os.MkdirAll(vendorDir, 0o755))
+	packPath := createTestWappFile(t, vendorDir, "ui-v1.0.0", []wapp.Entry{
+		{ID: wapp.NewID("acme.ui", "entry"), Kind: "code.lua", Data: "return true"},
+	})
+	data, err := os.ReadFile(packPath)
+	require.NoError(t, err)
+	sum := sha256.Sum256(data)
+	lockObj.SetModule(lock.Module{
+		Name:    "acme/ui",
+		Version: "v1.0.0",
+		Hash:    "sha256:" + hex.EncodeToString(sum[:]),
+	})
+
+	extractedDir := filepath.Join(vendorDir, "ui")
+	require.NoError(t, os.MkdirAll(extractedDir, 0o755))
+	tamperedPath := filepath.Join(extractedDir, "attacker.lua")
+	require.NoError(t, os.WriteFile(tamperedPath, []byte("return 'owned'"), 0o600))
+
+	require.NoError(t, ensureModulesInstalledFromLock(context.Background(), lockObj, zap.NewNop()))
+	_, err = os.Stat(tamperedPath)
+	require.ErrorIs(t, err, os.ErrNotExist)
+	_, err = os.Stat(packPath)
+	require.NoError(t, err)
+}
+
+func TestPackedModuleLoadPathIgnoresExtractedDirectory(t *testing.T) {
+	tmpDir := t.TempDir()
+	lockObj, err := lock.New(filepath.Join(tmpDir, lock.DefaultFilename))
+	require.NoError(t, err)
+	lockObj.SetOptions(lock.Options{UnpackModules: false})
+	lockObj.SetModule(lock.Module{Name: "acme/ui", Version: "v1.0.0", Hash: "sha256:digest"})
+
+	vendorDir := filepath.Join(tmpDir, ".wippy", "vendor", "acme")
+	require.NoError(t, os.MkdirAll(filepath.Join(vendorDir, "ui"), 0o755))
+	packPath := filepath.Join(vendorDir, "ui-v1.0.0.wapp")
+	require.NoError(t, os.WriteFile(packPath, []byte("archive"), 0o600))
+
+	paths := lockObj.GetModuleLoadPaths()
+	var modulePath string
+	for _, path := range paths {
+		if path.Module == "acme/ui" {
+			modulePath = path.Path
+		}
+	}
+	require.Equal(t, packPath, modulePath)
+}
+
+func TestVerifyModuleArtifactRequiresEveryProvidedDigest(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "module.wapp")
+	data := []byte("artifact")
+	require.NoError(t, os.WriteFile(path, data, 0o600))
+	sum := sha256.Sum256(data)
+	matching := "sha256:" + hex.EncodeToString(sum[:])
+	mismatched := "sha256:" + strings.Repeat("0", 64)
+
+	require.NoError(t, verifyModuleArtifact(path, matching, matching, uint64(len(data))))
+	require.ErrorIs(t, verifyModuleArtifact(path, "", matching, uint64(len(data))), ErrModuleMissingHash)
+	require.Error(t, verifyModuleArtifact(path, matching, mismatched, uint64(len(data))))
+	require.Error(t, verifyModuleArtifact(path, "", "", uint64(len(data))))
 }
 
 func TestEnsureModulesInstalledSkipsReplacedModules(t *testing.T) {
@@ -1152,11 +1623,9 @@ entries:
 	}
 }
 
-// A module whose exclude list holds only source-file globs (no entry-ID
-// patterns and no exclude_meta) must load all its entries unchanged: file
-// globs are pack-time file filters, not entry patterns, so they neither drop
-// entries nor error out.
-func TestLoadEntriesFromModuleLoadPaths_OnlyFileGlobExcludesIsNoOp(t *testing.T) {
+// Source globs are evaluated before manifests are decoded, using paths relative
+// to the module root even when the actual load root is <module>/src.
+func TestLoadEntriesFromModuleLoadPaths_AppliesSourceGlobsWithSrcLayout(t *testing.T) {
 	ctx := setupTestContext(t)
 	logger := zap.NewNop()
 	tmpDir := t.TempDir()
@@ -1169,7 +1638,7 @@ func TestLoadEntriesFromModuleLoadPaths_OnlyFileGlobExcludesIsNoOp(t *testing.T)
 	moduleConfig := `organization: kickside
 module: events
 exclude:
-  - "_old/**"
+  - "src/_old/**"
   - "test/**"
 `
 	if err := os.WriteFile(filepath.Join(moduleRoot, "wippy.yaml"), []byte(moduleConfig), 0o644); err != nil {
@@ -1190,6 +1659,20 @@ entries:
 	if err := os.WriteFile(filepath.Join(srcDir, "_index.yaml"), []byte(moduleYAML), 0o644); err != nil {
 		t.Fatalf("write module _index.yaml: %v", err)
 	}
+	excludedYAML := `version: "1.0"
+namespace: kickside.events
+entries:
+  - name: legacy
+    kind: function.lua
+    source: |
+      return {}
+`
+	if err := os.MkdirAll(filepath.Join(srcDir, "_old"), 0o755); err != nil {
+		t.Fatalf("mkdir excluded source: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(srcDir, "_old", "_index.yaml"), []byte(excludedYAML), 0o644); err != nil {
+		t.Fatalf("write excluded source: %v", err)
+	}
 
 	entries, err := LoadEntriesFromModuleLoadPaths(ctx, []lock.ModuleLoadPath{
 		{Path: srcDir, Module: "kickside/events", SourceRoot: moduleRoot},
@@ -1206,6 +1689,9 @@ entries:
 		if !found[id] {
 			t.Fatalf("entry %s dropped by file-glob-only exclude", id)
 		}
+	}
+	if found["kickside.events:legacy"] {
+		t.Fatal("source-glob-excluded entry was loaded on restart path")
 	}
 }
 
@@ -1363,16 +1849,21 @@ func TestNormalizeEntries_PreLinkOverrideAffectsRequirementDefaults(t *testing.T
 func TestNormalizeEntries_PostLinkOverrideWinsFinalValue(t *testing.T) {
 	ctx := setupTestContext(t)
 	cfg := boot.NewConfig(boot.WithSection("override", map[string]any{
-		"userspace.user:login.endpoint:meta.router": "app:api.final",
+		"identity.account:login.endpoint:meta.router": "app:api.final",
 	}))
 	ctx = boot.WithConfig(ctx, cfg)
 
 	items := []regapi.Entry{
 		{
-			ID:   regapi.NewID("app.deps", "users"),
+			ID:   regapi.NewID("identity.account", "definition"),
+			Kind: regapi.NamespaceDefinition,
+			Meta: map[string]any{"module": "example/accounts"},
+		},
+		{
+			ID:   regapi.NewID("app.deps", "accounts"),
 			Kind: regapi.NamespaceDependency,
 			Data: payload.New(map[string]any{
-				"component": "userspace/users",
+				"component": "example/accounts",
 				"parameters": []any{
 					map[string]any{
 						"name":  "public_router",
@@ -1382,8 +1873,9 @@ func TestNormalizeEntries_PostLinkOverrideWinsFinalValue(t *testing.T) {
 			}),
 		},
 		{
-			ID:   regapi.NewID("userspace.user", "public_router"),
+			ID:   regapi.NewID("identity.account", "public_router"),
 			Kind: regapi.NamespaceRequirement,
+			Meta: map[string]any{"module": "example/accounts"},
 			Data: payload.New(map[string]any{
 				"targets": []any{
 					map[string]any{
@@ -1394,11 +1886,11 @@ func TestNormalizeEntries_PostLinkOverrideWinsFinalValue(t *testing.T) {
 			}),
 		},
 		{
-			ID:   regapi.NewID("userspace.user", "login.endpoint"),
+			ID:   regapi.NewID("identity.account", "login.endpoint"),
 			Kind: "http.endpoint",
 			Meta: map[string]any{
 				"router": "public_router",
-				"module": "userspace/users",
+				"module": "example/accounts",
 			},
 			Data: payload.New(map[string]any{
 				"path":   "/user/token",
@@ -1414,7 +1906,7 @@ func TestNormalizeEntries_PostLinkOverrideWinsFinalValue(t *testing.T) {
 
 	got := ""
 	for _, entry := range items {
-		if entry.ID.String() == "userspace.user:login.endpoint" {
+		if entry.ID.String() == "identity.account:login.endpoint" {
 			got = entry.Meta.GetString("router", "")
 			break
 		}

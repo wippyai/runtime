@@ -41,8 +41,13 @@ Retrieves a single entry by ID from the current registry state.
 
 **Returns:**
 
-- Success: Entry table with fields `{id: string, kind: string, meta: table, data: any}`, nil
+- Success: Entry table with fields `{id: string, kind: string, meta: table, data: any, root: boolean}`, nil
 - Error: nil, structured error
+
+`root` marks an `ns.dependency` selected as a deployment root. It is the sole
+authority for that status — `meta` is user space and carries no trust. Reads
+always return it; writes may omit it, and omitting it on an update demotes the
+entry, so carry it back on any read-modify-write.
 
 **Errors (structured):**
 

@@ -5,16 +5,55 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
 	"github.com/wippyai/runtime/api/boot"
-	"github.com/wippyai/runtime/cmd/internal/bootconfig"
+	"github.com/wippyai/runtime/boot/deps/lock"
 	"github.com/wippyai/wapp"
 	"go.uber.org/zap"
 )
 
 const runtimeMetadataPrefix = "runtime."
+
+// loadLockRootRuntimeDefaults reads published host configuration from the
+// selected deployment root. Hub bootstrap and offline lock restart therefore
+// share one configuration authority; dependency packs never configure the host.
+func loadLockRootRuntimeDefaults(lockPath string, logger *zap.Logger) (boot.Config, error) {
+	lockObj, err := lock.New(lockPath)
+	if err != nil {
+		return nil, fmt.Errorf("load deployment lock %s: %w", lockPath, err)
+	}
+	roots := lockObj.GetRootModules()
+	if len(roots) == 0 {
+		return nil, nil
+	}
+	if len(roots) != 1 {
+		return nil, fmt.Errorf("deployment lock must select exactly one root module")
+	}
+	root := roots[0]
+	for _, loadPath := range lockObj.GetModuleLoadPaths() {
+		if loadPath.Module != root || !loadPath.Root {
+			continue
+		}
+		info, statErr := os.Stat(loadPath.Path)
+		if statErr != nil {
+			if os.IsNotExist(statErr) {
+				return nil, fmt.Errorf("selected deployment root %s is not installed; run wippy install", root)
+			}
+			return nil, fmt.Errorf("inspect selected deployment root %s: %w", root, statErr)
+		}
+		if info.IsDir() {
+			return nil, nil
+		}
+		if !info.Mode().IsRegular() || !strings.EqualFold(filepath.Ext(loadPath.Path), ".wapp") {
+			return nil, fmt.Errorf("selected deployment root %s has unsupported artifact %s", root, loadPath.Path)
+		}
+		return loadPackRuntimeDefaults(loadPath.Path, logger)
+	}
+	return nil, fmt.Errorf("selected deployment root %s is not installed; run wippy install", root)
+}
 
 // loadPackRuntimeDefaults reads runtime defaults from a single pack metadata.
 func loadPackRuntimeDefaults(packPath string, logger *zap.Logger) (boot.Config, error) {
@@ -37,31 +76,15 @@ func loadPackRuntimeDefaults(packPath string, logger *zap.Logger) (boot.Config, 
 	return runtimeConfigFromPackMetadata(metadata, logger), nil
 }
 
-// loadPackRuntimeDefaultsFromFiles reads and merges runtime defaults from pack files.
-// Later packs override earlier ones for overlapping keys.
+// loadPackRuntimeDefaultsFromFiles reads runtime defaults from the application
+// pack only. Dependency packs contribute registry entries and resources, but
+// never configure the host application.
 func loadPackRuntimeDefaultsFromFiles(packFiles []string, logger *zap.Logger) (boot.Config, error) {
-	var merged boot.Config
-
 	mainPackIndex := lastWappPackIndex(packFiles)
-	for idx, packPath := range packFiles {
-		if !hasWappExtension(packPath) {
-			continue
-		}
-
-		cfg, err := loadPackRuntimeDefaults(packPath, logger)
-		if err != nil {
-			return nil, err
-		}
-		if idx != mainPackIndex {
-			cfg = withoutAppRuntimeProfileConfig(cfg)
-		}
-
-		if cfg != nil {
-			merged = bootconfig.Merge(merged, cfg)
-		}
+	if mainPackIndex < 0 {
+		return nil, nil //nolint:nilnil // no pack means no packed defaults
 	}
-
-	return merged, nil
+	return loadPackRuntimeDefaults(packFiles[mainPackIndex], logger)
 }
 
 func lastWappPackIndex(packFiles []string) int {
@@ -71,36 +94,6 @@ func lastWappPackIndex(packFiles []string) int {
 		}
 	}
 	return -1
-}
-
-func withoutAppRuntimeProfileConfig(cfg boot.Config) boot.Config {
-	if cfg == nil {
-		return nil
-	}
-
-	sections := make(map[string]map[string]any)
-	for _, key := range cfg.Keys() {
-		section, subkey, ok := strings.Cut(key, ".")
-		if !ok || section == "" || subkey == "" || section == "profiles" || section == "vars" {
-			continue
-		}
-
-		if sections[section] == nil {
-			sections[section] = make(map[string]any)
-		}
-		value, _ := cfg.Get(key)
-		sections[section][subkey] = value
-	}
-
-	if len(sections) == 0 {
-		return nil
-	}
-
-	opts := make([]boot.ConfigOption, 0, len(sections))
-	for section, values := range sections {
-		opts = append(opts, boot.WithSection(section, values))
-	}
-	return boot.NewConfig(opts...)
 }
 
 // runtimeConfigFromPackMetadata extracts runtime.* metadata keys and builds a boot config.
@@ -114,7 +107,7 @@ func runtimeConfigFromPackMetadata(metadata wapp.Metadata, logger *zap.Logger) b
 	for key, val := range metadata {
 		switch {
 		case key == "runtime":
-			flattenRuntimeMetadata(flatRuntime, "", val)
+			flattenRuntimeMetadata(flatRuntime, "", val, false)
 		case strings.HasPrefix(key, runtimeMetadataPrefix):
 			runtimeKey := strings.Trim(strings.TrimPrefix(key, runtimeMetadataPrefix), ".")
 			if runtimeKey == "" {
@@ -141,7 +134,7 @@ func runtimeConfigFromPackMetadata(metadata wapp.Metadata, logger *zap.Logger) b
 		if sections[section] == nil {
 			sections[section] = make(map[string]any)
 		}
-		sections[section][subKey] = normalizeRuntimeMetadataValue(val)
+		sections[section][subKey] = val
 	}
 
 	if len(sections) == 0 {
@@ -156,7 +149,7 @@ func runtimeConfigFromPackMetadata(metadata wapp.Metadata, logger *zap.Logger) b
 	return boot.NewConfig(opts...)
 }
 
-func flattenRuntimeMetadata(dst map[string]any, prefix string, value any) {
+func flattenRuntimeMetadata(dst map[string]any, prefix string, value any, normalize bool) {
 	switch typed := value.(type) {
 	case map[string]any:
 		for key, nested := range typed {
@@ -167,7 +160,7 @@ func flattenRuntimeMetadata(dst map[string]any, prefix string, value any) {
 			if prefix != "" {
 				next = prefix + "." + key
 			}
-			flattenRuntimeMetadata(dst, next, nested)
+			flattenRuntimeMetadata(dst, next, nested, normalize)
 		}
 	case map[any]any:
 		for key, nested := range typed {
@@ -179,11 +172,14 @@ func flattenRuntimeMetadata(dst map[string]any, prefix string, value any) {
 			if prefix != "" {
 				next = prefix + "." + strKey
 			}
-			flattenRuntimeMetadata(dst, next, nested)
+			flattenRuntimeMetadata(dst, next, nested, normalize)
 		}
 	default:
 		if prefix != "" {
-			dst[prefix] = normalizeRuntimeMetadataValue(value)
+			if normalize {
+				value = normalizeRuntimeMetadataValue(value)
+			}
+			dst[prefix] = value
 		}
 	}
 }

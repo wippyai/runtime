@@ -6,28 +6,25 @@ package sql
 import (
 	"context"
 	"database/sql"
+	"time"
 
 	"github.com/wippyai/runtime/api/dispatcher"
+	"github.com/wippyai/runtime/api/metrics"
 	sqlapi "github.com/wippyai/runtime/api/service/sql"
 )
 
 // Dispatcher handles SQL commands using a stateless goroutine pattern.
-//
-// Each command spawns a goroutine that executes the SQL operation and
-// delivers results via the receiver. Goroutine lifecycle is tied to context:
-// when context is canceled, operations check ctx.Err() and skip result
-// delivery, allowing natural termination.
-//
-// Resource cleanup is handled by the Store layer (Store.Close releases
-// connections) and FrameContext cleanup (commits/rollbacks transactions).
-// This pattern is consistent with other stateless dispatchers in the system
-// (contract, function) where explicit goroutine tracking isn't needed.
-type Dispatcher struct{}
+type Dispatcher struct {
+	coll metrics.Collector
+}
 
 // NewDispatcher creates a new SQL dispatcher.
 func NewDispatcher() *Dispatcher {
 	return &Dispatcher{}
 }
+
+// SetCollector binds a metrics collector for telemetry.
+func (d *Dispatcher) SetCollector(c metrics.Collector) { d.coll = c }
 
 // Start is a no-op since this dispatcher has no background workers.
 func (d *Dispatcher) Start(_ context.Context) error {
@@ -58,7 +55,9 @@ func (d *Dispatcher) RegisterAll(register func(id dispatcher.CommandID, h dispat
 func (d *Dispatcher) handleQuery(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	qc := cmd.(*sqlapi.QueryCmd)
 	go func() {
+		start := time.Now()
 		resp := executeQuery(ctx, qc.DB, qc.Query, qc.Params)
+		recordSQLOp(d.coll, "query", resp.Error, time.Since(start))
 		if ctx.Err() == nil {
 			receiver.CompleteYield(tag, resp, nil)
 		}
@@ -69,7 +68,9 @@ func (d *Dispatcher) handleQuery(ctx context.Context, cmd dispatcher.Command, ta
 func (d *Dispatcher) handleExecute(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	ec := cmd.(*sqlapi.ExecuteCmd)
 	go func() {
+		start := time.Now()
 		resp := executeExec(ctx, ec.DB, ec.Query, ec.Params)
+		recordSQLOp(d.coll, "exec", resp.Error, time.Since(start))
 		if ctx.Err() == nil {
 			receiver.CompleteYield(tag, resp, nil)
 		}
@@ -110,7 +111,9 @@ func (d *Dispatcher) handleBegin(ctx context.Context, cmd dispatcher.Command, ta
 func (d *Dispatcher) handleStmtQuery(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	sc := cmd.(*sqlapi.StmtQueryCmd)
 	go func() {
+		start := time.Now()
 		resp := executeStmtQuery(ctx, sc.Stmt, sc.Params)
+		recordSQLOp(d.coll, "query", resp.Error, time.Since(start))
 		if ctx.Err() == nil {
 			receiver.CompleteYield(tag, resp, nil)
 		}
@@ -121,7 +124,9 @@ func (d *Dispatcher) handleStmtQuery(ctx context.Context, cmd dispatcher.Command
 func (d *Dispatcher) handleStmtExecute(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	sc := cmd.(*sqlapi.StmtExecuteCmd)
 	go func() {
+		start := time.Now()
 		resp := executeStmtExec(ctx, sc.Stmt, sc.Params)
+		recordSQLOp(d.coll, "exec", resp.Error, time.Since(start))
 		if ctx.Err() == nil {
 			receiver.CompleteYield(tag, resp, nil)
 		}
@@ -141,7 +146,9 @@ func (d *Dispatcher) handleStmtClose(_ context.Context, cmd dispatcher.Command, 
 func (d *Dispatcher) handleTxQuery(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	tc := cmd.(*sqlapi.TxQueryCmd)
 	go func() {
+		start := time.Now()
 		resp := executeTxQuery(ctx, tc.Tx, tc.Query, tc.Params)
+		recordSQLOp(d.coll, "query", resp.Error, time.Since(start))
 		if ctx.Err() == nil {
 			receiver.CompleteYield(tag, resp, nil)
 		}
@@ -152,7 +159,9 @@ func (d *Dispatcher) handleTxQuery(ctx context.Context, cmd dispatcher.Command, 
 func (d *Dispatcher) handleTxExecute(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	tc := cmd.(*sqlapi.TxExecuteCmd)
 	go func() {
+		start := time.Now()
 		resp := executeTxExec(ctx, tc.Tx, tc.Query, tc.Params)
+		recordSQLOp(d.coll, "exec", resp.Error, time.Since(start))
 		if ctx.Err() == nil {
 			receiver.CompleteYield(tag, resp, nil)
 		}

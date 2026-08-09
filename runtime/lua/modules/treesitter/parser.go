@@ -66,10 +66,18 @@ func (p *ParserWrapper) Reset() {
 	p.parser.Reset()
 }
 
-// Close marks the parser as closed and cancels the cleanup
+// Close frees the underlying C parser and cancels the registered store cleanup.
+// Safe to call multiple times.
 func (p *ParserWrapper) Close() {
-	if !p.closed && p.cancelCleanup != nil {
-		p.closed = true
+	if p.closed {
+		return
+	}
+	p.closed = true
+	if p.parser != nil {
+		p.parser.Close()
+		p.parser = nil
+	}
+	if p.cancelCleanup != nil {
 		p.cancelCleanup()
 		p.cancelCleanup = nil
 	}

@@ -219,6 +219,14 @@ func TestFilterEmbeddableEntries(t *testing.T) {
 		}
 	})
 
+	t.Run("wildcard pattern embeds every directory", func(t *testing.T) {
+		got := ids(filterEmbeddableEntries(all, []string{"**"}))
+		want := []string{"acme.app:ui_fs", "acme.app:wasm_fs"}
+		if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+			t.Fatalf("got %v, want %v", got, want)
+		}
+	})
+
 	t.Run("match by full id", func(t *testing.T) {
 		got := ids(filterEmbeddableEntries(all, []string{"acme.app:wasm_fs"}))
 		if len(got) != 1 || got[0] != "acme.app:wasm_fs" {

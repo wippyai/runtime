@@ -58,9 +58,7 @@ func TestRunPackEntries_GracefulShutdownStopsRunningService(t *testing.T) {
 		t.Fatalf("write config: %v", err)
 	}
 
-	prevConfigFile := configFile
-	configFile = cfgPath
-	t.Cleanup(func() { configFile = prevConfigFile })
+	setTestConfigFiles(t, cfgPath)
 
 	core, logs := observer.New(zapcore.DebugLevel)
 	baseLogger := zap.New(core)
@@ -76,7 +74,7 @@ func TestRunPackEntries_GracefulShutdownStopsRunningService(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		done <- runPackEntries(ctx, loader, baseLogger, nil, nil, defaultUseCase)
+		done <- runPackEntries(ctx, loader, baseLogger, nil, nil, defaultUseCase, "")
 	}()
 
 	waitForLogMessage(t, logs, "supervisor started")

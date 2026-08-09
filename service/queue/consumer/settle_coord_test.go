@@ -68,6 +68,7 @@ func TestConsumer_SkipsAutoAck_WhenHandlerAlreadySettled(t *testing.T) {
 		driver,
 		funcReg,
 		zap.NewNop(),
+		nil,
 	)
 
 	_, err := c.Start(ctx)
@@ -138,6 +139,7 @@ func TestConsumer_SkipsAutoAck_WhenHandlerAlreadyNacked(t *testing.T) {
 		driver,
 		funcReg,
 		zap.NewNop(),
+		nil,
 	)
 
 	_, err := c.Start(ctx)

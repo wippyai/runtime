@@ -4,6 +4,7 @@ package otel
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/wippyai/runtime/api/boot"
 	logapi "github.com/wippyai/runtime/api/logs"
@@ -11,9 +12,8 @@ import (
 	temporalapi "github.com/wippyai/runtime/api/service/temporal"
 	temporalboot "github.com/wippyai/runtime/boot/components/service/temporal"
 	"github.com/wippyai/runtime/service/otel"
-	"go.opentelemetry.io/otel/propagation"
+	gootel "go.opentelemetry.io/otel"
 	temporalotel "go.temporal.io/sdk/contrib/opentelemetry"
-	"go.uber.org/zap"
 )
 
 // Temporal creates the OTEL tracing interceptor for Temporal workflows and activities.
@@ -60,17 +60,15 @@ func Temporal() boot.Component {
 				return ctx, nil
 			}
 
-			// Create Temporal tracing interceptor with the shared tracer
+			// Create Temporal tracing interceptor with the shared tracer and the
+			// globally-configured propagator so Temporal follows the same W3C
+			// propagation settings as every other surface.
 			tracingInterceptor, err := temporalotel.NewTracingInterceptor(temporalotel.TracerOptions{
-				Tracer: tracer,
-				TextMapPropagator: propagation.NewCompositeTextMapPropagator(
-					propagation.TraceContext{},
-					propagation.Baggage{},
-				),
+				Tracer:            tracer,
+				TextMapPropagator: gootel.GetTextMapPropagator(),
 			})
 			if err != nil {
-				logger.Error("failed to create Temporal tracing interceptor", zap.Error(err))
-				return ctx, nil
+				return ctx, fmt.Errorf("failed to create Temporal tracing interceptor: %w", err)
 			}
 
 			// Register with both client and worker registries

@@ -25,6 +25,7 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// ModuleSortOrder defines the ordering options for module listings.
 type ModuleSortOrder int32
 
 const (
@@ -83,6 +84,7 @@ func (ModuleSortOrder) EnumDescriptor() ([]byte, []int) {
 	return file_wippy_api_hub_module_v1_service_proto_rawDescGZIP(), []int{0}
 }
 
+// CreateModuleRequest is the request for CreateModule.
 type CreateModuleRequest struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	OrganizationId string                 `protobuf:"bytes,1,opt,name=organization_id,json=organizationId,proto3" json:"organization_id,omitempty"`
@@ -159,6 +161,7 @@ func (x *CreateModuleRequest) GetType() ModuleType {
 	return ModuleType_MODULE_TYPE_UNSPECIFIED
 }
 
+// CreateModuleResponse is the response for CreateModule.
 type CreateModuleResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Module        *Module                `protobuf:"bytes,1,opt,name=module,proto3" json:"module,omitempty"`
@@ -203,6 +206,7 @@ func (x *CreateModuleResponse) GetModule() *Module {
 	return nil
 }
 
+// GetModuleRequest is the request for GetModule.
 type GetModuleRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Module        *ModuleRef             `protobuf:"bytes,1,opt,name=module,proto3" json:"module,omitempty"`
@@ -247,6 +251,7 @@ func (x *GetModuleRequest) GetModule() *ModuleRef {
 	return nil
 }
 
+// GetModuleResponse is the response for GetModule.
 type GetModuleResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Module        *Module                `protobuf:"bytes,1,opt,name=module,proto3" json:"module,omitempty"`
@@ -291,6 +296,7 @@ func (x *GetModuleResponse) GetModule() *Module {
 	return nil
 }
 
+// ListModulesRequest is the request for ListModules.
 type ListModulesRequest struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	OrganizationId string                 `protobuf:"bytes,1,opt,name=organization_id,json=organizationId,proto3" json:"organization_id,omitempty"`
@@ -375,6 +381,7 @@ func (x *ListModulesRequest) GetSortOrder() ModuleSortOrder {
 	return ModuleSortOrder_MODULE_SORT_ORDER_UNSPECIFIED
 }
 
+// ListModulesResponse is the response for ListModules.
 type ListModulesResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Modules       []*Module              `protobuf:"bytes,1,rep,name=modules,proto3" json:"modules,omitempty"`
@@ -443,6 +450,7 @@ func (x *ListModulesResponse) GetPageSize() int32 {
 	return 0
 }
 
+// UpdateModuleRequest is the request for UpdateModule.
 type UpdateModuleRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	ModuleId      string                 `protobuf:"bytes,1,opt,name=module_id,json=moduleId,proto3" json:"module_id,omitempty"`
@@ -503,6 +511,7 @@ func (x *UpdateModuleRequest) GetVisibility() Visibility {
 	return Visibility_VISIBILITY_UNSPECIFIED
 }
 
+// UpdateModuleResponse is the response for UpdateModule.
 type UpdateModuleResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Module        *Module                `protobuf:"bytes,1,opt,name=module,proto3" json:"module,omitempty"`
@@ -547,6 +556,7 @@ func (x *UpdateModuleResponse) GetModule() *Module {
 	return nil
 }
 
+// DeleteModuleRequest is the request for DeleteModule.
 type DeleteModuleRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	ModuleId      string                 `protobuf:"bytes,1,opt,name=module_id,json=moduleId,proto3" json:"module_id,omitempty"`
@@ -591,6 +601,7 @@ func (x *DeleteModuleRequest) GetModuleId() string {
 	return ""
 }
 
+// DeleteModuleResponse is the response for DeleteModule.
 type DeleteModuleResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -627,6 +638,7 @@ func (*DeleteModuleResponse) Descriptor() ([]byte, []int) {
 	return file_wippy_api_hub_module_v1_service_proto_rawDescGZIP(), []int{9}
 }
 
+// DeprecateModuleRequest is the request for DeprecateModule.
 type DeprecateModuleRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	ModuleId      string                 `protobuf:"bytes,1,opt,name=module_id,json=moduleId,proto3" json:"module_id,omitempty"`
@@ -687,6 +699,7 @@ func (x *DeprecateModuleRequest) GetAlternative() *ModuleRef {
 	return nil
 }
 
+// DeprecateModuleResponse is the response for DeprecateModule.
 type DeprecateModuleResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Module        *Module                `protobuf:"bytes,1,opt,name=module,proto3" json:"module,omitempty"`
@@ -731,6 +744,7 @@ func (x *DeprecateModuleResponse) GetModule() *Module {
 	return nil
 }
 
+// SearchModulesRequest is the request for SearchModules.
 type SearchModulesRequest struct {
 	state             protoimpl.MessageState `protogen:"open.v1"`
 	Query             string                 `protobuf:"bytes,1,opt,name=query,proto3" json:"query,omitempty"`
@@ -815,6 +829,7 @@ func (x *SearchModulesRequest) GetIncludeDeprecated() bool {
 	return false
 }
 
+// SearchModulesResponse is the response for SearchModules.
 type SearchModulesResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Modules       []*Module              `protobuf:"bytes,1,rep,name=modules,proto3" json:"modules,omitempty"`
@@ -883,6 +898,7 @@ func (x *SearchModulesResponse) GetPageSize() int32 {
 	return 0
 }
 
+// ListVersionsRequest is the request for ListVersions.
 type ListVersionsRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Module        *ModuleRef             `protobuf:"bytes,1,opt,name=module,proto3" json:"module,omitempty"`
@@ -951,6 +967,7 @@ func (x *ListVersionsRequest) GetIncludeYanked() bool {
 	return false
 }
 
+// ListVersionsResponse is the response for ListVersions.
 type ListVersionsResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Versions      []*v1.Version          `protobuf:"bytes,1,rep,name=versions,proto3" json:"versions,omitempty"`
@@ -1019,6 +1036,7 @@ func (x *ListVersionsResponse) GetPageSize() int32 {
 	return 0
 }
 
+// GetVersionRequest is the request for GetVersion.
 type GetVersionRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Module        *ModuleRef             `protobuf:"bytes,1,opt,name=module,proto3" json:"module,omitempty"`
@@ -1071,6 +1089,7 @@ func (x *GetVersionRequest) GetVersion() *v1.VersionRef {
 	return nil
 }
 
+// GetVersionResponse is the response for GetVersion.
 type GetVersionResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Version       *v1.Version            `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
@@ -1115,6 +1134,7 @@ func (x *GetVersionResponse) GetVersion() *v1.Version {
 	return nil
 }
 
+// ListVersionFilesRequest is the request for ListVersionFiles.
 type ListVersionFilesRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Module        *ModuleRef             `protobuf:"bytes,1,opt,name=module,proto3" json:"module,omitempty"`
@@ -1183,6 +1203,7 @@ func (x *ListVersionFilesRequest) GetPageSize() int32 {
 	return 0
 }
 
+// ListVersionFilesResponse is the response for ListVersionFiles.
 type ListVersionFilesResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Files         []*v1.VersionFile      `protobuf:"bytes,1,rep,name=files,proto3" json:"files,omitempty"`
@@ -1251,6 +1272,7 @@ func (x *ListVersionFilesResponse) GetPageSize() int32 {
 	return 0
 }
 
+// GetDependenciesRequest is the request for GetDependencies.
 type GetDependenciesRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Module        *ModuleRef             `protobuf:"bytes,1,opt,name=module,proto3" json:"module,omitempty"`
@@ -1303,6 +1325,7 @@ func (x *GetDependenciesRequest) GetVersion() *v1.VersionRef {
 	return nil
 }
 
+// GetDependenciesResponse is the response for GetDependencies.
 type GetDependenciesResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Dependencies  []*v1.Dependency       `protobuf:"bytes,1,rep,name=dependencies,proto3" json:"dependencies,omitempty"`
@@ -1347,6 +1370,7 @@ func (x *GetDependenciesResponse) GetDependencies() []*v1.Dependency {
 	return nil
 }
 
+// GetDependentsRequest is the request for GetDependents.
 type GetDependentsRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Module        *ModuleRef             `protobuf:"bytes,1,opt,name=module,proto3" json:"module,omitempty"`
@@ -1407,6 +1431,7 @@ func (x *GetDependentsRequest) GetPageSize() int32 {
 	return 0
 }
 
+// GetDependentsResponse is the response for GetDependents.
 type GetDependentsResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Dependents    []*DependentModule     `protobuf:"bytes,1,rep,name=dependents,proto3" json:"dependents,omitempty"`
@@ -1475,6 +1500,7 @@ func (x *GetDependentsResponse) GetPageSize() int32 {
 	return 0
 }
 
+// DependentModule represents a module that depends on the queried module.
 type DependentModule struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Org           string                 `protobuf:"bytes,1,opt,name=org,proto3" json:"org,omitempty"`
@@ -1543,6 +1569,7 @@ func (x *DependentModule) GetConstraint() string {
 	return ""
 }
 
+// GetReadmeRequest is the request for GetReadme.
 type GetReadmeRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Module        *ModuleRef             `protobuf:"bytes,1,opt,name=module,proto3" json:"module,omitempty"`
@@ -1595,6 +1622,7 @@ func (x *GetReadmeRequest) GetVersion() *v1.VersionRef {
 	return nil
 }
 
+// GetReadmeResponse is the response for GetReadme.
 type GetReadmeResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Content       string                 `protobuf:"bytes,1,opt,name=content,proto3" json:"content,omitempty"`

@@ -61,10 +61,18 @@ func NewTree(ctx context.Context, tree *treesitter.Tree, source string) *TreeWra
 	return wrapper
 }
 
-// Close marks the tree as closed and cancels the cleanup
+// Close frees the underlying C tree and cancels the registered store cleanup.
+// Safe to call multiple times.
 func (t *TreeWrapper) Close() {
-	if !t.closed && t.cancelCleanup != nil {
-		t.closed = true
+	if t.closed {
+		return
+	}
+	t.closed = true
+	if t.tree != nil {
+		t.tree.Close()
+		t.tree = nil
+	}
+	if t.cancelCleanup != nil {
 		t.cancelCleanup()
 		t.cancelCleanup = nil
 	}

@@ -5,6 +5,7 @@ package loader
 import (
 	"context"
 	iofs "io/fs"
+	"path/filepath"
 
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
@@ -47,9 +48,7 @@ func (l *Loader) LoadFS(ctx context.Context, fs iofs.FS) ([]registry.Entry, erro
 	for _, p := range payloads {
 		fileEntries, err := l.processFile(ctx, fs, p)
 		if err != nil {
-			// Log warning instead of returning error
-			l.log.Warn("process file", zap.String("path", p.Source()), zap.Error(err))
-			continue
+			return nil, NewProcessFileError(p.Source(), err)
 		}
 		entries = append(entries, fileEntries...)
 	}
@@ -68,9 +67,7 @@ func (l *Loader) LoadDir(ctx context.Context, fs iofs.FS, dirPath string) ([]reg
 	for _, p := range payloads {
 		fileEntries, err := l.processFile(ctx, fs, p)
 		if err != nil {
-			// Log warning instead of returning error
-			l.log.Warn("process file", zap.String("path", p.Source()), zap.Error(err))
-			continue
+			return nil, NewProcessFileError(p.Source(), err)
 		}
 		entries = append(entries, fileEntries...)
 	}
@@ -95,6 +92,18 @@ func (l *Loader) LoadFile(ctx context.Context, fs iofs.FS, filePath string) ([]r
 
 // processFile processes a single file and returns registry entries
 func (l *Loader) processFile(ctx context.Context, fSys iofs.FS, p *FilePayload) ([]registry.Entry, error) {
+	processor := NewEntryProcessor(l.dtt)
+	candidate, err := processor.isEntryFileCandidate(p)
+	if err != nil {
+		if !isStrictManifestSource(p.Source()) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if !candidate {
+		return nil, nil
+	}
+
 	// Interpolate values
 	interpolated, err := l.interpolator.Interpolate(p, interpolate.EntryContext{
 		Filename: p.Source(),
@@ -106,7 +115,7 @@ func (l *Loader) processFile(ctx context.Context, fSys iofs.FS, p *FilePayload) 
 	}
 
 	// Extract entries
-	newEntries, err := ExtractDependenciesToEntries(interpolated, l.dtt)
+	newEntries, err := processor.ExtractDependenciesToEntries(ctx, interpolated)
 	if err != nil {
 		return nil, NewExtractEntriesError(err)
 	}
@@ -119,6 +128,16 @@ func (l *Loader) processFile(ctx context.Context, fSys iofs.FS, p *FilePayload) 
 	}
 
 	return newEntries, nil
+}
+
+func isStrictManifestSource(source string) bool {
+	base := filepath.Base(source)
+	switch base {
+	case "_index.json", "_index.yaml", "_index.yml":
+		return true
+	default:
+		return false
+	}
 }
 
 func validateEntry(entry registry.Entry) error {

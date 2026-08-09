@@ -5,11 +5,15 @@ package excel
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	lua "github.com/wippyai/go-lua"
+	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/runtime/resource"
 	"github.com/xuri/excelize/v2"
 )
 
@@ -337,6 +341,436 @@ func TestWorkbook_GetRows(t *testing.T) {
 	})
 }
 
+// createStreamTestWorkbook builds a sheet with mixed value shapes: numbers,
+// floats, styled dates, booleans, empty cells mid-row, and a full empty-row
+// gap before the final row.
+func createStreamTestWorkbook(t *testing.T, rowCount int) *bytes.Buffer {
+	t.Helper()
+
+	f := excelize.NewFile()
+	_, err := f.NewSheet("Data")
+	require.NoError(t, err)
+
+	dateStyle, err := f.NewStyle(&excelize.Style{NumFmt: 14})
+	require.NoError(t, err)
+
+	require.NoError(t, f.SetCellValue("Data", "A1", "ID"))
+	require.NoError(t, f.SetCellValue("Data", "B1", "Amount"))
+	require.NoError(t, f.SetCellValue("Data", "C1", "Date"))
+	require.NoError(t, f.SetCellValue("Data", "D1", "Flag"))
+
+	for i := 0; i < rowCount; i++ {
+		rowNum := i + 2
+		require.NoError(t, f.SetCellValue("Data", fmt.Sprintf("A%d", rowNum), i+1))
+		if i%5 != 0 {
+			require.NoError(t, f.SetCellValue("Data", fmt.Sprintf("B%d", rowNum), float64(i)*1.5))
+		}
+		cell := fmt.Sprintf("C%d", rowNum)
+		require.NoError(t, f.SetCellValue("Data", cell, time.Date(2026, 1, 1+i%28, 0, 0, 0, 0, time.UTC)))
+		require.NoError(t, f.SetCellStyle("Data", cell, cell, dateStyle))
+		require.NoError(t, f.SetCellValue("Data", fmt.Sprintf("D%d", rowNum), i%2 == 0))
+	}
+
+	// Leave one fully empty row, then a final row after the gap.
+	require.NoError(t, f.SetCellValue("Data", fmt.Sprintf("A%d", rowCount+3), "after-gap"))
+
+	buf := new(bytes.Buffer)
+	require.NoError(t, f.Write(buf))
+	require.NoError(t, f.Close())
+	return buf
+}
+
+func setReaderGlobal(t *testing.T, l *lua.LState, name string, buf *bytes.Buffer) {
+	t.Helper()
+	ud := l.NewUserData()
+	ud.Value = bytes.NewReader(buf.Bytes())
+	l.SetGlobal(name, ud)
+}
+
+func TestWorkbook_Rows(t *testing.T) {
+	t.Run("values match get_rows", func(t *testing.T) {
+		l := setupTestVM(t)
+		defer l.Close()
+
+		setReaderGlobal(t, l, "test_reader", createStreamTestWorkbook(t, 23))
+
+		err := l.DoString(`
+			local wb, err = excel.open(test_reader)
+			assert(err == nil, "open should succeed")
+
+			local expected, gerr = wb:get_rows("Data")
+			assert(gerr == nil, "get_rows should succeed")
+			assert(#expected > 20, "sheet should have data rows")
+
+			local cur, rerr = wb:rows("Data")
+			assert(cur ~= nil, "cursor should not be nil")
+			assert(rerr == nil, "rows should not error")
+
+			local i = 0
+			while true do
+				local batch, berr = cur:read(7)
+				assert(berr == nil, "read should not error")
+				if batch == nil then break end
+				assert(#batch >= 1, "batch should not be empty")
+				for _, row in ipairs(batch) do
+					i = i + 1
+					local exp = expected[i]
+					assert(exp ~= nil, "unexpected extra row " .. i)
+					assert(#row == #exp, "row " .. i .. " width mismatch: " .. #row .. " vs " .. #exp)
+					for c = 1, #exp do
+						assert(row[c] == exp[c],
+							"cell " .. i .. "," .. c .. " mismatch: " .. tostring(row[c]) .. " vs " .. tostring(exp[c]))
+					end
+				end
+			end
+			assert(i == #expected, "row count mismatch: " .. i .. " vs " .. #expected)
+
+			local cerr = cur:close()
+			assert(cerr == nil, "close should succeed")
+			wb:close()
+		`)
+		assert.NoError(t, err)
+	})
+
+	t.Run("batch boundaries", func(t *testing.T) {
+		l := setupTestVM(t)
+		defer l.Close()
+
+		err := l.DoString(`
+			local wb = excel.new()
+			wb:new_sheet("Data")
+			for i = 1, 10 do
+				wb:set_cell_value("Data", "A" .. i, "row" .. i)
+			end
+
+			-- default n = 1
+			local cur = wb:rows("Data")
+			for i = 1, 10 do
+				local batch, err = cur:read()
+				assert(err == nil, "read should not error")
+				assert(#batch == 1, "default batch should hold one row")
+				assert(batch[1][1] == "row" .. i, "row " .. i .. " value mismatch")
+			end
+			local tail, err = cur:read()
+			assert(tail == nil and err == nil, "should reach EOF")
+			cur:close()
+
+			-- n larger than row count
+			local cur2 = wb:rows("Data")
+			local batch2, err2 = cur2:read(25)
+			assert(err2 == nil, "read should not error")
+			assert(#batch2 == 10, "oversized batch should hold all rows")
+			local tail2, terr2 = cur2:read(25)
+			assert(tail2 == nil and terr2 == nil, "should reach EOF")
+			cur2:close()
+
+			-- n exact multiple of row count
+			local cur3 = wb:rows("Data")
+			local a = cur3:read(5)
+			local b = cur3:read(5)
+			assert(#a == 5 and #b == 5, "exact batches should hold five rows each")
+			assert(b[5][1] == "row10", "last row value mismatch")
+			local tail3, terr3 = cur3:read(5)
+			assert(tail3 == nil and terr3 == nil, "should reach EOF")
+			cur3:close()
+
+			wb:close()
+		`)
+		assert.NoError(t, err)
+	})
+
+	t.Run("eof is idempotent", func(t *testing.T) {
+		l := setupTestVM(t)
+		defer l.Close()
+
+		err := l.DoString(`
+			wb = excel.new()
+			wb:new_sheet("Data")
+			wb:set_cell_value("Data", "A1", "only")
+
+			cur = wb:rows("Data")
+			cur:read(10)
+			for i = 1, 3 do
+				local batch, err = cur:read(10)
+				assert(batch == nil, "EOF batch should stay nil")
+				assert(err == nil, "EOF should stay error-free")
+			end
+		`)
+		require.NoError(t, err)
+
+		wb := l.GetGlobal("wb").(*lua.LUserData).Value.(*Workbook)
+		cur := l.GetGlobal("cur").(*lua.LUserData).Value.(*Rows)
+		assert.Empty(t, wb.cursors, "EOF cursor should unregister from workbook")
+		assert.True(t, cur.released, "EOF cursor should release its iterator")
+		assert.False(t, cur.closed, "automatic release should preserve EOF reads")
+
+		err = l.DoString(`
+			assert(cur:close() == nil, "close after EOF should succeed")
+			wb:close()
+		`)
+		assert.NoError(t, err)
+	})
+
+	t.Run("early close", func(t *testing.T) {
+		l := setupTestVM(t)
+		defer l.Close()
+
+		err := l.DoString(`
+			local wb = excel.new()
+			wb:new_sheet("Data")
+			for i = 1, 10 do
+				wb:set_cell_value("Data", "A" .. i, i)
+			end
+
+			local cur = wb:rows("Data")
+			local batch = cur:read(2)
+			assert(#batch == 2, "should read first two rows")
+
+			local cerr = cur:close()
+			assert(cerr == nil, "close should succeed mid-iteration")
+
+			local after, aerr = cur:read()
+			assert(after == nil, "read after close should return nil rows")
+			assert(aerr ~= nil, "read after close should error")
+			assert(aerr:kind() == errors.INVALID, "error kind should be INVALID")
+
+			wb:close()
+		`)
+		assert.NoError(t, err)
+	})
+
+	t.Run("close is idempotent", func(t *testing.T) {
+		l := setupTestVM(t)
+		defer l.Close()
+
+		err := l.DoString(`
+			local wb = excel.new()
+			wb:new_sheet("Data")
+			wb:set_cell_value("Data", "A1", "x")
+
+			local cur = wb:rows("Data")
+			assert(cur:close() == nil, "first close should succeed")
+			assert(cur:close() == nil, "second close should succeed")
+
+			-- close after EOF
+			local cur2 = wb:rows("Data")
+			cur2:read(10)
+			cur2:read(10)
+			assert(cur2:close() == nil, "close after EOF should succeed")
+
+			wb:close()
+		`)
+		assert.NoError(t, err)
+	})
+
+	t.Run("workbook close reaps abandoned cursor", func(t *testing.T) {
+		l := setupTestVM(t)
+		defer l.Close()
+
+		err := l.DoString(`
+			local wb = excel.new()
+			wb:new_sheet("Data")
+			for i = 1, 10 do
+				wb:set_cell_value("Data", "A" .. i, i)
+			end
+
+			local cur = wb:rows("Data")
+			cur:read()
+			-- abandon the cursor mid-sheet
+			wb:close()
+
+			local batch, err = cur:read()
+			assert(batch == nil, "read after workbook close should return nil rows")
+			assert(err ~= nil, "read after workbook close should error")
+			assert(err:kind() == errors.INVALID, "error kind should be INVALID")
+
+			assert(cur:close() == nil, "close after workbook close should succeed")
+		`)
+		assert.NoError(t, err)
+	})
+
+	t.Run("missing sheet", func(t *testing.T) {
+		l := setupTestVM(t)
+		defer l.Close()
+
+		err := l.DoString(`
+			local wb = excel.new()
+
+			local cur, err = wb:rows("NonExistentSheet")
+			assert(cur == nil, "cursor should be nil")
+			assert(err ~= nil, "error should not be nil")
+			assert(err:kind() == errors.INVALID, "error kind should be INVALID")
+			assert(err:retryable() == false, "error should not be retryable")
+
+			wb:close()
+		`)
+		assert.NoError(t, err)
+	})
+
+	t.Run("empty sheet", func(t *testing.T) {
+		l := setupTestVM(t)
+		defer l.Close()
+
+		err := l.DoString(`
+			local wb = excel.new()
+			wb:new_sheet("Empty")
+
+			local cur, err = wb:rows("Empty")
+			assert(cur ~= nil, "cursor should not be nil")
+			assert(err == nil, "rows should not error")
+
+			local batch, nerr = cur:read(10)
+			assert(batch == nil, "empty sheet should yield no rows")
+			assert(nerr == nil, "empty sheet EOF should be error-free")
+
+			cur:close()
+			wb:close()
+		`)
+		assert.NoError(t, err)
+	})
+
+	t.Run("invalid batch size", func(t *testing.T) {
+		l := setupTestVM(t)
+		defer l.Close()
+
+		err := l.DoString(`
+			local wb = excel.new()
+			wb:new_sheet("Data")
+			wb:set_cell_value("Data", "A1", "x")
+
+			local cur = wb:rows("Data")
+			local batch, err = cur:read(0)
+			assert(batch == nil, "zero batch should return nil rows")
+			assert(err ~= nil, "zero batch should error")
+			assert(err:kind() == errors.INVALID, "error kind should be INVALID")
+
+			-- argument error does not poison the cursor
+			local ok, okerr = cur:read(1)
+			assert(okerr == nil, "read should recover after invalid batch size")
+			assert(ok[1][1] == "x", "row value mismatch")
+
+			cur:close()
+			wb:close()
+		`)
+		assert.NoError(t, err)
+	})
+
+	t.Run("closed workbook", func(t *testing.T) {
+		l := setupTestVM(t)
+		defer l.Close()
+
+		err := l.DoString(`
+			local wb = excel.new()
+			wb:new_sheet("Data")
+			wb:close()
+
+			local cur, err = wb:rows("Data")
+			assert(cur == nil, "cursor should be nil")
+			assert(err ~= nil, "error should not be nil")
+			assert(err:kind() == errors.INVALID, "error kind should be INVALID")
+		`)
+		assert.NoError(t, err)
+	})
+}
+
+func TestWorkbook_RowsContextCancellation(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	l.SetContext(ctx)
+	lua.OpenErrors(l)
+	bindExcel(l)
+
+	err := l.DoString(`
+		wb = excel.new()
+		wb:new_sheet("Data")
+		for i = 1, 20 do
+			wb:set_cell_value("Data", "A" .. i, i)
+		end
+		cur = wb:rows("Data")
+		local batch, err = cur:read(5)
+		assert(err == nil, "read should succeed before cancellation")
+		assert(#batch == 5, "batch should hold five rows")
+	`)
+	require.NoError(t, err)
+
+	cancel()
+
+	// The VM refuses to execute Lua code once the context is cancelled, so
+	// drive the cursor's Go function directly to exercise its own ctx check.
+	cur := l.GetGlobal("cur")
+	readCursor := func() (lua.LValue, lua.LValue) {
+		require.NoError(t, l.CallByParam(lua.P{Fn: lua.LGoFunc(rowsRead), NRet: 2, Protect: true}, cur, lua.LNumber(5)))
+		batch, errVal := l.Get(-2), l.Get(-1)
+		l.Pop(2)
+		return batch, errVal
+	}
+
+	batch, errVal := readCursor()
+	assert.Equal(t, lua.LNil, batch, "read after cancellation should return nil rows")
+	assert.NotEqual(t, lua.LNil, errVal, "read after cancellation should error")
+
+	wb := l.GetGlobal("wb").(*lua.LUserData).Value.(*Workbook)
+	rows := cur.(*lua.LUserData).Value.(*Rows)
+	assert.Empty(t, wb.cursors, "cancelled cursor should unregister from workbook")
+	assert.True(t, rows.released, "cancelled cursor should release its iterator")
+	assert.False(t, rows.closed, "automatic release should preserve terminal error reads")
+
+	// cancellation is terminal
+	batch, errVal = readCursor()
+	assert.Equal(t, lua.LNil, batch, "terminal state should persist")
+	assert.NotEqual(t, lua.LNil, errVal, "terminal error should persist")
+
+	// close after cancellation succeeds
+	require.NoError(t, l.CallByParam(lua.P{Fn: lua.LGoFunc(rowsClose), NRet: 1, Protect: true}, cur))
+	assert.Equal(t, lua.LNil, l.Get(-1), "close after cancellation should succeed")
+	l.Pop(1)
+}
+
+func TestWorkbook_RowsResourceStoreCleanup(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+
+	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	store := resource.NewStore()
+	require.NoError(t, resource.SetStore(ctx, store))
+
+	l.SetContext(ctx)
+	lua.OpenErrors(l)
+	bindExcel(l)
+
+	err := l.DoString(`
+		wb = excel.new()
+		wb:new_sheet("Data")
+		for i = 1, 10 do
+			wb:set_cell_value("Data", "A" .. i, i)
+		end
+		cur = wb:rows("Data")
+		local batch, err = cur:read(3)
+		assert(err == nil, "read should succeed before store close")
+		assert(#batch == 3, "batch should hold three rows")
+	`)
+	require.NoError(t, err)
+
+	require.NoError(t, store.Close())
+
+	err = l.DoString(`
+		local batch, err = cur:read()
+		assert(batch == nil, "read after store close should return nil rows")
+		assert(err ~= nil, "read after store close should error")
+		assert(err:kind() == errors.INVALID, "error kind should be INVALID")
+
+		local sheets, werr = wb:get_sheet_list()
+		assert(sheets == nil, "workbook should be closed by store cleanup")
+		assert(werr ~= nil, "workbook operations should error after store cleanup")
+
+		assert(cur:close() == nil, "close after store cleanup should succeed")
+	`)
+	assert.NoError(t, err)
+}
+
 func TestWorkbook_SetCellValue(t *testing.T) {
 	t.Run("string value", func(t *testing.T) {
 		l := setupTestVM(t)
@@ -512,6 +946,62 @@ func TestWorkbook_WriteTo(t *testing.T) {
 			assert(err:kind() == errors.INTERNAL, "error kind should be INTERNAL")
 
 			wb:close()
+		`)
+		assert.NoError(t, err)
+	})
+}
+
+func TestWorkbook_Bytes(t *testing.T) {
+	t.Run("returns xlsx bytes", func(t *testing.T) {
+		l := setupTestVM(t)
+		defer l.Close()
+
+		err := l.DoString(`
+			local wb = excel.new()
+
+			wb:new_sheet("TestSheet")
+			wb:set_cell_value("TestSheet", "A1", "Test Data")
+
+			local data, err = wb:bytes()
+			assert(err == nil, "bytes should succeed")
+			assert(type(data) == "string", "data should be a string")
+			assert(#data > 0, "data should not be empty")
+			assert(data:sub(1, 2) == "PK", "data should be a zip archive")
+
+			-- workbook remains usable after bytes()
+			local rows, rows_err = wb:get_rows("TestSheet")
+			assert(rows_err == nil, "workbook should remain usable")
+			assert(rows[1][1] == "Test Data", "cell value should be intact")
+
+			result = data
+			wb:close()
+		`)
+		require.NoError(t, err)
+
+		data := l.GetGlobal("result")
+		require.Equal(t, lua.LTString, data.Type())
+
+		f, err := excelize.OpenReader(bytes.NewReader([]byte(string(data.(lua.LString)))))
+		require.NoError(t, err)
+
+		val, err := f.GetCellValue("TestSheet", "A1")
+		assert.NoError(t, err)
+		assert.Equal(t, "Test Data", val)
+		_ = f.Close()
+	})
+
+	t.Run("closed workbook error", func(t *testing.T) {
+		l := setupTestVM(t)
+		defer l.Close()
+
+		err := l.DoString(`
+			local wb = excel.new()
+			wb:close()
+
+			local data, err = wb:bytes()
+			assert(data == nil, "data should be nil")
+			assert(err ~= nil, "should get error")
+			assert(err:kind() == errors.INTERNAL, "error kind should be INTERNAL")
 		`)
 		assert.NoError(t, err)
 	})

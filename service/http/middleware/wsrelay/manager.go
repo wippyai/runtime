@@ -23,15 +23,14 @@ import (
 // responseWrapper wraps http.ResponseWriter to capture headers before passing to handlers
 type responseWrapper struct {
 	http.ResponseWriter
-	headers    http.Header
-	statusCode int
+	relayErr error
+	headers  http.Header
 }
 
 func newResponseWrapper(w http.ResponseWriter) *responseWrapper {
 	return &responseWrapper{
 		ResponseWriter: w,
 		headers:        w.Header(),
-		statusCode:     200,
 	}
 }
 
@@ -40,18 +39,44 @@ func (rw *responseWrapper) Header() http.Header {
 }
 
 func (rw *responseWrapper) Write(data []byte) (int, error) {
+	if rw.rejectMalformedRelay() {
+		return len(data), nil
+	}
 	return rw.ResponseWriter.Write(data)
 }
 
 func (rw *responseWrapper) WriteHeader(statusCode int) {
-	rw.statusCode = statusCode
+	if rw.rejectMalformedRelay() {
+		return
+	}
 	rw.ResponseWriter.WriteHeader(statusCode)
 }
 
 func (rw *responseWrapper) Flush() {
+	if rw.rejectMalformedRelay() {
+		return
+	}
 	if flusher, ok := rw.ResponseWriter.(http.Flusher); ok {
 		flusher.Flush()
 	}
+}
+
+func (rw *responseWrapper) rejectMalformedRelay() bool {
+	if rw.relayErr != nil {
+		return true
+	}
+	relayConfig := rw.headers.Get(RelayHeader)
+	if relayConfig == "" {
+		return false
+	}
+	var command RelayCommand
+	if err := json.Unmarshal([]byte(relayConfig), &command); err != nil {
+		rw.relayErr = err
+		rw.headers.Del(RelayHeader)
+		http.Error(rw.ResponseWriter, "Invalid relay configuration", http.StatusBadRequest)
+		return true
+	}
+	return false
 }
 
 const (
@@ -133,6 +158,14 @@ func (m *RelayManager) middlewareHandler(h http.Handler, originPatterns []string
 		wrappedWriter := newResponseWrapper(w)
 		h.ServeHTTP(wrappedWriter, r)
 
+		if wrappedWriter.relayErr != nil {
+			m.logger.Error("Invalid relay configuration",
+				zap.String("path", r.URL.Path),
+				zap.String("remote_addr", r.RemoteAddr),
+				zap.Error(wrappedWriter.relayErr))
+			return
+		}
+
 		relayConfigStr := wrappedWriter.Header().Get(RelayHeader)
 		if relayConfigStr == "" {
 			return
@@ -147,6 +180,7 @@ func (m *RelayManager) middlewareHandler(h http.Handler, originPatterns []string
 		var config RelayCommand
 		if err := json.Unmarshal([]byte(relayConfigStr), &config); err != nil {
 			logger.Error("Invalid relay configuration", zap.Error(err))
+			http.Error(w, "Invalid relay configuration", http.StatusBadRequest)
 			return
 		}
 

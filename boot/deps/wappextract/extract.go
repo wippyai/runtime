@@ -34,7 +34,37 @@ func extractWappToDir(wappPath, targetDir string, removeSource bool) error {
 	if targetDir == "" {
 		return fmt.Errorf("target directory is empty")
 	}
+	parent := filepath.Dir(targetDir)
+	if err := os.MkdirAll(parent, 0755); err != nil {
+		return fmt.Errorf("create target parent: %w", err)
+	}
+	tmpDir, err := os.MkdirTemp(parent, "."+filepath.Base(targetDir)+".extract-*")
+	if err != nil {
+		return fmt.Errorf("create temporary extraction directory: %w", err)
+	}
+	cleanupTmp := true
+	defer func() {
+		if cleanupTmp {
+			_ = os.RemoveAll(tmpDir)
+		}
+	}()
 
+	if err := extractWappToDirContents(wappPath, tmpDir); err != nil {
+		return err
+	}
+	if err := replaceDirectory(targetDir, tmpDir); err != nil {
+		return err
+	}
+	cleanupTmp = false
+	if removeSource {
+		if err := os.Remove(wappPath); err != nil {
+			return fmt.Errorf("remove wapp file: %w", err)
+		}
+	}
+	return nil
+}
+
+func extractWappToDirContents(wappPath, targetDir string) error {
 	file, err := os.Open(wappPath)
 	if err != nil {
 		return fmt.Errorf("open wapp file: %w", err)
@@ -117,10 +147,41 @@ func extractWappToDir(wappPath, targetDir string, removeSource bool) error {
 	if err != nil {
 		return fmt.Errorf("close wapp file: %w", err)
 	}
-	if removeSource {
-		if err := os.Remove(wappPath); err != nil {
-			return fmt.Errorf("remove wapp file: %w", err)
+	return nil
+}
+
+func replaceDirectory(targetDir, replacementDir string) error {
+	parent := filepath.Dir(targetDir)
+	base := filepath.Base(targetDir)
+	var backupDir string
+
+	if _, err := os.Stat(targetDir); err == nil {
+		var mkErr error
+		backupDir, mkErr = os.MkdirTemp(parent, "."+base+".backup-*")
+		if mkErr != nil {
+			return fmt.Errorf("create backup directory: %w", mkErr)
 		}
+		if err := os.Remove(backupDir); err != nil {
+			_ = os.RemoveAll(backupDir)
+			return fmt.Errorf("prepare backup directory: %w", err)
+		}
+		if err := os.Rename(targetDir, backupDir); err != nil {
+			_ = os.RemoveAll(backupDir)
+			return fmt.Errorf("move existing directory aside: %w", err)
+		}
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("stat target directory: %w", err)
+	}
+
+	if err := os.Rename(replacementDir, targetDir); err != nil {
+		if backupDir != "" {
+			_ = os.Rename(backupDir, targetDir)
+		}
+		return fmt.Errorf("activate extracted directory: %w", err)
+	}
+
+	if backupDir != "" {
+		_ = os.RemoveAll(backupDir)
 	}
 	return nil
 }

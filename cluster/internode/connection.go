@@ -5,6 +5,7 @@ package internode
 import (
 	"bufio"
 	"context"
+	"crypto/ed25519"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -115,8 +116,13 @@ type Outbound struct {
 
 // NodeConnectionConfig holds configuration parameters for a NodeConnection.
 type NodeConnectionConfig struct {
-	HandshakeTimeout time.Duration
-	MaxMessageSize   uint32
+	AuthorizePeer         func(cluster.NodeID, net.Addr) bool
+	ResolvePeerKey        func(cluster.NodeID) (ed25519.PublicKey, bool)
+	AuthenticationKey     []byte
+	SigningKey            ed25519.PrivateKey
+	HandshakeTimeout      time.Duration
+	MaxMessageSize        uint32
+	RequireAuthentication bool
 }
 
 // DefaultNodeConnectionConfig returns a default set of configuration parameters

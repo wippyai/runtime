@@ -55,3 +55,16 @@ entries:
       assert2: app.lib:assert
     modules:
       - hash
+
+  - name: pbkdf2
+    kind: function.lua
+    meta:
+      type: test
+      suite: hash
+      description: hash.pbkdf2 function
+    source: file://pbkdf2.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - hash

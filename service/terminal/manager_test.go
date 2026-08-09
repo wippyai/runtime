@@ -4,6 +4,7 @@ package terminal
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -261,11 +262,26 @@ func TestCompositeLifecycle_OnStart(t *testing.T) {
 	assert.True(t, hostCalled)
 }
 
+func TestCompositeLifecycle_OnStart_HostErrorRollsBackGlobal(t *testing.T) {
+	hostErr := errors.New("host lifecycle error")
+	var rollbackResult *runtime.Result
+
+	global := &testLifecycle{onComplete: func(result *runtime.Result) { rollbackResult = result }}
+	host := &testLifecycle{onStartErr: hostErr}
+
+	c := &compositeLifecycle{global: global, host: host}
+	err := c.OnStart(context.Background(), pid.PID{}, nil)
+
+	assert.ErrorIs(t, err, hostErr)
+	require.NotNil(t, rollbackResult)
+	assert.ErrorIs(t, rollbackResult.Error, hostErr)
+}
+
 func TestCompositeLifecycle_OnComplete(t *testing.T) {
 	var globalCalled, hostCalled bool
 
-	global := &testLifecycle{onComplete: func() { globalCalled = true }}
-	host := &testLifecycle{onComplete: func() { hostCalled = true }}
+	global := &testLifecycle{onComplete: func(*runtime.Result) { globalCalled = true }}
+	host := &testLifecycle{onComplete: func(*runtime.Result) { hostCalled = true }}
 
 	c := &compositeLifecycle{global: global, host: host}
 	c.OnComplete(context.Background(), pid.PID{}, nil)
@@ -285,19 +301,20 @@ func TestCompositeLifecycle_NilHandlers(t *testing.T) {
 
 type testLifecycle struct {
 	onStart    func()
-	onComplete func()
+	onStartErr error
+	onComplete func(*runtime.Result)
 }
 
 func (t *testLifecycle) OnStart(context.Context, pid.PID, process.Process) error {
 	if t.onStart != nil {
 		t.onStart()
 	}
-	return nil
+	return t.onStartErr
 }
 
-func (t *testLifecycle) OnComplete(context.Context, pid.PID, *runtime.Result) {
+func (t *testLifecycle) OnComplete(_ context.Context, _ pid.PID, result *runtime.Result) {
 	if t.onComplete != nil {
-		t.onComplete()
+		t.onComplete(result)
 	}
 }
 

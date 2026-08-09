@@ -790,6 +790,42 @@ func TestBuildDelta_Empty(t *testing.T) {
 	})
 }
 
+func TestBuildDelta_RejectsDuplicateEntryIDs(t *testing.T) {
+	builder := NewStateBuilder(zap.NewNop(), nil)
+
+	entry := testEntry{
+		ns: "test", name: "service",
+		kind: "service", data: "data",
+	}.toEntry()
+	duplicate := testEntry{
+		ns: "test", name: "service",
+		kind: "service", data: "other",
+	}.toEntry()
+
+	t.Run("Duplicate In Target", func(t *testing.T) {
+		_, err := builder.BuildDelta(registry.State{}, registry.State{entry, duplicate})
+		if err == nil {
+			t.Fatal("expected duplicate target entry to be rejected")
+		}
+		if !strings.Contains(err.Error(), "duplicate entry id in target state") {
+			t.Errorf("unexpected error: %v", err)
+		}
+		if !strings.Contains(err.Error(), "service") {
+			t.Errorf("error does not name the entry: %v", err)
+		}
+	})
+
+	t.Run("Duplicate In Source", func(t *testing.T) {
+		_, err := builder.BuildDelta(registry.State{entry, duplicate}, registry.State{})
+		if err == nil {
+			t.Fatal("expected duplicate source entry to be rejected")
+		}
+		if !strings.Contains(err.Error(), "duplicate entry id in source state") {
+			t.Errorf("unexpected error: %v", err)
+		}
+	})
+}
+
 func TestBuildDelta_SimpleOperations(t *testing.T) {
 	builder := NewStateBuilder(zap.NewNop(), nil)
 

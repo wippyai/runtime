@@ -231,6 +231,28 @@ func TestExtractWappToDirRejectsUnsafeEntryName(t *testing.T) {
 	}
 }
 
+func TestExtractWappToDirFailureLeavesNoTargetResidue(t *testing.T) {
+	dir := t.TempDir()
+	wappPath := filepath.Join(dir, "mod.wapp")
+	writeTestWapp(t, wappPath, []wapp.Entry{{
+		ID:   wapp.NewID("app", "../escape"),
+		Kind: "function.lua",
+		Data: map[string]any{"source": "return true"},
+	}}, nil)
+
+	targetDir := filepath.Join(dir, "mod")
+	err := ExtractWappToDir(wappPath, targetDir)
+	if err == nil {
+		t.Fatal("expected unsafe entry name to fail")
+	}
+	if _, statErr := os.Stat(targetDir); !os.IsNotExist(statErr) {
+		t.Fatalf("target dir residue = %v, want not exist", statErr)
+	}
+	if _, statErr := os.Stat(wappPath); statErr != nil {
+		t.Fatalf("source pack should remain on extraction failure: %v", statErr)
+	}
+}
+
 func TestSafeResourcePathRejectsUnsafePaths(t *testing.T) {
 	targetDir := t.TempDir()
 	tests := []string{

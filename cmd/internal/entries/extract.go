@@ -10,3 +10,9 @@ import "github.com/wippyai/runtime/boot/deps/wappextract"
 func ExtractWappToDir(wappPath, targetDir string) error {
 	return wappextract.ExtractWappToDir(wappPath, targetDir)
 }
+
+// ExtractWappToDirKeepSource extracts a module while retaining its canonical
+// WAPP for resource-backed artifact reconciliation and repair.
+func ExtractWappToDirKeepSource(wappPath, targetDir string) error {
+	return wappextract.ExtractWappToDirKeepSource(wappPath, targetDir)
+}

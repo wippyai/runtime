@@ -2,7 +2,7 @@
 
 # hash
 
-Cryptographic hash functions and HMAC. Encoding, security, deterministic.
+Cryptographic hash functions, HMAC, and PBKDF2. Encoding, security, deterministic.
 
 ## Loading
 
@@ -207,6 +207,32 @@ Computes HMAC-MD5 of input data with secret key.
 |-----------|------|-----------|
 | data not a string | errors.INVALID | no |
 | secret not a string | errors.INVALID | no |
+
+### pbkdf2(password: string, salt: string, iterations: integer, key_length: integer, algo?: string) → string, error
+
+Derives a key using PBKDF2-HMAC.
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| password | string | yes | - | Password or secret input |
+| salt | string | yes | - | Salt bytes |
+| iterations | integer | yes | - | Positive iteration count |
+| key_length | integer | yes | - | Positive output length in bytes |
+| algo | string | no | "sha256" | Hash function: "sha256" or "sha512" |
+
+**Returns:**
+- Success: raw derived key bytes
+- Error: `nil, error` - structured error
+
+**Errors (structured):**
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| password not a string or empty | errors.INVALID | no |
+| salt not a string or empty | errors.INVALID | no |
+| iterations not positive or above maximum | errors.INVALID | no |
+| key_length not positive | errors.INVALID | no |
+| algo unsupported | errors.INVALID | no |
 
 ## Errors
 

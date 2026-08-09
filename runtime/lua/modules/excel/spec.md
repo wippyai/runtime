@@ -58,8 +58,10 @@ Returned by `excel.new()` and `excel.open()`. Represents an Excel .xlsx workbook
 | new_sheet | (name: string) → integer, error | Sheet index | Creates sheet or returns existing index |
 | get_sheet_list | () → string[], error | Sheet names | Returns all sheet names as array |
 | get_rows | (sheet: string) → string[][], error | 2D array of cells | All values as strings |
+| rows | (sheet: string) → Rows, error | Streaming cursor | Reads rows incrementally, constant memory |
 | set_cell_value | (sheet: string, cell: string, value: any) → error | - | Sets single cell value |
 | write_to | (writer: File) → error | - | Writes workbook to writer |
+| bytes | () → string, error | xlsx bytes | Serializes workbook to a binary string |
 | close | () → error | - | Closes workbook, releases resources |
 
 #### workbook:new_sheet(name: string) → integer, error
@@ -131,6 +133,33 @@ Gets all rows from a sheet as 2D array.
 - Numbers returned as string representation ("123", "45.67")
 - Arrays are 1-indexed (Lua convention)
 
+#### workbook:rows(sheet: string) → Rows, error
+
+Opens a streaming cursor over the rows of a sheet. Rows are decoded from the
+sheet XML incrementally, so large sheets can be processed in constant memory
+(unlike `get_rows`, which materializes the whole sheet).
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| sheet | string | yes | - | Sheet name |
+
+**Returns:**
+- Success: `Rows, nil` - streaming row cursor
+- Error: `nil, error` - structured error
+
+**Errors (structured):**
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| invalid workbook | errors.INVALID | no |
+| workbook closed | errors.INVALID | no |
+| non-existent sheet | errors.INVALID | no |
+
+**Notes:**
+- Cell values have the same string formatting as `get_rows`
+- Closing the workbook closes any cursors still open on it
+- Unlike `get_rows`, trailing empty rows present in the sheet XML are not trimmed
+
 #### workbook:set_cell_value(sheet: string, cell: string, value: any) → error
 
 Sets value of a single cell.
@@ -186,6 +215,28 @@ Writes workbook to a writer object.
 - Does not close the writer
 - Call `writer:close()` separately after writing
 
+#### workbook:bytes() → string, error
+
+Serializes the workbook to .xlsx and returns it as a binary string. Use this
+instead of `write_to` when the destination is not a filesystem writer (e.g.,
+uploading to object storage or sending over HTTP).
+
+**Returns:**
+- Success: `string, nil` - complete .xlsx file contents
+- Error: `nil, error` - structured error
+
+**Errors (structured):**
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| invalid workbook | errors.INVALID | no |
+| workbook closed | errors.INTERNAL | no |
+| write failed | errors.INTERNAL | no |
+
+**Notes:**
+- The whole file is materialized in memory; prefer `write_to` for very large workbooks
+- Does not close the workbook; it remains usable afterwards
+
 #### workbook:close() → error
 
 Closes workbook and releases resources.
@@ -203,8 +254,67 @@ Closes workbook and releases resources.
 **Notes:**
 - Idempotent - safe to call multiple times
 - All operations after close will error with "workbook is closed"
+- Closing the workbook also closes any open row cursors
 - Workbooks are automatically closed when Lua context ends
 - Best practice: always call close when done
+
+### Rows
+
+Streaming cursor over the rows of a single sheet. Returned by `workbook:rows()`.
+
+| Method | Signature | Returns | Notes |
+|--------|-----------|---------|-------|
+| read | (n?: integer) → string[][], error | Batch of rows | Reads up to n rows, nil at EOF |
+| close | () → error | - | Closes cursor, releases resources |
+
+#### rows:read(n?: integer) → string[][], error
+
+Reads the next batch of up to n rows.
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| n | integer | no | 1 | Rows per batch, capped at 10000 |
+
+**Returns:**
+- Success: `string[][], nil` - batch of 1..n rows, each a string array of cell values
+- EOF: `nil, nil` - end of sheet
+- Error: `nil, error` - structured error
+
+**Errors (structured):**
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| cursor closed | errors.INVALID | no |
+| batch size < 1 | errors.INVALID | no |
+| read failure | errors.INTERNAL | no |
+| context cancelled | errors.INTERNAL | no |
+
+**Notes:**
+- Synchronous, pull-based; does not yield
+- Cell value semantics identical to `get_rows` (numbers, booleans, dates formatted to strings)
+- EOF and errors are terminal: subsequent `read()` calls keep returning the same state
+- Iterator errors reported by the Excel reader are returned as errors, not EOF
+- The underlying iterator is released automatically at EOF or a terminal read error
+- Empty rows are returned as empty tables `{}` (distinct from `nil` EOF)
+- An argument error (batch size < 1) does not poison the cursor
+
+#### rows:close() → error
+
+Closes the cursor and releases resources.
+
+**Returns:**
+- Success: `nil`
+- Error: `error` - structured error
+
+**Errors (structured):**
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| close failure | errors.INTERNAL | no |
+
+**Notes:**
+- Idempotent - safe to call multiple times, including after EOF, read error, or workbook close
+- Cursors left open are closed automatically when the workbook closes or the Lua context ends
 
 ## Dependencies
 
@@ -294,6 +404,21 @@ if err then error(err) end
 
 local rows2 = wb2:get_rows("Sales")
 -- Access data: rows2[2][1] == "Jan"
+
+-- Stream rows without loading the whole sheet
+local cur, err = wb2:rows("Sales")
+if err then error(err) end
+
+while true do
+    local batch, err = cur:read(500)
+    if err then error(err) end
+    if batch == nil then break end
+    for _, row in ipairs(batch) do
+        -- process row (array of strings)
+    end
+end
+
+cur:close()
 
 wb2:close()
 file2:close()

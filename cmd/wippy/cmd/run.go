@@ -4,6 +4,7 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/signal"
@@ -16,12 +17,13 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 	"github.com/wippyai/runtime/api/boot"
+	ctxapi "github.com/wippyai/runtime/api/context"
 	logapi "github.com/wippyai/runtime/api/logs"
-	moduleapi "github.com/wippyai/runtime/api/modules"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
+	secapi "github.com/wippyai/runtime/api/security"
 	embedapi "github.com/wippyai/runtime/api/service/fs/embed"
 	supervisorapi "github.com/wippyai/runtime/api/supervisor"
 	bootpkg "github.com/wippyai/runtime/boot"
@@ -33,6 +35,7 @@ import (
 	"github.com/wippyai/runtime/cmd/internal/entries"
 	"github.com/wippyai/runtime/cmd/internal/shutdown"
 	embedpkg "github.com/wippyai/runtime/service/fs/embed"
+	securitysys "github.com/wippyai/runtime/system/security"
 	supervisorpkg "github.com/wippyai/runtime/system/supervisor"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -46,7 +49,9 @@ var runCmd = &cobra.Command{
 Without arguments, starts the full runtime from wippy.lock.
 With a command name, executes the matching process entry.
 With a .wapp file, runs directly from the pack file.
-With an org/module reference, downloads from hub and runs.
+With an org/module reference, bootstraps from hub when wippy.lock is absent.
+When wippy.lock exists, the reference must match its selected deployment root
+and the runtime starts from the locked graph without resolving hub again.
 
 Use 'wippy run list' to see available commands.
 
@@ -56,9 +61,9 @@ Examples:
   wippy run greet                           # Run a named entrypoint
   wippy run -x app:cli                      # Execute specific process
   wippy run snapshot.wapp                   # Run from pack file
-  wippy run acme/http                       # Run latest from hub
-  wippy run acme/http@1.2.3                 # Run specific version
-  wippy run acme/http@latest                # Run latest label`,
+  wippy run acme/http                       # Bootstrap latest when no lock exists
+  wippy run acme/http@1.2.3                 # Bootstrap a specific version
+  wippy run acme/http                       # Restart the established locked deployment`,
 	Args:               cobra.ArbitraryArgs,
 	DisableFlagParsing: false,
 	RunE:               runApp,
@@ -90,26 +95,33 @@ func init() {
 	rootCmd.AddCommand(runCmd)
 	rootCmd.AddCommand(testCmd)
 	runCmd.AddCommand(listCmd)
+	listCmd.Flags().StringArray("profile", nil, "apply a workspace profile from the merged runtime config (repeatable, applied in order)")
+	listCmd.Flags().StringArray("set", nil, "override a merged runtime config value (format: section.path=value, repeatable)")
 	runCmd.Flags().StringSliceP("override", "o", nil, "Override entry values (format: namespace:entry:field=value)")
 	runCmd.Flags().StringP("exec", "x", "", "Execute process and exit (format: namespace:entry)")
 	runCmd.Flags().String("host", "", "Terminal host ID for exec (auto-detected if only one terminal.host exists)")
 	runCmd.Flags().String("registry", "", "Registry URL for hub modules (default: from credentials)")
-	runCmd.Flags().StringArray("set", nil, "Override a .wippy.yaml config value (format: section.path=value, repeatable)")
-	runCmd.Flags().StringArray("profile", nil, "Apply a runtime profile from .wippy.yaml or packed runtime metadata (repeatable, applied in order)")
+	runCmd.Flags().StringArray("set", nil, "override a merged runtime config value (format: section.path=value, repeatable)")
+	runCmd.Flags().StringArray("profile", nil, "apply a profile from the merged runtime config or packed runtime metadata (repeatable, applied in order)")
 
 	testCmd.Flags().StringSliceP("override", "o", nil, "Override entry values (format: namespace:entry:field=value)")
 	testCmd.Flags().String("host", "", "Terminal host ID for exec (auto-detected if only one terminal.host exists)")
 	testCmd.Flags().String("registry", "", "Registry URL for hub modules (default: from credentials)")
-	testCmd.Flags().StringArray("set", nil, "Override a .wippy.yaml config value (format: section.path=value, repeatable)")
-	testCmd.Flags().StringArray("profile", nil, "Apply a runtime profile from .wippy.yaml or packed runtime metadata (repeatable, applied in order)")
+	testCmd.Flags().StringArray("set", nil, "override a merged runtime config value (format: section.path=value, repeatable)")
+	testCmd.Flags().StringArray("profile", nil, "apply a profile from the merged runtime config or packed runtime metadata (repeatable, applied in order)")
 }
 
 // commandMeta represents the command metadata from entry.Meta
 type commandMeta struct {
-	Name    string `json:"name"`
-	Short   string `json:"short"`
-	UseCase string `json:"use_case"`
-	Main    bool   `json:"main"`
+	// Security is the security context the command runs under when launched
+	// from the CLI. It lives inside meta.command on purpose: it applies only
+	// to the trusted terminal-launcher path, never to ordinary spawns of the
+	// same process entry.
+	Security *secapi.Config `json:"security"`
+	Name     string         `json:"name"`
+	Short    string         `json:"short"`
+	UseCase  string         `json:"use_case"`
+	Main     bool           `json:"main"`
 }
 
 // runApp is the primary `wippy run` execution flow.
@@ -148,11 +160,22 @@ func runWithUseCase(cmd *cobra.Command, args []string, useCase string) error {
 		}
 
 		if isHubModuleRef(commandName) {
-			packPaths, err := downloadHubModule(cmd.Context(), commandName, registryURL)
+			useLock, err := useLockedHubDeployment(commandName, defaultLockFile)
 			if err != nil {
 				return err
 			}
-			return runFromPackFiles(cmd, packPaths, commandArgs, useCase)
+			if useLock {
+				// A module reference identifies the established deployment; it is
+				// not an update instruction or a named process entrypoint.
+				commandName = ""
+				commandArgs = nil
+			} else {
+				packPaths, err := downloadHubModule(cmd.Context(), commandName, registryURL)
+				if err != nil {
+					return err
+				}
+				return runFromPackFiles(cmd, packPaths, commandArgs, useCase)
+			}
 		}
 	}
 
@@ -175,7 +198,15 @@ func runWithUseCase(cmd *cobra.Command, args []string, useCase string) error {
 
 	logger.Info("initializing runtime", zap.String("memory_limit", formatBytes(memLimit)))
 
-	cfg, err := loadRuntimeConfig(cmd, logger)
+	// A Hub deployment is restarted from wippy.lock, without resolving the Hub
+	// reference again. Its selected root pack is therefore the same authority
+	// for published runtime defaults as it was on the first run.
+	runtimeDefaults, err := loadLockRootRuntimeDefaults(defaultLockFile, logger)
+	if err != nil {
+		logger.Error("failed to load deployment runtime defaults", zap.Error(err))
+		return err
+	}
+	cfg, err := loadRuntimeConfigWithDefaults(cmd, logger, runtimeDefaults)
 	if err != nil {
 		logger.Error("failed to resolve runtime config", zap.Error(err))
 		return err
@@ -186,8 +217,6 @@ func runWithUseCase(cmd *cobra.Command, args []string, useCase string) error {
 		logger.Error("failed to initialize bootstrap context", zap.Error(err))
 		return NewInitializeBootstrapContextError(err)
 	}
-	ctx = moduleapi.WithSourceRootRegistry(ctx)
-
 	registryClient := client.NewRegistryClientFromConfig(boot.GetConfig(ctx))
 	ctx = appinit.WithRegistryClient(ctx, registryClient)
 
@@ -355,35 +384,35 @@ func isProcessKind(kind registry.Kind) bool {
 	return strings.HasPrefix(kind, "process.")
 }
 
-// extractCommandMeta extracts command metadata from entry.Meta
-func extractCommandMeta(meta map[string]any) *commandMeta {
+// extractCommandMeta decodes command metadata from entry.Meta. Decoding the
+// complete typed structure keeps command discovery and launch on the same
+// schema, including nested actor metadata.
+func extractCommandMeta(meta map[string]any) (*commandMeta, error) {
 	if meta == nil {
-		return nil
+		return nil, nil
 	}
 
 	cmdData, ok := meta["command"]
 	if !ok {
-		return nil
+		return nil, nil
 	}
 
-	cmdMap, ok := cmdData.(map[string]any)
-	if !ok {
-		return nil
+	encoded, err := json.Marshal(cmdData)
+	if err != nil {
+		return nil, fmt.Errorf("encode command metadata: %w", err)
+	}
+	var command commandMeta
+	if err := json.Unmarshal(encoded, &command); err != nil {
+		return nil, fmt.Errorf("decode command metadata: %w", err)
+	}
+	if command.Name == "" {
+		return nil, nil
+	}
+	if command.UseCase == "" {
+		command.UseCase = defaultUseCase
 	}
 
-	name, _ := cmdMap["name"].(string)
-	if name == "" {
-		return nil
-	}
-
-	short, _ := cmdMap["short"].(string)
-	main, _ := cmdMap["main"].(bool)
-	useCase, _ := cmdMap["use_case"].(string)
-	if useCase == "" {
-		useCase = defaultUseCase
-	}
-
-	return &commandMeta{Name: name, Short: short, UseCase: useCase, Main: main}
+	return &command, nil
 }
 
 // runList prints all command-enabled process entries from resolved lock modules.
@@ -394,8 +423,13 @@ func runList(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return NewInitAppError(err)
 	}
+	runtimeCfg, err := loadRuntimeConfig(cmd, app.Logger)
+	if err != nil {
+		return err
+	}
+	boot.WithConfig(app.Ctx, runtimeCfg)
 
-	lockPath, lockObj, err := loadValidatedLock(".", defaultLockFile)
+	lockPath, lockObj, err := loadValidatedLock(".", defaultLockFile, runtimeCfg, app.Logger)
 	if err != nil {
 		return err
 	}
@@ -417,7 +451,10 @@ func runList(cmd *cobra.Command, _ []string) error {
 			continue
 		}
 
-		cmdMeta := extractCommandMeta(e.Meta)
+		cmdMeta, err := extractCommandMeta(e.Meta)
+		if err != nil {
+			return fmt.Errorf("decode command metadata for %s: %w", e.ID.String(), err)
+		}
 		if cmdMeta == nil {
 			continue
 		}
@@ -472,20 +509,23 @@ func runList(cmd *cobra.Command, _ []string) error {
 // loadBootConfig reads config from file, applies defaults, and injects boot
 // metadata (config path + directory) into the effective config.
 func loadBootConfig() (boot.Config, error) {
-	cfgPath := configFile
-	if cfgPath == "" {
-		cfgPath = defaultConfigFile
+	cfgPaths := runtimeConfigPaths()
+	configPathsAbs := make([]string, len(cfgPaths))
+	for i, path := range cfgPaths {
+		absolute, err := filepath.Abs(path)
+		if err != nil {
+			absolute = path
+		}
+		configPathsAbs[i] = absolute
 	}
-	cfgPathAbs, err := filepath.Abs(cfgPath)
-	if err != nil {
-		cfgPathAbs = cfgPath
-	}
+	cfgPathAbs := configPathsAbs[0]
 	configMeta := boot.NewConfig(boot.WithSection("boot", map[string]any{
-		"config_path": cfgPathAbs,
-		"config_dir":  filepath.Dir(cfgPathAbs),
+		"config_path":  cfgPathAbs,
+		"config_paths": configPathsAbs,
+		"config_dir":   filepath.Dir(cfgPathAbs),
 	}))
 
-	cfg, err := bootconfig.Load(cfgPath)
+	cfg, err := loadRuntimeConfigFiles()
 	if err != nil {
 		return nil, err
 	}
@@ -496,6 +536,13 @@ func loadBootConfig() (boot.Config, error) {
 	}
 
 	return bootconfig.Merge(bootconfig.Merge(defaults, cfg), configMeta), nil
+}
+
+func loadRuntimeConfigFiles() (boot.Config, error) {
+	if len(configFiles) == 0 {
+		return bootconfig.Load(defaultConfigFile)
+	}
+	return bootconfig.LoadFiles(configFiles)
 }
 
 // createDefaultConfig returns the baseline config implied by global CLI flags.
@@ -800,6 +847,12 @@ func launchExecProcess(ctx context.Context, logger *zap.Logger, execSpec, hostID
 	if err != nil {
 		return NewInvalidExecSpecError(err)
 	}
+	source := registry.NewID(namespace, entry)
+
+	securityPairs, err := resolveCommandSecurity(ctx, source)
+	if err != nil {
+		return fmt.Errorf("resolve command security for %s: %w", source.String(), err)
+	}
 
 	if hostID == "" {
 		hostID, err = findTerminalHost(ctx)
@@ -817,8 +870,6 @@ func launchExecProcess(ctx context.Context, logger *zap.Logger, execSpec, hostID
 		return err
 	}
 
-	source := registry.NewID(namespace, entry)
-
 	var input payload.Payloads
 	for _, arg := range args {
 		input = append(input, payload.NewString(arg))
@@ -829,6 +880,14 @@ func launchExecProcess(ctx context.Context, logger *zap.Logger, execSpec, hostID
 		Source: source,
 		Input:  input,
 	}
+
+	// A command entry may declare its own security context (actor + policy
+	// scope). The CLI launcher is the trust anchor for terminal commands —
+	// the operator started this command on their own deployment — so the
+	// launcher resolves the declared context and attaches it to the start
+	// context. Without it a command under strict security mode executes with
+	// an incomplete context and every check denies.
+	start.Context = append(start.Context, securityPairs...)
 
 	pid, err := manager.Start(ctx, start)
 	if err != nil {
@@ -842,6 +901,31 @@ func launchExecProcess(ctx context.Context, logger *zap.Logger, execSpec, hostID
 		zap.Strings("args", args))
 
 	return nil
+}
+
+// resolveCommandSecurity reads meta.command.security from the command entry
+// and resolves it into context pairs for the process start. Entries without a
+// command security block resolve to no pairs, preserving the caller context.
+// A declared but invalid security block fails closed before the process starts.
+func resolveCommandSecurity(ctx context.Context, source registry.ID) ([]ctxapi.Pair, error) {
+	reg := registry.GetRegistry(ctx)
+	if reg == nil {
+		return nil, fmt.Errorf("registry not available")
+	}
+	entry, err := reg.GetEntry(source)
+	if err != nil {
+		return nil, fmt.Errorf("get command entry: %w", err)
+	}
+
+	cmdMeta, err := extractCommandMeta(entry.Meta)
+	if err != nil {
+		return nil, err
+	}
+	if cmdMeta == nil || cmdMeta.Security == nil {
+		return nil, nil
+	}
+
+	return securitysys.ResolveConfigPairs(ctx, cmdMeta.Security)
 }
 
 // waitForHostRunning waits until host is both running in supervisor state and

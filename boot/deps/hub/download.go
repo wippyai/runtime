@@ -161,24 +161,35 @@ func (c *Client) downloadToFileOnce(ctx context.Context, url, destPath string) e
 		}
 	}
 
-	f, err := os.Create(destPath)
+	f, err := os.CreateTemp(filepath.Dir(destPath), filepath.Base(destPath)+".part-*")
 	if err != nil {
-		return fmt.Errorf("create file: %w", err)
+		return fmt.Errorf("create temp file: %w", err)
 	}
+	tmpPath := f.Name()
+	committed := false
+	defer func() {
+		if !committed {
+			_ = os.Remove(tmpPath)
+		}
+	}()
 
 	if _, err := io.Copy(f, resp.Body); err != nil {
 		f.Close()
-		os.Remove(destPath)
 		return fmt.Errorf("write file: %w", err)
 	}
 
 	if err := f.Sync(); err != nil {
 		f.Close()
-		os.Remove(destPath)
 		return fmt.Errorf("sync file: %w", err)
 	}
-
-	return f.Close()
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("close file: %w", err)
+	}
+	if err := os.Rename(tmpPath, destPath); err != nil {
+		return fmt.Errorf("activate downloaded file: %w", err)
+	}
+	committed = true
+	return syncDirectory(filepath.Dir(destPath))
 }
 
 type downloadRequestError struct {

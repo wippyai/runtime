@@ -68,9 +68,9 @@ func Supervisor() boot.Component {
 			}
 			return nil
 		},
-		Stop: func(_ context.Context) error {
+		Stop: func(ctx context.Context) error {
 			if sup != nil {
-				return sup.Stop()
+				return sup.StopContext(ctx)
 			}
 			return nil
 		},

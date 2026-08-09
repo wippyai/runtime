@@ -354,6 +354,39 @@ func TestOverride_EntryNotFound(t *testing.T) {
 	}
 }
 
+func TestOverride_EntryNotFoundIgnoredWhenConfigured(t *testing.T) {
+	ctx, _ := setupTestContext()
+
+	entries := []registry.Entry{
+		{
+			ID:   registry.NewID("app", "gateway"),
+			Kind: "process.lua",
+			Data: payload.New(map[string]any{
+				"addr": ":8080",
+			}),
+		},
+	}
+
+	cfg := boot.NewConfig(
+		boot.WithSection("override", map[string]any{
+			"app:notfound:addr": ":9090",
+			"app:gateway:addr":  ":8081",
+		}),
+	)
+
+	ctx = boot.WithConfig(ctx, cfg)
+	stage := Override(WithMissingOverrideEntriesIgnored())
+
+	if err := stage.Execute(ctx, &entries); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	data := entries[0].Data.Data().(map[string]any)
+	if data["addr"] != ":8081" {
+		t.Errorf("Expected addr=:8081, got %v", data["addr"])
+	}
+}
+
 func TestParseOverrideKey_Valid(t *testing.T) {
 	tests := []struct {
 		name          string

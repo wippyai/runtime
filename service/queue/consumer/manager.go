@@ -8,6 +8,7 @@ import (
 
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/function"
+	"github.com/wippyai/runtime/api/metrics"
 	"github.com/wippyai/runtime/api/payload"
 	queueapi "github.com/wippyai/runtime/api/queue"
 	"github.com/wippyai/runtime/api/registry"
@@ -24,6 +25,7 @@ type Manager struct {
 	funcReg   function.Registry
 	dtt       payload.Transcoder
 	logger    *zap.Logger
+	coll      metrics.Collector
 	consumers sync.Map
 }
 
@@ -33,6 +35,7 @@ func NewManager(
 	funcReg function.Registry,
 	dtt payload.Transcoder,
 	logger *zap.Logger,
+	coll metrics.Collector,
 ) *Manager {
 	if logger == nil {
 		logger = zap.NewNop()
@@ -43,6 +46,7 @@ func NewManager(
 		funcReg:  funcReg,
 		dtt:      dtt,
 		logger:   logger,
+		coll:     coll,
 	}
 }
 
@@ -94,6 +98,7 @@ func (m *Manager) addOrUpdate(ctx context.Context, entry registry.Entry, action 
 		driver,
 		m.funcReg,
 		m.logger,
+		m.coll,
 	)
 
 	m.consumers.Store(entry.ID, consumer)

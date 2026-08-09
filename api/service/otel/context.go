@@ -108,6 +108,12 @@ func GetRemoteSpanContext(ctx context.Context) (trace.SpanContext, bool) {
 			return sc, true
 		}
 	}
+	// Propagated local spans retain spanCtx as their transformed pair key.
+	if val, ok := fc.Get(spanCtx); ok {
+		if sc, ok := val.(trace.SpanContext); ok {
+			return sc, true
+		}
+	}
 	return trace.SpanContext{}, false
 }
 

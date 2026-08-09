@@ -4,6 +4,7 @@ package core
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"path/filepath"
 	"strings"
@@ -15,11 +16,14 @@ import (
 	logapi "github.com/wippyai/runtime/api/logs"
 	regapi "github.com/wippyai/runtime/api/registry"
 	bootpkg "github.com/wippyai/runtime/boot"
+	"github.com/wippyai/runtime/boot/deps/artifact"
 	hubdeps "github.com/wippyai/runtime/boot/deps/hub"
+	"github.com/wippyai/runtime/boot/deps/lock"
 	"github.com/wippyai/runtime/system/registry"
 	regexp "github.com/wippyai/runtime/system/registry/expansion"
 	historymem "github.com/wippyai/runtime/system/registry/history/memory"
 	historynil "github.com/wippyai/runtime/system/registry/history/nil"
+	"github.com/wippyai/runtime/system/registry/history/postgres"
 	"github.com/wippyai/runtime/system/registry/history/sqlite"
 	"github.com/wippyai/runtime/system/registry/runner"
 	regtop "github.com/wippyai/runtime/system/registry/topology"
@@ -30,7 +34,7 @@ func Registry() boot.Component {
 
 	return boot.New(boot.P{
 		Name:      RegistryName,
-		DependsOn: []boot.Name{},
+		DependsOn: []boot.Name{ArtifactName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			logger := logapi.GetLogger(ctx).Named("registry")
 			bus := event.GetBus(ctx)
@@ -75,6 +79,17 @@ func Registry() boot.Component {
 						hist = sqliteHist
 						histCloser = sqliteHist
 
+					case "postgres":
+						historyDSN := registryCfg.GetString(RegistryHistoryDSN, "")
+						historySchema := registryCfg.GetString(RegistryHistorySchema, "")
+
+						postgresHist, err := postgres.NewPostgres(historyDSN, historySchema, logger.Named("history"))
+						if err != nil {
+							return nil, NewPostgresHistoryError(err)
+						}
+						hist = postgresHist
+						histCloser = postgresHist
+
 					case "nil":
 						hist = historynil.New()
 
@@ -105,12 +120,12 @@ func Registry() boot.Component {
 
 			registryOpts := []registry.Option{}
 
-			depHandler, err := newDependencyHandler(cfg, logger.Named("dependency"))
+			depHandler, err := newDependencyHandler(ctx, cfg, logger.Named("dependency"), resolver)
 			if err != nil {
 				logger.Warn("dependency handler disabled", zap.Error(err))
 			} else if depHandler != nil {
 				registryOpts = append(registryOpts,
-					registry.WithKindDirective(regapi.NamespaceDependency, regexp.NewDependencyDirective(depHandler.Expand)),
+					registry.WithKindDirective(regapi.NamespaceDependency, regexp.NewDependencyDirective(depHandler.Expand).WithResolutionTransition(depHandler.ReconcileResolution).WithChangesExpansion(depHandler.ExpandChanges)),
 				)
 			}
 
@@ -205,15 +220,31 @@ func readKindSlice(cfg boot.Config, key boot.Name) ([]regapi.Kind, bool) {
 	return kinds, true
 }
 
-func newDependencyHandler(cfg boot.Config, logger *zap.Logger) (*hubdeps.DependencyHandler, error) {
+func newDependencyHandler(
+	ctx context.Context,
+	cfg boot.Config,
+	logger *zap.Logger,
+	resolver regapi.DependencyResolver,
+) (*hubdeps.DependencyHandler, error) {
 	var registryCfg boot.Config
 	if cfg != nil {
 		registryCfg = cfg.Sub(RegistryName)
 	}
 
 	opts := hubdeps.DependencyHandlerOptions{
-		Logger: logger,
+		Logger:   logger,
+		Resolver: resolver,
 	}
+	artifactRegistry := artifact.GetRegistry(ctx)
+	if artifactRegistry == nil {
+		return nil, fmt.Errorf("artifact registry is not initialized")
+	}
+	opts.Artifacts = artifactRegistry
+	workspaceReplacements, err := lock.WorkspaceReplacements(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("load workspace replacements: %w", err)
+	}
+	opts.WorkspaceReplacements = workspaceReplacements
 
 	if registryCfg != nil {
 		opts.ResolveTimeout = registryCfg.GetDuration(RegistryDependencyResolveTimeout, 0)
@@ -221,6 +252,7 @@ func newDependencyHandler(cfg boot.Config, logger *zap.Logger) (*hubdeps.Depende
 		opts.LockPath = registryCfg.GetString(RegistryDependencyLockPath, "")
 		opts.VendorDir = registryCfg.GetString(RegistryDependencyVendorDir, "")
 	}
+	opts.ArtifactRoot = artifact.ConfiguredRoot(cfg, "")
 
 	return hubdeps.NewDependencyHandler(opts)
 }

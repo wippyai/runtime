@@ -232,6 +232,13 @@ func (h *TypesHost) FilesystemErrorCode(_ context.Context, err *Error) ErrorCode
 	return err.Code
 }
 
+func boundedAllocationSize(length uint64) (uint64, bool) {
+	if length > preview2.MaxAllocationSize {
+		return 0, false
+	}
+	return length, true
+}
+
 // MethodDescriptorRead implements wasi:filesystem/types descriptor.read, whose
 // WIT result is result<tuple<list<u8>, bool>, error-code>: the bytes read plus an
 // end-of-stream flag. The tuple is returned as []any{data, eof}.
@@ -243,6 +250,11 @@ func (h *TypesHost) MethodDescriptorRead(_ context.Context, self uint32, length 
 
 	if desc.isDir {
 		return nil, &Error{Code: ErrorIsDirectory}
+	}
+
+	allocationSize, ok := boundedAllocationSize(length)
+	if !ok {
+		return nil, &Error{Code: ErrorInsufficientMemory}
 	}
 
 	file, fsErr := desc.fs.OpenFile(desc.path, os.O_RDONLY, 0)
@@ -258,11 +270,7 @@ func (h *TypesHost) MethodDescriptorRead(_ context.Context, self uint32, length 
 		}
 	}
 
-	if length > preview2.MaxAllocationSize {
-		length = preview2.MaxAllocationSize
-	}
-
-	buf := make([]byte, length)
+	buf := make([]byte, allocationSize)
 	n, fsErr := file.Read(buf)
 	eof := false
 	if fsErr != nil {

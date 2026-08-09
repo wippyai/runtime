@@ -69,7 +69,6 @@ func runInit(cmd *cobra.Command, _ []string) error {
 	if err := lockObj.Write(); err != nil {
 		return NewWriteLockFileError(fmt.Errorf("lock file %s: %w", lockObj.Path(), err))
 	}
-
 	logger.Info("lock file initialized successfully")
 	return nil
 }

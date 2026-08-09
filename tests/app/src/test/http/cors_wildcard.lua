@@ -15,7 +15,7 @@ local function main()
 	}
 
 	for _, origin in ipairs(test_origins) do
-		local resp, err = http.post("http://localhost:8085/stream-echo", {
+		local resp, err = http.post("http://localhost:18085/stream-echo", {
 			body = "test",
 			headers = {
 				["Origin"] = origin

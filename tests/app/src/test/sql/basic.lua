@@ -10,6 +10,9 @@ local function main()
 	local db, err = sql.get("app.test.sql:testdb")
 	assert.is_nil(err, "should get database without error")
 	assert.not_nil(db, "should have database connection")
+	if not db then
+		error("database connection is required")
+	end
 
 	-- Check database type
 	local dbtype, err2 = db:type()
@@ -20,6 +23,9 @@ local function main()
 	local stats, err3 = db:stats()
 	assert.is_nil(err3, "stats should not error")
 	assert.not_nil(stats, "should have stats")
+	if not stats then
+		error("database stats are required")
+	end
 	assert.not_nil(stats.open_connections, "should have open_connections")
 	assert.not_nil(stats.in_use, "should have in_use")
 	assert.not_nil(stats.idle, "should have idle")

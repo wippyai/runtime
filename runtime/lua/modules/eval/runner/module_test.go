@@ -72,6 +72,8 @@ func TestRunYield_Pool(t *testing.T) {
 	}
 	y.Modules = []string{"json"}
 	y.Context = map[string]any{"key": "value"}
+	y.MaxSteps = 42
+	y.MaxStepsSet = true
 
 	ReleaseRunYield(y)
 
@@ -81,6 +83,8 @@ func TestRunYield_Pool(t *testing.T) {
 	assert.Nil(t, y2.Args)
 	assert.Nil(t, y2.Modules)
 	assert.Nil(t, y2.Context)
+	assert.Zero(t, y2.MaxSteps)
+	assert.False(t, y2.MaxStepsSet)
 	ReleaseRunYield(y2)
 }
 
@@ -96,6 +100,8 @@ func TestRunYield_ToCommand(t *testing.T) {
 	}
 	y.Modules = []string{"json", "time"}
 	y.Context = map[string]any{"user": "test"}
+	y.MaxSteps = 0
+	y.MaxStepsSet = true
 
 	cmd := y.ToCommand()
 	runCmd, ok := cmd.(evalhost.RunCmd)
@@ -105,6 +111,8 @@ func TestRunYield_ToCommand(t *testing.T) {
 	assert.Len(t, runCmd.Args, 2)
 	assert.Equal(t, []string{"json", "time"}, runCmd.Modules)
 	assert.Equal(t, map[string]any{"user": "test"}, runCmd.Context)
+	assert.Zero(t, runCmd.MaxSteps)
+	assert.True(t, runCmd.MaxStepsSet)
 }
 
 func TestRunYield_CmdID(t *testing.T) {

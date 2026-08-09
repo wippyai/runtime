@@ -98,6 +98,10 @@ type (
 		Meta attrs.Bag       `json:"meta"`
 		ID   ID              `json:"id"`
 		Kind Kind            `json:"kind"`
+		// DependencyRoot identifies an ns.dependency selected as a deployment
+		// root. It is independent of package ownership, so a published app entry
+		// can retain meta.module while remaining a root.
+		DependencyRoot bool `json:"dependency_root,omitempty"`
 	}
 
 	// ChangeSet represents a set of operations to transition the registry from one state to another
@@ -105,9 +109,9 @@ type (
 
 	// Operation represents a single operation within a ChangeSet
 	Operation struct {
-		Entry         Entry      `json:"entry"`
 		OriginalEntry *Entry     `json:"original_entry,omitempty"`
 		Kind          event.Kind `json:"kind"`
+		Entry         Entry      `json:"entry"`
 	}
 
 	// DependencyPattern defines a pattern for extracting dependencies from entries
@@ -197,6 +201,32 @@ type (
 		Head() (Version, error)
 		// SetHead sets given version as head version
 		SetHead(Version) error
+	}
+
+	// ChangeSetReplayer is an optional history capability for streaming the
+	// ordered ancestry of one target version. Database histories use it to avoid
+	// one query and one retained decoded changeset per historical version.
+	ChangeSetReplayer interface {
+		ReplayChanges(context.Context, Version, func(ChangeSet) error) error
+	}
+
+	// VersionIDBounds avoids enumerating an entire long history merely to seed
+	// the monotonic version allocator during boot.
+	VersionIDBounds interface {
+		MaxVersionID() (uint, error)
+	}
+
+	// VersionLookup loads one canonical root-to-version lineage without
+	// enumerating unrelated historical branches.
+	VersionLookup interface {
+		GetVersion(id uint) (Version, error)
+	}
+
+	// HeadCASHistory atomically moves the history head only when it still
+	// matches the caller's source version. It prevents rollback/redo in one
+	// runtime instance from overwriting a concurrent writer's head.
+	HeadCASHistory interface {
+		CompareAndSetHead(expected, target Version) error
 	}
 
 	// Runner defines how ChangeSets are applied to a State to produce a new State

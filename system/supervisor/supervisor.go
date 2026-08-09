@@ -48,16 +48,21 @@ type (
 	Supervisor struct {
 		ctx                context.Context
 		bus                event.Bus
-		subscriber         *eventbus.Subscriber
-		logger             *zap.Logger
-		controllers        map[string]*Controller
-		actions            chan action
-		tx                 *regTx
 		sequencer          *sequencer
 		dependencyResolver supervisor.DependencyResolver
-		transitionMu       sync.Mutex
+		controllers        map[string]*Controller
+		actions            chan action
+		done               chan struct{}
+		tx                 *regTx
+		subscriber         *eventbus.Subscriber
+		logger             *zap.Logger
+		stopErr            error
 		wg                 sync.WaitGroup
+		lifecycleMu        sync.RWMutex
 		mu                 sync.RWMutex
+		stopOnce           sync.Once
+		transitionMu       sync.Mutex
+		stopped            bool
 	}
 
 	// Option is a functional option for configuring a Supervisor.
@@ -73,6 +78,7 @@ func NewSupervisor(bus event.Bus, logger *zap.Logger, opts ...Option) *Superviso
 		logger:      logger,
 		controllers: make(map[string]*Controller),
 		actions:     make(chan action, 1024),
+		done:        make(chan struct{}),
 		tx:          newRegTx(logger),
 		sequencer:   newSequencer(logger),
 	}
@@ -151,8 +157,9 @@ func (s *Supervisor) GetAllStates() map[string]State {
 // Start initializes the supervisor and begins listening for events.
 // It sets up event subscriptions and starts the main control loop.
 func (s *Supervisor) Start(ctx context.Context) error {
-	// Set context before launching goroutine to avoid race with Stop()
-	s.ctx = ctx
+	// Controllers outlive cancellation of the run loop so shutdown can stop
+	// services with its own bounded context.
+	s.ctx = context.WithoutCancel(ctx)
 
 	// Subscribe to all relevant events using a single subscriber with patterns
 	sub, err := eventbus.NewSubscriber(
@@ -180,44 +187,67 @@ func (s *Supervisor) Start(ctx context.Context) error {
 // Stop gracefully shuts down the supervisor and all managed services.
 // It ensures all services are properly stopped and resources are cleaned up.
 func (s *Supervisor) Stop() error {
-	s.logger.Info("stopping supervisor")
+	return s.StopContext(context.Background())
+}
 
-	if s.subscriber != nil {
-		s.subscriber.Close()
-		s.subscriber = nil
+// StopContext shuts down the supervisor using ctx to bound stop sequencing.
+func (s *Supervisor) StopContext(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
 	}
+	s.stopOnce.Do(func() {
+		s.logger.Info("stopping supervisor")
 
-	controllers := s.snapshotControllers()
-	s.cancelActiveStarts(controllers)
-	s.stopFailedStartRetries(controllers)
+		s.lifecycleMu.Lock()
+		s.stopped = true
+		close(s.done)
+		s.lifecycleMu.Unlock()
 
-	operations := make([]operation, 0)
-	for id, ctrl := range controllers {
-		deps, err := s.resolveDependencies(controllers, id)
-		if err != nil {
-			s.logger.Warn("failed to resolve service dependencies during shutdown; using lifecycle dependencies",
-				zap.String("serviceID", id),
-				zap.Error(err))
-			deps = ctrl.config.RequiredServices()
+		if s.subscriber != nil {
+			s.subscriber.Close()
+			s.subscriber = nil
 		}
-		operations = append(operations, operation{
-			kind:         opStop,
-			id:           id,
-			controller:   ctrl,
-			dependencies: deps,
-		})
-	}
 
-	// close all controllers in proper dependency order
-	if err := s.runTransition(s.ctx, operations); err != nil {
-		s.logger.Error("failed to stop controllers during shutdown", zap.Error(err))
-	}
+		controllers := s.snapshotControllers()
+		s.cancelActiveStarts(controllers)
+		if err := s.stopFailedStartRetries(ctx, controllers); err != nil {
+			s.stopErr = err
+		}
 
-	close(s.actions)
-	s.wg.Wait()
+		operations := make([]operation, 0)
+		for id, ctrl := range controllers {
+			deps, err := s.resolveDependencies(controllers, id)
+			if err != nil {
+				s.logger.Warn("failed to resolve service dependencies during shutdown; using lifecycle dependencies",
+					zap.String("serviceID", id),
+					zap.Error(err))
+				deps = ctrl.config.RequiredServices()
+			}
+			operations = append(operations, operation{
+				kind:         opStop,
+				id:           id,
+				controller:   ctrl,
+				dependencies: deps,
+			})
+		}
 
-	s.logger.Info("supervisor stopped")
-	return nil
+		// close all controllers in proper dependency order
+		if err := s.runTransition(ctx, operations); err != nil {
+			s.logger.Error("failed to stop controllers during shutdown", zap.Error(err))
+			var boundErr *controllerStopBoundError
+			switch {
+			case errors.As(err, &boundErr):
+				s.stopErr = boundErr.cause
+			case ctx.Err() != nil:
+				s.stopErr = ctx.Err()
+			}
+		}
+
+		s.wg.Wait()
+
+		s.logger.Info("supervisor stopped")
+	})
+	return s.stopErr
 }
 
 func (s *Supervisor) cancelActiveStarts(controllers map[string]*Controller) {
@@ -226,8 +256,9 @@ func (s *Supervisor) cancelActiveStarts(controllers map[string]*Controller) {
 	}
 }
 
-func (s *Supervisor) stopFailedStartRetries(controllers map[string]*Controller) {
+func (s *Supervisor) stopFailedStartRetries(ctx context.Context, controllers map[string]*Controller) error {
 	var wg sync.WaitGroup
+	boundErrors := make(chan error, len(controllers))
 	for id, ctrl := range controllers {
 		state := ctrl.State()
 		if state.Desired != supervisor.StatusRunning || state.Status != supervisor.StatusFailed {
@@ -237,25 +268,37 @@ func (s *Supervisor) stopFailedStartRetries(controllers map[string]*Controller) 
 		wg.Add(1)
 		go func(id string, ctrl *Controller) {
 			defer wg.Done()
-			if err := ctrl.Stop(); err != nil {
+			if err := ctrl.StopContext(ctx); err != nil {
 				s.logger.Warn("failed to stop retrying service before shutdown",
 					zap.String("serviceID", id),
 					zap.Error(err))
+				var boundErr *controllerStopBoundError
+				if errors.As(err, &boundErr) {
+					boundErrors <- boundErr.cause
+				}
 			}
 		}(id, ctrl)
 	}
 	wg.Wait()
+	close(boundErrors)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	for err := range boundErrors {
+		return err
+	}
+	return nil
 }
 
 func (s *Supervisor) handleEvent(e event.Event) {
 	if e.System == registry.System {
 		switch e.Kind {
 		case registry.TxBegin:
-			s.actions <- action{kind: actBegin}
+			s.enqueueAction(action{kind: actBegin})
 		case registry.TxCommit:
-			s.actions <- action{kind: actCommit}
+			s.enqueueAction(action{kind: actCommit})
 		case registry.TxDiscard:
-			s.actions <- action{kind: actDiscard}
+			s.enqueueAction(action{kind: actDiscard})
 		}
 		return
 	}
@@ -275,20 +318,35 @@ func (s *Supervisor) handleEvent(e event.Event) {
 			return
 		}
 
-		s.actions <- action{
+		s.enqueueAction(action{
 			serviceID: e.Path,
 			kind:      actRegister,
 			entry:     entry,
-		}
+		})
 
 	case supervisor.ServiceRemove:
-		s.actions <- action{serviceID: e.Path, kind: actRemove}
+		s.enqueueAction(action{serviceID: e.Path, kind: actRemove})
 
 	case supervisor.ServiceStart:
-		s.actions <- action{serviceID: e.Path, kind: actStart}
+		s.enqueueAction(action{serviceID: e.Path, kind: actStart})
 
 	case supervisor.ServiceStop:
-		s.actions <- action{serviceID: e.Path, kind: actStop}
+		s.enqueueAction(action{serviceID: e.Path, kind: actStop})
+	}
+}
+
+func (s *Supervisor) enqueueAction(next action) {
+	s.lifecycleMu.RLock()
+	if s.stopped {
+		s.lifecycleMu.RUnlock()
+		return
+	}
+	done := s.done
+	s.lifecycleMu.RUnlock()
+
+	select {
+	case s.actions <- next:
+	case <-done:
 	}
 }
 
@@ -296,8 +354,20 @@ func (s *Supervisor) run(ctx context.Context) {
 	defer s.logger.Info("supervisor control loop stopped")
 	defer s.wg.Done()
 
-	for action := range s.actions {
-		switch action.kind {
+	for {
+		var next action
+		select {
+		case <-s.done:
+			return
+		case next = <-s.actions:
+		}
+		select {
+		case <-s.done:
+			return
+		default:
+		}
+
+		switch next.kind {
 		case actBegin:
 			s.tx.begin()
 
@@ -316,25 +386,25 @@ func (s *Supervisor) run(ctx context.Context) {
 			s.tx.reset()
 
 		case actRegister:
-			action.entry.Config.InitDefaults()
+			next.entry.Config.InitDefaults()
 
-			if err := s.tx.registerService(action.serviceID, action.entry); err != nil {
+			if err := s.tx.registerService(next.serviceID, next.entry); err != nil {
 				s.logger.Error("failed to register service in transaction",
-					zap.String("serviceID", action.serviceID),
+					zap.String("serviceID", next.serviceID),
 					zap.Error(err),
 				)
 			}
-			s.logger.Info("service registered", zap.String("serviceID", action.serviceID))
+			s.logger.Info("service registered", zap.String("serviceID", next.serviceID))
 
 		case actRemove:
-			if err := s.tx.removeService(action.serviceID); err != nil {
+			if err := s.tx.removeService(next.serviceID); err != nil {
 				s.logger.Error("failed to remove service from transaction",
-					zap.String("serviceID", action.serviceID),
+					zap.String("serviceID", next.serviceID),
 					zap.Error(err),
 				)
 			}
 
-			s.logger.Info("service removed", zap.String("serviceID", action.serviceID))
+			s.logger.Info("service removed", zap.String("serviceID", next.serviceID))
 
 		case actStart:
 			if s.tx.open {
@@ -343,10 +413,10 @@ func (s *Supervisor) run(ctx context.Context) {
 			}
 
 			controllers := s.snapshotControllers()
-			l := s.logger.With(zap.String("serviceID", action.serviceID))
-			if _, exists := controllers[action.serviceID]; exists {
+			l := s.logger.With(zap.String("serviceID", next.serviceID))
+			if _, exists := controllers[next.serviceID]; exists {
 				l.Info("service start requested")
-				ops, err := s.buildStartOperations(controllers, action.serviceID)
+				ops, err := s.buildStartOperations(controllers, next.serviceID)
 				if err != nil {
 					s.logger.Error("failed to build start operations", zap.Error(err))
 					continue
@@ -363,10 +433,10 @@ func (s *Supervisor) run(ctx context.Context) {
 			}
 
 			controllers := s.snapshotControllers()
-			l := s.logger.With(zap.String("serviceID", action.serviceID))
-			if _, exists := controllers[action.serviceID]; exists {
+			l := s.logger.With(zap.String("serviceID", next.serviceID))
+			if _, exists := controllers[next.serviceID]; exists {
 				l.Info("service stop requested")
-				ops, err := s.buildStopOperations(controllers, action.serviceID)
+				ops, err := s.buildStopOperations(controllers, next.serviceID)
 				if err != nil {
 					s.logger.Error("failed to build stop operations", zap.Error(err))
 					continue
@@ -557,20 +627,42 @@ func (s *Supervisor) resolveServiceDependencyRefs(
 // so a single hash-seed seam used to leak into the boot ordering and surface
 // as intermittent "filesystem not found"/"driver not found" rejections on
 // services whose listener depends on resources that should have started first.
-func (s *Supervisor) execute(ctx context.Context, tx *regTx) error {
+func (s *Supervisor) execute(ctx context.Context, tx *regTx) (err error) {
 	registerIDs := sortedRegisterIDs(tx.register)
 	removeIDs := sortedRemoveIDs(tx.remove)
 
 	// Mutate controller registry under lock, then run potentially long transitions
 	// lock-free so state readers are never blocked behind start/stop timeouts.
+	created := make(map[string]*Controller, len(registerIDs))
 	s.mu.Lock()
 	for _, id := range registerIDs {
 		entry := tx.register[id]
 		if _, exists := s.controllers[id]; !exists {
-			s.controllers[id] = NewController(s.ctx, entry.Service, entry.Config, s.createStateHandler(id))
+			ctrl := NewController(s.ctx, entry.Service, entry.Config, s.createStateHandler(id))
+			s.controllers[id] = ctrl
+			created[id] = ctrl
 		}
 	}
 	s.mu.Unlock()
+
+	defer func() {
+		cancellation := ctx.Err()
+		if cancellation == nil || !errors.Is(err, cancellation) {
+			return
+		}
+		for _, ctrl := range created {
+			ctrl.cancelStart()
+			_ = ctrl.Stop()
+			ctrl.cancel()
+		}
+		s.mu.Lock()
+		for id, ctrl := range created {
+			if s.controllers[id] == ctrl {
+				delete(s.controllers, id)
+			}
+		}
+		s.mu.Unlock()
+	}()
 
 	controllers := s.snapshotControllers()
 	var operations []operation

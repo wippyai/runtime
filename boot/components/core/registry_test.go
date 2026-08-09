@@ -8,6 +8,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/boot"
+	bootpkg "github.com/wippyai/runtime/boot"
+	"go.uber.org/zap"
 )
 
 func TestReadKindSlice_InvalidTypeDoesNotOverrideDefaults(t *testing.T) {
@@ -55,4 +57,20 @@ func TestCoreDependencyPatternsIncludeExplicitMetadataAndLifecycleRefs(t *testin
 	require.True(t, paths["data.lifecycle.requires"])
 	require.Contains(t, paths, "data.lifecycle.depends_on")
 	require.True(t, paths["data.lifecycle.depends_on"])
+}
+
+func TestRegistryPostgresHistoryRequiresDSN(t *testing.T) {
+	cfg := boot.NewConfig(boot.WithSection(RegistryName, map[string]any{
+		RegistryEnableHistory: true,
+		RegistryHistoryType:   "postgres",
+	}))
+	ctx, err := bootpkg.NewBootstrapContext(zap.NewNop(), cfg)
+	require.NoError(t, err)
+
+	loader, err := bootpkg.NewLoader(Artifacts(), Registry())
+	require.NoError(t, err)
+
+	_, err = loader.Load(ctx)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "history DSN is required")
 }

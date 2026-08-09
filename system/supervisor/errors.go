@@ -56,7 +56,12 @@ func NewStopError(err error) apierror.Error {
 }
 
 func NewServiceStartError(serviceID string, err error) apierror.Error {
-	return apierror.New(apierror.Internal, "failed to start service").
+	message := "failed to start service"
+	if serviceID != "" {
+		message += " " + serviceID
+	}
+
+	return apierror.New(apierror.Internal, message).
 		WithRetryable(apierror.True).
 		WithDetails(attrs.NewBagFrom(map[string]any{"service_id": serviceID, "cause": err.Error()})).
 		WithCause(err)
@@ -74,7 +79,12 @@ func NewServiceBlockedError(serviceID string, blockers []string) apierror.Error 
 }
 
 func NewServiceStopError(serviceID string, err error) apierror.Error {
-	return apierror.New(apierror.Internal, "failed to stop service").
+	message := "failed to stop service"
+	if serviceID != "" {
+		message += " " + serviceID
+	}
+
+	return apierror.New(apierror.Internal, message).
 		WithRetryable(apierror.False).
 		WithDetails(attrs.NewBagFrom(map[string]any{"service_id": serviceID, "cause": err.Error()})).
 		WithCause(err)

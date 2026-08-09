@@ -14,6 +14,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/attrs"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/boot/loader"
@@ -31,6 +32,32 @@ import (
 	historynil "github.com/wippyai/runtime/system/registry/history/nil"
 	"github.com/wippyai/runtime/system/registry/topology"
 )
+
+func TestPreserveManagedEntryMetadata(t *testing.T) {
+	id := registry.NewID("app.deps", "core")
+	snapshot := registry.State{{
+		ID: id, Kind: registry.NamespaceDependency,
+		Meta: attrs.NewBagFrom(map[string]any{
+			"module": "acme/app", "module_version": "1.0.0", "module_digest": "sha256:old", "title": "Old",
+		}),
+		Data: payload.New(map[string]any{"component": "acme/core", "version": "1.0.0"}),
+	}}
+	changes := registry.ChangeSet{{
+		Kind: registry.EntryUpdate,
+		Entry: registry.Entry{
+			ID: id, Kind: registry.NamespaceDependency,
+			Meta: attrs.NewBagFrom(map[string]any{"title": "New"}),
+			Data: payload.New(map[string]any{"component": "acme/core", "version": "2.0.0"}),
+		},
+	}}
+
+	got := preserveManagedEntryMetadata(changes, snapshot)
+	require.Len(t, got, 1)
+	require.Equal(t, "acme/app", got[0].Entry.Meta.GetString("module", ""))
+	require.Equal(t, "1.0.0", got[0].Entry.Meta.GetString("module_version", ""))
+	require.Equal(t, "sha256:old", got[0].Entry.Meta.GetString("module_digest", ""))
+	require.Equal(t, "New", got[0].Entry.Meta.GetString("title", ""))
+}
 
 // MockRunner is a mock implementation of the registry.process interface for testing.
 type MockRunner struct {
@@ -251,13 +278,15 @@ func TestInMemoryRegistry_Apply(t *testing.T) {
 		t.Errorf("Expected new version to be v1, got: %v", newVersion)
 	}
 
-	if !reflect.DeepEqual(head, newVersion) {
-		t.Errorf("Expected new version to be head: %v, got: %v", head, newVersion)
+	if head == nil || head.ID() != newVersion.ID() {
+		t.Errorf("Expected head version %v, got: %v", newVersion, head)
 	}
 
 	savedChanges, _ := hist.Get(newVersion)
-	if !reflect.DeepEqual(savedChanges, changes) {
-		t.Errorf("Expected saved changes: %v, got: %v", changes, savedChanges)
+	expectedChanges := append(registry.ChangeSet(nil), changes...)
+	canonicalizeChangeSetIDs(expectedChanges)
+	if !reflect.DeepEqual(savedChanges, expectedChanges) {
+		t.Errorf("Expected saved changes: %v, got: %v", expectedChanges, savedChanges)
 	}
 
 	// Verify that the state is updated from the runner
@@ -352,6 +381,7 @@ func TestInMemoryRegistry_ApplyVersion(t *testing.T) {
 
 	reg := NewRegistry(hist, runner, stateBuilder, topology.NewResolver(), zap.NewNop())
 	reg.currentVersion = v2 // Set current version to v2
+	_ = hist.SetHead(v2)
 	// Set initial state to v2 state
 	reg.state = registry.State{
 		{ID: registry.NewID("", "/foo"), Kind: "test", Data: payload.New("data2")},
@@ -371,7 +401,7 @@ func TestInMemoryRegistry_ApplyVersion(t *testing.T) {
 		t.Errorf("Expected state: %v, got: %v", runner.newState, reg.state)
 	}
 
-	if !reflect.DeepEqual(reg.currentVersion, v1) {
+	if reg.currentVersion == nil || reg.currentVersion.ID() != v1.ID() {
 		t.Errorf("Expected current version: %v, got: %v", v1, reg.currentVersion)
 	}
 
@@ -1703,6 +1733,7 @@ func TestApplyVersion_Rollback_RespectsDependencyOrder(t *testing.T) {
 
 	reg := NewRegistry(hist, runner, stateBuilder, resolver, zap.NewNop())
 	reg.currentVersion = v1
+	_ = hist.SetHead(v1)
 	reg.state = registry.State{
 		{ID: libID, Kind: "library", Data: payload.New("lib")},
 		{ID: testID, Kind: "test", Data: payload.New("test")},

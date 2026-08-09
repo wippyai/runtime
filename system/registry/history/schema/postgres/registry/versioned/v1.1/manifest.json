@@ -1,0 +1,6 @@
+{
+  "curr_version": "1.1",
+  "min_compatible_version": "1.0",
+  "description": "store exact dependency resolutions per registry version",
+  "schema_update_files": ["resolution.sql"]
+}

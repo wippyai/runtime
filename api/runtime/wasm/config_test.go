@@ -3,8 +3,10 @@
 package wasm
 
 import (
+	"encoding/json"
 	"testing"
 
+	"github.com/goccy/go-yaml"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/registry"
@@ -194,6 +196,18 @@ func TestWATFunctionConfig_Validate(t *testing.T) {
 			},
 			wantErr: true,
 			errMsg:  "limits.max_retained_memory_bytes cannot be negative",
+		},
+		{
+			name: "negative retained memory check interval",
+			config: WATFunctionConfig{
+				Source: "module",
+				Method: "handle",
+				Limits: LimitsConfig{
+					RetainedMemoryCheckInterval: -1,
+				},
+			},
+			wantErr: true,
+			errMsg:  "limits.retained_memory_check_interval cannot be negative",
 		},
 		{
 			name: "invalid wasi cwd relative",
@@ -476,4 +490,78 @@ func TestFunctionConfig_EffectiveTransport(t *testing.T) {
 
 	cfg.Transport = TransportTypeWASIHTTP
 	assert.Equal(t, TransportTypeWASIHTTP, cfg.EffectiveTransport())
+}
+
+func TestLimitsConfig_Validate(t *testing.T) {
+	require.NoError(t, LimitsConfig{MaxRetainedMemoryBytes: 1048576, RetainedMemoryCheckInterval: 4}.Validate())
+
+	err := LimitsConfig{MaxRetainedMemoryBytes: -1}.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "limits.max_retained_memory_bytes cannot be negative")
+
+	err = LimitsConfig{RetainedMemoryCheckInterval: -1}.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "limits.retained_memory_check_interval cannot be negative")
+}
+
+func TestLimitsConfig_EffectiveRetainedMemoryCheckInterval(t *testing.T) {
+	tests := []struct {
+		name   string
+		limits LimitsConfig
+		want   int
+	}{
+		{name: "default", want: DefaultRetainedMemoryCheckInterval},
+		{name: "zero", limits: LimitsConfig{RetainedMemoryCheckInterval: 0}, want: DefaultRetainedMemoryCheckInterval},
+		{name: "explicit", limits: LimitsConfig{RetainedMemoryCheckInterval: 4}, want: 4},
+		{name: "every call", limits: LimitsConfig{RetainedMemoryCheckInterval: 1}, want: 1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, tt.limits.EffectiveRetainedMemoryCheckInterval())
+		})
+	}
+}
+
+func TestLimitsConfig_EffectiveMaxRetainedMemoryBytes(t *testing.T) {
+	explicit := int64(32 * 1024 * 1024)
+	disabled := LimitsConfig{}
+	disabled.SetMaxRetainedMemoryBytes(0)
+	tests := []struct {
+		name   string
+		limits LimitsConfig
+		want   int64
+	}{
+		{name: "default", want: DefaultMaxRetainedMemoryBytes},
+		{name: "explicit zero", limits: disabled, want: 0},
+		{name: "explicit", limits: LimitsConfig{MaxRetainedMemoryBytes: explicit}, want: explicit},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, tt.limits.EffectiveMaxRetainedMemoryBytes())
+		})
+	}
+}
+
+func TestLimitsConfigJSONPreservesExplicitZero(t *testing.T) {
+	var decoded LimitsConfig
+	require.NoError(t, json.Unmarshal([]byte(`{"max_retained_memory_bytes":0}`), &decoded))
+	assert.True(t, decoded.HasMaxRetainedMemoryBytes())
+	assert.Zero(t, decoded.EffectiveMaxRetainedMemoryBytes())
+
+	encoded, err := json.Marshal(decoded)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"max_retained_memory_bytes":0}`, string(encoded))
+}
+
+func TestLimitsConfigYAMLPreservesExplicitZero(t *testing.T) {
+	var decoded LimitsConfig
+	require.NoError(t, yaml.Unmarshal([]byte("max_retained_memory_bytes: 0\n"), &decoded))
+	assert.True(t, decoded.HasMaxRetainedMemoryBytes())
+	assert.Zero(t, decoded.EffectiveMaxRetainedMemoryBytes())
+
+	encoded, err := yaml.Marshal(decoded)
+	require.NoError(t, err)
+	assert.Equal(t, "max_retained_memory_bytes: 0\n", string(encoded))
 }

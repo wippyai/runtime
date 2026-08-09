@@ -337,6 +337,18 @@ func TestEndpointConfig_Validate(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name: "valid method-agnostic config",
+			config: EndpointConfig{
+				Meta: attrs.Bag{
+					RouterID: "test-router",
+				},
+				Path:   "/{path...}",
+				Method: "*",
+				Func:   registry.NewID("default", "test_handler"),
+			},
+			wantErr: false,
+		},
+		{
 			name: "empty path",
 			config: EndpointConfig{
 				Meta: attrs.Bag{

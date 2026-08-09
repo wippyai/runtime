@@ -3,9 +3,12 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -19,6 +22,7 @@ import (
 	"github.com/wippyai/runtime/api/version"
 	"github.com/wippyai/runtime/boot/build"
 	"github.com/wippyai/runtime/boot/build/stages"
+	moduleconfig "github.com/wippyai/runtime/boot/deps/config"
 	"github.com/wippyai/runtime/boot/deps/lock"
 	appinit "github.com/wippyai/runtime/cmd/internal/app"
 	"github.com/wippyai/runtime/cmd/internal/entries"
@@ -37,7 +41,8 @@ The pack file contains fully linked entries ready for loading without additional
 Examples:
   wippy pack snapshot.wapp
   wippy pack release-v1.2.3.wapp
-  wippy pack --embed app:assets snapshot.wapp`,
+  wippy pack --embed app:assets snapshot.wapp
+  wippy pack --embed-all snapshot.wapp`,
 	Args: cobra.ExactArgs(1),
 	RunE: runPack,
 }
@@ -50,11 +55,12 @@ func init() {
 	packCmd.Flags().StringSliceP("tags", "t", nil, "pack tags")
 	packCmd.Flags().StringArray("meta", nil, "custom metadata (key=value, supports dotted notation)")
 	packCmd.Flags().StringSlice("embed", nil, "embed patterns (entry IDs or names to embed, e.g., app:assets,app:static)")
+	packCmd.Flags().Bool("embed-all", false, "embed all fs.directory entries")
 	packCmd.Flags().Bool("list", false, "list all fs.directory entries and exit (dry-run mode)")
 	packCmd.Flags().StringSlice("exclude-ns", nil, "exclude entries by namespace patterns (e.g., app.**,test.*)")
 	packCmd.Flags().StringSlice("exclude", nil, "exclude entries by ID patterns (e.g., app:internal,test:*)")
 	packCmd.Flags().StringSlice("bytecode", nil, "compile Lua to bytecode (** for all, or patterns: app:**, lib:utils)")
-	packCmd.Flags().StringArray("profile", nil, "Apply a runtime profile from .wippy.yaml before packing (repeatable, applied in order)")
+	packCmd.Flags().StringArray("profile", nil, "apply a profile from the merged runtime config before packing (repeatable, applied in order)")
 }
 
 type packStage string
@@ -73,18 +79,19 @@ const (
 type packModel struct {
 	err           error
 	metadata      attrs.Bag
+	outputFile    string
 	status        string
 	stage         packStage
-	outputFile    string
+	embedPatterns []string
 	logs          []string
 	resources     []resourceInfo
-	embedPatterns []string
 	progress      progress.Model
-	entryCount    int
 	fileSize      int64
-	resourceCount int
 	percent       float64
+	entryCount    int
+	resourceCount int
 	maxLogs       int
+	embedAll      bool
 	done          bool
 	verbose       bool
 }
@@ -292,7 +299,9 @@ func (m *packModel) View() string {
 		Foreground(lipgloss.Color("8"))
 
 	var embedInfo string
-	if len(m.embedPatterns) > 0 {
+	if m.embedAll {
+		embedInfo = statusStyle.Render("  Embed patterns: all fs.directory entries\n")
+	} else if len(m.embedPatterns) > 0 {
 		embedInfo = statusStyle.Render(fmt.Sprintf("  Embed patterns: %s\n", strings.Join(m.embedPatterns, ", ")))
 	}
 
@@ -329,6 +338,16 @@ func runPack(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return NewInitAppError(err)
 	}
+	bootCfg, err := loadBootConfig()
+	if err != nil {
+		return fmt.Errorf("load runtime config: %w", err)
+	}
+	profiles, _ := cmd.Flags().GetStringArray("profile")
+	bootCfg, err = applyRuntimeProfilesAndVariables(bootCfg, profiles)
+	if err != nil {
+		return fmt.Errorf("apply runtime profiles: %w", err)
+	}
+	boot.WithConfig(app.Ctx, bootCfg)
 
 	outputFile := args[0]
 	lockFile, _ := cmd.Flags().GetString("lock-file")
@@ -350,7 +369,10 @@ func runPack(cmd *cobra.Command, args []string) error {
 		return runListMode(app, lockPath, folderPath)
 	}
 
-	embedPatterns, _ := cmd.Flags().GetStringSlice("embed")
+	embedConfig, err := resolvePackEmbedConfig(cmd, folderPath)
+	if err != nil {
+		return NewPackConfigError(err)
+	}
 	verboseMode := rootCmd.PersistentFlags().Lookup("verbose").Changed
 
 	prog := progress.New(progress.WithDefaultGradient())
@@ -358,13 +380,14 @@ func runPack(cmd *cobra.Command, args []string) error {
 		stage:         stageInit,
 		progress:      prog,
 		status:        "Initializing...",
-		embedPatterns: embedPatterns,
+		embedPatterns: embedConfig.patterns,
+		embedAll:      embedConfig.all,
 		outputFile:    outputFile,
 		verbose:       verboseMode,
 		maxLogs:       20,
 	}
 
-	p := tea.NewProgram(m)
+	p := newCLIProgram(m)
 
 	go func() {
 		if err := performPack(cmd, args, app, p); err != nil {
@@ -389,7 +412,11 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *tea
 	outputFile := args[0]
 	lockFile, _ := cmd.Flags().GetString("lock-file")
 	folderPath := "."
-	embedPatterns, _ := cmd.Flags().GetStringSlice("embed")
+	embedConfig, err := resolvePackEmbedConfig(cmd, folderPath)
+	if err != nil {
+		return NewPackConfigError(err)
+	}
+	embedPatterns := embedConfig.patterns
 	excludeNS, _ := cmd.Flags().GetStringSlice("exclude-ns")
 	excludeEntries, _ := cmd.Flags().GetStringSlice("exclude")
 	bytecodePatterns, _ := cmd.Flags().GetStringSlice("bytecode")
@@ -402,7 +429,8 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *tea
 		return NewLockFileNotFoundError(err)
 	}
 
-	lockObj, err := lock.New(lockPath)
+	bootCfg := boot.GetConfig(app.Ctx)
+	lockObj, err := newConfiguredLock(lockPath, bootCfg, logger)
 	if err != nil {
 		return NewLoadLockFileError(fmt.Errorf("lock file %s: %w", lockPath, err))
 	}
@@ -411,6 +439,7 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *tea
 		return NewInvalidLockFileError(fmt.Errorf("lock file %s: %w", lockObj.Path(), err))
 	}
 
+	modulePaths := lockObj.GetModuleLoadPaths()
 	paths := lockObj.GetLoadPaths()
 
 	p.Send(progressMsg{stage: stageLoadEntries, percent: 0.2, status: fmt.Sprintf("Loading entries from %d paths...", len(paths))})
@@ -431,16 +460,8 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *tea
 
 	p.Send(progressMsg{stage: stagePipeline, percent: 0.5, status: "Executing pipeline stages..."})
 
-	// Load .wippy.yaml config so Override stages apply overrides to packed entries
-	bootCfg, err := loadBootConfig()
-	if err != nil {
-		return fmt.Errorf("load boot config: %w", err)
-	}
-	profiles, _ := cmd.Flags().GetStringArray("profile")
-	bootCfg, err = applyRuntimeProfilesAndVariables(bootCfg, profiles)
-	if err != nil {
-		return fmt.Errorf("apply runtime profiles: %w", err)
-	}
+	// Apply entry overrides from the same effective profile that selected
+	// workspace replacements.
 	if bootCfg != nil {
 		boot.WithConfig(app.Ctx, bootCfg)
 	}
@@ -481,13 +502,17 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *tea
 		}
 	}
 
-	if len(embedPatterns) > 0 {
+	if embedConfig.enabled() {
+		status := "Processing all embed-capable directories"
+		if !embedConfig.all {
+			status = fmt.Sprintf("Processing embed patterns: %s", strings.Join(embedPatterns, ", "))
+		}
 		p.Send(progressMsg{
 			stage:   stagePipeline,
 			percent: 0.55,
-			status:  fmt.Sprintf("Processing embed patterns: %s", strings.Join(embedPatterns, ", ")),
+			status:  status,
 		})
-		pipelineStages = append(pipelineStages, stages.EmbedFS("", embedPatterns...))
+		pipelineStages = append(pipelineStages, stages.EmbedFS("", embedConfig.stagePatterns()...))
 	}
 
 	pipeline := build.New(pipelineStages...)
@@ -501,6 +526,21 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *tea
 	// Add bytecode resource if compiled
 	if bcRes := stages.GetBytecodeResource(); bcRes != nil {
 		resources = append(resources, *bcRes)
+	}
+
+	carriedResources, carriedHandles, err := collectEmbeddedPackResources(modulePaths, resources)
+	if err != nil {
+		return NewPackWithResourcesError(err)
+	}
+	defer func() { _ = closeEmbeddedPackResourceHandles(carriedHandles) }()
+	if len(carriedResources) > 0 {
+		resources = append(resources, carriedResources...)
+		p.Send(logMsg{level: "info", message: "Carried embedded resources from dependency packs", fields: map[string]any{
+			"count": len(carriedResources),
+		}})
+	}
+	if err := validateArtifactResources(app.Ctx, resources, ""); err != nil {
+		return NewPackWithResourcesError(fmt.Errorf("validate artifacts: %w", err))
 	}
 
 	var resInfos []resourceInfo
@@ -579,6 +619,9 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *tea
 	if err := parseMetadataFlags(metaFlags, metadata, logger); err != nil {
 		return NewParseMetadataError(err)
 	}
+	if err := addPackRuntimeMetadata(metadata, folderPath); err != nil {
+		return NewPackConfigError(err)
+	}
 
 	p.Send(progressMsg{stage: stageWrite, percent: 0.8, status: "Writing pack file..."})
 
@@ -593,43 +636,281 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *tea
 
 	packWriter := wapp.NewWriter(wapp.WithProgressCallback(progressCallback))
 
-	file, err := os.Create(outputFile)
-	if err != nil {
-		return NewCreatePackFileError(fmt.Errorf("pack file %s: %w", outputFile, err))
-	}
-	defer func() { _ = file.Close() }()
-
 	wappEntries := entries.ConvertToWappEntries(loadedEntries)
 	wappMetadata := wapp.Metadata(metadata)
-
-	if len(resources) > 0 {
-		if err := packWriter.PackWithResources(wappMetadata, wappEntries, resources, file); err != nil {
-			return NewPackWithResourcesError(fmt.Errorf("pack file %s: %w", outputFile, err))
+	fileSize, err := writePackAtomically(outputFile, paths, func(file io.Writer) error {
+		if len(resources) > 0 {
+			if err := packWriter.PackWithResources(wappMetadata, wappEntries, resources, file); err != nil {
+				return NewPackWithResourcesError(fmt.Errorf("pack file %s: %w", outputFile, err))
+			}
+			return nil
 		}
-	} else {
 		if err := packWriter.PackEntries(wappMetadata, wappEntries, file); err != nil {
 			return NewPackEntriesError(fmt.Errorf("pack file %s: %w", outputFile, err))
 		}
-	}
-
-	if err := file.Close(); err != nil {
-		return NewClosePackFileError(fmt.Errorf("pack file %s: %w", outputFile, err))
-	}
-
-	if err := verifyPackedResources(outputFile, resources); err != nil {
-		return NewPackIntegrityError(fmt.Errorf("pack file %s: %w", outputFile, err))
-	}
-
-	fileInfo, err := os.Stat(outputFile)
-	if err != nil {
-		return NewStatOutputFileError(fmt.Errorf("pack file %s: %w", outputFile, err))
-	}
-	p.Send(completedMsg{
-		fileSize: fileInfo.Size(),
-		metadata: metadata,
+		return nil
+	}, func(path string) error {
+		if err := verifyPackedResources(path, resources); err != nil {
+			return NewPackIntegrityError(fmt.Errorf("pack file %s: %w", outputFile, err))
+		}
+		return nil
 	})
+	if err != nil {
+		return err
+	}
+	p.Send(completedMsg{fileSize: fileSize, metadata: metadata})
 
 	return nil
+}
+
+func writePackAtomically(outputFile string, inputPaths []string, write func(io.Writer) error, verify func(string) error) (int64, error) {
+	outputAbs, err := filepath.Abs(outputFile)
+	if err != nil {
+		return 0, NewCreatePackFileError(fmt.Errorf("resolve pack output %s: %w", outputFile, err))
+	}
+	outputInfo, outputStatErr := os.Stat(outputFile)
+	if outputStatErr != nil && !os.IsNotExist(outputStatErr) {
+		return 0, NewCreatePackFileError(fmt.Errorf("stat pack output %s: %w", outputFile, outputStatErr))
+	}
+	for _, inputPath := range inputPaths {
+		inputAbs, err := filepath.Abs(inputPath)
+		if err != nil {
+			return 0, fmt.Errorf("resolve pack input %s: %w", inputPath, err)
+		}
+		same := filepath.Clean(inputAbs) == filepath.Clean(outputAbs)
+		if !same && outputStatErr == nil {
+			if inputInfo, statErr := os.Stat(inputPath); statErr == nil {
+				same = os.SameFile(inputInfo, outputInfo)
+			}
+		}
+		if same {
+			return 0, fmt.Errorf("pack output %s aliases input %s", outputFile, inputPath)
+		}
+	}
+
+	mode := os.FileMode(0o644)
+	if outputStatErr == nil {
+		mode = outputInfo.Mode().Perm()
+	}
+
+	dir := filepath.Dir(outputFile)
+	temp, err := os.CreateTemp(dir, "."+filepath.Base(outputFile)+".tmp-*")
+	if err != nil {
+		return 0, NewCreatePackFileError(fmt.Errorf("pack file %s: %w", outputFile, err))
+	}
+	if err := temp.Chmod(mode); err != nil {
+		_ = temp.Close()
+		_ = os.Remove(temp.Name())
+		return 0, NewCreatePackFileError(fmt.Errorf("set pack file mode %s: %w", outputFile, err))
+	}
+	tempPath := temp.Name()
+	published := false
+	defer func() {
+		_ = temp.Close()
+		if !published {
+			_ = os.Remove(tempPath)
+		}
+	}()
+
+	if err := write(temp); err != nil {
+		return 0, err
+	}
+	if err := temp.Sync(); err != nil {
+		return 0, NewClosePackFileError(fmt.Errorf("sync pack file %s: %w", outputFile, err))
+	}
+	if err := temp.Close(); err != nil {
+		return 0, NewClosePackFileError(fmt.Errorf("pack file %s: %w", outputFile, err))
+	}
+	if err := verify(tempPath); err != nil {
+		return 0, err
+	}
+	if err := os.Rename(tempPath, outputFile); err != nil {
+		return 0, NewCreatePackFileError(fmt.Errorf("publish pack file %s: %w", outputFile, err))
+	}
+	published = true
+	info, err := os.Stat(outputFile)
+	if err != nil {
+		return 0, NewStatOutputFileError(fmt.Errorf("pack file %s: %w", outputFile, err))
+	}
+	return info.Size(), nil
+}
+
+// addPackRuntimeMetadata gives raw snapshot packs the same declarative runtime
+// metadata contract as application packs produced by publish. The manifest's
+// publish allow-lists remain the authority, so machine-local settings and
+// publisher environment values cannot leak into the pack.
+//
+// A manifest is optional for raw pack users. When one is present, however, a
+// malformed manifest or invalid publication contract must fail the pack rather
+// than silently produce a snapshot that cannot be configured as declared.
+func addPackRuntimeMetadata(metadata attrs.Bag, configDir string) error {
+	manifestPath := filepath.Join(configDir, moduleconfig.DefaultConfigFile)
+	if _, err := os.Stat(manifestPath); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("read pack manifest %s: %w", manifestPath, err)
+	}
+
+	manifest, err := moduleconfig.Load(configDir)
+	if err != nil {
+		return err
+	}
+	if err := addPublishedRuntimeMetadata(metadata, configDir, manifest.Publish); err != nil {
+		return fmt.Errorf("collect pack runtime metadata: %w", err)
+	}
+	return nil
+}
+
+type packEmbedConfig struct {
+	patterns []string
+	all      bool
+}
+
+func (c packEmbedConfig) enabled() bool {
+	return c.all || len(c.patterns) > 0
+}
+
+func (c packEmbedConfig) stagePatterns() []string {
+	if c.all {
+		return nil
+	}
+	return c.patterns
+}
+
+func resolvePackEmbedConfig(cmd *cobra.Command, configDir string) (packEmbedConfig, error) {
+	flagPatterns, _ := cmd.Flags().GetStringSlice("embed")
+	flagAll, _ := cmd.Flags().GetBool("embed-all")
+	if flagAll && cmd.Flags().Changed("embed") && len(flagPatterns) > 0 {
+		return packEmbedConfig{}, fmt.Errorf("--embed-all cannot be combined with --embed")
+	}
+	if flagAll {
+		return packEmbedConfig{all: true}, nil
+	}
+	if cmd.Flags().Changed("embed") {
+		return packEmbedConfig{patterns: flagPatterns, all: hasEmbedAllPattern(flagPatterns)}, nil
+	}
+
+	configPath := filepath.Join(configDir, moduleconfig.DefaultConfigFile)
+	if _, err := os.Stat(configPath); err != nil {
+		if os.IsNotExist(err) {
+			return packEmbedConfig{patterns: flagPatterns}, nil
+		}
+		return packEmbedConfig{}, fmt.Errorf("stat %s: %w", configPath, err)
+	}
+
+	cfg, err := moduleconfig.Load(configDir)
+	if err != nil {
+		return packEmbedConfig{}, err
+	}
+	if len(cfg.Embed) == 0 {
+		return packEmbedConfig{patterns: flagPatterns}, nil
+	}
+	return packEmbedConfig{patterns: cfg.Embed, all: hasEmbedAllPattern(cfg.Embed)}, nil
+}
+
+func hasEmbedAllPattern(patterns []string) bool {
+	for _, pattern := range patterns {
+		if pattern == "*" || pattern == "**" {
+			return true
+		}
+	}
+	return false
+}
+
+type embeddedPackResourceHandle struct {
+	file *os.File
+}
+
+func collectEmbeddedPackResources(modulePaths []lock.ModuleLoadPath, existing []wapp.ResourceSpec) ([]wapp.ResourceSpec, []embeddedPackResourceHandle, error) {
+	seen := make(map[wapp.ID]string, len(existing))
+	for _, res := range existing {
+		seen[res.ID] = "current pack"
+	}
+
+	var resources []wapp.ResourceSpec
+	var handles []embeddedPackResourceHandle
+
+	fail := func(err error) ([]wapp.ResourceSpec, []embeddedPackResourceHandle, error) {
+		_ = closeEmbeddedPackResourceHandles(handles)
+		return nil, nil, err
+	}
+
+	for _, mp := range modulePaths {
+		if !hasWappExtension(mp.Path) {
+			continue
+		}
+
+		file, err := os.Open(mp.Path)
+		if err != nil {
+			return fail(fmt.Errorf("open embedded dependency pack %s: %w", mp.Path, err))
+		}
+
+		reader, err := wapp.NewReader(file)
+		if err != nil {
+			_ = file.Close()
+			return fail(fmt.Errorf("read embedded dependency pack %s: %w", mp.Path, err))
+		}
+
+		infos := reader.ListResources()
+		if len(infos) == 0 {
+			_ = file.Close()
+			continue
+		}
+
+		handleAdded := false
+		for _, info := range infos {
+			if prev, ok := seen[info.ID]; ok {
+				_ = file.Close()
+				return fail(fmt.Errorf("duplicate embedded resource %s from %s already provided by %s", info.ID.String(), embeddedPackResourceOrigin(mp), prev))
+			}
+
+			fsys, err := reader.GetFS(info.ID)
+			if err != nil {
+				_ = file.Close()
+				return fail(fmt.Errorf("open embedded resource %s from %s: %w", info.ID.String(), embeddedPackResourceOrigin(mp), err))
+			}
+
+			resources = append(resources, wapp.ResourceSpec{
+				ID:   info.ID,
+				Meta: info.Meta,
+				FS:   fsys,
+			})
+			seen[info.ID] = embeddedPackResourceOrigin(mp)
+			handleAdded = true
+		}
+
+		if handleAdded {
+			handles = append(handles, embeddedPackResourceHandle{file: file})
+		} else {
+			_ = file.Close()
+		}
+	}
+
+	return resources, handles, nil
+}
+
+func embeddedPackResourceOrigin(mp lock.ModuleLoadPath) string {
+	if mp.Module == "" {
+		return mp.Path
+	}
+	if mp.Version == "" {
+		return mp.Module + " at " + mp.Path
+	}
+	return mp.Module + "@" + mp.Version + " at " + mp.Path
+}
+
+func closeEmbeddedPackResourceHandles(handles []embeddedPackResourceHandle) error {
+	var errs []error
+	for _, handle := range handles {
+		if handle.file == nil {
+			continue
+		}
+		if err := handle.file.Close(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
 }
 
 func parseMetadataFlags(metaFlags []string, metadata attrs.Bag, logger *zap.Logger) error {
@@ -681,7 +962,7 @@ func parseMetadataValue(value string) any {
 }
 
 func runListMode(app *appinit.Context, lockPath, _ string) error {
-	lockObj, err := lock.New(lockPath)
+	lockObj, err := newConfiguredLock(lockPath, boot.GetConfig(app.Ctx), app.Logger)
 	if err != nil {
 		return NewLoadLockFileError(fmt.Errorf("lock file %s: %w", lockPath, err))
 	}

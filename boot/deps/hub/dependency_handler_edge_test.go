@@ -172,6 +172,25 @@ func TestEntryModule_ValidModule(t *testing.T) {
 	assert.Equal(t, "acme/http", entryModule(e))
 }
 
+func TestIsRootDependencyKeepsOwnershipSeparate(t *testing.T) {
+	root := regapi.Entry{
+		ID:             regapi.NewID("workspace.modules", "search"),
+		Kind:           regapi.NamespaceDependency,
+		Meta:           attrs.NewBagFrom(map[string]any{metaModuleKey: "acme/app"}),
+		DependencyRoot: true,
+	}
+	assert.True(t, isRootDependency(root))
+	assert.Equal(t, "acme/app", entryModule(root))
+
+	transitive := root
+	transitive.DependencyRoot = false
+	assert.False(t, isRootDependency(transitive))
+
+	unowned := transitive
+	unowned.Meta = nil
+	assert.True(t, isRootDependency(unowned), "registry-authored dependencies are user overlay roots")
+}
+
 // --- markModuleMeta ---
 
 func TestMarkModuleMeta_NilMeta(t *testing.T) {
@@ -189,6 +208,72 @@ func TestMarkModuleMeta_ExistingMeta(t *testing.T) {
 	result := markModuleMeta(e, "acme/http", "v2.0.0")
 	assert.Equal(t, "acme/http", entryModule(result))
 	assert.Equal(t, true, result.Meta.GetBool("existing", false))
+}
+
+func TestMarkModuleMeta_PreservesExistingModuleOwner(t *testing.T) {
+	e := regapi.Entry{
+		ID: regapi.NewID("ns", "a"),
+		Meta: attrs.NewBagFrom(map[string]any{
+			metaModuleKey:        "acme/session",
+			metaModuleVersionKey: "v1.0.0",
+		}),
+	}
+
+	result := markModuleMeta(e, "acme/uploads", "v2.0.0")
+
+	assert.Equal(t, "acme/session", entryModule(result))
+	assert.Equal(t, "v1.0.0", result.Meta.GetString(metaModuleVersionKey, ""))
+}
+
+func TestMarkModuleMetaForGraph_UsesResolvedNamespaceOwner(t *testing.T) {
+	e := regapi.Entry{ID: regapi.NewID("acme.session", "delete_session_service")}
+	owners := moduleOwnersByNamespace([]ResolvedModule{
+		{Org: "acme", Name: "session", Version: "v1.0.0"},
+		{Org: "example", Name: "uploads", Version: "v2.0.0"},
+	})
+
+	result := markModuleMetaForGraph(e, "example/uploads", "v2.0.0", owners, nil)
+
+	assert.Equal(t, "acme/session", entryModule(result))
+	assert.Equal(t, "v1.0.0", result.Meta.GetString(metaModuleVersionKey, ""))
+}
+
+func TestMarkModuleMetaForGraph_UsesSnapshotEntryOwner(t *testing.T) {
+	id := regapi.NewID("acme.llm.openai_compat", "client")
+	e := regapi.Entry{ID: id}
+	entryOwners := map[string]moduleOwner{
+		idKey(id): {name: "acme/llm", version: "v4.0.0"},
+	}
+
+	result := markModuleMetaForGraph(e, "example/skills", "v2.0.0", nil, entryOwners)
+
+	assert.Equal(t, "acme/llm", entryModule(result))
+	assert.Equal(t, "v4.0.0", result.Meta.GetString(metaModuleVersionKey, ""))
+}
+
+func TestPreserveHostSnapshotEntry_KeepsExistingUnownedEntry(t *testing.T) {
+	id := regapi.NewID("app", "api")
+	existing := regapi.Entry{
+		ID:   id,
+		Kind: "http.router",
+		Data: payload.NewPayload(`{"name":"host"}`, payload.JSON),
+	}
+	loaded := regapi.Entry{
+		ID:   id,
+		Kind: "http.router",
+		Meta: attrs.NewBag(),
+		Data: payload.NewPayload(`{"name":"packed"}`, payload.JSON),
+	}
+
+	result, ok := preserveHostSnapshotEntry(
+		loaded,
+		"acme/security",
+		map[string]regapi.Entry{idKey(id): existing},
+		map[string]struct{}{"acme/security": {}},
+	)
+
+	require.True(t, ok)
+	assert.Equal(t, existing.Data, result.Data)
 }
 
 func TestMarkModuleMeta_EmptyVersion(t *testing.T) {
@@ -272,28 +357,42 @@ func TestUnwrapPayloadData_MapWithExtraKeys(t *testing.T) {
 	assert.Equal(t, m, unwrapPayloadData(m))
 }
 
-// --- buildOperations ---
+// --- operationPlanner ---
 
-func TestBuildOperations_EmptyBoth(t *testing.T) {
-	ops, err := buildOperations(nil, nil, regapi.NewID("app", "dep"), nil, nil)
+func planTestOperations(
+	current regapi.State,
+	desired []regapi.Entry,
+	originalID regapi.ID,
+	controlledModules map[string]struct{},
+	mutableModules map[string]struct{},
+) ([]regapi.Operation, error) {
+	return (operationPlanner{}).plan(current, desired, operationPlanOptions{
+		originalKey:       idKey(originalID),
+		controlledModules: controlledModules,
+		mutableModules:    mutableModules,
+	})
+}
+
+func TestOperationPlanner_EmptyBoth(t *testing.T) {
+	ops, err := planTestOperations(nil, nil, regapi.NewID("app", "dep"), nil, nil)
 	require.NoError(t, err)
 	assert.Empty(t, ops)
 }
 
-func TestBuildOperations_NewEntries(t *testing.T) {
+func TestOperationPlanner_NewEntries(t *testing.T) {
 	desired := []regapi.Entry{
 		{ID: regapi.NewID("app", "dep"), Kind: "ns.dependency"},
 		{ID: regapi.NewID("app", "svc"), Kind: "service", Data: payload.New("data")},
 	}
 
-	ops, err := buildOperations(nil, desired, regapi.NewID("app", "dep"), nil, nil)
+	ops, err := planTestOperations(nil, desired, regapi.NewID("app", "dep"), nil, nil)
 	require.NoError(t, err)
 	require.Len(t, ops, 1) // dep is excluded (originalID)
 	assert.Equal(t, regapi.EntryCreate, ops[0].Kind)
 	assert.Equal(t, regapi.NewID("app", "svc"), ops[0].Entry.ID)
 }
 
-func TestBuildOperations_DeletedEntries(t *testing.T) {
+func TestOperationPlanner_DeletedEntries(t *testing.T) {
 	current := regapi.State{
 		{ID: regapi.NewID("app", "dep"), Kind: "ns.dependency"},
 		{
@@ -306,14 +405,14 @@ func TestBuildOperations_DeletedEntries(t *testing.T) {
 		{ID: regapi.NewID("app", "dep"), Kind: "ns.dependency"},
 	}
 
-	ops, err := buildOperations(current, desired, regapi.NewID("app", "dep"), nil, nil)
+	ops, err := planTestOperations(current, desired, regapi.NewID("app", "dep"), nil, nil)
 	require.NoError(t, err)
 	require.Len(t, ops, 1)
 	assert.Equal(t, regapi.EntryDelete, ops[0].Kind)
 	assert.Equal(t, regapi.NewID("app", "old-svc"), ops[0].Entry.ID)
 }
 
-func TestBuildOperations_DeletesOnlyControlledModules(t *testing.T) {
+func TestOperationPlanner_DeletesOnlyControlledModules(t *testing.T) {
 	current := regapi.State{
 		{ID: regapi.NewID("app", "dep"), Kind: "ns.dependency"},
 		{
@@ -322,9 +421,9 @@ func TestBuildOperations_DeletesOnlyControlledModules(t *testing.T) {
 			Meta: attrs.NewBagFrom(map[string]any{metaModuleKey: "acme/http"}),
 		},
 		{
-			ID:   regapi.NewID("keeper.hub.tools", "dependencies"),
+			ID:   regapi.NewID("example.tools", "dependencies"),
 			Kind: "function.lua",
-			Meta: attrs.NewBagFrom(map[string]any{metaModuleKey: "keeper/keeper"}),
+			Meta: attrs.NewBagFrom(map[string]any{metaModuleKey: "example/keeper"}),
 		},
 	}
 	desired := []regapi.Entry{
@@ -332,14 +431,14 @@ func TestBuildOperations_DeletesOnlyControlledModules(t *testing.T) {
 	}
 	controlled := map[string]struct{}{"acme/http": {}}
 
-	ops, err := buildOperations(current, desired, regapi.NewID("app", "dep"), controlled, nil)
+	ops, err := planTestOperations(current, desired, regapi.NewID("app", "dep"), controlled, nil)
 	require.NoError(t, err)
 	require.Len(t, ops, 1)
 	assert.Equal(t, regapi.EntryDelete, ops[0].Kind)
 	assert.Equal(t, regapi.NewID("app", "old-svc"), ops[0].Entry.ID)
 }
 
-func TestBuildOperations_UpdatedEntries(t *testing.T) {
+func TestOperationPlanner_UpdatedEntries(t *testing.T) {
 	current := regapi.State{
 		{
 			ID:   regapi.NewID("app", "svc"),
@@ -357,13 +456,41 @@ func TestBuildOperations_UpdatedEntries(t *testing.T) {
 		},
 	}
 
-	ops, err := buildOperations(current, desired, regapi.NewID("app", "dep"), nil, nil)
+	ops, err := planTestOperations(current, desired, regapi.NewID("app", "dep"), nil, nil)
 	require.NoError(t, err)
 	require.Len(t, ops, 1)
 	assert.Equal(t, regapi.EntryUpdate, ops[0].Kind)
 }
 
-func TestBuildOperations_KindChangeUsesDeleteCreate(t *testing.T) {
+func TestOperationPlanner_ReconcileSkipsUntouchedImmutableModuleUpdates(t *testing.T) {
+	moduleMeta := attrs.NewBagFrom(map[string]any{
+		metaModuleKey:        "acme/http",
+		metaModuleVersionKey: "v1.0.0",
+	})
+	current := regapi.State{{
+		ID:   regapi.NewID("app", "svc"),
+		Kind: "service",
+		Meta: moduleMeta,
+		Data: payload.New("resident"),
+	}}
+	desired := []regapi.Entry{{
+		ID:   regapi.NewID("app", "svc"),
+		Kind: "service",
+		Meta: moduleMeta,
+		Data: payload.New("normalized"),
+	}}
+
+	ops, err := planTestOperations(current, desired, regapi.ID{}, map[string]struct{}{"acme/http": {}}, map[string]struct{}{})
+	require.NoError(t, err)
+	require.Empty(t, ops, "an unchanged immutable artifact must not be rewritten during history reconciliation")
+
+	ops, err = planTestOperations(current, desired, regapi.ID{}, map[string]struct{}{"acme/http": {}}, map[string]struct{}{"acme/http": {}})
+	require.NoError(t, err)
+	require.Len(t, ops, 1, "an explicitly mutable artifact must still update")
+	assert.Equal(t, regapi.EntryUpdate, ops[0].Kind)
+}
+
+func TestOperationPlanner_KindChangeUsesDeleteCreate(t *testing.T) {
 	id := regapi.NewID("ui", "assets")
 	current := regapi.State{{
 		ID:   id,
@@ -378,7 +505,7 @@ func TestBuildOperations_KindChangeUsesDeleteCreate(t *testing.T) {
 		Data: payload.New(map[string]any{"directory": "assets", "base": "module"}),
 	}}
 
-	ops, err := buildOperations(current, desired, regapi.NewID("app", "dep"), nil, nil)
+	ops, err := planTestOperations(current, desired, regapi.NewID("app", "dep"), nil, nil)
 	require.NoError(t, err)
 	require.Len(t, ops, 2)
 	assert.Equal(t, regapi.EntryDelete, ops[0].Kind)
@@ -387,7 +514,7 @@ func TestBuildOperations_KindChangeUsesDeleteCreate(t *testing.T) {
 	assert.Equal(t, regapi.Kind("fs.directory"), ops[1].Entry.Kind)
 }
 
-func TestBuildOperations_UnchangedEntries(t *testing.T) {
+func TestOperationPlanner_UnchangedEntries(t *testing.T) {
 	entry := regapi.Entry{
 		ID:   regapi.NewID("app", "svc"),
 		Kind: "service",
@@ -396,12 +523,12 @@ func TestBuildOperations_UnchangedEntries(t *testing.T) {
 	current := regapi.State{entry}
 	desired := []regapi.Entry{entry}
 
-	ops, err := buildOperations(current, desired, regapi.NewID("app", "dep"), nil, nil)
+	ops, err := planTestOperations(current, desired, regapi.NewID("app", "dep"), nil, nil)
 	require.NoError(t, err)
 	assert.Empty(t, ops)
 }
 
-func TestBuildOperations_ConflictError(t *testing.T) {
+func TestOperationPlanner_ConflictError(t *testing.T) {
 	current := regapi.State{
 		{ID: regapi.NewID("app", "svc"), Kind: "service", Data: payload.New("local")},
 	}
@@ -414,12 +541,12 @@ func TestBuildOperations_ConflictError(t *testing.T) {
 		},
 	}
 
-	_, err := buildOperations(current, desired, regapi.NewID("app", "dep"), nil, nil)
+	_, err := planTestOperations(current, desired, regapi.NewID("app", "dep"), nil, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "conflict")
 }
 
-func TestBuildOperations_SkipsNonModuleDeletes(t *testing.T) {
+func TestOperationPlanner_SkipsNonModuleDeletes(t *testing.T) {
 	current := regapi.State{
 		{ID: regapi.NewID("app", "dep"), Kind: "ns.dependency"},
 		{ID: regapi.NewID("app", "local-svc"), Kind: "service", Data: payload.New("local")},
@@ -428,7 +555,7 @@ func TestBuildOperations_SkipsNonModuleDeletes(t *testing.T) {
 		{ID: regapi.NewID("app", "dep"), Kind: "ns.dependency"},
 	}
 
-	ops, err := buildOperations(current, desired, regapi.NewID("app", "dep"), nil, nil)
+	ops, err := planTestOperations(current, desired, regapi.NewID("app", "dep"), nil, nil)
 	require.NoError(t, err)
 	// local-svc has no module meta, so it won't be deleted
 	assert.Empty(t, ops)
@@ -492,11 +619,11 @@ func TestNewDependencyResolutionErrors_NoHintWithoutAuthCause(t *testing.T) {
 
 func TestNewDependencyResolutionErrors_MessageIncludesCause(t *testing.T) {
 	errs := []ResolutionError{
-		{Org: "kickside", Name: "research", Constraint: "0.1.0", Message: "module not found", Err: errors.New("module not found")},
+		{Org: "acme", Name: "research", Constraint: "0.1.0", Message: "module not found", Err: errors.New("module not found")},
 	}
 
 	apiErr := NewDependencyResolutionErrors(errs)
-	assert.Contains(t, apiErr.Error(), "kickside/research@0.1.0")
+	assert.Contains(t, apiErr.Error(), "acme/research@0.1.0")
 	assert.Contains(t, apiErr.Error(), "module not found")
 }
 

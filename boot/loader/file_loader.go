@@ -33,6 +33,10 @@ type FileLoader struct {
 
 // NewFileLoader creates a new FileLoader.
 func NewFileLoader(log *zap.Logger) *FileLoader {
+	if log == nil {
+		log = zap.NewNop()
+	}
+
 	skipDirs := map[string]bool{
 		"node_modules": true,
 	}
@@ -147,7 +151,7 @@ func (l *FileLoader) LoadFS(fSys fs.FS) ([]*FilePayload, error) {
 			l.log.Error("load file as payload",
 				zap.String("path", path),
 				zap.Error(err))
-			return nil
+			return err
 		}
 
 		payloads = append(payloads, p)
@@ -194,7 +198,7 @@ func (l *FileLoader) LoadDir(fSys fs.FS, dirPath string) ([]*FilePayload, error)
 			l.log.Error("load file as payload",
 				zap.String("path", path),
 				zap.Error(err))
-			return nil
+			return err
 		}
 
 		payloads = append(payloads, p)

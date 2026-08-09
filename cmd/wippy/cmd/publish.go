@@ -63,7 +63,7 @@ func init() {
 	publishCmd.Flags().StringSlice("embed", nil, "embed fs.directory entries by id or name (default: none)")
 	publishCmd.Flags().Bool("create", false, "create the module on the registry if it does not yet exist")
 	publishCmd.Flags().String("module-visibility", "private", "visibility for newly created modules (--create only): public or private")
-	publishCmd.Flags().String("module-type", "application", "module type for newly created modules (--create only): library, application, agent or plugin")
+	publishCmd.Flags().String("module-type", "", "module type: library, application, agent or plugin (overrides `type:` in wippy.yaml)")
 	publishCmd.Flags().String("module-display-name", "", "display name for newly created modules (--create only)")
 }
 
@@ -91,6 +91,16 @@ func runPublish(cmd *cobra.Command, _ []string) error {
 
 	if versionFlag != "" {
 		cfg.Version = versionFlag
+	}
+
+	// --module-type overrides the manifest, mirroring --version. Empty leaves
+	// wippy.yaml's `type:` in place; empty in both is "not declared", which
+	// hub accepts only for a module that already exists.
+	if moduleType != "" {
+		cfg.Type = moduleType
+	}
+	if err := config.ValidateModuleType(cfg.Type); err != nil {
+		return NewPublishConfigError(err)
 	}
 
 	if label != "" {
@@ -181,7 +191,7 @@ func runPublish(cmd *cobra.Command, _ []string) error {
 
 	registeredThisRun := false
 	if createIfMissing {
-		if err := ensureModuleRegistered(cmd.Context(), client, registryURL, cfg, moduleDisplayName, moduleType, moduleVisibility); err != nil {
+		if err := ensureModuleRegistered(cmd.Context(), client, registryURL, cfg, moduleDisplayName, cfg.Type, moduleVisibility); err != nil {
 			return err
 		}
 		registeredThisRun = true
@@ -202,7 +212,7 @@ func runPublish(cmd *cobra.Command, _ []string) error {
 		// A user without create permission gets the real 403 here — that
 		// is the honest failure, not something to paper over.
 		printStatus(fmt.Sprintf("Module %s/%s not registered yet — creating it", cfg.Organization, cfg.ModuleName))
-		if regErr := ensureModuleRegistered(cmd.Context(), client, registryURL, cfg, moduleDisplayName, moduleType, moduleVisibility); regErr != nil {
+		if regErr := ensureModuleRegistered(cmd.Context(), client, registryURL, cfg, moduleDisplayName, cfg.Type, moduleVisibility); regErr != nil {
 			return regErr
 		}
 		publishID, err = publishViaHubOrLegacy(ctx, client, registryURL, cfg, outputFile, label, releaseNotes, protected)
@@ -263,12 +273,8 @@ func publishViaHubOrLegacy(
 		ReleaseNotes: releaseNotes,
 		FilePath:     outputFile,
 		Protected:    protected,
+		ModuleType:   cfg.Type,
 	}
-	if label != "" {
-		// When publishing a label, the version is resolved server-side.
-		in.Version = ""
-	}
-
 	out, err := client.PublishViaHub(ctx, in)
 	if err == nil {
 		return out.PublishID, nil
@@ -290,6 +296,7 @@ func publishViaHubOrLegacy(
 		Digest:       "", // hub fills in from the upload body it sees
 		ReleaseNotes: releaseNotes,
 		Protected:    protected,
+		ModuleType:   cfg.Type,
 	}
 	if label != "" {
 		params.Label = label
@@ -432,7 +439,7 @@ func packModule(ctx context.Context, app *appinit.Context, cfg *config.ModuleCon
 		srcPath = filepath.Join(srcDir, "src")
 	}
 
-	dirFS := os.DirFS(srcPath)
+	dirFS := config.NewSourceFS(os.DirFS(srcPath), cfg, srcDir, srcPath)
 	srcEntries, err := app.Loader.LoadFS(ctx, dirFS)
 	if err != nil {
 		return nil, NewLoadEntriesError(fmt.Sprintf("source path %s", srcPath), err)
@@ -474,6 +481,13 @@ func packModule(ctx context.Context, app *appinit.Context, cfg *config.ModuleCon
 	}
 
 	resources := stages.GetResources(ctx)
+	if err := validateArtifactResources(
+		ctx,
+		resources,
+		cfg.Version,
+	); err != nil {
+		return nil, NewPackWithResourcesError(fmt.Errorf("validate artifacts: %w", err))
+	}
 
 	metadata := attrs.Bag{
 		"name":          cfg.ModuleName,
@@ -514,7 +528,7 @@ func packModule(ctx context.Context, app *appinit.Context, cfg *config.ModuleCon
 		}
 		metadata[trimmed] = value
 	}
-	if err := addPublishedRuntimeProfileMetadata(metadata, srcDir, cfg.Publish.Profiles); err != nil {
+	if err := addPublishedRuntimeMetadata(metadata, srcDir, cfg.Publish); err != nil {
 		return nil, NewPublishConfigError(err)
 	}
 
@@ -692,6 +706,20 @@ func ensureModuleRegistered(ctx context.Context, client *hub.Client, registryURL
 	if keywords == nil {
 		keywords = []string{}
 	}
+	// Hub still accepts an undeclared type when creating a module (it defaults to
+	// "application" and warns) so that older clients keep working. Match that
+	// here rather than hard-failing: upgrading the CLI must not break a pipeline
+	// that publishes a brand-new module. The warning is how the user learns to
+	// declare it before enforcement lands.
+	if moduleType == "" {
+		moduleType = "application"
+		printStatus(fmt.Sprintf(
+			"WARNING: %s/%s has no module type declared; defaulting to 'application'. "+
+				"Add `type: library|application|agent|plugin` to wippy.yaml (or pass --module-type) — "+
+				"this default is deprecated and will become an error.",
+			cfg.Organization, cfg.ModuleName))
+	}
+
 	regCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	regResult, regErr := client.RegisterModule(regCtx, &hub.RegisterModuleParams{

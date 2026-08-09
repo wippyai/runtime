@@ -216,7 +216,7 @@ func BenchmarkManyYieldsPerExecute(b *testing.B) {
 // BenchmarkWorkerExecute measures raw worker.executeOne performance.
 func BenchmarkWorkerExecute(b *testing.B) {
 	sched := newTestScheduler(1)
-	worker := sched.workers[0]
+	worker := sched.workerSnapshot()[0]
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {

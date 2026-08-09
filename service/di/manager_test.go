@@ -468,11 +468,11 @@ func TestManager_BindingOperations(t *testing.T) {
 
 	t.Run("binding validation errors", func(t *testing.T) {
 		tests := []struct {
-			entry         registry.Entry
 			assertDetails func(*testing.T, apierror.Error)
 			name          string
 			expectedKind  apierror.Kind
 			expectedMsg   string
+			entry         registry.Entry
 		}{
 			{
 				name: "wrong entry kind",

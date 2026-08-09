@@ -59,8 +59,8 @@ func ApplyProfiles(cfg boot.Config, profileNames []string) (boot.Config, error) 
 }
 
 // ResolveVariables expands ${name} references from the vars section across all
-// config values. OS environment interpolation is intentionally not supported:
-// secrets should be declared as env.variable entries and referenced by ID.
+// config values. Profile variables do not read OS environment values; the
+// .wippy.yaml loader resolves scoped ${env:NAME} references before profiles run.
 func ResolveVariables(cfg boot.Config) (boot.Config, error) {
 	if cfg == nil {
 		return nil, nil //nolint:nilnil // preserve existing nil-config behavior

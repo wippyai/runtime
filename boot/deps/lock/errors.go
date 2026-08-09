@@ -26,6 +26,10 @@ func NewModuleEmptyVersionError(moduleName string) apierror.Error {
 	return apierror.New(apierror.Invalid, fmt.Sprintf("module %q has empty version", moduleName))
 }
 
+func NewMultipleRootModulesError() apierror.Error {
+	return apierror.New(apierror.Invalid, "lock file selects more than one deployment root").WithRetryable(apierror.False)
+}
+
 func NewInvalidReplacementsError(cause error) apierror.Error {
 	return apierror.New(apierror.Invalid, "invalid replacements").WithCause(cause)
 }
@@ -40,6 +44,10 @@ func NewReplacementFromInvalidError(from string, cause error) apierror.Error {
 
 func NewReplacementPathNotExistError(path string) apierror.Error {
 	return apierror.New(apierror.NotFound, fmt.Sprintf("replacement path %q does not exist", path))
+}
+
+func NewReplacementPathNotDirectoryError(path string) apierror.Error {
+	return apierror.New(apierror.Invalid, fmt.Sprintf("replacement path %q is not a directory", path))
 }
 
 func NewCheckReplacementPathError(path string, cause error) apierror.Error {

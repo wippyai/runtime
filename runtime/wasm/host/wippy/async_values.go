@@ -59,7 +59,6 @@ func (s *AsyncValueStore) Reset() {
 	}
 	s.mu.Lock()
 	clear(s.values)
-	s.nextID = 1
 	s.mu.Unlock()
 }
 

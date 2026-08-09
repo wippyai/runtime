@@ -205,6 +205,169 @@ metrics:
 		assert.Nil(t, cfg)
 		assert.Contains(t, err.Error(), "failed to parse YAML")
 	})
+
+	t.Run("expands scoped OS environment references", func(t *testing.T) {
+		t.Setenv("WIPPY_TEST_HISTORY_DSN", "postgres://user:pass@localhost/wippy?sslmode=disable")
+		yamlContent := `version: "1.0"
+registry:
+  enable_history: true
+  history_type: postgres
+  history_dsn: ${env:WIPPY_TEST_HISTORY_DSN}
+  history_schema: wippy_registry
+`
+		tmpDir := t.TempDir()
+		configPath := filepath.Join(tmpDir, "test.yaml")
+		err := os.WriteFile(configPath, []byte(yamlContent), 0600)
+		require.NoError(t, err)
+
+		cfg, err := Load(configPath)
+		require.NoError(t, err)
+		require.NotNil(t, cfg)
+
+		registryCfg := cfg.Sub("registry")
+		assert.Equal(t, "postgres://user:pass@localhost/wippy?sslmode=disable", registryCfg.GetString("history_dsn", ""))
+		assert.Equal(t, "wippy_registry", registryCfg.GetString("history_schema", ""))
+	})
+
+	t.Run("publish load never reads the publisher environment", func(t *testing.T) {
+		t.Setenv("WIPPY_TEST_PUBLISH_SECRET", "must-not-enter-pack-metadata")
+		yamlContent := `version: "1.0"
+registry:
+  history_dsn: ${env:WIPPY_TEST_PUBLISH_SECRET}
+`
+		tmpDir := t.TempDir()
+		configPath := filepath.Join(tmpDir, "test.yaml")
+		require.NoError(t, os.WriteFile(configPath, []byte(yamlContent), 0o600))
+
+		cfg, err := LoadForPublish(configPath)
+		require.NoError(t, err)
+		require.NotNil(t, cfg)
+		assert.Equal(t, "${env:WIPPY_TEST_PUBLISH_SECRET}", cfg.GetString("registry.history_dsn", ""))
+	})
+
+	t.Run("keeps profile variables for later profile resolution", func(t *testing.T) {
+		yamlContent := `version: "1.0"
+vars:
+  port: "18085"
+profiles:
+  dev:
+    gateway:
+      addr: ":${port}"
+`
+		tmpDir := t.TempDir()
+		configPath := filepath.Join(tmpDir, "test.yaml")
+		err := os.WriteFile(configPath, []byte(yamlContent), 0600)
+		require.NoError(t, err)
+
+		cfg, err := Load(configPath)
+		require.NoError(t, err)
+		require.NotNil(t, cfg)
+
+		profilesCfg := cfg.Sub("profiles")
+		assert.Equal(t, ":${port}", profilesCfg.GetString("dev.gateway.addr", ""))
+	})
+
+	t.Run("returns error for missing scoped OS environment reference", func(t *testing.T) {
+		yamlContent := `version: "1.0"
+registry:
+  history_dsn: ${env:WIPPY_TEST_MISSING_DSN}
+`
+		tmpDir := t.TempDir()
+		configPath := filepath.Join(tmpDir, "test.yaml")
+		err := os.WriteFile(configPath, []byte(yamlContent), 0600)
+		require.NoError(t, err)
+
+		cfg, err := Load(configPath)
+		require.Error(t, err)
+		assert.Nil(t, cfg)
+		assert.Contains(t, err.Error(), "WIPPY_TEST_MISSING_DSN")
+	})
+}
+
+func TestLoadFilesMergesInOrder(t *testing.T) {
+	tmpDir := t.TempDir()
+	basePath := filepath.Join(tmpDir, "base.yaml")
+	devPath := filepath.Join(tmpDir, "dev.yaml")
+	workspacePath := filepath.Join(tmpDir, "workspace.yaml")
+	require.NoError(t, os.WriteFile(basePath, []byte(`version: "1.0"
+logger:
+  level: info
+  encoding: json
+network:
+  name: shared
+profiles:
+  dev:
+    logger:
+      encoding: console
+`), 0o600))
+	require.NoError(t, os.WriteFile(devPath, []byte(`version: "1.0"
+logger:
+  level: debug
+network:
+  bind: 127.0.0.1
+profiles:
+  dev:
+    network:
+      name: docker
+`), 0o600))
+	require.NoError(t, os.WriteFile(workspacePath, []byte(`version: "1.0"
+workspace:
+  replacements:
+    acme/http: ../http
+profiles:
+  dev:
+    logger:
+      level: trace
+`), 0o600))
+
+	cfg, err := LoadFiles([]string{basePath, devPath, workspacePath})
+	require.NoError(t, err)
+	require.Equal(t, "debug", cfg.GetString("logger.level", ""))
+	require.Equal(t, "json", cfg.GetString("logger.encoding", ""))
+	require.Equal(t, "shared", cfg.GetString("network.name", ""))
+	require.Equal(t, "127.0.0.1", cfg.GetString("network.bind", ""))
+	require.Equal(t, "../http", cfg.GetString("workspace.replacements.acme/http", ""))
+	require.Equal(t, "console", cfg.GetString("profiles.dev.logger.encoding", ""))
+	require.Equal(t, "trace", cfg.GetString("profiles.dev.logger.level", ""))
+	require.Equal(t, "docker", cfg.GetString("profiles.dev.network.name", ""))
+}
+
+func TestLoadFilesRequiresEveryPath(t *testing.T) {
+	tmpDir := t.TempDir()
+	basePath := filepath.Join(tmpDir, "base.yaml")
+	missingPath := filepath.Join(tmpDir, "missing.yaml")
+	require.NoError(t, os.WriteFile(basePath, []byte("version: \"1.0\"\n"), 0o600))
+
+	cfg, err := LoadFiles([]string{basePath, missingPath})
+	require.Error(t, err)
+	require.ErrorContains(t, err, missingPath)
+	require.ErrorContains(t, err, "failed to read config file")
+	require.Nil(t, cfg)
+}
+
+func TestLoadFilesIdentifiesInvalidFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	basePath := filepath.Join(tmpDir, "base.yaml")
+	invalidPath := filepath.Join(tmpDir, "invalid.yaml")
+	require.NoError(t, os.WriteFile(basePath, []byte("version: \"1.0\"\n"), 0o600))
+	require.NoError(t, os.WriteFile(invalidPath, []byte("logger:\n  level: debug\n"), 0o600))
+
+	cfg, err := LoadFiles([]string{basePath, invalidPath})
+	require.ErrorContains(t, err, invalidPath)
+	require.ErrorContains(t, err, "missing version field")
+	require.Nil(t, cfg)
+}
+
+func TestLoadFilesEmpty(t *testing.T) {
+	cfg, err := LoadFiles(nil)
+	require.NoError(t, err)
+	require.Nil(t, cfg)
+}
+
+func TestLoadFilesRejectsEmptyExplicitPath(t *testing.T) {
+	cfg, err := LoadFiles([]string{""})
+	require.ErrorContains(t, err, "path is empty")
+	require.Nil(t, cfg)
 }
 
 func TestBuildBootConfig(t *testing.T) {

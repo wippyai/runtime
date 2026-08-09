@@ -21,7 +21,7 @@ local function main(args)
 
 	-- Edge 1: httpclient — denial returns (nil, err).
 	local http = require("http_client")
-	local resp, http_err = http.get("http://localhost:8085/hello", {
+	local resp, http_err = http.get("http://localhost:18085/hello", {
 		overlay_network = target,
 		timeout = "500ms",
 	})

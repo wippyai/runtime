@@ -36,7 +36,12 @@ func mapNetError(err error) *NetworkError {
 		return &NetworkError{Code: NetworkErrorPermanentResolverFailure}
 	}
 
-	if os.IsTimeout(err) {
+	var errno syscall.Errno
+	if errors.As(err, &errno) {
+		return mapErrno(errno)
+	}
+
+	if errors.Is(err, os.ErrDeadlineExceeded) || os.IsTimeout(err) {
 		return &NetworkError{Code: NetworkErrorTimeout}
 	}
 

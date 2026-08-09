@@ -6,6 +6,7 @@ package host
 import (
 	"context"
 	"errors"
+	"sync"
 	"sync/atomic"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
@@ -17,6 +18,7 @@ import (
 	hostapi "github.com/wippyai/runtime/api/service/host"
 	"github.com/wippyai/runtime/api/topology"
 	"github.com/wippyai/runtime/system/scheduler/actor"
+	securitysys "github.com/wippyai/runtime/system/security"
 	"go.uber.org/zap"
 )
 
@@ -38,8 +40,13 @@ type Host struct {
 	log       *zap.Logger
 	scheduler *actor.Scheduler
 	id        registry.ID
-	running   atomic.Bool
-	shutdown  atomic.Bool
+	// affinityManaged is fixed when the host is built. Manager affinity changes
+	// apply only to subsequently created hosts and must not change which live
+	// updates an existing scheduler can accept.
+	affinityManaged bool
+	lifecycleMu     sync.Mutex
+	running         atomic.Bool
+	shutdown        atomic.Bool
 }
 
 // NewHost creates a new host with actor scheduler.
@@ -92,6 +99,9 @@ func (h *Host) Run(ctx context.Context, start *process.Start) (pid.PID, error) {
 
 	processID := h.preparePID(ctx, start)
 	frameCtx := h.prepareContext(ctx, processID, start)
+	if meta != nil && meta.Security != nil {
+		frameCtx = securitysys.WithSecurityConfig(frameCtx, meta.Security)
+	}
 
 	method := "main"
 	if meta != nil && meta.Method != "" {
@@ -175,6 +185,11 @@ func (h *Host) Send(pkg *relay.Package) error {
 
 // Start implements supervisor.Service.
 func (h *Host) Start(ctx context.Context) (<-chan any, error) {
+	h.lifecycleMu.Lock()
+	defer h.lifecycleMu.Unlock()
+	if h.shutdown.Load() {
+		return nil, ErrHostShuttingDown
+	}
 	if h.running.Swap(true) {
 		return nil, ErrHostAlreadyRunning
 	}
@@ -188,11 +203,18 @@ func (h *Host) Start(ctx context.Context) (<-chan any, error) {
 
 // Stop implements supervisor.Service.
 func (h *Host) Stop(ctx context.Context) error {
-	if !h.running.Swap(false) {
+	h.lifecycleMu.Lock()
+	wasRunning := h.running.Swap(false)
+	h.shutdown.Store(true)
+	h.lifecycleMu.Unlock()
+
+	// Publish the terminal host state before draining the scheduler. Draining
+	// may wait for a process step or invoke lifecycle callbacks; Start and live
+	// Update must reject during that wait instead of blocking behind it.
+	if !wasRunning {
 		return nil
 	}
 
-	h.shutdown.Store(true)
 	h.log.Info("host stopping", zap.String("id", h.id.String()))
 
 	h.scheduler.Stop(ctx)

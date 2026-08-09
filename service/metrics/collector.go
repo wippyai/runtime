@@ -55,11 +55,11 @@ func (c *collector) GaugeSet(name string, value float64, labels api.Labels) {
 }
 
 func (c *collector) GaugeInc(name string, labels api.Labels) {
-	c.record(name, api.TypeGauge, 1, labels)
+	c.record(name, api.TypeGaugeAdd, 1, labels)
 }
 
 func (c *collector) GaugeDec(name string, labels api.Labels) {
-	c.record(name, api.TypeGauge, -1, labels)
+	c.record(name, api.TypeGaugeAdd, -1, labels)
 }
 
 func (c *collector) HistogramObserve(name string, value float64, labels api.Labels) {

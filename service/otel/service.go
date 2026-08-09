@@ -3,7 +3,10 @@
 package otel
 
 import (
+	"bufio"
 	stdcontext "context"
+	"errors"
+	"net"
 	"net/http"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
@@ -86,10 +89,58 @@ func (s *Service) HTTPMiddleware() func(http.Handler) http.Handler {
 				propagator.Inject(ctx, propagation.HeaderCarrier(w.Header()))
 			}
 
+			rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 			r = r.WithContext(ctx)
-			next.ServeHTTP(w, r)
+			next.ServeHTTP(rec, r)
+
+			span.SetAttributes(attribute.Int("http.response.status_code", rec.status))
+			if rec.status >= http.StatusInternalServerError {
+				span.SetStatus(codes.Error, http.StatusText(rec.status))
+			}
 		})
 	}
+}
+
+// statusRecorder wraps http.ResponseWriter to capture the response status code
+// without otherwise altering behavior. The first WriteHeader call fixes the
+// status; a handler that only calls Write defaults to 200 OK. Flush/Hijack/
+// Unwrap forward to the underlying writer so SSE (Flush) and websocket
+// (Hijack) middlewares stacked inside the OTel middleware keep working, and
+// http.ResponseController reaches the real writer.
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+	wrote  bool
+}
+
+func (r *statusRecorder) Unwrap() http.ResponseWriter { return r.ResponseWriter }
+
+func (r *statusRecorder) WriteHeader(code int) {
+	if !r.wrote {
+		r.status = code
+		r.wrote = true
+	}
+	r.ResponseWriter.WriteHeader(code)
+}
+
+func (r *statusRecorder) Write(b []byte) (int, error) {
+	if !r.wrote {
+		r.wrote = true
+	}
+	return r.ResponseWriter.Write(b)
+}
+
+func (r *statusRecorder) Flush() {
+	if flusher, ok := r.ResponseWriter.(http.Flusher); ok {
+		flusher.Flush()
+	}
+}
+
+func (r *statusRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	if hj, ok := r.ResponseWriter.(http.Hijacker); ok {
+		return hj.Hijack()
+	}
+	return nil, nil, errors.New("otel: underlying response writer does not support Hijack")
 }
 
 // OnStart implements scheduler.Lifecycle.
@@ -98,9 +149,12 @@ func (s *Service) OnStart(ctx stdcontext.Context, p pid.PID, _ process.Process) 
 		return nil
 	}
 
+	// Continue the spawning trace when a remote parent is present, otherwise
+	// start a root span so unsupervised spawns are still observable.
 	processSpanCtx, hasSpan := otelapi.GetRemoteSpanContext(ctx)
-	if !hasSpan || !processSpanCtx.IsValid() {
-		return nil
+	startCtx := ctx
+	if hasSpan && processSpanCtx.IsValid() {
+		startCtx = trace.ContextWithRemoteSpanContext(ctx, processSpanCtx)
 	}
 
 	sourceID, hasSource := runtime.GetFrameID(ctx)
@@ -109,8 +163,7 @@ func (s *Service) OnStart(ctx stdcontext.Context, p pid.PID, _ process.Process) 
 		startEventName = sourceID.String() + ".started"
 	}
 
-	ctxWithProcess := trace.ContextWithRemoteSpanContext(ctx, processSpanCtx)
-	_, startSpan := s.tracer.Start(ctxWithProcess, startEventName,
+	_, startSpan := s.tracer.Start(startCtx, startEventName,
 		trace.WithSpanKind(trace.SpanKindInternal))
 
 	startSpan.SetAttributes(
@@ -130,9 +183,12 @@ func (s *Service) OnComplete(ctx stdcontext.Context, p pid.PID, result *runtime.
 		return
 	}
 
+	// Continue the spawning trace when a remote parent is present, otherwise
+	// start a root span so unsupervised spawns are still observable.
 	remoteSpanCtx, hasRemote := otelapi.GetRemoteSpanContext(ctx)
-	if !hasRemote || !remoteSpanCtx.IsValid() {
-		return
+	completeCtx := ctx
+	if hasRemote && remoteSpanCtx.IsValid() {
+		completeCtx = trace.ContextWithRemoteSpanContext(ctx, remoteSpanCtx)
 	}
 
 	sourceID, hasSource := runtime.GetFrameID(ctx)
@@ -141,8 +197,7 @@ func (s *Service) OnComplete(ctx stdcontext.Context, p pid.PID, result *runtime.
 		spanName = sourceID.String() + ".terminated"
 	}
 
-	ctxWithRemote := trace.ContextWithRemoteSpanContext(ctx, remoteSpanCtx)
-	_, span := s.tracer.Start(ctxWithRemote, spanName,
+	_, span := s.tracer.Start(completeCtx, spanName,
 		trace.WithSpanKind(trace.SpanKindInternal))
 
 	attrs := []attribute.KeyValue{
@@ -205,17 +260,19 @@ func (i *interceptor) Handle(ctx stdcontext.Context, task runtime.Task, next fun
 	var delivery *queueapi.Delivery
 	var isQueueMessage bool
 
-	// Priority 0: Check for queue delivery in task.Context (before it's written to frame)
+	// Priority 0: Check for queue delivery in task.Context (before it's written to frame).
+	// Any queue delivery is a Consumer span - parented to the producer trace when a
+	// traceparent is present, otherwise a root Consumer span - so consume-side
+	// telemetry exists even for messages from non-instrumented publishers.
 	for _, pair := range task.Context {
 		if d, ok := pair.Value.(*queueapi.Delivery); ok {
 			delivery = d
-			extractedCtx, hasSpan := extractFromDelivery(ctx, delivery)
-			if hasSpan {
+			isQueueMessage = true
+			if extractedCtx, hasSpan := extractFromDelivery(ctx, delivery); hasSpan {
 				ctx = extractedCtx
-				ctx, span = i.tracer.Start(ctx, spanName,
-					trace.WithSpanKind(trace.SpanKindConsumer))
-				isQueueMessage = true
 			}
+			ctx, span = i.tracer.Start(ctx, spanName,
+				trace.WithSpanKind(trace.SpanKindConsumer))
 			break
 		}
 	}

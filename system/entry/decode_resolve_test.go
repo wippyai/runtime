@@ -201,17 +201,17 @@ func TestEnvField_NestedStruct(t *testing.T) {
 	assert.Equal(t, "topsecret", cfg.TLS.Password)
 }
 
-func TestEnvField_NotFoundFails(t *testing.T) {
-	// A directive naming an absent variable hard-fails the decode so a
-	// misconfigured reference never silently falls back to the inline value.
+func TestEnvField_UnregisteredNamePreservesInline(t *testing.T) {
+	// A "<field>_env" key naming no registered variable is not a directive: it
+	// is data whose key merely ends in _env. The inline field value is kept and
+	// the decode succeeds instead of failing on a false "not found".
 	reg := &fakeEnvRegistry{}
 
-	_, err := decodeServerEnv(t, reg, map[string]any{
+	cfg, err := decodeServerEnv(t, reg, map[string]any{
 		"host": "keep-me", "host_env": "SRV_HOST",
 	})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "could not be resolved")
-	assert.Contains(t, err.Error(), "SRV_HOST")
+	require.NoError(t, err)
+	assert.Equal(t, "keep-me", cfg.Host)
 }
 
 func TestEnvField_LookupErrorFails(t *testing.T) {
@@ -338,15 +338,20 @@ func TestEnvMap_ResolvesAndDropsDirective(t *testing.T) {
 	assert.False(t, present, "directive key must be dropped")
 }
 
-func TestEnvMap_NotFoundFails(t *testing.T) {
+func TestEnvMap_UnregisteredNamePreservesEntry(t *testing.T) {
+	// A "foo_env" key naming no registered variable is not a directive: it is a
+	// map entry (e.g. an import alias whose value is a registry id). Both key
+	// and value are preserved and no base key is synthesized.
 	reg := &fakeEnvRegistry{}
 
-	_, err := decodeOptions(t, reg, map[string]any{
-		"options": map[string]any{"sslmode_env": "MISSING"},
+	cfg, err := decodeOptions(t, reg, map[string]any{
+		"options": map[string]any{"sslmode_env": "MISSING", "timeout": "30"},
 	})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "could not be resolved")
-	assert.Contains(t, err.Error(), "MISSING")
+	require.NoError(t, err)
+	assert.Equal(t, "MISSING", cfg.Options["sslmode_env"], "unregistered directive key is preserved")
+	assert.Equal(t, "30", cfg.Options["timeout"])
+	_, base := cfg.Options["sslmode"]
+	assert.False(t, base, "no base key is synthesized when the variable is not registered")
 }
 
 func TestEnvMap_EmptyDirectiveDropped(t *testing.T) {
@@ -537,4 +542,58 @@ func TestEnvField_HonorsVariableDefault(t *testing.T) {
 	cfg, err := decodeServerEnv(t, reg, map[string]any{"host_env": "REGION"})
 	require.NoError(t, err)
 	assert.Equal(t, "us-east-1", cfg.Host)
+}
+
+func TestEnvField_EmptyVariableKeepsInline(t *testing.T) {
+	// A variable whose stored value is empty and carries no default resolves as
+	// not-set (registry semantics), so the inline field value is kept.
+	reg := &fakeEnvRegistry{vars: []fakeVar{{name: "SRV_HOST", value: ""}}}
+	cfg, err := decodeServerEnv(t, reg, map[string]any{"host": "keep-me", "host_env": "SRV_HOST"})
+	require.NoError(t, err)
+	assert.Equal(t, "keep-me", cfg.Host)
+}
+
+// importsLikeConfig mimics a Lua component config whose imports are typed
+// aliases (map[string]registry.ID); an alias ending in _env is a registry id,
+// never an environment variable.
+type importsLikeConfig struct {
+	Imports map[string]registry.ID `json:"imports,omitempty"`
+	Name    string                 `json:"name"`
+}
+
+func TestEnvMap_ImportAliasShapedDataSurvivesDecode(t *testing.T) {
+	// An import alias like threads_env resolves to a registry id, so the typed
+	// map is never treated as an env-directive map and decodes intact.
+	reg := &fakeEnvRegistry{}
+	ctx := env.WithRegistry(ctxapi.WithAppContext(context.Background(), ctxapi.NewAppContext()), reg)
+	entry := registry.Entry{
+		ID:   registry.NewID("test", "fn"),
+		Kind: "function.lua",
+		Data: payload.New(map[string]any{
+			"name": "job",
+			"imports": map[string]any{
+				"threads_env": "kickside.core.threads:env",
+				"proj_env":    "kickside.core.project:env",
+			},
+		}),
+	}
+	cfg, err := DecodeEntryConfig[importsLikeConfig](ctx, realTranscoder{}, entry)
+	require.NoError(t, err)
+	assert.Equal(t, registry.ParseID("kickside.core.threads:env"), cfg.Imports["threads_env"])
+	assert.Equal(t, registry.ParseID("kickside.core.project:env"), cfg.Imports["proj_env"])
+}
+
+func TestDecodeEntryConfig_PlaceholderMissingStillErrors(t *testing.T) {
+	// The modern ${env:NAME} placeholder path keeps its strict not-found
+	// behavior; only the legacy *_env walk is relaxed.
+	reg := &fakeEnvRegistry{}
+	ctx := env.WithRegistry(ctxapi.WithAppContext(context.Background(), ctxapi.NewAppContext()), reg)
+	entry := registry.Entry{
+		ID:   registry.NewID("test", "config"),
+		Kind: "test.config",
+		Data: payload.New(map[string]any{"name": "${env:MISSING}"}),
+	}
+	_, err := DecodeEntryConfig[ResolveConfig](ctx, realTranscoder{}, entry)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "MISSING")
 }

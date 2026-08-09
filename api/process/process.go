@@ -14,6 +14,7 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
+	"github.com/wippyai/runtime/api/security"
 )
 
 // System identifies the process system in the event bus.
@@ -38,7 +39,10 @@ const (
 type (
 	// Meta contains metadata about a process type.
 	Meta struct {
-		Method string
+		// Security carries the entry-declared security configuration; hosts
+		// apply it to the process frame context at start.
+		Security *security.Config
+		Method   string
 	}
 
 	// Start contains the configuration needed to start a new process.

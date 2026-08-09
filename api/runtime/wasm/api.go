@@ -27,7 +27,9 @@ const (
 
 const (
 	// DefaultMaxSize defines default elastic pool max workers.
-	DefaultMaxSize = 100
+	DefaultMaxSize                           = 100
+	DefaultMaxRetainedMemoryBytes      int64 = 64 * 1024 * 1024
+	DefaultRetainedMemoryCheckInterval       = 16
 )
 
 // Pool type constants for scheduler implementation selection.

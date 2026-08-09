@@ -16,13 +16,27 @@ const DefaultFilename = "wippy.lock"
 
 // Lock represents a lock file with operations for reading, writing, and querying.
 type Lock struct {
-	path string
-	data File
+	path             string
+	workspaceOverlay []Replacement
+	data             File
+}
+
+// Option configures local, non-persistent lock behavior.
+type Option func(*Lock) error
+
+// WithWorkspaceReplacements overlays replacements selected from the effective
+// .wippy.yaml workspace configuration. They affect loading only and are never
+// serialized into wippy.lock.
+func WithWorkspaceReplacements(replacements []Replacement) Option {
+	return func(l *Lock) error {
+		l.workspaceOverlay = append([]Replacement(nil), replacements...)
+		return nil
+	}
 }
 
 // New creates a new Lock instance from the given path.
 // If the file exists, it loads the content. Otherwise, creates an empty lock with default directories.
-func New(path string) (*Lock, error) {
+func New(path string, opts ...Option) (*Lock, error) {
 	absPath, err := filepath.Abs(path)
 	if err != nil {
 		return nil, NewResolveAbsolutePathError(err)
@@ -48,7 +62,35 @@ func New(path string) (*Lock, error) {
 		return nil, NewStatLockFileError(err)
 	}
 
+	for _, opt := range opts {
+		if opt != nil {
+			if err := opt(lock); err != nil {
+				return nil, err
+			}
+		}
+	}
+
 	return lock, nil
+}
+
+// effectiveReplacements overlays workspace replacements on the portable lock
+// set. Order is stable: existing entries are updated in place and workspace-only
+// entries are appended.
+func (l *Lock) effectiveReplacements() []Replacement {
+	capacity := len(l.data.Replacements) + len(l.workspaceOverlay)
+	index := make(map[string]int, capacity)
+	merged := make([]Replacement, 0, capacity)
+	for _, layer := range [][]Replacement{l.data.Replacements, l.workspaceOverlay} {
+		for _, replacement := range layer {
+			if i, ok := index[replacement.From]; ok {
+				merged[i] = replacement
+				continue
+			}
+			index[replacement.From] = len(merged)
+			merged = append(merged, replacement)
+		}
+	}
+	return merged
 }
 
 // Read loads the lock file from disk.
@@ -58,11 +100,41 @@ func (l *Lock) Read() error {
 		return NewReadFileError(err)
 	}
 
-	if err := yaml.Unmarshal(data, &l.data); err != nil {
+	var root yaml.Node
+	if err := yaml.Unmarshal(data, &root); err != nil {
+		return NewUnmarshalYAMLError(err)
+	}
+	normalizeEmptySequenceField(&root, "modules")
+	normalizeEmptySequenceField(&root, "replacements")
+
+	if err := root.Decode(&l.data); err != nil {
 		return NewUnmarshalYAMLError(err)
 	}
 
 	return nil
+}
+
+func normalizeEmptySequenceField(root *yaml.Node, field string) {
+	if root == nil {
+		return
+	}
+	doc := root
+	if root.Kind == yaml.DocumentNode && len(root.Content) > 0 {
+		doc = root.Content[0]
+	}
+	if doc.Kind != yaml.MappingNode {
+		return
+	}
+	for i := 0; i+1 < len(doc.Content); i += 2 {
+		key := doc.Content[i]
+		value := doc.Content[i+1]
+		if key.Value == field && value.Kind == yaml.MappingNode && len(value.Content) == 0 {
+			value.Kind = yaml.SequenceNode
+			value.Tag = "!!seq"
+			value.Content = nil
+			return
+		}
+	}
 }
 
 // Write saves the lock file to disk with deduplication and sorting.
@@ -105,11 +177,63 @@ func (l *Lock) GetModule(name string) (Module, bool) {
 func (l *Lock) SetModule(module Module) {
 	for i, mod := range l.data.Modules {
 		if mod.Name == module.Name {
+			if mod.Root {
+				module.Root = true
+			}
 			l.data.Modules[i] = module
 			return
 		}
 	}
 	l.data.Modules = append(l.data.Modules, module)
+}
+
+// ReplaceModules replaces the complete resolved module snapshot while leaving
+// lock-level configuration such as directories, replacements, and options intact.
+func (l *Lock) ReplaceModules(modules []Module) {
+	roots := make(map[string]struct{})
+	for _, module := range l.data.Modules {
+		if module.Root {
+			roots[module.Name] = struct{}{}
+		}
+	}
+	for i := range modules {
+		if _, root := roots[modules[i].Name]; root {
+			modules[i].Root = true
+		}
+	}
+	l.data.Modules = append([]Module(nil), modules...)
+}
+
+// SetRootModule makes name the sole selected published deployment root.
+func (l *Lock) SetRootModule(name string) {
+	for i := range l.data.Modules {
+		l.data.Modules[i].Root = name != "" && l.data.Modules[i].Name == name
+	}
+}
+
+// IsRootModule reports whether name is the selected published deployment root.
+func (l *Lock) IsRootModule(name string) bool {
+	if name == "" {
+		return false
+	}
+	for _, module := range l.data.Modules {
+		if module.Name == name {
+			return module.Root
+		}
+	}
+	return false
+}
+
+// GetRootModules returns selected root identities in stable order.
+func (l *Lock) GetRootModules() []string {
+	roots := make([]string, 0, 1)
+	for _, module := range l.data.Modules {
+		if module.Root {
+			roots = append(roots, module.Name)
+		}
+	}
+	sort.Strings(roots)
+	return roots
 }
 
 // RemoveModule removes a module by name.
@@ -128,10 +252,10 @@ func (l *Lock) GetModules() []Module {
 	return l.data.Modules
 }
 
-// GetReplacement retrieves a replacement by from field.
+// GetReplacement retrieves a replacement by from field from the effective set.
 // Returns the replacement and true if found, zero value and false otherwise.
 func (l *Lock) GetReplacement(from string) (Replacement, bool) {
-	for _, r := range l.data.Replacements {
+	for _, r := range l.effectiveReplacements() {
 		if r.From == from {
 			return r, true
 		}
@@ -162,8 +286,15 @@ func (l *Lock) RemoveReplacement(from string) {
 	l.data.Replacements = filtered
 }
 
-// GetReplacements returns all replacements.
+// GetReplacements returns the effective tracked and workspace set.
 func (l *Lock) GetReplacements() []Replacement {
+	return l.effectiveReplacements()
+}
+
+// GetTrackedReplacements returns only replacements persisted in the lock file.
+// Portable lock regeneration must use this view so machine-local state cannot
+// leak into wippy.lock.
+func (l *Lock) GetTrackedReplacements() []Replacement {
 	return l.data.Replacements
 }
 
@@ -273,33 +404,53 @@ func WappPath(name graph.Name, version string) string {
 
 // ModuleLoadPath pairs a filesystem path with its owning module metadata.
 type ModuleLoadPath struct {
-	Path       string
-	Module     string // module name in org/module format, empty for app source
-	Version    string // module version, empty for app source
-	SourceRoot string // module root for module-relative resources; defaults to Path
+	Path        string
+	Module      string // module name in org/module format, empty for app source
+	Version     string // module version, empty for app source
+	Digest      string // selected module digest, empty for app and workspace-only source
+	SourceRoot  string // module root for module-relative resources; defaults to Path
+	Root        bool   // selected deployment root from the lock graph
+	Replacement bool   // source is an effective workspace replacement
 }
 
 // GetModuleLoadPaths returns load paths annotated with module ownership.
 // App source has empty Module/Version.
-// Replacement paths carry Module from replacement "from" and empty Version.
+// Replacement paths carry Module from replacement "from" and retain the
+// selected lock version when one exists. The replacement changes source
+// ownership, not the resolved release identity.
 func (l *Lock) GetModuleLoadPaths() []ModuleLoadPath {
 	lockDir := filepath.Dir(l.path)
-	paths := make([]ModuleLoadPath, 0, 1+len(l.data.Replacements)+len(l.data.Modules))
+	replacements := l.effectiveReplacements()
+	paths := make([]ModuleLoadPath, 0, 1+len(replacements)+len(l.data.Modules))
 
 	if l.data.Directories.Src != "" {
 		paths = append(paths, ModuleLoadPath{
 			Path: ResolveLockPath(lockDir, l.data.Directories.Src),
+			Root: true,
 		})
 	}
 
-	for _, repl := range l.data.Replacements {
+	selectedVersions := make(map[string]string, len(l.data.Modules))
+	selectedDigests := make(map[string]string, len(l.data.Modules))
+	for _, mod := range l.data.Modules {
+		selectedVersions[mod.Name] = mod.Version
+		selectedDigests[mod.Name] = mod.Hash
+	}
+
+	replaced := make(map[string]struct{}, len(replacements))
+	for _, repl := range replacements {
+		replaced[repl.From] = struct{}{}
 		if repl.To != "" {
 			root := ResolveLockPath(lockDir, repl.To)
-			path := moduleEntryLoadPath(root)
+			path := ModuleEntryLoadPath(root)
 			paths = append(paths, ModuleLoadPath{
-				Path:       path,
-				Module:     repl.From,
-				SourceRoot: root,
+				Path:        path,
+				Module:      repl.From,
+				Version:     selectedVersions[repl.From],
+				Digest:      selectedDigests[repl.From],
+				SourceRoot:  root,
+				Root:        l.IsRootModule(repl.From),
+				Replacement: true,
 			})
 		}
 	}
@@ -308,7 +459,7 @@ func (l *Lock) GetModuleLoadPaths() []ModuleLoadPath {
 	fullVendorDir := ResolveLockPath(lockDir, vendorDir)
 
 	for _, mod := range l.data.Modules {
-		if _, hasReplacement := l.GetReplacement(mod.Name); hasReplacement {
+		if _, hasReplacement := replaced[mod.Name]; hasReplacement {
 			continue
 		}
 
@@ -318,18 +469,27 @@ func (l *Lock) GetModuleLoadPaths() []ModuleLoadPath {
 		}
 
 		resolved := ResolveModuleDir(fullVendorDir, name, mod.Version)
+		if !l.ShouldUnpackModules() {
+			wappPath := filepath.Join(fullVendorDir, WappPath(name, mod.Version))
+			if _, err := os.Stat(wappPath); err == nil {
+				resolved = ResolvedPath{Path: wappPath}
+			}
+		}
 		paths = append(paths, ModuleLoadPath{
-			Path:       resolved.Path,
+			Path:       ModuleEntryLoadPath(resolved.Path),
 			Module:     mod.Name,
 			Version:    mod.Version,
+			Digest:     mod.Hash,
 			SourceRoot: resolved.Path,
+			Root:       mod.Root,
 		})
 	}
 
 	return paths
 }
 
-func moduleEntryLoadPath(root string) string {
+// ModuleEntryLoadPath resolves the entry tree within a module source root.
+func ModuleEntryLoadPath(root string) string {
 	src := filepath.Join(root, "src")
 	info, err := os.Stat(src)
 	if err == nil && info.IsDir() {

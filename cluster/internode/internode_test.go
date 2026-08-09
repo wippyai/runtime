@@ -268,6 +268,58 @@ func TestService_Start_WithPreExistingNodes(t *testing.T) {
 	_ = service.Stop()
 }
 
+func TestService_Start_UsesAdvertisedInternodeEndpoint(t *testing.T) {
+	logger := zap.NewNop()
+	connMan := newMockConnectionManager()
+	codec := &mockCodec{}
+	bus := eventbus.NewBus()
+	localNode := cluster.NodeInfo{ID: "local-node", Addr: "127.0.0.1:7946", Meta: cluster.NodeMeta{"internode_port": "9000"}}
+	remoteNode := cluster.NodeInfo{
+		ID:   "remote-node",
+		Addr: "192.168.1.100:7946",
+		Meta: cluster.NodeMeta{
+			"internode_port":           "9001", // v1 endpoint retained for old peers
+			"internode_advertise_addr": "relay.internal",
+			"internode_advertise_port": "19001",
+		},
+	}
+	membership := &mockMembership{localNode: localNode, nodes: []cluster.NodeInfo{localNode, remoteNode}}
+	service := NewService(logger, connMan, codec, func(_ *relay.Package) error { return nil }, bus, membership)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	require.NoError(t, service.Start(ctx))
+	connMan.mu.Lock()
+	require.Len(t, connMan.ensuredConns, 1)
+	assert.Equal(t, "relay.internal", connMan.ensuredConns[0].addr)
+	assert.Equal(t, 19001, connMan.ensuredConns[0].port)
+	connMan.mu.Unlock()
+	_ = service.Stop()
+}
+
+func TestService_ConnectToNode_InvalidAdvertisedEndpointFailsClosed(t *testing.T) {
+	tests := map[string]cluster.NodeMeta{
+		"missing advertised port":    {"internode_port": "9001", "internode_advertise_addr": "relay.internal"},
+		"missing advertised address": {"internode_port": "9001", "internode_advertise_port": "19001"},
+		"invalid advertised address": {"internode_port": "9001", "internode_advertise_addr": "relay.internal:19001", "internode_advertise_port": "19001"},
+		"invalid advertised port":    {"internode_port": "9001", "internode_advertise_addr": "relay.internal", "internode_advertise_port": "not-a-port"},
+	}
+	for name, meta := range tests {
+		t.Run(name, func(t *testing.T) {
+			service, connMan, _, _, ctx, cancel := setupService(t)
+			defer cancel()
+			require.NoError(t, service.Start(ctx))
+			defer func() { _ = service.Stop() }()
+
+			service.connectToNode(cluster.NodeInfo{ID: "remote-node", Addr: "192.168.1.100:7946", Meta: meta})
+
+			connMan.mu.Lock()
+			assert.Empty(t, connMan.ensuredConns)
+			connMan.mu.Unlock()
+		})
+	}
+}
+
 func TestService_Start_ConnectionManagerError(t *testing.T) {
 	service, connMan, _, _, ctx, cancel := setupService(t)
 	defer cancel()

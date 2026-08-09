@@ -21,7 +21,7 @@ var (
 	silentLogs   bool
 	eventStreams bool
 	profiler     bool
-	configFile   string
+	configFiles  []string
 	memoryLimit  string
 	appStartTime = time.Now()
 )
@@ -32,6 +32,13 @@ const (
 )
 
 var defaultLockFile = lock.DefaultFilename
+
+func runtimeConfigPaths() []string {
+	if len(configFiles) > 0 {
+		return append([]string(nil), configFiles...)
+	}
+	return []string{defaultConfigFile}
+}
 
 var rootCmd = &cobra.Command{
 	Use:           "wippy",
@@ -55,7 +62,7 @@ func IsConsoleMode() bool {
 }
 
 func init() {
-	rootCmd.PersistentFlags().StringVar(&configFile, "config", "", "config file (default is .wippy.yaml)")
+	rootCmd.PersistentFlags().StringArrayVar(&configFiles, "config", nil, "config file, repeatable; later files override earlier files (default: .wippy.yaml)")
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "enable verbose debug logging")
 	rootCmd.PersistentFlags().BoolVar(&veryVerbose, "very-verbose", false, "enable very verbose debug logging with stack traces")
 	rootCmd.PersistentFlags().BoolVarP(&console, "console", "c", false, "enable colorful humanized console logging")

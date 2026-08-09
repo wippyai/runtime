@@ -8,7 +8,7 @@ local function main()
 
 	-- Streaming POST request (to stream-echo which returns chunked response)
 	local test_body = string.rep("X", 1024)
-	local resp, err = http.post("http://localhost:8085/stream-echo", {
+	local resp, err = http.post("http://localhost:18085/stream-echo", {
 		body = test_body,
 		stream = true
 	})

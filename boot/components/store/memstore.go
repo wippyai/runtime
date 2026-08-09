@@ -8,6 +8,7 @@ import (
 	"github.com/wippyai/runtime/api/boot"
 	"github.com/wippyai/runtime/api/event"
 	logapi "github.com/wippyai/runtime/api/logs"
+	metricsapi "github.com/wippyai/runtime/api/metrics"
 	"github.com/wippyai/runtime/api/payload"
 	bootpkg "github.com/wippyai/runtime/boot"
 	memorystore "github.com/wippyai/runtime/service/store/memory"
@@ -22,11 +23,13 @@ func MemStore() boot.Component {
 			dtt := payload.GetTranscoder(ctx)
 			bus := event.GetBus(ctx)
 			handlers := bootpkg.GetHandlerRegistry(ctx)
+			coll := metricsapi.GetCollector(ctx)
 
 			manager := memorystore.NewManager(
 				bus,
 				dtt,
 				logger.Named("memory"),
+				coll,
 			)
 
 			handlers.RegisterListener("store.memory", manager)

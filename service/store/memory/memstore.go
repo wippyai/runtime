@@ -4,6 +4,7 @@ package memory
 
 import (
 	"context"
+	"errors"
 	"sort"
 	"strings"
 	"sync"
@@ -11,6 +12,7 @@ import (
 
 	memstore "github.com/wippyai/runtime/api/service/store/memory"
 
+	"github.com/wippyai/runtime/api/metrics"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/resource"
@@ -36,6 +38,7 @@ var (
 type Store struct {
 	config     *memstore.Config
 	log        *zap.Logger
+	coll       metrics.Collector
 	data       map[string]*storeEntry
 	statusChan chan any
 	stopChan   chan struct{}
@@ -78,6 +81,10 @@ func NewStore(id registry.ID, config *memstore.Config, log *zap.Logger) *Store {
 func (m *Store) Start(ctx context.Context) (<-chan any, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	if m.coll == nil {
+		m.coll = metrics.GetCollector(ctx)
+	}
 
 	if m.closed {
 		return nil, servicestore.ErrStoreClosed
@@ -131,7 +138,20 @@ func (m *Store) Stop(ctx context.Context) error {
 }
 
 // Get retrieves a value by key
-func (m *Store) Get(_ context.Context, key registry.ID) (payload.Payload, error) {
+func (m *Store) Get(_ context.Context, key registry.ID) (val payload.Payload, err error) {
+	start := time.Now()
+	defer func() {
+		result := "ok"
+		if err != nil {
+			if errors.Is(err, store.ErrKeyNotFound) {
+				result = "not_found"
+			} else {
+				result = "error"
+			}
+		}
+		recordOp(m.coll, m.id.String(), "get", result, time.Since(start))
+	}()
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -182,7 +202,10 @@ func (m *Store) Entry(_ context.Context, key registry.ID) (store.VersionedEntry,
 }
 
 // Set stores or updates a value with the given key
-func (m *Store) Set(_ context.Context, entry store.Entry) error {
+func (m *Store) Set(_ context.Context, entry store.Entry) (err error) {
+	start := time.Now()
+	defer func() { recordOp(m.coll, m.id.String(), "set", storeErrResult(err), time.Since(start)) }()
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -220,7 +243,10 @@ func (m *Store) Set(_ context.Context, entry store.Entry) error {
 }
 
 // Put stores a value with optional absent/version preconditions.
-func (m *Store) Put(_ context.Context, key registry.ID, value payload.Payload, opts store.PutOptions) (store.VersionedEntry, error) {
+func (m *Store) Put(_ context.Context, key registry.ID, value payload.Payload, opts store.PutOptions) (ve store.VersionedEntry, err error) {
+	start := time.Now()
+	defer func() { recordOp(m.coll, m.id.String(), "put", storeErrResult(err), time.Since(start)) }()
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -278,7 +304,10 @@ func (m *Store) Put(_ context.Context, key registry.ID, value payload.Payload, o
 }
 
 // Delete removes a value with the given key
-func (m *Store) Delete(_ context.Context, key registry.ID) error {
+func (m *Store) Delete(_ context.Context, key registry.ID) (err error) {
+	start := time.Now()
+	defer func() { recordOp(m.coll, m.id.String(), "delete", storeErrResult(err), time.Since(start)) }()
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 

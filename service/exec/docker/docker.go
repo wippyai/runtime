@@ -10,11 +10,11 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/mount"
-	"github.com/docker/docker/api/types/network"
-	"github.com/docker/docker/client"
-	"github.com/docker/docker/pkg/stdcopy"
+	"github.com/moby/moby/api/pkg/stdcopy"
+	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/api/types/mount"
+	"github.com/moby/moby/api/types/network"
+	"github.com/moby/moby/client"
 	execapi "github.com/wippyai/runtime/api/service/exec"
 	"go.uber.org/zap"
 )
@@ -53,12 +53,12 @@ func NewDockerExecutor(log *zap.Logger, config *execapi.DockerExecutorConfig) (*
 		return nil, err
 	}
 
-	opts := []client.Opt{client.FromEnv, client.WithAPIVersionNegotiation()}
+	opts := []client.Opt{client.FromEnv}
 	if config.Host != "" {
 		opts = append(opts, client.WithHost(config.Host))
 	}
 
-	cli, err := client.NewClientWithOpts(opts...)
+	cli, err := client.New(opts...)
 	if err != nil {
 		return nil, NewDockerClientError(err)
 	}
@@ -231,7 +231,11 @@ func (p *Process) Start() error {
 		Tty:          false,
 	}
 
-	resp, err := p.cli.ContainerCreate(ctx, config, hostConfig, &network.NetworkingConfig{}, nil, "")
+	resp, err := p.cli.ContainerCreate(ctx, client.ContainerCreateOptions{
+		Config:           config,
+		HostConfig:       hostConfig,
+		NetworkingConfig: &network.NetworkingConfig{},
+	})
 	if err != nil {
 		return NewContainerCreateError(err)
 	}
@@ -239,14 +243,14 @@ func (p *Process) Start() error {
 	p.containerID = resp.ID
 	p.log.Debug("container created", zap.String("id", p.containerID))
 
-	attachResp, err := p.cli.ContainerAttach(ctx, p.containerID, container.AttachOptions{
+	attachResp, err := p.cli.ContainerAttach(ctx, p.containerID, client.ContainerAttachOptions{
 		Stream: true,
 		Stdin:  true,
 		Stdout: true,
 		Stderr: true,
 	})
 	if err != nil {
-		_ = p.cli.ContainerRemove(ctx, p.containerID, container.RemoveOptions{Force: true})
+		_, _ = p.cli.ContainerRemove(ctx, p.containerID, client.ContainerRemoveOptions{Force: true})
 		return NewContainerAttachError(err)
 	}
 
@@ -266,9 +270,9 @@ func (p *Process) Start() error {
 		}
 	}()
 
-	if err := p.cli.ContainerStart(ctx, p.containerID, container.StartOptions{}); err != nil {
+	if _, err := p.cli.ContainerStart(ctx, p.containerID, client.ContainerStartOptions{}); err != nil {
 		attachResp.Close()
-		_ = p.cli.ContainerRemove(ctx, p.containerID, container.RemoveOptions{Force: true})
+		_, _ = p.cli.ContainerRemove(ctx, p.containerID, client.ContainerRemoveOptions{Force: true})
 		return NewContainerStartError(err)
 	}
 
@@ -292,7 +296,7 @@ func (p *Process) Signal(sig int) error {
 	p.mu.RUnlock()
 
 	sigName := signalName(sig)
-	err := p.cli.ContainerKill(context.Background(), containerID, sigName)
+	_, err := p.cli.ContainerKill(context.Background(), containerID, client.ContainerKillOptions{Signal: sigName})
 	if err != nil {
 		if strings.Contains(err.Error(), "is not running") {
 			return ErrContainerStopped
@@ -350,7 +354,11 @@ func (p *Process) Wait() error {
 	containerID := p.containerID
 	p.mu.RUnlock()
 
-	statusCh, errCh := p.cli.ContainerWait(context.Background(), containerID, container.WaitConditionNotRunning)
+	waitResult := p.cli.ContainerWait(context.Background(), containerID, client.ContainerWaitOptions{
+		Condition: container.WaitConditionNotRunning,
+	})
+	statusCh := waitResult.Result
+	errCh := waitResult.Error
 
 	var exitCode int64
 	select {

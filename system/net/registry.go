@@ -86,11 +86,15 @@ func (r *Registry) Replace(id registry.ID, svc netapi.Service, kind registry.Kin
 // Unregister removes a network service from the registry, closing it if possible.
 func (r *Registry) Unregister(id registry.ID) {
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	e, ok := r.services[id]
+	if ok {
+		delete(r.services, id)
+	}
+	r.mu.Unlock()
 	if !ok {
 		return
 	}
+
 	if closer, ok := e.service.(io.Closer); ok {
 		if err := closer.Close(); err != nil {
 			r.log.Warn("error closing network service",
@@ -99,7 +103,6 @@ func (r *Registry) Unregister(id registry.ID) {
 			)
 		}
 	}
-	delete(r.services, id)
 	r.log.Debug("network service unregistered", zap.String("id", id.String()))
 }
 

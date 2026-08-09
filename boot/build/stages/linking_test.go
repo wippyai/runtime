@@ -5,10 +5,12 @@ package stages
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/boot"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
@@ -39,7 +41,7 @@ func TestLink_WithDefault(t *testing.T) {
 	}
 
 	stage := Link()
-	err := stage.Execute(ctx, &entries)
+	err := executeLinkFixture(ctx, &entries, stage)
 	require.NoError(t, err)
 
 	// Verify value was set
@@ -86,7 +88,7 @@ func TestLink_FromDependency(t *testing.T) {
 	}
 
 	stage := Link()
-	err := stage.Execute(ctx, &entries)
+	err := executeLinkFixture(ctx, &entries, stage)
 	require.NoError(t, err)
 
 	// Verify dependency parameter was used
@@ -150,7 +152,7 @@ func TestLink_ExplicitDependenciesOverride(t *testing.T) {
 	}
 
 	stage := Link(WithDependencies(explicitDeps))
-	err := stage.Execute(ctx, &entries)
+	err := executeLinkFixture(ctx, &entries, stage)
 	require.NoError(t, err)
 
 	target := findEntry(entries, "vendor.module", "service")
@@ -210,7 +212,7 @@ func TestLink_ConflictError(t *testing.T) {
 	}
 
 	stage := Link()
-	err := stage.Execute(ctx, &entries)
+	err := executeLinkFixture(ctx, &entries, stage)
 	// Linking stage now logs warnings instead of returning errors
 	require.NoError(t, err)
 }
@@ -266,7 +268,7 @@ func TestLink_ModuleScopedParameters(t *testing.T) {
 	}
 
 	stage := Link()
-	err := stage.Execute(ctx, &entries)
+	err := executeLinkFixture(ctx, &entries, stage)
 	require.NoError(t, err)
 
 	target := findEntry(entries, "vendor.a", "endpoint")
@@ -274,58 +276,7 @@ func TestLink_ModuleScopedParameters(t *testing.T) {
 	assert.Equal(t, "app:router_a", target.Meta["router"])
 }
 
-func TestLink_BareParameterMatchesRequirementModuleMeta(t *testing.T) {
-	ctx, _ := setupTestContext()
-
-	entries := []registry.Entry{
-		{
-			ID:   registry.NewID("app", "__dependency.dataflow"),
-			Kind: registry.NamespaceDependency,
-			Data: payload.New(map[string]any{
-				"component": "wippy/dataflow",
-				"parameters": []any{
-					map[string]any{
-						"name":  "target_db",
-						"value": "app:db",
-					},
-				},
-			}),
-		},
-		{
-			ID:   registry.NewID("userspace.dataflow", "target_db"),
-			Kind: registry.NamespaceRequirement,
-			Meta: map[string]any{
-				"module": "wippy/dataflow",
-			},
-			Data: payload.New(map[string]any{
-				"targets": []any{
-					map[string]any{
-						"entry": "app:db",
-						"path":  ".file",
-					},
-				},
-			}),
-		},
-		{
-			ID:   registry.NewID("app", "db"),
-			Kind: "db.sql.sqlite",
-			Data: payload.New(map[string]any{
-				"file": ":memory:",
-			}),
-		},
-	}
-
-	stage := Link()
-	err := stage.Execute(ctx, &entries)
-	require.NoError(t, err)
-
-	target := findEntry(entries, "app", "db")
-	require.NotNil(t, target)
-	data := target.Data.Data().(map[string]any)
-	assert.Equal(t, "app:db", data["file"])
-}
-
-func TestLink_BareParameterDoesNotCrossDifferentModuleMeta(t *testing.T) {
+func TestLink_BareParameterDoesNotCrossDottedModuleMeta(t *testing.T) {
 	ctx, _ := setupTestContext()
 
 	entries := []registry.Entry{
@@ -389,7 +340,7 @@ func TestLink_BareParameterDoesNotCrossDifferentModuleMeta(t *testing.T) {
 	}
 
 	stage := Link()
-	err := stage.Execute(ctx, &entries)
+	err := executeLinkFixture(ctx, &entries, stage)
 	require.NoError(t, err)
 
 	target1 := findEntry(entries, "app", "db1")
@@ -403,127 +354,158 @@ func TestLink_BareParameterDoesNotCrossDifferentModuleMeta(t *testing.T) {
 	assert.Equal(t, ":memory2:", data2["file"])
 }
 
-func TestLink_FullIDParameterName(t *testing.T) {
+func TestLink_BareParametersWithSameNameAreScopedToDependencyComponent(t *testing.T) {
 	ctx, _ := setupTestContext()
 
 	entries := []registry.Entry{
 		{
-			ID:   registry.NewID("app", "__dependency.telegram"),
+			ID:   registry.NewID("app.deps", "views"),
 			Kind: registry.NamespaceDependency,
 			Data: payload.New(map[string]any{
-				"component": "butschster/telegram",
+				"component": "wippy/views",
 				"parameters": []any{
-					map[string]any{
-						"name":  "telegram:env_storage",
-						"value": "app:env_file",
-					},
-					map[string]any{
-						"name":  "telegram:webhook_router",
-						"value": "app:router",
-					},
+					map[string]any{"name": "api_router", "value": "app:api.views"},
 				},
 			}),
 		},
 		{
-			ID:   registry.NewID("telegram", "env_storage"),
+			ID:   registry.NewID("app.deps", "skills"),
+			Kind: registry.NamespaceDependency,
+			Data: payload.New(map[string]any{
+				"component": "kickside/skills",
+				"parameters": []any{
+					map[string]any{"name": "api_router", "value": "app:api"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("wippy.views", "api_router"),
 			Kind: registry.NamespaceRequirement,
+			Meta: map[string]any{"module": "wippy/views"},
 			Data: payload.New(map[string]any{
 				"targets": []any{
-					map[string]any{
-						"entry": "telegram:bot_token",
-						"path":  ".storage",
-					},
+					map[string]any{"entry": "pages_endpoint", "path": ".meta.router"},
 				},
 			}),
 		},
 		{
-			ID:   registry.NewID("telegram", "webhook_router"),
-			Kind: registry.NamespaceRequirement,
-			Data: payload.New(map[string]any{
-				"targets": []any{
-					map[string]any{
-						"entry": "telegram.handler:webhook_endpoint",
-						"path":  ".meta.router",
-					},
-				},
-			}),
-		},
-		{
-			ID:   registry.NewID("telegram", "bot_token"),
-			Kind: "env.variable",
-			Data: payload.New(map[string]any{}),
-		},
-		{
-			ID:   registry.NewID("telegram.handler", "webhook_endpoint"),
+			ID:   registry.NewID("wippy.views", "pages_endpoint"),
 			Kind: "http.endpoint",
 			Meta: map[string]any{},
 			Data: payload.New(map[string]any{}),
 		},
 	}
 
-	stage := Link()
-	err := stage.Execute(ctx, &entries)
+	stage := Link(WithStrictRequirementModules([]string{"wippy/views"}))
+	err := executeLinkFixture(ctx, &entries, stage)
 	require.NoError(t, err)
 
-	// Storage set via data path
-	botToken := findEntry(entries, "telegram", "bot_token")
-	require.NotNil(t, botToken)
-	data := botToken.Data.Data().(map[string]any)
-	assert.Equal(t, "app:env_file", data["storage"])
-
-	// Router set via meta path
-	endpoint := findEntry(entries, "telegram.handler", "webhook_endpoint")
-	require.NotNil(t, endpoint)
-	assert.Equal(t, "app:router", endpoint.Meta["router"])
+	target := findEntry(entries, "wippy.views", "pages_endpoint")
+	require.NotNil(t, target)
+	assert.Equal(t, "app:api.views", target.Meta["router"])
 }
 
-func TestLink_ComponentNamespaceFullIDParameterName(t *testing.T) {
+// TestLink_DuplicateDependencyParametersForSameRequirementConflict verifies
+// that two dependencies of equal provenance resolving the same concrete
+// requirement id to different values conflict rather than silently picking one.
+// Both dependencies are root dependencies (no meta.module), so the deps merge
+// layer applies no precedence and both parameters reach the linker; the linker
+// is provenance-blind, so the disagreement surfaces as a conflict and, under
+// strict enforcement for that module, leaves the requirement unresolved.
+func TestLink_DuplicateDependencyParametersForSameRequirementConflict(t *testing.T) {
 	ctx, _ := setupTestContext()
 
 	entries := []registry.Entry{
 		{
-			ID:   registry.NewID("app", "__dependency.telegram"),
+			ID:   registry.NewID("app.deps", "bootloader"),
 			Kind: registry.NamespaceDependency,
 			Data: payload.New(map[string]any{
-				"component": "butschster/telegram",
+				"component": "wippy/bootloader",
 				"parameters": []any{
-					map[string]any{
-						"name":  "butschster.telegram:env_storage",
-						"value": "app.env:file",
-					},
+					map[string]any{"name": "wippy.bootloader:env_storage", "value": "app.env:store"},
 				},
 			}),
 		},
 		{
-			ID:   registry.NewID("telegram", "env_storage"),
+			ID:   registry.NewID("app.deps", "bootloader_alt"),
+			Kind: registry.NamespaceDependency,
+			Data: payload.New(map[string]any{
+				"component": "wippy/bootloader",
+				"parameters": []any{
+					map[string]any{"name": "wippy.bootloader:env_storage", "value": "app:env_storage"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("wippy.bootloader", "env_storage"),
 			Kind: registry.NamespaceRequirement,
-			Meta: map[string]any{
-				"module": "butschster/telegram",
-			},
+			Meta: map[string]any{"module": "wippy/bootloader"},
 			Data: payload.New(map[string]any{
 				"targets": []any{
-					map[string]any{
-						"entry": "telegram:webhook_url",
-						"path":  ".storage",
-					},
+					map[string]any{"entry": "env_loader", "path": ".meta.storage"},
 				},
 			}),
 		},
 		{
-			ID:   registry.NewID("telegram", "webhook_url"),
-			Kind: "env.variable",
+			ID:   registry.NewID("wippy.bootloader", "env_loader"),
+			Kind: "env.loader",
+			Meta: map[string]any{},
 			Data: payload.New(map[string]any{}),
 		},
 	}
 
-	stage := Link()
-	err := stage.Execute(ctx, &entries)
-	require.NoError(t, err)
+	stage := Link(WithStrictRequirementModules([]string{"wippy/bootloader"}))
+	err := executeLinkFixture(ctx, &entries, stage)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "parameter conflict")
+	assert.ErrorContains(t, err, "env_storage=app.env:store")
+	assert.ErrorContains(t, err, "env_storage=app:env_storage")
 
-	webhookURL := findEntry(entries, "telegram", "webhook_url")
-	require.NotNil(t, webhookURL)
-	data := webhookURL.Data.Data().(map[string]any)
-	assert.Equal(t, "app.env:file", data["storage"])
+	target := findEntry(entries, "wippy.bootloader", "env_loader")
+	require.NotNil(t, target)
+	_, set := target.Meta["storage"]
+	assert.False(t, set)
+}
+
+func TestLink_FullAndBareParametersForSameRequirementConflict(t *testing.T) {
+	ctx, _ := setupTestContext()
+
+	entries := []registry.Entry{
+		{
+			ID:   registry.NewID("app.deps", "views"),
+			Kind: registry.NamespaceDependency,
+			Data: payload.New(map[string]any{
+				"component": "wippy/views",
+				"parameters": []any{
+					map[string]any{"name": "wippy.views:api_router", "value": "app:api.views"},
+					map[string]any{"name": "api_router", "value": "app:api"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("wippy.views", "api_router"),
+			Kind: registry.NamespaceRequirement,
+			Meta: map[string]any{"module": "wippy/views"},
+			Data: payload.New(map[string]any{
+				"targets": []any{
+					map[string]any{"entry": "pages_endpoint", "path": ".meta.router"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("wippy.views", "pages_endpoint"),
+			Kind: "http.endpoint",
+			Meta: map[string]any{},
+			Data: payload.New(map[string]any{}),
+		},
+	}
+
+	stage := Link(WithStrictRequirementModules([]string{"wippy/views"}))
+	err := executeLinkFixture(ctx, &entries, stage)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "parameter conflict")
+	assert.ErrorContains(t, err, "api_router=app:api.views")
+	assert.ErrorContains(t, err, "api_router=app:api")
 }
 
 func TestLink_FullyQualifiedParameterDoesNotCrossRequirementNamespace(t *testing.T) {
@@ -597,7 +579,7 @@ func TestLink_FullyQualifiedParameterDoesNotCrossRequirementNamespace(t *testing
 	}
 
 	stage := Link()
-	err := stage.Execute(ctx, &entries)
+	err := executeLinkFixture(ctx, &entries, stage)
 	require.NoError(t, err)
 
 	facadeEndpoint := findEntry(entries, "wippy.facade", "facade_endpoint")
@@ -607,6 +589,307 @@ func TestLink_FullyQualifiedParameterDoesNotCrossRequirementNamespace(t *testing
 	dummyEndpoint := findEntry(entries, "wippy.dummy", "dummy_endpoint")
 	require.NotNil(t, dummyEndpoint)
 	assert.Equal(t, "app:api", dummyEndpoint.Meta["router"])
+}
+
+// TestLink_SameBareNameOwnedRequirementsResolveByFullID verifies that a
+// dependency owning two requirements with the same bare name in different
+// namespaces links cleanly when its parameters address each by its full
+// requirement id. Owning same-bare-named requirements is legal; the collision
+// only matters when a parameter uses the ambiguous bare name.
+func TestLink_SameBareNameOwnedRequirementsResolveByFullID(t *testing.T) {
+	ctx, _ := setupTestContext()
+
+	entries := []registry.Entry{
+		{
+			ID:   registry.NewID("app.deps", "core"),
+			Kind: registry.NamespaceDependency,
+			Data: payload.New(map[string]any{
+				"component": "kickside/core",
+				"parameters": []any{
+					map[string]any{"name": "kickside.core.projections:api_router", "value": "app:router.proj"},
+					map[string]any{"name": "kickside.core.retention:api_router", "value": "app:router.ret"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("kickside.core.projections", "api_router"),
+			Kind: registry.NamespaceRequirement,
+			Meta: map[string]any{"module": "kickside/core"},
+			Data: payload.New(map[string]any{
+				"targets": []any{
+					map[string]any{"entry": "proj_endpoint", "path": ".meta.router"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("kickside.core.retention", "api_router"),
+			Kind: registry.NamespaceRequirement,
+			Meta: map[string]any{"module": "kickside/core"},
+			Data: payload.New(map[string]any{
+				"targets": []any{
+					map[string]any{"entry": "ret_endpoint", "path": ".meta.router"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("kickside.core.projections", "proj_endpoint"),
+			Kind: "http.endpoint",
+			Meta: map[string]any{},
+			Data: payload.New(map[string]any{}),
+		},
+		{
+			ID:   registry.NewID("kickside.core.retention", "ret_endpoint"),
+			Kind: "http.endpoint",
+			Meta: map[string]any{},
+			Data: payload.New(map[string]any{}),
+		},
+	}
+
+	stage := Link(WithStrictRequirementModules([]string{"kickside/core"}))
+	err := executeLinkFixture(ctx, &entries, stage)
+	require.NoError(t, err)
+
+	proj := findEntry(entries, "kickside.core.projections", "proj_endpoint")
+	require.NotNil(t, proj)
+	assert.Equal(t, "app:router.proj", proj.Meta["router"])
+
+	ret := findEntry(entries, "kickside.core.retention", "ret_endpoint")
+	require.NotNil(t, ret)
+	assert.Equal(t, "app:router.ret", ret.Meta["router"])
+}
+
+// TestLink_BareNameFansOutToAllOwnedRequirements verifies that a bare parameter
+// feeds its value to every owned requirement sharing that bare name across the
+// module's sub-namespaces. This is the app-wide authoring convention: one bare
+// param configures every same-named requirement the dependency owns.
+func TestLink_BareNameFansOutToAllOwnedRequirements(t *testing.T) {
+	ctx, _ := setupTestContext()
+
+	entries := []registry.Entry{
+		{
+			ID:   registry.NewID("app.deps", "core"),
+			Kind: registry.NamespaceDependency,
+			Data: payload.New(map[string]any{
+				"component": "kickside/core",
+				"parameters": []any{
+					map[string]any{"name": "api_router", "value": "app:router"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("kickside.core.projections", "api_router"),
+			Kind: registry.NamespaceRequirement,
+			Meta: map[string]any{"module": "kickside/core"},
+			Data: payload.New(map[string]any{
+				"targets": []any{
+					map[string]any{"entry": "proj_endpoint", "path": ".meta.router"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("kickside.core.retention", "api_router"),
+			Kind: registry.NamespaceRequirement,
+			Meta: map[string]any{"module": "kickside/core"},
+			Data: payload.New(map[string]any{
+				"targets": []any{
+					map[string]any{"entry": "ret_endpoint", "path": ".meta.router"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("kickside.core.projections", "proj_endpoint"),
+			Kind: "http.endpoint",
+			Meta: map[string]any{},
+			Data: payload.New(map[string]any{}),
+		},
+		{
+			ID:   registry.NewID("kickside.core.retention", "ret_endpoint"),
+			Kind: "http.endpoint",
+			Meta: map[string]any{},
+			Data: payload.New(map[string]any{}),
+		},
+	}
+
+	stage := Link(WithStrictRequirementModules([]string{"kickside/core"}))
+	err := executeLinkFixture(ctx, &entries, stage)
+	require.NoError(t, err)
+
+	proj := findEntry(entries, "kickside.core.projections", "proj_endpoint")
+	require.NotNil(t, proj)
+	assert.Equal(t, "app:router", proj.Meta["router"])
+
+	ret := findEntry(entries, "kickside.core.retention", "ret_endpoint")
+	require.NotNil(t, ret)
+	assert.Equal(t, "app:router", ret.Meta["router"])
+}
+
+// TestLink_ThreeWayBareNameFansOut verifies fan-out reaches all three owned
+// requirements when one bare name is shared across three sub-namespaces.
+func TestLink_ThreeWayBareNameFansOut(t *testing.T) {
+	ctx, _ := setupTestContext()
+
+	entries := []registry.Entry{
+		{
+			ID:   registry.NewID("app.deps", "core"),
+			Kind: registry.NamespaceDependency,
+			Data: payload.New(map[string]any{
+				"component": "kickside/core",
+				"parameters": []any{
+					map[string]any{"name": "api_router", "value": "app:router"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("kickside.core.projections", "api_router"),
+			Kind: registry.NamespaceRequirement,
+			Meta: map[string]any{"module": "kickside/core"},
+			Data: payload.New(map[string]any{
+				"targets": []any{
+					map[string]any{"entry": "proj_endpoint", "path": ".meta.router"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("kickside.core.retention", "api_router"),
+			Kind: registry.NamespaceRequirement,
+			Meta: map[string]any{"module": "kickside/core"},
+			Data: payload.New(map[string]any{
+				"targets": []any{
+					map[string]any{"entry": "ret_endpoint", "path": ".meta.router"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("kickside.core.threads", "api_router"),
+			Kind: registry.NamespaceRequirement,
+			Meta: map[string]any{"module": "kickside/core"},
+			Data: payload.New(map[string]any{
+				"targets": []any{
+					map[string]any{"entry": "threads_endpoint", "path": ".meta.router"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("kickside.core.projections", "proj_endpoint"),
+			Kind: "http.endpoint",
+			Meta: map[string]any{},
+			Data: payload.New(map[string]any{}),
+		},
+		{
+			ID:   registry.NewID("kickside.core.retention", "ret_endpoint"),
+			Kind: "http.endpoint",
+			Meta: map[string]any{},
+			Data: payload.New(map[string]any{}),
+		},
+		{
+			ID:   registry.NewID("kickside.core.threads", "threads_endpoint"),
+			Kind: "http.endpoint",
+			Meta: map[string]any{},
+			Data: payload.New(map[string]any{}),
+		},
+	}
+
+	stage := Link(WithStrictRequirementModules([]string{"kickside/core"}))
+	err := executeLinkFixture(ctx, &entries, stage)
+	require.NoError(t, err)
+
+	for _, tc := range []struct{ ns, entry string }{
+		{"kickside.core.projections", "proj_endpoint"},
+		{"kickside.core.retention", "ret_endpoint"},
+		{"kickside.core.threads", "threads_endpoint"},
+	} {
+		endpoint := findEntry(entries, tc.ns, tc.entry)
+		require.NotNil(t, endpoint)
+		assert.Equal(t, "app:router", endpoint.Meta["router"])
+	}
+}
+
+// TestLink_BareFanOutWithConflictingFullIDValueFails verifies that a bare param
+// fanning out to a concrete requirement plus a full-id param naming that same
+// requirement with a different value conflicts on that requirement, while an
+// equal full-id value links cleanly.
+func TestLink_BareFanOutWithConflictingFullIDValueFails(t *testing.T) {
+	build := func(fullIDValue string) []registry.Entry {
+		return []registry.Entry{
+			{
+				ID:   registry.NewID("app.deps", "core"),
+				Kind: registry.NamespaceDependency,
+				Data: payload.New(map[string]any{
+					"component": "kickside/core",
+					"parameters": []any{
+						map[string]any{"name": "api_router", "value": "app:router"},
+						map[string]any{"name": "kickside.core.projections:api_router", "value": fullIDValue},
+					},
+				}),
+			},
+			{
+				ID:   registry.NewID("kickside.core.projections", "api_router"),
+				Kind: registry.NamespaceRequirement,
+				Meta: map[string]any{"module": "kickside/core"},
+				Data: payload.New(map[string]any{
+					"targets": []any{
+						map[string]any{"entry": "proj_endpoint", "path": ".meta.router"},
+					},
+				}),
+			},
+			{
+				ID:   registry.NewID("kickside.core.retention", "api_router"),
+				Kind: registry.NamespaceRequirement,
+				Meta: map[string]any{"module": "kickside/core"},
+				Data: payload.New(map[string]any{
+					"targets": []any{
+						map[string]any{"entry": "ret_endpoint", "path": ".meta.router"},
+					},
+				}),
+			},
+			{
+				ID:   registry.NewID("kickside.core.projections", "proj_endpoint"),
+				Kind: "http.endpoint",
+				Meta: map[string]any{},
+				Data: payload.New(map[string]any{}),
+			},
+			{
+				ID:   registry.NewID("kickside.core.retention", "ret_endpoint"),
+				Kind: "http.endpoint",
+				Meta: map[string]any{},
+				Data: payload.New(map[string]any{}),
+			},
+		}
+	}
+
+	t.Run("conflicting value fails", func(t *testing.T) {
+		ctx, _ := setupTestContext()
+		entries := build("app:other")
+
+		stage := Link(WithStrictRequirementModules([]string{"kickside/core"}))
+		err := executeLinkFixture(ctx, &entries, stage)
+		require.Error(t, err)
+		assert.ErrorContains(t, err, "parameter conflict")
+		assert.ErrorContains(t, err, "api_router=app:router")
+		assert.ErrorContains(t, err, "api_router=app:other")
+
+		proj := findEntry(entries, "kickside.core.projections", "proj_endpoint")
+		require.NotNil(t, proj)
+		_, set := proj.Meta["router"]
+		assert.False(t, set)
+	})
+
+	t.Run("equal value links cleanly", func(t *testing.T) {
+		ctx, _ := setupTestContext()
+		entries := build("app:router")
+
+		stage := Link(WithStrictRequirementModules([]string{"kickside/core"}))
+		err := executeLinkFixture(ctx, &entries, stage)
+		require.NoError(t, err)
+
+		proj := findEntry(entries, "kickside.core.projections", "proj_endpoint")
+		require.NotNil(t, proj)
+		assert.Equal(t, "app:router", proj.Meta["router"])
+
+		ret := findEntry(entries, "kickside.core.retention", "ret_endpoint")
+		require.NotNil(t, ret)
+		assert.Equal(t, "app:router", ret.Meta["router"])
+	})
 }
 
 func TestLink_NoValueError(t *testing.T) {
@@ -633,7 +916,7 @@ func TestLink_NoValueError(t *testing.T) {
 	}
 
 	stage := Link()
-	err := stage.Execute(ctx, &entries)
+	err := executeLinkFixture(ctx, &entries, stage)
 	// Linking stage now logs warnings instead of returning errors
 	require.NoError(t, err)
 }
@@ -662,7 +945,7 @@ func TestLink_StrictRequirementsFailsOnMissingValue(t *testing.T) {
 	}
 
 	stage := Link(WithStrictRequirements())
-	err := stage.Execute(ctx, &entries)
+	err := executeLinkFixture(ctx, &entries, stage)
 	require.ErrorContains(t, err, "unresolved requirements")
 }
 
@@ -671,22 +954,10 @@ func TestLink_StrictRequirementsFailsOnMissingTarget(t *testing.T) {
 
 	entries := []registry.Entry{
 		{
-			ID:   registry.NewID("app", "__dependency.telegram"),
-			Kind: registry.NamespaceDependency,
-			Data: payload.New(map[string]any{
-				"component": "butschster/telegram",
-				"parameters": []any{
-					map[string]any{
-						"name":  "telegram:webhook_router",
-						"value": "app:api",
-					},
-				},
-			}),
-		},
-		{
 			ID:   registry.NewID("telegram", "webhook_router"),
 			Kind: registry.NamespaceRequirement,
 			Data: payload.New(map[string]any{
+				"default": "app:api",
 				"targets": []any{
 					map[string]any{
 						"entry": "telegram.handler:webhook_endpoint",
@@ -706,7 +977,7 @@ func TestLink_StrictRequirementsFailsOnMissingTarget(t *testing.T) {
 	}
 
 	stage := Link(WithStrictRequirements())
-	err := stage.Execute(ctx, &entries)
+	err := executeLinkFixture(ctx, &entries, stage)
 	require.ErrorContains(t, err, "unresolved requirements")
 	require.ErrorContains(t, err, "telegram.handler:webhook_endpoint")
 }
@@ -752,7 +1023,7 @@ func TestLink_StrictRequirementModulesIgnoresUnrelatedRequirements(t *testing.T)
 	}
 
 	stage := Link(WithStrictRequirementModules([]string{"acme/module"}))
-	err := stage.Execute(ctx, &entries)
+	err := executeLinkFixture(ctx, &entries, stage)
 	require.NoError(t, err)
 
 	endpoint := findEntry(entries, "acme.module", "endpoint")
@@ -779,7 +1050,7 @@ func TestLink_StrictRequirementModulesEmptyScopeDoesNotFailAppRequirements(t *te
 	}
 
 	stage := Link(WithStrictRequirementModules(nil))
-	err := stage.Execute(ctx, &entries)
+	err := executeLinkFixture(ctx, &entries, stage)
 	require.NoError(t, err)
 }
 
@@ -810,7 +1081,7 @@ func TestLink_AppendOperator(t *testing.T) {
 	}
 
 	stage := Link()
-	err := stage.Execute(ctx, &entries)
+	err := executeLinkFixture(ctx, &entries, stage)
 	require.NoError(t, err)
 
 	// Verify value was appended
@@ -846,7 +1117,7 @@ func TestLink_SetValue(t *testing.T) {
 	}
 
 	stage := Link()
-	err := stage.Execute(ctx, &entries)
+	err := executeLinkFixture(ctx, &entries, stage)
 	require.NoError(t, err)
 
 	// Verify value was set
@@ -881,7 +1152,7 @@ func TestLink_EmptyEntryError(t *testing.T) {
 	}
 
 	stage := Link()
-	err := stage.Execute(ctx, &entries)
+	err := executeLinkFixture(ctx, &entries, stage)
 	// Linking stage now logs warnings instead of returning errors
 	require.NoError(t, err)
 }
@@ -911,7 +1182,7 @@ func TestLink_CrossNamespace(t *testing.T) {
 	}
 
 	stage := Link()
-	err := stage.Execute(ctx, &entries)
+	err := executeLinkFixture(ctx, &entries, stage)
 	require.NoError(t, err)
 
 	// Verify value was set in different namespace
@@ -956,7 +1227,7 @@ func TestLink_MultipleTargets(t *testing.T) {
 	}
 
 	stage := Link()
-	err := stage.Execute(ctx, &entries)
+	err := executeLinkFixture(ctx, &entries, stage)
 	require.NoError(t, err)
 
 	// Verify both targets were updated
@@ -997,7 +1268,7 @@ func TestLink_BarePath(t *testing.T) {
 	}
 
 	stage := Link()
-	err := stage.Execute(ctx, &entries)
+	err := executeLinkFixture(ctx, &entries, stage)
 	require.NoError(t, err)
 
 	// Verify bare path was treated as data.default
@@ -1033,7 +1304,7 @@ func TestLink_MetaPath(t *testing.T) {
 	}
 
 	stage := Link()
-	err := stage.Execute(ctx, &entries)
+	err := executeLinkFixture(ctx, &entries, stage)
 	require.NoError(t, err)
 
 	// Verify meta field was set
@@ -1080,7 +1351,7 @@ func TestLink_MultipleRequirements(t *testing.T) {
 	}
 
 	stage := Link()
-	err := stage.Execute(ctx, &entries)
+	err := executeLinkFixture(ctx, &entries, stage)
 	require.NoError(t, err)
 
 	// Verify both requirements were applied
@@ -1118,7 +1389,7 @@ func TestLink_EmptyDefaultResolvesUnderStrict(t *testing.T) {
 	}
 
 	stage := Link(WithStrictRequirementModules([]string{"acme/module"}))
-	err := stage.Execute(ctx, &entries)
+	err := executeLinkFixture(ctx, &entries, stage)
 	require.NoError(t, err)
 
 	endpoint := findEntry(entries, "acme.module", "endpoint")
@@ -1162,7 +1433,7 @@ func TestLink_EmptyProvidedValueResolvesUnderStrict(t *testing.T) {
 	}
 
 	stage := Link(WithStrictRequirementModules([]string{"vendor/module"}))
-	err := stage.Execute(ctx, &entries)
+	err := executeLinkFixture(ctx, &entries, stage)
 	require.NoError(t, err)
 }
 
@@ -1194,7 +1465,7 @@ func TestLink_IntDefaultLandsAsInt(t *testing.T) {
 	}
 
 	stage := Link()
-	err := stage.Execute(ctx, &entries)
+	err := executeLinkFixture(ctx, &entries, stage)
 	require.NoError(t, err)
 
 	target := findEntry(entries, "test", "service")
@@ -1236,7 +1507,7 @@ func TestLink_StringDefaultStaysString(t *testing.T) {
 	}
 
 	stage := Link()
-	err := stage.Execute(ctx, &entries)
+	err := executeLinkFixture(ctx, &entries, stage)
 	require.NoError(t, err)
 
 	target := findEntry(entries, "test", "service")
@@ -1279,7 +1550,7 @@ func TestLink_BoolAndFloatDefaults(t *testing.T) {
 	}
 
 	stage := Link()
-	err := stage.Execute(ctx, &entries)
+	err := executeLinkFixture(ctx, &entries, stage)
 	require.NoError(t, err)
 
 	target := findEntry(entries, "test", "service")
@@ -1322,7 +1593,7 @@ func TestLink_TypedDependencyParameter(t *testing.T) {
 	}
 
 	stage := Link()
-	err := stage.Execute(ctx, &entries)
+	err := executeLinkFixture(ctx, &entries, stage)
 	require.NoError(t, err)
 
 	target := findEntry(entries, "vendor.module", "service")
@@ -1375,7 +1646,7 @@ func TestLink_TypedParameterSameValueNoConflict(t *testing.T) {
 	}
 
 	stage := Link(WithStrictRequirementModules([]string{"vendor/module"}))
-	err := stage.Execute(ctx, &entries)
+	err := executeLinkFixture(ctx, &entries, stage)
 	require.NoError(t, err)
 
 	target := findEntry(entries, "vendor.module", "service")
@@ -1429,7 +1700,7 @@ func TestLink_TypedParameterConflictLeavesUnresolved(t *testing.T) {
 	}
 
 	stage := Link(WithStrictRequirementModules([]string{"vendor/module"}))
-	err := stage.Execute(ctx, &entries)
+	err := executeLinkFixture(ctx, &entries, stage)
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "workers=4")
 	assert.ErrorContains(t, err, "workers=8")
@@ -1466,7 +1737,7 @@ func TestLink_NullDefaultLeavesMandatory(t *testing.T) {
 	}
 
 	stage := Link(WithStrictRequirements())
-	err := stage.Execute(ctx, &entries)
+	err := executeLinkFixture(ctx, &entries, stage)
 	require.ErrorContains(t, err, "unresolved requirements")
 }
 
@@ -1497,7 +1768,7 @@ func TestLink_PlaceholderDefaultPassesThroughUntouched(t *testing.T) {
 	}
 
 	stage := Link()
-	err := stage.Execute(ctx, &entries)
+	err := executeLinkFixture(ctx, &entries, stage)
 	require.NoError(t, err)
 
 	target := findEntry(entries, "test", "service")
@@ -1533,7 +1804,7 @@ func TestLink_AppendTypedValue(t *testing.T) {
 	}
 
 	stage := Link()
-	err := stage.Execute(ctx, &entries)
+	err := executeLinkFixture(ctx, &entries, stage)
 	require.NoError(t, err)
 
 	target := findEntry(entries, "test", "service")
@@ -1542,7 +1813,361 @@ func TestLink_AppendTypedValue(t *testing.T) {
 	assert.Equal(t, []any{8080, 9090}, data["ports"])
 }
 
+// TestLink_BareParameterResolvesWithinOwnModule verifies a bare parameter name
+// resolves through its dependency's owned index and does not leak to a
+// same-named requirement in an unrelated namespace.
+func TestLink_BareParameterResolvesWithinOwnModule(t *testing.T) {
+	ctx, _ := setupTestContext()
+
+	entries := []registry.Entry{
+		{
+			ID:   registry.NewID("app.deps", "alpha"),
+			Kind: registry.NamespaceDependency,
+			Data: payload.New(map[string]any{
+				"component": "vendor/alpha",
+				"parameters": []any{
+					map[string]any{"name": "token", "value": "alpha-token"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("vendor.alpha", "token"),
+			Kind: registry.NamespaceRequirement,
+			Data: payload.New(map[string]any{
+				"targets": []any{
+					map[string]any{"entry": "service", "path": ".token"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("vendor.beta", "token"),
+			Kind: registry.NamespaceRequirement,
+			Data: payload.New(map[string]any{
+				"default": "beta-default",
+				"targets": []any{
+					map[string]any{"entry": "beta_service", "path": ".token"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("vendor.alpha", "service"),
+			Kind: "process.lua",
+			Data: payload.New(map[string]any{}),
+		},
+		{
+			ID:   registry.NewID("vendor.beta", "beta_service"),
+			Kind: "process.lua",
+			Data: payload.New(map[string]any{}),
+		},
+	}
+
+	stage := Link()
+	err := executeLinkFixture(ctx, &entries, stage)
+	require.NoError(t, err)
+
+	service := findEntry(entries, "vendor.alpha", "service")
+	require.NotNil(t, service)
+	assert.Equal(t, "alpha-token", service.Data.Data().(map[string]any)["token"])
+
+	beta := findEntry(entries, "vendor.beta", "beta_service")
+	require.NotNil(t, beta)
+	assert.Equal(t, "beta-default", beta.Data.Data().(map[string]any)["token"])
+}
+
+// TestLink_NormalizationDeterministicAcrossShuffledOrderings verifies that the
+// linked result does not depend on entry ordering.
+func TestLink_NormalizationDeterministicAcrossShuffledOrderings(t *testing.T) {
+	base := []registry.Entry{
+		{
+			ID:   registry.NewID("app.deps", "alpha"),
+			Kind: registry.NamespaceDependency,
+			Data: payload.New(map[string]any{
+				"component": "vendor/alpha",
+				"parameters": []any{
+					map[string]any{"name": "token", "value": "alpha-token"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("vendor.alpha", "token"),
+			Kind: registry.NamespaceRequirement,
+			Data: payload.New(map[string]any{
+				"targets": []any{
+					map[string]any{"entry": "service", "path": ".token"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("vendor.alpha", "service"),
+			Kind: "process.lua",
+			Data: payload.New(map[string]any{}),
+		},
+	}
+
+	orderings := [][]int{
+		{0, 1, 2},
+		{2, 1, 0},
+		{1, 0, 2},
+		{2, 0, 1},
+	}
+
+	for _, order := range orderings {
+		ctx, _ := setupTestContext()
+		entries := make([]registry.Entry, len(order))
+		for i, idx := range order {
+			entries[i] = base[idx]
+		}
+		err := executeLinkFixture(ctx, &entries, Link())
+		require.NoError(t, err)
+		service := findEntry(entries, "vendor.alpha", "service")
+		require.NotNil(t, service)
+		assert.Equal(t, "alpha-token", service.Data.Data().(map[string]any)["token"])
+	}
+}
+
+// TestLink_TwoRequirementsSameTargetApplyDeterministically verifies that when
+// two requirements write the same entry path, the value from the requirement
+// with the sorted-last id wins, regardless of entry ordering.
+func TestLink_TwoRequirementsSameTargetApplyDeterministically(t *testing.T) {
+	base := []registry.Entry{
+		{
+			ID:   registry.NewID("test", "a_req"),
+			Kind: registry.NamespaceRequirement,
+			Data: payload.New(map[string]any{
+				"default": "from_a",
+				"targets": []any{
+					map[string]any{"entry": "service", "path": ".field"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("test", "b_req"),
+			Kind: registry.NamespaceRequirement,
+			Data: payload.New(map[string]any{
+				"default": "from_b",
+				"targets": []any{
+					map[string]any{"entry": "service", "path": ".field"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("test", "service"),
+			Kind: "process.lua",
+			Data: payload.New(map[string]any{}),
+		},
+	}
+
+	orderings := [][]int{
+		{0, 1, 2},
+		{1, 0, 2},
+		{2, 1, 0},
+	}
+
+	for _, order := range orderings {
+		ctx, _ := setupTestContext()
+		entries := make([]registry.Entry, len(order))
+		for i, idx := range order {
+			entries[i] = base[idx]
+		}
+		err := executeLinkFixture(ctx, &entries, Link())
+		require.NoError(t, err)
+		service := findEntry(entries, "test", "service")
+		require.NotNil(t, service)
+		assert.Equal(t, "from_b", service.Data.Data().(map[string]any)["field"])
+	}
+}
+
+// TestLink_RootParameterBeatsTransitiveBareAliasSpelling verifies root-over-
+// transitive precedence across alias spellings: a root dependency supplying a
+// requirement by its exact id beats a transitive dependency supplying the SAME
+// concrete requirement by a bare name. The root value wins with no conflict.
+func TestLink_RootParameterBeatsTransitiveBareAliasSpelling(t *testing.T) {
+	ctx, _ := setupTestContext()
+
+	entries := []registry.Entry{
+		{
+			ID:             registry.NewID("app.deps", "telegram_root"),
+			Kind:           registry.NamespaceDependency,
+			Meta:           map[string]any{"module": "acme/app"},
+			DependencyRoot: true,
+			Data: payload.New(map[string]any{
+				"component": "butschster/telegram",
+				"parameters": []any{
+					map[string]any{"name": "telegram:env_storage", "value": "app:root_env"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("app", "dep.telegram"),
+			Kind: registry.NamespaceDependency,
+			Meta: map[string]any{"module": "wippy/migration"},
+			Data: payload.New(map[string]any{
+				"component": "butschster/telegram",
+				"parameters": []any{
+					map[string]any{"name": "env_storage", "value": "app:transitive_env"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("telegram", "env_storage"),
+			Kind: registry.NamespaceRequirement,
+			Meta: map[string]any{"module": "butschster/telegram"},
+			Data: payload.New(map[string]any{
+				"targets": []any{
+					map[string]any{"entry": "telegram:bot_token", "path": ".storage"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("telegram", "bot_token"),
+			Kind: "env.variable",
+			Data: payload.New(map[string]any{}),
+		},
+	}
+
+	stage := Link(WithStrictRequirementModules([]string{"butschster/telegram"}))
+	err := executeLinkFixture(ctx, &entries, stage)
+	require.NoError(t, err)
+
+	botToken := findEntry(entries, "telegram", "bot_token")
+	require.NotNil(t, botToken)
+	data := botToken.Data.Data().(map[string]any)
+	assert.Equal(t, "app:root_env", data["storage"])
+}
+
+// TestLink_TransitiveOnlyDuplicateForSameRequirementConflicts verifies that two
+// transitive dependencies (provenance-equal) resolving the same concrete
+// requirement to different values still conflict fail-loud: precedence only
+// resolves root-vs-transitive, never transitive-vs-transitive.
+func TestLink_TransitiveOnlyDuplicateForSameRequirementConflicts(t *testing.T) {
+	ctx, _ := setupTestContext()
+
+	entries := []registry.Entry{
+		{
+			ID:   registry.NewID("app", "dep.telegram.a"),
+			Kind: registry.NamespaceDependency,
+			Meta: map[string]any{"module": "wippy/migration"},
+			Data: payload.New(map[string]any{
+				"component": "butschster/telegram",
+				"parameters": []any{
+					map[string]any{"name": "telegram:env_storage", "value": "app:env_a"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("app", "dep.telegram.b"),
+			Kind: registry.NamespaceDependency,
+			Meta: map[string]any{"module": "wippy/other"},
+			Data: payload.New(map[string]any{
+				"component": "butschster/telegram",
+				"parameters": []any{
+					map[string]any{"name": "env_storage", "value": "app:env_b"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("telegram", "env_storage"),
+			Kind: registry.NamespaceRequirement,
+			Meta: map[string]any{"module": "butschster/telegram"},
+			Data: payload.New(map[string]any{
+				"targets": []any{
+					map[string]any{"entry": "telegram:bot_token", "path": ".storage"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("telegram", "bot_token"),
+			Kind: "env.variable",
+			Data: payload.New(map[string]any{}),
+		},
+	}
+
+	stage := Link(WithStrictRequirementModules([]string{"butschster/telegram"}))
+	err := executeLinkFixture(ctx, &entries, stage)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "parameter conflict")
+	assert.ErrorContains(t, err, "env_storage=app:env_a")
+	assert.ErrorContains(t, err, "env_storage=app:env_b")
+
+	botToken := findEntry(entries, "telegram", "bot_token")
+	require.NotNil(t, botToken)
+	data := botToken.Data.Data().(map[string]any)
+	_, set := data["storage"]
+	assert.False(t, set)
+}
+
 // Helper functions
+
+// executeLinkFixture supplies the artifact boundary that production loaders
+// attach before Link executes. Older value-resolution tests construct flattened
+// registry slices directly; namespace-contract tests build definitions
+// explicitly and call Execute without this helper.
+func executeLinkFixture(ctx context.Context, entries *[]registry.Entry, stage boot.Stage) error {
+	definitions := make(map[string]struct{})
+	for _, entry := range *entries {
+		if entry.Kind != registry.NamespaceDefinition {
+			continue
+		}
+		if module := requirementModuleFromEntry(entry); module != "" {
+			definitions[module] = struct{}{}
+		}
+	}
+
+	components := make(map[string]struct{})
+	for _, entry := range *entries {
+		if entry.Kind != registry.NamespaceDependency {
+			continue
+		}
+		data, ok := entry.Data.Data().(map[string]any)
+		if !ok {
+			continue
+		}
+		component, _ := data["component"].(string)
+		if component != "" {
+			components[component] = struct{}{}
+		}
+	}
+
+	for component := range components {
+		if _, exists := definitions[component]; exists {
+			continue
+		}
+		namespace := fixtureModuleNamespace(*entries, component)
+		*entries = append(*entries, registry.Entry{
+			ID:   registry.NewID(namespace, "definition"),
+			Kind: registry.NamespaceDefinition,
+			Meta: map[string]any{"module": component},
+		})
+	}
+	return stage.Execute(ctx, entries)
+}
+
+func fixtureModuleNamespace(entries []registry.Entry, component string) string {
+	var namespaces []string
+	for _, entry := range entries {
+		if entry.Kind == registry.NamespaceRequirement && requirementModuleFromEntry(entry) == component {
+			namespaces = append(namespaces, entry.ID.NS)
+		}
+	}
+	if len(namespaces) == 0 {
+		return strings.ReplaceAll(component, "/", ".")
+	}
+
+	parts := strings.Split(namespaces[0], ".")
+	for _, namespace := range namespaces[1:] {
+		candidate := strings.Split(namespace, ".")
+		limit := len(parts)
+		if len(candidate) < limit {
+			limit = len(candidate)
+		}
+		common := 0
+		for common < limit && parts[common] == candidate[common] {
+			common++
+		}
+		parts = parts[:common]
+	}
+	return strings.Join(parts, ".")
+}
 
 type mockTranscoder struct{}
 

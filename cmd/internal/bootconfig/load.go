@@ -3,7 +3,9 @@
 package bootconfig
 
 import (
+	"fmt"
 	"os"
+	"regexp"
 
 	"github.com/wippyai/runtime/api/boot"
 	"gopkg.in/yaml.v3"
@@ -14,14 +16,44 @@ type config struct {
 	Version  string                    `yaml:"version"`
 }
 
+var osEnvRefPattern = regexp.MustCompile(`\$\{env:([A-Za-z_][A-Za-z0-9_]*)\}`)
+
+// LoadFiles loads required configuration files in order. Later files override
+// matching leaves from earlier files.
+func LoadFiles(paths []string) (boot.Config, error) {
+	var merged boot.Config
+	for _, path := range paths {
+		if path == "" {
+			return nil, fmt.Errorf("load config file: path is empty")
+		}
+		cfg, err := load(path, true, true)
+		if err != nil {
+			return nil, fmt.Errorf("load config file %s: %w", path, err)
+		}
+		merged = Merge(merged, cfg)
+	}
+	return merged, nil
+}
+
 func Load(path string) (boot.Config, error) {
+	return load(path, false, true)
+}
+
+// LoadForPublish reads declared configuration without expanding references to
+// the publisher's environment. Package metadata must be derived from source,
+// never from machine-local values present while the package is built.
+func LoadForPublish(path string) (boot.Config, error) {
+	return load(path, false, false)
+}
+
+func load(path string, required, resolveEnv bool) (boot.Config, error) {
 	if path == "" {
 		return nil, nil //nolint:nilnil // empty path means no config
 	}
 
 	data, err := os.ReadFile(path)
 	if err != nil {
-		if os.IsNotExist(err) {
+		if os.IsNotExist(err) && !required {
 			return nil, nil //nolint:nilnil // missing file means no config
 		}
 		return nil, NewReadConfigFileError(err)
@@ -34,6 +66,11 @@ func Load(path string) (boot.Config, error) {
 
 	if err := validateVersion(cfg.Version); err != nil {
 		return nil, err
+	}
+	if resolveEnv {
+		if err := resolveOSEnvRefs(cfg.Sections); err != nil {
+			return nil, err
+		}
 	}
 
 	return buildBootConfig(cfg.Sections)
@@ -105,6 +142,77 @@ func flattenMap(m map[string]any, prefix string) map[string]any {
 		result[key] = v
 	}
 	return result
+}
+
+func resolveOSEnvRefs(sections map[string]map[string]any) error {
+	for _, values := range sections {
+		if err := resolveMapOSEnvRefs(values); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func resolveMapOSEnvRefs(values map[string]any) error {
+	for key, value := range values {
+		resolved, err := resolveValueOSEnvRefs(value)
+		if err != nil {
+			return err
+		}
+		values[key] = resolved
+	}
+	return nil
+}
+
+func resolveValueOSEnvRefs(value any) (any, error) {
+	switch v := value.(type) {
+	case string:
+		var err error
+		resolved := osEnvRefPattern.ReplaceAllStringFunc(v, func(match string) string {
+			if err != nil {
+				return match
+			}
+			groups := osEnvRefPattern.FindStringSubmatch(match)
+			if len(groups) != 2 {
+				return match
+			}
+			value, exists := os.LookupEnv(groups[1])
+			if !exists {
+				err = NewMissingOSEnvError(groups[1])
+				return match
+			}
+			return value
+		})
+		if err != nil {
+			return nil, err
+		}
+		return resolved, nil
+	case map[string]any:
+		if err := resolveMapOSEnvRefs(v); err != nil {
+			return nil, err
+		}
+		return v, nil
+	case map[any]any:
+		for key, nested := range v {
+			resolved, err := resolveValueOSEnvRefs(nested)
+			if err != nil {
+				return nil, err
+			}
+			v[key] = resolved
+		}
+		return v, nil
+	case []any:
+		for i, nested := range v {
+			resolved, err := resolveValueOSEnvRefs(nested)
+			if err != nil {
+				return nil, err
+			}
+			v[i] = resolved
+		}
+		return v, nil
+	default:
+		return value, nil
+	}
 }
 
 func Merge(base, override boot.Config) boot.Config {

@@ -26,6 +26,7 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// SetLabelRequest is the request for SetLabel.
 type SetLabelRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Module        *v1.ModuleRef          `protobuf:"bytes,1,opt,name=module,proto3" json:"module,omitempty"`
@@ -86,6 +87,7 @@ func (x *SetLabelRequest) GetVersion() *v11.VersionRef {
 	return nil
 }
 
+// SetLabelResponse is the response for SetLabel.
 type SetLabelResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Label         *v11.Label             `protobuf:"bytes,1,opt,name=label,proto3" json:"label,omitempty"`
@@ -130,6 +132,7 @@ func (x *SetLabelResponse) GetLabel() *v11.Label {
 	return nil
 }
 
+// DeleteLabelRequest is the request for DeleteLabel.
 type DeleteLabelRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Module        *v1.ModuleRef          `protobuf:"bytes,1,opt,name=module,proto3" json:"module,omitempty"`
@@ -182,6 +185,7 @@ func (x *DeleteLabelRequest) GetName() string {
 	return ""
 }
 
+// DeleteLabelResponse is the response for DeleteLabel.
 type DeleteLabelResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -218,6 +222,7 @@ func (*DeleteLabelResponse) Descriptor() ([]byte, []int) {
 	return file_wippy_api_hub_label_v1_service_proto_rawDescGZIP(), []int{3}
 }
 
+// GetLabelRequest is the request for GetLabel.
 type GetLabelRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Module        *v1.ModuleRef          `protobuf:"bytes,1,opt,name=module,proto3" json:"module,omitempty"`
@@ -270,6 +275,7 @@ func (x *GetLabelRequest) GetName() string {
 	return ""
 }
 
+// GetLabelResponse is the response for GetLabel.
 type GetLabelResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Label         *v11.Label             `protobuf:"bytes,1,opt,name=label,proto3" json:"label,omitempty"`
@@ -322,6 +328,7 @@ func (x *GetLabelResponse) GetVersion() *v11.Version {
 	return nil
 }
 
+// ListLabelsRequest is the request for ListLabels.
 type ListLabelsRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Module        *v1.ModuleRef          `protobuf:"bytes,1,opt,name=module,proto3" json:"module,omitempty"`
@@ -366,6 +373,7 @@ func (x *ListLabelsRequest) GetModule() *v1.ModuleRef {
 	return nil
 }
 
+// ListLabelsResponse is the response for ListLabels.
 type ListLabelsResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Labels        []*v11.Label           `protobuf:"bytes,1,rep,name=labels,proto3" json:"labels,omitempty"`

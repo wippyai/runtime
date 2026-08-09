@@ -303,6 +303,7 @@ publish:
   profiles:
     enabled: false
     source: config/profiles.yaml
+    include: [production, staging]
 `
 	require.NoError(t, os.WriteFile(filepath.Join(dir, DefaultConfigFile), []byte(content), 0644))
 
@@ -311,6 +312,74 @@ publish:
 	require.NotNil(t, cfg.Publish.Profiles.Enabled)
 	assert.False(t, *cfg.Publish.Profiles.Enabled)
 	assert.Equal(t, "config/profiles.yaml", cfg.Publish.Profiles.Source)
+	assert.Equal(t, []string{"production", "staging"}, cfg.Publish.Profiles.Include)
+}
+
+func TestLoad_WithPublishRuntimeSections(t *testing.T) {
+	dir := t.TempDir()
+	content := `
+organization: myorg
+module: mymod
+publish:
+  runtime:
+    source: config/runtime.yaml
+    sections: [security, registry, override]
+    vars: [public_url]
+`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, DefaultConfigFile), []byte(content), 0o644))
+
+	cfg, err := Load(dir)
+	require.NoError(t, err)
+	assert.Equal(t, "config/runtime.yaml", cfg.Publish.Runtime.Source)
+	assert.Equal(t, []string{"security", "registry", "override"}, cfg.Publish.Runtime.Sections)
+	assert.Equal(t, []string{"public_url"}, cfg.Publish.Runtime.Vars)
+}
+
+func TestValidate_PublishRuntimeIsApplicationOnly(t *testing.T) {
+	for _, moduleType := range []string{"", "library", "agent", "plugin"} {
+		t.Run("reject_"+moduleType, func(t *testing.T) {
+			cfg := ModuleConfig{
+				Organization: "acme",
+				ModuleName:   "module",
+				Type:         moduleType,
+				Publish: PublishConfig{Runtime: PublishRuntimeConfig{
+					Vars: []string{"public_url"},
+				}},
+			}
+			err := cfg.Validate()
+			require.ErrorContains(t, err, "requires type: application")
+			require.ErrorContains(t, cfg.ValidateForLabel(), "requires type: application")
+		})
+	}
+
+	cfg := ModuleConfig{
+		Organization: "acme",
+		ModuleName:   "app",
+		Type:         "application",
+		Publish: PublishConfig{Runtime: PublishRuntimeConfig{
+			Sections: []string{"security", "registry"},
+			Vars:     []string{"public_url"},
+		}},
+	}
+	require.NoError(t, cfg.Validate())
+	require.NoError(t, cfg.ValidateForLabel())
+}
+
+func TestLoad_WithExplicitEmptyPublishProfileInclude(t *testing.T) {
+	dir := t.TempDir()
+	content := `
+organization: myorg
+module: mymod
+publish:
+  profiles:
+    include: []
+`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, DefaultConfigFile), []byte(content), 0o644))
+
+	cfg, err := Load(dir)
+	require.NoError(t, err)
+	require.NotNil(t, cfg.Publish.Profiles.Include)
+	assert.Empty(t, cfg.Publish.Profiles.Include)
 }
 
 // --- EntryExcludes ---
@@ -332,5 +401,118 @@ func TestEntryExcludes(t *testing.T) {
 			cfg := &ModuleConfig{Exclude: tc.exclude}
 			assert.Equal(t, tc.want, cfg.EntryExcludes())
 		})
+	}
+}
+
+func TestSourceExcludesAndMatching(t *testing.T) {
+	cfg := &ModuleConfig{Exclude: []string{
+		"test/**",
+		"ui/node_modules/**",
+		"src/**/stubs/**",
+		"src/**/*.spec.ts",
+		"app:**",
+	}}
+
+	assert.Equal(t, []string{
+		"test/**",
+		"ui/node_modules/**",
+		"src/**/stubs/**",
+		"src/**/*.spec.ts",
+	}, cfg.SourceExcludes())
+
+	for _, relative := range []string{
+		"test",
+		"test/_index.yaml",
+		"ui/node_modules",
+		"ui/node_modules/.bin/css-beautify",
+		"src/feature/stubs/_index.yaml",
+		"src/root.spec.ts",
+		"src/feature/deep/view.spec.ts",
+	} {
+		assert.True(t, cfg.ExcludesSourcePath(relative), relative)
+	}
+	for _, relative := range []string{
+		"src/_index.yaml",
+		"src/feature/view.ts",
+		"ui/dist/index.js",
+		"app:entry",
+	} {
+		assert.False(t, cfg.ExcludesSourcePath(relative), relative)
+	}
+}
+
+func TestValidateModuleType(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		input   string
+		wantErr bool
+	}{
+		{name: "empty means not declared", input: "", wantErr: false},
+		{name: "library", input: "library", wantErr: false},
+		{name: "application", input: "application", wantErr: false},
+		{name: "agent", input: "agent", wantErr: false},
+		{name: "plugin", input: "plugin", wantErr: false},
+		// "app" is the badge label for "application" — an easy thing to write
+		// in wippy.yaml and exactly what the CHECK constraint would reject.
+		{name: "app is not application", input: "app", wantErr: true},
+		{name: "unknown", input: "widget", wantErr: true},
+		{name: "case sensitive", input: "Library", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := ValidateModuleType(tt.input)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidateModuleType(%q) error = %v, wantErr %v", tt.input, err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// TestModuleConfig_ParsesType proves the new key actually round-trips through
+// the YAML decoder — the whole feature depends on it reaching hub.
+func TestModuleConfig_ParsesType(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, DefaultConfigFile)
+	body := "organization: acme\nmodule: widgets\nversion: 1.0.0\ntype: plugin\n"
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfg, err := LoadFrom(path)
+	if err != nil {
+		t.Fatalf("LoadFrom(): %v", err)
+	}
+	if cfg.Type != "plugin" {
+		t.Errorf("cfg.Type = %q, want %q", cfg.Type, "plugin")
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("Validate(): %v", err)
+	}
+}
+
+// TestModuleConfig_RejectsBadType: a typo in wippy.yaml must fail before the
+// publish leaves the machine.
+func TestModuleConfig_RejectsBadType(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, DefaultConfigFile)
+	body := "organization: acme\nmodule: widgets\nversion: 1.0.0\ntype: app\n"
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfg, err := LoadFrom(path)
+	if err != nil {
+		t.Fatalf("LoadFrom(): %v", err)
+	}
+	if err := cfg.Validate(); err == nil {
+		t.Error("Validate() must reject type: app")
 	}
 }

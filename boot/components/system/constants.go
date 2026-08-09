@@ -22,11 +22,19 @@ const (
 	PGName             boot.Name = "pg"
 
 	// ClusterEnabled is a Cluster configuration key
-	ClusterEnabled                       boot.Name = "enabled"
-	ClusterNodeName                      boot.Name = "name"
-	ClusterInternodeBindAddr             boot.Name = "internode.bind_addr"
-	ClusterInternodeBindPort             boot.Name = "internode.bind_port"
+	ClusterEnabled           boot.Name = "enabled"
+	ClusterNodeName          boot.Name = "name"
+	ClusterInternodeBindAddr boot.Name = "internode.bind_addr"
+	ClusterInternodeBindPort boot.Name = "internode.bind_port"
+	// ClusterInternodeAdvertise* add a v2 endpoint for upgraded peers without
+	// changing the v1 internode_port metadata. Old peers ignore the v2 metadata
+	// and keep dialing the membership IP plus bind port during a rolling upgrade.
+	ClusterInternodeAdvertiseAddr        boot.Name = "internode.advertise_addr"
+	ClusterInternodeAdvertisePort        boot.Name = "internode.advertise_port"
 	ClusterInternodeAutoPort             boot.Name = "internode.auto_port"
+	ClusterInternodeIdentityKey          boot.Name = "internode.identity_key"
+	ClusterInternodeIdentityKeyFile      boot.Name = "internode.identity_key_file"
+	ClusterInternodeTrustedPeerKeys      boot.Name = "internode.trusted_peer_keys"
 	ClusterMembershipBindAddr            boot.Name = "membership.bind_addr"
 	ClusterMembershipBindPort            boot.Name = "membership.bind_port"
 	ClusterMembershipJoin                boot.Name = "membership.join_addrs"

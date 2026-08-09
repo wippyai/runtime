@@ -37,3 +37,26 @@ func TestRecorder_GaugeAndHistogram(t *testing.T) {
 		t.Fatalf("want 2 observations, got %v", c)
 	}
 }
+
+func TestRecorder_GaugeSequence(t *testing.T) {
+	r := NewRecorder()
+	labels := metrics.Labels{"pg": "g1"}
+
+	r.GaugeSet("g", 5, labels)
+	r.GaugeInc("g", labels)
+	r.GaugeInc("g", labels)
+	r.GaugeDec("g", labels)
+	if v := r.GaugeValue("g", labels); v != 6 {
+		t.Fatalf("set(5)+inc+inc-dec: want 6, got %v", v)
+	}
+
+	r.GaugeSet("g", 0, labels)
+	if v := r.GaugeValue("g", labels); v != 0 {
+		t.Fatalf("reset to 0: want 0, got %v", v)
+	}
+
+	r.GaugeInc("g", labels)
+	if v := r.GaugeValue("g", labels); v != 1 {
+		t.Fatalf("inc after set(0): want 1, got %v", v)
+	}
+}

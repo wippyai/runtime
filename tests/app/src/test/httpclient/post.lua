@@ -8,7 +8,7 @@ local json = require("json")
 local function main()
 -- POST with JSON body
 	local post_data = json.encode({name = "test", value = 42})
-	local resp, err = http.post("http://localhost:8085/test/echo?test=body", {
+	local resp, err = http.post("http://localhost:18085/test/echo?test=body", {
 		headers = {["Content-Type"] = "application/json"},
 		body = post_data
 	})
@@ -24,7 +24,7 @@ local function main()
 
 	-- Test POST to stream echo (echo back body)
 	local test_body = "POST body test data"
-	local resp2, err2 = http.post("http://localhost:8085/stream-echo", {
+	local resp2, err2 = http.post("http://localhost:18085/stream-echo", {
 		body = test_body
 	})
 	assert.is_nil(err2, "POST to stream-echo should not error")

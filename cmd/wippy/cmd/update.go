@@ -15,6 +15,7 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	regapi "github.com/wippyai/runtime/api/registry"
 	bootauth "github.com/wippyai/runtime/boot/deps/auth"
+	depconfig "github.com/wippyai/runtime/boot/deps/config"
 	"github.com/wippyai/runtime/boot/deps/graph"
 	"github.com/wippyai/runtime/boot/deps/hub"
 	"github.com/wippyai/runtime/boot/deps/lock"
@@ -48,6 +49,8 @@ func init() {
 	updateCmd.Flags().StringP("src-dir", "d", "./src", "source directory path")
 	updateCmd.Flags().String("modules-dir", ".wippy", "modules directory path")
 	updateCmd.Flags().String("registry", "", "registry URL (default: from credentials)")
+	updateCmd.Flags().StringArray("profile", nil, "apply a workspace profile from the merged runtime config (repeatable, applied in order)")
+	updateCmd.Flags().StringArray("set", nil, "override a merged runtime config value (format: section.path=value, repeatable)")
 }
 
 func runUpdate(cmd *cobra.Command, args []string) error {
@@ -57,6 +60,10 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	}
 
 	logger := app.Logger.Named("update")
+	runtimeCfg, err := loadRuntimeConfig(cmd, logger)
+	if err != nil {
+		return err
+	}
 
 	lockFilePath, _ := cmd.Flags().GetString("lock-file")
 	registryURL, _ := cmd.Flags().GetString("registry")
@@ -112,7 +119,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 
 	// Targeted update if modules specified
 	if len(args) > 0 {
-		return runTargetedUpdate(cmd, lockFilePath, srcDir, modulesDir, args, app, hubClient)
+		return runTargetedUpdate(cmd, lockFilePath, srcDir, modulesDir, args, app, hubClient, runtimeCfg)
 	}
 
 	// Full update otherwise
@@ -121,11 +128,12 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	// Load old lock file for comparison
 	var oldLockObj *lock.Lock
 	if stat, err := os.Stat(lockFilePath); err == nil && !stat.IsDir() {
-		oldLockObj, _ = lock.New(lockFilePath)
-		if oldLockObj != nil {
-			if err := lock.Validate(oldLockObj); err != nil {
-				return NewInvalidExistingLockFileError(fmt.Errorf("lock file %s: %w", lockFilePath, err))
-			}
+		oldLockObj, err = newConfiguredLock(lockFilePath, runtimeCfg, logger)
+		if err != nil {
+			return NewLoadLockFileError(fmt.Errorf("lock file %s: %w", lockFilePath, err))
+		}
+		if err := lock.Validate(oldLockObj); err != nil {
+			return NewInvalidExistingLockFileError(fmt.Errorf("lock file %s: %w", lockFilePath, err))
 		}
 	}
 
@@ -143,13 +151,9 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	rootDeps := extractRootDependencies(entries, app.Transcoder)
 	logger.Info("found root dependencies", zap.Int("count", len(rootDeps)))
 
-	// Build set of replaced modules to exclude from hub resolution
-	replacedModules := make(map[string]bool)
-	if oldLockObj != nil {
-		for _, repl := range oldLockObj.GetReplacements() {
-			replacedModules[repl.From] = true
-		}
-	}
+	// Local replacements participate in the active graph but are never resolved
+	// from the Hub.
+	replacedModules := effectiveReplacementModules(oldLockObj)
 
 	resolvedModules := make([]hub.ResolvedModule, 0)
 	if len(rootDeps) == 0 {
@@ -196,7 +200,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 
 	// Preserve all replacements from old lock file
 	if oldLockObj != nil {
-		preserveReplacements(newLockObj, oldLockObj.GetReplacements())
+		preserveReplacements(newLockObj, oldLockObj.GetTrackedReplacements())
 	}
 
 	// Save lock file
@@ -211,18 +215,15 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	if oldLockObj != nil {
 		changes = lock.Diff(oldLockObj, newLockObj)
 		logChanges(logger, changes)
-		pruneStaleVendorArtifacts(newLockObj, changes, logger)
 	}
 
-	if len(resolvedModules) > 0 {
-		// Run install to download modules
-		logger.Info("running install to download modules")
-		if err := runInstall(cmd, []string{}); err != nil {
-			return NewInstallFailedError(err)
-		}
-	} else if len(replacedModules) == 0 {
-		logger.Info("no modules to install after update")
+	// Run install even for an empty or replacement-only graph so managed
+	// artifact roots converge and stale outputs are removed.
+	logger.Info("running install to converge modules and artifacts")
+	if err := runInstall(cmd, []string{}); err != nil {
+		return NewInstallFailedError(err)
 	}
+	pruneStaleVendorArtifacts(newLockObj, changes, logger)
 
 	logger.Info("update completed successfully")
 	return nil
@@ -288,23 +289,25 @@ func convertResolvedToLock(lockFilePath string, modules []hub.ResolvedModule, mo
 		Src:     srcDir,
 	})
 
+	lockedModules := make([]lock.Module, 0, len(modules))
 	for _, m := range modules {
-		lockObj.SetModule(lock.Module{
+		lockedModules = append(lockedModules, lock.Module{
 			Name:    fmt.Sprintf("%s/%s", m.Org, m.Name),
 			Version: m.Version,
 			Hash:    m.Digest,
 		})
 	}
+	lockObj.ReplaceModules(lockedModules)
 
 	return lockObj, nil
 }
 
-func runTargetedUpdate(cmd *cobra.Command, lockFilePath, srcDir, modulesDir string, targetModules []string, app *appinit.Context, hubClient *hub.Client) error {
+func runTargetedUpdate(cmd *cobra.Command, lockFilePath, srcDir, modulesDir string, targetModules []string, app *appinit.Context, hubClient *hub.Client, runtimeCfg boot.Config) error {
 	logger := app.Logger.Named("update")
 	logger.Info("updating specific modules", zap.Strings("modules", targetModules))
 
 	// Load current lock file
-	lockObj, err := lock.New(lockFilePath)
+	lockObj, err := newConfiguredLock(lockFilePath, runtimeCfg, logger)
 	if err != nil {
 		return NewLoadLockFileError(fmt.Errorf("lock file %s: %w", lockFilePath, err))
 	}
@@ -313,12 +316,9 @@ func runTargetedUpdate(cmd *cobra.Command, lockFilePath, srcDir, modulesDir stri
 		return NewInvalidLockFileError(fmt.Errorf("lock file %s: %w", lockObj.Path(), err))
 	}
 
-	oldLockObj, _ := lock.New(lockFilePath)
+	oldLockObj := lockObj
 
-	replacedModules := make(map[string]bool)
-	for _, repl := range lockObj.GetReplacements() {
-		replacedModules[repl.From] = true
-	}
+	replacedModules := effectiveReplacementModules(lockObj)
 
 	effectiveTargets := make([]string, 0, len(targetModules))
 	for _, moduleName := range targetModules {
@@ -416,7 +416,7 @@ func runTargetedUpdate(cmd *cobra.Command, lockFilePath, srcDir, modulesDir stri
 	}
 
 	// Preserve all replacements from current lock file
-	preserveReplacements(newLockObj, lockObj.GetReplacements())
+	preserveReplacements(newLockObj, lockObj.GetTrackedReplacements())
 
 	// Detect changes
 	changes := lock.Diff(oldLockObj, newLockObj)
@@ -469,13 +469,13 @@ func runTargetedUpdate(cmd *cobra.Command, lockFilePath, srcDir, modulesDir stri
 
 	logger.Info("lock file updated")
 	logChanges(logger, changes)
-	pruneStaleVendorArtifacts(newLockObj, changes, logger)
 
 	// Run install
 	logger.Info("running install to download modules")
 	if err := runInstall(cmd, []string{}); err != nil {
 		return NewInstallFailedError(err)
 	}
+	pruneStaleVendorArtifacts(newLockObj, changes, logger)
 
 	logger.Info("update completed successfully")
 	return nil
@@ -489,28 +489,36 @@ func loadDependencyScanEntries(ctx context.Context, ldr boot.Loader, srcDir stri
 		logger = zap.NewNop()
 	}
 
+	moduleRoot, _ := os.Getwd()
+	if lockObj != nil {
+		moduleRoot = filepath.Dir(lockObj.Path())
+	}
 	paths := []struct {
 		label string
 		path  string
+		root  string
 	}{
-		{label: "source", path: srcDir},
+		{label: "source", path: srcDir, root: moduleRoot},
 	}
 
 	if lockObj != nil {
-		replacements := make(map[string]bool)
-		for _, repl := range lockObj.GetReplacements() {
-			replacements[repl.From] = true
-		}
+		replacements := effectiveReplacementModules(lockObj)
 		for _, mp := range lockObj.GetModuleLoadPaths() {
 			if mp.Module == "" || !replacements[mp.Module] {
 				continue
 			}
+			replacementRoot := mp.SourceRoot
+			if replacementRoot == "" {
+				replacementRoot = mp.Path
+			}
 			paths = append(paths, struct {
 				label string
 				path  string
+				root  string
 			}{
 				label: "replacement " + mp.Module,
 				path:  mp.Path,
+				root:  replacementRoot,
 			})
 		}
 	}
@@ -531,7 +539,9 @@ func loadDependencyScanEntries(ctx context.Context, ldr boot.Loader, srcDir stri
 			zap.String("kind", scanPath.label),
 			zap.String("path", absPath))
 
-		loaded, err := ldr.LoadFS(ctx, os.DirFS(absPath))
+		cfg, _ := depconfig.Load(scanPath.root)
+		sourceFS := depconfig.NewSourceFS(os.DirFS(absPath), cfg, scanPath.root, absPath)
+		loaded, err := ldr.LoadFS(ctx, sourceFS)
 		if err != nil {
 			return nil, fmt.Errorf("%s path %s: %w", scanPath.label, absPath, err)
 		}
@@ -539,6 +549,17 @@ func loadDependencyScanEntries(ctx context.Context, ldr boot.Loader, srcDir stri
 	}
 
 	return entries, nil
+}
+
+func effectiveReplacementModules(lockObj *lock.Lock) map[string]bool {
+	modules := make(map[string]bool)
+	if lockObj == nil {
+		return modules
+	}
+	for _, replacement := range lockObj.GetReplacements() {
+		modules[replacement.From] = true
+	}
+	return modules
 }
 
 func logChanges(logger *zap.Logger, changes *lock.Changes) {
@@ -588,7 +609,12 @@ func pruneStaleVendorArtifacts(lockObj *lock.Lock, changes *lock.Changes, logger
 		pruneModuleArtifacts(vendorDir, removed.Name, removed.Version, true, logger)
 	}
 	for _, updated := range changes.Updated {
-		pruneModuleArtifacts(vendorDir, updated.Name, updated.OldVersion, true, logger)
+		if updated.OldVersion == updated.NewVersion {
+			continue
+		}
+		// The current extracted directory now belongs to the newly installed
+		// version. Only versioned storage for the old selection is stale.
+		pruneModuleArtifacts(vendorDir, updated.Name, updated.OldVersion, false, logger)
 	}
 }
 

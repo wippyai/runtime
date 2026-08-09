@@ -152,7 +152,7 @@ func (r *Receiver) signalWorkflow(from, target pid.PID, msg *relay.Message) erro
 		signalArg = msg.Payloads
 	}
 
-	ctx := r.ctx
+	ctx := temporalprop.WithRelaySignal(r.ctx, target.UniqID, msg.Topic)
 	var fc ctxapi.FrameContext
 	if from.Node != "" || from.Host != "" || from.UniqID != "" {
 		ctx, fc = ctxapi.ForkFrameContext(ctx)

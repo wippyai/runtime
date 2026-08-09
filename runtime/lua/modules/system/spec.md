@@ -53,6 +53,21 @@ Returns list of all loaded Lua modules with metadata.
 
 **Permissions:** Requires `system.read` on `modules`.
 
+## system.source
+
+### load() → table, error
+
+Rebuilds the normalized registry baseline from the current deployment source
+generation. The returned table contains `entries`, the decoded registry
+entries, and `owners`, the stable identifiers authoritative over those entries.
+The application owner is `application`. Packed module normalization inputs do
+not claim ownership, and filesystem paths are never exposed.
+
+The owners and entries are derived atomically from the same source generation,
+including during dynamic install, update, uninstall, replacement, and rollback.
+
+**Permissions:** Requires `system.read` on `sources`.
+
 ## system.memory
 
 Memory statistics and control.

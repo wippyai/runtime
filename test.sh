@@ -38,7 +38,8 @@ go test \
 	./runtime/lua/modules/hub \
 	./runtime/lua/modules/fs \
 	./api/fs \
-	./boot/components/dispatchers
+	./boot/... \
+	./system/registry/...
 
 echo "running sqlite cdc integration tests (local temp file, no docker)"
 CGO_ENABLED=1 go test -tags "integration sqlite_preupdate_hook" ./service/cdc/sqlite

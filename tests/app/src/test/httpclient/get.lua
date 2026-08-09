@@ -8,7 +8,7 @@ local function main()
 	local json = require("json")
 
 	-- Basic GET request to local hello endpoint
-	local resp, err = http.get("http://localhost:8085/hello")
+	local resp, err = http.get("http://localhost:18085/hello")
 	assert.is_nil(err, "GET should not error")
 	assert.not_nil(resp, "response returned")
 	assert.eq(resp.status_code, 200, "status code 200")

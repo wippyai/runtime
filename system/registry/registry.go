@@ -4,11 +4,13 @@ package registry
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"sync/atomic"
 
 	"go.uber.org/zap"
 
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/internal/version"
 	regexp "github.com/wippyai/runtime/system/registry/expansion"
@@ -24,19 +26,21 @@ type indexedSortBuilder interface {
 }
 
 type Reg struct {
-	history          registry.History
-	runner           registry.Runner
-	builder          registry.StateBuilder
-	resolver         registry.DependencyResolver
-	directivesByKind map[registry.Kind][]registry.Directive
-	currentVersion   registry.Version
-	stateIndex       map[registry.ID]int
-	depIndex         *topology.DepIndex
-	log              *zap.Logger
-	state            registry.State
-	versionNum       atomic.Uint64
-	applyMu          sync.Mutex
-	mu               sync.RWMutex
+	history           registry.History
+	runner            registry.Runner
+	builder           registry.StateBuilder
+	resolver          registry.DependencyResolver
+	directivesByKind  map[registry.Kind][]registry.Directive
+	currentVersion    registry.Version
+	currentResolution *registry.DependencyResolution
+	stateIndex        map[registry.ID]int
+	depIndex          *topology.DepIndex
+	log               *zap.Logger
+	baseline          registry.State
+	state             registry.State
+	versionNum        atomic.Uint64
+	applyMu           sync.Mutex
+	mu                sync.RWMutex
 }
 
 // NewRegistry creates a new registry instance.
@@ -140,23 +144,29 @@ func (r *Reg) GetEntry(path registry.ID) (registry.Entry, error) {
 func (r *Reg) Apply(ctx context.Context, changes registry.ChangeSet) (registry.Version, error) {
 	r.applyMu.Lock()
 	defer r.applyMu.Unlock()
+	changes = append(registry.ChangeSet(nil), changes...)
+	canonicalizeChangeSetIDs(changes)
 
 	r.log.Info("apply started", zap.Int("change_count", len(changes)))
 
 	var (
-		allOps      registry.ChangeSet
-		historyOps  registry.ChangeSet
-		preparedEff []registry.Effect
-		planner     *regexp.Planner
-		snapshot    registry.State
-		baseVersion registry.Version
+		allOps            registry.ChangeSet
+		historyOps        registry.ChangeSet
+		preparedEff       []registry.Effect
+		planner           *regexp.Planner
+		snapshot          registry.State
+		baseVersion       registry.Version
+		resolution        *registry.DependencyResolution
+		resolutionChanged bool
 	)
 
 	r.mu.RLock()
 	snapshot = make(registry.State, len(r.state))
 	copy(snapshot, r.state)
 	baseVersion = r.currentVersion
+	resolution = r.currentResolution
 	r.mu.RUnlock()
+	changes = preserveManagedEntryMetadata(changes, snapshot)
 
 	if len(r.directivesByKind) > 0 {
 		planner = regexp.NewPlanner(r.directivesByKind, r.resolver, r.log.Named("expansion"))
@@ -168,10 +178,15 @@ func (r *Reg) Apply(ctx context.Context, changes registry.ChangeSet) (registry.V
 
 		plan.Ops, err = planner.SortOps(snapshot, plan.Ops)
 		if err != nil {
+			planner.RollbackEffects(ctx, plan.Effects)
 			return nil, NewSortChangesError(err)
 		}
 
 		allOps, historyOps = plan.SplitScopes()
+		if plan.Resolution != nil {
+			resolution = plan.Resolution.Canonical()
+			resolutionChanged = true
+		}
 
 		preparedEff, err = planner.PrepareEffects(ctx, plan.Effects)
 		if err != nil {
@@ -194,6 +209,11 @@ func (r *Reg) Apply(ctx context.Context, changes registry.ChangeSet) (registry.V
 	// against any dependency-aware runner (memory_graph.RemoveNode).
 	if sorted, sortErr := r.sortWithIndex(snapshot, allOps); sortErr == nil {
 		allOps = sorted
+	} else {
+		if planner != nil {
+			planner.RollbackEffects(ctx, preparedEff)
+		}
+		return nil, NewSortChangesError(sortErr)
 	}
 
 	r.mu.Lock()
@@ -245,31 +265,95 @@ func (r *Reg) Apply(ctx context.Context, changes registry.ChangeSet) (registry.V
 		r.log.Debug("saving new version", zap.Any("new_version", newVersion))
 
 		enrichedChanges := r.enrichChangeset(historyOps)
-		if err := r.history.Save(newVersion, enrichedChanges, true); err != nil {
-			r.log.Error("failed to save new version", zap.Error(err))
+		var saveErr error
+		if resolutionChanged {
+			resolutionHistory, ok := r.history.(registry.ResolutionHistory)
+			if !ok {
+				saveErr = ErrDurableResolutionUnsupported
+			} else {
+				saveErr = resolutionHistory.SaveWithDependencyResolution(newVersion, enrichedChanges, resolution, true)
+			}
+		} else {
+			saveErr = r.history.Save(newVersion, enrichedChanges, true)
+		}
+		if saveErr != nil {
+			r.log.Error("failed to save new version", zap.Error(saveErr))
 			if rerr := r.rollback(ctx, newState, r.state); rerr != nil {
 				if planner != nil {
 					planner.RollbackEffects(ctx, preparedEff)
 				}
-				return nil, NewSaveVersionError(err, rerr)
+				return nil, NewSaveVersionError(saveErr, rerr)
 			}
 			if planner != nil {
 				planner.RollbackEffects(ctx, preparedEff)
 			}
-			return nil, NewSaveVersionError(err, nil)
+			return nil, NewSaveVersionError(saveErr, nil)
+		}
+		if planner != nil {
+			if finalizeErr := planner.FinalizeEffects(ctx, preparedEff); finalizeErr != nil {
+				r.log.Warn("failed to finalize effects after saving version", zap.Error(finalizeErr))
+			}
 		}
 
 		r.state = newState
 		r.rebuildIndex()
 		r.patchDepIndex(allOps)
 		r.currentVersion = newVersion
+		r.currentResolution = resolution
 		return newVersion, nil
 	}
 
 	r.state = newState
 	r.rebuildIndex()
 	r.patchDepIndex(allOps)
+	if planner != nil {
+		if finalizeErr := planner.FinalizeEffects(ctx, preparedEff); finalizeErr != nil {
+			r.log.Warn("failed to finalize effects after baseline transition", zap.Error(finalizeErr))
+		}
+	}
 	return r.currentVersion, nil
+}
+
+// preserveManagedEntryMetadata keeps registry-owned provenance stable when a
+// caller updates an entry's declarative data. These fields are attached by the
+// module loader and dependency linker; omitting them from an update payload
+// must not turn an installed entry into an unowned host entry.
+func preserveManagedEntryMetadata(changes registry.ChangeSet, snapshot registry.State) registry.ChangeSet {
+	const (
+		moduleKey        = "module"
+		moduleVersionKey = "module_version"
+		moduleDigestKey  = "module_digest"
+	)
+	managedKeys := [...]string{moduleKey, moduleVersionKey, moduleDigestKey}
+	state := make(registry.StateMap, len(snapshot)+len(changes))
+	for _, entry := range snapshot {
+		state[entry.ID] = entry
+	}
+	for i := range changes {
+		op := &changes[i]
+		switch op.Kind {
+		case registry.EntryCreate:
+			state[op.Entry.ID] = op.Entry
+		case registry.EntryUpdate:
+			existing, ok := state[op.Entry.ID]
+			if ok {
+				meta := attrs.NewBagFrom(op.Entry.Meta)
+				for _, key := range managedKeys {
+					if _, supplied := meta[key]; supplied {
+						continue
+					}
+					if value, present := existing.Meta[key]; present {
+						meta[key] = value
+					}
+				}
+				op.Entry.Meta = meta
+			}
+			state[op.Entry.ID] = op.Entry
+		case registry.EntryDelete:
+			delete(state, op.Entry.ID)
+		}
+	}
+	return changes
 }
 
 // patchDepIndex folds committed ops back into the inverse-dependency index so
@@ -298,6 +382,11 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 	r.mu.RUnlock()
 
 	if baseVersion != nil && baseVersion.ID() == v.ID() {
+		if cas, ok := r.history.(registry.HeadCASHistory); ok {
+			if err := cas.CompareAndSetHead(baseVersion, baseVersion); err != nil {
+				return NewSetHeadError(baseVersion.ID(), err)
+			}
+		}
 		return nil
 	}
 
@@ -306,59 +395,135 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 		currentVersionID = baseVersion.ID()
 	}
 
-	targetVersion, path, err := r.computeVersionPath(baseVersion, v, currentVersionID)
+	targetVersion, err := r.findStoredVersion(v)
+	if err != nil {
+		return err
+	}
+	targetState, err := r.stateAtVersion(ctx, targetVersion)
 	if err != nil {
 		return err
 	}
 
-	r.log.Debug("computed version path",
+	r.log.Debug("resolving version transition",
 		zap.Uint("from", currentVersionID),
-		zap.Uint("to", targetVersion.ID()),
-		zap.Int("steps", len(path)))
-
-	isForward := currentVersionID < targetVersion.ID()
-	var changeset registry.ChangeSet
-
-	if isForward {
-		changeset, err = r.collectForwardChangesets(path)
-	} else {
-		changeset, err = r.collectBackwardChangesets(path, targetVersion)
-	}
-	if err != nil {
-		return err
-	}
+		zap.Uint("to", targetVersion.ID()))
 
 	var (
-		allOps      registry.ChangeSet
-		preparedEff []registry.Effect
-		planner     *regexp.Planner
+		allOps           registry.ChangeSet
+		preparedEff      []registry.Effect
+		planner          *regexp.Planner
+		targetResolution *registry.DependencyResolution
 	)
+	if resolutionHistory, ok := r.history.(registry.ResolutionHistory); ok {
+		stored, resolutionErr := resolutionHistory.GetDependencyResolution(targetVersion)
+		if resolutionErr == nil {
+			targetResolution = stored
+		} else if !errors.Is(resolutionErr, registry.ErrDependencyResolutionNotFound) {
+			return NewGetChangesetError(targetVersion.ID(), resolutionErr)
+		}
+	}
 
-	if len(r.directivesByKind) > 0 {
+	if targetResolution != nil {
+		if len(r.directivesByKind) == 0 {
+			return NewExpandChangesError(errors.New("stored dependency resolution has no configured reconciler"))
+		}
 		planner = regexp.NewPlanner(r.directivesByKind, r.resolver, r.log.Named("expansion"))
-
-		plan, err := planner.Expand(ctx, changeset, snapshot)
-		if err != nil {
-			return NewExpandChangesError(err)
+		stateMap := topology.NewStateMap(targetState)
+		reconciled := false
+		for _, directive := range r.directivesByKind[registry.NamespaceDependency] {
+			result, ok, reconcileErr := reconcileStoredResolution(ctx, directive, snapshot, topology.StateMapToSlice(stateMap), targetResolution)
+			if !ok {
+				continue
+			}
+			if reconcileErr != nil {
+				planner.RollbackEffects(ctx, preparedEff)
+				return NewExpandChangesError(reconcileErr)
+			}
+			reconciled = reconciled || result.Applied
+			if result.Resolution != nil {
+				targetResolution = result.Resolution.Canonical()
+			}
+			prepared, prepareErr := planner.PrepareEffects(ctx, result.Effects)
+			if prepareErr != nil {
+				planner.RollbackEffects(ctx, prepared)
+				planner.RollbackEffects(ctx, preparedEff)
+				return NewPrepareEffectsError(prepareErr)
+			}
+			preparedEff = append(preparedEff, prepared...)
+			additional := make(registry.ChangeSet, 0, len(result.Additional))
+			for _, operation := range result.Additional {
+				additional = append(additional, operation.Operation)
+			}
+			applyStateOperations(stateMap, additional)
 		}
-
-		plan.Ops, err = planner.SortOps(snapshot, plan.Ops)
-		if err != nil {
-			return NewSortChangesError(err)
+		if !reconciled {
+			planner.RollbackEffects(ctx, preparedEff)
+			return NewExpandChangesError(errors.New("stored dependency resolution has no configured reconciler"))
 		}
-
-		allOps, _ = plan.SplitScopes()
-		preparedEff, err = planner.PrepareEffects(ctx, plan.Effects)
+		var buildErr error
+		allOps, buildErr = r.builder.BuildDelta(snapshot, topology.StateMapToSlice(stateMap))
+		if buildErr != nil {
+			planner.RollbackEffects(ctx, preparedEff)
+			return NewComputeTransitionError(buildErr)
+		}
+	} else if len(r.directivesByKind) > 0 {
+		planner = regexp.NewPlanner(r.directivesByKind, r.resolver, r.log.Named("expansion"))
+		stateMap := topology.NewStateMap(targetState)
+		declarations := topology.StateMapToSlice(stateMap)
+		for _, entry := range declarations {
+			if targetResolution != nil && entry.Kind == registry.NamespaceDependency {
+				continue // One dependency expansion resolves the complete root graph.
+			}
+			if len(r.directivesByKind[entry.Kind]) == 0 {
+				continue
+			}
+			intermediate := topology.StateMapToSlice(stateMap)
+			plan, expandErr := planner.Expand(ctx, registry.ChangeSet{{Kind: registry.EntryUpdate, Entry: entry}}, intermediate)
+			if expandErr != nil {
+				planner.RollbackEffects(ctx, preparedEff)
+				return NewExpandChangesError(expandErr)
+			}
+			if !plan.Expanded {
+				continue
+			}
+			plan.Ops, expandErr = planner.SortOps(intermediate, plan.Ops)
+			if expandErr != nil {
+				planner.RollbackEffects(ctx, plan.Effects)
+				planner.RollbackEffects(ctx, preparedEff)
+				return NewSortChangesError(expandErr)
+			}
+			ops, _ := plan.SplitScopes()
+			prepared, prepareErr := planner.PrepareEffects(ctx, plan.Effects)
+			if prepareErr != nil {
+				planner.RollbackEffects(ctx, prepared)
+				planner.RollbackEffects(ctx, preparedEff)
+				return NewPrepareEffectsError(prepareErr)
+			}
+			preparedEff = append(preparedEff, prepared...)
+			if plan.Resolution != nil {
+				targetResolution = plan.Resolution.Canonical()
+			}
+			applyStateOperations(stateMap, ops)
+		}
+		allOps, err = r.builder.BuildDelta(snapshot, topology.StateMapToSlice(stateMap))
 		if err != nil {
 			planner.RollbackEffects(ctx, preparedEff)
-			return NewPrepareEffectsError(err)
+			return NewComputeTransitionError(err)
 		}
 	} else {
-		sorted, err := r.builder.SortChangeSet(snapshot, changeset)
+		delta, err := r.builder.BuildDelta(snapshot, targetState)
 		if err != nil {
-			return NewSortChangesError(err)
+			return NewComputeTransitionError(err)
 		}
-		allOps = sorted
+		allOps = delta
+	}
+
+	resolutionHeadCAS, supportsAtomicResolutionHead := r.history.(registry.ResolutionHeadCASHistory)
+	if targetResolution != nil && !supportsAtomicResolutionHead {
+		if planner != nil {
+			planner.RollbackEffects(ctx, preparedEff)
+		}
+		return NewSaveVersionError(ErrDurableResolutionUnsupported, nil)
 	}
 
 	// Topologically sort before dispatching to the runner. Same invariant as
@@ -367,6 +532,11 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 	// through expansion.
 	if sorted, sortErr := r.builder.SortChangeSet(snapshot, allOps); sortErr == nil {
 		allOps = sorted
+	} else {
+		if planner != nil {
+			planner.RollbackEffects(ctx, preparedEff)
+		}
+		return NewSortChangesError(sortErr)
 	}
 
 	r.mu.Lock()
@@ -408,65 +578,107 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 		}
 	}
 
-	if err := r.history.SetHead(targetVersion); err != nil {
-		return NewSetHeadError(targetVersion.ID(), err)
+	var headUpdateErr error
+	if targetResolution != nil {
+		headUpdateErr = resolutionHeadCAS.CompareAndSetHeadWithDependencyResolution(baseVersion, targetVersion, targetResolution)
+	} else {
+		headUpdateErr = compareAndSetHistoryHead(r.history, baseVersion, targetVersion)
+	}
+	if headUpdateErr != nil {
+		headErr := NewSetHeadError(targetVersion.ID(), headUpdateErr)
+		var compensationErr error
+		if rollbackErr := r.rollback(ctx, newState, r.state); rollbackErr != nil {
+			compensationErr = errors.Join(compensationErr, rollbackErr)
+		}
+		if planner != nil {
+			planner.RollbackEffects(ctx, preparedEff)
+		}
+		if compensationErr != nil {
+			return NewApplyVersionChangesError(headErr, compensationErr)
+		}
+		return headErr
+	}
+	if planner != nil {
+		if finalizeErr := planner.FinalizeEffects(ctx, preparedEff); finalizeErr != nil {
+			r.log.Warn("failed to finalize effects after applying version", zap.Error(finalizeErr))
+		}
 	}
 
 	r.state = newState
 	r.rebuildIndex()
 	r.rebuildDepIndex()
 	r.currentVersion = targetVersion
+	r.currentResolution = targetResolution
 
 	r.log.Debug("version applied successfully", zap.Uint("version", targetVersion.ID()))
 	return nil
 }
 
-func (r *Reg) computeVersionPath(current registry.Version, v registry.Version, currentVersionID uint) (registry.Version, []registry.Version, error) {
-	versions, err := r.history.Versions()
-	if err != nil {
-		return nil, nil, NewGetVersionsError(err)
+// stateAtVersion composes the immutable deployment baseline with the authored
+// history at target. Live version selection must use the same authority model
+// as cold boot; reversing operations against the expanded resident state can
+// otherwise delete baseline entries hidden by an overlay.
+func (r *Reg) stateAtVersion(ctx context.Context, target registry.Version) (registry.State, error) {
+	stateMap := topology.NewStateMap(r.baseline)
+	if target == nil || target.ID() == registry.RootVersion {
+		return topology.StateMapToSlice(stateMap), nil
 	}
-
-	var targetVersion registry.Version
-	for _, ver := range versions {
-		if ver.ID() == v.ID() {
-			targetVersion = ver
-			break
+	apply := func(changes registry.ChangeSet) error {
+		canonicalizeChangeSetIDs(changes)
+		applyStateOperations(stateMap, changes)
+		return nil
+	}
+	if replayer, ok := r.history.(registry.ChangeSetReplayer); ok {
+		if err := replayer.ReplayChanges(ctx, target, apply); err != nil {
+			return nil, NewGetChangesetError(target.ID(), err)
+		}
+		return topology.StateMapToSlice(stateMap), nil
+	}
+	var lineage []registry.Version
+	for current := target; current != nil && current.ID() > registry.RootVersion; current = current.Previous() {
+		lineage = append(lineage, current)
+	}
+	for i := len(lineage) - 1; i >= 0; i-- {
+		changes, err := r.history.Get(lineage[i])
+		if err != nil {
+			return nil, NewGetChangesetError(lineage[i].ID(), err)
+		}
+		if err := apply(changes); err != nil {
+			return nil, err
 		}
 	}
-	if targetVersion == nil {
-		return nil, nil, NewVersionNotFoundError(v.ID())
-	}
-
-	vm := version.NewVersionMap()
-	for _, ver := range versions {
-		if err := vm.Add(ver); err != nil {
-			r.log.Warn("failed to add version to map", zap.Uint("version", ver.ID()), zap.Error(err))
-		}
-	}
-
-	path, err := vm.Path(current, targetVersion)
-	if err != nil {
-		return nil, nil, NewComputePathError(currentVersionID, targetVersion.ID(), err)
-	}
-	if len(path) == 0 {
-		return nil, nil, NewComputePathError(currentVersionID, targetVersion.ID(), ErrEmptyVersionPath)
-	}
-
-	return targetVersion, path, nil
+	return topology.StateMapToSlice(stateMap), nil
 }
 
-func (r *Reg) collectForwardChangesets(path []registry.Version) (registry.ChangeSet, error) {
-	changesets := make([]registry.ChangeSet, 0, len(path))
-	for _, ver := range path {
-		cs, err := r.history.Get(ver)
-		if err != nil {
-			return nil, NewGetChangesetError(ver.ID(), err)
-		}
-		changesets = append(changesets, cs)
+func compareAndSetHistoryHead(history registry.History, expected, target registry.Version) error {
+	if expected == nil {
+		return history.SetHead(target)
 	}
+	cas, ok := history.(registry.HeadCASHistory)
+	if !ok {
+		return errors.New("history does not support atomic head updates")
+	}
+	return cas.CompareAndSetHead(expected, target)
+}
 
-	return r.builder.SquashChangesets(changesets), nil
+func (r *Reg) findStoredVersion(v registry.Version) (registry.Version, error) {
+	if lookup, ok := r.history.(registry.VersionLookup); ok {
+		stored, err := lookup.GetVersion(v.ID())
+		if err != nil {
+			return nil, NewGetVersionsError(err)
+		}
+		return stored, nil
+	}
+	versions, err := r.history.Versions()
+	if err != nil {
+		return nil, NewGetVersionsError(err)
+	}
+	for _, ver := range versions {
+		if ver.ID() == v.ID() {
+			return ver, nil
+		}
+	}
+	return nil, NewVersionNotFoundError(v.ID())
 }
 
 func (r *Reg) collectBackwardChangesets(path []registry.Version, targetVersion registry.Version) (registry.ChangeSet, error) {
@@ -520,67 +732,282 @@ func (r *Reg) LoadState(ctx context.Context, baseline registry.State, targetVers
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	// Build state map once from baseline
-	stateMap := make(map[registry.ID]registry.Entry, len(baseline))
-	for _, entry := range baseline {
-		stateMap[entry.ID] = entry
+	allocatorVersion := targetVersion.ID()
+	if bounds, ok := r.history.(registry.VersionIDBounds); ok {
+		maxID, err := bounds.MaxVersionID()
+		if err != nil {
+			return NewGetVersionsError(err)
+		}
+		if maxID > allocatorVersion {
+			allocatorVersion = maxID
+		}
+	} else if versionsInHistory, versionsErr := r.history.Versions(); versionsErr != nil {
+		// Forward-only histories cannot enumerate versions and have no branches to
+		// preserve. Durable histories must enumerate successfully so a rewind does
+		// not make the allocator reuse an existing branch ID.
+		if targetVersion.ID() > registry.RootVersion {
+			return NewGetVersionsError(versionsErr)
+		}
+	} else {
+		for _, storedVersion := range versionsInHistory {
+			if storedVersion.ID() > allocatorVersion {
+				allocatorVersion = storedVersion.ID()
+			}
+		}
 	}
 
+	if err := topology.ValidateUniqueEntryIDs("baseline", baseline); err != nil {
+		return err
+	}
+
+	stateMap := topology.NewStateMap(baseline)
+	var planner *regexp.Planner
+	var preparedEff []registry.Effect
+	var resolution *registry.DependencyResolution
+	if len(r.directivesByKind) > 0 {
+		planner = regexp.NewPlanner(r.directivesByKind, r.resolver, r.log.Named("expansion"))
+	}
+
+	// History contains declarative operations. Reduce it to the target state
+	// without expanding directives: expansion can consult external systems and
+	// must never run once per historical version during boot.
 	if targetVersion.ID() > 0 {
-		current := targetVersion
-		var versions []registry.Version
-
-		for current != nil && current.ID() > 0 {
-			versions = append([]registry.Version{current}, versions...)
-			current = current.Previous()
+		applyChanges := func(cs registry.ChangeSet) error {
+			canonicalizeChangeSetIDs(cs)
+			applyStateOperations(stateMap, cs)
+			return nil
 		}
-
-		r.log.Debug("replaying changesets on baseline",
-			zap.Uint("target_version", targetVersion.ID()),
-			zap.Int("changeset_count", len(versions)))
-
-		// Apply all operations directly to the map
-		for _, ver := range versions {
-			cs, err := r.history.Get(ver)
-			if err != nil {
-				return NewGetChangesetError(ver.ID(), err)
+		if replayer, ok := r.history.(registry.ChangeSetReplayer); ok {
+			r.log.Debug("streaming history changesets on baseline", zap.Uint("target_version", targetVersion.ID()))
+			if err := replayer.ReplayChanges(ctx, targetVersion, applyChanges); err != nil {
+				return NewGetChangesetError(targetVersion.ID(), err)
 			}
-
-			for _, op := range cs {
-				switch op.Kind {
-				case registry.EntryCreate, registry.EntryUpdate:
-					stateMap[op.Entry.ID] = op.Entry
-				case registry.EntryDelete:
-					delete(stateMap, op.Entry.ID)
+		} else {
+			current := targetVersion
+			var versions []registry.Version
+			for current != nil && current.ID() > 0 {
+				versions = append(versions, current)
+				current = current.Previous()
+			}
+			for i := len(versions) - 1; i >= 0; i-- {
+				cs, err := r.history.Get(versions[i])
+				if err != nil {
+					return NewGetChangesetError(versions[i].ID(), err)
+				}
+				if err := applyChanges(cs); err != nil {
+					return NewGetChangesetError(versions[i].ID(), err)
 				}
 			}
 		}
 	}
 
-	// Convert map to slice once at the end
-	finalState := make(registry.State, 0, len(stateMap))
-	for _, entry := range stateMap {
-		finalState = append(finalState, entry)
+	if resolutionHistory, ok := r.history.(registry.ResolutionHistory); ok {
+		stored, err := resolutionHistory.GetDependencyResolution(targetVersion)
+		if err == nil {
+			resolution = stored
+		} else if !errors.Is(err, registry.ErrDependencyResolutionNotFound) {
+			return NewGetChangesetError(targetVersion.ID(), err)
+		}
 	}
 
+	// A modern history version carries its exact graph. Reconcile that graph
+	// once. Legacy versions are expanded once from their final declarations and
+	// checkpointed after a successful transition.
+	if resolution != nil {
+		if planner == nil {
+			return NewExpandChangesError(errors.New("stored dependency resolution has no configured reconciler"))
+		}
+		reconciled := false
+		for _, directive := range r.directivesByKind[registry.NamespaceDependency] {
+			snapshot := topology.StateMapToSlice(stateMap)
+			result, ok, err := reconcileStoredResolution(ctx, directive, baseline, snapshot, resolution)
+			if !ok {
+				continue
+			}
+			if err != nil {
+				planner.RollbackEffects(ctx, preparedEff)
+				return NewExpandChangesError(err)
+			}
+			reconciled = reconciled || result.Applied
+			if result.Resolution != nil {
+				resolution = result.Resolution.Canonical()
+			}
+			plan := &regexp.Plan{Effects: result.Effects, Resolution: result.Resolution, Expanded: result.Applied}
+			for _, additional := range result.Additional {
+				plan.Ops = append(plan.Ops, regexp.ScopedOp{Operation: additional.Operation, Scope: additional.Scope})
+			}
+			plan.Ops, err = planner.SortOps(snapshot, plan.Ops)
+			if err != nil {
+				planner.RollbackEffects(ctx, plan.Effects)
+				planner.RollbackEffects(ctx, preparedEff)
+				return NewSortChangesError(err)
+			}
+			ops, _ := plan.SplitScopes()
+			prepared, err := planner.PrepareEffects(ctx, plan.Effects)
+			if err != nil {
+				planner.RollbackEffects(ctx, prepared)
+				planner.RollbackEffects(ctx, preparedEff)
+				return NewPrepareEffectsError(err)
+			}
+			preparedEff = append(preparedEff, prepared...)
+			applyStateOperations(stateMap, ops)
+		}
+		if !reconciled {
+			planner.RollbackEffects(ctx, preparedEff)
+			return NewExpandChangesError(errors.New("stored dependency resolution has no configured reconciler"))
+		}
+	} else if planner != nil {
+		declarations := topology.StateMapToSlice(stateMap)
+		for _, entry := range declarations {
+			if resolution != nil && entry.Kind == registry.NamespaceDependency {
+				continue // One dependency expansion resolves the complete legacy root graph.
+			}
+			if len(r.directivesByKind[entry.Kind]) == 0 {
+				continue
+			}
+			snapshot := topology.StateMapToSlice(stateMap)
+			plan, err := planner.Expand(ctx, registry.ChangeSet{{Kind: registry.EntryUpdate, Entry: entry}}, snapshot)
+			if err != nil {
+				planner.RollbackEffects(ctx, preparedEff)
+				return NewExpandChangesError(err)
+			}
+			if !plan.Expanded {
+				continue
+			}
+			plan.Ops, err = planner.SortOps(snapshot, plan.Ops)
+			if err != nil {
+				planner.RollbackEffects(ctx, plan.Effects)
+				planner.RollbackEffects(ctx, preparedEff)
+				return NewSortChangesError(err)
+			}
+			ops, _ := plan.SplitScopes()
+			prepared, err := planner.PrepareEffects(ctx, plan.Effects)
+			if err != nil {
+				planner.RollbackEffects(ctx, prepared)
+				planner.RollbackEffects(ctx, preparedEff)
+				return NewPrepareEffectsError(err)
+			}
+			preparedEff = append(preparedEff, prepared...)
+			if plan.Resolution != nil {
+				resolution = plan.Resolution.Canonical()
+			}
+			applyStateOperations(stateMap, ops)
+		}
+	}
+
+	if resolution != nil {
+		if _, ok := r.history.(registry.ResolutionHeadCASHistory); !ok {
+			if planner != nil {
+				planner.RollbackEffects(ctx, preparedEff)
+			}
+			return NewSaveVersionError(ErrDurableResolutionUnsupported, nil)
+		}
+	}
+
+	finalState := topology.StateMapToSlice(stateMap)
 	newState, err := r.transitionState(ctx, r.state, finalState)
 	if err != nil {
 		r.log.Error("failed to load state", zap.String("version", targetVersion.String()), zap.Error(err))
 		if newState != nil && ctx.Err() == nil {
 			if rerr := r.rollback(ctx, newState, r.state); rerr != nil {
+				if planner != nil {
+					planner.RollbackEffects(ctx, preparedEff)
+				}
 				return NewLoadStateError(err, rerr)
 			}
+		}
+		if planner != nil {
+			planner.RollbackEffects(ctx, preparedEff)
 		}
 		return NewLoadStateError(err, nil)
 	}
 
+	if planner != nil {
+		if err := planner.CommitEffects(ctx, preparedEff); err != nil {
+			r.log.Error("failed to commit load-state effects", zap.Error(err))
+			if rerr := r.rollback(ctx, newState, r.state); rerr != nil {
+				planner.RollbackEffects(ctx, preparedEff)
+				return NewCommitEffectsError(err, rerr)
+			}
+			planner.RollbackEffects(ctx, preparedEff)
+			return NewCommitEffectsError(err, nil)
+		}
+	}
+
+	var headCheckErr error
+	if resolution != nil {
+		headCheckErr = r.history.(registry.ResolutionHeadCASHistory).
+			CompareAndSetHeadWithDependencyResolution(targetVersion, targetVersion, resolution)
+	} else if cas, ok := r.history.(registry.HeadCASHistory); ok {
+		headCheckErr = cas.CompareAndSetHead(targetVersion, targetVersion)
+	}
+	if headCheckErr != nil {
+		var rollbackErr error
+		if transitionErr := r.rollback(ctx, newState, r.state); transitionErr != nil {
+			rollbackErr = transitionErr
+		}
+		if planner != nil {
+			planner.RollbackEffects(ctx, preparedEff)
+		}
+		return NewSaveVersionError(headCheckErr, rollbackErr)
+	}
+	if planner != nil {
+		if finalizeErr := planner.FinalizeEffects(ctx, preparedEff); finalizeErr != nil {
+			r.log.Warn("failed to finalize effects after loading state", zap.Error(finalizeErr))
+		}
+	}
+
 	r.state = newState
+	r.baseline = append(registry.State(nil), baseline...)
 	r.rebuildIndex()
 	r.rebuildDepIndex()
 	r.currentVersion = targetVersion
-	r.versionNum.Store(uint64(targetVersion.ID()))
+	r.currentResolution = resolution
+	r.versionNum.Store(uint64(allocatorVersion))
 
 	return nil
+}
+
+func reconcileStoredResolution(
+	ctx context.Context,
+	directive registry.Directive,
+	current registry.State,
+	target registry.State,
+	resolution *registry.DependencyResolution,
+) (registry.DirectiveResult, bool, error) {
+	if reconciler, ok := directive.(registry.ResolutionTransitionDirective); ok {
+		result, err := reconciler.ReconcileResolutionTransition(ctx, current, target, resolution)
+		return result, true, err
+	}
+	if reconciler, ok := directive.(registry.ResolutionDirective); ok {
+		result, err := reconciler.ReconcileResolution(ctx, target, resolution)
+		return result, true, err
+	}
+	return registry.DirectiveResult{}, false, nil
+}
+
+func applyStateOperations(stateMap registry.StateMap, ops registry.ChangeSet) {
+	for _, op := range ops {
+		id := registry.NewID(op.Entry.ID.NS, op.Entry.ID.Name)
+		switch op.Kind {
+		case registry.EntryCreate, registry.EntryUpdate:
+			op.Entry.ID = id
+			stateMap[id] = op.Entry
+		case registry.EntryDelete:
+			delete(stateMap, id)
+		}
+	}
+}
+
+func canonicalizeChangeSetIDs(changes registry.ChangeSet) {
+	for i := range changes {
+		changes[i].Entry.ID = registry.NewID(changes[i].Entry.ID.NS, changes[i].Entry.ID.Name)
+		if changes[i].OriginalEntry != nil {
+			original := *changes[i].OriginalEntry
+			original.ID = registry.NewID(original.ID.NS, original.ID.Name)
+			changes[i].OriginalEntry = &original
+		}
+	}
 }
 
 // rollback state desync between actual state in system and state in history

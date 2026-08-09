@@ -128,7 +128,27 @@ Returned by `executor:exec()`. Represents a process instance.
 | write_stdin | (data: string) | boolean, error | Writes to process stdin |
 | stdout_stream | () | Stream, error | Returns stdout stream |
 | stderr_stream | () | Stream, error | Returns stderr stream |
-| close | (force?: boolean) | boolean, error | Closes process with signal |
+| close | (force?: boolean) | boolean, error | Signals the process, reaps it, releases the handle |
+
+#### process:close(force?: boolean) → boolean, error
+
+Releases the process. Sends `SIGTERM`, or `SIGKILL` when `force` is true, then
+reaps the child and invalidates the handle.
+
+Reaping is what releases the child's entry in the OS process table; without it a
+stopped process lingers as a zombie for the lifetime of the runtime. It happens
+in the background so `close()` does not block, and a child still running after a
+grace period is killed so the reap always completes.
+
+Because reaping closes the process's stdout and stderr pipes, its streams are
+finished with once it is closed. Read any output you need before calling this.
+
+After `close()` every method on the process, including `wait()`, reports
+`process closed`. Use `signal()` and `wait()` instead when the exit code matters.
+
+**Returns:**
+- Success: `true, nil`
+- Already closed: `true, nil` - closing twice is not an error
 
 #### process:start() → boolean, error
 

@@ -10,7 +10,7 @@ local assert = require("assert2")
 local function main()
 	local http = require("http_client")
 
-	local resp, err = http.get("http://localhost:8085/hello", {
+	local resp, err = http.get("http://localhost:18085/hello", {
 		overlay_network = "app.test.network:broken_socks5",
 		timeout = "2s",
 	})

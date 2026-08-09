@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"strings"
 
 	"github.com/wippyai/runtime/api/dispatcher"
 	httpapi "github.com/wippyai/runtime/api/service/http"
@@ -98,10 +99,11 @@ func (h *OutgoingHandlerHost) AsyncFunctions() []string {
 // outgoing request resources
 
 type outgoingRequestResource struct {
-	url     *url.URL
-	headers map[string][]string
-	body    *bytes.Buffer
-	method  string
+	url       *url.URL
+	headers   map[string][]string
+	body      *bytes.Buffer
+	method    string
+	bodyTaken bool
 }
 
 func (r *outgoingRequestResource) Type() preview2.ResourceType { return resourceTypeOutgoingRequest }
@@ -159,7 +161,7 @@ func (h *OutgoingHandlerHost) MethodOutgoingRequestSetPathWithQuery(_ context.Co
 		return 1
 	}
 	if hasPath {
-		req.url.Path = path
+		req.url.Path, req.url.RawQuery, _ = strings.Cut(path, "?")
 	}
 	return 0
 }
@@ -227,9 +229,10 @@ func (h *OutgoingHandlerHost) MethodOutgoingRequestBody(_ context.Context, self 
 		return 0, 1
 	}
 	req, ok := r.(*outgoingRequestResource)
-	if !ok {
+	if !ok || req.bodyTaken {
 		return 0, 1
 	}
+	req.bodyTaken = true
 
 	body := &requestBodyResource{buffer: req.body}
 	handle := h.resources.Add(body)
@@ -392,6 +395,7 @@ type futureIncomingResponseResource struct {
 	body       []byte
 	statusCode uint16
 	ready      bool
+	consumed   bool
 }
 
 func (f *futureIncomingResponseResource) Type() preview2.ResourceType {
@@ -421,9 +425,10 @@ func (h *OutgoingHandlerHost) MethodFutureIncomingResponseGet(_ context.Context,
 	if !ok {
 		return 0, false, 0
 	}
-	if !future.ready {
+	if !future.ready || future.consumed {
 		return 0, false, 0
 	}
+	future.consumed = true
 	if future.err != nil {
 		return 0, true, 1
 	}
@@ -448,6 +453,7 @@ type incomingResponseResource struct {
 	headers    map[string][]string
 	body       []byte
 	statusCode uint16
+	consumed   bool
 }
 
 func (r *incomingResponseResource) Type() preview2.ResourceType { return resourceTypeIncomingResponse }
@@ -493,9 +499,10 @@ func (h *OutgoingHandlerHost) MethodIncomingResponseConsume(_ context.Context, s
 		return 0, 1
 	}
 	resp, ok := r.(*incomingResponseResource)
-	if !ok {
+	if !ok || resp.consumed {
 		return 0, 1
 	}
+	resp.consumed = true
 	body := preview2.NewInputStreamResource(resp.body)
 	return h.resources.Add(body), 0
 }

@@ -88,10 +88,16 @@ func ctxWithEnv(reg envapi.Registry) context.Context {
 	return envapi.WithRegistry(ctxapi.WithAppContext(context.Background(), ctxapi.NewAppContext()), reg)
 }
 
-func TestResolveEnv_FailsFastOnUnresolvable(t *testing.T) {
+func TestResolveEnv_UnresolvableLeavesFieldForValidation(t *testing.T) {
+	// A directive naming an unregistered variable is not applied. With no inline
+	// fallback the field stays empty and the config's own validation rejects the
+	// entry, rather than the resolver failing on a false "not found".
 	ctx := ctxWithEnv(&mockEnvRegistry{vars: map[string]string{"DB_HOST": "h"}})
 	data := map[string]any{
 		"host_env":     "DB_HOST",
+		"port":         5432,
+		"database":     "db",
+		"password":     "pw",
 		"username_env": "MISSING_USER",
 		"slot_name":    "slot",
 		"publication":  "pub",
@@ -99,8 +105,7 @@ func TestResolveEnv_FailsFastOnUnresolvable(t *testing.T) {
 
 	_, err := entryutil.DecodeEntryConfig[config.Config](ctx, &jsonConfigTranscoder{}, cdcEntryWithData(data))
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "could not be resolved")
-	assert.Contains(t, err.Error(), "environment variable not found")
+	assert.Contains(t, err.Error(), "username is required")
 }
 
 func TestResolveEnv_AppliesResolvedValues(t *testing.T) {

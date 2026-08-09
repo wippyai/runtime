@@ -10,8 +10,10 @@ import (
 	"sync"
 
 	lua "github.com/wippyai/go-lua"
+	moduleapi "github.com/wippyai/runtime/api/modules"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/api/supervisor"
+	registrylua "github.com/wippyai/runtime/runtime/lua/modules/registry"
 	"github.com/wippyai/runtime/runtime/security"
 )
 
@@ -22,7 +24,7 @@ var (
 )
 
 func initModuleTable() {
-	mod := lua.CreateTable(0, 12)
+	mod := lua.CreateTable(0, 13)
 
 	mod.RawSetString("memory", createMemoryTable())
 	mod.RawSetString("gc", createGCTable())
@@ -34,11 +36,19 @@ func initModuleTable() {
 	mod.RawSetString("lock", createLockTable())
 	mod.RawSetString("supervisor", createSupervisorTable())
 	mod.RawSetString("hosts", createHostsTable())
+	mod.RawSetString("source", createSourceTable())
 	mod.RawSetString("exit", lua.LGoFunc(exit))
 	mod.RawSetString("modules", lua.LGoFunc(modules))
 
 	mod.Immutable = true
 	moduleTable = mod
+}
+
+func createSourceTable() *lua.LTable {
+	t := lua.CreateTable(0, 1)
+	t.RawSetString("load", lua.LGoFunc(loadSources))
+	t.Immutable = true
+	return t
 }
 
 // Module is the system module definition.
@@ -463,6 +473,49 @@ func modules(l *lua.LState) int {
 		result.RawSetInt(i+1, modTable)
 	}
 
+	l.Push(result)
+	l.Push(lua.LNil)
+	return 2
+}
+
+func loadSources(l *lua.LState) int {
+	if !security.IsAllowed(l.Context(), "system.read", "sources", nil) {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "permission denied: system.read on sources").
+			WithKind(lua.PermissionDenied).WithRetryable(false))
+		return 2
+	}
+
+	registry := moduleapi.GetSourceRegistry(l.Context())
+	if registry == nil {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "deployment source registry not available").
+			WithKind(lua.Internal).WithRetryable(false))
+		return 2
+	}
+	loaded, err := registry.Load(l.Context())
+	if err != nil {
+		l.Push(lua.LNil)
+		// Source load errors can contain runtime-private filesystem paths. Keep
+		// that backing identity behind the system.source boundary.
+		l.Push(lua.NewLuaError(l, "failed to load deployment sources").
+			WithKind(lua.Internal).WithRetryable(false))
+		return 2
+	}
+	entries, err := registrylua.EntriesToTable(l, loaded.Entries)
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.WrapErrorWithLua(l, err, "convert deployment source entry").
+			WithKind(lua.Internal).WithRetryable(false))
+		return 2
+	}
+	owners := l.CreateTable(len(loaded.Owners), 0)
+	for i, owner := range loaded.Owners {
+		owners.RawSetInt(i+1, lua.LString(owner))
+	}
+	result := l.CreateTable(0, 2)
+	result.RawSetString("owners", owners)
+	result.RawSetString("entries", entries)
 	l.Push(result)
 	l.Push(lua.LNil)
 	return 2

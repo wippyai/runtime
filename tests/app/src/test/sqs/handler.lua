@@ -12,7 +12,7 @@ local function main(body)
 	end
 
 	local msg_id = msg:id()
-	local correlation_id = msg:header("correlation_id")
+	local correlation_id = msg:header("correlation_id") or ""
 
 	local s, store_err = store.get("app.test.store:memory")
 	if store_err then

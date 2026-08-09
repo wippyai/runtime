@@ -6,6 +6,7 @@ import (
 	"context"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
+	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/pid"
 	api "github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/relay"
@@ -32,6 +33,13 @@ func NewManager(node relay.Node, logger *zap.Logger) *Manager {
 
 // Start launches a process on the specified host.
 func (m *Manager) Start(ctx context.Context, start *api.Start) (pid.PID, error) {
+	if start == nil {
+		return pid.PID{}, apierror.New(api.InvalidState, "start command is required").WithRetryable(apierror.False)
+	}
+	if m.node == nil {
+		return pid.PID{}, apierror.New(api.InvalidState, "process node is required").WithRetryable(apierror.False)
+	}
+
 	// Look up host
 	relayHost, exists := m.node.GetHost(start.HostID)
 	if !exists {
@@ -65,7 +73,7 @@ func (m *Manager) Start(ctx context.Context, start *api.Start) (pid.PID, error) 
 		return procPID, err
 	}
 
-	if start != nil && start.Options != nil && m.node != nil {
+	if start.Options != nil && m.node != nil {
 		parent, ok := start.Options.Get(api.ProcessParentKey)
 		if ok {
 			if parentPID, ok := parent.(pid.PID); ok && parentPID.UniqID != "" {
@@ -75,14 +83,21 @@ func (m *Manager) Start(ctx context.Context, start *api.Start) (pid.PID, error) 
 						return procPID, NewTopologyNotAvailableError()
 					}
 
+					monitored := false
 					if start.Options.GetBool(api.ProcessMonitorKey, false) {
 						if err := topo.Monitor(parentPID, procPID); err != nil {
+							_ = host.Terminate(context.WithoutCancel(ctx), procPID)
 							return procPID, err
 						}
+						monitored = true
 					}
 
 					if start.Options.GetBool(api.ProcessLinkKey, false) {
 						if err := topo.Link(parentPID, procPID); err != nil {
+							if monitored {
+								_ = topo.Demonitor(parentPID, procPID)
+							}
+							_ = host.Terminate(context.WithoutCancel(ctx), procPID)
 							return procPID, err
 						}
 					}

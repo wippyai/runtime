@@ -84,6 +84,7 @@ func Host() boot.Component {
 			handlers.RegisterListener("process.host", manager)
 
 			ctx = process.WithInspector(ctx, manager)
+			ctx = process.WithOutdatedNotifier(ctx, manager)
 
 			logger.Info("host manager registered")
 			return ctx, nil

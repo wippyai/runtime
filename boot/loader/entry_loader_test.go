@@ -6,13 +6,16 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
+	"testing/fstest"
 
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/attrs"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/boot/loader/interpolate"
 	tr "github.com/wippyai/runtime/system/payload"
 	jsoncodec "github.com/wippyai/runtime/system/payload/json"
 	"github.com/wippyai/runtime/system/payload/yaml"
@@ -179,6 +182,27 @@ func TestExtractDependenciesToEntries(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name:    "non-manifest top-level array is skipped",
+			input:   `["3dm", "3ds", "7z"]`,
+			format:  payload.JSON,
+			want:    []registry.Entry{},
+			wantErr: false,
+		},
+		{
+			name: "non-manifest package json is skipped",
+			input: `{
+				"name": "binary-extensions",
+				"version": "2.3.0",
+				"type": "module",
+				"exports": {
+					".": "./index.js"
+				}
+			}`,
+			format:  payload.JSON,
+			want:    []registry.Entry{},
+			wantErr: false,
+		},
+		{
 			name: "entry with missing required fields",
 			input: `{
 				"namespace": "test",
@@ -187,6 +211,16 @@ func TestExtractDependenciesToEntries(t *testing.T) {
 						"data": {"url": "http://example.com"}
 					}
 				]
+			}`,
+			format:  payload.JSON,
+			want:    nil,
+			wantErr: true,
+		},
+		{
+			name: "manifest-shaped file with invalid entries still errors",
+			input: `{
+				"namespace": "test",
+				"entries": ["not an entry"]
 			}`,
 			format:  payload.JSON,
 			want:    nil,
@@ -282,6 +316,65 @@ entries:
 			}
 		})
 	}
+}
+
+func TestLoader_LoadFSRejectsMalformedIndexEntry(t *testing.T) {
+	suite := NewTestSuite()
+	ldr := NewLoader(suite.transcoder, nil, interpolate.NewEntryInterpolator(suite.transcoder))
+	fsys := fstest.MapFS{
+		"_index.yaml": &fstest.MapFile{Data: []byte(`version: "1.0"
+namespace: app
+entries:
+  - name: ok
+    kind: service
+  - name: broken
+`)},
+	}
+
+	_, err := ldr.LoadFS(ctxapi.NewRootContext(), fsys)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "_index.yaml")
+	require.Contains(t, err.Error(), "broken")
+	require.True(t, strings.Contains(err.Error(), "kind"), "error should name the rejected field: %v", err)
+}
+
+func TestLoader_LoadFSSkipsMalformedNonManifestAsset(t *testing.T) {
+	suite := NewTestSuite()
+	ldr := NewLoader(suite.transcoder, nil, interpolate.NewEntryInterpolator(suite.transcoder))
+	fsys := fstest.MapFS{
+		"_index.yaml": &fstest.MapFile{Data: []byte(`version: "1.0"
+namespace: app
+entries:
+  - name: ok
+    kind: service
+`)},
+		"ui/node_modules/es-errors/tsconfig.json": &fstest.MapFile{Data: []byte(`{
+  "extends": "./tsconfig.base.json",
+  // JSONC comments are valid for tsconfig, but not for Wippy manifests.
+  "compilerOptions": {}
+}`)},
+	}
+
+	entries, err := ldr.LoadFS(ctxapi.NewRootContext(), fsys)
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+	require.Equal(t, "app:ok", entries[0].ID.String())
+}
+
+func TestLoader_LoadFileSkipsMalformedNonManifestAsset(t *testing.T) {
+	suite := NewTestSuite()
+	ldr := NewLoader(suite.transcoder, nil, interpolate.NewEntryInterpolator(suite.transcoder))
+	fsys := fstest.MapFS{
+		"ui/node_modules/es-errors/tsconfig.json": &fstest.MapFile{Data: []byte(`{
+  "extends": "./tsconfig.base.json",
+  // JSONC comments are valid for tsconfig, but not for Wippy manifests.
+  "compilerOptions": {}
+}`)},
+	}
+
+	entries, err := ldr.LoadFile(ctxapi.NewRootContext(), fsys, "ui/node_modules/es-errors/tsconfig.json")
+	require.NoError(t, err)
+	require.Empty(t, entries)
 }
 
 // TestEntryProcessor tests the EntryProcessor functionality

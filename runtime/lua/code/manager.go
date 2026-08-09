@@ -181,6 +181,7 @@ func NewCodeManager(log *zap.Logger, bus event.Bus, cfg Config) (*Manager, error
 					tcDeps = deps
 					if manifest, cachedDiagnostics, ok := cm.loadTypecheckCache(node.ID, fingerprint); ok {
 						node.Manifest = manifest
+						cm.memGraph.SetManifestIfRevision(node.ID, node.Version.Revision, manifest)
 						diagnostics = cachedDiagnostics
 					}
 				}
@@ -438,12 +439,13 @@ func (cm *Manager) Compile(
 func (cm *Manager) AddNode(_ context.Context, node Node, deps []Import) error {
 	// Spawn pointer from value
 	nodePtr := &Node{
-		ID:      node.ID,
-		Kind:    node.Kind,
-		Source:  node.Source,
-		Method:  node.Method,
-		Module:  node.Module,
-		Version: cm.nextVersion(HashNode(&node)),
+		ID:       node.ID,
+		Kind:     node.Kind,
+		Source:   node.Source,
+		Method:   node.Method,
+		Module:   node.Module,
+		Manifest: node.Manifest,
+		Version:  cm.nextVersion(HashNode(&node)),
 	}
 
 	// Eager compilation check: validate source code before adding to graph

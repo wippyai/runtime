@@ -39,6 +39,7 @@ type Factory interface {
 // DefaultClientFactory implements Factory
 type DefaultClientFactory struct {
 	env                env.Registry
+	metricsHandler     client.MetricsHandler
 	dataConverter      func() converter.DataConverter
 	clientInterceptors []interceptor.ClientInterceptor
 }
@@ -48,11 +49,13 @@ func NewDefaultClientFactory(
 	env env.Registry,
 	dataConverter func() converter.DataConverter,
 	clientInterceptors []interceptor.ClientInterceptor,
+	metricsHandler client.MetricsHandler,
 ) *DefaultClientFactory {
 	return &DefaultClientFactory{
 		env:                env,
 		dataConverter:      dataConverter,
 		clientInterceptors: clientInterceptors,
+		metricsHandler:     metricsHandler,
 	}
 }
 
@@ -85,9 +88,10 @@ func (f *DefaultClientFactory) CreateClient(ctx context.Context, logger *zap.Log
 // buildClientOptions constructs Temporal client options from config
 func (f *DefaultClientFactory) buildClientOptions(logger *zap.Logger, config *api.ClientConfig) (client.Options, error) {
 	opts := client.Options{
-		HostPort:  config.Address,
-		Namespace: config.Namespace,
-		Logger:    NewZapAdapter(logger),
+		HostPort:       config.Address,
+		Namespace:      config.Namespace,
+		Logger:         NewZapAdapter(logger),
+		MetricsHandler: f.metricsHandler,
 	}
 
 	// Set data converter if available
@@ -101,14 +105,16 @@ func (f *DefaultClientFactory) buildClientOptions(logger *zap.Logger, config *ap
 	opts.DataConverter = dc
 	opts.FailureConverter = temporalerrors.NewFailureConverter(dc)
 
-	// Set client interceptors if available
-	if len(f.clientInterceptors) > 0 {
-		opts.Interceptors = f.clientInterceptors
-	}
+	opts.Interceptors = append([]interceptor.ClientInterceptor(nil), f.clientInterceptors...)
+	opts.Interceptors = append(opts.Interceptors, propagator.NewSecurityAudienceInterceptor())
 
-	// Add context propagator for wippy context values
+	securityKeys := make([][]byte, 0, 1+len(config.SecurityHMACPreviousKeys))
+	if len(config.SecurityHMACKey) > 0 {
+		securityKeys = append(securityKeys, config.SecurityHMACKey)
+		securityKeys = append(securityKeys, config.SecurityHMACPreviousKeys...)
+	}
 	opts.ContextPropagators = []workflow.ContextPropagator{
-		propagator.New(dc),
+		propagator.New(dc, securityKeys...),
 	}
 
 	// Configure authentication

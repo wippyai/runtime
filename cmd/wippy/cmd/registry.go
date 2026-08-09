@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 	"github.com/wippyai/runtime/api/attrs"
+	"github.com/wippyai/runtime/api/boot"
 	regapi "github.com/wippyai/runtime/api/registry"
 	appinit "github.com/wippyai/runtime/cmd/internal/app"
 	clilogger "github.com/wippyai/runtime/cmd/internal/logger"
@@ -84,6 +85,8 @@ func init() {
 	rootCmd.AddCommand(registryCmd)
 	registryCmd.AddCommand(registryListCmd)
 	registryCmd.AddCommand(registryShowCmd)
+	registryCmd.PersistentFlags().StringArray("profile", nil, "apply a workspace profile from the merged runtime config (repeatable, applied in order)")
+	registryCmd.PersistentFlags().StringArray("set", nil, "override a merged runtime config value (format: section.path=value, repeatable)")
 
 	// List flags
 	registryListCmd.Flags().StringP("kind", "k", "", "filter by kind (glob pattern)")
@@ -232,14 +235,19 @@ func loadRegistryEntries(cmd *cobra.Command, lockFile string) ([]regapi.Entry, e
 	}
 	defer func() { _ = logger.Sync() }()
 
-	lockPath, lockObj, err := loadValidatedLock(".", lockFile)
-	if err != nil {
-		return nil, err
-	}
-
 	app, err := appinit.Init(cmd.Context(), false, false, false, true, appStartTime)
 	if err != nil {
 		return nil, NewInitAppError(err)
+	}
+	runtimeCfg, err := loadRuntimeConfig(cmd, logger)
+	if err != nil {
+		return nil, err
+	}
+	boot.WithConfig(app.Ctx, runtimeCfg)
+
+	lockPath, lockObj, err := loadValidatedLock(".", lockFile, runtimeCfg, logger)
+	if err != nil {
+		return nil, err
 	}
 
 	allEntries, err := ensureModulesAndLoadEntries(app.Ctx, lockPath, lockObj, logger, false)

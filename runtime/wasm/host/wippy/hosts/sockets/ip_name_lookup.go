@@ -54,7 +54,11 @@ func (h *IPNameLookupHost) ResolveAddresses(ctx context.Context, _ uint32, name 
 			panic(fmt.Sprintf("resolve-addresses: token %d not found", result))
 		}
 
-		resolveResult := data.(*socketapi.ResolveResult)
+		resolveResult, ok := data.(*socketapi.ResolveResult)
+		if !ok || resolveResult == nil {
+			closeAsyncSocketResult(data)
+			return 0, &NetworkError{Code: NetworkErrorInvalidArgument}
+		}
 		if resolveResult.Err != nil {
 			return 0, mapNetError(resolveResult.Err)
 		}

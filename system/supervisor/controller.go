@@ -32,6 +32,7 @@ type controllable interface {
 }
 
 type ctrlOp struct {
+	ctx     context.Context
 	result  chan error
 	kind    ctrlKind
 	attempt int32
@@ -98,8 +99,16 @@ func (c *Controller) Start() error {
 
 // Stop gracefully stops the service and transitions it to the stopped state.
 func (c *Controller) Stop() error {
+	return c.StopContext(context.Background())
+}
+
+// StopContext stops the service with ctx as an additional shutdown bound.
+func (c *Controller) StopContext(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	c.state.setDesiredStatus(supervisor.StatusStopped)
-	return c.runCommand(ctrlOp{kind: ctrlStop})
+	return c.runCommand(ctrlOp{kind: ctrlStop, ctx: ctx})
 }
 
 func (c *Controller) cancelStart() {
@@ -136,6 +145,10 @@ func (c *Controller) startStateChanged() <-chan struct{} {
 
 func (c *Controller) runCommand(op ctrlOp) error {
 	op.result = make(chan error, 1)
+	var opDone <-chan struct{}
+	if op.ctx != nil {
+		opDone = op.ctx.Done()
+	}
 	select {
 	case c.ops <- op:
 		select {
@@ -144,9 +157,13 @@ func (c *Controller) runCommand(op ctrlOp) error {
 				return NewStopError(err)
 			}
 			return err
+		case <-opDone:
+			return op.ctx.Err()
 		case <-c.ctx.Done():
 			return NewSupervisorStoppedError(c.ctx.Err())
 		}
+	case <-opDone:
+		return op.ctx.Err()
 	case <-c.ctx.Done():
 		return NewSupervisorStoppedError(c.ctx.Err())
 	}
@@ -198,7 +215,9 @@ func (c *Controller) supervise() {
 				if ctx == nil {
 					break
 				}
-				err = c.tryStop(ctx)
+				stopCtx, cancelStop := boundControllerStopContext(ctx, op.ctx)
+				err = c.tryStop(stopCtx)
+				cancelStop()
 				if cancel != nil {
 					cancel()
 					cancel = nil
@@ -358,6 +377,42 @@ func (c *Controller) tryStart(ctx context.Context, cancel context.CancelFunc) (<
 	}
 }
 
+type controllerStopBoundError struct {
+	cause error
+}
+
+func (e *controllerStopBoundError) Error() string { return e.cause.Error() }
+func (e *controllerStopBoundError) Unwrap() error { return e.cause }
+
+func boundControllerStopContext(parent, bound context.Context) (context.Context, context.CancelFunc) {
+	deadlineCtx := parent
+	cancelDeadline := func() {}
+	if deadline, ok := bound.Deadline(); ok {
+		deadlineCtx, cancelDeadline = context.WithDeadlineCause(
+			parent,
+			deadline,
+			&controllerStopBoundError{cause: context.DeadlineExceeded},
+		)
+	}
+	ctx, cancel := context.WithCancelCause(deadlineCtx)
+	propagate := func() {
+		cause := bound.Err()
+		if cause == nil {
+			cause = context.Canceled
+		}
+		cancel(&controllerStopBoundError{cause: cause})
+	}
+	stopPropagation := context.AfterFunc(bound, propagate)
+	if bound.Err() != nil {
+		propagate()
+	}
+	return ctx, func() {
+		stopPropagation()
+		cancel(nil)
+		cancelDeadline()
+	}
+}
+
 func (c *Controller) tryStop(ctx context.Context) error {
 	status := c.state.getCurrentStatus()
 	if status == supervisor.StatusStopped || status == supervisor.StatusExited {
@@ -376,9 +431,24 @@ func (c *Controller) tryStop(ctx context.Context) error {
 	}()
 	select {
 	case err := <-resultCh:
+		var boundErr *controllerStopBoundError
+		if errors.As(context.Cause(ctx), &boundErr) {
+			c.updateState(supervisor.StatusFailed, boundErr)
+			return boundErr
+		}
 		c.updateState(supervisor.StatusStopped, err)
 		return err
 	case <-stopCtx.Done():
+		cause := context.Cause(ctx)
+		var boundErr *controllerStopBoundError
+		if errors.As(cause, &boundErr) {
+			c.updateState(supervisor.StatusFailed, boundErr)
+			return boundErr
+		}
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			c.updateState(supervisor.StatusFailed, ctxErr)
+			return ctxErr
+		}
 		c.updateState(supervisor.StatusFailed, "stop timeout after "+c.config.StopTimeout.String())
 		return NewStopTimeoutError(c.config.StopTimeout)
 	}

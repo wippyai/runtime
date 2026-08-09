@@ -5,6 +5,7 @@ package http
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -80,7 +81,7 @@ func TestRouteManager_BasicOperations(t *testing.T) {
 		err = rm.ReplaceMount("/static", replacement)
 		require.NoError(t, err)
 		rec := httptest.NewRecorder()
-		rm.mounts["/static"].ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/static/app.js", nil))
+		rm.mounts["/static"].ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/static/app.js", nil))
 		assert.Equal(t, "replacement", rec.Body.String())
 
 		// Replace validates paths and only updates existing mounts
@@ -166,6 +167,119 @@ func TestRouteManager_ServeHTTP(t *testing.T) {
 	assert.NoError(t, resp.Body.Close())
 
 	server.Close()
+}
+
+func TestRouteManager_MethodAgnosticCatchAllCoexistsWithStaticMount(t *testing.T) {
+	rm, err := NewRouteManager()
+	require.NoError(t, err)
+
+	routerID := registry.NewID("test", "router")
+	require.NoError(t, rm.AddRouter(routerID, "", nil, nil))
+	require.NoError(t, rm.AddRoute(
+		routerID,
+		registry.NewID("test", "fallback"),
+		config.MethodAny,
+		"/{path...}",
+		registry.NewID("test", "fallback_handler"),
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, _ = w.Write([]byte("dynamic:" + r.Method))
+		}),
+	))
+	require.NoError(t, rm.Mount("/app", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("static"))
+	})))
+	require.NoError(t, rm.Build())
+
+	tests := []struct {
+		name     string
+		method   string
+		path     string
+		expected string
+	}{
+		{name: "GET deep link", method: http.MethodGet, path: "/home", expected: "dynamic:GET"},
+		{name: "POST deep link", method: http.MethodPost, path: "/home", expected: "dynamic:POST"},
+		{name: "OPTIONS deep link", method: http.MethodOptions, path: "/home", expected: "dynamic:OPTIONS"},
+		{name: "extension method deep link", method: "PROPFIND", path: "/home", expected: "dynamic:PROPFIND"},
+		{name: "GET static asset", method: http.MethodGet, path: "/app/main.js", expected: "static"},
+		{name: "POST static asset", method: http.MethodPost, path: "/app/main.js", expected: "static"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequestWithContext(context.Background(), tt.method, tt.path, nil)
+			rm.ServeHTTP(rec, req)
+
+			assert.Equal(t, http.StatusOK, rec.Code)
+			assert.Equal(t, tt.expected, rec.Body.String())
+		})
+	}
+}
+
+func TestRouteManager_RestWildcardRouteInfoUsesDeclaredName(t *testing.T) {
+	rm, err := NewRouteManager()
+	require.NoError(t, err)
+
+	routerID := registry.NewID("test", "router")
+	require.NoError(t, rm.AddRouter(routerID, "", nil, nil))
+
+	var capturedPath string
+	require.NoError(t, rm.AddRoute(
+		routerID,
+		registry.NewID("test", "fallback"),
+		config.MethodAny,
+		"/{path...}",
+		registry.NewID("test", "fallback_handler"),
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			routeInfo, ok := config.GetRouteInfo(r.Context())
+			require.True(t, ok)
+			capturedPath = routeInfo.Params["path"]
+			w.WriteHeader(http.StatusOK)
+		}),
+	))
+	require.NoError(t, rm.Build())
+
+	ctx, _ := contextapi.OpenFrameContext(context.Background())
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(ctx, http.MethodGet, "/projects/42/settings", nil)
+	rm.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "projects/42/settings", capturedPath)
+}
+
+func TestRouteManager_BuildReturnsMethodAgnosticConflicts(t *testing.T) {
+	rm, err := NewRouteManager()
+	require.NoError(t, err)
+
+	routerID := registry.NewID("test", "router")
+	require.NoError(t, rm.AddRouter(routerID, "", nil, nil))
+	require.NoError(t, rm.AddRoute(
+		routerID,
+		registry.NewID("test", "index"),
+		config.MethodAny,
+		"/index.html",
+		registry.NewID("test", "index_handler"),
+		http.NotFoundHandler(),
+	))
+	require.NoError(t, rm.AddRoute(
+		routerID,
+		registry.NewID("test", "get_fallback"),
+		http.MethodGet,
+		"/{path...}",
+		registry.NewID("test", "fallback_handler"),
+		http.NotFoundHandler(),
+	))
+
+	var buildErr error
+	require.NotPanics(t, func() {
+		buildErr = rm.Build()
+	})
+	require.Error(t, buildErr)
+
+	var apiErr apierror.Error
+	require.ErrorAs(t, buildErr, &apiErr)
+	assert.Equal(t, apierror.Conflict, apiErr.Kind())
 }
 
 func TestRouteManager_MultipleRouters(t *testing.T) {
@@ -279,6 +393,45 @@ func TestRouteManager_Middleware(t *testing.T) {
 	assert.NoError(t, resp.Body.Close())
 }
 
+func TestRouteManager_OptionsRouteLabelVisibleToMiddleware(t *testing.T) {
+	rm, err := NewRouteManager()
+	require.NoError(t, err)
+
+	var observedLabel string
+	testMiddleware := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if label, ok := config.GetRouteLabel(r.Context()); ok {
+				observedLabel = label
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+
+	routerID := registry.NewID("test", "router1")
+	err = rm.AddRouter(routerID, "/api", []func(http.Handler) http.Handler{testMiddleware}, nil)
+	require.NoError(t, err)
+
+	funcID := registry.NewID("test", "func1")
+	endpointID := registry.NewID("test", "endpoint1")
+	err = rm.AddRoute(routerID, endpointID, http.MethodGet, "/users/{id}", funcID, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	require.NoError(t, err)
+	require.NoError(t, rm.Build())
+
+	wrappedHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx, _ := contextapi.OpenFrameContext(r.Context())
+		rm.ServeHTTP(w, r.WithContext(ctx))
+	})
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodOptions, "/api/users/123", nil)
+	wrappedHandler.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusNoContent, rec.Code)
+	assert.Equal(t, funcID.String(), observedLabel)
+}
+
 func TestRouteManager_RouteUpdates(t *testing.T) {
 	rm, err := NewRouteManager()
 	require.NoError(t, err)
@@ -315,6 +468,89 @@ func TestRouteManager_RouteUpdates(t *testing.T) {
 
 	err = rm.Build()
 	assert.NoError(t, err)
+}
+
+type benchmarkResponseWriter struct {
+	header http.Header
+}
+
+func (w *benchmarkResponseWriter) Header() http.Header {
+	return w.header
+}
+
+func (w *benchmarkResponseWriter) Write(body []byte) (int, error) {
+	return len(body), nil
+}
+
+func (w *benchmarkResponseWriter) WriteHeader(int) {}
+
+func BenchmarkRouteManagerServeHTTPConcreteCatchAll(b *testing.B) {
+	benchmarkRouteManagerServeHTTPCatchAll(b, http.MethodGet, false)
+}
+
+func BenchmarkRouteManagerServeHTTPMethodAgnosticCatchAll(b *testing.B) {
+	benchmarkRouteManagerServeHTTPCatchAll(b, config.MethodAny, false)
+}
+
+func BenchmarkRouteManagerServeHTTPMethodAgnosticCatchAllWithStaticMount(b *testing.B) {
+	benchmarkRouteManagerServeHTTPCatchAll(b, config.MethodAny, true)
+}
+
+func benchmarkRouteManagerServeHTTPCatchAll(b *testing.B, method string, withStaticMount bool) {
+	rm, err := NewRouteManager()
+	require.NoError(b, err)
+
+	routerID := registry.NewID("benchmark", "router")
+	require.NoError(b, rm.AddRouter(routerID, "", nil, nil))
+	require.NoError(b, rm.AddRoute(
+		routerID,
+		registry.NewID("benchmark", "endpoint"),
+		method,
+		"/{path...}",
+		registry.NewID("benchmark", "handler"),
+		http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}),
+	))
+	if withStaticMount {
+		require.NoError(b, rm.Mount("/app", http.NotFoundHandler()))
+	}
+	require.NoError(b, rm.Build())
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/deep/link", nil)
+	w := benchmarkResponseWriter{header: make(http.Header)}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		rm.ServeHTTP(&w, req)
+	}
+}
+
+func BenchmarkRouteManagerBuild(b *testing.B) {
+	rm, err := NewRouteManager()
+	require.NoError(b, err)
+
+	routerID := registry.NewID("benchmark", "router")
+	require.NoError(b, rm.AddRouter(routerID, "", nil, nil))
+	for i := range 100 {
+		require.NoError(b, rm.AddRoute(
+			routerID,
+			registry.NewID("benchmark", fmt.Sprintf("endpoint_%d", i)),
+			http.MethodGet,
+			fmt.Sprintf("/routes/%d/{id}", i),
+			registry.NewID("benchmark", "handler"),
+			http.NotFoundHandler(),
+		))
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		if err := rm.Build(); err != nil {
+			b.Fatal(err)
+		}
+	}
 }
 
 func testGet(t *testing.T, url string) (*http.Response, error) {

@@ -48,7 +48,7 @@ local function main()
 	assert.not_nil(rec, "handler should have stored record keyed by correlation_id")
 	assert.eq(rec.correlation_id, corr_id, "record should carry the correlation_id we sent")
 	assert.not_nil(rec.headers, "record should carry the headers table")
-	assert.eq(rec.headers.priority, 5, "priority header should round-trip")
+	assert.eq(rec.headers.priority, "5", "priority header should normalize to string")
 	assert.eq(rec.headers.partition_key, "tenant-42", "partition_key should round-trip")
 
 	return true

@@ -9,10 +9,13 @@ import (
 	logapi "github.com/wippyai/runtime/api/logs"
 	otelapi "github.com/wippyai/runtime/api/service/otel"
 	"github.com/wippyai/runtime/service/otel"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 )
 
 func OTel() boot.Component {
+	var tp trace.TracerProvider
+
 	return boot.New(boot.P{
 		Name: Name,
 		Load: func(ctx context.Context) (context.Context, error) {
@@ -35,7 +38,8 @@ func OTel() boot.Component {
 				return ctx, nil
 			}
 
-			tp, err := otel.InitializeProvider(ctx, cfg, logger)
+			var err error
+			tp, err = otel.InitializeProvider(ctx, cfg, logger)
 			if err != nil {
 				return ctx, NewOTELInitError(err)
 			}
@@ -53,8 +57,12 @@ func OTel() boot.Component {
 		Start: func(_ context.Context) error {
 			return nil
 		},
-		Stop: func(_ context.Context) error {
-			return nil
+		Stop: func(ctx context.Context) error {
+			logger := logapi.GetLogger(ctx).Named("otel")
+			if tp == nil {
+				return nil
+			}
+			return otel.ShutdownTracerProvider(ctx, tp, logger)
 		},
 	})
 }

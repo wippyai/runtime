@@ -64,12 +64,21 @@ func init() {
 
 var processOptionsType = typ.NewRecord().
 	Field("trap_links", typ.Boolean).
+	Field("upgradable", typ.Boolean).
+	Build()
+
+// set_options applies a partial update. get_options always returns both fields,
+// but callers may set either option independently (or pass an empty table).
+var processOptionsUpdateType = typ.NewRecord().
+	OptField("trap_links", typ.Boolean).
+	OptField("upgradable", typ.Boolean).
 	Build()
 
 var eventType = typ.NewRecord().
 	Field("CANCEL", typ.String).
 	Field("EXIT", typ.String).
 	Field("LINK_DOWN", typ.String).
+	Field("OUTDATED", typ.String).
 	Build()
 
 // process.registry surface: scoped registration with optional foreign PID.
@@ -234,7 +243,7 @@ func ModuleTypes() *io.Manifest {
 			Returns(processOptionsType).
 			Build()},
 		{Name: "set_options", Type: typ.Func().
-			Param("opts", processOptionsType).
+			Param("opts", processOptionsUpdateType).
 			Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).
 			Build()},
 		{Name: "monitor", Type: typ.Func().

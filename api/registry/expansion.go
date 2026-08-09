@@ -23,9 +23,32 @@ type ScopedOperation struct {
 // DirectiveResult is returned by a Directive to augment a registry operation.
 type DirectiveResult struct {
 	OriginalScope *Scope
+	Resolution    *DependencyResolution
 	Additional    []ScopedOperation
 	Effects       []Effect
 	Applied       bool
+}
+
+// ResolutionDirective restores derived state from the exact dependency graph
+// stored for a registry version. It is used once after declarative history has
+// been reconstructed, never once per historical changeset.
+type ResolutionDirective interface {
+	ReconcileResolution(context.Context, State, *DependencyResolution) (DirectiveResult, error)
+}
+
+// ResolutionTransitionDirective is the transition-aware form of
+// ResolutionDirective. Current is the live state before the transition and
+// target is the declarative target reconstructed from history. The registry
+// prefers this interface when implemented and falls back to
+// ResolutionDirective for compatibility.
+type ResolutionTransitionDirective interface {
+	ReconcileResolutionTransition(context.Context, State, State, *DependencyResolution) (DirectiveResult, error)
+}
+
+// ChangesDirective expands all same-kind operations in one resolution pass.
+// It prevents a multi-root transaction from staging intermediate graphs.
+type ChangesDirective interface {
+	ExpandChanges(context.Context, ChangeSet, State) (DirectiveResult, error)
 }
 
 // Directive can augment a registry operation with additional operations or effects.
@@ -43,4 +66,13 @@ type Effect interface {
 	Prepare(context.Context) error
 	Commit(context.Context) error
 	Rollback(context.Context) error
+}
+
+// FinalizingEffect performs irreversible cleanup only after the registry state
+// and its history head are durably committed. Finalize must not be required for
+// correctness: a failure may leak temporary resources, but must not invalidate
+// the committed registry state.
+type FinalizingEffect interface {
+	Effect
+	Finalize(context.Context) error
 }

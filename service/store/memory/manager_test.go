@@ -59,7 +59,7 @@ func newTestManager(_ *testing.T) (*Manager, *mockBus) {
 	json.Register(transcoder)
 	bus := &mockBus{}
 	log := zap.NewNop()
-	mgr := NewManager(bus, transcoder, log)
+	mgr := NewManager(bus, transcoder, log, nil)
 	return mgr, bus
 }
 

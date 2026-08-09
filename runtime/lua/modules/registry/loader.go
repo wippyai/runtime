@@ -6,6 +6,7 @@ import (
 	lua "github.com/wippyai/go-lua"
 	fsapi "github.com/wippyai/runtime/api/fs"
 	"github.com/wippyai/runtime/api/payload"
+	regapi "github.com/wippyai/runtime/api/registry"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/boot/loader"
 	"github.com/wippyai/runtime/boot/loader/interpolate"
@@ -66,6 +67,7 @@ func NewLoaderModule(opts LoaderOptions) *luaapi.ModuleDef {
 			mod.Immutable = true
 			return mod, nil
 		},
+		Types: LoaderTypes,
 	}
 }
 
@@ -161,23 +163,7 @@ func loaderLoadDirectory(l *lua.LState) int {
 		return 2
 	}
 
-	entriesTable := l.CreateTable(len(entries), 0)
-	for i, entry := range entries {
-		entryTable, convErr := entryToLuaTable(l, entry)
-		if convErr != nil {
-			err := lua.WrapErrorWithLua(l, convErr, "convert entry").
-				WithKind(lua.Internal).
-				WithRetryable(false)
-			l.Push(lua.LNil)
-			l.Push(err)
-			return 2
-		}
-		entriesTable.RawSetInt(i+1, entryTable)
-	}
-
-	l.Push(entriesTable)
-	l.Push(lua.LNil)
-	return 2
+	return pushEntries(l, entries)
 }
 
 // loaderLoadFile loads entries from a single file
@@ -207,20 +193,32 @@ func loaderLoadFile(l *lua.LState) int {
 		return 2
 	}
 
+	return pushEntries(l, entries)
+}
+
+// EntriesToTable converts registry entries into their Lua representation.
+func EntriesToTable(l *lua.LState, entries []regapi.Entry) (*lua.LTable, error) {
 	entriesTable := l.CreateTable(len(entries), 0)
 	for i, entry := range entries {
 		entryTable, convErr := entryToLuaTable(l, entry)
 		if convErr != nil {
-			err := lua.WrapErrorWithLua(l, convErr, "convert entry").
-				WithKind(lua.Internal).
-				WithRetryable(false)
-			l.Push(lua.LNil)
-			l.Push(err)
-			return 2
+			return nil, convErr
 		}
 		entriesTable.RawSetInt(i+1, entryTable)
 	}
+	return entriesTable, nil
+}
 
+func pushEntries(l *lua.LState, entries []regapi.Entry) int {
+	entriesTable, convErr := EntriesToTable(l, entries)
+	if convErr != nil {
+		err := lua.WrapErrorWithLua(l, convErr, "convert entry").
+			WithKind(lua.Internal).
+			WithRetryable(false)
+		l.Push(lua.LNil)
+		l.Push(err)
+		return 2
+	}
 	l.Push(entriesTable)
 	l.Push(lua.LNil)
 	return 2

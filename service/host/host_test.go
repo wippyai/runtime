@@ -8,6 +8,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -19,10 +20,12 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
+	secapi "github.com/wippyai/runtime/api/security"
 	hostapi "github.com/wippyai/runtime/api/service/host"
 	"github.com/wippyai/runtime/api/topology"
 	"github.com/wippyai/runtime/internal/uniqid"
 	"github.com/wippyai/runtime/system/scheduler/actor"
+	securitysys "github.com/wippyai/runtime/system/security"
 	"go.uber.org/zap"
 )
 
@@ -249,7 +252,12 @@ func TestHost_StopNotRunning(t *testing.T) {
 	th := newTestHost()
 
 	err := th.host.Stop(context.Background())
-	assert.NoError(t, err)
+	require.NoError(t, err)
+	assert.False(t, th.host.running.Load())
+	assert.True(t, th.host.shutdown.Load())
+
+	_, err = th.host.Start(ctxWithAppContext())
+	assert.ErrorIs(t, err, ErrHostShuttingDown)
 }
 
 func TestHost_StopIdempotent(t *testing.T) {
@@ -741,6 +749,77 @@ func TestHost_ConcurrentSend(t *testing.T) {
 	}
 
 	wg.Wait()
+}
+
+// --- Entry Security ---
+
+type stubPolicy struct{ id registry.ID }
+
+func (p stubPolicy) ID() registry.ID { return p.id }
+func (p stubPolicy) Evaluate(_ secapi.Actor, _, _ string, _ attrs.Bag) secapi.Result {
+	return secapi.Allow
+}
+
+type stubPolicyRegistry struct{ policy secapi.Policy }
+
+func (r stubPolicyRegistry) GetPolicy(id registry.ID) (secapi.Policy, error) {
+	if r.policy != nil && r.policy.ID() == id {
+		return r.policy, nil
+	}
+	return nil, errors.New("policy not found")
+}
+func (r stubPolicyRegistry) GetPolicyGroup(registry.ID) (secapi.Scope, error) {
+	return nil, errors.New("group not found")
+}
+func (r stubPolicyRegistry) ListGroups() []registry.ID   { return nil }
+func (r stubPolicyRegistry) ListPolicies() []registry.ID { return nil }
+
+func TestHost_RunAppliesEntrySecurity(t *testing.T) {
+	entryPolicyID := registry.NewID("test", "entry_allow")
+	launchPolicy := stubPolicy{id: registry.NewID("test", "launch_allow")}
+
+	var gotActor secapi.Actor
+	var gotScope secapi.Scope
+	done := make(chan struct{})
+
+	th := newTestHost(func(th *testHost) {
+		th.factory.meta = &process.Meta{
+			Security: &secapi.Config{
+				Actor:    secapi.Actor{ID: "test:entry-actor"},
+				Policies: []registry.ID{entryPolicyID},
+			},
+		}
+		th.lifecycle.onStartFunc = func(ctx context.Context, _ pid.PID, _ process.Process) {
+			gotActor, _ = secapi.GetActor(ctx)
+			gotScope, _ = secapi.GetScope(ctx)
+			close(done)
+		}
+	})
+	ctx := secapi.WithRegistry(ctxWithAppContext(), stubPolicyRegistry{
+		policy: stubPolicy{id: entryPolicyID},
+	})
+	_, err := th.host.Start(ctx)
+	require.NoError(t, err)
+	defer th.stop()
+
+	_, err = th.host.Run(ctx, &process.Start{
+		Source: registry.NewID("test", "proc"),
+		Context: []ctxapi.Pair{
+			secapi.ActorPair(secapi.Actor{ID: "test:launch-actor"}),
+			secapi.ScopePair(securitysys.NewScope([]secapi.Policy{launchPolicy})),
+		},
+	})
+	require.NoError(t, err)
+
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("process did not start")
+	}
+	assert.Equal(t, "test:entry-actor", gotActor.ID)
+	require.NotNil(t, gotScope)
+	assert.True(t, gotScope.Contains(entryPolicyID), "entry policy must be present")
+	assert.True(t, gotScope.Contains(launchPolicy.ID()), "launch policy must be preserved")
 }
 
 // --- Interface Compliance ---

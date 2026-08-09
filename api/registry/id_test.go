@@ -67,6 +67,12 @@ func TestID_UnmarshalJSON(t *testing.T) {
 			wantErr:  false,
 		},
 		{
+			name:     "object format with qualified name and missing namespace",
+			input:    `{"name":"test-ns:test-name"}`,
+			expected: ID{NS: "test-ns", Name: "test-name"},
+			wantErr:  false,
+		},
+		{
 			name:     "invalid json",
 			input:    `{"ns":test-ns","name":"test-name"}`,
 			expected: ID{},
@@ -343,6 +349,12 @@ func TestID_Equal(t *testing.T) {
 			name:     "equal IDs",
 			id1:      ID{NS: "ns", Name: "name"},
 			id2:      ID{NS: "ns", Name: "name"},
+			expected: true,
+		},
+		{
+			name:     "qualified name matches parsed id",
+			id1:      ID{Name: "ns:name"},
+			id2:      NewID("ns", "name"),
 			expected: true,
 		},
 		{

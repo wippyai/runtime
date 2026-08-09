@@ -39,16 +39,13 @@ type TypesHost struct {
 
 	currentRequest  *Request
 	currentResponse *Response
-	responseBuffer  *bytes.Buffer
 
 	responseOutparamHandle uint32
+	requestBodyTaken       bool
 }
 
 func NewTypesHost(resources *preview2.ResourceTable) *TypesHost {
-	return &TypesHost{
-		resources:      resources,
-		responseBuffer: &bytes.Buffer{},
-	}
+	return &TypesHost{resources: resources}
 }
 
 func (h *TypesHost) Namespace() string {
@@ -58,14 +55,13 @@ func (h *TypesHost) Namespace() string {
 // SetRequest sets the current request for handler invocation.
 func (h *TypesHost) SetRequest(req *Request) {
 	h.currentRequest = req
-	h.responseBuffer.Reset()
+	h.currentResponse = nil
+	h.responseOutparamHandle = 0
+	h.requestBodyTaken = false
 }
 
 // GetResponse returns the current response after handler completes.
 func (h *TypesHost) GetResponse() *Response {
-	if h.currentResponse != nil {
-		h.currentResponse.Body = h.responseBuffer.Bytes()
-	}
 	return h.currentResponse
 }
 
@@ -73,7 +69,8 @@ func (h *TypesHost) GetResponse() *Response {
 func (h *TypesHost) Reset() {
 	h.currentRequest = nil
 	h.currentResponse = nil
-	h.responseBuffer.Reset()
+	h.responseOutparamHandle = 0
+	h.requestBodyTaken = false
 }
 
 // SetResponseOutparamHandle sets the response outparam handle.
@@ -218,12 +215,12 @@ func (h *TypesHost) ConstructorOutgoingResponse(_ context.Context, headersHandle
 		}
 	}
 
-	h.currentResponse = &Response{
+	response := &Response{
 		StatusCode: 200,
 		Headers:    headers,
 	}
 
-	resp := &outgoingResponseResource{response: h.currentResponse}
+	resp := &outgoingResponseResource{response: response}
 	return h.resources.Add(resp)
 }
 
@@ -248,14 +245,12 @@ func (h *TypesHost) MethodOutgoingResponseBody(_ context.Context, self uint32) (
 		return 0, 1
 	}
 	resp, ok := r.(*outgoingResponseResource)
-	if !ok {
+	if !ok || resp.bodyTaken {
 		return 0, 1
 	}
+	resp.bodyTaken = true
 
-	body := &outgoingBodyResource{
-		response: resp.response,
-		buffer:   h.responseBuffer,
-	}
+	body := &outgoingBodyResource{buffer: &resp.body}
 	handle := h.resources.Add(body)
 	return handle, 0
 }
@@ -293,7 +288,20 @@ func (h *TypesHost) ResourceDropOutgoingBody(_ context.Context, self uint32) {
 }
 
 // [static]response-outparam.set
-func (h *TypesHost) StaticResponseOutparamSet(_ context.Context, _ uint32, _ bool, _ uint32) {
+func (h *TypesHost) StaticResponseOutparamSet(_ context.Context, _ uint32, hasResponse bool, responseHandle uint32) {
+	h.currentResponse = nil
+	if !hasResponse {
+		return
+	}
+	resource, ok := h.resources.Get(responseHandle)
+	if !ok {
+		return
+	}
+	response, ok := resource.(*outgoingResponseResource)
+	if ok {
+		response.response.Body = response.body.Bytes()
+		h.currentResponse = response.response
+	}
 }
 
 // [resource-drop]response-outparam
@@ -351,6 +359,10 @@ func (h *TypesHost) MethodIncomingRequestHeaders(_ context.Context, _ uint32) ui
 
 // [method]incoming-request.consume
 func (h *TypesHost) MethodIncomingRequestConsume(_ context.Context, _ uint32) (uint32, uint32) {
+	if h.requestBodyTaken {
+		return 0, 1
+	}
+	h.requestBodyTaken = true
 	body := &incomingBodyResource{}
 	if h.currentRequest != nil {
 		body.data = h.currentRequest.Body
@@ -428,15 +440,16 @@ func (f *futureTrailersResource) Type() preview2.ResourceType { return resourceT
 func (f *futureTrailersResource) Drop()                       {}
 
 type outgoingResponseResource struct {
-	response *Response
+	response  *Response
+	body      bytes.Buffer
+	bodyTaken bool
 }
 
 func (r *outgoingResponseResource) Type() preview2.ResourceType { return resourceTypeOutgoingResponse }
 func (r *outgoingResponseResource) Drop()                       {}
 
 type outgoingBodyResource struct {
-	response *Response
-	buffer   *bytes.Buffer
+	buffer *bytes.Buffer
 }
 
 func (b *outgoingBodyResource) Type() preview2.ResourceType { return resourceTypeOutgoingBody }

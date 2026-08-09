@@ -32,6 +32,7 @@ Each process is sandboxed to the capabilities you grant it, your data stays on i
 ## Features
 
 **Process System**
+
 - Erlang-style supervision trees with configurable restart policies
 - Process isolation with message passing (no shared state)
 - Go-style channels and coroutines for concurrency
@@ -40,6 +41,7 @@ Each process is sandboxed to the capabilities you grant it, your data stays on i
 - Location-transparent PIDs across cluster nodes
 
 **Registry**
+
 - Versioned component store with transactional updates
 - Hot-reload without service interruption
 - Dependency-aware ordering for safe updates
@@ -47,6 +49,7 @@ Each process is sandboxed to the capabilities you grant it, your data stays on i
 - Rollback to any previous version
 
 **Security**
+
 - Attribute-based access control (ABAC)
 - Expression policies via expr-lang for complex rules
 - Token authentication with HMAC signing
@@ -54,6 +57,7 @@ Each process is sandboxed to the capabilities you grant it, your data stays on i
 - Configurable strict mode for security contexts
 
 **Lua Runtime**
+
 - 40+ built-in modules for common operations
 - Proto caching for fast script loading
 - Function interceptors (retry, metrics, tracing)
@@ -62,6 +66,7 @@ Each process is sandboxed to the capabilities you grant it, your data stays on i
 - Native command execution and Docker containers
 
 **Networking**
+
 - HTTP server with dynamic route registration
 - WebSocket client and server support
 - Middleware: CORS, rate limiting, compression, real IP
@@ -69,6 +74,7 @@ Each process is sandboxed to the capabilities you grant it, your data stays on i
 - SSE and chunked transfer encoding
 
 **Storage**
+
 - KV stores with memory and SQL backends
 - SQL databases: Postgres, MySQL, SQLite, MSSQL
 - Vector search in SQLite and Postgres for embeddings and RAG
@@ -77,6 +83,7 @@ Each process is sandboxed to the capabilities you grant it, your data stays on i
 - Environment variable providers (OS, file, memory, composite)
 
 **Observability**
+
 - OpenTelemetry traces and metrics
 - Prometheus exporter endpoint
 - Structured logging with Zap
@@ -84,6 +91,7 @@ Each process is sandboxed to the capabilities you grant it, your data stays on i
 - HTTP request tracing
 
 **Clustering**
+
 - Bounded Raft consensus core (voters, standbys, gossip-only clients)
 - SWIM gossip membership with gossip-driven bootstrap (`bootstrap_expect`)
 - Cluster-wide process names with consistency scopes: local, eventual, consistent, strong
@@ -92,6 +100,7 @@ Each process is sandboxed to the capabilities you grant it, your data stays on i
 - Location-transparent process messaging via relay; encrypted gossip
 
 **Extensibility**
+
 - Pluggable command dispatchers
 - Custom Lua module registration
 - Function interceptor chains
@@ -154,12 +163,15 @@ logmanager:
   stream_to_events: false
 
 security:
-  strict_mode: false
+  strict_mode: true
 
 registry:
   enable_history: true
-  history_type: memory # memory | sqlite | nil
+  history_type: memory # memory | sqlite | postgres | nil
   history_path: .wippy/registry.db
+  # For postgres history:
+  # history_dsn: ${env:WIPPY_REGISTRY_HISTORY_DSN}
+  # history_schema: wippy_registry
 
 finder:
   query_cache_size: 1000
@@ -243,7 +255,14 @@ cluster:
   internode:
     bind_addr: 0.0.0.0
     bind_port: 0
+    # Optional v2 relay endpoint for upgraded peers. v1 metadata remains the
+    # direct bind endpoint, so older peers keep working during rolling upgrades.
+    advertise_addr: ""
+    advertise_port: 0 # 0 = bind_port; requires advertise_addr
     auto_port: true
+    identity_key: "" # base64-encoded Ed25519 seed or private key
+    identity_key_file: ""
+    trusted_peer_keys: {} # node name to base64-encoded Ed25519 public key
 
 extensions:
   enabled: true
@@ -260,6 +279,76 @@ shutdown:
   timeout: 30s
 ```
 
+### Runtime configuration composition
+
+Dependency ranges remain `ns.dependency` registry entries and exact portable
+versions remain in `wippy.lock`. For local development, a runtime profile can
+replace a locked module with a checkout without changing the lock:
+
+Pass `--config` more than once to compose any set of runtime configuration
+files. Files use the same schema and merge from left to right, so later files
+override matching leaves while preserving unrelated settings:
+
+```sh
+wippy run \
+  --config .wippy.yaml \
+  --config .wippy.dev.yaml \
+  --config config/postgres-history.yaml \
+  --config .wippy.workspace.yaml \
+  --profile workspace
+```
+
+Every explicitly named file must exist. With no `--config`, `.wippy.yaml`
+remains the optional default. The first file defines the project directory used
+to resolve relative runtime paths. Profiles are applied after all files merge,
+in requested order, and CLI overrides such as `--set` are applied last.
+
+Configuration filenames have no reserved meaning. Keep private or
+machine-specific files out of version control using the repository's normal
+ignore policy. For example, the final file above could contain:
+
+```yaml
+version: "1.0"
+
+profiles:
+  workspace:
+    workspace:
+      replacements:
+        wippy/runtime: ../runtime
+```
+
+Use the same composition for commands that load dependencies:
+
+```sh
+wippy update --config .wippy.yaml --config .wippy.workspace.yaml --profile workspace
+wippy install --config .wippy.yaml --config .wippy.workspace.yaml --profile workspace
+```
+
+The runtime configuration stack is not a publishing input, and the `workspace`
+section is never exported in module metadata. A module can also restrict which
+non-workspace runtime profiles are published from its `wippy.yaml` manifest:
+
+```yaml
+publish:
+  profiles:
+    include: [production]
+  runtime:
+    sections: [security, registry, override]
+    vars: [public_url]
+```
+
+Published runtime configuration is application-owned. The selected sections
+and any variables they or the published profiles reference are carried into the
+application pack as defaults. Variable references are followed transitively.
+Use `publish.runtime.vars` only for intentionally public defaults which are not
+otherwise referenced; unlisted variables are not packaged. Publisher
+environment references and machine-local `boot`, `extensions`, and `workspace`
+sections are rejected.
+
+Existing `replacements:` in `wippy.lock` remain readable for compatibility but
+emit a deprecation warning. Move them to any runtime configuration file; new
+workspace replacements should not be added to the portable lock.
+
 ## Requirements
 
 - Go 1.26+
@@ -274,4 +363,3 @@ Mozilla Public License 2.0
 - [Issues](https://github.com/wippyai/runtime/issues)
 
 [documentation]: https://wippy.ai/en/
-

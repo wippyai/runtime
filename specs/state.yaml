@@ -1,0 +1,47 @@
+active_flow: release_complete
+active_epic_id: e01
+active_story_id: null
+phase: complete
+git:
+  branch: main
+  base: 55bc0336f205b3158d62d32ef434149a5f14275b
+  landed_head: e21f708cffbd1d22be7178a8870c47db5cb1fbdb
+handoff:
+  next_skill: survey-context
+metrics:
+  story_start: '2026-07-28T18:04:34Z'
+decisions:
+  authoritative_inventory_profile: linux-amd64-cgo-short-runtime-tags
+  planned_new_leaves: 165
+  planned_removed_leaves: 15
+  verified_leaf_identities: 13382
+  verified_passing_leaves: 13129
+  verified_visible_skips: 253
+  verified_statement_coverage_percent: 62.9
+  verified_differential_coverage_percent: 82.5
+  parallel_writers: isolated-worktrees-only
+  test_identity: SuiteID+Name
+  review_rounds_used: 5
+  review_and_gate: human-accepted-after-cap
+  final_review_a_score: 96
+  final_review_b_score: 93
+  post_review_jitter_fix: 0fa36ce9
+  human_decision: continue-after-post-review-fix
+  human_decision_at: '2026-07-28T23:46:42Z'
+  traceability_gate: WAIVED
+  traceability_reason: task-specific-gate-v4-replaces-unavailable-generic-matrix
+  security_gate: APPROVED
+release:
+  pr: https://github.com/wippyai/runtime/pull/531
+  merge_commit: acbb814ccb7cfc722bb0296025ffe4000e5d826c
+  stability_pr: https://github.com/wippyai/runtime/pull/532
+  stability_merge_commit: e21f708cffbd1d22be7178a8870c47db5cb1fbdb
+  code_head: e21f708cffbd1d22be7178a8870c47db5cb1fbdb
+  ci_verified: true
+  ci_run: https://github.com/wippyai/runtime/actions/runs/30413330164
+  codeql_run: https://github.com/wippyai/runtime/actions/runs/30413330244
+  checks:
+    lint: pass
+    codeql: pass
+    ubuntu: pass
+    windows: pass

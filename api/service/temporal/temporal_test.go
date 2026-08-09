@@ -65,6 +65,53 @@ func TestClientConfig_Validate(t *testing.T) {
 		assert.NoError(t, err)
 	})
 
+	t.Run("valid security HMAC key", func(t *testing.T) {
+		cfg := &ClientConfig{
+			Address:         "localhost:7233",
+			Auth:            AuthConfig{Type: AuthTypeNone},
+			SecurityHMACKey: []byte("0123456789abcdef0123456789abcdef"),
+		}
+		assert.NoError(t, cfg.Validate())
+	})
+
+	t.Run("valid previous security HMAC key", func(t *testing.T) {
+		cfg := &ClientConfig{
+			Address:                  "localhost:7233",
+			Auth:                     AuthConfig{Type: AuthTypeNone},
+			SecurityHMACKey:          []byte("0123456789abcdef0123456789abcdef"),
+			SecurityHMACPreviousKeys: [][]byte{[]byte("abcdef0123456789abcdef0123456789")},
+		}
+		assert.NoError(t, cfg.Validate())
+	})
+
+	t.Run("previous security HMAC key requires active key", func(t *testing.T) {
+		cfg := &ClientConfig{
+			Address:                  "localhost:7233",
+			Auth:                     AuthConfig{Type: AuthTypeNone},
+			SecurityHMACPreviousKeys: [][]byte{[]byte("abcdef0123456789abcdef0123456789")},
+		}
+		assert.Equal(t, ErrSecurityHMACKeyInvalid, cfg.Validate())
+	})
+
+	t.Run("short previous security HMAC key", func(t *testing.T) {
+		cfg := &ClientConfig{
+			Address:                  "localhost:7233",
+			Auth:                     AuthConfig{Type: AuthTypeNone},
+			SecurityHMACKey:          []byte("0123456789abcdef0123456789abcdef"),
+			SecurityHMACPreviousKeys: [][]byte{[]byte("short")},
+		}
+		assert.Equal(t, ErrSecurityHMACKeyInvalid, cfg.Validate())
+	})
+
+	t.Run("short security HMAC key", func(t *testing.T) {
+		cfg := &ClientConfig{
+			Address:         "localhost:7233",
+			Auth:            AuthConfig{Type: AuthTypeNone},
+			SecurityHMACKey: []byte("short"),
+		}
+		assert.Equal(t, ErrSecurityHMACKeyInvalid, cfg.Validate())
+	})
+
 	t.Run("missing address", func(t *testing.T) {
 		cfg := &ClientConfig{}
 		err := cfg.Validate()

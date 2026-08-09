@@ -30,6 +30,30 @@ var fileInfoType = typ.NewRecord().
 	Field("type", typ.String).
 	Build()
 
+// dirEntryType is the value produced by FS:readdir's generic-for iterator.
+// It intentionally differs from FileInfo: readdir exposes only the entry name
+// and kind, matching dirIteratorNext in fs.go.
+var dirEntryType = typ.NewRecord().
+	Field("name", typ.String).
+	Field("type", typ.NewUnion(
+		typ.LiteralString(typeFile),
+		typ.LiteralString(typeDir),
+	)).
+	Build()
+
+// Lua's generic-for protocol calls the generator as generator(state, control).
+// dirIteratorNext consumes the state userdata and ignores the control value.
+var dirIteratorType = typ.Func().
+	Param("state", typ.Any).
+	OptParam("control", typ.Any).
+	Returns(typ.NewOptional(dirEntryType)).
+	Build()
+
+// The iterator state is opaque to Lua callers. A named, methodless interface
+// is nominal in go-lua and therefore models the userdata without inventing
+// operations that the runtime does not provide.
+var dirIteratorStateType = typ.NewInterface("fs.DirIterator", nil)
+
 var scannerType = typ.NewInterface("fs.Scanner", []typ.Method{
 	{Name: "scan", Type: typ.Func().
 		Param("self", typ.Self).
@@ -108,7 +132,10 @@ func init() {
 		{Name: "readdir", Type: typ.Func().
 			Param("self", typ.Self).
 			Param("path", typ.String).
-			Returns(typ.NewArray(fileInfoType), typ.NewOptional(typ.LuaError)).
+			Returns(
+				typ.NewOptional(dirIteratorType),
+				typ.NewUnion(dirIteratorStateType, typ.LuaError),
+			).
 			Build()},
 		{Name: "mkdir", Type: typ.Func().
 			Param("self", typ.Self).

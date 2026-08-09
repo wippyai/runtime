@@ -9,15 +9,56 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/function"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/process"
 	queueapi "github.com/wippyai/runtime/api/queue"
 	"github.com/wippyai/runtime/api/runtime"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/trace"
 	"go.opentelemetry.io/otel/trace/noop"
 )
+
+func TestA01LocalSpanPropagatesRemoteContext(t *testing.T) {
+	provider := sdktrace.NewTracerProvider(sdktrace.WithSampler(sdktrace.AlwaysSample()))
+	defer func() { require.NoError(t, provider.Shutdown(context.Background())) }()
+
+	source, sourceFrame := ctxapi.OpenFrameContext(context.Background())
+	defer sourceFrame.Close()
+	_, span := provider.Tracer("boundary-test").Start(source, "local")
+	defer span.End()
+	require.True(t, span.SpanContext().IsValid())
+	require.NoError(t, SetSpan(source, span))
+
+	received, receivedFrame := ctxapi.OpenFrameContext(context.Background())
+	defer receivedFrame.Close()
+	require.NoError(t, receivedFrame.SetMultiple(ctxapi.PropagatedPairs(source)...))
+
+	got, ok := GetRemoteSpanContext(received)
+	require.True(t, ok)
+	assert.Equal(t, span.SpanContext(), got)
+}
+
+func TestA02PropagatedContextIsNotLocalSpan(t *testing.T) {
+	traceID, err := trace.TraceIDFromHex("0102030405060708090a0b0c0d0e0f10")
+	require.NoError(t, err)
+	spanID, err := trace.SpanIDFromHex("1112131415161718")
+	require.NoError(t, err)
+	remote := trace.NewSpanContext(trace.SpanContextConfig{TraceID: traceID, SpanID: spanID, Remote: true})
+
+	ctx, frame := ctxapi.OpenFrameContext(context.Background())
+	defer frame.Close()
+	require.NoError(t, frame.Set(GetSpanKey(), remote))
+
+	span, ok := GetSpan(ctx)
+	assert.False(t, ok)
+	assert.Nil(t, span)
+	got, ok := GetRemoteSpanContext(ctx)
+	require.True(t, ok)
+	assert.Equal(t, remote, got)
+}
 
 func TestWithTracer_GetTracer(t *testing.T) {
 	ctx := context.Background()

@@ -13,6 +13,7 @@ import (
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/registry"
 	api "github.com/wippyai/runtime/api/runtime/lua"
+	"github.com/wippyai/runtime/api/security"
 	runtimelua "github.com/wippyai/runtime/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/code"
 	"github.com/wippyai/runtime/runtime/lua/component"
@@ -25,6 +26,7 @@ import (
 type configEntry struct {
 	source   *api.ProcessConfig
 	bytecode *api.BytecodeProcessConfig
+	security *security.Config
 	method   string
 }
 
@@ -96,6 +98,7 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 // Invalidate handles code invalidation for hot reload.
 func (m *Manager) Invalidate(ctx context.Context, ids []registry.ID) error {
 	var errs []error
+	reloaded := make([]registry.ID, 0, len(ids))
 	for _, id := range ids {
 		cfgAny, exists := m.configs.Load(id)
 		if !exists {
@@ -114,12 +117,37 @@ func (m *Manager) Invalidate(ctx context.Context, ids []registry.ID) error {
 			}
 		}
 
-		if err := m.registerFactory(ctx, id, cfg.method); err != nil {
+		if err := m.registerFactory(ctx, id, cfg.method, cfg.security); err != nil {
 			m.log.Error("failed to invalidate process", zap.Error(err))
 			errs = append(errs, err)
+			continue
 		}
+		reloaded = append(reloaded, id)
 	}
+
+	// Notify running instances only for nodes whose factory swap succeeded, so a
+	// node whose reload failed never signals OUTDATED.
+	m.notifyOutdated(ctx, reloaded)
+
 	return errors.Join(errs...)
+}
+
+// notifyOutdated tells running instances that a source node in the affected set
+// changed. A missing notifier (isolated tests, minimal embedders) or an empty
+// set is a no-op.
+func (m *Manager) notifyOutdated(ctx context.Context, ids []registry.ID) {
+	if len(ids) == 0 {
+		return
+	}
+	notifier := process.GetOutdatedNotifier(ctx)
+	if notifier == nil {
+		return
+	}
+	affected := make(map[registry.ID]bool, len(ids))
+	for _, id := range ids {
+		affected[id] = true
+	}
+	notifier.NotifyOutdated(affected)
 }
 
 // addSource adds a source-based process.
@@ -140,9 +168,9 @@ func (m *Manager) addSource(ctx context.Context, entry registry.Entry) error {
 		return runtimelua.NewAddNodeError("process", err)
 	}
 
-	m.configs.Store(entry.ID, &configEntry{method: cfg.Method, source: cfg})
+	m.configs.Store(entry.ID, &configEntry{method: cfg.Method, source: cfg, security: cfg.Security})
 
-	if err := m.registerFactory(ctx, entry.ID, cfg.Method); err != nil {
+	if err := m.registerFactory(ctx, entry.ID, cfg.Method, cfg.Security); err != nil {
 		_ = m.code.DeleteNode(ctx, entry.ID)
 		m.configs.Delete(entry.ID)
 		return runtimelua.NewRegisterFactoryError(err)
@@ -174,9 +202,9 @@ func (m *Manager) addBytecode(ctx context.Context, entry registry.Entry) error {
 		return runtimelua.NewAddNodeError("process", err)
 	}
 
-	m.configs.Store(entry.ID, &configEntry{method: cfg.Method, bytecode: cfg})
+	m.configs.Store(entry.ID, &configEntry{method: cfg.Method, bytecode: cfg, security: cfg.Security})
 
-	if err := m.registerFactory(ctx, entry.ID, cfg.Method); err != nil {
+	if err := m.registerFactory(ctx, entry.ID, cfg.Method, cfg.Security); err != nil {
 		_ = m.code.DeleteNode(ctx, entry.ID)
 		m.configs.Delete(entry.ID)
 		return runtimelua.NewRegisterFactoryError(err)
@@ -208,9 +236,9 @@ func (m *Manager) updateSource(ctx context.Context, entry registry.Entry) error 
 		return runtimelua.NewUpdateNodeError("process", err)
 	}
 
-	m.configs.Store(entry.ID, &configEntry{method: cfg.Method, source: cfg})
+	m.configs.Store(entry.ID, &configEntry{method: cfg.Method, source: cfg, security: cfg.Security})
 
-	if err := m.registerFactory(ctx, entry.ID, cfg.Method); err != nil {
+	if err := m.registerFactory(ctx, entry.ID, cfg.Method, cfg.Security); err != nil {
 		return runtimelua.NewUpdateFactoryError(err)
 	}
 
@@ -240,9 +268,9 @@ func (m *Manager) updateBytecode(ctx context.Context, entry registry.Entry) erro
 		return runtimelua.NewUpdateNodeError("process", err)
 	}
 
-	m.configs.Store(entry.ID, &configEntry{method: cfg.Method, bytecode: cfg})
+	m.configs.Store(entry.ID, &configEntry{method: cfg.Method, bytecode: cfg, security: cfg.Security})
 
-	if err := m.registerFactory(ctx, entry.ID, cfg.Method); err != nil {
+	if err := m.registerFactory(ctx, entry.ID, cfg.Method, cfg.Security); err != nil {
 		return runtimelua.NewUpdateFactoryError(err)
 	}
 
@@ -251,7 +279,7 @@ func (m *Manager) updateBytecode(ctx context.Context, entry registry.Entry) erro
 }
 
 // registerFactory registers a process factory with the factory registry and waits for confirmation.
-func (m *Manager) registerFactory(ctx context.Context, id registry.ID, method string) error {
+func (m *Manager) registerFactory(ctx context.Context, id registry.ID, method string, sec *security.Config) error {
 	// Create factory using ProcessFactory
 	factoryFn, err := m.factory.CreateFactory(id, engine.WithModules(component.ExecutableAmbientModules()...))
 	if err != nil {
@@ -282,7 +310,8 @@ func (m *Manager) registerFactory(ctx context.Context, id registry.ID, method st
 		Data: &process.FactoryEntry{
 			Factory: factoryFn,
 			Meta: process.Meta{
-				Method: method,
+				Method:   method,
+				Security: sec,
 			},
 		},
 	})

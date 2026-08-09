@@ -22,11 +22,14 @@ type Worker struct {
 	inject    *InjectQueue
 	scheduler *Scheduler
 	parkCond  *sync.Cond
+	done      chan struct{}
+	parkMu    sync.Mutex
+	routeMu   sync.Mutex
 	id        int
 	executed  atomic.Uint64
 	stolen    atomic.Uint64
-	parkMu    sync.Mutex
 	notified  atomic.Bool
+	retiring  atomic.Bool
 }
 
 func newWorker(id int, s *Scheduler) *Worker {
@@ -35,6 +38,7 @@ func newWorker(id int, s *Scheduler) *Worker {
 		scheduler: s,
 		local:     NewDeque(s.localQueueSize),
 		inject:    NewInjectQueue(),
+		done:      make(chan struct{}),
 	}
 	w.parkCond = sync.NewCond(&w.parkMu)
 	return w
@@ -45,7 +49,16 @@ func (w *Worker) run() {
 	spins := 0
 
 	for {
+		if w.retiring.Load() {
+			w.handoffQueuedWork()
+			return
+		}
 		if proc := w.findWork(); proc != nil {
+			if w.retiring.Load() {
+				w.handoff(proc)
+				w.handoffQueuedWork()
+				return
+			}
 			spins = 0
 			w.executeOne(proc)
 			w.executed.Add(1)
@@ -68,6 +81,10 @@ func (w *Worker) run() {
 
 		spins = 0
 		w.park()
+		if w.retiring.Load() {
+			w.handoffQueuedWork()
+			return
+		}
 		if s.stopping.Load() {
 			w.drain()
 			return
@@ -75,10 +92,55 @@ func (w *Worker) run() {
 	}
 }
 
+func (w *Worker) retire() {
+	w.routeMu.Lock()
+	w.retiring.Store(true)
+	w.routeMu.Unlock()
+	w.signal()
+}
+
+func (w *Worker) injectProcessor(proc *Processor) bool {
+	w.routeMu.Lock()
+	defer w.routeMu.Unlock()
+	if w.retiring.Load() {
+		return false
+	}
+	w.inject.Push(proc)
+	w.signal()
+	return true
+}
+
+func (w *Worker) handoffQueuedWork() {
+	for {
+		proc := w.local.Pop()
+		if proc == nil {
+			break
+		}
+		w.handoff(proc)
+	}
+	for {
+		proc := w.inject.Pop()
+		if proc == nil {
+			break
+		}
+		w.handoff(proc)
+	}
+	w.scheduler.wakeAll()
+}
+
+func (w *Worker) handoff(proc *Processor) {
+	proc.lastWorker.Store(noWorkerAffinity)
+	w.scheduler.global.Push(proc)
+}
+
 func (w *Worker) park() {
 	s := w.scheduler
 	w.parkMu.Lock()
 	for {
+		if w.retiring.Load() {
+			w.parkMu.Unlock()
+			return
+		}
 		if proc := w.findWork(); proc != nil {
 			shouldWake := s.global.Len() > 0
 			w.parkMu.Unlock()
@@ -157,7 +219,7 @@ func (w *Worker) findWork() *Processor {
 }
 
 func (w *Worker) steal() *Processor {
-	workers := w.scheduler.workers
+	workers := w.scheduler.workerSnapshot()
 	n := len(workers)
 	if n <= 1 {
 		return nil
@@ -365,6 +427,19 @@ func (w *Worker) executeOne(proc *Processor) {
 		}
 		selfPID, hasSelfPID := runtime.GetFramePID(proc.ctx)
 		upgradeCtx, _ := ctxapi.OpenFrameContext(proc.ctx)
+		// The frame id does not inherit across frames; carry the resolved
+		// upgrade source onto the new frame so a cross-source upgrade classifies
+		// the process by its NEW definition (used by ListProcesses and OUTDATED
+		// notification), not the pre-upgrade source.
+		if err := runtime.SetFrameID(upgradeCtx, source); err != nil {
+			proc.Process.Close()
+			if !proc.casState(StateRunning, StateComplete) {
+				return
+			}
+			proc.queue.Close()
+			w.scheduler.complete(proc, nil, fmt.Errorf("upgrade: set source failed: %w", err))
+			return
+		}
 		if hasSelfPID {
 			if err := runtime.SetFramePID(upgradeCtx, selfPID); err != nil {
 				proc.Process.Close()
@@ -386,6 +461,11 @@ func (w *Worker) executeOne(proc *Processor) {
 			return
 		}
 		proc.ctx = upgradeCtx
+		// Re-publish the out-of-band snapshot so future invalidations classify
+		// the process by its (possibly new) upgraded source. The queue
+		// generation is unchanged by upgrade, so in-flight deliveries stay valid.
+		proc.publishSignalRef()
+		proc.publishInspectorRef()
 
 		// Success - re-queue to local
 		if !proc.casState(StateRunning, StateReady) {

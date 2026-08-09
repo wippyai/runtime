@@ -81,6 +81,18 @@ func (b *StateBuilder) SortChangeSetWithIndex(fromState registry.State, changeSe
 			createUpdateEntries = append(createUpdateEntries, operation.Entry)
 		}
 	}
+	replacementIDs := make(map[registry.ID]struct{})
+	for id, deleteIndexes := range deleteIndexesByID {
+		if len(deleteIndexes) == 0 {
+			continue
+		}
+		for _, index := range createUpdateIndexesByID[id] {
+			if changeSet[index].Kind == registry.EntryCreate {
+				replacementIDs[id] = struct{}{}
+				break
+			}
+		}
+	}
 
 	// Same-ID replacement needs the old entry removed before the new entry can
 	// be created. If live dependents still point at the old ID, the dependent
@@ -112,6 +124,7 @@ func (b *StateBuilder) SortChangeSetWithIndex(fromState registry.State, changeSe
 	// Source-side dependencies: every live dependent must be updated or deleted
 	// before a dependency can be removed. Missing dependent operations are left
 	// unconstrained so the normal listener validation rejects invalid changesets.
+	blockedReplacementIDs := make(map[registry.ID]struct{})
 	if depIdx != nil && len(deleteIndexesByID) > 0 {
 		stateByID := stateIDIndex(fromState)
 		dependents := make(map[registry.ID]struct{})
@@ -136,21 +149,38 @@ func (b *StateBuilder) SortChangeSetWithIndex(fromState registry.State, changeSe
 					zap.Strings("dependents", depIDs))
 			}
 			for dependentID := range dependents {
+				hasDependentMutation := false
 				for _, dependentIndex := range opIndexesByID[dependentID] {
 					kind := changeSet[dependentIndex].Kind
 					if kind != registry.EntryUpdate && kind != registry.EntryDelete {
 						continue
 					}
+					hasDependentMutation = true
 					for _, deleteIndex := range deleteIndexes {
 						addConstraint(dependentIndex, deleteIndex)
+					}
+				}
+				if !hasDependentMutation {
+					if _, replacing := replacementIDs[id]; replacing {
+						blockedReplacementIDs[id] = struct{}{}
 					}
 				}
 			}
 		}
 	}
+	if len(blockedReplacementIDs) > 0 {
+		ids := make([]registry.ID, 0, len(blockedReplacementIDs))
+		for id := range blockedReplacementIDs {
+			ids = append(ids, id)
+		}
+		return nil, NewReplacementDependencyCycleError(ids)
+	}
 
 	order, ok := stableTopologicalOrder(len(changeSet), constraints)
 	if !ok {
+		if ids := unsatisfiableReplacementCycleIDs(changeSet, deleteIndexesByID, createUpdateIndexesByID, constraints); len(ids) > 0 {
+			return nil, NewReplacementDependencyCycleError(ids)
+		}
 		b.log.Warn("operation dependency cycle detected while sorting changeset; using deterministic fallback")
 		return b.fallbackSortChangeSet(fromState, changeSet), nil
 	}
@@ -161,6 +191,58 @@ func (b *StateBuilder) SortChangeSetWithIndex(fromState registry.State, changeSe
 	}
 
 	return sortedChangeSet, nil
+}
+
+// unsatisfiableReplacementCycleIDs returns same-ID delete/create replacements
+// whose required delete -> create edge is part of a cycle. Those cycles cannot
+// be repaired by choosing a different sequential order: some live dependent
+// must remain attached to the old ID until after the replacement is created,
+// while the replacement cannot be created until the old ID is deleted.
+func unsatisfiableReplacementCycleIDs(
+	changeSet registry.ChangeSet,
+	deleteIndexesByID map[registry.ID][]int,
+	createUpdateIndexesByID map[registry.ID][]int,
+	constraints map[int]map[int]struct{},
+) []registry.ID {
+	ids := make([]registry.ID, 0)
+	for id, deleteIndexes := range deleteIndexesByID {
+		cyclic := false
+		for _, createIndex := range createUpdateIndexesByID[id] {
+			if changeSet[createIndex].Kind != registry.EntryCreate {
+				continue
+			}
+			for _, deleteIndex := range deleteIndexes {
+				if hasConstraintPath(constraints, createIndex, deleteIndex, make(map[int]struct{})) {
+					cyclic = true
+					break
+				}
+			}
+			if cyclic {
+				break
+			}
+		}
+		if cyclic {
+			ids = append(ids, id)
+		}
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i].String() < ids[j].String() })
+	return ids
+}
+
+func hasConstraintPath(constraints map[int]map[int]struct{}, from, target int, seen map[int]struct{}) bool {
+	if from == target {
+		return true
+	}
+	if _, visited := seen[from]; visited {
+		return false
+	}
+	seen[from] = struct{}{}
+	for next := range constraints[from] {
+		if hasConstraintPath(constraints, next, target, seen) {
+			return true
+		}
+	}
+	return false
 }
 
 func hasDeleteOp(changeSet registry.ChangeSet) bool {

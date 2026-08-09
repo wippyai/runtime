@@ -3,6 +3,7 @@
 package nil
 
 import (
+	"errors"
 	"sync"
 	"testing"
 
@@ -204,4 +205,126 @@ func TestHistory_ConcurrentHeadRead(t *testing.T) {
 	}
 
 	wg.Wait()
+}
+
+func TestHistory_RetainsCurrentDependencyResolution(t *testing.T) {
+	hist := New()
+	v0 := version.New(registry.RootVersion)
+	first := (&registry.DependencyResolution{InputDigest: "first"}).Canonical()
+	second := (&registry.DependencyResolution{InputDigest: "second"}).Canonical()
+
+	if err := hist.CheckpointDependencyResolution(v0, first); err != nil {
+		t.Fatalf("checkpoint baseline resolution: %v", err)
+	}
+	got, err := hist.GetDependencyResolution(v0)
+	if err != nil || got.Digest != first.Digest {
+		t.Fatalf("get baseline resolution: %#v, %v", got, err)
+	}
+	if err := hist.CheckpointDependencyResolution(v0, second); err == nil {
+		t.Fatal("expected immutable checkpoint conflict")
+	}
+
+	v1 := version.FromParent(v0, 1)
+	if err := hist.SaveWithDependencyResolution(v1, nil, second, true); err != nil {
+		t.Fatalf("save runtime resolution: %v", err)
+	}
+	got, err = hist.GetDependencyResolution(v1)
+	if err != nil || got.Digest != second.Digest {
+		t.Fatalf("get runtime resolution: %#v, %v", got, err)
+	}
+	if _, err := hist.GetDependencyResolution(v0); err == nil {
+		t.Fatal("nil history must expose only the current resolution")
+	}
+}
+
+func TestHistory_AtomicResolutionInitializesRootHead(t *testing.T) {
+	hist := New()
+	v0 := version.New(registry.RootVersion)
+	resolution := (&registry.DependencyResolution{InputDigest: "baseline"}).Canonical()
+
+	if err := hist.CompareAndSetHeadWithDependencyResolution(v0, v0, resolution); err != nil {
+		t.Fatalf("initialize root resolution and head: %v", err)
+	}
+	head, err := hist.Head()
+	if err != nil || head.ID() != registry.RootVersion {
+		t.Fatalf("root head was not initialized: %#v, %v", head, err)
+	}
+	stored, err := hist.GetDependencyResolution(v0)
+	if err != nil || stored.Digest != resolution.Digest {
+		t.Fatalf("root resolution was not initialized: %#v, %v", stored, err)
+	}
+}
+
+func TestHistory_AtomicResolutionRebasesOnlyAcrossDeploymentBaselines(t *testing.T) {
+	hist := New()
+	v0 := version.New(registry.RootVersion)
+	graph := func(baseline, input string) *registry.DependencyResolution {
+		return (&registry.DependencyResolution{BaselineDigest: baseline, InputDigest: input}).Canonical()
+	}
+	first := graph("sha256:baseline-a", "first")
+	if err := hist.CompareAndSetHeadWithDependencyResolution(v0, v0, first); err != nil {
+		t.Fatalf("initialize resolution: %v", err)
+	}
+	if err := hist.CompareAndSetHeadWithDependencyResolution(v0, v0, graph("sha256:baseline-a", "rewrite")); err == nil {
+		t.Fatal("expected same-baseline rewrite rejection")
+	}
+	if err := hist.CompareAndSetHeadWithDependencyResolution(v0, v0, graph("sha256:baseline-b", "rebased")); err != nil {
+		t.Fatalf("rebase resolution: %v", err)
+	}
+}
+
+func TestHistory_RejectsMalformedResolutionWithoutMutation(t *testing.T) {
+	hist := New()
+	malformed := (&registry.DependencyResolution{Roots: []registry.DependencyRoot{
+		{ID: "duplicate", Component: "one", Version: "1"},
+		{ID: "duplicate", Component: "two", Version: "1"},
+	}}).Canonical()
+	v0 := version.New(registry.RootVersion)
+
+	if err := hist.SaveWithDependencyResolution(v0, nil, malformed, true); !errors.Is(err, registry.ErrInvalidDependencyResolution) {
+		t.Fatalf("expected invalid resolution error, got %v", err)
+	}
+	if _, err := hist.Head(); err == nil {
+		t.Fatal("malformed resolution advanced nil history head")
+	}
+}
+
+func TestHistory_ReferencedResolutionRoundTripsAndRejectsUnsound(t *testing.T) {
+	hist := New()
+	v0 := version.New(registry.RootVersion)
+	v1 := version.FromParent(v0, 1)
+	if err := hist.Save(v0, registry.ChangeSet{}, true); err != nil {
+		t.Fatalf("save v0: %v", err)
+	}
+
+	referenced := (&registry.DependencyResolution{
+		InputDigest: "sha256:input",
+		Roots: []registry.DependencyRoot{
+			{ID: "app.deps:tools", Component: "acme/tools", Version: ">=1.0.0"},
+		},
+		References: []registry.DependencyRoot{
+			{ID: "acme.pkg:__dependency.acme.tools", Component: "acme/tools", Version: ">=1.2.0"},
+		},
+		Modules: []registry.ResolvedModule{
+			{Name: "acme/tools", Version: "1.4.0", Digest: "sha256:mod"},
+		},
+	}).Canonical()
+	if err := hist.SaveWithDependencyResolution(v1, nil, referenced, true); err != nil {
+		t.Fatalf("save referenced: %v", err)
+	}
+	stored, err := hist.GetDependencyResolution(v1)
+	if err != nil {
+		t.Fatalf("get referenced: %v", err)
+	}
+	if stored.Digest != referenced.Digest || len(stored.References) != 1 {
+		t.Fatalf("referenced graph must round trip, got %+v", stored)
+	}
+
+	unsound := referenced.Canonical()
+	unsound.References[0].Version = ">=2.0.0"
+	unsound = unsound.Canonical()
+	v2 := version.FromParent(v1, 2)
+	if err := hist.SaveWithDependencyResolution(v2, nil, unsound, true); !errors.Is(err, registry.ErrInvalidDependencyResolution) {
+		t.Fatalf("expected ErrInvalidDependencyResolution, got %v", err)
+	}
 }

@@ -5,6 +5,7 @@ package actor
 import (
 	"context"
 	goruntime "runtime"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -17,7 +18,6 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
-	"github.com/wippyai/runtime/api/security"
 	"github.com/wippyai/runtime/api/topology"
 	"github.com/wippyai/runtime/system/scheduler/affinity"
 )
@@ -27,7 +27,7 @@ type Option func(*Scheduler)
 func WithWorkers(n int) Option {
 	return func(s *Scheduler) {
 		if n > 0 {
-			s.numWorkers = n
+			s.initialWorkers = n
 		}
 	}
 }
@@ -68,29 +68,33 @@ func WithMaxProcesses(maxProcs int64) Option {
 }
 
 type Scheduler struct {
-	lifecycle      process.Lifecycle
-	registry       dispatcher.Registry
-	global         *Queue
-	drainCh        chan struct{}
-	byQueue        sync.Map
-	byPID          sync.Map
-	workers        []*Worker
-	pinSet         affinity.Set
-	wg             sync.WaitGroup
-	numWorkers     int
-	maxProcesses   int64
-	localQueueSize int
-	processorCount atomic.Int64
-	queueSize      int
-	nextID         atomic.Uint64
-	stopping       atomic.Bool
-	collectStats   atomic.Bool
+	lifecycle       process.Lifecycle
+	registry        dispatcher.Registry
+	global          *Queue
+	drainCh         chan struct{}
+	byQueue         sync.Map
+	byPID           sync.Map
+	workers         atomic.Pointer[workerSet]
+	pinSet          affinity.Set
+	wg              sync.WaitGroup
+	controlMu       sync.Mutex
+	initialWorkers  int
+	maxProcesses    int64
+	localQueueSize  int
+	processorCount  atomic.Int64
+	retiredExecuted atomic.Uint64
+	retiredStolen   atomic.Uint64
+	queueSize       int
+	nextID          atomic.Uint64
+	stopping        atomic.Bool
+	collectStats    atomic.Bool
+	started         bool
 }
 
 func NewScheduler(registry dispatcher.Registry, opts ...Option) *Scheduler {
 	s := &Scheduler{
 		registry:       registry,
-		numWorkers:     goruntime.GOMAXPROCS(0),
+		initialWorkers: goruntime.GOMAXPROCS(0),
 		queueSize:      1024,
 		localQueueSize: 256,
 	}
@@ -101,11 +105,11 @@ func NewScheduler(registry dispatcher.Registry, opts ...Option) *Scheduler {
 
 	s.global = NewQueue(s.queueSize)
 	s.drainCh = make(chan struct{}, 1)
-	s.workers = make([]*Worker, s.numWorkers)
-
-	for i := range s.workers {
-		s.workers[i] = newWorker(i, s)
+	workers := make([]*Worker, s.initialWorkers)
+	for i := range workers {
+		workers[i] = newWorker(i, s)
 	}
+	s.storeWorkers(workers)
 
 	return s
 }
@@ -114,26 +118,17 @@ func (s *Scheduler) getHandler(cmd dispatcher.Command) dispatcher.Handler {
 	return s.registry.Get(cmd.CmdID())
 }
 
-func (s *Scheduler) Start() {
-	for _, w := range s.workers {
-		s.wg.Add(1)
-		go func(worker *Worker) {
-			defer s.wg.Done()
-			if len(s.pinSet) > 0 {
-				goruntime.LockOSThread()
-				defer goruntime.UnlockOSThread()
-				_ = affinity.Apply(s.pinSet)
-			}
-			worker.run()
-		}(w)
-	}
-}
-
 // Stop gracefully shuts down the scheduler.
 // Sends cancel events and waits for processes to complete or context deadline.
 func (s *Scheduler) Stop(ctx context.Context) {
-	// Set stopping first - prevents new submissions and pool release
-	s.stopping.Store(true)
+	// Publish the terminal state while serialized with Start and Resize, then
+	// release the control lock before lifecycle callbacks and worker waits.
+	s.controlMu.Lock()
+	if s.stopping.Swap(true) {
+		s.controlMu.Unlock()
+		return
+	}
+	s.controlMu.Unlock()
 
 	// Push cancel event directly to each processor's queue.
 	// Safe because stopping=true prevents pool release.
@@ -199,7 +194,7 @@ func (s *Scheduler) Stop(ctx context.Context) {
 }
 
 func (s *Scheduler) wakeAny() {
-	for _, w := range s.workers {
+	for _, w := range s.workerSnapshot() {
 		if w.signal() {
 			return
 		}
@@ -207,20 +202,23 @@ func (s *Scheduler) wakeAny() {
 }
 
 func (s *Scheduler) wakeAll() {
-	for _, w := range s.workers {
+	for _, w := range s.workerSnapshot() {
 		_ = w.signal()
 	}
 }
 
 func (s *Scheduler) injectOrGlobal(proc *Processor) {
 	workerID := proc.lastWorker.Load()
-	if workerID >= 0 && int(workerID) < len(s.workers) {
-		s.workers[workerID].inject.Push(proc)
-		s.workers[workerID].signal()
-	} else {
-		s.global.Push(proc)
-		s.wakeAny()
+	workers := s.workerSnapshot()
+	if workerID >= 0 && int(workerID) < len(workers) {
+		worker := workers[workerID]
+		if worker.injectProcessor(proc) {
+			return
+		}
 	}
+	proc.lastWorker.Store(noWorkerAffinity)
+	s.global.Push(proc)
+	s.wakeAny()
 }
 
 // WakeProcessor implements process.YieldScheduler.
@@ -275,6 +273,8 @@ func (s *Scheduler) Submit(ctx context.Context, pid pid.PID, p process.Process, 
 	// Reset queue for this execution and cache generation
 	proc.queue.Reset()
 	proc.gen.Store(proc.queue.Generation())
+	proc.publishSignalRef()
+	proc.publishInspectorRef()
 
 	s.processorCount.Add(1)
 	s.byPID.Store(pid.String(), proc)
@@ -404,6 +404,8 @@ func (s *Scheduler) CreateProcessor(ctx context.Context, pid pid.PID, p process.
 	// Reset queue for this execution and cache generation
 	proc.queue.Reset()
 	proc.gen.Store(proc.queue.Generation())
+	proc.publishSignalRef()
+	proc.publishInspectorRef()
 
 	s.processorCount.Add(1)
 	s.byPID.Store(pid.String(), proc)
@@ -414,6 +416,8 @@ func (s *Scheduler) CreateProcessor(ctx context.Context, pid pid.PID, p process.
 
 func (s *Scheduler) ReleaseProcessor(proc *Processor) {
 	s.processorCount.Add(-1)
+	proc.sig.Store(nil)
+	proc.inspector.Store(nil)
 	s.byPID.Delete(proc.pid.String())
 	s.byQueue.Delete(proc.queue)
 	if proc.cancel != nil {
@@ -435,13 +439,25 @@ func (s *Scheduler) Send(pkg *relay.Package) error {
 	}
 	proc := v.(*Processor)
 
-	// Push message event to processor's queue with generation check
+	if !s.deliverToProc(proc, proc.gen.Load(), pkg) {
+		// Push failed - queue closed, process is terminating
+		return process.ErrProcessClosed
+	}
+
+	return nil
+}
+
+// deliverToProc pushes pkg onto proc's queue under the expected generation and
+// wakes it if parked. The generation check is atomic: a released or reused
+// processor slot (its Reset bumped the generation) rejects a stale push, so
+// callers holding an out-of-band snapshot never deliver to a different process
+// that has since inherited the slot. Returns whether the push succeeded.
+func (s *Scheduler) deliverToProc(proc *Processor, gen uint64, pkg *relay.Package) bool {
 	if !proc.queue.Push(process.Event{
 		Type: process.EventMessage,
 		Data: pkg,
-	}, proc.gen.Load()) {
-		// Push failed - queue closed, process is terminating
-		return process.ErrProcessClosed
+	}, gen) {
+		return false
 	}
 
 	// Wake process if waiting for messages.
@@ -453,14 +469,16 @@ func (s *Scheduler) Send(pkg *relay.Package) error {
 		s.injectOrGlobal(proc)
 	}
 
-	return nil
+	return true
 }
 
 func (s *Scheduler) Stats() map[string]uint64 {
 	stats := make(map[string]uint64, 8)
 
-	var executed, stolen uint64
-	for _, w := range s.workers {
+	executed := s.retiredExecuted.Load()
+	stolen := s.retiredStolen.Load()
+	workers := s.workerSnapshot()
+	for _, w := range workers {
 		executed += w.executed.Load()
 		stolen += w.stolen.Load()
 	}
@@ -471,15 +489,16 @@ func (s *Scheduler) Stats() map[string]uint64 {
 	stats["executed"] = executed
 	stats["stolen"] = stolen
 	stats["global_queue"] = uint64(max(0, s.global.Len()))
-	stats["workers"] = uint64(len(s.workers))
+	stats["workers"] = uint64(len(workers))
 	stats["processes"] = processCount
 
 	return stats
 }
 
 func (s *Scheduler) WorkerStats() []map[string]uint64 {
-	result := make([]map[string]uint64, len(s.workers))
-	for i, w := range s.workers {
+	workers := s.workerSnapshot()
+	result := make([]map[string]uint64, len(workers))
+	for i, w := range workers {
 		result[i] = map[string]uint64{
 			"executed":    w.executed.Load(),
 			"stolen":      w.stolen.Load(),
@@ -529,34 +548,64 @@ type ProcessInfo struct {
 	StartedAt int64
 }
 
+// SendOutdated notifies every running instance whose source node is in the
+// affected set that its code (or a transitively imported dependency) changed,
+// so upgradable instances can hot-swap via process.upgrade. The scan reads each
+// processor's frame source id; non-matching instances are skipped and a
+// since-dead PID is a safe no-op. The per-instance upgradable gate is applied
+// on delivery, so the scan sends to all matched instances uniformly. An empty
+// affected set skips the scan entirely.
+func (s *Scheduler) SendOutdated(affected map[registry.ID]bool) {
+	if len(affected) == 0 {
+		return
+	}
+
+	// Deterministic source list, identical for every matched instance, so
+	// delivery does not depend on scan or map iteration order.
+	sources := make([]registry.ID, 0, len(affected))
+	for id := range affected {
+		sources = append(sources, id)
+	}
+	sort.Slice(sources, func(i, j int) bool {
+		return sources[i].String() < sources[j].String()
+	})
+
+	s.byPID.Range(func(_, value any) bool {
+		proc := value.(*Processor)
+		// Read the atomically published snapshot rather than live *Processor
+		// fields: concurrent completion may be deleting the pid and the pool may
+		// be resetting/reusing this object.
+		ref := proc.sig.Load()
+		if ref == nil || !affected[ref.source] {
+			return true
+		}
+		// Deliver straight to this processor under the snapshot's generation.
+		// If the slot has since been released or reused (its queue Reset bumped
+		// the generation) the push is rejected, so a recycled caller-supplied
+		// pid never mis-delivers OUTDATED to a different live process.
+		s.deliverToProc(proc, ref.gen, topology.OutdatedPackage(ref.pid, sources))
+		return true
+	})
+}
+
 // ListProcesses returns a snapshot of all active processes.
 func (s *Scheduler) ListProcesses() []ProcessInfo {
 	var result []ProcessInfo
 
 	s.byPID.Range(func(_, value any) bool {
 		proc := value.(*Processor)
+		ref := proc.inspector.Load()
+		if ref == nil {
+			return true
+		}
 		info := ProcessInfo{
-			PID:       proc.pid,
+			PID:       ref.pid,
+			Parent:    ref.parent,
+			Source:    ref.source,
+			ActorID:   ref.actorID,
 			State:     StateName(ProcessState(proc.state.Load())),
 			Steps:     proc.steps.Load(),
-			StartedAt: proc.startedAt,
-		}
-		if proc.ctx != nil {
-			if src, ok := runtime.GetFrameID(proc.ctx); ok {
-				info.Source = src
-			}
-			if opts := runtime.GetFrameLifecycleOptions(proc.ctx); opts != nil {
-				if a, ok := opts.(attrs.Attributes); ok {
-					if parent, ok := a.Get(process.ProcessParentKey); ok {
-						if pp, ok := parent.(pid.PID); ok {
-							info.Parent = pp
-						}
-					}
-				}
-			}
-			if actor, ok := security.GetActor(proc.ctx); ok {
-				info.ActorID = actor.ID
-			}
+			StartedAt: ref.startedAt,
 		}
 		if bag := proc.stats.Load(); bag != nil {
 			info.Stats = *bag

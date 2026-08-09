@@ -8,6 +8,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"math"
 	"net"
@@ -17,9 +18,12 @@ import (
 	"sync/atomic"
 	"time"
 
+	contextapi "github.com/wippyai/runtime/api/context"
 	netapi "github.com/wippyai/runtime/api/net"
 	httpapi "github.com/wippyai/runtime/api/service/http"
 	lru "github.com/wippyai/runtime/internal/cache"
+	"github.com/wippyai/runtime/runtime/security"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 // clientKey identifies a unique client configuration. networkIdentity is a
@@ -158,6 +162,43 @@ func (p *Pool) getOrCreate(key clientKey, overlayNetworkID string) *clientOnce {
 	return co
 }
 
+// closeIdler is implemented by transports that can release idle connections.
+// Both *http.Transport and instrumentedTransport satisfy it.
+type closeIdler interface {
+	CloseIdleConnections()
+}
+
+// instrumentedTransport wraps an otelhttp-instrumented RoundTripper so outbound
+// HTTP requests get client spans and W3C trace-context injection, while still
+// exposing CloseIdleConnections on the underlying *http.Transport for the
+// pool's eviction/cleanup path.
+type instrumentedTransport struct {
+	traced gohttp.RoundTripper
+	base   *gohttp.Transport
+}
+
+func (t *instrumentedTransport) RoundTrip(req *gohttp.Request) (*gohttp.Response, error) {
+	return t.traced.RoundTrip(req)
+}
+
+func (t *instrumentedTransport) CloseIdleConnections() {
+	t.base.CloseIdleConnections()
+}
+
+// instrument returns an otelhttp-wrapped transport around base.
+func instrument(base *gohttp.Transport) *instrumentedTransport {
+	return &instrumentedTransport{traced: otelhttp.NewTransport(base), base: base}
+}
+
+func closeClientIdle(c *gohttp.Client) {
+	if c == nil {
+		return
+	}
+	if tr, ok := c.Transport.(closeIdler); ok {
+		tr.CloseIdleConnections()
+	}
+}
+
 // closeIdle closes idle connections on co's client transport if co has been
 // initialized. Safe to call on a never-initialized clientOnce and from any
 // goroutine — the atomic Load synchronizes with the Store inside once.Do.
@@ -166,12 +207,7 @@ func closeIdle(co *clientOnce) {
 		return
 	}
 	c := co.client.Load()
-	if c == nil {
-		return
-	}
-	if tr, ok := c.Transport.(*gohttp.Transport); ok {
-		tr.CloseIdleConnections()
-	}
+	closeClientIdle(c)
 }
 
 // GetClient returns a pooled client for the given configuration.
@@ -333,11 +369,7 @@ func (p *Pool) Size() int {
 // must not be used to obtain new clients — existing client pointers remain
 // valid but their transports' idle connections have been released.
 func (p *Pool) Close() {
-	if p.defaultClient != nil {
-		if tr, ok := p.defaultClient.Transport.(*gohttp.Transport); ok {
-			tr.CloseIdleConnections()
-		}
-	}
+	closeClientIdle(p.defaultClient)
 	p.cache.Range(func(_ clientKey, co *clientOnce) bool {
 		closeIdle(co)
 		return true
@@ -357,9 +389,45 @@ func createClientWithDialer(timeout time.Duration, dialFn func(ctx context.Conte
 		DialContext:           dialFn,
 	}
 	return &gohttp.Client{
-		Transport: transport,
+		Transport: instrument(transport),
 		Timeout:   timeout,
 	}
+}
+
+func dialHTTPContext(ctx context.Context, dialer *net.Dialer, network, address string) (net.Conn, error) {
+	if contextapi.AppFromContext(ctx) == nil {
+		return dialer.DialContext(ctx, network, address)
+	}
+	host, port, err := net.SplitHostPort(address)
+	if err != nil {
+		return nil, err
+	}
+	var ips []net.IP
+	if ip := net.ParseIP(host); ip != nil {
+		ips = []net.IP{ip}
+	} else {
+		ips, err = net.DefaultResolver.LookupIP(ctx, "ip", host)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	var dialErrors []error
+	for _, ip := range ips {
+		if isPrivateHTTPIP(ip) && !security.IsAllowed(ctx, "http_client.private_ip", ip.String(), nil) {
+			dialErrors = append(dialErrors, fmt.Errorf("not allowed: private IP %s", ip.String()))
+			continue
+		}
+		conn, err := dialer.DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
+		if err == nil {
+			return conn, nil
+		}
+		dialErrors = append(dialErrors, err)
+	}
+	if len(dialErrors) == 0 {
+		return nil, fmt.Errorf("no addresses resolved for %s", host)
+	}
+	return nil, errors.Join(dialErrors...)
 }
 
 // createClient builds an HTTP client with optional TLS configuration.
@@ -377,7 +445,9 @@ func createClient(timeout time.Duration, unixSocket string, maxIdleConns, maxIdl
 		TLSHandshakeTimeout:   defaultTLSHandshake,
 		ExpectContinueTimeout: defaultExpectContinue,
 		ForceAttemptHTTP2:     true,
-		DialContext:           dialer.DialContext,
+		DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
+			return dialHTTPContext(ctx, dialer, network, address)
+		},
 	}
 
 	if len(tlsCfg) > 0 && tlsCfg[0] != nil {
@@ -391,7 +461,7 @@ func createClient(timeout time.Duration, unixSocket string, maxIdleConns, maxIdl
 	}
 
 	return &gohttp.Client{
-		Transport: transport,
+		Transport: instrument(transport),
 		Timeout:   timeout,
 	}
 }

@@ -8,6 +8,7 @@ import (
 
 	ctxapi "github.com/wippyai/runtime/api/context"
 	commonpb "go.temporal.io/api/common/v1"
+	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/converter"
 	"go.temporal.io/sdk/workflow"
 )
@@ -26,12 +27,17 @@ var _ workflow.ContextPropagator = (*Propagator)(nil)
 // to propagate wippy context values across workflow boundaries.
 // Values are serialized as JSON for cross-language compatibility.
 type Propagator struct {
-	dc converter.DataConverter
+	dc           converter.DataConverter
+	securityKeys [][]byte
 }
 
 // New creates a new context propagator.
-func New(dc converter.DataConverter) *Propagator {
-	return &Propagator{dc: dc}
+func New(dc converter.DataConverter, securityKeys ...[]byte) *Propagator {
+	keys := make([][]byte, len(securityKeys))
+	for i, key := range securityKeys {
+		keys[i] = append([]byte(nil), key...)
+	}
+	return &Propagator{dc: dc, securityKeys: keys}
 }
 
 // contextValuesKey is the key for storing simple context values when not using FrameContext.
@@ -91,15 +97,22 @@ func (p *Propagator) Inject(ctx context.Context, writer workflow.HeaderWriter) e
 		writer.Set(HeaderKey, payload)
 	}
 
-	// Inject security context
 	secPayload := ExtractSecurityPayload(ctx)
 	if secPayload != nil {
-		payload, err := p.dc.ToPayload(secPayload)
+		header, err := AddSecurityToHeader(p.dc, nil, secPayload, p.securityKeys...)
 		if err != nil {
-			return fmt.Errorf("failed to convert security to payload: %w", err)
+			return fmt.Errorf("failed to sign security context: %w", err)
 		}
-
-		writer.Set(SecurityHeaderKey, payload)
+		writer.Set(SecurityHeaderKey, header.Fields[SecurityHeaderKey])
+		writer.Set(SecuritySignatureHeaderKey, header.Fields[SecuritySignatureHeaderKey])
+	}
+	if ticket, ok := relaySignalFromContext(ctx); ok && len(p.securityKeys) > 0 {
+		header, err := AddRelaySignalToHeader(p.dc, nil, ticket, p.securityKeys...)
+		if err != nil {
+			return fmt.Errorf("failed to sign relay signal: %w", err)
+		}
+		writer.Set(RelaySignalHeaderKey, header.Fields[RelaySignalHeaderKey])
+		writer.Set(RelaySignalSignatureHeaderKey, header.Fields[RelaySignalSignatureHeaderKey])
 	}
 
 	return nil
@@ -133,14 +146,29 @@ func (p *Propagator) Extract(ctx context.Context, reader workflow.HeaderReader) 
 		}
 	}
 
-	// Extract security context
-	secPayload, ok := reader.Get(SecurityHeaderKey)
-	if ok && secPayload != nil {
-		var sec SecurityPayload
-		if err := p.dc.FromPayload(secPayload, &sec); err != nil {
-			return ctx, fmt.Errorf("failed to decode security context: %w", err)
+	securityPayload, hasSecurity := reader.Get(SecurityHeaderKey)
+	securitySignature, hasSignature := reader.Get(SecuritySignatureHeaderKey)
+	if hasSecurity || hasSignature {
+		header := &commonpb.Header{Fields: map[string]*commonpb.Payload{}}
+		if hasSecurity {
+			header.Fields[SecurityHeaderKey] = securityPayload
 		}
-		ctx = WithSecurityCtx(ctx, &sec)
+		if hasSignature {
+			header.Fields[SecuritySignatureHeaderKey] = securitySignature
+		}
+		audience := GetSecurityAudience(ctx)
+		if audience == "" {
+			info := activity.GetInfo(ctx)
+			audience = info.ActivityID
+			if audience == "" {
+				audience = info.WorkflowExecution.ID
+			}
+		}
+		securityContext, err := ExtractSecurityFromHeader(p.dc, header, audience, p.securityKeys...)
+		if err != nil {
+			return ctx, fmt.Errorf("failed to verify security context: %w", err)
+		}
+		ctx = WithSecurityCtx(ctx, securityContext)
 	}
 
 	return ctx, nil
@@ -152,18 +180,27 @@ func (p *Propagator) InjectFromWorkflow(ctx workflow.Context, writer workflow.He
 	if p.dc == nil {
 		return fmt.Errorf("data converter not available")
 	}
-	// Get values from workflow context if available
 	values := sanitizeContextValues(getWorkflowValues(ctx))
-	if len(values) == 0 {
-		return nil
+	if len(values) > 0 {
+		payload, err := p.dc.ToPayload(values)
+		if err != nil {
+			return fmt.Errorf("failed to convert context to payload: %w", err)
+		}
+		writer.Set(HeaderKey, payload)
 	}
-
-	payload, err := p.dc.ToPayload(values)
-	if err != nil {
-		return fmt.Errorf("failed to convert context to payload: %w", err)
+	if securityContext := getWorkflowSecurity(ctx); securityContext != nil {
+		boundContext := *securityContext
+		boundContext.Audience = workflowSecurityAudience(ctx)
+		if boundContext.Audience == "" {
+			boundContext.Audience = workflow.GetInfo(ctx).WorkflowExecution.ID
+		}
+		header, err := AddSecurityToHeader(p.dc, nil, &boundContext, p.securityKeys...)
+		if err != nil {
+			return fmt.Errorf("failed to sign security context: %w", err)
+		}
+		writer.Set(SecurityHeaderKey, header.Fields[SecurityHeaderKey])
+		writer.Set(SecuritySignatureHeaderKey, header.Fields[SecuritySignatureHeaderKey])
 	}
-
-	writer.Set(HeaderKey, payload)
 	return nil
 }
 
@@ -173,30 +210,48 @@ func (p *Propagator) ExtractToWorkflow(ctx workflow.Context, reader workflow.Hea
 	if p.dc == nil {
 		return ctx, fmt.Errorf("data converter not available")
 	}
-	payload, ok := reader.Get(HeaderKey)
-	if !ok || payload == nil {
-		return ctx, nil
+	if payload, ok := reader.Get(HeaderKey); ok && payload != nil {
+		var data map[string]any
+		if err := p.dc.FromPayload(payload, &data); err != nil {
+			return ctx, fmt.Errorf("failed to decode context values: %w", err)
+		}
+		if len(data) > 0 {
+			ctx = workflow.WithValue(ctx, workflowValuesKey, data)
+		}
 	}
-
-	var data map[string]any
-	if err := p.dc.FromPayload(payload, &data); err != nil {
-		return ctx, fmt.Errorf("failed to decode context values: %w", err)
+	securityPayload, hasSecurity := reader.Get(SecurityHeaderKey)
+	securitySignature, hasSignature := reader.Get(SecuritySignatureHeaderKey)
+	if hasSecurity || hasSignature {
+		header := &commonpb.Header{Fields: map[string]*commonpb.Payload{}}
+		if hasSecurity {
+			header.Fields[SecurityHeaderKey] = securityPayload
+		}
+		if hasSignature {
+			header.Fields[SecuritySignatureHeaderKey] = securitySignature
+		}
+		audience := workflow.GetInfo(ctx).WorkflowExecution.ID
+		securityContext, err := ExtractSecurityFromHeader(p.dc, header, audience, p.securityKeys...)
+		if err != nil {
+			return ctx, fmt.Errorf("failed to verify security context: %w", err)
+		}
+		ctx = workflow.WithValue(ctx, workflowSecurityKey, securityContext)
 	}
-
-	if len(data) == 0 {
-		return ctx, nil
-	}
-
-	// Store values in workflow context for later retrieval
-	return workflow.WithValue(ctx, workflowValuesKey, data), nil
+	return ctx, nil
 }
 
 // workflowValuesKey is the context key for storing propagated values in workflow context.
 type workflowValuesKeyType struct{}
+type workflowSecurityKeyType struct{}
 
 var workflowValuesKey = workflowValuesKeyType{}
+var workflowSecurityKey = workflowSecurityKeyType{}
 
 // getWorkflowValues retrieves propagated values from workflow context.
+func getWorkflowSecurity(ctx workflow.Context) *SecurityPayload {
+	securityContext, _ := ctx.Value(workflowSecurityKey).(*SecurityPayload)
+	return securityContext
+}
+
 func getWorkflowValues(ctx workflow.Context) map[string]any {
 	v := ctx.Value(workflowValuesKey)
 	if v == nil {

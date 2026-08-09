@@ -43,6 +43,18 @@ func (s *countingService) LookupHost(_ context.Context, _ string) ([]string, err
 	return nil, fmt.Errorf("unused")
 }
 
+type closeTrackingTransport struct {
+	closed atomic.Int64
+}
+
+func (t *closeTrackingTransport) RoundTrip(*gohttp.Request) (*gohttp.Response, error) {
+	return nil, fmt.Errorf("unused")
+}
+
+func (t *closeTrackingTransport) CloseIdleConnections() {
+	t.closed.Add(1)
+}
+
 func TestPoolLRU_BoundedCap(t *testing.T) {
 	pool := NewClientPoolWithConfig(PoolConfig{MaxClients: 3})
 
@@ -51,6 +63,16 @@ func TestPoolLRU_BoundedCap(t *testing.T) {
 	}
 
 	assert.Equal(t, 3, pool.Size(), "pool must not exceed MaxClients")
+}
+
+func TestPoolClose_ClosesDefaultCloseIdler(t *testing.T) {
+	pool := NewClientPool()
+	tr := &closeTrackingTransport{}
+	pool.defaultClient = &gohttp.Client{Transport: tr}
+
+	pool.Close()
+
+	assert.Equal(t, int64(1), tr.closed.Load(), "default client transport must be closed through closeIdler")
 }
 
 func TestPoolLRU_Unbounded(t *testing.T) {
@@ -88,8 +110,9 @@ func TestPoolLRU_EvictionClosesIdleConnections(t *testing.T) {
 	pool := NewClientPoolWithConfig(PoolConfig{MaxClients: 1})
 
 	c1 := pool.GetClient(1*time.Second, "")
-	tr, ok := c1.Transport.(*gohttp.Transport)
-	require.True(t, ok, "expected *http.Transport")
+	tr, ok := c1.Transport.(*instrumentedTransport)
+	require.True(t, ok, "expected *instrumentedTransport")
+	base := tr.base
 
 	// Force an idle connection into the transport by dialing a listener
 	// and reading a tiny HTTP response.
@@ -118,7 +141,7 @@ func TestPoolLRU_EvictionClosesIdleConnections(t *testing.T) {
 	// observe this indirectly — a direct call must not panic and must
 	// leave the transport in a state where subsequent CloseIdleConnections
 	// is a no-op. The real guarantee is that eviction called it once.
-	tr.CloseIdleConnections()
+	base.CloseIdleConnections()
 	assert.Equal(t, 1, pool.Size())
 }
 

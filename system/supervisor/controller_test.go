@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/supervisor"
 )
 
@@ -948,6 +949,19 @@ func TestController_GracefulShutdown(t *testing.T) {
 
 	// wait for shutdown to start
 	shutdownStarted.Wait()
+
+	queuedCtx, cancelQueued := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancelQueued()
+	queuedStopErr := make(chan error, 1)
+	go func() {
+		queuedStopErr <- ctr.StopContext(queuedCtx)
+	}()
+	select {
+	case err := <-queuedStopErr:
+		require.ErrorIs(t, err, context.DeadlineExceeded)
+	case <-time.After(250 * time.Millisecond):
+		t.Fatal("queued StopContext exceeded its caller bound")
+	}
 
 	// wait for shutdown to complete
 	shutdownCompleted.Wait()

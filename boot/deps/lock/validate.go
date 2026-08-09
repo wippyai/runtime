@@ -11,6 +11,7 @@ import (
 // Validate validates the entire lock file structure.
 // Returns an error if any validation fails.
 func Validate(l *Lock) error {
+	rootCount := 0
 	for _, mod := range l.data.Modules {
 		if err := ValidateModuleName(mod.Name); err != nil {
 			return NewInvalidModuleError(mod.Name, err)
@@ -19,9 +20,15 @@ func Validate(l *Lock) error {
 		if mod.Version == "" {
 			return NewModuleEmptyVersionError(mod.Name)
 		}
+		if mod.Root {
+			rootCount++
+		}
+	}
+	if rootCount > 1 {
+		return NewMultipleRootModulesError()
 	}
 
-	if err := ValidateReplacements(l.path, l.data.Replacements); err != nil {
+	if err := ValidateReplacements(l.path, l.GetReplacements()); err != nil {
 		return NewInvalidReplacementsError(err)
 	}
 
@@ -56,11 +63,15 @@ func ValidateReplacements(lockPath string, replacements []Replacement) error {
 
 		replacementPath := ResolveLockPath(lockDir, r.To)
 
-		if _, err := os.Stat(replacementPath); err != nil {
+		info, err := os.Stat(replacementPath)
+		if err != nil {
 			if os.IsNotExist(err) {
 				return NewReplacementPathNotExistError(r.To)
 			}
 			return NewCheckReplacementPathError(r.To, err)
+		}
+		if !info.IsDir() {
+			return NewReplacementPathNotDirectoryError(r.To)
 		}
 	}
 

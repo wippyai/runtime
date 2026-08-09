@@ -153,8 +153,7 @@ func TestService_Start_Success(t *testing.T) {
 	service, _, ctx, cancel := setupService(t)
 	defer cancel()
 
-	err := service.Start(ctx)
-	require.NoError(t, err)
+	startMembershipServiceForTest(ctx, t, "", service)
 	defer func() { _ = service.Stop() }()
 
 	assert.NotNil(t, service.memberlist)
@@ -177,8 +176,7 @@ func TestService_Start_WithSecretKey(t *testing.T) {
 	}
 
 	service := NewService(config, bus, logger, nil, nil, nil)
-	err := service.Start(ctx)
-	require.NoError(t, err)
+	startMembershipServiceForTest(ctx, t, "", service)
 	defer func() { _ = service.Stop() }()
 
 	assert.NotNil(t, service.memberlist)
@@ -207,8 +205,7 @@ func TestService_Start_WithAdvertiseIP(t *testing.T) {
 	}
 
 	service := NewService(config, bus, logger, nil, nil, nil)
-	err := service.Start(ctx)
-	require.NoError(t, err)
+	startMembershipServiceForTest(ctx, t, "", service)
 	defer func() { _ = service.Stop() }()
 
 	assert.NotNil(t, service.memberlist)
@@ -218,10 +215,9 @@ func TestService_Stop(t *testing.T) {
 	service, _, ctx, cancel := setupService(t)
 	defer cancel()
 
-	err := service.Start(ctx)
-	require.NoError(t, err)
+	startMembershipServiceForTest(ctx, t, "", service)
 
-	err = service.Stop()
+	err := service.Stop()
 	assert.NoError(t, err)
 }
 
@@ -247,8 +243,7 @@ func TestService_Start_VeryVerbose(t *testing.T) {
 	}
 
 	service := NewService(config, bus, logger, nil, nil, nil)
-	err := service.Start(ctx)
-	require.NoError(t, err)
+	startMembershipServiceForTest(ctx, t, "", service)
 	defer func() { _ = service.Stop() }()
 
 	assert.NotNil(t, service.memberlist)
@@ -307,8 +302,7 @@ func TestService_LocalNode_AfterStart(t *testing.T) {
 	service, _, ctx, cancel := setupService(t)
 	defer cancel()
 
-	err := service.Start(ctx)
-	require.NoError(t, err)
+	startMembershipServiceForTest(ctx, t, "", service)
 	defer func() { _ = service.Stop() }()
 
 	localNode := service.LocalNode()
@@ -324,8 +318,7 @@ func TestEventDelegate_NotifyJoin_PublishesEvent(t *testing.T) {
 	service, bus, ctx, cancel := setupService(t)
 	defer cancel()
 
-	err := service.Start(ctx)
-	require.NoError(t, err)
+	startMembershipServiceForTest(ctx, t, "", service)
 	defer func() { _ = service.Stop() }()
 
 	var receivedEvents []event.Event
@@ -377,8 +370,7 @@ func TestEventDelegate_NotifyLeave_PublishesEvent(t *testing.T) {
 	service, bus, ctx, cancel := setupService(t)
 	defer cancel()
 
-	err := service.Start(ctx)
-	require.NoError(t, err)
+	startMembershipServiceForTest(ctx, t, "", service)
 	defer func() { _ = service.Stop() }()
 
 	service.mu.Lock()
@@ -432,8 +424,7 @@ func TestEventDelegate_NotifyUpdate_PublishesEvent(t *testing.T) {
 	service, bus, ctx, cancel := setupService(t)
 	defer cancel()
 
-	err := service.Start(ctx)
-	require.NoError(t, err)
+	startMembershipServiceForTest(ctx, t, "", service)
 	defer func() { _ = service.Stop() }()
 
 	var receivedEvents []event.Event
@@ -481,8 +472,7 @@ func TestEventDelegate_SkipsOwnNode(t *testing.T) {
 	service, bus, ctx, cancel := setupService(t)
 	defer cancel()
 
-	err := service.Start(ctx)
-	require.NoError(t, err)
+	startMembershipServiceForTest(ctx, t, "", service)
 	defer func() { _ = service.Stop() }()
 
 	eventCount := 0
@@ -523,8 +513,7 @@ func TestEventDelegate_NotifyJoin_UpdatesNodesMap(t *testing.T) {
 	service, _, ctx, cancel := setupService(t)
 	defer cancel()
 
-	err := service.Start(ctx)
-	require.NoError(t, err)
+	startMembershipServiceForTest(ctx, t, "", service)
 	defer func() { _ = service.Stop() }()
 
 	ed := &eventDelegate{service: service}
@@ -550,8 +539,7 @@ func TestEventDelegate_NotifyLeave_RemovesFromNodesMap(t *testing.T) {
 	service, _, ctx, cancel := setupService(t)
 	defer cancel()
 
-	err := service.Start(ctx)
-	require.NoError(t, err)
+	startMembershipServiceForTest(ctx, t, "", service)
 	defer func() { _ = service.Stop() }()
 
 	service.mu.Lock()

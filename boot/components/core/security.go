@@ -23,9 +23,9 @@ func Security() boot.Component {
 			bus := event.GetBus(ctx)
 			cfg := boot.GetConfig(ctx)
 
-			strictMode := false
+			strictMode := true
 			if cfg != nil {
-				strictMode = cfg.GetBool("security.strict_mode", false)
+				strictMode = cfg.GetBool("security.strict_mode", true)
 			}
 			ctx = secapi.SetStrictMode(ctx, strictMode)
 

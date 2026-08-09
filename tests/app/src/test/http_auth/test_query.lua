@@ -6,7 +6,7 @@ local function main()
 	local http = require("http_client")
 	local json = require("json")
 
-	local login_res, err = http.post("http://localhost:8085/auth/login", {
+	local login_res, err = http.post("http://localhost:18085/auth/login", {
 		body = json.encode({ username = "queryuser" }),
 		headers = { ["Content-Type"] = "application/json" }
 	})
@@ -25,7 +25,7 @@ local function main()
 
 	local token = login_body.token
 
-	local url = "http://localhost:8085/auth/protected?x-auth-token=" .. token
+	local url = "http://localhost:18085/auth/protected?x-auth-token=" .. token
 	local protected_res, err = http.get(url)
 	if err then
 		return false, "protected request error: " .. tostring(err)

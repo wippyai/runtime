@@ -9,10 +9,36 @@ import (
 	"github.com/wippyai/runtime/api/boot"
 )
 
-// TestClusterRaftEnabled_RoleComposition pins the rule that role and
-// enabled compose with AND: a node runs raft only when enabled is true
-// AND role is not "client", so no combination of the two knobs can
-// contradict (any "off" wins).
+// TestInternodeAdvertiseEndpoint pins the v2 relay endpoint contract. The v1
+// port remains separate in node metadata, preserving old-peer connectivity.
+func TestInternodeAdvertiseEndpoint(t *testing.T) {
+	cases := []struct {
+		section                 map[string]any
+		name, wantAddr, wantErr string
+		wantPort                int
+	}{
+		{name: "defaults to v1 endpoint", section: map[string]any{}, wantPort: 7947},
+		{name: "explicit relay endpoint", section: map[string]any{"internode.advertise_addr": "127.0.0.1", "internode.advertise_port": 19001}, wantAddr: "127.0.0.1", wantPort: 19001},
+		{name: "default port with relay IP", section: map[string]any{"internode.advertise_addr": "127.0.0.1"}, wantAddr: "127.0.0.1", wantPort: 7947},
+		{name: "accept DNS relay", section: map[string]any{"internode.advertise_addr": "proxy.internal", "internode.advertise_port": 19001}, wantAddr: "proxy.internal", wantPort: 19001},
+		{name: "reject host with port", section: map[string]any{"internode.advertise_addr": "proxy.internal:19001"}, wantErr: "IP address or DNS hostname"},
+		{name: "reject port without address", section: map[string]any{"internode.advertise_port": 19001}, wantErr: "requires advertise_addr"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := boot.NewConfig(boot.WithSection(ClusterName, tc.section)).Sub(ClusterName)
+			addr, port, err := internodeAdvertiseEndpoint(cfg, 7947)
+			if tc.wantErr != "" {
+				require.ErrorContains(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tc.wantAddr, addr)
+			require.Equal(t, tc.wantPort, port)
+		})
+	}
+}
+
 func TestClusterRaftEnabled_RoleComposition(t *testing.T) {
 	cases := []struct {
 		section map[string]any

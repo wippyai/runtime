@@ -1,0 +1,262 @@
+// SPDX-License-Identifier: MPL-2.0
+
+package registry
+
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"sort"
+	"strings"
+
+	"github.com/wippyai/runtime/api/semver"
+)
+
+// ErrDependencyResolutionNotFound means a history version predates durable
+// dependency resolutions. Callers may use the legacy resolver once and
+// checkpoint the result, but must not treat any other storage error as legacy.
+var ErrDependencyResolutionNotFound = errors.New("dependency resolution not found")
+
+// ErrInvalidDependencyResolution means a caller supplied a graph that cannot
+// be made into a durable snapshot without losing dependency semantics.
+var ErrInvalidDependencyResolution = errors.New("invalid dependency resolution")
+
+// ResolvedModule is an immutable module selection stored with a registry
+// version. Download URLs are intentionally excluded because they expire; a
+// missing artifact is fetched again by exact version/digest.
+type ResolvedModule struct {
+	Name      string `json:"name"`
+	Version   string `json:"version"`
+	VersionID string `json:"version_id,omitempty"`
+	Source    string `json:"source,omitempty"`
+	Digest    string `json:"digest,omitempty"`
+	SizeBytes uint64 `json:"size_bytes,omitempty"`
+	Protected bool   `json:"protected,omitempty"`
+}
+
+// DependencyRoot records one authored dependency declaration used as a solver
+// input. Parameters remain in the ordinary registry changeset because they
+// configure linking rather than version selection.
+type DependencyRoot struct {
+	ID        string `json:"id"`
+	Component string `json:"component"`
+	Version   string `json:"version"`
+}
+
+// DependencyResolution is the exact graph selected for a registry version.
+// InputDigest identifies the declared root set; Digest identifies the complete
+// immutable selection independently of mutable download URLs.
+type DependencyResolution struct {
+	Digest         string           `json:"digest"`
+	InputDigest    string           `json:"input_digest"`
+	BaselineDigest string           `json:"baseline_digest,omitempty"`
+	Roots          []DependencyRoot `json:"roots"`
+	// References are root-shaped declarations folded into an existing root for
+	// the same component: a workspace package declaring a dependency the
+	// deployment already installs. They are recorded facts of the selection —
+	// their constraints joined the solve — but they do not control install or
+	// uninstall and stay outside InputDigest, so the declared root-set identity
+	// is unchanged; a reference-free Digest stays byte-identical to prior
+	// releases while referenced graphs are content-distinct.
+	References []DependencyRoot `json:"references,omitempty"`
+	Modules    []ResolvedModule `json:"modules"`
+}
+
+// CanRebaseDependencyResolution reports whether next may replace the graph
+// checkpoint for the same declarative registry version. A registry version is
+// immutable within one deployment baseline, but its effective graph must be
+// recomputed when that independently versioned baseline changes. An unbound
+// legacy graph may be upgraded once to a baseline-bound graph.
+func CanRebaseDependencyResolution(existing, next *DependencyResolution) bool {
+	if existing == nil || next == nil || !existing.Valid() || !next.Valid() {
+		return false
+	}
+	if next.BaselineDigest == "" || existing.Digest == next.Digest {
+		return false
+	}
+	return existing.BaselineDigest == "" || existing.BaselineDigest != next.BaselineDigest
+}
+
+// Canonical returns a detached, deterministically ordered resolution and
+// recomputes its content digest.
+func (r *DependencyResolution) Canonical() *DependencyResolution {
+	if r == nil {
+		return nil
+	}
+	out := &DependencyResolution{
+		InputDigest:    r.InputDigest,
+		BaselineDigest: r.BaselineDigest,
+		Roots:          append([]DependencyRoot(nil), r.Roots...),
+		References:     append([]DependencyRoot(nil), r.References...),
+		Modules:        append([]ResolvedModule(nil), r.Modules...),
+	}
+	if len(out.References) == 0 {
+		out.References = nil
+	}
+	sortDependencyRoots(out.Roots)
+	sortDependencyRoots(out.References)
+	sort.Slice(out.Modules, func(i, j int) bool {
+		left, right := out.Modules[i], out.Modules[j]
+		if left.Name != right.Name {
+			return left.Name < right.Name
+		}
+		if left.Version != right.Version {
+			return left.Version < right.Version
+		}
+		if left.VersionID != right.VersionID {
+			return left.VersionID < right.VersionID
+		}
+		if left.Digest != right.Digest {
+			return left.Digest < right.Digest
+		}
+		if left.SizeBytes != right.SizeBytes {
+			return left.SizeBytes < right.SizeBytes
+		}
+		return !left.Protected && right.Protected
+	})
+	out.Digest = out.computeDigest()
+	return out
+}
+
+func sortDependencyRoots(roots []DependencyRoot) {
+	sort.Slice(roots, func(i, j int) bool {
+		if roots[i].ID != roots[j].ID {
+			return roots[i].ID < roots[j].ID
+		}
+		if roots[i].Component != roots[j].Component {
+			return roots[i].Component < roots[j].Component
+		}
+		return roots[i].Version < roots[j].Version
+	})
+}
+
+// Valid reports whether the stored digest matches the canonical resolution.
+func (r *DependencyResolution) Valid() bool {
+	if r == nil || r.Digest == "" {
+		return false
+	}
+	rootIDs := make(map[string]struct{}, len(r.Roots))
+	components := make(map[string]struct{}, len(r.Roots))
+	for _, root := range r.Roots {
+		if root.ID == "" || root.Component == "" || root.Version == "" {
+			return false
+		}
+		if _, duplicate := rootIDs[root.ID]; duplicate {
+			return false
+		}
+		if _, duplicate := components[root.Component]; duplicate {
+			return false
+		}
+		rootIDs[root.ID] = struct{}{}
+		components[root.Component] = struct{}{}
+	}
+	rootComponents := components
+	referenceIDs := make(map[string]struct{}, len(r.References))
+	for _, reference := range r.References {
+		if reference.ID == "" || reference.Component == "" || reference.Version == "" {
+			return false
+		}
+		if _, duplicate := referenceIDs[reference.ID]; duplicate {
+			return false
+		}
+		if _, collides := rootIDs[reference.ID]; collides {
+			return false
+		}
+		if _, anchored := rootComponents[reference.Component]; !anchored {
+			return false
+		}
+		referenceIDs[reference.ID] = struct{}{}
+	}
+	modules := make(map[string]string, len(r.Modules))
+	for _, module := range r.Modules {
+		if module.Name == "" || module.Version == "" || module.Digest == "" {
+			return false
+		}
+		if _, duplicate := modules[module.Name]; duplicate {
+			return false
+		}
+		modules[module.Name] = module.Version
+	}
+	// A graph that selects no module for one of its own declarations, or
+	// selects a version a declaration provably excludes, is not a resolution
+	// of those declarations and must not enter durable stores.
+	for _, root := range r.Roots {
+		selected, present := modules[root.Component]
+		if !present || !constraintPermitsSelection(root.Version, selected) {
+			return false
+		}
+	}
+	for _, reference := range r.References {
+		// Anchoring above guarantees the component has a selected module.
+		if !constraintPermitsSelection(reference.Version, modules[reference.Component]) {
+			return false
+		}
+	}
+	return r.Digest == r.Canonical().Digest
+}
+
+// constraintPermitsSelection rejects only provable mismatches: the check binds
+// when the declared spelling is a semver constraint and the selected version
+// parses under the same grammar. Channel pins ("@beta"), branch selections,
+// and exact literals carry hub semantics the model cannot interpret; the
+// resolver validates those at solve time.
+func constraintPermitsSelection(constraint, selected string) bool {
+	constraint = strings.TrimSpace(constraint)
+	if !semver.IsConstraint(constraint) {
+		return true
+	}
+	parsed, err := semver.ParseConstraint(constraint)
+	if err != nil {
+		return true
+	}
+	version, err := semver.ParseVersion(strings.TrimSpace(selected))
+	if err != nil {
+		return true
+	}
+	return parsed.Match(version)
+}
+
+func (r *DependencyResolution) computeDigest() string {
+	payload := struct {
+		InputDigest    string           `json:"input_digest"`
+		BaselineDigest string           `json:"baseline_digest,omitempty"`
+		Roots          []DependencyRoot `json:"roots"`
+		// omitempty keeps a reference-free digest byte-identical to prior
+		// releases while distinct reference sets produce distinct graphs in
+		// content-addressed stores.
+		References []DependencyRoot `json:"references,omitempty"`
+		Modules    []ResolvedModule `json:"modules"`
+	}{
+		InputDigest:    r.InputDigest,
+		BaselineDigest: r.BaselineDigest,
+		Roots:          r.Roots,
+		References:     r.References,
+		Modules:        r.Modules,
+	}
+	data, _ := json.Marshal(payload) // Struct contains only JSON-safe primitives.
+	sum := sha256.Sum256(data)
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+// ResolutionHistory atomically stores a changeset and the exact dependency
+// graph selected while applying it. Implementations must write the version,
+// changeset, resolution reference, and head update in one transaction.
+type ResolutionHistory interface {
+	History
+	GetDependencyResolution(Version) (*DependencyResolution, error)
+	SaveWithDependencyResolution(Version, ChangeSet, *DependencyResolution, bool) error
+	CheckpointDependencyResolution(Version, *DependencyResolution) error
+}
+
+// ResolutionHeadCASHistory attaches an exact graph and moves head in one
+// atomic operation. A failed head comparison must leave the target version
+// unmodified, so a losing rollback cannot freeze a graph that was never live.
+type ResolutionHeadCASHistory interface {
+	ResolutionHistory
+	// CompareAndSetHeadWithDependencyResolution atomically moves the history
+	// head and checkpoints the effective graph. It may rebind an existing
+	// version only when CanRebaseDependencyResolution permits a deployment
+	// baseline transition.
+	CompareAndSetHeadWithDependencyResolution(expected, target Version, resolution *DependencyResolution) error
+}

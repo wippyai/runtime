@@ -2,13 +2,17 @@
 
 package core
 
-import "github.com/wippyai/runtime/api/boot"
+import (
+	"github.com/wippyai/runtime/api/boot"
+	"github.com/wippyai/runtime/boot/deps/artifact"
+)
 
 const (
 	// PIDGenName is the name for the PID generator component
 	PIDGenName         boot.Name = "pidgen"
 	SecurityName       boot.Name = "security"
 	SecurityPolicyName boot.Name = "security.policy"
+	ArtifactName       boot.Name = artifact.ConfigName
 	RegistryName       boot.Name = "registry"
 	FinderName         boot.Name = "finder"
 	SupervisorName     boot.Name = "supervisor"
@@ -34,6 +38,8 @@ const (
 	RegistryEnableHistory boot.Name = "enable_history"
 	RegistryHistoryType   boot.Name = "history_type"
 	RegistryHistoryPath   boot.Name = "history_path"
+	RegistryHistoryDSN    boot.Name = "history_dsn"
+	RegistryHistorySchema boot.Name = "history_schema"
 	// RegistryDispatchInternalKinds configures registry entry kinds that bypass event dispatch.
 	RegistryDispatchInternalKinds boot.Name = "dispatch_internal_kinds"
 

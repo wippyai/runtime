@@ -1,6 +1,7 @@
 package hub
 
 import (
+	"fmt"
 	"net/http"
 	"testing"
 
@@ -39,3 +40,9 @@ func TestIsHubEndpointMissing_StructuredVsBare(t *testing.T) {
 type assertErr string
 
 func (e assertErr) Error() string { return string(e) }
+
+func TestIsRetryable_HubUnavailable(t *testing.T) {
+	assert.True(t, isRetryable(&UnavailableError{RetryAfter: "1"}))
+	assert.True(t, isRetryable(&UnavailableError{Detail: "connection refused"}))
+	assert.True(t, isRetryable(fmt.Errorf("get manifest: %w", &UnavailableError{})))
+}

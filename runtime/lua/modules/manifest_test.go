@@ -12,6 +12,7 @@ import (
 	"github.com/wippyai/runtime/runtime/lua/modules/crypto"
 	"github.com/wippyai/runtime/runtime/lua/modules/ctx"
 	"github.com/wippyai/runtime/runtime/lua/modules/excel"
+	"github.com/wippyai/runtime/runtime/lua/modules/hash"
 	"github.com/wippyai/runtime/runtime/lua/modules/httpclient"
 	"github.com/wippyai/runtime/runtime/lua/modules/metrics"
 	"github.com/wippyai/runtime/runtime/lua/modules/payload"
@@ -59,6 +60,8 @@ func TestModuleTypes_ReturnsWithError(t *testing.T) {
 		{name: "excel.Workbook.new_sheet", manifest: excel.ModuleTypes(), typeName: "Workbook", method: "new_sheet"},
 		{name: "excel.Workbook.get_sheet_list", manifest: excel.ModuleTypes(), typeName: "Workbook", method: "get_sheet_list"},
 		{name: "excel.Workbook.get_rows", manifest: excel.ModuleTypes(), typeName: "Workbook", method: "get_rows"},
+		{name: "excel.Workbook.rows", manifest: excel.ModuleTypes(), typeName: "Workbook", method: "rows"},
+		{name: "excel.Rows.read", manifest: excel.ModuleTypes(), typeName: "Rows", method: "read"},
 		{name: "excel.new", manifest: excel.ModuleTypes(), method: "new"},
 		{name: "excel.open", manifest: excel.ModuleTypes(), method: "open"},
 		{name: "http_client.StreamReader.read", manifest: httpclient.ModuleTypes(), typeName: "StreamReader", method: "read"},
@@ -82,6 +85,7 @@ func TestModuleTypes_ReturnsWithError(t *testing.T) {
 		{name: "payload.Payload.transcode", manifest: payload.ModuleTypes(), typeName: "Payload", method: "transcode"},
 		{name: "base64.encode", manifest: base64.ModuleTypes(), method: "encode"},
 		{name: "base64.decode", manifest: base64.ModuleTypes(), method: "decode"},
+		{name: "hash.pbkdf2", manifest: hash.ModuleTypes(), method: "pbkdf2"},
 		{name: "metrics.counter_inc", manifest: metrics.ModuleTypes(), method: "counter_inc"},
 		{name: "metrics.counter_add", manifest: metrics.ModuleTypes(), method: "counter_add"},
 		{name: "metrics.gauge_set", manifest: metrics.ModuleTypes(), method: "gauge_set"},

@@ -1,0 +1,57 @@
+# Audit: e01 Runtime Behavioral Test Expansion
+
+## Verdict
+
+**RELEASED — primary and stability PRs merged; final post-merge Linux, Windows, lint, and CodeQL gates pass.**
+
+## Supply Chain and Security
+
+- ✓ No dependency, lockfile, generated-code, Makefile, or workflow changes.
+- ✓ Diff credential/private-key scan found no secrets.
+- ✓ Fresh-context security review approved `55bc0336..5bd49e4d`; all later source changes are test-only determinism or portability corrections and do not alter production.
+- ✓ Changed SQL remains parameterized; changed URL/path, origin, artifact, and lifecycle boundaries fail closed.
+
+## Scope and Clarity
+
+- ✓ Changes are confined to the 12 Gate-0 workstreams and their closed allowlists.
+- ✓ Planning and verification artifacts live under `specs/`.
+- ✓ No speculative features, public API expansion, commented-out code, or dead compatibility path was added.
+- ✓ Production seams are private and preserve production defaults.
+- ✓ Lint cleanup retained exact sentinel identity assertions and documents only three verified `bodyclose` false positives.
+- ✓ No Fowler refactoring smell was introduced: no Mysterious Name, Duplicated Code, Feature Envy, Data Clumps, Primitive Obsession, Message Chains, or Middle Man in the production corrections.
+
+## Correctness and Tests
+
+- ✓ All 165 fingerprinted top-level leaves passed exactly once, with no descendants or skips.
+- ✓ Fifteen copied/synthetic leaves were removed.
+- ✓ Every production correction has a focused regression leaf.
+- ✓ Tests exercise production symbols rather than copied implementations.
+- ✓ No new test uses `t.Run`, `t.Skip`, arbitrary sleeps, random seeds, or live infrastructure.
+- ✓ Canonical `make test`, focused race repetitions, inclusive tagged short suite, sanitized supplemental harness, and CLI smoke passed.
+- ✓ `make lint` passed with zero issues; full LSP scan reported zero errors.
+- ✓ Authoritative Linux/amd64 leaf count is 13,382: 13,129 pass and 253 visible skip.
+- ✓ The one newly visible SQS conformance skip is pre-existing Docker coverage uncovered by fixing short-mode `TestMain`; no planned fingerprint skips.
+- ✓ Statement coverage rose from 61.4% to 62.9%; changed-statement coverage is 82.5%.
+- ✓ All 36 changed Go packages cross-compiled for Windows/amd64.
+- ✓ Native Windows CI exposed and then verified the platform-native L08 absolute-path correction in `b8be4156`.
+- ✓ Post-merge Ubuntu exposed a startup-ordering flaw in the `TestCorePlugins` precondition; PR <https://github.com/wippyai/runtime/pull/532> synchronizes on `StatusRunning`, passed 500 race repetitions and independent review, and merged at `e21f708c`.
+- ✓ Final post-merge lint, CodeQL, Ubuntu, and Windows checks are green.
+
+## Safety, Performance, and Complexity
+
+- ✓ Race validation covers ownership and lifecycle corrections.
+- ✓ No N+1 query or dependency regression was introduced.
+- ✓ Corrections avoid new hot-path copies except where ownership requires isolated buffers.
+- ✓ Changed algorithms remain bounded by existing input/resource sizes.
+
+## Red-Flag Accounting
+
+- Independent review did not pass its dual-review AND gate: Reviewer A approved 96/100; Reviewer B rejected 93/100 for default jitter. The jitter was disabled in `0fa36ce9`; the five-round cap forbids claiming a subsequent approval. The user explicitly accepted that verified correction and instructed release progression at `2026-07-28T23:46:42Z`.
+- Fresh release security review `specs/security/REVIEW.md` approved the exact 29-commit release range with zero unresolved HIGH findings at confidence 8/10 or higher.
+- Generic traceability tooling is absent, so `specs/verifications/TRACE-e01.md` records WAIVED; Gate v4 remains the task-specific executable trace for all 12 stories and 165 fingerprints.
+- Performance benchmarking was not run because `/opt/workspace/wippy/CLAUDE.md` explicitly exempts projects under this workspace from performance and memory testing. Correctness, race, and coverage gates were still run.
+- Live cloud, Kubernetes, and production infrastructure were not mutated; all integration-dependent paths remained disabled or read-only. Local Docker executed only the read-only Linux/amd64 test container.
+- The exact final Linux JSON report attests code head `0fa36ce9`; later source commits only make L08 platform-native and synchronize the boot shutdown test's running-state precondition, without changing test identity or production.
+- Primary PR <https://github.com/wippyai/runtime/pull/531> merged at `acbb814c`; stability PR <https://github.com/wippyai/runtime/pull/532> merged at `e21f708c`.
+- Final post-merge CI: <https://github.com/wippyai/runtime/actions/runs/30413330164> and <https://github.com/wippyai/runtime/actions/runs/30413330244>.
+- Gate v4 explicitly approves the two boot/core WS06 review-fix paths, +200 inventory arithmetic, one pre-existing accepted SQS Docker skip, and the valid Windows compile-only profile.

@@ -4,6 +4,7 @@ package internode
 
 import (
 	"context"
+	"crypto/ed25519"
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
@@ -63,8 +64,12 @@ type ManagerTLSConfig struct {
 
 type ManagerConfig struct {
 	Logger            *zap.Logger
+	AuthorizePeer     func(cluster.NodeID, net.Addr) bool
+	ResolvePeerKey    func(cluster.NodeID) (ed25519.PublicKey, bool)
 	BindAddr          string
 	LocalNodeID       cluster.NodeID
+	AuthenticationKey []byte
+	SigningKey        ed25519.PrivateKey
 	TLS               ManagerTLSConfig
 	MaxRetryAttempts  int
 	BindPort          int
@@ -77,34 +82,41 @@ type ManagerConfig struct {
 	// removal.
 	GossipQueueCap int
 
-	InitialRetryDelay time.Duration
-	MaxRetryDelay     time.Duration
-	DrainBatchSize    int
-	MaxMessageSize    uint32
-	AutoPort          bool
+	InitialRetryDelay     time.Duration
+	MaxRetryDelay         time.Duration
+	DrainBatchSize        int
+	MaxMessageSize        uint32
+	AutoPort              bool
+	RequireAuthentication bool
 }
 
 func DefaultManagerConfig() ManagerConfig {
 	return ManagerConfig{
-		HandshakeTimeout:  5 * time.Second,
-		OutboundQueueSize: 256,
-		MaxMessageSize:    512 * 1024 * 1024,
-		TLS:               ManagerTLSConfig{Enabled: false},
-		InitialRetryDelay: 10 * time.Millisecond,
-		MaxRetryDelay:     5 * time.Second,
-		AutoPort:          true,
-		BindPort:          DefaultPortRangeStart,
-		DrainBatchSize:    32,
-		CommandQueueSize:  256,
-		MaxRetryAttempts:  10,
-		GossipQueueCap:    1024,
+		HandshakeTimeout:      5 * time.Second,
+		OutboundQueueSize:     256,
+		MaxMessageSize:        512 * 1024 * 1024,
+		TLS:                   ManagerTLSConfig{Enabled: false},
+		InitialRetryDelay:     10 * time.Millisecond,
+		MaxRetryDelay:         5 * time.Second,
+		AutoPort:              true,
+		BindPort:              DefaultPortRangeStart,
+		DrainBatchSize:        32,
+		CommandQueueSize:      256,
+		MaxRetryAttempts:      10,
+		GossipQueueCap:        1024,
+		RequireAuthentication: true,
 	}
 }
 
 func (mc ManagerConfig) NodeConnectionConfig() NodeConnectionConfig {
 	return NodeConnectionConfig{
-		HandshakeTimeout: mc.HandshakeTimeout,
-		MaxMessageSize:   mc.MaxMessageSize,
+		AuthorizePeer:         mc.AuthorizePeer,
+		ResolvePeerKey:        mc.ResolvePeerKey,
+		HandshakeTimeout:      mc.HandshakeTimeout,
+		AuthenticationKey:     append([]byte(nil), mc.AuthenticationKey...),
+		SigningKey:            append(ed25519.PrivateKey(nil), mc.SigningKey...),
+		MaxMessageSize:        mc.MaxMessageSize,
+		RequireAuthentication: mc.RequireAuthentication,
 	}
 }
 
@@ -212,6 +224,8 @@ type manager struct {
 }
 
 func NewConnectionManager(config ManagerConfig, coll metrics.Collector) ConnectionManager {
+	config.AuthenticationKey = append([]byte(nil), config.AuthenticationKey...)
+	config.SigningKey = append(ed25519.PrivateKey(nil), config.SigningKey...)
 	logger := config.Logger.Named("conn")
 	tel := newTelemetry(coll)
 	return &manager{
@@ -223,6 +237,20 @@ func NewConnectionManager(config ManagerConfig, coll metrics.Collector) Connecti
 }
 
 func (m *manager) Start(ctx context.Context, onMessage func(nodeID cluster.NodeID, data []byte)) error {
+	if m.config.RequireAuthentication {
+		if len(m.config.AuthenticationKey) == 0 {
+			return fmt.Errorf("internode authentication key is required")
+		}
+		if len(m.config.SigningKey) != ed25519.PrivateKeySize {
+			return fmt.Errorf("internode signing key is required")
+		}
+		if m.config.ResolvePeerKey == nil {
+			return fmt.Errorf("internode peer key resolver is required")
+		}
+		if m.config.AuthorizePeer == nil {
+			return fmt.Errorf("internode peer authorizer is required")
+		}
+	}
 	m.ctx, m.cancel = context.WithCancel(ctx)
 	m.onMessage = onMessage
 
@@ -254,7 +282,9 @@ func (m *manager) Start(ctx context.Context, onMessage func(nodeID cluster.NodeI
 
 func (m *manager) Stop() error {
 	m.logger.Info("Stopping connection manager...")
-	m.cancel()
+	if m.cancel != nil {
+		m.cancel()
+	}
 	if m.listener != nil {
 		_ = m.listener.Close()
 	}
@@ -822,11 +852,13 @@ func (m *manager) handleInboundConnection(conn net.Conn) {
 	remoteNodeID := nodeConn.RemoteNodeID()
 	m.logger.Debug("Inbound handshake succeeded", zap.String("remote_node", remoteNodeID))
 
-	// Auto-manage the node if not already managed. This handles the race where
-	// the remote node's outbound connection arrives before the local NodeJoined
-	// event is processed (which would call AddManagedNode).
 	if m.nodeStates.GetNodeState(remoteNodeID) == nil {
-		m.logger.Info("Auto-managing node from inbound connection", zap.String("node", remoteNodeID))
+		if m.config.AuthorizePeer == nil || !m.config.AuthorizePeer(remoteNodeID, conn.RemoteAddr()) {
+			m.logger.Warn("Rejecting unmanaged inbound node", zap.String("node", remoteNodeID))
+			nodeConn.Close()
+			return
+		}
+		m.logger.Info("Auto-managing authorized inbound node", zap.String("node", remoteNodeID))
 		m.nodeStates.CreateNodeState(remoteNodeID)
 	}
 

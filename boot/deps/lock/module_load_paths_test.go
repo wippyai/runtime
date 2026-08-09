@@ -29,10 +29,12 @@ func TestLock_GetModuleLoadPaths(t *testing.T) {
 		l.SetModule(Module{
 			Name:    "userspace/users",
 			Version: "v1.2.3",
+			Hash:    "sha256:users",
 		})
 		l.SetModule(Module{
 			Name:    "demo/sql",
 			Version: "v2.0.0",
+			Hash:    "sha256:sql",
 		})
 
 		paths := l.GetModuleLoadPaths()
@@ -40,15 +42,15 @@ func TestLock_GetModuleLoadPaths(t *testing.T) {
 			t.Fatalf("path count = %d, want 3", len(paths))
 		}
 
-		if got := paths[0]; got.Path != filepath.Join(tmpDir, "app") || got.Module != "" || got.Version != "" {
-			t.Fatalf("src path = %+v, want app path with empty module/version", got)
+		if got := paths[0]; got.Path != filepath.Join(tmpDir, "app") || got.Module != "" || got.Version != "" || !got.Root {
+			t.Fatalf("src path = %+v, want root app path with empty module/version", got)
 		}
 
-		if got := paths[1]; got.Path != filepath.Join(tmpDir, "local/users") || got.SourceRoot != filepath.Join(tmpDir, "local/users") || got.Module != "userspace/users" || got.Version != "" {
-			t.Fatalf("replacement path = %+v, want replacement module and empty version", got)
+		if got := paths[1]; got.Path != filepath.Join(tmpDir, "local/users") || got.SourceRoot != filepath.Join(tmpDir, "local/users") || got.Module != "userspace/users" || got.Version != "v1.2.3" || got.Digest != "sha256:users" || !got.Replacement {
+			t.Fatalf("replacement path = %+v, want replacement module with selected version", got)
 		}
 
-		if got := paths[2]; got.Path != filepath.Join(tmpDir, ".wippy", "vendor", "demo", "sql") || got.SourceRoot != filepath.Join(tmpDir, ".wippy", "vendor", "demo", "sql") || got.Module != "demo/sql" || got.Version != "v2.0.0" {
+		if got := paths[2]; got.Path != filepath.Join(tmpDir, ".wippy", "vendor", "demo", "sql") || got.SourceRoot != filepath.Join(tmpDir, ".wippy", "vendor", "demo", "sql") || got.Module != "demo/sql" || got.Version != "v2.0.0" || got.Digest != "sha256:sql" {
 			t.Fatalf("module path = %+v, want vendor module path with metadata", got)
 		}
 	})
@@ -137,6 +139,38 @@ func TestLock_GetModuleLoadPaths(t *testing.T) {
 		}
 		if got.SourceRoot != unpackedPath {
 			t.Fatalf("source root = %q, want unpacked path %q", got.SourceRoot, unpackedPath)
+		}
+	})
+
+	t.Run("uses unpacked src entry tree when present", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		lockPath := filepath.Join(tmpDir, DefaultFilename)
+
+		l, err := New(lockPath)
+		if err != nil {
+			t.Fatalf("New failed: %v", err)
+		}
+
+		l.SetDirectories(Directories{Modules: ".wippy", Src: "."})
+		l.SetOptions(Options{UnpackModules: true})
+		l.SetModule(Module{Name: "userspace/users", Version: "v1.2.3"})
+
+		unpackedRoot := filepath.Join(tmpDir, ".wippy", "vendor", "userspace", "users")
+		entryRoot := filepath.Join(unpackedRoot, "src")
+		if err := os.MkdirAll(entryRoot, 0o755); err != nil {
+			t.Fatalf("mkdir unpacked src: %v", err)
+		}
+
+		paths := l.GetModuleLoadPaths()
+		if len(paths) != 2 {
+			t.Fatalf("path count = %d, want 2", len(paths))
+		}
+		got := paths[1]
+		if got.Path != entryRoot {
+			t.Fatalf("module path = %q, want entry root %q", got.Path, entryRoot)
+		}
+		if got.SourceRoot != unpackedRoot {
+			t.Fatalf("source root = %q, want module root %q", got.SourceRoot, unpackedRoot)
 		}
 	})
 
@@ -231,8 +265,11 @@ func TestLock_GetModuleLoadPaths(t *testing.T) {
 		if got.Module != "acme/ui" {
 			t.Fatalf("module = %q, want acme/ui", got.Module)
 		}
-		if got.Version != "" {
-			t.Fatalf("replacement version = %q, want empty", got.Version)
+		if got.Version != "v1.0.0" {
+			t.Fatalf("replacement version = %q, want selected version v1.0.0", got.Version)
+		}
+		if !got.Replacement {
+			t.Fatal("replacement path was not marked as replacement source")
 		}
 	})
 
@@ -265,5 +302,47 @@ func TestLock_GetModuleLoadPaths(t *testing.T) {
 		if got.SourceRoot != replacementDir {
 			t.Fatalf("source root = %q, want replacement root %q", got.SourceRoot, replacementDir)
 		}
+		if got.Version != "" {
+			t.Fatalf("workspace-only replacement version = %q, want empty", got.Version)
+		}
+		if !got.Replacement {
+			t.Fatal("workspace-only source was not marked as replacement")
+		}
 	})
+}
+
+func TestLock_GetModuleLoadPathsCarriesSelectedRoot(t *testing.T) {
+	tmpDir := t.TempDir()
+	l, err := New(filepath.Join(tmpDir, DefaultFilename))
+	if err != nil {
+		t.Fatal(err)
+	}
+	l.SetDirectories(Directories{Modules: ".wippy", Src: "src"})
+	l.SetModule(Module{Name: "acme/lib", Version: "v1.0.0"})
+	l.SetModule(Module{Name: "acme/app", Version: "v2.0.0"})
+	l.SetRootModule("acme/app")
+
+	paths := l.GetModuleLoadPaths()
+	if len(paths) != 3 {
+		t.Fatalf("paths = %d, want source plus two modules", len(paths))
+	}
+	for _, modulePath := range paths {
+		if modulePath.Module == "acme/app" && !modulePath.Root {
+			t.Fatal("selected application module was not marked as root")
+		}
+		if modulePath.Module == "acme/lib" && modulePath.Root {
+			t.Fatal("transitive library was incorrectly marked as root")
+		}
+	}
+
+	if err := l.Write(); err != nil {
+		t.Fatal(err)
+	}
+	reloaded, err := New(l.Path())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reloaded.IsRootModule("acme/app") || reloaded.IsRootModule("acme/lib") {
+		t.Fatalf("root provenance did not survive lock round trip: %v", reloaded.GetRootModules())
+	}
 }
