@@ -96,8 +96,17 @@ func (engine) Tune(db *sql.DB, ec config.EngineConfig) {
 		return
 	}
 
-	db.SetMaxOpenConns(1)
-	db.SetMaxIdleConns(1)
+	// A private in-memory database is scoped to one physical connection, so
+	// sharing it across a pool would create multiple unrelated databases. File
+	// databases, however, need the configured pool width so a snapshot read
+	// transaction does not consume the only writer connection.
+	if cfg.File == ":memory:" {
+		db.SetMaxOpenConns(1)
+		db.SetMaxIdleConns(1)
+	} else {
+		db.SetMaxOpenConns(cfg.Pool.MaxOpen)
+		db.SetMaxIdleConns(cfg.Pool.MaxIdle)
+	}
 	db.SetConnMaxLifetime(cfg.Pool.MaxLifetime)
 }
 

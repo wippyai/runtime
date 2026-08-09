@@ -29,7 +29,10 @@ type MutationOptions struct {
 	Tables     []string
 	Operations []string
 	MaxChanges int
-	MaxBytes   int
+	// MaxBytes bounds retained logical mutation bytes. A native SQLite row is
+	// materialized before the observer can reject it, so one row may
+	// transiently exceed this conservative bound.
+	MaxBytes int
 }
 
 // SnapshotOptions selects tables and the maximum number of rows in one
@@ -38,7 +41,10 @@ type SnapshotOptions struct {
 	Tables     []string
 	BatchSize  int
 	MaxChanges int
-	MaxBytes   int
+	// MaxBytes bounds retained logical snapshot/live bytes. A native SQLite
+	// row is materialized before the observer can reject it, so one row may
+	// transiently exceed this conservative bound.
+	MaxBytes int
 }
 
 // MutationStream delivers committed mutation batches in commit order.

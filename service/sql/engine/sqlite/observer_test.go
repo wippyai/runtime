@@ -298,7 +298,7 @@ func TestObserverSnapshotHandoffIncludesInFlightWriterAsLive(t *testing.T) {
 	observed, err := openObservedDB(t, filepath.Join(t.TempDir(), "snapshot-inflight.db"))
 	require.NoError(t, err)
 	defer observed.Close()
-	observed.opened.DB.SetMaxOpenConns(2)
+	assert.Equal(t, 0, observed.opened.DB.Stats().MaxOpenConnections, "file-backed SQLite should retain the default unlimited pool")
 	_, err = observed.opened.DB.ExecContext(context.Background(), `CREATE TABLE items (id INTEGER PRIMARY KEY, value TEXT)`)
 	require.NoError(t, err)
 	tx, err := observed.opened.DB.BeginTx(context.Background(), nil)
@@ -321,6 +321,77 @@ func TestObserverSnapshotHandoffIncludesInFlightWriterAsLive(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("in-flight writer did not arrive as live batch")
 	}
+}
+
+func TestObserverRemovesCancelledAndOverflowedStreams(t *testing.T) {
+	observed, err := openObservedDB(t, filepath.Join(t.TempDir(), "stream-churn.db"))
+	require.NoError(t, err)
+	defer observed.Close()
+	_, err = observed.opened.DB.ExecContext(context.Background(), `CREATE TABLE items (id INTEGER PRIMARY KEY, value TEXT)`)
+	require.NoError(t, err)
+	backend := observed.opened.Observer.(*sqliteBackend)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancelled, err := observed.opened.Observer.Subscribe(ctx, config.MutationOptions{})
+	require.NoError(t, err)
+	cancel()
+	waitForStreamCount(t, backend, 0)
+	select {
+	case _, ok := <-cancelled.Changes():
+		require.False(t, ok)
+	case <-time.After(time.Second):
+		t.Fatal("cancelled stream did not close")
+	}
+
+	overflowed, err := observed.opened.Observer.Subscribe(context.Background(), config.MutationOptions{MaxChanges: 1})
+	require.NoError(t, err)
+	_, err = observed.opened.DB.ExecContext(context.Background(), `INSERT INTO items (id, value) VALUES (1, 'one')`)
+	require.NoError(t, err)
+	_, err = observed.opened.DB.ExecContext(context.Background(), `INSERT INTO items (id, value) VALUES (2, 'two')`)
+	require.NoError(t, err)
+	waitForStreamCount(t, backend, 0)
+	select {
+	case _, ok := <-overflowed.Changes():
+		require.False(t, ok)
+	case <-time.After(time.Second):
+		t.Fatal("overflowed stream did not close")
+	}
+	assert.ErrorIs(t, overflowed.Err(), errObserverOverflow)
+}
+
+func TestObserverRelayHandlesManyStreamsWithoutBlockingCommit(t *testing.T) {
+	observed, err := openObservedDB(t, filepath.Join(t.TempDir(), "stream-scale.db"))
+	require.NoError(t, err)
+	defer observed.Close()
+	_, err = observed.opened.DB.ExecContext(context.Background(), `CREATE TABLE items (id INTEGER PRIMARY KEY, value TEXT)`)
+	require.NoError(t, err)
+	backend := observed.opened.Observer.(*sqliteBackend)
+	const streamCount = 256
+	for range streamCount {
+		_, err = observed.opened.Observer.Subscribe(context.Background(), config.MutationOptions{MaxChanges: 1})
+		require.NoError(t, err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	_, err = observed.opened.DB.ExecContext(ctx, `INSERT INTO items (id, value) VALUES (1, 'one')`)
+	require.NoError(t, err)
+	_, err = observed.opened.DB.ExecContext(ctx, `INSERT INTO items (id, value) VALUES (2, 'two')`)
+	require.NoError(t, err)
+	waitForStreamCount(t, backend, 0)
+}
+
+func TestObserverBoundsCommitMarkers(t *testing.T) {
+	backend := newSQLiteBackend(2, config.DefaultMaxMutationBytes)
+	defer func() { _ = backend.Close() }()
+	state := &sqliteConnectionState{backend: backend, maxCommitEnds: 2}
+
+	assert.Equal(t, 0, state.commit())
+	assert.Equal(t, 0, state.commit())
+	assert.Equal(t, 0, state.commit())
+	assert.Len(t, state.commitEnds, 2)
+	assert.ErrorIs(t, state.failed, errObserverOverflow)
+	state.finalize()
 }
 
 func TestObserverAbortedStatementDoesNotPublishPartialRows(t *testing.T) {
@@ -627,4 +698,22 @@ func receiveBatch(t *testing.T, stream interface {
 		t.Fatal("timed out waiting for mutation batch")
 		return config.MutationBatch{}
 	}
+}
+
+func waitForStreamCount(t *testing.T, backend *sqliteBackend, want int) {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		backend.mu.Lock()
+		count := len(backend.streams)
+		backend.mu.Unlock()
+		if count == want {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	backend.mu.Lock()
+	count := len(backend.streams)
+	backend.mu.Unlock()
+	t.Fatalf("stream count = %d, want %d", count, want)
 }

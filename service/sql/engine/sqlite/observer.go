@@ -63,6 +63,7 @@ func (c *sqliteConnector) Connect(context.Context) (driver.Conn, error) {
 		state: &sqliteConnectionState{
 			backend: c.backend, sqlite: sqliteConn,
 			maxChanges: c.backend.maxChanges, maxBytes: c.backend.maxBytes,
+			maxCommitEnds: c.backend.maxChanges,
 		},
 	}
 	// Install hooks for every physical connection when it is created. This
@@ -88,20 +89,43 @@ func openSQLite(_ context.Context, dsn string, limits ...int) (*sql.DB, sqlapi.C
 }
 
 type sqliteBackend struct {
-	db         *sql.DB
-	streams    map[*mutationStream]struct{}
-	fence      chan struct{}
-	maxChanges int
-	maxBytes   int
-	sequence   atomic.Uint64
-	mu         sync.Mutex
-	closed     bool
+	relayWake    chan struct{}
+	streams      map[*mutationStream]struct{}
+	fence        chan struct{}
+	db           *sql.DB
+	relayDone    chan struct{}
+	relayQueue   []*backendBatch
+	maxChanges   int
+	sequence     atomic.Uint64
+	maxBytes     int
+	relayChanges int
+	relayBytes   int
+	mu           sync.Mutex
+	closed       bool
+}
+
+type backendBatch struct {
+	streams []*mutationStream
+	batch   sqlapi.MutationBatch
+	bytes   int
 }
 
 func newSQLiteBackend(maxChanges, maxBytes int) *sqliteBackend {
 	fence := make(chan struct{}, 1)
 	fence <- struct{}{}
-	return &sqliteBackend{streams: make(map[*mutationStream]struct{}), fence: fence, maxChanges: maxChanges, maxBytes: maxBytes}
+	backend := &sqliteBackend{
+		streams:    make(map[*mutationStream]struct{}),
+		fence:      fence,
+		maxChanges: maxChanges,
+		maxBytes:   maxBytes,
+		relayWake:  make(chan struct{}, 1),
+		relayDone:  make(chan struct{}),
+	}
+	go func() {
+		defer close(backend.relayDone)
+		backend.relay()
+	}()
+	return backend
 }
 
 func observerLimits(limits []int) (int, int) {
@@ -134,19 +158,7 @@ func (b *sqliteBackend) releaseFence() {
 
 func (b *sqliteBackend) hasObservers() bool {
 	b.mu.Lock()
-	active := !b.closed
-	if active {
-		active = false
-		for stream := range b.streams {
-			stream.mu.Lock()
-			closed := stream.closed
-			stream.mu.Unlock()
-			if !closed {
-				active = true
-				break
-			}
-		}
-	}
+	active := !b.closed && len(b.streams) > 0
 	b.mu.Unlock()
 	return active
 }
@@ -164,7 +176,7 @@ func (b *sqliteBackend) Subscribe(ctx context.Context, opts sqlapi.MutationOptio
 	if err := b.validateTables(ctx, opts.Tables); err != nil {
 		return nil, err
 	}
-	stream := newMutationStream(b, opts)
+	stream := newMutationStream(ctx, b, opts)
 	b.mu.Lock()
 	if b.closed {
 		b.mu.Unlock()
@@ -309,7 +321,7 @@ func (b *sqliteBackend) Snapshot(ctx context.Context, opts sqlapi.SnapshotOption
 	if opts.MaxBytes <= 0 {
 		opts.MaxBytes = b.maxBytes
 	}
-	stream := newSnapshotStream(b, opts, watermark, cancel)
+	stream := newSnapshotStream(scanCtx, b, opts, watermark, cancel)
 	b.mu.Lock()
 	if b.closed {
 		b.mu.Unlock()
@@ -492,20 +504,38 @@ func (b *sqliteBackend) publish(changes []sqlapi.Mutation) {
 		b.mu.Unlock()
 		return
 	}
+	if len(b.streams) == 0 {
+		b.mu.Unlock()
+		return
+	}
 	streams := make([]*mutationStream, 0, len(b.streams))
 	for stream := range b.streams {
 		streams = append(streams, stream)
 	}
+	changes = append([]sqlapi.Mutation(nil), changes...)
 	sequence := b.sequence.Add(1)
-	b.mu.Unlock()
-
 	batch := sqlapi.MutationBatch{
 		Transaction: strconv.FormatUint(sequence, 10),
 		Changes:     changes,
 	}
-	for _, stream := range streams {
-		stream.push(batch)
+	batchBytes := mutationBatchBytes(batch)
+	if (b.maxChanges > 0 && (len(changes) > b.maxChanges || b.relayChanges > b.maxChanges-len(changes))) ||
+		(b.maxBytes > 0 && (batchBytes > b.maxBytes || b.relayBytes > b.maxBytes-batchBytes)) {
+		b.closed = true
+		b.streams = make(map[*mutationStream]struct{})
+		b.relayQueue = nil
+		b.relayChanges = 0
+		b.relayBytes = 0
+		b.mu.Unlock()
+		b.closeStreams(streams, errObserverOverflow)
+		b.signalRelay()
+		return
 	}
+	b.relayQueue = append(b.relayQueue, &backendBatch{batch: batch, streams: streams, bytes: batchBytes})
+	b.relayChanges = saturatingAdd(b.relayChanges, len(changes))
+	b.relayBytes = saturatingAdd(b.relayBytes, batchBytes)
+	b.mu.Unlock()
+	b.signalRelay()
 }
 
 func (b *sqliteBackend) fail(err error) {
@@ -520,17 +550,20 @@ func (b *sqliteBackend) fail(err error) {
 		streams = append(streams, stream)
 	}
 	b.streams = make(map[*mutationStream]struct{})
+	b.relayQueue = nil
+	b.relayChanges = 0
+	b.relayBytes = 0
 	b.mu.Unlock()
 
-	for _, stream := range streams {
-		stream.closeWithError(err)
-	}
+	b.closeStreams(streams, err)
+	b.signalRelay()
 }
 
 func (b *sqliteBackend) Close() error {
 	b.mu.Lock()
 	if b.closed {
 		b.mu.Unlock()
+		<-b.relayDone
 		return nil
 	}
 	b.closed = true
@@ -539,12 +572,57 @@ func (b *sqliteBackend) Close() error {
 		streams = append(streams, stream)
 	}
 	b.streams = make(map[*mutationStream]struct{})
+	b.relayQueue = nil
+	b.relayChanges = 0
+	b.relayBytes = 0
 	b.mu.Unlock()
 
-	for _, stream := range streams {
-		stream.closeWithError(errObserverClosed)
-	}
+	b.closeStreams(streams, errObserverClosed)
+	b.signalRelay()
+	<-b.relayDone
 	return nil
+}
+
+func (b *sqliteBackend) closeStreams(streams []*mutationStream, err error) {
+	for _, stream := range streams {
+		stream.closeWithError(err)
+	}
+}
+
+func (b *sqliteBackend) signalRelay() {
+	select {
+	case b.relayWake <- struct{}{}:
+	default:
+	}
+}
+
+func (b *sqliteBackend) relay() {
+	for {
+		b.mu.Lock()
+		if len(b.relayQueue) == 0 {
+			closed := b.closed
+			b.mu.Unlock()
+			if closed {
+				return
+			}
+			<-b.relayWake
+			continue
+		}
+		item := b.relayQueue[0]
+		b.mu.Unlock()
+
+		for _, stream := range item.streams {
+			stream.push(item.batch)
+		}
+
+		b.mu.Lock()
+		if len(b.relayQueue) > 0 && b.relayQueue[0] == item {
+			b.relayQueue = b.relayQueue[1:]
+			b.relayChanges -= len(item.batch.Changes)
+			b.relayBytes -= item.bytes
+		}
+		b.mu.Unlock()
+	}
 }
 
 // sqliteConnectionState is attached to one physical SQLite connection. The
@@ -567,6 +645,7 @@ type sqliteConnectionState struct {
 	maxChanges             int
 	pendingBytes           int
 	confirmedEnds          int
+	maxCommitEnds          int
 	rollbackSeen           bool
 	ddlInTxn               bool
 	dmlInTxn               bool
@@ -726,6 +805,10 @@ func (s *sqliteConnectionState) commit() int {
 		s.fenceHeld = true
 	}
 	s.commitPending = true
+	if s.maxCommitEnds > 0 && len(s.commitEnds) >= s.maxCommitEnds {
+		s.failed = errObserverOverflow
+		return 0
+	}
 	s.commitEnds = append(s.commitEnds, len(s.pending))
 	return 0
 }
@@ -1607,6 +1690,7 @@ func (r *observedRows) finish(err error) {
 
 type mutationStream struct {
 	err           error
+	ctx           context.Context
 	changes       chan sqlapi.MutationBatch
 	notify        chan struct{}
 	done          chan struct{}
@@ -1625,8 +1709,12 @@ type mutationStream struct {
 	closed        bool
 }
 
-func newMutationStream(backend *sqliteBackend, opts sqlapi.MutationOptions) *mutationStream {
+func newMutationStream(ctx context.Context, backend *sqliteBackend, opts sqlapi.MutationOptions) *mutationStream {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	stream := &mutationStream{
+		ctx:        ctx,
 		backend:    backend,
 		opts:       opts,
 		changes:    make(chan sqlapi.MutationBatch),
@@ -1639,8 +1727,8 @@ func newMutationStream(backend *sqliteBackend, opts sqlapi.MutationOptions) *mut
 	return stream
 }
 
-func newSnapshotStream(backend *sqliteBackend, opts sqlapi.SnapshotOptions, watermark string, cancel context.CancelFunc) *mutationStream {
-	stream := newMutationStream(backend, sqlapi.MutationOptions{
+func newSnapshotStream(ctx context.Context, backend *sqliteBackend, opts sqlapi.SnapshotOptions, watermark string, cancel context.CancelFunc) *mutationStream {
+	stream := newMutationStream(ctx, backend, sqlapi.MutationOptions{
 		Tables: opts.Tables, MaxChanges: opts.MaxChanges, MaxBytes: opts.MaxBytes,
 	})
 	stream.snapshotting = true
@@ -1675,19 +1763,23 @@ func (s *mutationStream) push(batch sqlapi.MutationBatch) {
 		return
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if s.closed {
+		s.mu.Unlock()
 		return
 	}
+	overflow := false
 	if s.snapshotting {
 		if !s.enqueuePendingLocked(batch) {
 			s.closeLocked(errObserverOverflow)
-			return
+			overflow = true
 		}
-		return
-	}
-	if !s.enqueueLocked(batch) {
+	} else if !s.enqueueLocked(batch) {
 		s.closeLocked(errObserverOverflow)
+		overflow = true
+	}
+	s.mu.Unlock()
+	if overflow {
+		s.backend.remove(s, errObserverOverflow)
 	}
 }
 
@@ -1729,34 +1821,41 @@ func matchesValue(value string, filters []string) bool {
 
 func (s *mutationStream) pushSnapshot(batch sqlapi.MutationBatch) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if s.closed {
-		if s.err != nil {
-			return s.err
+		err := s.err
+		s.mu.Unlock()
+		if err != nil {
+			return err
 		}
 		return errObserverClosed
 	}
 	if !s.enqueueLocked(batch) {
 		s.closeLocked(errObserverOverflow)
+		s.mu.Unlock()
+		s.backend.remove(s, errObserverOverflow)
 		return errObserverOverflow
 	}
+	s.mu.Unlock()
 	return nil
 }
 
 func (s *mutationStream) finishSnapshot(err error) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if s.closed {
+		s.mu.Unlock()
 		return
 	}
 	if err != nil {
 		s.closeLocked(err)
+		s.mu.Unlock()
+		s.backend.remove(s, err)
 		return
 	}
 	s.snapshotting = false
 	s.queue = append(s.queue, s.pending...)
 	s.pending = nil
 	s.signalLocked()
+	s.mu.Unlock()
 }
 
 func (s *mutationStream) Watermark() string { return s.watermark }
@@ -1810,7 +1909,13 @@ func (s *mutationStream) relay() {
 				close(s.changes)
 				return
 			}
-			<-s.notify
+			select {
+			case <-s.notify:
+			case <-s.ctx.Done():
+				s.backend.remove(s, s.ctx.Err())
+				close(s.changes)
+				return
+			}
 			continue
 		}
 		batch := s.queue[0]
@@ -1819,6 +1924,10 @@ func (s *mutationStream) relay() {
 		select {
 		case s.changes <- batch:
 		case <-s.done:
+			close(s.changes)
+			return
+		case <-s.ctx.Done():
+			s.backend.remove(s, s.ctx.Err())
 			close(s.changes)
 			return
 		}

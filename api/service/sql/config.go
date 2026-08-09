@@ -38,8 +38,10 @@ const (
 	// DefaultMaxMutationChanges bounds the in-memory candidate row count held
 	// by the SQLite observer for one transaction.
 	DefaultMaxMutationChanges = 100000
-	// DefaultMaxMutationBytes bounds the in-memory candidate value bytes held
-	// by the SQLite observer for one transaction.
+	// DefaultMaxMutationBytes is the conservative retained logical-byte bound
+	// for one SQLite transaction. SQLite delivers a complete native row to the
+	// pre-update hook, so one row can transiently materialize before the bound
+	// rejects the candidate.
 	DefaultMaxMutationBytes = 64 * 1024 * 1024
 )
 
@@ -78,7 +80,9 @@ type (
 		Lifecycle          supervisor.LifecycleConfig `json:"lifecycle"`
 		Pool               PoolConfig                 `json:"pool"`
 		MaxMutationChanges int                        `json:"max_mutation_changes,omitempty"`
-		MaxMutationBytes   int                        `json:"max_mutation_bytes,omitempty"`
+		// MaxMutationBytes is a conservative retained logical-byte bound. A
+		// native SQLite row is materialized before the observer can reject it.
+		MaxMutationBytes int `json:"max_mutation_bytes,omitempty"`
 	}
 )
 
