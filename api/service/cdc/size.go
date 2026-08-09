@@ -8,10 +8,13 @@ const (
 	// DefaultMaxStreamBytes bounds a subscriber's retained event backlog when
 	// MaxBytes is omitted. It is deliberately finite for every driver.
 	DefaultMaxStreamBytes int64 = 64 << 20
-	changeStructuralBytes       = 128
-	valueStructuralBytes        = 24
-	maxEstimateDepth            = 256
-	maxEstimateNodes            = 1 << 20
+	// DefaultMaxStreamItems is the historical Lua CDC stream capacity. It is
+	// also used by direct Go callers so process admission is always bounded.
+	DefaultMaxStreamItems = 64
+	changeStructuralBytes = 128
+	valueStructuralBytes  = 24
+	maxEstimateDepth      = 256
+	maxEstimateNodes      = 1 << 20
 )
 
 // ValidateStreamOptions validates common stream resource limits. Buffer keeps
@@ -31,6 +34,14 @@ func (o StreamOptions) EffectiveMaxBytes() int64 {
 		return o.MaxBytes
 	}
 	return DefaultMaxStreamBytes
+}
+
+// EffectiveMaxStreamItems returns the finite item limit selected by options.
+func (o StreamOptions) EffectiveMaxStreamItems() int {
+	if o.Buffer > 0 {
+		return o.Buffer
+	}
+	return DefaultMaxStreamItems
 }
 
 // EstimateChangeBytes returns a conservative logical retained-size estimate

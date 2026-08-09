@@ -315,6 +315,14 @@ func (d *Dispatcher) execute(dispatchCtx context.Context, job dispatchJob) {
 }
 
 func (d *Dispatcher) executeSubscribe(dispatchCtx, requestCtx context.Context, cmd cdcapi.SubscribeCmd, tag uint64, receiver dispatcher.ResultReceiver) {
+	if err := cmd.Options.Validate(); err != nil {
+		complete(receiver, tag, nil, err)
+		return
+	}
+	// Keep source, relay, and process admission on one finite item limit.
+	// Lua normalizes this before yielding; direct Go callers get the same
+	// bounded default here.
+	cmd.Options.Buffer = cmd.Options.EffectiveMaxStreamItems()
 	ctx, cancelContext := linkedContext(dispatchCtx, requestCtx)
 	node := relay.GetNode(ctx)
 	if node == nil {
@@ -340,6 +348,8 @@ func (d *Dispatcher) executeSubscribe(dispatchCtx, requestCtx context.Context, c
 
 	loopCtx, cancelLoop := context.WithCancel(ctx)
 	session := &relaySession{
+		maxBytes: cmd.Options.EffectiveMaxBytes(),
+		maxItems: cmd.Options.EffectiveMaxStreamItems(),
 		cancel: func() {
 			cancelLoop()
 			cancelContext()
@@ -440,14 +450,17 @@ func (d *Dispatcher) relay(ctx context.Context, session *relaySession, changes <
 		case change, ok := <-changes:
 			if !ok {
 				if err := streamError(stream); err != nil {
-					d.sendTerminal(ctx, node, target, topic, err)
+					d.sendTerminal(ctx, node, target, topic, session.maxItems, session.maxBytes, err)
 				} else {
-					d.sendTerminal(ctx, node, target, topic, nil)
+					d.sendTerminal(ctx, node, target, topic, session.maxItems, session.maxBytes, nil)
 				}
 				return
 			}
 
 			pkg := relay.NewPackage(pid.Zero(), target, topic, payload.New(change))
+			pkg.Messages[0].PayloadBytes = cdcapi.EstimateChangeBytes(change)
+			pkg.Messages[0].MaxBytes = session.maxBytes
+			pkg.Messages[0].MaxItems = session.maxItems
 			if err := sendRelay(ctx, node, pkg); err != nil {
 				d.log.Debug("failed to relay cdc change",
 					zap.String("source", source),
@@ -469,13 +482,15 @@ func (d *Dispatcher) relayDone(id uint64) {
 	d.mu.Unlock()
 }
 
-func (d *Dispatcher) sendTerminal(ctx context.Context, node relay.Node, target pid.PID, topic string, err error) {
+func (d *Dispatcher) sendTerminal(ctx context.Context, node relay.Node, target pid.PID, topic string, maxItems int, maxBytes int64, err error) {
 	var terminal payload.Payloads
 	if err != nil {
 		terminal = append(terminal, payload.NewError(err))
 	}
 	terminal = append(terminal, payload.NewTerminal())
 	pkg := relay.NewPackage(pid.Zero(), target, topic, terminal...)
+	pkg.Messages[0].MaxItems = maxItems
+	pkg.Messages[0].MaxBytes = maxBytes
 	if sendErr := sendRelay(ctx, node, pkg); sendErr != nil {
 		d.log.Debug("failed to send cdc terminal",
 			zap.String("topic", topic),
@@ -524,10 +539,12 @@ func complete(receiver dispatcher.ResultReceiver, tag uint64, data any, err erro
 }
 
 type relaySession struct {
-	cancel context.CancelFunc
-	close  func()
-	id     uint64
-	once   sync.Once
+	cancel   context.CancelFunc
+	close    func()
+	maxBytes int64
+	maxItems int
+	id       uint64
+	once     sync.Once
 }
 
 func (s *relaySession) stop() {

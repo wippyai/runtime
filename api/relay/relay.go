@@ -39,6 +39,16 @@ type (
 	Message struct {
 		Topic    Topic
 		Payloads payload.Payloads
+		// PayloadBytes is the logical retained size of Payloads. It is
+		// optional metadata used by bounded subscribers; zero preserves the
+		// historical unbounded relay behavior.
+		PayloadBytes int64
+		// MaxBytes is the per-destination backlog limit for this message's
+		// topic. Zero means that the destination applies no byte limit.
+		MaxBytes int64
+		// MaxItems is the per-destination message backlog limit for this
+		// topic. Zero means that the destination applies no item limit.
+		MaxItems int
 	}
 
 	// Package combines source, target and messages for delivery.

@@ -40,6 +40,9 @@ func ReleaseMessage(m *Message) {
 	}
 	m.Topic = ""
 	m.Payloads = nil
+	m.PayloadBytes = 0
+	m.MaxBytes = 0
+	m.MaxItems = 0
 	messagePool.Put(m)
 }
 

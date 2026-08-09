@@ -453,11 +453,15 @@ func (s *Scheduler) Send(pkg *relay.Package) error {
 // callers holding an out-of-band snapshot never deliver to a different process
 // that has since inherited the slot. Returns whether the push succeeded.
 func (s *Scheduler) deliverToProc(proc *Processor, gen uint64, pkg *relay.Package) bool {
-	if !proc.queue.Push(process.Event{
+	admission := proc.queue.PushMessage(process.Event{
 		Type: process.EventMessage,
 		Data: pkg,
-	}, gen) {
+	}, gen)
+	if admission == process.MessageRejected {
 		return false
+	}
+	if admission == process.MessageDropped {
+		relay.ReleasePackage(pkg)
 	}
 
 	// Wake process if waiting for messages.

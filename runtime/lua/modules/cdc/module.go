@@ -189,7 +189,12 @@ func openStream(l *lua.LState) int {
 		return 2
 	}
 
-	ch := engine.NewChannel(streamBufferCapacity(opts.Buffer))
+	// CDC backlog capacity is enforced by the source/relay/process mailbox.
+	// Keep the Lua channel rendezvous-only so buffered Lua values cannot form a
+	// second queue outside that shared budget. Normalize the historical default
+	// before the command crosses the Lua boundary.
+	opts.Buffer = streamBufferCapacity(opts.Buffer)
+	ch := engine.NewChannel(0)
 	engine.PushChannel(l, ch)
 	l.Pop(1)
 

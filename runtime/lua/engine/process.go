@@ -110,8 +110,17 @@ type Process struct {
 	externalTasks []*Task
 	yieldBuf      []*Task
 	messageQueue  []queuedMessage
-	threads       []*Task
-	yieldSeq      uint64
+	// messageQueueBytes accounts only messages that opt into a byte limit via
+	// relay metadata. Ordinary process messages keep their historical behavior.
+	messageQueueItems      map[string]int
+	messageQueueBytes      map[string]int64
+	messageQueueItemLimits map[string]int
+	messageQueueLimits     map[string]int64
+	messageQueueOverflowed map[string]struct{}
+	messageQueueDiscarded  map[string]struct{}
+	flushingMessages       bool
+	threads                []*Task
+	yieldSeq               uint64
 	// epoch is the monotonic incarnation counter. Incremented on every
 	// Init / clearExecution / Close drain and on Abort. Producers stamp
 	// every SubscriptionFrame with the epoch they were registered under;
@@ -124,9 +133,12 @@ type Process struct {
 
 // queuedMessage stores a message waiting to be delivered
 type queuedMessage struct {
-	Source   pid.PID
-	Topic    string
-	Payloads []payload.Payload
+	Source       pid.PID
+	Topic        string
+	Payloads     []payload.Payload
+	MaxItems     int
+	PayloadBytes int64
+	MaxBytes     int64
 }
 
 // GetProcess retrieves the Process from LState via Owner.
@@ -196,16 +208,29 @@ func (p *Process) SetSubscriptionCleanup(ch *Channel, fn func()) bool {
 		return false
 	}
 	p.subs.mu.Lock()
-	defer p.subs.mu.Unlock()
 	topic, ok := p.subs.byChannel[ch]
 	if !ok {
+		p.subs.mu.Unlock()
 		return false
 	}
 	sub := p.subs.byTopic[topic]
 	if sub == nil {
+		p.subs.mu.Unlock()
 		return false
 	}
 	sub.cleanup = fn
+	overflowed := false
+	if _, exists := p.messageQueueOverflowed[topic]; exists {
+		overflowed = true
+	}
+	p.subs.mu.Unlock()
+	// If admission overflowed before the Lua subscription yield completed,
+	// stop the source as soon as its cleanup hook becomes available. Do this
+	// outside the subscription lock because cleanup may unsubscribe the same
+	// channel.
+	if overflowed {
+		sub.callCleanup()
+	}
 	return true
 }
 
@@ -252,6 +277,14 @@ func (p *Process) closeChannel(ch *Channel) bool {
 	if sub != nil {
 		sub.gen.Add(1)
 		sub.callCleanup()
+	}
+	if p.flushingMessages {
+		if p.messageQueueDiscarded == nil {
+			p.messageQueueDiscarded = make(map[string]struct{})
+		}
+		p.messageQueueDiscarded[topic] = struct{}{}
+	} else {
+		p.discardMessageTopic(topic)
 	}
 	if !ch.IsClosed() {
 		p.applyExternalChannelResult(ch.Close(nil))
@@ -537,6 +570,13 @@ func (p *Process) Init(ctx context.Context, method string, input payload.Payload
 
 	// Clear message queue
 	p.messageQueue = p.messageQueue[:0]
+	clear(p.messageQueueItems)
+	clear(p.messageQueueBytes)
+	clear(p.messageQueueItemLimits)
+	clear(p.messageQueueLimits)
+	clear(p.messageQueueOverflowed)
+	clear(p.messageQueueDiscarded)
+	p.flushingMessages = false
 	p.pendingOutdated = nil
 
 	// Seal the frame - no more modifications allowed after this
@@ -672,10 +712,13 @@ func (p *Process) Step(events []process.Event, out *process.StepOutput) error {
 	// Add incoming messages to queue first (before any processing)
 	for _, pkg := range messages {
 		for _, msg := range pkg.Messages {
-			p.messageQueue = append(p.messageQueue, queuedMessage{
-				Source:   pkg.Source,
-				Topic:    msg.Topic,
-				Payloads: msg.Payloads,
+			p.enqueueMessage(queuedMessage{
+				Source:       pkg.Source,
+				Topic:        msg.Topic,
+				Payloads:     msg.Payloads,
+				MaxItems:     msg.MaxItems,
+				PayloadBytes: msg.PayloadBytes,
+				MaxBytes:     msg.MaxBytes,
 			})
 		}
 		relay.ReleasePackage(pkg)
@@ -1057,12 +1100,17 @@ func (p *Process) flushMessageQueue(subs *subscribeContext) {
 
 		// Process queue, retaining undelivered messages in order.
 		remaining := p.messageQueue[:0]
+		p.flushingMessages = true
 		for _, qm := range p.messageQueue {
 			if p.deliverMessage(subs, qm) {
 				remaining = append(remaining, qm) // retain in queue
+			} else {
+				p.releaseQueuedMessage(qm)
 			}
 		}
+		p.flushingMessages = false
 		p.messageQueue = remaining
+		p.finishDiscardedTopics()
 	}
 
 	// A coalesced OUTDATED event lives outside the queue in a single slot and is
@@ -1070,6 +1118,198 @@ func (p *Process) flushMessageQueue(subs *subscribeContext) {
 	if p.pendingOutdated != nil {
 		p.tryDeliverPendingOutdated(subs)
 	}
+}
+
+// enqueueMessage is the single handoff from relay delivery into the process
+// mailbox. Limits are opt-in: only messages carrying MaxItems/MaxBytes are
+// bounded, so unrelated process topics retain their historical behavior.
+func (p *Process) enqueueMessage(qm queuedMessage) {
+	if _, discarded := p.messageQueueDiscarded[qm.Topic]; discarded {
+		return
+	}
+	if qm.MaxItems <= 0 {
+		qm.MaxItems = p.messageQueueItemLimits[qm.Topic]
+	}
+	if qm.MaxBytes <= 0 {
+		qm.MaxBytes = p.messageQueueLimits[qm.Topic]
+	}
+	if qm.MaxItems > 0 {
+		if p.messageQueueItemLimits == nil {
+			p.messageQueueItemLimits = make(map[string]int)
+		}
+		if previous := p.messageQueueItemLimits[qm.Topic]; previous > 0 && previous < qm.MaxItems {
+			qm.MaxItems = previous
+		}
+		p.messageQueueItemLimits[qm.Topic] = qm.MaxItems
+	}
+	if qm.MaxBytes > 0 {
+		if p.messageQueueLimits == nil {
+			p.messageQueueLimits = make(map[string]int64)
+		}
+		if previous := p.messageQueueLimits[qm.Topic]; previous > 0 && previous < qm.MaxBytes {
+			qm.MaxBytes = previous
+		}
+		p.messageQueueLimits[qm.Topic] = qm.MaxBytes
+	}
+	if !hasDataPayload(qm.Payloads) {
+		if _, overflowed := p.messageQueueOverflowed[qm.Topic]; overflowed {
+			return
+		}
+		if isOverflowTerminal(qm.Payloads) {
+			if p.messageQueueOverflowed == nil {
+				p.messageQueueOverflowed = make(map[string]struct{})
+			}
+			p.messageQueueOverflowed[qm.Topic] = struct{}{}
+			if p.subs != nil {
+				if sub, ok := p.subs.get(qm.Topic); ok {
+					sub.callCleanup()
+				}
+			}
+		}
+		// Terminals are always admissible and never consume backlog capacity.
+		p.messageQueue = append(p.messageQueue, qm)
+		return
+	}
+
+	if _, overflowed := p.messageQueueOverflowed[qm.Topic]; overflowed {
+		return
+	}
+
+	if qm.MaxItems > 0 || qm.MaxBytes > 0 {
+		// A bounded producer must provide a conservative size. If it does not,
+		// charge the whole budget rather than retaining an unaccounted value.
+		if qm.PayloadBytes <= 0 && hasDataPayload(qm.Payloads) {
+			if qm.MaxBytes > 0 {
+				qm.PayloadBytes = qm.MaxBytes
+			}
+		}
+		queuedItems := p.messageQueueItems[qm.Topic]
+		queuedBytes := p.messageQueueBytes[qm.Topic]
+		if (qm.MaxItems > 0 && queuedItems >= qm.MaxItems) ||
+			(qm.MaxBytes > 0 && (qm.PayloadBytes > qm.MaxBytes || queuedBytes > qm.MaxBytes-qm.PayloadBytes)) {
+			p.overflowMessageQueue(qm)
+			return
+		}
+		if qm.MaxItems > 0 {
+			if p.messageQueueItems == nil {
+				p.messageQueueItems = make(map[string]int)
+			}
+			p.messageQueueItems[qm.Topic] = queuedItems + 1
+		}
+		if qm.MaxBytes > 0 && qm.PayloadBytes > 0 {
+			if p.messageQueueBytes == nil {
+				p.messageQueueBytes = make(map[string]int64)
+			}
+			p.messageQueueBytes[qm.Topic] = queuedBytes + qm.PayloadBytes
+		}
+	}
+	p.messageQueue = append(p.messageQueue, qm)
+}
+
+func (p *Process) overflowMessageQueue(qm queuedMessage) {
+	if p.messageQueueOverflowed == nil {
+		p.messageQueueOverflowed = make(map[string]struct{})
+	}
+	if _, exists := p.messageQueueOverflowed[qm.Topic]; exists {
+		return
+	}
+	p.messageQueueOverflowed[qm.Topic] = struct{}{}
+
+	// Stop the producer through the subscription's existing ownership hook.
+	// The channel is closed by the terminal below on the process step goroutine.
+	if p.subs != nil {
+		if sub, ok := p.subs.get(qm.Topic); ok {
+			sub.callCleanup()
+		}
+	}
+	p.messageQueue = append(p.messageQueue, queuedMessage{
+		Source:   qm.Source,
+		Topic:    qm.Topic,
+		Payloads: payload.Payloads{payload.NewError(process.ErrMessageQueueOverflow), payload.NewTerminal()},
+		MaxItems: qm.MaxItems,
+		MaxBytes: qm.MaxBytes,
+	})
+}
+
+func (p *Process) releaseQueuedMessage(qm queuedMessage) {
+	if qm.MaxItems > 0 && p.messageQueueItems != nil {
+		remaining := p.messageQueueItems[qm.Topic] - 1
+		if remaining > 0 {
+			p.messageQueueItems[qm.Topic] = remaining
+		} else {
+			delete(p.messageQueueItems, qm.Topic)
+		}
+	}
+	if qm.MaxBytes > 0 && qm.PayloadBytes > 0 && p.messageQueueBytes != nil {
+		remaining := p.messageQueueBytes[qm.Topic] - qm.PayloadBytes
+		if remaining > 0 {
+			p.messageQueueBytes[qm.Topic] = remaining
+		} else {
+			delete(p.messageQueueBytes, qm.Topic)
+		}
+	}
+}
+
+func (p *Process) discardMessageTopic(topic string) {
+	remaining := p.messageQueue[:0]
+	for _, qm := range p.messageQueue {
+		if qm.Topic == topic {
+			p.releaseQueuedMessage(qm)
+			continue
+		}
+		remaining = append(remaining, qm)
+	}
+	p.messageQueue = remaining
+	delete(p.messageQueueItems, topic)
+	delete(p.messageQueueBytes, topic)
+	delete(p.messageQueueItemLimits, topic)
+	delete(p.messageQueueLimits, topic)
+	delete(p.messageQueueOverflowed, topic)
+	delete(p.messageQueueDiscarded, topic)
+}
+
+func (p *Process) finishDiscardedTopics() {
+	for topic := range p.messageQueueDiscarded {
+		found := false
+		for _, qm := range p.messageQueue {
+			if qm.Topic == topic {
+				found = true
+				break
+			}
+		}
+		if !found {
+			delete(p.messageQueueItems, topic)
+			delete(p.messageQueueBytes, topic)
+			delete(p.messageQueueItemLimits, topic)
+			delete(p.messageQueueLimits, topic)
+			delete(p.messageQueueOverflowed, topic)
+			delete(p.messageQueueDiscarded, topic)
+		}
+	}
+}
+
+func hasDataPayload(payloads payload.Payloads) bool {
+	for _, pl := range payloads {
+		if pl == nil || payload.IsTerminal(pl) || pl.Format() == payload.GoError {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+func isOverflowTerminal(payloads payload.Payloads) bool {
+	if len(payloads) == 0 || !payload.IsTerminal(payloads[len(payloads)-1]) {
+		return false
+	}
+	for _, pl := range payloads {
+		if pl == nil || pl.Format() != payload.GoError {
+			continue
+		}
+		err, ok := pl.Data().(error)
+		return ok && errors.Is(err, process.ErrMessageQueueOverflow)
+	}
+	return false
 }
 
 // markStalled records that a channel retained a message in the current flush
@@ -1100,6 +1340,9 @@ func (p *Process) isStalled(ch *Channel) bool {
 // stall; pure data retries normally and a full buffer preserves its order.
 func (p *Process) deliverMessage(subs *subscribeContext, qm queuedMessage) (keep bool) {
 	topic := qm.Topic
+	if _, discarded := p.messageQueueDiscarded[topic]; discarded {
+		return false
+	}
 	handlerTopic := topic
 	frame, hasFrame := subscriptionFrameFromPayloads(qm.Payloads)
 
@@ -1583,6 +1826,13 @@ func (p *Process) Close() {
 	p.subs = nil
 	p.handlers = nil
 	p.messageQueue = nil
+	p.messageQueueItems = nil
+	p.messageQueueBytes = nil
+	p.messageQueueItemLimits = nil
+	p.messageQueueLimits = nil
+	p.messageQueueOverflowed = nil
+	p.messageQueueDiscarded = nil
+	p.flushingMessages = false
 	p.stalledChans = nil
 	p.trapLinks = false
 	p.upgradable = false

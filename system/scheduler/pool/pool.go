@@ -121,12 +121,18 @@ func (e *Executor) CompleteYield(tag uint64, data any, err error) {
 // Send implements relay.Receiver. Delivers message via EventQueue.
 // Safe to call concurrently. Messages can be queued before Run() starts.
 func (e *Executor) Send(pkg *relay.Package) error {
-	// Push message event to queue with generation check
-	if !e.queue.Push(process.Event{
+	// Push through the bounded message admission path. A dropped package has
+	// already caused one terminal event to be queued; the original pooled
+	// package is no longer owned by the queue and must be released here.
+	admission := e.queue.PushMessage(process.Event{
 		Type: process.EventMessage,
 		Data: pkg,
-	}, e.gen.Load()) {
+	}, e.gen.Load())
+	if admission == process.MessageRejected {
 		return process.ErrProcessNotFound
+	}
+	if admission == process.MessageDropped {
+		relay.ReleasePackage(pkg)
 	}
 	// Signal wake
 	select {
