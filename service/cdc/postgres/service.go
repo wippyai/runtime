@@ -529,6 +529,20 @@ func (s *Source) waitStreamPosition(ctx context.Context, fence pglogrepl.LSN) er
 	}
 }
 
+func (s *Source) finishRunGeneration(done chan struct{}) (bool, []*sourceSubscription) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.done != done {
+		return false, nil
+	}
+	switch s.state {
+	case sourceRunning, sourceStarting:
+		s.state = sourceFailed
+	}
+	s.cancel = nil
+	return true, s.detachSubscriptionsLocked()
+}
+
 func (s *Source) run(
 	ctx context.Context,
 	conn *pgconn.PgConn,
@@ -542,21 +556,9 @@ func (s *Source) run(
 	done chan struct{},
 ) {
 	defer func() {
-		s.mu.Lock()
-		current := s.done == done
+		current, subs := s.finishRunGeneration(done)
 		if current {
-			switch s.state {
-			case sourceRunning, sourceStarting:
-				s.state = sourceFailed
-			}
-			s.cancel = nil
-		}
-		s.mu.Unlock()
-		// A failed generation can finish after a supervisor has already
-		// started its replacement. Only the active generation owns the
-		// subscription set; an old run must never prune new subscribers.
-		if current {
-			s.closeSubscriptions()
+			s.closeDetachedSubscriptions(subs, nil)
 		}
 		close(done)
 	}()

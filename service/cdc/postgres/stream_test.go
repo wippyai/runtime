@@ -208,6 +208,62 @@ func TestStopJoinsSnapshotWorkerBeforeGenerationReset(t *testing.T) {
 	src.mu.Unlock()
 }
 
+func TestOldGenerationCleanupDoesNotCloseReplacementSubscribers(t *testing.T) {
+	src := NewSource(SourceOptions{Name: "db-one", Slot: "slot_one"})
+	oldDone := make(chan struct{})
+	src.mu.Lock()
+	src.state = sourceRunning
+	src.done = oldDone
+	src.mu.Unlock()
+	oldSub := src.Subscribe(cdcapi.StreamOptions{Buffer: 2})
+	require.NotNil(t, oldSub)
+
+	current, detached := src.finishRunGeneration(oldDone)
+	require.True(t, current)
+	src.closeDetachedSubscriptions(detached, nil)
+	close(oldDone)
+
+	newDone := make(chan struct{})
+	src.mu.Lock()
+	src.state = sourceRunning
+	src.done = newDone
+	src.mu.Unlock()
+	newSub := src.Subscribe(cdcapi.StreamOptions{Buffer: 2})
+	require.NotNil(t, newSub)
+	defer newSub.Close()
+
+	select {
+	case _, ok := <-oldSub.Changes():
+		require.False(t, ok)
+	case <-time.After(time.Second):
+		t.Fatal("old generation subscriber was not closed")
+	}
+	src.publishChange(context.Background(), cdcapi.Change{Op: "insert", Table: "users"})
+	select {
+	case change := <-newSub.Changes():
+		require.Equal(t, "insert", change.Op)
+	case <-time.After(time.Second):
+		t.Fatal("replacement subscriber was closed by old generation cleanup")
+	}
+
+	other := NewSource(SourceOptions{Name: "db-two", Slot: "slot_two"})
+	otherDone := make(chan struct{})
+	other.mu.Lock()
+	other.state = sourceRunning
+	other.done = otherDone
+	other.mu.Unlock()
+	otherSub := other.Subscribe(cdcapi.StreamOptions{Buffer: 2})
+	require.NotNil(t, otherSub)
+	defer otherSub.Close()
+	other.publishChange(context.Background(), cdcapi.Change{Op: "insert", Table: "isolated"})
+	select {
+	case change := <-otherSub.Changes():
+		require.Equal(t, "isolated", change.Table)
+	case <-time.After(time.Second):
+		t.Fatal("independent source subscriber was affected by generation cleanup")
+	}
+}
+
 func TestSourceSubscribeFiltersChanges(t *testing.T) {
 	src := NewSource(SourceOptions{Name: "test:cdc", Slot: "slot_a"})
 	stream := src.Subscribe(cdcapi.StreamOptions{

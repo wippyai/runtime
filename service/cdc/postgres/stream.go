@@ -167,6 +167,15 @@ func (s *Source) closeSubscriptions() {
 }
 
 func (s *Source) closeSubscriptionsWithError(err error) {
+	subs := s.detachSubscriptions()
+	s.closeDetachedSubscriptions(subs, err)
+}
+
+// detachSubscriptionsLocked must be called while s.mu is held. Subscribe
+// takes s.mu before subMu, so this ordering makes generation cleanup atomic
+// with the lifecycle transition and prevents an old run from taking a new
+// generation's subscribers.
+func (s *Source) detachSubscriptionsLocked() []*sourceSubscription {
 	s.subMu.Lock()
 	subs := make([]*sourceSubscription, 0, len(s.subs))
 	for id, sub := range s.subs {
@@ -174,7 +183,21 @@ func (s *Source) closeSubscriptionsWithError(err error) {
 		delete(s.subs, id)
 	}
 	s.subMu.Unlock()
+	return subs
+}
 
+func (s *Source) detachSubscriptions() []*sourceSubscription {
+	s.subMu.Lock()
+	subs := make([]*sourceSubscription, 0, len(s.subs))
+	for id, sub := range s.subs {
+		subs = append(subs, sub)
+		delete(s.subs, id)
+	}
+	s.subMu.Unlock()
+	return subs
+}
+
+func (s *Source) closeDetachedSubscriptions(subs []*sourceSubscription, err error) {
 	for _, sub := range subs {
 		sub.closeWithError(err)
 	}
