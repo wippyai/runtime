@@ -21,6 +21,7 @@ func All() []boot.Component {
 		Network(),
 		SocketDispatcher(),
 		Resources(),
+		CDC(),
 		Factory(),
 		ProcessManager(),
 		Interceptor(),

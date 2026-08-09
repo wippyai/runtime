@@ -10,6 +10,7 @@ const (
 	EnvironmentName    boot.Name = "env"
 	NetworkName        boot.Name = "network"
 	ResourcesName      boot.Name = "resources"
+	CDCRegistryName    boot.Name = "cdc.registry"
 	InterceptorName    boot.Name = "interceptor"
 	FrameResolversName boot.Name = "frame_resolvers"
 	FunctionsName      boot.Name = "functions"
