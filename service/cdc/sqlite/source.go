@@ -20,7 +20,6 @@ import (
 	"github.com/wippyai/runtime/api/resource"
 	config "github.com/wippyai/runtime/api/service/cdc"
 	sqlapi "github.com/wippyai/runtime/api/service/sql"
-	sqlconfig "github.com/wippyai/runtime/api/service/sql"
 	"github.com/wippyai/runtime/api/supervisor"
 	sqlservice "github.com/wippyai/runtime/service/sql"
 )
@@ -36,31 +35,29 @@ const (
 // the resource long enough to subscribe to its committed-mutation capability;
 // it never opens another connection and never installs hooks on a raw one.
 type Source struct {
-	res        resource.Registry
-	log        *zap.Logger
-	id         registry.ID
-	name       string
-	dbResID    registry.ID
-	tables     []string
-	statusTick time.Duration
-	lifecycle  configLifecycle
-	snapshot   bool
-
-	subs *subscribers
-
-	mu             sync.RWMutex
-	state          config.SourceState
-	generation     string
 	sourceErr      error
-	observer       sqlapi.MutationStream
+	res            resource.Registry
 	observerSource sqlapi.CommittedMutationSource
-	snapshotSubs   map[*subscription]sqlapi.MutationStream
-	snapshotWG     sync.WaitGroup
-	startDone      chan struct{}
+	observer       sqlapi.MutationStream
 	runDone        chan struct{}
-	startCancel    context.CancelFunc
 	runCancel      context.CancelFunc
 	status         chan any
+	startCancel    context.CancelFunc
+	subs           *subscribers
+	log            *zap.Logger
+	startDone      chan struct{}
+	snapshotSubs   map[*subscription]sqlapi.MutationStream
+	id             registry.ID
+	dbResID        registry.ID
+	name           string
+	generation     string
+	state          config.SourceState
+	tables         []string
+	lifecycle      configLifecycle
+	snapshotWG     sync.WaitGroup
+	statusTick     time.Duration
+	mu             sync.RWMutex
+	snapshot       bool
 	statusClosed   bool
 	stopping       bool
 }
@@ -269,7 +266,7 @@ func (s *Source) acquireObserver(ctx context.Context) (sqlapi.CommittedMutationS
 	if !ok {
 		return nil, fmt.Errorf("resource %s is not a database", s.name)
 	}
-	if db.Type != sqlconfig.SQLite {
+	if db.Type != sqlapi.SQLite {
 		return nil, fmt.Errorf("resource %s is not a sqlite database (kind %s)", s.name, db.Type)
 	}
 	if db.Observer == nil {
@@ -342,7 +339,7 @@ func (s *Source) processBatch(batch sqlapi.MutationBatch, collector metrics.Coll
 
 func (s *Source) changeFromMutation(batch sqlapi.MutationBatch, index int, mutation sqlapi.Mutation) (config.Change, error) {
 	op := strings.ToLower(strings.TrimSpace(mutation.Op))
-	if op != "insert" && op != "update" && op != "delete" && !(batch.Snapshot && op == "snapshot") {
+	if op != "insert" && op != "update" && op != "delete" && (!batch.Snapshot || op != "snapshot") {
 		return config.Change{}, fmt.Errorf("sqlite mutation observer emitted unsupported operation %q", mutation.Op)
 	}
 	if mutation.Table == "" {

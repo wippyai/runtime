@@ -19,9 +19,9 @@ const (
 var errSubscriberOverflow = errors.New("sqlite cdc subscriber backlog overflow")
 
 type subscribers struct {
-	mu   sync.RWMutex
 	m    map[uint64]*subscription
 	next uint64
+	mu   sync.RWMutex
 }
 
 func newSubscribers() *subscribers {
@@ -95,6 +95,7 @@ func (s *subscribers) closeWithError(err error) {
 }
 
 type subscription struct {
+	err        error
 	parent     *subscribers
 	changes    chan config.Change
 	done       chan struct{}
@@ -102,14 +103,12 @@ type subscription struct {
 	ops        map[string]struct{}
 	sourceName string
 	id         uint64
-
-	mu     sync.Mutex
-	closed bool
-	err    error
+	mu         sync.Mutex
 	// closedFlag lets the fan-out path reject work without taking the lock in
 	// the common case. The lock is still held while sending/closing so a send
 	// cannot race close(changes).
 	closedFlag atomic.Bool
+	closed     bool
 }
 
 func (s *subscription) Changes() <-chan config.Change { return s.changes }

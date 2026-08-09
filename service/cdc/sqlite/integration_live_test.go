@@ -69,10 +69,7 @@ func requireNoChange(t *testing.T, stream cdcapi.Stream) {
 	select {
 	case change, ok := <-stream.Changes():
 		if !ok {
-			if errStream, isErrStream := stream.(cdcapi.ErrStream); isErrStream {
-				t.Fatalf("stream closed unexpectedly: %v", errStream.Err())
-			}
-			t.Fatal("stream closed unexpectedly")
+			t.Fatalf("stream closed unexpectedly: %v", stream.Err())
 		}
 		t.Fatalf("unexpected CDC change: %#v", change)
 	case <-time.After(100 * time.Millisecond):

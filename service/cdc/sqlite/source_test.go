@@ -19,7 +19,6 @@ import (
 	"github.com/wippyai/runtime/api/resource"
 	cdcapi "github.com/wippyai/runtime/api/service/cdc"
 	sqlapi "github.com/wippyai/runtime/api/service/sql"
-	sqlconfig "github.com/wippyai/runtime/api/service/sql"
 	sqlservice "github.com/wippyai/runtime/service/sql"
 )
 
@@ -30,7 +29,7 @@ type testResourceRegistry struct {
 
 func (r *testResourceRegistry) Acquire(context.Context, registry.ID, resource.AccessMode) (resource.Resource[any], error) {
 	return &testDBResource{owner: r, value: sqlservice.DBResource{
-		Type:     sqlconfig.SQLite,
+		Type:     sqlapi.SQLite,
 		Observer: r.observer,
 	}}, nil
 }
@@ -50,12 +49,12 @@ func (r *testDBResource) Release() {
 }
 
 type testObserver struct {
-	mu       sync.Mutex
 	stream   *testMutationStream
 	snapshot *testSnapshotStream
-	closed   bool
-	closeN   atomic.Int32
 	subOpts  sqlapi.MutationOptions
+	mu       sync.Mutex
+	closeN   atomic.Int32
+	closed   bool
 }
 
 func (o *testObserver) Subscribe(ctx context.Context, opts sqlapi.MutationOptions) (sqlapi.MutationStream, error) {
@@ -127,11 +126,11 @@ func (o *testObserver) currentSnapshot(t *testing.T) *testSnapshotStream {
 }
 
 type testMutationStream struct {
+	err     error
 	changes chan sqlapi.MutationBatch
 	mu      sync.Mutex
-	err     error
-	closed  bool
 	closeN  atomic.Int32
+	closed  bool
 }
 
 type testSnapshotStream struct {
@@ -202,10 +201,7 @@ func receiveChange(t *testing.T, stream cdcapi.Stream) cdcapi.Change {
 	select {
 	case change, ok := <-stream.Changes():
 		if !ok {
-			if errStream, isErrStream := stream.(cdcapi.ErrStream); isErrStream {
-				require.Failf(t, "snapshot/live stream closed", "stream error: %v", errStream.Err())
-			}
-			require.Fail(t, "snapshot/live stream closed")
+			require.Failf(t, "snapshot/live stream closed", "stream error: %v", stream.Err())
 		}
 		return change
 	case <-time.After(time.Second):
@@ -233,10 +229,7 @@ func waitStreamClosed(t *testing.T, stream cdcapi.Stream) error {
 		select {
 		case _, ok := <-stream.Changes():
 			if !ok {
-				if errStream, ok := stream.(cdcapi.ErrStream); ok {
-					return errStream.Err()
-				}
-				return nil
+				return stream.Err()
 			}
 		case <-deadline:
 			t.Fatal("timed out waiting for SQLite CDC stream close")

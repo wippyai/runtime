@@ -32,8 +32,8 @@ type sourceOptions struct {
 	name           string
 	statusInterval string
 	tables         []string
-	snapshot       bool
 	lifecycle      supervisor.LifecycleConfig
+	snapshot       bool
 }
 
 // Driver wires the SQLite CDC implementation into the driver-neutral CDC
