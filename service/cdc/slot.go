@@ -107,7 +107,7 @@ func (s *sourceSlot) Info() api.SourceInfo {
 
 func (s *sourceSlot) Subscribe(ctx context.Context, opts api.StreamOptions) (api.Stream, error) {
 	s.mu.RLock()
-	if s.state != slotRunning || isNilSource(s.current) || s.disposing {
+	if s.state != slotRunning || isNilSource(s.current) || s.disposing || s.replacing {
 		s.mu.RUnlock()
 		return nil, api.ErrSourceNotReady
 	}
@@ -123,7 +123,7 @@ func (s *sourceSlot) Subscribe(ctx context.Context, opts api.StreamOptions) (api
 	}
 
 	s.mu.RLock()
-	stillCurrent := s.state == slotRunning && s.current == current && s.generation == generation
+	stillCurrent := s.state == slotRunning && s.current == current && s.generation == generation && !s.replacing
 	s.mu.RUnlock()
 	if !stillCurrent {
 		stream.Close()
@@ -144,6 +144,10 @@ func (s *sourceSlot) Start(ctx context.Context) (<-chan any, error) {
 
 	s.mu.Lock()
 	if s.disposing {
+		s.mu.Unlock()
+		return nil, ErrSourceBusy
+	}
+	if len(s.retired) > 0 {
 		s.mu.Unlock()
 		return nil, ErrSourceBusy
 	}
@@ -214,29 +218,30 @@ func (s *sourceSlot) Stop(ctx context.Context) error {
 	defer s.opMu.Unlock()
 
 	s.mu.Lock()
-	if s.disposing {
-		if (s.state == slotStopped || s.state == slotFaulted) && len(s.retired) == 0 {
-			s.mu.Unlock()
-			return nil
-		}
-		if s.state != slotStopped && s.state != slotFaulted {
-			s.mu.Unlock()
-			return ErrSourceBusy
-		}
-	}
-	if s.state == slotStopped && len(s.retired) == 0 {
+	if !s.disposing && s.state == slotStopped && len(s.retired) == 0 {
 		s.mu.Unlock()
 		return nil
 	}
 	s.state = slotStopping
 	current := s.current
 	cancel := s.runCancel
+	pendingCurrent := s.isRetiredLocked(current)
+	disposing := s.disposing
 	s.mu.Unlock()
 
 	if cancel != nil {
 		cancel()
 	}
-	err := stopSource(ctx, current)
+	var err error
+	if disposing && !pendingCurrent {
+		if disposable, ok := current.(Disposable); ok {
+			err = disposable.Dispose(ctx)
+		} else {
+			err = stopSource(ctx, current)
+		}
+	} else {
+		err = stopSource(ctx, current)
+	}
 	if err == nil {
 		err = s.retryRetired(ctx)
 	}
@@ -270,6 +275,7 @@ func (s *sourceSlot) Dispose(ctx context.Context) error {
 	s.state = slotStopping
 	current := s.current
 	cancel := s.runCancel
+	pendingCurrent := s.isRetiredLocked(current)
 	s.mu.Unlock()
 
 	if cancel != nil {
@@ -278,10 +284,14 @@ func (s *sourceSlot) Dispose(ctx context.Context) error {
 	var err error
 	if isNilSource(current) {
 		err = ErrSourceClosed
-	} else if disposable, ok := current.(Disposable); ok {
-		err = disposable.Dispose(ctx)
+	} else if !pendingCurrent {
+		if disposable, ok := current.(Disposable); ok {
+			err = disposable.Dispose(ctx)
+		} else {
+			err = stopSource(ctx, current)
+		}
 	} else {
-		err = stopSource(ctx, current)
+		err = nil
 	}
 	if err == nil {
 		err = s.retryRetired(ctx)
@@ -314,127 +324,159 @@ func (s *sourceSlot) Replace(ctx context.Context, candidate ManagedSource, retir
 	s.opMu.Lock()
 	defer s.opMu.Unlock()
 
-	s.mu.RLock()
+	s.mu.Lock()
+	if s.disposing || len(s.retired) > 0 {
+		s.mu.Unlock()
+		_ = stopUnstartedSource(ctx, candidate)
+		return ErrSourceBusy
+	}
 	old := s.current
-	state := s.state
-	runCtx := s.runCtx
-	runCancel := s.runCancel
-	disposing := s.disposing
-	hasRetired := len(s.retired) > 0
-	s.mu.RUnlock()
-	if disposing {
+	oldState := s.state
+	oldRunCancel := s.runCancel
+	if oldState == slotStopping {
+		s.mu.Unlock()
+		_ = stopUnstartedSource(ctx, candidate)
 		return ErrSourceBusy
 	}
-	if hasRetired {
-		return ErrSourceBusy
-	}
+	s.replacing = true
+	s.mu.Unlock()
+
 	retiredToken := uint64(0)
 	if len(retiredTokens) > 0 {
 		retiredToken = retiredTokens[0]
 	}
-
-	startCandidate := state == slotRunning || lifecycleAutoStart(candidate)
 	oldKey := exclusiveResourceKey(old)
 	candidateKey := exclusiveResourceKey(candidate)
-	sameExclusive := oldKey != "" && oldKey == candidateKey
-	var underlying <-chan any
-	var err error
-	oldStopped := false
-	createdRunContext := false
-	keepRunContext := false
-	defer func() {
-		if createdRunContext && !keepRunContext && runCancel != nil {
+	differentResource := oldKey != candidateKey
+	startCandidate := oldState == slotRunning || lifecycleAutoStart(candidate)
+	shouldStopOld := !isNilSource(old) && (oldState != slotStopped && oldState != slotIdle || differentResource || oldKey == "")
+
+	var (
+		underlying <-chan any
+		runCtx     context.Context
+		runCancel  context.CancelFunc
+	)
+	speculative := differentResource && startCandidate
+	startCandidateGeneration := func() error {
+		runCtx, runCancel = detachedContext(ctx)
+		var err error
+		underlying, err = startSource(ctx, runCtx, candidate)
+		if err != nil {
+			_ = cleanupStartedSource(ctx, candidate, differentResource)
 			runCancel()
 		}
-	}()
-	if startCandidate && state == slotRunning {
-		s.mu.Lock()
-		s.replacing = true
-		s.mu.Unlock()
+		return err
 	}
-	if sameExclusive && state == slotRunning {
-		// A source such as PostgreSQL may not start a second generation while
-		// the old generation owns the same slot. Stop the old generation first;
-		// if the candidate fails, restore the old generation before returning.
-		if err := stopSource(ctx, old); err != nil {
+	if speculative {
+		// Different resource keys may be prepared in parallel. The candidate
+		// remains private until old Stop and Dispose both commit below.
+		if err := startCandidateGeneration(); err != nil {
+			return s.resetReplaceFailure(oldState, err)
+		}
+	}
+
+	// The old source is stopped before destructive cleanup. A speculative
+	// candidate may already be running, but it is not visible through the slot
+	// until this handoff has completed.
+	oldStopped := !shouldStopOld
+	if shouldStopOld {
+		if err := stopGeneration(ctx, old, oldRunCancel); err != nil {
+			if speculative {
+				runCancel()
+				_ = cleanupStartedSource(ctx, candidate, differentResource)
+			}
 			s.mu.Lock()
-			s.replacing = false
 			s.state = slotFaulted
+			s.replacing = false
 			s.closeStatusLocked()
+			s.runCtx = nil
+			s.runCancel = nil
 			s.mu.Unlock()
+			if !speculative {
+				_ = stopUnstartedSource(ctx, candidate)
+			}
 			return err
 		}
 		oldStopped = true
+		s.mu.Lock()
+		s.state = slotStopped
+		s.runCtx = nil
+		s.runCancel = nil
+		s.closeStatusLocked()
+		s.mu.Unlock()
 	}
-	if startCandidate {
-		if runCtx == nil {
-			runCtx, runCancel = detachedContext(ctx)
-			createdRunContext = true
-		}
-		underlying, err = startSource(ctx, runCtx, candidate)
-		if err != nil {
-			if sameExclusive {
-				_ = stopSource(ctx, candidate)
-			} else {
-				_ = cleanupSource(ctx, candidate)
-			}
-			if sameExclusive {
-				var restartErr error
-				underlying, restartErr = startSource(ctx, runCtx, old)
-				if restartErr == nil {
-					s.mu.Lock()
-					s.state = slotRunning
-					s.generation++
-					s.replacing = false
-					generation := s.generation
-					s.mu.Unlock()
-					s.watchStatus(old, generation, underlying)
-					return err
-				}
+
+	if differentResource && !isNilSource(old) {
+		if disposable, ok := old.(Disposable); ok {
+			if err := disposable.Dispose(ctx); err != nil {
+				// Keep the old source current and retain its lease. Stop retries
+				// this pending destructive cleanup during shutdown or delete.
+				s.recordRetired(old, oldKey, retiredToken)
 				s.mu.Lock()
 				s.state = slotFaulted
 				s.replacing = false
-				s.closeStatusLocked()
 				s.mu.Unlock()
-				return errors.Join(err, restartErr)
+				if speculative {
+					runCancel()
+				}
+				_ = cleanupStartedSource(ctx, candidate, speculative && differentResource)
+				return err
 			}
-			s.mu.Lock()
-			s.replacing = false
-			s.mu.Unlock()
-			return err
+			if oldKey != "" {
+				s.mu.RLock()
+				hook := s.retiredHook
+				s.mu.RUnlock()
+				if hook != nil {
+					hook(oldKey, retiredToken)
+				}
+			}
 		}
 	}
-	if !sameExclusive && !oldStopped && !isNilSource(old) {
-		// Candidate startup is deliberately speculative. The stable slot and
-		// registry continue to expose the old generation until its non-
-		// destructive Stop succeeds, so a failed handoff cannot publish an
-		// unowned or half-stopped replacement.
-		if err := stopSource(ctx, old); err != nil {
-			if sameExclusive {
-				_ = stopSource(ctx, candidate)
-			} else {
-				_ = cleanupSource(ctx, candidate)
+
+	if startCandidate && !speculative {
+		if err := startCandidateGeneration(); err != nil {
+			_, oldDisposable := old.(Disposable)
+			restoreOld := oldState == slotRunning && (!differentResource || !oldDisposable)
+			if restoreOld && oldStopped {
+				// The old generation still owns the shared resource. Restore it
+				// before making the failed update visible to the caller.
+				restoreCtx, restoreCancel := detachedContext(ctx)
+				oldUpdates, restoreErr := startSource(ctx, restoreCtx, old)
+				if restoreErr == nil {
+					s.mu.Lock()
+					s.state = slotRunning
+					s.generation++
+					s.runCtx = restoreCtx
+					s.runCancel = restoreCancel
+					s.replacing = false
+					generation := s.generation
+					if s.status == nil || s.statusDone {
+						s.status = make(chan any, 8)
+						s.statusDone = false
+					}
+					s.mu.Unlock()
+					s.watchStatus(old, generation, oldUpdates)
+					return err
+				}
+				restoreCancel()
+				return s.finishReplaceFailure(errors.Join(err, restoreErr))
 			}
-			s.mu.Lock()
-			s.state = slotFaulted
-			s.closeStatusLocked()
-			s.replacing = false
-			s.mu.Unlock()
-			return err
+			return s.finishReplaceFailure(err)
 		}
-		oldStopped = true
 	}
 
 	s.mu.Lock()
-	if s.state == slotStopping {
+	if s.disposing || s.state == slotStopping {
 		s.mu.Unlock()
-		_ = cleanupSource(ctx, candidate)
+		if runCancel != nil {
+			runCancel()
+		}
+		_ = cleanupStartedSource(ctx, candidate, startCandidate && differentResource)
 		return ErrSourceBusy
 	}
 	s.current = candidate
 	s.generation++
 	if startCandidate {
-		keepRunContext = true
 		if s.status == nil || s.statusDone {
 			s.status = make(chan any, 8)
 			s.statusDone = false
@@ -442,42 +484,74 @@ func (s *sourceSlot) Replace(ctx context.Context, candidate ManagedSource, retir
 		s.state = slotRunning
 		s.runCtx = runCtx
 		s.runCancel = runCancel
-		s.replacing = false
-		generation := s.generation
-		s.mu.Unlock()
-		s.watchStatus(candidate, generation, underlying)
+	} else if oldState == slotIdle {
+		s.state = slotIdle
 	} else {
-		s.mu.Unlock()
+		s.state = slotStopped
 	}
+	s.replacing = false
+	generation := s.generation
+	s.mu.Unlock()
 
-	if old != nil && oldStopped && !sameExclusive {
-		if disposable, ok := old.(Disposable); ok {
-			if err := disposable.Dispose(ctx); err != nil {
-				s.recordRetired(old, oldKey, retiredToken)
-				if runCancel != nil {
-					runCancel()
-				}
-				_ = stopSource(ctx, candidate)
-				s.mu.Lock()
-				s.state = slotFaulted
-				s.closeStatusLocked()
-				s.runCtx = nil
-				s.runCancel = nil
-				s.replacing = false
-				s.mu.Unlock()
-				return err
-			}
-		}
+	if startCandidate {
+		s.watchStatus(candidate, generation, underlying)
 	}
 	return nil
 }
 
-func cleanupSource(ctx context.Context, source api.Source) error {
+func (s *sourceSlot) finishReplaceFailure(err error) error {
+	s.mu.Lock()
+	s.state = slotFaulted
+	s.closeStatusLocked()
+	s.runCtx = nil
+	s.runCancel = nil
+	s.replacing = false
+	s.mu.Unlock()
+	return err
+}
+
+func (s *sourceSlot) resetReplaceFailure(state slotState, err error) error {
+	s.mu.Lock()
+	s.state = state
+	s.replacing = false
+	s.mu.Unlock()
+	return err
+}
+
+// stopUnstartedSource abandons a source returned by Driver.Create before its
+// Start method has successfully handed ownership of a durable resource to the
+// manager. Drivers must make Create side-effect-free; Stop is intentionally
+// the only cleanup allowed on this path so an unstarted candidate cannot drop
+// a shared replication slot/checkpoint.
+func stopUnstartedSource(ctx context.Context, source api.Source) error {
+	return stopSource(ctx, source)
+}
+
+// cleanupStartedSource cleans a candidate after Start was attempted. A
+// different exclusive resource is owned solely by that candidate and may be
+// destructively disposed. Same-key candidates share the old resource contract
+// and must only be stopped; disposing them could drop the old generation's
+// resource.
+func cleanupStartedSource(ctx context.Context, source api.Source, destructive bool) error {
+	if destructive {
+		return disposeSource(ctx, source)
+	}
+	return stopSource(ctx, source)
+}
+
+func disposeSource(ctx context.Context, source api.Source) error {
 	if isNilSource(source) {
 		return nil
 	}
 	if disposable, ok := source.(Disposable); ok {
 		return disposable.Dispose(ctx)
+	}
+	return stopSource(ctx, source)
+}
+
+func stopGeneration(ctx context.Context, source api.Source, cancel context.CancelFunc) error {
+	if cancel != nil {
+		cancel()
 	}
 	return stopSource(ctx, source)
 }
@@ -491,6 +565,18 @@ func (s *sourceSlot) recordRetired(source ManagedSource, key string, token uint6
 	s.mu.Unlock()
 }
 
+func (s *sourceSlot) isRetiredLocked(source ManagedSource) bool {
+	if isNilSource(source) {
+		return false
+	}
+	for _, retired := range s.retired {
+		if retired.source == source {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *sourceSlot) retryRetired(ctx context.Context) error {
 	for {
 		s.mu.RLock()
@@ -501,7 +587,7 @@ func (s *sourceSlot) retryRetired(ctx context.Context) error {
 		retired := s.retired[0]
 		s.mu.RUnlock()
 
-		if err := cleanupSource(ctx, retired.source); err != nil {
+		if err := disposeSource(ctx, retired.source); err != nil {
 			return err
 		}
 

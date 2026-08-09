@@ -55,19 +55,19 @@ const (
 // configured source manager. The dispatcher owns subscription relays; a
 // driver owns the source and its stream implementation.
 type Dispatcher struct {
-	ctx       context.Context
-	log       *zap.Logger
-	cancel    context.CancelFunc
-	jobs      chan dispatchJob
-	sessions  map[uint64]*relaySession
-	stopDone  chan struct{}
-	workersWG sync.WaitGroup
-	relaysWG  sync.WaitGroup
+	ctx      context.Context
+	log      *zap.Logger
+	cancel   context.CancelFunc
+	jobs     chan dispatchJob
+	sessions map[uint64]*relaySession
+	stopDone chan struct{}
 	// admissionsDone is a per-run barrier. Stop cancels workers first, then
 	// waits for handles that already passed the state check before workers
 	// drain the queue. This closes the Handle/Stop admission race without
 	// holding mu across a potentially blocking queue send.
 	admissionsDone chan struct{}
+	workersWG      sync.WaitGroup
+	relaysWG       sync.WaitGroup
 	admissions     int
 	workers        int
 	nextID         uint64

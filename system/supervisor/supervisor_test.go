@@ -35,6 +35,17 @@ type testService struct {
 	stopped       bool
 }
 
+type dependencyCheckingService struct {
+	*testService
+	dependency      *testService
+	dependencyReady atomic.Bool
+}
+
+func (s *dependencyCheckingService) Start(ctx context.Context) (<-chan any, error) {
+	s.dependencyReady.Store(s.dependency.IsStarted())
+	return s.testService.Start(ctx)
+}
+
 type blockingStartService struct {
 	startedCh   chan struct{}
 	releaseCh   chan struct{}
@@ -324,6 +335,163 @@ func TestSupervisor_BasicLifecycle(t *testing.T) {
 	// Verify logs
 	h.assertLog("supervisor started")
 	h.assertLog("supervisor stopped")
+}
+
+func TestSupervisor_SameIDReplacementUsesNormalLifecycleTransaction(t *testing.T) {
+	h := newTestHarness(t)
+	h.start(context.Background())
+
+	h.registerServices(map[string]bool{
+		"dependency": false,
+		"service":    true,
+	})
+	old := h.services["service"]
+	old.WaitForStart(t)
+	oldController := func() *Controller {
+		h.sup.mu.RLock()
+		defer h.sup.mu.RUnlock()
+		return h.sup.controllers["service"]
+	}()
+
+	dependency := h.services["dependency"]
+	replacementBase := newTestService()
+	replacement := &dependencyCheckingService{
+		testService: replacementBase,
+		dependency:  dependency,
+	}
+
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxBegin})
+	h.sup.handleEvent(event.Event{System: supervisor.System, Kind: supervisor.ServiceRemove, Path: "service"})
+	h.sup.handleEvent(event.Event{
+		System: supervisor.System,
+		Kind:   supervisor.ServiceRegister,
+		Path:   "service",
+		Data: &supervisor.Entry{
+			Service: replacement,
+			Config: supervisor.LifecycleConfig{
+				AutoStart:    false,
+				Requires:     []string{"dependency"},
+				StartTimeout: time.Second,
+				StopTimeout:  time.Second,
+			},
+		},
+	})
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxCommit})
+
+	replacement.WaitForStart(t)
+	dependency.WaitForStart(t)
+	old.WaitForStop(t)
+	require.True(t, replacement.dependencyReady.Load(), "replacement must start after its required dependency")
+
+	h.sup.mu.RLock()
+	newController := h.sup.controllers["service"]
+	h.sup.mu.RUnlock()
+	require.NotSame(t, oldController, newController)
+	require.Same(t, replacement, newController.service)
+	require.False(t, newController.config.AutoStart)
+	state, err := h.sup.GetState("service")
+	require.NoError(t, err)
+	require.Equal(t, supervisor.StatusRunning, state.Status, "replacement preserves a running generation")
+	select {
+	case <-oldController.ctx.Done():
+	default:
+		t.Fatal("replaced controller supervision context was not released")
+	}
+
+	h.stop()
+}
+
+func TestSupervisor_SameIDReplacementStopFailureRetainsOldController(t *testing.T) {
+	old := newTestService()
+	replacement := newTestService()
+	oldController := NewController(context.Background(), old, supervisor.LifecycleConfig{
+		AutoStart:    true,
+		StartTimeout: time.Second,
+		StopTimeout:  time.Second,
+	}, nil)
+	defer oldController.close()
+	require.NoError(t, oldController.Start())
+	old.stopErr = errors.New("old stop failed")
+
+	bus := eventbus.NewBus()
+	defer bus.Stop()
+	sup := NewSupervisor(bus, zap.NewNop())
+	id := "service"
+	sup.controllers[id] = oldController
+	tx := newRegTx(zap.NewNop())
+	tx.open = true
+	tx.remove[id] = struct{}{}
+	tx.register[id] = &supervisor.Entry{
+		Service: replacement,
+		Config: supervisor.LifecycleConfig{
+			AutoStart:    true,
+			StartTimeout: time.Second,
+			StopTimeout:  time.Second,
+			RetryPolicy:  supervisor.RetryPolicy{MaxAttempts: 1},
+		},
+	}
+
+	err := sup.execute(context.Background(), tx)
+	require.Error(t, err)
+	sup.mu.RLock()
+	current := sup.controllers[id]
+	sup.mu.RUnlock()
+	require.Same(t, oldController, current, "failed replacement must retain the old controller")
+	require.False(t, replacement.IsStarted(), "candidate must not start after old stop fails")
+
+	old.stopErr = nil
+	require.NoError(t, oldController.Stop())
+}
+
+func TestSupervisor_SameIDReplacementStartFailureKeepsNewController(t *testing.T) {
+	old := newTestService()
+	replacement := newTestService()
+	replacement.startErr = errors.New("replacement start failed")
+	oldController := NewController(context.Background(), old, supervisor.LifecycleConfig{
+		AutoStart:    true,
+		StartTimeout: time.Second,
+		StopTimeout:  time.Second,
+	}, nil)
+	defer oldController.close()
+	require.NoError(t, oldController.Start())
+
+	bus := eventbus.NewBus()
+	defer bus.Stop()
+	sup := NewSupervisor(bus, zap.NewNop())
+	sup.ctx = context.Background()
+	id := "service"
+	sup.controllers[id] = oldController
+	tx := newRegTx(zap.NewNop())
+	tx.open = true
+	tx.remove[id] = struct{}{}
+	tx.register[id] = &supervisor.Entry{
+		Service: replacement,
+		Config: supervisor.LifecycleConfig{
+			AutoStart:    true,
+			StartTimeout: time.Second,
+			StopTimeout:  time.Second,
+			RetryPolicy:  supervisor.RetryPolicy{MaxAttempts: 1},
+		},
+	}
+
+	err := sup.execute(context.Background(), tx)
+	require.Error(t, err)
+	sup.mu.RLock()
+	current := sup.controllers[id]
+	sup.mu.RUnlock()
+	require.NotSame(t, oldController, current)
+	require.Same(t, replacement, current.service)
+	state := current.State()
+	require.Equal(t, supervisor.StatusFailed, state.Status)
+	require.False(t, replacement.IsStarted())
+	select {
+	case <-oldController.ctx.Done():
+	default:
+		t.Fatal("old controller supervision context was not released after commit")
+	}
+
+	require.NoError(t, current.Stop())
+	current.close()
 }
 
 func TestSupervisor_MultipleServices(t *testing.T) {

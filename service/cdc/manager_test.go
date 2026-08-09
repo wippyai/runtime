@@ -448,7 +448,10 @@ func TestManagerUpdateRejectsExclusiveResourceOwnedByAnotherID(t *testing.T) {
 	second := registry.NewID("app", "second")
 	old := &managedTestSource{info: api.SourceInfo{Name: "old"}, exclusive: "slot-old"}
 	other := &managedTestSource{info: api.SourceInfo{Name: "other"}, exclusive: "slot-new"}
-	candidate := &managedTestSource{info: api.SourceInfo{Name: "candidate"}, exclusive: "slot-new"}
+	candidate := &disposableTestSource{managedTestSource: &managedTestSource{
+		info:      api.SourceInfo{Name: "candidate"},
+		exclusive: "slot-new",
+	}}
 	next := map[string]int{}
 	driver := testDriver{
 		kind: kind,
@@ -470,6 +473,7 @@ func TestManagerUpdateRejectsExclusiveResourceOwnedByAnotherID(t *testing.T) {
 	require.ErrorIs(t, m.Update(context.Background(), registry.Entry{ID: first, Kind: kind}), ErrExclusiveOwned)
 	require.Same(t, old, mustSlot(t, m, first).currentSource())
 	require.EqualValues(t, 1, candidate.stopCount.Load(), "a lease conflict must stop the uncommitted candidate")
+	require.EqualValues(t, 0, candidate.disposeCount.Load(), "an unstarted candidate must never destructively dispose a shared resource")
 }
 
 func TestManagerDeleteChecksEntryKind(t *testing.T) {
@@ -567,24 +571,21 @@ func TestManagerUpdateRetriesFailedRetiredDisposalBeforeRestart(t *testing.T) {
 	require.NoError(t, m.Add(context.Background(), entry))
 	require.EqualError(t, m.Update(context.Background(), entry), "retired cleanup failed")
 	slot := mustSlot(t, m, id)
-	require.Same(t, candidate, slot.currentSource())
+	require.Same(t, old, slot.currentSource(), "the candidate must not become visible before old disposal succeeds")
 	require.Equal(t, slotFaulted, slot.state)
 	require.EqualValues(t, 1, candidate.stopCount.Load())
 	require.Contains(t, m.leases, "slot-old")
 
 	require.NoError(t, slot.Stop(context.Background()))
-	require.EqualValues(t, 2, old.disposeCount.Load())
-	require.EqualValues(t, 2, candidate.stopCount.Load())
-	_, err := slot.Start(context.Background())
-	require.NoError(t, err)
-	require.EqualValues(t, 2, candidate.startCount.Load())
+	require.EqualValues(t, 2, old.disposeCount.Load(), "shutdown Stop must retry the failed destructive cleanup")
+	require.EqualValues(t, 1, candidate.stopCount.Load())
 	require.Eventually(t, func() bool {
-		m.mu.Lock()
-		defer m.mu.Unlock()
+		m.leaseMu.Lock()
+		defer m.leaseMu.Unlock()
 		_, ok := m.leases["slot-old"]
 		return !ok
 	}, time.Second, time.Millisecond)
-	require.NoError(t, slot.Stop(context.Background()))
+	require.Equal(t, slotStopped, slot.state)
 }
 
 func TestManagerDeleteRetriesRetiredDisposalBeforeUnregister(t *testing.T) {
@@ -619,7 +620,7 @@ func TestManagerDeleteRetriesRetiredDisposalBeforeUnregister(t *testing.T) {
 func TestManagerRetiredLeaseTokenCannotReleaseReplacement(t *testing.T) {
 	m, _ := newManagerTest(t)
 	id := registry.NewID("app", "events")
-	m.mu.Lock()
+	m.leaseMu.Lock()
 	m.leaseSeq = 1
 	m.leases["slot"] = resourceLease{id: id, token: 1}
 	m.releaseLeaseLocked(id, "slot", 1)
@@ -628,7 +629,7 @@ func TestManagerRetiredLeaseTokenCannotReleaseReplacement(t *testing.T) {
 	require.NotEqual(t, uint64(1), newToken)
 	m.releaseLeaseLocked(id, "slot", 1)
 	owner, ok := m.leases["slot"]
-	m.mu.Unlock()
+	m.leaseMu.Unlock()
 	require.True(t, ok)
 	require.Equal(t, newToken, owner.token)
 }
@@ -662,12 +663,17 @@ func TestManagerUpdateFailedStartRetainsRunningGeneration(t *testing.T) {
 	require.Same(t, old, slot.current)
 	require.Equal(t, slotRunning, slot.state)
 	slot.mu.RUnlock()
-	require.EqualValues(t, 0, old.stopCount.Load())
+	require.EqualValues(t, 1, old.stopCount.Load(), "the old running generation must be stopped before a candidate can start")
+	require.Equal(t, "2", slot.Info().Generation)
 }
 
 func TestManagerUpdateSameExclusiveKeyStopsAndRestores(t *testing.T) {
 	old := &managedTestSource{info: api.SourceInfo{Name: "old"}, exclusive: "slot-1"}
-	candidate := &managedTestSource{info: api.SourceInfo{Name: "candidate"}, exclusive: "slot-1", startErr: errors.New("candidate start failed")}
+	candidate := &disposableTestSource{managedTestSource: &managedTestSource{
+		info:      api.SourceInfo{Name: "candidate"},
+		exclusive: "slot-1",
+		startErr:  errors.New("candidate start failed"),
+	}}
 	next := 0
 	driver := testDriver{
 		kind: "db.cdc.test",
@@ -695,7 +701,41 @@ func TestManagerUpdateSameExclusiveKeyStopsAndRestores(t *testing.T) {
 	require.EqualValues(t, 1, old.stopCount.Load())
 	require.EqualValues(t, 2, old.startCount.Load(), "old generation must be restored after its initial start")
 	require.EqualValues(t, 1, old.maxActive.Load(), "exclusive generations must never overlap")
+	require.EqualValues(t, 1, candidate.stopCount.Load(), "failed same-key candidate must be stopped")
+	require.EqualValues(t, 0, candidate.disposeCount.Load(), "failed same-key candidate must not dispose the old resource")
 	require.Equal(t, "2", slot.Info().Generation, "restoring old ownership creates a new stream generation")
+}
+
+func TestManagerUpdateDifferentResourceCleansSpeculativeCandidateDestructively(t *testing.T) {
+	kind := registry.Kind("db.cdc.test")
+	old := &managedTestSource{info: api.SourceInfo{Name: "old"}, exclusive: "slot-old", stopErr: errors.New("old stop failed")}
+	candidate := &disposableTestSource{managedTestSource: &managedTestSource{
+		info:      api.SourceInfo{Name: "candidate"},
+		exclusive: "slot-new",
+	}}
+	next := 0
+	driver := testDriver{
+		kind: kind,
+		create: func(registry.Entry) (ManagedSource, error) {
+			next++
+			if next == 1 {
+				return old, nil
+			}
+			return candidate, nil
+		},
+	}
+	m, _ := newManagerTest(t, driver)
+	id := registry.NewID("app", "events")
+	entry := registry.Entry{ID: id, Kind: kind}
+	require.NoError(t, m.Add(context.Background(), entry))
+	_, err := mustSlot(t, m, id).Start(context.Background())
+	require.NoError(t, err)
+
+	require.EqualError(t, m.Update(context.Background(), entry), "old stop failed")
+	require.Same(t, old, mustSlot(t, m, id).currentSource())
+	require.EqualValues(t, 1, candidate.startCount.Load())
+	require.EqualValues(t, 1, candidate.disposeCount.Load(), "a started different-key candidate may be destructively cleaned")
+	require.EqualValues(t, 1, old.stopCount.Load())
 }
 
 func TestManagerUpdateSameExclusiveKeyStopFailureFaultsSlot(t *testing.T) {
@@ -750,6 +790,20 @@ func TestSourceSlotStampsCanonicalIdentityAndGeneration(t *testing.T) {
 	}
 	stream.Close()
 	require.NoError(t, slot.Stop(context.Background()))
+}
+
+func TestSourceSlotRejectsSubscribeDuringReplacement(t *testing.T) {
+	id := registry.NewID("app", "events")
+	source := &managedTestSource{stream: &testStream{changes: make(chan api.Change, 1)}}
+	slot := newSourceSlot(id, "db.cdc.test", source)
+	slot.mu.Lock()
+	slot.state = slotRunning
+	slot.replacing = true
+	slot.mu.Unlock()
+
+	stream, err := slot.Subscribe(context.Background(), api.StreamOptions{})
+	require.Nil(t, stream)
+	require.ErrorIs(t, err, api.ErrSourceNotReady)
 }
 
 func TestSourceSlotInfoNormalizesLegacyAliases(t *testing.T) {

@@ -82,6 +82,12 @@ type ExclusiveResource interface {
 // the manager is built; package initialization must not mutate global routing.
 type Driver interface {
 	Kind() registry.Kind
+	// Create validates the entry and returns an idle source. It must not start
+	// network, filesystem, or other durable resources; Start owns activation.
+	// Once a source is returned, the manager owns cleanup on every later
+	// registration/update failure. A driver that allocates while constructing
+	// must clean those allocations before returning an error because no source
+	// exists for the manager to reclaim.
 	Create(context.Context, registry.Entry, Dependencies) (ManagedSource, error)
 }
 
@@ -92,6 +98,8 @@ type Option func(*Manager)
 // the same kind intentionally replaces an earlier test or extension driver.
 func WithDriver(drivers ...Driver) Option {
 	return func(m *Manager) {
+		m.mu.Lock()
+		defer m.mu.Unlock()
 		for _, driver := range drivers {
 			if driver == nil {
 				continue
@@ -110,13 +118,27 @@ type Manager struct {
 	log      *zap.Logger
 	drivers  map[registry.Kind]Driver
 	leases   map[string]resourceLease
+	ops      map[registry.ID]*sourceOperation
+	// mu protects the injected driver map. Drivers are normally immutable after
+	// construction; keeping this lock makes test and extension replacement
+	// safe without holding it across driver calls.
+	mu sync.RWMutex
+	// leaseMu is deliberately separate from source operation locks. Lease
+	// release is synchronous at the resource cleanup commit point and never
+	// waits behind another source's network or filesystem work.
+	leaseMu  sync.Mutex
 	leaseSeq uint64
-	mu       sync.Mutex
+	opsMu    sync.Mutex
 }
 
 type resourceLease struct {
 	id    registry.ID
 	token uint64
+}
+
+type sourceOperation struct {
+	mu   sync.Mutex
+	refs int
 }
 
 func NewManager(
@@ -147,6 +169,7 @@ func NewManager(
 		log:     log,
 		drivers: make(map[registry.Kind]Driver),
 		leases:  make(map[string]resourceLease),
+		ops:     make(map[registry.ID]*sourceOperation),
 	}
 	for _, opt := range opts {
 		if opt != nil {
@@ -157,14 +180,14 @@ func NewManager(
 }
 
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	id := canonicalID(entry.ID)
+	release := m.lockSource(id)
+	defer release()
 
-	driver, ok := m.drivers[entry.Kind]
+	driver, ok := m.driver(entry.Kind)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrUnsupportedKind, entry.Kind)
 	}
-	id := canonicalID(entry.ID)
 	if _, exists := m.registry.Get(id); exists {
 		return fmt.Errorf("%w: %s", ErrSourceExists, id.String())
 	}
@@ -177,18 +200,18 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 		return ErrDriverRequired
 	}
 	key := exclusiveResourceKey(source)
-	leaseToken, err := m.reserveLeaseLocked(key, id)
+	leaseToken, err := m.reserveLease(key, id)
 	if err != nil {
-		_ = stopSource(ctx, source)
+		_ = stopUnstartedSource(ctx, source)
 		return err
 	}
 	slot := newSourceSlot(id, entry.Kind, source, m.log.With(zap.String("id", id.String())))
 	slot.setRetiredCleanupHook(func(retiredKey string, retiredToken uint64) {
-		go m.releaseLease(id, retiredKey, retiredToken)
+		m.releaseLease(id, retiredKey, retiredToken)
 	})
 	if err := m.registry.Register(id, slot, entry.Kind); err != nil {
-		m.releaseLeaseLocked(id, key, leaseToken)
-		_ = source.Stop(ctx)
+		m.releaseLease(id, key, leaseToken)
+		_ = stopUnstartedSource(ctx, source)
 		return err
 	}
 	m.registerSupervisor(ctx, id, slot)
@@ -197,10 +220,10 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 }
 
 func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	id := canonicalID(entry.ID)
+	release := m.lockSource(id)
+	defer release()
+
 	existing, exists := m.registry.Get(id)
 	if exists {
 		existingKind, knownKind := sourceKind(existing)
@@ -211,7 +234,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 			return fmt.Errorf("%w: %s -> %s", ErrSourceKindChange, existingKind, entry.Kind)
 		}
 	}
-	driver, ok := m.drivers[entry.Kind]
+	driver, ok := m.driver(entry.Kind)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrUnsupportedKind, entry.Kind)
 	}
@@ -229,22 +252,22 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	}
 	managedSlot, ok := existing.(*sourceSlot)
 	if !ok {
-		_ = replacement.Stop(ctx)
+		_ = stopUnstartedSource(ctx, replacement)
 		return errors.New("cdc manager: source is not managed by a stable slot")
 	}
 	oldKey := exclusiveResourceKey(managedSlot.currentSource())
 	newKey := exclusiveResourceKey(replacement)
-	oldToken := m.leaseTokenLocked(oldKey, id)
-	reservedNew := oldKey != newKey
+	oldToken := m.leaseToken(oldKey, id)
+	reservedNew := oldKey != newKey || (newKey != "" && oldToken == 0)
 	newToken := oldToken
 	if reservedNew {
 		if managedSlot.hasRetiredKey(newKey) {
-			_ = stopSource(ctx, replacement)
+			_ = stopUnstartedSource(ctx, replacement)
 			return ErrSourceBusy
 		}
-		newToken, err = m.reserveLeaseLocked(newKey, id)
+		newToken, err = m.reserveLease(newKey, id)
 		if err != nil {
-			_ = stopSource(ctx, replacement)
+			_ = stopUnstartedSource(ctx, replacement)
 			return err
 		}
 	}
@@ -256,7 +279,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 		// healthy or deleted.
 		committed := managedSlot.currentSource() == replacement
 		if reservedNew && !committed {
-			m.releaseLeaseLocked(id, newKey, newToken)
+			m.releaseLease(id, newKey, newToken)
 		}
 		if committed {
 			m.reconfigureSupervisorIfChanged(ctx, id, managedSlot, oldLifecycle)
@@ -264,7 +287,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 		return replaceErr
 	}
 	if oldKey != newKey && !managedSlot.hasRetiredKey(oldKey) {
-		m.releaseLeaseLocked(id, oldKey, oldToken)
+		m.releaseLease(id, oldKey, oldToken)
 	}
 	m.reconfigureSupervisorIfChanged(ctx, id, managedSlot, oldLifecycle)
 	m.log.Info("updated cdc source", zap.String("id", id.String()), zap.String("kind", entry.Kind))
@@ -276,19 +299,19 @@ func (m *Manager) reconfigureSupervisorIfChanged(ctx context.Context, id registr
 	if reflect.DeepEqual(old, newLifecycle) {
 		return
 	}
-	// ServiceUpdate is emitted by the supervisor for status changes and is
-	// not a reconfiguration primitive. Re-register the same stable slot in
-	// order, so its controller rebuilds security/dependency/autostart state
-	// without exposing a second source identity.
+	// ServiceUpdate is emitted by the supervisor for status changes and is not
+	// a reconfiguration primitive. Keep the canonical remove/register pair;
+	// the supervisor transaction retains both operations for a same-ID
+	// replacement and rebuilds the controller through its normal sequencer.
 	m.unregisterSupervisor(ctx, id)
 	m.registerSupervisorWithConfig(ctx, id, source, newLifecycle)
 }
 
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	id := canonicalID(entry.ID)
+	release := m.lockSource(id)
+	defer release()
+
 	source, ok := m.registry.Get(id)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrSourceNotFound, id.String())
@@ -315,7 +338,7 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	}
 	if slot, ok := source.(*sourceSlot); ok {
 		for _, key := range slot.resourceKeys() {
-			m.releaseLeaseLocked(id, key, m.leaseTokenLocked(key, id))
+			m.releaseLease(id, key, m.leaseToken(key, id))
 		}
 	}
 	m.unregisterSupervisor(ctx, id)
@@ -329,6 +352,35 @@ func (m *Manager) List() []api.SourceInfo {
 
 func (m *Manager) Get(id registry.ID) (api.Source, bool) {
 	return m.registry.Get(id)
+}
+
+func (m *Manager) driver(kind registry.Kind) (Driver, bool) {
+	m.mu.RLock()
+	driver, ok := m.drivers[kind]
+	m.mu.RUnlock()
+	return driver, ok
+}
+
+func (m *Manager) lockSource(id registry.ID) func() {
+	m.opsMu.Lock()
+	op := m.ops[id]
+	if op == nil {
+		op = &sourceOperation{}
+		m.ops[id] = op
+	}
+	op.refs++
+	m.opsMu.Unlock()
+
+	op.mu.Lock()
+	return func() {
+		m.opsMu.Lock()
+		op.refs--
+		if op.refs == 0 {
+			delete(m.ops, id)
+		}
+		op.mu.Unlock()
+		m.opsMu.Unlock()
+	}
 }
 
 func (m *Manager) registerSupervisor(ctx context.Context, id registry.ID, source ManagedSource) {
@@ -361,6 +413,12 @@ func (m *Manager) unregisterSupervisor(ctx context.Context, id registry.ID) {
 	})
 }
 
+func (m *Manager) reserveLease(key string, id registry.ID) (uint64, error) {
+	m.leaseMu.Lock()
+	defer m.leaseMu.Unlock()
+	return m.reserveLeaseLocked(key, id)
+}
+
 func (m *Manager) reserveLeaseLocked(key string, id registry.ID) (uint64, error) {
 	if key == "" {
 		return 0, nil
@@ -378,9 +436,9 @@ func (m *Manager) reserveLeaseLocked(key string, id registry.ID) (uint64, error)
 }
 
 func (m *Manager) releaseLease(id registry.ID, key string, token uint64) {
-	m.mu.Lock()
+	m.leaseMu.Lock()
 	m.releaseLeaseLocked(id, key, token)
-	m.mu.Unlock()
+	m.leaseMu.Unlock()
 }
 
 func (m *Manager) releaseLeaseLocked(id registry.ID, key string, token uint64) {
@@ -400,6 +458,12 @@ func (m *Manager) leaseTokenLocked(key string, id registry.ID) uint64 {
 		return owner.token
 	}
 	return 0
+}
+
+func (m *Manager) leaseToken(key string, id registry.ID) uint64 {
+	m.leaseMu.Lock()
+	defer m.leaseMu.Unlock()
+	return m.leaseTokenLocked(key, id)
 }
 
 func stopSource(ctx context.Context, source api.Source) error {

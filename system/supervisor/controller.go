@@ -120,6 +120,14 @@ func (c *Controller) cancelStart() {
 	}
 }
 
+// close releases the controller's supervision context after the service has
+// been stopped or detached from the supervisor. Stop intentionally does not
+// cancel this context because callers may retry a failed stop; once a
+// controller is replaced or removed there is no future lifecycle work for it.
+func (c *Controller) close() {
+	c.cancel()
+}
+
 func (c *Controller) setStartCancel(cancel context.CancelFunc) {
 	c.startMu.Lock()
 	c.startCancel = cancel

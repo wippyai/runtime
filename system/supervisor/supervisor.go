@@ -242,6 +242,9 @@ func (s *Supervisor) StopContext(ctx context.Context) error {
 				s.stopErr = ctx.Err()
 			}
 		}
+		for _, ctrl := range controllers {
+			ctrl.close()
+		}
 
 		s.wg.Wait()
 
@@ -619,8 +622,12 @@ func (s *Supervisor) resolveServiceDependencyRefs(
 	return services, blockers, nil
 }
 
-// execute processes the transaction by creating new services,
-// stopping removed services, and starting auto-start services.
+// execute processes a registry transaction through the normal lifecycle
+// sequencer. A remove/register pair for one ID is a replacement: the old
+// controller is stopped and detached before the new controller is created.
+// This keeps controller configuration, dependency ordering, and desired-state
+// handling in one lifecycle path instead of introducing an out-of-band
+// reconfiguration operation.
 //
 // All iterations of tx.register, tx.remove, and s.controllers traverse a
 // pre-sorted slice of IDs. The supervisor feeds the sequencer in this order,
@@ -630,9 +637,57 @@ func (s *Supervisor) resolveServiceDependencyRefs(
 func (s *Supervisor) execute(ctx context.Context, tx *regTx) (err error) {
 	registerIDs := sortedRegisterIDs(tx.register)
 	removeIDs := sortedRemoveIDs(tx.remove)
+	oldControllers := s.snapshotControllers()
+	oldStates := make(map[string]State, len(removeIDs))
+	for _, id := range removeIDs {
+		if ctrl := oldControllers[id]; ctrl != nil {
+			oldStates[id] = ctrl.State()
+		}
+	}
 
-	// Mutate controller registry under lock, then run potentially long transitions
-	// lock-free so state readers are never blocked behind start/stop timeouts.
+	// Stop removed controllers first. In particular, a replacement must not
+	// expose a new controller while the old service still owns resources or
+	// dependency edges. A stop failure leaves the old registry untouched and
+	// the transaction can be retried by the caller.
+	stopOperations := make([]operation, 0, len(removeIDs))
+	for _, id := range removeIDs {
+		if ctrl := oldControllers[id]; ctrl != nil {
+			deps, resolveErr := s.resolveDependencies(oldControllers, id)
+			if resolveErr != nil {
+				return NewDependencyResolveError(id, resolveErr)
+			}
+			stopOperations = append(stopOperations, operation{
+				kind:         opStop,
+				id:           id,
+				controller:   ctrl,
+				dependencies: deps,
+			})
+		}
+	}
+	if err := s.runTransition(ctx, stopOperations); err != nil {
+		return NewTransitionError(err)
+	}
+
+	// Detach successfully stopped controllers before constructing replacements.
+	// Closing the controller context releases its frame/supervision resources;
+	// Stop alone intentionally leaves a controller retryable for callers that
+	// need to recover a failed stop.
+	s.mu.Lock()
+	for _, id := range removeIDs {
+		if old := oldControllers[id]; old != nil && s.controllers[id] == old {
+			delete(s.controllers, id)
+		}
+	}
+	s.mu.Unlock()
+	for _, id := range removeIDs {
+		if old := oldControllers[id]; old != nil {
+			old.close()
+		}
+	}
+
+	// Construct new controllers only after the stop phase has committed. This
+	// is also what makes remove/register a true generation handoff rather than
+	// silently retaining the old controller.
 	created := make(map[string]*Controller, len(registerIDs))
 	s.mu.Lock()
 	for _, id := range registerIDs {
@@ -665,31 +720,24 @@ func (s *Supervisor) execute(ctx context.Context, tx *regTx) (err error) {
 	}()
 
 	controllers := s.snapshotControllers()
-	var operations []operation
-
-	// Queue stop operations for services being removed
-	for _, id := range removeIDs {
-		if ctrl, exists := controllers[id]; exists {
-			deps, err := s.resolveDependencies(controllers, id)
-			if err != nil {
-				return NewDependencyResolveError(id, err)
-			}
-			operations = append(operations, operation{
-				kind:         opStop,
-				id:           id,
-				controller:   ctrl,
-				dependencies: deps,
-			})
-		}
-	}
-
 	roots := make([]startRoot, 0, len(registerIDs))
 	for _, id := range registerIDs {
 		entry := tx.register[id]
-		if entry.Config.AutoStart {
+		shouldStart := entry.Config.AutoStart
+		required := entry.Config.StartupRequired()
+		// Preserve a running/desired-running generation across a config or
+		// service replacement even when the replacement's AutoStart is false.
+		// This is an update of an active service, not an implicit user stop.
+		if previous, ok := oldStates[id]; ok &&
+			(previous.Desired == supervisor.StatusRunning ||
+				previous.Status == supervisor.StatusRunning ||
+				previous.Status == supervisor.StatusStarting) {
+			shouldStart = true
+		}
+		if shouldStart {
 			roots = append(roots, startRoot{
 				id:       id,
-				required: entry.Config.StartupRequired(),
+				required: required,
 			})
 		}
 	}
@@ -697,19 +745,12 @@ func (s *Supervisor) execute(ctx context.Context, tx *regTx) (err error) {
 	if err != nil {
 		return NewStartOperationsError(err)
 	}
-	operations = append(operations, startOps...)
 
-	// Execute transitions in dependency order
-	if err := s.runTransition(ctx, operations); err != nil {
+	// Start additions and replacements through the same dependency-aware
+	// sequencer used by explicit ServiceStart actions.
+	if err := s.runTransition(ctx, startOps); err != nil {
 		return NewTransitionError(err)
 	}
-
-	// Done stopped services
-	s.mu.Lock()
-	for _, id := range removeIDs {
-		delete(s.controllers, id)
-	}
-	s.mu.Unlock()
 
 	return nil
 }
