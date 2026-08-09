@@ -25,13 +25,13 @@ var errSubscriberOverflow = errors.New("postgres cdc subscriber backlog overflow
 type sourceSubscription struct {
 	err    error
 	source *Source
-	in     chan config.Change
 	out    chan config.Change
 	done   chan struct{}
 	tables map[string]struct{}
 	ops    map[string]struct{}
 	id     uint64
 	once   sync.Once
+	sendMu sync.Mutex
 	closed atomic.Bool
 	errMu  sync.RWMutex
 }
@@ -79,7 +79,8 @@ func (s *Source) newSubscription(opts config.StreamOptions) config.Stream {
 	sub := &sourceSubscription{
 		source: s,
 		id:     s.nextSubID,
-		in:     make(chan config.Change, buffer),
+		// out is the only event queue. sendMu serializes producers with
+		// terminal close so a slow consumer cannot retain a second buffer.
 		out:    make(chan config.Change, buffer),
 		done:   make(chan struct{}),
 		tables: filterSet(opts.Tables),
@@ -147,7 +148,12 @@ func (s *sourceSubscription) Err() error {
 
 func (s *sourceSubscription) closeWithError(err error) {
 	s.once.Do(func() {
+		// Serialize the terminal transition with send. The run goroutine closes
+		// out under the same lock after done, so no producer can send to a
+		// closed channel.
+		s.sendMu.Lock()
 		s.closed.Store(true)
+		s.sendMu.Unlock()
 		if err != nil {
 			s.errMu.Lock()
 			s.err = err
@@ -161,33 +167,23 @@ func (s *sourceSubscription) closeWithError(err error) {
 }
 
 func (s *sourceSubscription) run() {
-	defer close(s.out)
-	for {
-		select {
-		case <-s.done:
-			return
-		default:
-		}
-		select {
-		case change := <-s.in:
-			select {
-			case <-s.done:
-				return
-			case s.out <- change:
-			}
-		case <-s.done:
-			return
-		}
-	}
+	<-s.done
+	s.sendMu.Lock()
+	close(s.out)
+	s.sendMu.Unlock()
 }
 
 func (s *sourceSubscription) send(_ context.Context, change config.Change) {
+	s.sendMu.Lock()
 	if s.closed.Load() {
+		s.sendMu.Unlock()
 		return
 	}
 	select {
-	case s.in <- change:
+	case s.out <- change:
+		s.sendMu.Unlock()
 	default:
+		s.sendMu.Unlock()
 		// Never wait for a slow consumer from the replication goroutine. The
 		// subscription gets a terminal error and is removed; other consumers
 		// continue receiving the transaction.
