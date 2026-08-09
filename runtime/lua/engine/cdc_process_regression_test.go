@@ -199,7 +199,7 @@ func TestCleanupRegisteredAfterOverflowStillRuns(t *testing.T) {
 	}
 }
 
-func TestProcessQueueBackingReferencesClearOnExecutionReset(t *testing.T) {
+func TestProcessQueueBackingReferencesClearBeforeProcessReuse(t *testing.T) {
 	proc := newCDCRegressionProcess(t)
 	defer proc.Close()
 
@@ -211,11 +211,19 @@ func TestProcessQueueBackingReferencesClearOnExecutionReset(t *testing.T) {
 	}
 
 	proc.clearExecution()
+	if len(proc.messageQueue) != 1 {
+		t.Fatalf("completed execution lost observable queued messages: %d", len(proc.messageQueue))
+	}
+
+	nextCtx, _ := ctxapi.OpenFrameContext(context.Background())
+	if err := proc.Init(nextCtx, "", nil); err != nil {
+		t.Fatalf("process reinit failed: %v", err)
+	}
 	if len(proc.messageQueue) != 0 {
-		t.Fatalf("clearExecution left queued messages: %d", len(proc.messageQueue))
+		t.Fatalf("process reuse left queued messages: %d", len(proc.messageQueue))
 	}
 	if backing[0].Payloads != nil {
-		t.Fatal("clearExecution left payloads reachable through queue backing array")
+		t.Fatal("process reuse left payloads reachable through queue backing array")
 	}
 }
 
