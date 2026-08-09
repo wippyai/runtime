@@ -152,8 +152,8 @@ func TestWaitForExecResult_ContextCancellationIsBounded(t *testing.T) {
 
 func TestExecSignalContext_CancelsOnExternalInterrupt(t *testing.T) {
 	tests := []struct {
-		name string
 		sig  os.Signal
+		name string
 	}{
 		{name: "interrupt", sig: os.Interrupt},
 		{name: "terminate", sig: syscall.SIGTERM},
@@ -241,7 +241,7 @@ func TestExecSignalSubprocessHelper(t *testing.T) {
 }
 
 func TestExecSignalSubprocessCancelsActiveExec(t *testing.T) {
-	child := exec.Command(os.Args[0], "-test.run=TestExecSignalSubprocessHelper")
+	child := exec.CommandContext(t.Context(), os.Args[0], "-test.run=TestExecSignalSubprocessHelper")
 	child.Env = append(os.Environ(), "WIPPY_EXEC_SIGNAL_HELPER=1")
 	stdout, err := child.StdoutPipe()
 	require.NoError(t, err)

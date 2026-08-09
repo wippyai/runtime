@@ -44,15 +44,15 @@ type Controller struct {
 	service       supervisor.Service
 	root          context.Context
 	ctx           context.Context
-	state         *internalState
-	onStateChange func(supervisor.Status, any)
+	securityErr   error
 	stateChanged  chan struct{}
+	onStateChange func(supervisor.Status, any)
 	cancel        context.CancelFunc
 	ops           chan ctrlOp
 	startCancel   context.CancelFunc
+	state         *internalState
 	config        supervisor.LifecycleConfig
 	startMu       sync.Mutex
-	securityErr   error
 }
 
 // NewController creates a new service lifecycle controller with the specified configuration.

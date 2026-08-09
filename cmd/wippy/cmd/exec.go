@@ -56,8 +56,8 @@ type execCompletion struct {
 }
 
 type execResultReceiver struct {
-	once sync.Once
 	done chan execCompletion
+	once sync.Once
 }
 
 func (r *execResultReceiver) CompleteYield(_ uint64, data any, err error) {
