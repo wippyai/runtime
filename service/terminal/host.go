@@ -239,10 +239,23 @@ func (h *Host) Terminate(_ context.Context, processID pid.PID) error {
 
 // Send implements relay.Receiver.
 func (h *Host) Send(pkg *relay.Package) error {
+	return h.SendContext(context.Background(), pkg)
+}
+
+// SendContext implements relay.ContextSender through the actor scheduler.
+// Admission is non-blocking, so cancellation never requires a detached
+// delivery goroutine.
+func (h *Host) SendContext(ctx context.Context, pkg *relay.Package) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if h.shutdown.Load() {
 		return ErrHostShuttingDown
 	}
-	return h.scheduler.Send(pkg)
+	return h.scheduler.SendContext(ctx, pkg)
 }
 
 // Start implements supervisor.Service.

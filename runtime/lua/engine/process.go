@@ -134,17 +134,17 @@ type Process struct {
 
 // queuedMessage stores a message waiting to be delivered
 type queuedMessage struct {
+	// Lease transfers the upstream EventQueue reservation into this mailbox.
+	// It is released only when this queued message is delivered, discarded, or
+	// the process execution is reset. A leased message is already bounded by
+	// the upstream queue and therefore does not consume a second local budget.
+	Lease        relay.RetentionLease
 	Source       pid.PID
 	Topic        string
 	Payloads     []payload.Payload
 	MaxItems     int
 	PayloadBytes int64
 	MaxBytes     int64
-	// Lease transfers the upstream EventQueue reservation into this mailbox.
-	// It is released only when this queued message is delivered, discarded, or
-	// the process execution is reset. A leased message is already bounded by
-	// the upstream queue and therefore does not consume a second local budget.
-	Lease relay.RetentionLease
 }
 
 // GetProcess retrieves the Process from LState via Owner.

@@ -49,6 +49,9 @@ type Mailbox struct {
 	ctx       context.Context
 	receivers sync.Map
 	jobQueues []chan *api.Package
+	lifecycle sync.RWMutex
+	delivery  sync.RWMutex
+	closed    bool
 }
 
 // NewMailbox creates a new Mailbox instance with the provided options.
@@ -103,6 +106,8 @@ func hashString(s string) uint32 {
 // Attach attaches a receiver channel for Package messages.
 // Only one receiver may be attached per PID; if one already exists, an error is returned.
 func (m *Mailbox) Attach(p pid.PID, ch chan *api.Package) (context.CancelFunc, error) {
+	m.lifecycle.RLock()
+	defer m.lifecycle.RUnlock()
 	key := p.String()
 	_, loaded := m.receivers.LoadOrStore(key, ch)
 	if loaded {
@@ -113,13 +118,19 @@ func (m *Mailbox) Attach(p pid.PID, ch chan *api.Package) (context.CancelFunc, e
 		return nil, NewAlreadyAttachedError(p)
 	}
 
-	return func() { m.receivers.Delete(key) }, nil
+	return func() { m.Detach(p) }, nil
 }
 
 // Detach removes a receiver channel from a pid.
 func (m *Mailbox) Detach(p pid.PID) {
 	key := p.String()
-	m.receivers.Delete(key)
+	m.lifecycle.Lock()
+	if rec, ok := m.receivers.LoadAndDelete(key); ok {
+		if ch, ok := rec.(chan *api.Package); ok {
+			drainReceiver(ch)
+		}
+	}
+	m.lifecycle.Unlock()
 	m.config.logger.Debug("receiver detached", zap.String("pid", key))
 }
 
@@ -144,7 +155,6 @@ func (m *Mailbox) SendContext(ctx context.Context, pkg *api.Package) error {
 		return err
 	}
 
-	// Check context before attempting to send to avoid sending to closed channels
 	if err := m.ctx.Err(); err != nil {
 		m.config.logger.Warn("send after mailbox shutdown", zap.String("pid", pkg.Target.String()))
 		return err
@@ -153,12 +163,24 @@ func (m *Mailbox) SendContext(ctx context.Context, pkg *api.Package) error {
 	// Hash by Source.UniqID to preserve per-sender ordering
 	workerIndex := int(hashString(pkg.Source.UniqID)) % m.config.workerCount
 
+	// The lifecycle read lock linearizes queue admission with worker shutdown.
+	// A worker drains queued packages only after acquiring the write lock, so a
+	// successful send always has a live owner and a rejected send remains owned
+	// by its caller.
+	m.lifecycle.RLock()
+	if m.closed {
+		m.lifecycle.RUnlock()
+		return m.ctx.Err()
+	}
 	select {
 	case m.jobQueues[workerIndex] <- pkg:
+		m.lifecycle.RUnlock()
 		return nil
 	case <-ctx.Done():
+		m.lifecycle.RUnlock()
 		return ctx.Err()
 	case <-m.ctx.Done():
+		m.lifecycle.RUnlock()
 		m.config.logger.Warn("send after mailbox shutdown", zap.String("pid", pkg.Target.String()))
 		return m.ctx.Err()
 	}
@@ -175,13 +197,54 @@ func (m *Mailbox) worker(queueIndex int) {
 		case pkg := <-queue:
 			m.deliver(pkg)
 		case <-m.ctx.Done():
+			m.shutdown()
 			return
 		}
 	}
 }
 
+// shutdown closes admission and releases packages still waiting in every
+// worker queue. The queues remain open because SendContext may be racing the
+// context cancellation; the lifecycle lock makes that race deterministic.
+func (m *Mailbox) shutdown() {
+	m.lifecycle.Lock()
+	if m.closed {
+		m.lifecycle.Unlock()
+		return
+	}
+	m.closed = true
+	for _, queue := range m.jobQueues {
+	drain:
+		for {
+			select {
+			case pkg := <-queue:
+				api.ReleasePackage(pkg)
+			default:
+				break drain
+			}
+		}
+	}
+	m.lifecycle.Unlock()
+
+	// Wait for in-flight deliveries to observe the canceled mailbox context
+	// before draining attached channels. This lock is separate from lifecycle:
+	// Detach must remain able to remove a blocked receiver without waiting for a
+	// potentially slow consumer.
+	m.delivery.Lock()
+	m.receivers.Range(func(_, value any) bool {
+		if ch, ok := value.(chan *api.Package); ok {
+			drainReceiver(ch)
+		}
+		return true
+	})
+	m.delivery.Unlock()
+}
+
 // deliver sends the package to the target's receiver channel.
 func (m *Mailbox) deliver(pkg *api.Package) {
+	if pkg == nil {
+		return
+	}
 	targetKey := pkg.Target.String()
 	rec, ok := m.receivers.Load(targetKey)
 	if !ok {
@@ -193,6 +256,7 @@ func (m *Mailbox) deliver(pkg *api.Package) {
 			zap.String("target", targetKey),
 			zap.String("source", pkg.Source.String()),
 			zap.String("topic", topic))
+		api.ReleasePackage(pkg)
 		return
 	}
 
@@ -200,6 +264,7 @@ func (m *Mailbox) deliver(pkg *api.Package) {
 	if !ok {
 		m.config.logger.Error("receiver has invalid type",
 			zap.String("target", targetKey))
+		api.ReleasePackage(pkg)
 		return
 	}
 
@@ -212,17 +277,48 @@ func (m *Mailbox) deliver(pkg *api.Package) {
 // take down the worker, so it is recovered: a closed receiver means the process
 // is gone and the package is dropped.
 func (m *Mailbox) deliverTo(ch chan *api.Package, pkg *api.Package, targetKey string) {
+	m.delivery.RLock()
+	defer m.delivery.RUnlock()
+
+	delivered := false
 	defer func() {
 		if r := recover(); r != nil {
 			m.config.logger.Debug("dropped delivery to closed receiver",
 				zap.String("target", targetKey))
 		}
+		if !delivered {
+			api.ReleasePackage(pkg)
+		}
 	}()
+
+	if err := m.ctx.Err(); err != nil {
+		m.config.logger.Debug("delivery canceled",
+			zap.String("target", targetKey), zap.Error(err))
+		return
+	}
 
 	select {
 	case ch <- pkg:
+		delivered = true
 	case <-m.ctx.Done():
 		m.config.logger.Debug("delivery canceled",
 			zap.String("target", targetKey))
+	}
+}
+
+// drainReceiver releases packages that were already accepted by an attached
+// channel after its owner detaches. Detach serializes with deliverTo, so no
+// package can become unreachable between the final send and this drain.
+func drainReceiver(ch chan *api.Package) {
+	for {
+		select {
+		case pkg, ok := <-ch:
+			if !ok {
+				return
+			}
+			api.ReleasePackage(pkg)
+		default:
+			return
+		}
 	}
 }

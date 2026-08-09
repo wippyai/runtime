@@ -55,8 +55,12 @@ type (
 
 	// Message represents a single message with topic and payload.
 	Message struct {
-		Topic    Topic
-		Payloads payload.Payloads
+		// retention is an atomic ownership handoff for the reservation charged
+		// by a bounded destination. It is intentionally not serialized: leases
+		// are local to a process handoff and must never cross the wire.
+		retention atomic.Pointer[messageRetentionLease]
+		Topic     Topic
+		Payloads  payload.Payloads
 		// PayloadBytes is the logical retained size of Payloads. It is
 		// optional metadata used by bounded subscribers; zero preserves the
 		// historical unbounded relay behavior.
@@ -67,10 +71,6 @@ type (
 		// MaxItems is the per-destination message backlog limit for this
 		// topic. Zero means that the destination applies no item limit.
 		MaxItems int
-		// retention is an atomic ownership handoff for the reservation charged
-		// by a bounded destination. It is intentionally not serialized: leases
-		// are local to a process handoff and must never cross the wire.
-		retention atomic.Pointer[messageRetentionLease]
 	}
 
 	// Package combines source, target and messages for delivery.
@@ -128,6 +128,10 @@ type (
 	// existing receivers keep the original Send contract; lifecycle-sensitive
 	// dispatchers can require this capability instead of detaching a blocked
 	// Send goroutine.
+	//
+	// Ownership is transactional: a nil error transfers the package to the
+	// receiver (or its accepted queue); a non-nil error means the receiver did
+	// not retain it and the caller must release it exactly once.
 	ContextSender interface {
 		SendContext(context.Context, *Package) error
 	}

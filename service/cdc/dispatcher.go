@@ -503,17 +503,33 @@ func (d *Dispatcher) sendTerminal(ctx context.Context, node relay.Node, target p
 // goroutine retained the stream, node, and process context indefinitely; a
 // node without the capability therefore fails the delivery explicitly.
 func sendRelay(ctx context.Context, node relay.Node, pkg *relay.Package) error {
+	if pkg == nil {
+		return ErrNoRelayNode
+	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	if err := ctx.Err(); err != nil {
+		relay.ReleasePackage(pkg)
 		return err
+	}
+	if node == nil {
+		relay.ReleasePackage(pkg)
+		return ErrNoRelayNode
 	}
 	sender, ok := node.(relay.ContextSender)
 	if !ok {
+		relay.ReleasePackage(pkg)
 		return ErrRelayNotCancellable
 	}
-	return sender.SendContext(ctx, pkg)
+	if err := sender.SendContext(ctx, pkg); err != nil {
+		// ContextSender ownership is transactional: a nil result transfers
+		// ownership to the destination queue; an error leaves it with the
+		// caller. CDC is the caller at this boundary, so release exactly once.
+		relay.ReleasePackage(pkg)
+		return err
+	}
+	return nil
 }
 
 // streamError is an optional extension implemented by streams that can

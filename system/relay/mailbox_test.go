@@ -5,6 +5,7 @@ package relay
 import (
 	"context"
 	"fmt"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -14,6 +15,18 @@ import (
 	"github.com/wippyai/runtime/api/relay"
 	"go.uber.org/zap"
 )
+
+type mailboxReleaseProbe struct{ releases atomic.Int32 }
+
+func (p *mailboxReleaseProbe) Release() { p.releases.Add(1) }
+
+func probedPackage(target pidapi.PID) (*relay.Package, *mailboxReleaseProbe) {
+	probe := &mailboxReleaseProbe{}
+	msg := relay.AcquireMessage()
+	msg.Topic = "probe"
+	msg.SetRetentionLease(probe)
+	return relay.NewMessagePackage(pidapi.PID{}, target, msg), probe
+}
 
 func TestMailbox_NewMailbox(t *testing.T) {
 	ctx := context.Background()
@@ -145,7 +158,8 @@ func TestMailbox_SendContextHonorsCallerCancellation(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	err := mailbox.SendContext(ctx, pkg)
+	blocked := &relay.Package{Target: target}
+	err := mailbox.SendContext(ctx, blocked)
 	assert.ErrorIs(t, err, context.Canceled)
 }
 
@@ -165,14 +179,49 @@ func TestMailbox_NoReceiver(t *testing.T) {
 	}
 
 	// send message without attaching a receiver
-	pkg := &relay.Package{
-		Target: pid,
-		Messages: []*relay.Message{
-			{Topic: "test"},
-		},
-	}
+	pkg, probe := probedPackage(pid)
 	err := mailbox.Send(pkg)
 	assert.NoError(t, err) // send should succeed even without receiver
+	assert.Eventually(t, func() bool { return probe.releases.Load() == 1 }, time.Second, time.Millisecond,
+		"accepted package without a receiver must be released by the mailbox")
+}
+
+func TestMailbox_DetachReleasesBufferedPackages(t *testing.T) {
+	mailbox := NewMailbox(context.Background(), WithBufferSize(4), WithWorkerCount(1))
+	target := pidapi.PID{Node: "node1", Host: "host1", UniqID: "detach"}
+	receiverCh := make(chan *relay.Package, 4)
+	_, err := mailbox.Attach(target, receiverCh)
+	require.NoError(t, err)
+
+	pkg, probe := probedPackage(target)
+	require.NoError(t, mailbox.Send(pkg))
+	mailbox.Detach(target)
+
+	assert.Eventually(t, func() bool { return probe.releases.Load() == 1 }, time.Second, time.Millisecond,
+		"detaching a receiver must release packages already accepted by its channel")
+}
+
+func TestMailbox_ShutdownReleasesQueuedPackages(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	mailbox := NewMailbox(ctx, WithBufferSize(8), WithWorkerCount(1))
+	target := pidapi.PID{Node: "node1", Host: "host1", UniqID: "shutdown"}
+	// Keep the worker from handing packages to a receiver; shutdown must own
+	// and release packages remaining in its internal queue.
+	packages := make([]*relay.Package, 8)
+	probes := make([]*mailboxReleaseProbe, 8)
+	for i := range packages {
+		packages[i], probes[i] = probedPackage(target)
+		require.NoError(t, mailbox.Send(packages[i]))
+	}
+	cancel()
+	assert.Eventually(t, func() bool {
+		for _, probe := range probes {
+			if probe.releases.Load() != 1 {
+				return false
+			}
+		}
+		return true
+	}, time.Second, time.Millisecond, "mailbox shutdown leaked queued packages")
 }
 
 func TestMailbox_DetachDuringDelivery(t *testing.T) {
@@ -334,6 +383,12 @@ func TestMailbox_Shutdown(t *testing.T) {
 	}
 	err = mailbox.Send(pkg)
 	assert.NoError(t, err)
+	select {
+	case delivered := <-receiverCh:
+		relay.ReleasePackage(delivered)
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for pre-shutdown delivery")
+	}
 
 	// Now cancel the mailbox context
 	cancel()

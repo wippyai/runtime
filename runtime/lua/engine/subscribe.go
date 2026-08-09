@@ -148,16 +148,15 @@ func (m *subscribeContext) snapshotSubscriptions() []*subscription {
 // subscription links a topic to a channel.
 type subscription struct {
 	channel *Channel
-	topic   string
-	id      uint64
-	gen     atomic.Uint64
-
 	// Cleanup can be requested before the producer has finished registering
 	// its hook (for example when a bounded relay overflows during startup).
 	// Keep that request pending until the hook is installed instead of
 	// consuming a one-shot guard while cleanup is nil.
-	cleanupMu        sync.Mutex
 	cleanup          func()
+	topic            string
+	id               uint64
+	gen              atomic.Uint64
+	cleanupMu        sync.Mutex
 	cleanupRequested bool
 	cleanupDone      bool
 }

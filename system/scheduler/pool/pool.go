@@ -121,6 +121,24 @@ func (e *Executor) CompleteYield(tag uint64, data any, err error) {
 // Send implements relay.Receiver. Delivers message via EventQueue.
 // Safe to call concurrently. Messages can be queued before Run() starts.
 func (e *Executor) Send(pkg *relay.Package) error {
+	return e.SendContext(context.Background(), pkg)
+}
+
+// SendContext implements relay.ContextSender. EventQueue admission is
+// non-blocking, so cancellation is checked before admission. Once the queue
+// accepts a package it owns it; cancellation after that point cannot revoke
+// ownership or leave a detached sender behind.
+func (e *Executor) SendContext(ctx context.Context, pkg *relay.Package) error {
+	if pkg == nil {
+		return process.ErrProcessNotFound
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	// Push through the bounded message admission path. A dropped package has
 	// already caused one terminal event to be queued; the original pooled
 	// package is no longer owned by the queue and must be released here.

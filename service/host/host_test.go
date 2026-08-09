@@ -24,6 +24,7 @@ import (
 	hostapi "github.com/wippyai/runtime/api/service/host"
 	"github.com/wippyai/runtime/api/topology"
 	"github.com/wippyai/runtime/internal/uniqid"
+	relaysys "github.com/wippyai/runtime/system/relay"
 	"github.com/wippyai/runtime/system/scheduler/actor"
 	securitysys "github.com/wippyai/runtime/system/security"
 	"go.uber.org/zap"
@@ -690,6 +691,81 @@ func TestHost_SendMessagesEmpty(t *testing.T) {
 
 	// Should not panic with empty messages
 	th.host.sendMessages(target, nil)
+}
+
+type contextMessageProcess struct {
+	ready     chan struct{}
+	received  chan struct{}
+	readyOnce sync.Once
+	recvOnce  sync.Once
+}
+
+func (p *contextMessageProcess) Init(context.Context, string, payload.Payloads) error { return nil }
+
+func (p *contextMessageProcess) Step(events []process.Event, out *process.StepOutput) error {
+	p.readyOnce.Do(func() { close(p.ready) })
+	for _, event := range events {
+		if event.Type != process.EventMessage {
+			continue
+		}
+		pkg, ok := event.Data.(*relay.Package)
+		if !ok {
+			continue
+		}
+		relay.ReleasePackage(pkg)
+		p.recvOnce.Do(func() { close(p.received) })
+		out.Done(nil)
+		return nil
+	}
+	out.Idle()
+	return nil
+}
+
+func (p *contextMessageProcess) Close() {}
+
+func TestHostSendContextThroughLocalNode(t *testing.T) {
+	th := newTestHost()
+	th.start(t)
+	defer th.stop()
+
+	processID := pid.PID{Node: "test-node", Host: "test:host", UniqID: "context-send"}
+	processID = processID.Precomputed()
+	proc := &contextMessageProcess{ready: make(chan struct{}), received: make(chan struct{})}
+	_, err := th.scheduler.Submit(context.Background(), processID, proc, "", nil)
+	require.NoError(t, err)
+	select {
+	case <-proc.ready:
+	case <-time.After(time.Second):
+		t.Fatal("process did not reach idle state")
+	}
+
+	node := relaysys.NewNode("test-node")
+	require.NoError(t, node.RegisterHost("test:host", th.host))
+	pkg := relay.NewPackage(pid.PID{}, processID, "context", payload.New("value"))
+	require.NoError(t, node.SendContext(context.Background(), pkg))
+	select {
+	case <-proc.received:
+	case <-time.After(time.Second):
+		t.Fatal("local host did not receive cancellable delivery")
+	}
+}
+
+func TestHostSendContextRejectsUnknownAndCanceledDelivery(t *testing.T) {
+	h := newTestHost()
+	h.start(t)
+	defer h.stop()
+
+	unknown := relay.NewPackage(pid.PID{}, pid.PID{Host: "test:host", UniqID: "missing"}, "context", payload.New("value"))
+	err := h.host.SendContext(context.Background(), unknown)
+	require.ErrorIs(t, err, process.ErrProcessNotFound)
+	relay.ReleasePackage(unknown)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	canceled := relay.NewPackage(pid.PID{}, pid.PID{Host: "test:host", UniqID: "missing"}, "context", payload.New("value"))
+	err = h.host.SendContext(ctx, canceled)
+	require.ErrorIs(t, err, context.Canceled)
+	relay.ReleasePackage(canceled)
 }
 
 // --- Concurrent Operation Tests ---
