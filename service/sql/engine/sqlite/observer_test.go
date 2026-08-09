@@ -7,6 +7,7 @@ package sqlite
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -79,6 +80,97 @@ func TestPerPoolObserverCapturesOwnDatabase(t *testing.T) {
 		t.Fatalf("first pool received unrelated batch: %#v", batch)
 	case <-time.After(50 * time.Millisecond):
 	}
+}
+
+func TestPerPoolSnapshotLiveIsolation(t *testing.T) {
+	first, err := openObservedDB(t, filepath.Join(t.TempDir(), "snapshot-first.db"))
+	require.NoError(t, err)
+	defer first.Close()
+	second, err := openObservedDB(t, filepath.Join(t.TempDir(), "snapshot-second.db"))
+	require.NoError(t, err)
+	defer second.Close()
+
+	for _, db := range []*openedDBForTest{first, second} {
+		_, err = db.opened.DB.ExecContext(context.Background(), `CREATE TABLE items (id INTEGER PRIMARY KEY, value TEXT)`)
+		require.NoError(t, err)
+		_, err = db.opened.DB.ExecContext(context.Background(), `INSERT INTO items (id, value) VALUES (1, 'initial')`)
+		require.NoError(t, err)
+	}
+
+	type snapshotResult struct {
+		stream config.SnapshotStream
+		err    error
+	}
+	firstSnapshotCh := make(chan snapshotResult, 1)
+	secondSnapshotCh := make(chan snapshotResult, 1)
+	go func() {
+		stream, snapshotErr := first.opened.Observer.Snapshot(context.Background(), config.SnapshotOptions{
+			Tables: []string{"items"}, BatchSize: 4096,
+		})
+		firstSnapshotCh <- snapshotResult{stream: stream, err: snapshotErr}
+	}()
+	go func() {
+		stream, snapshotErr := second.opened.Observer.Snapshot(context.Background(), config.SnapshotOptions{
+			Tables: []string{"items"}, BatchSize: 4096,
+		})
+		secondSnapshotCh <- snapshotResult{stream: stream, err: snapshotErr}
+	}()
+	firstSnapshot := (<-firstSnapshotCh)
+	secondSnapshot := (<-secondSnapshotCh)
+	require.NoError(t, firstSnapshot.err)
+	require.NoError(t, secondSnapshot.err)
+	defer func() { _ = firstSnapshot.stream.Close() }()
+	defer func() { _ = secondSnapshot.stream.Close() }()
+
+	firstBatch := receiveBatch(t, firstSnapshot.stream)
+	secondBatch := receiveBatch(t, secondSnapshot.stream)
+	require.True(t, firstBatch.Snapshot)
+	require.True(t, secondBatch.Snapshot)
+	assert.Equal(t, "0", firstBatch.Transaction)
+	assert.Equal(t, "0", secondBatch.Transaction)
+
+	_, err = first.opened.DB.ExecContext(context.Background(), `INSERT INTO items (id, value) VALUES (2, 'first-live')`)
+	require.NoError(t, err)
+	_, err = second.opened.DB.ExecContext(context.Background(), `INSERT INTO items (id, value) VALUES (2, 'second-live')`)
+	require.NoError(t, err)
+	firstLive := receiveBatch(t, firstSnapshot.stream)
+	secondLive := receiveBatch(t, secondSnapshot.stream)
+	require.False(t, firstLive.Snapshot)
+	require.False(t, secondLive.Snapshot)
+	assert.Equal(t, "1", firstLive.Transaction)
+	assert.Equal(t, "1", secondLive.Transaction)
+	assert.Equal(t, []byte("first-live"), firstLive.Changes[0].After[1])
+	assert.Equal(t, []byte("second-live"), secondLive.Changes[0].After[1])
+	require.NoError(t, firstSnapshot.stream.Close())
+	require.NoError(t, secondSnapshot.stream.Close())
+
+	firstBackpressured, err := first.opened.Observer.Subscribe(context.Background(), config.MutationOptions{MaxChanges: 1})
+	require.NoError(t, err)
+	secondLiveStream, err := second.opened.Observer.Subscribe(context.Background(), config.MutationOptions{})
+	require.NoError(t, err)
+	_, err = first.opened.DB.ExecContext(context.Background(), `INSERT INTO items (id, value) VALUES (3, 'first-backpressure')`)
+	require.NoError(t, err)
+	_, err = second.opened.DB.ExecContext(context.Background(), `INSERT INTO items (id, value) VALUES (3, 'second-live')`)
+	require.NoError(t, err)
+	require.Equal(t, int64(3), receiveBatch(t, secondLiveStream).Changes[0].RowID)
+
+	_, err = first.opened.DB.ExecContext(context.Background(), `INSERT INTO items (id, value) VALUES (4, 'first-overflow')`)
+	require.NoError(t, err)
+	select {
+	case _, ok := <-firstBackpressured.Changes():
+		require.False(t, ok)
+	case <-time.After(time.Second):
+		t.Fatal("first pool backpressure stream did not close")
+	}
+	assert.ErrorIs(t, firstBackpressured.Err(), errObserverOverflow)
+	require.NoError(t, first.opened.Observer.Close())
+
+	_, err = second.opened.DB.ExecContext(context.Background(), `INSERT INTO items (id, value) VALUES (4, 'second-after-close')`)
+	require.NoError(t, err)
+	secondAfterClose := receiveBatch(t, secondLiveStream)
+	assert.Equal(t, int64(4), secondAfterClose.Changes[0].RowID)
+	assert.Equal(t, []byte("second-after-close"), secondAfterClose.Changes[0].After[1])
+	_ = secondLiveStream.Close()
 }
 
 func TestObserverRebindsAfterConnectionExpiry(t *testing.T) {
@@ -321,6 +413,55 @@ func TestObserverSnapshotHandoffIncludesInFlightWriterAsLive(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("in-flight writer did not arrive as live batch")
 	}
+}
+
+func TestObserverSnapshotFlushesBeforeByteBudget(t *testing.T) {
+	value := strings.Repeat("x", 256)
+	const maxBytes = 800
+	batcher := newSnapshotBatcher("0", 4096, config.DefaultMaxMutationChanges, maxBytes)
+	var batches []config.MutationBatch
+	emit := func(batch config.MutationBatch) error {
+		batches = append(batches, batch)
+		return nil
+	}
+	for i := 1; i <= 8; i++ {
+		err := batcher.add(config.Mutation{
+			Schema: "main", Table: "items", Columns: []string{"id", "value"},
+			RowID: int64(i), After: []any{int64(i), []byte(value)}, Op: "snapshot",
+		}, emit)
+		require.NoError(t, err)
+	}
+	require.NoError(t, batcher.flush(emit))
+	require.Len(t, batches, 8)
+	for _, batch := range batches {
+		require.True(t, batch.Snapshot)
+		require.NotEmpty(t, batch.Changes)
+		assert.LessOrEqual(t, mutationBatchBytes(batch), maxBytes)
+		assert.Len(t, batch.Changes, 1)
+	}
+}
+
+func TestObserverCancelledStreamCannotRemainRegistered(t *testing.T) {
+	backend := newSQLiteBackend(config.DefaultMaxMutationChanges, config.DefaultMaxMutationBytes)
+	defer func() { _ = backend.Close() }()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	stream := newMutationStream(ctx, backend, config.MutationOptions{
+		MaxChanges: config.DefaultMaxMutationChanges,
+		MaxBytes:   config.DefaultMaxMutationBytes,
+	})
+	backend.mu.Lock()
+	backend.streams[stream] = struct{}{}
+	backend.mu.Unlock()
+	stream.start()
+	waitForStreamCount(t, backend, 0)
+	select {
+	case _, ok := <-stream.Changes():
+		require.False(t, ok)
+	case <-time.After(time.Second):
+		t.Fatal("cancelled stream did not close")
+	}
+	assert.ErrorIs(t, stream.Err(), context.Canceled)
 }
 
 func TestObserverRemovesCancelledAndOverflowedStreams(t *testing.T) {

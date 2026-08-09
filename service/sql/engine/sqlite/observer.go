@@ -176,15 +176,15 @@ func (b *sqliteBackend) Subscribe(ctx context.Context, opts sqlapi.MutationOptio
 	if err := b.validateTables(ctx, opts.Tables); err != nil {
 		return nil, err
 	}
-	stream := newMutationStream(ctx, b, opts)
 	b.mu.Lock()
 	if b.closed {
 		b.mu.Unlock()
-		stream.closeWithError(errObserverClosed)
 		return nil, errObserverClosed
 	}
+	stream := newMutationStream(ctx, b, opts)
 	b.streams[stream] = struct{}{}
 	b.mu.Unlock()
+	stream.start()
 	return stream, nil
 }
 
@@ -321,7 +321,6 @@ func (b *sqliteBackend) Snapshot(ctx context.Context, opts sqlapi.SnapshotOption
 	if opts.MaxBytes <= 0 {
 		opts.MaxBytes = b.maxBytes
 	}
-	stream := newSnapshotStream(scanCtx, b, opts, watermark, cancel)
 	b.mu.Lock()
 	if b.closed {
 		b.mu.Unlock()
@@ -330,6 +329,7 @@ func (b *sqliteBackend) Snapshot(ctx context.Context, opts sqlapi.SnapshotOption
 		_ = conn.Close()
 		return nil, errObserverClosed
 	}
+	stream := newSnapshotStream(scanCtx, b, opts, watermark, cancel)
 	b.streams[stream] = struct{}{}
 	b.mu.Unlock()
 	// The fence remains held until the stream is registered and its read view
@@ -337,6 +337,7 @@ func (b *sqliteBackend) Snapshot(ctx context.Context, opts sqlapi.SnapshotOption
 	// than watermark and are buffered by this stream.
 	release = false
 	b.releaseFence()
+	stream.start()
 	go b.scanSnapshot(scanCtx, conn, tx, stream, opts)
 	return stream, nil
 }
@@ -452,7 +453,7 @@ func scanSnapshotTable(ctx context.Context, tx *sql.Tx, stream *mutationStream, 
 		return nil
 	}
 	columns = append([]string(nil), columns[1:]...)
-	changes := make([]sqlapi.Mutation, 0, batchSize)
+	batcher := newSnapshotBatcher(stream.watermark, batchSize, stream.maxChanges, stream.maxBytes)
 	for rows.Next() {
 		values := make([]any, len(columns)+1)
 		dest := make([]any, len(values))
@@ -467,24 +468,72 @@ func scanSnapshotTable(ctx context.Context, tx *sql.Tx, stream *mutationStream, 
 			return fmt.Errorf("sqlite snapshot %s.%s returned invalid rowid %v", schema, table, values[0])
 		}
 		after := append([]any(nil), values[1:]...)
-		changes = append(changes, sqlapi.Mutation{
+		change := sqlapi.Mutation{
 			Schema: schema, Table: table, Columns: columns,
 			RowID: rowID, After: after, Op: "snapshot",
-		})
-		if len(changes) >= batchSize {
-			if err := stream.pushSnapshot(sqlapi.MutationBatch{Transaction: stream.watermark, Snapshot: true, Changes: append([]sqlapi.Mutation(nil), changes...)}); err != nil {
-				return err
-			}
-			changes = changes[:0]
+		}
+		if err := batcher.add(change, stream.pushSnapshot); err != nil {
+			return err
 		}
 	}
 	if err := rows.Err(); err != nil {
 		return err
 	}
-	if len(changes) > 0 {
-		return stream.pushSnapshot(sqlapi.MutationBatch{Transaction: stream.watermark, Snapshot: true, Changes: append([]sqlapi.Mutation(nil), changes...)})
+	return batcher.flush(stream.pushSnapshot)
+}
+
+type snapshotBatcher struct {
+	transaction string
+	changes     []sqlapi.Mutation
+	batchBytes  int
+	batchSize   int
+	maxChanges  int
+	maxBytes    int
+}
+
+func newSnapshotBatcher(transaction string, batchSize, maxChanges, maxBytes int) *snapshotBatcher {
+	return &snapshotBatcher{
+		transaction: transaction,
+		batchBytes:  mutationBatchBytes(sqlapi.MutationBatch{Transaction: transaction}),
+		batchSize:   batchSize,
+		maxChanges:  maxChanges,
+		maxBytes:    maxBytes,
+	}
+}
+
+func (b *snapshotBatcher) add(change sqlapi.Mutation, emit func(sqlapi.MutationBatch) error) error {
+	changeBytes := mutationSize(change)
+	if len(b.changes) > 0 {
+		bytesExceed := b.maxBytes > 0 && (b.batchBytes > b.maxBytes || changeBytes > b.maxBytes-b.batchBytes)
+		changesExceed := b.maxChanges > 0 && len(b.changes) >= b.maxChanges
+		if bytesExceed || changesExceed {
+			if err := b.flush(emit); err != nil {
+				return err
+			}
+		}
+	}
+	b.changes = append(b.changes, change)
+	b.batchBytes = saturatingAdd(b.batchBytes, changeBytes)
+	if len(b.changes) >= b.batchSize ||
+		(b.maxBytes > 0 && b.batchBytes >= b.maxBytes) ||
+		(b.maxChanges > 0 && len(b.changes) >= b.maxChanges) {
+		return b.flush(emit)
 	}
 	return nil
+}
+
+func (b *snapshotBatcher) flush(emit func(sqlapi.MutationBatch) error) error {
+	if len(b.changes) == 0 {
+		return nil
+	}
+	batch := sqlapi.MutationBatch{
+		Transaction: b.transaction,
+		Snapshot:    true,
+		Changes:     append([]sqlapi.Mutation(nil), b.changes...),
+	}
+	b.changes = b.changes[:0]
+	b.batchBytes = mutationBatchBytes(sqlapi.MutationBatch{Transaction: b.transaction})
+	return emit(batch)
 }
 
 func (b *sqliteBackend) remove(stream *mutationStream, err error) {
@@ -1723,8 +1772,11 @@ func newMutationStream(ctx context.Context, backend *sqliteBackend, opts sqlapi.
 		maxChanges: opts.MaxChanges,
 		maxBytes:   opts.MaxBytes,
 	}
-	go stream.relay()
 	return stream
+}
+
+func (s *mutationStream) start() {
+	go s.relay()
 }
 
 func newSnapshotStream(ctx context.Context, backend *sqliteBackend, opts sqlapi.SnapshotOptions, watermark string, cancel context.CancelFunc) *mutationStream {
