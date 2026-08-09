@@ -26,14 +26,14 @@ type decodeResult struct {
 type decoder struct {
 	rels      *relationCache
 	buffer    map[uint32][]bufferedChange
+	usage     map[uint32]int64
+	limits    decoderLimits
 	commitLSN pglogrepl.LSN
 	xid       uint32
 	curTopXid uint32
 	streaming bool
 	inStream  bool
 	txActive  bool
-	limits    decoderLimits
-	usage     map[uint32]int64
 }
 
 func newDecoder(limits ...decoderLimits) *decoder {
@@ -56,14 +56,6 @@ func newDecoderWithMode(streaming bool, limits ...decoderLimits) *decoder {
 		limits:    configured,
 		usage:     make(map[uint32]int64),
 	}
-}
-
-func (d *decoder) decode(walData []byte, walStart pglogrepl.LSN) ([]RowChange, error) {
-	result, err := d.decodeResult(walData, walStart)
-	if err != nil {
-		return nil, err
-	}
-	return result.changes, nil
 }
 
 func (d *decoder) decodeResult(walData []byte, walStart pglogrepl.LSN) (decodeResult, error) {

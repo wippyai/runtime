@@ -22,6 +22,7 @@ import (
 )
 
 // Manager is the legacy PostgreSQL-specific registry and lifecycle wrapper.
+//
 // Deprecated: use service/cdc.Manager with NewDriver so source identity and
 // lifecycle are owned by the driver-neutral CDC manager.
 type Manager struct {

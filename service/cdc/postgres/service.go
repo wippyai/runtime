@@ -64,9 +64,10 @@ type SourceOptions struct {
 }
 
 type Source struct {
-	log                   *zap.Logger
 	coll                  metrics.Collector
 	injectedCP            Checkpointer
+	sourceErr             error
+	log                   *zap.Logger
 	cancel                context.CancelFunc
 	done                  chan struct{}
 	subs                  map[uint64]*sourceSubscription
@@ -78,22 +79,21 @@ type Source struct {
 	tables                []string
 	standbyInterval       time.Duration
 	statusInterval        time.Duration
-	mu                    sync.Mutex
-	subMu                 sync.RWMutex
 	nextSubID             uint64
 	snapshotFetchSize     int
+	maxTransactionChanges int
+	maxTransactionBytes   int64
+	subMu                 sync.RWMutex
+	mu                    sync.Mutex
+	dropMu                sync.Mutex
+	dropSlot              atomic.Bool
+	dropDone              atomic.Bool
 	temporary             bool
 	snapshot              bool
 	streaming             bool
 	failover              bool
-	maxTransactionChanges int
-	maxTransactionBytes   int64
 	permanentlyClosed     bool
-	sourceErr             error
 	state                 sourceState
-	dropSlot              atomic.Bool
-	dropDone              atomic.Bool
-	dropMu                sync.Mutex
 }
 
 type sourceState uint8
@@ -206,9 +206,10 @@ func (s *Source) Start(ctx context.Context) (<-chan any, error) {
 		cancel()
 		s.mu.Lock()
 		if s.done == done {
-			if s.state == sourceStopping {
+			switch s.state {
+			case sourceStopping:
 				s.state = sourceStopped
-			} else if s.state == sourceStarting {
+			case sourceStarting:
 				s.state = sourceFailed
 				s.sourceErr = startErr
 			}
@@ -383,9 +384,10 @@ func (s *Source) run(
 	defer func() {
 		s.mu.Lock()
 		if s.done == done {
-			if s.state == sourceStopping {
+			switch s.state {
+			case sourceStopping:
 				s.state = sourceStopped
-			} else if s.state == sourceRunning || s.state == sourceStarting {
+			case sourceRunning, sourceStarting:
 				s.state = sourceFailed
 			}
 			s.cancel = nil

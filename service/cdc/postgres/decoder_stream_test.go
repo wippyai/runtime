@@ -47,8 +47,8 @@ func TestStreamingDecoderBuffersUntilCommit(t *testing.T) {
 
 func TestStreamingDecoderRequiresStopBeforeCommitOrAbort(t *testing.T) {
 	for _, tc := range []struct {
-		name string
 		msg  pglogrepl.Message
+		name string
 	}{
 		{name: "commit", msg: &pglogrepl.StreamCommitMessageV2{Xid: 100, CommitLSN: 0x99}},
 		{name: "abort", msg: &pglogrepl.StreamAbortMessageV2{Xid: 100, SubXid: 100}},

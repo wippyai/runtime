@@ -23,6 +23,7 @@ const (
 var errSubscriberOverflow = errors.New("postgres cdc subscriber backlog overflow")
 
 type sourceSubscription struct {
+	err    error
 	source *Source
 	in     chan config.Change
 	out    chan config.Change
@@ -33,7 +34,6 @@ type sourceSubscription struct {
 	once   sync.Once
 	closed atomic.Bool
 	errMu  sync.RWMutex
-	err    error
 }
 
 func (s *Source) Subscribe(opts config.StreamOptions) config.Stream {
