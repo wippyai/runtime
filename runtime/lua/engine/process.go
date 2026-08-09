@@ -79,56 +79,57 @@ func WithStateOptions(opts lua.Options) ProcessOption {
 // Combines VM + CVM + Runner into a single unit.
 // Module binders and state options are stored in Factory for sharing across processes.
 type Process struct {
-	ctx            context.Context
-	linkDownError  error
-	execErr        error
-	result         payload.Payload
-	channelQueue   *TaskQueue
-	subs           *subscribeContext
-	mainTask       *Task
-	upgradeRequest *UpgradeRequest
-	proto          *lua.FunctionProto
-	queue          *TaskQueue
-	factory        *Factory
+	ctx           context.Context
+	linkDownError error
+	execErr       error
+	result        payload.Payload
+	// Message queue limits apply only to messages that opt into bounded
+	// retention through relay metadata. Ordinary process messages preserve
+	// their historical behavior.
+	messageQueueLimits     map[string]int64
+	messageQueueItemLimits map[string]int
+	mainTask               *Task
+	upgradeRequest         *UpgradeRequest
+	proto                  *lua.FunctionProto
+	queue                  *TaskQueue
+	factory                *Factory
 	// pendingOutdated holds the single coalesced OUTDATED event awaiting
 	// delivery to an upgradable process's events channel. Nil when none pending.
-	pendingOutdated *topology.OutdatedEvent
-	pendingYields   map[uint64]*Task
-	channels        map[*Channel]int
-	state           *lua.LState
-	handlers        map[string]TopicHandler
-	// stalledChans tracks channels that retained an undeliverable message in
-	// the current flush pass, keyed on the resolved *Channel. Once a channel
-	// stalls, every later mailbox message for it (including a terminal) is also
-	// retained so a terminal cannot overtake earlier retained data on the same
-	// channel. Lazily created on first stall, cleared at the start of each flush.
-	stalledChans  map[*Channel]struct{}
-	exported      map[string]*lua.LFunction
-	scriptName    string
-	script        string
-	outTasks      []*Task
-	externalTasks []*Task
-	yieldBuf      []*Task
-	messageQueue  []queuedMessage
+	pendingOutdated        *topology.OutdatedEvent
+	pendingYields          map[uint64]*Task
+	channels               map[*Channel]int
+	state                  *lua.LState
+	handlers               map[string]TopicHandler
+	// stalledChans records channels that could not accept a message during the
+	// current flush. Later messages for the same channel, including terminals,
+	// remain queued so delivery order cannot be inverted.
+	stalledChans           map[*Channel]struct{}
+	exported               map[string]*lua.LFunction
+	messageQueueDiscarded  map[string]struct{}
+	messageQueueOverflowed map[string]struct{}
+	channelQueue           *TaskQueue
+	subs                   *subscribeContext
 	// messageQueueBytes accounts only messages that opt into a byte limit via
 	// relay metadata. Ordinary process messages keep their historical behavior.
-	messageQueueItems      map[string]int
-	messageQueueBytes      map[string]int64
-	messageQueueItemLimits map[string]int
-	messageQueueLimits     map[string]int64
-	messageQueueOverflowed map[string]struct{}
-	messageQueueDiscarded  map[string]struct{}
-	flushingMessages       bool
-	threads                []*Task
-	yieldSeq               uint64
+	messageQueueBytes map[string]int64
+	messageQueueItems map[string]int
+	script            string
+	scriptName        string
+	messageQueue      []queuedMessage
+	yieldBuf          []*Task
+	externalTasks     []*Task
+	outTasks          []*Task
+	threads           []*Task
+	yieldSeq          uint64
 	// epoch is the monotonic incarnation counter. Incremented on every
 	// Init / clearExecution / Close drain and on Abort. Producers stamp
 	// every SubscriptionFrame with the epoch they were registered under;
 	// deliverMessage compares atomically so frames from prior incarnations
 	// are dropped without locking.
-	epoch      atomic.Uint64
-	trapLinks  bool
-	upgradable bool
+	epoch            atomic.Uint64
+	flushingMessages bool
+	trapLinks        bool
+	upgradable       bool
 }
 
 // queuedMessage stores a message waiting to be delivered

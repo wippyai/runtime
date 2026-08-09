@@ -20,10 +20,7 @@ const defaultQueueCap = 16
 // Generation counter ensures stale senders from previous executions
 // cannot push to a reused queue.
 type EventQueue struct {
-	signal   chan struct{}
-	events   []Event
-	drainBuf []Event
-
+	signal chan struct{}
 	// Message accounting is opt-in. Ordinary event traffic keeps the
 	// historical unbounded queue semantics; CDC messages carry MaxItems and/or
 	// MaxBytes and are admitted through PushMessage.
@@ -32,10 +29,11 @@ type EventQueue struct {
 	messageItemLimits map[string]int
 	messageByteLimits map[string]int64
 	messageOverflowed map[string]struct{}
-
-	generation atomic.Uint64
-	mu         sync.Mutex
-	closed     atomic.Bool
+	events            []Event
+	drainBuf          []Event
+	generation        atomic.Uint64
+	mu                sync.Mutex
+	closed            atomic.Bool
 }
 
 // MessageAdmission describes ownership after PushMessage.
@@ -157,7 +155,7 @@ func (q *EventQueue) admitPackageLocked(pkg *relay.Package) bool {
 			continue
 		}
 
-		topic := string(msg.Topic)
+		topic := msg.Topic
 		maxItems := msg.MaxItems
 		if maxItems <= 0 {
 			maxItems = q.messageItemLimits[topic]
@@ -363,7 +361,7 @@ func (q *EventQueue) releaseEventLocked(event Event) {
 		if !messageHasData(msg) {
 			continue
 		}
-		topic := string(msg.Topic)
+		topic := msg.Topic
 		if msg.MaxItems > 0 && q.messageItems != nil {
 			if n := q.messageItems[topic] - 1; n > 0 {
 				q.messageItems[topic] = n
