@@ -343,14 +343,21 @@ func (s *Source) Stop(ctx context.Context) error {
 		return nil
 	}
 	if s.state == sourceNew || s.state == sourceFailed {
-		s.state = sourceStopped
-		s.cancel = nil
-		s.mu.Unlock()
-		s.closeSubscriptions()
-		if s.dropSlot.Load() {
-			return s.dropSlotAndCheckpoint(ctx)
+		if s.state == sourceNew {
+			s.state = sourceStopped
+			s.cancel = nil
+			s.mu.Unlock()
+			s.closeSubscriptions()
+			if s.dropSlot.Load() {
+				return s.dropSlotAndCheckpoint(ctx)
+			}
+			return nil
 		}
-		return nil
+		// A replication run marks the source failed before its deferred
+		// cleanup closes done. Keep the source stopping until that run has
+		// fully released its connections; replacement and slot deletion must
+		// not race the failed generation.
+		s.state = sourceStopping
 	}
 	if s.state == sourceStarting || s.state == sourceRunning {
 		s.state = sourceStopping
@@ -373,6 +380,13 @@ func (s *Source) Stop(ctx context.Context) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		}
+	} else {
+		s.mu.Lock()
+		if s.state == sourceStopping {
+			s.state = sourceStopped
+			s.cancel = nil
+		}
+		s.mu.Unlock()
 	}
 
 	if s.dropSlot.Load() {

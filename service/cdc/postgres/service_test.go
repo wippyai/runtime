@@ -67,6 +67,64 @@ func TestFailedSourceCanBeStoppedAndRetried(t *testing.T) {
 	assert.NotErrorIs(t, err, ErrSourceClosed)
 }
 
+func TestFailedSourceStopWaitsForRunCleanup(t *testing.T) {
+	source := NewSource(SourceOptions{})
+	runDone := make(chan struct{})
+	cancelCalled := make(chan struct{})
+	releaseRun := make(chan struct{})
+	source.mu.Lock()
+	source.state = sourceFailed
+	source.done = runDone
+	source.cancel = func() { close(cancelCalled) }
+	source.mu.Unlock()
+	go func() {
+		<-cancelCalled
+		<-releaseRun
+		close(runDone)
+	}()
+
+	stopDone := make(chan error, 1)
+	go func() { stopDone <- source.Stop(context.Background()) }()
+	select {
+	case err := <-stopDone:
+		t.Fatalf("Stop returned before failed run cleanup: %v", err)
+	case <-cancelCalled:
+	}
+	close(releaseRun)
+	require.NoError(t, <-stopDone)
+
+	source.mu.Lock()
+	assert.Equal(t, sourceStopped, source.state)
+	source.mu.Unlock()
+}
+
+func TestFailedSourceStopCancellationIsRetryableAndIsolated(t *testing.T) {
+	first := NewSource(SourceOptions{Name: "db-one"})
+	firstDone := make(chan struct{})
+	first.mu.Lock()
+	first.state = sourceFailed
+	first.done = firstDone
+	first.mu.Unlock()
+
+	second := NewSource(SourceOptions{Name: "db-two"})
+	second.mu.Lock()
+	second.state = sourceFailed
+	second.mu.Unlock()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+	assert.ErrorIs(t, first.Stop(ctx), context.DeadlineExceeded)
+	first.mu.Lock()
+	assert.Equal(t, sourceStopping, first.state)
+	first.mu.Unlock()
+
+	// A blocked source must not hold lifecycle state for an independent
+	// database/source instance.
+	require.NoError(t, second.Stop(context.Background()))
+	close(firstDone)
+	require.NoError(t, first.Stop(context.Background()))
+}
+
 func TestClosePermanentlyRetiresSource(t *testing.T) {
 	s := NewSource(SourceOptions{})
 	require.NoError(t, s.Close(context.Background()))
