@@ -29,6 +29,7 @@ func (r *commandEntryRegistry) GetEntry(registry.ID) (registry.Entry, error) {
 type commandSecurityRegistry struct {
 	secapi.Registry
 	policies map[registry.ID]secapi.Policy
+	groups   map[registry.ID]secapi.Scope
 }
 
 func (r *commandSecurityRegistry) GetPolicy(id registry.ID) (secapi.Policy, error) {
@@ -37,6 +38,14 @@ func (r *commandSecurityRegistry) GetPolicy(id registry.ID) (secapi.Policy, erro
 		return nil, secapi.ErrPolicyNotFound
 	}
 	return policy, nil
+}
+
+func (r *commandSecurityRegistry) GetPolicyGroup(id registry.ID) (secapi.Scope, error) {
+	scope, ok := r.groups[id]
+	if !ok {
+		return nil, secapi.ErrGroupNotFound
+	}
+	return scope, nil
 }
 
 type commandPolicy struct{ id registry.ID }
@@ -79,16 +88,16 @@ func TestExtractCommandMeta_Security(t *testing.T) {
 		assert.Equal(t, []registry.ID{registry.NewID("app.security", "admin")}, meta.Security.PolicyGroups)
 	})
 
-	t.Run("empty security block remains declared", func(t *testing.T) {
+	t.Run("empty security block is rejected", func(t *testing.T) {
 		meta, err := extractCommandMeta(map[string]any{
 			"command": map[string]any{
 				"name":     "test",
 				"security": map[string]any{"actor": map[string]any{}},
 			},
 		})
-		require.NoError(t, err)
-		require.NotNil(t, meta)
-		assert.NotNil(t, meta.Security)
+		assert.Nil(t, meta)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "security configuration is empty")
 	})
 
 	t.Run("malformed policy entries fail decoding", func(t *testing.T) {
@@ -104,6 +113,52 @@ func TestExtractCommandMeta_Security(t *testing.T) {
 		assert.Nil(t, meta)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "decode command metadata")
+	})
+
+	t.Run("policy object rejects unknown ID fields", func(t *testing.T) {
+		meta, err := extractCommandMeta(map[string]any{
+			"command": map[string]any{
+				"name": "test",
+				"security": map[string]any{
+					"actor": map[string]any{"id": "a"},
+					"policies": []any{map[string]any{
+						"ns":     "app",
+						"name":   "runner",
+						"secret": "must-reject",
+					}},
+				},
+			},
+		})
+		assert.Nil(t, meta)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "unknown field")
+		assert.Contains(t, err.Error(), "secret")
+	})
+
+	t.Run("unknown security fields fail decoding", func(t *testing.T) {
+		meta, err := extractCommandMeta(map[string]any{
+			"command": map[string]any{
+				"name": "test",
+				"security": map[string]any{
+					"actor":    map[string]any{"id": "a"},
+					"polciies": []any{"app:runner"},
+				},
+			},
+		})
+		assert.Nil(t, meta)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "unknown field")
+	})
+
+	t.Run("security requires a command name", func(t *testing.T) {
+		meta, err := extractCommandMeta(map[string]any{
+			"command": map[string]any{
+				"security": map[string]any{"actor": map[string]any{"id": "a"}},
+			},
+		})
+		assert.Nil(t, meta)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "security requires a command name")
 	})
 
 	t.Run("unknown command metadata remains compatible", func(t *testing.T) {
@@ -189,9 +244,46 @@ func TestResolveCommandSecurity_FailsClosed(t *testing.T) {
 		rootCtx = secapi.WithRegistry(rootCtx, &commandSecurityRegistry{policies: map[registry.ID]secapi.Policy{}})
 
 		pairs, err := resolveCommandSecurity(rootCtx, registry.NewID("app", "runner"))
-		require.Len(t, pairs, 1)
+		assert.Nil(t, pairs)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), policyID.String())
+	})
+
+	t.Run("missing group returns no partial pairs", func(t *testing.T) {
+		groupID := registry.NewID("app", "missing-group")
+		rootCtx := registry.WithRegistry(ctxapi.NewRootContext(), &commandEntryRegistry{entry: registry.Entry{
+			Meta: map[string]any{"command": map[string]any{
+				"name":     "runner",
+				"security": map[string]any{"groups": []any{groupID.String()}},
+			}},
+		}})
+		rootCtx = secapi.WithRegistry(rootCtx, &commandSecurityRegistry{groups: map[registry.ID]secapi.Scope{}})
+
+		pairs, err := resolveCommandSecurity(rootCtx, registry.NewID("app", "runner"))
+		assert.Nil(t, pairs)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), groupID.String())
+	})
+
+	t.Run("mixed valid and missing policy references are atomic", func(t *testing.T) {
+		validID := registry.NewID("app", "valid")
+		missingID := registry.NewID("app", "missing")
+		rootCtx := registry.WithRegistry(ctxapi.NewRootContext(), &commandEntryRegistry{entry: registry.Entry{
+			Meta: map[string]any{"command": map[string]any{
+				"name": "runner",
+				"security": map[string]any{
+					"policies": []any{validID.String(), missingID.String()},
+				},
+			}},
+		}})
+		rootCtx = secapi.WithRegistry(rootCtx, &commandSecurityRegistry{
+			policies: map[registry.ID]secapi.Policy{validID: commandPolicy{id: validID}},
+		})
+
+		pairs, err := resolveCommandSecurity(rootCtx, registry.NewID("app", "runner"))
+		assert.Nil(t, pairs)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), missingID.String())
 	})
 
 	t.Run("entry lookup failure", func(t *testing.T) {

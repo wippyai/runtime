@@ -4,6 +4,7 @@
 package registry
 
 import (
+	"bytes"
 	"encoding/json"
 	"strings"
 	"unique"
@@ -102,7 +103,9 @@ func (t *ID) UnmarshalJSON(data []byte) error {
 			NS   Namespace `json:"ns"`
 			Name Name      `json:"name"`
 		}
-		if err := json.Unmarshal(data, &obj); err != nil {
+		decoder := json.NewDecoder(bytes.NewReader(data))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&obj); err != nil {
 			return err
 		}
 		if obj.NS == "" && strings.Contains(obj.Name, ":") {
