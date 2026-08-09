@@ -4,7 +4,6 @@ package postgres
 
 import (
 	"context"
-	"fmt"
 	"net"
 	"strconv"
 	"strings"
@@ -113,10 +112,9 @@ func (s *sourceAdapter) Info() config.SourceInfo {
 		Snapshot:  source.snapshot,
 		State:     postgresSourceState(state),
 		Capabilities: config.Capabilities{
-			// Snapshot is a source-start bootstrap operation. Subscribe rejects
-			// per-consumer snapshot requests, so it is not a common API
-			// capability of this adapter.
-			Snapshot:               false,
+			// Snapshot is an atomic per-subscriber handoff. The source Snapshot
+			// field is only the entry default for that capability.
+			Snapshot:               true,
 			Durable:                !source.temporary,
 			Replayable:             false,
 			CapturesExternalWrites: true,
@@ -145,10 +143,6 @@ func (s *sourceAdapter) Subscribe(ctx context.Context, opts config.StreamOptions
 	if opts.After != "" {
 		return nil, config.ErrUnsupported
 	}
-	if opts.Snapshot {
-		return nil, fmt.Errorf("%w: snapshot is configured on the source", config.ErrUnsupported)
-	}
-
 	s.mu.RLock()
 	source := s.source
 	s.mu.RUnlock()

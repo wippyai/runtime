@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pglogrepl"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	cdcapi "github.com/wippyai/runtime/api/service/cdc"
@@ -41,7 +42,7 @@ func TestSourceSubscribePublishesMatchingChanges(t *testing.T) {
 	}
 }
 
-func TestSourceSubscribePreparesStartupSnapshotBeforeStart(t *testing.T) {
+func TestSourceSubscribeAllowsOrdinaryPreStartStream(t *testing.T) {
 	src := NewSource(SourceOptions{Name: "test:cdc", Slot: "slot_a"})
 	stream, err := src.subscribe(context.Background(), cdcapi.StreamOptions{Buffer: 1})
 	require.NoError(t, err)
@@ -49,7 +50,7 @@ func TestSourceSubscribePreparesStartupSnapshotBeforeStart(t *testing.T) {
 	defer stream.Close()
 
 	src.publishChange(context.Background(), cdcapi.Change{
-		Op:     "snapshot",
+		Op:     "insert",
 		Table:  "accounts",
 		After:  map[string]any{"id": int64(1)},
 		Source: "test:cdc",
@@ -57,10 +58,45 @@ func TestSourceSubscribePreparesStartupSnapshotBeforeStart(t *testing.T) {
 
 	select {
 	case got := <-stream.Changes():
-		require.Equal(t, "snapshot", got.Op)
+		require.Equal(t, "insert", got.Op)
 		require.Equal(t, "accounts", got.Table)
 	case <-time.After(time.Second):
-		t.Fatal("pre-start subscription did not retain startup snapshot")
+		t.Fatal("pre-start subscription did not retain the ordinary stream")
+	}
+}
+
+func TestSourceSnapshotDefaultRequiresRunningGeneration(t *testing.T) {
+	src := NewSource(SourceOptions{Name: "test:cdc", Slot: "slot_a", Snapshot: true})
+	stream, err := src.subscribe(context.Background(), cdcapi.StreamOptions{})
+	assert.ErrorIs(t, err, cdcapi.ErrSourceNotReady)
+	assert.Nil(t, stream)
+	assert.Nil(t, src.Subscribe(cdcapi.StreamOptions{}))
+}
+
+func TestSnapshotHandoffWaitsForReplicationFence(t *testing.T) {
+	src := NewSource(SourceOptions{Name: "test:cdc", Slot: "slot_a"})
+	done := make(chan struct{})
+	src.mu.Lock()
+	src.done = done
+	src.streamPosition = 0
+	src.mu.Unlock()
+
+	fence, err := pglogrepl.ParseLSN("0/20")
+	require.NoError(t, err)
+	waited := make(chan error, 1)
+	go func() { waited <- src.waitStreamPosition(context.Background(), fence) }()
+	select {
+	case err := <-waited:
+		t.Fatalf("handoff released before replication reached fence: %v", err)
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	src.advanceStreamPosition(done, fence)
+	select {
+	case err := <-waited:
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("handoff did not observe the replication fence")
 	}
 }
 
@@ -210,7 +246,7 @@ func TestSourceSubscriptionMaxBytesReleasesOnlyAfterDelivery(t *testing.T) {
 	}
 	changeBytes := cdcapi.EstimateChangeBytes(change)
 	stream := src.newSubscription(cdcapi.StreamOptions{Buffer: 2, MaxBytes: changeBytes + 1})
-	sub := stream.(*sourceSubscription)
+	sub := stream
 	defer sub.Close()
 
 	sub.send(context.Background(), change, cdcapi.EstimateChangeBytes(change))
@@ -264,5 +300,97 @@ func TestSourceSubscriptionMaxBytesOverflowIsIsolated(t *testing.T) {
 		assert.Equal(t, change.Table, got.Table)
 	case <-time.After(time.Second):
 		t.Fatal("independent source did not receive change")
+	}
+}
+
+func TestSnapshotSubscriptionHandoffIsCommitLSNFenced(t *testing.T) {
+	src := NewSource(SourceOptions{Name: "test:cdc", Slot: "slot_a"})
+	sub := src.newSubscription(cdcapi.StreamOptions{Snapshot: true, Buffer: 8})
+	defer sub.Close()
+
+	before := cdcapi.Change{Op: "insert", Table: "users", CommitLSN: "0/10"}
+	after := cdcapi.Change{Op: "insert", Table: "users", CommitLSN: "0/30"}
+	sub.send(context.Background(), before, cdcapi.EstimateChangeBytes(before))
+	sub.send(context.Background(), after, cdcapi.EstimateChangeBytes(after))
+	select {
+	case got := <-sub.Changes():
+		t.Fatalf("live change escaped before snapshot completion: %#v", got)
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	fence, err := pglogrepl.ParseLSN("0/20")
+	require.NoError(t, err)
+	snapshot := cdcapi.Change{
+		Op:        "snapshot",
+		Table:     "users",
+		CommitLSN: fence.String(),
+		After:     map[string]any{"id": int64(1)},
+	}
+	require.NoError(t, sub.sendSnapshot(snapshot, cdcapi.EstimateChangeBytes(snapshot)))
+	sub.finishSnapshot(fence, nil)
+
+	select {
+	case got := <-sub.Changes():
+		require.Equal(t, "snapshot", got.Op)
+	case <-time.After(time.Second):
+		t.Fatal("snapshot row was not delivered")
+	}
+	select {
+	case got := <-sub.Changes():
+		require.Equal(t, after.CommitLSN, got.CommitLSN)
+	case <-time.After(time.Second):
+		t.Fatal("post-fence live row was not delivered")
+	}
+}
+
+func TestSnapshotSubscriptionBoundsPendingLiveChanges(t *testing.T) {
+	src := NewSource(SourceOptions{Name: "test:cdc", Slot: "slot_a"})
+	change := cdcapi.Change{
+		Op:    "insert",
+		Table: "users",
+		After: map[string]any{"payload": []byte("large")},
+	}
+	bytes := cdcapi.EstimateChangeBytes(change)
+	sub := src.newSubscription(cdcapi.StreamOptions{Snapshot: true, MaxBytes: bytes})
+	defer sub.Close()
+	sub.send(context.Background(), change, bytes)
+	sub.send(context.Background(), change, bytes)
+	assert.ErrorIs(t, sub.Err(), errSubscriberOverflow)
+	select {
+	case _, ok := <-sub.Changes():
+		require.False(t, ok)
+	case <-time.After(time.Second):
+		t.Fatal("overflowed snapshot stream did not close")
+	}
+}
+
+func TestSnapshotSubscriptionsDoNotSharePendingState(t *testing.T) {
+	firstSource := NewSource(SourceOptions{Name: "db-one", Slot: "slot_one"})
+	secondSource := NewSource(SourceOptions{Name: "db-two", Slot: "slot_two"})
+	first := firstSource.newSubscription(cdcapi.StreamOptions{Snapshot: true, Buffer: 4})
+	second := secondSource.newSubscription(cdcapi.StreamOptions{Snapshot: true, Buffer: 4})
+	defer first.Close()
+	defer second.Close()
+
+	firstChange := cdcapi.Change{Op: "insert", Table: "first", CommitLSN: "0/30"}
+	secondChange := cdcapi.Change{Op: "insert", Table: "second", CommitLSN: "0/30"}
+	first.send(context.Background(), firstChange, cdcapi.EstimateChangeBytes(firstChange))
+	second.send(context.Background(), secondChange, cdcapi.EstimateChangeBytes(secondChange))
+	fence, err := pglogrepl.ParseLSN("0/20")
+	require.NoError(t, err)
+	first.finishSnapshot(fence, nil)
+	second.finishSnapshot(fence, nil)
+
+	select {
+	case got := <-first.Changes():
+		require.Equal(t, "first", got.Table)
+	case <-time.After(time.Second):
+		t.Fatal("first source did not deliver its pending change")
+	}
+	select {
+	case got := <-second.Changes():
+		require.Equal(t, "second", got.Table)
+	case <-time.After(time.Second):
+		t.Fatal("second source did not deliver its pending change")
 	}
 }

@@ -3,6 +3,7 @@
 package postgres
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -31,12 +32,19 @@ func TestSourceAdapterInfoReportsConservativeCapabilities(t *testing.T) {
 	assert.Equal(t, cconfig.SourceStateFaulted, info.State)
 	assert.True(t, info.Faulted)
 	assert.Equal(t, terminalErr.Error(), info.Error)
-	assert.True(t, info.Snapshot, "legacy snapshot field preserves configured bootstrap mode")
+	assert.True(t, info.Snapshot, "entry snapshot field preserves the configured subscriber default")
 	assert.True(t, info.Streaming, "legacy streaming field preserves configured protocol mode")
-	assert.False(t, info.Capabilities.Snapshot, "per-consumer snapshots are unsupported")
+	assert.True(t, info.Capabilities.Snapshot, "per-consumer snapshots use the atomic handoff")
 	assert.False(t, info.Capabilities.Replayable, "After cursors are unsupported")
 	assert.False(t, info.Capabilities.Durable, "temporary slots are not durable")
 	assert.False(t, info.Capabilities.BeforeImages)
+}
+
+func TestSourceAdapterSnapshotRequiresRunningGeneration(t *testing.T) {
+	source := NewSource(SourceOptions{Slot: "events_slot"})
+	adapter := &sourceAdapter{source: source}
+	_, err := adapter.Subscribe(context.Background(), cconfig.StreamOptions{Snapshot: true})
+	assert.ErrorIs(t, err, cconfig.ErrSourceNotReady)
 }
 
 func TestSourceStopAfterDisposeCleanupIsIdempotent(t *testing.T) {

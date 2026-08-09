@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/jackc/pglogrepl"
 	config "github.com/wippyai/runtime/api/service/cdc"
 )
 
@@ -20,23 +21,26 @@ const (
 // that cannot keep up must not back-pressure the replication receive loop or
 // unrelated subscribers.
 var errSubscriberOverflow = errors.New("postgres cdc subscriber backlog overflow")
+var errSnapshotNotActive = errors.New("postgres cdc snapshot is no longer active")
 
 type sourceSubscription struct {
-	err         error
-	tables      map[string]struct{}
-	source      *Source
-	done        chan struct{}
-	notify      chan struct{}
-	relayDone   chan struct{}
-	ops         map[string]struct{}
-	out         chan config.Change
-	queue       []queuedChange
-	maxBytes    int64
-	maxChanges  int
-	id          uint64
-	queuedBytes int64
-	mu          sync.Mutex
-	closed      bool
+	err          error
+	tables       map[string]struct{}
+	source       *Source
+	done         chan struct{}
+	notify       chan struct{}
+	relayDone    chan struct{}
+	ops          map[string]struct{}
+	out          chan config.Change
+	queue        []queuedChange
+	pending      []queuedChange
+	maxBytes     int64
+	maxChanges   int
+	id           uint64
+	queuedBytes  int64
+	mu           sync.Mutex
+	closed       bool
+	snapshotting bool
 }
 
 type queuedChange struct {
@@ -53,7 +57,16 @@ func (s *Source) Subscribe(opts config.StreamOptions) config.Stream {
 	if s.state != sourceNew && s.state != sourceStarting && s.state != sourceRunning {
 		return nil
 	}
-	return s.newSubscription(opts)
+	effectiveSnapshot := opts.Snapshot || s.snapshot
+	if effectiveSnapshot && s.state != sourceRunning {
+		return nil
+	}
+	opts.Snapshot = effectiveSnapshot
+	sub := s.newSubscription(opts)
+	if effectiveSnapshot {
+		s.startSnapshot(context.Background(), sub)
+	}
+	return sub
 }
 
 // subscribe is the driver-facing subscription path. It holds the source
@@ -74,10 +87,19 @@ func (s *Source) subscribe(ctx context.Context, opts config.StreamOptions) (conf
 		s.permanentlyClosed || s.sourceErr != nil {
 		return nil, config.ErrSourceNotReady
 	}
-	return s.newSubscription(opts), nil
+	effectiveSnapshot := opts.Snapshot || s.snapshot
+	if effectiveSnapshot && s.state != sourceRunning {
+		return nil, config.ErrSourceNotReady
+	}
+	opts.Snapshot = effectiveSnapshot
+	sub := s.newSubscription(opts)
+	if effectiveSnapshot {
+		s.startSnapshot(ctx, sub)
+	}
+	return sub, nil
 }
 
-func (s *Source) newSubscription(opts config.StreamOptions) config.Stream {
+func (s *Source) newSubscription(opts config.StreamOptions) *sourceSubscription {
 	buffer := opts.Buffer
 	if buffer <= 0 {
 		buffer = defaultStreamBuffer
@@ -94,14 +116,15 @@ func (s *Source) newSubscription(opts config.StreamOptions) config.Stream {
 		// queue is the sole driver-owned backlog. out is an unbuffered
 		// delivery handoff, so bytes are released exactly after a consumer
 		// receives the change rather than when it is merely enqueued.
-		out:        make(chan config.Change),
-		done:       make(chan struct{}),
-		notify:     make(chan struct{}, 1),
-		maxChanges: buffer,
-		maxBytes:   opts.EffectiveMaxBytes(),
-		relayDone:  make(chan struct{}),
-		tables:     filterSet(opts.Tables),
-		ops:        filterSet(opts.Ops),
+		out:          make(chan config.Change),
+		done:         make(chan struct{}),
+		notify:       make(chan struct{}, 1),
+		maxChanges:   buffer,
+		maxBytes:     opts.EffectiveMaxBytes(),
+		snapshotting: opts.Snapshot,
+		relayDone:    make(chan struct{}),
+		tables:       filterSet(opts.Tables),
+		ops:          filterSet(opts.Ops),
 	}
 	s.subs[sub.id] = sub
 	s.subMu.Unlock()
@@ -194,6 +217,7 @@ func (s *sourceSubscription) closeLocked(err error) (*Source, uint64) {
 	s.closed = true
 	s.err = err
 	s.queue = nil
+	s.pending = nil
 	s.queuedBytes = 0
 	close(s.done)
 	return s.source, s.id
@@ -243,13 +267,49 @@ func (s *sourceSubscription) send(_ context.Context, change config.Change, bytes
 		s.mu.Unlock()
 		return
 	}
-	if len(s.queue) >= s.maxChanges || bytes > s.maxBytes-s.queuedBytes {
+	if len(s.queue)+len(s.pending) >= s.maxChanges || bytes > s.maxBytes-s.queuedBytes {
 		parent, id := s.closeLocked(errSubscriberOverflow)
 		s.mu.Unlock()
 		if parent != nil {
 			parent.removeSubscription(id)
 		}
 		return
+	}
+	item := queuedChange{change: change, bytes: bytes}
+	if s.snapshotting {
+		s.pending = append(s.pending, item)
+	} else {
+		s.queue = append(s.queue, item)
+	}
+	s.queuedBytes += bytes
+	s.mu.Unlock()
+	select {
+	case s.notify <- struct{}{}:
+	default:
+	}
+}
+
+func (s *sourceSubscription) sendSnapshot(change config.Change, bytes int64) error {
+	s.mu.Lock()
+	if s.closed {
+		err := s.err
+		if err == nil {
+			err = context.Canceled
+		}
+		s.mu.Unlock()
+		return err
+	}
+	if !s.snapshotting {
+		s.mu.Unlock()
+		return errSnapshotNotActive
+	}
+	if len(s.queue)+len(s.pending) >= s.maxChanges || bytes > s.maxBytes-s.queuedBytes {
+		parent, id := s.closeLocked(errSubscriberOverflow)
+		s.mu.Unlock()
+		if parent != nil {
+			parent.removeSubscription(id)
+		}
+		return errSubscriberOverflow
 	}
 	s.queue = append(s.queue, queuedChange{change: change, bytes: bytes})
 	s.queuedBytes += bytes
@@ -258,6 +318,46 @@ func (s *sourceSubscription) send(_ context.Context, change config.Change, bytes
 	case s.notify <- struct{}{}:
 	default:
 	}
+	return nil
+}
+
+func (s *sourceSubscription) finishSnapshot(fence pglogrepl.LSN, err error) {
+	if err != nil {
+		s.closeWithError(err)
+		return
+	}
+	s.mu.Lock()
+	if s.closed || !s.snapshotting {
+		s.mu.Unlock()
+		return
+	}
+	for _, item := range s.pending {
+		if !changeAfterSnapshotFence(item.change, fence) {
+			s.queuedBytes -= item.bytes
+			continue
+		}
+		s.queue = append(s.queue, item)
+	}
+	s.pending = nil
+	s.snapshotting = false
+	s.mu.Unlock()
+	select {
+	case s.notify <- struct{}{}:
+	default:
+	}
+}
+
+func changeAfterSnapshotFence(change config.Change, fence pglogrepl.LSN) bool {
+	if change.CommitLSN == "" {
+		return true
+	}
+	commit, err := pglogrepl.ParseLSN(change.CommitLSN)
+	if err != nil {
+		// A malformed cursor cannot be proven to be represented by the
+		// snapshot. Retain it rather than silently dropping a change.
+		return true
+	}
+	return commit > fence
 }
 
 func (s *sourceSubscription) matches(change config.Change) bool {
@@ -276,6 +376,17 @@ func (s *sourceSubscription) matches(change config.Change) bool {
 		return false
 	}
 	return true
+}
+
+func (s *sourceSubscription) matchesSnapshot(change config.Change) bool {
+	if len(s.tables) == 0 {
+		return true
+	}
+	if _, ok := s.tables[strings.ToLower(change.Relation)]; ok {
+		return true
+	}
+	_, ok := s.tables[strings.ToLower(change.Table)]
+	return ok
 }
 
 func filterSet(values []string) map[string]struct{} {

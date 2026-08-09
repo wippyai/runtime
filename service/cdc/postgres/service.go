@@ -4,6 +4,7 @@ package postgres
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -53,9 +54,12 @@ type SourceOptions struct {
 	StatusInterval    time.Duration
 	SnapshotFetchSize int
 	Temporary         bool
-	Snapshot          bool
-	Streaming         bool
-	Failover          bool
+	// Snapshot makes the atomic snapshot handoff the default for each
+	// subscriber. It is an entry default; Start never emits a source-global
+	// snapshot.
+	Snapshot  bool
+	Streaming bool
+	Failover  bool
 	// MaxTransactionChanges bounds the number of row changes retained before
 	// an ordinary or streamed transaction commits. Zero uses the safe default.
 	MaxTransactionChanges int
@@ -78,6 +82,7 @@ type Source struct {
 	cancel                context.CancelFunc
 	done                  chan struct{}
 	subs                  map[uint64]*sourceSubscription
+	streamNotify          chan struct{}
 	replDSN               string
 	adminDSN              string
 	name                  string
@@ -92,6 +97,8 @@ type Source struct {
 	maxTransactionBytes   int64
 	maxInflightChanges    int
 	maxInflightBytes      int64
+	snapshotWG            sync.WaitGroup
+	streamPosition        pglogrepl.LSN
 	subMu                 sync.RWMutex
 	mu                    sync.Mutex
 	dropMu                sync.Mutex
@@ -179,6 +186,7 @@ func NewSource(opts SourceOptions) *Source {
 		maxTransactionBytes:   limits.maxBytes,
 		maxInflightChanges:    limits.maxInflightChanges,
 		maxInflightBytes:      limits.maxInflightBytes,
+		streamNotify:          make(chan struct{}),
 	}
 }
 
@@ -282,7 +290,7 @@ func (s *Source) Start(ctx context.Context) (<-chan any, error) {
 		return nil, startErr
 	}
 
-	startLSN, snapshotName, slotCreated, err := s.prepareSlot(runCtx, conn, adminDB, cp, sysident.XLogPos)
+	startLSN, slotCreated, err := s.prepareSlot(runCtx, conn, adminDB, cp, sysident.XLogPos)
 	if err != nil {
 		_ = conn.Close(context.Background())
 		_ = adminDB.Close()
@@ -311,20 +319,25 @@ func (s *Source) Start(ctx context.Context) (<-chan any, error) {
 	}
 	s.state = sourceRunning
 	s.sourceErr = nil
+	s.publication = publication
+	s.streamPosition = startLSN
+	if s.streamNotify == nil {
+		s.streamNotify = make(chan struct{})
+	}
 	s.mu.Unlock()
 
 	s.log.Info("cdc source started",
 		zap.String("slot", s.slot),
 		zap.String("publication", publication),
 		zap.String("start_lsn", startLSN.String()),
-		zap.Bool("snapshot", snapshotName != ""))
+		zap.Bool("snapshot", s.snapshot))
 	select {
 	case status <- "cdc replication started":
 	default:
 	}
 
 	s.coll = metrics.GetCollector(runCtx)
-	go s.run(runCtx, conn, adminDB, cp, startLSN, snapshotName, slotCreated, publication, s.coll, status, done)
+	go s.run(runCtx, conn, adminDB, cp, startLSN, slotCreated, publication, s.coll, status, done)
 	return status, nil
 }
 
@@ -337,6 +350,9 @@ func (s *Source) Stop(ctx context.Context) error {
 	if s.state == sourceStopped {
 		drop := s.dropSlot.Load()
 		s.mu.Unlock()
+		if err := s.waitSnapshots(ctx); err != nil {
+			return err
+		}
 		if drop {
 			return s.dropSlotAndCheckpoint(ctx)
 		}
@@ -348,6 +364,9 @@ func (s *Source) Stop(ctx context.Context) error {
 			s.cancel = nil
 			s.mu.Unlock()
 			s.closeSubscriptions()
+			if err := s.waitSnapshots(ctx); err != nil {
+				return err
+			}
 			if s.dropSlot.Load() {
 				return s.dropSlotAndCheckpoint(ctx)
 			}
@@ -388,11 +407,86 @@ func (s *Source) Stop(ctx context.Context) error {
 		}
 		s.mu.Unlock()
 	}
+	if err := s.waitSnapshots(ctx); err != nil {
+		return err
+	}
 
 	if s.dropSlot.Load() {
 		return s.dropSlotAndCheckpoint(ctx)
 	}
 	return nil
+}
+
+func (s *Source) startSnapshot(ctx context.Context, sub *sourceSubscription) {
+	snapshotCtx, cancel := context.WithCancel(ctx)
+	s.snapshotWG.Add(1)
+	go func() {
+		defer s.snapshotWG.Done()
+		watchDone := make(chan struct{})
+		go func() {
+			select {
+			case <-sub.done:
+				cancel()
+			case <-snapshotCtx.Done():
+			case <-watchDone:
+			}
+		}()
+		defer close(watchDone)
+
+		fence, err := s.snapshotCurrentTo(snapshotCtx, sub)
+		if err != nil {
+			sub.finishSnapshot(0, err)
+			return
+		}
+		sub.finishSnapshot(fence, nil)
+	}()
+}
+
+func (s *Source) waitSnapshots(ctx context.Context) error {
+	done := make(chan struct{})
+	go func() {
+		s.snapshotWG.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// advanceStreamPosition publishes the replication receive watermark after a
+// complete XLogData message has been decoded and emitted. Snapshot handoff
+// waits for this watermark before releasing its pending live queue, so a
+// change at or before the exported snapshot fence cannot arrive late and be
+// duplicated after the handoff.
+func (s *Source) advanceStreamPosition(done chan struct{}, position pglogrepl.LSN) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.done != done || position <= s.streamPosition {
+		return
+	}
+	s.streamPosition = position
+	close(s.streamNotify)
+	s.streamNotify = make(chan struct{})
+}
+
+func (s *Source) waitStreamPosition(ctx context.Context, fence pglogrepl.LSN) error {
+	for {
+		s.mu.Lock()
+		if s.streamPosition >= fence {
+			s.mu.Unlock()
+			return nil
+		}
+		notify := s.streamNotify
+		s.mu.Unlock()
+		select {
+		case <-notify:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
 }
 
 func (s *Source) run(
@@ -401,7 +495,6 @@ func (s *Source) run(
 	adminDB *sql.DB,
 	cp Checkpointer,
 	startLSN pglogrepl.LSN,
-	snapshotName string,
 	slotCreated bool,
 	publication string,
 	mc metrics.Collector,
@@ -432,14 +525,6 @@ func (s *Source) run(
 	defer close(status)
 	defer func() { _ = adminDB.Close() }()
 	defer func() { _ = conn.Close(context.Background()) }()
-
-	if snapshotName != "" {
-		if err := s.snapshotExisting(ctx, adminDB, publication, snapshotName); err != nil {
-			s.abortFreshSlot(conn, slotCreated)
-			s.fail(ctx, status, err)
-			return
-		}
-	}
 
 	protoVersion := config.ProtocolVersion
 	if s.streaming {
@@ -617,6 +702,7 @@ func (s *Source) run(
 					safePos = end
 				}
 			}
+			s.advanceStreamPosition(done, xld.WALStart+pglogrepl.LSN(len(xld.WALData)))
 		default:
 			s.fail(ctx, status, fmt.Errorf("%w: copy data kind %q", ErrUnsupportedMessage, cd.Data[0]))
 			return
@@ -683,11 +769,11 @@ func (s *Source) prepareSlot(
 	adminDB *sql.DB,
 	cp Checkpointer,
 	fallback pglogrepl.LSN,
-) (pglogrepl.LSN, string, bool, error) {
+) (pglogrepl.LSN, bool, error) {
 	var start pglogrepl.LSN
 	resumed := false
 	if cpLSN, ok, err := cp.Load(ctx, s.slot); err != nil {
-		return 0, "", false, err
+		return 0, false, err
 	} else if ok {
 		start = cpLSN
 		resumed = true
@@ -698,14 +784,14 @@ func (s *Source) prepareSlot(
 		var err error
 		exists, err = slotExists(ctx, adminDB, s.slot)
 		if err != nil {
-			return 0, "", false, err
+			return 0, false, err
 		}
 		if !exists && resumed {
 			// A local offset is meaningful only for the server-side slot
 			// incarnation that produced it. If that slot disappeared, do not
 			// reuse the old LSN for a newly-created slot.
 			if err := cp.Delete(ctx, s.slot); err != nil {
-				return 0, "", false, fmt.Errorf("delete stale cdc checkpoint: %w", err)
+				return 0, false, fmt.Errorf("delete stale cdc checkpoint: %w", err)
 			}
 			start = 0
 			resumed = false
@@ -716,7 +802,7 @@ func (s *Source) prepareSlot(
 			// state is missing; doing so can skip retained logical changes.
 			confirmed, valid, err := slotConfirmedFlush(ctx, adminDB, s.slot)
 			if err != nil {
-				return 0, "", false, err
+				return 0, false, err
 			}
 			if valid {
 				start = confirmed
@@ -726,51 +812,42 @@ func (s *Source) prepareSlot(
 		// Temporary slots are destroyed with their replication connection, so
 		// any persisted offset belongs to an older slot incarnation.
 		if err := cp.Delete(ctx, s.slot); err != nil {
-			return 0, "", false, fmt.Errorf("delete stale cdc checkpoint: %w", err)
+			return 0, false, fmt.Errorf("delete stale cdc checkpoint: %w", err)
 		}
 		start = 0
-		resumed = false
 	}
 
-	snapshotName := ""
 	slotCreated := false
 	if !exists {
 		slotIdentifier, err := quoteReplicationSlotName(s.slot)
 		if err != nil {
-			return 0, "", false, err
+			return 0, false, err
 		}
 		opts := pglogrepl.CreateReplicationSlotOptions{Temporary: s.temporary}
-		wantSnapshot := s.snapshot && !resumed
-		if wantSnapshot {
-			opts.SnapshotAction = "EXPORT_SNAPSHOT"
-		}
 		res, err := pglogrepl.CreateReplicationSlot(ctx, conn, slotIdentifier, config.OutputPlugin, opts)
 		if err != nil {
-			return 0, "", false, fmt.Errorf("create replication slot: %w", err)
+			return 0, false, fmt.Errorf("create replication slot: %w", err)
 		}
 		slotCreated = true
 		cpoint, err := pglogrepl.ParseLSN(res.ConsistentPoint)
 		if err != nil {
-			return 0, "", slotCreated, fmt.Errorf("parse consistent point %q: %w", res.ConsistentPoint, err)
+			return 0, slotCreated, fmt.Errorf("parse consistent point %q: %w", res.ConsistentPoint, err)
 		}
 		if cpoint > start {
 			start = cpoint
-		}
-		if wantSnapshot {
-			snapshotName = res.SnapshotName
 		}
 	}
 
 	if s.failover && !s.temporary {
 		if err := s.setSlotFailover(ctx, conn); err != nil {
-			return 0, "", slotCreated, err
+			return 0, slotCreated, err
 		}
 	}
 
 	if start == 0 {
 		start = fallback
 	}
-	return start, snapshotName, slotCreated, nil
+	return start, slotCreated, nil
 }
 
 func (s *Source) setSlotFailover(ctx context.Context, conn *pgconn.PgConn) error {
@@ -795,7 +872,7 @@ func (t tableRef) quoted() string {
 	return pq.QuoteIdentifier(t.schema) + "." + pq.QuoteIdentifier(t.name)
 }
 
-func (s *Source) snapshotExisting(ctx context.Context, adminDB *sql.DB, publication, snapshotName string) error {
+func (s *Source) snapshotWithSink(ctx context.Context, adminDB *sql.DB, publication, snapshotName string, sink snapshotSink) error {
 	conn, err := adminDB.Conn(ctx)
 	if err != nil {
 		return fmt.Errorf("snapshot connection: %w", err)
@@ -837,7 +914,7 @@ func (s *Source) snapshotExisting(ctx context.Context, adminDB *sql.DB, publicat
 
 	total := 0
 	for _, tbl := range tables {
-		n, err := s.snapshotTable(ctx, conn, tbl)
+		n, err := s.snapshotTableWithSink(ctx, conn, tbl, sink)
 		if err != nil {
 			return err
 		}
@@ -853,7 +930,82 @@ func (s *Source) snapshotExisting(ctx context.Context, adminDB *sql.DB, publicat
 	return nil
 }
 
-func (s *Source) snapshotTable(ctx context.Context, conn *sql.Conn, tbl tableRef) (int, error) {
+// snapshotCurrent establishes an exported logical-decoding snapshot for one
+// subscriber. The temporary slot's consistent point is the exact WAL fence;
+// unlike a SQL-only pg_current_wal_lsn query, it cannot race a concurrent
+// commit between snapshot acquisition and fence capture.
+func (s *Source) snapshotCurrentTo(ctx context.Context, sub *sourceSubscription) (pglogrepl.LSN, error) {
+	replConn, err := pgconn.Connect(ctx, s.replDSN)
+	if err != nil {
+		return 0, fmt.Errorf("snapshot replication connection: %w", err)
+	}
+	defer func() { _ = replConn.Close(context.Background()) }()
+	if _, err := pglogrepl.IdentifySystem(ctx, replConn); err != nil {
+		return 0, fmt.Errorf("identify snapshot replication system: %w", err)
+	}
+
+	snapshotSlot := subscriberSnapshotSlot(s.slot, sub.id)
+	snapshotSlotID, err := quoteReplicationSlotName(snapshotSlot)
+	if err != nil {
+		return 0, err
+	}
+	result, err := pglogrepl.CreateReplicationSlot(ctx, replConn, snapshotSlotID, config.OutputPlugin,
+		pglogrepl.CreateReplicationSlotOptions{Temporary: true, SnapshotAction: "EXPORT_SNAPSHOT"})
+	if err != nil {
+		return 0, fmt.Errorf("create subscriber snapshot slot: %w", err)
+	}
+	fence, err := pglogrepl.ParseLSN(result.ConsistentPoint)
+	if err != nil {
+		return 0, fmt.Errorf("parse subscriber snapshot fence %q: %w", result.ConsistentPoint, err)
+	}
+	if result.SnapshotName == "" {
+		return 0, errors.New("subscriber snapshot slot returned no exported snapshot")
+	}
+	if err := s.waitStreamPosition(ctx, fence); err != nil {
+		return 0, fmt.Errorf("wait for replication fence: %w", err)
+	}
+
+	adminDB, err := sql.Open("postgres", s.adminDSN)
+	if err != nil {
+		return 0, fmt.Errorf("open snapshot connection: %w", err)
+	}
+	defer func() { _ = adminDB.Close() }()
+	adminDB.SetMaxOpenConns(1)
+	adminDB.SetMaxIdleConns(1)
+	if err := adminDB.PingContext(ctx); err != nil {
+		return 0, fmt.Errorf("ping snapshot connection: %w", err)
+	}
+
+	err = s.snapshotWithSink(ctx, adminDB, s.publication, result.SnapshotName, func(rc RowChange) error {
+		if !sub.matchesSnapshot(config.Change{Table: rc.Table, Relation: rc.Relation()}) {
+			return nil
+		}
+		change := config.Change{
+			Source:    s.name,
+			Op:        string(OpSnapshot),
+			Schema:    rc.Schema,
+			Table:     rc.Table,
+			Relation:  rc.Relation(),
+			CommitLSN: fence.String(),
+			Before:    rc.Before,
+			After:     rc.After,
+		}
+		return sub.sendSnapshot(change, config.EstimateChangeBytes(change))
+	})
+	if err != nil {
+		return 0, fmt.Errorf("subscriber snapshot scan: %w", err)
+	}
+	return fence, nil
+}
+
+func subscriberSnapshotSlot(slot string, id uint64) string {
+	digest := sha256.Sum256([]byte(slot))
+	return fmt.Sprintf("wippy_snap_%x_%d", digest[:8], id)
+}
+
+type snapshotSink func(RowChange) error
+
+func (s *Source) snapshotTableWithSink(ctx context.Context, conn *sql.Conn, tbl tableRef, sink snapshotSink) (int, error) {
 	if _, err := conn.ExecContext(ctx,
 		"DECLARE "+snapshotCursor+" NO SCROLL CURSOR FOR SELECT * FROM "+tbl.quoted()); err != nil {
 		return 0, fmt.Errorf("declare cursor %s.%s: %w", tbl.schema, tbl.name, err)
@@ -863,7 +1015,7 @@ func (s *Source) snapshotTable(ctx context.Context, conn *sql.Conn, tbl tableRef
 	fetchSQL := fmt.Sprintf("FETCH %d FROM %s", s.snapshotFetchSize, snapshotCursor)
 	n := 0
 	for {
-		got, err := s.fetchSnapshotBatch(ctx, conn, tbl, fetchSQL)
+		got, err := s.fetchSnapshotBatch(ctx, conn, tbl, fetchSQL, sink)
 		if err != nil {
 			return n, err
 		}
@@ -874,7 +1026,7 @@ func (s *Source) snapshotTable(ctx context.Context, conn *sql.Conn, tbl tableRef
 	}
 }
 
-func (s *Source) fetchSnapshotBatch(ctx context.Context, conn *sql.Conn, tbl tableRef, fetchSQL string) (int, error) {
+func (s *Source) fetchSnapshotBatch(ctx context.Context, conn *sql.Conn, tbl tableRef, fetchSQL string, sink snapshotSink) (int, error) {
 	rows, err := conn.QueryContext(ctx, fetchSQL)
 	if err != nil {
 		return 0, fmt.Errorf("fetch %s.%s: %w", tbl.schema, tbl.name, err)
@@ -905,7 +1057,9 @@ func (s *Source) fetchSnapshotBatch(ctx context.Context, conn *sql.Conn, tbl tab
 				after[c] = nil
 			}
 		}
-		s.emitChange(ctx, RowChange{Op: OpSnapshot, Schema: tbl.schema, Table: tbl.name, After: after})
+		if err := sink(RowChange{Op: OpSnapshot, Schema: tbl.schema, Table: tbl.name, After: after}); err != nil {
+			return got, err
+		}
 		got++
 	}
 	return got, rows.Err()
