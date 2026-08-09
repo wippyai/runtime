@@ -53,9 +53,20 @@ type sourceSlot struct {
 }
 
 type retiredSource struct {
-	source ManagedSource
-	key    string
-	token  uint64
+	source      ManagedSource
+	key         string
+	token       uint64
+	destructive bool
+}
+
+// leaseRef is passed through a replacement handoff so a failed private
+// candidate can retain exactly the lease it reserved. The manager owns the
+// lease map; the slot only reports successful retired cleanup through its
+// hook.
+type leaseRef struct {
+	key   string
+	token uint64
+	owned bool
 }
 
 func newSourceSlot(id registry.ID, kind registry.Kind, source ManagedSource, logs ...*zap.Logger) *sourceSlot {
@@ -242,9 +253,7 @@ func (s *sourceSlot) Stop(ctx context.Context) error {
 	} else {
 		err = stopSource(ctx, current)
 	}
-	if err == nil {
-		err = s.retryRetired(ctx)
-	}
+	err = errors.Join(err, s.retryRetired(ctx))
 
 	s.mu.Lock()
 	if err != nil {
@@ -293,9 +302,7 @@ func (s *sourceSlot) Dispose(ctx context.Context) error {
 	} else {
 		err = nil
 	}
-	if err == nil {
-		err = s.retryRetired(ctx)
-	}
+	err = errors.Join(err, s.retryRetired(ctx))
 
 	s.mu.Lock()
 	if err != nil {
@@ -312,9 +319,10 @@ func (s *sourceSlot) Dispose(ctx context.Context) error {
 }
 
 // Replace starts a candidate before changing visibility whenever the slot is
-// running or the candidate is configured for auto-start. Failure leaves the
-// old generation current and untouched.
-func (s *sourceSlot) Replace(ctx context.Context, candidate ManagedSource, retiredTokens ...uint64) error {
+// running or the candidate is configured for auto-start. A failed handoff
+// never publishes the candidate; any failed candidate cleanup is retained as
+// retired work for a later Stop/Delete retry.
+func (s *sourceSlot) Replace(ctx context.Context, candidate ManagedSource, oldLease, candidateLease leaseRef) error {
 	if isNilSource(candidate) {
 		return ErrDriverRequired
 	}
@@ -325,29 +333,34 @@ func (s *sourceSlot) Replace(ctx context.Context, candidate ManagedSource, retir
 	defer s.opMu.Unlock()
 
 	s.mu.Lock()
-	if s.disposing || len(s.retired) > 0 {
-		s.mu.Unlock()
-		_ = stopUnstartedSource(ctx, candidate)
-		return ErrSourceBusy
-	}
 	old := s.current
 	oldState := s.state
 	oldRunCancel := s.runCancel
-	if oldState == slotStopping {
+	disposing := s.disposing
+	hasRetired := len(s.retired) > 0
+	s.mu.Unlock()
+
+	oldKey := exclusiveResourceKey(old)
+	candidateKey := exclusiveResourceKey(candidate)
+	differentResource := oldKey != candidateKey
+	if disposing || hasRetired || oldState == slotStopping {
+		cleanupErr := s.cleanupCandidate(ctx, candidate, candidateLease, differentResource, false)
+		return errors.Join(ErrSourceBusy, cleanupErr)
+	}
+
+	// Re-check under the slot lock after calculating resource identity. No
+	// other lifecycle operation can replace current while opMu is held, but a
+	// status watcher may still have changed the state.
+	s.mu.Lock()
+	if s.disposing || len(s.retired) > 0 || s.state == slotStopping {
+		s.replacing = false
 		s.mu.Unlock()
-		_ = stopUnstartedSource(ctx, candidate)
-		return ErrSourceBusy
+		cleanupErr := s.cleanupCandidate(ctx, candidate, candidateLease, differentResource, false)
+		return errors.Join(ErrSourceBusy, cleanupErr)
 	}
 	s.replacing = true
 	s.mu.Unlock()
 
-	retiredToken := uint64(0)
-	if len(retiredTokens) > 0 {
-		retiredToken = retiredTokens[0]
-	}
-	oldKey := exclusiveResourceKey(old)
-	candidateKey := exclusiveResourceKey(candidate)
-	differentResource := oldKey != candidateKey
 	startCandidate := oldState == slotRunning || lifecycleAutoStart(candidate)
 	shouldStopOld := !isNilSource(old) && (oldState != slotStopped && oldState != slotIdle || differentResource || oldKey == "")
 
@@ -362,10 +375,11 @@ func (s *sourceSlot) Replace(ctx context.Context, candidate ManagedSource, retir
 		var err error
 		underlying, err = startSource(ctx, runCtx, candidate)
 		if err != nil {
-			_ = cleanupStartedSource(ctx, candidate, differentResource)
 			runCancel()
+			cleanupErr := s.cleanupCandidate(ctx, candidate, candidateLease, differentResource, true)
+			return errors.Join(err, cleanupErr)
 		}
-		return err
+		return nil
 	}
 	if speculative {
 		// Different resource keys may be prepared in parallel. The candidate
@@ -381,9 +395,12 @@ func (s *sourceSlot) Replace(ctx context.Context, candidate ManagedSource, retir
 	oldStopped := !shouldStopOld
 	if shouldStopOld {
 		if err := stopGeneration(ctx, old, oldRunCancel); err != nil {
+			var cleanupErr error
 			if speculative {
 				runCancel()
-				_ = cleanupStartedSource(ctx, candidate, differentResource)
+				cleanupErr = s.cleanupCandidate(ctx, candidate, candidateLease, differentResource, true)
+			} else {
+				cleanupErr = s.cleanupCandidate(ctx, candidate, candidateLease, differentResource, false)
 			}
 			s.mu.Lock()
 			s.state = slotFaulted
@@ -392,10 +409,7 @@ func (s *sourceSlot) Replace(ctx context.Context, candidate ManagedSource, retir
 			s.runCtx = nil
 			s.runCancel = nil
 			s.mu.Unlock()
-			if !speculative {
-				_ = stopUnstartedSource(ctx, candidate)
-			}
-			return err
+			return errors.Join(err, cleanupErr)
 		}
 		oldStopped = true
 		s.mu.Lock()
@@ -411,23 +425,24 @@ func (s *sourceSlot) Replace(ctx context.Context, candidate ManagedSource, retir
 			if err := disposable.Dispose(ctx); err != nil {
 				// Keep the old source current and retain its lease. Stop retries
 				// this pending destructive cleanup during shutdown or delete.
-				s.recordRetired(old, oldKey, retiredToken)
+				s.recordRetired(old, oldKey, oldLease.token, true)
 				s.mu.Lock()
 				s.state = slotFaulted
 				s.replacing = false
 				s.mu.Unlock()
+				var cleanupErr error
 				if speculative {
 					runCancel()
 				}
-				_ = cleanupStartedSource(ctx, candidate, speculative && differentResource)
-				return err
+				cleanupErr = s.cleanupCandidate(ctx, candidate, candidateLease, differentResource, speculative)
+				return errors.Join(err, cleanupErr)
 			}
 			if oldKey != "" {
 				s.mu.RLock()
 				hook := s.retiredHook
 				s.mu.RUnlock()
 				if hook != nil {
-					hook(oldKey, retiredToken)
+					hook(oldKey, oldLease.token)
 				}
 			}
 		}
@@ -467,12 +482,17 @@ func (s *sourceSlot) Replace(ctx context.Context, candidate ManagedSource, retir
 
 	s.mu.Lock()
 	if s.disposing || s.state == slotStopping {
+		s.replacing = false
+		s.state = slotFaulted
+		s.closeStatusLocked()
+		s.runCtx = nil
+		s.runCancel = nil
 		s.mu.Unlock()
 		if runCancel != nil {
 			runCancel()
 		}
-		_ = cleanupStartedSource(ctx, candidate, startCandidate && differentResource)
-		return ErrSourceBusy
+		cleanupErr := s.cleanupCandidate(ctx, candidate, candidateLease, differentResource, startCandidate)
+		return errors.Join(ErrSourceBusy, cleanupErr)
 	}
 	s.current = candidate
 	s.generation++
@@ -539,6 +559,37 @@ func cleanupStartedSource(ctx context.Context, source api.Source, destructive bo
 	return stopSource(ctx, source)
 }
 
+// cleanupCandidate performs the only cleanup of a private replacement
+// generation. When cleanup itself fails, the candidate is retained in the
+// slot's retired queue so Stop/Delete can retry it. A different resource keeps
+// its candidate lease; a same-key candidate never owns the old lease and must
+// not release it when its non-destructive Stop eventually succeeds.
+func (s *sourceSlot) cleanupCandidate(
+	ctx context.Context,
+	source ManagedSource,
+	lease leaseRef,
+	differentResource bool,
+	started bool,
+) error {
+	if isNilSource(source) {
+		return nil
+	}
+	var err error
+	if started {
+		err = cleanupStartedSource(ctx, source, differentResource)
+	} else {
+		err = stopUnstartedSource(ctx, source)
+	}
+	if err == nil {
+		return nil
+	}
+	if !differentResource && !lease.owned {
+		lease = leaseRef{}
+	}
+	s.recordRetired(source, lease.key, lease.token, started && differentResource)
+	return err
+}
+
 func disposeSource(ctx context.Context, source api.Source) error {
 	if isNilSource(source) {
 		return nil
@@ -556,12 +607,23 @@ func stopGeneration(ctx context.Context, source api.Source, cancel context.Cance
 	return stopSource(ctx, source)
 }
 
-func (s *sourceSlot) recordRetired(source ManagedSource, key string, token uint64) {
+func (s *sourceSlot) recordRetired(source ManagedSource, key string, token uint64, destructive bool) {
 	if isNilSource(source) {
 		return
 	}
 	s.mu.Lock()
-	s.retired = append(s.retired, retiredSource{source: source, key: key, token: token})
+	for _, existing := range s.retired {
+		if existing.source == source {
+			s.mu.Unlock()
+			return
+		}
+	}
+	s.retired = append(s.retired, retiredSource{
+		source:      source,
+		key:         key,
+		token:       token,
+		destructive: destructive,
+	})
 	s.mu.Unlock()
 }
 
@@ -577,30 +639,48 @@ func (s *sourceSlot) isRetiredLocked(source ManagedSource) bool {
 	return false
 }
 
-func (s *sourceSlot) retryRetired(ctx context.Context) error {
-	for {
-		s.mu.RLock()
-		if len(s.retired) == 0 {
-			s.mu.RUnlock()
-			return nil
+func (s *sourceSlot) hasRetiredSource(source ManagedSource) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, retired := range s.retired {
+		if retired.source == source {
+			return true
 		}
-		retired := s.retired[0]
-		s.mu.RUnlock()
+	}
+	return false
+}
 
-		if err := disposeSource(ctx, retired.source); err != nil {
-			return err
+func (s *sourceSlot) retryRetired(ctx context.Context) error {
+	s.mu.RLock()
+	retired := append([]retiredSource(nil), s.retired...)
+	s.mu.RUnlock()
+	var errs []error
+	for _, item := range retired {
+		var err error
+		if item.destructive {
+			err = disposeSource(ctx, item.source)
+		} else {
+			err = stopSource(ctx, item.source)
+		}
+		if err != nil {
+			errs = append(errs, err)
+			continue
 		}
 
 		s.mu.Lock()
-		if len(s.retired) > 0 && s.retired[0].source == retired.source {
-			s.retired = s.retired[1:]
+		for i, current := range s.retired {
+			if current.source == item.source {
+				s.retired = append(s.retired[:i], s.retired[i+1:]...)
+				break
+			}
 		}
 		hook := s.retiredHook
 		s.mu.Unlock()
-		if hook != nil && retired.key != "" {
-			hook(retired.key, retired.token)
+		if hook != nil && item.key != "" {
+			hook(item.key, item.token)
 		}
 	}
+	return errors.Join(errs...)
 }
 
 func (s *sourceSlot) setRetiredCleanupHook(hook func(string, uint64)) {

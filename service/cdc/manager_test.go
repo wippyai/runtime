@@ -32,6 +32,7 @@ type managedTestSource struct {
 	stopErr    error
 	stream     *testStream
 	lifecycle  *supervisor.LifecycleConfig
+	onStart    func()
 	exclusive  string
 	info       api.SourceInfo
 	startCount atomic.Int32
@@ -66,6 +67,9 @@ func (s *managedTestSource) Subscribe(context.Context, api.StreamOptions) (api.S
 
 func (s *managedTestSource) Start(context.Context) (<-chan any, error) {
 	s.startCount.Add(1)
+	if s.onStart != nil {
+		s.onStart()
+	}
 	if s.startErr == nil {
 		active := s.active.Add(1)
 		for {
@@ -736,6 +740,162 @@ func TestManagerUpdateDifferentResourceCleansSpeculativeCandidateDestructively(t
 	require.EqualValues(t, 1, candidate.startCount.Load())
 	require.EqualValues(t, 1, candidate.disposeCount.Load(), "a started different-key candidate may be destructively cleaned")
 	require.EqualValues(t, 1, old.stopCount.Load())
+}
+
+func TestManagerUpdateRetainsCandidateLeaseWhenCleanupFailsAfterOldStopFailure(t *testing.T) {
+	kind := registry.Kind("db.cdc.test")
+	old := &managedTestSource{
+		info:      api.SourceInfo{Name: "old"},
+		exclusive: "slot-old",
+		stopErr:   errors.New("old stop failed"),
+	}
+	candidate := &disposableTestSource{managedTestSource: &managedTestSource{
+		info:      api.SourceInfo{Name: "candidate"},
+		exclusive: "slot-new",
+	}, disposeErr: errors.New("candidate dispose failed")}
+	next := 0
+	driver := testDriver{
+		kind: kind,
+		create: func(registry.Entry) (ManagedSource, error) {
+			next++
+			if next == 1 {
+				return old, nil
+			}
+			return candidate, nil
+		},
+	}
+	m, _ := newManagerTest(t, driver)
+	id := registry.NewID("app", "events")
+	entry := registry.Entry{ID: id, Kind: kind}
+	require.NoError(t, m.Add(context.Background(), entry))
+	slot := mustSlot(t, m, id)
+	_, err := slot.Start(context.Background())
+	require.NoError(t, err)
+
+	err = m.Update(context.Background(), entry)
+	require.ErrorContains(t, err, "old stop failed")
+	require.ErrorContains(t, err, "candidate dispose failed")
+	require.Same(t, old, slot.currentSource())
+	require.True(t, slot.hasRetiredSource(candidate), "failed candidate cleanup must remain retryable")
+	require.EqualValues(t, 1, candidate.disposeCount.Load())
+	m.leaseMu.Lock()
+	_, oldLeaseHeld := m.leases["slot-old"]
+	_, candidateLeaseHeld := m.leases["slot-new"]
+	m.leaseMu.Unlock()
+	require.True(t, oldLeaseHeld)
+	require.True(t, candidateLeaseHeld, "candidate lease must survive failed cleanup")
+
+	old.stopErr = nil
+	require.NoError(t, slot.Stop(context.Background()))
+	require.EqualValues(t, 2, candidate.disposeCount.Load())
+	require.False(t, slot.hasRetiredSource(candidate))
+	m.leaseMu.Lock()
+	_, candidateLeaseHeld = m.leases["slot-new"]
+	m.leaseMu.Unlock()
+	require.False(t, candidateLeaseHeld, "successful retry must release candidate lease")
+	require.NoError(t, m.Delete(context.Background(), entry))
+}
+
+func TestManagerUpdateRetainsBothLeasesWhenOldAndCandidateDisposeFail(t *testing.T) {
+	kind := registry.Kind("db.cdc.test")
+	old := &disposableTestSource{managedTestSource: &managedTestSource{
+		info:      api.SourceInfo{Name: "old"},
+		exclusive: "slot-old",
+	}, disposeErr: errors.New("old dispose failed")}
+	candidate := &disposableTestSource{managedTestSource: &managedTestSource{
+		info:      api.SourceInfo{Name: "candidate"},
+		exclusive: "slot-new",
+	}, disposeErr: errors.New("candidate dispose failed")}
+	next := 0
+	driver := testDriver{
+		kind: kind,
+		create: func(registry.Entry) (ManagedSource, error) {
+			next++
+			if next == 1 {
+				return old, nil
+			}
+			return candidate, nil
+		},
+	}
+	m, _ := newManagerTest(t, driver)
+	id := registry.NewID("app", "events")
+	entry := registry.Entry{ID: id, Kind: kind}
+	require.NoError(t, m.Add(context.Background(), entry))
+	slot := mustSlot(t, m, id)
+	_, err := slot.Start(context.Background())
+	require.NoError(t, err)
+
+	err = m.Update(context.Background(), entry)
+	require.ErrorContains(t, err, "old dispose failed")
+	require.ErrorContains(t, err, "candidate dispose failed")
+	require.Same(t, old, slot.currentSource())
+	require.True(t, slot.hasRetiredSource(old))
+	require.True(t, slot.hasRetiredSource(candidate))
+	m.leaseMu.Lock()
+	_, oldLeaseHeld := m.leases["slot-old"]
+	_, candidateLeaseHeld := m.leases["slot-new"]
+	m.leaseMu.Unlock()
+	require.True(t, oldLeaseHeld)
+	require.True(t, candidateLeaseHeld)
+
+	require.NoError(t, slot.Stop(context.Background()))
+	require.False(t, slot.hasRetiredSource(old))
+	require.False(t, slot.hasRetiredSource(candidate))
+	m.leaseMu.Lock()
+	_, oldLeaseHeld = m.leases["slot-old"]
+	_, candidateLeaseHeld = m.leases["slot-new"]
+	m.leaseMu.Unlock()
+	require.False(t, oldLeaseHeld)
+	require.False(t, candidateLeaseHeld)
+	require.NoError(t, m.Delete(context.Background(), entry))
+}
+
+func TestManagerUpdateRetainsCandidateOnLatePrecommitAbort(t *testing.T) {
+	kind := registry.Kind("db.cdc.test")
+	old := &managedTestSource{info: api.SourceInfo{Name: "old"}, exclusive: "slot-old"}
+	candidate := &disposableTestSource{managedTestSource: &managedTestSource{
+		info:      api.SourceInfo{Name: "candidate"},
+		exclusive: "slot-new",
+	}, disposeErr: errors.New("candidate dispose failed")}
+	next := 0
+	driver := testDriver{
+		kind: kind,
+		create: func(registry.Entry) (ManagedSource, error) {
+			next++
+			if next == 1 {
+				return old, nil
+			}
+			return candidate, nil
+		},
+	}
+	m, _ := newManagerTest(t, driver)
+	id := registry.NewID("app", "events")
+	entry := registry.Entry{ID: id, Kind: kind}
+	require.NoError(t, m.Add(context.Background(), entry))
+	slot := mustSlot(t, m, id)
+	candidate.onStart = func() {
+		slot.mu.Lock()
+		slot.disposing = true
+		slot.mu.Unlock()
+	}
+
+	err := m.Update(context.Background(), entry)
+	require.ErrorContains(t, err, ErrSourceBusy.Error())
+	require.ErrorContains(t, err, "candidate dispose failed")
+	require.Same(t, old, slot.currentSource())
+	require.True(t, slot.hasRetiredSource(candidate))
+	m.leaseMu.Lock()
+	_, candidateLeaseHeld := m.leases["slot-new"]
+	m.leaseMu.Unlock()
+	require.True(t, candidateLeaseHeld)
+
+	require.NoError(t, slot.Stop(context.Background()))
+	require.False(t, slot.hasRetiredSource(candidate))
+	m.leaseMu.Lock()
+	_, candidateLeaseHeld = m.leases["slot-new"]
+	m.leaseMu.Unlock()
+	require.False(t, candidateLeaseHeld)
+	require.NoError(t, m.Delete(context.Background(), entry))
 }
 
 func TestManagerUpdateSameExclusiveKeyStopFailureFaultsSlot(t *testing.T) {

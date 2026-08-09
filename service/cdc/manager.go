@@ -272,17 +272,15 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 		}
 	}
 	oldLifecycle := normalizeLifecycleConfig(managedSlot.LifecycleConfig())
-	if replaceErr := managedSlot.Replace(ctx, replacement, oldToken); replaceErr != nil {
-		// A failed candidate start leaves the old generation current and the
-		// speculative lease can be released. A retired-resource cleanup error
-		// leaves the candidate current but faulted; retain its lease until it is
-		// healthy or deleted.
-		committed := managedSlot.currentSource() == replacement
-		if reservedNew && !committed {
+	oldLease := leaseRef{key: oldKey, token: oldToken}
+	newLease := leaseRef{key: newKey, token: newToken, owned: reservedNew}
+	if replaceErr := managedSlot.Replace(ctx, replacement, oldLease, newLease); replaceErr != nil {
+		// A failed handoff never publishes the candidate. If its cleanup also
+		// failed, the stable slot retains it as retired work and therefore owns
+		// the candidate lease until Stop/Delete retries that cleanup.
+		retainedCandidate := managedSlot.hasRetiredSource(replacement)
+		if reservedNew && !retainedCandidate {
 			m.releaseLease(id, newKey, newToken)
-		}
-		if committed {
-			m.reconfigureSupervisorIfChanged(ctx, id, managedSlot, oldLifecycle)
 		}
 		return replaceErr
 	}
