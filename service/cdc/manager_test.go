@@ -48,6 +48,31 @@ type disposableTestSource struct {
 	failedOnce   atomic.Bool
 }
 
+type blockingStopSource struct {
+	*managedTestSource
+	stopEntered chan struct{}
+	releaseStop chan struct{}
+	stopOnce    sync.Once
+}
+
+func newBlockingStopSource(source *managedTestSource) *blockingStopSource {
+	return &blockingStopSource{
+		managedTestSource: source,
+		stopEntered:       make(chan struct{}),
+		releaseStop:       make(chan struct{}),
+	}
+}
+
+func (s *blockingStopSource) Stop(ctx context.Context) error {
+	s.stopOnce.Do(func() { close(s.stopEntered) })
+	select {
+	case <-s.releaseStop:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	return s.managedTestSource.Stop(ctx)
+}
+
 func (s *disposableTestSource) Dispose(ctx context.Context) error {
 	s.disposeCount.Add(1)
 	if s.disposeErr != nil && s.failedOnce.CompareAndSwap(false, true) {
@@ -444,6 +469,99 @@ func TestManagerExclusiveResourceLeaseAcrossIDs(t *testing.T) {
 	require.ErrorIs(t, m.Add(context.Background(), registry.Entry{ID: second, Kind: kind}), ErrExclusiveOwned)
 	require.NoError(t, m.Delete(context.Background(), registry.Entry{ID: first, Kind: kind}))
 	require.NoError(t, m.Add(context.Background(), registry.Entry{ID: second, Kind: kind}))
+}
+
+func TestManagerConcurrentSourcesDoNotSerializeAndRemovalPreservesOthers(t *testing.T) {
+	kind := registry.Kind("db.cdc.test")
+	aID := registry.NewID("app", "db-a")
+	bID := registry.NewID("app", "db-b")
+	aOld := newBlockingStopSource(&managedTestSource{
+		info:      api.SourceInfo{Name: "db-a-old"},
+		exclusive: "slot-a",
+	})
+	aNew := &managedTestSource{info: api.SourceInfo{Name: "db-a-new"}, exclusive: "slot-a-new"}
+	bOld := &managedTestSource{info: api.SourceInfo{Name: "db-b-old"}, exclusive: "slot-b"}
+	bNew := &managedTestSource{info: api.SourceInfo{Name: "db-b-new"}, exclusive: "slot-b"}
+	var aCreates atomic.Int32
+	var bCreates atomic.Int32
+	driver := testDriver{
+		kind: kind,
+		create: func(entry registry.Entry) (ManagedSource, error) {
+			switch entry.ID {
+			case aID:
+				if aCreates.Add(1) == 1 {
+					return aOld, nil
+				}
+				return aNew, nil
+			case bID:
+				if bCreates.Add(1) == 1 {
+					return bOld, nil
+				}
+				return bNew, nil
+			default:
+				return nil, errors.New("unexpected source id")
+			}
+		},
+	}
+	bus := &recordingBus{}
+	m, err := NewManager(cdcsystem.NewRegistry(nil), nil, bus, nil, nil, WithDriver(driver))
+	require.NoError(t, err)
+	entryA := registry.Entry{ID: aID, Kind: kind}
+	entryB := registry.Entry{ID: bID, Kind: kind}
+	require.NoError(t, m.Add(context.Background(), entryA))
+	require.NoError(t, m.Add(context.Background(), entryB))
+	_, err = mustSlot(t, m, aID).Start(context.Background())
+	require.NoError(t, err)
+	_, err = mustSlot(t, m, bID).Start(context.Background())
+	require.NoError(t, err)
+
+	aUpdateDone := make(chan error, 1)
+	go func() { aUpdateDone <- m.Update(context.Background(), entryA) }()
+	select {
+	case <-aOld.stopEntered:
+	case <-time.After(time.Second):
+		t.Fatal("source A update did not reach its blocking Stop")
+	}
+
+	bUpdateDone := make(chan error, 1)
+	go func() { bUpdateDone <- m.Update(context.Background(), entryB) }()
+	select {
+	case err := <-bUpdateDone:
+		require.NoError(t, err, "source B update must not wait for source A")
+	case <-time.After(time.Second):
+		t.Fatal("source B update was serialized behind source A")
+	}
+	require.Same(t, bNew, mustSlot(t, m, bID).currentSource())
+	require.Same(t, aOld, mustSlot(t, m, aID).currentSource())
+
+	close(aOld.releaseStop)
+	select {
+	case err := <-aUpdateDone:
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("source A update did not finish after Stop release")
+	}
+	require.Same(t, aNew, mustSlot(t, m, aID).currentSource())
+
+	require.NoError(t, m.Delete(context.Background(), entryA))
+	_, aExists := m.Get(aID)
+	require.False(t, aExists)
+	_, bExists := m.Get(bID)
+	require.True(t, bExists, "removing source A must preserve source B")
+	m.leaseMu.Lock()
+	_, aLease := m.leases["slot-a-new"]
+	bLease, bLeaseHeld := m.leases["slot-b"]
+	m.leaseMu.Unlock()
+	require.False(t, aLease)
+	require.True(t, bLeaseHeld)
+	require.Equal(t, bID, bLease.id)
+	events := bus.snapshot()
+	for _, event := range events {
+		if event.Kind == supervisor.ServiceRemove {
+			require.Equal(t, aID.String(), event.Path, "source B supervisor registration must remain")
+		}
+	}
+	require.NoError(t, m.Delete(context.Background(), entryB))
 }
 
 func TestManagerUpdateRejectsExclusiveResourceOwnedByAnotherID(t *testing.T) {

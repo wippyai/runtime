@@ -54,6 +54,44 @@ type blockingStartService struct {
 	stoppedOnce sync.Once
 }
 
+type cancellationAwareStartService struct {
+	startEntered  chan struct{}
+	startCanceled chan struct{}
+
+	secondAttempt  chan struct{}
+	startOnce      sync.Once
+	cancelOnce     sync.Once
+	secondOnce     sync.Once
+	startAttempts  atomic.Int32
+	startCompleted atomic.Bool
+}
+
+func newCancellationAwareStartService() *cancellationAwareStartService {
+	return &cancellationAwareStartService{
+		startEntered:  make(chan struct{}),
+		startCanceled: make(chan struct{}),
+		secondAttempt: make(chan struct{}),
+	}
+}
+
+func (s *cancellationAwareStartService) Start(ctx context.Context) (<-chan any, error) {
+	if s.startAttempts.Add(1) > 1 {
+		s.secondOnce.Do(func() { close(s.secondAttempt) })
+	}
+	s.startOnce.Do(func() { close(s.startEntered) })
+	<-ctx.Done()
+	s.cancelOnce.Do(func() { close(s.startCanceled) })
+	return nil, ctx.Err()
+}
+
+func (s *cancellationAwareStartService) Stop(context.Context) error {
+	return nil
+}
+
+func (s *cancellationAwareStartService) IsStarted() bool {
+	return s.startCompleted.Load()
+}
+
 func newBlockingStartService() *blockingStartService {
 	return &blockingStartService{
 		startedCh: make(chan struct{}),
@@ -1145,22 +1183,48 @@ func TestSupervisor_ContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	h.start(ctx)
 
-	// Register a service that takes time to start
-	svc := h.service("slow-service")
-	svc.startDelay = 2 * time.Second
-
-	h.registerServices(map[string]bool{
-		"slow-service": true,
+	// Register a service that cannot complete until its Start context is
+	// canceled. Waiting for startEntered makes the cancellation race
+	// deterministic: the supervisor has already admitted the start operation.
+	svc := newCancellationAwareStartService()
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxBegin})
+	h.sup.handleEvent(event.Event{
+		System: supervisor.System,
+		Kind:   supervisor.ServiceRegister,
+		Path:   "slow-service",
+		Data: &supervisor.Entry{
+			Service: svc,
+			Config: supervisor.LifecycleConfig{
+				AutoStart:    true,
+				StartTimeout: time.Second,
+				StopTimeout:  time.Second,
+				RetryPolicy: supervisor.RetryPolicy{
+					InitialDelay: 10 * time.Millisecond,
+					MaxDelay:     10 * time.Millisecond,
+				},
+			},
+		},
 	})
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxCommit})
 
-	// Cancel context while service is starting
+	select {
+	case <-svc.startEntered:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for service Start")
+	}
 	cancel()
 
-	// Wait a bit to ensure cancellation is processed
-	time.Sleep(100 * time.Millisecond)
-
-	// Verify service was not started
-	require.False(t, svc.IsStarted(), "Service should not be started after context cancellation")
+	select {
+	case <-svc.startCanceled:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for in-flight Start cancellation")
+	}
+	select {
+	case <-svc.secondAttempt:
+		t.Fatal("canceled start scheduled a retry")
+	case <-time.After(200 * time.Millisecond):
+	}
+	require.False(t, svc.IsStarted(), "service should not be started after context cancellation")
 	h.stop()
 }
 
