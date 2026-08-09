@@ -9,6 +9,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
+	"sort"
 	"sync"
 
 	"github.com/wippyai/runtime/api/event"
@@ -27,6 +29,7 @@ var (
 	ErrUnsupportedKind  = errors.New("cdc manager: unsupported source kind")
 	ErrSourceExists     = errors.New("cdc manager: source already exists")
 	ErrSourceNotFound   = errors.New("cdc manager: source not found")
+	ErrSourceKindChange = errors.New("cdc manager: source kind cannot change")
 )
 
 // Dependencies are the shared collaborators available to concrete drivers.
@@ -160,7 +163,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	if err != nil {
 		return err
 	}
-	if source == nil {
+	if isNilSource(source) {
 		return ErrDriverRequired
 	}
 	slot := newSourceSlot(id, entry.Kind, source, m.log.With(zap.String("id", id.String())))
@@ -182,32 +185,43 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 		return fmt.Errorf("%w: %s", ErrUnsupportedKind, entry.Kind)
 	}
 	id := canonicalID(entry.ID)
-	_, exists := m.registry.Get(id)
+	existing, exists := m.registry.Get(id)
 	if !exists {
 		return fmt.Errorf("%w: %s", ErrSourceNotFound, id.String())
 	}
-
+	existingKind, knownKind := sourceKind(existing)
+	if !knownKind {
+		return errors.New("cdc manager: registered source has no kind")
+	}
+	if existingKind != entry.Kind {
+		return fmt.Errorf("%w: %s -> %s", ErrSourceKindChange, existingKind, entry.Kind)
+	}
 	// Build the replacement before changing visibility. A malformed entry or
 	// failed dependency acquisition leaves the old source untouched.
 	replacement, err := driver.Create(ctx, entry, m.deps)
 	if err != nil {
 		return err
 	}
-	if replacement == nil {
+	if isNilSource(replacement) {
 		return ErrDriverRequired
 	}
-	slot, ok := m.registry.Get(id)
-	if !ok {
-		_ = replacement.Stop(ctx)
-		return fmt.Errorf("%w: %s", ErrSourceNotFound, id.String())
-	}
-	managedSlot, ok := slot.(*sourceSlot)
+	managedSlot, ok := existing.(*sourceSlot)
 	if !ok {
 		_ = replacement.Stop(ctx)
 		return errors.New("cdc manager: source is not managed by a stable slot")
 	}
+	oldLifecycle := normalizeLifecycleConfig(managedSlot.LifecycleConfig())
 	if err := managedSlot.Replace(ctx, replacement); err != nil {
 		return err
+	}
+	newLifecycle := normalizeLifecycleConfig(managedSlot.LifecycleConfig())
+	if !reflect.DeepEqual(oldLifecycle, newLifecycle) {
+		// ServiceUpdate is emitted by the supervisor for status changes and is
+		// not a reconfiguration primitive. Re-register the same stable slot in
+		// order, so its controller rebuilds security/dependency/autostart state
+		// without exposing a second source identity.
+		m.unregisterSupervisor(ctx, id)
+		m.registerSupervisorWithConfig(ctx, id, managedSlot, newLifecycle)
 	}
 	m.log.Info("updated cdc source", zap.String("id", id.String()), zap.String("kind", entry.Kind))
 	return nil
@@ -256,7 +270,10 @@ func (m *Manager) registerSupervisor(ctx context.Context, id registry.ID, source
 	}); ok {
 		cfg = configured.LifecycleConfig()
 	}
-	cfg.InitDefaults()
+	m.registerSupervisorWithConfig(ctx, id, source, normalizeLifecycleConfig(cfg))
+}
+
+func (m *Manager) registerSupervisorWithConfig(ctx context.Context, id registry.ID, source ManagedSource, cfg supervisor.LifecycleConfig) {
 	m.bus.Send(ctx, event.Event{
 		System: supervisor.System,
 		Kind:   supervisor.ServiceRegister,
@@ -277,14 +294,50 @@ func (m *Manager) unregisterSupervisor(ctx context.Context, id registry.ID) {
 }
 
 func stopSource(ctx context.Context, source api.Source) error {
+	if isNilSource(source) {
+		return nil
+	}
 	if managed, ok := source.(supervisor.Service); ok {
 		return managed.Stop(ctx)
 	}
 	return nil
 }
 
+func isNilSource(source api.Source) bool {
+	if source == nil {
+		return true
+	}
+	v := reflect.ValueOf(source)
+	switch v.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Ptr, reflect.Slice:
+		return v.IsNil()
+	default:
+		return false
+	}
+}
+
 func canonicalID(id registry.ID) registry.ID {
 	return registry.ParseID(id.String())
+}
+
+func sourceKind(source api.Source) (registry.Kind, bool) {
+	if isNilSource(source) {
+		return "", false
+	}
+	if slot, ok := source.(*sourceSlot); ok {
+		return slot.kind, slot.kind != ""
+	}
+	info := source.Info()
+	return info.Kind, info.Kind != ""
+}
+
+func normalizeLifecycleConfig(cfg supervisor.LifecycleConfig) supervisor.LifecycleConfig {
+	cfg.InitDefaults()
+	dependencies := cfg.RequiredServices()
+	sort.Strings(dependencies)
+	cfg.Requires = dependencies
+	cfg.DependsOn = nil
+	return cfg
 }
 
 var (

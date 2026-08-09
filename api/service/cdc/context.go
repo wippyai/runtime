@@ -33,21 +33,21 @@ type Capabilities struct {
 	Coalesced              bool `json:"coalesced,omitempty"`
 }
 
-// Stream is the driver-neutral event stream. Err is intentionally optional so
-// existing stream implementations remain source-compatible; new sources may
-// implement ErrStream to expose a terminal cause without synthesizing an
-// error-valued row.
+// Stream is the driver-neutral event stream. Err reports the terminal cause
+// after Changes is closed; a normal caller-initiated Close has a nil error.
+// Keeping the terminal state on the stream avoids synthesizing an
+// error-valued change row and gives every registry-backed source the same
+// failure contract.
 type Stream interface {
 	Changes() <-chan Change
 	Close()
-}
-
-// ErrStream exposes a terminal stream error. A consumer should type-assert
-// this interface after Changes is closed.
-type ErrStream interface {
-	Stream
 	Err() error
 }
+
+// ErrStream is retained as a deprecated compatibility alias. Stream now
+// requires Err directly; ChangeStream below remains the legacy stream shape
+// used by pre-registry SourceStreamer implementations.
+type ErrStream = Stream
 
 // Source is the common source contract implemented by every CDC driver.
 // Subscribe receives a context so a source can reject subscriptions while it

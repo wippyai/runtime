@@ -73,25 +73,35 @@ func (s *sourceSlot) Info() api.SourceInfo {
 	generation := s.generation
 	state := s.state
 	s.mu.RUnlock()
-	if current == nil {
+	if isNilSource(current) {
 		return api.SourceInfo{
 			ID:         s.id,
 			Kind:       s.kind,
+			Name:       s.id.String(),
 			Generation: generationString(generation),
 			State:      sourceState(state),
+			Streaming:  state == slotRunning,
+			Faulted:    state == slotFaulted,
+			Epoch:      generationString(generation),
 		}
 	}
 	info := current.Info()
 	info.ID = s.id
 	info.Kind = s.kind
+	info.Name = s.id.String()
 	info.Generation = generationString(generation)
 	info.State = sourceState(state)
+	info.Streaming = state == slotRunning
+	info.Faulted = state == slotFaulted
+	if info.Generation != "" {
+		info.Epoch = info.Generation
+	}
 	return info
 }
 
 func (s *sourceSlot) Subscribe(ctx context.Context, opts api.StreamOptions) (api.Stream, error) {
 	s.mu.RLock()
-	if s.state != slotRunning || s.current == nil || s.disposing {
+	if s.state != slotRunning || isNilSource(s.current) || s.disposing {
 		s.mu.RUnlock()
 		return nil, api.ErrSourceNotReady
 	}
@@ -140,11 +150,12 @@ func (s *sourceSlot) Start(ctx context.Context) (<-chan any, error) {
 		s.mu.Unlock()
 		return nil, ErrSourceBusy
 	}
-	if s.current == nil {
+	if isNilSource(s.current) {
 		s.mu.Unlock()
 		return nil, ErrSourceClosed
 	}
 	current := s.current
+	restart := s.state == slotStopped || s.state == slotFaulted
 	status := make(chan any, 8)
 	s.status = status
 	s.statusDone = false
@@ -167,6 +178,9 @@ func (s *sourceSlot) Start(ctx context.Context) (<-chan any, error) {
 
 	s.mu.Lock()
 	s.state = slotRunning
+	if restart {
+		s.generation++
+	}
 	generation := s.generation
 	s.mu.Unlock()
 	s.watchStatus(current, generation, underlying)
@@ -238,7 +252,9 @@ func (s *sourceSlot) Dispose(ctx context.Context) error {
 		cancel()
 	}
 	var err error
-	if disposable, ok := current.(Disposable); ok {
+	if isNilSource(current) {
+		err = ErrSourceClosed
+	} else if disposable, ok := current.(Disposable); ok {
 		err = disposable.Dispose(ctx)
 	} else {
 		err = stopSource(ctx, current)
@@ -328,6 +344,7 @@ func (s *sourceSlot) Replace(ctx context.Context, candidate ManagedSource) error
 				if restartErr == nil {
 					s.mu.Lock()
 					s.state = slotRunning
+					s.generation++
 					s.replacing = false
 					generation := s.generation
 					s.mu.Unlock()
@@ -386,6 +403,9 @@ func (s *sourceSlot) LifecycleConfig() supervisor.LifecycleConfig {
 	s.mu.RLock()
 	current := s.current
 	s.mu.RUnlock()
+	if isNilSource(current) {
+		return supervisor.LifecycleConfig{}
+	}
 	if configured, ok := current.(interface {
 		LifecycleConfig() supervisor.LifecycleConfig
 	}); ok {
@@ -423,6 +443,9 @@ func (s *sourceSlot) watchStatus(source ManagedSource, generation uint64, update
 }
 
 func exclusiveResourceKey(source ManagedSource) string {
+	if isNilSource(source) {
+		return ""
+	}
 	if keyed, ok := source.(ExclusiveResource); ok {
 		return keyed.ExclusiveResourceKey()
 	}

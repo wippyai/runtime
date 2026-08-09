@@ -39,6 +39,23 @@ func TestRegistryCanonicalIDAndDuplicateProtection(t *testing.T) {
 	require.ErrorIs(t, r.Register(id, newTestSource("other"), "db.cdc.test"), ErrSourceExists)
 }
 
+func TestRegistryRejectsTypedNilSource(t *testing.T) {
+	r := NewRegistry(nil)
+	id := registry.NewID("app", "events")
+
+	var nilSource *testSource
+	require.Error(t, r.Register(id, nilSource, "db.cdc.test"))
+
+	actual := newTestSource("actual")
+	require.NoError(t, r.Register(id, actual, "db.cdc.test"))
+	_, replaced, err := r.Replace(id, nilSource, "db.cdc.test")
+	require.Error(t, err)
+	require.False(t, replaced)
+	got, ok := r.Get(id)
+	require.True(t, ok)
+	require.Same(t, actual, got)
+}
+
 func TestRegistryReplaceIsAtomicAndReturnsOld(t *testing.T) {
 	r := NewRegistry(nil)
 	id := registry.NewID("app", "events")

@@ -7,6 +7,7 @@ package cdc
 
 import (
 	"errors"
+	"reflect"
 	"sort"
 	"sync"
 
@@ -48,7 +49,7 @@ func NewRegistry(log *zap.Logger) *Registry {
 // must use Replace for an update so an accidental duplicate cannot orphan a
 // running source.
 func (r *Registry) Register(id registry.ID, source api.Source, kind registry.Kind) error {
-	if source == nil {
+	if nilSource(source) {
 		return errors.New("cdc source is nil")
 	}
 	id = canonicalID(id)
@@ -67,7 +68,7 @@ func (r *Registry) Register(id registry.ID, source api.Source, kind registry.Kin
 // visible source. The old source is not stopped here: lifecycle ownership stays
 // with service/cdc, which can stop it after the visibility swap.
 func (r *Registry) Replace(id registry.ID, source api.Source, kind registry.Kind) (api.Source, bool, error) {
-	if source == nil {
+	if nilSource(source) {
 		return nil, false, errors.New("cdc source is nil")
 	}
 	id = canonicalID(id)
@@ -147,6 +148,19 @@ func (r *Registry) List() []api.SourceInfo {
 
 func canonicalID(id registry.ID) registry.ID {
 	return registry.ParseID(id.String())
+}
+
+func nilSource(source api.Source) bool {
+	if source == nil {
+		return true
+	}
+	v := reflect.ValueOf(source)
+	switch v.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Ptr, reflect.Slice:
+		return v.IsNil()
+	default:
+		return false
+	}
 }
 
 var _ api.Registry = (*Registry)(nil)

@@ -57,10 +57,7 @@ func (s *stampedStream) Close() {
 }
 
 func (s *stampedStream) Err() error {
-	if withError, ok := s.upstream.(interface{ Err() error }); ok {
-		return withError.Err()
-	}
-	return nil
+	return s.upstream.Err()
 }
 
 func (s *stampedStream) run() {
