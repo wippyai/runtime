@@ -291,9 +291,16 @@ func runWithUseCase(cmd *cobra.Command, args []string, useCase string) error {
 
 	// Handle exec: launch process and wait for completion
 	if execSpec != "" {
-		if err := launchExecProcess(ctx, logger, execSpec, execHost, args); err != nil {
-			logger.Error("exec launch failed", zap.Error(err))
-			return err
+		execCtx, stopExecSignals := newExecSignalContext(ctx)
+		execErr := launchExecProcess(execCtx, logger, execSpec, execHost, args)
+		interrupted := execWasInterrupted(execCtx, ctx, execErr)
+		stopExecSignals()
+		if execErr != nil && !interrupted {
+			logger.Error("exec launch failed", zap.Error(execErr))
+			return execErr
+		}
+		if interrupted {
+			logger.Info("exec interrupted", zap.String("signal", "SIGINT"))
 		}
 	}
 

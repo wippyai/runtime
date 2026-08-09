@@ -109,7 +109,11 @@ func (m *Manager) Execute(ctx context.Context, task runtime.Task) (*runtime.Resu
 		}
 	}
 
-	ctx = securitysys.WithSecurityConfig(ctx, entry.security)
+	var securityErr error
+	ctx, securityErr = securitysys.WithSecurityConfigE(ctx, entry.security)
+	if securityErr != nil {
+		return nil, runtimelua.NewOperationError("resolve function security", securityErr)
+	}
 
 	result, err := entry.pool.Call(ctx, entry.method, task.Payloads)
 	return result, err

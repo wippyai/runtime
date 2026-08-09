@@ -4,13 +4,56 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
+	"os/signal"
 	"sync"
+	"syscall"
 
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/runtime"
+	supervisorapi "github.com/wippyai/runtime/api/supervisor"
 )
+
+// newExecSignalContext gives an in-flight CLI exec its own interrupt-aware
+// context. The regular supervisor signal channel remains untouched so the
+// outer run loop can still perform the normal graceful shutdown after the
+// child has been canceled.
+func newExecSignalContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	execCtx, cancel := context.WithCancel(ctx)
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+
+	go func() {
+		defer signal.Stop(sigChan)
+		select {
+		case sig := <-sigChan:
+			// TriggerShutdown uses SIGTERM on the supervisor channel after a
+			// process has already completed. It must not cancel the exec
+			// watcher before the topology result can be delivered. An external
+			// SIGTERM remains a genuine cancellation request.
+			if sig == syscall.SIGTERM && supervisorapi.ShutdownTriggered() {
+				return
+			}
+			cancel()
+		case <-ctx.Done():
+		case <-execCtx.Done():
+		}
+	}()
+
+	return execCtx, func() {
+		cancel()
+		signal.Stop(sigChan)
+	}
+}
+
+// execWasInterrupted reports a user interrupt without mistaking cancellation
+// inherited from the parent runtime context for Ctrl-C.
+func execWasInterrupted(execCtx, parentCtx context.Context, err error) bool {
+	return errors.Is(err, context.Canceled) && parentCtx.Err() == nil && execCtx.Err() != nil
+}
 
 type execCompletion struct {
 	data any

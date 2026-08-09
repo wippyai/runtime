@@ -115,6 +115,26 @@ func TestExtractCommandMeta_Security(t *testing.T) {
 		assert.Contains(t, err.Error(), "decode command metadata")
 	})
 
+	t.Run("policy object rejects unknown ID fields", func(t *testing.T) {
+		meta, err := extractCommandMeta(map[string]any{
+			"command": map[string]any{
+				"name": "test",
+				"security": map[string]any{
+					"actor": map[string]any{"id": "a"},
+					"policies": []any{map[string]any{
+						"ns":     "app",
+						"name":   "runner",
+						"secret": "must-reject",
+					}},
+				},
+			},
+		})
+		assert.Nil(t, meta)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "unknown field")
+		assert.Contains(t, err.Error(), "secret")
+	})
+
 	t.Run("unknown security fields fail decoding", func(t *testing.T) {
 		meta, err := extractCommandMeta(map[string]any{
 			"command": map[string]any{

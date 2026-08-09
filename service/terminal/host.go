@@ -5,6 +5,7 @@ package terminal
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"os"
 	"reflect"
@@ -215,7 +216,15 @@ func (h *Host) Run(ctx context.Context, start *process.Start) (pid.PID, error) {
 
 	frameCtx := h.prepareContext(ctx, processID, start)
 	if meta != nil && meta.Security != nil {
-		frameCtx = securitysys.WithSecurityConfig(frameCtx, meta.Security)
+		var securityErr error
+		frameCtx, securityErr = securitysys.WithSecurityConfigE(frameCtx, meta.Security)
+		if securityErr != nil {
+			proc.Close()
+			if fc := ctxapi.FrameFromContext(frameCtx); fc != nil {
+				ctxapi.ReleaseFrameContext(fc)
+			}
+			return pid.PID{}, fmt.Errorf("resolve process security: %w", securityErr)
+		}
 	}
 
 	method := "main"
