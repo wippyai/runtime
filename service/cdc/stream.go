@@ -20,10 +20,10 @@ const (
 // resume diagnostics.
 type stampedStream struct {
 	upstream   api.Stream
-	sourceID   registry.ID
-	generation string
 	out        chan api.Change
 	done       chan struct{}
+	sourceID   registry.ID
+	generation string
 	once       sync.Once
 }
 

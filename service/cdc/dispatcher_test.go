@@ -94,10 +94,10 @@ func (n *dispatcherTestNode) Attach(pid.PID, chan *relay.Package) (context.Cance
 func (n *dispatcherTestNode) Detach(pid.PID) {}
 
 type dispatcherTestReceiver struct {
-	done chan struct{}
-	once sync.Once
 	data any
 	err  error
+	done chan struct{}
+	once sync.Once
 }
 
 func (r *dispatcherTestReceiver) CompleteYield(_ uint64, data any, err error) {

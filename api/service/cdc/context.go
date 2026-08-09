@@ -66,30 +66,29 @@ type Registry interface {
 }
 
 type SourceInfo struct {
+	// The fields in this struct are retained for wire compatibility with
+	// existing Lua and API consumers. New code must use ID, Kind, State,
+	// Capabilities and Generation; driver-specific metadata should not be
+	// added to the common contract.
 	ID           registry.ID   `json:"id,omitempty"`
+	Engine       string        `json:"engine,omitempty"`
+	Epoch        string        `json:"epoch,omitempty"`
+	Error        string        `json:"error,omitempty"`
+	Generation   string        `json:"generation,omitempty"`
+	Name         string        `json:"name"`
+	Slot         string        `json:"slot"`
+	Publication  string        `json:"publication,omitempty"`
 	Kind         registry.Kind `json:"kind,omitempty"`
 	State        SourceState   `json:"state,omitempty"`
+	File         string        `json:"file,omitempty"`
+	DBResource   string        `json:"db_resource,omitempty"`
+	Tables       []string      `json:"tables,omitempty"`
 	Capabilities Capabilities  `json:"capabilities,omitempty"`
-	Generation   string        `json:"generation,omitempty"`
-
-	// The fields below are retained for wire compatibility with existing Lua
-	// and API consumers. New code must use ID, Kind, State, Capabilities and
-	// Generation; driver-specific metadata should not be added to the common
-	// contract.
-	Name        string   `json:"name"`
-	Slot        string   `json:"slot"`
-	Publication string   `json:"publication,omitempty"`
-	Engine      string   `json:"engine,omitempty"`
-	File        string   `json:"file,omitempty"`
-	DBResource  string   `json:"db_resource,omitempty"`
-	Epoch       string   `json:"epoch,omitempty"`
-	Error       string   `json:"error,omitempty"`
-	Tables      []string `json:"tables,omitempty"`
-	Streaming   bool     `json:"streaming,omitempty"`
-	Failover    bool     `json:"failover,omitempty"`
-	Temporary   bool     `json:"temporary,omitempty"`
-	Snapshot    bool     `json:"snapshot,omitempty"`
-	Faulted     bool     `json:"faulted,omitempty"`
+	Streaming    bool          `json:"streaming,omitempty"`
+	Failover     bool          `json:"failover,omitempty"`
+	Temporary    bool          `json:"temporary,omitempty"`
+	Snapshot     bool          `json:"snapshot,omitempty"`
+	Faulted      bool          `json:"faulted,omitempty"`
 }
 
 type SourceInspector interface {

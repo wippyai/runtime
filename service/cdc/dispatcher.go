@@ -51,20 +51,18 @@ const (
 // configured source manager. The dispatcher owns subscription relays; a
 // driver owns the source and its stream implementation.
 type Dispatcher struct {
-	workers int
-	log     *zap.Logger
-
-	mu       sync.Mutex
-	state    dispatcherState
-	ctx      context.Context
-	cancel   context.CancelFunc
-	jobs     chan dispatchJob
-	sessions map[uint64]*relaySession
-	nextID   uint64
-	stopDone chan struct{}
-
+	ctx       context.Context
+	log       *zap.Logger
+	cancel    context.CancelFunc
+	jobs      chan dispatchJob
+	sessions  map[uint64]*relaySession
+	stopDone  chan struct{}
 	workersWG sync.WaitGroup
 	relaysWG  sync.WaitGroup
+	workers   int
+	nextID    uint64
+	mu        sync.Mutex
+	state     dispatcherState
 }
 
 type dispatchJob struct {
@@ -442,9 +440,9 @@ func complete(receiver dispatcher.ResultReceiver, tag uint64, data any, err erro
 }
 
 type relaySession struct {
-	id     uint64
 	cancel context.CancelFunc
 	close  func()
+	id     uint64
 	once   sync.Once
 }
 

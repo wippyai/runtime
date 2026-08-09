@@ -34,24 +34,22 @@ const (
 // supervisor. A driver replacement changes the delegated generation, never the
 // supervisor object or registry pointer.
 type sourceSlot struct {
-	id   registry.ID
-	kind registry.Kind
-
-	opMu sync.Mutex
-	mu   sync.RWMutex
-
-	current     ManagedSource
-	log         *zap.Logger
-	generation  uint64
-	state       slotState
 	runCtx      context.Context
+	current     ManagedSource
 	runCancel   context.CancelFunc
+	log         *zap.Logger
 	status      chan any
-	statusDone  bool
-	replacing   bool
-	disposing   bool
-	retired     []retiredSource
 	retiredHook func(string, uint64)
+	id          registry.ID
+	kind        registry.Kind
+	retired     []retiredSource
+	generation  uint64
+	mu          sync.RWMutex
+	opMu        sync.Mutex
+	state       slotState
+	disposing   bool
+	replacing   bool
+	statusDone  bool
 }
 
 type retiredSource struct {
@@ -617,13 +615,6 @@ func exclusiveResourceKey(source ManagedSource) string {
 		return keyed.ExclusiveResourceKey()
 	}
 	return ""
-}
-
-func (s *sourceSlot) currentGeneration() uint64 {
-	s.mu.RLock()
-	generation := s.generation
-	s.mu.RUnlock()
-	return generation
 }
 
 func (s *sourceSlot) currentSource() ManagedSource {

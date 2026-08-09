@@ -28,22 +28,22 @@ func (s *testStream) Close()                     { close(s.changes) }
 func (s *testStream) Err() error                 { return nil }
 
 type managedTestSource struct {
-	info       api.SourceInfo
 	startErr   error
 	stopErr    error
-	exclusive  string
 	stream     *testStream
+	lifecycle  *supervisor.LifecycleConfig
+	exclusive  string
+	info       api.SourceInfo
 	startCount atomic.Int32
 	stopCount  atomic.Int32
 	active     atomic.Int32
 	maxActive  atomic.Int32
-	lifecycle  *supervisor.LifecycleConfig
 }
 
 type disposableTestSource struct {
+	disposeErr error
 	*managedTestSource
 	disposeCount atomic.Int32
-	disposeErr   error
 	failedOnce   atomic.Bool
 }
 
@@ -96,8 +96,8 @@ func (s *managedTestSource) LifecycleConfig() supervisor.LifecycleConfig {
 func (s *managedTestSource) ExclusiveResourceKey() string { return s.exclusive }
 
 type testDriver struct {
-	kind   registry.Kind
 	create func(registry.Entry) (ManagedSource, error)
+	kind   registry.Kind
 }
 
 func (d testDriver) Kind() registry.Kind { return d.kind }
@@ -107,8 +107,8 @@ func (d testDriver) Create(_ context.Context, entry registry.Entry, _ Dependenci
 }
 
 type recordingBus struct {
-	mu     sync.Mutex
 	events []event.Event
+	mu     sync.Mutex
 }
 
 func (b *recordingBus) Subscribe(context.Context, event.System, chan<- event.Event) (event.SubscriberID, error) {
@@ -174,7 +174,7 @@ func TestManagerRoutesCanonicalIDsAndOwnsLifecycle(t *testing.T) {
 	require.Same(t, created[0], slot.current)
 	slot.mu.RUnlock()
 	require.Equal(t, "app:events", m.List()[0].ID.String())
-	require.Equal(t, registry.Kind(driver.kind), m.List()[0].Kind)
+	require.Equal(t, driver.kind, m.List()[0].Kind)
 	require.ErrorIs(t, m.Add(context.Background(), entry), ErrSourceExists)
 
 	require.NoError(t, m.Delete(context.Background(), registry.Entry{ID: registry.ParseID("app:events")}))

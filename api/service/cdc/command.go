@@ -19,13 +19,13 @@ const (
 )
 
 type StreamOptions struct {
+	// After is an opaque source cursor. A driver that cannot resume from a
+	// cursor must return ErrUnsupported rather than silently ignore it.
+	After    string
 	Tables   []string
 	Ops      []string
 	Buffer   int
 	Snapshot bool
-	// After is an opaque source cursor. A driver that cannot resume from a
-	// cursor must return ErrUnsupported rather than silently ignore it.
-	After string
 }
 
 type Change struct {

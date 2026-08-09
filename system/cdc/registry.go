@@ -31,8 +31,8 @@ type entry struct {
 // process-wide aliases such as PostgreSQL slot names into this layer.
 type Registry struct {
 	log     *zap.Logger
-	mu      sync.RWMutex
 	sources map[registry.ID]entry
+	mu      sync.RWMutex
 }
 
 func NewRegistry(log *zap.Logger) *Registry {
@@ -119,15 +119,15 @@ func (r *Registry) Get(id registry.ID) (api.Source, bool) {
 func (r *Registry) List() []api.SourceInfo {
 	r.mu.RLock()
 	items := make([]struct {
+		source api.Source
 		id     registry.ID
 		kind   registry.Kind
-		source api.Source
 	}, 0, len(r.sources))
 	for id, item := range r.sources {
 		items = append(items, struct {
+			source api.Source
 			id     registry.ID
 			kind   registry.Kind
-			source api.Source
 		}{id: id, kind: item.kind, source: item.source})
 	}
 	r.mu.RUnlock()
