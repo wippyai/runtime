@@ -54,6 +54,10 @@ type Mailbox struct {
 // NewMailbox creates a new Mailbox instance with the provided options.
 // The supplied context will cancel all workers when done.
 func NewMailbox(ctx context.Context, opts ...MailboxOption) *Mailbox {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
 	config := mailboxConfig{
 		workerCount: 1,
 		logger:      zap.NewNop(),
@@ -122,8 +126,22 @@ func (m *Mailbox) Detach(p pid.PID) {
 // Send enqueues a package for delivery. Messages from the same source
 // are routed to the same worker to preserve per-sender FIFO ordering.
 func (m *Mailbox) Send(pkg *api.Package) error {
+	return m.SendContext(context.Background(), pkg)
+}
+
+// SendContext enqueues a package until either the mailbox or caller context
+// is canceled. The caller context is owned by the delivery operation; the
+// mailbox context remains the lifecycle boundary for its workers.
+func (m *Mailbox) SendContext(ctx context.Context, pkg *api.Package) error {
 	if pkg == nil {
 		return NewNilPackageError()
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 
 	// Check context before attempting to send to avoid sending to closed channels
@@ -138,6 +156,8 @@ func (m *Mailbox) Send(pkg *api.Package) error {
 	select {
 	case m.jobQueues[workerIndex] <- pkg:
 		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	case <-m.ctx.Done():
 		m.config.logger.Warn("send after mailbox shutdown", zap.String("pid", pkg.Target.String()))
 		return m.ctx.Err()

@@ -62,6 +62,15 @@ type (
 		Send(*Package) error
 	}
 
+	// ContextSender is the cancellable delivery capability. Implementations
+	// must stop waiting for delivery when ctx is canceled. It is optional so
+	// existing receivers keep the original Send contract; lifecycle-sensitive
+	// dispatchers can require this capability instead of detaching a blocked
+	// Send goroutine.
+	ContextSender interface {
+		SendContext(context.Context, *Package) error
+	}
+
 	// AttachableReceiver extends Receiver with channel-based message delivery.
 	AttachableReceiver interface {
 		Receiver

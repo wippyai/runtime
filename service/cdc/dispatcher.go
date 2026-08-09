@@ -36,6 +36,10 @@ var (
 	ErrNilSource = errors.New("cdc registry returned a nil source")
 	// ErrNoRelayNode indicates that the process has no relay transport.
 	ErrNoRelayNode = errors.New("cdc relay node not available")
+	// ErrRelayNotCancellable indicates that a relay node cannot bind delivery
+	// to the subscription lifecycle. Detaching an unowned Send goroutine would
+	// leak it, so CDC refuses that delivery path instead.
+	ErrRelayNotCancellable = errors.New("cdc relay node does not support cancellable delivery")
 )
 
 type dispatcherState uint8
@@ -59,10 +63,16 @@ type Dispatcher struct {
 	stopDone  chan struct{}
 	workersWG sync.WaitGroup
 	relaysWG  sync.WaitGroup
-	workers   int
-	nextID    uint64
-	mu        sync.Mutex
-	state     dispatcherState
+	// admissionsDone is a per-run barrier. Stop cancels workers first, then
+	// waits for handles that already passed the state check before workers
+	// drain the queue. This closes the Handle/Stop admission race without
+	// holding mu across a potentially blocking queue send.
+	admissionsDone chan struct{}
+	admissions     int
+	workers        int
+	nextID         uint64
+	mu             sync.Mutex
+	state          dispatcherState
 }
 
 type dispatchJob struct {
@@ -131,16 +141,21 @@ func (d *Dispatcher) Start(ctx context.Context) error {
 	d.jobs = make(chan dispatchJob, d.workers*2)
 	d.sessions = make(map[uint64]*relaySession)
 	d.stopDone = make(chan struct{})
+	d.admissionsDone = make(chan struct{})
+	d.admissions = 0
 	d.state = stateRunning
 	for i := 0; i < d.workers; i++ {
 		d.workersWG.Add(1)
 	}
 	runCtx := d.ctx
+	stopDone := d.stopDone
+	admissionsDone := d.admissionsDone
 	d.mu.Unlock()
 
 	for i := 0; i < d.workers; i++ {
-		go d.worker(runCtx)
+		go d.worker(runCtx, admissionsDone)
 	}
+	go d.monitorContext(runCtx, stopDone)
 	return nil
 }
 
@@ -165,6 +180,7 @@ func (d *Dispatcher) Stop(ctx context.Context) error {
 		d.state = stateStopping
 		done := d.stopDone
 		cancel := d.cancel
+		d.closeAdmissionsLocked()
 		sessions := make([]*relaySession, 0, len(d.sessions))
 		for _, session := range d.sessions {
 			sessions = append(sessions, session)
@@ -182,6 +198,20 @@ func (d *Dispatcher) Stop(ctx context.Context) error {
 	default:
 		d.mu.Unlock()
 		return nil
+	}
+}
+
+// monitorContext turns cancellation of the context supplied to Start into a
+// normal dispatcher stop. The stopDone identity prevents a stale monitor from
+// stopping a later run after the dispatcher has been restarted.
+func (d *Dispatcher) monitorContext(runCtx context.Context, stopDone chan struct{}) {
+	<-runCtx.Done()
+
+	d.mu.Lock()
+	valid := d.state == stateRunning && d.stopDone == stopDone
+	d.mu.Unlock()
+	if valid {
+		_ = d.Stop(context.Background())
 	}
 }
 
@@ -209,7 +239,7 @@ func waitForStop(ctx context.Context, done <-chan struct{}) error {
 	}
 }
 
-func (d *Dispatcher) worker(ctx context.Context) {
+func (d *Dispatcher) worker(ctx context.Context, admissionsDone <-chan struct{}) {
 	defer d.workersWG.Done()
 
 	for {
@@ -221,10 +251,38 @@ func (d *Dispatcher) worker(ctx context.Context) {
 			}
 			d.execute(ctx, job)
 		case <-ctx.Done():
+			// A Handle may have passed the running-state check but not yet
+			// enqueued its job. Wait for those admissions before draining;
+			// otherwise a send racing cancellation could land in a queue with
+			// no worker left to complete it.
+			<-admissionsDone
 			d.drainJobs()
 			return
 		}
 	}
+}
+
+func (d *Dispatcher) closeAdmissionsLocked() {
+	if d.admissions == 0 && d.admissionsDone != nil {
+		select {
+		case <-d.admissionsDone:
+		default:
+			close(d.admissionsDone)
+		}
+	}
+}
+
+func (d *Dispatcher) endAdmission(done chan struct{}) {
+	d.mu.Lock()
+	d.admissions--
+	if d.admissions == 0 && d.state != stateRunning {
+		select {
+		case <-done:
+		default:
+			close(done)
+		}
+	}
+	d.mu.Unlock()
 }
 
 // drainJobs completes commands accepted before cancellation. Jobs are never
@@ -310,13 +368,21 @@ func (d *Dispatcher) executeSubscribe(dispatchCtx, requestCtx context.Context, c
 func (d *Dispatcher) openStream(ctx context.Context, cmd cdcapi.SubscribeCmd) (changeStream, error) {
 	if reg := cdcapi.GetRegistry(ctx); reg != nil {
 		source, ok := reg.Get(registry.ParseID(cmd.Source))
-		if !ok {
-			return nil, fmt.Errorf("%w: %s", cdcapi.ErrSourceNotFound, cmd.Source)
+		if ok {
+			if source == nil {
+				return nil, fmt.Errorf("%w: %s", ErrNilSource, cmd.Source)
+			}
+			return source.Subscribe(ctx, cmd.Options)
 		}
-		if source == nil {
-			return nil, fmt.Errorf("%w: %s", ErrNilSource, cmd.Source)
+
+		// A registry miss can still be served by a pre-registry caller's
+		// streamer. A present registry entry, including a corrupt nil entry,
+		// remains authoritative so legacy aliases cannot shadow canonical IDs.
+		if streamer := cdcapi.GetSourceStreamer(ctx); streamer != nil {
+			stream, _, err := streamer.Stream(ctx, cmd.Source, cmd.Options)
+			return stream, err
 		}
-		return source.Subscribe(ctx, cmd.Options)
+		return nil, fmt.Errorf("%w: %s", cdcapi.ErrSourceNotFound, cmd.Source)
 	}
 
 	streamer := cdcapi.GetSourceStreamer(ctx)
@@ -374,15 +440,15 @@ func (d *Dispatcher) relay(ctx context.Context, session *relaySession, changes <
 		case change, ok := <-changes:
 			if !ok {
 				if err := streamError(stream); err != nil {
-					d.sendTerminal(node, target, topic, err)
+					d.sendTerminal(ctx, node, target, topic, err)
 				} else {
-					d.sendTerminal(node, target, topic, nil)
+					d.sendTerminal(ctx, node, target, topic, nil)
 				}
 				return
 			}
 
 			pkg := relay.NewPackage(pid.Zero(), target, topic, payload.New(change))
-			if err := node.Send(pkg); err != nil {
+			if err := sendRelay(ctx, node, pkg); err != nil {
 				d.log.Debug("failed to relay cdc change",
 					zap.String("source", source),
 					zap.Error(err))
@@ -403,18 +469,36 @@ func (d *Dispatcher) relayDone(id uint64) {
 	d.mu.Unlock()
 }
 
-func (d *Dispatcher) sendTerminal(node relay.Node, target pid.PID, topic string, err error) {
+func (d *Dispatcher) sendTerminal(ctx context.Context, node relay.Node, target pid.PID, topic string, err error) {
 	var terminal payload.Payloads
 	if err != nil {
 		terminal = append(terminal, payload.NewError(err))
 	}
 	terminal = append(terminal, payload.NewTerminal())
 	pkg := relay.NewPackage(pid.Zero(), target, topic, terminal...)
-	if sendErr := node.Send(pkg); sendErr != nil {
+	if sendErr := sendRelay(ctx, node, pkg); sendErr != nil {
 		d.log.Debug("failed to send cdc terminal",
 			zap.String("topic", topic),
 			zap.Error(sendErr))
 	}
+}
+
+// sendRelay uses the relay-owned cancellation contract. Starting an
+// untracked goroutine around Receiver.Send would make Stop return while that
+// goroutine retained the stream, node, and process context indefinitely; a
+// node without the capability therefore fails the delivery explicitly.
+func sendRelay(ctx context.Context, node relay.Node, pkg *relay.Package) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	sender, ok := node.(relay.ContextSender)
+	if !ok {
+		return ErrRelayNotCancellable
+	}
+	return sender.SendContext(ctx, pkg)
 }
 
 // streamError is an optional extension implemented by streams that can
@@ -475,15 +559,28 @@ func (d *Dispatcher) Handle(ctx context.Context, cmd dispatcher.Command, tag uin
 	}
 	jobs := d.jobs
 	runCtx := d.ctx
+	d.admissions++
+	admissionsDone := d.admissionsDone
 	d.mu.Unlock()
 
 	job := dispatchJob{ctx: ctx, cmd: cmd, tag: tag, receiver: receiver}
+	enqueued := false
 	select {
 	case jobs <- job:
+		enqueued = true
 	case <-runCtx.Done():
-		complete(receiver, tag, nil, ErrDispatcherStopping)
+		// The admission barrier keeps workers from draining until this
+		// in-flight send has resolved, even if both cases are ready.
 	case <-ctx.Done():
-		complete(receiver, tag, nil, ctx.Err())
+		// Complete below after releasing the admission barrier.
+	}
+	d.endAdmission(admissionsDone)
+	if !enqueued {
+		err := ErrDispatcherStopping
+		if runCtx.Err() == nil && ctx.Err() != nil {
+			err = ctx.Err()
+		}
+		complete(receiver, tag, nil, err)
 	}
 	return nil
 }

@@ -133,6 +133,22 @@ func TestMailbox_SendCancelledContext(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+func TestMailbox_SendContextHonorsCallerCancellation(t *testing.T) {
+	mailbox := NewMailbox(context.Background(),
+		WithBufferSize(1),
+		WithWorkerCount(0), // keep the queue full for the cancellation check
+	)
+
+	target := pidapi.PID{Host: "host1", UniqID: "uniq1"}
+	pkg := &relay.Package{Target: target}
+	require.NoError(t, mailbox.Send(pkg))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	err := mailbox.SendContext(ctx, pkg)
+	assert.ErrorIs(t, err, context.Canceled)
+}
+
 func TestMailbox_NoReceiver(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
 	defer cancel()

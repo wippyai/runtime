@@ -39,14 +39,26 @@ func (s *dispatcherTestStream) Close() {
 func (s *dispatcherTestStream) Err() error { return s.err }
 
 type dispatcherTestSource struct {
-	stream *dispatcherTestStream
-	info   cdcapi.SourceInfo
+	stream     *dispatcherTestStream
+	info       cdcapi.SourceInfo
+	subscribeN atomic.Int32
 }
 
 func (s *dispatcherTestSource) Info() cdcapi.SourceInfo { return s.info }
 
 func (s *dispatcherTestSource) Subscribe(context.Context, cdcapi.StreamOptions) (cdcapi.Stream, error) {
+	s.subscribeN.Add(1)
 	return s.stream, nil
+}
+
+type dispatcherLegacyStreamer struct {
+	stream *dispatcherTestStream
+	calls  atomic.Int32
+}
+
+func (s *dispatcherLegacyStreamer) Stream(context.Context, string, cdcapi.StreamOptions) (cdcapi.ChangeStream, cdcapi.SourceInfo, error) {
+	s.calls.Add(1)
+	return s.stream, cdcapi.SourceInfo{Name: "legacy"}, nil
 }
 
 type blockingSubscribeSource struct {
@@ -71,8 +83,9 @@ func (nilSourceRegistry) List() []cdcapi.SourceInfo { return nil }
 func (nilSourceRegistry) Get(registry.ID) (cdcapi.Source, bool) { return nil, true }
 
 type dispatcherTestNode struct {
-	packages chan *relay.Package
-	send     func(*relay.Package) error
+	packages    chan *relay.Package
+	send        func(*relay.Package) error
+	sendContext func(context.Context, *relay.Package) error
 }
 
 func (n *dispatcherTestNode) ID() pid.NodeID { return "cdc-dispatcher-test" }
@@ -83,6 +96,13 @@ func (n *dispatcherTestNode) Send(pkg *relay.Package) error {
 	}
 	n.packages <- pkg
 	return nil
+}
+
+func (n *dispatcherTestNode) SendContext(ctx context.Context, pkg *relay.Package) error {
+	if n.sendContext != nil {
+		return n.sendContext(ctx, pkg)
+	}
+	return n.Send(pkg)
 }
 
 func (n *dispatcherTestNode) RegisterHost(pid.HostID, relay.Receiver) error { return nil }
@@ -174,6 +194,55 @@ func TestDispatcherUsesSystemRegistryAndRelaysChanges(t *testing.T) {
 	assert.Eventually(t, stream.closed.Load, time.Second, 10*time.Millisecond)
 }
 
+func TestDispatcherRegistryPrecedesLegacyStreamer(t *testing.T) {
+	id := registry.NewID("test", "canonical")
+	canonical := &dispatcherTestSource{stream: &dispatcherTestStream{changes: make(chan cdcapi.Change)}}
+	legacy := &dispatcherLegacyStreamer{stream: &dispatcherTestStream{changes: make(chan cdcapi.Change)}}
+	node := &dispatcherTestNode{packages: make(chan *relay.Package, 1)}
+	ctx := dispatcherTestContext(t, canonical, id, node)
+	ctx = cdcapi.WithSourceStreamer(ctx, legacy)
+
+	d := NewDispatcher(WithWorkers(1))
+	require.NoError(t, d.Start(ctx))
+	defer func() { require.NoError(t, d.Stop(context.Background())) }()
+
+	receiver := &dispatcherTestReceiver{done: make(chan struct{})}
+	require.NoError(t, d.Handle(ctx, dispatcherTestCommand(id), 1, receiver))
+	waitResult(t, receiver)
+	require.NoError(t, receiver.err)
+	assert.Equal(t, int32(1), canonical.subscribeN.Load())
+	assert.Zero(t, legacy.calls.Load())
+
+	sub, ok := receiver.data.(cdcapi.Subscription)
+	require.True(t, ok)
+	sub.Stop()
+}
+
+func TestDispatcherRegistryMissFallsBackToLegacyStreamer(t *testing.T) {
+	id := registry.NewID("legacy", "source")
+	legacyStream := &dispatcherTestStream{changes: make(chan cdcapi.Change)}
+	legacy := &dispatcherLegacyStreamer{stream: legacyStream}
+	node := &dispatcherTestNode{packages: make(chan *relay.Package, 1)}
+	reg := cdcsystem.NewRegistry(nil)
+	ctx := dispatcherTestContextWithRegistry(reg, node)
+	ctx = cdcapi.WithSourceStreamer(ctx, legacy)
+
+	d := NewDispatcher(WithWorkers(1))
+	require.NoError(t, d.Start(ctx))
+	defer func() { require.NoError(t, d.Stop(context.Background())) }()
+
+	receiver := &dispatcherTestReceiver{done: make(chan struct{})}
+	cmd := dispatcherTestCommand(id)
+	require.NoError(t, d.Handle(ctx, cmd, 1, receiver))
+	waitResult(t, receiver)
+	require.NoError(t, receiver.err)
+	assert.Equal(t, int32(1), legacy.calls.Load())
+
+	sub, ok := receiver.data.(cdcapi.Subscription)
+	require.True(t, ok)
+	sub.Stop()
+}
+
 func TestDispatcherRelaysTypedStreamErrorBeforeTerminal(t *testing.T) {
 	streamErr := errors.New("capture gap")
 	stream := &dispatcherTestStream{changes: make(chan cdcapi.Change), err: streamErr}
@@ -257,6 +326,8 @@ func TestDispatcherRejectsNilRegistrySource(t *testing.T) {
 	id := registry.NewID("test", "nil")
 	node := &dispatcherTestNode{packages: make(chan *relay.Package, 1)}
 	ctx := dispatcherTestContextWithRegistry(nilSourceRegistry{}, node)
+	legacy := &dispatcherLegacyStreamer{stream: &dispatcherTestStream{changes: make(chan cdcapi.Change)}}
+	ctx = cdcapi.WithSourceStreamer(ctx, legacy)
 
 	d := NewDispatcher(WithWorkers(1))
 	require.NoError(t, d.Start(ctx))
@@ -266,6 +337,41 @@ func TestDispatcherRejectsNilRegistrySource(t *testing.T) {
 	require.NoError(t, d.Handle(ctx, dispatcherTestCommand(id), 1, receiver))
 	waitResult(t, receiver)
 	assert.ErrorIs(t, receiver.err, ErrNilSource)
+	assert.Zero(t, legacy.calls.Load())
+}
+
+func TestDispatcherStopCancelsBlockedRelayDelivery(t *testing.T) {
+	started := make(chan struct{})
+	var startOnce sync.Once
+	node := &dispatcherTestNode{
+		sendContext: func(ctx context.Context, _ *relay.Package) error {
+			startOnce.Do(func() { close(started) })
+			<-ctx.Done()
+			return ctx.Err()
+		},
+	}
+	stream := &dispatcherTestStream{changes: make(chan cdcapi.Change, 1)}
+	id := registry.NewID("test", "blocked-relay")
+	ctx := dispatcherTestContext(t, &dispatcherTestSource{stream: stream}, id, node)
+
+	d := NewDispatcher(WithWorkers(1))
+	require.NoError(t, d.Start(ctx))
+	receiver := &dispatcherTestReceiver{done: make(chan struct{})}
+	require.NoError(t, d.Handle(ctx, dispatcherTestCommand(id), 1, receiver))
+	waitResult(t, receiver)
+	require.NoError(t, receiver.err)
+
+	stream.changes <- cdcapi.Change{Source: id.String(), Op: "insert"}
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for blocked relay delivery")
+	}
+
+	stopCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	require.NoError(t, d.Stop(stopCtx))
+	assert.True(t, stream.closed.Load())
 }
 
 func TestDispatcherStopCancelsBlockingSubscribe(t *testing.T) {
@@ -319,5 +425,43 @@ func TestDispatcherHandleAndStopAreSafeConcurrently(t *testing.T) {
 	require.NoError(t, <-stopDone)
 	for _, receiver := range receivers {
 		waitResult(t, receiver)
+	}
+}
+
+func TestDispatcherAdmissionStopCompletesEveryJob(t *testing.T) {
+	for round := 0; round < 100; round++ {
+		source := &blockingSubscribeSource{started: make(chan struct{})}
+		id := registry.NewID("test", "admission")
+		reg := cdcsystem.NewRegistry(nil)
+		require.NoError(t, reg.Register(id, source, cdcapi.SQLite))
+		node := &dispatcherTestNode{packages: make(chan *relay.Package, 1)}
+		ctx := dispatcherTestContextWithRegistry(reg, node)
+
+		d := NewDispatcher(WithWorkers(1))
+		require.NoError(t, d.Start(ctx))
+
+		const jobs = 16
+		receivers := make([]*dispatcherTestReceiver, jobs)
+		start := make(chan struct{})
+		var wg sync.WaitGroup
+		for i := range receivers {
+			receiver := &dispatcherTestReceiver{done: make(chan struct{})}
+			receivers[i] = receiver
+			wg.Add(1)
+			go func(tag uint64, receiver *dispatcherTestReceiver) {
+				defer wg.Done()
+				<-start
+				_ = d.Handle(ctx, dispatcherTestCommand(id), tag, receiver)
+			}(uint64(i), receiver)
+		}
+
+		close(start)
+		stopDone := make(chan error, 1)
+		go func() { stopDone <- d.Stop(context.Background()) }()
+		wg.Wait()
+		require.NoError(t, <-stopDone)
+		for _, receiver := range receivers {
+			waitResult(t, receiver)
+		}
 	}
 }

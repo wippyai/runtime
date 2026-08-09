@@ -64,8 +64,25 @@ func (n *Node) GetHost(hostID pid.HostID) (api.Receiver, bool) {
 // Send delivers a package to its destination. The destination must be a host
 // registered within this node.
 func (n *Node) Send(pkg *api.Package) error {
+	return n.send(context.Background(), pkg)
+}
+
+// SendContext delivers a package while honoring cancellation in a
+// context-aware host. Hosts that do not expose ContextSender retain the
+// historical synchronous receiver contract.
+func (n *Node) SendContext(ctx context.Context, pkg *api.Package) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return n.send(ctx, pkg)
+}
+
+func (n *Node) send(ctx context.Context, pkg *api.Package) error {
 	if pkg == nil {
 		return NewNilPackageError()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 
 	if pkg.Target.Node != "" && pkg.Target.Node != n.nodeID {
@@ -82,6 +99,9 @@ func (n *Node) Send(pkg *api.Package) error {
 		return NewInvalidHostTypeError(pkg.Target.Host, n.nodeID)
 	}
 
+	if sender, ok := receiver.(api.ContextSender); ok {
+		return sender.SendContext(ctx, pkg)
+	}
 	return receiver.Send(pkg)
 }
 
