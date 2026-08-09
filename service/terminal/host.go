@@ -134,6 +134,14 @@ func completionExitCode(result *runtime.Result) (int, string) {
 	return 0, ""
 }
 
+// ExitCode returns the shell status represented by a completed process. It is
+// shared by CLI exec bridges so the awaited dispatcher result and terminal
+// lifecycle use identical exit semantics.
+func ExitCode(result *runtime.Result) int {
+	code, _ := completionExitCode(result)
+	return code
+}
+
 func numericExitCode(data any) (int, bool) {
 	if data == nil {
 		return 0, false
@@ -316,15 +324,16 @@ func (h *Host) prepareContext(ctx context.Context, processID pid.PID, start *pro
 		}
 	}
 
-	pairsLen := 3 + len(start.Context)
+	pairsLen := 4 + len(start.Context)
 	pairs := make([]ctxapi.Pair, pairsLen)
 	pairs[0] = ctxapi.Pair{Key: runtime.FrameIDKey, Value: start.Source}
 	pairs[1] = ctxapi.Pair{Key: runtime.FramePIDKey, Value: processID}
+	pairs[2] = ctxapi.Pair{Key: runtime.FrameLifecycleOptionsKey, Value: start.Options}
 	tc := terminalapi.NewTerminalContextWithArgs(os.Stdin, os.Stdout, os.Stderr, args)
 	tc.Raw = h.raw
 	tc.Input = NewInputReader(os.Stdin, h.raw, h.scheduler, processID)
-	pairs[2] = ctxapi.Pair{Key: terminalapi.Key(), Value: tc}
-	copy(pairs[3:], start.Context)
+	pairs[3] = ctxapi.Pair{Key: terminalapi.Key(), Value: tc}
+	copy(pairs[4:], start.Context)
 
 	if err := fc.SetMultiple(pairs...); err != nil {
 		h.log.Error("failed to set frame context", zap.Error(err))

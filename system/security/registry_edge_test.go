@@ -223,8 +223,9 @@ func TestPolicyRegistry_GetPolicyGroup_MissingPolicyReference(t *testing.T) {
 	reg.groups.Store(groupID, []registry.ID{policyID})
 
 	scope, err := reg.GetPolicyGroup(groupID)
-	require.NoError(t, err)
-	assert.Empty(t, scope.Policies())
+	assert.Nil(t, scope)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), policyID.String())
 }
 
 // --- register policy in multiple groups ---

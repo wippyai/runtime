@@ -389,9 +389,12 @@ func TestHost_PrepareContext(t *testing.T) {
 	h.ctx = context.Background()
 
 	processID := pid.PID{Node: "test", Host: "host", UniqID: "test1"}
+	opts := attrs.NewBag()
+	opts.Set(process.ProcessParentKey, pid.PID{Host: "parent", UniqID: "proc"})
 	start := &process.Start{
-		Source: registry.ID{NS: "test", Name: "process"},
-		Input:  []payload.Payload{payload.New("arg1"), payload.New("arg2")},
+		Source:  registry.ID{NS: "test", Name: "process"},
+		Input:   []payload.Payload{payload.New("arg1"), payload.New("arg2")},
+		Options: opts,
 	}
 
 	ctx := ctxapi.NewRootContext()
@@ -407,6 +410,10 @@ func TestHost_PrepareContext(t *testing.T) {
 	val, ok = fc.Get(runtime.FrameIDKey)
 	assert.True(t, ok)
 	assert.Equal(t, start.Source, val)
+
+	val, ok = fc.Get(runtime.FrameLifecycleOptionsKey)
+	assert.True(t, ok)
+	assert.Equal(t, start.Options, val)
 
 	val, ok = fc.Get(terminalapi.Key())
 	assert.True(t, ok)

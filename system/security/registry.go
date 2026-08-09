@@ -269,11 +269,15 @@ func (r *PolicyRegistry) GetPolicyGroup(groupID registry.ID) (security.Scope, er
 
 	for _, id := range policyIDs {
 		if policy, err := r.GetPolicy(id); err == nil {
+			if policy == nil {
+				return nil, fmt.Errorf("policy %s referenced in group %s is nil", id.String(), groupID.String())
+			}
 			policies = append(policies, policy)
 		} else {
 			r.logger.Warn("policy referenced in group not found",
 				zap.String("group", groupID.String()),
 				zap.String("policy", id.String()))
+			return nil, fmt.Errorf("policy %s referenced in group %s: %w", id.String(), groupID.String(), err)
 		}
 	}
 

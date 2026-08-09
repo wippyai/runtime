@@ -15,10 +15,10 @@ import (
 // in ctx. The returned pairs are a complete security context that can either be
 // applied locally or transported to a new process frame.
 //
-// Resolution is best-effort: valid pairs are returned together with errors for
-// unresolved policy references. Existing callers that historically tolerated
-// missing references can apply the pairs and ignore the error; trust boundaries
-// such as process launchers must reject it.
+// Resolution is atomic: if any declared policy or policy group cannot be fully
+// resolved, no pairs are returned. Returning an actor or a partial scope beside
+// an error would let a caller accidentally cross a security boundary with an
+// incomplete configuration.
 func ResolveConfigPairs(ctx context.Context, config *security.Config) ([]ctxapi.Pair, error) {
 	if config == nil {
 		return nil, nil
@@ -42,10 +42,7 @@ func ResolveConfigPairs(ctx context.Context, config *security.Config) ([]ctxapi.
 
 	reg, ok := security.GetRegistry(ctx)
 	if !ok {
-		if hasExistingScope && existingScope != nil {
-			pairs = append(pairs, security.ScopePair(existingScope))
-		}
-		return pairs, fmt.Errorf("security registry not available")
+		return nil, fmt.Errorf("security registry not available")
 	}
 
 	policies := make([]security.Policy, 0, len(config.PolicyGroups)+len(config.Policies))
@@ -56,7 +53,22 @@ func ResolveConfigPairs(ctx context.Context, config *security.Config) ([]ctxapi.
 			resolutionErrors = append(resolutionErrors, fmt.Errorf("resolve security policy group %s: %w", groupID.String(), err))
 			continue
 		}
-		policies = append(policies, groupScope.Policies()...)
+		if groupScope == nil {
+			resolutionErrors = append(resolutionErrors, fmt.Errorf("resolve security policy group %s: empty scope", groupID.String()))
+			continue
+		}
+		groupPolicies := groupScope.Policies()
+		if len(groupPolicies) == 0 {
+			resolutionErrors = append(resolutionErrors, fmt.Errorf("resolve security policy group %s: group contains no policies", groupID.String()))
+			continue
+		}
+		for index, policy := range groupPolicies {
+			if policy == nil {
+				resolutionErrors = append(resolutionErrors, fmt.Errorf("resolve security policy group %s: policy %d is nil", groupID.String(), index))
+				continue
+			}
+			policies = append(policies, policy)
+		}
 	}
 	for _, policyID := range config.Policies {
 		policy, err := reg.GetPolicy(policyID)
@@ -64,7 +76,17 @@ func ResolveConfigPairs(ctx context.Context, config *security.Config) ([]ctxapi.
 			resolutionErrors = append(resolutionErrors, fmt.Errorf("resolve security policy %s: %w", policyID.String(), err))
 			continue
 		}
+		if policy == nil {
+			resolutionErrors = append(resolutionErrors, fmt.Errorf("resolve security policy %s: policy is nil", policyID.String()))
+			continue
+		}
 		policies = append(policies, policy)
+	}
+	if len(resolutionErrors) > 0 {
+		return nil, errors.Join(resolutionErrors...)
+	}
+	if len(policies) == 0 {
+		return nil, fmt.Errorf("security configuration resolved no policies")
 	}
 
 	scope := existingScope
@@ -79,5 +101,5 @@ func ResolveConfigPairs(ctx context.Context, config *security.Config) ([]ctxapi.
 		pairs = append(pairs, security.ScopePair(scope))
 	}
 
-	return pairs, errors.Join(resolutionErrors...)
+	return pairs, nil
 }
