@@ -85,11 +85,10 @@ func TestLuaSeesRealRunningSourceAndItsChanges(t *testing.T) {
 	require.NoError(t, sup.Start(supCtx))
 
 	manager := &Manager{
-		bus:        bus,
-		log:        zap.NewNop(),
-		sources:    map[registry.ID]*Source{},
-		infos:      map[registry.ID]cdcapi.SourceInfo{},
-		infosByKey: map[string]registry.ID{},
+		bus:     bus,
+		log:     zap.NewNop(),
+		sources: map[registry.ID]*Source{},
+		infos:   map[registry.ID]cdcapi.SourceInfo{},
 	}
 
 	entryID := registry.NewID("test", "cdc-lua-e2e")

@@ -4,6 +4,7 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -79,4 +80,55 @@ func TestSourceSubscriptionCloseReleasesChannel(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for closed cdc stream")
 	}
+}
+
+func TestSourceSubscriptionRetainsTerminalError(t *testing.T) {
+	src := NewSource(SourceOptions{Name: "test:cdc", Slot: "slot_a"})
+	stream := src.Subscribe(cdcapi.StreamOptions{})
+	err := errors.New("replication failed")
+	src.closeSubscriptionsWithError(err)
+
+	select {
+	case _, ok := <-stream.Changes():
+		assert.False(t, ok)
+	case <-time.After(time.Second):
+		t.Fatal("stream did not close")
+	}
+	assert.ErrorIs(t, stream.(interface{ Err() error }).Err(), err)
+}
+
+func TestSourceSubscriptionOverflowIsBoundedAndLocal(t *testing.T) {
+	src := NewSource(SourceOptions{Name: "test:cdc", Slot: "slot_a"})
+	laggard := src.Subscribe(cdcapi.StreamOptions{Buffer: 1})
+	reader := src.Subscribe(cdcapi.StreamOptions{Buffer: maxStreamBuffer})
+
+	done := make(chan struct{})
+	go func() {
+		for i := 0; i < 1000; i++ {
+			src.publishChange(context.Background(), cdcapi.Change{
+				Op:       "insert",
+				Table:    "accounts",
+				Relation: "public.accounts",
+			})
+		}
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("replication fan-out blocked on a slow subscriber")
+	}
+
+	assert.Eventually(t, func() bool {
+		return errors.Is(laggard.(interface{ Err() error }).Err(), errSubscriberOverflow)
+	}, time.Second, time.Millisecond, "laggard must terminate with an overflow error")
+	select {
+	case _, ok := <-reader.Changes():
+		assert.True(t, ok, "an unrelated subscriber must remain active")
+	case <-time.After(time.Second):
+		t.Fatal("unrelated subscriber did not receive a change")
+	}
+	laggard.Close()
+	reader.Close()
 }

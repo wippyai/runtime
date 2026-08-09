@@ -93,6 +93,7 @@ func (s *sourceAdapter) Info() config.SourceInfo {
 	s.mu.RUnlock()
 	source.mu.Lock()
 	state := source.state
+	sourceErr := source.sourceErr
 	source.mu.Unlock()
 
 	info := config.SourceInfo{
@@ -101,21 +102,30 @@ func (s *sourceAdapter) Info() config.SourceInfo {
 		Slot:        source.slot,
 		Publication: source.publication,
 		Tables:      append([]string(nil), source.tables...),
-		Streaming:   state == sourceRunning,
-		Failover:    source.failover,
-		Temporary:   source.temporary,
-		Snapshot:    source.snapshot,
-		State:       postgresSourceState(state),
+		// Streaming is a legacy field describing the configured pgoutput
+		// protocol mode, not the current lifecycle state. State is exposed by
+		// SourceState above.
+		Streaming: source.streaming,
+		Failover:  source.failover,
+		Temporary: source.temporary,
+		Snapshot:  source.snapshot,
+		State:     postgresSourceState(state),
 		Capabilities: config.Capabilities{
-			Snapshot:               source.snapshot,
-			Durable:                true,
-			Replayable:             true,
+			// Snapshot is a source-start bootstrap operation. Subscribe rejects
+			// per-consumer snapshot requests, so it is not a common API
+			// capability of this adapter.
+			Snapshot:               false,
+			Durable:                !source.temporary,
+			Replayable:             false,
 			CapturesExternalWrites: true,
 			BeforeImages:           false,
 		},
 	}
 	if state == sourceFailed {
 		info.Faulted = true
+	}
+	if sourceErr != nil {
+		info.Error = sourceErr.Error()
 	}
 	return info
 }
@@ -187,15 +197,7 @@ func (s *sourceAdapter) Dispose(ctx context.Context) error {
 	source := s.source
 	s.mu.RUnlock()
 	source.MarkForSlotDrop()
-	stopErr := source.Stop(ctx)
-	source.mu.Lock()
-	temporary := source.temporary
-	source.mu.Unlock()
-	if temporary {
-		return stopErr
-	}
-	cleanupErr := source.dropSlotAndCheckpoint(ctx)
-	return errors.Join(stopErr, cleanupErr)
+	return source.Stop(ctx)
 }
 
 func (s *sourceAdapter) LifecycleConfig() supervisor.LifecycleConfig {

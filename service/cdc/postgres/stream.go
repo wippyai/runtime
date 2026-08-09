@@ -4,6 +4,7 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -16,6 +17,11 @@ const (
 	maxStreamBuffer     = 65536
 )
 
+// errSubscriberOverflow is terminal for one subscription only. A consumer
+// that cannot keep up must not back-pressure the replication receive loop or
+// unrelated subscribers.
+var errSubscriberOverflow = errors.New("postgres cdc subscriber backlog overflow")
+
 type sourceSubscription struct {
 	source *Source
 	in     chan config.Change
@@ -26,9 +32,11 @@ type sourceSubscription struct {
 	id     uint64
 	once   sync.Once
 	closed atomic.Bool
+	errMu  sync.RWMutex
+	err    error
 }
 
-func (s *Source) Subscribe(opts config.StreamOptions) config.ChangeStream {
+func (s *Source) Subscribe(opts config.StreamOptions) config.Stream {
 	buffer := opts.Buffer
 	if buffer <= 0 {
 		buffer = defaultStreamBuffer
@@ -77,6 +85,10 @@ func (s *Source) removeSubscription(id uint64) {
 }
 
 func (s *Source) closeSubscriptions() {
+	s.closeSubscriptionsWithError(nil)
+}
+
+func (s *Source) closeSubscriptionsWithError(err error) {
 	s.subMu.Lock()
 	subs := make([]*sourceSubscription, 0, len(s.subs))
 	for id, sub := range s.subs {
@@ -86,7 +98,7 @@ func (s *Source) closeSubscriptions() {
 	s.subMu.Unlock()
 
 	for _, sub := range subs {
-		sub.Close()
+		sub.closeWithError(err)
 	}
 }
 
@@ -95,8 +107,23 @@ func (s *sourceSubscription) Changes() <-chan config.Change {
 }
 
 func (s *sourceSubscription) Close() {
+	s.closeWithError(nil)
+}
+
+func (s *sourceSubscription) Err() error {
+	s.errMu.RLock()
+	defer s.errMu.RUnlock()
+	return s.err
+}
+
+func (s *sourceSubscription) closeWithError(err error) {
 	s.once.Do(func() {
 		s.closed.Store(true)
+		if err != nil {
+			s.errMu.Lock()
+			s.err = err
+			s.errMu.Unlock()
+		}
 		if s.source != nil {
 			s.source.removeSubscription(s.id)
 		}
@@ -125,14 +152,17 @@ func (s *sourceSubscription) run() {
 	}
 }
 
-func (s *sourceSubscription) send(ctx context.Context, change config.Change) {
+func (s *sourceSubscription) send(_ context.Context, change config.Change) {
 	if s.closed.Load() {
 		return
 	}
 	select {
 	case s.in <- change:
-	case <-s.done:
-	case <-ctx.Done():
+	default:
+		// Never wait for a slow consumer from the replication goroutine. The
+		// subscription gets a terminal error and is removed; other consumers
+		// continue receiving the transaction.
+		s.closeWithError(errSubscriberOverflow)
 	}
 }
 
