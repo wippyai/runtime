@@ -38,7 +38,7 @@ func (Driver) Create(ctx context.Context, entry registry.Entry, deps cdcservice.
 	if err := cfg.Validate(); err != nil {
 		return nil, NewInvalidConfigError(err)
 	}
-	if err := validatePostgresIdentifier(cfg.SlotName, "slot_name"); err != nil {
+	if _, err := quoteReplicationSlotName(cfg.SlotName); err != nil {
 		return nil, NewInvalidConfigError(err)
 	}
 	if cfg.Publication != "" {

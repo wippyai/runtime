@@ -10,19 +10,27 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestQuotePostgresIdentifierRejectsUnsafeNames(t *testing.T) {
-	for _, name := range []string{"", " slot", "slot ", "slot\nname", string([]byte{0xff})} {
-		_, err := quotePostgresIdentifier(name, "slot_name")
+func TestQuoteReplicationSlotNameUsesServerGrammar(t *testing.T) {
+	for _, name := range []string{"events_2026_08", "slot0", strings.Repeat("x", postgresIdentifierMaxBytes)} {
+		quoted, err := quoteReplicationSlotName(name)
+		require.NoError(t, err, "name %q", name)
+		assert.Equal(t, `"`+name+`"`, quoted)
+	}
+
+	for _, name := range []string{
+		"", "Events", "events-name", `events"name`, "events name",
+		"événements", "slot\nname", string([]byte{0xff}),
+		strings.Repeat("x", postgresIdentifierMaxBytes+1),
+	} {
+		_, err := quoteReplicationSlotName(name)
 		assert.ErrorIs(t, err, ErrInvalidIdentifier, "name %q", name)
 	}
-	_, err := quotePostgresIdentifier(strings.Repeat("x", postgresIdentifierMaxBytes+1), "slot_name")
-	assert.ErrorIs(t, err, ErrInvalidIdentifier)
 }
 
 func TestQuotePostgresIdentifierUsesServerIdentifierQuoting(t *testing.T) {
-	quoted, err := quotePostgresIdentifier(`slot"name`, "slot_name")
+	quoted, err := quotePostgresIdentifier(`publication"name`, "publication")
 	require.NoError(t, err)
-	assert.Equal(t, `"slot""name"`, quoted)
+	assert.Equal(t, `"publication""name"`, quoted)
 
 	literal, err := quotePostgresLiteral(`publication'name`, "publication")
 	require.NoError(t, err)

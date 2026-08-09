@@ -423,7 +423,7 @@ func (s *Source) run(
 	if s.streaming {
 		pluginArgs = append(pluginArgs, "streaming 'on'")
 	}
-	slotIdentifier, err := quotePostgresIdentifier(s.slot, "slot_name")
+	slotIdentifier, err := quoteReplicationSlotName(s.slot)
 	if err != nil {
 		s.abortFreshSlot(conn, slotCreated)
 		s.fail(ctx, status, err)
@@ -692,7 +692,7 @@ func (s *Source) prepareSlot(
 	snapshotName := ""
 	slotCreated := false
 	if !exists {
-		slotIdentifier, err := quotePostgresIdentifier(s.slot, "slot_name")
+		slotIdentifier, err := quoteReplicationSlotName(s.slot)
 		if err != nil {
 			return 0, "", false, err
 		}
@@ -731,7 +731,7 @@ func (s *Source) prepareSlot(
 }
 
 func (s *Source) setSlotFailover(ctx context.Context, conn *pgconn.PgConn) error {
-	slotIdentifier, err := quotePostgresIdentifier(s.slot, "slot_name")
+	slotIdentifier, err := quoteReplicationSlotName(s.slot)
 	if err != nil {
 		return err
 	}
