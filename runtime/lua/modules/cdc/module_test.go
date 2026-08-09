@@ -235,6 +235,7 @@ func TestStreamOpenAndRelease(t *testing.T) {
 			tables = {"public.accounts"},
 			ops = {"insert", "update"},
 			buffer = 4,
+			max_bytes = 4096,
 			snapshot = true,
 			after = "cursor-1",
 		})
@@ -268,18 +269,23 @@ func TestStreamRejectsInvalidBuffer(t *testing.T) {
 
 func TestStreamRejectsMalformedOptions(t *testing.T) {
 	cases := map[string]string{
-		"tables type":       `{ tables = "accounts" }`,
-		"tables element":    `{ tables = { 1 } }`,
-		"ops element":       `{ ops = { "insert", 2 } }`,
-		"fractional buffer": `{ buffer = 1.5 }`,
-		"zero buffer":       `{ buffer = 0 }`,
-		"oversized buffer":  `{ buffer = 65537 }`,
-		"snapshot type":     `{ snapshot = "true" }`,
-		"after type":        `{ after = 42 }`,
-		"empty after":       `{ after = "" }`,
-		"whitespace after":  `{ after = " \t\n" }`,
-		"unknown field":     `{ unsupported = true }`,
-		"numeric field":     `{ [1] = "unsupported" }`,
+		"tables type":          `{ tables = "accounts" }`,
+		"tables element":       `{ tables = { 1 } }`,
+		"ops element":          `{ ops = { "insert", 2 } }`,
+		"fractional buffer":    `{ buffer = 1.5 }`,
+		"zero buffer":          `{ buffer = 0 }`,
+		"oversized buffer":     `{ buffer = 65537 }`,
+		"max bytes type":       `{ max_bytes = "4096" }`,
+		"fractional max bytes": `{ max_bytes = 1.5 }`,
+		"zero max bytes":       `{ max_bytes = 0 }`,
+		"negative max bytes":   `{ max_bytes = -1 }`,
+		"infinite max bytes":   `{ max_bytes = math.huge }`,
+		"snapshot type":        `{ snapshot = "true" }`,
+		"after type":           `{ after = 42 }`,
+		"empty after":          `{ after = "" }`,
+		"whitespace after":     `{ after = " \t\n" }`,
+		"unknown field":        `{ unsupported = true }`,
+		"numeric field":        `{ [1] = "unsupported" }`,
 	}
 	for name, options := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -292,6 +298,25 @@ func TestStreamRejectsMalformedOptions(t *testing.T) {
 			require.NoError(t, l.DoString(script))
 		})
 	}
+}
+
+func TestStreamMaxBytesPreservesIntegerAndRejectsInexactFloat(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+
+	integerOptions := l.CreateTable(0, 1)
+	integerOptions.RawSetString("max_bytes", lua.LInteger(1<<63-1))
+	l.Push(integerOptions)
+	options, luaErr := streamOptionsFromLua(l, 1)
+	require.Nil(t, luaErr)
+	require.Equal(t, int64(1<<63-1), options.MaxBytes)
+	l.SetTop(0)
+
+	floatOptions := l.CreateTable(0, 1)
+	floatOptions.RawSetString("max_bytes", lua.LNumber(1<<53))
+	l.Push(floatOptions)
+	_, luaErr = streamOptionsFromLua(l, 1)
+	require.NotNil(t, luaErr)
 }
 
 func TestStringArrayFieldRejectsOutOfRangeIndex(t *testing.T) {
@@ -331,6 +356,7 @@ func TestModuleTypesUseIntegerBufferAndTypedChannel(t *testing.T) {
 	optionsRecord, ok := streamOptions.(*typ.Record)
 	require.True(t, ok)
 	require.Equal(t, typ.Integer, optionsRecord.GetField("buffer").Type)
+	require.Equal(t, typ.Integer, optionsRecord.GetField("max_bytes").Type)
 	require.NotEqual(t, typ.Any, cdcChannelType)
 }
 
@@ -408,7 +434,7 @@ func TestModuleTypesMatchRuntimeFields(t *testing.T) {
 		"engine", "file", "db_resource", "epoch", "error", "tables", "streaming", "failover",
 		"temporary", "snapshot", "faulted",
 	})
-	assertRecordFields("StreamOptions", []string{"tables", "ops", "buffer", "snapshot", "after"})
+	assertRecordFields("StreamOptions", []string{"tables", "ops", "buffer", "max_bytes", "snapshot", "after"})
 	assertRecordFields("Change", []string{
 		"source_id", "source", "op", "schema", "table", "relation", "lsn", "commit_lsn", "cursor",
 		"generation", "transaction", "error", "xid", "before", "after",

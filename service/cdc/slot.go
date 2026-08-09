@@ -117,6 +117,9 @@ func (s *sourceSlot) Info() api.SourceInfo {
 }
 
 func (s *sourceSlot) Subscribe(ctx context.Context, opts api.StreamOptions) (api.Stream, error) {
+	if err := opts.Validate(); err != nil {
+		return nil, err
+	}
 	s.mu.RLock()
 	if s.state != slotRunning || isNilSource(s.current) || s.disposing || s.replacing {
 		s.mu.RUnlock()

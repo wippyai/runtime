@@ -21,9 +21,12 @@ const (
 type StreamOptions struct {
 	// After is an opaque source cursor. A driver that cannot resume from a
 	// cursor must return ErrUnsupported rather than silently ignore it.
-	After    string
-	Tables   []string
-	Ops      []string
+	After  string
+	Tables []string
+	Ops    []string
+	// MaxBytes bounds the retained logical size of one subscriber backlog.
+	// Zero selects DefaultMaxStreamBytes; negative values are invalid.
+	MaxBytes int64
 	Buffer   int
 	Snapshot bool
 }

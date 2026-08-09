@@ -27,6 +27,10 @@ const (
 	// an unbounded map/slice/channel allocation in the Lua adapter.
 	defaultStreamBuffer = 64
 	maxStreamItems      = 65536
+	// LNumber is float64. Values above this boundary are not all exactly
+	// representable; integer-valued Lua literals use LInteger below and retain
+	// the complete int64 range instead.
+	maxExactLuaNumber = int64(1<<53 - 1)
 )
 
 var subscriptionCounter uint64
@@ -396,6 +400,27 @@ func streamOptionsFromLua(l *lua.LState, idx int) (cdcapi.StreamOptions, *lua.Er
 		n := int(number)
 		opts.Buffer = n
 	}
+	if v := table.RawGetString("max_bytes"); v != lua.LNil {
+		if v.Type() != lua.LTNumber && v.Type() != lua.LTInteger {
+			return opts, invalidStreamOption(l, "max_bytes must be a number")
+		}
+		if v.Type() == lua.LTInteger {
+			number, ok := v.(lua.LInteger)
+			if !ok || number < 1 {
+				return opts, invalidStreamOption(l, "max_bytes must be a positive integer")
+			}
+			opts.MaxBytes = int64(number)
+		} else {
+			number := lua.LVAsNumber(v)
+			floatNumber := float64(number)
+			if math.IsNaN(floatNumber) || math.IsInf(floatNumber, 0) ||
+				math.Trunc(floatNumber) != floatNumber ||
+				number < 1 || number > lua.LNumber(maxExactLuaNumber) {
+				return opts, invalidStreamOption(l, "max_bytes must be an exact positive integer")
+			}
+			opts.MaxBytes = int64(number)
+		}
+	}
 	if v := table.RawGetString("snapshot"); v != lua.LNil {
 		if v.Type() != lua.LTBool {
 			return opts, invalidStreamOption(l, "snapshot must be a boolean")
@@ -443,7 +468,7 @@ func validateOptionKeys(table *lua.LTable) string {
 			return
 		}
 		switch string(name) {
-		case "tables", "ops", "buffer", "snapshot", "after":
+		case "tables", "ops", "buffer", "max_bytes", "snapshot", "after":
 		default:
 			errMsg = "stream options contains unknown field: " + string(name)
 		}

@@ -9,11 +9,6 @@ import (
 	api "github.com/wippyai/runtime/api/service/cdc"
 )
 
-const (
-	defaultStreamBuffer = 128
-	maxStreamBuffer     = 65536
-)
-
 // stampedStream is the boundary between a driver stream and the common CDC
 // API. Drivers own transport-specific change decoding; the stable source slot
 // owns the process identity and generation that consumers use for routing and
@@ -27,21 +22,15 @@ type stampedStream struct {
 	once       sync.Once
 }
 
-func newStampedStream(id registry.ID, generation uint64, requestedBuffer int, upstream api.Stream) *stampedStream {
-	buffer := requestedBuffer
-	if buffer <= 0 {
-		buffer = defaultStreamBuffer
-	}
-	if buffer > maxStreamBuffer {
-		buffer = maxStreamBuffer
-	}
-
+func newStampedStream(id registry.ID, generation uint64, _ int, upstream api.Stream) *stampedStream {
 	stream := &stampedStream{
 		upstream:   upstream,
 		sourceID:   registry.ParseID(id.String()),
 		generation: generationString(generation),
-		out:        make(chan api.Change, buffer),
-		done:       make(chan struct{}),
+		// The driver owns the only bounded subscriber queue. Keep this common
+		// identity adapter unbuffered so it cannot double retained events.
+		out:  make(chan api.Change),
+		done: make(chan struct{}),
 	}
 	go stream.run()
 	return stream

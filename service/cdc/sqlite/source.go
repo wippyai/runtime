@@ -456,6 +456,7 @@ func (s *Source) fail(err error) {
 	}
 	for _, sub := range snapshotSubscriptions {
 		sub.closeWithError(err)
+		sub.waitRelay()
 	}
 	for _, snapshotStream := range snapshotSubs {
 		_ = snapshotStream.Close()
@@ -523,6 +524,7 @@ func (s *Source) Stop(ctx context.Context) error {
 	}
 	for _, sub := range snapshotSubscriptions {
 		sub.closeWithError(nil)
+		sub.waitRelay()
 	}
 	for _, snapshotStream := range snapshotStreams {
 		_ = snapshotStream.Close()
@@ -746,6 +748,7 @@ func (s *Source) subscribeSnapshot(ctx context.Context, observer sqlapi.Committe
 
 func (s *Source) runSnapshot(ctx context.Context, stream sqlapi.SnapshotStream, sub *subscription, acquisitionID uint64) {
 	defer s.snapshotWG.Done()
+	defer sub.waitRelay()
 	defer func() {
 		s.mu.Lock()
 		delete(s.snapshotSubs, sub)

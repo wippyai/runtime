@@ -417,7 +417,7 @@ func TestSourceSnapshotOverflowClosesUpstream(t *testing.T) {
 	assert.Eventually(t, func() bool {
 		subscriber.mu.Lock()
 		defer subscriber.mu.Unlock()
-		return len(subscriber.changes) == 1
+		return len(subscriber.queue) == 1
 	}, time.Second, time.Millisecond)
 	upstream.push(change(2))
 

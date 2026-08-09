@@ -45,6 +45,7 @@ var streamOptionsType = typ.NewRecord().
 	OptField("tables", typ.NewArray(typ.String)).
 	OptField("ops", typ.NewArray(typ.String)).
 	OptField("buffer", typ.Integer).
+	OptField("max_bytes", typ.Integer).
 	OptField("snapshot", typ.Boolean).
 	OptField("after", typ.String).
 	Build()

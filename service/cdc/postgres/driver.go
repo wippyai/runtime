@@ -139,6 +139,9 @@ func (s *sourceAdapter) Subscribe(ctx context.Context, opts config.StreamOptions
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	if err := opts.Validate(); err != nil {
+		return nil, err
+	}
 	if opts.After != "" {
 		return nil, config.ErrUnsupported
 	}

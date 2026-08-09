@@ -75,16 +75,17 @@ func TestSubscribeBufferClamp(t *testing.T) {
 	subs := newSubscribers()
 
 	def := subs.subscribe("s", config.StreamOptions{Buffer: 0})
-	assert.Equal(t, defaultStreamBuffer, cap(def.changes))
+	assert.Equal(t, defaultStreamBuffer, def.maxChanges)
 
 	neg := subs.subscribe("s", config.StreamOptions{Buffer: -5})
-	assert.Equal(t, defaultStreamBuffer, cap(neg.changes))
+	assert.Equal(t, defaultStreamBuffer, neg.maxChanges)
 
 	exact := subs.subscribe("s", config.StreamOptions{Buffer: 7})
-	assert.Equal(t, 7, cap(exact.changes))
+	assert.Equal(t, 7, exact.maxChanges)
 
 	huge := subs.subscribe("s", config.StreamOptions{Buffer: maxStreamBuffer + 100})
-	assert.Equal(t, maxStreamBuffer, cap(huge.changes))
+	assert.Equal(t, maxStreamBuffer, huge.maxChanges)
+	assert.Zero(t, cap(def.changes), "the common adapter must not add a second queue")
 }
 
 func TestSubscribeAssignsUniqueIncreasingIDs(t *testing.T) {
@@ -153,6 +154,67 @@ func TestOverflowedSubscriberChurnDoesNotRetainParentEntries(t *testing.T) {
 	remaining := len(subs.m)
 	subs.mu.RUnlock()
 	assert.Zero(t, remaining)
+}
+
+func TestSubscriptionMaxBytesReleasesOnlyAfterDelivery(t *testing.T) {
+	change := config.Change{
+		Op:    "insert",
+		Table: "users",
+		After: map[string]any{"payload": []byte("payload")},
+	}
+	changeBytes := config.EstimateChangeBytes(change)
+	sub := newSubscription("s", config.StreamOptions{Buffer: 2, MaxBytes: changeBytes + 1}, 2)
+	defer sub.Close()
+
+	sub.send(change)
+	assert.Eventually(t, func() bool {
+		sub.mu.Lock()
+		defer sub.mu.Unlock()
+		return len(sub.queue) == 1 && sub.queuedBytes == changeBytes
+	}, time.Second, time.Millisecond)
+
+	select {
+	case got := <-sub.Changes():
+		assert.Equal(t, change.Table, got.Table)
+	case <-time.After(time.Second):
+		t.Fatal("timed out receiving queued change")
+	}
+	assert.Eventually(t, func() bool {
+		sub.mu.Lock()
+		defer sub.mu.Unlock()
+		return len(sub.queue) == 0 && sub.queuedBytes == 0
+	}, time.Second, time.Millisecond)
+
+	sub.send(change)
+	assert.NotErrorIs(t, sub.Err(), errSubscriberOverflow)
+	select {
+	case <-sub.Changes():
+	case <-time.After(time.Second):
+		t.Fatal("released byte budget did not accept the next change")
+	}
+}
+
+func TestSubscriptionMaxBytesOverflowIsLocal(t *testing.T) {
+	change := config.Change{
+		Op:    "insert",
+		Table: "users",
+		After: map[string]any{"payload": []byte("payload")},
+	}
+	limit := config.EstimateChangeBytes(change) - 1
+	subs := newSubscribers()
+	laggard := subs.subscribe("s", config.StreamOptions{MaxBytes: limit})
+	reader := subs.subscribe("s", config.StreamOptions{MaxBytes: limit + 1})
+
+	subs.publish(change)
+	assert.ErrorIs(t, laggard.Err(), errSubscriberOverflow)
+	assert.NotErrorIs(t, reader.Err(), errSubscriberOverflow)
+	select {
+	case got := <-reader.Changes():
+		assert.Equal(t, change.Table, got.Table)
+	case <-time.After(time.Second):
+		t.Fatal("unrelated subscriber did not receive change")
+	}
+	reader.Close()
 }
 
 func TestSubscribersFilterByOp(t *testing.T) {

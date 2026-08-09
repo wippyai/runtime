@@ -22,19 +22,32 @@ const (
 var errSubscriberOverflow = errors.New("postgres cdc subscriber backlog overflow")
 
 type sourceSubscription struct {
-	err    error
-	source *Source
-	out    chan config.Change
-	tables map[string]struct{}
-	ops    map[string]struct{}
-	id     uint64
-	once   sync.Once
-	sendMu sync.Mutex
-	closed bool
-	errMu  sync.RWMutex
+	err         error
+	tables      map[string]struct{}
+	source      *Source
+	done        chan struct{}
+	notify      chan struct{}
+	relayDone   chan struct{}
+	ops         map[string]struct{}
+	out         chan config.Change
+	queue       []queuedChange
+	maxBytes    int64
+	maxChanges  int
+	id          uint64
+	queuedBytes int64
+	mu          sync.Mutex
+	closed      bool
+}
+
+type queuedChange struct {
+	change config.Change
+	bytes  int64
 }
 
 func (s *Source) Subscribe(opts config.StreamOptions) config.Stream {
+	if err := opts.Validate(); err != nil {
+		return nil
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.state != sourceNew && s.state != sourceRunning {
@@ -77,15 +90,22 @@ func (s *Source) newSubscription(opts config.StreamOptions) config.Stream {
 	sub := &sourceSubscription{
 		source: s,
 		id:     s.nextSubID,
-		// out is the only event queue. sendMu serializes producers with
-		// terminal close so a slow consumer cannot retain a second buffer.
-		out:    make(chan config.Change, buffer),
-		tables: filterSet(opts.Tables),
-		ops:    filterSet(opts.Ops),
+		// queue is the sole driver-owned backlog. out is an unbuffered
+		// delivery handoff, so bytes are released exactly after a consumer
+		// receives the change rather than when it is merely enqueued.
+		out:        make(chan config.Change),
+		done:       make(chan struct{}),
+		notify:     make(chan struct{}, 1),
+		maxChanges: buffer,
+		maxBytes:   opts.EffectiveMaxBytes(),
+		relayDone:  make(chan struct{}),
+		tables:     filterSet(opts.Tables),
+		ops:        filterSet(opts.Ops),
 	}
 	s.subs[sub.id] = sub
 	s.subMu.Unlock()
 
+	go sub.run()
 	return sub
 }
 
@@ -126,6 +146,9 @@ func (s *Source) closeSubscriptionsWithError(err error) {
 	for _, sub := range subs {
 		sub.closeWithError(err)
 	}
+	for _, sub := range subs {
+		sub.waitRelay()
+	}
 }
 
 func (s *sourceSubscription) Changes() <-chan config.Change {
@@ -134,53 +157,100 @@ func (s *sourceSubscription) Changes() <-chan config.Change {
 
 func (s *sourceSubscription) Close() {
 	s.closeWithError(nil)
+	s.waitRelay()
 }
 
 func (s *sourceSubscription) Err() error {
-	s.errMu.RLock()
-	defer s.errMu.RUnlock()
-	return s.err
+	s.mu.Lock()
+	err := s.err
+	s.mu.Unlock()
+	return err
 }
 
 func (s *sourceSubscription) closeWithError(err error) {
-	s.once.Do(func() {
-		// Publish the terminal error before closing Changes. Err is therefore
-		// immediately observable when the caller receives the closed channel.
-		if err != nil {
-			s.errMu.Lock()
-			s.err = err
-			s.errMu.Unlock()
+	s.mu.Lock()
+	parent, id := s.closeLocked(err)
+	s.mu.Unlock()
+	if parent != nil {
+		parent.removeSubscription(id)
+	}
+}
+
+func (s *sourceSubscription) waitRelay() {
+	<-s.relayDone
+}
+
+func (s *sourceSubscription) closeLocked(err error) (*Source, uint64) {
+	if s.closed {
+		return nil, 0
+	}
+	s.closed = true
+	s.err = err
+	s.queue = nil
+	s.queuedBytes = 0
+	close(s.done)
+	return s.source, s.id
+}
+
+func (s *sourceSubscription) run() {
+	defer close(s.relayDone)
+	defer close(s.out)
+	for {
+		s.mu.Lock()
+		if len(s.queue) == 0 {
+			if s.closed {
+				s.mu.Unlock()
+				return
+			}
+			notify := s.notify
+			done := s.done
+			s.mu.Unlock()
+			select {
+			case <-notify:
+			case <-done:
+			}
+			continue
 		}
-		// Serialize the terminal transition with send and close the event
-		// queue synchronously. No forwarding goroutine is needed, and no
-		// producer can send to a closed channel.
-		s.sendMu.Lock()
-		s.closed = true
-		close(s.out)
-		s.sendMu.Unlock()
-		// Detach outside sendMu: source removal takes subMu and must never
-		// participate in the producer/close critical section.
-		if s.source != nil {
-			s.source.removeSubscription(s.id)
+		item := s.queue[0]
+		done := s.done
+		s.mu.Unlock()
+
+		select {
+		case <-done:
+			return
+		case s.out <- item.change:
+			s.mu.Lock()
+			if len(s.queue) > 0 {
+				s.queuedBytes -= s.queue[0].bytes
+				s.queue[0] = queuedChange{}
+				s.queue = s.queue[1:]
+			}
+			s.mu.Unlock()
 		}
-	})
+	}
 }
 
 func (s *sourceSubscription) send(_ context.Context, change config.Change) {
-	s.sendMu.Lock()
+	bytes := config.EstimateChangeBytes(change)
+	s.mu.Lock()
 	if s.closed {
-		s.sendMu.Unlock()
+		s.mu.Unlock()
 		return
 	}
+	if len(s.queue) >= s.maxChanges || bytes > s.maxBytes-s.queuedBytes {
+		parent, id := s.closeLocked(errSubscriberOverflow)
+		s.mu.Unlock()
+		if parent != nil {
+			parent.removeSubscription(id)
+		}
+		return
+	}
+	s.queue = append(s.queue, queuedChange{change: change, bytes: bytes})
+	s.queuedBytes += bytes
+	s.mu.Unlock()
 	select {
-	case s.out <- change:
-		s.sendMu.Unlock()
+	case s.notify <- struct{}{}:
 	default:
-		s.sendMu.Unlock()
-		// Never wait for a slow consumer from the replication goroutine. The
-		// subscription gets a terminal error and is removed; other consumers
-		// continue receiving the transaction.
-		s.closeWithError(errSubscriberOverflow)
 	}
 }
 

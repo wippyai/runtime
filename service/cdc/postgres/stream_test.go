@@ -177,3 +177,69 @@ func TestSourceSubscriptionOverflowIsBoundedAndLocal(t *testing.T) {
 	laggard.Close()
 	reader.Close()
 }
+
+func TestSourceSubscriptionMaxBytesReleasesOnlyAfterDelivery(t *testing.T) {
+	src := NewSource(SourceOptions{Name: "test:cdc", Slot: "slot_a"})
+	change := cdcapi.Change{
+		Op:    "insert",
+		Table: "users",
+		After: map[string]any{"payload": []byte("payload")},
+	}
+	changeBytes := cdcapi.EstimateChangeBytes(change)
+	stream := src.newSubscription(cdcapi.StreamOptions{Buffer: 2, MaxBytes: changeBytes + 1})
+	sub := stream.(*sourceSubscription)
+	defer sub.Close()
+
+	sub.send(context.Background(), change)
+	assert.Eventually(t, func() bool {
+		sub.mu.Lock()
+		defer sub.mu.Unlock()
+		return len(sub.queue) == 1 && sub.queuedBytes == changeBytes
+	}, time.Second, time.Millisecond)
+
+	select {
+	case got := <-sub.Changes():
+		assert.Equal(t, change.Table, got.Table)
+	case <-time.After(time.Second):
+		t.Fatal("timed out receiving queued change")
+	}
+	assert.Eventually(t, func() bool {
+		sub.mu.Lock()
+		defer sub.mu.Unlock()
+		return len(sub.queue) == 0 && sub.queuedBytes == 0
+	}, time.Second, time.Millisecond)
+
+	sub.send(context.Background(), change)
+	assert.NotErrorIs(t, sub.Err(), errSubscriberOverflow)
+	select {
+	case <-sub.Changes():
+	case <-time.After(time.Second):
+		t.Fatal("released byte budget did not accept the next change")
+	}
+}
+
+func TestSourceSubscriptionMaxBytesOverflowIsIsolated(t *testing.T) {
+	change := cdcapi.Change{
+		Op:    "insert",
+		Table: "users",
+		After: map[string]any{"payload": []byte("payload")},
+	}
+	limit := cdcapi.EstimateChangeBytes(change) - 1
+	first := NewSource(SourceOptions{Name: "test:first", Slot: "slot_first"})
+	second := NewSource(SourceOptions{Name: "test:second", Slot: "slot_second"})
+	firstStream := first.Subscribe(cdcapi.StreamOptions{MaxBytes: limit})
+	secondStream := second.Subscribe(cdcapi.StreamOptions{MaxBytes: limit + 1})
+	defer firstStream.Close()
+	defer secondStream.Close()
+
+	first.publishChange(context.Background(), change)
+	assert.ErrorIs(t, firstStream.(interface{ Err() error }).Err(), errSubscriberOverflow)
+	second.publishChange(context.Background(), change)
+	assert.NotErrorIs(t, secondStream.(interface{ Err() error }).Err(), errSubscriberOverflow)
+	select {
+	case got := <-secondStream.Changes():
+		assert.Equal(t, change.Table, got.Table)
+	case <-time.After(time.Second):
+		t.Fatal("independent source did not receive change")
+	}
+}

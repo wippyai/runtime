@@ -6,7 +6,6 @@ import (
 	"errors"
 	"strings"
 	"sync"
-	"sync/atomic"
 
 	config "github.com/wippyai/runtime/api/service/cdc"
 )
@@ -48,13 +47,21 @@ func (s *subscribers) subscribe(sourceName string, opts config.StreamOptions) *s
 }
 
 func newSubscription(sourceName string, opts config.StreamOptions, buffer int) *subscription {
-	return &subscription{
+	sub := &subscription{
 		sourceName: sourceName,
-		changes:    make(chan config.Change, buffer),
+		// queue is the sole driver-owned backlog. changes is an unbuffered
+		// delivery handoff, so bytes leave the budget only after a receive.
+		changes:    make(chan config.Change),
 		done:       make(chan struct{}),
+		notify:     make(chan struct{}, 1),
+		maxChanges: buffer,
+		maxBytes:   opts.EffectiveMaxBytes(),
 		tables:     filterSet(opts.Tables),
 		ops:        filterSet(opts.Ops),
+		relayDone:  make(chan struct{}),
 	}
+	go sub.run()
+	return sub
 }
 
 func (s *subscribers) publish(change config.Change) {
@@ -92,28 +99,41 @@ func (s *subscribers) closeWithError(err error) {
 	for _, sub := range subs {
 		sub.closeWithError(err)
 	}
+	for _, sub := range subs {
+		sub.waitRelay()
+	}
 }
 
 type subscription struct {
-	err        error
-	parent     *subscribers
-	changes    chan config.Change
-	done       chan struct{}
-	tables     map[string]struct{}
-	ops        map[string]struct{}
-	sourceName string
-	id         uint64
-	mu         sync.Mutex
-	// closedFlag lets the fan-out path reject work without taking the lock in
-	// the common case. The lock is still held while sending/closing so a send
-	// cannot race close(changes).
-	closedFlag atomic.Bool
-	closed     bool
+	err         error
+	ops         map[string]struct{}
+	parent      *subscribers
+	changes     chan config.Change
+	done        chan struct{}
+	notify      chan struct{}
+	relayDone   chan struct{}
+	tables      map[string]struct{}
+	sourceName  string
+	queue       []queuedChange
+	maxBytes    int64
+	maxChanges  int
+	id          uint64
+	queuedBytes int64
+	mu          sync.Mutex
+	closed      bool
+}
+
+type queuedChange struct {
+	change config.Change
+	bytes  int64
 }
 
 func (s *subscription) Changes() <-chan config.Change { return s.changes }
 
-func (s *subscription) Close() { s.closeWithError(nil) }
+func (s *subscription) Close() {
+	s.closeWithError(nil)
+	s.waitRelay()
+}
 
 func (s *subscription) Err() error {
 	s.mu.Lock()
@@ -123,56 +143,90 @@ func (s *subscription) Err() error {
 }
 
 func (s *subscription) send(change config.Change) {
-	if s.closedFlag.Load() {
+	bytes := config.EstimateChangeBytes(change)
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
 		return
 	}
-	s.mu.Lock()
-	var parent *subscribers
-	var id uint64
-	if !s.closed {
-		select {
-		case s.changes <- change:
-		default:
-			s.closeLocked(errSubscriberOverflow)
-			parent = s.parent
-			id = s.id
+	if len(s.queue) >= s.maxChanges || bytes > s.maxBytes-s.queuedBytes {
+		parent, id := s.closeLocked(errSubscriberOverflow)
+		s.mu.Unlock()
+		if parent != nil {
+			parent.remove(id)
 		}
+		return
 	}
+	s.queue = append(s.queue, queuedChange{change: change, bytes: bytes})
+	s.queuedBytes += bytes
 	s.mu.Unlock()
-	// Detach after releasing the subscription lock. Taking the parent lock
-	// while holding s.mu would invert the order used by closeWithError and
-	// make concurrent publish/close able to deadlock.
-	if parent != nil {
-		parent.remove(id)
+	select {
+	case s.notify <- struct{}{}:
+	default:
 	}
 }
 
 func (s *subscription) closeWithError(err error) {
 	s.mu.Lock()
-	var parent *subscribers
-	var id uint64
-	if s.closed {
-		s.mu.Unlock()
-		return
-	}
-	s.closeLocked(err)
-	parent = s.parent
-	id = s.id
+	parent, id := s.closeLocked(err)
 	s.mu.Unlock()
 	if parent != nil {
 		parent.remove(id)
 	}
 }
 
-func (s *subscription) closeLocked(err error) {
+func (s *subscription) waitRelay() {
+	<-s.relayDone
+}
+
+func (s *subscription) closeLocked(err error) (*subscribers, uint64) {
 	if s.closed {
-		return
+		return nil, 0
 	}
 	s.closed = true
-	s.closedFlag.Store(true)
 	s.err = err
 	close(s.done)
-	close(s.changes)
+	s.queue = nil
+	s.queuedBytes = 0
+	return s.parent, s.id
+}
+
+func (s *subscription) run() {
+	defer close(s.relayDone)
+	defer close(s.changes)
+	for {
+		s.mu.Lock()
+		if len(s.queue) == 0 {
+			if s.closed {
+				s.mu.Unlock()
+				return
+			}
+			notify := s.notify
+			done := s.done
+			s.mu.Unlock()
+			select {
+			case <-notify:
+			case <-done:
+			}
+			continue
+		}
+		item := s.queue[0]
+		done := s.done
+		s.mu.Unlock()
+
+		select {
+		case <-done:
+			return
+		case s.changes <- item.change:
+			s.mu.Lock()
+			if len(s.queue) > 0 {
+				s.queuedBytes -= s.queue[0].bytes
+				s.queue[0] = queuedChange{}
+				s.queue = s.queue[1:]
+			}
+			s.mu.Unlock()
+		}
+	}
 }
 
 func (s *subscription) matches(change config.Change) bool {
@@ -204,7 +258,12 @@ func (s *subscription) matchesSnapshot(change config.Change) bool {
 	return ok
 }
 
-func (s *subscription) isClosed() bool { return s.closedFlag.Load() }
+func (s *subscription) isClosed() bool {
+	s.mu.Lock()
+	closed := s.closed
+	s.mu.Unlock()
+	return closed
+}
 
 func filterSet(values []string) map[string]struct{} {
 	if len(values) == 0 {
