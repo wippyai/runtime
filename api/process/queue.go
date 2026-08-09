@@ -24,16 +24,50 @@ type EventQueue struct {
 	// Message accounting is opt-in. Ordinary event traffic keeps the
 	// historical unbounded queue semantics; CDC messages carry MaxItems and/or
 	// MaxBytes and are admitted through PushMessage.
-	messageItems      map[string]int
-	messageBytes      map[string]int64
-	messageItemLimits map[string]int
-	messageByteLimits map[string]int64
-	messageOverflowed map[string]struct{}
-	events            []Event
-	drainBuf          []Event
-	generation        atomic.Uint64
-	mu                sync.Mutex
-	closed            atomic.Bool
+	messageTopics map[string]*messageTopicState
+	events        []Event
+	drainBuf      []Event
+	generation    atomic.Uint64
+	mu            sync.Mutex
+	closed        atomic.Bool
+}
+
+// messageTopicState is the accounting identity for one bounded topic
+// incarnation. It must not be reused after a terminal is drained: a process
+// may hold a message reservation past that point while a new stream with the
+// same topic is admitted. Per-message leases retain this state until the
+// consumer releases the message, so old traffic cannot debit a replacement
+// stream's counters.
+type messageTopicState struct {
+	items      atomic.Int64
+	bytes      atomic.Int64
+	maxItems   int64
+	maxBytes   int64
+	overflowed bool
+}
+
+// messageRetentionLease transfers one EventQueue reservation to the process
+// mailbox. Release is idempotent because either the process or relay's pooled
+// package cleanup may be the first owner to finish the handoff.
+type messageRetentionLease struct {
+	state *messageTopicState
+	items int64
+	bytes int64
+	once  sync.Once
+}
+
+func (l *messageRetentionLease) Release() {
+	if l == nil || l.state == nil {
+		return
+	}
+	l.once.Do(func() {
+		if l.items > 0 {
+			l.state.items.Add(-l.items)
+		}
+		if l.bytes > 0 {
+			l.state.bytes.Add(-l.bytes)
+		}
+	})
 }
 
 // MessageAdmission describes ownership after PushMessage.
@@ -157,33 +191,39 @@ func (q *EventQueue) admitPackageLocked(pkg *relay.Package) bool {
 
 		topic := msg.Topic
 		maxItems := msg.MaxItems
-		if maxItems <= 0 {
-			maxItems = q.messageItemLimits[topic]
-		}
 		maxBytes := msg.MaxBytes
-		if maxBytes <= 0 {
-			maxBytes = q.messageByteLimits[topic]
+		state := q.messageTopics[topic]
+		if state != nil {
+			if maxItems <= 0 {
+				maxItems = int(state.maxItems)
+			} else if state.maxItems > 0 && state.maxItems < int64(maxItems) {
+				maxItems = int(state.maxItems)
+			}
+			if maxBytes <= 0 {
+				maxBytes = state.maxBytes
+			} else if state.maxBytes > 0 && state.maxBytes < maxBytes {
+				maxBytes = state.maxBytes
+			}
 		}
-		if maxItems > 0 {
-			if previous := q.messageItemLimits[topic]; previous > 0 && previous < maxItems {
-				maxItems = previous
+		if maxItems > 0 || maxBytes > 0 {
+			if state == nil {
+				if q.messageTopics == nil {
+					q.messageTopics = make(map[string]*messageTopicState)
+				}
+				state = &messageTopicState{}
+				q.messageTopics[topic] = state
 			}
-			if q.messageItemLimits == nil {
-				q.messageItemLimits = make(map[string]int)
+			if state.maxItems <= 0 || (maxItems > 0 && int64(maxItems) < state.maxItems) {
+				state.maxItems = int64(maxItems)
 			}
-			q.messageItemLimits[topic] = maxItems
-		}
-		if maxBytes > 0 {
-			if previous := q.messageByteLimits[topic]; previous > 0 && previous < maxBytes {
-				maxBytes = previous
+			if state.maxBytes <= 0 || (maxBytes > 0 && maxBytes < state.maxBytes) {
+				state.maxBytes = maxBytes
 			}
-			if q.messageByteLimits == nil {
-				q.messageByteLimits = make(map[string]int64)
-			}
-			q.messageByteLimits[topic] = maxBytes
+			maxItems = int(state.maxItems)
+			maxBytes = state.maxBytes
 		}
 
-		if _, overflowed := q.messageOverflowed[topic]; overflowed {
+		if state != nil && state.overflowed {
 			relay.ReleaseMessage(msg)
 			continue
 		}
@@ -206,11 +246,14 @@ func (q *EventQueue) admitPackageLocked(pkg *relay.Package) bool {
 			// Missing size metadata must not bypass a byte budget.
 			payloadBytes = maxBytes
 		}
-		items := q.messageItems[topic]
-		bytes := q.messageBytes[topic]
-		if (maxItems > 0 && items >= maxItems) ||
+		var items, bytes int64
+		if state != nil {
+			items = state.items.Load()
+			bytes = state.bytes.Load()
+		}
+		if (maxItems > 0 && items >= int64(maxItems)) ||
 			(maxBytes > 0 && (payloadBytes > maxBytes || bytes > maxBytes-payloadBytes)) {
-			accepted = q.messageOverflowedLocked(topic, accepted, maxItems, maxBytes)
+			accepted = q.messageOverflowedLocked(state, topic, accepted, maxItems, maxBytes)
 			relay.ReleaseMessage(msg)
 			continue
 		}
@@ -218,17 +261,22 @@ func (q *EventQueue) admitPackageLocked(pkg *relay.Package) bool {
 		msg.MaxItems = maxItems
 		msg.MaxBytes = maxBytes
 		msg.PayloadBytes = payloadBytes
-		if maxItems > 0 {
-			if q.messageItems == nil {
-				q.messageItems = make(map[string]int)
+		if state != nil {
+			if maxItems > 0 {
+				state.items.Add(1)
 			}
-			q.messageItems[topic] = items + 1
-		}
-		if maxBytes > 0 && payloadBytes > 0 {
-			if q.messageBytes == nil {
-				q.messageBytes = make(map[string]int64)
+			if maxBytes > 0 && payloadBytes > 0 {
+				state.bytes.Add(payloadBytes)
 			}
-			q.messageBytes[topic] = bytes + payloadBytes
+			reservationBytes := int64(0)
+			if maxBytes > 0 {
+				reservationBytes = payloadBytes
+			}
+			msg.SetRetentionLease(&messageRetentionLease{
+				state: state,
+				items: boolInt64(maxItems > 0),
+				bytes: reservationBytes,
+			})
 		}
 		accepted = append(accepted, msg)
 	}
@@ -237,14 +285,25 @@ func (q *EventQueue) admitPackageLocked(pkg *relay.Package) bool {
 	return len(accepted) > 0
 }
 
-func (q *EventQueue) messageOverflowedLocked(topic string, accepted []*relay.Message, maxItems int, maxBytes int64) []*relay.Message {
-	if q.messageOverflowed == nil {
-		q.messageOverflowed = make(map[string]struct{})
+func boolInt64(v bool) int64 {
+	if v {
+		return 1
 	}
-	if _, exists := q.messageOverflowed[topic]; exists {
+	return 0
+}
+
+func (q *EventQueue) messageOverflowedLocked(state *messageTopicState, topic string, accepted []*relay.Message, maxItems int, maxBytes int64) []*relay.Message {
+	if state == nil {
+		if q.messageTopics == nil {
+			q.messageTopics = make(map[string]*messageTopicState)
+		}
+		state = &messageTopicState{maxItems: int64(maxItems), maxBytes: maxBytes}
+		q.messageTopics[topic] = state
+	}
+	if state.overflowed {
 		return accepted
 	}
-	q.messageOverflowed[topic] = struct{}{}
+	state.overflowed = true
 	msg := relay.AcquireMessage()
 	msg.Topic = topic
 	msg.Payloads = payload.Payloads{payload.NewError(ErrMessageQueueOverflow), payload.NewTerminal()}
@@ -252,6 +311,18 @@ func (q *EventQueue) messageOverflowedLocked(topic string, accepted []*relay.Mes
 	msg.MaxBytes = maxBytes
 	msg.PayloadBytes = 0
 	return append(accepted, msg)
+}
+
+func messageHasTerminal(msg *relay.Message) bool {
+	if msg == nil {
+		return false
+	}
+	for _, pl := range msg.Payloads {
+		if pl != nil && payload.IsTerminal(pl) {
+			return true
+		}
+	}
+	return false
 }
 
 func messageHasData(msg *relay.Message) bool {
@@ -268,12 +339,25 @@ func messageHasData(msg *relay.Message) bool {
 }
 
 // PushDirect adds an event without generation check (for scheduler's own use).
-func (q *EventQueue) PushDirect(e Event) {
+// It returns false when the queue is closed. A rejected message package is
+// released here because PushDirect is an ownership-taking scheduler path; a
+// successful message remains owned by the queue/process as usual.
+func (q *EventQueue) PushDirect(e Event) bool {
 	q.mu.Lock()
+	if q.closed.Load() {
+		q.mu.Unlock()
+		if e.Type == EventMessage {
+			if pkg, ok := e.Data.(*relay.Package); ok {
+				relay.ReleasePackage(pkg)
+			}
+		}
+		return false
+	}
 	q.events = append(q.events, e)
 	q.mu.Unlock()
 
 	q.signalPush()
+	return true
 }
 
 // Drain returns all pending events and clears the queue.
@@ -281,12 +365,19 @@ func (q *EventQueue) PushDirect(e Event) {
 // Single consumer only (scheduler).
 func (q *EventQueue) Drain() []Event {
 	q.mu.Lock()
+	// The previous drain result is caller-owned. The single-consumer contract
+	// means the caller has finished with it before asking for the next batch;
+	// clear it now so the queue does not retain arbitrary Data values.
+	for i := range q.drainBuf {
+		q.drainBuf[i] = Event{}
+	}
+	q.drainBuf = q.drainBuf[:0]
 	if len(q.events) == 0 {
 		q.mu.Unlock()
 		return nil
 	}
 	for _, event := range q.events {
-		q.releaseEventLocked(event)
+		q.retireEventTopicsLocked(event)
 	}
 
 	// Swap buffers to avoid allocation
@@ -314,12 +405,17 @@ func (q *EventQueue) Signal() <-chan struct{} {
 func (q *EventQueue) Close() {
 	q.mu.Lock()
 	q.closed.Store(true)
-	for _, event := range q.events {
-		q.releaseEventLocked(event)
+	for i, event := range q.events {
+		q.retireEventTopicsLocked(event)
 		q.releaseEventPackageLocked(event)
+		q.events[i] = Event{}
 	}
 	q.events = q.events[:0]
 	q.clearMessageAccountingLocked()
+	// A drained batch belongs to the scheduler. Drop the queue's reference
+	// without mutating the caller's slice, which may still be in flight while
+	// Close is called by a supervisor.
+	q.drainBuf = nil
 	q.mu.Unlock()
 
 	// Wake any waiters
@@ -334,11 +430,15 @@ func (q *EventQueue) Reset() {
 	q.mu.Lock()
 	q.generation.Add(1) // Invalidate all existing senders
 	q.closed.Store(false)
-	for _, event := range q.events {
+	for i, event := range q.events {
+		q.retireEventTopicsLocked(event)
 		q.releaseEventPackageLocked(event)
+		q.events[i] = Event{}
 	}
 	q.events = q.events[:0]
-	q.drainBuf = q.drainBuf[:0]
+	// See Close: the previous Drain result is consumer-owned. Detach it
+	// rather than touching a potentially concurrent scheduler slice.
+	q.drainBuf = nil
 	q.clearMessageAccountingLocked()
 	q.mu.Unlock()
 
@@ -349,7 +449,7 @@ func (q *EventQueue) Reset() {
 	}
 }
 
-func (q *EventQueue) releaseEventLocked(event Event) {
+func (q *EventQueue) retireEventTopicsLocked(event Event) {
 	if event.Type != EventMessage {
 		return
 	}
@@ -358,24 +458,11 @@ func (q *EventQueue) releaseEventLocked(event Event) {
 		return
 	}
 	for _, msg := range pkg.Messages {
-		if !messageHasData(msg) {
+		if !messageHasTerminal(msg) {
 			continue
 		}
 		topic := msg.Topic
-		if msg.MaxItems > 0 && q.messageItems != nil {
-			if n := q.messageItems[topic] - 1; n > 0 {
-				q.messageItems[topic] = n
-			} else {
-				delete(q.messageItems, topic)
-			}
-		}
-		if msg.MaxBytes > 0 && msg.PayloadBytes > 0 && q.messageBytes != nil {
-			if n := q.messageBytes[topic] - msg.PayloadBytes; n > 0 {
-				q.messageBytes[topic] = n
-			} else {
-				delete(q.messageBytes, topic)
-			}
-		}
+		delete(q.messageTopics, topic)
 	}
 }
 
@@ -389,11 +476,7 @@ func (q *EventQueue) releaseEventPackageLocked(event Event) {
 }
 
 func (q *EventQueue) clearMessageAccountingLocked() {
-	clear(q.messageItems)
-	clear(q.messageBytes)
-	clear(q.messageItemLimits)
-	clear(q.messageByteLimits)
-	clear(q.messageOverflowed)
+	clear(q.messageTopics)
 }
 
 // YieldScheduler is the subset of Scheduler needed for waking.
