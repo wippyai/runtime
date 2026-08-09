@@ -95,11 +95,11 @@ type Process struct {
 	factory                *Factory
 	// pendingOutdated holds the single coalesced OUTDATED event awaiting
 	// delivery to an upgradable process's events channel. Nil when none pending.
-	pendingOutdated        *topology.OutdatedEvent
-	pendingYields          map[uint64]*Task
-	channels               map[*Channel]int
-	state                  *lua.LState
-	handlers               map[string]TopicHandler
+	pendingOutdated *topology.OutdatedEvent
+	pendingYields   map[uint64]*Task
+	channels        map[*Channel]int
+	state           *lua.LState
+	handlers        map[string]TopicHandler
 	// stalledChans records channels that could not accept a message during the
 	// current flush. Later messages for the same channel, including terminals,
 	// remain queued so delivery order cannot be inverted.
@@ -140,6 +140,11 @@ type queuedMessage struct {
 	MaxItems     int
 	PayloadBytes int64
 	MaxBytes     int64
+	// Lease transfers the upstream EventQueue reservation into this mailbox.
+	// It is released only when this queued message is delivered, discarded, or
+	// the process execution is reset. A leased message is already bounded by
+	// the upstream queue and therefore does not consume a second local budget.
+	Lease relay.RetentionLease
 }
 
 // GetProcess retrieves the Process from LState via Owner.
@@ -219,12 +224,12 @@ func (p *Process) SetSubscriptionCleanup(ch *Channel, fn func()) bool {
 		p.subs.mu.Unlock()
 		return false
 	}
-	sub.cleanup = fn
 	overflowed := false
 	if _, exists := p.messageQueueOverflowed[topic]; exists {
 		overflowed = true
 	}
 	p.subs.mu.Unlock()
+	sub.setCleanup(fn)
 	// If admission overflowed before the Lua subscription yield completed,
 	// stop the source as soon as its cleanup hook becomes available. Do this
 	// outside the subscription lock because cleanup may unsubscribe the same
@@ -279,13 +284,15 @@ func (p *Process) closeChannel(ch *Channel) bool {
 		sub.gen.Add(1)
 		sub.callCleanup()
 	}
-	if p.flushingMessages {
-		if p.messageQueueDiscarded == nil {
-			p.messageQueueDiscarded = make(map[string]struct{})
+	if p.topicHasBoundedMessages(topic) {
+		if p.flushingMessages {
+			if p.messageQueueDiscarded == nil {
+				p.messageQueueDiscarded = make(map[string]struct{})
+			}
+			p.messageQueueDiscarded[topic] = struct{}{}
+		} else {
+			p.discardMessageTopic(topic)
 		}
-		p.messageQueueDiscarded[topic] = struct{}{}
-	} else {
-		p.discardMessageTopic(topic)
 	}
 	if !ch.IsClosed() {
 		p.applyExternalChannelResult(ch.Close(nil))
@@ -569,15 +576,10 @@ func (p *Process) Init(ctx context.Context, method string, input payload.Payload
 		p.channelQueue.Drain()
 	}
 
-	// Clear message queue
-	p.messageQueue = p.messageQueue[:0]
-	clear(p.messageQueueItems)
-	clear(p.messageQueueBytes)
-	clear(p.messageQueueItemLimits)
-	clear(p.messageQueueLimits)
-	clear(p.messageQueueOverflowed)
-	clear(p.messageQueueDiscarded)
-	p.flushingMessages = false
+	// Clear message queue and all accounting, including payload references in
+	// the retained backing array. Processes are pooled, so truncating the slice
+	// alone would keep the previous execution's data alive.
+	p.clearMessageQueue()
 	p.pendingOutdated = nil
 
 	// Seal the frame - no more modifications allowed after this
@@ -713,6 +715,9 @@ func (p *Process) Step(events []process.Event, out *process.StepOutput) error {
 	// Add incoming messages to queue first (before any processing)
 	for _, pkg := range messages {
 		for _, msg := range pkg.Messages {
+			if msg == nil {
+				continue
+			}
 			p.enqueueMessage(queuedMessage{
 				Source:       pkg.Source,
 				Topic:        msg.Topic,
@@ -720,6 +725,7 @@ func (p *Process) Step(events []process.Event, out *process.StepOutput) error {
 				MaxItems:     msg.MaxItems,
 				PayloadBytes: msg.PayloadBytes,
 				MaxBytes:     msg.MaxBytes,
+				Lease:        msg.TakeRetentionLease(),
 			})
 		}
 		relay.ReleasePackage(pkg)
@@ -1111,6 +1117,7 @@ func (p *Process) flushMessageQueue(subs *subscribeContext) {
 		}
 		p.flushingMessages = false
 		p.messageQueue = remaining
+		clear(p.messageQueue[len(remaining):])
 		p.finishDiscardedTopics()
 	}
 
@@ -1121,13 +1128,30 @@ func (p *Process) flushMessageQueue(subs *subscribeContext) {
 	}
 }
 
+// clearMessageQueue releases queued payload references before truncating the
+// reusable slice. This is required on both execution reset and process-pool
+// reuse; otherwise a single large message remains reachable through the
+// backing array until that slice grows past its old capacity.
+func (p *Process) clearMessageQueue() {
+	for _, qm := range p.messageQueue {
+		p.releaseQueuedMessage(qm)
+	}
+	clear(p.messageQueue)
+	p.messageQueue = p.messageQueue[:0]
+	clear(p.messageQueueItems)
+	clear(p.messageQueueBytes)
+	clear(p.messageQueueItemLimits)
+	clear(p.messageQueueLimits)
+	clear(p.messageQueueOverflowed)
+	clear(p.messageQueueDiscarded)
+	clear(p.stalledChans)
+	p.flushingMessages = false
+}
+
 // enqueueMessage is the single handoff from relay delivery into the process
 // mailbox. Limits are opt-in: only messages carrying MaxItems/MaxBytes are
 // bounded, so unrelated process topics retain their historical behavior.
 func (p *Process) enqueueMessage(qm queuedMessage) {
-	if _, discarded := p.messageQueueDiscarded[qm.Topic]; discarded {
-		return
-	}
 	if qm.MaxItems <= 0 {
 		qm.MaxItems = p.messageQueueItemLimits[qm.Topic]
 	}
@@ -1152,8 +1176,13 @@ func (p *Process) enqueueMessage(qm queuedMessage) {
 		}
 		p.messageQueueLimits[qm.Topic] = qm.MaxBytes
 	}
+	if _, discarded := p.messageQueueDiscarded[qm.Topic]; discarded && messageIsBounded(qm) {
+		releaseMessageLease(qm)
+		return
+	}
 	if !hasDataPayload(qm.Payloads) {
 		if _, overflowed := p.messageQueueOverflowed[qm.Topic]; overflowed {
+			releaseMessageLease(qm)
 			return
 		}
 		if isOverflowTerminal(qm.Payloads) {
@@ -1173,10 +1202,11 @@ func (p *Process) enqueueMessage(qm queuedMessage) {
 	}
 
 	if _, overflowed := p.messageQueueOverflowed[qm.Topic]; overflowed {
+		releaseMessageLease(qm)
 		return
 	}
 
-	if qm.MaxItems > 0 || qm.MaxBytes > 0 {
+	if qm.Lease == nil && (qm.MaxItems > 0 || qm.MaxBytes > 0) {
 		// A bounded producer must provide a conservative size. If it does not,
 		// charge the whole budget rather than retaining an unaccounted value.
 		if qm.PayloadBytes <= 0 && hasDataPayload(qm.Payloads) {
@@ -1208,6 +1238,7 @@ func (p *Process) enqueueMessage(qm queuedMessage) {
 }
 
 func (p *Process) overflowMessageQueue(qm queuedMessage) {
+	releaseMessageLease(qm)
 	if p.messageQueueOverflowed == nil {
 		p.messageQueueOverflowed = make(map[string]struct{})
 	}
@@ -1233,6 +1264,10 @@ func (p *Process) overflowMessageQueue(qm queuedMessage) {
 }
 
 func (p *Process) releaseQueuedMessage(qm queuedMessage) {
+	releaseMessageLease(qm)
+	if qm.Lease != nil {
+		return
+	}
 	if qm.MaxItems > 0 && p.messageQueueItems != nil {
 		remaining := p.messageQueueItems[qm.Topic] - 1
 		if remaining > 0 {
@@ -1251,16 +1286,47 @@ func (p *Process) releaseQueuedMessage(qm queuedMessage) {
 	}
 }
 
-func (p *Process) discardMessageTopic(topic string) {
-	remaining := p.messageQueue[:0]
+func releaseMessageLease(qm queuedMessage) {
+	if qm.Lease != nil {
+		qm.Lease.Release()
+	}
+}
+
+func messageIsBounded(qm queuedMessage) bool {
+	return qm.Lease != nil || qm.MaxItems > 0 || qm.MaxBytes > 0
+}
+
+// topicHasBoundedMessages reports whether closing a subscription must leave a
+// bounded-topic tombstone. The limit maps persist after delivery so a producer
+// that is still racing with close is treated consistently; ordinary messages
+// on the same topic remain eligible for their historical inbox behavior.
+func (p *Process) topicHasBoundedMessages(topic string) bool {
+	if _, ok := p.messageQueueOverflowed[topic]; ok {
+		return true
+	}
+	if p.messageQueueItemLimits[topic] > 0 || p.messageQueueLimits[topic] > 0 {
+		return true
+	}
 	for _, qm := range p.messageQueue {
-		if qm.Topic == topic {
+		if qm.Topic == topic && messageIsBounded(qm) {
+			return true
+		}
+	}
+	return false
+}
+
+func (p *Process) discardMessageTopic(topic string) {
+	queued := p.messageQueue
+	remaining := queued[:0]
+	for _, qm := range queued {
+		if qm.Topic == topic && messageIsBounded(qm) {
 			p.releaseQueuedMessage(qm)
 			continue
 		}
 		remaining = append(remaining, qm)
 	}
 	p.messageQueue = remaining
+	clear(queued[len(remaining):])
 	delete(p.messageQueueItems, topic)
 	delete(p.messageQueueBytes, topic)
 	delete(p.messageQueueItemLimits, topic)
@@ -1273,7 +1339,7 @@ func (p *Process) finishDiscardedTopics() {
 	for topic := range p.messageQueueDiscarded {
 		found := false
 		for _, qm := range p.messageQueue {
-			if qm.Topic == topic {
+			if qm.Topic == topic && messageIsBounded(qm) {
 				found = true
 				break
 			}
@@ -1290,8 +1356,15 @@ func (p *Process) finishDiscardedTopics() {
 }
 
 func hasDataPayload(payloads payload.Payloads) bool {
+	hasTerminal := len(payloads) > 0 && payload.IsTerminal(payloads[len(payloads)-1])
 	for _, pl := range payloads {
-		if pl == nil || payload.IsTerminal(pl) || pl.Format() == payload.GoError {
+		if pl == nil || payload.IsTerminal(pl) {
+			continue
+		}
+		// A Go error is data unless it is part of the terminal result shape.
+		// Treating every GoError as control would allow an unbounded stream of
+		// non-terminal errors to bypass the producer budget.
+		if hasTerminal && pl.Format() == payload.GoError {
 			continue
 		}
 		return true
@@ -1341,7 +1414,7 @@ func (p *Process) isStalled(ch *Channel) bool {
 // stall; pure data retries normally and a full buffer preserves its order.
 func (p *Process) deliverMessage(subs *subscribeContext, qm queuedMessage) (keep bool) {
 	topic := qm.Topic
-	if _, discarded := p.messageQueueDiscarded[topic]; discarded {
+	if _, discarded := p.messageQueueDiscarded[topic]; discarded && messageIsBounded(qm) {
 		return false
 	}
 	handlerTopic := topic
@@ -1375,6 +1448,13 @@ func (p *Process) deliverMessage(subs *subscribeContext, qm queuedMessage) (keep
 	if !exists {
 		if hasFrame {
 			return false
+		}
+		// Bounded producer messages must wait for their exact subscription. The
+		// inbox is a compatibility fallback for ordinary process messages, but
+		// routing a bounded startup message there can consume/close the wrong
+		// channel before the producer's subscription is registered.
+		if messageIsBounded(qm) {
+			return true
 		}
 		// Fallback to inbox for non-@ topics
 		if !strings.HasPrefix(topic, "@") {
@@ -1810,6 +1890,7 @@ func (p *Process) Close() {
 	p.yieldBuf = p.yieldBuf[:0]
 	p.externalTasks = p.externalTasks[:0]
 	p.outTasks = p.outTasks[:0]
+	p.clearMessageQueue()
 
 	// Clear all references
 	p.ctx = nil
@@ -1950,6 +2031,7 @@ func (p *Process) clearExecution() {
 	if p.channelQueue != nil {
 		p.channelQueue.Drain()
 	}
+	p.clearMessageQueue()
 
 	// Clear yield buffer
 	p.yieldBuf = p.yieldBuf[:0]

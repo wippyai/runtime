@@ -147,24 +147,65 @@ func (m *subscribeContext) snapshotSubscriptions() []*subscription {
 
 // subscription links a topic to a channel.
 type subscription struct {
-	cleanup     func()
-	channel     *Channel
-	topic       string
-	id          uint64
-	gen         atomic.Uint64
-	cleanupOnce sync.Once
+	channel *Channel
+	topic   string
+	id      uint64
+	gen     atomic.Uint64
+
+	// Cleanup can be requested before the producer has finished registering
+	// its hook (for example when a bounded relay overflows during startup).
+	// Keep that request pending until the hook is installed instead of
+	// consuming a one-shot guard while cleanup is nil.
+	cleanupMu        sync.Mutex
+	cleanup          func()
+	cleanupRequested bool
+	cleanupDone      bool
 }
 
 func (s *subscription) callCleanup() {
 	if s == nil {
 		return
 	}
-	s.cleanupOnce.Do(func() {
-		if s.cleanup != nil {
-			s.cleanup()
-			s.cleanup = nil
-		}
-	})
+	s.cleanupMu.Lock()
+	if s.cleanupDone {
+		s.cleanupMu.Unlock()
+		return
+	}
+	s.cleanupRequested = true
+	cleanup := s.cleanup
+	if cleanup != nil {
+		s.cleanup = nil
+		s.cleanupDone = true
+	}
+	s.cleanupMu.Unlock()
+
+	if cleanup != nil {
+		cleanup()
+	}
+}
+
+// setCleanup installs a producer cleanup hook. A cleanup request that arrived
+// before registration is fulfilled exactly once after the hook is visible.
+// The callback always runs outside cleanupMu so it may safely tear down the
+// subscription or call back into the process.
+func (s *subscription) setCleanup(cleanup func()) {
+	if s == nil || cleanup == nil {
+		return
+	}
+	s.cleanupMu.Lock()
+	if s.cleanupDone {
+		s.cleanupMu.Unlock()
+		return
+	}
+	s.cleanup = cleanup
+	if s.cleanupRequested {
+		s.cleanup = nil
+		s.cleanupDone = true
+		s.cleanupMu.Unlock()
+		cleanup()
+		return
+	}
+	s.cleanupMu.Unlock()
 }
 
 // SubscriptionFrame carries process-epoch, subscription-id, and generation
