@@ -41,8 +41,8 @@ go test \
 	./boot/... \
 	./system/registry/...
 
-echo "running sqlite cdc integration tests (local temp file, no docker)"
-CGO_ENABLED=1 go test -tags "integration sqlite_preupdate_hook" ./service/cdc/sqlite
+echo "running sqlite cdc implementation and integration tests (local temp file, no docker)"
+make test-cdc-sqlite
 
 if [[ -n "${WIPPY_CDC_IT_REPL_DSN:-}" && -n "${WIPPY_CDC_IT_ADMIN_DSN:-}" ]]; then
 	go test -tags integration ./service/cdc/postgres

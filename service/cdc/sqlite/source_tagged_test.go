@@ -25,3 +25,9 @@ func TestBuildSourceRejectsBadInterval(t *testing.T) {
 	_, err := buildSource(sourceOptions{name: "x", statusInterval: "nope"})
 	assert.Error(t, err)
 }
+
+func TestBuildSourceRetainsSnapshotPolicyForPerSubscriberHandoff(t *testing.T) {
+	h, err := buildSource(sourceOptions{name: "x", snapshot: true})
+	require.NoError(t, err)
+	assert.True(t, h.(*Source).snapshot)
+}

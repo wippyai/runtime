@@ -26,14 +26,41 @@ type Manager struct {
 	mu       sync.RWMutex
 }
 
+// Option configures a SQL Manager. Drivers are injected at boot, matching the
+// service/net composition pattern; importing a driver package has no side
+// effects on other managers or pools.
+type Option func(*managerOptions)
+
+type managerOptions struct {
+	drivers []Driver
+}
+
+// WithDriver adds one or more concrete SQL drivers to the manager.
+func WithDriver(drivers ...Driver) Option {
+	return func(opts *managerOptions) {
+		for _, driver := range drivers {
+			if driver != nil {
+				opts.drivers = append(opts.drivers, driver)
+			}
+		}
+	}
+}
+
 // NewManager creates a new SQL service manager
 func NewManager(
 	dtt payload.Transcoder,
 	bus event.Bus,
 	log *zap.Logger,
 	envRegistry envapi.Registry,
+	opts ...Option,
 ) (*Manager, error) {
-	return NewManagerWithFactory(dtt, bus, log, envRegistry, NewDefaultPoolFactory())
+	var options managerOptions
+	for _, opt := range opts {
+		if opt != nil {
+			opt(&options)
+		}
+	}
+	return NewManagerWithFactory(dtt, bus, log, envRegistry, NewDefaultPoolFactory(options.drivers...))
 }
 
 // NewManagerWithFactory creates a new SQL service manager with the specified pool factory
@@ -77,10 +104,6 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if _, ok := engineFor(entry.Kind); !ok {
-		return NewUnsupportedEntryKindError(entry.Kind)
-	}
-
 	if _, exists := m.services[entry.ID]; exists {
 		return NewServiceExistsError(entry.ID)
 	}
@@ -97,10 +120,6 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-
-	if _, ok := engineFor(entry.Kind); !ok {
-		return NewUnsupportedEntryKindError(entry.Kind)
-	}
 
 	pool, exists := m.services[entry.ID]
 	if !exists {

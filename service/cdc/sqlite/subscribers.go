@@ -3,7 +3,7 @@
 package sqlite
 
 import (
-	"context"
+	"errors"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -16,9 +16,11 @@ const (
 	maxStreamBuffer     = 65536
 )
 
+var errSubscriberOverflow = errors.New("sqlite cdc subscriber backlog overflow")
+
 type subscribers struct {
-	m    map[uint64]*subscription
 	mu   sync.RWMutex
+	m    map[uint64]*subscription
 	next uint64
 }
 
@@ -26,7 +28,7 @@ func newSubscribers() *subscribers {
 	return &subscribers{m: make(map[uint64]*subscription)}
 }
 
-func (s *subscribers) subscribe(sourceName string, opts config.StreamOptions, wantSnapshot bool) *subscription {
+func (s *subscribers) subscribe(sourceName string, opts config.StreamOptions) *subscription {
 	buffer := opts.Buffer
 	if buffer <= 0 {
 		buffer = defaultStreamBuffer
@@ -37,30 +39,25 @@ func (s *subscribers) subscribe(sourceName string, opts config.StreamOptions, wa
 
 	s.mu.Lock()
 	s.next++
-	sub := &subscription{
-		parent:       s,
-		id:           s.next,
-		sourceName:   sourceName,
-		in:           make(chan config.Change, buffer),
-		out:          make(chan config.Change, buffer),
-		done:         make(chan struct{}),
-		termCh:       make(chan struct{}),
-		tables:       filterSet(opts.Tables),
-		ops:          filterSet(opts.Ops),
-		wantSnapshot: wantSnapshot,
-	}
-	if wantSnapshot {
-		sub.snap = make(chan config.Change)
-	}
+	sub := newSubscription(sourceName, opts, buffer)
+	sub.parent = s
+	sub.id = s.next
 	s.m[sub.id] = sub
 	s.mu.Unlock()
-
-	go sub.run()
-
 	return sub
 }
 
-func (s *subscribers) publish(_ context.Context, change config.Change) {
+func newSubscription(sourceName string, opts config.StreamOptions, buffer int) *subscription {
+	return &subscription{
+		sourceName: sourceName,
+		changes:    make(chan config.Change, buffer),
+		done:       make(chan struct{}),
+		tables:     filterSet(opts.Tables),
+		ops:        filterSet(opts.Ops),
+	}
+}
+
+func (s *subscribers) publish(change config.Change) {
 	s.mu.RLock()
 	matched := make([]*subscription, 0, len(s.m))
 	for _, sub := range s.m {
@@ -69,7 +66,6 @@ func (s *subscribers) publish(_ context.Context, change config.Change) {
 		}
 	}
 	s.mu.RUnlock()
-
 	for _, sub := range matched {
 		sub.send(change)
 	}
@@ -82,6 +78,10 @@ func (s *subscribers) remove(id uint64) {
 }
 
 func (s *subscribers) closeAll() {
+	s.closeWithError(nil)
+}
+
+func (s *subscribers) closeWithError(err error) {
 	s.mu.Lock()
 	subs := make([]*subscription, 0, len(s.m))
 	for id, sub := range s.m {
@@ -89,114 +89,81 @@ func (s *subscribers) closeAll() {
 		delete(s.m, id)
 	}
 	s.mu.Unlock()
-
 	for _, sub := range subs {
-		sub.Close()
+		sub.closeWithError(err)
 	}
 }
 
 type subscription struct {
-	parent       *subscribers
-	in           chan config.Change
-	out          chan config.Change
-	snap         chan config.Change
-	done         chan struct{}
-	termCh       chan struct{}
-	tables       map[string]struct{}
-	ops          map[string]struct{}
-	term         atomic.Pointer[config.Change]
-	sourceName   string
-	id           uint64
-	closeOnce    sync.Once
-	failOnce     sync.Once
-	closed       atomic.Bool
-	wantSnapshot bool
+	parent     *subscribers
+	changes    chan config.Change
+	done       chan struct{}
+	tables     map[string]struct{}
+	ops        map[string]struct{}
+	sourceName string
+	id         uint64
+
+	mu     sync.Mutex
+	closed bool
+	err    error
+	// closedFlag lets the fan-out path reject work without taking the lock in
+	// the common case. The lock is still held while sending/closing so a send
+	// cannot race close(changes).
+	closedFlag atomic.Bool
 }
 
-func (s *subscription) Changes() <-chan config.Change {
-	return s.out
-}
+func (s *subscription) Changes() <-chan config.Change { return s.changes }
 
-func (s *subscription) Close() {
-	s.closeOnce.Do(func() {
-		s.closed.Store(true)
-		if s.parent != nil {
-			s.parent.remove(s.id)
-		}
-		close(s.done)
-	})
-}
+func (s *subscription) Close() { s.closeWithError(nil) }
 
-func (s *subscription) fail(reason string) {
-	s.failOnce.Do(func() {
-		c := config.Change{Source: s.sourceName, Op: "error", Error: reason}
-		s.term.Store(&c)
-		s.closed.Store(true)
-		if s.parent != nil {
-			s.parent.remove(s.id)
-		}
-		close(s.termCh)
-	})
-}
-
-func (s *subscription) run() {
-	defer close(s.out)
-
-	if s.wantSnapshot && !s.pump(s.snap, true) {
-		s.flushTerm()
-		return
-	}
-	if !s.pump(s.in, false) {
-		s.flushTerm()
-	}
-}
-
-func (s *subscription) pump(src <-chan config.Change, snapshotPhase bool) bool {
-	for {
-		select {
-		case <-s.done:
-			return false
-		case <-s.termCh:
-			return false
-		case change, ok := <-src:
-			if !ok {
-				return snapshotPhase
-			}
-			select {
-			case <-s.done:
-				return false
-			case <-s.termCh:
-				return false
-			case s.out <- change:
-			}
-		}
-	}
-}
-
-func (s *subscription) flushTerm() {
-	if t := s.term.Load(); t != nil {
-		select {
-		case s.out <- *t:
-		case <-s.done:
-		}
-	}
+func (s *subscription) Err() error {
+	s.mu.Lock()
+	err := s.err
+	s.mu.Unlock()
+	return err
 }
 
 func (s *subscription) send(change config.Change) {
-	if s.closed.Load() {
+	if s.closedFlag.Load() {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
 		return
 	}
 	select {
-	case s.in <- change:
+	case s.changes <- change:
 	default:
-		s.fail("sqlite cdc subscriber backlog overflow")
+		s.closeLocked(errSubscriberOverflow)
 	}
 }
 
-func (s *subscription) matches(change config.Change) bool {
-	if change.Op == "error" || change.Op == "snapshot" {
-		return true
+func (s *subscription) closeWithError(err error) {
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return
 	}
+	s.closeLocked(err)
+	s.mu.Unlock()
+	if s.parent != nil {
+		s.parent.remove(s.id)
+	}
+}
+
+func (s *subscription) closeLocked(err error) {
+	if s.closed {
+		return
+	}
+	s.closed = true
+	s.closedFlag.Store(true)
+	s.err = err
+	close(s.done)
+	close(s.changes)
+}
+
+func (s *subscription) matches(change config.Change) bool {
 	if len(s.ops) > 0 {
 		if _, ok := s.ops[strings.ToLower(change.Op)]; !ok {
 			return false
@@ -209,28 +176,40 @@ func (s *subscription) matches(change config.Change) bool {
 		if _, ok := s.tables[strings.ToLower(change.Table)]; ok {
 			return true
 		}
-
 		return false
 	}
-
 	return true
 }
+
+func (s *subscription) matchesSnapshot(change config.Change) bool {
+	if len(s.tables) == 0 {
+		return true
+	}
+	if _, ok := s.tables[strings.ToLower(change.Relation)]; ok {
+		return true
+	}
+	_, ok := s.tables[strings.ToLower(change.Table)]
+	return ok
+}
+
+func (s *subscription) isClosed() bool { return s.closedFlag.Load() }
 
 func filterSet(values []string) map[string]struct{} {
 	if len(values) == 0 {
 		return nil
 	}
-
 	out := make(map[string]struct{}, len(values))
-	for _, v := range values {
-		v = strings.ToLower(strings.TrimSpace(v))
-		if v != "" {
-			out[v] = struct{}{}
+	for _, value := range values {
+		value = strings.ToLower(strings.TrimSpace(value))
+		if value != "" {
+			out[value] = struct{}{}
 		}
 	}
 	if len(out) == 0 {
 		return nil
 	}
-
 	return out
 }
+
+var _ config.Stream = (*subscription)(nil)
+var _ config.ErrStream = (*subscription)(nil)

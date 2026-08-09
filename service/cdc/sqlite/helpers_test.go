@@ -8,15 +8,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
-
-func TestSchemaAllowed(t *testing.T) {
-	assert.True(t, schemaAllowed(""))
-	assert.True(t, schemaAllowed("main"))
-	assert.True(t, schemaAllowed("MAIN"))
-	assert.False(t, schemaAllowed("temp"))
-	assert.False(t, schemaAllowed("attached"))
-}
 
 func TestNormalizeSchema(t *testing.T) {
 	assert.Equal(t, "main", normalizeSchema(""))
@@ -24,18 +17,21 @@ func TestNormalizeSchema(t *testing.T) {
 	assert.Equal(t, "audit", normalizeSchema("audit"))
 }
 
-func TestOpString(t *testing.T) {
-	assert.Equal(t, "insert", opString(cdcInsert))
-	assert.Equal(t, "update", opString(cdcUpdate))
-	assert.Equal(t, "delete", opString(cdcDelete))
-	assert.Equal(t, "unknown", opString(9999))
+func TestValuesByColumnRequiresCapturedShape(t *testing.T) {
+	got, err := valuesByColumn([]string{"id", "name"}, []any{int64(1), "one"})
+	require.NoError(t, err)
+	assert.Equal(t, map[string]any{"id": int64(1), "name": "one"}, got)
+
+	_, err = valuesByColumn([]string{"id"}, []any{int64(1), "extra"})
+	assert.Error(t, err)
+	_, err = valuesByColumn([]string{"id", "id"}, []any{int64(1), int64(2)})
+	assert.Error(t, err)
 }
 
-func TestApproxRowSize(t *testing.T) {
-	assert.Equal(t, 0, approxRowSize(nil))
-	assert.Equal(t, 8, approxRowSize([]any{int64(1)}))
-	assert.Equal(t, 3, approxRowSize([]any{[]byte{1, 2, 3}}))
-	assert.Equal(t, 5, approxRowSize([]any{"hello"}))
-	assert.Equal(t, 8+3+5, approxRowSize([]any{1.5, []byte("abc"), "hello"}))
-	assert.Equal(t, 8, approxRowSize([]any{nil}))
+func TestValuesByColumnCopiesBytes(t *testing.T) {
+	value := []byte{1, 2, 3}
+	got, err := valuesByColumn([]string{"blob"}, []any{value})
+	require.NoError(t, err)
+	value[0] = 9
+	assert.Equal(t, []byte{1, 2, 3}, got["blob"])
 }

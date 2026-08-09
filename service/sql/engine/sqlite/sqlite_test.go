@@ -23,7 +23,7 @@ func TestKindDriverRegistered(t *testing.T) {
 	assert.Equal(t, config.SQLite, e.Kind())
 	assert.Equal(t, "sqlite3", e.DriverName())
 
-	_, _, err := (&sqlservice.DefaultPoolFactory{}).CreatePool(
+	_, _, err := sqlservice.NewDefaultPoolFactory(NewDriver()).CreatePool(
 		context.Background(),
 		sqlservice.EngineDeps{Log: zap.NewNop()},
 		registry.Entry{ID: registry.NewID("t", "x"), Kind: config.SQLite, Data: nil},

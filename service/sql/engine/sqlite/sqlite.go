@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MPL-2.0
 
-// Package sqlite implements the file-backed SQLite engine. It registers itself with
-// service/sql through the public engine seam; a CDC-enabled build overrides the
-// underlying driver via service/sql.RegisterDriver, which core applies transparently.
+// Package sqlite implements the file-backed SQLite SQL driver. It is explicitly
+// constructed by the boot graph and owns the connector/connection lifecycle for
+// each pool generation.
 package sqlite
 
 import (
@@ -17,15 +17,18 @@ import (
 	entryutil "github.com/wippyai/runtime/system/entry"
 )
 
-// defaultDriver is the stock SQLite driver. A build with the preupdate hook overrides
-// it via service/sql.RegisterDriver; the engine itself stays override-agnostic.
+// defaultDriver is retained for diagnostics and config validation. Physical
+// opens use the connector-owned driver in observer.go when the preupdate build
+// tag is enabled, so no process-global driver name is replaced.
 const defaultDriver = "sqlite3"
 
 type engine struct{}
 
-func init() {
-	sqlservice.RegisterEngine(engine{})
-}
+// NewDriver returns a SQLite SQL driver. The concrete return keeps the
+// connector-owned Open capability available to composition/integration code;
+// it remains assignable to service/sql.Driver wherever only the base engine
+// contract is needed.
+func NewDriver() engine { return engine{} }
 
 func (engine) Kind() registry.Kind {
 	return config.SQLite
@@ -46,6 +49,24 @@ func (engine) DecodeConfig(ctx context.Context, dtt payload.Transcoder, entry re
 
 func (engine) ResolveEnv(context.Context, sqlservice.EngineDeps, config.EngineConfig) error {
 	return nil
+}
+
+func (engine) Open(ctx context.Context, ec config.EngineConfig) (sqlservice.OpenedDB, error) {
+	dsn, err := engine{}.BuildDSN(ec)
+	if err != nil {
+		return sqlservice.OpenedDB{}, err
+	}
+
+	cfg, ok := ec.(*config.SQLiteConfig)
+	if !ok {
+		return sqlservice.OpenedDB{}, sqlservice.NewInvalidConfigTypeError(fmt.Sprintf("%T", ec), config.SQLite)
+	}
+	db, observer, err := openSQLite(ctx, dsn, cfg.MaxMutationChanges, cfg.MaxMutationBytes)
+	if err != nil {
+		return sqlservice.OpenedDB{}, sqlservice.NewConnectionPoolCreationError(err)
+	}
+
+	return sqlservice.OpenedDB{DB: db, Observer: observer}, nil
 }
 
 func (engine) BuildDSN(ec config.EngineConfig) (string, error) {

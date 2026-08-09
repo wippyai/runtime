@@ -28,6 +28,7 @@ func newTestPool(t *testing.T) *ConnPool {
 	pool := &ConnPool{
 		kind:   apiconfig.SQLite,
 		db:     db,
+		driver: func() Driver { d, _ := testDriverFor(apiconfig.SQLite); return d }(),
 		status: make(chan any, 1),
 	}
 
@@ -177,6 +178,23 @@ func TestConnPool_StopTimeout(t *testing.T) {
 	err = pool.Stop(stopCtx)
 	assert.Error(t, err)
 	assert.Equal(t, context.DeadlineExceeded, err)
+}
+
+func TestConnPool_StopTimeoutStillCleansUp(t *testing.T) {
+	pool := newTestPool(t)
+	ctx := context.Background()
+	_, err := pool.Start(ctx)
+	require.NoError(t, err)
+	res, err := pool.Acquire(ctx, testID, resource.ModeNormal)
+	require.NoError(t, err)
+	stopCtx, cancel := context.WithTimeout(ctx, 25*time.Millisecond)
+	err = pool.Stop(stopCtx)
+	cancel()
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	res.Release()
+	require.NoError(t, pool.Stop(ctx))
+	_, err = pool.Start(ctx)
+	assert.ErrorIs(t, err, ErrPoolClosed)
 }
 
 func TestDBConn_DoubleRelease(t *testing.T) {

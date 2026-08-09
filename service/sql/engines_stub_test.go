@@ -24,10 +24,21 @@ type stubEngine struct {
 	isSQLite bool
 }
 
-func init() {
-	RegisterEngine(stubEngine{kind: config.Postgres, driver: "postgres"})
-	RegisterEngine(stubEngine{kind: config.MySQL, driver: "mysql"})
-	RegisterEngine(stubEngine{kind: config.SQLite, driver: "sqlite3", isSQLite: true})
+func testDrivers() []Driver {
+	return []Driver{
+		stubEngine{kind: config.Postgres, driver: "postgres"},
+		stubEngine{kind: config.MySQL, driver: "mysql"},
+		stubEngine{kind: config.SQLite, driver: "sqlite3", isSQLite: true},
+	}
+}
+
+func testDriverFor(kind registry.Kind) (Driver, bool) {
+	for _, driver := range testDrivers() {
+		if driver.Kind() == kind {
+			return driver, true
+		}
+	}
+	return nil, false
 }
 
 func (e stubEngine) Kind() registry.Kind {
@@ -56,6 +67,18 @@ func (e stubEngine) DecodeConfig(ctx context.Context, dtt payload.Transcoder, en
 
 func (stubEngine) ResolveEnv(context.Context, EngineDeps, config.EngineConfig) error {
 	return nil
+}
+
+func (e stubEngine) Open(_ context.Context, ec config.EngineConfig) (OpenedDB, error) {
+	dsn, err := e.BuildDSN(ec)
+	if err != nil {
+		return OpenedDB{}, err
+	}
+	db, err := sql.Open(e.driver, dsn)
+	if err != nil {
+		return OpenedDB{}, err
+	}
+	return OpenedDB{DB: db}, nil
 }
 
 func (e stubEngine) BuildDSN(config.EngineConfig) (string, error) {

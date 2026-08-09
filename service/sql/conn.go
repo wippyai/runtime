@@ -12,19 +12,25 @@ import (
 
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/resource"
+	sqlapi "github.com/wippyai/runtime/api/service/sql"
 )
 
 // ConnPool represents a database connection pool that acts both as a service
 // and a resource provider
 type ConnPool struct {
-	db      *sql.DB
-	current *dbGeneration
-	status  chan any
-	config  atomic.Pointer[any]
-	kind    registry.Kind
-	mu      sync.RWMutex
-	wg      sync.WaitGroup
-	closed  atomic.Bool
+	db          *sql.DB
+	current     *dbGeneration
+	status      chan any
+	config      atomic.Pointer[any]
+	kind        registry.Kind
+	driver      Driver
+	mu          sync.RWMutex
+	wg          sync.WaitGroup
+	closed      atomic.Bool
+	stopMu      sync.Mutex
+	stopDone    chan struct{}
+	stopErr     error
+	stopStarted bool
 }
 
 type dbGeneration struct {
@@ -35,12 +41,18 @@ type dbGeneration struct {
 	once     sync.Once
 	refs     atomic.Int32
 	closing  atomic.Bool
+	observer sqlapi.CommittedMutationSource
 }
 
-func newDBGeneration(db *sql.DB) *dbGeneration {
+func newDBGeneration(db *sql.DB, observers ...sqlapi.CommittedMutationSource) *dbGeneration {
+	var observer sqlapi.CommittedMutationSource
+	if len(observers) > 0 {
+		observer = observers[0]
+	}
 	return &dbGeneration{
-		db:     db,
-		closed: make(chan struct{}),
+		db:       db,
+		closed:   make(chan struct{}),
+		observer: observer,
 	}
 }
 
@@ -77,8 +89,13 @@ func (g *dbGeneration) closeWhenIdle() {
 
 func (g *dbGeneration) closeNow() {
 	g.once.Do(func() {
+		if g.observer != nil {
+			_ = g.observer.Close()
+		}
 		g.closeMu.Lock()
-		g.closeErr = g.db.Close()
+		if g.db != nil {
+			g.closeErr = g.db.Close()
+		}
 		g.closeMu.Unlock()
 		close(g.closed)
 	})
@@ -142,36 +159,51 @@ func (p *ConnPool) Start(ctx context.Context) (<-chan any, error) {
 
 // Stop implements supervisor.Service
 func (p *ConnPool) Stop(ctx context.Context) error {
-	// Try to set closed state - if already closed, return immediately
-	if !p.closed.CompareAndSwap(false, true) {
-		return nil
+	if ctx == nil {
+		ctx = context.Background()
 	}
-
-	// Wait for all resources to be released
-	done := make(chan struct{})
-	go func() {
-		p.wg.Wait()
-		close(done)
-	}()
-
+	p.stopMu.Lock()
+	// Serialize the closed transition with Acquire's WaitGroup admission. A
+	// positive Add must not race with cleanupStop's Wait when the pool has no
+	// outstanding resources; holding this mutex makes the handoff explicit.
+	p.closed.Store(true)
+	if !p.stopStarted {
+		p.stopStarted = true
+		p.stopDone = make(chan struct{})
+		go p.cleanupStop(p.stopDone)
+	}
+	done := p.stopDone
+	p.stopMu.Unlock()
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
 	case <-done:
-		p.mu.Lock()
-		if p.current == nil && p.db != nil {
-			p.current = newDBGeneration(p.db)
-		}
-		gen := p.current
-		p.current = nil
-		p.db = nil
-		p.mu.Unlock()
-		if gen == nil {
-			return nil
-		}
-		gen.closeWhenIdle()
-		return gen.waitClosed(ctx)
+		p.stopMu.Lock()
+		err := p.stopErr
+		p.stopMu.Unlock()
+		return err
 	}
+}
+
+func (p *ConnPool) cleanupStop(done chan struct{}) {
+	p.wg.Wait()
+	p.mu.Lock()
+	if p.current == nil && p.db != nil {
+		p.current = newDBGeneration(p.db)
+	}
+	gen := p.current
+	p.current = nil
+	p.db = nil
+	p.mu.Unlock()
+	var err error
+	if gen != nil {
+		gen.closeWhenIdle()
+		err = gen.waitClosed(context.Background())
+	}
+	p.stopMu.Lock()
+	p.stopErr = err
+	p.stopMu.Unlock()
+	close(done)
 }
 
 // UpdateConfig updates the pool configuration. It delegates engine-specific
@@ -186,20 +218,19 @@ func (p *ConnPool) UpdateConfig(cfg any) error {
 		return NewUnsupportedConfigTypeError(p.kind)
 	}
 
-	eng, ok := engineFor(p.kind)
-	if !ok {
+	if p.driver == nil {
 		return NewUnsupportedConfigTypeError(p.kind)
 	}
 
-	return p.updateConfig(context.Background(), eng, ec)
+	return p.updateConfig(context.Background(), p.driver, ec)
 }
 
-func (p *ConnPool) updateConfig(ctx context.Context, eng Engine, ec config.EngineConfig) error {
+func (p *ConnPool) updateConfig(ctx context.Context, driver Driver, ec config.EngineConfig) error {
 	if p.closed.Load() {
 		return ErrPoolClosed
 	}
 
-	if err := eng.ValidateConfigType(ec); err != nil {
+	if err := driver.ValidateConfigType(ec); err != nil {
 		return err
 	}
 
@@ -207,27 +238,19 @@ func (p *ConnPool) updateConfig(ctx context.Context, eng Engine, ec config.Engin
 		return NewInvalidConfigError(err)
 	}
 
-	if p.kind == config.SQLite {
-		gen := p.currentGeneration()
-		if gen == nil {
-			return ErrPoolClosed
-		}
-		eng.Tune(gen.db, ec)
-		var stored any = ec
-		p.config.Store(&stored)
-		return nil
-	}
-
-	newDB, err := openEngineDB(ctx, eng, ec)
+	opened, err := openDriverDB(ctx, driver, ec)
 	if err != nil {
 		return err
 	}
-	newGen := newDBGeneration(newDB)
+	newGen := newDBGeneration(opened.DB, opened.Observer)
 
 	p.mu.Lock()
 	if p.closed.Load() {
 		p.mu.Unlock()
-		_ = newDB.Close()
+		if opened.Observer != nil {
+			_ = opened.Observer.Close()
+		}
+		_ = opened.DB.Close()
 		return ErrPoolClosed
 	}
 	oldGen := p.current
@@ -235,7 +258,7 @@ func (p *ConnPool) updateConfig(ctx context.Context, eng Engine, ec config.Engin
 		oldGen = newDBGeneration(p.db)
 	}
 	p.current = newGen
-	p.db = newDB
+	p.db = opened.DB
 	p.mu.Unlock()
 
 	if oldGen != nil {
@@ -259,8 +282,15 @@ func (p *ConnPool) Acquire(
 		return nil, NewUnsupportedAccessModeError(string(mode))
 	}
 
-	// Track resource usage before checking closed state to avoid race with Stop()
+	// Admission is serialized with Stop. This prevents a positive WaitGroup Add
+	// from racing with cleanupStop's Wait after the counter reaches zero.
+	p.stopMu.Lock()
+	if p.closed.Load() {
+		p.stopMu.Unlock()
+		return nil, ErrPoolClosed
+	}
 	p.wg.Add(1)
+	p.stopMu.Unlock()
 
 	if p.closed.Load() {
 		p.wg.Done()
@@ -293,8 +323,9 @@ type DBConn struct {
 
 // DBResource contains both the database connection and its type
 type DBResource struct {
-	DB   *sql.DB       // The database connection
-	Type registry.Kind // The database type (postgres, mysql, sqlite, etc.)
+	DB       *sql.DB       // The database connection
+	Type     registry.Kind // The database type (postgres, mysql, sqlite, etc.)
+	Observer sqlapi.CommittedMutationSource
 }
 
 // newDBConn creates a new database resource
@@ -314,8 +345,9 @@ func (r *DBConn) Get() (any, error) {
 
 	// Return both the DB and its type
 	return DBResource{
-		DB:   r.gen.db,
-		Type: r.dbType,
+		DB:       r.gen.db,
+		Type:     r.dbType,
+		Observer: r.gen.observer,
 	}, nil
 }
 

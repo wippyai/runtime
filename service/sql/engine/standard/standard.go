@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MPL-2.0
 
-// Package standard implements the network SQL engines (PostgreSQL and MySQL) that
-// share DBConfig. It registers itself with service/sql through the public engine
-// seam, so the core package carries no knowledge of these dialects.
+// Package standard implements the network SQL drivers (PostgreSQL and MySQL)
+// that share DBConfig. Drivers are constructed explicitly by the boot graph;
+// importing this package does not mutate process-global SQL state.
 package standard
 
 import (
@@ -31,9 +31,14 @@ type engine struct {
 	driver string
 }
 
-func init() {
-	sqlservice.RegisterEngine(engine{kind: config.Postgres, driver: "postgres", dsn: buildPostgresDSN})
-	sqlservice.RegisterEngine(engine{kind: config.MySQL, driver: "mysql", dsn: buildMySQLDSN})
+// NewPostgresDriver returns the PostgreSQL SQL driver.
+func NewPostgresDriver() sqlservice.Driver {
+	return engine{kind: config.Postgres, driver: "postgres", dsn: buildPostgresDSN}
+}
+
+// NewMySQLDriver returns the MySQL SQL driver.
+func NewMySQLDriver() sqlservice.Driver {
+	return engine{kind: config.MySQL, driver: "mysql", dsn: buildMySQLDSN}
 }
 
 func (e engine) Kind() registry.Kind {
@@ -55,6 +60,20 @@ func (engine) DecodeConfig(ctx context.Context, dtt payload.Transcoder, entry re
 
 func (engine) ResolveEnv(context.Context, sqlservice.EngineDeps, config.EngineConfig) error {
 	return nil
+}
+
+func (e engine) Open(_ context.Context, ec config.EngineConfig) (sqlservice.OpenedDB, error) {
+	dsn, err := e.BuildDSN(ec)
+	if err != nil {
+		return sqlservice.OpenedDB{}, err
+	}
+
+	db, err := sql.Open(e.driver, dsn)
+	if err != nil {
+		return sqlservice.OpenedDB{}, sqlservice.NewConnectionPoolCreationError(err)
+	}
+
+	return sqlservice.OpenedDB{DB: db}, nil
 }
 
 func (e engine) BuildDSN(ec config.EngineConfig) (string, error) {

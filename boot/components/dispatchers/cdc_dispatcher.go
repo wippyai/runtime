@@ -7,13 +7,13 @@ import (
 
 	"github.com/wippyai/runtime/api/boot"
 	dispatcherapi "github.com/wippyai/runtime/api/dispatcher"
-	"github.com/wippyai/runtime/service/cdc/postgres"
+	"github.com/wippyai/runtime/service/cdc"
 )
 
 const CDCDefaultWorkers = 4
 
 func CDC() boot.Component {
-	var d *postgres.Dispatcher
+	var d *cdc.Dispatcher
 
 	return boot.New(boot.P{
 		Name:      CDCDispatcherName,
@@ -24,7 +24,7 @@ func CDC() boot.Component {
 				return ctx, ErrDispatcherNotFound
 			}
 
-			d = postgres.NewDispatcher(postgres.WithWorkers(CDCDefaultWorkers))
+			d = cdc.NewDispatcher(cdc.WithWorkers(CDCDefaultWorkers))
 			d.RegisterAll(reg.Register)
 			return ctx, nil
 		},

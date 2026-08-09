@@ -22,14 +22,14 @@ func sqlOpenMemory(*testing.T) (*sql.DB, error) {
 }
 
 func TestRegistered(t *testing.T) {
-	for _, k := range []registry.Kind{config.Postgres, config.MySQL} {
-		_, _, err := (&sqlservice.DefaultPoolFactory{}).CreatePool(
+	for _, driver := range []sqlservice.Driver{NewPostgresDriver(), NewMySQLDriver()} {
+		_, _, err := sqlservice.NewDefaultPoolFactory(driver).CreatePool(
 			context.Background(),
 			sqlservice.EngineDeps{Log: zap.NewNop()},
-			registry.Entry{ID: registry.NewID("t", "x"), Kind: k, Data: nil},
+			registry.Entry{ID: registry.NewID("t", "x"), Kind: driver.Kind(), Data: nil},
 		)
 		require.Error(t, err)
-		assert.NotContains(t, err.Error(), "unsupported entry kind", "engine %s must be registered", k)
+		assert.NotContains(t, err.Error(), "unsupported entry kind", "driver %s must be accepted", driver.Kind())
 	}
 }
 

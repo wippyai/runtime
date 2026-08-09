@@ -86,3 +86,29 @@ jobs:
           SKIP_CLOUDSTORAGE_TESTS: "1"
           SKIP_DOCKER_TESTS: "1"
         run: make test
+
+  test-sqlite-cdc:
+    name: Test SQLite CDC (Linux, CGO, race)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: '1.26.5'
+          cache: true
+
+      - name: Install dependencies
+        run: go mod download
+
+      - name: Run tagged SQLite CDC tests
+        env:
+          CGO_ENABLED: 1
+          GORACE: "halt_on_error=1"
+          SKIP_TEMPORAL_TESTS: "1"
+          SKIP_CLOUDSTORAGE_TESTS: "1"
+          SKIP_DOCKER_TESTS: "1"
+        run: make test-cdc-sqlite

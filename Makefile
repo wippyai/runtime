@@ -17,6 +17,14 @@ test:
 	go test ./boot/... -v -race -short
 	go test --tags "fts5 sqlite_vec treesitter sqlite_preupdate_hook" ./cmd/... -v -race -short
 
+# The default service test intentionally stays untagged so the SQLite stub and
+# the non-CGO portability path remain covered. The real preupdate-hook source
+# is exercised by the Linux CGO CI job through this target.
+.PHONY: test-cdc-sqlite
+test-cdc-sqlite:
+	CGO_ENABLED=1 go test ./service/sql/... ./service/cdc/sqlite -v -race -tags sqlite_preupdate_hook
+	CGO_ENABLED=1 go test ./service/cdc/sqlite -v -race -timeout 300s -tags "integration sqlite_preupdate_hook"
+
 test-system:
 	go test ./internal/... -v -race
 	go test ./api/... -v -race

@@ -13,9 +13,7 @@ import (
 	bootpkg "github.com/wippyai/runtime/boot"
 	bootsystem "github.com/wippyai/runtime/boot/components/system"
 	"github.com/wippyai/runtime/service/sql"
-
-	// Register the built-in SQL engines (postgres, mysql, sqlite) with the manager.
-	_ "github.com/wippyai/runtime/service/sql/engine/all"
+	"github.com/wippyai/runtime/service/sql/engine/all"
 )
 
 func SQL() boot.Component {
@@ -34,6 +32,7 @@ func SQL() boot.Component {
 				bus,
 				logger.Named("sql"),
 				envRegistry,
+				sql.WithDriver(all.Drivers()...),
 			)
 			if err != nil {
 				return ctx, NewSQLManagerError(err)

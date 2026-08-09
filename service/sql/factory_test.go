@@ -71,7 +71,7 @@ func depsFor(cfg any) EngineDeps {
 // TestDefaultPoolFactory_CreatePoolValidation tests pool creation validation through
 // the registry-backed factory.
 func TestDefaultPoolFactory_CreatePoolValidation(t *testing.T) {
-	factory := &DefaultPoolFactory{}
+	factory := NewDefaultPoolFactory(testDrivers()...)
 
 	tests := []struct {
 		cfg     any
@@ -155,7 +155,7 @@ func TestDefaultPoolFactory_CreatePoolSQLiteSuccess(t *testing.T) {
 	}
 	entry := registry.Entry{ID: registry.NewID("test", "lite"), Kind: config.SQLite, Data: payload.New("x")}
 
-	pool, ec, err := (&DefaultPoolFactory{}).CreatePool(context.Background(), depsFor(cfg), entry)
+	pool, ec, err := NewDefaultPoolFactory(testDrivers()...).CreatePool(context.Background(), depsFor(cfg), entry)
 	require.NoError(t, err)
 	require.NotNil(t, pool)
 	assert.Equal(t, config.SQLite, pool.kind)

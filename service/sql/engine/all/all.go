@@ -1,12 +1,20 @@
 // SPDX-License-Identifier: MPL-2.0
 
-// Package all registers every built-in SQL engine via blank import. A composition
-// root (for example the storage boot component) imports this package so the standard
-// dialects are available; out-of-tree engines register themselves the same way.
+// Package all provides the built-in SQL drivers for composition roots that want
+// the standard Wippy database set. It does not register anything globally.
 package all
 
 import (
-	// Blank imports register the built-in engines with service/sql via init.
-	_ "github.com/wippyai/runtime/service/sql/engine/sqlite"
-	_ "github.com/wippyai/runtime/service/sql/engine/standard"
+	sqlservice "github.com/wippyai/runtime/service/sql"
+	"github.com/wippyai/runtime/service/sql/engine/sqlite"
+	"github.com/wippyai/runtime/service/sql/engine/standard"
 )
+
+// Drivers returns the built-in SQL drivers in a deterministic order.
+func Drivers() []sqlservice.Driver {
+	return []sqlservice.Driver{
+		standard.NewPostgresDriver(),
+		standard.NewMySQLDriver(),
+		sqlite.NewDriver(),
+	}
+}

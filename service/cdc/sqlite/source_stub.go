@@ -4,6 +4,6 @@
 
 package sqlite
 
-func buildSource(_ sourceOptions) (sourceHandle, error) {
+func buildSource(_ sourceOptions) (managedSource, error) {
 	return nil, ErrPreupdateTagRequired
 }

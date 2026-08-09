@@ -104,6 +104,7 @@ func NewMockConnPool(kind registry.Kind) *ConnPool {
 	pool := &ConnPool{
 		kind:   kind,
 		db:     db,
+		driver: func() Driver { d, _ := testDriverFor(kind); return d }(),
 		status: make(chan any, 1),
 		closed: atomic.Bool{},
 	}
@@ -172,7 +173,7 @@ func (f *TestPoolFactory) CreatePool(ctx context.Context, deps EngineDeps, entry
 		return nil, nil, assert.AnError
 	}
 
-	eng, ok := engineFor(entry.Kind)
+	eng, ok := testDriverFor(entry.Kind)
 	if !ok {
 		return nil, nil, NewUnsupportedEntryKindError(entry.Kind)
 	}
@@ -204,7 +205,7 @@ func (f *TestPoolFactory) UpdatePool(ctx context.Context, deps EngineDeps, pool 
 		return nil, assert.AnError
 	}
 
-	eng, ok := engineFor(entry.Kind)
+	eng, ok := testDriverFor(entry.Kind)
 	if !ok {
 		return nil, NewUnsupportedEntryKindError(entry.Kind)
 	}

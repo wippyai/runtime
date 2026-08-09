@@ -3,7 +3,6 @@
 package sqlite
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -37,23 +36,23 @@ func TestSubscriptionMatches(t *testing.T) {
 	assert.False(t, byTable.matches(config.Change{Op: "insert", Table: "orders"}))
 }
 
-func TestSubscriptionMatchesBypassesFiltersForControlEvents(t *testing.T) {
+func TestSubscriptionSnapshotMatchesOnlyTables(t *testing.T) {
 	sub := &subscription{
 		ops:    map[string]struct{}{"insert": {}},
 		tables: map[string]struct{}{"users": {}},
 	}
 
-	assert.True(t, sub.matches(config.Change{Op: "error", Table: "orders"}), "terminal error must reach every subscriber")
-	assert.True(t, sub.matches(config.Change{Op: "snapshot", Table: "orders"}), "snapshot rows must bypass op/table filters")
+	assert.False(t, sub.matchesSnapshot(config.Change{Op: "snapshot", Table: "orders"}), "table filter still applies to snapshot rows")
+	assert.True(t, sub.matchesSnapshot(config.Change{Op: "snapshot", Table: "users"}))
 	assert.False(t, sub.matches(config.Change{Op: "delete", Table: "users"}), "op filter still applies to normal changes")
 	assert.False(t, sub.matches(config.Change{Op: "insert", Table: "orders"}), "table filter still applies to normal changes")
 }
 
 func TestSubscribersPublishAndClose(t *testing.T) {
 	subs := newSubscribers()
-	stream := subs.subscribe("s", config.StreamOptions{}, false)
+	stream := subs.subscribe("s", config.StreamOptions{})
 
-	subs.publish(context.Background(), config.Change{Op: "insert", Table: "users", Source: "s"})
+	subs.publish(config.Change{Op: "insert", Table: "users", Source: "s"})
 
 	select {
 	case change := <-stream.Changes():
@@ -75,35 +74,35 @@ func TestSubscribersPublishAndClose(t *testing.T) {
 func TestSubscribeBufferClamp(t *testing.T) {
 	subs := newSubscribers()
 
-	def := subs.subscribe("s", config.StreamOptions{Buffer: 0}, false)
-	assert.Equal(t, defaultStreamBuffer, cap(def.in))
+	def := subs.subscribe("s", config.StreamOptions{Buffer: 0})
+	assert.Equal(t, defaultStreamBuffer, cap(def.changes))
 
-	neg := subs.subscribe("s", config.StreamOptions{Buffer: -5}, false)
-	assert.Equal(t, defaultStreamBuffer, cap(neg.in))
+	neg := subs.subscribe("s", config.StreamOptions{Buffer: -5})
+	assert.Equal(t, defaultStreamBuffer, cap(neg.changes))
 
-	exact := subs.subscribe("s", config.StreamOptions{Buffer: 7}, false)
-	assert.Equal(t, 7, cap(exact.in))
+	exact := subs.subscribe("s", config.StreamOptions{Buffer: 7})
+	assert.Equal(t, 7, cap(exact.changes))
 
-	huge := subs.subscribe("s", config.StreamOptions{Buffer: maxStreamBuffer + 100}, false)
-	assert.Equal(t, maxStreamBuffer, cap(huge.in))
+	huge := subs.subscribe("s", config.StreamOptions{Buffer: maxStreamBuffer + 100})
+	assert.Equal(t, maxStreamBuffer, cap(huge.changes))
 }
 
 func TestSubscribeAssignsUniqueIncreasingIDs(t *testing.T) {
 	subs := newSubscribers()
-	a := subs.subscribe("s", config.StreamOptions{}, false)
-	b := subs.subscribe("s", config.StreamOptions{}, false)
+	a := subs.subscribe("s", config.StreamOptions{})
+	b := subs.subscribe("s", config.StreamOptions{})
 	assert.Equal(t, uint64(1), a.id)
 	assert.Equal(t, uint64(2), b.id)
 }
 
 func TestPublishNeverBlocksAndClosesLaggard(t *testing.T) {
 	subs := newSubscribers()
-	stream := subs.subscribe("s", config.StreamOptions{Buffer: 1}, false)
+	stream := subs.subscribe("s", config.StreamOptions{Buffer: 1})
 
 	done := make(chan struct{})
 	go func() {
 		for i := 0; i < 1000; i++ {
-			subs.publish(context.Background(), config.Change{Op: "insert", Table: "t"})
+			subs.publish(config.Change{Op: "insert", Table: "t"})
 		}
 		close(done)
 	}()
@@ -128,11 +127,11 @@ func TestPublishNeverBlocksAndClosesLaggard(t *testing.T) {
 
 func TestSubscribersFilterByOp(t *testing.T) {
 	subs := newSubscribers()
-	stream := subs.subscribe("s", config.StreamOptions{Ops: []string{"delete"}}, false)
+	stream := subs.subscribe("s", config.StreamOptions{Ops: []string{"delete"}})
 	defer stream.Close()
 
-	subs.publish(context.Background(), config.Change{Op: "insert", Table: "users"})
-	subs.publish(context.Background(), config.Change{Op: "delete", Table: "users"})
+	subs.publish(config.Change{Op: "insert", Table: "users"})
+	subs.publish(config.Change{Op: "delete", Table: "users"})
 
 	select {
 	case change := <-stream.Changes():

@@ -5,11 +5,13 @@ package sql
 import (
 	"context"
 	"database/sql"
+	"fmt"
 
 	envapi "github.com/wippyai/runtime/api/env"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	config "github.com/wippyai/runtime/api/service/sql"
+	sqlapi "github.com/wippyai/runtime/api/service/sql"
 	"go.uber.org/zap"
 )
 
@@ -21,10 +23,11 @@ type EngineDeps struct {
 	Log        *zap.Logger
 }
 
-// Engine is a self-contained SQL dialect. Each engine knows how to decode its
-// configuration, resolve environment overrides, open and tune a pool, and run any
-// post-open preparation. Engines register themselves with RegisterEngine, so adding
-// a database never touches the factory or manager dispatch surface.
+// Engine is a self-contained SQL dialect. Engines are supplied to a Manager (or
+// Factory) explicitly, so the SQL service has no process-global engine registry.
+// The original contract intentionally remains small: custom engines may keep
+// using BuildDSN plus database/sql, while engines that own a physical connector
+// can additionally implement DBOpener.
 type Engine interface {
 	Kind() registry.Kind
 	DriverName() string
@@ -36,28 +39,34 @@ type Engine interface {
 	ValidateConfigType(cfg config.EngineConfig) error
 }
 
-var engines = make(map[registry.Kind]Engine)
+// Driver is the explicit-injection name for an Engine. It is an alias so
+// existing extensions implementing the original Engine contract remain valid.
+type Driver = Engine
 
-// RegisterEngine adds an engine to the registry under its kind. Intended to be
-// called from engine package init functions.
-func RegisterEngine(e Engine) {
-	engines[e.Kind()] = e
+// DBOpener is the optional physical-handle seam. A driver that implements it
+// owns the database connector and any capabilities attached to that physical
+// handle (for example SQLite mutation observation). Engines that do not need
+// that ownership use the Engine.BuildDSN fallback in openDriverDB.
+type DBOpener interface {
+	Open(ctx context.Context, cfg config.EngineConfig) (OpenedDB, error)
 }
 
-// engineFor looks up the engine registered for a kind.
-func engineFor(kind registry.Kind) (Engine, bool) {
-	e, ok := engines[kind]
-	return e, ok
+// OpenedDB is the physical database handle created by a Driver. Observer is an
+// optional engine capability and is deliberately kept beside the handle so it
+// cannot be accidentally shared between unrelated pool generations.
+type OpenedDB struct {
+	DB       *sql.DB
+	Observer sqlapi.CommittedMutationSource
 }
 
 // createPool runs the generic create lifecycle for a known engine.
-func createPool(ctx context.Context, deps EngineDeps, eng Engine, entry registry.Entry) (*ConnPool, config.EngineConfig, error) {
-	cfg, err := eng.DecodeConfig(ctx, deps.Transcoder, entry)
+func createPool(ctx context.Context, deps EngineDeps, driver Driver, entry registry.Entry) (*ConnPool, config.EngineConfig, error) {
+	cfg, err := driver.DecodeConfig(ctx, deps.Transcoder, entry)
 	if err != nil {
 		return nil, nil, NewInvalidConfigError(err)
 	}
 
-	if err := eng.ResolveEnv(ctx, deps, cfg); err != nil {
+	if err := driver.ResolveEnv(ctx, deps, cfg); err != nil {
 		return nil, nil, err
 	}
 
@@ -65,15 +74,16 @@ func createPool(ctx context.Context, deps EngineDeps, eng Engine, entry registry
 		return nil, nil, NewInvalidConfigError(err)
 	}
 
-	db, err := openEngineDB(ctx, eng, cfg)
+	opened, err := openDriverDB(ctx, driver, cfg)
 	if err != nil {
 		return nil, nil, err
 	}
 
 	pool := &ConnPool{
-		kind:    eng.Kind(),
-		db:      db,
-		current: newDBGeneration(db),
+		kind:    driver.Kind(),
+		driver:  driver,
+		db:      opened.DB,
+		current: newDBGeneration(opened.DB, opened.Observer),
 		status:  make(chan any, 1),
 	}
 
@@ -84,39 +94,61 @@ func createPool(ctx context.Context, deps EngineDeps, eng Engine, entry registry
 }
 
 // updatePool runs the generic update lifecycle for a known engine.
-func updatePool(ctx context.Context, deps EngineDeps, eng Engine, pool *ConnPool, entry registry.Entry) (config.EngineConfig, error) {
-	cfg, err := eng.DecodeConfig(ctx, deps.Transcoder, entry)
+func updatePool(ctx context.Context, deps EngineDeps, driver Driver, pool *ConnPool, entry registry.Entry) (config.EngineConfig, error) {
+	cfg, err := driver.DecodeConfig(ctx, deps.Transcoder, entry)
 	if err != nil {
 		return nil, NewInvalidConfigError(err)
 	}
 
-	if err := eng.ResolveEnv(ctx, deps, cfg); err != nil {
+	if err := driver.ResolveEnv(ctx, deps, cfg); err != nil {
 		return nil, err
 	}
 
-	if err := pool.updateConfig(ctx, eng, cfg); err != nil {
+	if err := pool.updateConfig(ctx, driver, cfg); err != nil {
 		return nil, NewPoolUpdateError(err)
 	}
 
 	return cfg, nil
 }
 
-func openEngineDB(ctx context.Context, eng Engine, cfg config.EngineConfig) (*sql.DB, error) {
-	dsn, err := eng.BuildDSN(cfg)
+func openDriverDB(ctx context.Context, driver Driver, cfg config.EngineConfig) (OpenedDB, error) {
+	var (
+		opened OpenedDB
+		err    error
+	)
+	if opener, ok := driver.(DBOpener); ok {
+		opened, err = opener.Open(ctx, cfg)
+	} else {
+		var dsn string
+		dsn, err = driver.BuildDSN(cfg)
+		if err != nil {
+			return OpenedDB{}, NewInvalidDSNError(err)
+		}
+		opened.DB, err = sql.Open(driver.DriverName(), dsn)
+		if err != nil {
+			return OpenedDB{}, NewConnectionPoolCreationError(err)
+		}
+	}
 	if err != nil {
-		return nil, NewInvalidDSNError(err)
+		return OpenedDB{}, err
+	}
+	if opened.DB == nil {
+		if opened.Observer != nil {
+			_ = opened.Observer.Close()
+		}
+		return OpenedDB{}, NewConnectionPoolCreationError(
+			fmt.Errorf("driver %q returned a nil database", driver.Kind()),
+		)
 	}
 
-	db, err := sql.Open(driverName(eng.Kind(), eng.DriverName()), dsn)
-	if err != nil {
-		return nil, NewConnectionPoolCreationError(err)
+	if err := driver.Prepare(ctx, opened.DB, cfg); err != nil {
+		_ = opened.DB.Close()
+		if opened.Observer != nil {
+			_ = opened.Observer.Close()
+		}
+		return OpenedDB{}, err
 	}
 
-	if err := eng.Prepare(ctx, db, cfg); err != nil {
-		_ = db.Close()
-		return nil, err
-	}
-
-	eng.Tune(db, cfg)
-	return db, nil
+	driver.Tune(opened.DB, cfg)
+	return opened, nil
 }
