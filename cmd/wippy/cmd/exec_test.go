@@ -3,13 +3,9 @@
 package cmd
 
 import (
-	"bufio"
 	"context"
 	"errors"
-	"fmt"
 	"os"
-	"os/exec"
-	"syscall"
 	"testing"
 	"time"
 
@@ -150,39 +146,23 @@ func TestWaitForExecResult_ContextCancellationIsBounded(t *testing.T) {
 	assert.ErrorIs(t, err, context.Canceled)
 }
 
-func TestExecSignalContext_CancelsOnExternalInterrupt(t *testing.T) {
-	tests := []struct {
-		sig  os.Signal
-		name string
-	}{
-		{name: "interrupt", sig: os.Interrupt},
-		{name: "terminate", sig: syscall.SIGTERM},
-	}
+func TestExecSignalContext_CancelsOnExternalSignal(t *testing.T) {
+	sigChan := make(chan os.Signal, 1)
+	ctx, stop := newExecSignalContextWithChannel(context.Background(), sigChan)
+	defer stop()
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			resetExecShutdownState(t)
-			ctx, stop := newExecSignalContext(context.Background())
-			defer stop()
-
-			current, err := os.FindProcess(os.Getpid())
-			require.NoError(t, err)
-			require.NoError(t, current.Signal(tt.sig))
-
-			select {
-			case <-ctx.Done():
-				assert.ErrorIs(t, ctx.Err(), context.Canceled)
-			case <-time.After(2 * time.Second):
-				t.Fatalf("%s did not cancel exec context", tt.sig)
-			}
-		})
+	sigChan <- os.Interrupt
+	select {
+	case <-ctx.Done():
+		assert.ErrorIs(t, ctx.Err(), context.Canceled)
+	case <-time.After(2 * time.Second):
+		t.Fatal("external signal did not cancel exec context")
 	}
 }
 
 func TestExecSignalContext_DoesNotReactToSupervisorChannel(t *testing.T) {
-	resetExecShutdownState(t)
-	t.Cleanup(func() { resetExecShutdownState(t) })
-	ctx, stop := newExecSignalContext(context.Background())
+	sigChan := make(chan os.Signal, 1)
+	ctx, stop := newExecSignalContextWithChannel(context.Background(), sigChan)
 	defer stop()
 
 	app := ctxapi.NewAppContext()
@@ -194,89 +174,5 @@ func TestExecSignalContext_DoesNotReactToSupervisorChannel(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatal("internal supervisor channel signal canceled exec context")
 	case <-time.After(100 * time.Millisecond):
-	}
-}
-
-func resetExecShutdownState(t *testing.T) {
-	t.Helper()
-	app := ctxapi.NewAppContext()
-	ctx := ctxapi.WithAppContext(context.Background(), app)
-	supervisorapi.SetSignalChannel(ctx, make(chan os.Signal, 1))
-}
-
-// TestExecSignalSubprocessHelper is the child half of the bounded interrupt
-// test below. Keeping it in the test binary exercises real OS signal delivery
-// while the handler represents an active process.exec child.
-func TestExecSignalSubprocessHelper(t *testing.T) {
-	if os.Getenv("WIPPY_EXEC_SIGNAL_HELPER") != "1" {
-		return
-	}
-
-	started := make(chan struct{})
-	handler := dispatcher.HandlerFunc(func(ctx context.Context, _ dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
-		close(started)
-		go func() {
-			<-ctx.Done()
-			receiver.CompleteYield(tag, process.ExecResult{}, ctx.Err())
-		}()
-		return nil
-	})
-	ctx := newExecTestContext(t, handler)
-
-	// Keep the signal-aware context as the parent of the dispatch context while
-	// retaining the test registry in the application context.
-	execCtx, stopExec := newExecSignalContext(ctx)
-	defer stopExec()
-	fmt.Fprintln(os.Stdout, "ready")
-	_, err := waitForExecResult(execCtx, &process.ExecCmd{
-		Source: registry.NewID("app", "active"),
-		HostID: "terminal",
-	})
-	require.ErrorIs(t, err, context.Canceled)
-	select {
-	case <-started:
-	default:
-		t.Fatal("exec handler did not start before signal")
-	}
-}
-
-func TestExecSignalSubprocessCancelsActiveExec(t *testing.T) {
-	child := exec.CommandContext(t.Context(), os.Args[0], "-test.run=TestExecSignalSubprocessHelper")
-	child.Env = append(os.Environ(), "WIPPY_EXEC_SIGNAL_HELPER=1")
-	stdout, err := child.StdoutPipe()
-	require.NoError(t, err)
-	child.Stderr = os.Stderr
-	require.NoError(t, child.Start())
-
-	waitDone := make(chan error, 1)
-	go func() { waitDone <- child.Wait() }()
-
-	ready := make(chan struct{})
-	go func() {
-		scanner := bufio.NewScanner(stdout)
-		for scanner.Scan() {
-			if scanner.Text() == "ready" {
-				close(ready)
-				return
-			}
-		}
-	}()
-
-	select {
-	case <-ready:
-	case <-time.After(2 * time.Second):
-		_ = child.Process.Kill()
-		<-waitDone
-		t.Fatal("exec signal helper did not become ready")
-	}
-
-	require.NoError(t, child.Process.Signal(os.Interrupt))
-	select {
-	case err := <-waitDone:
-		require.NoError(t, err)
-	case <-time.After(2 * time.Second):
-		_ = child.Process.Kill()
-		<-waitDone
-		t.Fatal("active exec child did not cancel after SIGINT")
 	}
 }

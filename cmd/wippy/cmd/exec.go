@@ -21,27 +21,35 @@ import (
 // outer run loop can still perform the normal graceful shutdown after the
 // child has been canceled.
 func newExecSignalContext(ctx context.Context) (context.Context, context.CancelFunc) {
-	execCtx, cancel := context.WithCancel(ctx)
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
-
+	execCtx, cancel := newExecSignalContextWithChannel(ctx, sigChan)
 	go func() {
-		defer signal.Stop(sigChan)
-		select {
-		case <-sigChan:
-			// The supervisor's internal shutdown channel is separate from this
-			// OS signal channel, so every signal received here is external and
-			// must cancel the in-flight child.
-			cancel()
-		case <-ctx.Done():
-		case <-execCtx.Done():
-		}
+		<-execCtx.Done()
+		signal.Stop(sigChan)
 	}()
 
 	return execCtx, func() {
 		cancel()
 		signal.Stop(sigChan)
 	}
+}
+
+// newExecSignalContextWithChannel is the signal-independent part of
+// newExecSignalContext. Keeping the channel injectable makes cancellation
+// behavior testable on platforms where sending an OS signal is unsupported.
+func newExecSignalContextWithChannel(ctx context.Context, sigChan <-chan os.Signal) (context.Context, context.CancelFunc) {
+	execCtx, cancel := context.WithCancel(ctx)
+	go func() {
+		select {
+		case <-sigChan:
+			cancel()
+		case <-ctx.Done():
+		case <-execCtx.Done():
+		}
+	}()
+
+	return execCtx, cancel
 }
 
 // execWasInterrupted reports a user interrupt without mistaking cancellation
