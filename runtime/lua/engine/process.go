@@ -2031,7 +2031,9 @@ func (p *Process) clearExecution() {
 	if p.channelQueue != nil {
 		p.channelQueue.Drain()
 	}
-	p.clearMessageQueue()
+	// Keep undelivered ordinary messages observable until the scheduler retires
+	// or reinitializes this execution. Init and Close clear the backing storage,
+	// including bounded retention leases, before a pooled process can be reused.
 
 	// Clear yield buffer
 	p.yieldBuf = p.yieldBuf[:0]
