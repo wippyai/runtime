@@ -792,7 +792,7 @@ func (s *Source) runSnapshot(ctx context.Context, stream sqlapi.SnapshotStream, 
 				} else if !sub.matches(change) {
 					continue
 				}
-				sub.send(change)
+				sub.send(change, config.EstimateChangeBytes(change))
 				if sub.isClosed() {
 					return
 				}

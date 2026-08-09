@@ -119,8 +119,14 @@ func (s *Source) publishChange(ctx context.Context, change config.Change) {
 	}
 	s.subMu.RUnlock()
 
+	if len(subs) == 0 {
+		return
+	}
+	// Estimate the retained size once for this source event. Fan-out must not
+	// repeat a recursive walk for every subscriber.
+	bytes := config.EstimateChangeBytes(change)
 	for _, sub := range subs {
-		sub.send(ctx, change)
+		sub.send(ctx, change, bytes)
 	}
 }
 
@@ -230,8 +236,7 @@ func (s *sourceSubscription) run() {
 	}
 }
 
-func (s *sourceSubscription) send(_ context.Context, change config.Change) {
-	bytes := config.EstimateChangeBytes(change)
+func (s *sourceSubscription) send(_ context.Context, change config.Change, bytes int64) {
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()

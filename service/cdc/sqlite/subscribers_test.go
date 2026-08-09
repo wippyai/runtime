@@ -131,8 +131,9 @@ func TestOverflowedSubscriberDetachesImmediately(t *testing.T) {
 	stream := subs.subscribe("s", config.StreamOptions{Buffer: 1})
 	change := config.Change{Op: "insert", Table: "users"}
 
-	stream.send(change)
-	stream.send(change)
+	bytes := config.EstimateChangeBytes(change)
+	stream.send(change, bytes)
+	stream.send(change, bytes)
 
 	assert.ErrorIs(t, stream.Err(), errSubscriberOverflow)
 	subs.mu.RLock()
@@ -146,8 +147,9 @@ func TestOverflowedSubscriberChurnDoesNotRetainParentEntries(t *testing.T) {
 	change := config.Change{Op: "insert", Table: "users"}
 	for i := 0; i < 1000; i++ {
 		stream := subs.subscribe("s", config.StreamOptions{Buffer: 1})
-		stream.send(change)
-		stream.send(change)
+		bytes := config.EstimateChangeBytes(change)
+		stream.send(change, bytes)
+		stream.send(change, bytes)
 	}
 
 	subs.mu.RLock()
@@ -166,7 +168,7 @@ func TestSubscriptionMaxBytesReleasesOnlyAfterDelivery(t *testing.T) {
 	sub := newSubscription("s", config.StreamOptions{Buffer: 2, MaxBytes: changeBytes + 1}, 2)
 	defer sub.Close()
 
-	sub.send(change)
+	sub.send(change, config.EstimateChangeBytes(change))
 	assert.Eventually(t, func() bool {
 		sub.mu.Lock()
 		defer sub.mu.Unlock()
@@ -185,7 +187,7 @@ func TestSubscriptionMaxBytesReleasesOnlyAfterDelivery(t *testing.T) {
 		return len(sub.queue) == 0 && sub.queuedBytes == 0
 	}, time.Second, time.Millisecond)
 
-	sub.send(change)
+	sub.send(change, config.EstimateChangeBytes(change))
 	assert.NotErrorIs(t, sub.Err(), errSubscriberOverflow)
 	select {
 	case <-sub.Changes():

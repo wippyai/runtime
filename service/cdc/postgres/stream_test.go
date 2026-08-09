@@ -190,7 +190,7 @@ func TestSourceSubscriptionMaxBytesReleasesOnlyAfterDelivery(t *testing.T) {
 	sub := stream.(*sourceSubscription)
 	defer sub.Close()
 
-	sub.send(context.Background(), change)
+	sub.send(context.Background(), change, cdcapi.EstimateChangeBytes(change))
 	assert.Eventually(t, func() bool {
 		sub.mu.Lock()
 		defer sub.mu.Unlock()
@@ -209,7 +209,7 @@ func TestSourceSubscriptionMaxBytesReleasesOnlyAfterDelivery(t *testing.T) {
 		return len(sub.queue) == 0 && sub.queuedBytes == 0
 	}, time.Second, time.Millisecond)
 
-	sub.send(context.Background(), change)
+	sub.send(context.Background(), change, cdcapi.EstimateChangeBytes(change))
 	assert.NotErrorIs(t, sub.Err(), errSubscriberOverflow)
 	select {
 	case <-sub.Changes():

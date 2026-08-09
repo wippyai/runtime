@@ -73,8 +73,14 @@ func (s *subscribers) publish(change config.Change) {
 		}
 	}
 	s.mu.RUnlock()
+	if len(matched) == 0 {
+		return
+	}
+	// Estimate the retained size once for this source event. Fan-out must not
+	// repeat a recursive walk for every subscriber.
+	bytes := config.EstimateChangeBytes(change)
 	for _, sub := range matched {
-		sub.send(change)
+		sub.send(change, bytes)
 	}
 }
 
@@ -142,8 +148,7 @@ func (s *subscription) Err() error {
 	return err
 }
 
-func (s *subscription) send(change config.Change) {
-	bytes := config.EstimateChangeBytes(change)
+func (s *subscription) send(change config.Change, bytes int64) {
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()
