@@ -30,12 +30,6 @@ func GetExitCode() int {
 	return int(exitCode.Load())
 }
 
-// ShutdownTriggered reports whether TriggerShutdown has already initiated
-// graceful shutdown for the current runtime instance.
-func ShutdownTriggered() bool {
-	return shutdownSent.Load()
-}
-
 // SetSignalChannel stores the signal channel in the application context.
 // Must be called during boot before AppContext is sealed.
 func SetSignalChannel(ctx context.Context, ch chan<- os.Signal) {

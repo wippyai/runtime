@@ -179,7 +179,7 @@ func TestExecSignalContext_CancelsOnExternalInterrupt(t *testing.T) {
 	}
 }
 
-func TestExecSignalContext_IgnoresSupervisorSIGTERM(t *testing.T) {
+func TestExecSignalContext_DoesNotReactToSupervisorChannel(t *testing.T) {
 	resetExecShutdownState(t)
 	t.Cleanup(func() { resetExecShutdownState(t) })
 	ctx, stop := newExecSignalContext(context.Background())
@@ -190,13 +190,9 @@ func TestExecSignalContext_IgnoresSupervisorSIGTERM(t *testing.T) {
 	supervisorapi.SetSignalChannel(supervisorCtx, make(chan os.Signal, 1))
 	supervisorapi.TriggerShutdown(supervisorCtx, 0)
 
-	current, err := os.FindProcess(os.Getpid())
-	require.NoError(t, err)
-	require.NoError(t, current.Signal(syscall.SIGTERM))
-
 	select {
 	case <-ctx.Done():
-		t.Fatal("internal supervisor SIGTERM canceled exec context")
+		t.Fatal("internal supervisor channel signal canceled exec context")
 	case <-time.After(100 * time.Millisecond):
 	}
 }

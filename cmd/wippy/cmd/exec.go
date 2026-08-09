@@ -14,7 +14,6 @@ import (
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/runtime"
-	supervisorapi "github.com/wippyai/runtime/api/supervisor"
 )
 
 // newExecSignalContext gives an in-flight CLI exec its own interrupt-aware
@@ -29,14 +28,10 @@ func newExecSignalContext(ctx context.Context) (context.Context, context.CancelF
 	go func() {
 		defer signal.Stop(sigChan)
 		select {
-		case sig := <-sigChan:
-			// TriggerShutdown uses SIGTERM on the supervisor channel after a
-			// process has already completed. It must not cancel the exec
-			// watcher before the topology result can be delivered. An external
-			// SIGTERM remains a genuine cancellation request.
-			if sig == syscall.SIGTERM && supervisorapi.ShutdownTriggered() {
-				return
-			}
+		case <-sigChan:
+			// The supervisor's internal shutdown channel is separate from this
+			// OS signal channel, so every signal received here is external and
+			// must cancel the in-flight child.
 			cancel()
 		case <-ctx.Done():
 		case <-execCtx.Done():
