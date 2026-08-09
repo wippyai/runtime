@@ -96,6 +96,8 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 		SnapshotFetchSize:     cfg.SnapshotFetchSize,
 		MaxTransactionChanges: cfg.MaxTransactionChanges,
 		MaxTransactionBytes:   cfg.MaxTransactionBytes,
+		MaxInflightChanges:    cfg.MaxInflightChanges,
+		MaxInflightBytes:      cfg.MaxInflightBytes,
 		Log:                   m.log.With(zap.String("id", entry.ID.String())),
 	})
 
@@ -156,6 +158,8 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 		SnapshotFetchSize:     cfg.SnapshotFetchSize,
 		MaxTransactionChanges: cfg.MaxTransactionChanges,
 		MaxTransactionBytes:   cfg.MaxTransactionBytes,
+		MaxInflightChanges:    cfg.MaxInflightChanges,
+		MaxInflightBytes:      cfg.MaxInflightBytes,
 		Log:                   m.log.With(zap.String("id", entry.ID.String())),
 	})
 	m.sources[entry.ID] = src
@@ -228,7 +232,11 @@ func (m *Manager) Stream(_ context.Context, name string, opts config.StreamOptio
 	if !ok {
 		return nil, config.SourceInfo{}, NewServiceNotFoundError(registry.ParseID(name))
 	}
-	return src.Subscribe(opts), info, nil
+	stream := src.Subscribe(opts)
+	if stream == nil {
+		return nil, info, config.ErrSourceNotReady
+	}
+	return stream, info, nil
 }
 
 func (m *Manager) lookupSourceLocked(name string) (*Source, config.SourceInfo, bool) {

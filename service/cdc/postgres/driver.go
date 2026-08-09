@@ -67,6 +67,8 @@ func (Driver) Create(ctx context.Context, entry registry.Entry, deps cdcservice.
 		SnapshotFetchSize:     cfg.SnapshotFetchSize,
 		MaxTransactionChanges: cfg.MaxTransactionChanges,
 		MaxTransactionBytes:   cfg.MaxTransactionBytes,
+		MaxInflightChanges:    cfg.MaxInflightChanges,
+		MaxInflightBytes:      cfg.MaxInflightBytes,
 		Log:                   log.With(zap.String("id", entry.ID.String())),
 	}
 	return &sourceAdapter{
@@ -146,16 +148,8 @@ func (s *sourceAdapter) Subscribe(ctx context.Context, opts config.StreamOptions
 
 	s.mu.RLock()
 	source := s.source
-	source.mu.Lock()
-	state := source.state
-	source.mu.Unlock()
-	if state != sourceRunning {
-		s.mu.RUnlock()
-		return nil, config.ErrSourceNotReady
-	}
-	stream := source.Subscribe(opts)
 	s.mu.RUnlock()
-	return stream, nil
+	return source.subscribe(ctx, opts)
 }
 
 func (s *sourceAdapter) Start(ctx context.Context) (<-chan any, error) {

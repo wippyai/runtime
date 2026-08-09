@@ -24,16 +24,18 @@ type decodeResult struct {
 }
 
 type decoder struct {
-	rels      *relationCache
-	buffer    map[uint32][]bufferedChange
-	usage     map[uint32]int64
-	limits    decoderLimits
-	commitLSN pglogrepl.LSN
-	xid       uint32
-	curTopXid uint32
-	streaming bool
-	inStream  bool
-	txActive  bool
+	rels            *relationCache
+	buffer          map[uint32][]bufferedChange
+	usage           map[uint32]int64
+	limits          decoderLimits
+	commitLSN       pglogrepl.LSN
+	inflightChanges int
+	inflightBytes   int64
+	xid             uint32
+	curTopXid       uint32
+	streaming       bool
+	inStream        bool
+	txActive        bool
 }
 
 func newDecoder(limits ...decoderLimits) *decoder {
@@ -229,8 +231,7 @@ func (d *decoder) flushTransaction(commitLSN pglogrepl.LSN) []RowChange {
 		commitLSN = d.commitLSN
 	}
 	buffered := d.buffer[0]
-	delete(d.buffer, 0)
-	delete(d.usage, 0)
+	d.releaseBuffer(0)
 	changes := make([]RowChange, 0, len(buffered))
 	for i := range buffered {
 		buffered[i].rc.CommitLSN = commitLSN.String()
@@ -252,6 +253,7 @@ func (d *decoder) one(op Op, relID uint32, oldT, newT *pglogrepl.TupleData, walS
 	}
 	rc, err := d.changeFor(op, relID, oldT, newT, walStart)
 	if err != nil {
+		d.releaseReservation(0, 1, bytes)
 		return decodeResult{}, err
 	}
 	rc.XID = d.xid
@@ -306,6 +308,7 @@ func (d *decoder) bufferOne(subxid uint32, op Op, relID uint32, oldT, newT *pglo
 	}
 	rc, err := d.changeFor(op, relID, oldT, newT, walStart)
 	if err != nil {
+		d.releaseReservation(d.curTopXid, 1, bytes)
 		return err
 	}
 	rc.XID = d.curTopXid
@@ -336,8 +339,7 @@ func (d *decoder) bufferTruncate(m *pglogrepl.TruncateMessageV2, walStart pglogr
 
 func (d *decoder) flushStream(topXid uint32, commitLSN pglogrepl.LSN) []RowChange {
 	buffered := d.buffer[topXid]
-	delete(d.buffer, topXid)
-	delete(d.usage, topXid)
+	d.releaseBuffer(topXid)
 	d.inStream = false
 	d.curTopXid = 0
 
@@ -353,8 +355,7 @@ func (d *decoder) abortStream(topXid, subXid uint32) {
 	d.inStream = false
 	d.curTopXid = 0
 	if topXid == subXid {
-		delete(d.buffer, topXid)
-		delete(d.usage, topXid)
+		d.releaseBuffer(topXid)
 		return
 	}
 
@@ -378,6 +379,10 @@ func (d *decoder) abortStream(topXid, subXid uint32) {
 		// is nothing to truncate in that case.
 		return
 	}
+	oldChanges := len(src)
+	oldBytes := d.usage[topXid]
+	d.inflightChanges -= oldChanges
+	d.inflightBytes -= oldBytes
 	// Clear the discarded tail before reslicing so decoded row maps and their
 	// byte slices are no longer retained by the backing array.
 	clear(src[cut:])
@@ -393,6 +398,28 @@ func (d *decoder) abortStream(topXid, subXid uint32) {
 		bytes += bc.bytes
 	}
 	d.usage[topXid] = bytes
+	d.inflightChanges += len(src)
+	d.inflightBytes += bytes
+}
+
+func (d *decoder) releaseBuffer(key uint32) {
+	buffered, exists := d.buffer[key]
+	if !exists {
+		return
+	}
+	d.inflightChanges -= len(buffered)
+	d.inflightBytes -= d.usage[key]
+	delete(d.buffer, key)
+	delete(d.usage, key)
+}
+
+func (d *decoder) releaseReservation(key uint32, changes int, bytes int64) {
+	d.usage[key] -= bytes
+	d.inflightChanges -= changes
+	d.inflightBytes -= bytes
+	if d.usage[key] == 0 {
+		delete(d.usage, key)
+	}
 }
 
 func (d *decoder) reserveRow(key, relID uint32, oldT, newT *pglogrepl.TupleData) (int64, error) {
@@ -438,7 +465,17 @@ func (d *decoder) reserve(key uint32, changes int, bytes int64) error {
 	if bytes > d.limits.maxBytes-currentBytes {
 		return fmt.Errorf("%w: bytes=%d limit=%d", ErrTransactionLimit, currentBytes+bytes, d.limits.maxBytes)
 	}
+	if changes > d.limits.maxInflightChanges-d.inflightChanges {
+		return fmt.Errorf("%w: inflight_changes=%d limit=%d", ErrTransactionLimit,
+			d.inflightChanges+changes, d.limits.maxInflightChanges)
+	}
+	if bytes > d.limits.maxInflightBytes-d.inflightBytes {
+		return fmt.Errorf("%w: inflight_bytes=%d limit=%d", ErrTransactionLimit,
+			d.inflightBytes+bytes, d.limits.maxInflightBytes)
+	}
 	d.usage[key] = currentBytes + bytes
+	d.inflightChanges += changes
+	d.inflightBytes += bytes
 	return nil
 }
 

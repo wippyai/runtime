@@ -17,6 +17,8 @@ var (
 	ErrInvalidSnapshotFetchSize     = apierror.New(apierror.Invalid, "snapshot_fetch_size must be non-negative").WithRetryable(apierror.False)
 	ErrInvalidMaxTransactionChanges = apierror.New(apierror.Invalid, "max_transaction_changes must be non-negative").WithRetryable(apierror.False)
 	ErrInvalidMaxTransactionBytes   = apierror.New(apierror.Invalid, "max_transaction_bytes must be non-negative").WithRetryable(apierror.False)
+	ErrInvalidMaxInflightChanges    = apierror.New(apierror.Invalid, "max_inflight_changes must be non-negative").WithRetryable(apierror.False)
+	ErrInvalidMaxInflightBytes      = apierror.New(apierror.Invalid, "max_inflight_bytes must be non-negative").WithRetryable(apierror.False)
 	ErrDBResourceRequired           = apierror.New(apierror.Invalid, "db_resource is required").WithRetryable(apierror.False)
 	ErrSourceNotFound               = apierror.New(apierror.NotFound, "cdc source not found").WithRetryable(apierror.False)
 	ErrUnsupported                  = apierror.New(apierror.Invalid, "cdc operation is not supported by this source").WithRetryable(apierror.False)

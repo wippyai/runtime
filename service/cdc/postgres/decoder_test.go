@@ -264,6 +264,99 @@ func TestDecoderEnforcesTransactionByteLimitForStreamedSegments(t *testing.T) {
 	require.ErrorIs(t, err, ErrTransactionLimit)
 }
 
+func TestStreamingDecoderEnforcesAggregateChangeLimitAcrossXIDs(t *testing.T) {
+	d := newStreamingDecoder(decoderLimits{
+		maxChanges:         100,
+		maxBytes:           defaultMaxTransactionBytes,
+		maxInflightChanges: 1,
+		maxInflightBytes:   defaultMaxInflightBytes,
+	})
+	_, err := d.apply(relV2(), 0)
+	require.NoError(t, err)
+
+	_, err = d.apply(&pglogrepl.StreamStartMessageV2{Xid: 100, FirstSegment: 1}, 0)
+	require.NoError(t, err)
+	_, err = d.apply(insertV2(100, "1", "first@w.ai"), 0x20)
+	require.NoError(t, err)
+	_, err = d.apply(&pglogrepl.StreamStopMessageV2{}, 0)
+	require.NoError(t, err)
+
+	_, err = d.apply(&pglogrepl.StreamStartMessageV2{Xid: 200, FirstSegment: 1}, 0)
+	require.NoError(t, err)
+	_, err = d.apply(insertV2(200, "2", "second@w.ai"), 0x30)
+	require.ErrorIs(t, err, ErrTransactionLimit)
+	assert.Equal(t, 1, d.inflightChanges)
+
+	_, err = d.apply(&pglogrepl.StreamStopMessageV2{}, 0)
+	require.NoError(t, err)
+	_, err = d.apply(&pglogrepl.StreamCommitMessageV2{Xid: 100, CommitLSN: 0x40}, 0)
+	require.NoError(t, err)
+	assert.Zero(t, d.inflightChanges)
+}
+
+func TestStreamingDecoderEnforcesAggregateByteLimitAcrossXIDs(t *testing.T) {
+	rel := relV2()
+	rowBytes := estimateChangeBytes(&rel.RelationMessage, textTuple("1", "first@w.ai"), nil)
+	d := newStreamingDecoder(decoderLimits{
+		maxChanges:         100,
+		maxBytes:           defaultMaxTransactionBytes,
+		maxInflightChanges: 100,
+		maxInflightBytes:   rowBytes,
+	})
+	_, err := d.apply(rel, 0)
+	require.NoError(t, err)
+
+	_, err = d.apply(&pglogrepl.StreamStartMessageV2{Xid: 100, FirstSegment: 1}, 0)
+	require.NoError(t, err)
+	_, err = d.apply(insertV2(100, "1", "first@w.ai"), 0x20)
+	require.NoError(t, err)
+	_, err = d.apply(&pglogrepl.StreamStopMessageV2{}, 0)
+	require.NoError(t, err)
+
+	_, err = d.apply(&pglogrepl.StreamStartMessageV2{Xid: 200, FirstSegment: 1}, 0)
+	require.NoError(t, err)
+	_, err = d.apply(insertV2(200, "2", "second@w.ai"), 0x30)
+	require.ErrorIs(t, err, ErrTransactionLimit)
+	assert.Equal(t, rowBytes, d.inflightBytes)
+}
+
+func TestStreamingDecoderEnforcesAggregateLimitAcrossOrdinaryAndStreamedTransactions(t *testing.T) {
+	d := newStreamingDecoder(decoderLimits{
+		maxChanges:         100,
+		maxBytes:           defaultMaxTransactionBytes,
+		maxInflightChanges: 2,
+		maxInflightBytes:   defaultMaxInflightBytes,
+	})
+	_, err := d.apply(relV2(), 0)
+	require.NoError(t, err)
+
+	_, err = d.apply(&pglogrepl.StreamStartMessageV2{Xid: 100, FirstSegment: 1}, 0)
+	require.NoError(t, err)
+	_, err = d.apply(insertV2(100, "1", "stream@w.ai"), 0x20)
+	require.NoError(t, err)
+	_, err = d.apply(&pglogrepl.StreamStopMessageV2{}, 0)
+	require.NoError(t, err)
+
+	// Protocol v2 may interleave a regular transaction while a streamed
+	// transaction remains buffered. Both must count against the same bound.
+	_, err = d.apply(&pglogrepl.BeginMessage{FinalLSN: 0x30, Xid: 7}, 0)
+	require.NoError(t, err)
+	_, err = d.apply(&pglogrepl.InsertMessage{RelationID: 42, Tuple: textTuple("2", "ordinary@w.ai")}, 0x31)
+	require.NoError(t, err)
+	assert.Equal(t, 2, d.inflightChanges)
+
+	_, err = d.apply(&pglogrepl.InsertMessage{RelationID: 42, Tuple: textTuple("3", "over-limit@w.ai")}, 0x32)
+	require.ErrorIs(t, err, ErrTransactionLimit)
+	assert.Equal(t, 2, d.inflightChanges)
+
+	_, err = d.apply(&pglogrepl.CommitMessage{CommitLSN: 0x40}, 0)
+	require.NoError(t, err)
+	assert.Equal(t, 1, d.inflightChanges)
+	_, err = d.apply(&pglogrepl.StreamCommitMessageV2{Xid: 100, CommitLSN: 0x50}, 0)
+	require.NoError(t, err)
+	assert.Zero(t, d.inflightChanges)
+}
+
 func TestTupleToMapNullAndToast(t *testing.T) {
 	rel := &pglogrepl.RelationMessage{Columns: []*pglogrepl.RelationMessageColumn{
 		{Name: "a"},

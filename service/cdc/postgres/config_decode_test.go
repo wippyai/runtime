@@ -37,6 +37,8 @@ func TestConfigWireFormatMapsAndBuildsDSN(t *testing.T) {
 		"snapshot":                true,
 		"max_transaction_changes": 1234,
 		"max_transaction_bytes":   65536,
+		"max_inflight_changes":    2345,
+		"max_inflight_bytes":      131072,
 		"standby_interval":        "5s",
 		"status_interval":         "1m",
 		"tables":                  []any{"public.accounts", "public.orders"},
@@ -52,6 +54,8 @@ func TestConfigWireFormatMapsAndBuildsDSN(t *testing.T) {
 	assert.True(t, cfg.Snapshot)
 	assert.Equal(t, 1234, cfg.MaxTransactionChanges)
 	assert.Equal(t, int64(65536), cfg.MaxTransactionBytes)
+	assert.Equal(t, 2345, cfg.MaxInflightChanges)
+	assert.Equal(t, int64(131072), cfg.MaxInflightBytes)
 	assert.Equal(t, "5s", cfg.StandbyInterval)
 	assert.Equal(t, []string{"public.accounts", "public.orders"}, cfg.Tables)
 

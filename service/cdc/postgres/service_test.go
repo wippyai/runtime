@@ -16,18 +16,30 @@ func TestNewSourceDefaults(t *testing.T) {
 	assert.Equal(t, defaultStandbyInterval, s.standbyInterval)
 	assert.Equal(t, defaultStatusInterval, s.statusInterval)
 	assert.Equal(t, defaultSnapshotFetchSize, s.snapshotFetchSize)
+	assert.Equal(t, defaultMaxTransactionChanges, s.maxTransactionChanges)
+	assert.Equal(t, int64(defaultMaxTransactionBytes), s.maxTransactionBytes)
+	assert.Equal(t, defaultMaxInflightChanges, s.maxInflightChanges)
+	assert.Equal(t, int64(defaultMaxInflightBytes), s.maxInflightBytes)
 	assert.NotNil(t, s.log)
 }
 
 func TestNewSourceHonorsOverrides(t *testing.T) {
 	s := NewSource(SourceOptions{
-		StandbyInterval:   1 * time.Second,
-		StatusInterval:    2 * time.Second,
-		SnapshotFetchSize: 4096,
+		StandbyInterval:       1 * time.Second,
+		StatusInterval:        2 * time.Second,
+		SnapshotFetchSize:     4096,
+		MaxTransactionChanges: 123,
+		MaxTransactionBytes:   456,
+		MaxInflightChanges:    789,
+		MaxInflightBytes:      101112,
 	})
 	assert.Equal(t, 1*time.Second, s.standbyInterval)
 	assert.Equal(t, 2*time.Second, s.statusInterval)
 	assert.Equal(t, 4096, s.snapshotFetchSize)
+	assert.Equal(t, 123, s.maxTransactionChanges)
+	assert.Equal(t, int64(456), s.maxTransactionBytes)
+	assert.Equal(t, 789, s.maxInflightChanges)
+	assert.Equal(t, int64(101112), s.maxInflightBytes)
 }
 
 func TestStopBeforeStartIsSafe(t *testing.T) {

@@ -126,11 +126,17 @@ func TestConfigTransactionLimitsUseFiniteDefaults(t *testing.T) {
 	c := validConfig()
 	assert.Equal(t, DefaultPostgresMaxTransactionChanges, c.EffectiveMaxTransactionChanges())
 	assert.Equal(t, int64(DefaultPostgresMaxTransactionBytes), c.EffectiveMaxTransactionBytes())
+	assert.Equal(t, DefaultPostgresMaxInflightChanges, c.EffectiveMaxInflightChanges())
+	assert.Equal(t, int64(DefaultPostgresMaxInflightBytes), c.EffectiveMaxInflightBytes())
 
 	c.MaxTransactionChanges = 123
 	c.MaxTransactionBytes = 456
+	c.MaxInflightChanges = 789
+	c.MaxInflightBytes = 101112
 	assert.Equal(t, 123, c.EffectiveMaxTransactionChanges())
 	assert.Equal(t, int64(456), c.EffectiveMaxTransactionBytes())
+	assert.Equal(t, 789, c.EffectiveMaxInflightChanges())
+	assert.Equal(t, int64(101112), c.EffectiveMaxInflightBytes())
 	require.NoError(t, c.Validate())
 }
 
@@ -142,6 +148,14 @@ func TestConfigTransactionLimitsRejectNegative(t *testing.T) {
 	c = validConfig()
 	c.MaxTransactionBytes = -1
 	require.ErrorIs(t, c.Validate(), ErrInvalidMaxTransactionBytes)
+
+	c = validConfig()
+	c.MaxInflightChanges = -1
+	require.ErrorIs(t, c.Validate(), ErrInvalidMaxInflightChanges)
+
+	c = validConfig()
+	c.MaxInflightBytes = -1
+	require.ErrorIs(t, c.Validate(), ErrInvalidMaxInflightBytes)
 }
 
 func TestConfigFailoverRequiresPersistentSlot(t *testing.T) {

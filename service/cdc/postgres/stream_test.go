@@ -97,6 +97,33 @@ func TestSourceSubscriptionRetainsTerminalError(t *testing.T) {
 	assert.ErrorIs(t, stream.(interface{ Err() error }).Err(), err)
 }
 
+func TestSourceSubscriptionIsPrunedWhenStopWins(t *testing.T) {
+	src := NewSource(SourceOptions{Name: "test:cdc", Slot: "slot_a"})
+	src.mu.Lock()
+	src.state = sourceRunning
+	src.mu.Unlock()
+
+	stream, err := src.subscribe(context.Background(), cdcapi.StreamOptions{})
+	require.NoError(t, err)
+	require.NotNil(t, stream)
+
+	require.NoError(t, src.Stop(context.Background()))
+	assert.Eventually(t, func() bool {
+		src.subMu.RLock()
+		defer src.subMu.RUnlock()
+		return len(src.subs) == 0
+	}, time.Second, time.Millisecond)
+
+	select {
+	case _, ok := <-stream.Changes():
+		assert.False(t, ok)
+	case <-time.After(time.Second):
+		t.Fatal("stopped source left a live subscription")
+	}
+	_, err = src.subscribe(context.Background(), cdcapi.StreamOptions{})
+	assert.ErrorIs(t, err, cdcapi.ErrSourceNotReady)
+}
+
 func TestSourceSubscriptionOverflowIsBoundedAndLocal(t *testing.T) {
 	src := NewSource(SourceOptions{Name: "test:cdc", Slot: "slot_a"})
 	laggard := src.Subscribe(cdcapi.StreamOptions{Buffer: 1})

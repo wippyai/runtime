@@ -23,9 +23,10 @@ import (
 )
 
 const (
-	retainedWALGauge = "wippy_cdc_retained_wal_bytes"
-	changesCounter   = "wippy_cdc_changes_total"
-	errorsCounter    = "wippy_cdc_errors_total"
+	retainedWALGauge        = "wippy_cdc_retained_wal_bytes"
+	changesCounter          = "wippy_cdc_changes_total"
+	errorsCounter           = "wippy_cdc_errors_total"
+	transactionLimitCounter = "wippy_cdc_transaction_limit_total"
 )
 
 const (
@@ -61,6 +62,12 @@ type SourceOptions struct {
 	// MaxTransactionBytes bounds the estimated memory retained for one
 	// ordinary or streamed transaction. Zero uses the safe default.
 	MaxTransactionBytes int64
+	// MaxInflightChanges bounds all uncommitted row changes across interleaved
+	// ordinary and streamed transactions. Zero uses the safe default.
+	MaxInflightChanges int
+	// MaxInflightBytes bounds estimated memory retained by all uncommitted
+	// ordinary and streamed transactions. Zero uses the safe default.
+	MaxInflightBytes int64
 }
 
 type Source struct {
@@ -83,6 +90,8 @@ type Source struct {
 	snapshotFetchSize     int
 	maxTransactionChanges int
 	maxTransactionBytes   int64
+	maxInflightChanges    int
+	maxInflightBytes      int64
 	subMu                 sync.RWMutex
 	mu                    sync.Mutex
 	dropMu                sync.Mutex
@@ -144,8 +153,10 @@ func NewSource(opts SourceOptions) *Source {
 		fetch = defaultSnapshotFetchSize
 	}
 	limits := normalizeDecoderLimits(decoderLimits{
-		maxChanges: opts.MaxTransactionChanges,
-		maxBytes:   opts.MaxTransactionBytes,
+		maxChanges:         opts.MaxTransactionChanges,
+		maxBytes:           opts.MaxTransactionBytes,
+		maxInflightChanges: opts.MaxInflightChanges,
+		maxInflightBytes:   opts.MaxInflightBytes,
 	})
 	return &Source{
 		log:                   log,
@@ -166,6 +177,8 @@ func NewSource(opts SourceOptions) *Source {
 		snapshotFetchSize:     fetch,
 		maxTransactionChanges: limits.maxChanges,
 		maxTransactionBytes:   limits.maxBytes,
+		maxInflightChanges:    limits.maxInflightChanges,
+		maxInflightBytes:      limits.maxInflightBytes,
 	}
 }
 
@@ -383,7 +396,8 @@ func (s *Source) run(
 ) {
 	defer func() {
 		s.mu.Lock()
-		if s.done == done {
+		current := s.done == done
+		if current {
 			switch s.state {
 			case sourceStopping:
 				s.state = sourceStopped
@@ -393,10 +407,15 @@ func (s *Source) run(
 			s.cancel = nil
 		}
 		s.mu.Unlock()
+		// A failed generation can finish after a supervisor has already
+		// started its replacement. Only the active generation owns the
+		// subscription set; an old run must never prune new subscribers.
+		if current {
+			s.closeSubscriptions()
+		}
 		close(done)
 	}()
 	defer close(status)
-	defer s.closeSubscriptions()
 	defer func() { _ = adminDB.Close() }()
 	defer func() { _ = conn.Close(context.Background()) }()
 
@@ -439,8 +458,10 @@ func (s *Source) run(
 	}
 
 	limits := decoderLimits{
-		maxChanges: s.maxTransactionChanges,
-		maxBytes:   s.maxTransactionBytes,
+		maxChanges:         s.maxTransactionChanges,
+		maxBytes:           s.maxTransactionBytes,
+		maxInflightChanges: s.maxInflightChanges,
+		maxInflightBytes:   s.maxInflightBytes,
 	}
 	dec := newDecoder(limits)
 	if s.streaming {
@@ -624,10 +645,16 @@ func (s *Source) fail(_ context.Context, status chan any, err error) {
 	}
 	s.mu.Lock()
 	s.sourceErr = err
+	if s.state == sourceRunning || s.state == sourceStarting {
+		s.state = sourceFailed
+	}
 	s.mu.Unlock()
 	s.log.Error("cdc stream error", zap.String("slot", s.slot), zap.Error(err))
 	if s.coll != nil {
 		s.coll.CounterInc(errorsCounter, metrics.Labels{"source": s.name})
+		if errors.Is(err, ErrTransactionLimit) {
+			s.coll.CounterInc(transactionLimitCounter, metrics.Labels{"source": s.name})
+		}
 	}
 	s.closeSubscriptionsWithError(err)
 	select {

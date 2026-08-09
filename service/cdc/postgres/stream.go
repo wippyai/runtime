@@ -37,6 +37,35 @@ type sourceSubscription struct {
 }
 
 func (s *Source) Subscribe(opts config.StreamOptions) config.Stream {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.state != sourceNew && s.state != sourceRunning {
+		return nil
+	}
+	return s.newSubscription(opts)
+}
+
+// subscribe is the driver-facing subscription path. It holds the source
+// lifecycle lock while registering the child, so Stop/fault cannot transition
+// the source and close its current subscriptions between the state check and
+// registration.
+func (s *Source) subscribe(ctx context.Context, opts config.StreamOptions) (config.Stream, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.state != sourceRunning || s.permanentlyClosed || s.sourceErr != nil {
+		return nil, config.ErrSourceNotReady
+	}
+	return s.newSubscription(opts), nil
+}
+
+func (s *Source) newSubscription(opts config.StreamOptions) config.Stream {
 	buffer := opts.Buffer
 	if buffer <= 0 {
 		buffer = defaultStreamBuffer

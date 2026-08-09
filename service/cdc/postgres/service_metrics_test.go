@@ -28,3 +28,13 @@ func TestSource_FailNilCollector(t *testing.T) {
 	status := make(chan any, 1)
 	s.fail(context.Background(), status, errors.New("boom"))
 }
+
+func TestSource_FailEmitsTransactionLimitCounter(t *testing.T) {
+	rec := telemetrytest.NewRecorder()
+	s := &Source{log: zap.NewNop(), name: "test:source", coll: rec}
+
+	status := make(chan any, 1)
+	s.fail(context.Background(), status, ErrTransactionLimit)
+
+	assert.Equal(t, 1.0, rec.CounterValue(transactionLimitCounter, metrics.Labels{"source": "test:source"}))
+}

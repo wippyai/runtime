@@ -24,6 +24,8 @@ const (
 	// are omitted. Zero in Config means "use this default", never unlimited.
 	DefaultPostgresMaxTransactionChanges = 1_000_000
 	DefaultPostgresMaxTransactionBytes   = 256 << 20
+	DefaultPostgresMaxInflightChanges    = 1_000_000
+	DefaultPostgresMaxInflightBytes      = 256 << 20
 )
 
 type Config struct {
@@ -42,6 +44,8 @@ type Config struct {
 	SnapshotFetchSize     int                        `json:"snapshot_fetch_size,omitempty"`
 	MaxTransactionChanges int                        `json:"max_transaction_changes,omitempty"`
 	MaxTransactionBytes   int64                      `json:"max_transaction_bytes,omitempty"`
+	MaxInflightChanges    int                        `json:"max_inflight_changes,omitempty"`
+	MaxInflightBytes      int64                      `json:"max_inflight_bytes,omitempty"`
 	Temporary             bool                       `json:"temporary,omitempty"`
 	Snapshot              bool                       `json:"snapshot,omitempty"`
 	Streaming             bool                       `json:"streaming,omitempty"`
@@ -89,6 +93,12 @@ func (c *Config) Validate() error {
 	if c.MaxTransactionBytes < 0 {
 		return ErrInvalidMaxTransactionBytes
 	}
+	if c.MaxInflightChanges < 0 {
+		return ErrInvalidMaxInflightChanges
+	}
+	if c.MaxInflightBytes < 0 {
+		return ErrInvalidMaxInflightBytes
+	}
 	if _, err := c.StandbyDuration(); err != nil {
 		return err
 	}
@@ -110,6 +120,20 @@ func (c *Config) EffectiveMaxTransactionBytes() int64 {
 		return c.MaxTransactionBytes
 	}
 	return DefaultPostgresMaxTransactionBytes
+}
+
+func (c *Config) EffectiveMaxInflightChanges() int {
+	if c.MaxInflightChanges > 0 {
+		return c.MaxInflightChanges
+	}
+	return DefaultPostgresMaxInflightChanges
+}
+
+func (c *Config) EffectiveMaxInflightBytes() int64 {
+	if c.MaxInflightBytes > 0 {
+		return c.MaxInflightBytes
+	}
+	return DefaultPostgresMaxInflightBytes
 }
 
 func (c *Config) StandbyDuration() (time.Duration, error) {
