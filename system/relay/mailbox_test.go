@@ -5,6 +5,7 @@ package relay
 import (
 	"context"
 	"fmt"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -79,7 +80,7 @@ func TestMailbox_Attach(t *testing.T) {
 	// Test cancellation
 	cancel1()
 	time.Sleep(time.Millisecond * 10) // Allow time for the delete operation
-	_, exists := mailbox.receivers.Load(pid)
+	_, exists := mailbox.receivers.Load(pid.String())
 	assert.False(t, exists)
 }
 
@@ -201,6 +202,115 @@ func TestMailbox_DetachReleasesBufferedPackages(t *testing.T) {
 		"detaching a receiver must release packages already accepted by its channel")
 }
 
+func TestMailbox_DetachReattachDoesNotCrossReceiverGeneration(t *testing.T) {
+	mailbox := NewMailbox(context.Background(), WithBufferSize(8), WithWorkerCount(1))
+	target := pidapi.PID{Node: "node1", Host: "host1", UniqID: "generation"}
+	oldCh := make(chan *relay.Package, 8)
+	_, err := mailbox.Attach(target, oldCh)
+	require.NoError(t, err)
+
+	oldPkg, oldProbe := probedPackage(target)
+	require.NoError(t, mailbox.Send(oldPkg))
+	mailbox.Detach(target)
+	require.Eventually(t, func() bool { return oldProbe.releases.Load() == 1 }, time.Second, time.Millisecond)
+	select {
+	case <-oldCh:
+		t.Fatal("detached receiver retained a package")
+	default:
+	}
+
+	newCh := make(chan *relay.Package, 1)
+	_, err = mailbox.Attach(target, newCh)
+	require.NoError(t, err)
+	newPkg, newProbe := probedPackage(target)
+	require.NoError(t, mailbox.Send(newPkg))
+	select {
+	case delivered := <-newCh:
+		relay.ReleasePackage(delivered)
+	case <-time.After(time.Second):
+		t.Fatal("reattached receiver did not receive its package")
+	}
+	require.Equal(t, int32(1), newProbe.releases.Load())
+	select {
+	case <-oldCh:
+		t.Fatal("old receiver received a package after reattach")
+	default:
+	}
+	mailbox.Detach(target)
+}
+
+func TestMailbox_DetachReattachConcurrentStress(t *testing.T) {
+	mailbox := NewMailbox(context.Background(), WithBufferSize(32), WithWorkerCount(2))
+	target := pidapi.PID{Node: "node1", Host: "host1", UniqID: "stress"}
+
+	for round := 0; round < 100; round++ {
+		oldCh := make(chan *relay.Package, 32)
+		_, err := mailbox.Attach(target, oldCh)
+		require.NoError(t, err)
+		probes := make([]*mailboxReleaseProbe, 8)
+		var sends sync.WaitGroup
+		for i := range probes {
+			pkg, probe := probedPackage(target)
+			probes[i] = probe
+			sends.Add(1)
+			go func(pkg *relay.Package) {
+				defer sends.Done()
+				_ = mailbox.Send(pkg)
+			}(pkg)
+		}
+		mailbox.Detach(target)
+		sends.Wait()
+		for _, probe := range probes {
+			require.Eventually(t, func() bool { return probe.releases.Load() == 1 }, time.Second, time.Millisecond)
+		}
+		newCh := make(chan *relay.Package, 1)
+		_, err = mailbox.Attach(target, newCh)
+		require.NoError(t, err)
+		mailbox.Detach(target)
+	}
+}
+
+func TestMailbox_DetachDoesNotWaitForBlockedAdmission(t *testing.T) {
+	mailbox := NewMailbox(context.Background(), WithBufferSize(1), WithWorkerCount(1))
+	target := pidapi.PID{Node: "node1", Host: "host1", UniqID: "blocked-admission"}
+	_, err := mailbox.Attach(target, make(chan *relay.Package))
+	require.NoError(t, err)
+
+	packages := make([]*relay.Package, 3)
+	probes := make([]*mailboxReleaseProbe, 3)
+	for i := range packages {
+		packages[i], probes[i] = probedPackage(target)
+	}
+	// The first job blocks in the unbuffered receiver; the second fills the
+	// mailbox queue, leaving the third sender blocked on admission.
+	require.NoError(t, mailbox.Send(packages[0]))
+	require.NoError(t, mailbox.Send(packages[1]))
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	errCh := make(chan error, 1)
+	go func() { errCh <- mailbox.SendContext(ctx, packages[2]) }()
+	require.Eventually(t, func() bool {
+		return len(mailbox.jobQueues[0]) == 1
+	}, time.Second, time.Millisecond, "second package did not remain queued behind blocked delivery")
+
+	detached := make(chan struct{})
+	go func() {
+		mailbox.Detach(target)
+		close(detached)
+	}()
+	select {
+	case <-detached:
+	case <-time.After(time.Second):
+		t.Fatal("Detach waited on a blocked queue admission")
+	}
+	if err := <-errCh; err != nil {
+		relay.ReleasePackage(packages[2])
+	}
+	for _, probe := range probes {
+		require.Eventually(t, func() bool { return probe.releases.Load() == 1 }, time.Second, time.Millisecond)
+	}
+}
+
 func TestMailbox_ShutdownReleasesQueuedPackages(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	mailbox := NewMailbox(ctx, WithBufferSize(8), WithWorkerCount(1))
@@ -262,10 +372,10 @@ func TestMailbox_DetachDuringDelivery(t *testing.T) {
 	// Message should be dropped without error
 }
 
-// A receiver's owner closes its own channel on teardown (Detach only removes the
-// map entry). A delivery racing that close hits a send-on-closed-channel, which
-// must be dropped, never panicking the worker — proven by a subsequent delivery
-// to a live receiver on the same worker still arriving.
+// A receiver's owner closes its own channel on teardown. A delivery racing that
+// close hits a send-on-closed-channel, which must be dropped, never panicking
+// the worker — proven by a subsequent delivery to a live receiver on the same
+// worker still arriving.
 func TestMailbox_ClosedReceiverDoesNotKillWorker(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
 	defer cancel()
