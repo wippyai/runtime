@@ -452,6 +452,24 @@ func (m *mockPutObjectClient) PutObject(_ context.Context, _ *s3.PutObjectInput,
 }
 
 func TestStorage_UploadObject(t *testing.T) {
+	t.Run("nil content", func(t *testing.T) {
+		storage := NewStorage(nil, "test-bucket", nil)
+
+		var content io.Reader
+		err := storage.UploadObject(context.Background(), "test-key", content, nil)
+
+		require.ErrorIs(t, err, cloudstorage.ErrNilUploadContent)
+	})
+
+	t.Run("typed nil content", func(t *testing.T) {
+		storage := NewStorage(nil, "test-bucket", nil)
+
+		var reader *bytes.Reader
+		err := storage.UploadObject(context.Background(), "test-key", reader, nil)
+
+		require.ErrorIs(t, err, cloudstorage.ErrNilUploadContent)
+	})
+
 	t.Run("success", func(t *testing.T) {
 		mock := &mockPutObjectClient{}
 		content := bytes.NewReader([]byte("upload content"))

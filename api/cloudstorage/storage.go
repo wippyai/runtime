@@ -18,6 +18,9 @@ var ErrPreconditionFailed = errors.New("cloudstorage: precondition failed")
 // (HTTP 404 / SDK NoSuchKey / NotFound from the underlying provider).
 var ErrNotFound = errors.New("cloudstorage: not found")
 
+// ErrNilUploadContent is returned when an upload is requested without a body.
+var ErrNilUploadContent = errors.New("cloudstorage: upload content is nil")
+
 type (
 	// Owner identifies the owner of an object (when surfaced by the provider).
 	Owner struct {
