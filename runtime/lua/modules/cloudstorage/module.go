@@ -27,6 +27,7 @@ var Module = &luaapi.ModuleDef{
 		mod.Immutable = true
 
 		value.RegisterTypeMethods(nil, storageTypeName, storageMetamethods, storageMethods)
+		value.RegisterTypeMethods(nil, readerTypeName, readerMetamethods, readerMethods)
 
 		return mod, []luaapi.YieldType{
 			{Sample: &ListObjectsYield{}, CmdID: csapi.ListObjects},
@@ -36,6 +37,11 @@ var Module = &luaapi.ModuleDef{
 			{Sample: &PresignedGetURLYield{}, CmdID: csapi.PresignedGetURL},
 			{Sample: &PresignedPutURLYield{}, CmdID: csapi.PresignedPutURL},
 			{Sample: &HeadObjectYield{}, CmdID: csapi.HeadObject},
+			{Sample: &CreateMultipartUploadYield{}, CmdID: csapi.CreateMultipartUpload},
+			{Sample: &PresignedPartURLsYield{}, CmdID: csapi.PresignedUploadPartURLs},
+			{Sample: &CompleteMultipartUploadYield{}, CmdID: csapi.CompleteMultipartUpload},
+			{Sample: &AbortMultipartUploadYield{}, CmdID: csapi.AbortMultipartUpload},
+			{Sample: &OpenReaderYield{}, CmdID: csapi.OpenReader},
 		}
 	},
 	Types: ModuleTypes,
@@ -49,14 +55,19 @@ type storageWrapper struct {
 }
 
 var storageMethods = map[string]lua.LGoFunc{
-	"list_objects":      storageListObjects,
-	"head_object":       storageHeadObject,
-	"download_object":   storageDownloadObject,
-	"upload_object":     storageUploadObject,
-	"delete_objects":    storageDeleteObjects,
-	"presigned_get_url": storagePresignedGetURL,
-	"presigned_put_url": storagePresignedPutURL,
-	"release":           storageRelease,
+	"list_objects":              storageListObjects,
+	"head_object":               storageHeadObject,
+	"download_object":           storageDownloadObject,
+	"upload_object":             storageUploadObject,
+	"delete_objects":            storageDeleteObjects,
+	"presigned_get_url":         storagePresignedGetURL,
+	"presigned_put_url":         storagePresignedPutURL,
+	"create_multipart_upload":   storageCreateMultipartUpload,
+	"presigned_part_urls":       storagePresignedPartURLs,
+	"complete_multipart_upload": storageCompleteMultipartUpload,
+	"abort_multipart_upload":    storageAbortMultipartUpload,
+	"open_reader":               storageOpenReader,
+	"release":                   storageRelease,
 }
 
 var storageMetamethods = map[string]lua.LGoFunc{
@@ -297,6 +308,21 @@ func storageUploadObject(l *lua.LState) int {
 	yield.Key = key
 	yield.Content = content
 
+	if ud, ok := content.(*lua.LUserData); ok {
+		if _, direct := ud.Value.(io.Reader); !direct {
+			if rp, isProvider := ud.Value.(rtresource.ReaderProvider); isProvider {
+				r, rerr := rp.GetReader(l.Context())
+				if rerr != nil {
+					ReleaseUploadObjectYield(yield)
+					l.Push(lua.LNil)
+					l.Push(lua.WrapErrorWithLua(l, rerr, "failed to get reader").WithKind(lua.Internal).WithRetryable(false))
+					return 2
+				}
+				yield.ContentReader = r
+			}
+		}
+	}
+
 	if l.Get(4) != lua.LNil {
 		optsTable := l.CheckTable(4)
 		uo := &csapi.UploadOptions{}
@@ -451,6 +477,251 @@ func storagePresignedPutURL(l *lua.LState) int {
 			yield.ContentLength = int64(lua.LVAsNumber(cl))
 		}
 	}
+
+	l.Push(yield)
+	return -1
+}
+
+func checkStorageAndKey(l *lua.LState) (*storageWrapper, string, bool) {
+	wrapper := checkStorage(l, 1)
+	if wrapper == nil {
+		return nil, "", false
+	}
+
+	if wrapper.released {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "storage has been released").WithKind(lua.Invalid).WithRetryable(false))
+		return nil, "", false
+	}
+
+	key := l.CheckString(2)
+	if key == "" {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "key is required").WithKind(lua.Invalid).WithRetryable(false))
+		return nil, "", false
+	}
+
+	return wrapper, key, true
+}
+
+func stringMap(v lua.LValue) map[string]string {
+	t, ok := v.(*lua.LTable)
+	if !ok {
+		return nil
+	}
+	out := make(map[string]string, t.Len())
+	t.ForEach(func(k, mv lua.LValue) {
+		if ks, kok := k.(lua.LString); kok {
+			out[string(ks)] = mv.String()
+		}
+	})
+	return out
+}
+
+func storageCreateMultipartUpload(l *lua.LState) int {
+	wrapper, key, ok := checkStorageAndKey(l)
+	if !ok {
+		return 2
+	}
+
+	yield := AcquireCreateMultipartUploadYield()
+	yield.Storage = wrapper.storage
+	yield.Key = key
+
+	if l.Get(3) != lua.LNil {
+		optsTable := l.CheckTable(3)
+		mo := &csapi.CreateMultipartUploadOptions{}
+
+		if v := optsTable.RawGetString("content_type"); v != lua.LNil {
+			mo.ContentType = v.String()
+		}
+		if v := optsTable.RawGetString("cache_control"); v != lua.LNil {
+			mo.CacheControl = v.String()
+		}
+		if v := optsTable.RawGetString("content_disposition"); v != lua.LNil {
+			mo.ContentDisposition = v.String()
+		}
+		if v := optsTable.RawGetString("content_encoding"); v != lua.LNil {
+			mo.ContentEncoding = v.String()
+		}
+		if v := optsTable.RawGetString("metadata"); v != lua.LNil {
+			mo.Metadata = stringMap(v)
+		}
+		if v := optsTable.RawGetString("headers"); v != lua.LNil {
+			mo.Headers = stringMap(v)
+		}
+		yield.Options = mo
+	}
+
+	l.Push(yield)
+	return -1
+}
+
+func storagePresignedPartURLs(l *lua.LState) int {
+	wrapper, key, ok := checkStorageAndKey(l)
+	if !ok {
+		return 2
+	}
+
+	uploadID := l.CheckString(3)
+	if uploadID == "" {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "upload_id is required").WithKind(lua.Invalid).WithRetryable(false))
+		return 2
+	}
+
+	optsTable := l.CheckTable(4)
+
+	var partNumbers []int32
+	if v := optsTable.RawGetString("parts"); v != lua.LNil {
+		pt, tok := v.(*lua.LTable)
+		if !tok {
+			l.Push(lua.LNil)
+			l.Push(lua.NewLuaError(l, "parts must be an array of part numbers").WithKind(lua.Invalid).WithRetryable(false))
+			return 2
+		}
+		partNumbers = make([]int32, 0, pt.Len())
+		for i := 1; i <= pt.Len(); i++ {
+			partNumbers = append(partNumbers, int32(lua.LVAsNumber(pt.RawGetInt(i))))
+		}
+	} else if v := optsTable.RawGetString("count"); v != lua.LNil {
+		count := int(lua.LVAsNumber(v))
+		if count < 1 {
+			l.Push(lua.LNil)
+			l.Push(lua.NewLuaError(l, "count must be at least 1").WithKind(lua.Invalid).WithRetryable(false))
+			return 2
+		}
+		if count > csapi.MaxPresignPartBatch {
+			l.Push(lua.LNil)
+			l.Push(lua.NewLuaError(l, "count exceeds the per-call presign limit").WithKind(lua.Invalid).WithRetryable(false))
+			return 2
+		}
+		partNumbers = make([]int32, count)
+		for i := range partNumbers {
+			partNumbers[i] = int32(i + 1)
+		}
+	}
+
+	if len(partNumbers) == 0 {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "options must set parts (array) or count (number)").WithKind(lua.Invalid).WithRetryable(false))
+		return 2
+	}
+
+	yield := AcquirePresignedPartURLsYield()
+	yield.Storage = wrapper.storage
+	yield.Key = key
+	yield.UploadID = uploadID
+	yield.Options = &csapi.PresignedUploadPartOptions{PartNumbers: partNumbers}
+
+	if exp := optsTable.RawGetString("expiration"); exp != lua.LNil {
+		yield.Expiration = int64(lua.LVAsNumber(exp))
+	}
+
+	l.Push(yield)
+	return -1
+}
+
+func storageCompleteMultipartUpload(l *lua.LState) int {
+	wrapper, key, ok := checkStorageAndKey(l)
+	if !ok {
+		return 2
+	}
+
+	uploadID := l.CheckString(3)
+	if uploadID == "" {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "upload_id is required").WithKind(lua.Invalid).WithRetryable(false))
+		return 2
+	}
+
+	partsTable := l.CheckTable(4)
+	parts := make([]csapi.CompletedPart, 0, partsTable.Len())
+	for i := 1; i <= partsTable.Len(); i++ {
+		entry, tok := partsTable.RawGetInt(i).(*lua.LTable)
+		if !tok {
+			l.Push(lua.LNil)
+			l.Push(lua.NewLuaError(l, "parts must be an array of {part_number, etag} tables").WithKind(lua.Invalid).WithRetryable(false))
+			return 2
+		}
+		parts = append(parts, csapi.CompletedPart{
+			PartNumber: int32(lua.LVAsNumber(entry.RawGetString("part_number"))),
+			ETag:       entry.RawGetString("etag").String(),
+		})
+	}
+	if len(parts) == 0 {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "at least one completed part is required").WithKind(lua.Invalid).WithRetryable(false))
+		return 2
+	}
+
+	yield := AcquireCompleteMultipartUploadYield()
+	yield.Storage = wrapper.storage
+	yield.Key = key
+	yield.UploadID = uploadID
+	yield.Parts = parts
+
+	l.Push(yield)
+	return -1
+}
+
+func storageAbortMultipartUpload(l *lua.LState) int {
+	wrapper, key, ok := checkStorageAndKey(l)
+	if !ok {
+		return 2
+	}
+
+	uploadID := l.CheckString(3)
+	if uploadID == "" {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "upload_id is required").WithKind(lua.Invalid).WithRetryable(false))
+		return 2
+	}
+
+	yield := AcquireAbortMultipartUploadYield()
+	yield.Storage = wrapper.storage
+	yield.Key = key
+	yield.UploadID = uploadID
+
+	l.Push(yield)
+	return -1
+}
+
+func storageOpenReader(l *lua.LState) int {
+	wrapper, key, ok := checkStorageAndKey(l)
+	if !ok {
+		return 2
+	}
+
+	var (
+		blockSize   int64
+		cacheBlocks int
+	)
+	if l.Get(3) != lua.LNil {
+		optsTable := l.CheckTable(3)
+		if v := optsTable.RawGetString("block_size"); v != lua.LNil {
+			blockSize = int64(lua.LVAsNumber(v))
+			if blockSize < minReaderBlockSize || blockSize > maxReaderBlockSize {
+				l.Push(lua.LNil)
+				l.Push(lua.NewLuaError(l, "block_size out of range").WithKind(lua.Invalid).WithRetryable(false))
+				return 2
+			}
+		}
+		if v := optsTable.RawGetString("cache_blocks"); v != lua.LNil {
+			cacheBlocks = int(lua.LVAsNumber(v))
+			if cacheBlocks < 1 || cacheBlocks > csapi.MaxReaderCacheBlocks {
+				l.Push(lua.LNil)
+				l.Push(lua.NewLuaError(l, "cache_blocks out of range").WithKind(lua.Invalid).WithRetryable(false))
+				return 2
+			}
+		}
+	}
+
+	yield := AcquireOpenReaderYield()
+	yield.Storage = wrapper.storage
+	yield.Key = key
+	yield.BlockSize = blockSize
+	yield.CacheBlocks = cacheBlocks
 
 	l.Push(yield)
 	return -1

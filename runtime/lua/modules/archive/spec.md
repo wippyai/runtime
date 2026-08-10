@@ -76,6 +76,14 @@ local r = archive.open(file)            -- file = fs:open("x.zip"), read off dis
 -- small, already-in-memory archives. For large zips use an fs file or a stream,
 -- never bytes:
 local r = archive.open(zip_bytes, { format = "zip" })  -- small archives only
+-- Or from any module-provided random-access source: a userdata whose value
+-- implements io.ReaderAt + Size() (and optionally Name() for sniffing by
+-- extension). cloudstorage's open_reader is one — random access over a
+-- multi-GB zip in object storage via ranged GETs, no local staging; the
+-- source's lifecycle stays with the module that created it (archive never
+-- closes it):
+local reader = assert(storage:open_reader("uploads/huge.zip"))
+local r = archive.open(reader)
 
 for e in r:entries() do                 -- iterate the directory (metadata only)
   print(e.name, e.size, e.is_dir)       -- e: {name,size,compressed_size,is_dir,mode,modified,method,crc32}

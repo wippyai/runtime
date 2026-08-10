@@ -54,6 +54,11 @@ Returned by `cloudstorage.get()`. Provides methods for cloud storage operations.
 | delete_objects | (keys: string[]) | boolean, error | Deletes multiple objects |
 | presigned_get_url | (key: string, options?: table) | string, error | Generates presigned download URL |
 | presigned_put_url | (key: string, options?: table) | string, error | Generates presigned upload URL |
+| create_multipart_upload | (key: string, options?: table) | table, error | Starts a presigned multipart upload |
+| presigned_part_urls | (key: string, upload_id: string, options: table) | table, error | Generates presigned URLs for upload parts |
+| complete_multipart_upload | (key: string, upload_id: string, parts: table) | table, error | Assembles the object from uploaded parts |
+| abort_multipart_upload | (key: string, upload_id: string) | boolean, error | Discards an in-progress multipart upload |
+| open_reader | (key: string, options?: table) | Reader, error | Opens a ranged random-access reader over an object |
 | release | () | boolean | Releases storage resource |
 
 #### storage:list_objects(options?: table) → table, error
@@ -263,6 +268,8 @@ preconditions.
 **Notes:**
 - String content is converted to bytes automatically
 - io.Reader content (e.g., fs.File) should be opened in read mode ("r")
+- stream.Stream content (request bodies, multipart files, archive entries)
+  is consumed as a stream — the object is never buffered whole in memory
 - File is read completely during upload
 
 ```lua
@@ -400,6 +407,172 @@ if err then error(err) end
 print("Upload URL:", url)
 ```
 
+#### storage:create_multipart_upload(key: string, options?: table) → table, error
+
+Starts a presigned multipart upload for objects too large for a single
+presigned PUT (S3 caps one PUT at 5 GiB; multipart objects go up to 5 TB).
+The provider must support the multipart capability; otherwise the call fails
+with `errors.UNAVAILABLE`.
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| key | string | yes | - | Object key/path of the final object |
+| options | table | no | nil | Object attributes, see below |
+
+**options fields:** `content_type`, `cache_control`, `content_disposition`,
+`content_encoding`, `metadata` (table<string,string>), `headers`
+(table<string,string>, raw pass-through) — same semantics as
+`upload_object`. Preconditions (`if_match`) are not part of the multipart
+protocol.
+
+**Returns:**
+- Success: `table` with `upload_id` (string) — identifies the upload for all
+  subsequent part/complete/abort calls
+- Error: `nil, error`
+
+**Notes:**
+- An upload that is never completed keeps its parts stored (and billed)
+  until aborted. Always `abort_multipart_upload` on failure, and configure a
+  bucket lifecycle rule (`AbortIncompleteMultipartUpload`) as a backstop.
+
+```lua
+local mp, err = storage:create_multipart_upload("backups/huge.zip", {
+    content_type = "application/zip",
+    metadata = { source = "uploader" },
+})
+if err then error(err) end
+print("upload id:", mp.upload_id)
+```
+
+#### storage:presigned_part_urls(key: string, upload_id: string, options: table) → table, error
+
+Generates presigned PUT URLs for parts of an in-progress multipart upload.
+Each URL is uploaded to with a plain HTTP PUT (typically by a browser); the
+response's `ETag` header must be collected for `complete_multipart_upload`.
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| key | string | yes | - | Object key |
+| upload_id | string | yes | - | From create_multipart_upload |
+| options | table | yes | - | Part selection, see below |
+
+**options fields:**
+
+| Field | Type | Default | Notes |
+|-------|------|---------|-------|
+| parts | number[] | - | Explicit part numbers to presign (1-based, ≤ 10000) |
+| count | number | - | Convenience: presign parts 1..count |
+| expiration | number | 3600 | Seconds until the URLs expire |
+
+Exactly one of `parts` or `count` is required. At most 1000 URLs per call —
+presign in pages for very large objects.
+
+**Returns:**
+- Success: array of `{ part_number = number, url = string }`
+- Error: `nil, error`
+
+**Notes:**
+- Every part except the last must be at least 5 MiB (S3 protocol rule,
+  enforced at complete time). 10000 parts × part size bounds the object
+  size; 64 MiB parts cover objects up to 640 GiB.
+
+```lua
+local urls, err = storage:presigned_part_urls(key, mp.upload_id, {
+    count = 3, expiration = 900,
+})
+-- urls[1].part_number == 1, urls[1].url == "https://..."
+```
+
+#### storage:complete_multipart_upload(key: string, upload_id: string, parts: table) → table, error
+
+Assembles the final object from uploaded parts. Parts may be reported in any
+order; they are sorted by part number before completion.
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| key | string | yes | - | Object key |
+| upload_id | string | yes | - | From create_multipart_upload |
+| parts | table | yes | - | Array of `{ part_number = number, etag = string }` |
+
+**Returns:**
+- Success: `table` with `etag` (string), plus `version_id` and `location`
+  when the provider reports them
+- Error: `nil, error` — unknown upload IDs map to `errors.NOT_FOUND`
+
+```lua
+local done, err = storage:complete_multipart_upload(key, mp.upload_id, {
+    { part_number = 1, etag = etag1 },
+    { part_number = 2, etag = etag2 },
+})
+```
+
+#### storage:abort_multipart_upload(key: string, upload_id: string) → boolean, error
+
+Discards an in-progress multipart upload and frees its stored parts.
+Aborting an unknown/already-completed upload maps to `errors.NOT_FOUND` on
+most providers.
+
+```lua
+local ok, err = storage:abort_multipart_upload(key, mp.upload_id)
+```
+
+#### storage:open_reader(key: string, options?: table) → Reader, error
+
+Opens a random-access reader over an object using ranged GETs — no local
+staging, no full download. The primary consumer is `archive.open(reader)`,
+which reads multi-GB zips straight out of object storage with bounded
+memory.
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| key | string | yes | - | Object key |
+| options | table | no | nil | Block tuning, see below |
+
+**options fields:**
+
+| Field | Type | Default | Notes |
+|-------|------|---------|-------|
+| block_size | number | 8388608 | Ranged-GET unit in bytes (64 KiB – 128 MiB) |
+| cache_blocks | number | 4 | Resident LRU blocks (1 – 64). RAM = block_size × cache_blocks |
+
+**Returns:**
+- Success: `Reader` (see type below)
+- Error: `nil, error` — missing objects map to `errors.NOT_FOUND`
+
+**Notes:**
+- The object's ETag is pinned at open time and sent as `If-Match` on every
+  ranged read: if the object is overwritten mid-read, reads fail with
+  `errors.CONFLICT` instead of silently mixing two object generations.
+  (Providers that ignore preconditions lose this protection — see
+  portability notes.)
+- Cache-miss reads perform blocking network IO in the calling task and
+  serialize concurrent readers; sequential per-entry access (the archive
+  pattern) is the intended shape.
+- The reader is closed automatically at task end if not closed explicitly.
+
+```lua
+local reader, err = storage:open_reader("uploads/huge.zip", {
+    block_size = 8 * 1024 * 1024,
+})
+if err then error(err) end
+
+local r = assert(archive.open(reader))     -- random access over S3
+for e in r:entries() do print(e.name, e.size) end
+r:close()
+reader:close()
+```
+
+### Reader
+
+Returned by `storage:open_reader()`. A random-access handle other modules
+can consume as a seekable source (`archive.open`).
+
+| Method | Signature | Returns | Notes |
+|--------|-----------|---------|-------|
+| size | () | number | Object size in bytes (from open-time stat) |
+| key | () | string | Object key the reader reads from |
+| close | () | boolean, error | Releases the block cache; idempotent |
+
 #### storage:release() → boolean
 
 Releases the storage resource.
@@ -520,6 +693,26 @@ The most important caveats:
   header conventions.
 
 ## Changelog
+
+### Presigned multipart uploads + ranged random-access reader
+
+All additions are purely additive; pre-existing call signatures keep working unchanged.
+
+**New methods — presigned multipart uploads** (provider capability; S3 implements it, others fail with `errors.UNAVAILABLE`):
+- `storage:create_multipart_upload(key, options?)` → `{ upload_id }` — start a multipart upload for objects beyond the 5 GiB single-PUT limit.
+- `storage:presigned_part_urls(key, upload_id, options)` → `[{ part_number, url }]` — presign part PUT URLs in batches (≤ 1000 per call), via `parts` array or `count` sugar.
+- `storage:complete_multipart_upload(key, upload_id, parts)` → `{ etag, version_id?, location? }` — parts accepted in any order.
+- `storage:abort_multipart_upload(key, upload_id)` → `boolean`.
+
+**New method — ranged reader**:
+- `storage:open_reader(key, options?)` → `Reader` — random access over an object through ranged GETs with an LRU block cache (`block_size`, `cache_blocks`); pins the open-time ETag via `If-Match` so concurrent overwrites surface as `errors.CONFLICT`. Consumable by `archive.open` for reading large archives directly from object storage.
+
+**New type**
+- `Reader` — `size()`, `key()`, `close()`; auto-closed at task end.
+
+**New error kinds surfaced**
+- `errors.UNAVAILABLE` — multipart operation on a provider without the capability.
+- `errors.CONFLICT` (message `precondition_failed`) — ranged read after the object was overwritten.
 
 ### [#264](https://github.com/wippyai/runtime/pull/264) — object metadata, ETag, conditional ops, headers escape-hatch
 

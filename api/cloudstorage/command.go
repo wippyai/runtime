@@ -15,18 +15,26 @@ func init() {
 		ListObjects, DownloadObject, UploadObject,
 		DeleteObjects, PresignedGetURL, PresignedPutURL,
 		HeadObject,
+		CreateMultipartUpload, PresignedUploadPartURLs,
+		CompleteMultipartUpload, AbortMultipartUpload,
+		OpenReader,
 	)
 }
 
 // Command IDs for cloud storage operations.
 const (
-	ListObjects     dispatcher.CommandID = 160
-	DownloadObject  dispatcher.CommandID = 161
-	UploadObject    dispatcher.CommandID = 162
-	DeleteObjects   dispatcher.CommandID = 163
-	PresignedGetURL dispatcher.CommandID = 164
-	PresignedPutURL dispatcher.CommandID = 165
-	HeadObject      dispatcher.CommandID = 166
+	ListObjects             dispatcher.CommandID = 160
+	DownloadObject          dispatcher.CommandID = 161
+	UploadObject            dispatcher.CommandID = 162
+	DeleteObjects           dispatcher.CommandID = 163
+	PresignedGetURL         dispatcher.CommandID = 164
+	PresignedPutURL         dispatcher.CommandID = 165
+	HeadObject              dispatcher.CommandID = 166
+	CreateMultipartUpload   dispatcher.CommandID = 167
+	PresignedUploadPartURLs dispatcher.CommandID = 168
+	CompleteMultipartUpload dispatcher.CommandID = 169
+	AbortMultipartUpload    dispatcher.CommandID = 173
+	OpenReader              dispatcher.CommandID = 174
 )
 
 // ListObjectsCmd lists objects in cloud storage.

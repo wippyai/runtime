@@ -27,6 +27,16 @@ func wrapStorageError(l *lua.LState, err error, op string) lua.LValue {
 			WithKind(lua.NotFound).
 			WithRetryable(false)
 	}
+	if errors.Is(err, csapi.ErrMultipartUnsupported) {
+		return lua.NewLuaError(l, "multipart uploads not supported by this storage provider").
+			WithKind(lua.Unavailable).
+			WithRetryable(false)
+	}
+	if errors.Is(err, csapi.ErrNilUploadContent) {
+		return lua.NewLuaError(l, "upload content is not a readable source").
+			WithKind(lua.Invalid).
+			WithRetryable(false)
+	}
 	return lua.WrapErrorWithLua(l, err, op)
 }
 
@@ -153,6 +163,7 @@ func (y *DownloadObjectYield) HandleResult(l *lua.LState, data any, err error) [
 type UploadObjectYield struct {
 	*csapi.UploadObjectCmd
 	Content lua.LValue
+	ContentReader io.Reader
 }
 
 var uploadObjectYieldPool = sync.Pool{New: func() any { return &UploadObjectYield{} }}
@@ -169,6 +180,7 @@ func ReleaseUploadObjectYield(y *UploadObjectYield) {
 		y.UploadObjectCmd = nil
 	}
 	y.Content = nil
+	y.ContentReader = nil
 	uploadObjectYieldPool.Put(y)
 }
 
@@ -176,6 +188,10 @@ func (y *UploadObjectYield) String() string              { return "<cloudstorage
 func (y *UploadObjectYield) Type() lua.LValueType        { return lua.LTUserData }
 func (y *UploadObjectYield) CmdID() dispatcher.CommandID { return csapi.UploadObject }
 func (y *UploadObjectYield) ToCommand() dispatcher.Command {
+	if y.ContentReader != nil {
+		y.Reader = y.ContentReader
+		return y.UploadObjectCmd
+	}
 	switch v := y.Content.(type) {
 	case lua.LString:
 		y.Reader = bytes.NewReader([]byte(v))
@@ -416,4 +432,259 @@ func headObjectResultToLua(l *lua.LState, result *csapi.HeadObjectResult) lua.LV
 	}
 	t.RawSetString("headers", headersTbl)
 	return t
+}
+
+// CreateMultipartUploadYield wraps CreateMultipartUploadCmd for Lua.
+type CreateMultipartUploadYield struct {
+	*csapi.CreateMultipartUploadCmd
+}
+
+var createMultipartUploadYieldPool = sync.Pool{New: func() any { return &CreateMultipartUploadYield{} }}
+
+func AcquireCreateMultipartUploadYield() *CreateMultipartUploadYield {
+	y := createMultipartUploadYieldPool.Get().(*CreateMultipartUploadYield)
+	y.CreateMultipartUploadCmd = csapi.AcquireCreateMultipartUploadCmd()
+	return y
+}
+
+func ReleaseCreateMultipartUploadYield(y *CreateMultipartUploadYield) {
+	if y.CreateMultipartUploadCmd != nil {
+		y.CreateMultipartUploadCmd.Release()
+		y.CreateMultipartUploadCmd = nil
+	}
+	createMultipartUploadYieldPool.Put(y)
+}
+
+func (y *CreateMultipartUploadYield) String() string {
+	return "<cloudstorage_create_multipart_upload_yield>"
+}
+func (y *CreateMultipartUploadYield) Type() lua.LValueType        { return lua.LTUserData }
+func (y *CreateMultipartUploadYield) CmdID() dispatcher.CommandID { return csapi.CreateMultipartUpload }
+func (y *CreateMultipartUploadYield) ToCommand() dispatcher.Command {
+	return y.CreateMultipartUploadCmd
+}
+func (y *CreateMultipartUploadYield) Release() { ReleaseCreateMultipartUploadYield(y) }
+
+func (y *CreateMultipartUploadYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
+	if err != nil {
+		return []lua.LValue{lua.LNil, wrapStorageError(l, err, "create_multipart_upload")}
+	}
+	resp, ok := data.(csapi.CreateMultipartUploadResponse)
+	if !ok {
+		return []lua.LValue{lua.LNil, lua.NewLuaError(l, "invalid response type").WithKind(lua.Internal)}
+	}
+	if resp.Error != nil {
+		return []lua.LValue{lua.LNil, wrapStorageError(l, resp.Error, "create_multipart_upload")}
+	}
+	t := l.CreateTable(0, 1)
+	t.RawSetString("upload_id", lua.LString(resp.Result.UploadID))
+	return []lua.LValue{t, lua.LNil}
+}
+
+// PresignedPartURLsYield wraps PresignedPartURLsCmd for Lua.
+type PresignedPartURLsYield struct {
+	*csapi.PresignedPartURLsCmd
+	Expiration int64
+}
+
+var presignedPartURLsYieldPool = sync.Pool{New: func() any { return &PresignedPartURLsYield{} }}
+
+func AcquirePresignedPartURLsYield() *PresignedPartURLsYield {
+	y := presignedPartURLsYieldPool.Get().(*PresignedPartURLsYield)
+	y.PresignedPartURLsCmd = csapi.AcquirePresignedPartURLsCmd()
+	return y
+}
+
+func ReleasePresignedPartURLsYield(y *PresignedPartURLsYield) {
+	if y.PresignedPartURLsCmd != nil {
+		y.PresignedPartURLsCmd.Release()
+		y.PresignedPartURLsCmd = nil
+	}
+	y.Expiration = 0
+	presignedPartURLsYieldPool.Put(y)
+}
+
+func (y *PresignedPartURLsYield) String() string              { return "<cloudstorage_presigned_part_urls_yield>" }
+func (y *PresignedPartURLsYield) Type() lua.LValueType        { return lua.LTUserData }
+func (y *PresignedPartURLsYield) CmdID() dispatcher.CommandID { return csapi.PresignedUploadPartURLs }
+func (y *PresignedPartURLsYield) ToCommand() dispatcher.Command {
+	if y.Options == nil {
+		y.Options = &csapi.PresignedUploadPartOptions{}
+	}
+	if y.Expiration > 0 {
+		y.Options.Expiration = time.Duration(y.Expiration) * time.Second
+	} else {
+		y.Options.Expiration = time.Hour
+	}
+	return y.PresignedPartURLsCmd
+}
+func (y *PresignedPartURLsYield) Release() { ReleasePresignedPartURLsYield(y) }
+
+func (y *PresignedPartURLsYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
+	if err != nil {
+		return []lua.LValue{lua.LNil, wrapStorageError(l, err, "presigned_part_urls")}
+	}
+	resp, ok := data.(csapi.PresignedPartURLsResponse)
+	if !ok {
+		return []lua.LValue{lua.LNil, lua.NewLuaError(l, "invalid response type").WithKind(lua.Internal)}
+	}
+	if resp.Error != nil {
+		return []lua.LValue{lua.LNil, wrapStorageError(l, resp.Error, "presigned_part_urls")}
+	}
+	urls := l.CreateTable(len(resp.URLs), 0)
+	for i, u := range resp.URLs {
+		urlTbl := l.CreateTable(0, 2)
+		urlTbl.RawSetString("part_number", lua.LNumber(u.PartNumber))
+		urlTbl.RawSetString("url", lua.LString(u.URL))
+		urls.RawSetInt(i+1, urlTbl)
+	}
+	return []lua.LValue{urls, lua.LNil}
+}
+
+// CompleteMultipartUploadYield wraps CompleteMultipartUploadCmd for Lua.
+type CompleteMultipartUploadYield struct {
+	*csapi.CompleteMultipartUploadCmd
+}
+
+var completeMultipartUploadYieldPool = sync.Pool{New: func() any { return &CompleteMultipartUploadYield{} }}
+
+func AcquireCompleteMultipartUploadYield() *CompleteMultipartUploadYield {
+	y := completeMultipartUploadYieldPool.Get().(*CompleteMultipartUploadYield)
+	y.CompleteMultipartUploadCmd = csapi.AcquireCompleteMultipartUploadCmd()
+	return y
+}
+
+func ReleaseCompleteMultipartUploadYield(y *CompleteMultipartUploadYield) {
+	if y.CompleteMultipartUploadCmd != nil {
+		y.CompleteMultipartUploadCmd.Release()
+		y.CompleteMultipartUploadCmd = nil
+	}
+	completeMultipartUploadYieldPool.Put(y)
+}
+
+func (y *CompleteMultipartUploadYield) String() string {
+	return "<cloudstorage_complete_multipart_upload_yield>"
+}
+func (y *CompleteMultipartUploadYield) Type() lua.LValueType { return lua.LTUserData }
+func (y *CompleteMultipartUploadYield) CmdID() dispatcher.CommandID {
+	return csapi.CompleteMultipartUpload
+}
+func (y *CompleteMultipartUploadYield) ToCommand() dispatcher.Command {
+	return y.CompleteMultipartUploadCmd
+}
+func (y *CompleteMultipartUploadYield) Release() { ReleaseCompleteMultipartUploadYield(y) }
+
+func (y *CompleteMultipartUploadYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
+	if err != nil {
+		return []lua.LValue{lua.LNil, wrapStorageError(l, err, "complete_multipart_upload")}
+	}
+	resp, ok := data.(csapi.CompleteMultipartUploadResponse)
+	if !ok {
+		return []lua.LValue{lua.LNil, lua.NewLuaError(l, "invalid response type").WithKind(lua.Internal)}
+	}
+	if resp.Error != nil {
+		return []lua.LValue{lua.LNil, wrapStorageError(l, resp.Error, "complete_multipart_upload")}
+	}
+	t := l.CreateTable(0, 3)
+	t.RawSetString("etag", lua.LString(resp.Result.ETag))
+	if resp.Result.VersionID != "" {
+		t.RawSetString("version_id", lua.LString(resp.Result.VersionID))
+	}
+	if resp.Result.Location != "" {
+		t.RawSetString("location", lua.LString(resp.Result.Location))
+	}
+	return []lua.LValue{t, lua.LNil}
+}
+
+// AbortMultipartUploadYield wraps AbortMultipartUploadCmd for Lua.
+type AbortMultipartUploadYield struct {
+	*csapi.AbortMultipartUploadCmd
+}
+
+var abortMultipartUploadYieldPool = sync.Pool{New: func() any { return &AbortMultipartUploadYield{} }}
+
+func AcquireAbortMultipartUploadYield() *AbortMultipartUploadYield {
+	y := abortMultipartUploadYieldPool.Get().(*AbortMultipartUploadYield)
+	y.AbortMultipartUploadCmd = csapi.AcquireAbortMultipartUploadCmd()
+	return y
+}
+
+func ReleaseAbortMultipartUploadYield(y *AbortMultipartUploadYield) {
+	if y.AbortMultipartUploadCmd != nil {
+		y.AbortMultipartUploadCmd.Release()
+		y.AbortMultipartUploadCmd = nil
+	}
+	abortMultipartUploadYieldPool.Put(y)
+}
+
+func (y *AbortMultipartUploadYield) String() string {
+	return "<cloudstorage_abort_multipart_upload_yield>"
+}
+func (y *AbortMultipartUploadYield) Type() lua.LValueType        { return lua.LTUserData }
+func (y *AbortMultipartUploadYield) CmdID() dispatcher.CommandID { return csapi.AbortMultipartUpload }
+func (y *AbortMultipartUploadYield) ToCommand() dispatcher.Command {
+	return y.AbortMultipartUploadCmd
+}
+func (y *AbortMultipartUploadYield) Release() { ReleaseAbortMultipartUploadYield(y) }
+
+func (y *AbortMultipartUploadYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
+	if err != nil {
+		return []lua.LValue{lua.LNil, wrapStorageError(l, err, "abort_multipart_upload")}
+	}
+	resp, ok := data.(csapi.AbortMultipartUploadResponse)
+	if !ok {
+		return []lua.LValue{lua.LNil, lua.NewLuaError(l, "invalid response type").WithKind(lua.Internal)}
+	}
+	if resp.Error != nil {
+		return []lua.LValue{lua.LNil, wrapStorageError(l, resp.Error, "abort_multipart_upload")}
+	}
+	return []lua.LValue{lua.LTrue, lua.LNil}
+}
+
+type OpenReaderYield struct {
+	*csapi.OpenReaderCmd
+	BlockSize   int64
+	CacheBlocks int
+}
+
+var openReaderYieldPool = sync.Pool{New: func() any { return &OpenReaderYield{} }}
+
+func AcquireOpenReaderYield() *OpenReaderYield {
+	y := openReaderYieldPool.Get().(*OpenReaderYield)
+	y.OpenReaderCmd = csapi.AcquireOpenReaderCmd()
+	return y
+}
+
+func ReleaseOpenReaderYield(y *OpenReaderYield) {
+	if y.OpenReaderCmd != nil {
+		y.OpenReaderCmd.Release()
+		y.OpenReaderCmd = nil
+	}
+	y.BlockSize = 0
+	y.CacheBlocks = 0
+	openReaderYieldPool.Put(y)
+}
+
+func (y *OpenReaderYield) String() string                { return "<cloudstorage_open_reader_yield>" }
+func (y *OpenReaderYield) Type() lua.LValueType          { return lua.LTUserData }
+func (y *OpenReaderYield) CmdID() dispatcher.CommandID   { return csapi.OpenReader }
+func (y *OpenReaderYield) ToCommand() dispatcher.Command { return y.OpenReaderCmd }
+func (y *OpenReaderYield) Release()                      { ReleaseOpenReaderYield(y) }
+
+func (y *OpenReaderYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
+	if err != nil {
+		return []lua.LValue{lua.LNil, wrapStorageError(l, err, "open_reader")}
+	}
+	resp, ok := data.(csapi.OpenReaderResponse)
+	if !ok {
+		return []lua.LValue{lua.LNil, lua.NewLuaError(l, "invalid response type").WithKind(lua.Internal)}
+	}
+	if resp.Error != nil {
+		return []lua.LValue{lua.LNil, wrapStorageError(l, resp.Error, "open_reader")}
+	}
+	ud := newRangeReaderValue(l, y.Storage, y.Key, resp.Size, resp.ETag, y.BlockSize, y.CacheBlocks)
+	if ud == nil {
+		return []lua.LValue{lua.LNil, lua.NewLuaError(l, "reader type not registered").WithKind(lua.Internal)}
+	}
+	return []lua.LValue{ud, lua.LNil}
 }

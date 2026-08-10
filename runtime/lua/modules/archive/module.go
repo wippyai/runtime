@@ -138,6 +138,11 @@ func maxTotalBytes(o archiveapi.Options) int64 {
 	return sysarchive.DefaultMaxTotalBytes
 }
 
+type externalReaderAt interface {
+	io.ReaderAt
+	Size() int64
+}
+
 // seekableSource resolves arg1..argN into a random-access source for open().
 // Returns the ReaderAt, total size, a name for sniffing, and a closer.
 func seekableSource(l *lua.LState) (ra io.ReaderAt, size int64, name string, closer io.Closer, optsIdx int, errCode int) {
@@ -179,9 +184,17 @@ func seekableSource(l *lua.LState) (ra io.ReaderAt, size int64, name string, clo
 				return nil, 0, "", nil, 0, internalError(l, err, "stat source")
 			}
 			return ra, info.Size(), "", nil, 2, 0
+		default:
+			if ext, ok := h.(externalReaderAt); ok {
+				name := ""
+				if named, nok := h.(interface{ Name() string }); nok {
+					name = named.Name()
+				}
+				return ext, ext.Size(), name, nil, 2, 0
+			}
 		}
 	}
-	return nil, 0, "", nil, 0, invalidError(l, "source must be an fs handle, an fs file, or bytes")
+	return nil, 0, "", nil, 0, invalidError(l, "source must be an fs handle, an fs file, bytes, or a random-access reader")
 }
 
 func resolveCodec(l *lua.LState, ra io.ReaderAt, name string, o archiveapi.Options) (archiveapi.Codec, int) {

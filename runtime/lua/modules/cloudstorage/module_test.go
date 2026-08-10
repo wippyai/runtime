@@ -19,8 +19,8 @@ func TestModuleLoads(t *testing.T) {
 		t.Fatal("expected module table to be non-nil")
 	}
 
-	if len(yields) != 7 {
-		t.Errorf("expected 7 yield types, got %d", len(yields))
+	if len(yields) != 12 {
+		t.Errorf("expected 12 yield types, got %d", len(yields))
 	}
 }
 
@@ -45,13 +45,18 @@ func TestYieldTypes(t *testing.T) {
 	_, yields := Module.Build()
 
 	expectedCmds := map[int]bool{
-		int(csapi.ListObjects):     false,
-		int(csapi.DownloadObject):  false,
-		int(csapi.UploadObject):    false,
-		int(csapi.DeleteObjects):   false,
-		int(csapi.PresignedGetURL): false,
-		int(csapi.PresignedPutURL): false,
-		int(csapi.HeadObject):      false,
+		int(csapi.ListObjects):             false,
+		int(csapi.DownloadObject):          false,
+		int(csapi.UploadObject):            false,
+		int(csapi.DeleteObjects):           false,
+		int(csapi.PresignedGetURL):         false,
+		int(csapi.PresignedPutURL):         false,
+		int(csapi.HeadObject):              false,
+		int(csapi.CreateMultipartUpload):   false,
+		int(csapi.PresignedUploadPartURLs): false,
+		int(csapi.CompleteMultipartUpload): false,
+		int(csapi.AbortMultipartUpload):    false,
+		int(csapi.OpenReader):              false,
 	}
 
 	for _, y := range yields {
@@ -831,5 +836,152 @@ func TestListObjectsYieldHandleResult_Fields(t *testing.T) {
 	}
 	if owner.RawGetString("id").String() != "oid" {
 		t.Error("owner.id missing")
+	}
+}
+
+func TestCreateMultipartUploadYieldPool(t *testing.T) {
+	y1 := AcquireCreateMultipartUploadYield()
+	if y1 == nil || y1.CreateMultipartUploadCmd == nil {
+		t.Fatal("expected non-nil yield and command")
+	}
+	ReleaseCreateMultipartUploadYield(y1)
+
+	y2 := AcquireCreateMultipartUploadYield()
+	if y2 == nil || y2.CreateMultipartUploadCmd == nil {
+		t.Fatal("expected non-nil yield after release")
+	}
+	ReleaseCreateMultipartUploadYield(y2)
+}
+
+func TestPresignedPartURLsYieldPool(t *testing.T) {
+	y1 := AcquirePresignedPartURLsYield()
+	if y1 == nil || y1.PresignedPartURLsCmd == nil {
+		t.Fatal("expected non-nil yield and command")
+	}
+	ReleasePresignedPartURLsYield(y1)
+
+	y2 := AcquirePresignedPartURLsYield()
+	if y2 == nil || y2.PresignedPartURLsCmd == nil {
+		t.Fatal("expected non-nil yield after release")
+	}
+	if y2.Expiration != 0 {
+		t.Error("expiration not reset on release")
+	}
+	ReleasePresignedPartURLsYield(y2)
+}
+
+func TestCompleteMultipartUploadYieldPool(t *testing.T) {
+	y1 := AcquireCompleteMultipartUploadYield()
+	if y1 == nil || y1.CompleteMultipartUploadCmd == nil {
+		t.Fatal("expected non-nil yield and command")
+	}
+	ReleaseCompleteMultipartUploadYield(y1)
+
+	y2 := AcquireCompleteMultipartUploadYield()
+	if y2 == nil || y2.CompleteMultipartUploadCmd == nil {
+		t.Fatal("expected non-nil yield after release")
+	}
+	ReleaseCompleteMultipartUploadYield(y2)
+}
+
+func TestAbortMultipartUploadYieldPool(t *testing.T) {
+	y1 := AcquireAbortMultipartUploadYield()
+	if y1 == nil || y1.AbortMultipartUploadCmd == nil {
+		t.Fatal("expected non-nil yield and command")
+	}
+	ReleaseAbortMultipartUploadYield(y1)
+
+	y2 := AcquireAbortMultipartUploadYield()
+	if y2 == nil || y2.AbortMultipartUploadCmd == nil {
+		t.Fatal("expected non-nil yield after release")
+	}
+	ReleaseAbortMultipartUploadYield(y2)
+}
+
+func TestOpenReaderYieldPool(t *testing.T) {
+	y1 := AcquireOpenReaderYield()
+	if y1 == nil || y1.OpenReaderCmd == nil {
+		t.Fatal("expected non-nil yield and command")
+	}
+	y1.BlockSize = 1024
+	y1.CacheBlocks = 2
+	ReleaseOpenReaderYield(y1)
+
+	y2 := AcquireOpenReaderYield()
+	if y2 == nil || y2.OpenReaderCmd == nil {
+		t.Fatal("expected non-nil yield after release")
+	}
+	if y2.BlockSize != 0 || y2.CacheBlocks != 0 {
+		t.Error("tuning fields not reset on release")
+	}
+	ReleaseOpenReaderYield(y2)
+}
+
+func TestCreateMultipartUploadYield_HandleResult(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+
+	y := AcquireCreateMultipartUploadYield()
+	defer ReleaseCreateMultipartUploadYield(y)
+
+	res := y.HandleResult(l, csapi.CreateMultipartUploadResponse{
+		Result: &csapi.CreateMultipartUploadResult{UploadID: "up-42"},
+	}, nil)
+	tbl, ok := res[0].(*lua.LTable)
+	if !ok {
+		t.Fatalf("expected table, got %T", res[0])
+	}
+	if tbl.RawGetString("upload_id").String() != "up-42" {
+		t.Error("upload_id missing")
+	}
+}
+
+func TestPresignedPartURLsYield_HandleResult(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+
+	y := AcquirePresignedPartURLsYield()
+	defer ReleasePresignedPartURLsYield(y)
+
+	res := y.HandleResult(l, csapi.PresignedPartURLsResponse{
+		URLs: []csapi.PresignedPartURL{
+			{PartNumber: 1, URL: "https://p1"},
+			{PartNumber: 7, URL: "https://p7"},
+		},
+	}, nil)
+	arr, ok := res[0].(*lua.LTable)
+	if !ok {
+		t.Fatalf("expected table, got %T", res[0])
+	}
+	if arr.Len() != 2 {
+		t.Fatalf("expected 2 urls, got %d", arr.Len())
+	}
+	second := arr.RawGetInt(2).(*lua.LTable)
+	if int(lua.LVAsNumber(second.RawGetString("part_number"))) != 7 {
+		t.Error("part_number mismatch")
+	}
+	if second.RawGetString("url").String() != "https://p7" {
+		t.Error("url mismatch")
+	}
+}
+
+func TestMultipartYields_UnsupportedError(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+
+	y := AcquireCreateMultipartUploadYield()
+	defer ReleaseCreateMultipartUploadYield(y)
+
+	res := y.HandleResult(l, csapi.CreateMultipartUploadResponse{
+		Error: csapi.ErrMultipartUnsupported,
+	}, nil)
+	if res[0] != lua.LNil {
+		t.Fatal("expected nil result on unsupported")
+	}
+	if res[1] == lua.LNil {
+		t.Fatal("expected error value on unsupported")
+	}
+	if !strings.Contains(res[1].String(), "multipart") {
+		t.Fatalf("expected multipart-unsupported message, got %q", res[1].String())
 	}
 }
