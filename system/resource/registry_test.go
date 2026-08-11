@@ -809,7 +809,8 @@ func TestService_DeleteBorrowedResource(t *testing.T) {
 	res, err := service.Acquire(ctx, id, resource.ModeNormal)
 	require.NoError(t, err)
 
-	// Try to delete while borrowed - should fail silently
+	// Delete while borrowed starts a drain: the existing borrower remains
+	// valid, while the resource disappears from discovery and new acquisition.
 	bus.Send(ctx, event.Event{
 		System: resource.System,
 		Kind:   resource.Delete,
@@ -818,19 +819,12 @@ func TestService_DeleteBorrowedResource(t *testing.T) {
 	})
 	time.Sleep(10 * time.Millisecond)
 
-	// Resource should still exist
-	assert.True(t, service.Exists(id))
+	assert.False(t, service.Exists(id))
+	_, err = service.Acquire(ctx, id, resource.ModeNormal)
+	assert.ErrorIs(t, err, resource.ErrNotFound)
 
-	// Release the resource
+	// Final release completes removal without requiring a second delete event.
 	res.Release()
-
-	// Now delete should succeed
-	bus.Send(ctx, event.Event{
-		System: resource.System,
-		Kind:   resource.Delete,
-		Path:   id.String(),
-		Data:   id,
-	})
 	time.Sleep(10 * time.Millisecond)
 
 	assert.False(t, service.Exists(id))

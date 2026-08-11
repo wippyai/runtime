@@ -6,6 +6,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	envapi "github.com/wippyai/runtime/api/env"
 	"github.com/wippyai/runtime/api/payload"
@@ -39,7 +41,7 @@ func TestLoad(t *testing.T) {
 
 	functions := []string{
 		"snapshot", "current_version", "versions",
-		"parse_id", "history", "find", "get", "build_delta",
+		"parse_id", "history", "find", "get", "build_delta", "overlay",
 	}
 	for _, fn := range functions {
 		if modTbl.RawGetString(fn).Type() != lua.LTFunction {
@@ -599,7 +601,12 @@ func TestParseIDEdgeCases(t *testing.T) {
 
 // mockRegistry implements regapi.Registry for testing
 type mockRegistry struct {
-	entries map[string]regapi.Entry
+	currentVersion regapi.Version
+	entries        map[string]regapi.Entry
+	overlayEntries map[string]regapi.State
+	appliedOwner   string
+	appliedChanges regapi.ChangeSet
+	generation     uint64
 }
 
 func (m *mockRegistry) GetEntry(id regapi.ID) (regapi.Entry, error) {
@@ -615,7 +622,7 @@ func (m *mockRegistry) GetAllEntries() ([]regapi.Entry, error) {
 }
 
 func (m *mockRegistry) Current() (regapi.Version, error) {
-	return nil, nil
+	return m.currentVersion, nil
 }
 
 func (m *mockRegistry) Apply(_ context.Context, _ regapi.ChangeSet) (regapi.Version, error) {
@@ -638,6 +645,17 @@ func (m *mockRegistry) RegisterDependencyPattern(_ regapi.DependencyPattern) err
 	return nil
 }
 
+func (m *mockRegistry) ApplyOverlay(_ context.Context, owner string, _ uint64, changes regapi.ChangeSet) (uint64, error) {
+	m.appliedOwner = owner
+	m.appliedChanges = append(regapi.ChangeSet(nil), changes...)
+	m.generation++
+	return m.generation, nil
+}
+
+func (m *mockRegistry) GetOverlay(owner string) (regapi.State, uint64, error) {
+	return append(regapi.State(nil), m.overlayEntries[owner]...), m.generation, nil
+}
+
 func setupContextWithTranscoder() context.Context {
 	// Create app context
 	appCtx := ctxapi.NewAppContext()
@@ -653,6 +671,43 @@ func setupContextWithTranscoder() context.Context {
 	ctx = security.SetStrictMode(ctx, false)
 
 	return ctx
+}
+
+func TestRegistryOverlayUsesNormalSnapshotAndChanges(t *testing.T) {
+	ctx := setupContextWithTranscoder()
+	owner := "app.runtime:source-1"
+	entry := regapi.Entry{
+		ID:   regapi.NewID("app.runtime", "db"),
+		Kind: "db.sql.postgres",
+		Data: payload.NewPayload(map[string]any{"host_env": "app.env:host"}, payload.Golang),
+	}
+	mockReg := &mockRegistry{
+		entries:        map[string]regapi.Entry{},
+		overlayEntries: map[string]regapi.State{owner: {entry}},
+		currentVersion: &mockVersion{id: 7, str: "v7"},
+	}
+	ctx = regapi.WithRegistry(ctx, mockReg)
+
+	l := lua.NewState()
+	defer l.Close()
+	l.SetContext(ctx)
+	lua.OpenErrors(l)
+	setupModule(l)
+	require.NoError(t, l.DoString(`
+		local snap, err = registry.overlay("app.runtime:source-1")
+		assert(err == nil and snap ~= nil)
+		local entries, entries_err = snap:entries()
+		assert(entries_err == nil and #entries == 1)
+		assert(snap:version():id() == 7)
+		entries[1].data.host_env = "app.env:rotated_host"
+		local changes = snap:changes()
+		changes:update(entries[1])
+		local _, apply_err = changes:apply()
+		assert(apply_err == nil)
+	`))
+	assert.Equal(t, owner, mockReg.appliedOwner)
+	require.Len(t, mockReg.appliedChanges, 1)
+	assert.Equal(t, regapi.EntryUpdate, mockReg.appliedChanges[0].Kind)
 }
 
 func TestRegistryGetWithEntryData(t *testing.T) {

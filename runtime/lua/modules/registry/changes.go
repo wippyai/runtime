@@ -3,6 +3,8 @@
 package registry
 
 import (
+	"fmt"
+
 	lua "github.com/wippyai/go-lua"
 	regapi "github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
@@ -22,6 +24,9 @@ func changesOps(l *lua.LState) int {
 	changes := checkChanges(l)
 	if changes == nil {
 		return 0
+	}
+	if !authorizeSnapshotRead(l, changes.snapshot) {
+		return 2
 	}
 
 	opsTable := l.CreateTable(len(changes.ops), 0)
@@ -121,17 +126,8 @@ func changesDelete(l *lua.LState) int {
 		return 0
 	}
 
-	idVal := l.Get(2)
-	var id regapi.ID
-
-	switch v := idVal.(type) {
-	case lua.LString:
-		id = regapi.ParseID(string(v))
-	case *lua.LTable:
-		ns := v.RawGetString("ns")
-		name := v.RawGetString("name")
-		id = regapi.NewID(ns.String(), name.String())
-	default:
+	ids, parseErr := deleteIDs(l.Get(2))
+	if parseErr != nil {
 		err := lua.NewLuaError(l, "invalid ID format").
 			WithKind(lua.Invalid).
 			WithRetryable(false)
@@ -139,16 +135,50 @@ func changesDelete(l *lua.LState) int {
 		l.Push(err)
 		return 2
 	}
-
-	changes.ops = append(changes.ops, regapi.Operation{
-		Kind: regapi.EntryDelete,
-		Entry: regapi.Entry{
-			ID: id,
-		},
-	})
+	seen := make(map[regapi.ID]struct{}, len(ids))
+	for _, id := range ids {
+		if _, exists := seen[id]; exists {
+			continue
+		}
+		seen[id] = struct{}{}
+		changes.ops = append(changes.ops, regapi.Operation{
+			Kind:  regapi.EntryDelete,
+			Entry: regapi.Entry{ID: id},
+		})
+	}
 
 	l.Push(l.Get(1))
 	return 1
+}
+
+func deleteIDs(value lua.LValue) ([]regapi.ID, error) {
+	switch v := value.(type) {
+	case lua.LString:
+		return []regapi.ID{regapi.ParseID(string(v))}, nil
+	case *lua.LTable:
+		if idValue := v.RawGetString("id"); idValue != lua.LNil {
+			return deleteIDs(idValue)
+		}
+		ns := v.RawGetString("ns")
+		name := v.RawGetString("name")
+		if ns != lua.LNil && name != lua.LNil {
+			return []regapi.ID{regapi.NewID(ns.String(), name.String())}, nil
+		}
+		ids := make([]regapi.ID, 0, v.Len())
+		for i := 1; i <= v.Len(); i++ {
+			itemIDs, err := deleteIDs(v.RawGetInt(i))
+			if err != nil {
+				return nil, fmt.Errorf("delete item %d: %w", i, err)
+			}
+			ids = append(ids, itemIDs...)
+		}
+		if len(ids) == 0 {
+			return nil, fmt.Errorf("empty ID list")
+		}
+		return ids, nil
+	default:
+		return nil, fmt.Errorf("unsupported ID value %s", value.Type())
+	}
 }
 
 // changesApply applies the changeset to create a new version
@@ -164,6 +194,77 @@ func changesApply(l *lua.LState) int {
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
+		return 2
+	}
+
+	if changes.snapshot.overlayOwner != "" {
+		owner := changes.snapshot.overlayOwner
+		if !security.IsAllowed(l.Context(), "registry.overlay.get", owner, nil) {
+			err := lua.NewLuaError(l, "not allowed to read registry overlay: "+owner).
+				WithKind(lua.PermissionDenied).
+				WithRetryable(false)
+			l.Push(lua.LNil)
+			l.Push(err)
+			return 2
+		}
+		if !security.IsAllowed(l.Context(), "registry.overlay.apply", owner, nil) {
+			err := lua.NewLuaError(l, "not allowed to apply registry overlay: "+owner).
+				WithKind(lua.PermissionDenied).
+				WithRetryable(false)
+			l.Push(lua.LNil)
+			l.Push(err)
+			return 2
+		}
+		for _, op := range changes.ops {
+			kind := op.Entry.Kind
+			if op.Kind == regapi.EntryUpdate || op.Kind == regapi.EntryDelete {
+				stored, err := changes.snapshot.GetEntry(op.Entry.ID)
+				if err != nil {
+					l.Push(lua.LNil)
+					l.Push(lua.WrapErrorWithLua(l, err, "resolve overlay entry kind"))
+					return 2
+				}
+				kind = stored.Kind
+			}
+			verb := "unknown"
+			switch op.Kind {
+			case regapi.EntryCreate:
+				verb = "create"
+			case regapi.EntryUpdate:
+				verb = "update"
+			case regapi.EntryDelete:
+				verb = "delete"
+			}
+			action := "registry.overlay." + verb + "." + kind
+			if !security.IsAllowed(l.Context(), action, op.Entry.ID.String(), nil) {
+				l.Push(lua.LNil)
+				l.Push(lua.NewLuaError(l, "not allowed to apply "+kind+" overlay entry: "+op.Entry.ID.String()).
+					WithKind(lua.PermissionDenied).
+					WithRetryable(false))
+				return 2
+			}
+		}
+		writer, ok := changes.snapshot.reg.(regapi.OverlayWriter)
+		if !ok {
+			l.Push(lua.LNil)
+			l.Push(lua.NewLuaError(l, "registry overlays are not supported").
+				WithKind(lua.Internal).
+				WithRetryable(false))
+			return 2
+		}
+		if _, applyErr := writer.ApplyOverlay(l.Context(), owner, changes.snapshot.overlayGen, changes.ops); applyErr != nil {
+			l.Push(lua.LNil)
+			l.Push(lua.WrapErrorWithLua(l, applyErr, "apply registry overlay"))
+			return 2
+		}
+		version, currentErr := changes.snapshot.reg.Current()
+		if currentErr != nil {
+			l.Push(lua.LNil)
+			l.Push(lua.WrapErrorWithLua(l, currentErr, "get current registry version"))
+			return 2
+		}
+		value.PushTypedUserData(l, version, typeVersion)
+		l.Push(lua.LNil)
 		return 2
 	}
 

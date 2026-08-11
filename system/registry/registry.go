@@ -26,21 +26,24 @@ type indexedSortBuilder interface {
 }
 
 type Reg struct {
-	history           registry.History
+	currentVersion    registry.Version
 	runner            registry.Runner
 	builder           registry.StateBuilder
 	resolver          registry.DependencyResolver
-	directivesByKind  map[registry.Kind][]registry.Directive
-	currentVersion    registry.Version
+	history           registry.History
+	depIndex          *topology.DepIndex
 	currentResolution *registry.DependencyResolution
 	stateIndex        map[registry.ID]int
-	depIndex          *topology.DepIndex
+	directivesByKind  map[registry.Kind][]registry.Directive
 	log               *zap.Logger
+	overlays          map[string]registry.State
+	overlayOwners     map[registry.ID]string
+	overlayGeneration map[string]uint64
 	baseline          registry.State
 	state             registry.State
 	versionNum        atomic.Uint64
-	applyMu           sync.Mutex
 	mu                sync.RWMutex
+	applyMu           sync.Mutex
 }
 
 // NewRegistry creates a new registry instance.
@@ -56,14 +59,17 @@ func NewRegistry(
 		log = zap.NewNop()
 	}
 	reg := &Reg{
-		history:        history,
-		runner:         runner,
-		builder:        builder,
-		resolver:       resolver,
-		state:          registry.State{},
-		stateIndex:     make(map[registry.ID]int),
-		log:            log,
-		currentVersion: version.FromParent(nil, 0), // initial version
+		history:           history,
+		runner:            runner,
+		builder:           builder,
+		resolver:          resolver,
+		state:             registry.State{},
+		stateIndex:        make(map[registry.ID]int),
+		overlays:          make(map[string]registry.State),
+		overlayOwners:     make(map[registry.ID]string),
+		overlayGeneration: make(map[string]uint64),
+		log:               log,
+		currentVersion:    version.FromParent(nil, 0), // initial version
 	}
 
 	reg.versionNum.Store(0)
@@ -214,6 +220,12 @@ func (r *Reg) Apply(ctx context.Context, changes registry.ChangeSet) (registry.V
 			planner.RollbackEffects(ctx, preparedEff)
 		}
 		return nil, NewSortChangesError(sortErr)
+	}
+	if err := r.validateDurableTransitionAgainstOverlays(allOps, historyOps); err != nil {
+		if planner != nil {
+			planner.RollbackEffects(ctx, preparedEff)
+		}
+		return nil, NewApplyChangesError(err, nil)
 	}
 
 	r.mu.Lock()
@@ -461,6 +473,10 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 			return NewExpandChangesError(errors.New("stored dependency resolution has no configured reconciler"))
 		}
 		var buildErr error
+		if composeErr := r.composeOverlays(stateMap); composeErr != nil {
+			planner.RollbackEffects(ctx, preparedEff)
+			return NewComputeTransitionError(composeErr)
+		}
 		allOps, buildErr = r.builder.BuildDelta(snapshot, topology.StateMapToSlice(stateMap))
 		if buildErr != nil {
 			planner.RollbackEffects(ctx, preparedEff)
@@ -505,13 +521,21 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 			}
 			applyStateOperations(stateMap, ops)
 		}
+		if composeErr := r.composeOverlays(stateMap); composeErr != nil {
+			planner.RollbackEffects(ctx, preparedEff)
+			return NewComputeTransitionError(composeErr)
+		}
 		allOps, err = r.builder.BuildDelta(snapshot, topology.StateMapToSlice(stateMap))
 		if err != nil {
 			planner.RollbackEffects(ctx, preparedEff)
 			return NewComputeTransitionError(err)
 		}
 	} else {
-		delta, err := r.builder.BuildDelta(snapshot, targetState)
+		stateMap := topology.NewStateMap(targetState)
+		if composeErr := r.composeOverlays(stateMap); composeErr != nil {
+			return NewComputeTransitionError(composeErr)
+		}
+		delta, err := r.builder.BuildDelta(snapshot, topology.StateMapToSlice(stateMap))
 		if err != nil {
 			return NewComputeTransitionError(err)
 		}
@@ -537,6 +561,12 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 			planner.RollbackEffects(ctx, preparedEff)
 		}
 		return NewSortChangesError(sortErr)
+	}
+	if preflightErr := r.validateDurableTransitionAgainstOverlays(allOps, allOps); preflightErr != nil {
+		if planner != nil {
+			planner.RollbackEffects(ctx, preparedEff)
+		}
+		return NewComputeTransitionError(preflightErr)
 	}
 
 	r.mu.Lock()
@@ -959,6 +989,11 @@ func (r *Reg) LoadState(ctx context.Context, baseline registry.State, targetVers
 
 	r.state = newState
 	r.baseline = append(registry.State(nil), baseline...)
+	// LoadState is the cold/reinitialization boundary. Overlays are deliberately
+	// process-local and their owning controllers reconcile them after boot.
+	r.overlays = make(map[string]registry.State)
+	r.overlayOwners = make(map[registry.ID]string)
+	r.overlayGeneration = make(map[string]uint64)
 	r.rebuildIndex()
 	r.rebuildDepIndex()
 	r.currentVersion = targetVersion
@@ -988,7 +1023,7 @@ func reconcileStoredResolution(
 
 func applyStateOperations(stateMap registry.StateMap, ops registry.ChangeSet) {
 	for _, op := range ops {
-		id := registry.NewID(op.Entry.ID.NS, op.Entry.ID.Name)
+		id := canonicalEntryID(op.Entry.ID)
 		switch op.Kind {
 		case registry.EntryCreate, registry.EntryUpdate:
 			op.Entry.ID = id
@@ -1001,13 +1036,20 @@ func applyStateOperations(stateMap registry.StateMap, ops registry.ChangeSet) {
 
 func canonicalizeChangeSetIDs(changes registry.ChangeSet) {
 	for i := range changes {
-		changes[i].Entry.ID = registry.NewID(changes[i].Entry.ID.NS, changes[i].Entry.ID.Name)
+		changes[i].Entry.ID = canonicalEntryID(changes[i].Entry.ID)
 		if changes[i].OriginalEntry != nil {
 			original := *changes[i].OriginalEntry
-			original.ID = registry.NewID(original.ID.NS, original.ID.Name)
+			original.ID = canonicalEntryID(original.ID)
 			changes[i].OriginalEntry = &original
 		}
 	}
+}
+
+func canonicalEntryID(id registry.ID) registry.ID {
+	if id.NS == "" {
+		return registry.ParseID(id.Name)
+	}
+	return registry.NewID(id.NS, id.Name)
 }
 
 // rollback state desync between actual state in system and state in history
@@ -1022,6 +1064,7 @@ func (r *Reg) rollback(ctx context.Context, from, to registry.State) error {
 	r.state = partial // we remain in a desynced state
 	r.rebuildIndex()
 	r.rebuildDepIndex()
+	r.reconcileKnownOverlaysAfterFailedRollback()
 
 	return err
 }

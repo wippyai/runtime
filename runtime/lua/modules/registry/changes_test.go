@@ -82,6 +82,31 @@ func TestChangesToStringEmpty(t *testing.T) {
 	}
 }
 
+func TestDeleteIDsAcceptsEntryListsForBulkOverlayDelete(t *testing.T) {
+	l := newTestState()
+	defer l.Close()
+
+	entries := l.CreateTable(2, 0)
+	first := l.CreateTable(0, 1)
+	first.RawSetString("id", lua.LString("runtime.env:host"))
+	second := l.CreateTable(0, 2)
+	second.RawSetString("ns", lua.LString("runtime.db"))
+	second.RawSetString("name", lua.LString("source"))
+	entries.RawSetInt(1, first)
+	entries.RawSetInt(2, second)
+
+	ids, err := deleteIDs(entries)
+	if err != nil {
+		t.Fatalf("deleteIDs returned error: %v", err)
+	}
+	if len(ids) != 2 {
+		t.Fatalf("expected two IDs, got %d", len(ids))
+	}
+	if ids[0].String() != "runtime.env:host" || ids[1].String() != "runtime.db:source" {
+		t.Fatalf("unexpected IDs: %v", ids)
+	}
+}
+
 // A writer unaware of root status must not demote a deployment root. This is
 // the shape keeper takes on every dependency update: read the entry, change a
 // field, write it back. Absence of root on an update means unchanged.

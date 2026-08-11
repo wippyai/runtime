@@ -153,6 +153,15 @@ type (
 		LoadState(context.Context, State, Version) error
 	}
 
+	// OverlayWriter manages process-local registry overlays. Overlay entries
+	// participate in normal topology and handler transitions but do
+	// not advance or appear in version history. They are empty after cold boot
+	// and must be reconciled by their owning control service.
+	OverlayWriter interface {
+		ApplyOverlay(context.Context, string, uint64, ChangeSet) (uint64, error)
+		GetOverlay(string) (State, uint64, error)
+	}
+
 	// StateMap is a map-based representation of registry state for efficient lookups
 	StateMap map[ID]Entry
 
