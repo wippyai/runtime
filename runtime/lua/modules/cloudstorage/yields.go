@@ -162,7 +162,7 @@ func (y *DownloadObjectYield) HandleResult(l *lua.LState, data any, err error) [
 // UploadObjectYield wraps UploadObjectCmd for Lua.
 type UploadObjectYield struct {
 	*csapi.UploadObjectCmd
-	Content lua.LValue
+	Content       lua.LValue
 	ContentReader io.Reader
 }
 

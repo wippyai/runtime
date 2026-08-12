@@ -32,7 +32,7 @@ type (
 
 	PresignedUploadPartOptions struct {
 		PartNumbers []int32
-		Expiration time.Duration
+		Expiration  time.Duration
 	}
 
 	PresignedPartURL struct {

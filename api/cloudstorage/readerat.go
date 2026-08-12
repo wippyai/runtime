@@ -18,12 +18,12 @@ var ErrReaderClosed = errors.New("cloudstorage: reader closed")
 const (
 	DefaultReaderBlockSize   = 8 * 1024 * 1024
 	DefaultReaderCacheBlocks = 4
-	MaxReaderCacheBlocks = 64
+	MaxReaderCacheBlocks     = 64
 )
 
 type RangeReaderAtOptions struct {
-	ETag string
-	BlockSize int64
+	ETag        string
+	BlockSize   int64
 	CacheBlocks int
 }
 
