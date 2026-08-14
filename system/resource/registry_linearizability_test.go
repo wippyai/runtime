@@ -115,6 +115,26 @@ func TestLaterDeleteCancelsPendingReplacement(t *testing.T) {
 	require.False(t, service.Exists(id))
 }
 
+func TestUpdateCannotResurrectRetiredResource(t *testing.T) {
+	service, _ := setupTest()
+	id := registry.NewID("test", "retired-update")
+	oldProvider := newMockResourceProvider()
+	oldProvider.resources[id] = "old"
+	newProvider := newMockResourceProvider()
+	newProvider.resources[id] = "new"
+	service.handleRegister(event.Event{Data: apiresource.Entry{ID: id, Provider: oldProvider}})
+	borrowed, err := service.Acquire(context.Background(), id, apiresource.ModeNormal)
+	require.NoError(t, err)
+
+	service.handleRemove(event.Event{Data: id})
+	service.handleUpdate(event.Event{Data: apiresource.Entry{ID: id, Provider: newProvider}})
+	require.False(t, service.Exists(id))
+	_, err = service.Acquire(context.Background(), id, apiresource.ModeNormal)
+	require.ErrorIs(t, err, apiresource.ErrNotFound)
+	borrowed.Release()
+	require.Empty(t, service.resources)
+}
+
 func TestStopDrainsResourcesAndRejectsNewAcquires(t *testing.T) {
 	service, _ := setupTest()
 	id := registry.NewID("test", "stop-borrowed")

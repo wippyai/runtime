@@ -140,8 +140,8 @@ func (s *Registry) handleUpdate(e event.Event) {
 		s.mu.Unlock()
 		return
 	}
-	_, exists := s.resources[entry.ID]
-	if !exists {
+	slot, exists := s.resources[entry.ID]
+	if !exists || slot.active == nil {
 		s.mu.Unlock()
 		s.logger.Warn("resource not found for update",
 			zap.String("id", entry.ID.String()))
