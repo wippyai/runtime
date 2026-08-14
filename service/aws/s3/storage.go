@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"reflect"
 	"strings"
 	"time"
 
@@ -261,6 +262,10 @@ func (s *Storage) DownloadObject(ctx context.Context, key string, w io.Writer, o
 
 // UploadObject uploads an object to the S3 bucket.
 func (s *Storage) UploadObject(ctx context.Context, key string, content io.Reader, opts *cloudstorage.UploadOptions) error {
+	if isNilReader(content) {
+		return cloudstorage.ErrNilUploadContent
+	}
+
 	input := &s3.PutObjectInput{
 		Bucket: aws.String(s.bucket),
 		Key:    aws.String(key),
@@ -329,6 +334,20 @@ func (s *Storage) UploadObject(ctx context.Context, key string, content io.Reade
 	}
 
 	return nil
+}
+
+func isNilReader(reader io.Reader) bool {
+	if reader == nil {
+		return true
+	}
+
+	value := reflect.ValueOf(reader)
+	switch value.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Ptr, reflect.Slice:
+		return value.IsNil()
+	default:
+		return false
+	}
 }
 
 // DeleteObjects removes multiple objects from the S3 bucket.
