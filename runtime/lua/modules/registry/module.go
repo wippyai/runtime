@@ -108,7 +108,14 @@ func NewModule(opts Options) *luaapi.ModuleDef {
 }
 
 func registryOverlay(l *lua.LState) int {
-	owner := l.CheckString(1)
+	owner, ownerErr := regapi.CanonicalOverlayOwner(l.CheckString(1))
+	if ownerErr != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.WrapErrorWithLua(l, ownerErr, "canonicalize registry overlay owner").
+			WithKind(lua.Invalid).
+			WithRetryable(false))
+		return 2
+	}
 	if !security.IsAllowed(l.Context(), "registry.overlay.get", owner, nil) {
 		l.Push(lua.LNil)
 		l.Push(lua.NewLuaError(l, "not allowed to read registry overlay: "+owner).

@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/attrs"
+	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/payload"
 	regapi "github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/internal/version"
@@ -251,9 +252,64 @@ func TestLoadStateClearsProcessLocalOverlays(t *testing.T) {
 	entries, generation, err := reg.GetOverlay("owner:a")
 	require.NoError(t, err)
 	assert.Empty(t, entries)
-	assert.Zero(t, generation)
+	assert.NotZero(t, generation)
 	_, err = reg.GetEntry(entry.ID)
 	require.Error(t, err)
+}
+
+func TestLoadStateInvalidatesAbsentOverlaySnapshot(t *testing.T) {
+	ctx := context.Background()
+	reg, _ := newOverlayTestRegistry(t)
+	v0 := version.FromParent(nil, regapi.RootVersion)
+	require.NoError(t, reg.LoadState(ctx, nil, v0))
+	_, staleGeneration, err := reg.GetOverlay("owner:a")
+	require.NoError(t, err)
+	require.NoError(t, reg.LoadState(ctx, nil, v0))
+
+	entry := regapi.Entry{ID: regapi.NewID("runtime", "stale"), Kind: regapi.EntryKind}
+	_, err = reg.ApplyOverlay(ctx, "owner:a", staleGeneration, regapi.ChangeSet{{Kind: regapi.EntryCreate, Entry: entry}})
+	require.Error(t, err)
+	var structured apierror.Error
+	require.ErrorAs(t, err, &structured)
+	assert.Equal(t, apierror.Conflict, structured.Kind())
+}
+
+func TestDeletedOverlayOwnersDoNotRetainGenerationTombstones(t *testing.T) {
+	ctx := context.Background()
+	reg, _ := newOverlayTestRegistry(t)
+	require.NoError(t, reg.LoadState(ctx, nil, version.FromParent(nil, regapi.RootVersion)))
+	entry := regapi.Entry{ID: regapi.NewID("runtime", "one"), Kind: regapi.EntryKind}
+	generation, err := reg.ApplyOverlay(ctx, "owner:a", 0, regapi.ChangeSet{{Kind: regapi.EntryCreate, Entry: entry}})
+	require.NoError(t, err)
+	deletedGeneration, err := reg.ApplyOverlay(ctx, "owner:a", generation, regapi.ChangeSet{{Kind: regapi.EntryDelete, Entry: entry}})
+	require.NoError(t, err)
+	assert.Greater(t, deletedGeneration, generation)
+	assert.Empty(t, reg.overlayGeneration)
+
+	// Neither a snapshot from the active generation nor one opened before the
+	// create/delete cycle may resurrect the removed owner.
+	_, err = reg.ApplyOverlay(ctx, "owner:a", generation, regapi.ChangeSet{{Kind: regapi.EntryCreate, Entry: entry}})
+	require.Error(t, err)
+	_, err = reg.ApplyOverlay(ctx, "owner:a", 0, regapi.ChangeSet{{Kind: regapi.EntryCreate, Entry: entry}})
+	require.Error(t, err)
+}
+
+func TestOverlayGenerationConflictIsStructuredAndRetryable(t *testing.T) {
+	ctx := context.Background()
+	reg, _ := newOverlayTestRegistry(t)
+	entry := regapi.Entry{ID: regapi.NewID("runtime", "one"), Kind: regapi.EntryKind}
+	_, err := reg.ApplyOverlay(ctx, "owner:a", 1, regapi.ChangeSet{{Kind: regapi.EntryCreate, Entry: entry}})
+	require.Error(t, err)
+	var structured apierror.Error
+	require.ErrorAs(t, err, &structured)
+	assert.Equal(t, apierror.Conflict, structured.Kind())
+	assert.Equal(t, apierror.True, structured.Retryable())
+	expected, ok := structured.Details().Get("expected_generation")
+	require.True(t, ok)
+	assert.Equal(t, uint64(1), expected)
+	actual, ok := structured.Details().Get("actual_generation")
+	require.True(t, ok)
+	assert.Equal(t, uint64(0), actual)
 }
 
 func TestOverlayRejectsIDAliasAndManagedProvenance(t *testing.T) {

@@ -285,12 +285,12 @@ func applyWithIncomingDependencyCheck(builder *StateBuilder, fromState registry.
 
 	for _, op := range sorted {
 		if op.Kind == registry.EntryDelete {
-			universe := dependencyUniverse(StateMapToSlice(state))
+			universe := dependencyUniverse(StateMapToSlice(state), builder.resolver)
 			for _, entry := range StateMapToSlice(state) {
 				if entry.ID.Equal(op.Entry.ID) {
 					continue
 				}
-				for _, depID := range builder.entryDependencyIDs(entry, universe) {
+				for _, depID := range universe[entry.ID] {
 					if depID.Equal(op.Entry.ID) {
 						return fmt.Errorf("delete %s before dependent %s moved/deleted",
 							op.Entry.ID.String(), entry.ID.String())

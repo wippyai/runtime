@@ -41,6 +41,8 @@ type Reg struct {
 	overlayGeneration map[string]uint64
 	baseline          registry.State
 	state             registry.State
+	overlayEpoch      uint64
+	stateLoaded       bool
 	versionNum        atomic.Uint64
 	mu                sync.RWMutex
 	applyMu           sync.Mutex
@@ -994,6 +996,13 @@ func (r *Reg) LoadState(ctx context.Context, baseline registry.State, targetVers
 	r.overlays = make(map[string]registry.State)
 	r.overlayOwners = make(map[registry.ID]string)
 	r.overlayGeneration = make(map[string]uint64)
+	// Invalidate snapshots retained across an explicit reload. A newly
+	// constructed registry starts at epoch zero; a live registry never reuses a
+	// generation token.
+	if r.stateLoaded || r.overlayEpoch > 0 {
+		r.overlayEpoch++
+	}
+	r.stateLoaded = true
 	r.rebuildIndex()
 	r.rebuildDepIndex()
 	r.currentVersion = targetVersion

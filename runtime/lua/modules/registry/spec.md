@@ -149,8 +149,9 @@ survive ordinary history commits and version selection, and are cleared by a
 cold boot or explicit state load; the owning controller must reconcile them.
 
 Applying changes uses generation-based optimistic concurrency. A stale snapshot
-fails atomically and must be reopened. One changeset may contain at most one
-operation for each entry ID.
+fails atomically with a retryable `errors.CONFLICT` and must be reopened. Owner
+IDs are trimmed to one canonical identity before authorization and storage. One
+changeset may contain at most one operation for each entry ID.
 
 ```lua
 local live, err = registry.overlay("spiralscout.data_sources:customer-db")
@@ -190,6 +191,15 @@ wildcard owner grant authorizes that controller to manage every matching
 overlay. Ordinary `registry.get`, `find`, and `snapshot` read the composed
 effective registry and continue to require their existing per-entry
 `registry.get` permission—they do not use the owner-level overlay permission.
+
+**Errors (structured):**
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| Empty owner | errors.INVALID | no |
+| Owner read/apply denied | errors.PERMISSION_DENIED | no |
+| Entry operation denied | errors.PERMISSION_DENIED | no |
+| Stale overlay generation | errors.CONFLICT | yes |
 
 ### current_version() → Version, error
 

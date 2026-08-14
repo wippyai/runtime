@@ -12,7 +12,7 @@ import (
 	apiresource "github.com/wippyai/runtime/api/resource"
 )
 
-func TestY07ResourceReplaceWaitsForBorrowedGeneration(t *testing.T) {
+func TestY07ResourceReplacePublishesNewGenerationWhileOldIsBorrowed(t *testing.T) {
 	service, _ := setupTest()
 	id := registry.NewID("test", "replace-borrowed")
 	oldProvider := newMockResourceProvider()
@@ -26,11 +26,6 @@ func TestY07ResourceReplaceWaitsForBorrowedGeneration(t *testing.T) {
 
 	service.handleRemove(event.Event{Data: id})
 	service.handleRegister(event.Event{Data: apiresource.Entry{ID: id, Provider: newProvider}})
-	require.False(t, service.Exists(id), "replacement must wait for the outstanding borrow generation")
-	_, err = service.Acquire(context.Background(), id, apiresource.ModeNormal)
-	require.ErrorIs(t, err, apiresource.ErrNotFound)
-
-	borrowed.Release()
 	require.True(t, service.Exists(id))
 	replacement, err := service.Acquire(context.Background(), id, apiresource.ModeNormal)
 	require.NoError(t, err)
@@ -38,9 +33,13 @@ func TestY07ResourceReplaceWaitsForBorrowedGeneration(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "new", value)
 	replacement.Release()
+	borrowedValue, err := borrowed.Get()
+	require.NoError(t, err)
+	require.Equal(t, "old", borrowedValue)
+	borrowed.Release()
 }
 
-func TestResourceUpdateWaitsForBorrowedGeneration(t *testing.T) {
+func TestResourceUpdatePublishesNewGenerationWhileOldIsBorrowed(t *testing.T) {
 	service, _ := setupTest()
 	id := registry.NewID("test", "update-borrowed")
 	oldProvider := newMockResourceProvider()
@@ -52,17 +51,50 @@ func TestResourceUpdateWaitsForBorrowedGeneration(t *testing.T) {
 	require.NoError(t, err)
 
 	service.handleUpdate(event.Event{Data: apiresource.Entry{ID: id, Provider: newProvider}})
-	require.False(t, service.Exists(id))
-	_, err = service.Acquire(context.Background(), id, apiresource.ModeNormal)
-	require.ErrorIs(t, err, apiresource.ErrNotFound)
-	borrowed.Release()
-
+	require.True(t, service.Exists(id))
 	replacement, err := service.Acquire(context.Background(), id, apiresource.ModeNormal)
 	require.NoError(t, err)
 	value, err := replacement.Get()
 	require.NoError(t, err)
 	require.Equal(t, "new", value)
 	replacement.Release()
+	borrowedValue, err := borrowed.Get()
+	require.NoError(t, err)
+	require.Equal(t, "old", borrowedValue)
+	borrowed.Release()
+}
+
+func TestMultipleBorrowedGenerationsRetireIndependently(t *testing.T) {
+	service, _ := setupTest()
+	id := registry.NewID("test", "successive-updates")
+	providers := []*mockResourceProvider{
+		newMockResourceProvider(), newMockResourceProvider(), newMockResourceProvider(),
+	}
+	for i, provider := range providers {
+		provider.resources[id] = i + 1
+	}
+
+	service.handleRegister(event.Event{Data: apiresource.Entry{ID: id, Provider: providers[0]}})
+	first, err := service.Acquire(context.Background(), id, apiresource.ModeNormal)
+	require.NoError(t, err)
+	service.handleUpdate(event.Event{Data: apiresource.Entry{ID: id, Provider: providers[1]}})
+	second, err := service.Acquire(context.Background(), id, apiresource.ModeNormal)
+	require.NoError(t, err)
+	service.handleUpdate(event.Event{Data: apiresource.Entry{ID: id, Provider: providers[2]}})
+	third, err := service.Acquire(context.Background(), id, apiresource.ModeNormal)
+	require.NoError(t, err)
+
+	for expected, borrowed := range []apiresource.Resource[any]{first, second, third} {
+		value, getErr := borrowed.Get()
+		require.NoError(t, getErr)
+		require.Equal(t, expected+1, value)
+	}
+	first.Release()
+	second.Release()
+	require.True(t, service.Exists(id))
+	third.Release()
+	require.Len(t, service.resources, 1)
+	require.Empty(t, service.resources[id].retired)
 }
 
 func TestLaterDeleteCancelsPendingReplacement(t *testing.T) {

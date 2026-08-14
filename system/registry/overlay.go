@@ -5,7 +5,6 @@ package registry
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/payload"
@@ -26,23 +25,25 @@ func (r *Reg) ApplyOverlay(ctx context.Context, owner string, expectedGeneration
 
 // GetOverlay returns a copy of one owner's live entries and generation.
 func (r *Reg) GetOverlay(owner string) (registry.State, uint64, error) {
-	owner = strings.TrimSpace(owner)
-	if owner == "" {
-		return nil, 0, fmt.Errorf("registry overlay owner is required")
+	var err error
+	owner, err = registry.CanonicalOverlayOwner(owner)
+	if err != nil {
+		return nil, 0, err
 	}
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	state, ok := r.overlays[owner]
 	if !ok {
-		return nil, r.overlayGeneration[owner], nil
+		return nil, r.overlayEpoch, nil
 	}
 	return cloneOverlayState(state), r.overlayGeneration[owner], nil
 }
 
 func (r *Reg) applyOverlayLocked(ctx context.Context, owner string, expectedGeneration uint64, changes registry.ChangeSet) (uint64, error) {
-	owner = strings.TrimSpace(owner)
-	if owner == "" {
-		return 0, fmt.Errorf("registry overlay owner is required")
+	var err error
+	owner, err = registry.CanonicalOverlayOwner(owner)
+	if err != nil {
+		return 0, err
 	}
 	if len(changes) == 0 {
 		return 0, fmt.Errorf("registry overlay changes are required")
@@ -52,14 +53,17 @@ func (r *Reg) applyOverlayLocked(ctx context.Context, owner string, expectedGene
 
 	r.mu.RLock()
 	snapshot := append(registry.State(nil), r.state...)
-	currentGeneration := r.overlayGeneration[owner]
+	currentGeneration, activeOwner := r.overlayGeneration[owner]
+	if !activeOwner {
+		currentGeneration = r.overlayEpoch
+	}
 	owners := make(map[registry.ID]string, len(r.overlayOwners))
 	for id, value := range r.overlayOwners {
 		owners[id] = value
 	}
 	r.mu.RUnlock()
 	if currentGeneration != expectedGeneration {
-		return 0, fmt.Errorf("registry overlay %s changed: expected generation %d, current generation %d", owner, expectedGeneration, currentGeneration)
+		return 0, NewOverlayGenerationConflictError(owner, expectedGeneration, currentGeneration)
 	}
 
 	effective := canonicalStateMap(snapshot)
@@ -139,22 +143,37 @@ func (r *Reg) applyOverlayLocked(ctx context.Context, owner string, expectedGene
 	}
 
 	r.rebuildOverlayIndexes(candidateOwners, newState)
-	r.overlayGeneration[owner]++
+	nextGeneration := r.bumpOverlayGeneration(owner)
 	r.state = newState
 	r.rebuildIndex()
 	r.patchDepIndex(sorted)
-	return r.overlayGeneration[owner], nil
+	return nextGeneration, nil
+}
+
+// bumpOverlayGeneration issues process-unique generation tokens without
+// retaining tombstones for owners whose overlays are empty. An absent owner
+// observes the global epoch, so a snapshot opened before a create/delete cycle
+// cannot resurrect stale state.
+func (r *Reg) bumpOverlayGeneration(owner string) uint64 {
+	r.overlayEpoch++
+	if len(r.overlays[owner]) == 0 {
+		delete(r.overlayGeneration, owner)
+		return r.overlayEpoch
+	}
+	r.overlayGeneration[owner] = r.overlayEpoch
+	return r.overlayEpoch
 }
 
 func (r *Reg) validateRemovedOverlayDependencies(before, after registry.StateMap, deleted map[registry.ID]struct{}) error {
 	if len(deleted) == 0 {
 		return nil
 	}
+	dependencies := topology.ResolveDependencies(before, r.resolver)
 	for _, entry := range before {
 		if _, survives := after[entry.ID]; !survives {
 			continue
 		}
-		for _, dependencyID := range r.overlayDependencyIDs(entry, before) {
+		for _, dependencyID := range dependencies[entry.ID] {
 			if _, removed := deleted[dependencyID]; removed {
 				return fmt.Errorf("overlay deletion removes %s required by live entry %s", dependencyID, entry.ID)
 			}
@@ -209,9 +228,10 @@ func (r *Reg) validateOverlayComposition(effective registry.StateMap, owners map
 	if len(owners) == 0 {
 		return nil
 	}
+	dependencies := topology.ResolveDependencies(effective, r.resolver)
 	for _, entry := range effective {
 		sourceOwner, sourceOverlay := owners[entry.ID]
-		for _, dependencyID := range r.overlayDependencyIDs(entry, effective) {
+		for _, dependencyID := range dependencies[entry.ID] {
 			targetOwner, targetOverlay := owners[dependencyID]
 			switch {
 			case sourceOverlay && targetOverlay && sourceOwner != targetOwner:
@@ -222,59 +242,6 @@ func (r *Reg) validateOverlayComposition(effective registry.StateMap, owners map
 		}
 	}
 	return nil
-}
-
-// overlayDependencyIDs mirrors topology's dependency semantics: relative
-// direct IDs inherit the source namespace, group and namespace references
-// expand against the effective state, and dangling references are ignored.
-func (r *Reg) overlayDependencyIDs(entry registry.Entry, effective registry.StateMap) []registry.ID {
-	declarations := entry.Meta.GetSlice(registry.TagDependsOn)
-	if r.resolver != nil {
-		declarations = append(declarations, r.resolver.Extract(entry)...)
-	}
-	seen := make(map[registry.ID]struct{}, len(declarations))
-	result := make([]registry.ID, 0, len(declarations))
-	add := func(id registry.ID) {
-		id = canonicalEntryID(id)
-		if id.Equal(entry.ID) {
-			return
-		}
-		if _, exists := effective[id]; !exists {
-			return
-		}
-		if _, exists := seen[id]; exists {
-			return
-		}
-		seen[id] = struct{}{}
-		result = append(result, id)
-	}
-	for _, declaration := range declarations {
-		switch {
-		case strings.HasPrefix(declaration, "group:"):
-			group := strings.TrimPrefix(declaration, "group:")
-			for _, candidate := range effective {
-				for _, candidateGroup := range candidate.Meta.GetSlice(registry.TagGroups) {
-					if candidateGroup == group {
-						add(candidate.ID)
-					}
-				}
-			}
-		case strings.HasPrefix(declaration, "ns:"):
-			namespace := strings.TrimPrefix(declaration, "ns:")
-			for id := range effective {
-				if id.NS == namespace {
-					add(id)
-				}
-			}
-		default:
-			if strings.Contains(declaration, ":") {
-				add(registry.ParseID(declaration))
-			} else {
-				add(registry.NewID(entry.ID.NS, declaration))
-			}
-		}
-	}
-	return result
 }
 
 func (r *Reg) validateDurableTransitionAgainstOverlays(allOps, historyOps registry.ChangeSet) error {
@@ -295,9 +262,10 @@ func (r *Reg) validateDurableTransitionAgainstOverlays(allOps, historyOps regist
 			deleted[canonicalEntryID(op.Entry.ID)] = struct{}{}
 		}
 	}
+	dependencies := topology.ResolveDependencies(current, r.resolver)
 	for owner, entries := range r.overlays {
 		for _, entry := range entries {
-			for _, dep := range r.overlayDependencyIDs(entry, current) {
+			for _, dep := range dependencies[entry.ID] {
 				if _, ok := deleted[dep]; ok {
 					return fmt.Errorf("durable transition deletes %s required by overlay entry %s owned by %s", dep, entry.ID, owner)
 				}
@@ -352,7 +320,7 @@ func (r *Reg) reconcileOverlayIndexesAfterFailedRollback(owner string, previousO
 
 	r.rebuildOverlayIndexes(knownOwners, r.state)
 	if !ownerGenerationInvalidated {
-		r.overlayGeneration[owner]++
+		r.bumpOverlayGeneration(owner)
 	}
 }
 
@@ -365,7 +333,7 @@ func (r *Reg) reconcileKnownOverlaysAfterFailedRollback() {
 	}
 	r.rebuildOverlayIndexes(knownOwners, r.state)
 	for owner := range owners {
-		r.overlayGeneration[owner]++
+		r.bumpOverlayGeneration(owner)
 	}
 }
 

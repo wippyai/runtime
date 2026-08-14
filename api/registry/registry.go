@@ -5,11 +5,27 @@ package registry
 
 import (
 	"context"
+	"strings"
 
 	"github.com/wippyai/runtime/api/attrs"
+	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/payload"
 )
+
+// ErrOverlayOwnerRequired rejects empty logical overlay identities.
+var ErrOverlayOwnerRequired = apierror.New(apierror.Invalid, "registry overlay owner is required").
+	WithRetryable(apierror.False)
+
+// CanonicalOverlayOwner returns the identity used for both overlay storage and
+// authorization. Callers must authorize only the returned value.
+func CanonicalOverlayOwner(owner string) (string, error) {
+	owner = strings.TrimSpace(owner)
+	if owner == "" {
+		return "", ErrOverlayOwnerRequired
+	}
+	return owner, nil
+}
 
 // Registry system constants define the various event types and identifiers used throughout the registry.
 const (

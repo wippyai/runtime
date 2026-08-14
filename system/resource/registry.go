@@ -5,6 +5,7 @@ package resource
 import (
 	"context"
 	"fmt"
+	"sort"
 	"sync"
 
 	"github.com/wippyai/runtime/api/resource"
@@ -22,15 +23,18 @@ type Registry struct {
 	logger     *zap.Logger
 	subscriber *eventbus.Subscriber
 	resources  map[registry.ID]*resourceSlot
-	mu         sync.Mutex
+	mu         sync.RWMutex
 	stopped    bool
 }
 
 type resourceSlot struct {
-	pending  *resource.Entry
-	entry    resource.Entry
-	borrows  int
-	draining bool
+	active  *resourceGeneration
+	retired map[*resourceGeneration]struct{}
+}
+
+type resourceGeneration struct {
+	entry   resource.Entry
+	borrows int
 }
 
 // NewRegistry creates a new resource registry instance
@@ -77,11 +81,9 @@ func (s *Registry) Stop() error {
 	s.mu.Lock()
 	s.stopped = true
 	for id, slot := range s.resources {
-		slot.pending = nil
-		if slot.borrows == 0 {
+		s.retireActiveLocked(slot)
+		if len(slot.retired) == 0 {
 			delete(s.resources, id)
-		} else {
-			slot.draining = true
 		}
 	}
 	s.mu.Unlock()
@@ -117,20 +119,7 @@ func (s *Registry) handleRegister(e event.Event) {
 		s.mu.Unlock()
 		return
 	}
-	if slot, exists := s.resources[entry.ID]; exists && slot.draining {
-		pending := entry
-		slot.pending = &pending
-	} else if exists {
-		if slot.borrows > 0 {
-			pending := entry
-			slot.pending = &pending
-			slot.draining = true
-		} else {
-			slot.entry = entry
-		}
-	} else {
-		s.resources[entry.ID] = &resourceSlot{entry: entry}
-	}
+	s.activateLocked(entry)
 	s.mu.Unlock()
 	s.logger.Debug("resource registered",
 		zap.String("id", entry.ID.String()),
@@ -151,23 +140,14 @@ func (s *Registry) handleUpdate(e event.Event) {
 		s.mu.Unlock()
 		return
 	}
-	slot, exists := s.resources[entry.ID]
+	_, exists := s.resources[entry.ID]
 	if !exists {
 		s.mu.Unlock()
 		s.logger.Warn("resource not found for update",
 			zap.String("id", entry.ID.String()))
 		return
 	}
-	if slot.draining {
-		pending := entry
-		slot.pending = &pending
-	} else if slot.borrows > 0 {
-		pending := entry
-		slot.pending = &pending
-		slot.draining = true
-	} else {
-		slot.entry = entry
-	}
+	s.activateLocked(entry)
 	s.mu.Unlock()
 	s.logger.Debug("resource updated",
 		zap.String("id", entry.ID.String()),
@@ -191,17 +171,10 @@ func (s *Registry) handleRemove(e event.Event) {
 			zap.String("id", id.String()))
 		return
 	}
-	slot.pending = nil
-	if slot.borrows > 0 {
-		slot.draining = true
-		borrows := slot.borrows
-		s.mu.Unlock()
-		s.logger.Debug("resource draining before removal",
-			zap.String("id", id.String()),
-			zap.Int("borrows", borrows))
-		return
+	s.retireActiveLocked(slot)
+	if len(slot.retired) == 0 {
+		delete(s.resources, id)
 	}
-	delete(s.resources, id)
 	s.mu.Unlock()
 	s.logger.Debug("resource removed",
 		zap.String("id", id.String()))
@@ -215,64 +188,95 @@ func (s *Registry) Acquire(ctx context.Context, id registry.ID, mode resource.Ac
 
 	s.mu.Lock()
 	slot, ok := s.resources[id]
-	if s.stopped || !ok || slot.draining {
+	if s.stopped || !ok || slot.active == nil {
 		s.mu.Unlock()
 		return nil, resource.ErrNotFound
 	}
-	entry := slot.entry
-	slot.borrows++
+	generation := slot.active
+	entry := generation.entry
+	generation.borrows++
 	s.mu.Unlock()
 
 	res, err := entry.Provider.Acquire(ctx, id, mode)
 	if err != nil {
-		s.releaseBorrow(id, slot)
+		s.releaseBorrow(id, generation)
 		return nil, err
 	}
 
 	return resource.NewTrackedResource(res, func() {
-		s.releaseBorrow(id, slot)
+		s.releaseBorrow(id, generation)
 	}), nil
 }
 
-func (s *Registry) releaseBorrow(id registry.ID, borrowedSlot *resourceSlot) {
+// activateLocked publishes a new acquisition generation. Older generations
+// remain reachable only by the resources that already borrowed them.
+func (s *Registry) activateLocked(entry resource.Entry) {
+	slot := s.resources[entry.ID]
+	if slot == nil {
+		slot = &resourceSlot{}
+		s.resources[entry.ID] = slot
+	}
+	s.retireActiveLocked(slot)
+	slot.active = &resourceGeneration{entry: entry}
+}
+
+func (s *Registry) retireActiveLocked(slot *resourceSlot) {
+	if slot.active == nil {
+		return
+	}
+	if slot.active.borrows > 0 {
+		if slot.retired == nil {
+			slot.retired = make(map[*resourceGeneration]struct{})
+		}
+		slot.retired[slot.active] = struct{}{}
+	}
+	slot.active = nil
+}
+
+func (s *Registry) releaseBorrow(id registry.ID, generation *resourceGeneration) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	slot, exists := s.resources[id]
-	if !exists || slot != borrowedSlot || slot.borrows == 0 {
+	if !exists || generation.borrows == 0 {
 		return
 	}
-	slot.borrows--
-	if slot.borrows != 0 || !slot.draining {
+	if slot.active != generation {
+		if _, retired := slot.retired[generation]; !retired {
+			return
+		}
+	}
+	generation.borrows--
+	if generation.borrows != 0 || slot.active == generation {
 		return
 	}
-	if slot.pending != nil {
-		slot.entry = *slot.pending
-		slot.pending = nil
-		slot.draining = false
-		return
+	delete(slot.retired, generation)
+	if slot.active == nil && len(slot.retired) == 0 {
+		delete(s.resources, id)
 	}
-	delete(s.resources, id)
 }
 
 // List returns all registered resource IDs
 func (s *Registry) List() ([]registry.ID, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	resources := make([]registry.ID, 0, len(s.resources))
 	for id, slot := range s.resources {
-		if !slot.draining {
+		if slot.active != nil {
 			resources = append(resources, id)
 		}
 	}
+	sort.Slice(resources, func(i, j int) bool {
+		return resources[i].String() < resources[j].String()
+	})
 	return resources, nil
 }
 
 // Exists checks if a resource is registered
 func (s *Registry) Exists(id registry.ID) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	slot, exists := s.resources[id]
-	return exists && !slot.draining
+	return exists && slot.active != nil
 }
 
 // Implementation of Registry interface

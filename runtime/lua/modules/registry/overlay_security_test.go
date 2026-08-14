@@ -85,6 +85,31 @@ func TestOverlaySecurityRequiresOwnerRead(t *testing.T) {
 	assert.Empty(t, reg.appliedChanges)
 }
 
+func TestOverlaySecurityAuthorizesCanonicalOwnerIdentity(t *testing.T) {
+	const owner = "data-sources:one"
+
+	t.Run("canonical permission accepts padded input", func(t *testing.T) {
+		ctx, release := strictOverlayContext(t, "registry.overlay.get\x00"+owner)
+		defer release()
+		reg := overlayTestRegistry(owner, nil)
+		runOverlayLua(ctx, t, reg, `
+			local snap, err = registry.overlay("  data-sources:one  ")
+			assert(err == nil and snap ~= nil)
+		`)
+	})
+
+	t.Run("padded permission cannot alias canonical owner", func(t *testing.T) {
+		ctx, release := strictOverlayContext(t, "registry.overlay.get\x00  "+owner+"  ")
+		defer release()
+		reg := overlayTestRegistry(owner, nil)
+		runOverlayLua(ctx, t, reg, `
+			local snap, err = registry.overlay("  data-sources:one  ")
+			assert(snap == nil and err ~= nil)
+			assert(err:kind() == errors.PERMISSION_DENIED)
+		`)
+	})
+}
+
 func TestOverlaySecurityChecksKindAndRealEntryID(t *testing.T) {
 	const owner = "data-sources:one"
 	entry := regapi.Entry{

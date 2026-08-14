@@ -6,7 +6,6 @@ package resource
 import (
 	"context"
 	"sync"
-	"sync/atomic"
 
 	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/event"
@@ -51,7 +50,11 @@ type (
 
 	// Provider manages resource lifecycle and access control.
 	Provider interface {
-		// Acquire obtains access to a resource with the specified mode.
+		// Acquire obtains access to a resource with the specified mode. A
+		// successful Resource remains owned by the caller and valid until Release,
+		// even if the provider is concurrently removed or replaced in a Registry.
+		// Implementations own that lifetime guarantee; the Registry only routes
+		// new acquisitions and tracks generations.
 		Acquire(ctx context.Context, id registry.ID, mode AccessMode) (Resource[any], error)
 	}
 
@@ -72,27 +75,20 @@ type (
 type TrackedResource struct {
 	inner     Resource[any]
 	onRelease func()
-	released  atomic.Bool
-}
-
-var trackedResourcePool = sync.Pool{
-	New: func() any {
-		return &TrackedResource{}
-	},
+	mu        sync.RWMutex
+	released  bool
 }
 
 // NewTrackedResource creates a tracked wrapper around a resource.
 func NewTrackedResource(inner Resource[any], onRelease func()) *TrackedResource {
-	tr := trackedResourcePool.Get().(*TrackedResource)
-	tr.inner = inner
-	tr.onRelease = onRelease
-	tr.released.Store(false)
-	return tr
+	return &TrackedResource{inner: inner, onRelease: onRelease}
 }
 
 // Get returns the managed resource instance.
 func (t *TrackedResource) Get() (any, error) {
-	if t.released.Load() {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	if t.released {
 		return nil, ErrReleased
 	}
 	return t.inner.Get()
@@ -100,13 +96,20 @@ func (t *TrackedResource) Get() (any, error) {
 
 // Release frees the resource and invalidates access.
 func (t *TrackedResource) Release() {
-	if t.released.CompareAndSwap(false, true) {
-		t.inner.Release()
-		if t.onRelease != nil {
-			t.onRelease()
-		}
-		t.inner = nil
-		t.onRelease = nil
-		trackedResourcePool.Put(t)
+	t.mu.Lock()
+	if t.released {
+		t.mu.Unlock()
+		return
 	}
+	t.released = true
+	inner := t.inner
+	onRelease := t.onRelease
+	t.inner = nil
+	t.onRelease = nil
+	t.mu.Unlock()
+
+	if onRelease != nil {
+		defer onRelease()
+	}
+	inner.Release()
 }
