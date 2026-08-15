@@ -138,6 +138,7 @@ func (r *Reg) GetAllEntries() ([]registry.Entry, error) {
 }
 
 func (r *Reg) GetEntry(path registry.ID) (registry.Entry, error) {
+	path = canonicalEntryID(path)
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 

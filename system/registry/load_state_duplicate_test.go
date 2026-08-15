@@ -107,5 +107,8 @@ func TestRegistry_LoadStateCanonicalizesBaselineWithoutMutatingCaller(t *testing
 	stored, err := reg.GetEntry(canonicalID)
 	require.NoError(t, err)
 	require.Equal(t, canonicalID, stored.ID)
+	stored, err = reg.GetEntry(rawID)
+	require.NoError(t, err)
+	require.Equal(t, canonicalID, stored.ID)
 	require.Equal(t, rawID, baseline[0].ID)
 }
