@@ -88,7 +88,7 @@ func NewModule(opts Options) *luaapi.ModuleDef {
 		Description: "Registry operations for entries, snapshots, and versioning",
 		Class:       []string{luaapi.ClassNondeterministic, luaapi.ClassStorage},
 		Build: func() (*lua.LTable, []luaapi.YieldType) {
-			mod := lua.CreateTable(0, 10)
+			mod := lua.CreateTable(0, 11)
 			mod.RawSetString("get", lua.LGoFunc(registryGet))
 			mod.RawSetString("find", lua.LGoFunc(registryFind))
 			mod.RawSetString("parse_id", lua.LGoFunc(parseID))
@@ -99,11 +99,76 @@ func NewModule(opts Options) *luaapi.ModuleDef {
 			mod.RawSetString("history", lua.LGoFunc(registryHistory))
 			mod.RawSetString("apply_version", lua.LGoFunc(registryApplyVersion))
 			mod.RawSetString("build_delta", makeBuildDelta(opts.Log))
+			mod.RawSetString("overlay", lua.LGoFunc(registryOverlay))
 			mod.Immutable = true
 			return mod, nil
 		},
 		Types: ModuleTypes,
 	}
+}
+
+func registryOverlay(l *lua.LState) int {
+	ctx := l.Context()
+	if ctx == nil {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "no context").
+			WithKind(lua.Internal).
+			WithRetryable(false))
+		return 2
+	}
+	owner, ownerErr := regapi.CanonicalOverlayOwner(l.CheckString(1))
+	if ownerErr != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.WrapErrorWithLua(l, ownerErr, "canonicalize registry overlay owner").
+			WithKind(lua.Invalid).
+			WithRetryable(false))
+		return 2
+	}
+	reg := regapi.GetRegistry(ctx)
+	if reg == nil {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "registry not found in context").
+			WithKind(lua.Internal).
+			WithRetryable(false))
+		return 2
+	}
+	if !security.IsAllowed(ctx, "registry.overlay.get", owner, nil) {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "not allowed to read registry overlay: "+owner).
+			WithKind(lua.PermissionDenied).
+			WithRetryable(false))
+		return 2
+	}
+	writer, ok := reg.(regapi.OverlayWriter)
+	if !ok {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "registry overlays are not supported").
+			WithKind(lua.Internal).
+			WithRetryable(false))
+		return 2
+	}
+	entries, generation, err := writer.GetOverlay(owner)
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.WrapErrorWithLua(l, err, "get registry overlay"))
+		return 2
+	}
+	version, versionErr := reg.Current()
+	if versionErr != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.WrapErrorWithLua(l, versionErr, "get current registry version"))
+		return 2
+	}
+	value.PushTypedUserData(l, &Snapshot{
+		reg:          reg,
+		version:      version,
+		log:          zap.NewNop(),
+		overlayOwner: owner,
+		overlayGen:   generation,
+		entries:      entries,
+	}, typeSnapshot)
+	l.Push(lua.LNil)
+	return 2
 }
 
 // Module functions

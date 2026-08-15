@@ -5,11 +5,27 @@ package registry
 
 import (
 	"context"
+	"strings"
 
 	"github.com/wippyai/runtime/api/attrs"
+	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/payload"
 )
+
+// ErrOverlayOwnerRequired rejects empty logical overlay identities.
+var ErrOverlayOwnerRequired = apierror.New(apierror.Invalid, "registry overlay owner is required").
+	WithRetryable(apierror.False)
+
+// CanonicalOverlayOwner returns the identity used for both overlay storage and
+// authorization. Callers must authorize only the returned value.
+func CanonicalOverlayOwner(owner string) (string, error) {
+	owner = strings.TrimSpace(owner)
+	if owner == "" {
+		return "", ErrOverlayOwnerRequired
+	}
+	return owner, nil
+}
 
 // Registry system constants define the various event types and identifiers used throughout the registry.
 const (
@@ -151,6 +167,15 @@ type (
 		ApplyVersion(context.Context, Version) error
 		// LoadState initializes registry state from baseline and history without creating new version records
 		LoadState(context.Context, State, Version) error
+	}
+
+	// OverlayWriter manages process-local registry overlays. Overlay entries
+	// participate in normal topology and handler transitions but do
+	// not advance or appear in version history. They are empty after cold boot
+	// and must be reconciled by their owning control service.
+	OverlayWriter interface {
+		ApplyOverlay(context.Context, string, uint64, ChangeSet) (uint64, error)
+		GetOverlay(string) (State, uint64, error)
 	}
 
 	// StateMap is a map-based representation of registry state for efficient lookups

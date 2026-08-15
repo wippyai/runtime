@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -270,7 +271,7 @@ func TestTrackedResource(t *testing.T) {
 		assert.True(t, inner.released)
 	})
 
-	t.Run("PoolReuse", func(t *testing.T) {
+	t.Run("RepeatedAllocation", func(t *testing.T) {
 		for i := 0; i < 10; i++ {
 			inner := &mockResource{value: i}
 			tr := NewTrackedResource(inner, nil)
@@ -279,4 +280,47 @@ func TestTrackedResource(t *testing.T) {
 			tr.Release()
 		}
 	})
+}
+
+func TestTrackedResourceConcurrentReleaseIsIdempotent(t *testing.T) {
+	inner := &mockResource{value: "value"}
+	releaseCount := 0
+	tracked := NewTrackedResource(inner, func() { releaseCount++ })
+	var wg sync.WaitGroup
+	for i := 0; i < 32; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			tracked.Release()
+		}()
+	}
+	wg.Wait()
+	assert.Equal(t, 1, releaseCount)
+	_, err := tracked.Get()
+	assert.ErrorIs(t, err, ErrReleased)
+}
+
+func TestTrackedResourceStaleReleaseCannotAffectLaterWrapper(t *testing.T) {
+	firstInner := &mockResource{value: "first"}
+	first := NewTrackedResource(firstInner, nil)
+	first.Release()
+
+	secondInner := &mockResource{value: "second"}
+	secondReleases := 0
+	second := NewTrackedResource(secondInner, func() { secondReleases++ })
+	first.Release()
+
+	value, err := second.Get()
+	require.NoError(t, err)
+	assert.Equal(t, "second", value)
+	assert.Zero(t, secondReleases)
+	second.Release()
+	assert.Equal(t, 1, secondReleases)
+}
+
+func TestTrackedResourceHandlesNilInner(t *testing.T) {
+	tracked := NewTrackedResource(nil, nil)
+	_, err := tracked.Get()
+	assert.ErrorIs(t, err, ErrReleased)
+	assert.NotPanics(t, tracked.Release)
 }

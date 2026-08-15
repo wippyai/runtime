@@ -439,6 +439,32 @@ func TestNewID(t *testing.T) {
 	}
 }
 
+func TestID_Canonical(t *testing.T) {
+	canonical := NewID("ns", "name")
+	requireSameID := func(t *testing.T, expected, actual ID) {
+		t.Helper()
+		assert.Equal(t, expected, actual)
+		assert.Equal(t, expected.String(), actual.String())
+	}
+
+	t.Run("already canonical", func(t *testing.T) {
+		requireSameID(t, canonical, canonical.Canonical())
+		var got ID
+		assert.Zero(t, testing.AllocsPerRun(1000, func() {
+			got = canonical.Canonical()
+		}))
+		requireSameID(t, canonical, got)
+	})
+
+	t.Run("raw split form", func(t *testing.T) {
+		requireSameID(t, canonical, (ID{NS: "ns", Name: "name"}).Canonical())
+	})
+
+	t.Run("legacy qualified name", func(t *testing.T) {
+		requireSameID(t, canonical, (ID{Name: "ns:name"}).Canonical())
+	})
+}
+
 func TestID_String_WithCachedStr(t *testing.T) {
 	id := NewID("ns", "name")
 	assert.Equal(t, "ns:name", id.String())

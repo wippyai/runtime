@@ -46,7 +46,7 @@ func init() {
 		{Name: "ops", Type: typ.Func().Param("self", typ.Self).Returns(typ.NewArray(typ.Any)).Build()},
 		{Name: "create", Type: typ.Func().Param("self", typ.Self).Param("op", typ.Any).Returns(typ.Self, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "update", Type: typ.Func().Param("self", typ.Self).Param("op", typ.Any).Returns(typ.Self, typ.NewOptional(typ.LuaError)).Build()},
-		{Name: "delete", Type: typ.Func().Param("self", typ.Self).Param("op", typ.Any).Returns(typ.Self, typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "delete", Type: typ.Func().Param("self", typ.Self).Param("op_or_ops", typ.Any).Returns(typ.Self, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "apply", Type: typ.Func().Param("self", typ.Self).Returns(versionType, typ.NewOptional(typ.LuaError)).Build()},
 	})
 
@@ -90,6 +90,7 @@ func ModuleTypes() *typio.Manifest {
 		{Name: "history", Type: typ.Func().Returns(historyType, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "apply_version", Type: typ.Func().Param("version", versionType).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "build_delta", Type: typ.Func().Param("from", versionType).Param("to", versionType).Returns(typ.Any, typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "overlay", Type: typ.Func().Param("id", typ.String).Returns(snapshotType, typ.NewOptional(typ.LuaError)).Build()},
 	})
 
 	m.SetExport(moduleType)

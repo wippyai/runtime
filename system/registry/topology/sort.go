@@ -51,68 +51,16 @@ func SortEntriesByDependency(entries []registry.Entry, resolver registry.Depende
 		return nil, nil
 	}
 
-	// Build dependency graph and mappings
+	// Build the graph from the canonical resolved dependency view.
 	g := graph.New[registry.ID, any]()
 	entryMap := make(map[registry.ID]registry.Entry, len(entries))
-	groupMap := make(map[string][]registry.ID)
-	nsMap := make(map[string][]registry.ID)
-
-	// First pass: build all mappings
 	for _, entry := range entries {
 		g.AddNode(entry.ID)
 		entryMap[entry.ID] = entry
-
-		// Build group mapping from explicit groups
-		explicitGroups := entry.Meta.GetSlice(registry.TagGroups)
-		for _, group := range explicitGroups {
-			groupMap[group] = append(groupMap[group], entry.ID)
-		}
-
-		// Build namespace mapping
-		if entry.ID.NS != "" {
-			nsMap[entry.ID.NS] = append(nsMap[entry.ID.NS], entry.ID)
-		}
 	}
-
-	// Second pass: process all dependencies
-	for _, entry := range entries {
-		dependencies := entry.Meta.GetSlice(registry.TagDependsOn)
-
-		if resolver != nil {
-			dependencies = append(dependencies, resolver.Extract(entry)...)
-		}
-
-		for _, dep := range dependencies {
-			depType, value := parseDependency(dep)
-
-			switch depType {
-			case "direct":
-				// Handle direct dependency, respecting source namespace
-				targetID := resolveDependencyID(entry.ID.NS, value)
-				if _, exists := entryMap[targetID]; exists {
-					g.AddEdge(targetID, entry.ID, 1, nil)
-				}
-
-			case "group":
-				// Handle group dependency
-				if members, exists := groupMap[value]; exists {
-					for _, memberID := range members {
-						if !memberID.Equal(entry.ID) { // Avoid self-dependency
-							g.AddEdge(memberID, entry.ID, 1, nil)
-						}
-					}
-				}
-
-			case "namespace":
-				// Handle namespace dependency
-				if members, exists := nsMap[value]; exists {
-					for _, memberID := range members {
-						if !memberID.Equal(entry.ID) { // Avoid self-dependency
-							g.AddEdge(memberID, entry.ID, 1, nil)
-						}
-					}
-				}
-			}
+	for source, dependencies := range ResolveDependencies(entryMap, resolver) {
+		for _, target := range dependencies {
+			g.AddEdge(target, source, 1, nil)
 		}
 	}
 
@@ -153,63 +101,16 @@ func LevelSortEntriesByDependency(entries []registry.Entry, resolver registry.De
 		return nil, nil
 	}
 
-	// Build dependency graph and mappings
+	// Build the graph from the canonical resolved dependency view.
 	g := graph.New[registry.ID, any]()
 	entryMap := make(map[registry.ID]registry.Entry, len(entries))
-	groupMap := make(map[string][]registry.ID)
-	nsMap := make(map[string][]registry.ID)
-
-	// First pass: build all mappings
 	for _, entry := range entries {
 		g.AddNode(entry.ID)
 		entryMap[entry.ID] = entry
-
-		explicitGroups := entry.Meta.GetSlice(registry.TagGroups)
-		for _, group := range explicitGroups {
-			groupMap[group] = append(groupMap[group], entry.ID)
-		}
-
-		if entry.ID.NS != "" {
-			nsMap[entry.ID.NS] = append(nsMap[entry.ID.NS], entry.ID)
-		}
 	}
-
-	// Second pass: process all dependencies
-	for _, entry := range entries {
-		dependencies := entry.Meta.GetSlice(registry.TagDependsOn)
-
-		if resolver != nil {
-			dependencies = append(dependencies, resolver.Extract(entry)...)
-		}
-
-		for _, dep := range dependencies {
-			depType, value := parseDependency(dep)
-
-			switch depType {
-			case "direct":
-				targetID := resolveDependencyID(entry.ID.NS, value)
-				if _, exists := entryMap[targetID]; exists {
-					g.AddEdge(targetID, entry.ID, 1, nil)
-				}
-
-			case "group":
-				if members, exists := groupMap[value]; exists {
-					for _, memberID := range members {
-						if !memberID.Equal(entry.ID) {
-							g.AddEdge(memberID, entry.ID, 1, nil)
-						}
-					}
-				}
-
-			case "namespace":
-				if members, exists := nsMap[value]; exists {
-					for _, memberID := range members {
-						if !memberID.Equal(entry.ID) {
-							g.AddEdge(memberID, entry.ID, 1, nil)
-						}
-					}
-				}
-			}
+	for source, dependencies := range ResolveDependencies(entryMap, resolver) {
+		for _, target := range dependencies {
+			g.AddEdge(target, source, 1, nil)
 		}
 	}
 
