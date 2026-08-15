@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: MPL-2.0
 
-# Enable JSON v2 for all Go commands
-export GOEXPERIMENT := jsonv2
+# kaptinlin/jsonschema relies on the standalone go-json-experiment unmarshaler
+# fallback contract. The standard-library jsonv2 alias does not preserve it.
+export GOEXPERIMENT := nojsonv2
 export GOFLAGS := -buildvcs=false
 
 test-clean:
