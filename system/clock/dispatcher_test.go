@@ -150,6 +150,8 @@ func TestTimerStartHandlerZeroDuration(t *testing.T) {
 }
 
 func TestTimerWaitHandler(t *testing.T) {
+	const timerDuration = 10 * time.Millisecond
+
 	d := NewDispatcher()
 	defer func() { _ = d.Stop(context.Background()) }()
 
@@ -163,25 +165,29 @@ func TestTimerWaitHandler(t *testing.T) {
 	ctx := setupTestContext()
 
 	var timerID uint64
-	_ = startHandler.Handle(ctx, clockapi.TimerStartCmd{Duration: 10 * time.Millisecond}, 0, &testReceiver{fn: func(data any, _ error) {
+	start := time.Now()
+	_ = startHandler.Handle(ctx, clockapi.TimerStartCmd{Duration: timerDuration}, 0, &testReceiver{fn: func(data any, _ error) {
 		timerID = data.(clockapi.TimerStartResult).ID
 	}})
 
 	var emitted any
-	start := time.Now()
 	done := make(chan struct{})
 	err := waitHandler.Handle(ctx, clockapi.TimerWaitCmd{TimerID: timerID}, 0, &testReceiver{fn: func(data any, _ error) {
 		emitted = data
 		close(done)
 	}})
 
-	<-done
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for timer")
+	}
 	elapsed := time.Since(start)
 
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
-	if elapsed < 10*time.Millisecond {
+	if elapsed < timerDuration {
 		t.Errorf("timer wait too short: %v", elapsed)
 	}
 	if emitted == nil {
