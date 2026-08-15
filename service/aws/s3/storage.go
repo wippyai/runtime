@@ -573,6 +573,10 @@ func mapKnownError(err error) error {
 	if errors.As(err, &notFound) {
 		return cloudstorage.ErrNotFound
 	}
+	var noSuchUpload *types.NoSuchUpload
+	if errors.As(err, &noSuchUpload) {
+		return cloudstorage.ErrNotFound
+	}
 
 	var respErr *awshttp.ResponseError
 	if errors.As(err, &respErr) {
