@@ -204,6 +204,7 @@ effective registry and continue to require their existing per-entry
 | Empty owner | errors.INVALID | no |
 | Owner read/apply denied | errors.PERMISSION_DENIED | no |
 | Entry operation denied | errors.PERMISSION_DENIED | no |
+| Updated/deleted entry absent from snapshot | errors.NOT_FOUND | no |
 | Stale overlay generation | errors.CONFLICT | yes |
 | Directive-owned kind | errors.INVALID | no |
 

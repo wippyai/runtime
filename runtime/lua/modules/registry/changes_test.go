@@ -3,11 +3,14 @@
 package registry
 
 import (
+	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/attrs"
 	regapi "github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	"go.uber.org/zap"
 )
 
@@ -192,4 +195,53 @@ func TestDeleteIDsRejectsCyclicTables(t *testing.T) {
 	if _, err := deleteIDs(table); err == nil {
 		t.Fatal("expected cyclic ID table to be rejected")
 	}
+}
+
+func TestDeleteIDsRejectsMalformedEntryShapes(t *testing.T) {
+	l := newTestState()
+	defer l.Close()
+
+	tests := map[string]*lua.LTable{
+		"non-string id": func() *lua.LTable {
+			entry := l.CreateTable(0, 1)
+			entry.RawSetString("id", lua.LNumber(1))
+			return entry
+		}(),
+		"partial ns and name": func() *lua.LTable {
+			entry := l.CreateTable(0, 1)
+			entry.RawSetString("ns", lua.LString("runtime"))
+			return entry
+		}(),
+		"non-string ns and name": func() *lua.LTable {
+			entry := l.CreateTable(0, 2)
+			entry.RawSetString("ns", lua.LBool(true))
+			entry.RawSetString("name", lua.LString("source"))
+			return entry
+		}(),
+	}
+	for name, entry := range tests {
+		t.Run(name, func(t *testing.T) {
+			_, err := deleteIDs(entry)
+			require.Error(t, err)
+		})
+	}
+}
+
+func TestChangesDeleteReturnsActionableInvalidError(t *testing.T) {
+	l := newTestState()
+	defer l.Close()
+	lua.OpenErrors(l)
+	value.PushTypedUserData(l, &Changes{ops: []regapi.Operation{}, log: zap.NewNop()}, typeChanges)
+	l.SetGlobal("changes", l.Get(-1))
+	l.Pop(1)
+
+	require.NoError(t, l.DoString(`
+		local _, err = changes:delete({ id = 1 })
+		assert(err ~= nil)
+		assert(err:kind() == errors.INVALID)
+		assert(err:retryable() == false)
+		message = err:message()
+	`))
+	message := string(l.GetGlobal("message").(lua.LString))
+	require.True(t, strings.Contains(message, "entry id must be a string"), message)
 }

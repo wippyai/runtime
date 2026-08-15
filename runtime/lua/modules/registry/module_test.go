@@ -710,6 +710,55 @@ func TestRegistryOverlayUsesNormalSnapshotAndChanges(t *testing.T) {
 	assert.Equal(t, regapi.EntryUpdate, mockReg.appliedChanges[0].Kind)
 }
 
+func TestRegistryOverlayWithoutContextOrRegistry(t *testing.T) {
+	testMissingRegistry := func(t *testing.T, ctx context.Context) {
+		l := lua.NewState()
+		defer l.Close()
+		if ctx != nil {
+			l.SetContext(ctx)
+		}
+		lua.OpenErrors(l)
+		setupModule(l)
+		require.NoError(t, l.DoString(`
+				local snap, err = registry.overlay("runtime:owner")
+				assert(snap == nil and err ~= nil)
+				assert(err:kind() == errors.INTERNAL)
+				assert(err:retryable() == false)
+			`))
+	}
+	t.Run("context", func(t *testing.T) { testMissingRegistry(t, nil) })
+	t.Run("registry", func(t *testing.T) { testMissingRegistry(t, setupContextWithTranscoder()) })
+}
+
+func TestRegistryOverlayUpdateMissingEntryReturnsNotFound(t *testing.T) {
+	ctx := setupContextWithTranscoder()
+	mockReg := &mockRegistry{
+		entries:        map[string]regapi.Entry{},
+		overlayEntries: map[string]regapi.State{"runtime:owner": nil},
+		currentVersion: &mockVersion{id: 1, str: "v1"},
+	}
+	ctx = regapi.WithRegistry(ctx, mockReg)
+
+	l := lua.NewState()
+	defer l.Close()
+	l.SetContext(ctx)
+	lua.OpenErrors(l)
+	setupModule(l)
+	require.NoError(t, l.DoString(`
+		local snap = assert(registry.overlay("runtime:owner"))
+		local changes = snap:changes()
+		changes:update({ id = "runtime:missing", kind = "registry.entry" })
+		local version, err = changes:apply()
+		assert(version == nil and err ~= nil)
+		assert(err:kind() == errors.NOT_FOUND)
+		assert(err:retryable() == false)
+		local details = err:details()
+		assert(details.entry_id == "runtime:missing")
+		assert(details.owner == "runtime:owner")
+	`))
+	assert.Empty(t, mockReg.appliedChanges)
+}
+
 func TestRegistryGetWithEntryData(t *testing.T) {
 	// Create context with transcoder
 	ctx := setupContextWithTranscoder()

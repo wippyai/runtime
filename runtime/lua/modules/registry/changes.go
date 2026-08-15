@@ -128,7 +128,7 @@ func changesDelete(l *lua.LState) int {
 
 	ids, parseErr := deleteIDs(l.Get(2))
 	if parseErr != nil {
-		err := lua.NewLuaError(l, "invalid ID format").
+		err := lua.WrapErrorWithLua(l, parseErr, "parse registry entry IDs").
 			WithKind(lua.Invalid).
 			WithRetryable(false)
 		l.Push(lua.LNil)
@@ -170,13 +170,22 @@ func deleteIDs(value lua.LValue) ([]regapi.ID, error) {
 			}
 			seenTables[v] = struct{}{}
 			if idValue := v.RawGetString("id"); idValue != lua.LNil {
-				stack = append(stack, idValue)
+				id, ok := idValue.(lua.LString)
+				if !ok {
+					return nil, fmt.Errorf("entry id must be a string, got %s", idValue.Type())
+				}
+				ids = append(ids, regapi.ParseID(string(id)))
 				continue
 			}
 			ns := v.RawGetString("ns")
 			name := v.RawGetString("name")
-			if ns != lua.LNil && name != lua.LNil {
-				ids = append(ids, regapi.NewID(ns.String(), name.String()))
+			if ns != lua.LNil || name != lua.LNil {
+				nsString, nsOK := ns.(lua.LString)
+				nameString, nameOK := name.(lua.LString)
+				if !nsOK || !nameOK {
+					return nil, fmt.Errorf("entry ns and name must both be strings")
+				}
+				ids = append(ids, regapi.NewID(string(nsString), string(nameString)))
 				continue
 			}
 			if v.Len() == 0 {
@@ -232,10 +241,13 @@ func changesApply(l *lua.LState) int {
 		for _, op := range changes.ops {
 			kind := op.Entry.Kind
 			if op.Kind == regapi.EntryUpdate || op.Kind == regapi.EntryDelete {
-				stored, err := changes.snapshot.GetEntry(op.Entry.ID)
-				if err != nil {
+				stored, getErr := changes.snapshot.GetEntry(op.Entry.ID)
+				if getErr != nil {
 					l.Push(lua.LNil)
-					l.Push(lua.WrapErrorWithLua(l, err, "resolve overlay entry kind"))
+					l.Push(lua.NewLuaError(l, "registry overlay entry not found: "+op.Entry.ID.String()).
+						WithKind(lua.NotFound).
+						WithRetryable(false).
+						WithDetails(map[string]any{"entry_id": op.Entry.ID.String(), "owner": owner}))
 					return 2
 				}
 				kind = stored.Kind
