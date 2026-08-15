@@ -152,33 +152,47 @@ func changesDelete(l *lua.LState) int {
 }
 
 func deleteIDs(value lua.LValue) ([]regapi.ID, error) {
-	switch v := value.(type) {
-	case lua.LString:
-		return []regapi.ID{regapi.ParseID(string(v))}, nil
-	case *lua.LTable:
-		if idValue := v.RawGetString("id"); idValue != lua.LNil {
-			return deleteIDs(idValue)
-		}
-		ns := v.RawGetString("ns")
-		name := v.RawGetString("name")
-		if ns != lua.LNil && name != lua.LNil {
-			return []regapi.ID{regapi.NewID(ns.String(), name.String())}, nil
-		}
-		ids := make([]regapi.ID, 0, v.Len())
-		for i := 1; i <= v.Len(); i++ {
-			itemIDs, err := deleteIDs(v.RawGetInt(i))
-			if err != nil {
-				return nil, fmt.Errorf("delete item %d: %w", i, err)
+	// Walk iteratively: Lua tables are graphs and may contain themselves. A
+	// recursive decoder lets an untrusted self-reference exhaust the Go stack.
+	stack := []lua.LValue{value}
+	seenTables := make(map[*lua.LTable]struct{})
+	ids := make([]regapi.ID, 0, 1)
+	for len(stack) > 0 {
+		last := len(stack) - 1
+		current := stack[last]
+		stack = stack[:last]
+		switch v := current.(type) {
+		case lua.LString:
+			ids = append(ids, regapi.ParseID(string(v)))
+		case *lua.LTable:
+			if _, seen := seenTables[v]; seen {
+				return nil, fmt.Errorf("cyclic or repeated ID table")
 			}
-			ids = append(ids, itemIDs...)
+			seenTables[v] = struct{}{}
+			if idValue := v.RawGetString("id"); idValue != lua.LNil {
+				stack = append(stack, idValue)
+				continue
+			}
+			ns := v.RawGetString("ns")
+			name := v.RawGetString("name")
+			if ns != lua.LNil && name != lua.LNil {
+				ids = append(ids, regapi.NewID(ns.String(), name.String()))
+				continue
+			}
+			if v.Len() == 0 {
+				return nil, fmt.Errorf("empty ID list")
+			}
+			for i := v.Len(); i >= 1; i-- {
+				stack = append(stack, v.RawGetInt(i))
+			}
+		default:
+			return nil, fmt.Errorf("unsupported ID value %s", current.Type())
 		}
-		if len(ids) == 0 {
-			return nil, fmt.Errorf("empty ID list")
-		}
-		return ids, nil
-	default:
-		return nil, fmt.Errorf("unsupported ID value %s", value.Type())
 	}
+	if len(ids) == 0 {
+		return nil, fmt.Errorf("empty ID list")
+	}
+	return ids, nil
 }
 
 // changesApply applies the changeset to create a new version

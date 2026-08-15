@@ -46,8 +46,8 @@ Retrieves a single entry by ID from the current registry state.
 
 `root` marks an `ns.dependency` selected as a deployment root. It is the sole
 authority for that status — `meta` is user space and carries no trust. Reads
-always return it; writes may omit it, and omitting it on an update demotes the
-entry, so carry it back on any read-modify-write.
+always return it. Updates preserve the stored value when `root` is omitted; set
+it explicitly only when changing root status.
 
 **Errors (structured):**
 
@@ -153,20 +153,25 @@ fails atomically with a retryable `errors.CONFLICT` and must be reopened. Owner
 IDs are trimmed to one canonical identity before authorization and storage. One
 changeset may contain at most one operation for each entry ID.
 
+Ownership is registry state, not entry metadata. Overlay application never adds
+an owner field to `meta` or otherwise changes user metadata. Kinds handled by a
+registry expansion directive are rejected because their generated entries and
+effects do not have process-local ownership semantics.
+
 ```lua
-local live, err = registry.overlay("spiralscout.data_sources:customer-db")
+local live, err = registry.overlay("controllers:customer-db")
 if err then return nil, err end
 
 local changes = live:changes()
 changes:create({
-    id = "spiralscout.data_sources.runtime:customer-db",
+    id = "runtime.data_sources:customer-db",
     kind = "db.sql.postgres",
     data = { host = "db.example.com", database = "customer" },
 })
 local version, apply_err = changes:apply()
 
 -- Deprovision every entry in this overlay in one dependency-sorted apply.
-local current, open_err = registry.overlay("spiralscout.data_sources:customer-db")
+local current, open_err = registry.overlay("controllers:customer-db")
 if open_err then return nil, open_err end
 local remove = current:changes()
 remove:delete(current:entries())
@@ -200,6 +205,7 @@ effective registry and continue to require their existing per-entry
 | Owner read/apply denied | errors.PERMISSION_DENIED | no |
 | Entry operation denied | errors.PERMISSION_DENIED | no |
 | Stale overlay generation | errors.CONFLICT | yes |
+| Directive-owned kind | errors.INVALID | no |
 
 ### current_version() → Version, error
 

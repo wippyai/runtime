@@ -5,6 +5,7 @@ package resource
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"sort"
 	"sync"
 
@@ -113,6 +114,10 @@ func (s *Registry) handleRegister(e event.Event) {
 			zap.String("type", fmt.Sprintf("%T", e.Data)))
 		return
 	}
+	if isNilInterface(entry.Provider) {
+		s.logger.Error("resource entry has nil provider", zap.String("resource", e.Path))
+		return
+	}
 
 	s.mu.Lock()
 	if s.stopped {
@@ -132,6 +137,10 @@ func (s *Registry) handleUpdate(e event.Event) {
 		s.logger.Error("invalid resource entry payload",
 			zap.String("resource", e.Path),
 			zap.String("type", fmt.Sprintf("%T", e.Data)))
+		return
+	}
+	if isNilInterface(entry.Provider) {
+		s.logger.Error("resource entry has nil provider", zap.String("resource", e.Path))
 		return
 	}
 
@@ -202,10 +211,27 @@ func (s *Registry) Acquire(ctx context.Context, id registry.ID, mode resource.Ac
 		s.releaseBorrow(id, generation)
 		return nil, err
 	}
+	if isNilInterface(res) {
+		s.releaseBorrow(id, generation)
+		return nil, ErrInvalidResource
+	}
 
 	return resource.NewTrackedResource(res, func() {
 		s.releaseBorrow(id, generation)
 	}), nil
+}
+
+func isNilInterface(value any) bool {
+	if value == nil {
+		return true
+	}
+	v := reflect.ValueOf(value)
+	switch v.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+		return v.IsNil()
+	default:
+		return false
+	}
 }
 
 // activateLocked publishes a new acquisition generation. Older generations

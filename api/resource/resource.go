@@ -50,11 +50,10 @@ type (
 
 	// Provider manages resource lifecycle and access control.
 	Provider interface {
-		// Acquire obtains access to a resource with the specified mode. A
-		// successful Resource remains owned by the caller and valid until Release,
-		// even if the provider is concurrently removed or replaced in a Registry.
-		// Implementations own that lifetime guarantee; the Registry only routes
-		// new acquisitions and tracks generations.
+		// Acquire obtains access to a resource with the specified mode. Providers
+		// define whether an acquired handle remains usable when their backing
+		// service is stopped or replaced. The Registry owns routing and exact
+		// generation accounting only; callers always own the matching Release.
 		Acquire(ctx context.Context, id registry.ID, mode AccessMode) (Resource[any], error)
 	}
 
@@ -88,7 +87,7 @@ func NewTrackedResource(inner Resource[any], onRelease func()) *TrackedResource 
 func (t *TrackedResource) Get() (any, error) {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
-	if t.released {
+	if t.released || t.inner == nil {
 		return nil, ErrReleased
 	}
 	return t.inner.Get()
@@ -111,5 +110,7 @@ func (t *TrackedResource) Release() {
 	if onRelease != nil {
 		defer onRelease()
 	}
-	inner.Release()
+	if inner != nil {
+		inner.Release()
+	}
 }

@@ -182,3 +182,14 @@ func TestChangesUpdateHonoursExplicitDemotion(t *testing.T) {
 		t.Error("expected an explicit root=false to demote the entry")
 	}
 }
+
+func TestDeleteIDsRejectsCyclicTables(t *testing.T) {
+	l := newTestState()
+	defer l.Close()
+	table := l.CreateTable(1, 0)
+	table.RawSetInt(1, table)
+
+	if _, err := deleteIDs(table); err == nil {
+		t.Fatal("expected cyclic ID table to be rejected")
+	}
+}

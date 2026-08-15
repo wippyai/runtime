@@ -110,6 +110,9 @@ func TestOverlayCannotShadowOrLeakIntoHistory(t *testing.T) {
 	require.NoError(t, err)
 	_, err = reg.Apply(ctx, regapi.ChangeSet{{Kind: regapi.EntryUpdate, Entry: runtimeEntry}})
 	require.Error(t, err)
+	var structured apierror.Error
+	require.ErrorAs(t, err, &structured)
+	assert.Equal(t, apierror.Conflict, structured.Kind())
 	_, err = reg.ApplyOverlay(ctx, "owner:b", 0, regapi.ChangeSet{{Kind: regapi.EntryDelete, Entry: runtimeEntry}})
 	require.Error(t, err)
 }
@@ -274,7 +277,7 @@ func TestLoadStateInvalidatesAbsentOverlaySnapshot(t *testing.T) {
 	assert.Equal(t, apierror.Conflict, structured.Kind())
 }
 
-func TestDeletedOverlayOwnersDoNotRetainGenerationTombstones(t *testing.T) {
+func TestDeletedOverlayOwnerRetainsGenerationTombstone(t *testing.T) {
 	ctx := context.Background()
 	reg, _ := newOverlayTestRegistry(t)
 	require.NoError(t, reg.LoadState(ctx, nil, version.FromParent(nil, regapi.RootVersion)))
@@ -284,7 +287,7 @@ func TestDeletedOverlayOwnersDoNotRetainGenerationTombstones(t *testing.T) {
 	deletedGeneration, err := reg.ApplyOverlay(ctx, "owner:a", generation, regapi.ChangeSet{{Kind: regapi.EntryDelete, Entry: entry}})
 	require.NoError(t, err)
 	assert.Greater(t, deletedGeneration, generation)
-	assert.Empty(t, reg.overlayGeneration)
+	assert.Equal(t, deletedGeneration, reg.overlayGeneration["owner:a"])
 
 	// Neither a snapshot from the active generation nor one opened before the
 	// create/delete cycle may resurrect the removed owner.
@@ -292,6 +295,30 @@ func TestDeletedOverlayOwnersDoNotRetainGenerationTombstones(t *testing.T) {
 	require.Error(t, err)
 	_, err = reg.ApplyOverlay(ctx, "owner:a", 0, regapi.ChangeSet{{Kind: regapi.EntryCreate, Entry: entry}})
 	require.Error(t, err)
+
+	empty, currentGeneration, err := reg.GetOverlay("owner:a")
+	require.NoError(t, err)
+	assert.Empty(t, empty)
+	assert.Equal(t, deletedGeneration, currentGeneration)
+	_, err = reg.ApplyOverlay(ctx, "owner:a", currentGeneration, regapi.ChangeSet{{Kind: regapi.EntryCreate, Entry: entry}})
+	require.NoError(t, err)
+}
+
+func TestOverlayGenerationDoesNotConflictAcrossOwners(t *testing.T) {
+	ctx := context.Background()
+	reg, _ := newOverlayTestRegistry(t)
+	require.NoError(t, reg.LoadState(ctx, nil, version.FromParent(nil, regapi.RootVersion)))
+
+	_, ownerBGeneration, err := reg.GetOverlay("owner:b")
+	require.NoError(t, err)
+
+	entryA := regapi.Entry{ID: regapi.NewID("runtime", "a"), Kind: regapi.EntryKind}
+	_, err = reg.ApplyOverlay(ctx, "owner:a", 0, regapi.ChangeSet{{Kind: regapi.EntryCreate, Entry: entryA}})
+	require.NoError(t, err)
+
+	entryB := regapi.Entry{ID: regapi.NewID("runtime", "b"), Kind: regapi.EntryKind}
+	_, err = reg.ApplyOverlay(ctx, "owner:b", ownerBGeneration, regapi.ChangeSet{{Kind: regapi.EntryCreate, Entry: entryB}})
+	require.NoError(t, err)
 }
 
 func TestOverlayGenerationConflictIsStructuredAndRetryable(t *testing.T) {
@@ -326,6 +353,52 @@ func TestOverlayRejectsIDAliasAndManagedProvenance(t *testing.T) {
 	}
 	_, err = reg.ApplyOverlay(ctx, "owner:a", 0, regapi.ChangeSet{{Kind: regapi.EntryCreate, Entry: managed}})
 	require.Error(t, err)
+}
+
+func TestOverlayOwnershipDoesNotMutateEntryMetadata(t *testing.T) {
+	ctx := context.Background()
+	reg, _ := newOverlayTestRegistry(t)
+	require.NoError(t, reg.LoadState(ctx, nil, version.FromParent(nil, regapi.RootVersion)))
+	entry := regapi.Entry{
+		ID:   regapi.NewID("runtime", "owned"),
+		Kind: regapi.EntryKind,
+		Meta: attrs.NewBagFrom(map[string]any{"application": "value"}),
+	}
+
+	_, err := reg.ApplyOverlay(ctx, "owner:a", 0, regapi.ChangeSet{{Kind: regapi.EntryCreate, Entry: entry}})
+	require.NoError(t, err)
+
+	stored, err := reg.GetEntry(entry.ID)
+	require.NoError(t, err)
+	assert.Equal(t, entry.Meta, stored.Meta)
+	_, leaked := stored.Meta["overlay_owner"]
+	assert.False(t, leaked)
+	assert.Equal(t, "owner:a", reg.overlayOwners[entry.ID])
+}
+
+func TestOverlayRejectsDirectiveOwnedKinds(t *testing.T) {
+	ctx := context.Background()
+	history := historymem.New()
+	resolver := topology.NewResolver()
+	builder := topology.NewStateBuilder(zap.NewNop(), resolver)
+	reg := NewRegistry(history, NewTestRunner(), builder, resolver, zap.NewNop(),
+		WithKindDirective("expanded.kind", overlayTestDirective{}))
+	require.NoError(t, reg.LoadState(ctx, nil, version.FromParent(nil, regapi.RootVersion)))
+	entry := regapi.Entry{ID: regapi.NewID("runtime", "declaration"), Kind: "expanded.kind"}
+
+	_, err := reg.ApplyOverlay(ctx, "owner:a", 0, regapi.ChangeSet{{Kind: regapi.EntryCreate, Entry: entry}})
+	require.Error(t, err)
+	var structured apierror.Error
+	require.ErrorAs(t, err, &structured)
+	assert.Equal(t, apierror.Invalid, structured.Kind())
+	_, getErr := reg.GetEntry(entry.ID)
+	require.Error(t, getErr)
+}
+
+type overlayTestDirective struct{}
+
+func (overlayTestDirective) Expand(context.Context, regapi.Operation, regapi.State) (regapi.DirectiveResult, error) {
+	return regapi.DirectiveResult{}, nil
 }
 
 func TestVersionSelectionRejectsHistoricalDurableDependencyOnOverlay(t *testing.T) {

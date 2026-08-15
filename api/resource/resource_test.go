@@ -317,3 +317,10 @@ func TestTrackedResourceStaleReleaseCannotAffectLaterWrapper(t *testing.T) {
 	second.Release()
 	assert.Equal(t, 1, secondReleases)
 }
+
+func TestTrackedResourceHandlesNilInner(t *testing.T) {
+	tracked := NewTrackedResource(nil, nil)
+	_, err := tracked.Get()
+	assert.ErrorIs(t, err, ErrReleased)
+	assert.NotPanics(t, tracked.Release)
+}

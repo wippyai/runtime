@@ -42,6 +42,7 @@ type Reg struct {
 	baseline          registry.State
 	state             registry.State
 	overlayEpoch      uint64
+	overlayFloor      uint64
 	stateLoaded       bool
 	versionNum        atomic.Uint64
 	mu                sync.RWMutex
@@ -223,11 +224,11 @@ func (r *Reg) Apply(ctx context.Context, changes registry.ChangeSet) (registry.V
 		}
 		return nil, NewSortChangesError(sortErr)
 	}
-	if err := r.validateDurableTransitionAgainstOverlays(allOps, historyOps); err != nil {
+	if err := r.validateDurableTransitionAgainstOverlays(allOps); err != nil {
 		if planner != nil {
 			planner.RollbackEffects(ctx, preparedEff)
 		}
-		return nil, NewApplyChangesError(err, nil)
+		return nil, err
 	}
 
 	r.mu.Lock()
@@ -564,11 +565,11 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 		}
 		return NewSortChangesError(sortErr)
 	}
-	if preflightErr := r.validateDurableTransitionAgainstOverlays(allOps, allOps); preflightErr != nil {
+	if preflightErr := r.validateDurableTransitionAgainstOverlays(allOps); preflightErr != nil {
 		if planner != nil {
 			planner.RollbackEffects(ctx, preparedEff)
 		}
-		return NewComputeTransitionError(preflightErr)
+		return preflightErr
 	}
 
 	r.mu.Lock()
@@ -788,6 +789,13 @@ func (r *Reg) LoadState(ctx context.Context, baseline registry.State, targetVers
 		}
 	}
 
+	// Establish the registry's canonical-ID invariant once at the external
+	// state boundary. Internal indexes and overlay ownership maps can then use
+	// IDs directly without allocating and interning them on every scan.
+	baseline = append(registry.State(nil), baseline...)
+	for i := range baseline {
+		baseline[i].ID = canonicalEntryID(baseline[i].ID)
+	}
 	if err := topology.ValidateUniqueEntryIDs("baseline", baseline); err != nil {
 		return err
 	}
@@ -1002,6 +1010,7 @@ func (r *Reg) LoadState(ctx context.Context, baseline registry.State, targetVers
 	if r.stateLoaded || r.overlayEpoch > 0 {
 		r.overlayEpoch++
 	}
+	r.overlayFloor = r.overlayEpoch
 	r.stateLoaded = true
 	r.rebuildIndex()
 	r.rebuildDepIndex()
@@ -1055,10 +1064,7 @@ func canonicalizeChangeSetIDs(changes registry.ChangeSet) {
 }
 
 func canonicalEntryID(id registry.ID) registry.ID {
-	if id.NS == "" {
-		return registry.ParseID(id.Name)
-	}
-	return registry.NewID(id.NS, id.Name)
+	return id.Canonical()
 }
 
 // rollback state desync between actual state in system and state in history
