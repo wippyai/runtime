@@ -96,7 +96,7 @@ func (r *Reg) applyOverlayLocked(ctx context.Context, owner string, expectedGene
 				return 0, NewOverlayConflictError("registry overlay owner cannot mutate entry", map[string]any{"entry_id": op.Entry.ID.String(), "owner": owner})
 			}
 		default:
-			return 0, NewOverlayValidationError("unknown registry overlay operation", map[string]any{"operation": string(op.Kind)})
+			return 0, NewOverlayValidationError("unknown registry overlay operation", map[string]any{"operation": op.Kind})
 		}
 		if op.Kind != registry.EntryDelete {
 			if err := validateOverlayEntryProvenance(op.Entry); err != nil {
