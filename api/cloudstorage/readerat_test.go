@@ -11,17 +11,21 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 type rangeFakeStorage struct {
-	etag     string
-	data     []byte
-	mu       sync.Mutex
-	fetches  int
-	failEtag bool
+	etag      string
+	block     <-chan struct{}
+	started   chan<- struct{}
+	data      []byte
+	fetches   int
+	startOnce sync.Once
+	mu        sync.Mutex
+	failEtag  bool
 }
 
 func (f *rangeFakeStorage) fetchCount() int {
@@ -30,10 +34,20 @@ func (f *rangeFakeStorage) fetchCount() int {
 	return f.fetches
 }
 
-func (f *rangeFakeStorage) DownloadObject(_ context.Context, _ string, w io.Writer, opts *DownloadOptions) error {
+func (f *rangeFakeStorage) DownloadObject(ctx context.Context, _ string, w io.Writer, opts *DownloadOptions) error {
 	f.mu.Lock()
 	f.fetches++
 	f.mu.Unlock()
+	if f.started != nil {
+		f.startOnce.Do(func() { close(f.started) })
+	}
+	if f.block != nil {
+		select {
+		case <-f.block:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
 
 	if f.failEtag && opts != nil && opts.IfMatch != "" && opts.IfMatch != f.etag {
 		return ErrPreconditionFailed
@@ -290,5 +304,59 @@ func TestRangeReaderAt_Defaults(t *testing.T) {
 	assert.Equal(t, DefaultReaderCacheBlocks, cap(r.blocks))
 
 	r2 := NewRangeReaderAt(context.Background(), fake, "k", 10, &RangeReaderAtOptions{CacheBlocks: 1000})
-	assert.Equal(t, MaxReaderCacheBlocks, cap(r2.blocks))
+	assert.Equal(t, MaxReaderCacheBytes/DefaultReaderBlockSize, cap(r2.blocks))
+
+	r3 := NewRangeReaderAt(context.Background(), fake, "k", 10, &RangeReaderAtOptions{
+		BlockSize:   MaxReaderBlockSize * 2,
+		CacheBlocks: MaxReaderCacheBlocks,
+	})
+	assert.Equal(t, int64(MaxReaderBlockSize), r3.blockSize)
+	assert.Equal(t, MaxReaderCacheBytes/MaxReaderBlockSize, cap(r3.blocks))
+}
+
+func TestRangeReaderAt_CloseCancelsInFlightFetch(t *testing.T) {
+	started := make(chan struct{})
+	fake := &rangeFakeStorage{
+		data:    testPattern(64),
+		block:   make(chan struct{}),
+		started: started,
+	}
+	r := NewRangeReaderAt(context.Background(), fake, "k", 64, &RangeReaderAtOptions{BlockSize: 64})
+
+	readDone := make(chan error, 1)
+	go func() {
+		_, err := r.ReadAt(make([]byte, 1), 0)
+		readDone <- err
+	}()
+	<-started
+
+	closeDone := make(chan error, 1)
+	go func() { closeDone <- r.Close() }()
+
+	select {
+	case err := <-closeDone:
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("Close did not cancel the in-flight range request")
+	}
+	select {
+	case err := <-readDone:
+		assert.ErrorIs(t, err, context.Canceled)
+	case <-time.After(time.Second):
+		t.Fatal("range request did not observe reader cancellation")
+	}
+}
+
+func TestRangeReaderAt_ParentCancellationRejectsCachedReads(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	fake := &rangeFakeStorage{data: testPattern(64)}
+	r := NewRangeReaderAt(ctx, fake, "k", 64, &RangeReaderAtOptions{BlockSize: 64})
+
+	_, err := r.ReadAt(make([]byte, 1), 0)
+	require.NoError(t, err)
+	cancel()
+
+	_, err = r.ReadAt(make([]byte, 1), 0)
+	assert.ErrorIs(t, err, context.Canceled)
+	assert.Equal(t, 1, fake.fetchCount(), "cancelled reads must not refetch or use cached data")
 }

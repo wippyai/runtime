@@ -17,7 +17,7 @@ const readerTypeName = "cloudstorage.Reader"
 
 const (
 	minReaderBlockSize = 64 * 1024
-	maxReaderBlockSize = 128 * 1024 * 1024
+	maxReaderBlockSize = csapi.MaxReaderBlockSize
 )
 
 type luaRangeReader struct {

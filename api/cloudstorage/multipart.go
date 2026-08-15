@@ -31,6 +31,7 @@ type (
 	}
 
 	PresignedUploadPartOptions struct {
+		Headers     map[string]string
 		PartNumbers []int32
 		Expiration  time.Duration
 	}

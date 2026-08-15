@@ -985,3 +985,129 @@ func TestMultipartYields_UnsupportedError(t *testing.T) {
 		t.Fatalf("expected multipart-unsupported message, got %q", res[1].String())
 	}
 }
+
+func newStorageCallState(t *testing.T) (*lua.LState, *lua.LUserData) {
+	t.Helper()
+	l := lua.NewState()
+	t.Cleanup(l.Close)
+	ud := l.NewUserData()
+	ud.Value = &storageWrapper{}
+	return l, ud
+}
+
+func TestStoragePresignedPartURLs_ValidatesAndPreservesHeaders(t *testing.T) {
+	t.Run("requires exactly one selector", func(t *testing.T) {
+		l, storage := newStorageCallState(t)
+		opts := l.CreateTable(0, 2)
+		opts.RawSetString("parts", l.CreateTable(0, 0))
+		opts.RawSetString("count", lua.LNumber(1))
+		l.Push(storage)
+		l.Push(lua.LString("key"))
+		l.Push(lua.LString("upload"))
+		l.Push(opts)
+
+		assertInvalidLuaResult(t, l, storagePresignedPartURLs(l))
+	})
+
+	t.Run("rejects fractional and duplicate parts", func(t *testing.T) {
+		for _, parts := range [][]lua.LValue{
+			{lua.LNumber(1.5)},
+			{lua.LNumber(1), lua.LNumber(1)},
+		} {
+			l, storage := newStorageCallState(t)
+			partTable := l.CreateTable(len(parts), 0)
+			for i, part := range parts {
+				partTable.RawSetInt(i+1, part)
+			}
+			opts := l.CreateTable(0, 1)
+			opts.RawSetString("parts", partTable)
+			l.Push(storage)
+			l.Push(lua.LString("key"))
+			l.Push(lua.LString("upload"))
+			l.Push(opts)
+
+			assertInvalidLuaResult(t, l, storagePresignedPartURLs(l))
+		}
+	})
+
+	t.Run("preserves string headers", func(t *testing.T) {
+		l, storage := newStorageCallState(t)
+		headers := l.CreateTable(0, 1)
+		headers.RawSetString("x-amz-request-payer", lua.LString("requester"))
+		opts := l.CreateTable(0, 2)
+		opts.RawSetString("count", lua.LNumber(1))
+		opts.RawSetString("headers", headers)
+		l.Push(storage)
+		l.Push(lua.LString("key"))
+		l.Push(lua.LString("upload"))
+		l.Push(opts)
+
+		if got := storagePresignedPartURLs(l); got != -1 {
+			t.Fatalf("expected yield result, got %d", got)
+		}
+		yield, ok := l.Get(-1).(*PresignedPartURLsYield)
+		if !ok {
+			t.Fatalf("expected PresignedPartURLsYield, got %T", l.Get(-1))
+		}
+		defer ReleasePresignedPartURLsYield(yield)
+		if got := yield.Options.Headers["x-amz-request-payer"]; got != "requester" {
+			t.Fatalf("header = %q, want requester", got)
+		}
+	})
+
+	t.Run("rejects non-table headers", func(t *testing.T) {
+		l, storage := newStorageCallState(t)
+		opts := l.CreateTable(0, 2)
+		opts.RawSetString("count", lua.LNumber(1))
+		opts.RawSetString("headers", lua.LString("invalid"))
+		l.Push(storage)
+		l.Push(lua.LString("key"))
+		l.Push(lua.LString("upload"))
+		l.Push(opts)
+
+		assertInvalidLuaResult(t, l, storagePresignedPartURLs(l))
+	})
+}
+
+func TestStorageCompleteMultipartUpload_RejectsMissingETag(t *testing.T) {
+	l, storage := newStorageCallState(t)
+	part := l.CreateTable(0, 1)
+	part.RawSetString("part_number", lua.LNumber(1))
+	parts := l.CreateTable(1, 0)
+	parts.RawSetInt(1, part)
+	l.Push(storage)
+	l.Push(lua.LString("key"))
+	l.Push(lua.LString("upload"))
+	l.Push(parts)
+
+	assertInvalidLuaResult(t, l, storageCompleteMultipartUpload(l))
+}
+
+func TestStorageOpenReader_RejectsOversizedCache(t *testing.T) {
+	l, storage := newStorageCallState(t)
+	opts := l.CreateTable(0, 2)
+	opts.RawSetString("block_size", lua.LNumber(csapi.MaxReaderBlockSize))
+	opts.RawSetString("cache_blocks", lua.LNumber(3))
+	l.Push(storage)
+	l.Push(lua.LString("key"))
+	l.Push(opts)
+
+	assertInvalidLuaResult(t, l, storageOpenReader(l))
+}
+
+func assertInvalidLuaResult(t *testing.T, l *lua.LState, returns int) {
+	t.Helper()
+	if returns != 2 {
+		t.Fatalf("return count = %d, want 2", returns)
+	}
+	if l.Get(-2) != lua.LNil {
+		t.Fatalf("first result = %v, want nil", l.Get(-2))
+	}
+	luaErr, ok := l.Get(-1).(*lua.Error)
+	if !ok {
+		t.Fatalf("error result = %T, want *lua.Error", l.Get(-1))
+	}
+	if luaErr.Kind() != lua.Invalid {
+		t.Fatalf("error kind = %s, want %s", luaErr.Kind(), lua.Invalid)
+	}
+}

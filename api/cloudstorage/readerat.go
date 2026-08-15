@@ -13,12 +13,17 @@ import (
 	"github.com/wippyai/runtime/api/dispatcher"
 )
 
-var ErrReaderClosed = errors.New("cloudstorage: reader closed")
+var (
+	ErrReaderClosed   = errors.New("cloudstorage: reader closed")
+	ErrReaderUnpinned = errors.New("cloudstorage: object has no consistency token")
+)
 
 const (
 	DefaultReaderBlockSize   = 8 * 1024 * 1024
 	DefaultReaderCacheBlocks = 4
+	MaxReaderBlockSize       = 128 * 1024 * 1024
 	MaxReaderCacheBlocks     = 64
+	MaxReaderCacheBytes      = 256 * 1024 * 1024
 )
 
 type RangeReaderAtOptions struct {
@@ -36,6 +41,7 @@ type cachedBlock struct {
 type RangeReaderAt struct {
 	storage Storage
 	ctx     context.Context
+	cancel  context.CancelFunc
 	key     string
 	etag    string
 	blocks  []cachedBlock
@@ -54,6 +60,7 @@ func NewRangeReaderAt(ctx context.Context, storage Storage, key string, size int
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	ctx, cancel := context.WithCancel(ctx)
 
 	blockSize := int64(DefaultReaderBlockSize)
 	cacheBlocks := DefaultReaderCacheBlocks
@@ -61,6 +68,9 @@ func NewRangeReaderAt(ctx context.Context, storage Storage, key string, size int
 	if opts != nil {
 		if opts.BlockSize > 0 {
 			blockSize = opts.BlockSize
+		}
+		if blockSize > MaxReaderBlockSize {
+			blockSize = MaxReaderBlockSize
 		}
 		if opts.CacheBlocks > 0 {
 			cacheBlocks = opts.CacheBlocks
@@ -70,10 +80,14 @@ func NewRangeReaderAt(ctx context.Context, storage Storage, key string, size int
 		}
 		etag = opts.ETag
 	}
+	if maxBlocks := int64(MaxReaderCacheBytes) / blockSize; int64(cacheBlocks) > maxBlocks {
+		cacheBlocks = int(maxBlocks)
+	}
 
 	return &RangeReaderAt{
 		storage:   storage,
 		ctx:       ctx,
+		cancel:    cancel,
 		key:       key,
 		etag:      etag,
 		blockSize: blockSize,
@@ -87,6 +101,7 @@ func (r *RangeReaderAt) Size() int64 { return r.size }
 func (r *RangeReaderAt) Key() string { return r.key }
 
 func (r *RangeReaderAt) Close() error {
+	r.cancel()
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.closed = true
@@ -133,6 +148,9 @@ func (r *RangeReaderAt) block(idx int64) ([]byte, error) {
 
 	if r.closed {
 		return nil, ErrReaderClosed
+	}
+	if err := r.ctx.Err(); err != nil {
+		return nil, err
 	}
 
 	r.useSeq++

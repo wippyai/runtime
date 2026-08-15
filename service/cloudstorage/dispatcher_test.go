@@ -318,6 +318,22 @@ func TestDispatcher_OpenReader(t *testing.T) {
 			t.Fatal("timeout")
 		}
 	})
+
+	t.Run("requires consistency token", func(t *testing.T) {
+		storage := &mockStorage{headResult: &csapi.HeadObjectResult{Size: 4096}}
+		done := make(chan csapi.OpenReaderResponse, 1)
+		cmd := &csapi.OpenReaderCmd{Storage: storage, Key: "mutable.zip"}
+		require.NoError(t, handlers[csapi.OpenReader].Handle(context.Background(), cmd, 1,
+			newTestReceiver(func(_ uint64, data any, _ error) {
+				done <- data.(csapi.OpenReaderResponse)
+			})))
+		select {
+		case resp := <-done:
+			assert.ErrorIs(t, resp.Error, csapi.ErrReaderUnpinned)
+		case <-time.After(2 * time.Second):
+			t.Fatal("timeout")
+		}
+	})
 }
 
 func TestDispatcher_ListObjects(t *testing.T) {

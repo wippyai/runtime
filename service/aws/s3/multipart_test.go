@@ -5,6 +5,7 @@ package s3
 import (
 	"context"
 	neturl "net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -66,6 +67,22 @@ func TestStorage_PresignedUploadPartURLs(t *testing.T) {
 		assert.Equal(t, "900", u.Query().Get("X-Amz-Expires"))
 	})
 
+	t.Run("signs required part headers", func(t *testing.T) {
+		urls, err := storage.PresignedUploadPartURLs(ctx, "k", "u", &cloudstorage.PresignedUploadPartOptions{
+			PartNumbers: []int32{1},
+			Headers: map[string]string{
+				"x-amz-server-side-encryption-customer-algorithm": "AES256",
+				"x-amz-meta-object-only":                          "ignored",
+			},
+		})
+		require.NoError(t, err)
+		u, err := neturl.Parse(urls[0].URL)
+		require.NoError(t, err)
+		signedHeaders := strings.Split(u.Query().Get("X-Amz-SignedHeaders"), ";")
+		assert.Contains(t, signedHeaders, "x-amz-server-side-encryption-customer-algorithm")
+		assert.NotContains(t, signedHeaders, "x-amz-meta-object-only")
+	})
+
 	t.Run("validation", func(t *testing.T) {
 		_, err := storage.PresignedUploadPartURLs(ctx, "k", "", &cloudstorage.PresignedUploadPartOptions{PartNumbers: []int32{1}})
 		assert.Error(t, err, "empty upload ID")
@@ -81,6 +98,9 @@ func TestStorage_PresignedUploadPartURLs(t *testing.T) {
 
 		_, err = storage.PresignedUploadPartURLs(ctx, "k", "u", &cloudstorage.PresignedUploadPartOptions{PartNumbers: []int32{cloudstorage.MaxPartNumber + 1}})
 		assert.Error(t, err, "part number above range")
+
+		_, err = storage.PresignedUploadPartURLs(ctx, "k", "u", &cloudstorage.PresignedUploadPartOptions{PartNumbers: []int32{1, 1}})
+		assert.Error(t, err, "duplicate part number")
 
 		tooMany := make([]int32, cloudstorage.MaxPresignPartBatch+1)
 		for i := range tooMany {
@@ -106,6 +126,12 @@ func TestStorage_CompleteMultipartUpload_Validation(t *testing.T) {
 
 	_, err = storage.CompleteMultipartUpload(ctx, "k", "u", []cloudstorage.CompletedPart{{PartNumber: 0, ETag: "e"}})
 	assert.Error(t, err, "part number out of range")
+
+	_, err = storage.CompleteMultipartUpload(ctx, "k", "u", []cloudstorage.CompletedPart{
+		{PartNumber: 1, ETag: "a"},
+		{PartNumber: 1, ETag: "b"},
+	})
+	assert.Error(t, err, "duplicate part number")
 }
 
 func TestStorage_AbortMultipartUpload_Validation(t *testing.T) {

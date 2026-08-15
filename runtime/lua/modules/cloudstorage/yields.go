@@ -37,6 +37,11 @@ func wrapStorageError(l *lua.LState, err error, op string) lua.LValue {
 			WithKind(lua.Invalid).
 			WithRetryable(false)
 	}
+	if errors.Is(err, csapi.ErrReaderUnpinned) {
+		return lua.NewLuaError(l, "storage provider cannot pin the object for consistent range reads").
+			WithKind(lua.Unavailable).
+			WithRetryable(false)
+	}
 	return lua.WrapErrorWithLua(l, err, op)
 }
 

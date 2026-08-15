@@ -4,6 +4,8 @@ package cloudstorage
 
 import (
 	"io"
+	"math"
+	"time"
 
 	lua "github.com/wippyai/go-lua"
 	csapi "github.com/wippyai/runtime/api/cloudstorage"
@@ -504,18 +506,32 @@ func checkStorageAndKey(l *lua.LState) (*storageWrapper, string, bool) {
 	return wrapper, key, true
 }
 
-func stringMap(v lua.LValue) map[string]string {
-	t, ok := v.(*lua.LTable)
-	if !ok {
-		return nil
-	}
+func stringMap(t *lua.LTable) map[string]string {
 	out := make(map[string]string, t.Len())
 	t.ForEach(func(k, mv lua.LValue) {
-		if ks, kok := k.(lua.LString); kok {
+		if ks, ok := k.(lua.LString); ok {
 			out[string(ks)] = mv.String()
 		}
 	})
 	return out
+}
+
+func boundedInteger(v lua.LValue, minValue, maxValue int64) (int64, bool) {
+	n, ok := v.(lua.LNumber)
+	if !ok {
+		return 0, false
+	}
+	f := float64(n)
+	if math.IsNaN(f) || math.IsInf(f, 0) || math.Trunc(f) != f || f < float64(minValue) || f > float64(maxValue) {
+		return 0, false
+	}
+	return int64(f), true
+}
+
+func pushInvalid(l *lua.LState, message string) int {
+	l.Push(lua.LNil)
+	l.Push(lua.NewLuaError(l, message).WithKind(lua.Invalid).WithRetryable(false))
+	return 2
 }
 
 func storageCreateMultipartUpload(l *lua.LState) int {
@@ -545,10 +561,20 @@ func storageCreateMultipartUpload(l *lua.LState) int {
 			mo.ContentEncoding = v.String()
 		}
 		if v := optsTable.RawGetString("metadata"); v != lua.LNil {
-			mo.Metadata = stringMap(v)
+			t, tok := v.(*lua.LTable)
+			if !tok {
+				ReleaseCreateMultipartUploadYield(yield)
+				return pushInvalid(l, "metadata must be a table")
+			}
+			mo.Metadata = stringMap(t)
 		}
 		if v := optsTable.RawGetString("headers"); v != lua.LNil {
-			mo.Headers = stringMap(v)
+			t, tok := v.(*lua.LTable)
+			if !tok {
+				ReleaseCreateMultipartUploadYield(yield)
+				return pushInvalid(l, "headers must be a table")
+			}
+			mo.Headers = stringMap(t)
 		}
 		yield.Options = mo
 	}
@@ -572,40 +598,46 @@ func storagePresignedPartURLs(l *lua.LState) int {
 
 	optsTable := l.CheckTable(4)
 
+	partsValue := optsTable.RawGetString("parts")
+	countValue := optsTable.RawGetString("count")
+	if (partsValue == lua.LNil) == (countValue == lua.LNil) {
+		return pushInvalid(l, "options must set exactly one of parts or count")
+	}
+
 	var partNumbers []int32
-	if v := optsTable.RawGetString("parts"); v != lua.LNil {
+	if partsValue != lua.LNil {
+		v := partsValue
 		pt, tok := v.(*lua.LTable)
 		if !tok {
-			l.Push(lua.LNil)
-			l.Push(lua.NewLuaError(l, "parts must be an array of part numbers").WithKind(lua.Invalid).WithRetryable(false))
-			return 2
+			return pushInvalid(l, "parts must be an array of part numbers")
+		}
+		if pt.Len() == 0 || pt.Len() > csapi.MaxPresignPartBatch {
+			return pushInvalid(l, "parts must contain between 1 and 1000 part numbers")
 		}
 		partNumbers = make([]int32, 0, pt.Len())
+		seen := make(map[int32]struct{}, pt.Len())
 		for i := 1; i <= pt.Len(); i++ {
-			partNumbers = append(partNumbers, int32(lua.LVAsNumber(pt.RawGetInt(i))))
+			part, valid := boundedInteger(pt.RawGetInt(i), 1, csapi.MaxPartNumber)
+			if !valid {
+				return pushInvalid(l, "parts must contain integer part numbers from 1 to 10000")
+			}
+			partNumber := int32(part)
+			if _, duplicate := seen[partNumber]; duplicate {
+				return pushInvalid(l, "parts must not contain duplicate part numbers")
+			}
+			seen[partNumber] = struct{}{}
+			partNumbers = append(partNumbers, partNumber)
 		}
-	} else if v := optsTable.RawGetString("count"); v != lua.LNil {
-		count := int(lua.LVAsNumber(v))
-		if count < 1 {
-			l.Push(lua.LNil)
-			l.Push(lua.NewLuaError(l, "count must be at least 1").WithKind(lua.Invalid).WithRetryable(false))
-			return 2
+	} else {
+		countValue, valid := boundedInteger(countValue, 1, csapi.MaxPresignPartBatch)
+		if !valid {
+			return pushInvalid(l, "count must be an integer from 1 to 1000")
 		}
-		if count > csapi.MaxPresignPartBatch {
-			l.Push(lua.LNil)
-			l.Push(lua.NewLuaError(l, "count exceeds the per-call presign limit").WithKind(lua.Invalid).WithRetryable(false))
-			return 2
-		}
+		count := int(countValue)
 		partNumbers = make([]int32, count)
 		for i := range partNumbers {
 			partNumbers[i] = int32(i + 1)
 		}
-	}
-
-	if len(partNumbers) == 0 {
-		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "options must set parts (array) or count (number)").WithKind(lua.Invalid).WithRetryable(false))
-		return 2
 	}
 
 	yield := AcquirePresignedPartURLsYield()
@@ -613,9 +645,22 @@ func storagePresignedPartURLs(l *lua.LState) int {
 	yield.Key = key
 	yield.UploadID = uploadID
 	yield.Options = &csapi.PresignedUploadPartOptions{PartNumbers: partNumbers}
+	if v := optsTable.RawGetString("headers"); v != lua.LNil {
+		t, tok := v.(*lua.LTable)
+		if !tok {
+			ReleasePresignedPartURLsYield(yield)
+			return pushInvalid(l, "headers must be a table")
+		}
+		yield.Options.Headers = stringMap(t)
+	}
 
 	if exp := optsTable.RawGetString("expiration"); exp != lua.LNil {
-		yield.Expiration = int64(lua.LVAsNumber(exp))
+		seconds, valid := boundedInteger(exp, 1, int64(math.MaxInt64/time.Second))
+		if !valid {
+			ReleasePresignedPartURLsYield(yield)
+			return pushInvalid(l, "expiration must be a positive integer number of seconds")
+		}
+		yield.Expiration = seconds
 	}
 
 	l.Push(yield)
@@ -636,17 +681,32 @@ func storageCompleteMultipartUpload(l *lua.LState) int {
 	}
 
 	partsTable := l.CheckTable(4)
+	if partsTable.Len() > csapi.MaxPartNumber {
+		return pushInvalid(l, "at most 10000 completed parts are allowed")
+	}
 	parts := make([]csapi.CompletedPart, 0, partsTable.Len())
+	seen := make(map[int32]struct{}, partsTable.Len())
 	for i := 1; i <= partsTable.Len(); i++ {
 		entry, tok := partsTable.RawGetInt(i).(*lua.LTable)
 		if !tok {
-			l.Push(lua.LNil)
-			l.Push(lua.NewLuaError(l, "parts must be an array of {part_number, etag} tables").WithKind(lua.Invalid).WithRetryable(false))
-			return 2
+			return pushInvalid(l, "parts must be an array of {part_number, etag} tables")
+		}
+		part, valid := boundedInteger(entry.RawGetString("part_number"), 1, csapi.MaxPartNumber)
+		if !valid {
+			return pushInvalid(l, "part_number must be an integer from 1 to 10000")
+		}
+		partNumber := int32(part)
+		if _, duplicate := seen[partNumber]; duplicate {
+			return pushInvalid(l, "parts must not contain duplicate part numbers")
+		}
+		seen[partNumber] = struct{}{}
+		etag, valid := entry.RawGetString("etag").(lua.LString)
+		if !valid || etag == "" {
+			return pushInvalid(l, "etag must be a non-empty string")
 		}
 		parts = append(parts, csapi.CompletedPart{
-			PartNumber: int32(lua.LVAsNumber(entry.RawGetString("part_number"))),
-			ETag:       entry.RawGetString("etag").String(),
+			PartNumber: partNumber,
+			ETag:       string(etag),
 		})
 	}
 	if len(parts) == 0 {
@@ -700,21 +760,34 @@ func storageOpenReader(l *lua.LState) int {
 	if l.Get(3) != lua.LNil {
 		optsTable := l.CheckTable(3)
 		if v := optsTable.RawGetString("block_size"); v != lua.LNil {
-			blockSize = int64(lua.LVAsNumber(v))
-			if blockSize < minReaderBlockSize || blockSize > maxReaderBlockSize {
+			var valid bool
+			blockSize, valid = boundedInteger(v, minReaderBlockSize, maxReaderBlockSize)
+			if !valid {
 				l.Push(lua.LNil)
-				l.Push(lua.NewLuaError(l, "block_size out of range").WithKind(lua.Invalid).WithRetryable(false))
+				l.Push(lua.NewLuaError(l, "block_size must be an integer from 64 KiB to 128 MiB").WithKind(lua.Invalid).WithRetryable(false))
 				return 2
 			}
 		}
 		if v := optsTable.RawGetString("cache_blocks"); v != lua.LNil {
-			cacheBlocks = int(lua.LVAsNumber(v))
-			if cacheBlocks < 1 || cacheBlocks > csapi.MaxReaderCacheBlocks {
+			blocks, valid := boundedInteger(v, 1, csapi.MaxReaderCacheBlocks)
+			if !valid {
 				l.Push(lua.LNil)
-				l.Push(lua.NewLuaError(l, "cache_blocks out of range").WithKind(lua.Invalid).WithRetryable(false))
+				l.Push(lua.NewLuaError(l, "cache_blocks must be an integer from 1 to 64").WithKind(lua.Invalid).WithRetryable(false))
 				return 2
 			}
+			cacheBlocks = int(blocks)
 		}
+	}
+	effectiveBlockSize := blockSize
+	if effectiveBlockSize == 0 {
+		effectiveBlockSize = csapi.DefaultReaderBlockSize
+	}
+	effectiveCacheBlocks := cacheBlocks
+	if effectiveCacheBlocks == 0 {
+		effectiveCacheBlocks = csapi.DefaultReaderCacheBlocks
+	}
+	if effectiveBlockSize*int64(effectiveCacheBlocks) > csapi.MaxReaderCacheBytes {
+		return pushInvalid(l, "reader cache may not exceed 256 MiB")
 	}
 
 	yield := AcquireOpenReaderYield()

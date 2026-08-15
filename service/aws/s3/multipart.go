@@ -87,11 +87,16 @@ func (s *Storage) PresignedUploadPartURLs(ctx context.Context, key, uploadID str
 	presigner := s3.NewPresignClient(s.client)
 
 	urls := make([]cloudstorage.PresignedPartURL, 0, len(opts.PartNumbers))
+	seen := make(map[int32]struct{}, len(opts.PartNumbers))
 	for _, partNumber := range opts.PartNumbers {
 		if partNumber < 1 || partNumber > cloudstorage.MaxPartNumber {
 			return nil, fmt.Errorf("part number %d out of range [1, %d]",
 				partNumber, cloudstorage.MaxPartNumber)
 		}
+		if _, duplicate := seen[partNumber]; duplicate {
+			return nil, fmt.Errorf("part number %d is duplicated", partNumber)
+		}
+		seen[partNumber] = struct{}{}
 
 		input := &s3.UploadPartInput{
 			Bucket:     aws.String(s.bucket),
@@ -102,6 +107,14 @@ func (s *Storage) PresignedUploadPartURLs(ctx context.Context, key, uploadID str
 
 		result, err := presigner.PresignUploadPart(ctx, input, func(options *s3.PresignOptions) {
 			options.Expires = expiration
+			if len(opts.Headers) > 0 {
+				mw := &addRequestHeadersMiddleware{headers: opts.Headers}
+				options.ClientOptions = append(options.ClientOptions, func(o *s3.Options) {
+					o.APIOptions = append(o.APIOptions, func(stack *middleware.Stack) error {
+						return stack.Build.Add(mw, middleware.After)
+					})
+				})
+			}
 		})
 		if err != nil {
 			s.log.Error("generate pre-signed upload part URL failed",
@@ -129,6 +142,7 @@ func (s *Storage) CompleteMultipartUpload(ctx context.Context, key, uploadID str
 	}
 
 	completed := make([]types.CompletedPart, len(parts))
+	seen := make(map[int32]struct{}, len(parts))
 	for i, p := range parts {
 		if p.PartNumber < 1 || p.PartNumber > cloudstorage.MaxPartNumber {
 			return nil, fmt.Errorf("part number %d out of range [1, %d]",
@@ -137,6 +151,10 @@ func (s *Storage) CompleteMultipartUpload(ctx context.Context, key, uploadID str
 		if p.ETag == "" {
 			return nil, fmt.Errorf("part %d is missing its etag", p.PartNumber)
 		}
+		if _, duplicate := seen[p.PartNumber]; duplicate {
+			return nil, fmt.Errorf("part number %d is duplicated", p.PartNumber)
+		}
+		seen[p.PartNumber] = struct{}{}
 		completed[i] = types.CompletedPart{
 			ETag:       aws.String(p.ETag),
 			PartNumber: aws.Int32(p.PartNumber),

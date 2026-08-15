@@ -90,6 +90,7 @@ var createMultipartUploadResultType = typ.NewRecord().
 var presignedPartURLsOptionsType = typ.NewRecord().
 	OptField("parts", typ.NewArray(typ.Number)).
 	OptField("count", typ.Number).
+	OptField("headers", typ.Any).
 	OptField("expiration", typ.Number).
 	Build()
 

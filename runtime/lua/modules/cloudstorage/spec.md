@@ -462,6 +462,7 @@ response's `ETag` header must be collected for `complete_multipart_upload`.
 |-------|------|---------|-------|
 | parts | number[] | - | Explicit part numbers to presign (1-based, ≤ 10000) |
 | count | number | - | Convenience: presign parts 1..count |
+| headers | table<string,string> | nil | Headers required on each part request (for example SSE-C headers); they are included in the signature and must also be sent by the uploader |
 | expiration | number | 3600 | Seconds until the URLs expire |
 
 Exactly one of `parts` or `count` is required. At most 1000 URLs per call —
@@ -533,7 +534,7 @@ memory.
 | Field | Type | Default | Notes |
 |-------|------|---------|-------|
 | block_size | number | 8388608 | Ranged-GET unit in bytes (64 KiB – 128 MiB) |
-| cache_blocks | number | 4 | Resident LRU blocks (1 – 64). RAM = block_size × cache_blocks |
+| cache_blocks | number | 4 | Resident LRU blocks (1 – 64). `block_size × cache_blocks` may not exceed 256 MiB |
 
 **Returns:**
 - Success: `Reader` (see type below)
@@ -706,6 +707,7 @@ All additions are purely additive; pre-existing call signatures keep working unc
 
 **New method — ranged reader**:
 - `storage:open_reader(key, options?)` → `Reader` — random access over an object through ranged GETs with an LRU block cache (`block_size`, `cache_blocks`); pins the open-time ETag via `If-Match` so concurrent overwrites surface as `errors.CONFLICT`. Consumable by `archive.open` for reading large archives directly from object storage.
+- `open_reader` fails with `errors.UNAVAILABLE` when the provider cannot supply an ETag; it never serves an unpinned mixture of object versions.
 
 **New type**
 - `Reader` — `size()`, `key()`, `close()`; auto-closed at task end.

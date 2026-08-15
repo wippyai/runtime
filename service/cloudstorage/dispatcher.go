@@ -198,8 +198,15 @@ func (d *Dispatcher) handleOpenReader(ctx context.Context, cmd dispatcher.Comman
 		)
 		head, err := c.Storage.HeadObject(ctx, c.Key)
 		if err == nil {
-			size = head.Size
-			etag = head.ETag
+			switch {
+			case head == nil:
+				err = csapi.ErrReaderUnpinned
+			case head.ETag == "":
+				err = csapi.ErrReaderUnpinned
+			default:
+				size = head.Size
+				etag = head.ETag
+			}
 		}
 		if ctx.Err() == nil {
 			receiver.CompleteYield(tag, csapi.OpenReaderResponse{Size: size, ETag: etag, Error: err}, nil)
