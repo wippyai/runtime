@@ -8,8 +8,10 @@ import (
 	"testing"
 
 	"github.com/wippyai/go-lua/compiler/parse"
+	"github.com/wippyai/go-lua/types/io"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/component"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	transcoder "github.com/wippyai/runtime/system/payload"
@@ -39,6 +41,37 @@ func makeLuaEntry(id registry.ID, imports map[string]registry.ID) registry.Entry
 		ID:   id,
 		Kind: registry.Kind("library.lua"),
 		Data: payload.NewPayload(raw, payload.JSON),
+	}
+}
+
+func TestLintBuiltinInventoryIncludesUntypedModules(t *testing.T) {
+	typed := &luaapi.ModuleDef{Name: "typed", Types: func() *io.Manifest { return io.NewManifest("typed") }}
+	untyped := &luaapi.ModuleDef{Name: "untyped"}
+	names, manifests := lintBuiltinInventory([]*luaapi.ModuleDef{typed, untyped})
+	if len(names) != 2 || names[0] != "typed" || names[1] != "untyped" {
+		t.Fatalf("unexpected builtin inventory: %v", names)
+	}
+	if manifests["typed"] == nil {
+		t.Fatal("typed module manifest missing")
+	}
+	if _, ok := manifests["untyped"]; ok {
+		t.Fatal("untyped module must not fabricate a manifest")
+	}
+}
+
+func TestExtractEntryDataUsesRuntimeLibraryMethod(t *testing.T) {
+	payloadjson.Register(transcoder.GlobalTranscoder())
+	raw, err := json.Marshal(map[string]any{"source": "return {}", "method": "ignored"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry := registry.Entry{
+		ID:   registry.NewID("app", "library"),
+		Kind: luaapi.Library,
+		Data: payload.NewPayload(raw, payload.JSON),
+	}
+	if method := extractEntryData(entry).Method; method != "" {
+		t.Fatalf("library method = %q, want empty runtime method", method)
 	}
 }
 

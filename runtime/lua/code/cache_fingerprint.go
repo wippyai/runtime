@@ -10,6 +10,7 @@ import (
 
 	"github.com/wippyai/go-lua/types/io"
 	"github.com/wippyai/runtime/api/registry"
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/code/cache"
 )
 
@@ -73,6 +74,14 @@ func BuiltinManifestHash(manifests map[string]*io.Manifest) string {
 		_, _ = h.Write([]byte{0})
 	}
 	return hex.EncodeToString(h.Sum(nil))
+}
+
+// EffectiveMethod returns the method used by runtime compilation.
+func EffectiveMethod(kind, method string) string {
+	if kind == luaapi.Library || kind == luaapi.LibraryBytecode {
+		return ""
+	}
+	return method
 }
 
 // CompileFingerprint computes the compile fingerprint for a node.

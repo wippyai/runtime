@@ -107,7 +107,8 @@ replacements:
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = history.Close() })
 	restarted := newRegistry(history, newHandler())
-	require.NoError(t, restarted.LoadState(ctx, nil, version))
+	restartCtx := regapi.WithDependencyAccess(newTestContext(), regapi.DependencyAccessVerifiedOffline)
+	require.NoError(t, restarted.LoadState(restartCtx, nil, version))
 	require.Zero(t, hubCalls)
 
 	reloadedEntry, err := restarted.GetEntry(entryID)

@@ -1288,6 +1288,10 @@ func mergeLinkDependencies(explicitDeps, moduleEntries []regapi.Entry) []regapi.
 }
 
 func (h *DependencyHandler) resolveModules(ctx context.Context, deps []DependencyDefinition, lockedVersions map[string]string) ([]ResolvedModule, error) {
+	if regapi.DependencyAccessFromContext(ctx) == regapi.DependencyAccessVerifiedOffline {
+		return nil, NewDependencyOfflineError("resolve", "")
+	}
+
 	roots := make([]DependencySpec, 0, len(deps))
 	for _, dep := range deps {
 		name, err := graph.ParseName(dep.Component)
@@ -1357,6 +1361,18 @@ func (h *DependencyHandler) resolveEffectiveModules(
 	deps []DependencyDefinition,
 	lockedVersions map[string]string,
 ) ([]ResolvedModule, error) {
+	if regapi.DependencyAccessFromContext(ctx) == regapi.DependencyAccessVerifiedOffline {
+		if resolved, ok := h.lockedResolution(deps, lockedVersions); ok {
+			if h.logger != nil {
+				h.logger.Debug("using locked dependency resolution",
+					zap.Int("modules", len(resolved)),
+					zap.Int("roots", len(deps)))
+			}
+			return resolved, nil
+		}
+		return nil, NewDependencyOfflineError("resolve", "")
+	}
+
 	resolved, err := h.resolveModules(ctx, deps, lockedVersions)
 	if err != nil {
 		return nil, err
@@ -2147,6 +2163,9 @@ func (h *DependencyHandler) ensureModuleAvailable(ctx context.Context, mod Resol
 	} else if !errors.Is(statErr, os.ErrNotExist) {
 		return "", NewDependencyDownloadError(modKey(mod), statErr)
 	}
+	if regapi.DependencyAccessFromContext(ctx) == regapi.DependencyAccessVerifiedOffline {
+		return "", NewDependencyOfflineError("load artifact", modKey(mod))
+	}
 
 	privateDir, err := os.MkdirTemp(h.vendorDir, ".artifact-download-*")
 	if err != nil {
@@ -2362,6 +2381,9 @@ func validateDownloadInfo(mod ResolvedModule, info *DownloadInfo) error {
 // Used both when the resolved manifest carries no URL and to refresh a URL
 // that expired before the artifact could be downloaded.
 func (h *DependencyHandler) freshDownloadInfo(ctx context.Context, mod ResolvedModule) (*DownloadInfo, error) {
+	if regapi.DependencyAccessFromContext(ctx) == regapi.DependencyAccessVerifiedOffline {
+		return nil, NewDependencyOfflineError("fetch artifact metadata", modKey(mod))
+	}
 	downloadURLCtx, cancel := withOptionalTimeout(ctx, h.downloadTimeout)
 	defer cancel()
 
@@ -2848,6 +2870,20 @@ func NewDependencyResolutionError(cause error) apierror.Error {
 		err = err.WithDetails(attrs.NewBagFrom(map[string]any{"reason": cause.Error()}))
 	}
 	return err
+}
+
+// NewDependencyOfflineError reports unavailable verified dependency evidence.
+func NewDependencyOfflineError(operation, module string) apierror.Error {
+	details := map[string]any{
+		"operation": operation,
+		"hint":      "run an explicit wippy update/install while online, then retry startup",
+	}
+	if module != "" {
+		details["module"] = module
+	}
+	return apierror.New(apierror.Invalid, "verified dependency evidence is unavailable during offline startup").
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(details))
 }
 
 func NewDependencyResolutionErrors(errs []ResolutionError) apierror.Error {

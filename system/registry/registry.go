@@ -760,6 +760,10 @@ func (r *Reg) collectBackwardChangesets(path []registry.Version, targetVersion r
 // For v0 (empty history): applies baseline directly
 // For v1+: replays changesets v1..targetVersion on top of baseline, then applies final state once
 func (r *Reg) LoadState(ctx context.Context, baseline registry.State, targetVersion registry.Version) error {
+	if registry.DependencyAccessFromContext(ctx) == registry.DependencyAccessUnspecified {
+		ctx = registry.WithDependencyAccess(ctx, registry.DependencyAccessVerifiedOffline)
+	}
+
 	r.applyMu.Lock()
 	defer r.applyMu.Unlock()
 

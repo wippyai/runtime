@@ -6,12 +6,19 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/code/cache"
 )
 
 func TestCacheCompilerVersion(t *testing.T) {
 	v := CacheCompilerVersion()
 	assert.Equal(t, "lua-cache-v3", v)
+}
+
+func TestEffectiveMethod(t *testing.T) {
+	assert.Empty(t, EffectiveMethod(luaapi.Library, "ignored"))
+	assert.Empty(t, EffectiveMethod(luaapi.LibraryBytecode, "ignored"))
+	assert.Equal(t, "handle", EffectiveMethod(luaapi.Function, "handle"))
 }
 
 func TestTypecheckConfigHash_Deterministic(t *testing.T) {

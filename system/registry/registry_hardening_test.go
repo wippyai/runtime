@@ -148,6 +148,34 @@ func hardeningResolution() *regapi.DependencyResolution {
 	}).Canonical()
 }
 
+func TestLoadStateDefaultsDependencyAccessToVerifiedOffline(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		ctx  context.Context
+		want regapi.DependencyAccess
+	}{
+		{name: "default restore", ctx: context.Background(), want: regapi.DependencyAccessVerifiedOffline},
+		{
+			name: "explicit online migration",
+			ctx:  regapi.WithDependencyAccess(context.Background(), regapi.DependencyAccessOnline),
+			want: regapi.DependencyAccessOnline,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			seen := regapi.DependencyAccessUnspecified
+			directive := hardeningDirective{expand: func(ctx context.Context, _ regapi.Operation, _ regapi.State) (regapi.DirectiveResult, error) {
+				seen = regapi.DependencyAccessFromContext(ctx)
+				return regapi.DirectiveResult{}, nil
+			}}
+			reg := NewRegistry(memory.New(), &hardeningRunner{}, topology.NewStateBuilder(zap.NewNop(), nil), nil, zap.NewNop(),
+				WithKindDirective(regapi.NamespaceDependency, directive))
+			dep := regapi.Entry{ID: regapi.NewID("app.deps", "module"), Kind: regapi.NamespaceDependency}
+			require.NoError(t, reg.LoadState(test.ctx, regapi.State{dep}, version.New(0)))
+			require.Equal(t, test.want, seen)
+		})
+	}
+}
+
 func TestApplyVersion_SetHeadFailureCompensatesRuntimeAndEffects(t *testing.T) {
 	ctx := context.Background()
 	v0 := version.New(0)

@@ -275,7 +275,7 @@ func NewCodeManager(log *zap.Logger, bus event.Bus, cfg Config) (*Manager, error
 			ID:      registry.NewID("", info.Name),
 			Kind:    api.ModuleKind,
 			Module:  mod,
-			Version: cm.nextVersion(HashNode(&Node{Method: info.Name})),
+			Version: cm.nextVersion(cache.SourceHash("", "")),
 		}
 		if mod.Types != nil {
 			node.Manifest = mod.Types()
@@ -492,17 +492,6 @@ func (cm *Manager) UpdateNode(_ context.Context, node Node, deps []Import) error
 	}
 
 	dependents, depErr := cm.memGraph.GetAllDependents(node.ID)
-	var oldCompileFPs map[registry.ID]string
-	var oldTypecheckFPs map[registry.ID]string
-	if cm.cacheAllowsWrite() {
-		invalidateIDs := make([]registry.ID, 0, len(dependents)+1)
-		invalidateIDs = append(invalidateIDs, node.ID)
-		for _, dep := range dependents {
-			invalidateIDs = append(invalidateIDs, dep.ID)
-		}
-		oldCompileFPs = cm.compileFingerprints(invalidateIDs)
-		oldTypecheckFPs = cm.typecheckFingerprints(invalidateIDs)
-	}
 
 	// Eager compilation check: validate source code before updating
 	if node.Source != "" && existing.Kind != api.ModuleKind {
@@ -539,10 +528,6 @@ func (cm *Manager) UpdateNode(_ context.Context, node Node, deps []Import) error
 	// Invalidate cache
 	cm.compiler.Invalidate(nodeIDs(affectedNodes))
 
-	if oldCompileFPs != nil || oldTypecheckFPs != nil {
-		cm.deleteCacheFingerprints(oldCompileFPs, oldTypecheckFPs)
-	}
-
 	return nil
 }
 
@@ -576,13 +561,6 @@ func (cm *Manager) DeleteNode(_ context.Context, id registry.ID) error {
 
 	dependents, depErr := cm.memGraph.GetAllDependents(id)
 
-	var oldCompileFPs map[registry.ID]string
-	var oldTypecheckFPs map[registry.ID]string
-	if cm.cacheAllowsWrite() {
-		oldCompileFPs = cm.compileFingerprints([]registry.ID{id})
-		oldTypecheckFPs = cm.typecheckFingerprints([]registry.ID{id})
-	}
-
 	if err := cm.memGraph.RemoveNode(id); err != nil {
 		return NewRemoveNodeError(err)
 	}
@@ -597,10 +575,6 @@ func (cm *Manager) DeleteNode(_ context.Context, id registry.ID) error {
 	cm.markTransactionAffected(affectedNodes...)
 
 	cm.compiler.Invalidate(nodeIDs(affectedNodes))
-
-	if oldCompileFPs != nil || oldTypecheckFPs != nil {
-		cm.deleteCacheFingerprints(oldCompileFPs, oldTypecheckFPs)
-	}
 
 	return nil
 }
