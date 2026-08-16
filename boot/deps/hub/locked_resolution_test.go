@@ -70,10 +70,10 @@ func TestResolveEffectiveModulesDoesNotCallHubForExactLock(t *testing.T) {
 
 func TestLockedResolutionRejectsIncompleteOrDriftedEvidence(t *testing.T) {
 	tests := []struct {
+		materialized map[string]string
 		name         string
 		modules      []lock.Module
 		deps         []DependencyDefinition
-		materialized map[string]string
 	}{
 		{
 			name:         "missing digest",

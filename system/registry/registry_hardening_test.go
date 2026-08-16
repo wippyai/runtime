@@ -150,8 +150,8 @@ func hardeningResolution() *regapi.DependencyResolution {
 
 func TestLoadStateDefaultsDependencyAccessToVerifiedOffline(t *testing.T) {
 	for _, test := range []struct {
-		name string
 		ctx  context.Context
+		name string
 		want regapi.DependencyAccess
 	}{
 		{name: "default restore", ctx: context.Background(), want: regapi.DependencyAccessVerifiedOffline},
