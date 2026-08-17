@@ -1097,18 +1097,18 @@ func TestStorageOpenReader_RejectsOversizedCache(t *testing.T) {
 
 func TestBoundedInteger_AcceptsIntegerSubtype(t *testing.T) {
 	cases := []struct {
-		name  string
 		value lua.LValue
+		name  string
 		want  int64
 		valid bool
 	}{
-		{"integer at lower bound", lua.LInteger(1), 1, true},
-		{"integer at upper bound", lua.LInteger(csapi.MaxPartNumber), csapi.MaxPartNumber, true},
-		{"integer below range", lua.LInteger(0), 0, false},
-		{"integer above range", lua.LInteger(csapi.MaxPartNumber + 1), 0, false},
-		{"integral float", lua.LNumber(3), 3, true},
-		{"fractional float", lua.LNumber(1.5), 0, false},
-		{"numeric string", lua.LString("3"), 0, false},
+		{lua.LInteger(1), "integer at lower bound", 1, true},
+		{lua.LInteger(csapi.MaxPartNumber), "integer at upper bound", csapi.MaxPartNumber, true},
+		{lua.LInteger(0), "integer below range", 0, false},
+		{lua.LInteger(csapi.MaxPartNumber + 1), "integer above range", 0, false},
+		{lua.LNumber(3), "integral float", 3, true},
+		{lua.LNumber(1.5), "fractional float", 0, false},
+		{lua.LString("3"), "numeric string", 0, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
