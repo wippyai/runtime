@@ -517,15 +517,19 @@ func stringMap(t *lua.LTable) map[string]string {
 }
 
 func boundedInteger(v lua.LValue, minValue, maxValue int64) (int64, bool) {
-	n, ok := v.(lua.LNumber)
-	if !ok {
+	switch n := v.(type) {
+	case lua.LInteger:
+		i := int64(n)
+		return i, i >= minValue && i <= maxValue
+	case lua.LNumber:
+		f := float64(n)
+		if math.IsNaN(f) || math.IsInf(f, 0) || math.Trunc(f) != f || f < float64(minValue) || f > float64(maxValue) {
+			return 0, false
+		}
+		return int64(f), true
+	default:
 		return 0, false
 	}
-	f := float64(n)
-	if math.IsNaN(f) || math.IsInf(f, 0) || math.Trunc(f) != f || f < float64(minValue) || f > float64(maxValue) {
-		return 0, false
-	}
-	return int64(f), true
 }
 
 func pushInvalid(l *lua.LState, message string) int {
