@@ -16,7 +16,7 @@ import (
 func TestLoadBootConfigSetsConfigDir(t *testing.T) {
 	tempDir := t.TempDir()
 	cfgPath := filepath.Join(tempDir, "wippy.yaml")
-	cfgBody := []byte("version: \"1.0\"\nlua:\n  proto_cache_size: 1\n")
+	cfgBody := []byte("version: \"1.0\"\nlua:\n  cache:\n    max_entries: 1\n")
 	require.NoError(t, os.WriteFile(cfgPath, cfgBody, 0o644))
 
 	prevProfiler := profiler

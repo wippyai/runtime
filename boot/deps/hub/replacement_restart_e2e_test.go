@@ -12,8 +12,10 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/payload"
 	regapi "github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/internal/version"
 	registryimpl "github.com/wippyai/runtime/system/registry"
 	regexp "github.com/wippyai/runtime/system/registry/expansion"
+	"github.com/wippyai/runtime/system/registry/history/memory"
 	historysqlite "github.com/wippyai/runtime/system/registry/history/sqlite"
 	"github.com/wippyai/runtime/system/registry/topology"
 	"go.uber.org/zap"
@@ -88,6 +90,13 @@ replacements:
 		Kind: regapi.NamespaceDependency,
 		Data: payload.New(map[string]any{"component": "local/mod", "version": "v0.1.0"}),
 	}
+	fresh := newRegistry(memory.New(), newHandler())
+	startupCtx := regapi.WithDependencyAccess(newTestContext(), regapi.DependencyAccessUnspecified)
+	require.NoError(t, fresh.LoadState(startupCtx, regapi.State{root}, version.New(0)))
+	_, err = fresh.GetEntry(regapi.NewID("local.mod", "svc"))
+	require.NoError(t, err)
+	require.Zero(t, hubCalls)
+
 	version, err := registry.Apply(ctx, regapi.ChangeSet{{Kind: regapi.EntryCreate, Entry: root}})
 	require.NoError(t, err)
 	require.Zero(t, hubCalls)

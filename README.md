@@ -182,8 +182,6 @@ profiler:
   address: localhost:6060
 
 lua:
-  proto_cache_size: 60000
-  main_cache_size: 10000
   type_system:
     enabled: true
     strict: false
@@ -191,6 +189,9 @@ lua:
     enabled: true
     dir: .wippy/cache/lua
     mode: readwrite # off | readonly | readwrite
+    max_bytes: 1073741824
+    max_entries: 20000
+    prune_interval: 256
     compile:
       enabled: true
     typecheck:

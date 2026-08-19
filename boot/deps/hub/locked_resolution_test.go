@@ -4,6 +4,9 @@ package hub
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -11,6 +14,7 @@ import (
 	apierror "github.com/wippyai/runtime/api/error"
 	regapi "github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/boot/deps/lock"
+	"github.com/wippyai/wapp"
 	"go.uber.org/zap"
 )
 
@@ -169,4 +173,45 @@ func TestVerifiedOfflineArtifactMissNeverDownloads(t *testing.T) {
 	var apiErr apierror.Error
 	require.ErrorAs(t, err, &apiErr)
 	require.Equal(t, apierror.Invalid, apiErr.Kind())
+}
+
+func TestVerifiedOfflineResolverUsesInstalledModuleGraph(t *testing.T) {
+	vendorDir := t.TempDir()
+	artifacts := map[string][]byte{
+		"app": buildWappBytes(t, []wapp.Entry{{
+			ID: wapp.NewID("acme.app", "lib"), Kind: regapi.NamespaceDependency,
+			Data: map[string]any{"component": "acme/lib", "version": "v1.0.0"},
+		}}),
+		"lib": buildWappBytes(t, []wapp.Entry{{ID: wapp.NewID("acme.lib", "service"), Kind: "service"}}),
+	}
+	modules := make([]lock.Module, 0, len(artifacts))
+	for _, name := range []string{"app", "lib"} {
+		sum := sha256.Sum256(artifacts[name])
+		digest := "sha256:" + hex.EncodeToString(sum[:])
+		modules = append(modules, lock.Module{Name: "acme/" + name, Version: "v1.0.0", Hash: digest})
+		path := filepath.Join(vendorDir, "acme", name+"-v1.0.0.wapp")
+		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+		require.NoError(t, os.WriteFile(path, artifacts[name], 0o600))
+	}
+	handler := lockedResolutionHandler(t, modules)
+	handler.vendorDir = vendorDir
+	handler.replacements["unused/local"] = lock.Replacement{From: "unused/local", To: t.TempDir()}
+	handler.hub = &fakeHub{
+		getManifest: func(context.Context, string, string, string) (*ModuleManifest, error) {
+			t.Fatal("installed offline resolution must not query Hub manifests")
+			return nil, nil
+		},
+		listVersions: func(context.Context, string, string) ([]VersionInfo, error) {
+			t.Fatal("installed offline resolution must not query Hub versions")
+			return nil, nil
+		},
+	}
+
+	ctx := regapi.WithDependencyAccess(newTestContext(), regapi.DependencyAccessVerifiedOffline)
+	resolved, err := handler.resolveEffectiveModules(ctx,
+		[]DependencyDefinition{{Component: "acme/app", Version: "v1.0.0"}},
+		map[string]string{"acme/app": "v1.0.0", "acme/lib": "v1.0.0"},
+	)
+	require.NoError(t, err)
+	require.Len(t, resolved, 2)
 }

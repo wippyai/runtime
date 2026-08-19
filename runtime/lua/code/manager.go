@@ -108,16 +108,14 @@ type (
 		revision                atomic.Uint64
 		invalidationSeq         atomic.Uint64
 		invalidationWaitTimeout time.Duration
-		mutMu                   sync.Mutex
+		mutMu                   sync.RWMutex
 		txMu                    sync.Mutex
 	}
 
 	// Config defines initialization parameters
 	Config struct {
-		Cache                   cache.Config
 		Modules                 []*api.ModuleDef
-		ProtoCacheSize          int
-		MainCacheSize           int
+		Cache                   cache.Config
 		TypeCheck               TypeCheckConfig
 		InvalidationWaitTimeout time.Duration
 	}
@@ -125,13 +123,6 @@ type (
 
 // NewCodeManager creates a new code manager instance
 func NewCodeManager(log *zap.Logger, bus event.Bus, cfg Config) (*Manager, error) {
-	if cfg.ProtoCacheSize <= 0 {
-		cfg.ProtoCacheSize = 5000
-	}
-
-	if cfg.MainCacheSize <= 0 {
-		cfg.MainCacheSize = 1000
-	}
 	if cfg.InvalidationWaitTimeout <= 0 {
 		cfg.InvalidationWaitTimeout = DefaultInvalidationWaitTimeout
 	}
@@ -150,7 +141,9 @@ func NewCodeManager(log *zap.Logger, bus event.Bus, cfg Config) (*Manager, error
 		invalidationWaitTimeout: cfg.InvalidationWaitTimeout,
 	}
 	if cacheCfg.Enabled {
-		cm.cacheStore = cache.NewDiskStore(cacheCfg.Dir)
+		cm.cacheStore = cache.NewBoundedDiskStore(
+			cacheCfg.Dir, cacheCfg.MaxBytes, cacheCfg.MaxEntries, cacheCfg.PruneInterval,
+		)
 	}
 
 	// Create compiler with a callback that can access cm.memGraph for dependency manifests
@@ -264,8 +257,6 @@ func NewCodeManager(log *zap.Logger, bus event.Bus, cfg Config) (*Manager, error
 
 			return fnProto, nil
 		},
-		cfg.ProtoCacheSize,
-		cfg.MainCacheSize,
 	)
 
 	// built-in modules
@@ -432,6 +423,8 @@ func (cm *Manager) Compile(
 	entrypoint registry.ID,
 	options *BuildOptions,
 ) (*CompiledMain, error) {
+	cm.mutMu.RLock()
+	defer cm.mutMu.RUnlock()
 	return cm.compiler.Compile(cm.memGraph.Snapshot(), entrypoint, options)
 }
 
@@ -474,7 +467,7 @@ func (cm *Manager) AddNode(_ context.Context, node Node, deps []Import) error {
 	}
 
 	// A delete followed by a create with the same registry ID must never reuse
-	// a previously compiled main/proto from the in-memory compiler caches.
+	// code retained for the previous registry node.
 	cm.compiler.Invalidate([]registry.ID{node.ID})
 	cm.markTransactionAffected(nodePtr)
 
@@ -518,14 +511,14 @@ func (cm *Manager) UpdateNode(_ context.Context, node Node, deps []Import) error
 	affectedNodes := cm.affectedNodes(nodePtr, dependents)
 	cm.markTransactionAffected(affectedNodes...)
 
-	// Calculate all dependents for cache invalidation
+	// Calculate all dependents whose retained code is no longer valid.
 	if depErr != nil {
-		cm.log.Warn("failed to get dependents for cache invalidation",
+		cm.log.Warn("failed to get dependents for retained code invalidation",
 			zap.Stringer("node", &node.ID),
 			zap.Error(depErr))
 	}
 
-	// Invalidate cache
+	// Release code owned by this node and its affected dependents.
 	cm.compiler.Invalidate(nodeIDs(affectedNodes))
 
 	return nil
@@ -668,7 +661,7 @@ func (cm *Manager) GetTypeChecker() *TypeChecker {
 }
 
 // AddNodeWithProto adds a node with a precompiled prototype (for bytecode entries).
-// The proto is injected directly into the compiler cache, bypassing source compilation.
+// The proto is retained directly, bypassing source compilation.
 func (cm *Manager) AddNodeWithProto(_ context.Context, node Node, deps []Import, proto *glua.FunctionProto) error {
 	nodePtr := &Node{
 		ID:      node.ID,
@@ -693,12 +686,11 @@ func (cm *Manager) AddNodeWithProto(_ context.Context, node Node, deps []Import,
 		}
 	}
 
-	// Clear any old compiled main/proto for this ID before registering a fresh
-	// bytecode node. SetProto below only replaces the proto cache; main cache
-	// must also be dropped.
+	// Release code owned by any previous node with this ID before registering
+	// the fresh bytecode node.
 	cm.compiler.Invalidate([]registry.ID{node.ID})
 
-	// Inject proto into compiler cache
+	// Retain the supplied proto for the active node version.
 	if proto != nil {
 		tag, err := runtimeFingerprintMemo(cm.memGraph, node.ID, make(map[registry.ID]string))
 		if err != nil {
@@ -737,7 +729,7 @@ func (cm *Manager) UpdateNodeWithProto(_ context.Context, node Node, deps []Impo
 
 	dependents, err := cm.memGraph.GetAllDependents(node.ID)
 	if err != nil {
-		cm.log.Warn("failed to get dependents for cache invalidation",
+		cm.log.Warn("failed to get dependents for retained code invalidation",
 			zap.Stringer("node", &node.ID),
 			zap.Error(err))
 	}
@@ -746,7 +738,7 @@ func (cm *Manager) UpdateNodeWithProto(_ context.Context, node Node, deps []Impo
 	cm.markTransactionAffected(affectedNodes...)
 	cm.compiler.Invalidate(nodeIDs(affectedNodes))
 
-	// Inject updated proto into compiler cache
+	// Retain the supplied proto for the active node version.
 	if proto != nil {
 		tag, err := runtimeFingerprintMemo(cm.memGraph, node.ID, make(map[registry.ID]string))
 		if err != nil {

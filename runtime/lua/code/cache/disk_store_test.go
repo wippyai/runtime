@@ -90,3 +90,42 @@ func TestDiskStoreDelete(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, ok)
 }
+
+func TestDiskStorePrunesOldestGenerationByEntryLimit(t *testing.T) {
+	store := NewBoundedDiskStore(t.TempDir(), 1<<20, 2, 1)
+	base := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
+	for i, key := range []string{"old", "middle", "new"} {
+		require.NoError(t, store.Put(key, &Entry{
+			Meta:  Meta{EntryID: key, SourceHash: key, CreatedAt: base.Add(time.Duration(i) * time.Hour)},
+			Proto: []byte(key),
+		}))
+	}
+
+	_, oldExists, err := store.Get("old")
+	require.NoError(t, err)
+	assert.False(t, oldExists)
+	for _, key := range []string{"middle", "new"} {
+		_, exists, getErr := store.Get(key)
+		require.NoError(t, getErr)
+		assert.True(t, exists)
+	}
+}
+
+func TestDiskStorePrunesToByteLimit(t *testing.T) {
+	store := NewBoundedDiskStore(t.TempDir(), 1200, 10, 1)
+	require.NoError(t, store.Put("old", &Entry{
+		Meta:  Meta{EntryID: "old", SourceHash: "old", CreatedAt: time.Unix(1, 0)},
+		Proto: make([]byte, 512),
+	}))
+	require.NoError(t, store.Put("new", &Entry{
+		Meta:  Meta{EntryID: "new", SourceHash: "new", CreatedAt: time.Unix(2, 0)},
+		Proto: make([]byte, 512),
+	}))
+
+	_, oldExists, err := store.Get("old")
+	require.NoError(t, err)
+	assert.False(t, oldExists)
+	_, newExists, err := store.Get("new")
+	require.NoError(t, err)
+	assert.True(t, newExists)
+}

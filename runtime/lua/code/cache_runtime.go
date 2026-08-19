@@ -310,3 +310,11 @@ func (cm *Manager) BuiltinManifestHash() string {
 func (cm *Manager) TypecheckConfigHash() string {
 	return cm.typeCfgHash
 }
+
+// TypeCheckConfig returns the effective runtime type-check configuration.
+func (cm *Manager) TypeCheckConfig() TypeCheckConfig {
+	if cm == nil || cm.typeChecker == nil {
+		return DefaultTypeCheckConfig()
+	}
+	return cm.typeChecker.config
+}

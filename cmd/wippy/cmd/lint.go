@@ -31,6 +31,7 @@ import (
 	appinit "github.com/wippyai/runtime/cmd/internal/app"
 	clilogger "github.com/wippyai/runtime/cmd/internal/logger"
 	"github.com/wippyai/runtime/runtime/lua/code"
+	"github.com/wippyai/runtime/runtime/lua/code/cache"
 	"github.com/wippyai/runtime/runtime/lua/code/lint"
 	_ "github.com/wippyai/runtime/runtime/lua/code/lint/rules" // register lint rules
 	"github.com/wippyai/runtime/runtime/lua/component"
@@ -288,6 +289,11 @@ func runLint(cmd *cobra.Command, _ []string) error {
 	}
 
 	result = applyFilters(result, opts.codeFilters, opts.limit)
+	if pruner, ok := lcache.store.(cache.Pruner); ok && lintCacheAllowsWrite(lcache) {
+		if err := pruner.Prune(); err != nil {
+			return err
+		}
+	}
 	return outputResults(result, opts)
 }
 
@@ -413,6 +419,11 @@ func createLinter(ctx context.Context, enableRules bool) (*lint.Linter, lintCach
 	typeCfg := code.TypeCheckConfig{
 		Enabled: true,
 		Strict:  true,
+	}
+	if cm != nil {
+		if runtimeTypeCfg := cm.TypeCheckConfig(); runtimeTypeCfg.Enabled {
+			typeCfg = runtimeTypeCfg
+		}
 	}
 	typeChecker := code.NewTypeChecker(typeCfg, mods)
 
@@ -696,10 +707,12 @@ func lintOneEntry(entry regapi.Entry, data entryData, linter *lint.Linter, manif
 
 	var cachedManifest *io.Manifest
 	var cachedDiagnostics []diag.Diagnostic
+	typecheckCacheHit := false
 	if tcFP := fps.typecheck[entry.ID]; tcFP != "" {
 		if manifest, diags, ok := lintLoadTypecheckCache(lcache, entry.ID, tcFP); ok {
 			cachedManifest = manifest
 			cachedDiagnostics = diags
+			typecheckCacheHit = true
 		}
 	}
 
@@ -718,7 +731,7 @@ func lintOneEntry(entry regapi.Entry, data entryData, linter *lint.Linter, manif
 	}
 
 	typeDiags := filterTypecheckDiagnostics(lintResult.Diagnostics)
-	if lintResult.Manifest != nil {
+	if lintResult.Manifest != nil && !typecheckCacheHit {
 		lintSaveTypecheckCache(lcache, entry, data, fps.typecheck[entry.ID], fps.typeDeps[entry.ID], lintResult.Manifest, typeDiags)
 	}
 

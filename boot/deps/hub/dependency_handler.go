@@ -1288,10 +1288,6 @@ func mergeLinkDependencies(explicitDeps, moduleEntries []regapi.Entry) []regapi.
 }
 
 func (h *DependencyHandler) resolveModules(ctx context.Context, deps []DependencyDefinition, lockedVersions map[string]string) ([]ResolvedModule, error) {
-	if regapi.DependencyAccessFromContext(ctx) == regapi.DependencyAccessVerifiedOffline {
-		return nil, NewDependencyOfflineError("resolve", "")
-	}
-
 	roots := make([]DependencySpec, 0, len(deps))
 	for _, dep := range deps {
 		name, err := graph.ParseName(dep.Component)
@@ -1313,6 +1309,9 @@ func (h *DependencyHandler) resolveModules(ctx context.Context, deps []Dependenc
 		provider = h.manifestCache
 	}
 	lockedDigests := h.lockedModuleDigests()
+	if regapi.DependencyAccessFromContext(ctx) == regapi.DependencyAccessVerifiedOffline {
+		provider = newLockedManifestProvider(h, lockedVersions, lockedDigests)
+	}
 	provider = &replacementManifestProvider{
 		base:           provider,
 		handler:        h,
@@ -1332,6 +1331,10 @@ func (h *DependencyHandler) resolveModules(ctx context.Context, deps []Dependenc
 	if len(result.Errors) > 0 {
 		if h.logger != nil {
 			h.logger.Error("dependency resolution failed", zap.String("errors", formatResolutionErrors(result.Errors)))
+		}
+		if regapi.DependencyAccessFromContext(ctx) == regapi.DependencyAccessVerifiedOffline {
+			module := result.Errors[0].Org + "/" + result.Errors[0].Name
+			return nil, NewDependencyOfflineError("resolve", strings.Trim(module, "/"))
 		}
 		return nil, NewDependencyResolutionErrors(result.Errors)
 	}
@@ -1370,7 +1373,6 @@ func (h *DependencyHandler) resolveEffectiveModules(
 			}
 			return resolved, nil
 		}
-		return nil, NewDependencyOfflineError("resolve", "")
 	}
 
 	resolved, err := h.resolveModules(ctx, deps, lockedVersions)
@@ -1683,36 +1685,7 @@ func (p *replacementManifestProvider) localReplacementDependencies(ctx context.C
 		return nil, err
 	}
 
-	deps := make([]ManifestDep, 0)
-	seen := make(map[string]struct{})
-	for _, entry := range entries {
-		if entry.Kind != regapi.NamespaceDependency {
-			continue
-		}
-		def, err := decodeDependency(ctx, transcoder, entry)
-		if err != nil {
-			return nil, err
-		}
-		if def.Component == "" {
-			return nil, NewDependencyEntryInvalidError(entry.ID.String(), "component is required", "")
-		}
-		name, err := graph.ParseName(def.Component)
-		if err != nil {
-			return nil, NewDependencyEntryInvalidError(entry.ID.String(), "invalid component", def.Component)
-		}
-
-		key := name.String() + "@" + def.Version
-		if _, ok := seen[key]; ok {
-			continue
-		}
-		seen[key] = struct{}{}
-		deps = append(deps, ManifestDep{
-			Org:     name.Organization,
-			Name:    name.Module,
-			Version: def.Version,
-		})
-	}
-	return deps, nil
+	return manifestDependenciesFromEntries(ctx, transcoder, entries)
 }
 
 func loadReplacementEntries(
