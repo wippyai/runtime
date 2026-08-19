@@ -1095,6 +1095,138 @@ func TestStorageOpenReader_RejectsOversizedCache(t *testing.T) {
 	assertInvalidLuaResult(t, l, storageOpenReader(l))
 }
 
+func TestBoundedInteger_AcceptsIntegerSubtype(t *testing.T) {
+	cases := []struct {
+		value lua.LValue
+		name  string
+		want  int64
+		valid bool
+	}{
+		{lua.LInteger(1), "integer at lower bound", 1, true},
+		{lua.LInteger(csapi.MaxPartNumber), "integer at upper bound", csapi.MaxPartNumber, true},
+		{lua.LInteger(0), "integer below range", 0, false},
+		{lua.LInteger(csapi.MaxPartNumber + 1), "integer above range", 0, false},
+		{lua.LNumber(3), "integral float", 3, true},
+		{lua.LNumber(1.5), "fractional float", 0, false},
+		{lua.LString("3"), "numeric string", 0, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, valid := boundedInteger(tc.value, 1, csapi.MaxPartNumber)
+			if valid != tc.valid || (valid && got != tc.want) {
+				t.Fatalf("boundedInteger(%v) = (%d, %t), want (%d, %t)", tc.value, got, valid, tc.want, tc.valid)
+			}
+		})
+	}
+}
+
+// Numbers written in Lua source arrive as the lua.LInteger subtype, unlike
+// tables assembled from Go with lua.LNumber values, so these calls must go
+// through DoString to cover the path real scripts take.
+func TestStorageCalls_AcceptLuaIntegerOptions(t *testing.T) {
+	luaTable := func(t *testing.T, l *lua.LState, src string) lua.LValue {
+		t.Helper()
+		if err := l.DoString("opts = " + src); err != nil {
+			t.Fatalf("build options from Lua: %v", err)
+		}
+		return l.GetGlobal("opts")
+	}
+
+	t.Run("presigned part urls via parts", func(t *testing.T) {
+		l, storage := newStorageCallState(t)
+		opts := luaTable(t, l, `{ parts = {1, 2, 3} }`)
+		l.Push(storage)
+		l.Push(lua.LString("key"))
+		l.Push(lua.LString("upload"))
+		l.Push(opts)
+
+		if got := storagePresignedPartURLs(l); got != -1 {
+			t.Fatalf("expected yield result, got %d (%v)", got, l.Get(-1))
+		}
+		yield, ok := l.Get(-1).(*PresignedPartURLsYield)
+		if !ok {
+			t.Fatalf("expected PresignedPartURLsYield, got %T", l.Get(-1))
+		}
+		defer ReleasePresignedPartURLsYield(yield)
+		want := []int32{1, 2, 3}
+		if len(yield.Options.PartNumbers) != len(want) {
+			t.Fatalf("part numbers = %v, want %v", yield.Options.PartNumbers, want)
+		}
+		for i, n := range want {
+			if yield.Options.PartNumbers[i] != n {
+				t.Fatalf("part numbers = %v, want %v", yield.Options.PartNumbers, want)
+			}
+		}
+	})
+
+	t.Run("presigned part urls via count and expiration", func(t *testing.T) {
+		l, storage := newStorageCallState(t)
+		opts := luaTable(t, l, `{ count = 3, expiration = 900 }`)
+		l.Push(storage)
+		l.Push(lua.LString("key"))
+		l.Push(lua.LString("upload"))
+		l.Push(opts)
+
+		if got := storagePresignedPartURLs(l); got != -1 {
+			t.Fatalf("expected yield result, got %d (%v)", got, l.Get(-1))
+		}
+		yield, ok := l.Get(-1).(*PresignedPartURLsYield)
+		if !ok {
+			t.Fatalf("expected PresignedPartURLsYield, got %T", l.Get(-1))
+		}
+		defer ReleasePresignedPartURLsYield(yield)
+		if len(yield.Options.PartNumbers) != 3 {
+			t.Fatalf("part numbers = %v, want 1..3", yield.Options.PartNumbers)
+		}
+		if yield.Expiration != 900 {
+			t.Fatalf("expiration = %d, want 900", yield.Expiration)
+		}
+	})
+
+	t.Run("complete multipart upload", func(t *testing.T) {
+		l, storage := newStorageCallState(t)
+		parts := luaTable(t, l, `{ { part_number = 1, etag = "etag-1" }, { part_number = 2, etag = "etag-2" } }`)
+		l.Push(storage)
+		l.Push(lua.LString("key"))
+		l.Push(lua.LString("upload"))
+		l.Push(parts)
+
+		if got := storageCompleteMultipartUpload(l); got != -1 {
+			t.Fatalf("expected yield result, got %d (%v)", got, l.Get(-1))
+		}
+		yield, ok := l.Get(-1).(*CompleteMultipartUploadYield)
+		if !ok {
+			t.Fatalf("expected CompleteMultipartUploadYield, got %T", l.Get(-1))
+		}
+		defer ReleaseCompleteMultipartUploadYield(yield)
+		if len(yield.Parts) != 2 ||
+			yield.Parts[0].PartNumber != 1 || yield.Parts[0].ETag != "etag-1" ||
+			yield.Parts[1].PartNumber != 2 || yield.Parts[1].ETag != "etag-2" {
+			t.Fatalf("parts = %+v, want part 1/etag-1 and part 2/etag-2", yield.Parts)
+		}
+	})
+
+	t.Run("open reader options", func(t *testing.T) {
+		l, storage := newStorageCallState(t)
+		opts := luaTable(t, l, `{ block_size = 65536, cache_blocks = 2 }`)
+		l.Push(storage)
+		l.Push(lua.LString("key"))
+		l.Push(opts)
+
+		if got := storageOpenReader(l); got != -1 {
+			t.Fatalf("expected yield result, got %d (%v)", got, l.Get(-1))
+		}
+		yield, ok := l.Get(-1).(*OpenReaderYield)
+		if !ok {
+			t.Fatalf("expected OpenReaderYield, got %T", l.Get(-1))
+		}
+		defer ReleaseOpenReaderYield(yield)
+		if yield.BlockSize != 65536 || yield.CacheBlocks != 2 {
+			t.Fatalf("block_size = %d, cache_blocks = %d, want 65536 and 2", yield.BlockSize, yield.CacheBlocks)
+		}
+	})
+}
+
 func assertInvalidLuaResult(t *testing.T, l *lua.LState, returns int) {
 	t.Helper()
 	if returns != 2 {
