@@ -172,8 +172,8 @@ func (m *Manager) Begin(context.Context) error {
 }
 
 // Commit validates the complete staged state and applies it atomically. On a
-// validation failure nothing is applied and no event is emitted; the registry
-// runner rolls the changeset back and discards the transaction.
+// validation failure nothing is applied or emitted, and staging remains live
+// while the registry runner dispatches inverse operations before Discard.
 func (m *Manager) Commit(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -185,11 +185,9 @@ func (m *Manager) Commit(ctx context.Context) error {
 	bindings := tx.effectiveBindings(m.bindings)
 	for bindingID, binding := range bindings {
 		if err := validateBindingAgainstDefinitions(binding, bindingID, definitions); err != nil {
-			m.tx = nil
 			return err
 		}
 		if err := validateUniqueDefaults(binding, bindingID, bindings); err != nil {
-			m.tx = nil
 			return err
 		}
 	}
@@ -209,8 +207,8 @@ func (m *Manager) Commit(ctx context.Context) error {
 	return nil
 }
 
-// Discard drops the staged state without applying it. After a failed Commit
-// the staging area is already gone and this is a no-op.
+// Discard drops the staged state without applying it. This is also the final
+// step after a failed Commit and the runner's staged rollback operations.
 func (m *Manager) Discard(context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

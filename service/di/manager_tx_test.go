@@ -115,12 +115,36 @@ func TestManager_TransactionCommitRejectsIncompleteState(t *testing.T) {
 	requireAPIError(t, err, apierror.Invalid, "contract method is not bound")
 
 	assert.Len(t, manager.definitions[defID].Methods, 1)
-	assert.Nil(t, manager.tx)
+	assert.NotNil(t, manager.tx, "staging must survive until the runner finishes rollback")
 	assert.Equal(t, int32(0), updates.Load())
 
-	// The runner discards after a failed commit; with the staging gone this
-	// must be a clean no-op.
+	// The runner discards after it has dispatched rollback operations.
 	require.NoError(t, manager.Discard(ctx))
+	assert.Nil(t, manager.tx)
+}
+
+// TestManager_FailedCommitAcceptsRollbackBeforeDiscard covers the runner's
+// commit-failure protocol: inverse entry operations are dispatched before
+// TxDiscard. A failed Commit must therefore retain staging so those inverses
+// are accepted against the staged view; Discard then drops the whole attempt.
+func TestManager_FailedCommitAcceptsRollbackBeforeDiscard(t *testing.T) {
+	ctx := ctxapi.NewRootContext()
+	manager, _ := setupDIManagerTest()
+	defID := registry.NewID("test", "contract")
+	bindingID := registry.NewID("test", "binding")
+
+	require.NoError(t, manager.Begin(ctx))
+	require.NoError(t, manager.Add(ctx, bindingEntry(bindingID, defID, "method1")))
+	err := manager.Commit(ctx)
+	requireAPIError(t, err, apierror.Invalid, "binding references undefined contract")
+
+	// This is the inverse of the accepted EntryCreate sent by BusRunner.rollback.
+	require.NoError(t, manager.Delete(ctx, registry.Entry{ID: bindingID, Kind: apidi.Binding}))
+	require.NoError(t, manager.Discard(ctx))
+
+	assert.Nil(t, manager.tx)
+	assert.Empty(t, manager.definitions)
+	assert.Empty(t, manager.bindings)
 }
 
 // TestManager_TransactionEventsFlushOnCommitOnly: staged operations emit their
