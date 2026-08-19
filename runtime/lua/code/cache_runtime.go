@@ -196,22 +196,6 @@ func (cm *Manager) compileFingerprintFromGraph(memGraph *MemoryGraph, id registr
 	return fp, meta[id], nil
 }
 
-func (cm *Manager) compileFingerprints(ids []registry.ID) map[registry.ID]string {
-	if len(ids) == 0 {
-		return nil
-	}
-	memo := make(map[registry.ID]string)
-	meta := make(map[registry.ID][]cache.DepMeta)
-	out := make(map[registry.ID]string, len(ids))
-	for _, id := range ids {
-		fp, err := cm.compileFingerprintMemo(cm.memGraph, id, memo, meta)
-		if err == nil && fp != "" {
-			out[id] = fp
-		}
-	}
-	return out
-}
-
 func (cm *Manager) compileFingerprintMemo(memGraph *MemoryGraph, id registry.ID, memo map[registry.ID]string, meta map[registry.ID][]cache.DepMeta) (string, error) {
 	if v, ok := memo[id]; ok {
 		return v, nil
@@ -258,22 +242,6 @@ func (cm *Manager) typecheckFingerprintFromGraph(memGraph *MemoryGraph, id regis
 		return "", nil, err
 	}
 	return fp, meta[id], nil
-}
-
-func (cm *Manager) typecheckFingerprints(ids []registry.ID) map[registry.ID]string {
-	if len(ids) == 0 {
-		return nil
-	}
-	memo := make(map[registry.ID]string)
-	meta := make(map[registry.ID][]cache.DepMeta)
-	out := make(map[registry.ID]string, len(ids))
-	for _, id := range ids {
-		fp, err := cm.typecheckFingerprintMemo(cm.memGraph, id, memo, meta)
-		if err == nil && fp != "" {
-			out[id] = fp
-		}
-	}
-	return out
 }
 
 func (cm *Manager) typecheckFingerprintMemo(memGraph *MemoryGraph, id registry.ID, memo map[registry.ID]string, meta map[registry.ID][]cache.DepMeta) (string, error) {
@@ -323,28 +291,6 @@ func (cm *Manager) refreshBuiltinHash() {
 	cm.builtinHash = BuiltinManifestHash(manifests)
 }
 
-func (cm *Manager) deleteCacheFingerprints(compileFPs, typecheckFPs map[registry.ID]string) {
-	if !cm.cacheAllowsWrite() {
-		return
-	}
-	deleter, ok := cm.cacheDeleter()
-	if !ok {
-		return
-	}
-	for _, fp := range compileFPs {
-		if fp == "" {
-			continue
-		}
-		_ = deleter.Delete(cm.compileCacheKey(fp))
-	}
-	for _, fp := range typecheckFPs {
-		if fp == "" {
-			continue
-		}
-		_ = deleter.Delete(cm.typecheckCacheKey(fp))
-	}
-}
-
 // CacheStore exposes the cache store (nil if disabled).
 func (cm *Manager) CacheStore() cache.Store {
 	return cm.cacheStore
@@ -363,4 +309,12 @@ func (cm *Manager) BuiltinManifestHash() string {
 // TypecheckConfigHash returns the typecheck config hash used for cache keys.
 func (cm *Manager) TypecheckConfigHash() string {
 	return cm.typeCfgHash
+}
+
+// TypeCheckConfig returns the effective runtime type-check configuration.
+func (cm *Manager) TypeCheckConfig() TypeCheckConfig {
+	if cm == nil || cm.typeChecker == nil {
+		return DefaultTypeCheckConfig()
+	}
+	return cm.typeChecker.config
 }

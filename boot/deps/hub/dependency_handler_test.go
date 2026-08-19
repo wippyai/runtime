@@ -3339,6 +3339,7 @@ replacements:
 
 func newTestContext() context.Context {
 	ctx := ctxapi.NewRootContext()
+	ctx = regapi.WithDependencyAccess(ctx, regapi.DependencyAccessOnline)
 	transcoder := syspayload.NewTranscoder()
 	jsonpayload.Register(transcoder)
 	yamlpayload.Register(transcoder)

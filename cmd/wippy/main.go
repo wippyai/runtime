@@ -5,7 +5,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"runtime"
 
 	sqlitevec "github.com/asg017/sqlite-vec-go-bindings/cgo"
 	"github.com/wippyai/runtime/cmd/wippy/cmd"
@@ -17,8 +16,6 @@ import (
 
 func main() {
 	sqlitevec.Auto()
-
-	runtime.GOMAXPROCS(runtime.NumCPU())
 
 	if err := cmd.Execute(); err != nil {
 		errStr := err.Error()

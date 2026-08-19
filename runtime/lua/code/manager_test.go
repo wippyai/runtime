@@ -47,32 +47,19 @@ func (b *testEventBus) Unsubscribe(_ context.Context, _ event.SubscriberID) {
 
 func TestNewCodeManager(t *testing.T) {
 	tests := []struct {
-		name           string
-		modules        []*api.ModuleDef
-		protoCacheSize int
-		mainCacheSize  int
-		expectErr      bool
+		name      string
+		modules   []*api.ModuleDef
+		expectErr bool
 	}{
 		{
-			name:           "Default cache sizes",
-			modules:        []*api.ModuleDef{{Name: "test"}},
-			protoCacheSize: 0,
-			mainCacheSize:  0,
-			expectErr:      false,
+			name:      "With modules",
+			modules:   []*api.ModuleDef{{Name: "test"}},
+			expectErr: false,
 		},
 		{
-			name:           "Custom cache sizes",
-			modules:        []*api.ModuleDef{{Name: "test"}},
-			protoCacheSize: 100,
-			mainCacheSize:  50,
-			expectErr:      false,
-		},
-		{
-			name:           "No modules",
-			modules:        []*api.ModuleDef{},
-			protoCacheSize: 0,
-			mainCacheSize:  0,
-			expectErr:      false,
+			name:      "No modules",
+			modules:   []*api.ModuleDef{},
+			expectErr: false,
 		},
 	}
 
@@ -80,11 +67,7 @@ func TestNewCodeManager(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			logger := zap.NewNop()
 			bus := &testEventBus{}
-			cfg := Config{
-				Modules:        tt.modules,
-				ProtoCacheSize: tt.protoCacheSize,
-				MainCacheSize:  tt.mainCacheSize,
-			}
+			cfg := Config{Modules: tt.modules}
 
 			cm, err := NewCodeManager(logger, bus, cfg)
 			if tt.expectErr {
@@ -551,10 +534,7 @@ func TestManager_UpdateNode(t *testing.T) {
 func TestManager_UpdateNodeFailureLeavesGraphUnchanged(t *testing.T) {
 	logger := zap.NewNop()
 	bus := &testEventBus{}
-	cm, err := NewCodeManager(logger, bus, Config{
-		ProtoCacheSize: 8,
-		MainCacheSize:  8,
-	})
+	cm, err := NewCodeManager(logger, bus, Config{})
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -695,13 +675,10 @@ func TestManager_Compile(t *testing.T) {
 	}
 }
 
-func TestManager_DeleteThenAddSameIDInvalidatesCompileCaches(t *testing.T) {
+func TestManager_DeleteThenAddSameIDReleasesRetainedCode(t *testing.T) {
 	logger := zap.NewNop()
 	bus := &testEventBus{}
-	cm, err := NewCodeManager(logger, bus, Config{
-		ProtoCacheSize: 8,
-		MainCacheSize:  8,
-	})
+	cm, err := NewCodeManager(logger, bus, Config{})
 	require.NoError(t, err)
 
 	id := registry.NewID("app.replay", "same_id")
@@ -735,15 +712,27 @@ func TestManager_DeleteThenAddSameIDInvalidatesCompileCaches(t *testing.T) {
 	require.Equal(t, "good", executeCompiledString(t, second.Main))
 	require.NotSame(t, first, second)
 	require.NotSame(t, first.Main, second.Main)
+
+	cm.compiler.retainedMu.RLock()
+	protoCount := len(cm.compiler.protosByNode[id])
+	mainCount := len(cm.compiler.mainsByNode[id])
+	cm.compiler.retainedMu.RUnlock()
+	require.Equal(t, 1, protoCount)
+	require.Equal(t, 1, mainCount)
+
+	require.NoError(t, cm.DeleteNode(ctx, id))
+	cm.compiler.retainedMu.RLock()
+	_, hasProto := cm.compiler.protosByNode[id]
+	_, hasMain := cm.compiler.mainsByNode[id]
+	cm.compiler.retainedMu.RUnlock()
+	require.False(t, hasProto)
+	require.False(t, hasMain)
 }
 
 func TestManager_SameIDRecreateUsesNewRevisionEvenWithoutManualInvalidation(t *testing.T) {
 	logger := zap.NewNop()
 	bus := &testEventBus{}
-	cm, err := NewCodeManager(logger, bus, Config{
-		ProtoCacheSize: 8,
-		MainCacheSize:  8,
-	})
+	cm, err := NewCodeManager(logger, bus, Config{})
 	require.NoError(t, err)
 
 	id := registry.NewID("app.replay", "revision_tag")
@@ -778,10 +767,7 @@ func TestManager_SameIDRecreateUsesNewRevisionEvenWithoutManualInvalidation(t *t
 func TestManager_UpdateInvalidatesDependentMainCacheByFingerprint(t *testing.T) {
 	logger := zap.NewNop()
 	bus := &testEventBus{}
-	cm, err := NewCodeManager(logger, bus, Config{
-		ProtoCacheSize: 8,
-		MainCacheSize:  8,
-	})
+	cm, err := NewCodeManager(logger, bus, Config{})
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -822,10 +808,7 @@ func TestManager_UpdateInvalidatesDependentMainCacheByFingerprint(t *testing.T) 
 func TestBuildOptionsFingerprintSeparatesMainCache(t *testing.T) {
 	logger := zap.NewNop()
 	bus := &testEventBus{}
-	cm, err := NewCodeManager(logger, bus, Config{
-		ProtoCacheSize: 8,
-		MainCacheSize:  8,
-	})
+	cm, err := NewCodeManager(logger, bus, Config{})
 	require.NoError(t, err)
 
 	id := registry.NewID("app.replay", "options")
@@ -852,10 +835,7 @@ func TestBuildOptionsFingerprintSeparatesMainCache(t *testing.T) {
 func TestManager_ConcurrentCompileAndUpdate(t *testing.T) {
 	logger := zap.NewNop()
 	bus := &testEventBus{}
-	cm, err := NewCodeManager(logger, bus, Config{
-		ProtoCacheSize: 16,
-		MainCacheSize:  16,
-	})
+	cm, err := NewCodeManager(logger, bus, Config{})
 	require.NoError(t, err)
 
 	id := registry.NewID("app.race", "compile_update")
@@ -918,6 +898,15 @@ func TestManager_ConcurrentCompileAndUpdate(t *testing.T) {
 	for err := range errCh {
 		require.NoError(t, err)
 	}
+
+	_, err = cm.Compile(id, nil)
+	require.NoError(t, err)
+	cm.compiler.retainedMu.RLock()
+	protoCount := len(cm.compiler.protosByNode[id])
+	mainCount := len(cm.compiler.mainsByNode[id])
+	cm.compiler.retainedMu.RUnlock()
+	require.Equal(t, 1, protoCount, "only the live revision may remain retained")
+	require.Equal(t, 1, mainCount, "only the live revision may remain retained")
 }
 
 func executeCompiledString(t *testing.T, proto *glua.FunctionProto) string {
@@ -1212,10 +1201,7 @@ func TestManager_AddNodeWithProto_CompileUsesProto(t *testing.T) {
 func TestManager_AddNodeWithProtoSameIDRecreateUsesNewRevision(t *testing.T) {
 	logger := zap.NewNop()
 	bus := &testEventBus{}
-	cm, err := NewCodeManager(logger, bus, Config{
-		ProtoCacheSize: 8,
-		MainCacheSize:  8,
-	})
+	cm, err := NewCodeManager(logger, bus, Config{})
 	require.NoError(t, err)
 
 	id := registry.NewID("app.replay", "bytecode_same_id")

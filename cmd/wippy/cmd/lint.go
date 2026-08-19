@@ -31,6 +31,7 @@ import (
 	appinit "github.com/wippyai/runtime/cmd/internal/app"
 	clilogger "github.com/wippyai/runtime/cmd/internal/logger"
 	"github.com/wippyai/runtime/runtime/lua/code"
+	"github.com/wippyai/runtime/runtime/lua/code/cache"
 	"github.com/wippyai/runtime/runtime/lua/code/lint"
 	_ "github.com/wippyai/runtime/runtime/lua/code/lint/rules" // register lint rules
 	"github.com/wippyai/runtime/runtime/lua/component"
@@ -208,6 +209,22 @@ type lintConfig struct {
 	workers     int
 }
 
+const maxLintWorkers = 8
+
+func boundedLintWorkers(procs int) int {
+	if procs < 1 {
+		return 1
+	}
+	if procs > maxLintWorkers {
+		return maxLintWorkers
+	}
+	return procs
+}
+
+func defaultLintWorkers() int {
+	return boundedLintWorkers(runtime.GOMAXPROCS(0))
+}
+
 // luaEntryKinds are the entry kinds that contain Lua code.
 var luaEntryKinds = []string{
 	"function.lua",
@@ -228,7 +245,12 @@ func runLint(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	ctx, loader, err := bootstrapLintContext()
+	runtimeCfg, err := loadRuntimeConfig(cmd, zap.NewNop())
+	if err != nil {
+		return err
+	}
+
+	ctx, loader, err := bootstrapLintContext(runtimeCfg)
 	if err != nil {
 		return err
 	}
@@ -240,7 +262,7 @@ func runLint(cmd *cobra.Command, _ []string) error {
 		defer func() { _ = loader.Shutdown(ctx) }()
 	}
 
-	luaEntries, reportSet, err := loadLuaEntries(cmd, opts.lockFile, opts.nsFilters)
+	luaEntries, reportSet, err := loadLuaEntries(cmd, runtimeCfg, opts.lockFile, opts.nsFilters)
 	if err != nil {
 		return err
 	}
@@ -253,7 +275,7 @@ func runLint(cmd *cobra.Command, _ []string) error {
 	}
 	cfg := lintConfig{
 		minSeverity: opts.minSeverity,
-		workers:     runtime.NumCPU(),
+		workers:     defaultLintWorkers(),
 	}
 
 	var result *LintResult
@@ -267,6 +289,11 @@ func runLint(cmd *cobra.Command, _ []string) error {
 	}
 
 	result = applyFilters(result, opts.codeFilters, opts.limit)
+	if pruner, ok := lcache.store.(cache.Pruner); ok && lintCacheAllowsWrite(lcache) {
+		if err := pruner.Prune(); err != nil {
+			return err
+		}
+	}
 	return outputResults(result, opts)
 }
 
@@ -310,21 +337,13 @@ func parseLintFlags(cmd *cobra.Command) (lintOptions, error) {
 	}, nil
 }
 
-func bootstrapLintContext() (ctx context.Context, loader *bootpkg.Loader, err error) {
+func bootstrapLintContext(cfg boot.Config) (ctx context.Context, loader *bootpkg.Loader, err error) {
 	logger, err := clilogger.CreateLogger(clilogger.Config{
 		Silent:       true,
 		AppStartTime: appStartTime,
 	})
 	if err != nil {
 		return nil, nil, NewCreateLoggerError(err)
-	}
-
-	cfg, err := loadBootConfig()
-	if err != nil {
-		return nil, nil, err
-	}
-	if cfg == nil {
-		cfg = createDefaultConfig()
 	}
 
 	bctx, err := bootpkg.NewBootstrapContext(logger, cfg)
@@ -364,16 +383,12 @@ func bootstrapLintContext() (ctx context.Context, loader *bootpkg.Loader, err er
 	return bctx, loader, nil
 }
 
-func loadLuaEntries(cmd *cobra.Command, lockFile string, nsFilters []string) ([]regapi.Entry, map[regapi.ID]bool, error) {
+func loadLuaEntries(cmd *cobra.Command, runtimeCfg boot.Config, lockFile string, nsFilters []string) ([]regapi.Entry, map[regapi.ID]bool, error) {
 	logger := zap.NewNop()
 
 	app, err := appinit.Init(cmd.Context(), verbose, veryVerbose, console, silentLogs, appStartTime)
 	if err != nil {
 		return nil, nil, NewInitAppError(err)
-	}
-	runtimeCfg, err := loadRuntimeConfig(cmd, logger)
-	if err != nil {
-		return nil, nil, err
 	}
 	boot.WithConfig(app.Ctx, runtimeCfg)
 
@@ -405,6 +420,11 @@ func createLinter(ctx context.Context, enableRules bool) (*lint.Linter, lintCach
 		Enabled: true,
 		Strict:  true,
 	}
+	if cm != nil {
+		if runtimeTypeCfg := cm.TypeCheckConfig(); runtimeTypeCfg.Enabled {
+			typeCfg = runtimeTypeCfg
+		}
+	}
 	typeChecker := code.NewTypeChecker(typeCfg, mods)
 
 	var registry *lint.Registry
@@ -420,19 +440,9 @@ func createLinter(ctx context.Context, enableRules bool) (*lint.Linter, lintCach
 		lcache.cfg = cm.CacheConfig()
 	}
 	lcache.typecheckHash = code.TypecheckConfigHash(typeCfg)
-	lcache.builtinModules = make([]string, 0, len(mods))
-	builtinManifests := make(map[string]*io.Manifest)
-	for _, mod := range mods {
-		if mod == nil || mod.Types == nil {
-			continue
-		}
-		manifest := mod.Types()
-		if manifest == nil {
-			continue
-		}
-		lcache.builtinModules = append(lcache.builtinModules, mod.Name)
-		builtinManifests[mod.Name] = manifest
-	}
+	var builtinManifests map[string]*io.Manifest
+	lcache.builtinModules, builtinManifests = lintBuiltinInventory(mods)
+	lcache.builtinHash = code.BuiltinManifestHash(builtinManifests)
 
 	// requireBuiltins is the set of modules a scoped require resolves without an
 	// explicit import/module declaration. It mirrors the runtime ambient base
@@ -446,9 +456,28 @@ func createLinter(ctx context.Context, enableRules bool) (*lint.Linter, lintCach
 	for _, name := range component.ExecutableAmbientModuleNames() {
 		lcache.requireBuiltins[name] = struct{}{}
 	}
-	lcache.builtinHash = code.BuiltinManifestHash(builtinManifests)
 
 	return lint.New(typeChecker, registry), lcache
+}
+
+func lintBuiltinInventory(mods []*luaapi.ModuleDef) ([]string, map[string]*io.Manifest) {
+	names := make([]string, 0, len(mods))
+	manifests := make(map[string]*io.Manifest)
+	for _, mod := range mods {
+		if mod == nil || mod.Name == "" {
+			continue
+		}
+		names = append(names, mod.Name)
+		if mod.Types == nil {
+			continue
+		}
+		manifest := mod.Types()
+		if manifest == nil {
+			continue
+		}
+		manifests[mod.Name] = manifest
+	}
+	return names, manifests
 }
 
 func applyFilters(result *LintResult, codeFilters []string, limit int) *LintResult {
@@ -533,6 +562,12 @@ func runLintSimple(luaEntries []regapi.Entry, reportSet map[regapi.ID]bool, lint
 // lintEntries is the core linting loop. If prog is non-nil, sends UI updates.
 func lintEntries(luaEntries []regapi.Entry, reportSet map[regapi.ID]bool, linter *lint.Linter, lcache lintCache, cfg lintConfig, prog *tea.Program) *LintResult {
 	result := &LintResult{TotalEntries: len(luaEntries)}
+	workers := cfg.workers
+	if workers < 1 {
+		workers = defaultLintWorkers()
+	} else {
+		workers = boundedLintWorkers(workers)
+	}
 
 	levels, _ := topology.LevelSortEntriesByDependency(luaEntries, &luaImportResolver{})
 	entryDataMap := make(map[regapi.ID]entryData, len(luaEntries))
@@ -593,7 +628,7 @@ func lintEntries(luaEntries []regapi.Entry, reportSet map[regapi.ID]bool, linter
 		}
 
 		results := make([]entryResult, len(levelEntries))
-		sem := make(chan struct{}, cfg.workers)
+		sem := make(chan struct{}, workers)
 		var wg sync.WaitGroup
 
 		for i, entry := range levelEntries {
@@ -672,29 +707,32 @@ func lintOneEntry(entry regapi.Entry, data entryData, linter *lint.Linter, manif
 
 	var cachedManifest *io.Manifest
 	var cachedDiagnostics []diag.Diagnostic
+	typecheckCacheHit := false
 	if tcFP := fps.typecheck[entry.ID]; tcFP != "" {
 		if manifest, diags, ok := lintLoadTypecheckCache(lcache, entry.ID, tcFP); ok {
 			cachedManifest = manifest
 			cachedDiagnostics = diags
+			typecheckCacheHit = true
 		}
 	}
 
 	enableTypecheck := cachedDiagnostics == nil
 	lintResult := linter.CheckParsedWithTypecheck(stmts, entryID, imports, enableTypecheck)
 	linter.ClearCache()
+	typeDiags := filterTypecheckDiagnostics(lintResult.Diagnostics)
+
+	if cachedDiagnostics != nil {
+		lintResult.Manifest = cachedManifest
+		lintResult.Diagnostics = append(cachedDiagnostics, lintResult.Diagnostics...)
+		typeDiags = cachedDiagnostics
+	}
 
 	requireDiags := lintRequireDeclarations(stmts, entryID, data, lcache.requireBuiltins)
 	if len(requireDiags) > 0 {
 		lintResult.Diagnostics = append(requireDiags, lintResult.Diagnostics...)
 	}
 
-	if cachedDiagnostics != nil {
-		lintResult.Manifest = cachedManifest
-		lintResult.Diagnostics = append(cachedDiagnostics, lintResult.Diagnostics...)
-	}
-
-	typeDiags := filterTypecheckDiagnostics(lintResult.Diagnostics)
-	if lintResult.Manifest != nil {
+	if lintResult.Manifest != nil && !typecheckCacheHit {
 		lintSaveTypecheckCache(lcache, entry, data, fps.typecheck[entry.ID], fps.typeDeps[entry.ID], lintResult.Manifest, typeDiags)
 	}
 
@@ -984,10 +1022,14 @@ func extractEntryData(entry regapi.Entry) entryData {
 
 	// Fast path: loader entries usually carry golang map payloads.
 	if m, ok := entry.Data.Data().(map[string]any); ok {
-		return entryDataFromMap(m)
+		data := entryDataFromMap(m)
+		data.Method = code.EffectiveMethod(entry.Kind, data.Method)
+		return data
 	}
 	if m, ok := entry.Data.Data().(map[string]interface{}); ok {
-		return entryDataFromMap(m)
+		data := entryDataFromMap(m)
+		data.Method = code.EffectiveMethod(entry.Kind, data.Method)
+		return data
 	}
 
 	var cfg struct {
@@ -1009,7 +1051,7 @@ func extractEntryData(entry regapi.Entry) entryData {
 		imports[mod] = regapi.NewID("", mod)
 	}
 
-	return entryData{Source: cfg.Source, Imports: imports, Method: cfg.Method}
+	return entryData{Source: cfg.Source, Imports: imports, Method: code.EffectiveMethod(entry.Kind, cfg.Method)}
 }
 
 func entryDataFromMap(m map[string]any) entryData {

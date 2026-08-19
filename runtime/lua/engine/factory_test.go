@@ -71,11 +71,7 @@ var factoryWorkflowAllowedIDs = []registry.ID{
 func setupFactoryCodeManager(t *testing.T) *code.Manager {
 	t.Helper()
 	log := zap.NewNop()
-	cm, err := code.NewCodeManager(log, nil, code.Config{
-		Modules:        nil,
-		ProtoCacheSize: 100,
-		MainCacheSize:  100,
-	})
+	cm, err := code.NewCodeManager(log, nil, code.Config{Modules: nil})
 	if err != nil {
 		t.Fatalf("failed to create code manager: %v", err)
 	}

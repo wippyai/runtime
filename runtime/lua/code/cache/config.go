@@ -5,6 +5,12 @@ package cache
 // DefaultDir is the default on-disk cache directory relative to the working dir.
 const DefaultDir = ".wippy/cache/lua"
 
+const (
+	DefaultMaxBytes      int64 = 1 << 30
+	DefaultMaxEntries          = 20_000
+	DefaultPruneInterval       = 256
+)
+
 // Mode controls cache read/write behavior.
 type Mode string
 
@@ -21,6 +27,9 @@ type Config struct {
 	Enabled          bool
 	CompileEnabled   bool
 	TypecheckEnabled bool
+	MaxBytes         int64
+	MaxEntries       int
+	PruneInterval    int
 }
 
 // Normalize applies default values.
@@ -33,6 +42,15 @@ func (c Config) Normalize() Config {
 	}
 	if c.Mode == "" {
 		c.Mode = ModeReadWrite
+	}
+	if c.MaxBytes <= 0 {
+		c.MaxBytes = DefaultMaxBytes
+	}
+	if c.MaxEntries <= 0 {
+		c.MaxEntries = DefaultMaxEntries
+	}
+	if c.PruneInterval <= 0 {
+		c.PruneInterval = DefaultPruneInterval
 	}
 	return c
 }

@@ -198,9 +198,6 @@ func TestL04EngineLifecycleIdempotent(t *testing.T) {
 
 func TestL05EngineSettingsDefaults(t *testing.T) {
 	settings := resolveEngineSettings(nil)
-	if settings.ProtoCacheSize != 60000 || settings.MainCacheSize != 10000 {
-		t.Fatalf("cache sizes = (%d, %d), want (60000, 10000)", settings.ProtoCacheSize, settings.MainCacheSize)
-	}
 	if settings.TypeCheck.Enabled || settings.TypeCheck.Strict {
 		t.Fatalf("type check defaults = %#v, want disabled and non-strict", settings.TypeCheck)
 	}
@@ -209,6 +206,9 @@ func TestL05EngineSettingsDefaults(t *testing.T) {
 	}
 	if !settings.Cache.CompileEnabled || !settings.Cache.TypecheckEnabled {
 		t.Fatalf("cache stage defaults = %#v, want both enabled", settings.Cache)
+	}
+	if settings.Cache.MaxBytes <= 0 || settings.Cache.MaxEntries <= 0 || settings.Cache.PruneInterval <= 0 {
+		t.Fatalf("cache retention defaults = %#v, want bounded positive limits", settings.Cache)
 	}
 	if settings.InvalidationWaitTimeout != 30*time.Second {
 		t.Fatalf("invalidation timeout = %v, want 30s", settings.InvalidationWaitTimeout)

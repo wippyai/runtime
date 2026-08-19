@@ -20,10 +20,10 @@ import (
 type lintCache struct {
 	store           cache.Store
 	requireBuiltins map[string]struct{}
+	builtinModules  []string
 	builtinHash     string
 	typecheckHash   string
 	cfg             cache.Config
-	builtinModules  []string
 }
 
 type lintFingerprints struct {

@@ -70,11 +70,7 @@ func newWorkflowTestFixture(t *testing.T, opts workflowTestOpts) *workflowTestFi
 	logger := zap.NewNop()
 	bus := eventbus.NewBus()
 
-	codeManager, err := code.NewCodeManager(logger, nil, code.Config{
-		Modules:        opts.modules,
-		ProtoCacheSize: 100,
-		MainCacheSize:  100,
-	})
+	codeManager, err := code.NewCodeManager(logger, nil, code.Config{Modules: opts.modules})
 	require.NoError(t, err)
 
 	processFactory := engine.NewProcessFactory(codeManager)
