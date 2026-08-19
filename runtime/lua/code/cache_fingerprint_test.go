@@ -12,7 +12,7 @@ import (
 
 func TestCacheCompilerVersion(t *testing.T) {
 	v := CacheCompilerVersion()
-	assert.Equal(t, "lua-cache-v3", v)
+	assert.Equal(t, "lua-cache-v4", v)
 }
 
 func TestEffectiveMethod(t *testing.T) {

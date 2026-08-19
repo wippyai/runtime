@@ -14,7 +14,7 @@ import (
 	"github.com/wippyai/runtime/runtime/lua/code/cache"
 )
 
-const cacheCompilerVersion = "lua-cache-v3"
+const cacheCompilerVersion = "lua-cache-v4"
 
 // CacheCompilerVersion returns the cache compiler version string.
 func CacheCompilerVersion() string {

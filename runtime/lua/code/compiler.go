@@ -8,6 +8,7 @@ import (
 	glua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/runtime/lua"
+	"github.com/wippyai/runtime/runtime/lua/code/cache"
 )
 
 // CompiledProto represents a compiled Lua prototype with its name
@@ -29,8 +30,30 @@ type CompiledMain struct {
 	Dependencies []CompiledProto
 }
 
+// buildMemo shares graph-derived fingerprints across one complete build.
+// Without this, deep dependency chains are traversed again for every node.
+type buildMemo struct {
+	runtime       map[registry.ID]string
+	compile       map[registry.ID]string
+	compileMeta   map[registry.ID][]cache.DepMeta
+	typecheck     map[registry.ID]string
+	typecheckMeta map[registry.ID][]cache.DepMeta
+}
+
+func newBuildMemo() *buildMemo {
+	return &buildMemo{
+		runtime:       make(map[registry.ID]string),
+		compile:       make(map[registry.ID]string),
+		compileMeta:   make(map[registry.ID][]cache.DepMeta),
+		typecheck:     make(map[registry.ID]string),
+		typecheckMeta: make(map[registry.ID][]cache.DepMeta),
+	}
+}
+
 // CompileFn compiles a node against the graph snapshot used for the build.
 type CompileFn func(memGraph *MemoryGraph, node *Node) (*glua.FunctionProto, error)
+
+type compileMemoFn func(memGraph *MemoryGraph, node *Node, memo *buildMemo) (*glua.FunctionProto, error)
 
 type retainedProtoKey struct {
 	ID  registry.ID
@@ -50,27 +73,39 @@ type Compiler struct {
 	protosByNode   map[registry.ID]map[retainedProtoKey]struct{}
 	mainsByNode    map[registry.ID]map[retainedMainKey]struct{}
 	compileFn      CompileFn
+	compileMemoFn  compileMemoFn
 	retainedMu     sync.RWMutex
 }
 
 // NewCompiler returns a compiler with lifecycle-owned retained code.
 func NewCompiler(compileFn CompileFn) *Compiler {
+	compiler := newCompiler()
+	compiler.compileFn = compileFn
+	return compiler
+}
+
+func newCompilerWithMemo(compileFn compileMemoFn) *Compiler {
+	compiler := newCompiler()
+	compiler.compileMemoFn = compileFn
+	return compiler
+}
+
+func newCompiler() *Compiler {
 	return &Compiler{
 		retainedProtos: make(map[retainedProtoKey]*glua.FunctionProto),
 		retainedMains:  make(map[retainedMainKey]*CompiledMain),
 		protosByNode:   make(map[registry.ID]map[retainedProtoKey]struct{}),
 		mainsByNode:    make(map[registry.ID]map[retainedMainKey]struct{}),
-		compileFn:      compileFn,
 	}
 }
 
 // getCompiledProto retrieves retained code or compiles it for the active node version.
-func (c *Compiler) getCompiledProto(memGraph *MemoryGraph, node *Node, memo map[registry.ID]string) (*glua.FunctionProto, error) {
+func (c *Compiler) getCompiledProto(memGraph *MemoryGraph, node *Node, memo *buildMemo) (*glua.FunctionProto, error) {
 	if node.Kind == lua.ModuleKind {
 		return nil, ErrModuleNotCompiled
 	}
 
-	tag, err := runtimeFingerprintMemo(memGraph, node.ID, memo)
+	tag, err := runtimeFingerprintMemo(memGraph, node.ID, memo.runtime)
 	if err != nil {
 		return nil, err
 	}
@@ -83,7 +118,12 @@ func (c *Compiler) getCompiledProto(memGraph *MemoryGraph, node *Node, memo map[
 		return proto, nil
 	}
 
-	compiled, err := c.compileFn(memGraph, node)
+	var compiled *glua.FunctionProto
+	if c.compileMemoFn != nil {
+		compiled, err = c.compileMemoFn(memGraph, node, memo)
+	} else {
+		compiled, err = c.compileFn(memGraph, node)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -126,8 +166,8 @@ func (c *Compiler) Compile(
 		options = NewBuildOptions()
 	}
 
-	memo := make(map[registry.ID]string)
-	tag, err := runtimeFingerprintMemo(memGraph, entrypoint, memo)
+	memo := newBuildMemo()
+	tag, err := runtimeFingerprintMemo(memGraph, entrypoint, memo.runtime)
 	if err != nil {
 		return nil, err
 	}

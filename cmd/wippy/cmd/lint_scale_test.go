@@ -21,7 +21,34 @@ import (
 )
 
 func TestLintWarmCacheIsReadOnly(t *testing.T) {
-	runLintCacheHarness(t, 32)
+	runLintCacheHarness(t, 32, false)
+}
+
+func TestLintWarmCacheDoesNotDuplicateRequireDiagnostics(t *testing.T) {
+	dir := t.TempDir()
+	typeCfg := code.TypeCheckConfig{Enabled: true, Strict: true}
+	lcache := lintCache{
+		store: cache.NewDiskStore(dir),
+		cfg: cache.Config{
+			Enabled: true, CompileEnabled: true, TypecheckEnabled: true,
+		},
+		typecheckHash:   code.TypecheckConfigHash(typeCfg),
+		builtinHash:     code.BuiltinManifestHash(nil),
+		requireBuiltins: map[string]struct{}{},
+	}
+	entry := makeLuaSourceEntry(
+		regapi.NewID("cache", "require"), nil, `return require("undeclared")`,
+	)
+	entries := []regapi.Entry{entry}
+	report := map[regapi.ID]bool{entry.ID: true}
+	linter := lint.New(code.NewTypeChecker(typeCfg, nil), lint.NewRegistry())
+
+	cold := lintEntries(entries, report, linter, lcache, lintConfig{minSeverity: severityError}, nil)
+	warm := lintEntries(entries, report, linter, lcache, lintConfig{minSeverity: severityError}, nil)
+
+	require.Equal(t, cold.Diagnostics, warm.Diagnostics)
+	require.Len(t, warm.Diagnostics, 1)
+	require.Equal(t, "E0007", warm.Diagnostics[0].Code)
 }
 
 func TestLintLargeApplicationCacheHarness(t *testing.T) {
@@ -32,10 +59,10 @@ func TestLintLargeApplicationCacheHarness(t *testing.T) {
 	count, err := strconv.Atoi(raw)
 	require.NoError(t, err)
 	require.Positive(t, count)
-	runLintCacheHarness(t, count)
+	runLintCacheHarness(t, count, os.Getenv("WIPPY_LINT_SCALE_SHAPE") == "chain")
 }
 
-func runLintCacheHarness(t *testing.T, count int) {
+func runLintCacheHarness(t *testing.T, count int, chain bool) {
 	t.Helper()
 	dir := t.TempDir()
 	store := cache.NewBoundedDiskStore(dir, 1<<30, count*3, 64)
@@ -55,7 +82,9 @@ func runLintCacheHarness(t *testing.T, count int) {
 	}
 	for i, id := range ids {
 		var imports map[string]regapi.ID
-		if i == len(ids)-1 && len(ids) > 1 {
+		if chain && i > 0 {
+			imports = map[string]regapi.ID{"previous": ids[i-1]}
+		} else if !chain && i == len(ids)-1 && len(ids) > 1 {
 			imports = make(map[string]regapi.ID, len(ids)-1)
 			for depIndex, depID := range ids[:len(ids)-1] {
 				imports[fmt.Sprintf("dep_%06d", depIndex)] = depID
@@ -105,8 +134,12 @@ func runLintCacheHarness(t *testing.T, count int) {
 	runtimeAfter := cacheFileModTimes(t, dir)
 	require.Equal(t, after, runtimeAfter, "runtime must consume lint artifacts without rewriting them")
 
-	t.Logf("entries=%d cold=%s warm=%s runtime=%s files=%d",
-		count, coldDuration, warmDuration, runtimeDuration, len(runtimeAfter))
+	shape := "fan-in"
+	if chain {
+		shape = "chain"
+	}
+	t.Logf("entries=%d shape=%s cold=%s warm=%s runtime=%s files=%d",
+		count, shape, coldDuration, warmDuration, runtimeDuration, len(runtimeAfter))
 }
 
 type lintCacheEventBus struct{}

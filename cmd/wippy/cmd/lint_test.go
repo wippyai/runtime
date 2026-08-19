@@ -25,11 +25,15 @@ func ambientRequireBuiltins() []string {
 }
 
 func makeLuaEntry(id registry.ID, imports map[string]registry.ID) registry.Entry {
+	return makeLuaSourceEntry(id, imports, "return {}")
+}
+
+func makeLuaSourceEntry(id registry.ID, imports map[string]registry.ID, source string) registry.Entry {
 	cfg := struct {
 		Imports map[string]registry.ID `json:"imports,omitempty"`
 		Source  string                 `json:"source"`
 	}{
-		Source:  "return {}",
+		Source:  source,
 		Imports: imports,
 	}
 	payloadjson.Register(transcoder.GlobalTranscoder())

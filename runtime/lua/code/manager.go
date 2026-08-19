@@ -147,8 +147,8 @@ func NewCodeManager(log *zap.Logger, bus event.Bus, cfg Config) (*Manager, error
 	}
 
 	// Create compiler with a callback that can access cm.memGraph for dependency manifests
-	cm.compiler = NewCompiler(
-		func(memGraph *MemoryGraph, node *Node) (*glua.FunctionProto, error) {
+	cm.compiler = newCompilerWithMemo(
+		func(memGraph *MemoryGraph, node *Node, memo *buildMemo) (*glua.FunctionProto, error) {
 			var chunk []ast.Stmt
 			var parsed bool
 			parseOnce := func() error {
@@ -169,9 +169,11 @@ func NewCodeManager(log *zap.Logger, bus event.Bus, cfg Config) (*Manager, error
 			if typeChecker.IsEnabled() && node.Source != "" {
 				var tcDeps []cache.DepMeta
 				var tcFP string
-				if fingerprint, deps, err := cm.typecheckFingerprintFromGraph(memGraph, node.ID); err == nil {
+				if fingerprint, err := cm.typecheckFingerprintMemo(
+					memGraph, node.ID, memo.typecheck, memo.typecheckMeta,
+				); err == nil {
 					tcFP = fingerprint
-					tcDeps = deps
+					tcDeps = memo.typecheckMeta[node.ID]
 					if manifest, cachedDiagnostics, ok := cm.loadTypecheckCache(node.ID, fingerprint); ok {
 						node.Manifest = manifest
 						cm.memGraph.SetManifestIfRevision(node.ID, node.Version.Revision, manifest)
@@ -225,9 +227,11 @@ func NewCodeManager(log *zap.Logger, bus event.Bus, cfg Config) (*Manager, error
 
 			var compileFP string
 			var compileDeps []cache.DepMeta
-			if fingerprint, deps, err := cm.compileFingerprintFromGraph(memGraph, node.ID); err == nil {
+			if fingerprint, err := cm.compileFingerprintMemo(
+				memGraph, node.ID, memo.compile, memo.compileMeta,
+			); err == nil {
 				compileFP = fingerprint
-				compileDeps = deps
+				compileDeps = memo.compileMeta[node.ID]
 				if proto, ok := cm.loadCompileCache(node.ID, fingerprint); ok {
 					if node.Manifest != nil && len(proto.TypeInfo) == 0 {
 						if data, err := node.Manifest.Encode(); err == nil {

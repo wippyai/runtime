@@ -719,18 +719,19 @@ func lintOneEntry(entry regapi.Entry, data entryData, linter *lint.Linter, manif
 	enableTypecheck := cachedDiagnostics == nil
 	lintResult := linter.CheckParsedWithTypecheck(stmts, entryID, imports, enableTypecheck)
 	linter.ClearCache()
+	typeDiags := filterTypecheckDiagnostics(lintResult.Diagnostics)
+
+	if cachedDiagnostics != nil {
+		lintResult.Manifest = cachedManifest
+		lintResult.Diagnostics = append(cachedDiagnostics, lintResult.Diagnostics...)
+		typeDiags = cachedDiagnostics
+	}
 
 	requireDiags := lintRequireDeclarations(stmts, entryID, data, lcache.requireBuiltins)
 	if len(requireDiags) > 0 {
 		lintResult.Diagnostics = append(requireDiags, lintResult.Diagnostics...)
 	}
 
-	if cachedDiagnostics != nil {
-		lintResult.Manifest = cachedManifest
-		lintResult.Diagnostics = append(cachedDiagnostics, lintResult.Diagnostics...)
-	}
-
-	typeDiags := filterTypecheckDiagnostics(lintResult.Diagnostics)
 	if lintResult.Manifest != nil && !typecheckCacheHit {
 		lintSaveTypecheckCache(lcache, entry, data, fps.typecheck[entry.ID], fps.typeDeps[entry.ID], lintResult.Manifest, typeDiags)
 	}
