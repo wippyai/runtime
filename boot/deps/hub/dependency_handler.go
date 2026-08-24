@@ -1310,7 +1310,7 @@ func (h *DependencyHandler) resolveModules(ctx context.Context, deps []Dependenc
 	}
 	lockedDigests := h.lockedModuleDigests()
 	if regapi.DependencyAccessFromContext(ctx) == regapi.DependencyAccessVerifiedOffline {
-		provider = newLockedManifestProvider(h, lockedVersions, lockedDigests)
+		provider = newLockedManifestProvider(h, lockedVersions, lockedDigests, provider)
 	}
 	provider = &replacementManifestProvider{
 		base:           provider,
@@ -1333,8 +1333,12 @@ func (h *DependencyHandler) resolveModules(ctx context.Context, deps []Dependenc
 			h.logger.Error("dependency resolution failed", zap.String("errors", formatResolutionErrors(result.Errors)))
 		}
 		if regapi.DependencyAccessFromContext(ctx) == regapi.DependencyAccessVerifiedOffline {
-			module := result.Errors[0].Org + "/" + result.Errors[0].Name
-			return nil, NewDependencyOfflineError("resolve", strings.Trim(module, "/"))
+			module := strings.Trim(result.Errors[0].Org+"/"+result.Errors[0].Name, "/")
+			// A replaced module resolves from its local tree, so its failure is
+			// never a missing-evidence failure: report what actually went wrong.
+			if _, replaced := h.replacementPath(module); !replaced {
+				return nil, NewDependencyOfflineError("resolve", module)
+			}
 		}
 		return nil, NewDependencyResolutionErrors(result.Errors)
 	}
