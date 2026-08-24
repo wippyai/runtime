@@ -12,31 +12,21 @@ import (
 )
 
 // lockedManifestProvider exposes only locally materialized, content-pinned
-// modules, so a verified-offline startup resolves the recorded deployment
-// without any network capability.
-//
-// A module a workspace replacement backs is source-controlled, not hub-signed:
-// the operator declared the local tree that supplies its content, and no lock
-// digest can describe it. The content-pinned evidence gate therefore does not
-// apply to it, and such a module is served by replaced - the provider the
-// replacement-aware layer resolved through before this fast path existed - so
-// a workspace using replacements starts up exactly as it always did.
+// modules. It lets the normal resolver validate a graph containing mutable
+// replacements without granting that resolver any network capability.
 type lockedManifestProvider struct {
-	handler  *DependencyHandler
-	replaced ManifestProvider
-	modules  map[string]ResolvedModule
+	handler *DependencyHandler
+	modules map[string]ResolvedModule
 }
 
 func newLockedManifestProvider(
 	handler *DependencyHandler,
 	materializedVersions map[string]string,
 	lockedDigests map[string]string,
-	replaced ManifestProvider,
 ) ManifestProvider {
 	provider := &lockedManifestProvider{
-		handler:  handler,
-		replaced: replaced,
-		modules:  make(map[string]ResolvedModule),
+		handler: handler,
+		modules: make(map[string]ResolvedModule),
 	}
 	if handler == nil || handler.lock == nil {
 		return provider
@@ -62,24 +52,8 @@ func newLockedManifestProvider(
 	return provider
 }
 
-// replacementProvider returns the provider serving a replaced module, if the
-// workspace replaces this one. A replacement outranks a lock entry for the same
-// module: the local tree, not the recorded artifact, is that module's content.
-func (p *lockedManifestProvider) replacementProvider(name string) (ManifestProvider, bool) {
-	if p.handler == nil || p.replaced == nil {
-		return nil, false
-	}
-	if _, replaced := p.handler.replacementPath(name); !replaced {
-		return nil, false
-	}
-	return p.replaced, true
-}
-
 func (p *lockedManifestProvider) GetManifest(ctx context.Context, org, module, constraint string) (*ModuleManifest, error) {
 	name := org + "/" + module
-	if base, replaced := p.replacementProvider(name); replaced {
-		return base.GetManifest(ctx, org, module, constraint)
-	}
 	mod, ok := p.modules[name]
 	if !ok || !storedVersionSatisfies(mod.Version, constraint) {
 		return nil, NewDependencyOfflineError("resolve manifest", name)
@@ -107,11 +81,8 @@ func (p *lockedManifestProvider) GetManifest(ctx context.Context, org, module, c
 	}, nil
 }
 
-func (p *lockedManifestProvider) ListAllVersions(ctx context.Context, org, module string) ([]VersionInfo, error) {
+func (p *lockedManifestProvider) ListAllVersions(_ context.Context, org, module string) ([]VersionInfo, error) {
 	name := org + "/" + module
-	if base, replaced := p.replacementProvider(name); replaced {
-		return base.ListAllVersions(ctx, org, module)
-	}
 	mod, ok := p.modules[name]
 	if !ok {
 		return nil, NewDependencyOfflineError("list versions", name)
