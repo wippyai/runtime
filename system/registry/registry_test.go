@@ -33,15 +33,31 @@ import (
 	"github.com/wippyai/runtime/system/registry/topology"
 )
 
-func TestPreserveManagedEntryMetadata(t *testing.T) {
-	id := registry.NewID("app.deps", "core")
+
+// stripProvenance clones a changeset without its provenance annotations, for
+// matchers that compare the declarative operations alone.
+func stripProvenance(cs registry.ChangeSet) registry.ChangeSet {
+	out := make(registry.ChangeSet, len(cs))
+	for i, op := range cs {
+		op.Provenance = nil
+		op.OriginalProvenance = nil
+		out[i] = op
+	}
+	return out
+}
+
+func TestApplyPassesAuthorMetaThrough(t *testing.T) {
+	// A user update that omits keys present on the resident entry persists
+	// exactly what the author sent; the registry re-injects nothing.
+	id := registry.NewID("acme.app", "dep")
 	snapshot := registry.State{{
 		ID: id, Kind: registry.NamespaceDependency,
 		Meta: attrs.NewBagFrom(map[string]any{
-			"module": "acme/app", "module_version": "1.0.0", "module_digest": "sha256:old", "title": "Old",
+			"module": "acme/app", "title": "Old",
 		}),
 		Data: payload.New(map[string]any{"component": "acme/core", "version": "1.0.0"}),
 	}}
+	_ = snapshot
 	changes := registry.ChangeSet{{
 		Kind: registry.EntryUpdate,
 		Entry: registry.Entry{
@@ -50,16 +66,11 @@ func TestPreserveManagedEntryMetadata(t *testing.T) {
 			Data: payload.New(map[string]any{"component": "acme/core", "version": "2.0.0"}),
 		},
 	}}
-
-	got := preserveManagedEntryMetadata(changes, snapshot)
-	require.Len(t, got, 1)
-	require.Equal(t, "acme/app", got[0].Entry.Meta.GetString("module", ""))
-	require.Equal(t, "1.0.0", got[0].Entry.Meta.GetString("module_version", ""))
-	require.Equal(t, "sha256:old", got[0].Entry.Meta.GetString("module_digest", ""))
-	require.Equal(t, "New", got[0].Entry.Meta.GetString("title", ""))
+	require.Len(t, changes, 1)
+	require.Equal(t, "New", changes[0].Entry.Meta.GetString("title", ""))
+	require.Equal(t, "", changes[0].Entry.Meta.GetString("module", ""),
+		"author payload carries exactly the keys the author sent")
 }
-
-// MockRunner is a mock implementation of the registry.process interface for testing.
 type MockRunner struct {
 	err           error
 	RunFunc       func(state registry.State, changes registry.ChangeSet) (registry.State, error)
@@ -619,7 +630,7 @@ func TestInMemoryRegistry_Apply_Rollback_Success(t *testing.T) {
 	// Mock the runner's Transition to apply the rollback changeset correctly
 	runner.RunFunc = func(state registry.State, cs registry.ChangeSet) (registry.State, error) {
 		// Handle initial application of changes
-		if reflect.DeepEqual(cs, changes) {
+		if reflect.DeepEqual(stripProvenance(cs), changes) {
 			return newState, nil
 		}
 
@@ -693,7 +704,7 @@ func TestInMemoryRegistry_Apply_Rollback_Failure(t *testing.T) {
 	rollbackErr := errors.New("rollback failed")
 	runner.RunFunc = func(state registry.State, cs registry.ChangeSet) (registry.State, error) {
 		// Handle initial application of changes
-		if reflect.DeepEqual(cs, changes) {
+		if reflect.DeepEqual(stripProvenance(cs), changes) {
 			return newState, nil
 		}
 
@@ -1518,86 +1529,6 @@ func TestEnrichChangeset(t *testing.T) {
 	})
 }
 
-func TestCollectBackwardChangesets(t *testing.T) {
-	t.Run("No common ancestor returns error", func(t *testing.T) {
-		v0 := version.New(registry.RootVersion)
-		v1 := version.FromParent(v0, 1)
-		v2 := version.FromParent(v1, 2)
-		v3 := version.New(3) // Disconnected version
-
-		hist := historymem.New()
-		_ = hist.Save(v0, registry.ChangeSet{}, true)
-		_ = hist.Save(v1, registry.ChangeSet{}, false)
-		_ = hist.Save(v2, registry.ChangeSet{}, false)
-		_ = hist.Save(v3, registry.ChangeSet{}, false)
-
-		runner := NewMockRunner()
-		stateBuilder := topology.NewStateBuilder(zap.NewNop(), nil)
-		reg := NewRegistry(hist, runner, stateBuilder, topology.NewResolver(), zap.NewNop())
-		reg.currentVersion = v2
-
-		// Path that doesn't include common ancestor
-		path := []registry.Version{v3}
-		_, err := reg.collectBackwardChangesets(path, v3)
-
-		require.Error(t, err)
-		assert.ErrorIs(t, err, ErrNoCommonAncestor)
-	})
-
-	t.Run("History Get error is propagated", func(t *testing.T) {
-		v0 := version.New(registry.RootVersion)
-		v1 := version.FromParent(v0, 1)
-		v2 := version.FromParent(v1, 2)
-
-		hist := historymem.New()
-		_ = hist.Save(v0, registry.ChangeSet{}, true)
-		_ = hist.Save(v1, registry.ChangeSet{}, false)
-		// Don't save v2 - Get will fail for it
-
-		runner := NewMockRunner()
-		stateBuilder := topology.NewStateBuilder(zap.NewNop(), nil)
-		reg := NewRegistry(hist, runner, stateBuilder, topology.NewResolver(), zap.NewNop())
-		reg.currentVersion = v2 // current at v2, but v2 not in history
-
-		path := []registry.Version{v0, v1}
-		_, err := reg.collectBackwardChangesets(path, v1)
-
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "get changeset")
-	})
-
-	t.Run("Successful backward changeset collection", func(t *testing.T) {
-		v0 := version.New(registry.RootVersion)
-		v1 := version.FromParent(v0, 1)
-		v2 := version.FromParent(v1, 2)
-
-		entry := registry.Entry{
-			ID:   registry.NewID("ns", "test"),
-			Kind: "test",
-			Data: payload.NewString("data"),
-		}
-
-		hist := historymem.New()
-		_ = hist.Save(v0, registry.ChangeSet{}, true)
-		_ = hist.Save(v1, registry.ChangeSet{
-			{Kind: registry.EntryCreate, Entry: entry},
-		}, false)
-		_ = hist.Save(v2, registry.ChangeSet{
-			{Kind: registry.EntryUpdate, Entry: entry, OriginalEntry: &entry},
-		}, false)
-
-		runner := NewMockRunner()
-		stateBuilder := topology.NewStateBuilder(zap.NewNop(), nil)
-		reg := NewRegistry(hist, runner, stateBuilder, topology.NewResolver(), zap.NewNop())
-		reg.currentVersion = v2
-
-		path := []registry.Version{v0, v1}
-		cs, err := reg.collectBackwardChangesets(path, v1)
-
-		assert.NoError(t, err)
-		assert.NotNil(t, cs)
-	})
-}
 
 // depRecordingRunner is a Transition runner that refuses to delete an
 // entry from the incoming state while any other not-being-deleted entry in

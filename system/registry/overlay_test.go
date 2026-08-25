@@ -339,7 +339,7 @@ func TestOverlayGenerationConflictIsStructuredAndRetryable(t *testing.T) {
 	assert.Equal(t, uint64(0), actual)
 }
 
-func TestOverlayRejectsIDAliasAndManagedProvenance(t *testing.T) {
+func TestOverlayRejectsIDAliasAndDeploymentRoot(t *testing.T) {
 	ctx := context.Background()
 	reg, _ := newOverlayTestRegistry(t)
 	base := regapi.Entry{ID: regapi.NewID("app", "base"), Kind: regapi.EntryKind}
@@ -347,11 +347,18 @@ func TestOverlayRejectsIDAliasAndManagedProvenance(t *testing.T) {
 	alias := regapi.Entry{ID: regapi.ID{Name: "app:base"}, Kind: regapi.EntryKind}
 	_, err := reg.ApplyOverlay(ctx, "owner:a", 0, regapi.ChangeSet{{Kind: regapi.EntryCreate, Entry: alias}})
 	require.Error(t, err)
-	managed := regapi.Entry{
-		ID: regapi.NewID("runtime", "managed"), Kind: regapi.EntryKind,
+
+	// Author meta is opaque to the runtime: a key named "module" is ordinary
+	// author data and passes through.
+	authorKeyed := regapi.Entry{
+		ID: regapi.NewID("runtime", "authorkeyed"), Kind: regapi.EntryKind,
 		Meta: attrs.NewBagFrom(map[string]any{"module": "acme/app"}),
 	}
-	_, err = reg.ApplyOverlay(ctx, "owner:a", 0, regapi.ChangeSet{{Kind: regapi.EntryCreate, Entry: managed}})
+	_, err = reg.ApplyOverlay(ctx, "owner:a", 0, regapi.ChangeSet{{Kind: regapi.EntryCreate, Entry: authorKeyed}})
+	require.NoError(t, err)
+
+	root := regapi.Entry{ID: regapi.NewID("runtime", "rooted"), Kind: regapi.EntryKind, DependencyRoot: true}
+	_, err = reg.ApplyOverlay(ctx, "owner:a", 0, regapi.ChangeSet{{Kind: regapi.EntryCreate, Entry: root}})
 	require.Error(t, err)
 }
 

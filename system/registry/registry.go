@@ -10,7 +10,6 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/internal/version"
 	regexp "github.com/wippyai/runtime/system/registry/expansion"
@@ -45,6 +44,7 @@ type Reg struct {
 	overlayFloor      uint64
 	stateLoaded       bool
 	versionNum        atomic.Uint64
+	prov              atomic.Pointer[registry.ProvMap]
 	mu                sync.RWMutex
 	applyMu           sync.Mutex
 }
@@ -175,8 +175,8 @@ func (r *Reg) Apply(ctx context.Context, changes registry.ChangeSet) (registry.V
 	copy(snapshot, r.state)
 	baseVersion = r.currentVersion
 	resolution = r.currentResolution
+	liveProv := r.Provenance()
 	r.mu.RUnlock()
-	changes = preserveManagedEntryMetadata(changes, snapshot)
 
 	if len(r.directivesByKind) > 0 {
 		planner = regexp.NewPlanner(r.directivesByKind, r.resolver, r.log.Named("expansion"))
@@ -194,8 +194,11 @@ func (r *Reg) Apply(ctx context.Context, changes registry.ChangeSet) (registry.V
 
 		allOps, historyOps = plan.SplitScopes()
 		if plan.Resolution != nil {
-			resolution = plan.Resolution.Canonical()
-			resolutionChanged = true
+			candidate := plan.Resolution.Canonical()
+			if resolution == nil || candidate.Digest != resolution.Digest {
+				resolution = candidate
+				resolutionChanged = true
+			}
 		}
 
 		preparedEff, err = planner.PrepareEffects(ctx, plan.Effects)
@@ -232,6 +235,9 @@ func (r *Reg) Apply(ctx context.Context, changes registry.ChangeSet) (registry.V
 		return nil, err
 	}
 
+	newProv := applyOpsToProvenance(liveProv, allOps)
+	annotateChangeSet(allOps, liveProv, newProv)
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -243,7 +249,7 @@ func (r *Reg) Apply(ctx context.Context, changes registry.ChangeSet) (registry.V
 	}
 
 	var newVersion registry.Version
-	if len(historyOps) > 0 {
+	if len(historyOps) > 0 || resolutionChanged {
 		newVersion = version.FromParent(r.currentVersion, r.nextVersionID(r.currentVersion))
 	}
 
@@ -277,7 +283,7 @@ func (r *Reg) Apply(ctx context.Context, changes registry.ChangeSet) (registry.V
 		}
 	}
 
-	if len(historyOps) > 0 {
+	if len(historyOps) > 0 || resolutionChanged {
 		r.log.Debug("saving new version", zap.Any("new_version", newVersion))
 
 		enrichedChanges := r.enrichChangeset(historyOps)
@@ -314,6 +320,7 @@ func (r *Reg) Apply(ctx context.Context, changes registry.ChangeSet) (registry.V
 		r.state = newState
 		r.rebuildIndex()
 		r.patchDepIndex(allOps)
+		r.publishProvenance(newProv)
 		r.currentVersion = newVersion
 		r.currentResolution = resolution
 		return newVersion, nil
@@ -322,6 +329,7 @@ func (r *Reg) Apply(ctx context.Context, changes registry.ChangeSet) (registry.V
 	r.state = newState
 	r.rebuildIndex()
 	r.patchDepIndex(allOps)
+	r.publishProvenance(newProv)
 	if planner != nil {
 		if finalizeErr := planner.FinalizeEffects(ctx, preparedEff); finalizeErr != nil {
 			r.log.Warn("failed to finalize effects after baseline transition", zap.Error(finalizeErr))
@@ -330,51 +338,6 @@ func (r *Reg) Apply(ctx context.Context, changes registry.ChangeSet) (registry.V
 	return r.currentVersion, nil
 }
 
-// preserveManagedEntryMetadata keeps registry-owned provenance stable when a
-// caller updates an entry's declarative data. These fields are attached by the
-// module loader and dependency linker; omitting them from an update payload
-// must not turn an installed entry into an unowned host entry.
-func preserveManagedEntryMetadata(changes registry.ChangeSet, snapshot registry.State) registry.ChangeSet {
-	const (
-		moduleKey        = "module"
-		moduleVersionKey = "module_version"
-		moduleDigestKey  = "module_digest"
-	)
-	managedKeys := [...]string{moduleKey, moduleVersionKey, moduleDigestKey}
-	state := make(registry.StateMap, len(snapshot)+len(changes))
-	for _, entry := range snapshot {
-		state[entry.ID] = entry
-	}
-	for i := range changes {
-		op := &changes[i]
-		switch op.Kind {
-		case registry.EntryCreate:
-			state[op.Entry.ID] = op.Entry
-		case registry.EntryUpdate:
-			existing, ok := state[op.Entry.ID]
-			if ok {
-				meta := attrs.NewBagFrom(op.Entry.Meta)
-				for _, key := range managedKeys {
-					if _, supplied := meta[key]; supplied {
-						continue
-					}
-					if value, present := existing.Meta[key]; present {
-						meta[key] = value
-					}
-				}
-				op.Entry.Meta = meta
-			}
-			state[op.Entry.ID] = op.Entry
-		case registry.EntryDelete:
-			delete(state, op.Entry.ID)
-		}
-	}
-	return changes
-}
-
-// patchDepIndex folds committed ops back into the inverse-dependency index so
-// the next Apply can keep using O(1) source-side lookups. No-op when the
-// builder doesn't expose the indexed sort.
 func (r *Reg) patchDepIndex(ops registry.ChangeSet) {
 	if r.depIndex == nil {
 		return
@@ -715,50 +678,6 @@ func (r *Reg) findStoredVersion(v registry.Version) (registry.Version, error) {
 	return nil, NewVersionNotFoundError(v.ID())
 }
 
-func (r *Reg) collectBackwardChangesets(path []registry.Version, targetVersion registry.Version) (registry.ChangeSet, error) {
-	commonAncestorIdx := -1
-	for i, ver := range path {
-		if ver.ID() <= r.currentVersion.ID() && ver.ID() <= targetVersion.ID() {
-			commonAncestorIdx = i
-			break
-		}
-	}
-	if commonAncestorIdx < 0 {
-		return nil, NewComputePathError(r.currentVersion.ID(), targetVersion.ID(), ErrNoCommonAncestor)
-	}
-
-	var reversedChangesets []registry.ChangeSet
-	current := r.currentVersion
-	for current != nil && current.ID() > path[commonAncestorIdx].ID() {
-		cs, err := r.history.Get(current)
-		if err != nil {
-			return nil, NewGetChangesetError(current.ID(), err)
-		}
-		rev, err := r.builder.ReverseChangeset(cs)
-		if err != nil {
-			return nil, NewReverseChangesetError(err)
-		}
-		reversedChangesets = append(reversedChangesets, rev)
-		current = current.Previous()
-	}
-
-	for i := commonAncestorIdx; i < len(path); i++ {
-		if path[i].ID() > path[commonAncestorIdx].ID() {
-			cs, err := r.history.Get(path[i])
-			if err != nil {
-				return nil, NewGetChangesetError(path[i].ID(), err)
-			}
-			reversedChangesets = append(reversedChangesets, cs)
-		}
-	}
-
-	return r.builder.SquashChangesets(reversedChangesets), nil
-}
-
-// LoadState initializes registry state from baseline and history without creating new version records.
-// This is used during boot to restore state from lockfile + history replay.
-// For v0 (empty history): applies baseline directly
-// For v1+: replays changesets v1..targetVersion on top of baseline, then applies final state once
 func (r *Reg) LoadState(ctx context.Context, baseline registry.State, targetVersion registry.Version) error {
 	if registry.DependencyAccessFromContext(ctx) == registry.DependencyAccessUnspecified {
 		ctx = registry.WithDependencyAccess(ctx, registry.DependencyAccessVerifiedOffline)
@@ -1084,6 +1003,7 @@ func (r *Reg) rollback(ctx context.Context, from, to registry.State) error {
 	r.state = partial // we remain in a desynced state
 	r.rebuildIndex()
 	r.rebuildDepIndex()
+	r.publishProvenance(provenanceForState(partial, r.Provenance(), nil))
 	r.reconcileKnownOverlaysAfterFailedRollback()
 
 	return err

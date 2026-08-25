@@ -206,14 +206,6 @@ func validateOverlayEntryProvenance(entry registry.Entry) error {
 	if entry.DependencyRoot {
 		return NewOverlayValidationError("registry overlay entry cannot be a deployment root", map[string]any{"entry_id": entry.ID.String()})
 	}
-	for _, key := range []string{"module", "module_version", "module_digest"} {
-		if _, exists := entry.Meta[key]; exists {
-			return NewOverlayValidationError("registry overlay entry cannot set managed metadata", map[string]any{
-				"entry_id": entry.ID.String(),
-				"key":      key,
-			})
-		}
-	}
 	return nil
 }
 
