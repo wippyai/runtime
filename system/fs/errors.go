@@ -120,6 +120,16 @@ func NewEmptyPackPathError() apierror.Error {
 	return apierror.New(apierror.Invalid, "packPath cannot be empty").WithRetryable(apierror.False)
 }
 
+func NewEmptyModuleError() apierror.Error {
+	return apierror.New(apierror.Invalid, "module cannot be empty").WithRetryable(apierror.False)
+}
+
+func NewModulePackNotFoundError(module, version string) apierror.Error {
+	return apierror.New(apierror.NotFound, "pack for module "+module+" version "+version+" not found").
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"module": module, "module_version": version}))
+}
+
 func NewReadOnlyOperationError(operation string) apierror.Error {
 	return apierror.New(apierror.Invalid, operation+": operation not supported on read-only filesystem").
 		WithRetryable(apierror.False).

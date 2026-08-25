@@ -26,6 +26,7 @@ var (
 
 type embedFSStage struct {
 	moduleRoot    string
+	prov          registry.ProvMap
 	embedPatterns []string
 }
 
@@ -34,9 +35,13 @@ type embedFSStage struct {
 // directories resolve against when no module source root is registered in
 // context (publish, which loads entries straight from a module checkout); pass
 // an empty string when the lock loader has already registered source roots.
-func EmbedFS(moduleRoot string, embedPatterns ...string) boot.Stage {
+// prov names the module each entry belongs to, from the loader context that
+// produced the entries; entries it does not name are host-authored and resolve
+// working-directory relative.
+func EmbedFS(moduleRoot string, prov registry.ProvMap, embedPatterns ...string) boot.Stage {
 	return &embedFSStage{
 		moduleRoot:    moduleRoot,
+		prov:          prov,
 		embedPatterns: embedPatterns,
 	}
 }
@@ -69,7 +74,7 @@ func (s *embedFSStage) Execute(ctx context.Context, entries *[]registry.Entry) e
 		}
 	}
 
-	res, err := collectResources(ctx, s.moduleRoot, filteredEntries, log)
+	res, err := collectResources(ctx, s.moduleRoot, s.prov, filteredEntries, log)
 	if err != nil {
 		return err
 	}
@@ -127,7 +132,13 @@ func filterEmbeddableEntries(entries []registry.Entry, embedPatterns []string) [
 	return embeddable
 }
 
-func collectResources(ctx context.Context, moduleRoot string, entries []registry.Entry, logger *zap.Logger) ([]wapp.ResourceSpec, error) {
+func collectResources(
+	ctx context.Context,
+	moduleRoot string,
+	prov registry.ProvMap,
+	entries []registry.Entry,
+	logger *zap.Logger,
+) ([]wapp.ResourceSpec, error) {
 	specs := make([]wapp.ResourceSpec, 0, len(entries))
 	for _, entry := range entries {
 		if entry.Kind != dirapi.Kind {
@@ -139,7 +150,7 @@ func collectResources(ctx context.Context, moduleRoot string, entries []registry
 			return nil, fmt.Errorf("embed %s: directory path missing", entry.ID.String())
 		}
 
-		dir := resolveEmbedDirectory(ctx, moduleRoot, entry, cfg)
+		dir := resolveEmbedDirectory(ctx, moduleRoot, prov[entry.ID].Module, cfg)
 
 		info, err := os.Stat(dir)
 		if err != nil {
@@ -180,8 +191,8 @@ func directoryConfig(entry registry.Entry) *dirapi.Config {
 	return cfg
 }
 
-func resolveEmbedDirectory(ctx context.Context, moduleRoot string, entry registry.Entry, cfg *dirapi.Config) string {
-	dir := dirapi.ResolveDirectory(ctx, entry, cfg)
+func resolveEmbedDirectory(ctx context.Context, moduleRoot, module string, cfg *dirapi.Config) string {
+	dir := dirapi.ResolveDirectory(ctx, module, cfg)
 	if moduleRoot != "" && cfg.Base != dirapi.BaseProject && !dirapi.IsConfiguredPathAbsolute(cfg.Directory) {
 		return filepath.Join(moduleRoot, cfg.Directory)
 	}
