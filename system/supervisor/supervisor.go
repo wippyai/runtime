@@ -840,7 +840,13 @@ func (s *Supervisor) applyReplacements(
 
 	if len(plan.stops) > 0 {
 		if err := s.runTransition(ctx, plan.stops); err != nil {
-			s.restoreStopped(ctx, controllers, plan.stops)
+			// The retirement is rejected. Whether the services it already
+			// stopped came back decides how bad the outcome is, so the restore
+			// result travels with the rejection instead of being logged and
+			// forgotten.
+			if restoreErr := s.restoreStopped(ctx, controllers, plan.stops); restoreErr != nil {
+				return errors.Join(NewTransitionError(err), restoreErr)
+			}
 			return NewTransitionError(err)
 		}
 	}
@@ -866,32 +872,61 @@ func (s *Supervisor) applyReplacements(
 }
 
 // restoreStopped brings back the services a failed retirement batch already
-// stopped, so a rejected commit does not leave them down.
+// stopped, so a rejected commit does not leave them down. A service it cannot
+// bring back is reported: it was running before the commit and is not running
+// now, which is the worst outcome this path can produce and must not be
+// reduced to a log line.
 func (s *Supervisor) restoreStopped(
 	ctx context.Context,
 	controllers map[string]*Controller,
 	stops []operation,
-) {
+) error {
 	roots := make([]startRoot, 0, len(stops))
 	for _, op := range stops {
 		ctrl, exists := controllers[op.id]
 		if !exists || ctrl.State().Status == supervisor.StatusRunning {
 			continue
 		}
-		roots = append(roots, startRoot{id: op.id})
+		roots = append(roots, startRoot{id: op.id, required: true})
 	}
 	if len(roots) == 0 {
-		return
+		return nil
 	}
 
 	ops, err := s.buildStartOperationsForRoots(controllers, roots)
 	if err != nil {
-		s.logger.Error("failed to plan restore after a rejected retirement", zap.Error(err))
-		return
+		return NewRetirementRestoreError(rootIDs(roots), err)
 	}
 	if err := s.runTransition(ctx, ops); err != nil {
-		s.logger.Error("failed to restore services after a rejected retirement", zap.Error(err))
+		return NewRetirementRestoreError(rootIDs(roots), err)
 	}
+
+	// runTransition reports transition failures, not the resulting state, so the
+	// services are checked directly: one left down is the condition operators
+	// have to see.
+	stillDown := make([]string, 0, len(roots))
+	for _, root := range roots {
+		ctrl, exists := controllers[root.id]
+		if !exists {
+			continue
+		}
+		if ctrl.State().Status != supervisor.StatusRunning {
+			stillDown = append(stillDown, root.id)
+		}
+	}
+	if len(stillDown) > 0 {
+		return NewRetirementRestoreError(stillDown, nil)
+	}
+
+	return nil
+}
+
+func rootIDs(roots []startRoot) []string {
+	ids := make([]string, 0, len(roots))
+	for _, root := range roots {
+		ids = append(ids, root.id)
+	}
+	return ids
 }
 
 // serviceNeedsStop reports whether a service in this state still has a run to

@@ -115,16 +115,17 @@ func (s *Registry) handleRegister(e event.Event) {
 		s.sendReject(e.Path, "invalid resource entry payload")
 		return
 	}
+	outcome := outcomePath(e, entry)
 	if isNilInterface(entry.Provider) {
 		s.logger.Error("resource entry has nil provider", zap.String("resource", e.Path))
-		s.sendReject(e.Path, "resource entry has nil provider")
+		s.sendReject(outcome, "resource entry has nil provider")
 		return
 	}
 
 	s.mu.Lock()
 	if s.stopped {
 		s.mu.Unlock()
-		s.sendReject(e.Path, "resource registry stopped")
+		s.sendReject(outcome, "resource registry stopped")
 		return
 	}
 	s.activateLocked(entry)
@@ -132,7 +133,7 @@ func (s *Registry) handleRegister(e event.Event) {
 	s.logger.Debug("resource registered",
 		zap.String("id", entry.ID.String()),
 		zap.Any("meta", entry.Meta))
-	s.sendAccept(e.Path)
+	s.sendAccept(outcome)
 }
 
 func (s *Registry) handleUpdate(e event.Event) {
@@ -144,16 +145,17 @@ func (s *Registry) handleUpdate(e event.Event) {
 		s.sendReject(e.Path, "invalid resource entry payload")
 		return
 	}
+	outcome := outcomePath(e, entry)
 	if isNilInterface(entry.Provider) {
 		s.logger.Error("resource entry has nil provider", zap.String("resource", e.Path))
-		s.sendReject(e.Path, "resource entry has nil provider")
+		s.sendReject(outcome, "resource entry has nil provider")
 		return
 	}
 
 	s.mu.Lock()
 	if s.stopped {
 		s.mu.Unlock()
-		s.sendReject(e.Path, "resource registry stopped")
+		s.sendReject(outcome, "resource registry stopped")
 		return
 	}
 	slot, exists := s.resources[entry.ID]
@@ -161,7 +163,7 @@ func (s *Registry) handleUpdate(e event.Event) {
 		s.mu.Unlock()
 		s.logger.Warn("resource not found for update",
 			zap.String("id", entry.ID.String()))
-		s.sendReject(e.Path, "resource not found for update")
+		s.sendReject(outcome, "resource not found for update")
 		return
 	}
 	s.activateLocked(entry)
@@ -169,7 +171,7 @@ func (s *Registry) handleUpdate(e event.Event) {
 	s.logger.Debug("resource updated",
 		zap.String("id", entry.ID.String()),
 		zap.Any("meta", entry.Meta))
-	s.sendAccept(e.Path)
+	s.sendAccept(outcome)
 }
 
 func (s *Registry) handleRemove(e event.Event) {
@@ -199,6 +201,16 @@ func (s *Registry) handleRemove(e event.Event) {
 	s.logger.Debug("resource removed",
 		zap.String("id", id.String()))
 	s.sendAccept(e.Path)
+}
+
+// outcomePath is where the outcome of an operation is published: the caller's
+// own operation id when it supplied one, so a reply can only satisfy the
+// operation that asked for it, and the resource path otherwise.
+func outcomePath(e event.Event, entry resource.Entry) event.Path {
+	if entry.OpID != "" {
+		return entry.OpID
+	}
+	return e.Path
 }
 
 // sendAccept reports that the registry applied an operation. It is published

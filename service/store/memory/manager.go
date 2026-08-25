@@ -132,15 +132,10 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	// Point the resource registry at the replacement and wait for it to take
 	// effect, so consumers are served the replacement before the supervisor
 	// retires the superseded store on commit.
-	if err := storesvc.SendAndAwaitResourceAck(ctx, m.bus, event.Event{
-		System: resource.System,
-		Kind:   resource.Update,
-		Path:   entry.ID.String(),
-		Data: resource.Entry{
-			ID:       entry.ID,
-			Provider: newStore,
-			Meta:     entry.Meta,
-		},
+	if err := storesvc.AwaitResourceUpdate(ctx, m.bus, resource.Entry{
+		ID:       entry.ID,
+		Provider: newStore,
+		Meta:     entry.Meta,
 	}, "memory store update"); err != nil {
 		m.stores[entry.ID] = store
 		return err

@@ -5,7 +5,9 @@ package supervisor
 import (
 	"context"
 	"errors"
+	"fmt"
 	"runtime"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -122,6 +124,7 @@ func registerInstanceWithDeps(
 type countingService struct {
 	statusUpdates chan any
 	stopErr       error
+	startErr      error
 	mu            sync.Mutex
 	starts        int
 	stops         int
@@ -135,6 +138,9 @@ func newCountingService() *countingService {
 func (s *countingService) Start(_ context.Context) (<-chan any, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.startErr != nil {
+		return nil, s.startErr
+	}
 	s.statusUpdates = make(chan any, 10)
 	s.starts++
 	s.running = true
@@ -172,6 +178,30 @@ func (s *countingService) setStopErr(err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.stopErr = err
+}
+
+func (s *countingService) setStartErr(err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.startErr = err
+}
+
+// commitOutcomeContains reports whether the outcome of a commit carried the
+// fragment. The control loop logs the error execute returned, so this reads the
+// transaction outcome rather than any log line a helper happened to write on
+// its own.
+func (h *testSupervisorHarness) commitOutcomeContains(fragment string) bool {
+	for _, entry := range h.logs.All() {
+		if entry.Message != "failed to execute commit protocol" {
+			continue
+		}
+		for _, v := range entry.ContextMap() {
+			if strings.Contains(fmt.Sprintf("%v", v), fragment) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func awaitCondition(t *testing.T, reason string, cond func() bool) {
@@ -375,3 +405,161 @@ type valueService struct {
 
 func (valueService) Start(_ context.Context) (<-chan any, error) { return nil, nil }
 func (valueService) Stop(_ context.Context) error                { return nil }
+
+// TestSupervisor_RejectedRetirementReportsUnrestoredServices covers the worst
+// outcome this path can produce: a retirement is rejected and a service it
+// stopped cannot be brought back. That service was running before the commit
+// and is not running after it, so the condition has to reach the transaction
+// outcome and the supervisor's own state, not just a log line.
+func TestSupervisor_RejectedRetirementReportsUnrestoredServices(t *testing.T) {
+	h := newTestHarness(t)
+	h.start(context.Background())
+	defer h.stop()
+
+	noRetry := supervisor.LifecycleConfig{
+		AutoStart:    true,
+		StartTimeout: time.Second,
+		StopTimeout:  time.Second,
+		RetryPolicy:  supervisor.RetryPolicy{MaxAttempts: 1},
+	}
+	register := func(id string, svc supervisor.Service) {
+		h.sup.handleEvent(event.Event{
+			System: supervisor.System,
+			Kind:   supervisor.ServiceRegister,
+			Path:   id,
+			Data:   &supervisor.Entry{Service: svc, Config: noRetry},
+		})
+	}
+
+	unrestorable := newCountingService()
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxBegin})
+	register("test:unrestorable", unrestorable)
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxCommit})
+	awaitCondition(t, "service to start", unrestorable.isRunning)
+
+	stubborn := newCountingService()
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxBegin})
+	register("test:stubborn", stubborn)
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxCommit})
+	awaitCondition(t, "stubborn to start", stubborn.isRunning)
+
+	// The retirement will fail on one service, and the service it does stop
+	// cannot be started again.
+	stubborn.setStopErr(errors.New("stop refused"))
+	unrestorable.setStartErr(errors.New("start refused"))
+
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxBegin})
+	register("test:unrestorable", newCountingService())
+	register("test:stubborn", newCountingService())
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxCommit})
+
+	// The supervisor's own state shows the service is not running.
+	awaitCondition(t, "supervisor to report the service is not running", func() bool {
+		state, err := h.sup.GetState("test:unrestorable")
+		return err == nil && state.Status != supervisor.StatusRunning
+	})
+
+	// And the outcome of the commit itself names it, rather than the failure
+	// ending in a bare log line inside the restore.
+	awaitCondition(t, "the rejected commit to report the unrestored service", func() bool {
+		return h.commitOutcomeContains("services left stopped by a rejected retirement") &&
+			h.commitOutcomeContains("test:unrestorable")
+	})
+}
+
+// strictService fails a second Stop, so a test can pin exactly-once retirement
+// rather than relying on implementations that happen to tolerate a repeat.
+type strictService struct {
+	statusUpdates chan any
+	mu            sync.Mutex
+	stops         int
+	running       bool
+}
+
+func newStrictService() *strictService {
+	return &strictService{}
+}
+
+func (s *strictService) Start(_ context.Context) (<-chan any, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.statusUpdates = make(chan any, 10)
+	s.running = true
+	return s.statusUpdates, nil
+}
+
+func (s *strictService) Stop(_ context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.stops++
+	if s.stops > 1 {
+		return errors.New("Stop called more than once")
+	}
+	if s.statusUpdates != nil {
+		close(s.statusUpdates)
+		s.statusUpdates = nil
+	}
+	s.running = false
+	return nil
+}
+
+func (s *strictService) stopCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.stops
+}
+
+func (s *strictService) isRunning() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.running
+}
+
+// TestSupervisor_DeleteThenRegisterStopsInstanceOnce covers the update shape pg
+// and terminal use: a manager deletes its entry and registers a replacement in
+// one transaction. The registration collapses the pending removal, so the
+// retirement is what stops the superseded instance, and it must be the only
+// thing that stops it.
+func TestSupervisor_DeleteThenRegisterStopsInstanceOnce(t *testing.T) {
+	h := newTestHarness(t)
+	h.start(context.Background())
+	defer h.stop()
+
+	const serviceID = "test:scope"
+
+	original := newStrictService()
+	registerInstanceWithDeps(h, serviceID, original, true, nil)
+	awaitCondition(t, "original to start", original.isRunning)
+
+	// The manager's Delete followed by its Add, in one transaction.
+	replacement := newStrictService()
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxBegin})
+	h.sup.handleEvent(event.Event{
+		System: supervisor.System,
+		Kind:   supervisor.ServiceRemove,
+		Path:   serviceID,
+	})
+	h.sup.handleEvent(event.Event{
+		System: supervisor.System,
+		Kind:   supervisor.ServiceRegister,
+		Path:   serviceID,
+		Data: &supervisor.Entry{
+			Service: replacement,
+			Config: supervisor.LifecycleConfig{
+				AutoStart:    true,
+				StartTimeout: 5 * time.Second,
+				StopTimeout:  5 * time.Second,
+			},
+		},
+	})
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxCommit})
+
+	awaitCondition(t, "replacement to start", replacement.isRunning)
+	awaitCondition(t, "superseded instance to stop", func() bool { return !original.isRunning() })
+
+	require.Equal(t, 1, original.stopCount(),
+		"the superseded instance must be stopped exactly once")
+	require.Equal(t, 0, replacement.stopCount(),
+		"the adopted instance must not be stopped")
+	h.assertServiceState(serviceID, supervisor.StatusRunning)
+}

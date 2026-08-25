@@ -123,12 +123,9 @@ func (m *RaftManager) Update(ctx context.Context, entry registry.Entry) error {
 	// Point the resource registry at the replacement and wait for it to take
 	// effect, so consumers are served the replacement before the supervisor
 	// retires the superseded view on commit.
-	if err := storesvc.SendAndAwaitResourceAck(ctx, m.bus, event.Event{
-		System: resource.System,
-		Kind:   resource.Update,
-		Path:   entry.ID.String(),
-		Data:   resource.Entry{ID: entry.ID, Provider: st, Meta: entry.Meta},
-	}, "store.kv.raft update"); err != nil {
+	if err := storesvc.AwaitResourceUpdate(ctx, m.bus,
+		resource.Entry{ID: entry.ID, Provider: st, Meta: entry.Meta},
+		"store.kv.raft update"); err != nil {
 		m.stores[entry.ID] = old
 		return err
 	}
