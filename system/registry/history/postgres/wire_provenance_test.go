@@ -25,8 +25,12 @@ func TestWire_LegacyRowDecodes(t *testing.T) {
 	h := &History{handle: newMsgpackHandle()}
 
 	legacy := []legacyEncodedOperation{{
-		Kind:  registry.EntryUpdate,
-		Entry: encodedEntry{ID: registry.NewID("test", "cache"), Kind: "store.memory"},
+		Kind: registry.EntryUpdate,
+		Entry: encodedEntry{
+			ID:             registry.NewID("test", "cache"),
+			Kind:           registry.NamespaceDependency,
+			DependencyRoot: true,
+		},
 	}}
 	var buf bytes.Buffer
 	require.NoError(t, codec.NewEncoder(&buf, h.handle).Encode(legacy))
@@ -35,6 +39,7 @@ func TestWire_LegacyRowDecodes(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, cs, 1)
 	require.Equal(t, registry.EntryUpdate, cs[0].Kind)
+	require.True(t, cs[0].Entry.DependencyRoot, "PostgreSQL must decode the legacy root statement")
 	require.Nil(t, cs[0].Provenance)
 	require.Nil(t, cs[0].OriginalProvenance)
 }

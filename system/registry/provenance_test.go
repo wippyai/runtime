@@ -85,6 +85,104 @@ func TestApplyOpsToProvenance(t *testing.T) {
 		assert.True(t, ok)
 	})
 
+	t.Run("live create ignores the legacy root flag", func(t *testing.T) {
+		op := registry.Operation{
+			Kind:  registry.EntryCreate,
+			Entry: registry.Entry{ID: a, Kind: registry.NamespaceDependency, DependencyRoot: true},
+		}
+		out, err := applyOpsToProvenance(nil, registry.ChangeSet{op})
+		require.NoError(t, err)
+		p, ok := out[a]
+		require.True(t, ok)
+		assert.False(t, p.Root, "live root selection is registry-owned")
+		assert.True(t, p.HostAuthored())
+	})
+
+	t.Run("live update ignores the legacy root flag", func(t *testing.T) {
+		prov := registry.ProvenanceMap{a: {Module: "org/mod", Version: "1.0.0", Digest: "sha256:x"}}
+		op := registry.Operation{
+			Kind:  registry.EntryUpdate,
+			Entry: registry.Entry{ID: a, Kind: registry.NamespaceDependency, DependencyRoot: true},
+		}
+		out, err := applyOpsToProvenance(prov, registry.ChangeSet{op})
+		require.NoError(t, err)
+		assert.False(t, out[a].Root)
+		assert.Equal(t, prov[a].Module, out[a].Module)
+	})
+
+	t.Run("a flagless update never demotes a root", func(t *testing.T) {
+		// A modern user edit reaches this fold with neither provenance nor the
+		// legacy flag; root-ness is registry state and only set_root moves it.
+		prov := registry.ProvenanceMap{a: {Root: true}}
+		op := registry.Operation{
+			Kind:  registry.EntryUpdate,
+			Entry: registry.Entry{ID: a, Kind: "ns.dependency"},
+		}
+		out, err := applyOpsToProvenance(prov, registry.ChangeSet{op})
+		require.NoError(t, err)
+		assert.True(t, out[a].Root)
+	})
+
+	t.Run("history create promotes the legacy dependency root", func(t *testing.T) {
+		op := registry.Operation{
+			Kind:  registry.EntryCreate,
+			Entry: registry.Entry{ID: a, Kind: registry.NamespaceDependency, DependencyRoot: true},
+		}
+		out, err := applyHistoryOpsToProvenance(nil, registry.ChangeSet{op})
+		require.NoError(t, err)
+		assert.True(t, out[a].Root)
+	})
+
+	t.Run("history update promotes without replacing ownership", func(t *testing.T) {
+		prov := registry.ProvenanceMap{a: {Module: "org/mod", Version: "1.0.0", Digest: "sha256:x"}}
+		op := registry.Operation{
+			Kind:  registry.EntryUpdate,
+			Entry: registry.Entry{ID: a, Kind: registry.NamespaceDependency, DependencyRoot: true},
+		}
+		out, err := applyHistoryOpsToProvenance(prov, registry.ChangeSet{op})
+		require.NoError(t, err)
+		assert.True(t, out[a].Root)
+		assert.Equal(t, prov[a].Module, out[a].Module)
+	})
+
+	t.Run("history ignores the dead flag on non-dependencies", func(t *testing.T) {
+		op := registry.Operation{
+			Kind:  registry.EntryCreate,
+			Entry: registry.Entry{ID: a, Kind: "service", DependencyRoot: true},
+		}
+		out, err := applyHistoryOpsToProvenance(nil, registry.ChangeSet{op})
+		require.NoError(t, err)
+		assert.False(t, out[a].Root)
+	})
+
+	t.Run("history provenance overrides the legacy flag", func(t *testing.T) {
+		op := registry.Operation{
+			Kind:       registry.EntryCreate,
+			Entry:      registry.Entry{ID: a, Kind: registry.NamespaceDependency, DependencyRoot: true},
+			Provenance: &registry.EntryProvenance{Module: "org/mod", Root: false},
+		}
+		out, err := applyHistoryOpsToProvenance(nil, registry.ChangeSet{op})
+		require.NoError(t, err)
+		assert.False(t, out[a].Root)
+		assert.Equal(t, "org/mod", out[a].Module)
+	})
+
+	t.Run("history promotion does not cross delete and recreate", func(t *testing.T) {
+		prov := registry.ProvenanceMap{a: {Module: "org/old", Root: false}}
+		ops := registry.ChangeSet{
+			{
+				Kind:  registry.EntryUpdate,
+				Entry: registry.Entry{ID: a, Kind: registry.NamespaceDependency, DependencyRoot: true},
+			},
+			{Kind: registry.EntryDelete, Entry: registry.Entry{ID: a, Kind: registry.NamespaceDependency}},
+			{Kind: registry.EntryCreate, Entry: registry.Entry{ID: a, Kind: registry.NamespaceDependency}},
+		}
+		out, err := applyHistoryOpsToProvenance(prov, ops)
+		require.NoError(t, err)
+		assert.False(t, out[a].Root)
+		assert.True(t, out[a].HostAuthored())
+	})
+
 	t.Run("input map is not mutated", func(t *testing.T) {
 		prov := registry.ProvenanceMap{a: *owned}
 		_, err := applyOpsToProvenance(prov, registry.ChangeSet{provOp(registry.EntryDelete, a, nil)})
@@ -179,6 +277,41 @@ func TestApplyPublishesProvenanceWithState(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, resident, "org/mod")
 	assert.Equal(t, "sha256:x", resident["org/mod"].Digest)
+}
+
+func TestApplyIgnoresLegacyDependencyRootFlag(t *testing.T) {
+	history := historymem.New()
+	require.NoError(t, history.Save(version.New(registry.RootVersion), nil, true))
+	newRegistry := func() *Reg {
+		resolver := topology.NewResolver()
+		return NewRegistry(
+			history,
+			NewTestRunner(),
+			topology.NewStateBuilder(zap.NewNop(), resolver),
+			resolver,
+			zap.NewNop(),
+		)
+	}
+	reg := newRegistry()
+	id := registry.NewID("app.requirements", "module")
+
+	v1, err := reg.Apply(t.Context(), registry.ChangeSet{{
+		Kind: registry.EntryCreate,
+		Entry: registry.Entry{
+			ID:             id,
+			Kind:           registry.NamespaceDependency,
+			DependencyRoot: true,
+		},
+	}})
+	require.NoError(t, err)
+	require.Empty(t, reg.DependencyRoots(), "live operations must use SetDependencyRoot")
+	record, ok := reg.EntryProvenance(id)
+	require.True(t, ok)
+	assert.False(t, record.Root)
+
+	restarted := newRegistry()
+	require.NoError(t, restarted.LoadState(t.Context(), registry.ProvenancedState{}, v1))
+	require.Empty(t, restarted.DependencyRoots(), "a current persisted operation is not legacy on replay")
 }
 
 // TestUserUpdatePreservesProvenance pins the echo-back rule: a user operation

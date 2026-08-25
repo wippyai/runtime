@@ -19,24 +19,41 @@ import (
 // it. An update without an existing record is an invariant violation: legacy
 // state is normalized at the load boundary, never during a live transition.
 func applyOpsToProvenance(prov registry.ProvenanceMap, ops registry.ChangeSet) (registry.ProvenanceMap, error) {
+	return foldOpsToProvenance(prov, ops, false)
+}
+
+// applyHistoryOpsToProvenance folds durable operations and upgrades the root
+// statement used before registry-owned provenance. New history rows carry
+// provenance and never encode DependencyRoot, so the compatibility path is
+// limited to provenance-less dependency operations read from history.
+func applyHistoryOpsToProvenance(prov registry.ProvenanceMap, ops registry.ChangeSet) (registry.ProvenanceMap, error) {
+	return foldOpsToProvenance(prov, ops, true)
+}
+
+func foldOpsToProvenance(prov registry.ProvenanceMap, ops registry.ChangeSet, legacyHistory bool) (registry.ProvenanceMap, error) {
 	out := prov.Clone()
 	if out == nil {
 		out = make(registry.ProvenanceMap, len(ops))
 	}
 	for _, op := range ops {
 		id := op.Entry.ID
+		legacyRoot := legacyHistory && op.Provenance == nil &&
+			op.Entry.Kind == registry.NamespaceDependency && op.Entry.DependencyRoot
 		switch op.Kind {
 		case registry.EntryCreate:
 			if op.Provenance != nil {
 				out[id] = *op.Provenance
 			} else {
-				out[id] = registry.EntryProvenance{}
+				out[id] = registry.EntryProvenance{Root: legacyRoot}
 			}
 		case registry.EntryUpdate:
 			if op.Provenance != nil {
 				out[id] = *op.Provenance
-			} else if _, ok := out[id]; !ok {
+			} else if existing, ok := out[id]; !ok {
 				return nil, registry.NewMissingProvenanceError(id)
+			} else if legacyRoot && !existing.Root {
+				existing.Root = true
+				out[id] = existing
 			}
 		case registry.EntryDelete:
 			delete(out, id)
