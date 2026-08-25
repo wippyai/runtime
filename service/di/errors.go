@@ -50,13 +50,14 @@ func NewOutputSchemaMissingFormatError(index int, methodName string, defID regis
 }
 
 func NewBindingNoContractsError(bindingID registry.ID) error {
-	return apierror.New(apierror.Invalid, "binding must bind at least one contract").
+	return apierror.New(apierror.Invalid, "binding must bind at least one contract: "+bindingID.String()).
 		WithRetryable(apierror.False).
 		WithDetails(attrs.NewBagFrom(map[string]any{"binding_id": bindingID.String()}))
 }
 
 func NewContractNotFoundError(bindingID registry.ID, index int, contractID registry.ID) error {
-	return apierror.New(apierror.Invalid, "binding references undefined contract").
+	return apierror.New(apierror.Invalid,
+		"binding references undefined contract: "+bindingID.String()+" binds "+contractID.String()).
 		WithRetryable(apierror.False).
 		WithDetails(attrs.NewBagFrom(map[string]any{
 			"binding_id":     bindingID.String(),
@@ -66,7 +67,8 @@ func NewContractNotFoundError(bindingID registry.ID, index int, contractID regis
 }
 
 func NewMethodNotBoundError(bindingID, contractID registry.ID, methodName string) error {
-	return apierror.New(apierror.Invalid, "contract method is not bound").
+	return apierror.New(apierror.Invalid,
+		"contract method is not bound: "+bindingID.String()+" leaves "+contractID.String()+"."+methodName+" unbound").
 		WithRetryable(apierror.False).
 		WithDetails(attrs.NewBagFrom(map[string]any{
 			"binding_id":  bindingID.String(),
@@ -76,7 +78,8 @@ func NewMethodNotBoundError(bindingID, contractID registry.ID, methodName string
 }
 
 func NewMethodNotDefinedError(bindingID, contractID registry.ID, methodName string) error {
-	return apierror.New(apierror.Invalid, "bound method is not defined in contract definition").
+	return apierror.New(apierror.Invalid,
+		"bound method is not defined in contract definition: "+bindingID.String()+" binds "+contractID.String()+"."+methodName).
 		WithRetryable(apierror.False).
 		WithDetails(attrs.NewBagFrom(map[string]any{
 			"binding_id":  bindingID.String(),
@@ -86,7 +89,8 @@ func NewMethodNotDefinedError(bindingID, contractID registry.ID, methodName stri
 }
 
 func NewDuplicateDefaultBindingError(contractID, existingBindingID, newBindingID registry.ID) error {
-	return apierror.New(apierror.AlreadyExists, "contract already has default binding").
+	return apierror.New(apierror.AlreadyExists,
+		"contract already has default binding: "+contractID.String()+" is bound by "+existingBindingID.String()+", refused "+newBindingID.String()).
 		WithRetryable(apierror.False).
 		WithDetails(attrs.NewBagFrom(map[string]any{
 			"contract_id":         contractID.String(),
