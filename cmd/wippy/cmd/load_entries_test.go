@@ -4,6 +4,7 @@ package cmd
 
 import (
 	"context"
+	regapi "github.com/wippyai/runtime/api/registry"
 	"os"
 	"path/filepath"
 	"testing"
@@ -93,31 +94,29 @@ entries:
 		t.Fatalf("write lock: %v", err)
 	}
 
-	loaded, _, err := loadEntriesFromLockPaths(ctx, lockObj, logger)
+	loaded, prov, err := loadEntriesFromLockPaths(ctx, lockObj, logger)
 	if err != nil {
 		t.Fatalf("loadEntriesFromLockPaths failed: %v", err)
 	}
 
 	router := ""
-	module := ""
-	moduleVersion := ""
+	var entryProv regapi.EntryProvenance
 	for _, entry := range loaded {
 		if entry.ID.String() != "identity.account:login.endpoint" {
 			continue
 		}
 		router = entry.Meta.GetString("router", "")
-		module = entry.Meta.GetString("module", "")
-		moduleVersion = entry.Meta.GetString("module_version", "")
+		entryProv = prov[entry.ID.Canonical()]
 	}
 
 	if router != "app:api.public" {
 		t.Fatalf("router = %q, want app:api.public", router)
 	}
-	if module != "example/accounts" {
-		t.Fatalf("module = %q, want example/accounts", module)
+	if entryProv.Module != "example/accounts" {
+		t.Fatalf("module provenance = %q, want example/accounts", entryProv.Module)
 	}
-	if moduleVersion != "v1.0.0" {
-		t.Fatalf("module_version = %q, want v1.0.0", moduleVersion)
+	if entryProv.Version != "v1.0.0" {
+		t.Fatalf("module_version provenance = %q, want v1.0.0", entryProv.Version)
 	}
 }
 

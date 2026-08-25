@@ -1849,7 +1849,7 @@ func TestNormalizeEntries_PreLinkOverrideAffectsRequirementDefaults(t *testing.T
 		},
 	}
 
-	if err := NormalizeEntries(ctx, &items); err != nil {
+	if err := NormalizeEntries(ctx, &items, nil); err != nil {
 		t.Fatalf("NormalizeEntries failed: %v", err)
 	}
 
@@ -1920,7 +1920,7 @@ func TestNormalizeEntries_PostLinkOverrideWinsFinalValue(t *testing.T) {
 		},
 	}
 
-	if err := NormalizeEntries(ctx, &items); err != nil {
+	if err := NormalizeEntries(ctx, &items, nil); err != nil {
 		t.Fatalf("NormalizeEntries failed: %v", err)
 	}
 
