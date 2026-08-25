@@ -973,7 +973,6 @@ func (r *Reg) LoadState(ctx context.Context, baselineState registry.ProvenancedS
 	return nil
 }
 
-
 // targetProvBaselineClone clones the baseline provenance under canonical IDs.
 func targetProvBaselineClone(prov registry.ProvMap) registry.ProvMap {
 	out := make(registry.ProvMap, len(prov))

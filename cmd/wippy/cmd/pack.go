@@ -18,8 +18,8 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 	"github.com/wippyai/runtime/api/attrs"
-	regapi "github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/boot"
+	regapi "github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/version"
 	"github.com/wippyai/runtime/boot/build"
 	"github.com/wippyai/runtime/boot/build/stages"
@@ -916,7 +916,6 @@ func closeEmbeddedPackResourceHandles(handles []embeddedPackResourceHandle) erro
 	}
 	return errors.Join(errs...)
 }
-
 
 // encodePackProvenance serializes entry provenance into the pack metadata
 // frame, keyed by canonical entry ID. The entries themselves stay verbatim;

@@ -33,7 +33,6 @@ import (
 	"github.com/wippyai/runtime/system/registry/topology"
 )
 
-
 // stripProvenance clones a changeset without its provenance annotations, for
 // matchers that compare the declarative operations alone.
 func stripProvenance(cs registry.ChangeSet) registry.ChangeSet {
@@ -71,6 +70,7 @@ func TestApplyPassesAuthorMetaThrough(t *testing.T) {
 	require.Equal(t, "", changes[0].Entry.Meta.GetString("module", ""),
 		"author payload carries exactly the keys the author sent")
 }
+
 type MockRunner struct {
 	err           error
 	RunFunc       func(state registry.State, changes registry.ChangeSet) (registry.State, error)
@@ -1528,7 +1528,6 @@ func TestEnrichChangeset(t *testing.T) {
 		assert.NotNil(t, enriched[2].OriginalEntry, "Delete should have OriginalEntry")
 	})
 }
-
 
 // depRecordingRunner is a Transition runner that refuses to delete an
 // entry from the incoming state while any other not-being-deleted entry in
