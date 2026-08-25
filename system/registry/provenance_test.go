@@ -85,6 +85,44 @@ func TestApplyOpsToProvenance(t *testing.T) {
 		assert.True(t, ok)
 	})
 
+	t.Run("legacy root create carries the entry flag into the record", func(t *testing.T) {
+		op := registry.Operation{
+			Kind:  registry.EntryCreate,
+			Entry: registry.Entry{ID: a, Kind: "ns.dependency", DependencyRoot: true},
+		}
+		out, err := applyOpsToProvenance(nil, registry.ChangeSet{op})
+		require.NoError(t, err)
+		p, ok := out[a]
+		require.True(t, ok)
+		assert.True(t, p.Root, "the wire flag is the only root statement legacy history carries")
+		assert.True(t, p.HostAuthored())
+	})
+
+	t.Run("legacy root update promotes the record", func(t *testing.T) {
+		prov := registry.ProvenanceMap{a: {Module: "org/mod", Version: "1.0.0", Digest: "sha256:x"}}
+		op := registry.Operation{
+			Kind:  registry.EntryUpdate,
+			Entry: registry.Entry{ID: a, Kind: "ns.dependency", DependencyRoot: true},
+		}
+		out, err := applyOpsToProvenance(prov, registry.ChangeSet{op})
+		require.NoError(t, err)
+		assert.True(t, out[a].Root)
+		assert.Equal(t, "org/mod", out[a].Module, "promotion touches only root-ness")
+	})
+
+	t.Run("a flagless update never demotes a root", func(t *testing.T) {
+		// A modern user edit reaches this fold with neither provenance nor the
+		// legacy flag; root-ness is registry state and only set_root moves it.
+		prov := registry.ProvenanceMap{a: {Root: true}}
+		op := registry.Operation{
+			Kind:  registry.EntryUpdate,
+			Entry: registry.Entry{ID: a, Kind: "ns.dependency"},
+		}
+		out, err := applyOpsToProvenance(prov, registry.ChangeSet{op})
+		require.NoError(t, err)
+		assert.True(t, out[a].Root)
+	})
+
 	t.Run("input map is not mutated", func(t *testing.T) {
 		prov := registry.ProvenanceMap{a: *owned}
 		_, err := applyOpsToProvenance(prov, registry.ChangeSet{provOp(registry.EntryDelete, a, nil)})

@@ -30,13 +30,22 @@ func applyOpsToProvenance(prov registry.ProvenanceMap, ops registry.ChangeSet) (
 			if op.Provenance != nil {
 				out[id] = *op.Provenance
 			} else {
-				out[id] = registry.EntryProvenance{}
+				// A provenance-less create is host-authored or a legacy history
+				// row; the wire's DependencyRoot flag is the only root statement
+				// legacy rows carry, so it seeds the record.
+				out[id] = registry.EntryProvenance{Root: op.Entry.DependencyRoot}
 			}
 		case registry.EntryUpdate:
 			if op.Provenance != nil {
 				out[id] = *op.Provenance
-			} else if _, ok := out[id]; !ok {
+			} else if existing, ok := out[id]; !ok {
 				return nil, registry.NewMissingProvenanceError(id)
+			} else if op.Entry.DependencyRoot && !existing.Root {
+				// A legacy root promotion replays as one. The flag never demotes:
+				// a modern user edit reaches this fold flagless, and root-ness
+				// moves only through set_root.
+				existing.Root = true
+				out[id] = existing
 			}
 		case registry.EntryDelete:
 			delete(out, id)

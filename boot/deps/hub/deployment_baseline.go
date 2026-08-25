@@ -317,3 +317,31 @@ func resolvedModulesFromStored(resolution *regapi.DependencyResolution) ([]Resol
 	}
 	return resolved, nil
 }
+
+// dependencyRootComponents names a stored root set for diagnostics: one
+// component@version per root, sorted.
+func dependencyRootComponents(roots []regapi.DependencyRoot) []string {
+	out := make([]string, 0, len(roots))
+	for _, root := range roots {
+		out = append(out, root.Component+"@"+root.Version)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// provenanceRootIDs names the provenance-rooted dependency entries of a state
+// for diagnostics beside the digest a mismatch reports.
+func provenanceRootIDs(state regapi.ProvenancedState) []string {
+	prov, err := stateProvenance(state)
+	if err != nil {
+		return []string{"unavailable: " + err.Error()}
+	}
+	out := make([]string, 0)
+	for _, entry := range state.Entries {
+		if entry.Kind == regapi.NamespaceDependency && prov[idKey(entry.ID)].Root {
+			out = append(out, entry.ID.String())
+		}
+	}
+	sort.Strings(out)
+	return out
+}
