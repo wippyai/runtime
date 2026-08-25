@@ -706,7 +706,7 @@ func replayVersionState(
 		canonicalizeChangeSetIDs(changes)
 		applyStateOperations(stateMap, changes)
 		var err error
-		prov, err = applyOpsToProvenance(prov, changes)
+		prov, err = applyHistoryOpsToProvenance(prov, changes)
 		return err
 	}
 	if replayer, ok := history.(registry.ChangeSetReplayer); ok {
@@ -837,7 +837,7 @@ func (r *Reg) LoadState(ctx context.Context, baselineState registry.ProvenancedS
 			canonicalizeChangeSetIDs(cs)
 			applyStateOperations(stateMap, cs)
 			var err error
-			targetProv, err = applyOpsToProvenance(targetProv, cs)
+			targetProv, err = applyHistoryOpsToProvenance(targetProv, cs)
 			return err
 		}
 		if replayer, ok := r.history.(registry.ChangeSetReplayer); ok {

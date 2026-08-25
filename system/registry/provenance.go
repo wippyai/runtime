@@ -30,26 +30,41 @@ func applyOpsToProvenance(prov registry.ProvenanceMap, ops registry.ChangeSet) (
 			if op.Provenance != nil {
 				out[id] = *op.Provenance
 			} else {
-				// A provenance-less create is host-authored or a legacy history
-				// row; the wire's DependencyRoot flag is the only root statement
-				// legacy rows carry, so it seeds the record.
-				out[id] = registry.EntryProvenance{Root: op.Entry.DependencyRoot}
+				out[id] = registry.EntryProvenance{}
 			}
 		case registry.EntryUpdate:
 			if op.Provenance != nil {
 				out[id] = *op.Provenance
-			} else if existing, ok := out[id]; !ok {
+			} else if _, ok := out[id]; !ok {
 				return nil, registry.NewMissingProvenanceError(id)
-			} else if op.Entry.DependencyRoot && !existing.Root {
-				// A legacy root promotion replays as one. The flag never demotes:
-				// a modern user edit reaches this fold flagless, and root-ness
-				// moves only through set_root.
-				existing.Root = true
-				out[id] = existing
 			}
 		case registry.EntryDelete:
 			delete(out, id)
 		}
+	}
+	return out, nil
+}
+
+// applyHistoryOpsToProvenance folds durable operations and upgrades the root
+// statement used before registry-owned provenance. New history rows carry
+// provenance and never encode DependencyRoot, so the compatibility path is
+// limited to provenance-less dependency operations read from history.
+func applyHistoryOpsToProvenance(prov registry.ProvenanceMap, ops registry.ChangeSet) (registry.ProvenanceMap, error) {
+	out, err := applyOpsToProvenance(prov, ops)
+	if err != nil {
+		return nil, err
+	}
+	for _, op := range ops {
+		if op.Provenance != nil || op.Entry.Kind != registry.NamespaceDependency || !op.Entry.DependencyRoot {
+			continue
+		}
+		id := canonicalEntryID(op.Entry.ID)
+		record, ok := out[id]
+		if !ok {
+			continue
+		}
+		record.Root = true
+		out[id] = record
 	}
 	return out, nil
 }

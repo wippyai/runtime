@@ -710,9 +710,7 @@ func (h *DependencyHandler) ReconcileResolution(
 				zap.String("reason", refreshReason),
 				zap.String("stored_baseline_digest", resolution.BaselineDigest),
 				zap.String("deployment_baseline_digest", baselineDigest),
-				zap.String("stored_resolution_digest", resolution.Digest),
-				zap.Strings("stored_roots", dependencyRootComponents(resolution.Roots)),
-				zap.Strings("deployment_roots", provenanceRootIDs(current)))
+				zap.String("stored_resolution_digest", resolution.Digest))
 			resolved, err = h.refreshResolvedModules(ctx, current, transcoder, resolution, desiredDeps)
 			if err != nil {
 				return regapi.DirectiveResult{}, err
