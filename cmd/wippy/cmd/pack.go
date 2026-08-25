@@ -513,7 +513,7 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *tea
 			percent: 0.55,
 			status:  status,
 		})
-		pipelineStages = append(pipelineStages, stages.EmbedFS("", embedConfig.stagePatterns()...))
+		pipelineStages = append(pipelineStages, stages.EmbedFS("", loadedProv, embedConfig.stagePatterns()...))
 	}
 
 	pipeline := build.New(pipelineStages...)

@@ -19,7 +19,7 @@ import (
 )
 
 func TestLoadEntriesFromLockPaths_NilLock(t *testing.T) {
-	loaded, err := loadEntriesFromLockPaths(context.Background(), nil, zap.NewNop())
+	loaded, _, err := loadEntriesFromLockPaths(context.Background(), nil, zap.NewNop())
 	if err != nil {
 		t.Fatalf("loadEntriesFromLockPaths returned error: %v", err)
 	}
@@ -93,7 +93,7 @@ entries:
 		t.Fatalf("write lock: %v", err)
 	}
 
-	loaded, err := loadEntriesFromLockPaths(ctx, lockObj, logger)
+	loaded, _, err := loadEntriesFromLockPaths(ctx, lockObj, logger)
 	if err != nil {
 		t.Fatalf("loadEntriesFromLockPaths failed: %v", err)
 	}
