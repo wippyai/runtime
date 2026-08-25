@@ -504,6 +504,8 @@ func (br *BusRunner) rollback(
 ) registry.StateMap {
 	br.log.Debug("starting rollback", zap.Int("accepted_ops", len(journal)))
 
+	outcome := registry.RollbackOutcomeFromContext(ctx)
+
 	// Accepted operations are compensated in reverse acceptance order, each by
 	// its kind-specific inverse. The inverse carries the operation's own
 	// provenance pair swapped into the compensating direction, so listeners
@@ -511,9 +513,11 @@ func (br *BusRunner) rollback(
 	for i := len(journal) - 1; i >= 0; i-- {
 		inv, ok := inverseOperation(journal[i])
 		if !ok {
-			br.log.Error("no inverse for accepted operation",
-				zap.String("kind", journal[i].op.Kind),
-				zap.String("id", journal[i].op.Entry.ID.String()))
+			err := NewNoInverseError(journal[i].op.Kind, journal[i].op.Entry.ID)
+			br.log.Error("no inverse for accepted operation", zap.Error(err))
+			if outcome != nil {
+				outcome.Record(journal[i].op, false, err)
+			}
 			continue
 		}
 
@@ -522,8 +526,14 @@ func (br *BusRunner) rollback(
 			br.log.Error("failed to apply rollback operation",
 				zap.Any("operation", inv),
 				zap.Error(err))
+			if outcome != nil {
+				outcome.Record(journal[i].op, false, err)
+			}
 			// Continue trying other operations instead of returning
 			continue
+		}
+		if outcome != nil {
+			outcome.Record(journal[i].op, true, nil)
 		}
 		currentState = newState
 	}

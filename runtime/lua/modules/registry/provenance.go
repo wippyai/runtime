@@ -3,8 +3,11 @@
 package registry
 
 import (
+	"context"
+
 	lua "github.com/wippyai/go-lua"
 	regapi "github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/runtime/security"
 )
 
 // provenanceReader answers provenance questions about the live registry.
@@ -55,13 +58,28 @@ func registryProvenance(l *lua.LState) int {
 	return 2
 }
 
+// rootSetter is the registry-side atomic root mutation.
+type rootSetter interface {
+	SetDependencyRoot(ctx context.Context, id regapi.ID, root bool) (regapi.Version, error)
+}
+
 // registrySetRoot flips the deployment-root selection of one ns.dependency
 // entry. Root-ness is deployment state held by the registry, not entry
-// content: the operation carries the entry unchanged and the flipped flag in
-// its provenance, so no author payload moves.
+// content: the mutation is authorized like any governance apply and runs
+// inside the registry's apply serialization, changing only the Root flag on
+// the current tuple.
 func registrySetRoot(l *lua.LState) int {
 	idStr := l.CheckString(1)
 	enable := l.CheckBool(2)
+
+	if !security.IsAllowed(l.Context(), "registry.apply", "", nil) {
+		err := lua.NewLuaError(l, "not allowed to apply registry changes").
+			WithKind(lua.PermissionDenied).
+			WithRetryable(false)
+		l.Push(lua.LFalse)
+		l.Push(err)
+		return 2
+	}
 
 	reg := regapi.GetRegistry(l.Context())
 	if reg == nil {
@@ -72,45 +90,19 @@ func registrySetRoot(l *lua.LState) int {
 		l.Push(err)
 		return 2
 	}
-
-	id := regapi.ParseID(idStr).Canonical()
-	entry, getErr := reg.GetEntry(id)
-	if getErr != nil {
-		err := lua.NewLuaError(l, "entry not found: "+id.String()).
-			WithKind(lua.NotFound).
+	setter, ok := reg.(rootSetter)
+	if !ok {
+		err := lua.NewLuaError(l, "registry does not serve deployment-root mutation").
+			WithKind(lua.Unavailable).
 			WithRetryable(false)
 		l.Push(lua.LFalse)
 		l.Push(err)
 		return 2
 	}
-	if entry.Kind != regapi.NamespaceDependency {
-		err := lua.NewLuaError(l, "only ns.dependency entries select deployment roots").
+
+	if _, setErr := setter.SetDependencyRoot(l.Context(), regapi.ParseID(idStr), enable); setErr != nil {
+		err := lua.WrapErrorWithLua(l, setErr, "set deployment root").
 			WithKind(lua.Invalid).
-			WithRetryable(false)
-		l.Push(lua.LFalse)
-		l.Push(err)
-		return 2
-	}
-
-	var current regapi.EntryProvenance
-	if reader, ok := reg.(provenanceReader); ok {
-		current, _ = reader.EntryProvenance(id)
-	}
-	if current.Root == enable {
-		l.Push(lua.LTrue)
-		l.Push(lua.LNil)
-		return 2
-	}
-
-	next := current
-	next.Root = enable
-	if _, applyErr := reg.Apply(l.Context(), regapi.ChangeSet{{
-		Kind:       regapi.EntryUpdate,
-		Entry:      entry,
-		Provenance: &next,
-	}}); applyErr != nil {
-		err := lua.WrapErrorWithLua(l, applyErr, "set deployment root").
-			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LFalse)
 		l.Push(err)

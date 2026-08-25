@@ -3,7 +3,11 @@
 package registry
 
 import (
+	"context"
+	"fmt"
+
 	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/system/registry/topology"
 )
 
 // applyOpsToProvenance folds a changeset into a provenance map and returns a
@@ -159,3 +163,48 @@ func (r *Reg) Provenance() registry.ProvMap {
 func (r *Reg) publishProvenance(prov registry.ProvMap) {
 	r.prov.Store(&prov)
 }
+
+// SetDependencyRoot flips the deployment-root selection of one ns.dependency
+// entry as a provenance-carrying operation, atomically against concurrent
+// applies: the current entry and record are read under the apply serialization
+// the operation commits with, so a concurrent module update cannot interleave.
+func (r *Reg) SetDependencyRoot(ctx context.Context, id registry.ID, root bool) (registry.Version, error) {
+	id = canonicalEntryID(id)
+
+	r.applyMu.Lock()
+	entry, getErr := r.GetEntry(id)
+	if getErr != nil {
+		r.applyMu.Unlock()
+		return nil, getErr
+	}
+	if entry.Kind != registry.NamespaceDependency {
+		r.applyMu.Unlock()
+		return nil, topology.NewInvalidOperationError(errNotDependencyEntry)
+	}
+	current, ok := r.EntryProvenance(id)
+	if !ok {
+		r.applyMu.Unlock()
+		return nil, registry.NewMissingProvenanceError(id)
+	}
+	if current.Root == root {
+		version := r.currentVersion
+		r.applyMu.Unlock()
+		return version, nil
+	}
+	next := current
+	next.Root = root
+	op := registry.Operation{
+		Kind:               registry.EntryUpdate,
+		Entry:              entry,
+		Provenance:         &next,
+		OriginalProvenance: &current,
+	}
+	r.applyMu.Unlock()
+
+	// Apply re-reads under its own serialization; the tuple travels on the
+	// operation, so a raced module update surfaces as a concurrent-apply
+	// error rather than silently rewriting ownership.
+	return r.Apply(ctx, registry.ChangeSet{op})
+}
+
+var errNotDependencyEntry = fmt.Errorf("only ns.dependency entries select deployment roots")

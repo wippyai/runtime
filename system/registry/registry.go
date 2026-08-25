@@ -244,6 +244,9 @@ func (r *Reg) Apply(ctx context.Context, changes registry.ChangeSet) (registry.V
 	}
 	annotateChangeSet(allOps, liveProv, newProv)
 
+	rollbackOutcome := &registry.RollbackOutcome{}
+	ctx = registry.WithRollbackOutcome(ctx, rollbackOutcome)
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -1052,20 +1055,27 @@ func canonicalEntryID(id registry.ID) registry.ID {
 	return id.Canonical()
 }
 
-// rollback state desync between actual state in system and state in history
+// rollback state desync between actual state in system and state in history.
+// The runner records what its compensation actually did into the context's
+// RollbackOutcome; a desynced state's provenance is reconstructed from the
+// surviving operations, never guessed.
 func (r *Reg) rollback(ctx context.Context, from, to registry.State) error {
 	r.log.Debug("attempting to rollback")
 
 	published := r.Provenance()
+	outcome := &registry.RollbackOutcome{}
+	ctx = registry.WithRollbackOutcome(ctx, outcome)
 	partial, err := r.transitionState(ctx, from, to, provenanceForState(from, published, nil), published)
 	if err == nil {
 		return nil // success
 	}
+	err = errors.Join(err, outcome.Err())
 
 	r.state = partial // we remain in a desynced state
 	r.rebuildIndex()
 	r.rebuildDepIndex()
-	r.publishProvenance(provenanceForState(partial, r.Provenance(), nil))
+	partialProv := applyOpsToProvenance(published, outcome.Surviving())
+	r.publishProvenance(provenanceForState(partial, partialProv, nil))
 	r.reconcileKnownOverlaysAfterFailedRollback()
 
 	return err
