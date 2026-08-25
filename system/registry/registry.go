@@ -39,6 +39,7 @@ type Reg struct {
 	overlayOwners     map[registry.ID]string
 	overlayGeneration map[string]uint64
 	baseline          registry.State
+	baselineProv      registry.ProvMap
 	state             registry.State
 	overlayEpoch      uint64
 	overlayFloor      uint64
@@ -378,7 +379,7 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 	if err != nil {
 		return err
 	}
-	targetState, err := r.stateAtVersion(ctx, targetVersion)
+	targetState, targetProv, err := r.stateAtVersion(ctx, targetVersion)
 	if err != nil {
 		return err
 	}
@@ -434,6 +435,7 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 				additional = append(additional, operation.Operation)
 			}
 			applyStateOperations(stateMap, additional)
+			targetProv = applyOpsToProvenance(targetProv, additional)
 		}
 		if !reconciled {
 			planner.RollbackEffects(ctx, preparedEff)
@@ -487,6 +489,7 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 				targetResolution = plan.Resolution.Canonical()
 			}
 			applyStateOperations(stateMap, ops)
+			targetProv = applyOpsToProvenance(targetProv, ops)
 		}
 		if composeErr := r.composeOverlays(stateMap); composeErr != nil {
 			planner.RollbackEffects(ctx, preparedEff)
@@ -546,6 +549,7 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 		return NewConcurrentApplyError(baseVersion.ID(), r.currentVersion.ID())
 	}
 
+	annotateChangeSet(allOps, r.Provenance(), targetProv)
 	newState, err := r.runner.Transition(ctx, r.state, allOps)
 	if err != nil {
 		r.log.Error("failed to apply squashed changeset", zap.Error(err))
@@ -604,6 +608,7 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 	r.state = newState
 	r.rebuildIndex()
 	r.rebuildDepIndex()
+	r.publishProvenance(provenanceForState(newState, targetProv, allOps))
 	r.currentVersion = targetVersion
 	r.currentResolution = targetResolution
 
@@ -615,21 +620,26 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 // history at target. Live version selection must use the same authority model
 // as cold boot; reversing operations against the expanded resident state can
 // otherwise delete baseline entries hidden by an overlay.
-func (r *Reg) stateAtVersion(ctx context.Context, target registry.Version) (registry.State, error) {
+func (r *Reg) stateAtVersion(ctx context.Context, target registry.Version) (registry.State, registry.ProvMap, error) {
 	stateMap := topology.NewStateMap(r.baseline)
+	prov := r.baselineProv.Clone()
+	if prov == nil {
+		prov = make(registry.ProvMap)
+	}
 	if target == nil || target.ID() == registry.RootVersion {
-		return topology.StateMapToSlice(stateMap), nil
+		return topology.StateMapToSlice(stateMap), prov, nil
 	}
 	apply := func(changes registry.ChangeSet) error {
 		canonicalizeChangeSetIDs(changes)
 		applyStateOperations(stateMap, changes)
+		prov = applyOpsToProvenance(prov, changes)
 		return nil
 	}
 	if replayer, ok := r.history.(registry.ChangeSetReplayer); ok {
 		if err := replayer.ReplayChanges(ctx, target, apply); err != nil {
-			return nil, NewGetChangesetError(target.ID(), err)
+			return nil, nil, NewGetChangesetError(target.ID(), err)
 		}
-		return topology.StateMapToSlice(stateMap), nil
+		return topology.StateMapToSlice(stateMap), prov, nil
 	}
 	var lineage []registry.Version
 	for current := target; current != nil && current.ID() > registry.RootVersion; current = current.Previous() {
@@ -638,13 +648,13 @@ func (r *Reg) stateAtVersion(ctx context.Context, target registry.Version) (regi
 	for i := len(lineage) - 1; i >= 0; i-- {
 		changes, err := r.history.Get(lineage[i])
 		if err != nil {
-			return nil, NewGetChangesetError(lineage[i].ID(), err)
+			return nil, nil, NewGetChangesetError(lineage[i].ID(), err)
 		}
 		if err := apply(changes); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
-	return topology.StateMapToSlice(stateMap), nil
+	return topology.StateMapToSlice(stateMap), prov, nil
 }
 
 func compareAndSetHistoryHead(history registry.History, expected, target registry.Version) error {
@@ -678,7 +688,16 @@ func (r *Reg) findStoredVersion(v registry.Version) (registry.Version, error) {
 	return nil, NewVersionNotFoundError(v.ID())
 }
 
-func (r *Reg) LoadState(ctx context.Context, baseline registry.State, targetVersion registry.Version) error {
+// LoadState initializes registry state from baseline and history without
+// creating new version records: the baseline applies directly and changesets
+// v1..targetVersion replay on top. The baseline carries its provenance;
+// replayed and reconciled operations fold theirs in, so the published
+// provenance map matches the final state.
+func (r *Reg) LoadState(ctx context.Context, baselineState registry.ProvenancedState, targetVersion registry.Version) error {
+	baseline := baselineState.Entries
+	if err := baselineState.Validate(); err != nil {
+		return NewLoadStateError(err, nil)
+	}
 	if registry.DependencyAccessFromContext(ctx) == registry.DependencyAccessUnspecified {
 		ctx = registry.WithDependencyAccess(ctx, registry.DependencyAccessVerifiedOffline)
 	}
@@ -725,6 +744,10 @@ func (r *Reg) LoadState(ctx context.Context, baseline registry.State, targetVers
 	}
 
 	stateMap := topology.NewStateMap(baseline)
+	targetProv := make(registry.ProvMap, len(baseline))
+	for id, p := range baselineState.Prov {
+		targetProv[canonicalEntryID(id)] = p
+	}
 	var planner *regexp.Planner
 	var preparedEff []registry.Effect
 	var resolution *registry.DependencyResolution
@@ -739,6 +762,7 @@ func (r *Reg) LoadState(ctx context.Context, baseline registry.State, targetVers
 		applyChanges := func(cs registry.ChangeSet) error {
 			canonicalizeChangeSetIDs(cs)
 			applyStateOperations(stateMap, cs)
+			targetProv = applyOpsToProvenance(targetProv, cs)
 			return nil
 		}
 		if replayer, ok := r.history.(registry.ChangeSetReplayer); ok {
@@ -815,6 +839,7 @@ func (r *Reg) LoadState(ctx context.Context, baseline registry.State, targetVers
 			}
 			preparedEff = append(preparedEff, prepared...)
 			applyStateOperations(stateMap, ops)
+			targetProv = applyOpsToProvenance(targetProv, ops)
 		}
 		if !reconciled {
 			planner.RollbackEffects(ctx, preparedEff)
@@ -856,6 +881,7 @@ func (r *Reg) LoadState(ctx context.Context, baseline registry.State, targetVers
 				resolution = plan.Resolution.Canonical()
 			}
 			applyStateOperations(stateMap, ops)
+			targetProv = applyOpsToProvenance(targetProv, ops)
 		}
 	}
 
@@ -869,7 +895,7 @@ func (r *Reg) LoadState(ctx context.Context, baseline registry.State, targetVers
 	}
 
 	finalState := topology.StateMapToSlice(stateMap)
-	newState, err := r.transitionState(ctx, r.state, finalState)
+	newState, err := r.transitionState(ctx, r.state, finalState, r.Provenance(), targetProv)
 	if err != nil {
 		r.log.Error("failed to load state", zap.String("version", targetVersion.String()), zap.Error(err))
 		if newState != nil && ctx.Err() == nil {
@@ -923,6 +949,8 @@ func (r *Reg) LoadState(ctx context.Context, baseline registry.State, targetVers
 
 	r.state = newState
 	r.baseline = append(registry.State(nil), baseline...)
+	r.baselineProv = targetProvBaselineClone(baselineState.Prov)
+	r.publishProvenance(provenanceForState(newState, targetProv, nil))
 	// LoadState is the cold/reinitialization boundary. Overlays are deliberately
 	// process-local and their owning controllers reconcile them after boot.
 	r.overlays = make(map[string]registry.State)
@@ -943,6 +971,16 @@ func (r *Reg) LoadState(ctx context.Context, baseline registry.State, targetVers
 	r.versionNum.Store(uint64(allocatorVersion))
 
 	return nil
+}
+
+
+// targetProvBaselineClone clones the baseline provenance under canonical IDs.
+func targetProvBaselineClone(prov registry.ProvMap) registry.ProvMap {
+	out := make(registry.ProvMap, len(prov))
+	for id, p := range prov {
+		out[canonicalEntryID(id)] = p
+	}
+	return out
 }
 
 func reconcileStoredResolution(
@@ -995,7 +1033,8 @@ func canonicalEntryID(id registry.ID) registry.ID {
 func (r *Reg) rollback(ctx context.Context, from, to registry.State) error {
 	r.log.Debug("attempting to rollback")
 
-	partial, err := r.transitionState(ctx, from, to)
+	published := r.Provenance()
+	partial, err := r.transitionState(ctx, from, to, provenanceForState(from, published, nil), published)
 	if err == nil {
 		return nil // success
 	}
@@ -1009,7 +1048,7 @@ func (r *Reg) rollback(ctx context.Context, from, to registry.State) error {
 	return err
 }
 
-func (r *Reg) transitionState(ctx context.Context, from, to registry.State) (registry.State, error) {
+func (r *Reg) transitionState(ctx context.Context, from, to registry.State, fromProv, toProv registry.ProvMap) (registry.State, error) {
 	r.log.Debug("transitioning state")
 
 	cs, terr := r.builder.BuildDelta(from, to)
@@ -1021,6 +1060,7 @@ func (r *Reg) transitionState(ctx context.Context, from, to registry.State) (reg
 		return from, nil
 	}
 
+	annotateChangeSet(cs, fromProv, toProv)
 	return r.runner.Transition(ctx, from, cs)
 }
 

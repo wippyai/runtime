@@ -68,7 +68,7 @@ func LoadFromLockFile(ctx context.Context, logger *zap.Logger) error {
 	}
 	logger.Debug("load paths from lock file", zap.Strings("paths", flatPaths))
 
-	entries, err := LoadEntriesFromModuleLoadPaths(ctx, modulePaths, logger)
+	entries, prov, err := LoadEntriesFromModuleLoadPaths(ctx, modulePaths, logger)
 	if err != nil {
 		return NewLoadEntriesFromPathsError(err)
 	}
@@ -80,7 +80,7 @@ func LoadFromLockFile(ctx context.Context, logger *zap.Logger) error {
 		return err
 	}
 
-	if err := LoadEntriesToRegistry(ctx, entries, logger); err != nil {
+	if err := LoadEntriesToRegistry(ctx, entries, prov, logger); err != nil {
 		return err // Already has context from registry
 	}
 
@@ -325,13 +325,13 @@ func LoadEntriesFromPaths(ctx context.Context, paths []string, logger *zap.Logge
 	return entries, nil
 }
 
-// LoadEntriesFromModuleLoadPaths loads entries from lock module paths with module metadata.
-// Module-owned entries are tagged with meta.module/meta.module_version before pipeline stages.
+// LoadEntriesFromModuleLoadPaths loads entries from lock module paths together
+// with the provenance recorded from the load context.
 func LoadEntriesFromModuleLoadPaths(
 	ctx context.Context,
 	modulePaths []lock.ModuleLoadPath,
 	logger *zap.Logger,
-) ([]regapi.Entry, error) {
+) ([]regapi.Entry, regapi.ProvMap, error) {
 	ConfigureSourceLoader(ctx, modulePaths, logger)
 	return loadEntriesWithModuleMeta(ctx, modulePaths, logger)
 }
@@ -343,7 +343,7 @@ func ConfigureSourceLoader(ctx context.Context, modulePaths []lock.ModuleLoadPat
 	if registry == nil {
 		return
 	}
-	registry.SetLoader(func(loadCtx context.Context, sources moduleapi.Sources) ([]regapi.Entry, error) {
+	registry.SetLoader(func(loadCtx context.Context, sources moduleapi.Sources) ([]regapi.Entry, regapi.ProvMap, error) {
 		ids := make([]string, 0, len(sources))
 		for id := range sources {
 			ids = append(ids, id)
@@ -441,18 +441,23 @@ func registerSources(ctx context.Context, modulePaths []lock.ModuleLoadPath) *mo
 	return registry
 }
 
-// loadEntriesWithModuleMeta loads entries from annotated paths and tags module entries
-// with their owning module name and version. App source entries remain untagged.
-func loadEntriesWithModuleMeta(ctx context.Context, modulePaths []lock.ModuleLoadPath, logger *zap.Logger) ([]regapi.Entry, error) {
+// loadEntriesWithModuleMeta loads entries from annotated paths and records
+// each entry's provenance from the load context: owning module, version,
+// artifact digest, and deployment-root selection. Entry payloads are loaded
+// verbatim.
+func loadEntriesWithModuleMeta(ctx context.Context, modulePaths []lock.ModuleLoadPath, logger *zap.Logger) ([]regapi.Entry, regapi.ProvMap, error) {
 	dtt := payload.GetTranscoder(ctx)
 	if dtt == nil {
-		return nil, ErrTranscoderNotFound
+		return nil, nil, ErrTranscoderNotFound
 	}
 
 	ldr := boot.GetLoader(ctx)
 	if ldr == nil {
-		return nil, ErrLoaderNotFound
+		return nil, nil, ErrLoaderNotFound
 	}
+
+	prov := make(regapi.ProvMap)
+	var fromReplacement []bool
 
 	replacementOwners := make(map[string]struct{})
 	for _, mp := range modulePaths {
@@ -475,57 +480,75 @@ func loadEntriesWithModuleMeta(ctx context.Context, modulePaths []lock.ModuleLoa
 			var digestErr error
 			moduleDigest, _, digestErr = hub.ReplacementTreeIdentity(root)
 			if digestErr != nil {
-				return nil, fmt.Errorf("identify replacement module %s: %w", mp.Module, digestErr)
+				return nil, nil, fmt.Errorf("identify replacement module %s: %w", mp.Module, digestErr)
 			}
 		}
 
 		loaded, err := loadEntriesFromModulePath(ctx, mp, ldr, dtt, logger)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		if !mp.Replacement && len(replacementOwners) > 0 {
-			loaded = excludeReplacementOwnedEntries(loaded, replacementOwners)
+		if !mp.Replacement && mp.Module != "" {
+			if _, replaced := replacementOwners[mp.Module]; replaced {
+				// A replacement is authoritative for its module: the vendored
+				// copy of that module contributes nothing.
+				continue
+			}
 		}
 
 		if shouldApplyModuleConfigFilters(mp) {
 			loaded, err = applyModuleConfigFilters(ctx, mp, loaded, logger)
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 		}
 
 		for i := range loaded {
-			if mp.Module != "" {
-				loaded[i] = markModuleIdentity(loaded[i], mp.Module, mp.Version, moduleDigest, mp.Replacement)
+			p := regapi.EntryProvenance{
+				Module:  mp.Module,
+				Version: mp.Version,
+				Digest:  moduleDigest,
+				Root:    mp.Root && loaded[i].Kind == regapi.NamespaceDependency,
 			}
-			if mp.Root && loaded[i].Kind == regapi.NamespaceDependency {
-				loaded[i].DependencyRoot = true
+			if mp.Module == "" {
+				p.Version = ""
+				p.Digest = ""
 			}
+			prov[loaded[i].ID.Canonical()] = p
 		}
 
 		entries = append(entries, loaded...)
+		for range loaded {
+			fromReplacement = append(fromReplacement, mp.Replacement)
+		}
+	}
+
+	if len(replacementOwners) > 0 {
+		// A replacement is authoritative for the entry IDs it provides: any
+		// copy of those IDs loaded from a non-replacement source yields.
+		replacementIDs := make(map[regapi.ID]struct{})
+		for i, entry := range entries {
+			if fromReplacement[i] {
+				replacementIDs[entry.ID.Canonical()] = struct{}{}
+			}
+		}
+		filtered := entries[:0]
+		for i, entry := range entries {
+			if !fromReplacement[i] {
+				if _, owned := replacementIDs[entry.ID.Canonical()]; owned {
+					continue
+				}
+			}
+			filtered = append(filtered, entry)
+		}
+		entries = filtered
 	}
 
 	if err := NormalizeEntries(ctx, &entries); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	return entries, nil
-}
-
-func excludeReplacementOwnedEntries(entries []regapi.Entry, replacementOwners map[string]struct{}) []regapi.Entry {
-	filtered := entries[:0]
-	for _, entry := range entries {
-		owner := ""
-		if entry.Meta != nil {
-			owner = entry.Meta.GetString("module", "")
-		}
-		if _, replaced := replacementOwners[owner]; replaced {
-			continue
-		}
-		filtered = append(filtered, entry)
-	}
-	return filtered
+	return entries, prov, nil
 }
 
 func shouldApplyModuleConfigFilters(mp lock.ModuleLoadPath) bool {
@@ -640,42 +663,6 @@ func loadEntriesFromModulePath(ctx context.Context, mp lock.ModuleLoadPath, ldr 
 	return nil, nil
 }
 
-func markModuleMeta(entry regapi.Entry, moduleName, moduleVersion string) regapi.Entry {
-	meta := entry.Meta
-	if meta == nil {
-		meta = attrs.NewBag()
-	} else {
-		meta = attrs.NewBagFrom(meta)
-	}
-	meta.Set("module", moduleName)
-	if moduleVersion != "" {
-		meta.Set("module_version", moduleVersion)
-	}
-	entry.Meta = meta
-	return entry
-}
-
-func markModuleIdentity(entry regapi.Entry, moduleName, moduleVersion, moduleDigest string, replacement bool) regapi.Entry {
-	entry = markModuleMeta(entry, moduleName, moduleVersion)
-	if moduleDigest == "" && !replacement {
-		return entry
-	}
-	meta := attrs.NewBagFrom(entry.Meta)
-	if replacement {
-		if moduleVersion == "" {
-			delete(meta, "module_version")
-		} else {
-			meta.Set("module_version", moduleVersion)
-		}
-	}
-	if moduleDigest != "" {
-		meta.Set("module_digest", moduleDigest)
-	}
-	entry.Meta = meta
-	return entry
-}
-
-// loadEntriesFromWapp loads entries from a .wapp file.
 func loadEntriesFromWapp(path string, dtt payload.Transcoder) ([]regapi.Entry, error) {
 	file, err := os.Open(path)
 	if err != nil {
@@ -692,7 +679,7 @@ func loadEntriesFromWapp(path string, dtt payload.Transcoder) ([]regapi.Entry, e
 }
 
 // LoadEntriesToRegistry loads entries into the registry using LoadState to restore from history.
-func LoadEntriesToRegistry(ctx context.Context, entries []regapi.Entry, logger *zap.Logger) error {
+func LoadEntriesToRegistry(ctx context.Context, entries []regapi.Entry, prov regapi.ProvMap, logger *zap.Logger) error {
 	if err := waitForListenerReadiness(ctx, logger); err != nil {
 		return err
 	}
@@ -753,7 +740,15 @@ func LoadEntriesToRegistry(ctx context.Context, entries []regapi.Entry, logger *
 		logger.Info("initializing registry with baseline state at v0")
 	}
 
-	if err := reg.LoadState(ctx, baselineState, head); err != nil {
+	if prov == nil {
+		prov = make(regapi.ProvMap, len(baselineState))
+	}
+	for _, entry := range baselineState {
+		if _, ok := prov[entry.ID.Canonical()]; !ok {
+			prov[entry.ID.Canonical()] = regapi.EntryProvenance{}
+		}
+	}
+	if err := reg.LoadState(ctx, regapi.ProvenancedState{Entries: baselineState, Prov: prov}, head); err != nil {
 		return err // Already wrapped by registry with proper context
 	}
 

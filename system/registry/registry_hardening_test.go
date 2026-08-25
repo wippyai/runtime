@@ -170,7 +170,7 @@ func TestLoadStateDefaultsDependencyAccessToVerifiedOffline(t *testing.T) {
 			reg := NewRegistry(memory.New(), &hardeningRunner{}, topology.NewStateBuilder(zap.NewNop(), nil), nil, zap.NewNop(),
 				WithKindDirective(regapi.NamespaceDependency, directive))
 			dep := regapi.Entry{ID: regapi.NewID("app.deps", "module"), Kind: regapi.NamespaceDependency}
-			require.NoError(t, reg.LoadState(test.ctx, regapi.State{dep}, version.New(0)))
+			require.NoError(t, reg.LoadState(test.ctx, hostProvenanced(regapi.State{dep}), version.New(0)))
 			require.Equal(t, test.want, seen)
 		})
 	}
@@ -192,7 +192,7 @@ func TestApplyVersion_SetHeadFailureCompensatesRuntimeAndEffects(t *testing.T) {
 	runner := &hardeningRunner{}
 	reg := NewRegistry(history, runner, topology.NewStateBuilder(zap.NewNop(), nil), nil, zap.NewNop(),
 		WithKindDirective(regapi.NamespaceDependency, directive))
-	require.NoError(t, reg.LoadState(ctx, nil, v0))
+	require.NoError(t, reg.LoadState(ctx, hostProvenanced(nil), v0))
 
 	err := reg.ApplyVersion(ctx, v1)
 	require.ErrorContains(t, err, "failed to set head version")
@@ -243,7 +243,7 @@ func TestApplyVersion_LegacyResolutionCheckpointFailureCompensates(t *testing.T)
 	runner := &hardeningRunner{}
 	reg := NewRegistry(history, runner, topology.NewStateBuilder(zap.NewNop(), nil), nil, zap.NewNop(),
 		WithKindDirective(regapi.NamespaceDependency, directive))
-	require.NoError(t, reg.LoadState(ctx, nil, v0))
+	require.NoError(t, reg.LoadState(ctx, hostProvenanced(nil), v0))
 
 	err := reg.ApplyVersion(ctx, v1)
 	require.ErrorContains(t, err, "injected checkpoint failure")
@@ -269,7 +269,7 @@ func TestApplyVersion_LegacyResolutionIsCheckpointed(t *testing.T) {
 	}}
 	reg := NewRegistry(history, &hardeningRunner{}, topology.NewStateBuilder(zap.NewNop(), nil), nil, zap.NewNop(),
 		WithKindDirective(regapi.NamespaceDependency, directive))
-	require.NoError(t, reg.LoadState(ctx, nil, v0))
+	require.NoError(t, reg.LoadState(ctx, hostProvenanced(nil), v0))
 	require.NoError(t, reg.ApplyVersion(ctx, v1))
 	stored, err := history.GetDependencyResolution(v1)
 	require.NoError(t, err)
@@ -292,7 +292,7 @@ func TestApplyVersionRejectsExactResolutionWithoutDurableHistorySupport(t *testi
 	runner := &hardeningRunner{}
 	reg := NewRegistry(history, runner, topology.NewStateBuilder(zap.NewNop(), nil), nil, zap.NewNop(),
 		WithKindDirective(regapi.NamespaceDependency, directive))
-	require.NoError(t, reg.LoadState(ctx, nil, v0))
+	require.NoError(t, reg.LoadState(ctx, hostProvenanced(nil), v0))
 
 	err := reg.ApplyVersion(ctx, v1)
 	require.ErrorContains(t, err, "history does not support durable dependency resolutions")
@@ -322,7 +322,7 @@ func TestApplyVersion_LegacyUnrelatedTransitionResolvesFinalRoots(t *testing.T) 
 	}}
 	reg := NewRegistry(history, &hardeningRunner{}, topology.NewStateBuilder(zap.NewNop(), nil), nil, zap.NewNop(),
 		WithKindDirective(regapi.NamespaceDependency, directive))
-	require.NoError(t, reg.LoadState(ctx, regapi.State{dep}, v0))
+	require.NoError(t, reg.LoadState(ctx, hostProvenanced(regapi.State{dep}), v0))
 	expansions = 0
 
 	require.NoError(t, reg.ApplyVersion(ctx, v1))
@@ -345,7 +345,7 @@ func TestLoadState_CheckpointFailureCompensatesRuntimeAndEffects(t *testing.T) {
 	reg := NewRegistry(history, runner, topology.NewStateBuilder(zap.NewNop(), nil), nil, zap.NewNop(),
 		WithKindDirective(regapi.NamespaceDependency, directive))
 
-	err := reg.LoadState(ctx, regapi.State{dep}, v0)
+	err := reg.LoadState(ctx, hostProvenanced(regapi.State{dep}), v0)
 	require.ErrorContains(t, err, "injected checkpoint failure")
 	entries, getErr := reg.GetAllEntries()
 	require.NoError(t, getErr)
@@ -368,7 +368,7 @@ func TestLoadStateRejectsExactResolutionWithoutDurableHistorySupport(t *testing.
 	reg := NewRegistry(history, runner, topology.NewStateBuilder(zap.NewNop(), nil), nil, zap.NewNop(),
 		WithKindDirective(regapi.NamespaceDependency, directive))
 
-	err := reg.LoadState(ctx, regapi.State{dep}, version.New(0))
+	err := reg.LoadState(ctx, hostProvenanced(regapi.State{dep}), version.New(0))
 	require.ErrorContains(t, err, "history does not support durable dependency resolutions")
 	entries, getErr := reg.GetAllEntries()
 	require.NoError(t, getErr)
@@ -390,7 +390,7 @@ func TestLoadState_TransitionFailureDoesNotCheckpointLegacyResolution(t *testing
 	reg := NewRegistry(history, &hardeningRunner{failTransitionAt: 1}, topology.NewStateBuilder(zap.NewNop(), nil), nil, zap.NewNop(),
 		WithKindDirective(regapi.NamespaceDependency, directive))
 
-	err := reg.LoadState(ctx, regapi.State{dep}, v0)
+	err := reg.LoadState(ctx, hostProvenanced(regapi.State{dep}), v0)
 	require.ErrorContains(t, err, "injected transition failure")
 	_, resolutionErr := history.GetDependencyResolution(v0)
 	require.ErrorIs(t, resolutionErr, regapi.ErrDependencyResolutionNotFound)
@@ -414,7 +414,7 @@ func TestApplyVersion_ReconcilerErrorRollsBackPreviouslyPreparedEffects(t *testi
 	}}
 	reg := NewRegistry(history, &hardeningRunner{}, topology.NewStateBuilder(zap.NewNop(), nil), nil, zap.NewNop(),
 		WithKindDirective(regapi.NamespaceDependency, first), WithKindDirective(regapi.NamespaceDependency, second))
-	require.NoError(t, reg.LoadState(ctx, nil, v0))
+	require.NoError(t, reg.LoadState(ctx, hostProvenanced(nil), v0))
 	err := reg.ApplyVersion(ctx, v1)
 	require.ErrorContains(t, err, "injected reconcile failure")
 	require.Equal(t, 1, effect.prepared)
@@ -436,7 +436,7 @@ func TestLoadState_AllocatorUsesMaximumStoredVersionAfterRewind(t *testing.T) {
 	require.NoError(t, reg.ApplyVersion(ctx, v1))
 
 	restored := NewRegistry(history, &hardeningRunner{}, topology.NewStateBuilder(zap.NewNop(), nil), nil, zap.NewNop())
-	require.NoError(t, restored.LoadState(ctx, nil, v1))
+	require.NoError(t, restored.LoadState(ctx, hostProvenanced(nil), v1))
 	v4, err := restored.Apply(ctx, regapi.ChangeSet{{Kind: regapi.EntryCreate, Entry: regapi.Entry{ID: regapi.NewID("app", "branch"), Kind: "service"}}})
 	require.NoError(t, err)
 	require.Equal(t, uint(4), v4.ID())

@@ -18,6 +18,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 	"github.com/wippyai/runtime/api/attrs"
+	regapi "github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/boot"
 	"github.com/wippyai/runtime/api/version"
 	"github.com/wippyai/runtime/boot/build"
@@ -445,7 +446,7 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *tea
 	p.Send(progressMsg{stage: stageLoadEntries, percent: 0.2, status: fmt.Sprintf("Loading entries from %d paths...", len(paths))})
 	p.Send(logMsg{level: "info", message: fmt.Sprintf("Loading from %d paths", len(paths))})
 
-	loadedEntries, err := loadEntriesFromLockPaths(app.Ctx, lockObj, logger)
+	loadedEntries, loadedProv, err := loadEntriesFromLockPaths(app.Ctx, lockObj, logger)
 	if err != nil {
 		return NewLoadEntriesError(fmt.Sprintf("lock paths (%s)", lockPath), err)
 	}
@@ -604,6 +605,9 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *tea
 		"wippy_date":    version.Date,
 		"packed_at":     time.Now().UTC().Format(time.RFC3339),
 		"entry_count":   len(loadedEntries),
+	}
+	if len(loadedProv) > 0 {
+		metadata["provenance"] = encodePackProvenance(loadedProv)
 	}
 
 	if description != "" {
@@ -913,6 +917,31 @@ func closeEmbeddedPackResourceHandles(handles []embeddedPackResourceHandle) erro
 	return errors.Join(errs...)
 }
 
+
+// encodePackProvenance serializes entry provenance into the pack metadata
+// frame, keyed by canonical entry ID. The entries themselves stay verbatim;
+// the pack carries the runtime's knowledge out of band.
+func encodePackProvenance(prov regapi.ProvMap) map[string]any {
+	out := make(map[string]any, len(prov))
+	for id, p := range prov {
+		rec := map[string]any{}
+		if p.Module != "" {
+			rec["module"] = p.Module
+		}
+		if p.Version != "" {
+			rec["version"] = p.Version
+		}
+		if p.Digest != "" {
+			rec["digest"] = p.Digest
+		}
+		if p.Root {
+			rec["root"] = true
+		}
+		out[id.String()] = rec
+	}
+	return out
+}
+
 func parseMetadataFlags(metaFlags []string, metadata attrs.Bag, logger *zap.Logger) error {
 	for _, flag := range metaFlags {
 		parts := strings.SplitN(flag, "=", 2)
@@ -973,7 +1002,7 @@ func runListMode(app *appinit.Context, lockPath, _ string) error {
 
 	_ = lockObj.GetLoadPaths()
 
-	allEntries, err := loadEntriesFromLockPaths(app.Ctx, lockObj, app.Logger)
+	allEntries, _, err := loadEntriesFromLockPaths(app.Ctx, lockObj, app.Logger)
 	if err != nil {
 		return NewLoadEntriesError(fmt.Sprintf("lock paths (%s)", lockPath), err)
 	}

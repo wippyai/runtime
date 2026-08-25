@@ -22,6 +22,15 @@ import (
 	"go.uber.org/zap"
 )
 
+// hostProvenanced wraps a raw test state with host provenance records.
+func hostProvenanced(s registry.State) registry.ProvenancedState {
+	prov := make(registry.ProvMap, len(s))
+	for _, e := range s {
+		prov[e.ID] = registry.EntryProvenance{}
+	}
+	return registry.ProvenancedState{Entries: s, Prov: prov}
+}
+
 type testRunner struct{}
 
 func (r *testRunner) Transition(_ context.Context, from registry.State, cs registry.ChangeSet) (registry.State, error) {
@@ -496,7 +505,7 @@ func TestHistoryReplayUpdateReplacesCanonicalBaselineID(t *testing.T) {
 	require.NoError(t, hist.Save(v1, registry.ChangeSet{{Kind: registry.EntryUpdate, Entry: updated, OriginalEntry: &baseline}}, true))
 
 	reg := registrysystem.NewRegistry(hist, &testRunner{}, topology.NewStateBuilder(zap.NewNop(), nil), nil, zap.NewNop())
-	require.NoError(t, reg.LoadState(context.Background(), registry.State{baseline}, v1))
+	require.NoError(t, reg.LoadState(context.Background(), hostProvenanced(registry.State{baseline}), v1))
 	entry, err := reg.GetEntry(id)
 	require.NoError(t, err)
 	data, ok := entry.Data.Data().(map[string]any)
@@ -734,7 +743,7 @@ func TestSQLitePersistence_OriginalEntry(t *testing.T) {
 			Data: payload.NewString("baseline"),
 		},
 	}
-	err = reg.LoadState(ctx, baseline, version.FromParent(nil, 0))
+	err = reg.LoadState(ctx, hostProvenanced(baseline), version.FromParent(nil, 0))
 	require.NoError(t, err)
 
 	entryID := registry.NewID("test", "entry1")
@@ -786,7 +795,7 @@ func TestSQLitePersistence_OriginalEntry(t *testing.T) {
 
 	head, err := hist2.Head()
 	require.NoError(t, err)
-	err = reg2.LoadState(ctx, baseline, head)
+	err = reg2.LoadState(ctx, hostProvenanced(baseline), head)
 	require.NoError(t, err)
 
 	err = reg2.ApplyVersion(ctx, v1)

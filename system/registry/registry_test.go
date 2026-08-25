@@ -995,7 +995,7 @@ func TestInMemoryRegistry_TransitionState(t *testing.T) {
 		return toState, nil
 	}
 
-	newState, err := reg.transitionState(context.Background(), fromState, toState)
+	newState, err := reg.transitionState(context.Background(), fromState, toState, nil, nil)
 	if err != nil {
 		t.Errorf("Unexpected error during transition: %v", err)
 	}
@@ -1008,7 +1008,7 @@ func TestInMemoryRegistry_TransitionState(t *testing.T) {
 		return fromState, nil
 	}
 
-	newState, err = reg.transitionState(context.Background(), fromState, fromState)
+	newState, err = reg.transitionState(context.Background(), fromState, fromState, nil, nil)
 	if err != nil {
 		t.Errorf("Unexpected error during transition with no changes: %v", err)
 	}
@@ -1021,7 +1021,7 @@ func TestInMemoryRegistry_TransitionState(t *testing.T) {
 		return nil, errors.New("transition failed")
 	}
 
-	_, err = reg.transitionState(context.Background(), fromState, toState)
+	_, err = reg.transitionState(context.Background(), fromState, toState, nil, nil)
 	if err == nil {
 		t.Fatal("Expected error during failed transition")
 	}

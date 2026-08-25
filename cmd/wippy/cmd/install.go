@@ -411,7 +411,7 @@ func installedArtifactInputs(
 		return packs, nil, nil
 	}
 
-	loaded, err := entries.LoadEntriesFromModuleLoadPaths(ctx, replacementPaths, logger)
+	loaded, _, err := entries.LoadEntriesFromModuleLoadPaths(ctx, replacementPaths, logger)
 	if err != nil {
 		return nil, nil, fmt.Errorf("load replacement artifacts: %w", err)
 	}

@@ -44,7 +44,7 @@ func TestRegistry_LoadState_RejectsDuplicateBaselineIDs(t *testing.T) {
 	head, err := reg.Current()
 	require.NoError(t, err)
 
-	err = reg.LoadState(ctx, baseline, head)
+	err = reg.LoadState(ctx, hostProvenanced(baseline), head)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "duplicate entry id")
 	require.Contains(t, err.Error(), "crm")
@@ -79,7 +79,7 @@ func TestRegistry_LoadState_RejectsHydratedDuplicateBaselineIDs(t *testing.T) {
 	head, err := reg.Current()
 	require.NoError(t, err)
 
-	err = reg.LoadState(ctx, baseline, head)
+	err = reg.LoadState(ctx, hostProvenanced(baseline), head)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "duplicate entry id")
 }
@@ -102,7 +102,7 @@ func TestRegistry_LoadStateCanonicalizesBaselineWithoutMutatingCaller(t *testing
 	baseline := registry.State{{ID: rawID, Kind: registry.EntryKind}}
 	head, err := reg.Current()
 	require.NoError(t, err)
-	require.NoError(t, reg.LoadState(ctx, baseline, head))
+	require.NoError(t, reg.LoadState(ctx, hostProvenanced(baseline), head))
 
 	stored, err := reg.GetEntry(canonicalID)
 	require.NoError(t, err)

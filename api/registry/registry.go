@@ -173,7 +173,7 @@ type (
 		// ApplyVersion applies a specific version to the registry
 		ApplyVersion(context.Context, Version) error
 		// LoadState initializes registry state from baseline and history without creating new version records
-		LoadState(context.Context, State, Version) error
+		LoadState(context.Context, ProvenancedState, Version) error
 	}
 
 	// OverlayWriter manages process-local registry overlays. Overlay entries

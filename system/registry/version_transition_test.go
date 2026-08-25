@@ -137,7 +137,7 @@ func TestApplyVersion_ComposesTargetHistoryOverImmutableBaseline(t *testing.T) {
 	)
 	baseline := registry.State{{ID: policyID, Kind: "security.policy", Data: payload.New(true)}}
 	v0 := version.FromParent(nil, registry.RootVersion)
-	require.NoError(t, reg.LoadState(ctx, baseline, v0))
+	require.NoError(t, reg.LoadState(ctx, hostProvenanced(baseline), v0))
 
 	overlay := registry.Entry{
 		ID: registry.NewID("workspace.packages", "application"), Kind: registry.NamespaceDependency,
@@ -181,7 +181,7 @@ func TestApplyVersion_ForwardWithSquashing(t *testing.T) {
 	}
 
 	// Load baseline at v0
-	err := reg.LoadState(ctx, baseline, version.FromParent(nil, 0))
+	err := reg.LoadState(ctx, hostProvenanced(baseline), version.FromParent(nil, 0))
 	require.NoError(t, err)
 
 	// Create test entry that will be modified multiple times
@@ -277,7 +277,7 @@ func TestApplyVersion_BackwardWithSquashing(t *testing.T) {
 	}
 
 	// Load baseline at v0
-	err := reg.LoadState(ctx, baseline, version.FromParent(nil, 0))
+	err := reg.LoadState(ctx, hostProvenanced(baseline), version.FromParent(nil, 0))
 	require.NoError(t, err)
 
 	// Create entries across versions
@@ -376,7 +376,7 @@ func TestApplyVersion_BackwardDeletesDependentsBeforeDependencies(t *testing.T) 
 		},
 	}
 	v0 := version.FromParent(nil, 0)
-	err := reg.LoadState(ctx, baseline, v0)
+	err := reg.LoadState(ctx, hostProvenanced(baseline), v0)
 	require.NoError(t, err)
 
 	repoID := registry.NewID("app", "repo")
@@ -438,7 +438,7 @@ func TestApplyVersion_CrossBranchWithSquashing(t *testing.T) {
 	}
 
 	// Load baseline at v0
-	err := reg.LoadState(ctx, baseline, version.FromParent(nil, 0))
+	err := reg.LoadState(ctx, hostProvenanced(baseline), version.FromParent(nil, 0))
 	require.NoError(t, err)
 
 	entryID := registry.NewID("test", "shared")
@@ -531,7 +531,7 @@ func TestApplyVersion_PreservesBaseline(t *testing.T) {
 	}
 
 	// Load baseline at v0
-	err := reg.LoadState(ctx, baseline, version.FromParent(nil, 0))
+	err := reg.LoadState(ctx, hostProvenanced(baseline), version.FromParent(nil, 0))
 	require.NoError(t, err)
 
 	// v1: Add one new entry

@@ -11,9 +11,9 @@ import (
 	"go.uber.org/zap"
 )
 
-func loadEntriesFromLockPaths(ctx context.Context, lockObj *lock.Lock, logger *zap.Logger) ([]regapi.Entry, error) {
+func loadEntriesFromLockPaths(ctx context.Context, lockObj *lock.Lock, logger *zap.Logger) ([]regapi.Entry, regapi.ProvMap, error) {
 	if lockObj == nil {
-		return nil, nil
+		return nil, nil, nil
 	}
 	modulePaths := lockObj.GetModuleLoadPaths()
 	return entries.LoadEntriesFromModuleLoadPaths(ctx, modulePaths, logger)
