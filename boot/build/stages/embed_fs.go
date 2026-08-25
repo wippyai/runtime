@@ -74,6 +74,17 @@ func (s *embedFSStage) Execute(ctx context.Context, entries *[]registry.Entry) e
 		}
 	}
 
+	// A supplied map names every entry the stage attributes; a missing record is
+	// an error, never a host-authored default. The nil map is the documented
+	// single-source build with no module world.
+	if s.prov != nil {
+		for _, entry := range filteredEntries {
+			if _, ok := s.prov[entry.ID]; !ok {
+				return registry.NewMissingProvenanceError(entry.ID)
+			}
+		}
+	}
+
 	res, err := collectResources(ctx, s.moduleRoot, s.prov, filteredEntries, log)
 	if err != nil {
 		return err

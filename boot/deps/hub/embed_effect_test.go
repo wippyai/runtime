@@ -5,6 +5,7 @@ package hub
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -37,6 +38,7 @@ type stubPackRegistry struct {
 	unregistered   []string
 	modulesDropped []droppedModule
 	retargeted     []retargetedModule
+	retargetErr    map[string]error
 	calls          []string
 }
 
@@ -86,6 +88,9 @@ func (s *stubPackRegistry) UnregisterModule(module, version string) error {
 func (s *stubPackRegistry) RetargetModule(module, fromVersion, toVersion string) error {
 	s.retargeted = append(s.retargeted, retargetedModule{module: module, from: fromVersion, to: toVersion})
 	s.calls = append(s.calls, "retarget:"+module+"@"+fromVersion+"->"+toVersion)
+	if err := s.retargetErr[module]; err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -132,6 +137,27 @@ func newEffect(reg embedPackRegistry, staged []stagedPack, obsolete []obsoletePa
 		obsolete: obsolete,
 		logger:   zap.NewNop(),
 	}
+}
+
+func TestEmbedPackEffect_FailedRetargetRetainsTheSupersededPack(t *testing.T) {
+	reg := newStubPackRegistry()
+	reg.retargetErr = map[string]error{"org/broken": errors.New("repoint refused")}
+	eff := newEffect(reg, nil, []obsoletePack{
+		{module: "org/broken", version: "1.0.0"},
+		{module: "org/healthy", version: "1.0.0"},
+	})
+	eff.retarget = []packRetarget{
+		{module: "org/broken", from: "1.0.0", to: "2.0.0"},
+		{module: "org/healthy", from: "1.0.0", to: "2.0.0"},
+	}
+
+	err := eff.Finalize(context.Background())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "repoint refused")
+	assert.Contains(t, err.Error(), "retained embedded pack org/broken@1.0.0")
+
+	assert.Equal(t, []droppedModule{{module: "org/healthy", version: "1.0.0"}}, reg.modulesDropped,
+		"a generation whose consumers still resolve it stays open; unrelated modules still finalize")
 }
 
 func TestEmbedPackEffect_RetargetsConsumersBeforeClosingSupersededPack(t *testing.T) {

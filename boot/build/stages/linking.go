@@ -123,6 +123,14 @@ func (s *linkStage) Execute(ctx context.Context, entries *[]registry.Entry) erro
 	if transcoder == nil {
 		return ErrTranscoderNotFound
 	}
+	if err := s.validateProvenance(*entries); err != nil {
+		return err
+	}
+	if s.explicitDeps {
+		if err := s.validateProvenance(s.dependencyEntries); err != nil {
+			return err
+		}
+	}
 
 	log := logs.GetLogger(ctx)
 	mutator := entry.NewMutator(transcoder)
@@ -542,8 +550,25 @@ func (s *linkStage) findTargetEntries(
 	return results
 }
 
+// validateProvenance enforces the total-map invariant over the entries the
+// stage attributes. A supplied map must name every one of them; a missing
+// record is an error, never a host-authored default. The nil map is the
+// documented single-source build with no module world.
+func (s *linkStage) validateProvenance(entries []registry.Entry) error {
+	if s.provenance == nil {
+		return nil
+	}
+	for _, e := range entries {
+		if _, ok := s.provenance[e.ID]; !ok {
+			return registry.NewMissingProvenanceError(e.ID)
+		}
+	}
+	return nil
+}
+
 // entryModule returns the module owning an entry, empty when the entry is
-// host-authored or the build carries no module world.
+// host-authored or the build carries no module world. Execute has already
+// verified that a supplied map names every entry.
 func (s *linkStage) entryModule(entry registry.Entry) string {
 	return s.provenance[entry.ID].Module
 }

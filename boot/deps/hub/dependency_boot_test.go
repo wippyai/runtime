@@ -536,9 +536,13 @@ modules:
 	require.NoError(t, reg.LoadState(ctx, fixtureState(baseline), baselineVersion))
 	_, err = reg.GetEntry(hostID)
 	require.NoError(t, err)
+	// The fixture entry is resident from an artifact that predates recorded
+	// digests. The baseline reconciliation establishes its artifact identity
+	// from the lock, which the later subtests rely on.
 	hostRecord, ok := reg.EntryProvenance(hostID)
 	require.True(t, ok)
-	require.Empty(t, hostRecord.Digest, "fixture requires a host entry with no resident artifact identity")
+	require.Equal(t, "acme/runtime", hostRecord.Module)
+	require.Equal(t, digests["runtime"], hostRecord.Digest)
 	runner.transitions = nil
 	return reg, runner, baselineVersion, hostID
 }

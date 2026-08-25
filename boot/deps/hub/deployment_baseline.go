@@ -180,14 +180,17 @@ func (h *DependencyHandler) legacyResolutionConflictsWithBaseline(
 	versions := residentModuleVersions(baseline.Prov)
 	digests := residentModuleDigests(baseline.Prov)
 	if h != nil && h.lock != nil {
+		// The lock answers only for a module whose records carry no identity of
+		// their own. It never overrides a resident fact: a replacement resident
+		// at a tree identity the lock does not know is not a conflict.
 		for _, mod := range h.lock.GetModules() {
 			if _, owned := controlled[mod.Name]; !owned {
 				continue
 			}
-			if mod.Version != "" {
+			if _, resident := versions[mod.Name]; !resident && mod.Version != "" {
 				versions[mod.Name] = mod.Version
 			}
-			if mod.Hash != "" {
+			if _, resident := digests[mod.Name]; !resident && mod.Hash != "" {
 				digests[mod.Name] = mod.Hash
 			}
 		}

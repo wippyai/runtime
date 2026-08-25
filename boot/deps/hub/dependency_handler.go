@@ -349,6 +349,19 @@ func (h *DependencyHandler) expand(
 	for id, record := range moduleProv {
 		combinedProv[id] = record
 	}
+	// A declaration this operation introduces is linked before it is resident.
+	// The link stage attributes every entry it is handed, so the declarations
+	// carry the record the operation gives them.
+	for _, dep := range desiredDepEntries {
+		if _, known := combinedProv[dep.ID]; known {
+			continue
+		}
+		if record, known := resident[idKey(dep.ID)]; known {
+			combinedProv[dep.ID] = record
+			continue
+		}
+		combinedProv[dep.ID] = operationProvenance(op, resident)
+	}
 
 	pipeline := build.New(
 		stages.Override(stages.WithMissingOverrideEntriesIgnored()),
@@ -411,6 +424,7 @@ func (h *DependencyHandler) expand(
 	return regapi.DirectiveResult{
 		Applied:    true,
 		Resolution: selectedResolution,
+		Provenance: residentProvenanceAdvance(snapshot, desired, additional, idKey(op.Entry.ID)),
 		Additional: scoped,
 		Effects:    effects,
 	}, nil
@@ -812,6 +826,13 @@ func (h *DependencyHandler) ReconcileResolution(
 	for id, record := range moduleProv {
 		combinedProv[id] = record
 	}
+	// The link stage attributes every entry it is handed, including declarations
+	// this reconciliation replaced with a freshly loaded copy.
+	for _, dep := range desiredDepEntries {
+		if _, known := combinedProv[dep.ID]; !known {
+			combinedProv[dep.ID] = targetProv[idKey(dep.ID)]
+		}
+	}
 
 	pipeline := build.New(
 		stages.Override(stages.WithMissingOverrideEntriesIgnored()),
@@ -866,6 +887,7 @@ func (h *DependencyHandler) ReconcileResolution(
 	return regapi.DirectiveResult{
 		Applied:    true,
 		Resolution: effectiveResolution,
+		Provenance: residentProvenanceAdvance(target, desired, additional, ""),
 		Additional: scoped,
 		Effects:    effects,
 	}, nil

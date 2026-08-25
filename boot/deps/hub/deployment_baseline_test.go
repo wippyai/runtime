@@ -162,3 +162,57 @@ modules:
 	require.Equal(t, 1, manifestCalls[selection{"acme/plugin", "v1.0.0"}])
 	require.Equal(t, 1, manifestCalls[selection{"acme/shared", "v2.0.0"}])
 }
+
+// The lock answers for a module whose records carry no identity of their own.
+// It never overrides one: a replacement resident at a tree identity the lock
+// cannot know is not a conflict with the stored selection.
+func TestLegacyResolutionConflict_LockIsAFallbackNotAnOverride(t *testing.T) {
+	ctx := newTestContext()
+	tmpDir := t.TempDir()
+	lockPath := filepath.Join(tmpDir, "wippy.lock")
+	const (
+		treeDigest = "sha256-tree-v1:1111111111111111111111111111111111111111111111111111111111111111"
+		lockDigest = "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+	)
+	require.NoError(t, os.WriteFile(lockPath, []byte(fmt.Sprintf(`directories:
+  modules: vendor
+modules:
+  - name: acme/local
+    version: v1.0.0
+    hash: %s
+replace:
+  - from: acme/local
+    to: ./local
+`, lockDigest)), 0o600))
+
+	handler, err := NewDependencyHandler(DependencyHandlerOptions{
+		Hub: &fakeHub{}, Logger: zap.NewNop(), LockPath: lockPath,
+		VendorDir: filepath.Join(tmpDir, "vendor"),
+	})
+	require.NoError(t, err)
+
+	root := regapi.Entry{
+		ID: regapi.NewID("app.deps", "local"), Kind: regapi.NamespaceDependency,
+		Data: payload.New(map[string]any{"component": "acme/local", "version": "v1.0.0"}),
+	}
+	service := fixtureOwned(regapi.Entry{
+		ID: regapi.NewID("acme.local", "service"), Kind: "service",
+	}, "acme/local", "v1.0.0", treeDigest)
+	baseline := fixtureState(regapi.State{root, service})
+
+	stored := &regapi.DependencyResolution{
+		Modules: []regapi.ResolvedModule{{Name: "acme/local", Version: "v1.0.0", Digest: treeDigest}},
+	}
+	conflict, err := handler.legacyResolutionConflictsWithBaseline(ctx, baseline, stored, payload.GetTranscoder(ctx))
+	require.NoError(t, err)
+	require.False(t, conflict, "the resident tree identity is authoritative over the lock hash")
+
+	// With no resident digest the lock is the only identity available, and the
+	// stored selection is then judged against it.
+	unrecorded := fixtureState(regapi.State{root, fixtureOwned(regapi.Entry{
+		ID: regapi.NewID("acme.local", "service"), Kind: "service",
+	}, "acme/local", "v1.0.0", "")})
+	conflict, err = handler.legacyResolutionConflictsWithBaseline(ctx, unrecorded, stored, payload.GetTranscoder(ctx))
+	require.NoError(t, err)
+	require.True(t, conflict, "without a resident digest the lock hash decides")
+}

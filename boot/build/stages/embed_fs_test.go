@@ -5,6 +5,7 @@ package stages
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -398,4 +399,51 @@ func moduleProv(module string, ids ...registry.ID) registry.ProvMap {
 		prov[id] = registry.EntryProvenance{Module: module}
 	}
 	return prov
+}
+
+// A supplied provenance map is total over the entries the stage attributes.
+// The nil map is the documented single-source build with no module world.
+func TestEmbedFSProvenanceTotality(t *testing.T) {
+	moduleRoot := t.TempDir()
+	staticDir := filepath.Join(moduleRoot, "static")
+	if err := os.MkdirAll(staticDir, 0o755); err != nil {
+		t.Fatalf("mkdir static dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(staticDir, "index.html"), []byte("<html>ui</html>"), 0o644); err != nil {
+		t.Fatalf("write index.html: %v", err)
+	}
+	t.Chdir(moduleRoot)
+
+	entry := registry.Entry{
+		ID:   registry.NewID("acme.ui", "ui_fs"),
+		Kind: dirapi.Kind,
+		Data: payload.New(map[string]any{"directory": "./static"}),
+	}
+	other := registry.NewID("acme.ui", "other_fs")
+
+	for _, tc := range []struct {
+		prov    registry.ProvMap
+		name    string
+		wantErr bool
+	}{
+		{name: "no module world", prov: nil},
+		{name: "entry named", prov: registry.ProvMap{entry.ID: {}}},
+		{name: "another entry named", prov: registry.ProvMap{other: {Module: "acme/ui"}}, wantErr: true},
+		{name: "empty map names nothing", prov: registry.ProvMap{}, wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := ctxapi.NewRootContext()
+			entries := []registry.Entry{entry}
+			err := EmbedFS("", tc.prov, "ui_fs").Execute(ctx, &entries)
+			if !tc.wantErr {
+				if err != nil {
+					t.Fatalf("execute failed: %v", err)
+				}
+				return
+			}
+			if !errors.Is(err, registry.ErrMissingProvenance) {
+				t.Fatalf("err = %v, want ErrMissingProvenance", err)
+			}
+		})
+	}
 }

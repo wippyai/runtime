@@ -114,9 +114,14 @@ func (e *embedPackEffect) Finalize(_ context.Context) error {
 	// Entries whose content did not change receive no event during the
 	// transition, so filesystems cached for them still serve the superseded
 	// pack. Repointing them precedes closing that pack.
+	retained := make(map[string]struct{})
 	for _, rt := range e.retarget {
 		if err := e.reg.RetargetModule(rt.module, rt.from, rt.to); err != nil {
-			e.logger.Warn("failed to retarget embedded pack consumers",
+			// Consumers still resolve the superseded generation. Its pack stays
+			// open: serving stale files is recoverable, serving a closed reader
+			// is not. Other modules still finalize.
+			retained[rt.module] = struct{}{}
+			e.logger.Warn("failed to retarget embedded pack consumers; retaining the superseded pack",
 				zap.String("module", rt.module),
 				zap.String("from", rt.from),
 				zap.String("to", rt.to),
@@ -125,6 +130,13 @@ func (e *embedPackEffect) Finalize(_ context.Context) error {
 		}
 	}
 	for _, op := range e.obsolete {
+		if _, keep := retained[op.module]; keep {
+			errs = append(errs, fmt.Errorf(
+				"retained embedded pack %s@%s: consumers still resolve the superseded generation",
+				op.module, op.version,
+			))
+			continue
+		}
 		if err := e.reg.UnregisterModule(op.module, op.version); err != nil {
 			// The changeset is already durable, so callers only report this as a
 			// cleanup warning. Return it for observability instead of pretending

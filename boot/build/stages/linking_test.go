@@ -154,6 +154,9 @@ func TestLink_ExplicitDependenciesOverride(t *testing.T) {
 	}
 
 	prov := registry.ProvMap{}
+	// Explicit dependencies are linked without being resident, so the fixture
+	// declares their provenance too.
+	linkFixtureProvenance(prov, &explicitDeps)
 	stage := Link(prov, WithDependencies(explicitDeps))
 	err := executeLinkFixture(ctx, &entries, stage, prov)
 	require.NoError(t, err)

@@ -2657,6 +2657,92 @@ func TestDependencyInputDigestCoversSolverInputsNotLinkParameters(t *testing.T) 
 	require.NotEqual(t, dependencyInputDigest([]desiredDependency{root}), dependencyInputDigest([]desiredDependency{changedRange}))
 }
 
+// A version bump whose artifact ships byte-identical entries must move the
+// resident records without touching a single entry, so the next reconciliation
+// finds resident and selected already equal and reloads nothing.
+func TestDependencyHandler_IdenticalContentBumpAdvancesResidentRecordsWithoutOperations(t *testing.T) {
+	ctx := newTestContext()
+	vendorDir := t.TempDir()
+	packed := []wapp.Entry{{
+		ID:   wapp.NewID("acme.widget", "service"),
+		Kind: "process.lua",
+		Data: map[string]any{"value": "same"},
+	}}
+	writeWapp(t, filepath.Join(vendorDir, "acme", "widget-1.0.0.wapp"), packed)
+	writeWapp(t, filepath.Join(vendorDir, "acme", "widget-2.0.0.wapp"), packed)
+	digest := "sha256:" + hex.EncodeToString(func() []byte {
+		sum := sha256.Sum256(buildWappBytes(t, packed))
+		return sum[:]
+	}())
+
+	handler, err := NewDependencyHandler(DependencyHandlerOptions{
+		Hub: &fakeHub{
+			getManifest: func(_ context.Context, org, module, version string) (*ModuleManifest, error) {
+				return &ModuleManifest{Org: org, Name: module, Version: version, Digest: digest}, nil
+			},
+		},
+		Logger:    zap.NewNop(),
+		VendorDir: vendorDir,
+	})
+	require.NoError(t, err)
+
+	serviceID := regapi.NewID("acme.widget", "service")
+	oldDep := regapi.Entry{
+		ID:   regapi.NewID("app.deps", "widget"),
+		Kind: regapi.NamespaceDependency,
+		Data: payload.NewPayload(`{"component":"acme/widget","version":"1.0.0"}`, payload.JSON),
+	}
+	newDep := regapi.Entry{
+		ID:   oldDep.ID,
+		Kind: regapi.NamespaceDependency,
+		Data: payload.NewPayload(`{"component":"acme/widget","version":"2.0.0"}`, payload.JSON),
+	}
+	resident := fixtureState(regapi.State{
+		oldDep,
+		fixtureOwned(regapi.Entry{
+			ID:   serviceID,
+			Kind: "process.lua",
+			Data: payload.New(map[string]any{"value": "same"}),
+		}, "acme/widget", "1.0.0", digest),
+	})
+
+	result, err := handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryUpdate, Entry: newDep}, resident)
+	require.NoError(t, err)
+	require.True(t, result.Applied)
+
+	for _, scoped := range result.Additional {
+		require.NotEqual(t, serviceID, scoped.Operation.Entry.ID,
+			"a byte-identical artifact must not produce an entry operation")
+	}
+	require.Equal(t, regapi.EntryProvenance{Module: "acme/widget", Version: "2.0.0", Digest: digest},
+		result.Provenance[serviceID], "the resident record moves without an event")
+
+	// The registry publishes that record with the state. Reconciling the stored
+	// selection over the advanced state changes nothing.
+	advanced := regapi.ProvenancedState{Entries: applyOperationToState(resident, regapi.Operation{
+		Kind: regapi.EntryUpdate, Entry: newDep,
+	}, provByKey(resident.Prov)).Entries, Prov: resident.Prov.Clone()}
+	for id, record := range result.Provenance {
+		advanced.Prov[id] = record
+	}
+
+	assert.Equal(t, "1.0.0", residentModuleVersions(resident.Prov)["acme/widget"])
+	assert.Equal(t, "2.0.0", residentModuleVersions(advanced.Prov)["acme/widget"],
+		"the resident fold now names the selected artifact")
+
+	settled, err := handler.ReconcileResolution(ctx, advanced, advanced, result.Resolution)
+	require.NoError(t, err)
+	assert.Empty(t, settled.Additional, "resident already matches the selection")
+	assert.Empty(t, settled.Provenance, "no record is left to move")
+
+	// The same operation over a state that never received the advance still has
+	// identity work to do — the divergence the advance exists to close.
+	stale := regapi.ProvenancedState{Entries: resident.Entries, Prov: resident.Prov.Clone()}
+	behind, err := handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryUpdate, Entry: newDep}, stale)
+	require.NoError(t, err)
+	assert.NotEmpty(t, behind.Provenance, "a stale resident record is reported again on every attempt")
+}
+
 func TestDependencyHandler_ExpandUpdateRootDependencyReplacesSameIDModuleEntries(t *testing.T) {
 	ctx := newTestContext()
 	vendorDir := t.TempDir()

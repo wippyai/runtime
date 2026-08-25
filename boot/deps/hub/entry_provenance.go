@@ -127,6 +127,53 @@ func residentModuleDigests(prov regapi.ProvMap) map[string]string {
 	return digests
 }
 
+// residentProvenanceAdvance returns the resident records that move for entries
+// no operation touches. A module update whose entries are byte-identical
+// produces no operation, yet its artifact identity did move: reporting it here
+// advances the resident record with no entry event, so the next reconciliation
+// compares an identity matching the selection and does not reload.
+//
+// An entry the planner deliberately left resident while its desired content
+// differs is excluded: its bytes still come from the old artifact, so its
+// record must keep naming that artifact.
+func residentProvenanceAdvance(
+	current, desired regapi.ProvenancedState,
+	ops []regapi.Operation,
+	skipKey string,
+) regapi.ProvMap {
+	touched := make(map[string]struct{}, len(ops))
+	for _, op := range ops {
+		touched[idKey(op.Entry.ID)] = struct{}{}
+	}
+	currentEntries := entriesByID(current.Entries)
+	currentProv := provByKey(current.Prov)
+	desiredProv := provByKey(desired.Prov)
+
+	var advance regapi.ProvMap
+	for _, entry := range desired.Entries {
+		key := idKey(entry.ID)
+		if key == skipKey {
+			continue
+		}
+		if _, changed := touched[key]; changed {
+			continue
+		}
+		resident, ok := currentEntries[key]
+		if !ok {
+			continue
+		}
+		record := desiredProv[key]
+		if record == currentProv[key] || !entriesEqual(resident, entry) {
+			continue
+		}
+		if advance == nil {
+			advance = make(regapi.ProvMap)
+		}
+		advance[entry.ID] = record
+	}
+	return advance
+}
+
 // loadedProvenance is an ownership claim made while loading module artifacts:
 // the record itself plus whether the claiming source is a local replacement.
 type loadedProvenance struct {
