@@ -169,8 +169,7 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	}
 
 	m.mu.Lock()
-	svc, exists := m.scopes[entry.ID]
-	if !exists {
+	if _, exists := m.scopes[entry.ID]; !exists {
 		m.mu.Unlock()
 		return NewScopeNotFoundError(entry.ID.String())
 	}
@@ -199,13 +198,9 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 		Data:   entry.ID,
 	})
 
-	// Stop the service
-	if err := svc.Stop(ctx); err != nil {
-		m.log.Warn("failed to stop pg scope cleanly",
-			zap.String("id", entry.ID.String()),
-			zap.Error(err),
-		)
-	}
+	// The supervisor owns the scope lifecycle: ServiceRemove above stops it on
+	// commit, and an update that re-registers a replacement in the same
+	// transaction retires it there.
 
 	m.log.Info("pg scope deleted",
 		zap.String("id", entry.ID.String()),

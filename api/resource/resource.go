@@ -20,6 +20,15 @@ const (
 	Register event.Kind = "resource.register"
 	Update   event.Kind = "resource.update"
 	Delete   event.Kind = "resource.delete"
+
+	// Accept and Reject report the outcome of a register, update or delete
+	// once the registry has applied it. A caller that must not proceed until
+	// the registry serves the new provider awaits these; the registry publishes
+	// them whether or not anyone is listening. The event path is the
+	// operation's Entry.OpID when it carries one, so an outcome identifies the
+	// operation it belongs to rather than only the resource.
+	Accept event.Kind = "resource.accept"
+	Reject event.Kind = "resource.reject"
 )
 
 // AccessMode constants.
@@ -37,6 +46,14 @@ type (
 		Provider Provider
 		Meta     attrs.Bag
 		ID       registry.ID
+
+		// OpID correlates this operation with the Accept or Reject reporting
+		// its outcome, which the registry publishes under OpID as the event
+		// path. A caller that waits for the outcome sets a unique value so a
+		// reply can never be confused with one for another operation on the
+		// same resource. Leaving it empty keeps the outcome published under the
+		// resource path, for callers that do not wait.
+		OpID string
 	}
 
 	// Resource provides controlled access to a resource instance.

@@ -150,7 +150,7 @@ func TestManager_AddUnsupportedKind(t *testing.T) {
 
 func TestManager_Update(t *testing.T) {
 	mgr, bus := newTestManager(t)
-	ctx := context.Background()
+	ctx := ackCtx()
 
 	storeID := registry.NewID("test", "sqlcache")
 	dbID := registry.NewID("db", "primary")
@@ -166,9 +166,11 @@ func TestManager_Update(t *testing.T) {
 	require.NoError(t, err)
 
 	events := bus.getEvents()
-	require.Len(t, events, 1)
-	assert.Equal(t, supervisor.System, events[0].System)
-	assert.Equal(t, supervisor.ServiceUpdate, events[0].Kind)
+	require.Len(t, events, 2)
+	assert.Equal(t, resource.System, events[0].System)
+	assert.Equal(t, resource.Update, events[0].Kind)
+	assert.Equal(t, supervisor.System, events[1].System)
+	assert.Equal(t, supervisor.ServiceRegister, events[1].Kind)
 }
 
 func TestManager_UpdateNotFound(t *testing.T) {
