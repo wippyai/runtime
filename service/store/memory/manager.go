@@ -148,7 +148,18 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 		},
 	})
 
-	// Resource registration is already in place, no need to re-register
+	// Point the resource registry at the new store; the old one is stopped and
+	// its Acquire now reports resource.ErrReleased
+	m.bus.Send(ctx, event.Event{
+		System: resource.System,
+		Kind:   resource.Update,
+		Path:   entry.ID.String(),
+		Data: resource.Entry{
+			ID:       entry.ID,
+			Provider: newStore,
+			Meta:     entry.Meta,
+		},
+	})
 
 	m.log.Info("updated memory store",
 		zap.String("id", entry.ID.String()),

@@ -125,6 +125,12 @@ func (m *RaftManager) Update(ctx context.Context, entry registry.Entry) error {
 		Path:   entry.ID.String(),
 		Data:   &supervisor.Entry{Service: st, Config: cfg.Lifecycle},
 	})
+	m.bus.Send(ctx, event.Event{
+		System: resource.System,
+		Kind:   resource.Update,
+		Path:   entry.ID.String(),
+		Data:   resource.Entry{ID: entry.ID, Provider: st, Meta: entry.Meta},
+	})
 	m.log.Info("updated store.kv.raft", zap.String("id", entry.ID.String()))
 	return nil
 }

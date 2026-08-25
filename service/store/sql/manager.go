@@ -141,6 +141,18 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 		},
 	})
 
+	// Point the resource registry at the new store; the old one is stopped
+	m.bus.Send(ctx, event.Event{
+		System: resource.System,
+		Kind:   resource.Update,
+		Path:   entry.ID.String(),
+		Data: resource.Entry{
+			ID:       entry.ID,
+			Provider: newStore,
+			Meta:     entry.Meta,
+		},
+	})
+
 	m.log.Info("updated SQL store",
 		zap.String("id", entry.ID.String()),
 		zap.String("table", cfg.TableName))
