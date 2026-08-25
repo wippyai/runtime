@@ -12,9 +12,9 @@ import (
 // registry can reconstruct the provenance of a partially compensated state
 // instead of guessing from the map it published before the transition.
 type RollbackOutcome struct {
-	mu        sync.Mutex
 	surviving []Operation
 	errs      []error
+	mu        sync.Mutex
 }
 
 // Record notes one accepted operation's compensation attempt. A failed
