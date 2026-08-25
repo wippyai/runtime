@@ -2,7 +2,7 @@ module github.com/wippyai/runtime
 
 // SPDX-License-Identifier: MPL-2.0
 
-go 1.26.5
+go 1.26.6
 
 require (
 	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.12-20260709200747-435963d16310.1
@@ -95,7 +95,7 @@ require (
 	google.golang.org/grpc v1.83.0
 	google.golang.org/protobuf v1.36.12
 	gopkg.in/yaml.v3 v3.0.1
-	tailscale.com v1.102.2
+	tailscale.com v1.102.3
 )
 
 require (
