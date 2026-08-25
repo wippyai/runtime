@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/system/registry/topology"
@@ -129,15 +130,21 @@ func (r *Reg) ResidentModules() (map[string]registry.EntryProvenance, error) {
 		return nil, nil
 	}
 	out := make(map[string]registry.EntryProvenance)
+	conflict := ""
 	for _, p := range *snap {
 		if p.Module == "" {
 			continue
 		}
 		if resident, ok := out[p.Module]; ok &&
 			(resident.Version != p.Version || resident.Digest != p.Digest) {
-			return nil, registry.NewConflictingModuleProvenanceError(p.Module)
+			if conflict == "" || p.Module < conflict {
+				conflict = p.Module
+			}
 		}
 		out[p.Module] = registry.EntryProvenance{Module: p.Module, Version: p.Version, Digest: p.Digest}
+	}
+	if conflict != "" {
+		return nil, registry.NewConflictingModuleProvenanceError(conflict)
 	}
 	return out, nil
 }
@@ -154,6 +161,9 @@ func (r *Reg) DependencyRoots() []registry.ID {
 			roots = append(roots, id)
 		}
 	}
+	sort.Slice(roots, func(i, j int) bool {
+		return roots[i].String() < roots[j].String()
+	})
 	return roots
 }
 

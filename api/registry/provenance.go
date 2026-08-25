@@ -4,20 +4,22 @@ package registry
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"sort"
 )
 
 // ErrMissingProvenance reports a state entry without a provenance record — a
 // violation of the ProvMap total-map invariant.
-var ErrMissingProvenance = fmt.Errorf("entry has no provenance record")
+var ErrMissingProvenance = errors.New("entry has no provenance record")
 
 // ErrOrphanedProvenance reports a provenance record without a corresponding
 // state entry — also a violation of the one-record-per-entry invariant.
-var ErrOrphanedProvenance = fmt.Errorf("provenance record has no entry")
+var ErrOrphanedProvenance = errors.New("provenance record has no entry")
 
 // ErrConflictingModuleProvenance reports entries that attribute one module to
 // different resident artifact identities.
-var ErrConflictingModuleProvenance = fmt.Errorf("module has conflicting provenance records")
+var ErrConflictingModuleProvenance = errors.New("module has conflicting provenance records")
 
 // NewMissingProvenanceError names the entry that violates the total-map
 // invariant.
@@ -106,10 +108,17 @@ func (s ProvenancedState) Validate() error {
 		}
 		modules[p.Module] = p
 	}
+	orphaned := make([]ID, 0)
 	for id := range s.Prov {
 		if _, ok := entries[id]; !ok {
-			return NewOrphanedProvenanceError(id)
+			orphaned = append(orphaned, id)
 		}
+	}
+	if len(orphaned) != 0 {
+		sort.Slice(orphaned, func(i, j int) bool {
+			return orphaned[i].String() < orphaned[j].String()
+		})
+		return NewOrphanedProvenanceError(orphaned[0])
 	}
 	return nil
 }
