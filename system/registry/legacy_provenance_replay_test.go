@@ -12,7 +12,6 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/hashicorp/go-msgpack/v2/codec"
 	"github.com/stretchr/testify/require"
@@ -157,7 +156,7 @@ func TestLoadStatePromotesLegacyDependencyRootPostgres(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	schema := fmt.Sprintf("wippy_legacy_root_%d_%d", os.Getpid(), time.Now().UnixNano())
+	schema := fmt.Sprintf("wippy_registry_legacy_root_%d", os.Getpid())
 	baseline, dependencyID, v1, legacyRow := legacyDependencyRootReplay(t)
 
 	history, err := historypostgres.NewPostgres(dsn, schema, zap.NewNop())

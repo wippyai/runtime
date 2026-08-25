@@ -1244,6 +1244,9 @@ func (r *Reg) enrichChangeset(changes registry.ChangeSet) registry.ChangeSet {
 	enriched := make(registry.ChangeSet, len(changes))
 	for i, op := range changes {
 		enriched[i] = op
+		// DependencyRoot remains decodable for legacy replay but is not part of
+		// the current durable entry format; root state lives in provenance.
+		enriched[i].Entry.DependencyRoot = false
 		switch op.Kind {
 		case registry.EntryUpdate, registry.EntryDelete:
 			if originalEntry, exists := stateMap[op.Entry.ID]; exists {
@@ -1253,6 +1256,11 @@ func (r *Reg) enrichChangeset(changes registry.ChangeSet) registry.ChangeSet {
 					zap.String("operation", op.Kind),
 					zap.String("entry_id", op.Entry.ID.String()))
 			}
+		}
+		if enriched[i].OriginalEntry != nil {
+			originalEntry := *enriched[i].OriginalEntry
+			originalEntry.DependencyRoot = false
+			enriched[i].OriginalEntry = &originalEntry
 		}
 	}
 

@@ -27,7 +27,8 @@ func TestWire_LegacyRowDecodes(t *testing.T) {
 	legacy := []legacyEncodedOperation{{
 		Kind: registry.EntryUpdate,
 		Entry: encodedEntry{
-			ID: registry.NewID("test", "cache"), Kind: registry.NamespaceDependency,
+			ID:             registry.NewID("test", "cache"),
+			Kind:           registry.NamespaceDependency,
 			DependencyRoot: true,
 		},
 	}}

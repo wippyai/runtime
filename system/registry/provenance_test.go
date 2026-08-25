@@ -252,13 +252,22 @@ func TestApplyPublishesProvenanceWithState(t *testing.T) {
 }
 
 func TestApplyIgnoresLegacyDependencyRootFlag(t *testing.T) {
-	reg, runner := newTestRegistry(t)
-	id := registry.NewID("app.requirements", "module")
-	runner.RunFunc = func(_ registry.State, cs registry.ChangeSet) (registry.State, error) {
-		return registry.State{cs[0].Entry}, nil
+	history := historymem.New()
+	require.NoError(t, history.Save(version.New(registry.RootVersion), nil, true))
+	newRegistry := func() *Reg {
+		resolver := topology.NewResolver()
+		return NewRegistry(
+			history,
+			NewTestRunner(),
+			topology.NewStateBuilder(zap.NewNop(), resolver),
+			resolver,
+			zap.NewNop(),
+		)
 	}
+	reg := newRegistry()
+	id := registry.NewID("app.requirements", "module")
 
-	_, err := reg.Apply(t.Context(), registry.ChangeSet{{
+	v1, err := reg.Apply(t.Context(), registry.ChangeSet{{
 		Kind: registry.EntryCreate,
 		Entry: registry.Entry{
 			ID:             id,
@@ -271,6 +280,10 @@ func TestApplyIgnoresLegacyDependencyRootFlag(t *testing.T) {
 	record, ok := reg.EntryProvenance(id)
 	require.True(t, ok)
 	assert.False(t, record.Root)
+
+	restarted := newRegistry()
+	require.NoError(t, restarted.LoadState(t.Context(), registry.ProvenancedState{}, v1))
+	require.Empty(t, restarted.DependencyRoots(), "a current persisted operation is not legacy on replay")
 }
 
 // TestUserUpdatePreservesProvenance pins the echo-back rule: a user operation
