@@ -37,9 +37,9 @@ func TestExecutor_Execute(t *testing.T) {
 		{
 			name:    "invalid command",
 			command: "invalidcommand",
-			wantErr: assert.ErrorAssertionFunc(func(t assert.TestingT, err error, _ ...any) bool {
+			wantErr: func(t assert.TestingT, err error, _ ...any) bool {
 				return assert.ErrorContains(t, err, "not found")
-			}),
+			},
 		},
 	}
 
