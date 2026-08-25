@@ -109,6 +109,13 @@ func (m *RaftManager) Update(ctx context.Context, entry registry.Entry) error {
 	if err != nil {
 		return err
 	}
+	// The bus drops sends on a cancelled context, which would leave the
+	// supervisor and the resource registry holding the superseded view with
+	// nothing to correct them. Fail the operation so the registry transaction
+	// rolls back instead.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	st := NewStoreWithInfo(entry.ID, cfg.Namespace, m.engine, m.dtt, m.log, store.Info{
 		Backend:        store.BackendKVRaft,
 		Consistency:    store.ConsistencyLinearizable,
@@ -119,9 +126,13 @@ func (m *RaftManager) Update(ctx context.Context, entry registry.Entry) error {
 		TTL:            true,
 	})
 	m.stores[entry.ID] = st
+	// ServiceRegister is the supervisor's handover verb: it retires the
+	// controller holding the superseded view and starts the replacement.
+	// ServiceUpdate is the supervisor's own outbound state notification and has
+	// no inbound handler.
 	m.bus.Send(ctx, event.Event{
 		System: supervisor.System,
-		Kind:   supervisor.ServiceUpdate,
+		Kind:   supervisor.ServiceRegister,
 		Path:   entry.ID.String(),
 		Data:   &supervisor.Entry{Service: st, Config: cfg.Lifecycle},
 	})

@@ -110,8 +110,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	store, exists := m.stores[entry.ID]
-	if !exists {
+	if _, exists := m.stores[entry.ID]; !exists {
 		return storesvc.NewStoreNotFoundError(entry.ID.String())
 	}
 
@@ -121,26 +120,29 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 		return err
 	}
 
-	// We can't update running store configuration, so we need to recreate it
-	// First stop the current store
-	stopCtx, cancel := context.WithTimeout(ctx, cfg.Lifecycle.StopTimeout)
-	defer cancel()
-
-	if err := store.Stop(stopCtx); err != nil {
-		m.log.Warn("failed to stop store cleanly during update",
-			zap.String("id", entry.ID.String()),
-			zap.Error(err))
+	// The bus drops sends on a cancelled context, which would leave the
+	// supervisor and the resource registry holding the superseded store with
+	// nothing to correct them. Fail the operation so the registry transaction
+	// rolls back instead.
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 
-	// Create new store with updated config
+	// Running store configuration cannot change in place, so the entry update
+	// installs a replacement. The superseded store keeps serving acquisitions
+	// until the supervisor retires it, so no acquisition lands on a stopped
+	// store.
 	newStore := NewStore(entry.ID, cfg, m.log)
 	newStore.coll = m.coll
 	m.stores[entry.ID] = newStore
 
-	// Update supervisor entry
+	// ServiceRegister is the supervisor's handover verb: it retires the
+	// controller holding the superseded store and starts the replacement.
+	// ServiceUpdate is the supervisor's own outbound state notification and has
+	// no inbound handler.
 	m.bus.Send(ctx, event.Event{
 		System: supervisor.System,
-		Kind:   supervisor.ServiceUpdate,
+		Kind:   supervisor.ServiceRegister,
 		Path:   entry.ID.String(),
 		Data: &supervisor.Entry{
 			Service: newStore,
@@ -148,8 +150,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 		},
 	})
 
-	// Point the resource registry at the new store; the old one is stopped and
-	// its Acquire now reports resource.ErrReleased
+	// Point the resource registry at the replacement
 	m.bus.Send(ctx, event.Event{
 		System: resource.System,
 		Kind:   resource.Update,

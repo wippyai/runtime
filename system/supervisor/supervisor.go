@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"sort"
 	"sync"
 	"time"
@@ -631,6 +632,15 @@ func (s *Supervisor) execute(ctx context.Context, tx *regTx) (err error) {
 	registerIDs := sortedRegisterIDs(tx.register)
 	removeIDs := sortedRemoveIDs(tx.remove)
 
+	// A registration for an ID that already has a controller carries a
+	// replacement instance whenever its manager rebuilt the service. The
+	// controller owns the superseded instance, so it is retired here and the
+	// create pass below adopts the replacement; without this the registration
+	// is dropped and the supervisor keeps supervising the superseded object.
+	if err := s.retireReplacedControllers(ctx, tx, registerIDs); err != nil {
+		return err
+	}
+
 	// Mutate controller registry under lock, then run potentially long transitions
 	// lock-free so state readers are never blocked behind start/stop timeouts.
 	created := make(map[string]*Controller, len(registerIDs))
@@ -712,6 +722,87 @@ func (s *Supervisor) execute(ctx context.Context, tx *regTx) (err error) {
 	s.mu.Unlock()
 
 	return nil
+}
+
+// retireReplacedControllers stops and drops the controllers whose incoming
+// registration carries a different service instance. Services re-registered
+// with the instance they already supervise keep running untouched.
+func (s *Supervisor) retireReplacedControllers(
+	ctx context.Context,
+	tx *regTx,
+	registerIDs []string,
+) error {
+	controllers := s.snapshotControllers()
+
+	replaced := make([]string, 0, len(registerIDs))
+	for _, id := range registerIDs {
+		ctrl, exists := controllers[id]
+		if !exists {
+			continue
+		}
+		if sameServiceInstance(ctrl.Service(), tx.register[id].Service) {
+			continue
+		}
+		replaced = append(replaced, id)
+	}
+
+	if len(replaced) == 0 {
+		return nil
+	}
+
+	operations := make([]operation, 0, len(replaced))
+	for _, id := range replaced {
+		deps, err := s.resolveDependencies(controllers, id)
+		if err != nil {
+			return NewDependencyResolveError(id, err)
+		}
+		operations = append(operations, operation{
+			kind:         opStop,
+			id:           id,
+			controller:   controllers[id],
+			dependencies: deps,
+		})
+	}
+
+	if err := s.runTransition(ctx, operations); err != nil {
+		return NewTransitionError(err)
+	}
+
+	s.mu.Lock()
+	for _, id := range replaced {
+		if s.controllers[id] == controllers[id] {
+			delete(s.controllers, id)
+		}
+	}
+	s.mu.Unlock()
+
+	for _, id := range replaced {
+		s.logger.Info("service instance replaced", zap.String("serviceID", id))
+	}
+
+	return nil
+}
+
+// sameServiceInstance reports whether two registrations refer to the same
+// underlying service object. Anything that cannot be proven identical is
+// treated as a replacement, since retaining a superseded instance is the
+// failure this guards against.
+func sameServiceInstance(a, b supervisor.Service) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+
+	va, vb := reflect.ValueOf(a), reflect.ValueOf(b)
+	if va.Type() != vb.Type() {
+		return false
+	}
+
+	switch va.Kind() {
+	case reflect.Pointer, reflect.UnsafePointer, reflect.Chan, reflect.Map:
+		return va.Pointer() == vb.Pointer()
+	default:
+		return false
+	}
 }
 
 func (s *Supervisor) buildStartOperations(

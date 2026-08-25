@@ -168,7 +168,7 @@ func TestManager_Update(t *testing.T) {
 	events := bus.getEvents()
 	require.Len(t, events, 2)
 	assert.Equal(t, supervisor.System, events[0].System)
-	assert.Equal(t, supervisor.ServiceUpdate, events[0].Kind)
+	assert.Equal(t, supervisor.ServiceRegister, events[0].Kind)
 	assert.Equal(t, resource.System, events[1].System)
 	assert.Equal(t, resource.Update, events[1].Kind)
 }
