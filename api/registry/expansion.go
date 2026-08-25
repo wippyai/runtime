@@ -24,9 +24,13 @@ type ScopedOperation struct {
 type DirectiveResult struct {
 	OriginalScope *Scope
 	Resolution    *DependencyResolution
-	Additional    []ScopedOperation
-	Effects       []Effect
-	Applied       bool
+	// Provenance updates resident records for entries the directive emits no
+	// operation for: a module version bump whose entries are byte-identical
+	// advances their resident identity here, with no entry event.
+	Provenance ProvMap
+	Additional []ScopedOperation
+	Effects    []Effect
+	Applied    bool
 }
 
 // ResolutionDirective restores derived state from the exact dependency graph

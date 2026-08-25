@@ -755,17 +755,18 @@ func TestSQLitePersistence_OriginalEntry(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	rootProv := &registry.EntryProvenance{Root: true}
 	v2, err := reg.Apply(ctx, registry.ChangeSet{
 		{Kind: registry.EntryUpdate, Entry: registry.Entry{
-			ID: entryID, Kind: "service", Data: payload.NewString("v2"), DependencyRoot: true,
-		}},
+			ID: entryID, Kind: "service", Data: payload.NewString("v2"),
+		}, Provenance: rootProv},
 	})
 	require.NoError(t, err)
 
 	_, err = reg.Apply(ctx, registry.ChangeSet{
 		{Kind: registry.EntryUpdate, Entry: registry.Entry{
-			ID: entryID, Kind: "service", Data: payload.NewString("v3"), DependencyRoot: true,
-		}},
+			ID: entryID, Kind: "service", Data: payload.NewString("v3"),
+		}, Provenance: rootProv},
 	})
 	require.NoError(t, err)
 
@@ -780,14 +781,15 @@ func TestSQLitePersistence_OriginalEntry(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, cs1, 1)
 	assert.Nil(t, cs1[0].OriginalEntry, "Create operation should not have OriginalEntry")
-	assert.True(t, cs1[0].Entry.DependencyRoot, "root provenance must survive SQLite persistence")
+	assert.False(t, cs1[0].Entry.DependencyRoot, "entry payloads never carry the deployment-root flag")
 
 	cs2, err := hist2.Get(v2)
 	require.NoError(t, err)
 	require.Len(t, cs2, 1)
 	require.NotNil(t, cs2[0].OriginalEntry, "Update operation MUST have OriginalEntry after loading from SQLite")
 	assert.Equal(t, "v1", cs2[0].OriginalEntry.Data.Data().(string), "OriginalEntry should contain v1 data")
-	assert.True(t, cs2[0].OriginalEntry.DependencyRoot, "original root provenance must survive SQLite persistence")
+	require.NotNil(t, cs2[0].Provenance, "operation provenance must survive SQLite persistence")
+	assert.True(t, cs2[0].Provenance.Root, "root provenance must survive SQLite persistence")
 
 	runner2 := &testRunner{}
 	builder2 := topology.NewStateBuilder(logger, nil)

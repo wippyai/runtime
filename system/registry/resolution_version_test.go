@@ -130,17 +130,19 @@ func TestResolutionChangeIsDigestInequality(t *testing.T) {
 	assert.Equal(t, second.Digest, reg.currentResolution.Digest)
 }
 
-// resolutionOnlyDirective returns a changed resolution and no module
-// operations — the shape of a module version bump whose entries are
-// byte-identical.
+// resolutionOnlyDirective returns a changed resolution and resident-record
+// updates with no module operations — the shape of a module version bump
+// whose entries are byte-identical.
 type resolutionOnlyDirective struct {
 	resolution *registry.DependencyResolution
+	resident   registry.ProvMap
 }
 
 func (d resolutionOnlyDirective) Expand(_ context.Context, op registry.Operation, _ registry.ProvenancedState) (registry.DirectiveResult, error) {
 	return registry.DirectiveResult{
 		Applied:    true,
 		Resolution: d.resolution,
+		Provenance: d.resident,
 		Additional: []registry.ScopedOperation{{Operation: op, Scope: registry.ScopeHistory}},
 	}, nil
 }
@@ -186,9 +188,13 @@ func TestIdenticalContentVersionBumpTouchesNoResidentEntry(t *testing.T) {
 	require.True(t, ok)
 
 	// The bump: the declaration changes, the module's entries are identical,
-	// so the directive emits the declaration update and the new resolution —
-	// nothing for the resident store entry.
-	reg.directivesByKind["dep.kind"] = []registry.Directive{resolutionOnlyDirective{resolution: second}}
+	// so the directive emits the declaration update, the new resolution, and
+	// the resident-record advance — no operation for the store entry.
+	bumped := registry.EntryProvenance{Module: "acme/mod", Version: "1.0.1", Digest: "sha256:b"}
+	reg.directivesByKind["dep.kind"] = []registry.Directive{resolutionOnlyDirective{
+		resolution: second,
+		resident:   registry.ProvMap{storeID: bumped},
+	}}
 	runner := reg.runner.(*MockRunner)
 	var dispatched registry.ChangeSet
 	prevRun := runner.RunFunc
@@ -211,5 +217,6 @@ func TestIdenticalContentVersionBumpTouchesNoResidentEntry(t *testing.T) {
 	}
 	storeProvAfter, ok := reg.EntryProvenance(storeID)
 	require.True(t, ok)
-	assert.Equal(t, storeProvBefore, storeProvAfter)
+	assert.NotEqual(t, storeProvBefore, storeProvAfter, "the resident record advances with the bump")
+	assert.Equal(t, bumped, storeProvAfter)
 }

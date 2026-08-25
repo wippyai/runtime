@@ -104,12 +104,14 @@ func TestWire_EmittedKeys(t *testing.T) {
 	var raw []map[string]any
 	require.NoError(t, codec.NewDecoder(bytes.NewReader(buf.Bytes()), handle).Decode(&raw))
 	require.Len(t, raw, 1)
-	require.Contains(t, raw[0], "Provenance")
-	require.Contains(t, raw[0], "OriginalProvenance")
-	require.Nil(t, raw[0]["OriginalProvenance"], "an absent pair half is emitted nil, matching OriginalEntry")
+	require.Contains(t, raw[0], "prov")
+	require.NotContains(t, raw[0], "oprov", "an absent pair half is omitted")
 	require.Contains(t, raw[0], "Entry")
 	require.Contains(t, raw[0], "Kind")
-	prov, ok := raw[0]["Provenance"].(map[string]any)
+	entry, ok := raw[0]["Entry"].(map[string]any)
+	require.True(t, ok)
+	require.NotContains(t, entry, "DependencyRoot", "new rows never write the dead root flag")
+	prov, ok := raw[0]["prov"].(map[string]any)
 	require.True(t, ok)
 	require.Equal(t, map[string]any{"module": "org/mod"}, prov, "provenance serializes under its json tags with empty fields omitted")
 

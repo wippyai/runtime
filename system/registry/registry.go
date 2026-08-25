@@ -169,6 +169,7 @@ func (r *Reg) Apply(ctx context.Context, changes registry.ChangeSet) (registry.V
 		baseVersion       registry.Version
 		resolution        *registry.DependencyResolution
 		resolutionChanged bool
+		planProvenance    registry.ProvMap
 	)
 
 	r.mu.RLock()
@@ -194,6 +195,7 @@ func (r *Reg) Apply(ctx context.Context, changes registry.ChangeSet) (registry.V
 		}
 
 		allOps, historyOps = plan.SplitScopes()
+		planProvenance = plan.Provenance
 		if plan.Resolution != nil {
 			candidate := plan.Resolution.Canonical()
 			if resolution == nil || candidate.Digest != resolution.Digest {
@@ -237,6 +239,9 @@ func (r *Reg) Apply(ctx context.Context, changes registry.ChangeSet) (registry.V
 	}
 
 	newProv := applyOpsToProvenance(liveProv, allOps)
+	for id, record := range planProvenance {
+		newProv[canonicalEntryID(id)] = record
+	}
 	annotateChangeSet(allOps, liveProv, newProv)
 
 	r.mu.Lock()
@@ -249,8 +254,9 @@ func (r *Reg) Apply(ctx context.Context, changes registry.ChangeSet) (registry.V
 		return nil, NewConcurrentApplyError(baseVersion.ID(), r.currentVersion.ID())
 	}
 
+	provenanceAdvanced := len(planProvenance) > 0
 	var newVersion registry.Version
-	if len(historyOps) > 0 || resolutionChanged {
+	if len(historyOps) > 0 || resolutionChanged || provenanceAdvanced {
 		newVersion = version.FromParent(r.currentVersion, r.nextVersionID(r.currentVersion))
 	}
 
@@ -284,7 +290,7 @@ func (r *Reg) Apply(ctx context.Context, changes registry.ChangeSet) (registry.V
 		}
 	}
 
-	if len(historyOps) > 0 || resolutionChanged {
+	if len(historyOps) > 0 || resolutionChanged || provenanceAdvanced {
 		r.log.Debug("saving new version", zap.Any("new_version", newVersion))
 
 		enrichedChanges := r.enrichChangeset(historyOps)
@@ -439,6 +445,9 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 			}
 			applyStateOperations(stateMap, additional)
 			targetProv = applyOpsToProvenance(targetProv, additional)
+			for id, record := range result.Provenance {
+				targetProv[canonicalEntryID(id)] = record
+			}
 		}
 		if !reconciled {
 			planner.RollbackEffects(ctx, preparedEff)
@@ -493,6 +502,9 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 			}
 			applyStateOperations(stateMap, ops)
 			targetProv = applyOpsToProvenance(targetProv, ops)
+			for id, record := range plan.Provenance {
+				targetProv[canonicalEntryID(id)] = record
+			}
 		}
 		if composeErr := r.composeOverlays(stateMap); composeErr != nil {
 			planner.RollbackEffects(ctx, preparedEff)
@@ -846,6 +858,9 @@ func (r *Reg) LoadState(ctx context.Context, baselineState registry.ProvenancedS
 			preparedEff = append(preparedEff, prepared...)
 			applyStateOperations(stateMap, ops)
 			targetProv = applyOpsToProvenance(targetProv, ops)
+			for id, record := range result.Provenance {
+				targetProv[canonicalEntryID(id)] = record
+			}
 		}
 		if !reconciled {
 			planner.RollbackEffects(ctx, preparedEff)
@@ -888,6 +903,9 @@ func (r *Reg) LoadState(ctx context.Context, baselineState registry.ProvenancedS
 			}
 			applyStateOperations(stateMap, ops)
 			targetProv = applyOpsToProvenance(targetProv, ops)
+			for id, record := range plan.Provenance {
+				targetProv[canonicalEntryID(id)] = record
+			}
 		}
 	}
 

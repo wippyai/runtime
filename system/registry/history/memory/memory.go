@@ -87,17 +87,7 @@ func (m *Storage) Get(version registry.Version) (registry.ChangeSet, error) {
 		return nil, NewVersionNotFoundError(version.String())
 	}
 
-	actionsCopy := make(registry.ChangeSet, len(actions))
-	for i, op := range actions {
-		actionsCopy[i] = registry.Operation{
-			Kind:  op.Kind,
-			Entry: cloneEntry(op.Entry),
-		}
-		if op.OriginalEntry != nil {
-			clonedOriginal := cloneEntry(*op.OriginalEntry)
-			actionsCopy[i].OriginalEntry = &clonedOriginal
-		}
-	}
+	actionsCopy := cloneChangeSet(actions)
 	return actionsCopy, nil
 }
 

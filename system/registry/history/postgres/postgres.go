@@ -66,22 +66,23 @@ type encodedPayload struct {
 }
 
 type encodedEntry struct {
-	Meta           attrs.Bag
-	Data           *encodedPayload
-	ID             registry.ID
-	Kind           string
-	DependencyRoot bool
+	Meta attrs.Bag       `codec:"Meta"`
+	Data *encodedPayload `codec:"Data"`
+	ID   registry.ID     `codec:"ID"`
+	Kind string          `codec:"Kind"`
+	// DependencyRoot decodes from legacy rows; new rows never write it.
+	DependencyRoot bool `codec:"DependencyRoot,omitempty"`
 }
 
 // encodedOperation is the wire shape of one changeset operation. The optional
 // provenance fields are absent on rows written before they existed and decode
 // as nil.
 type encodedOperation struct {
-	OriginalEntry      *encodedEntry
-	Provenance         *registry.EntryProvenance
-	OriginalProvenance *registry.EntryProvenance
-	Kind               string
-	Entry              encodedEntry
+	OriginalEntry      *encodedEntry             `codec:"OriginalEntry"`
+	Provenance         *registry.EntryProvenance `codec:"prov,omitempty"`
+	OriginalProvenance *registry.EntryProvenance `codec:"oprov,omitempty"`
+	Kind               string                    `codec:"Kind"`
+	Entry              encodedEntry              `codec:"Entry"`
 }
 
 func newMsgpackHandle() *codec.MsgpackHandle {
@@ -571,22 +572,20 @@ func (h *History) SaveWithDependencyResolution(v registry.Version, cs registry.C
 			}
 
 			encOriginal = &encodedEntry{
-				ID:             op.OriginalEntry.ID,
-				Kind:           op.OriginalEntry.Kind,
-				Meta:           op.OriginalEntry.Meta,
-				Data:           encOrigPayload,
-				DependencyRoot: op.OriginalEntry.DependencyRoot,
+				ID:   op.OriginalEntry.ID,
+				Kind: op.OriginalEntry.Kind,
+				Meta: op.OriginalEntry.Meta,
+				Data: encOrigPayload,
 			}
 		}
 
 		encodedOps[i] = encodedOperation{
 			Kind: op.Kind,
 			Entry: encodedEntry{
-				ID:             op.Entry.ID,
-				Kind:           op.Entry.Kind,
-				Meta:           op.Entry.Meta,
-				Data:           encPayload,
-				DependencyRoot: op.Entry.DependencyRoot,
+				ID:   op.Entry.ID,
+				Kind: op.Entry.Kind,
+				Meta: op.Entry.Meta,
+				Data: encPayload,
 			},
 			OriginalEntry:      encOriginal,
 			Provenance:         op.Provenance,
