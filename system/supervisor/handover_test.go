@@ -390,7 +390,7 @@ func TestSameServiceInstance(t *testing.T) {
 	require.False(t, sameServiceInstance(pointer, nil), "an absent service is not a match")
 
 	// A comparable value implementation compares by value, so an identical
-	// re-registration is recognised instead of being needlessly restarted.
+	// re-registration is recognized instead of being needlessly restarted.
 	require.True(t, sameServiceInstance(valueService{name: "a"}, valueService{name: "a"}))
 	require.False(t, sameServiceInstance(valueService{name: "a"}, valueService{name: "b"}))
 	require.False(t, sameServiceInstance(valueService{name: "a"}, pointer),

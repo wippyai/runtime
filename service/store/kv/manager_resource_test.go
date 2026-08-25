@@ -172,14 +172,14 @@ func makeKVEntry(id registry.ID, kind registry.Kind, namespace string, meta attr
 }
 
 func kvManagerCases() []struct {
+	build func(*systemkv.CRDTEngine, event.Bus, payload.Transcoder) (kvEntryManager, func(registry.ID) *Store)
 	name  string
 	kind  registry.Kind
-	build func(*systemkv.CRDTEngine, event.Bus, payload.Transcoder) (kvEntryManager, func(registry.ID) *Store)
 } {
 	return []struct {
+		build func(*systemkv.CRDTEngine, event.Bus, payload.Transcoder) (kvEntryManager, func(registry.ID) *Store)
 		name  string
 		kind  registry.Kind
-		build func(*systemkv.CRDTEngine, event.Bus, payload.Transcoder) (kvEntryManager, func(registry.ID) *Store)
 	}{
 		{
 			name: "raft",

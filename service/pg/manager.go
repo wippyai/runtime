@@ -198,10 +198,9 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 		Data:   entry.ID,
 	})
 
-	// Stopping the scope belongs to the supervisor, which owns its lifecycle:
-	// ServiceRemove above stops it on commit, and an update that re-registers a
-	// replacement in the same transaction retires it there. Stopping it here as
-	// well would hand the instance a second Stop.
+	// The supervisor owns the scope lifecycle: ServiceRemove above stops it on
+	// commit, and an update that re-registers a replacement in the same
+	// transaction retires it there.
 
 	m.log.Info("pg scope deleted",
 		zap.String("id", entry.ID.String()),

@@ -635,10 +635,8 @@ func (s *Supervisor) execute(ctx context.Context, tx *regTx) (err error) {
 	// A registration for an ID that already has a controller carries a
 	// replacement instance whenever its manager rebuilt the service. Retiring
 	// that controller, and the running dependents holding the superseded
-	// instance, is what lets the create pass below adopt the replacement;
-	// without it the registration is dropped and the supervisor keeps
-	// supervising the superseded object. Planning first keeps a rejected
-	// retirement from touching anything.
+	// instance, lets the create pass below adopt the replacement. Planning
+	// first keeps a rejected retirement from touching anything.
 	retiring := s.snapshotControllers()
 	plan, err := s.planReplacements(retiring, tx, registerIDs)
 	if err != nil {
@@ -840,10 +838,8 @@ func (s *Supervisor) applyReplacements(
 
 	if len(plan.stops) > 0 {
 		if err := s.runTransition(ctx, plan.stops); err != nil {
-			// The retirement is rejected. Whether the services it already
-			// stopped came back decides how bad the outcome is, so the restore
-			// result travels with the rejection instead of being logged and
-			// forgotten.
+			// The restore result travels with the rejection so a service left
+			// down reaches the transaction outcome.
 			if restoreErr := s.restoreStopped(ctx, controllers, plan.stops); restoreErr != nil {
 				return errors.Join(NewTransitionError(err), restoreErr)
 			}
@@ -861,7 +857,7 @@ func (s *Supervisor) applyReplacements(
 	}
 	s.mu.Unlock()
 
-	// Cancelling the retired controller ends its supervise goroutine and frees
+	// Canceling the retired controller ends its supervise goroutine and frees
 	// the superseded service it holds; the map entry alone is not the lifetime.
 	for _, id := range plan.retire {
 		controllers[id].cancel()
@@ -873,9 +869,8 @@ func (s *Supervisor) applyReplacements(
 
 // restoreStopped brings back the services a failed retirement batch already
 // stopped, so a rejected commit does not leave them down. A service it cannot
-// bring back is reported: it was running before the commit and is not running
-// now, which is the worst outcome this path can produce and must not be
-// reduced to a log line.
+// bring back is named in the returned error: it was running before the commit
+// and is not running after it.
 func (s *Supervisor) restoreStopped(
 	ctx context.Context,
 	controllers map[string]*Controller,
@@ -901,9 +896,8 @@ func (s *Supervisor) restoreStopped(
 		return NewRetirementRestoreError(rootIDs(roots), err)
 	}
 
-	// runTransition reports transition failures, not the resulting state, so the
-	// services are checked directly: one left down is the condition operators
-	// have to see.
+	// runTransition reports transition failures, not resulting state; the
+	// services are checked directly.
 	stillDown := make([]string, 0, len(roots))
 	for _, root := range roots {
 		ctrl, exists := controllers[root.id]

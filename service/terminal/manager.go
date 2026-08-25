@@ -136,10 +136,9 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 		Path:   entry.ID.String(),
 	})
 
-	// Stopping the host belongs to the supervisor, which owns its lifecycle:
-	// ServiceRemove above stops it on commit, and an update that re-registers a
-	// replacement in the same transaction retires it there. Stopping it here as
-	// well would hand the instance a second Stop.
+	// The supervisor owns the host lifecycle: ServiceRemove above stops it on
+	// commit, and an update that re-registers a replacement in the same
+	// transaction retires it there.
 
 	m.log.Info("terminal host deleted", zap.String("id", entry.ID.String()))
 	return nil
