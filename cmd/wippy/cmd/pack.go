@@ -919,9 +919,6 @@ func closeEmbeddedPackResourceHandles(handles []embeddedPackResourceHandle) erro
 	return errors.Join(errs...)
 }
 
-// encodePackProvenance serializes entry provenance into the pack metadata
-// frame, keyed by canonical entry ID. The entries themselves stay verbatim;
-// the pack carries the runtime's knowledge out of band.
 func encodePackProvenance(prov regapi.ProvMap) map[string]any {
 	out := make(map[string]any, len(prov))
 	for id, p := range prov {

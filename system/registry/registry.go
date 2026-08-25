@@ -827,7 +827,7 @@ func (r *Reg) LoadState(ctx context.Context, baselineState registry.ProvenancedS
 		for _, directive := range r.directivesByKind[registry.NamespaceDependency] {
 			snapshot := topology.StateMapToSlice(stateMap)
 			result, ok, err := reconcileStoredResolution(ctx, directive,
-				registry.ProvenancedState{Entries: baseline, Prov: targetProvBaselineClone(baselineState.Prov)},
+				registry.ProvenancedState{Entries: baseline, Prov: canonicalProvClone(baselineState.Prov)},
 				registry.ProvenancedState{Entries: snapshot, Prov: targetProv},
 				resolution)
 			if !ok {
@@ -976,7 +976,7 @@ func (r *Reg) LoadState(ctx context.Context, baselineState registry.ProvenancedS
 
 	r.state = newState
 	r.baseline = append(registry.State(nil), baseline...)
-	r.baselineProv = targetProvBaselineClone(baselineState.Prov)
+	r.baselineProv = canonicalProvClone(baselineState.Prov)
 	r.publishProvenance(provenanceForState(newState, targetProv, nil))
 	// LoadState is the cold/reinitialization boundary. Overlays are deliberately
 	// process-local and their owning controllers reconcile them after boot.
@@ -1000,8 +1000,8 @@ func (r *Reg) LoadState(ctx context.Context, baselineState registry.ProvenancedS
 	return nil
 }
 
-// targetProvBaselineClone clones the baseline provenance under canonical IDs.
-func targetProvBaselineClone(prov registry.ProvMap) registry.ProvMap {
+// canonicalProvClone clones a provenance map under canonical IDs.
+func canonicalProvClone(prov registry.ProvMap) registry.ProvMap {
 	out := make(registry.ProvMap, len(prov))
 	for id, p := range prov {
 		out[canonicalEntryID(id)] = p
