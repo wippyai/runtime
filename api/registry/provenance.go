@@ -64,8 +64,8 @@ func (m ProvMap) Clone() ProvMap {
 // provenance travel together through every boundary: baseline load, replay,
 // directive inputs, planner comparison, and historical snapshots.
 type ProvenancedState struct {
-	Entries State
 	Prov    ProvMap
+	Entries State
 }
 
 // Validate reports the first entry without a provenance record, enforcing the

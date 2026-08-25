@@ -30,24 +30,24 @@ type Reg struct {
 	builder           registry.StateBuilder
 	resolver          registry.DependencyResolver
 	history           registry.History
-	depIndex          *topology.DepIndex
-	currentResolution *registry.DependencyResolution
+	overlays          map[string]registry.State
+	baselineProv      registry.ProvMap
 	stateIndex        map[registry.ID]int
 	directivesByKind  map[registry.Kind][]registry.Directive
 	log               *zap.Logger
-	overlays          map[string]registry.State
+	depIndex          *topology.DepIndex
 	overlayOwners     map[registry.ID]string
 	overlayGeneration map[string]uint64
-	baseline          registry.State
-	baselineProv      registry.ProvMap
+	prov              atomic.Pointer[registry.ProvMap]
+	currentResolution *registry.DependencyResolution
 	state             registry.State
+	baseline          registry.State
 	overlayEpoch      uint64
 	overlayFloor      uint64
-	stateLoaded       bool
 	versionNum        atomic.Uint64
-	prov              atomic.Pointer[registry.ProvMap]
 	mu                sync.RWMutex
 	applyMu           sync.Mutex
+	stateLoaded       bool
 }
 
 // NewRegistry creates a new registry instance.

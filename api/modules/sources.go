@@ -41,9 +41,9 @@ type Sources map[string]Source
 // LoadedSources is one atomic view of the normalized deployment baseline, its
 // provenance, and the sources authoritative over its entries.
 type LoadedSources struct {
+	Prov    regapi.ProvMap
 	Owners  []string
 	Entries []regapi.Entry
-	Prov    regapi.ProvMap
 }
 
 // SourceLoader rebuilds the normalized deployment baseline and its provenance

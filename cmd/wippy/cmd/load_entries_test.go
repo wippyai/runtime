@@ -4,10 +4,11 @@ package cmd
 
 import (
 	"context"
-	regapi "github.com/wippyai/runtime/api/registry"
 	"os"
 	"path/filepath"
 	"testing"
+
+	regapi "github.com/wippyai/runtime/api/registry"
 
 	contextapi "github.com/wippyai/runtime/api/context"
 	logapi "github.com/wippyai/runtime/api/logs"

@@ -20,9 +20,9 @@ import (
 // provenanceRecordingListener captures the operation provenance its context
 // carries at the moment each callback runs.
 type provenanceRecordingListener struct {
-	mu       sync.Mutex
 	captured []registry.OpProvenance
 	found    []bool
+	mu       sync.Mutex
 }
 
 func (l *provenanceRecordingListener) record(ctx context.Context) {

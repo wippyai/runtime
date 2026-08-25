@@ -125,16 +125,11 @@ type (
 
 	// Operation represents a single operation within a ChangeSet
 	Operation struct {
-		OriginalEntry *Entry     `json:"original_entry,omitempty"`
-		Kind          event.Kind `json:"kind"`
-		Entry         Entry      `json:"entry"`
-		// Provenance is the effective provenance of Entry and
-		// OriginalProvenance that of OriginalEntry. The dependency directive
-		// populates them on the module operations it emits; user and
-		// governance operations carry nil, which preserves the existing
-		// record on update and clears it on delete.
+		OriginalEntry      *Entry           `json:"original_entry,omitempty"`
 		Provenance         *EntryProvenance `json:"provenance,omitempty"`
 		OriginalProvenance *EntryProvenance `json:"original_provenance,omitempty"`
+		Kind               event.Kind       `json:"kind"`
+		Entry              Entry            `json:"entry"`
 	}
 
 	// DependencyPattern defines a pattern for extracting dependencies from entries
