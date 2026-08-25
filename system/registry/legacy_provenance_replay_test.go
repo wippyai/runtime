@@ -56,15 +56,10 @@ func encodeLegacyReplay(t *testing.T, op legacyReplayOperation) []byte {
 	return encoded.Bytes()
 }
 
-// TestLoadStatePromotesLegacyDependencyRoot exercises the pre-provenance wire
-// boundary. The history operation deliberately has no provenance record: its
-// Entry.DependencyRoot flag is the only durable statement that the dependency
-// was promoted to an application root.
-func TestLoadStatePromotesLegacyDependencyRoot(t *testing.T) {
-	ctx := context.Background()
-	dbPath := filepath.Join(t.TempDir(), "registry.db")
+func legacyDependencyRootReplay(t *testing.T) (regapi.ProvenancedState, regapi.ID, regapi.Version, []byte) {
+	t.Helper()
 	dependencyID := regapi.NewID("kickside.knowledge.requirements", "kb10")
-	baselineEntry := regapi.Entry{
+	entry := regapi.Entry{
 		ID:   dependencyID,
 		Kind: regapi.NamespaceDependency,
 		Data: payload.New(map[string]any{
@@ -73,15 +68,65 @@ func TestLoadStatePromotesLegacyDependencyRoot(t *testing.T) {
 		}),
 	}
 	baseline := regapi.ProvenancedState{
-		Entries: regapi.State{baselineEntry},
+		Entries: regapi.State{entry},
 		Provenance: regapi.ProvenanceMap{
 			dependencyID: {Module: "kickside/knowledge", Version: "1.0.0", Digest: "sha256:knowledge"},
 		},
 	}
-	legacyUpdate := baselineEntry
-	legacyUpdate.DependencyRoot = true
-	v0 := version.New(regapi.RootVersion)
-	v1 := version.FromParent(v0, 1)
+	v1 := version.FromParent(version.New(regapi.RootVersion), 1)
+	legacyRow := encodeLegacyReplay(t, legacyReplayOperation{
+		Kind: regapi.EntryUpdate,
+		Entry: legacyReplayEntry{
+			ID:             entry.ID,
+			Kind:           entry.Kind,
+			Data:           &legacyReplayPayload{Data: entry.Data.Data(), Format: entry.Data.Format()},
+			DependencyRoot: true,
+		},
+	})
+	return baseline, dependencyID, v1, legacyRow
+}
+
+func assertLegacyDependencyRootReplay(
+	ctx context.Context,
+	t *testing.T,
+	history regapi.History,
+	baseline regapi.ProvenancedState,
+	dependencyID regapi.ID,
+	v1 regapi.Version,
+) {
+	t.Helper()
+	stored, err := history.Get(v1)
+	require.NoError(t, err)
+	require.Len(t, stored, 1)
+	require.Nil(t, stored[0].Provenance, "fixture must remain a legacy operation")
+	require.True(t, stored[0].Entry.DependencyRoot, "legacy wire flag is the only root statement")
+
+	resolver := topology.NewResolver()
+	reg := NewRegistry(
+		history,
+		NewTestRunner(),
+		topology.NewStateBuilder(zap.NewNop(), resolver),
+		resolver,
+		zap.NewNop(),
+	)
+	require.NoError(t, reg.LoadState(ctx, baseline, v1))
+	require.Equal(t, []regapi.ID{dependencyID}, reg.DependencyRoots(),
+		"every cold replay must preserve the legacy application root")
+	record, ok := reg.EntryProvenance(dependencyID)
+	require.True(t, ok)
+	require.True(t, record.Root)
+	require.Equal(t, "kickside/knowledge", record.Module,
+		"root promotion must not replace module ownership")
+}
+
+// TestLoadStatePromotesLegacyDependencyRoot exercises the pre-provenance wire
+// boundary. The history operation deliberately has no provenance record: its
+// Entry.DependencyRoot flag is the only durable statement that the dependency
+// was promoted to an application root.
+func TestLoadStatePromotesLegacyDependencyRoot(t *testing.T) {
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "registry.db")
+	baseline, dependencyID, v1, legacyRow := legacyDependencyRootReplay(t)
 
 	history, err := historysqlite.NewSQLite(dbPath, zap.NewNop())
 	require.NoError(t, err)
@@ -91,54 +136,17 @@ func TestLoadStatePromotesLegacyDependencyRoot(t *testing.T) {
 	// Replace the modern empty row with the byte shape emitted before
 	// provenance existed. Going through today's Save would intentionally strip
 	// DependencyRoot and would not exercise an upgrade at all.
-	legacyRow := encodeLegacyReplay(t, legacyReplayOperation{
-		Kind: regapi.EntryUpdate,
-		Entry: legacyReplayEntry{
-			ID:             legacyUpdate.ID,
-			Kind:           legacyUpdate.Kind,
-			Data:           &legacyReplayPayload{Data: legacyUpdate.Data.Data(), Format: legacyUpdate.Data.Format()},
-			DependencyRoot: true,
-		},
-	})
 	db, err := sql.Open("sqlite3", dbPath)
 	require.NoError(t, err)
 	_, err = db.ExecContext(ctx, "UPDATE changesets SET data = ? WHERE version_id = ?", legacyRow, v1.ID())
 	require.NoError(t, err)
 	require.NoError(t, db.Close())
 
-	load := func() (*Reg, func() error) {
-		t.Helper()
+	for i := 0; i < 2; i++ {
 		history, err := historysqlite.NewSQLite(dbPath, zap.NewNop())
 		require.NoError(t, err)
-
-		stored, err := history.Get(v1)
-		require.NoError(t, err)
-		require.Len(t, stored, 1)
-		require.Nil(t, stored[0].Provenance, "fixture must remain a legacy operation")
-		require.True(t, stored[0].Entry.DependencyRoot, "legacy wire flag is the only root statement")
-
-		resolver := topology.NewResolver()
-		reg := NewRegistry(
-			history,
-			NewTestRunner(),
-			topology.NewStateBuilder(zap.NewNop(), resolver),
-			resolver,
-			zap.NewNop(),
-		)
-		require.NoError(t, reg.LoadState(ctx, baseline, v1))
-		return reg, history.Close
-	}
-
-	for i := 0; i < 2; i++ {
-		reg, closeHistory := load()
-		require.Equal(t, []regapi.ID{dependencyID}, reg.DependencyRoots(),
-			"every cold replay must preserve the legacy application root")
-		record, ok := reg.EntryProvenance(dependencyID)
-		require.True(t, ok)
-		require.True(t, record.Root)
-		require.Equal(t, "kickside/knowledge", record.Module,
-			"root promotion must not replace module ownership")
-		require.NoError(t, closeHistory())
+		assertLegacyDependencyRootReplay(ctx, t, history, baseline, dependencyID, v1)
+		require.NoError(t, history.Close())
 	}
 }
 
@@ -150,23 +158,7 @@ func TestLoadStatePromotesLegacyDependencyRootPostgres(t *testing.T) {
 
 	ctx := context.Background()
 	schema := fmt.Sprintf("wippy_legacy_root_%d_%d", os.Getpid(), time.Now().UnixNano())
-	dependencyID := regapi.NewID("kickside.knowledge.requirements", "kb10")
-	baselineEntry := regapi.Entry{
-		ID:   dependencyID,
-		Kind: regapi.NamespaceDependency,
-		Data: payload.New(map[string]any{
-			"component": "kickside/kb10",
-			"version":   "1.0.0",
-		}),
-	}
-	baseline := regapi.ProvenancedState{
-		Entries: regapi.State{baselineEntry},
-		Provenance: regapi.ProvenanceMap{
-			dependencyID: {Module: "kickside/knowledge", Version: "1.0.0", Digest: "sha256:knowledge"},
-		},
-	}
-	v0 := version.New(regapi.RootVersion)
-	v1 := version.FromParent(v0, 1)
+	baseline, dependencyID, v1, legacyRow := legacyDependencyRootReplay(t)
 
 	history, err := historypostgres.NewPostgres(dsn, schema, zap.NewNop())
 	require.NoError(t, err)
@@ -179,15 +171,6 @@ func TestLoadStatePromotesLegacyDependencyRootPostgres(t *testing.T) {
 		_, _ = db.ExecContext(context.Background(), fmt.Sprintf("DROP SCHEMA IF EXISTS %q CASCADE", schema))
 		_ = db.Close()
 	})
-	legacyRow := encodeLegacyReplay(t, legacyReplayOperation{
-		Kind: regapi.EntryUpdate,
-		Entry: legacyReplayEntry{
-			ID:             baselineEntry.ID,
-			Kind:           baselineEntry.Kind,
-			Data:           &legacyReplayPayload{Data: baselineEntry.Data.Data(), Format: baselineEntry.Data.Format()},
-			DependencyRoot: true,
-		},
-	})
 	_, err = db.ExecContext(ctx,
 		fmt.Sprintf("UPDATE %q.changesets SET data = $1 WHERE version_id = $2", schema), legacyRow, v1.ID())
 	require.NoError(t, err)
@@ -195,29 +178,7 @@ func TestLoadStatePromotesLegacyDependencyRootPostgres(t *testing.T) {
 	for i := 0; i < 2; i++ {
 		history, err := historypostgres.NewPostgres(dsn, schema, zap.NewNop())
 		require.NoError(t, err)
-
-		stored, err := history.Get(v1)
-		require.NoError(t, err)
-		require.Len(t, stored, 1)
-		require.Nil(t, stored[0].Provenance, "fixture must remain a legacy operation")
-		require.True(t, stored[0].Entry.DependencyRoot, "legacy wire flag is the only root statement")
-
-		resolver := topology.NewResolver()
-		reg := NewRegistry(
-			history,
-			NewTestRunner(),
-			topology.NewStateBuilder(zap.NewNop(), resolver),
-			resolver,
-			zap.NewNop(),
-		)
-		require.NoError(t, reg.LoadState(ctx, baseline, v1))
-		require.Equal(t, []regapi.ID{dependencyID}, reg.DependencyRoots(),
-			"every PostgreSQL cold replay must preserve the legacy application root")
-		record, ok := reg.EntryProvenance(dependencyID)
-		require.True(t, ok)
-		require.True(t, record.Root)
-		require.Equal(t, "kickside/knowledge", record.Module,
-			"root promotion must not replace module ownership")
+		assertLegacyDependencyRootReplay(ctx, t, history, baseline, dependencyID, v1)
 		require.NoError(t, history.Close())
 	}
 }

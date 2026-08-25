@@ -87,8 +87,8 @@ jobs:
           SKIP_DOCKER_TESTS: "1"
         run: make test
 
-  postgres-history:
-    name: Test (PostgreSQL history)
+  postgres-registry:
+    name: Test (PostgreSQL registry)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     services:
@@ -113,7 +113,7 @@ jobs:
           go-version: '1.26.6'
           cache: true
 
-      - name: Run PostgreSQL history tests
+      - name: Run PostgreSQL registry tests
         env:
           GORACE: "halt_on_error=1"
           WIPPY_POSTGRES_HISTORY_TEST_DSN: postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable
