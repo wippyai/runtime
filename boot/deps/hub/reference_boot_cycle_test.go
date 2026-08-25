@@ -82,7 +82,7 @@ modules:
 		Data: payload.New(map[string]any{"component": "acme/app", "version": ">=1.0.0"}),
 	}
 
-	prov := newRegistryProvenance(fixtureState(baseline))
+	provenancedBaseline := fixtureState(baseline)
 	newRegistry := func(history regapi.History) *registryimpl.Reg {
 		resolver := topology.NewResolver()
 		handler, err := NewDependencyHandler(DependencyHandlerOptions{
@@ -92,7 +92,7 @@ modules:
 		return registryimpl.NewRegistry(
 			history, &bootRecordingRunner{}, topology.NewStateBuilder(zap.NewNop(), resolver), resolver, zap.NewNop(),
 			registryimpl.WithKindDirective(regapi.NamespaceDependency,
-				expansion.NewDependencyDirective(prov.expand(handler)).WithResolutionTransition(prov.reconcile(handler)).WithChangesExpansion(prov.expandChanges(handler))),
+				expansion.NewDependencyDirective(handler.Expand).WithResolutionTransition(handler.ReconcileResolution).WithChangesExpansion(handler.ExpandChanges)),
 		)
 	}
 
@@ -100,7 +100,7 @@ modules:
 	history, err := historysqlite.NewSQLite(dbPath, zap.NewNop())
 	require.NoError(t, err)
 	reg := newRegistry(history)
-	require.NoError(t, reg.LoadState(ctx, baseline, version.FromParent(nil, 0)))
+	require.NoError(t, reg.LoadState(ctx, provenancedBaseline, version.FromParent(nil, 0)))
 	_, err = reg.Apply(ctx, regapi.ChangeSet{{Kind: regapi.EntryCreate, Entry: reference}})
 	require.NoError(t, err)
 	head, err := history.Head()
@@ -117,7 +117,7 @@ modules:
 	history, err = historysqlite.NewSQLite(dbPath, zap.NewNop())
 	require.NoError(t, err)
 	reg = newRegistry(history)
-	require.NoError(t, reg.LoadState(ctx, baseline, head))
+	require.NoError(t, reg.LoadState(ctx, provenancedBaseline, head))
 	entries, err := reg.GetAllEntries()
 	require.NoError(t, err)
 	found := false
@@ -155,7 +155,7 @@ modules:
 	require.NoError(t, err)
 	defer func() { _ = history.Close() }()
 	reg = newRegistry(history)
-	require.NoError(t, reg.LoadState(ctx, baseline, head))
+	require.NoError(t, reg.LoadState(ctx, provenancedBaseline, head))
 
 	// Cycle 5: undo to the referenced version and redo to the promoted one.
 	// Each transition replays its own stored graph within the unchanged

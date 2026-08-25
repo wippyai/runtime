@@ -134,6 +134,69 @@ func newEffect(reg embedPackRegistry, staged []stagedPack, obsolete []obsoletePa
 	}
 }
 
+func TestEmbedPackEffect_RetargetsConsumersBeforeClosingSupersededPack(t *testing.T) {
+	reg := newStubPackRegistry()
+	eff := newEffect(reg, nil, []obsoletePack{{module: "org/mod", version: "1.0.0"}})
+	eff.retarget = []packRetarget{{module: "org/mod", from: "1.0.0", to: "2.0.0"}}
+
+	require.NoError(t, eff.Finalize(context.Background()))
+
+	assert.Equal(t, []string{"retarget:org/mod@1.0.0->2.0.0", "unregister:org/mod@1.0.0"}, reg.calls,
+		"consumers of the superseded generation move before its pack closes")
+}
+
+func TestBuildEmbedPackEffect_RetargetsOnlyWhenANewerGenerationIsDesired(t *testing.T) {
+	dir := t.TempDir()
+	newPack := filepath.Join(dir, "org", "mod-v2.0.0.wapp")
+	writeResourceWapp(t, newPack, "ui", "app", map[string]string{"v.txt": "new"})
+
+	packRegistry := embedpkg.NewRegistry()
+	defer func() { require.NoError(t, packRegistry.Close()) }()
+	ctx := embedapi.WithRegistry(newTestContext(), packRegistry)
+
+	handler, err := NewDependencyHandler(DependencyHandlerOptions{
+		Hub: &fakeHub{
+			getDownload: func(context.Context, *DownloadParams) (*DownloadInfo, error) {
+				return &DownloadInfo{URL: "memory://new"}, nil
+			},
+			downloadFile: func(_ context.Context, _ string, dest string) error {
+				data, readErr := os.ReadFile(newPack)
+				if readErr != nil {
+					return readErr
+				}
+				if err := os.MkdirAll(filepath.Dir(dest), 0755); err != nil {
+					return err
+				}
+				return os.WriteFile(dest, data, 0600)
+			},
+		},
+		Logger:    zap.NewNop(),
+		VendorDir: dir,
+	})
+	require.NoError(t, err)
+
+	snapshot := regapi.State{
+		moduleEntry("ui", "app", "org/mod", "1.0.0"),
+		moduleEntry("ui", "gone", "org/gone", "1.0.0"),
+	}
+	controlled := map[string]struct{}{"org/mod": {}, "org/gone": {}}
+
+	eff, err := handler.buildEmbedPackEffect(
+		ctx,
+		[]ResolvedModule{{Org: "org", Name: "mod", Version: "2.0.0"}},
+		fixtureState(snapshot),
+		controlled,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, eff)
+	assert.ElementsMatch(t, []obsoletePack{
+		{module: "org/mod", version: "1.0.0"},
+		{module: "org/gone", version: "1.0.0"},
+	}, eff.obsolete)
+	assert.Equal(t, []packRetarget{{module: "org/mod", from: "1.0.0", to: "2.0.0"}}, eff.retarget,
+		"a module leaving the graph has no generation to point at")
+}
+
 func TestEmbedPackEffect_PrepareCommit(t *testing.T) {
 	dir := t.TempDir()
 	packPath := filepath.Join(dir, "org", "mod-v1.0.0.wapp")
@@ -470,7 +533,7 @@ func TestBuildEmbedPackEffect_DropsPackWhenResolvedModuleIsDirectory(t *testing.
 
 	require.NoError(t, eff.Commit(context.Background()))
 	require.NoError(t, eff.Finalize(context.Background()))
-	_, err = reg.GetFSForEntry(moduleEntry("ui", "app", "org/mod", "1.0.0"))
+	_, err = reg.GetFSForEntry(moduleFS(moduleEntry("ui", "app", "org/mod", "1.0.0")))
 	require.Error(t, err)
 }
 
@@ -520,7 +583,7 @@ func TestBuildEmbedPackEffect_DropsPackWhenUnpackModulesEnabled(t *testing.T) {
 
 	require.NoError(t, eff.Commit(context.Background()))
 	require.NoError(t, eff.Finalize(context.Background()))
-	_, err = reg.GetFSForEntry(moduleEntry("ui", "app", "org/mod", "1.0.0"))
+	_, err = reg.GetFSForEntry(moduleFS(moduleEntry("ui", "app", "org/mod", "1.0.0")))
 	require.Error(t, err)
 }
 
@@ -821,9 +884,9 @@ func TestSourceEffectUnpackedModulePrepareAndRollback(t *testing.T) {
 		"org/unrelated": {LoadPath: "/old/unrelated", ResourceRoot: "/old/unrelated", Owner: "org/unrelated", Sequence: 2},
 	})
 	var loadedSources moduleapi.Sources
-	sourceRegistry.SetLoader(func(_ context.Context, sources moduleapi.Sources) ([]regapi.Entry, error) {
+	sourceRegistry.SetLoader(func(_ context.Context, sources moduleapi.Sources) ([]regapi.Entry, regapi.ProvMap, error) {
 		loadedSources = sources
-		return nil, nil
+		return nil, nil, nil
 	})
 
 	resolved := ResolvedModule{Org: "org", Name: "mod", Version: "1.0.0", Digest: packDigest, SizeBytes: packSize}
@@ -897,9 +960,9 @@ func TestSourceEffectPackedModuleTracksLoadIdentityWithoutExposingRoot(t *testin
 	sourceRegistry := moduleapi.NewSourceRegistry()
 	ctx = moduleapi.WithSourceRegistry(ctx, sourceRegistry)
 	var loadedSources moduleapi.Sources
-	sourceRegistry.SetLoader(func(_ context.Context, sources moduleapi.Sources) ([]regapi.Entry, error) {
+	sourceRegistry.SetLoader(func(_ context.Context, sources moduleapi.Sources) ([]regapi.Entry, regapi.ProvMap, error) {
 		loadedSources = sources
-		return nil, nil
+		return nil, nil, nil
 	})
 
 	packPath := filepath.Join(vendorDir, "org", "mod-1.0.0.wapp")
@@ -931,6 +994,13 @@ func TestSourceEffectPackedModuleTracksLoadIdentityWithoutExposingRoot(t *testin
 	_, err = sourceRegistry.Load(ctx)
 	require.NoError(t, err)
 	assert.NotContains(t, loadedSources, "org/mod")
+}
+
+// moduleFS pairs a fixture entry with the provenance the embed registry pins
+// its filesystem to.
+func moduleFS(entry regapi.Entry) (regapi.Entry, *regapi.EntryProvenance) {
+	clean, record := fixtureEntryProvenance(entry)
+	return clean, &record
 }
 
 func moduleEntry(ns, name, module, version string) regapi.Entry {
@@ -985,7 +1055,7 @@ func writeEmbeddedFSWapp(t *testing.T, path, ns, name string, files map[string]s
 func readHubResource(t *testing.T, reg *embedpkg.Registry, entry regapi.Entry, name string) string {
 	t.Helper()
 
-	fsys, err := reg.GetFSForEntry(entry)
+	fsys, err := reg.GetFSForEntry(moduleFS(entry))
 	require.NoError(t, err)
 	data, err := fs.ReadFile(fsys, name)
 	require.NoError(t, err)

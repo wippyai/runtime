@@ -42,6 +42,14 @@ type obsoletePack struct {
 	version string
 }
 
+// packRetarget repoints filesystems served for a module from the superseded
+// pack generation to the adopted one before the superseded pack closes.
+type packRetarget struct {
+	module string
+	from   string
+	to     string
+}
+
 // embedPackEffect ties embedded-pack lifecycle to a module operation. Embedded
 // packs are module resources owned by dependency expansion, not by fs.embed
 // entries, so this effect runs alongside the registry changeset:
@@ -51,19 +59,12 @@ type obsoletePack struct {
 //     .wapp path, so a version update stages the new pack without disturbing the
 //     pack still serving the old version.
 //   - Commit activates the staged set but remains reversible.
-//   - Finalize unregisters and closes obsolete packs only after the registry
+//   - Finalize repoints the consumers of a superseded generation, then
+//     unregisters and closes obsolete packs, only after the registry
 //     history/head is durable. The new packs stay registered.
 //   - Rollback unregisters and closes the packs staged in Prepare, restoring the
 //     pre-operation set. Obsolete packs are left untouched because they are only
 //     dropped during Finalize after a successful durable commit.
-// packRetarget repoints filesystems served for a module from the superseded
-// pack generation to the adopted one before the superseded pack closes.
-type packRetarget struct {
-	module string
-	from   string
-	to     string
-}
-
 type embedPackEffect struct {
 	reg      embedPackRegistry
 	staged   []stagedPack
@@ -224,6 +225,8 @@ func (h *DependencyHandler) buildEmbedPackEffect(
 
 	obsolete := obsoletePacksFor(installed, desired, controlled)
 
+	// A superseded generation is repointed only where a newer one is desired for
+	// the same module. A module that leaves the graph has nothing to point at.
 	retargets := make([]packRetarget, 0, len(obsolete))
 	for _, op := range obsolete {
 		if to := desired[op.module]; to != "" && to != op.version {

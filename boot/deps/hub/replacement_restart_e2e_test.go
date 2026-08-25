@@ -64,7 +64,7 @@ replacements:
 		require.NoError(t, err)
 		return handler
 	}
-	newRegistry := func(history regapi.History, handler *DependencyHandler, prov *registryProvenance) *registryimpl.Reg {
+	newRegistry := func(history regapi.History, handler *DependencyHandler) *registryimpl.Reg {
 		resolver := topology.NewResolver()
 		handler.resolver = resolver
 		return registryimpl.NewRegistry(
@@ -75,7 +75,7 @@ replacements:
 			zap.NewNop(),
 			registryimpl.WithKindDirective(
 				regapi.NamespaceDependency,
-				regexp.NewDependencyDirective(prov.expand(handler)).WithResolutionTransition(prov.reconcile(handler)),
+				regexp.NewDependencyDirective(handler.Expand).WithResolutionTransition(handler.ReconcileResolution),
 			),
 		)
 	}
@@ -84,19 +84,15 @@ replacements:
 	require.NoError(t, err)
 	initialHistory := history
 	t.Cleanup(func() { _ = initialHistory.Close() })
-	// One tracker spans the restart: the registry's provenance travels with the
-	// state it describes, and the rebuild is detected by comparing the current
-	// tree identity against the resident record.
-	prov := newRegistryProvenance(regapi.ProvenancedState{})
-	registry := newRegistry(history, newHandler(), prov)
+	registry := newRegistry(history, newHandler())
 	root := regapi.Entry{
 		ID:   regapi.NewID("app.deps", "local"),
 		Kind: regapi.NamespaceDependency,
 		Data: payload.New(map[string]any{"component": "local/mod", "version": "v0.1.0"}),
 	}
-	fresh := newRegistry(memory.New(), newHandler(), newRegistryProvenance(regapi.ProvenancedState{}))
+	fresh := newRegistry(memory.New(), newHandler())
 	startupCtx := regapi.WithDependencyAccess(newTestContext(), regapi.DependencyAccessUnspecified)
-	require.NoError(t, fresh.LoadState(startupCtx, regapi.State{root}, version.New(0)))
+	require.NoError(t, fresh.LoadState(startupCtx, fixtureState(regapi.State{root}), version.New(0)))
 	_, err = fresh.GetEntry(regapi.NewID("local.mod", "svc"))
 	require.NoError(t, err)
 	require.Zero(t, hubCalls)
@@ -106,11 +102,11 @@ replacements:
 	require.Zero(t, hubCalls)
 
 	entryID := regapi.NewID("local.mod", "svc")
-	initialEntry, err := registry.GetEntry(entryID)
+	_, err = registry.GetEntry(entryID)
 	require.NoError(t, err)
-	_ = initialEntry
-	initialDigest := prov.record(entryID).Digest
-	require.NotEmpty(t, initialDigest)
+	initial, ok := registry.EntryProvenance(entryID)
+	require.True(t, ok)
+	require.NotEmpty(t, initial.Digest, "a replacement records its source tree identity")
 
 	// A frontend rebuild mutates only static content. Simulate a cold restart
 	// with the persisted registry intact and an unreachable Hub.
@@ -120,13 +116,16 @@ replacements:
 	history, err = historysqlite.NewSQLite(registryPath, zap.NewNop())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = history.Close() })
-	restarted := newRegistry(history, newHandler(), prov)
+	restarted := newRegistry(history, newHandler())
 	restartCtx := regapi.WithDependencyAccess(newTestContext(), regapi.DependencyAccessVerifiedOffline)
-	require.NoError(t, restarted.LoadState(restartCtx, nil, version))
+	require.NoError(t, restarted.LoadState(restartCtx, regapi.ProvenancedState{}, version))
 	require.Zero(t, hubCalls)
 
 	reloadedEntry, err := restarted.GetEntry(entryID)
 	require.NoError(t, err)
-	require.NotEqual(t, initialDigest, prov.record(entryID).Digest)
+	reloaded, ok := restarted.EntryProvenance(entryID)
+	require.True(t, ok)
+	require.NotEqual(t, initial.Digest, reloaded.Digest,
+		"a rebuilt tree advances the resident record while the stored checkpoint stands")
 	require.Equal(t, "one", reloadedEntry.Data.Data().(map[string]any)["generation"])
 }

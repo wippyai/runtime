@@ -183,7 +183,6 @@ modules:
 	// must reveal the locked package and all of its entries again.
 	history := historymem.New()
 	runner := &bootRecordingRunner{}
-	prov := newRegistryProvenance(regapi.ProvenancedState{})
 	reg := registryimpl.NewRegistry(
 		history,
 		runner,
@@ -192,7 +191,7 @@ modules:
 		zap.NewNop(),
 		registryimpl.WithKindDirective(
 			regapi.NamespaceDependency,
-			regexp.NewDependencyDirective(prov.expand(handler)).WithResolutionTransition(prov.reconcile(handler)),
+			regexp.NewDependencyDirective(handler.Expand).WithResolutionTransition(handler.ReconcileResolution),
 		),
 	)
 	v1AppEntries, err := loadEntriesFromWappBytesForTest(artifacts[selection{"acme/app", "v1.0.0"}])
@@ -212,9 +211,12 @@ modules:
 	baseline = append(baseline, v1AppEntries...)
 	baseline = append(baseline, workerEntries...)
 	v0 := version.FromParent(nil, regapi.RootVersion)
-	provenancedBaseline := fixtureState(baseline)
-	prov.seed(provenancedBaseline)
-	require.NoError(t, reg.LoadState(ctx, provenancedBaseline.Entries, v0))
+	require.NoError(t, reg.LoadState(ctx, fixtureState(baseline), v0))
+	residentVersion := func(id regapi.ID) string {
+		record, ok := reg.EntryProvenance(id)
+		require.True(t, ok, "every entry of the live state has a provenance record")
+		return record.Version
+	}
 	v0Resolution, err := history.GetDependencyResolution(v0)
 	require.NoError(t, err)
 	require.Equal(t, "v1.0.0", resolutionModuleVersion(v0Resolution, "acme/app"),
@@ -232,7 +234,9 @@ modules:
 	require.NoError(t, err)
 	_, err = reg.GetEntry(workerRootID)
 	require.NoError(t, err)
-	require.Equal(t, "acme/app", prov.record(workerRootID).Module,
+	workerRecord, ok := reg.EntryProvenance(workerRootID)
+	require.True(t, ok)
+	require.Equal(t, "acme/app", workerRecord.Module,
 		"an update without provenance preserves the record the registry holds")
 
 	overlayRoot := regapi.Entry{
@@ -243,7 +247,7 @@ modules:
 	require.NoError(t, err)
 	service, err := reg.GetEntry(regapi.NewID("acme.app", "service"))
 	require.NoError(t, err)
-	require.Equal(t, "v2.0.0", prov.residentVersion(service.ID))
+	require.Equal(t, "v2.0.0", residentVersion(service.ID))
 	_, err = reg.GetEntry(adminPolicyID)
 	require.Error(t, err, "v2 fixture deliberately removes the v1 policy")
 
@@ -251,6 +255,8 @@ modules:
 	service, err = reg.GetEntry(regapi.NewID("acme.app", "service"))
 	require.NoError(t, err)
 	require.Equal(t, "v1", service.Data.Data().(map[string]any)["version"])
+	require.Equal(t, "v1.0.0", residentVersion(service.ID),
+		"undo restores the resident identity of the version it reveals")
 	_, err = reg.GetEntry(adminPolicyID)
 	require.NoError(t, err, "undo must reveal every entry from the locked root package")
 	_, err = reg.GetEntry(overlayRoot.ID)
@@ -260,6 +266,7 @@ modules:
 	service, err = reg.GetEntry(regapi.NewID("acme.app", "service"))
 	require.NoError(t, err)
 	require.Equal(t, "v2", service.Data.Data().(map[string]any)["version"])
+	require.Equal(t, "v2.0.0", residentVersion(service.ID))
 	_, err = reg.GetEntry(adminPolicyID)
 	require.Error(t, err)
 }
