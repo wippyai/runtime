@@ -208,3 +208,18 @@ func (r *Reg) SetDependencyRoot(ctx context.Context, id registry.ID, root bool) 
 }
 
 var errNotDependencyEntry = fmt.Errorf("only ns.dependency entries select deployment roots")
+
+// ProvenancedStateAtVersion reconstructs the declarative state and its
+// provenance at one stored version: the deployment baseline plus the authored
+// history, with provenance folded the same way live replay folds it. Module
+// worlds reconciled from stored resolutions materialize only through
+// ApplyVersion; a snapshot answers for the declarative layer.
+func (r *Reg) ProvenancedStateAtVersion(ctx context.Context, v registry.Version) (registry.ProvenancedState, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	entries, prov, err := r.stateAtVersion(ctx, v)
+	if err != nil {
+		return registry.ProvenancedState{}, err
+	}
+	return registry.ProvenancedState{Entries: entries, Prov: prov}, nil
+}

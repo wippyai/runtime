@@ -101,11 +101,17 @@ func changesUpdate(l *lua.LState) int {
 	}
 
 	// Root-ness is deployment state, not entry content. An echoed-back root
-	// value equal to the current selection passes; an attempted mutation is
-	// refused and pointed at the API that owns it.
+	// value equal to the selection at the changeset's OWN snapshot passes; an
+	// attempted mutation is refused and pointed at the API that owns it.
+	// Comparing against the snapshot keeps a changeset staged from an older
+	// view valid regardless of concurrent activity.
 	if rootVal, ok := entryTable.RawGetString("root").(lua.LBool); ok {
 		current := false
-		if reg := regapi.GetRegistry(l.Context()); reg != nil {
+		if changes.snapshot != nil && changes.snapshot.prov != nil {
+			if p, found := changes.snapshot.prov[entry.ID.Canonical()]; found {
+				current = p.Root
+			}
+		} else if reg := regapi.GetRegistry(l.Context()); reg != nil {
 			if reader, readerOK := reg.(provenanceReader); readerOK {
 				if p, found := reader.EntryProvenance(entry.ID.Canonical()); found {
 					current = p.Root

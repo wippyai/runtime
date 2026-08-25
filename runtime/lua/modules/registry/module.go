@@ -3,6 +3,7 @@
 package registry
 
 import (
+	"context"
 	"errors"
 	"strconv"
 
@@ -11,7 +12,6 @@ import (
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	"github.com/wippyai/runtime/runtime/security"
-	"github.com/wippyai/runtime/system/registry/topology"
 	"go.uber.org/zap"
 )
 
@@ -377,6 +377,9 @@ func registrySnapshot(l *lua.LState) int {
 		entries: entries,
 		log:     zap.NewNop(),
 	}
+	if reader, ok := reg.(interface{ Provenance() regapi.ProvMap }); ok {
+		snap.prov = reader.Provenance()
+	}
 
 	value.PushTypedUserData(l, snap, typeSnapshot)
 	l.Push(lua.LNil)
@@ -575,10 +578,18 @@ func makeSnapshotAt(log *zap.Logger) lua.LGoFunc {
 			return 2
 		}
 
-		resolver := regapi.GetResolver(ctx)
-		stateBuilder := topology.NewStateBuilder(log, resolver)
-
-		state, stateErr := stateBuilder.BuildState(hist, foundVersion)
+		provenanced, ok := reg.(interface {
+			ProvenancedStateAtVersion(ctx context.Context, v regapi.Version) (regapi.ProvenancedState, error)
+		})
+		if !ok {
+			err := lua.NewLuaError(l, "registry does not serve historical snapshots").
+				WithKind(lua.Unavailable).
+				WithRetryable(false)
+			l.Push(lua.LNil)
+			l.Push(err)
+			return 2
+		}
+		state, stateErr := provenanced.ProvenancedStateAtVersion(ctx, foundVersion)
 		if stateErr != nil {
 			err := lua.WrapErrorWithLua(l, stateErr, "build snapshot state").
 				WithKind(lua.Internal).
@@ -591,7 +602,8 @@ func makeSnapshotAt(log *zap.Logger) lua.LGoFunc {
 		snap := &Snapshot{
 			reg:     reg,
 			version: foundVersion,
-			entries: state,
+			entries: state.Entries,
+			prov:    state.Prov,
 			log:     log,
 		}
 
