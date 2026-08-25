@@ -71,6 +71,39 @@ func TestSupervisor_RegisterAdoptsReplacementInstance(t *testing.T) {
 	require.Same(t, replacement, ctrl.Service(), "controller must supervise the replacement")
 }
 
+// TestSupervisor_ReplacementStartFailureKeepsReplacementOwned pins the point of
+// no return in a handover. Once retirement succeeds, the replacement remains
+// supervisor-owned and follows the ordinary failed/retry lifecycle; restoring
+// the old controller would diverge from managers and resource registries that
+// have already committed the replacement instance.
+func TestSupervisor_ReplacementStartFailureKeepsReplacementOwned(t *testing.T) {
+	h := newTestHarness(t)
+	h.start(context.Background())
+	defer h.stop()
+
+	const serviceID = "test:replacement-start-fails"
+	original := newCountingService()
+	registerInstance(h, serviceID, original)
+	awaitCondition(t, "original to start", original.isRunning)
+
+	replacement := newCountingService()
+	replacement.setStartErr(errors.New("replacement cannot start"))
+	registerInstanceWithDeps(h, serviceID, replacement, true, nil)
+
+	awaitCondition(t, "replacement failure", func() bool {
+		state, err := h.sup.GetState(serviceID)
+		return err == nil && state.Status == supervisor.StatusFailed
+	})
+	_, originalStops := original.counts()
+	require.Equal(t, 1, originalStops, "the superseded instance must remain retired")
+
+	h.sup.mu.RLock()
+	ctrl := h.sup.controllers[serviceID]
+	h.sup.mu.RUnlock()
+	require.NotNil(t, ctrl)
+	require.Same(t, replacement, ctrl.Service(), "the replacement must retain lifecycle ownership")
+}
+
 // TestSupervisor_RegisterKeepsIdenticalInstanceRunning guards the handover
 // against needless churn: re-registering the instance already supervised must
 // not stop and restart it.
