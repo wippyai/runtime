@@ -1333,8 +1333,12 @@ func (h *DependencyHandler) resolveModules(ctx context.Context, deps []Dependenc
 			h.logger.Error("dependency resolution failed", zap.String("errors", formatResolutionErrors(result.Errors)))
 		}
 		if regapi.DependencyAccessFromContext(ctx) == regapi.DependencyAccessVerifiedOffline {
-			module := result.Errors[0].Org + "/" + result.Errors[0].Name
-			return nil, NewDependencyOfflineError("resolve", strings.Trim(module, "/"))
+			// A replaced module resolves from its local tree, so its failure
+			// is never a missing-evidence failure; the full error set carries
+			// the actual cause.
+			if module, ok := h.offlineEvidenceFailure(result.Errors); ok {
+				return nil, NewDependencyOfflineError("resolve", module)
+			}
 		}
 		return nil, NewDependencyResolutionErrors(result.Errors)
 	}
@@ -1611,10 +1615,17 @@ func validModuleIdentifier(value string) bool {
 	return true
 }
 
+// replacementZeroVersion labels a replacement tree that declares no version
+// and has never been recorded under one. Identity is the tree digest; the
+// label only has to be a well-formed release.
+const replacementZeroVersion = "0.0.0"
+
 // replacementManifestProvider loads entries and declared dependencies from a
-// local replacement tree. A replacement with no explicit source version still
-// delegates release availability to the Hub; a satisfying lock avoids that call.
-// Non-replaced modules delegate to the base provider.
+// local replacement tree. A replacement with no explicit source version
+// delegates release availability to the Hub while startup may reach it; a
+// satisfying lock avoids that call, and a verified-offline startup never makes
+// it - see localReplacementVersion. Non-replaced modules delegate to the base
+// provider.
 type replacementManifestProvider struct {
 	base           ManifestProvider
 	handler        *DependencyHandler
@@ -1636,6 +1647,24 @@ func (p *replacementManifestProvider) replacementVersion(name, constraint string
 	return p.lockedVersions[name]
 }
 
+// localReplacementVersion labels a replaced module from local evidence alone,
+// for a verified-offline startup that has no Hub to resolve against: the
+// version already recorded for the module, or the zero release when none was
+// ever recorded. The label faces the graph's constraints like any other
+// selection, so a range no local evidence satisfies fails the resolve.
+// Declaring version in the replacement's wippy.yaml settles it offline.
+func (p *replacementManifestProvider) localReplacementVersion(name string) string {
+	if version := p.lockedVersions[name]; version != "" {
+		return version
+	}
+	return replacementZeroVersion
+}
+
+// offlineStartup reports that this resolution may not reach the Hub at all.
+func offlineStartup(ctx context.Context) bool {
+	return regapi.DependencyAccessFromContext(ctx) == regapi.DependencyAccessVerifiedOffline
+}
+
 func isExactModuleVersion(value string) bool {
 	_, err := hubsemver.ParseVersion(strings.TrimSpace(value))
 	return err == nil
@@ -1645,6 +1674,9 @@ func (p *replacementManifestProvider) GetManifest(ctx context.Context, org, modu
 	name := org + "/" + module
 	if path, ok := p.handler.replacementPath(name); ok {
 		version := p.replacementVersion(name, constraint)
+		if version == "" && offlineStartup(ctx) {
+			version = p.localReplacementVersion(name)
+		}
 		if version == "" {
 			// Labels do not identify a concrete release. Ask the Hub only to
 			// resolve the label, then keep the local replacement tree as the
@@ -1732,9 +1764,14 @@ func (p *replacementManifestProvider) ListAllVersions(ctx context.Context, org, 
 	if _, ok := p.handler.replacementPath(name); ok {
 		// An explicit source version is the complete candidate set. Without
 		// one, the local tree supplies bytes but the Hub remains authoritative
-		// for which released versions are available to satisfy live ranges.
+		// for which released versions satisfy live ranges. A verified-offline
+		// startup cannot reach it, so local evidence is the whole candidate
+		// set.
 		if version := p.handler.replacementModuleVersion(name); version != "" {
 			return []VersionInfo{{Version: version}}, nil
+		}
+		if offlineStartup(ctx) {
+			return []VersionInfo{{Version: p.localReplacementVersion(name)}}, nil
 		}
 		return p.base.ListAllVersions(ctx, org, module)
 	}
@@ -2381,6 +2418,24 @@ func (h *DependencyHandler) replacementPath(moduleName string) (string, bool) {
 		path = filepath.Join(filepath.Dir(h.lock.Path()), path)
 	}
 	return path, true
+}
+
+// offlineEvidenceFailure reports the module to name in a missing-evidence
+// error, and whether missing evidence explains the failures at all. A failing
+// replaced module has another cause, so the set is reported as is. The named
+// module is the lowest-sorted failure, independent of resolver emit order.
+func (h *DependencyHandler) offlineEvidenceFailure(errs []ResolutionError) (string, bool) {
+	named := ""
+	for _, resolutionErr := range errs {
+		module := strings.Trim(resolutionErr.Org+"/"+resolutionErr.Name, "/")
+		if _, replaced := h.replacementPath(module); replaced {
+			return "", false
+		}
+		if named == "" || module < named {
+			named = module
+		}
+	}
+	return named, len(errs) > 0
 }
 
 // replacementModuleVersion reads the authoritative version of a locally-replaced
