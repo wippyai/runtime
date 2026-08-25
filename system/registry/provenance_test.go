@@ -155,6 +155,34 @@ func TestApplyOpsToProvenance(t *testing.T) {
 		assert.False(t, out[a].Root)
 	})
 
+	t.Run("history provenance overrides the legacy flag", func(t *testing.T) {
+		op := registry.Operation{
+			Kind:       registry.EntryCreate,
+			Entry:      registry.Entry{ID: a, Kind: registry.NamespaceDependency, DependencyRoot: true},
+			Provenance: &registry.EntryProvenance{Module: "org/mod", Root: false},
+		}
+		out, err := applyHistoryOpsToProvenance(nil, registry.ChangeSet{op})
+		require.NoError(t, err)
+		assert.False(t, out[a].Root)
+		assert.Equal(t, "org/mod", out[a].Module)
+	})
+
+	t.Run("history promotion does not cross delete and recreate", func(t *testing.T) {
+		prov := registry.ProvenanceMap{a: {Module: "org/old", Root: false}}
+		ops := registry.ChangeSet{
+			{
+				Kind:  registry.EntryUpdate,
+				Entry: registry.Entry{ID: a, Kind: registry.NamespaceDependency, DependencyRoot: true},
+			},
+			{Kind: registry.EntryDelete, Entry: registry.Entry{ID: a, Kind: registry.NamespaceDependency}},
+			{Kind: registry.EntryCreate, Entry: registry.Entry{ID: a, Kind: registry.NamespaceDependency}},
+		}
+		out, err := applyHistoryOpsToProvenance(prov, ops)
+		require.NoError(t, err)
+		assert.False(t, out[a].Root)
+		assert.True(t, out[a].HostAuthored())
+	})
+
 	t.Run("input map is not mutated", func(t *testing.T) {
 		prov := registry.ProvenanceMap{a: *owned}
 		_, err := applyOpsToProvenance(prov, registry.ChangeSet{provOp(registry.EntryDelete, a, nil)})
