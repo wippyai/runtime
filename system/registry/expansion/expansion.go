@@ -64,7 +64,7 @@ func NewPlanner(directivesByKind map[registry.Kind][]registry.Directive, resolve
 }
 
 // Expand turns a changeset into a plan by applying registered directives.
-func (p *Planner) Expand(ctx context.Context, changes registry.ChangeSet, snapshot registry.State) (*Plan, error) {
+func (p *Planner) Expand(ctx context.Context, changes registry.ChangeSet, snapshot registry.ProvenancedState) (*Plan, error) {
 	if len(changes) == 0 {
 		return &Plan{}, nil
 	}
@@ -332,8 +332,8 @@ func (p *Planner) RollbackEffects(ctx context.Context, effects []registry.Effect
 	}
 }
 
-func entryFromSnapshot(snapshot registry.State, id registry.ID) (registry.Entry, bool) {
-	for _, entry := range snapshot {
+func entryFromSnapshot(snapshot registry.ProvenancedState, id registry.ID) (registry.Entry, bool) {
+	for _, entry := range snapshot.Entries {
 		if entry.ID.Equal(id) {
 			return entry, true
 		}

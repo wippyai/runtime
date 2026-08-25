@@ -404,7 +404,7 @@ func TestOverlayRejectsDirectiveOwnedKinds(t *testing.T) {
 
 type overlayTestDirective struct{}
 
-func (overlayTestDirective) Expand(context.Context, regapi.Operation, regapi.State) (regapi.DirectiveResult, error) {
+func (overlayTestDirective) Expand(context.Context, regapi.Operation, regapi.ProvenancedState) (regapi.DirectiveResult, error) {
 	return regapi.DirectiveResult{}, nil
 }
 

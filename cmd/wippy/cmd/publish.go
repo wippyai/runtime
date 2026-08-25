@@ -468,7 +468,7 @@ func packModule(ctx context.Context, app *appinit.Context, cfg *config.ModuleCon
 	pipelineStages := []boot.Stage{
 		stages.Override(),
 		stages.DisableWithOptions(disableOpts),
-		stages.Link(),
+		stages.Link(nil),
 		stages.Override(),
 	}
 	if len(embedPatterns) > 0 {

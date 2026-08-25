@@ -182,7 +182,7 @@ func (r *Reg) Apply(ctx context.Context, changes registry.ChangeSet) (registry.V
 	if len(r.directivesByKind) > 0 {
 		planner = regexp.NewPlanner(r.directivesByKind, r.resolver, r.log.Named("expansion"))
 
-		plan, err := planner.Expand(ctx, changes, snapshot)
+		plan, err := planner.Expand(ctx, changes, registry.ProvenancedState{Entries: snapshot, Prov: liveProv})
 		if err != nil {
 			return nil, NewExpandChangesError(err)
 		}
@@ -411,7 +411,10 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 		stateMap := topology.NewStateMap(targetState)
 		reconciled := false
 		for _, directive := range r.directivesByKind[registry.NamespaceDependency] {
-			result, ok, reconcileErr := reconcileStoredResolution(ctx, directive, snapshot, topology.StateMapToSlice(stateMap), targetResolution)
+			result, ok, reconcileErr := reconcileStoredResolution(ctx, directive,
+				registry.ProvenancedState{Entries: snapshot, Prov: r.Provenance()},
+				registry.ProvenancedState{Entries: topology.StateMapToSlice(stateMap), Prov: targetProv},
+				targetResolution)
 			if !ok {
 				continue
 			}
@@ -463,7 +466,7 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 				continue
 			}
 			intermediate := topology.StateMapToSlice(stateMap)
-			plan, expandErr := planner.Expand(ctx, registry.ChangeSet{{Kind: registry.EntryUpdate, Entry: entry}}, intermediate)
+			plan, expandErr := planner.Expand(ctx, registry.ChangeSet{{Kind: registry.EntryUpdate, Entry: entry}}, registry.ProvenancedState{Entries: intermediate, Prov: targetProv})
 			if expandErr != nil {
 				planner.RollbackEffects(ctx, preparedEff)
 				return NewExpandChangesError(expandErr)
@@ -808,7 +811,10 @@ func (r *Reg) LoadState(ctx context.Context, baselineState registry.ProvenancedS
 		reconciled := false
 		for _, directive := range r.directivesByKind[registry.NamespaceDependency] {
 			snapshot := topology.StateMapToSlice(stateMap)
-			result, ok, err := reconcileStoredResolution(ctx, directive, baseline, snapshot, resolution)
+			result, ok, err := reconcileStoredResolution(ctx, directive,
+				registry.ProvenancedState{Entries: baseline, Prov: targetProvBaselineClone(baselineState.Prov)},
+				registry.ProvenancedState{Entries: snapshot, Prov: targetProv},
+				resolution)
 			if !ok {
 				continue
 			}
@@ -855,7 +861,7 @@ func (r *Reg) LoadState(ctx context.Context, baselineState registry.ProvenancedS
 				continue
 			}
 			snapshot := topology.StateMapToSlice(stateMap)
-			plan, err := planner.Expand(ctx, registry.ChangeSet{{Kind: registry.EntryUpdate, Entry: entry}}, snapshot)
+			plan, err := planner.Expand(ctx, registry.ChangeSet{{Kind: registry.EntryUpdate, Entry: entry}}, registry.ProvenancedState{Entries: snapshot, Prov: targetProv})
 			if err != nil {
 				planner.RollbackEffects(ctx, preparedEff)
 				return NewExpandChangesError(err)
@@ -985,8 +991,8 @@ func targetProvBaselineClone(prov registry.ProvMap) registry.ProvMap {
 func reconcileStoredResolution(
 	ctx context.Context,
 	directive registry.Directive,
-	current registry.State,
-	target registry.State,
+	current registry.ProvenancedState,
+	target registry.ProvenancedState,
 	resolution *registry.DependencyResolution,
 ) (registry.DirectiveResult, bool, error) {
 	if reconciler, ok := directive.(registry.ResolutionTransitionDirective); ok {

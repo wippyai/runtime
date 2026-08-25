@@ -113,15 +113,16 @@ func TestDeleteIDsAcceptsEntryListsForBulkOverlayDelete(t *testing.T) {
 // A writer unaware of root status must not demote a deployment root. This is
 // the shape keeper takes on every dependency update: read the entry, change a
 // field, write it back. Absence of root on an update means unchanged.
-func TestChangesUpdatePreservesStoredRoot(t *testing.T) {
+// An update saying nothing about root carries no provenance: the registry's
+// nil-provenance rule preserves the stored selection.
+func TestChangesUpdateOmittingRootCarriesNoProvenance(t *testing.T) {
 	l := newTestState()
 	defer l.Close()
 
 	stored := regapi.Entry{
-		ID:             regapi.ParseID("app.deps:keeper"),
-		Kind:           "ns.dependency",
-		Meta:           attrs.Bag{"module": "kickside/kickside"},
-		DependencyRoot: true,
+		ID:   regapi.ParseID("app.deps:keeper"),
+		Kind: "ns.dependency",
+		Meta: attrs.Bag{"module": "kickside/kickside"},
 	}
 
 	changes := &Changes{
@@ -145,19 +146,23 @@ func TestChangesUpdatePreservesStoredRoot(t *testing.T) {
 	if len(changes.ops) != 1 {
 		t.Fatalf("expected one op, got %d", len(changes.ops))
 	}
-	if !changes.ops[0].Entry.DependencyRoot {
-		t.Error("expected an update that omits root to inherit the stored root status")
+	if changes.ops[0].Entry.DependencyRoot {
+		t.Error("entry payloads never carry the deployment-root flag")
+	}
+	if changes.ops[0].Provenance != nil {
+		t.Error("an update without a root statement carries no provenance")
 	}
 }
 
-func TestChangesUpdateHonoursExplicitDemotion(t *testing.T) {
+// Root mutations go through registry.set_root; an update table attempting one
+// is refused.
+func TestChangesUpdateRejectsRootMutation(t *testing.T) {
 	l := newTestState()
 	defer l.Close()
 
 	stored := regapi.Entry{
-		ID:             regapi.ParseID("app.deps:keeper"),
-		Kind:           "ns.dependency",
-		DependencyRoot: true,
+		ID:   regapi.ParseID("app.deps:keeper"),
+		Kind: "ns.dependency",
 	}
 
 	changes := &Changes{
@@ -173,16 +178,13 @@ func TestChangesUpdateHonoursExplicitDemotion(t *testing.T) {
 	entryTable := l.CreateTable(0, 3)
 	entryTable.RawSetString("id", lua.LString("app.deps:keeper"))
 	entryTable.RawSetString("kind", lua.LString("ns.dependency"))
-	entryTable.RawSetString("root", lua.LFalse)
+	entryTable.RawSetString("root", lua.LTrue)
 	l.Push(entryTable)
 
 	changesUpdate(l)
 
-	if len(changes.ops) != 1 {
-		t.Fatalf("expected one op, got %d", len(changes.ops))
-	}
-	if changes.ops[0].Entry.DependencyRoot {
-		t.Error("expected an explicit root=false to demote the entry")
+	if len(changes.ops) != 0 {
+		t.Fatalf("a rejected root mutation must append no op, got %d", len(changes.ops))
 	}
 }
 

@@ -106,10 +106,10 @@ func TestRegistry_LoadState_V0ExpandsBaselineDirectives(t *testing.T) {
 		Data: payload.New("expanded"),
 	}
 
-	expander := directiveFunc(func(_ context.Context, op registry.Operation, snapshot registry.State) (registry.DirectiveResult, error) {
+	expander := directiveFunc(func(_ context.Context, op registry.Operation, snapshot registry.ProvenancedState) (registry.DirectiveResult, error) {
 		require.Equal(t, registry.EntryUpdate, op.Kind)
 		require.Equal(t, depEntry.ID, op.Entry.ID)
-		require.Contains(t, snapshot, depEntry)
+		require.Contains(t, snapshot.Entries, depEntry)
 		return registry.DirectiveResult{
 			Applied: true,
 			Additional: []registry.ScopedOperation{{
@@ -172,7 +172,7 @@ func TestRegistry_LoadState_V0RejectsBaselineDirectiveExpansionFailure(t *testin
 		resolver,
 		logger,
 		WithKindDirective(registry.NamespaceDependency, directiveFunc(
-			func(context.Context, registry.Operation, registry.State) (registry.DirectiveResult, error) {
+			func(context.Context, registry.Operation, registry.ProvenancedState) (registry.DirectiveResult, error) {
 				return registry.DirectiveResult{}, assert.AnError
 			},
 		)),
@@ -305,7 +305,7 @@ func TestRegistry_LoadState_ReplaysHistoryThroughDirectives(t *testing.T) {
 		Kind: "store.memory",
 		Data: payload.New("expanded"),
 	}
-	expander := directiveFunc(func(_ context.Context, op registry.Operation, _ registry.State) (registry.DirectiveResult, error) {
+	expander := directiveFunc(func(_ context.Context, op registry.Operation, _ registry.ProvenancedState) (registry.DirectiveResult, error) {
 		if op.Entry.Kind != registry.NamespaceDependency {
 			return registry.DirectiveResult{}, nil
 		}

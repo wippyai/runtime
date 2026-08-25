@@ -70,9 +70,9 @@ func (m *TestRunner) TransitionCount() int {
 	return len(m.transitions)
 }
 
-type directiveFunc func(context.Context, registry.Operation, registry.State) (registry.DirectiveResult, error)
+type directiveFunc func(context.Context, registry.Operation, registry.ProvenancedState) (registry.DirectiveResult, error)
 
-func (f directiveFunc) Expand(ctx context.Context, op registry.Operation, snap registry.State) (registry.DirectiveResult, error) {
+func (f directiveFunc) Expand(ctx context.Context, op registry.Operation, snap registry.ProvenancedState) (registry.DirectiveResult, error) {
 	return f(ctx, op, snap)
 }
 
@@ -80,11 +80,11 @@ type baselineOverlayDirective struct {
 	policyID registry.ID
 }
 
-func (d baselineOverlayDirective) Expand(_ context.Context, op registry.Operation, snapshot registry.State) (registry.DirectiveResult, error) {
+func (d baselineOverlayDirective) Expand(_ context.Context, op registry.Operation, snapshot registry.ProvenancedState) (registry.DirectiveResult, error) {
 	resolution := (&registry.DependencyResolution{InputDigest: "sha256:test"}).Canonical()
 	result := registry.DirectiveResult{Applied: true, Resolution: resolution}
 	if op.Kind != registry.EntryDelete {
-		for _, entry := range snapshot {
+		for _, entry := range snapshot.Entries {
 			if entry.ID == d.policyID {
 				result.Additional = append(result.Additional, registry.ScopedOperation{
 					Operation: registry.Operation{Kind: registry.EntryDelete, Entry: entry},
@@ -99,16 +99,16 @@ func (d baselineOverlayDirective) Expand(_ context.Context, op registry.Operatio
 
 func (d baselineOverlayDirective) ReconcileResolutionTransition(
 	_ context.Context,
-	_ registry.State,
-	target registry.State,
+	_ registry.ProvenancedState,
+	target registry.ProvenancedState,
 	resolution *registry.DependencyResolution,
 ) (registry.DirectiveResult, error) {
 	result := registry.DirectiveResult{Applied: true, Resolution: resolution}
-	for _, entry := range target {
+	for _, entry := range target.Entries {
 		if entry.Kind != registry.NamespaceDependency {
 			continue
 		}
-		for _, candidate := range target {
+		for _, candidate := range target.Entries {
 			if candidate.ID == d.policyID {
 				result.Additional = append(result.Additional, registry.ScopedOperation{
 					Operation: registry.Operation{Kind: registry.EntryDelete, Entry: candidate},
@@ -595,7 +595,7 @@ func TestApplyVersion_RunsDirectives(t *testing.T) {
 	depID := registry.NewID("app", "dep")
 	modID := registry.NewID("mod", "svc")
 
-	expander := directiveFunc(func(_ context.Context, op registry.Operation, _ registry.State) (registry.DirectiveResult, error) {
+	expander := directiveFunc(func(_ context.Context, op registry.Operation, _ registry.ProvenancedState) (registry.DirectiveResult, error) {
 		if op.Entry.Kind != registry.NamespaceDependency {
 			return registry.DirectiveResult{}, nil
 		}

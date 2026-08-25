@@ -28,18 +28,27 @@ import (
 	"go.uber.org/zap"
 )
 
-// stubPackRegistry records pack lifecycle calls for assertions.
+// stubPackRegistry records pack lifecycle calls for assertions. calls keeps the
+// order across kinds, which the retarget-before-close contract depends on.
 type stubPackRegistry struct {
 	registerErr    error
 	registered     map[string]*wapp.Reader
 	files          map[string]*os.File
 	unregistered   []string
 	modulesDropped []droppedModule
+	retargeted     []retargetedModule
+	calls          []string
 }
 
 type droppedModule struct {
 	module  string
 	version string
+}
+
+type retargetedModule struct {
+	module string
+	from   string
+	to     string
 }
 
 func newStubPackRegistry() *stubPackRegistry {
@@ -70,6 +79,13 @@ func (s *stubPackRegistry) UnregisterPack(packPath string) error {
 
 func (s *stubPackRegistry) UnregisterModule(module, version string) error {
 	s.modulesDropped = append(s.modulesDropped, droppedModule{module: module, version: version})
+	s.calls = append(s.calls, "unregister:"+module+"@"+version)
+	return nil
+}
+
+func (s *stubPackRegistry) RetargetModule(module, fromVersion, toVersion string) error {
+	s.retargeted = append(s.retargeted, retargetedModule{module: module, from: fromVersion, to: toVersion})
+	s.calls = append(s.calls, "retarget:"+module+"@"+fromVersion+"->"+toVersion)
 	return nil
 }
 

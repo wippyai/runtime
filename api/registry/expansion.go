@@ -33,7 +33,7 @@ type DirectiveResult struct {
 // stored for a registry version. It is used once after declarative history has
 // been reconstructed, never once per historical changeset.
 type ResolutionDirective interface {
-	ReconcileResolution(context.Context, State, *DependencyResolution) (DirectiveResult, error)
+	ReconcileResolution(context.Context, ProvenancedState, *DependencyResolution) (DirectiveResult, error)
 }
 
 // ResolutionTransitionDirective is the transition-aware form of
@@ -42,13 +42,13 @@ type ResolutionDirective interface {
 // prefers this interface when implemented and falls back to
 // ResolutionDirective for compatibility.
 type ResolutionTransitionDirective interface {
-	ReconcileResolutionTransition(context.Context, State, State, *DependencyResolution) (DirectiveResult, error)
+	ReconcileResolutionTransition(context.Context, ProvenancedState, ProvenancedState, *DependencyResolution) (DirectiveResult, error)
 }
 
 // ChangesDirective expands all same-kind operations in one resolution pass.
 // It prevents a multi-root transaction from staging intermediate graphs.
 type ChangesDirective interface {
-	ExpandChanges(context.Context, ChangeSet, State) (DirectiveResult, error)
+	ExpandChanges(context.Context, ChangeSet, ProvenancedState) (DirectiveResult, error)
 }
 
 // Directive can augment a registry operation with additional operations or effects.
@@ -56,7 +56,7 @@ type ChangesDirective interface {
 // Directives must not call Apply/ApplyVersion/LoadState (Apply is not re-entrant).
 // Use Effects for work that must be staged, committed, or rolled back alongside Apply.
 type Directive interface {
-	Expand(ctx context.Context, op Operation, snapshot State) (DirectiveResult, error)
+	Expand(ctx context.Context, op Operation, snapshot ProvenancedState) (DirectiveResult, error)
 }
 
 // Effect represents external work tied to an expanded operation.

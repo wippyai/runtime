@@ -318,7 +318,7 @@ func LoadEntriesFromPaths(ctx context.Context, paths []string, logger *zap.Logge
 		entries = append(entries, loadedEntries...)
 	}
 
-	if err := NormalizeEntries(ctx, &entries); err != nil {
+	if err := NormalizeEntries(ctx, &entries, nil); err != nil {
 		return nil, err
 	}
 
@@ -544,7 +544,7 @@ func loadEntriesWithModuleMeta(ctx context.Context, modulePaths []lock.ModuleLoa
 		entries = filtered
 	}
 
-	if err := NormalizeEntries(ctx, &entries); err != nil {
+	if err := NormalizeEntries(ctx, &entries, prov); err != nil {
 		return nil, nil, err
 	}
 
@@ -608,11 +608,11 @@ func applyModuleConfigFilters(
 //  2. disable: removes excluded entries before link mutation
 //  3. link: resolves requirements from dependencies/defaults
 //  4. post-link override: allows explicit final-value overrides
-func NormalizeEntries(ctx context.Context, entries *[]regapi.Entry) error {
+func NormalizeEntries(ctx context.Context, entries *[]regapi.Entry, prov regapi.ProvMap) error {
 	pipeline := build.New(
 		stages.Override(),
 		stages.Disable(),
-		stages.Link(),
+		stages.Link(prov),
 		stages.Override(),
 	)
 

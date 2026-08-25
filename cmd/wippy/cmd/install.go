@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 
 	"github.com/spf13/cobra"
+	regapi "github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/boot/deps/artifact"
 	bootauth "github.com/wippyai/runtime/boot/deps/auth"
 	"github.com/wippyai/runtime/boot/deps/graph"
@@ -411,7 +412,7 @@ func installedArtifactInputs(
 		return packs, nil, nil
 	}
 
-	loaded, _, err := entries.LoadEntriesFromModuleLoadPaths(ctx, replacementPaths, logger)
+	loaded, loadedProv, err := entries.LoadEntriesFromModuleLoadPaths(ctx, replacementPaths, logger)
 	if err != nil {
 		return nil, nil, fmt.Errorf("load replacement artifacts: %w", err)
 	}
@@ -423,7 +424,7 @@ func installedArtifactInputs(
 		}
 		roots[modulePath.Module] = root
 	}
-	resources, err := artifact.DirectoryResources(ctx, loaded, roots, versions)
+	resources, err := artifact.DirectoryResources(ctx, regapi.ProvenancedState{Entries: loaded, Prov: loadedProv}, roots, versions)
 	if err != nil {
 		return nil, nil, err
 	}

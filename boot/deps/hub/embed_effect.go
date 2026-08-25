@@ -24,6 +24,7 @@ type embedPackRegistry interface {
 	RegisterPack(packPath, module, version string, reader *wapp.Reader, file *os.File) error
 	UnregisterPack(packPath string) error
 	UnregisterModule(module, version string) error
+	RetargetModule(module, fromVersion, toVersion string) error
 }
 
 // stagedPack describes a new module pack to register during Prepare and to
@@ -55,10 +56,19 @@ type obsoletePack struct {
 //   - Rollback unregisters and closes the packs staged in Prepare, restoring the
 //     pre-operation set. Obsolete packs are left untouched because they are only
 //     dropped during Finalize after a successful durable commit.
+// packRetarget repoints filesystems served for a module from the superseded
+// pack generation to the adopted one before the superseded pack closes.
+type packRetarget struct {
+	module string
+	from   string
+	to     string
+}
+
 type embedPackEffect struct {
 	reg      embedPackRegistry
 	staged   []stagedPack
 	obsolete []obsoletePack
+	retarget []packRetarget
 	logger   *zap.Logger
 
 	prepared []string // pack paths registered by Prepare, for rollback
@@ -100,6 +110,19 @@ func (e *embedPackEffect) Commit(_ context.Context) error {
 
 func (e *embedPackEffect) Finalize(_ context.Context) error {
 	var errs []error
+	// Entries whose content did not change receive no event during the
+	// transition, so filesystems cached for them still serve the superseded
+	// pack. Repointing them precedes closing that pack.
+	for _, rt := range e.retarget {
+		if err := e.reg.RetargetModule(rt.module, rt.from, rt.to); err != nil {
+			e.logger.Warn("failed to retarget embedded pack consumers",
+				zap.String("module", rt.module),
+				zap.String("from", rt.from),
+				zap.String("to", rt.to),
+				zap.Error(err))
+			errs = append(errs, fmt.Errorf("retarget embedded pack %s %s->%s: %w", rt.module, rt.from, rt.to, err))
+		}
+	}
 	for _, op := range e.obsolete {
 		if err := e.reg.UnregisterModule(op.module, op.version); err != nil {
 			// The changeset is already durable, so callers only report this as a
@@ -201,6 +224,13 @@ func (h *DependencyHandler) buildEmbedPackEffect(
 
 	obsolete := obsoletePacksFor(installed, desired, controlled)
 
+	retargets := make([]packRetarget, 0, len(obsolete))
+	for _, op := range obsolete {
+		if to := desired[op.module]; to != "" && to != op.version {
+			retargets = append(retargets, packRetarget{module: op.module, from: op.version, to: to})
+		}
+	}
+
 	if len(staged) == 0 && len(obsolete) == 0 {
 		return nil, nil
 	}
@@ -214,6 +244,7 @@ func (h *DependencyHandler) buildEmbedPackEffect(
 		reg:      reg,
 		staged:   staged,
 		obsolete: obsolete,
+		retarget: retargets,
 		logger:   logger.Named("embed_pack"),
 	}, nil
 }

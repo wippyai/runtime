@@ -765,7 +765,7 @@ func moduleIdentityFromPackFile(packFile string) (moduleName string, moduleVersi
 // applyPackEntries restores packed entries as baseline state after applying the
 // canonical entry normalization pipeline.
 func applyPackEntries(ctx context.Context, packEntries []registry.Entry, prov registry.ProvMap, logger *zap.Logger) error {
-	if err := entries.NormalizeEntries(ctx, &packEntries); err != nil {
+	if err := entries.NormalizeEntries(ctx, &packEntries, prov); err != nil {
 		return err
 	}
 
