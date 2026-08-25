@@ -147,7 +147,7 @@ func historySnapshotAt(l *lua.LState) int {
 		reg:     history.reg,
 		version: version,
 		entries: state.Entries,
-		prov:    state.Prov,
+		prov:    state.Provenance,
 		log:     history.log,
 	}
 

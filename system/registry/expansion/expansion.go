@@ -22,7 +22,7 @@ type Plan struct {
 	Resolution *registry.DependencyResolution
 	// Provenance carries resident-record updates for entries no operation
 	// touches, merged from directive results.
-	Provenance registry.ProvMap
+	Provenance registry.ProvenanceMap
 	Ops        []ScopedOp
 	Effects    []registry.Effect
 	Expanded   bool
@@ -93,13 +93,13 @@ func (p *Planner) Expand(ctx context.Context, changes registry.ChangeSet, snapsh
 		}
 	}()
 	var resolution *registry.DependencyResolution
-	var provenance registry.ProvMap
-	mergeProvenance := func(records registry.ProvMap) {
+	var provenance registry.ProvenanceMap
+	mergeProvenance := func(records registry.ProvenanceMap) {
 		if len(records) == 0 {
 			return
 		}
 		if provenance == nil {
-			provenance = make(registry.ProvMap, len(records))
+			provenance = make(registry.ProvenanceMap, len(records))
 		}
 		for id, record := range records {
 			provenance[id] = record

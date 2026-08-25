@@ -135,7 +135,7 @@ func TestResolutionChangeIsDigestInequality(t *testing.T) {
 // whose entries are byte-identical.
 type resolutionOnlyDirective struct {
 	resolution *registry.DependencyResolution
-	resident   registry.ProvMap
+	resident   registry.ProvenanceMap
 }
 
 func (d resolutionOnlyDirective) Expand(_ context.Context, op registry.Operation, _ registry.ProvenancedState) (registry.DirectiveResult, error) {
@@ -193,7 +193,7 @@ func TestIdenticalContentVersionBumpTouchesNoResidentEntry(t *testing.T) {
 	bumped := registry.EntryProvenance{Module: "acme/mod", Version: "1.0.1", Digest: "sha256:b"}
 	reg.directivesByKind["dep.kind"] = []registry.Directive{resolutionOnlyDirective{
 		resolution: second,
-		resident:   registry.ProvMap{storeID: bumped},
+		resident:   registry.ProvenanceMap{storeID: bumped},
 	}}
 	runner := reg.runner.(*MockRunner)
 	var dispatched registry.ChangeSet

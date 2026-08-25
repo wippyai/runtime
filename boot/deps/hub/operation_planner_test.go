@@ -384,7 +384,7 @@ func applyPlannerOperations(current regapi.ProvenancedState, ops []regapi.Operat
 	records := make(map[string]regapi.EntryProvenance, len(current.Entries)+len(ops))
 	for _, entry := range current.Entries {
 		entries[idKey(entry.ID)] = entry
-		records[idKey(entry.ID)] = current.Prov[entry.ID]
+		records[idKey(entry.ID)] = current.Provenance[entry.ID]
 	}
 	for _, op := range ops {
 		key := idKey(op.Entry.ID)
@@ -400,12 +400,12 @@ func applyPlannerOperations(current regapi.ProvenancedState, ops []regapi.Operat
 		}
 	}
 	result := regapi.ProvenancedState{
-		Entries: make(regapi.State, 0, len(entries)),
-		Prov:    make(regapi.ProvMap, len(entries)),
+		Entries:    make(regapi.State, 0, len(entries)),
+		Provenance: make(regapi.ProvenanceMap, len(entries)),
 	}
 	for key, entry := range entries {
 		result.Entries = append(result.Entries, entry)
-		result.Prov[entry.ID] = records[key]
+		result.Provenance[entry.ID] = records[key]
 	}
 	return result
 }
@@ -418,6 +418,6 @@ func assertPlannerStatesEqual(t *testing.T, want, got regapi.ProvenancedState) {
 		actual, ok := gotByID[idKey(entry.ID)]
 		require.True(t, ok, "missing entry %s", entry.ID)
 		assert.Equal(t, entry, actual, "entry %s differs", entry.ID)
-		assert.Equal(t, want.Prov[entry.ID], got.Prov[entry.ID], "provenance of %s differs", entry.ID)
+		assert.Equal(t, want.Provenance[entry.ID], got.Provenance[entry.ID], "provenance of %s differs", entry.ID)
 	}
 }

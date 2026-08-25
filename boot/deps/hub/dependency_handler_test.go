@@ -2721,13 +2721,13 @@ func TestDependencyHandler_IdenticalContentBumpAdvancesResidentRecordsWithoutOpe
 	// selection over the advanced state changes nothing.
 	advanced := regapi.ProvenancedState{Entries: applyOperationToState(resident, regapi.Operation{
 		Kind: regapi.EntryUpdate, Entry: newDep,
-	}, provByKey(resident.Prov)).Entries, Prov: resident.Prov.Clone()}
+	}, provByKey(resident.Provenance)).Entries, Provenance: resident.Provenance.Clone()}
 	for id, record := range result.Provenance {
-		advanced.Prov[id] = record
+		advanced.Provenance[id] = record
 	}
 
-	assert.Equal(t, "1.0.0", residentModuleVersions(resident.Prov)["acme/widget"])
-	assert.Equal(t, "2.0.0", residentModuleVersions(advanced.Prov)["acme/widget"],
+	assert.Equal(t, "1.0.0", residentModuleVersions(resident.Provenance)["acme/widget"])
+	assert.Equal(t, "2.0.0", residentModuleVersions(advanced.Provenance)["acme/widget"],
 		"the resident fold now names the selected artifact")
 
 	settled, err := handler.ReconcileResolution(ctx, advanced, advanced, result.Resolution)
@@ -2737,7 +2737,7 @@ func TestDependencyHandler_IdenticalContentBumpAdvancesResidentRecordsWithoutOpe
 
 	// The same operation over a state that never received the advance still has
 	// identity work to do — the divergence the advance exists to close.
-	stale := regapi.ProvenancedState{Entries: resident.Entries, Prov: resident.Prov.Clone()}
+	stale := regapi.ProvenancedState{Entries: resident.Entries, Provenance: resident.Provenance.Clone()}
 	behind, err := handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryUpdate, Entry: newDep}, stale)
 	require.NoError(t, err)
 	assert.NotEmpty(t, behind.Provenance, "a stale resident record is reported again on every attempt")

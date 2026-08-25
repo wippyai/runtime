@@ -393,8 +393,8 @@ func TestEmbedFSEndToEndPacksBothResources(t *testing.T) {
 
 // moduleProv builds the loader provenance naming the module that owns the
 // entries being embedded.
-func moduleProv(module string, ids ...registry.ID) registry.ProvMap {
-	prov := make(registry.ProvMap, len(ids))
+func moduleProv(module string, ids ...registry.ID) registry.ProvenanceMap {
+	prov := make(registry.ProvenanceMap, len(ids))
 	for _, id := range ids {
 		prov[id] = registry.EntryProvenance{Module: module}
 	}
@@ -422,14 +422,14 @@ func TestEmbedFSProvenanceTotality(t *testing.T) {
 	other := registry.NewID("acme.ui", "other_fs")
 
 	for _, tc := range []struct {
-		prov    registry.ProvMap
+		prov    registry.ProvenanceMap
 		name    string
 		wantErr bool
 	}{
 		{name: "no module world", prov: nil},
-		{name: "entry named", prov: registry.ProvMap{entry.ID: {}}},
-		{name: "another entry named", prov: registry.ProvMap{other: {Module: "acme/ui"}}, wantErr: true},
-		{name: "empty map names nothing", prov: registry.ProvMap{}, wantErr: true},
+		{name: "entry named", prov: registry.ProvenanceMap{entry.ID: {}}},
+		{name: "another entry named", prov: registry.ProvenanceMap{other: {Module: "acme/ui"}}, wantErr: true},
+		{name: "empty map names nothing", prov: registry.ProvenanceMap{}, wantErr: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := ctxapi.NewRootContext()

@@ -377,7 +377,7 @@ func registrySnapshot(l *lua.LState) int {
 		reg:     reg,
 		version: version,
 		entries: state.Entries,
-		prov:    state.Prov,
+		prov:    state.Provenance,
 		log:     zap.NewNop(),
 	}
 
@@ -607,7 +607,7 @@ func makeSnapshotAt(log *zap.Logger) lua.LGoFunc {
 			reg:     reg,
 			version: foundVersion,
 			entries: state.Entries,
-			prov:    state.Prov,
+			prov:    state.Provenance,
 			log:     log,
 		}
 

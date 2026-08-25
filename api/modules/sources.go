@@ -41,14 +41,14 @@ type Sources map[string]Source
 // LoadedSources is one atomic view of the normalized deployment baseline, its
 // provenance, and the sources authoritative over its entries.
 type LoadedSources struct {
-	Prov    regapi.ProvMap
-	Owners  []string
-	Entries []regapi.Entry
+	Provenance regapi.ProvenanceMap
+	Owners     []string
+	Entries    []regapi.Entry
 }
 
 // SourceLoader rebuilds the normalized deployment baseline and its provenance
 // from an atomic snapshot of its current sources.
-type SourceLoader func(context.Context, Sources) ([]regapi.Entry, regapi.ProvMap, error)
+type SourceLoader func(context.Context, Sources) ([]regapi.Entry, regapi.ProvenanceMap, error)
 
 // SourceRegistry owns deployment source identities and coordinates source
 // reloads with backing-store transitions.
@@ -254,9 +254,9 @@ func (r *SourceRegistry) Load(ctx context.Context) (LoadedSources, error) {
 		return LoadedSources{}, err
 	}
 	return LoadedSources{
-		Owners:  authoritativeOwners(sources),
-		Entries: entries,
-		Prov:    prov,
+		Owners:     authoritativeOwners(sources),
+		Entries:    entries,
+		Provenance: prov,
 	}, nil
 }
 

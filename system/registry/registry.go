@@ -31,14 +31,14 @@ type Reg struct {
 	resolver          registry.DependencyResolver
 	history           registry.History
 	overlays          map[string]registry.State
-	baselineProv      registry.ProvMap
+	baselineProv      registry.ProvenanceMap
 	stateIndex        map[registry.ID]int
 	directivesByKind  map[registry.Kind][]registry.Directive
 	log               *zap.Logger
 	depIndex          *topology.DepIndex
 	overlayOwners     map[registry.ID]string
 	overlayGeneration map[string]uint64
-	prov              atomic.Pointer[registry.ProvMap]
+	prov              atomic.Pointer[registry.ProvenanceMap]
 	currentResolution *registry.DependencyResolution
 	state             registry.State
 	baseline          registry.State
@@ -186,7 +186,7 @@ func (r *Reg) applyFrom(ctx context.Context, changes registry.ChangeSet, expecte
 		baseVersion       registry.Version
 		resolution        *registry.DependencyResolution
 		resolutionChanged bool
-		planProvenance    registry.ProvMap
+		planProvenance    registry.ProvenanceMap
 	)
 
 	r.mu.RLock()
@@ -200,7 +200,7 @@ func (r *Reg) applyFrom(ctx context.Context, changes registry.ChangeSet, expecte
 	if len(r.directivesByKind) > 0 {
 		planner = regexp.NewPlanner(r.directivesByKind, r.resolver, r.log.Named("expansion"))
 
-		plan, err := planner.Expand(ctx, changes, registry.ProvenancedState{Entries: snapshot, Prov: liveProv})
+		plan, err := planner.Expand(ctx, changes, registry.ProvenancedState{Entries: snapshot, Provenance: liveProv})
 		if err != nil {
 			return nil, NewExpandChangesError(err)
 		}
@@ -445,8 +445,8 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 		reconciled := false
 		for _, directive := range r.directivesByKind[registry.NamespaceDependency] {
 			result, ok, reconcileErr := reconcileStoredResolution(ctx, directive,
-				registry.ProvenancedState{Entries: snapshot, Prov: liveProv},
-				registry.ProvenancedState{Entries: topology.StateMapToSlice(stateMap), Prov: targetProv},
+				registry.ProvenancedState{Entries: snapshot, Provenance: liveProv},
+				registry.ProvenancedState{Entries: topology.StateMapToSlice(stateMap), Provenance: targetProv},
 				targetResolution)
 			if !ok {
 				continue
@@ -506,7 +506,7 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 				continue
 			}
 			intermediate := topology.StateMapToSlice(stateMap)
-			plan, expandErr := planner.Expand(ctx, registry.ChangeSet{{Kind: registry.EntryUpdate, Entry: entry}}, registry.ProvenancedState{Entries: intermediate, Prov: targetProv})
+			plan, expandErr := planner.Expand(ctx, registry.ChangeSet{{Kind: registry.EntryUpdate, Entry: entry}}, registry.ProvenancedState{Entries: intermediate, Provenance: targetProv})
 			if expandErr != nil {
 				planner.RollbackEffects(ctx, preparedEff)
 				return NewExpandChangesError(expandErr)
@@ -680,7 +680,7 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 // history at target. Live version selection must use the same authority model
 // as cold boot; reversing operations against the expanded resident state can
 // otherwise delete baseline entries hidden by an overlay.
-func (r *Reg) stateAtVersion(ctx context.Context, target registry.Version) (registry.State, registry.ProvMap, error) {
+func (r *Reg) stateAtVersion(ctx context.Context, target registry.Version) (registry.State, registry.ProvenanceMap, error) {
 	return replayVersionState(ctx, r.history, r.baseline, r.baselineProv, target)
 }
 
@@ -691,13 +691,13 @@ func replayVersionState(
 	ctx context.Context,
 	history registry.History,
 	baseline registry.State,
-	baselineProv registry.ProvMap,
+	baselineProv registry.ProvenanceMap,
 	target registry.Version,
-) (registry.State, registry.ProvMap, error) {
+) (registry.State, registry.ProvenanceMap, error) {
 	stateMap := topology.NewStateMap(baseline)
 	prov := baselineProv.Clone()
 	if prov == nil {
-		prov = make(registry.ProvMap)
+		prov = make(registry.ProvenanceMap)
 	}
 	if target == nil || target.ID() == registry.RootVersion {
 		return topology.StateMapToSlice(stateMap), prov, nil
@@ -818,8 +818,8 @@ func (r *Reg) LoadState(ctx context.Context, baselineState registry.ProvenancedS
 	}
 
 	stateMap := topology.NewStateMap(baseline)
-	targetProv := make(registry.ProvMap, len(baseline))
-	for id, p := range baselineState.Prov {
+	targetProv := make(registry.ProvenanceMap, len(baseline))
+	for id, p := range baselineState.Provenance {
 		targetProv[canonicalEntryID(id)] = p
 	}
 	var planner *regexp.Planner
@@ -884,8 +884,8 @@ func (r *Reg) LoadState(ctx context.Context, baselineState registry.ProvenancedS
 		for _, directive := range r.directivesByKind[registry.NamespaceDependency] {
 			snapshot := topology.StateMapToSlice(stateMap)
 			result, ok, err := reconcileStoredResolution(ctx, directive,
-				registry.ProvenancedState{Entries: baseline, Prov: canonicalProvClone(baselineState.Prov)},
-				registry.ProvenancedState{Entries: snapshot, Prov: targetProv},
+				registry.ProvenancedState{Entries: baseline, Provenance: canonicalProvClone(baselineState.Provenance)},
+				registry.ProvenancedState{Entries: snapshot, Provenance: targetProv},
 				resolution)
 			if !ok {
 				continue
@@ -940,7 +940,7 @@ func (r *Reg) LoadState(ctx context.Context, baselineState registry.ProvenancedS
 				continue
 			}
 			snapshot := topology.StateMapToSlice(stateMap)
-			plan, err := planner.Expand(ctx, registry.ChangeSet{{Kind: registry.EntryUpdate, Entry: entry}}, registry.ProvenancedState{Entries: snapshot, Prov: targetProv})
+			plan, err := planner.Expand(ctx, registry.ChangeSet{{Kind: registry.EntryUpdate, Entry: entry}}, registry.ProvenancedState{Entries: snapshot, Provenance: targetProv})
 			if err != nil {
 				planner.RollbackEffects(ctx, preparedEff)
 				return NewExpandChangesError(err)
@@ -1045,7 +1045,7 @@ func (r *Reg) LoadState(ctx context.Context, baselineState registry.ProvenancedS
 	}
 	r.state = newState
 	r.baseline = append(registry.State(nil), baseline...)
-	r.baselineProv = canonicalProvClone(baselineState.Prov)
+	r.baselineProv = canonicalProvClone(baselineState.Provenance)
 	r.publishProvenance(publishedProv)
 	// LoadState is the cold/reinitialization boundary. Overlays are deliberately
 	// process-local and their owning controllers reconcile them after boot.
@@ -1070,8 +1070,8 @@ func (r *Reg) LoadState(ctx context.Context, baselineState registry.ProvenancedS
 }
 
 // canonicalProvClone clones a provenance map under canonical IDs.
-func canonicalProvClone(prov registry.ProvMap) registry.ProvMap {
-	out := make(registry.ProvMap, len(prov))
+func canonicalProvClone(prov registry.ProvenanceMap) registry.ProvenanceMap {
+	out := make(registry.ProvenanceMap, len(prov))
 	for id, p := range prov {
 		out[canonicalEntryID(id)] = p
 	}
@@ -1130,7 +1130,7 @@ func canonicalEntryID(id registry.ID) registry.ID {
 // in the state, so its entry takes the forward map's record; everything else
 // keeps the pre-transition record. prior carries the first compensation
 // attempt's outcome so neither attempt's failures are lost.
-func (r *Reg) rollback(ctx context.Context, from, to registry.State, forwardProv registry.ProvMap, prior *registry.RollbackOutcome) error {
+func (r *Reg) rollback(ctx context.Context, from, to registry.State, forwardProv registry.ProvenanceMap, prior *registry.RollbackOutcome) error {
 	r.log.Debug("attempting to rollback")
 
 	published := r.provenanceSnapshot()
@@ -1154,7 +1154,7 @@ func (r *Reg) rollback(ctx context.Context, from, to registry.State, forwardProv
 	r.rebuildDepIndex()
 	partialProv := published.Clone()
 	if partialProv == nil {
-		partialProv = make(registry.ProvMap)
+		partialProv = make(registry.ProvenanceMap)
 	}
 	for _, op := range outcome.Surviving() {
 		id := canonicalEntryID(op.Entry.ID)
@@ -1185,7 +1185,7 @@ func (r *Reg) rollback(ctx context.Context, from, to registry.State, forwardProv
 	return err
 }
 
-func (r *Reg) transitionState(ctx context.Context, from, to registry.State, fromProv, toProv registry.ProvMap) (registry.State, error) {
+func (r *Reg) transitionState(ctx context.Context, from, to registry.State, fromProv, toProv registry.ProvenanceMap) (registry.State, error) {
 	r.log.Debug("transitioning state")
 
 	cs, terr := r.builder.BuildDelta(from, to)

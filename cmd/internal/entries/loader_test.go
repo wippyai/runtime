@@ -376,12 +376,12 @@ entries:
 	_, _, err := LoadEntriesFromModuleLoadPaths(ctx, []lock.ModuleLoadPath{{Path: appDir, Root: true}}, zap.NewNop())
 	require.NoError(t, err)
 
-	var lastProv regapi.ProvMap
+	var lastProv regapi.ProvenanceMap
 	loadByID := func() map[regapi.ID]regapi.Entry {
 		t.Helper()
 		loaded, loadErr := moduleapi.GetSourceRegistry(ctx).Load(ctx)
 		require.NoError(t, loadErr)
-		lastProv = loaded.Prov
+		lastProv = loaded.Provenance
 		byID := make(map[regapi.ID]regapi.Entry, len(loaded.Entries))
 		for _, entry := range loaded.Entries {
 			byID[entry.ID] = entry

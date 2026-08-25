@@ -54,7 +54,7 @@ type LinkOption func(*linkStage)
 
 type linkStage struct {
 	strictModules     map[string]struct{}
-	provenance        registry.ProvMap
+	provenance        registry.ProvenanceMap
 	dependencyEntries []registry.Entry
 	explicitDeps      bool
 	strict            bool
@@ -69,7 +69,7 @@ type linkStage struct {
 // package-injected transitive, and which requirement falls under strict module
 // scope. It is a required argument so every caller answers that question; a
 // build of a single source tree, which has no module world, passes nil.
-func Link(prov registry.ProvMap, opts ...LinkOption) boot.Stage {
+func Link(prov registry.ProvenanceMap, opts ...LinkOption) boot.Stage {
 	stage := &linkStage{provenance: prov}
 	for _, opt := range opts {
 		if opt != nil {

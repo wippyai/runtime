@@ -56,14 +56,14 @@ func TestApplyOpsToProvenance(t *testing.T) {
 	})
 
 	t.Run("update without provenance preserves the record", func(t *testing.T) {
-		prov := registry.ProvMap{a: *owned}
+		prov := registry.ProvenanceMap{a: *owned}
 		out, err := applyOpsToProvenance(prov, registry.ChangeSet{provOp(registry.EntryUpdate, a, nil)})
 		require.NoError(t, err)
 		assert.Equal(t, *owned, out[a])
 	})
 
 	t.Run("update with provenance replaces the record", func(t *testing.T) {
-		prov := registry.ProvMap{a: *owned}
+		prov := registry.ProvenanceMap{a: *owned}
 		next := &registry.EntryProvenance{Module: "org/mod", Version: "2.0.0", Digest: "sha256:y"}
 		out, err := applyOpsToProvenance(prov, registry.ChangeSet{provOp(registry.EntryUpdate, a, next)})
 		require.NoError(t, err)
@@ -76,7 +76,7 @@ func TestApplyOpsToProvenance(t *testing.T) {
 	})
 
 	t.Run("delete clears the record", func(t *testing.T) {
-		prov := registry.ProvMap{a: *owned, b: {}}
+		prov := registry.ProvenanceMap{a: *owned, b: {}}
 		out, err := applyOpsToProvenance(prov, registry.ChangeSet{provOp(registry.EntryDelete, a, nil)})
 		require.NoError(t, err)
 		_, ok := out[a]
@@ -86,7 +86,7 @@ func TestApplyOpsToProvenance(t *testing.T) {
 	})
 
 	t.Run("input map is not mutated", func(t *testing.T) {
-		prov := registry.ProvMap{a: *owned}
+		prov := registry.ProvenanceMap{a: *owned}
 		_, err := applyOpsToProvenance(prov, registry.ChangeSet{provOp(registry.EntryDelete, a, nil)})
 		require.NoError(t, err)
 		assert.Contains(t, prov, a)
@@ -107,8 +107,8 @@ func TestApplyOpsToProvenance(t *testing.T) {
 
 func TestAnnotateChangeSet(t *testing.T) {
 	a := registry.NewID("ns", "a")
-	from := registry.ProvMap{a: {Module: "org/mod", Version: "1.0.0"}}
-	to := registry.ProvMap{a: {Module: "org/mod", Version: "2.0.0"}}
+	from := registry.ProvenanceMap{a: {Module: "org/mod", Version: "1.0.0"}}
+	to := registry.ProvenanceMap{a: {Module: "org/mod", Version: "2.0.0"}}
 
 	t.Run("update is annotated from both maps", func(t *testing.T) {
 		ops := registry.ChangeSet{provOp(registry.EntryUpdate, a, nil)}
@@ -121,7 +121,7 @@ func TestAnnotateChangeSet(t *testing.T) {
 
 	t.Run("delete takes its effective provenance from the source map", func(t *testing.T) {
 		ops := registry.ChangeSet{provOp(registry.EntryDelete, a, nil)}
-		annotateChangeSet(ops, from, registry.ProvMap{})
+		annotateChangeSet(ops, from, registry.ProvenanceMap{})
 		require.NotNil(t, ops[0].Provenance)
 		assert.Equal(t, "1.0.0", ops[0].Provenance.Version)
 	})
@@ -139,7 +139,7 @@ func TestProvenanceForState(t *testing.T) {
 	a := registry.NewID("ns", "a")
 	b := registry.NewID("ns", "b")
 	state := registry.State{{ID: a, Kind: "test"}, {ID: b, Kind: "test"}}
-	prev := registry.ProvMap{a: {Module: "org/mod"}}
+	prev := registry.ProvenanceMap{a: {Module: "org/mod"}}
 	ops := registry.ChangeSet{provOp(registry.EntryCreate, b, &registry.EntryProvenance{Module: "org/new"})}
 
 	out, err := provenanceForState(state, prev, ops)
@@ -235,11 +235,11 @@ func TestUserUpdatePreservesProvenance(t *testing.T) {
 func TestSnapshotStateDoesNotExposeLiveProvenance(t *testing.T) {
 	reg, _ := newTestRegistry(t)
 	id := registry.NewID("ns", "svc")
-	reg.publishProvenance(registry.ProvMap{id: {Module: "org/mod", Version: "1.0.0"}})
+	reg.publishProvenance(registry.ProvenanceMap{id: {Module: "org/mod", Version: "1.0.0"}})
 
 	_, snapshot, err := reg.SnapshotState()
 	require.NoError(t, err)
-	snapshot.Prov[id] = registry.EntryProvenance{}
+	snapshot.Provenance[id] = registry.EntryProvenance{}
 
 	p, ok := reg.EntryProvenance(id)
 	require.True(t, ok)
@@ -249,7 +249,7 @@ func TestSnapshotStateDoesNotExposeLiveProvenance(t *testing.T) {
 func TestPublishProvenanceTakesOwnership(t *testing.T) {
 	reg, _ := newTestRegistry(t)
 	id := registry.NewID("ns", "svc")
-	input := registry.ProvMap{id: {Module: "org/mod", Version: "1.0.0"}}
+	input := registry.ProvenanceMap{id: {Module: "org/mod", Version: "1.0.0"}}
 	reg.publishProvenance(input)
 	input[id] = registry.EntryProvenance{}
 
@@ -260,7 +260,7 @@ func TestPublishProvenanceTakesOwnership(t *testing.T) {
 
 func TestResidentModulesRejectsConflictingIdentity(t *testing.T) {
 	reg, _ := newTestRegistry(t)
-	reg.publishProvenance(registry.ProvMap{
+	reg.publishProvenance(registry.ProvenanceMap{
 		registry.NewID("ns", "a"): {Module: "org/mod", Version: "1.0.0", Digest: "sha256:a"},
 		registry.NewID("ns", "b"): {Module: "org/mod", Version: "2.0.0", Digest: "sha256:b"},
 	})

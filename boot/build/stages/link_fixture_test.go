@@ -24,7 +24,7 @@ func fixtureEntryModule(entry registry.Entry) string {
 	return module
 }
 
-func linkFixtureProvenance(prov registry.ProvMap, entries *[]registry.Entry) {
+func linkFixtureProvenance(prov registry.ProvenanceMap, entries *[]registry.Entry) {
 	for i := range *entries {
 		entry := &(*entries)[i]
 		record := registry.EntryProvenance{Module: fixtureEntryModule(*entry), Root: entry.DependencyRoot}
@@ -36,7 +36,7 @@ func linkFixtureProvenance(prov registry.ProvMap, entries *[]registry.Entry) {
 
 // linkFixtureStage builds a link stage over the provenance a fixture declares.
 func linkFixtureStage(entries *[]registry.Entry, opts ...LinkOption) boot.Stage {
-	prov := registry.ProvMap{}
+	prov := registry.ProvenanceMap{}
 	linkFixtureProvenance(prov, entries)
 	return Link(prov, opts...)
 }
@@ -55,23 +55,23 @@ func TestLinkProvenanceTotality(t *testing.T) {
 	}
 
 	for _, tc := range []struct {
-		prov    registry.ProvMap
+		prov    registry.ProvenanceMap
 		name    string
 		wantErr bool
 	}{
 		{name: "no module world", prov: nil},
 		{
 			name: "every entry named",
-			prov: registry.ProvMap{target.ID: {}, definition.ID: {Module: fixtureComponent}},
+			prov: registry.ProvenanceMap{target.ID: {}, definition.ID: {Module: fixtureComponent}},
 		},
 		{
 			name:    "an entry unnamed",
-			prov:    registry.ProvMap{target.ID: {}},
+			prov:    registry.ProvenanceMap{target.ID: {}},
 			wantErr: true,
 		},
 		{
 			name:    "empty map names nothing",
-			prov:    registry.ProvMap{},
+			prov:    registry.ProvenanceMap{},
 			wantErr: true,
 		},
 	} {
@@ -94,7 +94,7 @@ func TestLinkProvenanceTotalityCoversExplicitDependencies(t *testing.T) {
 	dependency := dependencyEntry(fixtureComponent, "router", "app:configured")
 
 	entries := []registry.Entry{target}
-	err := Link(registry.ProvMap{target.ID: {}}, WithDependencies([]registry.Entry{dependency})).Execute(ctx, &entries)
+	err := Link(registry.ProvenanceMap{target.ID: {}}, WithDependencies([]registry.Entry{dependency})).Execute(ctx, &entries)
 	require.ErrorIs(t, err, registry.ErrMissingProvenance,
 		"a declaration linked without being resident is attributed too")
 }

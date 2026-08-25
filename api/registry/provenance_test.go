@@ -20,25 +20,25 @@ func TestProvenancedStateValidate(t *testing.T) {
 		{
 			name: "complete host state",
 			state: ProvenancedState{
-				Entries: State{{ID: a}},
-				Prov:    ProvMap{a: {}},
+				Entries:    State{{ID: a}},
+				Provenance: ProvenanceMap{a: {}},
 			},
 		},
 		{
 			name:  "missing record",
-			state: ProvenancedState{Entries: State{{ID: a}}, Prov: ProvMap{}},
+			state: ProvenancedState{Entries: State{{ID: a}}, Provenance: ProvenanceMap{}},
 			want:  ErrMissingProvenance,
 		},
 		{
 			name:  "orphaned record",
-			state: ProvenancedState{Prov: ProvMap{a: {}}},
+			state: ProvenancedState{Provenance: ProvenanceMap{a: {}}},
 			want:  ErrOrphanedProvenance,
 		},
 		{
 			name: "conflicting module identity",
 			state: ProvenancedState{
 				Entries: State{{ID: a}, {ID: b}},
-				Prov: ProvMap{
+				Provenance: ProvenanceMap{
 					a: {Module: "org/mod", Version: "1.0.0", Digest: "sha256:a"},
 					b: {Module: "org/mod", Version: "2.0.0", Digest: "sha256:b"},
 				},

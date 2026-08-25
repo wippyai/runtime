@@ -566,7 +566,7 @@ func TestCollectPackCommandsFiltersDependencyModules(t *testing.T) {
 			},
 		},
 	}
-	prov := regapi.ProvMap{
+	prov := regapi.ProvenanceMap{
 		regapi.NewID("wippy.test", "runner"): {Module: "wippy/test"},
 		regapi.NewID("app", "serve"):         {Module: "kickside/kickside"},
 	}

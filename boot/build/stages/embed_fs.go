@@ -26,7 +26,7 @@ var (
 
 type embedFSStage struct {
 	moduleRoot    string
-	prov          registry.ProvMap
+	prov          registry.ProvenanceMap
 	embedPatterns []string
 }
 
@@ -38,7 +38,7 @@ type embedFSStage struct {
 // prov names the module each entry belongs to, from the loader context that
 // produced the entries; entries it does not name are host-authored and resolve
 // working-directory relative.
-func EmbedFS(moduleRoot string, prov registry.ProvMap, embedPatterns ...string) boot.Stage {
+func EmbedFS(moduleRoot string, prov registry.ProvenanceMap, embedPatterns ...string) boot.Stage {
 	return &embedFSStage{
 		moduleRoot:    moduleRoot,
 		prov:          prov,
@@ -146,7 +146,7 @@ func filterEmbeddableEntries(entries []registry.Entry, embedPatterns []string) [
 func collectResources(
 	ctx context.Context,
 	moduleRoot string,
-	prov registry.ProvMap,
+	prov registry.ProvenanceMap,
 	entries []registry.Entry,
 	logger *zap.Logger,
 ) ([]wapp.ResourceSpec, error) {

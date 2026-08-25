@@ -192,8 +192,8 @@ func (h *DependencyHandler) buildEmbedPackEffect(
 	}
 
 	desired := make(map[string]string, len(resolved))
-	installed := residentModuleVersions(snapshot.Prov)
-	installedDigests := residentModuleDigests(snapshot.Prov)
+	installed := residentModuleVersions(snapshot.Provenance)
+	installedDigests := residentModuleDigests(snapshot.Provenance)
 	staged := make([]stagedPack, 0, len(resolved))
 	for _, mod := range resolved {
 		name := mod.Org + "/" + mod.Name

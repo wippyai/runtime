@@ -11,7 +11,7 @@ import (
 	"go.uber.org/zap"
 )
 
-func loadEntriesFromLockPaths(ctx context.Context, lockObj *lock.Lock, logger *zap.Logger) ([]regapi.Entry, regapi.ProvMap, error) {
+func loadEntriesFromLockPaths(ctx context.Context, lockObj *lock.Lock, logger *zap.Logger) ([]regapi.Entry, regapi.ProvenanceMap, error) {
 	if lockObj == nil {
 		return nil, nil, nil
 	}

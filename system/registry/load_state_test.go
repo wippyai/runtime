@@ -25,11 +25,11 @@ var history = struct {
 
 // hostProvenanced wraps a raw test state with host provenance records.
 func hostProvenanced(s registry.State) registry.ProvenancedState {
-	prov := make(registry.ProvMap, len(s))
+	prov := make(registry.ProvenanceMap, len(s))
 	for _, e := range s {
 		prov[e.ID] = registry.EntryProvenance{}
 	}
-	return registry.ProvenancedState{Entries: s, Prov: prov}
+	return registry.ProvenancedState{Entries: s, Provenance: prov}
 }
 
 func TestRegistry_LoadState_V0(t *testing.T) {

@@ -177,8 +177,8 @@ func (h *DependencyHandler) legacyResolutionConflictsWithBaseline(
 	for _, mod := range resolution.Modules {
 		stored[mod.Name] = mod
 	}
-	versions := residentModuleVersions(baseline.Prov)
-	digests := residentModuleDigests(baseline.Prov)
+	versions := residentModuleVersions(baseline.Provenance)
+	digests := residentModuleDigests(baseline.Provenance)
 	if h != nil && h.lock != nil {
 		// The lock answers only for a module whose records carry no identity of
 		// their own. It never overrides a resident fact: a replacement resident

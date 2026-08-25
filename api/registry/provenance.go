@@ -10,7 +10,7 @@ import (
 )
 
 // ErrMissingProvenance reports a state entry without a provenance record — a
-// violation of the ProvMap total-map invariant.
+// violation of the ProvenanceMap total-map invariant.
 var ErrMissingProvenance = errors.New("entry has no provenance record")
 
 // ErrOrphanedProvenance reports a provenance record without a corresponding
@@ -63,17 +63,17 @@ func (p EntryProvenance) HostAuthored() bool {
 	return p.Module == ""
 }
 
-// ProvMap is the provenance of one State: one record per entry. The map is
+// ProvenanceMap is the provenance of one State: one record per entry. The map is
 // total — every entry of the accompanying State has a key. A missing key is an
-// invariant violation and must fail loud, never be read as host-authored.
-type ProvMap map[ID]EntryProvenance
+// invariant violation and must fail loudly, never be read as host-authored.
+type ProvenanceMap map[ID]EntryProvenance
 
 // Clone returns an independent copy.
-func (m ProvMap) Clone() ProvMap {
+func (m ProvenanceMap) Clone() ProvenanceMap {
 	if m == nil {
 		return nil
 	}
-	out := make(ProvMap, len(m))
+	out := make(ProvenanceMap, len(m))
 	for id, p := range m {
 		out[id] = p
 	}
@@ -84,8 +84,8 @@ func (m ProvMap) Clone() ProvMap {
 // provenance travel together through every boundary: baseline load, replay,
 // directive inputs, planner comparison, and historical snapshots.
 type ProvenancedState struct {
-	Prov    ProvMap
-	Entries State
+	Provenance ProvenanceMap
+	Entries    State
 }
 
 // Validate reports the first entry without a provenance record, enforcing the
@@ -94,7 +94,7 @@ func (s ProvenancedState) Validate() error {
 	entries := make(map[ID]struct{}, len(s.Entries))
 	modules := make(map[string]EntryProvenance)
 	for _, entry := range s.Entries {
-		p, ok := s.Prov[entry.ID]
+		p, ok := s.Provenance[entry.ID]
 		if !ok {
 			return NewMissingProvenanceError(entry.ID)
 		}
@@ -109,7 +109,7 @@ func (s ProvenancedState) Validate() error {
 		modules[p.Module] = p
 	}
 	orphaned := make([]ID, 0)
-	for id := range s.Prov {
+	for id := range s.Provenance {
 		if _, ok := entries[id]; !ok {
 			orphaned = append(orphaned, id)
 		}

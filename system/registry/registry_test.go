@@ -397,7 +397,7 @@ func TestInMemoryRegistry_ApplyVersion(t *testing.T) {
 	reg.state = registry.State{
 		{ID: registry.NewID("", "/foo"), Kind: "test", Data: payload.New("data2")},
 	}
-	reg.publishProvenance(hostProvenanced(reg.state).Prov)
+	reg.publishProvenance(hostProvenanced(reg.state).Provenance)
 
 	// Mock the runner to return a new state - v1 state
 	runner.newState = registry.State{
@@ -611,7 +611,7 @@ func TestInMemoryRegistry_Apply_Rollback_Success(t *testing.T) {
 		{ID: registry.NewID("", "/initial"), Kind: "test", Data: payload.New("initial_data")},
 	}
 	reg.state = initialState
-	reg.publishProvenance(hostProvenanced(initialState).Prov)
+	reg.publishProvenance(hostProvenanced(initialState).Provenance)
 	reg.currentVersion = v0
 
 	changes := registry.ChangeSet{
@@ -688,7 +688,7 @@ func TestInMemoryRegistry_Apply_Rollback_Failure(t *testing.T) {
 		{ID: registry.NewID("", "/initial"), Kind: "test", Data: payload.New("initial_data")},
 	}
 	reg.state = initialState
-	reg.publishProvenance(hostProvenanced(initialState).Prov)
+	reg.publishProvenance(hostProvenanced(initialState).Provenance)
 	reg.currentVersion = v0
 
 	changes := registry.ChangeSet{
@@ -961,7 +961,7 @@ func TestInMemoryRegistry_Rollback(t *testing.T) {
 		return toState, nil
 	}
 
-	forwardProv := hostProvenanced(fromState).Prov
+	forwardProv := hostProvenanced(fromState).Provenance
 	err := reg.rollback(context.Background(), fromState, toState, forwardProv, nil)
 	if err != nil {
 		t.Errorf("Unexpected error during rollback: %v", err)
@@ -1258,7 +1258,7 @@ func TestInMemoryRegistry_RollbackPartialState(t *testing.T) {
 		{ID: registry.NewID("", "/initial"), Kind: "test", Data: payload.New("initial_data")},
 	}
 	reg.state = initialState
-	reg.publishProvenance(hostProvenanced(initialState).Prov)
+	reg.publishProvenance(hostProvenanced(initialState).Provenance)
 	reg.currentVersion = v0
 
 	changes := registry.ChangeSet{
@@ -1671,7 +1671,7 @@ func TestApplyVersion_Rollback_RespectsDependencyOrder(t *testing.T) {
 		{ID: libID, Kind: "library", Data: payload.New("lib")},
 		{ID: testID, Kind: "test", Data: payload.New("test")},
 	}
-	reg.publishProvenance(hostProvenanced(reg.state).Prov)
+	reg.publishProvenance(hostProvenanced(reg.state).Provenance)
 
 	err := reg.ApplyVersion(context.Background(), v0)
 	require.NoError(t, err,

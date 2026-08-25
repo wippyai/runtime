@@ -24,11 +24,11 @@ import (
 
 // hostProvenanced wraps a raw test state with host provenance records.
 func hostProvenanced(s registry.State) registry.ProvenancedState {
-	prov := make(registry.ProvMap, len(s))
+	prov := make(registry.ProvenanceMap, len(s))
 	for _, e := range s {
 		prov[e.ID] = registry.EntryProvenance{}
 	}
-	return registry.ProvenancedState{Entries: s, Prov: prov}
+	return registry.ProvenancedState{Entries: s, Provenance: prov}
 }
 
 type testRunner struct{}

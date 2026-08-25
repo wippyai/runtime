@@ -40,7 +40,7 @@ func TestLink_WithDefault(t *testing.T) {
 		},
 	}
 
-	prov := registry.ProvMap{}
+	prov := registry.ProvenanceMap{}
 	stage := Link(prov)
 	err := executeLinkFixture(ctx, &entries, stage, prov)
 	require.NoError(t, err)
@@ -88,7 +88,7 @@ func TestLink_FromDependency(t *testing.T) {
 		},
 	}
 
-	prov := registry.ProvMap{}
+	prov := registry.ProvenanceMap{}
 	stage := Link(prov)
 	err := executeLinkFixture(ctx, &entries, stage, prov)
 	require.NoError(t, err)
@@ -153,7 +153,7 @@ func TestLink_ExplicitDependenciesOverride(t *testing.T) {
 		},
 	}
 
-	prov := registry.ProvMap{}
+	prov := registry.ProvenanceMap{}
 	// Explicit dependencies are linked without being resident, so the fixture
 	// declares their provenance too.
 	linkFixtureProvenance(prov, &explicitDeps)
@@ -217,7 +217,7 @@ func TestLink_ConflictError(t *testing.T) {
 		},
 	}
 
-	prov := registry.ProvMap{}
+	prov := registry.ProvenanceMap{}
 	stage := Link(prov)
 	err := executeLinkFixture(ctx, &entries, stage, prov)
 	// Linking stage now logs warnings instead of returning errors
@@ -274,7 +274,7 @@ func TestLink_ModuleScopedParameters(t *testing.T) {
 		},
 	}
 
-	prov := registry.ProvMap{}
+	prov := registry.ProvenanceMap{}
 	stage := Link(prov)
 	err := executeLinkFixture(ctx, &entries, stage, prov)
 	require.NoError(t, err)
@@ -347,7 +347,7 @@ func TestLink_BareParameterDoesNotCrossDottedModuleMeta(t *testing.T) {
 		},
 	}
 
-	prov := registry.ProvMap{}
+	prov := registry.ProvenanceMap{}
 	stage := Link(prov)
 	err := executeLinkFixture(ctx, &entries, stage, prov)
 	require.NoError(t, err)
@@ -405,7 +405,7 @@ func TestLink_BareParametersWithSameNameAreScopedToDependencyComponent(t *testin
 		},
 	}
 
-	prov := registry.ProvMap{}
+	prov := registry.ProvenanceMap{}
 	stage := Link(prov, WithStrictRequirementModules([]string{"wippy/views"}))
 	err := executeLinkFixture(ctx, &entries, stage, prov)
 	require.NoError(t, err)
@@ -464,7 +464,7 @@ func TestLink_DuplicateDependencyParametersForSameRequirementConflict(t *testing
 		},
 	}
 
-	prov := registry.ProvMap{}
+	prov := registry.ProvenanceMap{}
 	stage := Link(prov, WithStrictRequirementModules([]string{"wippy/bootloader"}))
 	err := executeLinkFixture(ctx, &entries, stage, prov)
 	require.Error(t, err)
@@ -511,7 +511,7 @@ func TestLink_FullAndBareParametersForSameRequirementConflict(t *testing.T) {
 		},
 	}
 
-	prov := registry.ProvMap{}
+	prov := registry.ProvenanceMap{}
 	stage := Link(prov, WithStrictRequirementModules([]string{"wippy/views"}))
 	err := executeLinkFixture(ctx, &entries, stage, prov)
 	require.Error(t, err)
@@ -590,7 +590,7 @@ func TestLink_FullyQualifiedParameterDoesNotCrossRequirementNamespace(t *testing
 		},
 	}
 
-	prov := registry.ProvMap{}
+	prov := registry.ProvenanceMap{}
 	stage := Link(prov)
 	err := executeLinkFixture(ctx, &entries, stage, prov)
 	require.NoError(t, err)
@@ -658,7 +658,7 @@ func TestLink_SameBareNameOwnedRequirementsResolveByFullID(t *testing.T) {
 		},
 	}
 
-	prov := registry.ProvMap{}
+	prov := registry.ProvenanceMap{}
 	stage := Link(prov, WithStrictRequirementModules([]string{"kickside/core"}))
 	err := executeLinkFixture(ctx, &entries, stage, prov)
 	require.NoError(t, err)
@@ -724,7 +724,7 @@ func TestLink_BareNameFansOutToAllOwnedRequirements(t *testing.T) {
 		},
 	}
 
-	prov := registry.ProvMap{}
+	prov := registry.ProvenanceMap{}
 	stage := Link(prov, WithStrictRequirementModules([]string{"kickside/core"}))
 	err := executeLinkFixture(ctx, &entries, stage, prov)
 	require.NoError(t, err)
@@ -804,7 +804,7 @@ func TestLink_ThreeWayBareNameFansOut(t *testing.T) {
 		},
 	}
 
-	prov := registry.ProvMap{}
+	prov := registry.ProvenanceMap{}
 	stage := Link(prov, WithStrictRequirementModules([]string{"kickside/core"}))
 	err := executeLinkFixture(ctx, &entries, stage, prov)
 	require.NoError(t, err)
@@ -877,7 +877,7 @@ func TestLink_BareFanOutWithConflictingFullIDValueFails(t *testing.T) {
 		ctx, _ := setupTestContext()
 		entries := build("app:other")
 
-		prov := registry.ProvMap{}
+		prov := registry.ProvenanceMap{}
 		stage := Link(prov, WithStrictRequirementModules([]string{"kickside/core"}))
 		err := executeLinkFixture(ctx, &entries, stage, prov)
 		require.Error(t, err)
@@ -895,7 +895,7 @@ func TestLink_BareFanOutWithConflictingFullIDValueFails(t *testing.T) {
 		ctx, _ := setupTestContext()
 		entries := build("app:router")
 
-		prov := registry.ProvMap{}
+		prov := registry.ProvenanceMap{}
 		stage := Link(prov, WithStrictRequirementModules([]string{"kickside/core"}))
 		err := executeLinkFixture(ctx, &entries, stage, prov)
 		require.NoError(t, err)
@@ -933,7 +933,7 @@ func TestLink_NoValueError(t *testing.T) {
 		},
 	}
 
-	prov := registry.ProvMap{}
+	prov := registry.ProvenanceMap{}
 	stage := Link(prov)
 	err := executeLinkFixture(ctx, &entries, stage, prov)
 	// Linking stage now logs warnings instead of returning errors
@@ -963,7 +963,7 @@ func TestLink_StrictRequirementsFailsOnMissingValue(t *testing.T) {
 		},
 	}
 
-	prov := registry.ProvMap{}
+	prov := registry.ProvenanceMap{}
 	stage := Link(prov, WithStrictRequirements())
 	err := executeLinkFixture(ctx, &entries, stage, prov)
 	require.ErrorContains(t, err, "unresolved requirements")
@@ -996,7 +996,7 @@ func TestLink_StrictRequirementsFailsOnMissingTarget(t *testing.T) {
 		},
 	}
 
-	prov := registry.ProvMap{}
+	prov := registry.ProvenanceMap{}
 	stage := Link(prov, WithStrictRequirements())
 	err := executeLinkFixture(ctx, &entries, stage, prov)
 	require.ErrorContains(t, err, "unresolved requirements")
@@ -1043,7 +1043,7 @@ func TestLink_StrictRequirementModulesIgnoresUnrelatedRequirements(t *testing.T)
 		},
 	}
 
-	prov := registry.ProvMap{}
+	prov := registry.ProvenanceMap{}
 	stage := Link(prov, WithStrictRequirementModules([]string{"acme/module"}))
 	err := executeLinkFixture(ctx, &entries, stage, prov)
 	require.NoError(t, err)
@@ -1071,7 +1071,7 @@ func TestLink_StrictRequirementModulesEmptyScopeDoesNotFailAppRequirements(t *te
 		},
 	}
 
-	prov := registry.ProvMap{}
+	prov := registry.ProvenanceMap{}
 	stage := Link(prov, WithStrictRequirementModules(nil))
 	err := executeLinkFixture(ctx, &entries, stage, prov)
 	require.NoError(t, err)
@@ -1103,7 +1103,7 @@ func TestLink_AppendOperator(t *testing.T) {
 		},
 	}
 
-	prov := registry.ProvMap{}
+	prov := registry.ProvenanceMap{}
 	stage := Link(prov)
 	err := executeLinkFixture(ctx, &entries, stage, prov)
 	require.NoError(t, err)
@@ -1140,7 +1140,7 @@ func TestLink_SetValue(t *testing.T) {
 		},
 	}
 
-	prov := registry.ProvMap{}
+	prov := registry.ProvenanceMap{}
 	stage := Link(prov)
 	err := executeLinkFixture(ctx, &entries, stage, prov)
 	require.NoError(t, err)
@@ -1176,7 +1176,7 @@ func TestLink_EmptyEntryError(t *testing.T) {
 		},
 	}
 
-	prov := registry.ProvMap{}
+	prov := registry.ProvenanceMap{}
 	stage := Link(prov)
 	err := executeLinkFixture(ctx, &entries, stage, prov)
 	// Linking stage now logs warnings instead of returning errors
@@ -1207,7 +1207,7 @@ func TestLink_CrossNamespace(t *testing.T) {
 		},
 	}
 
-	prov := registry.ProvMap{}
+	prov := registry.ProvenanceMap{}
 	stage := Link(prov)
 	err := executeLinkFixture(ctx, &entries, stage, prov)
 	require.NoError(t, err)
@@ -1253,7 +1253,7 @@ func TestLink_MultipleTargets(t *testing.T) {
 		},
 	}
 
-	prov := registry.ProvMap{}
+	prov := registry.ProvenanceMap{}
 	stage := Link(prov)
 	err := executeLinkFixture(ctx, &entries, stage, prov)
 	require.NoError(t, err)
@@ -1295,7 +1295,7 @@ func TestLink_BarePath(t *testing.T) {
 		},
 	}
 
-	prov := registry.ProvMap{}
+	prov := registry.ProvenanceMap{}
 	stage := Link(prov)
 	err := executeLinkFixture(ctx, &entries, stage, prov)
 	require.NoError(t, err)
@@ -1332,7 +1332,7 @@ func TestLink_MetaPath(t *testing.T) {
 		},
 	}
 
-	prov := registry.ProvMap{}
+	prov := registry.ProvenanceMap{}
 	stage := Link(prov)
 	err := executeLinkFixture(ctx, &entries, stage, prov)
 	require.NoError(t, err)
@@ -1380,7 +1380,7 @@ func TestLink_MultipleRequirements(t *testing.T) {
 		},
 	}
 
-	prov := registry.ProvMap{}
+	prov := registry.ProvenanceMap{}
 	stage := Link(prov)
 	err := executeLinkFixture(ctx, &entries, stage, prov)
 	require.NoError(t, err)
@@ -1419,7 +1419,7 @@ func TestLink_EmptyDefaultResolvesUnderStrict(t *testing.T) {
 		},
 	}
 
-	prov := registry.ProvMap{}
+	prov := registry.ProvenanceMap{}
 	stage := Link(prov, WithStrictRequirementModules([]string{"acme/module"}))
 	err := executeLinkFixture(ctx, &entries, stage, prov)
 	require.NoError(t, err)
@@ -1464,7 +1464,7 @@ func TestLink_EmptyProvidedValueResolvesUnderStrict(t *testing.T) {
 		},
 	}
 
-	prov := registry.ProvMap{}
+	prov := registry.ProvenanceMap{}
 	stage := Link(prov, WithStrictRequirementModules([]string{"vendor/module"}))
 	err := executeLinkFixture(ctx, &entries, stage, prov)
 	require.NoError(t, err)
@@ -1497,7 +1497,7 @@ func TestLink_IntDefaultLandsAsInt(t *testing.T) {
 		},
 	}
 
-	prov := registry.ProvMap{}
+	prov := registry.ProvenanceMap{}
 	stage := Link(prov)
 	err := executeLinkFixture(ctx, &entries, stage, prov)
 	require.NoError(t, err)
@@ -1540,7 +1540,7 @@ func TestLink_StringDefaultStaysString(t *testing.T) {
 		},
 	}
 
-	prov := registry.ProvMap{}
+	prov := registry.ProvenanceMap{}
 	stage := Link(prov)
 	err := executeLinkFixture(ctx, &entries, stage, prov)
 	require.NoError(t, err)
@@ -1584,7 +1584,7 @@ func TestLink_BoolAndFloatDefaults(t *testing.T) {
 		},
 	}
 
-	prov := registry.ProvMap{}
+	prov := registry.ProvenanceMap{}
 	stage := Link(prov)
 	err := executeLinkFixture(ctx, &entries, stage, prov)
 	require.NoError(t, err)
@@ -1628,7 +1628,7 @@ func TestLink_TypedDependencyParameter(t *testing.T) {
 		},
 	}
 
-	prov := registry.ProvMap{}
+	prov := registry.ProvenanceMap{}
 	stage := Link(prov)
 	err := executeLinkFixture(ctx, &entries, stage, prov)
 	require.NoError(t, err)
@@ -1682,7 +1682,7 @@ func TestLink_TypedParameterSameValueNoConflict(t *testing.T) {
 		},
 	}
 
-	prov := registry.ProvMap{}
+	prov := registry.ProvenanceMap{}
 	stage := Link(prov, WithStrictRequirementModules([]string{"vendor/module"}))
 	err := executeLinkFixture(ctx, &entries, stage, prov)
 	require.NoError(t, err)
@@ -1737,7 +1737,7 @@ func TestLink_TypedParameterConflictLeavesUnresolved(t *testing.T) {
 		},
 	}
 
-	prov := registry.ProvMap{}
+	prov := registry.ProvenanceMap{}
 	stage := Link(prov, WithStrictRequirementModules([]string{"vendor/module"}))
 	err := executeLinkFixture(ctx, &entries, stage, prov)
 	require.Error(t, err)
@@ -1775,7 +1775,7 @@ func TestLink_NullDefaultLeavesMandatory(t *testing.T) {
 		},
 	}
 
-	prov := registry.ProvMap{}
+	prov := registry.ProvenanceMap{}
 	stage := Link(prov, WithStrictRequirements())
 	err := executeLinkFixture(ctx, &entries, stage, prov)
 	require.ErrorContains(t, err, "unresolved requirements")
@@ -1807,7 +1807,7 @@ func TestLink_PlaceholderDefaultPassesThroughUntouched(t *testing.T) {
 		},
 	}
 
-	prov := registry.ProvMap{}
+	prov := registry.ProvenanceMap{}
 	stage := Link(prov)
 	err := executeLinkFixture(ctx, &entries, stage, prov)
 	require.NoError(t, err)
@@ -1844,7 +1844,7 @@ func TestLink_AppendTypedValue(t *testing.T) {
 		},
 	}
 
-	prov := registry.ProvMap{}
+	prov := registry.ProvenanceMap{}
 	stage := Link(prov)
 	err := executeLinkFixture(ctx, &entries, stage, prov)
 	require.NoError(t, err)
@@ -1903,7 +1903,7 @@ func TestLink_BareParameterResolvesWithinOwnModule(t *testing.T) {
 		},
 	}
 
-	prov := registry.ProvMap{}
+	prov := registry.ProvenanceMap{}
 	stage := Link(prov)
 	err := executeLinkFixture(ctx, &entries, stage, prov)
 	require.NoError(t, err)
@@ -1960,7 +1960,7 @@ func TestLink_NormalizationDeterministicAcrossShuffledOrderings(t *testing.T) {
 		for i, idx := range order {
 			entries[i] = base[idx]
 		}
-		prov := registry.ProvMap{}
+		prov := registry.ProvenanceMap{}
 		err := executeLinkFixture(ctx, &entries, Link(prov), prov)
 		require.NoError(t, err)
 		service := findEntry(entries, "vendor.alpha", "service")
@@ -2013,7 +2013,7 @@ func TestLink_TwoRequirementsSameTargetApplyDeterministically(t *testing.T) {
 		for i, idx := range order {
 			entries[i] = base[idx]
 		}
-		prov := registry.ProvMap{}
+		prov := registry.ProvenanceMap{}
 		err := executeLinkFixture(ctx, &entries, Link(prov), prov)
 		require.NoError(t, err)
 		service := findEntry(entries, "test", "service")
@@ -2070,7 +2070,7 @@ func TestLink_RootParameterBeatsTransitiveBareAliasSpelling(t *testing.T) {
 		},
 	}
 
-	prov := registry.ProvMap{}
+	prov := registry.ProvenanceMap{}
 	stage := Link(prov, WithStrictRequirementModules([]string{"butschster/telegram"}))
 	err := executeLinkFixture(ctx, &entries, stage, prov)
 	require.NoError(t, err)
@@ -2128,7 +2128,7 @@ func TestLink_TransitiveOnlyDuplicateForSameRequirementConflicts(t *testing.T) {
 		},
 	}
 
-	prov := registry.ProvMap{}
+	prov := registry.ProvenanceMap{}
 	stage := Link(prov, WithStrictRequirementModules([]string{"butschster/telegram"}))
 	err := executeLinkFixture(ctx, &entries, stage, prov)
 	require.Error(t, err)
@@ -2149,7 +2149,7 @@ func TestLink_TransitiveOnlyDuplicateForSameRequirementConflicts(t *testing.T) {
 // attach before Link executes. Older value-resolution tests construct flattened
 // registry slices directly; namespace-contract tests build definitions
 // explicitly and call Execute without this helper.
-func executeLinkFixture(ctx context.Context, entries *[]registry.Entry, stage boot.Stage, prov registry.ProvMap) error {
+func executeLinkFixture(ctx context.Context, entries *[]registry.Entry, stage boot.Stage, prov registry.ProvenanceMap) error {
 	definitions := make(map[string]struct{})
 	for _, entry := range *entries {
 		if entry.Kind != registry.NamespaceDefinition {

@@ -292,7 +292,7 @@ func (h *DependencyHandler) expand(
 	strictModules := touchedModuleIdentities(
 		resolved,
 		lockedVersions,
-		residentModuleDigests(snapshot.Prov),
+		residentModuleDigests(snapshot.Provenance),
 		opComponent,
 	)
 	strictSet := stringSet(strictModules)
@@ -329,7 +329,7 @@ func (h *DependencyHandler) expand(
 	linkDeps := mergeLinkDependencies(desiredDepEntries, moduleEntries)
 
 	combined := make([]regapi.Entry, 0, len(snapshot.Entries)+len(moduleEntries))
-	combinedProv := make(regapi.ProvMap, len(snapshot.Entries)+len(moduleEntries))
+	combinedProv := make(regapi.ProvenanceMap, len(snapshot.Entries)+len(moduleEntries))
 	for _, e := range snapshot.Entries {
 		record := resident[idKey(e.ID)]
 		if record.Module != "" {
@@ -373,7 +373,7 @@ func (h *DependencyHandler) expand(
 		return regapi.DirectiveResult{}, NewDependencyPipelineError(err)
 	}
 
-	desired := regapi.ProvenancedState{Entries: combined, Prov: combinedProv}
+	desired := regapi.ProvenancedState{Entries: combined, Provenance: combinedProv}
 	additional, err := (operationPlanner{resolver: h.resolver}).plan(snapshot, desired, operationPlanOptions{
 		originalKey:       idKey(op.Entry.ID),
 		controlledModules: controlledModules,
@@ -457,7 +457,7 @@ func (h *DependencyHandler) ExpandChanges(ctx context.Context, changes regapi.Ch
 	for _, entry := range snapshot.Entries {
 		rollingMap[entry.ID] = entry
 	}
-	rollingProv := provByKey(snapshot.Prov)
+	rollingProv := provByKey(snapshot.Provenance)
 	rootChanges := make(regapi.ChangeSet, 0, len(changes))
 	for _, op := range changes {
 		old, hadOld := rollingMap[op.Entry.ID]
@@ -517,15 +517,15 @@ func (h *DependencyHandler) ExpandChanges(ctx context.Context, changes regapi.Ch
 	for _, entry := range snapshot.Entries {
 		stateMap[entry.ID] = entry
 	}
-	workingProv := snapshot.Prov.Clone()
+	workingProv := snapshot.Provenance.Clone()
 	if workingProv == nil {
-		workingProv = make(regapi.ProvMap, len(changes))
+		workingProv = make(regapi.ProvenanceMap, len(changes))
 	}
 	workingIndex := provByKey(workingProv)
 	for _, op := range changes[:len(changes)-1] {
 		rolling := regapi.ProvenancedState{
-			Entries: make(regapi.State, 0, len(stateMap)),
-			Prov:    workingProv,
+			Entries:    make(regapi.State, 0, len(stateMap)),
+			Provenance: workingProv,
 		}
 		for _, entry := range stateMap {
 			rolling.Entries = append(rolling.Entries, entry)
@@ -550,8 +550,8 @@ func (h *DependencyHandler) ExpandChanges(ctx context.Context, changes regapi.Ch
 		}
 	}
 	working := regapi.ProvenancedState{
-		Entries: make(regapi.State, 0, len(stateMap)),
-		Prov:    workingProv,
+		Entries:    make(regapi.State, 0, len(stateMap)),
+		Provenance: workingProv,
 	}
 	for _, entry := range stateMap {
 		working.Entries = append(working.Entries, entry)
@@ -571,11 +571,11 @@ func (h *DependencyHandler) ExpandChanges(ctx context.Context, changes regapi.Ch
 // version.
 func applyOperationToState(state regapi.ProvenancedState, op regapi.Operation, resident provIndex) regapi.ProvenancedState {
 	next := regapi.ProvenancedState{
-		Entries: make(regapi.State, 0, len(state.Entries)+1),
-		Prov:    state.Prov.Clone(),
+		Entries:    make(regapi.State, 0, len(state.Entries)+1),
+		Provenance: state.Provenance.Clone(),
 	}
-	if next.Prov == nil {
-		next.Prov = make(regapi.ProvMap, 1)
+	if next.Provenance == nil {
+		next.Provenance = make(regapi.ProvenanceMap, 1)
 	}
 	replaced := false
 	for _, entry := range state.Entries {
@@ -585,7 +585,7 @@ func applyOperationToState(state regapi.ProvenancedState, op regapi.Operation, r
 				replaced = true
 				continue
 			}
-			delete(next.Prov, entry.ID)
+			delete(next.Provenance, entry.ID)
 			continue
 		}
 		next.Entries = append(next.Entries, entry)
@@ -594,7 +594,7 @@ func applyOperationToState(state regapi.ProvenancedState, op regapi.Operation, r
 		next.Entries = append(next.Entries, op.Entry)
 	}
 	if op.Kind == regapi.EntryCreate || op.Kind == regapi.EntryUpdate {
-		next.Prov[op.Entry.ID] = operationProvenance(op, resident)
+		next.Provenance[op.Entry.ID] = operationProvenance(op, resident)
 	}
 	return next
 }
@@ -758,7 +758,7 @@ func (h *DependencyHandler) ReconcileResolution(
 	// identity recorded for the entries in state; selected is the stored graph,
 	// authoritative by content identity rather than version alone. A module whose
 	// resident digest differs from the selected one reloads.
-	installedDigests := residentModuleDigests(target.Prov)
+	installedDigests := residentModuleDigests(target.Provenance)
 	lockedDigests := h.lockedModuleDigests()
 	touched := make(map[string]struct{}, len(desiredModules))
 	mutable := make(map[string]struct{}, len(desiredModules))
@@ -806,7 +806,7 @@ func (h *DependencyHandler) ReconcileResolution(
 		desiredDepEntries = append(desiredDepEntries, dep.entry)
 	}
 	combined := make([]regapi.Entry, 0, len(target.Entries)+len(moduleEntries))
-	combinedProv := make(regapi.ProvMap, len(target.Entries)+len(moduleEntries))
+	combinedProv := make(regapi.ProvenanceMap, len(target.Entries)+len(moduleEntries))
 	for _, entry := range target.Entries {
 		record := targetProv[idKey(entry.ID)]
 		if record.Module != "" {
@@ -843,7 +843,7 @@ func (h *DependencyHandler) ReconcileResolution(
 	if err := pipeline.Execute(ctx, &combined); err != nil {
 		return regapi.DirectiveResult{}, NewDependencyPipelineError(err)
 	}
-	desired := regapi.ProvenancedState{Entries: combined, Prov: combinedProv}
+	desired := regapi.ProvenancedState{Entries: combined, Provenance: combinedProv}
 
 	// Reconciliation owns the whole graph for deletes, but only artifacts whose
 	// content identity or authored root parameters changed are mutable. A module
@@ -1341,7 +1341,7 @@ func dependencyParametersEqual(a, b []Parameter) bool {
 }
 
 func (h *DependencyHandler) installedModuleVersions(ctx context.Context, transcoder payload.Transcoder, snapshot regapi.ProvenancedState) (map[string]string, error) {
-	versions := residentModuleVersions(snapshot.Prov)
+	versions := residentModuleVersions(snapshot.Provenance)
 	if h.lock == nil {
 		return versions, nil
 	}
@@ -1963,9 +1963,9 @@ func (h *DependencyHandler) loadModuleEntries(
 	ownerModules []ResolvedModule,
 	snapshot regapi.ProvenancedState,
 	transcoder payload.Transcoder,
-) ([]regapi.Entry, regapi.ProvMap, *unpackPlan, error) {
+) ([]regapi.Entry, regapi.ProvenanceMap, *unpackPlan, error) {
 	entries := make([]regapi.Entry, 0)
-	prov := make(regapi.ProvMap)
+	prov := make(regapi.ProvenanceMap)
 	staging := make(map[string]loadedProvenance)
 	plan := &unpackPlan{}
 	owners := moduleOwnersByNamespace(ownerModules)

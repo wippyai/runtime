@@ -697,7 +697,7 @@ func runPackEntries(
 	loader *bootpkg.Loader,
 	logger *zap.Logger,
 	packEntries []registry.Entry,
-	packProv registry.ProvMap,
+	packProv registry.ProvenanceMap,
 	args []string,
 	useCase string,
 	mainModule string,
@@ -776,7 +776,7 @@ func moduleIdentityFromPackFile(packFile string) (moduleName string, moduleVersi
 
 // applyPackEntries restores packed entries as baseline state after applying the
 // canonical entry normalization pipeline.
-func applyPackEntries(ctx context.Context, packEntries []registry.Entry, prov registry.ProvMap, logger *zap.Logger) error {
+func applyPackEntries(ctx context.Context, packEntries []registry.Entry, prov registry.ProvenanceMap, logger *zap.Logger) error {
 	if err := entries.NormalizeEntries(ctx, &packEntries, prov); err != nil {
 		return err
 	}
@@ -792,9 +792,9 @@ type modulePackReaderRegistry interface {
 	RegisterPack(packPath, module, version string, reader *wapp.Reader, file *os.File) error
 }
 
-func loadPackEntries(packFiles []string, rootModule string, embedReg packReaderRegistry) ([]registry.Entry, registry.ProvMap, error) {
+func loadPackEntries(packFiles []string, rootModule string, embedReg packReaderRegistry) ([]registry.Entry, registry.ProvenanceMap, error) {
 	packEntries := make([]registry.Entry, 0)
-	prov := make(registry.ProvMap)
+	prov := make(registry.ProvenanceMap)
 
 	for _, packFile := range packFiles {
 		if !hasWappExtension(packFile) {
@@ -878,7 +878,7 @@ func registerPackResources(embedReg packReaderRegistry, packFile, moduleName, mo
 	return embedReg.Register(packFile, reader, file)
 }
 
-func registerMonolithicPackResourceAliases(embedReg packReaderRegistry, packFile string, reader *wapp.Reader, loadedEntries []registry.Entry, prov registry.ProvMap) error {
+func registerMonolithicPackResourceAliases(embedReg packReaderRegistry, packFile string, reader *wapp.Reader, loadedEntries []registry.Entry, prov registry.ProvenanceMap) error {
 	moduleReg, ok := embedReg.(modulePackReaderRegistry)
 	if !ok {
 		return nil

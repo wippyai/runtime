@@ -29,7 +29,7 @@ func TestSourceRegistryLoadAndResourceRoots(t *testing.T) {
 		},
 	})
 
-	registry.SetLoader(func(context.Context, Sources) ([]regapi.Entry, regapi.ProvMap, error) { return nil, nil, nil })
+	registry.SetLoader(func(context.Context, Sources) ([]regapi.Entry, regapi.ProvenanceMap, error) { return nil, nil, nil })
 	loaded, err := registry.Load(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -50,7 +50,7 @@ func TestSourceLoaderReceivesIsolatedSnapshot(t *testing.T) {
 	source := Source{LoadPath: "/repo/ui", Owner: "acme/ui", Version: "1.2.3", Digest: "sha256:ui", Sequence: 1}
 	registry.Set(Sources{"acme/ui": source})
 	var loaded Sources
-	registry.SetLoader(func(_ context.Context, sources Sources) ([]regapi.Entry, regapi.ProvMap, error) {
+	registry.SetLoader(func(_ context.Context, sources Sources) ([]regapi.Entry, regapi.ProvenanceMap, error) {
 		loaded = sources
 		return []regapi.Entry{{ID: regapi.NewID("example", "entry"), Kind: "registry.entry"}}, nil, nil
 	})
@@ -63,7 +63,7 @@ func TestSourceLoaderReceivesIsolatedSnapshot(t *testing.T) {
 		t.Fatalf("load = %v, %#v", result.Entries, loaded)
 	}
 	loaded["acme/ui"] = Source{LoadPath: "/mutated"}
-	registry.SetLoader(func(_ context.Context, sources Sources) ([]regapi.Entry, regapi.ProvMap, error) {
+	registry.SetLoader(func(_ context.Context, sources Sources) ([]regapi.Entry, regapi.ProvenanceMap, error) {
 		if sources["acme/ui"] != source {
 			t.Fatalf("loader mutated registry: %#v", sources)
 		}
@@ -84,7 +84,7 @@ func TestSourceRegistrySetReplacesCompleteSnapshot(t *testing.T) {
 	registry.Set(Sources{
 		ApplicationSourceID: {LoadPath: "/repo/next", Owner: ApplicationSourceID},
 	})
-	registry.SetLoader(func(_ context.Context, sources Sources) ([]regapi.Entry, regapi.ProvMap, error) {
+	registry.SetLoader(func(_ context.Context, sources Sources) ([]regapi.Entry, regapi.ProvenanceMap, error) {
 		if len(sources) != 1 || sources[ApplicationSourceID].LoadPath != "/repo/next" {
 			t.Fatalf("sources = %#v", sources)
 		}
@@ -95,7 +95,7 @@ func TestSourceRegistrySetReplacesCompleteSnapshot(t *testing.T) {
 	}
 
 	registry.Set(nil)
-	registry.SetLoader(func(_ context.Context, sources Sources) ([]regapi.Entry, regapi.ProvMap, error) {
+	registry.SetLoader(func(_ context.Context, sources Sources) ([]regapi.Entry, regapi.ProvenanceMap, error) {
 		if len(sources) != 0 {
 			t.Fatalf("sources after empty set = %#v", sources)
 		}
@@ -142,7 +142,7 @@ func TestSourceTransitionWaitsForActiveReload(t *testing.T) {
 
 	loadStarted := make(chan Sources, 1)
 	releaseLoad := make(chan struct{})
-	registry.SetLoader(func(_ context.Context, sources Sources) ([]regapi.Entry, regapi.ProvMap, error) {
+	registry.SetLoader(func(_ context.Context, sources Sources) ([]regapi.Entry, regapi.ProvenanceMap, error) {
 		loadStarted <- sources
 		<-releaseLoad
 		return nil, nil, nil
@@ -194,7 +194,7 @@ func TestSourceTransitionFailureKeepsPreviousIdentity(t *testing.T) {
 	if err == nil || len(previous) != 0 {
 		t.Fatalf("failed transition = %#v, %v", previous, err)
 	}
-	registry.SetLoader(func(_ context.Context, sources Sources) ([]regapi.Entry, regapi.ProvMap, error) {
+	registry.SetLoader(func(_ context.Context, sources Sources) ([]regapi.Entry, regapi.ProvenanceMap, error) {
 		if sources["acme/ui"] != oldSource {
 			t.Fatalf("source changed after failure: %#v", sources)
 		}

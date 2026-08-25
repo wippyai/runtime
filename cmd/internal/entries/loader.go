@@ -331,7 +331,7 @@ func LoadEntriesFromModuleLoadPaths(
 	ctx context.Context,
 	modulePaths []lock.ModuleLoadPath,
 	logger *zap.Logger,
-) ([]regapi.Entry, regapi.ProvMap, error) {
+) ([]regapi.Entry, regapi.ProvenanceMap, error) {
 	ConfigureSourceLoader(ctx, modulePaths, logger)
 	return loadEntriesWithModuleMeta(ctx, modulePaths, logger)
 }
@@ -343,7 +343,7 @@ func ConfigureSourceLoader(ctx context.Context, modulePaths []lock.ModuleLoadPat
 	if registry == nil {
 		return
 	}
-	registry.SetLoader(func(loadCtx context.Context, sources moduleapi.Sources) ([]regapi.Entry, regapi.ProvMap, error) {
+	registry.SetLoader(func(loadCtx context.Context, sources moduleapi.Sources) ([]regapi.Entry, regapi.ProvenanceMap, error) {
 		ids := make([]string, 0, len(sources))
 		for id := range sources {
 			ids = append(ids, id)
@@ -445,7 +445,7 @@ func registerSources(ctx context.Context, modulePaths []lock.ModuleLoadPath) *mo
 // each entry's provenance from the load context: owning module, version,
 // artifact digest, and deployment-root selection. Entry payloads are loaded
 // verbatim.
-func loadEntriesWithModuleMeta(ctx context.Context, modulePaths []lock.ModuleLoadPath, logger *zap.Logger) ([]regapi.Entry, regapi.ProvMap, error) {
+func loadEntriesWithModuleMeta(ctx context.Context, modulePaths []lock.ModuleLoadPath, logger *zap.Logger) ([]regapi.Entry, regapi.ProvenanceMap, error) {
 	dtt := payload.GetTranscoder(ctx)
 	if dtt == nil {
 		return nil, nil, ErrTranscoderNotFound
@@ -456,7 +456,7 @@ func loadEntriesWithModuleMeta(ctx context.Context, modulePaths []lock.ModuleLoa
 		return nil, nil, ErrLoaderNotFound
 	}
 
-	prov := make(regapi.ProvMap)
+	prov := make(regapi.ProvenanceMap)
 	var entryProv []regapi.EntryProvenance
 	var fromReplacement []bool
 
@@ -619,7 +619,7 @@ func applyModuleConfigFilters(
 //  2. disable: removes excluded entries before link mutation
 //  3. link: resolves requirements from dependencies/defaults
 //  4. post-link override: allows explicit final-value overrides
-func NormalizeEntries(ctx context.Context, entries *[]regapi.Entry, prov regapi.ProvMap) error {
+func NormalizeEntries(ctx context.Context, entries *[]regapi.Entry, prov regapi.ProvenanceMap) error {
 	pipeline := build.New(
 		stages.Override(),
 		stages.Disable(),
@@ -690,7 +690,7 @@ func loadEntriesFromWapp(path string, dtt payload.Transcoder) ([]regapi.Entry, e
 }
 
 // LoadEntriesToRegistry loads entries into the registry using LoadState to restore from history.
-func LoadEntriesToRegistry(ctx context.Context, entries []regapi.Entry, prov regapi.ProvMap, logger *zap.Logger) error {
+func LoadEntriesToRegistry(ctx context.Context, entries []regapi.Entry, prov regapi.ProvenanceMap, logger *zap.Logger) error {
 	if err := waitForListenerReadiness(ctx, logger); err != nil {
 		return err
 	}
@@ -752,14 +752,14 @@ func LoadEntriesToRegistry(ctx context.Context, entries []regapi.Entry, prov reg
 	}
 
 	if prov == nil {
-		prov = make(regapi.ProvMap, len(baselineState))
+		prov = make(regapi.ProvenanceMap, len(baselineState))
 	}
 	for _, entry := range baselineState {
 		if _, ok := prov[entry.ID.Canonical()]; !ok {
 			prov[entry.ID.Canonical()] = regapi.EntryProvenance{}
 		}
 	}
-	if err := reg.LoadState(ctx, regapi.ProvenancedState{Entries: baselineState, Prov: prov}, head); err != nil {
+	if err := reg.LoadState(ctx, regapi.ProvenancedState{Entries: baselineState, Provenance: prov}, head); err != nil {
 		return err // Already wrapped by registry with proper context
 	}
 

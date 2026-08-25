@@ -17,7 +17,7 @@ import (
 // encodePackProvenance serializes entry provenance into the pack metadata
 // frame, keyed by canonical entry ID. The entries themselves stay verbatim;
 // the pack carries the runtime's knowledge out of band.
-func encodePackProvenance(prov registry.ProvMap) map[string]any {
+func encodePackProvenance(prov registry.ProvenanceMap) map[string]any {
 	out := make(map[string]any, len(prov))
 	for id, p := range prov {
 		rec := map[string]any{}
@@ -43,8 +43,8 @@ func encodePackProvenance(prov registry.ProvMap) map[string]any {
 // host-authored entries; a pack WITH the frame is parsed strictly — a
 // malformed record or an entry the frame does not cover is an error, never a
 // silent host coercion.
-func packProvenanceFromMetadata(reader *wapp.Reader, loadedEntries []registry.Entry) (registry.ProvMap, error) {
-	out := make(registry.ProvMap, len(loadedEntries))
+func packProvenanceFromMetadata(reader *wapp.Reader, loadedEntries []registry.Entry) (registry.ProvenanceMap, error) {
+	out := make(registry.ProvenanceMap, len(loadedEntries))
 	metadata, err := reader.GetMetadata()
 	if err != nil {
 		return nil, fmt.Errorf("read pack metadata: %w", err)

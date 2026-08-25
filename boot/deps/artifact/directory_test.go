@@ -45,7 +45,7 @@ func TestDirectoryResources_SelectsByProvenance(t *testing.T) {
 
 	state := regapi.ProvenancedState{
 		Entries: regapi.State{selected, unrelated},
-		Prov: regapi.ProvMap{
+		Provenance: regapi.ProvenanceMap{
 			selected.ID:  {Module: "example/package", Version: "1.0.0"},
 			unrelated.ID: {Module: "other/package", Version: "2.0.0"},
 		},
@@ -68,7 +68,7 @@ func TestDirectoryResources_MissingProvenanceFailsLoud(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "dist"), 0o755))
 
 	entry := directoryEntry(regapi.NewID("example.package", "artifact"))
-	state := regapi.ProvenancedState{Entries: regapi.State{entry}, Prov: regapi.ProvMap{}}
+	state := regapi.ProvenancedState{Entries: regapi.State{entry}, Provenance: regapi.ProvenanceMap{}}
 
 	_, err := DirectoryResources(
 		directoryTestContext(),

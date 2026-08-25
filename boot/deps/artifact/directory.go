@@ -35,7 +35,7 @@ func DirectoryResources(
 
 	resources := make([]Resource, 0)
 	for _, entry := range state.Entries {
-		record, known := state.Prov[entry.ID]
+		record, known := state.Provenance[entry.ID]
 		if !known {
 			return nil, regapi.NewMissingProvenanceError(entry.ID)
 		}

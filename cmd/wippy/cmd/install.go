@@ -424,7 +424,7 @@ func installedArtifactInputs(
 		}
 		roots[modulePath.Module] = root
 	}
-	resources, err := artifact.DirectoryResources(ctx, regapi.ProvenancedState{Entries: loaded, Prov: loadedProv}, roots, versions)
+	resources, err := artifact.DirectoryResources(ctx, regapi.ProvenancedState{Entries: loaded, Provenance: loadedProv}, roots, versions)
 	if err != nil {
 		return nil, nil, err
 	}

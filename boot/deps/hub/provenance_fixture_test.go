@@ -24,13 +24,13 @@ const (
 // provenance is total over the entries, as the registry guarantees.
 func fixtureState(entries regapi.State) regapi.ProvenancedState {
 	state := regapi.ProvenancedState{
-		Entries: make(regapi.State, 0, len(entries)),
-		Prov:    make(regapi.ProvMap, len(entries)),
+		Entries:    make(regapi.State, 0, len(entries)),
+		Provenance: make(regapi.ProvenanceMap, len(entries)),
 	}
 	for _, entry := range entries {
 		clean, record := fixtureEntryProvenance(entry)
 		state.Entries = append(state.Entries, clean)
-		state.Prov[clean.ID] = record
+		state.Provenance[clean.ID] = record
 	}
 	return state
 }

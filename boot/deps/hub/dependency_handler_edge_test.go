@@ -178,7 +178,7 @@ func TestCollectControlledModules_TruthTableOverProvenance(t *testing.T) {
 
 	state := regapi.ProvenancedState{
 		Entries: regapi.State{ownedRoot, unownedRoot, transitive, overlay},
-		Prov: regapi.ProvMap{
+		Provenance: regapi.ProvenanceMap{
 			ownedRoot.ID:   {Module: "acme/deployment", Root: true},
 			unownedRoot.ID: {Root: true},
 			transitive.ID:  {Module: "acme/deployment"},
@@ -195,7 +195,7 @@ func TestCollectControlledModules_TruthTableOverProvenance(t *testing.T) {
 		"a module-owned declaration extends the graph from its owner, which no root reaches here")
 
 	missing := state
-	missing.Prov = regapi.ProvMap{
+	missing.Provenance = regapi.ProvenanceMap{
 		ownedRoot.ID:   {Module: "acme/deployment", Root: true},
 		unownedRoot.ID: {Root: true},
 		transitive.ID:  {Module: "acme/deployment"},
@@ -608,8 +608,8 @@ func TestOperationPlanner_SkipsHostAuthoredDeletes(t *testing.T) {
 func TestOperationPlanner_MissingProvenanceIsAHardError(t *testing.T) {
 	orphan := regapi.Entry{ID: regapi.NewID("app", "orphan"), Kind: "service", Data: payload.New("orphan")}
 	current := regapi.ProvenancedState{
-		Entries: regapi.State{orphan},
-		Prov:    regapi.ProvMap{},
+		Entries:    regapi.State{orphan},
+		Provenance: regapi.ProvenanceMap{},
 	}
 
 	_, err := (operationPlanner{}).plan(current, regapi.ProvenancedState{}, operationPlanOptions{

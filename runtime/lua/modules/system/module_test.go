@@ -63,7 +63,7 @@ func TestSourceLoadReturnsAtomicOwnersAndEntriesWithoutPaths(t *testing.T) {
 		"acme/alpha":                  {LoadPath: "/private/alpha", ResourceRoot: "/private/alpha", Owner: "acme/alpha"},
 		"acme/packed":                 {LoadPath: "/private/packed.wapp"},
 	})
-	sources.SetLoader(func(context.Context, moduleapi.Sources) ([]regapi.Entry, regapi.ProvMap, error) {
+	sources.SetLoader(func(context.Context, moduleapi.Sources) ([]regapi.Entry, regapi.ProvenanceMap, error) {
 		return []regapi.Entry{{ID: regapi.NewID("example.source", "probe"), Kind: "registry.entry"}}, nil, nil
 	})
 	ctx = moduleapi.WithSourceRegistry(ctx, sources)
@@ -118,7 +118,7 @@ func TestSourceLoadDoesNotExposePrivatePathInError(t *testing.T) {
 			Owner:    moduleapi.ApplicationSourceID,
 		},
 	})
-	sources.SetLoader(func(context.Context, moduleapi.Sources) ([]regapi.Entry, regapi.ProvMap, error) {
+	sources.SetLoader(func(context.Context, moduleapi.Sources) ([]regapi.Entry, regapi.ProvenanceMap, error) {
 		return nil, nil, errors.New("open /private/application/source/_index.yaml: permission denied")
 	})
 	ctx = moduleapi.WithSourceRegistry(ctx, sources)

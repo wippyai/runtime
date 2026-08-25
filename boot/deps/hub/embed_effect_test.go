@@ -355,7 +355,7 @@ func TestObsoletePacksFor(t *testing.T) {
 	t.Run("update marks changed version obsolete", func(t *testing.T) {
 		desired := map[string]string{"org/mod": "2.0.0", "org/other": "3.0.0"}
 		controlled := map[string]struct{}{"org/mod": {}, "org/other": {}}
-		obs := obsoletePacksFor(residentModuleVersions(fixtureState(snapshot).Prov), desired, controlled)
+		obs := obsoletePacksFor(residentModuleVersions(fixtureState(snapshot).Provenance), desired, controlled)
 		require.Len(t, obs, 1)
 		assert.Equal(t, obsoletePack{module: "org/mod", version: "1.0.0"}, obs[0])
 	})
@@ -363,7 +363,7 @@ func TestObsoletePacksFor(t *testing.T) {
 	t.Run("removal marks dropped module obsolete", func(t *testing.T) {
 		desired := map[string]string{"org/other": "3.0.0"}
 		controlled := map[string]struct{}{"org/mod": {}, "org/other": {}}
-		obs := obsoletePacksFor(residentModuleVersions(fixtureState(snapshot).Prov), desired, controlled)
+		obs := obsoletePacksFor(residentModuleVersions(fixtureState(snapshot).Provenance), desired, controlled)
 		require.Len(t, obs, 1)
 		assert.Equal(t, obsoletePack{module: "org/mod", version: "1.0.0"}, obs[0])
 	})
@@ -371,14 +371,14 @@ func TestObsoletePacksFor(t *testing.T) {
 	t.Run("unchanged versions are not obsolete", func(t *testing.T) {
 		desired := map[string]string{"org/mod": "1.0.0", "org/other": "3.0.0"}
 		controlled := map[string]struct{}{"org/mod": {}, "org/other": {}}
-		obs := obsoletePacksFor(residentModuleVersions(fixtureState(snapshot).Prov), desired, controlled)
+		obs := obsoletePacksFor(residentModuleVersions(fixtureState(snapshot).Provenance), desired, controlled)
 		assert.Empty(t, obs)
 	})
 
 	t.Run("unrelated modules remain live", func(t *testing.T) {
 		desired := map[string]string{"org/mod": "2.0.0"}
 		controlled := map[string]struct{}{"org/mod": {}}
-		obs := obsoletePacksFor(residentModuleVersions(fixtureState(snapshot).Prov), desired, controlled)
+		obs := obsoletePacksFor(residentModuleVersions(fixtureState(snapshot).Provenance), desired, controlled)
 		require.Len(t, obs, 1)
 		assert.Equal(t, obsoletePack{module: "org/mod", version: "1.0.0"}, obs[0])
 	})
@@ -910,7 +910,7 @@ func TestSourceEffectUnpackedModulePrepareAndRollback(t *testing.T) {
 		"org/unrelated": {LoadPath: "/old/unrelated", ResourceRoot: "/old/unrelated", Owner: "org/unrelated", Sequence: 2},
 	})
 	var loadedSources moduleapi.Sources
-	sourceRegistry.SetLoader(func(_ context.Context, sources moduleapi.Sources) ([]regapi.Entry, regapi.ProvMap, error) {
+	sourceRegistry.SetLoader(func(_ context.Context, sources moduleapi.Sources) ([]regapi.Entry, regapi.ProvenanceMap, error) {
 		loadedSources = sources
 		return nil, nil, nil
 	})
@@ -986,7 +986,7 @@ func TestSourceEffectPackedModuleTracksLoadIdentityWithoutExposingRoot(t *testin
 	sourceRegistry := moduleapi.NewSourceRegistry()
 	ctx = moduleapi.WithSourceRegistry(ctx, sourceRegistry)
 	var loadedSources moduleapi.Sources
-	sourceRegistry.SetLoader(func(_ context.Context, sources moduleapi.Sources) ([]regapi.Entry, regapi.ProvMap, error) {
+	sourceRegistry.SetLoader(func(_ context.Context, sources moduleapi.Sources) ([]regapi.Entry, regapi.ProvenanceMap, error) {
 		loadedSources = sources
 		return nil, nil, nil
 	})

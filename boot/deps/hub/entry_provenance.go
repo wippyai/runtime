@@ -7,7 +7,7 @@ import (
 )
 
 // Provenance is registry-owned. Ownership, resident artifact identity and
-// deployment-root selection come from the ProvMap that travels with a state;
+// deployment-root selection come from the ProvenanceMap that travels with a state;
 // entry Data and Meta are author payload and are never read for them.
 
 type moduleOwner struct {
@@ -36,7 +36,7 @@ func moduleOwnersByNamespace(modules []ResolvedModule) map[string]moduleOwner {
 // so a directive input carrying ids that are not canonical yet still resolves.
 type provIndex map[string]regapi.EntryProvenance
 
-func provByKey(prov regapi.ProvMap) provIndex {
+func provByKey(prov regapi.ProvenanceMap) provIndex {
 	index := make(provIndex, len(prov))
 	for id, record := range prov {
 		index[idKey(id)] = record
@@ -57,7 +57,7 @@ func (p provIndex) lookup(id regapi.ID) (regapi.EntryProvenance, error) {
 // stateProvenance indexes a provenanced state and enforces the total-map
 // invariant over its entries, so every later lookup in the same pass resolves.
 func stateProvenance(state regapi.ProvenancedState) (provIndex, error) {
-	index := provByKey(state.Prov)
+	index := provByKey(state.Provenance)
 	for _, entry := range state.Entries {
 		if _, err := index.lookup(entry.ID); err != nil {
 			return nil, err
@@ -84,7 +84,7 @@ func operationProvenance(op regapi.Operation, resident provIndex) regapi.EntryPr
 // artifact resident for each module. Entries of one module that disagree leave
 // it without a resident version — the same unknown as a module whose records
 // carry none.
-func residentModuleVersions(prov regapi.ProvMap) map[string]string {
+func residentModuleVersions(prov regapi.ProvenanceMap) map[string]string {
 	versions := make(map[string]string)
 	ambiguous := make(map[string]struct{})
 	for _, record := range prov {
@@ -107,7 +107,7 @@ func residentModuleVersions(prov regapi.ProvMap) map[string]string {
 // residentModuleDigests folds a state's provenance into the digest of the
 // artifact resident for each module, with the same disagreement rule as
 // residentModuleVersions.
-func residentModuleDigests(prov regapi.ProvMap) map[string]string {
+func residentModuleDigests(prov regapi.ProvenanceMap) map[string]string {
 	digests := make(map[string]string)
 	ambiguous := make(map[string]struct{})
 	for _, record := range prov {
@@ -140,16 +140,16 @@ func residentProvenanceAdvance(
 	current, desired regapi.ProvenancedState,
 	ops []regapi.Operation,
 	skipKey string,
-) regapi.ProvMap {
+) regapi.ProvenanceMap {
 	touched := make(map[string]struct{}, len(ops))
 	for _, op := range ops {
 		touched[idKey(op.Entry.ID)] = struct{}{}
 	}
 	currentEntries := entriesByID(current.Entries)
-	currentProv := provByKey(current.Prov)
-	desiredProv := provByKey(desired.Prov)
+	currentProv := provByKey(current.Provenance)
+	desiredProv := provByKey(desired.Provenance)
 
-	var advance regapi.ProvMap
+	var advance regapi.ProvenanceMap
 	for _, entry := range desired.Entries {
 		key := idKey(entry.ID)
 		if key == skipKey {
@@ -167,7 +167,7 @@ func residentProvenanceAdvance(
 			continue
 		}
 		if advance == nil {
-			advance = make(regapi.ProvMap)
+			advance = make(regapi.ProvenanceMap)
 		}
 		advance[entry.ID] = record
 	}

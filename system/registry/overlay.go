@@ -245,7 +245,7 @@ func (r *Reg) validateOverlayComposition(effective registry.StateMap, owners map
 // mergeOverlayProvenance carries process-local entries across durable version
 // selection. Overlay ownership remains in overlayOwners; its provenance record
 // is the explicit host record used by the total live-state map.
-func (r *Reg) mergeOverlayProvenance(target, live registry.ProvMap) error {
+func (r *Reg) mergeOverlayProvenance(target, live registry.ProvenanceMap) error {
 	for id := range r.overlayOwners {
 		p, ok := live[id]
 		if !ok {
