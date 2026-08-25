@@ -202,7 +202,7 @@ func sourceEntry(name, kind, data string) string {
 }
 
 func dependencyEntry(name, component, constraint string) string {
-	return sourceEntry(name, string(regapi.NamespaceDependency),
+	return sourceEntry(name, regapi.NamespaceDependency,
 		`{"component": "`+component+`", "version": "`+constraint+`"}`)
 }
 

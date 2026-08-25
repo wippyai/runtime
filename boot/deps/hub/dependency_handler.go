@@ -1333,10 +1333,9 @@ func (h *DependencyHandler) resolveModules(ctx context.Context, deps []Dependenc
 			h.logger.Error("dependency resolution failed", zap.String("errors", formatResolutionErrors(result.Errors)))
 		}
 		if regapi.DependencyAccessFromContext(ctx) == regapi.DependencyAccessVerifiedOffline {
-			// Missing evidence is the diagnosis only when it explains every
-			// failure. A replaced module resolves from its local tree, so its
-			// failure has another cause; reporting the whole set then keeps
-			// that cause visible whatever the failing modules are named.
+			// A replaced module resolves from its local tree, so its failure
+			// is never a missing-evidence failure; the full error set carries
+			// the actual cause.
 			if module, ok := h.offlineEvidenceFailure(result.Errors); ok {
 				return nil, NewDependencyOfflineError("resolve", module)
 			}
@@ -1616,9 +1615,9 @@ func validModuleIdentifier(value string) bool {
 	return true
 }
 
-// replacementZeroVersion labels a replacement tree that declares no version of
-// its own and has never been recorded under one. Its content identity is the
-// tree digest; the label only has to be a well-formed release.
+// replacementZeroVersion labels a replacement tree that declares no version
+// and has never been recorded under one. Identity is the tree digest; the
+// label only has to be a well-formed release.
 const replacementZeroVersion = "0.0.0"
 
 // replacementManifestProvider loads entries and declared dependencies from a
@@ -1648,17 +1647,12 @@ func (p *replacementManifestProvider) replacementVersion(name, constraint string
 	return p.lockedVersions[name]
 }
 
-// localReplacementVersion labels a replaced module from local evidence alone.
-// A verified-offline startup has no Hub to resolve a label or a live range
-// against, and needs none: the tree is the module, so the only question is
-// which release it stands in for. The version already recorded for it answers
-// that; failing which, nothing has ever named one and the zero release does.
-//
-// The label still faces the graph's constraints like any other selection - a
-// durable resolution may not select a version its own declaration excludes -
-// so a range no local evidence satisfies fails the resolve rather than
-// silently binding the tree to a release it cannot be shown to be. Declaring
-// version in the replacement's wippy.yaml settles it offline.
+// localReplacementVersion labels a replaced module from local evidence alone,
+// for a verified-offline startup that has no Hub to resolve against: the
+// version already recorded for the module, or the zero release when none was
+// ever recorded. The label faces the graph's constraints like any other
+// selection, so a range no local evidence satisfies fails the resolve.
+// Declaring version in the replacement's wippy.yaml settles it offline.
 func (p *replacementManifestProvider) localReplacementVersion(name string) string {
 	if version := p.lockedVersions[name]; version != "" {
 		return version
@@ -1770,9 +1764,9 @@ func (p *replacementManifestProvider) ListAllVersions(ctx context.Context, org, 
 	if _, ok := p.handler.replacementPath(name); ok {
 		// An explicit source version is the complete candidate set. Without
 		// one, the local tree supplies bytes but the Hub remains authoritative
-		// for which released versions are available to satisfy live ranges -
-		// until startup forbids reaching it, when local evidence is the whole
-		// candidate set.
+		// for which released versions satisfy live ranges. A verified-offline
+		// startup cannot reach it, so local evidence is the whole candidate
+		// set.
 		if version := p.handler.replacementModuleVersion(name); version != "" {
 			return []VersionInfo{{Version: version}}, nil
 		}
@@ -2427,10 +2421,9 @@ func (h *DependencyHandler) replacementPath(moduleName string) (string, bool) {
 }
 
 // offlineEvidenceFailure reports the module to name in a missing-evidence
-// error, and whether missing evidence explains the failures at all. A replaced
-// module never resolves from evidence, so one failing among them means the set
-// must be reported as it is. The named module is the lowest-sorted failure, so
-// the diagnosis does not depend on the order the resolver emits.
+// error, and whether missing evidence explains the failures at all. A failing
+// replaced module has another cause, so the set is reported as is. The named
+// module is the lowest-sorted failure, independent of resolver emit order.
 func (h *DependencyHandler) offlineEvidenceFailure(errs []ResolutionError) (string, bool) {
 	named := ""
 	for _, resolutionErr := range errs {
