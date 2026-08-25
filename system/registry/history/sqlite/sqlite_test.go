@@ -22,6 +22,15 @@ import (
 	"go.uber.org/zap"
 )
 
+// hostProvenanced wraps a raw test state with host provenance records.
+func hostProvenanced(s registry.State) registry.ProvenancedState {
+	prov := make(registry.ProvenanceMap, len(s))
+	for _, e := range s {
+		prov[e.ID] = registry.EntryProvenance{}
+	}
+	return registry.ProvenancedState{Entries: s, Provenance: prov}
+}
+
 type testRunner struct{}
 
 func (r *testRunner) Transition(_ context.Context, from registry.State, cs registry.ChangeSet) (registry.State, error) {
@@ -496,7 +505,7 @@ func TestHistoryReplayUpdateReplacesCanonicalBaselineID(t *testing.T) {
 	require.NoError(t, hist.Save(v1, registry.ChangeSet{{Kind: registry.EntryUpdate, Entry: updated, OriginalEntry: &baseline}}, true))
 
 	reg := registrysystem.NewRegistry(hist, &testRunner{}, topology.NewStateBuilder(zap.NewNop(), nil), nil, zap.NewNop())
-	require.NoError(t, reg.LoadState(context.Background(), registry.State{baseline}, v1))
+	require.NoError(t, reg.LoadState(context.Background(), hostProvenanced(registry.State{baseline}), v1))
 	entry, err := reg.GetEntry(id)
 	require.NoError(t, err)
 	data, ok := entry.Data.Data().(map[string]any)
@@ -734,7 +743,7 @@ func TestSQLitePersistence_OriginalEntry(t *testing.T) {
 			Data: payload.NewString("baseline"),
 		},
 	}
-	err = reg.LoadState(ctx, baseline, version.FromParent(nil, 0))
+	err = reg.LoadState(ctx, hostProvenanced(baseline), version.FromParent(nil, 0))
 	require.NoError(t, err)
 
 	entryID := registry.NewID("test", "entry1")
@@ -746,17 +755,18 @@ func TestSQLitePersistence_OriginalEntry(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	rootProv := &registry.EntryProvenance{Root: true}
 	v2, err := reg.Apply(ctx, registry.ChangeSet{
 		{Kind: registry.EntryUpdate, Entry: registry.Entry{
-			ID: entryID, Kind: "service", Data: payload.NewString("v2"), DependencyRoot: true,
-		}},
+			ID: entryID, Kind: "service", Data: payload.NewString("v2"),
+		}, Provenance: rootProv},
 	})
 	require.NoError(t, err)
 
 	_, err = reg.Apply(ctx, registry.ChangeSet{
 		{Kind: registry.EntryUpdate, Entry: registry.Entry{
-			ID: entryID, Kind: "service", Data: payload.NewString("v3"), DependencyRoot: true,
-		}},
+			ID: entryID, Kind: "service", Data: payload.NewString("v3"),
+		}, Provenance: rootProv},
 	})
 	require.NoError(t, err)
 
@@ -771,14 +781,15 @@ func TestSQLitePersistence_OriginalEntry(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, cs1, 1)
 	assert.Nil(t, cs1[0].OriginalEntry, "Create operation should not have OriginalEntry")
-	assert.True(t, cs1[0].Entry.DependencyRoot, "root provenance must survive SQLite persistence")
+	assert.False(t, cs1[0].Entry.DependencyRoot, "entry payloads never carry the deployment-root flag")
 
 	cs2, err := hist2.Get(v2)
 	require.NoError(t, err)
 	require.Len(t, cs2, 1)
 	require.NotNil(t, cs2[0].OriginalEntry, "Update operation MUST have OriginalEntry after loading from SQLite")
 	assert.Equal(t, "v1", cs2[0].OriginalEntry.Data.Data().(string), "OriginalEntry should contain v1 data")
-	assert.True(t, cs2[0].OriginalEntry.DependencyRoot, "original root provenance must survive SQLite persistence")
+	require.NotNil(t, cs2[0].Provenance, "operation provenance must survive SQLite persistence")
+	assert.True(t, cs2[0].Provenance.Root, "root provenance must survive SQLite persistence")
 
 	runner2 := &testRunner{}
 	builder2 := topology.NewStateBuilder(logger, nil)
@@ -786,7 +797,7 @@ func TestSQLitePersistence_OriginalEntry(t *testing.T) {
 
 	head, err := hist2.Head()
 	require.NoError(t, err)
-	err = reg2.LoadState(ctx, baseline, head)
+	err = reg2.LoadState(ctx, hostProvenanced(baseline), head)
 	require.NoError(t, err)
 
 	err = reg2.ApplyVersion(ctx, v1)

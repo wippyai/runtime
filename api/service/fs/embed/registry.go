@@ -24,13 +24,14 @@ type Registry interface {
 }
 
 // EntryResolver is an optional Registry capability that resolves a filesystem
-// for a specific registry entry, honoring the entry's module/version metadata.
-// It lets consumers pick the correct pack when more than one module version
-// exposes the same resource ID — for example, while a module update has both
-// the old and new packs staged. Implementations should fall back to GetFS for
-// entries without module metadata or whose owning pack is not registered.
+// for a specific registry entry, honoring the provenance of the operation that
+// carries it. It lets consumers pick the correct pack when more than one module
+// version exposes the same resource ID — for example, while a module update has
+// both the old and new packs staged. A nil or host-authored provenance resolves
+// by entry ID, as does a module-owned entry whose provenance names no version
+// and whose module exposes no matching pack.
 type EntryResolver interface {
-	GetFSForEntry(entry registry.Entry) (fs.ReadDirFS, error)
+	GetFSForEntry(entry registry.Entry, prov *registry.EntryProvenance) (fs.ReadDirFS, error)
 }
 
 // WithRegistry stores the Registry in the context.

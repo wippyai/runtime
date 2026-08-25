@@ -3,6 +3,7 @@
 package registry
 
 import (
+	"context"
 	"errors"
 	"strconv"
 
@@ -11,7 +12,6 @@ import (
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	"github.com/wippyai/runtime/runtime/security"
-	"github.com/wippyai/runtime/system/registry/topology"
 	"go.uber.org/zap"
 )
 
@@ -100,6 +100,8 @@ func NewModule(opts Options) *luaapi.ModuleDef {
 			mod.RawSetString("apply_version", lua.LGoFunc(registryApplyVersion))
 			mod.RawSetString("build_delta", makeBuildDelta(opts.Log))
 			mod.RawSetString("overlay", lua.LGoFunc(registryOverlay))
+			mod.RawSetString("provenance", lua.LGoFunc(registryProvenance))
+			mod.RawSetString("set_root", lua.LGoFunc(registrySetRoot))
 			mod.Immutable = true
 			return mod, nil
 		},
@@ -229,6 +231,13 @@ func registryGet(l *lua.LState) int {
 	}
 
 	entryTable, convErr := entryToLuaTable(l, entry)
+	if convErr == nil {
+		if reader, ok := reg.(provenanceReader); ok {
+			if p, found := reader.EntryProvenance(entry.ID.Canonical()); found {
+				entryTable.RawSetString("root", lua.LBool(p.Root))
+			}
+		}
+	}
 	if convErr != nil {
 		err := lua.WrapErrorWithLua(l, convErr, "convert entry").
 			WithKind(lua.Internal).
@@ -341,20 +350,22 @@ func registrySnapshot(l *lua.LState) int {
 		return 2
 	}
 
-	version, verErr := reg.Current()
-	if verErr != nil {
-		err := lua.WrapErrorWithLua(l, verErr, "get current version").
-			WithKind(lua.Internal).
+	// Version, entries and provenance come from one consistent read: a
+	// concurrent apply can never produce a mismatched snapshot.
+	consistent, ok := reg.(interface {
+		SnapshotState() (regapi.Version, regapi.ProvenancedState, error)
+	})
+	if !ok {
+		err := lua.NewLuaError(l, "registry does not serve consistent snapshots").
+			WithKind(lua.Unavailable).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
 		return 2
 	}
-
-	// Get entries directly from registry state (includes baseline + all applied changes)
-	entries, entriesErr := reg.GetAllEntries()
-	if entriesErr != nil {
-		err := lua.WrapErrorWithLua(l, entriesErr, "get registry entries").
+	version, state, snapErr := consistent.SnapshotState()
+	if snapErr != nil {
+		err := lua.WrapErrorWithLua(l, snapErr, "snapshot registry state").
 			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LNil)
@@ -365,7 +376,8 @@ func registrySnapshot(l *lua.LState) int {
 	snap := &Snapshot{
 		reg:     reg,
 		version: version,
-		entries: entries,
+		entries: state.Entries,
+		prov:    state.Provenance,
 		log:     zap.NewNop(),
 	}
 
@@ -566,10 +578,22 @@ func makeSnapshotAt(log *zap.Logger) lua.LGoFunc {
 			return 2
 		}
 
-		resolver := regapi.GetResolver(ctx)
-		stateBuilder := topology.NewStateBuilder(log, resolver)
-
-		state, stateErr := stateBuilder.BuildState(hist, foundVersion)
+		// A historical snapshot answers for the declarative layer: baseline
+		// plus authored history with provenance. Module worlds reconciled from
+		// stored resolutions materialize only through apply_version, which
+		// alone may stage their effects.
+		provenanced, ok := reg.(interface {
+			ProvenancedStateAtVersion(ctx context.Context, v regapi.Version) (regapi.ProvenancedState, error)
+		})
+		if !ok {
+			err := lua.NewLuaError(l, "registry does not serve historical snapshots").
+				WithKind(lua.Unavailable).
+				WithRetryable(false)
+			l.Push(lua.LNil)
+			l.Push(err)
+			return 2
+		}
+		state, stateErr := provenanced.ProvenancedStateAtVersion(ctx, foundVersion)
 		if stateErr != nil {
 			err := lua.WrapErrorWithLua(l, stateErr, "build snapshot state").
 				WithKind(lua.Internal).
@@ -582,7 +606,8 @@ func makeSnapshotAt(log *zap.Logger) lua.LGoFunc {
 		snap := &Snapshot{
 			reg:     reg,
 			version: foundVersion,
-			entries: state,
+			entries: state.Entries,
+			prov:    state.Provenance,
 			log:     log,
 		}
 

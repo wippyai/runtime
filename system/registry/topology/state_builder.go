@@ -107,7 +107,9 @@ func (b *StateBuilder) ApplyOperation(state StateMap, op registry.Operation) (St
 func (b *StateBuilder) GetInverseOperation(op registry.Operation) (registry.Operation, error) {
 	switch op.Kind {
 	case registry.EntryCreate:
-		return registry.Operation{Kind: registry.EntryDelete, Entry: op.Entry}, nil
+		// The created provenance stays the effective provenance of the entry
+		// being deleted by the inverse.
+		return registry.Operation{Kind: registry.EntryDelete, Entry: op.Entry, Provenance: op.Provenance}, nil
 
 	case registry.EntryUpdate:
 		if op.OriginalEntry == nil {
@@ -116,7 +118,14 @@ func (b *StateBuilder) GetInverseOperation(op registry.Operation) (registry.Oper
 				zap.String("name", op.Entry.ID.Name))
 			return registry.Operation{}, NewOriginalEntryNotFoundError(op.Entry.ID.NS, op.Entry.ID.Name)
 		}
-		return registry.Operation{Kind: registry.EntryUpdate, Entry: *op.OriginalEntry}, nil
+		applied := op.Entry
+		return registry.Operation{
+			Kind:               registry.EntryUpdate,
+			Entry:              *op.OriginalEntry,
+			OriginalEntry:      &applied,
+			Provenance:         op.OriginalProvenance,
+			OriginalProvenance: op.Provenance,
+		}, nil
 
 	case registry.EntryDelete:
 		if op.OriginalEntry == nil {
@@ -125,7 +134,7 @@ func (b *StateBuilder) GetInverseOperation(op registry.Operation) (registry.Oper
 				zap.String("name", op.Entry.ID.Name))
 			return registry.Operation{}, NewOriginalEntryNotFoundError(op.Entry.ID.NS, op.Entry.ID.Name)
 		}
-		return registry.Operation{Kind: registry.EntryCreate, Entry: *op.OriginalEntry}, nil
+		return registry.Operation{Kind: registry.EntryCreate, Entry: *op.OriginalEntry, Provenance: op.OriginalProvenance}, nil
 
 	default:
 		return registry.Operation{}, NewUnknownOperationKindError(op.Kind)

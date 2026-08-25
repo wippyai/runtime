@@ -60,13 +60,6 @@ func luaTableToEntry(l *lua.LState, table *lua.LTable) (regapi.Entry, error) {
 		entry.Meta = attrs.Bag{}
 	}
 
-	// Extract deployment-root status. The field is the sole authority for it:
-	// meta is user space and carries no trust, so a root that loses the flag
-	// here is demoted with nothing left to recover it from.
-	if rootVal, ok := table.RawGetString("root").(lua.LBool); ok {
-		entry.DependencyRoot = bool(rootVal)
-	}
-
 	// Extract data
 	dataVal := table.RawGetString("data")
 	if dataVal != lua.LNil {
@@ -86,8 +79,8 @@ func entryToLuaTable(l *lua.LState, entry regapi.Entry) (*lua.LTable, error) {
 	// Add kind
 	entryTable.RawSetString("kind", lua.LString(entry.Kind))
 
-	// Emit deployment-root status so a read-modify-write from Lua carries it
-	// back instead of demoting the entry.
+	// Root-ness is served from provenance by live readers; the raw entry
+	// field only survives on decoded legacy payloads.
 	entryTable.RawSetString("root", lua.LBool(entry.DependencyRoot))
 
 	// Convert metadata

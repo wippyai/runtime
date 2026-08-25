@@ -21,7 +21,7 @@ import (
 // after the lock or source-owned roots change.
 func (h *DependencyHandler) deploymentBaselineDigest(
 	ctx context.Context,
-	baseline regapi.State,
+	baseline regapi.ProvenancedState,
 	transcoder payload.Transcoder,
 ) (string, error) {
 	type lockedModule struct {
@@ -52,11 +52,16 @@ func (h *DependencyHandler) deploymentBaselineDigest(
 	}
 	sort.Slice(modules, func(i, j int) bool { return modules[i].Name < modules[j].Name })
 
+	prov, err := stateProvenance(baseline)
+	if err != nil {
+		return "", err
+	}
+
 	roots := make([]deploymentRoot, 0)
-	for _, entry := range baseline {
-		// DependencyRoot is assigned by source/lock ingestion. Unowned roots
+	for _, entry := range baseline.Entries {
+		// Root selection is assigned by source/lock ingestion. Unowned roots
 		// created through the registry API remain history-owned overlays.
-		if entry.Kind != regapi.NamespaceDependency || !entry.DependencyRoot {
+		if entry.Kind != regapi.NamespaceDependency || !prov[idKey(entry.ID)].Root {
 			continue
 		}
 		definition, err := decodeDependency(ctx, transcoder, entry)
@@ -94,7 +99,7 @@ func (h *DependencyHandler) deploymentBaselineDigest(
 
 func (h *DependencyHandler) resolutionForSnapshot(
 	ctx context.Context,
-	baseline regapi.State,
+	baseline regapi.ProvenancedState,
 	roots []desiredDependency,
 	references []desiredDependency,
 	modules []ResolvedModule,
@@ -111,7 +116,7 @@ func (h *DependencyHandler) resolutionForSnapshot(
 
 func (h *DependencyHandler) resolutionRefreshReason(
 	ctx context.Context,
-	baseline regapi.State,
+	baseline regapi.ProvenancedState,
 	roots []desiredDependency,
 	references []desiredDependency,
 	resolution *regapi.DependencyResolution,
@@ -134,8 +139,12 @@ func (h *DependencyHandler) resolutionRefreshReason(
 		return "legacy resolution predates folded reference declarations", nil
 	}
 	if dependencyInputDigest(roots) != resolution.InputDigest {
-		for _, entry := range baseline {
-			if entry.Kind == regapi.NamespaceDependency && entry.DependencyRoot {
+		prov, err := stateProvenance(baseline)
+		if err != nil {
+			return "", err
+		}
+		for _, entry := range baseline.Entries {
+			if entry.Kind == regapi.NamespaceDependency && prov[idKey(entry.ID)].Root {
 				return "legacy resolution root declarations differ from deployment baseline", nil
 			}
 		}
@@ -156,7 +165,7 @@ func (h *DependencyHandler) resolutionRefreshReason(
 // deployment roots; history-owned roots remain governed by the stored graph.
 func (h *DependencyHandler) legacyResolutionConflictsWithBaseline(
 	ctx context.Context,
-	baseline regapi.State,
+	baseline regapi.ProvenancedState,
 	resolution *regapi.DependencyResolution,
 	transcoder payload.Transcoder,
 ) (bool, error) {
@@ -168,17 +177,20 @@ func (h *DependencyHandler) legacyResolutionConflictsWithBaseline(
 	for _, mod := range resolution.Modules {
 		stored[mod.Name] = mod
 	}
-	versions := snapshotModuleVersions(baseline)
-	digests := snapshotModuleDigests(baseline)
+	versions := residentModuleVersions(baseline.Provenance)
+	digests := residentModuleDigests(baseline.Provenance)
 	if h != nil && h.lock != nil {
+		// The lock answers only for a module whose records carry no identity of
+		// their own. It never overrides a resident fact: a replacement resident
+		// at a tree identity the lock does not know is not a conflict.
 		for _, mod := range h.lock.GetModules() {
 			if _, owned := controlled[mod.Name]; !owned {
 				continue
 			}
-			if mod.Version != "" {
+			if _, resident := versions[mod.Name]; !resident && mod.Version != "" {
 				versions[mod.Name] = mod.Version
 			}
-			if mod.Hash != "" {
+			if _, resident := digests[mod.Name]; !resident && mod.Hash != "" {
 				digests[mod.Name] = mod.Hash
 			}
 		}
@@ -210,7 +222,7 @@ func (h *DependencyHandler) legacyResolutionConflictsWithBaseline(
 // standard refresh.
 func (h *DependencyHandler) upgradeLegacyReferencedResolution(
 	ctx context.Context,
-	baseline regapi.State,
+	baseline regapi.ProvenancedState,
 	declarations []desiredDependency,
 	resolution *regapi.DependencyResolution,
 	baselineDigest string,

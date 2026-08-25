@@ -130,7 +130,7 @@ modules:
 		ID: regapi.NewID("deployment.packages", "app"), Kind: regapi.NamespaceDependency, DependencyRoot: true,
 		Data: payload.New(map[string]any{"component": "acme/app", "version": "v1.0.0"}),
 	}
-	workerRoot := markModuleIdentity(regapi.Entry{
+	workerRoot := fixtureOwned(regapi.Entry{
 		ID: workerRootID, Kind: regapi.NamespaceDependency, DependencyRoot: true,
 		Data: payload.New(map[string]any{
 			"component": "acme/worker", "version": "v1.0.0",
@@ -140,31 +140,42 @@ modules:
 	snapshot := regapi.State{
 		appRoot,
 		workerRoot,
-		markModuleIdentity(regapi.Entry{ID: regapi.NewID("acme.app", "definition"), Kind: regapi.NamespaceDefinition},
+		fixtureOwned(regapi.Entry{ID: regapi.NewID("acme.app", "definition"), Kind: regapi.NamespaceDefinition},
 			"acme/app", "v1.0.0", "sha256:old-app"),
-		markModuleIdentity(regapi.Entry{ID: regapi.NewID("acme.app", "service"), Kind: "service"},
+		fixtureOwned(regapi.Entry{ID: regapi.NewID("acme.app", "service"), Kind: "service"},
 			"acme/app", "v1.0.0", "sha256:old-app"),
-		markModuleIdentity(regapi.Entry{ID: regapi.NewID("acme.worker", "definition"), Kind: regapi.NamespaceDefinition},
+		fixtureOwned(regapi.Entry{ID: regapi.NewID("acme.worker", "definition"), Kind: regapi.NamespaceDefinition},
 			"acme/worker", "v1.0.0", digests[selection{"acme/worker", "v1.0.0"}]),
-		markModuleIdentity(regapi.Entry{ID: regapi.NewID("acme.worker", "service"), Kind: "service"},
+		fixtureOwned(regapi.Entry{ID: regapi.NewID("acme.worker", "service"), Kind: "service"},
 			"acme/worker", "v1.0.0", digests[selection{"acme/worker", "v1.0.0"}]),
 	}
 	updatedRoot := appRoot
 	updatedRoot.Data = payload.New(map[string]any{"component": "acme/app", "version": "v2.0.0"})
-	result, err := handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryUpdate, Entry: updatedRoot}, snapshot)
+	result, err := handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryUpdate, Entry: updatedRoot}, fixtureState(snapshot))
 	require.NoError(t, err)
 
-	var nestedUpdate *regapi.Operation
+	// The nested declaration is byte-identical across the two artifacts and its
+	// root selection is unchanged, so the update produces no operation for it.
+	// Losing the selection would surface here as a demotion.
+	for _, scoped := range result.Additional {
+		if scoped.Operation.Entry.ID != workerRootID {
+			continue
+		}
+		require.NotNil(t, scoped.Operation.Provenance)
+		require.True(t, scoped.Operation.Provenance.Root,
+			"dependencies declared by the selected root application must remain deployment roots")
+	}
+	var appService *regapi.Operation
 	for i := range result.Additional {
-		if result.Additional[i].Operation.Entry.ID == workerRootID {
+		if result.Additional[i].Operation.Entry.ID == regapi.NewID("acme.app", "service") {
 			op := result.Additional[i].Operation
-			nestedUpdate = &op
+			appService = &op
 			break
 		}
 	}
-	require.NotNil(t, nestedUpdate, "root package update must replace its nested dependency declaration")
-	require.True(t, nestedUpdate.Entry.DependencyRoot,
-		"dependencies declared by the selected root application must remain deployment roots")
+	require.NotNil(t, appService, "the changed application entry is updated")
+	require.NotNil(t, appService.Provenance)
+	require.Equal(t, "v2.0.0", appService.Provenance.Version, "the operation carries the new resident identity")
 
 	// Exercise the real root self-update shape. The deployment root is selected
 	// by wippy.lock and therefore has no synthetic registry dependency at v0.
@@ -186,7 +197,7 @@ modules:
 	v1AppEntries, err := loadEntriesFromWappBytesForTest(artifacts[selection{"acme/app", "v1.0.0"}])
 	require.NoError(t, err)
 	for i := range v1AppEntries {
-		v1AppEntries[i] = markModuleIdentity(v1AppEntries[i], "acme/app", "v1.0.0", digests[selection{"acme/app", "v1.0.0"}])
+		v1AppEntries[i] = fixtureOwned(v1AppEntries[i], "acme/app", "v1.0.0", digests[selection{"acme/app", "v1.0.0"}])
 		if v1AppEntries[i].Kind == regapi.NamespaceDependency {
 			v1AppEntries[i].DependencyRoot = true
 		}
@@ -194,13 +205,18 @@ modules:
 	workerEntries, err := loadEntriesFromWappBytesForTest(artifacts[selection{"acme/worker", "v1.0.0"}])
 	require.NoError(t, err)
 	for i := range workerEntries {
-		workerEntries[i] = markModuleIdentity(workerEntries[i], "acme/worker", "v1.0.0", digests[selection{"acme/worker", "v1.0.0"}])
+		workerEntries[i] = fixtureOwned(workerEntries[i], "acme/worker", "v1.0.0", digests[selection{"acme/worker", "v1.0.0"}])
 	}
 	baseline := make(regapi.State, 0, len(v1AppEntries)+len(workerEntries))
 	baseline = append(baseline, v1AppEntries...)
 	baseline = append(baseline, workerEntries...)
 	v0 := version.FromParent(nil, regapi.RootVersion)
-	require.NoError(t, reg.LoadState(ctx, baseline, v0))
+	require.NoError(t, reg.LoadState(ctx, fixtureState(baseline), v0))
+	residentVersion := func(id regapi.ID) string {
+		record, ok := reg.EntryProvenance(id)
+		require.True(t, ok, "every entry of the live state has a provenance record")
+		return record.Version
+	}
 	v0Resolution, err := history.GetDependencyResolution(v0)
 	require.NoError(t, err)
 	require.Equal(t, "v1.0.0", resolutionModuleVersion(v0Resolution, "acme/app"),
@@ -216,9 +232,12 @@ modules:
 	workerUpdate.Meta = nil
 	_, err = reg.Apply(ctx, regapi.ChangeSet{{Kind: regapi.EntryUpdate, Entry: workerUpdate}})
 	require.NoError(t, err)
-	installedWorker, err = reg.GetEntry(workerRootID)
+	_, err = reg.GetEntry(workerRootID)
 	require.NoError(t, err)
-	require.Equal(t, "acme/app", entryModule(installedWorker))
+	workerRecord, ok := reg.EntryProvenance(workerRootID)
+	require.True(t, ok)
+	require.Equal(t, "acme/app", workerRecord.Module,
+		"an update without provenance preserves the record the registry holds")
 
 	overlayRoot := regapi.Entry{
 		ID: regapi.NewID("deployment.packages", "application"), Kind: regapi.NamespaceDependency,
@@ -228,14 +247,16 @@ modules:
 	require.NoError(t, err)
 	service, err := reg.GetEntry(regapi.NewID("acme.app", "service"))
 	require.NoError(t, err)
-	require.Equal(t, "v2.0.0", moduleVersion(service))
+	require.Equal(t, "v2.0.0", residentVersion(service.ID))
 	_, err = reg.GetEntry(adminPolicyID)
 	require.Error(t, err, "v2 fixture deliberately removes the v1 policy")
 
 	require.NoError(t, reg.ApplyVersion(ctx, v0))
 	service, err = reg.GetEntry(regapi.NewID("acme.app", "service"))
 	require.NoError(t, err)
-	require.Equal(t, "v1.0.0", moduleVersion(service))
+	require.Equal(t, "v1", service.Data.Data().(map[string]any)["version"])
+	require.Equal(t, "v1.0.0", residentVersion(service.ID),
+		"undo restores the resident identity of the version it reveals")
 	_, err = reg.GetEntry(adminPolicyID)
 	require.NoError(t, err, "undo must reveal every entry from the locked root package")
 	_, err = reg.GetEntry(overlayRoot.ID)
@@ -244,7 +265,8 @@ modules:
 	require.NoError(t, reg.ApplyVersion(ctx, v1))
 	service, err = reg.GetEntry(regapi.NewID("acme.app", "service"))
 	require.NoError(t, err)
-	require.Equal(t, "v2.0.0", moduleVersion(service))
+	require.Equal(t, "v2", service.Data.Data().(map[string]any)["version"])
+	require.Equal(t, "v2.0.0", residentVersion(service.ID))
 	_, err = reg.GetEntry(adminPolicyID)
 	require.Error(t, err)
 }

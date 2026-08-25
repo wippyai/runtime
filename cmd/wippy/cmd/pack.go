@@ -445,7 +445,7 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *tea
 	p.Send(progressMsg{stage: stageLoadEntries, percent: 0.2, status: fmt.Sprintf("Loading entries from %d paths...", len(paths))})
 	p.Send(logMsg{level: "info", message: fmt.Sprintf("Loading from %d paths", len(paths))})
 
-	loadedEntries, err := loadEntriesFromLockPaths(app.Ctx, lockObj, logger)
+	loadedEntries, loadedProv, err := loadEntriesFromLockPaths(app.Ctx, lockObj, logger)
 	if err != nil {
 		return NewLoadEntriesError(fmt.Sprintf("lock paths (%s)", lockPath), err)
 	}
@@ -478,7 +478,7 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *tea
 		pipelineStages = append(pipelineStages, stages.Disable(excludeNS, excludeEntries))
 	}
 
-	pipelineStages = append(pipelineStages, stages.Disable(), stages.Link(), stages.Override())
+	pipelineStages = append(pipelineStages, stages.Disable(), stages.Link(loadedProv), stages.Override())
 
 	// Bytecode compilation (before EmbedFS so bytecode FS can be collected)
 	if len(bytecodePatterns) > 0 {
@@ -512,7 +512,7 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *tea
 			percent: 0.55,
 			status:  status,
 		})
-		pipelineStages = append(pipelineStages, stages.EmbedFS("", embedConfig.stagePatterns()...))
+		pipelineStages = append(pipelineStages, stages.EmbedFS("", loadedProv, embedConfig.stagePatterns()...))
 	}
 
 	pipeline := build.New(pipelineStages...)
@@ -621,6 +621,11 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *tea
 	}
 	if err := addPackRuntimeMetadata(metadata, folderPath); err != nil {
 		return NewPackConfigError(err)
+	}
+	// The provenance frame is runtime-owned: it lands after user metadata so
+	// no --meta flag can overwrite it.
+	if len(loadedProv) > 0 {
+		metadata["provenance"] = encodePackProvenance(loadedProv)
 	}
 
 	p.Send(progressMsg{stage: stageWrite, percent: 0.8, status: "Writing pack file..."})
@@ -973,7 +978,7 @@ func runListMode(app *appinit.Context, lockPath, _ string) error {
 
 	_ = lockObj.GetLoadPaths()
 
-	allEntries, err := loadEntriesFromLockPaths(app.Ctx, lockObj, app.Logger)
+	allEntries, _, err := loadEntriesFromLockPaths(app.Ctx, lockObj, app.Logger)
 	if err != nil {
 		return NewLoadEntriesError(fmt.Sprintf("lock paths (%s)", lockPath), err)
 	}

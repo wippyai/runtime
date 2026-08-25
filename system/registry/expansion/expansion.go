@@ -20,6 +20,9 @@ type ScopedOp struct {
 // Plan contains expanded operations and effects.
 type Plan struct {
 	Resolution *registry.DependencyResolution
+	// Provenance carries resident-record updates for entries no operation
+	// touches, merged from directive results.
+	Provenance registry.ProvenanceMap
 	Ops        []ScopedOp
 	Effects    []registry.Effect
 	Expanded   bool
@@ -64,7 +67,7 @@ func NewPlanner(directivesByKind map[registry.Kind][]registry.Directive, resolve
 }
 
 // Expand turns a changeset into a plan by applying registered directives.
-func (p *Planner) Expand(ctx context.Context, changes registry.ChangeSet, snapshot registry.State) (*Plan, error) {
+func (p *Planner) Expand(ctx context.Context, changes registry.ChangeSet, snapshot registry.ProvenancedState) (*Plan, error) {
 	if len(changes) == 0 {
 		return &Plan{}, nil
 	}
@@ -90,6 +93,18 @@ func (p *Planner) Expand(ctx context.Context, changes registry.ChangeSet, snapsh
 		}
 	}()
 	var resolution *registry.DependencyResolution
+	var provenance registry.ProvenanceMap
+	mergeProvenance := func(records registry.ProvenanceMap) {
+		if len(records) == 0 {
+			return
+		}
+		if provenance == nil {
+			provenance = make(registry.ProvenanceMap, len(records))
+		}
+		for id, record := range records {
+			provenance[id] = record
+		}
+	}
 	expanded := false
 	originalCount := len(scoped)
 	type batchKey struct {
@@ -133,7 +148,7 @@ func (p *Planner) Expand(ctx context.Context, changes registry.ChangeSet, snapsh
 				return nil, err
 			}
 			ownedEffects = append(ownedEffects, result.Effects...)
-			if !result.Applied && result.OriginalScope == nil && result.Resolution == nil && len(result.Additional) == 0 && len(result.Effects) == 0 {
+			if !result.Applied && result.OriginalScope == nil && result.Resolution == nil && len(result.Additional) == 0 && len(result.Effects) == 0 && len(result.Provenance) == 0 {
 				continue // Capability is present but not configured; use per-op expansion.
 			}
 			if result.OriginalScope != nil {
@@ -179,6 +194,7 @@ func (p *Planner) Expand(ctx context.Context, changes registry.ChangeSet, snapsh
 				continue
 			}
 			expanded = true
+			mergeProvenance(res.Provenance)
 			if res.Resolution != nil {
 				canonical := res.Resolution.Canonical()
 				if resolution != nil && resolution.Digest != canonical.Digest {
@@ -209,7 +225,7 @@ func (p *Planner) Expand(ctx context.Context, changes registry.ChangeSet, snapsh
 	}
 
 	succeeded = true
-	return &Plan{Ops: scoped, Effects: effects, Resolution: resolution, Expanded: expanded}, nil
+	return &Plan{Ops: scoped, Effects: effects, Resolution: resolution, Provenance: provenance, Expanded: expanded}, nil
 }
 
 func recordExpandedOperation(opsByID map[registry.ID]map[string]struct{}, op registry.Operation) bool {
@@ -332,8 +348,8 @@ func (p *Planner) RollbackEffects(ctx context.Context, effects []registry.Effect
 	}
 }
 
-func entryFromSnapshot(snapshot registry.State, id registry.ID) (registry.Entry, bool) {
-	for _, entry := range snapshot {
+func entryFromSnapshot(snapshot registry.ProvenancedState, id registry.ID) (registry.Entry, bool) {
+	for _, entry := range snapshot.Entries {
 		if entry.ID.Equal(id) {
 			return entry, true
 		}

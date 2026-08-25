@@ -10,8 +10,10 @@ import (
 	regapi "github.com/wippyai/runtime/api/registry"
 )
 
+// entriesEqual compares author content only. Ownership and deployment-root
+// selection are provenance, compared separately.
 func entriesEqual(a, b regapi.Entry) bool {
-	if !idsEqual(a.ID, b.ID) || a.Kind != b.Kind || a.DependencyRoot != b.DependencyRoot {
+	if !idsEqual(a.ID, b.ID) || a.Kind != b.Kind {
 		return false
 	}
 	if !reflect.DeepEqual(a.Meta, b.Meta) {
@@ -39,18 +41,33 @@ type operationPlanner struct {
 	resolver regapi.DependencyResolver
 }
 
-func (p operationPlanner) plan(current regapi.State, desired []regapi.Entry, opts operationPlanOptions) ([]regapi.Operation, error) {
-	currentByID := make(map[string]regapi.Entry, len(current))
-	for _, entry := range current {
-		currentByID[idKey(entry.ID)] = entry
+// plan diffs a provenanced current state against a provenanced desired state.
+// Both provenance maps are total over their entries; a missing record is a hard
+// error, so ownership is never inferred from an absent one.
+func (p operationPlanner) plan(current, desired regapi.ProvenancedState, opts operationPlanOptions) ([]regapi.Operation, error) {
+	currentProv, err := stateProvenance(current)
+	if err != nil {
+		return nil, err
+	}
+	desiredProv, err := stateProvenance(desired)
+	if err != nil {
+		return nil, err
 	}
 
-	desiredByID := make(map[string]regapi.Entry, len(desired))
-	for _, entry := range desired {
+	currentByID := make(map[string]regapi.Entry, len(current.Entries))
+	currentOwners := make(map[string]string, len(current.Entries))
+	for _, entry := range current.Entries {
+		key := idKey(entry.ID)
+		currentByID[key] = entry
+		currentOwners[key] = currentProv[key].Module
+	}
+
+	desiredByID := make(map[string]regapi.Entry, len(desired.Entries))
+	for _, entry := range desired.Entries {
 		desiredByID[idKey(entry.ID)] = entry
 	}
 
-	recreate, err := p.kindReplacementClosure(currentByID, desiredByID, opts)
+	recreate, err := p.kindReplacementClosure(currentByID, desiredByID, currentOwners, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -61,25 +78,29 @@ func (p operationPlanner) plan(current regapi.State, desired []regapi.Entry, opt
 		if key == originalKey {
 			continue
 		}
+		desiredRecord := desiredProv[key]
 		if existing, ok := currentByID[key]; ok {
-			if entryConflict(existing, entry) {
-				return nil, NewDependencyEntryConflictError(entry.ID.String(), entryModule(existing), entryModule(entry))
+			existingRecord := currentProv[key]
+			if entryConflict(existingRecord, desiredRecord) {
+				return nil, NewDependencyEntryConflictError(entry.ID.String(), existingRecord.Module, desiredRecord.Module)
 			}
 			if _, replace := recreate[key]; replace {
 				ops = append(ops,
-					regapi.Operation{Kind: regapi.EntryDelete, Entry: existing},
-					regapi.Operation{Kind: regapi.EntryCreate, Entry: entry},
+					regapi.Operation{Kind: regapi.EntryDelete, Entry: existing, Provenance: provenancePtr(existingRecord)},
+					regapi.Operation{Kind: regapi.EntryCreate, Entry: entry, Provenance: provenancePtr(desiredRecord)},
 				)
 				continue
 			}
-			if !entriesEqual(existing, entry) {
-				if preserveImmutableResidentEntry(existing, entry, opts.mutableModules) {
+			// A deployment-root transition changes no author content: it is a
+			// provenance delta and still produces exactly one operation.
+			if !entriesEqual(existing, entry) || existingRecord.Root != desiredRecord.Root {
+				if preserveImmutableResidentEntry(existingRecord, desiredRecord, opts.mutableModules) {
 					continue
 				}
-				ops = append(ops, regapi.Operation{Kind: regapi.EntryUpdate, Entry: entry})
+				ops = append(ops, regapi.Operation{Kind: regapi.EntryUpdate, Entry: entry, Provenance: provenancePtr(desiredRecord)})
 			}
 		} else {
-			ops = append(ops, regapi.Operation{Kind: regapi.EntryCreate, Entry: entry})
+			ops = append(ops, regapi.Operation{Kind: regapi.EntryCreate, Entry: entry, Provenance: provenancePtr(desiredRecord)})
 		}
 	}
 
@@ -90,20 +111,29 @@ func (p operationPlanner) plan(current regapi.State, desired []regapi.Entry, opt
 		if _, ok := desiredByID[key]; ok {
 			continue
 		}
-		if module := entryModule(entry); module != "" {
+		if module := currentOwners[key]; module != "" {
 			if opts.controlledModules != nil {
 				if _, ok := opts.controlledModules[module]; !ok {
 					continue
 				}
 			}
-			if hasLiveDependent(entry.ID, currentByID, desiredByID, opts.controlledModules, p.resolver) {
+			if hasLiveDependent(entry.ID, currentByID, desiredByID, currentOwners, opts.controlledModules, p.resolver) {
 				continue
 			}
-			ops = append(ops, regapi.Operation{Kind: regapi.EntryDelete, Entry: regapi.Entry{ID: entry.ID}})
+			record := currentProv[key]
+			ops = append(ops, regapi.Operation{
+				Kind:       regapi.EntryDelete,
+				Entry:      regapi.Entry{ID: entry.ID},
+				Provenance: provenancePtr(record),
+			})
 		}
 	}
 
 	return ops, nil
+}
+
+func provenancePtr(record regapi.EntryProvenance) *regapi.EntryProvenance {
+	return &record
 }
 
 // kindReplacementClosure returns the entries that must be recreated when an
@@ -114,6 +144,7 @@ func (p operationPlanner) plan(current regapi.State, desired []regapi.Entry, opt
 func (p operationPlanner) kindReplacementClosure(
 	currentByID map[string]regapi.Entry,
 	desiredByID map[string]regapi.Entry,
+	currentOwners map[string]string,
 	opts operationPlanOptions,
 ) (map[string]struct{}, error) {
 	recreate := make(map[string]struct{})
@@ -136,7 +167,7 @@ func (p operationPlanner) kindReplacementClosure(
 			}
 			effective, present := desiredByID[key]
 			if !present {
-				if missingDesiredEntryWillBeDeleted(current, opts.controlledModules) {
+				if missingDesiredEntryWillBeDeleted(currentOwners[key], opts.controlledModules) {
 					continue
 				}
 				effective = current
@@ -192,6 +223,7 @@ func hasLiveDependent(
 	target regapi.ID,
 	currentByID map[string]regapi.Entry,
 	desiredByID map[string]regapi.Entry,
+	currentOwners map[string]string,
 	controlledModules map[string]struct{},
 	resolver regapi.DependencyResolver,
 ) bool {
@@ -207,7 +239,7 @@ func hasLiveDependent(
 		check := current
 		if desired, ok := desiredByID[key]; ok {
 			check = desired
-		} else if missingDesiredEntryWillBeDeleted(current, controlledModules) {
+		} else if missingDesiredEntryWillBeDeleted(currentOwners[key], controlledModules) {
 			continue
 		}
 		if entryDependsOn(check, target, universe, resolver) {
@@ -217,8 +249,7 @@ func hasLiveDependent(
 	return false
 }
 
-func missingDesiredEntryWillBeDeleted(entry regapi.Entry, controlledModules map[string]struct{}) bool {
-	module := entryModule(entry)
+func missingDesiredEntryWillBeDeleted(module string, controlledModules map[string]struct{}) bool {
 	if module == "" {
 		return false
 	}
@@ -295,35 +326,33 @@ func resolveDependencyRef(sourceNS string, dep string) regapi.ID {
 	return regapi.NewID(sourceNS, dep)
 }
 
-// preserveImmutableResidentEntry prevents metadata normalization from
-// rewriting an installed artifact that was not selected as mutable.
-func preserveImmutableResidentEntry(existing, desired regapi.Entry, mutableModules map[string]struct{}) bool {
+// preserveImmutableResidentEntry prevents normalization from rewriting an
+// installed artifact that was not selected as mutable. The comparison is
+// per-entry resident identity: the same module at the same resident version.
+func preserveImmutableResidentEntry(existing, desired regapi.EntryProvenance, mutableModules map[string]struct{}) bool {
 	if mutableModules == nil {
 		return false
 	}
-	if existing.DependencyRoot != desired.DependencyRoot {
+	if existing.Root != desired.Root {
 		return false
 	}
-	module := entryModule(desired)
-	if module == "" || module != entryModule(existing) {
+	if desired.Module == "" || desired.Module != existing.Module {
 		return false
 	}
-	if _, mutable := mutableModules[module]; mutable {
+	if _, mutable := mutableModules[desired.Module]; mutable {
 		return false
 	}
-	existingVersion := moduleVersion(existing)
-	desiredVersion := moduleVersion(desired)
-	if existingVersion != "" && desiredVersion != "" && existingVersion != desiredVersion {
+	if existing.Version != "" && desired.Version != "" && existing.Version != desired.Version {
 		return false
 	}
 	return true
 }
 
-func entryConflict(existing, desired regapi.Entry) bool {
-	desiredModule := entryModule(desired)
-	if desiredModule == "" {
+// entryConflict reports a module claiming an id that another module or the host
+// already owns. Adoption of a host entry by a module is not a flow.
+func entryConflict(existing, desired regapi.EntryProvenance) bool {
+	if desired.Module == "" {
 		return false
 	}
-	existingModule := entryModule(existing)
-	return existingModule == "" || existingModule != desiredModule
+	return existing.Module == "" || existing.Module != desired.Module
 }

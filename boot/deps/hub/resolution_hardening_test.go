@@ -99,9 +99,9 @@ replacements:
 		ID:   regapi.NewID("local.mod", "svc"),
 		Kind: regapi.EntryKind,
 		Meta: attrs.NewBagFrom(map[string]any{
-			metaModuleKey:        "local/mod",
-			metaModuleVersionKey: "v0.1.0",
-			metaModuleDigestKey:  beforeDigest,
+			fixtureModuleKey:        "local/mod",
+			fixtureModuleVersionKey: "v0.1.0",
+			fixtureModuleDigestKey:  beforeDigest,
 		}),
 		Data: payload.New(map[string]any{"generation": "one"}),
 	}
@@ -121,22 +121,25 @@ replacements:
 	require.NoError(t, err)
 	require.NotEqual(t, beforeDigest, afterDigest)
 
-	result, err := handler.ReconcileResolution(ctx, regapi.State{root, oldEntry}, regapi.State{root, oldEntry}, resolution)
+	result, err := handler.ReconcileResolution(ctx, fixtureState(regapi.State{root, oldEntry}), fixtureState(regapi.State{root, oldEntry}), resolution)
 	require.NoError(t, err)
 	require.Len(t, result.Resolution.Modules, 1)
 	require.Equal(t, beforeDigest, result.Resolution.Modules[0].Digest,
 		"a history version keeps its original resolution checkpoint")
 
-	var updated *regapi.Entry
-	for _, scoped := range result.Additional {
-		if scoped.Operation.Kind == regapi.EntryUpdate && scoped.Operation.Entry.ID == oldEntry.ID {
-			entry := scoped.Operation.Entry
-			updated = &entry
+	var updatedOp *regapi.Operation
+	for i := range result.Additional {
+		op := result.Additional[i].Operation
+		if op.Kind == regapi.EntryUpdate && op.Entry.ID == oldEntry.ID {
+			updatedOp = &op
 			break
 		}
 	}
-	require.NotNil(t, updated)
-	require.Equal(t, afterDigest, moduleDigest(*updated))
+	require.NotNil(t, updatedOp)
+	updated := &updatedOp.Entry
+	require.NotNil(t, updatedOp.Provenance)
+	require.Equal(t, afterDigest, updatedOp.Provenance.Digest,
+		"a rebuilt replacement tree advances the resident record while the checkpoint stands")
 	require.Equal(t, "one", updated.Data.Data().(map[string]any)["generation"])
 }
 
@@ -145,9 +148,9 @@ func hardeningModuleEntry(id, module, version string) regapi.Entry {
 		ID:   regapi.ParseID(id),
 		Kind: regapi.EntryKind,
 		Meta: attrs.NewBagFrom(map[string]any{
-			metaModuleKey:        module,
-			metaModuleVersionKey: version,
-			metaModuleDigestKey:  hardeningDigest,
+			fixtureModuleKey:        module,
+			fixtureModuleVersionKey: version,
+			fixtureModuleDigestKey:  hardeningDigest,
 		}),
 		Data: payload.New(map[string]any{"module": module}),
 	}
@@ -158,9 +161,9 @@ func hardeningModuleDefinition(namespace, module, version string) regapi.Entry {
 		ID:   regapi.NewID(namespace, "definition"),
 		Kind: regapi.NamespaceDefinition,
 		Meta: attrs.NewBagFrom(map[string]any{
-			metaModuleKey:        module,
-			metaModuleVersionKey: version,
-			metaModuleDigestKey:  hardeningDigest,
+			fixtureModuleKey:        module,
+			fixtureModuleVersionKey: version,
+			fixtureModuleDigestKey:  hardeningDigest,
 		}),
 	}
 }
@@ -221,16 +224,13 @@ func TestDependencyHandler_ExpandChangesDeletesEarlierRootModulesAndReturnsResol
 	result, err := handler.ExpandChanges(ctx, regapi.ChangeSet{
 		{Kind: regapi.EntryDelete, Entry: regapi.Entry{ID: rootA.ID}},
 		{Kind: regapi.EntryUpdate, Entry: rootB}, // deliberately unchanged and last
-	}, regapi.State{rootA, rootB, moduleA, moduleB})
+	}, fixtureState(regapi.State{rootA, rootB, moduleA, moduleB}))
 	require.NoError(t, err)
 	require.NotNil(t, result.Resolution, "the final no-op must not inherit the pre-batch graph")
 	require.Len(t, result.Resolution.Roots, 1)
 	require.Equal(t, rootB.ID.String(), result.Resolution.Roots[0].ID)
 	require.Equal(t, 1, manifestCalls)
-	require.Contains(t, result.Additional, regapi.ScopedOperation{
-		Operation: regapi.Operation{Kind: regapi.EntryDelete, Entry: regapi.Entry{ID: moduleA.ID}},
-		Scope:     regapi.ScopeBaseline,
-	})
+	requireScopedDelete(t, result.Additional, moduleA.ID)
 }
 
 func TestDependencyHandler_ExpandChangesRetargetsEarlierRootWithoutLeavingOldModule(t *testing.T) {
@@ -259,13 +259,10 @@ func TestDependencyHandler_ExpandChangesRetargetsEarlierRootWithoutLeavingOldMod
 	result, err := handler.ExpandChanges(ctx, regapi.ChangeSet{
 		{Kind: regapi.EntryUpdate, Entry: rootC},
 		{Kind: regapi.EntryUpdate, Entry: rootB},
-	}, regapi.State{rootA, rootB, moduleA, moduleB})
+	}, fixtureState(regapi.State{rootA, rootB, moduleA, moduleB}))
 	require.NoError(t, err)
 	require.Equal(t, "acme/c", result.Resolution.Roots[0].Component)
-	require.Contains(t, result.Additional, regapi.ScopedOperation{
-		Operation: regapi.Operation{Kind: regapi.EntryDelete, Entry: regapi.Entry{ID: moduleA.ID}},
-		Scope:     regapi.ScopeBaseline,
-	})
+	requireScopedDelete(t, result.Additional, moduleA.ID)
 }
 
 func TestDependencyHandler_ExpandChangesRetaggingRootStillRemovesOwnedModule(t *testing.T) {
@@ -279,18 +276,15 @@ func TestDependencyHandler_ExpandChangesRetaggingRootStillRemovesOwnedModule(t *
 	owned := hardeningModuleEntry("acme.a:entry", "acme/a", "v1.0.0")
 	retagged := root
 	retagged.Meta = attrs.NewBagFrom(map[string]any{
-		metaModuleKey: "host/owner",
+		fixtureModuleKey: "host/owner",
 	})
 
-	result, err := handler.ExpandChanges(ctx, regapi.ChangeSet{{
-		Kind: regapi.EntryUpdate, Entry: retagged,
-	}}, regapi.State{root, owned})
+	result, err := handler.ExpandChanges(ctx, regapi.ChangeSet{
+		fixtureOperation(regapi.Operation{Kind: regapi.EntryUpdate, Entry: retagged}),
+	}, fixtureState(regapi.State{root, owned}))
 	require.NoError(t, err)
 	require.True(t, result.Applied)
-	require.Contains(t, result.Additional, regapi.ScopedOperation{
-		Operation: regapi.Operation{Kind: regapi.EntryDelete, Entry: regapi.Entry{ID: owned.ID}},
-		Scope:     regapi.ScopeBaseline,
-	})
+	requireScopedDelete(t, result.Additional, owned.ID)
 }
 
 func TestDependencyHandler_ExpandUnchangedRootStillReturnsLegacyCheckpointGraph(t *testing.T) {
@@ -309,7 +303,7 @@ func TestDependencyHandler_ExpandUnchangedRootStillReturnsLegacyCheckpointGraph(
 	}
 	handler, err := NewDependencyHandler(DependencyHandlerOptions{Hub: hub, Logger: zap.NewNop(), VendorDir: t.TempDir()})
 	require.NoError(t, err)
-	result, err := handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryUpdate, Entry: root}, regapi.State{root, module})
+	result, err := handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryUpdate, Entry: root}, fixtureState(regapi.State{root, module}))
 	require.NoError(t, err)
 	require.NotNil(t, result.Resolution)
 	require.Len(t, result.Resolution.Modules, 1)
@@ -322,17 +316,17 @@ func TestDependencyHandler_ReconcileRejectsRootSetDriftAndDuplicates(t *testing.
 	rootA := hardeningRoot("app.deps:a", "acme/a", "v1.0.0")
 	rootB := hardeningRoot("app.deps:b", "acme/b", "v1.0.0")
 
-	_, err = handler.ReconcileResolution(ctx, regapi.State{rootA, rootB}, regapi.State{rootA, rootB}, hardeningResolution(rootA))
+	_, err = handler.ReconcileResolution(ctx, fixtureState(regapi.State{rootA, rootB}), fixtureState(regapi.State{rootA, rootB}), hardeningResolution(rootA))
 	require.ErrorContains(t, err, "root set")
 
 	duplicate := hardeningResolution(rootA, rootB)
 	duplicate.Roots[1] = duplicate.Roots[0]
 	duplicate = duplicate.Canonical()
-	_, err = handler.ReconcileResolution(ctx, regapi.State{rootA, rootB}, regapi.State{rootA, rootB}, duplicate)
+	_, err = handler.ReconcileResolution(ctx, fixtureState(regapi.State{rootA, rootB}), fixtureState(regapi.State{rootA, rootB}), duplicate)
 	require.ErrorContains(t, err, "stored dependency resolution is invalid")
 
 	rootBDuplicateComponent := hardeningRoot("app.deps:b", "acme/a", "v1.0.0")
-	_, err = handler.ReconcileResolution(ctx, regapi.State{rootA, rootBDuplicateComponent}, regapi.State{rootA, rootBDuplicateComponent}, hardeningResolution(rootA, rootBDuplicateComponent))
+	_, err = handler.ReconcileResolution(ctx, fixtureState(regapi.State{rootA, rootBDuplicateComponent}), fixtureState(regapi.State{rootA, rootBDuplicateComponent}), hardeningResolution(rootA, rootBDuplicateComponent))
 	require.ErrorContains(t, err, "stored dependency resolution is invalid")
 }
 
@@ -343,7 +337,7 @@ func TestDependencyHandler_ReconcileAcceptsStoredLabelSelectionOffline(t *testin
 	handler, err := NewDependencyHandler(DependencyHandlerOptions{Hub: &fakeHub{}, Logger: zap.NewNop(), VendorDir: t.TempDir()})
 	require.NoError(t, err)
 	resolution := hardeningResolution(root)
-	result, err := handler.ReconcileResolution(ctx, regapi.State{root, module}, regapi.State{root, module}, resolution)
+	result, err := handler.ReconcileResolution(ctx, fixtureState(regapi.State{root, module}), fixtureState(regapi.State{root, module}), resolution)
 	require.NoError(t, err)
 	require.Equal(t, resolution.Digest, result.Resolution.Digest)
 }
@@ -385,9 +379,9 @@ func TestDependencyHandler_ReconcileReloadsOnlyModuleWithChangedRootParameters(t
 		}
 	}
 	moduleMeta := attrs.NewBagFrom(map[string]any{
-		metaModuleKey:        "acme/feature",
-		metaModuleVersionKey: "v1.0.0",
-		metaModuleDigestKey:  digest,
+		fixtureModuleKey:        "acme/feature",
+		fixtureModuleVersionKey: "v1.0.0",
+		fixtureModuleDigestKey:  digest,
 	})
 	requirement := regapi.Entry{
 		ID:   regapi.NewID("acme.feature", "scope"),
@@ -417,7 +411,7 @@ func TestDependencyHandler_ReconcileReloadsOnlyModuleWithChangedRootParameters(t
 		VendorDir: vendorDir,
 	})
 	require.NoError(t, err)
-	result, err := handler.ReconcileResolution(ctx, current, target, resolution)
+	result, err := handler.ReconcileResolution(ctx, fixtureState(current), fixtureState(target), resolution)
 	require.NoError(t, err)
 
 	var updated *regapi.Entry
@@ -439,14 +433,14 @@ func TestDependencyHandler_ReconcileRejectsUnsafeStoredArtifactIdentity(t *testi
 	resolution := hardeningResolution(root)
 	handler, err := NewDependencyHandler(DependencyHandlerOptions{Hub: &fakeHub{}, Logger: zap.NewNop(), VendorDir: t.TempDir()})
 	require.NoError(t, err)
-	_, err = handler.ReconcileResolution(ctx, regapi.State{root}, regapi.State{root}, resolution)
+	_, err = handler.ReconcileResolution(ctx, fixtureState(regapi.State{root}), fixtureState(regapi.State{root}), resolution)
 	require.ErrorContains(t, err, "invalid module name")
 
 	safeRoot := hardeningRoot("app.deps:safe", "acme/safe", "v1.0.0")
 	badDigest := hardeningResolution(safeRoot)
 	badDigest.Modules[0].Digest = "sha256:deadbeef"
 	badDigest = badDigest.Canonical()
-	_, err = handler.ReconcileResolution(ctx, regapi.State{safeRoot}, regapi.State{safeRoot}, badDigest)
+	_, err = handler.ReconcileResolution(ctx, fixtureState(regapi.State{safeRoot}), fixtureState(regapi.State{safeRoot}), badDigest)
 	require.ErrorContains(t, err, "invalid sha256 digest")
 
 	require.Error(t, validateModuleArtifactIdentity(graph.Name{Organization: "acme", Module: "safe"}, "1.0.0/../../escape", ""))

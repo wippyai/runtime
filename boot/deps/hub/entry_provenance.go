@@ -3,17 +3,12 @@
 package hub
 
 import (
-	"strings"
-
-	"github.com/wippyai/runtime/api/attrs"
 	regapi "github.com/wippyai/runtime/api/registry"
 )
 
-const (
-	metaModuleKey        = "module"
-	metaModuleVersionKey = "module_version"
-	metaModuleDigestKey  = "module_digest"
-)
+// Provenance is registry-owned. Ownership, resident artifact identity and
+// deployment-root selection come from the ProvenanceMap that travels with a state;
+// entry Data and Meta are author payload and are never read for them.
 
 type moduleOwner struct {
 	name    string
@@ -37,181 +32,195 @@ func moduleOwnersByNamespace(modules []ResolvedModule) map[string]moduleOwner {
 	return owners
 }
 
-func moduleOwnersByEntryID(entries regapi.State) map[string]moduleOwner {
-	owners := make(map[string]moduleOwner, len(entries))
-	for _, entry := range entries {
-		module := entryModule(entry)
-		if module == "" {
-			continue
-		}
-		owners[idKey(entry.ID)] = moduleOwner{
-			name:    module,
-			version: moduleVersion(entry),
-			digest:  moduleDigest(entry),
-		}
+// provIndex holds a state's provenance keyed the way the planner keys entries,
+// so a directive input carrying ids that are not canonical yet still resolves.
+type provIndex map[string]regapi.EntryProvenance
+
+func provByKey(prov regapi.ProvenanceMap) provIndex {
+	index := make(provIndex, len(prov))
+	for id, record := range prov {
+		index[idKey(id)] = record
 	}
-	return owners
+	return index
 }
 
-func snapshotModuleVersions(snapshot regapi.State) map[string]string {
+// lookup returns the record for one entry. A missing record violates the
+// total-map invariant: it is an error, never a host-authored default.
+func (p provIndex) lookup(id regapi.ID) (regapi.EntryProvenance, error) {
+	record, ok := p[idKey(id)]
+	if !ok {
+		return regapi.EntryProvenance{}, regapi.NewMissingProvenanceError(id)
+	}
+	return record, nil
+}
+
+// stateProvenance indexes a provenanced state and enforces the total-map
+// invariant over its entries, so every later lookup in the same pass resolves.
+func stateProvenance(state regapi.ProvenancedState) (provIndex, error) {
+	index := provByKey(state.Provenance)
+	for _, entry := range state.Entries {
+		if _, err := index.lookup(entry.ID); err != nil {
+			return nil, err
+		}
+	}
+	return index, nil
+}
+
+// operationProvenance returns the effective record for an operation's entry:
+// the operation's own record when it carries one, the record already resident
+// for that id otherwise, and an explicit host record for an entry that does not
+// exist yet.
+func operationProvenance(op regapi.Operation, resident provIndex) regapi.EntryProvenance {
+	if op.Provenance != nil {
+		return *op.Provenance
+	}
+	if record, ok := resident[idKey(op.Entry.ID)]; ok {
+		return record
+	}
+	return regapi.EntryProvenance{}
+}
+
+// residentModuleVersions folds a state's provenance into the version of the
+// artifact resident for each module. Entries of one module that disagree leave
+// it without a resident version — the same unknown as a module whose records
+// carry none.
+func residentModuleVersions(prov regapi.ProvenanceMap) map[string]string {
 	versions := make(map[string]string)
 	ambiguous := make(map[string]struct{})
-	for _, entry := range snapshot {
-		module := entryModule(entry)
-		if module == "" || entry.Meta == nil {
+	for _, record := range prov {
+		if record.Module == "" || record.Version == "" {
 			continue
 		}
-		raw, ok := entry.Meta[metaModuleVersionKey]
-		if !ok {
+		if _, bad := ambiguous[record.Module]; bad {
 			continue
 		}
-		version, ok := raw.(string)
-		if !ok || version == "" {
+		if existing, seen := versions[record.Module]; seen && existing != record.Version {
+			delete(versions, record.Module)
+			ambiguous[record.Module] = struct{}{}
 			continue
 		}
-		if _, bad := ambiguous[module]; bad {
-			continue
-		}
-		if existing, seen := versions[module]; seen && existing != version {
-			delete(versions, module)
-			ambiguous[module] = struct{}{}
-			continue
-		}
-		versions[module] = version
+		versions[record.Module] = record.Version
 	}
 	return versions
 }
 
-func snapshotModuleDigests(snapshot regapi.State) map[string]string {
+// residentModuleDigests folds a state's provenance into the digest of the
+// artifact resident for each module, with the same disagreement rule as
+// residentModuleVersions.
+func residentModuleDigests(prov regapi.ProvenanceMap) map[string]string {
 	digests := make(map[string]string)
 	ambiguous := make(map[string]struct{})
-	for _, entry := range snapshot {
-		module := entryModule(entry)
-		digest := moduleDigest(entry)
-		if module == "" || digest == "" {
+	for _, record := range prov {
+		if record.Module == "" || record.Digest == "" {
 			continue
 		}
-		if _, bad := ambiguous[module]; bad {
+		if _, bad := ambiguous[record.Module]; bad {
 			continue
 		}
-		if existing, seen := digests[module]; seen && !artifactDigestsEqual(existing, digest) {
-			delete(digests, module)
-			ambiguous[module] = struct{}{}
+		if existing, seen := digests[record.Module]; seen && !artifactDigestsEqual(existing, record.Digest) {
+			delete(digests, record.Module)
+			ambiguous[record.Module] = struct{}{}
 			continue
 		}
-		digests[module] = digest
+		digests[record.Module] = record.Digest
 	}
 	return digests
 }
 
-func entryModule(entry regapi.Entry) string {
-	if entry.Meta == nil {
-		return ""
+// residentProvenanceAdvance returns the resident records that move for entries
+// no operation touches. A module update whose entries are byte-identical
+// produces no operation, yet its artifact identity did move: reporting it here
+// advances the resident record with no entry event, so the next reconciliation
+// compares an identity matching the selection and does not reload.
+//
+// An entry the planner deliberately left resident while its desired content
+// differs is excluded: its bytes still come from the old artifact, so its
+// record must keep naming that artifact.
+func residentProvenanceAdvance(
+	current, desired regapi.ProvenancedState,
+	ops []regapi.Operation,
+	skipKey string,
+) regapi.ProvenanceMap {
+	touched := make(map[string]struct{}, len(ops))
+	for _, op := range ops {
+		touched[idKey(op.Entry.ID)] = struct{}{}
 	}
-	if v, ok := entry.Meta[metaModuleKey]; ok {
-		if s, ok := v.(string); ok {
-			return s
+	currentEntries := entriesByID(current.Entries)
+	currentProv := provByKey(current.Provenance)
+	desiredProv := provByKey(desired.Provenance)
+
+	var advance regapi.ProvenanceMap
+	for _, entry := range desired.Entries {
+		key := idKey(entry.ID)
+		if key == skipKey {
+			continue
 		}
-	}
-	return ""
-}
-
-func moduleVersion(entry regapi.Entry) string {
-	if entry.Meta == nil {
-		return ""
-	}
-	if v, ok := entry.Meta[metaModuleVersionKey]; ok {
-		if s, ok := v.(string); ok {
-			return s
+		if _, changed := touched[key]; changed {
+			continue
 		}
-	}
-	return ""
-}
-
-func moduleDigest(entry regapi.Entry) string {
-	if entry.Meta == nil {
-		return ""
-	}
-	if v, ok := entry.Meta[metaModuleDigestKey]; ok {
-		if s, ok := v.(string); ok {
-			return s
+		resident, ok := currentEntries[key]
+		if !ok {
+			continue
 		}
-	}
-	return ""
-}
-
-func markModuleMeta(entry regapi.Entry, moduleName, moduleVersion string) regapi.Entry {
-	meta := entry.Meta
-	if meta == nil {
-		meta = attrs.NewBag()
-	} else {
-		meta = attrs.NewBagFrom(meta)
-	}
-	existingModule := strings.TrimSpace(meta.GetString(metaModuleKey, ""))
-	if existingModule == "" {
-		meta.Set(metaModuleKey, moduleName)
-		if moduleVersion != "" {
-			meta.Set(metaModuleVersionKey, moduleVersion)
+		record := desiredProv[key]
+		if record == currentProv[key] || !entriesEqual(resident, entry) {
+			continue
 		}
-	} else if existingModule == moduleName && moduleVersion != "" && meta.GetString(metaModuleVersionKey, "") == "" {
-		meta.Set(metaModuleVersionKey, moduleVersion)
+		if advance == nil {
+			advance = make(regapi.ProvenanceMap)
+		}
+		advance[entry.ID] = record
 	}
-	entry.Meta = meta
-	return entry
+	return advance
 }
 
-func markModuleIdentity(entry regapi.Entry, moduleName, moduleVersion, digest string) regapi.Entry {
-	entry = markModuleMeta(entry, moduleName, moduleVersion)
-	if entryModule(entry) != moduleName || digest == "" {
-		return entry
-	}
-	meta := attrs.NewBagFrom(entry.Meta)
-	meta.Set(metaModuleDigestKey, digest)
-	entry.Meta = meta
-	return entry
+// loadedProvenance is an ownership claim made while loading module artifacts:
+// the record itself plus whether the claiming source is a local replacement.
+type loadedProvenance struct {
+	record      regapi.EntryProvenance
+	replacement bool
 }
 
-func markModuleIdentityForGraph(
+// claimEntryProvenance resolves the owner of an entry a module artifact just
+// produced. Ownership is decided in one pass over provenance data:
+//
+//   - a replacement is a mutable development source and is authoritative over
+//     hub selection: its claim wins unconditionally, and no non-replacement
+//     claim ever displaces a replacement-owned record;
+//   - otherwise the record resident for that id keeps its owner, refreshed to
+//     the loading module's identity when that owner is the loading module;
+//   - otherwise the module declaring the entry's namespace owns it;
+//   - otherwise the loading module owns it.
+//
+// Root is deployment-context state and is applied by the loader, which knows
+// whether the loading module is the deployed application.
+func claimEntryProvenance(
 	entry regapi.Entry,
-	moduleName string,
-	moduleVersion string,
-	digest string,
+	loading moduleOwner,
+	loadingIsReplacement bool,
+	staged loadedProvenance,
+	hasStaged bool,
+	resident provIndex,
 	namespaceOwners map[string]moduleOwner,
-	entryOwners map[string]moduleOwner,
-) regapi.Entry {
-	if entryModule(entry) != "" {
-		return markModuleIdentity(entry, moduleName, moduleVersion, digest)
+) loadedProvenance {
+	claim := loadedProvenance{
+		record:      regapi.EntryProvenance{Module: loading.name, Version: loading.version, Digest: loading.digest},
+		replacement: loadingIsReplacement,
 	}
-	if owner, ok := entryOwners[idKey(entry.ID)]; ok && owner.name != "" {
-		if owner.name == moduleName {
-			return markModuleIdentity(entry, moduleName, moduleVersion, digest)
+	if loadingIsReplacement {
+		return claim
+	}
+	if hasStaged && staged.replacement {
+		return staged
+	}
+	if record, ok := resident[idKey(entry.ID)]; ok && record.Module != "" {
+		if record.Module != loading.name {
+			claim.record = regapi.EntryProvenance{Module: record.Module, Version: record.Version, Digest: record.Digest}
 		}
-		return markModuleIdentity(entry, owner.name, owner.version, owner.digest)
+		return claim
 	}
 	if owner, ok := namespaceOwners[entry.ID.NS]; ok && owner.name != "" {
-		return markModuleIdentity(entry, owner.name, owner.version, owner.digest)
+		claim.record = regapi.EntryProvenance{Module: owner.name, Version: owner.version, Digest: owner.digest}
 	}
-	return markModuleIdentity(entry, moduleName, moduleVersion, digest)
-}
-
-func markModuleMetaForGraph(
-	entry regapi.Entry,
-	moduleName string,
-	moduleVersion string,
-	namespaceOwners map[string]moduleOwner,
-	entryOwners map[string]moduleOwner,
-) regapi.Entry {
-	if entryModule(entry) != "" {
-		return markModuleMeta(entry, moduleName, moduleVersion)
-	}
-	if owner, ok := entryOwners[idKey(entry.ID)]; ok && owner.name != "" {
-		if owner.name == moduleName {
-			return markModuleMeta(entry, moduleName, moduleVersion)
-		}
-		return markModuleMeta(entry, owner.name, owner.version)
-	}
-	if owner, ok := namespaceOwners[entry.ID.NS]; ok && owner.name != "" {
-		return markModuleMeta(entry, owner.name, owner.version)
-	}
-	return markModuleMeta(entry, moduleName, moduleVersion)
+	return claim
 }

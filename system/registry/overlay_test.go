@@ -39,7 +39,7 @@ func newOverlayTestRegistryWithRunner(t *testing.T) (*Reg, *historymem.Storage, 
 func TestOverlayDoesNotAdvanceHistory(t *testing.T) {
 	ctx := context.Background()
 	reg, history := newOverlayTestRegistry(t)
-	require.NoError(t, reg.LoadState(ctx, nil, version.FromParent(nil, regapi.RootVersion)))
+	require.NoError(t, reg.LoadState(ctx, hostProvenanced(nil), version.FromParent(nil, regapi.RootVersion)))
 
 	entry := regapi.Entry{ID: regapi.NewID("runtime.db", "one"), Kind: "test.resource", Data: payload.New("live")}
 	generation, err := reg.ApplyOverlay(ctx, "data-sources:one", 0, regapi.ChangeSet{{Kind: regapi.EntryCreate, Entry: entry}})
@@ -58,7 +58,7 @@ func TestOverlayDoesNotAdvanceHistory(t *testing.T) {
 func TestOverlaySurvivesHistoryCommit(t *testing.T) {
 	ctx := context.Background()
 	reg, _ := newOverlayTestRegistry(t)
-	require.NoError(t, reg.LoadState(ctx, nil, version.FromParent(nil, regapi.RootVersion)))
+	require.NoError(t, reg.LoadState(ctx, hostProvenanced(nil), version.FromParent(nil, regapi.RootVersion)))
 	runtimeEntry := regapi.Entry{ID: regapi.NewID("runtime.db", "one"), Kind: "test.resource", Data: payload.New("live")}
 	_, err := reg.ApplyOverlay(ctx, "data-sources:one", 0, regapi.ChangeSet{{Kind: regapi.EntryCreate, Entry: runtimeEntry}})
 	require.NoError(t, err)
@@ -78,7 +78,7 @@ func TestOverlaySurvivesHistoryCommit(t *testing.T) {
 func TestOverlaySurvivesVersionSelection(t *testing.T) {
 	ctx := context.Background()
 	reg, _ := newOverlayTestRegistry(t)
-	require.NoError(t, reg.LoadState(ctx, nil, version.FromParent(nil, regapi.RootVersion)))
+	require.NoError(t, reg.LoadState(ctx, hostProvenanced(nil), version.FromParent(nil, regapi.RootVersion)))
 	durable := regapi.Entry{ID: regapi.NewID("app", "setting"), Kind: regapi.EntryKind, Data: payload.New("v1")}
 	v1, err := reg.Apply(ctx, regapi.ChangeSet{{Kind: regapi.EntryCreate, Entry: durable}})
 	require.NoError(t, err)
@@ -101,7 +101,7 @@ func TestOverlayCannotShadowOrLeakIntoHistory(t *testing.T) {
 	ctx := context.Background()
 	reg, _ := newOverlayTestRegistry(t)
 	base := regapi.Entry{ID: regapi.NewID("app", "base"), Kind: regapi.EntryKind, Data: payload.New("base")}
-	require.NoError(t, reg.LoadState(ctx, regapi.State{base}, version.FromParent(nil, regapi.RootVersion)))
+	require.NoError(t, reg.LoadState(ctx, hostProvenanced(regapi.State{base}), version.FromParent(nil, regapi.RootVersion)))
 
 	_, err := reg.ApplyOverlay(ctx, "owner:a", 0, regapi.ChangeSet{{Kind: regapi.EntryCreate, Entry: base}})
 	require.Error(t, err)
@@ -120,7 +120,7 @@ func TestOverlayCannotShadowOrLeakIntoHistory(t *testing.T) {
 func TestOverlayRejectsStaleGeneration(t *testing.T) {
 	ctx := context.Background()
 	reg, _ := newOverlayTestRegistry(t)
-	require.NoError(t, reg.LoadState(ctx, nil, version.FromParent(nil, regapi.RootVersion)))
+	require.NoError(t, reg.LoadState(ctx, hostProvenanced(nil), version.FromParent(nil, regapi.RootVersion)))
 	entry := regapi.Entry{ID: regapi.NewID("runtime", "one"), Kind: regapi.EntryKind, Data: payload.New("v1")}
 	generation, err := reg.ApplyOverlay(ctx, "owner:a", 0, regapi.ChangeSet{{Kind: regapi.EntryCreate, Entry: entry}})
 	require.NoError(t, err)
@@ -136,7 +136,7 @@ func TestOverlayRejectsStaleGeneration(t *testing.T) {
 func TestOverlayBulkDeleteUsesReverseDependencyOrder(t *testing.T) {
 	ctx := context.Background()
 	reg, _, runner := newOverlayTestRegistryWithRunner(t)
-	require.NoError(t, reg.LoadState(ctx, nil, version.FromParent(nil, regapi.RootVersion)))
+	require.NoError(t, reg.LoadState(ctx, hostProvenanced(nil), version.FromParent(nil, regapi.RootVersion)))
 	envID := regapi.NewID("runtime.env", "password")
 	dbID := regapi.NewID("runtime.db", "source")
 	envEntry := regapi.Entry{ID: envID, Kind: "env.variable"}
@@ -164,7 +164,7 @@ func TestOverlayBulkDeleteUsesReverseDependencyOrder(t *testing.T) {
 func TestOverlayCannotDeleteDependencyWhileDependentSurvives(t *testing.T) {
 	ctx := context.Background()
 	reg, _ := newOverlayTestRegistry(t)
-	require.NoError(t, reg.LoadState(ctx, nil, version.FromParent(nil, regapi.RootVersion)))
+	require.NoError(t, reg.LoadState(ctx, hostProvenanced(nil), version.FromParent(nil, regapi.RootVersion)))
 	target := regapi.Entry{ID: regapi.NewID("runtime", "target"), Kind: regapi.EntryKind}
 	consumer := regapi.Entry{
 		ID: regapi.NewID("runtime", "consumer"), Kind: regapi.EntryKind,
@@ -184,7 +184,7 @@ func TestOverlayCannotDeleteDependencyWhileDependentSurvives(t *testing.T) {
 func TestOverlayRejectsCrossOwnerDependenciesInEitherCreationOrder(t *testing.T) {
 	ctx := context.Background()
 	reg, _ := newOverlayTestRegistry(t)
-	require.NoError(t, reg.LoadState(ctx, nil, version.FromParent(nil, regapi.RootVersion)))
+	require.NoError(t, reg.LoadState(ctx, hostProvenanced(nil), version.FromParent(nil, regapi.RootVersion)))
 	targetID := regapi.NewID("runtime", "target")
 	consumer := regapi.Entry{
 		ID: regapi.NewID("runtime", "consumer"), Kind: regapi.EntryKind,
@@ -198,7 +198,7 @@ func TestOverlayRejectsCrossOwnerDependenciesInEitherCreationOrder(t *testing.T)
 	require.Error(t, err, "a later owner cannot claim an ID referenced by another overlay")
 
 	reg, _ = newOverlayTestRegistry(t)
-	require.NoError(t, reg.LoadState(ctx, nil, version.FromParent(nil, regapi.RootVersion)))
+	require.NoError(t, reg.LoadState(ctx, hostProvenanced(nil), version.FromParent(nil, regapi.RootVersion)))
 	_, err = reg.ApplyOverlay(ctx, "owner:b", 0, regapi.ChangeSet{{Kind: regapi.EntryCreate, Entry: target}})
 	require.NoError(t, err)
 	_, err = reg.ApplyOverlay(ctx, "owner:a", 0, regapi.ChangeSet{{Kind: regapi.EntryCreate, Entry: consumer}})
@@ -210,7 +210,7 @@ func TestDurableHistoryCannotDependOnOrRemoveOverlayGraph(t *testing.T) {
 	reg, _ := newOverlayTestRegistry(t)
 	baseID := regapi.NewID("app", "base")
 	base := regapi.Entry{ID: baseID, Kind: regapi.EntryKind}
-	require.NoError(t, reg.LoadState(ctx, regapi.State{base}, version.FromParent(nil, regapi.RootVersion)))
+	require.NoError(t, reg.LoadState(ctx, hostProvenanced(regapi.State{base}), version.FromParent(nil, regapi.RootVersion)))
 	overlayID := regapi.NewID("runtime", "one")
 	overlay := regapi.Entry{
 		ID: overlayID, Kind: regapi.EntryKind,
@@ -237,7 +237,7 @@ func TestOverlayCannotClaimIDAlreadyReferencedByDurableState(t *testing.T) {
 		ID: regapi.NewID("app", "consumer"), Kind: regapi.EntryKind,
 		Meta: attrs.NewBagFrom(map[string]any{"depends_on": overlayID.String()}),
 	}
-	require.NoError(t, reg.LoadState(ctx, regapi.State{durable}, version.FromParent(nil, regapi.RootVersion)))
+	require.NoError(t, reg.LoadState(ctx, hostProvenanced(regapi.State{durable}), version.FromParent(nil, regapi.RootVersion)))
 	candidate := regapi.Entry{ID: overlayID, Kind: regapi.EntryKind}
 	_, err := reg.ApplyOverlay(ctx, "owner:a", 0, regapi.ChangeSet{{Kind: regapi.EntryCreate, Entry: candidate}})
 	require.Error(t, err)
@@ -247,11 +247,11 @@ func TestLoadStateClearsProcessLocalOverlays(t *testing.T) {
 	ctx := context.Background()
 	reg, _ := newOverlayTestRegistry(t)
 	v0 := version.FromParent(nil, regapi.RootVersion)
-	require.NoError(t, reg.LoadState(ctx, nil, v0))
+	require.NoError(t, reg.LoadState(ctx, hostProvenanced(nil), v0))
 	entry := regapi.Entry{ID: regapi.NewID("runtime", "one"), Kind: regapi.EntryKind}
 	_, err := reg.ApplyOverlay(ctx, "owner:a", 0, regapi.ChangeSet{{Kind: regapi.EntryCreate, Entry: entry}})
 	require.NoError(t, err)
-	require.NoError(t, reg.LoadState(ctx, nil, v0))
+	require.NoError(t, reg.LoadState(ctx, hostProvenanced(nil), v0))
 	entries, generation, err := reg.GetOverlay("owner:a")
 	require.NoError(t, err)
 	assert.Empty(t, entries)
@@ -264,10 +264,10 @@ func TestLoadStateInvalidatesAbsentOverlaySnapshot(t *testing.T) {
 	ctx := context.Background()
 	reg, _ := newOverlayTestRegistry(t)
 	v0 := version.FromParent(nil, regapi.RootVersion)
-	require.NoError(t, reg.LoadState(ctx, nil, v0))
+	require.NoError(t, reg.LoadState(ctx, hostProvenanced(nil), v0))
 	_, staleGeneration, err := reg.GetOverlay("owner:a")
 	require.NoError(t, err)
-	require.NoError(t, reg.LoadState(ctx, nil, v0))
+	require.NoError(t, reg.LoadState(ctx, hostProvenanced(nil), v0))
 
 	entry := regapi.Entry{ID: regapi.NewID("runtime", "stale"), Kind: regapi.EntryKind}
 	_, err = reg.ApplyOverlay(ctx, "owner:a", staleGeneration, regapi.ChangeSet{{Kind: regapi.EntryCreate, Entry: entry}})
@@ -280,7 +280,7 @@ func TestLoadStateInvalidatesAbsentOverlaySnapshot(t *testing.T) {
 func TestDeletedOverlayOwnerRetainsGenerationTombstone(t *testing.T) {
 	ctx := context.Background()
 	reg, _ := newOverlayTestRegistry(t)
-	require.NoError(t, reg.LoadState(ctx, nil, version.FromParent(nil, regapi.RootVersion)))
+	require.NoError(t, reg.LoadState(ctx, hostProvenanced(nil), version.FromParent(nil, regapi.RootVersion)))
 	entry := regapi.Entry{ID: regapi.NewID("runtime", "one"), Kind: regapi.EntryKind}
 	generation, err := reg.ApplyOverlay(ctx, "owner:a", 0, regapi.ChangeSet{{Kind: regapi.EntryCreate, Entry: entry}})
 	require.NoError(t, err)
@@ -307,7 +307,7 @@ func TestDeletedOverlayOwnerRetainsGenerationTombstone(t *testing.T) {
 func TestOverlayGenerationDoesNotConflictAcrossOwners(t *testing.T) {
 	ctx := context.Background()
 	reg, _ := newOverlayTestRegistry(t)
-	require.NoError(t, reg.LoadState(ctx, nil, version.FromParent(nil, regapi.RootVersion)))
+	require.NoError(t, reg.LoadState(ctx, hostProvenanced(nil), version.FromParent(nil, regapi.RootVersion)))
 
 	_, ownerBGeneration, err := reg.GetOverlay("owner:b")
 	require.NoError(t, err)
@@ -339,26 +339,33 @@ func TestOverlayGenerationConflictIsStructuredAndRetryable(t *testing.T) {
 	assert.Equal(t, uint64(0), actual)
 }
 
-func TestOverlayRejectsIDAliasAndManagedProvenance(t *testing.T) {
+func TestOverlayRejectsIDAliasAndDeploymentRoot(t *testing.T) {
 	ctx := context.Background()
 	reg, _ := newOverlayTestRegistry(t)
 	base := regapi.Entry{ID: regapi.NewID("app", "base"), Kind: regapi.EntryKind}
-	require.NoError(t, reg.LoadState(ctx, regapi.State{base}, version.FromParent(nil, regapi.RootVersion)))
+	require.NoError(t, reg.LoadState(ctx, hostProvenanced(regapi.State{base}), version.FromParent(nil, regapi.RootVersion)))
 	alias := regapi.Entry{ID: regapi.ID{Name: "app:base"}, Kind: regapi.EntryKind}
 	_, err := reg.ApplyOverlay(ctx, "owner:a", 0, regapi.ChangeSet{{Kind: regapi.EntryCreate, Entry: alias}})
 	require.Error(t, err)
-	managed := regapi.Entry{
-		ID: regapi.NewID("runtime", "managed"), Kind: regapi.EntryKind,
+
+	// Author meta is opaque to the runtime: a key named "module" is ordinary
+	// author data and passes through.
+	authorKeyed := regapi.Entry{
+		ID: regapi.NewID("runtime", "authorkeyed"), Kind: regapi.EntryKind,
 		Meta: attrs.NewBagFrom(map[string]any{"module": "acme/app"}),
 	}
-	_, err = reg.ApplyOverlay(ctx, "owner:a", 0, regapi.ChangeSet{{Kind: regapi.EntryCreate, Entry: managed}})
+	_, err = reg.ApplyOverlay(ctx, "owner:a", 0, regapi.ChangeSet{{Kind: regapi.EntryCreate, Entry: authorKeyed}})
+	require.NoError(t, err)
+
+	root := regapi.Entry{ID: regapi.NewID("runtime", "rooted"), Kind: regapi.EntryKind, DependencyRoot: true}
+	_, err = reg.ApplyOverlay(ctx, "owner:a", 0, regapi.ChangeSet{{Kind: regapi.EntryCreate, Entry: root}})
 	require.Error(t, err)
 }
 
 func TestOverlayOwnershipDoesNotMutateEntryMetadata(t *testing.T) {
 	ctx := context.Background()
 	reg, _ := newOverlayTestRegistry(t)
-	require.NoError(t, reg.LoadState(ctx, nil, version.FromParent(nil, regapi.RootVersion)))
+	require.NoError(t, reg.LoadState(ctx, hostProvenanced(nil), version.FromParent(nil, regapi.RootVersion)))
 	entry := regapi.Entry{
 		ID:   regapi.NewID("runtime", "owned"),
 		Kind: regapi.EntryKind,
@@ -383,7 +390,7 @@ func TestOverlayRejectsDirectiveOwnedKinds(t *testing.T) {
 	builder := topology.NewStateBuilder(zap.NewNop(), resolver)
 	reg := NewRegistry(history, NewTestRunner(), builder, resolver, zap.NewNop(),
 		WithKindDirective("expanded.kind", overlayTestDirective{}))
-	require.NoError(t, reg.LoadState(ctx, nil, version.FromParent(nil, regapi.RootVersion)))
+	require.NoError(t, reg.LoadState(ctx, hostProvenanced(nil), version.FromParent(nil, regapi.RootVersion)))
 	entry := regapi.Entry{ID: regapi.NewID("runtime", "declaration"), Kind: "expanded.kind"}
 
 	_, err := reg.ApplyOverlay(ctx, "owner:a", 0, regapi.ChangeSet{{Kind: regapi.EntryCreate, Entry: entry}})
@@ -397,14 +404,14 @@ func TestOverlayRejectsDirectiveOwnedKinds(t *testing.T) {
 
 type overlayTestDirective struct{}
 
-func (overlayTestDirective) Expand(context.Context, regapi.Operation, regapi.State) (regapi.DirectiveResult, error) {
+func (overlayTestDirective) Expand(context.Context, regapi.Operation, regapi.ProvenancedState) (regapi.DirectiveResult, error) {
 	return regapi.DirectiveResult{}, nil
 }
 
 func TestVersionSelectionRejectsHistoricalDurableDependencyOnOverlay(t *testing.T) {
 	ctx := context.Background()
 	reg, _ := newOverlayTestRegistry(t)
-	require.NoError(t, reg.LoadState(ctx, nil, version.FromParent(nil, regapi.RootVersion)))
+	require.NoError(t, reg.LoadState(ctx, hostProvenanced(nil), version.FromParent(nil, regapi.RootVersion)))
 	overlayID := regapi.NewID("runtime", "dep")
 	consumer := regapi.Entry{
 		ID: regapi.NewID("app", "consumer"), Kind: regapi.EntryKind,
@@ -428,7 +435,7 @@ func TestVersionSelectionRejectsHistoricalDurableDependencyOnOverlay(t *testing.
 func TestVersionSelectionCannotRemoveDurableOverlayDependency(t *testing.T) {
 	ctx := context.Background()
 	reg, _ := newOverlayTestRegistry(t)
-	require.NoError(t, reg.LoadState(ctx, nil, version.FromParent(nil, regapi.RootVersion)))
+	require.NoError(t, reg.LoadState(ctx, hostProvenanced(nil), version.FromParent(nil, regapi.RootVersion)))
 	base := regapi.Entry{ID: regapi.NewID("app", "base"), Kind: regapi.EntryKind}
 	v1, err := reg.Apply(ctx, regapi.ChangeSet{{Kind: regapi.EntryCreate, Entry: base}})
 	require.NoError(t, err)
@@ -461,7 +468,7 @@ func TestOverlayDependencyValidationUsesTopologySemantics(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			reg, _ := newOverlayTestRegistry(t)
-			require.NoError(t, reg.LoadState(ctx, nil, version.FromParent(nil, regapi.RootVersion)))
+			require.NoError(t, reg.LoadState(ctx, hostProvenanced(nil), version.FromParent(nil, regapi.RootVersion)))
 			target := regapi.Entry{ID: regapi.NewID("runtime", "target"), Kind: regapi.EntryKind, Meta: tt.targetMeta}
 			_, err := reg.ApplyOverlay(ctx, "owner:a", 0, regapi.ChangeSet{{Kind: regapi.EntryCreate, Entry: target}})
 			require.NoError(t, err)
@@ -480,7 +487,7 @@ func TestOverlayExplicitDependenciesWorkWithoutResolver(t *testing.T) {
 	history := historymem.New()
 	builder := topology.NewStateBuilder(zap.NewNop(), nil)
 	reg := NewRegistry(history, NewTestRunner(), builder, nil, zap.NewNop())
-	require.NoError(t, reg.LoadState(ctx, nil, version.FromParent(nil, regapi.RootVersion)))
+	require.NoError(t, reg.LoadState(ctx, hostProvenanced(nil), version.FromParent(nil, regapi.RootVersion)))
 	target := regapi.Entry{ID: regapi.NewID("runtime", "target"), Kind: regapi.EntryKind}
 	_, err := reg.ApplyOverlay(ctx, "owner:a", 0, regapi.ChangeSet{{Kind: regapi.EntryCreate, Entry: target}})
 	require.NoError(t, err)
@@ -495,7 +502,7 @@ func TestOverlayExplicitDependenciesWorkWithoutResolver(t *testing.T) {
 func TestOverlayAllowsDanglingBarePlaceholder(t *testing.T) {
 	ctx := context.Background()
 	reg, _ := newOverlayTestRegistry(t)
-	require.NoError(t, reg.LoadState(ctx, nil, version.FromParent(nil, regapi.RootVersion)))
+	require.NoError(t, reg.LoadState(ctx, hostProvenanced(nil), version.FromParent(nil, regapi.RootVersion)))
 	entry := regapi.Entry{
 		ID: regapi.NewID("runtime", "source"), Kind: regapi.EntryKind,
 		Data: payload.New(map[string]any{"token": "${API_KEY}"}),
@@ -507,7 +514,7 @@ func TestOverlayAllowsDanglingBarePlaceholder(t *testing.T) {
 func TestOverlayRejectsDuplicateOperations(t *testing.T) {
 	ctx := context.Background()
 	reg, _ := newOverlayTestRegistry(t)
-	require.NoError(t, reg.LoadState(ctx, nil, version.FromParent(nil, regapi.RootVersion)))
+	require.NoError(t, reg.LoadState(ctx, hostProvenanced(nil), version.FromParent(nil, regapi.RootVersion)))
 	entry := regapi.Entry{ID: regapi.NewID("runtime", "duplicate"), Kind: regapi.EntryKind}
 	_, err := reg.ApplyOverlay(ctx, "owner:a", 0, regapi.ChangeSet{
 		{Kind: regapi.EntryCreate, Entry: entry},
@@ -544,7 +551,7 @@ func TestOverlayReconcilesIndexesAfterFailedCompensation(t *testing.T) {
 	builder := topology.NewStateBuilder(zap.NewNop(), resolver)
 	runner := &failedCompensationRunner{}
 	reg := NewRegistry(history, runner, builder, resolver, zap.NewNop())
-	require.NoError(t, reg.LoadState(ctx, nil, version.FromParent(nil, regapi.RootVersion)))
+	require.NoError(t, reg.LoadState(ctx, hostProvenanced(nil), version.FromParent(nil, regapi.RootVersion)))
 	runner.armed = true
 	entry := regapi.Entry{ID: regapi.NewID("runtime", "partial"), Kind: regapi.EntryKind}
 	_, err := reg.ApplyOverlay(ctx, "owner:a", 0, regapi.ChangeSet{{Kind: regapi.EntryCreate, Entry: entry}})
@@ -567,12 +574,12 @@ func TestLoadStateReconcilesOverlaysAfterFailedCompensation(t *testing.T) {
 	runner := &failedCompensationRunner{}
 	reg := NewRegistry(history, runner, builder, resolver, zap.NewNop())
 	v0 := version.FromParent(nil, regapi.RootVersion)
-	require.NoError(t, reg.LoadState(ctx, nil, v0))
+	require.NoError(t, reg.LoadState(ctx, hostProvenanced(nil), v0))
 	entry := regapi.Entry{ID: regapi.NewID("runtime", "partial"), Kind: regapi.EntryKind}
 	_, err := reg.ApplyOverlay(ctx, "owner:a", 0, regapi.ChangeSet{{Kind: regapi.EntryCreate, Entry: entry}})
 	require.NoError(t, err)
 	runner.armed = true
-	regErr := reg.LoadState(ctx, nil, v0)
+	regErr := reg.LoadState(ctx, hostProvenanced(nil), v0)
 	require.Error(t, regErr)
 	_, err = reg.GetEntry(entry.ID)
 	require.Error(t, err)

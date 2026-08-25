@@ -125,9 +125,11 @@ type (
 
 	// Operation represents a single operation within a ChangeSet
 	Operation struct {
-		OriginalEntry *Entry     `json:"original_entry,omitempty"`
-		Kind          event.Kind `json:"kind"`
-		Entry         Entry      `json:"entry"`
+		OriginalEntry      *Entry           `json:"original_entry,omitempty"`
+		Provenance         *EntryProvenance `json:"provenance,omitempty"`
+		OriginalProvenance *EntryProvenance `json:"original_provenance,omitempty"`
+		Kind               event.Kind       `json:"kind"`
+		Entry              Entry            `json:"entry"`
 	}
 
 	// DependencyPattern defines a pattern for extracting dependencies from entries
@@ -166,7 +168,7 @@ type (
 		// ApplyVersion applies a specific version to the registry
 		ApplyVersion(context.Context, Version) error
 		// LoadState initializes registry state from baseline and history without creating new version records
-		LoadState(context.Context, State, Version) error
+		LoadState(context.Context, ProvenancedState, Version) error
 	}
 
 	// OverlayWriter manages process-local registry overlays. Overlay entries

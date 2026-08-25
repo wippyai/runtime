@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/internal/version"
 	historymem "github.com/wippyai/runtime/system/registry/history/memory"
 	"github.com/wippyai/runtime/system/registry/topology"
 	"go.uber.org/zap"
@@ -20,6 +21,15 @@ var history = struct {
 	NewMemory func() *historymem.Storage
 }{
 	NewMemory: historymem.New,
+}
+
+// hostProvenanced wraps a raw test state with host provenance records.
+func hostProvenanced(s registry.State) registry.ProvenancedState {
+	prov := make(registry.ProvenanceMap, len(s))
+	for _, e := range s {
+		prov[e.ID] = registry.EntryProvenance{}
+	}
+	return registry.ProvenancedState{Entries: s, Provenance: prov}
 }
 
 func TestRegistry_LoadState_V0(t *testing.T) {
@@ -70,7 +80,7 @@ func TestRegistry_LoadState_V0(t *testing.T) {
 	}
 	require.Equal(t, uint(0), head.ID())
 
-	err = reg.LoadState(ctx, baseline, head)
+	err = reg.LoadState(ctx, hostProvenanced(baseline), head)
 	require.NoError(t, err)
 
 	currentVer, err := reg.Current()
@@ -97,10 +107,10 @@ func TestRegistry_LoadState_V0ExpandsBaselineDirectives(t *testing.T) {
 		Data: payload.New("expanded"),
 	}
 
-	expander := directiveFunc(func(_ context.Context, op registry.Operation, snapshot registry.State) (registry.DirectiveResult, error) {
+	expander := directiveFunc(func(_ context.Context, op registry.Operation, snapshot registry.ProvenancedState) (registry.DirectiveResult, error) {
 		require.Equal(t, registry.EntryUpdate, op.Kind)
 		require.Equal(t, depEntry.ID, op.Entry.ID)
-		require.Contains(t, snapshot, depEntry)
+		require.Contains(t, snapshot.Entries, depEntry)
 		return registry.DirectiveResult{
 			Applied: true,
 			Additional: []registry.ScopedOperation{{
@@ -135,7 +145,7 @@ func TestRegistry_LoadState_V0ExpandsBaselineDirectives(t *testing.T) {
 
 	head, err := reg.Current()
 	require.NoError(t, err)
-	require.NoError(t, reg.LoadState(ctx, registry.State{depEntry}, head))
+	require.NoError(t, reg.LoadState(ctx, hostProvenanced(registry.State{depEntry}), head))
 
 	_, err = reg.GetEntry(depEntry.ID)
 	require.NoError(t, err)
@@ -163,7 +173,7 @@ func TestRegistry_LoadState_V0RejectsBaselineDirectiveExpansionFailure(t *testin
 		resolver,
 		logger,
 		WithKindDirective(registry.NamespaceDependency, directiveFunc(
-			func(context.Context, registry.Operation, registry.State) (registry.DirectiveResult, error) {
+			func(context.Context, registry.Operation, registry.ProvenancedState) (registry.DirectiveResult, error) {
 				return registry.DirectiveResult{}, assert.AnError
 			},
 		)),
@@ -171,7 +181,7 @@ func TestRegistry_LoadState_V0RejectsBaselineDirectiveExpansionFailure(t *testin
 
 	head, err := reg.Current()
 	require.NoError(t, err)
-	err = reg.LoadState(ctx, registry.State{depEntry}, head)
+	err = reg.LoadState(ctx, hostProvenanced(registry.State{depEntry}), head)
 	require.ErrorIs(t, err, assert.AnError)
 	_, err = reg.GetEntry(depEntry.ID)
 	require.Error(t, err, "a failed declaration must not be published as a partial root")
@@ -216,6 +226,7 @@ func TestRegistry_LoadState_WithHistory(t *testing.T) {
 		{ID: registry.NewID("test", "entry1"), Kind: "service", Data: payload.New("initial")},
 		{ID: registry.NewID("test", "entry2"), Kind: "service", Data: payload.New("initial")},
 	}
+	require.NoError(t, reg.LoadState(ctx, hostProvenanced(baseline), version.New(registry.RootVersion)))
 
 	cs1 := registry.ChangeSet{
 		{Kind: registry.EntryUpdate, Entry: registry.Entry{ID: registry.NewID("test", "entry1"), Kind: "service", Data: payload.New("updated")}},
@@ -241,7 +252,7 @@ func TestRegistry_LoadState_WithHistory(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, uint(1), head.ID())
 
-	err = reg2.LoadState(ctx, baseline, head)
+	err = reg2.LoadState(ctx, hostProvenanced(baseline), head)
 	require.NoError(t, err)
 
 	currentVer, err := reg2.Current()
@@ -296,7 +307,7 @@ func TestRegistry_LoadState_ReplaysHistoryThroughDirectives(t *testing.T) {
 		Kind: "store.memory",
 		Data: payload.New("expanded"),
 	}
-	expander := directiveFunc(func(_ context.Context, op registry.Operation, _ registry.State) (registry.DirectiveResult, error) {
+	expander := directiveFunc(func(_ context.Context, op registry.Operation, _ registry.ProvenancedState) (registry.DirectiveResult, error) {
 		if op.Entry.Kind != registry.NamespaceDependency {
 			return registry.DirectiveResult{}, nil
 		}
@@ -342,7 +353,7 @@ func TestRegistry_LoadState_ReplaysHistoryThroughDirectives(t *testing.T) {
 
 	head, err := hist.Head()
 	require.NoError(t, err)
-	require.NoError(t, reg2.LoadState(ctx, nil, head))
+	require.NoError(t, reg2.LoadState(ctx, hostProvenanced(nil), head))
 
 	_, err = reg2.GetEntry(depEntry.ID)
 	require.NoError(t, err)
@@ -388,6 +399,7 @@ func TestRegistry_LoadState_MultipleVersions(t *testing.T) {
 	baseline := registry.State{
 		{ID: registry.NewID("test", "entry1"), Kind: "service", Data: payload.New("v0")},
 	}
+	require.NoError(t, reg.LoadState(ctx, hostProvenanced(baseline), version.New(registry.RootVersion)))
 
 	cs1 := registry.ChangeSet{
 		{Kind: registry.EntryUpdate, Entry: registry.Entry{ID: registry.NewID("test", "entry1"), Kind: "service", Data: payload.New("v1")}},
@@ -418,7 +430,7 @@ func TestRegistry_LoadState_MultipleVersions(t *testing.T) {
 		logger,
 	)
 
-	err = reg2.LoadState(ctx, baseline, v3)
+	err = reg2.LoadState(ctx, hostProvenanced(baseline), v3)
 	require.NoError(t, err)
 
 	currentVer, err := reg2.Current()
@@ -512,7 +524,7 @@ func TestRegistry_LoadState_ThenApplyVersion(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, uint(3), head.ID())
 
-	err = reg2.LoadState(ctx, baseline, head)
+	err = reg2.LoadState(ctx, hostProvenanced(baseline), head)
 	require.NoError(t, err)
 
 	currentVer, err := reg2.Current()

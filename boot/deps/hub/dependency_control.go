@@ -9,11 +9,12 @@ import (
 	regapi "github.com/wippyai/runtime/api/registry"
 )
 
-func isRootDependency(entry regapi.Entry) bool {
-	// Deployment ingestion marks source-owned roots explicitly. A dependency
-	// authored through the registry API has no module owner and is a user overlay
-	// root. Module-owned declarations without root provenance are transitive.
-	return entry.Kind == regapi.NamespaceDependency && (entry.DependencyRoot || entryModule(entry) == "")
+// isRootDependency reports a deployment root. Deployment ingestion selects
+// source-owned roots explicitly. A dependency authored through the registry API
+// is owned by no module and is a user overlay root. Module-owned declarations
+// that were not selected are transitive.
+func isRootDependency(entry regapi.Entry, prov regapi.EntryProvenance) bool {
+	return entry.Kind == regapi.NamespaceDependency && (prov.Root || prov.HostAuthored())
 }
 
 // collectControlledModules returns the dependency graph reachable from the
@@ -22,16 +23,22 @@ func isRootDependency(entry regapi.Entry) bool {
 // dependencies extend the graph from owner to component.
 func (h *DependencyHandler) collectControlledModules(
 	ctx context.Context,
-	snapshot regapi.State,
+	snapshot regapi.ProvenancedState,
 	transcoder payload.Transcoder,
 ) (map[string]struct{}, error) {
 	controlled := make(map[string]struct{})
 	dependencyLinks := make(map[string][]string)
 
-	for _, entry := range snapshot {
+	prov, err := stateProvenance(snapshot)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, entry := range snapshot.Entries {
 		if entry.Kind != regapi.NamespaceDependency {
 			continue
 		}
+		record := prov[idKey(entry.ID)]
 		def, err := decodeDependency(ctx, transcoder, entry)
 		if err != nil {
 			return nil, err
@@ -40,12 +47,12 @@ func (h *DependencyHandler) collectControlledModules(
 			return nil, NewDependencyEntryInvalidError(entry.ID.String(), "component is required", "")
 		}
 
-		if isRootDependency(entry) {
+		if isRootDependency(entry, record) {
 			controlled[def.Component] = struct{}{}
 			continue
 		}
-		if owner := entryModule(entry); owner != "" {
-			dependencyLinks[owner] = append(dependencyLinks[owner], def.Component)
+		if record.Module != "" {
+			dependencyLinks[record.Module] = append(dependencyLinks[record.Module], def.Component)
 		}
 	}
 
@@ -71,8 +78,8 @@ func (h *DependencyHandler) collectControlledModules(
 // are not dependency graph members remain outside reconciliation authority.
 func (h *DependencyHandler) reconciliationControlledModules(
 	ctx context.Context,
-	current regapi.State,
-	target regapi.State,
+	current regapi.ProvenancedState,
+	target regapi.ProvenancedState,
 	transcoder payload.Transcoder,
 	desired map[string]struct{},
 ) (map[string]struct{}, error) {

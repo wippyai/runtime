@@ -66,11 +66,23 @@ type encodedPayload struct {
 }
 
 type encodedEntry struct {
-	Meta           attrs.Bag
-	Data           *encodedPayload
-	ID             registry.ID
-	Kind           string
-	DependencyRoot bool
+	Meta attrs.Bag       `codec:"Meta"`
+	Data *encodedPayload `codec:"Data"`
+	ID   registry.ID     `codec:"ID"`
+	Kind string          `codec:"Kind"`
+	// DependencyRoot decodes from legacy rows; new rows never write it.
+	DependencyRoot bool `codec:"DependencyRoot,omitempty"`
+}
+
+// encodedOperation is the wire shape of one changeset operation. The optional
+// provenance fields are absent on rows written before they existed and decode
+// as nil.
+type encodedOperation struct {
+	OriginalEntry      *encodedEntry             `codec:"OriginalEntry"`
+	Provenance         *registry.EntryProvenance `codec:"prov,omitempty"`
+	OriginalProvenance *registry.EntryProvenance `codec:"oprov,omitempty"`
+	Kind               string                    `codec:"Kind"`
+	Entry              encodedEntry              `codec:"Entry"`
 }
 
 func newMsgpackHandle() *codec.MsgpackHandle {
@@ -364,11 +376,7 @@ func (h *History) Get(v registry.Version) (registry.ChangeSet, error) {
 }
 
 func (h *History) decodeChangeSet(data []byte) (registry.ChangeSet, error) {
-	var encodedOps []struct {
-		OriginalEntry *encodedEntry
-		Kind          string
-		Entry         encodedEntry
-	}
+	var encodedOps []encodedOperation
 
 	decoder := codec.NewDecoder(bytes.NewReader(data), h.handle)
 	if err := decoder.Decode(&encodedOps); err != nil {
@@ -389,8 +397,10 @@ func (h *History) decodeChangeSet(data []byte) (registry.ChangeSet, error) {
 		}
 
 		op := registry.Operation{
-			Kind:  encOp.Kind,
-			Entry: entry,
+			Kind:               encOp.Kind,
+			Entry:              entry,
+			Provenance:         encOp.Provenance,
+			OriginalProvenance: encOp.OriginalProvenance,
 		}
 
 		if encOp.OriginalEntry != nil {
@@ -540,11 +550,7 @@ func (h *History) SaveWithDependencyResolution(v registry.Version, cs registry.C
 		return NewInsertVersionError(err)
 	}
 
-	encodedOps := make([]struct {
-		OriginalEntry *encodedEntry
-		Kind          string
-		Entry         encodedEntry
-	}, len(cs))
+	encodedOps := make([]encodedOperation, len(cs))
 
 	for i, op := range cs {
 		var encPayload *encodedPayload
@@ -566,28 +572,24 @@ func (h *History) SaveWithDependencyResolution(v registry.Version, cs registry.C
 			}
 
 			encOriginal = &encodedEntry{
-				ID:             op.OriginalEntry.ID,
-				Kind:           op.OriginalEntry.Kind,
-				Meta:           op.OriginalEntry.Meta,
-				Data:           encOrigPayload,
-				DependencyRoot: op.OriginalEntry.DependencyRoot,
+				ID:   op.OriginalEntry.ID,
+				Kind: op.OriginalEntry.Kind,
+				Meta: op.OriginalEntry.Meta,
+				Data: encOrigPayload,
 			}
 		}
 
-		encodedOps[i] = struct {
-			OriginalEntry *encodedEntry
-			Kind          string
-			Entry         encodedEntry
-		}{
+		encodedOps[i] = encodedOperation{
 			Kind: op.Kind,
 			Entry: encodedEntry{
-				ID:             op.Entry.ID,
-				Kind:           op.Entry.Kind,
-				Meta:           op.Entry.Meta,
-				Data:           encPayload,
-				DependencyRoot: op.Entry.DependencyRoot,
+				ID:   op.Entry.ID,
+				Kind: op.Entry.Kind,
+				Meta: op.Entry.Meta,
+				Data: encPayload,
 			},
-			OriginalEntry: encOriginal,
+			OriginalEntry:      encOriginal,
+			Provenance:         op.Provenance,
+			OriginalProvenance: op.OriginalProvenance,
 		}
 	}
 

@@ -71,7 +71,7 @@ modules:
 		DependencyRoot: true,
 		Data:           payload.New(map[string]any{"component": "acme/app", "version": "v1.0.0"}),
 	}
-	service := markModuleIdentity(regapi.Entry{
+	service := fixtureOwned(regapi.Entry{
 		ID: regapi.NewID("acme.app", "service"), Kind: "service",
 		Data: payload.New(map[string]any{"version": "1"}),
 	}, "acme/app", "v1.0.0", digest)
@@ -82,6 +82,7 @@ modules:
 		Data: payload.New(map[string]any{"component": "acme/app", "version": ">=1.0.0"}),
 	}
 
+	provenancedBaseline := fixtureState(baseline)
 	newRegistry := func(history regapi.History) *registryimpl.Reg {
 		resolver := topology.NewResolver()
 		handler, err := NewDependencyHandler(DependencyHandlerOptions{
@@ -99,7 +100,7 @@ modules:
 	history, err := historysqlite.NewSQLite(dbPath, zap.NewNop())
 	require.NoError(t, err)
 	reg := newRegistry(history)
-	require.NoError(t, reg.LoadState(ctx, baseline, version.FromParent(nil, 0)))
+	require.NoError(t, reg.LoadState(ctx, provenancedBaseline, version.FromParent(nil, 0)))
 	_, err = reg.Apply(ctx, regapi.ChangeSet{{Kind: regapi.EntryCreate, Entry: reference}})
 	require.NoError(t, err)
 	head, err := history.Head()
@@ -116,7 +117,7 @@ modules:
 	history, err = historysqlite.NewSQLite(dbPath, zap.NewNop())
 	require.NoError(t, err)
 	reg = newRegistry(history)
-	require.NoError(t, reg.LoadState(ctx, baseline, head))
+	require.NoError(t, reg.LoadState(ctx, provenancedBaseline, head))
 	entries, err := reg.GetAllEntries()
 	require.NoError(t, err)
 	found := false
@@ -154,7 +155,7 @@ modules:
 	require.NoError(t, err)
 	defer func() { _ = history.Close() }()
 	reg = newRegistry(history)
-	require.NoError(t, reg.LoadState(ctx, baseline, head))
+	require.NoError(t, reg.LoadState(ctx, provenancedBaseline, head))
 
 	// Cycle 5: undo to the referenced version and redo to the promoted one.
 	// Each transition replays its own stored graph within the unchanged

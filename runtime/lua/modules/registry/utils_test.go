@@ -226,7 +226,8 @@ func TestValuesEqualArrayVsNonArray(t *testing.T) {
 // root marks an ns.dependency selected as a deployment root and is the sole
 // authority for that status: meta is user space and carries no trust. A Lua
 // write path that cannot read or emit the field silently demotes every root.
-func TestLuaTableToEntryReadsRoot(t *testing.T) {
+// Root-ness never lands on the entry payload: the table field is view data.
+func TestLuaTableToEntryIgnoresRoot(t *testing.T) {
 	l := newTestState()
 	defer l.Close()
 
@@ -239,8 +240,8 @@ func TestLuaTableToEntryReadsRoot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !entry.DependencyRoot {
-		t.Error("expected root to be carried onto the entry")
+	if entry.DependencyRoot {
+		t.Error("entry payloads never carry the deployment-root flag")
 	}
 }
 
@@ -261,9 +262,9 @@ func TestLuaTableToEntryDefaultsRootFalse(t *testing.T) {
 	}
 }
 
-// Read-modify-write from Lua must not demote a root, so the flag has to survive
-// both directions of the conversion.
-func TestEntryLuaRoundTripPreservesRoot(t *testing.T) {
+// A decoded legacy payload still emits its flag for display; converting the
+// table back never rebuilds it on the entry.
+func TestEntryLuaRoundTripDropsRootFromPayload(t *testing.T) {
 	l := newTestState()
 	defer l.Close()
 
@@ -286,7 +287,7 @@ func TestEntryLuaRoundTripPreservesRoot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error converting table to entry: %v", err)
 	}
-	if !back.DependencyRoot {
-		t.Error("expected root to survive a Lua round trip")
+	if back.DependencyRoot {
+		t.Error("entry payloads never carry the deployment-root flag")
 	}
 }

@@ -18,9 +18,25 @@ type Snapshot struct {
 	reg          regapi.Registry
 	version      regapi.Version
 	log          *zap.Logger
+	prov         regapi.ProvenanceMap
 	overlayOwner string
 	entries      []regapi.Entry
 	overlayGen   uint64
+}
+
+// entryTable renders one entry with root served from the snapshot's
+// provenance.
+func (s *Snapshot) entryTable(l *lua.LState, entry regapi.Entry) (*lua.LTable, error) {
+	table, err := entryToLuaTable(l, entry)
+	if err != nil {
+		return nil, err
+	}
+	if s.prov != nil {
+		if p, ok := s.prov[entry.ID.Canonical()]; ok {
+			table.RawSetString("root", lua.LBool(p.Root))
+		}
+	}
+	return table, nil
 }
 
 func authorizeSnapshotRead(l *lua.LState, snap *Snapshot) bool {
@@ -76,7 +92,7 @@ func snapshotEntries(l *lua.LState) int {
 			continue
 		}
 
-		entryTable, convErr := entryToLuaTable(l, entry)
+		entryTable, convErr := snap.entryTable(l, entry)
 		if convErr != nil {
 			err := lua.WrapErrorWithLua(l, convErr, "convert entry").
 				WithKind(lua.Internal).
@@ -126,7 +142,7 @@ func snapshotGet(l *lua.LState) int {
 		return 2
 	}
 
-	entryTable, convErr := entryToLuaTable(l, entry)
+	entryTable, convErr := snap.entryTable(l, entry)
 	if convErr != nil {
 		err := lua.WrapErrorWithLua(l, convErr, "convert entry").
 			WithKind(lua.Internal).
@@ -164,7 +180,7 @@ func snapshotNamespace(l *lua.LState) int {
 
 	entriesTable := l.CreateTable(len(result), 0)
 	for i, entry := range result {
-		entryTable, convErr := entryToLuaTable(l, entry)
+		entryTable, convErr := snap.entryTable(l, entry)
 		if convErr != nil {
 			err := lua.WrapErrorWithLua(l, convErr, "convert entry").
 				WithKind(lua.Internal).
@@ -221,7 +237,7 @@ func snapshotFind(l *lua.LState) int {
 			continue
 		}
 
-		entryTable, convErr := entryToLuaTable(l, entry)
+		entryTable, convErr := snap.entryTable(l, entry)
 		if convErr != nil {
 			err := lua.WrapErrorWithLua(l, convErr, "convert entry").
 				WithKind(lua.Internal).

@@ -16,7 +16,6 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
-	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/semver"
 	bootpkg "github.com/wippyai/runtime/boot"
@@ -107,7 +106,11 @@ func collectPackCommands(ctx context.Context, mainModule string) ([]packCommand,
 
 	filtered := allEntries[:0]
 	for _, entry := range allEntries {
-		if !packCommandAllowed(entry.Meta, mainModule) {
+		owner, ownerErr := entryModuleOwner(reg, entry.ID)
+		if ownerErr != nil {
+			return nil, fmt.Errorf("resolve command ownership for %s: %w", entry.ID.String(), ownerErr)
+		}
+		if !packCommandAllowed(owner, mainModule) {
 			continue
 		}
 		filtered = append(filtered, entry)
@@ -135,16 +138,24 @@ func findPackCommandForModule(ctx context.Context, commandName, useCase, mainMod
 	return selectEntrypoint(commands, commandName, useCase)
 }
 
-func moduleMeta(meta map[string]any) string {
-	if meta == nil {
-		return ""
+// entryModuleOwner reads ownership from registry provenance; author metadata
+// named "module" is ordinary payload and never consulted. A registry that
+// cannot answer, or an entry without a record, fails closed.
+func entryModuleOwner(reg registry.Registry, id registry.ID) (string, error) {
+	reader, ok := reg.(interface {
+		EntryProvenance(registry.ID) (registry.EntryProvenance, bool)
+	})
+	if !ok {
+		return "", fmt.Errorf("registry does not serve provenance")
 	}
-	module, _ := meta["module"].(string)
-	return module
+	p, found := reader.EntryProvenance(id)
+	if !found {
+		return "", registry.NewMissingProvenanceError(id)
+	}
+	return p.Module, nil
 }
 
-func packCommandAllowed(meta map[string]any, mainModule string) bool {
-	module := moduleMeta(meta)
+func packCommandAllowed(module, mainModule string) bool {
 	if mainModule == "" {
 		return module == ""
 	}
@@ -593,7 +604,7 @@ func runFromPackFile(cmd *cobra.Command, packFile string, args []string, useCase
 		return fmt.Errorf("failed to load main module identity from pack metadata: %w", err)
 	}
 
-	packEntries, err := loadPackEntries([]string{packFile}, mainModule, embedReg)
+	packEntries, packProv, err := loadPackEntries([]string{packFile}, mainModule, embedReg)
 	if err != nil {
 		runLogger.Error("failed to load entries from pack", zap.Error(err))
 		return NewLoadEntriesError(packFile, err)
@@ -606,7 +617,7 @@ func runFromPackFile(cmd *cobra.Command, packFile string, args []string, useCase
 	}
 	entries.ConfigureSourceLoader(ctx, sourcePaths, runLogger)
 
-	return runPackEntries(ctx, loader, runLogger, packEntries, args, useCase, mainModule)
+	return runPackEntries(ctx, loader, runLogger, packEntries, packProv, args, useCase, mainModule)
 }
 
 // runFromPackFiles executes runtime from multiple already resolved .wapp files.
@@ -646,7 +657,7 @@ func runFromPackFiles(cmd *cobra.Command, packFiles []string, args []string, use
 		}
 	}
 
-	packEntries, err := loadPackEntries(packFiles, mainModule, embedReg)
+	packEntries, packProv, err := loadPackEntries(packFiles, mainModule, embedReg)
 	if err != nil {
 		runLogger.Error("failed to load entries from packs", zap.Error(err))
 		return NewLoadEntriesError("pack files", err)
@@ -659,7 +670,7 @@ func runFromPackFiles(cmd *cobra.Command, packFiles []string, args []string, use
 	}
 	entries.ConfigureSourceLoader(ctx, sourcePaths, runLogger)
 
-	return runPackEntries(ctx, loader, runLogger, packEntries, args, useCase, mainModule)
+	return runPackEntries(ctx, loader, runLogger, packEntries, packProv, args, useCase, mainModule)
 }
 
 func packSourcePaths(packFiles []string, rootModule string) ([]lock.ModuleLoadPath, error) {
@@ -686,6 +697,7 @@ func runPackEntries(
 	loader *bootpkg.Loader,
 	logger *zap.Logger,
 	packEntries []registry.Entry,
+	packProv registry.ProvenanceMap,
 	args []string,
 	useCase string,
 	mainModule string,
@@ -701,7 +713,7 @@ func runPackEntries(
 		return NewStartComponentsError(err)
 	}
 
-	if err := applyPackEntries(appCtx, packEntries, logger); err != nil {
+	if err := applyPackEntries(appCtx, packEntries, packProv, logger); err != nil {
 		return err
 	}
 
@@ -764,12 +776,12 @@ func moduleIdentityFromPackFile(packFile string) (moduleName string, moduleVersi
 
 // applyPackEntries restores packed entries as baseline state after applying the
 // canonical entry normalization pipeline.
-func applyPackEntries(ctx context.Context, packEntries []registry.Entry, logger *zap.Logger) error {
-	if err := entries.NormalizeEntries(ctx, &packEntries); err != nil {
+func applyPackEntries(ctx context.Context, packEntries []registry.Entry, prov registry.ProvenanceMap, logger *zap.Logger) error {
+	if err := entries.NormalizeEntries(ctx, &packEntries, prov); err != nil {
 		return err
 	}
 
-	return entries.LoadEntriesToRegistry(ctx, packEntries, logger)
+	return entries.LoadEntriesToRegistry(ctx, packEntries, prov, logger)
 }
 
 type packReaderRegistry interface {
@@ -780,48 +792,81 @@ type modulePackReaderRegistry interface {
 	RegisterPack(packPath, module, version string, reader *wapp.Reader, file *os.File) error
 }
 
-func loadPackEntries(packFiles []string, rootModule string, embedReg packReaderRegistry) ([]registry.Entry, error) {
+func loadPackEntries(packFiles []string, rootModule string, embedReg packReaderRegistry) ([]registry.Entry, registry.ProvenanceMap, error) {
 	packEntries := make([]registry.Entry, 0)
+	prov := make(registry.ProvenanceMap)
 
 	for _, packFile := range packFiles {
 		if !hasWappExtension(packFile) {
-			return nil, fmt.Errorf("unsupported pack format %q", packFile)
+			return nil, nil, fmt.Errorf("unsupported pack format %q", packFile)
 		}
 
 		file, err := os.Open(packFile)
 		if err != nil {
-			return nil, fmt.Errorf("open pack %s: %w", packFile, err)
+			return nil, nil, fmt.Errorf("open pack %s: %w", packFile, err)
 		}
 
 		packReader, err := entries.NewPackReader(file, nil)
 		if err != nil {
 			file.Close()
-			return nil, fmt.Errorf("read pack %s: %w", packFile, err)
+			return nil, nil, fmt.Errorf("read pack %s: %w", packFile, err)
 		}
 
 		moduleName, moduleVersion := moduleIdentityFromPackMetadata(packReader.Reader())
+		packDigest := ""
+		if moduleName != "" {
+			var digestErr error
+			packDigest, digestErr = packFileDigest(packFile)
+			if digestErr != nil {
+				file.Close()
+				return nil, nil, fmt.Errorf("digest pack %s: %w", packFile, digestErr)
+			}
+		}
 		if err := registerPackResources(embedReg, packFile, moduleName, moduleVersion, packReader.Reader(), file); err != nil {
 			file.Close()
-			return nil, fmt.Errorf("register embed resources for %s: %w", packFile, err)
+			return nil, nil, fmt.Errorf("register embed resources for %s: %w", packFile, err)
 		}
 
 		loadedEntries, err := packReader.GetEntries()
 		if err != nil {
-			return nil, fmt.Errorf("read entries from %s: %w", packFile, err)
+			return nil, nil, fmt.Errorf("read entries from %s: %w", packFile, err)
 		}
 
 		if moduleName != "" {
-			annotateEntriesModuleMeta(loadedEntries, moduleName, moduleVersion, moduleName == rootModule)
+			for i := range loadedEntries {
+				id := loadedEntries[i].ID.Canonical()
+				prov[id] = registry.EntryProvenance{
+					Module:  moduleName,
+					Version: moduleVersion,
+					Digest:  packDigest,
+					Root:    moduleName == rootModule && loadedEntries[i].Kind == registry.NamespaceDependency,
+				}
+			}
 		} else {
-			if err := registerMonolithicPackResourceAliases(embedReg, packFile, packReader.Reader(), loadedEntries); err != nil {
-				return nil, fmt.Errorf("register embed resource aliases for %s: %w", packFile, err)
+			packProv, provErr := packProvenanceFromMetadata(packReader.Reader(), loadedEntries)
+			if provErr != nil {
+				return nil, nil, fmt.Errorf("read provenance from %s: %w", packFile, provErr)
+			}
+			for id, pr := range packProv {
+				prov[id] = pr
+			}
+			if err := registerMonolithicPackResourceAliases(embedReg, packFile, packReader.Reader(), loadedEntries, packProv); err != nil {
+				return nil, nil, fmt.Errorf("register embed resource aliases for %s: %w", packFile, err)
 			}
 		}
 
 		packEntries = append(packEntries, loadedEntries...)
 	}
 
-	return packEntries, nil
+	// The map is total: entries from packs that predate the provenance frame
+	// carry the explicit host record.
+	for _, entry := range packEntries {
+		if _, ok := prov[entry.ID.Canonical()]; !ok {
+			prov[entry.ID.Canonical()] = registry.EntryProvenance{}
+		}
+	}
+
+	return packEntries, prov, nil
 }
 
 func registerPackResources(embedReg packReaderRegistry, packFile, moduleName, moduleVersion string, reader *wapp.Reader, file *os.File) error {
@@ -833,7 +878,7 @@ func registerPackResources(embedReg packReaderRegistry, packFile, moduleName, mo
 	return embedReg.Register(packFile, reader, file)
 }
 
-func registerMonolithicPackResourceAliases(embedReg packReaderRegistry, packFile string, reader *wapp.Reader, loadedEntries []registry.Entry) error {
+func registerMonolithicPackResourceAliases(embedReg packReaderRegistry, packFile string, reader *wapp.Reader, loadedEntries []registry.Entry, prov registry.ProvenanceMap) error {
 	moduleReg, ok := embedReg.(modulePackReaderRegistry)
 	if !ok {
 		return nil
@@ -841,23 +886,18 @@ func registerMonolithicPackResourceAliases(embedReg packReaderRegistry, packFile
 
 	seen := make(map[string]struct{})
 	for _, entry := range loadedEntries {
-		if entry.Meta == nil {
+		p, ok := prov[entry.ID.Canonical()]
+		if !ok || p.Module == "" {
 			continue
 		}
 
-		moduleName, _ := entry.Meta["module"].(string)
-		if moduleName == "" {
-			continue
-		}
-
-		moduleVersion, _ := entry.Meta["module_version"].(string)
-		key := moduleName + "\x00" + moduleVersion
+		key := p.Module + "\x00" + p.Version
 		if _, exists := seen[key]; exists {
 			continue
 		}
 		seen[key] = struct{}{}
 
-		if err := moduleReg.RegisterPack(monolithicPackAliasPath(packFile, moduleName, moduleVersion), moduleName, moduleVersion, reader, nil); err != nil {
+		if err := moduleReg.RegisterPack(monolithicPackAliasPath(packFile, p.Module, p.Version), p.Module, p.Version, reader, nil); err != nil {
 			return err
 		}
 	}
@@ -901,31 +941,4 @@ func moduleIdentityFromPackMetadata(reader *wapp.Reader) (moduleName string, mod
 	}
 
 	return org + "/" + name, version
-}
-
-func annotateEntriesModuleMeta(items []registry.Entry, moduleName string, moduleVersion string, root bool) {
-	if moduleName == "" {
-		return
-	}
-
-	for i := range items {
-		if root && items[i].Kind == registry.NamespaceDependency {
-			items[i].DependencyRoot = true
-		}
-		meta := items[i].Meta
-		if meta == nil {
-			meta = attrs.NewBag()
-		}
-
-		if existingModule, _ := meta["module"].(string); existingModule == "" {
-			meta["module"] = moduleName
-		}
-		if moduleVersion != "" {
-			if existingVersion, _ := meta["module_version"].(string); existingVersion == "" {
-				meta["module_version"] = moduleVersion
-			}
-		}
-
-		items[i].Meta = meta
-	}
 }

@@ -633,7 +633,7 @@ func (m *mockRegistry) ApplyVersion(_ context.Context, _ regapi.Version) error {
 	return nil
 }
 
-func (m *mockRegistry) LoadState(_ context.Context, _ regapi.State, _ regapi.Version) error {
+func (m *mockRegistry) LoadState(_ context.Context, _ regapi.ProvenancedState, _ regapi.Version) error {
 	return nil
 }
 

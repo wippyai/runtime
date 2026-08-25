@@ -3,10 +3,11 @@
 package registry
 
 import (
+	"context"
+
 	lua "github.com/wippyai/go-lua"
 	regapi "github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
-	"github.com/wippyai/runtime/system/registry/topology"
 	"go.uber.org/zap"
 )
 
@@ -121,10 +122,18 @@ func historySnapshotAt(l *lua.LState) int {
 		return 2
 	}
 
-	resolver := regapi.GetResolver(l.Context())
-	stateBuilder := topology.NewStateBuilder(history.log, resolver)
-
-	state, buildErr := stateBuilder.BuildState(history.hist, version)
+	provenanced, ok := history.reg.(interface {
+		ProvenancedStateAtVersion(ctx context.Context, v regapi.Version) (regapi.ProvenancedState, error)
+	})
+	if !ok {
+		err := lua.NewLuaError(l, "registry does not serve historical snapshots").
+			WithKind(lua.Unavailable).
+			WithRetryable(false)
+		l.Push(lua.LNil)
+		l.Push(err)
+		return 2
+	}
+	state, buildErr := provenanced.ProvenancedStateAtVersion(l.Context(), version)
 	if buildErr != nil {
 		err := lua.WrapErrorWithLua(l, buildErr, "build snapshot state").
 			WithKind(lua.Internal).
@@ -137,7 +146,8 @@ func historySnapshotAt(l *lua.LState) int {
 	snap := &Snapshot{
 		reg:     history.reg,
 		version: version,
-		entries: state,
+		entries: state.Entries,
+		prov:    state.Provenance,
 		log:     history.log,
 	}
 

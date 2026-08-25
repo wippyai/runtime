@@ -16,7 +16,7 @@ import (
 
 type mockDirective struct{}
 
-func (m *mockDirective) Expand(_ context.Context, _ registry.Operation, _ registry.State) (registry.DirectiveResult, error) {
+func (m *mockDirective) Expand(_ context.Context, _ registry.Operation, _ registry.ProvenancedState) (registry.DirectiveResult, error) {
 	return registry.DirectiveResult{}, nil
 }
 

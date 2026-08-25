@@ -191,7 +191,6 @@ func TestManager_Update_NotFound(t *testing.T) {
 }
 
 func TestManager_Update_ResolutionFailureKeepsExistingFS(t *testing.T) {
-	ctx := context.Background()
 	bus := &recordingBus{}
 	embedReg := &mockEntryResolverRegistry{
 		mockEmbedRegistry: mockEmbedRegistry{},
@@ -205,15 +204,12 @@ func TestManager_Update_ResolutionFailureKeepsExistingFS(t *testing.T) {
 	entry := registry.Entry{
 		ID:   registry.NewID("test", "fs"),
 		Kind: embedapi.Kind,
-		Meta: map[string]any{"module": "org/mod", "module_version": "1.0.0"},
 		Data: payload.New(&embedapi.Config{}),
 	}
-	require.NoError(t, manager.Add(ctx, entry))
+	require.NoError(t, manager.Add(opContext("org/mod", "1.0.0"), entry))
 	bus.reset()
 
-	updateEntry := entry
-	updateEntry.Meta = map[string]any{"module": "org/mod", "module_version": "2.0.0"}
-	err := manager.Update(ctx, updateEntry)
+	err := manager.Update(opContext("org/mod", "2.0.0"), entry)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to get embedded filesystem")
 
@@ -279,7 +275,6 @@ func TestManager_Delete_NotFound(t *testing.T) {
 }
 
 func TestManager_Add_UsesEntryResolver(t *testing.T) {
-	ctx := context.Background()
 	bus := eventbus.NewBus()
 	embedReg := &mockEntryResolverRegistry{
 		mockEmbedRegistry: mockEmbedRegistry{
@@ -298,17 +293,38 @@ func TestManager_Add_UsesEntryResolver(t *testing.T) {
 	entry := registry.Entry{
 		ID:   registry.NewID("test", "fs"),
 		Kind: embedapi.Kind,
-		Meta: map[string]any{"module": "org/mod", "module_version": "2.0.0"},
 		Data: payload.New(&embedapi.Config{}),
 	}
 
-	require.NoError(t, manager.Add(ctx, entry))
+	require.NoError(t, manager.Add(opContext("org/mod", "2.0.0"), entry))
 	assert.Equal(t, 1, embedReg.entryCalls)
 	assert.Equal(t, 0, embedReg.idCalls)
+	assert.Equal(t, "test:fs|org/mod|2.0.0", embedReg.lastEntryKey)
+}
+
+// A host entry arrives without provenance and resolves by ID, the same path
+// a caller outside a transition takes.
+func TestManager_Add_HostEntryResolvesWithoutProvenance(t *testing.T) {
+	embedReg := &mockEntryResolverRegistry{
+		mockEmbedRegistry: mockEmbedRegistry{
+			filesystems: map[string]fs.ReadDirFS{"test:fs": &mockReadDirFS{}},
+		},
+	}
+
+	manager := NewManager(eventbus.NewBus(), &mockDTT{}, embedReg, zap.NewNop())
+
+	entry := registry.Entry{
+		ID:   registry.NewID("test", "fs"),
+		Kind: embedapi.Kind,
+		Data: payload.New(&embedapi.Config{}),
+	}
+
+	require.NoError(t, manager.Add(context.Background(), entry))
+	assert.Equal(t, 1, embedReg.entryCalls)
+	assert.Equal(t, "test:fs||", embedReg.lastEntryKey)
 }
 
 func TestManager_Update_SelectsNewVersionViaResolver(t *testing.T) {
-	ctx := context.Background()
 	bus := &recordingBus{}
 	oldFS := &mockReadDirFS{}
 	newFS := &mockReadDirFS{}
@@ -328,15 +344,13 @@ func TestManager_Update_SelectsNewVersionViaResolver(t *testing.T) {
 	addEntry := registry.Entry{
 		ID:   registry.NewID("test", "fs"),
 		Kind: embedapi.Kind,
-		Meta: map[string]any{"module": "org/mod", "module_version": "1.0.0"},
 		Data: payload.New(&embedapi.Config{}),
 	}
-	require.NoError(t, manager.Add(ctx, addEntry))
+	require.NoError(t, manager.Add(opContext("org/mod", "1.0.0"), addEntry))
 	bus.reset()
 
 	updateEntry := addEntry
-	updateEntry.Meta = map[string]any{"module": "org/mod", "module_version": "2.0.0"}
-	require.NoError(t, manager.Update(ctx, updateEntry))
+	require.NoError(t, manager.Update(opContext("org/mod", "2.0.0"), updateEntry))
 
 	manager.mu.RLock()
 	stored := manager.filesystems[updateEntry.ID]
@@ -410,15 +424,30 @@ type mockEntryResolverRegistry struct {
 	idCalls      int
 }
 
-func entryResolverKey(entry registry.Entry) string {
-	module, _ := entry.Meta["module"].(string)
-	version, _ := entry.Meta["module_version"].(string)
+func entryResolverKey(entry registry.Entry, prov *registry.EntryProvenance) string {
+	module := ""
+	version := ""
+	if prov != nil {
+		module = prov.Module
+		version = prov.Version
+	}
 	return entry.ID.String() + "|" + module + "|" + version
 }
 
-func (r *mockEntryResolverRegistry) GetFSForEntry(entry registry.Entry) (fs.ReadDirFS, error) {
+// opContext builds the context a transition hands a listener for an operation
+// owned by a module.
+func opContext(module, version string) context.Context {
+	return registry.WithOpProvenance(context.Background(), registry.OpProvenance{
+		Effective: &registry.EntryProvenance{Module: module, Version: version},
+	})
+}
+
+func (r *mockEntryResolverRegistry) GetFSForEntry(
+	entry registry.Entry,
+	prov *registry.EntryProvenance,
+) (fs.ReadDirFS, error) {
 	r.entryCalls++
-	key := entryResolverKey(entry)
+	key := entryResolverKey(entry, prov)
 	r.lastEntryKey = key
 	if fsys, ok := r.byEntry[key]; ok {
 		return fsys, nil

@@ -68,7 +68,7 @@ func TestRunPackEntries_InvalidRequirementFailsNormalizationPipeline(t *testing.
 		},
 	}
 
-	err = runPackEntries(ctx, loader, zap.NewNop(), packEntries, []string{"missing"}, defaultUseCase, "")
+	err = runPackEntries(ctx, loader, zap.NewNop(), packEntries, nil, []string{"missing"}, defaultUseCase, "")
 	if err == nil {
 		t.Fatal("expected normalization pipeline error")
 	}
@@ -101,7 +101,7 @@ func TestRunPackEntries_NoEntrypointRunsAsServer(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		done <- runPackEntries(ctx, loader, zap.NewNop(), nil, nil, defaultUseCase, "")
+		done <- runPackEntries(ctx, loader, zap.NewNop(), nil, nil, nil, defaultUseCase, "")
 	}()
 
 	select {
@@ -139,7 +139,7 @@ func TestRunPackEntries_TestModeWithoutTestEntrypointErrors(t *testing.T) {
 		_ = embedReg.Close()
 	})
 
-	err = runPackEntries(ctx, loader, zap.NewNop(), nil, nil, "test", "")
+	err = runPackEntries(ctx, loader, zap.NewNop(), nil, nil, nil, "test", "")
 	if err == nil {
 		t.Fatal("expected an error when there is no test entrypoint")
 	}
@@ -165,7 +165,7 @@ func TestRunPackEntries_RunModeUnknownCommandErrors(t *testing.T) {
 		_ = embedReg.Close()
 	})
 
-	err = runPackEntries(ctx, loader, zap.NewNop(), nil, []string{"nope"}, defaultUseCase, "")
+	err = runPackEntries(ctx, loader, zap.NewNop(), nil, nil, []string{"nope"}, defaultUseCase, "")
 	if err == nil {
 		t.Fatal("expected an error for an unknown command")
 	}
@@ -566,7 +566,11 @@ func TestCollectPackCommandsFiltersDependencyModules(t *testing.T) {
 			},
 		},
 	}
-	if err := applyPackEntries(appCtx, entries, zap.NewNop()); err != nil {
+	prov := regapi.ProvenanceMap{
+		regapi.NewID("wippy.test", "runner"): {Module: "wippy/test"},
+		regapi.NewID("app", "serve"):         {Module: "kickside/kickside"},
+	}
+	if err := applyPackEntries(appCtx, entries, prov, zap.NewNop()); err != nil {
 		t.Fatalf("apply entries: %v", err)
 	}
 
@@ -590,49 +594,25 @@ func TestCollectPackCommandsFiltersDependencyModules(t *testing.T) {
 func TestPackCommandAllowed(t *testing.T) {
 	tests := []struct {
 		name       string
-		meta       map[string]any
+		module     string
 		mainModule string
 		want       bool
 	}{
-		{
-			name: "moduleless command allowed without pack identity",
-			meta: map[string]any{"command": map[string]any{"name": "serve"}},
-			want: true,
-		},
-		{
-			name: "dependency command excluded without pack identity",
-			meta: map[string]any{"module": "wippy/test", "command": map[string]any{"name": "test"}},
-			want: false,
-		},
-		{
-			name:       "main module command allowed",
-			meta:       map[string]any{"module": "kickside/kickside", "command": map[string]any{"name": "serve"}},
-			mainModule: "kickside/kickside",
-			want:       true,
-		},
-		{
-			name:       "dependency command excluded when main module known",
-			meta:       map[string]any{"module": "wippy/test", "command": map[string]any{"name": "test"}},
-			mainModule: "kickside/kickside",
-			want:       false,
-		},
-		{
-			name:       "moduleless command allowed when main module known",
-			meta:       map[string]any{"command": map[string]any{"name": "serve"}},
-			mainModule: "kickside/kickside",
-			want:       true,
-		},
+		{name: "host command allowed without pack identity", module: "", want: true},
+		{name: "dependency command excluded without pack identity", module: "wippy/test", want: false},
+		{name: "main module command allowed", module: "kickside/kickside", mainModule: "kickside/kickside", want: true},
+		{name: "dependency command excluded when main module known", module: "wippy/test", mainModule: "kickside/kickside", want: false},
+		{name: "moduleless command allowed when main module known", module: "", mainModule: "kickside/kickside", want: true},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := packCommandAllowed(tc.meta, tc.mainModule); got != tc.want {
+			if got := packCommandAllowed(tc.module, tc.mainModule); got != tc.want {
 				t.Fatalf("packCommandAllowed() = %v, want %v", got, tc.want)
 			}
 		})
 	}
 }
-
 func TestBootstrapPackRuntimeWithDefaults_Harness(t *testing.T) {
 	t.Run("applies runtime defaults when config key is missing", func(t *testing.T) {
 		tmpDir := t.TempDir()
@@ -716,7 +696,7 @@ func TestLoadPackEntries_RawLoadSkipsLinkPipeline(t *testing.T) {
 	embedReg := embedpkg.NewRegistry()
 	defer func() { _ = embedReg.Close() }()
 
-	packEntries, err := loadPackEntries([]string{packPath}, "", embedReg)
+	packEntries, _, err := loadPackEntries([]string{packPath}, "", embedReg)
 	if err != nil {
 		t.Fatalf("loadPackEntries failed: %v", err)
 	}
@@ -765,7 +745,7 @@ func TestLoadPackEntries_RejectsUnsupportedExtension(t *testing.T) {
 	embedReg := embedpkg.NewRegistry()
 	defer func() { _ = embedReg.Close() }()
 
-	_, err := loadPackEntries([]string{"./not-a-pack.yaml"}, "", embedReg)
+	_, _, err := loadPackEntries([]string{"./not-a-pack.yaml"}, "", embedReg)
 	if err == nil {
 		t.Fatal("expected error for unsupported pack extension")
 	}
@@ -794,7 +774,7 @@ func TestLoadPackEntries_AcceptsUppercaseExtension(t *testing.T) {
 	embedReg := embedpkg.NewRegistry()
 	defer func() { _ = embedReg.Close() }()
 
-	packEntries, err := loadPackEntries([]string{upperPath}, "", embedReg)
+	packEntries, _, err := loadPackEntries([]string{upperPath}, "", embedReg)
 	if err != nil {
 		t.Fatalf("loadPackEntries failed: %v", err)
 	}
@@ -813,7 +793,7 @@ func TestLoadPackEntries_RegisterErrorIncludesPath(t *testing.T) {
 		},
 	})
 
-	_, err := loadPackEntries([]string{packPath}, "", failingPackRegistry{err: errors.New("boom")})
+	_, _, err := loadPackEntries([]string{packPath}, "", failingPackRegistry{err: errors.New("boom")})
 	if err == nil {
 		t.Fatal("expected register error")
 	}
@@ -845,7 +825,7 @@ func TestLoadPackEntries_MultiPackOrder(t *testing.T) {
 	embedReg := embedpkg.NewRegistry()
 	defer func() { _ = embedReg.Close() }()
 
-	packEntries, err := loadPackEntries([]string{depPack, mainPack}, "", embedReg)
+	packEntries, _, err := loadPackEntries([]string{depPack, mainPack}, "", embedReg)
 	if err != nil {
 		t.Fatalf("loadPackEntries failed: %v", err)
 	}
@@ -890,7 +870,7 @@ func TestLoadPackEntries_AnnotatesModuleMetadataFromPackMetadata(t *testing.T) {
 	embedReg := embedpkg.NewRegistry()
 	defer func() { _ = embedReg.Close() }()
 
-	packEntries, err := loadPackEntries([]string{packPath}, "", embedReg)
+	packEntries, packProv, err := loadPackEntries([]string{packPath}, "", embedReg)
 	if err != nil {
 		t.Fatalf("loadPackEntries failed: %v", err)
 	}
@@ -898,12 +878,15 @@ func TestLoadPackEntries_AnnotatesModuleMetadataFromPackMetadata(t *testing.T) {
 		t.Fatalf("entry count = %d, want 1", len(packEntries))
 	}
 
-	meta := packEntries[0].Meta
-	if got := meta.GetString("module", ""); got != "userspace/users" {
-		t.Fatalf("module = %q, want userspace/users", got)
+	p := packProv[packEntries[0].ID.Canonical()]
+	if p.Module != "userspace/users" {
+		t.Fatalf("module = %q, want userspace/users", p.Module)
 	}
-	if got := meta.GetString("module_version", ""); got != "0.1.3" {
-		t.Fatalf("module_version = %q, want 0.1.3", got)
+	if p.Version != "0.1.3" {
+		t.Fatalf("module_version = %q, want 0.1.3", p.Version)
+	}
+	if packEntries[0].Meta.GetString("module", "") != "" {
+		t.Fatal("entry payload must not carry ownership metadata")
 	}
 }
 
@@ -924,23 +907,23 @@ func TestLoadPackEntries_UsesExplicitRootIdentityNotPackOrder(t *testing.T) {
 
 	embedReg := embedpkg.NewRegistry()
 	defer func() { _ = embedReg.Close() }()
-	packEntries, err := loadPackEntries([]string{rootPack, transitivePack}, "acme/app", embedReg)
+	packEntries, packProv, err := loadPackEntries([]string{rootPack, transitivePack}, "acme/app", embedReg)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(packEntries) != 2 {
 		t.Fatalf("entry count = %d, want 2", len(packEntries))
 	}
-	if !packEntries[0].DependencyRoot {
+	if !packProv[packEntries[0].ID.Canonical()].Root {
 		t.Fatal("explicit root module dependency was not marked as a deployment root")
 	}
-	if packEntries[1].DependencyRoot {
+	if packProv[packEntries[1].ID.Canonical()].Root {
 		t.Fatal("last pack was incorrectly promoted to a deployment root")
 	}
-	if got := packEntries[0].Meta.GetString("module", ""); got != "acme/app" {
+	if got := packProv[packEntries[0].ID.Canonical()].Module; got != "acme/app" {
 		t.Fatalf("root ownership was discarded: %q", got)
 	}
-	if got := packEntries[1].Meta.GetString("module", ""); got != "acme/lib" {
+	if got := packProv[packEntries[1].ID.Canonical()].Module; got != "acme/lib" {
 		t.Fatalf("transitive ownership = %q, want acme/lib", got)
 	}
 }
@@ -956,7 +939,7 @@ func TestLoadPackEntries_RegistersModuleOwnedEmbeddedResources(t *testing.T) {
 	embedReg := embedpkg.NewRegistry()
 	defer func() { _ = embedReg.Close() }()
 
-	packEntries, err := loadPackEntries([]string{packPath}, "", embedReg)
+	packEntries, packProv, err := loadPackEntries([]string{packPath}, "", embedReg)
 	if err != nil {
 		t.Fatalf("loadPackEntries failed: %v", err)
 	}
@@ -964,7 +947,11 @@ func TestLoadPackEntries_RegistersModuleOwnedEmbeddedResources(t *testing.T) {
 		t.Fatalf("entry count = %d, want 1", len(packEntries))
 	}
 
-	fsys, err := embedReg.GetFSForEntry(packEntries[0])
+	var entryProv *regapi.EntryProvenance
+	if p, ok := packProv[packEntries[0].ID.Canonical()]; ok {
+		entryProv = &p
+	}
+	fsys, err := embedReg.GetFSForEntry(packEntries[0], entryProv)
 	if err != nil {
 		t.Fatalf("GetFSForEntry failed: %v", err)
 	}
@@ -998,7 +985,7 @@ func TestLoadPackEntries_DoesNotOverrideExistingModuleMetadata(t *testing.T) {
 	embedReg := embedpkg.NewRegistry()
 	defer func() { _ = embedReg.Close() }()
 
-	packEntries, err := loadPackEntries([]string{packPath}, "", embedReg)
+	packEntries, _, err := loadPackEntries([]string{packPath}, "", embedReg)
 	if err != nil {
 		t.Fatalf("loadPackEntries failed: %v", err)
 	}
@@ -1037,7 +1024,7 @@ func TestLoadPackEntries_MonolithicPackRegistersModuleResourceAliases(t *testing
 	embedReg := embedpkg.NewRegistry()
 	defer func() { _ = embedReg.Close() }()
 
-	packEntries, err := loadPackEntries([]string{packPath}, "", embedReg)
+	packEntries, packProv, err := loadPackEntries([]string{packPath}, "", embedReg)
 	if err != nil {
 		t.Fatalf("loadPackEntries failed: %v", err)
 	}
@@ -1045,7 +1032,11 @@ func TestLoadPackEntries_MonolithicPackRegistersModuleResourceAliases(t *testing
 		t.Fatalf("entry count = %d, want 1", len(packEntries))
 	}
 
-	fsys, err := embedReg.GetFSForEntry(packEntries[0])
+	var entryProv *regapi.EntryProvenance
+	if p, ok := packProv[packEntries[0].ID.Canonical()]; ok {
+		entryProv = &p
+	}
+	fsys, err := embedReg.GetFSForEntry(packEntries[0], entryProv)
 	if err != nil {
 		t.Fatalf("GetFSForEntry failed: %v", err)
 	}

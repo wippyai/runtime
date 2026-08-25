@@ -15,19 +15,19 @@ import (
 )
 
 type stubDirective struct {
-	expandFunc func(context.Context, registry.Operation, registry.State) (registry.DirectiveResult, error)
+	expandFunc func(context.Context, registry.Operation, registry.ProvenancedState) (registry.DirectiveResult, error)
 }
 
 type stubChangesDirective struct {
 	stubDirective
-	expandChangesFunc func(context.Context, registry.ChangeSet, registry.State) (registry.DirectiveResult, error)
+	expandChangesFunc func(context.Context, registry.ChangeSet, registry.ProvenancedState) (registry.DirectiveResult, error)
 }
 
-func (s *stubChangesDirective) ExpandChanges(ctx context.Context, changes registry.ChangeSet, state registry.State) (registry.DirectiveResult, error) {
+func (s *stubChangesDirective) ExpandChanges(ctx context.Context, changes registry.ChangeSet, state registry.ProvenancedState) (registry.DirectiveResult, error) {
 	return s.expandChangesFunc(ctx, changes, state)
 }
 
-func (s *stubDirective) Expand(ctx context.Context, op registry.Operation, snap registry.State) (registry.DirectiveResult, error) {
+func (s *stubDirective) Expand(ctx context.Context, op registry.Operation, snap registry.ProvenancedState) (registry.DirectiveResult, error) {
 	return s.expandFunc(ctx, op, snap)
 }
 
@@ -87,7 +87,7 @@ func TestNewPlanner_NilLogger(t *testing.T) {
 
 func TestPlanner_Expand_EmptyChanges(t *testing.T) {
 	p := NewPlanner(nil, nil, zap.NewNop())
-	plan, err := p.Expand(context.Background(), nil, nil)
+	plan, err := p.Expand(context.Background(), nil, registry.ProvenancedState{})
 	require.NoError(t, err)
 	require.NotNil(t, plan)
 	assert.Empty(t, plan.Ops)
@@ -98,7 +98,7 @@ func TestPlanner_Expand_NoDirectives(t *testing.T) {
 	entry := newEntry("app", "svc", "service")
 	changes := registry.ChangeSet{newOp(registry.EntryCreate, entry)}
 
-	plan, err := p.Expand(context.Background(), changes, nil)
+	plan, err := p.Expand(context.Background(), changes, registry.ProvenancedState{})
 	require.NoError(t, err)
 	require.Len(t, plan.Ops, 1)
 	assert.Equal(t, entry.ID, plan.Ops[0].Operation.Entry.ID)
@@ -107,7 +107,7 @@ func TestPlanner_Expand_NoDirectives(t *testing.T) {
 }
 
 func TestPlanner_Expand_DirectiveNotApplied(t *testing.T) {
-	dir := &stubDirective{expandFunc: func(_ context.Context, _ registry.Operation, _ registry.State) (registry.DirectiveResult, error) {
+	dir := &stubDirective{expandFunc: func(_ context.Context, _ registry.Operation, _ registry.ProvenancedState) (registry.DirectiveResult, error) {
 		return registry.DirectiveResult{Applied: false}, nil
 	}}
 
@@ -115,7 +115,7 @@ func TestPlanner_Expand_DirectiveNotApplied(t *testing.T) {
 	entry := newEntry("app", "item", "svc")
 	changes := registry.ChangeSet{newOp(registry.EntryCreate, entry)}
 
-	plan, err := p.Expand(context.Background(), changes, nil)
+	plan, err := p.Expand(context.Background(), changes, registry.ProvenancedState{})
 	require.NoError(t, err)
 	assert.Len(t, plan.Ops, 1)
 	assert.False(t, plan.Expanded)
@@ -123,7 +123,7 @@ func TestPlanner_Expand_DirectiveNotApplied(t *testing.T) {
 
 func TestPlanner_Expand_DirectiveApplied_AddsOps(t *testing.T) {
 	extra := newEntry("mod", "extra", "service")
-	dir := &stubDirective{expandFunc: func(_ context.Context, _ registry.Operation, _ registry.State) (registry.DirectiveResult, error) {
+	dir := &stubDirective{expandFunc: func(_ context.Context, _ registry.Operation, _ registry.ProvenancedState) (registry.DirectiveResult, error) {
 		return registry.DirectiveResult{
 			Applied: true,
 			Additional: []registry.ScopedOperation{
@@ -136,7 +136,7 @@ func TestPlanner_Expand_DirectiveApplied_AddsOps(t *testing.T) {
 	entry := newEntry("app", "dep", "dep")
 	changes := registry.ChangeSet{newOp(registry.EntryCreate, entry)}
 
-	plan, err := p.Expand(context.Background(), changes, nil)
+	plan, err := p.Expand(context.Background(), changes, registry.ProvenancedState{})
 	require.NoError(t, err)
 	assert.Len(t, plan.Ops, 2)
 	assert.True(t, plan.Expanded)
@@ -147,11 +147,11 @@ func TestPlanner_Expand_BatchesSameKindTransactionOnce(t *testing.T) {
 	perOperationCalls := 0
 	batchCalls := 0
 	dir := &stubChangesDirective{
-		stubDirective: stubDirective{expandFunc: func(context.Context, registry.Operation, registry.State) (registry.DirectiveResult, error) {
+		stubDirective: stubDirective{expandFunc: func(context.Context, registry.Operation, registry.ProvenancedState) (registry.DirectiveResult, error) {
 			perOperationCalls++
 			return registry.DirectiveResult{Applied: true}, nil
 		}},
-		expandChangesFunc: func(_ context.Context, changes registry.ChangeSet, _ registry.State) (registry.DirectiveResult, error) {
+		expandChangesFunc: func(_ context.Context, changes registry.ChangeSet, _ registry.ProvenancedState) (registry.DirectiveResult, error) {
 			batchCalls++
 			require.Len(t, changes, 2)
 			return registry.DirectiveResult{Applied: true}, nil
@@ -163,7 +163,7 @@ func TestPlanner_Expand_BatchesSameKindTransactionOnce(t *testing.T) {
 		newOp(registry.EntryCreate, newEntry("app", "two", "dep")),
 	}
 
-	plan, err := p.Expand(context.Background(), changes, nil)
+	plan, err := p.Expand(context.Background(), changes, registry.ProvenancedState{})
 	require.NoError(t, err)
 	require.Len(t, plan.Ops, 2)
 	require.Equal(t, 1, batchCalls)
@@ -171,7 +171,7 @@ func TestPlanner_Expand_BatchesSameKindTransactionOnce(t *testing.T) {
 }
 
 func TestPlanner_Expand_DirectiveError(t *testing.T) {
-	dir := &stubDirective{expandFunc: func(_ context.Context, _ registry.Operation, _ registry.State) (registry.DirectiveResult, error) {
+	dir := &stubDirective{expandFunc: func(_ context.Context, _ registry.Operation, _ registry.ProvenancedState) (registry.DirectiveResult, error) {
 		return registry.DirectiveResult{}, errors.New("expand failed")
 	}}
 
@@ -179,14 +179,14 @@ func TestPlanner_Expand_DirectiveError(t *testing.T) {
 	entry := newEntry("app", "dep", "dep")
 	changes := registry.ChangeSet{newOp(registry.EntryCreate, entry)}
 
-	_, err := p.Expand(context.Background(), changes, nil)
+	_, err := p.Expand(context.Background(), changes, registry.ProvenancedState{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "expand failed")
 }
 
 func TestPlanner_Expand_SkipDuplicateFromOriginalChangeset(t *testing.T) {
 	entry := newEntry("app", "dep", "dep")
-	dir := &stubDirective{expandFunc: func(_ context.Context, _ registry.Operation, _ registry.State) (registry.DirectiveResult, error) {
+	dir := &stubDirective{expandFunc: func(_ context.Context, _ registry.Operation, _ registry.ProvenancedState) (registry.DirectiveResult, error) {
 		return registry.DirectiveResult{
 			Applied: true,
 			Additional: []registry.ScopedOperation{
@@ -198,7 +198,7 @@ func TestPlanner_Expand_SkipDuplicateFromOriginalChangeset(t *testing.T) {
 	p := NewPlanner(map[registry.Kind][]registry.Directive{"dep": {dir}}, nil, zap.NewNop())
 	changes := registry.ChangeSet{newOp(registry.EntryCreate, entry)}
 
-	plan, err := p.Expand(context.Background(), changes, nil)
+	plan, err := p.Expand(context.Background(), changes, registry.ProvenancedState{})
 	require.NoError(t, err)
 	assert.Len(t, plan.Ops, 1)
 	assert.True(t, plan.Expanded)
@@ -206,7 +206,7 @@ func TestPlanner_Expand_SkipDuplicateFromOriginalChangeset(t *testing.T) {
 
 func TestPlanner_Expand_ConflictBetweenDirectiveExpansions(t *testing.T) {
 	shared := newEntry("mod", "svc", "service")
-	dir1 := &stubDirective{expandFunc: func(_ context.Context, _ registry.Operation, _ registry.State) (registry.DirectiveResult, error) {
+	dir1 := &stubDirective{expandFunc: func(_ context.Context, _ registry.Operation, _ registry.ProvenancedState) (registry.DirectiveResult, error) {
 		return registry.DirectiveResult{
 			Applied: true,
 			Additional: []registry.ScopedOperation{
@@ -214,7 +214,7 @@ func TestPlanner_Expand_ConflictBetweenDirectiveExpansions(t *testing.T) {
 			},
 		}, nil
 	}}
-	dir2 := &stubDirective{expandFunc: func(_ context.Context, _ registry.Operation, _ registry.State) (registry.DirectiveResult, error) {
+	dir2 := &stubDirective{expandFunc: func(_ context.Context, _ registry.Operation, _ registry.ProvenancedState) (registry.DirectiveResult, error) {
 		return registry.DirectiveResult{
 			Applied: true,
 			Additional: []registry.ScopedOperation{
@@ -227,7 +227,7 @@ func TestPlanner_Expand_ConflictBetweenDirectiveExpansions(t *testing.T) {
 	p := NewPlanner(map[registry.Kind][]registry.Directive{"dep": {dir1, dir2}}, nil, zap.NewNop())
 	changes := registry.ChangeSet{newOp(registry.EntryCreate, entry)}
 
-	_, err := p.Expand(context.Background(), changes, nil)
+	_, err := p.Expand(context.Background(), changes, registry.ProvenancedState{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "expansion produced entry")
 }
@@ -235,7 +235,7 @@ func TestPlanner_Expand_ConflictBetweenDirectiveExpansions(t *testing.T) {
 func TestPlanner_Expand_AllowsDeleteCreateExpandedReplacement(t *testing.T) {
 	oldEntry := newEntry("mod", "assets", "fs.embed")
 	replacementEntry := newEntry("mod", "assets", "fs.directory")
-	dir := &stubDirective{expandFunc: func(_ context.Context, _ registry.Operation, _ registry.State) (registry.DirectiveResult, error) {
+	dir := &stubDirective{expandFunc: func(_ context.Context, _ registry.Operation, _ registry.ProvenancedState) (registry.DirectiveResult, error) {
 		return registry.DirectiveResult{
 			Applied: true,
 			Additional: []registry.ScopedOperation{
@@ -249,7 +249,7 @@ func TestPlanner_Expand_AllowsDeleteCreateExpandedReplacement(t *testing.T) {
 	entry := newEntry("app", "dep", "dep")
 	changes := registry.ChangeSet{newOp(registry.EntryCreate, entry)}
 
-	plan, err := p.Expand(context.Background(), changes, nil)
+	plan, err := p.Expand(context.Background(), changes, registry.ProvenancedState{})
 	require.NoError(t, err)
 	require.Len(t, plan.Ops, 3)
 
@@ -274,7 +274,7 @@ func TestPlanner_Expand_AllowsDeleteCreateExpandedReplacement(t *testing.T) {
 }
 
 func TestPlanner_Expand_InvalidResult_NotAppliedButHasData(t *testing.T) {
-	dir := &stubDirective{expandFunc: func(_ context.Context, _ registry.Operation, _ registry.State) (registry.DirectiveResult, error) {
+	dir := &stubDirective{expandFunc: func(_ context.Context, _ registry.Operation, _ registry.ProvenancedState) (registry.DirectiveResult, error) {
 		return registry.DirectiveResult{
 			Applied: false,
 			Additional: []registry.ScopedOperation{
@@ -287,13 +287,13 @@ func TestPlanner_Expand_InvalidResult_NotAppliedButHasData(t *testing.T) {
 	entry := newEntry("app", "dep", "dep")
 	changes := registry.ChangeSet{newOp(registry.EntryCreate, entry)}
 
-	_, err := p.Expand(context.Background(), changes, nil)
+	_, err := p.Expand(context.Background(), changes, registry.ProvenancedState{})
 	require.Error(t, err)
 }
 
 func TestPlanner_Expand_ScopeOverride(t *testing.T) {
 	scope := registry.ScopeBaseline
-	dir := &stubDirective{expandFunc: func(_ context.Context, _ registry.Operation, _ registry.State) (registry.DirectiveResult, error) {
+	dir := &stubDirective{expandFunc: func(_ context.Context, _ registry.Operation, _ registry.ProvenancedState) (registry.DirectiveResult, error) {
 		return registry.DirectiveResult{
 			Applied:       true,
 			OriginalScope: &scope,
@@ -304,14 +304,14 @@ func TestPlanner_Expand_ScopeOverride(t *testing.T) {
 	entry := newEntry("app", "dep", "dep")
 	changes := registry.ChangeSet{newOp(registry.EntryCreate, entry)}
 
-	plan, err := p.Expand(context.Background(), changes, nil)
+	plan, err := p.Expand(context.Background(), changes, registry.ProvenancedState{})
 	require.NoError(t, err)
 	assert.Equal(t, registry.ScopeBaseline, plan.Ops[0].Scope)
 }
 
 func TestPlanner_Expand_KindFromSnapshot(t *testing.T) {
 	extra := newEntry("mod", "extra", "service")
-	dir := &stubDirective{expandFunc: func(_ context.Context, _ registry.Operation, _ registry.State) (registry.DirectiveResult, error) {
+	dir := &stubDirective{expandFunc: func(_ context.Context, _ registry.Operation, _ registry.ProvenancedState) (registry.DirectiveResult, error) {
 		return registry.DirectiveResult{
 			Applied: true,
 			Additional: []registry.ScopedOperation{
@@ -327,9 +327,9 @@ func TestPlanner_Expand_KindFromSnapshot(t *testing.T) {
 		Kind:  registry.EntryUpdate,
 		Entry: registry.Entry{ID: registry.NewID("app", "dep")},
 	}
-	snapshot := registry.State{
+	snapshot := registry.ProvenancedState{Entries: registry.State{
 		{ID: registry.NewID("app", "dep"), Kind: "dep"},
-	}
+	}}
 
 	plan, err := p.Expand(context.Background(), registry.ChangeSet{op}, snapshot)
 	require.NoError(t, err)
@@ -339,7 +339,7 @@ func TestPlanner_Expand_KindFromSnapshot(t *testing.T) {
 
 func TestPlanner_Expand_Effects(t *testing.T) {
 	eff := &testEffect{}
-	dir := &stubDirective{expandFunc: func(_ context.Context, _ registry.Operation, _ registry.State) (registry.DirectiveResult, error) {
+	dir := &stubDirective{expandFunc: func(_ context.Context, _ registry.Operation, _ registry.ProvenancedState) (registry.DirectiveResult, error) {
 		return registry.DirectiveResult{
 			Applied: true,
 			Effects: []registry.Effect{eff},
@@ -350,7 +350,7 @@ func TestPlanner_Expand_Effects(t *testing.T) {
 	entry := newEntry("app", "dep", "dep")
 	changes := registry.ChangeSet{newOp(registry.EntryCreate, entry)}
 
-	plan, err := p.Expand(context.Background(), changes, nil)
+	plan, err := p.Expand(context.Background(), changes, registry.ProvenancedState{})
 	require.NoError(t, err)
 	assert.Len(t, plan.Effects, 1)
 }
@@ -513,10 +513,10 @@ func TestPlanner_ExpandErrorRollsBackEarlierUnpreparedEffects(t *testing.T) {
 	kind := registry.Kind("test.kind")
 	planner := NewPlanner(map[registry.Kind][]registry.Directive{
 		kind: {
-			&stubDirective{expandFunc: func(context.Context, registry.Operation, registry.State) (registry.DirectiveResult, error) {
+			&stubDirective{expandFunc: func(context.Context, registry.Operation, registry.ProvenancedState) (registry.DirectiveResult, error) {
 				return registry.DirectiveResult{Applied: true, Effects: []registry.Effect{effect}}, nil
 			}},
-			&stubDirective{expandFunc: func(context.Context, registry.Operation, registry.State) (registry.DirectiveResult, error) {
+			&stubDirective{expandFunc: func(context.Context, registry.Operation, registry.ProvenancedState) (registry.DirectiveResult, error) {
 				return registry.DirectiveResult{}, errors.New("later planning failure")
 			}},
 		},
@@ -525,7 +525,7 @@ func TestPlanner_ExpandErrorRollsBackEarlierUnpreparedEffects(t *testing.T) {
 	_, err := planner.Expand(context.Background(), registry.ChangeSet{{
 		Kind:  registry.EntryCreate,
 		Entry: registry.Entry{ID: registry.NewID("test", "entry"), Kind: kind},
-	}}, nil)
+	}}, registry.ProvenancedState{})
 	require.ErrorContains(t, err, "later planning failure")
 	assert.Equal(t, 1, effect.rollbackCall)
 }

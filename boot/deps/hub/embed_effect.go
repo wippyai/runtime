@@ -24,6 +24,7 @@ type embedPackRegistry interface {
 	RegisterPack(packPath, module, version string, reader *wapp.Reader, file *os.File) error
 	UnregisterPack(packPath string) error
 	UnregisterModule(module, version string) error
+	RetargetModule(module, fromVersion, toVersion string) error
 }
 
 // stagedPack describes a new module pack to register during Prepare and to
@@ -41,6 +42,14 @@ type obsoletePack struct {
 	version string
 }
 
+// packRetarget repoints filesystems served for a module from the superseded
+// pack generation to the adopted one before the superseded pack closes.
+type packRetarget struct {
+	module string
+	from   string
+	to     string
+}
+
 // embedPackEffect ties embedded-pack lifecycle to a module operation. Embedded
 // packs are module resources owned by dependency expansion, not by fs.embed
 // entries, so this effect runs alongside the registry changeset:
@@ -50,7 +59,8 @@ type obsoletePack struct {
 //     .wapp path, so a version update stages the new pack without disturbing the
 //     pack still serving the old version.
 //   - Commit activates the staged set but remains reversible.
-//   - Finalize unregisters and closes obsolete packs only after the registry
+//   - Finalize repoints the consumers of a superseded generation, then
+//     unregisters and closes obsolete packs, only after the registry
 //     history/head is durable. The new packs stay registered.
 //   - Rollback unregisters and closes the packs staged in Prepare, restoring the
 //     pre-operation set. Obsolete packs are left untouched because they are only
@@ -59,6 +69,7 @@ type embedPackEffect struct {
 	reg      embedPackRegistry
 	staged   []stagedPack
 	obsolete []obsoletePack
+	retarget []packRetarget
 	logger   *zap.Logger
 
 	prepared []string // pack paths registered by Prepare, for rollback
@@ -100,7 +111,32 @@ func (e *embedPackEffect) Commit(_ context.Context) error {
 
 func (e *embedPackEffect) Finalize(_ context.Context) error {
 	var errs []error
+	// Entries whose content did not change receive no event during the
+	// transition, so filesystems cached for them still serve the superseded
+	// pack. Repointing them precedes closing that pack.
+	retained := make(map[string]struct{})
+	for _, rt := range e.retarget {
+		if err := e.reg.RetargetModule(rt.module, rt.from, rt.to); err != nil {
+			// Consumers still resolve the superseded generation. Its pack stays
+			// open: serving stale files is recoverable, serving a closed reader
+			// is not. Other modules still finalize.
+			retained[rt.module] = struct{}{}
+			e.logger.Warn("failed to retarget embedded pack consumers; retaining the superseded pack",
+				zap.String("module", rt.module),
+				zap.String("from", rt.from),
+				zap.String("to", rt.to),
+				zap.Error(err))
+			errs = append(errs, fmt.Errorf("retarget embedded pack %s %s->%s: %w", rt.module, rt.from, rt.to, err))
+		}
+	}
 	for _, op := range e.obsolete {
+		if _, keep := retained[op.module]; keep {
+			errs = append(errs, fmt.Errorf(
+				"retained embedded pack %s@%s: consumers still resolve the superseded generation",
+				op.module, op.version,
+			))
+			continue
+		}
 		if err := e.reg.UnregisterModule(op.module, op.version); err != nil {
 			// The changeset is already durable, so callers only report this as a
 			// cleanup warning. Return it for observability instead of pretending
@@ -147,7 +183,7 @@ func (e *embedPackEffect) rollbackPrepared() {
 func (h *DependencyHandler) buildEmbedPackEffect(
 	ctx context.Context,
 	resolved []ResolvedModule,
-	snapshot regapi.State,
+	snapshot regapi.ProvenancedState,
 	controlled map[string]struct{},
 ) (*embedPackEffect, error) {
 	reg := embedpkg.GetRegistryFromContext(ctx)
@@ -156,8 +192,8 @@ func (h *DependencyHandler) buildEmbedPackEffect(
 	}
 
 	desired := make(map[string]string, len(resolved))
-	installed := snapshotModuleVersions(snapshot)
-	installedDigests := snapshotModuleDigests(snapshot)
+	installed := residentModuleVersions(snapshot.Provenance)
+	installedDigests := residentModuleDigests(snapshot.Provenance)
 	staged := make([]stagedPack, 0, len(resolved))
 	for _, mod := range resolved {
 		name := mod.Org + "/" + mod.Name
@@ -199,7 +235,16 @@ func (h *DependencyHandler) buildEmbedPackEffect(
 		})
 	}
 
-	obsolete := obsoletePacksFor(snapshot, desired, controlled)
+	obsolete := obsoletePacksFor(installed, desired, controlled)
+
+	// A superseded generation is repointed only where a newer one is desired for
+	// the same module. A module that leaves the graph has nothing to point at.
+	retargets := make([]packRetarget, 0, len(obsolete))
+	for _, op := range obsolete {
+		if to := desired[op.module]; to != "" && to != op.version {
+			retargets = append(retargets, packRetarget{module: op.module, from: op.version, to: to})
+		}
+	}
 
 	if len(staged) == 0 && len(obsolete) == 0 {
 		return nil, nil
@@ -214,17 +259,17 @@ func (h *DependencyHandler) buildEmbedPackEffect(
 		reg:      reg,
 		staged:   staged,
 		obsolete: obsolete,
+		retarget: retargets,
 		logger:   logger.Named("embed_pack"),
 	}, nil
 }
 
-// obsoletePacksFor returns controlled snapshot modules whose version is not the
+// obsoletePacksFor returns controlled resident modules whose version is not the
 // desired version (changed) or which are no longer desired at all (removed).
 // Packs outside controlled are unrelated to this dependency operation and must
 // remain live. A staged pack for the new version is keyed by its own path, so
 // unregistering the old version never affects the new pack.
-func obsoletePacksFor(snapshot regapi.State, desired map[string]string, controlled map[string]struct{}) []obsoletePack {
-	current := snapshotModuleVersions(snapshot)
+func obsoletePacksFor(current map[string]string, desired map[string]string, controlled map[string]struct{}) []obsoletePack {
 	obsolete := make([]obsoletePack, 0)
 	for module, version := range current {
 		if _, ok := controlled[module]; !ok {

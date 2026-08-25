@@ -92,7 +92,7 @@ replacements:
 	}
 	fresh := newRegistry(memory.New(), newHandler())
 	startupCtx := regapi.WithDependencyAccess(newTestContext(), regapi.DependencyAccessUnspecified)
-	require.NoError(t, fresh.LoadState(startupCtx, regapi.State{root}, version.New(0)))
+	require.NoError(t, fresh.LoadState(startupCtx, fixtureState(regapi.State{root}), version.New(0)))
 	_, err = fresh.GetEntry(regapi.NewID("local.mod", "svc"))
 	require.NoError(t, err)
 	require.Zero(t, hubCalls)
@@ -102,10 +102,11 @@ replacements:
 	require.Zero(t, hubCalls)
 
 	entryID := regapi.NewID("local.mod", "svc")
-	initialEntry, err := registry.GetEntry(entryID)
+	_, err = registry.GetEntry(entryID)
 	require.NoError(t, err)
-	initialDigest := moduleDigest(initialEntry)
-	require.NotEmpty(t, initialDigest)
+	initial, ok := registry.EntryProvenance(entryID)
+	require.True(t, ok)
+	require.NotEmpty(t, initial.Digest, "a replacement records its source tree identity")
 
 	// A frontend rebuild mutates only static content. Simulate a cold restart
 	// with the persisted registry intact and an unreachable Hub.
@@ -117,11 +118,14 @@ replacements:
 	t.Cleanup(func() { _ = history.Close() })
 	restarted := newRegistry(history, newHandler())
 	restartCtx := regapi.WithDependencyAccess(newTestContext(), regapi.DependencyAccessVerifiedOffline)
-	require.NoError(t, restarted.LoadState(restartCtx, nil, version))
+	require.NoError(t, restarted.LoadState(restartCtx, regapi.ProvenancedState{}, version))
 	require.Zero(t, hubCalls)
 
 	reloadedEntry, err := restarted.GetEntry(entryID)
 	require.NoError(t, err)
-	require.NotEqual(t, initialDigest, moduleDigest(reloadedEntry))
+	reloaded, ok := restarted.EntryProvenance(entryID)
+	require.True(t, ok)
+	require.NotEqual(t, initial.Digest, reloaded.Digest,
+		"a rebuilt tree advances the resident record while the stored checkpoint stands")
 	require.Equal(t, "one", reloadedEntry.Data.Data().(map[string]any)["generation"])
 }

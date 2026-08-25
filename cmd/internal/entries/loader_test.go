@@ -233,7 +233,7 @@ entries:
 		t.Fatal(err)
 	}
 
-	loaded, err := LoadEntriesFromModuleLoadPaths(ctx, []lock.ModuleLoadPath{{
+	loaded, prov, err := LoadEntriesFromModuleLoadPaths(ctx, []lock.ModuleLoadPath{{
 		Path: moduleDir, Module: "acme/app", Version: "1.0.0", Digest: "sha256:app", SourceRoot: moduleDir, Root: true,
 	}}, zap.NewNop())
 	if err != nil {
@@ -242,14 +242,21 @@ entries:
 	if len(loaded) != 1 {
 		t.Fatalf("entries = %d, want 1", len(loaded))
 	}
-	if !loaded[0].DependencyRoot {
+	if loaded[0].DependencyRoot {
+		t.Fatal("entry payload must not carry the deployment-root flag")
+	}
+	if loaded[0].Meta.GetString("module", "") != "" {
+		t.Fatal("entry payload must not carry ownership metadata")
+	}
+	p := prov[loaded[0].ID.Canonical()]
+	if !p.Root {
 		t.Fatal("selected lock root dependency lost root provenance")
 	}
-	if got := loaded[0].Meta.GetString("module", ""); got != "acme/app" {
-		t.Fatalf("package ownership = %q, want acme/app", got)
+	if p.Module != "acme/app" {
+		t.Fatalf("package ownership = %q, want acme/app", p.Module)
 	}
-	if got := loaded[0].Meta.GetString("module_digest", ""); got != "sha256:app" {
-		t.Fatalf("package digest = %q, want sha256:app", got)
+	if p.Digest != "sha256:app" {
+		t.Fatalf("package digest = %q, want sha256:app", p.Digest)
 	}
 }
 
@@ -268,21 +275,22 @@ entries:
 
 	wantDigest, _, err := hub.ReplacementTreeIdentity(moduleRoot)
 	require.NoError(t, err)
-	loaded, err := LoadEntriesFromModuleLoadPaths(ctx, []lock.ModuleLoadPath{{
+	loaded, prov, err := LoadEntriesFromModuleLoadPaths(ctx, []lock.ModuleLoadPath{{
 		Path: sourceDir, Module: "acme/replacement", Version: "1.2.3", SourceRoot: moduleRoot, Replacement: true,
 	}}, zap.NewNop())
 	require.NoError(t, err)
 	require.Len(t, loaded, 1)
-	assert.Equal(t, "acme/replacement", loaded[0].Meta.GetString("module", ""))
-	assert.Equal(t, "1.2.3", loaded[0].Meta.GetString("module_version", ""))
-	assert.Equal(t, wantDigest, loaded[0].Meta.GetString("module_digest", ""))
+	p := prov[loaded[0].ID.Canonical()]
+	assert.Equal(t, "acme/replacement", p.Module)
+	assert.Equal(t, "1.2.3", p.Version)
+	assert.Equal(t, wantDigest, p.Digest)
 }
 
 func TestLoadEntriesFromMissingReplacementFailsClosed(t *testing.T) {
 	ctx := setupTestContext(t)
 	missing := filepath.Join(t.TempDir(), "missing")
 
-	_, err := LoadEntriesFromModuleLoadPaths(ctx, []lock.ModuleLoadPath{{
+	_, _, err := LoadEntriesFromModuleLoadPaths(ctx, []lock.ModuleLoadPath{{
 		Path: missing, Module: "acme/replacement", SourceRoot: missing, Replacement: true,
 	}}, zap.NewNop())
 	require.ErrorContains(t, err, "identify replacement module acme/replacement")
@@ -322,7 +330,7 @@ entries:
 
 	wantDigest, _, err := hub.ReplacementTreeIdentity(replacementRoot)
 	require.NoError(t, err)
-	loaded, err := LoadEntriesFromModuleLoadPaths(ctx, []lock.ModuleLoadPath{
+	loaded, prov, err := LoadEntriesFromModuleLoadPaths(ctx, []lock.ModuleLoadPath{
 		{Path: appDir, Root: true},
 		{Path: replacementSource, Module: "acme/replacement", SourceRoot: replacementRoot, Replacement: true},
 	}, zap.NewNop())
@@ -334,9 +342,13 @@ entries:
 	}
 	owned := byID[regapi.NewID("ownership.test", "value")]
 	assert.Equal(t, "local", owned.Data.Data())
+	// Author meta passes through verbatim, stale keys included; ownership truth
+	// lives in the provenance map.
 	assert.Equal(t, "acme/replacement", owned.Meta.GetString("module", ""))
-	assert.Equal(t, wantDigest, owned.Meta.GetString("module_digest", ""))
-	assert.Empty(t, owned.Meta.GetString("module_version", ""))
+	assert.Equal(t, "sha256-tree-v1:stale", owned.Meta.GetString("module_digest", ""))
+	ownedProv := prov[owned.ID.Canonical()]
+	assert.Equal(t, "acme/replacement", ownedProv.Module)
+	assert.Equal(t, wantDigest, ownedProv.Digest)
 	assert.Equal(t, "application", byID[regapi.NewID("ownership.test", "app_value")].Data.Data())
 }
 
@@ -361,13 +373,15 @@ entries:
 	writeEntry(moduleV1, "source.lifecycle", "module", "v1")
 	writeEntry(moduleV2, "source.lifecycle", "module", "v2")
 
-	_, err := LoadEntriesFromModuleLoadPaths(ctx, []lock.ModuleLoadPath{{Path: appDir, Root: true}}, zap.NewNop())
+	_, _, err := LoadEntriesFromModuleLoadPaths(ctx, []lock.ModuleLoadPath{{Path: appDir, Root: true}}, zap.NewNop())
 	require.NoError(t, err)
 
+	var lastProv regapi.ProvenanceMap
 	loadByID := func() map[regapi.ID]regapi.Entry {
 		t.Helper()
 		loaded, loadErr := moduleapi.GetSourceRegistry(ctx).Load(ctx)
 		require.NoError(t, loadErr)
+		lastProv = loaded.Provenance
 		byID := make(map[regapi.ID]regapi.Entry, len(loaded.Entries))
 		for _, entry := range loaded.Entries {
 			byID[entry.ID] = entry
@@ -387,9 +401,10 @@ entries:
 	byID = loadByID()
 	moduleEntry := byID[regapi.NewID("source.lifecycle", "module")]
 	assert.Equal(t, "v1", moduleEntry.Data.Data())
-	assert.Equal(t, "acme/source", moduleEntry.Meta.GetString("module", ""))
-	assert.Equal(t, "1.0.0", moduleEntry.Meta.GetString("module_version", ""))
-	assert.Equal(t, "sha256:v1", moduleEntry.Meta.GetString("module_digest", ""))
+	moduleProv := lastProv[moduleEntry.ID.Canonical()]
+	assert.Equal(t, "acme/source", moduleProv.Module)
+	assert.Equal(t, "1.0.0", moduleProv.Version)
+	assert.Equal(t, "sha256:v1", moduleProv.Digest)
 
 	v2 := moduleapi.Source{LoadPath: moduleV2, ResourceRoot: moduleV2, Owner: "acme/source", Version: "2.0.0", Digest: "sha256:v2", Sequence: 2}
 	previous, err = registry.Transition(moduleapi.Sources{"acme/source": v2}, nil, "acme/source")
@@ -398,8 +413,9 @@ entries:
 	byID = loadByID()
 	moduleEntry = byID[regapi.NewID("source.lifecycle", "module")]
 	assert.Equal(t, "v2", moduleEntry.Data.Data())
-	assert.Equal(t, "2.0.0", moduleEntry.Meta.GetString("module_version", ""))
-	assert.Equal(t, "sha256:v2", moduleEntry.Meta.GetString("module_digest", ""))
+	moduleProv = lastProv[moduleEntry.ID.Canonical()]
+	assert.Equal(t, "2.0.0", moduleProv.Version)
+	assert.Equal(t, "sha256:v2", moduleProv.Digest)
 
 	_, err = registry.Transition(previous, nil, "acme/source")
 	require.NoError(t, err)
@@ -431,7 +447,7 @@ entries:
     data: second
 `), 0o600))
 
-	initial, err := LoadEntriesFromModuleLoadPaths(ctx, []lock.ModuleLoadPath{{Path: first}, {Path: second}}, zap.NewNop())
+	initial, _, err := LoadEntriesFromModuleLoadPaths(ctx, []lock.ModuleLoadPath{{Path: first}, {Path: second}}, zap.NewNop())
 	require.NoError(t, err)
 	loaded, err := moduleapi.GetSourceRegistry(ctx).Load(ctx)
 	require.NoError(t, err)
@@ -474,7 +490,7 @@ entries:
 		{Path: first, Module: "zeta/first"},
 		{Path: second, Module: "alpha/second"},
 	}
-	initial, err := LoadEntriesFromModuleLoadPaths(ctx, paths, zap.NewNop())
+	initial, _, err := LoadEntriesFromModuleLoadPaths(ctx, paths, zap.NewNop())
 	require.NoError(t, err)
 	loaded, err := moduleapi.GetSourceRegistry(ctx).Load(ctx)
 	require.NoError(t, err)
@@ -518,7 +534,7 @@ entries:
 		t.Fatal(err)
 	}
 
-	loaded, err := LoadEntriesFromModuleLoadPaths(ctx, []lock.ModuleLoadPath{{
+	loaded, prov, err := LoadEntriesFromModuleLoadPaths(ctx, []lock.ModuleLoadPath{{
 		Path: appDir,
 		Root: true,
 	}}, zap.NewNop())
@@ -528,11 +544,15 @@ entries:
 	if len(loaded) != 1 {
 		t.Fatalf("entries = %d, want 1", len(loaded))
 	}
-	if !loaded[0].DependencyRoot {
+	p := prov[loaded[0].ID.Canonical()]
+	if !p.Root {
 		t.Fatal("application source dependency was not marked as a deployment root")
 	}
-	if got := loaded[0].Meta.GetString("module", ""); got != "" {
-		t.Fatalf("application source ownership = %q, want empty", got)
+	if p.Module != "" {
+		t.Fatalf("application source ownership = %q, want empty", p.Module)
+	}
+	if loaded[0].DependencyRoot {
+		t.Fatal("entry payload must not carry the deployment-root flag")
 	}
 }
 
@@ -609,7 +629,7 @@ entries:
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			loaded, err := LoadEntriesFromModuleLoadPaths(ctx, []lock.ModuleLoadPath{
+			loaded, _, err := LoadEntriesFromModuleLoadPaths(ctx, []lock.ModuleLoadPath{
 				{Path: appDir},
 				{Path: tt.path, Module: "example/accounts", Version: "1.0.0"},
 			}, logger)
@@ -1365,7 +1385,7 @@ entries:
 		t.Fatalf("write module views.yaml: %v", err)
 	}
 
-	entries, err := LoadEntriesFromModuleLoadPaths(ctx, []lock.ModuleLoadPath{
+	entries, prov, err := LoadEntriesFromModuleLoadPaths(ctx, []lock.ModuleLoadPath{
 		{Path: moduleDir, Module: "wippy/views", Version: "0.4.15"},
 	}, logger)
 	if err != nil {
@@ -1386,8 +1406,8 @@ entries:
 	if !ok {
 		t.Fatalf("non-excluded module entry missing")
 	}
-	if got := publicAPI.Meta.GetString("module", ""); got != "wippy/views" {
-		t.Fatalf("module meta = %q, want wippy/views", got)
+	if got := prov[publicAPI.ID.Canonical()].Module; got != "wippy/views" {
+		t.Fatalf("module provenance = %q, want wippy/views", got)
 	}
 }
 
@@ -1427,7 +1447,7 @@ entries:
 		t.Fatalf("write module _index.yaml: %v", err)
 	}
 
-	entries, err := LoadEntriesFromModuleLoadPaths(ctx, []lock.ModuleLoadPath{
+	entries, prov, err := LoadEntriesFromModuleLoadPaths(ctx, []lock.ModuleLoadPath{
 		{Path: moduleDir, Module: "wippy/dataflow"},
 	}, logger)
 	if err != nil {
@@ -1445,8 +1465,8 @@ entries:
 	if !ok {
 		t.Fatalf("non-excluded module entry missing")
 	}
-	if got := real.Meta.GetString("module", ""); got != "wippy/dataflow" {
-		t.Fatalf("module meta = %q, want wippy/dataflow", got)
+	if got := prov[real.ID.Canonical()].Module; got != "wippy/dataflow" {
+		t.Fatalf("module provenance = %q, want wippy/dataflow", got)
 	}
 }
 
@@ -1508,7 +1528,7 @@ entries:
 		t.Fatalf("write host app _index.yaml: %v", err)
 	}
 
-	entries, err := LoadEntriesFromModuleLoadPaths(ctx, []lock.ModuleLoadPath{
+	entries, _, err := LoadEntriesFromModuleLoadPaths(ctx, []lock.ModuleLoadPath{
 		{Path: appDir},
 		{Path: moduleDir, Module: "wippy/facade"},
 	}, logger)
@@ -1594,7 +1614,7 @@ entries:
 		t.Fatalf("write host app _index.yaml: %v", err)
 	}
 
-	entries, err := LoadEntriesFromModuleLoadPaths(ctx, []lock.ModuleLoadPath{
+	entries, _, err := LoadEntriesFromModuleLoadPaths(ctx, []lock.ModuleLoadPath{
 		{Path: appDir},
 		{Path: srcDir, Module: "kickside/component", SourceRoot: moduleRoot},
 	}, logger)
@@ -1674,7 +1694,7 @@ entries:
 		t.Fatalf("write excluded source: %v", err)
 	}
 
-	entries, err := LoadEntriesFromModuleLoadPaths(ctx, []lock.ModuleLoadPath{
+	entries, _, err := LoadEntriesFromModuleLoadPaths(ctx, []lock.ModuleLoadPath{
 		{Path: srcDir, Module: "kickside/events", SourceRoot: moduleRoot},
 	}, logger)
 	if err != nil {
@@ -1728,7 +1748,7 @@ entries:
 		t.Fatalf("write module _index.yaml: %v", err)
 	}
 
-	_, err := LoadEntriesFromModuleLoadPaths(ctx, []lock.ModuleLoadPath{
+	_, _, err := LoadEntriesFromModuleLoadPaths(ctx, []lock.ModuleLoadPath{
 		{Path: srcDir, Module: "kickside/broken", SourceRoot: moduleRoot},
 	}, logger)
 	if err == nil {
@@ -1775,7 +1795,7 @@ entries:
 		t.Fatalf("write module _index.yaml: %v", err)
 	}
 
-	entries, err := LoadEntriesFromModuleLoadPaths(ctx, []lock.ModuleLoadPath{
+	entries, _, err := LoadEntriesFromModuleLoadPaths(ctx, []lock.ModuleLoadPath{
 		{Path: srcDir, Module: "kickside/contract", SourceRoot: moduleRoot},
 	}, logger)
 	if err != nil {
@@ -1829,7 +1849,7 @@ func TestNormalizeEntries_PreLinkOverrideAffectsRequirementDefaults(t *testing.T
 		},
 	}
 
-	if err := NormalizeEntries(ctx, &items); err != nil {
+	if err := NormalizeEntries(ctx, &items, nil); err != nil {
 		t.Fatalf("NormalizeEntries failed: %v", err)
 	}
 
@@ -1900,7 +1920,7 @@ func TestNormalizeEntries_PostLinkOverrideWinsFinalValue(t *testing.T) {
 		},
 	}
 
-	if err := NormalizeEntries(ctx, &items); err != nil {
+	if err := NormalizeEntries(ctx, &items, nil); err != nil {
 		t.Fatalf("NormalizeEntries failed: %v", err)
 	}
 
@@ -2079,4 +2099,38 @@ func TestWaitForListenerReadiness_ContextCancelled(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected cancellation error, got nil")
 	}
+}
+
+// A replacement loaded before a colliding non-replacement copy must keep both
+// its entry and its provenance record; the losing copy leaves nothing behind.
+func TestLoadEntriesReplacementFirstKeepsItsProvenance(t *testing.T) {
+	ctx := setupTestContext(t)
+	appDir := t.TempDir()
+	replacementRoot := t.TempDir()
+	replacementSource := filepath.Join(replacementRoot, "src")
+	require.NoError(t, os.MkdirAll(replacementSource, 0o755))
+	manifest := `version: "1.0"
+namespace: order.test
+entries:
+  - name: value
+    kind: test.value
+    data: %s
+`
+	require.NoError(t, os.WriteFile(filepath.Join(replacementSource, "_index.yaml"), []byte(fmt.Sprintf(manifest, "local")), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(appDir, "_index.yaml"), []byte(fmt.Sprintf(manifest, "stale")), 0o600))
+
+	wantDigest, _, err := hub.ReplacementTreeIdentity(replacementRoot)
+	require.NoError(t, err)
+
+	// Replacement FIRST, non-replacement copy after.
+	loaded, prov, err := LoadEntriesFromModuleLoadPaths(ctx, []lock.ModuleLoadPath{
+		{Path: replacementSource, Module: "acme/replacement", SourceRoot: replacementRoot, Replacement: true},
+		{Path: appDir, Root: true},
+	}, zap.NewNop())
+	require.NoError(t, err)
+	require.Len(t, loaded, 1)
+	assert.Equal(t, "local", loaded[0].Data.Data())
+	record := prov[loaded[0].ID.Canonical()]
+	assert.Equal(t, "acme/replacement", record.Module)
+	assert.Equal(t, wantDigest, record.Digest)
 }

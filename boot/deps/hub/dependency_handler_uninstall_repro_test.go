@@ -55,12 +55,12 @@ func mcpServerWappEntries() []wapp.Entry {
 // butschster/mcp-server installed with the router parameter: entries are stamped
 // with the owning module and the endpoints carry the parameterized router.
 func installedMcpSnapshotEntries(routerValue string) []regapi.Entry {
-	mod := map[string]any{metaModuleKey: "butschster/mcp-server", metaModuleVersionKey: "1.6.2"}
+	mod := map[string]any{fixtureModuleKey: "butschster/mcp-server", fixtureModuleVersionKey: "1.6.2"}
 	endpoint := func(name, method string) regapi.Entry {
 		return regapi.Entry{
 			ID:   regapi.NewID("mcp", name),
 			Kind: "http.endpoint",
-			Meta: attrs.NewBagFrom(map[string]any{metaModuleKey: "butschster/mcp-server", metaModuleVersionKey: "1.6.2", "router": routerValue}),
+			Meta: attrs.NewBagFrom(map[string]any{fixtureModuleKey: "butschster/mcp-server", fixtureModuleVersionKey: "1.6.2", "router": routerValue}),
 			Data: payload.NewPayload(fmt.Sprintf(`{"method":%q,"path":"/mcp"}`, method), payload.JSON),
 		}
 	}
@@ -113,7 +113,7 @@ func TestReproDeleteParameterizedMcpRootRemovesEndpoints(t *testing.T) {
 
 	result, err := handler.Expand(ctx,
 		regapi.Operation{Kind: regapi.EntryDelete, Entry: regapi.Entry{ID: root.ID}},
-		snapshot,
+		fixtureState(snapshot),
 	)
 	require.NoError(t, err)
 	require.True(t, result.Applied)
@@ -175,13 +175,13 @@ func TestReproDeleteUnrelatedRootPreservesMcpRouterParam(t *testing.T) {
 	dummyReq := regapi.Entry{
 		ID:   regapi.NewID("dummy", "router_req"),
 		Kind: regapi.NamespaceRequirement,
-		Meta: attrs.NewBagFrom(map[string]any{metaModuleKey: "wippy/dummy", metaModuleVersionKey: "v1.0.0"}),
+		Meta: attrs.NewBagFrom(map[string]any{fixtureModuleKey: "wippy/dummy", fixtureModuleVersionKey: "v1.0.0"}),
 		Data: payload.NewPayload(`{"targets":[{"entry":"dummy:endpoint","path":"meta.router"}]}`, payload.JSON),
 	}
 	dummyEndpoint := regapi.Entry{
 		ID:   regapi.NewID("dummy", "endpoint"),
 		Kind: "http.endpoint",
-		Meta: attrs.NewBagFrom(map[string]any{metaModuleKey: "wippy/dummy", metaModuleVersionKey: "v1.0.0", "router": "app:api"}),
+		Meta: attrs.NewBagFrom(map[string]any{fixtureModuleKey: "wippy/dummy", fixtureModuleVersionKey: "v1.0.0", "router": "app:api"}),
 		Data: payload.NewPayload(`{"method":"POST","path":"/dummy"}`, payload.JSON),
 	}
 
@@ -190,7 +190,7 @@ func TestReproDeleteUnrelatedRootPreservesMcpRouterParam(t *testing.T) {
 
 	result, err := handler.Expand(ctx,
 		regapi.Operation{Kind: regapi.EntryDelete, Entry: regapi.Entry{ID: dummyRoot.ID}},
-		snapshot,
+		fixtureState(snapshot),
 	)
 	require.NoError(t, err)
 	require.True(t, result.Applied)
@@ -225,8 +225,8 @@ func TestDeleteRootDependencyKeepsSharedLibraryImportedByBaselineEntry(t *testin
 		ID:   regapi.NewID("acme.plugin", "dependency.migration"),
 		Kind: regapi.NamespaceDependency,
 		Meta: attrs.NewBagFrom(map[string]any{
-			metaModuleKey:        "acme/plugin",
-			metaModuleVersionKey: "v1.0.0",
+			fixtureModuleKey:        "acme/plugin",
+			fixtureModuleVersionKey: "v1.0.0",
 		}),
 		Data: payload.NewPayload(`{"component":"acme/migration","version":"v1.0.0"}`, payload.JSON),
 	}
@@ -234,8 +234,8 @@ func TestDeleteRootDependencyKeepsSharedLibraryImportedByBaselineEntry(t *testin
 		ID:   regapi.NewID("acme.plugin", "service"),
 		Kind: "service",
 		Meta: attrs.NewBagFrom(map[string]any{
-			metaModuleKey:        "acme/plugin",
-			metaModuleVersionKey: "v1.0.0",
+			fixtureModuleKey:        "acme/plugin",
+			fixtureModuleVersionKey: "v1.0.0",
 		}),
 		Data: payload.NewPayload(`{"ok":true}`, payload.JSON),
 	}
@@ -243,8 +243,8 @@ func TestDeleteRootDependencyKeepsSharedLibraryImportedByBaselineEntry(t *testin
 		ID:   regapi.NewID("acme.migration", "runner"),
 		Kind: "function.lua",
 		Meta: attrs.NewBagFrom(map[string]any{
-			metaModuleKey:        "acme/migration",
-			metaModuleVersionKey: "v1.0.0",
+			fixtureModuleKey:        "acme/migration",
+			fixtureModuleVersionKey: "v1.0.0",
 		}),
 		Data: payload.NewPayload(`{"source":"return {}"}`, payload.JSON),
 	}
@@ -252,8 +252,8 @@ func TestDeleteRootDependencyKeepsSharedLibraryImportedByBaselineEntry(t *testin
 		ID:   regapi.NewID("acme.app.migrations", "01_bootstrap"),
 		Kind: "function.lua",
 		Meta: attrs.NewBagFrom(map[string]any{
-			metaModuleKey:        "acme/app-core",
-			metaModuleVersionKey: "v1.0.0",
+			fixtureModuleKey:        "acme/app-core",
+			fixtureModuleVersionKey: "v1.0.0",
 		}),
 		Data: payload.New(map[string]any{
 			"imports": map[string]any{"migration": "acme.migration:runner"},
@@ -270,7 +270,7 @@ func TestDeleteRootDependencyKeepsSharedLibraryImportedByBaselineEntry(t *testin
 
 	result, err := handler.Expand(ctx,
 		regapi.Operation{Kind: regapi.EntryDelete, Entry: regapi.Entry{ID: rootDep.ID}},
-		regapi.State{rootDep, pluginDep, pluginService, sharedLibrary, baselineMigration},
+		fixtureState(regapi.State{rootDep, pluginDep, pluginService, sharedLibrary, baselineMigration}),
 	)
 	require.NoError(t, err)
 	require.True(t, result.Applied)

@@ -70,9 +70,9 @@ func (m *TestRunner) TransitionCount() int {
 	return len(m.transitions)
 }
 
-type directiveFunc func(context.Context, registry.Operation, registry.State) (registry.DirectiveResult, error)
+type directiveFunc func(context.Context, registry.Operation, registry.ProvenancedState) (registry.DirectiveResult, error)
 
-func (f directiveFunc) Expand(ctx context.Context, op registry.Operation, snap registry.State) (registry.DirectiveResult, error) {
+func (f directiveFunc) Expand(ctx context.Context, op registry.Operation, snap registry.ProvenancedState) (registry.DirectiveResult, error) {
 	return f(ctx, op, snap)
 }
 
@@ -80,11 +80,11 @@ type baselineOverlayDirective struct {
 	policyID registry.ID
 }
 
-func (d baselineOverlayDirective) Expand(_ context.Context, op registry.Operation, snapshot registry.State) (registry.DirectiveResult, error) {
+func (d baselineOverlayDirective) Expand(_ context.Context, op registry.Operation, snapshot registry.ProvenancedState) (registry.DirectiveResult, error) {
 	resolution := (&registry.DependencyResolution{InputDigest: "sha256:test"}).Canonical()
 	result := registry.DirectiveResult{Applied: true, Resolution: resolution}
 	if op.Kind != registry.EntryDelete {
-		for _, entry := range snapshot {
+		for _, entry := range snapshot.Entries {
 			if entry.ID == d.policyID {
 				result.Additional = append(result.Additional, registry.ScopedOperation{
 					Operation: registry.Operation{Kind: registry.EntryDelete, Entry: entry},
@@ -99,16 +99,16 @@ func (d baselineOverlayDirective) Expand(_ context.Context, op registry.Operatio
 
 func (d baselineOverlayDirective) ReconcileResolutionTransition(
 	_ context.Context,
-	_ registry.State,
-	target registry.State,
+	_ registry.ProvenancedState,
+	target registry.ProvenancedState,
 	resolution *registry.DependencyResolution,
 ) (registry.DirectiveResult, error) {
 	result := registry.DirectiveResult{Applied: true, Resolution: resolution}
-	for _, entry := range target {
+	for _, entry := range target.Entries {
 		if entry.Kind != registry.NamespaceDependency {
 			continue
 		}
-		for _, candidate := range target {
+		for _, candidate := range target.Entries {
 			if candidate.ID == d.policyID {
 				result.Additional = append(result.Additional, registry.ScopedOperation{
 					Operation: registry.Operation{Kind: registry.EntryDelete, Entry: candidate},
@@ -137,7 +137,7 @@ func TestApplyVersion_ComposesTargetHistoryOverImmutableBaseline(t *testing.T) {
 	)
 	baseline := registry.State{{ID: policyID, Kind: "security.policy", Data: payload.New(true)}}
 	v0 := version.FromParent(nil, registry.RootVersion)
-	require.NoError(t, reg.LoadState(ctx, baseline, v0))
+	require.NoError(t, reg.LoadState(ctx, hostProvenanced(baseline), v0))
 
 	overlay := registry.Entry{
 		ID: registry.NewID("workspace.packages", "application"), Kind: registry.NamespaceDependency,
@@ -181,7 +181,7 @@ func TestApplyVersion_ForwardWithSquashing(t *testing.T) {
 	}
 
 	// Load baseline at v0
-	err := reg.LoadState(ctx, baseline, version.FromParent(nil, 0))
+	err := reg.LoadState(ctx, hostProvenanced(baseline), version.FromParent(nil, 0))
 	require.NoError(t, err)
 
 	// Create test entry that will be modified multiple times
@@ -277,7 +277,7 @@ func TestApplyVersion_BackwardWithSquashing(t *testing.T) {
 	}
 
 	// Load baseline at v0
-	err := reg.LoadState(ctx, baseline, version.FromParent(nil, 0))
+	err := reg.LoadState(ctx, hostProvenanced(baseline), version.FromParent(nil, 0))
 	require.NoError(t, err)
 
 	// Create entries across versions
@@ -376,7 +376,7 @@ func TestApplyVersion_BackwardDeletesDependentsBeforeDependencies(t *testing.T) 
 		},
 	}
 	v0 := version.FromParent(nil, 0)
-	err := reg.LoadState(ctx, baseline, v0)
+	err := reg.LoadState(ctx, hostProvenanced(baseline), v0)
 	require.NoError(t, err)
 
 	repoID := registry.NewID("app", "repo")
@@ -438,7 +438,7 @@ func TestApplyVersion_CrossBranchWithSquashing(t *testing.T) {
 	}
 
 	// Load baseline at v0
-	err := reg.LoadState(ctx, baseline, version.FromParent(nil, 0))
+	err := reg.LoadState(ctx, hostProvenanced(baseline), version.FromParent(nil, 0))
 	require.NoError(t, err)
 
 	entryID := registry.NewID("test", "shared")
@@ -531,7 +531,7 @@ func TestApplyVersion_PreservesBaseline(t *testing.T) {
 	}
 
 	// Load baseline at v0
-	err := reg.LoadState(ctx, baseline, version.FromParent(nil, 0))
+	err := reg.LoadState(ctx, hostProvenanced(baseline), version.FromParent(nil, 0))
 	require.NoError(t, err)
 
 	// v1: Add one new entry
@@ -595,7 +595,7 @@ func TestApplyVersion_RunsDirectives(t *testing.T) {
 	depID := registry.NewID("app", "dep")
 	modID := registry.NewID("mod", "svc")
 
-	expander := directiveFunc(func(_ context.Context, op registry.Operation, _ registry.State) (registry.DirectiveResult, error) {
+	expander := directiveFunc(func(_ context.Context, op registry.Operation, state registry.ProvenancedState) (registry.DirectiveResult, error) {
 		if op.Entry.Kind != registry.NamespaceDependency {
 			return registry.DirectiveResult{}, nil
 		}
@@ -607,9 +607,12 @@ func TestApplyVersion_RunsDirectives(t *testing.T) {
 				}
 			}
 		}
-		kind := registry.EntryUpdate
-		if op.Kind == registry.EntryCreate {
-			kind = registry.EntryCreate
+		kind := registry.EntryCreate
+		for _, entry := range state.Entries {
+			if entry.ID.Equal(modID) {
+				kind = registry.EntryUpdate
+				break
+			}
 		}
 		modEntry := registry.Entry{
 			ID:   modID,
