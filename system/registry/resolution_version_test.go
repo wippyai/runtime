@@ -129,3 +129,87 @@ func TestResolutionChangeIsDigestInequality(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, second.Digest, reg.currentResolution.Digest)
 }
+
+// resolutionOnlyDirective returns a changed resolution and no module
+// operations — the shape of a module version bump whose entries are
+// byte-identical.
+type resolutionOnlyDirective struct {
+	resolution *registry.DependencyResolution
+}
+
+func (d resolutionOnlyDirective) Expand(_ context.Context, op registry.Operation, _ registry.ProvenancedState) (registry.DirectiveResult, error) {
+	return registry.DirectiveResult{
+		Applied:    true,
+		Resolution: d.resolution,
+		Additional: []registry.ScopedOperation{{Operation: op, Scope: registry.ScopeHistory}},
+	}, nil
+}
+
+// TestIdenticalContentVersionBumpTouchesNoResidentEntry pins the incident this
+// change exists for: a module version bump whose entries are byte-identical
+// updates the dependency declaration and the resolution, while the module's
+// resident entries receive no operation — no manager hears anything about
+// them and no instance is recreated.
+func TestIdenticalContentVersionBumpTouchesNoResidentEntry(t *testing.T) {
+	first := (&registry.DependencyResolution{
+		InputDigest: "sha256:one",
+		Roots:       []registry.DependencyRoot{{ID: "app:dep", Component: "acme/mod", Version: "1.0.0"}},
+		Modules:     []registry.ResolvedModule{{Name: "acme/mod", Version: "1.0.0", Digest: "sha256:a"}},
+	}).Canonical()
+	second := (&registry.DependencyResolution{
+		InputDigest: "sha256:two",
+		Roots:       []registry.DependencyRoot{{ID: "app:dep", Component: "acme/mod", Version: "1.0.1"}},
+		Modules:     []registry.ResolvedModule{{Name: "acme/mod", Version: "1.0.1", Digest: "sha256:b"}},
+	}).Canonical()
+
+	reg := newResolutionTestRegistry(t, first)
+	depID := registry.NewID("app", "dep")
+	storeID := registry.NewID("acme.mod", "cache")
+
+	// Install: the declaration plus one module-owned resident entry.
+	_, err := reg.Apply(t.Context(), registry.ChangeSet{
+		{
+			Kind:  registry.EntryCreate,
+			Entry: registry.Entry{ID: depID, Kind: "dep.kind", Data: payloadNew("v: 1.0.0")},
+		},
+		{
+			Kind:       registry.EntryCreate,
+			Entry:      registry.Entry{ID: storeID, Kind: "store.kind", Data: payloadNew("cfg")},
+			Provenance: &registry.EntryProvenance{Module: "acme/mod", Version: "1.0.0", Digest: "sha256:a"},
+		},
+	})
+	require.NoError(t, err)
+	v1, err := reg.Current()
+	require.NoError(t, err)
+
+	storeProvBefore, ok := reg.EntryProvenance(storeID)
+	require.True(t, ok)
+
+	// The bump: the declaration changes, the module's entries are identical,
+	// so the directive emits the declaration update and the new resolution —
+	// nothing for the resident store entry.
+	reg.directivesByKind["dep.kind"] = []registry.Directive{resolutionOnlyDirective{resolution: second}}
+	runner := reg.runner.(*MockRunner)
+	var dispatched registry.ChangeSet
+	prevRun := runner.RunFunc
+	runner.RunFunc = func(state registry.State, cs registry.ChangeSet) (registry.State, error) {
+		dispatched = append(dispatched, cs...)
+		return prevRun(state, cs)
+	}
+
+	v2, err := reg.Apply(t.Context(), registry.ChangeSet{{
+		Kind:  registry.EntryUpdate,
+		Entry: registry.Entry{ID: depID, Kind: "dep.kind", Data: payloadNew("v: 1.0.1")},
+	}})
+	require.NoError(t, err)
+
+	assert.Equal(t, v1.ID()+1, v2.ID())
+	assert.Equal(t, second.Digest, reg.currentResolution.Digest)
+	for _, op := range dispatched {
+		assert.NotEqual(t, storeID, op.Entry.ID.Canonical(),
+			"the module's resident entry must receive no operation for identical content")
+	}
+	storeProvAfter, ok := reg.EntryProvenance(storeID)
+	require.True(t, ok)
+	assert.Equal(t, storeProvBefore, storeProvAfter)
+}
