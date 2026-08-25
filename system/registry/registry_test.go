@@ -397,6 +397,7 @@ func TestInMemoryRegistry_ApplyVersion(t *testing.T) {
 	reg.state = registry.State{
 		{ID: registry.NewID("", "/foo"), Kind: "test", Data: payload.New("data2")},
 	}
+	reg.publishProvenance(hostProvenanced(reg.state).Prov)
 
 	// Mock the runner to return a new state - v1 state
 	runner.newState = registry.State{
@@ -491,6 +492,7 @@ func TestInMemoryRegistry_Apply_HistorySaveError(t *testing.T) {
 		{
 			Kind: registry.EntryCreate,
 			Entry: registry.Entry{
+				ID:   registry.NewID("", "/foo"),
 				Kind: "test",
 				Data: payload.New("data"),
 			},
@@ -609,6 +611,7 @@ func TestInMemoryRegistry_Apply_Rollback_Success(t *testing.T) {
 		{ID: registry.NewID("", "/initial"), Kind: "test", Data: payload.New("initial_data")},
 	}
 	reg.state = initialState
+	reg.publishProvenance(hostProvenanced(initialState).Prov)
 	reg.currentVersion = v0
 
 	changes := registry.ChangeSet{
@@ -685,6 +688,7 @@ func TestInMemoryRegistry_Apply_Rollback_Failure(t *testing.T) {
 		{ID: registry.NewID("", "/initial"), Kind: "test", Data: payload.New("initial_data")},
 	}
 	reg.state = initialState
+	reg.publishProvenance(hostProvenanced(initialState).Prov)
 	reg.currentVersion = v0
 
 	changes := registry.ChangeSet{
@@ -957,7 +961,8 @@ func TestInMemoryRegistry_Rollback(t *testing.T) {
 		return toState, nil
 	}
 
-	err := reg.rollback(context.Background(), fromState, toState, nil, nil)
+	forwardProv := hostProvenanced(fromState).Prov
+	err := reg.rollback(context.Background(), fromState, toState, forwardProv, nil)
 	if err != nil {
 		t.Errorf("Unexpected error during rollback: %v", err)
 	}
@@ -967,7 +972,7 @@ func TestInMemoryRegistry_Rollback(t *testing.T) {
 		return nil, errors.New("rollback failed")
 	}
 
-	err = reg.rollback(context.Background(), fromState, toState, nil, nil)
+	err = reg.rollback(context.Background(), fromState, toState, forwardProv, nil)
 	if err == nil {
 		t.Fatal("Expected error during failed rollback")
 	}
@@ -1253,6 +1258,7 @@ func TestInMemoryRegistry_RollbackPartialState(t *testing.T) {
 		{ID: registry.NewID("", "/initial"), Kind: "test", Data: payload.New("initial_data")},
 	}
 	reg.state = initialState
+	reg.publishProvenance(hostProvenanced(initialState).Prov)
 	reg.currentVersion = v0
 
 	changes := registry.ChangeSet{
@@ -1268,10 +1274,7 @@ func TestInMemoryRegistry_RollbackPartialState(t *testing.T) {
 
 	newState := initialState
 	newState = append(newState, changes[0].Entry)
-	partialRollbackState := registry.State{
-		{ID: registry.NewID("", "/initial"), Kind: "test", Data: payload.New("initial_data")},
-		{ID: registry.NewID("", "/partial"), Kind: "test", Data: payload.New("partial_data")},
-	}
+	partialRollbackState := newState
 
 	callCount := 0
 	runner.RunFunc = func(state registry.State, _ registry.ChangeSet) (registry.State, error) {
@@ -1305,7 +1308,7 @@ func TestInMemoryRegistry_RollbackPartialState(t *testing.T) {
 		t.Errorf("Expected state to have 2 entries (partial rollback), got %d", len(reg.state))
 	}
 
-	if reg.state[1].ID.Name != "/partial" {
+	if reg.state[1].ID.Name != "/new" {
 		t.Errorf("Expected partial state to be preserved, got: %v", reg.state)
 	}
 }
@@ -1668,6 +1671,7 @@ func TestApplyVersion_Rollback_RespectsDependencyOrder(t *testing.T) {
 		{ID: libID, Kind: "library", Data: payload.New("lib")},
 		{ID: testID, Kind: "test", Data: payload.New("test")},
 	}
+	reg.publishProvenance(hostProvenanced(reg.state).Prov)
 
 	err := reg.ApplyVersion(context.Background(), v0)
 	require.NoError(t, err,

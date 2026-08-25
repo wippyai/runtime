@@ -4,6 +4,7 @@ package registry
 
 import (
 	"errors"
+
 	"github.com/wippyai/runtime/api/attrs"
 	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/registry"
@@ -23,6 +24,14 @@ func NewEntryNotFoundError(path registry.ID) apierror.Error {
 	return apierror.New(apierror.NotFound, "entry not found").
 		WithRetryable(apierror.False).
 		WithDetails(attrs.NewBagFrom(map[string]any{"path": path.String()}))
+}
+
+// NewProvenanceInvariantError reports registry-owned state that cannot be
+// paired one-to-one with its ownership records.
+func NewProvenanceInvariantError(err error) apierror.Error {
+	return apierror.New(apierror.Internal, "registry provenance invariant violated").
+		WithRetryable(apierror.False).
+		WithCause(err)
 }
 
 // NewApplyChangesError creates an error when applying changes fails

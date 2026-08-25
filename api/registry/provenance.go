@@ -11,10 +11,28 @@ import (
 // violation of the ProvMap total-map invariant.
 var ErrMissingProvenance = fmt.Errorf("entry has no provenance record")
 
+// ErrOrphanedProvenance reports a provenance record without a corresponding
+// state entry — also a violation of the one-record-per-entry invariant.
+var ErrOrphanedProvenance = fmt.Errorf("provenance record has no entry")
+
+// ErrConflictingModuleProvenance reports entries that attribute one module to
+// different resident artifact identities.
+var ErrConflictingModuleProvenance = fmt.Errorf("module has conflicting provenance records")
+
 // NewMissingProvenanceError names the entry that violates the total-map
 // invariant.
 func NewMissingProvenanceError(id ID) error {
 	return fmt.Errorf("%s: %w", id.String(), ErrMissingProvenance)
+}
+
+// NewOrphanedProvenanceError names the record that has no state entry.
+func NewOrphanedProvenanceError(id ID) error {
+	return fmt.Errorf("%s: %w", id.String(), ErrOrphanedProvenance)
+}
+
+// NewConflictingModuleProvenanceError names the module whose entries disagree.
+func NewConflictingModuleProvenanceError(module string) error {
+	return fmt.Errorf("%s: %w", module, ErrConflictingModuleProvenance)
 }
 
 // EntryProvenance is what the runtime knows ABOUT an entry, held by the
@@ -71,9 +89,26 @@ type ProvenancedState struct {
 // Validate reports the first entry without a provenance record, enforcing the
 // total-map invariant at a state boundary.
 func (s ProvenancedState) Validate() error {
+	entries := make(map[ID]struct{}, len(s.Entries))
+	modules := make(map[string]EntryProvenance)
 	for _, entry := range s.Entries {
-		if _, ok := s.Prov[entry.ID]; !ok {
+		p, ok := s.Prov[entry.ID]
+		if !ok {
 			return NewMissingProvenanceError(entry.ID)
+		}
+		entries[entry.ID] = struct{}{}
+		if p.Module == "" {
+			continue
+		}
+		if resident, exists := modules[p.Module]; exists &&
+			(resident.Version != p.Version || resident.Digest != p.Digest) {
+			return NewConflictingModuleProvenanceError(p.Module)
+		}
+		modules[p.Module] = p
+	}
+	for id := range s.Prov {
+		if _, ok := entries[id]; !ok {
+			return NewOrphanedProvenanceError(id)
 		}
 	}
 	return nil
@@ -87,7 +122,7 @@ type ProvenanceReader interface {
 	EntryProvenance(ID) (EntryProvenance, bool)
 	// ResidentModules folds the current provenance into module -> identity of
 	// the artifact whose entries are resident.
-	ResidentModules() map[string]EntryProvenance
+	ResidentModules() (map[string]EntryProvenance, error)
 	// DependencyRoots returns the IDs of the current deployment roots.
 	DependencyRoots() []ID
 }

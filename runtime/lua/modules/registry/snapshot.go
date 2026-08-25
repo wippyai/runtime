@@ -18,9 +18,9 @@ type Snapshot struct {
 	reg          regapi.Registry
 	version      regapi.Version
 	log          *zap.Logger
+	prov         regapi.ProvMap
 	overlayOwner string
 	entries      []regapi.Entry
-	prov         regapi.ProvMap
 	overlayGen   uint64
 }
 

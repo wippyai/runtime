@@ -15,9 +15,9 @@ import (
 // new map; the input is not mutated. Rules: a create takes the operation's
 // provenance, or an explicit host record when it carries none; an update with
 // provenance replaces the record and one without preserves it; a delete clears
-// it. An update of an entry with no existing record backfills the host record,
-// keeping the map total for states assembled before provenance existed.
-func applyOpsToProvenance(prov registry.ProvMap, ops registry.ChangeSet) registry.ProvMap {
+// it. An update without an existing record is an invariant violation: legacy
+// state is normalized at the load boundary, never during a live transition.
+func applyOpsToProvenance(prov registry.ProvMap, ops registry.ChangeSet) (registry.ProvMap, error) {
 	out := prov.Clone()
 	if out == nil {
 		out = make(registry.ProvMap, len(ops))
@@ -35,13 +35,13 @@ func applyOpsToProvenance(prov registry.ProvMap, ops registry.ChangeSet) registr
 			if op.Provenance != nil {
 				out[id] = *op.Provenance
 			} else if _, ok := out[id]; !ok {
-				out[id] = registry.EntryProvenance{}
+				return nil, registry.NewMissingProvenanceError(id)
 			}
 		case registry.EntryDelete:
 			delete(out, id)
 		}
 	}
-	return out
+	return out, nil
 }
 
 // annotateChangeSet fills the provenance pair on operations that lack it, from
@@ -79,28 +79,32 @@ func annotateChangeSet(ops registry.ChangeSet, from, to registry.ProvMap) {
 // provenanceForState builds a total map for an arbitrary state from the best
 // available sources: the previous map for entries that survived, operation
 // provenance for entries a changeset introduced, and the host record
-// otherwise. It reconciles the provenance after a failed compensation left a
-// partial state.
-func provenanceForState(state registry.State, prev registry.ProvMap, ops registry.ChangeSet) registry.ProvMap {
-	byOp := make(map[registry.ID]*registry.EntryProvenance, len(ops))
+// otherwise. Missing ownership is never interpreted as host ownership.
+func provenanceForState(state registry.State, prev registry.ProvMap, ops registry.ChangeSet) (registry.ProvMap, error) {
+	prev = canonicalProvClone(prev)
+	byOp := make(map[registry.ID]registry.EntryProvenance, len(ops))
 	for i := range ops {
+		id := canonicalEntryID(ops[i].Entry.ID)
 		if ops[i].Provenance != nil {
-			byOp[ops[i].Entry.ID] = ops[i].Provenance
+			byOp[id] = *ops[i].Provenance
+		} else if ops[i].Kind == registry.EntryCreate {
+			byOp[id] = registry.EntryProvenance{}
 		}
 	}
 	out := make(registry.ProvMap, len(state))
 	for _, entry := range state {
-		if p, ok := prev[entry.ID]; ok {
-			out[entry.ID] = p
+		id := canonicalEntryID(entry.ID)
+		if p, ok := prev[id]; ok {
+			out[id] = p
 			continue
 		}
-		if p, ok := byOp[entry.ID]; ok {
-			out[entry.ID] = *p
+		if p, ok := byOp[id]; ok {
+			out[id] = p
 			continue
 		}
-		out[entry.ID] = registry.EntryProvenance{}
+		return nil, registry.NewMissingProvenanceError(id)
 	}
-	return out
+	return out, nil
 }
 
 // --- ProvenanceReader ---
@@ -119,19 +123,23 @@ func (r *Reg) EntryProvenance(id registry.ID) (registry.EntryProvenance, bool) {
 
 // ResidentModules folds the current provenance into module name to resident
 // artifact identity.
-func (r *Reg) ResidentModules() map[string]registry.EntryProvenance {
+func (r *Reg) ResidentModules() (map[string]registry.EntryProvenance, error) {
 	snap := r.prov.Load()
 	if snap == nil {
-		return nil
+		return nil, nil
 	}
 	out := make(map[string]registry.EntryProvenance)
 	for _, p := range *snap {
 		if p.Module == "" {
 			continue
 		}
+		if resident, ok := out[p.Module]; ok &&
+			(resident.Version != p.Version || resident.Digest != p.Digest) {
+			return nil, registry.NewConflictingModuleProvenanceError(p.Module)
+		}
 		out[p.Module] = registry.EntryProvenance{Module: p.Module, Version: p.Version, Digest: p.Digest}
 	}
-	return out
+	return out, nil
 }
 
 // DependencyRoots returns the IDs of the current deployment roots.
@@ -149,9 +157,9 @@ func (r *Reg) DependencyRoots() []registry.ID {
 	return roots
 }
 
-// Provenance returns the current provenance map. The returned map is the live
-// immutable snapshot and must not be mutated.
-func (r *Reg) Provenance() registry.ProvMap {
+// provenanceSnapshot returns the live immutable map for registry-internal reads.
+// Values crossing a component boundary must clone it.
+func (r *Reg) provenanceSnapshot() registry.ProvMap {
 	snap := r.prov.Load()
 	if snap == nil {
 		return nil
@@ -162,7 +170,8 @@ func (r *Reg) Provenance() registry.ProvMap {
 // publishProvenance swaps the provenance snapshot. Called with r.mu held at
 // the same points the state is swapped, so state and provenance move together.
 func (r *Reg) publishProvenance(prov registry.ProvMap) {
-	r.prov.Store(&prov)
+	owned := canonicalProvClone(prov)
+	r.prov.Store(&owned)
 }
 
 // SnapshotState returns the current version, entries, and provenance as one
@@ -173,7 +182,7 @@ func (r *Reg) SnapshotState() (registry.Version, registry.ProvenancedState, erro
 	defer r.mu.RUnlock()
 	entries := make(registry.State, len(r.state))
 	copy(entries, r.state)
-	return r.currentVersion, registry.ProvenancedState{Entries: entries, Prov: r.Provenance()}, nil
+	return r.currentVersion, registry.ProvenancedState{Entries: entries, Prov: r.provenanceSnapshot().Clone()}, nil
 }
 
 // SetDependencyRoot flips the deployment-root selection of one ns.dependency

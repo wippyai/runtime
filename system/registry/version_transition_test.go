@@ -595,7 +595,7 @@ func TestApplyVersion_RunsDirectives(t *testing.T) {
 	depID := registry.NewID("app", "dep")
 	modID := registry.NewID("mod", "svc")
 
-	expander := directiveFunc(func(_ context.Context, op registry.Operation, _ registry.ProvenancedState) (registry.DirectiveResult, error) {
+	expander := directiveFunc(func(_ context.Context, op registry.Operation, state registry.ProvenancedState) (registry.DirectiveResult, error) {
 		if op.Entry.Kind != registry.NamespaceDependency {
 			return registry.DirectiveResult{}, nil
 		}
@@ -607,9 +607,12 @@ func TestApplyVersion_RunsDirectives(t *testing.T) {
 				}
 			}
 		}
-		kind := registry.EntryUpdate
-		if op.Kind == registry.EntryCreate {
-			kind = registry.EntryCreate
+		kind := registry.EntryCreate
+		for _, entry := range state.Entries {
+			if entry.ID.Equal(modID) {
+				kind = registry.EntryUpdate
+				break
+			}
 		}
 		modEntry := registry.Entry{
 			ID:   modID,

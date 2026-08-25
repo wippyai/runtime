@@ -42,12 +42,14 @@ func TestApplyOpsToProvenance(t *testing.T) {
 	owned := &registry.EntryProvenance{Module: "org/mod", Version: "1.0.0", Digest: "sha256:x"}
 
 	t.Run("create with provenance records it", func(t *testing.T) {
-		out := applyOpsToProvenance(nil, registry.ChangeSet{provOp(registry.EntryCreate, a, owned)})
+		out, err := applyOpsToProvenance(nil, registry.ChangeSet{provOp(registry.EntryCreate, a, owned)})
+		require.NoError(t, err)
 		assert.Equal(t, *owned, out[a])
 	})
 
 	t.Run("create without provenance records the host entry", func(t *testing.T) {
-		out := applyOpsToProvenance(nil, registry.ChangeSet{provOp(registry.EntryCreate, a, nil)})
+		out, err := applyOpsToProvenance(nil, registry.ChangeSet{provOp(registry.EntryCreate, a, nil)})
+		require.NoError(t, err)
 		p, ok := out[a]
 		require.True(t, ok, "total map: every created entry has a record")
 		assert.True(t, p.HostAuthored())
@@ -55,27 +57,28 @@ func TestApplyOpsToProvenance(t *testing.T) {
 
 	t.Run("update without provenance preserves the record", func(t *testing.T) {
 		prov := registry.ProvMap{a: *owned}
-		out := applyOpsToProvenance(prov, registry.ChangeSet{provOp(registry.EntryUpdate, a, nil)})
+		out, err := applyOpsToProvenance(prov, registry.ChangeSet{provOp(registry.EntryUpdate, a, nil)})
+		require.NoError(t, err)
 		assert.Equal(t, *owned, out[a])
 	})
 
 	t.Run("update with provenance replaces the record", func(t *testing.T) {
 		prov := registry.ProvMap{a: *owned}
 		next := &registry.EntryProvenance{Module: "org/mod", Version: "2.0.0", Digest: "sha256:y"}
-		out := applyOpsToProvenance(prov, registry.ChangeSet{provOp(registry.EntryUpdate, a, next)})
+		out, err := applyOpsToProvenance(prov, registry.ChangeSet{provOp(registry.EntryUpdate, a, next)})
+		require.NoError(t, err)
 		assert.Equal(t, *next, out[a])
 	})
 
-	t.Run("update of an unknown entry backfills the host record", func(t *testing.T) {
-		out := applyOpsToProvenance(nil, registry.ChangeSet{provOp(registry.EntryUpdate, a, nil)})
-		p, ok := out[a]
-		require.True(t, ok)
-		assert.True(t, p.HostAuthored())
+	t.Run("update of an unknown entry fails closed", func(t *testing.T) {
+		_, err := applyOpsToProvenance(nil, registry.ChangeSet{provOp(registry.EntryUpdate, a, nil)})
+		require.ErrorIs(t, err, registry.ErrMissingProvenance)
 	})
 
 	t.Run("delete clears the record", func(t *testing.T) {
 		prov := registry.ProvMap{a: *owned, b: {}}
-		out := applyOpsToProvenance(prov, registry.ChangeSet{provOp(registry.EntryDelete, a, nil)})
+		out, err := applyOpsToProvenance(prov, registry.ChangeSet{provOp(registry.EntryDelete, a, nil)})
+		require.NoError(t, err)
 		_, ok := out[a]
 		assert.False(t, ok)
 		_, ok = out[b]
@@ -84,15 +87,20 @@ func TestApplyOpsToProvenance(t *testing.T) {
 
 	t.Run("input map is not mutated", func(t *testing.T) {
 		prov := registry.ProvMap{a: *owned}
-		_ = applyOpsToProvenance(prov, registry.ChangeSet{provOp(registry.EntryDelete, a, nil)})
+		_, err := applyOpsToProvenance(prov, registry.ChangeSet{provOp(registry.EntryDelete, a, nil)})
+		require.NoError(t, err)
 		assert.Contains(t, prov, a)
 	})
 
 	t.Run("fold is deterministic over composition", func(t *testing.T) {
 		ops1 := registry.ChangeSet{provOp(registry.EntryCreate, a, owned)}
 		ops2 := registry.ChangeSet{provOp(registry.EntryDelete, a, nil), provOp(registry.EntryCreate, b, nil)}
-		once := applyOpsToProvenance(applyOpsToProvenance(nil, ops1), ops2)
-		all := applyOpsToProvenance(nil, append(append(registry.ChangeSet{}, ops1...), ops2...))
+		intermediate, err := applyOpsToProvenance(nil, ops1)
+		require.NoError(t, err)
+		once, err := applyOpsToProvenance(intermediate, ops2)
+		require.NoError(t, err)
+		all, err := applyOpsToProvenance(nil, append(append(registry.ChangeSet{}, ops1...), ops2...))
+		require.NoError(t, err)
 		assert.Equal(t, all, once)
 	})
 }
@@ -134,7 +142,8 @@ func TestProvenanceForState(t *testing.T) {
 	prev := registry.ProvMap{a: {Module: "org/mod"}}
 	ops := registry.ChangeSet{provOp(registry.EntryCreate, b, &registry.EntryProvenance{Module: "org/new"})}
 
-	out := provenanceForState(state, prev, ops)
+	out, err := provenanceForState(state, prev, ops)
+	require.NoError(t, err)
 	assert.Equal(t, "org/mod", out[a].Module)
 	assert.Equal(t, "org/new", out[b].Module)
 	assert.Len(t, out, 2)
@@ -166,7 +175,8 @@ func TestApplyPublishesProvenanceWithState(t *testing.T) {
 	assert.Equal(t, "org/mod", p.Module)
 	assert.Equal(t, "1.0.0", p.Version)
 
-	resident := reg.ResidentModules()
+	resident, err := reg.ResidentModules()
+	require.NoError(t, err)
 	require.Contains(t, resident, "org/mod")
 	assert.Equal(t, "sha256:x", resident["org/mod"].Digest)
 }
@@ -220,4 +230,41 @@ func TestUserUpdatePreservesProvenance(t *testing.T) {
 	require.NoError(t, err)
 	_, ok = reg.EntryProvenance(id)
 	assert.False(t, ok, "delete clears the record")
+}
+
+func TestSnapshotStateDoesNotExposeLiveProvenance(t *testing.T) {
+	reg, _ := newTestRegistry(t)
+	id := registry.NewID("ns", "svc")
+	reg.publishProvenance(registry.ProvMap{id: {Module: "org/mod", Version: "1.0.0"}})
+
+	_, snapshot, err := reg.SnapshotState()
+	require.NoError(t, err)
+	snapshot.Prov[id] = registry.EntryProvenance{}
+
+	p, ok := reg.EntryProvenance(id)
+	require.True(t, ok)
+	assert.Equal(t, "org/mod", p.Module)
+}
+
+func TestPublishProvenanceTakesOwnership(t *testing.T) {
+	reg, _ := newTestRegistry(t)
+	id := registry.NewID("ns", "svc")
+	input := registry.ProvMap{id: {Module: "org/mod", Version: "1.0.0"}}
+	reg.publishProvenance(input)
+	input[id] = registry.EntryProvenance{}
+
+	p, ok := reg.EntryProvenance(id)
+	require.True(t, ok)
+	assert.Equal(t, "org/mod", p.Module)
+}
+
+func TestResidentModulesRejectsConflictingIdentity(t *testing.T) {
+	reg, _ := newTestRegistry(t)
+	reg.publishProvenance(registry.ProvMap{
+		registry.NewID("ns", "a"): {Module: "org/mod", Version: "1.0.0", Digest: "sha256:a"},
+		registry.NewID("ns", "b"): {Module: "org/mod", Version: "2.0.0", Digest: "sha256:b"},
+	})
+
+	_, err := reg.ResidentModules()
+	require.ErrorIs(t, err, registry.ErrConflictingModuleProvenance)
 }

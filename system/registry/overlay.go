@@ -51,6 +51,7 @@ func (r *Reg) applyOverlayLocked(ctx context.Context, owner string, expectedGene
 
 	r.mu.RLock()
 	snapshot := append(registry.State(nil), r.state...)
+	liveProv := r.provenanceSnapshot()
 	currentGeneration, activeOwner := r.overlayGeneration[owner]
 	if !activeOwner {
 		currentGeneration = r.overlayFloor
@@ -132,13 +133,18 @@ func (r *Reg) applyOverlayLocked(ctx context.Context, owner string, expectedGene
 	if err != nil {
 		return 0, NewSortChangesError(err)
 	}
+	nextProv, err := applyOpsToProvenance(liveProv, sorted)
+	if err != nil {
+		return 0, NewProvenanceInvariantError(err)
+	}
+	annotateChangeSet(sorted, liveProv, nextProv)
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	newState, err := r.runner.Transition(ctx, r.state, sorted)
 	if err != nil {
 		if newState != nil && ctx.Err() == nil {
-			if rollbackErr := r.rollback(ctx, newState, r.state, nil, nil); rollbackErr != nil {
+			if rollbackErr := r.rollback(ctx, newState, r.state, nextProv, nil); rollbackErr != nil {
 				r.reconcileOverlayIndexesAfterFailedRollback(owner, owners, changes)
 				return 0, NewApplyChangesError(err, rollbackErr)
 			}
@@ -151,6 +157,7 @@ func (r *Reg) applyOverlayLocked(ctx context.Context, owner string, expectedGene
 	r.state = newState
 	r.rebuildIndex()
 	r.patchDepIndex(sorted)
+	r.publishProvenance(nextProv)
 	return nextGeneration, nil
 }
 
@@ -233,6 +240,20 @@ func (r *Reg) validateOverlayComposition(effective registry.StateMap, owners map
 		}
 		return nil
 	})
+}
+
+// mergeOverlayProvenance carries process-local entries across durable version
+// selection. Overlay ownership remains in overlayOwners; its provenance record
+// is the explicit host record used by the total live-state map.
+func (r *Reg) mergeOverlayProvenance(target, live registry.ProvMap) error {
+	for id := range r.overlayOwners {
+		p, ok := live[id]
+		if !ok {
+			return registry.NewMissingProvenanceError(id)
+		}
+		target[id] = p
+	}
+	return nil
 }
 
 func (r *Reg) validateDurableTransitionAgainstOverlays(allOps registry.ChangeSet) error {

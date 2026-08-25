@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
 
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/wapp"
@@ -83,6 +84,15 @@ func packProvenanceFromMetadata(reader *wapp.Reader, loadedEntries []registry.En
 			return nil, fmt.Errorf("provenance frame does not cover entry %s", id.String())
 		}
 		out[id] = pr
+		delete(byID, id.String())
+	}
+	if len(byID) != 0 {
+		extra := make([]string, 0, len(byID))
+		for id := range byID {
+			extra = append(extra, id)
+		}
+		sort.Strings(extra)
+		return nil, fmt.Errorf("provenance frame contains record for unknown entry %s", extra[0])
 	}
 	return out, nil
 }

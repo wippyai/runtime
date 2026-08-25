@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/internal/version"
 	historymem "github.com/wippyai/runtime/system/registry/history/memory"
 	"github.com/wippyai/runtime/system/registry/topology"
 	"go.uber.org/zap"
@@ -225,6 +226,7 @@ func TestRegistry_LoadState_WithHistory(t *testing.T) {
 		{ID: registry.NewID("test", "entry1"), Kind: "service", Data: payload.New("initial")},
 		{ID: registry.NewID("test", "entry2"), Kind: "service", Data: payload.New("initial")},
 	}
+	require.NoError(t, reg.LoadState(ctx, hostProvenanced(baseline), version.New(registry.RootVersion)))
 
 	cs1 := registry.ChangeSet{
 		{Kind: registry.EntryUpdate, Entry: registry.Entry{ID: registry.NewID("test", "entry1"), Kind: "service", Data: payload.New("updated")}},
@@ -397,6 +399,7 @@ func TestRegistry_LoadState_MultipleVersions(t *testing.T) {
 	baseline := registry.State{
 		{ID: registry.NewID("test", "entry1"), Kind: "service", Data: payload.New("v0")},
 	}
+	require.NoError(t, reg.LoadState(ctx, hostProvenanced(baseline), version.New(registry.RootVersion)))
 
 	cs1 := registry.ChangeSet{
 		{Kind: registry.EntryUpdate, Entry: registry.Entry{ID: registry.NewID("test", "entry1"), Kind: "service", Data: payload.New("v1")}},
