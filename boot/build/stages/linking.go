@@ -54,6 +54,7 @@ type LinkOption func(*linkStage)
 
 type linkStage struct {
 	strictModules     map[string]struct{}
+	provenance        registry.ProvMap
 	dependencyEntries []registry.Entry
 	explicitDeps      bool
 	strict            bool
@@ -62,8 +63,14 @@ type linkStage struct {
 
 // Link creates a new linking stage that resolves requirements to their values
 // and applies them to target entries.
-func Link(opts ...LinkOption) boot.Stage {
-	stage := &linkStage{}
+//
+// prov is the provenance of the entries being linked and is the only source of
+// module membership: which module declares a namespace, which dependency is a
+// package-injected transitive, and which requirement falls under strict module
+// scope. It is a required argument so every caller answers that question; a
+// build of a single source tree, which has no module world, passes nil.
+func Link(prov registry.ProvMap, opts ...LinkOption) boot.Stage {
+	stage := &linkStage{provenance: prov}
 	for _, opt := range opts {
 		if opt != nil {
 			opt(stage)
@@ -138,7 +145,7 @@ func (s *linkStage) Execute(ctx context.Context, entries *[]registry.Entry) erro
 		}
 	}
 
-	moduleNamespaces, err := declaredModuleNamespaces(*entries)
+	moduleNamespaces, err := s.declaredModuleNamespaces(*entries)
 	if err != nil {
 		return err
 	}
@@ -191,8 +198,7 @@ func (s *linkStage) shouldFailUnresolvedRequirement(req decodedRequirement) bool
 		return false
 	}
 	if s.strictModuleScope {
-		module := requirementModuleFromEntry(req.entry)
-		_, ok := s.strictModules[module]
+		_, ok := s.strictModules[s.entryModule(req.entry)]
 		return ok
 	}
 	return true
@@ -220,7 +226,7 @@ func (s *linkStage) collectDependencies(
 			return nil, NewDecodeDependencyError(e.ID.String(), err)
 		}
 		ownedNamespace := moduleNamespaces[def.Component]
-		if ownedNamespace == "" && len(def.Parameters) > 0 && loadedModule(*entries, def.Component) {
+		if ownedNamespace == "" && len(def.Parameters) > 0 && s.loadedModule(*entries, def.Component) {
 			return nil, fmt.Errorf(
 				"dependency %s cannot bind parameters for component %s: loaded module has no ns.definition root namespace",
 				e.ID.String(),
@@ -231,7 +237,7 @@ func (s *linkStage) collectDependencies(
 		dependencies[e.ID.String()] = decodedDependency{
 			definition:     def,
 			ownedNamespace: ownedNamespace,
-			transitive:     requirementModuleFromEntry(e) != "" && !e.DependencyRoot,
+			transitive:     s.transitiveDependency(e),
 		}
 	}
 
@@ -536,19 +542,22 @@ func (s *linkStage) findTargetEntries(
 	return results
 }
 
-func requirementModuleFromEntry(entry registry.Entry) string {
-	if entry.Meta == nil {
-		return ""
-	}
-	if module, ok := entry.Meta["module"].(string); ok {
-		return module
-	}
-	return ""
+// entryModule returns the module owning an entry, empty when the entry is
+// host-authored or the build carries no module world.
+func (s *linkStage) entryModule(entry registry.Entry) string {
+	return s.provenance[entry.ID].Module
 }
 
-func loadedModule(entries []registry.Entry, module string) bool {
+// transitiveDependency reports a declaration a package injected, as opposed to
+// one the deployment selected. Ownership and root selection are independent.
+func (s *linkStage) transitiveDependency(entry registry.Entry) bool {
+	record := s.provenance[entry.ID]
+	return record.Module != "" && !record.Root
+}
+
+func (s *linkStage) loadedModule(entries []registry.Entry, module string) bool {
 	for _, entry := range entries {
-		if requirementModuleFromEntry(entry) == module {
+		if s.entryModule(entry) == module {
 			return true
 		}
 	}
@@ -557,17 +566,17 @@ func loadedModule(entries []registry.Entry, module string) bool {
 
 // declaredModuleNamespaces returns the canonical registry namespace exported
 // by each loaded module. Publishing requires exactly one ns.definition per
-// module, and the loader records the containing module on that entry. This is
+// module, and provenance records which module produced that entry. This is
 // the authoritative bridge between a Hub component name (org/module) and its
 // registry namespace; neither spelling nor pluralization is inferred.
-func declaredModuleNamespaces(entries []registry.Entry) (map[string]string, error) {
+func (s *linkStage) declaredModuleNamespaces(entries []registry.Entry) (map[string]string, error) {
 	namespaces := make(map[string]string)
 	owners := make(map[string]string)
 	for _, entry := range entries {
 		if entry.Kind != registry.NamespaceDefinition {
 			continue
 		}
-		module := requirementModuleFromEntry(entry)
+		module := s.entryModule(entry)
 		if module == "" {
 			continue
 		}

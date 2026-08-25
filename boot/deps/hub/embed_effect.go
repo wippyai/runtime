@@ -147,7 +147,7 @@ func (e *embedPackEffect) rollbackPrepared() {
 func (h *DependencyHandler) buildEmbedPackEffect(
 	ctx context.Context,
 	resolved []ResolvedModule,
-	snapshot regapi.State,
+	snapshot regapi.ProvenancedState,
 	controlled map[string]struct{},
 ) (*embedPackEffect, error) {
 	reg := embedpkg.GetRegistryFromContext(ctx)
@@ -156,8 +156,8 @@ func (h *DependencyHandler) buildEmbedPackEffect(
 	}
 
 	desired := make(map[string]string, len(resolved))
-	installed := snapshotModuleVersions(snapshot)
-	installedDigests := snapshotModuleDigests(snapshot)
+	installed := residentModuleVersions(snapshot.Prov)
+	installedDigests := residentModuleDigests(snapshot.Prov)
 	staged := make([]stagedPack, 0, len(resolved))
 	for _, mod := range resolved {
 		name := mod.Org + "/" + mod.Name
@@ -199,7 +199,7 @@ func (h *DependencyHandler) buildEmbedPackEffect(
 		})
 	}
 
-	obsolete := obsoletePacksFor(snapshot, desired, controlled)
+	obsolete := obsoletePacksFor(installed, desired, controlled)
 
 	if len(staged) == 0 && len(obsolete) == 0 {
 		return nil, nil
@@ -218,13 +218,12 @@ func (h *DependencyHandler) buildEmbedPackEffect(
 	}, nil
 }
 
-// obsoletePacksFor returns controlled snapshot modules whose version is not the
+// obsoletePacksFor returns controlled resident modules whose version is not the
 // desired version (changed) or which are no longer desired at all (removed).
 // Packs outside controlled are unrelated to this dependency operation and must
 // remain live. A staged pack for the new version is keyed by its own path, so
 // unregistering the old version never affects the new pack.
-func obsoletePacksFor(snapshot regapi.State, desired map[string]string, controlled map[string]struct{}) []obsoletePack {
-	current := snapshotModuleVersions(snapshot)
+func obsoletePacksFor(current map[string]string, desired map[string]string, controlled map[string]struct{}) []obsoletePack {
 	obsolete := make([]obsoletePack, 0)
 	for module, version := range current {
 		if _, ok := controlled[module]; !ok {

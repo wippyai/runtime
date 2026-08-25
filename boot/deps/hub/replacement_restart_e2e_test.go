@@ -64,7 +64,7 @@ replacements:
 		require.NoError(t, err)
 		return handler
 	}
-	newRegistry := func(history regapi.History, handler *DependencyHandler) *registryimpl.Reg {
+	newRegistry := func(history regapi.History, handler *DependencyHandler, prov *registryProvenance) *registryimpl.Reg {
 		resolver := topology.NewResolver()
 		handler.resolver = resolver
 		return registryimpl.NewRegistry(
@@ -75,7 +75,7 @@ replacements:
 			zap.NewNop(),
 			registryimpl.WithKindDirective(
 				regapi.NamespaceDependency,
-				regexp.NewDependencyDirective(handler.Expand).WithResolutionTransition(handler.ReconcileResolution),
+				regexp.NewDependencyDirective(prov.expand(handler)).WithResolutionTransition(prov.reconcile(handler)),
 			),
 		)
 	}
@@ -84,13 +84,17 @@ replacements:
 	require.NoError(t, err)
 	initialHistory := history
 	t.Cleanup(func() { _ = initialHistory.Close() })
-	registry := newRegistry(history, newHandler())
+	// One tracker spans the restart: the registry's provenance travels with the
+	// state it describes, and the rebuild is detected by comparing the current
+	// tree identity against the resident record.
+	prov := newRegistryProvenance(regapi.ProvenancedState{})
+	registry := newRegistry(history, newHandler(), prov)
 	root := regapi.Entry{
 		ID:   regapi.NewID("app.deps", "local"),
 		Kind: regapi.NamespaceDependency,
 		Data: payload.New(map[string]any{"component": "local/mod", "version": "v0.1.0"}),
 	}
-	fresh := newRegistry(memory.New(), newHandler())
+	fresh := newRegistry(memory.New(), newHandler(), newRegistryProvenance(regapi.ProvenancedState{}))
 	startupCtx := regapi.WithDependencyAccess(newTestContext(), regapi.DependencyAccessUnspecified)
 	require.NoError(t, fresh.LoadState(startupCtx, regapi.State{root}, version.New(0)))
 	_, err = fresh.GetEntry(regapi.NewID("local.mod", "svc"))
@@ -104,7 +108,8 @@ replacements:
 	entryID := regapi.NewID("local.mod", "svc")
 	initialEntry, err := registry.GetEntry(entryID)
 	require.NoError(t, err)
-	initialDigest := moduleDigest(initialEntry)
+	_ = initialEntry
+	initialDigest := prov.record(entryID).Digest
 	require.NotEmpty(t, initialDigest)
 
 	// A frontend rebuild mutates only static content. Simulate a cold restart
@@ -115,13 +120,13 @@ replacements:
 	history, err = historysqlite.NewSQLite(registryPath, zap.NewNop())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = history.Close() })
-	restarted := newRegistry(history, newHandler())
+	restarted := newRegistry(history, newHandler(), prov)
 	restartCtx := regapi.WithDependencyAccess(newTestContext(), regapi.DependencyAccessVerifiedOffline)
 	require.NoError(t, restarted.LoadState(restartCtx, nil, version))
 	require.Zero(t, hubCalls)
 
 	reloadedEntry, err := restarted.GetEntry(entryID)
 	require.NoError(t, err)
-	require.NotEqual(t, initialDigest, moduleDigest(reloadedEntry))
+	require.NotEqual(t, initialDigest, prov.record(entryID).Digest)
 	require.Equal(t, "one", reloadedEntry.Data.Data().(map[string]any)["generation"])
 }

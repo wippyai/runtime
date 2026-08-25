@@ -71,7 +71,7 @@ modules:
 		DependencyRoot: true,
 		Data:           payload.New(map[string]any{"component": "acme/app", "version": "v1.0.0"}),
 	}
-	service := markModuleIdentity(regapi.Entry{
+	service := fixtureOwned(regapi.Entry{
 		ID: regapi.NewID("acme.app", "service"), Kind: "service",
 		Data: payload.New(map[string]any{"version": "1"}),
 	}, "acme/app", "v1.0.0", digest)
@@ -82,6 +82,7 @@ modules:
 		Data: payload.New(map[string]any{"component": "acme/app", "version": ">=1.0.0"}),
 	}
 
+	prov := newRegistryProvenance(fixtureState(baseline))
 	newRegistry := func(history regapi.History) *registryimpl.Reg {
 		resolver := topology.NewResolver()
 		handler, err := NewDependencyHandler(DependencyHandlerOptions{
@@ -91,7 +92,7 @@ modules:
 		return registryimpl.NewRegistry(
 			history, &bootRecordingRunner{}, topology.NewStateBuilder(zap.NewNop(), resolver), resolver, zap.NewNop(),
 			registryimpl.WithKindDirective(regapi.NamespaceDependency,
-				expansion.NewDependencyDirective(handler.Expand).WithResolutionTransition(handler.ReconcileResolution).WithChangesExpansion(handler.ExpandChanges)),
+				expansion.NewDependencyDirective(prov.expand(handler)).WithResolutionTransition(prov.reconcile(handler)).WithChangesExpansion(prov.expandChanges(handler))),
 		)
 	}
 

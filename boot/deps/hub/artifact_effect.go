@@ -17,7 +17,7 @@ var _ regapi.FinalizingEffect = (*artifact.Effect)(nil)
 func (h *DependencyHandler) buildArtifactEffect(
 	ctx context.Context,
 	resolved []ResolvedModule,
-	state regapi.State,
+	state regapi.ProvenancedState,
 ) (regapi.Effect, error) {
 	if h == nil || h.artifacts == nil {
 		return nil, nil
@@ -55,7 +55,7 @@ func (h *DependencyHandler) buildArtifactEffect(
 
 func (h *DependencyHandler) replacementArtifactResources(
 	ctx context.Context,
-	state regapi.State,
+	state regapi.ProvenancedState,
 	versions map[string]string,
 ) ([]artifact.Resource, error) {
 	if len(versions) == 0 {

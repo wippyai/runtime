@@ -39,7 +39,7 @@ func TestReconcile_ParameterDriftOnControllerStillBoots(t *testing.T) {
 	recordedState := regapi.State{root, reference, moduleDefinition, moduleEntry}
 
 	transcoder := payload.GetTranscoder(ctx)
-	baseline, err := handler.deploymentBaselineDigest(ctx, recordedState, transcoder)
+	baseline, err := handler.deploymentBaselineDigest(ctx, fixtureState(recordedState), transcoder)
 	require.NoError(t, err)
 	resolution := hardeningReferencedResolution([]regapi.Entry{root}, []regapi.Entry{reference})
 	resolution.BaselineDigest = baseline
@@ -49,7 +49,7 @@ func TestReconcile_ParameterDriftOnControllerStillBoots(t *testing.T) {
 	driftedRoot := paramRoot("app.deps:a", "acme/a", "v1.0.0", map[string]any{"db": "other:db"})
 	driftedState := regapi.State{driftedRoot, reference, moduleDefinition, moduleEntry}
 
-	result, err := handler.ReconcileResolution(ctx, driftedState, driftedState, resolution)
+	result, err := handler.ReconcileResolution(ctx, fixtureState(driftedState), fixtureState(driftedState), resolution)
 	require.NoError(t, err, "parameter drift must not wedge reconciliation")
 	require.NotNil(t, result.Resolution)
 }

@@ -40,8 +40,9 @@ func TestLink_WithDefault(t *testing.T) {
 		},
 	}
 
-	stage := Link()
-	err := executeLinkFixture(ctx, &entries, stage)
+	prov := registry.ProvMap{}
+	stage := Link(prov)
+	err := executeLinkFixture(ctx, &entries, stage, prov)
 	require.NoError(t, err)
 
 	// Verify value was set
@@ -87,8 +88,9 @@ func TestLink_FromDependency(t *testing.T) {
 		},
 	}
 
-	stage := Link()
-	err := executeLinkFixture(ctx, &entries, stage)
+	prov := registry.ProvMap{}
+	stage := Link(prov)
+	err := executeLinkFixture(ctx, &entries, stage, prov)
 	require.NoError(t, err)
 
 	// Verify dependency parameter was used
@@ -151,8 +153,9 @@ func TestLink_ExplicitDependenciesOverride(t *testing.T) {
 		},
 	}
 
-	stage := Link(WithDependencies(explicitDeps))
-	err := executeLinkFixture(ctx, &entries, stage)
+	prov := registry.ProvMap{}
+	stage := Link(prov, WithDependencies(explicitDeps))
+	err := executeLinkFixture(ctx, &entries, stage, prov)
 	require.NoError(t, err)
 
 	target := findEntry(entries, "vendor.module", "service")
@@ -211,8 +214,9 @@ func TestLink_ConflictError(t *testing.T) {
 		},
 	}
 
-	stage := Link()
-	err := executeLinkFixture(ctx, &entries, stage)
+	prov := registry.ProvMap{}
+	stage := Link(prov)
+	err := executeLinkFixture(ctx, &entries, stage, prov)
 	// Linking stage now logs warnings instead of returning errors
 	require.NoError(t, err)
 }
@@ -267,8 +271,9 @@ func TestLink_ModuleScopedParameters(t *testing.T) {
 		},
 	}
 
-	stage := Link()
-	err := executeLinkFixture(ctx, &entries, stage)
+	prov := registry.ProvMap{}
+	stage := Link(prov)
+	err := executeLinkFixture(ctx, &entries, stage, prov)
 	require.NoError(t, err)
 
 	target := findEntry(entries, "vendor.a", "endpoint")
@@ -339,8 +344,9 @@ func TestLink_BareParameterDoesNotCrossDottedModuleMeta(t *testing.T) {
 		},
 	}
 
-	stage := Link()
-	err := executeLinkFixture(ctx, &entries, stage)
+	prov := registry.ProvMap{}
+	stage := Link(prov)
+	err := executeLinkFixture(ctx, &entries, stage, prov)
 	require.NoError(t, err)
 
 	target1 := findEntry(entries, "app", "db1")
@@ -396,8 +402,9 @@ func TestLink_BareParametersWithSameNameAreScopedToDependencyComponent(t *testin
 		},
 	}
 
-	stage := Link(WithStrictRequirementModules([]string{"wippy/views"}))
-	err := executeLinkFixture(ctx, &entries, stage)
+	prov := registry.ProvMap{}
+	stage := Link(prov, WithStrictRequirementModules([]string{"wippy/views"}))
+	err := executeLinkFixture(ctx, &entries, stage, prov)
 	require.NoError(t, err)
 
 	target := findEntry(entries, "wippy.views", "pages_endpoint")
@@ -454,8 +461,9 @@ func TestLink_DuplicateDependencyParametersForSameRequirementConflict(t *testing
 		},
 	}
 
-	stage := Link(WithStrictRequirementModules([]string{"wippy/bootloader"}))
-	err := executeLinkFixture(ctx, &entries, stage)
+	prov := registry.ProvMap{}
+	stage := Link(prov, WithStrictRequirementModules([]string{"wippy/bootloader"}))
+	err := executeLinkFixture(ctx, &entries, stage, prov)
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "parameter conflict")
 	assert.ErrorContains(t, err, "env_storage=app.env:store")
@@ -500,8 +508,9 @@ func TestLink_FullAndBareParametersForSameRequirementConflict(t *testing.T) {
 		},
 	}
 
-	stage := Link(WithStrictRequirementModules([]string{"wippy/views"}))
-	err := executeLinkFixture(ctx, &entries, stage)
+	prov := registry.ProvMap{}
+	stage := Link(prov, WithStrictRequirementModules([]string{"wippy/views"}))
+	err := executeLinkFixture(ctx, &entries, stage, prov)
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "parameter conflict")
 	assert.ErrorContains(t, err, "api_router=app:api.views")
@@ -578,8 +587,9 @@ func TestLink_FullyQualifiedParameterDoesNotCrossRequirementNamespace(t *testing
 		},
 	}
 
-	stage := Link()
-	err := executeLinkFixture(ctx, &entries, stage)
+	prov := registry.ProvMap{}
+	stage := Link(prov)
+	err := executeLinkFixture(ctx, &entries, stage, prov)
 	require.NoError(t, err)
 
 	facadeEndpoint := findEntry(entries, "wippy.facade", "facade_endpoint")
@@ -645,8 +655,9 @@ func TestLink_SameBareNameOwnedRequirementsResolveByFullID(t *testing.T) {
 		},
 	}
 
-	stage := Link(WithStrictRequirementModules([]string{"kickside/core"}))
-	err := executeLinkFixture(ctx, &entries, stage)
+	prov := registry.ProvMap{}
+	stage := Link(prov, WithStrictRequirementModules([]string{"kickside/core"}))
+	err := executeLinkFixture(ctx, &entries, stage, prov)
 	require.NoError(t, err)
 
 	proj := findEntry(entries, "kickside.core.projections", "proj_endpoint")
@@ -710,8 +721,9 @@ func TestLink_BareNameFansOutToAllOwnedRequirements(t *testing.T) {
 		},
 	}
 
-	stage := Link(WithStrictRequirementModules([]string{"kickside/core"}))
-	err := executeLinkFixture(ctx, &entries, stage)
+	prov := registry.ProvMap{}
+	stage := Link(prov, WithStrictRequirementModules([]string{"kickside/core"}))
+	err := executeLinkFixture(ctx, &entries, stage, prov)
 	require.NoError(t, err)
 
 	proj := findEntry(entries, "kickside.core.projections", "proj_endpoint")
@@ -789,8 +801,9 @@ func TestLink_ThreeWayBareNameFansOut(t *testing.T) {
 		},
 	}
 
-	stage := Link(WithStrictRequirementModules([]string{"kickside/core"}))
-	err := executeLinkFixture(ctx, &entries, stage)
+	prov := registry.ProvMap{}
+	stage := Link(prov, WithStrictRequirementModules([]string{"kickside/core"}))
+	err := executeLinkFixture(ctx, &entries, stage, prov)
 	require.NoError(t, err)
 
 	for _, tc := range []struct{ ns, entry string }{
@@ -861,8 +874,9 @@ func TestLink_BareFanOutWithConflictingFullIDValueFails(t *testing.T) {
 		ctx, _ := setupTestContext()
 		entries := build("app:other")
 
-		stage := Link(WithStrictRequirementModules([]string{"kickside/core"}))
-		err := executeLinkFixture(ctx, &entries, stage)
+		prov := registry.ProvMap{}
+		stage := Link(prov, WithStrictRequirementModules([]string{"kickside/core"}))
+		err := executeLinkFixture(ctx, &entries, stage, prov)
 		require.Error(t, err)
 		assert.ErrorContains(t, err, "parameter conflict")
 		assert.ErrorContains(t, err, "api_router=app:router")
@@ -878,8 +892,9 @@ func TestLink_BareFanOutWithConflictingFullIDValueFails(t *testing.T) {
 		ctx, _ := setupTestContext()
 		entries := build("app:router")
 
-		stage := Link(WithStrictRequirementModules([]string{"kickside/core"}))
-		err := executeLinkFixture(ctx, &entries, stage)
+		prov := registry.ProvMap{}
+		stage := Link(prov, WithStrictRequirementModules([]string{"kickside/core"}))
+		err := executeLinkFixture(ctx, &entries, stage, prov)
 		require.NoError(t, err)
 
 		proj := findEntry(entries, "kickside.core.projections", "proj_endpoint")
@@ -915,8 +930,9 @@ func TestLink_NoValueError(t *testing.T) {
 		},
 	}
 
-	stage := Link()
-	err := executeLinkFixture(ctx, &entries, stage)
+	prov := registry.ProvMap{}
+	stage := Link(prov)
+	err := executeLinkFixture(ctx, &entries, stage, prov)
 	// Linking stage now logs warnings instead of returning errors
 	require.NoError(t, err)
 }
@@ -944,8 +960,9 @@ func TestLink_StrictRequirementsFailsOnMissingValue(t *testing.T) {
 		},
 	}
 
-	stage := Link(WithStrictRequirements())
-	err := executeLinkFixture(ctx, &entries, stage)
+	prov := registry.ProvMap{}
+	stage := Link(prov, WithStrictRequirements())
+	err := executeLinkFixture(ctx, &entries, stage, prov)
 	require.ErrorContains(t, err, "unresolved requirements")
 }
 
@@ -976,8 +993,9 @@ func TestLink_StrictRequirementsFailsOnMissingTarget(t *testing.T) {
 		},
 	}
 
-	stage := Link(WithStrictRequirements())
-	err := executeLinkFixture(ctx, &entries, stage)
+	prov := registry.ProvMap{}
+	stage := Link(prov, WithStrictRequirements())
+	err := executeLinkFixture(ctx, &entries, stage, prov)
 	require.ErrorContains(t, err, "unresolved requirements")
 	require.ErrorContains(t, err, "telegram.handler:webhook_endpoint")
 }
@@ -1022,8 +1040,9 @@ func TestLink_StrictRequirementModulesIgnoresUnrelatedRequirements(t *testing.T)
 		},
 	}
 
-	stage := Link(WithStrictRequirementModules([]string{"acme/module"}))
-	err := executeLinkFixture(ctx, &entries, stage)
+	prov := registry.ProvMap{}
+	stage := Link(prov, WithStrictRequirementModules([]string{"acme/module"}))
+	err := executeLinkFixture(ctx, &entries, stage, prov)
 	require.NoError(t, err)
 
 	endpoint := findEntry(entries, "acme.module", "endpoint")
@@ -1049,8 +1068,9 @@ func TestLink_StrictRequirementModulesEmptyScopeDoesNotFailAppRequirements(t *te
 		},
 	}
 
-	stage := Link(WithStrictRequirementModules(nil))
-	err := executeLinkFixture(ctx, &entries, stage)
+	prov := registry.ProvMap{}
+	stage := Link(prov, WithStrictRequirementModules(nil))
+	err := executeLinkFixture(ctx, &entries, stage, prov)
 	require.NoError(t, err)
 }
 
@@ -1080,8 +1100,9 @@ func TestLink_AppendOperator(t *testing.T) {
 		},
 	}
 
-	stage := Link()
-	err := executeLinkFixture(ctx, &entries, stage)
+	prov := registry.ProvMap{}
+	stage := Link(prov)
+	err := executeLinkFixture(ctx, &entries, stage, prov)
 	require.NoError(t, err)
 
 	// Verify value was appended
@@ -1116,8 +1137,9 @@ func TestLink_SetValue(t *testing.T) {
 		},
 	}
 
-	stage := Link()
-	err := executeLinkFixture(ctx, &entries, stage)
+	prov := registry.ProvMap{}
+	stage := Link(prov)
+	err := executeLinkFixture(ctx, &entries, stage, prov)
 	require.NoError(t, err)
 
 	// Verify value was set
@@ -1151,8 +1173,9 @@ func TestLink_EmptyEntryError(t *testing.T) {
 		},
 	}
 
-	stage := Link()
-	err := executeLinkFixture(ctx, &entries, stage)
+	prov := registry.ProvMap{}
+	stage := Link(prov)
+	err := executeLinkFixture(ctx, &entries, stage, prov)
 	// Linking stage now logs warnings instead of returning errors
 	require.NoError(t, err)
 }
@@ -1181,8 +1204,9 @@ func TestLink_CrossNamespace(t *testing.T) {
 		},
 	}
 
-	stage := Link()
-	err := executeLinkFixture(ctx, &entries, stage)
+	prov := registry.ProvMap{}
+	stage := Link(prov)
+	err := executeLinkFixture(ctx, &entries, stage, prov)
 	require.NoError(t, err)
 
 	// Verify value was set in different namespace
@@ -1226,8 +1250,9 @@ func TestLink_MultipleTargets(t *testing.T) {
 		},
 	}
 
-	stage := Link()
-	err := executeLinkFixture(ctx, &entries, stage)
+	prov := registry.ProvMap{}
+	stage := Link(prov)
+	err := executeLinkFixture(ctx, &entries, stage, prov)
 	require.NoError(t, err)
 
 	// Verify both targets were updated
@@ -1267,8 +1292,9 @@ func TestLink_BarePath(t *testing.T) {
 		},
 	}
 
-	stage := Link()
-	err := executeLinkFixture(ctx, &entries, stage)
+	prov := registry.ProvMap{}
+	stage := Link(prov)
+	err := executeLinkFixture(ctx, &entries, stage, prov)
 	require.NoError(t, err)
 
 	// Verify bare path was treated as data.default
@@ -1303,8 +1329,9 @@ func TestLink_MetaPath(t *testing.T) {
 		},
 	}
 
-	stage := Link()
-	err := executeLinkFixture(ctx, &entries, stage)
+	prov := registry.ProvMap{}
+	stage := Link(prov)
+	err := executeLinkFixture(ctx, &entries, stage, prov)
 	require.NoError(t, err)
 
 	// Verify meta field was set
@@ -1350,8 +1377,9 @@ func TestLink_MultipleRequirements(t *testing.T) {
 		},
 	}
 
-	stage := Link()
-	err := executeLinkFixture(ctx, &entries, stage)
+	prov := registry.ProvMap{}
+	stage := Link(prov)
+	err := executeLinkFixture(ctx, &entries, stage, prov)
 	require.NoError(t, err)
 
 	// Verify both requirements were applied
@@ -1388,8 +1416,9 @@ func TestLink_EmptyDefaultResolvesUnderStrict(t *testing.T) {
 		},
 	}
 
-	stage := Link(WithStrictRequirementModules([]string{"acme/module"}))
-	err := executeLinkFixture(ctx, &entries, stage)
+	prov := registry.ProvMap{}
+	stage := Link(prov, WithStrictRequirementModules([]string{"acme/module"}))
+	err := executeLinkFixture(ctx, &entries, stage, prov)
 	require.NoError(t, err)
 
 	endpoint := findEntry(entries, "acme.module", "endpoint")
@@ -1432,8 +1461,9 @@ func TestLink_EmptyProvidedValueResolvesUnderStrict(t *testing.T) {
 		},
 	}
 
-	stage := Link(WithStrictRequirementModules([]string{"vendor/module"}))
-	err := executeLinkFixture(ctx, &entries, stage)
+	prov := registry.ProvMap{}
+	stage := Link(prov, WithStrictRequirementModules([]string{"vendor/module"}))
+	err := executeLinkFixture(ctx, &entries, stage, prov)
 	require.NoError(t, err)
 }
 
@@ -1464,8 +1494,9 @@ func TestLink_IntDefaultLandsAsInt(t *testing.T) {
 		},
 	}
 
-	stage := Link()
-	err := executeLinkFixture(ctx, &entries, stage)
+	prov := registry.ProvMap{}
+	stage := Link(prov)
+	err := executeLinkFixture(ctx, &entries, stage, prov)
 	require.NoError(t, err)
 
 	target := findEntry(entries, "test", "service")
@@ -1506,8 +1537,9 @@ func TestLink_StringDefaultStaysString(t *testing.T) {
 		},
 	}
 
-	stage := Link()
-	err := executeLinkFixture(ctx, &entries, stage)
+	prov := registry.ProvMap{}
+	stage := Link(prov)
+	err := executeLinkFixture(ctx, &entries, stage, prov)
 	require.NoError(t, err)
 
 	target := findEntry(entries, "test", "service")
@@ -1549,8 +1581,9 @@ func TestLink_BoolAndFloatDefaults(t *testing.T) {
 		},
 	}
 
-	stage := Link()
-	err := executeLinkFixture(ctx, &entries, stage)
+	prov := registry.ProvMap{}
+	stage := Link(prov)
+	err := executeLinkFixture(ctx, &entries, stage, prov)
 	require.NoError(t, err)
 
 	target := findEntry(entries, "test", "service")
@@ -1592,8 +1625,9 @@ func TestLink_TypedDependencyParameter(t *testing.T) {
 		},
 	}
 
-	stage := Link()
-	err := executeLinkFixture(ctx, &entries, stage)
+	prov := registry.ProvMap{}
+	stage := Link(prov)
+	err := executeLinkFixture(ctx, &entries, stage, prov)
 	require.NoError(t, err)
 
 	target := findEntry(entries, "vendor.module", "service")
@@ -1645,8 +1679,9 @@ func TestLink_TypedParameterSameValueNoConflict(t *testing.T) {
 		},
 	}
 
-	stage := Link(WithStrictRequirementModules([]string{"vendor/module"}))
-	err := executeLinkFixture(ctx, &entries, stage)
+	prov := registry.ProvMap{}
+	stage := Link(prov, WithStrictRequirementModules([]string{"vendor/module"}))
+	err := executeLinkFixture(ctx, &entries, stage, prov)
 	require.NoError(t, err)
 
 	target := findEntry(entries, "vendor.module", "service")
@@ -1699,8 +1734,9 @@ func TestLink_TypedParameterConflictLeavesUnresolved(t *testing.T) {
 		},
 	}
 
-	stage := Link(WithStrictRequirementModules([]string{"vendor/module"}))
-	err := executeLinkFixture(ctx, &entries, stage)
+	prov := registry.ProvMap{}
+	stage := Link(prov, WithStrictRequirementModules([]string{"vendor/module"}))
+	err := executeLinkFixture(ctx, &entries, stage, prov)
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "workers=4")
 	assert.ErrorContains(t, err, "workers=8")
@@ -1736,8 +1772,9 @@ func TestLink_NullDefaultLeavesMandatory(t *testing.T) {
 		},
 	}
 
-	stage := Link(WithStrictRequirements())
-	err := executeLinkFixture(ctx, &entries, stage)
+	prov := registry.ProvMap{}
+	stage := Link(prov, WithStrictRequirements())
+	err := executeLinkFixture(ctx, &entries, stage, prov)
 	require.ErrorContains(t, err, "unresolved requirements")
 }
 
@@ -1767,8 +1804,9 @@ func TestLink_PlaceholderDefaultPassesThroughUntouched(t *testing.T) {
 		},
 	}
 
-	stage := Link()
-	err := executeLinkFixture(ctx, &entries, stage)
+	prov := registry.ProvMap{}
+	stage := Link(prov)
+	err := executeLinkFixture(ctx, &entries, stage, prov)
 	require.NoError(t, err)
 
 	target := findEntry(entries, "test", "service")
@@ -1803,8 +1841,9 @@ func TestLink_AppendTypedValue(t *testing.T) {
 		},
 	}
 
-	stage := Link()
-	err := executeLinkFixture(ctx, &entries, stage)
+	prov := registry.ProvMap{}
+	stage := Link(prov)
+	err := executeLinkFixture(ctx, &entries, stage, prov)
 	require.NoError(t, err)
 
 	target := findEntry(entries, "test", "service")
@@ -1861,8 +1900,9 @@ func TestLink_BareParameterResolvesWithinOwnModule(t *testing.T) {
 		},
 	}
 
-	stage := Link()
-	err := executeLinkFixture(ctx, &entries, stage)
+	prov := registry.ProvMap{}
+	stage := Link(prov)
+	err := executeLinkFixture(ctx, &entries, stage, prov)
 	require.NoError(t, err)
 
 	service := findEntry(entries, "vendor.alpha", "service")
@@ -1917,7 +1957,8 @@ func TestLink_NormalizationDeterministicAcrossShuffledOrderings(t *testing.T) {
 		for i, idx := range order {
 			entries[i] = base[idx]
 		}
-		err := executeLinkFixture(ctx, &entries, Link())
+		prov := registry.ProvMap{}
+		err := executeLinkFixture(ctx, &entries, Link(prov), prov)
 		require.NoError(t, err)
 		service := findEntry(entries, "vendor.alpha", "service")
 		require.NotNil(t, service)
@@ -1969,7 +2010,8 @@ func TestLink_TwoRequirementsSameTargetApplyDeterministically(t *testing.T) {
 		for i, idx := range order {
 			entries[i] = base[idx]
 		}
-		err := executeLinkFixture(ctx, &entries, Link())
+		prov := registry.ProvMap{}
+		err := executeLinkFixture(ctx, &entries, Link(prov), prov)
 		require.NoError(t, err)
 		service := findEntry(entries, "test", "service")
 		require.NotNil(t, service)
@@ -2025,8 +2067,9 @@ func TestLink_RootParameterBeatsTransitiveBareAliasSpelling(t *testing.T) {
 		},
 	}
 
-	stage := Link(WithStrictRequirementModules([]string{"butschster/telegram"}))
-	err := executeLinkFixture(ctx, &entries, stage)
+	prov := registry.ProvMap{}
+	stage := Link(prov, WithStrictRequirementModules([]string{"butschster/telegram"}))
+	err := executeLinkFixture(ctx, &entries, stage, prov)
 	require.NoError(t, err)
 
 	botToken := findEntry(entries, "telegram", "bot_token")
@@ -2082,8 +2125,9 @@ func TestLink_TransitiveOnlyDuplicateForSameRequirementConflicts(t *testing.T) {
 		},
 	}
 
-	stage := Link(WithStrictRequirementModules([]string{"butschster/telegram"}))
-	err := executeLinkFixture(ctx, &entries, stage)
+	prov := registry.ProvMap{}
+	stage := Link(prov, WithStrictRequirementModules([]string{"butschster/telegram"}))
+	err := executeLinkFixture(ctx, &entries, stage, prov)
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "parameter conflict")
 	assert.ErrorContains(t, err, "env_storage=app:env_a")
@@ -2102,13 +2146,13 @@ func TestLink_TransitiveOnlyDuplicateForSameRequirementConflicts(t *testing.T) {
 // attach before Link executes. Older value-resolution tests construct flattened
 // registry slices directly; namespace-contract tests build definitions
 // explicitly and call Execute without this helper.
-func executeLinkFixture(ctx context.Context, entries *[]registry.Entry, stage boot.Stage) error {
+func executeLinkFixture(ctx context.Context, entries *[]registry.Entry, stage boot.Stage, prov registry.ProvMap) error {
 	definitions := make(map[string]struct{})
 	for _, entry := range *entries {
 		if entry.Kind != registry.NamespaceDefinition {
 			continue
 		}
-		if module := requirementModuleFromEntry(entry); module != "" {
+		if module := fixtureEntryModule(entry); module != "" {
 			definitions[module] = struct{}{}
 		}
 	}
@@ -2139,13 +2183,14 @@ func executeLinkFixture(ctx context.Context, entries *[]registry.Entry, stage bo
 			Meta: map[string]any{"module": component},
 		})
 	}
+	linkFixtureProvenance(prov, entries)
 	return stage.Execute(ctx, entries)
 }
 
 func fixtureModuleNamespace(entries []registry.Entry, component string) string {
 	var namespaces []string
 	for _, entry := range entries {
-		if entry.Kind == registry.NamespaceRequirement && requirementModuleFromEntry(entry) == component {
+		if entry.Kind == registry.NamespaceRequirement && fixtureEntryModule(entry) == component {
 			namespaces = append(namespaces, entry.ID.NS)
 		}
 	}

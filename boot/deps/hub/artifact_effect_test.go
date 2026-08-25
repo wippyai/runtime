@@ -44,7 +44,7 @@ func TestBuildArtifactEffectMaterializesVerifiedResolvedWAPP(t *testing.T) {
 		Org:     name.Organization,
 		Name:    name.Module,
 		Version: "1.0.0",
-	}}, nil)
+	}}, regapi.ProvenancedState{})
 	if err != nil {
 		t.Fatalf("build artifact effect: %v", err)
 	}
@@ -105,8 +105,8 @@ func TestBuildArtifactEffectMaterializesLocalReplacement(t *testing.T) {
 		ID:   regapi.NewID("example.package", "artifact"),
 		Kind: dirapi.Kind,
 		Meta: attrs.NewBagFrom(map[string]any{
-			metaModuleKey: "example/package",
-			"artifact":    map[string]any{"format": "node-package"},
+			fixtureModuleKey: "example/package",
+			"artifact":       map[string]any{"format": "node-package"},
 		}),
 		Data: payload.New(map[string]any{
 			"directory": ".",
@@ -118,7 +118,7 @@ func TestBuildArtifactEffectMaterializesLocalReplacement(t *testing.T) {
 		Name:    "package",
 		Version: "1.0.0",
 		Source:  moduleSourceReplacementTreeV1,
-	}}, state)
+	}}, fixtureState(state))
 	if err != nil {
 		t.Fatalf("build artifact effect: %v", err)
 	}
@@ -163,7 +163,7 @@ func TestBuildArtifactEffectRemovesOutputsWhenGraphIsEmpty(t *testing.T) {
 		replacements: map[string]lock.Replacement{},
 		logger:       zap.NewNop(),
 	}
-	effect, err := handler.buildArtifactEffect(context.Background(), nil, nil)
+	effect, err := handler.buildArtifactEffect(context.Background(), nil, regapi.ProvenancedState{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -203,7 +203,7 @@ func TestBuildArtifactEffectReconcilesInstallUpdateAndUninstall(t *testing.T) {
 	}
 	apply := func(resolved []ResolvedModule) {
 		t.Helper()
-		effect, err := handler.buildArtifactEffect(context.Background(), resolved, nil)
+		effect, err := handler.buildArtifactEffect(context.Background(), resolved, regapi.ProvenancedState{})
 		if err != nil {
 			t.Fatal(err)
 		}

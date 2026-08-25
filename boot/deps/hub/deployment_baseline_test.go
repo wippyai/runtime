@@ -108,14 +108,14 @@ modules:
 		ID: regapi.NewID("app.deps", "app"), Kind: regapi.NamespaceDependency, DependencyRoot: true,
 		Data: payload.New(map[string]any{"component": "acme/app", "version": "v2.0.0"}),
 	}
-	appService := markModuleIdentity(regapi.Entry{
+	appService := fixtureOwned(regapi.Entry{
 		ID: regapi.NewID("acme.app", "service"), Kind: "service",
 	}, "acme/app", "v2.0.0", digests[selection{"acme/app", "v2.0.0"}])
-	appShared := markModuleIdentity(regapi.Entry{
+	appShared := fixtureOwned(regapi.Entry{
 		ID: regapi.NewID("acme.app", "shared"), Kind: regapi.NamespaceDependency,
 		Data: payload.New(map[string]any{"component": "acme/shared", "version": ">=v1.0.0"}),
 	}, "acme/app", "v2.0.0", digests[selection{"acme/app", "v2.0.0"}])
-	sharedService := markModuleIdentity(regapi.Entry{
+	sharedService := fixtureOwned(regapi.Entry{
 		ID: regapi.NewID("acme.shared", "service"), Kind: "service",
 	}, "acme/shared", "v2.0.0", digests[selection{"acme/shared", "v2.0.0"}])
 	baseline := regapi.State{appRoot, appService, appShared, sharedService}
@@ -146,7 +146,7 @@ modules:
 		},
 	}).Canonical()
 
-	result, err := handler.ReconcileResolution(ctx, baseline, target, stored)
+	result, err := handler.ReconcileResolution(ctx, fixtureState(baseline), fixtureState(target), stored)
 	require.NoError(t, err)
 	selected := make([]string, 0, len(result.Resolution.Modules))
 	for _, mod := range result.Resolution.Modules {

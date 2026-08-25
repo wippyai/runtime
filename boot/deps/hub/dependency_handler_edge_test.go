@@ -113,142 +113,177 @@ func TestEntriesEqual_DifferentMeta(t *testing.T) {
 // --- entryConflict ---
 
 func TestEntryConflict_NoModuleOnDesired(t *testing.T) {
-	existing := regapi.Entry{ID: regapi.NewID("ns", "a")}
-	desired := regapi.Entry{ID: regapi.NewID("ns", "a")}
-	assert.False(t, entryConflict(existing, desired))
+	assert.False(t, entryConflict(regapi.EntryProvenance{}, regapi.EntryProvenance{}))
 }
 
-func TestEntryConflict_ExistingHasNoModule(t *testing.T) {
-	existing := regapi.Entry{ID: regapi.NewID("ns", "a")}
-	desired := regapi.Entry{
-		ID:   regapi.NewID("ns", "a"),
-		Meta: attrs.NewBagFrom(map[string]any{metaModuleKey: "acme/http"}),
-	}
-	assert.True(t, entryConflict(existing, desired))
+func TestEntryConflict_ExistingIsHostAuthored(t *testing.T) {
+	assert.True(t, entryConflict(regapi.EntryProvenance{}, regapi.EntryProvenance{Module: "acme/http"}))
 }
 
 func TestEntryConflict_SameModule(t *testing.T) {
-	existing := regapi.Entry{
-		ID:   regapi.NewID("ns", "a"),
-		Meta: attrs.NewBagFrom(map[string]any{metaModuleKey: "acme/http"}),
-	}
-	desired := regapi.Entry{
-		ID:   regapi.NewID("ns", "a"),
-		Meta: attrs.NewBagFrom(map[string]any{metaModuleKey: "acme/http"}),
-	}
-	assert.False(t, entryConflict(existing, desired))
+	assert.False(t, entryConflict(
+		regapi.EntryProvenance{Module: "acme/http"},
+		regapi.EntryProvenance{Module: "acme/http"},
+	))
 }
 
 func TestEntryConflict_DifferentModules(t *testing.T) {
-	existing := regapi.Entry{
-		ID:   regapi.NewID("ns", "a"),
-		Meta: attrs.NewBagFrom(map[string]any{metaModuleKey: "acme/http"}),
+	assert.True(t, entryConflict(
+		regapi.EntryProvenance{Module: "acme/http"},
+		regapi.EntryProvenance{Module: "acme/grpc"},
+	))
+}
+
+// --- deployment roots ---
+
+func TestIsRootDependencyTruthTable(t *testing.T) {
+	dependency := regapi.Entry{ID: regapi.NewID("workspace.modules", "search"), Kind: regapi.NamespaceDependency}
+	other := regapi.Entry{ID: regapi.NewID("workspace.modules", "search"), Kind: "service"}
+
+	cases := []struct {
+		name   string
+		entry  regapi.Entry
+		record regapi.EntryProvenance
+		root   bool
+	}{
+		{"selected root owned by a module", dependency, regapi.EntryProvenance{Module: "acme/app", Root: true}, true},
+		{"selected root owned by no module", dependency, regapi.EntryProvenance{Root: true}, true},
+		{"module-owned transitive", dependency, regapi.EntryProvenance{Module: "acme/app"}, false},
+		{"registry-authored overlay", dependency, regapi.EntryProvenance{}, true},
+		{"another kind is never a root", other, regapi.EntryProvenance{Root: true}, false},
 	}
-	desired := regapi.Entry{
-		ID:   regapi.NewID("ns", "a"),
-		Meta: attrs.NewBagFrom(map[string]any{metaModuleKey: "acme/grpc"}),
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.root, isRootDependency(tc.entry, tc.record))
+		})
 	}
-	assert.True(t, entryConflict(existing, desired))
 }
 
-// --- entryModule ---
+func TestCollectControlledModules_TruthTableOverProvenance(t *testing.T) {
+	ctx := newTestContext()
+	transcoder := payload.GetTranscoder(ctx)
+	handler := &DependencyHandler{}
 
-func TestEntryModule_NilMeta(t *testing.T) {
-	assert.Empty(t, entryModule(regapi.Entry{}))
-}
-
-func TestEntryModule_NoModuleKey(t *testing.T) {
-	e := regapi.Entry{Meta: attrs.NewBagFrom(map[string]any{"other": "val"})}
-	assert.Empty(t, entryModule(e))
-}
-
-func TestEntryModule_NonStringModule(t *testing.T) {
-	e := regapi.Entry{Meta: attrs.NewBagFrom(map[string]any{metaModuleKey: 42})}
-	assert.Empty(t, entryModule(e))
-}
-
-func TestEntryModule_ValidModule(t *testing.T) {
-	e := regapi.Entry{Meta: attrs.NewBagFrom(map[string]any{metaModuleKey: "acme/http"})}
-	assert.Equal(t, "acme/http", entryModule(e))
-}
-
-func TestIsRootDependencyKeepsOwnershipSeparate(t *testing.T) {
-	root := regapi.Entry{
-		ID:             regapi.NewID("workspace.modules", "search"),
-		Kind:           regapi.NamespaceDependency,
-		Meta:           attrs.NewBagFrom(map[string]any{metaModuleKey: "acme/app"}),
-		DependencyRoot: true,
+	dependency := func(name, component string) regapi.Entry {
+		return regapi.Entry{
+			ID:   regapi.NewID("app.deps", name),
+			Kind: regapi.NamespaceDependency,
+			Data: payload.New(map[string]any{"component": component, "version": "v1.0.0"}),
+		}
 	}
-	assert.True(t, isRootDependency(root))
-	assert.Equal(t, "acme/app", entryModule(root))
+	ownedRoot := dependency("owned_root", "acme/owned_root")
+	unownedRoot := dependency("unowned_root", "acme/unowned_root")
+	transitive := dependency("transitive", "acme/transitive")
+	overlay := dependency("overlay", "acme/overlay")
 
-	transitive := root
-	transitive.DependencyRoot = false
-	assert.False(t, isRootDependency(transitive))
-
-	unowned := transitive
-	unowned.Meta = nil
-	assert.True(t, isRootDependency(unowned), "registry-authored dependencies are user overlay roots")
-}
-
-// --- markModuleMeta ---
-
-func TestMarkModuleMeta_NilMeta(t *testing.T) {
-	e := regapi.Entry{ID: regapi.NewID("ns", "a")}
-	result := markModuleMeta(e, "acme/http", "v1.0.0")
-	assert.Equal(t, "acme/http", entryModule(result))
-	assert.Equal(t, "v1.0.0", result.Meta.GetString(metaModuleVersionKey, ""))
-}
-
-func TestMarkModuleMeta_ExistingMeta(t *testing.T) {
-	e := regapi.Entry{
-		ID:   regapi.NewID("ns", "a"),
-		Meta: attrs.NewBagFrom(map[string]any{"existing": true}),
-	}
-	result := markModuleMeta(e, "acme/http", "v2.0.0")
-	assert.Equal(t, "acme/http", entryModule(result))
-	assert.Equal(t, true, result.Meta.GetBool("existing", false))
-}
-
-func TestMarkModuleMeta_PreservesExistingModuleOwner(t *testing.T) {
-	e := regapi.Entry{
-		ID: regapi.NewID("ns", "a"),
-		Meta: attrs.NewBagFrom(map[string]any{
-			metaModuleKey:        "acme/session",
-			metaModuleVersionKey: "v1.0.0",
-		}),
+	state := regapi.ProvenancedState{
+		Entries: regapi.State{ownedRoot, unownedRoot, transitive, overlay},
+		Prov: regapi.ProvMap{
+			ownedRoot.ID:   {Module: "acme/deployment", Root: true},
+			unownedRoot.ID: {Root: true},
+			transitive.ID:  {Module: "acme/deployment"},
+			overlay.ID:     {},
+		},
 	}
 
-	result := markModuleMeta(e, "acme/uploads", "v2.0.0")
+	controlled, err := handler.collectControlledModules(ctx, state, transcoder)
+	require.NoError(t, err)
+	assert.Contains(t, controlled, "acme/owned_root", "a selected root controls its component whoever owns the declaration")
+	assert.Contains(t, controlled, "acme/unowned_root")
+	assert.Contains(t, controlled, "acme/overlay", "a registry-authored declaration is a user overlay root")
+	assert.NotContains(t, controlled, "acme/transitive",
+		"a module-owned declaration extends the graph from its owner, which no root reaches here")
 
-	assert.Equal(t, "acme/session", entryModule(result))
-	assert.Equal(t, "v1.0.0", result.Meta.GetString(metaModuleVersionKey, ""))
+	missing := state
+	missing.Prov = regapi.ProvMap{
+		ownedRoot.ID:   {Module: "acme/deployment", Root: true},
+		unownedRoot.ID: {Root: true},
+		transitive.ID:  {Module: "acme/deployment"},
+	}
+	_, err = handler.collectControlledModules(ctx, missing, transcoder)
+	require.ErrorIs(t, err, regapi.ErrMissingProvenance, "an entry without a record must fail loud, never read as host-authored")
 }
 
-func TestMarkModuleMetaForGraph_UsesResolvedNamespaceOwner(t *testing.T) {
-	e := regapi.Entry{ID: regapi.NewID("acme.session", "delete_session_service")}
+// --- loader ownership rule ---
+
+func TestClaimEntryProvenance_NamespaceOwnerWinsOverLoadingModule(t *testing.T) {
+	entry := regapi.Entry{ID: regapi.NewID("acme.session", "delete_session_service")}
 	owners := moduleOwnersByNamespace([]ResolvedModule{
 		{Org: "acme", Name: "session", Version: "v1.0.0"},
 		{Org: "example", Name: "uploads", Version: "v2.0.0"},
 	})
 
-	result := markModuleMetaForGraph(e, "example/uploads", "v2.0.0", owners, nil)
+	claim := claimEntryProvenance(
+		entry,
+		moduleOwner{name: "example/uploads", version: "v2.0.0"},
+		false, loadedProvenance{}, false, nil, owners,
+	)
 
-	assert.Equal(t, "acme/session", entryModule(result))
-	assert.Equal(t, "v1.0.0", result.Meta.GetString(metaModuleVersionKey, ""))
+	assert.Equal(t, "acme/session", claim.record.Module)
+	assert.Equal(t, "v1.0.0", claim.record.Version)
 }
 
-func TestMarkModuleMetaForGraph_UsesSnapshotEntryOwner(t *testing.T) {
+func TestClaimEntryProvenance_ResidentOwnerWinsOverNamespaceOwner(t *testing.T) {
 	id := regapi.NewID("acme.llm.openai_compat", "client")
-	e := regapi.Entry{ID: id}
-	entryOwners := map[string]moduleOwner{
-		idKey(id): {name: "acme/llm", version: "v4.0.0"},
+	entry := regapi.Entry{ID: id}
+	resident := provIndex{idKey(id): {Module: "acme/llm", Version: "v4.0.0"}}
+
+	claim := claimEntryProvenance(
+		entry,
+		moduleOwner{name: "example/skills", version: "v2.0.0"},
+		false, loadedProvenance{}, false, resident, nil,
+	)
+
+	assert.Equal(t, "acme/llm", claim.record.Module)
+	assert.Equal(t, "v4.0.0", claim.record.Version)
+}
+
+func TestClaimEntryProvenance_ResidentOwnerRefreshesToLoadingIdentity(t *testing.T) {
+	id := regapi.NewID("acme.llm", "client")
+	entry := regapi.Entry{ID: id}
+	resident := provIndex{idKey(id): {Module: "acme/llm", Version: "v4.0.0", Digest: "sha256:old"}}
+
+	claim := claimEntryProvenance(
+		entry,
+		moduleOwner{name: "acme/llm", version: "v5.0.0", digest: "sha256:new"},
+		false, loadedProvenance{}, false, resident, nil,
+	)
+
+	assert.Equal(t, regapi.EntryProvenance{Module: "acme/llm", Version: "v5.0.0", Digest: "sha256:new"}, claim.record)
+}
+
+func TestClaimEntryProvenance_ReplacementWinsUnconditionally(t *testing.T) {
+	id := regapi.NewID("acme.llm", "client")
+	entry := regapi.Entry{ID: id}
+	resident := provIndex{idKey(id): {Module: "acme/other", Version: "v4.0.0"}}
+	owners := moduleOwnersByNamespace([]ResolvedModule{{Org: "acme", Name: "llm", Version: "v9.0.0"}})
+
+	claim := claimEntryProvenance(
+		entry,
+		moduleOwner{name: "acme/dev", digest: "sha256-tree-v1:abc"},
+		true, loadedProvenance{}, false, resident, owners,
+	)
+
+	require.True(t, claim.replacement)
+	assert.Equal(t, "acme/dev", claim.record.Module)
+	assert.Empty(t, claim.record.Version, "an unpublished development tree has no version; the digest is its identity")
+}
+
+func TestClaimEntryProvenance_NonReplacementNeverDisplacesReplacement(t *testing.T) {
+	id := regapi.NewID("acme.llm", "client")
+	entry := regapi.Entry{ID: id}
+	staged := loadedProvenance{
+		record:      regapi.EntryProvenance{Module: "acme/dev", Digest: "sha256-tree-v1:abc"},
+		replacement: true,
 	}
 
-	result := markModuleMetaForGraph(e, "example/skills", "v2.0.0", nil, entryOwners)
+	claim := claimEntryProvenance(
+		entry,
+		moduleOwner{name: "acme/llm", version: "v1.0.0"},
+		false, staged, true, nil, nil,
+	)
 
-	assert.Equal(t, "acme/llm", entryModule(result))
-	assert.Equal(t, "v4.0.0", result.Meta.GetString(metaModuleVersionKey, ""))
+	assert.Equal(t, staged, claim)
 }
 
 func TestPreserveHostSnapshotEntry_KeepsExistingUnownedEntry(t *testing.T) {
@@ -269,6 +304,7 @@ func TestPreserveHostSnapshotEntry_KeepsExistingUnownedEntry(t *testing.T) {
 		loaded,
 		"acme/security",
 		map[string]regapi.Entry{idKey(id): existing},
+		provIndex{idKey(id): {}},
 		map[string]struct{}{"acme/security": {}},
 	)
 
@@ -276,11 +312,20 @@ func TestPreserveHostSnapshotEntry_KeepsExistingUnownedEntry(t *testing.T) {
 	assert.Equal(t, existing.Data, result.Data)
 }
 
-func TestMarkModuleMeta_EmptyVersion(t *testing.T) {
-	e := regapi.Entry{ID: regapi.NewID("ns", "a")}
-	result := markModuleMeta(e, "acme/http", "")
-	assert.Equal(t, "acme/http", entryModule(result))
-	assert.Empty(t, result.Meta.GetString(metaModuleVersionKey, ""))
+func TestPreserveHostSnapshotEntry_ModuleOwnedResidentEntryIsNotHost(t *testing.T) {
+	id := regapi.NewID("app", "api")
+	existing := regapi.Entry{ID: id, Kind: "http.router", Data: payload.NewPayload(`{"name":"resident"}`, payload.JSON)}
+	loaded := regapi.Entry{ID: id, Kind: "http.router", Data: payload.NewPayload(`{"name":"packed"}`, payload.JSON)}
+
+	_, ok := preserveHostSnapshotEntry(
+		loaded,
+		"acme/security",
+		map[string]regapi.Entry{idKey(id): existing},
+		provIndex{idKey(id): {Module: "acme/security", Version: "v1.0.0"}},
+		map[string]struct{}{"acme/security": {}},
+	)
+
+	assert.False(t, ok, "a module-owned resident entry is not a host entry")
 }
 
 // --- parseExpectedDigest ---
@@ -366,7 +411,7 @@ func planTestOperations(
 	controlledModules map[string]struct{},
 	mutableModules map[string]struct{},
 ) ([]regapi.Operation, error) {
-	return (operationPlanner{}).plan(current, desired, operationPlanOptions{
+	return (operationPlanner{}).plan(fixtureState(current), fixtureState(desired), operationPlanOptions{
 		originalKey:       idKey(originalID),
 		controlledModules: controlledModules,
 		mutableModules:    mutableModules,
@@ -398,7 +443,7 @@ func TestOperationPlanner_DeletedEntries(t *testing.T) {
 		{
 			ID:   regapi.NewID("app", "old-svc"),
 			Kind: "service",
-			Meta: attrs.NewBagFrom(map[string]any{metaModuleKey: "acme/http"}),
+			Meta: attrs.NewBagFrom(map[string]any{fixtureModuleKey: "acme/http"}),
 		},
 	}
 	desired := []regapi.Entry{
@@ -418,12 +463,12 @@ func TestOperationPlanner_DeletesOnlyControlledModules(t *testing.T) {
 		{
 			ID:   regapi.NewID("app", "old-svc"),
 			Kind: "service",
-			Meta: attrs.NewBagFrom(map[string]any{metaModuleKey: "acme/http"}),
+			Meta: attrs.NewBagFrom(map[string]any{fixtureModuleKey: "acme/http"}),
 		},
 		{
 			ID:   regapi.NewID("example.tools", "dependencies"),
 			Kind: "function.lua",
-			Meta: attrs.NewBagFrom(map[string]any{metaModuleKey: "example/keeper"}),
+			Meta: attrs.NewBagFrom(map[string]any{fixtureModuleKey: "example/keeper"}),
 		},
 	}
 	desired := []regapi.Entry{
@@ -443,7 +488,7 @@ func TestOperationPlanner_UpdatedEntries(t *testing.T) {
 		{
 			ID:   regapi.NewID("app", "svc"),
 			Kind: "service",
-			Meta: attrs.NewBagFrom(map[string]any{metaModuleKey: "acme/http"}),
+			Meta: attrs.NewBagFrom(map[string]any{fixtureModuleKey: "acme/http"}),
 			Data: payload.New("old"),
 		},
 	}
@@ -451,7 +496,7 @@ func TestOperationPlanner_UpdatedEntries(t *testing.T) {
 		{
 			ID:   regapi.NewID("app", "svc"),
 			Kind: "service",
-			Meta: attrs.NewBagFrom(map[string]any{metaModuleKey: "acme/http"}),
+			Meta: attrs.NewBagFrom(map[string]any{fixtureModuleKey: "acme/http"}),
 			Data: payload.New("new"),
 		},
 	}
@@ -464,8 +509,8 @@ func TestOperationPlanner_UpdatedEntries(t *testing.T) {
 
 func TestOperationPlanner_ReconcileSkipsUntouchedImmutableModuleUpdates(t *testing.T) {
 	moduleMeta := attrs.NewBagFrom(map[string]any{
-		metaModuleKey:        "acme/http",
-		metaModuleVersionKey: "v1.0.0",
+		fixtureModuleKey:        "acme/http",
+		fixtureModuleVersionKey: "v1.0.0",
 	})
 	current := regapi.State{{
 		ID:   regapi.NewID("app", "svc"),
@@ -495,13 +540,13 @@ func TestOperationPlanner_KindChangeUsesDeleteCreate(t *testing.T) {
 	current := regapi.State{{
 		ID:   id,
 		Kind: "fs.embed",
-		Meta: attrs.NewBagFrom(map[string]any{metaModuleKey: "acme/ui"}),
+		Meta: attrs.NewBagFrom(map[string]any{fixtureModuleKey: "acme/ui"}),
 		Data: payload.New(map[string]any{}),
 	}}
 	desired := []regapi.Entry{{
 		ID:   id,
 		Kind: "fs.directory",
-		Meta: attrs.NewBagFrom(map[string]any{metaModuleKey: "acme/ui"}),
+		Meta: attrs.NewBagFrom(map[string]any{fixtureModuleKey: "acme/ui"}),
 		Data: payload.New(map[string]any{"directory": "assets", "base": "module"}),
 	}}
 
@@ -536,7 +581,7 @@ func TestOperationPlanner_ConflictError(t *testing.T) {
 		{
 			ID:   regapi.NewID("app", "svc"),
 			Kind: "service",
-			Meta: attrs.NewBagFrom(map[string]any{metaModuleKey: "acme/http"}),
+			Meta: attrs.NewBagFrom(map[string]any{fixtureModuleKey: "acme/http"}),
 			Data: payload.New("module"),
 		},
 	}
@@ -546,7 +591,7 @@ func TestOperationPlanner_ConflictError(t *testing.T) {
 	assert.Contains(t, err.Error(), "conflict")
 }
 
-func TestOperationPlanner_SkipsNonModuleDeletes(t *testing.T) {
+func TestOperationPlanner_SkipsHostAuthoredDeletes(t *testing.T) {
 	current := regapi.State{
 		{ID: regapi.NewID("app", "dep"), Kind: "ns.dependency"},
 		{ID: regapi.NewID("app", "local-svc"), Kind: "service", Data: payload.New("local")},
@@ -557,8 +602,22 @@ func TestOperationPlanner_SkipsNonModuleDeletes(t *testing.T) {
 
 	ops, err := planTestOperations(current, desired, regapi.NewID("app", "dep"), nil, nil)
 	require.NoError(t, err)
-	// local-svc has no module meta, so it won't be deleted
-	assert.Empty(t, ops)
+	assert.Empty(t, ops, "no module owns local-svc, so dependency reconciliation cannot delete it")
+}
+
+func TestOperationPlanner_MissingProvenanceIsAHardError(t *testing.T) {
+	orphan := regapi.Entry{ID: regapi.NewID("app", "orphan"), Kind: "service", Data: payload.New("orphan")}
+	current := regapi.ProvenancedState{
+		Entries: regapi.State{orphan},
+		Prov:    regapi.ProvMap{},
+	}
+
+	_, err := (operationPlanner{}).plan(current, regapi.ProvenancedState{}, operationPlanOptions{
+		controlledModules: map[string]struct{}{"acme/http": {}},
+	})
+	require.ErrorIs(t, err, regapi.ErrMissingProvenance,
+		"an entry without a record is neither host-authored nor deletable; it is an invariant violation")
+	assert.Contains(t, err.Error(), orphan.ID.String())
 }
 
 // --- formatResolutionErrors ---
@@ -703,13 +762,13 @@ func TestExists_False(t *testing.T) {
 
 func TestDependencyHandler_Expand_NilHandler(t *testing.T) {
 	var h *DependencyHandler
-	_, err := h.Expand(newTestContext(), regapi.Operation{}, nil)
+	_, err := h.Expand(newTestContext(), regapi.Operation{}, regapi.ProvenancedState{})
 	require.Error(t, err)
 }
 
 func TestDependencyHandler_Expand_NilHub(t *testing.T) {
 	h := &DependencyHandler{}
-	_, err := h.Expand(newTestContext(), regapi.Operation{}, nil)
+	_, err := h.Expand(newTestContext(), regapi.Operation{}, regapi.ProvenancedState{})
 	require.Error(t, err)
 }
 
@@ -723,7 +782,7 @@ func TestDependencyHandler_Expand_NonDependencyKind(t *testing.T) {
 	}
 	op := regapi.Operation{Kind: regapi.EntryCreate, Entry: entry}
 
-	result, err := h.Expand(newTestContext(), op, nil)
+	result, err := h.Expand(newTestContext(), op, regapi.ProvenancedState{})
 	require.NoError(t, err)
 	assert.False(t, result.Applied)
 }
@@ -736,7 +795,7 @@ func TestDependencyHandler_Expand_EntryNotFound(t *testing.T) {
 		Entry: regapi.Entry{ID: regapi.NewID("app", "missing")},
 	}
 
-	result, err := h.Expand(newTestContext(), op, nil)
+	result, err := h.Expand(newTestContext(), op, regapi.ProvenancedState{})
 	require.NoError(t, err)
 	assert.False(t, result.Applied)
 }

@@ -15,14 +15,13 @@ import (
 	"github.com/wippyai/wapp"
 )
 
-const moduleMetadataKey = "module"
-
 // DirectoryResources resolves artifact declarations from selected local
-// fs.directory entries. moduleRoots is the authoritative source root for each
+// fs.directory entries. Ownership comes from the state's provenance, which is
+// total over its entries. moduleRoots is the authoritative source root for each
 // local module; entries outside that set are ignored.
 func DirectoryResources(
 	ctx context.Context,
-	entries regapi.State,
+	state regapi.ProvenancedState,
 	moduleRoots map[string]string,
 	moduleVersions map[string]string,
 ) ([]Resource, error) {
@@ -35,8 +34,12 @@ func DirectoryResources(
 	}
 
 	resources := make([]Resource, 0)
-	for _, entry := range entries {
-		module := entry.Meta.GetString(moduleMetadataKey, "")
+	for _, entry := range state.Entries {
+		record, known := state.Prov[entry.ID]
+		if !known {
+			return nil, regapi.NewMissingProvenanceError(entry.ID)
+		}
+		module := record.Module
 		moduleRoot, selected := moduleRoots[module]
 		if !selected || entry.Kind != dirapi.Kind {
 			continue
