@@ -157,7 +157,12 @@ func (d *Dispatcher) handleSubscribe(_ context.Context, cmd dispatcher.Command, 
 func (d *Dispatcher) handleSend(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	sendCmd := cmd.(event.SendCmd)
 
-	evt := event.Event(sendCmd)
+	evt := event.Event{
+		Data:   sendCmd.Data,
+		System: sendCmd.System,
+		Kind:   sendCmd.Kind,
+		Path:   sendCmd.Path,
+	}
 
 	d.bus.Send(ctx, evt)
 	receiver.CompleteYield(tag, true, nil)

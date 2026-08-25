@@ -441,13 +441,14 @@ func (br *BusRunner) applyOperation(
 		return newState, nil
 	}
 
-	// The operation's provenance pair rides the dispatch context, so a
+	// The operation's provenance pair rides the event envelope; the listener
+	// adapters re-inject it into the context they hand each listener, so a
 	// listener resolving during Add/Update/Delete sees the identity of the
 	// entry it is handling without reading any global index.
-	ctx = registry.WithOpProvenance(ctx, registry.OpProvenance{
+	opProv := registry.OpProvenance{
 		Effective: op.Provenance,
 		Original:  op.OriginalProvenance,
-	})
+	}
 
 	waiter, err := br.prepareWaiter(ctx, registry.EntryResult, op.Entry.ID.String())
 	if err != nil {
@@ -461,6 +462,7 @@ func (br *BusRunner) applyOperation(
 		Kind:   op.Kind,
 		Path:   op.Entry.ID.String(),
 		Data:   op.Entry,
+		Aux:    opProv,
 	})
 
 	result := waiter.Wait()

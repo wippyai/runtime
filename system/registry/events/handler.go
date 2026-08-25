@@ -62,6 +62,12 @@ func NewRegistryHandler(kinds registry.Kind, listener registry.EntryListener) ev
 				return nil
 			}
 
+			// The dispatcher's provenance pair travels on the envelope; the
+			// listener reads it from its context.
+			if opProv, ok := evt.Aux.(registry.OpProvenance); ok {
+				ctx = registry.WithOpProvenance(ctx, opProv)
+			}
+
 			// Validate data for non-delete operations
 			if evt.Kind != registry.EntryDelete && entry.Data == nil {
 				reject(ctx, bus, entry.ID, NewConfigDataRequiredError())
