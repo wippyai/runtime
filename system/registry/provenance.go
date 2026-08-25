@@ -4,6 +4,7 @@ package registry
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/wippyai/runtime/api/registry"
@@ -164,6 +165,17 @@ func (r *Reg) publishProvenance(prov registry.ProvMap) {
 	r.prov.Store(&prov)
 }
 
+// SnapshotState returns the current version, entries, and provenance as one
+// consistent view: all three are read under the same lock, so a concurrent
+// apply cannot produce a mismatched snapshot.
+func (r *Reg) SnapshotState() (registry.Version, registry.ProvenancedState, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	entries := make(registry.State, len(r.state))
+	copy(entries, r.state)
+	return r.currentVersion, registry.ProvenancedState{Entries: entries, Prov: r.Provenance()}, nil
+}
+
 // SetDependencyRoot flips the deployment-root selection of one ns.dependency
 // entry as a provenance-carrying operation, atomically against concurrent
 // applies: the current entry and record are read under the apply serialization
@@ -171,41 +183,49 @@ func (r *Reg) publishProvenance(prov registry.ProvMap) {
 func (r *Reg) SetDependencyRoot(ctx context.Context, id registry.ID, root bool) (registry.Version, error) {
 	id = canonicalEntryID(id)
 
-	r.applyMu.Lock()
-	entry, getErr := r.GetEntry(id)
-	if getErr != nil {
-		r.applyMu.Unlock()
-		return nil, getErr
-	}
-	if entry.Kind != registry.NamespaceDependency {
-		r.applyMu.Unlock()
-		return nil, topology.NewInvalidOperationError(errNotDependencyEntry)
-	}
-	current, ok := r.EntryProvenance(id)
-	if !ok {
-		r.applyMu.Unlock()
-		return nil, registry.NewMissingProvenanceError(id)
-	}
-	if current.Root == root {
-		version := r.currentVersion
-		r.applyMu.Unlock()
-		return version, nil
-	}
-	next := current
-	next.Root = root
-	op := registry.Operation{
-		Kind:               registry.EntryUpdate,
-		Entry:              entry,
-		Provenance:         &next,
-		OriginalProvenance: &current,
-	}
-	r.applyMu.Unlock()
+	// The read and the apply are conditioned on the same version: an apply
+	// that lands in between fails the condition and the mutation re-reads,
+	// so a stale entry or tuple can never overwrite a concurrent update.
+	for attempt := 0; attempt < setRootRetries; attempt++ {
+		r.mu.RLock()
+		base := r.currentVersion
+		r.mu.RUnlock()
 
-	// Apply re-reads under its own serialization; the tuple travels on the
-	// operation, so a raced module update surfaces as a concurrent-apply
-	// error rather than silently rewriting ownership.
-	return r.Apply(ctx, registry.ChangeSet{op})
+		entry, getErr := r.GetEntry(id)
+		if getErr != nil {
+			return nil, getErr
+		}
+		if entry.Kind != registry.NamespaceDependency {
+			return nil, topology.NewInvalidOperationError(errNotDependencyEntry)
+		}
+		current, ok := r.EntryProvenance(id)
+		if !ok {
+			return nil, registry.NewMissingProvenanceError(id)
+		}
+		if current.Root == root {
+			return base, nil
+		}
+		next := current
+		next.Root = root
+		op := registry.Operation{
+			Kind:               registry.EntryUpdate,
+			Entry:              entry,
+			Provenance:         &next,
+			OriginalProvenance: &current,
+		}
+
+		version, applyErr := r.applyFrom(ctx, registry.ChangeSet{op}, base)
+		if applyErr == nil {
+			return version, nil
+		}
+		if !errors.Is(applyErr, ErrConcurrentApply) {
+			return nil, applyErr
+		}
+	}
+	return nil, NewConcurrentApplyError(0, 0)
 }
+
+const setRootRetries = 4
 
 var errNotDependencyEntry = fmt.Errorf("only ns.dependency entries select deployment roots")
 
@@ -213,11 +233,17 @@ var errNotDependencyEntry = fmt.Errorf("only ns.dependency entries select deploy
 // provenance at one stored version: the deployment baseline plus the authored
 // history, with provenance folded the same way live replay folds it. Module
 // worlds reconciled from stored resolutions materialize only through
-// ApplyVersion; a snapshot answers for the declarative layer.
+// ApplyVersion, which alone may stage their effects; a snapshot answers for
+// the declarative layer. The baseline is copied under the lock and history
+// replays without it, so a long history never blocks writers.
 func (r *Reg) ProvenancedStateAtVersion(ctx context.Context, v registry.Version) (registry.ProvenancedState, error) {
 	r.mu.RLock()
-	defer r.mu.RUnlock()
-	entries, prov, err := r.stateAtVersion(ctx, v)
+	baseline := make(registry.State, len(r.baseline))
+	copy(baseline, r.baseline)
+	baselineProv := r.baselineProv.Clone()
+	r.mu.RUnlock()
+
+	entries, prov, err := replayVersionState(ctx, r.history, baseline, baselineProv, v)
 	if err != nil {
 		return registry.ProvenancedState{}, err
 	}

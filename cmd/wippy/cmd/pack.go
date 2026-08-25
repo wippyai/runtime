@@ -19,7 +19,6 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/boot"
-	regapi "github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/version"
 	"github.com/wippyai/runtime/boot/build"
 	"github.com/wippyai/runtime/boot/build/stages"
@@ -917,27 +916,6 @@ func closeEmbeddedPackResourceHandles(handles []embeddedPackResourceHandle) erro
 		}
 	}
 	return errors.Join(errs...)
-}
-
-func encodePackProvenance(prov regapi.ProvMap) map[string]any {
-	out := make(map[string]any, len(prov))
-	for id, p := range prov {
-		rec := map[string]any{}
-		if p.Module != "" {
-			rec["module"] = p.Module
-		}
-		if p.Version != "" {
-			rec["version"] = p.Version
-		}
-		if p.Digest != "" {
-			rec["digest"] = p.Digest
-		}
-		if p.Root {
-			rec["root"] = true
-		}
-		out[id.String()] = rec
-	}
-	return out
 }
 
 func parseMetadataFlags(metaFlags []string, metadata attrs.Bag, logger *zap.Logger) error {

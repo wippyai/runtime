@@ -799,3 +799,28 @@ func readerFromBytes(t *testing.T, data []byte) *wapp.Reader {
 	require.NoError(t, err)
 	return reader
 }
+
+// TestRegisterPack_SameIdentityRetiresPreviousPack pins the one-pack-per
+// (module, version) invariant retargeting relies on: registering a second pack
+// at the same identity retires the first, so a retarget always moves every
+// filesystem of that identity together.
+func TestRegisterPack_SameIdentityRetiresPreviousPack(t *testing.T) {
+	reg := NewRegistry()
+	defer func() { _ = reg.Close() }()
+
+	first := createReaderWithResource(t, "ui", "app", map[string]string{"index.html": "one"})
+	require.NoError(t, reg.RegisterPack("pack-a", "org/mod", "1.0.0", first, nil))
+	second := createReaderWithResource(t, "ui", "app", map[string]string{"index.html": "two"})
+	require.NoError(t, reg.RegisterPack("pack-b", "org/mod", "1.0.0", second, nil))
+
+	reg.mu.RLock()
+	count := 0
+	for _, p := range reg.packs {
+		if p.module == "org/mod" && p.version == "1.0.0" {
+			count++
+		}
+	}
+	reg.mu.RUnlock()
+	require.Equal(t, 1, count, "one pack per module version")
+	require.True(t, reg.HasModulePack("org/mod", "1.0.0"))
+}

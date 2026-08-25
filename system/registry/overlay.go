@@ -138,7 +138,7 @@ func (r *Reg) applyOverlayLocked(ctx context.Context, owner string, expectedGene
 	newState, err := r.runner.Transition(ctx, r.state, sorted)
 	if err != nil {
 		if newState != nil && ctx.Err() == nil {
-			if rollbackErr := r.rollback(ctx, newState, r.state); rollbackErr != nil {
+			if rollbackErr := r.rollback(ctx, newState, r.state, nil, nil); rollbackErr != nil {
 				r.reconcileOverlayIndexesAfterFailedRollback(owner, owners, changes)
 				return 0, NewApplyChangesError(err, rollbackErr)
 			}

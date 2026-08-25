@@ -957,7 +957,7 @@ func TestInMemoryRegistry_Rollback(t *testing.T) {
 		return toState, nil
 	}
 
-	err := reg.rollback(context.Background(), fromState, toState)
+	err := reg.rollback(context.Background(), fromState, toState, nil, nil)
 	if err != nil {
 		t.Errorf("Unexpected error during rollback: %v", err)
 	}
@@ -967,7 +967,7 @@ func TestInMemoryRegistry_Rollback(t *testing.T) {
 		return nil, errors.New("rollback failed")
 	}
 
-	err = reg.rollback(context.Background(), fromState, toState)
+	err = reg.rollback(context.Background(), fromState, toState, nil, nil)
 	if err == nil {
 		t.Fatal("Expected error during failed rollback")
 	}

@@ -350,20 +350,22 @@ func registrySnapshot(l *lua.LState) int {
 		return 2
 	}
 
-	version, verErr := reg.Current()
-	if verErr != nil {
-		err := lua.WrapErrorWithLua(l, verErr, "get current version").
-			WithKind(lua.Internal).
+	// Version, entries and provenance come from one consistent read: a
+	// concurrent apply can never produce a mismatched snapshot.
+	consistent, ok := reg.(interface {
+		SnapshotState() (regapi.Version, regapi.ProvenancedState, error)
+	})
+	if !ok {
+		err := lua.NewLuaError(l, "registry does not serve consistent snapshots").
+			WithKind(lua.Unavailable).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
 		return 2
 	}
-
-	// Get entries directly from registry state (includes baseline + all applied changes)
-	entries, entriesErr := reg.GetAllEntries()
-	if entriesErr != nil {
-		err := lua.WrapErrorWithLua(l, entriesErr, "get registry entries").
+	version, state, snapErr := consistent.SnapshotState()
+	if snapErr != nil {
+		err := lua.WrapErrorWithLua(l, snapErr, "snapshot registry state").
 			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LNil)
@@ -374,11 +376,9 @@ func registrySnapshot(l *lua.LState) int {
 	snap := &Snapshot{
 		reg:     reg,
 		version: version,
-		entries: entries,
+		entries: state.Entries,
+		prov:    state.Prov,
 		log:     zap.NewNop(),
-	}
-	if reader, ok := reg.(interface{ Provenance() regapi.ProvMap }); ok {
-		snap.prov = reader.Provenance()
 	}
 
 	value.PushTypedUserData(l, snap, typeSnapshot)
@@ -578,6 +578,10 @@ func makeSnapshotAt(log *zap.Logger) lua.LGoFunc {
 			return 2
 		}
 
+		// A historical snapshot answers for the declarative layer: baseline
+		// plus authored history with provenance. Module worlds reconciled from
+		// stored resolutions materialize only through apply_version, which
+		// alone may stage their effects.
 		provenanced, ok := reg.(interface {
 			ProvenancedStateAtVersion(ctx context.Context, v regapi.Version) (regapi.ProvenancedState, error)
 		})

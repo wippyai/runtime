@@ -220,3 +220,33 @@ func TestIdenticalContentVersionBumpTouchesNoResidentEntry(t *testing.T) {
 	assert.NotEqual(t, storeProvBefore, storeProvAfter, "the resident record advances with the bump")
 	assert.Equal(t, bumped, storeProvAfter)
 }
+
+// TestApplyFromRejectsStaleBase pins the optimistic boundary SetDependencyRoot
+// relies on: an apply conditioned on a version that is no longer current fails
+// with the concurrent-apply conflict before planning anything.
+func TestApplyFromRejectsStaleBase(t *testing.T) {
+	reg, runner := newTestRegistry(t)
+	runner.RunFunc = func(_ registry.State, cs registry.ChangeSet) (registry.State, error) {
+		out := registry.State{}
+		for _, op := range cs {
+			out = append(out, op.Entry)
+		}
+		return out, nil
+	}
+	id := registry.NewID("ns", "svc")
+
+	base, err := reg.Current()
+	require.NoError(t, err)
+
+	_, err = reg.Apply(t.Context(), registry.ChangeSet{{
+		Kind:  registry.EntryCreate,
+		Entry: registry.Entry{ID: id, Kind: "test", Data: payloadNew("v1")},
+	}})
+	require.NoError(t, err)
+
+	_, err = reg.applyFrom(t.Context(), registry.ChangeSet{{
+		Kind:  registry.EntryUpdate,
+		Entry: registry.Entry{ID: id, Kind: "test", Data: payloadNew("stale")},
+	}}, base)
+	require.ErrorIs(t, err, ErrConcurrentApply)
+}

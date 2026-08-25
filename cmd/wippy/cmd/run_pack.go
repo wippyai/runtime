@@ -106,7 +106,11 @@ func collectPackCommands(ctx context.Context, mainModule string) ([]packCommand,
 
 	filtered := allEntries[:0]
 	for _, entry := range allEntries {
-		if !packCommandAllowed(entryModuleOwner(reg, entry.ID), mainModule) {
+		owner, ownerErr := entryModuleOwner(reg, entry.ID)
+		if ownerErr != nil {
+			return nil, fmt.Errorf("resolve command ownership for %s: %w", entry.ID.String(), ownerErr)
+		}
+		if !packCommandAllowed(owner, mainModule) {
 			continue
 		}
 		filtered = append(filtered, entry)
@@ -135,16 +139,20 @@ func findPackCommandForModule(ctx context.Context, commandName, useCase, mainMod
 }
 
 // entryModuleOwner reads ownership from registry provenance; author metadata
-// named "module" is ordinary payload and never consulted.
-func entryModuleOwner(reg registry.Registry, id registry.ID) string {
+// named "module" is ordinary payload and never consulted. A registry that
+// cannot answer, or an entry without a record, fails closed.
+func entryModuleOwner(reg registry.Registry, id registry.ID) (string, error) {
 	reader, ok := reg.(interface {
 		EntryProvenance(registry.ID) (registry.EntryProvenance, bool)
 	})
 	if !ok {
-		return ""
+		return "", fmt.Errorf("registry does not serve provenance")
 	}
-	p, _ := reader.EntryProvenance(id)
-	return p.Module
+	p, found := reader.EntryProvenance(id)
+	if !found {
+		return "", registry.NewMissingProvenanceError(id)
+	}
+	return p.Module, nil
 }
 
 func packCommandAllowed(module, mainModule string) bool {

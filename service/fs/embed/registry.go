@@ -270,6 +270,18 @@ func (r *Registry) RegisterPack(packPath, module, version string, reader *wapp.R
 	if existing, ok := r.packs[packPath]; ok {
 		replaceErr = r.removePackLocked(existing)
 	}
+	// One pack per (module, version): a retarget moves ONE lineage set, so a
+	// second pack at the same identity would leave readers split across packs.
+	// Registering the same identity again retires the previous pack.
+	if module != "" {
+		for _, existing := range r.packs {
+			if existing.module == module && existing.version == version {
+				if err := r.removePackLocked(existing); err != nil && replaceErr == nil {
+					replaceErr = err
+				}
+			}
+		}
+	}
 
 	next := &pack{
 		packPath:  packPath,

@@ -3,6 +3,7 @@
 package registry
 
 import (
+	"errors"
 	"github.com/wippyai/runtime/api/attrs"
 	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/registry"
@@ -91,10 +92,15 @@ func NewCommitEffectsError(err error, rollbackErr error) apierror.Error {
 }
 
 // NewConcurrentApplyError creates an error when registry state changes mid-apply.
+// ErrConcurrentApply marks an apply that lost to a concurrent one; callers
+// re-read and retry against the new version.
+var ErrConcurrentApply = errors.New("registry changed during apply")
+
 func NewConcurrentApplyError(expected, actual uint) apierror.Error {
 	return apierror.New(apierror.Conflict, "registry changed during apply").
 		WithRetryable(apierror.True).
-		WithDetails(attrs.NewBagFrom(map[string]any{"expected_version": expected, "actual_version": actual}))
+		WithDetails(attrs.NewBagFrom(map[string]any{"expected_version": expected, "actual_version": actual})).
+		WithCause(ErrConcurrentApply)
 }
 
 // NewOverlayGenerationConflictError reports an optimistic-concurrency conflict

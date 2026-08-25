@@ -153,8 +153,25 @@ func (r *Reg) GetEntry(path registry.ID) (registry.Entry, error) {
 // --- StateWriter Interface Implementation ---
 
 func (r *Reg) Apply(ctx context.Context, changes registry.ChangeSet) (registry.Version, error) {
+	return r.applyFrom(ctx, changes, nil)
+}
+
+// applyFrom applies a changeset conditioned on a base version: a non-nil
+// expected version that no longer matches the current one fails with the
+// concurrent-apply conflict before anything is planned, giving optimistic
+// callers an exact read-check-write boundary.
+func (r *Reg) applyFrom(ctx context.Context, changes registry.ChangeSet, expected registry.Version) (registry.Version, error) {
 	r.applyMu.Lock()
 	defer r.applyMu.Unlock()
+
+	if expected != nil {
+		r.mu.RLock()
+		currentID := r.currentVersion.ID()
+		r.mu.RUnlock()
+		if currentID != expected.ID() {
+			return nil, NewConcurrentApplyError(expected.ID(), currentID)
+		}
+	}
 	changes = append(registry.ChangeSet(nil), changes...)
 	canonicalizeChangeSetIDs(changes)
 
@@ -244,8 +261,8 @@ func (r *Reg) Apply(ctx context.Context, changes registry.ChangeSet) (registry.V
 	}
 	annotateChangeSet(allOps, liveProv, newProv)
 
-	rollbackOutcome := &registry.RollbackOutcome{}
-	ctx = registry.WithRollbackOutcome(ctx, rollbackOutcome)
+	runnerOutcome := &registry.RollbackOutcome{}
+	ctx = registry.WithRollbackOutcome(ctx, runnerOutcome)
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -268,7 +285,7 @@ func (r *Reg) Apply(ctx context.Context, changes registry.ChangeSet) (registry.V
 	if err != nil {
 		r.log.Error("failed to apply changes", zap.Error(err))
 		if newState != nil && ctx.Err() == nil {
-			if rerr := r.rollback(ctx, newState, r.state); rerr != nil {
+			if rerr := r.rollback(ctx, newState, r.state, newProv, runnerOutcome); rerr != nil {
 				if planner != nil {
 					planner.RollbackEffects(ctx, preparedEff)
 				}
@@ -284,7 +301,7 @@ func (r *Reg) Apply(ctx context.Context, changes registry.ChangeSet) (registry.V
 	if planner != nil {
 		if err := planner.CommitEffects(ctx, preparedEff); err != nil {
 			r.log.Error("failed to commit effects", zap.Error(err))
-			if rerr := r.rollback(ctx, newState, r.state); rerr != nil {
+			if rerr := r.rollback(ctx, newState, r.state, newProv, runnerOutcome); rerr != nil {
 				planner.RollbackEffects(ctx, preparedEff)
 				return nil, NewCommitEffectsError(err, rerr)
 			}
@@ -310,7 +327,7 @@ func (r *Reg) Apply(ctx context.Context, changes registry.ChangeSet) (registry.V
 		}
 		if saveErr != nil {
 			r.log.Error("failed to save new version", zap.Error(saveErr))
-			if rerr := r.rollback(ctx, newState, r.state); rerr != nil {
+			if rerr := r.rollback(ctx, newState, r.state, newProv, runnerOutcome); rerr != nil {
 				if planner != nil {
 					planner.RollbackEffects(ctx, preparedEff)
 				}
@@ -572,7 +589,7 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 	if err != nil {
 		r.log.Error("failed to apply squashed changeset", zap.Error(err))
 		if newState != nil && ctx.Err() == nil {
-			if rerr := r.rollback(ctx, newState, r.state); rerr != nil {
+			if rerr := r.rollback(ctx, newState, r.state, targetProv, nil); rerr != nil {
 				if planner != nil {
 					planner.RollbackEffects(ctx, preparedEff)
 				}
@@ -588,7 +605,7 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 	if planner != nil {
 		if err := planner.CommitEffects(ctx, preparedEff); err != nil {
 			r.log.Error("failed to commit effects", zap.Error(err))
-			if rerr := r.rollback(ctx, newState, r.state); rerr != nil {
+			if rerr := r.rollback(ctx, newState, r.state, targetProv, nil); rerr != nil {
 				planner.RollbackEffects(ctx, preparedEff)
 				return NewCommitEffectsError(err, rerr)
 			}
@@ -606,7 +623,7 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 	if headUpdateErr != nil {
 		headErr := NewSetHeadError(targetVersion.ID(), headUpdateErr)
 		var compensationErr error
-		if rollbackErr := r.rollback(ctx, newState, r.state); rollbackErr != nil {
+		if rollbackErr := r.rollback(ctx, newState, r.state, targetProv, nil); rollbackErr != nil {
 			compensationErr = errors.Join(compensationErr, rollbackErr)
 		}
 		if planner != nil {
@@ -639,8 +656,21 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 // as cold boot; reversing operations against the expanded resident state can
 // otherwise delete baseline entries hidden by an overlay.
 func (r *Reg) stateAtVersion(ctx context.Context, target registry.Version) (registry.State, registry.ProvMap, error) {
-	stateMap := topology.NewStateMap(r.baseline)
-	prov := r.baselineProv.Clone()
+	return replayVersionState(ctx, r.history, r.baseline, r.baselineProv, target)
+}
+
+// replayVersionState composes a baseline and its provenance with the authored
+// history up to target. It reads only its arguments and the history backend,
+// so callers can replay without holding registry locks.
+func replayVersionState(
+	ctx context.Context,
+	history registry.History,
+	baseline registry.State,
+	baselineProv registry.ProvMap,
+	target registry.Version,
+) (registry.State, registry.ProvMap, error) {
+	stateMap := topology.NewStateMap(baseline)
+	prov := baselineProv.Clone()
 	if prov == nil {
 		prov = make(registry.ProvMap)
 	}
@@ -653,7 +683,7 @@ func (r *Reg) stateAtVersion(ctx context.Context, target registry.Version) (regi
 		prov = applyOpsToProvenance(prov, changes)
 		return nil
 	}
-	if replayer, ok := r.history.(registry.ChangeSetReplayer); ok {
+	if replayer, ok := history.(registry.ChangeSetReplayer); ok {
 		if err := replayer.ReplayChanges(ctx, target, apply); err != nil {
 			return nil, nil, NewGetChangesetError(target.ID(), err)
 		}
@@ -664,7 +694,7 @@ func (r *Reg) stateAtVersion(ctx context.Context, target registry.Version) (regi
 		lineage = append(lineage, current)
 	}
 	for i := len(lineage) - 1; i >= 0; i-- {
-		changes, err := r.history.Get(lineage[i])
+		changes, err := history.Get(lineage[i])
 		if err != nil {
 			return nil, nil, NewGetChangesetError(lineage[i].ID(), err)
 		}
@@ -926,7 +956,7 @@ func (r *Reg) LoadState(ctx context.Context, baselineState registry.ProvenancedS
 	if err != nil {
 		r.log.Error("failed to load state", zap.String("version", targetVersion.String()), zap.Error(err))
 		if newState != nil && ctx.Err() == nil {
-			if rerr := r.rollback(ctx, newState, r.state); rerr != nil {
+			if rerr := r.rollback(ctx, newState, r.state, targetProv, nil); rerr != nil {
 				if planner != nil {
 					planner.RollbackEffects(ctx, preparedEff)
 				}
@@ -942,7 +972,7 @@ func (r *Reg) LoadState(ctx context.Context, baselineState registry.ProvenancedS
 	if planner != nil {
 		if err := planner.CommitEffects(ctx, preparedEff); err != nil {
 			r.log.Error("failed to commit load-state effects", zap.Error(err))
-			if rerr := r.rollback(ctx, newState, r.state); rerr != nil {
+			if rerr := r.rollback(ctx, newState, r.state, targetProv, nil); rerr != nil {
 				planner.RollbackEffects(ctx, preparedEff)
 				return NewCommitEffectsError(err, rerr)
 			}
@@ -960,7 +990,7 @@ func (r *Reg) LoadState(ctx context.Context, baselineState registry.ProvenancedS
 	}
 	if headCheckErr != nil {
 		var rollbackErr error
-		if transitionErr := r.rollback(ctx, newState, r.state); transitionErr != nil {
+		if transitionErr := r.rollback(ctx, newState, r.state, targetProv, nil); transitionErr != nil {
 			rollbackErr = transitionErr
 		}
 		if planner != nil {
@@ -1057,9 +1087,11 @@ func canonicalEntryID(id registry.ID) registry.ID {
 
 // rollback state desync between actual state in system and state in history.
 // The runner records what its compensation actually did into the context's
-// RollbackOutcome; a desynced state's provenance is reconstructed from the
-// surviving operations, never guessed.
-func (r *Reg) rollback(ctx context.Context, from, to registry.State) error {
+// RollbackOutcome. A surviving compensation is a FORWARD effect that remains
+// in the state, so its entry takes the forward map's record; everything else
+// keeps the pre-transition record. prior carries the first compensation
+// attempt's outcome so neither attempt's failures are lost.
+func (r *Reg) rollback(ctx context.Context, from, to registry.State, forwardProv registry.ProvMap, prior *registry.RollbackOutcome) error {
 	r.log.Debug("attempting to rollback")
 
 	published := r.Provenance()
@@ -1070,11 +1102,23 @@ func (r *Reg) rollback(ctx context.Context, from, to registry.State) error {
 		return nil // success
 	}
 	err = errors.Join(err, outcome.Err())
+	if prior != nil {
+		err = errors.Join(err, prior.Err())
+	}
 
 	r.state = partial // we remain in a desynced state
 	r.rebuildIndex()
 	r.rebuildDepIndex()
-	partialProv := applyOpsToProvenance(published, outcome.Surviving())
+	partialProv := published.Clone()
+	if partialProv == nil {
+		partialProv = make(registry.ProvMap)
+	}
+	for _, op := range outcome.Surviving() {
+		id := canonicalEntryID(op.Entry.ID)
+		if record, ok := forwardProv[id]; ok {
+			partialProv[id] = record
+		}
+	}
 	r.publishProvenance(provenanceForState(partial, partialProv, nil))
 	r.reconcileKnownOverlaysAfterFailedRollback()
 

@@ -16,6 +16,26 @@ import (
 // encodePackProvenance serializes entry provenance into the pack metadata
 // frame, keyed by canonical entry ID. The entries themselves stay verbatim;
 // the pack carries the runtime's knowledge out of band.
+func encodePackProvenance(prov registry.ProvMap) map[string]any {
+	out := make(map[string]any, len(prov))
+	for id, p := range prov {
+		rec := map[string]any{}
+		if p.Module != "" {
+			rec["module"] = p.Module
+		}
+		if p.Version != "" {
+			rec["version"] = p.Version
+		}
+		if p.Digest != "" {
+			rec["digest"] = p.Digest
+		}
+		if p.Root {
+			rec["root"] = true
+		}
+		out[id.String()] = rec
+	}
+	return out
+}
 
 // packProvenanceFromMetadata reads the provenance a pack recorded in its
 // metadata frame. A pack without the frame predates it and loads as
@@ -43,10 +63,17 @@ func packProvenanceFromMetadata(reader *wapp.Reader, loadedEntries []registry.En
 			return nil, fmt.Errorf("provenance record %q has type %T, want a map", key, val)
 		}
 		pr := registry.EntryProvenance{}
-		pr.Module, _ = rec["module"].(string)
-		pr.Version, _ = rec["version"].(string)
-		pr.Digest, _ = rec["digest"].(string)
-		pr.Root, _ = rec["root"].(bool)
+		var fieldErr error
+		pr.Module, fieldErr = provString(rec, "module", fieldErr)
+		pr.Version, fieldErr = provString(rec, "version", fieldErr)
+		pr.Digest, fieldErr = provString(rec, "digest", fieldErr)
+		pr.Root, fieldErr = provBool(rec, "root", fieldErr)
+		if fieldErr != nil {
+			return nil, fmt.Errorf("provenance record %q: %w", key, fieldErr)
+		}
+		if pr.Module == "" && (pr.Version != "" || pr.Digest != "") {
+			return nil, fmt.Errorf("provenance record %q carries an artifact identity with no module", key)
+		}
 		byID[key] = pr
 	}
 	for _, entry := range loadedEntries {
@@ -72,4 +99,36 @@ func packFileDigest(path string) (string, error) {
 		return "", err
 	}
 	return "sha256:" + hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// provString reads one optional string field, failing on a wrong type.
+func provString(rec map[string]any, field string, err error) (string, error) {
+	if err != nil {
+		return "", err
+	}
+	val, ok := rec[field]
+	if !ok {
+		return "", nil
+	}
+	str, isString := val.(string)
+	if !isString {
+		return "", fmt.Errorf("field %q has type %T, want string", field, val)
+	}
+	return str, nil
+}
+
+// provBool reads one optional bool field, failing on a wrong type.
+func provBool(rec map[string]any, field string, err error) (bool, error) {
+	if err != nil {
+		return false, err
+	}
+	val, ok := rec[field]
+	if !ok {
+		return false, nil
+	}
+	b, isBool := val.(bool)
+	if !isBool {
+		return false, fmt.Errorf("field %q has type %T, want bool", field, val)
+	}
+	return b, nil
 }
