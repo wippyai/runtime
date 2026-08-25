@@ -4,13 +4,16 @@ package embed
 
 import (
 	"bytes"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -266,12 +269,20 @@ func TestRegistry_RetargetModule(t *testing.T) {
 		require.NoError(t, err)
 
 		var (
-			wg      sync.WaitGroup
-			stop    = make(chan struct{})
-			results = make(chan string, 64)
-			failed  = make(chan error, 64)
+			wg     sync.WaitGroup
+			stop   = make(chan struct{})
+			failed = make(chan error, 64)
 		)
+		reportFailure := func(err error) {
+			select {
+			case failed <- err:
+			default:
+			}
+		}
+		// Half the readers hold an open handle across the retarget and the
+		// close, which is the window a per-call reference would miss.
 		for i := 0; i < 8; i++ {
+			holdOpen := i%2 == 0
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
@@ -281,17 +292,27 @@ func TestRegistry_RetargetModule(t *testing.T) {
 						return
 					default:
 					}
-					data, err := fs.ReadFile(cached, "v.txt")
-					if err != nil {
-						select {
-						case failed <- err:
-						default:
+					if !holdOpen {
+						if _, err := fs.ReadFile(cached, "v.txt"); err != nil {
+							reportFailure(err)
+							return
 						}
+						continue
+					}
+					file, err := cached.Open("v.txt")
+					if err != nil {
+						reportFailure(err)
 						return
 					}
-					select {
-					case results <- string(data):
-					default:
+					runtime.Gosched()
+					if _, err := io.ReadAll(file); err != nil {
+						_ = file.Close()
+						reportFailure(err)
+						return
+					}
+					if err := file.Close(); err != nil {
+						reportFailure(err)
+						return
 					}
 				}
 			}()
@@ -304,7 +325,19 @@ func TestRegistry_RetargetModule(t *testing.T) {
 			assert.Equal(t, "new", readFile(t, cached, "v.txt"))
 		}
 		close(stop)
-		wg.Wait()
+
+		// Readers must drain on their own: nothing in the retarget or the close
+		// waits on them, so nothing can hold them.
+		done := make(chan struct{})
+		go func() {
+			wg.Wait()
+			close(done)
+		}()
+		select {
+		case <-done:
+		case <-time.After(10 * time.Second):
+			t.Fatal("readers did not finish: a read is blocked on the pack lifecycle")
+		}
 
 		close(failed)
 		for err := range failed {
@@ -369,19 +402,110 @@ func TestRegistry_RetargetModule(t *testing.T) {
 		assert.Contains(t, err.Error(), "module cannot be empty")
 	})
 
-	t.Run("forgets filesystems whose pack is gone", func(t *testing.T) {
+	t.Run("one store repoints every entry of the module version", func(t *testing.T) {
+		r := NewRegistry()
+		oldReader := createReaderWithResources(t, "org/mod", map[string]map[string]string{
+			"ui:app":  {"v.txt": "old"},
+			"ui:docs": {"v.txt": "old"},
+		})
+		newReader := createReaderWithResources(t, "org/mod", map[string]map[string]string{
+			"ui:app":  {"v.txt": "new"},
+			"ui:docs": {"v.txt": "new"},
+		})
+		require.NoError(t, r.RegisterPack("org/mod-v1.0.0.wapp", "org/mod", "1.0.0", oldReader, nil))
+		require.NoError(t, r.RegisterPack("org/mod-v2.0.0.wapp", "org/mod", "2.0.0", newReader, nil))
+
+		app, err := r.GetFSForEntry(packEntry("ui", "app"), moduleProvenance("org/mod", "1.0.0"))
+		require.NoError(t, err)
+		docs, err := r.GetFSForEntry(packEntry("ui", "docs"), moduleProvenance("org/mod", "1.0.0"))
+		require.NoError(t, err)
+
+		// Both entries read through the same generation, so the retarget is one
+		// store rather than one store per filesystem.
+		assert.Same(t, app.(*entryFS).lineage, docs.(*entryFS).lineage)
+
+		require.NoError(t, r.RetargetModule("org/mod", "1.0.0", "2.0.0"))
+		assert.Equal(t, "new", readFile(t, app, "v.txt"))
+		assert.Equal(t, "new", readFile(t, docs, "v.txt"))
+	})
+
+	t.Run("a read in flight keeps its pack open past the close", func(t *testing.T) {
+		r := NewRegistry()
+		oldReader, oldFile := createReaderWithResourceFile(t, "ui", "app", map[string]string{"v.txt": "old"})
+		newReader := createReaderWithResource(t, "ui", "app", map[string]string{"v.txt": "new"})
+		require.NoError(t, r.RegisterPack("org/mod-v1.0.0.wapp", "org/mod", "1.0.0", oldReader, oldFile))
+		require.NoError(t, r.RegisterPack("org/mod-v2.0.0.wapp", "org/mod", "2.0.0", newReader, nil))
+
+		cached, err := r.GetFSForEntry(packEntry("ui", "app"), moduleProvenance("org/mod", "1.0.0"))
+		require.NoError(t, err)
+
+		inFlight, err := cached.Open("v.txt")
+		require.NoError(t, err)
+
+		require.NoError(t, r.RetargetModule("org/mod", "1.0.0", "2.0.0"))
+		require.NoError(t, r.UnregisterModule("org/mod", "1.0.0"))
+
+		// The handle opened before the retarget still reads its own pack.
+		data, err := io.ReadAll(inFlight)
+		require.NoError(t, err)
+		assert.Equal(t, "old", string(data))
+		_, err = oldFile.ReadAt(make([]byte, 1), 0)
+		require.NoError(t, err, "the pack file must stay open while a read holds it")
+
+		// Closing the last reader closes the pack file.
+		require.NoError(t, inFlight.Close())
+		_, err = oldFile.ReadAt(make([]byte, 1), 0)
+		require.Error(t, err)
+
+		// New reads come from the pack the lineage was retargeted to.
+		assert.Equal(t, "new", readFile(t, cached, "v.txt"))
+	})
+
+	t.Run("retired generations are not referenced by the registry", func(t *testing.T) {
+		r := NewRegistry()
+		oldReader, oldFile := createReaderWithResourceFile(t, "ui", "app", map[string]string{"v.txt": "old"})
+		newReader := createReaderWithResource(t, "ui", "app", map[string]string{"v.txt": "new"})
+		require.NoError(t, r.RegisterPack("org/mod-v1.0.0.wapp", "org/mod", "1.0.0", oldReader, oldFile))
+		require.NoError(t, r.RegisterPack("org/mod-v2.0.0.wapp", "org/mod", "2.0.0", newReader, nil))
+
+		cached, err := r.GetFSForEntry(packEntry("ui", "app"), moduleProvenance("org/mod", "1.0.0"))
+		require.NoError(t, err)
+		assert.Equal(t, "old", readFile(t, cached, "v.txt"))
+
+		require.NoError(t, r.RetargetModule("org/mod", "1.0.0", "2.0.0"))
+		require.NoError(t, r.UnregisterModule("org/mod", "1.0.0"))
+
+		r.mu.RLock()
+		defer r.mu.RUnlock()
+		for p, lineages := range r.lineages {
+			assert.Equal(t, "2.0.0", p.version, "no lineage may stay keyed by the retired pack")
+			for _, l := range lineages {
+				require.NotNil(t, l.current.Load())
+				assert.Equal(t, "2.0.0", l.current.Load().version())
+			}
+		}
+		// Nothing holds the retired pack: its handle is closed.
+		_, err = oldFile.ReadAt(make([]byte, 1), 0)
+		require.Error(t, err)
+	})
+
+	t.Run("unregistering the served pack stops resolution", func(t *testing.T) {
 		r := NewRegistry()
 		reader := createReaderWithResource(t, "ui", "app", map[string]string{"v.txt": "old"})
 		require.NoError(t, r.RegisterPack("org/mod-v1.0.0.wapp", "org/mod", "1.0.0", reader, nil))
-		_, err := r.GetFSForEntry(packEntry("ui", "app"), moduleProvenance("org/mod", "1.0.0"))
+		cached, err := r.GetFSForEntry(packEntry("ui", "app"), moduleProvenance("org/mod", "1.0.0"))
 		require.NoError(t, err)
 
 		require.NoError(t, r.UnregisterModule("org/mod", "1.0.0"))
 
+		_, err = cached.Open("v.txt")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "not found")
+
 		r.mu.RLock()
-		served := len(r.served["org/mod"])
+		lineages := len(r.lineages)
 		r.mu.RUnlock()
-		assert.Equal(t, 0, served)
+		assert.Equal(t, 0, lineages)
 	})
 }
 
