@@ -100,13 +100,25 @@ func changesUpdate(l *lua.LState) int {
 		return 2
 	}
 
-	// An update that says nothing about root status inherits the stored one.
-	// Absence means "unchanged" here, not "false": a writer unaware of the
-	// field would otherwise demote a deployment root on every rewrite, and a
-	// demoted root loses its parameters at the next boot's link stage.
-	if entryTable.RawGetString("root") == lua.LNil && changes.snapshot != nil {
-		if stored, storedErr := changes.snapshot.GetEntry(entry.ID); storedErr == nil {
-			entry.DependencyRoot = stored.DependencyRoot
+	// Root-ness is deployment state, not entry content. An echoed-back root
+	// value equal to the current selection passes; an attempted mutation is
+	// refused and pointed at the API that owns it.
+	if rootVal, ok := entryTable.RawGetString("root").(lua.LBool); ok {
+		current := false
+		if reg := regapi.GetRegistry(l.Context()); reg != nil {
+			if reader, readerOK := reg.(provenanceReader); readerOK {
+				if p, found := reader.EntryProvenance(entry.ID.Canonical()); found {
+					current = p.Root
+				}
+			}
+		}
+		if bool(rootVal) != current {
+			err := lua.NewLuaError(l, "root is deployment state; change it with registry.set_root").
+				WithKind(lua.Invalid).
+				WithRetryable(false)
+			l.Push(lua.LNil)
+			l.Push(err)
+			return 2
 		}
 	}
 

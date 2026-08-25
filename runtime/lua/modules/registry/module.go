@@ -100,6 +100,8 @@ func NewModule(opts Options) *luaapi.ModuleDef {
 			mod.RawSetString("apply_version", lua.LGoFunc(registryApplyVersion))
 			mod.RawSetString("build_delta", makeBuildDelta(opts.Log))
 			mod.RawSetString("overlay", lua.LGoFunc(registryOverlay))
+			mod.RawSetString("provenance", lua.LGoFunc(registryProvenance))
+			mod.RawSetString("set_root", lua.LGoFunc(registrySetRoot))
 			mod.Immutable = true
 			return mod, nil
 		},
@@ -229,6 +231,13 @@ func registryGet(l *lua.LState) int {
 	}
 
 	entryTable, convErr := entryToLuaTable(l, entry)
+	if convErr == nil {
+		if reader, ok := reg.(provenanceReader); ok {
+			if p, found := reader.EntryProvenance(entry.ID.Canonical()); found {
+				entryTable.RawSetString("root", lua.LBool(p.Root))
+			}
+		}
+	}
 	if convErr != nil {
 		err := lua.WrapErrorWithLua(l, convErr, "convert entry").
 			WithKind(lua.Internal).
