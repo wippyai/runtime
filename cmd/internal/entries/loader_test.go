@@ -2100,3 +2100,37 @@ func TestWaitForListenerReadiness_ContextCancelled(t *testing.T) {
 		t.Fatal("expected cancellation error, got nil")
 	}
 }
+
+// A replacement loaded before a colliding non-replacement copy must keep both
+// its entry and its provenance record; the losing copy leaves nothing behind.
+func TestLoadEntriesReplacementFirstKeepsItsProvenance(t *testing.T) {
+	ctx := setupTestContext(t)
+	appDir := t.TempDir()
+	replacementRoot := t.TempDir()
+	replacementSource := filepath.Join(replacementRoot, "src")
+	require.NoError(t, os.MkdirAll(replacementSource, 0o755))
+	manifest := `version: "1.0"
+namespace: order.test
+entries:
+  - name: value
+    kind: test.value
+    data: %s
+`
+	require.NoError(t, os.WriteFile(filepath.Join(replacementSource, "_index.yaml"), []byte(fmt.Sprintf(manifest, "local")), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(appDir, "_index.yaml"), []byte(fmt.Sprintf(manifest, "stale")), 0o600))
+
+	wantDigest, _, err := hub.ReplacementTreeIdentity(replacementRoot)
+	require.NoError(t, err)
+
+	// Replacement FIRST, non-replacement copy after.
+	loaded, prov, err := LoadEntriesFromModuleLoadPaths(ctx, []lock.ModuleLoadPath{
+		{Path: replacementSource, Module: "acme/replacement", SourceRoot: replacementRoot, Replacement: true},
+		{Path: appDir, Root: true},
+	}, zap.NewNop())
+	require.NoError(t, err)
+	require.Len(t, loaded, 1)
+	assert.Equal(t, "local", loaded[0].Data.Data())
+	record := prov[loaded[0].ID.Canonical()]
+	assert.Equal(t, "acme/replacement", record.Module)
+	assert.Equal(t, wantDigest, record.Digest)
+}

@@ -566,7 +566,11 @@ func TestCollectPackCommandsFiltersDependencyModules(t *testing.T) {
 			},
 		},
 	}
-	if err := applyPackEntries(appCtx, entries, nil, zap.NewNop()); err != nil {
+	prov := regapi.ProvMap{
+		regapi.NewID("wippy.test", "runner"): {Module: "wippy/test"},
+		regapi.NewID("app", "serve"):         {Module: "kickside/kickside"},
+	}
+	if err := applyPackEntries(appCtx, entries, prov, zap.NewNop()); err != nil {
 		t.Fatalf("apply entries: %v", err)
 	}
 
@@ -590,49 +594,25 @@ func TestCollectPackCommandsFiltersDependencyModules(t *testing.T) {
 func TestPackCommandAllowed(t *testing.T) {
 	tests := []struct {
 		name       string
-		meta       map[string]any
+		module     string
 		mainModule string
 		want       bool
 	}{
-		{
-			name: "moduleless command allowed without pack identity",
-			meta: map[string]any{"command": map[string]any{"name": "serve"}},
-			want: true,
-		},
-		{
-			name: "dependency command excluded without pack identity",
-			meta: map[string]any{"module": "wippy/test", "command": map[string]any{"name": "test"}},
-			want: false,
-		},
-		{
-			name:       "main module command allowed",
-			meta:       map[string]any{"module": "kickside/kickside", "command": map[string]any{"name": "serve"}},
-			mainModule: "kickside/kickside",
-			want:       true,
-		},
-		{
-			name:       "dependency command excluded when main module known",
-			meta:       map[string]any{"module": "wippy/test", "command": map[string]any{"name": "test"}},
-			mainModule: "kickside/kickside",
-			want:       false,
-		},
-		{
-			name:       "moduleless command allowed when main module known",
-			meta:       map[string]any{"command": map[string]any{"name": "serve"}},
-			mainModule: "kickside/kickside",
-			want:       true,
-		},
+		{name: "host command allowed without pack identity", module: "", want: true},
+		{name: "dependency command excluded without pack identity", module: "wippy/test", want: false},
+		{name: "main module command allowed", module: "kickside/kickside", mainModule: "kickside/kickside", want: true},
+		{name: "dependency command excluded when main module known", module: "wippy/test", mainModule: "kickside/kickside", want: false},
+		{name: "moduleless command allowed when main module known", module: "", mainModule: "kickside/kickside", want: true},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := packCommandAllowed(tc.meta, tc.mainModule); got != tc.want {
+			if got := packCommandAllowed(tc.module, tc.mainModule); got != tc.want {
 				t.Fatalf("packCommandAllowed() = %v, want %v", got, tc.want)
 			}
 		})
 	}
 }
-
 func TestBootstrapPackRuntimeWithDefaults_Harness(t *testing.T) {
 	t.Run("applies runtime defaults when config key is missing", func(t *testing.T) {
 		tmpDir := t.TempDir()

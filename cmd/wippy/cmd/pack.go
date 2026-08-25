@@ -606,9 +606,6 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *tea
 		"packed_at":     time.Now().UTC().Format(time.RFC3339),
 		"entry_count":   len(loadedEntries),
 	}
-	if len(loadedProv) > 0 {
-		metadata["provenance"] = encodePackProvenance(loadedProv)
-	}
 
 	if description != "" {
 		metadata["description"] = description
@@ -625,6 +622,11 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *tea
 	}
 	if err := addPackRuntimeMetadata(metadata, folderPath); err != nil {
 		return NewPackConfigError(err)
+	}
+	// The provenance frame is runtime-owned: it lands after user metadata so
+	// no --meta flag can overwrite it.
+	if len(loadedProv) > 0 {
+		metadata["provenance"] = encodePackProvenance(loadedProv)
 	}
 
 	p.Send(progressMsg{stage: stageWrite, percent: 0.8, status: "Writing pack file..."})

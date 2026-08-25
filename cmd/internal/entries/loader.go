@@ -457,6 +457,7 @@ func loadEntriesWithModuleMeta(ctx context.Context, modulePaths []lock.ModuleLoa
 	}
 
 	prov := make(regapi.ProvMap)
+	var entryProv []regapi.EntryProvenance
 	var fromReplacement []bool
 
 	replacementOwners := make(map[string]struct{})
@@ -514,7 +515,7 @@ func loadEntriesWithModuleMeta(ctx context.Context, modulePaths []lock.ModuleLoa
 				p.Version = ""
 				p.Digest = ""
 			}
-			prov[loaded[i].ID.Canonical()] = p
+			entryProv = append(entryProv, p)
 		}
 
 		entries = append(entries, loaded...)
@@ -533,6 +534,7 @@ func loadEntriesWithModuleMeta(ctx context.Context, modulePaths []lock.ModuleLoa
 			}
 		}
 		filtered := entries[:0]
+		filteredProv := entryProv[:0]
 		for i, entry := range entries {
 			if !fromReplacement[i] {
 				if _, owned := replacementIDs[entry.ID.Canonical()]; owned {
@@ -540,8 +542,17 @@ func loadEntriesWithModuleMeta(ctx context.Context, modulePaths []lock.ModuleLoa
 				}
 			}
 			filtered = append(filtered, entry)
+			filteredProv = append(filteredProv, entryProv[i])
 		}
 		entries = filtered
+		entryProv = filteredProv
+	}
+
+	// The map is built from the surviving entries, so a filtered copy can
+	// never leave its record behind. Later survivors win, matching entry
+	// last-definition semantics.
+	for i, entry := range entries {
+		prov[entry.ID.Canonical()] = entryProv[i]
 	}
 
 	if err := NormalizeEntries(ctx, &entries, prov); err != nil {

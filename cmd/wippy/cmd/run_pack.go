@@ -4,6 +4,8 @@ package cmd
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"os"
@@ -106,7 +108,7 @@ func collectPackCommands(ctx context.Context, mainModule string) ([]packCommand,
 
 	filtered := allEntries[:0]
 	for _, entry := range allEntries {
-		if !packCommandAllowed(entry.Meta, mainModule) {
+		if !packCommandAllowed(entryModuleOwner(reg, entry.ID), mainModule) {
 			continue
 		}
 		filtered = append(filtered, entry)
@@ -134,16 +136,20 @@ func findPackCommandForModule(ctx context.Context, commandName, useCase, mainMod
 	return selectEntrypoint(commands, commandName, useCase)
 }
 
-func moduleMeta(meta map[string]any) string {
-	if meta == nil {
+// entryModuleOwner reads ownership from registry provenance; author metadata
+// named "module" is ordinary payload and never consulted.
+func entryModuleOwner(reg registry.Registry, id registry.ID) string {
+	reader, ok := reg.(interface {
+		EntryProvenance(registry.ID) (registry.EntryProvenance, bool)
+	})
+	if !ok {
 		return ""
 	}
-	module, _ := meta["module"].(string)
-	return module
+	p, _ := reader.EntryProvenance(id)
+	return p.Module
 }
 
-func packCommandAllowed(meta map[string]any, mainModule string) bool {
-	module := moduleMeta(meta)
+func packCommandAllowed(module, mainModule string) bool {
 	if mainModule == "" {
 		return module == ""
 	}
@@ -801,6 +807,15 @@ func loadPackEntries(packFiles []string, rootModule string, embedReg packReaderR
 		}
 
 		moduleName, moduleVersion := moduleIdentityFromPackMetadata(packReader.Reader())
+		packDigest := ""
+		if moduleName != "" {
+			var digestErr error
+			packDigest, digestErr = packFileDigest(packFile)
+			if digestErr != nil {
+				file.Close()
+				return nil, nil, fmt.Errorf("digest pack %s: %w", packFile, digestErr)
+			}
+		}
 		if err := registerPackResources(embedReg, packFile, moduleName, moduleVersion, packReader.Reader(), file); err != nil {
 			file.Close()
 			return nil, nil, fmt.Errorf("register embed resources for %s: %w", packFile, err)
@@ -817,11 +832,15 @@ func loadPackEntries(packFiles []string, rootModule string, embedReg packReaderR
 				prov[id] = registry.EntryProvenance{
 					Module:  moduleName,
 					Version: moduleVersion,
+					Digest:  packDigest,
 					Root:    moduleName == rootModule && loadedEntries[i].Kind == registry.NamespaceDependency,
 				}
 			}
 		} else {
-			packProv := packProvenanceFromMetadata(packReader.Reader(), loadedEntries)
+			packProv, provErr := packProvenanceFromMetadata(packReader.Reader(), loadedEntries)
+			if provErr != nil {
+				return nil, nil, fmt.Errorf("read provenance from %s: %w", packFile, provErr)
+			}
 			for id, pr := range packProv {
 				prov[id] = pr
 			}
@@ -833,23 +852,41 @@ func loadPackEntries(packFiles []string, rootModule string, embedReg packReaderR
 		packEntries = append(packEntries, loadedEntries...)
 	}
 
+	// The map is total: entries from packs that predate the provenance frame
+	// carry the explicit host record.
+	for _, entry := range packEntries {
+		if _, ok := prov[entry.ID.Canonical()]; !ok {
+			prov[entry.ID.Canonical()] = registry.EntryProvenance{}
+		}
+	}
+
 	return packEntries, prov, nil
 }
 
 // packProvenanceFromMetadata reads the provenance a pack recorded in its
-// metadata frame. A pack without one loads as host-authored entries.
-func packProvenanceFromMetadata(reader *wapp.Reader, loadedEntries []registry.Entry) registry.ProvMap {
+// metadata frame. A pack without the frame predates it and loads as
+// host-authored entries; a pack WITH the frame is parsed strictly — a
+// malformed record or an entry the frame does not cover is an error, never a
+// silent host coercion.
+func packProvenanceFromMetadata(reader *wapp.Reader, loadedEntries []registry.Entry) (registry.ProvMap, error) {
 	out := make(registry.ProvMap, len(loadedEntries))
 	metadata, err := reader.GetMetadata()
 	if err != nil {
-		return out
+		return nil, fmt.Errorf("read pack metadata: %w", err)
 	}
-	raw, _ := metadata["provenance"].(map[string]any)
+	rawVal, framePresent := metadata["provenance"]
+	if !framePresent {
+		return out, nil
+	}
+	raw, ok := rawVal.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("provenance frame has type %T, want a map", rawVal)
+	}
 	byID := make(map[string]registry.EntryProvenance, len(raw))
 	for key, val := range raw {
-		rec, ok := val.(map[string]any)
-		if !ok {
-			continue
+		rec, recOK := val.(map[string]any)
+		if !recOK {
+			return nil, fmt.Errorf("provenance record %q has type %T, want a map", key, val)
 		}
 		pr := registry.EntryProvenance{}
 		pr.Module, _ = rec["module"].(string)
@@ -860,11 +897,27 @@ func packProvenanceFromMetadata(reader *wapp.Reader, loadedEntries []registry.En
 	}
 	for _, entry := range loadedEntries {
 		id := entry.ID.Canonical()
-		if pr, ok := byID[id.String()]; ok {
-			out[id] = pr
+		pr, covered := byID[id.String()]
+		if !covered {
+			return nil, fmt.Errorf("provenance frame does not cover entry %s", id.String())
 		}
+		out[id] = pr
 	}
-	return out
+	return out, nil
+}
+
+// packFileDigest is the artifact identity of one pack file.
+func packFileDigest(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return "sha256:" + hex.EncodeToString(h.Sum(nil)), nil
 }
 
 func registerPackResources(embedReg packReaderRegistry, packFile, moduleName, moduleVersion string, reader *wapp.Reader, file *os.File) error {
