@@ -55,6 +55,17 @@ type encodedEntry struct {
 	DependencyRoot bool
 }
 
+// encodedOperation is the wire shape of one changeset operation. The optional
+// provenance fields are absent on rows written before they existed and decode
+// as nil.
+type encodedOperation struct {
+	OriginalEntry      *encodedEntry
+	Provenance         *registry.EntryProvenance
+	OriginalProvenance *registry.EntryProvenance
+	Kind               string
+	Entry              encodedEntry
+}
+
 func newMsgpackHandle() *codec.MsgpackHandle {
 	mh := &codec.MsgpackHandle{}
 	mh.MapType = reflect.TypeOf(map[string]any(nil))
@@ -293,11 +304,7 @@ func (h *History) Get(v registry.Version) (registry.ChangeSet, error) {
 }
 
 func (h *History) decodeChangeSet(data []byte) (registry.ChangeSet, error) {
-	var encodedOps []struct {
-		OriginalEntry *encodedEntry
-		Kind          string
-		Entry         encodedEntry
-	}
+	var encodedOps []encodedOperation
 
 	decoder := codec.NewDecoder(bytes.NewReader(data), h.handle)
 	if err := decoder.Decode(&encodedOps); err != nil {
@@ -318,8 +325,10 @@ func (h *History) decodeChangeSet(data []byte) (registry.ChangeSet, error) {
 		}
 
 		op := registry.Operation{
-			Kind:  encOp.Kind,
-			Entry: entry,
+			Kind:               encOp.Kind,
+			Entry:              entry,
+			Provenance:         encOp.Provenance,
+			OriginalProvenance: encOp.OriginalProvenance,
 		}
 
 		if encOp.OriginalEntry != nil {
@@ -478,11 +487,7 @@ func (h *History) SaveWithDependencyResolution(v registry.Version, cs registry.C
 		return NewInsertVersionError(err)
 	}
 
-	encodedOps := make([]struct {
-		OriginalEntry *encodedEntry
-		Kind          string
-		Entry         encodedEntry
-	}, len(cs))
+	encodedOps := make([]encodedOperation, len(cs))
 
 	for i, op := range cs {
 		var encPayload *encodedPayload
@@ -512,11 +517,7 @@ func (h *History) SaveWithDependencyResolution(v registry.Version, cs registry.C
 			}
 		}
 
-		encodedOps[i] = struct {
-			OriginalEntry *encodedEntry
-			Kind          string
-			Entry         encodedEntry
-		}{
+		encodedOps[i] = encodedOperation{
 			Kind: op.Kind,
 			Entry: encodedEntry{
 				ID:             op.Entry.ID,
@@ -525,7 +526,9 @@ func (h *History) SaveWithDependencyResolution(v registry.Version, cs registry.C
 				Data:           encPayload,
 				DependencyRoot: op.Entry.DependencyRoot,
 			},
-			OriginalEntry: encOriginal,
+			OriginalEntry:      encOriginal,
+			Provenance:         op.Provenance,
+			OriginalProvenance: op.OriginalProvenance,
 		}
 	}
 

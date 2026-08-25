@@ -208,10 +208,23 @@ func snapshotValue(value any) any {
 	}
 }
 
+func cloneProvenance(p *registry.EntryProvenance) *registry.EntryProvenance {
+	if p == nil {
+		return nil
+	}
+	cloned := *p
+	return &cloned
+}
+
 func cloneChangeSet(actions registry.ChangeSet) registry.ChangeSet {
 	cloned := make(registry.ChangeSet, len(actions))
 	for i, op := range actions {
-		cloned[i] = registry.Operation{Kind: op.Kind, Entry: cloneEntry(op.Entry)}
+		cloned[i] = registry.Operation{
+			Kind:               op.Kind,
+			Entry:              cloneEntry(op.Entry),
+			Provenance:         cloneProvenance(op.Provenance),
+			OriginalProvenance: cloneProvenance(op.OriginalProvenance),
+		}
 		if op.OriginalEntry != nil {
 			original := cloneEntry(*op.OriginalEntry)
 			cloned[i].OriginalEntry = &original
