@@ -112,16 +112,17 @@ func (w *offlineWorkspace) writeLock(t *testing.T, body string) {
 
 func (w *offlineWorkspace) rootDependency(name, component, constraint string) regapi.Entry {
 	return regapi.Entry{
-		ID:   regapi.NewID("app.deps", name),
-		Kind: regapi.NamespaceDependency,
-		Data: payload.New(map[string]any{"component": component, "version": constraint}),
+		ID:             regapi.NewID("app.deps", name),
+		Kind:           regapi.NamespaceDependency,
+		Data:           payload.New(map[string]any{"component": component, "version": constraint}),
+		DependencyRoot: true,
 	}
 }
 
-// installedModule marks an entry as already materialized from a published
-// module, which is the evidence verified-offline startup resolves from.
+// installedModule declares an entry as already materialized from a published
+// module. fixtureState moves that declaration into registry-owned provenance.
 func (w *offlineWorkspace) installedModule(id regapi.ID, module, moduleVersion, digest string) regapi.Entry {
-	return markModuleIdentity(regapi.Entry{ID: id, Kind: "service"}, module, moduleVersion, digest)
+	return fixtureOwned(regapi.Entry{ID: id, Kind: "service"}, module, moduleVersion, digest)
 }
 
 func (w *offlineWorkspace) newHandler(t *testing.T) *DependencyHandler {
@@ -164,7 +165,7 @@ func (w *offlineWorkspace) loadState(t *testing.T, access regapi.DependencyAcces
 	}
 	w.registry = w.newRegistry(t, w.history)
 	ctx := regapi.WithDependencyAccess(newTestContext(), access)
-	return w.registry.LoadState(ctx, w.baseline, version.New(0))
+	return w.registry.LoadState(ctx, fixtureState(w.baseline), version.New(0))
 }
 
 func (w *offlineWorkspace) requireEntry(t *testing.T, namespace, name string) regapi.Entry {
@@ -173,6 +174,16 @@ func (w *offlineWorkspace) requireEntry(t *testing.T, namespace, name string) re
 	entry, err := w.registry.GetEntry(regapi.NewID(namespace, name))
 	require.NoError(t, err)
 	return entry
+}
+
+func (w *offlineWorkspace) requireProvenance(t *testing.T, id regapi.ID) regapi.EntryProvenance {
+	t.Helper()
+
+	_, state, err := w.registry.SnapshotState()
+	require.NoError(t, err)
+	record, ok := state.Provenance[id]
+	require.True(t, ok, "missing provenance for %s", id.String())
+	return record
 }
 
 func (w *offlineWorkspace) requireHubUntouched(t *testing.T) {
@@ -302,7 +313,7 @@ func TestVerifiedOfflineStartupUsesDeclaredSourceVersionForRange(t *testing.T) {
 
 	entry := workspace.requireEntry(t, "local.mod", "svc")
 	require.Equal(t, "local", entry.Data.Data().(map[string]any)["generation"])
-	require.Equal(t, "9.1.0", entry.Meta["module_version"],
+	require.Equal(t, "9.1.0", workspace.requireProvenance(t, entry.ID).Version,
 		"the version the source declares settles a live range offline")
 	workspace.requireHubUntouched(t)
 }
@@ -333,7 +344,7 @@ replacements:
 	entry := workspace.requireEntry(t, "local.mod", "svc")
 	require.Equal(t, "local", entry.Data.Data().(map[string]any)["generation"],
 		"the replacement supplies the content of a module the lock also pins")
-	require.Equal(t, "1.0.0", entry.Meta["module_version"],
+	require.Equal(t, "1.0.0", workspace.requireProvenance(t, entry.ID).Version,
 		"the recorded label stays with it")
 	workspace.requireHubUntouched(t)
 }
@@ -358,7 +369,7 @@ func TestVerifiedOfflineStartupResolvesTransitivelyReplacedDependency(t *testing
 
 	workspace.requireEntry(t, "local.app", "svc")
 	entry := workspace.requireEntry(t, "local.lib", "svc")
-	require.Equal(t, "2.5.0", entry.Meta["module_version"],
+	require.Equal(t, "2.5.0", workspace.requireProvenance(t, entry.ID).Version,
 		"a replaced module's own source version labels it")
 	workspace.requireHubUntouched(t)
 }
@@ -466,7 +477,7 @@ func TestVerifiedOfflineStartupResolvesFromLockAfterReplacementRemoved(t *testin
 	require.NoError(t, workspace.loadState(t, regapi.DependencyAccessVerifiedOffline))
 	replaced := workspace.requireEntry(t, "local.mod", "svc")
 	require.Equal(t, "local", replaced.Data.Data().(map[string]any)["generation"])
-	require.Contains(t, replaced.Meta["module_digest"], "sha256-tree-v1:",
+	require.Contains(t, workspace.requireProvenance(t, replaced.ID).Digest, "sha256-tree-v1:",
 		"the tree's own identity pins a replaced module")
 	require.NoError(t, history.Close())
 
@@ -478,15 +489,19 @@ func TestVerifiedOfflineStartupResolvesFromLockAfterReplacementRemoved(t *testin
 	workspace.history = history
 
 	require.NoError(t, workspace.loadState(t, regapi.DependencyAccessVerifiedOffline))
-	entries, err := workspace.registry.GetAllEntries()
+	_, state, err := workspace.registry.SnapshotState()
 	require.NoError(t, err)
-	for _, entry := range entries {
-		if entry.Meta["module"] != "local/mod" {
+	owned := 0
+	for _, entry := range state.Entries {
+		record := state.Provenance[entry.ID]
+		if record.Module != "local/mod" {
 			continue
 		}
-		require.Equal(t, digest, entry.Meta["module_digest"],
+		owned++
+		require.Equal(t, digest, record.Digest,
 			"the lock's artifact backs the module once the replacement is gone")
 	}
+	require.NotZero(t, owned, "the locked module remains resident")
 	workspace.requireHubUntouched(t)
 }
 
@@ -507,7 +522,7 @@ func TestOnlineStartupResolvesReplacementThroughHub(t *testing.T) {
 	require.NoError(t, workspace.loadState(t, regapi.DependencyAccessOnline))
 
 	entry := workspace.requireEntry(t, "local.mod", "svc")
-	require.Equal(t, "0.2.0", entry.Meta["module_version"],
+	require.Equal(t, "0.2.0", workspace.requireProvenance(t, entry.ID).Version,
 		"online resolution still lets the Hub label an unversioned replacement")
 	require.Equal(t, 1, workspace.hubCalls["list local/mod"])
 }
