@@ -108,7 +108,8 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if _, exists := m.stores[entry.ID]; !exists {
+	oldStore, exists := m.stores[entry.ID]
+	if !exists {
 		return storesvc.NewStoreNotFoundError(entry.ID.String())
 	}
 
@@ -118,20 +119,29 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 		return err
 	}
 
-	// The bus drops sends on a cancelled context, which would leave the
-	// supervisor and the resource registry holding the superseded store with
-	// nothing to correct them. Fail the operation so the registry transaction
-	// rolls back instead.
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-
 	// Running store configuration cannot change in place, so the entry update
 	// installs a replacement. The superseded store keeps serving acquisitions
 	// until the supervisor retires it, so no acquisition lands on a stopped
 	// store.
 	newStore := NewStore(entry.ID, cfg, m.log)
 	m.stores[entry.ID] = newStore
+
+	// Point the resource registry at the replacement and wait for it to take
+	// effect, so consumers are served the replacement before the supervisor
+	// retires the superseded store on commit.
+	if err := storesvc.SendAndAwaitResourceAck(ctx, m.bus, event.Event{
+		System: resource.System,
+		Kind:   resource.Update,
+		Path:   entry.ID.String(),
+		Data: resource.Entry{
+			ID:       entry.ID,
+			Provider: newStore,
+			Meta:     entry.Meta,
+		},
+	}, "sql store update"); err != nil {
+		m.stores[entry.ID] = oldStore
+		return err
+	}
 
 	// ServiceRegister is the supervisor's handover verb: it retires the
 	// controller holding the superseded store and starts the replacement.
@@ -144,18 +154,6 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 		Data: &supervisor.Entry{
 			Service: newStore,
 			Config:  cfg.Lifecycle,
-		},
-	})
-
-	// Point the resource registry at the replacement
-	m.bus.Send(ctx, event.Event{
-		System: resource.System,
-		Kind:   resource.Update,
-		Path:   entry.ID.String(),
-		Data: resource.Entry{
-			ID:       entry.ID,
-			Provider: newStore,
-			Meta:     entry.Meta,
 		},
 	})
 

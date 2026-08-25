@@ -10,12 +10,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/attrs"
+	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/resource"
 	kvcfg "github.com/wippyai/runtime/api/service/store/kv"
 	supervisorapi "github.com/wippyai/runtime/api/supervisor"
+	storesvc "github.com/wippyai/runtime/service/store"
 	"github.com/wippyai/runtime/system/eventbus"
 	systemkv "github.com/wippyai/runtime/system/kv"
 	payloadSystem "github.com/wippyai/runtime/system/payload"
@@ -36,6 +38,7 @@ type kvEntryManager interface {
 // over a shared bus, so entry changes travel the same path they take at
 // runtime.
 type storeHarness struct {
+	ctx     context.Context
 	bus     event.Bus
 	reg     *systemresource.Registry
 	sup     *systemsupervisor.Supervisor
@@ -52,8 +55,16 @@ func newStoreHarness(
 	transcoder := payloadSystem.GlobalTranscoder()
 	json.Register(transcoder)
 
-	ctx := context.Background()
 	bus := eventbus.NewBus()
+
+	// The handover is confirmed through the await service, exactly as it is in a
+	// running instance.
+	awaitSvc := eventbus.NewAwaitService(bus)
+	ctx := event.WithAwaitService(ctxapi.NewRootContext(), awaitSvc)
+	require.NoError(t, awaitSvc.Start(ctx))
+	t.Cleanup(func() {
+		require.NoError(t, awaitSvc.Stop())
+	})
 
 	reg := systemresource.NewRegistry(bus, zap.NewNop())
 	require.NoError(t, reg.Start(ctx))
@@ -68,7 +79,7 @@ func newStoreHarness(
 
 	mgr, current := build(systemkv.NewCRDTEngine("test-node", bus, zap.NewNop()), bus, transcoder)
 
-	return &storeHarness{bus: bus, reg: reg, sup: sup, mgr: mgr, current: current}
+	return &storeHarness{ctx: ctx, bus: bus, reg: reg, sup: sup, mgr: mgr, current: current}
 }
 
 // commit applies an entry change inside a registry transaction, the way the
@@ -76,7 +87,7 @@ func newStoreHarness(
 func (h *storeHarness) commit(t *testing.T, apply func(ctx context.Context) error) {
 	t.Helper()
 
-	ctx := context.Background()
+	ctx := h.ctx
 	h.bus.Send(ctx, event.Event{System: registry.System, Kind: registry.TxBegin})
 	require.NoError(t, apply(ctx))
 	h.bus.Send(ctx, event.Event{System: registry.System, Kind: registry.TxCommit})
@@ -87,7 +98,7 @@ func (h *storeHarness) commit(t *testing.T, apply func(ctx context.Context) erro
 func (h *storeHarness) awaitProvider(t *testing.T, id registry.ID, want any) (any, error) {
 	t.Helper()
 
-	ctx := context.Background()
+	ctx := h.ctx
 	deadline := time.Now().Add(2 * time.Second)
 	for {
 		var (
@@ -260,7 +271,7 @@ func TestManagers_UpdateEmitResourceEntryShape(t *testing.T) {
 			transcoder := payloadSystem.GlobalTranscoder()
 			json.Register(transcoder)
 
-			ctx := context.Background()
+			ctx := ackCtx()
 			bus := &recordingBus{}
 			mgr, current := tc.build(systemkv.NewCRDTEngine("test-node", bus, zap.NewNop()), bus, transcoder)
 
@@ -275,15 +286,18 @@ func TestManagers_UpdateEmitResourceEntryShape(t *testing.T) {
 			events := bus.recorded()
 			require.Len(t, events, 2)
 
-			assert.Equal(t, supervisorapi.System, events[0].System)
-			assert.Equal(t, supervisorapi.ServiceRegister, events[0].Kind)
+			// The confirmed resource repoint is published before the supervisor
+			// is told to adopt the replacement, so the registry is never behind
+			// the retirement.
+			assert.Equal(t, resource.System, events[0].System)
+			assert.Equal(t, resource.Update, events[0].Kind)
 			assert.Equal(t, storeID.String(), events[0].Path)
 
-			assert.Equal(t, resource.System, events[1].System)
-			assert.Equal(t, resource.Update, events[1].Kind)
+			assert.Equal(t, supervisorapi.System, events[1].System)
+			assert.Equal(t, supervisorapi.ServiceRegister, events[1].Kind)
 			assert.Equal(t, storeID.String(), events[1].Path)
 
-			entry, ok := events[1].Data.(resource.Entry)
+			entry, ok := events[0].Data.(resource.Entry)
 			require.True(t, ok, "resource event must carry a resource.Entry")
 			assert.Equal(t, storeID, entry.ID)
 			assert.Equal(t, meta, entry.Meta)
@@ -292,9 +306,10 @@ func TestManagers_UpdateEmitResourceEntryShape(t *testing.T) {
 	}
 }
 
-// TestManagers_UpdateRejectCancelledContext keeps the managers from installing a
-// replacement whose handover events the bus would drop.
-func TestManagers_UpdateRejectCancelledContext(t *testing.T) {
+// TestManagers_UpdateFailWhenHandoverIsNotConfirmed covers an update whose
+// resource repoint never lands: the manager must report the failure and keep
+// serving the view it had, rather than claim a replacement nobody is serving.
+func TestManagers_UpdateFailWhenHandoverIsNotConfirmed(t *testing.T) {
 	for _, tc := range kvManagerCases() {
 		t.Run(tc.name, func(t *testing.T) {
 			transcoder := payloadSystem.GlobalTranscoder()
@@ -304,14 +319,94 @@ func TestManagers_UpdateRejectCancelledContext(t *testing.T) {
 			mgr, current := tc.build(systemkv.NewCRDTEngine("test-node", bus, zap.NewNop()), bus, transcoder)
 
 			storeID := registry.NewID("test", "kvstore")
-			require.NoError(t, mgr.Add(context.Background(), makeKVEntry(storeID, tc.kind, "before", nil)))
+			require.NoError(t, mgr.Add(ackCtx(), makeKVEntry(storeID, tc.kind, "before", nil)))
 			original := current(storeID)
 
-			ctx, cancel := context.WithCancel(context.Background())
+			awaitSvc := eventbus.NewAwaitService(eventbus.NewBus())
+			base := event.WithAwaitService(ctxapi.NewRootContext(), awaitSvc)
+			require.NoError(t, awaitSvc.Start(base))
+			t.Cleanup(func() {
+				require.NoError(t, awaitSvc.Stop())
+			})
+
+			ctx, cancel := context.WithCancel(base)
 			cancel()
 
-			require.ErrorIs(t, mgr.Update(ctx, makeKVEntry(storeID, tc.kind, "after", nil)), context.Canceled)
-			assert.Same(t, original, current(storeID), "a rejected update must not swap the store")
+			err := mgr.Update(ctx, makeKVEntry(storeID, tc.kind, "after", nil))
+			require.Error(t, err)
+			require.ErrorIs(t, err, context.Canceled)
+			assert.Same(t, original, current(storeID), "an unconfirmed update must not swap the store")
 		})
 	}
+}
+
+// TestManagers_UpdateFailWithoutCoordination keeps an update from silently
+// half-applying where the handover cannot be confirmed at all.
+func TestManagers_UpdateFailWithoutCoordination(t *testing.T) {
+	for _, tc := range kvManagerCases() {
+		t.Run(tc.name, func(t *testing.T) {
+			transcoder := payloadSystem.GlobalTranscoder()
+			json.Register(transcoder)
+
+			bus := &recordingBus{}
+			mgr, current := tc.build(systemkv.NewCRDTEngine("test-node", bus, zap.NewNop()), bus, transcoder)
+
+			storeID := registry.NewID("test", "kvstore")
+			require.NoError(t, mgr.Add(ackCtx(), makeKVEntry(storeID, tc.kind, "before", nil)))
+			original := current(storeID)
+
+			err := mgr.Update(context.Background(), makeKVEntry(storeID, tc.kind, "after", nil))
+			require.ErrorIs(t, err, storesvc.ErrResourceCoordinationUnavailable)
+			assert.Same(t, original, current(storeID), "an unconfirmed update must not swap the store")
+		})
+	}
+}
+
+// acceptingAwaitService stands in for the runtime await service in tests that
+// use a bus which records events instead of delivering them.
+type acceptingAwaitService struct{}
+
+func (acceptingAwaitService) Prepare(
+	_ context.Context,
+	_ event.System,
+	_ event.Kind,
+	path event.Path,
+	_ time.Duration,
+) (event.AwaitWaiter, error) {
+	return acceptedWaiter{path: path}, nil
+}
+
+func (acceptingAwaitService) Await(
+	_ context.Context,
+	_ event.System,
+	_ event.Kind,
+	path event.Path,
+	_ time.Duration,
+) event.AwaitResult {
+	return acceptedWaiter{path: path}.Wait()
+}
+
+func (acceptingAwaitService) Start(_ context.Context) error { return nil }
+func (acceptingAwaitService) Stop() error                   { return nil }
+
+type acceptedWaiter struct {
+	path event.Path
+}
+
+func (w acceptedWaiter) Wait() event.AwaitResult {
+	return event.AwaitResult{
+		Accepted: true,
+		Event: event.Event{
+			System: resource.System,
+			Kind:   resource.Accept,
+			Path:   w.path,
+		},
+	}
+}
+
+func (acceptedWaiter) Close() {}
+
+// ackCtx returns a context whose resource handovers are confirmed immediately.
+func ackCtx() context.Context {
+	return event.WithAwaitService(ctxapi.NewRootContext(), acceptingAwaitService{})
 }

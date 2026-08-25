@@ -20,6 +20,13 @@ const (
 	Register event.Kind = "resource.register"
 	Update   event.Kind = "resource.update"
 	Delete   event.Kind = "resource.delete"
+
+	// Accept and Reject report the outcome of a register, update or delete
+	// once the registry has applied it. A caller that must not proceed until
+	// the registry serves the new provider awaits these; the registry publishes
+	// them whether or not anyone is listening.
+	Accept event.Kind = "resource.accept"
+	Reject event.Kind = "resource.reject"
 )
 
 // AccessMode constants.

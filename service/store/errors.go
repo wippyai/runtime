@@ -32,3 +32,12 @@ func NewStoreNotFoundError(id string) apierror.Error {
 		WithRetryable(apierror.False).
 		WithDetails(attrs.NewBagFrom(map[string]any{"id": id}))
 }
+
+// NewResourceHandoverError reports that the resource registry did not confirm a
+// store handover, leaving consumers on the superseded provider.
+func NewResourceHandoverError(action string, cause error) apierror.Error {
+	return apierror.New(apierror.Unavailable, "store resource handover failed").
+		WithRetryable(apierror.True).
+		WithDetails(attrs.NewBagFrom(map[string]any{"action": action})).
+		WithCause(cause)
+}

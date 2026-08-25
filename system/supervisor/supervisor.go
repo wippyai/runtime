@@ -633,11 +633,18 @@ func (s *Supervisor) execute(ctx context.Context, tx *regTx) (err error) {
 	removeIDs := sortedRemoveIDs(tx.remove)
 
 	// A registration for an ID that already has a controller carries a
-	// replacement instance whenever its manager rebuilt the service. The
-	// controller owns the superseded instance, so it is retired here and the
-	// create pass below adopts the replacement; without this the registration
-	// is dropped and the supervisor keeps supervising the superseded object.
-	if err := s.retireReplacedControllers(ctx, tx, registerIDs); err != nil {
+	// replacement instance whenever its manager rebuilt the service. Retiring
+	// that controller, and the running dependents holding the superseded
+	// instance, is what lets the create pass below adopt the replacement;
+	// without it the registration is dropped and the supervisor keeps
+	// supervising the superseded object. Planning first keeps a rejected
+	// retirement from touching anything.
+	retiring := s.snapshotControllers()
+	plan, err := s.planReplacements(retiring, tx, registerIDs)
+	if err != nil {
+		return err
+	}
+	if err := s.applyReplacements(ctx, retiring, plan); err != nil {
 		return err
 	}
 
@@ -703,6 +710,16 @@ func (s *Supervisor) execute(ctx context.Context, tx *regTx) (err error) {
 			})
 		}
 	}
+
+	// Dependents stopped so a replacement could be adopted were running before
+	// this commit and have to come back up against the adopted instance. Their
+	// own retry policy covers a restart failure, so they do not gate the commit.
+	if plan != nil {
+		for _, id := range plan.resume {
+			roots = append(roots, startRoot{id: id})
+		}
+	}
+
 	startOps, err := s.buildStartOperationsForRoots(controllers, roots)
 	if err != nil {
 		return NewStartOperationsError(err)
@@ -724,17 +741,33 @@ func (s *Supervisor) execute(ctx context.Context, tx *regTx) (err error) {
 	return nil
 }
 
-// retireReplacedControllers stops and drops the controllers whose incoming
-// registration carries a different service instance. Services re-registered
-// with the instance they already supervise keep running untouched.
-func (s *Supervisor) retireReplacedControllers(
-	ctx context.Context,
+// replacementPlan is the retirement a commit must perform before the
+// registrations naming live services can be adopted.
+type replacementPlan struct {
+	// stops is the dependency-ordered batch retiring the replaced services and
+	// every running service that depends on them.
+	stops []operation
+	// retire lists the controllers dropped once the batch succeeds.
+	retire []string
+	// resume lists the dependents that were running beforehand and must come
+	// back up once the replacements are adopted.
+	resume []string
+}
+
+// planReplacements computes the retirement for this commit without touching any
+// state, so a planning failure leaves the pre-update world intact.
+//
+// A registration naming a live service carries a replacement instance whenever
+// its manager rebuilt the service. Retiring that service also has to retire the
+// running services that depend on it: they captured the superseded instance and
+// must not keep running against it while it is stopped and replaced.
+func (s *Supervisor) planReplacements(
+	controllers map[string]*Controller,
 	tx *regTx,
 	registerIDs []string,
-) error {
-	controllers := s.snapshotControllers()
-
-	replaced := make([]string, 0, len(registerIDs))
+) (*replacementPlan, error) {
+	replaced := make(map[string]struct{}, len(registerIDs))
+	order := make([]string, 0, len(registerIDs))
 	for _, id := range registerIDs {
 		ctrl, exists := controllers[id]
 		if !exists {
@@ -743,44 +776,133 @@ func (s *Supervisor) retireReplacedControllers(
 		if sameServiceInstance(ctrl.Service(), tx.register[id].Service) {
 			continue
 		}
-		replaced = append(replaced, id)
+		replaced[id] = struct{}{}
+		order = append(order, id)
 	}
 
-	if len(replaced) == 0 {
+	if len(order) == 0 {
+		return nil, nil
+	}
+
+	plan := &replacementPlan{}
+	seen := make(map[string]struct{}, len(order))
+
+	for _, id := range order {
+		// buildStopOperations walks dependents before their dependency, which is
+		// the order the sequencer needs and the closure this retirement must
+		// cover.
+		ops, err := s.buildStopOperations(controllers, id)
+		if err != nil {
+			return nil, NewDependencyResolveError(id, err)
+		}
+
+		for _, op := range ops {
+			if _, exists := seen[op.id]; exists {
+				continue
+			}
+			seen[op.id] = struct{}{}
+
+			// A service already down needs no second Stop: managers that stop
+			// their own instance before re-registering must not see the
+			// supervisor call Stop again.
+			if serviceNeedsStop(controllers[op.id].State().Status) {
+				plan.stops = append(plan.stops, op)
+			}
+
+			if _, isReplaced := replaced[op.id]; isReplaced {
+				plan.retire = append(plan.retire, op.id)
+				continue
+			}
+
+			// Unchanged dependents keep their controller; they only need to come
+			// back up afterwards if they were up to begin with.
+			if controllers[op.id].State().Status == supervisor.StatusRunning {
+				plan.resume = append(plan.resume, op.id)
+			}
+		}
+	}
+
+	return plan, nil
+}
+
+// applyReplacements runs the retirement batch and drops the retired
+// controllers. A stop failure restores the services this batch already stopped
+// and reports the error, leaving the supervisor owning the same running set it
+// owned before the commit rather than a half-retired one.
+func (s *Supervisor) applyReplacements(
+	ctx context.Context,
+	controllers map[string]*Controller,
+	plan *replacementPlan,
+) error {
+	if plan == nil {
 		return nil
 	}
 
-	operations := make([]operation, 0, len(replaced))
-	for _, id := range replaced {
-		deps, err := s.resolveDependencies(controllers, id)
-		if err != nil {
-			return NewDependencyResolveError(id, err)
+	if len(plan.stops) > 0 {
+		if err := s.runTransition(ctx, plan.stops); err != nil {
+			s.restoreStopped(ctx, controllers, plan.stops)
+			return NewTransitionError(err)
 		}
-		operations = append(operations, operation{
-			kind:         opStop,
-			id:           id,
-			controller:   controllers[id],
-			dependencies: deps,
-		})
-	}
-
-	if err := s.runTransition(ctx, operations); err != nil {
-		return NewTransitionError(err)
 	}
 
 	s.mu.Lock()
-	for _, id := range replaced {
-		if s.controllers[id] == controllers[id] {
-			delete(s.controllers, id)
+	for _, id := range plan.retire {
+		ctrl, exists := s.controllers[id]
+		if !exists || ctrl != controllers[id] {
+			continue
 		}
+		delete(s.controllers, id)
 	}
 	s.mu.Unlock()
 
-	for _, id := range replaced {
+	// Cancelling the retired controller ends its supervise goroutine and frees
+	// the superseded service it holds; the map entry alone is not the lifetime.
+	for _, id := range plan.retire {
+		controllers[id].cancel()
 		s.logger.Info("service instance replaced", zap.String("serviceID", id))
 	}
 
 	return nil
+}
+
+// restoreStopped brings back the services a failed retirement batch already
+// stopped, so a rejected commit does not leave them down.
+func (s *Supervisor) restoreStopped(
+	ctx context.Context,
+	controllers map[string]*Controller,
+	stops []operation,
+) {
+	roots := make([]startRoot, 0, len(stops))
+	for _, op := range stops {
+		ctrl, exists := controllers[op.id]
+		if !exists || ctrl.State().Status == supervisor.StatusRunning {
+			continue
+		}
+		roots = append(roots, startRoot{id: op.id})
+	}
+	if len(roots) == 0 {
+		return
+	}
+
+	ops, err := s.buildStartOperationsForRoots(controllers, roots)
+	if err != nil {
+		s.logger.Error("failed to plan restore after a rejected retirement", zap.Error(err))
+		return
+	}
+	if err := s.runTransition(ctx, ops); err != nil {
+		s.logger.Error("failed to restore services after a rejected retirement", zap.Error(err))
+	}
+}
+
+// serviceNeedsStop reports whether a service in this state still has a run to
+// stop. Stopping one that is already down would hand its manager a second Stop.
+func serviceNeedsStop(status supervisor.Status) bool {
+	switch status {
+	case supervisor.StatusStarting, supervisor.StatusRunning, supervisor.StatusStopping:
+		return true
+	default:
+		return false
+	}
 }
 
 // sameServiceInstance reports whether two registrations refer to the same
@@ -797,12 +919,18 @@ func sameServiceInstance(a, b supervisor.Service) bool {
 		return false
 	}
 
-	switch va.Kind() {
-	case reflect.Pointer, reflect.UnsafePointer, reflect.Chan, reflect.Map:
-		return va.Pointer() == vb.Pointer()
-	default:
-		return false
+	// Comparable dynamic types, pointers included, answer identity directly.
+	if va.Type().Comparable() {
+		return a == b
 	}
+
+	// A map header is the closest thing an incomparable implementation has to an
+	// identity.
+	if va.Kind() == reflect.Map {
+		return va.Pointer() == vb.Pointer()
+	}
+
+	return false
 }
 
 func (s *Supervisor) buildStartOperations(

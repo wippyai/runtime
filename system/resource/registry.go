@@ -112,16 +112,19 @@ func (s *Registry) handleRegister(e event.Event) {
 		s.logger.Error("invalid resource entry payload",
 			zap.String("resource", e.Path),
 			zap.String("type", fmt.Sprintf("%T", e.Data)))
+		s.sendReject(e.Path, "invalid resource entry payload")
 		return
 	}
 	if isNilInterface(entry.Provider) {
 		s.logger.Error("resource entry has nil provider", zap.String("resource", e.Path))
+		s.sendReject(e.Path, "resource entry has nil provider")
 		return
 	}
 
 	s.mu.Lock()
 	if s.stopped {
 		s.mu.Unlock()
+		s.sendReject(e.Path, "resource registry stopped")
 		return
 	}
 	s.activateLocked(entry)
@@ -129,6 +132,7 @@ func (s *Registry) handleRegister(e event.Event) {
 	s.logger.Debug("resource registered",
 		zap.String("id", entry.ID.String()),
 		zap.Any("meta", entry.Meta))
+	s.sendAccept(e.Path)
 }
 
 func (s *Registry) handleUpdate(e event.Event) {
@@ -137,16 +141,19 @@ func (s *Registry) handleUpdate(e event.Event) {
 		s.logger.Error("invalid resource entry payload",
 			zap.String("resource", e.Path),
 			zap.String("type", fmt.Sprintf("%T", e.Data)))
+		s.sendReject(e.Path, "invalid resource entry payload")
 		return
 	}
 	if isNilInterface(entry.Provider) {
 		s.logger.Error("resource entry has nil provider", zap.String("resource", e.Path))
+		s.sendReject(e.Path, "resource entry has nil provider")
 		return
 	}
 
 	s.mu.Lock()
 	if s.stopped {
 		s.mu.Unlock()
+		s.sendReject(e.Path, "resource registry stopped")
 		return
 	}
 	slot, exists := s.resources[entry.ID]
@@ -154,6 +161,7 @@ func (s *Registry) handleUpdate(e event.Event) {
 		s.mu.Unlock()
 		s.logger.Warn("resource not found for update",
 			zap.String("id", entry.ID.String()))
+		s.sendReject(e.Path, "resource not found for update")
 		return
 	}
 	s.activateLocked(entry)
@@ -161,6 +169,7 @@ func (s *Registry) handleUpdate(e event.Event) {
 	s.logger.Debug("resource updated",
 		zap.String("id", entry.ID.String()),
 		zap.Any("meta", entry.Meta))
+	s.sendAccept(e.Path)
 }
 
 func (s *Registry) handleRemove(e event.Event) {
@@ -169,6 +178,7 @@ func (s *Registry) handleRemove(e event.Event) {
 		s.logger.Error("invalid resource ID payload",
 			zap.String("resource", e.Path),
 			zap.String("type", fmt.Sprintf("%T", e.Data)))
+		s.sendReject(e.Path, "invalid resource ID payload")
 		return
 	}
 
@@ -178,6 +188,7 @@ func (s *Registry) handleRemove(e event.Event) {
 		s.mu.Unlock()
 		s.logger.Warn("resource not found for removal",
 			zap.String("id", id.String()))
+		s.sendReject(e.Path, "resource not found for removal")
 		return
 	}
 	s.retireActiveLocked(slot)
@@ -187,6 +198,40 @@ func (s *Registry) handleRemove(e event.Event) {
 	s.mu.Unlock()
 	s.logger.Debug("resource removed",
 		zap.String("id", id.String()))
+	s.sendAccept(e.Path)
+}
+
+// sendAccept reports that the registry applied an operation. It is published
+// after the registry state is visible to Acquire, so a caller awaiting it knows
+// the new provider is the one being served.
+func (s *Registry) sendAccept(path event.Path) {
+	s.publish(event.Event{
+		System: resource.System,
+		Kind:   resource.Accept,
+		Path:   path,
+	})
+}
+
+// sendReject reports that the registry declined an operation, so a caller does
+// not wait out its timeout for an outcome that will never arrive.
+func (s *Registry) sendReject(path event.Path, reason string) {
+	s.publish(event.Event{
+		System: resource.System,
+		Kind:   resource.Reject,
+		Path:   path,
+		Data:   reason,
+	})
+}
+
+func (s *Registry) publish(e event.Event) {
+	s.mu.RLock()
+	ctx := s.ctx
+	s.mu.RUnlock()
+
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	s.bus.Send(ctx, e)
 }
 
 // Acquire attempts to acquire a resource with the specified access mode
