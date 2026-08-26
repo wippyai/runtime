@@ -3,7 +3,6 @@
 package registry
 
 import (
-	"context"
 	"errors"
 	"strconv"
 
@@ -307,7 +306,6 @@ func registryFind(l *lua.LState) int {
 	}
 
 	entriesTable := l.CreateTable(len(entries), 0)
-	reader, _ := reg.(provenanceReader)
 	idx := 1
 	for _, entry := range entries {
 		if !security.IsAllowed(ctx, "registry.get", entry.ID.String(), nil) {
@@ -321,11 +319,6 @@ func registryFind(l *lua.LState) int {
 			l.Push(lua.LNil)
 			l.Push(err)
 			return 2
-		}
-		if reader != nil {
-			if p, found := reader.EntryProvenance(entry.ID.Canonical()); found {
-				entryTable.RawSetString("root", lua.LBool(p.Root))
-			}
 		}
 		entriesTable.RawSetInt(idx, entryTable)
 		idx++
@@ -359,9 +352,7 @@ func registrySnapshot(l *lua.LState) int {
 
 	// Version, entries and provenance come from one consistent read: a
 	// concurrent apply can never produce a mismatched snapshot.
-	consistent, ok := reg.(interface {
-		SnapshotState() (regapi.Version, regapi.ProvenancedState, error)
-	})
+	consistent, ok := reg.(regapi.ProvenancedSnapshotReader)
 	if !ok {
 		err := lua.NewLuaError(l, "registry does not serve consistent snapshots").
 			WithKind(lua.Unavailable).
@@ -589,9 +580,7 @@ func makeSnapshotAt(log *zap.Logger) lua.LGoFunc {
 		// plus authored history with provenance. Module worlds reconciled from
 		// stored resolutions materialize only through apply_version, which
 		// alone may stage their effects.
-		provenanced, ok := reg.(interface {
-			ProvenancedStateAtVersion(ctx context.Context, v regapi.Version) (regapi.ProvenancedState, error)
-		})
+		provenanced, ok := reg.(regapi.ProvenancedSnapshotReader)
 		if !ok {
 			err := lua.NewLuaError(l, "registry does not serve historical snapshots").
 				WithKind(lua.Unavailable).

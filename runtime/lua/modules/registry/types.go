@@ -31,7 +31,7 @@ var entryProvenanceType = typ.NewRecord().
 	Field("root", typ.Boolean).
 	Build()
 
-var stateType = typ.NewRecord().
+var provenancedStateType = typ.NewRecord().
 	Field("entries", typ.NewArray(entryType)).
 	Field("provenance", typ.NewMap(typ.String, entryProvenanceType)).
 	Build()
@@ -65,7 +65,7 @@ func init() {
 	// Snapshot type (references changesType and versionType)
 	snapshotType = typ.NewInterface("registry.Snapshot", []typ.Method{
 		{Name: "entries", Type: typ.Func().Param("self", typ.Self).Returns(typ.NewArray(entryType)).Build()},
-		{Name: "state", Type: typ.Func().Param("self", typ.Self).Returns(stateType, typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "state", Type: typ.Func().Param("self", typ.Self).Returns(provenancedStateType, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "get", Type: typ.Func().Param("self", typ.Self).Param("key", typ.String).Returns(entryType, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "namespace", Type: typ.Func().Param("self", typ.Self).Param("ns", typ.String).Returns(typ.NewArray(entryType)).Build()},
 		{Name: "find", Type: typ.Func().Param("self", typ.Self).Param("query", typ.Any).Returns(typ.NewArray(entryType)).Build()},
@@ -92,7 +92,7 @@ func ModuleTypes() *typio.Manifest {
 	m.DefineType("ID", idType)
 	m.DefineType("Entry", entryType)
 	m.DefineType("EntryProvenance", entryProvenanceType)
-	m.DefineType("State", stateType)
+	m.DefineType("ProvenancedState", provenancedStateType)
 
 	moduleType := typ.NewInterface("registry", []typ.Method{
 		{Name: "get", Type: typ.Func().Param("key", typ.String).Returns(entryType, typ.NewOptional(typ.LuaError)).Build()},

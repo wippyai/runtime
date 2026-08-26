@@ -3,8 +3,6 @@
 package registry
 
 import (
-	"context"
-
 	lua "github.com/wippyai/go-lua"
 	regapi "github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
@@ -122,9 +120,7 @@ func historySnapshotAt(l *lua.LState) int {
 		return 2
 	}
 
-	provenanced, ok := history.reg.(interface {
-		ProvenancedStateAtVersion(ctx context.Context, v regapi.Version) (regapi.ProvenancedState, error)
-	})
+	provenanced, ok := history.reg.(regapi.ProvenancedSnapshotReader)
 	if !ok {
 		err := lua.NewLuaError(l, "registry does not serve historical snapshots").
 			WithKind(lua.Unavailable).

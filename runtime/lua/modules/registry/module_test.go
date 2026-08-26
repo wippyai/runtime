@@ -8,7 +8,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/wippyai/runtime/api/attrs"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	envapi "github.com/wippyai/runtime/api/env"
 	"github.com/wippyai/runtime/api/payload"
@@ -223,35 +222,6 @@ func TestFindWithoutRegistry(t *testing.T) {
 	if err != nil {
 		t.Errorf("find without registry test failed: %v", err)
 	}
-}
-
-type fixedFinder []regapi.Entry
-
-func (f fixedFinder) Find(_ attrs.Bag) ([]regapi.Entry, error) {
-	return append([]regapi.Entry(nil), f...), nil
-}
-
-func TestRegistryFindProjectsRootFromProvenance(t *testing.T) {
-	id := regapi.NewID("app", "dependency")
-	entry := regapi.Entry{ID: id, Kind: regapi.NamespaceDependency}
-	reg := &mockRegistry{
-		entries:    map[string]regapi.Entry{id.String(): entry},
-		provenance: regapi.ProvenanceMap{id: {Root: true}},
-	}
-	ctx := setupContextWithTranscoder()
-	ctx = regapi.WithRegistry(ctx, reg)
-	ctx = regapi.WithFinder(ctx, fixedFinder{entry})
-
-	l := lua.NewState()
-	defer l.Close()
-	l.SetContext(ctx)
-	setupModule(l)
-	require.NoError(t, l.DoString(`
-		local entries, err = registry.find({ [".kind"] = "ns.dependency" })
-		assert(err == nil and #entries == 1)
-		assert(entries[1].root == true)
-		assert(entries[1].meta.module == nil)
-	`))
 }
 
 func TestRegistryProvenanceRequiresEntryRead(t *testing.T) {

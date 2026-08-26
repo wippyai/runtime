@@ -12,6 +12,8 @@ import (
 	"github.com/wippyai/runtime/system/registry/topology"
 )
 
+var _ registry.ProvenancedSnapshotReader = (*Reg)(nil)
+
 // applyOpsToProvenance folds a changeset into a provenance map and returns a
 // new map; the input is not mutated. Rules: a create takes the operation's
 // provenance, or an explicit host record when it carries none; an update with

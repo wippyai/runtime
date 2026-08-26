@@ -3,6 +3,15 @@
 local assert = require("assert2")
 local registry = require("registry")
 
+local function assert_snapshot_root(id, expected, message)
+	local snap, snap_err = registry.snapshot()
+	assert.is_nil(snap_err, message .. ": snapshot")
+	local state, state_err = snap:state()
+	assert.is_nil(state_err, message .. ": state")
+	assert.not_nil(state.provenance[id], message .. ": provenance exists")
+	assert.eq(state.provenance[id].root, expected, message)
+end
+
 -- Root status is registry-owned provenance. Entry authors neither stamp it in
 -- meta nor write it through the entry transport; set_root is the dedicated
 -- mutation boundary and ordinary entry rewrites must preserve it.
@@ -40,6 +49,7 @@ local function main()
 	assert.is_nil(marked_err, "read marked entry")
 	assert.not_nil(marked, "marked entry exists")
 	assert.eq(marked.root, changed_root, "root survives the write and the read")
+	assert_snapshot_root(root_id, changed_root, "atomic snapshot carries changed root")
 
 	-- A read-modify-write is the path keeper takes on every dependency update.
 	local snap2, snap2_err = registry.snapshot()
@@ -56,6 +66,7 @@ local function main()
 	local after, after_err = registry.get(root_id)
 	assert.is_nil(after_err, "read rewritten entry")
 	assert.eq(after.root, changed_root, "round trip through Lua does not change root state")
+	assert_snapshot_root(root_id, changed_root, "atomic snapshot preserves root through rewrite")
 
 	local restored, restore_err = registry.apply_version(original_version)
 	assert.is_nil(restore_err, "restore original version")
