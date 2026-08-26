@@ -10,16 +10,24 @@ local dep_id = "app.test.registry:terminal_dependency_version_jump"
 local hub_timeout = "20s"
 
 local function find_module_entries()
-	local entries, err = registry.find({ ["meta.module"] = module_name })
-	assert.is_nil(err, "registry.find no error")
-	return entries or {}
+	local snap, snap_err = registry.snapshot()
+	assert.is_nil(snap_err, "registry.snapshot no error")
+	local state, state_err = snap:state()
+	assert.is_nil(state_err, "snapshot state no error")
+	local entries = {}
+	for _, entry in ipairs(state.entries) do
+		if state.provenance[entry.id].module == module_name then
+			entries[#entries + 1] = entry
+		end
+	end
+	return entries, state.provenance
 end
 
-local function first_module_version(entries)
+local function first_module_version(entries, provenance)
 	for i = 1, #entries do
-		local entry = entries[i]
-		if entry.meta ~= nil and entry.meta.module_version ~= nil then
-			return entry.meta.module_version
+		local record = provenance[tostring(entries[i].id)]
+		if record ~= nil and record.version ~= "" then
+			return record.version
 		end
 	end
 	return nil
@@ -96,9 +104,9 @@ local function main()
 		})
 	end)
 
-	local entries_a = find_module_entries()
+	local entries_a, provenance_a = find_module_entries()
 	assert.ok(#entries_a > 0, "module entries installed")
-	assert.eq(first_module_version(entries_a), version_a, "installed version matches A")
+	assert.eq(first_module_version(entries_a, provenance_a), version_a, "installed version matches A")
 
 	local v2 = apply_changes(function(changes)
 		changes:update({
@@ -111,25 +119,25 @@ local function main()
 		})
 	end)
 
-	local entries_b = find_module_entries()
+	local entries_b, provenance_b = find_module_entries()
 	assert.ok(#entries_b > 0, "module entries updated")
-	assert.eq(first_module_version(entries_b), version_b, "installed version matches B")
+	assert.eq(first_module_version(entries_b, provenance_b), version_b, "installed version matches B")
 
 	local ok, err = registry.apply_version(v1)
 	assert.is_nil(err, "rollback no error")
 	assert.ok(ok, "rollback ok")
 
-	local entries_rollback = find_module_entries()
+	local entries_rollback, provenance_rollback = find_module_entries()
 	assert.ok(#entries_rollback > 0, "module entries after rollback")
-	assert.eq(first_module_version(entries_rollback), version_a, "version restored after rollback")
+	assert.eq(first_module_version(entries_rollback, provenance_rollback), version_a, "version restored after rollback")
 
 	local ok2, err2 = registry.apply_version(v2)
 	assert.is_nil(err2, "forward apply no error")
 	assert.ok(ok2, "forward apply ok")
 
-	local entries_forward = find_module_entries()
+	local entries_forward, provenance_forward = find_module_entries()
 	assert.ok(#entries_forward > 0, "module entries after forward apply")
-	assert.eq(first_module_version(entries_forward), version_b, "version restored after forward apply")
+	assert.eq(first_module_version(entries_forward, provenance_forward), version_b, "version restored after forward apply")
 
 	apply_changes(function(changes)
 		changes:delete(dep_id)

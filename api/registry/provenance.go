@@ -136,6 +136,15 @@ type ProvenanceReader interface {
 	DependencyRoots() []ID
 }
 
+// ProvenancedSnapshotReader serves complete current and historical registry
+// states with their ownership records. Each result must describe one registry
+// version atomically; consumers must not reconstruct it from separate entry
+// and provenance reads.
+type ProvenancedSnapshotReader interface {
+	SnapshotState() (Version, ProvenancedState, error)
+	ProvenancedStateAtVersion(context.Context, Version) (ProvenancedState, error)
+}
+
 // opProvenanceContextKey carries one operation's effective provenance to the
 // listeners the transition dispatches, alongside the entry event.
 type opProvenanceContextKey struct{}

@@ -34,11 +34,10 @@ local function main()
 	assert.eq(result.can_write, false, "empty scope: can_write should be false")
 	assert.eq(result.can_delete, false, "empty scope: can_delete should be false")
 
-	-- Test can() directly (without security context)
+	-- Direct checks use the test command's inherited allow-all scope.
 	local allowed = security.can("read", "resource")
 	assert.eq(type(allowed), "boolean", "can should return boolean")
-	-- Without injected context, can() returns false
-	assert.eq(allowed, false, "can should return false without security context")
+	assert.eq(allowed, true, "inherited test command scope should allow access")
 
 	return true
 end

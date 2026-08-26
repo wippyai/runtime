@@ -17,18 +17,18 @@ local function main()
 	assert.eq(type(security.new_actor), "function", "new_actor function should exist")
 	assert.eq(type(security.token_store), "function", "token_store function should exist")
 
-	-- Without security context, actor() returns nil
+	-- The test command declares its execution identity and scope. Functions
+	-- called by the runner inherit that frame unless they explicitly replace it.
 	local actor = security.actor()
-	assert.eq(actor, nil, "actor should be nil without security context")
+	assert.not_nil(actor, "test command actor should be inherited")
+	assert.eq(actor:id(), "app:test_runner", "test command actor identity")
 
-	-- Without security context, scope() returns nil
 	local scope = security.scope()
-	assert.eq(scope, nil, "scope should be nil without security context")
+	assert.not_nil(scope, "test command scope should be inherited")
 
-	-- Without security context, can() returns false
 	local allowed = security.can("read", "resource")
 	assert.eq(type(allowed), "boolean", "can should return boolean")
-	assert.eq(allowed, false, "can should return false without security context")
+	assert.eq(allowed, true, "test command policy should allow access")
 
 	-- policy() returns policy when found, error when not
 	local pol, err = security.policy("app.test.security:allow_all")

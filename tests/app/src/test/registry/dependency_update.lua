@@ -10,9 +10,17 @@ local dep_id = "app.test.registry:terminal_dependency_update"
 local hub_timeout = "20s"
 
 local function find_module_entries()
-	local entries, err = registry.find({ ["meta.module"] = module_name })
-	assert.is_nil(err, "registry.find no error")
-	return entries or {}
+	local snap, snap_err = registry.snapshot()
+	assert.is_nil(snap_err, "registry.snapshot no error")
+	local state, state_err = snap:state()
+	assert.is_nil(state_err, "snapshot state no error")
+	local entries = {}
+	for _, entry in ipairs(state.entries) do
+		if state.provenance[entry.id].module == module_name then
+			entries[#entries + 1] = entry
+		end
+	end
+	return entries, state.provenance
 end
 
 local function module_versions()
@@ -70,11 +78,11 @@ local function ensure_dependency_removed()
 	end
 end
 
-local function first_module_version(entries)
+local function first_module_version(entries, provenance)
 	for i = 1, #entries do
-		local entry = entries[i]
-		if entry.meta ~= nil and entry.meta.module_version ~= nil then
-			return entry.meta.module_version
+		local record = provenance[tostring(entries[i].id)]
+		if record ~= nil and record.version ~= "" then
+			return record.version
 		end
 	end
 	return nil
@@ -96,9 +104,9 @@ local function main()
 		})
 	end)
 
-	local entries_a = find_module_entries()
+	local entries_a, provenance_a = find_module_entries()
 	assert.ok(#entries_a > 0, "module entries installed")
-	local installed_version = first_module_version(entries_a)
+	local installed_version = first_module_version(entries_a, provenance_a)
 	assert.eq(installed_version, version_a, "installed version matches first constraint")
 
 	apply_changes(function(changes)
@@ -111,9 +119,9 @@ local function main()
 			},
 		})
 	end)
-	local entries_b = find_module_entries()
+	local entries_b, provenance_b = find_module_entries()
 	assert.ok(#entries_b > 0, "module entries updated")
-	assert.eq(first_module_version(entries_b), version_b, "updated version matches second constraint")
+	assert.eq(first_module_version(entries_b, provenance_b), version_b, "updated version matches second constraint")
 
 	apply_changes(function(changes)
 		changes:delete(dep_id)

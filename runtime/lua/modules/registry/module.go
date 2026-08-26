@@ -3,7 +3,6 @@
 package registry
 
 import (
-	"context"
 	"errors"
 	"strconv"
 
@@ -27,6 +26,7 @@ func init() {
 		map[string]lua.LGoFunc{"__tostring": snapshotToString},
 		map[string]lua.LGoFunc{
 			"entries":   snapshotEntries,
+			"state":     snapshotState,
 			"get":       snapshotGet,
 			"namespace": snapshotNamespace,
 			"find":      snapshotFind,
@@ -88,7 +88,7 @@ func NewModule(opts Options) *luaapi.ModuleDef {
 		Description: "Registry operations for entries, snapshots, and versioning",
 		Class:       []string{luaapi.ClassNondeterministic, luaapi.ClassStorage},
 		Build: func() (*lua.LTable, []luaapi.YieldType) {
-			mod := lua.CreateTable(0, 11)
+			mod := lua.CreateTable(0, 13)
 			mod.RawSetString("get", lua.LGoFunc(registryGet))
 			mod.RawSetString("find", lua.LGoFunc(registryFind))
 			mod.RawSetString("parse_id", lua.LGoFunc(parseID))
@@ -352,9 +352,7 @@ func registrySnapshot(l *lua.LState) int {
 
 	// Version, entries and provenance come from one consistent read: a
 	// concurrent apply can never produce a mismatched snapshot.
-	consistent, ok := reg.(interface {
-		SnapshotState() (regapi.Version, regapi.ProvenancedState, error)
-	})
+	consistent, ok := reg.(regapi.ProvenancedSnapshotReader)
 	if !ok {
 		err := lua.NewLuaError(l, "registry does not serve consistent snapshots").
 			WithKind(lua.Unavailable).
@@ -582,9 +580,7 @@ func makeSnapshotAt(log *zap.Logger) lua.LGoFunc {
 		// plus authored history with provenance. Module worlds reconciled from
 		// stored resolutions materialize only through apply_version, which
 		// alone may stage their effects.
-		provenanced, ok := reg.(interface {
-			ProvenancedStateAtVersion(ctx context.Context, v regapi.Version) (regapi.ProvenancedState, error)
-		})
+		provenanced, ok := reg.(regapi.ProvenancedSnapshotReader)
 		if !ok {
 			err := lua.NewLuaError(l, "registry does not serve historical snapshots").
 				WithKind(lua.Unavailable).
