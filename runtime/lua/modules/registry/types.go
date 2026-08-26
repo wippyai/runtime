@@ -24,6 +24,18 @@ var entryType = typ.NewRecord().
 	OptField("root", typ.Boolean).
 	Build()
 
+var entryProvenanceType = typ.NewRecord().
+	Field("module", typ.String).
+	Field("version", typ.String).
+	Field("digest", typ.String).
+	Field("root", typ.Boolean).
+	Build()
+
+var stateType = typ.NewRecord().
+	Field("entries", typ.NewArray(entryType)).
+	Field("provenance", typ.NewMap(typ.String, entryProvenanceType)).
+	Build()
+
 // Forward declarations for self-referential types
 var (
 	snapshotType *typ.Interface
@@ -53,6 +65,7 @@ func init() {
 	// Snapshot type (references changesType and versionType)
 	snapshotType = typ.NewInterface("registry.Snapshot", []typ.Method{
 		{Name: "entries", Type: typ.Func().Param("self", typ.Self).Returns(typ.NewArray(entryType)).Build()},
+		{Name: "state", Type: typ.Func().Param("self", typ.Self).Returns(stateType, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "get", Type: typ.Func().Param("self", typ.Self).Param("key", typ.String).Returns(entryType, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "namespace", Type: typ.Func().Param("self", typ.Self).Param("ns", typ.String).Returns(typ.NewArray(entryType)).Build()},
 		{Name: "find", Type: typ.Func().Param("self", typ.Self).Param("query", typ.Any).Returns(typ.NewArray(entryType)).Build()},
@@ -78,6 +91,8 @@ func ModuleTypes() *typio.Manifest {
 	m.DefineType("History", historyType)
 	m.DefineType("ID", idType)
 	m.DefineType("Entry", entryType)
+	m.DefineType("EntryProvenance", entryProvenanceType)
+	m.DefineType("State", stateType)
 
 	moduleType := typ.NewInterface("registry", []typ.Method{
 		{Name: "get", Type: typ.Func().Param("key", typ.String).Returns(entryType, typ.NewOptional(typ.LuaError)).Build()},
@@ -91,6 +106,8 @@ func ModuleTypes() *typio.Manifest {
 		{Name: "apply_version", Type: typ.Func().Param("version", versionType).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "build_delta", Type: typ.Func().Param("from", versionType).Param("to", versionType).Returns(typ.Any, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "overlay", Type: typ.Func().Param("id", typ.String).Returns(snapshotType, typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "provenance", Type: typ.Func().Param("id", typ.String).Returns(typ.NewOptional(entryProvenanceType), typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "set_root", Type: typ.Func().Param("id", typ.String).Param("root", typ.Boolean).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
 	})
 
 	m.SetExport(moduleType)

@@ -65,6 +65,65 @@ func (s *Snapshot) GetEntry(id regapi.ID) (regapi.Entry, error) {
 	return regapi.Entry{}, fmt.Errorf("entry not found: %s", id)
 }
 
+// snapshotState returns the authorized declarative entries and their
+// registry-owned provenance from this exact snapshot. The keyed provenance map
+// is total over the returned entries; missing or orphaned records are an
+// invariant failure, never an implicit host-ownership statement.
+func snapshotState(l *lua.LState) int {
+	snap := checkSnapshot(l)
+	if snap == nil {
+		return 0
+	}
+	if !authorizeSnapshotRead(l, snap) {
+		return 2
+	}
+	if snap.prov == nil {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "snapshot does not carry registry provenance").
+			WithKind(lua.Unavailable).
+			WithRetryable(false))
+		return 2
+	}
+
+	state := regapi.ProvenancedState{Entries: snap.entries, Provenance: snap.prov}
+	if err := state.Validate(); err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.WrapErrorWithLua(l, err, "validate snapshot provenance").
+			WithKind(lua.Internal).
+			WithRetryable(false))
+		return 2
+	}
+
+	entriesTable := l.CreateTable(len(snap.entries), 0)
+	provenanceTable := l.CreateTable(0, len(snap.entries))
+	idx := 1
+	for _, entry := range snap.entries {
+		id := entry.ID.Canonical()
+		if snap.overlayOwner == "" && !security.IsAllowed(l.Context(), "registry.get", id.String(), nil) {
+			continue
+		}
+
+		entryTable, err := snap.entryTable(l, entry)
+		if err != nil {
+			l.Push(lua.LNil)
+			l.Push(lua.WrapErrorWithLua(l, err, "convert entry").
+				WithKind(lua.Internal).
+				WithRetryable(false))
+			return 2
+		}
+		entriesTable.RawSetInt(idx, entryTable)
+		provenanceTable.RawSetString(id.String(), provenanceToLuaTable(l, snap.prov[id]))
+		idx++
+	}
+
+	result := l.CreateTable(0, 2)
+	result.RawSetString("entries", entriesTable)
+	result.RawSetString("provenance", provenanceTable)
+	l.Push(result)
+	l.Push(lua.LNil)
+	return 2
+}
+
 // snapshotEntries returns all entries in the snapshot
 func snapshotEntries(l *lua.LState) int {
 	snap := checkSnapshot(l)

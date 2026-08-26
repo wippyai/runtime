@@ -15,19 +15,43 @@ type provenanceReader interface {
 	EntryProvenance(regapi.ID) (regapi.EntryProvenance, bool)
 }
 
+func provenanceToLuaTable(l *lua.LState, p regapi.EntryProvenance) *lua.LTable {
+	table := l.CreateTable(0, 4)
+	table.RawSetString("module", lua.LString(p.Module))
+	table.RawSetString("version", lua.LString(p.Version))
+	table.RawSetString("digest", lua.LString(p.Digest))
+	table.RawSetString("root", lua.LBool(p.Root))
+	return table
+}
+
 // registryProvenance returns the provenance record for one entry of the live
 // state: {module, version, digest, root}, or nil for an unknown entry. Values
 // are copies; mutating the table changes nothing.
 func registryProvenance(l *lua.LState) int {
-	idStr := l.CheckString(1)
+	id := regapi.ParseID(l.CheckString(1)).Canonical()
+	ctx := l.Context()
+	if ctx == nil {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "no context").
+			WithKind(lua.Internal).
+			WithRetryable(false))
+		return 2
+	}
 
-	reg := regapi.GetRegistry(l.Context())
+	reg := regapi.GetRegistry(ctx)
 	if reg == nil {
 		err := lua.NewLuaError(l, "registry not available").
 			WithKind(lua.Unavailable).
 			WithRetryable(true)
 		l.Push(lua.LNil)
 		l.Push(err)
+		return 2
+	}
+	if !security.IsAllowed(ctx, "registry.get", id.String(), nil) {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "not allowed to access entry: "+id.String()).
+			WithKind(lua.PermissionDenied).
+			WithRetryable(false))
 		return 2
 	}
 
@@ -41,19 +65,14 @@ func registryProvenance(l *lua.LState) int {
 		return 2
 	}
 
-	p, found := reader.EntryProvenance(regapi.ParseID(idStr).Canonical())
+	p, found := reader.EntryProvenance(id)
 	if !found {
 		l.Push(lua.LNil)
 		l.Push(lua.LNil)
 		return 2
 	}
 
-	table := l.CreateTable(0, 4)
-	table.RawSetString("module", lua.LString(p.Module))
-	table.RawSetString("version", lua.LString(p.Version))
-	table.RawSetString("digest", lua.LString(p.Digest))
-	table.RawSetString("root", lua.LBool(p.Root))
-	l.Push(table)
+	l.Push(provenanceToLuaTable(l, p))
 	l.Push(lua.LNil)
 	return 2
 }

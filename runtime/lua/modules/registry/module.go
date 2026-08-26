@@ -27,6 +27,7 @@ func init() {
 		map[string]lua.LGoFunc{"__tostring": snapshotToString},
 		map[string]lua.LGoFunc{
 			"entries":   snapshotEntries,
+			"state":     snapshotState,
 			"get":       snapshotGet,
 			"namespace": snapshotNamespace,
 			"find":      snapshotFind,
@@ -88,7 +89,7 @@ func NewModule(opts Options) *luaapi.ModuleDef {
 		Description: "Registry operations for entries, snapshots, and versioning",
 		Class:       []string{luaapi.ClassNondeterministic, luaapi.ClassStorage},
 		Build: func() (*lua.LTable, []luaapi.YieldType) {
-			mod := lua.CreateTable(0, 11)
+			mod := lua.CreateTable(0, 13)
 			mod.RawSetString("get", lua.LGoFunc(registryGet))
 			mod.RawSetString("find", lua.LGoFunc(registryFind))
 			mod.RawSetString("parse_id", lua.LGoFunc(parseID))
@@ -306,6 +307,7 @@ func registryFind(l *lua.LState) int {
 	}
 
 	entriesTable := l.CreateTable(len(entries), 0)
+	reader, _ := reg.(provenanceReader)
 	idx := 1
 	for _, entry := range entries {
 		if !security.IsAllowed(ctx, "registry.get", entry.ID.String(), nil) {
@@ -319,6 +321,11 @@ func registryFind(l *lua.LState) int {
 			l.Push(lua.LNil)
 			l.Push(err)
 			return 2
+		}
+		if reader != nil {
+			if p, found := reader.EntryProvenance(entry.ID.Canonical()); found {
+				entryTable.RawSetString("root", lua.LBool(p.Root))
+			}
 		}
 		entriesTable.RawSetInt(idx, entryTable)
 		idx++

@@ -42,6 +42,12 @@ local function main()
 
 		local entries = snap:entries()
 		assert.not_nil(entries, "snapshot has entries")
+		local state, state_err = snap:state()
+		assert.is_nil(state_err, "historical snapshot state no error")
+		assert.eq(#state.entries, #entries, "historical state pairs every entry")
+		for _, entry in ipairs(state.entries) do
+			assert.not_nil(state.provenance[entry.id], "historical entry has provenance: " .. entry.id)
+		end
 	end
 
 	-- test snapshot_at with invalid version (0)
@@ -71,6 +77,9 @@ local function main()
 	local hist_snap_version = hist_snap:version()
 	assert.not_nil(hist_snap_version, "history snapshot has version")
 	assert.eq(hist_snap_version:id(), version_id, "history snapshot version matches")
+	local hist_state, hist_state_err = hist_snap:state()
+	assert.is_nil(hist_state_err, "history snapshot exposes provenance")
+	assert.not_nil(hist_state.provenance, "history snapshot provenance returned")
 
 	return true
 end

@@ -8,6 +8,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/attrs"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	envapi "github.com/wippyai/runtime/api/env"
 	"github.com/wippyai/runtime/api/payload"
@@ -42,6 +43,7 @@ func TestLoad(t *testing.T) {
 	functions := []string{
 		"snapshot", "current_version", "versions",
 		"parse_id", "history", "find", "get", "build_delta", "overlay",
+		"provenance", "set_root",
 	}
 	for _, fn := range functions {
 		if modTbl.RawGetString(fn).Type() != lua.LTFunction {
@@ -221,6 +223,93 @@ func TestFindWithoutRegistry(t *testing.T) {
 	if err != nil {
 		t.Errorf("find without registry test failed: %v", err)
 	}
+}
+
+type fixedFinder []regapi.Entry
+
+func (f fixedFinder) Find(_ attrs.Bag) ([]regapi.Entry, error) {
+	return append([]regapi.Entry(nil), f...), nil
+}
+
+func TestRegistryFindProjectsRootFromProvenance(t *testing.T) {
+	id := regapi.NewID("app", "dependency")
+	entry := regapi.Entry{ID: id, Kind: regapi.NamespaceDependency}
+	reg := &mockRegistry{
+		entries:    map[string]regapi.Entry{id.String(): entry},
+		provenance: regapi.ProvenanceMap{id: {Root: true}},
+	}
+	ctx := setupContextWithTranscoder()
+	ctx = regapi.WithRegistry(ctx, reg)
+	ctx = regapi.WithFinder(ctx, fixedFinder{entry})
+
+	l := lua.NewState()
+	defer l.Close()
+	l.SetContext(ctx)
+	setupModule(l)
+	require.NoError(t, l.DoString(`
+		local entries, err = registry.find({ [".kind"] = "ns.dependency" })
+		assert(err == nil and #entries == 1)
+		assert(entries[1].root == true)
+		assert(entries[1].meta.module == nil)
+	`))
+}
+
+func TestRegistryProvenanceRequiresEntryRead(t *testing.T) {
+	id := regapi.NewID("app", "hidden")
+	reg := &mockRegistry{
+		entries:    map[string]regapi.Entry{id.String(): {ID: id}},
+		provenance: regapi.ProvenanceMap{id: {Module: "private/module"}},
+	}
+	ctx, release := strictOverlayContext(t)
+	defer release()
+	ctx = regapi.WithRegistry(ctx, reg)
+
+	l := lua.NewState()
+	defer l.Close()
+	l.SetContext(ctx)
+	lua.OpenErrors(l)
+	setupModule(l)
+	require.NoError(t, l.DoString(`
+		local provenance, err = registry.provenance("app:hidden")
+		assert(provenance == nil and err ~= nil)
+		assert(err:kind() == errors.PERMISSION_DENIED)
+	`))
+}
+
+func TestRegistryProvenanceReturnsDetachedRecord(t *testing.T) {
+	id := regapi.NewID("app", "visible")
+	reg := &mockRegistry{
+		entries: map[string]regapi.Entry{id.String(): {ID: id}},
+		provenance: regapi.ProvenanceMap{id: {
+			Module: "org/module", Version: "1.2.3", Digest: "sha256:abc", Root: true,
+		}},
+	}
+	ctx, release := strictOverlayContext(t,
+		"registry.get\x00"+id.String(),
+		"registry.get\x00app:missing",
+	)
+	defer release()
+	ctx = regapi.WithRegistry(ctx, reg)
+
+	l := lua.NewState()
+	defer l.Close()
+	l.SetContext(ctx)
+	setupModule(l)
+	require.NoError(t, l.DoString(`
+		local first, err = registry.provenance("app:visible")
+		assert(err == nil and first ~= nil)
+		assert(first.module == "org/module")
+		assert(first.version == "1.2.3")
+		assert(first.digest == "sha256:abc")
+		assert(first.root == true)
+		first.module = "forged/module"
+
+		local second, second_err = registry.provenance("app:visible")
+		assert(second_err == nil and second.module == "org/module")
+
+		local missing, missing_err = registry.provenance("app:missing")
+		assert(missing == nil and missing_err == nil)
+	`))
 }
 
 func TestBuildDeltaWithoutTranscoder(t *testing.T) {
@@ -607,6 +696,12 @@ type mockRegistry struct {
 	appliedOwner   string
 	appliedChanges regapi.ChangeSet
 	generation     uint64
+	provenance     regapi.ProvenanceMap
+}
+
+func (m *mockRegistry) EntryProvenance(id regapi.ID) (regapi.EntryProvenance, bool) {
+	p, ok := m.provenance[id.Canonical()]
+	return p, ok
 }
 
 func (m *mockRegistry) GetEntry(id regapi.ID) (regapi.Entry, error) {
