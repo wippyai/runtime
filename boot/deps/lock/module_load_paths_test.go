@@ -273,7 +273,7 @@ func TestLock_GetModuleLoadPaths(t *testing.T) {
 		}
 	})
 
-	t.Run("replacement without src subdirectory loads from replacement root", func(t *testing.T) {
+	t.Run("workspace-only replacement does not add a load path", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		lockPath := filepath.Join(tmpDir, DefaultFilename)
 
@@ -285,28 +285,9 @@ func TestLock_GetModuleLoadPaths(t *testing.T) {
 		l.SetDirectories(Directories{Modules: ".wippy", Src: "app"})
 		l.SetReplacement(Replacement{From: "acme/plain", To: "local/plain"})
 
-		replacementDir := filepath.Join(tmpDir, "local", "plain")
-		if err := os.MkdirAll(replacementDir, 0o755); err != nil {
-			t.Fatalf("mkdir replacement: %v", err)
-		}
-
 		paths := l.GetModuleLoadPaths()
-		if len(paths) != 2 {
-			t.Fatalf("path count = %d, want 2", len(paths))
-		}
-
-		got := paths[1]
-		if got.Path != replacementDir {
-			t.Fatalf("module path = %q, want replacement root %q", got.Path, replacementDir)
-		}
-		if got.SourceRoot != replacementDir {
-			t.Fatalf("source root = %q, want replacement root %q", got.SourceRoot, replacementDir)
-		}
-		if got.Version != "" {
-			t.Fatalf("workspace-only replacement version = %q, want empty", got.Version)
-		}
-		if !got.Replacement {
-			t.Fatal("workspace-only source was not marked as replacement")
+		if len(paths) != 1 {
+			t.Fatalf("path count = %d, want only app source", len(paths))
 		}
 	})
 }

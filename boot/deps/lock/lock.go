@@ -439,6 +439,9 @@ func (l *Lock) GetModuleLoadPaths() []ModuleLoadPath {
 
 	replaced := make(map[string]struct{}, len(replacements))
 	for _, repl := range replacements {
+		if _, selected := selectedVersions[repl.From]; !selected {
+			continue
+		}
 		replaced[repl.From] = struct{}{}
 		if repl.To != "" {
 			root := ResolveLockPath(lockDir, repl.To)
