@@ -693,10 +693,10 @@ type mockRegistry struct {
 	currentVersion regapi.Version
 	entries        map[string]regapi.Entry
 	overlayEntries map[string]regapi.State
+	provenance     regapi.ProvenanceMap
 	appliedOwner   string
 	appliedChanges regapi.ChangeSet
 	generation     uint64
-	provenance     regapi.ProvenanceMap
 }
 
 func (m *mockRegistry) EntryProvenance(id regapi.ID) (regapi.EntryProvenance, bool) {
@@ -791,6 +791,9 @@ func TestRegistryOverlayUsesNormalSnapshotAndChanges(t *testing.T) {
 	require.NoError(t, l.DoString(`
 		local snap, err = registry.overlay("app.runtime:source-1")
 		assert(err == nil and snap ~= nil)
+		local state, state_err = snap:state()
+		assert(state == nil and state_err ~= nil)
+		assert(state_err:kind() == errors.UNAVAILABLE)
 		local entries, entries_err = snap:entries()
 		assert(entries_err == nil and #entries == 1)
 		assert(snap:version():id() == 7)

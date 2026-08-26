@@ -35,11 +35,12 @@ local function main()
 	if #state.entries > 0 then
 		local first_id = state.entries[1].id
 		state.provenance[first_id].module = "forged/module"
-		state.entries[1].meta.module = "forged/module"
+		state.entries[1].meta = state.entries[1].meta or {}
+		state.entries[1].meta.detached_probe = true
 		local fresh, fresh_err = snap:state()
 		assert.is_nil(fresh_err, "repeat snapshot state no error")
 		assert.ok(fresh.provenance[first_id].module ~= "forged/module", "provenance result is detached")
-		assert.ok(fresh.entries[1].meta.module ~= "forged/module", "entry result is detached")
+		assert.ok(fresh.entries[1].meta == nil or fresh.entries[1].meta.detached_probe ~= true, "entry result is detached")
 	end
 
 	-- namespace filter

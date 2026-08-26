@@ -21,9 +21,17 @@ local function err_contains(err, substr)
 end
 
 local function find_module_entries()
-	local entries, err = registry.find({ ["meta.module"] = module_name })
-	assert.is_nil(err, "registry.find no error")
-	return entries or {}
+	local snap, snap_err = registry.snapshot()
+	assert.is_nil(snap_err, "registry.snapshot no error")
+	local state, state_err = snap:state()
+	assert.is_nil(state_err, "snapshot state no error")
+	local entries = {}
+	for _, entry in ipairs(state.entries) do
+		if state.provenance[entry.id].module == module_name then
+			entries[#entries + 1] = entry
+		end
+	end
+	return entries
 end
 
 local function apply_changes(apply_fn)

@@ -88,6 +88,11 @@ entries:
         name: test
         short: Run application tests
         use_case: test
+        security:
+          actor:
+            id: app:test_runner
+          policies:
+            - app.test.security:allow_all
     source: file://runner.lua
     method: main
     modules:

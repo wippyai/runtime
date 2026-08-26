@@ -50,10 +50,11 @@ if ! docker image inspect alpine:latest >/dev/null 2>&1; then
 	docker pull alpine:latest
 fi
 
-GOCACHE=/tmp/wippy-gocache GOTMPDIR=/tmp/wippy-gotmp OTEL_SDK_DISABLED=true SKIP_TEMPORAL_TESTS=1 SKIP_CLOUDSTORAGE_TESTS=1 GOEXPERIMENT=jsonv2 \
+GOCACHE=/tmp/wippy-gocache GOTMPDIR=/tmp/wippy-gotmp OTEL_SDK_DISABLED=true SKIP_TEMPORAL_TESTS=1 SKIP_CLOUDSTORAGE_TESTS=1 \
 	go run -tags treesitter ../../cmd/wippy test -c -s | tee "$test_log"
 
-# The test runner currently prints failures but exits 0; enforce failure here.
+# Keep a shell-level guard so structured runner regressions cannot produce a
+# false-green application suite.
 clean_log="$(mktemp /tmp/wippy-app-tests-clean.XXXXXX.log)"
 sed -E 's/\x1B\[[0-9;?]*[ -\/]*[@-~]//g' "$test_log" > "$clean_log"
 if grep -qE "(^|[[:space:]])[1-9][0-9]* failed([[:space:]]|$)|(^|[[:space:]])FAILED([[:space:]]|$)" "$clean_log"; then

@@ -13,28 +13,19 @@ local param_name = "router"
 local router_primary = "app:api.public"
 local router_secondary = "app:api.ws"
 
-local function find_module_entries()
-	local entries, err = registry.find({ ["meta.module"] = module_name })
-	assert.is_nil(err, "registry.find no error")
-	return entries or {}
-end
-
-local function find_requirements()
-	local entries, err = registry.find({
-		[".kind"] = "ns.requirement",
-		["meta.module"] = module_name,
-	})
-	assert.is_nil(err, "registry.find no error")
-	return entries or {}
-end
-
-local function find_endpoints()
-	local entries, err = registry.find({
-		[".kind"] = "http.endpoint",
-		["meta.module"] = module_name,
-	})
-	assert.is_nil(err, "registry.find no error")
-	return entries or {}
+local function find_module_entries(kind)
+	local snap, snap_err = registry.snapshot()
+	assert.is_nil(snap_err, "registry.snapshot no error")
+	local state, state_err = snap:state()
+	assert.is_nil(state_err, "snapshot state no error")
+	local entries = {}
+	for _, entry in ipairs(state.entries) do
+		local owned = state.provenance[entry.id].module == module_name
+		if owned and (kind == nil or entry.kind == kind) then
+			entries[#entries + 1] = entry
+		end
+	end
+	return entries
 end
 
 local function apply_changes(apply_fn)
@@ -145,10 +136,10 @@ local function main()
 	local module_count = #module_entries
 	assert.ok(module_count > 0, "module entries counted")
 
-	local reqs = find_requirements()
+	local reqs = find_module_entries("ns.requirement")
 	assert.ok(#reqs > 0, "module requirements present")
 
-	local endpoints = find_endpoints()
+	local endpoints = find_module_entries("http.endpoint")
 	assert.ok(#endpoints > 0, "module endpoints present")
 	for i = 1, #endpoints do
 		local endpoint = endpoints[i]
@@ -208,7 +199,7 @@ local function main()
 		})
 	end)
 
-	local updated_endpoints = find_endpoints()
+	local updated_endpoints = find_module_entries("http.endpoint")
 	assert.ok(#updated_endpoints > 0, "endpoints present after update")
 	for i = 1, #updated_endpoints do
 		local endpoint = updated_endpoints[i]
@@ -223,7 +214,7 @@ local function main()
 	assert.is_nil(rollback_err, "rollback no error")
 	assert.ok(rollback_ok, "rollback succeeded")
 
-	local rolled_back_endpoints = find_endpoints()
+	local rolled_back_endpoints = find_module_entries("http.endpoint")
 	assert.ok(#rolled_back_endpoints > 0, "endpoints present after rollback")
 	for i = 1, #rolled_back_endpoints do
 		local endpoint = rolled_back_endpoints[i]
@@ -235,7 +226,7 @@ local function main()
 	assert.is_nil(forward_err, "forward apply no error")
 	assert.ok(forward_ok, "forward apply succeeded")
 
-	local forwarded_endpoints = find_endpoints()
+	local forwarded_endpoints = find_module_entries("http.endpoint")
 	assert.ok(#forwarded_endpoints > 0, "endpoints present after forward apply")
 	for i = 1, #forwarded_endpoints do
 		local endpoint = forwarded_endpoints[i]
@@ -248,7 +239,7 @@ local function main()
 	end)
 
 	assert.eq(#find_module_entries(), 0, "module entries removed after uninstall")
-	assert.eq(#find_endpoints(), 0, "module endpoints removed after uninstall")
+	assert.eq(#find_module_entries("http.endpoint"), 0, "module endpoints removed after uninstall")
 
 	return true
 end
