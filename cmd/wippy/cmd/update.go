@@ -502,22 +502,19 @@ func loadDependencyScanEntries(ctx context.Context, ldr boot.Loader, srcDir stri
 	}
 
 	if lockObj != nil {
-		replacements := effectiveReplacementModules(lockObj)
-		for _, mp := range lockObj.GetModuleLoadPaths() {
-			if mp.Module == "" || !replacements[mp.Module] {
+		lockDir := filepath.Dir(lockObj.Path())
+		for _, replacement := range lockObj.GetReplacements() {
+			if replacement.To == "" {
 				continue
 			}
-			replacementRoot := mp.SourceRoot
-			if replacementRoot == "" {
-				replacementRoot = mp.Path
-			}
+			replacementRoot := lock.ResolveLockPath(lockDir, replacement.To)
 			paths = append(paths, struct {
 				label string
 				path  string
 				root  string
 			}{
-				label: "replacement " + mp.Module,
-				path:  mp.Path,
+				label: "replacement " + replacement.From,
+				path:  lock.ModuleEntryLoadPath(replacementRoot),
 				root:  replacementRoot,
 			})
 		}
