@@ -344,6 +344,173 @@ func TestAsyncCancelHandler(t *testing.T) {
 	}
 }
 
+func startContractAsyncForTest(
+	ctx context.Context,
+	t *testing.T,
+	d *Dispatcher,
+	instance contract.Instance,
+	method string,
+	topic string,
+) {
+	t.Helper()
+	cmd := contract.AcquireAsyncCallCmd()
+	defer cmd.Release()
+	cmd.Instance = instance
+	cmd.Method = method
+	cmd.Topic = topic
+	done := make(chan contract.AsyncCallResult, 1)
+	require.NoError(t, d.handleAsyncCall(ctx, cmd, 0, &testReceiver{cb: func(data any, _ error) {
+		done <- data.(contract.AsyncCallResult)
+	}}))
+	select {
+	case result := <-done:
+		require.NoError(t, result.Error)
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for async contract call")
+	}
+}
+
+func cancelContractAsyncForTest(ctx context.Context, t *testing.T, d *Dispatcher, topic string) {
+	t.Helper()
+	cmd := contract.AcquireAsyncCancelCmd()
+	defer cmd.Release()
+	cmd.Topic = topic
+	done := make(chan struct{}, 1)
+	require.NoError(t, d.handleAsyncCancel(ctx, cmd, 0, &testReceiver{cb: func(_ any, _ error) {
+		done <- struct{}{}
+	}}))
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for async contract cancellation")
+	}
+}
+
+func TestAsyncCancelHandler_CancelsRunningCallContext(t *testing.T) {
+	node := &mockRelayNode{packages: make(chan *relay.Package, 10)}
+	started := make(chan struct{})
+	canceled := make(chan error, 1)
+	instance := &mockInstance{callFn: func(ctx context.Context, _ string, _ payload.Payloads, _ runtime.Options) (*runtime.Result, error) {
+		close(started)
+		<-ctx.Done()
+		canceled <- ctx.Err()
+		return nil, ctx.Err()
+	}}
+	d := NewDispatcher(node, nil)
+	ctx := setupAsyncTestContext()
+	startContractAsyncForTest(ctx, t, d, instance, "run", "@future:cancel")
+
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for contract call to start")
+	}
+	cancelContractAsyncForTest(ctx, t, d, "@future:cancel")
+	select {
+	case err := <-canceled:
+		require.ErrorIs(t, err, context.Canceled)
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for contract call cancellation")
+	}
+	require.Len(t, node.packages, 1, "canceled call must not publish a second terminal result")
+}
+
+func TestAsyncCallHandler_CleansCancelHandleAfterCompletion(t *testing.T) {
+	node := &mockRelayNode{packages: make(chan *relay.Package, 10)}
+	d := NewDispatcher(node, nil)
+	instance := &mockInstance{callFn: func(_ context.Context, _ string, _ payload.Payloads, _ runtime.Options) (*runtime.Result, error) {
+		return &runtime.Result{Value: payload.New("done")}, nil
+	}}
+	ctx := setupAsyncTestContext()
+	framePID, ok := runtime.GetFramePID(ctx)
+	require.True(t, ok)
+	startContractAsyncForTest(ctx, t, d, instance, "run", "@future:complete")
+
+	select {
+	case <-node.packages:
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for async contract result")
+	}
+	key := asyncCallKey{target: framePID.String(), topic: "@future:complete"}
+	require.Eventually(t, func() bool {
+		_, exists := d.asyncCalls.Load(key)
+		return !exists
+	}, time.Second, 10*time.Millisecond)
+}
+
+func TestAsyncCancelHandler_DoesNotCancelSameTopicForDifferentCallerPID(t *testing.T) {
+	node := &mockRelayNode{packages: make(chan *relay.Package, 10)}
+	started := make(chan context.Context, 1)
+	canceled := make(chan error, 1)
+	instance := &mockInstance{callFn: func(ctx context.Context, _ string, _ payload.Payloads, _ runtime.Options) (*runtime.Result, error) {
+		started <- ctx
+		<-ctx.Done()
+		canceled <- ctx.Err()
+		return nil, ctx.Err()
+	}}
+	d := NewDispatcher(node, nil)
+
+	root := ctxapi.NewRootContext()
+	ownerCtx, _ := ctxapi.OpenFrameContext(root)
+	require.NoError(t, runtime.SetFramePID(ownerCtx, pid.PID{Host: "test", UniqID: "owner"}))
+	startContractAsyncForTest(ownerCtx, t, d, instance, "run", "@future:shared")
+	var callCtx context.Context
+	select {
+	case callCtx = <-started:
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for contract call to start")
+	}
+
+	otherCtx, _ := ctxapi.OpenFrameContext(root)
+	require.NoError(t, runtime.SetFramePID(otherCtx, pid.PID{Host: "test", UniqID: "other"}))
+	cancelContractAsyncForTest(otherCtx, t, d, "@future:shared")
+	require.NoError(t, callCtx.Err())
+
+	cancelContractAsyncForTest(ownerCtx, t, d, "@future:shared")
+	select {
+	case err := <-canceled:
+		require.ErrorIs(t, err, context.Canceled)
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for owning caller cancellation")
+	}
+}
+
+func TestAsyncCallHandler_ReusedOwnedTopicCancelsOnlyTheReplacedCall(t *testing.T) {
+	node := &mockRelayNode{packages: make(chan *relay.Package, 10)}
+	started := make(chan context.Context, 2)
+	canceled := make(chan error, 2)
+	instance := &mockInstance{callFn: func(ctx context.Context, _ string, _ payload.Payloads, _ runtime.Options) (*runtime.Result, error) {
+		started <- ctx
+		<-ctx.Done()
+		canceled <- ctx.Err()
+		return nil, ctx.Err()
+	}}
+	d := NewDispatcher(node, nil)
+	ctx := setupAsyncTestContext()
+
+	startContractAsyncForTest(ctx, t, d, instance, "first", "@future:reused")
+	firstCtx := <-started
+	startContractAsyncForTest(ctx, t, d, instance, "second", "@future:reused")
+	secondCtx := <-started
+	select {
+	case err := <-canceled:
+		require.ErrorIs(t, err, context.Canceled)
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for replaced call cancellation")
+	}
+	require.ErrorIs(t, firstCtx.Err(), context.Canceled)
+	require.NoError(t, secondCtx.Err())
+
+	cancelContractAsyncForTest(ctx, t, d, "@future:reused")
+	select {
+	case err := <-canceled:
+		require.ErrorIs(t, err, context.Canceled)
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for current call cancellation")
+	}
+	require.Len(t, node.packages, 1, "replaced call must not terminate the current future")
+}
+
 func TestDispatcher_RegisterAll(t *testing.T) {
 	d := NewDispatcher(nil, nil)
 
@@ -506,6 +673,32 @@ func TestDispatcher_StartStop(t *testing.T) {
 
 	err = d.Stop(context.Background())
 	assert.NoError(t, err)
+}
+
+func TestDispatcher_StopCancelsOwnedAsyncCalls(t *testing.T) {
+	node := &mockRelayNode{packages: make(chan *relay.Package, 10)}
+	started := make(chan struct{})
+	canceled := make(chan error, 1)
+	instance := &mockInstance{callFn: func(ctx context.Context, _ string, _ payload.Payloads, _ runtime.Options) (*runtime.Result, error) {
+		close(started)
+		<-ctx.Done()
+		canceled <- ctx.Err()
+		return nil, ctx.Err()
+	}}
+	d := NewDispatcher(node, nil)
+	startContractAsyncForTest(setupAsyncTestContext(), t, d, instance, "run", "@future:stop")
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for contract call to start")
+	}
+	require.NoError(t, d.Stop(context.Background()))
+	select {
+	case err := <-canceled:
+		require.ErrorIs(t, err, context.Canceled)
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for dispatcher shutdown cancellation")
+	}
 }
 
 func TestOpenHandler_ContextCanceled(t *testing.T) {

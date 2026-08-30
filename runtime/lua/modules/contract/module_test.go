@@ -16,6 +16,8 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/runtime"
 	secapi "github.com/wippyai/runtime/api/security"
+	"github.com/wippyai/runtime/runtime/lua/engine"
+	"github.com/wippyai/runtime/runtime/lua/modules/future"
 )
 
 type mockInstanceForTest struct {
@@ -428,6 +430,23 @@ func TestAsyncCancelYield_HandleResult(t *testing.T) {
 	require.Len(t, results, 2)
 	assert.Equal(t, lua.LTrue, results[0])
 	assert.Equal(t, lua.LNil, results[1])
+}
+
+func TestFutureCancelImplMarksFutureCanceled(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+
+	f := future.New("@future:test", engine.NewChannel(1))
+	ud := l.NewUserData()
+	ud.Value = f
+	l.Push(ud)
+
+	require.Equal(t, -1, futureCancelImpl(l))
+	require.True(t, f.IsCanceled())
+	yield, ok := l.Get(-1).(*AsyncCancelYield)
+	require.True(t, ok)
+	require.Equal(t, "@future:test", yield.Topic)
+	ReleaseAsyncCancelYield(yield)
 }
 
 func TestPoolConcurrency(_ *testing.T) {
