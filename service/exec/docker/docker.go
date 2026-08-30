@@ -7,12 +7,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"path/filepath"
 	"strings"
 	"sync"
 
 	"github.com/moby/moby/api/pkg/stdcopy"
 	"github.com/moby/moby/api/types/container"
-	"github.com/moby/moby/api/types/mount"
 	"github.com/moby/moby/api/types/network"
 	"github.com/moby/moby/client"
 	execapi "github.com/wippyai/runtime/api/service/exec"
@@ -182,25 +182,14 @@ func (p *Process) Start() error {
 
 	ctx := context.Background()
 
-	var mounts []mount.Mount
-	for _, vol := range p.volumes {
-		parts := strings.Split(vol, ":")
-		if len(parts) >= 2 {
-			m := mount.Mount{
-				Type:   mount.TypeBind,
-				Source: parts[0],
-				Target: parts[1],
-			}
-			if len(parts) >= 3 && parts[2] == "ro" {
-				m.ReadOnly = true
-			}
-			mounts = append(mounts, m)
-		}
+	binds, err := buildBinds(p.volumes)
+	if err != nil {
+		return err
 	}
 
 	hostConfig := &container.HostConfig{
 		AutoRemove:     p.autoRemove,
-		Mounts:         mounts,
+		Binds:          binds,
 		ReadonlyRootfs: p.readOnlyRootfs,
 		Tmpfs:          p.tmpfs,
 		CapDrop:        p.capDrop,
@@ -392,6 +381,40 @@ func (p *Process) Wait() error {
 	}
 
 	return nil
+}
+
+// buildBinds prepares Docker short-syntax volume specifications for the daemon.
+// Relative host paths are resolved client-side, matching Docker CLI behavior;
+// the daemon remains the authority for parsing and validating the full syntax.
+func buildBinds(volumes []string) ([]string, error) {
+	if len(volumes) == 0 {
+		return nil, nil
+	}
+
+	binds := make([]string, 0, len(volumes))
+	for _, volume := range volumes {
+		source, remainder, ok := strings.Cut(volume, ":")
+		if !ok {
+			continue
+		}
+
+		if !filepath.IsAbs(source) && isExplicitRelativePath(source) {
+			absolute, err := filepath.Abs(source)
+			if err != nil {
+				return nil, fmt.Errorf("resolve docker volume source %q: %w", source, err)
+			}
+			volume = absolute + ":" + remainder
+		}
+		binds = append(binds, volume)
+	}
+	return binds, nil
+}
+
+func isExplicitRelativePath(source string) bool {
+	if source == "." || source == ".." {
+		return true
+	}
+	return strings.HasPrefix(source, ".") && strings.ContainsAny(source, `/\`)
 }
 
 // parseCommand splits a command string into parts
