@@ -10,7 +10,6 @@ import (
 
 	"github.com/wippyai/runtime/api/dispatcher"
 	socketapi "github.com/wippyai/runtime/api/socket"
-	"github.com/wippyai/runtime/runtime/security"
 	wippyhost "github.com/wippyai/runtime/runtime/wasm/host/wippy"
 	wasmengine "github.com/wippyai/wasm-runtime/engine"
 	"github.com/wippyai/wasm-runtime/wasi/preview2"
@@ -188,10 +187,6 @@ func (h *TCPHost) MethodTCPSocketStartConnect(ctx context.Context, self uint32, 
 	}
 
 	addr := remoteAddress.String()
-	if !security.IsAllowed(ctx, "socket.connect", addr, nil) {
-		return &NetworkError{Code: NetworkErrorAccessDenied}
-	}
-
 	socket.SetRemoteAddr(remoteAddress.Address, remoteAddress.Port)
 	socket.SetState(preview2.TCPStateConnectInProgress)
 
@@ -297,10 +292,6 @@ func (h *TCPHost) MethodTCPSocketStartListen(ctx context.Context, self uint32) *
 	}
 
 	addr := (&IPSocketAddress{Address: socket.LocalAddr(), Port: socket.LocalPort()}).String()
-	if !security.IsAllowed(ctx, "socket.listen", addr, nil) {
-		return &NetworkError{Code: NetworkErrorAccessDenied}
-	}
-
 	socket.SetState(preview2.TCPStateListenInProgress)
 
 	op := &listenPendingOp{cmd: &socketapi.ListenCmd{Network: "tcp", Address: addr}}
