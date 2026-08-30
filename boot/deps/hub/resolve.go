@@ -639,7 +639,7 @@ func (r *resolver) fetchManifest(ctx context.Context, org, name, version string)
 	}
 
 	expected := r.lockedDigests[org+"/"+name+"@"+version]
-	if expected == "" || manifest.Digest == expected {
+	if expected == "" || artifactDigestsEqual(manifest.Digest, expected) {
 		return manifest, nil
 	}
 
@@ -648,7 +648,7 @@ func (r *resolver) fetchManifest(ctx context.Context, org, name, version string)
 		if ferr != nil {
 			return nil, ferr
 		}
-		if fresh != nil && fresh.Digest == expected {
+		if fresh != nil && artifactDigestsEqual(fresh.Digest, expected) {
 			return fresh, nil
 		}
 		if fresh != nil {

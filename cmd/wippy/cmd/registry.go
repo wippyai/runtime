@@ -95,6 +95,7 @@ func init() {
 	registryListCmd.Flags().StringSlice("meta", nil, "filter by metadata (field=value)")
 	registryListCmd.Flags().Bool("json", false, "output in JSON format")
 	registryListCmd.Flags().Bool("yaml", false, "output in YAML format")
+	registryListCmd.Flags().Bool("registry-meta", false, "include registry-owned metadata in JSON or YAML output")
 	registryListCmd.Flags().StringP("lock-file", "l", defaultLockFile, "path to lock file")
 
 	// Show flags
@@ -114,7 +115,11 @@ func runRegistryList(cmd *cobra.Command, _ []string) error {
 	metaFilters, _ := cmd.Flags().GetStringSlice("meta")
 	jsonOutput, _ := cmd.Flags().GetBool("json")
 	yamlOutput, _ := cmd.Flags().GetBool("yaml")
+	includeRegistryMeta, _ := cmd.Flags().GetBool("registry-meta")
 	lockFile, _ := cmd.Flags().GetString("lock-file")
+	if includeRegistryMeta && !jsonOutput && !yamlOutput {
+		return fmt.Errorf("--registry-meta requires --json or --yaml")
+	}
 
 	allEntries, err := loadRegistryEntries(cmd, lockFile)
 	if err != nil {
@@ -161,10 +166,10 @@ func runRegistryList(cmd *cobra.Command, _ []string) error {
 	})
 
 	if jsonOutput {
-		return outputEntriesJSON(results)
+		return outputEntriesJSON(results, includeRegistryMeta)
 	}
 	if yamlOutput {
-		return outputEntriesYAML(results)
+		return outputEntriesYAML(results, includeRegistryMeta)
 	}
 
 	// Table output
@@ -290,21 +295,31 @@ func (r *sliceEntryReader) GetEntry(id regapi.ID) (regapi.Entry, error) {
 	return regapi.Entry{}, fmt.Errorf("entry not found: %s", id.String())
 }
 
-func outputEntriesJSON(entries []regapi.Entry) error {
-	type entryInfo struct {
-		Meta attrs.Bag `json:"meta,omitempty"`
-		ID   string    `json:"id"`
-		Kind string    `json:"kind"`
-	}
+type registryEntryInfo struct {
+	Registry *regapi.EntryMetadata `json:"registry,omitempty" yaml:"registry,omitempty"`
+	Meta     attrs.Bag             `json:"meta,omitempty" yaml:"meta,omitempty"`
+	ID       string                `json:"id" yaml:"id"`
+	Kind     string                `json:"kind" yaml:"kind"`
+}
 
-	infos := make([]entryInfo, len(entries))
+func registryEntryInfos(entries []regapi.Entry, includeRegistryMeta bool) []registryEntryInfo {
+	infos := make([]registryEntryInfo, len(entries))
 	for i, e := range entries {
-		infos[i] = entryInfo{
+		infos[i] = registryEntryInfo{
 			ID:   e.ID.String(),
 			Kind: e.Kind,
 			Meta: e.Meta,
 		}
+		if includeRegistryMeta {
+			metadata := e.Registry
+			infos[i].Registry = &metadata
+		}
 	}
+	return infos
+}
+
+func outputEntriesJSON(entries []regapi.Entry, includeRegistryMeta bool) error {
+	infos := registryEntryInfos(entries, includeRegistryMeta)
 
 	data, err := stdjson.MarshalIndent(infos, "", "  ")
 	if err != nil {
@@ -314,21 +329,8 @@ func outputEntriesJSON(entries []regapi.Entry) error {
 	return nil
 }
 
-func outputEntriesYAML(entries []regapi.Entry) error {
-	type entryInfo struct {
-		Meta attrs.Bag `yaml:"meta,omitempty"`
-		ID   string    `yaml:"id"`
-		Kind string    `yaml:"kind"`
-	}
-
-	infos := make([]entryInfo, len(entries))
-	for i, e := range entries {
-		infos[i] = entryInfo{
-			ID:   e.ID.String(),
-			Kind: e.Kind,
-			Meta: e.Meta,
-		}
-	}
+func outputEntriesYAML(entries []regapi.Entry, includeRegistryMeta bool) error {
+	infos := registryEntryInfos(entries, includeRegistryMeta)
 
 	data, err := yaml.Marshal(infos)
 	if err != nil {

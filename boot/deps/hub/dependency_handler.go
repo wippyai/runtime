@@ -66,6 +66,7 @@ type DependencyHandler struct {
 	logger          *zap.Logger
 	lock            *lock.Lock
 	artifacts       *artifact.Registry
+	deployment      *regapi.Deployment
 	artifactRoot    string
 	replacements    map[string]lock.Replacement
 	vendorDir       string
@@ -168,17 +169,106 @@ func NewDependencyHandler(opts DependencyHandlerOptions) (*DependencyHandler, er
 	}, nil
 }
 
-// Expand plans a dependency operation against the resident state. snapshot
-// carries the provenance of that state: the registry owns it, so the handler
-// never reads ownership or resident identity from entry payload.
-func (h *DependencyHandler) Expand(ctx context.Context, op regapi.Operation, snapshot regapi.ProvenancedState) (regapi.DirectiveResult, error) {
+// PrepareRestore materializes the exact module artifacts recorded for the
+// current registry version. Version selection remains the stored resolution;
+// the Hub is used only when a verified artifact is absent locally.
+func (h *DependencyHandler) PrepareRestore(ctx context.Context, history regapi.History) error {
+	resolutions, ok := history.(regapi.ResolutionHistory)
+	if h == nil || !ok {
+		return nil
+	}
+	configured, err := h.deploymentFromLock()
+	if err != nil {
+		return err
+	}
+	head, err := history.Head()
+	if err != nil {
+		var categorized apierror.Error
+		if errors.As(err, &categorized) && categorized.Kind() == apierror.NotFound {
+			h.deployment = configured
+			return nil
+		}
+		return fmt.Errorf("read registry head for dependency restore: %w", err)
+	}
+	resolution, err := resolutions.GetDependencyResolution(head)
+	if errors.Is(err, regapi.ErrDependencyResolutionNotFound) {
+		h.deployment = configured
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("read dependency resolution for restore: %w", err)
+	}
+	deployment := configured
+	if deployment == nil {
+		deployment = resolution.Deployment.Canonical()
+	}
+	effective, err := resolvedModulesFromStored(resolution)
+	if err != nil {
+		return err
+	}
+	if deployment == nil {
+		// A source checkout has an unrooted lock: its ordinary lock loader has
+		// already published the deployment sources. History may add modules, but
+		// it must not turn that development shape into a persisted Hub root.
+		if h.lock != nil {
+			h.deployment = nil
+			ctx = regapi.WithDependencyAccess(ctx, regapi.DependencyAccessOnline)
+			return h.materializeRestoreModules(ctx, effective)
+		}
+		return fmt.Errorf("persisted deployment baseline is unavailable; start once with its lock file")
+	}
+	h.deployment = deployment
+	baseline, err := resolvedModulesFromRecords(deployment.Modules)
+	if err != nil {
+		return err
+	}
+	ctx = regapi.WithDependencyAccess(ctx, regapi.DependencyAccessOnline)
+	if err := h.prepareRestoreSources(ctx, baseline); err != nil {
+		return err
+	}
+	return h.materializeRestoreModules(ctx, effective)
+}
+
+func (h *DependencyHandler) deploymentFromLock() (*regapi.Deployment, error) {
+	if h == nil || h.lock == nil {
+		return nil, nil
+	}
+	roots := h.lock.GetRootModules()
+	if len(roots) != 1 {
+		return nil, nil
+	}
+	if len(h.replacements) != 0 {
+		return nil, nil
+	}
+	deployment := &regapi.Deployment{Root: roots[0], Modules: make([]regapi.ResolvedModule, 0, len(h.lock.GetModules()))}
+	for _, module := range h.lock.GetModules() {
+		algorithm, digest, err := parseExpectedDigest(module.Hash)
+		if err != nil || algorithm != "sha256" || len(digest) != 64 {
+			return nil, fmt.Errorf("deployment module %s has invalid artifact digest", module.Name)
+		}
+		deployment.Modules = append(deployment.Modules, regapi.ResolvedModule{
+			Name: module.Name, Version: module.Version, VersionID: module.Version,
+			Source: moduleSourceHub, Digest: "sha256:" + strings.ToLower(digest),
+		})
+	}
+	return deployment.Canonical(), nil
+}
+
+func (h *DependencyHandler) isDeploymentRoot(module string) bool {
+	if h.deployment != nil {
+		return module == h.deployment.Root
+	}
+	return h.lock != nil && h.lock.IsRootModule(module)
+}
+
+func (h *DependencyHandler) Expand(ctx context.Context, op regapi.Operation, snapshot regapi.State) (regapi.DirectiveResult, error) {
 	return h.expand(ctx, op, snapshot, nil, nil, nil)
 }
 
 func (h *DependencyHandler) expand(
 	ctx context.Context,
 	op regapi.Operation,
-	snapshot regapi.ProvenancedState,
+	snapshot regapi.State,
 	extraControlled map[string]struct{},
 	extraMutable map[string]struct{},
 	freshRoots map[string]struct{},
@@ -190,19 +280,14 @@ func (h *DependencyHandler) expand(
 		return regapi.DirectiveResult{}, err
 	}
 
-	resident, err := stateProvenance(snapshot)
-	if err != nil {
-		return regapi.DirectiveResult{}, err
-	}
-
-	entry, ok := resolveOperationEntry(op, snapshot.Entries)
+	entry, ok := resolveOperationEntry(op, snapshot)
 	if !ok {
 		return regapi.DirectiveResult{}, nil
 	}
 	if entry.Kind != regapi.NamespaceDependency {
 		return regapi.DirectiveResult{}, nil
 	}
-	if !isRootDependency(entry, operationProvenance(op, resident)) {
+	if !isRootDependency(entry) {
 		return regapi.DirectiveResult{}, nil
 	}
 
@@ -268,7 +353,7 @@ func (h *DependencyHandler) expand(
 	}
 
 	desiredRoots := dependencyDefinitions(desiredDeps)
-	resolved, err := h.resolveEffectiveModules(ctx, desiredRoots, lockedVersions)
+	resolved, err := h.resolveEffectiveModules(ctx, desiredRoots, lockedVersions, h.currentResolution(ctx))
 	if err != nil {
 		return regapi.DirectiveResult{}, err
 	}
@@ -289,10 +374,11 @@ func (h *DependencyHandler) expand(
 			break
 		}
 	}
+	_, installedDigests := h.currentModuleIdentities(ctx)
 	strictModules := touchedModuleIdentities(
 		resolved,
 		lockedVersions,
-		residentModuleDigests(snapshot.Provenance),
+		installedDigests,
 		opComponent,
 	)
 	strictSet := stringSet(strictModules)
@@ -321,60 +407,40 @@ func (h *DependencyHandler) expand(
 	desiredModules := resolvedModuleSet(resolved)
 	addModuleSet(controlledModules, desiredModules)
 
-	moduleEntries, moduleProv, unpackPlan, err := h.loadModuleEntries(ctx, filterResolvedModules(resolved, touchedModules), resolved, snapshot, transcoder)
+	moduleEntries, unpackPlan, err := h.loadModuleEntries(ctx, filterResolvedModules(resolved, touchedModules), snapshot, transcoder)
 	if err != nil {
 		return regapi.DirectiveResult{}, err
 	}
 	defer func() { _ = unpackPlan.cleanup() }()
 	linkDeps := mergeLinkDependencies(desiredDepEntries, moduleEntries)
 
-	combined := make([]regapi.Entry, 0, len(snapshot.Entries)+len(moduleEntries))
-	combinedProv := make(regapi.ProvenanceMap, len(snapshot.Entries)+len(moduleEntries))
-	for _, e := range snapshot.Entries {
-		record := resident[idKey(e.ID)]
-		if record.Module != "" {
-			if _, controlled := controlledModules[record.Module]; controlled {
-				if _, desired := desiredModules[record.Module]; !desired {
+	combined := make([]regapi.Entry, 0, len(snapshot)+len(moduleEntries))
+	for _, e := range snapshot {
+		if module := entryModule(e); module != "" {
+			if _, controlled := controlledModules[module]; controlled {
+				if _, desired := desiredModules[module]; !desired {
 					continue
 				}
-				if _, touched := touchedModules[record.Module]; touched {
+				if _, touched := touchedModules[module]; touched {
 					continue
 				}
 			}
 		}
 		combined = append(combined, e)
-		combinedProv[e.ID] = record
 	}
 	combined = append(combined, moduleEntries...)
-	for id, record := range moduleProv {
-		combinedProv[id] = record
-	}
-	// A declaration this operation introduces is linked before it is resident.
-	// The link stage attributes every entry it is handed, so the declarations
-	// carry the record the operation gives them.
-	for _, dep := range desiredDepEntries {
-		if _, known := combinedProv[dep.ID]; known {
-			continue
-		}
-		if record, known := resident[idKey(dep.ID)]; known {
-			combinedProv[dep.ID] = record
-			continue
-		}
-		combinedProv[dep.ID] = operationProvenance(op, resident)
-	}
 
 	pipeline := build.New(
 		stages.Override(stages.WithMissingOverrideEntriesIgnored()),
 		stages.Disable(),
-		stages.Link(combinedProv, stages.WithDependencies(linkDeps), stages.WithStrictRequirementModules(strictModules)),
+		stages.Link(stages.WithDependencies(linkDeps), stages.WithStrictRequirementModules(strictModules)),
 		stages.Override(stages.WithMissingOverrideEntriesIgnored()),
 	)
 	if err := pipeline.Execute(ctx, &combined); err != nil {
 		return regapi.DirectiveResult{}, NewDependencyPipelineError(err)
 	}
 
-	desired := regapi.ProvenancedState{Entries: combined, Provenance: combinedProv}
-	additional, err := (operationPlanner{resolver: h.resolver}).plan(snapshot, desired, operationPlanOptions{
+	additional, err := (operationPlanner{resolver: h.resolver}).plan(snapshot, combined, operationPlanOptions{
 		originalKey:       idKey(op.Entry.ID),
 		controlledModules: controlledModules,
 		mutableModules:    mutableModules,
@@ -392,11 +458,11 @@ func (h *DependencyHandler) expand(
 	}
 
 	var effects []regapi.Effect
-	artifactEffect, err := h.buildArtifactEffect(ctx, resolved, desired)
+	artifactEffect, err := h.buildArtifactEffect(ctx, resolved, combined)
 	if err != nil {
 		return regapi.DirectiveResult{}, err
 	}
-	packEffect, err := h.buildEmbedPackEffect(ctx, resolved, snapshot, controlledModules)
+	packEffect, err := h.buildEmbedPackEffect(ctx, resolved, controlledModules)
 	if err != nil {
 		return regapi.DirectiveResult{}, err
 	}
@@ -417,14 +483,13 @@ func (h *DependencyHandler) expand(
 	// The graph describes the state this operation produces; its baseline
 	// binding must be computed over that state, never over the one being left,
 	// or a later version transition sees a digest that names the wrong side.
-	selectedResolution, err := h.resolutionForSnapshot(ctx, applyOperationToState(snapshot, op, resident), rootDeps, refDeps, resolved, transcoder)
+	selectedResolution, err := h.resolutionForSnapshot(ctx, applyOperationToState(snapshot, op), rootDeps, refDeps, resolved, transcoder)
 	if err != nil {
 		return regapi.DirectiveResult{}, err
 	}
 	return regapi.DirectiveResult{
 		Applied:    true,
 		Resolution: selectedResolution,
-		Provenance: residentProvenanceAdvance(snapshot, desired, additional, idKey(op.Entry.ID)),
 		Additional: scoped,
 		Effects:    effects,
 	}, nil
@@ -434,7 +499,7 @@ func (h *DependencyHandler) expand(
 // transaction. Earlier operations are folded into a temporary snapshot and
 // the last operation drives the existing expansion path, so agents retain the
 // same simple entry-update surface for both single and multi-root updates.
-func (h *DependencyHandler) ExpandChanges(ctx context.Context, changes regapi.ChangeSet, snapshot regapi.ProvenancedState) (regapi.DirectiveResult, error) {
+func (h *DependencyHandler) ExpandChanges(ctx context.Context, changes regapi.ChangeSet, snapshot regapi.State) (regapi.DirectiveResult, error) {
 	if len(changes) == 0 {
 		return regapi.DirectiveResult{}, nil
 	}
@@ -445,19 +510,14 @@ func (h *DependencyHandler) ExpandChanges(ctx context.Context, changes regapi.Ch
 	if transcoder == nil {
 		return regapi.DirectiveResult{}, ErrDependencyTranscoderMissing
 	}
-	resident, err := stateProvenance(snapshot)
-	if err != nil {
-		return regapi.DirectiveResult{}, err
-	}
 	// Planner batches every ns.dependency operation, including dependencies
 	// owned by module manifests. Only authored roots drive whole-graph solving.
 	// Filter against a rolling state so a delete is recognized from its old
 	// entry and a create/update from its new entry.
-	rollingMap := make(regapi.StateMap, len(snapshot.Entries)+len(changes))
-	for _, entry := range snapshot.Entries {
+	rollingMap := make(regapi.StateMap, len(snapshot)+len(changes))
+	for _, entry := range snapshot {
 		rollingMap[entry.ID] = entry
 	}
-	rollingProv := provByKey(snapshot.Provenance)
 	rootChanges := make(regapi.ChangeSet, 0, len(changes))
 	for _, op := range changes {
 		old, hadOld := rollingMap[op.Entry.ID]
@@ -465,26 +525,22 @@ func (h *DependencyHandler) ExpandChanges(ctx context.Context, changes regapi.Ch
 		for _, entry := range rollingMap {
 			rolling = append(rolling, entry)
 		}
-		opRecord := operationProvenance(op, rollingProv)
-		resolvedEntry, hasResolved := resolveOperationEntry(op, rolling)
-		if (hadOld && isRootDependency(old, rollingProv[idKey(old.ID)])) ||
-			(hasResolved && isRootDependency(resolvedEntry, opRecord)) {
+		resolved, hasResolved := resolveOperationEntry(op, rolling)
+		if (hadOld && isRootDependency(old)) || (hasResolved && isRootDependency(resolved)) {
 			rootChanges = append(rootChanges, op)
 		}
 		switch op.Kind {
 		case regapi.EntryCreate, regapi.EntryUpdate:
 			rollingMap[op.Entry.ID] = op.Entry
-			rollingProv[idKey(op.Entry.ID)] = opRecord
 		case regapi.EntryDelete:
 			delete(rollingMap, op.Entry.ID)
-			delete(rollingProv, idKey(op.Entry.ID))
 		}
 	}
 	if len(rootChanges) == 0 {
 		return regapi.DirectiveResult{}, nil
 	}
-	originalIDs := make(map[string]struct{}, len(snapshot.Entries))
-	for _, entry := range snapshot.Entries {
+	originalIDs := make(map[string]struct{}, len(snapshot))
+	for _, entry := range snapshot {
 		originalIDs[idKey(entry.ID)] = struct{}{}
 	}
 	freshRoots := make(map[string]struct{}, len(rootChanges))
@@ -498,7 +554,7 @@ func (h *DependencyHandler) ExpandChanges(ctx context.Context, changes regapi.Ch
 		}
 	}
 	if len(rootChanges) == 1 {
-		driver, ok := rootExpansionDriver(rootChanges[0], snapshot, resident)
+		driver, ok := rootExpansionDriver(rootChanges[0], snapshot)
 		if !ok {
 			return regapi.DirectiveResult{}, nil
 		}
@@ -513,22 +569,14 @@ func (h *DependencyHandler) ExpandChanges(ctx context.Context, changes regapi.Ch
 		return regapi.DirectiveResult{}, err
 	}
 	extraMutable := make(map[string]struct{})
-	stateMap := make(regapi.StateMap, len(snapshot.Entries)+len(changes)-1)
-	for _, entry := range snapshot.Entries {
+	stateMap := make(regapi.StateMap, len(snapshot)+len(changes)-1)
+	for _, entry := range snapshot {
 		stateMap[entry.ID] = entry
 	}
-	workingProv := snapshot.Provenance.Clone()
-	if workingProv == nil {
-		workingProv = make(regapi.ProvenanceMap, len(changes))
-	}
-	workingIndex := provByKey(workingProv)
 	for _, op := range changes[:len(changes)-1] {
-		rolling := regapi.ProvenancedState{
-			Entries:    make(regapi.State, 0, len(stateMap)),
-			Provenance: workingProv,
-		}
+		rolling := make(regapi.State, 0, len(stateMap))
 		for _, entry := range stateMap {
-			rolling.Entries = append(rolling.Entries, entry)
+			rolling = append(rolling, entry)
 		}
 		affected, opErr := h.operationModules(ctx, op, rolling, transcoder)
 		if opErr != nil {
@@ -537,75 +585,55 @@ func (h *DependencyHandler) ExpandChanges(ctx context.Context, changes regapi.Ch
 		for module := range affected {
 			extraMutable[module] = struct{}{}
 		}
-		record := operationProvenance(op, workingIndex)
 		switch op.Kind {
 		case regapi.EntryCreate, regapi.EntryUpdate:
 			stateMap[op.Entry.ID] = op.Entry
-			workingProv[op.Entry.ID] = record
-			workingIndex[idKey(op.Entry.ID)] = record
 		case regapi.EntryDelete:
 			delete(stateMap, op.Entry.ID)
-			delete(workingProv, op.Entry.ID)
-			delete(workingIndex, idKey(op.Entry.ID))
 		}
 	}
-	working := regapi.ProvenancedState{
-		Entries:    make(regapi.State, 0, len(stateMap)),
-		Provenance: workingProv,
-	}
+	working := make(regapi.State, 0, len(stateMap))
 	for _, entry := range stateMap {
-		working.Entries = append(working.Entries, entry)
+		working = append(working, entry)
 	}
 	// A root retagged as module-owned is declaratively a root deletion. Drive
 	// expansion with that deletion so cleanup cannot be skipped merely because
 	// the final form is still an ns.dependency entry.
-	driver, ok := rootExpansionDriver(changes[len(changes)-1], working, workingIndex)
+	driver, ok := rootExpansionDriver(changes[len(changes)-1], working)
 	if !ok {
 		return regapi.DirectiveResult{}, nil
 	}
 	return h.expand(ctx, driver, working, extraControlled, extraMutable, freshRoots)
 }
 
-// applyOperationToState materializes the state and provenance an operation
-// produces, so a recorded graph can bind to the deployment identity of its own
-// version.
-func applyOperationToState(state regapi.ProvenancedState, op regapi.Operation, resident provIndex) regapi.ProvenancedState {
-	next := regapi.ProvenancedState{
-		Entries:    make(regapi.State, 0, len(state.Entries)+1),
-		Provenance: state.Provenance.Clone(),
-	}
-	if next.Provenance == nil {
-		next.Provenance = make(regapi.ProvenanceMap, 1)
-	}
+// applyOperationToState materializes the state an operation produces, so a
+// recorded graph can bind to the deployment identity of its own version.
+func applyOperationToState(snapshot regapi.State, op regapi.Operation) regapi.State {
+	next := make(regapi.State, 0, len(snapshot)+1)
 	replaced := false
-	for _, entry := range state.Entries {
+	for _, entry := range snapshot {
 		if idsEqual(entry.ID, op.Entry.ID) {
 			if op.Kind == regapi.EntryCreate || op.Kind == regapi.EntryUpdate {
-				next.Entries = append(next.Entries, op.Entry)
+				next = append(next, op.Entry)
 				replaced = true
-				continue
 			}
-			delete(next.Provenance, entry.ID)
 			continue
 		}
-		next.Entries = append(next.Entries, entry)
+		next = append(next, entry)
 	}
 	if !replaced && (op.Kind == regapi.EntryCreate || op.Kind == regapi.EntryUpdate) {
-		next.Entries = append(next.Entries, op.Entry)
-	}
-	if op.Kind == regapi.EntryCreate || op.Kind == regapi.EntryUpdate {
-		next.Provenance[op.Entry.ID] = operationProvenance(op, resident)
+		next = append(next, op.Entry)
 	}
 	return next
 }
 
-func rootExpansionDriver(op regapi.Operation, state regapi.ProvenancedState, resident provIndex) (regapi.Operation, bool) {
-	if entry, ok := resolveOperationEntry(op, state.Entries); ok && isRootDependency(entry, operationProvenance(op, resident)) {
+func rootExpansionDriver(op regapi.Operation, snapshot regapi.State) (regapi.Operation, bool) {
+	if entry, ok := resolveOperationEntry(op, snapshot); ok && isRootDependency(entry) {
 		return op, true
 	}
-	for _, entry := range state.Entries {
-		if idsEqual(entry.ID, op.Entry.ID) && isRootDependency(entry, resident[idKey(entry.ID)]) {
-			return regapi.Operation{Kind: regapi.EntryDelete, Entry: entry, Provenance: provenancePtr(resident[idKey(entry.ID)])}, true
+	for _, entry := range snapshot {
+		if idsEqual(entry.ID, op.Entry.ID) && isRootDependency(entry) {
+			return regapi.Operation{Kind: regapi.EntryDelete, Entry: entry}, true
 		}
 	}
 	return regapi.Operation{}, false
@@ -616,7 +644,7 @@ func rootExpansionDriver(op regapi.Operation, state regapi.ProvenancedState, res
 // installed, and locked versions so an unchanged module keeps its selection.
 func (h *DependencyHandler) refreshResolvedModules(
 	ctx context.Context,
-	current regapi.ProvenancedState,
+	current regapi.State,
 	transcoder payload.Transcoder,
 	resolution *regapi.DependencyResolution,
 	desiredDeps []desiredDependency,
@@ -636,7 +664,7 @@ func (h *DependencyHandler) refreshResolvedModules(
 			}
 		}
 	}
-	return h.resolveEffectiveModules(ctx, dependencyDefinitions(desiredDeps), lockedVersions)
+	return h.resolveEffectiveModules(ctx, dependencyDefinitions(desiredDeps), lockedVersions, resolution)
 }
 
 // ReconcileResolution materializes a previously selected graph. An unchanged
@@ -646,8 +674,8 @@ func (h *DependencyHandler) refreshResolvedModules(
 // operation rather than one expansion per historical version.
 func (h *DependencyHandler) ReconcileResolution(
 	ctx context.Context,
-	current regapi.ProvenancedState,
-	target regapi.ProvenancedState,
+	current regapi.State,
+	target regapi.State,
 	resolution *regapi.DependencyResolution,
 ) (regapi.DirectiveResult, error) {
 	if h == nil || h.hub == nil {
@@ -659,10 +687,6 @@ func (h *DependencyHandler) ReconcileResolution(
 	transcoder := payload.GetTranscoder(ctx)
 	if transcoder == nil {
 		return regapi.DirectiveResult{}, ErrDependencyTranscoderMissing
-	}
-	targetProv, err := stateProvenance(target)
-	if err != nil {
-		return regapi.DirectiveResult{}, err
 	}
 
 	snapshotDeps, err := h.collectSnapshotDependencies(ctx, target, transcoder)
@@ -748,18 +772,17 @@ func (h *DependencyHandler) ReconcileResolution(
 	if err := h.refreshReplacementModuleIdentities(resolved); err != nil {
 		return regapi.DirectiveResult{}, err
 	}
+	effectiveResolution.Deployment = h.deployment.Canonical()
+	effectiveResolution = effectiveResolution.Canonical()
 	// A local replacement is a mutable development source. Reconciliation uses
 	// its current identity to decide which resident entries must be reloaded,
 	// while effectiveResolution remains the immutable checkpoint for this
 	// history version.
 
 	desiredModules := resolvedModuleSet(resolved)
-	// Reconciliation converges resident onto selected. Resident is the artifact
-	// identity recorded for the entries in state; selected is the stored graph,
-	// authoritative by content identity rather than version alone. A module whose
-	// resident digest differs from the selected one reloads.
-	installedDigests := residentModuleDigests(target.Provenance)
-	lockedDigests := h.lockedModuleDigests()
+	// A stored graph is authoritative by content identity, not merely version.
+	_, installedDigests := h.currentModuleIdentities(ctx)
+	baselineDigests := h.baselineModuleDigests()
 	touched := make(map[string]struct{}, len(desiredModules))
 	mutable := make(map[string]struct{}, len(desiredModules))
 	parameterModules, err := changedDependencyParameterModules(ctx, current, target, transcoder)
@@ -779,10 +802,7 @@ func (h *DependencyHandler) ReconcileResolution(
 		module := mod.Org + "/" + mod.Name
 		installedDigest := installedDigests[module]
 		if installedDigest == "" {
-			// A module whose records carry no digest has no resident identity of
-			// its own. The exact name@version lock hash is still authoritative and
-			// prevents a history restore from rewriting every resident module.
-			installedDigest = lockedDigests[module+"@"+mod.Version]
+			installedDigest = baselineDigests[module+"@"+mod.Version]
 		}
 		if !artifactDigestsEqual(installedDigest, mod.Digest) {
 			mutable[module] = struct{}{}
@@ -796,7 +816,7 @@ func (h *DependencyHandler) ReconcileResolution(
 		return regapi.DirectiveResult{}, err
 	}
 
-	moduleEntries, moduleProv, unpackPlan, err := h.loadModuleEntries(ctx, filterResolvedModules(resolved, touched), resolved, target, transcoder)
+	moduleEntries, unpackPlan, err := h.loadModuleEntries(ctx, filterResolvedModules(resolved, touched), target, transcoder)
 	if err != nil {
 		return regapi.DirectiveResult{}, err
 	}
@@ -805,45 +825,31 @@ func (h *DependencyHandler) ReconcileResolution(
 	for _, dep := range desiredDeps {
 		desiredDepEntries = append(desiredDepEntries, dep.entry)
 	}
-	combined := make([]regapi.Entry, 0, len(target.Entries)+len(moduleEntries))
-	combinedProv := make(regapi.ProvenanceMap, len(target.Entries)+len(moduleEntries))
-	for _, entry := range target.Entries {
-		record := targetProv[idKey(entry.ID)]
-		if record.Module != "" {
-			if _, dependencyOwned := controlled[record.Module]; dependencyOwned {
-				if _, desired := desiredModules[record.Module]; !desired {
+	combined := make([]regapi.Entry, 0, len(target)+len(moduleEntries))
+	for _, entry := range target {
+		if module := entryModule(entry); module != "" {
+			if _, dependencyOwned := controlled[module]; dependencyOwned {
+				if _, desired := desiredModules[module]; !desired {
 					continue
 				}
-				if _, changed := touched[record.Module]; changed {
+				if _, changed := touched[module]; changed {
 					continue
 				}
 			}
 		}
 		combined = append(combined, entry)
-		combinedProv[entry.ID] = record
 	}
 	combined = append(combined, moduleEntries...)
-	for id, record := range moduleProv {
-		combinedProv[id] = record
-	}
-	// The link stage attributes every entry it is handed, including declarations
-	// this reconciliation replaced with a freshly loaded copy.
-	for _, dep := range desiredDepEntries {
-		if _, known := combinedProv[dep.ID]; !known {
-			combinedProv[dep.ID] = targetProv[idKey(dep.ID)]
-		}
-	}
 
 	pipeline := build.New(
 		stages.Override(stages.WithMissingOverrideEntriesIgnored()),
 		stages.Disable(),
-		stages.Link(combinedProv, stages.WithDependencies(mergeLinkDependencies(desiredDepEntries, moduleEntries)), stages.WithStrictRequirementModules(sortedSetKeys(touched))),
+		stages.Link(stages.WithDependencies(mergeLinkDependencies(desiredDepEntries, moduleEntries)), stages.WithStrictRequirementModules(sortedSetKeys(touched))),
 		stages.Override(stages.WithMissingOverrideEntriesIgnored()),
 	)
 	if err := pipeline.Execute(ctx, &combined); err != nil {
 		return regapi.DirectiveResult{}, NewDependencyPipelineError(err)
 	}
-	desired := regapi.ProvenancedState{Entries: combined, Provenance: combinedProv}
 
 	// Reconciliation owns the whole graph for deletes, but only artifacts whose
 	// content identity or authored root parameters changed are mutable. A module
@@ -851,7 +857,7 @@ func (h *DependencyHandler) ReconcileResolution(
 	// that artifact must not turn harmless normalization into registry updates
 	// and restart unrelated services during undo/redo (including the governance
 	// worker itself).
-	additional, err := (operationPlanner{resolver: h.resolver}).plan(target, desired, operationPlanOptions{
+	additional, err := (operationPlanner{resolver: h.resolver}).plan(target, combined, operationPlanOptions{
 		controlledModules: controlled,
 		mutableModules:    mutable,
 	})
@@ -862,12 +868,12 @@ func (h *DependencyHandler) ReconcileResolution(
 	for _, op := range additional {
 		scoped = append(scoped, regapi.ScopedOperation{Operation: op, Scope: regapi.ScopeBaseline})
 	}
-	packEffect, err := h.buildEmbedPackEffect(ctx, resolved, current, controlled)
+	packEffect, err := h.buildEmbedPackEffect(ctx, resolved, controlled)
 	if err != nil {
 		return regapi.DirectiveResult{}, err
 	}
 	var effects []regapi.Effect
-	artifactEffect, err := h.buildArtifactEffect(ctx, resolved, desired)
+	artifactEffect, err := h.buildArtifactEffect(ctx, resolved, combined)
 	if err != nil {
 		return regapi.DirectiveResult{}, err
 	}
@@ -887,7 +893,6 @@ func (h *DependencyHandler) ReconcileResolution(
 	return regapi.DirectiveResult{
 		Applied:    true,
 		Resolution: effectiveResolution,
-		Provenance: residentProvenanceAdvance(target, desired, additional, ""),
 		Additional: scoped,
 		Effects:    effects,
 	}, nil
@@ -899,8 +904,8 @@ func (h *DependencyHandler) ReconcileResolution(
 // module, including through a fully qualified requirement ID.
 func changedDependencyParameterModules(
 	ctx context.Context,
-	current regapi.ProvenancedState,
-	target regapi.ProvenancedState,
+	current regapi.State,
+	target regapi.State,
 	transcoder payload.Transcoder,
 ) (map[string]struct{}, error) {
 	type declaration struct {
@@ -908,14 +913,10 @@ func changedDependencyParameterModules(
 		present    bool
 	}
 
-	decodeRoots := func(state regapi.ProvenancedState) (map[string]declaration, error) {
-		prov, err := stateProvenance(state)
-		if err != nil {
-			return nil, err
-		}
+	decodeRoots := func(state regapi.State) (map[string]declaration, error) {
 		roots := make(map[string]declaration)
-		for _, entry := range state.Entries {
-			if !isRootDependency(entry, prov[idKey(entry.ID)]) {
+		for _, entry := range state {
+			if !isRootDependency(entry) {
 				continue
 			}
 			definition, err := decodeDependency(ctx, transcoder, entry)
@@ -1039,18 +1040,14 @@ func dependencyInputDigest(roots []desiredDependency) string {
 
 func (h *DependencyHandler) collectResolutionDependencies(
 	ctx context.Context,
-	snapshot regapi.ProvenancedState,
+	snapshot regapi.State,
 	transcoder payload.Transcoder,
 	roots []regapi.DependencyRoot,
 	references []regapi.DependencyRoot,
 ) ([]desiredDependency, []desiredDependency, error) {
-	prov, err := stateProvenance(snapshot)
-	if err != nil {
-		return nil, nil, err
-	}
-	byID := make(map[string]regapi.Entry, len(snapshot.Entries))
-	for _, entry := range snapshot.Entries {
-		if isRootDependency(entry, prov[idKey(entry.ID)]) {
+	byID := make(map[string]regapi.Entry, len(snapshot))
+	for _, entry := range snapshot {
+		if isRootDependency(entry) {
 			byID[idKey(entry.ID)] = entry
 		}
 	}
@@ -1134,21 +1131,17 @@ func (h *DependencyHandler) collectResolutionDependencies(
 
 func (h *DependencyHandler) collectSnapshotDependencies(
 	ctx context.Context,
-	snapshot regapi.ProvenancedState,
+	snapshot regapi.State,
 	transcoder payload.Transcoder,
 ) ([]desiredDependency, error) {
-	prov, err := stateProvenance(snapshot)
-	if err != nil {
-		return nil, err
-	}
 	deps := make([]desiredDependency, 0)
-	for _, entry := range snapshot.Entries {
-		if !isRootDependency(entry, prov[idKey(entry.ID)]) {
+	for _, entry := range snapshot {
+		if !isRootDependency(entry) {
 			continue
 		}
-		def, decodeErr := decodeDependency(ctx, transcoder, entry)
-		if decodeErr != nil {
-			return nil, decodeErr
+		def, err := decodeDependency(ctx, transcoder, entry)
+		if err != nil {
+			return nil, err
 		}
 		if def.Component == "" {
 			return nil, NewDependencyEntryInvalidError(entry.ID.String(), "component is required", "")
@@ -1172,17 +1165,13 @@ func dependencyDefinitions(deps []desiredDependency) []DependencyDefinition {
 func (h *DependencyHandler) collectDesiredDependencies(
 	ctx context.Context,
 	op regapi.Operation,
-	snapshot regapi.ProvenancedState,
+	snapshot regapi.State,
 	transcoder payload.Transcoder,
 	freshRoots map[string]struct{},
 ) ([]desiredDependency, []desiredDependency, error) {
 	deps := make(map[string]desiredDependency)
 	operationID := op.Entry.ID
 
-	resident, err := stateProvenance(snapshot)
-	if err != nil {
-		return nil, nil, err
-	}
 	current, err := h.collectSnapshotDependencies(ctx, snapshot, transcoder)
 	if err != nil {
 		return nil, nil, err
@@ -1195,11 +1184,11 @@ func (h *DependencyHandler) collectDesiredDependencies(
 	case regapi.EntryDelete:
 		delete(deps, idKey(op.Entry.ID))
 	case regapi.EntryCreate, regapi.EntryUpdate:
-		entry, ok := resolveOperationEntry(op, snapshot.Entries)
+		entry, ok := resolveOperationEntry(op, snapshot)
 		if !ok {
 			return nil, nil, NewDependencyEntryMissingError(op.Entry.ID.String())
 		}
-		if !isRootDependency(entry, operationProvenance(op, resident)) {
+		if !isRootDependency(entry) {
 			break
 		}
 		def, err := decodeDependency(ctx, transcoder, entry)
@@ -1340,8 +1329,8 @@ func dependencyParametersEqual(a, b []Parameter) bool {
 	return canonical(a) == canonical(b)
 }
 
-func (h *DependencyHandler) installedModuleVersions(ctx context.Context, transcoder payload.Transcoder, snapshot regapi.ProvenancedState) (map[string]string, error) {
-	versions := residentModuleVersions(snapshot.Provenance)
+func (h *DependencyHandler) installedModuleVersions(ctx context.Context, transcoder payload.Transcoder, snapshot regapi.State) (map[string]string, error) {
+	versions, _ := h.currentModuleIdentities(ctx)
 	if h.lock == nil {
 		return versions, nil
 	}
@@ -1389,7 +1378,12 @@ func mergeLinkDependencies(explicitDeps, moduleEntries []regapi.Entry) []regapi.
 	return merged
 }
 
-func (h *DependencyHandler) resolveModules(ctx context.Context, deps []DependencyDefinition, lockedVersions map[string]string) ([]ResolvedModule, error) {
+func (h *DependencyHandler) resolveModules(
+	ctx context.Context,
+	deps []DependencyDefinition,
+	lockedVersions map[string]string,
+	resolution *regapi.DependencyResolution,
+) ([]ResolvedModule, error) {
 	roots := make([]DependencySpec, 0, len(deps))
 	for _, dep := range deps {
 		name, err := graph.ParseName(dep.Component)
@@ -1410,19 +1404,19 @@ func (h *DependencyHandler) resolveModules(ctx context.Context, deps []Dependenc
 	if h.manifestCache != nil {
 		provider = h.manifestCache
 	}
-	lockedDigests := h.lockedModuleDigests()
+	baselineDigests := h.baselineModuleDigests()
 	if regapi.DependencyAccessFromContext(ctx) == regapi.DependencyAccessVerifiedOffline {
-		provider = newLockedManifestProvider(h, lockedVersions, lockedDigests)
+		provider = newLockedManifestProvider(h, h.offlineModules(resolution))
 	}
 	provider = &replacementManifestProvider{
 		base:           provider,
 		handler:        h,
 		lockedVersions: lockedVersions,
-		lockedDigests:  lockedDigests,
+		lockedDigests:  baselineDigests,
 	}
 	result, err := Resolve(resolveCtx, provider, roots, &ResolveOptions{
 		LockedVersions: lockedVersions,
-		LockedDigests:  lockedDigests,
+		LockedDigests:  baselineDigests,
 	})
 	if err != nil {
 		if h.logger != nil {
@@ -1460,6 +1454,25 @@ func (h *DependencyHandler) resolveModules(ctx context.Context, deps []Dependenc
 	return result.Modules, nil
 }
 
+// ResolveWorkspaceDependencies resolves source declarations through the same
+// manifest stack used by live dependency operations. In particular, local
+// replacements supply their declarations while the Hub supplies a release
+// version when the source tree does not declare one.
+func (h *DependencyHandler) ResolveWorkspaceDependencies(
+	ctx context.Context,
+	deps []DependencyDefinition,
+) ([]ResolvedModule, error) {
+	lockedVersions := make(map[string]string)
+	if h.lock != nil {
+		for _, module := range h.lock.GetModules() {
+			if module.Name != "" && module.Version != "" {
+				lockedVersions[module.Name] = module.Version
+			}
+		}
+	}
+	return h.resolveModules(ctx, deps, lockedVersions, nil)
+}
+
 // resolveEffectiveModules returns the complete module selection controlled by
 // the current deployment plus authored registry roots. Lock-selected root
 // modules are implicit deployment inputs: a history overlay may replace one,
@@ -1469,6 +1482,7 @@ func (h *DependencyHandler) resolveEffectiveModules(
 	ctx context.Context,
 	deps []DependencyDefinition,
 	lockedVersions map[string]string,
+	resolution *regapi.DependencyResolution,
 ) ([]ResolvedModule, error) {
 	if regapi.DependencyAccessFromContext(ctx) == regapi.DependencyAccessVerifiedOffline {
 		if resolved, ok := h.lockedResolution(deps, lockedVersions); ok {
@@ -1481,7 +1495,7 @@ func (h *DependencyHandler) resolveEffectiveModules(
 		}
 	}
 
-	resolved, err := h.resolveModules(ctx, deps, lockedVersions)
+	resolved, err := h.resolveModules(ctx, deps, lockedVersions, resolution)
 	if err != nil {
 		return nil, err
 	}
@@ -1954,69 +1968,44 @@ func filterResolvedModules(modules []ResolvedModule, keep map[string]struct{}) [
 	return out
 }
 
-// loadModuleEntries materializes the entries of the selected modules and the
-// provenance of each: the loading module's identity resolved through the
-// ownership rule, plus the deployment-root selection this deployment makes.
-func (h *DependencyHandler) loadModuleEntries(
-	ctx context.Context,
-	modules []ResolvedModule,
-	ownerModules []ResolvedModule,
-	snapshot regapi.ProvenancedState,
-	transcoder payload.Transcoder,
-) ([]regapi.Entry, regapi.ProvenanceMap, *unpackPlan, error) {
+func (h *DependencyHandler) loadModuleEntries(ctx context.Context, modules []ResolvedModule, snapshot regapi.State, transcoder payload.Transcoder) ([]regapi.Entry, *unpackPlan, error) {
 	entries := make([]regapi.Entry, 0)
-	prov := make(regapi.ProvenanceMap)
-	staging := make(map[string]loadedProvenance)
 	plan := &unpackPlan{}
-	owners := moduleOwnersByNamespace(ownerModules)
-	resident, err := stateProvenance(snapshot)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	snapshotByID := entriesByID(snapshot.Entries)
+	snapshotByID := entriesByID(snapshot)
 	installedRoots, err := rootDependencyModules(ctx, transcoder, snapshot)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 
 	for _, mod := range modules {
 		moduleName := mod.Org + "/" + mod.Name
-		loading := moduleOwner{name: moduleName, version: mod.Version, digest: mod.Digest}
-		_, replaced := h.replacementPath(moduleName)
-		replacement := replaced || mod.Source == moduleSourceReplacementTreeV1
-		deploymentRootModule := h.lock != nil && h.lock.IsRootModule(moduleName)
+		deploymentRootModule := h.isDeploymentRoot(moduleName)
 		moduleEntries, staged, err := h.loadEntriesForModulePlan(ctx, transcoder, mod)
 		if err != nil {
 			_ = plan.cleanup()
-			return nil, nil, nil, err
+			return nil, nil, err
 		}
 		plan.add(staged)
 		for i := range moduleEntries {
-			key := idKey(moduleEntries[i].ID)
-			if keep, ok := preserveHostSnapshotEntry(moduleEntries[i], moduleName, snapshotByID, resident, installedRoots); ok {
+			// Cold boot marks dependency declarations from the selected root
+			// application as deployment roots. Loading that same application
+			// through a live Hub update must produce the identical topology;
+			// otherwise the update silently turns its application dependencies
+			// into transitive module entries and the next update loses their
+			// host bindings.
+			if deploymentRootModule && moduleEntries[i].Kind == regapi.NamespaceDependency {
+				moduleEntries[i].Registry.Root = true
+			}
+			if keep, ok := preserveHostSnapshotEntry(moduleEntries[i], moduleName, snapshotByID, installedRoots); ok {
 				moduleEntries[i] = keep
-				claim := loadedProvenance{record: regapi.EntryProvenance{}}
-				staging[key] = claim
-				prov[moduleEntries[i].ID] = claim.record
 				continue
 			}
-			existing, hasExisting := staging[key]
-			claim := claimEntryProvenance(moduleEntries[i], loading, replacement, existing, hasExisting, resident, owners)
-			// Cold boot selects dependency declarations of the root application
-			// as deployment roots. Loading that same application through a live
-			// Hub update must produce the identical topology; otherwise the
-			// update silently turns its application dependencies into transitive
-			// module entries and the next update loses their host bindings.
-			if deploymentRootModule && moduleEntries[i].Kind == regapi.NamespaceDependency {
-				claim.record.Root = true
-			}
-			staging[key] = claim
-			prov[moduleEntries[i].ID] = claim.record
+			moduleEntries[i] = markModuleEntry(moduleEntries[i], moduleName)
 		}
 		entries = append(entries, moduleEntries...)
 	}
 
-	return entries, prov, plan, nil
+	return entries, plan, nil
 }
 
 func entriesByID(entries regapi.State) map[string]regapi.Entry {
@@ -2027,14 +2016,10 @@ func entriesByID(entries regapi.State) map[string]regapi.Entry {
 	return byID
 }
 
-func rootDependencyModules(ctx context.Context, transcoder payload.Transcoder, state regapi.ProvenancedState) (map[string]struct{}, error) {
-	prov, err := stateProvenance(state)
-	if err != nil {
-		return nil, err
-	}
+func rootDependencyModules(ctx context.Context, transcoder payload.Transcoder, entries regapi.State) (map[string]struct{}, error) {
 	modules := make(map[string]struct{})
-	for _, entry := range state.Entries {
-		if !isRootDependency(entry, prov[idKey(entry.ID)]) {
+	for _, entry := range entries {
+		if !isRootDependency(entry) {
 			continue
 		}
 		def, err := decodeDependency(ctx, transcoder, entry)
@@ -2048,26 +2033,15 @@ func rootDependencyModules(ctx context.Context, transcoder payload.Transcoder, s
 	return modules, nil
 }
 
-// preserveHostSnapshotEntry keeps a host-authored entry that a root
-// application's artifact also declares. Every entry a pack produces is owned by
-// the module that loaded it, so only the resident record can make the id
-// host-authored, and the host copy stays authoritative.
-func preserveHostSnapshotEntry(
-	entry regapi.Entry,
-	moduleName string,
-	snapshot map[string]regapi.Entry,
-	resident provIndex,
-	installedRoots map[string]struct{},
-) (regapi.Entry, bool) {
+func preserveHostSnapshotEntry(entry regapi.Entry, moduleName string, snapshot map[string]regapi.Entry, installedRoots map[string]struct{}) (regapi.Entry, bool) {
 	if _, installed := installedRoots[moduleName]; !installed {
 		return regapi.Entry{}, false
 	}
-	existing, ok := snapshot[idKey(entry.ID)]
-	if !ok {
+	if entryModule(entry) != "" {
 		return regapi.Entry{}, false
 	}
-	record, ok := resident[idKey(entry.ID)]
-	if !ok || record.Module != "" {
+	existing, ok := snapshot[idKey(entry.ID)]
+	if !ok || entryModule(existing) != "" {
 		return regapi.Entry{}, false
 	}
 	return existing, true
@@ -2538,10 +2512,9 @@ func (h *DependencyHandler) freshDownloadInfo(ctx context.Context, mod ResolvedM
 	defer cancel()
 
 	return h.hub.GetDownloadURL(downloadURLCtx, &DownloadParams{
-		Org:       mod.Org,
-		Module:    mod.Name,
-		Version:   mod.Version,
-		VersionID: mod.VersionID,
+		Org:     mod.Org,
+		Module:  mod.Name,
+		Version: mod.Version,
 	})
 }
 
@@ -2633,16 +2606,12 @@ func (h *DependencyHandler) moduleUsesDirectoryMode(moduleName string) bool {
 func (h *DependencyHandler) operationModules(
 	ctx context.Context,
 	op regapi.Operation,
-	snapshot regapi.ProvenancedState,
+	snapshot regapi.State,
 	transcoder payload.Transcoder,
 ) (map[string]struct{}, error) {
 	modules := make(map[string]struct{})
-	resident, err := stateProvenance(snapshot)
-	if err != nil {
-		return nil, err
-	}
-	entry, ok := resolveOperationEntry(op, snapshot.Entries)
-	if !ok || !isRootDependency(entry, operationProvenance(op, resident)) {
+	entry, ok := resolveOperationEntry(op, snapshot)
+	if !ok || !isRootDependency(entry) {
 		return modules, nil
 	}
 	def, err := decodeDependency(ctx, transcoder, entry)
@@ -2780,24 +2749,30 @@ func sha256FileHex(path string) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
-func (h *DependencyHandler) lockedModuleDigests() map[string]string {
-	if h.lock == nil {
+func (h *DependencyHandler) baselineModuleDigests() map[string]string {
+	if h == nil {
 		return nil
 	}
-	modules := h.lock.GetModules()
-	if len(modules) == 0 {
-		return nil
+	modules := make([]regapi.ResolvedModule, 0)
+	if h.deployment != nil {
+		modules = append(modules, h.deployment.Modules...)
+	} else if h.lock != nil {
+		for _, module := range h.lock.GetModules() {
+			modules = append(modules, regapi.ResolvedModule{
+				Name: module.Name, Version: module.Version, Digest: module.Hash,
+			})
+		}
 	}
 	digests := make(map[string]string, len(modules))
 	for _, mod := range modules {
-		if mod.Hash == "" || mod.Name == "" || mod.Version == "" {
+		if mod.Digest == "" || mod.Name == "" || mod.Version == "" {
 			continue
 		}
 		// Key by name@version so the integrity check only fires when resolving
-		// the exact version the lock pins. A version-agnostic key would compare
-		// a new version's digest against the locked old version's and wrongly
+		// the exact version the baseline pins. A version-agnostic key would compare
+		// a new version's digest against the baseline's old version and wrongly
 		// block updates.
-		digests[mod.Name+"@"+mod.Version] = mod.Hash
+		digests[mod.Name+"@"+mod.Version] = mod.Digest
 	}
 	if len(digests) == 0 {
 		return nil

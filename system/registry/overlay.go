@@ -51,7 +51,6 @@ func (r *Reg) applyOverlayLocked(ctx context.Context, owner string, expectedGene
 
 	r.mu.RLock()
 	snapshot := append(registry.State(nil), r.state...)
-	liveProv := r.provenanceSnapshot()
 	currentGeneration, activeOwner := r.overlayGeneration[owner]
 	if !activeOwner {
 		currentGeneration = r.overlayFloor
@@ -100,7 +99,7 @@ func (r *Reg) applyOverlayLocked(ctx context.Context, owner string, expectedGene
 			return 0, NewOverlayValidationError("unknown registry overlay operation", map[string]any{"operation": op.Kind})
 		}
 		if op.Kind != registry.EntryDelete {
-			if err := validateOverlayEntryProvenance(op.Entry); err != nil {
+			if err := validateOverlayEntryMetadata(op.Entry); err != nil {
 				return 0, err
 			}
 			if len(r.directivesByKind[op.Entry.Kind]) != 0 {
@@ -133,18 +132,13 @@ func (r *Reg) applyOverlayLocked(ctx context.Context, owner string, expectedGene
 	if err != nil {
 		return 0, NewSortChangesError(err)
 	}
-	nextProv, err := applyOpsToProvenance(liveProv, sorted)
-	if err != nil {
-		return 0, NewProvenanceInvariantError(err)
-	}
-	annotateChangeSet(sorted, liveProv, nextProv)
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	newState, err := r.runner.Transition(ctx, r.state, sorted)
 	if err != nil {
 		if newState != nil && ctx.Err() == nil {
-			if rollbackErr := r.rollback(ctx, newState, r.state, nextProv, nil); rollbackErr != nil {
+			if rollbackErr := r.rollback(ctx, newState, r.state); rollbackErr != nil {
 				r.reconcileOverlayIndexesAfterFailedRollback(owner, owners, changes)
 				return 0, NewApplyChangesError(err, rollbackErr)
 			}
@@ -157,7 +151,7 @@ func (r *Reg) applyOverlayLocked(ctx context.Context, owner string, expectedGene
 	r.state = newState
 	r.rebuildIndex()
 	r.patchDepIndex(sorted)
-	r.publishProvenance(nextProv)
+	r.publishSnapshot()
 	return nextGeneration, nil
 }
 
@@ -209,9 +203,11 @@ func cloneOverlayEntry(entry registry.Entry) registry.Entry {
 	return entry
 }
 
-func validateOverlayEntryProvenance(entry registry.Entry) error {
-	if entry.DependencyRoot {
-		return NewOverlayValidationError("registry overlay entry cannot be a deployment root", map[string]any{"entry_id": entry.ID.String()})
+func validateOverlayEntryMetadata(entry registry.Entry) error {
+	if entry.Registry != (registry.EntryMetadata{}) {
+		return NewOverlayValidationError("registry overlay entry cannot set registry metadata", map[string]any{
+			"entry_id": entry.ID.String(),
+		})
 	}
 	return nil
 }
@@ -240,20 +236,6 @@ func (r *Reg) validateOverlayComposition(effective registry.StateMap, owners map
 		}
 		return nil
 	})
-}
-
-// mergeOverlayProvenance carries process-local entries across durable version
-// selection. Overlay ownership remains in overlayOwners; its provenance record
-// is the explicit host record used by the total live-state map.
-func (r *Reg) mergeOverlayProvenance(target, live registry.ProvenanceMap) error {
-	for id := range r.overlayOwners {
-		p, ok := live[id]
-		if !ok {
-			return registry.NewMissingProvenanceError(id)
-		}
-		target[id] = p
-	}
-	return nil
 }
 
 func (r *Reg) validateDurableTransitionAgainstOverlays(allOps registry.ChangeSet) error {

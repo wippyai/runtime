@@ -14,10 +14,11 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"github.com/wippyai/runtime/api/attrs"
+	moduleapi "github.com/wippyai/runtime/api/modules"
 	"github.com/wippyai/runtime/api/payload"
 	regapi "github.com/wippyai/runtime/api/registry"
 	embedapi "github.com/wippyai/runtime/api/service/fs/embed"
+	"github.com/wippyai/runtime/boot/deps/graph"
 	"github.com/wippyai/runtime/internal/version"
 	embedpkg "github.com/wippyai/runtime/service/fs/embed"
 	registryimpl "github.com/wippyai/runtime/system/registry"
@@ -32,6 +33,128 @@ import (
 
 type bootRecordingRunner struct {
 	transitions []regapi.ChangeSet
+}
+
+func TestDependencyHandlerPrepareRestoreMaterializesRecordedArtifacts(t *testing.T) {
+	artifact := buildWappBytes(t, []wapp.Entry{{
+		ID: wapp.NewID("acme.worker", "service"), Kind: regapi.EntryKind,
+	}})
+	sum := sha256.Sum256(artifact)
+	digest := "sha256:" + hex.EncodeToString(sum[:])
+	downloads := 0
+	client := &fakeHub{
+		getDownload: func(_ context.Context, params *DownloadParams) (*DownloadInfo, error) {
+			require.Equal(t, "acme", params.Org)
+			require.Equal(t, "worker", params.Module)
+			require.Equal(t, "1.2.3", params.Version)
+			return &DownloadInfo{URL: "memory://worker", Digest: digest, Size: uint64(len(artifact))}, nil
+		},
+		downloadFile: func(_ context.Context, _ string, destination string) error {
+			downloads++
+			return os.WriteFile(destination, artifact, 0o600)
+		},
+	}
+	vendorDir := t.TempDir()
+	handler, err := NewDependencyHandler(DependencyHandlerOptions{
+		Hub: client, Logger: zap.NewNop(), VendorDir: vendorDir,
+	})
+	require.NoError(t, err)
+
+	history := historymem.New()
+	root, err := history.GetVersion(regapi.RootVersion)
+	require.NoError(t, err)
+	head := version.FromParent(root, 1)
+	resolution := (&regapi.DependencyResolution{
+		Roots: []regapi.DependencyRoot{{
+			ID: "app.deps:worker", Component: "acme/worker", Version: "1.2.3",
+		}},
+		Modules: []regapi.ResolvedModule{{
+			Name: "acme/worker", Version: "1.2.3", Source: moduleSourceHub,
+			Digest: digest, SizeBytes: uint64(len(artifact)),
+		}},
+		Deployment: &regapi.Deployment{
+			Root: "acme/worker",
+			Modules: []regapi.ResolvedModule{{
+				Name: "acme/worker", Version: "1.2.3", Source: moduleSourceHub,
+				Digest: digest, SizeBytes: uint64(len(artifact)),
+			}},
+		},
+	}).Canonical()
+	require.NoError(t, history.SaveWithDependencyResolution(head, nil, resolution, true))
+
+	ctx := moduleapi.WithSourceRegistry(newTestContext(), moduleapi.NewSourceRegistry())
+	require.NoError(t, handler.PrepareRestore(ctx, history))
+	require.Equal(t, 1, downloads)
+	require.NoError(t, handler.PrepareRestore(ctx, history))
+	require.Equal(t, 1, downloads, "verified cache must make repeated boot preparation idempotent")
+	sources := moduleapi.GetSourceRegistry(ctx).Snapshot()
+	require.Len(t, sources, 1)
+	require.True(t, sources["acme/worker"].DeploymentRoot)
+
+	path, err := handler.immutableArtifactPath(graph.Name{Organization: "acme", Module: "worker"}, "1.2.3", digest)
+	require.NoError(t, err)
+	stored, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Equal(t, artifact, stored)
+}
+
+func TestDependencyHandlerPrepareRestoreIgnoresEmptyHistory(t *testing.T) {
+	handler, err := NewDependencyHandler(DependencyHandlerOptions{
+		Hub: &fakeHub{}, Logger: zap.NewNop(), VendorDir: t.TempDir(),
+	})
+	require.NoError(t, err)
+	require.NoError(t, handler.PrepareRestore(t.Context(), historymem.New()))
+}
+
+func TestDependencyHandlerPrepareRestoreKeepsUnrootedSourceLock(t *testing.T) {
+	artifact := buildWappBytes(t, []wapp.Entry{{
+		ID: wapp.NewID("acme.worker", "service"), Kind: regapi.EntryKind,
+	}})
+	sum := sha256.Sum256(artifact)
+	digest := "sha256:" + hex.EncodeToString(sum[:])
+	downloads := 0
+	client := &fakeHub{
+		getDownload: func(_ context.Context, params *DownloadParams) (*DownloadInfo, error) {
+			require.Equal(t, "1.2.3", params.Version)
+			return &DownloadInfo{URL: "memory://worker", Digest: digest, Size: uint64(len(artifact))}, nil
+		},
+		downloadFile: func(_ context.Context, _ string, destination string) error {
+			downloads++
+			return os.WriteFile(destination, artifact, 0o600)
+		},
+	}
+	dir := t.TempDir()
+	lockPath := filepath.Join(dir, "wippy.lock")
+	require.NoError(t, os.WriteFile(lockPath, []byte(fmt.Sprintf(`directories:
+  modules: vendor
+modules:
+  - name: acme/worker
+    version: 1.2.3
+    hash: %s
+`, strings.TrimPrefix(digest, "sha256:"))), 0o600))
+	handler, err := NewDependencyHandler(DependencyHandlerOptions{
+		Hub: client, Logger: zap.NewNop(), LockPath: lockPath, VendorDir: filepath.Join(dir, "vendor"),
+	})
+	require.NoError(t, err)
+
+	history := historymem.New()
+	root, err := history.GetVersion(regapi.RootVersion)
+	require.NoError(t, err)
+	head := version.FromParent(root, 1)
+	resolution := (&regapi.DependencyResolution{
+		Roots: []regapi.DependencyRoot{{
+			ID: "app.deps:worker", Component: "acme/worker", Version: "1.2.3",
+		}},
+		Modules: []regapi.ResolvedModule{{
+			Name: "acme/worker", Version: "1.2.3", Source: moduleSourceHub,
+			Digest: digest, SizeBytes: uint64(len(artifact)),
+		}},
+	}).Canonical()
+	require.NoError(t, history.SaveWithDependencyResolution(head, nil, resolution, true))
+
+	require.NoError(t, handler.PrepareRestore(t.Context(), history))
+	require.Equal(t, 1, downloads)
+	require.Nil(t, handler.deployment)
 }
 
 func TestDependencyHandler_DeploymentRootSelfUpdateRepairsStoredResolution(t *testing.T) {
@@ -64,22 +187,18 @@ modules:
     root: true
 `, selected, digests[selected])), 0o600))
 	}
-	baseline := func(selected string) regapi.ProvenancedState {
+	baseline := func(selected string) regapi.State {
 		root := regapi.Entry{
 			ID: regapi.NewID("app.deps", "app"), Kind: regapi.NamespaceDependency,
-			DependencyRoot: true,
-			Data:           payload.New(map[string]any{"component": "acme/app", "version": selected}),
+			Registry: regapi.EntryMetadata{Root: true},
+			Data:     payload.New(map[string]any{"component": "acme/app", "version": selected}),
 		}
 		service := regapi.Entry{
 			ID: regapi.NewID("acme.app", "service"), Kind: "service",
-			Meta: attrs.NewBagFrom(map[string]any{
-				fixtureModuleKey:        "acme/app",
-				fixtureModuleVersionKey: selected,
-				fixtureModuleDigestKey:  digests[selected],
-			}),
-			Data: payload.New(map[string]any{"version": strings.TrimPrefix(selected, "v")}),
+			Data:     payload.New(map[string]any{"version": strings.TrimPrefix(selected, "v")}),
+			Registry: regapi.EntryMetadata{Owner: "acme/app"},
 		}
-		return fixtureState(regapi.State{root, service})
+		return regapi.State{root, service}
 	}
 	newHub := func(selected string, calls *int) HubClient {
 		return &fakeHub{
@@ -112,11 +231,6 @@ modules:
 			registryimpl.WithKindDirective(regapi.NamespaceDependency,
 				regexp.NewDependencyDirective(handler.Expand).WithResolutionTransition(handler.ReconcileResolution)),
 		)
-	}
-	residentVersion := func(reg *registryimpl.Reg, id regapi.ID) string {
-		record, ok := reg.EntryProvenance(id)
-		require.True(t, ok, "every entry of the live state has a provenance record")
-		return record.Version
 	}
 
 	writeLock("v1.0.0")
@@ -155,9 +269,9 @@ modules:
 	updated := newRegistry(history, newHub("v2.0.0", &v2Calls), zap.New(core))
 	require.NoError(t, updated.LoadState(ctx, baseline("v2.0.0"), head))
 	require.Equal(t, 1, v2Calls, "a changed deployment baseline must resolve the final root graph once")
-	service, err := updated.GetEntry(regapi.NewID("acme.app", "service"))
+	_, err = updated.GetEntry(regapi.NewID("acme.app", "service"))
 	require.NoError(t, err)
-	require.Equal(t, "v2.0.0", residentVersion(updated, service.ID))
+	require.Equal(t, "v2.0.0", snapshotModuleVersion(t, updated, "acme/app"))
 	_, err = updated.GetEntry(regapi.NewID("user.settings", "theme"))
 	require.NoError(t, err, "history-owned overlays must survive a root package update")
 	entries := logs.FilterMessage("stored dependency resolution does not match deployment baseline; resolving final declarations").All()
@@ -179,16 +293,16 @@ modules:
 	restarted := newRegistry(history, newHub("v2.0.0", &restartCalls), zap.NewNop())
 	require.NoError(t, restarted.LoadState(ctx, baseline("v2.0.0"), head))
 	require.Zero(t, restartCalls)
-	service, err = restarted.GetEntry(regapi.NewID("acme.app", "service"))
+	_, err = restarted.GetEntry(regapi.NewID("acme.app", "service"))
 	require.NoError(t, err)
-	require.Equal(t, "v2.0.0", residentVersion(restarted, service.ID))
+	require.Equal(t, "v2.0.0", snapshotModuleVersion(t, restarted, "acme/app"))
 	require.NoError(t, restarted.ApplyVersion(ctx, version.New(regapi.RootVersion)))
 	require.Equal(t, 1, restartCalls, "the older version is rebound to the new deployment once")
 	_, err = restarted.GetEntry(regapi.NewID("user.settings", "theme"))
 	require.Error(t, err)
-	service, err = restarted.GetEntry(regapi.NewID("acme.app", "service"))
+	_, err = restarted.GetEntry(regapi.NewID("acme.app", "service"))
 	require.NoError(t, err)
-	require.Equal(t, "v2.0.0", residentVersion(restarted, service.ID), "undo must never roll back the root deployment")
+	require.Equal(t, "v2.0.0", snapshotModuleVersion(t, restarted, "acme/app"), "undo must never roll back the root deployment")
 	require.NoError(t, restarted.ApplyVersion(ctx, head))
 	require.Equal(t, 1, restartCalls, "redo must reuse the repaired target graph")
 	_, err = restarted.GetEntry(regapi.NewID("user.settings", "theme"))
@@ -242,11 +356,6 @@ func TestDependencyHandler_PersistedResolutionBootRollbackRedoAndLongHistory(t *
 			hist, &bootRecordingRunner{}, topology.NewStateBuilder(zap.NewNop(), resolver), resolver, zap.NewNop(),
 			registryimpl.WithKindDirective(regapi.NamespaceDependency, regexp.NewDependencyDirective(handler.Expand).WithResolutionTransition(handler.ReconcileResolution)),
 		)
-	}
-	residentVersion := func(reg *registryimpl.Reg, id regapi.ID) string {
-		record, ok := reg.EntryProvenance(id)
-		require.True(t, ok, "every entry of the live state has a provenance record")
-		return record.Version
 	}
 
 	dbPath := filepath.Join(t.TempDir(), "registry.db")
@@ -303,22 +412,21 @@ func TestDependencyHandler_PersistedResolutionBootRollbackRedoAndLongHistory(t *
 		},
 	}
 	restored := newRegistry(history, newHandler(offline))
-	require.NoError(t, restored.LoadState(ctx, regapi.ProvenancedState{}, v2))
+	require.NoError(t, restored.LoadState(ctx, nil, v2))
 	require.Zero(t, manifestCalls)
-	entry, err := restored.GetEntry(regapi.NewID("acme.crm", "service"))
+	_, err = restored.GetEntry(regapi.NewID("acme.crm", "service"))
 	require.NoError(t, err)
-	require.Equal(t, "v2.0.0", residentVersion(restored, entry.ID))
+	require.Equal(t, "v2.0.0", snapshotModuleVersion(t, restored, "acme/crm"))
 
 	// Undo and redo select stored graphs and never resolve them again.
 	require.NoError(t, restored.ApplyVersion(ctx, v1))
-	entry, err = restored.GetEntry(regapi.NewID("acme.crm", "service"))
+	_, err = restored.GetEntry(regapi.NewID("acme.crm", "service"))
 	require.NoError(t, err)
-	require.Equal(t, "v1.0.0", residentVersion(restored, entry.ID),
-		"undo reconstructs the resident identity of the version it restores")
+	require.Equal(t, "v1.0.0", snapshotModuleVersion(t, restored, "acme/crm"))
 	require.NoError(t, restored.ApplyVersion(ctx, v2))
-	entry, err = restored.GetEntry(regapi.NewID("acme.crm", "service"))
+	_, err = restored.GetEntry(regapi.NewID("acme.crm", "service"))
 	require.NoError(t, err)
-	require.Equal(t, "v2.0.0", residentVersion(restored, entry.ID))
+	require.Equal(t, "v2.0.0", snapshotModuleVersion(t, restored, "acme/crm"))
 	require.Zero(t, manifestCalls)
 }
 
@@ -328,15 +436,13 @@ func TestDependencyHandler_ApplyVersionReconciliationSemantics(t *testing.T) {
 		defer func() { require.NoError(t, packRegistry.Close()) }()
 		ctx := embedapi.WithRegistry(newTestContext(), packRegistry)
 		reg, runner, baselineVersion, hostID := newLegacyArtifactRollbackRegistry(ctx, t)
+		ctx = regapi.WithRegistry(ctx, reg)
 
 		addonRoot := regapi.Entry{
-			ID:             regapi.NewID("app.deps", "addon"),
-			Kind:           regapi.NamespaceDependency,
-			DependencyRoot: true,
-			Meta: attrs.NewBagFrom(map[string]any{
-				fixtureModuleKey: "acme/deployment", fixtureModuleVersionKey: "v1.0.0",
-			}),
-			Data: payload.New(map[string]any{"component": "acme/addon", "version": "v1.0.0"}),
+			ID:       regapi.NewID("app.deps", "addon"),
+			Kind:     regapi.NamespaceDependency,
+			Registry: regapi.EntryMetadata{Owner: "acme/deployment", Root: true},
+			Data:     payload.New(map[string]any{"component": "acme/addon", "version": "v1.0.0"}),
 		}
 		_, err := reg.Apply(ctx, regapi.ChangeSet{{Kind: regapi.EntryCreate, Entry: addonRoot}})
 		require.NoError(t, err)
@@ -382,6 +488,7 @@ func TestDependencyHandler_ApplyVersionReconciliationSemantics(t *testing.T) {
 		defer func() { require.NoError(t, packRegistry.Close()) }()
 		ctx := embedapi.WithRegistry(newTestContext(), packRegistry)
 		reg, runner, baselineVersion, hostID := newLegacyArtifactRollbackRegistry(ctx, t)
+		ctx = regapi.WithRegistry(ctx, reg)
 
 		current, err := reg.GetEntry(hostID)
 		require.NoError(t, err)
@@ -461,9 +568,7 @@ modules:
 	require.NoError(t, err)
 	require.Len(t, loadedRuntime, 1)
 	legacyHost := loadedRuntime[0]
-	legacyHost.Meta = attrs.NewBagFrom(map[string]any{
-		fixtureModuleKey: "acme/runtime", fixtureModuleVersionKey: "v1.0.0",
-	})
+	legacyHost.Registry.Owner = "acme/runtime"
 
 	hubClient := &fakeHub{
 		getManifest: func(_ context.Context, org, module, _ string) (*ModuleManifest, error) {
@@ -508,48 +613,61 @@ modules:
 	)
 	root := regapi.Entry{
 		ID: regapi.NewID("app.deps", "app"), Kind: regapi.NamespaceDependency,
-		DependencyRoot: true,
-		Meta: attrs.NewBagFrom(map[string]any{
-			fixtureModuleKey: "acme/deployment", fixtureModuleVersionKey: "v1.0.0",
-		}),
-		Data: payload.New(map[string]any{"component": "acme/app", "version": "v1.0.0"}),
+		Registry: regapi.EntryMetadata{Owner: "acme/deployment", Root: true},
+		Data:     payload.New(map[string]any{"component": "acme/app", "version": "v1.0.0"}),
 	}
 	baseline := regapi.State{
 		root,
 		{
 			ID: regapi.NewID("app.security", "admin_all_access"), Kind: "security.policy",
-			Meta: attrs.NewBagFrom(map[string]any{
-				fixtureModuleKey: "acme/deployment", fixtureModuleVersionKey: "v1.0.0",
-			}),
-			Data: payload.New(map[string]any{"allow": true}),
+			Data:     payload.New(map[string]any{"allow": true}),
+			Registry: regapi.EntryMetadata{Owner: "acme/deployment"},
 		},
 		{
 			ID: regapi.NewID("acme.app", "marker"), Kind: regapi.EntryKind,
-			Meta: attrs.NewBagFrom(map[string]any{
-				fixtureModuleKey: "acme/app", fixtureModuleVersionKey: "v1.0.0",
-			}),
-			Data: payload.New(map[string]any{"enabled": true}),
+			Data:     payload.New(map[string]any{"enabled": true}),
+			Registry: regapi.EntryMetadata{Owner: "acme/app"},
 		},
 		legacyHost,
 	}
 	baselineVersion := version.FromParent(nil, 0)
-	require.NoError(t, reg.LoadState(ctx, fixtureState(baseline), baselineVersion))
-	_, err = reg.GetEntry(hostID)
+	require.NoError(t, reg.LoadState(ctx, baseline, baselineVersion))
+	persistedHost, err := reg.GetEntry(hostID)
 	require.NoError(t, err)
-	// The fixture entry is resident from an artifact that predates recorded
-	// digests. The baseline reconciliation establishes its artifact identity
-	// from the lock, which the later subtests rely on.
-	hostRecord, ok := reg.EntryProvenance(hostID)
-	require.True(t, ok)
-	require.Equal(t, "acme/runtime", hostRecord.Module)
-	require.Equal(t, digests["runtime"], hostRecord.Digest)
+	require.Equal(t, "acme/runtime", persistedHost.Registry.Owner)
 	runner.transitions = nil
 	return reg, runner, baselineVersion, hostID
 }
 
-type bootDirectiveFunc func(context.Context, regapi.Operation, regapi.ProvenancedState) (regapi.DirectiveResult, error)
+func snapshotModuleVersion(t *testing.T, reg regapi.Registry, module string) string {
+	t.Helper()
+	resolution := reg.Snapshot().Registry.Resolution
+	require.NotNil(t, resolution)
+	for _, selected := range resolution.Modules {
+		if selected.Name == module {
+			return selected.Version
+		}
+	}
+	t.Fatalf("module %q is absent from registry resolution", module)
+	return ""
+}
 
-func (f bootDirectiveFunc) Expand(ctx context.Context, op regapi.Operation, state regapi.ProvenancedState) (regapi.DirectiveResult, error) {
+func snapshotModuleDigest(t *testing.T, reg regapi.Registry, module string) string {
+	t.Helper()
+	resolution := reg.Snapshot().Registry.Resolution
+	require.NotNil(t, resolution)
+	for _, selected := range resolution.Modules {
+		if selected.Name == module {
+			return selected.Digest
+		}
+	}
+	t.Fatalf("module %q is absent from registry resolution", module)
+	return ""
+}
+
+type bootDirectiveFunc func(context.Context, regapi.Operation, regapi.State) (regapi.DirectiveResult, error)
+
+func (f bootDirectiveFunc) Expand(ctx context.Context, op regapi.Operation, state regapi.State) (regapi.DirectiveResult, error) {
 	return f(ctx, op, state)
 }
 
@@ -634,7 +752,7 @@ func TestDependencyHandler_BootExpandsSourceRootBeforeUnrelatedInstall(t *testin
 		Kind: regapi.NamespaceDependency,
 		Data: payload.NewPayload(`{"component":"acme/analysis","version":"v1.0.0"}`, payload.JSON),
 	}
-	require.NoError(t, reg.LoadState(ctx, fixtureState(regapi.State{analysisRoot}), version.FromParent(nil, 0)))
+	require.NoError(t, reg.LoadState(ctx, regapi.State{analysisRoot}, version.FromParent(nil, 0)))
 
 	_, err = reg.GetEntry(regapi.NewID("acme.analysis", "runtime"))
 	require.NoError(t, err, "boot must not publish a dependency root without its module entries")

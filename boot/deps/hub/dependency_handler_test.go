@@ -85,7 +85,7 @@ func TestDependencyHandler_ResolveErrors(t *testing.T) {
 		Data: payload.NewPayload(`{"component":"acme/http","version":"v1.0.0"}`, payload.JSON),
 	}
 
-	_, err = handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: depEntry}, regapi.ProvenancedState{})
+	_, err = handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: depEntry}, nil)
 	require.Error(t, err)
 
 	var apiErr apierror.Error
@@ -98,51 +98,6 @@ func TestDependencyHandler_ResolveErrors(t *testing.T) {
 		require.Len(t, errorsList, 1)
 		assert.Equal(t, "acme/http", errorsList[0]["module"])
 	}
-}
-
-func TestDependencyHandler_UnchangedLoadedRootProducesCheckpointResolution(t *testing.T) {
-	ctx := newTestContext()
-	manifestCalls := 0
-	vendorDir := t.TempDir()
-	artifact := buildWappBytes(t, []wapp.Entry{{ID: wapp.NewID("acme.http", "service"), Kind: "service"}})
-	handler, err := NewDependencyHandler(DependencyHandlerOptions{
-		Hub: &fakeHub{
-			getManifest: func(_ context.Context, org, module, _ string) (*ModuleManifest, error) {
-				manifestCalls++
-				return &ModuleManifest{Org: org, Name: module, Version: "v1.4.2", URL: "memory://http"}, nil
-			},
-			downloadFile: func(_ context.Context, _ string, dest string) error {
-				require.NoError(t, os.MkdirAll(filepath.Dir(dest), 0o755))
-				return os.WriteFile(dest, artifact, 0o600)
-			},
-		},
-		Logger:    zap.NewNop(),
-		LockPath:  filepath.Join(t.TempDir(), "wippy.lock"),
-		VendorDir: vendorDir,
-	})
-	require.NoError(t, err)
-
-	depEntry := regapi.Entry{
-		ID:   regapi.NewID("app.deps", "http"),
-		Kind: regapi.NamespaceDependency,
-		Data: payload.NewPayload(`{"component":"acme/http","version":">=v1.0.0 <v2.0.0"}`, payload.JSON),
-	}
-	moduleEntry := regapi.Entry{
-		ID:   regapi.NewID("acme.http", "service"),
-		Kind: "service",
-		Meta: attrs.NewBagFrom(map[string]any{
-			fixtureModuleKey:        "acme/http",
-			fixtureModuleVersionKey: "v1.4.2",
-		}),
-	}
-
-	result, err := handler.Expand(ctx, regapi.Operation{
-		Kind: regapi.EntryUpdate, Entry: depEntry,
-	}, fixtureState(regapi.State{depEntry, moduleEntry}))
-	require.NoError(t, err)
-	require.True(t, result.Applied)
-	require.NotNil(t, result.Resolution, "legacy boot must have an exact graph to checkpoint")
-	require.Equal(t, 1, manifestCalls)
 }
 
 func TestDependencyHandler_UnchangedRootWithIncompatibleLoadedVersionResolves(t *testing.T) {
@@ -167,17 +122,14 @@ func TestDependencyHandler_UnchangedRootWithIncompatibleLoadedVersionResolves(t 
 		Data: payload.NewPayload(`{"component":"acme/http","version":"v2.0.0"}`, payload.JSON),
 	}
 	moduleEntry := regapi.Entry{
-		ID:   regapi.NewID("acme.http", "service"),
-		Kind: "service",
-		Meta: attrs.NewBagFrom(map[string]any{
-			fixtureModuleKey:        "acme/http",
-			fixtureModuleVersionKey: "v1.4.2",
-		}),
+		ID:       regapi.NewID("acme.http", "service"),
+		Kind:     "service",
+		Registry: regapi.EntryMetadata{Owner: "acme/http"},
 	}
 
 	_, err = handler.Expand(ctx, regapi.Operation{
 		Kind: regapi.EntryUpdate, Entry: depEntry,
-	}, fixtureState(regapi.State{depEntry, moduleEntry}))
+	}, regapi.State{depEntry, moduleEntry})
 	require.Error(t, err)
 	require.ErrorContains(t, err, assert.AnError.Error())
 	require.Equal(t, 1, manifestCalls, "an incompatible loaded version must be resolved instead of accepted")
@@ -224,7 +176,7 @@ func TestDependencyHandler_EntryConflict(t *testing.T) {
 		},
 	}
 
-	_, err = handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: depEntry}, fixtureState(snapshot))
+	_, err = handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: depEntry}, snapshot)
 	require.Error(t, err)
 
 	var apiErr apierror.Error
@@ -272,7 +224,7 @@ func TestDependencyHandler_RejectsDownloadedArtifactWithDigestMismatch(t *testin
 		Data: payload.NewPayload(`{"component":"acme/http","version":"v1.0.0"}`, payload.JSON),
 	}
 
-	_, err = handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: depEntry}, regapi.ProvenancedState{})
+	_, err = handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: depEntry}, nil)
 	require.Error(t, err)
 
 	var apiErr apierror.Error
@@ -326,7 +278,7 @@ func TestDependencyHandler_RetriesDownloadWithFreshURLWhenPresignedExpired(t *te
 		Data: payload.NewPayload(`{"component":"acme/http","version":"v1.0.0"}`, payload.JSON),
 	}
 
-	_, err = handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: depEntry}, regapi.ProvenancedState{})
+	_, err = handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: depEntry}, nil)
 	require.NoError(t, err, "an expired presigned download URL must be refreshed and retried")
 	assert.GreaterOrEqual(t, freshFetched.Load(), int32(1), "a fresh download URL should be fetched for the retry")
 }
@@ -379,7 +331,7 @@ func TestDependencyHandler_RedownloadsCorruptCachedArtifact(t *testing.T) {
 		Data: payload.NewPayload(`{"component":"acme/http","version":"v1.0.0"}`, payload.JSON),
 	}
 
-	_, err = handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: depEntry}, regapi.ProvenancedState{})
+	_, err = handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: depEntry}, nil)
 	require.NoError(t, err)
 	assert.Equal(t, int32(1), downloadCalls.Load())
 }
@@ -442,14 +394,10 @@ modules:
 		Data: payload.NewPayload(`{"component":"acme/legacy","version":"v1.0.0"}`, payload.JSON),
 	}
 	legacySvc := regapi.Entry{
-		ID:   regapi.NewID("acme.legacy", "svc"),
-		Kind: "service",
-		Meta: attrs.NewBagFrom(map[string]any{
-			fixtureModuleKey:        "acme/legacy",
-			fixtureModuleVersionKey: "v1.0.0",
-			fixtureModuleDigestKey:  digests["legacy"],
-		}),
-		Data: payload.NewPayload(`{"ok":true}`, payload.JSON),
+		ID:       regapi.NewID("acme.legacy", "svc"),
+		Kind:     "service",
+		Registry: regapi.EntryMetadata{Owner: "acme/legacy"},
+		Data:     payload.NewPayload(`{"ok":true}`, payload.JSON),
 	}
 	freshRoot := regapi.Entry{
 		ID:   regapi.NewID("app.deps", "fresh"),
@@ -457,7 +405,7 @@ modules:
 		Data: payload.NewPayload(`{"component":"acme/fresh","version":"v1.0.0"}`, payload.JSON),
 	}
 
-	_, err = handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: freshRoot}, fixtureState(regapi.State{legacyRoot, legacySvc}))
+	_, err = handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: freshRoot}, regapi.State{legacyRoot, legacySvc})
 	require.NoError(t, err)
 
 	assert.Equal(t, string(before), string(mustReadFile(t, filepath.Join(legacyDir, "_index.yaml"))))
@@ -523,7 +471,7 @@ modules:
 		Data: payload.NewPayload(`{"component":"acme/http","version":"v1.0.0"}`, payload.JSON),
 	}
 
-	result, err := handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: depEntry}, regapi.ProvenancedState{})
+	result, err := handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: depEntry}, nil)
 	require.NoError(t, err)
 	require.True(t, result.Applied)
 	assert.Equal(t, int32(1), downloadCalls.Load())
@@ -590,7 +538,7 @@ func TestDependencyHandler_ResolveTimeoutSetsDeadline(t *testing.T) {
 		Data: payload.NewPayload(`{"component":"acme/http","version":"v1.0.0"}`, payload.JSON),
 	}
 
-	_, err = handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: depEntry}, regapi.ProvenancedState{})
+	_, err = handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: depEntry}, nil)
 	require.NoError(t, err)
 	assert.True(t, resolveHadDeadline, "resolve call should have timeout deadline")
 }
@@ -654,7 +602,7 @@ func TestDependencyHandler_DownloadTimeoutSetsDeadlinesForURLAndDownload(t *test
 		Data: payload.NewPayload(`{"component":"acme/http","version":"v1.0.0"}`, payload.JSON),
 	}
 
-	_, err = handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: depEntry}, regapi.ProvenancedState{})
+	_, err = handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: depEntry}, nil)
 	require.NoError(t, err)
 	assert.True(t, urlHadDeadline, "download URL request should have timeout deadline")
 	assert.True(t, downloadHadDeadline, "artifact download should have timeout deadline")
@@ -729,7 +677,6 @@ func TestDependencyHandler_Expand_UsesModuleDependencyEntriesForRequirementLinki
 		VendorDir: vendorDir,
 	})
 	require.NoError(t, err)
-
 	snapshot := regapi.State{
 		{
 			ID:   regapi.NewID("app", "service"),
@@ -744,7 +691,7 @@ func TestDependencyHandler_Expand_UsesModuleDependencyEntriesForRequirementLinki
 		Data: payload.NewPayload(`{"component":"acme/app","version":"v1.0.0"}`, payload.JSON),
 	}
 
-	result, err := handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: rootDep}, fixtureState(snapshot))
+	result, err := handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: rootDep}, snapshot)
 	require.NoError(t, err)
 	assert.True(t, result.Applied)
 
@@ -835,7 +782,7 @@ func TestDependencyHandler_Expand_ScopesBareParametersByDependencyComponent(t *t
 		},
 	}
 
-	result, err := handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: viewsDep}, fixtureState(snapshot))
+	result, err := handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: viewsDep}, snapshot)
 	require.NoError(t, err)
 	assert.True(t, result.Applied)
 
@@ -978,7 +925,7 @@ func TestDependencyHandler_Expand_DoesNotTreatBareParametersAsGlobalAliases(t *t
 		},
 	}
 
-	result, err := handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: viewsDep}, fixtureState(snapshot))
+	result, err := handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: viewsDep}, snapshot)
 	require.NoError(t, err)
 	assert.True(t, result.Applied)
 
@@ -1055,7 +1002,7 @@ func TestDependencyHandler_Expand_RejectsDuplicateRootComponentBeforeLinking(t *
 		},
 	}
 
-	_, err = handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: installGeneratedDep}, fixtureState(snapshot))
+	_, err = handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: installGeneratedDep}, snapshot)
 	require.Error(t, err)
 	assert.Equal(t, 0, manifestCalls)
 
@@ -1092,7 +1039,7 @@ func TestDependencyHandler_CollectDesiredDependencies_TreatsHydratedSameIDAsSame
 
 	deps, _, err := handler.collectDesiredDependencies(ctx,
 		regapi.Operation{Kind: regapi.EntryCreate, Entry: updatedDep},
-		fixtureState(regapi.State{hydratedDep}),
+		regapi.State{hydratedDep},
 		transcoder,
 		nil,
 	)
@@ -1374,7 +1321,7 @@ func TestDependencyHandler_Expand_RootParametersOverrideModuleOwnedTransitivePar
 		Data: payload.NewPayload(`{"component":"kickside/sessions","version":"v1.0.0"}`, payload.JSON),
 	}
 
-	result, err := handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: rootDep}, fixtureState(snapshot))
+	result, err := handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: rootDep}, snapshot)
 	require.NoError(t, err)
 	require.True(t, result.Applied)
 
@@ -1419,16 +1366,16 @@ func TestDependencyHandler_Expand_DoesNotTreatTouchedModuleBareParameterAsGlobal
 	})
 	writeWapp(t, filepath.Join(vendorDir, "kickside", "automation-v1.0.0.wapp"), []wapp.Entry{
 		{
-			ID:   wapp.NewID("wippy.views", "api_router"),
+			ID:   wapp.NewID("kickside.automation", "api_router"),
 			Kind: regapi.NamespaceRequirement,
 			Data: map[string]any{
 				"targets": []any{
-					map[string]any{"entry": "pages_endpoint", "path": ".meta.router"},
+					map[string]any{"entry": "automation_endpoint", "path": ".meta.router"},
 				},
 			},
 		},
 		{
-			ID:   wapp.NewID("wippy.views", "pages_endpoint"),
+			ID:   wapp.NewID("kickside.automation", "automation_endpoint"),
 			Kind: "http.endpoint",
 			Meta: map[string]any{},
 			Data: map[string]any{},
@@ -1475,7 +1422,7 @@ func TestDependencyHandler_Expand_DoesNotTreatTouchedModuleBareParameterAsGlobal
 		Data: payload.NewPayload(`{"component":"kickside/sessions","version":"v1.0.0"}`, payload.JSON),
 	}
 
-	result, err := handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: rootDep}, fixtureState(snapshot))
+	result, err := handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: rootDep}, snapshot)
 	require.NoError(t, err)
 	require.True(t, result.Applied)
 
@@ -1517,22 +1464,16 @@ func TestDependencyHandler_Expand_DoesNotReloadUntouchedInstalledModules(t *test
 	require.NoError(t, err)
 
 	sharedEntry := regapi.Entry{
-		ID:   regapi.NewID("shared", "entry"),
-		Kind: "library.lua",
-		Meta: attrs.NewBagFrom(map[string]any{
-			fixtureModuleKey:        "wippy/session",
-			fixtureModuleVersionKey: "v1.0.0",
-		}),
-		Data: payload.NewPayload(`{}`, payload.JSON),
+		ID:       regapi.NewID("shared", "entry"),
+		Kind:     "library.lua",
+		Registry: regapi.EntryMetadata{Owner: "wippy/session"},
+		Data:     payload.NewPayload(`{}`, payload.JSON),
 	}
 	kbMarker := regapi.Entry{
-		ID:   regapi.NewID("kickside.kb10", "marker"),
-		Kind: "registry.entry",
-		Meta: attrs.NewBagFrom(map[string]any{
-			fixtureModuleKey:        "kickside/kb10",
-			fixtureModuleVersionKey: "v1.0.0",
-		}),
-		Data: payload.NewPayload(`{}`, payload.JSON),
+		ID:       regapi.NewID("kickside.kb10", "marker"),
+		Kind:     "registry.entry",
+		Registry: regapi.EntryMetadata{Owner: "kickside/kb10"},
+		Data:     payload.NewPayload(`{}`, payload.JSON),
 	}
 	snapshot := regapi.State{
 		{
@@ -1554,17 +1495,15 @@ func TestDependencyHandler_Expand_DoesNotReloadUntouchedInstalledModules(t *test
 		Data: payload.NewPayload(`{"component":"kickside/sessions","version":"v1.0.0"}`, payload.JSON),
 	}
 
-	result, err := handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: rootDep}, fixtureState(snapshot))
+	result, err := handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: rootDep}, snapshot)
 	require.NoError(t, err)
 	require.True(t, result.Applied)
 
 	for _, scoped := range result.Additional {
-		if scoped.Operation.Entry.ID != sharedEntry.ID {
-			continue
+		entry := scoped.Operation.Entry
+		if entry.ID == sharedEntry.ID {
+			assert.NotEqual(t, "kickside/kb10", entry.Registry.Owner, "untouched kb10 artifact should not overwrite an existing entry")
 		}
-		require.NotNil(t, scoped.Operation.Provenance)
-		assert.NotEqual(t, "kickside/kb10", scoped.Operation.Provenance.Module,
-			"untouched kb10 artifact should not overwrite an existing entry")
 	}
 }
 
@@ -1603,12 +1542,10 @@ modules:
 	require.NoError(t, err)
 
 	legacyTarget := regapi.Entry{
-		ID:   regapi.NewID("acme.legacy", "target"),
-		Kind: "process.lua",
-		Meta: attrs.NewBagFrom(map[string]any{
-			fixtureModuleKey: "acme/legacy",
-		}),
-		Data: payload.NewPayload(`{"changed":false}`, payload.JSON),
+		ID:       regapi.NewID("acme.legacy", "target"),
+		Kind:     "process.lua",
+		Registry: regapi.EntryMetadata{Owner: "acme/legacy"},
+		Data:     payload.NewPayload(`{"changed":false}`, payload.JSON),
 	}
 	snapshot := regapi.State{
 		{
@@ -1624,12 +1561,12 @@ modules:
 		Data: payload.NewPayload(`{"component":"acme/fresh","version":"v1.0.0"}`, payload.JSON),
 	}
 
-	result, err := handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: rootDep}, fixtureState(snapshot))
+	result, err := handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: rootDep}, snapshot)
 	require.NoError(t, err)
 	require.True(t, result.Applied)
 
 	for _, scoped := range result.Additional {
-		assert.NotEqual(t, legacyTarget.ID, scoped.Operation.Entry.ID, "lock-pinned installed module without module_version metadata must stay untouched")
+		assert.NotEqual(t, legacyTarget.ID, scoped.Operation.Entry.ID, "lock-selected installed module must stay untouched")
 	}
 }
 
@@ -1687,7 +1624,7 @@ modules:
 		Data: payload.NewPayload(`{"component":"acme/fresh","version":"v1.0.0"}`, payload.JSON),
 	}
 
-	result, err := handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: rootDep}, regapi.ProvenancedState{})
+	result, err := handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: rootDep}, nil)
 	require.NoError(t, err)
 	require.True(t, result.Applied)
 
@@ -1701,91 +1638,7 @@ modules:
 	assert.True(t, created[regapi.NewID("acme.stale", "target")], "a lock-only module is not installed and must still be materialized when reached by the graph")
 }
 
-func TestDependencyHandler_Expand_InfersPackedEntryModuleOwnershipFromResolvedGraph(t *testing.T) {
-	ctx := newTestContext()
-	tmpDir := t.TempDir()
-	vendorDir := filepath.Join(tmpDir, "vendor")
-
-	uploadsWapp := filepath.Join(vendorDir, "kickside", "uploads-v1.0.0.wapp")
-	writeWapp(t, uploadsWapp, []wapp.Entry{
-		{
-			ID:   wapp.NewID("wippy.session", "dep.wippy.llm"),
-			Kind: regapi.NamespaceDependency,
-			Data: map[string]any{
-				"component": "wippy/llm",
-				"version":   "v1.0.0",
-			},
-		},
-	})
-	sessionsWapp := filepath.Join(vendorDir, "kickside", "sessions-v1.0.0.wapp")
-	writeWapp(t, sessionsWapp, []wapp.Entry{
-		{ID: wapp.NewID("kickside.sessions", "component"), Kind: "registry.entry", Data: map[string]any{}},
-	})
-	uploadsDigest, err := sha256FileHex(uploadsWapp)
-	require.NoError(t, err)
-	sessionsDigest, err := sha256FileHex(sessionsWapp)
-	require.NoError(t, err)
-	digests := map[string]string{
-		"kickside/uploads":  "sha256:" + uploadsDigest,
-		"kickside/sessions": "sha256:" + sessionsDigest,
-		"wippy/session":     "sha256:0000000000000000000000000000000000000000000000000000000000000000",
-	}
-
-	handler, err := NewDependencyHandler(DependencyHandlerOptions{
-		Hub: &fakeHub{
-			getManifest: func(_ context.Context, org, module, version string) (*ModuleManifest, error) {
-				return &ModuleManifest{Org: org, Name: module, Version: version, Digest: digests[org+"/"+module]}, nil
-			},
-		},
-		Logger:    zap.NewNop(),
-		VendorDir: vendorDir,
-	})
-	require.NoError(t, err)
-
-	existingSessionDep := regapi.Entry{
-		ID:   regapi.NewID("wippy.session", "dep.wippy.llm"),
-		Kind: regapi.NamespaceDependency,
-		Meta: attrs.NewBagFrom(map[string]any{
-			fixtureModuleKey:        "wippy/session",
-			fixtureModuleVersionKey: "v1.0.0",
-			fixtureModuleDigestKey:  digests["wippy/session"],
-		}),
-		Data: payload.NewPayload(`{"component":"wippy/llm","version":"v1.0.0"}`, payload.JSON),
-	}
-	snapshot := regapi.State{
-		{
-			ID:   regapi.NewID("app.deps", "session"),
-			Kind: regapi.NamespaceDependency,
-			Data: payload.NewPayload(`{"component":"wippy/session","version":"v1.0.0"}`, payload.JSON),
-		},
-		{
-			ID:   regapi.NewID("app.deps", "uploads"),
-			Kind: regapi.NamespaceDependency,
-			Data: payload.NewPayload(`{"component":"kickside/uploads","version":"v1.0.0"}`, payload.JSON),
-		},
-		existingSessionDep,
-	}
-	rootDep := regapi.Entry{
-		ID:   regapi.NewID("app.deps", "sessions"),
-		Kind: regapi.NamespaceDependency,
-		Data: payload.NewPayload(`{"component":"kickside/sessions","version":"v1.0.0"}`, payload.JSON),
-	}
-
-	result, err := handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: rootDep}, fixtureState(snapshot))
-	require.NoError(t, err)
-	require.True(t, result.Applied)
-
-	for _, scoped := range result.Additional {
-		if scoped.Operation.Entry.ID != existingSessionDep.ID {
-			continue
-		}
-		require.NotNil(t, scoped.Operation.Provenance)
-		assert.Equal(t, "wippy/session", scoped.Operation.Provenance.Module,
-			"packed dependency entry ownership must follow the resolved graph")
-	}
-}
-
-func TestDependencyHandler_Expand_PreservesSnapshotEntryOwnershipForPackedEntry(t *testing.T) {
+func TestDependencyHandler_Expand_RejectsConflictingSnapshotEntryOwnership(t *testing.T) {
 	ctx := newTestContext()
 	tmpDir := t.TempDir()
 	vendorDir := filepath.Join(tmpDir, "vendor")
@@ -1813,13 +1666,10 @@ func TestDependencyHandler_Expand_PreservesSnapshotEntryOwnershipForPackedEntry(
 	require.NoError(t, err)
 
 	existingLLMClient := regapi.Entry{
-		ID:   regapi.NewID("wippy.llm.openai_compat", "client"),
-		Kind: "library.lua",
-		Meta: attrs.NewBagFrom(map[string]any{
-			fixtureModuleKey:        "wippy/llm",
-			fixtureModuleVersionKey: "v1.0.0",
-		}),
-		Data: payload.NewPayload(`{}`, payload.JSON),
+		ID:       regapi.NewID("wippy.llm.openai_compat", "client"),
+		Kind:     "library.lua",
+		Registry: regapi.EntryMetadata{Owner: "wippy/llm"},
+		Data:     payload.NewPayload(`{}`, payload.JSON),
 	}
 	snapshot := regapi.State{
 		{
@@ -1835,18 +1685,8 @@ func TestDependencyHandler_Expand_PreservesSnapshotEntryOwnershipForPackedEntry(
 		Data: payload.NewPayload(`{"component":"kickside/sessions","version":"v1.0.0"}`, payload.JSON),
 	}
 
-	result, err := handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: rootDep}, fixtureState(snapshot))
-	require.NoError(t, err)
-	require.True(t, result.Applied)
-
-	for _, scoped := range result.Additional {
-		if scoped.Operation.Entry.ID != existingLLMClient.ID {
-			continue
-		}
-		require.NotNil(t, scoped.Operation.Provenance)
-		assert.Equal(t, "wippy/llm", scoped.Operation.Provenance.Module,
-			"packed entry ownership must preserve the installed owner for the same entry id")
-	}
+	_, err = handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: rootDep}, snapshot)
+	require.ErrorContains(t, err, `owned by "wippy/llm", wanted by "kickside/skills"`)
 }
 
 func TestDependencyHandler_Expand_DoesNotClaimExistingHostEntryFromPackedModule(t *testing.T) {
@@ -1895,17 +1735,16 @@ func TestDependencyHandler_Expand_DoesNotClaimExistingHostEntryFromPackedModule(
 		Data: payload.NewPayload(`{"component":"kickside/sessions","version":"v1.0.0"}`, payload.JSON),
 	}
 
-	result, err := handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: rootDep}, fixtureState(snapshot))
+	result, err := handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: rootDep}, snapshot)
 	require.NoError(t, err)
 	require.True(t, result.Applied)
 
 	for _, scoped := range result.Additional {
-		if scoped.Operation.Entry.ID != hostRouter.ID {
-			continue
+		entry := scoped.Operation.Entry
+		if entry.ID == hostRouter.ID {
+			assert.Empty(t, entry.Registry.Owner, "existing host entry must stay unowned")
+			assert.Equal(t, hostRouter.Data, entry.Data)
 		}
-		require.NotNil(t, scoped.Operation.Provenance)
-		assert.Empty(t, scoped.Operation.Provenance.Module, "existing host entry must stay unowned")
-		assert.Equal(t, hostRouter.Data, scoped.Operation.Entry.Data)
 	}
 }
 
@@ -1944,7 +1783,7 @@ func TestDependencyHandler_Expand_RejectsNewModuleClaimingExistingHostEntry(t *t
 		Data: payload.NewPayload(`{"component":"kickside/security","version":"v1.0.0"}`, payload.JSON),
 	}
 
-	_, err = handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: rootDep}, fixtureState(regapi.State{hostRouter}))
+	_, err = handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: rootDep}, regapi.State{hostRouter})
 	require.Error(t, err)
 
 	var apiErr apierror.Error
@@ -2002,7 +1841,7 @@ func TestDependencyHandler_Expand_AppliesCanonicalParametersToDeclaredNamespace(
 		}`, payload.JSON),
 	}
 
-	result, err := handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: rootDep}, regapi.ProvenancedState{})
+	result, err := handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: rootDep}, nil)
 	require.NoError(t, err)
 	assert.True(t, result.Applied)
 
@@ -2077,7 +1916,7 @@ func TestDependencyHandler_Expand_FailsBeforeRegistryApplyWhenRequirementTargetI
 		}`, payload.JSON),
 	}
 
-	result, err := handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: rootDep}, regapi.ProvenancedState{})
+	result, err := handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: rootDep}, nil)
 	require.ErrorContains(t, err, "dependency pipeline failed")
 	require.ErrorContains(t, err, "identity.account.api:login_endpoint")
 	assert.False(t, result.Applied)
@@ -2128,7 +1967,7 @@ func TestDependencyHandler_Expand_DoesNotFailOnUnrelatedSnapshotRequirement(t *t
 		Data: payload.NewPayload(`{"component":"acme/tool","version":"v1.0.0"}`, payload.JSON),
 	}
 
-	result, err := handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: rootDep}, fixtureState(snapshot))
+	result, err := handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: rootDep}, snapshot)
 	require.NoError(t, err)
 	assert.True(t, result.Applied)
 
@@ -2197,6 +2036,7 @@ func TestDependencyHandler_Expand_DoesNotReValidateUntouchedInstalledModule(t *t
 		VendorDir: vendorDir,
 	})
 	require.NoError(t, err)
+	ctx = withCurrentResolution(ctx, regapi.ResolvedModule{Name: "acme/legacy", Version: "v1.0.0", Digest: digests["legacy"]})
 
 	snapshot := regapi.State{
 		{
@@ -2204,12 +2044,13 @@ func TestDependencyHandler_Expand_DoesNotReValidateUntouchedInstalledModule(t *t
 			Kind: regapi.NamespaceDependency,
 			Data: payload.NewPayload(`{"component":"acme/legacy","version":"v1.0.0"}`, payload.JSON),
 		},
-		// Module-owned entry stamping legacy's installed version into the snapshot.
-		fixtureOwned(regapi.Entry{
+		// The selected graph records the exact installed module; the entry carries
+		// only registry-owned ownership.
+		ownedEntry(regapi.Entry{
 			ID:   regapi.NewID("acme.legacy", "target"),
 			Kind: "process.lua",
 			Data: payload.NewPayload(`{}`, payload.JSON),
-		}, "acme/legacy", "v1.0.0", digests["legacy"]),
+		}, "acme/legacy"),
 	}
 
 	rootDep := regapi.Entry{
@@ -2218,7 +2059,7 @@ func TestDependencyHandler_Expand_DoesNotReValidateUntouchedInstalledModule(t *t
 		Data: payload.NewPayload(`{"component":"acme/fresh","version":"v1.0.0"}`, payload.JSON),
 	}
 
-	result, err := handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: rootDep}, fixtureState(snapshot))
+	result, err := handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: rootDep}, snapshot)
 	require.NoError(t, err, "installing an unrelated module must not re-validate an untouched installed module")
 	assert.True(t, result.Applied)
 }
@@ -2266,7 +2107,7 @@ func TestDependencyHandler_Expand_NewModuleMissingRequirementStillFails(t *testi
 		Data: payload.NewPayload(`{"component":"acme/needy","version":"v1.0.0"}`, payload.JSON),
 	}
 
-	_, err = handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: rootDep}, fixtureState(regapi.State{}))
+	_, err = handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: rootDep}, regapi.State{})
 	require.Error(t, err, "a newly installed module with an unprovided required value must fail")
 }
 
@@ -2279,13 +2120,10 @@ func TestDependencyHandler_Expand_DeleteLastDependencyDoesNotFailOnUnrelatedSnap
 		Data: payload.NewPayload(`{"component":"acme/tool","version":"v1.0.0"}`, payload.JSON),
 	}
 	moduleSvc := regapi.Entry{
-		ID:   regapi.NewID("acme.tool", "service"),
-		Kind: "service",
-		Meta: attrs.NewBagFrom(map[string]any{
-			fixtureModuleKey:        "acme/tool",
-			fixtureModuleVersionKey: "v1.0.0",
-		}),
-		Data: payload.NewPayload(`{"ok":true}`, payload.JSON),
+		ID:       regapi.NewID("acme.tool", "service"),
+		Kind:     "service",
+		Registry: regapi.EntryMetadata{Owner: "acme/tool"},
+		Data:     payload.NewPayload(`{"ok":true}`, payload.JSON),
 	}
 	unrelatedReq := regapi.Entry{
 		ID:   regapi.NewID("app", "unrelated_req"),
@@ -2302,7 +2140,7 @@ func TestDependencyHandler_Expand_DeleteLastDependencyDoesNotFailOnUnrelatedSnap
 
 	result, err := handler.Expand(ctx,
 		regapi.Operation{Kind: regapi.EntryDelete, Entry: regapi.Entry{ID: rootDep.ID}},
-		fixtureState(regapi.State{rootDep, moduleSvc, unrelatedReq}),
+		regapi.State{rootDep, moduleSvc, unrelatedReq},
 	)
 	require.NoError(t, err)
 	require.True(t, result.Applied)
@@ -2324,22 +2162,16 @@ func TestDependencyHandler_Expand_DeleteRootDependencyIgnoresModuleOwnedDependen
 		Data: payload.NewPayload(`{"component":"wippy/dummy","version":"v1.0.0"}`, payload.JSON),
 	}
 	moduleDep := regapi.Entry{
-		ID:   regapi.NewID("wippy.dummy", "runtime_dependency"),
-		Kind: regapi.NamespaceDependency,
-		Meta: attrs.NewBagFrom(map[string]any{
-			fixtureModuleKey:        "wippy/dummy",
-			fixtureModuleVersionKey: "v1.0.0",
-		}),
-		Data: payload.NewPayload(`{"component":"missing/transitive","version":"v99.0.0"}`, payload.JSON),
+		ID:       regapi.NewID("wippy.dummy", "runtime_dependency"),
+		Kind:     regapi.NamespaceDependency,
+		Registry: regapi.EntryMetadata{Owner: "wippy/dummy"},
+		Data:     payload.NewPayload(`{"component":"missing/transitive","version":"v99.0.0"}`, payload.JSON),
 	}
 	moduleSvc := regapi.Entry{
-		ID:   regapi.NewID("wippy.dummy", "service"),
-		Kind: "service",
-		Meta: attrs.NewBagFrom(map[string]any{
-			fixtureModuleKey:        "wippy/dummy",
-			fixtureModuleVersionKey: "v1.0.0",
-		}),
-		Data: payload.NewPayload(`{"ok":true}`, payload.JSON),
+		ID:       regapi.NewID("wippy.dummy", "service"),
+		Kind:     "service",
+		Registry: regapi.EntryMetadata{Owner: "wippy/dummy"},
+		Data:     payload.NewPayload(`{"ok":true}`, payload.JSON),
 	}
 
 	handler, err := NewDependencyHandler(DependencyHandlerOptions{
@@ -2355,7 +2187,7 @@ func TestDependencyHandler_Expand_DeleteRootDependencyIgnoresModuleOwnedDependen
 
 	result, err := handler.Expand(ctx,
 		regapi.Operation{Kind: regapi.EntryDelete, Entry: regapi.Entry{ID: rootDep.ID}},
-		fixtureState(regapi.State{rootDep, moduleDep, moduleSvc}),
+		regapi.State{rootDep, moduleDep, moduleSvc},
 	)
 	require.NoError(t, err)
 	require.True(t, result.Applied)
@@ -2387,31 +2219,22 @@ func TestDependencyHandler_Expand_DeleteRootDependencyKeepsRemainingRoots(t *tes
 		Data: payload.NewPayload(`{"component":"wippy/dummy","version":"v1.0.0"}`, payload.JSON),
 	}
 	keepSvc := regapi.Entry{
-		ID:   regapi.NewID("acme.keep", "service"),
-		Kind: "service",
-		Meta: attrs.NewBagFrom(map[string]any{
-			fixtureModuleKey:        "acme/keep",
-			fixtureModuleVersionKey: "v1.0.0",
-		}),
-		Data: payload.NewPayload(`{"ok":true}`, payload.JSON),
+		ID:       regapi.NewID("acme.keep", "service"),
+		Kind:     "service",
+		Registry: regapi.EntryMetadata{Owner: "acme/keep"},
+		Data:     payload.NewPayload(`{"ok":true}`, payload.JSON),
 	}
 	removedDep := regapi.Entry{
-		ID:   regapi.NewID("wippy.dummy", "runtime_dependency"),
-		Kind: regapi.NamespaceDependency,
-		Meta: attrs.NewBagFrom(map[string]any{
-			fixtureModuleKey:        "wippy/dummy",
-			fixtureModuleVersionKey: "v1.0.0",
-		}),
-		Data: payload.NewPayload(`{"component":"missing/transitive","version":"v99.0.0"}`, payload.JSON),
+		ID:       regapi.NewID("wippy.dummy", "runtime_dependency"),
+		Kind:     regapi.NamespaceDependency,
+		Registry: regapi.EntryMetadata{Owner: "wippy/dummy"},
+		Data:     payload.NewPayload(`{"component":"missing/transitive","version":"v99.0.0"}`, payload.JSON),
 	}
 	removedSvc := regapi.Entry{
-		ID:   regapi.NewID("wippy.dummy", "service"),
-		Kind: "service",
-		Meta: attrs.NewBagFrom(map[string]any{
-			fixtureModuleKey:        "wippy/dummy",
-			fixtureModuleVersionKey: "v1.0.0",
-		}),
-		Data: payload.NewPayload(`{"ok":true}`, payload.JSON),
+		ID:       regapi.NewID("wippy.dummy", "service"),
+		Kind:     "service",
+		Registry: regapi.EntryMetadata{Owner: "wippy/dummy"},
+		Data:     payload.NewPayload(`{"ok":true}`, payload.JSON),
 	}
 
 	writeWapp(t, filepath.Join(vendorDir, "acme", "keep-v1.0.0.wapp"), []wapp.Entry{
@@ -2440,7 +2263,7 @@ func TestDependencyHandler_Expand_DeleteRootDependencyKeepsRemainingRoots(t *tes
 
 	result, err := handler.Expand(ctx,
 		regapi.Operation{Kind: regapi.EntryDelete, Entry: regapi.Entry{ID: deleteRoot.ID}},
-		fixtureState(regapi.State{keepRoot, deleteRoot, keepSvc, removedDep, removedSvc}),
+		regapi.State{keepRoot, deleteRoot, keepSvc, removedDep, removedSvc},
 	)
 	require.NoError(t, err)
 	require.True(t, result.Applied)
@@ -2475,15 +2298,15 @@ func TestDependencyHandler_CollectDesiredDependencies_IgnoresModuleOwnedDependen
 		Data: payload.NewPayload(`{"component":"acme/root","version":"v1.0.0"}`, payload.JSON),
 	}
 	moduleDep := regapi.Entry{
-		ID:   regapi.NewID("acme.root", "child"),
-		Kind: regapi.NamespaceDependency,
-		Meta: attrs.NewBagFrom(map[string]any{fixtureModuleKey: "acme/root"}),
-		Data: payload.NewPayload(`{"component":"acme/child","version":"v1.0.0"}`, payload.JSON),
+		ID:       regapi.NewID("acme.root", "child"),
+		Kind:     regapi.NamespaceDependency,
+		Registry: regapi.EntryMetadata{Owner: "acme/root"},
+		Data:     payload.NewPayload(`{"component":"acme/child","version":"v1.0.0"}`, payload.JSON),
 	}
 
 	deps, _, err := handler.collectDesiredDependencies(ctx,
 		regapi.Operation{Kind: regapi.EntryUpdate, Entry: rootDep},
-		fixtureState(regapi.State{rootDep, moduleDep}),
+		regapi.State{rootDep, moduleDep},
 		transcoder,
 		nil,
 	)
@@ -2518,19 +2341,16 @@ func TestDependencyHandler_CollectDesiredDependencies_PreservesExistingDeclaredV
 	snapshot := regapi.State{
 		existingDep,
 		{
-			ID:   regapi.NewID("wippy.facade", "public_files"),
-			Kind: "fs.directory",
-			Meta: attrs.NewBagFrom(map[string]any{
-				fixtureModuleKey:        "wippy/facade",
-				fixtureModuleVersionKey: "0.5.39",
-			}),
-			Data: payload.NewPayload(`{"path":"./static"}`, payload.JSON),
+			ID:       regapi.NewID("wippy.facade", "public_files"),
+			Kind:     "fs.directory",
+			Registry: regapi.EntryMetadata{Owner: "wippy/facade"},
+			Data:     payload.NewPayload(`{"path":"./static"}`, payload.JSON),
 		},
 	}
 
 	deps, _, err := handler.collectDesiredDependencies(ctx,
 		regapi.Operation{Kind: regapi.EntryCreate, Entry: newDep},
-		fixtureState(snapshot),
+		snapshot,
 		transcoder,
 		nil,
 	)
@@ -2590,6 +2410,7 @@ func TestDependencyHandler_ResolveModules_PinsInstalledTransitiveVersions(t *tes
 	modules, err := handler.resolveModules(ctx,
 		[]DependencyDefinition{{Component: "acme/app", Version: "1.0.0"}},
 		map[string]string{"wippy/facade": "0.5.39"},
+		nil,
 	)
 
 	require.NoError(t, err)
@@ -2632,6 +2453,7 @@ modules:
 	modules, err := handler.resolveModules(ctx,
 		[]DependencyDefinition{{Component: "acme/http", Version: "2.0.0"}},
 		map[string]string{},
+		nil,
 	)
 
 	require.NoError(t, err, "a digest locked for v1 must not block resolving/updating to v2")
@@ -2655,92 +2477,6 @@ func TestDependencyInputDigestCoversSolverInputsNotLinkParameters(t *testing.T) 
 
 	require.Equal(t, dependencyInputDigest([]desiredDependency{root}), dependencyInputDigest([]desiredDependency{changedParameters}))
 	require.NotEqual(t, dependencyInputDigest([]desiredDependency{root}), dependencyInputDigest([]desiredDependency{changedRange}))
-}
-
-// A version bump whose artifact ships byte-identical entries must move the
-// resident records without touching a single entry, so the next reconciliation
-// finds resident and selected already equal and reloads nothing.
-func TestDependencyHandler_IdenticalContentBumpAdvancesResidentRecordsWithoutOperations(t *testing.T) {
-	ctx := newTestContext()
-	vendorDir := t.TempDir()
-	packed := []wapp.Entry{{
-		ID:   wapp.NewID("acme.widget", "service"),
-		Kind: "process.lua",
-		Data: map[string]any{"value": "same"},
-	}}
-	writeWapp(t, filepath.Join(vendorDir, "acme", "widget-1.0.0.wapp"), packed)
-	writeWapp(t, filepath.Join(vendorDir, "acme", "widget-2.0.0.wapp"), packed)
-	digest := "sha256:" + hex.EncodeToString(func() []byte {
-		sum := sha256.Sum256(buildWappBytes(t, packed))
-		return sum[:]
-	}())
-
-	handler, err := NewDependencyHandler(DependencyHandlerOptions{
-		Hub: &fakeHub{
-			getManifest: func(_ context.Context, org, module, version string) (*ModuleManifest, error) {
-				return &ModuleManifest{Org: org, Name: module, Version: version, Digest: digest}, nil
-			},
-		},
-		Logger:    zap.NewNop(),
-		VendorDir: vendorDir,
-	})
-	require.NoError(t, err)
-
-	serviceID := regapi.NewID("acme.widget", "service")
-	oldDep := regapi.Entry{
-		ID:   regapi.NewID("app.deps", "widget"),
-		Kind: regapi.NamespaceDependency,
-		Data: payload.NewPayload(`{"component":"acme/widget","version":"1.0.0"}`, payload.JSON),
-	}
-	newDep := regapi.Entry{
-		ID:   oldDep.ID,
-		Kind: regapi.NamespaceDependency,
-		Data: payload.NewPayload(`{"component":"acme/widget","version":"2.0.0"}`, payload.JSON),
-	}
-	resident := fixtureState(regapi.State{
-		oldDep,
-		fixtureOwned(regapi.Entry{
-			ID:   serviceID,
-			Kind: "process.lua",
-			Data: payload.New(map[string]any{"value": "same"}),
-		}, "acme/widget", "1.0.0", digest),
-	})
-
-	result, err := handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryUpdate, Entry: newDep}, resident)
-	require.NoError(t, err)
-	require.True(t, result.Applied)
-
-	for _, scoped := range result.Additional {
-		require.NotEqual(t, serviceID, scoped.Operation.Entry.ID,
-			"a byte-identical artifact must not produce an entry operation")
-	}
-	require.Equal(t, regapi.EntryProvenance{Module: "acme/widget", Version: "2.0.0", Digest: digest},
-		result.Provenance[serviceID], "the resident record moves without an event")
-
-	// The registry publishes that record with the state. Reconciling the stored
-	// selection over the advanced state changes nothing.
-	advanced := regapi.ProvenancedState{Entries: applyOperationToState(resident, regapi.Operation{
-		Kind: regapi.EntryUpdate, Entry: newDep,
-	}, provByKey(resident.Provenance)).Entries, Provenance: resident.Provenance.Clone()}
-	for id, record := range result.Provenance {
-		advanced.Provenance[id] = record
-	}
-
-	assert.Equal(t, "1.0.0", residentModuleVersions(resident.Provenance)["acme/widget"])
-	assert.Equal(t, "2.0.0", residentModuleVersions(advanced.Provenance)["acme/widget"],
-		"the resident fold now names the selected artifact")
-
-	settled, err := handler.ReconcileResolution(ctx, advanced, advanced, result.Resolution)
-	require.NoError(t, err)
-	assert.Empty(t, settled.Additional, "resident already matches the selection")
-	assert.Empty(t, settled.Provenance, "no record is left to move")
-
-	// The same operation over a state that never received the advance still has
-	// identity work to do — the divergence the advance exists to close.
-	stale := regapi.ProvenancedState{Entries: resident.Entries, Provenance: resident.Provenance.Clone()}
-	behind, err := handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryUpdate, Entry: newDep}, stale)
-	require.NoError(t, err)
-	assert.NotEmpty(t, behind.Provenance, "a stale resident record is reported again on every attempt")
 }
 
 func TestDependencyHandler_ExpandUpdateRootDependencyReplacesSameIDModuleEntries(t *testing.T) {
@@ -2783,18 +2519,15 @@ func TestDependencyHandler_ExpandUpdateRootDependencyReplacesSameIDModuleEntries
 		Data: payload.NewPayload(`{"component":"acme/widget","version":"2.0.0"}`, payload.JSON),
 	}
 	oldService := regapi.Entry{
-		ID:   regapi.NewID("acme.widget", "service"),
-		Kind: "process.lua",
-		Meta: attrs.NewBagFrom(map[string]any{
-			fixtureModuleKey:        "acme/widget",
-			fixtureModuleVersionKey: "1.0.0",
-		}),
-		Data: payload.New(map[string]any{"value": "old"}),
+		ID:       regapi.NewID("acme.widget", "service"),
+		Kind:     "process.lua",
+		Registry: regapi.EntryMetadata{Owner: "acme/widget"},
+		Data:     payload.New(map[string]any{"value": "old"}),
 	}
 
 	result, err := handler.Expand(ctx,
 		regapi.Operation{Kind: regapi.EntryUpdate, Entry: newDep},
-		fixtureState(regapi.State{oldDep, oldService}),
+		regapi.State{oldDep, oldService},
 	)
 	require.NoError(t, err)
 	require.True(t, result.Applied)
@@ -2809,9 +2542,10 @@ func TestDependencyHandler_ExpandUpdateRootDependencyReplacesSameIDModuleEntries
 	}
 	require.NotNil(t, serviceUpdate, "same-id module entry should be updated")
 	assert.Equal(t, regapi.EntryUpdate, serviceUpdate.Kind)
-	require.NotNil(t, serviceUpdate.Provenance, "every module operation carries its provenance")
-	assert.Equal(t, "acme/widget", serviceUpdate.Provenance.Module)
-	assert.Equal(t, "2.0.0", serviceUpdate.Provenance.Version)
+	assert.Equal(t, "acme/widget", entryModule(serviceUpdate.Entry))
+	assert.Equal(t, "acme/widget", serviceUpdate.Entry.Registry.Owner)
+	require.NotNil(t, result.Resolution)
+	assert.Equal(t, "2.0.0", resolutionModuleVersion(result.Resolution, "acme/widget"))
 	assert.Equal(t, "new", serviceUpdate.Entry.Data.Data().(map[string]any)["value"])
 }
 
@@ -2853,6 +2587,7 @@ replacements:
 			{Component: "local/mod", Version: "0.1.0"},
 		},
 		map[string]string{"local/mod": "0.1.0"},
+		nil,
 	)
 
 	require.NoError(t, err, "a locally-replaced module absent from the Hub must not fail resolution")
@@ -2952,7 +2687,7 @@ replacements:
 		Data: payload.NewPayload(`{"component":"local/mod","version":"v0.1.0"}`, payload.JSON),
 	}
 
-	result, err := handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: rootDep}, regapi.ProvenancedState{})
+	result, err := handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: rootDep}, nil)
 	require.NoError(t, err)
 	require.True(t, result.Applied)
 
@@ -3008,6 +2743,7 @@ replacements:
 	modules, err := handler.resolveModules(ctx,
 		[]DependencyDefinition{{Component: "local/mod", Version: ">=v0.1.0"}},
 		map[string]string{},
+		nil,
 	)
 
 	require.NoError(t, err, "a replaced module with a range constraint and no locked version must resolve from its local wippy.yaml")
@@ -3059,6 +2795,7 @@ replacements:
 	modules, err := handler.resolveModules(ctx,
 		[]DependencyDefinition{{Component: "local/mod", Version: ">=v0.1.0"}},
 		map[string]string{},
+		nil,
 	)
 
 	require.NoError(t, err)
@@ -3144,19 +2881,16 @@ func TestDependencyHandler_CollectDesiredDependencies_DoesNotPinUpdatedDependenc
 	snapshot := regapi.State{
 		oldDep,
 		{
-			ID:   regapi.NewID("wippy.facade", "public_files"),
-			Kind: "fs.directory",
-			Meta: attrs.NewBagFrom(map[string]any{
-				fixtureModuleKey:        "wippy/facade",
-				fixtureModuleVersionKey: "0.5.39",
-			}),
-			Data: payload.NewPayload(`{"path":"./static"}`, payload.JSON),
+			ID:       regapi.NewID("wippy.facade", "public_files"),
+			Kind:     "fs.directory",
+			Registry: regapi.EntryMetadata{Owner: "wippy/facade"},
+			Data:     payload.NewPayload(`{"path":"./static"}`, payload.JSON),
 		},
 	}
 
 	deps, _, err := handler.collectDesiredDependencies(ctx,
 		regapi.Operation{Kind: regapi.EntryUpdate, Entry: updatedDep},
-		fixtureState(snapshot),
+		snapshot,
 		transcoder,
 		nil,
 	)
@@ -3179,32 +2913,31 @@ func TestDependencyHandler_CollectControlledModules_FollowsInstalledDependencyLi
 	require.NoError(t, err)
 
 	rootDep := regapi.Entry{
-		ID:             regapi.NewID("app.deps", "root"),
-		Kind:           regapi.NamespaceDependency,
-		DependencyRoot: true,
-		Meta:           attrs.NewBagFrom(map[string]any{fixtureModuleKey: "acme/deployment"}),
-		Data:           payload.NewPayload(`{"component":"acme/app","version":"1.0.0"}`, payload.JSON),
+		ID:       regapi.NewID("app.deps", "root"),
+		Kind:     regapi.NamespaceDependency,
+		Registry: regapi.EntryMetadata{Owner: "acme/deployment", Root: true},
+		Data:     payload.NewPayload(`{"component":"acme/app","version":"1.0.0"}`, payload.JSON),
 	}
 	appDep := regapi.Entry{
-		ID:   regapi.NewID("acme.app", "lib_dep"),
-		Kind: regapi.NamespaceDependency,
-		Meta: attrs.NewBagFrom(map[string]any{fixtureModuleKey: "acme/app"}),
-		Data: payload.NewPayload(`{"component":"acme/lib","version":"1.0.0"}`, payload.JSON),
+		ID:       regapi.NewID("acme.app", "lib_dep"),
+		Kind:     regapi.NamespaceDependency,
+		Registry: regapi.EntryMetadata{Owner: "acme/app"},
+		Data:     payload.NewPayload(`{"component":"acme/lib","version":"1.0.0"}`, payload.JSON),
 	}
 	libDep := regapi.Entry{
-		ID:   regapi.NewID("acme.lib", "core_dep"),
-		Kind: regapi.NamespaceDependency,
-		Meta: attrs.NewBagFrom(map[string]any{fixtureModuleKey: "acme/lib"}),
-		Data: payload.NewPayload(`{"component":"acme/core","version":"1.0.0"}`, payload.JSON),
+		ID:       regapi.NewID("acme.lib", "core_dep"),
+		Kind:     regapi.NamespaceDependency,
+		Registry: regapi.EntryMetadata{Owner: "acme/lib"},
+		Data:     payload.NewPayload(`{"component":"acme/core","version":"1.0.0"}`, payload.JSON),
 	}
 	lockLoadedDep := regapi.Entry{
-		ID:   regapi.NewID("keeper.internal", "helper_dep"),
-		Kind: regapi.NamespaceDependency,
-		Meta: attrs.NewBagFrom(map[string]any{fixtureModuleKey: "keeper/keeper"}),
-		Data: payload.NewPayload(`{"component":"keeper/helper","version":"1.0.0"}`, payload.JSON),
+		ID:       regapi.NewID("keeper.internal", "helper_dep"),
+		Kind:     regapi.NamespaceDependency,
+		Registry: regapi.EntryMetadata{Owner: "keeper/keeper"},
+		Data:     payload.NewPayload(`{"component":"keeper/helper","version":"1.0.0"}`, payload.JSON),
 	}
 
-	controlled, err := handler.collectControlledModules(ctx, fixtureState(regapi.State{rootDep, appDep, libDep, lockLoadedDep}), transcoder)
+	controlled, err := handler.collectControlledModules(ctx, regapi.State{rootDep, appDep, libDep, lockLoadedDep}, transcoder)
 	require.NoError(t, err)
 	assert.Contains(t, controlled, "acme/app")
 	assert.Contains(t, controlled, "acme/lib")
@@ -3225,26 +2958,25 @@ func TestDependencyHandler_ReconciliationControlSpansBothGraphsWithoutOwningDepl
 
 	root := func(name, component string) regapi.Entry {
 		return regapi.Entry{
-			ID:             regapi.NewID("app.deps", name),
-			Kind:           regapi.NamespaceDependency,
-			DependencyRoot: true,
-			Meta:           attrs.NewBagFrom(map[string]any{fixtureModuleKey: "acme/deployment"}),
-			Data:           payload.New(map[string]any{"component": component, "version": "v1.0.0"}),
+			ID:       regapi.NewID("app.deps", name),
+			Kind:     regapi.NamespaceDependency,
+			Registry: regapi.EntryMetadata{Owner: "acme/deployment", Root: true},
+			Data:     payload.New(map[string]any{"component": component, "version": "v1.0.0"}),
 		}
 	}
 	child := func(owner, component string) regapi.Entry {
 		return regapi.Entry{
-			ID:   regapi.NewID(strings.ReplaceAll(owner, "/", "."), "child_dep"),
-			Kind: regapi.NamespaceDependency,
-			Meta: attrs.NewBagFrom(map[string]any{fixtureModuleKey: owner}),
-			Data: payload.New(map[string]any{"component": component, "version": "v1.0.0"}),
+			ID:       regapi.NewID(strings.ReplaceAll(owner, "/", "."), "child_dep"),
+			Kind:     regapi.NamespaceDependency,
+			Registry: regapi.EntryMetadata{Owner: owner},
+			Data:     payload.New(map[string]any{"component": component, "version": "v1.0.0"}),
 		}
 	}
 
 	current := regapi.State{root("old", "acme/old"), child("acme/old", "acme/old-child")}
 	target := regapi.State{root("new", "acme/new"), child("acme/new", "acme/new-child")}
 	controlled, err := handler.reconciliationControlledModules(
-		ctx, fixtureState(current), fixtureState(target), transcoder, map[string]struct{}{"acme/new": {}},
+		ctx, current, target, transcoder, map[string]struct{}{"acme/new": {}},
 	)
 	require.NoError(t, err)
 	assert.Contains(t, controlled, "acme/old")
@@ -3285,13 +3017,10 @@ func TestDependencyHandler_Expand_PreservesLockLoadedModuleEntries(t *testing.T)
 	lockLoadedID := regapi.NewID("keeper.hub.tools", "dependencies")
 	snapshot := regapi.State{
 		{
-			ID:   lockLoadedID,
-			Kind: "function.lua",
-			Meta: attrs.NewBagFrom(map[string]any{
-				fixtureModuleKey:        "keeper/keeper",
-				fixtureModuleVersionKey: "0.5.2",
-			}),
-			Data: payload.New("return {}"),
+			ID:       lockLoadedID,
+			Kind:     "function.lua",
+			Registry: regapi.EntryMetadata{Owner: "keeper/keeper"},
+			Data:     payload.New("return {}"),
 		},
 	}
 
@@ -3301,7 +3030,7 @@ func TestDependencyHandler_Expand_PreservesLockLoadedModuleEntries(t *testing.T)
 		Data: payload.NewPayload(`{"component":"acme/http","version":"v1.0.0"}`, payload.JSON),
 	}
 
-	result, err := handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: depEntry}, fixtureState(snapshot))
+	result, err := handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: depEntry}, snapshot)
 	require.NoError(t, err)
 	assert.True(t, result.Applied)
 
@@ -3331,10 +3060,6 @@ func TestDependencyHandler_Expand_UsesLockReplacementForExistingRootDependency(t
     {
       "name": "ui_static_fs",
       "kind": "fs.directory",
-      "meta": {
-        "module": "keeper/keeper",
-        "module_version": "0.5.4"
-      },
       "path": "./static/keeper"
     }
   ]
@@ -3401,13 +3126,10 @@ replacements:
 			Data: payload.NewPayload(`{"component":"keeper/keeper","version":"0.5.4"}`, payload.JSON),
 		},
 		{
-			ID:   uiStaticID,
-			Kind: "fs.directory",
-			Meta: attrs.NewBagFrom(map[string]any{
-				fixtureModuleKey:        "keeper/keeper",
-				fixtureModuleVersionKey: "0.5.4",
-			}),
-			Data: payload.NewPayload(`{"path":"./static/keeper"}`, payload.JSON),
+			ID:       uiStaticID,
+			Kind:     "fs.directory",
+			Registry: regapi.EntryMetadata{Owner: "keeper/keeper"},
+			Data:     payload.NewPayload(`{"path":"./static/keeper"}`, payload.JSON),
 		},
 	}
 	depEntry := regapi.Entry{
@@ -3416,7 +3138,7 @@ replacements:
 		Data: payload.NewPayload(`{"component":"acme/http","version":"v1.0.0"}`, payload.JSON),
 	}
 
-	result, err := handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: depEntry}, fixtureState(snapshot))
+	result, err := handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: depEntry}, snapshot)
 	require.NoError(t, err)
 	assert.True(t, result.Applied)
 

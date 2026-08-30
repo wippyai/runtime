@@ -68,7 +68,7 @@ func TestRunPackEntries_InvalidRequirementFailsNormalizationPipeline(t *testing.
 		},
 	}
 
-	err = runPackEntries(ctx, loader, zap.NewNop(), packEntries, nil, []string{"missing"}, defaultUseCase, "")
+	err = runPackEntries(ctx, loader, zap.NewNop(), packEntries, []string{"missing"}, defaultUseCase, "")
 	if err == nil {
 		t.Fatal("expected normalization pipeline error")
 	}
@@ -101,7 +101,7 @@ func TestRunPackEntries_NoEntrypointRunsAsServer(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		done <- runPackEntries(ctx, loader, zap.NewNop(), nil, nil, nil, defaultUseCase, "")
+		done <- runPackEntries(ctx, loader, zap.NewNop(), nil, nil, defaultUseCase, "")
 	}()
 
 	select {
@@ -139,7 +139,7 @@ func TestRunPackEntries_TestModeWithoutTestEntrypointErrors(t *testing.T) {
 		_ = embedReg.Close()
 	})
 
-	err = runPackEntries(ctx, loader, zap.NewNop(), nil, nil, nil, "test", "")
+	err = runPackEntries(ctx, loader, zap.NewNop(), nil, nil, "test", "")
 	if err == nil {
 		t.Fatal("expected an error when there is no test entrypoint")
 	}
@@ -165,7 +165,7 @@ func TestRunPackEntries_RunModeUnknownCommandErrors(t *testing.T) {
 		_ = embedReg.Close()
 	})
 
-	err = runPackEntries(ctx, loader, zap.NewNop(), nil, nil, []string{"nope"}, defaultUseCase, "")
+	err = runPackEntries(ctx, loader, zap.NewNop(), nil, []string{"nope"}, defaultUseCase, "")
 	if err == nil {
 		t.Fatal("expected an error for an unknown command")
 	}
@@ -548,29 +548,25 @@ func TestCollectPackCommandsFiltersDependencyModules(t *testing.T) {
 
 	entries := []regapi.Entry{
 		{
-			ID:   regapi.NewID("wippy.test", "runner"),
-			Kind: "process.lua",
-			Data: payload.New(map[string]any{"source": "return {}"}),
+			ID:       regapi.NewID("wippy.test", "runner"),
+			Kind:     "process.lua",
+			Data:     payload.New(map[string]any{"source": "return {}"}),
+			Registry: regapi.EntryMetadata{Owner: "wippy/test"},
 			Meta: map[string]any{
-				"module":  "wippy/test",
 				"command": map[string]any{"name": "test"},
 			},
 		},
 		{
-			ID:   regapi.NewID("app", "serve"),
-			Kind: "process.lua",
-			Data: payload.New(map[string]any{"source": "return {}"}),
+			ID:       regapi.NewID("app", "serve"),
+			Kind:     "process.lua",
+			Data:     payload.New(map[string]any{"source": "return {}"}),
+			Registry: regapi.EntryMetadata{Owner: "kickside/kickside"},
 			Meta: map[string]any{
-				"module":  "kickside/kickside",
 				"command": map[string]any{"name": "serve", "main": true},
 			},
 		},
 	}
-	prov := regapi.ProvenanceMap{
-		regapi.NewID("wippy.test", "runner"): {Module: "wippy/test"},
-		regapi.NewID("app", "serve"):         {Module: "kickside/kickside"},
-	}
-	if err := applyPackEntries(appCtx, entries, prov, zap.NewNop()); err != nil {
+	if err := applyPackEntries(appCtx, entries, zap.NewNop()); err != nil {
 		t.Fatalf("apply entries: %v", err)
 	}
 
@@ -594,25 +590,48 @@ func TestCollectPackCommandsFiltersDependencyModules(t *testing.T) {
 func TestPackCommandAllowed(t *testing.T) {
 	tests := []struct {
 		name       string
-		module     string
+		owner      string
 		mainModule string
 		want       bool
 	}{
-		{name: "host command allowed without pack identity", module: "", want: true},
-		{name: "dependency command excluded without pack identity", module: "wippy/test", want: false},
-		{name: "main module command allowed", module: "kickside/kickside", mainModule: "kickside/kickside", want: true},
-		{name: "dependency command excluded when main module known", module: "wippy/test", mainModule: "kickside/kickside", want: false},
-		{name: "moduleless command allowed when main module known", module: "", mainModule: "kickside/kickside", want: true},
+		{
+			name: "moduleless command allowed without pack identity",
+			want: true,
+		},
+		{
+			name:  "dependency command excluded without pack identity",
+			owner: "wippy/test",
+			want:  false,
+		},
+		{
+			name:       "main module command allowed",
+			owner:      "kickside/kickside",
+			mainModule: "kickside/kickside",
+			want:       true,
+		},
+		{
+			name:       "dependency command excluded when main module known",
+			owner:      "wippy/test",
+			mainModule: "kickside/kickside",
+			want:       false,
+		},
+		{
+			name:       "moduleless command allowed when main module known",
+			mainModule: "kickside/kickside",
+			want:       true,
+		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := packCommandAllowed(tc.module, tc.mainModule); got != tc.want {
+			entry := regapi.Entry{Registry: regapi.EntryMetadata{Owner: tc.owner}}
+			if got := packCommandAllowed(entry, tc.mainModule); got != tc.want {
 				t.Fatalf("packCommandAllowed() = %v, want %v", got, tc.want)
 			}
 		})
 	}
 }
+
 func TestBootstrapPackRuntimeWithDefaults_Harness(t *testing.T) {
 	t.Run("applies runtime defaults when config key is missing", func(t *testing.T) {
 		tmpDir := t.TempDir()
@@ -696,7 +715,7 @@ func TestLoadPackEntries_RawLoadSkipsLinkPipeline(t *testing.T) {
 	embedReg := embedpkg.NewRegistry()
 	defer func() { _ = embedReg.Close() }()
 
-	packEntries, _, err := loadPackEntries([]string{packPath}, "", embedReg)
+	packEntries, err := loadPackEntries([]string{packPath}, "", embedReg)
 	if err != nil {
 		t.Fatalf("loadPackEntries failed: %v", err)
 	}
@@ -745,7 +764,7 @@ func TestLoadPackEntries_RejectsUnsupportedExtension(t *testing.T) {
 	embedReg := embedpkg.NewRegistry()
 	defer func() { _ = embedReg.Close() }()
 
-	_, _, err := loadPackEntries([]string{"./not-a-pack.yaml"}, "", embedReg)
+	_, err := loadPackEntries([]string{"./not-a-pack.yaml"}, "", embedReg)
 	if err == nil {
 		t.Fatal("expected error for unsupported pack extension")
 	}
@@ -774,7 +793,7 @@ func TestLoadPackEntries_AcceptsUppercaseExtension(t *testing.T) {
 	embedReg := embedpkg.NewRegistry()
 	defer func() { _ = embedReg.Close() }()
 
-	packEntries, _, err := loadPackEntries([]string{upperPath}, "", embedReg)
+	packEntries, err := loadPackEntries([]string{upperPath}, "", embedReg)
 	if err != nil {
 		t.Fatalf("loadPackEntries failed: %v", err)
 	}
@@ -793,7 +812,7 @@ func TestLoadPackEntries_RegisterErrorIncludesPath(t *testing.T) {
 		},
 	})
 
-	_, _, err := loadPackEntries([]string{packPath}, "", failingPackRegistry{err: errors.New("boom")})
+	_, err := loadPackEntries([]string{packPath}, "", failingPackRegistry{err: errors.New("boom")})
 	if err == nil {
 		t.Fatal("expected register error")
 	}
@@ -825,7 +844,7 @@ func TestLoadPackEntries_MultiPackOrder(t *testing.T) {
 	embedReg := embedpkg.NewRegistry()
 	defer func() { _ = embedReg.Close() }()
 
-	packEntries, _, err := loadPackEntries([]string{depPack, mainPack}, "", embedReg)
+	packEntries, err := loadPackEntries([]string{depPack, mainPack}, "", embedReg)
 	if err != nil {
 		t.Fatalf("loadPackEntries failed: %v", err)
 	}
@@ -850,7 +869,7 @@ func TestLoadPackEntries_MultiPackOrder(t *testing.T) {
 	}
 }
 
-func TestLoadPackEntries_AnnotatesModuleMetadataFromPackMetadata(t *testing.T) {
+func TestLoadPackEntries_AssignsModuleMetadataFromPackMetadata(t *testing.T) {
 	tmpDir := t.TempDir()
 	packPath := createTestPackFileWithMetadata(t, tmpDir, "module-pack", wapp.Metadata{
 		"name":      "users",
@@ -870,7 +889,7 @@ func TestLoadPackEntries_AnnotatesModuleMetadataFromPackMetadata(t *testing.T) {
 	embedReg := embedpkg.NewRegistry()
 	defer func() { _ = embedReg.Close() }()
 
-	packEntries, packProv, err := loadPackEntries([]string{packPath}, "", embedReg)
+	packEntries, err := loadPackEntries([]string{packPath}, "", embedReg)
 	if err != nil {
 		t.Fatalf("loadPackEntries failed: %v", err)
 	}
@@ -878,15 +897,8 @@ func TestLoadPackEntries_AnnotatesModuleMetadataFromPackMetadata(t *testing.T) {
 		t.Fatalf("entry count = %d, want 1", len(packEntries))
 	}
 
-	p := packProv[packEntries[0].ID.Canonical()]
-	if p.Module != "userspace/users" {
-		t.Fatalf("module = %q, want userspace/users", p.Module)
-	}
-	if p.Version != "0.1.3" {
-		t.Fatalf("module_version = %q, want 0.1.3", p.Version)
-	}
-	if packEntries[0].Meta.GetString("module", "") != "" {
-		t.Fatal("entry payload must not carry ownership metadata")
+	if got := packEntries[0].Registry.Owner; got != "userspace/users" {
+		t.Fatalf("owner = %q, want userspace/users", got)
 	}
 }
 
@@ -907,24 +919,24 @@ func TestLoadPackEntries_UsesExplicitRootIdentityNotPackOrder(t *testing.T) {
 
 	embedReg := embedpkg.NewRegistry()
 	defer func() { _ = embedReg.Close() }()
-	packEntries, packProv, err := loadPackEntries([]string{rootPack, transitivePack}, "acme/app", embedReg)
+	packEntries, err := loadPackEntries([]string{rootPack, transitivePack}, "acme/app", embedReg)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(packEntries) != 2 {
 		t.Fatalf("entry count = %d, want 2", len(packEntries))
 	}
-	if !packProv[packEntries[0].ID.Canonical()].Root {
+	if !packEntries[0].Registry.Root {
 		t.Fatal("explicit root module dependency was not marked as a deployment root")
 	}
-	if packProv[packEntries[1].ID.Canonical()].Root {
+	if packEntries[1].Registry.Root {
 		t.Fatal("last pack was incorrectly promoted to a deployment root")
 	}
-	if got := packProv[packEntries[0].ID.Canonical()].Module; got != "acme/app" {
-		t.Fatalf("root ownership was discarded: %q", got)
+	if got := packEntries[0].Registry.Owner; got != "acme/app" {
+		t.Fatalf("root owner was discarded: %q", got)
 	}
-	if got := packProv[packEntries[1].ID.Canonical()].Module; got != "acme/lib" {
-		t.Fatalf("transitive ownership = %q, want acme/lib", got)
+	if got := packEntries[1].Registry.Owner; got != "acme/lib" {
+		t.Fatalf("transitive owner = %q, want acme/lib", got)
 	}
 }
 
@@ -939,7 +951,7 @@ func TestLoadPackEntries_RegistersModuleOwnedEmbeddedResources(t *testing.T) {
 	embedReg := embedpkg.NewRegistry()
 	defer func() { _ = embedReg.Close() }()
 
-	packEntries, packProv, err := loadPackEntries([]string{packPath}, "", embedReg)
+	packEntries, err := loadPackEntries([]string{packPath}, "", embedReg)
 	if err != nil {
 		t.Fatalf("loadPackEntries failed: %v", err)
 	}
@@ -947,13 +959,9 @@ func TestLoadPackEntries_RegistersModuleOwnedEmbeddedResources(t *testing.T) {
 		t.Fatalf("entry count = %d, want 1", len(packEntries))
 	}
 
-	var entryProv *regapi.EntryProvenance
-	if p, ok := packProv[packEntries[0].ID.Canonical()]; ok {
-		entryProv = &p
-	}
-	fsys, err := embedReg.GetFSForEntry(packEntries[0], entryProv)
+	fsys, err := embedReg.GetFS(packEntries[0].ID)
 	if err != nil {
-		t.Fatalf("GetFSForEntry failed: %v", err)
+		t.Fatalf("GetFS failed: %v", err)
 	}
 	data, err := fs.ReadFile(fsys, "index.html")
 	if err != nil {
@@ -964,7 +972,7 @@ func TestLoadPackEntries_RegistersModuleOwnedEmbeddedResources(t *testing.T) {
 	}
 }
 
-func TestLoadPackEntries_DoesNotOverrideExistingModuleMetadata(t *testing.T) {
+func TestLoadPackEntries_PreservesAuthorMetadata(t *testing.T) {
 	tmpDir := t.TempDir()
 	packPath := createTestPackFileWithMetadata(t, tmpDir, "module-pack-existing-meta", wapp.Metadata{
 		"name":      "users",
@@ -985,7 +993,7 @@ func TestLoadPackEntries_DoesNotOverrideExistingModuleMetadata(t *testing.T) {
 	embedReg := embedpkg.NewRegistry()
 	defer func() { _ = embedReg.Close() }()
 
-	packEntries, _, err := loadPackEntries([]string{packPath}, "", embedReg)
+	packEntries, err := loadPackEntries([]string{packPath}, "", embedReg)
 	if err != nil {
 		t.Fatalf("loadPackEntries failed: %v", err)
 	}
@@ -995,28 +1003,30 @@ func TestLoadPackEntries_DoesNotOverrideExistingModuleMetadata(t *testing.T) {
 
 	meta := packEntries[0].Meta
 	if got := meta.GetString("module", ""); got != "custom/module" {
-		t.Fatalf("module = %q, want custom/module", got)
+		t.Fatalf("author module metadata = %q, want custom/module", got)
 	}
 	if got := meta.GetString("module_version", ""); got != "9.9.9" {
-		t.Fatalf("module_version = %q, want 9.9.9", got)
+		t.Fatalf("author module version metadata = %q, want 9.9.9", got)
+	}
+	if got := packEntries[0].Registry.Owner; got != "userspace/users" {
+		t.Fatalf("owner = %q, want userspace/users", got)
 	}
 }
 
-func TestLoadPackEntries_MonolithicPackRegistersModuleResourceAliases(t *testing.T) {
+func TestLoadPackEntries_MonolithicPackRegistersResourcesByID(t *testing.T) {
 	tmpDir := t.TempDir()
 	root := filepath.Join(tmpDir, "static")
 	writeTestFile(t, root, "index.html", []byte("<html>module</html>\n"))
 
-	packPath := createTestResourcePackFile(t, tmpDir, "snapshot", wapp.Metadata{
-		"name": "snapshot",
-	}, []wapp.Entry{{
+	entries := []wapp.Entry{{
 		ID:   wapp.NewID("acme.ui", "static_fs"),
 		Kind: "fs.embed",
-		Meta: wapp.Metadata{
-			"module":         "acme/ui",
-			"module_version": "1.2.3",
-		},
-	}}, []wapp.ResourceSpec{{
+		Meta: wapp.Metadata{"module": "author/controlled"},
+	}}
+	metadata := wapp.Metadata{"name": "snapshot", packRegistryMetadataKey: map[string]any{
+		"entries": map[string]any{"acme.ui:static_fs": map[string]any{"owner": "acme/ui"}},
+	}}
+	packPath := createTestResourcePackFile(t, tmpDir, "snapshot", metadata, entries, []wapp.ResourceSpec{{
 		ID: wapp.NewID("acme.ui", "static_fs"),
 		FS: os.DirFS(root),
 	}})
@@ -1024,28 +1034,65 @@ func TestLoadPackEntries_MonolithicPackRegistersModuleResourceAliases(t *testing
 	embedReg := embedpkg.NewRegistry()
 	defer func() { _ = embedReg.Close() }()
 
-	packEntries, packProv, err := loadPackEntries([]string{packPath}, "", embedReg)
+	packEntries, err := loadPackEntries([]string{packPath}, "", embedReg)
 	if err != nil {
 		t.Fatalf("loadPackEntries failed: %v", err)
 	}
 	if len(packEntries) != 1 {
 		t.Fatalf("entry count = %d, want 1", len(packEntries))
 	}
-
-	var entryProv *regapi.EntryProvenance
-	if p, ok := packProv[packEntries[0].ID.Canonical()]; ok {
-		entryProv = &p
+	if got := packEntries[0].Registry.Owner; got != "acme/ui" {
+		t.Fatalf("owner = %q, want acme/ui", got)
 	}
-	fsys, err := embedReg.GetFSForEntry(packEntries[0], entryProv)
+
+	fsys, err := embedReg.GetFS(packEntries[0].ID)
 	if err != nil {
-		t.Fatalf("GetFSForEntry failed: %v", err)
+		t.Fatalf("GetFS failed: %v", err)
 	}
 	data, err := fs.ReadFile(fsys, "index.html")
 	if err != nil {
-		t.Fatalf("read aliased resource: %v", err)
+		t.Fatalf("read embedded resource: %v", err)
 	}
 	if string(data) != "<html>module</html>\n" {
-		t.Fatalf("aliased resource data = %q", string(data))
+		t.Fatalf("embedded resource data = %q", string(data))
+	}
+}
+
+func TestPackRegistryMetadataCoversRegistryState(t *testing.T) {
+	items := []regapi.Entry{
+		{ID: regapi.NewID("app", "root"), Registry: regapi.EntryMetadata{Root: true}},
+		{ID: regapi.NewID("acme.ui", "static"), Registry: regapi.EntryMetadata{Owner: "acme/ui"}},
+	}
+	metadata := packRegistryMetadata(items)
+	records, ok := metadata["entries"].(map[string]any)
+	if !ok {
+		t.Fatalf("entries metadata = %T, want map", metadata["entries"])
+	}
+	root, ok := records["app:root"].(map[string]any)
+	if !ok || root["root"] != true {
+		t.Fatalf("root metadata = %#v, want root marker", records["app:root"])
+	}
+	owned, ok := records["acme.ui:static"].(map[string]any)
+	if !ok || owned["owner"] != "acme/ui" {
+		t.Fatalf("owner metadata = %#v, want acme/ui", records["acme.ui:static"])
+	}
+}
+
+func TestLoadPackEntriesRejectsIncompleteRegistryMetadata(t *testing.T) {
+	tmpDir := t.TempDir()
+	packPath := createTestPackFileWithMetadata(t, tmpDir, "snapshot", wapp.Metadata{
+		"name":                  "snapshot",
+		packRegistryMetadataKey: map[string]any{"entries": map[string]any{}},
+	}, []wapp.Entry{{
+		ID:   wapp.NewID("app", "serve"),
+		Kind: "process.lua",
+	}})
+
+	embedReg := embedpkg.NewRegistry()
+	defer func() { _ = embedReg.Close() }()
+	_, err := loadPackEntries([]string{packPath}, "", embedReg)
+	if err == nil || !strings.Contains(err.Error(), "does not cover entry app:serve") {
+		t.Fatalf("loadPackEntries error = %v, want incomplete registry metadata", err)
 	}
 }
 
@@ -1265,6 +1312,13 @@ func createTestPackFile(t *testing.T, dir, name string, entries []wapp.Entry) st
 
 func createTestPackFileWithMetadata(t *testing.T, dir, name string, metadata wapp.Metadata, entries []wapp.Entry) string {
 	t.Helper()
+	if _, found := metadata[packRegistryMetadataKey]; !found {
+		converted := make([]regapi.Entry, len(entries))
+		for i := range entries {
+			converted[i] = regapi.Entry{ID: regapi.NewID(entries[i].ID.Namespace, entries[i].ID.Name)}
+		}
+		metadata[packRegistryMetadataKey] = packRegistryMetadata(converted)
+	}
 
 	var buf bytes.Buffer
 	writer := wapp.NewWriter()

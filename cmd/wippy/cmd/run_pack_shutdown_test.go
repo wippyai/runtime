@@ -74,7 +74,7 @@ func TestRunPackEntries_GracefulShutdownStopsRunningService(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		done <- runPackEntries(ctx, loader, baseLogger, nil, nil, nil, defaultUseCase, "")
+		done <- runPackEntries(ctx, loader, baseLogger, nil, nil, defaultUseCase, "")
 	}()
 
 	waitForLogMessage(t, logs, "supervisor started")

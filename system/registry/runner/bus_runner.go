@@ -107,6 +107,7 @@ func (br *BusRunner) Transition(
 	cs registry.ChangeSet,
 ) (registry.State, error) {
 	currentState := newStateMap(initialState)
+	originalState := newStateMap(initialState) // Keep a copy of the original state for rollbacks
 
 	txPath := br.nextTransactionPath()
 	txParticipants, err := br.registryTransactionParticipants()
@@ -119,7 +120,6 @@ func (br *BusRunner) Transition(
 
 	remaining := append(registry.ChangeSet(nil), cs...)
 	pass := 0
-	var journal []acceptedOperation
 
 	for len(remaining) > 0 {
 		pass++
@@ -127,23 +127,18 @@ func (br *BusRunner) Transition(
 			deferred       registry.ChangeSet
 			lastDeferErr   error
 			fatalErr       error
+			fatalState     registry.StateMap
 			progressed     bool
 			retriedCount   int
 			deferredFirstP = pass == 1
 		)
 
 		for _, op := range remaining {
-			var pre *registry.Entry
-			if existing, ok := currentState[op.Entry.ID]; ok {
-				cp := existing
-				pre = &cp
-			}
 			newState, opErr := br.applyOperation(ctx, currentState, op)
 			if opErr == nil {
-				journal = append(journal, acceptedOperation{op: op, pre: pre})
 				currentState = newState
 				if ctxErr := ctx.Err(); ctxErr != nil {
-					rolled := br.cancelTransition(ctx, txParticipants, txPath, journal, currentState, ctxErr)
+					rolled := br.cancelTransition(ctx, txParticipants, txPath, originalState, currentState, ctxErr)
 					return stateMapToSlice(rolled), ctxErr
 				}
 				progressed = true
@@ -157,7 +152,7 @@ func (br *BusRunner) Transition(
 				continue
 			}
 			if ctx.Err() != nil {
-				rolled := br.cancelTransition(ctx, txParticipants, txPath, journal, currentState, opErr)
+				rolled := br.cancelTransition(ctx, txParticipants, txPath, originalState, currentState, opErr)
 				return stateMapToSlice(rolled), opErr
 			}
 			if isDeferrable(opErr) {
@@ -171,12 +166,13 @@ func (br *BusRunner) Transition(
 				continue
 			}
 			fatalErr = opErr
+			fatalState = newState
 			break
 		}
 
 		if fatalErr != nil {
 			br.log.Error("operation failed, initiating rollback", zap.Error(fatalErr))
-			rolled := br.rollback(ctx, journal, currentState)
+			rolled := br.rollback(ctx, originalState, fatalState)
 			if discardErr := br.dispatchTransaction(ctx, txParticipants, registry.TxDiscard, txPath, fatalErr); discardErr != nil {
 				br.log.Error("failed to discard transaction", zap.Error(discardErr))
 			}
@@ -202,7 +198,7 @@ func (br *BusRunner) Transition(
 				zap.Int("passes", pass),
 				zap.Strings("unresolved", idStrings(unresolved)),
 				zap.Error(finalErr))
-			rolled := br.rollback(ctx, journal, currentState)
+			rolled := br.rollback(ctx, originalState, currentState)
 			if discardErr := br.dispatchTransaction(ctx, txParticipants, registry.TxDiscard, txPath, finalErr); discardErr != nil {
 				br.log.Error("failed to discard transaction", zap.Error(discardErr))
 			}
@@ -213,16 +209,16 @@ func (br *BusRunner) Transition(
 	}
 
 	if ctxErr := ctx.Err(); ctxErr != nil {
-		rolled := br.cancelTransition(ctx, txParticipants, txPath, journal, currentState, ctxErr)
+		rolled := br.cancelTransition(ctx, txParticipants, txPath, originalState, currentState, ctxErr)
 		return stateMapToSlice(rolled), ctxErr
 	}
 	if err := br.dispatchTransaction(ctx, txParticipants, registry.TxCommit, txPath, nil); err != nil {
 		br.log.Error("transaction commit failed, initiating rollback", zap.Error(err))
 		if ctx.Err() != nil {
-			newState := br.cancelTransition(ctx, txParticipants, txPath, journal, currentState, err)
+			newState := br.cancelTransition(ctx, txParticipants, txPath, originalState, currentState, err)
 			return stateMapToSlice(newState), err
 		}
-		newState := br.rollback(ctx, journal, currentState)
+		newState := br.rollback(ctx, originalState, currentState)
 		if discardErr := br.dispatchTransaction(ctx, txParticipants, registry.TxDiscard, txPath, err); discardErr != nil {
 			br.log.Error("failed to discard transaction after commit failure", zap.Error(discardErr))
 		}
@@ -236,14 +232,13 @@ func (br *BusRunner) cancelTransition(
 	ctx context.Context,
 	participants []string,
 	txPath event.Path,
-	journal []acceptedOperation,
-	currentState registry.StateMap,
+	originalState, currentState registry.StateMap,
 	cause error,
 ) registry.StateMap {
 	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), br.waitTimeout)
 	defer cancel()
 
-	rolled := br.rollback(cleanupCtx, journal, currentState)
+	rolled := br.rollback(cleanupCtx, originalState, currentState)
 	if err := br.dispatchTransaction(cleanupCtx, participants, registry.TxDiscard, txPath, cause); err != nil {
 		br.log.Error("failed to discard canceled transaction", zap.Error(err))
 	}
@@ -441,15 +436,6 @@ func (br *BusRunner) applyOperation(
 		return newState, nil
 	}
 
-	// The operation's provenance pair rides the event envelope; the listener
-	// adapters re-inject it into the context they hand each listener, so a
-	// listener resolving during Add/Update/Delete sees the identity of the
-	// entry it is handling without reading any global index.
-	opProv := registry.OpProvenance{
-		Effective: op.Provenance,
-		Original:  op.OriginalProvenance,
-	}
-
 	waiter, err := br.prepareWaiter(ctx, registry.EntryResult, op.Entry.ID.String())
 	if err != nil {
 		return state, err
@@ -462,7 +448,6 @@ func (br *BusRunner) applyOperation(
 		Kind:   op.Kind,
 		Path:   op.Entry.ID.String(),
 		Data:   op.Entry,
-		Aux:    opProv,
 	})
 
 	result := waiter.Wait()
@@ -499,89 +484,41 @@ func (br *BusRunner) applyOperation(
 
 func (br *BusRunner) rollback(
 	ctx context.Context,
-	journal []acceptedOperation,
-	currentState registry.StateMap,
+	originalState, currentState registry.StateMap,
 ) registry.StateMap {
-	br.log.Debug("starting rollback", zap.Int("accepted_ops", len(journal)))
+	br.log.Debug("starting rollback")
 
-	outcome := registry.RollbackOutcomeFromContext(ctx)
+	// Convert states to registry.State format for BuildDelta
+	fromState := stateMapToSlice(currentState)
+	toState := stateMapToSlice(originalState)
 
-	// Accepted operations are compensated in reverse acceptance order, each by
-	// its kind-specific inverse. The inverse carries the operation's own
-	// provenance pair swapped into the compensating direction, so listeners
-	// resolving during compensation see the identity of what is being restored.
-	for i := len(journal) - 1; i >= 0; i-- {
-		inv, ok := inverseOperation(journal[i])
-		if !ok {
-			err := NewNoInverseError(journal[i].op.Kind, journal[i].op.Entry.ID)
-			br.log.Error("no inverse for accepted operation", zap.Error(err))
-			if outcome != nil {
-				outcome.Record(journal[i].op, false, err)
-			}
-			continue
-		}
+	// Use BuildDelta to generate ordered operations
+	delta, err := br.builder.BuildDelta(fromState, toState)
+	if err != nil {
+		br.log.Error("failed to build rollback delta", zap.Error(err))
+		return currentState
+	}
 
-		newState, err := br.applyOperation(ctx, currentState, inv)
+	br.log.Debug("rollback delta calculated", zap.Any("delta", delta))
+
+	// Apply rollback operations
+	for _, op := range delta {
+		br.log.Debug("applying rollback operation",
+			zap.String("kind", op.Kind),
+			zap.String("id", op.Entry.ID.String()),
+			zap.Any("meta", op.Entry.Meta))
+
+		newState, err := br.applyOperation(ctx, currentState, op)
 		if err != nil {
 			br.log.Error("failed to apply rollback operation",
-				zap.Any("operation", inv),
+				zap.Any("operation", op),
 				zap.Error(err))
-			if outcome != nil {
-				outcome.Record(journal[i].op, false, err)
-			}
 			// Continue trying other operations instead of returning
 			continue
-		}
-		if outcome != nil {
-			outcome.Record(journal[i].op, true, nil)
 		}
 		currentState = newState
 	}
 	return currentState
-}
-
-// acceptedOperation records one operation a transition applied, with the entry
-// it replaced, so the transition can be compensated exactly.
-type acceptedOperation struct {
-	pre *registry.Entry
-	op  registry.Operation
-}
-
-// inverseOperation builds the compensating operation for one accepted
-// operation.
-func inverseOperation(a acceptedOperation) (registry.Operation, bool) {
-	op := a.op
-	switch op.Kind {
-	case registry.EntryCreate:
-		return registry.Operation{
-			Kind:       registry.EntryDelete,
-			Entry:      op.Entry,
-			Provenance: op.Provenance,
-		}, true
-	case registry.EntryUpdate:
-		if a.pre == nil {
-			return registry.Operation{}, false
-		}
-		applied := op.Entry
-		return registry.Operation{
-			Kind:               registry.EntryUpdate,
-			Entry:              *a.pre,
-			OriginalEntry:      &applied,
-			Provenance:         op.OriginalProvenance,
-			OriginalProvenance: op.Provenance,
-		}, true
-	case registry.EntryDelete:
-		if a.pre == nil {
-			return registry.Operation{}, false
-		}
-		return registry.Operation{
-			Kind:       registry.EntryCreate,
-			Entry:      *a.pre,
-			Provenance: op.OriginalProvenance,
-		}, true
-	default:
-		return registry.Operation{}, false
-	}
 }
 
 // newStateMap creates a StateMap from a State slice

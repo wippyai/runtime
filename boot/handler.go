@@ -135,10 +135,6 @@ func wrapListener(kinds registry.Kind, listener registry.EntryListener) eventbus
 				return nil
 			}
 
-			if opProv, ok := evt.Aux.(registry.OpProvenance); ok {
-				ctx = registry.WithOpProvenance(ctx, opProv)
-			}
-
 			bus := event.GetBus(ctx)
 			if err := dispatchEntry(ctx, evt.Kind, entry, listener); err != nil {
 				bus.Send(ctx, event.Event{

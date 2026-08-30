@@ -55,7 +55,7 @@ func TestRollbackToV0(t *testing.T) {
 		},
 	}
 
-	err := reg.LoadState(ctx, hostProvenanced(baseline), version.FromParent(nil, 0))
+	err := reg.LoadState(ctx, baseline, version.FromParent(nil, 0))
 	require.NoError(t, err)
 
 	entryID := registry.NewID("test", "entry1")

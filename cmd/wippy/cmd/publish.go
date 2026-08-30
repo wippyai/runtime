@@ -468,11 +468,11 @@ func packModule(ctx context.Context, app *appinit.Context, cfg *config.ModuleCon
 	pipelineStages := []boot.Stage{
 		stages.Override(),
 		stages.DisableWithOptions(disableOpts),
-		stages.Link(nil),
+		stages.Link(),
 		stages.Override(),
 	}
 	if len(embedPatterns) > 0 {
-		pipelineStages = append(pipelineStages, stages.EmbedFS(srcDir, nil, embedPatterns...))
+		pipelineStages = append(pipelineStages, stages.EmbedFS(srcDir, embedPatterns...))
 	}
 
 	pipeline := build.New(pipelineStages...)

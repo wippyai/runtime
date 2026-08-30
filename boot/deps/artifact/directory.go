@@ -16,12 +16,11 @@ import (
 )
 
 // DirectoryResources resolves artifact declarations from selected local
-// fs.directory entries. Ownership comes from the state's provenance, which is
-// total over its entries. moduleRoots is the authoritative source root for each
+// fs.directory entries. moduleRoots is the authoritative source root for each
 // local module; entries outside that set are ignored.
 func DirectoryResources(
 	ctx context.Context,
-	state regapi.ProvenancedState,
+	entries regapi.State,
 	moduleRoots map[string]string,
 	moduleVersions map[string]string,
 ) ([]Resource, error) {
@@ -34,12 +33,8 @@ func DirectoryResources(
 	}
 
 	resources := make([]Resource, 0)
-	for _, entry := range state.Entries {
-		record, known := state.Provenance[entry.ID]
-		if !known {
-			return nil, regapi.NewMissingProvenanceError(entry.ID)
-		}
-		module := record.Module
+	for _, entry := range entries {
+		module := entry.Registry.Owner
 		moduleRoot, selected := moduleRoots[module]
 		if !selected || entry.Kind != dirapi.Kind {
 			continue

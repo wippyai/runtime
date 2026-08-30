@@ -5,6 +5,8 @@ package hub
 import (
 	"context"
 	"fmt"
+	"sort"
+	"strings"
 
 	"github.com/wippyai/runtime/api/payload"
 	regapi "github.com/wippyai/runtime/api/registry"
@@ -16,37 +18,42 @@ import (
 // replacements without granting that resolver any network capability.
 type lockedManifestProvider struct {
 	handler *DependencyHandler
-	modules map[string]ResolvedModule
+	modules map[string]map[string]ResolvedModule
 }
 
 func newLockedManifestProvider(
 	handler *DependencyHandler,
-	materializedVersions map[string]string,
-	lockedDigests map[string]string,
+	selectedModules []regapi.ResolvedModule,
 ) ManifestProvider {
 	provider := &lockedManifestProvider{
 		handler: handler,
-		modules: make(map[string]ResolvedModule),
+		modules: make(map[string]map[string]ResolvedModule),
 	}
-	if handler == nil || handler.lock == nil {
+	if handler == nil {
 		return provider
 	}
-	for _, locked := range handler.lock.GetModules() {
-		name, err := graph.ParseName(locked.Name)
-		if err != nil || locked.Version == "" || materializedVersions[locked.Name] != locked.Version {
+	for _, selected := range selectedModules {
+		name, err := graph.ParseName(selected.Name)
+		if err != nil || selected.Version == "" {
 			continue
 		}
-		digest := lockedDigests[locked.Name+"@"+locked.Version]
-		if err := validateModuleArtifactIdentity(name, locked.Version, digest); err != nil || digest == "" {
+		if err := validateStoredModuleArtifactIdentity(name, selected.Version, selected.Source, selected.Digest); err != nil {
 			continue
 		}
-		provider.modules[locked.Name] = ResolvedModule{
+		versions := provider.modules[selected.Name]
+		if versions == nil {
+			versions = make(map[string]ResolvedModule)
+			provider.modules[selected.Name] = versions
+		}
+		versions[strings.TrimPrefix(selected.Version, "v")] = ResolvedModule{
 			Org:       name.Organization,
 			Name:      name.Module,
-			Version:   locked.Version,
-			VersionID: locked.Version,
-			Source:    moduleSourceHub,
-			Digest:    digest,
+			Version:   selected.Version,
+			VersionID: selected.VersionID,
+			Source:    selected.Source,
+			Digest:    selected.Digest,
+			SizeBytes: selected.SizeBytes,
+			Protected: selected.Protected,
 		}
 	}
 	return provider
@@ -54,8 +61,9 @@ func newLockedManifestProvider(
 
 func (p *lockedManifestProvider) GetManifest(ctx context.Context, org, module, constraint string) (*ModuleManifest, error) {
 	name := org + "/" + module
-	mod, ok := p.modules[name]
-	if !ok || !storedVersionSatisfies(mod.Version, constraint) {
+	versions := p.modules[name]
+	mod, ok := versions[strings.TrimPrefix(constraint, "v")]
+	if !ok {
 		return nil, NewDependencyOfflineError("resolve manifest", name)
 	}
 	transcoder := payload.GetTranscoder(ctx)
@@ -83,11 +91,16 @@ func (p *lockedManifestProvider) GetManifest(ctx context.Context, org, module, c
 
 func (p *lockedManifestProvider) ListAllVersions(_ context.Context, org, module string) ([]VersionInfo, error) {
 	name := org + "/" + module
-	mod, ok := p.modules[name]
-	if !ok {
+	modules := p.modules[name]
+	if len(modules) == 0 {
 		return nil, NewDependencyOfflineError("list versions", name)
 	}
-	return []VersionInfo{{Version: mod.Version}}, nil
+	versions := make([]VersionInfo, 0, len(modules))
+	for _, mod := range modules {
+		versions = append(versions, VersionInfo{Version: mod.Version})
+	}
+	sort.Slice(versions, func(i, j int) bool { return versions[i].Version < versions[j].Version })
+	return versions, nil
 }
 
 func manifestDependenciesFromEntries(

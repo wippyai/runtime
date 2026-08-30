@@ -58,7 +58,7 @@ func setupBenchRegistry(b *testing.B, entryCount int) *Reg {
 		}
 	}
 
-	err := reg.LoadState(context.Background(), hostProvenanced(baseline), version.FromParent(nil, 0))
+	err := reg.LoadState(context.Background(), baseline, version.FromParent(nil, 0))
 	if err != nil {
 		b.Fatalf("failed to load baseline: %v", err)
 	}
@@ -216,7 +216,7 @@ func BenchmarkLoadState(b *testing.B) {
 
 			for i := 0; i < b.N; i++ {
 				reg := NewRegistry(hist, runner, builder, nil, zap.NewNop())
-				err := reg.LoadState(context.Background(), hostProvenanced(baseline), version.FromParent(nil, 0))
+				err := reg.LoadState(context.Background(), baseline, version.FromParent(nil, 0))
 				if err != nil {
 					b.Fatalf("LoadState failed: %v", err)
 				}

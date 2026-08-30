@@ -54,7 +54,7 @@ func ensureModulesAndLoadEntries(
 		}
 	}
 
-	allEntries, _, err := loadEntriesFromLockPaths(ctx, lockObj, logger)
+	allEntries, err := loadEntriesFromLockPaths(ctx, lockObj, logger)
 	if err != nil {
 		return nil, NewLoadEntriesError(fmt.Sprintf("lock paths (%s)", lockPath), err)
 	}

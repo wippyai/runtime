@@ -108,16 +108,35 @@ type (
 	// State represents the complete state of the registry at a specific version
 	State []Entry
 
+	// Snapshot is one atomic registry view. Registry contains system-owned
+	// state that must describe the same version as Entries.
+	Snapshot struct {
+		Registry StateMetadata
+		Version  Version
+		Entries  State
+	}
+
+	// StateMetadata contains registry-owned state that is not authored entry
+	// payload. The selected module graph is stored once, not repeated per entry.
+	StateMetadata struct {
+		Resolution *DependencyResolution
+	}
+
 	// Entry represents a single entry in the registry
 	Entry struct {
-		Data payload.Payload `json:"data"`
-		Meta attrs.Bag       `json:"meta"`
-		ID   ID              `json:"id"`
-		Kind Kind            `json:"kind"`
-		// DependencyRoot identifies an ns.dependency selected as a deployment
-		// root. It is independent of package ownership, so a published app entry
-		// can retain meta.module while remaining a root.
-		DependencyRoot bool `json:"dependency_root,omitempty"`
+		Data     payload.Payload `json:"data"`
+		Meta     attrs.Bag       `json:"meta"`
+		ID       ID              `json:"id"`
+		Kind     Kind            `json:"kind"`
+		Registry EntryMetadata   `json:"registry,omitzero"`
+	}
+
+	// EntryMetadata is state owned by the registry rather than the entry
+	// author. Owner is assigned from the deployment source that supplied the
+	// entry. Root marks a dependency declaration selected by the deployment.
+	EntryMetadata struct {
+		Owner string `json:"owner,omitempty"`
+		Root  bool   `json:"root,omitempty"`
 	}
 
 	// ChangeSet represents a set of operations to transition the registry from one state to another
@@ -125,11 +144,9 @@ type (
 
 	// Operation represents a single operation within a ChangeSet
 	Operation struct {
-		OriginalEntry      *Entry           `json:"original_entry,omitempty"`
-		Provenance         *EntryProvenance `json:"provenance,omitempty"`
-		OriginalProvenance *EntryProvenance `json:"original_provenance,omitempty"`
-		Kind               event.Kind       `json:"kind"`
-		Entry              Entry            `json:"entry"`
+		OriginalEntry *Entry     `json:"original_entry,omitempty"`
+		Kind          event.Kind `json:"kind"`
+		Entry         Entry      `json:"entry"`
 	}
 
 	// DependencyPattern defines a pattern for extracting dependencies from entries
@@ -157,6 +174,8 @@ type (
 		// Current returns the current version of the registry's state
 		Current() (Version, error)
 		History() History
+		// Snapshot returns entries and registry metadata from one version.
+		Snapshot() Snapshot
 		// RegisterDependencyPattern adds a pattern for dependency extraction
 		RegisterDependencyPattern(pattern DependencyPattern) error
 	}
@@ -168,7 +187,7 @@ type (
 		// ApplyVersion applies a specific version to the registry
 		ApplyVersion(context.Context, Version) error
 		// LoadState initializes registry state from baseline and history without creating new version records
-		LoadState(context.Context, ProvenancedState, Version) error
+		LoadState(context.Context, State, Version) error
 	}
 
 	// OverlayWriter manages process-local registry overlays. Overlay entries

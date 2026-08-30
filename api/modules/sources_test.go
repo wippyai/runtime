@@ -29,7 +29,7 @@ func TestSourceRegistryLoadAndResourceRoots(t *testing.T) {
 		},
 	})
 
-	registry.SetLoader(func(context.Context, Sources) ([]regapi.Entry, regapi.ProvenanceMap, error) { return nil, nil, nil })
+	registry.SetLoader(func(context.Context, Sources) ([]regapi.Entry, error) { return nil, nil })
 	loaded, err := registry.Load(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -45,14 +45,27 @@ func TestSourceRegistryLoadAndResourceRoots(t *testing.T) {
 	}
 }
 
+func TestSourceRegistrySnapshotIsDetached(t *testing.T) {
+	registry := NewSourceRegistry()
+	registry.Set(Sources{"acme/app": {LoadPath: "/pack", Version: "1.0.0"}})
+
+	snapshot := registry.Snapshot()
+	snapshot["acme/app"] = Source{LoadPath: "/changed"}
+	delete(snapshot, "acme/app")
+
+	if got := registry.Snapshot()["acme/app"].LoadPath; got != "/pack" {
+		t.Fatalf("stored source changed through snapshot: %q", got)
+	}
+}
+
 func TestSourceLoaderReceivesIsolatedSnapshot(t *testing.T) {
 	registry := NewSourceRegistry()
 	source := Source{LoadPath: "/repo/ui", Owner: "acme/ui", Version: "1.2.3", Digest: "sha256:ui", Sequence: 1}
 	registry.Set(Sources{"acme/ui": source})
 	var loaded Sources
-	registry.SetLoader(func(_ context.Context, sources Sources) ([]regapi.Entry, regapi.ProvenanceMap, error) {
+	registry.SetLoader(func(_ context.Context, sources Sources) ([]regapi.Entry, error) {
 		loaded = sources
-		return []regapi.Entry{{ID: regapi.NewID("example", "entry"), Kind: "registry.entry"}}, nil, nil
+		return []regapi.Entry{{ID: regapi.NewID("example", "entry"), Kind: "registry.entry"}}, nil
 	})
 
 	result, err := registry.Load(context.Background())
@@ -63,11 +76,11 @@ func TestSourceLoaderReceivesIsolatedSnapshot(t *testing.T) {
 		t.Fatalf("load = %v, %#v", result.Entries, loaded)
 	}
 	loaded["acme/ui"] = Source{LoadPath: "/mutated"}
-	registry.SetLoader(func(_ context.Context, sources Sources) ([]regapi.Entry, regapi.ProvenanceMap, error) {
+	registry.SetLoader(func(_ context.Context, sources Sources) ([]regapi.Entry, error) {
 		if sources["acme/ui"] != source {
 			t.Fatalf("loader mutated registry: %#v", sources)
 		}
-		return nil, nil, nil
+		return nil, nil
 	})
 	_, err = registry.Load(context.Background())
 	if err != nil {
@@ -84,22 +97,22 @@ func TestSourceRegistrySetReplacesCompleteSnapshot(t *testing.T) {
 	registry.Set(Sources{
 		ApplicationSourceID: {LoadPath: "/repo/next", Owner: ApplicationSourceID},
 	})
-	registry.SetLoader(func(_ context.Context, sources Sources) ([]regapi.Entry, regapi.ProvenanceMap, error) {
+	registry.SetLoader(func(_ context.Context, sources Sources) ([]regapi.Entry, error) {
 		if len(sources) != 1 || sources[ApplicationSourceID].LoadPath != "/repo/next" {
 			t.Fatalf("sources = %#v", sources)
 		}
-		return nil, nil, nil
+		return nil, nil
 	})
 	if _, err := registry.Load(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 
 	registry.Set(nil)
-	registry.SetLoader(func(_ context.Context, sources Sources) ([]regapi.Entry, regapi.ProvenanceMap, error) {
+	registry.SetLoader(func(_ context.Context, sources Sources) ([]regapi.Entry, error) {
 		if len(sources) != 0 {
 			t.Fatalf("sources after empty set = %#v", sources)
 		}
-		return nil, nil, nil
+		return nil, nil
 	})
 	if _, err := registry.Load(context.Background()); err != nil {
 		t.Fatal(err)
@@ -142,10 +155,10 @@ func TestSourceTransitionWaitsForActiveReload(t *testing.T) {
 
 	loadStarted := make(chan Sources, 1)
 	releaseLoad := make(chan struct{})
-	registry.SetLoader(func(_ context.Context, sources Sources) ([]regapi.Entry, regapi.ProvenanceMap, error) {
+	registry.SetLoader(func(_ context.Context, sources Sources) ([]regapi.Entry, error) {
 		loadStarted <- sources
 		<-releaseLoad
-		return nil, nil, nil
+		return nil, nil
 	})
 	loadDone := make(chan error, 1)
 	go func() {
@@ -194,11 +207,11 @@ func TestSourceTransitionFailureKeepsPreviousIdentity(t *testing.T) {
 	if err == nil || len(previous) != 0 {
 		t.Fatalf("failed transition = %#v, %v", previous, err)
 	}
-	registry.SetLoader(func(_ context.Context, sources Sources) ([]regapi.Entry, regapi.ProvenanceMap, error) {
+	registry.SetLoader(func(_ context.Context, sources Sources) ([]regapi.Entry, error) {
 		if sources["acme/ui"] != oldSource {
 			t.Fatalf("source changed after failure: %#v", sources)
 		}
-		return nil, nil, nil
+		return nil, nil
 	})
 	_, err = registry.Load(context.Background())
 	if err != nil {

@@ -88,73 +88,59 @@ func runSnapshotState(ctx context.Context, t *testing.T, snap *Snapshot, source 
 	require.NoError(t, l.DoString(source))
 }
 
-func TestSnapshotStateReturnsTotalDetachedState(t *testing.T) {
-	rootID := regapi.NewID("app", "root")
-	ownedID := regapi.NewID("pkg", "entry")
+func TestSnapshotStateReturnsDetachedRegistryMetadataAndResolution(t *testing.T) {
+	rootID := regapi.NewID("app.deps", "module")
+	ownedID := regapi.NewID("app", "handler")
 	snap := &Snapshot{
 		entries: regapi.State{
-			{ID: rootID, Kind: regapi.NamespaceDependency},
-			{ID: ownedID, Kind: "function.lua"},
+			{ID: rootID, Kind: regapi.NamespaceDependency, Registry: regapi.EntryMetadata{Root: true}},
+			{ID: ownedID, Kind: "function.lua", Registry: regapi.EntryMetadata{Owner: "org/module"}},
 		},
-		prov: regapi.ProvenanceMap{
-			rootID:  {Root: true},
-			ownedID: {Module: "org/pkg", Version: "1.2.3", Digest: "sha256:abc"},
-		},
+		state: regapi.StateMetadata{Resolution: &regapi.DependencyResolution{
+			Digest:      "sha256:resolution",
+			InputDigest: "sha256:inputs",
+			Roots: []regapi.DependencyRoot{{
+				ID: rootID.String(), Component: "org/module", Version: "^1.0",
+			}},
+			Modules: []regapi.ResolvedModule{{
+				Name: "org/module", Version: "1.2.3", VersionID: "version-id", Source: "hub", Digest: "sha256:module", SizeBytes: 42, Protected: true,
+			}},
+		}},
 		log: zap.NewNop(),
 	}
 
 	runSnapshotState(setupContextWithTranscoder(), t, snap, `
 		local first, err = snap:state()
 		assert(err == nil and #first.entries == 2)
-		assert(first.entries[1].root == true)
-		assert(first.entries[1].meta.module == nil)
-		assert(first.provenance["app:root"].module == "")
-		assert(first.provenance["app:root"].root == true)
-		assert(first.provenance["pkg:entry"].module == "org/pkg")
-		assert(first.provenance["pkg:entry"].version == "1.2.3")
-		assert(first.provenance["pkg:entry"].digest == "sha256:abc")
+		assert(first.entries[1].registry.owner == "")
+		assert(first.entries[1].registry.root == true)
+		assert(first.entries[2].registry.owner == "org/module")
+		assert(first.entries[2].registry.root == false)
+		assert(first.entries[2].root == nil)
+		assert(first.resolution.digest == "sha256:resolution")
+		assert(first.resolution.roots[1].component == "org/module")
+		assert(first.resolution.modules[1].version == "1.2.3")
+		assert(first.resolution.modules[1].size_bytes == 42)
 
-		first.entries[1].root = false
-		first.entries[1].meta.module = "forged/pkg"
-		first.provenance["pkg:entry"].module = "forged/pkg"
-		first.provenance["app:root"] = nil
+		first.entries[2].registry.owner = "forged/module"
+		first.entries[1].registry.root = false
+		first.resolution.modules[1].version = "999.0.0"
 
 		local second, second_err = snap:state()
-		assert(second_err == nil and #second.entries == 2)
-		assert(second.entries[1].root == true)
-		assert(second.entries[1].meta.module == nil)
-		assert(second.provenance["pkg:entry"].module == "org/pkg")
-		assert(second.provenance["app:root"].root == true)
+		assert(second_err == nil)
+		assert(second.entries[2].registry.owner == "org/module")
+		assert(second.entries[1].registry.root == true)
+		assert(second.resolution.modules[1].version == "1.2.3")
 	`)
 }
 
-func TestSnapshotStateRejectsInvalidProvenance(t *testing.T) {
-	id := regapi.NewID("app", "entry")
-	assertInvalid := func(t *testing.T, provenance regapi.ProvenanceMap) {
-		t.Helper()
-		snap := &Snapshot{entries: regapi.State{{ID: id}}, prov: provenance, log: zap.NewNop()}
-		runSnapshotState(setupContextWithTranscoder(), t, snap, `
-			local state, err = snap:state()
-			assert(state == nil and err ~= nil)
-			assert(err:kind() == errors.INTERNAL)
-		`)
-	}
-	t.Run("missing", func(t *testing.T) {
-		assertInvalid(t, regapi.ProvenanceMap{})
-	})
-	t.Run("orphaned", func(t *testing.T) {
-		assertInvalid(t, regapi.ProvenanceMap{id: {}, regapi.NewID("app", "orphan"): {}})
-	})
-}
-
-func TestSnapshotStateFiltersEntriesAndProvenanceTogether(t *testing.T) {
+func TestSnapshotStateFiltersEntriesWithMetadata(t *testing.T) {
 	visible := regapi.NewID("app", "visible")
 	hidden := regapi.NewID("app", "hidden")
 	snap := &Snapshot{
-		entries: regapi.State{{ID: visible}, {ID: hidden}},
-		prov: regapi.ProvenanceMap{
-			visible: {Module: "org/visible"},
-			hidden:  {Module: "org/hidden"},
+		entries: regapi.State{
+			{ID: visible, Registry: regapi.EntryMetadata{Owner: "org/visible"}},
+			{ID: hidden, Registry: regapi.EntryMetadata{Owner: "org/hidden"}},
 		},
 		log: zap.NewNop(),
 	}
@@ -165,25 +151,7 @@ func TestSnapshotStateFiltersEntriesAndProvenanceTogether(t *testing.T) {
 		local state, err = snap:state()
 		assert(err == nil and #state.entries == 1)
 		assert(state.entries[1].id == "app:visible")
-		assert(state.provenance["app:visible"].module == "org/visible")
-		assert(state.provenance["app:hidden"] == nil)
-	`)
-}
-
-func TestOverlaySnapshotStateRequiresProvenance(t *testing.T) {
-	const owner = "runtime:overlay"
-	snap := &Snapshot{
-		overlayOwner: owner,
-		entries:      regapi.State{{ID: regapi.NewID("app", "draft")}},
-		log:          zap.NewNop(),
-	}
-	ctx, release := strictOverlayContext(t, "registry.overlay.get\x00"+owner)
-	defer release()
-
-	runSnapshotState(ctx, t, snap, `
-		local state, err = snap:state()
-		assert(state == nil and err ~= nil)
-		assert(err:kind() == errors.UNAVAILABLE)
+		assert(state.entries[1].registry.owner == "org/visible")
 	`)
 }
 

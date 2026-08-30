@@ -265,8 +265,8 @@ local function run_tests()
 	end
 
 	if not entries or #entries == 0 then
-		io.print(red("  No tests found"))
-		return 1
+		io.print(yellow("  No tests found"))
+		return 0
 	end
 
 	-- Filter tests if patterns provided

@@ -35,6 +35,24 @@ type ResolvedModule struct {
 	Protected bool   `json:"protected,omitempty"`
 }
 
+// Deployment records the source graph over which registry history is applied.
+// It is persisted with the effective dependency resolution so an established
+// deployment can restore its baseline without a lock file.
+type Deployment struct {
+	Root    string           `json:"root"`
+	Modules []ResolvedModule `json:"modules"`
+}
+
+// Canonical returns a detached, deterministically ordered deployment.
+func (d *Deployment) Canonical() *Deployment {
+	if d == nil {
+		return nil
+	}
+	out := &Deployment{Root: d.Root, Modules: append([]ResolvedModule(nil), d.Modules...)}
+	sortResolvedModules(out.Modules)
+	return out
+}
+
 // DependencyRoot records one authored dependency declaration used as a solver
 // input. Parameters remain in the ordinary registry changeset because they
 // configure linking rather than version selection.
@@ -51,6 +69,7 @@ type DependencyResolution struct {
 	Digest         string           `json:"digest"`
 	InputDigest    string           `json:"input_digest"`
 	BaselineDigest string           `json:"baseline_digest,omitempty"`
+	Deployment     *Deployment      `json:"deployment,omitempty"`
 	Roots          []DependencyRoot `json:"roots"`
 	// References are root-shaped declarations folded into an existing root for
 	// the same component: a workspace package declaring a dependency the
@@ -75,6 +94,12 @@ func CanRebaseDependencyResolution(existing, next *DependencyResolution) bool {
 	if next.BaselineDigest == "" || existing.Digest == next.Digest {
 		return false
 	}
+	if existing.Deployment == nil && next.Deployment != nil && existing.BaselineDigest == next.BaselineDigest {
+		withoutDeployment := next.Canonical()
+		withoutDeployment.Deployment = nil
+		withoutDeployment = withoutDeployment.Canonical()
+		return existing.Digest == withoutDeployment.Digest
+	}
 	return existing.BaselineDigest == "" || existing.BaselineDigest != next.BaselineDigest
 }
 
@@ -91,13 +116,20 @@ func (r *DependencyResolution) Canonical() *DependencyResolution {
 		References:     append([]DependencyRoot(nil), r.References...),
 		Modules:        append([]ResolvedModule(nil), r.Modules...),
 	}
+	out.Deployment = r.Deployment.Canonical()
 	if len(out.References) == 0 {
 		out.References = nil
 	}
 	sortDependencyRoots(out.Roots)
 	sortDependencyRoots(out.References)
-	sort.Slice(out.Modules, func(i, j int) bool {
-		left, right := out.Modules[i], out.Modules[j]
+	sortResolvedModules(out.Modules)
+	out.Digest = out.computeDigest()
+	return out
+}
+
+func sortResolvedModules(modules []ResolvedModule) {
+	sort.Slice(modules, func(i, j int) bool {
+		left, right := modules[i], modules[j]
 		if left.Name != right.Name {
 			return left.Name < right.Name
 		}
@@ -115,8 +147,6 @@ func (r *DependencyResolution) Canonical() *DependencyResolution {
 		}
 		return !left.Protected && right.Protected
 	})
-	out.Digest = out.computeDigest()
-	return out
 }
 
 func sortDependencyRoots(roots []DependencyRoot) {
@@ -169,14 +199,20 @@ func (r *DependencyResolution) Valid() bool {
 		referenceIDs[reference.ID] = struct{}{}
 	}
 	modules := make(map[string]string, len(r.Modules))
-	for _, module := range r.Modules {
-		if module.Name == "" || module.Version == "" || module.Digest == "" {
+	if !validResolvedModules(r.Modules, modules) {
+		return false
+	}
+	if r.Deployment != nil {
+		if strings.TrimSpace(r.Deployment.Root) == "" {
 			return false
 		}
-		if _, duplicate := modules[module.Name]; duplicate {
+		deploymentModules := make(map[string]string, len(r.Deployment.Modules))
+		if !validResolvedModules(r.Deployment.Modules, deploymentModules) {
 			return false
 		}
-		modules[module.Name] = module.Version
+		if _, present := deploymentModules[r.Deployment.Root]; !present {
+			return false
+		}
 	}
 	// A graph that selects no module for one of its own declarations, or
 	// selects a version a declaration provably excludes, is not a resolution
@@ -194,6 +230,19 @@ func (r *DependencyResolution) Valid() bool {
 		}
 	}
 	return r.Digest == r.Canonical().Digest
+}
+
+func validResolvedModules(resolved []ResolvedModule, modules map[string]string) bool {
+	for _, module := range resolved {
+		if module.Name == "" || module.Version == "" || module.Digest == "" {
+			return false
+		}
+		if _, duplicate := modules[module.Name]; duplicate {
+			return false
+		}
+		modules[module.Name] = module.Version
+	}
+	return true
 }
 
 // constraintPermitsSelection rejects only provable mismatches: the check binds
@@ -221,6 +270,7 @@ func (r *DependencyResolution) computeDigest() string {
 	payload := struct {
 		InputDigest    string           `json:"input_digest"`
 		BaselineDigest string           `json:"baseline_digest,omitempty"`
+		Deployment     *Deployment      `json:"deployment,omitempty"`
 		Roots          []DependencyRoot `json:"roots"`
 		// omitempty keeps a reference-free digest byte-identical to prior
 		// releases while distinct reference sets produce distinct graphs in
@@ -233,6 +283,7 @@ func (r *DependencyResolution) computeDigest() string {
 		Roots:          r.Roots,
 		References:     r.References,
 		Modules:        r.Modules,
+		Deployment:     r.Deployment,
 	}
 	data, _ := json.Marshal(payload) // Struct contains only JSON-safe primitives.
 	sum := sha256.Sum256(data)

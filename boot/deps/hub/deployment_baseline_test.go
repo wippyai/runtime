@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -105,19 +106,19 @@ modules:
 	require.NoError(t, err)
 
 	appRoot := regapi.Entry{
-		ID: regapi.NewID("app.deps", "app"), Kind: regapi.NamespaceDependency, DependencyRoot: true,
+		ID: regapi.NewID("app.deps", "app"), Kind: regapi.NamespaceDependency, Registry: regapi.EntryMetadata{Root: true},
 		Data: payload.New(map[string]any{"component": "acme/app", "version": "v2.0.0"}),
 	}
-	appService := fixtureOwned(regapi.Entry{
+	appService := ownedEntry(regapi.Entry{
 		ID: regapi.NewID("acme.app", "service"), Kind: "service",
-	}, "acme/app", "v2.0.0", digests[selection{"acme/app", "v2.0.0"}])
-	appShared := fixtureOwned(regapi.Entry{
+	}, "acme/app")
+	appShared := ownedEntry(regapi.Entry{
 		ID: regapi.NewID("acme.app", "shared"), Kind: regapi.NamespaceDependency,
 		Data: payload.New(map[string]any{"component": "acme/shared", "version": ">=v1.0.0"}),
-	}, "acme/app", "v2.0.0", digests[selection{"acme/app", "v2.0.0"}])
-	sharedService := fixtureOwned(regapi.Entry{
+	}, "acme/app")
+	sharedService := ownedEntry(regapi.Entry{
 		ID: regapi.NewID("acme.shared", "service"), Kind: "service",
-	}, "acme/shared", "v2.0.0", digests[selection{"acme/shared", "v2.0.0"}])
+	}, "acme/shared")
 	baseline := regapi.State{appRoot, appService, appShared, sharedService}
 	pluginRoot := regapi.Entry{
 		ID: regapi.NewID("user.deps", "plugin"), Kind: regapi.NamespaceDependency,
@@ -146,7 +147,7 @@ modules:
 		},
 	}).Canonical()
 
-	result, err := handler.ReconcileResolution(ctx, fixtureState(baseline), fixtureState(target), stored)
+	result, err := handler.ReconcileResolution(ctx, baseline, target, stored)
 	require.NoError(t, err)
 	selected := make([]string, 0, len(result.Resolution.Modules))
 	for _, mod := range result.Resolution.Modules {
@@ -163,56 +164,37 @@ modules:
 	require.Equal(t, 1, manifestCalls[selection{"acme/shared", "v2.0.0"}])
 }
 
-// The lock answers for a module whose records carry no identity of their own.
-// It never overrides one: a replacement resident at a tree identity the lock
-// cannot know is not a conflict with the stored selection.
-func TestLegacyResolutionConflict_LockIsAFallbackNotAnOverride(t *testing.T) {
+func TestDeploymentBaselineDigestIsIndependentOfLockPresence(t *testing.T) {
 	ctx := newTestContext()
-	tmpDir := t.TempDir()
-	lockPath := filepath.Join(tmpDir, "wippy.lock")
-	const (
-		treeDigest = "sha256-tree-v1:1111111111111111111111111111111111111111111111111111111111111111"
-		lockDigest = "sha256:2222222222222222222222222222222222222222222222222222222222222222"
-	)
+	digest := strings.Repeat("a", 64)
+	lockPath := filepath.Join(t.TempDir(), "wippy.lock")
 	require.NoError(t, os.WriteFile(lockPath, []byte(fmt.Sprintf(`directories:
   modules: vendor
 modules:
-  - name: acme/local
-    version: v1.0.0
+  - name: acme/app
+    version: 1.0.0
     hash: %s
-replace:
-  - from: acme/local
-    to: ./local
-`, lockDigest)), 0o600))
-
+    root: true
+`, digest)), 0o600))
 	handler, err := NewDependencyHandler(DependencyHandlerOptions{
 		Hub: &fakeHub{}, Logger: zap.NewNop(), LockPath: lockPath,
-		VendorDir: filepath.Join(tmpDir, "vendor"),
 	})
 	require.NoError(t, err)
-
-	root := regapi.Entry{
-		ID: regapi.NewID("app.deps", "local"), Kind: regapi.NamespaceDependency,
-		Data: payload.New(map[string]any{"component": "acme/local", "version": "v1.0.0"}),
-	}
-	service := fixtureOwned(regapi.Entry{
-		ID: regapi.NewID("acme.local", "service"), Kind: "service",
-	}, "acme/local", "v1.0.0", treeDigest)
-	baseline := fixtureState(regapi.State{root, service})
-
-	stored := &regapi.DependencyResolution{
-		Modules: []regapi.ResolvedModule{{Name: "acme/local", Version: "v1.0.0", Digest: treeDigest}},
-	}
-	conflict, err := handler.legacyResolutionConflictsWithBaseline(ctx, baseline, stored, payload.GetTranscoder(ctx))
+	baseline := regapi.State{{
+		ID: regapi.NewID("app.deps", "app"), Kind: regapi.NamespaceDependency,
+		Registry: regapi.EntryMetadata{Root: true},
+		Data:     payload.New(map[string]any{"component": "acme/app", "version": "1.0.0"}),
+	}}
+	transcoder := payload.GetTranscoder(ctx)
+	withLock, err := handler.deploymentBaselineDigest(ctx, baseline, transcoder)
 	require.NoError(t, err)
-	require.False(t, conflict, "the resident tree identity is authoritative over the lock hash")
 
-	// With no resident digest the lock is the only identity available, and the
-	// stored selection is then judged against it.
-	unrecorded := fixtureState(regapi.State{root, fixtureOwned(regapi.Entry{
-		ID: regapi.NewID("acme.local", "service"), Kind: "service",
-	}, "acme/local", "v1.0.0", "")})
-	conflict, err = handler.legacyResolutionConflictsWithBaseline(ctx, unrecorded, stored, payload.GetTranscoder(ctx))
+	deployment, err := handler.deploymentFromLock()
 	require.NoError(t, err)
-	require.True(t, conflict, "without a resident digest the lock hash decides")
+	handler.deployment = deployment
+	handler.lock = nil
+	withoutLock, err := handler.deploymentBaselineDigest(ctx, baseline, transcoder)
+	require.NoError(t, err)
+
+	require.Equal(t, withLock, withoutLock)
 }

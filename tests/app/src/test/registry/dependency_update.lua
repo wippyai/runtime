@@ -9,18 +9,25 @@ local module_name = "wippy/terminal"
 local dep_id = "app.test.registry:terminal_dependency_update"
 local hub_timeout = "20s"
 
-local function find_module_entries()
-	local snap, snap_err = registry.snapshot()
-	assert.is_nil(snap_err, "registry.snapshot no error")
-	local state, state_err = snap:state()
+local function state()
+	local snap, err = registry.snapshot()
+	assert.is_nil(err, "snapshot no error")
+	assert.not_nil(snap, "snapshot available")
+
+	local result, state_err = snap:state()
 	assert.is_nil(state_err, "snapshot state no error")
+	assert.not_nil(result, "snapshot state available")
+	return result
+end
+
+local function find_module_entries()
 	local entries = {}
-	for _, entry in ipairs(state.entries) do
-		if state.provenance[entry.id].module == module_name then
-			entries[#entries + 1] = entry
+	for _, entry in ipairs(state().entries) do
+		if entry.registry.owner == module_name then
+			table.insert(entries, entry)
 		end
 	end
-	return entries, state.provenance
+	return entries
 end
 
 local function module_versions()
@@ -78,11 +85,12 @@ local function ensure_dependency_removed()
 	end
 end
 
-local function first_module_version(entries, provenance)
-	for i = 1, #entries do
-		local record = provenance[tostring(entries[i].id)]
-		if record ~= nil and record.version ~= "" then
-			return record.version
+local function selected_module_version()
+	local resolution = state().resolution
+	assert.not_nil(resolution, "dependency resolution available")
+	for _, module in ipairs(resolution.modules) do
+		if module.name == module_name then
+			return module.version
 		end
 	end
 	return nil
@@ -104,9 +112,10 @@ local function main()
 		})
 	end)
 
-	local entries_a, provenance_a = find_module_entries()
+	local entries_a = find_module_entries()
 	assert.ok(#entries_a > 0, "module entries installed")
-	local installed_version = first_module_version(entries_a, provenance_a)
+	assert.eq(entries_a[1].registry.owner, module_name, "state identifies installed entry ownership")
+	local installed_version = selected_module_version()
 	assert.eq(installed_version, version_a, "installed version matches first constraint")
 
 	apply_changes(function(changes)
@@ -119,9 +128,10 @@ local function main()
 			},
 		})
 	end)
-	local entries_b, provenance_b = find_module_entries()
+	local entries_b = find_module_entries()
 	assert.ok(#entries_b > 0, "module entries updated")
-	assert.eq(first_module_version(entries_b, provenance_b), version_b, "updated version matches second constraint")
+	assert.eq(entries_b[1].registry.owner, module_name, "state retains installed entry ownership after update")
+	assert.eq(selected_module_version(), version_b, "updated version matches second constraint")
 
 	apply_changes(function(changes)
 		changes:delete(dep_id)

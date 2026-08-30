@@ -109,19 +109,6 @@ entries:
     modules:
       - registry
 
-  - name: overlay_state
-    kind: function.lua
-    meta:
-      type: test
-      suite: registry
-      description: overlay snapshots fail closed when provenance is unavailable
-    source: file://overlay_state.lua
-    method: main
-    imports:
-      assert2: app.lib:assert
-    modules:
-      - registry
-
   - name: version_navigation
     kind: function.lua
     meta:
@@ -178,14 +165,14 @@ entries:
       - registry
       - funcs
 
-  - name: dependency_root_field
+  - name: registry_metadata_state
     kind: function.lua
     meta:
       type: test
       suite: registry
       order: 82
-      description: root survives a Lua write and a read-modify-write
-    source: file://dependency_root_field.lua
+      description: ordinary entry writes cannot alter registry metadata
+    source: file://registry_metadata_state.lua
     method: main
     imports:
       assert2: app.lib:assert
