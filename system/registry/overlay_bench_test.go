@@ -35,7 +35,7 @@ func BenchmarkApplyOverlayChurn(b *testing.B) {
 					Kind: regapi.EntryKind,
 				}
 			}
-			if err := reg.LoadState(ctx, hostProvenanced(baseline), version.FromParent(nil, regapi.RootVersion)); err != nil {
+			if err := reg.LoadState(ctx, baseline, version.FromParent(nil, regapi.RootVersion)); err != nil {
 				b.Fatal(err)
 			}
 			entry := regapi.Entry{ID: regapi.NewID("runtime", "source"), Kind: regapi.EntryKind}

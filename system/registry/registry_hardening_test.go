@@ -116,25 +116,25 @@ func (e *hardeningEffect) Rollback(context.Context) error {
 }
 
 type hardeningDirective struct {
-	expand    func(context.Context, regapi.Operation, regapi.ProvenancedState) (regapi.DirectiveResult, error)
-	reconcile func(context.Context, regapi.ProvenancedState, regapi.ProvenancedState, *regapi.DependencyResolution) (regapi.DirectiveResult, error)
+	expand    func(context.Context, regapi.Operation, regapi.State) (regapi.DirectiveResult, error)
+	reconcile func(context.Context, regapi.State, regapi.State, *regapi.DependencyResolution) (regapi.DirectiveResult, error)
 }
 
-func (d hardeningDirective) Expand(ctx context.Context, op regapi.Operation, state regapi.ProvenancedState) (regapi.DirectiveResult, error) {
+func (d hardeningDirective) Expand(ctx context.Context, op regapi.Operation, state regapi.State) (regapi.DirectiveResult, error) {
 	if d.expand == nil {
 		return regapi.DirectiveResult{}, nil
 	}
 	return d.expand(ctx, op, state)
 }
 
-func (d hardeningDirective) ReconcileResolution(ctx context.Context, state regapi.ProvenancedState, resolution *regapi.DependencyResolution) (regapi.DirectiveResult, error) {
+func (d hardeningDirective) ReconcileResolution(ctx context.Context, state regapi.State, resolution *regapi.DependencyResolution) (regapi.DirectiveResult, error) {
 	if d.reconcile == nil {
 		return regapi.DirectiveResult{}, nil
 	}
 	return d.reconcile(ctx, state, state, resolution)
 }
 
-func (d hardeningDirective) ReconcileResolutionTransition(ctx context.Context, current regapi.ProvenancedState, target regapi.ProvenancedState, resolution *regapi.DependencyResolution) (regapi.DirectiveResult, error) {
+func (d hardeningDirective) ReconcileResolutionTransition(ctx context.Context, current regapi.State, target regapi.State, resolution *regapi.DependencyResolution) (regapi.DirectiveResult, error) {
 	if d.reconcile == nil {
 		return regapi.DirectiveResult{}, nil
 	}
@@ -163,14 +163,14 @@ func TestLoadStateDefaultsDependencyAccessToVerifiedOffline(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			seen := regapi.DependencyAccessUnspecified
-			directive := hardeningDirective{expand: func(ctx context.Context, _ regapi.Operation, _ regapi.ProvenancedState) (regapi.DirectiveResult, error) {
+			directive := hardeningDirective{expand: func(ctx context.Context, _ regapi.Operation, _ regapi.State) (regapi.DirectiveResult, error) {
 				seen = regapi.DependencyAccessFromContext(ctx)
 				return regapi.DirectiveResult{}, nil
 			}}
 			reg := NewRegistry(memory.New(), &hardeningRunner{}, topology.NewStateBuilder(zap.NewNop(), nil), nil, zap.NewNop(),
 				WithKindDirective(regapi.NamespaceDependency, directive))
 			dep := regapi.Entry{ID: regapi.NewID("app.deps", "module"), Kind: regapi.NamespaceDependency}
-			require.NoError(t, reg.LoadState(test.ctx, hostProvenanced(regapi.State{dep}), version.New(0)))
+			require.NoError(t, reg.LoadState(test.ctx, regapi.State{dep}, version.New(0)))
 			require.Equal(t, test.want, seen)
 		})
 	}
@@ -186,13 +186,13 @@ func TestApplyVersion_SetHeadFailureCompensatesRuntimeAndEffects(t *testing.T) {
 	require.NoError(t, history.SetHead(v0))
 
 	effect := &hardeningEffect{}
-	directive := hardeningDirective{expand: func(context.Context, regapi.Operation, regapi.ProvenancedState) (regapi.DirectiveResult, error) {
+	directive := hardeningDirective{expand: func(context.Context, regapi.Operation, regapi.State) (regapi.DirectiveResult, error) {
 		return regapi.DirectiveResult{Applied: true, Resolution: hardeningResolution(), Effects: []regapi.Effect{effect}}, nil
 	}}
 	runner := &hardeningRunner{}
 	reg := NewRegistry(history, runner, topology.NewStateBuilder(zap.NewNop(), nil), nil, zap.NewNop(),
 		WithKindDirective(regapi.NamespaceDependency, directive))
-	require.NoError(t, reg.LoadState(ctx, hostProvenanced(nil), v0))
+	require.NoError(t, reg.LoadState(ctx, nil, v0))
 
 	err := reg.ApplyVersion(ctx, v1)
 	require.ErrorContains(t, err, "failed to set head version")
@@ -237,13 +237,13 @@ func TestApplyVersion_LegacyResolutionCheckpointFailureCompensates(t *testing.T)
 	require.NoError(t, history.SetHead(v0))
 
 	effect := &hardeningEffect{}
-	directive := hardeningDirective{expand: func(context.Context, regapi.Operation, regapi.ProvenancedState) (regapi.DirectiveResult, error) {
+	directive := hardeningDirective{expand: func(context.Context, regapi.Operation, regapi.State) (regapi.DirectiveResult, error) {
 		return regapi.DirectiveResult{Applied: true, Resolution: hardeningResolution(), Effects: []regapi.Effect{effect}}, nil
 	}}
 	runner := &hardeningRunner{}
 	reg := NewRegistry(history, runner, topology.NewStateBuilder(zap.NewNop(), nil), nil, zap.NewNop(),
 		WithKindDirective(regapi.NamespaceDependency, directive))
-	require.NoError(t, reg.LoadState(ctx, hostProvenanced(nil), v0))
+	require.NoError(t, reg.LoadState(ctx, nil, v0))
 
 	err := reg.ApplyVersion(ctx, v1)
 	require.ErrorContains(t, err, "injected checkpoint failure")
@@ -264,12 +264,12 @@ func TestApplyVersion_LegacyResolutionIsCheckpointed(t *testing.T) {
 	history := &hardeningHistory{Storage: memory.New()}
 	require.NoError(t, history.Save(v1, regapi.ChangeSet{{Kind: regapi.EntryCreate, Entry: dep}}, false))
 	require.NoError(t, history.SetHead(v0))
-	directive := hardeningDirective{expand: func(context.Context, regapi.Operation, regapi.ProvenancedState) (regapi.DirectiveResult, error) {
+	directive := hardeningDirective{expand: func(context.Context, regapi.Operation, regapi.State) (regapi.DirectiveResult, error) {
 		return regapi.DirectiveResult{Applied: true, Resolution: hardeningResolution()}, nil
 	}}
 	reg := NewRegistry(history, &hardeningRunner{}, topology.NewStateBuilder(zap.NewNop(), nil), nil, zap.NewNop(),
 		WithKindDirective(regapi.NamespaceDependency, directive))
-	require.NoError(t, reg.LoadState(ctx, hostProvenanced(nil), v0))
+	require.NoError(t, reg.LoadState(ctx, nil, v0))
 	require.NoError(t, reg.ApplyVersion(ctx, v1))
 	stored, err := history.GetDependencyResolution(v1)
 	require.NoError(t, err)
@@ -286,13 +286,13 @@ func TestApplyVersionRejectsExactResolutionWithoutDurableHistorySupport(t *testi
 	require.NoError(t, durable.SetHead(v0))
 	history := &historyWithoutResolution{History: durable}
 	effect := &hardeningEffect{}
-	directive := hardeningDirective{expand: func(context.Context, regapi.Operation, regapi.ProvenancedState) (regapi.DirectiveResult, error) {
+	directive := hardeningDirective{expand: func(context.Context, regapi.Operation, regapi.State) (regapi.DirectiveResult, error) {
 		return regapi.DirectiveResult{Applied: true, Resolution: hardeningResolution(), Effects: []regapi.Effect{effect}}, nil
 	}}
 	runner := &hardeningRunner{}
 	reg := NewRegistry(history, runner, topology.NewStateBuilder(zap.NewNop(), nil), nil, zap.NewNop(),
 		WithKindDirective(regapi.NamespaceDependency, directive))
-	require.NoError(t, reg.LoadState(ctx, hostProvenanced(nil), v0))
+	require.NoError(t, reg.LoadState(ctx, nil, v0))
 
 	err := reg.ApplyVersion(ctx, v1)
 	require.ErrorContains(t, err, "history does not support durable dependency resolutions")
@@ -316,13 +316,13 @@ func TestApplyVersion_LegacyUnrelatedTransitionResolvesFinalRoots(t *testing.T) 
 	require.NoError(t, history.Save(v1, regapi.ChangeSet{{Kind: regapi.EntryCreate, Entry: unrelated}}, false))
 	require.NoError(t, history.SetHead(v0))
 	expansions := 0
-	directive := hardeningDirective{expand: func(context.Context, regapi.Operation, regapi.ProvenancedState) (regapi.DirectiveResult, error) {
+	directive := hardeningDirective{expand: func(context.Context, regapi.Operation, regapi.State) (regapi.DirectiveResult, error) {
 		expansions++
 		return regapi.DirectiveResult{Applied: true, Resolution: hardeningResolution()}, nil
 	}}
 	reg := NewRegistry(history, &hardeningRunner{}, topology.NewStateBuilder(zap.NewNop(), nil), nil, zap.NewNop(),
 		WithKindDirective(regapi.NamespaceDependency, directive))
-	require.NoError(t, reg.LoadState(ctx, hostProvenanced(regapi.State{dep}), v0))
+	require.NoError(t, reg.LoadState(ctx, regapi.State{dep}, v0))
 	expansions = 0
 
 	require.NoError(t, reg.ApplyVersion(ctx, v1))
@@ -338,14 +338,14 @@ func TestLoadState_CheckpointFailureCompensatesRuntimeAndEffects(t *testing.T) {
 	dep := regapi.Entry{ID: regapi.NewID("app.deps", "module"), Kind: regapi.NamespaceDependency}
 	history := &hardeningHistory{Storage: memory.New(), failCheckpoint: true}
 	effect := &hardeningEffect{}
-	directive := hardeningDirective{expand: func(context.Context, regapi.Operation, regapi.ProvenancedState) (regapi.DirectiveResult, error) {
+	directive := hardeningDirective{expand: func(context.Context, regapi.Operation, regapi.State) (regapi.DirectiveResult, error) {
 		return regapi.DirectiveResult{Applied: true, Resolution: hardeningResolution(), Effects: []regapi.Effect{effect}}, nil
 	}}
 	runner := &hardeningRunner{}
 	reg := NewRegistry(history, runner, topology.NewStateBuilder(zap.NewNop(), nil), nil, zap.NewNop(),
 		WithKindDirective(regapi.NamespaceDependency, directive))
 
-	err := reg.LoadState(ctx, hostProvenanced(regapi.State{dep}), v0)
+	err := reg.LoadState(ctx, regapi.State{dep}, v0)
 	require.ErrorContains(t, err, "injected checkpoint failure")
 	entries, getErr := reg.GetAllEntries()
 	require.NoError(t, getErr)
@@ -361,14 +361,14 @@ func TestLoadStateRejectsExactResolutionWithoutDurableHistorySupport(t *testing.
 	durable := memory.New()
 	history := &historyWithoutResolution{History: durable}
 	effect := &hardeningEffect{}
-	directive := hardeningDirective{expand: func(context.Context, regapi.Operation, regapi.ProvenancedState) (regapi.DirectiveResult, error) {
+	directive := hardeningDirective{expand: func(context.Context, regapi.Operation, regapi.State) (regapi.DirectiveResult, error) {
 		return regapi.DirectiveResult{Applied: true, Resolution: hardeningResolution(), Effects: []regapi.Effect{effect}}, nil
 	}}
 	runner := &hardeningRunner{}
 	reg := NewRegistry(history, runner, topology.NewStateBuilder(zap.NewNop(), nil), nil, zap.NewNop(),
 		WithKindDirective(regapi.NamespaceDependency, directive))
 
-	err := reg.LoadState(ctx, hostProvenanced(regapi.State{dep}), version.New(0))
+	err := reg.LoadState(ctx, regapi.State{dep}, version.New(0))
 	require.ErrorContains(t, err, "history does not support durable dependency resolutions")
 	entries, getErr := reg.GetAllEntries()
 	require.NoError(t, getErr)
@@ -384,13 +384,13 @@ func TestLoadState_TransitionFailureDoesNotCheckpointLegacyResolution(t *testing
 	dep := regapi.Entry{ID: regapi.NewID("app.deps", "module"), Kind: regapi.NamespaceDependency}
 	history := &hardeningHistory{Storage: memory.New()}
 	effect := &hardeningEffect{}
-	directive := hardeningDirective{expand: func(context.Context, regapi.Operation, regapi.ProvenancedState) (regapi.DirectiveResult, error) {
+	directive := hardeningDirective{expand: func(context.Context, regapi.Operation, regapi.State) (regapi.DirectiveResult, error) {
 		return regapi.DirectiveResult{Applied: true, Resolution: hardeningResolution(), Effects: []regapi.Effect{effect}}, nil
 	}}
 	reg := NewRegistry(history, &hardeningRunner{failTransitionAt: 1}, topology.NewStateBuilder(zap.NewNop(), nil), nil, zap.NewNop(),
 		WithKindDirective(regapi.NamespaceDependency, directive))
 
-	err := reg.LoadState(ctx, hostProvenanced(regapi.State{dep}), v0)
+	err := reg.LoadState(ctx, regapi.State{dep}, v0)
 	require.ErrorContains(t, err, "injected transition failure")
 	_, resolutionErr := history.GetDependencyResolution(v0)
 	require.ErrorIs(t, resolutionErr, regapi.ErrDependencyResolutionNotFound)
@@ -406,15 +406,15 @@ func TestApplyVersion_ReconcilerErrorRollsBackPreviouslyPreparedEffects(t *testi
 	history := memory.New()
 	require.NoError(t, history.SaveWithDependencyResolution(v1, regapi.ChangeSet{{Kind: regapi.EntryCreate, Entry: dep}}, hardeningResolution(), false))
 	effect := &hardeningEffect{}
-	first := hardeningDirective{reconcile: func(context.Context, regapi.ProvenancedState, regapi.ProvenancedState, *regapi.DependencyResolution) (regapi.DirectiveResult, error) {
+	first := hardeningDirective{reconcile: func(context.Context, regapi.State, regapi.State, *regapi.DependencyResolution) (regapi.DirectiveResult, error) {
 		return regapi.DirectiveResult{Applied: true, Effects: []regapi.Effect{effect}}, nil
 	}}
-	second := hardeningDirective{reconcile: func(context.Context, regapi.ProvenancedState, regapi.ProvenancedState, *regapi.DependencyResolution) (regapi.DirectiveResult, error) {
+	second := hardeningDirective{reconcile: func(context.Context, regapi.State, regapi.State, *regapi.DependencyResolution) (regapi.DirectiveResult, error) {
 		return regapi.DirectiveResult{}, errors.New("injected reconcile failure")
 	}}
 	reg := NewRegistry(history, &hardeningRunner{}, topology.NewStateBuilder(zap.NewNop(), nil), nil, zap.NewNop(),
 		WithKindDirective(regapi.NamespaceDependency, first), WithKindDirective(regapi.NamespaceDependency, second))
-	require.NoError(t, reg.LoadState(ctx, hostProvenanced(nil), v0))
+	require.NoError(t, reg.LoadState(ctx, nil, v0))
 	err := reg.ApplyVersion(ctx, v1)
 	require.ErrorContains(t, err, "injected reconcile failure")
 	require.Equal(t, 1, effect.prepared)
@@ -436,7 +436,7 @@ func TestLoadState_AllocatorUsesMaximumStoredVersionAfterRewind(t *testing.T) {
 	require.NoError(t, reg.ApplyVersion(ctx, v1))
 
 	restored := NewRegistry(history, &hardeningRunner{}, topology.NewStateBuilder(zap.NewNop(), nil), nil, zap.NewNop())
-	require.NoError(t, restored.LoadState(ctx, hostProvenanced(nil), v1))
+	require.NoError(t, restored.LoadState(ctx, nil, v1))
 	v4, err := restored.Apply(ctx, regapi.ChangeSet{{Kind: regapi.EntryCreate, Entry: regapi.Entry{ID: regapi.NewID("app", "branch"), Kind: "service"}}})
 	require.NoError(t, err)
 	require.Equal(t, uint(4), v4.ID())

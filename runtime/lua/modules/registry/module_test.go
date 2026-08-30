@@ -42,7 +42,6 @@ func TestLoad(t *testing.T) {
 	functions := []string{
 		"snapshot", "current_version", "versions",
 		"parse_id", "history", "find", "get", "build_delta", "overlay",
-		"provenance", "set_root",
 	}
 	for _, fn := range functions {
 		if modTbl.RawGetString(fn).Type() != lua.LTFunction {
@@ -134,6 +133,36 @@ func TestSnapshotWithoutRegistry(t *testing.T) {
 	}
 }
 
+func TestRegistrySnapshotUsesAtomicState(t *testing.T) {
+	entry := regapi.Entry{
+		ID:       regapi.NewID("app", "handler"),
+		Kind:     "function.lua",
+		Registry: regapi.EntryMetadata{Owner: "org/module"},
+	}
+	reg := &mockRegistry{snapshot: regapi.Snapshot{
+		Version: &mockVersion{id: 7, str: "v7"},
+		Entries: regapi.State{entry},
+		Registry: regapi.StateMetadata{Resolution: &regapi.DependencyResolution{
+			Digest: "sha256:resolution", InputDigest: "sha256:inputs",
+			Modules: []regapi.ResolvedModule{{Name: "org/module", Version: "1.2.3", Digest: "sha256:module"}},
+		}},
+	}}
+	ctx := regapi.WithRegistry(setupContextWithTranscoder(), reg)
+
+	l := lua.NewState()
+	defer l.Close()
+	l.SetContext(ctx)
+	setupModule(l)
+	require.NoError(t, l.DoString(`
+		local snap, err = registry.snapshot()
+		assert(err == nil)
+		local state, state_err = snap:state()
+		assert(state_err == nil)
+		assert(state.entries[1].registry.owner == "org/module")
+		assert(state.resolution.modules[1].version == "1.2.3")
+	`))
+}
+
 func TestCurrentVersionWithoutRegistry(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
@@ -222,64 +251,6 @@ func TestFindWithoutRegistry(t *testing.T) {
 	if err != nil {
 		t.Errorf("find without registry test failed: %v", err)
 	}
-}
-
-func TestRegistryProvenanceRequiresEntryRead(t *testing.T) {
-	id := regapi.NewID("app", "hidden")
-	reg := &mockRegistry{
-		entries:    map[string]regapi.Entry{id.String(): {ID: id}},
-		provenance: regapi.ProvenanceMap{id: {Module: "private/module"}},
-	}
-	ctx, release := strictOverlayContext(t)
-	defer release()
-	ctx = regapi.WithRegistry(ctx, reg)
-
-	l := lua.NewState()
-	defer l.Close()
-	l.SetContext(ctx)
-	lua.OpenErrors(l)
-	setupModule(l)
-	require.NoError(t, l.DoString(`
-		local provenance, err = registry.provenance("app:hidden")
-		assert(provenance == nil and err ~= nil)
-		assert(err:kind() == errors.PERMISSION_DENIED)
-	`))
-}
-
-func TestRegistryProvenanceReturnsDetachedRecord(t *testing.T) {
-	id := regapi.NewID("app", "visible")
-	reg := &mockRegistry{
-		entries: map[string]regapi.Entry{id.String(): {ID: id}},
-		provenance: regapi.ProvenanceMap{id: {
-			Module: "org/module", Version: "1.2.3", Digest: "sha256:abc", Root: true,
-		}},
-	}
-	ctx, release := strictOverlayContext(t,
-		"registry.get\x00"+id.String(),
-		"registry.get\x00app:missing",
-	)
-	defer release()
-	ctx = regapi.WithRegistry(ctx, reg)
-
-	l := lua.NewState()
-	defer l.Close()
-	l.SetContext(ctx)
-	setupModule(l)
-	require.NoError(t, l.DoString(`
-		local first, err = registry.provenance("app:visible")
-		assert(err == nil and first ~= nil)
-		assert(first.module == "org/module")
-		assert(first.version == "1.2.3")
-		assert(first.digest == "sha256:abc")
-		assert(first.root == true)
-		first.module = "forged/module"
-
-		local second, second_err = registry.provenance("app:visible")
-		assert(second_err == nil and second.module == "org/module")
-
-		local missing, missing_err = registry.provenance("app:missing")
-		assert(missing == nil and missing_err == nil)
-	`))
 }
 
 func TestBuildDeltaWithoutTranscoder(t *testing.T) {
@@ -661,17 +632,12 @@ func TestParseIDEdgeCases(t *testing.T) {
 // mockRegistry implements regapi.Registry for testing
 type mockRegistry struct {
 	currentVersion regapi.Version
+	snapshot       regapi.Snapshot
 	entries        map[string]regapi.Entry
 	overlayEntries map[string]regapi.State
-	provenance     regapi.ProvenanceMap
 	appliedOwner   string
 	appliedChanges regapi.ChangeSet
 	generation     uint64
-}
-
-func (m *mockRegistry) EntryProvenance(id regapi.ID) (regapi.EntryProvenance, bool) {
-	p, ok := m.provenance[id.Canonical()]
-	return p, ok
 }
 
 func (m *mockRegistry) GetEntry(id regapi.ID) (regapi.Entry, error) {
@@ -690,6 +656,13 @@ func (m *mockRegistry) Current() (regapi.Version, error) {
 	return m.currentVersion, nil
 }
 
+func (m *mockRegistry) Snapshot() regapi.Snapshot {
+	if m.snapshot.Version != nil || m.snapshot.Entries != nil || m.snapshot.Registry.Resolution != nil {
+		return m.snapshot
+	}
+	return regapi.Snapshot{Version: m.currentVersion}
+}
+
 func (m *mockRegistry) Apply(_ context.Context, _ regapi.ChangeSet) (regapi.Version, error) {
 	return nil, nil
 }
@@ -698,7 +671,7 @@ func (m *mockRegistry) ApplyVersion(_ context.Context, _ regapi.Version) error {
 	return nil
 }
 
-func (m *mockRegistry) LoadState(_ context.Context, _ regapi.ProvenancedState, _ regapi.Version) error {
+func (m *mockRegistry) LoadState(_ context.Context, _ regapi.State, _ regapi.Version) error {
 	return nil
 }
 
@@ -761,9 +734,6 @@ func TestRegistryOverlayUsesNormalSnapshotAndChanges(t *testing.T) {
 	require.NoError(t, l.DoString(`
 		local snap, err = registry.overlay("app.runtime:source-1")
 		assert(err == nil and snap ~= nil)
-		local state, state_err = snap:state()
-		assert(state == nil and state_err ~= nil)
-		assert(state_err:kind() == errors.UNAVAILABLE)
 		local entries, entries_err = snap:entries()
 		assert(entries_err == nil and #entries == 1)
 		assert(snap:version():id() == 7)

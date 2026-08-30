@@ -21,6 +21,7 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/internal/version"
 	historyschema "github.com/wippyai/runtime/system/registry/history/schema"
+	migrationstorage "github.com/wippyai/runtime/system/registry/migration/storage"
 	schemamanager "github.com/wippyai/runtime/system/schema"
 	"go.uber.org/zap"
 )
@@ -48,23 +49,17 @@ type encodedPayload struct {
 }
 
 type encodedEntry struct {
-	Meta attrs.Bag       `codec:"Meta"`
-	Data *encodedPayload `codec:"Data"`
-	ID   registry.ID     `codec:"ID"`
-	Kind string          `codec:"Kind"`
-	// DependencyRoot decodes from legacy rows; new rows never write it.
-	DependencyRoot bool `codec:"DependencyRoot,omitempty"`
+	Meta     attrs.Bag
+	Data     *encodedPayload
+	ID       registry.ID
+	Kind     string
+	Registry registry.EntryMetadata
 }
 
-// encodedOperation is the wire shape of one changeset operation. The optional
-// provenance fields are absent on rows written before they existed and decode
-// as nil.
 type encodedOperation struct {
-	OriginalEntry      *encodedEntry             `codec:"OriginalEntry"`
-	Provenance         *registry.EntryProvenance `codec:"prov,omitempty"`
-	OriginalProvenance *registry.EntryProvenance `codec:"oprov,omitempty"`
-	Kind               string                    `codec:"Kind"`
-	Entry              encodedEntry              `codec:"Entry"`
+	OriginalEntry *encodedEntry
+	Kind          string
+	Entry         encodedEntry
 }
 
 func newMsgpackHandle() *codec.MsgpackHandle {
@@ -129,6 +124,23 @@ func NewSQLite(dbPath string, log *zap.Logger) (*History, error) {
 	}
 
 	return h, nil
+}
+
+// MigrateEntryMetadata normalizes persisted rows before registry replay.
+func MigrateEntryMetadata(ctx context.Context, h *History, baseline registry.State) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return migrationstorage.RewriteEntryMetadata(ctx, h.db, h.handle, migrationstorage.Tables{
+		ChangeSets:    "changesets",
+		SchemaVersion: "schema_version",
+		UpdateHistory: "schema_update_history",
+	}, func(int) string { return "?" }, func(ctx context.Context, tx *sql.Tx) error {
+		// BeginTx is deferred in SQLite. This no-op write acquires the writer
+		// reservation before history rows are read, so an existing writer
+		// finishes first and a new writer waits for this migration to commit.
+		_, err := tx.ExecContext(ctx, "UPDATE schema_version SET updated_at = updated_at WHERE name = ?", historyschema.BundleName)
+		return err
+	}, baseline)
 }
 
 func (h *History) ensureRootVersion() error {
@@ -315,10 +327,10 @@ func (h *History) decodeChangeSet(data []byte) (registry.ChangeSet, error) {
 	cs := make(registry.ChangeSet, len(encodedOps))
 	for i, encOp := range encodedOps {
 		entry := registry.Entry{
-			ID:             encOp.Entry.ID,
-			Kind:           encOp.Entry.Kind,
-			Meta:           encOp.Entry.Meta,
-			DependencyRoot: encOp.Entry.DependencyRoot,
+			ID:       encOp.Entry.ID,
+			Kind:     encOp.Entry.Kind,
+			Meta:     encOp.Entry.Meta,
+			Registry: encOp.Entry.Registry,
 		}
 
 		if encOp.Entry.Data != nil {
@@ -326,18 +338,16 @@ func (h *History) decodeChangeSet(data []byte) (registry.ChangeSet, error) {
 		}
 
 		op := registry.Operation{
-			Kind:               encOp.Kind,
-			Entry:              entry,
-			Provenance:         encOp.Provenance,
-			OriginalProvenance: encOp.OriginalProvenance,
+			Kind:  encOp.Kind,
+			Entry: entry,
 		}
 
 		if encOp.OriginalEntry != nil {
 			originalEntry := registry.Entry{
-				ID:             encOp.OriginalEntry.ID,
-				Kind:           encOp.OriginalEntry.Kind,
-				Meta:           encOp.OriginalEntry.Meta,
-				DependencyRoot: encOp.OriginalEntry.DependencyRoot,
+				ID:       encOp.OriginalEntry.ID,
+				Kind:     encOp.OriginalEntry.Kind,
+				Meta:     encOp.OriginalEntry.Meta,
+				Registry: encOp.OriginalEntry.Registry,
 			}
 
 			if encOp.OriginalEntry.Data != nil {
@@ -510,24 +520,24 @@ func (h *History) SaveWithDependencyResolution(v registry.Version, cs registry.C
 			}
 
 			encOriginal = &encodedEntry{
-				ID:   op.OriginalEntry.ID,
-				Kind: op.OriginalEntry.Kind,
-				Meta: op.OriginalEntry.Meta,
-				Data: encOrigPayload,
+				ID:       op.OriginalEntry.ID,
+				Kind:     op.OriginalEntry.Kind,
+				Meta:     op.OriginalEntry.Meta,
+				Data:     encOrigPayload,
+				Registry: op.OriginalEntry.Registry,
 			}
 		}
 
 		encodedOps[i] = encodedOperation{
 			Kind: op.Kind,
 			Entry: encodedEntry{
-				ID:   op.Entry.ID,
-				Kind: op.Entry.Kind,
-				Meta: op.Entry.Meta,
-				Data: encPayload,
+				ID:       op.Entry.ID,
+				Kind:     op.Entry.Kind,
+				Meta:     op.Entry.Meta,
+				Data:     encPayload,
+				Registry: op.Entry.Registry,
 			},
-			OriginalEntry:      encOriginal,
-			Provenance:         op.Provenance,
-			OriginalProvenance: op.OriginalProvenance,
+			OriginalEntry: encOriginal,
 		}
 	}
 

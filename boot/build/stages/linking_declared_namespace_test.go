@@ -3,7 +3,6 @@
 package stages
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -34,7 +33,7 @@ func TestLinkUsesDeclaredModuleNamespace(t *testing.T) {
 			ctx, _ := setupTestContext()
 			entries := declaredNamespaceFixture(tt.parameter)
 
-			err := linkFixtureStage(&entries).Execute(ctx, &entries)
+			err := Link().Execute(ctx, &entries)
 			require.NoError(t, err)
 
 			target := findEntry(entries, "app", "endpoint")
@@ -53,7 +52,7 @@ func TestLinkCanonicalRequirementAddressDoesNotInferOwnership(t *testing.T) {
 		targetEntry("scheduler"),
 	}
 
-	err := linkFixtureStage(&entries).Execute(ctx, &entries)
+	err := Link().Execute(ctx, &entries)
 	require.NoError(t, err)
 	assert.Equal(t, "app:processes", findEntry(entries, "app", "scheduler").Meta["router"])
 }
@@ -67,7 +66,7 @@ func TestLinkBareRequirementDoesNotEscapeDeclaredNamespace(t *testing.T) {
 		targetEntry("scheduler"),
 	}
 
-	err := linkFixtureStage(&entries).Execute(ctx, &entries)
+	err := Link().Execute(ctx, &entries)
 	require.NoError(t, err)
 	assert.Equal(t, "app:default", findEntry(entries, "app", "scheduler").Meta["router"])
 }
@@ -84,7 +83,7 @@ func TestLinkDeclaredNamespaceOwnsChildrenOnly(t *testing.T) {
 		targetEntry("report_endpoint"),
 	}
 
-	err := linkFixtureStage(&entries).Execute(ctx, &entries)
+	err := Link().Execute(ctx, &entries)
 	require.NoError(t, err)
 	assert.Equal(t, "app:account", findEntry(entries, "app", "account_endpoint").Meta["router"])
 	assert.Equal(t, "app:report_default", findEntry(entries, "app", "report_endpoint").Meta["router"])
@@ -98,7 +97,7 @@ func TestLinkRejectsLoadedModuleWithoutDefinition(t *testing.T) {
 		targetEntry("endpoint"),
 	}
 
-	err := linkFixtureStage(&entries).Execute(ctx, &entries)
+	err := Link().Execute(ctx, &entries)
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "loaded module has no ns.definition root namespace")
 }
@@ -109,7 +108,7 @@ func TestLinkAllowsUnloadedDependencyDuringSourceBuild(t *testing.T) {
 		dependencyEntry(fixtureComponent, "router", "app:configured"),
 	}
 
-	require.NoError(t, linkFixtureStage(&entries).Execute(ctx, &entries))
+	require.NoError(t, Link().Execute(ctx, &entries))
 }
 
 func TestLinkRejectsConflictingModuleDefinitions(t *testing.T) {
@@ -140,7 +139,7 @@ func TestLinkRejectsConflictingModuleDefinitions(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx, _ := setupTestContext()
-			err := linkFixtureStage(&tt.entries).Execute(ctx, &tt.entries)
+			err := Link().Execute(ctx, &tt.entries)
 			require.Error(t, err)
 			assert.ErrorContains(t, err, tt.want)
 		})
@@ -156,14 +155,11 @@ func declaredNamespaceFixture(parameter string) []registry.Entry {
 	}
 }
 
-// moduleDefinition names the entry after its module: two modules declaring the
-// same namespace are two distinct entries, which is the only shape a registry
-// state can hold.
 func moduleDefinition(component, namespace string) registry.Entry {
 	return registry.Entry{
-		ID:   registry.NewID(namespace, strings.ReplaceAll(component, "/", ".")+".definition"),
-		Kind: registry.NamespaceDefinition,
-		Meta: map[string]any{"module": component},
+		ID:       registry.NewID(namespace, "definition"),
+		Kind:     registry.NamespaceDefinition,
+		Registry: registry.EntryMetadata{Owner: component},
 	}
 }
 
@@ -182,9 +178,9 @@ func dependencyEntry(component, parameter string, value any) registry.Entry {
 
 func requirementEntry(component, namespace, name, target string, defaultValue any) registry.Entry {
 	return registry.Entry{
-		ID:   registry.NewID(namespace, name),
-		Kind: registry.NamespaceRequirement,
-		Meta: map[string]any{"module": component},
+		ID:       registry.NewID(namespace, name),
+		Kind:     registry.NamespaceRequirement,
+		Registry: registry.EntryMetadata{Owner: component},
 		Data: payload.New(map[string]any{
 			"default": defaultValue,
 			"targets": []any{

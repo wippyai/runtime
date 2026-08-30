@@ -32,24 +32,6 @@ func TestOperationPlanner_MutableArtifactBoundary(t *testing.T) {
 			},
 		},
 		{
-			name: "immutable digest metadata drift",
-			mutate: func(entry regapi.Entry) regapi.Entry {
-				entry.Meta.Set(fixtureModuleDigestKey, "sha256:new")
-				return entry
-			},
-		},
-		{
-			// Resident identity is not author content: a module that ships the
-			// same bytes at a new artifact identity produces no operation, even
-			// while it is being updated.
-			name:    "mutable digest change alone",
-			mutable: true,
-			mutate: func(entry regapi.Entry) regapi.Entry {
-				entry.Meta.Set(fixtureModuleDigestKey, "sha256:new")
-				return entry
-			},
-		},
-		{
 			name: "immutable data normalization",
 			mutate: func(entry regapi.Entry) regapi.Entry {
 				entry.Data = payload.New(map[string]any{"value": "normalized"})
@@ -66,16 +48,9 @@ func TestOperationPlanner_MutableArtifactBoundary(t *testing.T) {
 			wantKinds: []string{regapi.EntryUpdate},
 		},
 		{
-			name: "version change alone",
-			mutate: func(entry regapi.Entry) regapi.Entry {
-				entry.Meta.Set(fixtureModuleVersionKey, "v2.0.0")
-				return entry
-			},
-		},
-		{
 			name: "owner conflict remains effective",
 			mutate: func(entry regapi.Entry) regapi.Entry {
-				entry.Meta.Set(fixtureModuleKey, "other/service")
+				entry.Registry.Owner = "other/service"
 				return entry
 			},
 			wantError: true,
@@ -96,10 +71,10 @@ func TestOperationPlanner_MutableArtifactBoundary(t *testing.T) {
 			desired := tt.mutate(clonePlannerTestEntry(current))
 			mutable := map[string]struct{}{}
 			if tt.mutable {
-				mutable[fixtureProvenance(desired).Module] = struct{}{}
+				mutable[entryModule(desired)] = struct{}{}
 			}
 
-			ops, err := (operationPlanner{}).plan(fixtureState(regapi.State{current}), fixtureState([]regapi.Entry{desired}), operationPlanOptions{
+			ops, err := (operationPlanner{}).plan(regapi.State{current}, []regapi.Entry{desired}, operationPlanOptions{
 				controlledModules: map[string]struct{}{"acme/service": {}},
 				mutableModules:    mutable,
 			})
@@ -127,40 +102,31 @@ func TestOperationPlanner_DependencyRootTransitionsRemainEffective(t *testing.T)
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			current := plannerTestEntry(regapi.NamespaceDependency, "acme/deployment", "v1.0.0", "sha256:a", "root")
-			current.DependencyRoot = test.from
+			current.Registry.Root = test.from
 			desired := clonePlannerTestEntry(current)
-			desired.DependencyRoot = test.to
+			desired.Registry.Root = test.to
 
-			currentState := fixtureState(regapi.State{current})
-			ops, err := (operationPlanner{}).plan(currentState, fixtureState([]regapi.Entry{desired}), operationPlanOptions{
+			ops, err := (operationPlanner{}).plan(regapi.State{current}, []regapi.Entry{desired}, operationPlanOptions{
 				controlledModules: map[string]struct{}{"acme/deployment": {}},
 				mutableModules:    map[string]struct{}{},
 			})
 			require.NoError(t, err)
-			require.Len(t, ops, 1, "a root transition produces exactly one operation")
+			require.Len(t, ops, 1)
 			assert.Equal(t, regapi.EntryUpdate, ops[0].Kind)
-			require.NotNil(t, ops[0].Provenance)
-			assert.Equal(t, test.to, ops[0].Provenance.Root)
-			assert.True(t, entriesEqual(currentState.Entries[0], ops[0].Entry), "a root transition changes no author content")
+			assert.Equal(t, test.to, ops[0].Entry.Registry.Root)
 		})
 	}
 }
 
 func TestOperationPlanner_NilMutableSetUsesNormalDiff(t *testing.T) {
 	current := plannerTestEntry("service", "acme/service", "v1.0.0", "sha256:old", "same")
-	changed := clonePlannerTestEntry(current)
-	changed.Data = payload.New(map[string]any{"value": "changed"})
+	desired := clonePlannerTestEntry(current)
+	desired.Data = payload.New(map[string]any{"value": "new"})
 
-	ops, err := (operationPlanner{}).plan(fixtureState(regapi.State{current}), fixtureState([]regapi.Entry{changed}), operationPlanOptions{})
+	ops, err := (operationPlanner{}).plan(regapi.State{current}, []regapi.Entry{desired}, operationPlanOptions{})
 	require.NoError(t, err)
 	require.Len(t, ops, 1)
 	assert.Equal(t, regapi.EntryUpdate, ops[0].Kind)
-
-	rebuilt := clonePlannerTestEntry(current)
-	rebuilt.Meta.Set(fixtureModuleDigestKey, "sha256:new")
-	ops, err = (operationPlanner{}).plan(fixtureState(regapi.State{current}), fixtureState([]regapi.Entry{rebuilt}), operationPlanOptions{})
-	require.NoError(t, err)
-	assert.Empty(t, ops, "a resident identity change alone is not an author content change")
 }
 
 func TestOperationPlanner_ControlledDeletionBoundary(t *testing.T) {
@@ -169,7 +135,7 @@ func TestOperationPlanner_ControlledDeletionBoundary(t *testing.T) {
 	unrelated.ID = regapi.NewID("other", "service")
 	host := regapi.Entry{ID: regapi.NewID("app", "host"), Kind: "service", Data: payload.New("host")}
 
-	ops, err := (operationPlanner{}).plan(fixtureState(regapi.State{controlled, unrelated, host}), regapi.ProvenancedState{}, operationPlanOptions{
+	ops, err := (operationPlanner{}).plan(regapi.State{controlled, unrelated, host}, nil, operationPlanOptions{
 		controlledModules: map[string]struct{}{"acme/controlled": {}},
 	})
 	require.NoError(t, err)
@@ -188,8 +154,8 @@ func TestOperationPlanner_LiveDependentRetainsControlledEntry(t *testing.T) {
 	}
 
 	ops, err := (operationPlanner{resolver: regtop.NewResolver()}).plan(
-		fixtureState(regapi.State{target, dependent}),
-		fixtureState([]regapi.Entry{dependent}),
+		regapi.State{target, dependent},
+		[]regapi.Entry{dependent},
 		operationPlanOptions{controlledModules: map[string]struct{}{"acme/library": {}}},
 	)
 	require.NoError(t, err)
@@ -210,10 +176,10 @@ func TestOperationPlanner_KindReplacementRecreatesLiveDependentClosure(t *testin
 
 	desiredProvider := clonePlannerTestEntry(provider)
 	desiredProvider.Kind = "test.provider.v2"
-	currentState := fixtureState(regapi.State{provider, dependent, outer, unrelated})
-	desiredState := fixtureState([]regapi.Entry{desiredProvider, dependent, outer, unrelated})
+	current := regapi.State{provider, dependent, outer, unrelated}
+	desired := []regapi.Entry{desiredProvider, dependent, outer, unrelated}
 	resolver := regtop.NewResolver()
-	ops, err := (operationPlanner{resolver: resolver}).plan(currentState, desiredState, operationPlanOptions{
+	ops, err := (operationPlanner{resolver: resolver}).plan(current, desired, operationPlanOptions{
 		controlledModules: map[string]struct{}{
 			"acme/provider": {}, "acme/dependent": {}, "acme/outer": {}, "acme/unrelated": {},
 		},
@@ -236,15 +202,14 @@ func TestOperationPlanner_KindReplacementRecreatesLiveDependentClosure(t *testin
 	assert.Nil(t, counts[idKey(unrelated.ID)])
 
 	builder := regtop.NewStateBuilder(zap.NewNop(), resolver)
-	sorted, err := builder.SortChangeSet(currentState.Entries, ops)
+	sorted, err := builder.SortChangeSet(current, ops)
 	require.NoError(t, err)
-	state := regtop.NewStateMap(currentState.Entries)
+	state := regtop.NewStateMap(current)
 	for _, op := range sorted {
 		state, err = builder.ApplyOperation(state, op)
 		require.NoError(t, err)
 	}
-	assertPlannerStatesEqual(t, desiredState, applyPlannerOperations(currentState, ops))
-	require.Len(t, regtop.StateMapToSlice(state), len(desiredState.Entries))
+	assertPlannerStatesEqual(t, desired, regtop.StateMapToSlice(state))
 }
 
 func TestOperationPlanner_KindReplacementDoesNotRecreateRewiredDependent(t *testing.T) {
@@ -259,8 +224,8 @@ func TestOperationPlanner_KindReplacementDoesNotRecreateRewiredDependent(t *test
 	desiredDependent := clonePlannerTestEntry(dependent)
 	desiredDependent.Meta.Set(regapi.TagDependsOn, []string{})
 	ops, err := (operationPlanner{resolver: regtop.NewResolver()}).plan(
-		fixtureState(regapi.State{provider, dependent}),
-		fixtureState([]regapi.Entry{desiredProvider, desiredDependent}),
+		regapi.State{provider, dependent},
+		[]regapi.Entry{desiredProvider, desiredDependent},
 		operationPlanOptions{controlledModules: map[string]struct{}{"acme/provider": {}, "acme/dependent": {}}},
 	)
 	require.NoError(t, err)
@@ -282,15 +247,15 @@ func TestOperationPlanner_KindReplacementReportsUnplannedDependent(t *testing.T)
 	planner := operationPlanner{resolver: regtop.NewResolver()}
 
 	_, err := planner.plan(
-		fixtureState(regapi.State{provider, dependent}),
-		fixtureState([]regapi.Entry{desiredProvider}),
+		regapi.State{provider, dependent},
+		[]regapi.Entry{desiredProvider},
 		operationPlanOptions{controlledModules: map[string]struct{}{"acme/provider": {}}},
 	)
 	require.ErrorContains(t, err, "live dependent test:dependent absent from desired state")
 
 	_, err = planner.plan(
-		fixtureState(regapi.State{provider, dependent}),
-		fixtureState([]regapi.Entry{desiredProvider, dependent}),
+		regapi.State{provider, dependent},
+		[]regapi.Entry{desiredProvider, dependent},
 		operationPlanOptions{
 			controlledModules: map[string]struct{}{"acme/provider": {}, "acme/dependent": {}},
 			originalKey:       idKey(dependent.ID),
@@ -335,14 +300,12 @@ func TestOperationPlanner_PlanConvergesAndIsIdempotent(t *testing.T) {
 
 				planner := operationPlanner{}
 				opts := operationPlanOptions{controlledModules: controlled, mutableModules: controlled}
-				currentState := fixtureState(current)
-				desiredState := fixtureState(desired)
-				ops, err := planner.plan(currentState, desiredState, opts)
+				ops, err := planner.plan(current, desired, opts)
 				require.NoError(t, err)
-				got := applyPlannerOperations(currentState, ops)
-				assertPlannerStatesEqual(t, desiredState, got)
+				got := applyPlannerOperations(current, ops)
+				assertPlannerStatesEqual(t, desired, got)
 
-				next, err := planner.plan(got, desiredState, opts)
+				next, err := planner.plan(got, desired, opts)
 				require.NoError(t, err)
 				assert.Empty(t, next)
 			})
@@ -351,15 +314,14 @@ func TestOperationPlanner_PlanConvergesAndIsIdempotent(t *testing.T) {
 }
 
 func plannerTestEntry(kind regapi.Kind, module, version, digest, value string) regapi.Entry {
+	_ = version
+	_ = digest
 	return regapi.Entry{
-		ID:   regapi.NewID("test", "entry"),
-		Kind: kind,
-		Meta: attrs.NewBagFrom(map[string]any{
-			fixtureModuleKey:        module,
-			fixtureModuleVersionKey: version,
-			fixtureModuleDigestKey:  digest,
-		}),
-		Data: payload.New(map[string]any{"value": value}),
+		ID:       regapi.NewID("test", "entry"),
+		Kind:     kind,
+		Registry: regapi.EntryMetadata{Owner: module},
+		Meta:     attrs.NewBag(),
+		Data:     payload.New(map[string]any{"value": value}),
 	}
 }
 
@@ -377,47 +339,33 @@ func clonePlannerTestEntry(entry regapi.Entry) regapi.Entry {
 	return entry
 }
 
-// applyPlannerOperations applies a plan the way the registry does: the entry
-// and the record the operation carries move together.
-func applyPlannerOperations(current regapi.ProvenancedState, ops []regapi.Operation) regapi.ProvenancedState {
-	entries := make(map[string]regapi.Entry, len(current.Entries)+len(ops))
-	records := make(map[string]regapi.EntryProvenance, len(current.Entries)+len(ops))
-	for _, entry := range current.Entries {
+func applyPlannerOperations(current regapi.State, ops []regapi.Operation) regapi.State {
+	entries := make(map[string]regapi.Entry, len(current)+len(ops))
+	for _, entry := range current {
 		entries[idKey(entry.ID)] = entry
-		records[idKey(entry.ID)] = current.Provenance[entry.ID]
 	}
 	for _, op := range ops {
-		key := idKey(op.Entry.ID)
 		switch op.Kind {
 		case regapi.EntryCreate, regapi.EntryUpdate:
-			entries[key] = op.Entry
-			if op.Provenance != nil {
-				records[key] = *op.Provenance
-			}
+			entries[idKey(op.Entry.ID)] = op.Entry
 		case regapi.EntryDelete:
-			delete(entries, key)
-			delete(records, key)
+			delete(entries, idKey(op.Entry.ID))
 		}
 	}
-	result := regapi.ProvenancedState{
-		Entries:    make(regapi.State, 0, len(entries)),
-		Provenance: make(regapi.ProvenanceMap, len(entries)),
-	}
-	for key, entry := range entries {
-		result.Entries = append(result.Entries, entry)
-		result.Provenance[entry.ID] = records[key]
+	result := make(regapi.State, 0, len(entries))
+	for _, entry := range entries {
+		result = append(result, entry)
 	}
 	return result
 }
 
-func assertPlannerStatesEqual(t *testing.T, want, got regapi.ProvenancedState) {
+func assertPlannerStatesEqual(t *testing.T, want []regapi.Entry, got regapi.State) {
 	t.Helper()
-	require.Len(t, got.Entries, len(want.Entries))
-	gotByID := entriesByID(got.Entries)
-	for _, entry := range want.Entries {
+	require.Len(t, got, len(want))
+	gotByID := entriesByID(got)
+	for _, entry := range want {
 		actual, ok := gotByID[idKey(entry.ID)]
 		require.True(t, ok, "missing entry %s", entry.ID)
 		assert.Equal(t, entry, actual, "entry %s differs", entry.ID)
-		assert.Equal(t, want.Provenance[entry.ID], got.Provenance[entry.ID], "provenance of %s differs", entry.ID)
 	}
 }

@@ -19,9 +19,9 @@ import (
 	"go.uber.org/zap"
 )
 
-type expanderFunc func(context.Context, regapi.Operation, regapi.ProvenancedState) (regapi.DirectiveResult, error)
+type expanderFunc func(context.Context, regapi.Operation, regapi.State) (regapi.DirectiveResult, error)
 
-func (f expanderFunc) Expand(ctx context.Context, op regapi.Operation, snap regapi.ProvenancedState) (regapi.DirectiveResult, error) {
+func (f expanderFunc) Expand(ctx context.Context, op regapi.Operation, snap regapi.State) (regapi.DirectiveResult, error) {
 	return f(ctx, op, snap)
 }
 
@@ -117,7 +117,7 @@ func TestApplyExpansion_ScopedHistoryAndBaseline(t *testing.T) {
 		Data: payload.NewString("svc"),
 	}
 
-	exp := expanderFunc(func(_ context.Context, op regapi.Operation, _ regapi.ProvenancedState) (regapi.DirectiveResult, error) {
+	exp := expanderFunc(func(_ context.Context, op regapi.Operation, _ regapi.State) (regapi.DirectiveResult, error) {
 		if op.Entry.Kind != "ns.dependency" {
 			return regapi.DirectiveResult{}, nil
 		}
@@ -168,7 +168,7 @@ func TestApplyExpansion_BaselineOnly_NoHistory(t *testing.T) {
 	}
 
 	scope := regapi.ScopeBaseline
-	exp := expanderFunc(func(_ context.Context, _ regapi.Operation, _ regapi.ProvenancedState) (regapi.DirectiveResult, error) {
+	exp := expanderFunc(func(_ context.Context, _ regapi.Operation, _ regapi.State) (regapi.DirectiveResult, error) {
 		return regapi.DirectiveResult{
 			Applied:       true,
 			OriginalScope: &scope,
@@ -200,7 +200,7 @@ func TestApplyExpansion_PrepareFailure_RollsBackPreparedEffects(t *testing.T) {
 	eff1 := &testEffect{}
 	eff2 := &testEffect{prepareErr: errors.New("prepare failed")}
 
-	exp := expanderFunc(func(_ context.Context, _ regapi.Operation, _ regapi.ProvenancedState) (regapi.DirectiveResult, error) {
+	exp := expanderFunc(func(_ context.Context, _ regapi.Operation, _ regapi.State) (regapi.DirectiveResult, error) {
 		return regapi.DirectiveResult{
 			Applied: true,
 			Effects: []regapi.Effect{eff1, eff2},
@@ -226,7 +226,7 @@ func TestApplyExpansion_ConcurrentApply_Serializes(t *testing.T) {
 	hist := historymem.New()
 
 	block := &blockingEffect{start: make(chan struct{}), proceed: make(chan struct{})}
-	exp := expanderFunc(func(_ context.Context, _ regapi.Operation, _ regapi.ProvenancedState) (regapi.DirectiveResult, error) {
+	exp := expanderFunc(func(_ context.Context, _ regapi.Operation, _ regapi.State) (regapi.DirectiveResult, error) {
 		return regapi.DirectiveResult{
 			Applied: true,
 			Effects: []regapi.Effect{block},
@@ -283,7 +283,7 @@ func TestApplyExpansion_TransitionFailure_RollsBackEffects(t *testing.T) {
 	hist := historymem.New()
 
 	eff := &testEffect{}
-	exp := expanderFunc(func(_ context.Context, _ regapi.Operation, _ regapi.ProvenancedState) (regapi.DirectiveResult, error) {
+	exp := expanderFunc(func(_ context.Context, _ regapi.Operation, _ regapi.State) (regapi.DirectiveResult, error) {
 		return regapi.DirectiveResult{
 			Applied: true,
 			Effects: []regapi.Effect{eff},
@@ -306,7 +306,7 @@ func TestApplyExpansion_DirectiveError_StopsApply(t *testing.T) {
 	runner := &applyRunner{builder: builder}
 	hist := historymem.New()
 
-	exp := expanderFunc(func(_ context.Context, _ regapi.Operation, _ regapi.ProvenancedState) (regapi.DirectiveResult, error) {
+	exp := expanderFunc(func(_ context.Context, _ regapi.Operation, _ regapi.State) (regapi.DirectiveResult, error) {
 		return regapi.DirectiveResult{}, errors.New("directive failed")
 	})
 
@@ -327,7 +327,7 @@ func TestApplyExpansion_HistorySaveFailure_RollsBackStateAndEffects(t *testing.T
 	hist := &failingHistory{Storage: historymem.New(), saveErr: errors.New("save failed")}
 
 	eff := &testEffect{}
-	exp := expanderFunc(func(_ context.Context, _ regapi.Operation, _ regapi.ProvenancedState) (regapi.DirectiveResult, error) {
+	exp := expanderFunc(func(_ context.Context, _ regapi.Operation, _ regapi.State) (regapi.DirectiveResult, error) {
 		return regapi.DirectiveResult{
 			Applied: true,
 			Effects: []regapi.Effect{eff},
@@ -356,7 +356,7 @@ func TestApplyExpansion_CommitFailure_RollsBackStateAndEffects_NoHistorySave(t *
 	hist := &failingHistory{Storage: historymem.New()}
 
 	eff := &testEffect{commitErr: errors.New("commit failed")}
-	exp := expanderFunc(func(_ context.Context, _ regapi.Operation, _ regapi.ProvenancedState) (regapi.DirectiveResult, error) {
+	exp := expanderFunc(func(_ context.Context, _ regapi.Operation, _ regapi.State) (regapi.DirectiveResult, error) {
 		return regapi.DirectiveResult{
 			Applied: true,
 			Effects: []regapi.Effect{eff},
@@ -389,7 +389,7 @@ func TestApplyExpansion_SkipAdditionalOpsOnOriginalEntry(t *testing.T) {
 
 	entry := regapi.Entry{ID: regapi.NewID("app", "dep"), Kind: "ns.dependency", Data: payload.NewString("dep")}
 
-	exp := expanderFunc(func(_ context.Context, op regapi.Operation, _ regapi.ProvenancedState) (regapi.DirectiveResult, error) {
+	exp := expanderFunc(func(_ context.Context, op regapi.Operation, _ regapi.State) (regapi.DirectiveResult, error) {
 		return regapi.DirectiveResult{
 			Applied: true,
 			Additional: []regapi.ScopedOperation{
@@ -420,7 +420,7 @@ func TestApplyExpansion_DisallowDuplicateAdditionalIDsAcrossDirectives(t *testin
 	shared := regapi.Entry{ID: regapi.NewID("mod", "svc"), Kind: "service"}
 	entry := regapi.Entry{ID: regapi.NewID("app", "dep"), Kind: "ns.dependency"}
 
-	exp1 := expanderFunc(func(_ context.Context, _ regapi.Operation, _ regapi.ProvenancedState) (regapi.DirectiveResult, error) {
+	exp1 := expanderFunc(func(_ context.Context, _ regapi.Operation, _ regapi.State) (regapi.DirectiveResult, error) {
 		return regapi.DirectiveResult{
 			Applied: true,
 			Additional: []regapi.ScopedOperation{
@@ -428,7 +428,7 @@ func TestApplyExpansion_DisallowDuplicateAdditionalIDsAcrossDirectives(t *testin
 			},
 		}, nil
 	})
-	exp2 := expanderFunc(func(_ context.Context, _ regapi.Operation, _ regapi.ProvenancedState) (regapi.DirectiveResult, error) {
+	exp2 := expanderFunc(func(_ context.Context, _ regapi.Operation, _ regapi.State) (regapi.DirectiveResult, error) {
 		return regapi.DirectiveResult{
 			Applied: true,
 			Additional: []regapi.ScopedOperation{
@@ -457,7 +457,7 @@ func TestApplyExpansion_DisallowDuplicateAdditionalIDsWithinDirective(t *testing
 	shared := regapi.Entry{ID: regapi.NewID("mod", "svc"), Kind: "service"}
 	entry := regapi.Entry{ID: regapi.NewID("app", "dep"), Kind: "ns.dependency"}
 
-	exp := expanderFunc(func(_ context.Context, _ regapi.Operation, _ regapi.ProvenancedState) (regapi.DirectiveResult, error) {
+	exp := expanderFunc(func(_ context.Context, _ regapi.Operation, _ regapi.State) (regapi.DirectiveResult, error) {
 		return regapi.DirectiveResult{
 			Applied: true,
 			Additional: []regapi.ScopedOperation{
@@ -480,27 +480,27 @@ func TestApplyExpansion_DisallowDuplicateAdditionalIDsWithinDirective(t *testing
 
 func TestDependencyDirective_NoHandler(t *testing.T) {
 	dir := &sysregexp.DependencyDirective{}
-	res, err := dir.Expand(context.Background(), regapi.Operation{}, regapi.ProvenancedState{})
+	res, err := dir.Expand(context.Background(), regapi.Operation{}, nil)
 	require.NoError(t, err)
 	assert.False(t, res.Applied)
 }
 
 func TestDependencyDirective_NotApplied(t *testing.T) {
-	dir := sysregexp.NewDependencyDirective(func(context.Context, regapi.Operation, regapi.ProvenancedState) (regapi.DirectiveResult, error) {
+	dir := sysregexp.NewDependencyDirective(func(context.Context, regapi.Operation, regapi.State) (regapi.DirectiveResult, error) {
 		return regapi.DirectiveResult{Applied: false}, nil
 	})
 
-	res, err := dir.Expand(context.Background(), regapi.Operation{}, regapi.ProvenancedState{})
+	res, err := dir.Expand(context.Background(), regapi.Operation{}, nil)
 	require.NoError(t, err)
 	assert.False(t, res.Applied)
 }
 
 func TestDependencyDirective_Error(t *testing.T) {
-	dir := sysregexp.NewDependencyDirective(func(context.Context, regapi.Operation, regapi.ProvenancedState) (regapi.DirectiveResult, error) {
+	dir := sysregexp.NewDependencyDirective(func(context.Context, regapi.Operation, regapi.State) (regapi.DirectiveResult, error) {
 		return regapi.DirectiveResult{}, errors.New("expand failed")
 	})
 
-	_, err := dir.Expand(context.Background(), regapi.Operation{}, regapi.ProvenancedState{})
+	_, err := dir.Expand(context.Background(), regapi.Operation{}, nil)
 	require.Error(t, err)
 }
 
@@ -517,7 +517,7 @@ func TestDependencyDirective_Applied(t *testing.T) {
 		},
 	}
 
-	dir := sysregexp.NewDependencyDirective(func(context.Context, regapi.Operation, regapi.ProvenancedState) (regapi.DirectiveResult, error) {
+	dir := sysregexp.NewDependencyDirective(func(context.Context, regapi.Operation, regapi.State) (regapi.DirectiveResult, error) {
 		return regapi.DirectiveResult{
 			Applied:       true,
 			OriginalScope: &scope,
@@ -526,7 +526,7 @@ func TestDependencyDirective_Applied(t *testing.T) {
 		}, nil
 	})
 
-	res, err := dir.Expand(context.Background(), regapi.Operation{}, regapi.ProvenancedState{})
+	res, err := dir.Expand(context.Background(), regapi.Operation{}, nil)
 	require.NoError(t, err)
 	require.True(t, res.Applied)
 	require.NotNil(t, res.OriginalScope)

@@ -4,7 +4,6 @@ package embed
 
 import (
 	"context"
-	"io/fs"
 	"sync"
 
 	"github.com/wippyai/runtime/api/event"
@@ -81,7 +80,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 		return systemfs.NewFilesystemNotFoundError(entry.ID.String())
 	}
 
-	nextFS, err := m.fsForEntry(ctx, entry)
+	nextFS, err := m.fsForEntry(entry)
 	if err != nil {
 		return err
 	}
@@ -112,12 +111,9 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	return nil
 }
 
-// registerFS retrieves the filesystem from the embed registry and registers it.
-// Resolution is provenance-aware when the registry supports it, so updates
-// select the pack of the module version the operation carries rather than an
-// arbitrary pack that happens to expose the same resource ID.
+// registerFS retrieves the active filesystem resource and registers it.
 func (m *Manager) registerFS(ctx context.Context, entry registry.Entry) error {
-	fs, err := m.fsForEntry(ctx, entry)
+	fs, err := m.fsForEntry(entry)
 	if err != nil {
 		return err
 	}
@@ -125,8 +121,8 @@ func (m *Manager) registerFS(ctx context.Context, entry registry.Entry) error {
 	return nil
 }
 
-func (m *Manager) fsForEntry(ctx context.Context, entry registry.Entry) (fsapi.FS, error) {
-	packFS, err := m.resolveFS(ctx, entry)
+func (m *Manager) fsForEntry(entry registry.Entry) (fsapi.FS, error) {
+	packFS, err := m.embedReg.GetFS(entry.ID)
 	if err != nil {
 		m.log.Error("failed to get embedded filesystem",
 			zap.String("id", entry.ID.String()),
@@ -146,29 +142,6 @@ func (m *Manager) storeFS(ctx context.Context, id registry.ID, fs fsapi.FS) {
 		Path:   id.String(),
 		Data:   fs,
 	})
-}
-
-// resolveFS prefers a provenance-aware lookup when the registry implements
-// embedapi.EntryResolver, otherwise falls back to ID-based lookup. The
-// provenance is the effective half of the operation the listener is handling;
-// host entries and callers outside a transition supply none, which resolves by
-// entry ID.
-func (m *Manager) resolveFS(ctx context.Context, entry registry.Entry) (fs.ReadDirFS, error) {
-	if resolver, ok := m.embedReg.(embedapi.EntryResolver); ok {
-		return resolver.GetFSForEntry(entry, effectiveProvenance(ctx))
-	}
-	return m.embedReg.GetFS(entry.ID)
-}
-
-// effectiveProvenance returns the provenance of the entry the dispatched
-// operation carries, or nil when the caller is not a provenance-carrying
-// transition.
-func effectiveProvenance(ctx context.Context) *registry.EntryProvenance {
-	op, ok := registry.OpProvenanceFromContext(ctx)
-	if !ok {
-		return nil
-	}
-	return op.Effective
 }
 
 // removeFS removes the filesystem from the fs system.

@@ -480,6 +480,23 @@ func TestResolve_LockedDigestMatch(t *testing.T) {
 	assert.Equal(t, "sha256:1.0.0", result.Modules[0].Digest)
 }
 
+func TestResolve_LockedDigestMatchAcceptsBareHubDigest(t *testing.T) {
+	p := newMutableProvider()
+	p.addModule("acme", "http", "1.0.0")
+	p.override("acme", "http", "1.0.0", "abcdef1234")
+
+	result, err := Resolve(context.Background(), p, []DependencySpec{
+		{Org: "acme", Name: "http", Constraint: "1.0.0"},
+	}, &ResolveOptions{
+		LockedDigests: map[string]string{"acme/http@1.0.0": "sha256:abcdef1234"},
+	})
+
+	require.NoError(t, err)
+	assert.Empty(t, result.Errors)
+	require.Len(t, result.Modules, 1)
+	assert.Equal(t, "abcdef1234", result.Modules[0].Digest)
+}
+
 func TestResolve_LockedDigestMismatchBareProvider(t *testing.T) {
 	p := newFakeProvider()
 	p.addModule("acme", "http", "1.0.0")

@@ -141,7 +141,7 @@ func (m *Manager) registerFS(ctx context.Context, id registry.ID, cfg *dirapi.Co
 
 func (m *Manager) registerFSLocked(ctx context.Context, entry registry.Entry, cfg *dirapi.Config) error {
 	id := entry.ID
-	dirPath := resolveDirectoryPath(ctx, cfg)
+	dirPath := resolveDirectoryPath(ctx, entry, cfg)
 	fs, err := m.factory.CreateFS(CreateFSConfig{
 		DirPath:  dirPath,
 		Mode:     cfg.GetMode(),
@@ -173,20 +173,8 @@ func (m *Manager) registerFSLocked(ctx context.Context, entry registry.Entry, cf
 	return nil
 }
 
-// resolveDirectoryPath resolves the load path against the source root of the
-// module the dispatched operation names as the entry's owner. A caller outside
-// a provenance-carrying transition, and a host-authored entry, resolve
-// working-directory relative.
-func resolveDirectoryPath(ctx context.Context, cfg *dirapi.Config) string {
-	return dirapi.ResolveDirectory(ctx, owningModule(ctx), cfg)
-}
-
-func owningModule(ctx context.Context) string {
-	op, ok := registry.OpProvenanceFromContext(ctx)
-	if !ok || op.Effective == nil {
-		return ""
-	}
-	return op.Effective.Module
+func resolveDirectoryPath(ctx context.Context, entry registry.Entry, cfg *dirapi.Config) string {
+	return dirapi.ResolveDirectory(ctx, entry, cfg)
 }
 
 // removeFS removes the filesystem from the fs system

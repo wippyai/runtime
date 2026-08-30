@@ -8,12 +8,9 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"runtime"
-	"strings"
 	"sync"
 	"testing"
 	"testing/fstest"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -72,22 +69,23 @@ func TestRegistry_Register(t *testing.T) {
 		r.mu.RUnlock()
 	})
 
-	t.Run("overwrites existing reader and closes old file", func(t *testing.T) {
+	t.Run("rejects an existing pack path without disturbing it", func(t *testing.T) {
 		r := NewRegistry()
 		reader1, file1 := createTestReaderWithFile(t)
 		reader2 := createTestReader(t)
 
 		require.NoError(t, r.Register("test/pack", reader1, file1))
-		require.NoError(t, r.Register("test/pack", reader2, nil))
+		require.Error(t, r.Register("test/pack", reader2, nil))
 
 		r.mu.RLock()
 		assert.Len(t, r.packs, 1)
-		assert.Equal(t, reader2, r.packs["test/pack"].reader)
+		assert.Equal(t, reader1, r.packs["test/pack"].reader)
 		r.mu.RUnlock()
 
-		// The replaced file handle must be closed.
-		_, err := file1.Read(make([]byte, 1))
-		require.Error(t, err)
+		// The active pack remains owned by the registry.
+		_, err := file1.Stat()
+		require.NoError(t, err)
+		require.NoError(t, r.UnregisterPack("test/pack"))
 	})
 }
 
@@ -153,360 +151,85 @@ func TestRegistry_GetFS(t *testing.T) {
 	})
 }
 
-func TestRegistry_GetFSForEntry(t *testing.T) {
-	t.Run("selects pack matching operation module and version", func(t *testing.T) {
-		r := NewRegistry()
-		// Two pack versions expose the SAME resource ID with different content.
-		oldReader := createReaderWithResource(t, "ui", "app", map[string]string{"v.txt": "old"})
-		newReader := createReaderWithResource(t, "ui", "app", map[string]string{"v.txt": "new"})
-		require.NoError(t, r.RegisterPack("org/mod-v1.0.0.wapp", "org/mod", "1.0.0", oldReader, nil))
-		require.NoError(t, r.RegisterPack("org/mod-v2.0.0.wapp", "org/mod", "2.0.0", newReader, nil))
+func TestRegistry_ActiveResourceMapping(t *testing.T) {
+	r := NewRegistry()
+	oldReader := createReaderWithResource(t, "ui", "app", map[string]string{"v.txt": "old"})
+	newReader := createReaderWithResource(t, "ui", "app", map[string]string{"v.txt": "new"})
+	require.NoError(t, r.RegisterPack("org/mod-v1.0.0.wapp", "org/mod", "1.0.0", oldReader, nil))
 
-		fsysNew, err := r.GetFSForEntry(packEntry("ui", "app"), moduleProvenance("org/mod", "2.0.0"))
-		require.NoError(t, err)
-		data, err := fs.ReadFile(fsysNew, "v.txt")
-		require.NoError(t, err)
-		assert.Equal(t, "new", string(data))
+	fsys, err := r.GetFS(registry.NewID("ui", "app"))
+	require.NoError(t, err)
+	data, err := fs.ReadFile(fsys, "v.txt")
+	require.NoError(t, err)
+	assert.Equal(t, "old", string(data))
 
-		fsysOld, err := r.GetFSForEntry(packEntry("ui", "app"), moduleProvenance("org/mod", "1.0.0"))
-		require.NoError(t, err)
-		data, err = fs.ReadFile(fsysOld, "v.txt")
-		require.NoError(t, err)
-		assert.Equal(t, "old", string(data))
-	})
+	require.NoError(t, r.RegisterPack("org/mod-v2.0.0.wapp", "org/mod", "2.0.0", newReader, nil))
+	data, err = fs.ReadFile(fsys, "v.txt")
+	require.NoError(t, err)
+	assert.Equal(t, "new", string(data))
 
-	t.Run("matches by module when version omitted", func(t *testing.T) {
-		r := NewRegistry()
-		reader := createReaderWithResource(t, "ui", "app", map[string]string{"v.txt": "only"})
-		require.NoError(t, r.RegisterPack("org/mod-v1.0.0.wapp", "org/mod", "1.0.0", reader, nil))
-
-		fsys, err := r.GetFSForEntry(packEntry("ui", "app"), moduleProvenance("org/mod", ""))
-		require.NoError(t, err)
-		data, err := fs.ReadFile(fsys, "v.txt")
-		require.NoError(t, err)
-		assert.Equal(t, "only", string(data))
-	})
-
-	t.Run("falls back to GetFS without provenance", func(t *testing.T) {
-		r := NewRegistry()
-		reader := createReaderWithResource(t, "ui", "app", map[string]string{"v.txt": "legacy"})
-		require.NoError(t, r.RegisterPack("legacy.wapp", "", "", reader, nil))
-
-		fsys, err := r.GetFSForEntry(packEntry("ui", "app"), nil)
-		require.NoError(t, err)
-		data, err := fs.ReadFile(fsys, "v.txt")
-		require.NoError(t, err)
-		assert.Equal(t, "legacy", string(data))
-	})
-
-	t.Run("falls back to GetFS for a host-authored entry", func(t *testing.T) {
-		r := NewRegistry()
-		reader := createReaderWithResource(t, "ui", "app", map[string]string{"v.txt": "host"})
-		require.NoError(t, r.RegisterPack("app.wapp", "", "", reader, nil))
-
-		fsys, err := r.GetFSForEntry(packEntry("ui", "app"), &registry.EntryProvenance{})
-		require.NoError(t, err)
-		data, err := fs.ReadFile(fsys, "v.txt")
-		require.NoError(t, err)
-		assert.Equal(t, "host", string(data))
-	})
-
-	t.Run("does not fall back to another pack when versioned owner is missing", func(t *testing.T) {
-		r := NewRegistry()
-		oldReader := createReaderWithResource(t, "ui", "app", map[string]string{"v.txt": "old"})
-		otherReader := createReaderWithResource(t, "ui", "app", map[string]string{"v.txt": "other"})
-		require.NoError(t, r.RegisterPack("org/mod-v1.0.0.wapp", "org/mod", "1.0.0", oldReader, nil))
-		require.NoError(t, r.RegisterPack("org/other-v9.9.9.wapp", "org/other", "9.9.9", otherReader, nil))
-
-		_, err := r.GetFSForEntry(packEntry("ui", "app"), moduleProvenance("org/mod", "2.0.0"))
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "not found")
-	})
-
-	t.Run("falls back to GetFS when module version is omitted", func(t *testing.T) {
-		r := NewRegistry()
-		reader := createReaderWithResource(t, "ui", "app", map[string]string{"v.txt": "legacy"})
-		require.NoError(t, r.RegisterPack("legacy.wapp", "", "", reader, nil))
-
-		fsys, err := r.GetFSForEntry(packEntry("ui", "app"), moduleProvenance("org/mod", ""))
-		require.NoError(t, err)
-		data, err := fs.ReadFile(fsys, "v.txt")
-		require.NoError(t, err)
-		assert.Equal(t, "legacy", string(data))
-	})
+	require.NoError(t, r.UnregisterPack("org/mod-v2.0.0.wapp"))
+	data, err = fs.ReadFile(fsys, "v.txt")
+	require.NoError(t, err)
+	assert.Equal(t, "old", string(data))
 }
 
-func TestRegistry_RetargetModule(t *testing.T) {
-	t.Run("serves the new pack after the old one closes", func(t *testing.T) {
-		r := NewRegistry()
-		oldReader, oldFile := createReaderWithResourceFile(t, "ui", "app", map[string]string{"v.txt": "old"})
-		newReader := createReaderWithResource(t, "ui", "app", map[string]string{"v.txt": "new"})
-		require.NoError(t, r.RegisterPack("org/mod-v1.0.0.wapp", "org/mod", "1.0.0", oldReader, oldFile))
-		require.NoError(t, r.RegisterPack("org/mod-v2.0.0.wapp", "org/mod", "2.0.0", newReader, nil))
+func TestRegistry_StagedResourceBindsNewHandleUntilActivation(t *testing.T) {
+	r := NewRegistry()
+	reader := createReaderWithResource(t, "ui", "next", map[string]string{"v.txt": "next"})
+	require.NoError(t, r.StagePack("org/mod-v2.0.0.wapp", "org/mod", "2.0.0", reader, nil))
 
-		// The entry received no event on the version bump: the consumer still
-		// holds the filesystem resolved from the 1.0.0 pack.
-		cached, err := r.GetFSForEntry(packEntry("ui", "app"), moduleProvenance("org/mod", "1.0.0"))
-		require.NoError(t, err)
-		assert.Equal(t, "old", readFile(t, cached, "v.txt"))
+	fsys, err := r.GetFS(registry.NewID("ui", "next"))
+	require.NoError(t, err)
+	data, err := fs.ReadFile(fsys, "v.txt")
+	require.NoError(t, err)
+	assert.Equal(t, "next", string(data))
 
-		require.NoError(t, r.RetargetModule("org/mod", "1.0.0", "2.0.0"))
-		assert.Equal(t, "new", readFile(t, cached, "v.txt"))
+	require.NoError(t, r.ActivatePack("org/mod-v2.0.0.wapp"))
+	data, err = fs.ReadFile(fsys, "v.txt")
+	require.NoError(t, err)
+	assert.Equal(t, "next", string(data))
+}
 
-		// Finalize retires the old pack; the cached filesystem keeps reading.
-		require.NoError(t, r.UnregisterModule("org/mod", "1.0.0"))
-		assert.Equal(t, "new", readFile(t, cached, "v.txt"))
-	})
+func TestRegistry_ActivatePacksDoesNotPartiallySwitch(t *testing.T) {
+	r := NewRegistry()
+	reader := createReaderWithResource(t, "ui", "one", map[string]string{"v.txt": "one"})
+	require.NoError(t, r.StagePack("org/one.wapp", "org/one", "1.0.0", reader, nil))
 
-	t.Run("concurrent reads survive the old pack closing", func(t *testing.T) {
-		r := NewRegistry()
-		oldReader, oldFile := createReaderWithResourceFile(t, "ui", "app", map[string]string{"v.txt": "old"})
-		newReader := createReaderWithResource(t, "ui", "app", map[string]string{"v.txt": "new"})
-		require.NoError(t, r.RegisterPack("org/mod-v1.0.0.wapp", "org/mod", "1.0.0", oldReader, oldFile))
-		require.NoError(t, r.RegisterPack("org/mod-v2.0.0.wapp", "org/mod", "2.0.0", newReader, nil))
+	require.Error(t, r.ActivatePacks([]string{"org/one.wapp", "missing.wapp"}))
+	r.mu.RLock()
+	active := r.packs["org/one.wapp"].active.Load()
+	r.mu.RUnlock()
+	assert.False(t, active)
+}
 
-		cached, err := r.GetFSForEntry(packEntry("ui", "app"), moduleProvenance("org/mod", "1.0.0"))
-		require.NoError(t, err)
+func TestRegistry_RejectsResourceCollisionAcrossModules(t *testing.T) {
+	r := NewRegistry()
+	first := createReaderWithResource(t, "ui", "app", map[string]string{"v.txt": "one"})
+	second := createReaderWithResource(t, "ui", "app", map[string]string{"v.txt": "two"})
+	require.NoError(t, r.RegisterPack("org/one.wapp", "org/one", "1.0.0", first, nil))
+	require.Error(t, r.RegisterPack("org/two.wapp", "org/two", "1.0.0", second, nil))
+}
 
-		var (
-			wg     sync.WaitGroup
-			stop   = make(chan struct{})
-			failed = make(chan error, 64)
-		)
-		reportFailure := func(err error) {
-			select {
-			case failed <- err:
-			default:
-			}
-		}
-		// Half the readers hold an open handle across the retarget and the
-		// close, which is the window a per-call reference would miss.
-		for i := 0; i < 8; i++ {
-			holdOpen := i%2 == 0
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				for {
-					select {
-					case <-stop:
-						return
-					default:
-					}
-					if !holdOpen {
-						if _, err := fs.ReadFile(cached, "v.txt"); err != nil {
-							reportFailure(err)
-							return
-						}
-						continue
-					}
-					file, err := cached.Open("v.txt")
-					if err != nil {
-						reportFailure(err)
-						return
-					}
-					runtime.Gosched()
-					if _, err := io.ReadAll(file); err != nil {
-						_ = file.Close()
-						reportFailure(err)
-						return
-					}
-					if err := file.Close(); err != nil {
-						reportFailure(err)
-						return
-					}
-				}
-			}()
-		}
+func TestRegistry_RetiresPackAfterOpenFileCloses(t *testing.T) {
+	r := NewRegistry()
+	reader, file := createReaderWithResourceAndFile(t, "ui", "app", map[string]string{"v.txt": "open"})
+	require.NoError(t, r.RegisterPack("org/mod.wapp", "org/mod", "1.0.0", reader, file))
 
-		require.NoError(t, r.RetargetModule("org/mod", "1.0.0", "2.0.0"))
-		require.NoError(t, r.UnregisterModule("org/mod", "1.0.0"))
-		// Reads after the close must come from the new pack.
-		for i := 0; i < 32; i++ {
-			assert.Equal(t, "new", readFile(t, cached, "v.txt"))
-		}
-		close(stop)
+	fsys, err := r.GetFS(registry.NewID("ui", "app"))
+	require.NoError(t, err)
+	open, err := fsys.Open("v.txt")
+	require.NoError(t, err)
 
-		// Readers must drain on their own: nothing in the retarget or the close
-		// waits on them, so nothing can hold them.
-		done := make(chan struct{})
-		go func() {
-			wg.Wait()
-			close(done)
-		}()
-		select {
-		case <-done:
-		case <-time.After(10 * time.Second):
-			t.Fatal("readers did not finish: a read is blocked on the pack lifecycle")
-		}
-
-		close(failed)
-		for err := range failed {
-			t.Fatalf("read failed while the pack was retargeted: %v", err)
-		}
-	})
-
-	t.Run("missing target pack fails and keeps the current pack", func(t *testing.T) {
-		r := NewRegistry()
-		reader := createReaderWithResource(t, "ui", "app", map[string]string{"v.txt": "old"})
-		require.NoError(t, r.RegisterPack("org/mod-v1.0.0.wapp", "org/mod", "1.0.0", reader, nil))
-
-		cached, err := r.GetFSForEntry(packEntry("ui", "app"), moduleProvenance("org/mod", "1.0.0"))
-		require.NoError(t, err)
-
-		err = r.RetargetModule("org/mod", "1.0.0", "2.0.0")
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "not found")
-		assert.Equal(t, "old", readFile(t, cached, "v.txt"))
-	})
-
-	t.Run("entry missing from the new pack retargets nothing", func(t *testing.T) {
-		r := NewRegistry()
-		oldReader := createReaderWithResources(t, "org/mod", map[string]map[string]string{
-			"ui:app":  {"v.txt": "old"},
-			"ui:docs": {"v.txt": "old"},
-		})
-		newReader := createReaderWithResource(t, "ui", "app", map[string]string{"v.txt": "new"})
-		require.NoError(t, r.RegisterPack("org/mod-v1.0.0.wapp", "org/mod", "1.0.0", oldReader, nil))
-		require.NoError(t, r.RegisterPack("org/mod-v2.0.0.wapp", "org/mod", "2.0.0", newReader, nil))
-
-		app, err := r.GetFSForEntry(packEntry("ui", "app"), moduleProvenance("org/mod", "1.0.0"))
-		require.NoError(t, err)
-		docs, err := r.GetFSForEntry(packEntry("ui", "docs"), moduleProvenance("org/mod", "1.0.0"))
-		require.NoError(t, err)
-
-		err = r.RetargetModule("org/mod", "1.0.0", "2.0.0")
-		require.Error(t, err)
-		assert.Equal(t, "old", readFile(t, app, "v.txt"))
-		assert.Equal(t, "old", readFile(t, docs, "v.txt"))
-	})
-
-	t.Run("nothing served from the version is a no-op", func(t *testing.T) {
-		r := NewRegistry()
-		require.NoError(t, r.RetargetModule("org/mod", "1.0.0", "2.0.0"))
-	})
-
-	t.Run("same version is a no-op", func(t *testing.T) {
-		r := NewRegistry()
-		reader := createReaderWithResource(t, "ui", "app", map[string]string{"v.txt": "old"})
-		require.NoError(t, r.RegisterPack("org/mod-v1.0.0.wapp", "org/mod", "1.0.0", reader, nil))
-		_, err := r.GetFSForEntry(packEntry("ui", "app"), moduleProvenance("org/mod", "1.0.0"))
-		require.NoError(t, err)
-
-		require.NoError(t, r.RetargetModule("org/mod", "1.0.0", "1.0.0"))
-	})
-
-	t.Run("empty module is rejected", func(t *testing.T) {
-		r := NewRegistry()
-		err := r.RetargetModule("", "1.0.0", "2.0.0")
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "module cannot be empty")
-	})
-
-	t.Run("one store repoints every entry of the module version", func(t *testing.T) {
-		r := NewRegistry()
-		oldReader := createReaderWithResources(t, "org/mod", map[string]map[string]string{
-			"ui:app":  {"v.txt": "old"},
-			"ui:docs": {"v.txt": "old"},
-		})
-		newReader := createReaderWithResources(t, "org/mod", map[string]map[string]string{
-			"ui:app":  {"v.txt": "new"},
-			"ui:docs": {"v.txt": "new"},
-		})
-		require.NoError(t, r.RegisterPack("org/mod-v1.0.0.wapp", "org/mod", "1.0.0", oldReader, nil))
-		require.NoError(t, r.RegisterPack("org/mod-v2.0.0.wapp", "org/mod", "2.0.0", newReader, nil))
-
-		app, err := r.GetFSForEntry(packEntry("ui", "app"), moduleProvenance("org/mod", "1.0.0"))
-		require.NoError(t, err)
-		docs, err := r.GetFSForEntry(packEntry("ui", "docs"), moduleProvenance("org/mod", "1.0.0"))
-		require.NoError(t, err)
-
-		// Both entries read through the same generation, so the retarget is one
-		// store rather than one store per filesystem.
-		assert.Same(t, app.(*entryFS).lineage, docs.(*entryFS).lineage)
-
-		require.NoError(t, r.RetargetModule("org/mod", "1.0.0", "2.0.0"))
-		assert.Equal(t, "new", readFile(t, app, "v.txt"))
-		assert.Equal(t, "new", readFile(t, docs, "v.txt"))
-	})
-
-	t.Run("a read in flight keeps its pack open past the close", func(t *testing.T) {
-		r := NewRegistry()
-		oldReader, oldFile := createReaderWithResourceFile(t, "ui", "app", map[string]string{"v.txt": "old"})
-		newReader := createReaderWithResource(t, "ui", "app", map[string]string{"v.txt": "new"})
-		require.NoError(t, r.RegisterPack("org/mod-v1.0.0.wapp", "org/mod", "1.0.0", oldReader, oldFile))
-		require.NoError(t, r.RegisterPack("org/mod-v2.0.0.wapp", "org/mod", "2.0.0", newReader, nil))
-
-		cached, err := r.GetFSForEntry(packEntry("ui", "app"), moduleProvenance("org/mod", "1.0.0"))
-		require.NoError(t, err)
-
-		inFlight, err := cached.Open("v.txt")
-		require.NoError(t, err)
-
-		require.NoError(t, r.RetargetModule("org/mod", "1.0.0", "2.0.0"))
-		require.NoError(t, r.UnregisterModule("org/mod", "1.0.0"))
-
-		// The handle opened before the retarget still reads its own pack.
-		data, err := io.ReadAll(inFlight)
-		require.NoError(t, err)
-		assert.Equal(t, "old", string(data))
-		_, err = oldFile.ReadAt(make([]byte, 1), 0)
-		require.NoError(t, err, "the pack file must stay open while a read holds it")
-
-		// Closing the last reader closes the pack file.
-		require.NoError(t, inFlight.Close())
-		_, err = oldFile.ReadAt(make([]byte, 1), 0)
-		require.Error(t, err)
-
-		// New reads come from the pack the lineage was retargeted to.
-		assert.Equal(t, "new", readFile(t, cached, "v.txt"))
-	})
-
-	t.Run("retired generations are not referenced by the registry", func(t *testing.T) {
-		r := NewRegistry()
-		oldReader, oldFile := createReaderWithResourceFile(t, "ui", "app", map[string]string{"v.txt": "old"})
-		newReader := createReaderWithResource(t, "ui", "app", map[string]string{"v.txt": "new"})
-		require.NoError(t, r.RegisterPack("org/mod-v1.0.0.wapp", "org/mod", "1.0.0", oldReader, oldFile))
-		require.NoError(t, r.RegisterPack("org/mod-v2.0.0.wapp", "org/mod", "2.0.0", newReader, nil))
-
-		cached, err := r.GetFSForEntry(packEntry("ui", "app"), moduleProvenance("org/mod", "1.0.0"))
-		require.NoError(t, err)
-		assert.Equal(t, "old", readFile(t, cached, "v.txt"))
-
-		require.NoError(t, r.RetargetModule("org/mod", "1.0.0", "2.0.0"))
-		require.NoError(t, r.UnregisterModule("org/mod", "1.0.0"))
-
-		r.mu.RLock()
-		defer r.mu.RUnlock()
-		for p, lineages := range r.lineages {
-			assert.Equal(t, "2.0.0", p.version, "no lineage may stay keyed by the retired pack")
-			for _, l := range lineages {
-				require.NotNil(t, l.current.Load())
-				assert.Equal(t, "2.0.0", l.current.Load().version())
-			}
-		}
-		// Nothing holds the retired pack: its handle is closed.
-		_, err = oldFile.ReadAt(make([]byte, 1), 0)
-		require.Error(t, err)
-	})
-
-	t.Run("unregistering the served pack stops resolution", func(t *testing.T) {
-		r := NewRegistry()
-		reader := createReaderWithResource(t, "ui", "app", map[string]string{"v.txt": "old"})
-		require.NoError(t, r.RegisterPack("org/mod-v1.0.0.wapp", "org/mod", "1.0.0", reader, nil))
-		cached, err := r.GetFSForEntry(packEntry("ui", "app"), moduleProvenance("org/mod", "1.0.0"))
-		require.NoError(t, err)
-
-		require.NoError(t, r.UnregisterModule("org/mod", "1.0.0"))
-
-		_, err = cached.Open("v.txt")
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "not found")
-
-		r.mu.RLock()
-		lineages := len(r.lineages)
-		r.mu.RUnlock()
-		assert.Equal(t, 0, lineages)
-	})
+	// The retired pack remains readable through an open file, then releases the
+	// underlying handle once that read completes.
+	require.NoError(t, r.UnregisterPack("org/mod.wapp"))
+	data, err := io.ReadAll(open)
+	require.NoError(t, err)
+	assert.Equal(t, "open", string(data))
+	require.NoError(t, open.Close())
+	_, err = file.Read(make([]byte, 1))
+	require.Error(t, err)
 }
 
 func TestRegistry_UnregisterPack(t *testing.T) {
@@ -705,76 +428,50 @@ func createTestReaderWithFile(t *testing.T) (*wapp.Reader, *os.File) {
 	return reader, file
 }
 
-// packEntry builds the registry entry a pack resource belongs to. Ownership
-// rides the operation provenance, never the entry.
-func packEntry(ns, name string) registry.Entry {
-	return registry.Entry{ID: registry.NewID(ns, name)}
-}
-
-func moduleProvenance(module, version string) *registry.EntryProvenance {
-	return &registry.EntryProvenance{Module: module, Version: version}
-}
-
-func readFile(t *testing.T, fsys fs.ReadDirFS, name string) string {
-	t.Helper()
-
-	data, err := fs.ReadFile(fsys, name)
-	require.NoError(t, err)
-	return string(data)
-}
-
 // createReaderWithResource builds a wapp containing a single filesystem resource.
 func createReaderWithResource(t *testing.T, ns, name string, files map[string]string) *wapp.Reader {
 	t.Helper()
-	return readerFromBytes(t, packResources(t, []wapp.ResourceSpec{{ID: wapp.NewID(ns, name), FS: resourceFS(files)}}))
-}
 
-// createReaderWithResourceFile builds a single-resource wapp on disk and returns
-// the open file handle backing it, so closing the pack breaks its reads.
-func createReaderWithResourceFile(t *testing.T, ns, name string, files map[string]string) (*wapp.Reader, *os.File) {
-	t.Helper()
-
-	data := packResources(t, []wapp.ResourceSpec{{ID: wapp.NewID(ns, name), FS: resourceFS(files)}})
-	wappPath := filepath.Join(t.TempDir(), "pack.wapp")
-	require.NoError(t, os.WriteFile(wappPath, data, 0644))
-
-	file, err := os.Open(wappPath)
-	require.NoError(t, err)
-
-	reader, err := wapp.NewReader(file)
-	require.NoError(t, err)
-	return reader, file
-}
-
-// createReaderWithResources builds a wapp exposing several resources, keyed
-// "namespace:name".
-func createReaderWithResources(t *testing.T, _ string, resources map[string]map[string]string) *wapp.Reader {
-	t.Helper()
-
-	specs := make([]wapp.ResourceSpec, 0, len(resources))
-	for id, files := range resources {
-		ns, name, ok := strings.Cut(id, ":")
-		require.True(t, ok, "resource id %q must be namespace:name", id)
-		specs = append(specs, wapp.ResourceSpec{ID: wapp.NewID(ns, name), FS: resourceFS(files)})
-	}
-	return readerFromBytes(t, packResources(t, specs))
-}
-
-func resourceFS(files map[string]string) fstest.MapFS {
 	mapFS := fstest.MapFS{}
 	for path, content := range files {
 		mapFS[path] = &fstest.MapFile{Data: []byte(content), Mode: 0644}
 	}
-	return mapFS
-}
-
-func packResources(t *testing.T, specs []wapp.ResourceSpec) []byte {
-	t.Helper()
 
 	var buf bytes.Buffer
 	writer := wapp.NewWriter()
-	require.NoError(t, writer.PackWithResources(wapp.Metadata{}, nil, specs, &buf))
-	return buf.Bytes()
+	err := writer.PackWithResources(
+		wapp.Metadata{},
+		nil,
+		[]wapp.ResourceSpec{{ID: wapp.NewID(ns, name), FS: mapFS}},
+		&buf,
+	)
+	require.NoError(t, err)
+
+	return readerFromBytes(t, buf.Bytes())
+}
+
+func createReaderWithResourceAndFile(t *testing.T, ns, name string, files map[string]string) (*wapp.Reader, *os.File) {
+	t.Helper()
+	mapFS := fstest.MapFS{}
+	for path, content := range files {
+		mapFS[path] = &fstest.MapFile{Data: []byte(content), Mode: 0644}
+	}
+
+	var buf bytes.Buffer
+	writer := wapp.NewWriter()
+	require.NoError(t, writer.PackWithResources(
+		wapp.Metadata{}, nil,
+		[]wapp.ResourceSpec{{ID: wapp.NewID(ns, name), FS: mapFS}},
+		&buf,
+	))
+
+	path := filepath.Join(t.TempDir(), "pack.wapp")
+	require.NoError(t, os.WriteFile(path, buf.Bytes(), 0644))
+	file, err := os.Open(path)
+	require.NoError(t, err)
+	reader, err := wapp.NewReader(file)
+	require.NoError(t, err)
+	return reader, file
 }
 
 func packEntriesOnly(t *testing.T) []byte {
@@ -798,29 +495,4 @@ func readerFromBytes(t *testing.T, data []byte) *wapp.Reader {
 	reader, err := wapp.NewReader(file)
 	require.NoError(t, err)
 	return reader
-}
-
-// TestRegisterPack_SameIdentityRetiresPreviousPack pins the one-pack-per
-// (module, version) invariant retargeting relies on: registering a second pack
-// at the same identity retires the first, so a retarget always moves every
-// filesystem of that identity together.
-func TestRegisterPack_SameIdentityRetiresPreviousPack(t *testing.T) {
-	reg := NewRegistry()
-	defer func() { _ = reg.Close() }()
-
-	first := createReaderWithResource(t, "ui", "app", map[string]string{"index.html": "one"})
-	require.NoError(t, reg.RegisterPack("pack-a", "org/mod", "1.0.0", first, nil))
-	second := createReaderWithResource(t, "ui", "app", map[string]string{"index.html": "two"})
-	require.NoError(t, reg.RegisterPack("pack-b", "org/mod", "1.0.0", second, nil))
-
-	reg.mu.RLock()
-	count := 0
-	for _, p := range reg.packs {
-		if p.module == "org/mod" && p.version == "1.0.0" {
-			count++
-		}
-	}
-	reg.mu.RUnlock()
-	require.Equal(t, 1, count, "one pack per module version")
-	require.True(t, reg.HasModulePack("org/mod", "1.0.0"))
 }

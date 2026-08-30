@@ -8,7 +8,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 	lua "github.com/wippyai/go-lua"
-	"github.com/wippyai/runtime/api/attrs"
 	regapi "github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	"go.uber.org/zap"
@@ -107,84 +106,6 @@ func TestDeleteIDsAcceptsEntryListsForBulkOverlayDelete(t *testing.T) {
 	}
 	if ids[0].String() != "runtime.env:host" || ids[1].String() != "runtime.db:source" {
 		t.Fatalf("unexpected IDs: %v", ids)
-	}
-}
-
-// A writer unaware of root status must not demote a deployment root. This is
-// the shape keeper takes on every dependency update: read the entry, change a
-// field, write it back. Absence of root on an update means unchanged.
-// An update saying nothing about root carries no provenance: the registry's
-// nil-provenance rule preserves the stored selection.
-func TestChangesUpdateOmittingRootCarriesNoProvenance(t *testing.T) {
-	l := newTestState()
-	defer l.Close()
-
-	stored := regapi.Entry{
-		ID:   regapi.ParseID("app.deps:keeper"),
-		Kind: "ns.dependency",
-		Meta: attrs.Bag{"module": "kickside/kickside"},
-	}
-
-	changes := &Changes{
-		snapshot: &Snapshot{entries: []regapi.Entry{stored}, log: zap.NewNop()},
-		ops:      []regapi.Operation{},
-		log:      zap.NewNop(),
-	}
-
-	ud := l.NewUserData()
-	ud.Value = changes
-	l.Push(ud)
-
-	entryTable := l.CreateTable(0, 3)
-	entryTable.RawSetString("id", lua.LString("app.deps:keeper"))
-	entryTable.RawSetString("kind", lua.LString("ns.dependency"))
-	entryTable.RawSetString("meta", l.CreateTable(0, 0))
-	l.Push(entryTable)
-
-	changesUpdate(l)
-
-	if len(changes.ops) != 1 {
-		t.Fatalf("expected one op, got %d", len(changes.ops))
-	}
-	if changes.ops[0].Entry.DependencyRoot {
-		t.Error("entry payloads never carry the deployment-root flag")
-	}
-	if changes.ops[0].Provenance != nil {
-		t.Error("an update without a root statement carries no provenance")
-	}
-}
-
-// Root mutations go through registry.set_root; an update table attempting one
-// is refused.
-func TestChangesUpdateRejectsRootMutation(t *testing.T) {
-	l := newTestState()
-	defer l.Close()
-
-	stored := regapi.Entry{
-		ID:   regapi.ParseID("app.deps:keeper"),
-		Kind: "ns.dependency",
-	}
-
-	changes := &Changes{
-		snapshot: &Snapshot{entries: []regapi.Entry{stored}, log: zap.NewNop()},
-		ops:      []regapi.Operation{},
-		log:      zap.NewNop(),
-	}
-
-	ud := l.NewUserData()
-	ud.Value = changes
-	l.Push(ud)
-
-	entryTable := l.CreateTable(0, 3)
-	entryTable.RawSetString("id", lua.LString("app.deps:keeper"))
-	entryTable.RawSetString("kind", lua.LString("ns.dependency"))
-	entryTable.RawSetString("root", lua.LTrue)
-	l.Push(entryTable)
-
-	changesUpdate(l)
-
-	if len(changes.ops) != 0 {
-		t.Fatalf("a rejected root mutation must append no op, got %d", len(changes.ops))
 	}
 }
 

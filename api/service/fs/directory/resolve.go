@@ -8,14 +8,11 @@ import (
 	"path/filepath"
 
 	"github.com/wippyai/runtime/api/modules"
+	"github.com/wippyai/runtime/api/registry"
 )
 
-// ResolveDirectory resolves an fs.directory entry's configured path to a load
-// path against the source root of the module that owns the entry. The owning
-// module is supplied by the caller: the provenance of the operation carrying
-// the entry at runtime, the module being built at build time. An empty module
-// is host-authored and stays working-directory relative.
-func ResolveDirectory(ctx context.Context, moduleName string, cfg *Config) string {
+// ResolveDirectory resolves an fs.directory entry's configured path to a load path.
+func ResolveDirectory(ctx context.Context, entry registry.Entry, cfg *Config) string {
 	if cfg == nil {
 		return ""
 	}
@@ -25,6 +22,8 @@ func ResolveDirectory(ctx context.Context, moduleName string, cfg *Config) strin
 	if cfg.Base == BaseProject {
 		return cfg.Directory
 	}
+
+	moduleName := entry.Registry.Owner
 	if moduleName == "" {
 		return cfg.Directory
 	}

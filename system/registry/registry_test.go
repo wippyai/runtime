@@ -33,44 +33,40 @@ import (
 	"github.com/wippyai/runtime/system/registry/topology"
 )
 
-// stripProvenance clones a changeset without its provenance annotations, for
-// matchers that compare the declarative operations alone.
-func stripProvenance(cs registry.ChangeSet) registry.ChangeSet {
-	out := make(registry.ChangeSet, len(cs))
-	for i, op := range cs {
-		op.Provenance = nil
-		op.OriginalProvenance = nil
-		out[i] = op
-	}
-	return out
-}
-
-func TestApplyPassesAuthorMetaThrough(t *testing.T) {
-	// A user update that omits keys present on the resident entry persists
-	// exactly what the author sent; the registry re-injects nothing.
-	id := registry.NewID("acme.app", "dep")
+func TestNormalizeRegistryMetadata(t *testing.T) {
+	id := registry.NewID("app.deps", "core")
 	snapshot := registry.State{{
 		ID: id, Kind: registry.NamespaceDependency,
-		Meta: attrs.NewBagFrom(map[string]any{
-			"module": "acme/app", "title": "Old",
-		}),
-		Data: payload.New(map[string]any{"component": "acme/core", "version": "1.0.0"}),
+		Registry: registry.EntryMetadata{Owner: "acme/app", Root: true},
+		Meta:     attrs.NewBagFrom(map[string]any{"title": "Old"}),
+		Data:     payload.New(map[string]any{"component": "acme/core", "version": "1.0.0"}),
 	}}
-	_ = snapshot
 	changes := registry.ChangeSet{{
 		Kind: registry.EntryUpdate,
 		Entry: registry.Entry{
 			ID: id, Kind: registry.NamespaceDependency,
-			Meta: attrs.NewBagFrom(map[string]any{"title": "New"}),
-			Data: payload.New(map[string]any{"component": "acme/core", "version": "2.0.0"}),
+			Registry: registry.EntryMetadata{Owner: "untrusted"},
+			Meta:     attrs.NewBagFrom(map[string]any{"title": "New"}),
+			Data:     payload.New(map[string]any{"component": "acme/core", "version": "2.0.0"}),
+		},
+	}, {
+		Kind: registry.EntryCreate,
+		Entry: registry.Entry{
+			ID:       registry.NewID("app", "new"),
+			Kind:     registry.EntryKind,
+			Registry: registry.EntryMetadata{Owner: "untrusted", Root: true},
 		},
 	}}
-	require.Len(t, changes, 1)
-	require.Equal(t, "New", changes[0].Entry.Meta.GetString("title", ""))
-	require.Equal(t, "", changes[0].Entry.Meta.GetString("module", ""),
-		"author payload carries exactly the keys the author sent")
+
+	got := normalizeRegistryMetadata(changes, snapshot)
+	require.Len(t, got, 2)
+	require.Equal(t, "acme/app", got[0].Entry.Registry.Owner)
+	require.True(t, got[0].Entry.Registry.Root)
+	require.Equal(t, "New", got[0].Entry.Meta.GetString("title", ""))
+	require.Equal(t, registry.EntryMetadata{Root: true}, got[1].Entry.Registry)
 }
 
+// MockRunner is a mock implementation of the registry.process interface for testing.
 type MockRunner struct {
 	err           error
 	RunFunc       func(state registry.State, changes registry.ChangeSet) (registry.State, error)
@@ -397,7 +393,6 @@ func TestInMemoryRegistry_ApplyVersion(t *testing.T) {
 	reg.state = registry.State{
 		{ID: registry.NewID("", "/foo"), Kind: "test", Data: payload.New("data2")},
 	}
-	reg.publishProvenance(hostProvenanced(reg.state).Provenance)
 
 	// Mock the runner to return a new state - v1 state
 	runner.newState = registry.State{
@@ -492,7 +487,6 @@ func TestInMemoryRegistry_Apply_HistorySaveError(t *testing.T) {
 		{
 			Kind: registry.EntryCreate,
 			Entry: registry.Entry{
-				ID:   registry.NewID("", "/foo"),
 				Kind: "test",
 				Data: payload.New("data"),
 			},
@@ -611,7 +605,6 @@ func TestInMemoryRegistry_Apply_Rollback_Success(t *testing.T) {
 		{ID: registry.NewID("", "/initial"), Kind: "test", Data: payload.New("initial_data")},
 	}
 	reg.state = initialState
-	reg.publishProvenance(hostProvenanced(initialState).Provenance)
 	reg.currentVersion = v0
 
 	changes := registry.ChangeSet{
@@ -633,7 +626,7 @@ func TestInMemoryRegistry_Apply_Rollback_Success(t *testing.T) {
 	// Mock the runner's Transition to apply the rollback changeset correctly
 	runner.RunFunc = func(state registry.State, cs registry.ChangeSet) (registry.State, error) {
 		// Handle initial application of changes
-		if reflect.DeepEqual(stripProvenance(cs), changes) {
+		if reflect.DeepEqual(cs, changes) {
 			return newState, nil
 		}
 
@@ -688,7 +681,6 @@ func TestInMemoryRegistry_Apply_Rollback_Failure(t *testing.T) {
 		{ID: registry.NewID("", "/initial"), Kind: "test", Data: payload.New("initial_data")},
 	}
 	reg.state = initialState
-	reg.publishProvenance(hostProvenanced(initialState).Provenance)
 	reg.currentVersion = v0
 
 	changes := registry.ChangeSet{
@@ -708,7 +700,7 @@ func TestInMemoryRegistry_Apply_Rollback_Failure(t *testing.T) {
 	rollbackErr := errors.New("rollback failed")
 	runner.RunFunc = func(state registry.State, cs registry.ChangeSet) (registry.State, error) {
 		// Handle initial application of changes
-		if reflect.DeepEqual(stripProvenance(cs), changes) {
+		if reflect.DeepEqual(cs, changes) {
 			return newState, nil
 		}
 
@@ -961,8 +953,7 @@ func TestInMemoryRegistry_Rollback(t *testing.T) {
 		return toState, nil
 	}
 
-	forwardProv := hostProvenanced(fromState).Provenance
-	err := reg.rollback(context.Background(), fromState, toState, forwardProv, nil)
+	err := reg.rollback(context.Background(), fromState, toState)
 	if err != nil {
 		t.Errorf("Unexpected error during rollback: %v", err)
 	}
@@ -972,7 +963,7 @@ func TestInMemoryRegistry_Rollback(t *testing.T) {
 		return nil, errors.New("rollback failed")
 	}
 
-	err = reg.rollback(context.Background(), fromState, toState, forwardProv, nil)
+	err = reg.rollback(context.Background(), fromState, toState)
 	if err == nil {
 		t.Fatal("Expected error during failed rollback")
 	}
@@ -1000,7 +991,7 @@ func TestInMemoryRegistry_TransitionState(t *testing.T) {
 		return toState, nil
 	}
 
-	newState, err := reg.transitionState(context.Background(), fromState, toState, nil, nil)
+	newState, err := reg.transitionState(context.Background(), fromState, toState)
 	if err != nil {
 		t.Errorf("Unexpected error during transition: %v", err)
 	}
@@ -1013,7 +1004,7 @@ func TestInMemoryRegistry_TransitionState(t *testing.T) {
 		return fromState, nil
 	}
 
-	newState, err = reg.transitionState(context.Background(), fromState, fromState, nil, nil)
+	newState, err = reg.transitionState(context.Background(), fromState, fromState)
 	if err != nil {
 		t.Errorf("Unexpected error during transition with no changes: %v", err)
 	}
@@ -1026,7 +1017,7 @@ func TestInMemoryRegistry_TransitionState(t *testing.T) {
 		return nil, errors.New("transition failed")
 	}
 
-	_, err = reg.transitionState(context.Background(), fromState, toState, nil, nil)
+	_, err = reg.transitionState(context.Background(), fromState, toState)
 	if err == nil {
 		t.Fatal("Expected error during failed transition")
 	}
@@ -1258,7 +1249,6 @@ func TestInMemoryRegistry_RollbackPartialState(t *testing.T) {
 		{ID: registry.NewID("", "/initial"), Kind: "test", Data: payload.New("initial_data")},
 	}
 	reg.state = initialState
-	reg.publishProvenance(hostProvenanced(initialState).Provenance)
 	reg.currentVersion = v0
 
 	changes := registry.ChangeSet{
@@ -1274,7 +1264,10 @@ func TestInMemoryRegistry_RollbackPartialState(t *testing.T) {
 
 	newState := initialState
 	newState = append(newState, changes[0].Entry)
-	partialRollbackState := newState
+	partialRollbackState := registry.State{
+		{ID: registry.NewID("", "/initial"), Kind: "test", Data: payload.New("initial_data")},
+		{ID: registry.NewID("", "/partial"), Kind: "test", Data: payload.New("partial_data")},
+	}
 
 	callCount := 0
 	runner.RunFunc = func(state registry.State, _ registry.ChangeSet) (registry.State, error) {
@@ -1308,7 +1301,7 @@ func TestInMemoryRegistry_RollbackPartialState(t *testing.T) {
 		t.Errorf("Expected state to have 2 entries (partial rollback), got %d", len(reg.state))
 	}
 
-	if reg.state[1].ID.Name != "/new" {
+	if reg.state[1].ID.Name != "/partial" {
 		t.Errorf("Expected partial state to be preserved, got: %v", reg.state)
 	}
 }
@@ -1532,6 +1525,87 @@ func TestEnrichChangeset(t *testing.T) {
 	})
 }
 
+func TestCollectBackwardChangesets(t *testing.T) {
+	t.Run("No common ancestor returns error", func(t *testing.T) {
+		v0 := version.New(registry.RootVersion)
+		v1 := version.FromParent(v0, 1)
+		v2 := version.FromParent(v1, 2)
+		v3 := version.New(3) // Disconnected version
+
+		hist := historymem.New()
+		_ = hist.Save(v0, registry.ChangeSet{}, true)
+		_ = hist.Save(v1, registry.ChangeSet{}, false)
+		_ = hist.Save(v2, registry.ChangeSet{}, false)
+		_ = hist.Save(v3, registry.ChangeSet{}, false)
+
+		runner := NewMockRunner()
+		stateBuilder := topology.NewStateBuilder(zap.NewNop(), nil)
+		reg := NewRegistry(hist, runner, stateBuilder, topology.NewResolver(), zap.NewNop())
+		reg.currentVersion = v2
+
+		// Path that doesn't include common ancestor
+		path := []registry.Version{v3}
+		_, err := reg.collectBackwardChangesets(path, v3)
+
+		require.Error(t, err)
+		assert.ErrorIs(t, err, ErrNoCommonAncestor)
+	})
+
+	t.Run("History Get error is propagated", func(t *testing.T) {
+		v0 := version.New(registry.RootVersion)
+		v1 := version.FromParent(v0, 1)
+		v2 := version.FromParent(v1, 2)
+
+		hist := historymem.New()
+		_ = hist.Save(v0, registry.ChangeSet{}, true)
+		_ = hist.Save(v1, registry.ChangeSet{}, false)
+		// Don't save v2 - Get will fail for it
+
+		runner := NewMockRunner()
+		stateBuilder := topology.NewStateBuilder(zap.NewNop(), nil)
+		reg := NewRegistry(hist, runner, stateBuilder, topology.NewResolver(), zap.NewNop())
+		reg.currentVersion = v2 // current at v2, but v2 not in history
+
+		path := []registry.Version{v0, v1}
+		_, err := reg.collectBackwardChangesets(path, v1)
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "get changeset")
+	})
+
+	t.Run("Successful backward changeset collection", func(t *testing.T) {
+		v0 := version.New(registry.RootVersion)
+		v1 := version.FromParent(v0, 1)
+		v2 := version.FromParent(v1, 2)
+
+		entry := registry.Entry{
+			ID:   registry.NewID("ns", "test"),
+			Kind: "test",
+			Data: payload.NewString("data"),
+		}
+
+		hist := historymem.New()
+		_ = hist.Save(v0, registry.ChangeSet{}, true)
+		_ = hist.Save(v1, registry.ChangeSet{
+			{Kind: registry.EntryCreate, Entry: entry},
+		}, false)
+		_ = hist.Save(v2, registry.ChangeSet{
+			{Kind: registry.EntryUpdate, Entry: entry, OriginalEntry: &entry},
+		}, false)
+
+		runner := NewMockRunner()
+		stateBuilder := topology.NewStateBuilder(zap.NewNop(), nil)
+		reg := NewRegistry(hist, runner, stateBuilder, topology.NewResolver(), zap.NewNop())
+		reg.currentVersion = v2
+
+		path := []registry.Version{v0, v1}
+		cs, err := reg.collectBackwardChangesets(path, v1)
+
+		assert.NoError(t, err)
+		assert.NotNil(t, cs)
+	})
+}
+
 // depRecordingRunner is a Transition runner that refuses to delete an
 // entry from the incoming state while any other not-being-deleted entry in
 // the same ChangeSet still holds a dependency on it. It mirrors the
@@ -1671,7 +1745,6 @@ func TestApplyVersion_Rollback_RespectsDependencyOrder(t *testing.T) {
 		{ID: libID, Kind: "library", Data: payload.New("lib")},
 		{ID: testID, Kind: "test", Data: payload.New("test")},
 	}
-	reg.publishProvenance(hostProvenanced(reg.state).Provenance)
 
 	err := reg.ApplyVersion(context.Background(), v0)
 	require.NoError(t, err,

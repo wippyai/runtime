@@ -3,7 +3,6 @@
 package directory
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -495,89 +494,81 @@ func TestManager_RegisterFS(t *testing.T) {
 
 func TestResolveDirectoryPath(t *testing.T) {
 	moduleRoot := t.TempDir()
-	withSources := ctxapi.NewRootContext()
+	ctx := ctxapi.NewRootContext()
 	sources := moduleapi.NewSourceRegistry()
 	sources.Set(moduleapi.Sources{"acme/ui": {
 		LoadPath: moduleRoot, ResourceRoot: moduleRoot, Owner: "acme/ui",
 	}})
-	withSources = moduleapi.WithSourceRegistry(withSources, sources)
+	ctx = moduleapi.WithSourceRegistry(ctx, sources)
+
+	entry := registry.Entry{
+		ID:       registry.NewID("acme.ui", "static_fs"),
+		Registry: registry.EntryMetadata{Owner: "acme/ui"},
+	}
 
 	tests := []struct {
-		cfg     *dirapi.Config
-		name    string
-		module  string
-		want    string
-		sources bool
+		name string
+		cfg  *dirapi.Config
+		want string
 	}{
 		{
-			name:    "module-owned entry with no base resolves against module source root",
-			module:  "acme/ui",
-			sources: true,
-			cfg:     &dirapi.Config{Directory: "./frontend"},
-			want:    filepath.Join(moduleRoot, "frontend"),
+			name: "module-owned entry with no base resolves against module source root",
+			cfg:  &dirapi.Config{Directory: "./frontend"},
+			want: filepath.Join(moduleRoot, "frontend"),
 		},
 		{
-			name:    "project base remains working-directory relative",
-			module:  "acme/ui",
-			sources: true,
-			cfg:     &dirapi.Config{Directory: "./frontend", Base: dirapi.BaseProject},
-			want:    "./frontend",
+			name: "project base remains working-directory relative",
+			cfg:  &dirapi.Config{Directory: "./frontend", Base: dirapi.BaseProject},
+			want: "./frontend",
 		},
 		{
-			name:    "module base resolves against module source root",
-			module:  "acme/ui",
-			sources: true,
-			cfg:     &dirapi.Config{Directory: "./static/app", Base: dirapi.BaseModule},
-			want:    filepath.Join(moduleRoot, "static/app"),
+			name: "module base resolves against module source root",
+			cfg:  &dirapi.Config{Directory: "./static/app", Base: dirapi.BaseModule},
+			want: filepath.Join(moduleRoot, "static/app"),
 		},
 		{
-			name:    "absolute module path is preserved",
-			module:  "acme/ui",
-			sources: true,
-			cfg:     &dirapi.Config{Directory: "/srv/static", Base: dirapi.BaseModule},
-			want:    "/srv/static",
+			name: "absolute module path is preserved",
+			cfg:  &dirapi.Config{Directory: "/srv/static", Base: dirapi.BaseModule},
+			want: "/srv/static",
 		},
 		{
-			name:    "module base without operation provenance falls back to raw path",
-			sources: true,
-			cfg:     &dirapi.Config{Directory: "./static/app", Base: dirapi.BaseModule},
-			want:    "./static/app",
+			name: "module base without module metadata falls back to raw path",
+			cfg:  &dirapi.Config{Directory: "./static/app", Base: dirapi.BaseModule},
+			want: "./static/app",
 		},
 		{
-			name:    "host-authored entry with no base stays working-directory relative",
-			sources: true,
-			cfg:     &dirapi.Config{Directory: "./frontend"},
-			want:    "./frontend",
+			name: "app-owned entry (no module meta) with no base stays working-directory relative",
+			cfg:  &dirapi.Config{Directory: "./frontend"},
+			want: "./frontend",
 		},
 		{
-			name:   "module-owned entry with no base falls back to raw path when source root missing",
-			module: "acme/ui",
-			cfg:    &dirapi.Config{Directory: "./frontend"},
-			want:   "./frontend",
+			name: "module-owned entry with explicit project base stays working-directory relative",
+			cfg:  &dirapi.Config{Directory: "./frontend", Base: dirapi.BaseProject},
+			want: "./frontend",
+		},
+		{
+			name: "module-owned entry with no base falls back to raw path when source root missing",
+			cfg:  &dirapi.Config{Directory: "./frontend"},
+			want: "./frontend",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := ctxapi.NewRootContext()
-			if tt.sources {
-				ctx = withSources
-			}
-			if tt.module != "" {
-				ctx = moduleOpContext(ctx, tt.module)
+			testEntry := entry
+			testCtx := ctx
+
+			switch tt.name {
+			case "module base without module metadata falls back to raw path",
+				"app-owned entry (no module meta) with no base stays working-directory relative":
+				testEntry.Registry.Owner = ""
+			case "module-owned entry with no base falls back to raw path when source root missing":
+				testCtx = ctxapi.NewRootContext()
 			}
 
-			assert.Equal(t, tt.want, resolveDirectoryPath(ctx, tt.cfg))
+			assert.Equal(t, tt.want, resolveDirectoryPath(testCtx, testEntry, tt.cfg))
 		})
 	}
-}
-
-// moduleOpContext builds the context a transition hands a listener for an
-// operation owned by a module.
-func moduleOpContext(ctx context.Context, module string) context.Context {
-	return registry.WithOpProvenance(ctx, registry.OpProvenance{
-		Effective: &registry.EntryProvenance{Module: module},
-	})
 }
 
 func TestManager_AddUsesModuleBaseForDirectoryPath(t *testing.T) {
@@ -587,14 +578,15 @@ func TestManager_AddUsesModuleBaseForDirectoryPath(t *testing.T) {
 	sources.Set(moduleapi.Sources{"acme/ui": {
 		LoadPath: moduleRoot, ResourceRoot: moduleRoot, Owner: "acme/ui",
 	}})
-	ctx = moduleOpContext(moduleapi.WithSourceRegistry(ctx, sources), "acme/ui")
+	ctx = moduleapi.WithSourceRegistry(ctx, sources)
 
 	factory := NewMockFactory(&MockFS{}, nil)
 	manager := NewDirectoryManager(eventbus.NewBus(), &MockTranscoder{}, factory, zap.NewNop())
 
 	entry := registry.Entry{
-		ID:   registry.NewID("acme.ui", "static_fs"),
-		Kind: dirapi.Kind,
+		ID:       registry.NewID("acme.ui", "static_fs"),
+		Kind:     dirapi.Kind,
+		Registry: registry.EntryMetadata{Owner: "acme/ui"},
 		Data: NewMockPayload(&dirapi.Config{
 			Directory: "./static/app",
 			Base:      dirapi.BaseModule,
@@ -619,14 +611,15 @@ func TestManager_AddResolvesModuleRelativePathWhenBaseOmitted(t *testing.T) {
 	sources.Set(moduleapi.Sources{"wippy/facade": {
 		LoadPath: moduleRoot, ResourceRoot: moduleRoot, Owner: "wippy/facade",
 	}})
-	ctx = moduleOpContext(moduleapi.WithSourceRegistry(ctx, sources), "wippy/facade")
+	ctx = moduleapi.WithSourceRegistry(ctx, sources)
 
 	factory := NewMockFactory(&MockFS{}, nil)
 	manager := NewDirectoryManager(eventbus.NewBus(), &MockTranscoder{}, factory, zap.NewNop())
 
 	entry := registry.Entry{
-		ID:   registry.NewID("wippy.facade", "public_files"),
-		Kind: dirapi.Kind,
+		ID:       registry.NewID("wippy.facade", "public_files"),
+		Kind:     dirapi.Kind,
+		Registry: registry.EntryMetadata{Owner: "wippy/facade"},
 		Data: NewMockPayload(&dirapi.Config{
 			Directory: "./public",
 			Mode:      "0755",

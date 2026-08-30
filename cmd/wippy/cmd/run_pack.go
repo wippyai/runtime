@@ -43,6 +43,8 @@ var hubIdentPattern = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
 // use case instead; future run-like commands target their own use case.
 const defaultUseCase = "run"
 
+const packRegistryMetadataKey = "registry"
+
 type packCommand struct {
 	name    string
 	entryID string
@@ -106,11 +108,7 @@ func collectPackCommands(ctx context.Context, mainModule string) ([]packCommand,
 
 	filtered := allEntries[:0]
 	for _, entry := range allEntries {
-		owner, ownerErr := entryModuleOwner(reg, entry.ID)
-		if ownerErr != nil {
-			return nil, fmt.Errorf("resolve command ownership for %s: %w", entry.ID.String(), ownerErr)
-		}
-		if !packCommandAllowed(owner, mainModule) {
+		if !packCommandAllowed(entry, mainModule) {
 			continue
 		}
 		filtered = append(filtered, entry)
@@ -138,24 +136,8 @@ func findPackCommandForModule(ctx context.Context, commandName, useCase, mainMod
 	return selectEntrypoint(commands, commandName, useCase)
 }
 
-// entryModuleOwner reads ownership from registry provenance; author metadata
-// named "module" is ordinary payload and never consulted. A registry that
-// cannot answer, or an entry without a record, fails closed.
-func entryModuleOwner(reg registry.Registry, id registry.ID) (string, error) {
-	reader, ok := reg.(interface {
-		EntryProvenance(registry.ID) (registry.EntryProvenance, bool)
-	})
-	if !ok {
-		return "", fmt.Errorf("registry does not serve provenance")
-	}
-	p, found := reader.EntryProvenance(id)
-	if !found {
-		return "", registry.NewMissingProvenanceError(id)
-	}
-	return p.Module, nil
-}
-
-func packCommandAllowed(module, mainModule string) bool {
+func packCommandAllowed(entry registry.Entry, mainModule string) bool {
+	module := entry.Registry.Owner
 	if mainModule == "" {
 		return module == ""
 	}
@@ -604,7 +586,7 @@ func runFromPackFile(cmd *cobra.Command, packFile string, args []string, useCase
 		return fmt.Errorf("failed to load main module identity from pack metadata: %w", err)
 	}
 
-	packEntries, packProv, err := loadPackEntries([]string{packFile}, mainModule, embedReg)
+	packEntries, err := loadPackEntries([]string{packFile}, mainModule, embedReg)
 	if err != nil {
 		runLogger.Error("failed to load entries from pack", zap.Error(err))
 		return NewLoadEntriesError(packFile, err)
@@ -617,7 +599,7 @@ func runFromPackFile(cmd *cobra.Command, packFile string, args []string, useCase
 	}
 	entries.ConfigureSourceLoader(ctx, sourcePaths, runLogger)
 
-	return runPackEntries(ctx, loader, runLogger, packEntries, packProv, args, useCase, mainModule)
+	return runPackEntries(ctx, loader, runLogger, packEntries, args, useCase, mainModule)
 }
 
 // runFromPackFiles executes runtime from multiple already resolved .wapp files.
@@ -657,7 +639,7 @@ func runFromPackFiles(cmd *cobra.Command, packFiles []string, args []string, use
 		}
 	}
 
-	packEntries, packProv, err := loadPackEntries(packFiles, mainModule, embedReg)
+	packEntries, err := loadPackEntries(packFiles, mainModule, embedReg)
 	if err != nil {
 		runLogger.Error("failed to load entries from packs", zap.Error(err))
 		return NewLoadEntriesError("pack files", err)
@@ -670,7 +652,7 @@ func runFromPackFiles(cmd *cobra.Command, packFiles []string, args []string, use
 	}
 	entries.ConfigureSourceLoader(ctx, sourcePaths, runLogger)
 
-	return runPackEntries(ctx, loader, runLogger, packEntries, packProv, args, useCase, mainModule)
+	return runPackEntries(ctx, loader, runLogger, packEntries, args, useCase, mainModule)
 }
 
 func packSourcePaths(packFiles []string, rootModule string) ([]lock.ModuleLoadPath, error) {
@@ -697,7 +679,6 @@ func runPackEntries(
 	loader *bootpkg.Loader,
 	logger *zap.Logger,
 	packEntries []registry.Entry,
-	packProv registry.ProvenanceMap,
 	args []string,
 	useCase string,
 	mainModule string,
@@ -713,7 +694,7 @@ func runPackEntries(
 		return NewStartComponentsError(err)
 	}
 
-	if err := applyPackEntries(appCtx, packEntries, packProv, logger); err != nil {
+	if err := applyPackEntries(appCtx, packEntries, logger); err != nil {
 		return err
 	}
 
@@ -776,12 +757,12 @@ func moduleIdentityFromPackFile(packFile string) (moduleName string, moduleVersi
 
 // applyPackEntries restores packed entries as baseline state after applying the
 // canonical entry normalization pipeline.
-func applyPackEntries(ctx context.Context, packEntries []registry.Entry, prov registry.ProvenanceMap, logger *zap.Logger) error {
-	if err := entries.NormalizeEntries(ctx, &packEntries, prov); err != nil {
+func applyPackEntries(ctx context.Context, packEntries []registry.Entry, logger *zap.Logger) error {
+	if err := entries.NormalizeEntries(ctx, &packEntries); err != nil {
 		return err
 	}
 
-	return entries.LoadEntriesToRegistry(ctx, packEntries, prov, logger)
+	return entries.LoadEntriesToRegistry(ctx, packEntries, logger)
 }
 
 type packReaderRegistry interface {
@@ -792,81 +773,48 @@ type modulePackReaderRegistry interface {
 	RegisterPack(packPath, module, version string, reader *wapp.Reader, file *os.File) error
 }
 
-func loadPackEntries(packFiles []string, rootModule string, embedReg packReaderRegistry) ([]registry.Entry, registry.ProvenanceMap, error) {
+func loadPackEntries(packFiles []string, rootModule string, embedReg packReaderRegistry) ([]registry.Entry, error) {
 	packEntries := make([]registry.Entry, 0)
-	prov := make(registry.ProvenanceMap)
 
 	for _, packFile := range packFiles {
 		if !hasWappExtension(packFile) {
-			return nil, nil, fmt.Errorf("unsupported pack format %q", packFile)
+			return nil, fmt.Errorf("unsupported pack format %q", packFile)
 		}
 
 		file, err := os.Open(packFile)
 		if err != nil {
-			return nil, nil, fmt.Errorf("open pack %s: %w", packFile, err)
+			return nil, fmt.Errorf("open pack %s: %w", packFile, err)
 		}
 
 		packReader, err := entries.NewPackReader(file, nil)
 		if err != nil {
 			file.Close()
-			return nil, nil, fmt.Errorf("read pack %s: %w", packFile, err)
+			return nil, fmt.Errorf("read pack %s: %w", packFile, err)
 		}
 
 		moduleName, moduleVersion := moduleIdentityFromPackMetadata(packReader.Reader())
-		packDigest := ""
-		if moduleName != "" {
-			var digestErr error
-			packDigest, digestErr = packFileDigest(packFile)
-			if digestErr != nil {
-				file.Close()
-				return nil, nil, fmt.Errorf("digest pack %s: %w", packFile, digestErr)
-			}
-		}
-		if err := registerPackResources(embedReg, packFile, moduleName, moduleVersion, packReader.Reader(), file); err != nil {
-			file.Close()
-			return nil, nil, fmt.Errorf("register embed resources for %s: %w", packFile, err)
-		}
-
 		loadedEntries, err := packReader.GetEntries()
 		if err != nil {
-			return nil, nil, fmt.Errorf("read entries from %s: %w", packFile, err)
+			file.Close()
+			return nil, fmt.Errorf("read entries from %s: %w", packFile, err)
 		}
 
 		if moduleName != "" {
-			for i := range loadedEntries {
-				id := loadedEntries[i].ID.Canonical()
-				prov[id] = registry.EntryProvenance{
-					Module:  moduleName,
-					Version: moduleVersion,
-					Digest:  packDigest,
-					Root:    moduleName == rootModule && loadedEntries[i].Kind == registry.NamespaceDependency,
-				}
-			}
-		} else {
-			packProv, provErr := packProvenanceFromMetadata(packReader.Reader(), loadedEntries)
-			if provErr != nil {
-				return nil, nil, fmt.Errorf("read provenance from %s: %w", packFile, provErr)
-			}
-			for id, pr := range packProv {
-				prov[id] = pr
-			}
-			if err := registerMonolithicPackResourceAliases(embedReg, packFile, packReader.Reader(), loadedEntries, packProv); err != nil {
-				return nil, nil, fmt.Errorf("register embed resource aliases for %s: %w", packFile, err)
-			}
+			assignPackEntryMetadata(loadedEntries, moduleName, moduleName == rootModule)
+		} else if err := applyPackedEntryMetadata(packReader.Reader(), loadedEntries); err != nil {
+			file.Close()
+			return nil, fmt.Errorf("read registry metadata from %s: %w", packFile, err)
+		}
+
+		if err := registerPackResources(embedReg, packFile, moduleName, moduleVersion, packReader.Reader(), file); err != nil {
+			file.Close()
+			return nil, fmt.Errorf("register embed resources for %s: %w", packFile, err)
 		}
 
 		packEntries = append(packEntries, loadedEntries...)
 	}
 
-	// The map is total: entries from packs that predate the provenance frame
-	// carry the explicit host record.
-	for _, entry := range packEntries {
-		if _, ok := prov[entry.ID.Canonical()]; !ok {
-			prov[entry.ID.Canonical()] = registry.EntryProvenance{}
-		}
-	}
-
-	return packEntries, prov, nil
+	return packEntries, nil
 }
 
 func registerPackResources(embedReg packReaderRegistry, packFile, moduleName, moduleVersion string, reader *wapp.Reader, file *os.File) error {
@@ -876,40 +824,6 @@ func registerPackResources(embedReg packReaderRegistry, packFile, moduleName, mo
 		}
 	}
 	return embedReg.Register(packFile, reader, file)
-}
-
-func registerMonolithicPackResourceAliases(embedReg packReaderRegistry, packFile string, reader *wapp.Reader, loadedEntries []registry.Entry, prov registry.ProvenanceMap) error {
-	moduleReg, ok := embedReg.(modulePackReaderRegistry)
-	if !ok {
-		return nil
-	}
-
-	seen := make(map[string]struct{})
-	for _, entry := range loadedEntries {
-		p, ok := prov[entry.ID.Canonical()]
-		if !ok || p.Module == "" {
-			continue
-		}
-
-		key := p.Module + "\x00" + p.Version
-		if _, exists := seen[key]; exists {
-			continue
-		}
-		seen[key] = struct{}{}
-
-		if err := moduleReg.RegisterPack(monolithicPackAliasPath(packFile, p.Module, p.Version), p.Module, p.Version, reader, nil); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-func monolithicPackAliasPath(packFile, moduleName, moduleVersion string) string {
-	if moduleVersion == "" {
-		return packFile + "#" + moduleName
-	}
-	return packFile + "#" + moduleName + "@" + moduleVersion
 }
 
 func moduleIdentityFromPackMetadata(reader *wapp.Reader) (moduleName string, moduleVersion string) {
@@ -941,4 +855,110 @@ func moduleIdentityFromPackMetadata(reader *wapp.Reader) (moduleName string, mod
 	}
 
 	return org + "/" + name, version
+}
+
+func assignPackEntryMetadata(items []registry.Entry, moduleName string, root bool) {
+	if moduleName == "" {
+		return
+	}
+
+	for i := range items {
+		items[i].Registry = registry.EntryMetadata{Owner: moduleName}
+		if root && items[i].Kind == registry.NamespaceDependency {
+			items[i].Registry.Root = true
+		}
+	}
+}
+
+// packRegistryMetadata records the registry-owned entry state of a snapshot
+// pack. Module packs derive ownership from their signed package identity; a
+// snapshot contains several selected modules and therefore retains the state
+// established from its lock before it was packed.
+func packRegistryMetadata(items []registry.Entry) map[string]any {
+	entries := make(map[string]any, len(items))
+	for _, entry := range items {
+		entries[entry.ID.String()] = map[string]any{
+			"owner": entry.Registry.Owner,
+			"root":  entry.Registry.Root,
+		}
+	}
+	return map[string]any{"entries": entries}
+}
+
+// applyPackedEntryMetadata restores the registry-owned state written by
+// wippy pack. Pack metadata belongs to the container; entry author metadata
+// is never consulted for ownership or deployment-root selection.
+func applyPackedEntryMetadata(reader *wapp.Reader, items []registry.Entry) error {
+	metadata, err := reader.GetMetadata()
+	if err != nil {
+		return fmt.Errorf("read pack metadata: %w", err)
+	}
+	raw, found := metadata[packRegistryMetadataKey]
+	if !found {
+		return fmt.Errorf("pack has no registry metadata")
+	}
+	state, ok := raw.(map[string]any)
+	if !ok {
+		return fmt.Errorf("registry metadata has type %T, want a map", raw)
+	}
+	rawEntries, found := state["entries"]
+	if !found {
+		return fmt.Errorf("registry metadata has no entries")
+	}
+	records, ok := rawEntries.(map[string]any)
+	if !ok {
+		return fmt.Errorf("registry entries have type %T, want a map", rawEntries)
+	}
+
+	for i := range items {
+		id := items[i].ID.String()
+		rawRecord, found := records[id]
+		if !found {
+			return fmt.Errorf("registry metadata does not cover entry %s", id)
+		}
+		record, ok := rawRecord.(map[string]any)
+		if !ok {
+			return fmt.Errorf("registry metadata for entry %s has type %T, want a map", id, rawRecord)
+		}
+		owner, err := packedEntryOwner(record, id)
+		if err != nil {
+			return err
+		}
+		root, err := packedEntryRoot(record, id)
+		if err != nil {
+			return err
+		}
+		items[i].Registry = registry.EntryMetadata{Owner: owner, Root: root}
+		delete(records, id)
+	}
+	if len(records) != 0 {
+		for id := range records {
+			return fmt.Errorf("registry metadata contains unknown entry %s", id)
+		}
+	}
+	return nil
+}
+
+func packedEntryOwner(record map[string]any, id string) (string, error) {
+	raw, found := record["owner"]
+	if !found {
+		return "", nil
+	}
+	owner, ok := raw.(string)
+	if !ok {
+		return "", fmt.Errorf("registry metadata for entry %s has owner type %T, want string", id, raw)
+	}
+	return owner, nil
+}
+
+func packedEntryRoot(record map[string]any, id string) (bool, error) {
+	raw, found := record["root"]
+	if !found {
+		return false, nil
+	}
+	root, ok := raw.(bool)
+	if !ok {
+		return false, fmt.Errorf("registry metadata for entry %s has root type %T, want bool", id, raw)
+	}
+	return root, nil
 }

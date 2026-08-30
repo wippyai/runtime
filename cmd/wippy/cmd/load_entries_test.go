@@ -8,8 +8,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	regapi "github.com/wippyai/runtime/api/registry"
-
 	contextapi "github.com/wippyai/runtime/api/context"
 	logapi "github.com/wippyai/runtime/api/logs"
 	"github.com/wippyai/runtime/api/payload"
@@ -21,7 +19,7 @@ import (
 )
 
 func TestLoadEntriesFromLockPaths_NilLock(t *testing.T) {
-	loaded, _, err := loadEntriesFromLockPaths(context.Background(), nil, zap.NewNop())
+	loaded, err := loadEntriesFromLockPaths(context.Background(), nil, zap.NewNop())
 	if err != nil {
 		t.Fatalf("loadEntriesFromLockPaths returned error: %v", err)
 	}
@@ -95,29 +93,26 @@ entries:
 		t.Fatalf("write lock: %v", err)
 	}
 
-	loaded, prov, err := loadEntriesFromLockPaths(ctx, lockObj, logger)
+	loaded, err := loadEntriesFromLockPaths(ctx, lockObj, logger)
 	if err != nil {
 		t.Fatalf("loadEntriesFromLockPaths failed: %v", err)
 	}
 
 	router := ""
-	var entryProv regapi.EntryProvenance
+	owner := ""
 	for _, entry := range loaded {
 		if entry.ID.String() != "identity.account:login.endpoint" {
 			continue
 		}
 		router = entry.Meta.GetString("router", "")
-		entryProv = prov[entry.ID.Canonical()]
+		owner = entry.Registry.Owner
 	}
 
 	if router != "app:api.public" {
 		t.Fatalf("router = %q, want app:api.public", router)
 	}
-	if entryProv.Module != "example/accounts" {
-		t.Fatalf("module provenance = %q, want example/accounts", entryProv.Module)
-	}
-	if entryProv.Version != "v1.0.0" {
-		t.Fatalf("module_version provenance = %q, want v1.0.0", entryProv.Version)
+	if owner != "example/accounts" {
+		t.Fatalf("owner = %q, want example/accounts", owner)
 	}
 }
 

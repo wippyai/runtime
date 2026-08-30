@@ -85,14 +85,18 @@ replacements:
 	initialHistory := history
 	t.Cleanup(func() { _ = initialHistory.Close() })
 	registry := newRegistry(history, newHandler())
+	ctx = regapi.WithRegistry(ctx, registry)
 	root := regapi.Entry{
 		ID:   regapi.NewID("app.deps", "local"),
 		Kind: regapi.NamespaceDependency,
 		Data: payload.New(map[string]any{"component": "local/mod", "version": "v0.1.0"}),
 	}
 	fresh := newRegistry(memory.New(), newHandler())
-	startupCtx := regapi.WithDependencyAccess(newTestContext(), regapi.DependencyAccessUnspecified)
-	require.NoError(t, fresh.LoadState(startupCtx, fixtureState(regapi.State{root}), version.New(0)))
+	startupCtx := regapi.WithRegistry(
+		regapi.WithDependencyAccess(newTestContext(), regapi.DependencyAccessUnspecified),
+		fresh,
+	)
+	require.NoError(t, fresh.LoadState(startupCtx, regapi.State{root}, version.New(0)))
 	_, err = fresh.GetEntry(regapi.NewID("local.mod", "svc"))
 	require.NoError(t, err)
 	require.Zero(t, hubCalls)
@@ -104,9 +108,8 @@ replacements:
 	entryID := regapi.NewID("local.mod", "svc")
 	_, err = registry.GetEntry(entryID)
 	require.NoError(t, err)
-	initial, ok := registry.EntryProvenance(entryID)
-	require.True(t, ok)
-	require.NotEmpty(t, initial.Digest, "a replacement records its source tree identity")
+	initialDigest := snapshotModuleDigest(t, registry, "local/mod")
+	require.NotEmpty(t, initialDigest)
 
 	// A frontend rebuild mutates only static content. Simulate a cold restart
 	// with the persisted registry intact and an unreachable Hub.
@@ -117,15 +120,16 @@ replacements:
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = history.Close() })
 	restarted := newRegistry(history, newHandler())
-	restartCtx := regapi.WithDependencyAccess(newTestContext(), regapi.DependencyAccessVerifiedOffline)
-	require.NoError(t, restarted.LoadState(restartCtx, regapi.ProvenancedState{}, version))
+	restartCtx := regapi.WithRegistry(
+		regapi.WithDependencyAccess(newTestContext(), regapi.DependencyAccessVerifiedOffline),
+		restarted,
+	)
+	require.NoError(t, restarted.LoadState(restartCtx, nil, version))
 	require.Zero(t, hubCalls)
 
 	reloadedEntry, err := restarted.GetEntry(entryID)
 	require.NoError(t, err)
-	reloaded, ok := restarted.EntryProvenance(entryID)
-	require.True(t, ok)
-	require.NotEqual(t, initial.Digest, reloaded.Digest,
-		"a rebuilt tree advances the resident record while the stored checkpoint stands")
+	require.Equal(t, initialDigest, snapshotModuleDigest(t, restarted, "local/mod"),
+		"restart must not rewrite the immutable history checkpoint")
 	require.Equal(t, "one", reloadedEntry.Data.Data().(map[string]any)["generation"])
 }

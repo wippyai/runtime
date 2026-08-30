@@ -10,7 +10,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/payload"
 	regapi "github.com/wippyai/runtime/api/registry"
 	regtop "github.com/wippyai/runtime/system/registry/topology"
@@ -52,29 +51,27 @@ func mcpServerWappEntries() []wapp.Entry {
 }
 
 // installedMcpSnapshotEntries is the post-install registry state for
-// butschster/mcp-server installed with the router parameter: entries are stamped
-// with the owning module and the endpoints carry the parameterized router.
+// butschster/mcp-server installed with the router parameter.
 func installedMcpSnapshotEntries(routerValue string) []regapi.Entry {
-	mod := map[string]any{fixtureModuleKey: "butschster/mcp-server", fixtureModuleVersionKey: "1.6.2"}
 	endpoint := func(name, method string) regapi.Entry {
 		return regapi.Entry{
-			ID:   regapi.NewID("mcp", name),
-			Kind: "http.endpoint",
-			Meta: attrs.NewBagFrom(map[string]any{fixtureModuleKey: "butschster/mcp-server", fixtureModuleVersionKey: "1.6.2", "router": routerValue}),
-			Data: payload.NewPayload(fmt.Sprintf(`{"method":%q,"path":"/mcp"}`, method), payload.JSON),
+			ID:       regapi.NewID("mcp", name),
+			Kind:     "http.endpoint",
+			Registry: regapi.EntryMetadata{Owner: "butschster/mcp-server"},
+			Data:     payload.NewPayload(fmt.Sprintf(`{"method":%q,"path":"/mcp"}`, method), payload.JSON),
 		}
 	}
 	return []regapi.Entry{
 		{
-			ID:   regapi.NewID("mcp", "definition"),
-			Kind: regapi.NamespaceDefinition,
-			Meta: attrs.NewBagFrom(mod),
+			ID:       regapi.NewID("mcp", "definition"),
+			Kind:     regapi.NamespaceDefinition,
+			Registry: regapi.EntryMetadata{Owner: "butschster/mcp-server"},
 		},
 		{
-			ID:   regapi.NewID("mcp", "router"),
-			Kind: regapi.NamespaceRequirement,
-			Meta: attrs.NewBagFrom(mod),
-			Data: payload.NewPayload(`{"targets":[{"entry":"mcp:sse_endpoint_post","path":"meta.router"},{"entry":"mcp:sse_endpoint_get","path":"meta.router"},{"entry":"mcp:sse_endpoint_delete","path":"meta.router"}]}`, payload.JSON),
+			ID:       regapi.NewID("mcp", "router"),
+			Kind:     regapi.NamespaceRequirement,
+			Registry: regapi.EntryMetadata{Owner: "butschster/mcp-server"},
+			Data:     payload.NewPayload(`{"targets":[{"entry":"mcp:sse_endpoint_post","path":"meta.router"},{"entry":"mcp:sse_endpoint_get","path":"meta.router"},{"entry":"mcp:sse_endpoint_delete","path":"meta.router"}]}`, payload.JSON),
 		},
 		endpoint("sse_endpoint_post", "POST"),
 		endpoint("sse_endpoint_get", "GET"),
@@ -113,7 +110,7 @@ func TestReproDeleteParameterizedMcpRootRemovesEndpoints(t *testing.T) {
 
 	result, err := handler.Expand(ctx,
 		regapi.Operation{Kind: regapi.EntryDelete, Entry: regapi.Entry{ID: root.ID}},
-		fixtureState(snapshot),
+		snapshot,
 	)
 	require.NoError(t, err)
 	require.True(t, result.Applied)
@@ -173,16 +170,16 @@ func TestReproDeleteUnrelatedRootPreservesMcpRouterParam(t *testing.T) {
 		Data: payload.NewPayload(`{"component":"wippy/dummy","version":"v1.0.0","parameters":[{"name":"dummy:router_req","value":"app:api"}]}`, payload.JSON),
 	}
 	dummyReq := regapi.Entry{
-		ID:   regapi.NewID("dummy", "router_req"),
-		Kind: regapi.NamespaceRequirement,
-		Meta: attrs.NewBagFrom(map[string]any{fixtureModuleKey: "wippy/dummy", fixtureModuleVersionKey: "v1.0.0"}),
-		Data: payload.NewPayload(`{"targets":[{"entry":"dummy:endpoint","path":"meta.router"}]}`, payload.JSON),
+		ID:       regapi.NewID("dummy", "router_req"),
+		Kind:     regapi.NamespaceRequirement,
+		Registry: regapi.EntryMetadata{Owner: "wippy/dummy"},
+		Data:     payload.NewPayload(`{"targets":[{"entry":"dummy:endpoint","path":"meta.router"}]}`, payload.JSON),
 	}
 	dummyEndpoint := regapi.Entry{
-		ID:   regapi.NewID("dummy", "endpoint"),
-		Kind: "http.endpoint",
-		Meta: attrs.NewBagFrom(map[string]any{fixtureModuleKey: "wippy/dummy", fixtureModuleVersionKey: "v1.0.0", "router": "app:api"}),
-		Data: payload.NewPayload(`{"method":"POST","path":"/dummy"}`, payload.JSON),
+		ID:       regapi.NewID("dummy", "endpoint"),
+		Kind:     "http.endpoint",
+		Registry: regapi.EntryMetadata{Owner: "wippy/dummy"},
+		Data:     payload.NewPayload(`{"method":"POST","path":"/dummy"}`, payload.JSON),
 	}
 
 	snapshot := regapi.State{mcpRoot, dummyRoot, dummyReq, dummyEndpoint}
@@ -190,7 +187,7 @@ func TestReproDeleteUnrelatedRootPreservesMcpRouterParam(t *testing.T) {
 
 	result, err := handler.Expand(ctx,
 		regapi.Operation{Kind: regapi.EntryDelete, Entry: regapi.Entry{ID: dummyRoot.ID}},
-		fixtureState(snapshot),
+		snapshot,
 	)
 	require.NoError(t, err)
 	require.True(t, result.Applied)
@@ -222,39 +219,27 @@ func TestDeleteRootDependencyKeepsSharedLibraryImportedByBaselineEntry(t *testin
 		Data: payload.NewPayload(`{"component":"acme/plugin","version":"v1.0.0"}`, payload.JSON),
 	}
 	pluginDep := regapi.Entry{
-		ID:   regapi.NewID("acme.plugin", "dependency.migration"),
-		Kind: regapi.NamespaceDependency,
-		Meta: attrs.NewBagFrom(map[string]any{
-			fixtureModuleKey:        "acme/plugin",
-			fixtureModuleVersionKey: "v1.0.0",
-		}),
-		Data: payload.NewPayload(`{"component":"acme/migration","version":"v1.0.0"}`, payload.JSON),
+		ID:       regapi.NewID("acme.plugin", "dependency.migration"),
+		Kind:     regapi.NamespaceDependency,
+		Registry: regapi.EntryMetadata{Owner: "acme/plugin"},
+		Data:     payload.NewPayload(`{"component":"acme/migration","version":"v1.0.0"}`, payload.JSON),
 	}
 	pluginService := regapi.Entry{
-		ID:   regapi.NewID("acme.plugin", "service"),
-		Kind: "service",
-		Meta: attrs.NewBagFrom(map[string]any{
-			fixtureModuleKey:        "acme/plugin",
-			fixtureModuleVersionKey: "v1.0.0",
-		}),
-		Data: payload.NewPayload(`{"ok":true}`, payload.JSON),
+		ID:       regapi.NewID("acme.plugin", "service"),
+		Kind:     "service",
+		Registry: regapi.EntryMetadata{Owner: "acme/plugin"},
+		Data:     payload.NewPayload(`{"ok":true}`, payload.JSON),
 	}
 	sharedLibrary := regapi.Entry{
-		ID:   regapi.NewID("acme.migration", "runner"),
-		Kind: "function.lua",
-		Meta: attrs.NewBagFrom(map[string]any{
-			fixtureModuleKey:        "acme/migration",
-			fixtureModuleVersionKey: "v1.0.0",
-		}),
-		Data: payload.NewPayload(`{"source":"return {}"}`, payload.JSON),
+		ID:       regapi.NewID("acme.migration", "runner"),
+		Kind:     "function.lua",
+		Registry: regapi.EntryMetadata{Owner: "acme/migration"},
+		Data:     payload.NewPayload(`{"source":"return {}"}`, payload.JSON),
 	}
 	baselineMigration := regapi.Entry{
-		ID:   regapi.NewID("acme.app.migrations", "01_bootstrap"),
-		Kind: "function.lua",
-		Meta: attrs.NewBagFrom(map[string]any{
-			fixtureModuleKey:        "acme/app-core",
-			fixtureModuleVersionKey: "v1.0.0",
-		}),
+		ID:       regapi.NewID("acme.app.migrations", "01_bootstrap"),
+		Kind:     "function.lua",
+		Registry: regapi.EntryMetadata{Owner: "acme/app-core"},
 		Data: payload.New(map[string]any{
 			"imports": map[string]any{"migration": "acme.migration:runner"},
 			"source":  "return {}",
@@ -270,7 +255,7 @@ func TestDeleteRootDependencyKeepsSharedLibraryImportedByBaselineEntry(t *testin
 
 	result, err := handler.Expand(ctx,
 		regapi.Operation{Kind: regapi.EntryDelete, Entry: regapi.Entry{ID: rootDep.ID}},
-		fixtureState(regapi.State{rootDep, pluginDep, pluginService, sharedLibrary, baselineMigration}),
+		regapi.State{rootDep, pluginDep, pluginService, sharedLibrary, baselineMigration},
 	)
 	require.NoError(t, err)
 	require.True(t, result.Applied)

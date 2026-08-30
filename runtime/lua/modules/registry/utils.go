@@ -60,6 +60,17 @@ func luaTableToEntry(l *lua.LState, table *lua.LTable) (regapi.Entry, error) {
 		entry.Meta = attrs.Bag{}
 	}
 
+	// Extract deployment-root status. Ownership is assigned by the dependency
+	// directive; callers may only select whether an ns.dependency is a root.
+	rootVal := table.RawGetString("dependency_root")
+	if rootVal != lua.LNil {
+		root, ok := rootVal.(lua.LBool)
+		if !ok {
+			return entry, errors.New("entry dependency_root must be a boolean")
+		}
+		entry.Registry.Root = bool(root)
+	}
+
 	// Extract data
 	dataVal := table.RawGetString("data")
 	if dataVal != lua.LNil {
@@ -78,10 +89,6 @@ func entryToLuaTable(l *lua.LState, entry regapi.Entry) (*lua.LTable, error) {
 
 	// Add kind
 	entryTable.RawSetString("kind", lua.LString(entry.Kind))
-
-	// Root-ness is served from provenance by live readers; the raw entry
-	// field only survives on decoded legacy payloads.
-	entryTable.RawSetString("root", lua.LBool(entry.DependencyRoot))
 
 	// Convert metadata
 	metaTable := l.CreateTable(0, len(entry.Meta))
@@ -120,6 +127,70 @@ func entryToLuaTable(l *lua.LState, entry regapi.Entry) (*lua.LTable, error) {
 	}
 
 	return entryTable, nil
+}
+
+// stateEntryToLuaTable includes registry-owned metadata for the state API.
+// The ordinary entry APIs intentionally expose only the author-facing shape.
+func stateEntryToLuaTable(l *lua.LState, entry regapi.Entry) (*lua.LTable, error) {
+	entryTable, err := entryToLuaTable(l, entry)
+	if err != nil {
+		return nil, err
+	}
+	metadata := l.CreateTable(0, 2)
+	metadata.RawSetString("owner", lua.LString(entry.Registry.Owner))
+	metadata.RawSetString("root", lua.LBool(entry.Registry.Root))
+	entryTable.RawSetString("registry", metadata)
+	return entryTable, nil
+}
+
+func resolutionToLuaTable(l *lua.LState, resolution *regapi.DependencyResolution) *lua.LTable {
+	table := l.CreateTable(0, 6)
+	table.RawSetString("digest", lua.LString(resolution.Digest))
+	table.RawSetString("input_digest", lua.LString(resolution.InputDigest))
+	if resolution.BaselineDigest != "" {
+		table.RawSetString("baseline_digest", lua.LString(resolution.BaselineDigest))
+	}
+	table.RawSetString("roots", dependencyRootsToLuaTable(l, resolution.Roots))
+	if len(resolution.References) > 0 {
+		table.RawSetString("references", dependencyRootsToLuaTable(l, resolution.References))
+	}
+
+	modules := l.CreateTable(len(resolution.Modules), 0)
+	for i, module := range resolution.Modules {
+		item := l.CreateTable(0, 7)
+		item.RawSetString("name", lua.LString(module.Name))
+		item.RawSetString("version", lua.LString(module.Version))
+		if module.VersionID != "" {
+			item.RawSetString("version_id", lua.LString(module.VersionID))
+		}
+		if module.Source != "" {
+			item.RawSetString("source", lua.LString(module.Source))
+		}
+		if module.Digest != "" {
+			item.RawSetString("digest", lua.LString(module.Digest))
+		}
+		if module.SizeBytes != 0 {
+			item.RawSetString("size_bytes", lua.LNumber(module.SizeBytes))
+		}
+		if module.Protected {
+			item.RawSetString("protected", lua.LTrue)
+		}
+		modules.RawSetInt(i+1, item)
+	}
+	table.RawSetString("modules", modules)
+	return table
+}
+
+func dependencyRootsToLuaTable(l *lua.LState, roots []regapi.DependencyRoot) *lua.LTable {
+	table := l.CreateTable(len(roots), 0)
+	for i, root := range roots {
+		item := l.CreateTable(0, 3)
+		item.RawSetString("id", lua.LString(root.ID))
+		item.RawSetString("component", lua.LString(root.Component))
+		item.RawSetString("version", lua.LString(root.Version))
+		table.RawSetInt(i+1, item)
+	}
+	return table
 }
 
 // convertFilterToMetadata converts a Lua filter table to registry metadata

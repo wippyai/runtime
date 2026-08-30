@@ -5,14 +5,11 @@ package stages
 import (
 	"bytes"
 	"context"
-	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
 
-	ctxapi "github.com/wippyai/runtime/api/context"
-	"github.com/wippyai/runtime/api/modules"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	dirapi "github.com/wippyai/runtime/api/service/fs/directory"
@@ -33,16 +30,16 @@ func TestEmbedFSCollectsModuleRelativeDirectory(t *testing.T) {
 	t.Chdir(moduleRoot)
 
 	entry := registry.Entry{
-		ID:   registry.NewID("acme.ui", "static_fs"),
-		Kind: dirapi.Kind,
+		ID:       registry.NewID("acme.ui", "static_fs"),
+		Kind:     dirapi.Kind,
+		Registry: registry.EntryMetadata{Owner: "acme/ui"},
 		Data: payload.New(map[string]any{
 			"base":      dirapi.BaseModule,
 			"directory": "./static/app",
 		}),
 	}
 
-	prov := moduleProv("acme/ui", entry.ID)
-	resources, err := collectResources(context.Background(), "", prov, []registry.Entry{entry}, zap.NewNop())
+	resources, err := collectResources(context.Background(), "", []registry.Entry{entry}, zap.NewNop())
 	if err != nil {
 		t.Fatalf("collectResources failed: %v", err)
 	}
@@ -82,18 +79,13 @@ func TestEmbedFSResolvesModuleRootWithoutChdir(t *testing.T) {
 	t.Chdir(t.TempDir())
 
 	entry := registry.Entry{
-		ID:   registry.NewID("acme.ui", "ui_fs"),
-		Kind: dirapi.Kind,
-		Data: payload.New(map[string]any{"directory": "./static"}),
+		ID:       registry.NewID("acme.ui", "ui_fs"),
+		Kind:     dirapi.Kind,
+		Registry: registry.EntryMetadata{Owner: "acme/ui"},
+		Data:     payload.New(map[string]any{"directory": "./static"}),
 	}
 
-	resources, err := collectResources(
-		context.Background(),
-		moduleRoot,
-		moduleProv("acme/ui", entry.ID),
-		[]registry.Entry{entry},
-		zap.NewNop(),
-	)
+	resources, err := collectResources(context.Background(), moduleRoot, []registry.Entry{entry}, zap.NewNop())
 	if err != nil {
 		t.Fatalf("collectResources failed: %v", err)
 	}
@@ -106,50 +98,6 @@ func TestEmbedFSResolvesModuleRootWithoutChdir(t *testing.T) {
 	}
 	if string(data) != "<html>ui</html>" {
 		t.Fatalf("embedded index.html = %q", string(data))
-	}
-}
-
-// Pack mode: entries come from many modules at once, so the owning module of
-// each entry — and with it the source root its relative directory resolves
-// against — comes from the loader provenance.
-func TestEmbedFSResolvesModuleSourceRootFromProvenance(t *testing.T) {
-	moduleRoot := t.TempDir()
-	staticDir := filepath.Join(moduleRoot, "static")
-	if err := os.MkdirAll(staticDir, 0o755); err != nil {
-		t.Fatalf("mkdir static dir: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(staticDir, "index.html"), []byte("<html>ui</html>"), 0o644); err != nil {
-		t.Fatalf("write index.html: %v", err)
-	}
-	t.Chdir(t.TempDir())
-
-	ctx := ctxapi.NewRootContext()
-	sources := modules.NewSourceRegistry()
-	sources.Set(modules.Sources{"acme/ui": {
-		LoadPath: moduleRoot, ResourceRoot: moduleRoot, Owner: "acme/ui",
-	}})
-	ctx = modules.WithSourceRegistry(ctx, sources)
-
-	entry := registry.Entry{
-		ID:   registry.NewID("acme.ui", "ui_fs"),
-		Kind: dirapi.Kind,
-		Data: payload.New(map[string]any{"directory": "./static"}),
-	}
-
-	resources, err := collectResources(ctx, "", moduleProv("acme/ui", entry.ID), []registry.Entry{entry}, zap.NewNop())
-	if err != nil {
-		t.Fatalf("collectResources failed: %v", err)
-	}
-	if len(resources) != 1 {
-		t.Fatalf("resource count = %d, want 1", len(resources))
-	}
-	if data, err := fs.ReadFile(resources[0].FS, "index.html"); err != nil || string(data) != "<html>ui</html>" {
-		t.Fatalf("embedded index.html = %q err=%v", string(data), err)
-	}
-
-	// A host-authored entry has no module source root to resolve against.
-	if _, err := collectResources(ctx, "", nil, []registry.Entry{entry}, zap.NewNop()); err == nil {
-		t.Fatal("expected error for host-authored entry with a module-relative directory, got nil")
 	}
 }
 
@@ -168,24 +116,20 @@ func TestEmbedFSCollectsMultipleResources(t *testing.T) {
 
 	entries := []registry.Entry{
 		{
-			ID:   registry.NewID("acme.app", "ui_fs"),
-			Kind: dirapi.Kind,
-			Data: payload.New(map[string]any{"directory": "./static"}),
+			ID:       registry.NewID("acme.app", "ui_fs"),
+			Kind:     dirapi.Kind,
+			Registry: registry.EntryMetadata{Owner: "acme/app"},
+			Data:     payload.New(map[string]any{"directory": "./static"}),
 		},
 		{
-			ID:   registry.NewID("acme.app", "wasm_fs"),
-			Kind: dirapi.Kind,
-			Data: payload.New(map[string]any{"directory": "./wasm"}),
+			ID:       registry.NewID("acme.app", "wasm_fs"),
+			Kind:     dirapi.Kind,
+			Registry: registry.EntryMetadata{Owner: "acme/app"},
+			Data:     payload.New(map[string]any{"directory": "./wasm"}),
 		},
 	}
 
-	resources, err := collectResources(
-		context.Background(),
-		moduleRoot,
-		moduleProv("acme/app", entries[0].ID, entries[1].ID),
-		entries,
-		zap.NewNop(),
-	)
+	resources, err := collectResources(context.Background(), moduleRoot, entries, zap.NewNop())
 	if err != nil {
 		t.Fatalf("collectResources failed: %v", err)
 	}
@@ -199,18 +143,13 @@ func TestEmbedFSErrorsOnMissingDirectory(t *testing.T) {
 	t.Chdir(t.TempDir())
 
 	entry := registry.Entry{
-		ID:   registry.NewID("acme.ui", "ui_fs"),
-		Kind: dirapi.Kind,
-		Data: payload.New(map[string]any{"directory": "./does-not-exist"}),
+		ID:       registry.NewID("acme.ui", "ui_fs"),
+		Kind:     dirapi.Kind,
+		Registry: registry.EntryMetadata{Owner: "acme/ui"},
+		Data:     payload.New(map[string]any{"directory": "./does-not-exist"}),
 	}
 
-	_, err := collectResources(
-		context.Background(),
-		moduleRoot,
-		moduleProv("acme/ui", entry.ID),
-		[]registry.Entry{entry},
-		zap.NewNop(),
-	)
+	_, err := collectResources(context.Background(), moduleRoot, []registry.Entry{entry}, zap.NewNop())
 	if err == nil {
 		t.Fatal("expected error for missing directory, got nil")
 	}
@@ -219,7 +158,7 @@ func TestEmbedFSErrorsOnMissingDirectory(t *testing.T) {
 func TestEmbedFSErrorsOnNilEntryData(t *testing.T) {
 	entry := registry.Entry{ID: registry.NewID("acme.ui", "ui_fs"), Kind: dirapi.Kind}
 
-	_, err := collectResources(context.Background(), "", nil, []registry.Entry{entry}, zap.NewNop())
+	_, err := collectResources(context.Background(), "", []registry.Entry{entry}, zap.NewNop())
 	if err == nil {
 		t.Fatal("expected error for entry with nil data, got nil")
 	}
@@ -241,7 +180,7 @@ func TestEmbedFSClearsResourcesWhenNoDirectories(t *testing.T) {
 		Kind: dirapi.Kind,
 		Data: payload.New(map[string]any{"directory": "./static"}),
 	}}
-	if err := EmbedFS(moduleRoot, nil, "ui_fs").Execute(ctx, &entries); err != nil {
+	if err := EmbedFS(moduleRoot, "ui_fs").Execute(ctx, &entries); err != nil {
 		t.Fatalf("first stage execute: %v", err)
 	}
 	if got := len(GetResources(ctx)); got != 1 {
@@ -249,7 +188,7 @@ func TestEmbedFSClearsResourcesWhenNoDirectories(t *testing.T) {
 	}
 
 	entries = []registry.Entry{{ID: registry.NewID("acme.ui", "definition"), Kind: "ns.definition"}}
-	if err := EmbedFS(moduleRoot, nil).Execute(ctx, &entries); err != nil {
+	if err := EmbedFS(moduleRoot).Execute(ctx, &entries); err != nil {
 		t.Fatalf("second stage execute: %v", err)
 	}
 	if got := len(GetResources(ctx)); got != 0 {
@@ -345,7 +284,7 @@ func TestEmbedFSEndToEndPacksBothResources(t *testing.T) {
 		},
 	}
 
-	stage := EmbedFS(moduleRoot, nil, "ui_fs", "wasm_fs")
+	stage := EmbedFS(moduleRoot, "ui_fs", "wasm_fs")
 	if err := stage.Execute(context.Background(), &entries); err != nil {
 		t.Fatalf("stage execute: %v", err)
 	}
@@ -388,62 +327,5 @@ func TestEmbedFSEndToEndPacksBothResources(t *testing.T) {
 	}
 	if data, err := fs.ReadFile(wasmFS, "compute.wasm"); err != nil || !bytes.Equal(data, wasmBytes) {
 		t.Fatalf("wasm content mismatch err=%v", err)
-	}
-}
-
-// moduleProv builds the loader provenance naming the module that owns the
-// entries being embedded.
-func moduleProv(module string, ids ...registry.ID) registry.ProvenanceMap {
-	prov := make(registry.ProvenanceMap, len(ids))
-	for _, id := range ids {
-		prov[id] = registry.EntryProvenance{Module: module}
-	}
-	return prov
-}
-
-// A supplied provenance map is total over the entries the stage attributes.
-// The nil map is the documented single-source build with no module world.
-func TestEmbedFSProvenanceTotality(t *testing.T) {
-	moduleRoot := t.TempDir()
-	staticDir := filepath.Join(moduleRoot, "static")
-	if err := os.MkdirAll(staticDir, 0o755); err != nil {
-		t.Fatalf("mkdir static dir: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(staticDir, "index.html"), []byte("<html>ui</html>"), 0o644); err != nil {
-		t.Fatalf("write index.html: %v", err)
-	}
-	t.Chdir(moduleRoot)
-
-	entry := registry.Entry{
-		ID:   registry.NewID("acme.ui", "ui_fs"),
-		Kind: dirapi.Kind,
-		Data: payload.New(map[string]any{"directory": "./static"}),
-	}
-	other := registry.NewID("acme.ui", "other_fs")
-
-	for _, tc := range []struct {
-		prov    registry.ProvenanceMap
-		name    string
-		wantErr bool
-	}{
-		{name: "no module world", prov: nil},
-		{name: "entry named", prov: registry.ProvenanceMap{entry.ID: {}}},
-		{name: "another entry named", prov: registry.ProvenanceMap{other: {Module: "acme/ui"}}, wantErr: true},
-		{name: "empty map names nothing", prov: registry.ProvenanceMap{}, wantErr: true},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			ctx := ctxapi.NewRootContext()
-			entries := []registry.Entry{entry}
-			err := EmbedFS("", tc.prov, "ui_fs").Execute(ctx, &entries)
-			if !tc.wantErr {
-				if err != nil {
-					t.Fatalf("execute failed: %v", err)
-				}
-				return
-			}
-			if !errors.Is(err, registry.ErrMissingProvenance) {
-				t.Fatalf("err = %v, want ErrMissingProvenance", err)
-			}
-		})
 	}
 }

@@ -87,7 +87,17 @@ func (m *Storage) Get(version registry.Version) (registry.ChangeSet, error) {
 		return nil, NewVersionNotFoundError(version.String())
 	}
 
-	actionsCopy := cloneChangeSet(actions)
+	actionsCopy := make(registry.ChangeSet, len(actions))
+	for i, op := range actions {
+		actionsCopy[i] = registry.Operation{
+			Kind:  op.Kind,
+			Entry: cloneEntry(op.Entry),
+		}
+		if op.OriginalEntry != nil {
+			clonedOriginal := cloneEntry(*op.OriginalEntry)
+			actionsCopy[i].OriginalEntry = &clonedOriginal
+		}
+	}
 	return actionsCopy, nil
 }
 
@@ -153,11 +163,11 @@ func cloneEntry(e registry.Entry) registry.Entry {
 		data = payload.NewPayload(snapshotValue(e.Data.Data()), e.Data.Format())
 	}
 	return registry.Entry{
-		ID:             e.ID,
-		Kind:           e.Kind,
-		Meta:           meta,
-		Data:           data,
-		DependencyRoot: e.DependencyRoot,
+		ID:       e.ID,
+		Kind:     e.Kind,
+		Meta:     meta,
+		Data:     data,
+		Registry: e.Registry,
 	}
 }
 
@@ -198,23 +208,10 @@ func snapshotValue(value any) any {
 	}
 }
 
-func cloneProvenance(p *registry.EntryProvenance) *registry.EntryProvenance {
-	if p == nil {
-		return nil
-	}
-	cloned := *p
-	return &cloned
-}
-
 func cloneChangeSet(actions registry.ChangeSet) registry.ChangeSet {
 	cloned := make(registry.ChangeSet, len(actions))
 	for i, op := range actions {
-		cloned[i] = registry.Operation{
-			Kind:               op.Kind,
-			Entry:              cloneEntry(op.Entry),
-			Provenance:         cloneProvenance(op.Provenance),
-			OriginalProvenance: cloneProvenance(op.OriginalProvenance),
-		}
+		cloned[i] = registry.Operation{Kind: op.Kind, Entry: cloneEntry(op.Entry)}
 		if op.OriginalEntry != nil {
 			original := cloneEntry(*op.OriginalEntry)
 			cloned[i].OriginalEntry = &original

@@ -100,6 +100,50 @@ func TestCanRebaseDependencyResolutionRequiresBaselineTransition(t *testing.T) {
 	}
 }
 
+func TestCanRebaseDependencyResolutionPermitsDeploymentBindingOnce(t *testing.T) {
+	existing := (&DependencyResolution{
+		BaselineDigest: "sha256:baseline",
+		InputDigest:    "sha256:inputs",
+		Roots:          []DependencyRoot{{ID: "app.deps:app", Component: "acme/app", Version: "1.0.0"}},
+		Modules:        []ResolvedModule{{Name: "acme/app", Version: "1.0.0", Digest: "sha256:app"}},
+	}).Canonical()
+	next := existing.Canonical()
+	next.Deployment = &Deployment{
+		Root:    "acme/app",
+		Modules: []ResolvedModule{{Name: "acme/app", Version: "1.0.0", Digest: "sha256:app"}},
+	}
+	next = next.Canonical()
+
+	require.True(t, next.Valid())
+	require.True(t, CanRebaseDependencyResolution(existing, next))
+
+	changed := next.Canonical()
+	changed.Deployment.Modules[0].Version = "2.0.0"
+	changed = changed.Canonical()
+	require.False(t, CanRebaseDependencyResolution(next, changed))
+}
+
+func TestDependencyResolutionDeploymentIsCanonicalAndValidated(t *testing.T) {
+	resolution := (&DependencyResolution{
+		InputDigest: "sha256:inputs",
+		Deployment: &Deployment{
+			Root: "acme/app",
+			Modules: []ResolvedModule{
+				{Name: "acme/worker", Version: "1.0.0", Digest: "sha256:worker"},
+				{Name: "acme/app", Version: "1.0.0", Digest: "sha256:app"},
+			},
+		},
+	}).Canonical()
+
+	require.True(t, resolution.Valid())
+	require.Equal(t, "acme/app", resolution.Deployment.Modules[0].Name)
+
+	missingRoot := resolution.Canonical()
+	missingRoot.Deployment.Root = "acme/missing"
+	missingRoot = missingRoot.Canonical()
+	require.False(t, missingRoot.Valid())
+}
+
 func TestDependencyResolutionReferencesStayOutsideDigests(t *testing.T) {
 	base := &DependencyResolution{
 		InputDigest: "sha256:input",

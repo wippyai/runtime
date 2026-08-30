@@ -9,25 +9,33 @@ local module_name = "wippy/terminal"
 local dep_id = "app.test.registry:terminal_dependency_version_jump"
 local hub_timeout = "20s"
 
-local function find_module_entries()
-	local snap, snap_err = registry.snapshot()
-	assert.is_nil(snap_err, "registry.snapshot no error")
-	local state, state_err = snap:state()
+local function state()
+	local snap, err = registry.snapshot()
+	assert.is_nil(err, "snapshot no error")
+	assert.not_nil(snap, "snapshot available")
+
+	local result, state_err = snap:state()
 	assert.is_nil(state_err, "snapshot state no error")
-	local entries = {}
-	for _, entry in ipairs(state.entries) do
-		if state.provenance[entry.id].module == module_name then
-			entries[#entries + 1] = entry
-		end
-	end
-	return entries, state.provenance
+	assert.not_nil(result, "snapshot state available")
+	return result
 end
 
-local function first_module_version(entries, provenance)
-	for i = 1, #entries do
-		local record = provenance[tostring(entries[i].id)]
-		if record ~= nil and record.version ~= "" then
-			return record.version
+local function find_module_entries()
+	local entries = {}
+	for _, entry in ipairs(state().entries) do
+		if entry.registry.owner == module_name then
+			table.insert(entries, entry)
+		end
+	end
+	return entries
+end
+
+local function selected_module_version()
+	local resolution = state().resolution
+	assert.not_nil(resolution, "dependency resolution available")
+	for _, module in ipairs(resolution.modules) do
+		if module.name == module_name then
+			return module.version
 		end
 	end
 	return nil
@@ -104,9 +112,10 @@ local function main()
 		})
 	end)
 
-	local entries_a, provenance_a = find_module_entries()
+	local entries_a = find_module_entries()
 	assert.ok(#entries_a > 0, "module entries installed")
-	assert.eq(first_module_version(entries_a, provenance_a), version_a, "installed version matches A")
+	assert.eq(entries_a[1].registry.owner, module_name, "state identifies installed entry ownership")
+	assert.eq(selected_module_version(), version_a, "installed version matches A")
 
 	local v2 = apply_changes(function(changes)
 		changes:update({
@@ -119,25 +128,26 @@ local function main()
 		})
 	end)
 
-	local entries_b, provenance_b = find_module_entries()
+	local entries_b = find_module_entries()
 	assert.ok(#entries_b > 0, "module entries updated")
-	assert.eq(first_module_version(entries_b, provenance_b), version_b, "installed version matches B")
+	assert.eq(entries_b[1].registry.owner, module_name, "state retains installed entry ownership after update")
+	assert.eq(selected_module_version(), version_b, "updated version matches B")
 
 	local ok, err = registry.apply_version(v1)
 	assert.is_nil(err, "rollback no error")
 	assert.ok(ok, "rollback ok")
 
-	local entries_rollback, provenance_rollback = find_module_entries()
+	local entries_rollback = find_module_entries()
 	assert.ok(#entries_rollback > 0, "module entries after rollback")
-	assert.eq(first_module_version(entries_rollback, provenance_rollback), version_a, "version restored after rollback")
+	assert.eq(selected_module_version(), version_a, "version restored after rollback")
 
 	local ok2, err2 = registry.apply_version(v2)
 	assert.is_nil(err2, "forward apply no error")
 	assert.ok(ok2, "forward apply ok")
 
-	local entries_forward, provenance_forward = find_module_entries()
+	local entries_forward = find_module_entries()
 	assert.ok(#entries_forward > 0, "module entries after forward apply")
-	assert.eq(first_module_version(entries_forward, provenance_forward), version_b, "version restored after forward apply")
+	assert.eq(selected_module_version(), version_b, "version restored after forward apply")
 
 	apply_changes(function(changes)
 		changes:delete(dep_id)

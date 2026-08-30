@@ -5,7 +5,6 @@ package hub
 import (
 	"bytes"
 	"context"
-	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -15,7 +14,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/wippyai/runtime/api/attrs"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	moduleapi "github.com/wippyai/runtime/api/modules"
 	"github.com/wippyai/runtime/api/payload"
@@ -29,17 +27,15 @@ import (
 	"go.uber.org/zap"
 )
 
-// stubPackRegistry records pack lifecycle calls for assertions. calls keeps the
-// order across kinds, which the retarget-before-close contract depends on.
+// stubPackRegistry records pack lifecycle calls for assertions.
 type stubPackRegistry struct {
 	registerErr    error
+	activateErr    error
 	registered     map[string]*wapp.Reader
+	active         map[string]bool
 	files          map[string]*os.File
 	unregistered   []string
 	modulesDropped []droppedModule
-	retargeted     []retargetedModule
-	retargetErr    map[string]error
-	calls          []string
 }
 
 type droppedModule struct {
@@ -47,25 +43,35 @@ type droppedModule struct {
 	version string
 }
 
-type retargetedModule struct {
-	module string
-	from   string
-	to     string
-}
-
 func newStubPackRegistry() *stubPackRegistry {
 	return &stubPackRegistry{
 		registered: make(map[string]*wapp.Reader),
+		active:     make(map[string]bool),
 		files:      make(map[string]*os.File),
 	}
 }
 
-func (s *stubPackRegistry) RegisterPack(packPath, _, _ string, reader *wapp.Reader, file *os.File) error {
+func (s *stubPackRegistry) StagePack(packPath, _, _ string, reader *wapp.Reader, file *os.File) error {
 	if s.registerErr != nil {
 		return s.registerErr
 	}
 	s.registered[packPath] = reader
 	s.files[packPath] = file
+	return nil
+}
+
+func (s *stubPackRegistry) ActivatePacks(packPaths []string) error {
+	if s.activateErr != nil {
+		return s.activateErr
+	}
+	for _, packPath := range packPaths {
+		if _, ok := s.registered[packPath]; !ok {
+			return os.ErrNotExist
+		}
+	}
+	for _, packPath := range packPaths {
+		s.active[packPath] = true
+	}
 	return nil
 }
 
@@ -75,22 +81,13 @@ func (s *stubPackRegistry) UnregisterPack(packPath string) error {
 		_ = f.Close()
 	}
 	delete(s.registered, packPath)
+	delete(s.active, packPath)
 	delete(s.files, packPath)
 	return nil
 }
 
 func (s *stubPackRegistry) UnregisterModule(module, version string) error {
 	s.modulesDropped = append(s.modulesDropped, droppedModule{module: module, version: version})
-	s.calls = append(s.calls, "unregister:"+module+"@"+version)
-	return nil
-}
-
-func (s *stubPackRegistry) RetargetModule(module, fromVersion, toVersion string) error {
-	s.retargeted = append(s.retargeted, retargetedModule{module: module, from: fromVersion, to: toVersion})
-	s.calls = append(s.calls, "retarget:"+module+"@"+fromVersion+"->"+toVersion)
-	if err := s.retargetErr[module]; err != nil {
-		return err
-	}
 	return nil
 }
 
@@ -104,6 +101,7 @@ func (s *stubPackRegistry) Close() error {
 		}
 		delete(s.files, packPath)
 		delete(s.registered, packPath)
+		delete(s.active, packPath)
 	}
 	return firstErr
 }
@@ -139,90 +137,6 @@ func newEffect(reg embedPackRegistry, staged []stagedPack, obsolete []obsoletePa
 	}
 }
 
-func TestEmbedPackEffect_FailedRetargetRetainsTheSupersededPack(t *testing.T) {
-	reg := newStubPackRegistry()
-	reg.retargetErr = map[string]error{"org/broken": errors.New("repoint refused")}
-	eff := newEffect(reg, nil, []obsoletePack{
-		{module: "org/broken", version: "1.0.0"},
-		{module: "org/healthy", version: "1.0.0"},
-	})
-	eff.retarget = []packRetarget{
-		{module: "org/broken", from: "1.0.0", to: "2.0.0"},
-		{module: "org/healthy", from: "1.0.0", to: "2.0.0"},
-	}
-
-	err := eff.Finalize(context.Background())
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "repoint refused")
-	assert.Contains(t, err.Error(), "retained embedded pack org/broken@1.0.0")
-
-	assert.Equal(t, []droppedModule{{module: "org/healthy", version: "1.0.0"}}, reg.modulesDropped,
-		"a generation whose consumers still resolve it stays open; unrelated modules still finalize")
-}
-
-func TestEmbedPackEffect_RetargetsConsumersBeforeClosingSupersededPack(t *testing.T) {
-	reg := newStubPackRegistry()
-	eff := newEffect(reg, nil, []obsoletePack{{module: "org/mod", version: "1.0.0"}})
-	eff.retarget = []packRetarget{{module: "org/mod", from: "1.0.0", to: "2.0.0"}}
-
-	require.NoError(t, eff.Finalize(context.Background()))
-
-	assert.Equal(t, []string{"retarget:org/mod@1.0.0->2.0.0", "unregister:org/mod@1.0.0"}, reg.calls,
-		"consumers of the superseded generation move before its pack closes")
-}
-
-func TestBuildEmbedPackEffect_RetargetsOnlyWhenANewerGenerationIsDesired(t *testing.T) {
-	dir := t.TempDir()
-	newPack := filepath.Join(dir, "org", "mod-v2.0.0.wapp")
-	writeResourceWapp(t, newPack, "ui", "app", map[string]string{"v.txt": "new"})
-
-	packRegistry := embedpkg.NewRegistry()
-	defer func() { require.NoError(t, packRegistry.Close()) }()
-	ctx := embedapi.WithRegistry(newTestContext(), packRegistry)
-
-	handler, err := NewDependencyHandler(DependencyHandlerOptions{
-		Hub: &fakeHub{
-			getDownload: func(context.Context, *DownloadParams) (*DownloadInfo, error) {
-				return &DownloadInfo{URL: "memory://new"}, nil
-			},
-			downloadFile: func(_ context.Context, _ string, dest string) error {
-				data, readErr := os.ReadFile(newPack)
-				if readErr != nil {
-					return readErr
-				}
-				if err := os.MkdirAll(filepath.Dir(dest), 0755); err != nil {
-					return err
-				}
-				return os.WriteFile(dest, data, 0600)
-			},
-		},
-		Logger:    zap.NewNop(),
-		VendorDir: dir,
-	})
-	require.NoError(t, err)
-
-	snapshot := regapi.State{
-		moduleEntry("ui", "app", "org/mod", "1.0.0"),
-		moduleEntry("ui", "gone", "org/gone", "1.0.0"),
-	}
-	controlled := map[string]struct{}{"org/mod": {}, "org/gone": {}}
-
-	eff, err := handler.buildEmbedPackEffect(
-		ctx,
-		[]ResolvedModule{{Org: "org", Name: "mod", Version: "2.0.0"}},
-		fixtureState(snapshot),
-		controlled,
-	)
-	require.NoError(t, err)
-	require.NotNil(t, eff)
-	assert.ElementsMatch(t, []obsoletePack{
-		{module: "org/mod", version: "1.0.0"},
-		{module: "org/gone", version: "1.0.0"},
-	}, eff.obsolete)
-	assert.Equal(t, []packRetarget{{module: "org/mod", from: "1.0.0", to: "2.0.0"}}, eff.retarget,
-		"a module leaving the graph has no generation to point at")
-}
-
 func TestEmbedPackEffect_PrepareCommit(t *testing.T) {
 	dir := t.TempDir()
 	packPath := filepath.Join(dir, "org", "mod-v1.0.0.wapp")
@@ -234,9 +148,11 @@ func TestEmbedPackEffect_PrepareCommit(t *testing.T) {
 
 	require.NoError(t, eff.Prepare(context.Background()))
 	assert.Contains(t, reg.registered, packPath)
+	assert.False(t, reg.active[packPath])
 	require.Len(t, eff.prepared, 1)
 
 	require.NoError(t, eff.Commit(context.Background()))
+	assert.True(t, reg.active[packPath])
 	require.NoError(t, eff.Finalize(context.Background()))
 	// Commit must not unregister the staged pack on a fresh install.
 	assert.Empty(t, reg.unregistered)
@@ -273,8 +189,10 @@ func TestEmbedPackEffect_Update(t *testing.T) {
 
 	require.NoError(t, eff.Prepare(context.Background()))
 	assert.Contains(t, reg.registered, newPack)
+	assert.False(t, reg.active[newPack])
 
 	require.NoError(t, eff.Commit(context.Background()))
+	assert.True(t, reg.active[newPack])
 	require.NoError(t, eff.Finalize(context.Background()))
 	// Old version is dropped only after durable finalization; new pack remains registered.
 	require.Len(t, reg.modulesDropped, 1)
@@ -346,16 +264,12 @@ func TestEmbedPackEffect_PreparePartialFailureRollsBackStagedPacks(t *testing.T)
 }
 
 func TestObsoletePacksFor(t *testing.T) {
-	snapshot := regapi.State{
-		moduleEntry("ui", "old-app", "org/mod", "1.0.0"),
-		moduleEntry("ui", "stable", "org/other", "3.0.0"),
-		moduleEntry("ui", "noversion", "org/nover", ""),
-	}
+	current := map[string]string{"org/mod": "1.0.0", "org/other": "3.0.0"}
 
 	t.Run("update marks changed version obsolete", func(t *testing.T) {
 		desired := map[string]string{"org/mod": "2.0.0", "org/other": "3.0.0"}
 		controlled := map[string]struct{}{"org/mod": {}, "org/other": {}}
-		obs := obsoletePacksFor(residentModuleVersions(fixtureState(snapshot).Provenance), desired, controlled)
+		obs := obsoletePacksFor(current, desired, controlled)
 		require.Len(t, obs, 1)
 		assert.Equal(t, obsoletePack{module: "org/mod", version: "1.0.0"}, obs[0])
 	})
@@ -363,7 +277,7 @@ func TestObsoletePacksFor(t *testing.T) {
 	t.Run("removal marks dropped module obsolete", func(t *testing.T) {
 		desired := map[string]string{"org/other": "3.0.0"}
 		controlled := map[string]struct{}{"org/mod": {}, "org/other": {}}
-		obs := obsoletePacksFor(residentModuleVersions(fixtureState(snapshot).Provenance), desired, controlled)
+		obs := obsoletePacksFor(current, desired, controlled)
 		require.Len(t, obs, 1)
 		assert.Equal(t, obsoletePack{module: "org/mod", version: "1.0.0"}, obs[0])
 	})
@@ -371,14 +285,14 @@ func TestObsoletePacksFor(t *testing.T) {
 	t.Run("unchanged versions are not obsolete", func(t *testing.T) {
 		desired := map[string]string{"org/mod": "1.0.0", "org/other": "3.0.0"}
 		controlled := map[string]struct{}{"org/mod": {}, "org/other": {}}
-		obs := obsoletePacksFor(residentModuleVersions(fixtureState(snapshot).Provenance), desired, controlled)
+		obs := obsoletePacksFor(current, desired, controlled)
 		assert.Empty(t, obs)
 	})
 
 	t.Run("unrelated modules remain live", func(t *testing.T) {
 		desired := map[string]string{"org/mod": "2.0.0"}
 		controlled := map[string]struct{}{"org/mod": {}}
-		obs := obsoletePacksFor(residentModuleVersions(fixtureState(snapshot).Provenance), desired, controlled)
+		obs := obsoletePacksFor(current, desired, controlled)
 		require.Len(t, obs, 1)
 		assert.Equal(t, obsoletePack{module: "org/mod", version: "1.0.0"}, obs[0])
 	})
@@ -393,7 +307,7 @@ func TestBuildEmbedPackEffect_NoRegistry(t *testing.T) {
 	require.NoError(t, err)
 
 	// No embed registry installed in context: effect is skipped.
-	eff, err := handler.buildEmbedPackEffect(newTestContext(), nil, regapi.ProvenancedState{}, nil)
+	eff, err := handler.buildEmbedPackEffect(newTestContext(), nil, nil)
 	require.NoError(t, err)
 	assert.Nil(t, eff)
 }
@@ -421,9 +335,8 @@ func TestBuildEmbedPackEffect_SkipsUnchangedResolvedPack(t *testing.T) {
 	require.NoError(t, err)
 
 	resolved := []ResolvedModule{{Org: "org", Name: "mod", Version: "1.0.0"}}
-	snapshot := regapi.State{moduleEntry("ui", "app", "org/mod", "1.0.0")}
-
-	eff, err := handler.buildEmbedPackEffect(ctx, resolved, fixtureState(snapshot), map[string]struct{}{"org/mod": {}})
+	ctx = withCurrentResolution(ctx, regapi.ResolvedModule{Name: "org/mod", Version: "1.0.0"})
+	eff, err := handler.buildEmbedPackEffect(ctx, resolved, map[string]struct{}{"org/mod": {}})
 	require.NoError(t, err)
 	assert.Nil(t, eff)
 }
@@ -452,12 +365,12 @@ func TestBuildEmbedPackEffect_RejectsSameVersionDifferentDigest(t *testing.T) {
 
 	const oldDigest = "sha256:1111111111111111111111111111111111111111111111111111111111111111"
 	const newDigest = "sha256:2222222222222222222222222222222222222222222222222222222222222222"
-	snapshotEntry := fixtureOwned(moduleEntry("ui", "app", "org/mod", "1.0.0"), "org/mod", "1.0.0", oldDigest)
+	ctx = withCurrentResolution(ctx, regapi.ResolvedModule{Name: "org/mod", Version: "1.0.0", Digest: oldDigest})
 	resolved := []ResolvedModule{{
 		Org: "org", Name: "mod", Version: "1.0.0", Source: moduleSourceHub, Digest: newDigest,
 	}}
 
-	eff, err := handler.buildEmbedPackEffect(ctx, resolved, fixtureState(regapi.State{snapshotEntry}), map[string]struct{}{"org/mod": {}})
+	eff, err := handler.buildEmbedPackEffect(ctx, resolved, map[string]struct{}{"org/mod": {}})
 	require.Error(t, err)
 	assert.Nil(t, eff)
 	assert.Equal(t, "old", readHubResource(t, reg, moduleEntry("ui", "app", "org/mod", "1.0.0"), "v.txt"))
@@ -471,16 +384,10 @@ func TestBuildEmbedPackEffectAcceptsEquivalentDigestEncoding(t *testing.T) {
 		createHubResourceReader(t, "ui", "app", map[string]string{"v.txt": "old"}), nil))
 	handler := &DependencyHandler{logger: zap.NewNop()}
 	digestValue := strings.Repeat("1", 64)
-	snapshotEntry := fixtureOwned(
-		moduleEntry("ui", "app", "org/mod", "1.0.0"),
-		"org/mod",
-		"1.0.0",
-		digestValue,
-	)
-
+	ctx = withCurrentResolution(ctx, regapi.ResolvedModule{Name: "org/mod", Version: "1.0.0", Digest: digestValue})
 	effect, err := handler.buildEmbedPackEffect(ctx, []ResolvedModule{{
 		Org: "org", Name: "mod", Version: "1.0.0", Digest: "sha256:" + digestValue,
-	}}, fixtureState(regapi.State{snapshotEntry}), map[string]struct{}{"org/mod": {}})
+	}}, map[string]struct{}{"org/mod": {}})
 	require.NoError(t, err)
 	assert.Nil(t, effect)
 }
@@ -511,9 +418,7 @@ func TestBuildEmbedPackEffect_StagesUnchangedPackWhenRegistryMissing(t *testing.
 	require.NoError(t, err)
 
 	resolved := []ResolvedModule{{Org: "org", Name: "mod", Version: "1.0.0"}}
-	snapshot := regapi.State{moduleEntry("ui", "app", "org/mod", "1.0.0")}
-
-	eff, err := handler.buildEmbedPackEffect(ctx, resolved, fixtureState(snapshot), map[string]struct{}{"org/mod": {}})
+	eff, err := handler.buildEmbedPackEffect(ctx, resolved, map[string]struct{}{"org/mod": {}})
 	require.NoError(t, err)
 	require.NotNil(t, eff)
 	assert.Equal(t, []stagedPack{{packPath: immutablePackPath, module: "org/mod", version: "1.0.0"}}, eff.staged)
@@ -549,9 +454,7 @@ func TestBuildEmbedPackEffect_DropsPackWhenResolvedModuleIsDirectory(t *testing.
 	require.NoError(t, err)
 
 	resolved := []ResolvedModule{{Org: "org", Name: "mod", Version: "1.0.0"}}
-	snapshot := regapi.State{moduleEntry("ui", "app", "org/mod", "1.0.0")}
-
-	eff, err := handler.buildEmbedPackEffect(ctx, resolved, fixtureState(snapshot), map[string]struct{}{"org/mod": {}})
+	eff, err := handler.buildEmbedPackEffect(ctx, resolved, map[string]struct{}{"org/mod": {}})
 	require.NoError(t, err)
 	require.NotNil(t, eff)
 	assert.Empty(t, eff.staged)
@@ -559,7 +462,7 @@ func TestBuildEmbedPackEffect_DropsPackWhenResolvedModuleIsDirectory(t *testing.
 
 	require.NoError(t, eff.Commit(context.Background()))
 	require.NoError(t, eff.Finalize(context.Background()))
-	_, err = reg.GetFSForEntry(moduleFS(moduleEntry("ui", "app", "org/mod", "1.0.0")))
+	_, err = reg.GetFS(regapi.NewID("ui", "app"))
 	require.Error(t, err)
 }
 
@@ -599,9 +502,7 @@ func TestBuildEmbedPackEffect_DropsPackWhenUnpackModulesEnabled(t *testing.T) {
 	require.NoError(t, err)
 
 	resolved := []ResolvedModule{{Org: "org", Name: "mod", Version: "1.0.0", Source: moduleSourceHub, Digest: digest}}
-	snapshot := regapi.State{moduleEntry("ui", "app", "org/mod", "1.0.0")}
-
-	eff, err := handler.buildEmbedPackEffect(ctx, resolved, fixtureState(snapshot), map[string]struct{}{"org/mod": {}})
+	eff, err := handler.buildEmbedPackEffect(ctx, resolved, map[string]struct{}{"org/mod": {}})
 	require.NoError(t, err)
 	require.NotNil(t, eff)
 	assert.Empty(t, eff.staged)
@@ -609,7 +510,7 @@ func TestBuildEmbedPackEffect_DropsPackWhenUnpackModulesEnabled(t *testing.T) {
 
 	require.NoError(t, eff.Commit(context.Background()))
 	require.NoError(t, eff.Finalize(context.Background()))
-	_, err = reg.GetFSForEntry(moduleFS(moduleEntry("ui", "app", "org/mod", "1.0.0")))
+	_, err = reg.GetFS(regapi.NewID("ui", "app"))
 	require.Error(t, err)
 }
 
@@ -647,16 +548,15 @@ func TestBuildEmbedPackEffect_StagesOnlyChangedPacks(t *testing.T) {
 	require.NoError(t, err)
 
 	resolved := []ResolvedModule{
-		{Org: "org", Name: "mod", Version: "2.0.0"},
+		{Org: "org", Name: "mod", Version: "2.0.0", Digest: newDigest},
 		{Org: "org", Name: "stable", Version: "1.0.0"},
 	}
-	snapshot := regapi.State{
-		moduleEntry("ui", "app", "org/mod", "1.0.0"),
-		moduleEntry("ui", "stable", "org/stable", "1.0.0"),
-		moduleEntry("ui", "removed", "org/removed", "3.0.0"),
-	}
-
-	eff, err := handler.buildEmbedPackEffect(ctx, resolved, fixtureState(snapshot), map[string]struct{}{
+	ctx = withCurrentResolution(ctx,
+		regapi.ResolvedModule{Name: "org/mod", Version: "1.0.0"},
+		regapi.ResolvedModule{Name: "org/stable", Version: "1.0.0"},
+		regapi.ResolvedModule{Name: "org/removed", Version: "3.0.0"},
+	)
+	eff, err := handler.buildEmbedPackEffect(ctx, resolved, map[string]struct{}{
 		"org/mod": {}, "org/stable": {}, "org/removed": {},
 	})
 	require.NoError(t, err)
@@ -668,13 +568,14 @@ func TestBuildEmbedPackEffect_StagesOnlyChangedPacks(t *testing.T) {
 	}, eff.obsolete)
 
 	require.NoError(t, eff.Prepare(context.Background()))
-	assert.Equal(t, "1", readHubResource(t, reg, moduleEntry("ui", "app", "org/mod", "1.0.0"), "v.txt"))
+	assert.Equal(t, "2", readHubResource(t, reg, moduleEntry("ui", "app", "org/mod", "2.0.0"), "v.txt"))
 	assert.Equal(t, "2", readHubResource(t, reg, moduleEntry("ui", "app", "org/mod", "2.0.0"), "v.txt"))
 	assert.Equal(t, "stable", readHubResource(t, reg, moduleEntry("ui", "stable", "org/stable", "1.0.0"), "v.txt"))
 
 	require.NoError(t, eff.Commit(context.Background()))
-	// Commit is still reversible; obsolete packs remain until history/head is durable.
-	assert.Equal(t, "1", readHubResource(t, reg, moduleEntry("ui", "app", "org/mod", "1.0.0"), "v.txt"))
+	// The active entry ID switches to the staged pack; finalization only removes
+	// obsolete packs after the history transition is durable.
+	assert.Equal(t, "2", readHubResource(t, reg, moduleEntry("ui", "app", "org/mod", "2.0.0"), "v.txt"))
 	require.NoError(t, eff.Finalize(context.Background()))
 	assert.Equal(t, "2", readHubResource(t, reg, moduleEntry("ui", "app", "org/mod", "2.0.0"), "v.txt"))
 	assert.Equal(t, "stable", readHubResource(t, reg, moduleEntry("ui", "stable", "org/stable", "1.0.0"), "v.txt"))
@@ -712,10 +613,9 @@ func TestBuildEmbedPackEffect_InstallPreservesUnrelatedApplicationPack(t *testin
 	require.NoError(t, err)
 
 	resolved := []ResolvedModule{{Org: "spiralscout", Name: "crm", Version: "0.1.18"}}
-	snapshot := regapi.State{moduleEntry("app", "app_fs", "kickside/kickside", "0.1.63")}
 	controlled := map[string]struct{}{"spiralscout/crm": {}}
 
-	eff, err := handler.buildEmbedPackEffect(ctx, resolved, fixtureState(snapshot), controlled)
+	eff, err := handler.buildEmbedPackEffect(ctx, resolved, controlled)
 	require.NoError(t, err)
 	require.NotNil(t, eff)
 	assert.Empty(t, eff.obsolete)
@@ -910,9 +810,9 @@ func TestSourceEffectUnpackedModulePrepareAndRollback(t *testing.T) {
 		"org/unrelated": {LoadPath: "/old/unrelated", ResourceRoot: "/old/unrelated", Owner: "org/unrelated", Sequence: 2},
 	})
 	var loadedSources moduleapi.Sources
-	sourceRegistry.SetLoader(func(_ context.Context, sources moduleapi.Sources) ([]regapi.Entry, regapi.ProvenanceMap, error) {
+	sourceRegistry.SetLoader(func(_ context.Context, sources moduleapi.Sources) ([]regapi.Entry, error) {
 		loadedSources = sources
-		return nil, nil, nil
+		return nil, nil
 	})
 
 	resolved := ResolvedModule{Org: "org", Name: "mod", Version: "1.0.0", Digest: packDigest, SizeBytes: packSize}
@@ -986,9 +886,9 @@ func TestSourceEffectPackedModuleTracksLoadIdentityWithoutExposingRoot(t *testin
 	sourceRegistry := moduleapi.NewSourceRegistry()
 	ctx = moduleapi.WithSourceRegistry(ctx, sourceRegistry)
 	var loadedSources moduleapi.Sources
-	sourceRegistry.SetLoader(func(_ context.Context, sources moduleapi.Sources) ([]regapi.Entry, regapi.ProvenanceMap, error) {
+	sourceRegistry.SetLoader(func(_ context.Context, sources moduleapi.Sources) ([]regapi.Entry, error) {
 		loadedSources = sources
-		return nil, nil, nil
+		return nil, nil
 	})
 
 	packPath := filepath.Join(vendorDir, "org", "mod-1.0.0.wapp")
@@ -1022,20 +922,9 @@ func TestSourceEffectPackedModuleTracksLoadIdentityWithoutExposingRoot(t *testin
 	assert.NotContains(t, loadedSources, "org/mod")
 }
 
-// moduleFS pairs a fixture entry with the provenance the embed registry pins
-// its filesystem to.
-func moduleFS(entry regapi.Entry) (regapi.Entry, *regapi.EntryProvenance) {
-	clean, record := fixtureEntryProvenance(entry)
-	return clean, &record
-}
-
 func moduleEntry(ns, name, module, version string) regapi.Entry {
-	meta := attrs.NewBag()
-	meta.Set(fixtureModuleKey, module)
-	if version != "" {
-		meta.Set(fixtureModuleVersionKey, version)
-	}
-	return regapi.Entry{ID: regapi.NewID(ns, name), Meta: meta}
+	_ = version
+	return regapi.Entry{ID: regapi.NewID(ns, name), Registry: regapi.EntryMetadata{Owner: module}}
 }
 
 func createHubResourceReader(t *testing.T, ns, name string, files map[string]string) *wapp.Reader {
@@ -1081,7 +970,7 @@ func writeEmbeddedFSWapp(t *testing.T, path, ns, name string, files map[string]s
 func readHubResource(t *testing.T, reg *embedpkg.Registry, entry regapi.Entry, name string) string {
 	t.Helper()
 
-	fsys, err := reg.GetFSForEntry(moduleFS(entry))
+	fsys, err := reg.GetFS(entry.ID)
 	require.NoError(t, err)
 	data, err := fs.ReadFile(fsys, name)
 	require.NoError(t, err)

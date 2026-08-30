@@ -38,17 +38,16 @@ type Source struct {
 // Sources maps stable source identifiers to their current load identities.
 type Sources map[string]Source
 
-// LoadedSources is one atomic view of the normalized deployment baseline, its
-// provenance, and the sources authoritative over its entries.
+// LoadedSources is one atomic view of the normalized deployment baseline and
+// the sources authoritative over its entries.
 type LoadedSources struct {
-	Provenance regapi.ProvenanceMap
-	Owners     []string
-	Entries    []regapi.Entry
+	Owners  []string
+	Entries []regapi.Entry
 }
 
-// SourceLoader rebuilds the normalized deployment baseline and its provenance
-// from an atomic snapshot of its current sources.
-type SourceLoader func(context.Context, Sources) ([]regapi.Entry, regapi.ProvenanceMap, error)
+// SourceLoader rebuilds the normalized deployment baseline from an atomic
+// snapshot of its current sources.
+type SourceLoader func(context.Context, Sources) ([]regapi.Entry, error)
 
 // SourceRegistry owns deployment source identities and coordinates source
 // reloads with backing-store transitions.
@@ -234,6 +233,16 @@ func (r *SourceRegistry) SetLoader(loader SourceLoader) {
 	r.mu.Unlock()
 }
 
+// Snapshot returns a detached view of the current deployment sources.
+func (r *SourceRegistry) Snapshot() Sources {
+	if r == nil {
+		return nil
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return cloneSources(r.sources)
+}
+
 // Load rebuilds the normalized deployment baseline from one stable source
 // generation.
 func (r *SourceRegistry) Load(ctx context.Context) (LoadedSources, error) {
@@ -249,14 +258,13 @@ func (r *SourceRegistry) Load(ctx context.Context) (LoadedSources, error) {
 	if loader == nil {
 		return LoadedSources{}, ErrSourceLoaderUnavailable
 	}
-	entries, prov, err := loader(ctx, sources)
+	entries, err := loader(ctx, sources)
 	if err != nil {
 		return LoadedSources{}, err
 	}
 	return LoadedSources{
-		Owners:     authoritativeOwners(sources),
-		Entries:    entries,
-		Provenance: prov,
+		Owners:  authoritativeOwners(sources),
+		Entries: entries,
 	}, nil
 }
 

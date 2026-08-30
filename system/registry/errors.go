@@ -3,8 +3,6 @@
 package registry
 
 import (
-	"errors"
-
 	"github.com/wippyai/runtime/api/attrs"
 	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/registry"
@@ -24,14 +22,6 @@ func NewEntryNotFoundError(path registry.ID) apierror.Error {
 	return apierror.New(apierror.NotFound, "entry not found").
 		WithRetryable(apierror.False).
 		WithDetails(attrs.NewBagFrom(map[string]any{"path": path.String()}))
-}
-
-// NewProvenanceInvariantError reports registry-owned state that cannot be
-// paired one-to-one with its ownership records.
-func NewProvenanceInvariantError(err error) apierror.Error {
-	return apierror.New(apierror.Internal, "registry provenance invariant violated").
-		WithRetryable(apierror.False).
-		WithCause(err)
 }
 
 // NewApplyChangesError creates an error when applying changes fails
@@ -101,15 +91,10 @@ func NewCommitEffectsError(err error, rollbackErr error) apierror.Error {
 }
 
 // NewConcurrentApplyError creates an error when registry state changes mid-apply.
-// ErrConcurrentApply marks an apply that lost to a concurrent one; callers
-// re-read and retry against the new version.
-var ErrConcurrentApply = errors.New("registry changed during apply")
-
 func NewConcurrentApplyError(expected, actual uint) apierror.Error {
 	return apierror.New(apierror.Conflict, "registry changed during apply").
 		WithRetryable(apierror.True).
-		WithDetails(attrs.NewBagFrom(map[string]any{"expected_version": expected, "actual_version": actual})).
-		WithCause(ErrConcurrentApply)
+		WithDetails(attrs.NewBagFrom(map[string]any{"expected_version": expected, "actual_version": actual}))
 }
 
 // NewOverlayGenerationConflictError reports an optimistic-concurrency conflict

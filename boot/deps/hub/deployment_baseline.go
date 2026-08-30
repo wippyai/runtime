@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/wippyai/runtime/api/payload"
 	regapi "github.com/wippyai/runtime/api/registry"
@@ -21,7 +22,7 @@ import (
 // after the lock or source-owned roots change.
 func (h *DependencyHandler) deploymentBaselineDigest(
 	ctx context.Context,
-	baseline regapi.ProvenancedState,
+	baseline regapi.State,
 	transcoder payload.Transcoder,
 ) (string, error) {
 	type lockedModule struct {
@@ -38,7 +39,17 @@ func (h *DependencyHandler) deploymentBaselineDigest(
 	}
 
 	modules := make([]lockedModule, 0)
-	if h != nil && h.lock != nil {
+	if h != nil && h.deployment != nil {
+		for _, mod := range h.deployment.Modules {
+			if mod.Name == "" || mod.Version == "" {
+				continue
+			}
+			modules = append(modules, lockedModule{
+				Name: mod.Name, Version: mod.Version, Digest: strings.TrimPrefix(strings.ToLower(mod.Digest), "sha256:"),
+				Root: mod.Name == h.deployment.Root, Replacement: mod.Source == moduleSourceReplacementTreeV1,
+			})
+		}
+	} else if h != nil && h.lock != nil {
 		for _, mod := range h.lock.GetModules() {
 			if mod.Name == "" || mod.Version == "" {
 				continue
@@ -52,16 +63,11 @@ func (h *DependencyHandler) deploymentBaselineDigest(
 	}
 	sort.Slice(modules, func(i, j int) bool { return modules[i].Name < modules[j].Name })
 
-	prov, err := stateProvenance(baseline)
-	if err != nil {
-		return "", err
-	}
-
 	roots := make([]deploymentRoot, 0)
-	for _, entry := range baseline.Entries {
-		// Root selection is assigned by source/lock ingestion. Unowned roots
+	for _, entry := range baseline {
+		// Registry.Root is assigned by source/lock ingestion. Unowned roots
 		// created through the registry API remain history-owned overlays.
-		if entry.Kind != regapi.NamespaceDependency || !prov[idKey(entry.ID)].Root {
+		if entry.Kind != regapi.NamespaceDependency || !entry.Registry.Root {
 			continue
 		}
 		definition, err := decodeDependency(ctx, transcoder, entry)
@@ -99,7 +105,7 @@ func (h *DependencyHandler) deploymentBaselineDigest(
 
 func (h *DependencyHandler) resolutionForSnapshot(
 	ctx context.Context,
-	baseline regapi.ProvenancedState,
+	baseline regapi.State,
 	roots []desiredDependency,
 	references []desiredDependency,
 	modules []ResolvedModule,
@@ -111,12 +117,13 @@ func (h *DependencyHandler) resolutionForSnapshot(
 	}
 	resolution := dependencyResolution(roots, references, modules)
 	resolution.BaselineDigest = baselineDigest
+	resolution.Deployment = h.deployment.Canonical()
 	return resolution.Canonical(), nil
 }
 
 func (h *DependencyHandler) resolutionRefreshReason(
 	ctx context.Context,
-	baseline regapi.ProvenancedState,
+	baseline regapi.State,
 	roots []desiredDependency,
 	references []desiredDependency,
 	resolution *regapi.DependencyResolution,
@@ -139,12 +146,8 @@ func (h *DependencyHandler) resolutionRefreshReason(
 		return "legacy resolution predates folded reference declarations", nil
 	}
 	if dependencyInputDigest(roots) != resolution.InputDigest {
-		prov, err := stateProvenance(baseline)
-		if err != nil {
-			return "", err
-		}
-		for _, entry := range baseline.Entries {
-			if entry.Kind == regapi.NamespaceDependency && prov[idKey(entry.ID)].Root {
+		for _, entry := range baseline {
+			if entry.Kind == regapi.NamespaceDependency && entry.Registry.Root {
 				return "legacy resolution root declarations differ from deployment baseline", nil
 			}
 		}
@@ -165,7 +168,7 @@ func (h *DependencyHandler) resolutionRefreshReason(
 // deployment roots; history-owned roots remain governed by the stored graph.
 func (h *DependencyHandler) legacyResolutionConflictsWithBaseline(
 	ctx context.Context,
-	baseline regapi.ProvenancedState,
+	baseline regapi.State,
 	resolution *regapi.DependencyResolution,
 	transcoder payload.Transcoder,
 ) (bool, error) {
@@ -177,20 +180,16 @@ func (h *DependencyHandler) legacyResolutionConflictsWithBaseline(
 	for _, mod := range resolution.Modules {
 		stored[mod.Name] = mod
 	}
-	versions := residentModuleVersions(baseline.Provenance)
-	digests := residentModuleDigests(baseline.Provenance)
+	versions, digests := h.currentModuleIdentities(ctx)
 	if h != nil && h.lock != nil {
-		// The lock answers only for a module whose records carry no identity of
-		// their own. It never overrides a resident fact: a replacement resident
-		// at a tree identity the lock does not know is not a conflict.
 		for _, mod := range h.lock.GetModules() {
 			if _, owned := controlled[mod.Name]; !owned {
 				continue
 			}
-			if _, resident := versions[mod.Name]; !resident && mod.Version != "" {
+			if mod.Version != "" {
 				versions[mod.Name] = mod.Version
 			}
-			if _, resident := digests[mod.Name]; !resident && mod.Hash != "" {
+			if mod.Hash != "" {
 				digests[mod.Name] = mod.Hash
 			}
 		}
@@ -222,7 +221,7 @@ func (h *DependencyHandler) legacyResolutionConflictsWithBaseline(
 // standard refresh.
 func (h *DependencyHandler) upgradeLegacyReferencedResolution(
 	ctx context.Context,
-	baseline regapi.ProvenancedState,
+	baseline regapi.State,
 	declarations []desiredDependency,
 	resolution *regapi.DependencyResolution,
 	baselineDigest string,
@@ -295,9 +294,13 @@ func storedResolutionVersions(resolution *regapi.DependencyResolution) map[strin
 }
 
 func resolvedModulesFromStored(resolution *regapi.DependencyResolution) ([]ResolvedModule, error) {
-	resolved := make([]ResolvedModule, 0, len(resolution.Modules))
-	seen := make(map[string]struct{}, len(resolution.Modules))
-	for _, mod := range resolution.Modules {
+	return resolvedModulesFromRecords(resolution.Modules)
+}
+
+func resolvedModulesFromRecords(modules []regapi.ResolvedModule) ([]ResolvedModule, error) {
+	resolved := make([]ResolvedModule, 0, len(modules))
+	seen := make(map[string]struct{}, len(modules))
+	for _, mod := range modules {
 		name, err := graph.ParseName(mod.Name)
 		if err != nil || mod.Version == "" {
 			return nil, NewDependencyResolutionError(fmt.Errorf("invalid stored module %q@%s", mod.Name, mod.Version))

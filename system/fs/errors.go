@@ -120,14 +120,14 @@ func NewEmptyPackPathError() apierror.Error {
 	return apierror.New(apierror.Invalid, "packPath cannot be empty").WithRetryable(apierror.False)
 }
 
-func NewEmptyModuleError() apierror.Error {
-	return apierror.New(apierror.Invalid, "module cannot be empty").WithRetryable(apierror.False)
-}
-
-func NewModulePackNotFoundError(module, version string) apierror.Error {
-	return apierror.New(apierror.NotFound, "pack for module "+module+" version "+version+" not found").
+func NewEmbeddedResourceConflictError(id, activePack, nextPack string) apierror.Error {
+	return apierror.New(apierror.Conflict, "embedded filesystem resource is provided by more than one module").
 		WithRetryable(apierror.False).
-		WithDetails(attrs.NewBagFrom(map[string]any{"module": module, "module_version": version}))
+		WithDetails(attrs.NewBagFrom(map[string]any{
+			"filesystem_id": id,
+			"active_pack":   activePack,
+			"next_pack":     nextPack,
+		}))
 }
 
 func NewReadOnlyOperationError(operation string) apierror.Error {

@@ -21,12 +21,8 @@ type (
 	Path = string
 
 	// Event is the fundamental structure representing an event.
-	// Aux carries in-process auxiliary context alongside Data — dispatcher
-	// facts about the event that are not the event's payload. It never
-	// crosses a process boundary and consumers that do not know it ignore it.
 	Event struct {
 		Data   any
-		Aux    any
 		System System
 		Kind   Kind
 		Path   Path

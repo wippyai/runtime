@@ -31,15 +31,14 @@ type Reg struct {
 	resolver          registry.DependencyResolver
 	history           registry.History
 	overlays          map[string]registry.State
-	baselineProv      registry.ProvenanceMap
+	currentResolution *registry.DependencyResolution
 	stateIndex        map[registry.ID]int
 	directivesByKind  map[registry.Kind][]registry.Directive
 	log               *zap.Logger
 	depIndex          *topology.DepIndex
 	overlayOwners     map[registry.ID]string
 	overlayGeneration map[string]uint64
-	prov              atomic.Pointer[registry.ProvenanceMap]
-	currentResolution *registry.DependencyResolution
+	snapshot          atomic.Pointer[registry.Snapshot]
 	state             registry.State
 	baseline          registry.State
 	overlayEpoch      uint64
@@ -77,6 +76,7 @@ func NewRegistry(
 	}
 
 	reg.versionNum.Store(0)
+	reg.publishSnapshot()
 
 	for _, opt := range opts {
 		if opt != nil {
@@ -150,28 +150,36 @@ func (r *Reg) GetEntry(path registry.ID) (registry.Entry, error) {
 	return registry.Entry{}, NewEntryNotFoundError(path)
 }
 
+func (r *Reg) Snapshot() registry.Snapshot {
+	current := r.snapshot.Load()
+	if current == nil {
+		return registry.Snapshot{}
+	}
+	entries := append(registry.State(nil), current.Entries...)
+	return registry.Snapshot{
+		Version:  current.Version,
+		Entries:  entries,
+		Registry: registry.StateMetadata{Resolution: current.Registry.Resolution.Canonical()},
+	}
+}
+
+// publishSnapshot atomically exposes the state, version, and registry-owned
+// metadata selected by one completed transition. Callers either hold r.mu for
+// writes or are constructing an unpublished registry.
+func (r *Reg) publishSnapshot() {
+	entries := append(registry.State(nil), r.state...)
+	r.snapshot.Store(&registry.Snapshot{
+		Version:  r.currentVersion,
+		Entries:  entries,
+		Registry: registry.StateMetadata{Resolution: r.currentResolution},
+	})
+}
+
 // --- StateWriter Interface Implementation ---
 
 func (r *Reg) Apply(ctx context.Context, changes registry.ChangeSet) (registry.Version, error) {
-	return r.applyFrom(ctx, changes, nil)
-}
-
-// applyFrom applies a changeset conditioned on a base version: a non-nil
-// expected version that no longer matches the current one fails with the
-// concurrent-apply conflict before anything is planned, giving optimistic
-// callers an exact read-check-write boundary.
-func (r *Reg) applyFrom(ctx context.Context, changes registry.ChangeSet, expected registry.Version) (registry.Version, error) {
 	r.applyMu.Lock()
 	defer r.applyMu.Unlock()
-
-	if expected != nil {
-		r.mu.RLock()
-		currentID := r.currentVersion.ID()
-		r.mu.RUnlock()
-		if currentID != expected.ID() {
-			return nil, NewConcurrentApplyError(expected.ID(), currentID)
-		}
-	}
 	changes = append(registry.ChangeSet(nil), changes...)
 	canonicalizeChangeSetIDs(changes)
 
@@ -186,7 +194,6 @@ func (r *Reg) applyFrom(ctx context.Context, changes registry.ChangeSet, expecte
 		baseVersion       registry.Version
 		resolution        *registry.DependencyResolution
 		resolutionChanged bool
-		planProvenance    registry.ProvenanceMap
 	)
 
 	r.mu.RLock()
@@ -194,13 +201,13 @@ func (r *Reg) applyFrom(ctx context.Context, changes registry.ChangeSet, expecte
 	copy(snapshot, r.state)
 	baseVersion = r.currentVersion
 	resolution = r.currentResolution
-	liveProv := r.provenanceSnapshot().Clone()
 	r.mu.RUnlock()
+	changes = normalizeRegistryMetadata(changes, snapshot)
 
 	if len(r.directivesByKind) > 0 {
 		planner = regexp.NewPlanner(r.directivesByKind, r.resolver, r.log.Named("expansion"))
 
-		plan, err := planner.Expand(ctx, changes, registry.ProvenancedState{Entries: snapshot, Provenance: liveProv})
+		plan, err := planner.Expand(ctx, changes, snapshot)
 		if err != nil {
 			return nil, NewExpandChangesError(err)
 		}
@@ -212,13 +219,9 @@ func (r *Reg) applyFrom(ctx context.Context, changes registry.ChangeSet, expecte
 		}
 
 		allOps, historyOps = plan.SplitScopes()
-		planProvenance = plan.Provenance
 		if plan.Resolution != nil {
-			candidate := plan.Resolution.Canonical()
-			if resolution == nil || candidate.Digest != resolution.Digest {
-				resolution = candidate
-				resolutionChanged = true
-			}
+			resolution = plan.Resolution.Canonical()
+			resolutionChanged = true
 		}
 
 		preparedEff, err = planner.PrepareEffects(ctx, plan.Effects)
@@ -255,21 +258,6 @@ func (r *Reg) applyFrom(ctx context.Context, changes registry.ChangeSet, expecte
 		return nil, err
 	}
 
-	newProv, err := applyOpsToProvenance(liveProv, allOps)
-	if err != nil {
-		if planner != nil {
-			planner.RollbackEffects(ctx, preparedEff)
-		}
-		return nil, NewProvenanceInvariantError(err)
-	}
-	for id, record := range planProvenance {
-		newProv[canonicalEntryID(id)] = record
-	}
-	annotateChangeSet(allOps, liveProv, newProv)
-
-	runnerOutcome := &registry.RollbackOutcome{}
-	ctx = registry.WithRollbackOutcome(ctx, runnerOutcome)
-
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -280,9 +268,8 @@ func (r *Reg) applyFrom(ctx context.Context, changes registry.ChangeSet, expecte
 		return nil, NewConcurrentApplyError(baseVersion.ID(), r.currentVersion.ID())
 	}
 
-	provenanceAdvanced := len(planProvenance) > 0
 	var newVersion registry.Version
-	if len(historyOps) > 0 || resolutionChanged || provenanceAdvanced {
+	if len(historyOps) > 0 {
 		newVersion = version.FromParent(r.currentVersion, r.nextVersionID(r.currentVersion))
 	}
 
@@ -291,7 +278,7 @@ func (r *Reg) applyFrom(ctx context.Context, changes registry.ChangeSet, expecte
 	if err != nil {
 		r.log.Error("failed to apply changes", zap.Error(err))
 		if newState != nil && ctx.Err() == nil {
-			if rerr := r.rollback(ctx, newState, r.state, newProv, runnerOutcome); rerr != nil {
+			if rerr := r.rollback(ctx, newState, r.state); rerr != nil {
 				if planner != nil {
 					planner.RollbackEffects(ctx, preparedEff)
 				}
@@ -307,7 +294,7 @@ func (r *Reg) applyFrom(ctx context.Context, changes registry.ChangeSet, expecte
 	if planner != nil {
 		if err := planner.CommitEffects(ctx, preparedEff); err != nil {
 			r.log.Error("failed to commit effects", zap.Error(err))
-			if rerr := r.rollback(ctx, newState, r.state, newProv, runnerOutcome); rerr != nil {
+			if rerr := r.rollback(ctx, newState, r.state); rerr != nil {
 				planner.RollbackEffects(ctx, preparedEff)
 				return nil, NewCommitEffectsError(err, rerr)
 			}
@@ -316,7 +303,7 @@ func (r *Reg) applyFrom(ctx context.Context, changes registry.ChangeSet, expecte
 		}
 	}
 
-	if len(historyOps) > 0 || resolutionChanged || provenanceAdvanced {
+	if len(historyOps) > 0 {
 		r.log.Debug("saving new version", zap.Any("new_version", newVersion))
 
 		enrichedChanges := r.enrichChangeset(historyOps)
@@ -333,7 +320,7 @@ func (r *Reg) applyFrom(ctx context.Context, changes registry.ChangeSet, expecte
 		}
 		if saveErr != nil {
 			r.log.Error("failed to save new version", zap.Error(saveErr))
-			if rerr := r.rollback(ctx, newState, r.state, newProv, runnerOutcome); rerr != nil {
+			if rerr := r.rollback(ctx, newState, r.state); rerr != nil {
 				if planner != nil {
 					planner.RollbackEffects(ctx, preparedEff)
 				}
@@ -353,16 +340,16 @@ func (r *Reg) applyFrom(ctx context.Context, changes registry.ChangeSet, expecte
 		r.state = newState
 		r.rebuildIndex()
 		r.patchDepIndex(allOps)
-		r.publishProvenance(newProv)
 		r.currentVersion = newVersion
 		r.currentResolution = resolution
+		r.publishSnapshot()
 		return newVersion, nil
 	}
 
 	r.state = newState
 	r.rebuildIndex()
 	r.patchDepIndex(allOps)
-	r.publishProvenance(newProv)
+	r.publishSnapshot()
 	if planner != nil {
 		if finalizeErr := planner.FinalizeEffects(ctx, preparedEff); finalizeErr != nil {
 			r.log.Warn("failed to finalize effects after baseline transition", zap.Error(finalizeErr))
@@ -371,6 +358,39 @@ func (r *Reg) applyFrom(ctx context.Context, changes registry.ChangeSet, expecte
 	return r.currentVersion, nil
 }
 
+// normalizeRegistryMetadata prevents entry-authored changes from assigning
+// ownership. Ownership comes from the deployment source; root selection may
+// change independently while the entry remains resident.
+func normalizeRegistryMetadata(changes registry.ChangeSet, snapshot registry.State) registry.ChangeSet {
+	state := make(registry.StateMap, len(snapshot)+len(changes))
+	for _, entry := range snapshot {
+		state[entry.ID] = entry
+	}
+	for i := range changes {
+		op := &changes[i]
+		switch op.Kind {
+		case registry.EntryCreate:
+			op.Entry.Registry = registry.EntryMetadata{Root: op.Entry.Registry.Root}
+			state[op.Entry.ID] = op.Entry
+		case registry.EntryUpdate:
+			existing, ok := state[op.Entry.ID]
+			if ok {
+				op.Entry.Registry = existing.Registry
+			}
+			state[op.Entry.ID] = op.Entry
+		case registry.EntryDelete:
+			if existing, ok := state[op.Entry.ID]; ok {
+				op.Entry = existing
+			}
+			delete(state, op.Entry.ID)
+		}
+	}
+	return changes
+}
+
+// patchDepIndex folds committed ops back into the inverse-dependency index so
+// the next Apply can keep using O(1) source-side lookups. No-op when the
+// builder doesn't expose the indexed sort.
 func (r *Reg) patchDepIndex(ops registry.ChangeSet) {
 	if r.depIndex == nil {
 		return
@@ -391,7 +411,6 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 	snapshot = make(registry.State, len(r.state))
 	copy(snapshot, r.state)
 	baseVersion = r.currentVersion
-	liveProv := r.provenanceSnapshot().Clone()
 	r.mu.RUnlock()
 
 	if baseVersion != nil && baseVersion.ID() == v.ID() {
@@ -412,7 +431,7 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 	if err != nil {
 		return err
 	}
-	targetState, targetProv, err := r.stateAtVersion(ctx, targetVersion)
+	targetState, err := r.stateAtVersion(ctx, targetVersion)
 	if err != nil {
 		return err
 	}
@@ -444,10 +463,7 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 		stateMap := topology.NewStateMap(targetState)
 		reconciled := false
 		for _, directive := range r.directivesByKind[registry.NamespaceDependency] {
-			result, ok, reconcileErr := reconcileStoredResolution(ctx, directive,
-				registry.ProvenancedState{Entries: snapshot, Provenance: liveProv},
-				registry.ProvenancedState{Entries: topology.StateMapToSlice(stateMap), Provenance: targetProv},
-				targetResolution)
+			result, ok, reconcileErr := reconcileStoredResolution(ctx, directive, snapshot, topology.StateMapToSlice(stateMap), targetResolution)
 			if !ok {
 				continue
 			}
@@ -471,14 +487,6 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 				additional = append(additional, operation.Operation)
 			}
 			applyStateOperations(stateMap, additional)
-			targetProv, reconcileErr = applyOpsToProvenance(targetProv, additional)
-			if reconcileErr != nil {
-				planner.RollbackEffects(ctx, preparedEff)
-				return NewProvenanceInvariantError(reconcileErr)
-			}
-			for id, record := range result.Provenance {
-				targetProv[canonicalEntryID(id)] = record
-			}
 		}
 		if !reconciled {
 			planner.RollbackEffects(ctx, preparedEff)
@@ -506,7 +514,7 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 				continue
 			}
 			intermediate := topology.StateMapToSlice(stateMap)
-			plan, expandErr := planner.Expand(ctx, registry.ChangeSet{{Kind: registry.EntryUpdate, Entry: entry}}, registry.ProvenancedState{Entries: intermediate, Provenance: targetProv})
+			plan, expandErr := planner.Expand(ctx, registry.ChangeSet{{Kind: registry.EntryUpdate, Entry: entry}}, intermediate)
 			if expandErr != nil {
 				planner.RollbackEffects(ctx, preparedEff)
 				return NewExpandChangesError(expandErr)
@@ -532,14 +540,6 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 				targetResolution = plan.Resolution.Canonical()
 			}
 			applyStateOperations(stateMap, ops)
-			targetProv, expandErr = applyOpsToProvenance(targetProv, ops)
-			if expandErr != nil {
-				planner.RollbackEffects(ctx, preparedEff)
-				return NewProvenanceInvariantError(expandErr)
-			}
-			for id, record := range plan.Provenance {
-				targetProv[canonicalEntryID(id)] = record
-			}
 		}
 		if composeErr := r.composeOverlays(stateMap); composeErr != nil {
 			planner.RollbackEffects(ctx, preparedEff)
@@ -560,12 +560,6 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 			return NewComputeTransitionError(err)
 		}
 		allOps = delta
-	}
-	if err := r.mergeOverlayProvenance(targetProv, liveProv); err != nil {
-		if planner != nil {
-			planner.RollbackEffects(ctx, preparedEff)
-		}
-		return NewProvenanceInvariantError(err)
 	}
 
 	resolutionHeadCAS, supportsAtomicResolutionHead := r.history.(registry.ResolutionHeadCASHistory)
@@ -605,12 +599,11 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 		return NewConcurrentApplyError(baseVersion.ID(), r.currentVersion.ID())
 	}
 
-	annotateChangeSet(allOps, r.provenanceSnapshot(), targetProv)
 	newState, err := r.runner.Transition(ctx, r.state, allOps)
 	if err != nil {
 		r.log.Error("failed to apply squashed changeset", zap.Error(err))
 		if newState != nil && ctx.Err() == nil {
-			if rerr := r.rollback(ctx, newState, r.state, targetProv, nil); rerr != nil {
+			if rerr := r.rollback(ctx, newState, r.state); rerr != nil {
 				if planner != nil {
 					planner.RollbackEffects(ctx, preparedEff)
 				}
@@ -626,7 +619,7 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 	if planner != nil {
 		if err := planner.CommitEffects(ctx, preparedEff); err != nil {
 			r.log.Error("failed to commit effects", zap.Error(err))
-			if rerr := r.rollback(ctx, newState, r.state, targetProv, nil); rerr != nil {
+			if rerr := r.rollback(ctx, newState, r.state); rerr != nil {
 				planner.RollbackEffects(ctx, preparedEff)
 				return NewCommitEffectsError(err, rerr)
 			}
@@ -644,7 +637,7 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 	if headUpdateErr != nil {
 		headErr := NewSetHeadError(targetVersion.ID(), headUpdateErr)
 		var compensationErr error
-		if rollbackErr := r.rollback(ctx, newState, r.state, targetProv, nil); rollbackErr != nil {
+		if rollbackErr := r.rollback(ctx, newState, r.state); rollbackErr != nil {
 			compensationErr = errors.Join(compensationErr, rollbackErr)
 		}
 		if planner != nil {
@@ -661,16 +654,12 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 		}
 	}
 
-	publishedProv, err := provenanceForState(newState, targetProv, allOps)
-	if err != nil {
-		return NewProvenanceInvariantError(err)
-	}
 	r.state = newState
 	r.rebuildIndex()
 	r.rebuildDepIndex()
-	r.publishProvenance(publishedProv)
 	r.currentVersion = targetVersion
 	r.currentResolution = targetResolution
+	r.publishSnapshot()
 
 	r.log.Debug("version applied successfully", zap.Uint("version", targetVersion.ID()))
 	return nil
@@ -680,55 +669,36 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 // history at target. Live version selection must use the same authority model
 // as cold boot; reversing operations against the expanded resident state can
 // otherwise delete baseline entries hidden by an overlay.
-func (r *Reg) stateAtVersion(ctx context.Context, target registry.Version) (registry.State, registry.ProvenanceMap, error) {
-	return replayVersionState(ctx, r.history, r.baseline, r.baselineProv, target)
-}
-
-// replayVersionState composes a baseline and its provenance with the authored
-// history up to target. It reads only its arguments and the history backend,
-// so callers can replay without holding registry locks.
-func replayVersionState(
-	ctx context.Context,
-	history registry.History,
-	baseline registry.State,
-	baselineProv registry.ProvenanceMap,
-	target registry.Version,
-) (registry.State, registry.ProvenanceMap, error) {
-	stateMap := topology.NewStateMap(baseline)
-	prov := baselineProv.Clone()
-	if prov == nil {
-		prov = make(registry.ProvenanceMap)
-	}
+func (r *Reg) stateAtVersion(ctx context.Context, target registry.Version) (registry.State, error) {
+	stateMap := topology.NewStateMap(r.baseline)
 	if target == nil || target.ID() == registry.RootVersion {
-		return topology.StateMapToSlice(stateMap), prov, nil
+		return topology.StateMapToSlice(stateMap), nil
 	}
 	apply := func(changes registry.ChangeSet) error {
 		canonicalizeChangeSetIDs(changes)
 		applyStateOperations(stateMap, changes)
-		var err error
-		prov, err = applyHistoryOpsToProvenance(prov, changes)
-		return err
+		return nil
 	}
-	if replayer, ok := history.(registry.ChangeSetReplayer); ok {
+	if replayer, ok := r.history.(registry.ChangeSetReplayer); ok {
 		if err := replayer.ReplayChanges(ctx, target, apply); err != nil {
-			return nil, nil, NewGetChangesetError(target.ID(), err)
+			return nil, NewGetChangesetError(target.ID(), err)
 		}
-		return topology.StateMapToSlice(stateMap), prov, nil
+		return topology.StateMapToSlice(stateMap), nil
 	}
 	var lineage []registry.Version
 	for current := target; current != nil && current.ID() > registry.RootVersion; current = current.Previous() {
 		lineage = append(lineage, current)
 	}
 	for i := len(lineage) - 1; i >= 0; i-- {
-		changes, err := history.Get(lineage[i])
+		changes, err := r.history.Get(lineage[i])
 		if err != nil {
-			return nil, nil, NewGetChangesetError(lineage[i].ID(), err)
+			return nil, NewGetChangesetError(lineage[i].ID(), err)
 		}
 		if err := apply(changes); err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 	}
-	return topology.StateMapToSlice(stateMap), prov, nil
+	return topology.StateMapToSlice(stateMap), nil
 }
 
 func compareAndSetHistoryHead(history registry.History, expected, target registry.Version) error {
@@ -762,16 +732,51 @@ func (r *Reg) findStoredVersion(v registry.Version) (registry.Version, error) {
 	return nil, NewVersionNotFoundError(v.ID())
 }
 
-// LoadState initializes registry state from baseline and history without
-// creating new version records: the baseline applies directly and changesets
-// v1..targetVersion replay on top. The baseline carries its provenance;
-// replayed and reconciled operations fold theirs in, so the published
-// provenance map matches the final state.
-func (r *Reg) LoadState(ctx context.Context, baselineState registry.ProvenancedState, targetVersion registry.Version) error {
-	baseline := baselineState.Entries
-	if err := baselineState.Validate(); err != nil {
-		return NewLoadStateError(err, nil)
+func (r *Reg) collectBackwardChangesets(path []registry.Version, targetVersion registry.Version) (registry.ChangeSet, error) {
+	commonAncestorIdx := -1
+	for i, ver := range path {
+		if ver.ID() <= r.currentVersion.ID() && ver.ID() <= targetVersion.ID() {
+			commonAncestorIdx = i
+			break
+		}
 	}
+	if commonAncestorIdx < 0 {
+		return nil, NewComputePathError(r.currentVersion.ID(), targetVersion.ID(), ErrNoCommonAncestor)
+	}
+
+	var reversedChangesets []registry.ChangeSet
+	current := r.currentVersion
+	for current != nil && current.ID() > path[commonAncestorIdx].ID() {
+		cs, err := r.history.Get(current)
+		if err != nil {
+			return nil, NewGetChangesetError(current.ID(), err)
+		}
+		rev, err := r.builder.ReverseChangeset(cs)
+		if err != nil {
+			return nil, NewReverseChangesetError(err)
+		}
+		reversedChangesets = append(reversedChangesets, rev)
+		current = current.Previous()
+	}
+
+	for i := commonAncestorIdx; i < len(path); i++ {
+		if path[i].ID() > path[commonAncestorIdx].ID() {
+			cs, err := r.history.Get(path[i])
+			if err != nil {
+				return nil, NewGetChangesetError(path[i].ID(), err)
+			}
+			reversedChangesets = append(reversedChangesets, cs)
+		}
+	}
+
+	return r.builder.SquashChangesets(reversedChangesets), nil
+}
+
+// LoadState initializes registry state from baseline and history without creating new version records.
+// This is used during boot to restore state from lockfile + history replay.
+// For v0 (empty history): applies baseline directly
+// For v1+: replays changesets v1..targetVersion on top of baseline, then applies final state once
+func (r *Reg) LoadState(ctx context.Context, baseline registry.State, targetVersion registry.Version) error {
 	if registry.DependencyAccessFromContext(ctx) == registry.DependencyAccessUnspecified {
 		ctx = registry.WithDependencyAccess(ctx, registry.DependencyAccessVerifiedOffline)
 	}
@@ -818,10 +823,6 @@ func (r *Reg) LoadState(ctx context.Context, baselineState registry.ProvenancedS
 	}
 
 	stateMap := topology.NewStateMap(baseline)
-	targetProv := make(registry.ProvenanceMap, len(baseline))
-	for id, p := range baselineState.Provenance {
-		targetProv[canonicalEntryID(id)] = p
-	}
 	var planner *regexp.Planner
 	var preparedEff []registry.Effect
 	var resolution *registry.DependencyResolution
@@ -836,9 +837,7 @@ func (r *Reg) LoadState(ctx context.Context, baselineState registry.ProvenancedS
 		applyChanges := func(cs registry.ChangeSet) error {
 			canonicalizeChangeSetIDs(cs)
 			applyStateOperations(stateMap, cs)
-			var err error
-			targetProv, err = applyHistoryOpsToProvenance(targetProv, cs)
-			return err
+			return nil
 		}
 		if replayer, ok := r.history.(registry.ChangeSetReplayer); ok {
 			r.log.Debug("streaming history changesets on baseline", zap.Uint("target_version", targetVersion.ID()))
@@ -883,10 +882,7 @@ func (r *Reg) LoadState(ctx context.Context, baselineState registry.ProvenancedS
 		reconciled := false
 		for _, directive := range r.directivesByKind[registry.NamespaceDependency] {
 			snapshot := topology.StateMapToSlice(stateMap)
-			result, ok, err := reconcileStoredResolution(ctx, directive,
-				registry.ProvenancedState{Entries: baseline, Provenance: canonicalProvClone(baselineState.Provenance)},
-				registry.ProvenancedState{Entries: snapshot, Provenance: targetProv},
-				resolution)
+			result, ok, err := reconcileStoredResolution(ctx, directive, baseline, snapshot, resolution)
 			if !ok {
 				continue
 			}
@@ -917,14 +913,6 @@ func (r *Reg) LoadState(ctx context.Context, baselineState registry.ProvenancedS
 			}
 			preparedEff = append(preparedEff, prepared...)
 			applyStateOperations(stateMap, ops)
-			targetProv, err = applyOpsToProvenance(targetProv, ops)
-			if err != nil {
-				planner.RollbackEffects(ctx, preparedEff)
-				return NewProvenanceInvariantError(err)
-			}
-			for id, record := range result.Provenance {
-				targetProv[canonicalEntryID(id)] = record
-			}
 		}
 		if !reconciled {
 			planner.RollbackEffects(ctx, preparedEff)
@@ -940,7 +928,7 @@ func (r *Reg) LoadState(ctx context.Context, baselineState registry.ProvenancedS
 				continue
 			}
 			snapshot := topology.StateMapToSlice(stateMap)
-			plan, err := planner.Expand(ctx, registry.ChangeSet{{Kind: registry.EntryUpdate, Entry: entry}}, registry.ProvenancedState{Entries: snapshot, Provenance: targetProv})
+			plan, err := planner.Expand(ctx, registry.ChangeSet{{Kind: registry.EntryUpdate, Entry: entry}}, snapshot)
 			if err != nil {
 				planner.RollbackEffects(ctx, preparedEff)
 				return NewExpandChangesError(err)
@@ -966,14 +954,6 @@ func (r *Reg) LoadState(ctx context.Context, baselineState registry.ProvenancedS
 				resolution = plan.Resolution.Canonical()
 			}
 			applyStateOperations(stateMap, ops)
-			targetProv, err = applyOpsToProvenance(targetProv, ops)
-			if err != nil {
-				planner.RollbackEffects(ctx, preparedEff)
-				return NewProvenanceInvariantError(err)
-			}
-			for id, record := range plan.Provenance {
-				targetProv[canonicalEntryID(id)] = record
-			}
 		}
 	}
 
@@ -987,11 +967,11 @@ func (r *Reg) LoadState(ctx context.Context, baselineState registry.ProvenancedS
 	}
 
 	finalState := topology.StateMapToSlice(stateMap)
-	newState, err := r.transitionState(ctx, r.state, finalState, r.provenanceSnapshot(), targetProv)
+	newState, err := r.transitionState(ctx, r.state, finalState)
 	if err != nil {
 		r.log.Error("failed to load state", zap.String("version", targetVersion.String()), zap.Error(err))
 		if newState != nil && ctx.Err() == nil {
-			if rerr := r.rollback(ctx, newState, r.state, targetProv, nil); rerr != nil {
+			if rerr := r.rollback(ctx, newState, r.state); rerr != nil {
 				if planner != nil {
 					planner.RollbackEffects(ctx, preparedEff)
 				}
@@ -1007,7 +987,7 @@ func (r *Reg) LoadState(ctx context.Context, baselineState registry.ProvenancedS
 	if planner != nil {
 		if err := planner.CommitEffects(ctx, preparedEff); err != nil {
 			r.log.Error("failed to commit load-state effects", zap.Error(err))
-			if rerr := r.rollback(ctx, newState, r.state, targetProv, nil); rerr != nil {
+			if rerr := r.rollback(ctx, newState, r.state); rerr != nil {
 				planner.RollbackEffects(ctx, preparedEff)
 				return NewCommitEffectsError(err, rerr)
 			}
@@ -1025,7 +1005,7 @@ func (r *Reg) LoadState(ctx context.Context, baselineState registry.ProvenancedS
 	}
 	if headCheckErr != nil {
 		var rollbackErr error
-		if transitionErr := r.rollback(ctx, newState, r.state, targetProv, nil); transitionErr != nil {
+		if transitionErr := r.rollback(ctx, newState, r.state); transitionErr != nil {
 			rollbackErr = transitionErr
 		}
 		if planner != nil {
@@ -1039,14 +1019,8 @@ func (r *Reg) LoadState(ctx context.Context, baselineState registry.ProvenancedS
 		}
 	}
 
-	publishedProv, err := provenanceForState(newState, targetProv, nil)
-	if err != nil {
-		return NewProvenanceInvariantError(err)
-	}
 	r.state = newState
 	r.baseline = append(registry.State(nil), baseline...)
-	r.baselineProv = canonicalProvClone(baselineState.Provenance)
-	r.publishProvenance(publishedProv)
 	// LoadState is the cold/reinitialization boundary. Overlays are deliberately
 	// process-local and their owning controllers reconcile them after boot.
 	r.overlays = make(map[string]registry.State)
@@ -1065,24 +1039,16 @@ func (r *Reg) LoadState(ctx context.Context, baselineState registry.ProvenancedS
 	r.currentVersion = targetVersion
 	r.currentResolution = resolution
 	r.versionNum.Store(uint64(allocatorVersion))
+	r.publishSnapshot()
 
 	return nil
-}
-
-// canonicalProvClone clones a provenance map under canonical IDs.
-func canonicalProvClone(prov registry.ProvenanceMap) registry.ProvenanceMap {
-	out := make(registry.ProvenanceMap, len(prov))
-	for id, p := range prov {
-		out[canonicalEntryID(id)] = p
-	}
-	return out
 }
 
 func reconcileStoredResolution(
 	ctx context.Context,
 	directive registry.Directive,
-	current registry.ProvenancedState,
-	target registry.ProvenancedState,
+	current registry.State,
+	target registry.State,
 	resolution *registry.DependencyResolution,
 ) (registry.DirectiveResult, bool, error) {
 	if reconciler, ok := directive.(registry.ResolutionTransitionDirective); ok {
@@ -1124,68 +1090,25 @@ func canonicalEntryID(id registry.ID) registry.ID {
 	return id.Canonical()
 }
 
-// rollback state desync between actual state in system and state in history.
-// The runner records what its compensation actually did into the context's
-// RollbackOutcome. A surviving compensation is a FORWARD effect that remains
-// in the state, so its entry takes the forward map's record; everything else
-// keeps the pre-transition record. prior carries the first compensation
-// attempt's outcome so neither attempt's failures are lost.
-func (r *Reg) rollback(ctx context.Context, from, to registry.State, forwardProv registry.ProvenanceMap, prior *registry.RollbackOutcome) error {
+// rollback state desync between actual state in system and state in history
+func (r *Reg) rollback(ctx context.Context, from, to registry.State) error {
 	r.log.Debug("attempting to rollback")
 
-	published := r.provenanceSnapshot()
-	outcome := &registry.RollbackOutcome{}
-	ctx = registry.WithRollbackOutcome(ctx, outcome)
-	fromProv, provErr := provenanceForState(from, forwardProv, nil)
-	if provErr != nil {
-		return NewProvenanceInvariantError(provErr)
-	}
-	partial, err := r.transitionState(ctx, from, to, fromProv, published)
+	partial, err := r.transitionState(ctx, from, to)
 	if err == nil {
 		return nil // success
-	}
-	err = errors.Join(err, outcome.Err())
-	if prior != nil {
-		err = errors.Join(err, prior.Err())
 	}
 
 	r.state = partial // we remain in a desynced state
 	r.rebuildIndex()
 	r.rebuildDepIndex()
-	partialProv := published.Clone()
-	if partialProv == nil {
-		partialProv = make(registry.ProvenanceMap)
-	}
-	for _, op := range outcome.Surviving() {
-		id := canonicalEntryID(op.Entry.ID)
-		if record, ok := forwardProv[id]; ok {
-			partialProv[id] = record
-		}
-	}
-	// A runner that cannot report per-operation compensation still returns the
-	// actual partial state. Any surviving entry absent from the published map
-	// can only come from the forward state, whose record is already trusted.
-	for _, entry := range partial {
-		id := canonicalEntryID(entry.ID)
-		if _, ok := partialProv[id]; ok {
-			continue
-		}
-		if record, ok := forwardProv[id]; ok {
-			partialProv[id] = record
-		}
-	}
-	reconciledProv, provErr := provenanceForState(partial, partialProv, nil)
-	if provErr != nil {
-		err = errors.Join(err, NewProvenanceInvariantError(provErr))
-	} else {
-		r.publishProvenance(reconciledProv)
-	}
 	r.reconcileKnownOverlaysAfterFailedRollback()
+	r.publishSnapshot()
 
 	return err
 }
 
-func (r *Reg) transitionState(ctx context.Context, from, to registry.State, fromProv, toProv registry.ProvenanceMap) (registry.State, error) {
+func (r *Reg) transitionState(ctx context.Context, from, to registry.State) (registry.State, error) {
 	r.log.Debug("transitioning state")
 
 	cs, terr := r.builder.BuildDelta(from, to)
@@ -1197,7 +1120,6 @@ func (r *Reg) transitionState(ctx context.Context, from, to registry.State, from
 		return from, nil
 	}
 
-	annotateChangeSet(cs, fromProv, toProv)
 	return r.runner.Transition(ctx, from, cs)
 }
 
@@ -1244,9 +1166,6 @@ func (r *Reg) enrichChangeset(changes registry.ChangeSet) registry.ChangeSet {
 	enriched := make(registry.ChangeSet, len(changes))
 	for i, op := range changes {
 		enriched[i] = op
-		// DependencyRoot remains decodable for legacy replay but is not part of
-		// the current durable entry format; root state lives in provenance.
-		enriched[i].Entry.DependencyRoot = false
 		switch op.Kind {
 		case registry.EntryUpdate, registry.EntryDelete:
 			if originalEntry, exists := stateMap[op.Entry.ID]; exists {
@@ -1256,11 +1175,6 @@ func (r *Reg) enrichChangeset(changes registry.ChangeSet) registry.ChangeSet {
 					zap.String("operation", op.Kind),
 					zap.String("entry_id", op.Entry.ID.String()))
 			}
-		}
-		if enriched[i].OriginalEntry != nil {
-			originalEntry := *enriched[i].OriginalEntry
-			originalEntry.DependencyRoot = false
-			enriched[i].OriginalEntry = &originalEntry
 		}
 	}
 

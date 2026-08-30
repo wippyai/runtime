@@ -131,11 +131,3 @@ func NewUnresolvedDependenciesError(unresolved []registry.ID, cause error) apier
 	}
 	return e
 }
-
-// NewNoInverseError reports an accepted operation the rollback cannot
-// compensate.
-func NewNoInverseError(kind string, id registry.ID) apierror.Error {
-	return apierror.New(apierror.Internal, "no inverse for accepted operation").
-		WithRetryable(apierror.False).
-		WithDetails(attrs.NewBagFrom(map[string]any{"kind": kind, "id": id.String()}))
-}
