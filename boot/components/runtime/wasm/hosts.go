@@ -8,6 +8,7 @@ import (
 	"github.com/wippyai/runtime/api/dispatcher"
 	runtimewasm "github.com/wippyai/runtime/runtime/wasm"
 	wasmcomponent "github.com/wippyai/runtime/runtime/wasm/component"
+	coresocket "github.com/wippyai/runtime/runtime/wasm/host/wippy/hosts/socket"
 	wasmrt "github.com/wippyai/wasm-runtime/runtime"
 	"github.com/wippyai/wasm-runtime/wasi/preview2"
 	"go.uber.org/zap"
@@ -29,6 +30,23 @@ func DefaultHostProfiles(log *zap.Logger, disp dispatcher.Dispatcher) []wasmcomp
 		wasiRandomProfile(log),
 		wasiSocketsProfile(log),
 		wasiHTTPProfile(disp, log),
+		coreSocketProfile(log),
+	}
+}
+
+func coreSocketProfile(log *zap.Logger) wasmcomponent.HostProfile {
+	return wasmcomponent.HostProfile{
+		Name:    wasmcomponent.HostProfileSocket,
+		Aliases: []string{coresocket.Namespace},
+		Register: func(_ context.Context, rt *wasmrt.Runtime) error {
+			if err := coresocket.Register(rt); err != nil {
+				return runtimewasm.NewRegisterHostError(coresocket.Namespace, err)
+			}
+			if log != nil {
+				log.Info("wasm host profile registered", zap.String("profile", wasmcomponent.HostProfileSocket))
+			}
+			return nil
+		},
 	}
 }
 

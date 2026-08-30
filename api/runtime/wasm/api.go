@@ -30,6 +30,8 @@ const (
 	DefaultMaxSize                           = 100
 	DefaultMaxRetainedMemoryBytes      int64 = 64 * 1024 * 1024
 	DefaultRetainedMemoryCheckInterval       = 16
+	DefaultMaxOpenSockets                    = 16
+	DefaultSocketTimeoutMS                   = 30_000
 )
 
 // Pool type constants for scheduler implementation selection.
