@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"sync"
-	"sync/atomic"
 
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/store"
@@ -15,12 +14,15 @@ import (
 
 // Dispatcher handles store commands via async worker pool.
 type Dispatcher struct {
-	ctx     context.Context
-	jobs    chan job
-	cancel  context.CancelFunc
-	wg      sync.WaitGroup
-	workers int
-	stopped atomic.Bool
+	ctx      context.Context
+	jobs     chan job
+	cancel   context.CancelFunc
+	wg       sync.WaitGroup
+	submits  sync.WaitGroup
+	stopOnce sync.Once
+	stopped  bool
+	admitMu  sync.Mutex
+	workers  int
 }
 
 type job struct {
@@ -52,10 +54,16 @@ func (d *Dispatcher) Start(ctx context.Context) error {
 
 // Stop shuts down the dispatcher and drains pending jobs.
 func (d *Dispatcher) Stop(_ context.Context) error {
-	d.stopped.Store(true)
-	d.cancel()
-	close(d.jobs)
-	d.wg.Wait()
+	d.stopOnce.Do(func() {
+		d.admitMu.Lock()
+		d.stopped = true
+		d.cancel()
+		d.admitMu.Unlock()
+
+		d.submits.Wait()
+		close(d.jobs)
+		d.wg.Wait()
+	})
 	return nil
 }
 
@@ -67,9 +75,15 @@ func (d *Dispatcher) worker() {
 }
 
 func (d *Dispatcher) submit(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) {
-	if d.stopped.Load() {
+	d.admitMu.Lock()
+	if d.stopped {
+		d.admitMu.Unlock()
 		return
 	}
+	d.submits.Add(1)
+	d.admitMu.Unlock()
+	defer d.submits.Done()
+
 	select {
 	case d.jobs <- job{ctx: ctx, cmd: cmd, tag: tag, receiver: receiver}:
 	case <-d.ctx.Done():
