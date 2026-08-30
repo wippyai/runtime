@@ -3,13 +3,17 @@
 package docker
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/moby/moby/client"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	apierror "github.com/wippyai/runtime/api/error"
@@ -559,4 +563,107 @@ func BenchmarkDockerProcess_StartAndWait(b *testing.B) {
 			b.Fatalf("failed to wait for process: %v", err)
 		}
 	}
+}
+
+func TestBuildBinds(t *testing.T) {
+	relative, err := filepath.Abs("./relative")
+	require.NoError(t, err)
+	windowsRelative, err := filepath.Abs(`.\relative`)
+	require.NoError(t, err)
+	hiddenRelative, err := filepath.Abs(".hidden/relative")
+	require.NoError(t, err)
+	current, err := filepath.Abs(".")
+	require.NoError(t, err)
+	parent, err := filepath.Abs("..")
+	require.NoError(t, err)
+
+	binds, err := buildBinds([]string{
+		"/host/data:/data",
+		"acp-home:/home/acp:ro,nocopy",
+		"./relative:/rel:ro,rshared",
+		`.\relative:/windows-relative`,
+		".hidden/relative:/hidden-relative",
+		".:/work",
+		"..:/parent",
+		".hidden:/invalid-volume-name",
+		"data/sub:/invalid-volume-name",
+		":/anonymous",
+		`C:\host\data:C:\container\data:ro`,
+		`\\server\share:C:\container\share`,
+		"malformed",
+	})
+	require.NoError(t, err)
+	require.Equal(t, []string{
+		"/host/data:/data",
+		"acp-home:/home/acp:ro,nocopy",
+		relative + ":/rel:ro,rshared",
+		windowsRelative + ":/windows-relative",
+		hiddenRelative + ":/hidden-relative",
+		current + ":/work",
+		parent + ":/parent",
+		".hidden:/invalid-volume-name",
+		"data/sub:/invalid-volume-name",
+		":/anonymous",
+		`C:\host\data:C:\container\data:ro`,
+		`\\server\share:C:\container\share`,
+	}, binds)
+}
+
+func TestDockerProcess_NamedVolume(t *testing.T) {
+	skipIfNoDocker(t)
+
+	name := fmt.Sprintf("wippy-exec-test-%d", time.Now().UnixNano())
+	config := &execapi.DockerExecutorConfig{
+		Image:      "alpine:latest",
+		AutoRemove: true,
+		Volumes:    []string{name + ":/data"},
+	}
+	executor, err := NewDockerExecutor(zap.NewNop(), config)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = executor.cli.VolumeRemove(context.Background(), name, client.VolumeRemoveOptions{Force: true})
+		_ = executor.Close()
+	})
+
+	writer, err := executor.NewProcess("sh -c 'printf persisted >/data/value'", execapi.ProcessOptions{})
+	require.NoError(t, err)
+	require.NoError(t, writer.Start())
+	require.NoError(t, writer.Wait())
+
+	reader, err := executor.NewProcess("cat /data/value", execapi.ProcessOptions{})
+	require.NoError(t, err)
+	require.NoError(t, reader.Start())
+	output, err := io.ReadAll(reader.Stdout())
+	require.NoError(t, err)
+	require.NoError(t, reader.Wait())
+	require.Equal(t, "persisted", string(output))
+}
+
+func TestDockerProcess_RelativeBind(t *testing.T) {
+	skipIfNoDocker(t)
+
+	workingDirectory, err := os.Getwd()
+	require.NoError(t, err)
+	hostDirectory := t.TempDir()
+	relative, err := filepath.Rel(workingDirectory, hostDirectory)
+	require.NoError(t, err)
+	require.True(t, strings.HasPrefix(relative, "."), "test directory must be relative to the working directory")
+
+	config := &execapi.DockerExecutorConfig{
+		Image:      "alpine:latest",
+		AutoRemove: true,
+		Volumes:    []string{relative + ":/data"},
+	}
+	executor, err := NewDockerExecutor(zap.NewNop(), config)
+	require.NoError(t, err)
+	defer func() { _ = executor.Close() }()
+
+	process, err := executor.NewProcess("sh -c 'printf mounted >/data/value'", execapi.ProcessOptions{})
+	require.NoError(t, err)
+	require.NoError(t, process.Start())
+	require.NoError(t, process.Wait())
+
+	content, err := os.ReadFile(filepath.Join(hostDirectory, "value"))
+	require.NoError(t, err)
+	require.Equal(t, "mounted", string(content))
 }
