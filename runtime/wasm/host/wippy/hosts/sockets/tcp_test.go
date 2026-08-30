@@ -141,10 +141,10 @@ func TestS03TCPAcceptRejectsWrongAsyncType(t *testing.T) {
 	t.Cleanup(func() { _ = right.Close() })
 	ctx := rewindContext(t, &socketapi.ConnectResult{Conn: carried})
 
-	socketHandle, inputHandle, outputHandle, err := host.MethodTCPSocketAccept(ctx, handle)
+	accepted, err := host.MethodTCPSocketAccept(ctx, handle)
 	requireNetworkError(t, err, NetworkErrorInvalidArgument)
-	if socketHandle != 0 || inputHandle != 0 || outputHandle != 0 {
-		t.Fatalf("rejected accept handles = (%d, %d, %d), want zero", socketHandle, inputHandle, outputHandle)
+	if accepted != nil {
+		t.Fatalf("rejected accept handles = %+v, want none", accepted)
 	}
 	if carried.closes.Load() != 1 {
 		t.Fatalf("unadopted connection close count = %d, want 1", carried.closes.Load())
@@ -188,10 +188,10 @@ func TestS07TCPFinishConnectFailureClosesState(t *testing.T) {
 	if err := host.MethodTCPSocketStartConnect(ctx, handle, 0, IPSocketAddress{}); err != nil {
 		t.Fatalf("resume failed connect: %v", err)
 	}
-	inputHandle, outputHandle, err := host.MethodTCPSocketFinishConnect(context.Background(), handle)
+	streams, err := host.MethodTCPSocketFinishConnect(context.Background(), handle)
 	requireNetworkError(t, err, NetworkErrorConnectionRefused)
-	if inputHandle != 0 || outputHandle != 0 {
-		t.Fatalf("failure stream handles = (%d, %d), want zero", inputHandle, outputHandle)
+	if streams != nil {
+		t.Fatalf("failure stream handles = %+v, want none", streams)
 	}
 	if socket.PendingError() != nil || socket.State() != preview2.TCPStateClosed {
 		t.Fatalf("failure state = %d, pending error = %v", socket.State(), socket.PendingError())
@@ -223,10 +223,14 @@ func TestS08TCPFinishConnectAdoptsStreams(t *testing.T) {
 	if err := host.MethodTCPSocketStartConnect(ctx, handle, 0, IPSocketAddress{}); err != nil {
 		t.Fatalf("resume successful connect: %v", err)
 	}
-	inputHandle, outputHandle, networkErr := host.MethodTCPSocketFinishConnect(context.Background(), handle)
+	streams, networkErr := host.MethodTCPSocketFinishConnect(context.Background(), handle)
 	if networkErr != nil {
 		t.Fatalf("finish connect: %v", networkErr)
 	}
+	if streams == nil {
+		t.Fatal("finish connect returned no streams")
+	}
+	inputHandle, outputHandle := streams.Input, streams.Output
 	if inputHandle == 0 || outputHandle == 0 || inputHandle == outputHandle {
 		t.Fatalf("stream handles = (%d, %d), want distinct nonzero handles", inputHandle, outputHandle)
 	}
@@ -337,10 +341,14 @@ func TestS10TCPListenAcceptDropOwnership(t *testing.T) {
 	acceptedConn := &closeCountingConn{Conn: accepted}
 	ctx := rewindContext(t, &socketapi.AcceptResult{Conn: acceptedConn})
 
-	childHandle, inputHandle, outputHandle, networkErr := host.MethodTCPSocketAccept(ctx, parentHandle)
+	acceptedHandles, networkErr := host.MethodTCPSocketAccept(ctx, parentHandle)
 	if networkErr != nil {
 		t.Fatalf("resume accept: %v", networkErr)
 	}
+	if acceptedHandles == nil {
+		t.Fatal("resume accept returned nothing")
+	}
+	childHandle, inputHandle, outputHandle := acceptedHandles.Socket, acceptedHandles.Input, acceptedHandles.Output
 	if childHandle == 0 || inputHandle == 0 || outputHandle == 0 {
 		t.Fatalf("accepted handles = (%d, %d, %d), want nonzero", childHandle, inputHandle, outputHandle)
 	}
