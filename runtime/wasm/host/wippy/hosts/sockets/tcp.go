@@ -41,6 +41,23 @@ func (h *TCPHost) AsyncFunctions() []string {
 }
 
 // IPSocketAddress represents an IP address and port.
+// The canonical ABI folds a host method's results into one value, and the
+// binder accepts either an exact arity match or a (payload, error) pair it can
+// fold. A method that returns its payload as several bare values matches
+// neither, so it can never bind: `result count mismatch: expected 1, got 3`.
+// These records carry the payloads that used to be returned loose, the same way
+// IPSocketAddress already does for the address getters.
+type TCPStreams struct {
+	Input  uint32
+	Output uint32
+}
+
+type TCPAccepted struct {
+	Socket uint32
+	Input  uint32
+	Output uint32
+}
+
 type IPSocketAddress struct {
 	Address string
 	Port    uint16
@@ -198,23 +215,23 @@ func (h *TCPHost) MethodTCPSocketStartConnect(ctx context.Context, self uint32, 
 }
 
 // [method]tcp-socket.finish-connect
-func (h *TCPHost) MethodTCPSocketFinishConnect(_ context.Context, self uint32) (uint32, uint32, *NetworkError) {
+func (h *TCPHost) MethodTCPSocketFinishConnect(_ context.Context, self uint32) (*TCPStreams, *NetworkError) {
 	socket, err := h.getSocket(self)
 	if err != nil {
-		return 0, 0, err
+		return nil, err
 	}
 
 	if socket.State() != preview2.TCPStateConnectInProgress {
 		if socket.State() == preview2.TCPStateUnbound || socket.State() == preview2.TCPStateBound {
-			return 0, 0, &NetworkError{Code: NetworkErrorNotInProgress}
+			return nil, &NetworkError{Code: NetworkErrorNotInProgress}
 		}
-		return 0, 0, &NetworkError{Code: NetworkErrorInvalidState}
+		return nil, &NetworkError{Code: NetworkErrorInvalidState}
 	}
 
 	if pendingErr := socket.PendingError(); pendingErr != nil {
 		socket.ClearPendingError()
 		socket.SetState(preview2.TCPStateClosed)
-		return 0, 0, mapNetError(pendingErr)
+		return nil, mapNetError(pendingErr)
 	}
 
 	socket.SetState(preview2.TCPStateConnected)
@@ -227,7 +244,7 @@ func (h *TCPHost) MethodTCPSocketFinishConnect(_ context.Context, self uint32) (
 
 	socket.SetStreamHandles(inputHandle, outputHandle)
 
-	return inputHandle, outputHandle, nil
+	return &TCPStreams{Input: inputHandle, Output: outputHandle}, nil
 }
 
 // [method]tcp-socket.start-listen
@@ -330,7 +347,7 @@ func (h *TCPHost) MethodTCPSocketFinishListen(_ context.Context, self uint32) *N
 }
 
 // [method]tcp-socket.accept
-func (h *TCPHost) MethodTCPSocketAccept(ctx context.Context, self uint32) (uint32, uint32, uint32, *NetworkError) {
+func (h *TCPHost) MethodTCPSocketAccept(ctx context.Context, self uint32) (*TCPAccepted, *NetworkError) {
 	async := wasmengine.GetAsyncify(ctx)
 
 	if async != nil && async.IsRewinding(ctx) {
@@ -352,16 +369,16 @@ func (h *TCPHost) MethodTCPSocketAccept(ctx context.Context, self uint32) (uint3
 		acceptResult, ok := data.(*socketapi.AcceptResult)
 		if !ok || acceptResult == nil {
 			closeAsyncSocketResult(data)
-			return 0, 0, 0, &NetworkError{Code: NetworkErrorInvalidArgument}
+			return nil, &NetworkError{Code: NetworkErrorInvalidArgument}
 		}
 		if acceptResult.Err != nil {
-			return 0, 0, 0, mapNetError(acceptResult.Err)
+			return nil, mapNetError(acceptResult.Err)
 		}
 
 		socket, err := h.getSocket(self)
 		if err != nil {
 			_ = acceptResult.Conn.Close()
-			return 0, 0, 0, err
+			return nil, err
 		}
 
 		newSocket := preview2.NewTCPSocketResource(socket.Family())
@@ -385,21 +402,21 @@ func (h *TCPHost) MethodTCPSocketAccept(ctx context.Context, self uint32) (uint3
 
 		newSocket.SetStreamHandles(inputHandle, outputHandle)
 
-		return socketHandle, inputHandle, outputHandle, nil
+		return &TCPAccepted{Socket: socketHandle, Input: inputHandle, Output: outputHandle}, nil
 	}
 
 	socket, err := h.getSocket(self)
 	if err != nil {
-		return 0, 0, 0, err
+		return nil, err
 	}
 
 	if socket.State() != preview2.TCPStateListening {
-		return 0, 0, 0, &NetworkError{Code: NetworkErrorInvalidState}
+		return nil, &NetworkError{Code: NetworkErrorInvalidState}
 	}
 
 	netListener, ok := socket.Listener().(net.Listener)
 	if !ok {
-		return 0, 0, 0, &NetworkError{Code: NetworkErrorInvalidState}
+		return nil, &NetworkError{Code: NetworkErrorInvalidState}
 	}
 
 	op := &acceptPendingOp{cmd: &socketapi.AcceptCmd{Listener: netListener}}
@@ -412,7 +429,7 @@ func (h *TCPHost) MethodTCPSocketAccept(ctx context.Context, self uint32) (uint3
 		panic(fmt.Errorf("tcp accept suspend: %w", suspendErr))
 	}
 
-	return 0, 0, 0, nil
+	return nil, nil
 }
 
 // [method]tcp-socket.shutdown
