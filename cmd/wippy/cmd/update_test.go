@@ -168,6 +168,25 @@ entries:
 	require.Equal(t, []dependencyRequest{{Org: "acme", Module: "runtime", Constraint: "v1.0.0"}}, dependencies)
 }
 
+func TestLoadDependencyScanEntriesRequiresUnselectedReplacementSource(t *testing.T) {
+	ctx := setupLoaderContext(t)
+	ldr := bootapi.GetLoader(ctx)
+	require.NotNil(t, ldr)
+
+	tmpDir := t.TempDir()
+	appDir := filepath.Join(tmpDir, "app")
+	require.NoError(t, os.MkdirAll(appDir, 0o755))
+	lockObj, err := lock.New(filepath.Join(tmpDir, lock.DefaultFilename), lock.WithWorkspaceReplacements([]lock.Replacement{{
+		From: "local/component",
+		To:   "missing/component",
+	}}))
+	require.NoError(t, err)
+	lockObj.SetDirectories(lock.Directories{Modules: ".wippy", Src: "app"})
+
+	_, err = loadDependencyScanEntries(ctx, ldr, appDir, lockObj, zap.NewNop())
+	require.ErrorContains(t, err, "validate replacement dependency sources")
+}
+
 func TestPruneStaleVendorArtifacts_RemovesStaleArtifacts(t *testing.T) {
 	tmpDir := t.TempDir()
 	lockPath := filepath.Join(tmpDir, "wippy.lock")

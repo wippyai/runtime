@@ -273,7 +273,7 @@ func TestLock_GetModuleLoadPaths(t *testing.T) {
 		}
 	})
 
-	t.Run("replacement without src subdirectory loads from replacement root", func(t *testing.T) {
+	t.Run("workspace-only replacement is excluded from load paths", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		lockPath := filepath.Join(tmpDir, DefaultFilename)
 
@@ -285,6 +285,27 @@ func TestLock_GetModuleLoadPaths(t *testing.T) {
 		l.SetDirectories(Directories{Modules: ".wippy", Src: "app"})
 		l.SetReplacement(Replacement{From: "acme/plain", To: "local/plain"})
 
+		paths := l.GetModuleLoadPaths()
+		if len(paths) != 1 {
+			t.Fatalf("path count = %d, want only app source", len(paths))
+		}
+		loadPaths := l.GetLoadPaths()
+		if len(loadPaths) != 1 || loadPaths[0] != filepath.Join(tmpDir, "app") {
+			t.Fatalf("load paths = %v, want only app source", loadPaths)
+		}
+	})
+
+	t.Run("selected replacement without src loads from replacement root", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		l, err := New(filepath.Join(tmpDir, DefaultFilename))
+		if err != nil {
+			t.Fatalf("New failed: %v", err)
+		}
+
+		l.SetDirectories(Directories{Modules: ".wippy", Src: "app"})
+		l.SetModule(Module{Name: "acme/plain", Version: "v1.0.0"})
+		l.SetReplacement(Replacement{From: "acme/plain", To: "local/plain"})
+
 		replacementDir := filepath.Join(tmpDir, "local", "plain")
 		if err := os.MkdirAll(replacementDir, 0o755); err != nil {
 			t.Fatalf("mkdir replacement: %v", err)
@@ -292,21 +313,14 @@ func TestLock_GetModuleLoadPaths(t *testing.T) {
 
 		paths := l.GetModuleLoadPaths()
 		if len(paths) != 2 {
-			t.Fatalf("path count = %d, want 2", len(paths))
+			t.Fatalf("path count = %d, want source and selected replacement", len(paths))
 		}
-
 		got := paths[1]
-		if got.Path != replacementDir {
-			t.Fatalf("module path = %q, want replacement root %q", got.Path, replacementDir)
+		if got.Path != replacementDir || got.SourceRoot != replacementDir {
+			t.Fatalf("replacement path = %+v, want root %q", got, replacementDir)
 		}
-		if got.SourceRoot != replacementDir {
-			t.Fatalf("source root = %q, want replacement root %q", got.SourceRoot, replacementDir)
-		}
-		if got.Version != "" {
-			t.Fatalf("workspace-only replacement version = %q, want empty", got.Version)
-		}
-		if !got.Replacement {
-			t.Fatal("workspace-only source was not marked as replacement")
+		if got.Module != "acme/plain" || got.Version != "v1.0.0" || !got.Replacement {
+			t.Fatalf("replacement metadata = %+v", got)
 		}
 	})
 }

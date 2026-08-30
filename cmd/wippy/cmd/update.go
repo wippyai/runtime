@@ -502,22 +502,25 @@ func loadDependencyScanEntries(ctx context.Context, ldr boot.Loader, srcDir stri
 	}
 
 	if lockObj != nil {
-		replacements := effectiveReplacementModules(lockObj)
-		for _, mp := range lockObj.GetModuleLoadPaths() {
-			if mp.Module == "" || !replacements[mp.Module] {
+		// Update treats every effective replacement as a resolver input, even
+		// when its module is not selected by the current graph. Unlike boot and
+		// install, every declared source must therefore be present for this scan.
+		if err := lock.ValidateReplacements(lockObj.Path(), lockObj.GetReplacements()); err != nil {
+			return nil, fmt.Errorf("validate replacement dependency sources: %w", err)
+		}
+		lockDir := filepath.Dir(lockObj.Path())
+		for _, replacement := range lockObj.GetReplacements() {
+			if replacement.To == "" {
 				continue
 			}
-			replacementRoot := mp.SourceRoot
-			if replacementRoot == "" {
-				replacementRoot = mp.Path
-			}
+			replacementRoot := lock.ResolveLockPath(lockDir, replacement.To)
 			paths = append(paths, struct {
 				label string
 				path  string
 				root  string
 			}{
-				label: "replacement " + mp.Module,
-				path:  mp.Path,
+				label: "replacement " + replacement.From,
+				path:  lock.ModuleEntryLoadPath(replacementRoot),
 				root:  replacementRoot,
 			})
 		}
