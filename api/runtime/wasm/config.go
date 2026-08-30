@@ -29,7 +29,9 @@ type (
 	// LimitsConfig defines execution and warm-instance lifecycle limits for a
 	// WASM function.
 	LimitsConfig struct {
-		MaxExecutionMS int `json:"max_execution_ms,omitempty"`
+		MaxExecutionMS  int `json:"max_execution_ms,omitempty"`
+		MaxOpenSockets  int `json:"max_open_sockets,omitempty"`
+		SocketTimeoutMS int `json:"socket_timeout_ms,omitempty"`
 
 		// MaxRetainedMemoryBytes is a post-call per-worker recycling trigger.
 		// An omitted value uses DefaultMaxRetainedMemoryBytes. An explicit 0
@@ -100,6 +102,8 @@ type (
 type limitsConfigJSON struct {
 	MaxRetainedMemoryBytes      *int64 `json:"max_retained_memory_bytes,omitempty" yaml:"max_retained_memory_bytes,omitempty"`
 	MaxExecutionMS              int    `json:"max_execution_ms,omitempty" yaml:"max_execution_ms,omitempty"`
+	MaxOpenSockets              int    `json:"max_open_sockets,omitempty" yaml:"max_open_sockets,omitempty"`
+	SocketTimeoutMS             int    `json:"socket_timeout_ms,omitempty" yaml:"socket_timeout_ms,omitempty"`
 	RetainedMemoryCheckInterval int    `json:"retained_memory_check_interval,omitempty" yaml:"retained_memory_check_interval,omitempty"`
 }
 
@@ -125,6 +129,8 @@ func (c *LimitsConfig) UnmarshalYAML(unmarshal func(any) error) error {
 func (c *LimitsConfig) applyDecoded(decoded limitsConfigJSON) {
 	*c = LimitsConfig{
 		MaxExecutionMS:              decoded.MaxExecutionMS,
+		MaxOpenSockets:              decoded.MaxOpenSockets,
+		SocketTimeoutMS:             decoded.SocketTimeoutMS,
 		RetainedMemoryCheckInterval: decoded.RetainedMemoryCheckInterval,
 	}
 	if decoded.MaxRetainedMemoryBytes != nil {
@@ -143,6 +149,8 @@ func (c LimitsConfig) MarshalYAML() (any, error) {
 func (c LimitsConfig) encoded() limitsConfigJSON {
 	encoded := limitsConfigJSON{
 		MaxExecutionMS:              c.MaxExecutionMS,
+		MaxOpenSockets:              c.MaxOpenSockets,
+		SocketTimeoutMS:             c.SocketTimeoutMS,
 		RetainedMemoryCheckInterval: c.RetainedMemoryCheckInterval,
 	}
 	if c.HasMaxRetainedMemoryBytes() {
@@ -177,6 +185,20 @@ func (c LimitsConfig) EffectiveRetainedMemoryCheckInterval() int {
 		return c.RetainedMemoryCheckInterval
 	}
 	return DefaultRetainedMemoryCheckInterval
+}
+
+func (c LimitsConfig) EffectiveMaxOpenSockets() int {
+	if c.MaxOpenSockets > 0 {
+		return c.MaxOpenSockets
+	}
+	return DefaultMaxOpenSockets
+}
+
+func (c LimitsConfig) EffectiveSocketTimeoutMS() int {
+	if c.SocketTimeoutMS > 0 {
+		return c.SocketTimeoutMS
+	}
+	return DefaultSocketTimeoutMS
 }
 
 // EffectiveTransport returns the transport, defaulting to payload.
@@ -314,6 +336,12 @@ func validateLimits(limits LimitsConfig) error {
 	}
 	if limits.RetainedMemoryCheckInterval < 0 {
 		return ErrInvalidRetainedMemoryCheckInterval
+	}
+	if limits.MaxOpenSockets < 0 {
+		return ErrInvalidMaxOpenSockets
+	}
+	if limits.SocketTimeoutMS < 0 {
+		return ErrInvalidSocketTimeout
 	}
 	return nil
 }

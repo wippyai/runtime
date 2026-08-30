@@ -7,12 +7,17 @@ import (
 	"net"
 	"os"
 	"syscall"
+
+	netapi "github.com/wippyai/runtime/api/net"
 )
 
 // mapNetError converts Go net package errors to WASI network error codes.
 func mapNetError(err error) *NetworkError {
 	if err == nil {
 		return nil
+	}
+	if errors.Is(err, netapi.ErrAccessDenied) {
+		return &NetworkError{Code: NetworkErrorAccessDenied}
 	}
 
 	var opErr *net.OpError

@@ -21,6 +21,7 @@ func TestHostRegistryResolve(t *testing.T) {
 		HostProfile{Name: "funcs", Aliases: []string{"wippy:runtime/funcs@0.1.0"}},
 		HostProfile{Name: HostProfileWASIPoll, Aliases: []string{"wasi:io/poll@0.2.8"}},
 		HostProfile{Name: HostProfileWASIFilesystem, Aliases: []string{"wasi:filesystem/types@0.2.3"}},
+		HostProfile{Name: HostProfileSocket, Aliases: []string{"wippy:runtime/socket@0.1.0"}},
 	))
 
 	cases := []struct {
@@ -33,6 +34,7 @@ func TestHostRegistryResolve(t *testing.T) {
 		{name: "canonical versioned", id: registry.ParseID("wippy:runtime/funcs@0.1.0"), want: "funcs", wantOK: true},
 		{name: "alias stripped version", id: registry.ParseID("wasi:io/poll@0.2.9"), want: HostProfileWASIPoll, wantOK: true},
 		{name: "fs types short", id: registry.ParseID("wasi:filesystem/types"), want: HostProfileWASIFilesystem, wantOK: true},
+		{name: "core socket", id: registry.ParseID("wippy:runtime/socket@0.1.0"), want: HostProfileSocket, wantOK: true},
 		{name: "unknown", id: registry.ParseID("unknown"), wantOK: false},
 	}
 

@@ -4,9 +4,11 @@ package net
 
 import (
 	"context"
+	"fmt"
 	"net"
 
 	netapi "github.com/wippyai/runtime/api/net"
+	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/runtime/security"
 )
 
@@ -49,6 +51,17 @@ func checkPrivateIP(ctx context.Context, address string) error {
 	return nil
 }
 
+func checkPrivateLiteral(ctx context.Context, address string) error {
+	host, _, err := net.SplitHostPort(address)
+	if err != nil {
+		host = address
+	}
+	if ip := net.ParseIP(host); isPrivateIP(ip) && !security.IsAllowed(ctx, "socket.private_ip", ip.String(), nil) {
+		return netapi.ErrAccessDenied
+	}
+	return nil
+}
+
 // SecureService enforces security checks before delegating to standard net operations.
 type SecureService struct{}
 
@@ -60,6 +73,20 @@ func NewSecureService() *SecureService {
 func (s *SecureService) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
 	if !security.IsAllowed(ctx, "socket.connect", address, nil) {
 		return nil, netapi.ErrAccessDenied
+	}
+	if networkID := netapi.GetDefaultNetwork(ctx); networkID != "" {
+		if err := checkPrivateLiteral(ctx, address); err != nil {
+			return nil, err
+		}
+		reg := netapi.GetNetworkRegistry(ctx)
+		if reg == nil {
+			return nil, fmt.Errorf("network %q selected without a network registry", networkID)
+		}
+		svc, err := reg.GetNetwork(registry.ParseID(networkID))
+		if err != nil {
+			return nil, fmt.Errorf("network %q: %w", networkID, err)
+		}
+		return svc.DialContext(ctx, network, address)
 	}
 	if err := checkPrivateIP(ctx, address); err != nil {
 		return nil, err

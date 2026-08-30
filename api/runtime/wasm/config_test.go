@@ -502,6 +502,12 @@ func TestLimitsConfig_Validate(t *testing.T) {
 	err = LimitsConfig{RetainedMemoryCheckInterval: -1}.Validate()
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "limits.retained_memory_check_interval cannot be negative")
+
+	err = LimitsConfig{MaxOpenSockets: -1}.Validate()
+	require.ErrorIs(t, err, ErrInvalidMaxOpenSockets)
+
+	err = LimitsConfig{SocketTimeoutMS: -1}.Validate()
+	require.ErrorIs(t, err, ErrInvalidSocketTimeout)
 }
 
 func TestLimitsConfig_EffectiveRetainedMemoryCheckInterval(t *testing.T) {

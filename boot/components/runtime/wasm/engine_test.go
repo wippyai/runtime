@@ -56,6 +56,7 @@ func TestDefaultHostProfiles(t *testing.T) {
 		"funcs", "wasi1",
 		"wasi:io", "wasi:poll", "wasi:clocks", "wasi:cli",
 		"wasi:filesystem", "wasi:random", "wasi:sockets", "wasi:http",
+		"socket",
 	}
 	if len(profiles) != len(want) {
 		t.Fatalf("DefaultHostProfiles() len = %d, want %d", len(profiles), len(want))

@@ -28,6 +28,8 @@ func TestSentinelErrors(t *testing.T) {
 		{"ErrInvalidTransportType", ErrInvalidTransportType, apierror.Invalid, "invalid transport type"},
 		{"ErrInvalidExecutionLimit", ErrInvalidExecutionLimit, apierror.Invalid, "limits.max_execution_ms cannot be negative"},
 		{"ErrInvalidRetainedMemoryLimit", ErrInvalidRetainedMemoryLimit, apierror.Invalid, "limits.max_retained_memory_bytes cannot be negative"},
+		{"ErrInvalidMaxOpenSockets", ErrInvalidMaxOpenSockets, apierror.Invalid, "limits.max_open_sockets cannot be negative"},
+		{"ErrInvalidSocketTimeout", ErrInvalidSocketTimeout, apierror.Invalid, "limits.socket_timeout_ms cannot be negative"},
 		{"ErrWASICwdMustBeAbsolute", ErrWASICwdMustBeAbsolute, apierror.Invalid, "wasi.cwd must be absolute"},
 		{"ErrWASIEnvIDRequired", ErrWASIEnvIDRequired, apierror.Invalid, "wasi.env[].id is required"},
 		{"ErrWASIEnvNameRequired", ErrWASIEnvNameRequired, apierror.Invalid, "wasi.env[].name is required"},

@@ -228,6 +228,7 @@ func (p *Process) startExecution() error {
 	if p.limits.MaxExecutionMS > 0 {
 		execCtx, cancel = context.WithTimeout(p.ctx, time.Duration(p.limits.MaxExecutionMS)*time.Millisecond)
 	}
+	execCtx = wippyhost.WithCallLimits(execCtx, p.limits)
 
 	configuredCtx, err := p.withWASICallConfig(execCtx)
 	if err != nil {

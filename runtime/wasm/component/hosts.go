@@ -25,6 +25,7 @@ const (
 	HostProfileWASIRandom     = "wasi:random"
 	HostProfileWASISockets    = "wasi:sockets"
 	HostProfileWASIHTTP       = "wasi:http"
+	HostProfileSocket         = "socket"
 )
 
 // HostProfile defines a pluggable wasm host import profile.

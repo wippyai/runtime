@@ -64,16 +64,20 @@ func TestDecodeWATEntryLimitsOmittedResolveToDefaults(t *testing.T) {
 	assert.Zero(t, cfg.Limits.RetainedMemoryCheckInterval)
 	assert.Equal(t, wasmapi.DefaultMaxRetainedMemoryBytes, cfg.Limits.EffectiveMaxRetainedMemoryBytes())
 	assert.Equal(t, wasmapi.DefaultRetainedMemoryCheckInterval, cfg.Limits.EffectiveRetainedMemoryCheckInterval())
+	assert.Equal(t, wasmapi.DefaultMaxOpenSockets, cfg.Limits.EffectiveMaxOpenSockets())
+	assert.Equal(t, wasmapi.DefaultSocketTimeoutMS, cfg.Limits.EffectiveSocketTimeoutMS())
 }
 
 func TestDecodeWATEntryLimitsBindConfiguredKeys(t *testing.T) {
-	cfg := decodeWATEntry(t, `{"source":"(module)","method":"handle","limits":{"max_execution_ms":250,"max_retained_memory_bytes":1048576,"retained_memory_check_interval":4}}`)
+	cfg := decodeWATEntry(t, `{"source":"(module)","method":"handle","limits":{"max_execution_ms":250,"max_retained_memory_bytes":1048576,"retained_memory_check_interval":4,"max_open_sockets":8,"socket_timeout_ms":5000}}`)
 
 	assert.Equal(t, 250, cfg.Limits.MaxExecutionMS)
 	assert.Equal(t, int64(1048576), cfg.Limits.MaxRetainedMemoryBytes)
 	assert.Equal(t, 4, cfg.Limits.RetainedMemoryCheckInterval)
 	assert.Equal(t, int64(1048576), cfg.Limits.EffectiveMaxRetainedMemoryBytes())
 	assert.Equal(t, 4, cfg.Limits.EffectiveRetainedMemoryCheckInterval())
+	assert.Equal(t, 8, cfg.Limits.EffectiveMaxOpenSockets())
+	assert.Equal(t, 5000, cfg.Limits.EffectiveSocketTimeoutMS())
 }
 
 func TestDecodeWATEntryExplicitZeroDisablesRetainedMemoryLimit(t *testing.T) {
