@@ -47,6 +47,7 @@ var requestMethods = map[string]lua.LGoFunc{
 	"query":           requestQuery,
 	"query_params":    requestQueryParams,
 	"header":          requestHeader,
+	"headers":         requestHeaders,
 	"content_type":    requestContentType,
 	"content_length":  requestContentLength,
 	"host":            requestHost,
@@ -206,13 +207,31 @@ func requestHeader(l *lua.LState) int {
 		return 0
 	}
 	key := l.CheckString(2)
-	values := req.request.Header[key]
+	values := req.request.Header.Values(key)
 	if len(values) == 0 {
 		l.Push(lua.LNil)
 		l.Push(lua.LNil)
 		return 2
 	}
 	l.Push(lua.LString(strings.Join(values, ", ")))
+	l.Push(lua.LNil)
+	return 2
+}
+
+func requestHeaders(l *lua.LState) int {
+	req := checkRequest(l, 1)
+	if req == nil {
+		return 0
+	}
+
+	headers := l.CreateTable(0, len(req.request.Header))
+	for name, values := range req.request.Header {
+		if len(values) > 0 {
+			headers.RawSetString(name, lua.LString(strings.Join(values, ", ")))
+		}
+	}
+
+	l.Push(headers)
 	l.Push(lua.LNil)
 	return 2
 }

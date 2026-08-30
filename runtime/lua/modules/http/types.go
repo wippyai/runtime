@@ -46,6 +46,7 @@ func init() {
 		{Name: "query", Type: typ.Func().Param("self", typ.Self).Param("key", typ.String).Returns(typ.NewOptional(typ.String), typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "query_params", Type: typ.Func().Param("self", typ.Self).Returns(typ.NewMap(typ.String, typ.String), typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "header", Type: typ.Func().Param("self", typ.Self).Param("name", typ.String).Returns(typ.NewOptional(typ.String), typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "headers", Type: typ.Func().Param("self", typ.Self).Returns(typ.NewMap(typ.String, typ.String), typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "content_type", Type: typ.Func().Param("self", typ.Self).Returns(typ.NewOptional(typ.String), typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "content_length", Type: typ.Func().Param("self", typ.Self).Returns(typ.Number, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "host", Type: typ.Func().Param("self", typ.Self).Returns(typ.String, typ.NewOptional(typ.LuaError)).Build()},
