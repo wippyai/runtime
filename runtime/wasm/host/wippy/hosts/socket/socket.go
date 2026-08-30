@@ -1,6 +1,12 @@
 // SPDX-License-Identifier: MPL-2.0
 
-// Package socket exposes outbound TCP to core WebAssembly modules.
+// Package socket exposes instance-owned outbound TCP to core WebAssembly
+// modules through integer-only imports:
+//
+//	connect(host_ptr, host_len, port, timeout_ms) -> status<<32 | handle
+//	send(handle, buf_ptr, buf_len)                -> status<<32 | written
+//	recv(handle, out_ptr, out_cap)                -> status<<32 | read
+//	close(handle)                                 -> status
 package socket
 
 import (
@@ -56,11 +62,17 @@ func Register(rt *wasmrt.Runtime) error {
 
 type connection struct {
 	net.Conn
-	once sync.Once
+	closeErr error
+	once     sync.Once
 }
 
 func (c *connection) Drop() {
-	c.once.Do(func() { _ = c.Close() })
+	_ = c.Close()
+}
+
+func (c *connection) Close() error {
+	c.once.Do(func() { c.closeErr = c.Conn.Close() })
+	return c.closeErr
 }
 
 func pack(status, value uint32) uint64 {
@@ -84,14 +96,6 @@ func getConnection(ctx context.Context, handle uint32) (*connection, bool) {
 	return conn, ok
 }
 
-func operationDeadline(ctx context.Context, limits wasmapi.LimitsConfig) time.Time {
-	deadline := time.Now().Add(socketTimeout(limits, 0))
-	if contextDeadline, ok := ctx.Deadline(); ok && contextDeadline.Before(deadline) {
-		return contextDeadline
-	}
-	return deadline
-}
-
 func socketTimeout(limits wasmapi.LimitsConfig, requested uint32) time.Duration {
 	milliseconds := int64(limits.EffectiveSocketTimeoutMS())
 	if requested > 0 && int64(requested) < milliseconds {
@@ -104,10 +108,12 @@ func socketTimeout(limits wasmapi.LimitsConfig, requested uint32) time.Duration 
 	return time.Duration(milliseconds) * time.Millisecond
 }
 
-func interruptOnCancel(ctx context.Context, conn net.Conn) func() {
-	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
-	return func() {
+func boundOperation(ctx context.Context, conn net.Conn, limits wasmapi.LimitsConfig) (context.Context, func()) {
+	operationCtx, cancel := context.WithTimeout(ctx, socketTimeout(limits, 0))
+	stop := context.AfterFunc(operationCtx, func() { _ = conn.Close() })
+	return operationCtx, func() {
 		stop()
+		cancel()
 		_ = conn.SetDeadline(time.Time{})
 	}
 }
@@ -182,11 +188,14 @@ func Send(ctx context.Context, mod api.Module, stack []uint64) {
 		stack[0] = pack(StatusInvalid, 0)
 		return
 	}
-	_ = conn.SetWriteDeadline(operationDeadline(ctx, wippyhost.GetCallLimits(ctx)))
-	defer interruptOnCancel(ctx, conn)()
+	operationCtx, finish := boundOperation(ctx, conn, wippyhost.GetCallLimits(ctx))
+	defer finish()
+	if deadline, ok := operationCtx.Deadline(); ok {
+		_ = conn.SetWriteDeadline(deadline)
+	}
 	written, err := conn.Write(payload)
 	if err != nil {
-		stack[0] = pack(statusForIOError(ctx, err), uint32(written))
+		stack[0] = pack(statusForIOError(operationCtx, err), uint32(written))
 		return
 	}
 	stack[0] = pack(StatusOK, uint32(written))
@@ -203,11 +212,14 @@ func Recv(ctx context.Context, mod api.Module, stack []uint64) {
 		stack[0] = pack(StatusInvalid, 0)
 		return
 	}
-	_ = conn.SetReadDeadline(operationDeadline(ctx, wippyhost.GetCallLimits(ctx)))
-	defer interruptOnCancel(ctx, conn)()
+	operationCtx, finish := boundOperation(ctx, conn, wippyhost.GetCallLimits(ctx))
+	defer finish()
+	if deadline, ok := operationCtx.Deadline(); ok {
+		_ = conn.SetReadDeadline(deadline)
+	}
 	read, err := conn.Read(buffer)
 	if err != nil && !errors.Is(err, io.EOF) {
-		stack[0] = pack(statusForIOError(ctx, err), uint32(read))
+		stack[0] = pack(statusForIOError(operationCtx, err), uint32(read))
 		return
 	}
 	stack[0] = pack(StatusOK, uint32(read))

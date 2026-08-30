@@ -94,6 +94,36 @@ type recordingNetwork struct {
 	mu      sync.Mutex
 }
 
+type deadlineIgnoringConn struct {
+	net.Conn
+}
+
+func (c *deadlineIgnoringConn) SetDeadline(time.Time) error      { return nil }
+func (c *deadlineIgnoringConn) SetReadDeadline(time.Time) error  { return nil }
+func (c *deadlineIgnoringConn) SetWriteDeadline(time.Time) error { return nil }
+
+type deadlineIgnoringNetwork struct {
+	peer net.Conn
+}
+
+func (n *deadlineIgnoringNetwork) DialContext(context.Context, string, string) (net.Conn, error) {
+	client, peer := net.Pipe()
+	n.peer = peer
+	return &deadlineIgnoringConn{Conn: client}, nil
+}
+
+func (*deadlineIgnoringNetwork) Listen(context.Context, string, string) (net.Listener, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (*deadlineIgnoringNetwork) ListenPacket(context.Context, string, string) (net.PacketConn, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (*deadlineIgnoringNetwork) LookupHost(context.Context, string) ([]string, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (n *recordingNetwork) DialContext(_ context.Context, _, address string) (net.Conn, error) {
 	client, peer := net.Pipe()
 	n.mu.Lock()
@@ -379,5 +409,53 @@ func TestRecvCancellationInterruptsConnection(t *testing.T) {
 	buffer := make([]byte, 1)
 	if n, err := peer.Read(buffer); n != 0 || err == nil {
 		t.Fatalf("peer read after cancellation = (%d, %v), want closed connection", n, err)
+	}
+}
+
+func TestRecvConfiguredTimeoutInterruptsConnectionWithoutDeadlineSupport(t *testing.T) {
+	network := &deadlineIgnoringNetwork{}
+	ctx := ctxapi.NewRootContext()
+	secapi.SetStrictMode(ctx, false)
+	ctx = netapi.WithService(ctx, network)
+	ctx = wippyhost.WithCallLimits(ctx, wasmapi.LimitsConfig{SocketTimeoutMS: 30})
+	rt, module := socketTestModule(ctx, t, 443)
+	defer rt.Close(ctx)
+	inst, err := module.Instantiate(ctx)
+	if err != nil {
+		t.Fatalf("instantiate: %v", err)
+	}
+	defer inst.Close(ctx)
+
+	status, handle := callPacked(ctx, t, inst, "connect")
+	if status != StatusOK {
+		t.Fatalf("connect status = %d", status)
+	}
+	defer network.peer.Close()
+
+	type callResult struct {
+		value any
+		err   error
+	}
+	result := make(chan callResult, 1)
+	go func() {
+		value, callErr := inst.Call(ctx, "recv", handle)
+		result <- callResult{value: value, err: callErr}
+	}()
+
+	select {
+	case got := <-result:
+		if got.err != nil {
+			t.Fatalf("recv: %v", got.err)
+		}
+		packed, ok := got.value.(uint64)
+		if !ok {
+			t.Fatalf("recv result = %T, want uint64", got.value)
+		}
+		status := uint32(packed >> 32)
+		if status != StatusTimeout {
+			t.Fatalf("recv status = %d, want timeout", status)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("configured socket timeout did not interrupt recv")
 	}
 }
