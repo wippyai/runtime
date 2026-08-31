@@ -2553,6 +2553,7 @@ func TestDependencyHandler_ResolveModules_ToleratesReplacedModuleAbsentFromHub(t
 	ctx := newTestContext()
 	tmpDir := t.TempDir()
 	lockPath := filepath.Join(tmpDir, "wippy.lock")
+	require.NoError(t, os.MkdirAll(filepath.Join(tmpDir, "local-mod"), 0o755))
 	require.NoError(t, os.WriteFile(lockPath, []byte(`directories:
   modules: .wippy
   src: ./src

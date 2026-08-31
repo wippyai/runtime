@@ -12,6 +12,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/boot/deps/hub"
 	"github.com/wippyai/runtime/boot/deps/lock"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest/observer"
 )
 
 func TestLockSatisfiesSource(t *testing.T) {
@@ -20,7 +22,7 @@ func TestLockSatisfiesSource(t *testing.T) {
 	lockObj.SetModule(lock.Module{Name: "acme/core", Version: "1.4.0", Hash: "sha256:core"})
 	lockObj.SetReplacement(lock.Replacement{From: "acme/local", To: t.TempDir()})
 
-	require.True(t, lockSatisfiesSource(lockObj, []dependencyRequest{
+	require.False(t, lockSatisfiesSource(lockObj, []dependencyRequest{
 		{Org: "acme", Module: "core", Constraint: "^1.2.0"},
 		{Org: "acme", Module: "local", Constraint: "*"},
 	}))
@@ -35,6 +37,41 @@ func TestLockSatisfiesSource(t *testing.T) {
 	require.False(t, lockSatisfiesSource(lockObj, []dependencyRequest{
 		{Org: "acme", Module: "core", Constraint: "^1.2.0"},
 	}))
+}
+
+func TestWarnMissingRequiredWorkspaceReplacementsNamesDiscardedModule(t *testing.T) {
+	lockObj, err := lock.New(filepath.Join(t.TempDir(), "wippy.lock"))
+	require.NoError(t, err)
+	lockObj.SetReplacement(lock.Replacement{From: "acme/local", To: "../local"})
+
+	core, logs := observer.New(zap.WarnLevel)
+	warnMissingRequiredWorkspaceReplacements(zap.New(core), lockObj, []dependencyRequest{
+		{Org: "acme", Module: "local", Constraint: "*"},
+		{Org: "acme", Module: "remote", Constraint: "1.0.0"},
+	})
+
+	entries := logs.FilterMessage("required workspace replacement is absent from selected lock graph; repairing").All()
+	require.Len(t, entries, 1)
+	require.Equal(t, "acme/local", entries[0].ContextMap()["module"])
+	require.Equal(t, "*", entries[0].ContextMap()["constraint"])
+}
+
+func TestWorkspaceResolutionCheckpointRejectsStaleRows(t *testing.T) {
+	lockObj, err := lock.New(filepath.Join(t.TempDir(), "wippy.lock"))
+	require.NoError(t, err)
+	lockObj.SetReplacement(lock.Replacement{From: "acme/local", To: t.TempDir()})
+	lockObj.SetModule(lock.Module{Name: "acme/local", Version: "0.0.0"})
+
+	require.True(t, lockMatchesResolution(lockObj, []hub.ResolvedModule{{
+		Org: "acme", Name: "local", Version: "0.0.0",
+	}}))
+	require.False(t, lockMatchesResolution(lockObj, []hub.ResolvedModule{{
+		Org: "acme", Name: "local", Version: "1.0.0",
+	}}))
+	lockObj.SetModule(lock.Module{Name: "history/only", Version: "1.0.0"})
+	require.False(t, lockMatchesResolution(lockObj, []hub.ResolvedModule{{
+		Org: "acme", Name: "local", Version: "0.0.0",
+	}}), "history-only lock rows must force exact offline graph repair")
 }
 
 func TestResolveRunDependenciesKeepsCompatibleLockAndCompletesIt(t *testing.T) {
@@ -94,6 +131,43 @@ entries: []
 	require.NoError(t, err)
 	require.Len(t, result.Modules, 1)
 	require.Equal(t, "1.2.0", result.Modules[0].Version)
+}
+
+func TestResolveRunDependenciesSelectsNewUnpublishedWildcardReplacement(t *testing.T) {
+	ctx := setupLoaderContext(t)
+	replacement := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(replacement, "_index.yaml"), []byte(`namespace: acme.local
+entries:
+  - name: service
+    kind: registry.entry
+`), 0o600))
+
+	lockObj, err := lock.New(filepath.Join(t.TempDir(), "wippy.lock"))
+	require.NoError(t, err)
+	lockObj.SetReplacement(lock.Replacement{From: "acme/local", To: replacement})
+	require.NoError(t, lockObj.Write())
+
+	result, err := resolveRunDependencies(ctx, runManifestProvider{}, lockObj, []dependencyRequest{
+		{Org: "acme", Module: "local", Constraint: "*"},
+	})
+	require.NoError(t, err)
+	require.Equal(t, []hub.ResolvedModule{{Org: "acme", Name: "local", Version: "0.0.0"}}, result.Modules)
+}
+
+func TestResolveRunDependenciesNamesMissingRequiredReplacement(t *testing.T) {
+	ctx := setupLoaderContext(t)
+	missing := filepath.Join(t.TempDir(), "missing-local")
+	lockObj, err := lock.New(filepath.Join(t.TempDir(), "wippy.lock"))
+	require.NoError(t, err)
+	lockObj.SetReplacement(lock.Replacement{From: "acme/local", To: missing})
+	require.NoError(t, lockObj.Write())
+
+	_, err = resolveRunDependencies(ctx, runManifestProvider{}, lockObj, []dependencyRequest{
+		{Org: "acme", Module: "local", Constraint: "*"},
+	})
+	require.Error(t, err)
+	require.ErrorContains(t, err, "acme/local")
+	require.ErrorContains(t, err, missing)
 }
 
 type runManifestProvider struct {

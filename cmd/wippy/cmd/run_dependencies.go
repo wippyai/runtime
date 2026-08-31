@@ -10,6 +10,7 @@ import (
 
 	"github.com/wippyai/runtime/api/boot"
 	"github.com/wippyai/runtime/api/payload"
+	regapi "github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/semver"
 	"github.com/wippyai/runtime/boot/deps/hub"
 	"github.com/wippyai/runtime/boot/deps/lock"
@@ -73,17 +74,35 @@ func prepareRunDependencies(
 		return ErrTranscoderNotFound
 	}
 	roots := extractRootDependencies(loaded, transcoder)
-	if lockSatisfiesSource(lockObj, roots) {
-		return nil
-	}
+	sourceSatisfied := lockSatisfiesSource(lockObj, roots)
+	warnMissingRequiredWorkspaceReplacements(logger, lockObj, roots)
 
 	client, err := hubclient.New(hubclient.Options{RegistryURL: registryURL})
 	if err != nil {
 		return NewCreateHubClientError(err)
 	}
-	resolved, err := resolveRunDependencies(ctx, client, lockObj, roots)
-	if err != nil {
-		return err
+	var resolved *hub.ResolveDependenciesResult
+	if sourceSatisfied {
+		// Verify the complete source graph from local/installed evidence before
+		// trusting the lock. This catches both replacement dependency drift and
+		// stale rows that a previous restart temporarily promoted from a
+		// history-owned overlay into wippy.lock, without adding network I/O to a
+		// normal restart.
+		offlineCtx := regapi.WithDependencyAccess(ctx, regapi.DependencyAccessVerifiedOffline)
+		resolved, err = resolveRunDependencies(offlineCtx, client, lockObj, roots)
+		if err == nil && lockMatchesResolution(lockObj, resolved.Modules) {
+			return nil
+		}
+		if err != nil {
+			logger.Info("workspace dependency graph needs online completion",
+				zap.Error(err))
+		}
+	}
+	if resolved == nil || err != nil {
+		resolved, err = resolveRunDependencies(ctx, client, lockObj, roots)
+		if err != nil {
+			return err
+		}
 	}
 
 	modules := make([]lock.Module, 0, len(resolved.Modules))
@@ -97,9 +116,8 @@ func prepareRunDependencies(
 			Hash:    module.Digest,
 		})
 	}
-	// Replacements are intentionally absent from Hub resolution. Retain their
-	// selected rows so source ownership and deployment-root identity do not
-	// disappear while repairing unrelated dependencies.
+	// Retain selected replacement rows from legacy resolutions that did not
+	// return them while repairing unrelated dependencies.
 	for _, module := range lockObj.GetModules() {
 		if _, ok := selected[module.Name]; ok {
 			continue
@@ -128,6 +146,43 @@ func prepareRunDependencies(
 	return nil
 }
 
+func warnMissingRequiredWorkspaceReplacements(logger *zap.Logger, lockObj *lock.Lock, roots []dependencyRequest) {
+	if logger == nil || lockObj == nil {
+		return
+	}
+	for _, root := range roots {
+		name := root.Org + "/" + root.Module
+		if _, replaced := lockObj.GetReplacement(name); !replaced {
+			continue
+		}
+		if _, selected := lockObj.GetModule(name); !selected {
+			logger.Warn("required workspace replacement is absent from selected lock graph; repairing",
+				zap.String("module", name),
+				zap.String("constraint", root.Constraint))
+		}
+	}
+}
+
+func lockMatchesResolution(lockObj *lock.Lock, resolved []hub.ResolvedModule) bool {
+	if lockObj == nil || len(lockObj.GetModules()) != len(resolved) {
+		return false
+	}
+	for _, module := range resolved {
+		locked, ok := lockObj.GetModule(module.Org + "/" + module.Name)
+		if !ok || locked.Version != module.Version || !lockDigestsEqual(locked.Hash, module.Digest) {
+			return false
+		}
+	}
+	return true
+}
+
+func lockDigestsEqual(left, right string) bool {
+	normalize := func(value string) string {
+		return strings.TrimPrefix(strings.ToLower(strings.TrimSpace(value)), "sha256:")
+	}
+	return normalize(left) == normalize(right)
+}
+
 func lockSatisfiesSource(lockObj *lock.Lock, roots []dependencyRequest) bool {
 	if lockObj == nil {
 		return false
@@ -135,12 +190,6 @@ func lockSatisfiesSource(lockObj *lock.Lock, roots []dependencyRequest) bool {
 	for _, root := range roots {
 		name := root.Org + "/" + root.Module
 		module, ok := lockObj.GetModule(name)
-		if _, replaced := lockObj.GetReplacement(name); replaced && !ok {
-			constraint := strings.TrimSpace(root.Constraint)
-			if constraint == "" || constraint == "*" || strings.HasPrefix(constraint, "@") {
-				continue
-			}
-		}
 		if !ok || !lockedVersionSatisfies(module.Version, root.Constraint) {
 			return false
 		}
