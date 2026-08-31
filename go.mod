@@ -2,7 +2,7 @@ module github.com/wippyai/runtime
 
 // SPDX-License-Identifier: MPL-2.0
 
-go 1.26.6
+go 1.27
 
 require (
 	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.12-20260825204119-511051f7f437.1
@@ -42,7 +42,7 @@ require (
 	github.com/hashicorp/raft-wal v0.4.2
 	github.com/jackc/pglogrepl v0.0.0-20260401131349-e37c41485510
 	github.com/jackc/pgx/v5 v5.10.0
-	github.com/kaptinlin/jsonschema v0.9.8
+	github.com/kaptinlin/jsonschema v0.9.9
 	github.com/klauspost/compress v1.19.2
 	github.com/lib/pq v1.12.3
 	github.com/mattn/go-sqlite3 v1.14.50
