@@ -122,6 +122,28 @@ func TestLockedResolutionRejectsMutableReplacements(t *testing.T) {
 	require.False(t, ok)
 }
 
+func TestWorkspaceLockedVersionPolicies(t *testing.T) {
+	handler := lockedResolutionHandler(t, []lock.Module{
+		{Name: "acme/a", Version: "1.0.0"},
+		{Name: "acme/b", Version: "2.0.0"},
+		{Name: "local/selected", Version: "3.0.0"},
+	})
+	handler.replacements["local/selected"] = lock.Replacement{From: "local/selected", To: t.TempDir()}
+	handler.replacements["local/new"] = lock.Replacement{From: "local/new", To: t.TempDir()}
+
+	require.Equal(t, map[string]string{
+		"acme/a": "1.0.0", "acme/b": "2.0.0",
+		"local/selected": "3.0.0", "local/new": replacementZeroVersion,
+	}, handler.workspaceLockedVersions(nil, false), "startup preserves the complete selected graph")
+	require.Equal(t, map[string]string{
+		"local/selected": "3.0.0", "local/new": replacementZeroVersion,
+	}, handler.workspaceLockedVersions(nil, true), "full update releases only remote selections")
+	require.Equal(t, map[string]string{
+		"acme/b": "2.0.0", "local/selected": "3.0.0", "local/new": replacementZeroVersion,
+	}, handler.workspaceLockedVersions(map[string]struct{}{"acme/a": {}}, false),
+		"targeted update releases its target and preserves other selections")
+}
+
 func TestVerifiedOfflineResolutionNeverFallsBackToHub(t *testing.T) {
 	handler := lockedResolutionHandler(t, []lock.Module{
 		{Name: "acme/app", Version: "1.2.3"}, // Missing digest: not verified.

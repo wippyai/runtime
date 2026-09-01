@@ -11,7 +11,6 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/wippyai/runtime/api/boot"
-	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/payload"
 	regapi "github.com/wippyai/runtime/api/registry"
 	bootauth "github.com/wippyai/runtime/boot/deps/auth"
@@ -137,9 +136,8 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Scan app source plus local replacement sources for dependency entries.
-	// Replacement modules are not resolved from the hub, but their transitive
-	// ns.dependency entries are part of the active application graph.
+	// Scan only application roots. Selected replacement modules expose their
+	// transitive declarations lazily through the replacement-aware resolver.
 	logger.Info("scanning dependency sources", zap.String("src_dir", srcDir))
 
 	entries, err := loadDependencyScanEntries(app.Ctx, app.Loader, srcDir, oldLockObj, logger)
@@ -151,45 +149,18 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	rootDeps := extractRootDependencies(entries, app.Transcoder)
 	logger.Info("found root dependencies", zap.Int("count", len(rootDeps)))
 
-	// Local replacements participate in the active graph but are never resolved
-	// from the Hub.
-	replacedModules := effectiveReplacementModules(oldLockObj)
-
 	resolvedModules := make([]hub.ResolvedModule, 0)
 	if len(rootDeps) == 0 {
 		logger.Info("no root dependencies found in source, pruning lock modules")
 	} else {
-		// Convert to hub dependency specs, skipping replaced modules
-		hubDeps := make([]hub.DependencySpec, 0, len(rootDeps))
-		for _, dep := range rootDeps {
-			depName := dep.Org + "/" + dep.Module
-			if replacedModules[depName] {
-				logger.Info("skipping replaced module from hub resolution", zap.String("module", depName))
-				continue
-			}
-			hubDeps = append(hubDeps, hub.DependencySpec{
-				Org:        dep.Org,
-				Name:       dep.Module,
-				Constraint: dep.Constraint,
-			})
-		}
-
 		logger.Info("resolving dependency graph")
-		result, err := hub.Resolve(app.Ctx, hubClient, hubDeps, nil)
+		result, err := resolveUpdatedWorkspaceDependencies(app.Ctx, hubClient, oldLockObj, lockFilePath, runtimeCfg, rootDeps, nil)
 		if err != nil {
-			return NewBuildDependencyGraphError(err)
+			return err
 		}
 
-		if len(result.Errors) > 0 {
-			logger.Error("dependency resolution errors", zap.Int("count", len(result.Errors)))
-			for _, resErr := range result.Errors {
-				logger.Error("error", zap.String("module", resErr.Org+"/"+resErr.Name), zap.String("reason", resErr.Message))
-			}
-			return newResolutionConflictsError("dependency conflicts detected", result.Errors)
-		}
-
-		logger.Info("dependency graph resolved", zap.Int("total_modules", len(result.Modules)))
-		resolvedModules = result.Modules
+		logger.Info("dependency graph resolved", zap.Int("total_modules", len(result)))
+		resolvedModules = result
 	}
 
 	// Convert resolved modules to lock file
@@ -233,6 +204,44 @@ type dependencyRequest struct {
 	Org        string
 	Module     string
 	Constraint string
+}
+
+func resolveUpdatedWorkspaceDependencies(
+	ctx context.Context,
+	provider hub.HubClient,
+	lockObj *lock.Lock,
+	lockPath string,
+	cfg boot.Config,
+	roots []dependencyRequest,
+	updateModules []string,
+) ([]hub.ResolvedModule, error) {
+	if lockObj == nil {
+		var err error
+		lockObj, err = lock.New(lockPath, lock.WithWorkspaceConfig(cfg))
+		if err != nil {
+			return nil, NewLoadLockFileError(fmt.Errorf("lock file %s: %w", lockPath, err))
+		}
+	}
+	definitions := make([]hub.DependencyDefinition, 0, len(roots))
+	for _, root := range roots {
+		definitions = append(definitions, hub.DependencyDefinition{
+			Component: root.Org + "/" + root.Module,
+			Version:   root.Constraint,
+		})
+	}
+	handler, err := hub.NewDependencyHandler(hub.DependencyHandlerOptions{
+		Hub:                   provider,
+		LockPath:              lockObj.Path(),
+		WorkspaceReplacements: lockObj.GetReplacements(),
+	})
+	if err != nil {
+		return nil, NewBuildDependencyGraphError(err)
+	}
+	modules, err := handler.UpdateWorkspaceDependencies(ctx, definitions, updateModules)
+	if err != nil {
+		return nil, NewBuildDependencyGraphError(err)
+	}
+	return modules, nil
 }
 
 func extractRootDependencies(entries []regapi.Entry, dtt payload.Transcoder) []dependencyRequest {
@@ -318,8 +327,6 @@ func runTargetedUpdate(cmd *cobra.Command, lockFilePath, srcDir, modulesDir stri
 
 	oldLockObj := lockObj
 
-	replacedModules := effectiveReplacementModules(lockObj)
-
 	effectiveTargets := make([]string, 0, len(targetModules))
 	for _, moduleName := range targetModules {
 		if repl, ok := lockObj.GetReplacement(moduleName); ok {
@@ -349,68 +356,28 @@ func runTargetedUpdate(cmd *cobra.Command, lockFilePath, srcDir, modulesDir stri
 		sourceConstraints[key] = dep.Constraint
 	}
 
-	// Build frozen constraints from lock file (all modules except targets and replaced)
+	// The shared workspace resolver prefers existing non-target selections and
+	// releases targets, while still allowing required transitive movement.
 	targetSet := make(map[string]bool)
 	for _, name := range effectiveTargets {
 		targetSet[name] = true
 	}
 
-	modules := lockObj.GetModules()
-	hubDeps := make([]hub.DependencySpec, 0, len(modules)+len(targetModules))
-
-	for _, mod := range modules {
-		parts := strings.SplitN(mod.Name, "/", 2)
-		if len(parts) != 2 {
-			continue
-		}
-
-		if targetSet[mod.Name] || replacedModules[mod.Name] {
-			continue
-		}
-
-		hubDeps = append(hubDeps, hub.DependencySpec{
-			Org:        parts[0],
-			Name:       parts[1],
-			Constraint: "=" + mod.Version,
-		})
-	}
-
-	// Add target modules with source constraints
+	// Warn for requested modules that are not application dependency roots.
 	for _, moduleName := range effectiveTargets {
-		constraint, ok := sourceConstraints[moduleName]
-		if !ok {
+		if _, ok := sourceConstraints[moduleName]; !ok {
 			logger.Warn("module not found in source dependencies", zap.String("module", moduleName))
-			continue
 		}
-
-		parts := strings.SplitN(moduleName, "/", 2)
-		if len(parts) != 2 {
-			return NewParseModuleNameError(moduleName, fmt.Errorf("invalid format, expected org/module"))
-		}
-
-		hubDeps = append(hubDeps, hub.DependencySpec{
-			Org:        parts[0],
-			Name:       parts[1],
-			Constraint: constraint,
-		})
 	}
 
-	logger.Info("resolving with frozen dependencies")
-	result, err := hub.Resolve(app.Ctx, hubClient, hubDeps, nil)
+	logger.Info("resolving targeted dependency graph")
+	resolvedModules, err := resolveUpdatedWorkspaceDependencies(app.Ctx, hubClient, lockObj, lockFilePath, runtimeCfg, rootDeps, effectiveTargets)
 	if err != nil {
-		return NewBuildDependencyGraphError(err)
-	}
-
-	if len(result.Errors) > 0 {
-		logger.Error("resolution errors", zap.Int("count", len(result.Errors)))
-		for _, resErr := range result.Errors {
-			logger.Error("error", zap.String("module", resErr.Org+"/"+resErr.Name), zap.String("reason", resErr.Message))
-		}
-		return newResolutionConflictsError("update conflicts detected", result.Errors)
+		return err
 	}
 
 	// Build new lock file
-	newLockObj, err := convertResolvedToLock(lockFilePath, result.Modules, modulesDir, srcDir)
+	newLockObj, err := convertResolvedToLock(lockFilePath, resolvedModules, modulesDir, srcDir)
 	if err != nil {
 		return NewLoadLockFileError(err)
 	}
@@ -501,31 +468,6 @@ func loadDependencyScanEntries(ctx context.Context, ldr boot.Loader, srcDir stri
 		{label: "source", path: srcDir, root: moduleRoot},
 	}
 
-	if lockObj != nil {
-		// Update treats every effective replacement as a resolver input, even
-		// when its module is not selected by the current graph. Unlike boot and
-		// install, every declared source must therefore be present for this scan.
-		if err := lock.ValidateReplacements(lockObj.Path(), lockObj.GetReplacements()); err != nil {
-			return nil, fmt.Errorf("validate replacement dependency sources: %w", err)
-		}
-		lockDir := filepath.Dir(lockObj.Path())
-		for _, replacement := range lockObj.GetReplacements() {
-			if replacement.To == "" {
-				continue
-			}
-			replacementRoot := lock.ResolveLockPath(lockDir, replacement.To)
-			paths = append(paths, struct {
-				label string
-				path  string
-				root  string
-			}{
-				label: "replacement " + replacement.From,
-				path:  lock.ModuleEntryLoadPath(replacementRoot),
-				root:  replacementRoot,
-			})
-		}
-	}
-
 	seen := make(map[string]bool, len(paths))
 	entries := make([]regapi.Entry, 0)
 	for _, scanPath := range paths {
@@ -552,17 +494,6 @@ func loadDependencyScanEntries(ctx context.Context, ldr boot.Loader, srcDir stri
 	}
 
 	return entries, nil
-}
-
-func effectiveReplacementModules(lockObj *lock.Lock) map[string]bool {
-	modules := make(map[string]bool)
-	if lockObj == nil {
-		return modules
-	}
-	for _, replacement := range lockObj.GetReplacements() {
-		modules[replacement.From] = true
-	}
-	return modules
 }
 
 func logChanges(logger *zap.Logger, changes *lock.Changes) {
@@ -649,18 +580,6 @@ func pruneModuleArtifacts(vendorDir, moduleName, moduleVersion string, removeCur
 			}
 		}
 	}
-}
-
-func newResolutionConflictsError(prefix string, errs []hub.ResolutionError) apierror.Error {
-	if len(errs) == 0 {
-		return apierror.New(apierror.Invalid, prefix+" (0)").WithRetryable(apierror.False)
-	}
-	details := make([]string, 0, len(errs))
-	for _, resErr := range errs {
-		details = append(details, formatResolutionError(resErr))
-	}
-	msg := fmt.Sprintf("%s (%d): %s", prefix, len(errs), strings.Join(details, "; "))
-	return apierror.New(apierror.Invalid, msg).WithRetryable(apierror.False)
 }
 
 func formatResolutionError(resErr hub.ResolutionError) string {

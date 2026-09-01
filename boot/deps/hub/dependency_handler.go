@@ -1462,15 +1462,50 @@ func (h *DependencyHandler) ResolveWorkspaceDependencies(
 	ctx context.Context,
 	deps []DependencyDefinition,
 ) ([]ResolvedModule, error) {
+	lockedVersions := h.workspaceLockedVersions(nil, false)
+	return h.resolveModules(ctx, deps, lockedVersions, nil)
+}
+
+// UpdateWorkspaceDependencies resolves a workspace graph while releasing the
+// requested remote modules from their existing lock selections. An empty
+// updateModules slice releases every remote module. Replacement selections are
+// retained because a replacement changes source, not release identity; a new
+// unversioned replacement receives the local-only zero release until stronger
+// source or Hub evidence selects another version.
+func (h *DependencyHandler) UpdateWorkspaceDependencies(
+	ctx context.Context,
+	deps []DependencyDefinition,
+	updateModules []string,
+) ([]ResolvedModule, error) {
+	updates := make(map[string]struct{}, len(updateModules))
+	for _, name := range updateModules {
+		if name = strings.TrimSpace(name); name != "" {
+			updates[name] = struct{}{}
+		}
+	}
+	return h.resolveModules(ctx, deps, h.workspaceLockedVersions(updates, len(updateModules) == 0), nil)
+}
+
+func (h *DependencyHandler) workspaceLockedVersions(updates map[string]struct{}, updateAll bool) map[string]string {
 	lockedVersions := make(map[string]string)
 	if h.lock != nil {
 		for _, module := range h.lock.GetModules() {
-			if module.Name != "" && module.Version != "" {
+			if module.Name == "" || module.Version == "" {
+				continue
+			}
+			_, replacement := h.replacementPath(module.Name)
+			_, update := updates[module.Name]
+			if replacement || (!updateAll && !update) {
 				lockedVersions[module.Name] = module.Version
 			}
 		}
 	}
-	return h.resolveModules(ctx, deps, lockedVersions, nil)
+	for name := range h.replacements {
+		if lockedVersions[name] == "" && h.replacementModuleVersion(name) == "" {
+			lockedVersions[name] = replacementZeroVersion
+		}
+	}
+	return lockedVersions
 }
 
 // resolveEffectiveModules returns the complete module selection controlled by
@@ -1760,7 +1795,11 @@ func (p *replacementManifestProvider) replacementVersion(name, constraint string
 	if isExactModuleVersion(constraint) {
 		return constraint
 	}
-	return p.lockedVersions[name]
+	locked := p.lockedVersions[name]
+	if lockedVersionSatisfies(locked, constraint) {
+		return locked
+	}
+	return ""
 }
 
 // localReplacementVersion labels a replaced module from local evidence alone,
@@ -1843,8 +1882,11 @@ func loadReplacementEntries(
 	transcoder payload.Transcoder,
 ) ([]regapi.Entry, error) {
 	stat, err := os.Stat(path)
-	if err != nil || !stat.IsDir() {
-		return nil, nil
+	if err != nil {
+		return nil, NewDependencyLoadError(path, err)
+	}
+	if !stat.IsDir() {
+		return nil, NewDependencyLoadError(path, fmt.Errorf("replacement path is not a directory"))
 	}
 
 	cfg, _ := depconfig.Load(path)
