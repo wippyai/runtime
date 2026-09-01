@@ -31,7 +31,7 @@ func TestWorkspaceReplacementStateMachine(t *testing.T) {
 
 	for seed := int64(0); seed < 16; seed++ {
 		t.Run(fmt.Sprintf("seed-%02d", seed), func(t *testing.T) {
-			rng := rand.New(rand.NewSource(seed)) //nolint:gosec // deterministic regression generator
+			rng := rand.New(rand.NewSource(seed))
 			root := t.TempDir()
 			lockPath := filepath.Join(root, lock.DefaultFilename)
 			replacementPath := filepath.Join(root, "local-component")
@@ -177,11 +177,12 @@ entries:
 				}
 
 				var resolved []ResolvedModule
-				if op == 6 || op == 0 || op == 1 || op == 2 {
+				switch op {
+				case 0, 1, 2, 6:
 					resolved, err = handler.UpdateWorkspaceDependencies(newTestContext(), roots, nil)
-				} else if op == 7 {
+				case 7:
 					resolved, err = handler.UpdateWorkspaceDependencies(newTestContext(), roots, []string{remoteModule})
-				} else {
+				default:
 					resolved, err = handler.ResolveWorkspaceDependencies(newTestContext(), roots)
 				}
 

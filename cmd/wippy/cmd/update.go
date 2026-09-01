@@ -11,7 +11,6 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/wippyai/runtime/api/boot"
-	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/payload"
 	regapi "github.com/wippyai/runtime/api/registry"
 	bootauth "github.com/wippyai/runtime/boot/deps/auth"
@@ -581,18 +580,6 @@ func pruneModuleArtifacts(vendorDir, moduleName, moduleVersion string, removeCur
 			}
 		}
 	}
-}
-
-func newResolutionConflictsError(prefix string, errs []hub.ResolutionError) apierror.Error {
-	if len(errs) == 0 {
-		return apierror.New(apierror.Invalid, prefix+" (0)").WithRetryable(apierror.False)
-	}
-	details := make([]string, 0, len(errs))
-	for _, resErr := range errs {
-		details = append(details, formatResolutionError(resErr))
-	}
-	msg := fmt.Sprintf("%s (%d): %s", prefix, len(errs), strings.Join(details, "; "))
-	return apierror.New(apierror.Invalid, msg).WithRetryable(apierror.False)
 }
 
 func formatResolutionError(resErr hub.ResolutionError) string {
