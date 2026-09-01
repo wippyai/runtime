@@ -456,7 +456,7 @@ func TestStaticFactory_RefreshesMountedFilesAfterFilesystemRegisterEvent(t *test
 
 	serve := func() *httptest.ResponseRecorder {
 		w := httptest.NewRecorder()
-		handler.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "http://example.com/app/keeper/app.html", nil))
+		handler.ServeHTTP(w, httptest.NewRequestWithContext(ctx, http.MethodGet, "http://example.com/app/keeper/app.html", nil))
 		return w
 	}
 

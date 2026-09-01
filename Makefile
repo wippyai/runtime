@@ -46,7 +46,7 @@ test-network:
 
 .PHONY: lint
 lint:
-	go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.8.0 run --timeout=10m --build-tags=race ./...
+	go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.2 run --timeout=10m --build-tags=race,goexperiment.jsonv2 ./...
 
 # Mutation testing with gremlins. Coverage is scoped to the directory gremlins
 # runs from, so target a package subtree via MUTATE_DIR. workers=1 keeps per-

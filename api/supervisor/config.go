@@ -23,18 +23,18 @@ type (
 		// DependsOn is the legacy spelling kept for older modules. New manifests should use Requires.
 		DependsOn       []string      `json:"depends_on,omitempty" yaml:"depends_on,omitempty"`
 		RetryPolicy     RetryPolicy   `json:"restart" yaml:"restart"`
-		StartTimeout    time.Duration `json:"start_timeout,omitzero,format:units" yaml:"start_timeout" default:"10s"`
-		StopTimeout     time.Duration `json:"stop_timeout,omitzero,format:units" yaml:"stop_timeout" default:"10s"`
-		StableThreshold time.Duration `json:"stable_threshold,omitzero,format:units" yaml:"stable_threshold" default:"5s"`
+		StartTimeout    time.Duration `json:"start_timeout,omitzero" yaml:"start_timeout" default:"10s"`
+		StopTimeout     time.Duration `json:"stop_timeout,omitzero" yaml:"stop_timeout" default:"10s"`
+		StableThreshold time.Duration `json:"stable_threshold,omitzero" yaml:"stable_threshold" default:"5s"`
 		AutoStart       bool          `json:"auto_start" yaml:"auto_start" default:"false"`
 	}
 
 	// RetryPolicy defines the parameters for retrying a service after a failure.
 	RetryPolicy struct {
 		// InitialDelay specifies the initial delay before the first retry attempt.
-		InitialDelay time.Duration `json:"initial_delay,omitzero,format:units" yaml:"initial_delay" default:"1s"`
+		InitialDelay time.Duration `json:"initial_delay,omitzero" yaml:"initial_delay" default:"1s"`
 		// MaxDelay specifies the maximum delay between retry attempts.
-		MaxDelay time.Duration `json:"max_delay,omitzero,format:units" yaml:"max_delay" default:"90s"`
+		MaxDelay time.Duration `json:"max_delay,omitzero" yaml:"max_delay" default:"90s"`
 		// BackoffFactor determines the exponential backoff factor for increasing the delay between retries.
 		BackoffFactor float64 `json:"backoff_factor" yaml:"backoff_factor" default:"2.0"`
 		// Jitter introduces random variation to the retry delay to prevent synchronized retries.

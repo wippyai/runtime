@@ -303,7 +303,7 @@ func resolveString(value string, vars map[string]any) (any, error) {
 		if err != nil {
 			return nil, err
 		}
-		b.WriteString(fmt.Sprint(replacement))
+		_, _ = fmt.Fprint(&b, replacement)
 		last = match[1]
 	}
 	b.WriteString(value[last:])

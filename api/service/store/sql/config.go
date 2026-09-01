@@ -27,7 +27,7 @@ type Config struct {
 	PayloadColumnName string                     `json:"payload_column_name"`
 	ExpireColumnName  string                     `json:"expire_column_name"`
 	Lifecycle         supervisor.LifecycleConfig `json:"lifecycle"`
-	CleanupInterval   time.Duration              `json:"cleanup_interval,omitzero,format:units"`
+	CleanupInterval   time.Duration              `json:"cleanup_interval,omitzero"`
 }
 
 // Validate checks if the configuration is valid

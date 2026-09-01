@@ -81,7 +81,8 @@ func digestDirectoryTreeFiltered(root string, excluded func(string) bool) (strin
 			if err := writeTreeDigestRecord(hash, 'f', rel, mode, info.Size()); err != nil {
 				return err
 			}
-			file, err := os.Open(path)
+			// WalkDir does not follow symlinks; the workspace tree is trusted local input.
+			file, err := os.Open(path) //nolint:gosec // G122: path is the current WalkDir entry.
 			if err != nil {
 				return err
 			}

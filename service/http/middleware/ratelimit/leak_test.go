@@ -35,7 +35,7 @@ func TestCreateRateLimitMiddlewareDoesNotLeakGoroutines(t *testing.T) {
 			OptionEntryTTL:        "5s",
 		})
 		handler := mw(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
-		req := httptest.NewRequest(http.MethodGet, "http://127.0.0.1/", nil)
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "http://127.0.0.1/", nil)
 		req.RemoteAddr = "127.0.0.1:1234"
 		handler.ServeHTTP(httptest.NewRecorder(), req)
 	}
@@ -73,7 +73,7 @@ func TestManagerCreateMiddlewareDoesNotLeakGoroutines(t *testing.T) {
 			OptionEntryTTL:        "5s",
 		})
 		handler := mw(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
-		req := httptest.NewRequest(http.MethodGet, "http://127.0.0.1/", nil)
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "http://127.0.0.1/", nil)
 		req.RemoteAddr = "127.0.0.1:1234"
 		handler.ServeHTTP(httptest.NewRecorder(), req)
 	}
@@ -112,7 +112,7 @@ func TestCreateRateLimitMiddlewareLazyCleanupEvictsStaleEntries(t *testing.T) {
 	}))
 
 	for i := 0; i < 50; i++ {
-		req := httptest.NewRequest(http.MethodGet, "http://127.0.0.1/", nil)
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "http://127.0.0.1/", nil)
 		req.RemoteAddr = "127.0.0.1:1234"
 		req.Header.Set("x-test-key", "client-"+strconvItoa(i))
 		handler.ServeHTTP(httptest.NewRecorder(), req)
@@ -120,7 +120,7 @@ func TestCreateRateLimitMiddlewareLazyCleanupEvictsStaleEntries(t *testing.T) {
 
 	time.Sleep(1500 * time.Millisecond)
 
-	req := httptest.NewRequest(http.MethodGet, "http://127.0.0.1/", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "http://127.0.0.1/", nil)
 	req.RemoteAddr = "127.0.0.1:1234"
 	req.Header.Set("x-test-key", "client-new")
 	resp := httptest.NewRecorder()
