@@ -445,14 +445,14 @@ func extractResourceFS(targetDir string, resFS fs.ReadDirFS) error {
 			return err
 		}
 		if d.IsDir() {
-			return os.MkdirAll(outPath, 0755)
+			return os.MkdirAll(outPath, 0755) //nolint:gosec // G122: outPath is validated below the extraction root.
 		}
 
 		f, err := resFS.Open(path)
 		if err != nil {
 			return fmt.Errorf("open resource file %s: %w", path, err)
 		}
-		if err := os.MkdirAll(filepath.Dir(outPath), 0755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(outPath), 0755); err != nil { //nolint:gosec // G122: outPath is root-confined.
 			_ = f.Close()
 			return err
 		}

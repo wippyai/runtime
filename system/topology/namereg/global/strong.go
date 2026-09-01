@@ -168,25 +168,25 @@ func (s *Service) registerStrong(ctx context.Context, name string, p pid.PID) (g
 			case global.RegisterStateExpired:
 				if outcome.Reason == strongRejectConflict {
 					return global.RegisterOutcome{
-							Epoch: outcome.Epoch,
-							State: global.RegisterStateExpired,
-						}, &global.StrongConflictError{
-							Name:       name,
-							Epoch:      outcome.Epoch,
-							Reason:     outcome.Reason,
-							RejectedBy: outcome.RejectedBy,
-						}
+						Epoch: outcome.Epoch,
+						State: global.RegisterStateExpired,
+					}, &global.StrongConflictError{
+						Name:       name,
+						Epoch:      outcome.Epoch,
+						Reason:     outcome.Reason,
+						RejectedBy: outcome.RejectedBy,
+					}
 				}
 				missing := make([]string, len(outcome.MissingAcks))
 				copy(missing, outcome.MissingAcks)
 				return global.RegisterOutcome{
-						Epoch: outcome.Epoch,
-						State: global.RegisterStateExpired,
-					}, &global.StrongRegistrationTimeoutError{
-						Name:        name,
-						Epoch:       outcome.Epoch,
-						MissingAcks: missing,
-					}
+					Epoch: outcome.Epoch,
+					State: global.RegisterStateExpired,
+				}, &global.StrongRegistrationTimeoutError{
+					Name:        name,
+					Epoch:       outcome.Epoch,
+					MissingAcks: missing,
+				}
 			}
 		}
 	}

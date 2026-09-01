@@ -225,7 +225,7 @@ func websocketURL(serverURL string) string {
 }
 
 func websocketRequest(rawURL string) *http.Request {
-	req := httptest.NewRequest(http.MethodGet, rawURL, nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, rawURL, nil)
 	req.Header.Set("Connection", "Upgrade")
 	req.Header.Set("Upgrade", "websocket")
 	req.Header.Set("Sec-WebSocket-Version", "13")

@@ -36,16 +36,16 @@ type WorkerOptionsConfig struct {
 	DefaultVersioningBehavior               VersioningBehavior `json:"default_versioning_behavior,omitempty"`
 	BuildID                                 string             `json:"build_id,omitempty"`
 	DeploymentName                          string             `json:"deployment_name,omitempty"`
-	DeadlockDetectionTimeout                time.Duration      `json:"deadlock_detection_timeout,omitzero,format:units"`
+	DeadlockDetectionTimeout                time.Duration      `json:"deadlock_detection_timeout,omitzero"`
 	MaxConcurrentActivityTaskPollers        int                `json:"max_concurrent_activity_task_pollers,omitempty"`
 	WorkerActivitiesPerSecond               float64            `json:"worker_activities_per_second,omitempty"`
 	WorkerLocalActivitiesPerSecond          float64            `json:"worker_local_activities_per_second,omitempty"`
 	TaskQueueActivitiesPerSecond            float64            `json:"task_queue_activities_per_second,omitempty"`
-	StickyScheduleToStartTimeout            time.Duration      `json:"sticky_schedule_to_start_timeout,omitzero,format:units"`
-	WorkerStopTimeout                       time.Duration      `json:"worker_stop_timeout,omitzero,format:units"`
+	StickyScheduleToStartTimeout            time.Duration      `json:"sticky_schedule_to_start_timeout,omitzero"`
+	WorkerStopTimeout                       time.Duration      `json:"worker_stop_timeout,omitzero"`
 	MaxConcurrentActivityExecutionSize      int                `json:"max_concurrent_activity_execution_size,omitempty"`
-	MaxHeartbeatThrottleInterval            time.Duration      `json:"max_heartbeat_throttle_interval,omitzero,format:units"`
-	DefaultHeartbeatThrottleInterval        time.Duration      `json:"default_heartbeat_throttle_interval,omitzero,format:units"`
+	MaxHeartbeatThrottleInterval            time.Duration      `json:"max_heartbeat_throttle_interval,omitzero"`
+	DefaultHeartbeatThrottleInterval        time.Duration      `json:"default_heartbeat_throttle_interval,omitzero"`
 	MaxConcurrentWorkflowTaskExecutionSize  int                `json:"max_concurrent_workflow_task_execution_size,omitempty"`
 	MaxConcurrentLocalActivityExecutionSize int                `json:"max_concurrent_local_activity_execution_size,omitempty"`
 	MaxConcurrentSessionExecutionSize       int                `json:"max_concurrent_session_execution_size,omitempty"`

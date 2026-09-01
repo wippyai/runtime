@@ -39,9 +39,9 @@ const (
 type (
 	// PoolConfig defines settings for a database connection pool
 	PoolConfig struct {
-		MaxOpen     int           `json:"max_open"`                           // Maximum number of open connections
-		MaxIdle     int           `json:"max_idle"`                           // Maximum number of idle connections
-		MaxLifetime time.Duration `json:"max_lifetime,omitzero,format:units"` // Maximum lifetime of a connection
+		MaxOpen     int           `json:"max_open"`              // Maximum number of open connections
+		MaxIdle     int           `json:"max_idle"`              // Maximum number of idle connections
+		MaxLifetime time.Duration `json:"max_lifetime,omitzero"` // Maximum lifetime of a connection
 	}
 
 	// DBConfig defines the base configuration for SQL databases

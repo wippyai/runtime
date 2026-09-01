@@ -40,9 +40,9 @@ type ClientConfig struct {
 	TQPrefix                 string                     `json:"tq_prefix,omitempty"`
 	Lifecycle                supervisor.LifecycleConfig `json:"lifecycle,omitempty"`
 	HealthCheck              HealthCheckConfig          `json:"health_check,omitempty"`
-	ConnectionTimeout        time.Duration              `json:"connection_timeout,omitzero,format:units"`
-	KeepAliveTime            time.Duration              `json:"keep_alive_time,omitzero,format:units"`
-	KeepAliveTimeout         time.Duration              `json:"keep_alive_timeout,omitzero,format:units"`
+	ConnectionTimeout        time.Duration              `json:"connection_timeout,omitzero"`
+	KeepAliveTime            time.Duration              `json:"keep_alive_time,omitzero"`
+	KeepAliveTimeout         time.Duration              `json:"keep_alive_timeout,omitzero"`
 }
 
 // AuthConfig defines authentication settings for a Temporal client.
@@ -74,8 +74,8 @@ type TLSConfig struct {
 
 // HealthCheckConfig defines health check settings
 type HealthCheckConfig struct {
-	Enabled  bool          `json:"enabled"`                        // Enable health checks
-	Interval time.Duration `json:"interval,omitzero,format:units"` // Check interval (default: 30s)
+	Enabled  bool          `json:"enabled"`           // Enable health checks
+	Interval time.Duration `json:"interval,omitzero"` // Check interval (default: 30s)
 }
 
 // InitDefaults sets zero-value fields to sensible defaults: namespace "default",
