@@ -195,11 +195,7 @@ func (b *Bus) SubscribeP(
 }
 
 // Unsubscribe removes the subscription identified by the given subscriber ID.
-func (b *Bus) Unsubscribe(ctx context.Context, subID event.SubscriberID) {
-	if ctx.Err() != nil {
-		return
-	}
-
+func (b *Bus) Unsubscribe(_ context.Context, subID event.SubscriberID) {
 	req := &unsubscribeRequest{
 		subID:  subID,
 		doneCh: make(chan struct{}, 1),
@@ -211,11 +207,10 @@ func (b *Bus) Unsubscribe(ctx context.Context, subID event.SubscriberID) {
 		unsubscribe: req,
 	})
 
-	// Wait for response
-	select {
-	case <-req.doneCh:
-	case <-ctx.Done():
-	}
+	// Unsubscribe is an ownership barrier. Returning early on cancellation
+	// would let the caller release the channel while the dispatcher can still
+	// hold an in-flight send reference.
+	<-req.doneCh
 }
 
 // Send publishes an event to all matching subscribers.
@@ -239,7 +234,10 @@ func (b *Bus) Stop() {
 	b.actionMu.Lock()
 	if b.closed.Swap(true) {
 		b.actionMu.Unlock()
-		return // Already closed
+		// A concurrent Stop may still be draining the dispatcher. Stop is a
+		// terminal barrier, not merely an idempotent state flip.
+		b.wg.Wait()
+		return
 	}
 	b.actionQueue = append(b.actionQueue, action{
 		kind: actStop,
@@ -262,11 +260,17 @@ func (b *Bus) enqueueAction(a action) error {
 
 	if b.closed.Load() {
 		b.actionMu.Unlock()
-		// Respond to control operations immediately
+		// Resolve control operations according to the terminal barrier.
 		switch a.kind {
 		case actSubscribe:
 			a.subscribe.doneCh <- ErrBusClosed
 		case actUnsubscribe:
+			// Stop may have marked the bus closed while the dispatcher is
+			// still delivering a previously drained send batch.  An
+			// unsubscribe acknowledgement is also permission for helpers to
+			// release their delivery channel, so do not acknowledge it until
+			// the sole sender has exited.
+			b.wg.Wait()
 			a.unsubscribe.doneCh <- struct{}{}
 		case actSend:
 			// Silently drop send operations when closed

@@ -487,6 +487,76 @@ func TestUnsubscribeAfterStop(t *testing.T) {
 	b.Unsubscribe(context.Background(), subID)
 }
 
+func TestUnsubscribeWithCanceledContextStillFencesDelivery(t *testing.T) {
+	b := NewBus()
+	defer b.Stop()
+
+	ch := make(chan event.Event, 1)
+	subID, err := b.Subscribe(context.Background(), "test-system", ch)
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	b.Unsubscribe(ctx, subID)
+
+	// Closing after the barrier is safe. The following missing-ID
+	// unsubscribe serializes behind Send and proves the dispatcher processed
+	// the send without retaining this channel.
+	close(ch)
+	b.Send(context.Background(), event.Event{System: "test-system", Kind: "after-fence"})
+	b.Unsubscribe(context.Background(), "sub.delivery-barrier")
+}
+
+func TestClosedBusUnsubscribeWaitsForDispatcherExit(t *testing.T) {
+	b := &Bus{}
+	b.closed.Store(true)
+	b.wg.Add(1)
+
+	done := make(chan struct{})
+	go func() {
+		b.Unsubscribe(context.Background(), "sub.in-flight")
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		t.Fatal("unsubscribe acknowledged while the dispatcher could still send")
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	b.wg.Done()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("unsubscribe did not complete after dispatcher exit")
+	}
+}
+
+func TestRepeatedStopWaitsForDispatcherExit(t *testing.T) {
+	b := &Bus{}
+	b.closed.Store(true)
+	b.wg.Add(1)
+
+	done := make(chan struct{})
+	go func() {
+		b.Stop()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		t.Fatal("repeated Stop returned before the dispatcher exited")
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	b.wg.Done()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("repeated Stop did not complete after dispatcher exit")
+	}
+}
+
 func TestHighConcurrencyStress(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping stress test in short mode")
