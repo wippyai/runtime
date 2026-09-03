@@ -185,13 +185,13 @@ func (b *Bus) SubscribeP(
 		return "", err
 	}
 
-	// Wait for response
-	select {
-	case err := <-req.doneCh:
-		return subID, err
-	case <-ctx.Done():
-		return "", ctx.Err()
+	// Once enqueued, wait for the dispatcher to decide ownership. Returning on
+	// cancellation before that decision could leave an installed subscription
+	// whose ID was never returned to the caller.
+	if err := <-req.doneCh; err != nil {
+		return "", err
 	}
+	return subID, nil
 }
 
 // Unsubscribe removes the subscription identified by the given subscriber ID.
@@ -213,8 +213,10 @@ func (b *Bus) Unsubscribe(_ context.Context, subID event.SubscriberID) {
 	<-req.doneCh
 }
 
-// Send publishes an event to all matching subscribers.
-// This is guaranteed to never block and never lose messages.
+// Send publishes an event to all matching subscribers without blocking the
+// caller on delivery. Events are delivered in order while the publisher and
+// subscriber contexts remain active; cancellation may abort queued or
+// in-progress delivery. Calls made after Stop are ignored.
 func (b *Bus) Send(ctx context.Context, e event.Event) {
 	if ctx.Err() != nil {
 		return
@@ -326,6 +328,12 @@ func (b *Bus) processActions() bool {
 
 		switch a.kind {
 		case actSubscribe:
+			// Cancellation before the serialized ownership decision means the
+			// bus never takes ownership of the caller's channel.
+			if err := a.subscribe.sub.ctx.Err(); err != nil {
+				a.subscribe.doneCh <- err
+				continue
+			}
 			if b.maxSubscribers > 0 && len(b.subscribers) >= b.maxSubscribers {
 				// Cap reached. The metric+counter let the soak gate
 				// catch a runaway leak; the typed error gives the

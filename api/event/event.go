@@ -33,6 +33,9 @@ type (
 		// Subscribe subscribes a channel to events from a specific system.
 		// The caller must not close the channel until Unsubscribe returns;
 		// that return is the barrier proving the bus can no longer send to it.
+		// Once the request is accepted for dispatch, Subscribe waits for the
+		// ownership decision even if the context is canceled. On error, the bus
+		// does not retain the channel.
 		Subscribe(context.Context, System, chan<- Event) (SubscriberID, error)
 
 		// SubscribeP has the same channel ownership and Unsubscribe barrier as Subscribe.
@@ -43,7 +46,9 @@ type (
 		// bus operation can send to that subscription.
 		Unsubscribe(context.Context, SubscriberID)
 
-		// Send publishes an event to the bus.
+		// Send publishes an event to the bus. Delivery remains ordered and
+		// lossless while the publisher and subscriber contexts stay active;
+		// cancellation may abort queued or in-progress delivery.
 		Send(context.Context, Event)
 	}
 )

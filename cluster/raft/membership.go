@@ -113,6 +113,7 @@ type MembershipHandler struct {
 	churnMu    sync.Mutex
 	wg         sync.WaitGroup
 	stopOnce   sync.Once
+	subCancel  context.CancelFunc
 	cfg        HandlerConfig
 }
 
@@ -159,14 +160,20 @@ func (h *MembershipHandler) Start(ctx context.Context) error {
 		vc.SetVoterCap(h.cfg.MaxVoters)
 	}
 
+	// Own the subscription context independently of the component context.
+	// Stop may run before that parent is canceled; canceling this context first
+	// keeps a backlogged dispatcher from blocking behind an abandoned channel.
+	subCtx, subCancel := context.WithCancel(ctx)
 	ch := make(chan event.Event, busBuffer)
-	subID, err := h.bus.Subscribe(ctx, cluster.System, ch)
+	subID, err := h.bus.Subscribe(subCtx, cluster.System, ch)
 	if err != nil {
+		subCancel()
 		return fmt.Errorf("subscribe to cluster events: %w", err)
 	}
+	h.subCancel = subCancel
 
 	h.wg.Add(2)
-	go h.subscriberLoop(ctx, ch, subID)
+	go h.subscriberLoop(subCtx, ch, subID)
 	go h.reconcileLoop(ctx)
 
 	// Kick an immediate reconcile so peers already in gossip when we
@@ -179,6 +186,9 @@ func (h *MembershipHandler) Start(ctx context.Context) error {
 
 // Stop terminates the handler. Idempotent.
 func (h *MembershipHandler) Stop() {
+	if h.subCancel != nil {
+		h.subCancel()
+	}
 	h.stopOnce.Do(func() {
 		close(h.stopCh)
 	})
