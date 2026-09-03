@@ -14,6 +14,7 @@ import (
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/dispatcher"
 	apierror "github.com/wippyai/runtime/api/error"
+	"github.com/wippyai/runtime/api/logs"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/process"
@@ -21,6 +22,9 @@ import (
 	"github.com/wippyai/runtime/api/runtime/resource"
 	"github.com/wippyai/runtime/system/clock"
 	"github.com/wippyai/runtime/system/scheduler/pool/static"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"go.uber.org/zap/zaptest/observer"
 )
 
 // testYieldCmdID is a test command ID for simulating external yields
@@ -1268,6 +1272,81 @@ func TestProcessExternalYieldBasic(t *testing.T) {
 
 	if output.Status() != process.StepDone {
 		t.Fatalf("expected StepDone, got %d", output.Status())
+	}
+}
+
+func TestProcessTailCallExternalYield(t *testing.T) {
+	proc := mustNewProcess(t,
+		WithScript(`return test_yield(10)`, "test.lua"),
+		WithModuleBinder(bindTestYield),
+	)
+
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Close()
+
+	var output process.StepOutput
+	if err := proc.Step(nil, &output); err != nil {
+		t.Fatal(err)
+	}
+	if output.Status() != process.StepYield {
+		t.Fatalf("step status = %d, want StepYield", output.Status())
+	}
+	if output.Count() != 1 {
+		t.Fatalf("yield count = %d, want 1", output.Count())
+	}
+
+	yield := output.Yields()[0]
+	output.Reset()
+	events := []process.Event{{Type: process.EventYieldComplete, Tag: yield.Tag, Data: "sent"}}
+	if err := proc.Step(events, &output); err != nil {
+		t.Fatal(err)
+	}
+	if output.Status() != process.StepDone {
+		t.Fatalf("resume status = %d, want StepDone", output.Status())
+	}
+	if got := output.Result().Data(); got != lua.LString("sent") {
+		t.Fatalf("result = %v, want sent", got)
+	}
+}
+
+func TestProcessLogsRecoveredPanicStack(t *testing.T) {
+	core, observed := observer.New(zapcore.ErrorLevel)
+	logger := zap.New(core)
+	ctx := logs.WithLogger(ctxapi.NewRootContext(), logger)
+	ctx, frame := ctxapi.OpenFrameContext(ctx)
+	defer ctxapi.ReleaseFrameContext(frame)
+
+	proc := mustNewProcess(t,
+		WithScript(`panic_now()`, "test.lua"),
+		WithModuleBinder(func(l *lua.LState) error {
+			l.SetGlobal("panic_now", l.NewFunction(func(*lua.LState) int {
+				panic("runtime panic sentinel")
+			}))
+			return nil
+		}),
+	)
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Close()
+
+	var output process.StepOutput
+	err := proc.Step(nil, &output)
+	if err == nil {
+		t.Fatal("step error is nil")
+	}
+	if !strings.Contains(err.Error(), "TestProcessLogsRecoveredPanicStack") {
+		t.Fatalf("step error = %q, want Go stack", err)
+	}
+	entries := observed.FilterMessage("recovered Lua panic").All()
+	if len(entries) != 1 {
+		t.Fatalf("panic log count = %d, want 1", len(entries))
+	}
+	if got := entries[0].ContextMap()["stack"]; got != err.Error() {
+		t.Fatal("logged stack does not match returned error")
 	}
 }
 

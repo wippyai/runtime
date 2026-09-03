@@ -6,10 +6,12 @@ import (
 	"fmt"
 
 	lua "github.com/wippyai/go-lua"
+	"github.com/wippyai/runtime/api/logs"
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/registry"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/code"
+	"go.uber.org/zap"
 )
 
 // CompiledFactory creates processes from compiled code.
@@ -31,6 +33,10 @@ func NewProcessFactory(code *code.Manager) *ProcessFactory {
 	return &ProcessFactory{
 		code: code,
 	}
+}
+
+func logRecoveredPanic(l *lua.LState, stack string) {
+	logs.GetLogger(l.Context()).Error("recovered Lua panic", zap.String("stack", stack))
 }
 
 // FactoryOption configures process creation via ProcessFactory.
@@ -441,6 +447,7 @@ func (f *Factory) CreateState() (*lua.LState, error) {
 		CallStackSize:       128,
 		MinimizeStackMemory: true,
 		IncludeGoStackTrace: true,
+		PanicHandler:        logRecoveredPanic,
 	}
 	if f.stateOpts != nil {
 		opts = *f.stateOpts

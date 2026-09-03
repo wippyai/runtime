@@ -35,6 +35,27 @@ entries:
     source: file://error_with_kind.lua
     method: main
 
+  - name: send_statement
+    kind: function.lua
+    source: file://send_handler.lua
+    method: send_statement
+    modules:
+      - process
+
+  - name: send_tail
+    kind: function.lua
+    source: file://send_handler.lua
+    method: send_tail
+    modules:
+      - process
+
+  - name: send_pressure
+    kind: function.lua
+    source: file://send_handler.lua
+    method: send_pressure
+    modules:
+      - process
+
   # Test cases
   - name: call
     kind: function.lua
@@ -168,6 +189,44 @@ entries:
     modules:
       - funcs
 
+  - name: process_send
+    kind: function.lua
+    meta:
+      type: test
+      suite: funcs
+      description: process.send through funcs.Executor
+    source: file://process_send.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - funcs
+      - process
+      - security
+      - time
+    security:
+      actor:
+        id: funcs_process_send
+      policies:
+        - app.test.security:allow_all
+
+  - name: process_send_runner
+    kind: process.lua
+    source: file://process_send.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - funcs
+      - process
+      - security
+      - time
+    security:
+      actor:
+        id: funcs_process_send_runner
+      policies:
+        - app.test.security:allow_all
+
   # Helper for module restriction test - intentionally has NO modules list
   - name: undeclared_module
     kind: function.lua
@@ -189,4 +248,3 @@ entries:
       assert2: app.lib:assert
     modules:
       - funcs
-
