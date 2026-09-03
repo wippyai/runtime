@@ -107,13 +107,13 @@ type MembershipHandler struct {
 	// Reconcile coordination.
 	reconcileCh chan struct{}
 	stopCh      chan struct{}
+	subCancel   context.CancelFunc
 	// churnTimes records timestamps of recent voter ops so a sustained burst
 	// (>3 in 60s) can be flagged via the raft_voter_churn_burst counter.
 	churnTimes []time.Time
 	churnMu    sync.Mutex
 	wg         sync.WaitGroup
 	stopOnce   sync.Once
-	subCancel  context.CancelFunc
 	cfg        HandlerConfig
 }
 

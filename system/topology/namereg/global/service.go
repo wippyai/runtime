@@ -93,7 +93,6 @@ type Service struct {
 	logger           *zap.Logger
 	stopCh           chan struct{}
 	eventCancel      context.CancelFunc
-	eventWG          sync.WaitGroup
 	lookupPending    map[uint64]chan *lookupResponseEnvelope
 	ackerEpochs      map[pid.NodeID]uint64
 	strongExclusions map[string]strongExclusion
@@ -105,6 +104,7 @@ type Service struct {
 	monitorWatermark atomic.Uint64
 	nodeEpoch        atomic.Uint64
 	lookupMu         sync.Mutex
+	eventWG          sync.WaitGroup
 	mu               sync.Mutex
 	strongMu         sync.Mutex
 	reserveMu        sync.Mutex

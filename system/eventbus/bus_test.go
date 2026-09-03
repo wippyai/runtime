@@ -525,8 +525,8 @@ func TestCanceledQueuedSubscribeDoesNotRetainChannel(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	type subscribeResult struct {
-		id  event.SubscriberID
 		err error
+		id  event.SubscriberID
 	}
 	resultCh := make(chan subscribeResult, 1)
 	target := make(chan event.Event)
