@@ -5,6 +5,7 @@ package eventbus
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -143,6 +144,47 @@ func TestAwaitService_ConcurrentAwaiters(t *testing.T) {
 		}
 		if result.Error != nil {
 			t.Errorf("awaiter %d: unexpected error: %v", i, result.Error)
+		}
+	}
+}
+
+func TestAwaitService_CriticalReplyBurstHasNoLoss(t *testing.T) {
+	bus := NewBus()
+	defer bus.Stop()
+
+	svc := NewAwaitService(bus)
+	ctx := context.Background()
+	if err := svc.Start(ctx); err != nil {
+		t.Fatalf("failed to start service: %v", err)
+	}
+	defer func() { _ = svc.Stop() }()
+
+	const count = 128 // Exceeds the shared subscriber's channel buffer.
+	waiters := make([]event.AwaitWaiter, count)
+	for i := range waiters {
+		path := fmt.Sprintf("critical/%03d", i)
+		waiter, err := svc.Prepare(ctx, "critical", "operation.(accept|reject)", path, time.Second)
+		if err != nil {
+			t.Fatalf("prepare %d: %v", i, err)
+		}
+		waiters[i] = waiter
+	}
+
+	for i := range waiters {
+		bus.Send(ctx, event.Event{
+			System: "critical",
+			Kind:   "operation.accept",
+			Path:   fmt.Sprintf("critical/%03d", i),
+		})
+	}
+
+	for i, waiter := range waiters {
+		result := waiter.Wait()
+		if result.Error != nil || !result.Accepted {
+			t.Fatalf("reply %d = %#v, want accepted without error", i, result)
+		}
+		if want := fmt.Sprintf("critical/%03d", i); result.Event.Path != want {
+			t.Fatalf("reply %d path = %q, want %q", i, result.Event.Path, want)
 		}
 	}
 }
