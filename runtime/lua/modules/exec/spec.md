@@ -62,17 +62,17 @@ Returned by `exec.get()`. Creates and manages processes.
 
 | Method | Signature | Returns | Notes |
 |--------|-----------|---------|-------|
-| exec | (cmd: string, options?: table) | Process, error | Creates new process with command |
+| exec | (cmd: string, options?: ProcessOptions) | Process, error | Creates a new process |
 | release | () | boolean, error | Releases the executor resource |
 
-#### executor:exec(cmd: string, options?: table) → Process, error
+#### executor:exec(cmd: string, options?: ProcessOptions) → Process, error
 
 Creates a new process with the specified command.
 
 | Param | Type | Required | Default | Notes |
 |-------|------|----------|---------|-------|
 | cmd | string | yes | - | Command to execute |
-| options | table | no | nil | Process options |
+| options | ProcessOptions | no | nil | Process options |
 
 **options fields:**
 
@@ -80,6 +80,15 @@ Creates a new process with the specified command.
 |-------|------|---------|-------|
 | work_dir | string | nil | Working directory for the process |
 | env | {[string]: string} | nil | Environment variables as key-value map |
+| pty | PTYOptions | nil | Allocate a pseudo-terminal for the child |
+
+**PTYOptions fields:**
+
+| Field | Type | Default | Notes |
+|-------|------|---------|-------|
+| width | integer | 80 | Initial PTY columns |
+| height | integer | 24 | Initial PTY rows |
+| term | string | nil | Child `TERM` value, such as `xterm-256color` |
 
 **Returns:**
 - Success: `Process, nil` - process object (not started)
@@ -128,7 +137,31 @@ Returned by `executor:exec()`. Represents a process instance.
 | write_stdin | (data: string) | boolean, error | Writes to process stdin |
 | stdout_stream | () | Stream, error | Returns stdout stream |
 | stderr_stream | () | Stream, error | Returns stderr stream |
+| resize | (width: integer, height: integer) | boolean, error | Resizes a PTY-backed process |
+| attach_terminal | () | TerminalSession, error | Attaches an unstarted PTY process to the current TTY |
 | close | (force?: boolean) | boolean, error | Signals the process, reaps it, releases the handle |
+
+#### process:attach_terminal() → TerminalSession, error
+
+Consumes an unstarted PTY-backed process and attaches it to the current
+process terminal. The returned session becomes the exclusive lifecycle owner;
+the original process handle cannot be used afterward.
+
+```lua
+local child = assert(executor:exec("bash", {
+    pty = {width = 80, height = 24, term = "xterm-256color"},
+}))
+local session = assert(child:attach_terminal())
+```
+
+The session exposes `send(event)`, `done()`, `status()`, and `close()`.
+Resize, keyboard, mouse, focus, and paste events use the canonical `tty`
+event records.
+
+#### process:resize(width: integer, height: integer) → boolean, error
+
+Resizes an allocated PTY before it is transferred to a terminal session.
+Ordinary pipe-backed processes return an error.
 
 #### process:close(force?: boolean) → boolean, error
 

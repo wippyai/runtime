@@ -126,24 +126,10 @@ func executorExec(l *lua.LState) int {
 		return 2
 	}
 
-	opts := apiexec.ProcessOptions{}
-	if l.GetTop() >= 3 && l.Get(3).Type() == lua.LTTable {
-		optsTable := l.CheckTable(3)
-
-		if wd := optsTable.RawGetString("work_dir"); wd != lua.LNil {
-			if wdStr, ok := wd.(lua.LString); ok {
-				opts.WorkDir = string(wdStr)
-			}
-		}
-
-		if envTable := optsTable.RawGetString("env"); envTable != lua.LNil {
-			if envT, ok := envTable.(*lua.LTable); ok {
-				opts.Env = make(map[string]string)
-				envT.ForEach(func(k, v lua.LValue) {
-					opts.Env[k.String()] = v.String()
-				})
-			}
-		}
+	opts, err := parseProcessOptions(l.Get(3))
+	if err != nil {
+		pushInvalidOption(l, err.Error())
+		return 2
 	}
 
 	proc, err := factory.NewProcess(cmd, opts)

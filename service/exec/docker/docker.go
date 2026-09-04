@@ -22,6 +22,7 @@ import (
 var (
 	_ execapi.ProcessExecutor = (*Executor)(nil)
 	_ execapi.Process         = (*Process)(nil)
+	_ execapi.PTYProcess      = (*ptyProcess)(nil)
 	_ io.Closer               = (*Executor)(nil)
 )
 
@@ -87,6 +88,14 @@ func NewDockerExecutor(log *zap.Logger, config *execapi.DockerExecutorConfig) (*
 
 // NewProcess creates a new container process
 func (e *Executor) NewProcess(cmd string, options execapi.ProcessOptions) (execapi.Process, error) {
+	ptyOptions := options.PTY
+	if ptyOptions != nil {
+		copy := *ptyOptions
+		ptyOptions = &copy
+		if _, _, err := ptyOptions.Dimensions(); err != nil {
+			return nil, err
+		}
+	}
 	if len(e.commandWhitelist) > 0 {
 		allowed := false
 		for _, whitelistedCmd := range e.commandWhitelist {
@@ -108,13 +117,16 @@ func (e *Executor) NewProcess(cmd string, options execapi.ProcessOptions) (execa
 	for k, v := range options.Env {
 		env = append(env, k+"="+v)
 	}
+	if ptyOptions != nil && ptyOptions.Term != "" {
+		env = append(env, "TERM="+ptyOptions.Term)
+	}
 
 	workDir := options.WorkDir
 	if workDir == "" {
 		workDir = e.defaultWD
 	}
 
-	return &Process{
+	process := &Process{
 		log:             e.log,
 		cli:             e.cli,
 		image:           e.image,
@@ -133,8 +145,17 @@ func (e *Executor) NewProcess(cmd string, options execapi.ProcessOptions) (execa
 		capAdd:          e.capAdd,
 		pidsLimit:       e.pidsLimit,
 		tmpfs:           e.tmpfs,
-	}, nil
+		pty:             ptyOptions,
+	}
+	if ptyOptions != nil {
+		return &ptyProcess{Process: process}, nil
+	}
+	return process, nil
 }
+
+// ptyProcess is returned only when the container was configured with a
+// PTY, keeping resize a real capability rather than a boolean claim.
+type ptyProcess struct{ *Process }
 
 // Close closes the Docker client
 func (e *Executor) Close() error {
@@ -150,6 +171,7 @@ type Process struct {
 	cli             *client.Client
 	log             *zap.Logger
 	tmpfs           map[string]string
+	pty             *execapi.PTYOptions
 	image           string
 	containerID     string
 	workDir         string
@@ -201,6 +223,10 @@ func (p *Process) Start() error {
 		},
 		SecurityOpt: buildSecurityOpts(p.noNewPrivileges),
 	}
+	if p.pty != nil {
+		width, height, _ := p.pty.Dimensions()
+		hostConfig.ConsoleSize = [2]uint{uint(height), uint(width)}
+	}
 
 	if p.networkMode != "" {
 		hostConfig.NetworkMode = container.NetworkMode(p.networkMode)
@@ -217,7 +243,7 @@ func (p *Process) Start() error {
 		AttachStderr: true,
 		OpenStdin:    true,
 		StdinOnce:    false,
-		Tty:          false,
+		Tty:          p.pty != nil,
 	}
 
 	resp, err := p.cli.ContainerCreate(ctx, client.ContainerCreateOptions{
@@ -231,6 +257,14 @@ func (p *Process) Start() error {
 
 	p.containerID = resp.ID
 	p.log.Debug("container created", zap.String("id", p.containerID))
+	committed := false
+	defer func() {
+		if committed {
+			return
+		}
+		_, _ = p.cli.ContainerRemove(ctx, resp.ID, client.ContainerRemoveOptions{Force: true})
+		p.containerID = ""
+	}()
 
 	attachResp, err := p.cli.ContainerAttach(ctx, p.containerID, client.ContainerAttachOptions{
 		Stream: true,
@@ -239,35 +273,64 @@ func (p *Process) Start() error {
 		Stderr: true,
 	})
 	if err != nil {
-		_, _ = p.cli.ContainerRemove(ctx, p.containerID, client.ContainerRemoveOptions{Force: true})
 		return NewContainerAttachError(err)
 	}
-
-	p.stdinWriter = attachResp.Conn
-
-	stdoutPipeR, stdoutPipeW := io.Pipe()
-	stderrPipeR, stderrPipeW := io.Pipe()
-	p.stdoutReader = stdoutPipeR
-	p.stderrReader = stderrPipeR
-
-	go func() {
-		defer func() { _ = stdoutPipeW.Close() }()
-		defer func() { _ = stderrPipeW.Close() }()
-		_, err := stdcopy.StdCopy(stdoutPipeW, stderrPipeW, attachResp.Reader)
-		if err != nil && !errors.Is(err, io.EOF) {
-			p.log.Debug("stdcopy error", zap.Error(err))
+	defer func() {
+		if !committed {
+			attachResp.Close()
 		}
 	}()
 
 	if _, err := p.cli.ContainerStart(ctx, p.containerID, client.ContainerStartOptions{}); err != nil {
-		attachResp.Close()
-		_, _ = p.cli.ContainerRemove(ctx, p.containerID, client.ContainerRemoveOptions{Force: true})
 		return NewContainerStartError(err)
 	}
+	if p.pty != nil {
+		width, height, _ := p.pty.Dimensions()
+		if _, err := p.cli.ContainerResize(ctx, p.containerID, client.ContainerResizeOptions{Width: uint(width), Height: uint(height)}); err != nil {
+			return err
+		}
+	}
 
+	stdoutPipeR, stdoutPipeW := io.Pipe()
+	stderrPipeR, stderrPipeW := io.Pipe()
+	p.stdinWriter = attachResp.Conn
+	p.stdoutReader = stdoutPipeR
+	p.stderrReader = stderrPipeR
 	p.started = true
+	committed = true
+	go p.copyAttachedOutput(attachResp, stdoutPipeW, stderrPipeW)
 	p.log.Debug("container started", zap.String("id", p.containerID))
 	return nil
+}
+
+func (p *Process) copyAttachedOutput(attach client.ContainerAttachResult, stdout, stderr *io.PipeWriter) {
+	defer attach.Close()
+	defer func() { _ = stdout.Close() }()
+	defer func() { _ = stderr.Close() }()
+	var err error
+	if p.pty != nil {
+		_, err = io.Copy(stdout, attach.Reader)
+	} else {
+		_, err = stdcopy.StdCopy(stdout, stderr, attach.Reader)
+	}
+	if err != nil && !errors.Is(err, io.EOF) {
+		p.log.Debug("docker output copy failed", zap.Error(err))
+	}
+}
+
+func (p *ptyProcess) Resize(width, height int) error {
+	if width < 1 || height < 1 {
+		return execapi.ErrInvalidPTYSize
+	}
+	p.mu.RLock()
+	if !p.started || p.stopped || p.pty == nil {
+		p.mu.RUnlock()
+		return execapi.ErrPTYUnavailable
+	}
+	id := p.containerID
+	p.mu.RUnlock()
+	_, err := p.cli.ContainerResize(context.Background(), id, client.ContainerResizeOptions{Width: uint(width), Height: uint(height)})
+	return err
 }
 
 // Signal sends a signal to the container

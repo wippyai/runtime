@@ -3,6 +3,7 @@
 package native
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"io"
@@ -22,6 +23,69 @@ import (
 	mocklogger "github.com/wippyai/runtime/tests/mock"
 	"go.uber.org/zap"
 )
+
+func TestPTYProcessResize(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("PTY test requires Unix")
+	}
+	executor := NewNativeExecutor(zap.NewNop(), &exec.NativeExecutorConfig{})
+	process, err := executor.NewProcess(
+		"sh -c 'stty size; read value; stty size'",
+		exec.ProcessOptions{PTY: &exec.PTYOptions{Width: 80, Height: 24, Term: "xterm-256color"}},
+	)
+	assert.NoError(t, err)
+	assert.NoError(t, process.Start())
+
+	lines := make(chan string, 2)
+	go func() {
+		scanner := bufio.NewScanner(process.Stdout())
+		for scanner.Scan() {
+			lines <- strings.TrimSpace(scanner.Text())
+		}
+		close(lines)
+	}()
+
+	select {
+	case line := <-lines:
+		assert.Equal(t, "24 80", line)
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for initial PTY size")
+	}
+
+	ptyProcess := process.(exec.PTYProcess)
+	assert.NoError(t, ptyProcess.Resize(100, 30))
+	assert.NoError(t, process.WriteStdin([]byte("continue\n")))
+
+	timer := time.NewTimer(3 * time.Second)
+	defer timer.Stop()
+	for {
+		select {
+		case line := <-lines:
+			if line == "30 100" {
+				goto resized
+			}
+		case <-timer.C:
+			t.Fatal("timed out waiting for resized PTY size")
+		}
+	}
+
+resized:
+	assert.NoError(t, process.Wait())
+	assert.ErrorIs(t, ptyProcess.Resize(0, 30), exec.ErrInvalidPTYSize)
+}
+
+func TestPTYCapabilityMatchesProcessConfiguration(t *testing.T) {
+	executor := NewNativeExecutor(zap.NewNop(), &exec.NativeExecutorConfig{})
+	plain, err := executor.NewProcess("true", exec.ProcessOptions{})
+	assert.NoError(t, err)
+	_, plainHasPTY := plain.(exec.PTYProcess)
+	assert.False(t, plainHasPTY)
+
+	ptyProcess, err := executor.NewProcess("true", exec.ProcessOptions{PTY: &exec.PTYOptions{}})
+	assert.NoError(t, err)
+	_, hasPTYCapability := ptyProcess.(exec.PTYProcess)
+	assert.True(t, hasPTYCapability)
+}
 
 func TestExecutor_Execute(t *testing.T) {
 	tests := []struct {

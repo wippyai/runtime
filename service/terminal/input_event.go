@@ -5,27 +5,14 @@ package terminal
 import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/input"
+	ttyapi "github.com/wippyai/runtime/api/tty"
 )
 
 // TopicTTYEvents is the relay topic for terminal input events.
-const TopicTTYEvents = "@tty/events"
+const TopicTTYEvents = ttyapi.TopicEvents
 
 // TTYEvent is the abstract terminal input event sent via relay as payload.Golang.
-type TTYEvent struct {
-	Type    string // "start", "key", "mouse", "resize", "focus", "paste"
-	Key     string // rune(s) or keystroke string for key events
-	KeyType string // "runes", "enter", "tab", "esc", "up", "down", "f1", etc.
-	Action  string // key: "press", "release"; mouse: "press", "release", "motion", "wheel"
-	Button  string // mouse: "left", "right", "middle", "none"
-	Paste   string // paste event text
-	X, Y    int    // mouse position
-	Width   int    // resize/start: terminal columns
-	Height  int    // resize/start: terminal rows
-	Focused bool   // focus event
-	Alt     bool
-	Ctrl    bool
-	Shift   bool
-}
+type TTYEvent = ttyapi.Event
 
 // keyTypeName maps key codes to string names for Lua consumption.
 var keyTypeName = map[rune]string{
@@ -136,10 +123,12 @@ func convertMouseEvent(m input.Mouse, action string) *TTYEvent {
 		Type:   "mouse",
 		Action: action,
 		Button: btn,
-		X:      m.X,
-		Y:      m.Y,
-		Alt:    m.Mod.Contains(input.ModAlt),
-		Ctrl:   m.Mod.Contains(input.ModCtrl),
-		Shift:  m.Mod.Contains(input.ModShift),
+		// Terminal surfaces and Lua arrays use one-based cell coordinates.
+		// x/input deliberately exposes decoded protocol positions as zero-based.
+		X:     m.X + 1,
+		Y:     m.Y + 1,
+		Alt:   m.Mod.Contains(input.ModAlt),
+		Ctrl:  m.Mod.Contains(input.ModCtrl),
+		Shift: m.Mod.Contains(input.ModShift),
 	}
 }

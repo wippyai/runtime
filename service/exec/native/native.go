@@ -13,6 +13,7 @@ import (
 	"sync/atomic"
 	"syscall"
 
+	"github.com/creack/pty"
 	execapi "github.com/wippyai/runtime/api/service/exec"
 
 	"go.uber.org/zap"
@@ -21,6 +22,7 @@ import (
 var (
 	_ execapi.ProcessExecutor = (*Executor)(nil)
 	_ execapi.Process         = (*ProcessExecutor)(nil)
+	_ execapi.PTYProcess      = (*ptyProcess)(nil)
 )
 
 const (
@@ -49,6 +51,14 @@ func NewNativeExecutor(log *zap.Logger, config *execapi.NativeExecutorConfig) *E
 
 // NewProcess implements exec.ProcessExecutor interface
 func (e *Executor) NewProcess(cmd string, options execapi.ProcessOptions) (execapi.Process, error) {
+	ptyOptions := options.PTY
+	if ptyOptions != nil {
+		copy := *ptyOptions
+		ptyOptions = &copy
+		if _, _, err := ptyOptions.Dimensions(); err != nil {
+			return nil, err
+		}
+	}
 	if len(e.commandWhitelist) > 0 {
 		allowed := false
 		for _, whitelistedCmd := range e.commandWhitelist {
@@ -71,6 +81,9 @@ func (e *Executor) NewProcess(cmd string, options execapi.ProcessOptions) (execa
 	for k, v := range options.Env {
 		env[k] = v
 	}
+	if ptyOptions != nil && ptyOptions.Term != "" {
+		env["TERM"] = ptyOptions.Term
+	}
 
 	// Use default working directory if not specified
 	workDir := options.WorkDir
@@ -84,28 +97,41 @@ func (e *Executor) NewProcess(cmd string, options execapi.ProcessOptions) (execa
 	}
 
 	// Create a new process executor with the given command and options
-	return NewProcessExecutor(
+	process := NewProcessExecutor(
 		e.log,
 		WithCmd(cmd),
 		WithWorkingDir(workDir),
 		WithEnv(env),
-	), nil
+		WithPTY(ptyOptions),
+	)
+	if ptyOptions != nil {
+		return &ptyProcess{ProcessExecutor: process}, nil
+	}
+	return process, nil
 }
+
+// ptyProcess is the capability-bearing view returned only for a process
+// configured with a PTY. Ordinary pipe-backed processes do not accidentally
+// satisfy exec.PTYProcess.
+type ptyProcess struct{ *ProcessExecutor }
 
 // ProcessExecutor represents a native process implementation
 type ProcessExecutor struct {
 	stderrp   io.ReadCloser
 	stdoutp   io.ReadCloser
 	stdinPipe io.WriteCloser
+	cmd       *exec.Cmd
 	log       *zap.Logger
 	envs      map[string]string
-	stopped   atomic.Pointer[bool]
-	cmd       *exec.Cmd
+	ptyMaster *os.File
+	pty       *execapi.PTYOptions
 	wd        string
 	state     string
 	command   string
 	pid       int
 	mu        sync.RWMutex
+	ptyClose  sync.Once
+	stopped   atomic.Bool
 }
 
 // NewProcessExecutor creates a new process executor
@@ -114,8 +140,6 @@ func NewProcessExecutor(log *zap.Logger, opts ...Option) *ProcessExecutor {
 		state: notStarted,
 		log:   log,
 	}
-
-	e.stopped.Store(p(false))
 
 	for _, opt := range opts {
 		opt(e)
@@ -151,15 +175,20 @@ func NewProcessExecutor(log *zap.Logger, opts ...Option) *ProcessExecutor {
 
 	// we can safely skip the error here
 	// because we don't initialize stderrpipe twice or after the process was already started
-	e.stderrp, _ = command.StderrPipe()
+	if e.pty == nil {
+		e.stderrp, _ = command.StderrPipe()
+	}
 
 	// we can safely skip the error here
 	// because we don't initialize stdoutpipe twice or after the process was already started
-	e.stdoutp, _ = command.StdoutPipe()
+	if e.pty == nil {
+		e.stdoutp, _ = command.StdoutPipe()
+	}
 
-	ip, _ := command.StdinPipe()
-
-	e.stdinPipe = ip
+	if e.pty == nil {
+		ip, _ := command.StdinPipe()
+		e.stdinPipe = ip
+	}
 	e.cmd = command
 
 	return e
@@ -169,17 +198,37 @@ func NewProcessExecutor(log *zap.Logger, opts ...Option) *ProcessExecutor {
 func (e *ProcessExecutor) Start() error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-
-	// execute command
-	err := e.cmd.Start()
-	if err != nil {
-		e.stopped.Store(p(true))
+	if e.pty != nil {
+		width, height, _ := e.pty.Dimensions()
+		master, err := pty.StartWithSize(e.cmd, &pty.Winsize{Cols: uint16(width), Rows: uint16(height)})
+		if err != nil {
+			e.stopped.Store(true)
+			return err
+		}
+		e.ptyMaster = master
+		e.stdinPipe, e.stdoutp = master, master
+		e.stderrp = io.NopCloser(strings.NewReader(""))
+	} else if err := e.cmd.Start(); err != nil {
+		e.stopped.Store(true)
 		return err
 	}
 
 	e.pid = e.cmd.Process.Pid
 	e.state = running
 	return nil
+}
+
+func (p *ptyProcess) Resize(width, height int) error {
+	if width < 1 || height < 1 {
+		return execapi.ErrInvalidPTYSize
+	}
+	p.mu.RLock()
+	master := p.ptyMaster
+	p.mu.RUnlock()
+	if master == nil {
+		return execapi.ErrPTYUnavailable
+	}
+	return pty.Setsize(master, &pty.Winsize{Cols: uint16(width), Rows: uint16(height)})
 }
 
 // State returns the current state of the process
@@ -193,14 +242,19 @@ func (e *ProcessExecutor) State() string {
 // WriteStdin implements exec.Process
 func (e *ProcessExecutor) WriteStdin(data []byte) error {
 	e.mu.RLock()
-	defer e.mu.RUnlock()
-
 	if e.state != running {
-		e.log.Error("process is not running", zap.String("state", e.state))
+		state := e.state
+		e.mu.RUnlock()
+		e.log.Error("process is not running", zap.String("state", state))
 		return ErrProcessNotRunning
 	}
+	stdin := e.stdinPipe
+	e.mu.RUnlock()
 
-	n, err := e.stdinPipe.Write(data)
+	// Never hold the lifecycle lock across a potentially blocking OS write.
+	// Stop/Signal must remain able to close or interrupt the process, which in
+	// turn wakes this write with an error.
+	n, err := stdin.Write(data)
 	if err != nil {
 		return err
 	}
@@ -238,7 +292,6 @@ func (e *ProcessExecutor) Signal(sig int) error {
 		return err
 	}
 
-	e.stopped.Store(p(true))
 	return nil
 }
 
@@ -264,11 +317,12 @@ func (e *ProcessExecutor) Stop() {
 	defer e.mu.Unlock()
 
 	if e.pid <= 0 {
+		e.closePTY()
 		e.log.Warn("pid is not a positive int", zap.Int("pid", e.pid))
 		return
 	}
 
-	if *e.stopped.Load() {
+	if e.stopped.Load() {
 		e.log.Warn("process already stopped")
 		return
 	}
@@ -284,9 +338,17 @@ func (e *ProcessExecutor) Stop() {
 	// to prevent multiple calls to close()
 	e.pid = 0
 	e.state = terminated
-	_ = e.stdoutp.Close()
-	_ = e.stderrp.Close()
-	e.stopped.Store(p(true))
+	if e.ptyMaster != nil {
+		e.closePTY()
+	} else {
+		if e.stdoutp != nil {
+			_ = e.stdoutp.Close()
+		}
+		if e.stderrp != nil {
+			_ = e.stderrp.Close()
+		}
+	}
+	e.stopped.Store(true)
 }
 
 // Wait implements exec.Process
@@ -300,14 +362,18 @@ func (e *ProcessExecutor) Wait() error {
 	e.state = terminated
 	e.mu.Unlock()
 
-	e.stopped.Store(p(true))
+	e.stopped.Store(true)
 	e.log.Debug("command finished")
 
 	return err
 }
 
-func p[T any](val T) *T {
-	return &val
+func (e *ProcessExecutor) closePTY() {
+	e.ptyClose.Do(func() {
+		if e.ptyMaster != nil {
+			_ = e.ptyMaster.Close()
+		}
+	})
 }
 
 // parseCommand splits a command string into executable and arguments,

@@ -4,6 +4,7 @@ package exec
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"syscall"
 	"time"
@@ -14,6 +15,8 @@ import (
 	"github.com/wippyai/runtime/runtime/lua/modules/stream"
 	fsstream "github.com/wippyai/runtime/system/stream"
 )
+
+var errPTYOwnership = errors.New("PTY process is unavailable or already owned")
 
 type Process struct {
 	handle        apiexec.Process
@@ -45,6 +48,37 @@ func NewProcess(ctx context.Context, handle apiexec.Process) *Process {
 	}
 
 	return p
+}
+
+// takePTYProcess transfers an unstarted PTY process out of its Lua exec
+// handle. The attached terminal session becomes its sole lifecycle owner.
+func takePTYProcess(value lua.LValue) (apiexec.PTYProcess, error) {
+	ud, ok := value.(*lua.LUserData)
+	if !ok {
+		return nil, errPTYOwnership
+	}
+	p, ok := ud.Value.(*Process)
+	if !ok {
+		return nil, errPTYOwnership
+	}
+	p.mu.Lock()
+	if p.closed || p.started || p.handle == nil {
+		p.mu.Unlock()
+		return nil, errPTYOwnership
+	}
+	ptyProcess, ok := p.handle.(apiexec.PTYProcess)
+	if !ok {
+		p.mu.Unlock()
+		return nil, apiexec.ErrPTYUnavailable
+	}
+	p.closed, p.handle = true, nil
+	cancel := p.cancelCleanup
+	p.cancelCleanup = nil
+	p.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+	return ptyProcess, nil
 }
 
 // reapGrace bounds how long a released process may take to exit before it is
@@ -90,13 +124,45 @@ func reapReleased(handle apiexec.Process, killed bool) {
 }
 
 var processMethods = map[string]lua.LGoFunc{
-	"start":         procStart,
-	"wait":          procWait,
-	"signal":        procSignal,
-	"write_stdin":   procWriteStdin,
-	"stdout_stream": procStdout,
-	"stderr_stream": procStderr,
-	"close":         procClose,
+	"start":           procStart,
+	"wait":            procWait,
+	"signal":          procSignal,
+	"write_stdin":     procWriteStdin,
+	"stdout_stream":   procStdout,
+	"stderr_stream":   procStderr,
+	"close":           procClose,
+	"resize":          procResize,
+	"attach_terminal": procAttachTerminal,
+}
+
+func procResize(l *lua.LState) int {
+	p := checkProcess(l, 1)
+	if p == nil {
+		return 0
+	}
+	p.mu.Lock()
+	handle := p.handle
+	closed := p.closed
+	p.mu.Unlock()
+	if closed || handle == nil {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "process is closed").WithKind(lua.Invalid).WithRetryable(false))
+		return 2
+	}
+	ptyProcess, ok := handle.(apiexec.PTYProcess)
+	if !ok {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "process has no PTY").WithKind(lua.Invalid).WithRetryable(false))
+		return 2
+	}
+	if err := ptyProcess.Resize(l.CheckInt(2), l.CheckInt(3)); err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.WrapErrorWithLua(l, err, "resize process PTY"))
+		return 2
+	}
+	l.Push(lua.LTrue)
+	l.Push(lua.LNil)
+	return 2
 }
 
 func checkProcess(l *lua.LState, _ int) *Process {

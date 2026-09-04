@@ -3,6 +3,7 @@
 package docker
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -20,6 +21,71 @@ import (
 	execapi "github.com/wippyai/runtime/api/service/exec"
 	"go.uber.org/zap"
 )
+
+func TestDockerPTYResize(t *testing.T) {
+	skipIfNoDocker(t)
+	executor, err := NewDockerExecutor(zap.NewNop(), &execapi.DockerExecutorConfig{
+		Image: "alpine:latest", AutoRemove: true,
+	})
+	require.NoError(t, err)
+	defer func() { _ = executor.Close() }()
+
+	process, err := executor.NewProcess(
+		"sh -c 'stty size; read value; stty size'",
+		execapi.ProcessOptions{PTY: &execapi.PTYOptions{Width: 80, Height: 24, Term: "xterm-256color"}},
+	)
+	require.NoError(t, err)
+	require.NoError(t, process.Start())
+
+	lines := make(chan string, 3)
+	go func() {
+		scanner := bufio.NewScanner(process.Stdout())
+		for scanner.Scan() {
+			lines <- strings.TrimSpace(scanner.Text())
+		}
+		close(lines)
+	}()
+	require.Equal(t, "24 80", awaitLine(t, lines, "24 80"))
+	require.NoError(t, process.(execapi.PTYProcess).Resize(100, 30))
+	require.NoError(t, process.WriteStdin([]byte("continue\n")))
+	require.Equal(t, "30 100", awaitLine(t, lines, "30 100"))
+	require.NoError(t, process.Wait())
+}
+
+func TestDockerPTYCapabilityMatchesProcessConfiguration(t *testing.T) {
+	executor, err := NewDockerExecutor(zap.NewNop(), &execapi.DockerExecutorConfig{Image: "alpine:latest"})
+	require.NoError(t, err)
+	defer func() { _ = executor.Close() }()
+
+	plain, err := executor.NewProcess("true", execapi.ProcessOptions{})
+	require.NoError(t, err)
+	_, plainHasPTY := plain.(execapi.PTYProcess)
+	require.False(t, plainHasPTY)
+
+	ptyProcess, err := executor.NewProcess("true", execapi.ProcessOptions{PTY: &execapi.PTYOptions{}})
+	require.NoError(t, err)
+	_, hasPTYCapability := ptyProcess.(execapi.PTYProcess)
+	require.True(t, hasPTYCapability)
+}
+
+func awaitLine(t *testing.T, lines <-chan string, want string) string {
+	t.Helper()
+	timer := time.NewTimer(3 * time.Second)
+	defer timer.Stop()
+	for {
+		select {
+		case line, ok := <-lines:
+			if !ok {
+				t.Fatalf("terminal closed before %q", want)
+			}
+			if line == want {
+				return line
+			}
+		case <-timer.C:
+			t.Fatalf("timed out waiting for %q", want)
+		}
+	}
+}
 
 func skipIfNoDocker(t *testing.T) {
 	if testing.Short() {

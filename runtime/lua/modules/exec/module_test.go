@@ -10,7 +10,9 @@ import (
 	"testing"
 
 	lua "github.com/wippyai/go-lua"
+	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/registry"
+	securityapi "github.com/wippyai/runtime/api/security"
 	execapi "github.com/wippyai/runtime/api/service/exec"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 )
@@ -594,9 +596,15 @@ func (m *mockResource) Release() {
 
 type mockProcessExecutor struct {
 	newProcessErr error
+	lastCommand   string
+	lastOptions   execapi.ProcessOptions
+	newProcessN   int
 }
 
-func (m *mockProcessExecutor) NewProcess(_ string, _ execapi.ProcessOptions) (execapi.Process, error) {
+func (m *mockProcessExecutor) NewProcess(command string, options execapi.ProcessOptions) (execapi.Process, error) {
+	m.lastCommand = command
+	m.lastOptions = options
+	m.newProcessN++
 	if m.newProcessErr != nil {
 		return nil, m.newProcessErr
 	}
@@ -609,6 +617,161 @@ type mockProcess struct {
 	writeStdinErr error
 	waitErr       error
 	signalCalled  int
+}
+
+type mockPTYProcess struct{ mockProcess }
+
+func (*mockPTYProcess) Resize(int, int) error { return nil }
+
+func TestTakePTYProcessTransfersExclusiveOwnership(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	handle := &mockPTYProcess{}
+	p := NewProcess(context.Background(), handle)
+	ud := value.PushTypedUserData(l, p, processTypeName)
+
+	got, err := takePTYProcess(ud)
+	if err != nil {
+		t.Fatalf("take PTY process: %v", err)
+	}
+	if got != handle {
+		t.Fatal("PTY ownership transferred to wrong handle")
+	}
+	if _, err := takePTYProcess(ud); !errors.Is(err, errPTYOwnership) {
+		t.Fatalf("second transfer error = %v, want %v", err, errPTYOwnership)
+	}
+}
+
+func TestExecutorExecParsesPTYOptions(t *testing.T) {
+	l := setupState()
+	defer l.Close()
+	ctx := securityapi.SetStrictMode(ctxapi.NewRootContext(), false)
+	l.SetContext(ctx)
+	factory := &mockProcessExecutor{}
+
+	value.PushTypedUserData(l, NewExecutor(ctx, nil, factory), executorTypeName)
+	l.Push(lua.LString("test-command"))
+	options := l.NewTable()
+	options.RawSetString("work_dir", lua.LString("/tmp"))
+	env := l.NewTable()
+	env.RawSetString("FOO", lua.LString("bar"))
+	options.RawSetString("env", env)
+	pty := l.NewTable()
+	pty.RawSetString("width", lua.LInteger(100))
+	pty.RawSetString("height", lua.LInteger(30))
+	pty.RawSetString("term", lua.LString("xterm-256color"))
+	options.RawSetString("pty", pty)
+	l.Push(options)
+
+	if returns := executorExec(l); returns != 2 {
+		t.Fatalf("executorExec returned %d values, want 2", returns)
+	}
+	if factory.newProcessN != 1 {
+		t.Fatalf("NewProcess called %d times, want 1", factory.newProcessN)
+	}
+	if factory.lastCommand != "test-command" {
+		t.Fatalf("command = %q, want test-command", factory.lastCommand)
+	}
+	if factory.lastOptions.WorkDir != "/tmp" || factory.lastOptions.Env["FOO"] != "bar" {
+		t.Fatalf("ordinary options were not preserved: %+v", factory.lastOptions)
+	}
+	if factory.lastOptions.PTY == nil || *factory.lastOptions.PTY != (execapi.PTYOptions{
+		Width: 100, Height: 30, Term: "xterm-256color",
+	}) {
+		t.Fatalf("PTY options = %+v", factory.lastOptions.PTY)
+	}
+}
+
+func TestExecutorExecRejectsInvalidPTYOptions(t *testing.T) {
+	tests := []struct {
+		build func(*lua.LState) lua.LValue
+		name  string
+	}{
+		{name: "non-table", build: func(*lua.LState) lua.LValue { return lua.LString("terminal") }},
+		{name: "non-integer width", build: func(l *lua.LState) lua.LValue {
+			table := l.NewTable()
+			table.RawSetString("width", lua.LString("100"))
+			return table
+		}},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			l := setupState()
+			defer l.Close()
+			ctx := securityapi.SetStrictMode(ctxapi.NewRootContext(), false)
+			l.SetContext(ctx)
+			factory := &mockProcessExecutor{}
+
+			value.PushTypedUserData(l, NewExecutor(ctx, nil, factory), executorTypeName)
+			l.Push(lua.LString("test-command"))
+			options := l.NewTable()
+			options.RawSetString("pty", test.build(l))
+			l.Push(options)
+
+			if returns := executorExec(l); returns != 2 {
+				t.Fatalf("executorExec returned %d values, want 2", returns)
+			}
+			if factory.newProcessN != 0 {
+				t.Fatalf("NewProcess called %d times for invalid options", factory.newProcessN)
+			}
+			if l.Get(-2) != lua.LNil || l.Get(-1) == lua.LNil {
+				t.Fatalf("result = (%v, %v), want (nil, error)", l.Get(-2), l.Get(-1))
+			}
+		})
+	}
+}
+
+func TestExecutorExecRejectsMalformedProcessOptions(t *testing.T) {
+	tests := []struct {
+		build func(*lua.LState) lua.LValue
+		name  string
+	}{
+		{name: "options are not a table", build: func(*lua.LState) lua.LValue {
+			return lua.LString("options")
+		}},
+		{name: "work directory is not a string", build: func(l *lua.LState) lua.LValue {
+			table := l.NewTable()
+			table.RawSetString("work_dir", lua.LInteger(42))
+			return table
+		}},
+		{name: "environment is not a table", build: func(l *lua.LState) lua.LValue {
+			table := l.NewTable()
+			table.RawSetString("env", lua.LString("FOO=bar"))
+			return table
+		}},
+		{name: "environment value is not a string", build: func(l *lua.LState) lua.LValue {
+			table := l.NewTable()
+			env := l.NewTable()
+			env.RawSetString("PORT", lua.LInteger(8080))
+			table.RawSetString("env", env)
+			return table
+		}},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			l := setupState()
+			defer l.Close()
+			ctx := securityapi.SetStrictMode(ctxapi.NewRootContext(), false)
+			l.SetContext(ctx)
+			factory := &mockProcessExecutor{}
+
+			value.PushTypedUserData(l, NewExecutor(ctx, nil, factory), executorTypeName)
+			l.Push(lua.LString("test-command"))
+			l.Push(test.build(l))
+
+			if returns := executorExec(l); returns != 2 {
+				t.Fatalf("executorExec returned %d values, want 2", returns)
+			}
+			if factory.newProcessN != 0 {
+				t.Fatalf("NewProcess called %d times for invalid options", factory.newProcessN)
+			}
+			if l.Get(-2) != lua.LNil || l.Get(-1) == lua.LNil {
+				t.Fatalf("result = (%v, %v), want (nil, error)", l.Get(-2), l.Get(-1))
+			}
+		})
+	}
 }
 
 func (m *mockProcess) Start() error {

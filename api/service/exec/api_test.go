@@ -17,6 +17,18 @@ func TestKindConstants(t *testing.T) {
 	assert.Equal(t, "exec.native", NativeExecutor)
 }
 
+func TestPTYDimensionsDefaultAndValidation(t *testing.T) {
+	width, height, err := (&PTYOptions{}).Dimensions()
+	require.NoError(t, err)
+	assert.Equal(t, DefaultPTYWidth, width)
+	assert.Equal(t, DefaultPTYHeight, height)
+
+	_, _, err = (&PTYOptions{Width: -1}).Dimensions()
+	assert.ErrorIs(t, err, ErrInvalidPTYSize)
+	_, _, err = (&PTYOptions{Height: MaxPTYDimension + 1}).Dimensions()
+	assert.ErrorIs(t, err, ErrInvalidPTYSize)
+}
+
 func TestProcessOptions_MarshalUnmarshal(t *testing.T) {
 	tests := []struct {
 		options ProcessOptions

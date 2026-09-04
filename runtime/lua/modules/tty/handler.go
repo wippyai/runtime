@@ -38,18 +38,21 @@ func eventHandler(_ context.Context, l *lua.LState, _ pid.PID, _ string, payload
 	case "mouse":
 		tbl.RawSetString("action", lua.LString(ev.Action))
 		tbl.RawSetString("button", lua.LString(ev.Button))
-		tbl.RawSetString("x", lua.LNumber(ev.X))
-		tbl.RawSetString("y", lua.LNumber(ev.Y))
+		tbl.RawSetString("x", lua.LInteger(ev.X))
+		tbl.RawSetString("y", lua.LInteger(ev.Y))
 		tbl.RawSetString("alt", lua.LBool(ev.Alt))
 		tbl.RawSetString("ctrl", lua.LBool(ev.Ctrl))
 		tbl.RawSetString("shift", lua.LBool(ev.Shift))
 
 	case "resize", "start":
-		tbl.RawSetString("width", lua.LNumber(ev.Width))
-		tbl.RawSetString("height", lua.LNumber(ev.Height))
+		tbl.RawSetString("width", lua.LInteger(ev.Width))
+		tbl.RawSetString("height", lua.LInteger(ev.Height))
 
 	case "focus":
 		tbl.RawSetString("focused", lua.LBool(ev.Focused))
+
+	case "visibility":
+		tbl.RawSetString("visible", lua.LBool(ev.Visible))
 
 	case "paste":
 		tbl.RawSetString("text", lua.LString(ev.Paste))

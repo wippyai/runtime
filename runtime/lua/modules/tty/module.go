@@ -9,9 +9,8 @@ import (
 	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/runtime"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
-	"github.com/wippyai/runtime/api/service/terminal"
+	ttyapi "github.com/wippyai/runtime/api/tty"
 	"github.com/wippyai/runtime/runtime/lua/engine"
-	svcterm "github.com/wippyai/runtime/service/terminal"
 )
 
 // Module is the tty module definition.
@@ -35,6 +34,10 @@ func buildModule() (*lua.LTable, []luaapi.YieldType) {
 	mod.RawSetString("screen_size", lua.LGoFunc(ttyScreenSize))
 	mod.RawSetString("events", lua.LGoFunc(ttyEvents))
 	mod.RawSetString("mouse", lua.LGoFunc(ttyMouse))
+	mod.RawSetString("surface", lua.LGoFunc(ttySurfaceNew))
+	mod.RawSetString("canvas", lua.LGoFunc(ttyCanvasNew))
+	mod.RawSetString("viewport", lua.LGoFunc(ttyViewportNew))
+	mod.RawSetString("attach", lua.LGoFunc(ttyAttach))
 
 	// Style
 	mod.RawSetString("style", lua.LGoFunc(ttyStyleNew))
@@ -58,8 +61,10 @@ func buildModule() (*lua.LTable, []luaapi.YieldType) {
 	mod.RawSetString("align", align)
 
 	// Text utilities
-	text := lua.CreateTable(0, 11)
+	text := lua.CreateTable(0, 13)
 	text.RawSetString("width", lua.LGoFunc(textWidth))
+	text.RawSetString("truncate", lua.LGoFunc(textTruncate))
+	text.RawSetString("cut", lua.LGoFunc(textCut))
 	text.RawSetString("height", lua.LGoFunc(textHeight))
 	text.RawSetString("size", lua.LGoFunc(textSize))
 	text.RawSetString("join_horizontal", lua.LGoFunc(textJoinHorizontal))
@@ -96,14 +101,19 @@ func buildModule() (*lua.LTable, []luaapi.YieldType) {
 
 // ttyStart starts the terminal input reader (yielding).
 func ttyStart(l *lua.LState) int {
-	tc := terminal.GetTerminalContext(l.Context())
-	if tc == nil {
+	port, err := ttyapi.GetPort(l.Context())
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.WrapErrorWithLua(l, err, "resolve terminal port"))
+		return 2
+	}
+	if port == nil {
 		l.Push(lua.LNil)
 		l.Push(lua.NewLuaError(l, "no terminal context").
 			WithKind(lua.Unavailable).WithRetryable(false))
 		return 2
 	}
-	if tc.Input == nil {
+	if port.InputController() == nil {
 		l.Push(lua.LNil)
 		l.Push(lua.NewLuaError(l, "input controller unavailable").
 			WithKind(lua.Unavailable).WithRetryable(false))
@@ -117,14 +127,19 @@ func ttyStart(l *lua.LState) int {
 
 // ttyStop stops the terminal input reader (yielding).
 func ttyStop(l *lua.LState) int {
-	tc := terminal.GetTerminalContext(l.Context())
-	if tc == nil {
+	port, err := ttyapi.GetPort(l.Context())
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.WrapErrorWithLua(l, err, "resolve terminal port"))
+		return 2
+	}
+	if port == nil {
 		l.Push(lua.LNil)
 		l.Push(lua.NewLuaError(l, "no terminal context").
 			WithKind(lua.Unavailable).WithRetryable(false))
 		return 2
 	}
-	if tc.Input == nil {
+	if port.InputController() == nil {
 		l.Push(lua.LNil)
 		l.Push(lua.NewLuaError(l, "input controller unavailable").
 			WithKind(lua.Unavailable).WithRetryable(false))
@@ -138,15 +153,21 @@ func ttyStop(l *lua.LState) int {
 
 // ttyScreenSize queries the terminal screen size (yielding).
 func ttyScreenSize(l *lua.LState) int {
-	tc := terminal.GetTerminalContext(l.Context())
-	if tc == nil {
+	port, err := ttyapi.GetPort(l.Context())
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LNil)
+		l.Push(lua.WrapErrorWithLua(l, err, "resolve terminal port"))
+		return 3
+	}
+	if port == nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LNil)
 		l.Push(lua.NewLuaError(l, "no terminal context").
 			WithKind(lua.Unavailable).WithRetryable(false))
 		return 3
 	}
-	if tc.Input == nil {
+	if port.InputController() == nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LNil)
 		l.Push(lua.NewLuaError(l, "input controller unavailable").
@@ -161,14 +182,19 @@ func ttyScreenSize(l *lua.LState) int {
 
 // ttyMouse enables or disables mouse event tracking (yielding).
 func ttyMouse(l *lua.LState) int {
-	tc := terminal.GetTerminalContext(l.Context())
-	if tc == nil {
+	port, err := ttyapi.GetPort(l.Context())
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.WrapErrorWithLua(l, err, "resolve terminal port"))
+		return 2
+	}
+	if port == nil {
 		l.Push(lua.LNil)
 		l.Push(lua.NewLuaError(l, "no terminal context").
 			WithKind(lua.Unavailable).WithRetryable(false))
 		return 2
 	}
-	if tc.Input == nil {
+	if port.InputController() == nil {
 		l.Push(lua.LNil)
 		l.Push(lua.NewLuaError(l, "input controller unavailable").
 			WithKind(lua.Unavailable).WithRetryable(false))
@@ -214,13 +240,13 @@ func ttyEvents(l *lua.LState) int {
 
 	ch := engine.NewChannel(64)
 
-	if err := proc.SubscribeExisting(svcterm.TopicTTYEvents, ch); err != nil {
+	if err := proc.SubscribeExisting(ttyapi.TopicEvents, ch); err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.WrapErrorWithLua(l, err, "subscribe tty events"))
 		return 2
 	}
 
-	proc.SetTopicHandler(svcterm.TopicTTYEvents, eventHandler)
+	proc.SetTopicHandler(ttyapi.TopicEvents, eventHandler)
 	engine.PushChannel(l, ch)
 	return 1
 }

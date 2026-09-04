@@ -23,10 +23,13 @@ require (
 	github.com/charmbracelet/bubbles v0.21.1
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0
+	github.com/charmbracelet/ultraviolet v0.0.0-20260303162955-0b88c25f3fff
 	github.com/charmbracelet/x/ansi v0.11.8
 	github.com/charmbracelet/x/input v0.3.7
 	github.com/charmbracelet/x/term v0.2.2
+	github.com/charmbracelet/x/vt v0.0.0-20260902165432-6f6ad8b37b0a
 	github.com/coder/websocket v1.8.15
+	github.com/creack/pty v1.1.24
 	github.com/expr-lang/expr v1.17.8
 	github.com/fatih/color v1.19.0
 	github.com/go-json-experiment/json v0.0.0-20260623181947-01eb4420fa68
@@ -124,10 +127,12 @@ require (
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/boltdb/bolt v1.3.1 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
-	github.com/charmbracelet/colorprofile v0.4.1 // indirect
+	github.com/charmbracelet/colorprofile v0.4.2 // indirect
 	github.com/charmbracelet/harmonica v0.2.0 // indirect
 	github.com/charmbracelet/x/cellbuf v0.0.15 // indirect
-	github.com/charmbracelet/x/windows v0.2.1 // indirect
+	github.com/charmbracelet/x/exp/ordered v0.1.0 // indirect
+	github.com/charmbracelet/x/termios v0.1.1 // indirect
+	github.com/charmbracelet/x/windows v0.2.2 // indirect
 	github.com/cilium/ebpf v0.22.0 // indirect
 	github.com/clipperhouse/displaywidth v0.11.0 // indirect
 	github.com/clipperhouse/uax29/v2 v2.7.0 // indirect
