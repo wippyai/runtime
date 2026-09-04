@@ -12,12 +12,12 @@ import (
 func isRootDependency(entry regapi.Entry) bool {
 	// Deployment ingestion marks source-owned roots explicitly. A dependency
 	// authored through the registry API has no module owner and is a user overlay
-	// root. Module-owned declarations without root provenance are transitive.
-	return entry.Kind == regapi.NamespaceDependency && (entry.DependencyRoot || entryModule(entry) == "")
+	// root. Module-owned declarations without the root flag are transitive.
+	return entry.Kind == regapi.NamespaceDependency && (entry.Registry.Root || entryModule(entry) == "")
 }
 
 // collectControlledModules returns the dependency graph reachable from the
-// state's deployment roots. A root's package owner is provenance, not part of
+// state's deployment roots. A root's package owner is registry metadata, not part of
 // that graph: the root controls its declared component, while ordinary owned
 // dependencies extend the graph from owner to component.
 func (h *DependencyHandler) collectControlledModules(

@@ -23,16 +23,6 @@ type Registry interface {
 	Close() error
 }
 
-// EntryResolver is an optional Registry capability that resolves a filesystem
-// for a specific registry entry, honoring the entry's module/version metadata.
-// It lets consumers pick the correct pack when more than one module version
-// exposes the same resource ID — for example, while a module update has both
-// the old and new packs staged. Implementations should fall back to GetFS for
-// entries without module metadata or whose owning pack is not registered.
-type EntryResolver interface {
-	GetFSForEntry(entry registry.Entry) (fs.ReadDirFS, error)
-}
-
 // WithRegistry stores the Registry in the context.
 func WithRegistry(ctx context.Context, reg Registry) context.Context {
 	ac := ctxapi.AppFromContext(ctx)

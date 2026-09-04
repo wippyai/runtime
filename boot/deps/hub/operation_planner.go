@@ -11,7 +11,7 @@ import (
 )
 
 func entriesEqual(a, b regapi.Entry) bool {
-	if !idsEqual(a.ID, b.ID) || a.Kind != b.Kind || a.DependencyRoot != b.DependencyRoot {
+	if !idsEqual(a.ID, b.ID) || a.Kind != b.Kind || a.Registry != b.Registry {
 		return false
 	}
 	if !reflect.DeepEqual(a.Meta, b.Meta) {
@@ -301,7 +301,7 @@ func preserveImmutableResidentEntry(existing, desired regapi.Entry, mutableModul
 	if mutableModules == nil {
 		return false
 	}
-	if existing.DependencyRoot != desired.DependencyRoot {
+	if existing.Registry != desired.Registry {
 		return false
 	}
 	module := entryModule(desired)
@@ -309,11 +309,6 @@ func preserveImmutableResidentEntry(existing, desired regapi.Entry, mutableModul
 		return false
 	}
 	if _, mutable := mutableModules[module]; mutable {
-		return false
-	}
-	existingVersion := moduleVersion(existing)
-	desiredVersion := moduleVersion(desired)
-	if existingVersion != "" && desiredVersion != "" && existingVersion != desiredVersion {
 		return false
 	}
 	return true

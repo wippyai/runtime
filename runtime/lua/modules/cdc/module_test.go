@@ -39,8 +39,9 @@ func newStateWithInspector(t *testing.T, inspector cdcapi.SourceInspector) *lua.
 	l := lua.NewState()
 	t.Cleanup(l.Close)
 
-	ctx := cdcapi.WithSourceInspector(context.Background(), inspector)
+	ctx := cdcapi.WithSourceInspector(ctxapi.NewRootContext(), inspector)
 	l.SetContext(ctx)
+	grantTestSources(t, l)
 
 	tbl, _ := Module.Build()
 	l.SetGlobal(Module.Name, tbl)
@@ -80,6 +81,7 @@ func newStateWithRegistry(t *testing.T, registry cdcapi.Registry) *lua.LState {
 	ctx := ctxapi.NewRootContext()
 	ctx = cdcapi.WithRegistry(ctx, registry)
 	l.SetContext(ctx)
+	grantTestSources(t, l)
 
 	tbl, _ := Module.Build()
 	l.SetGlobal(Module.Name, tbl)

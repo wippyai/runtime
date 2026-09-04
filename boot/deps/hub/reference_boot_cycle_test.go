@@ -68,13 +68,13 @@ modules:
 
 	root := regapi.Entry{
 		ID: regapi.NewID("app.deps", "app"), Kind: regapi.NamespaceDependency,
-		DependencyRoot: true,
-		Data:           payload.New(map[string]any{"component": "acme/app", "version": "v1.0.0"}),
+		Registry: regapi.EntryMetadata{Root: true},
+		Data:     payload.New(map[string]any{"component": "acme/app", "version": "v1.0.0"}),
 	}
-	service := markModuleIdentity(regapi.Entry{
+	service := ownedEntry(regapi.Entry{
 		ID: regapi.NewID("acme.app", "service"), Kind: "service",
 		Data: payload.New(map[string]any{"version": "1"}),
-	}, "acme/app", "v1.0.0", digest)
+	}, "acme/app")
 	baseline := regapi.State{root, service}
 	reference := regapi.Entry{
 		ID:   regapi.NewID("acme.pkg", "__dependency.acme.app"),

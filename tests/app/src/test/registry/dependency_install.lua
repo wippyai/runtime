@@ -20,10 +20,36 @@ local function err_contains(err, substr)
 	return tostring(msg):find(substr, 1, true) ~= nil
 end
 
+local function state()
+	local snap, err = registry.snapshot()
+	assert.is_nil(err, "snapshot no error")
+	assert.not_nil(snap, "snapshot available")
+
+	local result, state_err = snap:state()
+	assert.is_nil(state_err, "snapshot state no error")
+	assert.not_nil(result, "snapshot state available")
+	return result
+end
+
 local function find_module_entries()
-	local entries, err = registry.find({ ["meta.module"] = module_name })
-	assert.is_nil(err, "registry.find no error")
-	return entries or {}
+	local entries = {}
+	for _, entry in ipairs(state().entries) do
+		if entry.registry.owner == module_name then
+			table.insert(entries, entry)
+		end
+	end
+	return entries
+end
+
+local function selected_module()
+	local resolution = state().resolution
+	assert.not_nil(resolution, "dependency resolution available")
+	for _, module in ipairs(resolution.modules) do
+		if module.name == module_name then
+			return module
+		end
+	end
+	return nil
 end
 
 local function apply_changes(apply_fn)
@@ -93,6 +119,10 @@ local function main()
 	local entries = find_module_entries()
 	assert.ok(#entries > 0, "module entries present")
 	assert.not_nil(entries[1].id, "module entry has id")
+	assert.eq(entries[1].registry.owner, module_name, "state identifies the installed module")
+	local ordinary = registry.get(tostring(entries[1].id)) as any
+	assert.is_nil(ordinary.registry, "ordinary entry reads do not expose registry metadata")
+	assert.not_nil(selected_module(), "selected module is in the atomic state")
 
 	local workspace, fs_err = fs.get("app:workspace")
 	if workspace ~= nil then

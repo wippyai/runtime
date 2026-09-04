@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	lua "github.com/wippyai/go-lua"
-	"github.com/wippyai/runtime/api/attrs"
 	regapi "github.com/wippyai/runtime/api/registry"
 )
 
@@ -223,70 +222,59 @@ func TestValuesEqualArrayVsNonArray(t *testing.T) {
 	}
 }
 
-// root marks an ns.dependency selected as a deployment root and is the sole
-// authority for that status: meta is user space and carries no trust. A Lua
-// write path that cannot read or emit the field silently demotes every root.
-func TestLuaTableToEntryReadsRoot(t *testing.T) {
+func TestLuaTableToEntryDoesNotAcceptRegistryMetadata(t *testing.T) {
 	l := newTestState()
 	defer l.Close()
 
 	table := l.CreateTable(0, 3)
-	table.RawSetString("id", lua.LString("app.deps:crm"))
-	table.RawSetString("kind", lua.LString("ns.dependency"))
-	table.RawSetString("root", lua.LTrue)
+	table.RawSetString("id", lua.LString("app:handler"))
+	table.RawSetString("kind", lua.LString("function.lua"))
+	metadata := l.CreateTable(0, 2)
+	metadata.RawSetString("owner", lua.LString("forged/module"))
+	metadata.RawSetString("root", lua.LTrue)
+	table.RawSetString("registry", metadata)
 
 	entry, err := luaTableToEntry(l, table)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !entry.DependencyRoot {
-		t.Error("expected root to be carried onto the entry")
+	if entry.Registry != (regapi.EntryMetadata{}) {
+		t.Fatalf("registry metadata must not be accepted from Lua: %#v", entry.Registry)
 	}
 }
 
-func TestLuaTableToEntryDefaultsRootFalse(t *testing.T) {
+func TestLuaTableToEntryAcceptsDependencyRootControl(t *testing.T) {
 	l := newTestState()
 	defer l.Close()
 
-	table := l.CreateTable(0, 2)
-	table.RawSetString("id", lua.LString("app.deps:crm"))
+	table := l.CreateTable(0, 3)
+	table.RawSetString("id", lua.LString("app.deps:knowledge"))
 	table.RawSetString("kind", lua.LString("ns.dependency"))
+	table.RawSetString("dependency_root", lua.LTrue)
 
 	entry, err := luaTableToEntry(l, table)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if entry.DependencyRoot {
-		t.Error("expected root to default to false when absent")
+	if !entry.Registry.Root {
+		t.Fatal("dependency_root must select the registry-owned root bit")
+	}
+	if entry.Registry.Owner != "" {
+		t.Fatalf("Lua must not assign registry ownership: %q", entry.Registry.Owner)
 	}
 }
 
-// Read-modify-write from Lua must not demote a root, so the flag has to survive
-// both directions of the conversion.
-func TestEntryLuaRoundTripPreservesRoot(t *testing.T) {
+func TestLuaTableToEntryRejectsInvalidDependencyRoot(t *testing.T) {
 	l := newTestState()
 	defer l.Close()
 
-	original := regapi.Entry{
-		ID:             regapi.ParseID("app.deps:crm"),
-		Kind:           "ns.dependency",
-		Meta:           attrs.Bag{"module": "kickside/app"},
-		DependencyRoot: true,
-	}
+	table := l.CreateTable(0, 3)
+	table.RawSetString("id", lua.LString("app.deps:knowledge"))
+	table.RawSetString("kind", lua.LString("ns.dependency"))
+	table.RawSetString("dependency_root", lua.LString("true"))
 
-	table, err := entryToLuaTable(l, original)
-	if err != nil {
-		t.Fatalf("unexpected error converting entry to table: %v", err)
-	}
-	if table.RawGetString("root") != lua.LTrue {
-		t.Fatal("expected root to be emitted onto the Lua table")
-	}
-
-	back, err := luaTableToEntry(l, table)
-	if err != nil {
-		t.Fatalf("unexpected error converting table to entry: %v", err)
-	}
-	if !back.DependencyRoot {
-		t.Error("expected root to survive a Lua round trip")
+	_, err := luaTableToEntry(l, table)
+	if err == nil {
+		t.Fatal("expected invalid dependency_root to fail")
 	}
 }

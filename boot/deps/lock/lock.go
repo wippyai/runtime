@@ -417,7 +417,8 @@ type ModuleLoadPath struct {
 // App source has empty Module/Version.
 // Replacement paths carry Module from replacement "from" and retain the
 // selected lock version when one exists. The replacement changes source
-// ownership, not the resolved release identity.
+// ownership, not the resolved release identity. Replacements for modules that
+// are not selected by the lock graph are resolution inputs, not load paths.
 func (l *Lock) GetModuleLoadPaths() []ModuleLoadPath {
 	lockDir := filepath.Dir(l.path)
 	replacements := l.effectiveReplacements()
@@ -439,6 +440,9 @@ func (l *Lock) GetModuleLoadPaths() []ModuleLoadPath {
 
 	replaced := make(map[string]struct{}, len(replacements))
 	for _, repl := range replacements {
+		if _, selected := selectedVersions[repl.From]; !selected {
+			continue
+		}
 		replaced[repl.From] = struct{}{}
 		if repl.To != "" {
 			root := ResolveLockPath(lockDir, repl.To)

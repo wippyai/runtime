@@ -198,10 +198,11 @@ func transformEntries(entries []registry.Entry, embeddableIDs []registry.ID) []r
 	for i, entry := range entries {
 		if embeddableMap[entry.ID.String()] && entry.Kind == dirapi.Kind {
 			transformed[i] = registry.Entry{
-				ID:   entry.ID,
-				Kind: embedapi.Kind,
-				Meta: entry.Meta,
-				Data: payload.New(map[string]any{}),
+				ID:       entry.ID,
+				Kind:     embedapi.Kind,
+				Meta:     entry.Meta,
+				Registry: entry.Registry,
+				Data:     payload.New(map[string]any{}),
 			}
 		} else {
 			transformed[i] = entry

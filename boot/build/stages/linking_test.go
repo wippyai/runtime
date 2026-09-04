@@ -294,11 +294,9 @@ func TestLink_BareParameterDoesNotCrossDottedModuleMeta(t *testing.T) {
 			}),
 		},
 		{
-			ID:   registry.NewID("userspace.dataflow", "target_db"),
-			Kind: registry.NamespaceRequirement,
-			Meta: map[string]any{
-				"module": "wippy/dataflow",
-			},
+			ID:       registry.NewID("userspace.dataflow", "target_db"),
+			Kind:     registry.NamespaceRequirement,
+			Registry: registry.EntryMetadata{Owner: "wippy/dataflow"},
 			Data: payload.New(map[string]any{
 				"targets": []any{
 					map[string]any{
@@ -309,11 +307,9 @@ func TestLink_BareParameterDoesNotCrossDottedModuleMeta(t *testing.T) {
 			}),
 		},
 		{
-			ID:   registry.NewID("other.bundle", "target_db"),
-			Kind: registry.NamespaceRequirement,
-			Meta: map[string]any{
-				"module": "other/module",
-			},
+			ID:       registry.NewID("other.bundle", "target_db"),
+			Kind:     registry.NamespaceRequirement,
+			Registry: registry.EntryMetadata{Owner: "other/module"},
 			Data: payload.New(map[string]any{
 				"targets": []any{
 					map[string]any{
@@ -379,9 +375,9 @@ func TestLink_BareParametersWithSameNameAreScopedToDependencyComponent(t *testin
 			}),
 		},
 		{
-			ID:   registry.NewID("wippy.views", "api_router"),
-			Kind: registry.NamespaceRequirement,
-			Meta: map[string]any{"module": "wippy/views"},
+			ID:       registry.NewID("wippy.views", "api_router"),
+			Kind:     registry.NamespaceRequirement,
+			Registry: registry.EntryMetadata{Owner: "wippy/views"},
 			Data: payload.New(map[string]any{
 				"targets": []any{
 					map[string]any{"entry": "pages_endpoint", "path": ".meta.router"},
@@ -406,12 +402,11 @@ func TestLink_BareParametersWithSameNameAreScopedToDependencyComponent(t *testin
 }
 
 // TestLink_DuplicateDependencyParametersForSameRequirementConflict verifies
-// that two dependencies of equal provenance resolving the same concrete
+// that two equally ranked dependencies resolving the same concrete
 // requirement id to different values conflict rather than silently picking one.
-// Both dependencies are root dependencies (no meta.module), so the deps merge
-// layer applies no precedence and both parameters reach the linker; the linker
-// is provenance-blind, so the disagreement surfaces as a conflict and, under
-// strict enforcement for that module, leaves the requirement unresolved.
+// Both dependency declarations are roots, so the merge layer applies no
+// precedence and both parameters reach the linker. Under strict enforcement,
+// the disagreement leaves the requirement unresolved.
 func TestLink_DuplicateDependencyParametersForSameRequirementConflict(t *testing.T) {
 	ctx, _ := setupTestContext()
 
@@ -437,9 +432,9 @@ func TestLink_DuplicateDependencyParametersForSameRequirementConflict(t *testing
 			}),
 		},
 		{
-			ID:   registry.NewID("wippy.bootloader", "env_storage"),
-			Kind: registry.NamespaceRequirement,
-			Meta: map[string]any{"module": "wippy/bootloader"},
+			ID:       registry.NewID("wippy.bootloader", "env_storage"),
+			Kind:     registry.NamespaceRequirement,
+			Registry: registry.EntryMetadata{Owner: "wippy/bootloader"},
 			Data: payload.New(map[string]any{
 				"targets": []any{
 					map[string]any{"entry": "env_loader", "path": ".meta.storage"},
@@ -483,9 +478,9 @@ func TestLink_FullAndBareParametersForSameRequirementConflict(t *testing.T) {
 			}),
 		},
 		{
-			ID:   registry.NewID("wippy.views", "api_router"),
-			Kind: registry.NamespaceRequirement,
-			Meta: map[string]any{"module": "wippy/views"},
+			ID:       registry.NewID("wippy.views", "api_router"),
+			Kind:     registry.NamespaceRequirement,
+			Registry: registry.EntryMetadata{Owner: "wippy/views"},
 			Data: payload.New(map[string]any{
 				"targets": []any{
 					map[string]any{"entry": "pages_endpoint", "path": ".meta.router"},
@@ -539,9 +534,9 @@ func TestLink_FullyQualifiedParameterDoesNotCrossRequirementNamespace(t *testing
 			}),
 		},
 		{
-			ID:   registry.NewID("wippy.facade", "router"),
-			Kind: registry.NamespaceRequirement,
-			Meta: map[string]any{"module": "wippy/facade"},
+			ID:       registry.NewID("wippy.facade", "router"),
+			Kind:     registry.NamespaceRequirement,
+			Registry: registry.EntryMetadata{Owner: "wippy/facade"},
 			Data: payload.New(map[string]any{
 				"targets": []any{
 					map[string]any{
@@ -552,9 +547,9 @@ func TestLink_FullyQualifiedParameterDoesNotCrossRequirementNamespace(t *testing
 			}),
 		},
 		{
-			ID:   registry.NewID("wippy.dummy", "router"),
-			Kind: registry.NamespaceRequirement,
-			Meta: map[string]any{"module": "wippy/dummy"},
+			ID:       registry.NewID("wippy.dummy", "router"),
+			Kind:     registry.NamespaceRequirement,
+			Registry: registry.EntryMetadata{Owner: "wippy/dummy"},
 			Data: payload.New(map[string]any{
 				"targets": []any{
 					map[string]any{
@@ -612,9 +607,9 @@ func TestLink_SameBareNameOwnedRequirementsResolveByFullID(t *testing.T) {
 			}),
 		},
 		{
-			ID:   registry.NewID("kickside.core.projections", "api_router"),
-			Kind: registry.NamespaceRequirement,
-			Meta: map[string]any{"module": "kickside/core"},
+			ID:       registry.NewID("kickside.core.projections", "api_router"),
+			Kind:     registry.NamespaceRequirement,
+			Registry: registry.EntryMetadata{Owner: "kickside/core"},
 			Data: payload.New(map[string]any{
 				"targets": []any{
 					map[string]any{"entry": "proj_endpoint", "path": ".meta.router"},
@@ -622,9 +617,9 @@ func TestLink_SameBareNameOwnedRequirementsResolveByFullID(t *testing.T) {
 			}),
 		},
 		{
-			ID:   registry.NewID("kickside.core.retention", "api_router"),
-			Kind: registry.NamespaceRequirement,
-			Meta: map[string]any{"module": "kickside/core"},
+			ID:       registry.NewID("kickside.core.retention", "api_router"),
+			Kind:     registry.NamespaceRequirement,
+			Registry: registry.EntryMetadata{Owner: "kickside/core"},
 			Data: payload.New(map[string]any{
 				"targets": []any{
 					map[string]any{"entry": "ret_endpoint", "path": ".meta.router"},
@@ -677,9 +672,9 @@ func TestLink_BareNameFansOutToAllOwnedRequirements(t *testing.T) {
 			}),
 		},
 		{
-			ID:   registry.NewID("kickside.core.projections", "api_router"),
-			Kind: registry.NamespaceRequirement,
-			Meta: map[string]any{"module": "kickside/core"},
+			ID:       registry.NewID("kickside.core.projections", "api_router"),
+			Kind:     registry.NamespaceRequirement,
+			Registry: registry.EntryMetadata{Owner: "kickside/core"},
 			Data: payload.New(map[string]any{
 				"targets": []any{
 					map[string]any{"entry": "proj_endpoint", "path": ".meta.router"},
@@ -687,9 +682,9 @@ func TestLink_BareNameFansOutToAllOwnedRequirements(t *testing.T) {
 			}),
 		},
 		{
-			ID:   registry.NewID("kickside.core.retention", "api_router"),
-			Kind: registry.NamespaceRequirement,
-			Meta: map[string]any{"module": "kickside/core"},
+			ID:       registry.NewID("kickside.core.retention", "api_router"),
+			Kind:     registry.NamespaceRequirement,
+			Registry: registry.EntryMetadata{Owner: "kickside/core"},
 			Data: payload.New(map[string]any{
 				"targets": []any{
 					map[string]any{"entry": "ret_endpoint", "path": ".meta.router"},
@@ -740,9 +735,9 @@ func TestLink_ThreeWayBareNameFansOut(t *testing.T) {
 			}),
 		},
 		{
-			ID:   registry.NewID("kickside.core.projections", "api_router"),
-			Kind: registry.NamespaceRequirement,
-			Meta: map[string]any{"module": "kickside/core"},
+			ID:       registry.NewID("kickside.core.projections", "api_router"),
+			Kind:     registry.NamespaceRequirement,
+			Registry: registry.EntryMetadata{Owner: "kickside/core"},
 			Data: payload.New(map[string]any{
 				"targets": []any{
 					map[string]any{"entry": "proj_endpoint", "path": ".meta.router"},
@@ -750,9 +745,9 @@ func TestLink_ThreeWayBareNameFansOut(t *testing.T) {
 			}),
 		},
 		{
-			ID:   registry.NewID("kickside.core.retention", "api_router"),
-			Kind: registry.NamespaceRequirement,
-			Meta: map[string]any{"module": "kickside/core"},
+			ID:       registry.NewID("kickside.core.retention", "api_router"),
+			Kind:     registry.NamespaceRequirement,
+			Registry: registry.EntryMetadata{Owner: "kickside/core"},
 			Data: payload.New(map[string]any{
 				"targets": []any{
 					map[string]any{"entry": "ret_endpoint", "path": ".meta.router"},
@@ -760,9 +755,9 @@ func TestLink_ThreeWayBareNameFansOut(t *testing.T) {
 			}),
 		},
 		{
-			ID:   registry.NewID("kickside.core.threads", "api_router"),
-			Kind: registry.NamespaceRequirement,
-			Meta: map[string]any{"module": "kickside/core"},
+			ID:       registry.NewID("kickside.core.threads", "api_router"),
+			Kind:     registry.NamespaceRequirement,
+			Registry: registry.EntryMetadata{Owner: "kickside/core"},
 			Data: payload.New(map[string]any{
 				"targets": []any{
 					map[string]any{"entry": "threads_endpoint", "path": ".meta.router"},
@@ -823,9 +818,9 @@ func TestLink_BareFanOutWithConflictingFullIDValueFails(t *testing.T) {
 				}),
 			},
 			{
-				ID:   registry.NewID("kickside.core.projections", "api_router"),
-				Kind: registry.NamespaceRequirement,
-				Meta: map[string]any{"module": "kickside/core"},
+				ID:       registry.NewID("kickside.core.projections", "api_router"),
+				Kind:     registry.NamespaceRequirement,
+				Registry: registry.EntryMetadata{Owner: "kickside/core"},
 				Data: payload.New(map[string]any{
 					"targets": []any{
 						map[string]any{"entry": "proj_endpoint", "path": ".meta.router"},
@@ -833,9 +828,9 @@ func TestLink_BareFanOutWithConflictingFullIDValueFails(t *testing.T) {
 				}),
 			},
 			{
-				ID:   registry.NewID("kickside.core.retention", "api_router"),
-				Kind: registry.NamespaceRequirement,
-				Meta: map[string]any{"module": "kickside/core"},
+				ID:       registry.NewID("kickside.core.retention", "api_router"),
+				Kind:     registry.NamespaceRequirement,
+				Registry: registry.EntryMetadata{Owner: "kickside/core"},
 				Data: payload.New(map[string]any{
 					"targets": []any{
 						map[string]any{"entry": "ret_endpoint", "path": ".meta.router"},
@@ -999,11 +994,9 @@ func TestLink_StrictRequirementModulesIgnoresUnrelatedRequirements(t *testing.T)
 			}),
 		},
 		{
-			ID:   registry.NewID("acme.module", "router"),
-			Kind: registry.NamespaceRequirement,
-			Meta: map[string]any{
-				"module": "acme/module",
-			},
+			ID:       registry.NewID("acme.module", "router"),
+			Kind:     registry.NamespaceRequirement,
+			Registry: registry.EntryMetadata{Owner: "acme/module"},
 			Data: payload.New(map[string]any{
 				"default": "app:api",
 				"targets": []any{
@@ -1370,9 +1363,9 @@ func TestLink_EmptyDefaultResolvesUnderStrict(t *testing.T) {
 
 	entries := []registry.Entry{
 		{
-			ID:   registry.NewID("acme.module", "opt"),
-			Kind: registry.NamespaceRequirement,
-			Meta: map[string]any{"module": "acme/module"},
+			ID:       registry.NewID("acme.module", "opt"),
+			Kind:     registry.NamespaceRequirement,
+			Registry: registry.EntryMetadata{Owner: "acme/module"},
 			Data: payload.New(map[string]any{
 				"default": "", // present but empty: optional, resolves to ""
 				"targets": []any{
@@ -1415,9 +1408,9 @@ func TestLink_EmptyProvidedValueResolvesUnderStrict(t *testing.T) {
 			}),
 		},
 		{
-			ID:   registry.NewID("vendor.module", "opt"),
-			Kind: registry.NamespaceRequirement,
-			Meta: map[string]any{"module": "vendor/module"},
+			ID:       registry.NewID("vendor.module", "opt"),
+			Kind:     registry.NamespaceRequirement,
+			Registry: registry.EntryMetadata{Owner: "vendor/module"},
 			Data: payload.New(map[string]any{
 				"targets": []any{
 					map[string]any{"entry": "endpoint", "path": ".meta.opt"},
@@ -1629,9 +1622,9 @@ func TestLink_TypedParameterSameValueNoConflict(t *testing.T) {
 			}),
 		},
 		{
-			ID:   registry.NewID("vendor.module", "workers"),
-			Kind: registry.NamespaceRequirement,
-			Meta: map[string]any{"module": "vendor/module"},
+			ID:       registry.NewID("vendor.module", "workers"),
+			Kind:     registry.NamespaceRequirement,
+			Registry: registry.EntryMetadata{Owner: "vendor/module"},
 			Data: payload.New(map[string]any{
 				"targets": []any{
 					map[string]any{"entry": "service", "path": ".workers"},
@@ -1683,9 +1676,9 @@ func TestLink_TypedParameterConflictLeavesUnresolved(t *testing.T) {
 			}),
 		},
 		{
-			ID:   registry.NewID("vendor.module", "workers"),
-			Kind: registry.NamespaceRequirement,
-			Meta: map[string]any{"module": "vendor/module"},
+			ID:       registry.NewID("vendor.module", "workers"),
+			Kind:     registry.NamespaceRequirement,
+			Registry: registry.EntryMetadata{Owner: "vendor/module"},
 			Data: payload.New(map[string]any{
 				"targets": []any{
 					map[string]any{"entry": "service", "path": ".workers"},
@@ -1986,10 +1979,9 @@ func TestLink_RootParameterBeatsTransitiveBareAliasSpelling(t *testing.T) {
 
 	entries := []registry.Entry{
 		{
-			ID:             registry.NewID("app.deps", "telegram_root"),
-			Kind:           registry.NamespaceDependency,
-			Meta:           map[string]any{"module": "acme/app"},
-			DependencyRoot: true,
+			ID:       registry.NewID("app.deps", "telegram_root"),
+			Kind:     registry.NamespaceDependency,
+			Registry: registry.EntryMetadata{Owner: "acme/app", Root: true},
 			Data: payload.New(map[string]any{
 				"component": "butschster/telegram",
 				"parameters": []any{
@@ -1998,9 +1990,9 @@ func TestLink_RootParameterBeatsTransitiveBareAliasSpelling(t *testing.T) {
 			}),
 		},
 		{
-			ID:   registry.NewID("app", "dep.telegram"),
-			Kind: registry.NamespaceDependency,
-			Meta: map[string]any{"module": "wippy/migration"},
+			ID:       registry.NewID("app", "dep.telegram"),
+			Kind:     registry.NamespaceDependency,
+			Registry: registry.EntryMetadata{Owner: "wippy/migration"},
 			Data: payload.New(map[string]any{
 				"component": "butschster/telegram",
 				"parameters": []any{
@@ -2009,9 +2001,9 @@ func TestLink_RootParameterBeatsTransitiveBareAliasSpelling(t *testing.T) {
 			}),
 		},
 		{
-			ID:   registry.NewID("telegram", "env_storage"),
-			Kind: registry.NamespaceRequirement,
-			Meta: map[string]any{"module": "butschster/telegram"},
+			ID:       registry.NewID("telegram", "env_storage"),
+			Kind:     registry.NamespaceRequirement,
+			Registry: registry.EntryMetadata{Owner: "butschster/telegram"},
 			Data: payload.New(map[string]any{
 				"targets": []any{
 					map[string]any{"entry": "telegram:bot_token", "path": ".storage"},
@@ -2036,7 +2028,7 @@ func TestLink_RootParameterBeatsTransitiveBareAliasSpelling(t *testing.T) {
 }
 
 // TestLink_TransitiveOnlyDuplicateForSameRequirementConflicts verifies that two
-// transitive dependencies (provenance-equal) resolving the same concrete
+// transitive dependencies resolving the same concrete
 // requirement to different values still conflict fail-loud: precedence only
 // resolves root-vs-transitive, never transitive-vs-transitive.
 func TestLink_TransitiveOnlyDuplicateForSameRequirementConflicts(t *testing.T) {
@@ -2044,9 +2036,9 @@ func TestLink_TransitiveOnlyDuplicateForSameRequirementConflicts(t *testing.T) {
 
 	entries := []registry.Entry{
 		{
-			ID:   registry.NewID("app", "dep.telegram.a"),
-			Kind: registry.NamespaceDependency,
-			Meta: map[string]any{"module": "wippy/migration"},
+			ID:       registry.NewID("app", "dep.telegram.a"),
+			Kind:     registry.NamespaceDependency,
+			Registry: registry.EntryMetadata{Owner: "wippy/migration"},
 			Data: payload.New(map[string]any{
 				"component": "butschster/telegram",
 				"parameters": []any{
@@ -2055,9 +2047,9 @@ func TestLink_TransitiveOnlyDuplicateForSameRequirementConflicts(t *testing.T) {
 			}),
 		},
 		{
-			ID:   registry.NewID("app", "dep.telegram.b"),
-			Kind: registry.NamespaceDependency,
-			Meta: map[string]any{"module": "wippy/other"},
+			ID:       registry.NewID("app", "dep.telegram.b"),
+			Kind:     registry.NamespaceDependency,
+			Registry: registry.EntryMetadata{Owner: "wippy/other"},
 			Data: payload.New(map[string]any{
 				"component": "butschster/telegram",
 				"parameters": []any{
@@ -2066,9 +2058,9 @@ func TestLink_TransitiveOnlyDuplicateForSameRequirementConflicts(t *testing.T) {
 			}),
 		},
 		{
-			ID:   registry.NewID("telegram", "env_storage"),
-			Kind: registry.NamespaceRequirement,
-			Meta: map[string]any{"module": "butschster/telegram"},
+			ID:       registry.NewID("telegram", "env_storage"),
+			Kind:     registry.NamespaceRequirement,
+			Registry: registry.EntryMetadata{Owner: "butschster/telegram"},
 			Data: payload.New(map[string]any{
 				"targets": []any{
 					map[string]any{"entry": "telegram:bot_token", "path": ".storage"},
@@ -2108,7 +2100,7 @@ func executeLinkFixture(ctx context.Context, entries *[]registry.Entry, stage bo
 		if entry.Kind != registry.NamespaceDefinition {
 			continue
 		}
-		if module := requirementModuleFromEntry(entry); module != "" {
+		if module := entry.Registry.Owner; module != "" {
 			definitions[module] = struct{}{}
 		}
 	}
@@ -2134,9 +2126,9 @@ func executeLinkFixture(ctx context.Context, entries *[]registry.Entry, stage bo
 		}
 		namespace := fixtureModuleNamespace(*entries, component)
 		*entries = append(*entries, registry.Entry{
-			ID:   registry.NewID(namespace, "definition"),
-			Kind: registry.NamespaceDefinition,
-			Meta: map[string]any{"module": component},
+			ID:       registry.NewID(namespace, "definition"),
+			Kind:     registry.NamespaceDefinition,
+			Registry: registry.EntryMetadata{Owner: component},
 		})
 	}
 	return stage.Execute(ctx, entries)
@@ -2145,7 +2137,7 @@ func executeLinkFixture(ctx context.Context, entries *[]registry.Entry, stage bo
 func fixtureModuleNamespace(entries []registry.Entry, component string) string {
 	var namespaces []string
 	for _, entry := range entries {
-		if entry.Kind == registry.NamespaceRequirement && requirementModuleFromEntry(entry) == component {
+		if entry.Kind == registry.NamespaceRequirement && entry.Registry.Owner == component {
 			namespaces = append(namespaces, entry.ID.NS)
 		}
 	}

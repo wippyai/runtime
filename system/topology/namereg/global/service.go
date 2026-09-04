@@ -92,6 +92,7 @@ type Service struct {
 	fsm              *FSM
 	logger           *zap.Logger
 	stopCh           chan struct{}
+	eventCancel      context.CancelFunc
 	lookupPending    map[uint64]chan *lookupResponseEnvelope
 	ackerEpochs      map[pid.NodeID]uint64
 	strongExclusions map[string]strongExclusion
@@ -103,6 +104,7 @@ type Service struct {
 	monitorWatermark atomic.Uint64
 	nodeEpoch        atomic.Uint64
 	lookupMu         sync.Mutex
+	eventWG          sync.WaitGroup
 	mu               sync.Mutex
 	strongMu         sync.Mutex
 	reserveMu        sync.Mutex
@@ -284,12 +286,25 @@ func (s *Service) Start(ctx context.Context) (<-chan any, error) {
 	s.nodeEpoch.Add(1)
 	s.nameReady.Store(false)
 
+	// Stop can precede cancellation of the component context. Own the event
+	// subscription context so a full abandoned channel cannot pin the global
+	// event dispatcher behind our unsubscribe request.
+	eventCtx, eventCancel := context.WithCancel(ctx)
 	ch := make(chan event.Event, 32)
-	subID, err := s.bus.SubscribeP(ctx, cluster.System, cluster.NodeLeft, ch)
+	subID, err := s.bus.SubscribeP(eventCtx, cluster.System, cluster.NodeLeft, ch)
 	if err != nil {
+		eventCancel()
+		s.mu.Lock()
+		s.started = false
+		s.mu.Unlock()
 		return nil, fmt.Errorf("subscribe to cluster events: %w", err)
 	}
-	go s.handleClusterEvents(ctx, ch, subID)
+	s.eventCancel = eventCancel
+	s.eventWG.Add(1)
+	go func() {
+		defer s.eventWG.Done()
+		s.handleClusterEvents(eventCtx, ch, subID)
+	}()
 
 	// Rejoin trigger (#31): tie name-readiness to LEADER reachability, not peer
 	// membership churn. A debounced probe closes the gate on a sustained leader
@@ -361,6 +376,10 @@ func (s *Service) Stop(_ context.Context) error {
 	s.mu.Unlock()
 
 	close(s.stopCh)
+	if s.eventCancel != nil {
+		s.eventCancel()
+	}
+	s.eventWG.Wait()
 
 	// Stop the dissem plane's GC goroutine, which runs off its own stopCh
 	// (s.stopCh does not reach it).

@@ -1,15 +1,13 @@
 // SPDX-License-Identifier: MPL-2.0
 
-//go:build goexperiment.jsonv2
-
 package json
 
 import (
 	"bytes"
-	"encoding/json/jsontext"
 	"errors"
 	"sync"
 
+	"github.com/go-json-experiment/json/jsontext"
 	lua "github.com/wippyai/go-lua"
 )
 
@@ -27,8 +25,8 @@ var readerPool = sync.Pool{
 }
 
 // Decode parses JSON data and returns a Lua value.
-// This is the v2 implementation using jsontext for direct token-to-Lua conversion.
-// ~2.5x faster than v1 with ~40% fewer allocations.
+// It uses jsontext for direct token-to-Lua conversion without an intermediate
+// map[string]any representation.
 func Decode(data []byte) (lua.LValue, error) {
 	reader := readerPool.Get().(*bytes.Reader)
 	reader.Reset(data)
@@ -76,7 +74,7 @@ func decodeValue(dec *jsontext.Decoder, depth int) (lua.LValue, error) {
 		if err != nil {
 			return nil, err
 		}
-		return decodeNumber(tok), nil
+		return decodeNumber(tok)
 
 	case '[': // array
 		return decodeArray(dec, depth)
@@ -91,7 +89,7 @@ func decodeValue(dec *jsontext.Decoder, depth int) (lua.LValue, error) {
 			return nil, err
 		}
 		if tok.Kind() == '0' {
-			return decodeNumber(tok), nil
+			return decodeNumber(tok)
 		}
 		return lua.LNil, nil
 	}
@@ -99,17 +97,25 @@ func decodeValue(dec *jsontext.Decoder, depth int) (lua.LValue, error) {
 
 // decodeNumber returns LInteger for integers, LNumber for floats.
 // Uses byte scanning instead of strings.ContainsAny for speed.
-func decodeNumber(tok jsontext.Token) lua.LValue {
+func decodeNumber(tok jsontext.Token) (lua.LValue, error) {
 	raw := tok.String()
 	// Check for decimal point or exponent - if present, use float
 	for i := 0; i < len(raw); i++ {
 		c := raw[i]
 		if c == '.' || c == 'e' || c == 'E' {
-			return lua.LNumber(tok.Float())
+			value, err := tok.Float()
+			return lua.LNumber(value), err
 		}
 	}
-	// Integer - use LInteger for better precision
-	return lua.LInteger(tok.Int())
+
+	// Preserve integral values exactly when they fit. JSON integers outside the
+	// int64 range still fit Lua's numeric representation in the common case.
+	value, err := tok.Int()
+	if err == nil {
+		return lua.LInteger(value), nil
+	}
+	floatValue, floatErr := tok.Float()
+	return lua.LNumber(floatValue), floatErr
 }
 
 // decodeArray decodes a JSON array directly to a Lua table.
@@ -183,7 +189,8 @@ func decodeObject(dec *jsontext.Decoder, depth int) (lua.LValue, error) {
 }
 
 // DecodeValue converts Go value to Lua value.
-// Provided for API compatibility, but v2 Decode bypasses this.
+// Provided for callers converting already-decoded Go values. Decode bypasses
+// it to avoid building an intermediate Go object graph.
 func DecodeValue(value any) lua.LValue {
 	switch converted := value.(type) {
 	case bool:

@@ -6,7 +6,6 @@ package resource
 import (
 	"context"
 	"sync"
-	"sync/atomic"
 
 	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/event"
@@ -21,6 +20,15 @@ const (
 	Register event.Kind = "resource.register"
 	Update   event.Kind = "resource.update"
 	Delete   event.Kind = "resource.delete"
+
+	// Accept and Reject report the outcome of a register, update or delete
+	// once the registry has applied it. A caller that must not proceed until
+	// the registry serves the new provider awaits these; the registry publishes
+	// them whether or not anyone is listening. The event path is the
+	// operation's Entry.OpID when it carries one, so an outcome identifies the
+	// operation it belongs to rather than only the resource.
+	Accept event.Kind = "resource.accept"
+	Reject event.Kind = "resource.reject"
 )
 
 // AccessMode constants.
@@ -38,6 +46,14 @@ type (
 		Provider Provider
 		Meta     attrs.Bag
 		ID       registry.ID
+
+		// OpID correlates this operation with the Accept or Reject reporting
+		// its outcome, which the registry publishes under OpID as the event
+		// path. A caller that waits for the outcome sets a unique value so a
+		// reply can never be confused with one for another operation on the
+		// same resource. Leaving it empty keeps the outcome published under the
+		// resource path, for callers that do not wait.
+		OpID string
 	}
 
 	// Resource provides controlled access to a resource instance.
@@ -51,7 +67,10 @@ type (
 
 	// Provider manages resource lifecycle and access control.
 	Provider interface {
-		// Acquire obtains access to a resource with the specified mode.
+		// Acquire obtains access to a resource with the specified mode. Providers
+		// define whether an acquired handle remains usable when their backing
+		// service is stopped or replaced. The Registry owns routing and exact
+		// generation accounting only; callers always own the matching Release.
 		Acquire(ctx context.Context, id registry.ID, mode AccessMode) (Resource[any], error)
 	}
 
@@ -72,27 +91,20 @@ type (
 type TrackedResource struct {
 	inner     Resource[any]
 	onRelease func()
-	released  atomic.Bool
-}
-
-var trackedResourcePool = sync.Pool{
-	New: func() any {
-		return &TrackedResource{}
-	},
+	mu        sync.RWMutex
+	released  bool
 }
 
 // NewTrackedResource creates a tracked wrapper around a resource.
 func NewTrackedResource(inner Resource[any], onRelease func()) *TrackedResource {
-	tr := trackedResourcePool.Get().(*TrackedResource)
-	tr.inner = inner
-	tr.onRelease = onRelease
-	tr.released.Store(false)
-	return tr
+	return &TrackedResource{inner: inner, onRelease: onRelease}
 }
 
 // Get returns the managed resource instance.
 func (t *TrackedResource) Get() (any, error) {
-	if t.released.Load() {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	if t.released || t.inner == nil {
 		return nil, ErrReleased
 	}
 	return t.inner.Get()
@@ -100,13 +112,22 @@ func (t *TrackedResource) Get() (any, error) {
 
 // Release frees the resource and invalidates access.
 func (t *TrackedResource) Release() {
-	if t.released.CompareAndSwap(false, true) {
-		t.inner.Release()
-		if t.onRelease != nil {
-			t.onRelease()
-		}
-		t.inner = nil
-		t.onRelease = nil
-		trackedResourcePool.Put(t)
+	t.mu.Lock()
+	if t.released {
+		t.mu.Unlock()
+		return
+	}
+	t.released = true
+	inner := t.inner
+	onRelease := t.onRelease
+	t.inner = nil
+	t.onRelease = nil
+	t.mu.Unlock()
+
+	if onRelease != nil {
+		defer onRelease()
+	}
+	if inner != nil {
+		inner.Release()
 	}
 }

@@ -4,7 +4,6 @@ package embed
 
 import (
 	"context"
-	"io/fs"
 	"sync"
 
 	"github.com/wippyai/runtime/api/event"
@@ -112,10 +111,7 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	return nil
 }
 
-// registerFS retrieves the filesystem from the embed registry and registers it.
-// Resolution is entry-aware when the registry supports it, so updates select the
-// pack matching the entry's module/version rather than an arbitrary pack that
-// happens to expose the same resource ID.
+// registerFS retrieves the active filesystem resource and registers it.
 func (m *Manager) registerFS(ctx context.Context, entry registry.Entry) error {
 	fs, err := m.fsForEntry(entry)
 	if err != nil {
@@ -126,7 +122,7 @@ func (m *Manager) registerFS(ctx context.Context, entry registry.Entry) error {
 }
 
 func (m *Manager) fsForEntry(entry registry.Entry) (fsapi.FS, error) {
-	packFS, err := m.resolveFS(entry)
+	packFS, err := m.embedReg.GetFS(entry.ID)
 	if err != nil {
 		m.log.Error("failed to get embedded filesystem",
 			zap.String("id", entry.ID.String()),
@@ -146,15 +142,6 @@ func (m *Manager) storeFS(ctx context.Context, id registry.ID, fs fsapi.FS) {
 		Path:   id.String(),
 		Data:   fs,
 	})
-}
-
-// resolveFS prefers an entry-aware lookup when the registry implements
-// embedapi.EntryResolver, otherwise falls back to ID-based lookup.
-func (m *Manager) resolveFS(entry registry.Entry) (fs.ReadDirFS, error) {
-	if resolver, ok := m.embedReg.(embedapi.EntryResolver); ok {
-		return resolver.GetFSForEntry(entry)
-	}
-	return m.embedReg.GetFS(entry.ID)
 }
 
 // removeFS removes the filesystem from the fs system.

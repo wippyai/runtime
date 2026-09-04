@@ -157,9 +157,9 @@ func declaredNamespaceFixture(parameter string) []registry.Entry {
 
 func moduleDefinition(component, namespace string) registry.Entry {
 	return registry.Entry{
-		ID:   registry.NewID(namespace, "definition"),
-		Kind: registry.NamespaceDefinition,
-		Meta: map[string]any{"module": component},
+		ID:       registry.NewID(namespace, "definition"),
+		Kind:     registry.NamespaceDefinition,
+		Registry: registry.EntryMetadata{Owner: component},
 	}
 }
 
@@ -178,9 +178,9 @@ func dependencyEntry(component, parameter string, value any) registry.Entry {
 
 func requirementEntry(component, namespace, name, target string, defaultValue any) registry.Entry {
 	return registry.Entry{
-		ID:   registry.NewID(namespace, name),
-		Kind: registry.NamespaceRequirement,
-		Meta: map[string]any{"module": component},
+		ID:       registry.NewID(namespace, name),
+		Kind:     registry.NamespaceRequirement,
+		Registry: registry.EntryMetadata{Owner: component},
 		Data: payload.New(map[string]any{
 			"default": defaultValue,
 			"targets": []any{

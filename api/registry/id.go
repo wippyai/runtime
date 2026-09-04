@@ -39,6 +39,18 @@ func NewID(ns, name string) ID {
 	return unique.Make(id).Value()
 }
 
+// Canonical returns the interned representation used for registry map keys.
+// It is allocation-free when the ID is already canonical and also normalizes
+// legacy name-only values that contain a namespace separator.
+func (t ID) Canonical() ID {
+	ns, name := canonicalIDParts(t)
+	canonicalString := ns + ":" + name
+	if t.NS == ns && t.Name == name && t.str == canonicalString {
+		return t
+	}
+	return NewID(ns, name)
+}
+
 func (t *ID) String() string {
 	if t.str != "" {
 		return t.str

@@ -109,12 +109,12 @@ func (b *StateBuilder) SortChangeSetWithIndex(fromState registry.State, changeSe
 
 	// Target-side dependencies: create/update dependencies before their
 	// dependents, but only when both sides are part of this changeset.
-	createUpdateUniverse := dependencyUniverse(createUpdateEntries)
+	createUpdateUniverse := dependencyUniverse(createUpdateEntries, b.resolver)
 	for i, operation := range changeSet {
 		if operation.Kind == registry.EntryDelete {
 			continue
 		}
-		for _, depID := range b.entryDependencyIDs(operation.Entry, createUpdateUniverse) {
+		for _, depID := range createUpdateUniverse[operation.Entry.ID] {
 			for _, depIndex := range createUpdateIndexesByID[depID] {
 				addConstraint(depIndex, i)
 			}
@@ -268,69 +268,12 @@ func clearIDSet(set map[registry.ID]struct{}) {
 	}
 }
 
-type dependencySet struct {
-	entries map[registry.ID]registry.Entry
-	groups  map[string][]registry.ID
-	ns      map[string][]registry.ID
-}
-
-func dependencyUniverse(entries []registry.Entry) dependencySet {
-	universe := dependencySet{
-		entries: make(map[registry.ID]registry.Entry, len(entries)),
-		groups:  make(map[string][]registry.ID),
-		ns:      make(map[string][]registry.ID),
-	}
+func dependencyUniverse(entries []registry.Entry, resolver registry.DependencyResolver) map[registry.ID][]registry.ID {
+	state := make(registry.StateMap, len(entries))
 	for _, entry := range entries {
-		universe.entries[entry.ID] = entry
-		for _, group := range entry.Meta.GetSlice(registry.TagGroups) {
-			universe.groups[group] = append(universe.groups[group], entry.ID)
-		}
-		if entry.ID.NS != "" {
-			universe.ns[entry.ID.NS] = append(universe.ns[entry.ID.NS], entry.ID)
-		}
+		state[entry.ID] = entry
 	}
-	return universe
-}
-
-func (b *StateBuilder) entryDependencyIDs(entry registry.Entry, universe dependencySet) []registry.ID {
-	dependencies := entry.Meta.GetSlice(registry.TagDependsOn)
-	if b.resolver != nil {
-		dependencies = append(dependencies, b.resolver.Extract(entry)...)
-	}
-
-	seen := make(map[registry.ID]struct{}, len(dependencies))
-	out := make([]registry.ID, 0, len(dependencies))
-	add := func(id registry.ID) {
-		if id.Equal(entry.ID) {
-			return
-		}
-		if _, ok := universe.entries[id]; !ok {
-			return
-		}
-		if _, ok := seen[id]; ok {
-			return
-		}
-		seen[id] = struct{}{}
-		out = append(out, id)
-	}
-
-	for _, dep := range dependencies {
-		depType, value := parseDependency(dep)
-		switch depType {
-		case "direct":
-			add(resolveDependencyID(entry.ID.NS, value))
-		case "group":
-			for _, id := range universe.groups[value] {
-				add(id)
-			}
-		case "namespace":
-			for _, id := range universe.ns[value] {
-				add(id)
-			}
-		}
-	}
-
-	return out
+	return ResolveDependencies(state, resolver)
 }
 
 func stableTopologicalOrder(count int, constraints map[int]map[int]struct{}) ([]int, bool) {

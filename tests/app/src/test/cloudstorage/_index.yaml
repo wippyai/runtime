@@ -180,3 +180,34 @@ entries:
       - cloudstorage
     imports:
       assert_primitives: app.lib:assert
+
+  # presigned multipart upload round trip
+  - name: multipart
+    kind: function.lua
+    meta:
+      type: test
+      suite: cloudstorage
+      description: cloudstorage presigned multipart upload create/parts/complete/abort round trip
+    source: file://multipart.lua
+    method: main
+    modules:
+      - cloudstorage
+      - http_client
+    imports:
+      assert_primitives: app.lib:assert
+
+  # ranged reader + archive.open over an object
+  - name: reader
+    kind: function.lua
+    meta:
+      type: test
+      suite: cloudstorage
+      description: open_reader ranged random access and archive.open over an S3-stored zip
+    source: file://reader.lua
+    method: main
+    modules:
+      - cloudstorage
+      - archive
+      - fs
+    imports:
+      assert_primitives: app.lib:assert

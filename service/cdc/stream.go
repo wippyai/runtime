@@ -22,7 +22,7 @@ type stampedStream struct {
 	once       sync.Once
 }
 
-func newStampedStream(id registry.ID, generation uint64, _ int, upstream api.Stream) *stampedStream {
+func newStampedStream(id registry.ID, generation uint64, upstream api.Stream) *stampedStream {
 	stream := &stampedStream{
 		upstream:   upstream,
 		sourceID:   registry.ParseID(id.String()),

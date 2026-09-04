@@ -15,8 +15,6 @@ import (
 	"github.com/wippyai/wapp"
 )
 
-const moduleMetadataKey = "module"
-
 // DirectoryResources resolves artifact declarations from selected local
 // fs.directory entries. moduleRoots is the authoritative source root for each
 // local module; entries outside that set are ignored.
@@ -36,7 +34,7 @@ func DirectoryResources(
 
 	resources := make([]Resource, 0)
 	for _, entry := range entries {
-		module := entry.Meta.GetString(moduleMetadataKey, "")
+		module := entry.Registry.Owner
 		moduleRoot, selected := moduleRoots[module]
 		if !selected || entry.Kind != dirapi.Kind {
 			continue

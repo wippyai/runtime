@@ -487,6 +487,190 @@ func TestUnsubscribeAfterStop(t *testing.T) {
 	b.Unsubscribe(context.Background(), subID)
 }
 
+func TestUnsubscribeWithCanceledContextStillFencesDelivery(t *testing.T) {
+	b := NewBus()
+	defer b.Stop()
+
+	ch := make(chan event.Event, 1)
+	subID, err := b.Subscribe(context.Background(), "test-system", ch)
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	b.Unsubscribe(ctx, subID)
+
+	// Closing after the barrier is safe. The following missing-ID
+	// unsubscribe serializes behind Send and proves the dispatcher processed
+	// the send without retaining this channel.
+	close(ch)
+	b.Send(context.Background(), event.Event{System: "test-system", Kind: "after-fence"})
+	b.Unsubscribe(context.Background(), "sub.delivery-barrier")
+}
+
+func TestCanceledQueuedSubscribeDoesNotRetainChannel(t *testing.T) {
+	b := NewBus()
+	defer b.Stop()
+
+	// Hold the sole dispatcher in a delivery so the next Subscribe remains
+	// queued until after its context is canceled.
+	block := make(chan event.Event)
+	blockID, err := b.Subscribe(context.Background(), "review.block", block)
+	require.NoError(t, err)
+	b.Send(context.Background(), event.Event{System: "review.block"})
+	require.Eventually(t, func() bool {
+		b.actionMu.Lock()
+		defer b.actionMu.Unlock()
+		return len(b.actionQueue) == 0
+	}, time.Second, time.Millisecond, "dispatcher did not begin blocked delivery")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	type subscribeResult struct {
+		err error
+		id  event.SubscriberID
+	}
+	resultCh := make(chan subscribeResult, 1)
+	target := make(chan event.Event)
+	go func() {
+		id, err := b.Subscribe(ctx, "review.target", target)
+		resultCh <- subscribeResult{id: id, err: err}
+	}()
+	require.Eventually(t, func() bool {
+		b.actionMu.Lock()
+		defer b.actionMu.Unlock()
+		return len(b.actionQueue) == 1
+	}, time.Second, time.Millisecond, "subscribe was not queued")
+	cancel()
+
+	// Release the dispatcher so it can reject the canceled request at the
+	// serialized ownership point.
+	<-block
+	got := <-resultCh
+	require.Empty(t, got.id)
+	require.ErrorIs(t, got.err, context.Canceled)
+	close(target)
+
+	// This acknowledgement also proves the dispatcher is idle, making direct
+	// inspection of its subscriber map safe.
+	b.Unsubscribe(context.Background(), blockID)
+	require.Empty(t, b.subscribers)
+}
+
+func TestUnsubscribeBarrierPreservesAcceptedEventsInOrder(t *testing.T) {
+	b := NewBus()
+	defer b.Stop()
+
+	const count = 256
+	ch := make(chan event.Event, count)
+	subID, err := b.Subscribe(context.Background(), "critical", ch)
+	require.NoError(t, err)
+
+	for i := 0; i < count; i++ {
+		b.Send(context.Background(), event.Event{
+			System: "critical",
+			Path:   fmt.Sprintf("event-%03d", i),
+		})
+	}
+	b.Unsubscribe(context.Background(), subID)
+
+	require.Len(t, ch, count, "accepted events were lost before unsubscribe barrier")
+	for i := 0; i < count; i++ {
+		got := <-ch
+		require.Equal(t, fmt.Sprintf("event-%03d", i), got.Path)
+	}
+
+	// Serialize behind a post-unsubscribe send and prove the old subscriber
+	// receives neither that event nor a duplicate of an earlier event.
+	b.Send(context.Background(), event.Event{System: "critical", Path: "after"})
+	b.Unsubscribe(context.Background(), "sub.delivery-check")
+	require.Empty(t, ch)
+}
+
+func TestStopBarrierPreservesAcceptedEventsForAllSubscribers(t *testing.T) {
+	b := NewBus()
+
+	const count = 128
+	channels := []chan event.Event{
+		make(chan event.Event, count),
+		make(chan event.Event, count),
+	}
+	for _, ch := range channels {
+		_, err := b.Subscribe(context.Background(), "critical", ch)
+		require.NoError(t, err)
+	}
+
+	for i := 0; i < count; i++ {
+		b.Send(context.Background(), event.Event{
+			System: "critical",
+			Path:   fmt.Sprintf("event-%03d", i),
+		})
+	}
+	b.Stop()
+
+	for subscriber, ch := range channels {
+		require.Lenf(t, ch, count, "accepted events were lost for subscriber %d", subscriber)
+		for i := 0; i < count; i++ {
+			got := <-ch
+			require.Equal(t, fmt.Sprintf("event-%03d", i), got.Path,
+				"subscriber %d delivery order", subscriber)
+		}
+	}
+
+	b.Send(context.Background(), event.Event{System: "critical", Path: "after"})
+	for _, ch := range channels {
+		require.Empty(t, ch)
+	}
+}
+
+func TestClosedBusUnsubscribeWaitsForDispatcherExit(t *testing.T) {
+	b := &Bus{}
+	b.closed.Store(true)
+	b.wg.Add(1)
+
+	done := make(chan struct{})
+	go func() {
+		b.Unsubscribe(context.Background(), "sub.in-flight")
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		t.Fatal("unsubscribe acknowledged while the dispatcher could still send")
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	b.wg.Done()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("unsubscribe did not complete after dispatcher exit")
+	}
+}
+
+func TestRepeatedStopWaitsForDispatcherExit(t *testing.T) {
+	b := &Bus{}
+	b.closed.Store(true)
+	b.wg.Add(1)
+
+	done := make(chan struct{})
+	go func() {
+		b.Stop()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		t.Fatal("repeated Stop returned before the dispatcher exited")
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	b.wg.Done()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("repeated Stop did not complete after dispatcher exit")
+	}
+}
+
 func TestHighConcurrencyStress(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping stress test in short mode")

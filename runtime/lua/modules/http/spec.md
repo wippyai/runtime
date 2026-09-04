@@ -133,7 +133,8 @@ Returned by `http.request()`. Provides access to incoming HTTP request data.
 | path | () | string, error | Request path |
 | query | (key: string) | string?, error | Single query parameter value |
 | query_params | () | table, error | All query parameters as table |
-| header | (name: string) | string?, error | Header value, multiple values joined with ", " |
+| header | (name: string) | string?, error | Case-insensitive header value, multiple values joined with ", " |
+| headers | () | table, error | All request headers as a detached table |
 | content_type | () | string?, error | Content-Type header value |
 | content_length | () | number, error | Content-Length as number |
 | host | () | string, error | Host header value |
@@ -182,9 +183,17 @@ Returns request header value. Multiple header values are joined with ", ".
 
 | Param | Type | Required | Default | Notes |
 |-------|------|----------|---------|-------|
-| name | string | yes | - | Header name (case-sensitive) |
+| name | string | yes | - | Header name (case-insensitive) |
 
 **Returns:** `string?, error` - header value or nil if not present, plus error
+
+#### request:headers() → table, error
+
+Returns all incoming request headers as a detached table. Header names use
+their canonical spelling and multiple values are joined with `", "`, matching
+`request:header(name)`.
+
+**Returns:** `table, error` - map of header names to values, plus error
 
 #### request:content_type() → string?, error
 

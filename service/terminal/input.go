@@ -20,22 +20,32 @@ import (
 
 // InputReader reads terminal input and delivers parsed events via the scheduler.
 type InputReader struct {
-	stdin        *os.File
+	output       io.Writer
+	emitter      *inputEmitter
 	raw          *RawManager
 	scheduler    *actor.Scheduler
 	reader       *input.Reader
 	cancel       context.CancelFunc
+	stopDone     chan struct{}
+	stopErr      error
+	stdin        *os.File
 	targetPID    pid.PID
 	wg           sync.WaitGroup
 	mu           sync.Mutex
 	started      bool
+	stopping     bool
 	mouseEnabled bool
+	pasteEnabled bool
 }
 
 // NewInputReader creates an InputReader that delivers events to the given process.
-func NewInputReader(stdin *os.File, raw *RawManager, scheduler *actor.Scheduler, targetPID pid.PID) *InputReader {
+func NewInputReader(stdin *os.File, output io.Writer, raw *RawManager, scheduler *actor.Scheduler, targetPID pid.PID) *InputReader {
+	if output == nil {
+		output = io.Discard
+	}
 	return &InputReader{
 		stdin:     stdin,
+		output:    output,
 		raw:       raw,
 		scheduler: scheduler,
 		targetPID: targetPID,
@@ -47,9 +57,10 @@ func (r *InputReader) Start() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if r.started {
+	if r.started || r.stopping {
 		return errors.New("input reader already started")
 	}
+	r.stopErr = nil
 
 	if err := r.raw.Enable(); err != nil {
 		return err
@@ -65,12 +76,25 @@ func (r *InputReader) Start() error {
 	ctx, cancel := context.WithCancel(context.Background())
 	r.cancel = cancel
 	r.reader = reader
+	r.emitter = newInputEmitter(r.sendNow)
 	r.started = true
+	pasteSequence := []byte("\033[?2004h")
+	if n, err := r.output.Write(pasteSequence); err != nil || n != len(pasteSequence) {
+		r.started = false
+		cancel()
+		_ = reader.Close()
+		_ = r.raw.Disable()
+		if err == nil {
+			err = io.ErrShortWrite
+		}
+		return err
+	}
+	r.pasteEnabled = true
 
 	// Send initial start event with terminal size
 	cols, rows, sizeErr := r.screenSize()
 	if sizeErr == nil {
-		r.sendEvent(&TTYEvent{
+		r.emitter.emit(&TTYEvent{
 			Type:   "start",
 			Width:  cols,
 			Height: rows,
@@ -87,12 +111,26 @@ func (r *InputReader) Start() error {
 // Stop cancels the read loop, waits for goroutines, and restores the terminal.
 func (r *InputReader) Stop() error {
 	r.mu.Lock()
+	if r.stopping {
+		done := r.stopDone
+		r.mu.Unlock()
+		<-done
+		r.mu.Lock()
+		err := r.stopErr
+		r.mu.Unlock()
+		return err
+	}
 	if !r.started {
 		r.mu.Unlock()
 		return nil
 	}
 
 	r.started = false
+	r.stopping = true
+	r.stopDone = make(chan struct{})
+	if r.emitter != nil {
+		r.emitter.stop()
+	}
 	if r.cancel != nil {
 		r.cancel()
 		r.cancel = nil
@@ -109,23 +147,37 @@ func (r *InputReader) Stop() error {
 		_ = r.reader.Close()
 		r.reader = nil
 	}
-	r.mu.Unlock()
 
 	// Disable mouse tracking if it was enabled
 	if r.mouseEnabled {
-		_, _ = os.Stdout.Write([]byte("\033[?1006l\033[?1003l"))
+		_, _ = r.output.Write([]byte("\033[?1006l\033[?1003l"))
 		r.mouseEnabled = false
 	}
-
-	return r.raw.Disable()
+	var pasteErr error
+	if r.pasteEnabled {
+		sequence := []byte("\033[?2004l")
+		if n, err := r.output.Write(sequence); err != nil {
+			pasteErr = err
+		} else if n != len(sequence) {
+			pasteErr = io.ErrShortWrite
+		}
+		r.pasteEnabled = false
+	}
+	r.stopping = false
+	r.stopErr = errors.Join(pasteErr, r.raw.Disable())
+	close(r.stopDone)
+	r.stopDone = nil
+	err := r.stopErr
+	r.mu.Unlock()
+	return err
 }
 
 // EnableMouse enables mouse event tracking (SGR mode).
 func (r *InputReader) EnableMouse() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if !r.mouseEnabled {
-		_, _ = os.Stdout.Write([]byte("\033[?1003h\033[?1006h"))
+	if r.started && !r.stopping && !r.mouseEnabled {
+		_, _ = r.output.Write([]byte("\033[?1003h\033[?1006h"))
 		r.mouseEnabled = true
 	}
 }
@@ -135,7 +187,7 @@ func (r *InputReader) DisableMouse() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.mouseEnabled {
-		_, _ = os.Stdout.Write([]byte("\033[?1006l\033[?1003l"))
+		_, _ = r.output.Write([]byte("\033[?1006l\033[?1003l"))
 		r.mouseEnabled = false
 	}
 }
@@ -193,11 +245,21 @@ func (r *InputReader) emitResize() {
 }
 
 func (r *InputReader) sendEvent(ev *TTYEvent) {
-	pkg := &relay.Package{
-		Target: r.targetPID,
+	r.mu.Lock()
+	emitter := r.emitter
+	r.mu.Unlock()
+	if emitter != nil {
+		emitter.emit(ev)
 	}
+}
+
+func (r *InputReader) sendNow(ev *TTYEvent) {
+	pkg := relay.AcquirePackage()
+	pkg.Target = r.targetPID
 	pkg.AddMessage(relay.Topic(TopicTTYEvents), payload.New(ev))
-	_ = r.scheduler.Send(pkg)
+	if err := r.scheduler.Send(pkg); err != nil {
+		relay.ReleasePackage(pkg)
+	}
 }
 
 var _ ttyapi.InputController = (*InputReader)(nil)

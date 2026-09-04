@@ -115,8 +115,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 // Delete implements registry.EntryListener.
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	m.mu.Lock()
-	h, ok := m.hosts[entry.ID]
-	if !ok {
+	if _, ok := m.hosts[entry.ID]; !ok {
 		m.mu.Unlock()
 		return nil
 	}
@@ -137,10 +136,9 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 		Path:   entry.ID.String(),
 	})
 
-	// Stop the host
-	if err := h.Stop(ctx); err != nil {
-		m.log.Error("failed to stop host", zap.Error(err))
-	}
+	// The supervisor owns the host lifecycle: ServiceRemove above stops it on
+	// commit, and an update that re-registers a replacement in the same
+	// transaction retires it there.
 
 	m.log.Info("terminal host deleted", zap.String("id", entry.ID.String()))
 	return nil

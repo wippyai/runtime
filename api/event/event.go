@@ -31,15 +31,24 @@ type (
 	// Bus defines the functionality of an event bus.
 	Bus interface {
 		// Subscribe subscribes a channel to events from a specific system.
+		// The caller must not close the channel until Unsubscribe returns;
+		// that return is the barrier proving the bus can no longer send to it.
+		// Once the request is accepted for dispatch, Subscribe waits for the
+		// ownership decision even if the context is canceled. On error, the bus
+		// does not retain the channel.
 		Subscribe(context.Context, System, chan<- Event) (SubscriberID, error)
 
-		// SubscribeP subscribes a channel to events matching a specific system and kind.
+		// SubscribeP has the same channel ownership and Unsubscribe barrier as Subscribe.
 		SubscribeP(context.Context, System, Kind, chan<- Event) (SubscriberID, error)
 
-		// Unsubscribe removes a subscription using its SubscriberID.
+		// Unsubscribe removes a subscription using its SubscriberID. It is a
+		// non-cancelable safety barrier: when it returns, no in-flight or future
+		// bus operation can send to that subscription.
 		Unsubscribe(context.Context, SubscriberID)
 
-		// Send publishes an event to the bus.
+		// Send publishes an event to the bus. Delivery remains ordered and
+		// lossless while the publisher and subscriber contexts stay active;
+		// cancellation may abort queued or in-progress delivery.
 		Send(context.Context, Event)
 	}
 )

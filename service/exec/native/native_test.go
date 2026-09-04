@@ -3,11 +3,13 @@
 package native
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"io"
 	"io/fs"
 	"os"
+	osexec "os/exec"
 	"runtime"
 	"strings"
 	"testing"
@@ -17,11 +19,109 @@ import (
 	apierror "github.com/wippyai/runtime/api/error"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/service/exec"
 	serviceexec "github.com/wippyai/runtime/service/exec"
 	mocklogger "github.com/wippyai/runtime/tests/mock"
 	"go.uber.org/zap"
 )
+
+func TestPTYProcessResize(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("PTY test requires Unix")
+	}
+	executor := NewNativeExecutor(zap.NewNop(), &exec.NativeExecutorConfig{})
+	process, err := executor.NewProcess(
+		"sh -c 'stty size; read value; stty size'",
+		exec.ProcessOptions{PTY: &exec.PTYOptions{Width: 80, Height: 24, Term: "xterm-256color"}},
+	)
+	assert.NoError(t, err)
+	assert.NoError(t, process.Start())
+
+	lines := make(chan string, 2)
+	go func() {
+		scanner := bufio.NewScanner(process.Stdout())
+		for scanner.Scan() {
+			lines <- strings.TrimSpace(scanner.Text())
+		}
+		close(lines)
+	}()
+
+	select {
+	case line := <-lines:
+		assert.Equal(t, "24 80", line)
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for initial PTY size")
+	}
+
+	ptyProcess := process.(exec.PTYProcess)
+	assert.NoError(t, ptyProcess.Resize(100, 30))
+	assert.NoError(t, process.WriteStdin([]byte("continue\n")))
+
+	timer := time.NewTimer(3 * time.Second)
+	defer timer.Stop()
+	for {
+		select {
+		case line := <-lines:
+			if line == "30 100" {
+				goto resized
+			}
+		case <-timer.C:
+			t.Fatal("timed out waiting for resized PTY size")
+		}
+	}
+
+resized:
+	assert.NoError(t, process.Wait())
+	assert.ErrorIs(t, ptyProcess.Resize(0, 30), exec.ErrInvalidPTYSize)
+	assert.ErrorIs(t, ptyProcess.Resize(exec.MaxPTYDimension+1, 1), exec.ErrInvalidPTYSize)
+}
+
+func TestPTYCapabilityMatchesProcessConfiguration(t *testing.T) {
+	executor := NewNativeExecutor(zap.NewNop(), &exec.NativeExecutorConfig{})
+	plain, err := executor.NewProcess("true", exec.ProcessOptions{})
+	assert.NoError(t, err)
+	_, plainHasPTY := plain.(exec.PTYProcess)
+	assert.False(t, plainHasPTY)
+
+	ptyProcess, err := executor.NewProcess("true", exec.ProcessOptions{PTY: &exec.PTYOptions{}})
+	assert.NoError(t, err)
+	_, hasPTYCapability := ptyProcess.(exec.PTYProcess)
+	assert.True(t, hasPTYCapability)
+}
+
+func TestPTYWaitReleasesMasterFile(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("PTY test requires Unix")
+	}
+	executor := NewNativeExecutor(zap.NewNop(), &exec.NativeExecutorConfig{})
+	handle, err := executor.NewProcess("true", exec.ProcessOptions{PTY: &exec.PTYOptions{}})
+	require.NoError(t, err)
+	process := handle.(*ptyProcess)
+	require.NoError(t, process.Start())
+	master := process.ptyMaster
+	require.NotNil(t, master)
+	require.NoError(t, process.Wait())
+	_, err = master.Stat()
+	require.Error(t, err, "Wait must release a PTY master even when no stdout stream was acquired")
+}
+
+func TestPTYWaitLeavesAcquiredOutputForCallerToDrain(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("PTY test requires Unix")
+	}
+	executor := NewNativeExecutor(zap.NewNop(), &exec.NativeExecutorConfig{})
+	handle, err := executor.NewProcess("sh -c 'printf final-frame'", exec.ProcessOptions{PTY: &exec.PTYOptions{}})
+	require.NoError(t, err)
+	process := handle.(*ptyProcess)
+	require.NoError(t, process.Start())
+	output := process.Stdout()
+	require.NotNil(t, output)
+	require.NoError(t, process.Wait())
+	payload, _ := io.ReadAll(output)
+	require.Contains(t, string(payload), "final-frame")
+	require.NoError(t, output.Close())
+}
 
 func TestExecutor_Execute(t *testing.T) {
 	tests := []struct {
@@ -37,9 +137,9 @@ func TestExecutor_Execute(t *testing.T) {
 		{
 			name:    "invalid command",
 			command: "invalidcommand",
-			wantErr: assert.ErrorAssertionFunc(func(t assert.TestingT, err error, _ ...any) bool {
+			wantErr: func(t assert.TestingT, err error, _ ...any) bool {
 				return assert.ErrorContains(t, err, "not found")
-			}),
+			},
 		},
 	}
 
@@ -456,8 +556,9 @@ func TestExecutor_Stderr(t *testing.T) {
 	// Use a cross-platform way to generate stderr output
 	var command string
 	if runtime.GOOS == "windows" {
-		// On Windows, use PowerShell for reliable stderr redirection
-		command = "powershell -Command \"[Console]::Error.WriteLine('error message')\""
+		// cmd closes its inherited stderr handle when it exits. PowerShell can
+		// retain that handle, preventing StderrPipe from reaching EOF before Wait.
+		command = "cmd /c \"echo error message 1>&2\""
 	} else {
 		// On Unix systems - use sh instead of bash for better compatibility
 		command = "sh -c 'echo error message >&2'"
@@ -643,6 +744,20 @@ func TestNativeExecutor_Config(t *testing.T) {
 	assert.Contains(t, sb.String(), "test_value")
 }
 
+func TestNativeExecutorEnvironmentOverridesAreDeterministic(t *testing.T) {
+	executor := NewNativeExecutor(zap.NewNop(), &exec.NativeExecutorConfig{
+		DefaultEnv: map[string]string{"TOKEN": "old", "LANG": "C", "TERM": "old-term"},
+	})
+	process, err := executor.NewProcess("command", exec.ProcessOptions{
+		Env: map[string]string{"TOKEN": "new", "ZED": "last"},
+		PTY: &exec.PTYOptions{Term: "xterm-256color"},
+	})
+	require.NoError(t, err)
+
+	nativeProcess := process.(*ptyProcess).ProcessExecutor
+	require.Equal(t, []string{"LANG=C", "TERM=xterm-256color", "TOKEN=new", "ZED=last"}, nativeProcess.cmd.Env)
+}
+
 func TestNativeExecutor_Whitelist(t *testing.T) {
 	logger := zap.NewNop()
 
@@ -749,8 +864,50 @@ func TestProcessExecutor_Signal(t *testing.T) {
 	err = process.Signal(15) // SIGTERM
 	assert.NoError(t, err)
 
-	// Wait should return an error (process killed)
-	_ = process.Wait()
+	// Wait normalizes signals to shell-compatible exit codes, matching Docker.
+	err = process.Wait()
+	var exitErr *ExitError
+	require.ErrorAs(t, err, &exitErr)
+	require.Equal(t, 143, exitErr.ExitCode())
+}
+
+func TestProcessExecutorWaitPreservesNativeExitCause(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses a POSIX shell command")
+	}
+	executor := NewNativeExecutor(zap.NewNop(), &exec.NativeExecutorConfig{})
+	process, err := executor.NewProcess("sh -c 'exit 42'", exec.ProcessOptions{})
+	require.NoError(t, err)
+	require.NoError(t, process.Start())
+
+	err = process.Wait()
+	var exitErr *ExitError
+	require.ErrorAs(t, err, &exitErr)
+	require.Equal(t, 42, exitErr.ExitCode())
+	var nativeCause *osexec.ExitError
+	require.ErrorAs(t, err, &nativeCause)
+}
+
+func TestProcessExecutorSignalIdentifiesTerminatedProcessAsDone(t *testing.T) {
+	process := &ProcessExecutor{state: terminated, log: zap.NewNop()}
+	err := process.Signal(15)
+	require.ErrorIs(t, err, ErrProcessNotRunning)
+	require.ErrorIs(t, err, os.ErrProcessDone)
+}
+
+type shortWriteCloser struct{}
+
+func (shortWriteCloser) Write(data []byte) (int, error) {
+	if len(data) == 0 {
+		return 0, nil
+	}
+	return len(data) - 1, nil
+}
+func (shortWriteCloser) Close() error { return nil }
+
+func TestProcessExecutorRejectsShortStdinWrite(t *testing.T) {
+	process := &ProcessExecutor{state: running, stdinPipe: shortWriteCloser{}, log: zap.NewNop()}
+	require.ErrorIs(t, process.WriteStdin([]byte("payload")), io.ErrShortWrite)
 }
 
 func TestProcessExecutor_State(t *testing.T) {
@@ -930,7 +1087,7 @@ func TestParseCommand(t *testing.T) {
 		{
 			name:     "empty command",
 			command:  "",
-			expected: []string{""},
+			expected: nil,
 		},
 		{
 			name:     "simple command without args",
@@ -1021,14 +1178,14 @@ func TestParseCommand(t *testing.T) {
 			expected: []string{"echo", "$HOME", "$(pwd)"},
 		},
 		{
-			name:     "unbalanced quotes (should preserve the quote)",
+			name:     "unbalanced double quote",
 			command:  "echo \"hello",
-			expected: []string{"echo", "\"hello"},
+			expected: nil,
 		},
 		{
-			name:     "unbalanced single quotes",
+			name:     "unbalanced single quote",
 			command:  "echo 'hello",
-			expected: []string{"echo", "'hello"},
+			expected: nil,
 		},
 
 		// Platform-specific paths
@@ -1064,12 +1221,12 @@ func TestParseCommand(t *testing.T) {
 		{
 			name:     "command with only spaces",
 			command:  "   ",
-			expected: []string{},
+			expected: nil,
 		},
 		{
 			name:     "command with only quotes",
 			command:  "\"\"",
-			expected: []string{""},
+			expected: nil,
 		},
 		{
 			name:     "command with quotes and spaces",

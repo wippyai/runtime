@@ -5,11 +5,27 @@ package registry
 
 import (
 	"context"
+	"strings"
 
 	"github.com/wippyai/runtime/api/attrs"
+	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/payload"
 )
+
+// ErrOverlayOwnerRequired rejects empty logical overlay identities.
+var ErrOverlayOwnerRequired = apierror.New(apierror.Invalid, "registry overlay owner is required").
+	WithRetryable(apierror.False)
+
+// CanonicalOverlayOwner returns the identity used for both overlay storage and
+// authorization. Callers must authorize only the returned value.
+func CanonicalOverlayOwner(owner string) (string, error) {
+	owner = strings.TrimSpace(owner)
+	if owner == "" {
+		return "", ErrOverlayOwnerRequired
+	}
+	return owner, nil
+}
 
 // Registry system constants define the various event types and identifiers used throughout the registry.
 const (
@@ -92,16 +108,35 @@ type (
 	// State represents the complete state of the registry at a specific version
 	State []Entry
 
+	// Snapshot is one atomic registry view. Registry contains system-owned
+	// state that must describe the same version as Entries.
+	Snapshot struct {
+		Registry StateMetadata
+		Version  Version
+		Entries  State
+	}
+
+	// StateMetadata contains registry-owned state that is not authored entry
+	// payload. The selected module graph is stored once, not repeated per entry.
+	StateMetadata struct {
+		Resolution *DependencyResolution
+	}
+
 	// Entry represents a single entry in the registry
 	Entry struct {
-		Data payload.Payload `json:"data"`
-		Meta attrs.Bag       `json:"meta"`
-		ID   ID              `json:"id"`
-		Kind Kind            `json:"kind"`
-		// DependencyRoot identifies an ns.dependency selected as a deployment
-		// root. It is independent of package ownership, so a published app entry
-		// can retain meta.module while remaining a root.
-		DependencyRoot bool `json:"dependency_root,omitempty"`
+		Data     payload.Payload `json:"data"`
+		Meta     attrs.Bag       `json:"meta"`
+		ID       ID              `json:"id"`
+		Kind     Kind            `json:"kind"`
+		Registry EntryMetadata   `json:"registry,omitzero"`
+	}
+
+	// EntryMetadata is state owned by the registry rather than the entry
+	// author. Owner is assigned from the deployment source that supplied the
+	// entry. Root marks a dependency declaration selected by the deployment.
+	EntryMetadata struct {
+		Owner string `json:"owner,omitempty"`
+		Root  bool   `json:"root,omitempty"`
 	}
 
 	// ChangeSet represents a set of operations to transition the registry from one state to another
@@ -139,6 +174,8 @@ type (
 		// Current returns the current version of the registry's state
 		Current() (Version, error)
 		History() History
+		// Snapshot returns entries and registry metadata from one version.
+		Snapshot() Snapshot
 		// RegisterDependencyPattern adds a pattern for dependency extraction
 		RegisterDependencyPattern(pattern DependencyPattern) error
 	}
@@ -151,6 +188,15 @@ type (
 		ApplyVersion(context.Context, Version) error
 		// LoadState initializes registry state from baseline and history without creating new version records
 		LoadState(context.Context, State, Version) error
+	}
+
+	// OverlayWriter manages process-local registry overlays. Overlay entries
+	// participate in normal topology and handler transitions but do
+	// not advance or appear in version history. They are empty after cold boot
+	// and must be reconciled by their owning control service.
+	OverlayWriter interface {
+		ApplyOverlay(context.Context, string, uint64, ChangeSet) (uint64, error)
+		GetOverlay(string) (State, uint64, error)
 	}
 
 	// StateMap is a map-based representation of registry state for efficient lookups

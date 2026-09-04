@@ -25,7 +25,6 @@ import (
 	regapi "github.com/wippyai/runtime/api/registry"
 	bootpkg "github.com/wippyai/runtime/boot"
 	"github.com/wippyai/runtime/boot/components/core"
-	"github.com/wippyai/runtime/boot/deps/hub"
 	"github.com/wippyai/runtime/boot/deps/lock"
 	transcoder "github.com/wippyai/runtime/system/payload"
 	yamlpayload "github.com/wippyai/runtime/system/payload/yaml"
@@ -242,18 +241,15 @@ entries:
 	if len(loaded) != 1 {
 		t.Fatalf("entries = %d, want 1", len(loaded))
 	}
-	if !loaded[0].DependencyRoot {
+	if !loaded[0].Registry.Root {
 		t.Fatal("selected lock root dependency lost root provenance")
 	}
-	if got := loaded[0].Meta.GetString("module", ""); got != "acme/app" {
-		t.Fatalf("package ownership = %q, want acme/app", got)
-	}
-	if got := loaded[0].Meta.GetString("module_digest", ""); got != "sha256:app" {
-		t.Fatalf("package digest = %q, want sha256:app", got)
+	if got := loaded[0].Registry.Owner; got != "acme/app" {
+		t.Fatalf("package owner = %q, want acme/app", got)
 	}
 }
 
-func TestLoadEntriesFromReplacementCarriesCanonicalTreeIdentity(t *testing.T) {
+func TestLoadEntriesFromReplacementAssignsSourceOwner(t *testing.T) {
 	ctx := setupTestContext(t)
 	moduleRoot := t.TempDir()
 	sourceDir := filepath.Join(moduleRoot, "src")
@@ -266,16 +262,13 @@ entries:
     data: local
 `), 0o600))
 
-	wantDigest, _, err := hub.ReplacementTreeIdentity(moduleRoot)
-	require.NoError(t, err)
 	loaded, err := LoadEntriesFromModuleLoadPaths(ctx, []lock.ModuleLoadPath{{
 		Path: sourceDir, Module: "acme/replacement", Version: "1.2.3", SourceRoot: moduleRoot, Replacement: true,
 	}}, zap.NewNop())
 	require.NoError(t, err)
 	require.Len(t, loaded, 1)
-	assert.Equal(t, "acme/replacement", loaded[0].Meta.GetString("module", ""))
-	assert.Equal(t, "1.2.3", loaded[0].Meta.GetString("module_version", ""))
-	assert.Equal(t, wantDigest, loaded[0].Meta.GetString("module_digest", ""))
+	assert.Equal(t, "acme/replacement", loaded[0].Registry.Owner)
+	assert.Empty(t, loaded[0].Meta.GetString("module", ""))
 }
 
 func TestLoadEntriesFromMissingReplacementFailsClosed(t *testing.T) {
@@ -285,7 +278,7 @@ func TestLoadEntriesFromMissingReplacementFailsClosed(t *testing.T) {
 	_, err := LoadEntriesFromModuleLoadPaths(ctx, []lock.ModuleLoadPath{{
 		Path: missing, Module: "acme/replacement", SourceRoot: missing, Replacement: true,
 	}}, zap.NewNop())
-	require.ErrorContains(t, err, "identify replacement module acme/replacement")
+	require.ErrorContains(t, err, "replacement source for module acme/replacement is unavailable")
 }
 
 func TestLoadEntriesFromReplacementOwnsEntriesOverApplicationSnapshot(t *testing.T) {
@@ -299,10 +292,6 @@ namespace: ownership.test
 entries:
   - name: value
     kind: test.value
-    meta:
-      module: acme/replacement
-      module_version: 0.9.0
-      module_digest: sha256-tree-v1:stale
     data: stale
   - name: app_value
     kind: test.value
@@ -313,15 +302,9 @@ namespace: ownership.test
 entries:
   - name: value
     kind: test.value
-    meta:
-      module: acme/replacement
-      module_version: 0.9.0
-      module_digest: sha256-tree-v1:stale
     data: local
 `), 0o600))
 
-	wantDigest, _, err := hub.ReplacementTreeIdentity(replacementRoot)
-	require.NoError(t, err)
 	loaded, err := LoadEntriesFromModuleLoadPaths(ctx, []lock.ModuleLoadPath{
 		{Path: appDir, Root: true},
 		{Path: replacementSource, Module: "acme/replacement", SourceRoot: replacementRoot, Replacement: true},
@@ -334,9 +317,8 @@ entries:
 	}
 	owned := byID[regapi.NewID("ownership.test", "value")]
 	assert.Equal(t, "local", owned.Data.Data())
-	assert.Equal(t, "acme/replacement", owned.Meta.GetString("module", ""))
-	assert.Equal(t, wantDigest, owned.Meta.GetString("module_digest", ""))
-	assert.Empty(t, owned.Meta.GetString("module_version", ""))
+	assert.Equal(t, "acme/replacement", owned.Registry.Owner)
+	assert.Empty(t, owned.Meta.GetString("module", ""))
 	assert.Equal(t, "application", byID[regapi.NewID("ownership.test", "app_value")].Data.Data())
 }
 
@@ -387,9 +369,7 @@ entries:
 	byID = loadByID()
 	moduleEntry := byID[regapi.NewID("source.lifecycle", "module")]
 	assert.Equal(t, "v1", moduleEntry.Data.Data())
-	assert.Equal(t, "acme/source", moduleEntry.Meta.GetString("module", ""))
-	assert.Equal(t, "1.0.0", moduleEntry.Meta.GetString("module_version", ""))
-	assert.Equal(t, "sha256:v1", moduleEntry.Meta.GetString("module_digest", ""))
+	assert.Equal(t, "acme/source", moduleEntry.Registry.Owner)
 
 	v2 := moduleapi.Source{LoadPath: moduleV2, ResourceRoot: moduleV2, Owner: "acme/source", Version: "2.0.0", Digest: "sha256:v2", Sequence: 2}
 	previous, err = registry.Transition(moduleapi.Sources{"acme/source": v2}, nil, "acme/source")
@@ -398,8 +378,7 @@ entries:
 	byID = loadByID()
 	moduleEntry = byID[regapi.NewID("source.lifecycle", "module")]
 	assert.Equal(t, "v2", moduleEntry.Data.Data())
-	assert.Equal(t, "2.0.0", moduleEntry.Meta.GetString("module_version", ""))
-	assert.Equal(t, "sha256:v2", moduleEntry.Meta.GetString("module_digest", ""))
+	assert.Equal(t, "acme/source", moduleEntry.Registry.Owner)
 
 	_, err = registry.Transition(previous, nil, "acme/source")
 	require.NoError(t, err)
@@ -528,11 +507,11 @@ entries:
 	if len(loaded) != 1 {
 		t.Fatalf("entries = %d, want 1", len(loaded))
 	}
-	if !loaded[0].DependencyRoot {
+	if !loaded[0].Registry.Root {
 		t.Fatal("application source dependency was not marked as a deployment root")
 	}
-	if got := loaded[0].Meta.GetString("module", ""); got != "" {
-		t.Fatalf("application source ownership = %q, want empty", got)
+	if got := loaded[0].Registry.Owner; got != "" {
+		t.Fatalf("application source owner = %q, want empty", got)
 	}
 }
 
@@ -1386,8 +1365,8 @@ entries:
 	if !ok {
 		t.Fatalf("non-excluded module entry missing")
 	}
-	if got := publicAPI.Meta.GetString("module", ""); got != "wippy/views" {
-		t.Fatalf("module meta = %q, want wippy/views", got)
+	if got := publicAPI.Registry.Owner; got != "wippy/views" {
+		t.Fatalf("module owner = %q, want wippy/views", got)
 	}
 }
 
@@ -1445,8 +1424,8 @@ entries:
 	if !ok {
 		t.Fatalf("non-excluded module entry missing")
 	}
-	if got := real.Meta.GetString("module", ""); got != "wippy/dataflow" {
-		t.Fatalf("module meta = %q, want wippy/dataflow", got)
+	if got := real.Registry.Owner; got != "wippy/dataflow" {
+		t.Fatalf("module owner = %q, want wippy/dataflow", got)
 	}
 }
 
@@ -1528,8 +1507,8 @@ entries:
 	if gatewayCount != 1 {
 		t.Fatalf("app:gateway count = %d, want 1 (collision not filtered)", gatewayCount)
 	}
-	if got := gateway.Meta.GetString("module", ""); got != "" {
-		t.Fatalf("app:gateway tagged with module=%q, want host (untagged) entry to win", got)
+	if got := gateway.Registry.Owner; got != "" {
+		t.Fatalf("app:gateway owner = %q, want host entry", got)
 	}
 }
 
@@ -1615,8 +1594,8 @@ entries:
 	if gatewayCount != 1 {
 		t.Fatalf("app:gateway count = %d, want 1 (src-layout collision not filtered)", gatewayCount)
 	}
-	if got := gateway.Meta.GetString("module", ""); got != "" {
-		t.Fatalf("app:gateway tagged with module=%q, want host (untagged) entry to win", got)
+	if got := gateway.Registry.Owner; got != "" {
+		t.Fatalf("app:gateway owner = %q, want host entry", got)
 	}
 	if _, ok := found["kickside.component:real_handler"]; !ok {
 		t.Fatalf("non-excluded module entry missing")

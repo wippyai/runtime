@@ -7,21 +7,30 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/moby/moby/api/pkg/stdcopy"
 	"github.com/moby/moby/api/types/container"
-	"github.com/moby/moby/api/types/mount"
 	"github.com/moby/moby/api/types/network"
 	"github.com/moby/moby/client"
 	execapi "github.com/wippyai/runtime/api/service/exec"
 	"go.uber.org/zap"
 )
 
+const (
+	dockerStartTimeout   = 30 * time.Second
+	dockerControlTimeout = 5 * time.Second
+)
+
 var (
 	_ execapi.ProcessExecutor = (*Executor)(nil)
 	_ execapi.Process         = (*Process)(nil)
+	_ execapi.PTYProcess      = (*ptyProcess)(nil)
 	_ io.Closer               = (*Executor)(nil)
 )
 
@@ -87,6 +96,18 @@ func NewDockerExecutor(log *zap.Logger, config *execapi.DockerExecutorConfig) (*
 
 // NewProcess creates a new container process
 func (e *Executor) NewProcess(cmd string, options execapi.ProcessOptions) (execapi.Process, error) {
+	command, err := execapi.ParseCommand(cmd)
+	if err != nil {
+		return nil, err
+	}
+	ptyOptions := options.PTY
+	if ptyOptions != nil {
+		copy := *ptyOptions
+		ptyOptions = &copy
+		if _, _, err := ptyOptions.Dimensions(); err != nil {
+			return nil, err
+		}
+	}
 	if len(e.commandWhitelist) > 0 {
 		allowed := false
 		for _, whitelistedCmd := range e.commandWhitelist {
@@ -101,24 +122,22 @@ func (e *Executor) NewProcess(cmd string, options execapi.ProcessOptions) (execa
 		}
 	}
 
-	env := make([]string, 0, len(e.defaultEnv)+len(options.Env))
-	for k, v := range e.defaultEnv {
-		env = append(env, k+"="+v)
+	term := ""
+	if ptyOptions != nil && ptyOptions.Term != "" {
+		term = ptyOptions.Term
 	}
-	for k, v := range options.Env {
-		env = append(env, k+"="+v)
-	}
+	env := mergeEnv(e.defaultEnv, options.Env, term)
 
 	workDir := options.WorkDir
 	if workDir == "" {
 		workDir = e.defaultWD
 	}
 
-	return &Process{
+	process := &Process{
 		log:             e.log,
 		cli:             e.cli,
 		image:           e.image,
-		cmd:             parseCommand(cmd),
+		cmd:             command,
 		env:             env,
 		workDir:         workDir,
 		networkMode:     e.networkMode,
@@ -133,8 +152,20 @@ func (e *Executor) NewProcess(cmd string, options execapi.ProcessOptions) (execa
 		capAdd:          e.capAdd,
 		pidsLimit:       e.pidsLimit,
 		tmpfs:           e.tmpfs,
-	}, nil
+		pty:             ptyOptions,
+		startTimeout:    dockerStartTimeout,
+		controlTimeout:  dockerControlTimeout,
+	}
+	process.waitCtx, process.cancelWait = context.WithCancel(context.Background())
+	if ptyOptions != nil {
+		return &ptyProcess{Process: process}, nil
+	}
+	return process, nil
 }
+
+// ptyProcess is returned only when the container was configured with a
+// PTY, keeping resize a real capability rather than a boolean claim.
+type ptyProcess struct{ *Process }
 
 // Close closes the Docker client
 func (e *Executor) Close() error {
@@ -143,26 +174,30 @@ func (e *Executor) Close() error {
 
 // Process represents a Docker container process
 type Process struct {
-	stdoutReader    io.ReadCloser
-	waitErr         error
+	waitCtx         context.Context
 	stdinWriter     io.WriteCloser
 	stderrReader    io.ReadCloser
-	cli             *client.Client
-	log             *zap.Logger
+	stdoutReader    io.ReadCloser
 	tmpfs           map[string]string
+	log             *zap.Logger
+	pty             *execapi.PTYOptions
+	cancelWait      context.CancelFunc
+	cli             *client.Client
 	image           string
 	containerID     string
 	workDir         string
 	networkMode     string
 	user            string
-	capAdd          []string
 	capDrop         []string
 	volumes         []string
-	env             []string
 	cmd             []string
-	cpuQuota        int64
+	capAdd          []string
+	env             []string
 	memoryLimit     int64
 	pidsLimit       int64
+	cpuQuota        int64
+	startTimeout    time.Duration
+	controlTimeout  time.Duration
 	mu              sync.RWMutex
 	stopped         bool
 	started         bool
@@ -180,27 +215,17 @@ func (p *Process) Start() error {
 		return ErrContainerAlreadyStart
 	}
 
-	ctx := context.Background()
+	ctx, cancel := p.startContext()
+	defer cancel()
 
-	var mounts []mount.Mount
-	for _, vol := range p.volumes {
-		parts := strings.Split(vol, ":")
-		if len(parts) >= 2 {
-			m := mount.Mount{
-				Type:   mount.TypeBind,
-				Source: parts[0],
-				Target: parts[1],
-			}
-			if len(parts) >= 3 && parts[2] == "ro" {
-				m.ReadOnly = true
-			}
-			mounts = append(mounts, m)
-		}
+	binds, err := buildBinds(p.volumes)
+	if err != nil {
+		return err
 	}
 
 	hostConfig := &container.HostConfig{
 		AutoRemove:     p.autoRemove,
-		Mounts:         mounts,
+		Binds:          binds,
 		ReadonlyRootfs: p.readOnlyRootfs,
 		Tmpfs:          p.tmpfs,
 		CapDrop:        p.capDrop,
@@ -211,6 +236,10 @@ func (p *Process) Start() error {
 			PidsLimit: pidsLimitPtr(p.pidsLimit),
 		},
 		SecurityOpt: buildSecurityOpts(p.noNewPrivileges),
+	}
+	if p.pty != nil {
+		width, height, _ := p.pty.Dimensions()
+		hostConfig.ConsoleSize = [2]uint{uint(height), uint(width)}
 	}
 
 	if p.networkMode != "" {
@@ -228,7 +257,7 @@ func (p *Process) Start() error {
 		AttachStderr: true,
 		OpenStdin:    true,
 		StdinOnce:    false,
-		Tty:          false,
+		Tty:          p.pty != nil,
 	}
 
 	resp, err := p.cli.ContainerCreate(ctx, client.ContainerCreateOptions{
@@ -242,6 +271,16 @@ func (p *Process) Start() error {
 
 	p.containerID = resp.ID
 	p.log.Debug("container created", zap.String("id", p.containerID))
+	committed := false
+	defer func() {
+		if committed {
+			return
+		}
+		cleanupCtx, cleanupCancel := p.controlContext()
+		defer cleanupCancel()
+		_, _ = p.cli.ContainerRemove(cleanupCtx, resp.ID, client.ContainerRemoveOptions{Force: true})
+		p.containerID = ""
+	}()
 
 	attachResp, err := p.cli.ContainerAttach(ctx, p.containerID, client.ContainerAttachOptions{
 		Stream: true,
@@ -250,34 +289,68 @@ func (p *Process) Start() error {
 		Stderr: true,
 	})
 	if err != nil {
-		_, _ = p.cli.ContainerRemove(ctx, p.containerID, client.ContainerRemoveOptions{Force: true})
 		return NewContainerAttachError(err)
 	}
-
-	p.stdinWriter = attachResp.Conn
-
-	stdoutPipeR, stdoutPipeW := io.Pipe()
-	stderrPipeR, stderrPipeW := io.Pipe()
-	p.stdoutReader = stdoutPipeR
-	p.stderrReader = stderrPipeR
-
-	go func() {
-		defer func() { _ = stdoutPipeW.Close() }()
-		defer func() { _ = stderrPipeW.Close() }()
-		_, err := stdcopy.StdCopy(stdoutPipeW, stderrPipeW, attachResp.Reader)
-		if err != nil && !errors.Is(err, io.EOF) {
-			p.log.Debug("stdcopy error", zap.Error(err))
+	defer func() {
+		if !committed {
+			attachResp.Close()
 		}
 	}()
 
 	if _, err := p.cli.ContainerStart(ctx, p.containerID, client.ContainerStartOptions{}); err != nil {
-		attachResp.Close()
-		_, _ = p.cli.ContainerRemove(ctx, p.containerID, client.ContainerRemoveOptions{Force: true})
 		return NewContainerStartError(err)
 	}
+	if p.pty != nil {
+		width, height, _ := p.pty.Dimensions()
+		if _, err := p.cli.ContainerResize(ctx, p.containerID, client.ContainerResizeOptions{Width: uint(width), Height: uint(height)}); err != nil {
+			return NewContainerResizeError(err)
+		}
+	}
 
+	stdoutPipeR, stdoutPipeW := io.Pipe()
+	stderrPipeR, stderrPipeW := io.Pipe()
+	p.stdinWriter = attachResp.Conn
+	p.stdoutReader = stdoutPipeR
+	p.stderrReader = stderrPipeR
 	p.started = true
+	committed = true
+	go p.copyAttachedOutput(attachResp, stdoutPipeW, stderrPipeW)
 	p.log.Debug("container started", zap.String("id", p.containerID))
+	return nil
+}
+
+func (p *Process) copyAttachedOutput(attach client.ContainerAttachResult, stdout, stderr *io.PipeWriter) {
+	defer attach.Close()
+	defer func() { _ = stdout.Close() }()
+	defer func() { _ = stderr.Close() }()
+	var err error
+	if p.pty != nil {
+		_, err = io.Copy(stdout, attach.Reader)
+	} else {
+		_, err = stdcopy.StdCopy(stdout, stderr, attach.Reader)
+	}
+	if err != nil && !errors.Is(err, io.EOF) {
+		p.log.Debug("docker output copy failed", zap.Error(err))
+	}
+}
+
+func (p *ptyProcess) Resize(width, height int) error {
+	if err := execapi.ValidatePTYSize(width, height); err != nil {
+		return err
+	}
+	p.mu.RLock()
+	if !p.started || p.stopped || p.pty == nil {
+		p.mu.RUnlock()
+		return execapi.ErrPTYUnavailable
+	}
+	id := p.containerID
+	p.mu.RUnlock()
+	ctx, cancel := p.controlContext()
+	defer cancel()
+	_, err := p.cli.ContainerResize(ctx, id, client.ContainerResizeOptions{Width: uint(width), Height: uint(height)})
+	if err != nil {
+		return NewContainerResizeError(err)
+	}
 	return nil
 }
 
@@ -290,16 +363,18 @@ func (p *Process) Signal(sig int) error {
 	}
 	if p.stopped {
 		p.mu.RUnlock()
-		return ErrContainerStopped
+		return errors.Join(ErrContainerStopped, os.ErrProcessDone)
 	}
 	containerID := p.containerID
 	p.mu.RUnlock()
 
 	sigName := signalName(sig)
-	_, err := p.cli.ContainerKill(context.Background(), containerID, client.ContainerKillOptions{Signal: sigName})
+	ctx, cancel := p.controlContext()
+	defer cancel()
+	_, err := p.cli.ContainerKill(ctx, containerID, client.ContainerKillOptions{Signal: sigName})
 	if err != nil {
 		if strings.Contains(err.Error(), "is not running") {
-			return ErrContainerStopped
+			return errors.Join(ErrContainerStopped, os.ErrProcessDone)
 		}
 		return NewSignalError(err)
 	}
@@ -326,8 +401,14 @@ func (p *Process) WriteStdin(data []byte) error {
 		return ErrStdinNotAvailable
 	}
 
-	_, err := writer.Write(data)
-	return err
+	written, err := writer.Write(data)
+	if err != nil {
+		return err
+	}
+	if written != len(data) {
+		return io.ErrShortWrite
+	}
+	return nil
 }
 
 // Stdout returns a reader for the container's stdout
@@ -354,7 +435,12 @@ func (p *Process) Wait() error {
 	containerID := p.containerID
 	p.mu.RUnlock()
 
-	waitResult := p.cli.ContainerWait(context.Background(), containerID, client.ContainerWaitOptions{
+	waitCtx := p.waitCtx
+	if waitCtx == nil {
+		waitCtx = context.Background()
+	}
+	defer p.CancelWait()
+	waitResult := p.cli.ContainerWait(waitCtx, containerID, client.ContainerWaitOptions{
 		Condition: container.WaitConditionNotRunning,
 	})
 	statusCh := waitResult.Result
@@ -364,20 +450,16 @@ func (p *Process) Wait() error {
 	select {
 	case err := <-errCh:
 		if err != nil {
-			p.mu.Lock()
-			p.stopped = true
-			p.waitErr = err
-			p.mu.Unlock()
 			return err
 		}
 	case status := <-statusCh:
 		exitCode = status.StatusCode
 		if status.Error != nil {
+			waitErr := errors.New(status.Error.Message)
 			p.mu.Lock()
 			p.stopped = true
-			p.waitErr = errors.New(status.Error.Message)
 			p.mu.Unlock()
-			return p.waitErr
+			return waitErr
 		}
 	}
 
@@ -394,55 +476,89 @@ func (p *Process) Wait() error {
 	return nil
 }
 
-// parseCommand splits a command string into parts
-func parseCommand(cmd string) []string {
-	if cmd == "" {
-		return nil
+// CancelWait releases a ContainerWait request when a higher-level lifecycle
+// owner has abandoned the session after bounded graceful and forced shutdown.
+func (p *Process) CancelWait() {
+	if p.cancelWait != nil {
+		p.cancelWait()
+	}
+}
+
+func (p *Process) startContext() (context.Context, context.CancelFunc) {
+	timeout := p.startTimeout
+	if timeout <= 0 {
+		timeout = dockerStartTimeout
+	}
+	return context.WithTimeout(context.Background(), timeout)
+}
+
+func (p *Process) controlContext() (context.Context, context.CancelFunc) {
+	timeout := p.controlTimeout
+	if timeout <= 0 {
+		timeout = dockerControlTimeout
+	}
+	return context.WithTimeout(context.Background(), timeout)
+}
+
+// buildBinds prepares Docker short-syntax volume specifications for the daemon.
+// Relative host paths are resolved client-side, matching Docker CLI behavior;
+// the daemon remains the authority for parsing and validating the full syntax.
+func buildBinds(volumes []string) ([]string, error) {
+	if len(volumes) == 0 {
+		return nil, nil
 	}
 
-	cmd = strings.TrimSpace(cmd)
-	if cmd == "" {
-		return nil
-	}
-
-	// Estimate capacity: count spaces outside quotes
-	estParts := 1 + strings.Count(cmd, " ")
-	parts := make([]string, 0, estParts)
-
-	var current strings.Builder
-	current.Grow(len(cmd))
-
-	inQuote := false
-	quoteChar := rune(0)
-
-	for _, c := range cmd {
-		switch {
-		case c == '"' || c == '\'':
-			switch {
-			case inQuote && c == quoteChar:
-				inQuote = false
-				quoteChar = 0
-			case !inQuote:
-				inQuote = true
-				quoteChar = c
-			default:
-				current.WriteRune(c)
-			}
-		case c == ' ' && !inQuote:
-			if current.Len() > 0 {
-				parts = append(parts, current.String())
-				current.Reset()
-			}
-		default:
-			current.WriteRune(c)
+	binds := make([]string, 0, len(volumes))
+	for _, volume := range volumes {
+		source, remainder, ok := strings.Cut(volume, ":")
+		if !ok {
+			// Preserve unsupported or malformed forms so the Docker daemon,
+			// which owns bind syntax, can return the authoritative error.
+			binds = append(binds, volume)
+			continue
 		}
+
+		if !filepath.IsAbs(source) && isExplicitRelativePath(source) {
+			absolute, err := filepath.Abs(source)
+			if err != nil {
+				return nil, fmt.Errorf("resolve docker volume source %q: %w", source, err)
+			}
+			volume = absolute + ":" + remainder
+		}
+		binds = append(binds, volume)
+	}
+	return binds, nil
+}
+
+func isExplicitRelativePath(source string) bool {
+	if source == "." || source == ".." {
+		return true
+	}
+	return strings.HasPrefix(source, ".") && strings.ContainsAny(source, `/\`)
+}
+
+func mergeEnv(defaults, overrides map[string]string, term string) []string {
+	merged := make(map[string]string, len(defaults)+len(overrides)+1)
+	for name, value := range defaults {
+		merged[name] = value
+	}
+	for name, value := range overrides {
+		merged[name] = value
+	}
+	if term != "" {
+		merged["TERM"] = term
 	}
 
-	if current.Len() > 0 {
-		parts = append(parts, current.String())
+	names := make([]string, 0, len(merged))
+	for name := range merged {
+		names = append(names, name)
 	}
-
-	return parts
+	sort.Strings(names)
+	env := make([]string, 0, len(names))
+	for _, name := range names {
+		env = append(env, name+"="+merged[name])
+	}
+	return env
 }
 
 var signalNames = map[int]string{

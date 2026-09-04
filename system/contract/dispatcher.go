@@ -4,6 +4,7 @@ package contract
 
 import (
 	"context"
+	"sync"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/contract"
@@ -17,8 +18,18 @@ import (
 
 // Dispatcher handles contract commands.
 type Dispatcher struct {
-	node   relay.Node
-	logger *zap.Logger
+	node       relay.Node
+	logger     *zap.Logger
+	asyncCalls sync.Map // map[asyncCallKey]*asyncCall
+}
+
+type asyncCallKey struct {
+	target string
+	topic  string
+}
+
+type asyncCall struct {
+	cancel context.CancelFunc
 }
 
 // NewDispatcher creates a new contract dispatcher with relay node for async routing.
@@ -34,8 +45,14 @@ func (d *Dispatcher) Start(_ context.Context) error {
 	return nil
 }
 
-// Stop is a no-op for contract dispatcher.
+// Stop cancels calls owned by this dispatcher.
 func (d *Dispatcher) Stop(_ context.Context) error {
+	d.asyncCalls.Range(func(key, value any) bool {
+		if d.asyncCalls.CompareAndDelete(key, value) {
+			value.(*asyncCall).cancel()
+		}
+		return true
+	})
 	return nil
 }
 
@@ -145,10 +162,24 @@ func (d *Dispatcher) handleAsyncCall(ctx context.Context, cmd dispatcher.Command
 	logger := d.logger
 
 	callCtx, fc := ctxapi.ForkFrameContext(ctx)
+	callCtx, cancel := context.WithCancel(callCtx)
+	key := asyncCallKey{target: framePID.String(), topic: topic}
+	ownedCall := &asyncCall{cancel: cancel}
+	if previous, replaced := d.asyncCalls.Swap(key, ownedCall); replaced {
+		previous.(*asyncCall).cancel()
+	}
 
 	go func(callCtx context.Context, callFC ctxapi.FrameContext) {
 		defer ctxapi.ReleaseFrameContext(callFC)
+		defer cancel()
 		result, err := instance.Call(callCtx, method, args, options)
+		// Cancellation and topic replacement both remove ownership before
+		// interrupting the call. Only the still-owned invocation may publish a
+		// result; otherwise its terminal frame could close a newer future that
+		// reused the same caller-owned topic.
+		if !d.asyncCalls.CompareAndDelete(key, ownedCall) {
+			return
+		}
 
 		resultPayload := resultToPayload(result, err)
 		if err := sendAsyncResult(node, framePID, topic, resultPayload); err != nil {
@@ -191,9 +222,15 @@ func (d *Dispatcher) handleAsyncCancel(ctx context.Context, cmd dispatcher.Comma
 		return nil
 	}
 
-	if err := sendAsyncCancel(d.node, framePID, cancelCmd.Topic); err != nil {
+	topic := cancelCmd.Topic
+	key := asyncCallKey{target: framePID.String(), topic: topic}
+	if call, ok := d.asyncCalls.LoadAndDelete(key); ok {
+		call.(*asyncCall).cancel()
+	}
+
+	if err := sendAsyncCancel(d.node, framePID, topic); err != nil {
 		d.logger.Warn("failed to send async cancel",
-			zap.String("topic", cancelCmd.Topic),
+			zap.String("topic", topic),
 			zap.String("target", framePID.String()),
 			zap.Error(err))
 	}

@@ -87,10 +87,31 @@ func TestValidate(t *testing.T) {
 		lockPath := filepath.Join(tmpDir, "test.lock")
 
 		lock, _ := New(lockPath)
+		lock.SetModule(Module{Name: "wippy/test", Version: "v1.0.0"})
 		lock.SetReplacement(Replacement{From: "wippy/test", To: "./nonexistent"})
 
 		if err := Validate(lock); err == nil {
 			t.Error("expected error for nonexistent replacement path")
+		}
+	})
+
+	t.Run("unselected replacement may be absent", func(t *testing.T) {
+		lock, _ := New(filepath.Join(t.TempDir(), "test.lock"))
+		lock.SetModule(Module{Name: "wippy/selected", Version: "v1.0.0"})
+		lock.SetReplacement(Replacement{From: "wippy/unselected", To: "./nonexistent"})
+
+		if err := Validate(lock); err != nil {
+			t.Fatalf("unselected replacement blocked lock validation: %v", err)
+		}
+	})
+
+	t.Run("unselected replacement declaration remains validated", func(t *testing.T) {
+		lock, _ := New(filepath.Join(t.TempDir(), "test.lock"))
+		lock.SetModule(Module{Name: "wippy/selected", Version: "v1.0.0"})
+		lock.SetReplacement(Replacement{From: "invalid", To: "./nonexistent"})
+
+		if err := Validate(lock); err == nil {
+			t.Fatal("expected malformed unselected replacement to be rejected")
 		}
 	})
 

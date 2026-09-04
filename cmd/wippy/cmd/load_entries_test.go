@@ -99,25 +99,20 @@ entries:
 	}
 
 	router := ""
-	module := ""
-	moduleVersion := ""
+	owner := ""
 	for _, entry := range loaded {
 		if entry.ID.String() != "identity.account:login.endpoint" {
 			continue
 		}
 		router = entry.Meta.GetString("router", "")
-		module = entry.Meta.GetString("module", "")
-		moduleVersion = entry.Meta.GetString("module_version", "")
+		owner = entry.Registry.Owner
 	}
 
 	if router != "app:api.public" {
 		t.Fatalf("router = %q, want app:api.public", router)
 	}
-	if module != "example/accounts" {
-		t.Fatalf("module = %q, want example/accounts", module)
-	}
-	if moduleVersion != "v1.0.0" {
-		t.Fatalf("module_version = %q, want v1.0.0", moduleVersion)
+	if owner != "example/accounts" {
+		t.Fatalf("owner = %q, want example/accounts", owner)
 	}
 }
 

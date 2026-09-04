@@ -33,30 +33,37 @@ import (
 	"github.com/wippyai/runtime/system/registry/topology"
 )
 
-func TestPreserveManagedEntryMetadata(t *testing.T) {
+func TestNormalizeRegistryMetadata(t *testing.T) {
 	id := registry.NewID("app.deps", "core")
 	snapshot := registry.State{{
 		ID: id, Kind: registry.NamespaceDependency,
-		Meta: attrs.NewBagFrom(map[string]any{
-			"module": "acme/app", "module_version": "1.0.0", "module_digest": "sha256:old", "title": "Old",
-		}),
-		Data: payload.New(map[string]any{"component": "acme/core", "version": "1.0.0"}),
+		Registry: registry.EntryMetadata{Owner: "acme/app", Root: true},
+		Meta:     attrs.NewBagFrom(map[string]any{"title": "Old"}),
+		Data:     payload.New(map[string]any{"component": "acme/core", "version": "1.0.0"}),
 	}}
 	changes := registry.ChangeSet{{
 		Kind: registry.EntryUpdate,
 		Entry: registry.Entry{
 			ID: id, Kind: registry.NamespaceDependency,
-			Meta: attrs.NewBagFrom(map[string]any{"title": "New"}),
-			Data: payload.New(map[string]any{"component": "acme/core", "version": "2.0.0"}),
+			Registry: registry.EntryMetadata{Owner: "untrusted"},
+			Meta:     attrs.NewBagFrom(map[string]any{"title": "New"}),
+			Data:     payload.New(map[string]any{"component": "acme/core", "version": "2.0.0"}),
+		},
+	}, {
+		Kind: registry.EntryCreate,
+		Entry: registry.Entry{
+			ID:       registry.NewID("app", "new"),
+			Kind:     registry.EntryKind,
+			Registry: registry.EntryMetadata{Owner: "untrusted", Root: true},
 		},
 	}}
 
-	got := preserveManagedEntryMetadata(changes, snapshot)
-	require.Len(t, got, 1)
-	require.Equal(t, "acme/app", got[0].Entry.Meta.GetString("module", ""))
-	require.Equal(t, "1.0.0", got[0].Entry.Meta.GetString("module_version", ""))
-	require.Equal(t, "sha256:old", got[0].Entry.Meta.GetString("module_digest", ""))
+	got := normalizeRegistryMetadata(changes, snapshot)
+	require.Len(t, got, 2)
+	require.Equal(t, "acme/app", got[0].Entry.Registry.Owner)
+	require.True(t, got[0].Entry.Registry.Root)
 	require.Equal(t, "New", got[0].Entry.Meta.GetString("title", ""))
+	require.Equal(t, registry.EntryMetadata{Root: true}, got[1].Entry.Registry)
 }
 
 // MockRunner is a mock implementation of the registry.process interface for testing.

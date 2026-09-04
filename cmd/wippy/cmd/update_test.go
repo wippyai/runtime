@@ -12,6 +12,7 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/boot/deps/hub"
 	"github.com/wippyai/runtime/boot/deps/lock"
+	entryloader "github.com/wippyai/runtime/cmd/internal/entries"
 	"go.uber.org/zap"
 )
 
@@ -127,16 +128,7 @@ func TestPreserveReplacements_KeepsAll(t *testing.T) {
 	}
 }
 
-func TestEffectiveReplacementModulesIncludesWorkspaceOverlay(t *testing.T) {
-	lockObj, err := lock.New(filepath.Join(t.TempDir(), lock.DefaultFilename), lock.WithWorkspaceReplacements([]lock.Replacement{
-		{From: "local/component", To: "../component"},
-	}))
-	require.NoError(t, err)
-
-	require.Equal(t, map[string]bool{"local/component": true}, effectiveReplacementModules(lockObj))
-}
-
-func TestLoadDependencyScanEntriesIncludesWorkspaceReplacement(t *testing.T) {
+func TestLoadDependencyScanEntriesDefersWorkspaceReplacement(t *testing.T) {
 	ctx := setupLoaderContext(t)
 	ldr := bootapi.GetLoader(ctx)
 	require.NotNil(t, ldr)
@@ -165,7 +157,132 @@ entries:
 	loaded, err := loadDependencyScanEntries(ctx, ldr, appDir, lockObj, zap.NewNop())
 	require.NoError(t, err)
 	dependencies := extractRootDependencies(loaded, payload.GetTranscoder(ctx))
-	require.Equal(t, []dependencyRequest{{Org: "acme", Module: "runtime", Constraint: "v1.0.0"}}, dependencies)
+	require.Empty(t, dependencies)
+}
+
+func TestLoadDependencyScanEntriesIgnoresMissingUnselectedReplacementSource(t *testing.T) {
+	ctx := setupLoaderContext(t)
+	ldr := bootapi.GetLoader(ctx)
+	require.NotNil(t, ldr)
+
+	tmpDir := t.TempDir()
+	appDir := filepath.Join(tmpDir, "app")
+	require.NoError(t, os.MkdirAll(appDir, 0o755))
+	lockObj, err := lock.New(filepath.Join(tmpDir, lock.DefaultFilename), lock.WithWorkspaceReplacements([]lock.Replacement{{
+		From: "local/component",
+		To:   "missing/component",
+	}}))
+	require.NoError(t, err)
+	lockObj.SetDirectories(lock.Directories{Modules: ".wippy", Src: "app"})
+
+	loaded, err := loadDependencyScanEntries(ctx, ldr, appDir, lockObj, zap.NewNop())
+	require.NoError(t, err)
+	require.Empty(t, loaded)
+}
+
+func TestUpdateWorkspaceResolutionSelectsReplacementAndItsTransitives(t *testing.T) {
+	ctx := setupLoaderContext(t)
+	tmpDir := t.TempDir()
+	replacementDir := filepath.Join(tmpDir, "local", "component")
+	require.NoError(t, os.MkdirAll(replacementDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(replacementDir, "_index.yaml"), []byte(`namespace: local.component
+entries:
+  - name: runtime
+    kind: ns.dependency
+    component: acme/runtime
+    version: 1.0.0
+`), 0o600))
+
+	lockPath := filepath.Join(tmpDir, lock.DefaultFilename)
+	lockObj, err := lock.New(lockPath, lock.WithWorkspaceReplacements([]lock.Replacement{{
+		From: "local/component",
+		To:   replacementDir,
+	}}))
+	require.NoError(t, err)
+	lockObj.SetDirectories(lock.Directories{Modules: ".wippy", Src: "app"})
+	require.NoError(t, lockObj.Write())
+
+	provider := runManifestProvider{manifests: map[string]hub.ModuleManifest{
+		"acme/runtime@1.0.0": {
+			Org: "acme", Name: "runtime", Version: "1.0.0",
+			Digest: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		},
+	}}
+	resolved, err := resolveUpdatedWorkspaceDependencies(ctx, provider, lockObj, lockPath, nil, []dependencyRequest{{
+		Org: "local", Module: "component", Constraint: "*",
+	}}, nil)
+	require.NoError(t, err)
+	require.Equal(t, []hub.ResolvedModule{
+		{Org: "acme", Name: "runtime", Version: "1.0.0", Digest: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+		{Org: "local", Name: "component", Version: "0.0.0"},
+	}, resolved)
+
+	for _, module := range resolved {
+		lockObj.SetModule(lock.Module{
+			Name: module.Org + "/" + module.Name, Version: module.Version, Hash: module.Digest,
+		})
+	}
+	paths := lockObj.GetModuleLoadPaths()
+	require.Len(t, paths, 3)
+	require.Equal(t, "local/component", paths[1].Module)
+	require.True(t, paths[1].Replacement)
+	require.Equal(t, replacementDir, paths[1].SourceRoot)
+}
+
+func TestUpdateWorkspaceResolutionDoesNotTouchUnusedMissingReplacement(t *testing.T) {
+	ctx := setupLoaderContext(t)
+	tmpDir := t.TempDir()
+	lockPath := filepath.Join(tmpDir, lock.DefaultFilename)
+	lockObj, err := lock.New(lockPath, lock.WithWorkspaceReplacements([]lock.Replacement{{
+		From: "local/unused",
+		To:   filepath.Join(tmpDir, "missing-unused"),
+	}}))
+	require.NoError(t, err)
+	require.NoError(t, lockObj.Write())
+
+	const digest = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	provider := runManifestProvider{manifests: map[string]hub.ModuleManifest{
+		"acme/runtime@1.0.0": {Org: "acme", Name: "runtime", Version: "1.0.0", Digest: digest},
+	}}
+	resolved, err := resolveUpdatedWorkspaceDependencies(ctx, provider, lockObj, lockPath, nil, []dependencyRequest{{
+		Org: "acme", Module: "runtime", Constraint: "1.0.0",
+	}}, nil)
+	require.NoError(t, err)
+	require.Equal(t, []hub.ResolvedModule{{
+		Org: "acme", Name: "runtime", Version: "1.0.0", Digest: digest,
+	}}, resolved)
+}
+
+func TestSelectedWorkspaceReplacementIsPresentDuringNormalization(t *testing.T) {
+	ctx := setupLoaderContext(t)
+	tmpDir := t.TempDir()
+	appDir := filepath.Join(tmpDir, "app")
+	replacementDir := filepath.Join(tmpDir, "local", "component")
+	require.NoError(t, os.MkdirAll(appDir, 0o755))
+	require.NoError(t, os.MkdirAll(replacementDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(replacementDir, "_index.yaml"), []byte(`namespace: local.component
+entries:
+  - name: service
+    kind: registry.entry
+    generation: old
+`), 0o600))
+
+	lockObj, err := lock.New(filepath.Join(tmpDir, lock.DefaultFilename), lock.WithWorkspaceReplacements([]lock.Replacement{{
+		From: "local/component",
+		To:   replacementDir,
+	}}))
+	require.NoError(t, err)
+	lockObj.SetDirectories(lock.Directories{Modules: ".wippy", Src: "app"})
+	lockObj.SetModule(lock.Module{Name: "local/component", Version: "0.0.0"})
+
+	ctx = bootapi.WithConfig(ctx, bootapi.NewConfig(bootapi.WithSection("override", map[string]any{
+		"local.component:service:generation": "new",
+	})))
+	loaded, err := entryloader.LoadEntriesFromModuleLoadPaths(ctx, lockObj.GetModuleLoadPaths(), zap.NewNop())
+	require.NoError(t, err)
+	require.Len(t, loaded, 1)
+	require.Equal(t, "local.component:service", loaded[0].ID.String())
+	require.Equal(t, "new", loaded[0].Data.Data().(map[string]any)["generation"])
 }
 
 func TestPruneStaleVendorArtifacts_RemovesStaleArtifacts(t *testing.T) {
@@ -344,8 +461,8 @@ entries:
 	if got["wippy/facade"] != ">=v0.5.39" {
 		t.Fatalf("app dependency missing: got %v", got)
 	}
-	if got["wippy/dataflow"] != ">=v0.4.10" {
-		t.Fatalf("replacement dependency missing: got %v", got)
+	if _, ok := got["wippy/dataflow"]; ok {
+		t.Fatalf("replacement dependencies must be discovered lazily by the graph resolver: got %v", got)
 	}
 	if _, ok := got["bad/module"]; ok {
 		t.Fatalf("replacement scan should use src subtree and ignore node_modules noise: got %v", got)

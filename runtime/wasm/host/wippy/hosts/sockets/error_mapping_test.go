@@ -8,6 +8,8 @@ import (
 	"os"
 	"syscall"
 	"testing"
+
+	netapi "github.com/wippyai/runtime/api/net"
 )
 
 func TestS14NetworkErrorMappingInvariant(t *testing.T) {
@@ -16,6 +18,13 @@ func TestS14NetworkErrorMappingInvariant(t *testing.T) {
 		name     string
 		want     NetworkErrorCode
 	}{
+		{
+			name: "runtime access denied",
+			mapError: func() *NetworkError {
+				return mapNetError(fmt.Errorf("connect operation: %w", netapi.ErrAccessDenied))
+			},
+			want: NetworkErrorAccessDenied,
+		},
 		{
 			name: "wrapped refused",
 			mapError: func() *NetworkError {

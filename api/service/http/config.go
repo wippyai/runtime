@@ -95,9 +95,9 @@ type (
 
 	// TimeoutConfig represents global Timeouts-level configuration options.
 	TimeoutConfig struct {
-		ReadTimeout  time.Duration `json:"read,omitzero,format:units"`
-		WriteTimeout time.Duration `json:"write,omitzero,format:units"`
-		IdleTimeout  time.Duration `json:"idle,omitzero,format:units"`
+		ReadTimeout  time.Duration `json:"read,omitzero"`
+		WriteTimeout time.Duration `json:"write,omitzero"`
+		IdleTimeout  time.Duration `json:"idle,omitzero"`
 	}
 
 	// RouterConfig represents the configuration for a group of endpoints (a router).

@@ -46,8 +46,8 @@ Retrieves a single entry by ID from the current registry state.
 
 `root` marks an `ns.dependency` selected as a deployment root. It is the sole
 authority for that status — `meta` is user space and carries no trust. Reads
-always return it; writes may omit it, and omitting it on an update demotes the
-entry, so carry it back on any read-modify-write.
+always return it. Updates preserve the stored value when `root` is omitted; set
+it explicitly only when changing root status.
 
 **Errors (structured):**
 
@@ -138,6 +138,75 @@ Creates a snapshot of the registry at a specific version.
 | Get versions failed | errors.INTERNAL | no |
 | Version not found | errors.NOT_FOUND | no |
 | Build snapshot state failed | errors.INTERNAL | no |
+
+### overlay(id: string) → Snapshot, error
+
+Opens the process-local registry overlay owned by `id`. It returns the regular
+`Snapshot` type, so callers use the existing `snapshot:changes()` and
+`changes:apply()` workflow. Overlay entries participate in normal registry
+topology and resource lifecycle, but never create a history version. They
+survive ordinary history commits and version selection, and are cleared by a
+cold boot or explicit state load; the owning controller must reconcile them.
+
+Applying changes uses generation-based optimistic concurrency. A stale snapshot
+fails atomically with a retryable `errors.CONFLICT` and must be reopened. Owner
+IDs are trimmed to one canonical identity before authorization and storage. One
+changeset may contain at most one operation for each entry ID.
+
+Ownership is registry state, not entry metadata. Overlay application never adds
+an owner field to `meta` or otherwise changes user metadata. Kinds handled by a
+registry expansion directive are rejected because their generated entries and
+effects do not have process-local ownership semantics.
+
+```lua
+local live, err = registry.overlay("controllers:customer-db")
+if err then return nil, err end
+
+local changes = live:changes()
+changes:create({
+    id = "runtime.data_sources:customer-db",
+    kind = "db.sql.postgres",
+    data = { host = "db.example.com", database = "customer" },
+})
+local version, apply_err = changes:apply()
+
+-- Deprovision every entry in this overlay in one dependency-sorted apply.
+local current, open_err = registry.overlay("controllers:customer-db")
+if open_err then return nil, open_err end
+local remove = current:changes()
+remove:delete(current:entries())
+local _, delete_err = remove:apply()
+```
+
+Authorization is checked when the overlay is opened and again on every
+snapshot operation and apply. Required actions are:
+
+- `registry.overlay.get` on the overlay ID
+- `registry.overlay.apply` on the overlay ID
+- `registry.overlay.create.<kind>`, `registry.overlay.update.<kind>`, or
+  `registry.overlay.delete.<kind>` on each real entry ID
+
+This second, per-entry check prevents a controller authorized for one overlay
+from creating arbitrary kinds or writing outside its allowed namespaces.
+
+The overlay ID is a logical, policy-controlled owner, not the caller's process
+ID. This lets a boot reconciler reopen resources created by an earlier control
+invocation. Grant exact or namespace-scoped owner policies deliberately; a
+wildcard owner grant authorizes that controller to manage every matching
+overlay. Ordinary `registry.get`, `find`, and `snapshot` read the composed
+effective registry and continue to require their existing per-entry
+`registry.get` permission—they do not use the owner-level overlay permission.
+
+**Errors (structured):**
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| Empty owner | errors.INVALID | no |
+| Owner read/apply denied | errors.PERMISSION_DENIED | no |
+| Entry operation denied | errors.PERMISSION_DENIED | no |
+| Updated/deleted entry absent from snapshot | errors.NOT_FOUND | no |
+| Stale overlay generation | errors.CONFLICT | yes |
+| Directive-owned kind | errors.INVALID | no |
 
 ### current_version() → Version, error
 
@@ -331,7 +400,7 @@ Returned by `snapshot:changes()`. Used to build and apply changesets.
 | ops | () | table[] | List of operations |
 | create | (entry: table) | Changes | Add create operation |
 | update | (entry: table) | Changes | Add update operation |
-| delete | (id: string \| table) | Changes | Add delete operation |
+| delete | (id or id[]) | Changes | Add one or more delete operations |
 | apply | () | Version, error | Apply changes |
 
 #### changes:ops() → table[]
@@ -376,13 +445,13 @@ Adds an update operation to the changeset.
 | Invalid entry format | errors.INVALID | no |
 | Conversion failed | errors.INVALID | no |
 
-#### changes:delete(id: string | table) → Changes
+#### changes:delete(id_or_ids: string | table | table[]) → Changes
 
 Adds a delete operation to the changeset.
 
 | Param | Type | Required | Default | Notes |
 |-------|------|----------|---------|-------|
-| id | string \| table | yes | - | Entry ID string or table with ns/name |
+| id_or_ids | string \| table \| table[] | yes | - | ID, entry with `id`, ns/name table, or nested list of these |
 
 **Returns:** Changes object (for chaining)
 
@@ -398,11 +467,16 @@ changes:delete("app.test:example")
 
 -- Table ID
 changes:delete({ns = "app.test", name = "example"})
+
+-- Bulk delete (duplicates are ignored)
+changes:delete(snapshot:entries())
 ```
 
 #### changes:apply() → Version, error
 
-Applies the changeset to create a new registry version.
+Applies the changeset. A normal snapshot creates a registry version. An overlay
+snapshot changes only its process-local overlay and returns the unchanged
+current durable version.
 
 **Returns:**
 

@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	dirapi "github.com/wippyai/runtime/api/service/fs/directory"
@@ -31,9 +30,9 @@ func TestEmbedFSCollectsModuleRelativeDirectory(t *testing.T) {
 	t.Chdir(moduleRoot)
 
 	entry := registry.Entry{
-		ID:   registry.NewID("acme.ui", "static_fs"),
-		Kind: dirapi.Kind,
-		Meta: attrs.NewBagFrom(map[string]any{"module": "acme/ui"}),
+		ID:       registry.NewID("acme.ui", "static_fs"),
+		Kind:     dirapi.Kind,
+		Registry: registry.EntryMetadata{Owner: "acme/ui"},
 		Data: payload.New(map[string]any{
 			"base":      dirapi.BaseModule,
 			"directory": "./static/app",
@@ -80,10 +79,10 @@ func TestEmbedFSResolvesModuleRootWithoutChdir(t *testing.T) {
 	t.Chdir(t.TempDir())
 
 	entry := registry.Entry{
-		ID:   registry.NewID("acme.ui", "ui_fs"),
-		Kind: dirapi.Kind,
-		Meta: attrs.NewBagFrom(map[string]any{"module": "acme/ui"}),
-		Data: payload.New(map[string]any{"directory": "./static"}),
+		ID:       registry.NewID("acme.ui", "ui_fs"),
+		Kind:     dirapi.Kind,
+		Registry: registry.EntryMetadata{Owner: "acme/ui"},
+		Data:     payload.New(map[string]any{"directory": "./static"}),
 	}
 
 	resources, err := collectResources(context.Background(), moduleRoot, []registry.Entry{entry}, zap.NewNop())
@@ -117,16 +116,16 @@ func TestEmbedFSCollectsMultipleResources(t *testing.T) {
 
 	entries := []registry.Entry{
 		{
-			ID:   registry.NewID("acme.app", "ui_fs"),
-			Kind: dirapi.Kind,
-			Meta: attrs.NewBagFrom(map[string]any{"module": "acme/app"}),
-			Data: payload.New(map[string]any{"directory": "./static"}),
+			ID:       registry.NewID("acme.app", "ui_fs"),
+			Kind:     dirapi.Kind,
+			Registry: registry.EntryMetadata{Owner: "acme/app"},
+			Data:     payload.New(map[string]any{"directory": "./static"}),
 		},
 		{
-			ID:   registry.NewID("acme.app", "wasm_fs"),
-			Kind: dirapi.Kind,
-			Meta: attrs.NewBagFrom(map[string]any{"module": "acme/app"}),
-			Data: payload.New(map[string]any{"directory": "./wasm"}),
+			ID:       registry.NewID("acme.app", "wasm_fs"),
+			Kind:     dirapi.Kind,
+			Registry: registry.EntryMetadata{Owner: "acme/app"},
+			Data:     payload.New(map[string]any{"directory": "./wasm"}),
 		},
 	}
 
@@ -144,10 +143,10 @@ func TestEmbedFSErrorsOnMissingDirectory(t *testing.T) {
 	t.Chdir(t.TempDir())
 
 	entry := registry.Entry{
-		ID:   registry.NewID("acme.ui", "ui_fs"),
-		Kind: dirapi.Kind,
-		Meta: attrs.NewBagFrom(map[string]any{"module": "acme/ui"}),
-		Data: payload.New(map[string]any{"directory": "./does-not-exist"}),
+		ID:       registry.NewID("acme.ui", "ui_fs"),
+		Kind:     dirapi.Kind,
+		Registry: registry.EntryMetadata{Owner: "acme/ui"},
+		Data:     payload.New(map[string]any{"directory": "./does-not-exist"}),
 	}
 
 	_, err := collectResources(context.Background(), moduleRoot, []registry.Entry{entry}, zap.NewNop())

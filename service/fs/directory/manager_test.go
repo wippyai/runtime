@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wippyai/runtime/api/attrs"
 	ctxapi "github.com/wippyai/runtime/api/context"
 
 	"github.com/stretchr/testify/assert"
@@ -503,10 +502,8 @@ func TestResolveDirectoryPath(t *testing.T) {
 	ctx = moduleapi.WithSourceRegistry(ctx, sources)
 
 	entry := registry.Entry{
-		ID: registry.NewID("acme.ui", "static_fs"),
-		Meta: attrs.NewBagFrom(map[string]any{
-			"module": "acme/ui",
-		}),
+		ID:       registry.NewID("acme.ui", "static_fs"),
+		Registry: registry.EntryMetadata{Owner: "acme/ui"},
 	}
 
 	tests := []struct {
@@ -564,7 +561,7 @@ func TestResolveDirectoryPath(t *testing.T) {
 			switch tt.name {
 			case "module base without module metadata falls back to raw path",
 				"app-owned entry (no module meta) with no base stays working-directory relative":
-				testEntry.Meta = nil
+				testEntry.Registry.Owner = ""
 			case "module-owned entry with no base falls back to raw path when source root missing":
 				testCtx = ctxapi.NewRootContext()
 			}
@@ -587,11 +584,9 @@ func TestManager_AddUsesModuleBaseForDirectoryPath(t *testing.T) {
 	manager := NewDirectoryManager(eventbus.NewBus(), &MockTranscoder{}, factory, zap.NewNop())
 
 	entry := registry.Entry{
-		ID:   registry.NewID("acme.ui", "static_fs"),
-		Kind: dirapi.Kind,
-		Meta: attrs.NewBagFrom(map[string]any{
-			"module": "acme/ui",
-		}),
+		ID:       registry.NewID("acme.ui", "static_fs"),
+		Kind:     dirapi.Kind,
+		Registry: registry.EntryMetadata{Owner: "acme/ui"},
 		Data: NewMockPayload(&dirapi.Config{
 			Directory: "./static/app",
 			Base:      dirapi.BaseModule,
@@ -622,11 +617,9 @@ func TestManager_AddResolvesModuleRelativePathWhenBaseOmitted(t *testing.T) {
 	manager := NewDirectoryManager(eventbus.NewBus(), &MockTranscoder{}, factory, zap.NewNop())
 
 	entry := registry.Entry{
-		ID:   registry.NewID("wippy.facade", "public_files"),
-		Kind: dirapi.Kind,
-		Meta: attrs.NewBagFrom(map[string]any{
-			"module": "wippy/facade",
-		}),
+		ID:       registry.NewID("wippy.facade", "public_files"),
+		Kind:     dirapi.Kind,
+		Registry: registry.EntryMetadata{Owner: "wippy/facade"},
 		Data: NewMockPayload(&dirapi.Config{
 			Directory: "./public",
 			Mode:      "0755",

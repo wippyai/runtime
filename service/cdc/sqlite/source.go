@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -158,7 +159,17 @@ func (s *Source) Info() config.SourceInfo {
 
 // LifecycleConfig lets the generic CDC manager register this source with the
 // platform supervisor. The source itself does not emit lifecycle events.
-func (s *Source) LifecycleConfig() supervisor.LifecycleConfig { return s.lifecycle }
+func (s *Source) LifecycleConfig() supervisor.LifecycleConfig {
+	cfg := s.lifecycle
+	cfg.Requires = cfg.RequiredServices()
+	cfg.DependsOn = nil
+	// The observer is owned by the SQL resource generation. Declare that
+	// dependency so startup and replacement use the supervisor's ordering.
+	if s.dbResID.Name != "" && !slices.Contains(cfg.Requires, s.dbResID.String()) {
+		cfg.Requires = append(cfg.Requires, s.dbResID.String())
+	}
+	return cfg
+}
 
 // Start subscribes to the SQL resource's observer and starts the forwarding
 // loop. The resource borrow is released immediately after Subscribe succeeds;
@@ -451,12 +462,12 @@ func (s *Source) fail(err error) {
 	s.mu.Unlock()
 
 	s.subs.closeWithError(err)
-	for _, cancel := range snapshotCancels {
-		cancel()
-	}
 	for _, sub := range snapshotSubscriptions {
 		sub.closeWithError(err)
 		sub.waitRelay()
+	}
+	for _, cancel := range snapshotCancels {
+		cancel()
 	}
 	for _, snapshotStream := range snapshotSubs {
 		_ = snapshotStream.Close()
@@ -510,6 +521,12 @@ func (s *Source) Stop(ctx context.Context) error {
 	}
 	s.mu.Unlock()
 
+	// Commit the terminal result before canceling workers. Otherwise a snapshot
+	// relay can publish context.Canceled in place of this deliberate clean stop.
+	for _, sub := range snapshotSubscriptions {
+		sub.closeWithError(nil)
+		sub.waitRelay()
+	}
 	if startCancel != nil {
 		startCancel()
 	}
@@ -521,10 +538,6 @@ func (s *Source) Stop(ctx context.Context) error {
 	}
 	for _, cancel := range snapshotCancels {
 		cancel()
-	}
-	for _, sub := range snapshotSubscriptions {
-		sub.closeWithError(nil)
-		sub.waitRelay()
 	}
 	for _, snapshotStream := range snapshotStreams {
 		_ = snapshotStream.Close()

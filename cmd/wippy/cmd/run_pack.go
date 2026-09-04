@@ -16,7 +16,6 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
-	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/semver"
 	bootpkg "github.com/wippyai/runtime/boot"
@@ -43,6 +42,8 @@ var hubIdentPattern = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
 // command meta omits a use case belongs to it. `wippy test` targets the "test"
 // use case instead; future run-like commands target their own use case.
 const defaultUseCase = "run"
+
+const packRegistryMetadataKey = "registry"
 
 type packCommand struct {
 	name    string
@@ -107,7 +108,7 @@ func collectPackCommands(ctx context.Context, mainModule string) ([]packCommand,
 
 	filtered := allEntries[:0]
 	for _, entry := range allEntries {
-		if !packCommandAllowed(entry.Meta, mainModule) {
+		if !packCommandAllowed(entry, mainModule) {
 			continue
 		}
 		filtered = append(filtered, entry)
@@ -135,16 +136,8 @@ func findPackCommandForModule(ctx context.Context, commandName, useCase, mainMod
 	return selectEntrypoint(commands, commandName, useCase)
 }
 
-func moduleMeta(meta map[string]any) string {
-	if meta == nil {
-		return ""
-	}
-	module, _ := meta["module"].(string)
-	return module
-}
-
-func packCommandAllowed(meta map[string]any, mainModule string) bool {
-	module := moduleMeta(meta)
+func packCommandAllowed(entry registry.Entry, mainModule string) bool {
+	module := entry.Registry.Owner
 	if mainModule == "" {
 		return module == ""
 	}
@@ -800,22 +793,22 @@ func loadPackEntries(packFiles []string, rootModule string, embedReg packReaderR
 		}
 
 		moduleName, moduleVersion := moduleIdentityFromPackMetadata(packReader.Reader())
-		if err := registerPackResources(embedReg, packFile, moduleName, moduleVersion, packReader.Reader(), file); err != nil {
-			file.Close()
-			return nil, fmt.Errorf("register embed resources for %s: %w", packFile, err)
-		}
-
 		loadedEntries, err := packReader.GetEntries()
 		if err != nil {
+			file.Close()
 			return nil, fmt.Errorf("read entries from %s: %w", packFile, err)
 		}
 
 		if moduleName != "" {
-			annotateEntriesModuleMeta(loadedEntries, moduleName, moduleVersion, moduleName == rootModule)
-		} else {
-			if err := registerMonolithicPackResourceAliases(embedReg, packFile, packReader.Reader(), loadedEntries); err != nil {
-				return nil, fmt.Errorf("register embed resource aliases for %s: %w", packFile, err)
-			}
+			assignPackEntryMetadata(loadedEntries, moduleName, moduleName == rootModule)
+		} else if err := applyPackedEntryMetadata(packReader.Reader(), loadedEntries); err != nil {
+			file.Close()
+			return nil, fmt.Errorf("read registry metadata from %s: %w", packFile, err)
+		}
+
+		if err := registerPackResources(embedReg, packFile, moduleName, moduleVersion, packReader.Reader(), file); err != nil {
+			file.Close()
+			return nil, fmt.Errorf("register embed resources for %s: %w", packFile, err)
 		}
 
 		packEntries = append(packEntries, loadedEntries...)
@@ -831,45 +824,6 @@ func registerPackResources(embedReg packReaderRegistry, packFile, moduleName, mo
 		}
 	}
 	return embedReg.Register(packFile, reader, file)
-}
-
-func registerMonolithicPackResourceAliases(embedReg packReaderRegistry, packFile string, reader *wapp.Reader, loadedEntries []registry.Entry) error {
-	moduleReg, ok := embedReg.(modulePackReaderRegistry)
-	if !ok {
-		return nil
-	}
-
-	seen := make(map[string]struct{})
-	for _, entry := range loadedEntries {
-		if entry.Meta == nil {
-			continue
-		}
-
-		moduleName, _ := entry.Meta["module"].(string)
-		if moduleName == "" {
-			continue
-		}
-
-		moduleVersion, _ := entry.Meta["module_version"].(string)
-		key := moduleName + "\x00" + moduleVersion
-		if _, exists := seen[key]; exists {
-			continue
-		}
-		seen[key] = struct{}{}
-
-		if err := moduleReg.RegisterPack(monolithicPackAliasPath(packFile, moduleName, moduleVersion), moduleName, moduleVersion, reader, nil); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-func monolithicPackAliasPath(packFile, moduleName, moduleVersion string) string {
-	if moduleVersion == "" {
-		return packFile + "#" + moduleName
-	}
-	return packFile + "#" + moduleName + "@" + moduleVersion
 }
 
 func moduleIdentityFromPackMetadata(reader *wapp.Reader) (moduleName string, moduleVersion string) {
@@ -903,29 +857,108 @@ func moduleIdentityFromPackMetadata(reader *wapp.Reader) (moduleName string, mod
 	return org + "/" + name, version
 }
 
-func annotateEntriesModuleMeta(items []registry.Entry, moduleName string, moduleVersion string, root bool) {
+func assignPackEntryMetadata(items []registry.Entry, moduleName string, root bool) {
 	if moduleName == "" {
 		return
 	}
 
 	for i := range items {
+		items[i].Registry = registry.EntryMetadata{Owner: moduleName}
 		if root && items[i].Kind == registry.NamespaceDependency {
-			items[i].DependencyRoot = true
+			items[i].Registry.Root = true
 		}
-		meta := items[i].Meta
-		if meta == nil {
-			meta = attrs.NewBag()
-		}
-
-		if existingModule, _ := meta["module"].(string); existingModule == "" {
-			meta["module"] = moduleName
-		}
-		if moduleVersion != "" {
-			if existingVersion, _ := meta["module_version"].(string); existingVersion == "" {
-				meta["module_version"] = moduleVersion
-			}
-		}
-
-		items[i].Meta = meta
 	}
+}
+
+// packRegistryMetadata records the registry-owned entry state of a snapshot
+// pack. Module packs derive ownership from their signed package identity; a
+// snapshot contains several selected modules and therefore retains the state
+// established from its lock before it was packed.
+func packRegistryMetadata(items []registry.Entry) map[string]any {
+	entries := make(map[string]any, len(items))
+	for _, entry := range items {
+		entries[entry.ID.String()] = map[string]any{
+			"owner": entry.Registry.Owner,
+			"root":  entry.Registry.Root,
+		}
+	}
+	return map[string]any{"entries": entries}
+}
+
+// applyPackedEntryMetadata restores the registry-owned state written by
+// wippy pack. Pack metadata belongs to the container; entry author metadata
+// is never consulted for ownership or deployment-root selection.
+func applyPackedEntryMetadata(reader *wapp.Reader, items []registry.Entry) error {
+	metadata, err := reader.GetMetadata()
+	if err != nil {
+		return fmt.Errorf("read pack metadata: %w", err)
+	}
+	raw, found := metadata[packRegistryMetadataKey]
+	if !found {
+		return fmt.Errorf("pack has no registry metadata")
+	}
+	state, ok := raw.(map[string]any)
+	if !ok {
+		return fmt.Errorf("registry metadata has type %T, want a map", raw)
+	}
+	rawEntries, found := state["entries"]
+	if !found {
+		return fmt.Errorf("registry metadata has no entries")
+	}
+	records, ok := rawEntries.(map[string]any)
+	if !ok {
+		return fmt.Errorf("registry entries have type %T, want a map", rawEntries)
+	}
+
+	for i := range items {
+		id := items[i].ID.String()
+		rawRecord, found := records[id]
+		if !found {
+			return fmt.Errorf("registry metadata does not cover entry %s", id)
+		}
+		record, ok := rawRecord.(map[string]any)
+		if !ok {
+			return fmt.Errorf("registry metadata for entry %s has type %T, want a map", id, rawRecord)
+		}
+		owner, err := packedEntryOwner(record, id)
+		if err != nil {
+			return err
+		}
+		root, err := packedEntryRoot(record, id)
+		if err != nil {
+			return err
+		}
+		items[i].Registry = registry.EntryMetadata{Owner: owner, Root: root}
+		delete(records, id)
+	}
+	if len(records) != 0 {
+		for id := range records {
+			return fmt.Errorf("registry metadata contains unknown entry %s", id)
+		}
+	}
+	return nil
+}
+
+func packedEntryOwner(record map[string]any, id string) (string, error) {
+	raw, found := record["owner"]
+	if !found {
+		return "", nil
+	}
+	owner, ok := raw.(string)
+	if !ok {
+		return "", fmt.Errorf("registry metadata for entry %s has owner type %T, want string", id, raw)
+	}
+	return owner, nil
+}
+
+func packedEntryRoot(record map[string]any, id string) (bool, error) {
+	raw, found := record["root"]
+	if !found {
+		return false, nil
+	}
+	root, ok := raw.(bool)
+	if !ok {
+		return false, fmt.Errorf("registry metadata for entry %s has root type %T, want bool", id, raw)
+	}
+	return root, nil
 }

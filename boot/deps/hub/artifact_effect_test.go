@@ -102,11 +102,11 @@ func TestBuildArtifactEffectMaterializesLocalReplacement(t *testing.T) {
 		logger: zap.NewNop(),
 	}
 	state := regapi.State{{
-		ID:   regapi.NewID("example.package", "artifact"),
-		Kind: dirapi.Kind,
+		ID:       regapi.NewID("example.package", "artifact"),
+		Kind:     dirapi.Kind,
+		Registry: regapi.EntryMetadata{Owner: "example/package"},
 		Meta: attrs.NewBagFrom(map[string]any{
-			metaModuleKey: "example/package",
-			"artifact":    map[string]any{"format": "node-package"},
+			"artifact": map[string]any{"format": "node-package"},
 		}),
 		Data: payload.New(map[string]any{
 			"directory": ".",

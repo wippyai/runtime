@@ -112,13 +112,14 @@ func Engine() boot.Component {
 
 func resolveEngineSettings(cfg boot.Config) code.Config {
 	settings := code.Config{
-		ProtoCacheSize: 60000,
-		MainCacheSize:  10000,
 		Cache: cache.Config{
 			Dir:              cache.DefaultDir,
 			Mode:             cache.ModeReadWrite,
 			CompileEnabled:   true,
 			TypecheckEnabled: true,
+			MaxBytes:         cache.DefaultMaxBytes,
+			MaxEntries:       cache.DefaultMaxEntries,
+			PruneInterval:    cache.DefaultPruneInterval,
 		},
 		InvalidationWaitTimeout: code.DefaultInvalidationWaitTimeout,
 	}
@@ -133,8 +134,6 @@ func resolveEngineSettings(cfg boot.Config) code.Config {
 	)
 
 	luaCfg := cfg.Sub("lua")
-	settings.ProtoCacheSize = luaCfg.GetInt("proto_cache_size", settings.ProtoCacheSize)
-	settings.MainCacheSize = luaCfg.GetInt("main_cache_size", settings.MainCacheSize)
 	settings.InvalidationWaitTimeout = luaCfg.GetDuration("invalidation_wait_timeout", settings.InvalidationWaitTimeout)
 
 	typeSystemCfg := luaCfg.Sub("type_system")
@@ -153,6 +152,9 @@ func resolveEngineSettings(cfg boot.Config) code.Config {
 	settings.Cache.Mode = cache.ParseMode(luaCfg.GetString("cache.mode", string(settings.Cache.Mode)))
 	settings.Cache.CompileEnabled = luaCfg.GetBool("cache.compile.enabled", settings.Cache.CompileEnabled)
 	settings.Cache.TypecheckEnabled = luaCfg.GetBool("cache.typecheck.enabled", settings.Cache.TypecheckEnabled)
+	settings.Cache.MaxBytes = int64(luaCfg.GetInt("cache.max_bytes", int(settings.Cache.MaxBytes)))
+	settings.Cache.MaxEntries = luaCfg.GetInt("cache.max_entries", settings.Cache.MaxEntries)
+	settings.Cache.PruneInterval = luaCfg.GetInt("cache.prune_interval", settings.Cache.PruneInterval)
 	return settings
 }
 

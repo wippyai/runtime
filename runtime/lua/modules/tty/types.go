@@ -19,15 +19,15 @@ var styleType = typ.NewInterface("tty.Style", []typ.Method{
 	{Name: "faint", Type: typ.Func().Param("self", typ.Self).OptParam("enable", typ.Boolean).Returns(typ.Self).Build()},
 	{Name: "blink", Type: typ.Func().Param("self", typ.Self).OptParam("enable", typ.Boolean).Returns(typ.Self).Build()},
 	{Name: "reverse", Type: typ.Func().Param("self", typ.Self).OptParam("enable", typ.Boolean).Returns(typ.Self).Build()},
-	{Name: "padding", Type: typ.Func().Param("self", typ.Self).Variadic(typ.Number).Returns(typ.Self).Build()},
-	{Name: "margin", Type: typ.Func().Param("self", typ.Self).Variadic(typ.Number).Returns(typ.Self).Build()},
+	{Name: "padding", Type: typ.Func().Param("self", typ.Self).Variadic(typ.Integer).Returns(typ.Self).Build()},
+	{Name: "margin", Type: typ.Func().Param("self", typ.Self).Variadic(typ.Integer).Returns(typ.Self).Build()},
 	{Name: "border", Type: typ.Func().Param("self", typ.Self).Param("name", typ.String).Variadic(typ.Boolean).Returns(typ.Self).Build()},
 	{Name: "border_foreground", Type: typ.Func().Param("self", typ.Self).Variadic(typ.String).Returns(typ.Self).Build()},
 	{Name: "border_background", Type: typ.Func().Param("self", typ.Self).Variadic(typ.String).Returns(typ.Self).Build()},
-	{Name: "width", Type: typ.Func().Param("self", typ.Self).Param("n", typ.Number).Returns(typ.Self).Build()},
-	{Name: "height", Type: typ.Func().Param("self", typ.Self).Param("n", typ.Number).Returns(typ.Self).Build()},
-	{Name: "max_width", Type: typ.Func().Param("self", typ.Self).Param("n", typ.Number).Returns(typ.Self).Build()},
-	{Name: "max_height", Type: typ.Func().Param("self", typ.Self).Param("n", typ.Number).Returns(typ.Self).Build()},
+	{Name: "width", Type: typ.Func().Param("self", typ.Self).Param("n", typ.Integer).Returns(typ.Self).Build()},
+	{Name: "height", Type: typ.Func().Param("self", typ.Self).Param("n", typ.Integer).Returns(typ.Self).Build()},
+	{Name: "max_width", Type: typ.Func().Param("self", typ.Self).Param("n", typ.Integer).Returns(typ.Self).Build()},
+	{Name: "max_height", Type: typ.Func().Param("self", typ.Self).Param("n", typ.Integer).Returns(typ.Self).Build()},
 	{Name: "align", Type: typ.Func().Param("self", typ.Self).Param("pos", typ.Number).Returns(typ.Self).Build()},
 	{Name: "align_vertical", Type: typ.Func().Param("self", typ.Self).Param("pos", typ.Number).Returns(typ.Self).Build()},
 	{Name: "inline", Type: typ.Func().Param("self", typ.Self).OptParam("enable", typ.Boolean).Returns(typ.Self).Build()},
@@ -36,7 +36,7 @@ var styleType = typ.NewInterface("tty.Style", []typ.Method{
 
 // KeyBinding interface returned by tty.bind()
 var keyBindingType = typ.NewInterface("tty.KeyBinding", []typ.Method{
-	{Name: "matches", Type: typ.Func().Param("self", typ.Self).Param("event", typ.Any).Returns(typ.Boolean).Build()},
+	{Name: "matches", Type: typ.Func().Param("self", typ.Self).Param("event", ttyEventType).Returns(typ.Boolean).Build()},
 	{Name: "set_enabled", Type: typ.Func().Param("self", typ.Self).Param("enabled", typ.Boolean).Returns(typ.Self).Build()},
 	{Name: "is_enabled", Type: typ.Func().Param("self", typ.Self).Returns(typ.Boolean).Build()},
 	{Name: "help", Type: typ.Func().Param("self", typ.Self).Returns(bindingHelpType).Build()},
@@ -75,8 +75,8 @@ var mouseEventType = typ.NewRecord().
 		typ.LiteralString("wheel"),
 	)).
 	ReadonlyField("button", typ.String).
-	ReadonlyField("x", typ.Number).
-	ReadonlyField("y", typ.Number).
+	ReadonlyField("x", typ.Integer).
+	ReadonlyField("y", typ.Integer).
 	ReadonlyField("alt", typ.Boolean).
 	ReadonlyField("ctrl", typ.Boolean).
 	ReadonlyField("shift", typ.Boolean).
@@ -84,14 +84,14 @@ var mouseEventType = typ.NewRecord().
 
 var resizeEventType = typ.NewRecord().
 	ReadonlyField("type", typ.LiteralString("resize")).
-	ReadonlyField("width", typ.Number).
-	ReadonlyField("height", typ.Number).
+	ReadonlyField("width", typ.Integer).
+	ReadonlyField("height", typ.Integer).
 	Build()
 
 var startEventType = typ.NewRecord().
 	ReadonlyField("type", typ.LiteralString("start")).
-	ReadonlyField("width", typ.Number).
-	ReadonlyField("height", typ.Number).
+	ReadonlyField("width", typ.Integer).
+	ReadonlyField("height", typ.Integer).
 	Build()
 
 var focusEventType = typ.NewRecord().
@@ -99,9 +99,18 @@ var focusEventType = typ.NewRecord().
 	ReadonlyField("focused", typ.Boolean).
 	Build()
 
+var visibilityEventType = typ.NewRecord().
+	ReadonlyField("type", typ.LiteralString("visibility")).
+	ReadonlyField("visible", typ.Boolean).
+	Build()
+
 var pasteEventType = typ.NewRecord().
 	ReadonlyField("type", typ.LiteralString("paste")).
 	ReadonlyField("text", typ.String).
+	Build()
+
+var closeEventType = typ.NewRecord().
+	ReadonlyField("type", typ.LiteralString("close")).
 	Build()
 
 var ttyEventType = typ.NewUnion(
@@ -110,12 +119,88 @@ var ttyEventType = typ.NewUnion(
 	resizeEventType,
 	startEventType,
 	focusEventType,
+	visibilityEventType,
 	pasteEventType,
+	closeEventType,
 )
+
+// EventType exposes the structural terminal event contract to optional Lua
+// adapters without making them duplicate or weaken it to any.
+func EventType() typ.Type { return ttyEventType }
 
 // Channel type for tty.events()
 var eventChannelType = typ.NewInterface("tty.EventChannel", []typ.Method{
 	{Name: "receive", Type: typ.Func().Param("self", typ.Self).Returns(typ.NewOptional(ttyEventType)).Build()},
+})
+
+var viewportUpdateChannelType = typ.NewInterface("tty.ViewportUpdateChannel", []typ.Method{
+	{Name: "receive", Type: typ.Func().Param("self", typ.Self).Returns(typ.Integer, typ.Boolean).Build()},
+	{Name: "case_receive", Type: typ.Func().Param("self", typ.Self).Returns(typ.Any).Build()},
+})
+
+var surfaceOptionsType = typ.NewRecord().
+	OptField("alternate_screen", typ.Boolean).
+	OptField("hide_cursor", typ.Boolean).
+	OptField("synchronized_output", typ.Boolean).
+	Build()
+
+var surfaceStatsType = typ.NewRecord().
+	ReadonlyField("rows", typ.Integer).
+	ReadonlyField("changed_rows", typ.Integer).
+	ReadonlyField("bytes_written", typ.Integer).
+	Build()
+
+var surfaceType = typ.NewInterface("tty.Surface", []typ.Method{
+	{Name: "present", Type: typ.Func().Param("self", typ.Self).
+		Param("rows", typ.NewArray(typ.String)).
+		OptParam("options", typ.NewRecord().
+			OptField("cursor", typ.NewRecord().
+				Field("x", typ.Integer).
+				Field("y", typ.Integer).
+				Field("visible", typ.Boolean).
+				Build()).
+			Build()).
+		Returns(surfaceStatsType, typ.NewOptional(typ.LuaError)).Build()},
+	{Name: "invalidate", Type: typ.Func().Param("self", typ.Self).
+		Returns(typ.Boolean).Build()},
+	{Name: "close", Type: typ.Func().Param("self", typ.Self).
+		Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
+})
+
+var canvasType = typ.NewInterface("tty.Canvas", []typ.Method{
+	{Name: "clear", Type: typ.Func().Param("self", typ.Self).OptParam("fill", typ.String).Returns(typ.Boolean).Build()},
+	{Name: "put", Type: typ.Func().Param("self", typ.Self).Param("x", typ.Integer).Param("y", typ.Integer).
+		Param("text", typ.String).OptParam("width", typ.Integer).Returns(typ.Boolean).Build()},
+	{Name: "put_rows", Type: typ.Func().Param("self", typ.Self).Param("x", typ.Integer).Param("y", typ.Integer).
+		Param("rows", typ.NewArray(typ.String)).OptParam("width", typ.Integer).Returns(typ.Boolean).Build()},
+	{Name: "rows", Type: typ.Func().Param("self", typ.Self).Returns(typ.NewArray(typ.String)).Build()},
+})
+
+var viewportOptionsType = typ.NewRecord().
+	OptField("width", typ.Integer).
+	OptField("height", typ.Integer).
+	Build()
+
+var viewportSnapshotType = typ.NewRecord().
+	ReadonlyField("revision", typ.Integer).
+	ReadonlyField("width", typ.Integer).
+	ReadonlyField("height", typ.Integer).
+	ReadonlyField("rows", typ.NewArray(typ.String)).
+	OptReadonlyField("cursor", typ.NewRecord().
+		ReadonlyField("x", typ.Integer).
+		ReadonlyField("y", typ.Integer).
+		ReadonlyField("visible", typ.Boolean).
+		Build()).
+	Build()
+
+var viewportType = typ.NewInterface("tty.Viewport", []typ.Method{
+	{Name: "grant", Type: typ.Func().Param("self", typ.Self).Returns(typ.String, typ.NewOptional(typ.LuaError)).Build()},
+	{Name: "handle", Type: typ.Func().Param("self", typ.Self).Returns(typ.String).Build()},
+	{Name: "snapshot", Type: typ.Func().Param("self", typ.Self).OptParam("after_revision", typ.Integer).Returns(typ.NewOptional(viewportSnapshotType)).Build()},
+	{Name: "updates", Type: typ.Func().Param("self", typ.Self).Returns(viewportUpdateChannelType, typ.NewOptional(typ.LuaError)).Build()},
+	{Name: "send", Type: typ.Func().Param("self", typ.Self).Param("event", ttyEventType).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
+	{Name: "resize", Type: typ.Func().Param("self", typ.Self).Param("width", typ.Integer).Param("height", typ.Integer).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
+	{Name: "close", Type: typ.Func().Param("self", typ.Self).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
 })
 
 // Border constants
@@ -148,16 +233,18 @@ var textModType typ.Type
 
 func init() {
 	textModType = typ.NewRecord().
-		ReadonlyField("width", typ.Func().Param("s", typ.String).Returns(typ.Number).Build()).
-		ReadonlyField("height", typ.Func().Param("s", typ.String).Returns(typ.Number).Build()).
-		ReadonlyField("size", typ.Func().Param("s", typ.String).Returns(typ.Number, typ.Number).Build()).
+		ReadonlyField("width", typ.Func().Param("s", typ.String).Returns(typ.Integer).Build()).
+		ReadonlyField("truncate", typ.Func().Param("s", typ.String).Param("width", typ.Integer).OptParam("tail", typ.String).Returns(typ.String).Build()).
+		ReadonlyField("cut", typ.Func().Param("s", typ.String).Param("left", typ.Integer).Param("right", typ.Integer).Returns(typ.String).Build()).
+		ReadonlyField("height", typ.Func().Param("s", typ.String).Returns(typ.Integer).Build()).
+		ReadonlyField("size", typ.Func().Param("s", typ.String).Returns(typ.Integer, typ.Integer).Build()).
 		ReadonlyField("join_horizontal", typ.Func().Param("pos", typ.Number).Variadic(typ.String).Returns(typ.String).Build()).
 		ReadonlyField("join_vertical", typ.Func().Param("pos", typ.Number).Variadic(typ.String).Returns(typ.String).Build()).
-		ReadonlyField("max_width", typ.Func().Param("items", typ.NewArray(typ.String)).Returns(typ.Number).Build()).
-		ReadonlyField("max_height", typ.Func().Param("items", typ.NewArray(typ.String)).Returns(typ.Number).Build()).
-		ReadonlyField("place", typ.Func().Param("width", typ.Number).Param("height", typ.Number).Param("hPos", typ.Number).Param("vPos", typ.Number).Param("str", typ.String).Returns(typ.String).Build()).
-		ReadonlyField("place_horizontal", typ.Func().Param("width", typ.Number).Param("pos", typ.Number).Param("str", typ.String).Returns(typ.String).Build()).
-		ReadonlyField("place_vertical", typ.Func().Param("height", typ.Number).Param("pos", typ.Number).Param("str", typ.String).Returns(typ.String).Build()).
+		ReadonlyField("max_width", typ.Func().Param("items", typ.NewArray(typ.String)).Returns(typ.Integer).Build()).
+		ReadonlyField("max_height", typ.Func().Param("items", typ.NewArray(typ.String)).Returns(typ.Integer).Build()).
+		ReadonlyField("place", typ.Func().Param("width", typ.Integer).Param("height", typ.Integer).Param("hPos", typ.Number).Param("vPos", typ.Number).Param("str", typ.String).Returns(typ.String).Build()).
+		ReadonlyField("place_horizontal", typ.Func().Param("width", typ.Integer).Param("pos", typ.Number).Param("str", typ.String).Returns(typ.String).Build()).
+		ReadonlyField("place_vertical", typ.Func().Param("height", typ.Integer).Param("pos", typ.Number).Param("str", typ.String).Returns(typ.String).Build()).
 		ReadonlyField("position", positionConstType).
 		Build()
 }
@@ -175,16 +262,29 @@ func ModuleTypes() *typio.Manifest {
 	m.DefineType("ResizeEvent", resizeEventType)
 	m.DefineType("StartEvent", startEventType)
 	m.DefineType("FocusEvent", focusEventType)
+	m.DefineType("VisibilityEvent", visibilityEventType)
 	m.DefineType("PasteEvent", pasteEventType)
+	m.DefineType("CloseEvent", closeEventType)
 	m.DefineType("TTYEvent", ttyEventType)
 	m.DefineType("EventChannel", eventChannelType)
+	m.DefineType("Surface", surfaceType)
+	m.DefineType("Canvas", canvasType)
+	m.DefineType("SurfaceOptions", surfaceOptionsType)
+	m.DefineType("SurfaceStats", surfaceStatsType)
+	m.DefineType("Viewport", viewportType)
+	m.DefineType("ViewportOptions", viewportOptionsType)
+	m.DefineType("ViewportSnapshot", viewportSnapshotType)
 
 	moduleMethodsType := typ.NewInterface("tty", []typ.Method{
 		{Name: "start", Type: typ.Func().Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "stop", Type: typ.Func().Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
-		{Name: "screen_size", Type: typ.Func().Returns(typ.Number, typ.Number, typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "screen_size", Type: typ.Func().Returns(typ.Integer, typ.Integer, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "events", Type: typ.Func().Returns(eventChannelType, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "mouse", Type: typ.Func().Param("enable", typ.Boolean).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "surface", Type: typ.Func().OptParam("options", surfaceOptionsType).Returns(surfaceType, typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "canvas", Type: typ.Func().Param("width", typ.Integer).Param("height", typ.Integer).Returns(canvasType).Build()},
+		{Name: "viewport", Type: typ.Func().OptParam("options", viewportOptionsType).Returns(viewportType, typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "attach", Type: typ.Func().Param("handle", typ.String).Returns(viewportType, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "style", Type: typ.Func().Returns(styleType).Build()},
 		{Name: "bind", Type: typ.Func().Param("config", bindingConfigType).Returns(keyBindingType).Build()},
 	})

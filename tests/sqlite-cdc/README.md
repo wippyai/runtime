@@ -8,7 +8,12 @@ includes it), then run from this directory:
 ```
 
 The app uses a private in-memory database, no credentials or external services,
-and an explicit process policy granting only `db.get` on its test database.
+and explicit process policies granting `db.get` on its test database and
+`cdc.source`/`cdc.subscribe` on its CDC source.
+The runtime-registration check also grants test-only `registry.get` and
+`registry.apply`; these administrative grants are not needed by normal readers.
+It creates, updates and removes a second source while the first continues
+receiving changes. Registration acceptance and readiness are tested separately.
 It asserts committed live delivery, rowid zero, rollback isolation,
 snapshot/live handoff, before images and explicit stream closure. Receive
 operations have five-second deadlines; any assertion fails the command.

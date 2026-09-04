@@ -27,7 +27,7 @@ func (*stampedTestStream) Err() error { return nil }
 
 func TestStampedStreamUsesOnlyTheDriverQueue(t *testing.T) {
 	upstream := &stampedTestStream{changes: make(chan api.Change, 2)}
-	stream := newStampedStream(registry.NewID("app", "cdc"), 7, 65536, upstream)
+	stream := newStampedStream(registry.NewID("app", "cdc"), 7, upstream)
 	require.Zero(t, cap(stream.Changes()), "the common adapter must not add a second event queue")
 
 	upstream.changes <- api.Change{Op: "insert", Table: "users"}

@@ -96,14 +96,10 @@ replacements:
 
 	root := hardeningRoot("app.deps:local", "local/mod", "v0.1.0")
 	oldEntry := regapi.Entry{
-		ID:   regapi.NewID("local.mod", "svc"),
-		Kind: regapi.EntryKind,
-		Meta: attrs.NewBagFrom(map[string]any{
-			metaModuleKey:        "local/mod",
-			metaModuleVersionKey: "v0.1.0",
-			metaModuleDigestKey:  beforeDigest,
-		}),
-		Data: payload.New(map[string]any{"generation": "one"}),
+		ID:       regapi.NewID("local.mod", "svc"),
+		Kind:     regapi.EntryKind,
+		Registry: regapi.EntryMetadata{Owner: "local/mod"},
+		Data:     payload.New(map[string]any{"generation": "one"}),
 	}
 	resolution := dependencyResolution([]desiredDependency{{
 		entry: root,
@@ -115,6 +111,7 @@ replacements:
 		Org: "local", Name: "mod", Version: "v0.1.0",
 		Source: moduleSourceReplacementTreeV1, Digest: beforeDigest, SizeBytes: beforeSize,
 	}})
+	ctx = withCurrentResolution(ctx, resolution.Modules...)
 
 	require.NoError(t, os.WriteFile(staticBundle, []byte("window.build = 'two';\n"), 0o600))
 	afterDigest, _, err := digestReplacementTree(replacementPath)
@@ -127,41 +124,38 @@ replacements:
 	require.Equal(t, beforeDigest, result.Resolution.Modules[0].Digest,
 		"a history version keeps its original resolution checkpoint")
 
-	var updated *regapi.Entry
 	for _, scoped := range result.Additional {
-		if scoped.Operation.Kind == regapi.EntryUpdate && scoped.Operation.Entry.ID == oldEntry.ID {
-			entry := scoped.Operation.Entry
-			updated = &entry
+		require.NotEqual(t, oldEntry.ID, scoped.Operation.Entry.ID,
+			"a replacement tree rebuild changes neither authored entry data nor ownership")
+	}
+	var source *sourceEffect
+	for _, effect := range result.Effects {
+		if candidate, ok := effect.(*sourceEffect); ok {
+			source = candidate
 			break
 		}
 	}
-	require.NotNil(t, updated)
-	require.Equal(t, afterDigest, moduleDigest(*updated))
-	require.Equal(t, "one", updated.Data.Data().(map[string]any)["generation"])
+	require.NotNil(t, source)
+	require.Equal(t, afterDigest, source.desired["local/mod"].Digest,
+		"the replacement source transition carries the rebuilt tree identity")
 }
 
 func hardeningModuleEntry(id, module, version string) regapi.Entry {
+	_ = version
 	return regapi.Entry{
-		ID:   regapi.ParseID(id),
-		Kind: regapi.EntryKind,
-		Meta: attrs.NewBagFrom(map[string]any{
-			metaModuleKey:        module,
-			metaModuleVersionKey: version,
-			metaModuleDigestKey:  hardeningDigest,
-		}),
-		Data: payload.New(map[string]any{"module": module}),
+		ID:       regapi.ParseID(id),
+		Kind:     regapi.EntryKind,
+		Registry: regapi.EntryMetadata{Owner: module},
+		Data:     payload.New(map[string]any{"module": module}),
 	}
 }
 
 func hardeningModuleDefinition(namespace, module, version string) regapi.Entry {
+	_ = version
 	return regapi.Entry{
-		ID:   regapi.NewID(namespace, "definition"),
-		Kind: regapi.NamespaceDefinition,
-		Meta: attrs.NewBagFrom(map[string]any{
-			metaModuleKey:        module,
-			metaModuleVersionKey: version,
-			metaModuleDigestKey:  hardeningDigest,
-		}),
+		ID:       regapi.NewID(namespace, "definition"),
+		Kind:     regapi.NamespaceDefinition,
+		Registry: regapi.EntryMetadata{Owner: module},
 	}
 }
 
@@ -268,29 +262,26 @@ func TestDependencyHandler_ExpandChangesRetargetsEarlierRootWithoutLeavingOldMod
 	})
 }
 
-func TestDependencyHandler_ExpandChangesRetaggingRootStillRemovesOwnedModule(t *testing.T) {
+func TestDependencyHandler_ExpandChangesAuthorMetaDoesNotChangeModuleOwnership(t *testing.T) {
 	ctx := newTestContext()
-	handler, err := NewDependencyHandler(DependencyHandlerOptions{
-		Hub: &fakeHub{}, Logger: zap.NewNop(), VendorDir: t.TempDir(),
-	})
-	require.NoError(t, err)
+	handler := referenceFoldHandler(t)
 
 	root := hardeningRoot("app.deps:a", "acme/a", "v1.0.0")
 	owned := hardeningModuleEntry("acme.a:entry", "acme/a", "v1.0.0")
+	ctx = withCurrentResolution(ctx, regapi.ResolvedModule{Name: "acme/a", Version: "v1.0.0"})
 	retagged := root
-	retagged.Meta = attrs.NewBagFrom(map[string]any{
-		metaModuleKey: "host/owner",
-	})
+	retagged.Meta = attrs.NewBagFrom(map[string]any{"label": "host"})
 
 	result, err := handler.ExpandChanges(ctx, regapi.ChangeSet{{
 		Kind: regapi.EntryUpdate, Entry: retagged,
 	}}, regapi.State{root, owned})
 	require.NoError(t, err)
 	require.True(t, result.Applied)
-	require.Contains(t, result.Additional, regapi.ScopedOperation{
-		Operation: regapi.Operation{Kind: regapi.EntryDelete, Entry: regapi.Entry{ID: owned.ID}},
-		Scope:     regapi.ScopeBaseline,
-	})
+	require.Len(t, result.Additional, 1)
+	op := result.Additional[0].Operation
+	require.Equal(t, regapi.EntryUpdate, op.Kind)
+	require.Equal(t, owned.ID, op.Entry.ID)
+	require.Equal(t, "acme/a", op.Entry.Registry.Owner)
 }
 
 func TestDependencyHandler_ExpandUnchangedRootStillReturnsLegacyCheckpointGraph(t *testing.T) {
@@ -343,6 +334,7 @@ func TestDependencyHandler_ReconcileAcceptsStoredLabelSelectionOffline(t *testin
 	handler, err := NewDependencyHandler(DependencyHandlerOptions{Hub: &fakeHub{}, Logger: zap.NewNop(), VendorDir: t.TempDir()})
 	require.NoError(t, err)
 	resolution := hardeningResolution(root)
+	ctx = withCurrentResolution(ctx, resolution.Modules...)
 	result, err := handler.ReconcileResolution(ctx, regapi.State{root, module}, regapi.State{root, module}, resolution)
 	require.NoError(t, err)
 	require.Equal(t, resolution.Digest, result.Resolution.Digest)
@@ -372,9 +364,9 @@ func TestDependencyHandler_ReconcileReloadsOnlyModuleWithChangedRootParameters(t
 
 	root := func(value string) regapi.Entry {
 		return regapi.Entry{
-			ID:             regapi.NewID("app.deps", "feature"),
-			Kind:           regapi.NamespaceDependency,
-			DependencyRoot: true,
+			ID:       regapi.NewID("app.deps", "feature"),
+			Kind:     regapi.NamespaceDependency,
+			Registry: regapi.EntryMetadata{Root: true},
 			Data: payload.New(map[string]any{
 				"component": "acme/feature",
 				"version":   "v1.0.0",
@@ -384,24 +376,19 @@ func TestDependencyHandler_ReconcileReloadsOnlyModuleWithChangedRootParameters(t
 			}),
 		}
 	}
-	moduleMeta := attrs.NewBagFrom(map[string]any{
-		metaModuleKey:        "acme/feature",
-		metaModuleVersionKey: "v1.0.0",
-		metaModuleDigestKey:  digest,
-	})
 	requirement := regapi.Entry{
-		ID:   regapi.NewID("acme.feature", "scope"),
-		Kind: regapi.NamespaceRequirement,
-		Meta: moduleMeta,
+		ID:       regapi.NewID("acme.feature", "scope"),
+		Kind:     regapi.NamespaceRequirement,
+		Registry: regapi.EntryMetadata{Owner: "acme/feature"},
 		Data: payload.New(map[string]any{
 			"targets": []any{map[string]any{"entry": "policy", "path": ".groups +="}},
 		}),
 	}
 	policy := regapi.Entry{
-		ID:   regapi.NewID("acme.feature", "policy"),
-		Kind: "security.policy",
-		Meta: moduleMeta,
-		Data: payload.New(map[string]any{"groups": []any{"scope:old"}}),
+		ID:       regapi.NewID("acme.feature", "policy"),
+		Kind:     "security.policy",
+		Registry: regapi.EntryMetadata{Owner: "acme/feature"},
+		Data:     payload.New(map[string]any{"groups": []any{"scope:old"}}),
 	}
 	beforeRoot, targetRoot := root("scope:old"), root("scope:new")
 	current := regapi.State{beforeRoot, requirement, policy}

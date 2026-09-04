@@ -6,6 +6,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -23,15 +24,17 @@ import (
 func referenceFoldHandler(t *testing.T) *DependencyHandler {
 	t.Helper()
 	vendorDir := t.TempDir()
-	artifact := buildWappBytes(t, []wapp.Entry{{
-		ID: wapp.NewID("acme.a", "entry"), Kind: regapi.EntryKind, Data: map[string]any{"module": "a"},
-	}})
 	hub := &fakeHub{
 		getManifest: func(_ context.Context, org, module, _ string) (*ModuleManifest, error) {
 			return &ModuleManifest{Org: org, Name: module, Version: "v1.0.0", URL: "memory://" + module}, nil
 		},
-		downloadFile: func(_ context.Context, _ string, dest string) error {
+		downloadFile: func(_ context.Context, url, dest string) error {
 			require.NoError(t, os.MkdirAll(filepath.Dir(dest), 0o755))
+			module := strings.TrimPrefix(url, "memory://")
+			artifact := buildWappBytes(t, []wapp.Entry{{
+				ID:   wapp.NewID(strings.ReplaceAll("acme/"+module, "/", "."), "entry"),
+				Kind: regapi.EntryKind, Data: map[string]any{"module": module},
+			}})
 			return os.WriteFile(dest, artifact, 0o600)
 		},
 	}
@@ -41,7 +44,7 @@ func referenceFoldHandler(t *testing.T) *DependencyHandler {
 }
 
 func TestExpand_RecordsFoldedReferenceForInstalledComponent(t *testing.T) {
-	ctx := newTestContext()
+	ctx := withCurrentResolution(newTestContext(), regapi.ResolvedModule{Name: "acme/a", Version: "v1.0.0"})
 	handler := referenceFoldHandler(t)
 
 	root := hardeningRoot("app.deps:a", "acme/a", "v1.0.0")
@@ -95,7 +98,7 @@ func TestExpand_UnsatisfiableReferenceConstraintFailsAtDeclaration(t *testing.T)
 }
 
 func TestExpand_DeletingControllerPromotesReference(t *testing.T) {
-	ctx := newTestContext()
+	ctx := withCurrentResolution(newTestContext(), regapi.ResolvedModule{Name: "acme/a", Version: "v1.0.0"})
 	handler := referenceFoldHandler(t)
 
 	root := hardeningRoot("app.deps:a", "acme/a", "v1.0.0")
@@ -213,6 +216,7 @@ func TestReconcile_ReplaysRecordedReferences(t *testing.T) {
 	reference := hardeningRoot("acme.pkg:__dependency.acme.a", "acme/a", ">=1.0.0")
 	moduleEntry := hardeningModuleEntry("acme.a:entry", "acme/a", "v1.0.0")
 	resolution := hardeningReferencedResolution([]regapi.Entry{root}, []regapi.Entry{reference})
+	ctx = withCurrentResolution(ctx, resolution.Modules...)
 
 	state := regapi.State{root, reference, moduleEntry}
 	result, err := handler.ReconcileResolution(ctx, state, state, resolution)
@@ -253,6 +257,7 @@ func TestReconcile_UnrecordedDeclarationIsDrift(t *testing.T) {
 	resolution := hardeningReferencedResolution([]regapi.Entry{root}, nil)
 	resolution.BaselineDigest = baseline
 	resolution = resolution.Canonical()
+	ctx = withCurrentResolution(ctx, resolution.Modules...)
 
 	_, err = handler.ReconcileResolution(ctx, state, state, resolution)
 	require.ErrorContains(t, err, "root set")
@@ -270,6 +275,7 @@ func TestReconcile_LegacyGraphUpgradesRegardlessOfDeclarationOrder(t *testing.T)
 	late := hardeningRoot("zzz.pkg:__dependency.acme.a", "acme/a", ">=1.0.0")
 	legacy := hardeningReferencedResolution([]regapi.Entry{root}, nil)
 	require.Empty(t, legacy.BaselineDigest)
+	ctx = withCurrentResolution(ctx, legacy.Modules...)
 
 	state := regapi.State{root, late, moduleEntry}
 	result, err := handler.ReconcileResolution(ctx, state, state, legacy)
@@ -312,6 +318,7 @@ func TestReconcile_WildcardReferenceNormalizesAcrossReplay(t *testing.T) {
 	resolution := hardeningReferencedResolution([]regapi.Entry{root}, []regapi.Entry{bare})
 	require.Len(t, resolution.References, 1)
 	require.Equal(t, "*", resolution.References[0].Version)
+	ctx = withCurrentResolution(ctx, resolution.Modules...)
 
 	state := regapi.State{root, bare, moduleEntry}
 	result, err := handler.ReconcileResolution(ctx, state, state, resolution)
@@ -383,7 +390,8 @@ func TestExpandChanges_BatchCannotBypassFreshDuplicateGate(t *testing.T) {
 		{{Kind: regapi.EntryCreate, Entry: reference}, {Kind: regapi.EntryCreate, Entry: other}},
 		{{Kind: regapi.EntryCreate, Entry: other}, {Kind: regapi.EntryCreate, Entry: reference}},
 	} {
-		result, err := handler.ExpandChanges(ctx, batch, regapi.State{root, moduleEntry})
+		installedCtx := withCurrentResolution(ctx, regapi.ResolvedModule{Name: "acme/a", Version: "v1.0.0"})
+		result, err := handler.ExpandChanges(installedCtx, batch, regapi.State{root, moduleEntry})
 		require.NoError(t, err)
 		require.NotNil(t, result.Resolution)
 		rootIDs := make([]string, 0, len(result.Resolution.Roots))
@@ -408,6 +416,7 @@ func TestReconcile_LegacyReferenceUpgradeWorksOffline(t *testing.T) {
 	reference := hardeningRoot("acme.pkg:__dependency.acme.a", "acme/a", ">=1.0.0")
 	legacy := hardeningReferencedResolution([]regapi.Entry{root}, nil)
 	require.Empty(t, legacy.BaselineDigest)
+	ctx = withCurrentResolution(ctx, legacy.Modules...)
 
 	state := regapi.State{root, reference, moduleEntry}
 	result, err := handler.ReconcileResolution(ctx, state, state, legacy)
@@ -491,6 +500,7 @@ func TestReconcile_ParameterDisagreementBootsThenConflictsOnNextOperation(t *tes
 	resolution := hardeningReferencedResolution([]regapi.Entry{root}, []regapi.Entry{disagreeing})
 	resolution.BaselineDigest = baseline
 	resolution = resolution.Canonical()
+	ctx = withCurrentResolution(ctx, resolution.Modules...)
 
 	_, err = handler.ReconcileResolution(ctx, state, state, resolution)
 	require.NoError(t, err, "committed parameter disagreement must not wedge boot")
@@ -517,6 +527,7 @@ func TestExpandChanges_DeleteControllerAndCreateReferenceInOneBatch(t *testing.T
 	reference := hardeningRoot("acme.pkg:__dependency.acme.a", "acme/a", ">=1.0.0")
 	newcomer := hardeningRoot("other.pkg:__dependency.acme.a", "acme/a", ">=1.0.0")
 	moduleEntry := hardeningModuleEntry("acme.a:entry", "acme/a", "v1.0.0")
+	ctx = withCurrentResolution(ctx, regapi.ResolvedModule{Name: "acme/a", Version: "v1.0.0"})
 
 	for _, batch := range []regapi.ChangeSet{
 		{{Kind: regapi.EntryDelete, Entry: regapi.Entry{ID: root.ID}}, {Kind: regapi.EntryCreate, Entry: newcomer}},
@@ -547,6 +558,7 @@ func TestExpandChanges_SameIDDeleteRecreateIsReplacement(t *testing.T) {
 	recreated := hardeningRoot("app.deps:a", "acme/a", ">=1.0.0")
 	reference := hardeningRoot("acme.pkg:__dependency.acme.a", "acme/a", ">=1.0.0")
 	moduleEntry := hardeningModuleEntry("acme.a:entry", "acme/a", "v1.0.0")
+	ctx = withCurrentResolution(ctx, regapi.ResolvedModule{Name: "acme/a", Version: "v1.0.0"})
 
 	result, err := handler.ExpandChanges(ctx, regapi.ChangeSet{
 		{Kind: regapi.EntryDelete, Entry: regapi.Entry{ID: root.ID}},

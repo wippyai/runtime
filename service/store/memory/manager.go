@@ -121,34 +121,39 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 		return err
 	}
 
-	// We can't update running store configuration, so we need to recreate it
-	// First stop the current store
-	stopCtx, cancel := context.WithTimeout(ctx, cfg.Lifecycle.StopTimeout)
-	defer cancel()
-
-	if err := store.Stop(stopCtx); err != nil {
-		m.log.Warn("failed to stop store cleanly during update",
-			zap.String("id", entry.ID.String()),
-			zap.Error(err))
-	}
-
-	// Create new store with updated config
+	// Running store configuration cannot change in place, so the entry update
+	// installs a replacement. The superseded store keeps serving acquisitions
+	// until the supervisor retires it, so no acquisition lands on a stopped
+	// store.
 	newStore := NewStore(entry.ID, cfg, m.log)
 	newStore.coll = m.coll
 	m.stores[entry.ID] = newStore
 
-	// Update supervisor entry
+	// Point the resource registry at the replacement and wait for it to take
+	// effect, so consumers are served the replacement before the supervisor
+	// retires the superseded store on commit.
+	if err := storesvc.AwaitResourceUpdate(ctx, m.bus, resource.Entry{
+		ID:       entry.ID,
+		Provider: newStore,
+		Meta:     entry.Meta,
+	}, "memory store update"); err != nil {
+		m.stores[entry.ID] = store
+		return err
+	}
+
+	// ServiceRegister is the supervisor's handover verb: it retires the
+	// controller holding the superseded store and starts the replacement.
+	// ServiceUpdate is the supervisor's own outbound state notification and has
+	// no inbound handler.
 	m.bus.Send(ctx, event.Event{
 		System: supervisor.System,
-		Kind:   supervisor.ServiceUpdate,
+		Kind:   supervisor.ServiceRegister,
 		Path:   entry.ID.String(),
 		Data: &supervisor.Entry{
 			Service: newStore,
 			Config:  cfg.Lifecycle,
 		},
 	})
-
-	// Resource registration is already in place, no need to re-register
 
 	m.log.Info("updated memory store",
 		zap.String("id", entry.ID.String()),

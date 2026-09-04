@@ -27,6 +27,7 @@ import (
 	"github.com/wippyai/runtime/boot/deps/wappextract"
 	"github.com/wippyai/runtime/cmd/internal/hubclient"
 	embedpkg "github.com/wippyai/runtime/service/fs/embed"
+	registrymigration "github.com/wippyai/runtime/system/registry/migration"
 	regtop "github.com/wippyai/runtime/system/registry/topology"
 	"github.com/wippyai/wapp"
 	"go.uber.org/zap"
@@ -40,9 +41,29 @@ func LoadFromLockFile(ctx context.Context, logger *zap.Logger) error {
 
 	lockPath, err := lock.Find(".", lockFilePath)
 	if err != nil {
-		logger.Info("no lock file found, starting with empty registry")
-		ConfigureSourceLoader(ctx, nil, logger)
-		return nil
+		if !os.IsNotExist(err) {
+			return NewLoadLockFileError(err)
+		}
+		sources := moduleapi.GetSourceRegistry(ctx)
+		if sources == nil {
+			logger.Info("no deployment sources found, starting with empty registry")
+			return nil
+		}
+		modulePaths := moduleLoadPathsFromSources(sources.Snapshot())
+		if len(modulePaths) == 0 {
+			logger.Info("no deployment sources found, starting with empty registry")
+			return nil
+		}
+		configureSourceLoader(sources, logger)
+		loaded, loadErr := LoadEntriesFromModuleLoadPaths(ctx, modulePaths, logger)
+		if loadErr != nil {
+			return NewLoadEntriesFromPathsError(loadErr)
+		}
+		if err := registerWappWithEmbedRegistry(ctx, modulePaths, logger); err != nil {
+			return err
+		}
+		logger.Info("loaded entries from registry deployment", zap.Int("count", len(loaded)))
+		return LoadEntriesToRegistry(ctx, loaded, logger)
 	}
 
 	logger.Info("loading entries from lock file", zap.String("path", lockPath))
@@ -104,6 +125,23 @@ func EnsureModulesInstalled(ctx context.Context, lockPath string, logger *zap.Lo
 	return ensureModulesInstalledFromLock(ctx, lockObj, logger)
 }
 
+// EnsureModulesInstalledFromLock materializes the exact module selection held
+// by lockObj. An optional client pins artifact retrieval to a selected registry.
+func EnsureModulesInstalledFromLock(
+	ctx context.Context,
+	lockObj *lock.Lock,
+	logger *zap.Logger,
+	hubClient *hub.Client,
+) error {
+	if lockObj == nil {
+		return NewLoadLockFileError(fmt.Errorf("lock file is required"))
+	}
+	if err := lock.Validate(lockObj); err != nil {
+		return NewInvalidLockFileError(fmt.Errorf("lock file %s: %w", lockObj.Path(), err))
+	}
+	return ensureModulesInstalledFromLockWithClient(ctx, lockObj, logger, hubClient)
+}
+
 func warnTrackedLockReplacements(lockObj *lock.Lock, logger *zap.Logger) {
 	if lockObj == nil || logger == nil || len(lockObj.GetTrackedReplacements()) == 0 {
 		return
@@ -129,6 +167,15 @@ func verifyModuleArtifact(path, lockedDigest, servedDigest string, size uint64) 
 }
 
 func ensureModulesInstalledFromLock(ctx context.Context, lockObj *lock.Lock, logger *zap.Logger) error {
+	return ensureModulesInstalledFromLockWithClient(ctx, lockObj, logger, nil)
+}
+
+func ensureModulesInstalledFromLockWithClient(
+	ctx context.Context,
+	lockObj *lock.Lock,
+	logger *zap.Logger,
+	hubClient *hub.Client,
+) error {
 	modules := lockObj.GetModules()
 	if len(modules) == 0 {
 		return nil
@@ -184,10 +231,12 @@ func ensureModulesInstalledFromLock(ctx context.Context, lockObj *lock.Lock, log
 
 	logger.Info("auto-installing missing modules", zap.Int("count", len(missingModules)))
 
-	// Create hub client
-	hubClient, err := createHubClient()
-	if err != nil {
-		return fmt.Errorf("failed to create hub client: %w", err)
+	if hubClient == nil {
+		var err error
+		hubClient, err = createHubClient()
+		if err != nil {
+			return fmt.Errorf("failed to create hub client: %w", err)
+		}
 	}
 
 	for _, mod := range missingModules {
@@ -325,15 +374,16 @@ func LoadEntriesFromPaths(ctx context.Context, paths []string, logger *zap.Logge
 	return entries, nil
 }
 
-// LoadEntriesFromModuleLoadPaths loads entries from lock module paths with module metadata.
-// Module-owned entries are tagged with meta.module/meta.module_version before pipeline stages.
+// LoadEntriesFromModuleLoadPaths loads entries from the selected deployment
+// sources. The loader assigns registry-owned metadata from each load path;
+// package contents cannot claim their own owner or deployment-root status.
 func LoadEntriesFromModuleLoadPaths(
 	ctx context.Context,
 	modulePaths []lock.ModuleLoadPath,
 	logger *zap.Logger,
 ) ([]regapi.Entry, error) {
 	ConfigureSourceLoader(ctx, modulePaths, logger)
-	return loadEntriesWithModuleMeta(ctx, modulePaths, logger)
+	return loadEntriesFromModulePaths(ctx, modulePaths, logger)
 }
 
 // ConfigureSourceLoader registers the current deployment inputs and the
@@ -343,42 +393,50 @@ func ConfigureSourceLoader(ctx context.Context, modulePaths []lock.ModuleLoadPat
 	if registry == nil {
 		return
 	}
+	configureSourceLoader(registry, logger)
+}
+
+func configureSourceLoader(registry *moduleapi.SourceRegistry, logger *zap.Logger) {
 	registry.SetLoader(func(loadCtx context.Context, sources moduleapi.Sources) ([]regapi.Entry, error) {
-		ids := make([]string, 0, len(sources))
-		for id := range sources {
-			ids = append(ids, id)
-		}
-		sort.Slice(ids, func(i, j int) bool {
-			leftSequence := sources[ids[i]].Sequence
-			rightSequence := sources[ids[j]].Sequence
-			if leftSequence != rightSequence {
-				return leftSequence < rightSequence
-			}
-			return ids[i] < ids[j]
-		})
-		paths := make([]lock.ModuleLoadPath, 0, len(ids))
-		for _, id := range ids {
-			source := sources[id]
-			sourceRoot := source.ResourceRoot
-			if sourceRoot == "" {
-				sourceRoot = source.LoadPath
-			}
-			module := id
-			if source.Owner == moduleapi.ApplicationSourceID {
-				module = ""
-			}
-			paths = append(paths, lock.ModuleLoadPath{
-				Path:        source.LoadPath,
-				Module:      module,
-				Version:     source.Version,
-				Digest:      source.Digest,
-				SourceRoot:  sourceRoot,
-				Root:        source.DeploymentRoot,
-				Replacement: source.Replacement,
-			})
-		}
-		return loadEntriesWithModuleMeta(loadCtx, paths, logger)
+		return loadEntriesFromModulePaths(loadCtx, moduleLoadPathsFromSources(sources), logger)
 	})
+}
+
+func moduleLoadPathsFromSources(sources moduleapi.Sources) []lock.ModuleLoadPath {
+	ids := make([]string, 0, len(sources))
+	for id := range sources {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i, j int) bool {
+		leftSequence := sources[ids[i]].Sequence
+		rightSequence := sources[ids[j]].Sequence
+		if leftSequence != rightSequence {
+			return leftSequence < rightSequence
+		}
+		return ids[i] < ids[j]
+	})
+	paths := make([]lock.ModuleLoadPath, 0, len(ids))
+	for _, id := range ids {
+		source := sources[id]
+		sourceRoot := source.ResourceRoot
+		if sourceRoot == "" {
+			sourceRoot = source.LoadPath
+		}
+		module := id
+		if source.Owner == moduleapi.ApplicationSourceID {
+			module = ""
+		}
+		paths = append(paths, lock.ModuleLoadPath{
+			Path:        source.LoadPath,
+			Module:      module,
+			Version:     source.Version,
+			Digest:      source.Digest,
+			SourceRoot:  sourceRoot,
+			Root:        source.DeploymentRoot,
+			Replacement: source.Replacement,
+		})
+	}
+	return paths
 }
 
 func registerSources(ctx context.Context, modulePaths []lock.ModuleLoadPath) *moduleapi.SourceRegistry {
@@ -441,9 +499,8 @@ func registerSources(ctx context.Context, modulePaths []lock.ModuleLoadPath) *mo
 	return registry
 }
 
-// loadEntriesWithModuleMeta loads entries from annotated paths and tags module entries
-// with their owning module name and version. App source entries remain untagged.
-func loadEntriesWithModuleMeta(ctx context.Context, modulePaths []lock.ModuleLoadPath, logger *zap.Logger) ([]regapi.Entry, error) {
+// loadEntriesFromModulePaths loads entries from annotated deployment paths.
+func loadEntriesFromModulePaths(ctx context.Context, modulePaths []lock.ModuleLoadPath, logger *zap.Logger) ([]regapi.Entry, error) {
 	dtt := payload.GetTranscoder(ctx)
 	if dtt == nil {
 		return nil, ErrTranscoderNotFound
@@ -461,30 +518,22 @@ func loadEntriesWithModuleMeta(ctx context.Context, modulePaths []lock.ModuleLoa
 		}
 	}
 
-	var entries []regapi.Entry
+	type loadedPath struct {
+		entries     []regapi.Entry
+		replacement bool
+	}
+	loadedPaths := make([]loadedPath, 0, len(modulePaths))
 
 	for _, mp := range modulePaths {
-		moduleDigest := mp.Digest
-		if mp.Replacement {
-			// Replacements are authoritative. If the configured source cannot be
-			// identified, fail instead of silently restoring an embedded generation.
-			root := mp.SourceRoot
-			if root == "" {
-				root = mp.Path
-			}
-			var digestErr error
-			moduleDigest, _, digestErr = hub.ReplacementTreeIdentity(root)
-			if digestErr != nil {
-				return nil, fmt.Errorf("identify replacement module %s: %w", mp.Module, digestErr)
+		if !mp.Replacement {
+			if _, replaced := replacementOwners[mp.Module]; replaced {
+				continue
 			}
 		}
 
 		loaded, err := loadEntriesFromModulePath(ctx, mp, ldr, dtt, logger)
 		if err != nil {
 			return nil, err
-		}
-		if !mp.Replacement && len(replacementOwners) > 0 {
-			loaded = excludeReplacementOwnedEntries(loaded, replacementOwners)
 		}
 
 		if shouldApplyModuleConfigFilters(mp) {
@@ -495,15 +544,35 @@ func loadEntriesWithModuleMeta(ctx context.Context, modulePaths []lock.ModuleLoa
 		}
 
 		for i := range loaded {
-			if mp.Module != "" {
-				loaded[i] = markModuleIdentity(loaded[i], mp.Module, mp.Version, moduleDigest, mp.Replacement)
-			}
+			loaded[i].Registry = regapi.EntryMetadata{Owner: mp.Module}
 			if mp.Root && loaded[i].Kind == regapi.NamespaceDependency {
-				loaded[i].DependencyRoot = true
+				loaded[i].Registry.Root = true
 			}
 		}
 
-		entries = append(entries, loaded...)
+		loadedPaths = append(loadedPaths, loadedPath{replacement: mp.Replacement, entries: loaded})
+	}
+
+	replacementEntries := make(map[regapi.ID]struct{})
+	for _, source := range loadedPaths {
+		if !source.replacement {
+			continue
+		}
+		for _, entry := range source.entries {
+			replacementEntries[entry.ID.Canonical()] = struct{}{}
+		}
+	}
+
+	entries := make([]regapi.Entry, 0)
+	for _, source := range loadedPaths {
+		for _, entry := range source.entries {
+			if !source.replacement {
+				if _, replaced := replacementEntries[entry.ID.Canonical()]; replaced {
+					continue
+				}
+			}
+			entries = append(entries, entry)
+		}
 	}
 
 	if err := NormalizeEntries(ctx, &entries); err != nil {
@@ -511,21 +580,6 @@ func loadEntriesWithModuleMeta(ctx context.Context, modulePaths []lock.ModuleLoa
 	}
 
 	return entries, nil
-}
-
-func excludeReplacementOwnedEntries(entries []regapi.Entry, replacementOwners map[string]struct{}) []regapi.Entry {
-	filtered := entries[:0]
-	for _, entry := range entries {
-		owner := ""
-		if entry.Meta != nil {
-			owner = entry.Meta.GetString("module", "")
-		}
-		if _, replaced := replacementOwners[owner]; replaced {
-			continue
-		}
-		filtered = append(filtered, entry)
-	}
-	return filtered
 }
 
 func shouldApplyModuleConfigFilters(mp lock.ModuleLoadPath) bool {
@@ -611,6 +665,9 @@ func loadEntriesFromModulePath(ctx context.Context, mp lock.ModuleLoadPath, ldr 
 
 	stat, err := os.Stat(path)
 	if os.IsNotExist(err) {
+		if mp.Replacement {
+			return nil, NewLoadFromPathError(path, fmt.Errorf("replacement source for module %s is unavailable", mp.Module))
+		}
 		logger.Warn("path not found, skipping", zap.String("path", path))
 		return nil, nil
 	}
@@ -638,41 +695,6 @@ func loadEntriesFromModulePath(ctx context.Context, mp lock.ModuleLoadPath, ldr 
 
 	logger.Warn("unknown path type, skipping", zap.String("path", path))
 	return nil, nil
-}
-
-func markModuleMeta(entry regapi.Entry, moduleName, moduleVersion string) regapi.Entry {
-	meta := entry.Meta
-	if meta == nil {
-		meta = attrs.NewBag()
-	} else {
-		meta = attrs.NewBagFrom(meta)
-	}
-	meta.Set("module", moduleName)
-	if moduleVersion != "" {
-		meta.Set("module_version", moduleVersion)
-	}
-	entry.Meta = meta
-	return entry
-}
-
-func markModuleIdentity(entry regapi.Entry, moduleName, moduleVersion, moduleDigest string, replacement bool) regapi.Entry {
-	entry = markModuleMeta(entry, moduleName, moduleVersion)
-	if moduleDigest == "" && !replacement {
-		return entry
-	}
-	meta := attrs.NewBagFrom(entry.Meta)
-	if replacement {
-		if moduleVersion == "" {
-			delete(meta, "module_version")
-		} else {
-			meta.Set("module_version", moduleVersion)
-		}
-	}
-	if moduleDigest != "" {
-		meta.Set("module_digest", moduleDigest)
-	}
-	entry.Meta = meta
-	return entry
 }
 
 // loadEntriesFromWapp loads entries from a .wapp file.
@@ -751,6 +773,10 @@ func LoadEntriesToRegistry(ctx context.Context, entries []regapi.Entry, logger *
 		logger.Info("restoring registry state from history", zap.Uint("version", head.ID()))
 	default:
 		logger.Info("initializing registry with baseline state at v0")
+	}
+
+	if err := registrymigration.Apply(ctx, hist, baselineState); err != nil {
+		return fmt.Errorf("migrate registry history: %w", err)
 	}
 
 	if err := reg.LoadState(ctx, baselineState, head); err != nil {

@@ -70,6 +70,12 @@ func (y *OpenYield) HandleResult(l *lua.LState, data any, err error) []lua.LValu
 		luaErr := lua.WrapErrorWithLua(l, resp.Error, "")
 		return []lua.LValue{lua.LNil, luaErr}
 	}
+	if isNilInstance(resp.Instance) {
+		luaErr := lua.WrapErrorWithLua(l, contract.ErrInstanceNil, "open failed").
+			WithKind(lua.Internal).
+			WithRetryable(false)
+		return []lua.LValue{lua.LNil, luaErr}
+	}
 
 	// Wrap instance in userdata
 	wrapper := &InstanceWrapper{

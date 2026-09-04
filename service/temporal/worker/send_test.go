@@ -93,9 +93,7 @@ func TestWorkerSend_Integration(t *testing.T) {
 	bus := eventbus.NewBus()
 
 	codeManager, err := code.NewCodeManager(logger, nil, code.Config{
-		Modules:        []*luaapi.ModuleDef{timemod.Module, processmod.Module},
-		ProtoCacheSize: 100,
-		MainCacheSize:  100,
+		Modules: []*luaapi.ModuleDef{timemod.Module, processmod.Module},
 	})
 	require.NoError(t, err)
 

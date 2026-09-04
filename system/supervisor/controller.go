@@ -550,6 +550,13 @@ func (c *Controller) State() State {
 	return c.state.publicState()
 }
 
+// Service returns the service instance this controller supervises. It is fixed
+// for the controller's lifetime; adopting a replacement instance means retiring
+// the controller and creating a new one.
+func (c *Controller) Service() supervisor.Service {
+	return c.service
+}
+
 func (c *Controller) updateState(status supervisor.Status, details any) {
 	c.state.updateState(status, details)
 	if c.onStateChange != nil {

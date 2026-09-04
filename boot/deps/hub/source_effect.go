@@ -115,7 +115,7 @@ func (h *DependencyHandler) buildSourceEffect(
 			Owner:          owner,
 			Version:        mod.Version,
 			Digest:         mod.Digest,
-			DeploymentRoot: h.lock != nil && h.lock.IsRootModule(module),
+			DeploymentRoot: h.isDeploymentRoot(module),
 			Replacement:    replacementSource,
 		}
 	}

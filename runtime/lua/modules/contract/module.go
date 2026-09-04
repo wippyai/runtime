@@ -5,6 +5,7 @@ package contract
 import (
 	"context"
 	"net/url"
+	"reflect"
 	"strconv"
 	"strings"
 
@@ -103,6 +104,23 @@ type InstanceWrapper struct {
 	instance   contract.Instance
 	options    attrs.Bag
 	hasOptions bool
+}
+
+// isNilInstance handles both a nil contract.Instance interface and an interface
+// containing a typed nil pointer. The latter can cross a Go interface boundary
+// without comparing equal to nil and would otherwise panic on Implements/Call.
+func isNilInstance(instance contract.Instance) bool {
+	if instance == nil {
+		return true
+	}
+
+	value := reflect.ValueOf(instance)
+	switch value.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+		return value.IsNil()
+	default:
+		return false
+	}
 }
 
 func applyOpenSecurityContext(ctx context.Context, yield *OpenYield, actor secapi.Actor, hasActor bool, scope secapi.Scope, hasScope bool) {
@@ -273,7 +291,7 @@ func isContract(l *lua.LState) int {
 	contractID := l.CheckString(2)
 
 	wrapper, ok := ud.Value.(*InstanceWrapper)
-	if !ok {
+	if !ok || wrapper == nil || isNilInstance(wrapper.instance) {
 		l.Push(lua.LBool(false))
 		return 1
 	}
@@ -779,6 +797,7 @@ func futureCancelImpl(l *lua.LState) int {
 		return 0
 	}
 
+	f.MarkCanceled()
 	yield := AcquireAsyncCancelYield()
 	yield.Topic = f.Topic
 	l.Push(yield)

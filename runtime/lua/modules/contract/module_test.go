@@ -16,6 +16,8 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/runtime"
 	secapi "github.com/wippyai/runtime/api/security"
+	"github.com/wippyai/runtime/runtime/lua/engine"
+	"github.com/wippyai/runtime/runtime/lua/modules/future"
 )
 
 type mockInstanceForTest struct {
@@ -292,6 +294,47 @@ func TestOpenYield_HandleResult(t *testing.T) {
 	require.Len(t, results, 2)
 	assert.Equal(t, lua.LNil, results[0])
 	assert.NotEqual(t, lua.LNil, results[1])
+
+	// A successful dispatcher response must still carry an instance. This
+	// protects the Lua boundary from wrapping a nil instance and letting
+	// contract.is or instance method dispatch dereference it later.
+	results = y.HandleResult(l, contract.OpenResult{}, nil)
+	require.Len(t, results, 2)
+	assert.Equal(t, lua.LNil, results[0])
+	assert.Contains(t, results[1].String(), "contract instance is nil")
+
+	// An interface containing a typed nil pointer is not itself equal to nil;
+	// the boundary must reject that shape as well and preserve its error class.
+	var typedNil *mockInstanceForTest
+	results = y.HandleResult(l, contract.OpenResult{Instance: typedNil}, nil)
+	require.Len(t, results, 2)
+	assert.Equal(t, lua.LNil, results[0])
+	luaErr, ok := lua.AsError(results[1])
+	require.True(t, ok)
+	assert.Equal(t, lua.Internal, luaErr.Kind())
+	assert.Equal(t, lua.TernaryFalse, luaErr.Retryable())
+}
+
+func TestIsContract_NilInstanceValuesReturnFalse(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+
+	assertFalse := func(t *testing.T, value any) {
+		t.Helper()
+		l.SetTop(0)
+		ud := l.NewUserData()
+		ud.Value = value
+		l.Push(ud)
+		l.Push(lua.LString("test:contract"))
+		require.Equal(t, 1, isContract(l))
+		assert.Equal(t, lua.LFalse, l.Get(-1))
+	}
+
+	assertFalse(t, (*InstanceWrapper)(nil))
+	assertFalse(t, &InstanceWrapper{})
+
+	var typedNil *mockInstanceForTest
+	assertFalse(t, &InstanceWrapper{instance: typedNil})
 }
 
 func TestOpenYield_HandleResult_WithOptions(t *testing.T) {
@@ -387,6 +430,23 @@ func TestAsyncCancelYield_HandleResult(t *testing.T) {
 	require.Len(t, results, 2)
 	assert.Equal(t, lua.LTrue, results[0])
 	assert.Equal(t, lua.LNil, results[1])
+}
+
+func TestFutureCancelImplMarksFutureCanceled(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+
+	f := future.New("@future:test", engine.NewChannel(1))
+	ud := l.NewUserData()
+	ud.Value = f
+	l.Push(ud)
+
+	require.Equal(t, -1, futureCancelImpl(l))
+	require.True(t, f.IsCanceled())
+	yield, ok := l.Get(-1).(*AsyncCancelYield)
+	require.True(t, ok)
+	require.Equal(t, "@future:test", yield.Topic)
+	ReleaseAsyncCancelYield(yield)
 }
 
 func TestPoolConcurrency(_ *testing.T) {

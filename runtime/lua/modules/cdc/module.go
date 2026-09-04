@@ -16,6 +16,7 @@ import (
 	cdcapi "github.com/wippyai/runtime/api/service/cdc"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
+	"github.com/wippyai/runtime/runtime/security"
 )
 
 const (
@@ -99,8 +100,16 @@ func listSources(l *lua.LState) int {
 	}
 
 	result := l.CreateTable(len(infos), 0)
-	for i, info := range infos {
-		result.RawSetInt(i+1, sourceInfoToTable(l, info))
+	for _, info := range infos {
+		name := info.Name
+		if !isZeroRegistryID(info.ID) {
+			name = registryIDString(info.ID)
+		} else if name == "" {
+			name = info.Slot
+		}
+		if security.IsAllowed(ctx, "cdc.source", name, nil) {
+			result.Append(sourceInfoToTable(l, info))
+		}
 	}
 	l.Push(result)
 	l.Push(lua.LNil)
@@ -130,6 +139,9 @@ func getSource(l *lua.LState) int {
 		info cdcapi.SourceInfo
 		ok   bool
 	)
+	if !allowSource(l, "cdc.source", name) {
+		return 2
+	}
 	if cdcRegistry := cdcapi.GetRegistry(ctx); cdcRegistry != nil {
 		id := registry.ParseID(name)
 		source, found := cdcRegistry.Get(id)
@@ -180,6 +192,9 @@ func openStream(l *lua.LState) int {
 		l.Push(lua.NewLuaError(l, "source name is required").
 			WithKind(lua.Invalid).
 			WithRetryable(false))
+		return 2
+	}
+	if !allowSource(l, "cdc.subscribe", name) {
 		return 2
 	}
 	opts, luaErr := streamOptionsFromLua(l, 2)
@@ -248,6 +263,10 @@ func streamChannel(l *lua.LState) int {
 	if ctx == nil {
 		l.RaiseError("no context found")
 		return 0
+	}
+	// Stream construction is lazy; check the caller again at acquisition.
+	if !allowSource(l, "cdc.subscribe", stream.Source) {
+		return 2
 	}
 	pidVal, ok := runtime.GetFramePID(ctx)
 	if !ok {

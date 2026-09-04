@@ -21,6 +21,7 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/internal/version"
 	historyschema "github.com/wippyai/runtime/system/registry/history/schema"
+	migrationstorage "github.com/wippyai/runtime/system/registry/migration/storage"
 	schemamanager "github.com/wippyai/runtime/system/schema"
 	"go.uber.org/zap"
 )
@@ -32,7 +33,16 @@ type History struct {
 	handle  *codec.MsgpackHandle
 	log     *zap.Logger
 	queries postgresQueries
+	tables  postgresTables
 	mu      sync.RWMutex
+}
+
+type postgresTables struct {
+	changesets          string
+	versions            string
+	schemaVersion       string
+	schemaUpdateHistory string
+	schemaName          string
 }
 
 type postgresQueries struct {
@@ -66,11 +76,17 @@ type encodedPayload struct {
 }
 
 type encodedEntry struct {
-	Meta           attrs.Bag
-	Data           *encodedPayload
-	ID             registry.ID
-	Kind           string
-	DependencyRoot bool
+	Meta     attrs.Bag
+	Data     *encodedPayload
+	ID       registry.ID
+	Kind     string
+	Registry registry.EntryMetadata
+}
+
+type encodedOperation struct {
+	OriginalEntry *encodedEntry
+	Kind          string
+	Entry         encodedEntry
 }
 
 func newMsgpackHandle() *codec.MsgpackHandle {
@@ -131,6 +147,7 @@ func NewPostgres(dsn string, schemaName string, log *zap.Logger) (*History, erro
 		handle:  newMsgpackHandle(),
 		log:     log,
 		queries: buildQueries(schemaName),
+		tables:  buildTables(schemaName),
 	}
 
 	if err := h.ensureRootVersion(); err != nil {
@@ -139,6 +156,28 @@ func NewPostgres(dsn string, schemaName string, log *zap.Logger) (*History, erro
 	}
 
 	return h, nil
+}
+
+// MigrateEntryMetadata normalizes persisted rows before registry replay.
+func MigrateEntryMetadata(ctx context.Context, h *History, baseline registry.State) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return migrationstorage.RewriteEntryMetadata(ctx, h.db, h.handle, migrationstorage.Tables{
+		ChangeSets:    h.tables.changesets,
+		SchemaVersion: h.tables.schemaVersion,
+		UpdateHistory: h.tables.schemaUpdateHistory,
+	}, func(index int) string {
+		return "$" + strconv.Itoa(index)
+	}, func(ctx context.Context, tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx, "LOCK TABLE "+h.tables.versions+" IN SHARE ROW EXCLUSIVE MODE"); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, "LOCK TABLE "+h.tables.changesets+" IN SHARE ROW EXCLUSIVE MODE"); err != nil {
+			return err
+		}
+		_, err := tx.ExecContext(ctx, "SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))", "registry_history:registry_history.entry_metadata", h.tables.schemaName)
+		return err
+	}, baseline)
 }
 
 func buildQueries(schemaName string) postgresQueries {
@@ -188,6 +227,19 @@ func buildQueries(schemaName string) postgresQueries {
 		)
 		SELECT lineage.id, lineage.parent_id, c.data
 		FROM lineage LEFT JOIN ` + changesets + ` c ON c.version_id = lineage.id`,
+	}
+}
+
+func buildTables(schemaName string) postgresTables {
+	table := func(name string) string {
+		return schemamanager.QuoteIdentifier(schemaName) + "." + schemamanager.QuoteIdentifier(name)
+	}
+	return postgresTables{
+		changesets:          table("changesets"),
+		versions:            table("versions"),
+		schemaVersion:       table("schema_version"),
+		schemaUpdateHistory: table("schema_update_history"),
+		schemaName:          schemaName,
 	}
 }
 
@@ -364,11 +416,7 @@ func (h *History) Get(v registry.Version) (registry.ChangeSet, error) {
 }
 
 func (h *History) decodeChangeSet(data []byte) (registry.ChangeSet, error) {
-	var encodedOps []struct {
-		OriginalEntry *encodedEntry
-		Kind          string
-		Entry         encodedEntry
-	}
+	var encodedOps []encodedOperation
 
 	decoder := codec.NewDecoder(bytes.NewReader(data), h.handle)
 	if err := decoder.Decode(&encodedOps); err != nil {
@@ -378,10 +426,10 @@ func (h *History) decodeChangeSet(data []byte) (registry.ChangeSet, error) {
 	cs := make(registry.ChangeSet, len(encodedOps))
 	for i, encOp := range encodedOps {
 		entry := registry.Entry{
-			ID:             encOp.Entry.ID,
-			Kind:           encOp.Entry.Kind,
-			Meta:           encOp.Entry.Meta,
-			DependencyRoot: encOp.Entry.DependencyRoot,
+			ID:       encOp.Entry.ID,
+			Kind:     encOp.Entry.Kind,
+			Meta:     encOp.Entry.Meta,
+			Registry: encOp.Entry.Registry,
 		}
 
 		if encOp.Entry.Data != nil {
@@ -395,10 +443,10 @@ func (h *History) decodeChangeSet(data []byte) (registry.ChangeSet, error) {
 
 		if encOp.OriginalEntry != nil {
 			originalEntry := registry.Entry{
-				ID:             encOp.OriginalEntry.ID,
-				Kind:           encOp.OriginalEntry.Kind,
-				Meta:           encOp.OriginalEntry.Meta,
-				DependencyRoot: encOp.OriginalEntry.DependencyRoot,
+				ID:       encOp.OriginalEntry.ID,
+				Kind:     encOp.OriginalEntry.Kind,
+				Meta:     encOp.OriginalEntry.Meta,
+				Registry: encOp.OriginalEntry.Registry,
 			}
 
 			if encOp.OriginalEntry.Data != nil {
@@ -540,11 +588,7 @@ func (h *History) SaveWithDependencyResolution(v registry.Version, cs registry.C
 		return NewInsertVersionError(err)
 	}
 
-	encodedOps := make([]struct {
-		OriginalEntry *encodedEntry
-		Kind          string
-		Entry         encodedEntry
-	}, len(cs))
+	encodedOps := make([]encodedOperation, len(cs))
 
 	for i, op := range cs {
 		var encPayload *encodedPayload
@@ -566,26 +610,22 @@ func (h *History) SaveWithDependencyResolution(v registry.Version, cs registry.C
 			}
 
 			encOriginal = &encodedEntry{
-				ID:             op.OriginalEntry.ID,
-				Kind:           op.OriginalEntry.Kind,
-				Meta:           op.OriginalEntry.Meta,
-				Data:           encOrigPayload,
-				DependencyRoot: op.OriginalEntry.DependencyRoot,
+				ID:       op.OriginalEntry.ID,
+				Kind:     op.OriginalEntry.Kind,
+				Meta:     op.OriginalEntry.Meta,
+				Data:     encOrigPayload,
+				Registry: op.OriginalEntry.Registry,
 			}
 		}
 
-		encodedOps[i] = struct {
-			OriginalEntry *encodedEntry
-			Kind          string
-			Entry         encodedEntry
-		}{
+		encodedOps[i] = encodedOperation{
 			Kind: op.Kind,
 			Entry: encodedEntry{
-				ID:             op.Entry.ID,
-				Kind:           op.Entry.Kind,
-				Meta:           op.Entry.Meta,
-				Data:           encPayload,
-				DependencyRoot: op.Entry.DependencyRoot,
+				ID:       op.Entry.ID,
+				Kind:     op.Entry.Kind,
+				Meta:     op.Entry.Meta,
+				Data:     encPayload,
+				Registry: op.Entry.Registry,
 			},
 			OriginalEntry: encOriginal,
 		}

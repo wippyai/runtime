@@ -11,7 +11,6 @@ import (
 
 	"github.com/wippyai/runtime/api/attrs"
 	apierror "github.com/wippyai/runtime/api/error"
-	regapi "github.com/wippyai/runtime/api/registry"
 	embedpkg "github.com/wippyai/runtime/service/fs/embed"
 	"github.com/wippyai/wapp"
 	"go.uber.org/zap"
@@ -21,12 +20,13 @@ import (
 // lifecycle of module-owned .wapp packs. It is satisfied by
 // *service/fs/embed.Registry and stubbed in tests.
 type embedPackRegistry interface {
-	RegisterPack(packPath, module, version string, reader *wapp.Reader, file *os.File) error
+	StagePack(packPath, module, version string, reader *wapp.Reader, file *os.File) error
+	ActivatePacks(packPaths []string) error
 	UnregisterPack(packPath string) error
 	UnregisterModule(module, version string) error
 }
 
-// stagedPack describes a new module pack to register during Prepare and to
+// stagedPack describes a new module pack to stage during Prepare and to
 // roll back (unregister + close) if the apply fails.
 type stagedPack struct {
 	packPath string
@@ -45,11 +45,8 @@ type obsoletePack struct {
 // packs are module resources owned by dependency expansion, not by fs.embed
 // entries, so this effect runs alongside the registry changeset:
 //
-//   - Prepare registers newly resolved packs so the fs.embed entries created in
-//     the same changeset resolve during apply. New packs are keyed by their own
-//     .wapp path, so a version update stages the new pack without disturbing the
-//     pack still serving the old version.
-//   - Commit activates the staged set but remains reversible.
+//   - Prepare opens newly resolved packs without exposing their resources.
+//   - Commit activates the staged set after the registry transition succeeds.
 //   - Finalize unregisters and closes obsolete packs only after the registry
 //     history/head is durable. The new packs stay registered.
 //   - Rollback unregisters and closes the packs staged in Prepare, restoring the
@@ -79,7 +76,7 @@ func (e *embedPackEffect) Prepare(_ context.Context) error {
 			return newReadPackError(sp.packPath, err)
 		}
 
-		if err := e.reg.RegisterPack(sp.packPath, sp.module, sp.version, reader, f); err != nil {
+		if err := e.reg.StagePack(sp.packPath, sp.module, sp.version, reader, f); err != nil {
 			f.Close()
 			e.rollbackPrepared()
 			return newRegisterPackError(sp.packPath, err)
@@ -95,6 +92,9 @@ func (e *embedPackEffect) Prepare(_ context.Context) error {
 }
 
 func (e *embedPackEffect) Commit(_ context.Context) error {
+	if err := e.reg.ActivatePacks(e.prepared); err != nil {
+		return newRegisterPackError("embedded packs", err)
+	}
 	return nil
 }
 
@@ -136,8 +136,8 @@ func (e *embedPackEffect) rollbackPrepared() {
 }
 
 // buildEmbedPackEffect computes the pack-lifecycle effect for a module
-// operation. resolved are the desired modules after the operation; snapshot is
-// the registry state before it. controlled limits removals to modules owned by
+// operation. resolved are the desired modules after the operation. controlled
+// limits removals to modules owned by
 // dependency roots participating in this operation. staged packs are the
 // resolved modules backed by a .wapp on disk; obsolete packs are controlled
 // modules whose version is no longer desired (removed) or changed (updated).
@@ -147,7 +147,6 @@ func (e *embedPackEffect) rollbackPrepared() {
 func (h *DependencyHandler) buildEmbedPackEffect(
 	ctx context.Context,
 	resolved []ResolvedModule,
-	snapshot regapi.State,
 	controlled map[string]struct{},
 ) (*embedPackEffect, error) {
 	reg := embedpkg.GetRegistryFromContext(ctx)
@@ -156,8 +155,7 @@ func (h *DependencyHandler) buildEmbedPackEffect(
 	}
 
 	desired := make(map[string]string, len(resolved))
-	installed := snapshotModuleVersions(snapshot)
-	installedDigests := snapshotModuleDigests(snapshot)
+	installed, installedDigests := h.currentModuleIdentities(ctx)
 	staged := make([]stagedPack, 0, len(resolved))
 	for _, mod := range resolved {
 		name := mod.Org + "/" + mod.Name
@@ -199,7 +197,7 @@ func (h *DependencyHandler) buildEmbedPackEffect(
 		})
 	}
 
-	obsolete := obsoletePacksFor(snapshot, desired, controlled)
+	obsolete := obsoletePacksFor(installed, desired, controlled)
 
 	if len(staged) == 0 && len(obsolete) == 0 {
 		return nil, nil
@@ -223,8 +221,7 @@ func (h *DependencyHandler) buildEmbedPackEffect(
 // Packs outside controlled are unrelated to this dependency operation and must
 // remain live. A staged pack for the new version is keyed by its own path, so
 // unregistering the old version never affects the new pack.
-func obsoletePacksFor(snapshot regapi.State, desired map[string]string, controlled map[string]struct{}) []obsoletePack {
-	current := snapshotModuleVersions(snapshot)
+func obsoletePacksFor(current, desired map[string]string, controlled map[string]struct{}) []obsoletePack {
 	obsolete := make([]obsoletePack, 0)
 	for module, version := range current {
 		if _, ok := controlled[module]; !ok {

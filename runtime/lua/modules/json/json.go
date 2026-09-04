@@ -5,7 +5,6 @@ package json
 import (
 	"bytes"
 	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -115,7 +114,7 @@ func writeSimpleASCIIString(buf *bytes.Buffer, s string) {
 }
 
 var (
-	globalSchemaCache *lru.Cache[string, *jsonschema.Schema]
+	globalSchemaCache *lru.Cache[[sha256.Size]byte, *jsonschema.Schema]
 	schemaCacheOnce   sync.Once
 )
 
@@ -123,7 +122,7 @@ const defaultSchemaCacheSize = 100
 
 func initSchemaCache() {
 	schemaCacheOnce.Do(func() {
-		globalSchemaCache = lru.New[string, *jsonschema.Schema](lru.WithCapacity(defaultSchemaCacheSize))
+		globalSchemaCache = lru.New[[sha256.Size]byte, *jsonschema.Schema](lru.WithCapacity(defaultSchemaCacheSize))
 	})
 }
 
@@ -534,9 +533,6 @@ func (j *jsonValue) writeValueOptimized(buf *bytes.Buffer, value lua.LValue) err
 	}
 }
 
-// Decode and DecodeValue are defined in decode_v1.go or decode_v2.go
-// depending on build tags (goexperiment.jsonv2)
-
 func validationInputError(l *lua.LState, msg string) int {
 	err := lua.NewLuaError(l, msg).
 		WithKind(lua.Invalid).
@@ -634,7 +630,7 @@ func getSchemaJSON(schemaArg lua.LValue) ([]byte, error) {
 }
 
 func compileSchema(schemaJSON []byte) (*jsonschema.Schema, error) {
-	cacheKey := hashSchemaJSON(schemaJSON)
+	cacheKey := sha256.Sum256(schemaJSON)
 	if schema, ok := globalSchemaCache.Get(cacheKey); ok {
 		return schema, nil
 	}
@@ -664,9 +660,4 @@ func decodeSchemaInstance(data []byte, value any) error {
 		return err
 	}
 	return nil
-}
-
-func hashSchemaJSON(data []byte) string {
-	hash := sha256.Sum256(data)
-	return hex.EncodeToString(hash[:])
 }

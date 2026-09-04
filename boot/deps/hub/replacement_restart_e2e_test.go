@@ -12,8 +12,10 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/payload"
 	regapi "github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/internal/version"
 	registryimpl "github.com/wippyai/runtime/system/registry"
 	regexp "github.com/wippyai/runtime/system/registry/expansion"
+	"github.com/wippyai/runtime/system/registry/history/memory"
 	historysqlite "github.com/wippyai/runtime/system/registry/history/sqlite"
 	"github.com/wippyai/runtime/system/registry/topology"
 	"go.uber.org/zap"
@@ -83,19 +85,30 @@ replacements:
 	initialHistory := history
 	t.Cleanup(func() { _ = initialHistory.Close() })
 	registry := newRegistry(history, newHandler())
+	ctx = regapi.WithRegistry(ctx, registry)
 	root := regapi.Entry{
 		ID:   regapi.NewID("app.deps", "local"),
 		Kind: regapi.NamespaceDependency,
 		Data: payload.New(map[string]any{"component": "local/mod", "version": "v0.1.0"}),
 	}
+	fresh := newRegistry(memory.New(), newHandler())
+	startupCtx := regapi.WithRegistry(
+		regapi.WithDependencyAccess(newTestContext(), regapi.DependencyAccessUnspecified),
+		fresh,
+	)
+	require.NoError(t, fresh.LoadState(startupCtx, regapi.State{root}, version.New(0)))
+	_, err = fresh.GetEntry(regapi.NewID("local.mod", "svc"))
+	require.NoError(t, err)
+	require.Zero(t, hubCalls)
+
 	version, err := registry.Apply(ctx, regapi.ChangeSet{{Kind: regapi.EntryCreate, Entry: root}})
 	require.NoError(t, err)
 	require.Zero(t, hubCalls)
 
 	entryID := regapi.NewID("local.mod", "svc")
-	initialEntry, err := registry.GetEntry(entryID)
+	_, err = registry.GetEntry(entryID)
 	require.NoError(t, err)
-	initialDigest := moduleDigest(initialEntry)
+	initialDigest := snapshotModuleDigest(t, registry, "local/mod")
 	require.NotEmpty(t, initialDigest)
 
 	// A frontend rebuild mutates only static content. Simulate a cold restart
@@ -107,11 +120,16 @@ replacements:
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = history.Close() })
 	restarted := newRegistry(history, newHandler())
-	require.NoError(t, restarted.LoadState(ctx, nil, version))
+	restartCtx := regapi.WithRegistry(
+		regapi.WithDependencyAccess(newTestContext(), regapi.DependencyAccessVerifiedOffline),
+		restarted,
+	)
+	require.NoError(t, restarted.LoadState(restartCtx, nil, version))
 	require.Zero(t, hubCalls)
 
 	reloadedEntry, err := restarted.GetEntry(entryID)
 	require.NoError(t, err)
-	require.NotEqual(t, initialDigest, moduleDigest(reloadedEntry))
+	require.Equal(t, initialDigest, snapshotModuleDigest(t, restarted, "local/mod"),
+		"restart must not rewrite the immutable history checkpoint")
 	require.Equal(t, "one", reloadedEntry.Data.Data().(map[string]any)["generation"])
 }

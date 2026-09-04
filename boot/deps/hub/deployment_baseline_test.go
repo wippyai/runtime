@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -105,19 +106,19 @@ modules:
 	require.NoError(t, err)
 
 	appRoot := regapi.Entry{
-		ID: regapi.NewID("app.deps", "app"), Kind: regapi.NamespaceDependency, DependencyRoot: true,
+		ID: regapi.NewID("app.deps", "app"), Kind: regapi.NamespaceDependency, Registry: regapi.EntryMetadata{Root: true},
 		Data: payload.New(map[string]any{"component": "acme/app", "version": "v2.0.0"}),
 	}
-	appService := markModuleIdentity(regapi.Entry{
+	appService := ownedEntry(regapi.Entry{
 		ID: regapi.NewID("acme.app", "service"), Kind: "service",
-	}, "acme/app", "v2.0.0", digests[selection{"acme/app", "v2.0.0"}])
-	appShared := markModuleIdentity(regapi.Entry{
+	}, "acme/app")
+	appShared := ownedEntry(regapi.Entry{
 		ID: regapi.NewID("acme.app", "shared"), Kind: regapi.NamespaceDependency,
 		Data: payload.New(map[string]any{"component": "acme/shared", "version": ">=v1.0.0"}),
-	}, "acme/app", "v2.0.0", digests[selection{"acme/app", "v2.0.0"}])
-	sharedService := markModuleIdentity(regapi.Entry{
+	}, "acme/app")
+	sharedService := ownedEntry(regapi.Entry{
 		ID: regapi.NewID("acme.shared", "service"), Kind: "service",
-	}, "acme/shared", "v2.0.0", digests[selection{"acme/shared", "v2.0.0"}])
+	}, "acme/shared")
 	baseline := regapi.State{appRoot, appService, appShared, sharedService}
 	pluginRoot := regapi.Entry{
 		ID: regapi.NewID("user.deps", "plugin"), Kind: regapi.NamespaceDependency,
@@ -161,4 +162,39 @@ modules:
 	require.Equal(t, 1, manifestCalls[selection{"acme/app", "v2.0.0"}])
 	require.Equal(t, 1, manifestCalls[selection{"acme/plugin", "v1.0.0"}])
 	require.Equal(t, 1, manifestCalls[selection{"acme/shared", "v2.0.0"}])
+}
+
+func TestDeploymentBaselineDigestIsIndependentOfLockPresence(t *testing.T) {
+	ctx := newTestContext()
+	digest := strings.Repeat("a", 64)
+	lockPath := filepath.Join(t.TempDir(), "wippy.lock")
+	require.NoError(t, os.WriteFile(lockPath, []byte(fmt.Sprintf(`directories:
+  modules: vendor
+modules:
+  - name: acme/app
+    version: 1.0.0
+    hash: %s
+    root: true
+`, digest)), 0o600))
+	handler, err := NewDependencyHandler(DependencyHandlerOptions{
+		Hub: &fakeHub{}, Logger: zap.NewNop(), LockPath: lockPath,
+	})
+	require.NoError(t, err)
+	baseline := regapi.State{{
+		ID: regapi.NewID("app.deps", "app"), Kind: regapi.NamespaceDependency,
+		Registry: regapi.EntryMetadata{Root: true},
+		Data:     payload.New(map[string]any{"component": "acme/app", "version": "1.0.0"}),
+	}}
+	transcoder := payload.GetTranscoder(ctx)
+	withLock, err := handler.deploymentBaselineDigest(ctx, baseline, transcoder)
+	require.NoError(t, err)
+
+	deployment, err := handler.deploymentFromLock()
+	require.NoError(t, err)
+	handler.deployment = deployment
+	handler.lock = nil
+	withoutLock, err := handler.deploymentBaselineDigest(ctx, baseline, transcoder)
+	require.NoError(t, err)
+
+	require.Equal(t, withLock, withoutLock)
 }

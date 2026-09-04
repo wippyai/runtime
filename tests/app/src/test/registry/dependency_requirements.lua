@@ -13,28 +13,34 @@ local param_name = "router"
 local router_primary = "app:api.public"
 local router_secondary = "app:api.ws"
 
+local function state_entries(kind: string?)
+	local snap, err = registry.snapshot()
+	assert.is_nil(err, "snapshot no error")
+	assert.not_nil(snap, "snapshot available")
+
+	local state, state_err = snap:state()
+	assert.is_nil(state_err, "snapshot state no error")
+	assert.not_nil(state, "snapshot state available")
+
+	local entries = {}
+	for _, entry in ipairs(state.entries) do
+		if entry.registry.owner == module_name and (kind == nil or entry.kind == kind) then
+			table.insert(entries, entry)
+		end
+	end
+	return entries
+end
+
 local function find_module_entries()
-	local entries, err = registry.find({ ["meta.module"] = module_name })
-	assert.is_nil(err, "registry.find no error")
-	return entries or {}
+	return state_entries(nil)
 end
 
 local function find_requirements()
-	local entries, err = registry.find({
-		[".kind"] = "ns.requirement",
-		["meta.module"] = module_name,
-	})
-	assert.is_nil(err, "registry.find no error")
-	return entries or {}
+	return state_entries("ns.requirement")
 end
 
 local function find_endpoints()
-	local entries, err = registry.find({
-		[".kind"] = "http.endpoint",
-		["meta.module"] = module_name,
-	})
-	assert.is_nil(err, "registry.find no error")
-	return entries or {}
+	return state_entries("http.endpoint")
 end
 
 local function apply_changes(apply_fn)

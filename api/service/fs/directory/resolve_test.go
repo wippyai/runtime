@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/wippyai/runtime/api/attrs"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/modules"
 	"github.com/wippyai/runtime/api/registry"
@@ -16,7 +15,7 @@ import (
 func moduleEntry(module string) registry.Entry {
 	e := registry.Entry{ID: registry.NewID("acme.ui", "ui_fs")}
 	if module != "" {
-		e.Meta = attrs.NewBagFrom(map[string]any{"module": module})
+		e.Registry.Owner = module
 	}
 	return e
 }
@@ -61,7 +60,7 @@ func TestResolveDirectory(t *testing.T) {
 		}
 	})
 
-	t.Run("no module meta stays unchanged", func(t *testing.T) {
+	t.Run("entry without owner stays unchanged", func(t *testing.T) {
 		ctx := ctxapi.NewRootContext()
 		ctx = withSourceRoot(ctx, "acme/ui", abs)
 		if got := ResolveDirectory(ctx, moduleEntry(""), &Config{Directory: "./static"}); got != "./static" {
@@ -69,13 +68,13 @@ func TestResolveDirectory(t *testing.T) {
 		}
 	})
 
-	t.Run("module meta without source root stays unchanged", func(t *testing.T) {
+	t.Run("owner without source root stays unchanged", func(t *testing.T) {
 		if got := ResolveDirectory(ctxapi.NewRootContext(), moduleEntry("acme/ui"), &Config{Directory: "./static"}); got != "./static" {
 			t.Fatalf("got %q, want ./static", got)
 		}
 	})
 
-	t.Run("module meta with source root joins", func(t *testing.T) {
+	t.Run("owner with source root joins", func(t *testing.T) {
 		ctx := ctxapi.NewRootContext()
 		ctx = withSourceRoot(ctx, "acme/ui", abs)
 		want := filepath.Join(abs, "static")

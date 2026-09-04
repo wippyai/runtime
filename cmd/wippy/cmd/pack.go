@@ -622,6 +622,7 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *tea
 	if err := addPackRuntimeMetadata(metadata, folderPath); err != nil {
 		return NewPackConfigError(err)
 	}
+	metadata[packRegistryMetadataKey] = packRegistryMetadata(loadedEntries)
 
 	p.Send(progressMsg{stage: stageWrite, percent: 0.8, status: "Writing pack file..."})
 
@@ -927,7 +928,7 @@ func parseMetadataFlags(metaFlags []string, metadata attrs.Bag, logger *zap.Logg
 			return NewEmptyMetadataKeyError(flag)
 		}
 
-		if strings.HasPrefix(key, "wippy.") || strings.HasPrefix(key, "system.") {
+		if key == packRegistryMetadataKey || strings.HasPrefix(key, "wippy.") || strings.HasPrefix(key, "system.") {
 			return NewReservedMetadataNamespaceError(key)
 		}
 

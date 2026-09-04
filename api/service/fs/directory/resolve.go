@@ -23,10 +23,7 @@ func ResolveDirectory(ctx context.Context, entry registry.Entry, cfg *Config) st
 		return cfg.Directory
 	}
 
-	moduleName := ""
-	if entry.Meta != nil {
-		moduleName = entry.Meta.GetString("module", "")
-	}
+	moduleName := entry.Registry.Owner
 	if moduleName == "" {
 		return cfg.Directory
 	}

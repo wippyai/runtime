@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/wippyai/runtime/api/payload"
 	regapi "github.com/wippyai/runtime/api/registry"
@@ -38,7 +39,17 @@ func (h *DependencyHandler) deploymentBaselineDigest(
 	}
 
 	modules := make([]lockedModule, 0)
-	if h != nil && h.lock != nil {
+	if h != nil && h.deployment != nil {
+		for _, mod := range h.deployment.Modules {
+			if mod.Name == "" || mod.Version == "" {
+				continue
+			}
+			modules = append(modules, lockedModule{
+				Name: mod.Name, Version: mod.Version, Digest: strings.TrimPrefix(strings.ToLower(mod.Digest), "sha256:"),
+				Root: mod.Name == h.deployment.Root, Replacement: mod.Source == moduleSourceReplacementTreeV1,
+			})
+		}
+	} else if h != nil && h.lock != nil {
 		for _, mod := range h.lock.GetModules() {
 			if mod.Name == "" || mod.Version == "" {
 				continue
@@ -54,9 +65,9 @@ func (h *DependencyHandler) deploymentBaselineDigest(
 
 	roots := make([]deploymentRoot, 0)
 	for _, entry := range baseline {
-		// DependencyRoot is assigned by source/lock ingestion. Unowned roots
+		// Registry.Root is assigned by source/lock ingestion. Unowned roots
 		// created through the registry API remain history-owned overlays.
-		if entry.Kind != regapi.NamespaceDependency || !entry.DependencyRoot {
+		if entry.Kind != regapi.NamespaceDependency || !entry.Registry.Root {
 			continue
 		}
 		definition, err := decodeDependency(ctx, transcoder, entry)
@@ -106,6 +117,7 @@ func (h *DependencyHandler) resolutionForSnapshot(
 	}
 	resolution := dependencyResolution(roots, references, modules)
 	resolution.BaselineDigest = baselineDigest
+	resolution.Deployment = h.deployment.Canonical()
 	return resolution.Canonical(), nil
 }
 
@@ -135,7 +147,7 @@ func (h *DependencyHandler) resolutionRefreshReason(
 	}
 	if dependencyInputDigest(roots) != resolution.InputDigest {
 		for _, entry := range baseline {
-			if entry.Kind == regapi.NamespaceDependency && entry.DependencyRoot {
+			if entry.Kind == regapi.NamespaceDependency && entry.Registry.Root {
 				return "legacy resolution root declarations differ from deployment baseline", nil
 			}
 		}
@@ -168,8 +180,7 @@ func (h *DependencyHandler) legacyResolutionConflictsWithBaseline(
 	for _, mod := range resolution.Modules {
 		stored[mod.Name] = mod
 	}
-	versions := snapshotModuleVersions(baseline)
-	digests := snapshotModuleDigests(baseline)
+	versions, digests := h.currentModuleIdentities(ctx)
 	if h != nil && h.lock != nil {
 		for _, mod := range h.lock.GetModules() {
 			if _, owned := controlled[mod.Name]; !owned {
@@ -283,9 +294,13 @@ func storedResolutionVersions(resolution *regapi.DependencyResolution) map[strin
 }
 
 func resolvedModulesFromStored(resolution *regapi.DependencyResolution) ([]ResolvedModule, error) {
-	resolved := make([]ResolvedModule, 0, len(resolution.Modules))
-	seen := make(map[string]struct{}, len(resolution.Modules))
-	for _, mod := range resolution.Modules {
+	return resolvedModulesFromRecords(resolution.Modules)
+}
+
+func resolvedModulesFromRecords(modules []regapi.ResolvedModule) ([]ResolvedModule, error) {
+	resolved := make([]ResolvedModule, 0, len(modules))
+	seen := make(map[string]struct{}, len(modules))
+	for _, mod := range modules {
 		name, err := graph.ParseName(mod.Name)
 		if err != nil || mod.Version == "" {
 			return nil, NewDependencyResolutionError(fmt.Errorf("invalid stored module %q@%s", mod.Name, mod.Version))

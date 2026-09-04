@@ -18,6 +18,7 @@ func All() []boot.Component {
 		Filesystem(),
 		Environment(),
 		FrameResolvers(),
+		TTY(),
 		Network(),
 		SocketDispatcher(),
 		Resources(),

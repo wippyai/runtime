@@ -11,7 +11,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	eventapi "github.com/wippyai/runtime/api/event"
-	fsapi "github.com/wippyai/runtime/api/fs"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	embedapi "github.com/wippyai/runtime/api/service/fs/embed"
@@ -193,27 +192,20 @@ func TestManager_Update_NotFound(t *testing.T) {
 func TestManager_Update_ResolutionFailureKeepsExistingFS(t *testing.T) {
 	ctx := context.Background()
 	bus := &recordingBus{}
-	embedReg := &mockEntryResolverRegistry{
-		mockEmbedRegistry: mockEmbedRegistry{},
-		byEntry: map[string]fs.ReadDirFS{
-			"test:fs|org/mod|1.0.0": &mockReadDirFS{},
-		},
-	}
+	embedReg := &mockEmbedRegistry{filesystems: map[string]fs.ReadDirFS{"test:fs": &mockReadDirFS{}}}
 	dtt := &mockDTT{}
 
 	manager := NewManager(bus, dtt, embedReg, zap.NewNop())
 	entry := registry.Entry{
 		ID:   registry.NewID("test", "fs"),
 		Kind: embedapi.Kind,
-		Meta: map[string]any{"module": "org/mod", "module_version": "1.0.0"},
 		Data: payload.New(&embedapi.Config{}),
 	}
 	require.NoError(t, manager.Add(ctx, entry))
 	bus.reset()
 
-	updateEntry := entry
-	updateEntry.Meta = map[string]any{"module": "org/mod", "module_version": "2.0.0"}
-	err := manager.Update(ctx, updateEntry)
+	embedReg.filesystems = nil
+	err := manager.Update(ctx, entry)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to get embedded filesystem")
 
@@ -221,7 +213,6 @@ func TestManager_Update_ResolutionFailureKeepsExistingFS(t *testing.T) {
 	_, ok := manager.filesystems[entry.ID]
 	manager.mu.RUnlock()
 	assert.True(t, ok, "failed update must keep the current live filesystem")
-	assert.Equal(t, "test:fs|org/mod|2.0.0", embedReg.lastEntryKey)
 	assert.Empty(t, bus.events, "failed update must not send fs delete/register events")
 }
 
@@ -278,80 +269,6 @@ func TestManager_Delete_NotFound(t *testing.T) {
 	assert.Contains(t, err.Error(), "not found")
 }
 
-func TestManager_Add_UsesEntryResolver(t *testing.T) {
-	ctx := context.Background()
-	bus := eventbus.NewBus()
-	embedReg := &mockEntryResolverRegistry{
-		mockEmbedRegistry: mockEmbedRegistry{
-			filesystems: map[string]fs.ReadDirFS{
-				"test:fs": &mockReadDirFS{},
-			},
-		},
-		byEntry: map[string]fs.ReadDirFS{
-			"test:fs|org/mod|2.0.0": &mockReadDirFS{},
-		},
-	}
-	dtt := &mockDTT{}
-
-	manager := NewManager(bus, dtt, embedReg, zap.NewNop())
-
-	entry := registry.Entry{
-		ID:   registry.NewID("test", "fs"),
-		Kind: embedapi.Kind,
-		Meta: map[string]any{"module": "org/mod", "module_version": "2.0.0"},
-		Data: payload.New(&embedapi.Config{}),
-	}
-
-	require.NoError(t, manager.Add(ctx, entry))
-	assert.Equal(t, 1, embedReg.entryCalls)
-	assert.Equal(t, 0, embedReg.idCalls)
-}
-
-func TestManager_Update_SelectsNewVersionViaResolver(t *testing.T) {
-	ctx := context.Background()
-	bus := &recordingBus{}
-	oldFS := &mockReadDirFS{}
-	newFS := &mockReadDirFS{}
-	embedReg := &mockEntryResolverRegistry{
-		mockEmbedRegistry: mockEmbedRegistry{
-			filesystems: map[string]fs.ReadDirFS{"test:fs": oldFS},
-		},
-		byEntry: map[string]fs.ReadDirFS{
-			"test:fs|org/mod|1.0.0": oldFS,
-			"test:fs|org/mod|2.0.0": newFS,
-		},
-	}
-	dtt := &mockDTT{}
-
-	manager := NewManager(bus, dtt, embedReg, zap.NewNop())
-
-	addEntry := registry.Entry{
-		ID:   registry.NewID("test", "fs"),
-		Kind: embedapi.Kind,
-		Meta: map[string]any{"module": "org/mod", "module_version": "1.0.0"},
-		Data: payload.New(&embedapi.Config{}),
-	}
-	require.NoError(t, manager.Add(ctx, addEntry))
-	bus.reset()
-
-	updateEntry := addEntry
-	updateEntry.Meta = map[string]any{"module": "org/mod", "module_version": "2.0.0"}
-	require.NoError(t, manager.Update(ctx, updateEntry))
-
-	manager.mu.RLock()
-	stored := manager.filesystems[updateEntry.ID]
-	manager.mu.RUnlock()
-	// The stored FS is wrapped; assert resolver was asked for the new version.
-	require.NotNil(t, stored)
-	assert.Equal(t, "test:fs|org/mod|2.0.0", embedReg.lastEntryKey)
-	require.Len(t, bus.events, 2)
-	assert.Equal(t, fsapi.FsDelete, bus.events[0].Kind)
-	assert.Equal(t, updateEntry.ID.String(), bus.events[0].Path)
-	assert.Equal(t, fsapi.FsRegister, bus.events[1].Kind)
-	assert.Equal(t, updateEntry.ID.String(), bus.events[1].Path)
-	assert.NotNil(t, bus.events[1].Data)
-}
-
 // Mock implementations
 
 type recordingBus struct {
@@ -398,37 +315,6 @@ func (r *mockEmbedRegistry) Close() error {
 
 func (r *mockEmbedRegistry) Register(_ string, _ any) error {
 	return nil
-}
-
-// mockEntryResolverRegistry implements embedapi.EntryResolver to verify the
-// manager prefers entry-aware resolution.
-type mockEntryResolverRegistry struct {
-	mockEmbedRegistry
-	byEntry      map[string]fs.ReadDirFS
-	lastEntryKey string
-	entryCalls   int
-	idCalls      int
-}
-
-func entryResolverKey(entry registry.Entry) string {
-	module, _ := entry.Meta["module"].(string)
-	version, _ := entry.Meta["module_version"].(string)
-	return entry.ID.String() + "|" + module + "|" + version
-}
-
-func (r *mockEntryResolverRegistry) GetFSForEntry(entry registry.Entry) (fs.ReadDirFS, error) {
-	r.entryCalls++
-	key := entryResolverKey(entry)
-	r.lastEntryKey = key
-	if fsys, ok := r.byEntry[key]; ok {
-		return fsys, nil
-	}
-	return r.mockEmbedRegistry.GetFS(entry.ID)
-}
-
-func (r *mockEntryResolverRegistry) GetFS(id registry.ID) (fs.ReadDirFS, error) {
-	r.idCalls++
-	return r.mockEmbedRegistry.GetFS(id)
 }
 
 type mockDTT struct {

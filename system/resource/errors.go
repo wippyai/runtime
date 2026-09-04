@@ -9,8 +9,9 @@ import (
 
 // Sentinel errors for resource operations.
 var (
-	ErrLocked = apierror.New(apierror.Unavailable, "resource is locked").WithRetryable(apierror.True)
-	ErrClosed = apierror.New(apierror.Unavailable, "resource provider is closed").WithRetryable(apierror.False)
+	ErrLocked          = apierror.New(apierror.Unavailable, "resource is locked").WithRetryable(apierror.True)
+	ErrClosed          = apierror.New(apierror.Unavailable, "resource provider is closed").WithRetryable(apierror.False)
+	ErrInvalidResource = apierror.New(apierror.Internal, "resource provider returned a nil resource").WithRetryable(apierror.False)
 )
 
 // NewSubscriberError creates an error for subscriber creation failure.

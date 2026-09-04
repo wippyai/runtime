@@ -109,6 +109,7 @@ func (m *mockRegistry) LoadState(context.Context, State, Version) error {
 }
 func (m *mockRegistry) Current() (Version, error) { return nil, nil } //nolint:nilnil // test mock
 func (m *mockRegistry) History() History          { return nil }
+func (m *mockRegistry) Snapshot() Snapshot        { return Snapshot{} }
 func (m *mockRegistry) RegisterDependencyPattern(_ DependencyPattern) error {
 	return nil
 }

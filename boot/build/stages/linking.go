@@ -191,7 +191,7 @@ func (s *linkStage) shouldFailUnresolvedRequirement(req decodedRequirement) bool
 		return false
 	}
 	if s.strictModuleScope {
-		module := requirementModuleFromEntry(req.entry)
+		module := req.entry.Registry.Owner
 		_, ok := s.strictModules[module]
 		return ok
 	}
@@ -231,7 +231,7 @@ func (s *linkStage) collectDependencies(
 		dependencies[e.ID.String()] = decodedDependency{
 			definition:     def,
 			ownedNamespace: ownedNamespace,
-			transitive:     requirementModuleFromEntry(e) != "" && !e.DependencyRoot,
+			transitive:     e.Registry.Owner != "" && !e.Registry.Root,
 		}
 	}
 
@@ -536,19 +536,9 @@ func (s *linkStage) findTargetEntries(
 	return results
 }
 
-func requirementModuleFromEntry(entry registry.Entry) string {
-	if entry.Meta == nil {
-		return ""
-	}
-	if module, ok := entry.Meta["module"].(string); ok {
-		return module
-	}
-	return ""
-}
-
 func loadedModule(entries []registry.Entry, module string) bool {
 	for _, entry := range entries {
-		if requirementModuleFromEntry(entry) == module {
+		if entry.Registry.Owner == module {
 			return true
 		}
 	}
@@ -567,7 +557,7 @@ func declaredModuleNamespaces(entries []registry.Entry) (map[string]string, erro
 		if entry.Kind != registry.NamespaceDefinition {
 			continue
 		}
-		module := requirementModuleFromEntry(entry)
+		module := entry.Registry.Owner
 		if module == "" {
 			continue
 		}

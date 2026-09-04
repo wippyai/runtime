@@ -45,6 +45,19 @@ func TestSourceRegistryLoadAndResourceRoots(t *testing.T) {
 	}
 }
 
+func TestSourceRegistrySnapshotIsDetached(t *testing.T) {
+	registry := NewSourceRegistry()
+	registry.Set(Sources{"acme/app": {LoadPath: "/pack", Version: "1.0.0"}})
+
+	snapshot := registry.Snapshot()
+	snapshot["acme/app"] = Source{LoadPath: "/changed"}
+	delete(snapshot, "acme/app")
+
+	if got := registry.Snapshot()["acme/app"].LoadPath; got != "/pack" {
+		t.Fatalf("stored source changed through snapshot: %q", got)
+	}
+}
+
 func TestSourceLoaderReceivesIsolatedSnapshot(t *testing.T) {
 	registry := NewSourceRegistry()
 	source := Source{LoadPath: "/repo/ui", Owner: "acme/ui", Version: "1.2.3", Digest: "sha256:ui", Sequence: 1}

@@ -95,7 +95,7 @@ func (y *ScreenSizeYield) HandleResult(l *lua.LState, data any, err error) []lua
 	switch v := data.(type) {
 	case []int:
 		if len(v) == 2 {
-			return []lua.LValue{lua.LNumber(v[0]), lua.LNumber(v[1]), lua.LNil}
+			return []lua.LValue{lua.LInteger(v[0]), lua.LInteger(v[1]), lua.LNil}
 		}
 		return []lua.LValue{lua.LNil, lua.LNil, lua.NewLuaError(l, "invalid screen size response").
 			WithKind(lua.Internal).WithRetryable(false)}

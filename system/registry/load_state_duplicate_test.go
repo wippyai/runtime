@@ -83,3 +83,32 @@ func TestRegistry_LoadState_RejectsHydratedDuplicateBaselineIDs(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "duplicate entry id")
 }
+
+func TestRegistry_LoadStateCanonicalizesBaselineWithoutMutatingCaller(t *testing.T) {
+	ctx := context.Background()
+	logger := zap.NewNop()
+	hist := history.NewMemory()
+	resolver := topology.NewResolver()
+	reg := NewRegistry(
+		hist,
+		NewTestRunner(),
+		topology.NewStateBuilder(logger, resolver),
+		resolver,
+		logger,
+	)
+
+	rawID := registry.ID{NS: "app", Name: "service"}
+	canonicalID := registry.NewID("app", "service")
+	baseline := registry.State{{ID: rawID, Kind: registry.EntryKind}}
+	head, err := reg.Current()
+	require.NoError(t, err)
+	require.NoError(t, reg.LoadState(ctx, baseline, head))
+
+	stored, err := reg.GetEntry(canonicalID)
+	require.NoError(t, err)
+	require.Equal(t, canonicalID, stored.ID)
+	stored, err = reg.GetEntry(rawID)
+	require.NoError(t, err)
+	require.Equal(t, canonicalID, stored.ID)
+	require.Equal(t, rawID, baseline[0].ID)
+}

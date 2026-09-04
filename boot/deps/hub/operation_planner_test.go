@@ -32,22 +32,6 @@ func TestOperationPlanner_MutableArtifactBoundary(t *testing.T) {
 			},
 		},
 		{
-			name: "immutable digest metadata drift",
-			mutate: func(entry regapi.Entry) regapi.Entry {
-				entry.Meta.Set(metaModuleDigestKey, "sha256:new")
-				return entry
-			},
-		},
-		{
-			name:    "mutable digest metadata drift",
-			mutable: true,
-			mutate: func(entry regapi.Entry) regapi.Entry {
-				entry.Meta.Set(metaModuleDigestKey, "sha256:new")
-				return entry
-			},
-			wantKinds: []string{regapi.EntryUpdate},
-		},
-		{
 			name: "immutable data normalization",
 			mutate: func(entry regapi.Entry) regapi.Entry {
 				entry.Data = payload.New(map[string]any{"value": "normalized"})
@@ -64,17 +48,9 @@ func TestOperationPlanner_MutableArtifactBoundary(t *testing.T) {
 			wantKinds: []string{regapi.EntryUpdate},
 		},
 		{
-			name: "version change remains effective",
-			mutate: func(entry regapi.Entry) regapi.Entry {
-				entry.Meta.Set(metaModuleVersionKey, "v2.0.0")
-				return entry
-			},
-			wantKinds: []string{regapi.EntryUpdate},
-		},
-		{
 			name: "owner conflict remains effective",
 			mutate: func(entry regapi.Entry) regapi.Entry {
-				entry.Meta.Set(metaModuleKey, "other/service")
+				entry.Registry.Owner = "other/service"
 				return entry
 			},
 			wantError: true,
@@ -126,9 +102,9 @@ func TestOperationPlanner_DependencyRootTransitionsRemainEffective(t *testing.T)
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			current := plannerTestEntry(regapi.NamespaceDependency, "acme/deployment", "v1.0.0", "sha256:a", "root")
-			current.DependencyRoot = test.from
+			current.Registry.Root = test.from
 			desired := clonePlannerTestEntry(current)
-			desired.DependencyRoot = test.to
+			desired.Registry.Root = test.to
 
 			ops, err := (operationPlanner{}).plan(regapi.State{current}, []regapi.Entry{desired}, operationPlanOptions{
 				controlledModules: map[string]struct{}{"acme/deployment": {}},
@@ -137,7 +113,7 @@ func TestOperationPlanner_DependencyRootTransitionsRemainEffective(t *testing.T)
 			require.NoError(t, err)
 			require.Len(t, ops, 1)
 			assert.Equal(t, regapi.EntryUpdate, ops[0].Kind)
-			assert.Equal(t, test.to, ops[0].Entry.DependencyRoot)
+			assert.Equal(t, test.to, ops[0].Entry.Registry.Root)
 		})
 	}
 }
@@ -145,7 +121,7 @@ func TestOperationPlanner_DependencyRootTransitionsRemainEffective(t *testing.T)
 func TestOperationPlanner_NilMutableSetUsesNormalDiff(t *testing.T) {
 	current := plannerTestEntry("service", "acme/service", "v1.0.0", "sha256:old", "same")
 	desired := clonePlannerTestEntry(current)
-	desired.Meta.Set(metaModuleDigestKey, "sha256:new")
+	desired.Data = payload.New(map[string]any{"value": "new"})
 
 	ops, err := (operationPlanner{}).plan(regapi.State{current}, []regapi.Entry{desired}, operationPlanOptions{})
 	require.NoError(t, err)
@@ -338,15 +314,14 @@ func TestOperationPlanner_PlanConvergesAndIsIdempotent(t *testing.T) {
 }
 
 func plannerTestEntry(kind regapi.Kind, module, version, digest, value string) regapi.Entry {
+	_ = version
+	_ = digest
 	return regapi.Entry{
-		ID:   regapi.NewID("test", "entry"),
-		Kind: kind,
-		Meta: attrs.NewBagFrom(map[string]any{
-			metaModuleKey:        module,
-			metaModuleVersionKey: version,
-			metaModuleDigestKey:  digest,
-		}),
-		Data: payload.New(map[string]any{"value": value}),
+		ID:       regapi.NewID("test", "entry"),
+		Kind:     kind,
+		Registry: regapi.EntryMetadata{Owner: module},
+		Meta:     attrs.NewBag(),
+		Data:     payload.New(map[string]any{"value": value}),
 	}
 }
 

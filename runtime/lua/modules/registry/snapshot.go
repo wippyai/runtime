@@ -15,10 +15,66 @@ import (
 
 // Snapshot represents a point-in-time view of the registry
 type Snapshot struct {
-	reg     regapi.Registry
-	version regapi.Version
-	log     *zap.Logger
-	entries []regapi.Entry
+	reg          regapi.Registry
+	state        regapi.StateMetadata
+	version      regapi.Version
+	log          *zap.Logger
+	overlayOwner string
+	entries      []regapi.Entry
+	overlayGen   uint64
+}
+
+// snapshotState returns the entry state and selected module graph captured by
+// this snapshot. Entry registry metadata is represented with each entry so
+// callers cannot associate ownership with a different snapshot or entry.
+func snapshotState(l *lua.LState) int {
+	snap := checkSnapshot(l)
+	if snap == nil {
+		return 0
+	}
+	if !authorizeSnapshotRead(l, snap) {
+		return 2
+	}
+
+	entries := l.CreateTable(len(snap.entries), 0)
+	idx := 1
+	for _, entry := range snap.entries {
+		if snap.overlayOwner == "" && !security.IsAllowed(l.Context(), "registry.get", entry.ID.String(), nil) {
+			continue
+		}
+
+		entryTable, err := stateEntryToLuaTable(l, entry)
+		if err != nil {
+			l.Push(lua.LNil)
+			l.Push(lua.WrapErrorWithLua(l, err, "convert registry state entry").
+				WithKind(lua.Internal).
+				WithRetryable(false))
+			return 2
+		}
+		entries.RawSetInt(idx, entryTable)
+		idx++
+	}
+
+	result := l.CreateTable(0, 2)
+	result.RawSetString("entries", entries)
+	if snap.state.Resolution != nil {
+		result.RawSetString("resolution", resolutionToLuaTable(l, snap.state.Resolution))
+	}
+
+	l.Push(result)
+	l.Push(lua.LNil)
+	return 2
+}
+
+func authorizeSnapshotRead(l *lua.LState, snap *Snapshot) bool {
+	if snap.overlayOwner == "" || security.IsAllowed(l.Context(), "registry.overlay.get", snap.overlayOwner, nil) {
+		return true
+	}
+	l.Push(lua.LNil)
+	l.Push(lua.NewLuaError(l, "not allowed to read registry overlay: "+snap.overlayOwner).
+		WithKind(lua.PermissionDenied).
+		WithRetryable(false))
+	return false
 }
 
 // GetAllEntries returns all entries in the snapshot
@@ -42,6 +98,9 @@ func snapshotEntries(l *lua.LState) int {
 	if snap == nil {
 		return 0
 	}
+	if !authorizeSnapshotRead(l, snap) {
+		return 2
+	}
 
 	entries, getErr := snap.GetAllEntries()
 	if getErr != nil {
@@ -56,7 +115,7 @@ func snapshotEntries(l *lua.LState) int {
 	entriesTable := l.CreateTable(len(entries), 0)
 	idx := 1
 	for _, entry := range entries {
-		if !security.IsAllowed(l.Context(), "registry.get", entry.ID.String(), nil) {
+		if snap.overlayOwner == "" && !security.IsAllowed(l.Context(), "registry.get", entry.ID.String(), nil) {
 			continue
 		}
 
@@ -84,11 +143,14 @@ func snapshotGet(l *lua.LState) int {
 	if snap == nil {
 		return 0
 	}
+	if !authorizeSnapshotRead(l, snap) {
+		return 2
+	}
 
 	idStr := l.CheckString(2)
 	id := regapi.ParseID(idStr)
 
-	if !security.IsAllowed(l.Context(), "registry.get", id.String(), nil) {
+	if snap.overlayOwner == "" && !security.IsAllowed(l.Context(), "registry.get", id.String(), nil) {
 		err := lua.NewLuaError(l, "not allowed to access entry: "+id.String()).
 			WithKind(lua.PermissionDenied).
 			WithRetryable(false)
@@ -128,13 +190,16 @@ func snapshotNamespace(l *lua.LState) int {
 	if snap == nil {
 		return 0
 	}
+	if !authorizeSnapshotRead(l, snap) {
+		return 2
+	}
 
 	ns := l.CheckString(2)
 
 	var result []regapi.Entry
 	for _, entry := range snap.entries {
 		if entry.ID.NS == ns {
-			if security.IsAllowed(l.Context(), "registry.get", entry.ID.String(), nil) {
+			if snap.overlayOwner != "" || security.IsAllowed(l.Context(), "registry.get", entry.ID.String(), nil) {
 				result = append(result, entry)
 			}
 		}
@@ -164,6 +229,9 @@ func snapshotFind(l *lua.LState) int {
 	if snap == nil {
 		return 0
 	}
+	if !authorizeSnapshotRead(l, snap) {
+		return 2
+	}
 
 	filterTable := l.CheckTable(2)
 	meta := convertFilterToMetadata(l, filterTable)
@@ -192,7 +260,7 @@ func snapshotFind(l *lua.LState) int {
 	entriesTable := l.CreateTable(len(entries), 0)
 	idx := 1
 	for _, entry := range entries {
-		if !security.IsAllowed(l.Context(), "registry.get", entry.ID.String(), nil) {
+		if snap.overlayOwner == "" && !security.IsAllowed(l.Context(), "registry.get", entry.ID.String(), nil) {
 			continue
 		}
 
@@ -219,6 +287,9 @@ func snapshotChanges(l *lua.LState) int {
 	if snap == nil {
 		return 0
 	}
+	if !authorizeSnapshotRead(l, snap) {
+		return 2
+	}
 
 	changes := &Changes{
 		snapshot: snap,
@@ -235,6 +306,9 @@ func snapshotVersion(l *lua.LState) int {
 	snap := checkSnapshot(l)
 	if snap == nil {
 		return 0
+	}
+	if !authorizeSnapshotRead(l, snap) {
+		return 2
 	}
 
 	value.PushTypedUserData(l, snap.version, typeVersion)

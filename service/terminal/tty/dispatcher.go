@@ -11,7 +11,6 @@ import (
 	"sync"
 
 	"github.com/wippyai/runtime/api/dispatcher"
-	"github.com/wippyai/runtime/api/service/terminal"
 	ttyapi "github.com/wippyai/runtime/api/tty"
 )
 
@@ -106,15 +105,20 @@ func (d *Dispatcher) submit(ctx context.Context, cmd dispatcher.Command, tag uin
 }
 
 func (d *Dispatcher) execute(j job) {
-	tc := terminal.GetTerminalContext(j.ctx)
-	if tc == nil {
+	port, resolveErr := ttyapi.GetPort(j.ctx)
+	if resolveErr != nil {
+		j.receiver.CompleteYield(j.tag, nil, resolveErr)
+		return
+	}
+	if port == nil {
 		j.receiver.CompleteYield(j.tag, nil, errNoTerminalContext)
 		return
 	}
+	streams, _ := port.(ttyapi.StreamPort)
 
 	switch c := j.cmd.(type) {
 	case ttyapi.ReadCmd:
-		if tc.Stdin == nil {
+		if streams == nil || streams.Reader() == nil {
 			j.receiver.CompleteYield(j.tag, nil, errNoTerminalContext)
 			return
 		}
@@ -123,7 +127,7 @@ func (d *Dispatcher) execute(j job) {
 			size = ttyapi.DefaultReadSize
 		}
 		buf := make([]byte, size)
-		n, err := tc.Stdin.Read(buf)
+		n, err := streams.Reader().Read(buf)
 		if err != nil {
 			j.receiver.CompleteYield(j.tag, nil, err)
 			return
@@ -131,11 +135,11 @@ func (d *Dispatcher) execute(j job) {
 		j.receiver.CompleteYield(j.tag, buf[:n], nil)
 
 	case ttyapi.ReadLineCmd:
-		if tc.Stdin == nil {
+		if streams == nil || streams.Reader() == nil {
 			j.receiver.CompleteYield(j.tag, nil, errNoTerminalContext)
 			return
 		}
-		reader := bufio.NewReader(tc.Stdin)
+		reader := bufio.NewReader(streams.Reader())
 		line, err := reader.ReadString('\n')
 		if err != nil {
 			if len(line) > 0 {
@@ -148,55 +152,55 @@ func (d *Dispatcher) execute(j job) {
 		j.receiver.CompleteYield(j.tag, trimLine(line), nil)
 
 	case ttyapi.RawEnableCmd:
-		if tc.Raw == nil {
+		if streams == nil || streams.RawController() == nil {
 			j.receiver.CompleteYield(j.tag, nil, errNoRawController)
 			return
 		}
-		if err := tc.Raw.Enable(); err != nil {
+		if err := streams.RawController().Enable(); err != nil {
 			j.receiver.CompleteYield(j.tag, nil, err)
 			return
 		}
 		j.receiver.CompleteYield(j.tag, true, nil)
 
 	case ttyapi.RawDisableCmd:
-		if tc.Raw == nil {
+		if streams == nil || streams.RawController() == nil {
 			j.receiver.CompleteYield(j.tag, nil, errNoRawController)
 			return
 		}
-		if err := tc.Raw.Disable(); err != nil {
+		if err := streams.RawController().Disable(); err != nil {
 			j.receiver.CompleteYield(j.tag, nil, err)
 			return
 		}
 		j.receiver.CompleteYield(j.tag, true, nil)
 
 	case ttyapi.StartInputCmd:
-		if tc.Input == nil {
+		if port.InputController() == nil {
 			j.receiver.CompleteYield(j.tag, nil, errNoInputController)
 			return
 		}
-		if err := tc.Input.Start(); err != nil {
+		if err := port.InputController().Start(); err != nil {
 			j.receiver.CompleteYield(j.tag, nil, err)
 			return
 		}
 		j.receiver.CompleteYield(j.tag, true, nil)
 
 	case ttyapi.StopInputCmd:
-		if tc.Input == nil {
+		if port.InputController() == nil {
 			j.receiver.CompleteYield(j.tag, nil, errNoInputController)
 			return
 		}
-		if err := tc.Input.Stop(); err != nil {
+		if err := port.InputController().Stop(); err != nil {
 			j.receiver.CompleteYield(j.tag, nil, err)
 			return
 		}
 		j.receiver.CompleteYield(j.tag, true, nil)
 
 	case ttyapi.ScreenSizeCmd:
-		if tc.Input == nil {
+		if port.InputController() == nil {
 			j.receiver.CompleteYield(j.tag, nil, errNoInputController)
 			return
 		}
-		cols, rows, err := tc.Input.ScreenSize()
+		cols, rows, err := port.InputController().ScreenSize()
 		if err != nil {
 			j.receiver.CompleteYield(j.tag, nil, err)
 			return
@@ -204,19 +208,19 @@ func (d *Dispatcher) execute(j job) {
 		j.receiver.CompleteYield(j.tag, []int{cols, rows}, nil)
 
 	case ttyapi.EnableMouseCmd:
-		if tc.Input == nil {
+		if port.InputController() == nil {
 			j.receiver.CompleteYield(j.tag, nil, errNoInputController)
 			return
 		}
-		tc.Input.EnableMouse()
+		port.InputController().EnableMouse()
 		j.receiver.CompleteYield(j.tag, true, nil)
 
 	case ttyapi.DisableMouseCmd:
-		if tc.Input == nil {
+		if port.InputController() == nil {
 			j.receiver.CompleteYield(j.tag, nil, errNoInputController)
 			return
 		}
-		tc.Input.DisableMouse()
+		port.InputController().DisableMouse()
 		j.receiver.CompleteYield(j.tag, true, nil)
 
 	default:

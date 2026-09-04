@@ -97,6 +97,34 @@ func NewConcurrentApplyError(expected, actual uint) apierror.Error {
 		WithDetails(attrs.NewBagFrom(map[string]any{"expected_version": expected, "actual_version": actual}))
 }
 
+// NewOverlayGenerationConflictError reports an optimistic-concurrency conflict
+// against one process-local overlay.
+func NewOverlayGenerationConflictError(owner string, expected, actual uint64) apierror.Error {
+	return apierror.New(apierror.Conflict, "registry overlay changed during apply").
+		WithRetryable(apierror.True).
+		WithDetails(attrs.NewBagFrom(map[string]any{
+			"owner":               owner,
+			"expected_generation": expected,
+			"actual_generation":   actual,
+		}))
+}
+
+// NewOverlayValidationError reports an invalid overlay request. Ownership is
+// maintained by Reg and is never inferred from entry metadata.
+func NewOverlayValidationError(message string, details map[string]any) apierror.Error {
+	return apierror.New(apierror.Invalid, message).
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(details))
+}
+
+// NewOverlayConflictError reports a request that conflicts with the current
+// durable or owner-scoped registry state.
+func NewOverlayConflictError(message string, details map[string]any) apierror.Error {
+	return apierror.New(apierror.Conflict, message).
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(details))
+}
+
 // NewGetVersionsError creates an error when getting versions fails
 func NewGetVersionsError(err error) apierror.Error {
 	return apierror.New(apierror.Internal, "failed to get versions from history").

@@ -21,7 +21,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v7
         with:
-          go-version: '1.26.5'
+          go-version: '1.27.0'
           cache: true
 
       - name: Run linter
@@ -54,7 +54,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v7
         with:
-          go-version: '1.26.5'
+          go-version: '1.27.0'
           cache: true
         env:
           MSYSTEM: MINGW64
@@ -87,10 +87,22 @@ jobs:
           SKIP_DOCKER_TESTS: "1"
         run: make test
 
-  test-sqlite-cdc:
-    name: Test SQLite CDC (Linux, CGO, race)
+  postgres-registry:
+    name: Test (PostgreSQL registry)
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - name: Check out code
         uses: actions/checkout@v7
@@ -98,13 +110,26 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v7
         with:
-          go-version: '1.26.5'
+          go-version: '1.27.0'
           cache: true
 
-      - name: Install dependencies
-        run: go mod download
+      - name: Run PostgreSQL registry tests
+        env:
+          GORACE: "halt_on_error=1"
+          WIPPY_POSTGRES_HISTORY_TEST_DSN: postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable
+        run: go test -race -count=1 ./system/registry ./system/registry/history/postgres
 
-      - name: Run tagged SQLite CDC tests
+  test-sqlite-cdc:
+    name: Test SQLite CDC (Linux, CGO, race)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.27.0'
+          cache: true
+      - name: Run tagged SQLite CDC tests and native Lua fixture
         env:
           CGO_ENABLED: 1
           GORACE: "halt_on_error=1"

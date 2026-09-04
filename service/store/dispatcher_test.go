@@ -35,6 +35,31 @@ type mockStore struct {
 	delay time.Duration
 }
 
+type blockingStore struct {
+	*mockStore
+	started chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func newBlockingStore() *blockingStore {
+	return &blockingStore{
+		mockStore: newMockStore(),
+		started:   make(chan struct{}),
+		release:   make(chan struct{}),
+	}
+}
+
+func (s *blockingStore) Set(ctx context.Context, entry storeapi.Entry) error {
+	s.once.Do(func() { close(s.started) })
+	select {
+	case <-s.release:
+		return s.mockStore.Set(ctx, entry)
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 func newMockStore() *mockStore {
 	return &mockStore{data: make(map[string]payload.Payload)}
 }
@@ -345,6 +370,67 @@ func TestDispatcher_GracefulShutdown(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(200 * time.Millisecond):
+	}
+}
+
+func TestDispatcher_StopConcurrentWithSubmit(t *testing.T) {
+	d := NewDispatcher(1)
+	require.NoError(t, d.Start(context.Background()))
+
+	ms := newBlockingStore()
+	command := func(i int) *storeapi.SetCmd {
+		return &storeapi.SetCmd{
+			Store: ms,
+			Entry: storeapi.Entry{
+				Key:   registry.ID{NS: "test", Name: fmt.Sprintf("key-%d", i)},
+				Value: payload.New("value"),
+			},
+		}
+	}
+
+	require.NoError(t, d.handle(context.Background(), command(0), 0, &testReceiver{}))
+	<-ms.started
+
+	// Fill the queue so later submissions remain in admission while shutdown
+	// begins. Stop must cancel those submissions before it closes the queue.
+	require.NoError(t, d.handle(context.Background(), command(1), 1, &testReceiver{}))
+	require.NoError(t, d.handle(context.Background(), command(2), 2, &testReceiver{}))
+
+	const submitters = 64
+	ready := make(chan struct{}, submitters)
+	start := make(chan struct{})
+	var submissions sync.WaitGroup
+	submissions.Add(submitters)
+	for i := 0; i < submitters; i++ {
+		go func(i int) {
+			defer submissions.Done()
+			ready <- struct{}{}
+			<-start
+			_ = d.handle(context.Background(), command(i+3), uint64(i+3), &testReceiver{})
+		}(i)
+	}
+	for i := 0; i < submitters; i++ {
+		<-ready
+	}
+	close(start)
+
+	stopErrors := make(chan error, 2)
+	go func() { stopErrors <- d.Stop(context.Background()) }()
+	go func() { stopErrors <- d.Stop(context.Background()) }()
+
+	submissions.Wait()
+	close(ms.release)
+	for i := 0; i < 2; i++ {
+		select {
+		case err := <-stopErrors:
+			require.NoError(t, err)
+		case <-time.After(time.Second):
+			t.Fatal("dispatcher did not stop")
+		}
+	}
+	for i := 0; i < 3; i++ {
+		_, err := ms.Get(context.Background(), registry.ID{NS: "test", Name: fmt.Sprintf("key-%d", i)})
+		require.NoError(t, err, "accepted job %d was not drained", i)
 	}
 }
 

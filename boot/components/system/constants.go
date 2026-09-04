@@ -13,6 +13,7 @@ const (
 	CDCRegistryName    boot.Name = "cdc.registry"
 	InterceptorName    boot.Name = "interceptor"
 	FrameResolversName boot.Name = "frame_resolvers"
+	TTYName            boot.Name = "tty"
 	FunctionsName      boot.Name = "functions"
 	ContractsName      boot.Name = "contracts"
 	ClusterName        boot.Name = "cluster"

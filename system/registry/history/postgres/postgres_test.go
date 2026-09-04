@@ -3,6 +3,7 @@
 package postgres
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"fmt"
@@ -11,13 +12,44 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/hashicorp/go-msgpack/v2/codec"
 	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/attrs"
+	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/internal/version"
 	"go.uber.org/zap"
 )
+
+type releasedMigrationPayload struct {
+	Data   any
+	Format payload.Format
+}
+
+type releasedMigrationEntry struct {
+	Meta           attrs.Bag
+	Data           *releasedMigrationPayload
+	ID             registry.ID
+	Kind           string
+	DependencyRoot bool `codec:"DependencyRoot,omitempty"`
+}
+
+type releasedMigrationRecord struct {
+	Module  string
+	Version string
+	Digest  string
+	Root    bool
+}
+
+type releasedMigrationOperation struct {
+	OriginalEntry *releasedMigrationEntry  `codec:"OriginalEntry"`
+	Current       *releasedMigrationRecord `codec:"prov,omitempty"`
+	Previous      *releasedMigrationRecord `codec:"oprov,omitempty"`
+	Kind          string                   `codec:"Kind"`
+	Entry         releasedMigrationEntry   `codec:"Entry"`
+}
 
 func TestNewPostgresRequiresDSN(t *testing.T) {
 	hist, err := NewPostgres("", "wippy_registry", zap.NewNop())
@@ -178,6 +210,88 @@ func TestPostgresHistory_SaveAndGet(t *testing.T) {
 	).Scan(&schemaVersion)
 	require.NoError(t, err)
 	assert.Equal(t, "1.1", schemaVersion)
+}
+
+func TestMigrateEntryMetadata_RewritesPostgresBranches(t *testing.T) {
+	dsn := os.Getenv("WIPPY_POSTGRES_HISTORY_TEST_DSN")
+	if strings.TrimSpace(dsn) == "" {
+		t.Skip("WIPPY_POSTGRES_HISTORY_TEST_DSN is not set")
+	}
+
+	schemaName := fmt.Sprintf("wippy_registry_metadata_%d", os.Getpid())
+	db, err := sql.Open("postgres", dsn)
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+	_, err = db.ExecContext(context.Background(), fmt.Sprintf("DROP SCHEMA IF EXISTS %q CASCADE", schemaName))
+	require.NoError(t, err)
+	defer func() {
+		_, _ = db.ExecContext(context.Background(), fmt.Sprintf("DROP SCHEMA IF EXISTS %q CASCADE", schemaName))
+	}()
+
+	history, err := NewPostgres(dsn, schemaName, zap.NewNop())
+	require.NoError(t, err)
+	defer func() { _ = history.Close() }()
+
+	id := registry.NewID("app", "dependency")
+	other := registry.NewID("app", "other")
+	seedReleasedMigrationChangeSet(t, history, 1, 0, []releasedMigrationOperation{{
+		Kind: registry.EntryCreate,
+		Entry: releasedMigrationEntry{
+			ID:             id,
+			Kind:           registry.NamespaceDependency,
+			Meta:           attrs.NewBagFrom(map[string]any{"module": "active/module", "module_version": "1.0.0", "module_digest": "sha256:old", "author_key": "preserved"}),
+			DependencyRoot: true,
+		},
+		Current: &releasedMigrationRecord{Module: "active/module", Root: true},
+	}})
+	seedReleasedMigrationChangeSet(t, history, 2, 1, []releasedMigrationOperation{{
+		Kind:    registry.EntryDelete,
+		Entry:   releasedMigrationEntry{ID: id, Kind: registry.NamespaceDependency},
+		Current: &releasedMigrationRecord{Module: "active/module"},
+	}})
+	seedReleasedMigrationChangeSet(t, history, 3, 1, []releasedMigrationOperation{{
+		Kind:  registry.EntryCreate,
+		Entry: releasedMigrationEntry{ID: other, Kind: registry.EntryKind, Meta: attrs.NewBagFrom(map[string]any{"module": "stamped/only"})},
+	}})
+
+	baseline := registry.State{{ID: id, Kind: registry.NamespaceDependency, Registry: registry.EntryMetadata{Owner: "active/module"}}}
+	require.NoError(t, MigrateEntryMetadata(context.Background(), history, baseline))
+
+	v1 := version.FromParent(version.New(0), 1)
+	v2 := version.FromParent(v1, 2)
+	v3 := version.FromParent(v1, 3)
+	create, err := history.Get(v1)
+	require.NoError(t, err)
+	require.Equal(t, registry.EntryMetadata{Owner: "active/module", Root: true}, create[0].Entry.Registry)
+	require.NotContains(t, create[0].Entry.Meta, "module")
+	require.Equal(t, "preserved", create[0].Entry.Meta["author_key"])
+	remove, err := history.Get(v2)
+	require.NoError(t, err)
+	require.Equal(t, "active/module", remove[0].Entry.Registry.Owner)
+	branch, err := history.Get(v3)
+	require.NoError(t, err)
+	require.Equal(t, registry.EntryMetadata{Owner: "stamped/only"}, branch[0].Entry.Registry)
+
+	before := postgresChangesetBytes(t, history, 1)
+	require.NoError(t, MigrateEntryMetadata(context.Background(), history, baseline))
+	require.Equal(t, before, postgresChangesetBytes(t, history, 1))
+}
+
+func seedReleasedMigrationChangeSet(t *testing.T, history *History, id, parent uint, operations []releasedMigrationOperation) {
+	t.Helper()
+	var data bytes.Buffer
+	require.NoError(t, codec.NewEncoder(&data, history.handle).Encode(operations))
+	_, err := history.db.ExecContext(t.Context(), history.queries.insertVersion, id, parent)
+	require.NoError(t, err)
+	_, err = history.db.ExecContext(t.Context(), "INSERT INTO "+history.tables.changesets+" (version_id, data) VALUES ($1, $2)", id, data.Bytes())
+	require.NoError(t, err)
+}
+
+func postgresChangesetBytes(t *testing.T, history *History, id uint) []byte {
+	t.Helper()
+	var data []byte
+	require.NoError(t, history.db.QueryRowContext(t.Context(), "SELECT data FROM "+history.tables.changesets+" WHERE version_id = $1", id).Scan(&data))
+	return data
 }
 
 func TestPostgresHistory_ConcurrentColdOpenInitializesRootOnce(t *testing.T) {

@@ -21,7 +21,7 @@ const (
 type Config struct {
 	Lifecycle       supervisor.LifecycleConfig `json:"lifecycle"`
 	MaxSize         int                        `json:"max_size"`
-	CleanupInterval time.Duration              `json:"cleanup_interval,omitzero,format:units"`
+	CleanupInterval time.Duration              `json:"cleanup_interval,omitzero"`
 }
 
 // Validate checks if the configuration is valid

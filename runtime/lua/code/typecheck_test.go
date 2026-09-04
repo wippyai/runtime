@@ -13,6 +13,7 @@ import (
 	"github.com/wippyai/go-lua/types/io"
 	"github.com/wippyai/go-lua/types/query/core"
 	"github.com/wippyai/go-lua/types/typ"
+	api "github.com/wippyai/runtime/api/runtime/lua"
 	base64mod "github.com/wippyai/runtime/runtime/lua/modules/base64"
 )
 
@@ -354,6 +355,33 @@ return x
 			t.Errorf("unexpected error: %s", d.Message)
 		}
 	}
+}
+
+func TestTypeChecker_CheckImportsAreRequestScoped(t *testing.T) {
+	tc := NewTypeChecker(DefaultTypeCheckConfig(), nil)
+	dependency := io.NewManifest("dependency")
+
+	_, _, err := tc.Check("return {}", "first.lua", map[string]*io.Manifest{
+		"dependency": dependency,
+	})
+	require.NoError(t, err)
+	require.Nil(t, tc.db.Manifest("dependency"))
+}
+
+func TestTypeChecker_CheckRestoresShadowedBuiltinManifest(t *testing.T) {
+	builtin := io.NewManifest("builtin")
+	module := &api.ModuleDef{
+		Name:  "dependency",
+		Types: func() *io.Manifest { return builtin },
+	}
+	tc := NewTypeChecker(DefaultTypeCheckConfig(), []*api.ModuleDef{module})
+	override := io.NewManifest("override")
+
+	_, _, err := tc.Check("return {}", "first.lua", map[string]*io.Manifest{
+		"dependency": override,
+	})
+	require.NoError(t, err)
+	require.Same(t, builtin, tc.db.Manifest("dependency"))
 }
 
 // TestTypeChecker_ManifestTypeAlias tests that type aliases from manifests

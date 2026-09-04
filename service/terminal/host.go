@@ -22,6 +22,7 @@ import (
 	"github.com/wippyai/runtime/api/runtime"
 	terminalapi "github.com/wippyai/runtime/api/service/terminal"
 	supervisorapi "github.com/wippyai/runtime/api/supervisor"
+	ttyapi "github.com/wippyai/runtime/api/tty"
 	"github.com/wippyai/runtime/system/logs"
 	"github.com/wippyai/runtime/system/scheduler/actor"
 	securitysys "github.com/wippyai/runtime/system/security"
@@ -254,6 +255,8 @@ func (h *Host) Terminate(_ context.Context, processID pid.PID) error {
 	return nil
 }
 
+func (h *Host) AcceptsFrameAttachments() bool { return true }
+
 // Send implements relay.Receiver.
 func (h *Host) Send(pkg *relay.Package) error {
 	return h.SendContext(context.Background(), pkg)
@@ -353,7 +356,10 @@ func (h *Host) prepareContext(ctx context.Context, processID pid.PID, start *pro
 	pairs[2] = ctxapi.Pair{Key: runtime.FrameLifecycleOptionsKey, Value: start.Options}
 	tc := terminalapi.NewTerminalContextWithArgs(os.Stdin, os.Stdout, os.Stderr, args)
 	tc.Raw = h.raw
-	tc.Input = NewInputReader(os.Stdin, h.raw, h.scheduler, processID)
+	tc.Input = NewInputReader(os.Stdin, tc.Stdout, h.raw, h.scheduler, processID)
+	tc.Surface = func(options ttyapi.SurfaceOptions) (ttyapi.Surface, error) {
+		return NewSurface(os.Stdout, options), nil
+	}
 	pairs[3] = ctxapi.Pair{Key: terminalapi.Key(), Value: tc}
 	copy(pairs[4:], start.Context)
 

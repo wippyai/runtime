@@ -80,21 +80,22 @@ func (r *Resolver) Extract(entry registry.Entry) []string {
 // fetchDeps extracts dependencies using the registered patterns.
 // This function combines meta and data, then processes all patterns.
 func (r *Resolver) fetchDeps(entry registry.Entry) []string {
-	combined := make(map[string]any)
+	var payloadData any
+	if entry.Data != nil {
+		payloadData = entry.Data.Data()
+	}
+	if len(entry.Meta) == 0 && payloadData == nil {
+		return nil
+	}
+
+	combined := make(map[string]any, 2)
 
 	if len(entry.Meta) > 0 {
 		combined["meta"] = map[string]any(entry.Meta)
 	}
 
-	if entry.Data != nil {
-		payloadData := entry.Data.Data()
-		if payloadData != nil {
-			combined["data"] = payloadData
-		}
-	}
-
-	if len(combined) == 0 {
-		return nil
+	if payloadData != nil {
+		combined["data"] = payloadData
 	}
 
 	// Collect deduplicated dependencies in a slice so the output is independent

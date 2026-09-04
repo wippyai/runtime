@@ -233,6 +233,16 @@ func (r *SourceRegistry) SetLoader(loader SourceLoader) {
 	r.mu.Unlock()
 }
 
+// Snapshot returns a detached view of the current deployment sources.
+func (r *SourceRegistry) Snapshot() Sources {
+	if r == nil {
+		return nil
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return cloneSources(r.sources)
+}
+
 // Load rebuilds the normalized deployment baseline from one stable source
 // generation.
 func (r *SourceRegistry) Load(ctx context.Context) (LoadedSources, error) {

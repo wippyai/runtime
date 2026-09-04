@@ -379,6 +379,76 @@ func TestHost_RunShortcutExistingProcess(t *testing.T) {
 	assert.Equal(t, int32(0), th.factory.called.Load()) // factory not called
 }
 
+func TestHostRunShortcutReleasesUnconsumedFrameAttachments(t *testing.T) {
+	existingPID := pid.PID{Node: "test", Host: "test:host", UniqID: "existing-attachment"}
+	th := newTestHost()
+	th.pidReg.pids["my-service"] = existingPID
+	th.start(t)
+	defer th.stop()
+	closed := 0
+	attachment := &testHostAttachment{closed: &closed}
+
+	resultPID, err := th.host.Run(ctxWithAppContext(), &process.Start{
+		Source:  registry.NewID("test", "proc"),
+		Options: namedOptions("my-service"),
+		Context: []ctxapi.Pair{{Key: "attachment", Value: attachment}},
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, existingPID, resultPID)
+	require.Equal(t, 1, closed)
+}
+
+type testHostAttachment struct {
+	closed *int
+	err    error
+	once   sync.Once
+}
+
+func (a *testHostAttachment) release() error {
+	a.once.Do(func() { *a.closed++ })
+	return a.err
+}
+func (a *testHostAttachment) Close() error    { return a.release() }
+func (a *testHostAttachment) Rollback() error { return a.release() }
+
+func TestHostRunShortcutReportsAttachmentRollbackFailure(t *testing.T) {
+	existingPID := pid.PID{Node: "test", Host: "test:host", UniqID: "existing-attachment-error"}
+	th := newTestHost()
+	th.pidReg.pids["my-service"] = existingPID
+	th.start(t)
+	defer th.stop()
+	rollbackErr := errors.New("rollback failed")
+	closed := 0
+
+	resultPID, err := th.host.Run(ctxWithAppContext(), &process.Start{
+		Source:  registry.NewID("test", "proc"),
+		Options: namedOptions("my-service"),
+		Context: []ctxapi.Pair{{Key: "attachment", Value: &testHostAttachment{
+			closed: &closed, err: rollbackErr,
+		}}},
+	})
+
+	require.Equal(t, existingPID, resultPID)
+	require.ErrorIs(t, err, rollbackErr)
+	require.Equal(t, 1, closed)
+}
+
+func TestHostHandleNameTakenRollsBackUnconsumedAttachments(t *testing.T) {
+	th := newTestHost()
+	closed := 0
+	start := &process.Start{
+		Options: namedOptions("contended-service"),
+		Context: []ctxapi.Pair{{Key: "attachment", Value: &testHostAttachment{closed: &closed}}},
+	}
+	existingPID := pid.PID{Node: "test", Host: "test:host", UniqID: "winner"}
+
+	resultPID, err := th.host.handleNameTaken(existingPID, start)
+	require.NoError(t, err)
+	require.Equal(t, existingPID, resultPID)
+	require.Equal(t, 1, closed)
+}
+
 func TestHost_RunShortcutWithMessages(t *testing.T) {
 	existingPID := pid.PID{Node: "test", Host: "test:host", UniqID: "existing-456"}
 	th := newTestHost()

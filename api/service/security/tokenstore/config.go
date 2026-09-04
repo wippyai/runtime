@@ -28,7 +28,7 @@ type Config struct {
 	Store             registry.ID   `json:"store"`
 	TokenKey          string        `json:"token_key,omitempty"`
 	TokenLength       int           `json:"token_length"`
-	DefaultExpiration time.Duration `json:"default_expiration,omitzero,format:units"`
+	DefaultExpiration time.Duration `json:"default_expiration,omitzero"`
 }
 
 // Validate checks if the configuration is valid

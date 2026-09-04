@@ -229,6 +229,8 @@ func TestRequest_Basic(t *testing.T) {
 		req := httptest.NewRequestWithContext(context.Background(), "GET", "/test", nil)
 		req.Header.Set("X-Custom-Header", "custom-value")
 		req.Header.Set("Authorization", "Bearer token123")
+		req.Header.Add("X-Multi-Value", "first")
+		req.Header.Add("X-Multi-Value", "second")
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)
 		_ = fc.Set(httpservice.RequestKey(), reqCtx)
@@ -237,10 +239,39 @@ func TestRequest_Basic(t *testing.T) {
 		err := l.DoString(`
 			local req = http.request()
 			assert(req:header("X-Custom-Header") == "custom-value", "header should be custom-value")
+			assert(req:header("x-custom-header") == "custom-value", "header lookup should be case-insensitive")
 			assert(req:header("Authorization") == "Bearer token123", "auth header should match")
+			assert(req:header("x-multi-value") == "first, second", "multi-value headers should stay joined")
 			assert(req:header("Non-Existent") == nil, "missing header should be nil")
 		`)
 		assert.NoError(t, err)
+	})
+
+	t.Run("get all headers", func(t *testing.T) {
+		l := lua.NewState()
+		defer l.Close()
+		bind(l)
+
+		ctx, fc := newTestContext()
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "/test", nil)
+		req.Header.Set("X-Custom-Header", "custom-value")
+		req.Header.Add("X-Multi-Value", "first")
+		req.Header.Add("X-Multi-Value", "second")
+		recorder := httptest.NewRecorder()
+		reqCtx := httpservice.NewRequestContext(req, recorder)
+		_ = fc.Set(httpservice.RequestKey(), reqCtx)
+		l.SetContext(ctx)
+
+		err := l.DoString(`
+			local req = http.request()
+			local headers = req:headers()
+			assert(headers["X-Custom-Header"] == "custom-value", "header should be present")
+			assert(headers["X-Multi-Value"] == "first, second", "multi-value headers should stay joined")
+			headers["X-Custom-Header"] = "changed"
+			assert(req:header("X-Custom-Header") == "custom-value", "headers should return a detached table")
+		`)
+		assert.NoError(t, err)
+		assert.Equal(t, "custom-value", req.Header.Get("X-Custom-Header"))
 	})
 
 	t.Run("get content type and length", func(t *testing.T) {

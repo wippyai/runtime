@@ -44,6 +44,7 @@ func TestReconcile_ParameterDriftOnControllerStillBoots(t *testing.T) {
 	resolution := hardeningReferencedResolution([]regapi.Entry{root}, []regapi.Entry{reference})
 	resolution.BaselineDigest = baseline
 	resolution = resolution.Canonical()
+	ctx = withCurrentResolution(ctx, resolution.Modules...)
 
 	// ...then the controller's parameters change on disk.
 	driftedRoot := paramRoot("app.deps:a", "acme/a", "v1.0.0", map[string]any{"db": "other:db"})

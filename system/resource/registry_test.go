@@ -809,22 +809,8 @@ func TestService_DeleteBorrowedResource(t *testing.T) {
 	res, err := service.Acquire(ctx, id, resource.ModeNormal)
 	require.NoError(t, err)
 
-	// Try to delete while borrowed - should fail silently
-	bus.Send(ctx, event.Event{
-		System: resource.System,
-		Kind:   resource.Delete,
-		Path:   id.String(),
-		Data:   id,
-	})
-	time.Sleep(10 * time.Millisecond)
-
-	// Resource should still exist
-	assert.True(t, service.Exists(id))
-
-	// Release the resource
-	res.Release()
-
-	// Now delete should succeed
+	// Delete while borrowed retires the routing generation immediately. The
+	// provider owns whether an already acquired handle remains usable.
 	bus.Send(ctx, event.Event{
 		System: resource.System,
 		Kind:   resource.Delete,
@@ -834,4 +820,32 @@ func TestService_DeleteBorrowedResource(t *testing.T) {
 	time.Sleep(10 * time.Millisecond)
 
 	assert.False(t, service.Exists(id))
+	_, err = service.Acquire(ctx, id, resource.ModeNormal)
+	assert.ErrorIs(t, err, resource.ErrNotFound)
+
+	// Final release completes removal without requiring a second delete event.
+	res.Release()
+	time.Sleep(10 * time.Millisecond)
+
+	assert.False(t, service.Exists(id))
+}
+
+type nilResourceProvider struct{}
+
+func (nilResourceProvider) Acquire(context.Context, registry.ID, resource.AccessMode) (resource.Resource[any], error) {
+	return nil, nil
+}
+
+func TestServiceRejectsNilProviderAndNilResource(t *testing.T) {
+	service, _ := setupTest()
+	id := registry.NewID("test", "invalid-provider")
+
+	service.handleRegister(event.Event{Path: id.String(), Data: resource.Entry{ID: id}})
+	assert.False(t, service.Exists(id))
+
+	service.handleRegister(event.Event{Path: id.String(), Data: resource.Entry{ID: id, Provider: nilResourceProvider{}}})
+	_, err := service.Acquire(context.Background(), id, resource.ModeNormal)
+	assert.ErrorIs(t, err, ErrInvalidResource)
+	require.Len(t, service.resources, 1)
+	assert.Zero(t, service.resources[id].active.borrows)
 }

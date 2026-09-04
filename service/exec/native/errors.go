@@ -24,6 +24,7 @@ func NewCommandNotAllowedError(cmd string) apierror.Error {
 // ExitError represents a process exit with non-zero code
 type ExitError struct {
 	details attrs.Attributes
+	cause   error
 	Code    int
 }
 
@@ -48,3 +49,5 @@ func (e *ExitError) Details() attrs.Attributes {
 }
 
 func (e *ExitError) ExitCode() int { return e.Code }
+
+func (e *ExitError) Unwrap() error { return e.cause }

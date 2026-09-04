@@ -36,19 +36,19 @@ type Config struct { //nolint:govet // fieldalignment: limited by LifecycleConfi
 	// Supported: "PLAIN" (default), "EXTERNAL" (for mTLS), "AMQPLAIN".
 	AuthMechanism string `json:"auth_mechanism,omitempty"`
 
-	Heartbeat time.Duration `json:"heartbeat,omitzero,format:units"`
+	Heartbeat time.Duration `json:"heartbeat,omitzero"`
 
-	ConnectionTimeout time.Duration `json:"connection_timeout,omitzero,format:units"`
+	ConnectionTimeout time.Duration `json:"connection_timeout,omitzero"`
 
-	DefaultMessageTTL time.Duration `json:"default_message_ttl,omitzero,format:units"`
+	DefaultMessageTTL time.Duration `json:"default_message_ttl,omitzero"`
 
-	DefaultQueueTTL time.Duration `json:"default_queue_ttl,omitzero,format:units"`
+	DefaultQueueTTL time.Duration `json:"default_queue_ttl,omitzero"`
 
-	DefaultQueueExpiry time.Duration `json:"default_queue_expiry,omitzero,format:units"`
+	DefaultQueueExpiry time.Duration `json:"default_queue_expiry,omitzero"`
 
-	ReconnectDelay time.Duration `json:"reconnect_delay,omitzero,format:units"`
+	ReconnectDelay time.Duration `json:"reconnect_delay,omitzero"`
 
-	ReconnectMaxDelay time.Duration `json:"reconnect_max_delay,omitzero,format:units"`
+	ReconnectMaxDelay time.Duration `json:"reconnect_max_delay,omitzero"`
 
 	FrameSize int `json:"frame_size,omitempty"`
 

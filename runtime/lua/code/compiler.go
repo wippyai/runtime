@@ -8,7 +8,7 @@ import (
 	glua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/runtime/lua"
-	lru "github.com/wippyai/runtime/internal/cache"
+	"github.com/wippyai/runtime/runtime/lua/code/cache"
 )
 
 // CompiledProto represents a compiled Lua prototype with its name
@@ -30,114 +30,130 @@ type CompiledMain struct {
 	Dependencies []CompiledProto
 }
 
+// buildMemo shares graph-derived fingerprints across one complete build.
+// Without this, deep dependency chains are traversed again for every node.
+type buildMemo struct {
+	runtime       map[registry.ID]string
+	compile       map[registry.ID]string
+	compileMeta   map[registry.ID][]cache.DepMeta
+	typecheck     map[registry.ID]string
+	typecheckMeta map[registry.ID][]cache.DepMeta
+}
+
+func newBuildMemo() *buildMemo {
+	return &buildMemo{
+		runtime:       make(map[registry.ID]string),
+		compile:       make(map[registry.ID]string),
+		compileMeta:   make(map[registry.ID][]cache.DepMeta),
+		typecheck:     make(map[registry.ID]string),
+		typecheckMeta: make(map[registry.ID][]cache.DepMeta),
+	}
+}
+
 // CompileFn compiles a node against the graph snapshot used for the build.
 type CompileFn func(memGraph *MemoryGraph, node *Node) (*glua.FunctionProto, error)
 
-type compiledProtoCacheKey struct {
+type compileMemoFn func(memGraph *MemoryGraph, node *Node, memo *buildMemo) (*glua.FunctionProto, error)
+
+type retainedProtoKey struct {
 	ID  registry.ID
 	Tag string
 }
 
-type compiledMainCacheKey struct {
+type retainedMainKey struct {
 	ID      registry.ID
 	Tag     string
 	Options string
 }
 
-// Compiler handles the compilation of Lua code and caches results
+// Compiler retains compiled code until its owning registry nodes are invalidated.
 type Compiler struct {
-	protoCache *lru.Cache[compiledProtoCacheKey, *glua.FunctionProto]
-	mainCache  *lru.Cache[compiledMainCacheKey, *CompiledMain]
-	protoByID  map[registry.ID]map[compiledProtoCacheKey]struct{}
-	mainByID   map[registry.ID]map[compiledMainCacheKey]struct{}
-	compileFn  CompileFn
-	indexMu    sync.Mutex
+	retainedProtos map[retainedProtoKey]*glua.FunctionProto
+	retainedMains  map[retainedMainKey]*CompiledMain
+	protosByNode   map[registry.ID]map[retainedProtoKey]struct{}
+	mainsByNode    map[registry.ID]map[retainedMainKey]struct{}
+	compileFn      CompileFn
+	compileMemoFn  compileMemoFn
+	retainedMu     sync.RWMutex
 }
 
-// NewCompiler returns a new Compiler with caches
-func NewCompiler(
-	compileFn CompileFn,
-	protoCacheCapacity int,
-	mainCacheCapacity int,
-) *Compiler {
-	c := &Compiler{
-		protoByID: make(map[registry.ID]map[compiledProtoCacheKey]struct{}),
-		mainByID:  make(map[registry.ID]map[compiledMainCacheKey]struct{}),
-		compileFn: compileFn,
+// NewCompiler returns a compiler with lifecycle-owned retained code.
+func NewCompiler(compileFn CompileFn) *Compiler {
+	compiler := newCompiler()
+	compiler.compileFn = compileFn
+	return compiler
+}
+
+func newCompilerWithMemo(compileFn compileMemoFn) *Compiler {
+	compiler := newCompiler()
+	compiler.compileMemoFn = compileFn
+	return compiler
+}
+
+func newCompiler() *Compiler {
+	return &Compiler{
+		retainedProtos: make(map[retainedProtoKey]*glua.FunctionProto),
+		retainedMains:  make(map[retainedMainKey]*CompiledMain),
+		protosByNode:   make(map[registry.ID]map[retainedProtoKey]struct{}),
+		mainsByNode:    make(map[registry.ID]map[retainedMainKey]struct{}),
 	}
-
-	c.protoCache = lru.New[compiledProtoCacheKey, *glua.FunctionProto](
-		lru.WithCapacity(protoCacheCapacity),
-		lru.WithOnEvict(func(key compiledProtoCacheKey, _ *glua.FunctionProto) {
-			c.removeProtoKey(key)
-		}),
-	)
-	c.mainCache = lru.New[compiledMainCacheKey, *CompiledMain](
-		lru.WithCapacity(mainCacheCapacity),
-		lru.WithOnEvict(func(key compiledMainCacheKey, _ *CompiledMain) {
-			c.removeMainKey(key)
-		}),
-	)
-
-	return c
 }
 
-// getCompiledProto retrieves a node's compiled function prototype from cache or compiles it
-func (c *Compiler) getCompiledProto(memGraph *MemoryGraph, node *Node, memo map[registry.ID]string) (*glua.FunctionProto, error) {
+// getCompiledProto retrieves retained code or compiles it for the active node version.
+func (c *Compiler) getCompiledProto(memGraph *MemoryGraph, node *Node, memo *buildMemo) (*glua.FunctionProto, error) {
 	if node.Kind == lua.ModuleKind {
 		return nil, ErrModuleNotCompiled
 	}
 
-	tag, err := runtimeFingerprintMemo(memGraph, node.ID, memo)
+	tag, err := runtimeFingerprintMemo(memGraph, node.ID, memo.runtime)
 	if err != nil {
 		return nil, err
 	}
-	key := compiledProtoCacheKey{ID: node.ID, Tag: tag}
+	key := retainedProtoKey{ID: node.ID, Tag: tag}
 
-	if proto, ok := c.protoCache.Get(key); ok {
+	c.retainedMu.RLock()
+	proto, ok := c.retainedProtos[key]
+	c.retainedMu.RUnlock()
+	if ok {
 		return proto, nil
 	}
 
-	compiled, err := c.compileFn(memGraph, node)
+	var compiled *glua.FunctionProto
+	if c.compileMemoFn != nil {
+		compiled, err = c.compileMemoFn(memGraph, node, memo)
+	} else {
+		compiled, err = c.compileFn(memGraph, node)
+	}
 	if err != nil {
 		return nil, err
 	}
 
-	_ = c.protoCache.Set(key, compiled)
-	c.recordProtoKey(key)
-	return compiled, nil
+	return c.retainProto(key, compiled), nil
 }
 
-// Invalidate removes entries from both caches for the given IDs
+// Invalidate releases retained code owned by the given registry nodes.
 func (c *Compiler) Invalidate(ids []registry.ID) {
-	c.indexMu.Lock()
-	protoKeys := make([]compiledProtoCacheKey, 0)
-	mainKeys := make([]compiledMainCacheKey, 0)
+	c.retainedMu.Lock()
+	defer c.retainedMu.Unlock()
 	for _, id := range ids {
-		for key := range c.protoByID[id] {
-			protoKeys = append(protoKeys, key)
+		for key := range c.protosByNode[id] {
+			delete(c.retainedProtos, key)
 		}
-		delete(c.protoByID, id)
-		for key := range c.mainByID[id] {
-			mainKeys = append(mainKeys, key)
+		delete(c.protosByNode, id)
+		for key := range c.mainsByNode[id] {
+			delete(c.retainedMains, key)
 		}
-		delete(c.mainByID, id)
-	}
-	c.indexMu.Unlock()
-
-	for _, key := range protoKeys {
-		c.protoCache.Delete(key)
-	}
-	for _, key := range mainKeys {
-		c.mainCache.Delete(key)
+		delete(c.mainsByNode, id)
 	}
 }
 
 // SetProto injects a precompiled prototype into the cache.
 func (c *Compiler) SetProto(id registry.ID, tag string, proto *glua.FunctionProto) {
-	key := compiledProtoCacheKey{ID: id, Tag: tag}
-	_ = c.protoCache.Set(key, proto)
-	c.recordProtoKey(key)
+	key := retainedProtoKey{ID: id, Tag: tag}
+	c.retainedMu.Lock()
+	defer c.retainedMu.Unlock()
+	c.retainedProtos[key] = proto
+	c.recordProtoKeyLocked(key)
 }
 
 // Compile builds and compiles a main function and its dependencies
@@ -150,18 +166,21 @@ func (c *Compiler) Compile(
 		options = NewBuildOptions()
 	}
 
-	memo := make(map[registry.ID]string)
-	tag, err := runtimeFingerprintMemo(memGraph, entrypoint, memo)
+	memo := newBuildMemo()
+	tag, err := runtimeFingerprintMemo(memGraph, entrypoint, memo.runtime)
 	if err != nil {
 		return nil, err
 	}
-	key := compiledMainCacheKey{
+	key := retainedMainKey{
 		ID:      entrypoint,
 		Tag:     tag,
 		Options: BuildOptionsFingerprint(options),
 	}
 
-	if cached, ok := c.mainCache.Get(key); ok {
+	c.retainedMu.RLock()
+	cached, ok := c.retainedMains[key]
+	c.retainedMu.RUnlock()
+	if ok {
 		return cached, nil
 	}
 
@@ -222,10 +241,7 @@ func (c *Compiler) Compile(
 
 	compiled.Main = mainProto
 
-	_ = c.mainCache.Set(key, compiled)
-	c.recordMainKey(key)
-
-	return compiled, nil
+	return c.retainMain(key, compiled), nil
 }
 
 func (c *Compiler) preloadModule(memGraph *MemoryGraph, pre Preload, compiled *CompiledMain) error {
@@ -241,54 +257,38 @@ func (c *Compiler) preloadModule(memGraph *MemoryGraph, pre Preload, compiled *C
 	return nil
 }
 
-func (c *Compiler) recordProtoKey(key compiledProtoCacheKey) {
-	c.indexMu.Lock()
-	defer c.indexMu.Unlock()
+func (c *Compiler) retainProto(key retainedProtoKey, proto *glua.FunctionProto) *glua.FunctionProto {
+	c.retainedMu.Lock()
+	defer c.retainedMu.Unlock()
+	if retained, ok := c.retainedProtos[key]; ok {
+		return retained
+	}
+	c.retainedProtos[key] = proto
+	c.recordProtoKeyLocked(key)
+	return proto
+}
 
-	keys := c.protoByID[key.ID]
+func (c *Compiler) recordProtoKeyLocked(key retainedProtoKey) {
+	keys := c.protosByNode[key.ID]
 	if keys == nil {
-		keys = make(map[compiledProtoCacheKey]struct{})
-		c.protoByID[key.ID] = keys
+		keys = make(map[retainedProtoKey]struct{})
+		c.protosByNode[key.ID] = keys
 	}
 	keys[key] = struct{}{}
 }
 
-func (c *Compiler) removeProtoKey(key compiledProtoCacheKey) {
-	c.indexMu.Lock()
-	defer c.indexMu.Unlock()
-
-	keys := c.protoByID[key.ID]
-	if keys == nil {
-		return
+func (c *Compiler) retainMain(key retainedMainKey, compiled *CompiledMain) *CompiledMain {
+	c.retainedMu.Lock()
+	defer c.retainedMu.Unlock()
+	if retained, ok := c.retainedMains[key]; ok {
+		return retained
 	}
-	delete(keys, key)
-	if len(keys) == 0 {
-		delete(c.protoByID, key.ID)
-	}
-}
-
-func (c *Compiler) recordMainKey(key compiledMainCacheKey) {
-	c.indexMu.Lock()
-	defer c.indexMu.Unlock()
-
-	keys := c.mainByID[key.ID]
+	c.retainedMains[key] = compiled
+	keys := c.mainsByNode[key.ID]
 	if keys == nil {
-		keys = make(map[compiledMainCacheKey]struct{})
-		c.mainByID[key.ID] = keys
+		keys = make(map[retainedMainKey]struct{})
+		c.mainsByNode[key.ID] = keys
 	}
 	keys[key] = struct{}{}
-}
-
-func (c *Compiler) removeMainKey(key compiledMainCacheKey) {
-	c.indexMu.Lock()
-	defer c.indexMu.Unlock()
-
-	keys := c.mainByID[key.ID]
-	if keys == nil {
-		return
-	}
-	delete(keys, key)
-	if len(keys) == 0 {
-		delete(c.mainByID, key.ID)
-	}
+	return compiled
 }

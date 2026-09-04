@@ -69,7 +69,7 @@ func TestModuleFunctions(t *testing.T) {
 	require.Equal(t, lua.LTTable, mod.Type())
 
 	modTbl := mod.(*lua.LTable)
-	funcs := []string{"start", "stop", "screen_size", "events", "style", "bind"}
+	funcs := []string{"start", "stop", "screen_size", "events", "style", "bind", "surface", "viewport", "attach"}
 	for _, name := range funcs {
 		assert.Equal(t, lua.LTFunction, modTbl.RawGetString(name).Type(), "missing function: %s", name)
 	}
@@ -269,8 +269,8 @@ func TestScreenSizeYield_HandleResult_Success(t *testing.T) {
 
 	y := AcquireScreenSizeYield()
 	values := y.HandleResult(l, []int{80, 24}, nil)
-	assert.Equal(t, lua.LNumber(80), values[0])
-	assert.Equal(t, lua.LNumber(24), values[1])
+	assert.Equal(t, lua.LInteger(80), values[0])
+	assert.Equal(t, lua.LInteger(24), values[1])
 	assert.Equal(t, lua.LNil, values[2])
 	ReleaseScreenSizeYield(y)
 }
@@ -330,8 +330,8 @@ func TestEventHandler_MouseEvent(t *testing.T) {
 	assert.Equal(t, "mouse", tbl.RawGetString("type").String())
 	assert.Equal(t, "press", tbl.RawGetString("action").String())
 	assert.Equal(t, "left", tbl.RawGetString("button").String())
-	assert.Equal(t, lua.LNumber(10), tbl.RawGetString("x"))
-	assert.Equal(t, lua.LNumber(20), tbl.RawGetString("y"))
+	assert.Equal(t, lua.LInteger(10), tbl.RawGetString("x"))
+	assert.Equal(t, lua.LInteger(20), tbl.RawGetString("y"))
 }
 
 func TestEventHandler_ResizeEvent(t *testing.T) {
@@ -349,8 +349,8 @@ func TestEventHandler_ResizeEvent(t *testing.T) {
 	tbl, ok := result.(*lua.LTable)
 	require.True(t, ok)
 	assert.Equal(t, "resize", tbl.RawGetString("type").String())
-	assert.Equal(t, lua.LNumber(120), tbl.RawGetString("width"))
-	assert.Equal(t, lua.LNumber(40), tbl.RawGetString("height"))
+	assert.Equal(t, lua.LInteger(120), tbl.RawGetString("width"))
+	assert.Equal(t, lua.LInteger(40), tbl.RawGetString("height"))
 }
 
 func TestEventHandler_FocusEvent(t *testing.T) {
@@ -365,6 +365,19 @@ func TestEventHandler_FocusEvent(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "focus", tbl.RawGetString("type").String())
 	assert.Equal(t, lua.LTrue, tbl.RawGetString("focused"))
+}
+
+func TestEventHandler_VisibilityEvent(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+
+	ev := &svcterm.TTYEvent{Type: "visibility", Visible: true}
+	result := eventHandler(context.Background(), l, pid.PID{}, "",
+		[]payload.Payload{payload.New(ev)})
+	tbl, ok := result.(*lua.LTable)
+	require.True(t, ok)
+	assert.Equal(t, "visibility", tbl.RawGetString("type").String())
+	assert.Equal(t, lua.LTrue, tbl.RawGetString("visible"))
 }
 
 func TestEventHandler_PasteEvent(t *testing.T) {
@@ -522,6 +535,41 @@ func TestText_Width(t *testing.T) {
 		local tty = tty
 		local w = tty.text.width("hello")
 		if w ~= 5 then error("expected width 5, got " .. w) end
+	`)
+	assert.NoError(t, err)
+}
+
+func TestText_TruncatePreservesANSIAndUnicode(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	bindTTY(l)
+
+	err := l.DoString(`
+		local styled = "\27[31mhello 世界\27[0m"
+		local result = tty.text.truncate(styled, 7, "…")
+		if tty.text.width(result) ~= 7 then
+			error("expected printable width 7, got " .. tty.text.width(result))
+		end
+		if string.find(result, "\27%[31m") == nil then error("style was lost") end
+		if string.find(result, "…", 1, true) == nil then error("tail was lost") end
+		if tty.text.truncate(styled, 0, "…") ~= "" then error("zero width") end
+	`)
+	assert.NoError(t, err)
+}
+
+func TestText_CutPreservesANSIAndUnicode(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	bindTTY(l)
+
+	err := l.DoString(`
+		local styled = "\27[31mab世界cd\27[0m"
+		local result = tty.text.cut(styled, 2, 6)
+		if tty.text.width(result) ~= 4 then
+			error("expected printable width 4, got " .. tty.text.width(result))
+		end
+		if string.find(result, "\27%[31m") == nil then error("style was lost") end
+		if tty.text.cut(styled, 4, 4) ~= "" then error("empty cut") end
 	`)
 	assert.NoError(t, err)
 }
@@ -868,8 +916,8 @@ func TestEventHandler_StartEvent(t *testing.T) {
 	tbl, ok := result.(*lua.LTable)
 	require.True(t, ok)
 	assert.Equal(t, "start", tbl.RawGetString("type").String())
-	assert.Equal(t, lua.LNumber(80), tbl.RawGetString("width"))
-	assert.Equal(t, lua.LNumber(24), tbl.RawGetString("height"))
+	assert.Equal(t, lua.LInteger(80), tbl.RawGetString("width"))
+	assert.Equal(t, lua.LInteger(24), tbl.RawGetString("height"))
 }
 
 func TestEventHandler_FocusBlurEvent(t *testing.T) {

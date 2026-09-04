@@ -295,7 +295,7 @@ func TestManagerPreStartSubscriptionsReceiveIndependentStartupSnapshots(t *testi
 	require.NoError(t, m.Delete(context.Background(), registry.Entry{ID: bID, Kind: kind}))
 }
 
-func TestManagerDeleteInvokesDisposeOnlyAfterUnregister(t *testing.T) {
+func TestManagerDeleteDisposesBeforeUnregister(t *testing.T) {
 	source := &disposableTestSource{managedTestSource: &managedTestSource{info: api.SourceInfo{Name: "source"}}}
 	driver := testDriver{
 		kind:   "db.cdc.test",

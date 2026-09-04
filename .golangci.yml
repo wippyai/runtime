@@ -160,6 +160,12 @@ linters:
       - linters:
           - gosec
         text: "G705"
+      # PostgreSQL history queries are generated once from identifiers that
+      # are validated and quoted by newTableConfig before use.
+      - linters:
+          - gosec
+        text: "G701"
+        path: system/registry/history/postgres/postgres\.go
       - linters:
           - gosec
         text: "G118"

@@ -66,6 +66,7 @@ type DependencyHandler struct {
 	logger          *zap.Logger
 	lock            *lock.Lock
 	artifacts       *artifact.Registry
+	deployment      *regapi.Deployment
 	artifactRoot    string
 	replacements    map[string]lock.Replacement
 	vendorDir       string
@@ -168,6 +169,98 @@ func NewDependencyHandler(opts DependencyHandlerOptions) (*DependencyHandler, er
 	}, nil
 }
 
+// PrepareRestore materializes the exact module artifacts recorded for the
+// current registry version. Version selection remains the stored resolution;
+// the Hub is used only when a verified artifact is absent locally.
+func (h *DependencyHandler) PrepareRestore(ctx context.Context, history regapi.History) error {
+	resolutions, ok := history.(regapi.ResolutionHistory)
+	if h == nil || !ok {
+		return nil
+	}
+	configured, err := h.deploymentFromLock()
+	if err != nil {
+		return err
+	}
+	head, err := history.Head()
+	if err != nil {
+		var categorized apierror.Error
+		if errors.As(err, &categorized) && categorized.Kind() == apierror.NotFound {
+			h.deployment = configured
+			return nil
+		}
+		return fmt.Errorf("read registry head for dependency restore: %w", err)
+	}
+	resolution, err := resolutions.GetDependencyResolution(head)
+	if errors.Is(err, regapi.ErrDependencyResolutionNotFound) {
+		h.deployment = configured
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("read dependency resolution for restore: %w", err)
+	}
+	deployment := configured
+	if deployment == nil {
+		deployment = resolution.Deployment.Canonical()
+	}
+	effective, err := resolvedModulesFromStored(resolution)
+	if err != nil {
+		return err
+	}
+	if deployment == nil {
+		// A source checkout has an unrooted lock: its ordinary lock loader has
+		// already published the deployment sources. History may add modules, but
+		// it must not turn that development shape into a persisted Hub root.
+		if h.lock != nil {
+			h.deployment = nil
+			ctx = regapi.WithDependencyAccess(ctx, regapi.DependencyAccessOnline)
+			return h.materializeRestoreModules(ctx, effective)
+		}
+		return fmt.Errorf("persisted deployment baseline is unavailable; start once with its lock file")
+	}
+	h.deployment = deployment
+	baseline, err := resolvedModulesFromRecords(deployment.Modules)
+	if err != nil {
+		return err
+	}
+	ctx = regapi.WithDependencyAccess(ctx, regapi.DependencyAccessOnline)
+	if err := h.prepareRestoreSources(ctx, baseline); err != nil {
+		return err
+	}
+	return h.materializeRestoreModules(ctx, effective)
+}
+
+func (h *DependencyHandler) deploymentFromLock() (*regapi.Deployment, error) {
+	if h == nil || h.lock == nil {
+		return nil, nil
+	}
+	roots := h.lock.GetRootModules()
+	if len(roots) != 1 {
+		return nil, nil
+	}
+	if len(h.replacements) != 0 {
+		return nil, nil
+	}
+	deployment := &regapi.Deployment{Root: roots[0], Modules: make([]regapi.ResolvedModule, 0, len(h.lock.GetModules()))}
+	for _, module := range h.lock.GetModules() {
+		algorithm, digest, err := parseExpectedDigest(module.Hash)
+		if err != nil || algorithm != "sha256" || len(digest) != 64 {
+			return nil, fmt.Errorf("deployment module %s has invalid artifact digest", module.Name)
+		}
+		deployment.Modules = append(deployment.Modules, regapi.ResolvedModule{
+			Name: module.Name, Version: module.Version, VersionID: module.Version,
+			Source: moduleSourceHub, Digest: "sha256:" + strings.ToLower(digest),
+		})
+	}
+	return deployment.Canonical(), nil
+}
+
+func (h *DependencyHandler) isDeploymentRoot(module string) bool {
+	if h.deployment != nil {
+		return module == h.deployment.Root
+	}
+	return h.lock != nil && h.lock.IsRootModule(module)
+}
+
 func (h *DependencyHandler) Expand(ctx context.Context, op regapi.Operation, snapshot regapi.State) (regapi.DirectiveResult, error) {
 	return h.expand(ctx, op, snapshot, nil, nil, nil)
 }
@@ -260,7 +353,7 @@ func (h *DependencyHandler) expand(
 	}
 
 	desiredRoots := dependencyDefinitions(desiredDeps)
-	resolved, err := h.resolveEffectiveModules(ctx, desiredRoots, lockedVersions)
+	resolved, err := h.resolveEffectiveModules(ctx, desiredRoots, lockedVersions, h.currentResolution(ctx))
 	if err != nil {
 		return regapi.DirectiveResult{}, err
 	}
@@ -281,10 +374,11 @@ func (h *DependencyHandler) expand(
 			break
 		}
 	}
+	_, installedDigests := h.currentModuleIdentities(ctx)
 	strictModules := touchedModuleIdentities(
 		resolved,
 		lockedVersions,
-		snapshotModuleDigests(snapshot),
+		installedDigests,
 		opComponent,
 	)
 	strictSet := stringSet(strictModules)
@@ -313,7 +407,7 @@ func (h *DependencyHandler) expand(
 	desiredModules := resolvedModuleSet(resolved)
 	addModuleSet(controlledModules, desiredModules)
 
-	moduleEntries, unpackPlan, err := h.loadModuleEntries(ctx, filterResolvedModules(resolved, touchedModules), resolved, snapshot, transcoder)
+	moduleEntries, unpackPlan, err := h.loadModuleEntries(ctx, filterResolvedModules(resolved, touchedModules), snapshot, transcoder)
 	if err != nil {
 		return regapi.DirectiveResult{}, err
 	}
@@ -368,7 +462,7 @@ func (h *DependencyHandler) expand(
 	if err != nil {
 		return regapi.DirectiveResult{}, err
 	}
-	packEffect, err := h.buildEmbedPackEffect(ctx, resolved, snapshot, controlledModules)
+	packEffect, err := h.buildEmbedPackEffect(ctx, resolved, controlledModules)
 	if err != nil {
 		return regapi.DirectiveResult{}, err
 	}
@@ -570,7 +664,7 @@ func (h *DependencyHandler) refreshResolvedModules(
 			}
 		}
 	}
-	return h.resolveEffectiveModules(ctx, dependencyDefinitions(desiredDeps), lockedVersions)
+	return h.resolveEffectiveModules(ctx, dependencyDefinitions(desiredDeps), lockedVersions, resolution)
 }
 
 // ReconcileResolution materializes a previously selected graph. An unchanged
@@ -678,6 +772,8 @@ func (h *DependencyHandler) ReconcileResolution(
 	if err := h.refreshReplacementModuleIdentities(resolved); err != nil {
 		return regapi.DirectiveResult{}, err
 	}
+	effectiveResolution.Deployment = h.deployment.Canonical()
+	effectiveResolution = effectiveResolution.Canonical()
 	// A local replacement is a mutable development source. Reconciliation uses
 	// its current identity to decide which resident entries must be reloaded,
 	// while effectiveResolution remains the immutable checkpoint for this
@@ -685,10 +781,8 @@ func (h *DependencyHandler) ReconcileResolution(
 
 	desiredModules := resolvedModuleSet(resolved)
 	// A stored graph is authoritative by content identity, not merely version.
-	// Reload modules whose entries do not carry the exact stored digest. Entries
-	// written before module_digest existed are deliberately reloaded once.
-	installedDigests := snapshotModuleDigests(target)
-	lockedDigests := h.lockedModuleDigests()
+	_, installedDigests := h.currentModuleIdentities(ctx)
+	baselineDigests := h.baselineModuleDigests()
 	touched := make(map[string]struct{}, len(desiredModules))
 	mutable := make(map[string]struct{}, len(desiredModules))
 	parameterModules, err := changedDependencyParameterModules(ctx, current, target, transcoder)
@@ -708,10 +802,7 @@ func (h *DependencyHandler) ReconcileResolution(
 		module := mod.Org + "/" + mod.Name
 		installedDigest := installedDigests[module]
 		if installedDigest == "" {
-			// Legacy entries predate module_digest. The exact name@version lock
-			// hash is still authoritative and prevents a history restore from
-			// rewriting every resident module merely to backfill metadata.
-			installedDigest = lockedDigests[module+"@"+mod.Version]
+			installedDigest = baselineDigests[module+"@"+mod.Version]
 		}
 		if !artifactDigestsEqual(installedDigest, mod.Digest) {
 			mutable[module] = struct{}{}
@@ -725,7 +816,7 @@ func (h *DependencyHandler) ReconcileResolution(
 		return regapi.DirectiveResult{}, err
 	}
 
-	moduleEntries, unpackPlan, err := h.loadModuleEntries(ctx, filterResolvedModules(resolved, touched), resolved, target, transcoder)
+	moduleEntries, unpackPlan, err := h.loadModuleEntries(ctx, filterResolvedModules(resolved, touched), target, transcoder)
 	if err != nil {
 		return regapi.DirectiveResult{}, err
 	}
@@ -777,7 +868,7 @@ func (h *DependencyHandler) ReconcileResolution(
 	for _, op := range additional {
 		scoped = append(scoped, regapi.ScopedOperation{Operation: op, Scope: regapi.ScopeBaseline})
 	}
-	packEffect, err := h.buildEmbedPackEffect(ctx, resolved, current, controlled)
+	packEffect, err := h.buildEmbedPackEffect(ctx, resolved, controlled)
 	if err != nil {
 		return regapi.DirectiveResult{}, err
 	}
@@ -1239,7 +1330,7 @@ func dependencyParametersEqual(a, b []Parameter) bool {
 }
 
 func (h *DependencyHandler) installedModuleVersions(ctx context.Context, transcoder payload.Transcoder, snapshot regapi.State) (map[string]string, error) {
-	versions := snapshotModuleVersions(snapshot)
+	versions, _ := h.currentModuleIdentities(ctx)
 	if h.lock == nil {
 		return versions, nil
 	}
@@ -1287,7 +1378,12 @@ func mergeLinkDependencies(explicitDeps, moduleEntries []regapi.Entry) []regapi.
 	return merged
 }
 
-func (h *DependencyHandler) resolveModules(ctx context.Context, deps []DependencyDefinition, lockedVersions map[string]string) ([]ResolvedModule, error) {
+func (h *DependencyHandler) resolveModules(
+	ctx context.Context,
+	deps []DependencyDefinition,
+	lockedVersions map[string]string,
+	resolution *regapi.DependencyResolution,
+) ([]ResolvedModule, error) {
 	roots := make([]DependencySpec, 0, len(deps))
 	for _, dep := range deps {
 		name, err := graph.ParseName(dep.Component)
@@ -1308,16 +1404,19 @@ func (h *DependencyHandler) resolveModules(ctx context.Context, deps []Dependenc
 	if h.manifestCache != nil {
 		provider = h.manifestCache
 	}
-	lockedDigests := h.lockedModuleDigests()
+	baselineDigests := h.baselineModuleDigests()
+	if regapi.DependencyAccessFromContext(ctx) == regapi.DependencyAccessVerifiedOffline {
+		provider = newLockedManifestProvider(h, h.offlineModules(resolution))
+	}
 	provider = &replacementManifestProvider{
 		base:           provider,
 		handler:        h,
 		lockedVersions: lockedVersions,
-		lockedDigests:  lockedDigests,
+		lockedDigests:  baselineDigests,
 	}
 	result, err := Resolve(resolveCtx, provider, roots, &ResolveOptions{
 		LockedVersions: lockedVersions,
-		LockedDigests:  lockedDigests,
+		LockedDigests:  baselineDigests,
 	})
 	if err != nil {
 		if h.logger != nil {
@@ -1328,6 +1427,14 @@ func (h *DependencyHandler) resolveModules(ctx context.Context, deps []Dependenc
 	if len(result.Errors) > 0 {
 		if h.logger != nil {
 			h.logger.Error("dependency resolution failed", zap.String("errors", formatResolutionErrors(result.Errors)))
+		}
+		if regapi.DependencyAccessFromContext(ctx) == regapi.DependencyAccessVerifiedOffline {
+			// A replaced module resolves from its local tree, so its failure
+			// is never a missing-evidence failure; the full error set carries
+			// the actual cause.
+			if module, ok := h.offlineEvidenceFailure(result.Errors); ok {
+				return nil, NewDependencyOfflineError("resolve", module)
+			}
 		}
 		return nil, NewDependencyResolutionErrors(result.Errors)
 	}
@@ -1347,6 +1454,60 @@ func (h *DependencyHandler) resolveModules(ctx context.Context, deps []Dependenc
 	return result.Modules, nil
 }
 
+// ResolveWorkspaceDependencies resolves source declarations through the same
+// manifest stack used by live dependency operations. In particular, local
+// replacements supply their declarations while the Hub supplies a release
+// version when the source tree does not declare one.
+func (h *DependencyHandler) ResolveWorkspaceDependencies(
+	ctx context.Context,
+	deps []DependencyDefinition,
+) ([]ResolvedModule, error) {
+	lockedVersions := h.workspaceLockedVersions(nil, false)
+	return h.resolveModules(ctx, deps, lockedVersions, nil)
+}
+
+// UpdateWorkspaceDependencies resolves a workspace graph while releasing the
+// requested remote modules from their existing lock selections. An empty
+// updateModules slice releases every remote module. Replacement selections are
+// retained because a replacement changes source, not release identity; a new
+// unversioned replacement receives the local-only zero release until stronger
+// source or Hub evidence selects another version.
+func (h *DependencyHandler) UpdateWorkspaceDependencies(
+	ctx context.Context,
+	deps []DependencyDefinition,
+	updateModules []string,
+) ([]ResolvedModule, error) {
+	updates := make(map[string]struct{}, len(updateModules))
+	for _, name := range updateModules {
+		if name = strings.TrimSpace(name); name != "" {
+			updates[name] = struct{}{}
+		}
+	}
+	return h.resolveModules(ctx, deps, h.workspaceLockedVersions(updates, len(updateModules) == 0), nil)
+}
+
+func (h *DependencyHandler) workspaceLockedVersions(updates map[string]struct{}, updateAll bool) map[string]string {
+	lockedVersions := make(map[string]string)
+	if h.lock != nil {
+		for _, module := range h.lock.GetModules() {
+			if module.Name == "" || module.Version == "" {
+				continue
+			}
+			_, replacement := h.replacementPath(module.Name)
+			_, update := updates[module.Name]
+			if replacement || (!updateAll && !update) {
+				lockedVersions[module.Name] = module.Version
+			}
+		}
+	}
+	for name := range h.replacements {
+		if lockedVersions[name] == "" && h.replacementModuleVersion(name) == "" {
+			lockedVersions[name] = replacementZeroVersion
+		}
+	}
+	return lockedVersions
+}
+
 // resolveEffectiveModules returns the complete module selection controlled by
 // the current deployment plus authored registry roots. Lock-selected root
 // modules are implicit deployment inputs: a history overlay may replace one,
@@ -1356,8 +1517,20 @@ func (h *DependencyHandler) resolveEffectiveModules(
 	ctx context.Context,
 	deps []DependencyDefinition,
 	lockedVersions map[string]string,
+	resolution *regapi.DependencyResolution,
 ) ([]ResolvedModule, error) {
-	resolved, err := h.resolveModules(ctx, deps, lockedVersions)
+	if regapi.DependencyAccessFromContext(ctx) == regapi.DependencyAccessVerifiedOffline {
+		if resolved, ok := h.lockedResolution(deps, lockedVersions); ok {
+			if h.logger != nil {
+				h.logger.Debug("using locked dependency resolution",
+					zap.Int("modules", len(resolved)),
+					zap.Int("roots", len(deps)))
+			}
+			return resolved, nil
+		}
+	}
+
+	resolved, err := h.resolveModules(ctx, deps, lockedVersions, resolution)
 	if err != nil {
 		return nil, err
 	}
@@ -1593,10 +1766,17 @@ func validModuleIdentifier(value string) bool {
 	return true
 }
 
+// replacementZeroVersion labels a replacement tree that declares no version
+// and has never been recorded under one. Identity is the tree digest; the
+// label only has to be a well-formed release.
+const replacementZeroVersion = "0.0.0"
+
 // replacementManifestProvider loads entries and declared dependencies from a
-// local replacement tree. A replacement with no explicit source version still
-// delegates release availability to the Hub; a satisfying lock avoids that call.
-// Non-replaced modules delegate to the base provider.
+// local replacement tree. A replacement with no explicit source version
+// delegates release availability to the Hub while startup may reach it; a
+// satisfying lock avoids that call, and a verified-offline startup never makes
+// it - see localReplacementVersion. Non-replaced modules delegate to the base
+// provider.
 type replacementManifestProvider struct {
 	base           ManifestProvider
 	handler        *DependencyHandler
@@ -1615,7 +1795,29 @@ func (p *replacementManifestProvider) replacementVersion(name, constraint string
 	if isExactModuleVersion(constraint) {
 		return constraint
 	}
-	return p.lockedVersions[name]
+	locked := p.lockedVersions[name]
+	if lockedVersionSatisfies(locked, constraint) {
+		return locked
+	}
+	return ""
+}
+
+// localReplacementVersion labels a replaced module from local evidence alone,
+// for a verified-offline startup that has no Hub to resolve against: the
+// version already recorded for the module, or the zero release when none was
+// ever recorded. The label faces the graph's constraints like any other
+// selection, so a range no local evidence satisfies fails the resolve.
+// Declaring version in the replacement's wippy.yaml settles it offline.
+func (p *replacementManifestProvider) localReplacementVersion(name string) string {
+	if version := p.lockedVersions[name]; version != "" {
+		return version
+	}
+	return replacementZeroVersion
+}
+
+// offlineStartup reports that this resolution may not reach the Hub at all.
+func offlineStartup(ctx context.Context) bool {
+	return regapi.DependencyAccessFromContext(ctx) == regapi.DependencyAccessVerifiedOffline
 }
 
 func isExactModuleVersion(value string) bool {
@@ -1627,6 +1829,9 @@ func (p *replacementManifestProvider) GetManifest(ctx context.Context, org, modu
 	name := org + "/" + module
 	if path, ok := p.handler.replacementPath(name); ok {
 		version := p.replacementVersion(name, constraint)
+		if version == "" && offlineStartup(ctx) {
+			version = p.localReplacementVersion(name)
+		}
 		if version == "" {
 			// Labels do not identify a concrete release. Ask the Hub only to
 			// resolve the label, then keep the local replacement tree as the
@@ -1667,36 +1872,7 @@ func (p *replacementManifestProvider) localReplacementDependencies(ctx context.C
 		return nil, err
 	}
 
-	deps := make([]ManifestDep, 0)
-	seen := make(map[string]struct{})
-	for _, entry := range entries {
-		if entry.Kind != regapi.NamespaceDependency {
-			continue
-		}
-		def, err := decodeDependency(ctx, transcoder, entry)
-		if err != nil {
-			return nil, err
-		}
-		if def.Component == "" {
-			return nil, NewDependencyEntryInvalidError(entry.ID.String(), "component is required", "")
-		}
-		name, err := graph.ParseName(def.Component)
-		if err != nil {
-			return nil, NewDependencyEntryInvalidError(entry.ID.String(), "invalid component", def.Component)
-		}
-
-		key := name.String() + "@" + def.Version
-		if _, ok := seen[key]; ok {
-			continue
-		}
-		seen[key] = struct{}{}
-		deps = append(deps, ManifestDep{
-			Org:     name.Organization,
-			Name:    name.Module,
-			Version: def.Version,
-		})
-	}
-	return deps, nil
+	return manifestDependenciesFromEntries(ctx, transcoder, entries)
 }
 
 func loadReplacementEntries(
@@ -1706,8 +1882,11 @@ func loadReplacementEntries(
 	transcoder payload.Transcoder,
 ) ([]regapi.Entry, error) {
 	stat, err := os.Stat(path)
-	if err != nil || !stat.IsDir() {
-		return nil, nil
+	if err != nil {
+		return nil, NewDependencyLoadError(path, err)
+	}
+	if !stat.IsDir() {
+		return nil, NewDependencyLoadError(path, fmt.Errorf("replacement path is not a directory"))
 	}
 
 	cfg, _ := depconfig.Load(path)
@@ -1743,9 +1922,14 @@ func (p *replacementManifestProvider) ListAllVersions(ctx context.Context, org, 
 	if _, ok := p.handler.replacementPath(name); ok {
 		// An explicit source version is the complete candidate set. Without
 		// one, the local tree supplies bytes but the Hub remains authoritative
-		// for which released versions are available to satisfy live ranges.
+		// for which released versions satisfy live ranges. A verified-offline
+		// startup cannot reach it, so local evidence is the whole candidate
+		// set.
 		if version := p.handler.replacementModuleVersion(name); version != "" {
 			return []VersionInfo{{Version: version}}, nil
+		}
+		if offlineStartup(ctx) {
+			return []VersionInfo{{Version: p.localReplacementVersion(name)}}, nil
 		}
 		return p.base.ListAllVersions(ctx, org, module)
 	}
@@ -1826,11 +2010,9 @@ func filterResolvedModules(modules []ResolvedModule, keep map[string]struct{}) [
 	return out
 }
 
-func (h *DependencyHandler) loadModuleEntries(ctx context.Context, modules []ResolvedModule, ownerModules []ResolvedModule, snapshot regapi.State, transcoder payload.Transcoder) ([]regapi.Entry, *unpackPlan, error) {
+func (h *DependencyHandler) loadModuleEntries(ctx context.Context, modules []ResolvedModule, snapshot regapi.State, transcoder payload.Transcoder) ([]regapi.Entry, *unpackPlan, error) {
 	entries := make([]regapi.Entry, 0)
 	plan := &unpackPlan{}
-	owners := moduleOwnersByNamespace(ownerModules)
-	snapshotOwners := moduleOwnersByEntryID(snapshot)
 	snapshotByID := entriesByID(snapshot)
 	installedRoots, err := rootDependencyModules(ctx, transcoder, snapshot)
 	if err != nil {
@@ -1839,7 +2021,7 @@ func (h *DependencyHandler) loadModuleEntries(ctx context.Context, modules []Res
 
 	for _, mod := range modules {
 		moduleName := mod.Org + "/" + mod.Name
-		deploymentRootModule := h.lock != nil && h.lock.IsRootModule(moduleName)
+		deploymentRootModule := h.isDeploymentRoot(moduleName)
 		moduleEntries, staged, err := h.loadEntriesForModulePlan(ctx, transcoder, mod)
 		if err != nil {
 			_ = plan.cleanup()
@@ -1854,13 +2036,13 @@ func (h *DependencyHandler) loadModuleEntries(ctx context.Context, modules []Res
 			// into transitive module entries and the next update loses their
 			// host bindings.
 			if deploymentRootModule && moduleEntries[i].Kind == regapi.NamespaceDependency {
-				moduleEntries[i].DependencyRoot = true
+				moduleEntries[i].Registry.Root = true
 			}
 			if keep, ok := preserveHostSnapshotEntry(moduleEntries[i], moduleName, snapshotByID, installedRoots); ok {
 				moduleEntries[i] = keep
 				continue
 			}
-			moduleEntries[i] = markModuleIdentityForGraph(moduleEntries[i], moduleName, mod.Version, mod.Digest, owners, snapshotOwners)
+			moduleEntries[i] = markModuleEntry(moduleEntries[i], moduleName)
 		}
 		entries = append(entries, moduleEntries...)
 	}
@@ -2147,6 +2329,9 @@ func (h *DependencyHandler) ensureModuleAvailable(ctx context.Context, mod Resol
 	} else if !errors.Is(statErr, os.ErrNotExist) {
 		return "", NewDependencyDownloadError(modKey(mod), statErr)
 	}
+	if regapi.DependencyAccessFromContext(ctx) == regapi.DependencyAccessVerifiedOffline {
+		return "", NewDependencyOfflineError("load artifact", modKey(mod))
+	}
 
 	privateDir, err := os.MkdirTemp(h.vendorDir, ".artifact-download-*")
 	if err != nil {
@@ -2362,14 +2547,16 @@ func validateDownloadInfo(mod ResolvedModule, info *DownloadInfo) error {
 // Used both when the resolved manifest carries no URL and to refresh a URL
 // that expired before the artifact could be downloaded.
 func (h *DependencyHandler) freshDownloadInfo(ctx context.Context, mod ResolvedModule) (*DownloadInfo, error) {
+	if regapi.DependencyAccessFromContext(ctx) == regapi.DependencyAccessVerifiedOffline {
+		return nil, NewDependencyOfflineError("fetch artifact metadata", modKey(mod))
+	}
 	downloadURLCtx, cancel := withOptionalTimeout(ctx, h.downloadTimeout)
 	defer cancel()
 
 	return h.hub.GetDownloadURL(downloadURLCtx, &DownloadParams{
-		Org:       mod.Org,
-		Module:    mod.Name,
-		Version:   mod.Version,
-		VersionID: mod.VersionID,
+		Org:     mod.Org,
+		Module:  mod.Name,
+		Version: mod.Version,
 	})
 }
 
@@ -2386,6 +2573,24 @@ func (h *DependencyHandler) replacementPath(moduleName string) (string, bool) {
 		path = filepath.Join(filepath.Dir(h.lock.Path()), path)
 	}
 	return path, true
+}
+
+// offlineEvidenceFailure reports the module to name in a missing-evidence
+// error, and whether missing evidence explains the failures at all. A failing
+// replaced module has another cause, so the set is reported as is. The named
+// module is the lowest-sorted failure, independent of resolver emit order.
+func (h *DependencyHandler) offlineEvidenceFailure(errs []ResolutionError) (string, bool) {
+	named := ""
+	for _, resolutionErr := range errs {
+		module := strings.Trim(resolutionErr.Org+"/"+resolutionErr.Name, "/")
+		if _, replaced := h.replacementPath(module); replaced {
+			return "", false
+		}
+		if named == "" || module < named {
+			named = module
+		}
+	}
+	return named, len(errs) > 0
 }
 
 // replacementModuleVersion reads the authoritative version of a locally-replaced
@@ -2586,24 +2791,30 @@ func sha256FileHex(path string) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
-func (h *DependencyHandler) lockedModuleDigests() map[string]string {
-	if h.lock == nil {
+func (h *DependencyHandler) baselineModuleDigests() map[string]string {
+	if h == nil {
 		return nil
 	}
-	modules := h.lock.GetModules()
-	if len(modules) == 0 {
-		return nil
+	modules := make([]regapi.ResolvedModule, 0)
+	if h.deployment != nil {
+		modules = append(modules, h.deployment.Modules...)
+	} else if h.lock != nil {
+		for _, module := range h.lock.GetModules() {
+			modules = append(modules, regapi.ResolvedModule{
+				Name: module.Name, Version: module.Version, Digest: module.Hash,
+			})
+		}
 	}
 	digests := make(map[string]string, len(modules))
 	for _, mod := range modules {
-		if mod.Hash == "" || mod.Name == "" || mod.Version == "" {
+		if mod.Digest == "" || mod.Name == "" || mod.Version == "" {
 			continue
 		}
 		// Key by name@version so the integrity check only fires when resolving
-		// the exact version the lock pins. A version-agnostic key would compare
-		// a new version's digest against the locked old version's and wrongly
+		// the exact version the baseline pins. A version-agnostic key would compare
+		// a new version's digest against the baseline's old version and wrongly
 		// block updates.
-		digests[mod.Name+"@"+mod.Version] = mod.Hash
+		digests[mod.Name+"@"+mod.Version] = mod.Digest
 	}
 	if len(digests) == 0 {
 		return nil
@@ -2848,6 +3059,20 @@ func NewDependencyResolutionError(cause error) apierror.Error {
 		err = err.WithDetails(attrs.NewBagFrom(map[string]any{"reason": cause.Error()}))
 	}
 	return err
+}
+
+// NewDependencyOfflineError reports unavailable verified dependency evidence.
+func NewDependencyOfflineError(operation, module string) apierror.Error {
+	details := map[string]any{
+		"operation": operation,
+		"hint":      "run an explicit wippy update/install while online, then retry startup",
+	}
+	if module != "" {
+		details["module"] = module
+	}
+	return apierror.New(apierror.Invalid, "verified dependency evidence is unavailable during offline startup").
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(details))
 }
 
 func NewDependencyResolutionErrors(errs []ResolutionError) apierror.Error {

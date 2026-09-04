@@ -19,6 +19,18 @@ entries:
       effect: allow
       actions: db.get
       resources: app:cdcdb
+  - name: cdc_tests
+    kind: security.policy
+    policy:
+      effect: allow
+      actions: [cdc.source, cdc.subscribe]
+      resources: [app:changes, app:dynamic_changes]
+  - name: registry_tests
+    kind: security.policy
+    policy:
+      effect: allow
+      actions: [registry.get, registry.apply]
+      resources: '*'
   - name: terminal
     kind: terminal.host
     lifecycle:
@@ -31,8 +43,8 @@ entries:
         use_case: test
     source: file://main.lua
     method: main
-    modules: [io, time, sql, cdc, channel]
+    modules: [io, time, sql, cdc, channel, registry]
     security:
       actor:
         id: sqlite-native-tests
-      policies: [app:sql_tests]
+      policies: [app:sql_tests, app:cdc_tests, app:registry_tests]

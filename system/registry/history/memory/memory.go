@@ -163,11 +163,11 @@ func cloneEntry(e registry.Entry) registry.Entry {
 		data = payload.NewPayload(snapshotValue(e.Data.Data()), e.Data.Format())
 	}
 	return registry.Entry{
-		ID:             e.ID,
-		Kind:           e.Kind,
-		Meta:           meta,
-		Data:           data,
-		DependencyRoot: e.DependencyRoot,
+		ID:       e.ID,
+		Kind:     e.Kind,
+		Meta:     meta,
+		Data:     data,
+		Registry: e.Registry,
 	}
 }
 

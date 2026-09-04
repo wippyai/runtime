@@ -30,6 +30,11 @@ type Deleter interface {
 	Delete(key string) error
 }
 
+// Pruner bounds retained cache generations according to the store policy.
+type Pruner interface {
+	Prune() error
+}
+
 // Meta stores identifying information for an entry.
 type Meta struct {
 	CreatedAt            time.Time `json:"created_at"`

@@ -3,6 +3,8 @@
 package code
 
 import (
+	"sync"
+
 	"github.com/wippyai/go-lua/compiler/ast"
 	"github.com/wippyai/go-lua/compiler/check"
 	"github.com/wippyai/go-lua/compiler/check/hooks"
@@ -82,6 +84,7 @@ type TypeChecker struct {
 	baseHookOptions  []check.Option
 	hookOptions      []check.Option
 	config           TypeCheckConfig
+	checkMu          sync.Mutex
 }
 
 // NewTypeChecker creates a configured type checker.
@@ -160,12 +163,26 @@ func NewTypeChecker(cfg TypeCheckConfig, builtinMods []*api.ModuleDef) *TypeChec
 
 // CheckParsed performs type checking on a parsed AST with provided imports
 func (tc *TypeChecker) CheckParsed(chunk []ast.Stmt, entryID string, imports map[string]*io.Manifest) (*io.Manifest, []diag.Diagnostic) {
+	tc.checkMu.Lock()
+	defer tc.checkMu.Unlock()
+
+	previous := make(map[string]*io.Manifest, len(imports))
 	// Connect imports to database
 	for alias, manifest := range imports {
+		previous[alias] = tc.db.Manifest(alias)
 		if manifest != nil {
 			tc.db.Connect(alias, manifest)
 		}
 	}
+	defer func() {
+		for alias, manifest := range previous {
+			if manifest == nil {
+				tc.db.Disconnect(alias)
+				continue
+			}
+			tc.db.Connect(alias, manifest)
+		}
+	}()
 
 	// Check the chunk
 	sess := tc.checker.CheckChunk(chunk, entryID)
@@ -354,6 +371,8 @@ func (tc *TypeChecker) ClearCache() {
 	if tc == nil || tc.checker == nil {
 		return
 	}
+	tc.checkMu.Lock()
+	defer tc.checkMu.Unlock()
 	tc.checker.ClearCache()
 }
 

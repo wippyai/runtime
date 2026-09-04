@@ -224,6 +224,10 @@ func runWithUseCase(cmd *cobra.Command, args []string, useCase string) error {
 
 	logger = logapi.GetLogger(ctx).Named("run")
 	logger.Info("infrastructure initialized")
+	if err := prepareRunDependencies(ctx, cfg, registryURL, logger.Named("dependencies")); err != nil {
+		logger.Error("dependency preparation failed", zap.Error(err))
+		return err
+	}
 
 	// Create embed registry for fs.embed support with .wapp modules
 	embedReg := embedpkg.NewRegistry()

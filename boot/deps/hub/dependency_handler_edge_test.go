@@ -3,6 +3,7 @@
 package hub
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -16,6 +17,26 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	regapi "github.com/wippyai/runtime/api/registry"
 )
+
+func ownedEntry(entry regapi.Entry, module string) regapi.Entry {
+	entry.Registry.Owner = module
+	return entry
+}
+
+type resolutionSnapshotRegistry struct {
+	regapi.Registry
+	resolution *regapi.DependencyResolution
+}
+
+func (r resolutionSnapshotRegistry) Snapshot() regapi.Snapshot {
+	return regapi.Snapshot{Registry: regapi.StateMetadata{Resolution: r.resolution}}
+}
+
+func withCurrentResolution(ctx context.Context, modules ...regapi.ResolvedModule) context.Context {
+	return regapi.WithRegistry(ctx, resolutionSnapshotRegistry{
+		resolution: &regapi.DependencyResolution{Modules: modules},
+	})
+}
 
 // --- resolveOperationEntry ---
 
@@ -121,134 +142,63 @@ func TestEntryConflict_NoModuleOnDesired(t *testing.T) {
 func TestEntryConflict_ExistingHasNoModule(t *testing.T) {
 	existing := regapi.Entry{ID: regapi.NewID("ns", "a")}
 	desired := regapi.Entry{
-		ID:   regapi.NewID("ns", "a"),
-		Meta: attrs.NewBagFrom(map[string]any{metaModuleKey: "acme/http"}),
+		ID:       regapi.NewID("ns", "a"),
+		Registry: regapi.EntryMetadata{Owner: "acme/http"},
 	}
 	assert.True(t, entryConflict(existing, desired))
 }
 
 func TestEntryConflict_SameModule(t *testing.T) {
 	existing := regapi.Entry{
-		ID:   regapi.NewID("ns", "a"),
-		Meta: attrs.NewBagFrom(map[string]any{metaModuleKey: "acme/http"}),
+		ID:       regapi.NewID("ns", "a"),
+		Registry: regapi.EntryMetadata{Owner: "acme/http"},
 	}
 	desired := regapi.Entry{
-		ID:   regapi.NewID("ns", "a"),
-		Meta: attrs.NewBagFrom(map[string]any{metaModuleKey: "acme/http"}),
+		ID:       regapi.NewID("ns", "a"),
+		Registry: regapi.EntryMetadata{Owner: "acme/http"},
 	}
 	assert.False(t, entryConflict(existing, desired))
 }
 
 func TestEntryConflict_DifferentModules(t *testing.T) {
 	existing := regapi.Entry{
-		ID:   regapi.NewID("ns", "a"),
-		Meta: attrs.NewBagFrom(map[string]any{metaModuleKey: "acme/http"}),
+		ID:       regapi.NewID("ns", "a"),
+		Registry: regapi.EntryMetadata{Owner: "acme/http"},
 	}
 	desired := regapi.Entry{
-		ID:   regapi.NewID("ns", "a"),
-		Meta: attrs.NewBagFrom(map[string]any{metaModuleKey: "acme/grpc"}),
+		ID:       regapi.NewID("ns", "a"),
+		Registry: regapi.EntryMetadata{Owner: "acme/grpc"},
 	}
 	assert.True(t, entryConflict(existing, desired))
 }
 
 // --- entryModule ---
 
-func TestEntryModule_NilMeta(t *testing.T) {
+func TestEntryModule_EmptyOwner(t *testing.T) {
 	assert.Empty(t, entryModule(regapi.Entry{}))
 }
 
-func TestEntryModule_NoModuleKey(t *testing.T) {
-	e := regapi.Entry{Meta: attrs.NewBagFrom(map[string]any{"other": "val"})}
-	assert.Empty(t, entryModule(e))
-}
-
-func TestEntryModule_NonStringModule(t *testing.T) {
-	e := regapi.Entry{Meta: attrs.NewBagFrom(map[string]any{metaModuleKey: 42})}
-	assert.Empty(t, entryModule(e))
-}
-
 func TestEntryModule_ValidModule(t *testing.T) {
-	e := regapi.Entry{Meta: attrs.NewBagFrom(map[string]any{metaModuleKey: "acme/http"})}
+	e := regapi.Entry{Registry: regapi.EntryMetadata{Owner: "acme/http"}}
 	assert.Equal(t, "acme/http", entryModule(e))
 }
 
 func TestIsRootDependencyKeepsOwnershipSeparate(t *testing.T) {
 	root := regapi.Entry{
-		ID:             regapi.NewID("workspace.modules", "search"),
-		Kind:           regapi.NamespaceDependency,
-		Meta:           attrs.NewBagFrom(map[string]any{metaModuleKey: "acme/app"}),
-		DependencyRoot: true,
+		ID:       regapi.NewID("workspace.modules", "search"),
+		Kind:     regapi.NamespaceDependency,
+		Registry: regapi.EntryMetadata{Owner: "acme/app", Root: true},
 	}
 	assert.True(t, isRootDependency(root))
 	assert.Equal(t, "acme/app", entryModule(root))
 
 	transitive := root
-	transitive.DependencyRoot = false
+	transitive.Registry.Root = false
 	assert.False(t, isRootDependency(transitive))
 
 	unowned := transitive
-	unowned.Meta = nil
+	unowned.Registry.Owner = ""
 	assert.True(t, isRootDependency(unowned), "registry-authored dependencies are user overlay roots")
-}
-
-// --- markModuleMeta ---
-
-func TestMarkModuleMeta_NilMeta(t *testing.T) {
-	e := regapi.Entry{ID: regapi.NewID("ns", "a")}
-	result := markModuleMeta(e, "acme/http", "v1.0.0")
-	assert.Equal(t, "acme/http", entryModule(result))
-	assert.Equal(t, "v1.0.0", result.Meta.GetString(metaModuleVersionKey, ""))
-}
-
-func TestMarkModuleMeta_ExistingMeta(t *testing.T) {
-	e := regapi.Entry{
-		ID:   regapi.NewID("ns", "a"),
-		Meta: attrs.NewBagFrom(map[string]any{"existing": true}),
-	}
-	result := markModuleMeta(e, "acme/http", "v2.0.0")
-	assert.Equal(t, "acme/http", entryModule(result))
-	assert.Equal(t, true, result.Meta.GetBool("existing", false))
-}
-
-func TestMarkModuleMeta_PreservesExistingModuleOwner(t *testing.T) {
-	e := regapi.Entry{
-		ID: regapi.NewID("ns", "a"),
-		Meta: attrs.NewBagFrom(map[string]any{
-			metaModuleKey:        "acme/session",
-			metaModuleVersionKey: "v1.0.0",
-		}),
-	}
-
-	result := markModuleMeta(e, "acme/uploads", "v2.0.0")
-
-	assert.Equal(t, "acme/session", entryModule(result))
-	assert.Equal(t, "v1.0.0", result.Meta.GetString(metaModuleVersionKey, ""))
-}
-
-func TestMarkModuleMetaForGraph_UsesResolvedNamespaceOwner(t *testing.T) {
-	e := regapi.Entry{ID: regapi.NewID("acme.session", "delete_session_service")}
-	owners := moduleOwnersByNamespace([]ResolvedModule{
-		{Org: "acme", Name: "session", Version: "v1.0.0"},
-		{Org: "example", Name: "uploads", Version: "v2.0.0"},
-	})
-
-	result := markModuleMetaForGraph(e, "example/uploads", "v2.0.0", owners, nil)
-
-	assert.Equal(t, "acme/session", entryModule(result))
-	assert.Equal(t, "v1.0.0", result.Meta.GetString(metaModuleVersionKey, ""))
-}
-
-func TestMarkModuleMetaForGraph_UsesSnapshotEntryOwner(t *testing.T) {
-	id := regapi.NewID("acme.llm.openai_compat", "client")
-	e := regapi.Entry{ID: id}
-	entryOwners := map[string]moduleOwner{
-		idKey(id): {name: "acme/llm", version: "v4.0.0"},
-	}
-
-	result := markModuleMetaForGraph(e, "example/skills", "v2.0.0", nil, entryOwners)
-
-	assert.Equal(t, "acme/llm", entryModule(result))
-	assert.Equal(t, "v4.0.0", result.Meta.GetString(metaModuleVersionKey, ""))
 }
 
 func TestPreserveHostSnapshotEntry_KeepsExistingUnownedEntry(t *testing.T) {
@@ -274,13 +224,6 @@ func TestPreserveHostSnapshotEntry_KeepsExistingUnownedEntry(t *testing.T) {
 
 	require.True(t, ok)
 	assert.Equal(t, existing.Data, result.Data)
-}
-
-func TestMarkModuleMeta_EmptyVersion(t *testing.T) {
-	e := regapi.Entry{ID: regapi.NewID("ns", "a")}
-	result := markModuleMeta(e, "acme/http", "")
-	assert.Equal(t, "acme/http", entryModule(result))
-	assert.Empty(t, result.Meta.GetString(metaModuleVersionKey, ""))
 }
 
 // --- parseExpectedDigest ---
@@ -396,9 +339,9 @@ func TestOperationPlanner_DeletedEntries(t *testing.T) {
 	current := regapi.State{
 		{ID: regapi.NewID("app", "dep"), Kind: "ns.dependency"},
 		{
-			ID:   regapi.NewID("app", "old-svc"),
-			Kind: "service",
-			Meta: attrs.NewBagFrom(map[string]any{metaModuleKey: "acme/http"}),
+			ID:       regapi.NewID("app", "old-svc"),
+			Kind:     "service",
+			Registry: regapi.EntryMetadata{Owner: "acme/http"},
 		},
 	}
 	desired := []regapi.Entry{
@@ -416,14 +359,14 @@ func TestOperationPlanner_DeletesOnlyControlledModules(t *testing.T) {
 	current := regapi.State{
 		{ID: regapi.NewID("app", "dep"), Kind: "ns.dependency"},
 		{
-			ID:   regapi.NewID("app", "old-svc"),
-			Kind: "service",
-			Meta: attrs.NewBagFrom(map[string]any{metaModuleKey: "acme/http"}),
+			ID:       regapi.NewID("app", "old-svc"),
+			Kind:     "service",
+			Registry: regapi.EntryMetadata{Owner: "acme/http"},
 		},
 		{
-			ID:   regapi.NewID("example.tools", "dependencies"),
-			Kind: "function.lua",
-			Meta: attrs.NewBagFrom(map[string]any{metaModuleKey: "example/keeper"}),
+			ID:       regapi.NewID("example.tools", "dependencies"),
+			Kind:     "function.lua",
+			Registry: regapi.EntryMetadata{Owner: "example/keeper"},
 		},
 	}
 	desired := []regapi.Entry{
@@ -441,18 +384,18 @@ func TestOperationPlanner_DeletesOnlyControlledModules(t *testing.T) {
 func TestOperationPlanner_UpdatedEntries(t *testing.T) {
 	current := regapi.State{
 		{
-			ID:   regapi.NewID("app", "svc"),
-			Kind: "service",
-			Meta: attrs.NewBagFrom(map[string]any{metaModuleKey: "acme/http"}),
-			Data: payload.New("old"),
+			ID:       regapi.NewID("app", "svc"),
+			Kind:     "service",
+			Registry: regapi.EntryMetadata{Owner: "acme/http"},
+			Data:     payload.New("old"),
 		},
 	}
 	desired := []regapi.Entry{
 		{
-			ID:   regapi.NewID("app", "svc"),
-			Kind: "service",
-			Meta: attrs.NewBagFrom(map[string]any{metaModuleKey: "acme/http"}),
-			Data: payload.New("new"),
+			ID:       regapi.NewID("app", "svc"),
+			Kind:     "service",
+			Registry: regapi.EntryMetadata{Owner: "acme/http"},
+			Data:     payload.New("new"),
 		},
 	}
 
@@ -463,21 +406,17 @@ func TestOperationPlanner_UpdatedEntries(t *testing.T) {
 }
 
 func TestOperationPlanner_ReconcileSkipsUntouchedImmutableModuleUpdates(t *testing.T) {
-	moduleMeta := attrs.NewBagFrom(map[string]any{
-		metaModuleKey:        "acme/http",
-		metaModuleVersionKey: "v1.0.0",
-	})
 	current := regapi.State{{
-		ID:   regapi.NewID("app", "svc"),
-		Kind: "service",
-		Meta: moduleMeta,
-		Data: payload.New("resident"),
+		ID:       regapi.NewID("app", "svc"),
+		Kind:     "service",
+		Registry: regapi.EntryMetadata{Owner: "acme/http"},
+		Data:     payload.New("resident"),
 	}}
 	desired := []regapi.Entry{{
-		ID:   regapi.NewID("app", "svc"),
-		Kind: "service",
-		Meta: moduleMeta,
-		Data: payload.New("normalized"),
+		ID:       regapi.NewID("app", "svc"),
+		Kind:     "service",
+		Registry: regapi.EntryMetadata{Owner: "acme/http"},
+		Data:     payload.New("normalized"),
 	}}
 
 	ops, err := planTestOperations(current, desired, regapi.ID{}, map[string]struct{}{"acme/http": {}}, map[string]struct{}{})
@@ -493,16 +432,16 @@ func TestOperationPlanner_ReconcileSkipsUntouchedImmutableModuleUpdates(t *testi
 func TestOperationPlanner_KindChangeUsesDeleteCreate(t *testing.T) {
 	id := regapi.NewID("ui", "assets")
 	current := regapi.State{{
-		ID:   id,
-		Kind: "fs.embed",
-		Meta: attrs.NewBagFrom(map[string]any{metaModuleKey: "acme/ui"}),
-		Data: payload.New(map[string]any{}),
+		ID:       id,
+		Kind:     "fs.embed",
+		Registry: regapi.EntryMetadata{Owner: "acme/ui"},
+		Data:     payload.New(map[string]any{}),
 	}}
 	desired := []regapi.Entry{{
-		ID:   id,
-		Kind: "fs.directory",
-		Meta: attrs.NewBagFrom(map[string]any{metaModuleKey: "acme/ui"}),
-		Data: payload.New(map[string]any{"directory": "assets", "base": "module"}),
+		ID:       id,
+		Kind:     "fs.directory",
+		Registry: regapi.EntryMetadata{Owner: "acme/ui"},
+		Data:     payload.New(map[string]any{"directory": "assets", "base": "module"}),
 	}}
 
 	ops, err := planTestOperations(current, desired, regapi.NewID("app", "dep"), nil, nil)
@@ -534,10 +473,10 @@ func TestOperationPlanner_ConflictError(t *testing.T) {
 	}
 	desired := []regapi.Entry{
 		{
-			ID:   regapi.NewID("app", "svc"),
-			Kind: "service",
-			Meta: attrs.NewBagFrom(map[string]any{metaModuleKey: "acme/http"}),
-			Data: payload.New("module"),
+			ID:       regapi.NewID("app", "svc"),
+			Kind:     "service",
+			Registry: regapi.EntryMetadata{Owner: "acme/http"},
+			Data:     payload.New("module"),
 		},
 	}
 

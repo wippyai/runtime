@@ -102,7 +102,8 @@ func (m *RaftManager) Update(ctx context.Context, entry registry.Entry) error {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if _, exists := m.stores[entry.ID]; !exists {
+	old, exists := m.stores[entry.ID]
+	if !exists {
 		return storesvc.NewStoreNotFoundError(entry.ID.String())
 	}
 	cfg, err := entryutil.DecodeEntryConfig[kvcfg.RaftConfig](ctx, m.dtt, entry)
@@ -119,9 +120,22 @@ func (m *RaftManager) Update(ctx context.Context, entry registry.Entry) error {
 		TTL:            true,
 	})
 	m.stores[entry.ID] = st
+	// Point the resource registry at the replacement and wait for it to take
+	// effect, so consumers are served the replacement before the supervisor
+	// retires the superseded view on commit.
+	if err := storesvc.AwaitResourceUpdate(ctx, m.bus,
+		resource.Entry{ID: entry.ID, Provider: st, Meta: entry.Meta},
+		"store.kv.raft update"); err != nil {
+		m.stores[entry.ID] = old
+		return err
+	}
+	// ServiceRegister is the supervisor's handover verb: it retires the
+	// controller holding the superseded view and starts the replacement.
+	// ServiceUpdate is the supervisor's own outbound state notification and has
+	// no inbound handler.
 	m.bus.Send(ctx, event.Event{
 		System: supervisor.System,
-		Kind:   supervisor.ServiceUpdate,
+		Kind:   supervisor.ServiceRegister,
 		Path:   entry.ID.String(),
 		Data:   &supervisor.Entry{Service: st, Config: cfg.Lifecycle},
 	})

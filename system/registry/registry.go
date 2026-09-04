@@ -10,7 +10,6 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/internal/version"
 	regexp "github.com/wippyai/runtime/system/registry/expansion"
@@ -26,21 +25,28 @@ type indexedSortBuilder interface {
 }
 
 type Reg struct {
-	history           registry.History
+	currentVersion    registry.Version
 	runner            registry.Runner
 	builder           registry.StateBuilder
 	resolver          registry.DependencyResolver
-	directivesByKind  map[registry.Kind][]registry.Directive
-	currentVersion    registry.Version
+	history           registry.History
+	overlays          map[string]registry.State
 	currentResolution *registry.DependencyResolution
 	stateIndex        map[registry.ID]int
-	depIndex          *topology.DepIndex
+	directivesByKind  map[registry.Kind][]registry.Directive
 	log               *zap.Logger
-	baseline          registry.State
+	depIndex          *topology.DepIndex
+	overlayOwners     map[registry.ID]string
+	overlayGeneration map[string]uint64
+	snapshot          atomic.Pointer[registry.Snapshot]
 	state             registry.State
+	baseline          registry.State
+	overlayEpoch      uint64
+	overlayFloor      uint64
 	versionNum        atomic.Uint64
-	applyMu           sync.Mutex
 	mu                sync.RWMutex
+	applyMu           sync.Mutex
+	stateLoaded       bool
 }
 
 // NewRegistry creates a new registry instance.
@@ -56,17 +62,21 @@ func NewRegistry(
 		log = zap.NewNop()
 	}
 	reg := &Reg{
-		history:        history,
-		runner:         runner,
-		builder:        builder,
-		resolver:       resolver,
-		state:          registry.State{},
-		stateIndex:     make(map[registry.ID]int),
-		log:            log,
-		currentVersion: version.FromParent(nil, 0), // initial version
+		history:           history,
+		runner:            runner,
+		builder:           builder,
+		resolver:          resolver,
+		state:             registry.State{},
+		stateIndex:        make(map[registry.ID]int),
+		overlays:          make(map[string]registry.State),
+		overlayOwners:     make(map[registry.ID]string),
+		overlayGeneration: make(map[string]uint64),
+		log:               log,
+		currentVersion:    version.FromParent(nil, 0), // initial version
 	}
 
 	reg.versionNum.Store(0)
+	reg.publishSnapshot()
 
 	for _, opt := range opts {
 		if opt != nil {
@@ -129,6 +139,7 @@ func (r *Reg) GetAllEntries() ([]registry.Entry, error) {
 }
 
 func (r *Reg) GetEntry(path registry.ID) (registry.Entry, error) {
+	path = canonicalEntryID(path)
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -137,6 +148,31 @@ func (r *Reg) GetEntry(path registry.ID) (registry.Entry, error) {
 	}
 
 	return registry.Entry{}, NewEntryNotFoundError(path)
+}
+
+func (r *Reg) Snapshot() registry.Snapshot {
+	current := r.snapshot.Load()
+	if current == nil {
+		return registry.Snapshot{}
+	}
+	entries := append(registry.State(nil), current.Entries...)
+	return registry.Snapshot{
+		Version:  current.Version,
+		Entries:  entries,
+		Registry: registry.StateMetadata{Resolution: current.Registry.Resolution.Canonical()},
+	}
+}
+
+// publishSnapshot atomically exposes the state, version, and registry-owned
+// metadata selected by one completed transition. Callers either hold r.mu for
+// writes or are constructing an unpublished registry.
+func (r *Reg) publishSnapshot() {
+	entries := append(registry.State(nil), r.state...)
+	r.snapshot.Store(&registry.Snapshot{
+		Version:  r.currentVersion,
+		Entries:  entries,
+		Registry: registry.StateMetadata{Resolution: r.currentResolution},
+	})
 }
 
 // --- StateWriter Interface Implementation ---
@@ -166,7 +202,7 @@ func (r *Reg) Apply(ctx context.Context, changes registry.ChangeSet) (registry.V
 	baseVersion = r.currentVersion
 	resolution = r.currentResolution
 	r.mu.RUnlock()
-	changes = preserveManagedEntryMetadata(changes, snapshot)
+	changes = normalizeRegistryMetadata(changes, snapshot)
 
 	if len(r.directivesByKind) > 0 {
 		planner = regexp.NewPlanner(r.directivesByKind, r.resolver, r.log.Named("expansion"))
@@ -214,6 +250,12 @@ func (r *Reg) Apply(ctx context.Context, changes registry.ChangeSet) (registry.V
 			planner.RollbackEffects(ctx, preparedEff)
 		}
 		return nil, NewSortChangesError(sortErr)
+	}
+	if err := r.validateDurableTransitionAgainstOverlays(allOps); err != nil {
+		if planner != nil {
+			planner.RollbackEffects(ctx, preparedEff)
+		}
+		return nil, err
 	}
 
 	r.mu.Lock()
@@ -300,12 +342,14 @@ func (r *Reg) Apply(ctx context.Context, changes registry.ChangeSet) (registry.V
 		r.patchDepIndex(allOps)
 		r.currentVersion = newVersion
 		r.currentResolution = resolution
+		r.publishSnapshot()
 		return newVersion, nil
 	}
 
 	r.state = newState
 	r.rebuildIndex()
 	r.patchDepIndex(allOps)
+	r.publishSnapshot()
 	if planner != nil {
 		if finalizeErr := planner.FinalizeEffects(ctx, preparedEff); finalizeErr != nil {
 			r.log.Warn("failed to finalize effects after baseline transition", zap.Error(finalizeErr))
@@ -314,17 +358,10 @@ func (r *Reg) Apply(ctx context.Context, changes registry.ChangeSet) (registry.V
 	return r.currentVersion, nil
 }
 
-// preserveManagedEntryMetadata keeps registry-owned provenance stable when a
-// caller updates an entry's declarative data. These fields are attached by the
-// module loader and dependency linker; omitting them from an update payload
-// must not turn an installed entry into an unowned host entry.
-func preserveManagedEntryMetadata(changes registry.ChangeSet, snapshot registry.State) registry.ChangeSet {
-	const (
-		moduleKey        = "module"
-		moduleVersionKey = "module_version"
-		moduleDigestKey  = "module_digest"
-	)
-	managedKeys := [...]string{moduleKey, moduleVersionKey, moduleDigestKey}
+// normalizeRegistryMetadata prevents entry-authored changes from assigning
+// ownership. Ownership comes from the deployment source; root selection may
+// change independently while the entry remains resident.
+func normalizeRegistryMetadata(changes registry.ChangeSet, snapshot registry.State) registry.ChangeSet {
 	state := make(registry.StateMap, len(snapshot)+len(changes))
 	for _, entry := range snapshot {
 		state[entry.ID] = entry
@@ -333,23 +370,18 @@ func preserveManagedEntryMetadata(changes registry.ChangeSet, snapshot registry.
 		op := &changes[i]
 		switch op.Kind {
 		case registry.EntryCreate:
+			op.Entry.Registry = registry.EntryMetadata{Root: op.Entry.Registry.Root}
 			state[op.Entry.ID] = op.Entry
 		case registry.EntryUpdate:
 			existing, ok := state[op.Entry.ID]
 			if ok {
-				meta := attrs.NewBagFrom(op.Entry.Meta)
-				for _, key := range managedKeys {
-					if _, supplied := meta[key]; supplied {
-						continue
-					}
-					if value, present := existing.Meta[key]; present {
-						meta[key] = value
-					}
-				}
-				op.Entry.Meta = meta
+				op.Entry.Registry = existing.Registry
 			}
 			state[op.Entry.ID] = op.Entry
 		case registry.EntryDelete:
+			if existing, ok := state[op.Entry.ID]; ok {
+				op.Entry = existing
+			}
 			delete(state, op.Entry.ID)
 		}
 	}
@@ -461,6 +493,10 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 			return NewExpandChangesError(errors.New("stored dependency resolution has no configured reconciler"))
 		}
 		var buildErr error
+		if composeErr := r.composeOverlays(stateMap); composeErr != nil {
+			planner.RollbackEffects(ctx, preparedEff)
+			return NewComputeTransitionError(composeErr)
+		}
 		allOps, buildErr = r.builder.BuildDelta(snapshot, topology.StateMapToSlice(stateMap))
 		if buildErr != nil {
 			planner.RollbackEffects(ctx, preparedEff)
@@ -505,13 +541,21 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 			}
 			applyStateOperations(stateMap, ops)
 		}
+		if composeErr := r.composeOverlays(stateMap); composeErr != nil {
+			planner.RollbackEffects(ctx, preparedEff)
+			return NewComputeTransitionError(composeErr)
+		}
 		allOps, err = r.builder.BuildDelta(snapshot, topology.StateMapToSlice(stateMap))
 		if err != nil {
 			planner.RollbackEffects(ctx, preparedEff)
 			return NewComputeTransitionError(err)
 		}
 	} else {
-		delta, err := r.builder.BuildDelta(snapshot, targetState)
+		stateMap := topology.NewStateMap(targetState)
+		if composeErr := r.composeOverlays(stateMap); composeErr != nil {
+			return NewComputeTransitionError(composeErr)
+		}
+		delta, err := r.builder.BuildDelta(snapshot, topology.StateMapToSlice(stateMap))
 		if err != nil {
 			return NewComputeTransitionError(err)
 		}
@@ -537,6 +581,12 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 			planner.RollbackEffects(ctx, preparedEff)
 		}
 		return NewSortChangesError(sortErr)
+	}
+	if preflightErr := r.validateDurableTransitionAgainstOverlays(allOps); preflightErr != nil {
+		if planner != nil {
+			planner.RollbackEffects(ctx, preparedEff)
+		}
+		return preflightErr
 	}
 
 	r.mu.Lock()
@@ -609,6 +659,7 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 	r.rebuildDepIndex()
 	r.currentVersion = targetVersion
 	r.currentResolution = targetResolution
+	r.publishSnapshot()
 
 	r.log.Debug("version applied successfully", zap.Uint("version", targetVersion.ID()))
 	return nil
@@ -726,6 +777,10 @@ func (r *Reg) collectBackwardChangesets(path []registry.Version, targetVersion r
 // For v0 (empty history): applies baseline directly
 // For v1+: replays changesets v1..targetVersion on top of baseline, then applies final state once
 func (r *Reg) LoadState(ctx context.Context, baseline registry.State, targetVersion registry.Version) error {
+	if registry.DependencyAccessFromContext(ctx) == registry.DependencyAccessUnspecified {
+		ctx = registry.WithDependencyAccess(ctx, registry.DependencyAccessVerifiedOffline)
+	}
+
 	r.applyMu.Lock()
 	defer r.applyMu.Unlock()
 
@@ -756,6 +811,13 @@ func (r *Reg) LoadState(ctx context.Context, baseline registry.State, targetVers
 		}
 	}
 
+	// Establish the registry's canonical-ID invariant once at the external
+	// state boundary. Internal indexes and overlay ownership maps can then use
+	// IDs directly without allocating and interning them on every scan.
+	baseline = append(registry.State(nil), baseline...)
+	for i := range baseline {
+		baseline[i].ID = canonicalEntryID(baseline[i].ID)
+	}
 	if err := topology.ValidateUniqueEntryIDs("baseline", baseline); err != nil {
 		return err
 	}
@@ -959,11 +1021,25 @@ func (r *Reg) LoadState(ctx context.Context, baseline registry.State, targetVers
 
 	r.state = newState
 	r.baseline = append(registry.State(nil), baseline...)
+	// LoadState is the cold/reinitialization boundary. Overlays are deliberately
+	// process-local and their owning controllers reconcile them after boot.
+	r.overlays = make(map[string]registry.State)
+	r.overlayOwners = make(map[registry.ID]string)
+	r.overlayGeneration = make(map[string]uint64)
+	// Invalidate snapshots retained across an explicit reload. A newly
+	// constructed registry starts at epoch zero; a live registry never reuses a
+	// generation token.
+	if r.stateLoaded || r.overlayEpoch > 0 {
+		r.overlayEpoch++
+	}
+	r.overlayFloor = r.overlayEpoch
+	r.stateLoaded = true
 	r.rebuildIndex()
 	r.rebuildDepIndex()
 	r.currentVersion = targetVersion
 	r.currentResolution = resolution
 	r.versionNum.Store(uint64(allocatorVersion))
+	r.publishSnapshot()
 
 	return nil
 }
@@ -988,7 +1064,7 @@ func reconcileStoredResolution(
 
 func applyStateOperations(stateMap registry.StateMap, ops registry.ChangeSet) {
 	for _, op := range ops {
-		id := registry.NewID(op.Entry.ID.NS, op.Entry.ID.Name)
+		id := canonicalEntryID(op.Entry.ID)
 		switch op.Kind {
 		case registry.EntryCreate, registry.EntryUpdate:
 			op.Entry.ID = id
@@ -1001,13 +1077,17 @@ func applyStateOperations(stateMap registry.StateMap, ops registry.ChangeSet) {
 
 func canonicalizeChangeSetIDs(changes registry.ChangeSet) {
 	for i := range changes {
-		changes[i].Entry.ID = registry.NewID(changes[i].Entry.ID.NS, changes[i].Entry.ID.Name)
+		changes[i].Entry.ID = canonicalEntryID(changes[i].Entry.ID)
 		if changes[i].OriginalEntry != nil {
 			original := *changes[i].OriginalEntry
-			original.ID = registry.NewID(original.ID.NS, original.ID.Name)
+			original.ID = canonicalEntryID(original.ID)
 			changes[i].OriginalEntry = &original
 		}
 	}
+}
+
+func canonicalEntryID(id registry.ID) registry.ID {
+	return id.Canonical()
 }
 
 // rollback state desync between actual state in system and state in history
@@ -1022,6 +1102,8 @@ func (r *Reg) rollback(ctx context.Context, from, to registry.State) error {
 	r.state = partial // we remain in a desynced state
 	r.rebuildIndex()
 	r.rebuildDepIndex()
+	r.reconcileKnownOverlaysAfterFailedRollback()
+	r.publishSnapshot()
 
 	return err
 }

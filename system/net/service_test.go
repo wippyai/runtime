@@ -11,7 +11,9 @@ import (
 	"github.com/stretchr/testify/require"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	netapi "github.com/wippyai/runtime/api/net"
+	"github.com/wippyai/runtime/api/registry"
 	secapi "github.com/wippyai/runtime/api/security"
+	"go.uber.org/zap"
 )
 
 func TestSecureService_ImplementsInterface(t *testing.T) {
@@ -114,5 +116,37 @@ func TestSecureService_DialContext_PrivateIP(t *testing.T) {
 	// The security.IsAllowed check fires first in strict mode.
 	conn, err := svc.DialContext(strictCtx(), "tcp", "127.0.0.1:80")
 	assert.Nil(t, conn)
+	require.Error(t, err)
+}
+
+func TestSecureService_DialContext_UsesSelectedNetwork(t *testing.T) {
+	overlay := &mockService{}
+	reg := NewRegistry(zap.NewNop())
+	reg.Register(registry.ParseID("app.net:test"), overlay, netapi.KindSOCKS5)
+
+	ctx := nonStrictCtx()
+	ctx = netapi.WithNetworkRegistry(ctx, reg)
+	ctx, frame := ctxapi.OpenFrameContext(ctx)
+	require.NoError(t, frame.SetMultiple(netapi.DefaultNetworkPair("app.net:test")))
+
+	conn, err := NewSecureService().DialContext(ctx, "tcp", "example.invalid:443")
+	require.NoError(t, err)
+	assert.Nil(t, conn)
+	assert.True(t, overlay.dialCalled)
+}
+
+func TestSecureService_DialContext_DoesNotFallbackFromSelectedNetwork(t *testing.T) {
+	listener, err := new(net.ListenConfig).Listen(context.Background(), "tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer listener.Close()
+
+	ctx := nonStrictCtx()
+	ctx, frame := ctxapi.OpenFrameContext(ctx)
+	require.NoError(t, frame.SetMultiple(netapi.DefaultNetworkPair("app.net:missing")))
+
+	conn, err := NewSecureService().DialContext(ctx, "tcp", listener.Addr().String())
+	if conn != nil {
+		_ = conn.Close()
+	}
 	require.Error(t, err)
 }
