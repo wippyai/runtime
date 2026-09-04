@@ -14,10 +14,9 @@ import "context"
 // generation closes the source and all of its streams.
 type CommittedMutationSource interface {
 	Subscribe(context.Context, MutationOptions) (MutationStream, error)
-	// Snapshot establishes the commit fence before starting its read view. The
-	// returned stream emits snapshot batches first and then live committed
-	// batches after the returned watermark, without exposing a database handle
-	// to the consumer.
+	// Snapshot returns a consistent read view followed by committed mutations
+	// after its watermark, without a gap between the two. Engines own the
+	// synchronization mechanism; no database handle is exposed to consumers.
 	Snapshot(context.Context, SnapshotOptions) (SnapshotStream, error)
 	Close() error
 }
@@ -64,8 +63,10 @@ type SnapshotStream interface {
 	Watermark() string
 }
 
-// MutationBatch is the atomic unit emitted by an observation source. A batch
-// belongs to one database transaction; an empty batch is not emitted.
+// MutationBatch is the delivery unit emitted by an observation source. A live
+// batch belongs to one committed database transaction. Snapshot batches are
+// bounded chunks of a read view, not independent database transactions.
+// Empty batches are not emitted.
 type MutationBatch struct {
 	Transaction string
 	Changes     []Mutation
@@ -82,10 +83,4 @@ type Mutation struct {
 	Columns []string
 	Before  []any
 	After   []any
-	// OldRowID is the row identifier before the change. It is zero for an
-	// insert; RowID is the identifier after the change and is zero for a
-	// delete. Drivers that cannot provide a stable row identifier must fail
-	// closed rather than emit an ambiguous mutation.
-	OldRowID int64
-	RowID    int64
 }

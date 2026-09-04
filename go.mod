@@ -247,4 +247,8 @@ require (
 	pgregory.net/rapid v1.3.0 // indirect
 )
 
+// rqlite preserves SQLite TEXT/BLOB storage types in pre-update hooks.
+// Keep the canonical import path so extensions share one driver registration.
+replace github.com/mattn/go-sqlite3 => github.com/rqlite/go-sqlite3 v1.50.0
+
 tool go.uber.org/mock/mockgen

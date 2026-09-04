@@ -133,7 +133,7 @@ func TestIntegrationRollbackAndSavepointPublishOnlyCommittedRows(t *testing.T) {
 
 	change := receiveChange(t, stream)
 	assert.Equal(t, int64(1), change.After["id"])
-	assert.Equal(t, []byte("kept"), change.After["value"])
+	assert.Equal(t, "kept", change.After["value"])
 	requireNoChange(t, stream)
 
 	_, err = db.db.Exec(`INSERT INTO items (id, value) VALUES (3, 'rolled back')`)

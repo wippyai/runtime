@@ -72,8 +72,8 @@ func TestPerPoolObserverCapturesOwnDatabase(t *testing.T) {
 	secondBatch := receiveBatch(t, secondStream)
 	require.Len(t, firstBatch.Changes, 1)
 	require.Len(t, secondBatch.Changes, 1)
-	assert.Equal(t, []byte("first"), firstBatch.Changes[0].After[1])
-	assert.Equal(t, []byte("second"), secondBatch.Changes[0].After[1])
+	assert.Equal(t, "first", firstBatch.Changes[0].After[1])
+	assert.Equal(t, "second", secondBatch.Changes[0].After[1])
 
 	select {
 	case batch := <-firstStream.Changes():
@@ -139,8 +139,8 @@ func TestPerPoolSnapshotLiveIsolation(t *testing.T) {
 	require.False(t, secondLive.Snapshot)
 	assert.Equal(t, "1", firstLive.Transaction)
 	assert.Equal(t, "1", secondLive.Transaction)
-	assert.Equal(t, []byte("first-live"), firstLive.Changes[0].After[1])
-	assert.Equal(t, []byte("second-live"), secondLive.Changes[0].After[1])
+	assert.Equal(t, "first-live", firstLive.Changes[0].After[1])
+	assert.Equal(t, "second-live", secondLive.Changes[0].After[1])
 	require.NoError(t, firstSnapshot.stream.Close())
 	require.NoError(t, secondSnapshot.stream.Close())
 
@@ -152,7 +152,7 @@ func TestPerPoolSnapshotLiveIsolation(t *testing.T) {
 	require.NoError(t, err)
 	_, err = second.opened.DB.ExecContext(context.Background(), `INSERT INTO items (id, value) VALUES (3, 'second-live')`)
 	require.NoError(t, err)
-	require.Equal(t, int64(3), receiveBatch(t, secondLiveStream).Changes[0].RowID)
+	require.Equal(t, int64(3), receiveBatch(t, secondLiveStream).Changes[0].After[0])
 
 	_, err = first.opened.DB.ExecContext(context.Background(), `INSERT INTO items (id, value) VALUES (4, 'first-overflow')`)
 	require.NoError(t, err)
@@ -168,8 +168,8 @@ func TestPerPoolSnapshotLiveIsolation(t *testing.T) {
 	_, err = second.opened.DB.ExecContext(context.Background(), `INSERT INTO items (id, value) VALUES (4, 'second-after-close')`)
 	require.NoError(t, err)
 	secondAfterClose := receiveBatch(t, secondLiveStream)
-	assert.Equal(t, int64(4), secondAfterClose.Changes[0].RowID)
-	assert.Equal(t, []byte("second-after-close"), secondAfterClose.Changes[0].After[1])
+	assert.Equal(t, int64(4), secondAfterClose.Changes[0].After[0])
+	assert.Equal(t, "second-after-close", secondAfterClose.Changes[0].After[1])
 	_ = secondLiveStream.Close()
 }
 
@@ -191,7 +191,7 @@ func TestObserverRebindsAfterConnectionExpiry(t *testing.T) {
 
 	batch := receiveBatch(t, stream)
 	require.Len(t, batch.Changes, 1)
-	assert.Equal(t, []byte("rebound"), batch.Changes[0].After[1])
+	assert.Equal(t, "rebound", batch.Changes[0].After[1])
 }
 
 func TestObserverClosesWithGeneration(t *testing.T) {
@@ -262,7 +262,7 @@ func TestObserverPublishesNetTransactionAfterCommit(t *testing.T) {
 	change := batch.Changes[0]
 	assert.Equal(t, "insert", change.Op)
 	assert.Nil(t, change.Before)
-	assert.Equal(t, []byte("final"), change.After[1])
+	assert.Equal(t, "final", change.After[1])
 
 	tx, err = observed.opened.DB.BeginTx(context.Background(), nil)
 	require.NoError(t, err)
@@ -305,8 +305,8 @@ func TestObserverSavepointRollbackDoesNotPublishRolledBackRows(t *testing.T) {
 
 	batch := receiveBatch(t, stream)
 	require.Len(t, batch.Changes, 1)
-	assert.Equal(t, int64(1), batch.Changes[0].RowID)
-	assert.Equal(t, []byte("kept"), batch.Changes[0].After[1])
+	assert.Equal(t, int64(1), batch.Changes[0].After[0])
+	assert.Equal(t, "kept", batch.Changes[0].After[1])
 	select {
 	case extra := <-stream.Changes():
 		t.Fatalf("rolled-back row was published: %#v", extra)
@@ -369,7 +369,7 @@ func TestObserverSnapshotFencesLiveWrites(t *testing.T) {
 		batch := receiveBatch(t, snapshot)
 		require.True(t, batch.Snapshot)
 		for _, change := range batch.Changes {
-			snapshotRows = append(snapshotRows, change.RowID)
+			snapshotRows = append(snapshotRows, change.After[0].(int64))
 		}
 	}
 	require.NoError(t, <-writeDone)
@@ -379,8 +379,8 @@ func TestObserverSnapshotFencesLiveWrites(t *testing.T) {
 			continue
 		}
 		require.Len(t, batch.Changes, 1)
-		assert.Equal(t, int64(99), batch.Changes[0].RowID)
-		assert.Equal(t, []byte("live"), batch.Changes[0].After[1])
+		assert.Equal(t, int64(99), batch.Changes[0].After[0])
+		assert.Equal(t, "live", batch.Changes[0].After[1])
 		break
 	}
 	assert.ElementsMatch(t, []int64{1, 2, 3}, snapshotRows)
@@ -409,7 +409,7 @@ func TestObserverSnapshotHandoffIncludesInFlightWriterAsLive(t *testing.T) {
 			t.Fatalf("uncommitted writer appeared in snapshot: %#v", batch)
 		}
 		require.Len(t, batch.Changes, 1)
-		assert.Equal(t, int64(10), batch.Changes[0].RowID)
+		assert.Equal(t, int64(10), batch.Changes[0].After[0])
 	case <-time.After(time.Second):
 		t.Fatal("in-flight writer did not arrive as live batch")
 	}
@@ -427,7 +427,7 @@ func TestObserverSnapshotFlushesBeforeByteBudget(t *testing.T) {
 	for i := 1; i <= 8; i++ {
 		err := batcher.add(config.Mutation{
 			Schema: "main", Table: "items", Columns: []string{"id", "value"},
-			RowID: int64(i), After: []any{int64(i), []byte(value)}, Op: "snapshot",
+			After: []any{int64(i), []byte(value)}, Op: "snapshot",
 		}, emit)
 		require.NoError(t, err)
 	}
@@ -601,7 +601,7 @@ func TestObserverFailedSavepointCommandDoesNotCorruptCapture(t *testing.T) {
 	require.NoError(t, tx.Commit())
 	batch := receiveBatch(t, stream)
 	require.Len(t, batch.Changes, 1)
-	assert.Equal(t, int64(1), batch.Changes[0].RowID)
+	assert.Equal(t, int64(1), batch.Changes[0].After[0])
 }
 
 func TestObserverFailsClosedForMultipleSavepointsInOneExec(t *testing.T) {
@@ -641,7 +641,7 @@ func TestObserverReturningRowsFinalizeOnClose(t *testing.T) {
 	require.NoError(t, rows.Close())
 	batch := receiveBatch(t, stream)
 	require.Len(t, batch.Changes, 1)
-	assert.Equal(t, int64(1), batch.Changes[0].RowID)
+	assert.Equal(t, int64(1), batch.Changes[0].After[0])
 }
 
 func TestObserverFiltersLiveMutations(t *testing.T) {
@@ -701,8 +701,8 @@ func TestObserverKeepsMultiStatementCommitBoundaries(t *testing.T) {
 	second := receiveBatch(t, stream)
 	require.Len(t, first.Changes, 1)
 	require.Len(t, second.Changes, 1)
-	assert.Equal(t, int64(1), first.Changes[0].RowID)
-	assert.Equal(t, int64(2), second.Changes[0].RowID)
+	assert.Equal(t, int64(1), first.Changes[0].After[0])
+	assert.Equal(t, int64(2), second.Changes[0].After[0])
 }
 
 func TestObserverKeepsCommittedPrefixBeforeParameterizedLaterError(t *testing.T) {
@@ -722,7 +722,7 @@ func TestObserverKeepsCommittedPrefixBeforeParameterizedLaterError(t *testing.T)
 	select {
 	case batch := <-stream.Changes():
 		require.Len(t, batch.Changes, 1)
-		assert.Equal(t, int64(1), batch.Changes[0].RowID)
+		assert.Equal(t, int64(1), batch.Changes[0].After[0])
 	case <-time.After(time.Second):
 		t.Fatal("committed prefix was not published")
 	}
@@ -744,7 +744,7 @@ func TestObserverKeepsCommittedPrefixBeforeParameterizedSyntaxTail(t *testing.T)
 	require.Error(t, err)
 	batch := receiveBatch(t, stream)
 	require.Len(t, batch.Changes, 1)
-	assert.Equal(t, int64(1), batch.Changes[0].RowID)
+	assert.Equal(t, int64(1), batch.Changes[0].After[0])
 }
 
 func TestObserverPublishesEarlierAutocommitBeforeLaterError(t *testing.T) {
@@ -762,7 +762,7 @@ func TestObserverPublishesEarlierAutocommitBeforeLaterError(t *testing.T) {
 	require.Error(t, err)
 	batch := receiveBatch(t, stream)
 	require.Len(t, batch.Changes, 1)
-	assert.Equal(t, int64(1), batch.Changes[0].RowID)
+	assert.Equal(t, int64(1), batch.Changes[0].After[0])
 	select {
 	case extra := <-stream.Changes():
 		t.Fatalf("failed later statement was published: %#v", extra)
