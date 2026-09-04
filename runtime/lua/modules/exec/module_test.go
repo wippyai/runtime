@@ -343,8 +343,9 @@ func TestProcessDoubleClose(t *testing.T) {
 func TestProcessCloseWithForce(t *testing.T) {
 	mockHandle := &mockProcess{}
 	p := &Process{
-		handle: mockHandle,
-		closed: false,
+		handle:  mockHandle,
+		started: true,
+		closed:  false,
 	}
 
 	l := setupState()
@@ -546,8 +547,9 @@ func TestModuleMetadata(t *testing.T) {
 func TestProcessCloseWithoutForce(t *testing.T) {
 	mockHandle := &mockProcess{}
 	p := &Process{
-		handle: mockHandle,
-		closed: false,
+		handle:  mockHandle,
+		started: true,
+		closed:  false,
 	}
 
 	l := setupState()

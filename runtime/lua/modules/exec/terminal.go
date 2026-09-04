@@ -84,7 +84,7 @@ func procAttachTerminal(l *lua.LState) int {
 func pushTerminalError(l *lua.LState, err error, message string) {
 	l.Push(lua.LNil)
 	if err != nil {
-		l.Push(lua.WrapErrorWithLua(l, err, message))
+		l.Push(wrapExecError(l, err, message, lua.Unavailable))
 		return
 	}
 	l.Push(lua.NewLuaError(l, message).WithKind(lua.Unavailable).WithRetryable(false))

@@ -7,7 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -94,6 +96,10 @@ func NewDockerExecutor(log *zap.Logger, config *execapi.DockerExecutorConfig) (*
 
 // NewProcess creates a new container process
 func (e *Executor) NewProcess(cmd string, options execapi.ProcessOptions) (execapi.Process, error) {
+	command, err := execapi.ParseCommand(cmd)
+	if err != nil {
+		return nil, err
+	}
 	ptyOptions := options.PTY
 	if ptyOptions != nil {
 		copy := *ptyOptions
@@ -116,16 +122,11 @@ func (e *Executor) NewProcess(cmd string, options execapi.ProcessOptions) (execa
 		}
 	}
 
-	env := make([]string, 0, len(e.defaultEnv)+len(options.Env))
-	for k, v := range e.defaultEnv {
-		env = append(env, k+"="+v)
-	}
-	for k, v := range options.Env {
-		env = append(env, k+"="+v)
-	}
+	term := ""
 	if ptyOptions != nil && ptyOptions.Term != "" {
-		env = append(env, "TERM="+ptyOptions.Term)
+		term = ptyOptions.Term
 	}
+	env := mergeEnv(e.defaultEnv, options.Env, term)
 
 	workDir := options.WorkDir
 	if workDir == "" {
@@ -136,7 +137,7 @@ func (e *Executor) NewProcess(cmd string, options execapi.ProcessOptions) (execa
 		log:             e.log,
 		cli:             e.cli,
 		image:           e.image,
-		cmd:             parseCommand(cmd),
+		cmd:             command,
 		env:             env,
 		workDir:         workDir,
 		networkMode:     e.networkMode,
@@ -174,7 +175,6 @@ func (e *Executor) Close() error {
 // Process represents a Docker container process
 type Process struct {
 	waitCtx         context.Context
-	waitErr         error
 	stdinWriter     io.WriteCloser
 	stderrReader    io.ReadCloser
 	stdoutReader    io.ReadCloser
@@ -303,7 +303,7 @@ func (p *Process) Start() error {
 	if p.pty != nil {
 		width, height, _ := p.pty.Dimensions()
 		if _, err := p.cli.ContainerResize(ctx, p.containerID, client.ContainerResizeOptions{Width: uint(width), Height: uint(height)}); err != nil {
-			return err
+			return NewContainerResizeError(err)
 		}
 	}
 
@@ -348,7 +348,10 @@ func (p *ptyProcess) Resize(width, height int) error {
 	ctx, cancel := p.controlContext()
 	defer cancel()
 	_, err := p.cli.ContainerResize(ctx, id, client.ContainerResizeOptions{Width: uint(width), Height: uint(height)})
-	return err
+	if err != nil {
+		return NewContainerResizeError(err)
+	}
+	return nil
 }
 
 // Signal sends a signal to the container
@@ -360,7 +363,7 @@ func (p *Process) Signal(sig int) error {
 	}
 	if p.stopped {
 		p.mu.RUnlock()
-		return ErrContainerStopped
+		return errors.Join(ErrContainerStopped, os.ErrProcessDone)
 	}
 	containerID := p.containerID
 	p.mu.RUnlock()
@@ -371,7 +374,7 @@ func (p *Process) Signal(sig int) error {
 	_, err := p.cli.ContainerKill(ctx, containerID, client.ContainerKillOptions{Signal: sigName})
 	if err != nil {
 		if strings.Contains(err.Error(), "is not running") {
-			return ErrContainerStopped
+			return errors.Join(ErrContainerStopped, os.ErrProcessDone)
 		}
 		return NewSignalError(err)
 	}
@@ -398,8 +401,14 @@ func (p *Process) WriteStdin(data []byte) error {
 		return ErrStdinNotAvailable
 	}
 
-	_, err := writer.Write(data)
-	return err
+	written, err := writer.Write(data)
+	if err != nil {
+		return err
+	}
+	if written != len(data) {
+		return io.ErrShortWrite
+	}
+	return nil
 }
 
 // Stdout returns a reader for the container's stdout
@@ -441,20 +450,16 @@ func (p *Process) Wait() error {
 	select {
 	case err := <-errCh:
 		if err != nil {
-			p.mu.Lock()
-			p.stopped = true
-			p.waitErr = err
-			p.mu.Unlock()
 			return err
 		}
 	case status := <-statusCh:
 		exitCode = status.StatusCode
 		if status.Error != nil {
+			waitErr := errors.New(status.Error.Message)
 			p.mu.Lock()
 			p.stopped = true
-			p.waitErr = errors.New(status.Error.Message)
 			p.mu.Unlock()
-			return p.waitErr
+			return waitErr
 		}
 	}
 
@@ -507,6 +512,9 @@ func buildBinds(volumes []string) ([]string, error) {
 	for _, volume := range volumes {
 		source, remainder, ok := strings.Cut(volume, ":")
 		if !ok {
+			// Preserve unsupported or malformed forms so the Docker daemon,
+			// which owns bind syntax, can return the authoritative error.
+			binds = append(binds, volume)
 			continue
 		}
 
@@ -529,55 +537,28 @@ func isExplicitRelativePath(source string) bool {
 	return strings.HasPrefix(source, ".") && strings.ContainsAny(source, `/\`)
 }
 
-// parseCommand splits a command string into parts
-func parseCommand(cmd string) []string {
-	if cmd == "" {
-		return nil
+func mergeEnv(defaults, overrides map[string]string, term string) []string {
+	merged := make(map[string]string, len(defaults)+len(overrides)+1)
+	for name, value := range defaults {
+		merged[name] = value
+	}
+	for name, value := range overrides {
+		merged[name] = value
+	}
+	if term != "" {
+		merged["TERM"] = term
 	}
 
-	cmd = strings.TrimSpace(cmd)
-	if cmd == "" {
-		return nil
+	names := make([]string, 0, len(merged))
+	for name := range merged {
+		names = append(names, name)
 	}
-
-	// Estimate capacity: count spaces outside quotes
-	estParts := 1 + strings.Count(cmd, " ")
-	parts := make([]string, 0, estParts)
-
-	var current strings.Builder
-	current.Grow(len(cmd))
-
-	inQuote := false
-	quoteChar := rune(0)
-
-	for _, c := range cmd {
-		switch {
-		case c == '"' || c == '\'':
-			switch {
-			case inQuote && c == quoteChar:
-				inQuote = false
-				quoteChar = 0
-			case !inQuote:
-				inQuote = true
-				quoteChar = c
-			default:
-				current.WriteRune(c)
-			}
-		case c == ' ' && !inQuote:
-			if current.Len() > 0 {
-				parts = append(parts, current.String())
-				current.Reset()
-			}
-		default:
-			current.WriteRune(c)
-		}
+	sort.Strings(names)
+	env := make([]string, 0, len(names))
+	for _, name := range names {
+		env = append(env, name+"="+merged[name])
 	}
-
-	if current.Len() > 0 {
-		parts = append(parts, current.String())
-	}
-
-	return parts
+	return env
 }
 
 var signalNames = map[int]string{

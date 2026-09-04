@@ -69,7 +69,7 @@ func terminalSessionSend(l *lua.LState) int {
 	if err := enqueueTerminalEvent(session.events, event); err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.WrapErrorWithLua(l, err, "send terminal input").
-			WithKind(lua.Internal).WithRetryable(true))
+			WithKind(lua.Unavailable).WithRetryable(true))
 		return 2
 	}
 	l.Push(lua.LTrue)
@@ -106,7 +106,7 @@ func terminalSessionStatus(l *lua.LState) int {
 	session.errMu.RUnlock()
 	l.Push(lua.LString("done"))
 	if err != nil {
-		l.Push(lua.WrapErrorWithLua(l, err, "PTY process"))
+		l.Push(wrapExecError(l, err, "PTY process", lua.Internal))
 	} else {
 		l.Push(lua.LNil)
 	}

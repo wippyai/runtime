@@ -85,6 +85,7 @@ func TestDockerWaitCanBeInterruptedDuringProxyAbandonment(t *testing.T) {
 	select {
 	case err := <-done:
 		require.ErrorIs(t, err, context.Canceled)
+		require.False(t, process.stopped, "canceling a wait does not prove the container stopped")
 	case <-time.After(time.Second):
 		t.Fatal("cancelled Docker wait remained blocked")
 	}
@@ -198,6 +199,41 @@ func TestDockerExecutor_RequiresImage(t *testing.T) {
 
 	_, err := NewDockerExecutor(log, config)
 	assert.ErrorIs(t, err, execapi.ErrImageRequired)
+}
+
+func TestDockerExecutorRejectsMissingAndMalformedCommands(t *testing.T) {
+	executor, err := NewDockerExecutor(zap.NewNop(), &execapi.DockerExecutorConfig{Image: "alpine:latest"})
+	require.NoError(t, err)
+	defer func() { _ = executor.Close() }()
+
+	_, err = executor.NewProcess("", execapi.ProcessOptions{})
+	require.ErrorIs(t, err, execapi.ErrCommandRequired)
+	_, err = executor.NewProcess(`echo "missing`, execapi.ProcessOptions{})
+	require.ErrorIs(t, err, execapi.ErrInvalidCommand)
+}
+
+type shortWriteCloser struct{}
+
+func (shortWriteCloser) Write(data []byte) (int, error) {
+	if len(data) == 0 {
+		return 0, nil
+	}
+	return len(data) - 1, nil
+}
+func (shortWriteCloser) Close() error { return nil }
+
+func TestDockerProcessRejectsShortStdinWrite(t *testing.T) {
+	process := &Process{started: true, stdinWriter: shortWriteCloser{}}
+	require.ErrorIs(t, process.WriteStdin([]byte("payload")), io.ErrShortWrite)
+}
+
+func TestMergeEnvOverridesDefaultsWithoutDuplicates(t *testing.T) {
+	env := mergeEnv(
+		map[string]string{"LANG": "C", "TOKEN": "old", "TERM": "old-term"},
+		map[string]string{"TOKEN": "new", "ZED": "last"},
+		"xterm-256color",
+	)
+	require.Equal(t, []string{"LANG=C", "TERM=xterm-256color", "TOKEN=new", "ZED=last"}, env)
 }
 
 func TestDockerExecutor_Whitelist(t *testing.T) {
@@ -470,25 +506,11 @@ func TestDockerProcess_NotStarted(t *testing.T) {
 	assert.ErrorIs(t, err, ErrContainerNotStarted)
 }
 
-func TestParseCommand(t *testing.T) {
-	tests := []struct {
-		input    string
-		expected []string
-	}{
-		{"", nil},
-		{"   ", nil},
-		{"echo hello", []string{"echo", "hello"}},
-		{"echo 'hello world'", []string{"echo", "hello world"}},
-		{"echo \"hello world\"", []string{"echo", "hello world"}},
-		{"sh -c 'echo test'", []string{"sh", "-c", "echo test"}},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.input, func(t *testing.T) {
-			result := parseCommand(tc.input)
-			assert.Equal(t, tc.expected, result)
-		})
-	}
+func TestDockerSignalIdentifiesStoppedContainerAsProcessDone(t *testing.T) {
+	process := &Process{started: true, stopped: true}
+	err := process.Signal(15)
+	require.ErrorIs(t, err, ErrContainerStopped)
+	require.ErrorIs(t, err, os.ErrProcessDone)
 }
 
 func TestExecutorFactory(t *testing.T) {
@@ -745,6 +767,7 @@ func TestBuildBinds(t *testing.T) {
 		":/anonymous",
 		`C:\host\data:C:\container\data:ro`,
 		`\\server\share:C:\container\share`,
+		"malformed",
 	}, binds)
 }
 

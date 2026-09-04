@@ -71,7 +71,7 @@ Creates a new process with the specified command.
 
 | Param | Type | Required | Default | Notes |
 |-------|------|----------|---------|-------|
-| cmd | string | yes | - | Command to execute |
+| cmd | string | yes | - | Executable and literal arguments; supports single/double quotes and backslash escaping, but performs no shell expansion |
 | options | ProcessOptions | no | nil | Process options |
 
 **options fields:**
@@ -100,6 +100,7 @@ Creates a new process with the specified command.
 |-----------|------|-----------|
 | executor released | errors.INVALID | no |
 | cmd is empty string | errors.INVALID | no |
+| cmd contains an unclosed quote | errors.INVALID | no |
 | permission denied | errors.INVALID | no |
 | process creation failed | errors.INTERNAL | no |
 
@@ -165,8 +166,8 @@ Ordinary pipe-backed processes return an error.
 
 #### process:close(force?: boolean) → boolean, error
 
-Releases the process. Sends `SIGTERM`, or `SIGKILL` when `force` is true, then
-reaps the child and invalidates the handle.
+Releases the process. A started child is sent `SIGTERM`, or `SIGKILL` when
+`force` is true, then reaped; an unstarted handle is simply invalidated.
 
 Reaping is what releases the child's entry in the OS process table; without it a
 stopped process lingers as a zombie for the lifetime of the runtime. It happens

@@ -4,10 +4,12 @@ package native
 
 import (
 	"context"
+	"errors"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -51,6 +53,9 @@ func NewNativeExecutor(log *zap.Logger, config *execapi.NativeExecutorConfig) *E
 
 // NewProcess implements exec.ProcessExecutor interface
 func (e *Executor) NewProcess(cmd string, options execapi.ProcessOptions) (execapi.Process, error) {
+	if _, err := execapi.ParseCommand(cmd); err != nil {
+		return nil, err
+	}
 	ptyOptions := options.PTY
 	if ptyOptions != nil {
 		copy := *ptyOptions
@@ -164,9 +169,14 @@ func NewProcessExecutor(log *zap.Logger, opts ...Option) *ProcessExecutor {
 	if e.envs != nil {
 		// Use clean environment - only include explicitly configured variables
 		// Do not inherit os.Environ() to prevent LD_PRELOAD, PATH hijacking
-		command.Env = make([]string, 0, len(e.envs))
-		for k, v := range e.envs {
-			command.Env = append(command.Env, k+"="+v)
+		names := make([]string, 0, len(e.envs))
+		for name := range e.envs {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		command.Env = make([]string, 0, len(names))
+		for _, name := range names {
+			command.Env = append(command.Env, name+"="+e.envs[name])
 		}
 	}
 
@@ -259,6 +269,9 @@ func (e *ProcessExecutor) WriteStdin(data []byte) error {
 	if err != nil {
 		return err
 	}
+	if n != len(data) {
+		return io.ErrShortWrite
+	}
 
 	e.log.Debug("written to stdin", zap.Int("bytes", n))
 
@@ -271,7 +284,12 @@ func (e *ProcessExecutor) Signal(sig int) error {
 	defer e.mu.RUnlock()
 
 	if e.state != running {
-		e.log.Error("process is not running", zap.String("state", e.state))
+		state := e.state
+		if state == terminated {
+			e.log.Debug("process already terminated")
+			return errors.Join(ErrProcessNotRunning, os.ErrProcessDone)
+		}
+		e.log.Error("process is not running", zap.String("state", state))
 		return ErrProcessNotRunning
 	}
 
@@ -358,7 +376,16 @@ func (e *ProcessExecutor) Stop() {
 // Wait implements exec.Process
 func (e *ProcessExecutor) Wait() error {
 	err := e.cmd.Wait()
-	if err != nil {
+	var nativeExit *exec.ExitError
+	if errors.As(err, &nativeExit) {
+		code := nativeExit.ExitCode()
+		if status, statusOK := nativeExit.Sys().(syscall.WaitStatus); statusOK && status.Signaled() {
+			code = 128 + int(status.Signal())
+		}
+		err = &ExitError{Code: code, cause: err}
+	}
+	var processExit *ExitError
+	if err != nil && !errors.As(err, &processExit) {
 		e.log.Error("command wait error", zap.Error(err))
 	}
 
@@ -373,7 +400,11 @@ func (e *ProcessExecutor) Wait() error {
 	e.mu.Unlock()
 
 	e.stopped.Store(true)
-	e.log.Debug("command finished")
+	if processExit != nil {
+		e.log.Debug("command exited", zap.Int("exit_code", processExit.Code))
+	} else {
+		e.log.Debug("command finished")
+	}
 
 	return err
 }
@@ -386,73 +417,7 @@ func (e *ProcessExecutor) closePTY() {
 	})
 }
 
-// parseCommand splits a command string into executable and arguments,
-// handling quoted arguments properly
 func parseCommand(cmd string) []string {
-	if cmd == "" {
-		return []string{""}
-	}
-
-	cmd = strings.TrimSpace(cmd)
-	if cmd == "" {
-		return []string{}
-	}
-
-	if cmd == "\"\"" || cmd == "''" {
-		return []string{""}
-	}
-
-	// Pre-allocate with estimated capacity
-	estParts := 1 + strings.Count(cmd, " ")
-	parts := make([]string, 0, estParts)
-
-	var current strings.Builder
-	current.Grow(len(cmd))
-
-	inQuote := false
-	quoteChar := rune(0)
-
-	for _, c := range cmd {
-		switch {
-		case c == '"' || c == '\'':
-			switch {
-			case inQuote && c == quoteChar:
-				inQuote = false
-				quoteChar = 0
-				if current.Len() == 0 {
-					parts = append(parts, "")
-				}
-			case !inQuote:
-				inQuote = true
-				quoteChar = c
-			default:
-				current.WriteRune(c)
-			}
-		case c == ' ' && !inQuote:
-			if current.Len() > 0 {
-				parts = append(parts, current.String())
-				current.Reset()
-			}
-		default:
-			current.WriteRune(c)
-		}
-	}
-
-	// Handle unbalanced quotes
-	if inQuote {
-		if current.Len() == 0 {
-			parts = append(parts, string(quoteChar))
-		} else {
-			// Prepend the quote character
-			result := string(quoteChar) + current.String()
-			parts = append(parts, result)
-			return parts
-		}
-	}
-
-	if current.Len() > 0 {
-		parts = append(parts, current.String())
-	}
-
+	parts, _ := execapi.ParseCommand(cmd)
 	return parts
 }

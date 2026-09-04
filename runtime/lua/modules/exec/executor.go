@@ -137,7 +137,7 @@ func executorExec(l *lua.LState) int {
 	proc, err := factory.NewProcess(cmd, opts)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.WrapErrorWithLua(l, err, "create process").WithKind(lua.Internal).WithRetryable(false))
+		l.Push(wrapExecError(l, err, "create process", lua.Internal))
 		return 2
 	}
 

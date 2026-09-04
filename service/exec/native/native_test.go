@@ -9,6 +9,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	osexec "os/exec"
 	"runtime"
 	"strings"
 	"testing"
@@ -743,6 +744,20 @@ func TestNativeExecutor_Config(t *testing.T) {
 	assert.Contains(t, sb.String(), "test_value")
 }
 
+func TestNativeExecutorEnvironmentOverridesAreDeterministic(t *testing.T) {
+	executor := NewNativeExecutor(zap.NewNop(), &exec.NativeExecutorConfig{
+		DefaultEnv: map[string]string{"TOKEN": "old", "LANG": "C", "TERM": "old-term"},
+	})
+	process, err := executor.NewProcess("command", exec.ProcessOptions{
+		Env: map[string]string{"TOKEN": "new", "ZED": "last"},
+		PTY: &exec.PTYOptions{Term: "xterm-256color"},
+	})
+	require.NoError(t, err)
+
+	nativeProcess := process.(*ptyProcess).ProcessExecutor
+	require.Equal(t, []string{"LANG=C", "TERM=xterm-256color", "TOKEN=new", "ZED=last"}, nativeProcess.cmd.Env)
+}
+
 func TestNativeExecutor_Whitelist(t *testing.T) {
 	logger := zap.NewNop()
 
@@ -849,8 +864,50 @@ func TestProcessExecutor_Signal(t *testing.T) {
 	err = process.Signal(15) // SIGTERM
 	assert.NoError(t, err)
 
-	// Wait should return an error (process killed)
-	_ = process.Wait()
+	// Wait normalizes signals to shell-compatible exit codes, matching Docker.
+	err = process.Wait()
+	var exitErr *ExitError
+	require.ErrorAs(t, err, &exitErr)
+	require.Equal(t, 143, exitErr.ExitCode())
+}
+
+func TestProcessExecutorWaitPreservesNativeExitCause(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses a POSIX shell command")
+	}
+	executor := NewNativeExecutor(zap.NewNop(), &exec.NativeExecutorConfig{})
+	process, err := executor.NewProcess("sh -c 'exit 42'", exec.ProcessOptions{})
+	require.NoError(t, err)
+	require.NoError(t, process.Start())
+
+	err = process.Wait()
+	var exitErr *ExitError
+	require.ErrorAs(t, err, &exitErr)
+	require.Equal(t, 42, exitErr.ExitCode())
+	var nativeCause *osexec.ExitError
+	require.ErrorAs(t, err, &nativeCause)
+}
+
+func TestProcessExecutorSignalIdentifiesTerminatedProcessAsDone(t *testing.T) {
+	process := &ProcessExecutor{state: terminated, log: zap.NewNop()}
+	err := process.Signal(15)
+	require.ErrorIs(t, err, ErrProcessNotRunning)
+	require.ErrorIs(t, err, os.ErrProcessDone)
+}
+
+type shortWriteCloser struct{}
+
+func (shortWriteCloser) Write(data []byte) (int, error) {
+	if len(data) == 0 {
+		return 0, nil
+	}
+	return len(data) - 1, nil
+}
+func (shortWriteCloser) Close() error { return nil }
+
+func TestProcessExecutorRejectsShortStdinWrite(t *testing.T) {
+	process := &ProcessExecutor{state: running, stdinPipe: shortWriteCloser{}, log: zap.NewNop()}
+	require.ErrorIs(t, process.WriteStdin([]byte("payload")), io.ErrShortWrite)
 }
 
 func TestProcessExecutor_State(t *testing.T) {
@@ -1030,7 +1087,7 @@ func TestParseCommand(t *testing.T) {
 		{
 			name:     "empty command",
 			command:  "",
-			expected: []string{""},
+			expected: nil,
 		},
 		{
 			name:     "simple command without args",
@@ -1121,14 +1178,14 @@ func TestParseCommand(t *testing.T) {
 			expected: []string{"echo", "$HOME", "$(pwd)"},
 		},
 		{
-			name:     "unbalanced quotes (should preserve the quote)",
+			name:     "unbalanced double quote",
 			command:  "echo \"hello",
-			expected: []string{"echo", "\"hello"},
+			expected: nil,
 		},
 		{
-			name:     "unbalanced single quotes",
+			name:     "unbalanced single quote",
 			command:  "echo 'hello",
-			expected: []string{"echo", "'hello"},
+			expected: nil,
 		},
 
 		// Platform-specific paths
@@ -1164,12 +1221,12 @@ func TestParseCommand(t *testing.T) {
 		{
 			name:     "command with only spaces",
 			command:  "   ",
-			expected: []string{},
+			expected: nil,
 		},
 		{
 			name:     "command with only quotes",
 			command:  "\"\"",
-			expected: []string{""},
+			expected: nil,
 		},
 		{
 			name:     "command with quotes and spaces",
