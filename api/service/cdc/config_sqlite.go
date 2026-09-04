@@ -9,6 +9,7 @@ import (
 )
 
 type SQLiteConfig struct {
+	Subscriptions  SubscriptionLimits         `json:"subscriptions,omitempty"`
 	DBResource     string                     `json:"db_resource"`
 	Name           string                     `json:"name,omitempty"`
 	StatusInterval string                     `json:"status_interval,omitempty"`
@@ -22,6 +23,9 @@ func (c *SQLiteConfig) InitDefaults() {
 }
 
 func (c *SQLiteConfig) Validate() error {
+	if err := c.Subscriptions.Validate(); err != nil {
+		return err
+	}
 	if c.DBResource == "" {
 		return ErrDBResourceRequired
 	}

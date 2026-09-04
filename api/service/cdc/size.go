@@ -7,7 +7,7 @@ import "reflect"
 const (
 	// DefaultMaxStreamBytes bounds a subscriber's retained event backlog when
 	// MaxBytes is omitted. It is deliberately finite for every driver.
-	DefaultMaxStreamBytes int64 = 64 << 20
+	DefaultMaxStreamBytes int64 = 1 << 20
 	// DefaultMaxStreamItems is the historical Lua CDC stream capacity. It is
 	// also used by direct Go callers so process admission is always bounded.
 	DefaultMaxStreamItems = 64

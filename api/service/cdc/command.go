@@ -32,9 +32,12 @@ type StreamOptions struct {
 }
 
 type Change struct {
-	Before map[string]any `json:"before,omitempty"`
-	After  map[string]any `json:"after,omitempty"`
-	Source string         `json:"source"`
+	// Unchanged lists after-image columns omitted because the database did
+	// not resend their values. Absence is distinct from SQL NULL and text.
+	Unchanged []string       `json:"unchanged,omitempty"`
+	Before    map[string]any `json:"before,omitempty"`
+	After     map[string]any `json:"after,omitempty"`
+	Source    string         `json:"source"`
 	// SourceID is the canonical registry identity. Source is retained as the
 	// legacy wire representation used by existing Lua consumers.
 	SourceID    registry.ID `json:"source_id,omitempty"`

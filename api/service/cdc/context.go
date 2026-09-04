@@ -25,8 +25,10 @@ const (
 // Capabilities describes guarantees provided by a source. The common API does
 // not infer PostgreSQL or SQLite semantics from the source kind.
 type Capabilities struct {
-	Snapshot               bool `json:"snapshot,omitempty"`
-	Durable                bool `json:"durable,omitempty"`
+	Snapshot bool `json:"snapshot,omitempty"`
+	// CaptureResume describes source progress across reconnects, not durable
+	// delivery or replay for individual subscribers.
+	CaptureResume          bool `json:"capture_resume,omitempty"`
 	Replayable             bool `json:"replayable,omitempty"`
 	CapturesExternalWrites bool `json:"captures_external_writes,omitempty"`
 	BeforeImages           bool `json:"before_images,omitempty"`
@@ -68,6 +70,7 @@ type Registry interface {
 }
 
 type SourceInfo struct {
+	Admission SubscriptionStats `json:"admission"`
 	// The fields in this struct are retained for wire compatibility with
 	// existing Lua and API consumers. New code must use ID, Kind, State,
 	// Capabilities and Generation; driver-specific metadata should not be

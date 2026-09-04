@@ -36,6 +36,7 @@ const (
 // the resource long enough to subscribe to its committed-mutation capability;
 // it never opens another connection and never installs hooks on a raw one.
 type Source struct {
+	limits         config.SubscriptionLimits
 	sourceErr      error
 	res            resource.Registry
 	observerSource sqlapi.CommittedMutationSource
@@ -101,6 +102,7 @@ func buildSource(opts sourceOptions) (managedSource, error) {
 	stopGate <- struct{}{}
 
 	return &Source{
+		limits:       opts.limits,
 		res:          opts.res,
 		log:          log,
 		id:           opts.id,
@@ -141,13 +143,13 @@ func (s *Source) Info() config.SourceInfo {
 		Epoch:      generation,
 		Capabilities: config.Capabilities{
 			Snapshot:               true,
-			Durable:                false,
+			CaptureResume:          false,
 			Replayable:             false,
 			CapturesExternalWrites: false,
 			BeforeImages:           true,
 			Coalesced:              true,
 		},
-		Snapshot:  true,
+		Snapshot:  s.snapshot,
 		Streaming: state == config.SourceStateRunning,
 		Faulted:   state == config.SourceStateFaulted,
 	}
@@ -170,6 +172,8 @@ func (s *Source) LifecycleConfig() supervisor.LifecycleConfig {
 	}
 	return cfg
 }
+
+func (s *Source) SubscriptionLimits() config.SubscriptionLimits { return s.limits }
 
 // Start subscribes to the SQL resource's observer and starts the forwarding
 // loop. The resource borrow is released immediately after Subscribe succeeds;

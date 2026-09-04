@@ -112,7 +112,7 @@ func TestListSourcesReturnsAllInfos(t *testing.T) {
 				Generation: "generation-a",
 				Capabilities: cdcapi.Capabilities{
 					Snapshot:               true,
-					Durable:                true,
+					CaptureResume:          true,
 					Replayable:             true,
 					CapturesExternalWrites: true,
 					BeforeImages:           true,
@@ -145,7 +145,7 @@ func TestListSourcesReturnsAllInfos(t *testing.T) {
 		assert(rows[1].state == "running")
 		assert(rows[1].generation == "generation-a")
 		assert(rows[1].capabilities.snapshot == true)
-		assert(rows[1].capabilities.durable == true)
+		assert(rows[1].capabilities.capture_resume == true)
 		assert(rows[1].capabilities.replayable == true)
 		assert(rows[1].capabilities.captures_external_writes == true)
 		assert(rows[1].capabilities.before_images == true)
@@ -429,7 +429,7 @@ func TestModuleTypesMatchRuntimeFields(t *testing.T) {
 	}
 
 	assertRecordFields("Capabilities", []string{
-		"snapshot", "durable", "replayable", "captures_external_writes", "before_images", "coalesced",
+		"snapshot", "capture_resume", "replayable", "captures_external_writes", "before_images", "coalesced",
 	})
 	assertRecordFields("SourceInfo", []string{
 		"id", "kind", "state", "generation", "capabilities", "name", "slot", "publication",

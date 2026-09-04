@@ -14,6 +14,7 @@ import (
 // owns the process identity and generation that consumers use for routing and
 // resume diagnostics.
 type stampedStream struct {
+	release    func()
 	upstream   api.Stream
 	out        chan api.Change
 	done       chan struct{}
@@ -22,8 +23,9 @@ type stampedStream struct {
 	once       sync.Once
 }
 
-func newStampedStream(id registry.ID, generation uint64, upstream api.Stream) *stampedStream {
+func newStampedStream(id registry.ID, generation uint64, upstream api.Stream, release func()) *stampedStream {
 	stream := &stampedStream{
+		release:    release,
 		upstream:   upstream,
 		sourceID:   registry.ParseID(id.String()),
 		generation: generationString(generation),
@@ -42,6 +44,9 @@ func (s *stampedStream) Close() {
 	s.once.Do(func() {
 		close(s.done)
 		s.upstream.Close()
+		if s.release != nil {
+			s.release()
+		}
 	})
 }
 
@@ -51,6 +56,7 @@ func (s *stampedStream) Err() error {
 
 func (s *stampedStream) run() {
 	defer close(s.out)
+	defer s.Close()
 	changes := s.upstream.Changes()
 	for {
 		select {

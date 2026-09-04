@@ -18,7 +18,11 @@ import (
 	"go.uber.org/zap"
 )
 
-const defaultWorkers = 4
+const (
+	defaultWorkers             = 4
+	maxDispatcherSubscriptions = 4096
+	maxDispatcherReservedBytes = 1 << 30
+)
 
 var (
 	// ErrDispatcherNotStarted is returned to a command submitted before Start.
@@ -55,6 +59,7 @@ const (
 // configured source manager. The dispatcher owns subscription relays; a
 // driver owns the source and its stream implementation.
 type Dispatcher struct {
+	capacity *admission
 	ctx      context.Context
 	log      *zap.Logger
 	cancel   context.CancelFunc
@@ -107,6 +112,7 @@ func WithLogger(log *zap.Logger) DispatcherOption {
 // NewDispatcher creates a CDC dispatcher.
 func NewDispatcher(opts ...DispatcherOption) *Dispatcher {
 	d := &Dispatcher{
+		capacity: newAdmission(cdcapi.SubscriptionLimits{MaxSubscriptions: maxDispatcherSubscriptions, MaxBytes: maxDispatcherReservedBytes}),
 		workers:  defaultWorkers,
 		state:    stateNew,
 		sessions: make(map[uint64]*relaySession),
@@ -331,8 +337,23 @@ func (d *Dispatcher) executeSubscribe(dispatchCtx, requestCtx context.Context, c
 		return
 	}
 
+	// Reserve both the source backlog and the process-delivery backlog. Source
+	// admission separately accounts for snapshot defaults and per-source limits.
+	bytes := cmd.Options.EffectiveMaxBytes()
+	if bytes > maxDispatcherReservedBytes/2 {
+		cancelContext()
+		complete(receiver, tag, nil, cdcapi.ErrSubscriptionLimit)
+		return
+	}
+	release, err := d.capacity.acquire(bytes*2, false)
+	if err != nil {
+		cancelContext()
+		complete(receiver, tag, nil, err)
+		return
+	}
 	stream, err := d.openStream(ctx, cmd)
 	if err != nil {
+		release()
 		cancelContext()
 		if dispatchCtx != nil && dispatchCtx.Err() != nil {
 			err = ErrDispatcherStopping
@@ -341,6 +362,7 @@ func (d *Dispatcher) executeSubscribe(dispatchCtx, requestCtx context.Context, c
 		return
 	}
 	if stream == nil {
+		release()
 		cancelContext()
 		complete(receiver, tag, nil, errors.New("cdc source returned a nil stream"))
 		return
@@ -354,7 +376,10 @@ func (d *Dispatcher) executeSubscribe(dispatchCtx, requestCtx context.Context, c
 			cancelLoop()
 			cancelContext()
 		},
-		close: stream.Close,
+		close: func() {
+			stream.Close()
+			release()
+		},
 	}
 	if !d.addSession(session) {
 		session.stop()

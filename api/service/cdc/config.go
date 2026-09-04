@@ -29,6 +29,7 @@ const (
 )
 
 type Config struct {
+	Subscriptions         SubscriptionLimits         `json:"subscriptions,omitempty"`
 	Options               map[string]string          `json:"options"`
 	Database              string                     `json:"database"`
 	Password              string                     `json:"password"`
@@ -60,6 +61,9 @@ func (c *Config) InitDefaults() {
 }
 
 func (c *Config) Validate() error {
+	if err := c.Subscriptions.Validate(); err != nil {
+		return err
+	}
 	if c.Host == "" {
 		return ErrHostRequired
 	}

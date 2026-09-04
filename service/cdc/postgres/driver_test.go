@@ -36,7 +36,7 @@ func TestSourceAdapterInfoReportsConservativeCapabilities(t *testing.T) {
 	assert.True(t, info.Streaming, "legacy streaming field preserves configured protocol mode")
 	assert.True(t, info.Capabilities.Snapshot, "per-consumer snapshots use the atomic handoff")
 	assert.False(t, info.Capabilities.Replayable, "After cursors are unsupported")
-	assert.False(t, info.Capabilities.Durable, "temporary slots are not durable")
+	assert.False(t, info.Capabilities.CaptureResume, "temporary slots are not durable")
 	assert.False(t, info.Capabilities.BeforeImages)
 }
 

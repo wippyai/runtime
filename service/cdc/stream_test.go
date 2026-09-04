@@ -4,6 +4,7 @@ package cdc
 
 import (
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -17,6 +18,22 @@ type stampedTestStream struct {
 	once    sync.Once
 }
 
+func TestStampedStreamReleasesAdmissionOnNaturalEnd(t *testing.T) {
+	upstream := &stampedTestStream{changes: make(chan api.Change)}
+	var releases atomic.Int32
+	stream := newStampedStream(registry.NewID("app", "cdc"), 1, upstream, func() { releases.Add(1) })
+	upstream.Close()
+	select {
+	case _, ok := <-stream.Changes():
+		require.False(t, ok)
+	case <-time.After(time.Second):
+		t.Fatal("stream failed to end")
+	}
+	require.EqualValues(t, 1, releases.Load())
+	stream.Close()
+	require.EqualValues(t, 1, releases.Load())
+}
+
 func (s *stampedTestStream) Changes() <-chan api.Change { return s.changes }
 
 func (s *stampedTestStream) Close() {
@@ -27,7 +44,7 @@ func (*stampedTestStream) Err() error { return nil }
 
 func TestStampedStreamUsesOnlyTheDriverQueue(t *testing.T) {
 	upstream := &stampedTestStream{changes: make(chan api.Change, 2)}
-	stream := newStampedStream(registry.NewID("app", "cdc"), 7, upstream)
+	stream := newStampedStream(registry.NewID("app", "cdc"), 7, upstream, nil)
 	require.Zero(t, cap(stream.Changes()), "the common adapter must not add a second event queue")
 
 	upstream.changes <- api.Change{Op: "insert", Table: "users"}

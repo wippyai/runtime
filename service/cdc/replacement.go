@@ -190,6 +190,7 @@ func (s *sourceSlot) Replace(ctx context.Context, candidate ManagedSource, oldLe
 		return errors.Join(ErrSourceBusy, cleanupErr)
 	}
 	s.current = candidate
+	s.admission.configure(subscriptionLimits(candidate))
 	s.generation++
 	if startCandidate {
 		if s.status == nil || s.statusDone {

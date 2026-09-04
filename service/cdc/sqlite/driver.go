@@ -25,6 +25,7 @@ type managedSource interface {
 }
 
 type sourceOptions struct {
+	limits         config.SubscriptionLimits
 	res            resource.Registry
 	log            *zap.Logger
 	id             registry.ID
@@ -60,6 +61,7 @@ func (Driver) Create(ctx context.Context, entry registry.Entry, deps cdcservice.
 		log = zap.NewNop()
 	}
 	return buildSource(sourceOptions{
+		limits:         cfg.Subscriptions,
 		res:            deps.Resources,
 		log:            log.With(zap.String("id", entry.ID.String())),
 		id:             entry.ID,

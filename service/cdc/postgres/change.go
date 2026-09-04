@@ -13,6 +13,7 @@ const (
 )
 
 type RowChange struct {
+	Unchanged []string       `json:"unchanged,omitempty"`
 	Before    map[string]any `json:"before,omitempty"`
 	After     map[string]any `json:"after,omitempty"`
 	Op        Op             `json:"op"`

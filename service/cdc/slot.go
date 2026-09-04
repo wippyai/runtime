@@ -33,6 +33,7 @@ const (
 // supervisor. A driver replacement changes the delegated generation, never the
 // supervisor object or registry pointer.
 type sourceSlot struct {
+	admission   *admission
 	runCtx      context.Context
 	current     ManagedSource
 	runCancel   context.CancelFunc
@@ -74,6 +75,7 @@ func newSourceSlot(id registry.ID, kind registry.Kind, source ManagedSource, log
 		log = logs[0]
 	}
 	return &sourceSlot{
+		admission:  newAdmission(subscriptionLimits(source)),
 		id:         canonicalID(id),
 		kind:       kind,
 		current:    source,
@@ -102,6 +104,7 @@ func (s *sourceSlot) Info() api.SourceInfo {
 		}
 	}
 	info := current.Info()
+	info.Admission = s.admission.stats()
 	info.ID = s.id
 	info.Kind = s.kind
 	info.Name = s.id.String()
@@ -133,11 +136,17 @@ func (s *sourceSlot) Subscribe(ctx context.Context, opts api.StreamOptions) (api
 	current := s.current
 	generation := s.generation
 	s.mu.RUnlock()
-	stream, err := current.Subscribe(ctx, opts)
+	release, err := s.admission.acquire(opts.EffectiveMaxBytes(), opts.Snapshot || current.Info().Snapshot)
 	if err != nil {
 		return nil, err
 	}
+	stream, err := current.Subscribe(ctx, opts)
+	if err != nil {
+		release()
+		return nil, err
+	}
 	if stream == nil {
+		release()
 		return nil, errors.New("cdc source returned a nil stream")
 	}
 
@@ -147,9 +156,10 @@ func (s *sourceSlot) Subscribe(ctx context.Context, opts api.StreamOptions) (api
 	s.mu.RUnlock()
 	if !stillCurrent {
 		stream.Close()
+		release()
 		return nil, api.ErrSourceNotReady
 	}
-	return newStampedStream(s.id, generation, stream), nil
+	return newStampedStream(s.id, generation, stream, release), nil
 }
 
 // Start is idempotent while the active generation is running. This is what

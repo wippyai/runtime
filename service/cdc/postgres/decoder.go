@@ -20,7 +20,9 @@ type bufferedChange struct {
 // reconstructing decoder state after a restart.
 type decodeResult struct {
 	changes []RowChange
-	safe    bool
+	// position is supplied by a commit message, never derived from wire size.
+	position pglogrepl.LSN
+	safe     bool
 }
 
 type decoder struct {
@@ -128,7 +130,7 @@ func (d *decoder) applyResult(msg pglogrepl.Message, walStart pglogrepl.LSN) (de
 		if !d.txActive {
 			return decodeResult{}, fmt.Errorf("%w: commit without begin", ErrInvalidTransaction)
 		}
-		return decodeResult{changes: d.flushTransaction(m.CommitLSN), safe: len(d.buffer) == 0}, nil
+		return decodeResult{changes: d.flushTransaction(m.CommitLSN), position: m.TransactionEndLSN, safe: len(d.buffer) == 0}, nil
 
 	case *pglogrepl.InsertMessage:
 		return d.one(OpInsert, m.RelationID, nil, m.Tuple, walStart)
@@ -181,7 +183,7 @@ func (d *decoder) applyResult(msg pglogrepl.Message, walStart pglogrepl.LSN) (de
 			return decodeResult{}, fmt.Errorf("%w: stream commit for unknown xid %d", ErrInvalidTransaction, m.Xid)
 		}
 		changes := d.flushStream(m.Xid, m.CommitLSN)
-		return decodeResult{changes: changes, safe: len(d.buffer) == 0}, nil
+		return decodeResult{changes: changes, position: m.TransactionEndLSN, safe: len(d.buffer) == 0}, nil
 
 	case *pglogrepl.StreamAbortMessageV2:
 		if d.inStream {
@@ -289,12 +291,13 @@ func (d *decoder) changeFor(op Op, relID uint32, oldT, newT *pglogrepl.TupleData
 		return RowChange{}, fmt.Errorf("%w: %d", ErrUnknownRelation, relID)
 	}
 	return RowChange{
-		Op:     op,
-		Schema: rel.Namespace,
-		Table:  rel.RelationName,
-		LSN:    walStart.String(),
-		Before: tupleToMap(rel, oldT),
-		After:  tupleToMap(rel, newT),
+		Op:        op,
+		Schema:    rel.Namespace,
+		Table:     rel.RelationName,
+		LSN:       walStart.String(),
+		Before:    tupleToMap(rel, oldT),
+		After:     tupleToMap(rel, newT),
+		Unchanged: unchangedColumns(rel, newT),
 	}, nil
 }
 

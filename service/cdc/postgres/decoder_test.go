@@ -368,7 +368,9 @@ func TestTupleToMapNullAndToast(t *testing.T) {
 	}}
 	m := tupleToMap(rel, tuple)
 	assert.Nil(t, m["a"])
-	assert.Equal(t, unchangedTOAST, m["b"])
+	assert.NotContains(t, m, "b")
+	assert.Equal(t, []string{"b"}, unchangedColumns(rel, tuple))
+	assert.Equal(t, "<unchanged-toast>", tupleToMap(rel, textTuple("x", "<unchanged-toast>"))["b"])
 }
 
 func TestTupleToMapNilGuards(t *testing.T) {

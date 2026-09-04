@@ -291,7 +291,7 @@ func TestSourceForwardsCommittedMutationWithStableShape(t *testing.T) {
 
 	info := source.Info()
 	assert.True(t, info.Capabilities.Snapshot, "a tagged SQL observer exposes the snapshot handoff capability")
-	assert.False(t, info.Capabilities.Durable)
+	assert.False(t, info.Capabilities.CaptureResume)
 	assert.False(t, info.Capabilities.Replayable)
 	assert.False(t, info.Capabilities.CapturesExternalWrites)
 	assert.True(t, info.Capabilities.BeforeImages)

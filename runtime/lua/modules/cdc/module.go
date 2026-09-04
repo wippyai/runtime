@@ -343,8 +343,14 @@ func sourceInfoToTable(l *lua.LState, info cdcapi.SourceInfo) *lua.LTable {
 	}
 
 	capabilities := l.CreateTable(0, 6)
+	admission := l.CreateTable(0, 4)
+	admission.RawSetString("active", lua.LInteger(info.Admission.Active))
+	admission.RawSetString("snapshots", lua.LInteger(info.Admission.Snapshots))
+	admission.RawSetString("reserved_bytes", lua.LInteger(info.Admission.ReservedBytes))
+	admission.RawSetString("rejected", lua.LInteger(info.Admission.Rejected))
+	t.RawSetString("admission", admission)
 	capabilities.RawSetString("snapshot", lua.LBool(info.Capabilities.Snapshot))
-	capabilities.RawSetString("durable", lua.LBool(info.Capabilities.Durable))
+	capabilities.RawSetString("capture_resume", lua.LBool(info.Capabilities.CaptureResume))
 	capabilities.RawSetString("replayable", lua.LBool(info.Capabilities.Replayable))
 	capabilities.RawSetString("captures_external_writes", lua.LBool(info.Capabilities.CapturesExternalWrites))
 	capabilities.RawSetString("before_images", lua.LBool(info.Capabilities.BeforeImages))

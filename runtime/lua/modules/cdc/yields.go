@@ -155,6 +155,13 @@ func cdcChangeHandler(_ context.Context, l *lua.LState, _ pid.PID, _ string, pay
 
 func changeToLua(l *lua.LState, change cdcapi.Change) (lua.LValue, error) {
 	tbl := l.CreateTable(0, 18)
+	if len(change.Unchanged) > 0 {
+		names := l.CreateTable(len(change.Unchanged), 0)
+		for i, name := range change.Unchanged {
+			names.RawSetInt(i+1, lua.LString(name))
+		}
+		tbl.RawSetString("unchanged", names)
+	}
 	if !isZeroRegistryID(change.SourceID) {
 		tbl.RawSetString("source_id", lua.LString(registryIDString(change.SourceID)))
 	}

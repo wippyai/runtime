@@ -71,6 +71,7 @@ func (Driver) Create(ctx context.Context, entry registry.Entry, deps cdcservice.
 		Log:                   log.With(zap.String("id", entry.ID.String())),
 	}
 	return &sourceAdapter{
+		limits:       cfg.Subscriptions,
 		source:       NewSource(opts),
 		lifecycle:    cfg.Lifecycle,
 		exclusiveKey: postgresExclusiveKey(cfg),
@@ -82,11 +83,14 @@ func (Driver) Create(ctx context.Context, entry registry.Entry, deps cdcservice.
 // remains private to this adapter, so no driver-specific shape leaks into the
 // common manager or dispatcher.
 type sourceAdapter struct {
+	limits       config.SubscriptionLimits
 	source       *Source
 	exclusiveKey string
 	lifecycle    supervisor.LifecycleConfig
 	mu           sync.RWMutex
 }
+
+func (s *sourceAdapter) SubscriptionLimits() config.SubscriptionLimits { return s.limits }
 
 func (s *sourceAdapter) Info() config.SourceInfo {
 	s.mu.RLock()
@@ -115,7 +119,7 @@ func (s *sourceAdapter) Info() config.SourceInfo {
 			// Snapshot is an atomic per-subscriber handoff. The source Snapshot
 			// field is only the entry default for that capability.
 			Snapshot:               true,
-			Durable:                !source.temporary,
+			CaptureResume:          !source.temporary,
 			Replayable:             false,
 			CapturesExternalWrites: true,
 			BeforeImages:           false,

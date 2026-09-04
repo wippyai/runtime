@@ -318,7 +318,11 @@ func (s *sourceSubscription) run() {
 			if len(s.queue) > 0 {
 				s.queuedBytes -= s.queue[0].bytes
 				s.queue[0] = queuedChange{}
-				s.queue = s.queue[1:]
+				if len(s.queue) == 1 {
+					s.queue = s.queue[:0]
+				} else {
+					s.queue = s.queue[1:]
+				}
 			}
 			s.mu.Unlock()
 		}

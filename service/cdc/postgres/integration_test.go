@@ -71,6 +71,7 @@ func attachCapture(t *testing.T, ctx context.Context, src *Source, capture *chan
 
 func rowChangeFromAPI(change cdcapi.Change) RowChange {
 	return RowChange{
+		Unchanged: change.Unchanged,
 		Before:    change.Before,
 		After:     change.After,
 		Op:        Op(change.Op),

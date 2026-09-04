@@ -12,7 +12,7 @@ var cdcChannelType typ.Type
 
 var sourceCapabilitiesType = typ.NewRecord().
 	Field("snapshot", typ.Boolean).
-	Field("durable", typ.Boolean).
+	Field("capture_resume", typ.Boolean).
 	Field("replayable", typ.Boolean).
 	Field("captures_external_writes", typ.Boolean).
 	Field("before_images", typ.Boolean).
@@ -20,6 +20,7 @@ var sourceCapabilitiesType = typ.NewRecord().
 	Build()
 
 var sourceInfoType = typ.NewRecord().
+	Field("admission", typ.NewRecord().Field("active", typ.Integer).Field("snapshots", typ.Integer).Field("reserved_bytes", typ.Integer).Field("rejected", typ.Integer).Build()).
 	OptField("id", typ.String).
 	OptField("kind", typ.String).
 	Field("state", typ.String).
@@ -51,6 +52,7 @@ var streamOptionsType = typ.NewRecord().
 	Build()
 
 var changeType = typ.NewRecord().
+	OptField("unchanged", typ.NewArray(typ.String)).
 	OptField("source_id", typ.String).
 	Field("source", typ.String).
 	Field("op", typ.String).

@@ -64,6 +64,7 @@ local function main()
     local entry = {
         id = "app:dynamic_changes", kind = "db.cdc.sqlite",
         data = {db_resource = "app:cdcdb", tables = {"items"},
+                subscriptions = {max_subscriptions = 1},
                 lifecycle = {auto_start = true}},
     }
     apply(function(changes) changes:create(entry) end)
@@ -72,6 +73,14 @@ local function main()
     assert(peer and not peer_err, tostring(peer_err))
     local peer_ch, subscribe_err = peer:channel()
     assert(peer_ch and not subscribe_err, tostring(subscribe_err))
+    local excess, excess_err = cdc.stream(entry.id)
+    assert(excess and not excess_err)
+    local excess_ch, capacity_err = excess:channel()
+    assert(not excess_ch and capacity_err, "source subscription limit must be enforced")
+    excess:close()
+    local admitted, admitted_err = cdc.source(entry.id)
+    assert(admitted and not admitted_err)
+    assert(admitted.admission.active == 1 and admitted.admission.rejected == 1)
     execute(db, "INSERT INTO items VALUES(3, 'fanout', NULL)")
     assert(receive(stream).after.id == 3)
     local peer_change = receive(peer)
