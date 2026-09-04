@@ -60,6 +60,18 @@ func quoteIdentifier(value string) string {
 	return `"` + strings.ReplaceAll(value, `"`, `""`) + `"`
 }
 
+// Unary + is a SQLite no-op that removes expression affinity and declaration
+// metadata without changing the stored value. This prevents database/sql's
+// DATE/BOOLEAN conveniences from changing snapshot values relative to hooks.
+func storageProjection(columns []string) string {
+	parts := make([]string, len(columns))
+	for i, column := range columns {
+		quoted := quoteIdentifier(column)
+		parts[i] = "+" + quoted + " AS " + quoted
+	}
+	return strings.Join(parts, ", ")
+}
+
 func sqliteMasterQuery(schema string) string {
 	return "SELECT sql FROM " + quoteIdentifier(schema) + ".sqlite_master WHERE type = 'table' AND name = ?"
 }

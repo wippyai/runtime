@@ -13,9 +13,15 @@ import (
 	sqlapi "github.com/wippyai/runtime/api/service/sql"
 )
 
-// Deliberately use no column affinity: types must come from each stored value,
-// not schema declarations or UTF-8 guessing. Snapshot and both live images must
-// agree, including empty values, embedded NULs and text-looking binary data.
+func TestReconciliationPreservesStorageType(t *testing.T) {
+	require.False(t, mutationValuesEqual([]any{"same"}, []any{[]byte("same")}))
+	require.False(t, mutationValuesEqual([]any{int64(1)}, []any{true}))
+	require.True(t, mutationValuesEqual([]any{[]byte("same")}, []any{[]byte("same")}))
+}
+
+// Most cases deliberately use no column affinity: types must come from each
+// stored value, not UTF-8 guessing. DATE/BOOLEAN cases also ensure query-driver
+// conversions cannot change snapshots relative to live images.
 func TestObserverStorageTypesAcrossSnapshotAndLive(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
@@ -25,12 +31,18 @@ func TestObserverStorageTypesAcrossSnapshotAndLive(t *testing.T) {
 		{"nul_text", "a\x00b"}, {"blob", []byte("hello")},
 		{"empty_blob", []byte{}}, {"binary", []byte{0, 255, 128}},
 		{"integer", int64(42)}, {"real", 1.25}, {"null", nil},
+		{"DATE", "2026-09-04"}, {"DATETIME", "2026-09-04 12:30:00"}, {"BOOLEAN", int64(1)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			o, err := openObservedDB(t, filepath.Join(t.TempDir(), "types.db"))
 			require.NoError(t, err)
 			defer o.Close()
-			_, err = o.opened.DB.Exec(`CREATE TABLE items(id INTEGER PRIMARY KEY, value); INSERT INTO items VALUES(0, ?)`, tc.value)
+			declaration := ""
+			switch tc.name {
+			case "DATE", "DATETIME", "BOOLEAN":
+				declaration = tc.name
+			}
+			_, err = o.opened.DB.Exec(`CREATE TABLE items(id INTEGER PRIMARY KEY, value `+declaration+`); INSERT INTO items VALUES(0, ?)`, tc.value)
 			require.NoError(t, err)
 			s, err := o.opened.Observer.Snapshot(context.Background(), sqlapi.SnapshotOptions{Tables: []string{"items"}})
 			require.NoError(t, err)

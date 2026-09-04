@@ -18,7 +18,7 @@ const (
 	autoPublicationSlot = "wippy_cdc_auto_pub"
 )
 
-func TestFreshSlotIsDroppedWhenReplicationStartFails(t *testing.T) {
+func TestMissingPublicationFailsBeforeCreatingSlot(t *testing.T) {
 	repl, admin := dsns(t)
 	db, err := sql.Open("postgres", admin)
 	require.NoError(t, err)
@@ -32,21 +32,16 @@ func TestFreshSlotIsDroppedWhenReplicationStartFails(t *testing.T) {
 		Publication:     "wippy_cdc_missing_publication",
 		StandbyInterval: time.Millisecond, StatusInterval: time.Hour,
 	})
-	status, err := src.Start(context.Background())
-	require.NoError(t, err, "startup returns before the replication command is issued")
-
-	select {
-	case <-statusClosed(status):
-	case <-time.After(10 * time.Second):
-		t.Fatal("source did not terminate after invalid replication publication")
-	}
+	_, err = src.Start(context.Background())
+	defer func() { _ = src.Stop(context.Background()) }()
+	require.ErrorContains(t, err, "does not exist")
 	assert.Eventually(t, func() bool {
 		var count int
 		if err := db.QueryRow(`SELECT count(*) FROM pg_replication_slots WHERE slot_name=$1`, freshFailureSlot).Scan(&count); err != nil {
 			return false
 		}
 		return count == 0
-	}, 5*time.Second, 100*time.Millisecond, "fresh slot must be cleaned after StartReplication failure")
+	}, 5*time.Second, 100*time.Millisecond, "invalid publication must not leave a replication slot")
 }
 
 func TestMissingSlotDeletesStaleCheckpointBeforeRecreate(t *testing.T) {
@@ -58,6 +53,8 @@ func TestMissingSlotDeletesStaleCheckpointBeforeRecreate(t *testing.T) {
 	dropNamedSlot(t, repl, freshFailureSlot)
 	defer dropNamedSlot(t, repl, freshFailureSlot)
 
+	_, err = NewDBCheckpointer(context.Background(), db)
+	require.NoError(t, err)
 	_, err = db.Exec(`INSERT INTO wippy_cdc_offsets (slot, lsn) VALUES ($1, $2)`, freshFailureSlot, "F/FFFFFFF")
 	require.NoError(t, err)
 

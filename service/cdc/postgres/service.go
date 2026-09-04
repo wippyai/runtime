@@ -1163,6 +1163,16 @@ func (s *Source) ensurePublication(ctx context.Context, adminDB *sql.DB) (string
 		if err := validatePostgresIdentifier(s.publication, "publication"); err != nil {
 			return "", err
 		}
+		// pgoutput may defer publication lookup until the first WAL change.
+		// Reject a missing publication before reporting startup or creating a
+		// durable slot that would otherwise retain WAL while unable to decode.
+		var exists bool
+		if err := adminDB.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM pg_publication WHERE pubname=$1)`, s.publication).Scan(&exists); err != nil {
+			return "", fmt.Errorf("check publication: %w", err)
+		}
+		if !exists {
+			return "", fmt.Errorf("publication %q does not exist", s.publication)
+		}
 		return s.publication, nil
 	}
 	if len(s.tables) == 0 {

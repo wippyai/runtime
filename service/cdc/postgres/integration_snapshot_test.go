@@ -39,6 +39,11 @@ func attachSnapshotCapture(t *testing.T, ctx context.Context, src *Source, captu
 	}
 	stream := src.Subscribe(cdcapi.StreamOptions{Snapshot: true, Buffer: size})
 	require.NotNil(t, stream)
+	t.Cleanup(func() {
+		stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		require.NoError(t, src.Stop(stopCtx))
+	})
 	t.Cleanup(stream.Close)
 	go func() {
 		for {
@@ -178,6 +183,11 @@ func TestSnapshotDefaultAppliesPerSubscriberAfterResume(t *testing.T) {
 	require.NoError(t, err)
 	attachSnapshotCapture(t, ctx, src, capture)
 	waitForSnapshotEmail(t, capture, "resume-base@w.ai", OpSnapshot, 15*time.Second)
+	// A per-subscriber snapshot does not advance the source's durable WAL
+	// checkpoint. Consume an actual committed transaction before resuming.
+	_, err = db.Exec(`UPDATE accounts SET balance=balance+1 WHERE email='resume-base@w.ai'`)
+	require.NoError(t, err)
+	waitForSnapshotEmail(t, capture, "resume-base@w.ai", OpUpdate, 15*time.Second)
 	require.Eventually(t, func() bool {
 		var raw string
 		e := db.QueryRow(`SELECT lsn FROM wippy_cdc_offsets WHERE slot=$1`, itSlot).Scan(&raw)
@@ -196,6 +206,9 @@ func TestSnapshotDefaultAppliesPerSubscriberAfterResume(t *testing.T) {
 	require.NoError(t, err)
 	attachSnapshotCapture(t, ctx2, src2, capture2)
 
+	// Acquisition is asynchronous. Observe the snapshot before requiring the
+	// next write to belong to the live side of the handoff.
+	waitForSnapshotEmail(t, capture2, "resume-base@w.ai", OpSnapshot, 15*time.Second)
 	_, err = db.Exec(`INSERT INTO accounts (email, balance) VALUES ('resume-new@w.ai', 2)`)
 	require.NoError(t, err)
 

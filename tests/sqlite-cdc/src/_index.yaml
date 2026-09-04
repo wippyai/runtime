@@ -1,0 +1,38 @@
+# SPDX-License-Identifier: MPL-2.0
+
+version: "1.0"
+namespace: app
+entries:
+  - name: cdcdb
+    kind: db.sql.sqlite
+    file: ":memory:"
+    lifecycle:
+      auto_start: true
+  - name: changes
+    kind: db.cdc.sqlite
+    db_resource: app:cdcdb
+    lifecycle:
+      auto_start: true
+  - name: sql_tests
+    kind: security.policy
+    policy:
+      effect: allow
+      actions: db.get
+      resources: app:cdcdb
+  - name: terminal
+    kind: terminal.host
+    lifecycle:
+      auto_start: true
+  - name: test_runner
+    kind: process.lua
+    meta:
+      command:
+        name: test
+        use_case: test
+    source: file://main.lua
+    method: main
+    modules: [io, time, sql, cdc, channel]
+    security:
+      actor:
+        id: sqlite-native-tests
+      policies: [app:sql_tests]

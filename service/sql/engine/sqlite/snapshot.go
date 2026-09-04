@@ -195,22 +195,30 @@ func validateSnapshotTablesTx(ctx context.Context, tx *sql.Tx, requested []strin
 }
 
 func scanSnapshotTable(ctx context.Context, tx *sql.Tx, stream *mutationStream, schema, table string, batchSize int) error {
-	rows, err := tx.QueryContext(ctx, fmt.Sprintf("SELECT rowid, * FROM %s.%s", quoteIdentifier(schema), quoteIdentifier(table)))
+	qualified := quoteIdentifier(schema) + "." + quoteIdentifier(table)
+	metadata, err := tx.QueryContext(ctx, "SELECT * FROM "+qualified+" LIMIT 0")
 	if err != nil {
 		return fmt.Errorf("scan sqlite snapshot %s.%s: %w", schema, table, err)
 	}
-	defer rows.Close()
-	columns, err := rows.Columns()
+	columns, err := metadata.Columns()
+	closeErr := metadata.Close()
 	if err != nil {
 		return err
+	}
+	if closeErr != nil {
+		return closeErr
 	}
 	if len(columns) == 0 {
 		return nil
 	}
-	columns = append([]string(nil), columns[1:]...)
+	rows, err := tx.QueryContext(ctx, "SELECT "+storageProjection(columns)+" FROM "+qualified)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
 	batcher := newSnapshotBatcher(stream.watermark, batchSize, stream.maxChanges, stream.maxBytes)
 	for rows.Next() {
-		values := make([]any, len(columns)+1)
+		values := make([]any, len(columns))
 		dest := make([]any, len(values))
 		for i := range values {
 			dest[i] = &values[i]
@@ -218,10 +226,9 @@ func scanSnapshotTable(ctx context.Context, tx *sql.Tx, stream *mutationStream, 
 		if err := rows.Scan(dest...); err != nil {
 			return err
 		}
-		after := append([]any(nil), values[1:]...)
 		change := sqlapi.Mutation{
 			Schema: schema, Table: table, Columns: columns,
-			After: after, Op: "snapshot",
+			After: values, Op: "snapshot",
 		}
 		if err := batcher.add(change, stream.pushSnapshot); err != nil {
 			return err

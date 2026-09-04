@@ -73,8 +73,9 @@ type MutationBatch struct {
 	Snapshot    bool
 }
 
-// Mutation is a driver-neutral row mutation. Values retain the database/sql
-// driver's native scalar representation. Column names are captured with the
+// Mutation is a driver-neutral row mutation. Values use the engine's documented
+// scalar representation consistently across snapshot and live images, without
+// application-level query conversions. Column names are captured with the
 // mutation so schema changes after capture cannot relabel an earlier row.
 type Mutation struct {
 	Schema  string

@@ -5,7 +5,6 @@
 package sqlite
 
 import (
-	"bytes"
 	"database/sql/driver"
 	"errors"
 	"fmt"
@@ -41,6 +40,10 @@ func (s *sqliteConnectionState) finalRowsMatch(changes []capturedMutation) (bool
 		if len(parts) != 2 {
 			return false, errors.New("sqlite mutation observer table key is invalid")
 		}
+		columns, err := s.tableColumns(parts[0], parts[1])
+		if err != nil {
+			return false, err
+		}
 		for start := 0; start < len(rowIDs); start += 500 {
 			end := start + 500
 			if end > len(rowIDs) {
@@ -52,7 +55,7 @@ func (s *sqliteConnectionState) finalRowsMatch(changes []capturedMutation) (bool
 				placeholders[i] = "?"
 				args[i] = rowID
 			}
-			query := fmt.Sprintf("SELECT rowid, * FROM %s.%s WHERE rowid IN (%s)", quoteIdentifier(parts[0]), quoteIdentifier(parts[1]), strings.Join(placeholders, ","))
+			query := fmt.Sprintf("SELECT rowid, %s FROM %s.%s WHERE rowid IN (%s)", storageProjection(columns), quoteIdentifier(parts[0]), quoteIdentifier(parts[1]), strings.Join(placeholders, ","))
 			rawRows, err := s.sqlite.Query(query, args)
 			if err != nil {
 				return false, err
@@ -105,30 +108,7 @@ func (s *sqliteConnectionState) finalRowsMatch(changes []capturedMutation) (bool
 }
 
 func mutationValuesEqual(left, right []any) bool {
-	if len(left) != len(right) {
-		return false
-	}
-	for i := range left {
-		if !mutationValueEqual(left[i], right[i]) {
-			return false
-		}
-	}
-	return true
-}
-
-func mutationValueEqual(left, right any) bool {
-	if leftBytes, ok := left.([]byte); ok {
-		switch rightValue := right.(type) {
-		case []byte:
-			return bytes.Equal(leftBytes, rightValue)
-		case string:
-			return string(leftBytes) == rightValue
-		}
-	}
-	if rightBytes, ok := right.([]byte); ok {
-		if leftString, ok := left.(string); ok {
-			return leftString == string(rightBytes)
-		}
-	}
+	// Both paths now preserve storage types. Equal bytes in TEXT and BLOB do
+	// not prove the same stored row, so reconciliation must not coerce them.
 	return reflect.DeepEqual(left, right)
 }

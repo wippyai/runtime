@@ -24,6 +24,11 @@ test:
 test-cdc-sqlite:
 	CGO_ENABLED=1 go test ./service/sql/... ./service/cdc/sqlite -v -race -tags sqlite_preupdate_hook
 	CGO_ENABLED=1 go test ./service/cdc/sqlite -v -race -timeout 300s -tags "integration sqlite_preupdate_hook"
+	$(MAKE) test-cdc-native
+
+.PHONY: test-cdc-native
+test-cdc-native: build-wippy-local
+	cd tests/sqlite-cdc && ../../dist/wippy-$(shell go env GOOS)-$(shell go env GOARCH) test -s
 
 test-system:
 	go test ./internal/... -v -race
