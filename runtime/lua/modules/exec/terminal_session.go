@@ -23,7 +23,6 @@ var terminalSessionMethods = map[string]lua.LGoFunc{
 
 type terminalSession struct {
 	err        error
-	closeErr   error
 	events     chan ttyapi.Event
 	completion *terminalCompletion
 	bridge     *proxy.Proxy
@@ -82,14 +81,9 @@ func terminalSessionClose(l *lua.LState) int {
 	session := checkTerminalSession(l)
 	session.once.Do(func() {
 		if !session.done.Load() {
-			session.closeErr = session.bridge.RequestClose()
+			session.bridge.RequestClose()
 		}
 	})
-	if session.closeErr != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.WrapErrorWithLua(l, session.closeErr, "close PTY process"))
-		return 2
-	}
 	l.Push(lua.LTrue)
 	l.Push(lua.LNil)
 	return 2

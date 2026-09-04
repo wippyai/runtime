@@ -117,21 +117,22 @@ type ptyProcess struct{ *ProcessExecutor }
 
 // ProcessExecutor represents a native process implementation
 type ProcessExecutor struct {
-	stderrp   io.ReadCloser
-	stdoutp   io.ReadCloser
-	stdinPipe io.WriteCloser
-	cmd       *exec.Cmd
-	log       *zap.Logger
-	envs      map[string]string
-	ptyMaster *os.File
-	pty       *execapi.PTYOptions
-	wd        string
-	state     string
-	command   string
-	pid       int
-	mu        sync.RWMutex
-	ptyClose  sync.Once
-	stopped   atomic.Bool
+	stderrp     io.ReadCloser
+	stdoutp     io.ReadCloser
+	stdinPipe   io.WriteCloser
+	cmd         *exec.Cmd
+	log         *zap.Logger
+	envs        map[string]string
+	ptyMaster   *os.File
+	pty         *execapi.PTYOptions
+	wd          string
+	state       string
+	command     string
+	pid         int
+	mu          sync.RWMutex
+	ptyClose    sync.Once
+	stopped     atomic.Bool
+	stdoutOwned bool
 }
 
 // NewProcessExecutor creates a new process executor
@@ -219,8 +220,8 @@ func (e *ProcessExecutor) Start() error {
 }
 
 func (p *ptyProcess) Resize(width, height int) error {
-	if width < 1 || height < 1 {
-		return execapi.ErrInvalidPTYSize
+	if err := execapi.ValidatePTYSize(width, height); err != nil {
+		return err
 	}
 	p.mu.RLock()
 	master := p.ptyMaster
@@ -305,8 +306,11 @@ func (e *ProcessExecutor) Stderr() io.ReadCloser {
 
 // Stdout implements exec.Process
 func (e *ProcessExecutor) Stdout() io.ReadCloser {
-	e.mu.RLock()
-	defer e.mu.RUnlock()
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.ptyMaster != nil && e.stdoutp != nil {
+		e.stdoutOwned = true
+	}
 
 	return e.stdoutp
 }
@@ -359,6 +363,12 @@ func (e *ProcessExecutor) Wait() error {
 	}
 
 	e.mu.Lock()
+	// A PTY master is not one of os/exec's managed pipes. Wait releases an
+	// unclaimed master; once Stdout hands it to a caller, that reader owns the
+	// final drain and close so the child's last terminal frame is not truncated.
+	if e.ptyMaster != nil && !e.stdoutOwned {
+		e.closePTY()
+	}
 	e.state = terminated
 	e.mu.Unlock()
 

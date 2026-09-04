@@ -8,7 +8,7 @@ import (
 	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pid"
-	"github.com/wippyai/runtime/service/terminal"
+	ttyapi "github.com/wippyai/runtime/api/tty"
 )
 
 // eventHandler converts TTYEvent Go structs to Lua tables for channel delivery.
@@ -18,7 +18,7 @@ func eventHandler(_ context.Context, l *lua.LState, _ pid.PID, _ string, payload
 	}
 
 	p := payloads[0]
-	ev, ok := p.Data().(*terminal.TTYEvent)
+	ev, ok := p.Data().(*ttyapi.Event)
 	if !ok {
 		return lua.LNil
 	}

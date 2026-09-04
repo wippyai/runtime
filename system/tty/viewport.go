@@ -63,14 +63,18 @@ func (v *viewport) Send(event ttyapi.Event) error {
 		v.session.mu.RUnlock()
 		return ttyapi.ErrViewportClosed
 	}
+	if !v.session.inputOpen {
+		v.session.mu.RUnlock()
+		return ttyapi.ErrInputInactive
+	}
 	target, router := v.session.target, v.session.router
 	v.session.mu.RUnlock()
 	return sendEvent(router, target, event)
 }
 
 func (v *viewport) Resize(width, height int) error {
-	if width < 1 || height < 1 {
-		return ttyapi.ErrInvalidGrant
+	if err := ttyapi.ValidateViewportSize(width, height); err != nil {
+		return err
 	}
 	if v.closed.Load() {
 		return ttyapi.ErrViewportClosed
@@ -80,7 +84,15 @@ func (v *viewport) Resize(width, height int) error {
 		v.session.mu.Unlock()
 		return ttyapi.ErrViewportClosed
 	}
+	changed := v.session.width != width || v.session.height != height
 	v.session.width, v.session.height = width, height
+	if changed {
+		v.session.revision++
+		update := ttyapi.Update{Revision: v.session.revision}
+		for _, watcher := range v.session.watches {
+			publishLatest(watcher.ch, update)
+		}
+	}
 	target, router := v.session.target, v.session.router
 	connected := v.session.producer && router != nil
 	v.session.mu.Unlock()

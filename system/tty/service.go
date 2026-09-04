@@ -41,6 +41,7 @@ type session struct {
 	height    int
 	bindings  int
 	mu        sync.RWMutex
+	inputOpen bool
 	producer  bool
 	invalid   bool
 	closed    bool
@@ -64,8 +65,8 @@ func token(prefix string) (string, error) {
 }
 
 func (s *Service) Create(ctx context.Context, width, height int) (ttyapi.Viewport, error) {
-	if width < 1 || height < 1 {
-		return nil, ttyapi.ErrInvalidGrant
+	if err := ttyapi.ValidateViewportSize(width, height); err != nil {
+		return nil, err
 	}
 	grant, err := token("vpt1_")
 	if err != nil {

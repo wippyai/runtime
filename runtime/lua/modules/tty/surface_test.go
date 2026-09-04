@@ -202,14 +202,14 @@ func TestSurfaceDoesNotCommitShortWrite(t *testing.T) {
 	assert.ErrorIs(t, err, io.ErrShortWrite)
 }
 
-func TestSurfaceCloseCanRetryFailedRestore(t *testing.T) {
+func TestSurfaceCloseReturnsFirstRestoreFailure(t *testing.T) {
 	writer := &recoverableSurfaceWriter{fail: true}
 	surface := testPhysicalSurface(writer, ttyapi.SurfaceOptions{HideCursor: true})
 	surface.present([]string{"open"})
 	assert.ErrorContains(t, surface.close(), "write failed")
 	writer.fail = false
-	require.NoError(t, surface.close())
-	assert.Contains(t, writer.String(), "\x1b[0m\x1b[?25h")
+	assert.ErrorContains(t, surface.close(), "write failed")
+	assert.Empty(t, writer.String(), "a closed surface must not retry terminal mutations")
 }
 
 func TestPhysicalRowOnlyFrameRestoresLastExplicitCursor(t *testing.T) {

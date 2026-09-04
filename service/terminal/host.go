@@ -255,6 +255,8 @@ func (h *Host) Terminate(_ context.Context, processID pid.PID) error {
 	return nil
 }
 
+func (h *Host) AcceptsFrameAttachments() bool { return true }
+
 // Send implements relay.Receiver.
 func (h *Host) Send(pkg *relay.Package) error {
 	if h.shutdown.Load() {

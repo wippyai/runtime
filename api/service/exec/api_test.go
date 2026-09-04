@@ -27,6 +27,8 @@ func TestPTYDimensionsDefaultAndValidation(t *testing.T) {
 	assert.ErrorIs(t, err, ErrInvalidPTYSize)
 	_, _, err = (&PTYOptions{Height: MaxPTYDimension + 1}).Dimensions()
 	assert.ErrorIs(t, err, ErrInvalidPTYSize)
+	_, _, err = (&PTYOptions{Width: MaxPTYCells, Height: 2}).Dimensions()
+	assert.ErrorIs(t, err, ErrInvalidPTYSize)
 }
 
 func TestProcessOptions_MarshalUnmarshal(t *testing.T) {

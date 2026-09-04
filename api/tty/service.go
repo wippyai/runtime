@@ -9,7 +9,29 @@ import (
 	ctxapi "github.com/wippyai/runtime/api/context"
 )
 
-const OptionTerminal = "terminal"
+const (
+	OptionTerminal        = "terminal"
+	FrameResolverClaimTTY = "terminal"
+	MaxViewportDimension  = 65535
+	MaxViewportCells      = 1 << 18
+)
+
+// ValidateViewportSize bounds geometry accepted by the in-memory broker and
+// Lua-facing viewport API.
+func ValidateViewportSize(width, height int) error {
+	if width < 1 || width > MaxViewportDimension || height < 1 || height > MaxViewportDimension ||
+		height > MaxViewportCells/width {
+		return ErrInvalidViewportSize
+	}
+	return nil
+}
+
+// TerminalOptionSelected reports whether a process requested a virtual
+// terminal attachment. The boot composition root registers this claim before
+// optional TTY services are wired, so omitted services fail closed.
+func TerminalOptionSelected(_ context.Context, options attrs.Attributes) bool {
+	return options != nil && options.GetString(OptionTerminal, "") != ""
+}
 
 type Snapshot struct {
 	// Cursor is nil until a producer first publishes explicit cursor state.
@@ -75,10 +97,10 @@ func ResolveTerminalOption(ctx context.Context, options attrs.Attributes) ([]ctx
 	if options == nil {
 		return nil, nil
 	}
-	grant := options.GetString(OptionTerminal, "")
-	if grant == "" {
+	if !TerminalOptionSelected(ctx, options) {
 		return nil, nil
 	}
+	grant := options.GetString(OptionTerminal, "")
 	service := GetService(ctx)
 	if service == nil {
 		return nil, ErrServiceUnavailable

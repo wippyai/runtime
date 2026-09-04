@@ -52,6 +52,7 @@ func TestViewportBindingLifecycle(t *testing.T) {
 
 	port, err := binding.Resolve(ctx)
 	require.NoError(t, err)
+	require.NoError(t, port.InputController().Start())
 	surface, err := port.OpenSurface(ttyapi.SurfaceOptions{})
 	require.NoError(t, err)
 	stats, err := surface.Present(ttyapi.Frame{Rows: []string{"paint", "ready"}})
@@ -84,6 +85,28 @@ func TestViewportBindingLifecycle(t *testing.T) {
 	require.NoError(t, view.Close())
 }
 
+func TestViewportInputFollowsProducerInputLifecycle(t *testing.T) {
+	service := NewService()
+	defer service.Close()
+	ctx, frame, box := processContext(t, service)
+	defer frame.Close()
+
+	view, err := service.Create(ctx, 40, 12)
+	require.NoError(t, err)
+	binding, err := service.Binding(view.Grant())
+	require.NoError(t, err)
+	port, err := binding.Resolve(ctx)
+	require.NoError(t, err)
+	input := port.InputController()
+
+	require.ErrorIs(t, view.Send(ttyapi.Event{Type: "key", Key: "x"}), ttyapi.ErrInputInactive)
+	require.NoError(t, input.Start())
+	require.NoError(t, view.Send(ttyapi.Event{Type: "key", Key: "x"}))
+	require.Equal(t, ttyapi.TopicEvents, (<-box.packages).Messages[0].Topic)
+	require.NoError(t, input.Stop())
+	require.ErrorIs(t, view.Send(ttyapi.Event{Type: "key", Key: "x"}), ttyapi.ErrInputInactive)
+}
+
 func TestVirtualPortOwnsOnePresentationLease(t *testing.T) {
 	service := NewService()
 	defer service.Close()
@@ -108,6 +131,34 @@ func TestVirtualPortOwnsOnePresentationLease(t *testing.T) {
 	require.ErrorIs(t, err, ttyapi.ErrInvalidPort)
 }
 
+func TestClosedVirtualSurfaceCannotInvalidateItsSuccessor(t *testing.T) {
+	service := NewService()
+	defer service.Close()
+	ctx, frame, _ := processContext(t, service)
+	defer frame.Close()
+	view, err := service.Create(ctx, 40, 12)
+	require.NoError(t, err)
+	binding, err := service.Binding(view.Grant())
+	require.NoError(t, err)
+	port, err := binding.Resolve(ctx)
+	require.NoError(t, err)
+
+	first, err := port.OpenSurface(ttyapi.SurfaceOptions{})
+	require.NoError(t, err)
+	_, err = first.Present(ttyapi.Frame{Rows: []string{"stable"}})
+	require.NoError(t, err)
+	require.NoError(t, first.Close())
+	revision := view.Snapshot().Revision
+	first.Invalidate()
+
+	second, err := port.OpenSurface(ttyapi.SurfaceOptions{})
+	require.NoError(t, err)
+	stats, err := second.Present(ttyapi.Frame{Rows: []string{"stable"}})
+	require.NoError(t, err)
+	require.Zero(t, stats.ChangedRows)
+	require.Equal(t, revision, view.Snapshot().Revision)
+}
+
 func TestViewportResizeBeforeBinding(t *testing.T) {
 	service := NewService()
 	defer service.Close()
@@ -129,6 +180,63 @@ func TestViewportResizeBeforeBinding(t *testing.T) {
 	event, ok := pkg.Messages[0].Payloads[0].Data().(*ttyapi.Event)
 	require.True(t, ok)
 	require.Equal(t, ttyapi.Event{Type: "resize", Width: 100, Height: 35}, *event)
+}
+
+func TestViewportResizeAdvancesRevisionAndNotifiesEveryViewer(t *testing.T) {
+	service := NewService()
+	defer service.Close()
+	creatorCtx, creatorFrame, _ := processContextFor(t, service, "creator")
+	defer creatorFrame.Close()
+	viewerCtx, viewerFrame, _ := processContextFor(t, service, "viewer")
+	defer viewerFrame.Close()
+
+	creator, err := service.Create(creatorCtx, 40, 12)
+	require.NoError(t, err)
+	viewer, err := service.Attach(viewerCtx, creator.Handle())
+	require.NoError(t, err)
+	before := creator.Snapshot().Revision
+
+	require.NoError(t, creator.Resize(90, 30))
+	require.Greater(t, creator.Snapshot().Revision, before)
+	require.Equal(t, creator.Snapshot().Revision, (<-creator.Updates()).Revision)
+	require.Equal(t, viewer.Snapshot().Revision, (<-viewer.Updates()).Revision)
+}
+
+func TestClosingUnresolvedBindingRestoresOneShotGrant(t *testing.T) {
+	service := NewService()
+	defer service.Close()
+	ctx, frame, _ := processContext(t, service)
+	defer frame.Close()
+
+	view, err := service.Create(ctx, 40, 12)
+	require.NoError(t, err)
+	grant := view.Grant()
+	binding, err := service.Binding(grant)
+	require.NoError(t, err)
+	require.NoError(t, binding.Close())
+
+	retry, err := service.Binding(grant)
+	require.NoError(t, err, "an attachment rejected before frame ownership must be retryable")
+	require.NoError(t, retry.Close())
+}
+
+func TestClosingResolvedBindingDoesNotRestoreProducerGrant(t *testing.T) {
+	service := NewService()
+	defer service.Close()
+	ctx, frame, _ := processContext(t, service)
+	defer frame.Close()
+
+	view, err := service.Create(ctx, 40, 12)
+	require.NoError(t, err)
+	grant := view.Grant()
+	binding, err := service.Binding(grant)
+	require.NoError(t, err)
+	_, err = binding.Resolve(ctx)
+	require.NoError(t, err)
+	require.NoError(t, binding.Close())
+
+	_, err = service.Binding(grant)
+	require.ErrorIs(t, err, ttyapi.ErrInvalidGrant)
 }
 
 func TestSnapshotRowsRemainImmutable(t *testing.T) {
@@ -175,7 +283,7 @@ func TestViewportUpdatesAreCoalescedAndCloseWithView(t *testing.T) {
 	_, err = surface.Present(ttyapi.Frame{Rows: []string{"two"}})
 	require.NoError(t, err)
 	update := <-view.Updates()
-	require.GreaterOrEqual(t, update.Revision, uint64(1))
+	require.Equal(t, uint64(2), update.Revision)
 	require.Equal(t, uint64(2), view.Snapshot().Revision)
 	select {
 	case <-view.Updates():
@@ -186,6 +294,21 @@ func TestViewportUpdatesAreCoalescedAndCloseWithView(t *testing.T) {
 	require.NoError(t, view.Close())
 	_, open := <-view.Updates()
 	require.False(t, open)
+}
+
+func TestViewportRejectsOversizedGeometry(t *testing.T) {
+	service := NewService()
+	defer service.Close()
+	ctx, frame, _ := processContext(t, service)
+	defer frame.Close()
+
+	view, err := service.Create(ctx, ttyapi.MaxViewportCells, 2)
+	require.Nil(t, view)
+	require.ErrorIs(t, err, ttyapi.ErrInvalidViewportSize)
+
+	view, err = service.Create(ctx, 80, 24)
+	require.NoError(t, err)
+	require.ErrorIs(t, view.Resize(ttyapi.MaxViewportCells, 2), ttyapi.ErrInvalidViewportSize)
 }
 
 func TestViewportCanReattachWithoutStoppingProducer(t *testing.T) {

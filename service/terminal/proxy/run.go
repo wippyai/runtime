@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	shutdownGrace = 3 * time.Second
+	defaultShutdownGrace = 3 * time.Second
 	// PTY reads are transport chunks, not presentation boundaries. A short,
 	// demand-driven frame interval lets cursor moves and the cells they follow
 	// land atomically without keeping an idle ticker alive.
@@ -29,8 +29,13 @@ func (p *Proxy) Run(ctx context.Context, events <-chan ttyapi.Event) error {
 		return err
 	}
 	if err := p.process.Resize(p.screen.Width(), p.screen.Height()); err != nil {
-		return stopStartedProcess(p.process, err)
+		return stopStartedProcess(p.process, err, p.shutdownTimeout())
 	}
+	output := p.process.Stdout()
+	if output == nil {
+		return stopStartedProcess(p.process, execapi.ErrPTYUnavailable, p.shutdownTimeout())
+	}
+	defer func() { _ = output.Close() }()
 	defer func() {
 		// Closing the response pipe wakes copyResponses without racing x/vt's
 		// output parser through Emulator.Close's unsynchronized closed flag.
@@ -47,9 +52,10 @@ func (p *Proxy) Run(ctx context.Context, events <-chan ttyapi.Event) error {
 	// x/vt answers them through its input pipe; that pipe must be drained while
 	// output is parsed or io.Pipe correctly blocks the parser forever.
 	go p.copyResponses(responseDone)
-	go p.copyOutput(dirty, outputDone)
+	go p.copyOutput(output, dirty, outputDone)
 	go func() { waitDone <- p.process.Wait() }()
 	ctxDone := ctx.Done()
+	closeRequested := p.closeNotify
 	var waitErr, shutdownCause error
 	processDone, outputClosed := false, false
 	closing := false
@@ -87,10 +93,11 @@ func (p *Proxy) Run(ctx context.Context, events <-chan ttyapi.Event) error {
 		}
 		closing, shutdownCause, ctxDone = true, cause, nil
 		suppressExitError = suppressExit
-		if err := p.RequestClose(); err != nil && !errors.Is(err, os.ErrProcessDone) {
+		p.RequestClose()
+		if err := p.closeSignalError(); err != nil && !errors.Is(err, os.ErrProcessDone) {
 			shutdownCause = errors.Join(shutdownCause, err)
 		}
-		shutdownTimer = time.After(shutdownGrace)
+		shutdownTimer = time.After(p.shutdownTimeout())
 	}
 	if p.closeRequested.Load() {
 		beginShutdown(nil, true)
@@ -98,6 +105,9 @@ func (p *Proxy) Run(ctx context.Context, events <-chan ttyapi.Event) error {
 
 	for {
 		select {
+		case <-closeRequested:
+			closeRequested = nil
+			beginShutdown(nil, true)
 		case <-ctxDone:
 			beginShutdown(ctx.Err(), p.closeRequested.Load())
 		case <-shutdownTimer:
@@ -105,8 +115,9 @@ func (p *Proxy) Run(ctx context.Context, events <-chan ttyapi.Event) error {
 			if err := p.process.Signal(int(syscall.SIGKILL)); err != nil && !errors.Is(err, os.ErrProcessDone) {
 				shutdownCause = errors.Join(shutdownCause, err)
 			}
-			forcedShutdownTimer = time.After(shutdownGrace)
+			forcedShutdownTimer = time.After(p.shutdownTimeout())
 		case <-forcedShutdownTimer:
+			cancelProcessWait(p.process)
 			return errors.Join(shutdownCause, ErrShutdownTimeout)
 		case err := <-waitDone:
 			waitErr, processDone, waitDone = err, true, nil
@@ -177,7 +188,7 @@ func (p *Proxy) Run(ctx context.Context, events <-chan ttyapi.Event) error {
 
 // stopStartedProcess closes the ownership gap between Start and the proxy event
 // loop. It always reaps the child, escalating when graceful termination stalls.
-func stopStartedProcess(process execapi.Process, cause error) error {
+func stopStartedProcess(process execapi.Process, cause error, grace time.Duration) error {
 	if err := process.Signal(int(syscall.SIGTERM)); err != nil && !errors.Is(err, os.ErrProcessDone) {
 		cause = errors.Join(cause, err)
 	}
@@ -186,16 +197,30 @@ func stopStartedProcess(process execapi.Process, cause error) error {
 	select {
 	case err := <-done:
 		return errors.Join(cause, err)
-	case <-time.After(shutdownGrace):
+	case <-time.After(grace):
 		if err := process.Signal(int(syscall.SIGKILL)); err != nil && !errors.Is(err, os.ErrProcessDone) {
 			cause = errors.Join(cause, err)
 		}
 		select {
 		case err := <-done:
 			return errors.Join(cause, err)
-		case <-time.After(shutdownGrace):
+		case <-time.After(grace):
+			cancelProcessWait(process)
 			return errors.Join(cause, ErrShutdownTimeout)
 		}
+	}
+}
+
+func (p *Proxy) shutdownTimeout() time.Duration {
+	if p.shutdownGrace <= 0 {
+		return defaultShutdownGrace
+	}
+	return p.shutdownGrace
+}
+
+func cancelProcessWait(process execapi.Process) {
+	if canceler, ok := process.(execapi.WaitCanceler); ok {
+		canceler.CancelWait()
 	}
 }
 
@@ -216,13 +241,7 @@ func (p *Proxy) copyResponses(done chan<- error) {
 	}
 }
 
-func (p *Proxy) copyOutput(dirty chan<- struct{}, done chan<- error) {
-	reader := p.process.Stdout()
-	if reader == nil {
-		done <- execapi.ErrPTYUnavailable
-		return
-	}
-	defer reader.Close()
+func (p *Proxy) copyOutput(reader io.Reader, dirty chan<- struct{}, done chan<- error) {
 	buf := make([]byte, 32*1024)
 	for {
 		n, err := reader.Read(buf)

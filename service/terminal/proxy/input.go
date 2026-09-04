@@ -25,8 +25,8 @@ type inputState struct {
 func (p *Proxy) handle(event ttyapi.Event) error {
 	switch event.Type {
 	case "resize":
-		if event.Width < 1 || event.Height < 1 {
-			return execapi.ErrInvalidPTYSize
+		if err := execapi.ValidatePTYSize(event.Width, event.Height); err != nil {
+			return err
 		}
 		p.screenMu.Lock()
 		p.height.Store(int64(event.Height))

@@ -142,6 +142,23 @@ type shutdownProcess struct {
 func (p *shutdownProcess) Wait() error          { return <-p.wait }
 func (p *shutdownProcess) Signal(sig int) error { p.signals <- sig; return nil }
 
+type cancelableWaitProcess struct {
+	*shutdownProcess
+	canceled chan struct{}
+	once     sync.Once
+}
+
+func (p *cancelableWaitProcess) Wait() error {
+	select {
+	case err := <-p.wait:
+		return err
+	case <-p.canceled:
+		return context.Canceled
+	}
+}
+
+func (p *cancelableWaitProcess) CancelWait() { p.once.Do(func() { close(p.canceled) }) }
+
 type gatedProcess struct {
 	*shutdownProcess
 	startEntered chan struct{}
@@ -188,6 +205,9 @@ func TestProxyRendersAndResizes(t *testing.T) {
 	require.Equal(t, 20, process.width)
 	require.Equal(t, 4, process.height)
 	require.Len(t, surface.rows, 4)
+	require.ErrorIs(t, proxy.handle(ttyapi.Event{Type: "resize", Width: execapi.MaxPTYCells, Height: 2}), execapi.ErrInvalidPTYSize)
+	require.Equal(t, 20, proxy.screen.Width())
+	require.Equal(t, 4, proxy.screen.Height())
 }
 
 func TestProxyEncodesTerminalKeys(t *testing.T) {
@@ -297,11 +317,13 @@ func TestProxyCloseDuringStartIsDeliveredAfterStartup(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- proxy.Run(context.Background(), make(chan ttyapi.Event)) }()
 	<-process.startEntered
-	closeRequested := make(chan error, 1)
-	go func() { closeRequested <- proxy.RequestClose() }()
+	closeRequested := make(chan struct{})
+	go func() {
+		proxy.RequestClose()
+		close(closeRequested)
+	}()
 	select {
-	case err := <-closeRequested:
-		require.NoError(t, err, "close request must not wait for process startup")
+	case <-closeRequested:
 	case <-time.After(time.Second):
 		t.Fatal("close request blocked behind process startup")
 	}
@@ -330,11 +352,45 @@ func TestRequestCloseInterruptsBlockedInput(t *testing.T) {
 	go func() { done <- proxy.Run(context.Background(), events) }()
 	events <- ttyapi.Event{Type: "key", KeyType: "runes", Key: "x", Action: "press"}
 	<-process.writeEntered
-	require.NoError(t, proxy.RequestClose())
+	proxy.RequestClose()
 	require.Equal(t, int(syscall.SIGTERM), <-process.signals)
 	process.wait <- errors.New("signal: terminated")
 	require.NoError(t, writer.Close())
 	require.NoError(t, <-done)
+}
+
+func TestRequestCloseArmsShutdownEscalation(t *testing.T) {
+	reader, writer := io.Pipe()
+	defer writer.Close()
+	process := &cancelableWaitProcess{
+		shutdownProcess: &shutdownProcess{
+			testProcess: &testProcess{stdout: reader, input: make(chan []byte, 1)},
+			wait:        make(chan error),
+			signals:     make(chan int, 2),
+		},
+		canceled: make(chan struct{}),
+	}
+	proxy, err := New(process, &testSurface{}, 10, 2)
+	require.NoError(t, err)
+	proxy.shutdownGrace = 10 * time.Millisecond
+	done := make(chan error, 1)
+	go func() { done <- proxy.Run(context.Background(), make(chan ttyapi.Event)) }()
+
+	proxy.RequestClose()
+	require.Equal(t, int(syscall.SIGTERM), <-process.signals)
+	require.Equal(t, int(syscall.SIGKILL), <-process.signals)
+	select {
+	case err := <-done:
+		require.ErrorIs(t, err, ErrShutdownTimeout)
+	case <-time.After(time.Second):
+		t.Fatal("direct close request did not drive shutdown escalation")
+	}
+}
+
+func TestProxyRejectsOversizedScreenBeforeAllocation(t *testing.T) {
+	proxy, err := New(&testProcess{}, &testSurface{}, execapi.MaxPTYCells, 2)
+	require.Nil(t, proxy)
+	require.ErrorIs(t, err, ErrInvalidProxy)
 }
 
 func TestProxyPresentFailureTerminatesAndReapsProcess(t *testing.T) {
@@ -360,6 +416,42 @@ func TestProxyPresentFailureTerminatesAndReapsProcess(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("proxy did not reap the process after a presentation failure")
 	}
+}
+
+func TestProxyCancelsAbandonedRemoteWait(t *testing.T) {
+	reader, writer := io.Pipe()
+	defer writer.Close()
+	process := &cancelableWaitProcess{
+		shutdownProcess: &shutdownProcess{
+			testProcess: &testProcess{stdout: reader, input: make(chan []byte, 1)},
+			wait:        make(chan error),
+			signals:     make(chan int, 2),
+		},
+		canceled: make(chan struct{}),
+	}
+	proxy, err := New(process, &testSurface{}, 10, 2)
+	require.NoError(t, err)
+	proxy.shutdownGrace = 10 * time.Millisecond
+	events := make(chan ttyapi.Event, 1)
+	done := make(chan error, 1)
+	go func() { done <- proxy.Run(context.Background(), events) }()
+
+	events <- ttyapi.Event{Type: "close"}
+	require.Equal(t, int(syscall.SIGTERM), <-process.signals)
+	require.Equal(t, int(syscall.SIGKILL), <-process.signals)
+	select {
+	case <-process.canceled:
+	case <-time.After(time.Second):
+		t.Fatal("proxy did not cancel an abandoned remote wait")
+	}
+	select {
+	case err := <-done:
+		require.ErrorIs(t, err, ErrShutdownTimeout)
+	case <-time.After(time.Second):
+		t.Fatal("proxy remained blocked after abandoning remote wait")
+	}
+	_, err = writer.Write([]byte("orphan check"))
+	require.Error(t, err, "abandoning a proxy must close its owned output reader")
 }
 
 func TestProxyRunsNativeTerminal(t *testing.T) {

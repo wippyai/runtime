@@ -5,9 +5,11 @@ package exec
 import (
 	"context"
 	"fmt"
+	"sort"
 	"sync"
 
 	lua "github.com/wippyai/go-lua"
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/resource"
 	rtresource "github.com/wippyai/runtime/api/runtime/resource"
@@ -120,15 +122,15 @@ func executorExec(l *lua.LState) int {
 		return 2
 	}
 
-	if !security.IsAllowed(ctx, "exec.run", cmd, nil) {
-		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "permission denied: execute command").WithKind(lua.Invalid).WithRetryable(false))
-		return 2
-	}
-
 	opts, err := parseProcessOptions(l.Get(3))
 	if err != nil {
 		pushInvalidOption(l, err.Error())
+		return 2
+	}
+
+	if !security.IsAllowed(ctx, "exec.run", cmd, processSecurityMeta(opts)) {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "permission denied: execute command").WithKind(lua.Invalid).WithRetryable(false))
 		return 2
 	}
 
@@ -144,6 +146,25 @@ func executorExec(l *lua.LState) int {
 	value.PushTypedUserData(l, p, processTypeName)
 	l.Push(lua.LNil)
 	return 2
+}
+
+func processSecurityMeta(options apiexec.ProcessOptions) attrs.Bag {
+	envNames := make([]string, 0, len(options.Env))
+	for name := range options.Env {
+		envNames = append(envNames, name)
+	}
+	sort.Strings(envNames)
+
+	terminal := attrs.Bag{"requested": options.PTY != nil}
+	if options.PTY != nil {
+		width, height, _ := options.PTY.Dimensions()
+		terminal["width"], terminal["height"], terminal["term"] = width, height, options.PTY.Term
+	}
+	return attrs.Bag{
+		"work_dir":  options.WorkDir,
+		"env_names": envNames,
+		"pty":       terminal,
+	}
 }
 
 func executorRelease(l *lua.LState) int {

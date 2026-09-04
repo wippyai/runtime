@@ -14,14 +14,16 @@ import (
 // Surface is the physical ANSI implementation of tty.Surface.
 type Surface struct {
 	out      io.Writer
+	closeErr error
 	cursor   *ttyapi.Cursor
 	rows     []string
 	scratch  []byte
 	mu       sync.Mutex
 	opts     ttyapi.SurfaceOptions
 	opened   bool
+	acquired bool
+	invalid  bool
 	closed   bool
-	restored bool
 }
 
 func NewSurface(out io.Writer, opts ttyapi.SurfaceOptions) *Surface {
@@ -60,7 +62,7 @@ func (s *Surface) Present(frame ttyapi.Frame) (ttyapi.PresentStats, error) {
 		if index < len(s.rows) {
 			previous = s.rows[index]
 		}
-		if current == previous && index < len(rows) && index < len(s.rows) {
+		if !s.invalid && current == previous && index < len(rows) && index < len(s.rows) {
 			continue
 		}
 		changed++
@@ -69,6 +71,9 @@ func (s *Surface) Present(frame ttyapi.Frame) (ttyapi.PresentStats, error) {
 		output = append(output, ';', '1', 'H')
 		output = append(output, current...)
 		output = append(output, "\x1b[0m\x1b[K"...)
+	}
+	if s.invalid && limit == 0 {
+		output = append(output, "\x1b[H\x1b[0m\x1b[J"...)
 	}
 	// Painting rows moves the physical terminal cursor even when the logical
 	// frame cursor itself did not change. Cursor placement is therefore dirty
@@ -79,7 +84,7 @@ func (s *Surface) Present(frame ttyapi.Frame) (ttyapi.PresentStats, error) {
 		effectiveCursor = s.cursor
 	}
 	cursorChanged := frame.Cursor != nil && !sameSurfaceCursor(s.cursor, frame.Cursor)
-	if effectiveCursor != nil && (changed != 0 || cursorChanged) {
+	if effectiveCursor != nil && (s.invalid || changed != 0 || cursorChanged) {
 		output = append(output, '\x1b', '[')
 		output = strconv.AppendInt(output, int64(max(0, effectiveCursor.Row)+1), 10)
 		output = append(output, ';')
@@ -97,6 +102,9 @@ func (s *Surface) Present(frame ttyapi.Frame) (ttyapi.PresentStats, error) {
 		output = append(output, "\x1b[?2026l"...)
 	}
 	if len(output) > 0 {
+		// A short or failed write may still have changed terminal modes or cursor
+		// state. Record acquisition before the call so Close performs recovery.
+		s.acquired = true
 		written, err := s.out.Write(output)
 		if err != nil {
 			return ttyapi.PresentStats{}, err
@@ -106,6 +114,7 @@ func (s *Surface) Present(frame ttyapi.Frame) (ttyapi.PresentStats, error) {
 		}
 	}
 	s.opened = true
+	s.invalid = false
 	s.scratch = output
 	s.rows = append(s.rows[:0], rows...)
 	if frame.Cursor != nil {
@@ -122,15 +131,24 @@ func sameSurfaceCursor(a, b *ttyapi.Cursor) bool {
 	return *a == *b
 }
 
-func (s *Surface) Invalidate() { s.mu.Lock(); s.rows = nil; s.mu.Unlock() }
+func (s *Surface) Invalidate() {
+	s.mu.Lock()
+	if !s.closed {
+		s.invalid = true
+	}
+	s.mu.Unlock()
+}
 
 func (s *Surface) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.restored {
-		return nil
+	if s.closed {
+		return s.closeErr
 	}
 	s.closed = true
+	if !s.acquired {
+		return nil
+	}
 	restore := make([]byte, 0, 32)
 	if s.opts.Synchronized {
 		restore = append(restore, "\x1b[?2026l"...)
@@ -142,12 +160,13 @@ func (s *Surface) Close() error {
 	}
 	written, err := s.out.Write(restore)
 	if err != nil {
-		return err
+		s.closeErr = err
+		return s.closeErr
 	}
 	if written != len(restore) {
-		return io.ErrShortWrite
+		s.closeErr = io.ErrShortWrite
+		return s.closeErr
 	}
-	s.restored = true
 	return nil
 }
 

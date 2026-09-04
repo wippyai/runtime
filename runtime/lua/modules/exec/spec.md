@@ -348,26 +348,6 @@ proc:start()
 proc:wait()
 ```
 
-#### process:close(force?: boolean) → boolean, error
-
-Closes the process by sending a signal. Safe to call multiple times.
-
-| Param | Type | Required | Default | Notes |
-|-------|------|----------|---------|-------|
-| force | boolean | no | false | If true, sends SIGKILL (9); if false, sends SIGTERM (15) |
-
-**Returns:** `true, nil` - always succeeds
-
-**Example:**
-
-```lua
--- Graceful shutdown
-proc:close()
-
--- Force kill
-proc:close(true)
-```
-
 ## Errors
 
 This module returns structured errors. Check kind with `errors.*` constants:

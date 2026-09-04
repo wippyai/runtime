@@ -106,6 +106,8 @@ func TestLuaViewportRejectsMalformedInput(t *testing.T) {
 	require.NoError(t, l.DoString(`
 		local invalid_dimension, dimension_err = tty.viewport({width = 1.5})
 		assert(invalid_dimension == nil and dimension_err)
+		local oversized, oversized_err = tty.viewport({width = 65535, height = 65535})
+		assert(oversized == nil and oversized_err)
 
 		local viewport = assert(tty.viewport())
 		local sent, send_err = viewport:send({type = "resize", width = "80", height = 24})
@@ -115,6 +117,8 @@ func TestLuaViewportRejectsMalformedInput(t *testing.T) {
 		sent, send_err = viewport:send({type = "unknown"})
 		assert(sent == nil and send_err)
 		local resized, resize_err = viewport:resize(80.5, 24)
+		assert(resized == nil and resize_err)
+		resized, resize_err = viewport:resize(65535, 65535)
 		assert(resized == nil and resize_err)
 		assert(not pcall(function() viewport:snapshot(1.5) end))
 	`))

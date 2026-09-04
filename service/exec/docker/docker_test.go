@@ -8,6 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -21,6 +23,72 @@ import (
 	execapi "github.com/wippyai/runtime/api/service/exec"
 	"go.uber.org/zap"
 )
+
+func TestDockerSignalUsesBoundedDaemonContext(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, request *http.Request) {
+		<-request.Context().Done()
+	}))
+	defer server.Close()
+	cli, err := client.New(client.WithHost(server.URL), client.WithAPIVersion("1.44"))
+	require.NoError(t, err)
+	defer cli.Close()
+	process := &Process{
+		cli: cli, log: zap.NewNop(), containerID: "stalled", started: true,
+		controlTimeout: 20 * time.Millisecond,
+	}
+
+	started := time.Now()
+	err = process.Signal(15)
+	require.Error(t, err)
+	require.Less(t, time.Since(started), time.Second)
+}
+
+func TestDockerWaitReleasesItsOwnedContext(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		response.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(response, `{"StatusCode":0}`)
+	}))
+	defer server.Close()
+	cli, err := client.New(client.WithHost(server.URL), client.WithAPIVersion("1.44"))
+	require.NoError(t, err)
+	defer cli.Close()
+	waitCtx, cancelWait := context.WithCancel(context.Background())
+	process := &Process{
+		cli: cli, log: zap.NewNop(), containerID: "finished", started: true,
+		waitCtx: waitCtx, cancelWait: cancelWait,
+	}
+
+	require.NoError(t, process.Wait())
+	select {
+	case <-waitCtx.Done():
+	case <-time.After(time.Second):
+		t.Fatal("completed Docker wait retained its owned context")
+	}
+}
+
+func TestDockerWaitCanBeInterruptedDuringProxyAbandonment(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, request *http.Request) {
+		<-request.Context().Done()
+	}))
+	defer server.Close()
+	cli, err := client.New(client.WithHost(server.URL), client.WithAPIVersion("1.44"))
+	require.NoError(t, err)
+	defer cli.Close()
+	waitCtx, cancelWait := context.WithCancel(context.Background())
+	process := &Process{
+		cli: cli, log: zap.NewNop(), containerID: "stalled", started: true,
+		waitCtx: waitCtx, cancelWait: cancelWait,
+	}
+	done := make(chan error, 1)
+	go func() { done <- process.Wait() }()
+	process.CancelWait()
+	select {
+	case err := <-done:
+		require.ErrorIs(t, err, context.Canceled)
+	case <-time.After(time.Second):
+		t.Fatal("cancelled Docker wait remained blocked")
+	}
+}
 
 func TestDockerPTYResize(t *testing.T) {
 	skipIfNoDocker(t)
@@ -50,6 +118,11 @@ func TestDockerPTYResize(t *testing.T) {
 	require.NoError(t, process.WriteStdin([]byte("continue\n")))
 	require.Equal(t, "30 100", awaitLine(t, lines, "30 100"))
 	require.NoError(t, process.Wait())
+}
+
+func TestDockerPTYResizeRejectsInvalidSizeBeforeDaemonCall(t *testing.T) {
+	process := &ptyProcess{Process: &Process{pty: &execapi.PTYOptions{}, started: true}}
+	require.ErrorIs(t, process.Resize(execapi.MaxPTYDimension+1, 1), execapi.ErrInvalidPTYSize)
 }
 
 func TestDockerPTYCapabilityMatchesProcessConfiguration(t *testing.T) {

@@ -35,7 +35,17 @@ const (
 	DefaultPTYWidth  = 80
 	DefaultPTYHeight = 24
 	MaxPTYDimension  = 65535
+	MaxPTYCells      = 1 << 18
 )
+
+// ValidatePTYSize bounds both terminal coordinates and the backing screen.
+func ValidatePTYSize(width, height int) error {
+	if width < 1 || width > MaxPTYDimension || height < 1 || height > MaxPTYDimension ||
+		height > MaxPTYCells/width {
+		return ErrInvalidPTYSize
+	}
+	return nil
+}
 
 // Dimensions returns a validated initial terminal size. Zero values select
 // the conventional 80x24 default.
@@ -50,8 +60,8 @@ func (o *PTYOptions) Dimensions() (int, int, error) {
 	if o.Height != 0 {
 		height = o.Height
 	}
-	if width < 1 || width > MaxPTYDimension || height < 1 || height > MaxPTYDimension {
-		return 0, 0, ErrInvalidPTYSize
+	if err := ValidatePTYSize(width, height); err != nil {
+		return 0, 0, err
 	}
 	return width, height, nil
 }
@@ -73,10 +83,12 @@ type Process interface {
 	// WriteStdin writes data to the process stdin
 	WriteStdin(data []byte) error
 
-	// Stdout returns a reader for the process stdout
+	// Stdout returns the process stdout reader. A caller that acquires a non-nil
+	// reader owns its final drain and close.
 	Stdout() io.ReadCloser
 
-	// Stderr returns a reader for the process stderr
+	// Stderr returns the process stderr reader. A caller that acquires a non-nil
+	// reader owns its final drain and close.
 	Stderr() io.ReadCloser
 
 	// Wait waits for the process to complete
@@ -87,4 +99,10 @@ type Process interface {
 type PTYProcess interface {
 	Process
 	Resize(width, height int) error
+}
+
+// WaitCanceler is an optional lifecycle capability for remote executors whose
+// Wait operation can otherwise outlive an abandoned proxy or runtime process.
+type WaitCanceler interface {
+	CancelWait()
 }

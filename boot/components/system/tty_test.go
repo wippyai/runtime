@@ -4,9 +4,11 @@ package system
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/boot"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	processapi "github.com/wippyai/runtime/api/process"
@@ -39,4 +41,27 @@ func TestTTYBootInstallsAndStopsOwnedService(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, ttyapi.GetService(loaded))
 	require.NoError(t, component.(boot.Stopper).Stop(loaded))
+}
+
+func TestFrameResolverBootClaimsTerminalOptionWithoutTTYComponent(t *testing.T) {
+	loaded, err := FrameResolvers().Load(ctxapi.NewRootContext())
+	require.NoError(t, err)
+	options := attrs.NewBag()
+	options.Set(ttyapi.OptionTerminal, "missing-service-grant")
+
+	_, err = ctxapi.FrameResolversFrom(loaded).Resolve(loaded, options, nil)
+	require.True(t, errors.Is(err, ctxapi.ErrFrameResolverNotRegistered))
+}
+
+func TestTTYBootFailureDoesNotInstallClosedService(t *testing.T) {
+	ctx := ttyBootContext()
+	resolvers := ctxapi.FrameResolversFrom(ctx)
+	require.NoError(t, resolvers.Register(ttyapi.FrameResolverClaimTTY, FrameResolverOrderTTY, func(context.Context, attrs.Attributes) ([]ctxapi.Pair, error) {
+		return nil, nil
+	}))
+
+	loaded, err := TTY().Load(ctx)
+	require.Error(t, err)
+	require.Nil(t, loaded)
+	require.Nil(t, ttyapi.GetService(ctx), "failed boot must not poison the AppContext")
 }

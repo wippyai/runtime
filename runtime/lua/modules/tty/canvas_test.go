@@ -36,6 +36,16 @@ func TestCanvasClipsNegativeOrigin(t *testing.T) {
 	require.Equal(t, "cdef", ansi.Strip(canvas.screen.Render()))
 }
 
+func TestCanvasNegativeOriginConsumesExplicitWidth(t *testing.T) {
+	canvas := &canvasWrapper{
+		width: 6, height: 1,
+		screen: &canvasBuffer{Buffer: uv.NewBuffer(6, 1)},
+	}
+	canvas.put(0, 0, "......", 6)
+	canvas.put(-2, 0, "abcdef", 4)
+	require.Equal(t, "cd....", ansi.Strip(canvas.screen.Render()))
+}
+
 func TestCanvasRejectsExcessiveAreaBeforeAllocation(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()

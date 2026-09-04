@@ -9,7 +9,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	lua "github.com/wippyai/go-lua"
+	"github.com/wippyai/runtime/api/attrs"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/registry"
 	securityapi "github.com/wippyai/runtime/api/security"
@@ -682,6 +684,21 @@ func TestExecutorExecParsesPTYOptions(t *testing.T) {
 	}
 }
 
+func TestProcessSecurityMetaExposesShapeWithoutEnvironmentValues(t *testing.T) {
+	meta := processSecurityMeta(execapi.ProcessOptions{
+		WorkDir: "/workspace",
+		Env:     map[string]string{"TOKEN": "secret", "LANG": "C"},
+		PTY:     &execapi.PTYOptions{Width: 100, Height: 30, Term: "xterm-256color"},
+	})
+	require.Equal(t, "/workspace", meta["work_dir"])
+	require.Equal(t, []string{"LANG", "TOKEN"}, meta["env_names"])
+	require.NotContains(t, meta, "TOKEN")
+	terminal, ok := meta["pty"].(attrs.Bag)
+	require.True(t, ok)
+	require.Equal(t, true, terminal["requested"])
+	require.Equal(t, 100, terminal["width"])
+}
+
 func TestExecutorExecRejectsInvalidPTYOptions(t *testing.T) {
 	tests := []struct {
 		build func(*lua.LState) lua.LValue
@@ -776,6 +793,21 @@ func TestExecutorExecRejectsMalformedProcessOptions(t *testing.T) {
 
 func (m *mockProcess) Start() error {
 	return m.startErr
+}
+
+func TestProcessStartFailureClosesHandle(t *testing.T) {
+	l := setupState()
+	defer l.Close()
+	startErr := errors.New("start failed")
+	process := NewProcess(context.Background(), &mockProcess{startErr: startErr})
+	value.PushTypedUserData(l, process, processTypeName)
+
+	require.Equal(t, 2, procStart(l))
+	require.Equal(t, lua.LNil, l.Get(-2))
+	process.mu.Lock()
+	defer process.mu.Unlock()
+	require.True(t, process.closed)
+	require.Nil(t, process.handle)
 }
 
 func (m *mockProcess) Signal(_ int) error {

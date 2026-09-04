@@ -83,6 +83,9 @@ func (h *Host) Run(ctx context.Context, start *process.Start) (pid.PID, error) {
 	// Shortcut: if name specified and already exists, route directly to existing process
 	if processName != "" && h.pidReg != nil {
 		if existingPID, ok := h.pidReg.Lookup(processName); ok {
+			if err := rollbackUnconsumedAttachments(start.Context); err != nil {
+				return existingPID, err
+			}
 			if len(start.Messages) > 0 {
 				h.sendMessages(existingPID, start.Messages)
 			}
@@ -146,9 +149,22 @@ func (h *Host) Run(ctx context.Context, start *process.Start) (pid.PID, error) {
 	return processID, nil
 }
 
+func rollbackUnconsumedAttachments(pairs []ctxapi.Pair) error {
+	var result error
+	for index := len(pairs) - 1; index >= 0; index-- {
+		if attachment, ok := pairs[index].Value.(ctxapi.FrameAttachment); ok {
+			result = errors.Join(result, attachment.Rollback())
+		}
+	}
+	return result
+}
+
 // handleNameTaken routes messages to existing process when name is already taken.
 func (h *Host) handleNameTaken(existingPID pid.PID, start *process.Start) (pid.PID, error) {
 	name := processName(start)
+	if err := rollbackUnconsumedAttachments(start.Context); err != nil {
+		return existingPID, err
+	}
 
 	if len(start.Messages) > 0 {
 		h.sendMessages(existingPID, start.Messages)
@@ -183,6 +199,8 @@ func (h *Host) Terminate(_ context.Context, processID pid.PID) error {
 	h.log.Debug("process terminate requested", zap.String("pid", processID.String()))
 	return h.scheduler.Terminate(processID)
 }
+
+func (h *Host) AcceptsFrameAttachments() bool { return true }
 
 // Send implements relay.Receiver.
 func (h *Host) Send(pkg *relay.Package) error {

@@ -44,7 +44,7 @@ func (p *port) Close() error {
 		}
 		ss := p.session
 		ss.mu.Lock()
-		ss.producer = false
+		ss.inputOpen, ss.producer = false, false
 		ss.target, ss.router = pid.PID{}, nil
 		ss.mu.Unlock()
 		ss.service.collect(ss)
@@ -84,14 +84,29 @@ func (s *surface) Present(frame ttyapi.Frame) (ttyapi.PresentStats, error) {
 		ss.revision++
 		update := ttyapi.Update{Revision: ss.revision}
 		for _, watcher := range ss.watches {
-			select {
-			case watcher.ch <- update:
-			default:
-			}
+			publishLatest(watcher.ch, update)
 		}
 	}
 	ss.mu.Unlock()
 	return ttyapi.PresentStats{Rows: len(frame.Rows), ChangedRows: changed}, nil
+}
+
+// publishLatest replaces the single buffered watermark. Callers serialize
+// producers with session.mu, so no update can race the replacement.
+func publishLatest(ch chan ttyapi.Update, update ttyapi.Update) {
+	select {
+	case ch <- update:
+		return
+	default:
+	}
+	select {
+	case <-ch:
+	default:
+	}
+	select {
+	case ch <- update:
+	default:
+	}
 }
 
 func sameCursor(a, b *ttyapi.Cursor) bool {
@@ -102,9 +117,16 @@ func sameCursor(a, b *ttyapi.Cursor) bool {
 }
 
 func (s *surface) Invalidate() {
+	s.owner.surfaceMu.Lock()
+	active := s.owner.surface == s && !s.closed.Load()
+	if !active {
+		s.owner.surfaceMu.Unlock()
+		return
+	}
 	s.session.mu.Lock()
 	s.session.invalid = true
 	s.session.mu.Unlock()
+	s.owner.surfaceMu.Unlock()
 }
 
 func (s *surface) Close() error {
@@ -136,11 +158,23 @@ var _ ttyapi.Surface = (*surface)(nil)
 
 type input struct {
 	session *session
-	started atomic.Bool
 }
 
-func (i *input) Start() error { i.started.Store(true); return nil }
-func (i *input) Stop() error  { i.started.Store(false); return nil }
+func (i *input) Start() error {
+	i.session.mu.Lock()
+	defer i.session.mu.Unlock()
+	if i.session.closed || !i.session.producer {
+		return ttyapi.ErrViewportClosed
+	}
+	i.session.inputOpen = true
+	return nil
+}
+func (i *input) Stop() error {
+	i.session.mu.Lock()
+	i.session.inputOpen = false
+	i.session.mu.Unlock()
+	return nil
+}
 func (i *input) ScreenSize() (int, int, error) {
 	i.session.mu.RLock()
 	defer i.session.mu.RUnlock()

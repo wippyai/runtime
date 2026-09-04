@@ -70,6 +70,9 @@ func ttyViewportNew(l *lua.LState) int {
 			return invalidArgument(l, err.Error())
 		}
 	}
+	if err := ttyapi.ValidateViewportSize(width, height); err != nil {
+		return invalidArgument(l, err.Error())
+	}
 	view, err := service.Create(l.Context(), width, height)
 	if err != nil {
 		l.Push(lua.LNil)
@@ -207,6 +210,9 @@ func viewportResize(l *lua.LState) int {
 	}
 	height, err := viewportDimensionValue(l.Get(3), "height")
 	if err != nil {
+		return invalidArgument(l, err.Error())
+	}
+	if err := ttyapi.ValidateViewportSize(width, height); err != nil {
 		return invalidArgument(l, err.Error())
 	}
 	err = v.view.Resize(width, height)

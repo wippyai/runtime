@@ -6,9 +6,10 @@ import (
 	"math"
 
 	lua "github.com/wippyai/go-lua"
+	ttyapi "github.com/wippyai/runtime/api/tty"
 )
 
-const maxTerminalDimension = 65535
+const maxTerminalDimension = ttyapi.MaxViewportDimension
 
 func integerValue(value lua.LValue) (int, bool) {
 	var number float64

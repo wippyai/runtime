@@ -109,17 +109,21 @@ func reapReleased(handle apiexec.Process, killed bool) {
 		_ = handle.Wait()
 	}()
 
-	if killed {
-		// The caller already sent SIGKILL; there is nothing to escalate to.
-		<-exited
-		return
+	if !killed {
+		select {
+		case <-exited:
+			return
+		case <-time.After(reapGrace):
+			_ = handle.Signal(int(syscall.SIGKILL))
+		}
 	}
 
 	select {
 	case <-exited:
 	case <-time.After(reapGrace):
-		_ = handle.Signal(int(syscall.SIGKILL))
-		<-exited
+		if canceler, ok := handle.(apiexec.WaitCanceler); ok {
+			canceler.CancelWait()
+		}
 	}
 }
 
@@ -155,7 +159,13 @@ func procResize(l *lua.LState) int {
 		l.Push(lua.NewLuaError(l, "process has no PTY").WithKind(lua.Invalid).WithRetryable(false))
 		return 2
 	}
-	if err := ptyProcess.Resize(l.CheckInt(2), l.CheckInt(3)); err != nil {
+	width, height := l.CheckInt(2), l.CheckInt(3)
+	if err := apiexec.ValidatePTYSize(width, height); err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.WrapErrorWithLua(l, err, "resize process PTY").WithKind(lua.Invalid).WithRetryable(false))
+		return 2
+	}
+	if err := ptyProcess.Resize(width, height); err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.WrapErrorWithLua(l, err, "resize process PTY"))
 		return 2
@@ -198,6 +208,15 @@ func procStart(l *lua.LState) int {
 
 	err := handle.Start()
 	if err != nil {
+		p.mu.Lock()
+		p.closed = true
+		p.handle = nil
+		cancel := p.cancelCleanup
+		p.cancelCleanup = nil
+		p.mu.Unlock()
+		if cancel != nil {
+			cancel()
+		}
 		l.Push(lua.LNil)
 		l.Push(lua.WrapErrorWithLua(l, err, "start process").WithKind(lua.Internal).WithRetryable(false))
 		return 2

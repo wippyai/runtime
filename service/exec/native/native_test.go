@@ -18,6 +18,7 @@ import (
 	apierror "github.com/wippyai/runtime/api/error"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/service/exec"
 	serviceexec "github.com/wippyai/runtime/service/exec"
 	mocklogger "github.com/wippyai/runtime/tests/mock"
@@ -72,6 +73,7 @@ func TestPTYProcessResize(t *testing.T) {
 resized:
 	assert.NoError(t, process.Wait())
 	assert.ErrorIs(t, ptyProcess.Resize(0, 30), exec.ErrInvalidPTYSize)
+	assert.ErrorIs(t, ptyProcess.Resize(exec.MaxPTYDimension+1, 1), exec.ErrInvalidPTYSize)
 }
 
 func TestPTYCapabilityMatchesProcessConfiguration(t *testing.T) {
@@ -85,6 +87,39 @@ func TestPTYCapabilityMatchesProcessConfiguration(t *testing.T) {
 	assert.NoError(t, err)
 	_, hasPTYCapability := ptyProcess.(exec.PTYProcess)
 	assert.True(t, hasPTYCapability)
+}
+
+func TestPTYWaitReleasesMasterFile(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("PTY test requires Unix")
+	}
+	executor := NewNativeExecutor(zap.NewNop(), &exec.NativeExecutorConfig{})
+	handle, err := executor.NewProcess("true", exec.ProcessOptions{PTY: &exec.PTYOptions{}})
+	require.NoError(t, err)
+	process := handle.(*ptyProcess)
+	require.NoError(t, process.Start())
+	master := process.ptyMaster
+	require.NotNil(t, master)
+	require.NoError(t, process.Wait())
+	_, err = master.Stat()
+	require.Error(t, err, "Wait must release a PTY master even when no stdout stream was acquired")
+}
+
+func TestPTYWaitLeavesAcquiredOutputForCallerToDrain(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("PTY test requires Unix")
+	}
+	executor := NewNativeExecutor(zap.NewNop(), &exec.NativeExecutorConfig{})
+	handle, err := executor.NewProcess("sh -c 'printf final-frame'", exec.ProcessOptions{PTY: &exec.PTYOptions{}})
+	require.NoError(t, err)
+	process := handle.(*ptyProcess)
+	require.NoError(t, process.Start())
+	output := process.Stdout()
+	require.NotNil(t, output)
+	require.NoError(t, process.Wait())
+	payload, _ := io.ReadAll(output)
+	require.Contains(t, string(payload), "final-frame")
+	require.NoError(t, output.Close())
 }
 
 func TestExecutor_Execute(t *testing.T) {

@@ -26,11 +26,14 @@ type InputReader struct {
 	scheduler    *actor.Scheduler
 	reader       *input.Reader
 	cancel       context.CancelFunc
+	stopDone     chan struct{}
+	stopErr      error
 	stdin        *os.File
 	targetPID    pid.PID
 	wg           sync.WaitGroup
 	mu           sync.Mutex
 	started      bool
+	stopping     bool
 	mouseEnabled bool
 	pasteEnabled bool
 }
@@ -54,9 +57,10 @@ func (r *InputReader) Start() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if r.started {
+	if r.started || r.stopping {
 		return errors.New("input reader already started")
 	}
+	r.stopErr = nil
 
 	if err := r.raw.Enable(); err != nil {
 		return err
@@ -107,12 +111,23 @@ func (r *InputReader) Start() error {
 // Stop cancels the read loop, waits for goroutines, and restores the terminal.
 func (r *InputReader) Stop() error {
 	r.mu.Lock()
+	if r.stopping {
+		done := r.stopDone
+		r.mu.Unlock()
+		<-done
+		r.mu.Lock()
+		err := r.stopErr
+		r.mu.Unlock()
+		return err
+	}
 	if !r.started {
 		r.mu.Unlock()
 		return nil
 	}
 
 	r.started = false
+	r.stopping = true
+	r.stopDone = make(chan struct{})
 	if r.emitter != nil {
 		r.emitter.stop()
 	}
@@ -132,7 +147,6 @@ func (r *InputReader) Stop() error {
 		_ = r.reader.Close()
 		r.reader = nil
 	}
-	r.mu.Unlock()
 
 	// Disable mouse tracking if it was enabled
 	if r.mouseEnabled {
@@ -149,15 +163,20 @@ func (r *InputReader) Stop() error {
 		}
 		r.pasteEnabled = false
 	}
-
-	return errors.Join(pasteErr, r.raw.Disable())
+	r.stopping = false
+	r.stopErr = errors.Join(pasteErr, r.raw.Disable())
+	close(r.stopDone)
+	r.stopDone = nil
+	err := r.stopErr
+	r.mu.Unlock()
+	return err
 }
 
 // EnableMouse enables mouse event tracking (SGR mode).
 func (r *InputReader) EnableMouse() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if !r.mouseEnabled {
+	if r.started && !r.stopping && !r.mouseEnabled {
 		_, _ = r.output.Write([]byte("\033[?1003h\033[?1006h"))
 		r.mouseEnabled = true
 	}

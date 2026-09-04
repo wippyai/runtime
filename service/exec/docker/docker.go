@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/moby/moby/api/pkg/stdcopy"
 	"github.com/moby/moby/api/types/container"
@@ -17,6 +18,11 @@ import (
 	"github.com/moby/moby/client"
 	execapi "github.com/wippyai/runtime/api/service/exec"
 	"go.uber.org/zap"
+)
+
+const (
+	dockerStartTimeout   = 30 * time.Second
+	dockerControlTimeout = 5 * time.Second
 )
 
 var (
@@ -146,7 +152,10 @@ func (e *Executor) NewProcess(cmd string, options execapi.ProcessOptions) (execa
 		pidsLimit:       e.pidsLimit,
 		tmpfs:           e.tmpfs,
 		pty:             ptyOptions,
+		startTimeout:    dockerStartTimeout,
+		controlTimeout:  dockerControlTimeout,
 	}
+	process.waitCtx, process.cancelWait = context.WithCancel(context.Background())
 	if ptyOptions != nil {
 		return &ptyProcess{Process: process}, nil
 	}
@@ -164,27 +173,31 @@ func (e *Executor) Close() error {
 
 // Process represents a Docker container process
 type Process struct {
-	stdoutReader    io.ReadCloser
+	waitCtx         context.Context
 	waitErr         error
 	stdinWriter     io.WriteCloser
 	stderrReader    io.ReadCloser
-	cli             *client.Client
-	log             *zap.Logger
+	stdoutReader    io.ReadCloser
 	tmpfs           map[string]string
+	log             *zap.Logger
 	pty             *execapi.PTYOptions
+	cancelWait      context.CancelFunc
+	cli             *client.Client
 	image           string
 	containerID     string
 	workDir         string
 	networkMode     string
 	user            string
-	capAdd          []string
 	capDrop         []string
 	volumes         []string
-	env             []string
 	cmd             []string
-	cpuQuota        int64
+	capAdd          []string
+	env             []string
 	memoryLimit     int64
 	pidsLimit       int64
+	cpuQuota        int64
+	startTimeout    time.Duration
+	controlTimeout  time.Duration
 	mu              sync.RWMutex
 	stopped         bool
 	started         bool
@@ -202,7 +215,8 @@ func (p *Process) Start() error {
 		return ErrContainerAlreadyStart
 	}
 
-	ctx := context.Background()
+	ctx, cancel := p.startContext()
+	defer cancel()
 
 	binds, err := buildBinds(p.volumes)
 	if err != nil {
@@ -262,7 +276,9 @@ func (p *Process) Start() error {
 		if committed {
 			return
 		}
-		_, _ = p.cli.ContainerRemove(ctx, resp.ID, client.ContainerRemoveOptions{Force: true})
+		cleanupCtx, cleanupCancel := p.controlContext()
+		defer cleanupCancel()
+		_, _ = p.cli.ContainerRemove(cleanupCtx, resp.ID, client.ContainerRemoveOptions{Force: true})
 		p.containerID = ""
 	}()
 
@@ -319,8 +335,8 @@ func (p *Process) copyAttachedOutput(attach client.ContainerAttachResult, stdout
 }
 
 func (p *ptyProcess) Resize(width, height int) error {
-	if width < 1 || height < 1 {
-		return execapi.ErrInvalidPTYSize
+	if err := execapi.ValidatePTYSize(width, height); err != nil {
+		return err
 	}
 	p.mu.RLock()
 	if !p.started || p.stopped || p.pty == nil {
@@ -329,7 +345,9 @@ func (p *ptyProcess) Resize(width, height int) error {
 	}
 	id := p.containerID
 	p.mu.RUnlock()
-	_, err := p.cli.ContainerResize(context.Background(), id, client.ContainerResizeOptions{Width: uint(width), Height: uint(height)})
+	ctx, cancel := p.controlContext()
+	defer cancel()
+	_, err := p.cli.ContainerResize(ctx, id, client.ContainerResizeOptions{Width: uint(width), Height: uint(height)})
 	return err
 }
 
@@ -348,7 +366,9 @@ func (p *Process) Signal(sig int) error {
 	p.mu.RUnlock()
 
 	sigName := signalName(sig)
-	_, err := p.cli.ContainerKill(context.Background(), containerID, client.ContainerKillOptions{Signal: sigName})
+	ctx, cancel := p.controlContext()
+	defer cancel()
+	_, err := p.cli.ContainerKill(ctx, containerID, client.ContainerKillOptions{Signal: sigName})
 	if err != nil {
 		if strings.Contains(err.Error(), "is not running") {
 			return ErrContainerStopped
@@ -406,7 +426,12 @@ func (p *Process) Wait() error {
 	containerID := p.containerID
 	p.mu.RUnlock()
 
-	waitResult := p.cli.ContainerWait(context.Background(), containerID, client.ContainerWaitOptions{
+	waitCtx := p.waitCtx
+	if waitCtx == nil {
+		waitCtx = context.Background()
+	}
+	defer p.CancelWait()
+	waitResult := p.cli.ContainerWait(waitCtx, containerID, client.ContainerWaitOptions{
 		Condition: container.WaitConditionNotRunning,
 	})
 	statusCh := waitResult.Result
@@ -444,6 +469,30 @@ func (p *Process) Wait() error {
 	}
 
 	return nil
+}
+
+// CancelWait releases a ContainerWait request when a higher-level lifecycle
+// owner has abandoned the session after bounded graceful and forced shutdown.
+func (p *Process) CancelWait() {
+	if p.cancelWait != nil {
+		p.cancelWait()
+	}
+}
+
+func (p *Process) startContext() (context.Context, context.CancelFunc) {
+	timeout := p.startTimeout
+	if timeout <= 0 {
+		timeout = dockerStartTimeout
+	}
+	return context.WithTimeout(context.Background(), timeout)
+}
+
+func (p *Process) controlContext() (context.Context, context.CancelFunc) {
+	timeout := p.controlTimeout
+	if timeout <= 0 {
+		timeout = dockerControlTimeout
+	}
+	return context.WithTimeout(context.Background(), timeout)
 }
 
 // buildBinds prepares Docker short-syntax volume specifications for the daemon.

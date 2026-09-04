@@ -26,22 +26,22 @@ func TTY() boot.Component {
 			if resolvers == nil {
 				return nil, ErrFrameResolversMissing
 			}
-			service = ttysystem.NewService()
-			ctx = ttyapi.WithService(ctx, service)
-			if ttyapi.GetService(ctx) != service {
-				_ = service.Close()
+			if ttyapi.GetService(ctx) != nil {
 				return nil, ErrTTYServiceAlreadyInstalled
 			}
 			lifecycle := processapi.GetLifecycleRegistry(ctx)
 			if lifecycle == nil {
-				_ = service.Close()
 				return nil, ErrLifecycleRegistryNotAvailable
 			}
-			lifecycle.Register("tty", service)
-			if err := resolvers.Register("tty", FrameResolverOrderTTY, ttyapi.ResolveTerminalOption); err != nil {
-				_ = service.Close()
+			if err := resolvers.Register(ttyapi.FrameResolverClaimTTY, FrameResolverOrderTTY, ttyapi.ResolveTerminalOption); err != nil {
 				return nil, err
 			}
+			// All fallible registration is complete before the AppContext and
+			// lifecycle registry are mutated. A failed Load therefore cannot leave
+			// a closed service installed in the boot context.
+			service = ttysystem.NewService()
+			ctx = ttyapi.WithService(ctx, service)
+			lifecycle.Register("tty", service)
 			return ctx, nil
 		},
 		Stop: func(ctx context.Context) error {

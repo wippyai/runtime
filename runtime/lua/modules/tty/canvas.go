@@ -15,7 +15,7 @@ import (
 const (
 	canvasTypeName   = "tty.Canvas"
 	maxCanvasColumns = 16384
-	maxCanvasCells   = 1 << 20
+	maxCanvasCells   = 1 << 18
 )
 
 // canvasWrapper is a bounded styled-cell compositor. ANSI strings are parsed
@@ -186,6 +186,7 @@ func (c *canvasWrapper) put(x, y int, text string, limit int) {
 	sourceX := 0
 	if x < 0 {
 		sourceX, x = -x, 0
+		limit -= sourceX
 	}
 	available := min(limit, c.width-x)
 	textWidth := ansi.StringWidth(text)

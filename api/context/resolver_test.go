@@ -21,6 +21,19 @@ var (
 	testFrameClaimSeq         atomic.Uint64
 )
 
+type testFrameAttachment struct {
+	closed *int
+	err    error
+	once   sync.Once
+}
+
+func (a *testFrameAttachment) release() error {
+	a.once.Do(func() { *a.closed++ })
+	return a.err
+}
+func (a *testFrameAttachment) Close() error    { return a.release() }
+func (a *testFrameAttachment) Rollback() error { return a.release() }
+
 func testFrameResolverClaimName(t *testing.T) string {
 	t.Helper()
 	return "test.claim." + strings.NewReplacer("/", "_", " ", "_").Replace(t.Name()) + "." + strconv.FormatUint(testFrameClaimSeq.Add(1), 10)
@@ -162,6 +175,57 @@ func TestFrameResolvers_FirstErrorStopsAndWraps(t *testing.T) {
 	assert.Nil(t, out)
 	assert.True(t, errors.Is(err, sentinel), "cause must be preserved for errors.Is")
 	assert.Contains(t, err.Error(), "bad", "error must name the failing resolver")
+}
+
+func TestFrameResolvers_FirstErrorClosesProducedPairs(t *testing.T) {
+	r := NewFrameResolvers()
+	closed := 0
+	released := &testFrameAttachment{closed: &closed}
+	failed := &testFrameAttachment{closed: &closed}
+	require.NoError(t, r.Register("resource", 10, func(context.Context, attrs.Attributes) ([]Pair, error) {
+		return []Pair{{Key: &Key{Name: "resource"}, Value: released}}, nil
+	}))
+	require.NoError(t, r.Register("failure", 20, func(context.Context, attrs.Attributes) ([]Pair, error) {
+		return []Pair{{Key: &Key{Name: "failed"}, Value: failed}}, errors.New("resolve failed")
+	}))
+
+	out, err := r.Resolve(context.Background(), nil, nil)
+	require.Error(t, err)
+	require.Nil(t, out)
+	require.Equal(t, 2, closed, "all resolver-owned values must roll back when resolution fails")
+}
+
+func TestFrameResolvers_PreservesRollbackFailure(t *testing.T) {
+	resolveErr := errors.New("resolve failed")
+	rollbackErr := errors.New("rollback failed")
+	closed := 0
+	r := NewFrameResolvers()
+	require.NoError(t, r.Register("resource", 10, func(context.Context, attrs.Attributes) ([]Pair, error) {
+		return []Pair{{Key: &Key{Name: "resource"}, Value: &testFrameAttachment{
+			closed: &closed, err: rollbackErr,
+		}}}, nil
+	}))
+	require.NoError(t, r.Register("failure", 20, func(context.Context, attrs.Attributes) ([]Pair, error) {
+		return nil, resolveErr
+	}))
+
+	_, err := r.Resolve(context.Background(), nil, nil)
+	require.ErrorIs(t, err, resolveErr)
+	require.ErrorIs(t, err, rollbackErr)
+	require.Equal(t, 1, closed)
+}
+
+func TestFrameResolvers_InstanceClaimFailsClosed(t *testing.T) {
+	r := NewFrameResolvers()
+	require.NoError(t, r.RegisterClaim("terminal", func(_ context.Context, options attrs.Attributes) bool {
+		return options != nil && options.GetString("terminal", "") != ""
+	}))
+	options := attrs.NewBag()
+	options.Set("terminal", "grant")
+
+	out, err := r.Resolve(context.Background(), options, nil)
+	require.ErrorIs(t, err, ErrFrameResolverNotRegistered)
+	require.Nil(t, out)
 }
 
 func TestFrameResolvers_RegisterRejectsDuplicateAndNil(t *testing.T) {

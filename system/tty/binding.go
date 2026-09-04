@@ -12,10 +12,11 @@ import (
 )
 
 type binding struct {
-	session *session
-	port    *port
-	mu      sync.Mutex
-	closed  bool
+	session  *session
+	port     *port
+	mu       sync.Mutex
+	closed   bool
+	resolved bool
 }
 
 func (b *binding) Resolve(ctx context.Context) (ttyapi.Port, error) {
@@ -47,6 +48,7 @@ func (b *binding) Resolve(ctx context.Context) (ttyapi.Port, error) {
 	}
 	ss.mu.Unlock()
 	b.port = &port{session: ss, input: &input{session: ss}}
+	b.resolved = true
 	return b.port, nil
 }
 
@@ -57,16 +59,23 @@ func (b *binding) Close() error {
 		return nil
 	}
 	b.closed = true
-	p, ss := b.port, b.session
+	p, ss, resolved := b.port, b.session, b.resolved
 	b.mu.Unlock()
 	if p != nil {
 		return p.Close()
 	}
+	ss.service.mu.Lock()
 	ss.mu.Lock()
 	if ss.bindings > 0 {
 		ss.bindings--
 	}
+	if !resolved && !ss.service.closed && !ss.closed {
+		ss.service.grants[ss.grant] = ss
+	}
 	ss.mu.Unlock()
+	ss.service.mu.Unlock()
 	ss.service.collect(ss)
 	return nil
 }
+
+func (b *binding) Rollback() error { return b.Close() }
