@@ -48,7 +48,7 @@ Each source accepts a `subscriptions` configuration:
 ```yaml
 subscriptions:
   max_subscriptions: 1024
-  max_snapshots: 4
+  max_snapshot_subscriptions: 4
   max_bytes: 268435456
 ```
 

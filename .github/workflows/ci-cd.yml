@@ -137,3 +137,35 @@ jobs:
           SKIP_CLOUDSTORAGE_TESTS: "1"
           SKIP_DOCKER_TESTS: "1"
         run: make test-cdc-sqlite
+
+  test-postgres-cdc:
+    name: Test PostgreSQL CDC (integration, race)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.27.0'
+          cache: true
+      - name: Start isolated logical-replication database
+        run: |
+          docker run --rm -d --name wippy-cdc-ci \
+            -e POSTGRES_HOST_AUTH_METHOD=trust -p 127.0.0.1:5432:5432 \
+            postgres:17-alpine \
+            -c wal_level=logical -c max_replication_slots=32 -c max_wal_senders=32
+          for attempt in {1..30}; do
+            if docker exec wippy-cdc-ci pg_isready -h 127.0.0.1 -U postgres; then break; fi
+            sleep 1
+          done
+          docker exec wippy-cdc-ci psql -h 127.0.0.1 -U postgres -v ON_ERROR_STOP=1 \
+            -c 'CREATE ROLE cdc_repl WITH LOGIN SUPERUSER REPLICATION'
+      - name: Run PostgreSQL CDC regression suite
+        env:
+          GORACE: halt_on_error=1
+          WIPPY_CDC_IT_ADMIN_DSN: postgres://postgres@127.0.0.1:5432/postgres?sslmode=disable
+          WIPPY_CDC_IT_REPL_DSN: postgres://cdc_repl@127.0.0.1:5432/postgres?sslmode=disable&replication=database
+        run: make test-cdc-postgres
+      - name: Stop test database
+        if: always()
+        run: docker stop wippy-cdc-ci

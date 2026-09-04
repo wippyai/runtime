@@ -12,7 +12,7 @@ import (
 )
 
 func TestAdmissionBoundsAggregateReservations(t *testing.T) {
-	a := newAdmission(api.SubscriptionLimits{MaxSubscriptions: 2, MaxSnapshots: 1, MaxBytes: 100})
+	a := newAdmission(api.SubscriptionLimits{MaxSubscriptions: 2, MaxSnapshotSubscriptions: 1, MaxBytes: 100})
 	release, err := a.acquire(60, true)
 	require.NoError(t, err)
 	_, err = a.acquire(1, true)

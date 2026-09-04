@@ -39,15 +39,19 @@ func (s *dispatcherTestStream) Close() {
 func (s *dispatcherTestStream) Err() error { return s.err }
 
 type dispatcherTestSource struct {
-	stream     *dispatcherTestStream
-	info       cdcapi.SourceInfo
-	subscribeN atomic.Int32
+	subscribeErr error
+	stream       *dispatcherTestStream
+	info         cdcapi.SourceInfo
+	subscribeN   atomic.Int32
 }
 
 func (s *dispatcherTestSource) Info() cdcapi.SourceInfo { return s.info }
 
 func (s *dispatcherTestSource) Subscribe(context.Context, cdcapi.StreamOptions) (cdcapi.Stream, error) {
 	s.subscribeN.Add(1)
+	if s.subscribeErr != nil {
+		return nil, s.subscribeErr
+	}
 	return s.stream, nil
 }
 
@@ -191,7 +195,42 @@ func TestDispatcherUsesSystemRegistryAndRelaysChanges(t *testing.T) {
 	}
 
 	sub.Stop()
+	require.Zero(t, d.capacity.stats().Active)
+	require.Zero(t, d.capacity.stats().ReservedBytes)
 	assert.Eventually(t, stream.closed.Load, time.Second, 10*time.Millisecond)
+}
+
+func TestDispatcherReleasesReservationOnSubscribeFailure(t *testing.T) {
+	id := registry.NewID("test", "failure")
+	source := &dispatcherTestSource{subscribeErr: errors.New("cannot subscribe")}
+	ctx := dispatcherTestContext(t, source, id, &dispatcherTestNode{})
+	d := NewDispatcher(WithWorkers(1))
+	require.NoError(t, d.Start(ctx))
+	defer func() { require.NoError(t, d.Stop(context.Background())) }()
+	for i := 0; i < 3; i++ {
+		receiver := &dispatcherTestReceiver{done: make(chan struct{})}
+		require.NoError(t, d.Handle(ctx, dispatcherTestCommand(id), uint64(i), receiver))
+		waitResult(t, receiver)
+		require.ErrorIs(t, receiver.err, source.subscribeErr)
+		require.Zero(t, d.capacity.stats().Active)
+		require.Zero(t, d.capacity.stats().ReservedBytes)
+	}
+}
+
+func TestDispatcherReleasesReservationWhenSessionAdmissionFails(t *testing.T) {
+	id := registry.NewID("test", "stopping")
+	stream := &dispatcherTestStream{changes: make(chan cdcapi.Change)}
+	ctx := dispatcherTestContext(t, &dispatcherTestSource{stream: stream}, id, &dispatcherTestNode{})
+	d := NewDispatcher()
+	receiver := &dispatcherTestReceiver{done: make(chan struct{})}
+	// Exercise shutdown winning after source acquisition but before session
+	// registration. An unopened dispatcher rejects admission through that path.
+	d.executeSubscribe(ctx, ctx, dispatcherTestCommand(id), 1, receiver)
+	waitResult(t, receiver)
+	require.ErrorIs(t, receiver.err, ErrDispatcherStopping)
+	require.True(t, stream.closed.Load())
+	require.Zero(t, d.capacity.stats().Active)
+	require.Zero(t, d.capacity.stats().ReservedBytes)
 }
 
 func TestDispatcherRegistryPrecedesLegacyStreamer(t *testing.T) {

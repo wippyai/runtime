@@ -38,7 +38,7 @@ func (a *admission) configure(limits api.SubscriptionLimits) {
 func (a *admission) acquire(bytes int64, snapshot bool) (func(), error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if bytes < 0 || a.subscriptions >= a.limits.MaxSubscriptions || bytes > a.limits.MaxBytes-a.bytes || (snapshot && a.snapshots >= a.limits.MaxSnapshots) {
+	if bytes < 0 || a.subscriptions >= a.limits.MaxSubscriptions || bytes > a.limits.MaxBytes-a.bytes || (snapshot && a.snapshots >= a.limits.MaxSnapshotSubscriptions) {
 		a.rejected++
 		return nil, api.ErrSubscriptionLimit
 	}

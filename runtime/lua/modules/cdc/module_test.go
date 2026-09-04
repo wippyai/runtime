@@ -381,6 +381,7 @@ func TestChangeHandlerUsesCanonicalLuaKeys(t *testing.T) {
 			Transaction: "transaction-1",
 			XID:         42,
 			After:       map[string]any{"email": "a@w.ai"},
+			Unchanged:   []string{"profile"},
 		}),
 	})
 
@@ -400,6 +401,11 @@ func TestChangeHandlerUsesCanonicalLuaKeys(t *testing.T) {
 	after, ok := tbl.RawGetString("after").(*lua.LTable)
 	require.True(t, ok)
 	require.Equal(t, "a@w.ai", after.RawGetString("email").String())
+	require.Equal(t, lua.LNil, after.RawGetString("profile"))
+	unchanged, ok := tbl.RawGetString("unchanged").(*lua.LTable)
+	require.True(t, ok)
+	require.Equal(t, 1, unchanged.Len())
+	require.Equal(t, lua.LString("profile"), unchanged.RawGetInt(1))
 }
 
 func TestChangeHandlerConvertsTypedStreamError(t *testing.T) {

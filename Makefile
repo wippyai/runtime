@@ -26,6 +26,11 @@ test-cdc-sqlite:
 	CGO_ENABLED=1 go test ./service/cdc/sqlite -v -race -timeout 300s -tags "integration sqlite_preupdate_hook"
 	$(MAKE) test-cdc-native
 
+.PHONY: test-cdc-postgres
+test-cdc-postgres:
+	@test -n "$(WIPPY_CDC_IT_ADMIN_DSN)" && test -n "$(WIPPY_CDC_IT_REPL_DSN)" || (echo "Set both WIPPY_CDC_IT_ADMIN_DSN and WIPPY_CDC_IT_REPL_DSN" >&2; exit 1)
+	go test -race -count=1 -timeout 180s -tags integration ./service/cdc/postgres
+
 .PHONY: test-cdc-native
 test-cdc-native: build-wippy-local
 	cd tests/sqlite-cdc && ../../dist/wippy-$(shell go env GOOS)-$(shell go env GOARCH) test -s

@@ -5,6 +5,8 @@ package cdc
 import apierror "github.com/wippyai/runtime/api/error"
 
 var (
+	ErrSubscriptionLimit            = apierror.New(apierror.Unavailable, "cdc subscription capacity exhausted").WithRetryable(apierror.True)
+	ErrInvalidSubscriptionLimits    = apierror.New(apierror.Invalid, "cdc subscription limits must not be negative").WithRetryable(apierror.False)
 	ErrHostRequired                 = apierror.New(apierror.Invalid, "host is required").WithRetryable(apierror.False)
 	ErrInvalidPort                  = apierror.New(apierror.Invalid, "port must be greater than 0").WithRetryable(apierror.False)
 	ErrDatabaseRequired             = apierror.New(apierror.Invalid, "database is required").WithRetryable(apierror.False)
