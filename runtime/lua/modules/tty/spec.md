@@ -103,6 +103,12 @@ calls.
 at cell boundaries, understands grapheme width and styles, and prevents clipped
 escape sequences from leaking into neighboring content.
 
+Drawing accepts styled text, not terminal commands. SGR colors and OSC 8 links
+are preserved; terminal erase, cursor-motion, and other control-only output is
+not emitted. Each placement is clipped independently. A newline ends a row;
+use `put_rows` for multiple rows and paint shell borders separately from child
+content.
+
 | Method | Purpose |
 |---|---|
 | `clear(fill?)` | Clear all cells, optionally repeating a styled fill |
