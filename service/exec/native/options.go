@@ -2,6 +2,8 @@
 
 package native
 
+import execapi "github.com/wippyai/runtime/api/service/exec"
+
 // Option defines function type for process executor configuration
 type Option func(*ProcessExecutor)
 
@@ -24,4 +26,8 @@ func WithCmd(cmd string) Option {
 	return func(e *ProcessExecutor) {
 		e.command = cmd
 	}
+}
+
+func WithPTY(options *execapi.PTYOptions) Option {
+	return func(e *ProcessExecutor) { e.pty = options }
 }

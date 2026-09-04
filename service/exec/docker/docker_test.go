@@ -3,10 +3,13 @@
 package docker
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -20,6 +23,143 @@ import (
 	execapi "github.com/wippyai/runtime/api/service/exec"
 	"go.uber.org/zap"
 )
+
+func TestDockerSignalUsesBoundedDaemonContext(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, request *http.Request) {
+		<-request.Context().Done()
+	}))
+	defer server.Close()
+	cli, err := client.New(client.WithHost(server.URL), client.WithAPIVersion("1.44"))
+	require.NoError(t, err)
+	defer cli.Close()
+	process := &Process{
+		cli: cli, log: zap.NewNop(), containerID: "stalled", started: true,
+		controlTimeout: 20 * time.Millisecond,
+	}
+
+	started := time.Now()
+	err = process.Signal(15)
+	require.Error(t, err)
+	require.Less(t, time.Since(started), time.Second)
+}
+
+func TestDockerWaitReleasesItsOwnedContext(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		response.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(response, `{"StatusCode":0}`)
+	}))
+	defer server.Close()
+	cli, err := client.New(client.WithHost(server.URL), client.WithAPIVersion("1.44"))
+	require.NoError(t, err)
+	defer cli.Close()
+	waitCtx, cancelWait := context.WithCancel(context.Background())
+	process := &Process{
+		cli: cli, log: zap.NewNop(), containerID: "finished", started: true,
+		waitCtx: waitCtx, cancelWait: cancelWait,
+	}
+
+	require.NoError(t, process.Wait())
+	select {
+	case <-waitCtx.Done():
+	case <-time.After(time.Second):
+		t.Fatal("completed Docker wait retained its owned context")
+	}
+}
+
+func TestDockerWaitCanBeInterruptedDuringProxyAbandonment(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, request *http.Request) {
+		<-request.Context().Done()
+	}))
+	defer server.Close()
+	cli, err := client.New(client.WithHost(server.URL), client.WithAPIVersion("1.44"))
+	require.NoError(t, err)
+	defer cli.Close()
+	waitCtx, cancelWait := context.WithCancel(context.Background())
+	process := &Process{
+		cli: cli, log: zap.NewNop(), containerID: "stalled", started: true,
+		waitCtx: waitCtx, cancelWait: cancelWait,
+	}
+	done := make(chan error, 1)
+	go func() { done <- process.Wait() }()
+	process.CancelWait()
+	select {
+	case err := <-done:
+		require.ErrorIs(t, err, context.Canceled)
+		require.False(t, process.stopped, "canceling a wait does not prove the container stopped")
+	case <-time.After(time.Second):
+		t.Fatal("cancelled Docker wait remained blocked")
+	}
+}
+
+func TestDockerPTYResize(t *testing.T) {
+	skipIfNoDocker(t)
+	executor, err := NewDockerExecutor(zap.NewNop(), &execapi.DockerExecutorConfig{
+		Image: "alpine:latest", AutoRemove: true,
+	})
+	require.NoError(t, err)
+	defer func() { _ = executor.Close() }()
+
+	process, err := executor.NewProcess(
+		"sh -c 'stty size; read value; stty size'",
+		execapi.ProcessOptions{PTY: &execapi.PTYOptions{Width: 80, Height: 24, Term: "xterm-256color"}},
+	)
+	require.NoError(t, err)
+	require.NoError(t, process.Start())
+
+	lines := make(chan string, 3)
+	go func() {
+		scanner := bufio.NewScanner(process.Stdout())
+		for scanner.Scan() {
+			lines <- strings.TrimSpace(scanner.Text())
+		}
+		close(lines)
+	}()
+	require.Equal(t, "24 80", awaitLine(t, lines, "24 80"))
+	require.NoError(t, process.(execapi.PTYProcess).Resize(100, 30))
+	require.NoError(t, process.WriteStdin([]byte("continue\n")))
+	require.Equal(t, "30 100", awaitLine(t, lines, "30 100"))
+	require.NoError(t, process.Wait())
+}
+
+func TestDockerPTYResizeRejectsInvalidSizeBeforeDaemonCall(t *testing.T) {
+	process := &ptyProcess{Process: &Process{pty: &execapi.PTYOptions{}, started: true}}
+	require.ErrorIs(t, process.Resize(execapi.MaxPTYDimension+1, 1), execapi.ErrInvalidPTYSize)
+}
+
+func TestDockerPTYCapabilityMatchesProcessConfiguration(t *testing.T) {
+	executor, err := NewDockerExecutor(zap.NewNop(), &execapi.DockerExecutorConfig{Image: "alpine:latest"})
+	require.NoError(t, err)
+	defer func() { _ = executor.Close() }()
+
+	plain, err := executor.NewProcess("true", execapi.ProcessOptions{})
+	require.NoError(t, err)
+	_, plainHasPTY := plain.(execapi.PTYProcess)
+	require.False(t, plainHasPTY)
+
+	ptyProcess, err := executor.NewProcess("true", execapi.ProcessOptions{PTY: &execapi.PTYOptions{}})
+	require.NoError(t, err)
+	_, hasPTYCapability := ptyProcess.(execapi.PTYProcess)
+	require.True(t, hasPTYCapability)
+}
+
+func awaitLine(t *testing.T, lines <-chan string, want string) string {
+	t.Helper()
+	timer := time.NewTimer(3 * time.Second)
+	defer timer.Stop()
+	for {
+		select {
+		case line, ok := <-lines:
+			if !ok {
+				t.Fatalf("terminal closed before %q", want)
+			}
+			if line == want {
+				return line
+			}
+		case <-timer.C:
+			t.Fatalf("timed out waiting for %q", want)
+		}
+	}
+}
 
 func skipIfNoDocker(t *testing.T) {
 	if testing.Short() {
@@ -59,6 +199,41 @@ func TestDockerExecutor_RequiresImage(t *testing.T) {
 
 	_, err := NewDockerExecutor(log, config)
 	assert.ErrorIs(t, err, execapi.ErrImageRequired)
+}
+
+func TestDockerExecutorRejectsMissingAndMalformedCommands(t *testing.T) {
+	executor, err := NewDockerExecutor(zap.NewNop(), &execapi.DockerExecutorConfig{Image: "alpine:latest"})
+	require.NoError(t, err)
+	defer func() { _ = executor.Close() }()
+
+	_, err = executor.NewProcess("", execapi.ProcessOptions{})
+	require.ErrorIs(t, err, execapi.ErrCommandRequired)
+	_, err = executor.NewProcess(`echo "missing`, execapi.ProcessOptions{})
+	require.ErrorIs(t, err, execapi.ErrInvalidCommand)
+}
+
+type shortWriteCloser struct{}
+
+func (shortWriteCloser) Write(data []byte) (int, error) {
+	if len(data) == 0 {
+		return 0, nil
+	}
+	return len(data) - 1, nil
+}
+func (shortWriteCloser) Close() error { return nil }
+
+func TestDockerProcessRejectsShortStdinWrite(t *testing.T) {
+	process := &Process{started: true, stdinWriter: shortWriteCloser{}}
+	require.ErrorIs(t, process.WriteStdin([]byte("payload")), io.ErrShortWrite)
+}
+
+func TestMergeEnvOverridesDefaultsWithoutDuplicates(t *testing.T) {
+	env := mergeEnv(
+		map[string]string{"LANG": "C", "TOKEN": "old", "TERM": "old-term"},
+		map[string]string{"TOKEN": "new", "ZED": "last"},
+		"xterm-256color",
+	)
+	require.Equal(t, []string{"LANG=C", "TERM=xterm-256color", "TOKEN=new", "ZED=last"}, env)
 }
 
 func TestDockerExecutor_Whitelist(t *testing.T) {
@@ -331,25 +506,11 @@ func TestDockerProcess_NotStarted(t *testing.T) {
 	assert.ErrorIs(t, err, ErrContainerNotStarted)
 }
 
-func TestParseCommand(t *testing.T) {
-	tests := []struct {
-		input    string
-		expected []string
-	}{
-		{"", nil},
-		{"   ", nil},
-		{"echo hello", []string{"echo", "hello"}},
-		{"echo 'hello world'", []string{"echo", "hello world"}},
-		{"echo \"hello world\"", []string{"echo", "hello world"}},
-		{"sh -c 'echo test'", []string{"sh", "-c", "echo test"}},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.input, func(t *testing.T) {
-			result := parseCommand(tc.input)
-			assert.Equal(t, tc.expected, result)
-		})
-	}
+func TestDockerSignalIdentifiesStoppedContainerAsProcessDone(t *testing.T) {
+	process := &Process{started: true, stopped: true}
+	err := process.Signal(15)
+	require.ErrorIs(t, err, ErrContainerStopped)
+	require.ErrorIs(t, err, os.ErrProcessDone)
 }
 
 func TestExecutorFactory(t *testing.T) {
@@ -606,6 +767,7 @@ func TestBuildBinds(t *testing.T) {
 		":/anonymous",
 		`C:\host\data:C:\container\data:ro`,
 		`\\server\share:C:\container\share`,
+		"malformed",
 	}, binds)
 }
 

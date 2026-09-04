@@ -3,6 +3,7 @@
 package exec
 
 import (
+	"context"
 	"io"
 	"os"
 	"os/exec"
@@ -13,6 +14,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+	ctxapi "github.com/wippyai/runtime/api/context"
+	rtresource "github.com/wippyai/runtime/api/runtime/resource"
 	execapi "github.com/wippyai/runtime/api/service/exec"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 )
@@ -119,12 +123,12 @@ func TestReapReleasedEscalatesToKill(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		reapReleased(probe, false)
+		reapReleasedWithGrace(probe, false, 10*time.Millisecond)
 	}()
 
 	// Let the escalation fire, then release the stand-in child as a real one
 	// would be released by SIGKILL.
-	if !waitFor(t, 30*time.Second, func() bool { return len(probe.sent()) > 0 }) {
+	if !waitFor(t, time.Second, func() bool { return len(probe.sent()) > 0 }) {
 		t.Fatal("expected the unresponsive process to be escalated to SIGKILL")
 	}
 
@@ -137,9 +141,67 @@ func TestReapReleasedEscalatesToKill(t *testing.T) {
 
 	select {
 	case <-done:
-	case <-time.After(10 * time.Second):
+	case <-time.After(time.Second):
 		t.Fatal("reaper did not return after the process was released")
 	}
+}
+
+type gatedStartProbe struct {
+	*reapProbe
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (p *gatedStartProbe) Start() error {
+	close(p.entered)
+	<-p.release
+	return nil
+}
+
+func TestRuntimeCleanupWaitsForStartThenReapsChild(t *testing.T) {
+	ctx, frame := ctxapi.OpenFrameContext(context.Background())
+	defer ctxapi.ReleaseFrameContext(frame)
+	store := rtresource.NewStore()
+	require.NoError(t, rtresource.SetStore(ctx, store))
+	probe := &gatedStartProbe{
+		reapProbe: newReapProbe(), entered: make(chan struct{}), release: make(chan struct{}),
+	}
+	process := NewProcess(ctx, probe)
+	l := setupState()
+	defer l.Close()
+	value.PushTypedUserData(l, process, processTypeName)
+
+	startDone := make(chan struct{})
+	go func() {
+		procStart(l)
+		close(startDone)
+	}()
+	<-probe.entered
+	cleanupDone := make(chan error, 1)
+	go func() { cleanupDone <- store.Close() }()
+	select {
+	case <-cleanupDone:
+		t.Fatal("runtime cleanup raced ahead of process startup")
+	case <-time.After(20 * time.Millisecond):
+	}
+	close(probe.release)
+	<-startDone
+	require.NoError(t, <-cleanupDone)
+	require.True(t, waitFor(t, time.Second, func() bool { return probe.waits() == 1 }))
+	require.Equal(t, []int{int(syscall.SIGTERM)}, probe.sent())
+}
+
+func TestRuntimeCleanupReleasesUnstartedProcessWithoutError(t *testing.T) {
+	ctx, frame := ctxapi.OpenFrameContext(context.Background())
+	defer ctxapi.ReleaseFrameContext(frame)
+	store := rtresource.NewStore()
+	require.NoError(t, rtresource.SetStore(ctx, store))
+	probe := newReapProbe()
+	_ = NewProcess(ctx, probe)
+
+	require.NoError(t, store.Close())
+	require.Empty(t, probe.sent())
+	require.Zero(t, probe.waits())
 }
 
 // The end the whole change exists for: a real child, stopped through the same
@@ -255,9 +317,8 @@ func TestProcessCloseReapsTheChild(t *testing.T) {
 	}
 }
 
-// A process that was never started has no OS child to reap, and waiting on one
-// would only report that it never ran. Signaling stays unconditional: this
-// change fixes the leak without altering what close() sends.
+// A process that was never started has no OS child to signal or reap. Cleanup
+// is a no-op so an unused handle cannot make runtime shutdown fail.
 func TestProcessCloseDoesNotReapUnstartedProcess(t *testing.T) {
 	probe := newReapProbe()
 	p := &Process{handle: probe, started: false}
@@ -268,13 +329,11 @@ func TestProcessCloseDoesNotReapUnstartedProcess(t *testing.T) {
 	value.PushTypedUserData(l, p, processTypeName)
 	procClose(l)
 
-	time.Sleep(50 * time.Millisecond)
+	if sent := probe.sent(); len(sent) != 0 {
+		t.Fatalf("unstarted process must not be signaled, got %v", sent)
+	}
 
 	if probe.waits() != 0 {
 		t.Fatalf("an unstarted process must not be waited on, got %d waits", probe.waits())
-	}
-	// Signaling is unchanged from before the fix, so it is still expected here.
-	if sent := probe.sent(); len(sent) != 1 || sent[0] != int(syscall.SIGTERM) {
-		t.Fatalf("expected close to signal as it always has, got %v", sent)
 	}
 }

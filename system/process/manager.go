@@ -4,6 +4,7 @@ package process
 
 import (
 	"context"
+	"errors"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
 	apierror "github.com/wippyai/runtime/api/error"
@@ -57,9 +58,19 @@ func (m *Manager) Start(ctx context.Context, start *api.Start) (pid.PID, error) 
 
 	// Apply the registered frame-context resolvers (e.g. the network overlay)
 	// generically; the manager stays agnostic of any specific subsystem.
-	var err error
-	if start.Context, err = ctxapi.FrameResolversFrom(ctx).Resolve(ctx, start.Options, start.Context); err != nil {
+	contextBase := len(start.Context)
+	resolvedContext, err := ctxapi.FrameResolversFrom(ctx).Resolve(ctx, start.Options, start.Context)
+	if err != nil {
 		return pid.PID{}, err
+	}
+	start.Context = resolvedContext
+	if hasFrameAttachments(start.Context[contextBase:]) {
+		acceptor, ok := host.(api.FrameAttachmentHost)
+		if !ok || !acceptor.AcceptsFrameAttachments() {
+			err = errors.Join(ErrFrameAttachmentsUnsupported, rollbackFrameAttachments(start.Context[contextBase:]))
+			start.Context = start.Context[:contextBase]
+			return pid.PID{}, err
+		}
 	}
 
 	m.logger.Debug("starting process",
@@ -70,6 +81,8 @@ func (m *Manager) Start(ctx context.Context, start *api.Start) (pid.PID, error) 
 	// Delegate to host - it assigns PID internally
 	procPID, err := host.Run(ctx, start)
 	if err != nil {
+		err = errors.Join(err, rollbackFrameAttachments(start.Context[contextBase:]))
+		start.Context = start.Context[:contextBase]
 		return procPID, err
 	}
 
@@ -107,6 +120,25 @@ func (m *Manager) Start(ctx context.Context, start *api.Start) (pid.PID, error) 
 	}
 
 	return procPID, nil
+}
+
+func hasFrameAttachments(pairs []ctxapi.Pair) bool {
+	for _, pair := range pairs {
+		if _, ok := pair.Value.(ctxapi.FrameAttachment); ok {
+			return true
+		}
+	}
+	return false
+}
+
+func rollbackFrameAttachments(pairs []ctxapi.Pair) error {
+	var result error
+	for index := len(pairs) - 1; index >= 0; index-- {
+		if attachment, ok := pairs[index].Value.(ctxapi.FrameAttachment); ok {
+			result = errors.Join(result, attachment.Rollback())
+		}
+	}
+	return result
 }
 
 // Cancel sends a cancellation event to the process, carrying a reason.

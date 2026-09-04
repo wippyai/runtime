@@ -114,6 +114,15 @@ type (
 		Terminate(ctx context.Context, p pid.PID) error
 	}
 
+	// FrameAttachmentHost is implemented by local hosts that transfer resolved
+	// frame attachments into the lifetime of the newly admitted process frame.
+	// Durable or remote hosts must not claim this capability unless they provide
+	// an equivalent ownership boundary.
+	FrameAttachmentHost interface {
+		Host
+		AcceptsFrameAttachments() bool
+	}
+
 	// Manager defines the interface for process lifecycle management.
 	Manager interface {
 		Start(ctx context.Context, start *Start) (pid.PID, error)

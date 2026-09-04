@@ -87,8 +87,8 @@ func TestConvertInputEvent_MouseClick(t *testing.T) {
 	assert.Equal(t, "mouse", result.Type)
 	assert.Equal(t, "press", result.Action)
 	assert.Equal(t, "left", result.Button)
-	assert.Equal(t, 10, result.X)
-	assert.Equal(t, 20, result.Y)
+	assert.Equal(t, 11, result.X)
+	assert.Equal(t, 21, result.Y)
 }
 
 func TestConvertInputEvent_MouseRelease(t *testing.T) {
@@ -127,6 +127,8 @@ func TestConvertInputEvent_MouseMotion(t *testing.T) {
 	assert.Equal(t, "mouse", result.Type)
 	assert.Equal(t, "motion", result.Action)
 	assert.Equal(t, "left", result.Button)
+	assert.Equal(t, 2, result.X)
+	assert.Equal(t, 3, result.Y)
 	assert.True(t, result.Shift)
 }
 
