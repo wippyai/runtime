@@ -258,7 +258,7 @@ local function run_tests()
 	io.print("")
 
 	-- Find tests
-	local entries, err = registry.find({["meta.type"] = "test"})
+	local entries, err = registry.find({type = "test"})
 	if err then
 		io.print(red("  Error: " .. tostring(err)))
 		return 1
@@ -266,7 +266,7 @@ local function run_tests()
 
 	if not entries or #entries == 0 then
 		io.print(yellow("  No tests found"))
-		return 0
+		return 1
 	end
 
 	-- Filter tests if patterns provided
