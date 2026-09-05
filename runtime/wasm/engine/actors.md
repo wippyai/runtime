@@ -104,7 +104,10 @@ joins both network pumps, even when the connection rejects deadline setters.
 The guest receives `last-operation-failed` with an owned timeout error; subsequent
 stream operations report closed. A successful completion stays successful if
 the guest resumes after the deadline. Generic poll and idle accept remain
-indefinite. UDP and DNS still need uniform operation timeouts; mixed splices
+indefinite. Preview2 UDP receive/send still perform synchronous network I/O
+and its stream subscriptions report unconditional readiness; UDP is not yet
+suitable for nonblocking actor workloads. UDP and DNS also need uniform operation
+timeouts; mixed splices
 cannot bound a synchronous non-TCP resource's own blocking implementation.
 Legacy dispatcher accept commands
 close their listener on process cancellation and release unadopted connections;
