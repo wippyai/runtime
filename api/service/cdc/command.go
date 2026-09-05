@@ -32,26 +32,22 @@ type StreamOptions struct {
 }
 
 type Change struct {
-	// Unchanged lists after-image columns omitted because the database did
-	// not resend their values. Absence is distinct from SQL NULL and text.
-	Unchanged []string       `json:"unchanged,omitempty"`
-	Before    map[string]any `json:"before,omitempty"`
-	After     map[string]any `json:"after,omitempty"`
-	Source    string         `json:"source"`
-	// SourceID is the canonical registry identity. Source is retained as the
-	// legacy wire representation used by existing Lua consumers.
-	SourceID    registry.ID `json:"source_id,omitempty"`
-	Op          string      `json:"op"`
-	Schema      string      `json:"schema"`
-	Table       string      `json:"table"`
-	Relation    string      `json:"relation"`
-	LSN         string      `json:"lsn"`
-	CommitLSN   string      `json:"commit_lsn,omitempty"`
-	Cursor      string      `json:"cursor,omitempty"`
-	Generation  string      `json:"generation,omitempty"`
-	Transaction string      `json:"transaction,omitempty"`
-	Error       string      `json:"error,omitempty"`
-	XID         uint32      `json:"xid,omitempty"`
+	After       map[string]any `json:"after,omitempty"`
+	Before      map[string]any `json:"before,omitempty"`
+	SourceID    registry.ID    `json:"source_id,omitempty"`
+	Table       string         `json:"table"`
+	Source      string         `json:"source"`
+	Op          string         `json:"op"`
+	Schema      string         `json:"schema"`
+	Relation    string         `json:"relation"`
+	LSN         string         `json:"lsn"`
+	CommitLSN   string         `json:"commit_lsn,omitempty"`
+	Cursor      string         `json:"cursor,omitempty"`
+	Generation  string         `json:"generation,omitempty"`
+	Transaction string         `json:"transaction,omitempty"`
+	Error       string         `json:"error,omitempty"`
+	Unchanged   []string       `json:"unchanged,omitempty"`
+	XID         uint32         `json:"xid,omitempty"`
 }
 
 type SubscribeCmd struct {

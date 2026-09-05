@@ -25,7 +25,6 @@ type managedSource interface {
 }
 
 type sourceOptions struct {
-	limits         config.SubscriptionLimits
 	res            resource.Registry
 	log            *zap.Logger
 	id             registry.ID
@@ -34,6 +33,7 @@ type sourceOptions struct {
 	statusInterval string
 	tables         []string
 	lifecycle      supervisor.LifecycleConfig
+	limits         config.SubscriptionLimits
 	snapshot       bool
 }
 

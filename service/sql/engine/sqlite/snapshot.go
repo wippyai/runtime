@@ -196,7 +196,8 @@ func validateSnapshotTablesTx(ctx context.Context, tx *sql.Tx, requested []strin
 
 func scanSnapshotTable(ctx context.Context, tx *sql.Tx, stream *mutationStream, schema, table string, batchSize int) error {
 	qualified := quoteIdentifier(schema) + "." + quoteIdentifier(table)
-	metadata, err := tx.QueryContext(ctx, "SELECT * FROM "+qualified+" LIMIT 0")
+	// qualified is built exclusively by quoteIdentifier from driver metadata.
+	metadata, err := tx.QueryContext(ctx, "SELECT * FROM "+qualified+" LIMIT 0") // #nosec G202
 	if err != nil {
 		return fmt.Errorf("scan sqlite snapshot %s.%s: %w", schema, table, err)
 	}
@@ -211,7 +212,8 @@ func scanSnapshotTable(ctx context.Context, tx *sql.Tx, stream *mutationStream, 
 	if len(columns) == 0 {
 		return nil
 	}
-	rows, err := tx.QueryContext(ctx, "SELECT "+storageProjection(columns)+" FROM "+qualified)
+	// projection uses quoted column names returned by SQLite, and qualified is validated above.
+	rows, err := tx.QueryContext(ctx, "SELECT "+storageProjection(columns)+" FROM "+qualified) // #nosec G202
 	if err != nil {
 		return err
 	}

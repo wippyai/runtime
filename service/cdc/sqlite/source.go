@@ -36,7 +36,6 @@ const (
 // the resource long enough to subscribe to its committed-mutation capability;
 // it never opens another connection and never installs hooks on a raw one.
 type Source struct {
-	limits         config.SubscriptionLimits
 	sourceErr      error
 	res            resource.Registry
 	observerSource sqlapi.CommittedMutationSource
@@ -60,9 +59,10 @@ type Source struct {
 	tables         []string
 	lifecycle      configLifecycle
 	snapshotWG     sync.WaitGroup
+	mu             sync.RWMutex
+	limits         config.SubscriptionLimits
 	statusTick     time.Duration
 	nextSnapshotID uint64
-	mu             sync.RWMutex
 	snapshot       bool
 	statusClosed   bool
 	stopping       bool

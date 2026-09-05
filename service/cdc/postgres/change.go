@@ -13,7 +13,6 @@ const (
 )
 
 type RowChange struct {
-	Unchanged []string       `json:"unchanged,omitempty"`
 	Before    map[string]any `json:"before,omitempty"`
 	After     map[string]any `json:"after,omitempty"`
 	Op        Op             `json:"op"`
@@ -21,6 +20,7 @@ type RowChange struct {
 	Table     string         `json:"table"`
 	LSN       string         `json:"lsn"`
 	CommitLSN string         `json:"commit_lsn,omitempty"`
+	Unchanged []string       `json:"unchanged,omitempty"`
 	XID       uint32         `json:"xid,omitempty"`
 }
 

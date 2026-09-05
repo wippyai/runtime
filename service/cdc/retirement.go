@@ -5,6 +5,7 @@ package cdc
 import (
 	"context"
 	"errors"
+
 	api "github.com/wippyai/runtime/api/service/cdc"
 )
 

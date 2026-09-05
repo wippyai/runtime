@@ -3,6 +3,8 @@
 package cdc
 
 import (
+	"testing"
+
 	"github.com/stretchr/testify/require"
 	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/attrs"
@@ -10,7 +12,6 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	secapi "github.com/wippyai/runtime/api/security"
 	cdcapi "github.com/wippyai/runtime/api/service/cdc"
-	"testing"
 )
 
 type sourceScope struct {

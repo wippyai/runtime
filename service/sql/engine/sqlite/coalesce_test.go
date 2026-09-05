@@ -84,7 +84,9 @@ func cloneRows(rows map[int64][]any) map[int64][]any {
 }
 
 func TestSavepointIdentifierSemantics(t *testing.T) {
-	for name, want := range map[string]string{"Outer": "outer", " a ": " a ", "[a]": "[a]", "a;": "a;", "Ä": "Ä"} {
+	cases := []struct{ name, want string }{{"Outer", "outer"}, {" a ", " a "}, {"[a]", "[a]"}, {"a;", "a;"}, {"Ä", "Ä"}}
+	for _, tc := range cases {
+		name, want := tc.name, tc.want
 		if got := normalizeSavepointName(name); got != want {
 			t.Errorf("%q: got %q, want %q", name, got, want)
 		}

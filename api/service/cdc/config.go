@@ -29,28 +29,28 @@ const (
 )
 
 type Config struct {
-	Subscriptions         SubscriptionLimits         `json:"subscriptions,omitempty"`
 	Options               map[string]string          `json:"options"`
-	Database              string                     `json:"database"`
-	Password              string                     `json:"password"`
-	Host                  string                     `json:"host"`
-	Username              string                     `json:"username"`
-	SlotName              string                     `json:"slot_name"`
-	Publication           string                     `json:"publication,omitempty"`
-	StandbyInterval       string                     `json:"standby_interval,omitempty"`
 	StatusInterval        string                     `json:"status_interval,omitempty"`
+	StandbyInterval       string                     `json:"standby_interval,omitempty"`
+	Publication           string                     `json:"publication,omitempty"`
+	SlotName              string                     `json:"slot_name"`
+	Username              string                     `json:"username"`
+	Host                  string                     `json:"host"`
+	Password              string                     `json:"password"`
+	Database              string                     `json:"database"`
 	Tables                []string                   `json:"tables,omitempty"`
 	Lifecycle             supervisor.LifecycleConfig `json:"lifecycle"`
+	Subscriptions         SubscriptionLimits         `json:"subscriptions,omitempty"`
 	Port                  int                        `json:"port"`
-	SnapshotFetchSize     int                        `json:"snapshot_fetch_size,omitempty"`
-	MaxTransactionChanges int                        `json:"max_transaction_changes,omitempty"`
-	MaxTransactionBytes   int64                      `json:"max_transaction_bytes,omitempty"`
-	MaxInflightChanges    int                        `json:"max_inflight_changes,omitempty"`
 	MaxInflightBytes      int64                      `json:"max_inflight_bytes,omitempty"`
-	Temporary             bool                       `json:"temporary,omitempty"`
-	Snapshot              bool                       `json:"snapshot,omitempty"`
-	Streaming             bool                       `json:"streaming,omitempty"`
+	MaxInflightChanges    int                        `json:"max_inflight_changes,omitempty"`
+	MaxTransactionBytes   int64                      `json:"max_transaction_bytes,omitempty"`
+	MaxTransactionChanges int                        `json:"max_transaction_changes,omitempty"`
+	SnapshotFetchSize     int                        `json:"snapshot_fetch_size,omitempty"`
 	Failover              bool                       `json:"failover,omitempty"`
+	Streaming             bool                       `json:"streaming,omitempty"`
+	Snapshot              bool                       `json:"snapshot,omitempty"`
+	Temporary             bool                       `json:"temporary,omitempty"`
 }
 
 func (c *Config) InitDefaults() {

@@ -9,12 +9,12 @@ import (
 )
 
 type SQLiteConfig struct {
-	Subscriptions  SubscriptionLimits         `json:"subscriptions,omitempty"`
 	DBResource     string                     `json:"db_resource"`
 	Name           string                     `json:"name,omitempty"`
 	StatusInterval string                     `json:"status_interval,omitempty"`
 	Tables         []string                   `json:"tables,omitempty"`
 	Lifecycle      supervisor.LifecycleConfig `json:"lifecycle"`
+	Subscriptions  SubscriptionLimits         `json:"subscriptions,omitempty"`
 	Snapshot       bool                       `json:"snapshot,omitempty"`
 }
 

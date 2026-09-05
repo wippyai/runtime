@@ -5,12 +5,13 @@ package cdc
 import (
 	"context"
 	"errors"
+	"strconv"
+	"sync"
+
 	"github.com/wippyai/runtime/api/registry"
 	api "github.com/wippyai/runtime/api/service/cdc"
 	"github.com/wippyai/runtime/api/supervisor"
 	"go.uber.org/zap"
-	"strconv"
-	"sync"
 )
 
 var (

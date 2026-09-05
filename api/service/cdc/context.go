@@ -70,30 +70,26 @@ type Registry interface {
 }
 
 type SourceInfo struct {
-	Admission SubscriptionStats `json:"admission"`
-	// The fields in this struct are retained for wire compatibility with
-	// existing Lua and API consumers. New code must use ID, Kind, State,
-	// Capabilities and Generation; driver-specific metadata should not be
-	// added to the common contract.
-	ID           registry.ID   `json:"id,omitempty"`
-	Engine       string        `json:"engine,omitempty"`
-	Epoch        string        `json:"epoch,omitempty"`
-	Error        string        `json:"error,omitempty"`
-	Generation   string        `json:"generation,omitempty"`
-	Name         string        `json:"name"`
-	Slot         string        `json:"slot"`
-	Publication  string        `json:"publication,omitempty"`
-	Kind         registry.Kind `json:"kind,omitempty"`
-	State        SourceState   `json:"state,omitempty"`
-	File         string        `json:"file,omitempty"`
-	DBResource   string        `json:"db_resource,omitempty"`
-	Tables       []string      `json:"tables,omitempty"`
-	Capabilities Capabilities  `json:"capabilities,omitempty"`
-	Streaming    bool          `json:"streaming,omitempty"`
-	Failover     bool          `json:"failover,omitempty"`
-	Temporary    bool          `json:"temporary,omitempty"`
-	Snapshot     bool          `json:"snapshot,omitempty"`
-	Faulted      bool          `json:"faulted,omitempty"`
+	ID           registry.ID       `json:"id,omitempty"`
+	State        SourceState       `json:"state,omitempty"`
+	Kind         registry.Kind     `json:"kind,omitempty"`
+	DBResource   string            `json:"db_resource,omitempty"`
+	Generation   string            `json:"generation,omitempty"`
+	File         string            `json:"file,omitempty"`
+	Error        string            `json:"error,omitempty"`
+	Engine       string            `json:"engine,omitempty"`
+	Epoch        string            `json:"epoch,omitempty"`
+	Publication  string            `json:"publication,omitempty"`
+	Name         string            `json:"name"`
+	Slot         string            `json:"slot"`
+	Tables       []string          `json:"tables,omitempty"`
+	Admission    SubscriptionStats `json:"admission"`
+	Capabilities Capabilities      `json:"capabilities,omitempty"`
+	Faulted      bool              `json:"faulted,omitempty"`
+	Temporary    bool              `json:"temporary,omitempty"`
+	Failover     bool              `json:"failover,omitempty"`
+	Streaming    bool              `json:"streaming,omitempty"`
+	Snapshot     bool              `json:"snapshot,omitempty"`
 }
 
 type SourceInspector interface {

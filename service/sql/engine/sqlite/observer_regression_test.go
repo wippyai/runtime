@@ -15,15 +15,16 @@ import (
 )
 
 func TestObserverRegressionZeroRowID(t *testing.T) {
+	ctx := context.Background()
 	o, err := openObservedDB(t, filepath.Join(t.TempDir(), "zero.db"))
 	require.NoError(t, err)
 	defer o.Close()
-	_, err = o.opened.DB.Exec(`CREATE TABLE items(id INTEGER PRIMARY KEY, value TEXT)`)
+	_, err = o.opened.DB.ExecContext(ctx, `CREATE TABLE items(id INTEGER PRIMARY KEY, value TEXT)`)
 	require.NoError(t, err)
-	s, err := o.opened.Observer.Subscribe(context.Background(), config.MutationOptions{})
+	s, err := o.opened.Observer.Subscribe(ctx, config.MutationOptions{})
 	require.NoError(t, err)
 	defer s.Close()
-	_, err = o.opened.DB.Exec(`INSERT INTO items VALUES(0,'valid')`)
+	_, err = o.opened.DB.ExecContext(ctx, `INSERT INTO items VALUES(0,'valid')`)
 	require.NoError(t, err)
 	select {
 	case b, ok := <-s.Changes():
@@ -35,19 +36,20 @@ func TestObserverRegressionZeroRowID(t *testing.T) {
 }
 
 func TestObserverRegressionRowIDReuse(t *testing.T) {
+	ctx := context.Background()
 	o, err := openObservedDB(t, filepath.Join(t.TempDir(), "reuse.db"))
 	require.NoError(t, err)
 	defer o.Close()
-	_, err = o.opened.DB.Exec(`CREATE TABLE items(id INTEGER PRIMARY KEY, value TEXT); INSERT INTO items VALUES(1,'original')`)
+	_, err = o.opened.DB.ExecContext(ctx, `CREATE TABLE items(id INTEGER PRIMARY KEY, value TEXT); INSERT INTO items VALUES(1,'original')`)
 	require.NoError(t, err)
-	s, err := o.opened.Observer.Subscribe(context.Background(), config.MutationOptions{})
+	s, err := o.opened.Observer.Subscribe(ctx, config.MutationOptions{})
 	require.NoError(t, err)
 	defer s.Close()
-	tx, err := o.opened.DB.Begin()
+	tx, err := o.opened.DB.BeginTx(ctx, nil)
 	require.NoError(t, err)
-	_, err = tx.Exec(`UPDATE items SET id=2 WHERE id=1`)
+	_, err = tx.ExecContext(ctx, `UPDATE items SET id=2 WHERE id=1`)
 	require.NoError(t, err)
-	_, err = tx.Exec(`INSERT INTO items VALUES(1,'replacement')`)
+	_, err = tx.ExecContext(ctx, `INSERT INTO items VALUES(1,'replacement')`)
 	require.NoError(t, err)
 	require.NoError(t, tx.Commit())
 	b := receiveBatch(t, s)
@@ -68,18 +70,19 @@ func TestObserverRegressionReleaseSameOffset(t *testing.T) {
 }
 
 func TestObserverRegressionNestedSavepointReuse(t *testing.T) {
+	ctx := context.Background()
 	o, err := openObservedDB(t, filepath.Join(t.TempDir(), "savepoint-reuse.db"))
 	require.NoError(t, err)
 	defer o.Close()
-	_, err = o.opened.DB.Exec(`CREATE TABLE items(id INTEGER PRIMARY KEY, value TEXT)`)
+	_, err = o.opened.DB.ExecContext(ctx, `CREATE TABLE items(id INTEGER PRIMARY KEY, value TEXT)`)
 	require.NoError(t, err)
-	s, err := o.opened.Observer.Subscribe(context.Background(), config.MutationOptions{})
+	s, err := o.opened.Observer.Subscribe(ctx, config.MutationOptions{})
 	require.NoError(t, err)
 	defer s.Close()
-	tx, err := o.opened.DB.Begin()
+	tx, err := o.opened.DB.BeginTx(ctx, nil)
 	require.NoError(t, err)
 	for _, q := range []string{`SAVEPOINT a`, `INSERT INTO items VALUES(1,'rolled back')`, `SAVEPOINT a`, `SAVEPOINT b`, `RELEASE a`, `INSERT INTO items VALUES(2,'rolled back')`, `ROLLBACK TO a`, `RELEASE a`, `INSERT INTO items VALUES(3,'kept')`} {
-		_, err = tx.Exec(q)
+		_, err = tx.ExecContext(ctx, q)
 		require.NoError(t, err, q)
 	}
 	require.NoError(t, tx.Commit())
@@ -89,16 +92,17 @@ func TestObserverRegressionNestedSavepointReuse(t *testing.T) {
 }
 
 func TestObserverRegressionSnapshotLiveTextType(t *testing.T) {
+	ctx := context.Background()
 	o, err := openObservedDB(t, filepath.Join(t.TempDir(), "text.db"))
 	require.NoError(t, err)
 	defer o.Close()
-	_, err = o.opened.DB.Exec(`CREATE TABLE items(id INTEGER PRIMARY KEY, value TEXT); INSERT INTO items VALUES(1,'text')`)
+	_, err = o.opened.DB.ExecContext(ctx, `CREATE TABLE items(id INTEGER PRIMARY KEY, value TEXT); INSERT INTO items VALUES(1,'text')`)
 	require.NoError(t, err)
-	s, err := o.opened.Observer.Snapshot(context.Background(), config.SnapshotOptions{Tables: []string{"items"}})
+	s, err := o.opened.Observer.Snapshot(ctx, config.SnapshotOptions{Tables: []string{"items"}})
 	require.NoError(t, err)
 	defer s.Close()
 	snap := receiveBatch(t, s)
-	_, err = o.opened.DB.Exec(`UPDATE items SET value='text2' WHERE id=1`)
+	_, err = o.opened.DB.ExecContext(ctx, `UPDATE items SET value='text2' WHERE id=1`)
 	require.NoError(t, err)
 	live := receiveBatch(t, s)
 	require.IsType(t, snap.Changes[0].After[1], live.Changes[0].After[1], "same TEXT column changes representation between snapshot and live")

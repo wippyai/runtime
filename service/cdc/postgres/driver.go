@@ -83,10 +83,10 @@ func (Driver) Create(ctx context.Context, entry registry.Entry, deps cdcservice.
 // remains private to this adapter, so no driver-specific shape leaks into the
 // common manager or dispatcher.
 type sourceAdapter struct {
-	limits       config.SubscriptionLimits
 	source       *Source
 	exclusiveKey string
 	lifecycle    supervisor.LifecycleConfig
+	limits       config.SubscriptionLimits
 	mu           sync.RWMutex
 }
 
