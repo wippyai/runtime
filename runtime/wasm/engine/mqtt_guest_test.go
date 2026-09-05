@@ -159,11 +159,10 @@ func testMQTTGuestLoopbackServer(t *testing.T, malformed, cancelAccept, idlePast
 			case <-time.After(time.Second):
 				t.Fatal("client waiter did not stop")
 			}
-			probe, err := (&net.Dialer{Timeout: time.Second}).DialContext(t.Context(), "tcp4", network.listener.Addr().String())
-			if probe != nil {
-				probe.Close()
-			}
-			require.Error(t, err, "canceled listener still accepts TCP connections")
+			// Inspect the original descriptor. Its released ephemeral port can
+			// already belong to another listener by the time a dial probe runs.
+			listener := network.listener.(*net.TCPListener)
+			require.ErrorIs(t, listener.SetDeadline(time.Now()), net.ErrClosed, "canceled listener descriptor remains open")
 			return
 		}
 

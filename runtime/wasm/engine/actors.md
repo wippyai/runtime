@@ -155,14 +155,20 @@ instrumentation enabled.
 The counter benchmark includes the real Rust guest, ingress copying, Canonical
 ABI, and Asyncify resumption. With the production cancellation setting enabled,
 the same-machine baseline was approximately 13–14 microseconds, 7.4 KB, and 164
-allocations per round trip. The optimized path measures 6.68–6.76 microseconds,
-approximately 3.86 KB, and 82 allocations. A sequential before/after comparison
+allocations per round trip. The optimized path measures 6.32–6.37 microseconds,
+approximately 3.25 KB, and 69 allocations. This pass measured 6.69–6.75
+microseconds, 3.86 KB, and 82 allocations before consolidating immutable call
+contexts, skipping fully overridden canonical wrappers, forwarding on the
+existing call stack, and storing actor send commands in their continuations.
+A sequential before/after comparison
 of the generated-control optimization measured 8.48–8.59 microseconds, 5.34 KB,
 and 114 allocations before the change. Scheduler routing and network transport
 are excluded; this is not a native-indexer comparison. The older 11-microsecond /
 123-allocation measurement used a fixture with cancellation checks disabled and
 must not be used as the production baseline. Regular guest calls still incur
-Wazero's per-call cancellation watchers.
+Wazero's per-call cancellation watchers. Linker module wrappers remain immutable;
+only canonical imports with both explicit memory and realloc bindings skip the
+shared fallback wrapper. Partially bound imports preserve that fallback.
 
 The checked-in standard WASI 0.2.8 TCP component exercises canonical IPv4
 addresses, socket creation, connect, buffered ping/pong, connection-refused error
