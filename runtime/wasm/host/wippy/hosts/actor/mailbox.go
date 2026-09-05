@@ -301,13 +301,23 @@ func (m *Mailbox) Deliver(event process.Event) bool {
 }
 
 func (m *Mailbox) Take() (*Message, error) {
+	msg, ok, err := m.takeValue()
+	if !ok {
+		return nil, err
+	}
+	return &msg, nil
+}
+
+// takeValue transfers the queued message out of its ring slot. Blocking receive
+// returns Message by value, so it needs no temporary heap-allocated wrapper.
+func (m *Mailbox) takeValue() (Message, bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.closed {
-		return nil, ErrClosed
+		return Message{}, false, ErrClosed
 	}
 	if m.length == 0 {
-		return nil, nil
+		return Message{}, false, nil
 	}
 	msg := m.inbox[m.head]
 	m.inbox[m.head] = queuedMessage{}
@@ -315,7 +325,7 @@ func (m *Mailbox) Take() (*Message, error) {
 	m.length--
 	m.count--
 	m.bytes -= msg.charge
-	return &msg.message, nil
+	return msg.message, true, nil
 }
 
 func (m *Mailbox) Ready() bool {

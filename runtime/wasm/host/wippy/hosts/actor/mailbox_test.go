@@ -2,6 +2,7 @@
 package actor
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -172,5 +173,38 @@ func TestMailboxInvalidPayloads(t *testing.T) {
 				t.Fatal("rejected payload retained budget")
 			}
 		})
+	}
+}
+
+func TestReceiveRetainsMessageAcrossRingReuseAndClose(t *testing.T) {
+	m := NewMailbox(Limits{Capacity: 1, Bytes: 4096, MessageBytes: 1024})
+	defer m.Close()
+	ctx := WithMailbox(context.Background(), m)
+	host := NewHost()
+	m.Deliver(admit(t, m, messageEvent("first", []byte("owned"))))
+	first, err := host.Receive(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range 3 {
+		m.Deliver(admit(t, m, messageEvent("next", []byte("replacement"))))
+		next, err := host.Receive(ctx)
+		if err != nil || next.Topic != "next" {
+			t.Fatalf("receive after reuse: %+v %v", next, err)
+		}
+		next.Payloads[0].Data[0] = '!'
+	}
+	if m.count != 0 || m.bytes != 0 || m.Ready() {
+		t.Fatal("receive retained queue charge")
+	}
+	if _, err := host.Receive(ctx); !errors.Is(err, errSchedulerRequired) {
+		t.Fatalf("empty mailbox without scheduler: %v", err)
+	}
+	m.Close()
+	if first.Topic != "first" || string(first.Payloads[0].Data) != "owned" {
+		t.Fatalf("retained message changed: %+v", first)
+	}
+	if _, err := host.Receive(ctx); !errors.Is(err, ErrClosed) {
+		t.Fatalf("closed mailbox: %v", err)
 	}
 }

@@ -59,12 +59,12 @@ func (*Host) Receive(ctx context.Context) (Message, error) {
 			return Message{}, err
 		}
 	}
-	msg, err := m.Take()
+	msg, ok, err := m.takeValue()
 	if err != nil {
 		return Message{}, err
 	}
-	if msg != nil {
-		return *msg, nil
+	if ok {
+		return msg, nil
 	}
 	if async == nil {
 		return Message{}, errSchedulerRequired
