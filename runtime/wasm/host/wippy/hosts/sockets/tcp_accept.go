@@ -65,39 +65,3 @@ func (h *TCPHost) MethodTCPSocketAccept(_ context.Context, self uint32) (*TCPAcc
 	child.SetStreamHandles(inputHandle, outputHandle)
 	return &TCPAccepted{Socket: handle, Input: inputHandle, Output: outputHandle}, nil
 }
-
-// A subscription borrows its socket; dropping it never closes the listener.
-type tcpSocketPollable struct{ socket *preview2.TCPSocketResource }
-
-func (*tcpSocketPollable) Type() preview2.ResourceType { return preview2.ResourcePollable }
-func (*tcpSocketPollable) Drop()                       {}
-func (p *tcpSocketPollable) Ready() bool {
-	if p.socket.State() == preview2.TCPStateClosed {
-		return true
-	}
-	if q := p.socket.AcceptQueue(); q != nil {
-		return q.Ready()
-	}
-	return true // No pending listener accept operation.
-}
-
-var tcpReadySignal = func() <-chan struct{} { ch := make(chan struct{}); close(ch); return ch }()
-
-func (p *tcpSocketPollable) Notify() <-chan struct{} {
-	if p.socket.State() == preview2.TCPStateClosed {
-		return tcpReadySignal
-	}
-	if q := p.socket.AcceptQueue(); q != nil {
-		return q.Notify()
-	}
-	return tcpReadySignal
-}
-func (p *tcpSocketPollable) Block(ctx context.Context) {
-	for !p.Ready() {
-		select {
-		case <-ctx.Done():
-			return
-		case <-p.Notify():
-		}
-	}
-}

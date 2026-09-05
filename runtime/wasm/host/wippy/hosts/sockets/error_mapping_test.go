@@ -3,6 +3,7 @@
 package sockets
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"os"
@@ -10,6 +11,8 @@ import (
 	"testing"
 
 	netapi "github.com/wippyai/runtime/api/net"
+	socketapi "github.com/wippyai/runtime/api/socket"
+	"github.com/wippyai/wasm-runtime/resource"
 )
 
 func TestS14NetworkErrorMappingInvariant(t *testing.T) {
@@ -67,5 +70,20 @@ func TestS14NetworkErrorMappingInvariant(t *testing.T) {
 		if mapped == nil || mapped.Code != testCase.want {
 			t.Fatalf("%s mapped to %#v, want code %d", testCase.name, mapped, testCase.want)
 		}
+	}
+}
+
+func TestPendingNetworkErrorMapping(t *testing.T) {
+	for _, tc := range []struct {
+		err  error
+		want NetworkErrorCode
+	}{
+		{resource.ErrClosed, NetworkErrorInvalidState},
+		{socketapi.ErrOperationClosed, NetworkErrorInvalidState},
+		{socketapi.ErrAlreadyStarted, NetworkErrorConcurrencyConflict},
+		{context.Canceled, NetworkErrorConnectionAborted},
+		{context.DeadlineExceeded, NetworkErrorTimeout},
+	} {
+		requireNetworkError(t, mapNetError(fmt.Errorf("pending operation: %w", tc.err)), tc.want)
 	}
 }

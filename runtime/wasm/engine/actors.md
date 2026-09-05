@@ -152,18 +152,27 @@ path. Tests supply a controlled connection at the dispatcher boundary and verify
 socket quota is returned. The fixture can be rebuilt byte-for-byte from its
 locked Rust sources. This covers neither OS routing nor a real listener workload.
 
+TCP connect and listen use separate start and finish operations. Start dispatches
+the network job and returns after acknowledgement; finish reports `would-block`
+until completion, and socket subscriptions expose readiness. Each pending job
+belongs to its socket before dispatch. Finish transfers its result into that
+socket; dropping the socket cancels and joins the job before releasing quota.
+A second TCP guest starts two connections before either completes, then polls
+and finishes both. Tests also close its resource scope with both dials pending
+and verify that late connections close and all socket reservations return.
+
 This enables a stateful indexing actor; it does not implement an indexer or replace
 Wippy's Lua compiler/type system. Production server support still needs
-split-phase connect/listen,
 uniform network deadlines, aggregate host memory accounting, and a real
-server/concurrency benchmark remain unverified. Nonzero IPv6 flow-info is
+server/concurrency benchmark. Nonzero IPv6 flow-info is
 explicitly unsupported; numeric scope IDs are preserved. Do not treat this PR
 as production MQTT support.
 
-A second standard-WASI Rust fixture runs a limited MQTT 3.1.1 server through
+A standard-WASI Rust fixture runs a limited MQTT 3.1.1 server through
 real loopback TCP and socket dispatcher commands. It handles CONNECT/CONNACK,
 PINGREQ/PINGRESP, and DISCONNECT for two sequential clients, retaining the
-served-client count in guest state. Tests force an empty-listener poll before
+served-client count in guest state. Tests force polling during listen startup
+and an empty-listener poll before
 allowing clients to connect, reject an oversized frame, and close the resource
 scope while accept is parked. Every case returns all socket reservations.
 This fixture is not a broker: it lacks publish/subscribe, concurrent clients,

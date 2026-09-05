@@ -62,7 +62,8 @@ func testMQTTGuestLoopbackServer(t *testing.T, malformed, cancelAccept bool) {
 	require.NoError(t, p.Init(ctx, "run", nil))
 	waitCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	network := &mqttTestNetwork{address: make(chan string, 1)}
+	network := &mqttTestNetwork{address: make(chan string, 1), start: make(chan struct{})}
+	waitedForListen := false
 	handlers := make(map[dispatcher.CommandID]dispatcher.Handler)
 	socketservice.NewDispatcher(network).RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) { handlers[id] = h })
 	clients := make(chan error, 1)
@@ -98,6 +99,7 @@ func testMQTTGuestLoopbackServer(t *testing.T, malformed, cancelAccept bool) {
 		out.Reset()
 		require.NoError(t, p.Step(events, &out))
 		if out.IsDone() {
+			require.True(t, waitedForListen, "guest never suspended on pending listen")
 			require.True(t, waitedForAccept, "guest never suspended on empty listener")
 			if malformed {
 				require.Equal(t, map[string]any{"err": "remaining length exceeds 4096"}, out.Result().Data())
@@ -115,12 +117,18 @@ func testMQTTGuestLoopbackServer(t *testing.T, malformed, cancelAccept bool) {
 		}
 		require.Equal(t, 1, out.Count())
 		y := out.Yields()[0]
-		if y.Cmd.CmdID() == socketapi.SocketPollWait && !waitedForAccept {
-			waitedForAccept = true
-			if !cancelAccept {
-				close(clientStart)
+		if y.Cmd.CmdID() == socketapi.SocketPollWait {
+			if !waitedForListen {
+				waitedForListen = true
+				close(network.start)
+			} else if !waitedForAccept {
+				waitedForAccept = true
+				if !cancelAccept {
+					close(clientStart)
+				}
 			}
 		}
+
 		h := handlers[y.Cmd.CmdID()]
 		require.NotNil(t, h, "unregistered socket command %d", y.Cmd.CmdID())
 		receiver := &mqttGuestReceiver{done: make(chan process.Event, 1)}
@@ -168,12 +176,18 @@ func (r *mqttGuestReceiver) CompleteYield(tag uint64, data any, err error) {
 type mqttTestNetwork struct {
 	netapi.Service
 	address  chan string
+	start    chan struct{}
 	listener net.Listener
 }
 
 func (n *mqttTestNetwork) Listen(ctx context.Context, network, address string) (net.Listener, error) {
 	if network != "tcp" || address != "127.0.0.1:1883" {
 		return nil, fmt.Errorf("unexpected fixture listener %s %s", network, address)
+	}
+	select {
+	case <-n.start:
+	case <-ctx.Done():
+		return nil, ctx.Err()
 	}
 	listener, err := (&net.ListenConfig{}).Listen(ctx, "tcp4", "127.0.0.1:0")
 	if err == nil {

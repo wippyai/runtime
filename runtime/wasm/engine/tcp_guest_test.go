@@ -59,12 +59,15 @@ func testTCPGuestCanonicalRoundTrip(t *testing.T, refused bool) {
 	var output process.StepOutput
 	var events []process.Event
 	connected := false
+	polledConnect := false
+	var completeConnect chan struct{}
 	peerDone := make(chan error, 1)
 	for steps := 0; steps < 16; steps++ {
 		output.Reset()
 		require.NoError(t, execution.Step(events, &output))
 		if output.IsDone() {
 			require.True(t, connected, "guest never connected")
+			require.True(t, polledConnect, "guest did not poll pending connect")
 			require.Zero(t, table.SocketBudget().Used(), "guest socket drop did not return quota")
 			if refused {
 				value, ok := output.Result().Data().(map[string]any)
@@ -86,12 +89,24 @@ func testTCPGuestCanonicalRoundTrip(t *testing.T, refused bool) {
 		yielded := output.Yields()[0]
 		var result any
 		switch command := yielded.Cmd.(type) {
-		case *socketapi.ConnectCmd:
+		case *socketapi.StartConnectCmd:
 			require.False(t, connected)
 			require.Equal(t, "127.0.0.1:8099", command.Address)
 			connected = true
+			operationCtx, started := command.Operation.Start(waitCtx)
+			require.True(t, started)
+			completeConnect = make(chan struct{})
+			gate := completeConnect
 			if refused {
-				result = &socketapi.ConnectResult{Err: syscall.ECONNREFUSED}
+				go func() {
+					select {
+					case <-gate:
+						command.Operation.Complete(nil, syscall.ECONNREFUSED)
+					case <-operationCtx.Done():
+						command.Operation.Complete(nil, operationCtx.Err())
+					}
+				}()
+				result = &socketapi.StartResult{}
 				break
 			}
 			left, right := net.Pipe()
@@ -108,8 +123,21 @@ func testTCPGuestCanonicalRoundTrip(t *testing.T, refused bool) {
 				}
 				peerDone <- err
 			}()
-			result = &socketapi.ConnectResult{Conn: left}
+			go func() {
+				select {
+				case <-gate:
+					command.Operation.Complete(left, nil)
+				case <-operationCtx.Done():
+					command.Operation.Complete(left, operationCtx.Err())
+				}
+			}()
+			result = &socketapi.StartResult{}
 		case *socketapi.PollWaitCmd:
+			if completeConnect != nil {
+				polledConnect = true
+				close(completeConnect)
+				completeConnect = nil
+			}
 			result, err = command.Wait(waitCtx)
 			require.NoError(t, err)
 		case *socketapi.StreamWaitCmd:

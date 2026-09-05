@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
 	"github.com/tetratelabs/wazero"
 	socketapi "github.com/wippyai/runtime/api/socket"
 	wippyhost "github.com/wippyai/runtime/runtime/wasm/host/wippy"
@@ -103,8 +104,8 @@ func TestS01TCPConnectRejectsWrongAsyncType(t *testing.T) {
 	if carried.closes.Load() != 1 {
 		t.Fatalf("unadopted connection close count = %d, want 1", carried.closes.Load())
 	}
-	if socket.Conn() != nil || socket.State() != preview2.TCPStateConnectInProgress {
-		t.Fatalf("socket changed after rejected result: conn = %v, state = %d", socket.Conn(), socket.State())
+	if socket.Conn() != nil || socket.State() != preview2.TCPStateClosed {
+		t.Fatalf("failed start state: conn = %v, state = %d", socket.Conn(), socket.State())
 	}
 }
 
@@ -125,8 +126,8 @@ func TestS02TCPListenRejectsWrongAsyncType(t *testing.T) {
 	if carried.closes.Load() != 1 {
 		t.Fatalf("unadopted resource close count = %d, want 1", carried.closes.Load())
 	}
-	if socket.Listener() != nil || socket.State() != preview2.TCPStateListenInProgress {
-		t.Fatalf("socket changed after rejected result: listener = %v, state = %d", socket.Listener(), socket.State())
+	if socket.Listener() != nil || socket.State() != preview2.TCPStateBound {
+		t.Fatalf("failed start state: listener = %v, state = %d", socket.Listener(), socket.State())
 	}
 }
 
@@ -140,6 +141,41 @@ func TestTCPAcceptRequiresListeningQueue(t *testing.T) {
 	requireNetworkError(t, err, NetworkErrorInvalidState)
 	if accepted != nil {
 		t.Fatal("accepted child on unbound socket")
+	}
+}
+
+func TestTCPStartRejectionClearsPendingOperation(t *testing.T) {
+	for _, listening := range []bool{false, true} {
+		t.Run(fmt.Sprintf("listen=%v", listening), func(t *testing.T) {
+			resources := preview2.NewResourceTable()
+			defer resources.Close()
+			host := NewTCPHost(resources)
+			socket := preview2.NewTCPSocketResource(AddressFamilyIPv4)
+			state, expected := preview2.TCPStateConnectInProgress, preview2.TCPStateClosed
+			if listening {
+				state, expected = preview2.TCPStateListenInProgress, preview2.TCPStateBound
+			}
+			socket.SetState(state)
+			op := socketapi.NewPendingOperation()
+			if err := socket.SetPendingOperation(op); err != nil {
+				t.Fatal(err)
+			}
+			handle := resources.Add(socket)
+			ctx := rewindContext(t, &socketapi.StartResult{Err: syscall.EACCES})
+			var err *NetworkError
+			if listening {
+				err = host.MethodTCPSocketStartListen(ctx, handle)
+			} else {
+				err = host.MethodTCPSocketStartConnect(ctx, handle, 0, IPSocketAddress{})
+			}
+			requireNetworkError(t, err, NetworkErrorAccessDenied)
+			if socket.State() != expected || socket.PendingOperation() != nil || socket.PendingError() != nil {
+				t.Fatal("rejected start retained pending state")
+			}
+			if _, started := op.Start(t.Context()); started {
+				t.Fatal("rejected operation could start after cleanup")
+			}
+		})
 	}
 }
 
@@ -175,11 +211,7 @@ func TestS07TCPFinishConnectFailureClosesState(t *testing.T) {
 	socket := preview2.NewTCPSocketResource(AddressFamilyIPv4)
 	socket.SetState(preview2.TCPStateConnectInProgress)
 	handle := resources.Add(socket)
-	ctx := rewindContext(t, &socketapi.ConnectResult{Err: fmt.Errorf("dial failed: %w", syscall.ECONNREFUSED)})
-
-	if err := host.MethodTCPSocketStartConnect(ctx, handle, 0, IPSocketAddress{}); err != nil {
-		t.Fatalf("resume failed connect: %v", err)
-	}
+	attachCompletedTCPOperation(t, socket, nil, fmt.Errorf("dial failed: %w", syscall.ECONNREFUSED))
 	streams, err := host.MethodTCPSocketFinishConnect(context.Background(), handle)
 	requireNetworkError(t, err, NetworkErrorConnectionRefused)
 	if streams != nil {
@@ -210,11 +242,7 @@ func TestS08TCPFinishConnectAdoptsStreams(t *testing.T) {
 	}
 	conn := &closeCountingConn{Conn: left}
 	t.Cleanup(func() { _ = right.Close() })
-	ctx := rewindContext(t, &socketapi.ConnectResult{Conn: conn})
-
-	if err := host.MethodTCPSocketStartConnect(ctx, handle, 0, IPSocketAddress{}); err != nil {
-		t.Fatalf("resume successful connect: %v", err)
-	}
+	attachCompletedTCPOperation(t, socket, conn, nil)
 	streams, networkErr := host.MethodTCPSocketFinishConnect(context.Background(), handle)
 	if networkErr != nil {
 		t.Fatalf("finish connect: %v", networkErr)
@@ -322,7 +350,7 @@ func TestS10TCPListenAcceptDropOwnership(t *testing.T) {
 	listener := &closeCountingListener{Listener: rawListener}
 	parent := preview2.NewTCPSocketResource(AddressFamilyIPv4)
 	parent.SetState(preview2.TCPStateListenInProgress)
-	parent.SetListener(listener)
+	attachCompletedTCPOperation(t, parent, listener, nil)
 	parentHandle := resources.Add(parent)
 	if err := host.MethodTCPSocketFinishListen(t.Context(), parentHandle); err != nil {
 		t.Fatal(err)
@@ -392,7 +420,7 @@ func TestTCPAcceptRollsBackPartialHandlePublication(t *testing.T) {
 	}
 	parent := preview2.NewTCPSocketResource(AddressFamilyIPv4)
 	parent.SetState(preview2.TCPStateListenInProgress)
-	parent.SetListener(listener)
+	attachCompletedTCPOperation(t, parent, listener, nil)
 	handle := resources.Add(parent)
 	if err := host.MethodTCPSocketFinishListen(t.Context(), handle); err != nil {
 		t.Fatal(err)
@@ -435,4 +463,143 @@ func TestTCPListenBacklogValidation(t *testing.T) {
 	}
 	socket.SetState(preview2.TCPStateConnected)
 	requireNetworkError(t, host.MethodTCPSocketSetListenBacklogSize(t.Context(), handle, 1), NetworkErrorInvalidState)
+}
+
+func attachCompletedTCPOperation(t *testing.T, socket *preview2.TCPSocketResource, result io.Closer, resultErr error) {
+	t.Helper()
+	op := socketapi.NewPendingOperation()
+	if _, ok := op.Start(t.Context()); !ok {
+		t.Fatal("operation did not start")
+	}
+	if err := socket.SetPendingOperation(op); err != nil {
+		t.Fatal(err)
+	}
+	op.Complete(result, resultErr)
+}
+
+func TestTCPFinishListenFailureAllowsRetry(t *testing.T) {
+	resources := preview2.NewResourceTableWithLimits(16, 2)
+	defer resources.Close()
+	host := NewTCPHost(resources)
+	socket := preview2.NewTCPSocketResource(AddressFamilyIPv4)
+	socket.SetState(preview2.TCPStateListenInProgress)
+	handle := resources.Add(socket)
+	attachCompletedTCPOperation(t, socket, nil, syscall.EADDRINUSE)
+	requireNetworkError(t, host.MethodTCPSocketFinishListen(t.Context(), handle), NetworkErrorAddressInUse)
+	if socket.State() != preview2.TCPStateBound || socket.PendingOperation() != nil || socket.PendingError() != nil {
+		t.Fatal("failed listen retained an operation or did not restore bound state")
+	}
+	requireNetworkError(t, host.MethodTCPSocketFinishListen(t.Context(), handle), NetworkErrorNotInProgress)
+
+	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	socket.SetState(preview2.TCPStateListenInProgress)
+	attachCompletedTCPOperation(t, socket, listener, nil)
+	if err := host.MethodTCPSocketFinishListen(t.Context(), handle); err != nil {
+		t.Fatalf("retry listen: %v", err)
+	}
+	if socket.State() != preview2.TCPStateListening || socket.AcceptQueue() == nil {
+		t.Fatal("retried listen did not publish a listening socket")
+	}
+	resources.Close()
+	if resources.SocketBudget().Used() != 0 {
+		t.Fatal("retried listen retained socket quota after close")
+	}
+}
+
+func TestTCPFinishConnectRollsBackPartialHandles(t *testing.T) {
+	table := preview2.NewResourceTableWithLimits(1, 2)
+	defer table.Close()
+	host := NewTCPHost(table)
+	socket := preview2.NewTCPSocketResource(AddressFamilyIPv4)
+	socket.SetState(preview2.TCPStateConnectInProgress)
+	handle := table.Add(socket)
+	left, right := net.Pipe()
+	defer right.Close()
+	conn := &closeCountingConn{Conn: left}
+	attachCompletedTCPOperation(t, socket, conn, nil)
+	streams, err := host.MethodTCPSocketFinishConnect(t.Context(), handle)
+	requireNetworkError(t, err, NetworkErrorOutOfMemory)
+	if streams != nil {
+		t.Fatal("returned partial stream tuple")
+	}
+	if conn.closes.Load() != 1 {
+		t.Fatal("failed stream publication retained connection")
+	}
+	table.Remove(handle)
+	if conn.closes.Load() != 1 || table.SocketBudget().Used() != 0 {
+		t.Fatal("failed connect leaked or double-closed")
+	}
+}
+
+type tcpCleanupGate struct {
+	net.Conn
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (c *tcpCleanupGate) Close() error {
+	close(c.entered)
+	<-c.release
+	return c.Conn.Close()
+}
+
+func TestTCPFinishCanceledConnectRetainsQuotaDuringCleanup(t *testing.T) {
+	table := preview2.NewResourceTableWithLimits(16, 1)
+	socket := preview2.NewTCPSocketResource(AddressFamilyIPv4)
+	socket.SetState(preview2.TCPStateConnectInProgress)
+	handle := table.Add(socket)
+	left, right := net.Pipe()
+	conn := &tcpCleanupGate{Conn: left, entered: make(chan struct{}), release: make(chan struct{})}
+	t.Cleanup(func() {
+		select {
+		case <-conn.release:
+		default:
+			close(conn.release)
+		}
+		table.Close()
+		right.Close()
+	})
+	parent, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	op := socketapi.NewPendingOperation()
+	_, started := op.Start(parent)
+	require.True(t, started)
+	require.NoError(t, socket.SetPendingOperation(op))
+	op.Complete(conn, nil)
+	cancel()
+	select {
+	case <-conn.entered:
+	case <-time.After(time.Second):
+		t.Fatal("cancellation did not start physical close")
+	}
+	finished := make(chan *NetworkError, 1)
+	go func() {
+		_, err := NewTCPHost(table).MethodTCPSocketFinishConnect(t.Context(), handle)
+		finished <- err
+	}()
+	require.Eventually(t, func() bool { return socket.PendingError() != nil }, time.Second, time.Millisecond)
+	dropped := make(chan struct{})
+	go func() { table.Remove(handle); close(dropped) }()
+	select {
+	case <-dropped:
+		t.Fatal("socket drop returned while canceled connection was still closing")
+	case <-time.After(50 * time.Millisecond):
+	}
+	require.Equal(t, 1, table.SocketBudget().Used())
+	close(conn.release)
+	select {
+	case err := <-finished:
+		requireNetworkError(t, err, NetworkErrorConnectionAborted)
+	case <-time.After(time.Second):
+		t.Fatal("finish did not join canceled result cleanup")
+	}
+	select {
+	case <-dropped:
+	case <-time.After(time.Second):
+		t.Fatal("socket drop did not finish")
+	}
+	require.Zero(t, table.SocketBudget().Used())
 }

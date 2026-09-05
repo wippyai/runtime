@@ -10,17 +10,20 @@ import (
 
 func init() {
 	dispatcher.MustRegisterCommands("socket",
-		SocketConnect, SocketListen, SocketAccept, SocketBind, SocketResolve)
+		SocketConnect, SocketListen, SocketAccept, SocketBind, SocketResolve,
+		SocketStartConnect, SocketStartListen)
 }
 
 // Command IDs for socket operations.
 // Range 30-39 is reserved for socket commands.
 const (
-	SocketConnect dispatcher.CommandID = 30
-	SocketListen  dispatcher.CommandID = 31
-	SocketAccept  dispatcher.CommandID = 32
-	SocketBind    dispatcher.CommandID = 33
-	SocketResolve dispatcher.CommandID = 34
+	SocketConnect      dispatcher.CommandID = 30
+	SocketListen       dispatcher.CommandID = 31
+	SocketAccept       dispatcher.CommandID = 32
+	SocketBind         dispatcher.CommandID = 33
+	SocketResolve      dispatcher.CommandID = 34
+	SocketStartConnect dispatcher.CommandID = 37
+	SocketStartListen  dispatcher.CommandID = 38
 )
 
 // ConnectCmd requests a TCP connection to a remote address.
@@ -89,4 +92,27 @@ func (c *ResolveCmd) CmdID() dispatcher.CommandID { return SocketResolve }
 type ResolveResult struct {
 	Err       error
 	Addresses []string
+}
+
+// StartConnectCmd starts a connect job against a precreated future.
+type StartConnectCmd struct {
+	Operation *PendingOperation
+	Network   string
+	Address   string
+}
+
+func (c *StartConnectCmd) CmdID() dispatcher.CommandID { return SocketStartConnect }
+
+// StartListenCmd starts a listen job against a precreated future.
+type StartListenCmd struct {
+	Operation *PendingOperation
+	Network   string
+	Address   string
+}
+
+func (c *StartListenCmd) CmdID() dispatcher.CommandID { return SocketStartListen }
+
+// StartResult acknowledges that a start job was initiated.
+type StartResult struct {
+	Err error
 }

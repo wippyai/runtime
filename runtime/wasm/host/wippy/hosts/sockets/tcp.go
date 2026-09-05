@@ -8,9 +8,7 @@ import (
 	"net"
 	"strconv"
 
-	"github.com/wippyai/runtime/api/dispatcher"
 	socketapi "github.com/wippyai/runtime/api/socket"
-	wippyhost "github.com/wippyai/runtime/runtime/wasm/host/wippy"
 	wasmengine "github.com/wippyai/wasm-runtime/engine"
 	"github.com/wippyai/wasm-runtime/wasi/preview2"
 )
@@ -126,84 +124,38 @@ func (h *TCPHost) MethodTCPSocketFinishBind(_ context.Context, self uint32) *Net
 
 // [method]tcp-socket.start-connect
 func (h *TCPHost) MethodTCPSocketStartConnect(ctx context.Context, self uint32, _ uint32, remoteAddress IPSocketAddress) *NetworkError {
-	async := wasmengine.GetAsyncify(ctx)
-
-	if async != nil && async.IsRewinding(ctx) {
-		result, resumeErr := wasmengine.Resume(ctx)
-		if resumeErr != nil {
-			panic(fmt.Errorf("tcp start-connect resume: %w", resumeErr))
-		}
-
-		store := wippyhost.GetAsyncValueStore(ctx)
-		if store == nil {
-			panic("tcp start-connect: async value store not found")
-		}
-
-		data, ok := store.Take(result)
-		if !ok {
-			panic(fmt.Sprintf("tcp start-connect: token %d not found", result))
-		}
-
-		connectResult, ok := data.(*socketapi.ConnectResult)
-		if !ok || connectResult == nil {
-			closeAsyncSocketResult(data)
-			return &NetworkError{Code: NetworkErrorInvalidArgument}
-		}
-		socket, err := h.getSocket(self)
-		if err != nil {
-			if connectResult.Conn != nil {
-				_ = connectResult.Conn.Close()
-			}
-			return err
-		}
-
-		if connectResult.Err != nil {
-			socket.SetPendingError(connectResult.Err)
-			return nil
-		}
-
-		socket.SetConn(connectResult.Conn)
-		if tcpAddr, ok := connectResult.Conn.LocalAddr().(*net.TCPAddr); ok {
-			if local := SocketAddressFromNetAddr(tcpAddr); local != nil {
-				socket.SetLocalAddr(local.IPString(), local.Port())
-			} else {
-				socket.SetLocalAddr(tcpAddr.IP.String(), uint16(tcpAddr.Port))
-			}
-		}
-		return nil
+	if async := wasmengine.GetAsyncify(ctx); async != nil && async.IsRewinding(ctx) {
+		return h.resumeSocketStart(ctx, self)
 	}
-
 	socket, err := h.getSocket(self)
 	if err != nil {
 		return err
 	}
-
 	state := socket.State()
 	if state != preview2.TCPStateUnbound && state != preview2.TCPStateBound {
 		return &NetworkError{Code: NetworkErrorInvalidState}
 	}
-
 	if err := ValidateAddressFamily(&remoteAddress, socket.Family()); err != nil {
 		return err
 	}
 	if err := ValidateFlowInfo(&remoteAddress); err != nil {
 		return err
 	}
-
-	addr := remoteAddress.String()
-	socket.SetRemoteAddr(remoteAddress.IPString(), remoteAddress.Port())
-	socket.SetState(preview2.TCPStateConnectInProgress)
-
-	op := &connectPendingOp{cmd: &socketapi.ConnectCmd{Network: "tcp", Address: addr}}
-
-	if async == nil {
+	if wasmengine.GetAsyncify(ctx) == nil {
 		panic("tcp start-connect requires asyncify context")
 	}
-
-	if suspendErr := wasmengine.Suspend(ctx, op); suspendErr != nil {
-		panic(fmt.Errorf("tcp start-connect suspend: %w", suspendErr))
+	operation := socketapi.NewPendingOperation()
+	socket.SetRemoteAddr(remoteAddress.IPString(), remoteAddress.Port())
+	socket.SetState(preview2.TCPStateConnectInProgress)
+	if err := socket.SetPendingOperation(operation); err != nil {
+		operation.Close()
+		return mapNetError(err)
 	}
-
+	cmd := &socketapi.StartConnectCmd{Operation: operation, Network: "tcp", Address: remoteAddress.String()}
+	if err := wasmengine.Suspend(ctx, &socketStartOp{cmd: cmd}); err != nil {
+		operation.Close()
+		panic(fmt.Errorf("tcp start-connect suspend: %w", err))
+	}
 	return nil
 }
 
@@ -221,19 +173,37 @@ func (h *TCPHost) MethodTCPSocketFinishConnect(_ context.Context, self uint32) (
 		return nil, &NetworkError{Code: NetworkErrorInvalidState}
 	}
 
-	if pendingErr := socket.PendingError(); pendingErr != nil {
+	ready, completeErr := socket.ResolvePendingConnect()
+	if completeErr != nil {
 		socket.ClearPendingError()
 		socket.SetState(preview2.TCPStateClosed)
-		return nil, mapNetError(pendingErr)
+		return nil, mapNetError(completeErr)
+	}
+	if !ready {
+		return nil, &NetworkError{Code: NetworkErrorWouldBlock}
+	}
+	if conn, ok := socket.Conn().(net.Conn); ok {
+		if local := SocketAddressFromNetAddr(conn.LocalAddr()); local != nil {
+			socket.SetLocalAddr(local.IPString(), local.Port())
+		}
 	}
 
-	socket.SetState(preview2.TCPStateConnected)
-
 	inputStream := preview2.NewTCPInputStreamResource(socket)
+	inputHandle, addErr := h.resources.TryAdd(inputStream)
+	if addErr != nil {
+		inputStream.Drop()
+		socket.Drop()
+		return nil, resourceLimitError(addErr)
+	}
 	outputStream := preview2.NewTCPOutputStreamResource(socket)
-
-	inputHandle := h.resources.Add(inputStream)
-	outputHandle := h.resources.Add(outputStream)
+	outputHandle, addErr := h.resources.TryAdd(outputStream)
+	if addErr != nil {
+		outputStream.Drop()
+		h.resources.Remove(inputHandle)
+		socket.Drop()
+		return nil, resourceLimitError(addErr)
+	}
+	socket.SetState(preview2.TCPStateConnected)
 
 	socket.SetStreamHandles(inputHandle, outputHandle)
 
@@ -242,76 +212,30 @@ func (h *TCPHost) MethodTCPSocketFinishConnect(_ context.Context, self uint32) (
 
 // [method]tcp-socket.start-listen
 func (h *TCPHost) MethodTCPSocketStartListen(ctx context.Context, self uint32) *NetworkError {
-	async := wasmengine.GetAsyncify(ctx)
-
-	if async != nil && async.IsRewinding(ctx) {
-		result, resumeErr := wasmengine.Resume(ctx)
-		if resumeErr != nil {
-			panic(fmt.Errorf("tcp start-listen resume: %w", resumeErr))
-		}
-
-		store := wippyhost.GetAsyncValueStore(ctx)
-		if store == nil {
-			panic("tcp start-listen: async value store not found")
-		}
-
-		data, ok := store.Take(result)
-		if !ok {
-			panic(fmt.Sprintf("tcp start-listen: token %d not found", result))
-		}
-
-		listenResult, ok := data.(*socketapi.ListenResult)
-		if !ok || listenResult == nil {
-			closeAsyncSocketResult(data)
-			return &NetworkError{Code: NetworkErrorInvalidArgument}
-		}
-		socket, err := h.getSocket(self)
-		if err != nil {
-			if listenResult.Listener != nil {
-				_ = listenResult.Listener.Close()
-			}
-			return err
-		}
-
-		if listenResult.Err != nil {
-			socket.SetPendingError(listenResult.Err)
-			return nil
-		}
-
-		socket.SetListener(listenResult.Listener)
-		if tcpAddr, ok := listenResult.Listener.Addr().(*net.TCPAddr); ok {
-			if local := SocketAddressFromNetAddr(tcpAddr); local != nil {
-				socket.SetLocalAddr(local.IPString(), local.Port())
-			} else {
-				socket.SetLocalAddr(tcpAddr.IP.String(), uint16(tcpAddr.Port))
-			}
-		}
-		return nil
+	if async := wasmengine.GetAsyncify(ctx); async != nil && async.IsRewinding(ctx) {
+		return h.resumeSocketStart(ctx, self)
 	}
-
 	socket, err := h.getSocket(self)
 	if err != nil {
 		return err
 	}
-
-	state := socket.State()
-	if state != preview2.TCPStateBound {
+	if socket.State() != preview2.TCPStateBound {
 		return &NetworkError{Code: NetworkErrorInvalidState}
 	}
-
-	addr := net.JoinHostPort(socket.LocalAddr(), strconv.Itoa(int(socket.LocalPort())))
-	socket.SetState(preview2.TCPStateListenInProgress)
-
-	op := &listenPendingOp{cmd: &socketapi.ListenCmd{Network: "tcp", Address: addr}}
-
-	if async == nil {
+	if wasmengine.GetAsyncify(ctx) == nil {
 		panic("tcp start-listen requires asyncify context")
 	}
-
-	if suspendErr := wasmengine.Suspend(ctx, op); suspendErr != nil {
-		panic(fmt.Errorf("tcp start-listen suspend: %w", suspendErr))
+	operation := socketapi.NewPendingOperation()
+	socket.SetState(preview2.TCPStateListenInProgress)
+	if err := socket.SetPendingOperation(operation); err != nil {
+		operation.Close()
+		return mapNetError(err)
 	}
-
+	cmd := &socketapi.StartListenCmd{Operation: operation, Network: "tcp", Address: net.JoinHostPort(socket.LocalAddr(), strconv.Itoa(int(socket.LocalPort())))}
+	if err := wasmengine.Suspend(ctx, &socketStartOp{cmd: cmd}); err != nil {
+		operation.Close()
+		panic(fmt.Errorf("tcp start-listen suspend: %w", err))
+	}
 	return nil
 }
 
@@ -329,15 +253,22 @@ func (h *TCPHost) MethodTCPSocketFinishListen(_ context.Context, self uint32) *N
 		return &NetworkError{Code: NetworkErrorInvalidState}
 	}
 
-	if pendingErr := socket.PendingError(); pendingErr != nil {
+	ready, completeErr := socket.ResolvePendingListen()
+	if completeErr != nil {
 		socket.ClearPendingError()
 		socket.SetState(preview2.TCPStateBound)
-		return mapNetError(pendingErr)
+		return mapNetError(completeErr)
+	}
+	if !ready {
+		return &NetworkError{Code: NetworkErrorWouldBlock}
 	}
 
 	listener, ok := socket.Listener().(net.Listener)
 	if !ok || listener == nil {
 		return &NetworkError{Code: NetworkErrorWouldBlock}
+	}
+	if local := SocketAddressFromNetAddr(listener.Addr()); local != nil {
+		socket.SetLocalAddr(local.IPString(), local.Port())
 	}
 	capacity := int(min(socket.ListenBacklogSize(), uint64(preview2.MaxAcceptQueueCapacity)))
 	queue := preview2.NewTCPAcceptQueue(listener, h.resources.SocketBudget(), capacity)
@@ -448,7 +379,7 @@ func (h *TCPHost) MethodTCPSocketSubscribe(_ context.Context, self uint32) uint3
 	if err != nil {
 		panic("tcp subscribe: invalid socket handle")
 	}
-	return h.resources.Add(&tcpSocketPollable{socket: socket})
+	return h.resources.Add(socket.Subscribe())
 }
 
 // [method]tcp-socket.hop-limit
@@ -647,36 +578,4 @@ func (h *TCPHost) Register() map[string]any {
 		"[method]tcp-socket.set-keep-alive-count":     h.MethodTCPSocketSetKeepAliveCount,
 		"[resource-drop]tcp-socket":                   h.ResourceDropTCPSocket,
 	}
-}
-
-type connectPendingOp struct {
-	cmd *socketapi.ConnectCmd
-}
-
-func (o *connectPendingOp) CmdID() wasmengine.CommandID {
-	return wasmengine.CommandID(socketapi.SocketConnect)
-}
-
-func (o *connectPendingOp) ToCommand() dispatcher.Command {
-	return o.cmd
-}
-
-func (o *connectPendingOp) Execute(_ context.Context) (uint64, error) {
-	return 0, fmt.Errorf("TCP connect requires dispatcher")
-}
-
-type listenPendingOp struct {
-	cmd *socketapi.ListenCmd
-}
-
-func (o *listenPendingOp) CmdID() wasmengine.CommandID {
-	return wasmengine.CommandID(socketapi.SocketListen)
-}
-
-func (o *listenPendingOp) ToCommand() dispatcher.Command {
-	return o.cmd
-}
-
-func (o *listenPendingOp) Execute(_ context.Context) (uint64, error) {
-	return 0, fmt.Errorf("TCP listen requires dispatcher")
 }

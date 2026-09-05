@@ -5,6 +5,7 @@ package socket
 import (
 	"context"
 	"fmt"
+	"io"
 	"net"
 
 	"github.com/wippyai/runtime/api/dispatcher"
@@ -31,6 +32,8 @@ func (d *Dispatcher) RegisterAll(register func(id dispatcher.CommandID, h dispat
 	register(socketapi.SocketResolve, dispatcher.HandlerFunc(d.handleResolve))
 	register(socketapi.SocketPollWait, dispatcher.HandlerFunc(d.handlePollWait))
 	register(socketapi.SocketStreamWait, dispatcher.HandlerFunc(d.handleStreamWait))
+	register(socketapi.SocketStartConnect, dispatcher.HandlerFunc(d.handleStartConnect))
+	register(socketapi.SocketStartListen, dispatcher.HandlerFunc(d.handleStartListen))
 }
 
 func (d *Dispatcher) handleConnect(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
@@ -125,5 +128,45 @@ func (d *Dispatcher) handleResolve(ctx context.Context, cmd dispatcher.Command, 
 			receiver.CompleteYield(tag, &socketapi.ResolveResult{Addresses: addrs, Err: err}, nil)
 		}
 	}()
+	return nil
+}
+
+func (d *Dispatcher) handleStartConnect(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
+	c, ok := cmd.(*socketapi.StartConnectCmd)
+	if !ok || c == nil {
+		receiver.CompleteYield(tag, &socketapi.StartResult{Err: socketapi.ErrNilOperation}, nil)
+		return nil
+	}
+	return d.startJob(ctx, c.Operation, tag, receiver, func(opCtx context.Context) (io.Closer, error) {
+		return d.netSvc.DialContext(opCtx, c.Network, c.Address)
+	})
+}
+
+func (d *Dispatcher) handleStartListen(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
+	c, ok := cmd.(*socketapi.StartListenCmd)
+	if !ok || c == nil {
+		receiver.CompleteYield(tag, &socketapi.StartResult{Err: socketapi.ErrNilOperation}, nil)
+		return nil
+	}
+	return d.startJob(ctx, c.Operation, tag, receiver, func(opCtx context.Context) (io.Closer, error) {
+		return d.netSvc.Listen(opCtx, c.Network, c.Address)
+	})
+}
+
+func (d *Dispatcher) startJob(ctx context.Context, op *socketapi.PendingOperation, tag uint64, receiver dispatcher.ResultReceiver, run func(context.Context) (io.Closer, error)) error {
+	if op == nil {
+		receiver.CompleteYield(tag, &socketapi.StartResult{Err: socketapi.ErrNilOperation}, nil)
+		return nil
+	}
+	opCtx, ok := op.Start(ctx)
+	if !ok {
+		receiver.CompleteYield(tag, &socketapi.StartResult{Err: socketapi.ErrAlreadyStarted}, nil)
+		return nil
+	}
+	go func() {
+		value, err := run(opCtx)
+		op.Complete(value, err)
+	}()
+	receiver.CompleteYield(tag, &socketapi.StartResult{}, nil)
 	return nil
 }
