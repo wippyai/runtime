@@ -18,10 +18,10 @@ import (
 
 type configEntry struct {
 	cfg         *api.ProcessConfig
-	bytes       []byte
-	isComponent bool
 	factory     *ActorFactory
 	security    *security.Config
+	bytes       []byte
+	isComponent bool
 }
 
 // Manager handles WASM process loading and process factory registration.

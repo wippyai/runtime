@@ -90,7 +90,8 @@ func (f *ActorFactory) Create() process.FactoryFunc {
 
 		forkedHosts := f.hostRegistry.Fork()
 		// Bound host handles independently of guest linear memory.
-		forkedHosts.SetSharedResources(preview2.NewResourceTableWithLimits(4096, f.cfg.Limits().EffectiveMaxOpenSockets()))
+		resourceTable := preview2.NewResourceTableWithLimits(4096, f.cfg.Limits().EffectiveMaxOpenSockets())
+		forkedHosts.SetSharedResources(resourceTable)
 
 		if err := forkedHosts.EnsureImports(spawnCtx, rt, f.cfg.Imports, f.isComponent); err != nil {
 			forkedHosts.CloseResources()
@@ -137,6 +138,7 @@ func (f *ActorFactory) Create() process.FactoryFunc {
 		}
 
 		actorProc := wasmengine.NewActorProcess(proc, actorLimits, cleanup)
+		actorProc.SetSocketBudget(resourceTable.SocketBudget())
 
 		f.mu.RLock()
 		isClosed := f.closed.Load()

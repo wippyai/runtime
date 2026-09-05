@@ -264,7 +264,9 @@ func (r *HostRegistry) CloseResources() {
 	r.sharedResources = nil
 	r.loaded = make(map[*wasmrt.Runtime]map[string]bool)
 	r.mu.Unlock()
-	if closer, ok := resources.(interface{ Clear() }); ok {
+	if closer, ok := resources.(interface{ Close() error }); ok {
+		_ = closer.Close()
+	} else if closer, ok := resources.(interface{ Clear() }); ok {
 		closer.Clear()
 	}
 }

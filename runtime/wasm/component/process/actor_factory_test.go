@@ -593,3 +593,58 @@ func TestManager_AddPreservesSecurityMetadata(t *testing.T) {
 	require.NotNil(t, cfg)
 	assert.Equal(t, expectedSec, cfg.security)
 }
+
+func TestActorFactory_SharedSocketBudget(t *testing.T) {
+	actorBytes, _ := loadActorWASM(t)
+
+	hostReg := wasmcomponent.NewHostRegistry()
+	require.NoError(t, hostReg.RegisterProfiles(testActorHostProfile()))
+
+	cfg := &api.ProcessConfig{
+		Method:  "run",
+		Imports: []registry.ID{registry.ParseID("wippy:actor")},
+	}
+	cfg.SetOptions(api.ProcessOptions{
+		Limits: api.ProcessLimitsConfig{
+			MemoryBytes:    64 * 1024 * 1024,
+			MaxOpenSockets: 4,
+		},
+		Mailbox: api.ProcessMailboxConfig{
+			Capacity:     64,
+			Bytes:        4 * 1024 * 1024,
+			MessageBytes: 512 * 1024,
+		},
+	})
+
+	factory := NewActorFactory(actorBytes, true, cfg, hostReg, nil)
+	spawnFunc := factory.Create()
+
+	proc1, err := spawnFunc()
+	require.NoError(t, err)
+	actorProc1, ok := proc1.(*wasmengine.ActorProcess)
+	require.True(t, ok)
+	require.NotNil(t, actorProc1.SocketBudget())
+	assert.Equal(t, 4, actorProc1.SocketBudget().Capacity())
+
+	proc2, err := spawnFunc()
+	require.NoError(t, err)
+	actorProc2, ok := proc2.(*wasmengine.ActorProcess)
+	require.True(t, ok)
+	require.NotNil(t, actorProc2.SocketBudget())
+	assert.Equal(t, 4, actorProc2.SocketBudget().Capacity())
+
+	// Socket budgets must be distinct instances
+	assert.True(t, actorProc1.SocketBudget() != actorProc2.SocketBudget())
+
+	// Acquire in proc1 does not affect proc2
+	lease, err := actorProc1.SocketBudget().Acquire()
+	require.NoError(t, err)
+	assert.Equal(t, 1, actorProc1.SocketBudget().Used())
+	assert.Equal(t, 0, actorProc2.SocketBudget().Used())
+
+	lease.Release()
+	assert.Equal(t, 0, actorProc1.SocketBudget().Used())
+
+	actorProc1.Close()
+	actorProc2.Close()
+}

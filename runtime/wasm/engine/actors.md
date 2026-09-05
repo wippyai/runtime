@@ -90,9 +90,10 @@ both the per-message and total mailbox budgets. Runtime lifecycle signals use
 the existing reserved system channel, separate from application-message budgets.
 
 Each actor's WASI resource table additionally caps live handles at 4096 and counts
-TCP and UDP sockets together against `max_open_sockets`. Dropping or closing
-resources releases their capacity. The legacy core `socket` profile has its own
-socket table and limit; using both socket APIs does not provide a combined quota.
+Preview2 TCP/UDP sockets and legacy core `socket` connections together against
+`max_open_sockets`. Reservations remain held until the underlying socket closes;
+failed operations release them. Each actor owns an independent budget. Closing
+the resource scope prevents late resource publication.
 `socket_timeout_ms` currently applies to the core socket profile. Preview2 socket
 operations inherit process cancellation but still need uniform operation timeouts.
 
@@ -123,6 +124,6 @@ watchers remain the largest allocation source in the optimized profile.
 
 This enables a stateful indexing actor; it does not implement an indexer or replace
 Wippy's Lua compiler/type system. MQTT remains a follow-up server workload:
-Preview2 multi-source blocking poll, uniform network deadlines, combined host
-resource accounting, and a real server/concurrency benchmark are not validated
+Preview2 multi-source blocking poll, uniform network deadlines, aggregate host
+memory accounting, and a real server/concurrency benchmark are not validated
 by the counter fixture. Do not treat this PR as production MQTT support.

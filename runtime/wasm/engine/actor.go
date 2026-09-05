@@ -11,8 +11,10 @@ import (
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/topology"
+	wippyhost "github.com/wippyai/runtime/runtime/wasm/host/wippy"
 	"github.com/wippyai/runtime/runtime/wasm/host/wippy/hosts/actor"
 	sysprocess "github.com/wippyai/runtime/system/process"
+	"github.com/wippyai/wasm-runtime/wasi/preview2"
 )
 
 // ActorProcess owns one guest execution for its entire PID lifetime. Function
@@ -21,12 +23,26 @@ type ActorProcess struct {
 	*Process
 	mailbox          *actor.Mailbox
 	releaseResources func()
+	socketBudget     *preview2.SocketBudget
 	mailboxLimits    actor.Limits
 	initialized      bool
 }
 
 func NewActorProcess(execution *Process, limits actor.Limits, releaseResources func()) *ActorProcess {
 	return &ActorProcess{Process: execution, mailboxLimits: limits, releaseResources: releaseResources}
+}
+
+// SetSocketBudget configures the shared socket budget before Init.
+func (p *ActorProcess) SetSocketBudget(budget *preview2.SocketBudget) {
+	if p.initialized {
+		panic("actor socket budget cannot change after Init")
+	}
+	p.socketBudget = budget
+}
+
+// SocketBudget returns the shared socket budget for this actor execution, if set.
+func (p *ActorProcess) SocketBudget() *preview2.SocketBudget {
+	return p.socketBudget
 }
 
 func (p *ActorProcess) Init(ctx context.Context, method string, input payload.Payloads) error {
@@ -38,6 +54,9 @@ func (p *ActorProcess) Init(ctx context.Context, method string, input payload.Pa
 	}
 	p.initialized = true
 	p.mailbox = actor.NewMailbox(p.mailboxLimits)
+	if p.socketBudget != nil {
+		ctx = wippyhost.WithSocketBudget(ctx, p.socketBudget)
+	}
 	return p.Process.Init(actor.WithMailbox(ctx, p.mailbox), method, input)
 }
 

@@ -12,8 +12,26 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/wasm-runtime/resource"
 	wasmrt "github.com/wippyai/wasm-runtime/runtime"
+	"github.com/wippyai/wasm-runtime/wasi/preview2"
 )
+
+func TestHostRegistryCloseResourcesPreventsLatePublication(t *testing.T) {
+	r := NewHostRegistry()
+	table := preview2.NewResourceTableWithLimits(8, 1)
+	r.SetSharedResources(table)
+	table.Add(preview2.NewTCPSocketResource(0))
+	r.CloseResources()
+	r.CloseResources()
+	require.Zero(t, table.SocketBudget().Used())
+	socket := preview2.NewTCPSocketResource(0)
+	defer socket.Drop()
+	handle, err := table.TryAdd(socket)
+	require.ErrorIs(t, err, resource.ErrClosed)
+	require.Zero(t, handle)
+	require.Zero(t, table.SocketBudget().Used())
+}
 
 func TestHostRegistryResolve(t *testing.T) {
 	r := NewHostRegistry()

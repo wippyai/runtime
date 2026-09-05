@@ -22,6 +22,7 @@ import (
 	wasmengine "github.com/wippyai/wasm-runtime/engine"
 	"github.com/wippyai/wasm-runtime/resource"
 	wasmrt "github.com/wippyai/wasm-runtime/runtime"
+	"github.com/wippyai/wasm-runtime/wasi/preview2"
 
 	netapi "github.com/wippyai/runtime/api/net"
 	wasmapi "github.com/wippyai/runtime/api/runtime/wasm"
@@ -60,6 +61,30 @@ func Register(rt *wasmrt.Runtime) error {
 	return register("close", []api.ValueType{i32}, []api.ValueType{i32}, Close)
 }
 
+type leaseConn struct {
+	net.Conn
+	lease    *preview2.SocketLease
+	closeErr error
+	once     sync.Once
+}
+
+func (l *leaseConn) Close() error {
+	l.once.Do(func() {
+		defer l.lease.Release()
+		if l.Conn != nil {
+			l.closeErr = l.Conn.Close()
+		}
+	})
+	return l.closeErr
+}
+
+func wrapWithLease(conn net.Conn, lease *preview2.SocketLease) net.Conn {
+	if lease == nil {
+		return conn
+	}
+	return &leaseConn{Conn: conn, lease: lease}
+}
+
 type connection struct {
 	net.Conn
 	closeErr error
@@ -71,7 +96,11 @@ func (c *connection) Drop() {
 }
 
 func (c *connection) Close() error {
-	c.once.Do(func() { c.closeErr = c.Conn.Close() })
+	c.once.Do(func() {
+		if c.Conn != nil {
+			c.closeErr = c.Conn.Close()
+		}
+	})
 	return c.closeErr
 }
 
@@ -112,7 +141,13 @@ func boundOperation(ctx context.Context, conn net.Conn, limits wasmapi.LimitsCon
 	operationCtx, cancel := context.WithTimeout(ctx, socketTimeout(limits, 0))
 	stop := context.AfterFunc(operationCtx, func() { _ = conn.Close() })
 	return operationCtx, func() {
-		stop()
+		stopped := stop()
+		deadline, hasDeadline := operationCtx.Deadline()
+		// The network deadline can fire before the context timer. Do not stop
+		// cancellation cleanup and keep the socket alive in that interval.
+		if !stopped || operationCtx.Err() != nil || (hasDeadline && !time.Now().Before(deadline)) {
+			_ = conn.Close()
+		}
 		cancel()
 		_ = conn.SetDeadline(time.Time{})
 	}
@@ -137,10 +172,26 @@ func Connect(ctx context.Context, mod api.Module, stack []uint64) {
 		return
 	}
 	limits := wippyhost.GetCallLimits(ctx)
-	if table.Count(connectionResourceType) >= limits.EffectiveMaxOpenSockets() {
+	budget := wippyhost.GetSocketBudget(ctx)
+	var lease *preview2.SocketLease
+	if budget != nil {
+		var err error
+		lease, err = budget.Acquire()
+		if err != nil {
+			stack[0] = pack(StatusLimit, 0)
+			return
+		}
+	} else if table.Count(connectionResourceType) >= limits.EffectiveMaxOpenSockets() {
 		stack[0] = pack(StatusLimit, 0)
 		return
 	}
+
+	transferred := false
+	defer func() {
+		if !transferred {
+			lease.Release()
+		}
+	}()
 
 	dialCtx, cancel := context.WithTimeout(ctx, socketTimeout(limits, timeoutMS))
 	defer cancel()
@@ -168,12 +219,16 @@ func Connect(ctx context.Context, mod api.Module, stack []uint64) {
 		return
 	}
 
-	handle := table.Insert(connectionResourceType, &connection{Conn: conn})
+	c := &connection{
+		Conn: wrapWithLease(conn, lease),
+	}
+	handle := table.Insert(connectionResourceType, c)
 	if handle == 0 {
-		_ = conn.Close()
+		_ = c.Close()
 		stack[0] = pack(StatusFailed, 0)
 		return
 	}
+	transferred = true
 	stack[0] = pack(StatusOK, uint32(handle))
 }
 
