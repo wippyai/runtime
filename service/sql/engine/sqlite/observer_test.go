@@ -6,6 +6,7 @@ package sqlite
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -156,6 +157,9 @@ func TestPerPoolSnapshotLiveIsolation(t *testing.T) {
 
 	_, err = first.opened.DB.ExecContext(context.Background(), `INSERT INTO items (id, value) VALUES (4, 'first-overflow')`)
 	require.NoError(t, err)
+	// Publication is asynchronous. Wait for overflow before consuming, or the
+	// receive itself can free capacity before the queued second batch arrives.
+	require.Eventually(t, func() bool { return errors.Is(firstBackpressured.Err(), errObserverOverflow) }, time.Second, time.Millisecond)
 	select {
 	case _, ok := <-firstBackpressured.Changes():
 		require.False(t, ok)
@@ -390,7 +394,7 @@ func TestObserverSnapshotHandoffIncludesInFlightWriterAsLive(t *testing.T) {
 	observed, err := openObservedDB(t, filepath.Join(t.TempDir(), "snapshot-inflight.db"))
 	require.NoError(t, err)
 	defer observed.Close()
-	assert.Equal(t, 0, observed.opened.DB.Stats().MaxOpenConnections, "file-backed SQLite should retain the default unlimited pool")
+	assert.Equal(t, 1, observed.opened.DB.Stats().MaxOpenConnections, "snapshots must leave the single application writer available")
 	_, err = observed.opened.DB.ExecContext(context.Background(), `CREATE TABLE items (id INTEGER PRIMARY KEY, value TEXT)`)
 	require.NoError(t, err)
 	tx, err := observed.opened.DB.BeginTx(context.Background(), nil)
