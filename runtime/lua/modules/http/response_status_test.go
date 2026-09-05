@@ -25,7 +25,7 @@ func TestStatusBeforeHeadersAndBody(t *testing.T) {
 			bind(l)
 			ctx, frame := newTestContext()
 			recorder := httptest.NewRecorder()
-			reqCtx := httpservice.NewRequestContext(httptest.NewRequest("GET", "/", nil), recorder)
+			reqCtx := httpservice.NewRequestContext(httptest.NewRequestWithContext(ctx, "GET", "/", nil), recorder)
 			require.NoError(t, frame.Set(httpservice.RequestKey(), reqCtx))
 			l.SetContext(ctx)
 			require.NoError(t, l.DoString(`
