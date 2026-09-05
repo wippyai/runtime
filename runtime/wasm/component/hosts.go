@@ -28,13 +28,25 @@ const (
 	HostProfileSocket         = "socket"
 )
 
+// DeprecationInfo holds explicit inspectable deprecation metadata for a host profile or alias.
+type DeprecationInfo struct {
+	Replacement          string `json:"replacement"`
+	FirstReleasedVersion string `json:"first_released_version,omitempty"`
+	Notes                string `json:"notes,omitempty"`
+	MinimumVersions      int    `json:"minimum_versions"`
+	Deprecated           bool   `json:"deprecated"`
+}
+
 // HostProfile defines a pluggable wasm host import profile.
 // Profiles are resolved from configured imports (aliases/canonical names).
 type HostProfile struct {
-	Register      func(ctx context.Context, rt *wasmrt.Runtime) error
-	Name          string
-	Aliases       []string
-	ComponentOnly bool
+	Register            func(ctx context.Context, rt *wasmrt.Runtime) error
+	DeprecationCallback func(ctx context.Context, alias string, info DeprecationInfo)
+	Deprecation         *DeprecationInfo
+	DeprecatedAliases   map[string]DeprecationInfo
+	Name                string
+	Aliases             []string
+	ComponentOnly       bool
 }
 
 type hostRegistryKey struct{}
@@ -52,21 +64,104 @@ func GetHostRegistry(ctx context.Context) *HostRegistry {
 
 // HostRegistry resolves import IDs to host profiles and registers them once.
 type HostRegistry struct {
-	sharedResources any
-	profiles        map[string]HostProfile
-	aliases         map[string]string
-	loaded          map[*wasmrt.Runtime]map[string]bool
-	mu              sync.RWMutex
-	registerMu      sync.Mutex
+	sharedResources     any
+	profiles            map[string]HostProfile
+	aliases             map[string]string
+	deprecations        map[string]DeprecationInfo
+	warned              map[*wasmrt.Runtime]map[string]bool
+	deprecationCallback func(ctx context.Context, alias string, info DeprecationInfo)
+	loaded              map[*wasmrt.Runtime]map[string]bool
+	mu                  sync.RWMutex
+	registerMu          sync.Mutex
 }
 
 // NewHostRegistry creates an empty host registry.
 func NewHostRegistry() *HostRegistry {
 	return &HostRegistry{
-		profiles: make(map[string]HostProfile),
-		aliases:  make(map[string]string),
-		loaded:   make(map[*wasmrt.Runtime]map[string]bool),
+		profiles:     make(map[string]HostProfile),
+		aliases:      make(map[string]string),
+		deprecations: make(map[string]DeprecationInfo),
+		warned:       make(map[*wasmrt.Runtime]map[string]bool),
+		loaded:       make(map[*wasmrt.Runtime]map[string]bool),
 	}
+}
+
+// SetDeprecationCallback sets a registry-wide callback for deprecated imports.
+func (r *HostRegistry) SetDeprecationCallback(cb func(ctx context.Context, alias string, info DeprecationInfo)) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.deprecationCallback = cb
+}
+
+// Deprecation returns deprecation info for an import ID if deprecated.
+func (r *HostRegistry) Deprecation(id registry.ID) (DeprecationInfo, bool) {
+	tokens := []string{
+		normalizeImportToken(id.Name),
+		normalizeImportToken(id.String()),
+	}
+
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	for _, token := range tokens {
+		if token == "" {
+			continue
+		}
+		if dep, ok := r.deprecations[token]; ok {
+			return dep, true
+		}
+		if name, ok := r.aliases[token]; ok {
+			if profile, exists := r.profiles[name]; exists && profile.Deprecation != nil && profile.Deprecation.Deprecated {
+				return *profile.Deprecation, true
+			}
+		}
+	}
+
+	return DeprecationInfo{}, false
+}
+
+// DeprecationForAlias returns deprecation info for a raw alias string if deprecated.
+func (r *HostRegistry) DeprecationForAlias(alias string) (DeprecationInfo, bool) {
+	token := normalizeImportToken(alias)
+	if token == "" {
+		return DeprecationInfo{}, false
+	}
+
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	if dep, ok := r.deprecations[token]; ok {
+		return dep, true
+	}
+	if name, ok := r.aliases[token]; ok {
+		if profile, exists := r.profiles[name]; exists && profile.Deprecation != nil && profile.Deprecation.Deprecated {
+			return *profile.Deprecation, true
+		}
+	}
+
+	return DeprecationInfo{}, false
+}
+
+// MarkWarned records that a warning was emitted for this runtime and alias.
+// Returns true if this is the first time it was marked for this runtime and alias.
+func (r *HostRegistry) MarkWarned(rt *wasmrt.Runtime, alias string) bool {
+	token := normalizeImportToken(alias)
+	if token == "" {
+		return false
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.warned == nil {
+		r.warned = make(map[*wasmrt.Runtime]map[string]bool)
+	}
+	if r.warned[rt] == nil {
+		r.warned[rt] = make(map[string]bool)
+	}
+	if r.warned[rt][token] {
+		return false
+	}
+	r.warned[rt][token] = true
+	return true
 }
 
 // SharedResources returns the shared resource state for this registry.
@@ -88,6 +183,7 @@ func (r *HostRegistry) SetSharedResources(v any) {
 func (r *HostRegistry) ResetLoaded() {
 	r.mu.Lock()
 	r.loaded = make(map[*wasmrt.Runtime]map[string]bool)
+	r.warned = make(map[*wasmrt.Runtime]map[string]bool)
 	r.sharedResources = nil
 	r.mu.Unlock()
 }
@@ -119,6 +215,17 @@ func (r *HostRegistry) RegisterProfiles(profiles ...HostProfile) error {
 				return fmt.Errorf("host profile alias conflict: %s already mapped to %s", alias, existing)
 			}
 			r.aliases[alias] = name
+		}
+
+		if profile.Deprecation != nil && profile.Deprecation.Deprecated {
+			r.deprecations[name] = *profile.Deprecation
+		}
+		for aliasRaw, dep := range profile.DeprecatedAliases {
+			alias := normalizeImportToken(aliasRaw)
+			if alias != "" {
+				dep.Deprecated = true
+				r.deprecations[alias] = dep
+			}
 		}
 	}
 
@@ -174,6 +281,8 @@ func (r *HostRegistry) EnsureImports(
 			return runtimewasm.NewComponentHostImportError(id.String())
 		}
 		required[profile.Name] = profile
+
+		r.checkDeprecatedImport(ctx, rt, id, profile)
 	}
 
 	for _, profile := range required {
@@ -183,6 +292,31 @@ func (r *HostRegistry) EnsureImports(
 	}
 
 	return nil
+}
+
+func (r *HostRegistry) checkDeprecatedImport(
+	ctx context.Context,
+	rt *wasmrt.Runtime,
+	id registry.ID,
+	profile HostProfile,
+) {
+	dep, isDep := r.Deprecation(id)
+	if !isDep {
+		return
+	}
+	alias := id.String()
+	if !r.MarkWarned(rt, alias) {
+		return
+	}
+	if profile.DeprecationCallback != nil {
+		profile.DeprecationCallback(ctx, alias, dep)
+	}
+	r.mu.RLock()
+	cb := r.deprecationCallback
+	r.mu.RUnlock()
+	if cb != nil {
+		cb(ctx, alias, dep)
+	}
 }
 
 func (r *HostRegistry) ensureLoaded(ctx context.Context, rt *wasmrt.Runtime, profile HostProfile) error {
@@ -246,12 +380,23 @@ func (r *HostRegistry) Fork() *HostRegistry {
 	child := NewHostRegistry()
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+	child.deprecationCallback = r.deprecationCallback
 	for name, profile := range r.profiles {
 		profile.Aliases = append([]string(nil), profile.Aliases...)
+		if profile.DeprecatedAliases != nil {
+			depCopy := make(map[string]DeprecationInfo, len(profile.DeprecatedAliases))
+			for k, v := range profile.DeprecatedAliases {
+				depCopy[k] = v
+			}
+			profile.DeprecatedAliases = depCopy
+		}
 		child.profiles[name] = profile
 	}
 	for alias, name := range r.aliases {
 		child.aliases[alias] = name
+	}
+	for alias, dep := range r.deprecations {
+		child.deprecations[alias] = dep
 	}
 	return child
 }
@@ -263,6 +408,7 @@ func (r *HostRegistry) CloseResources() {
 	resources := r.sharedResources
 	r.sharedResources = nil
 	r.loaded = make(map[*wasmrt.Runtime]map[string]bool)
+	r.warned = make(map[*wasmrt.Runtime]map[string]bool)
 	r.mu.Unlock()
 	if closer, ok := resources.(interface{ Close() error }); ok {
 		_ = closer.Close()

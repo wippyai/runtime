@@ -23,13 +23,40 @@ import (
 	"github.com/wippyai/wasm-runtime/resource"
 	wasmrt "github.com/wippyai/wasm-runtime/runtime"
 	"github.com/wippyai/wasm-runtime/wasi/preview2"
+	"go.uber.org/zap"
 
 	netapi "github.com/wippyai/runtime/api/net"
 	wasmapi "github.com/wippyai/runtime/api/runtime/wasm"
 	wippyhost "github.com/wippyai/runtime/runtime/wasm/host/wippy"
 )
 
-const Namespace = "wippy:runtime/socket@0.1.0"
+const (
+	Namespace                  = "wippy:runtime/socket@0.1.0"
+	LegacyNamespace            = "wippy:sock/tcp"
+	LegacyYAMLName             = "wippy:sock"
+	CanonicalProfileName       = "socket"
+	MinimumDeprecationVersions = 10
+	FirstReleasedVersion       = "" // unassigned for draft; release notes must identify first shipped version
+	DeprecationNotes           = "legacy socket binary namespace wippy:sock/tcp and YAML alias wippy:sock are deprecated; supported for minimum 10 runtime versions after first release containing marker; no automatic removal"
+)
+
+// DeprecationMetadata contains inspectable deprecation metadata for legacy socket imports.
+type DeprecationMetadata struct {
+	Replacement          string `json:"replacement"`
+	FirstReleasedVersion string `json:"first_released_version,omitempty"`
+	Notes                string `json:"notes,omitempty"`
+	MinimumVersions      int    `json:"minimum_versions"`
+	Deprecated           bool   `json:"deprecated"`
+}
+
+// LegacyDeprecation provides inspectable deprecation metadata for the legacy socket binary namespace and alias.
+var LegacyDeprecation = DeprecationMetadata{
+	Deprecated:           true,
+	Replacement:          Namespace,
+	MinimumVersions:      MinimumDeprecationVersions,
+	FirstReleasedVersion: FirstReleasedVersion,
+	Notes:                DeprecationNotes,
+}
 
 const connectionResourceType uint32 = 0x534f434b // "SOCK"
 const maxHostBytes = 253
@@ -44,21 +71,94 @@ const (
 	StatusTimeout
 )
 
-func Register(rt *wasmrt.Runtime) error {
+// RegisterOption configures core socket registration options.
+type RegisterOption func(*registerConfig)
+
+type registerConfig struct {
+	logger  *zap.Logger
+	deduper func(alias string) bool
+}
+
+// WithLogger configures a zap logger for deprecation warnings.
+func WithLogger(logger *zap.Logger) RegisterOption {
+	return func(c *registerConfig) {
+		c.logger = logger
+	}
+}
+
+// WithDeduper supplies a deduplication check returning true if warning should proceed.
+func WithDeduper(deduper func(alias string) bool) RegisterOption {
+	return func(c *registerConfig) {
+		c.deduper = deduper
+	}
+}
+
+// Register registers both canonical (wippy:runtime/socket@0.1.0) and legacy (wippy:sock/tcp)
+// binary namespaces into the provided runtime. Both namespaces bind to the same handlers,
+// capabilities, and per-instance limits.
+func Register(rt *wasmrt.Runtime, opts ...RegisterOption) error {
+	cfg := registerConfig{}
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+
 	i32, i64 := api.ValueTypeI32, api.ValueTypeI64
-	register := func(name string, params, results []api.ValueType, fn api.GoModuleFunc) error {
+
+	// Register canonical functions (no deprecation warning)
+	registerCanonical := func(name string, params, results []api.ValueType, fn api.GoModuleFunc) error {
 		return rt.RegisterCoreFunc(Namespace, name, params, results, fn, false)
 	}
-	if err := register("connect", []api.ValueType{i32, i32, i32, i32}, []api.ValueType{i64}, Connect); err != nil {
+	if err := registerCanonical("connect", []api.ValueType{i32, i32, i32, i32}, []api.ValueType{i64}, Connect); err != nil {
 		return err
 	}
-	if err := register("send", []api.ValueType{i32, i32, i32}, []api.ValueType{i64}, Send); err != nil {
+	if err := registerCanonical("send", []api.ValueType{i32, i32, i32}, []api.ValueType{i64}, Send); err != nil {
 		return err
 	}
-	if err := register("recv", []api.ValueType{i32, i32, i32}, []api.ValueType{i64}, Recv); err != nil {
+	if err := registerCanonical("recv", []api.ValueType{i32, i32, i32}, []api.ValueType{i64}, Recv); err != nil {
 		return err
 	}
-	return register("close", []api.ValueType{i32}, []api.ValueType{i32}, Close)
+	if err := registerCanonical("close", []api.ValueType{i32}, []api.ValueType{i32}, Close); err != nil {
+		return err
+	}
+
+	// Register legacy functions with deduplicated warning on first use
+	var warnOnce sync.Once
+	warnLegacy := func() {
+		warnOnce.Do(func() {
+			if cfg.deduper != nil && !cfg.deduper(LegacyNamespace) {
+				return
+			}
+			if cfg.logger != nil {
+				cfg.logger.Warn("deprecated socket binary namespace used; please migrate to canonical namespace",
+					zap.String("namespace", LegacyNamespace),
+					zap.String("replacement", Namespace),
+					zap.Int("minimum_versions", MinimumDeprecationVersions),
+					zap.String("first_released_version", FirstReleasedVersion),
+				)
+			}
+		})
+	}
+
+	wrapLegacy := func(fn api.GoModuleFunc) api.GoModuleFunc {
+		return func(ctx context.Context, mod api.Module, stack []uint64) {
+			warnLegacy()
+			fn(ctx, mod, stack)
+		}
+	}
+
+	registerLegacy := func(name string, params, results []api.ValueType, fn api.GoModuleFunc) error {
+		return rt.RegisterCoreFunc(LegacyNamespace, name, params, results, wrapLegacy(fn), false)
+	}
+	if err := registerLegacy("connect", []api.ValueType{i32, i32, i32, i32}, []api.ValueType{i64}, Connect); err != nil {
+		return err
+	}
+	if err := registerLegacy("send", []api.ValueType{i32, i32, i32}, []api.ValueType{i64}, Send); err != nil {
+		return err
+	}
+	if err := registerLegacy("recv", []api.ValueType{i32, i32, i32}, []api.ValueType{i64}, Recv); err != nil {
+		return err
+	}
+	return registerLegacy("close", []api.ValueType{i32}, []api.ValueType{i32}, Close)
 }
 
 type leaseConn struct {

@@ -36,11 +36,47 @@ func DefaultHostProfiles(log *zap.Logger, disp dispatcher.Dispatcher) []wasmcomp
 }
 
 func coreSocketProfile(log *zap.Logger) wasmcomponent.HostProfile {
+	depInfo := wasmcomponent.DeprecationInfo{
+		Deprecated:           true,
+		Replacement:          wasmcomponent.HostProfileSocket,
+		MinimumVersions:      coresocket.MinimumDeprecationVersions,
+		FirstReleasedVersion: coresocket.FirstReleasedVersion,
+		Notes:                coresocket.DeprecationNotes,
+	}
+
 	return wasmcomponent.HostProfile{
-		Name:    wasmcomponent.HostProfileSocket,
-		Aliases: []string{coresocket.Namespace},
-		Register: func(_ context.Context, rt *wasmrt.Runtime) error {
-			if err := coresocket.Register(rt); err != nil {
+		Name: wasmcomponent.HostProfileSocket,
+		Aliases: []string{
+			coresocket.Namespace,
+			coresocket.LegacyYAMLName,
+			coresocket.LegacyNamespace,
+		},
+		DeprecatedAliases: map[string]wasmcomponent.DeprecationInfo{
+			coresocket.LegacyYAMLName:  depInfo,
+			coresocket.LegacyNamespace: depInfo,
+		},
+		DeprecationCallback: func(_ context.Context, alias string, info wasmcomponent.DeprecationInfo) {
+			if log != nil {
+				log.Warn("deprecated host import alias used; please migrate to canonical profile",
+					zap.String("alias", alias),
+					zap.String("replacement", info.Replacement),
+					zap.Int("minimum_versions", info.MinimumVersions),
+					zap.String("first_released_version", info.FirstReleasedVersion),
+				)
+			}
+		},
+		Register: func(ctx context.Context, rt *wasmrt.Runtime) error {
+			reg := wasmcomponent.GetHostRegistry(ctx)
+			var opts []coresocket.RegisterOption
+			if log != nil {
+				opts = append(opts, coresocket.WithLogger(log))
+			}
+			if reg != nil {
+				opts = append(opts, coresocket.WithDeduper(func(alias string) bool {
+					return reg.MarkWarned(rt, alias)
+				}))
+			}
+			if err := coresocket.Register(rt, opts...); err != nil {
 				return runtimewasm.NewRegisterHostError(coresocket.Namespace, err)
 			}
 			if log != nil {
