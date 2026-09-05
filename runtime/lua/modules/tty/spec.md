@@ -117,7 +117,7 @@ content.
 | `rows()` | Render the complete row array for a surface |
 
 Canvas coordinates are one-based but may be negative for clipping. Canvas area
-is capped at 1,048,576 cells.
+is capped at 262,144 cells.
 
 ## Viewport
 

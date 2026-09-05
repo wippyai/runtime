@@ -82,10 +82,7 @@ func (s *keyboardState) encode(event ttyapi.Event) (string, bool) {
 	modifyOtherKeys := s.modifyOtherKeys
 	s.mu.RUnlock()
 	if flags != 0 {
-		name := event.KeyType
-		if name == "" || name == "runes" {
-			name = event.Key
-		}
+		name := keyName(event)
 		_, special := kittyKeyCodes[name]
 		_, functional := kittyFunctionalKeys[name]
 		special = special || functional
@@ -97,10 +94,7 @@ func (s *keyboardState) encode(event ttyapi.Event) (string, bool) {
 		return encodeKittyKey(event, flags), true
 	}
 	if modifyOtherKeys == 2 && event.Action != "release" && (event.Shift || event.Alt || event.Ctrl) {
-		name := event.KeyType
-		if name == "" || name == "runes" {
-			name = event.Key
-		}
+		name := keyName(event)
 		if _, special := kittyKeyCodes[name]; special {
 			return "", false
 		}
@@ -123,10 +117,7 @@ func encodeKittyKey(event ttyapi.Event, flags int) string {
 		return ""
 	}
 	mods := modifier(event)
-	name := event.KeyType
-	if name == "" || name == "runes" {
-		name = event.Key
-	}
+	name := keyName(event)
 	// These controls retain their legacy press encoding until report-all is
 	// requested, including when event-type reporting is enabled.
 	if flags&ansi.KittyReportAllKeysAsEscapeCodes == 0 && (name == "enter" || name == "tab" || name == "backspace") {
@@ -172,11 +163,15 @@ var kittyFunctionalKeys = map[string]struct {
 	"f9": {20, '~'}, "f10": {21, '~'}, "f11": {23, '~'}, "f12": {24, '~'},
 }
 
-func keyCode(event ttyapi.Event) (int, bool) {
-	name := event.KeyType
-	if name == "" || name == "runes" {
-		name = event.Key
+func keyName(event ttyapi.Event) string {
+	if event.KeyType == "" || event.KeyType == "runes" {
+		return event.Key
 	}
+	return event.KeyType
+}
+
+func keyCode(event ttyapi.Event) (int, bool) {
+	name := keyName(event)
 	if code, ok := kittyKeyCodes[name]; ok {
 		return code, true
 	}
