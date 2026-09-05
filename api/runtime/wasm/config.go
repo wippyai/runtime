@@ -220,6 +220,8 @@ func (c LimitsConfig) EffectiveSocketTimeoutMS() int {
 }
 
 type watFunctionConfigJSON struct {
+	Limits    any           `json:"limits,omitempty" yaml:"limits,omitempty"`
+	Pool      any           `json:"pool,omitempty" yaml:"pool,omitempty"`
 	Meta      attrs.Bag     `json:"meta,omitempty" yaml:"meta,omitempty"`
 	Source    string        `json:"source" yaml:"source"`
 	Method    string        `json:"method" yaml:"method"`
@@ -227,8 +229,6 @@ type watFunctionConfigJSON struct {
 	WIT       string        `json:"wit,omitempty" yaml:"wit,omitempty"`
 	WASI      WASIConfig    `json:"wasi,omitempty" yaml:"wasi,omitempty"`
 	Imports   []registry.ID `json:"imports,omitempty" yaml:"imports,omitempty"`
-	Limits    any           `json:"limits,omitempty" yaml:"limits,omitempty"`
-	Pool      any           `json:"pool,omitempty" yaml:"pool,omitempty"`
 }
 
 // UnmarshalJSON deserializes WATFunctionConfig and flags any presence of root-level limits or pool.
@@ -328,6 +328,8 @@ func (c WATFunctionConfig) MarshalYAML() (any, error) {
 }
 
 type functionConfigJSON struct {
+	Limits    any           `json:"limits,omitempty" yaml:"limits,omitempty"`
+	Pool      any           `json:"pool,omitempty" yaml:"pool,omitempty"`
 	Meta      attrs.Bag     `json:"meta,omitempty" yaml:"meta,omitempty"`
 	FS        string        `json:"fs" yaml:"fs"`
 	Path      string        `json:"path" yaml:"path"`
@@ -337,8 +339,6 @@ type functionConfigJSON struct {
 	WIT       string        `json:"wit,omitempty" yaml:"wit,omitempty"`
 	WASI      WASIConfig    `json:"wasi,omitempty" yaml:"wasi,omitempty"`
 	Imports   []registry.ID `json:"imports,omitempty" yaml:"imports,omitempty"`
-	Limits    any           `json:"limits,omitempty" yaml:"limits,omitempty"`
-	Pool      any           `json:"pool,omitempty" yaml:"pool,omitempty"`
 }
 
 // UnmarshalJSON deserializes FunctionConfig and flags any presence of root-level limits or pool.

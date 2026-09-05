@@ -127,9 +127,9 @@ type (
 
 	// ProcessOptions encapsulates execution controls defined inside meta.options.
 	ProcessOptions struct {
+		WorkerClass string               `json:"worker_class,omitempty" yaml:"worker_class,omitempty"`
 		Limits      ProcessLimitsConfig  `json:"limits,omitempty" yaml:"limits,omitempty"`
 		Mailbox     ProcessMailboxConfig `json:"mailbox,omitempty" yaml:"mailbox,omitempty"`
-		WorkerClass string               `json:"worker_class,omitempty" yaml:"worker_class,omitempty"`
 	}
 
 	// ProcessConfig defines configuration for precompiled WASM process/actor entries (process.wasm).
@@ -139,30 +139,32 @@ type (
 	// Root-level limits and pool are explicitly forbidden; persistent actors do not support
 	// function pooling or root-level limits.
 	ProcessConfig struct {
-		Meta      attrs.Bag        `json:"meta,omitempty" yaml:"meta,omitempty"`
-		Security  *security.Config `json:"security,omitempty" yaml:"security,omitempty"`
-		FS        string           `json:"fs" yaml:"fs"`
-		Path      string           `json:"path" yaml:"path"`
-		Hash      string           `json:"hash" yaml:"hash"`
-		Method    string           `json:"method" yaml:"method"`
-		Transport string           `json:"transport,omitempty" yaml:"transport,omitempty"`
-		WIT       string           `json:"wit,omitempty" yaml:"wit,omitempty"`
-		WASI      WASIConfig       `json:"wasi,omitempty" yaml:"wasi,omitempty"`
-		Imports   []registry.ID    `json:"imports,omitempty" yaml:"imports,omitempty"`
+		Meta     attrs.Bag        `json:"meta,omitempty" yaml:"meta,omitempty"`
+		Security *security.Config `json:"security,omitempty" yaml:"security,omitempty"`
 
 		// RootLimits and RootPool capture root-level limits and pool to detect and reject invalid configuration.
 		RootLimits any `json:"limits,omitempty" yaml:"limits,omitempty"`
 		RootPool   any `json:"pool,omitempty" yaml:"pool,omitempty"`
 
+		options       *ProcessOptions
+		FS            string        `json:"fs" yaml:"fs"`
+		Path          string        `json:"path" yaml:"path"`
+		Hash          string        `json:"hash" yaml:"hash"`
+		Method        string        `json:"method" yaml:"method"`
+		Transport     string        `json:"transport,omitempty" yaml:"transport,omitempty"`
+		WIT           string        `json:"wit,omitempty" yaml:"wit,omitempty"`
+		WASI          WASIConfig    `json:"wasi,omitempty" yaml:"wasi,omitempty"`
+		Imports       []registry.ID `json:"imports,omitempty" yaml:"imports,omitempty"`
 		hasRootLimits bool
 		hasRootPool   bool
-		options       *ProcessOptions
 	}
 )
 
 type processConfigJSON struct {
 	Meta      attrs.Bag        `json:"meta,omitempty" yaml:"meta,omitempty"`
 	Security  *security.Config `json:"security,omitempty" yaml:"security,omitempty"`
+	Limits    any              `json:"limits,omitempty" yaml:"limits,omitempty"`
+	Pool      any              `json:"pool,omitempty" yaml:"pool,omitempty"`
 	FS        string           `json:"fs" yaml:"fs"`
 	Path      string           `json:"path" yaml:"path"`
 	Hash      string           `json:"hash" yaml:"hash"`
@@ -171,8 +173,6 @@ type processConfigJSON struct {
 	WIT       string           `json:"wit,omitempty" yaml:"wit,omitempty"`
 	WASI      WASIConfig       `json:"wasi,omitempty" yaml:"wasi,omitempty"`
 	Imports   []registry.ID    `json:"imports,omitempty" yaml:"imports,omitempty"`
-	Limits    any              `json:"limits,omitempty" yaml:"limits,omitempty"`
-	Pool      any              `json:"pool,omitempty" yaml:"pool,omitempty"`
 }
 
 // UnmarshalJSON deserializes ProcessConfig and flags any presence of root-level limits or pool.

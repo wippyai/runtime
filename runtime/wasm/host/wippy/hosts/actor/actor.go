@@ -13,7 +13,6 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/process"
-	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/runtime/security"
 	wippyhost "github.com/wippyai/runtime/runtime/wasm/host/wippy"
@@ -90,23 +89,7 @@ func (*Host) Send(ctx context.Context, target, topic string, inputs []Payload) (
 	}
 	async := wasmengine.GetAsyncify(ctx)
 	if async != nil && async.IsRewinding(ctx) {
-		token, err := wasmengine.Resume(ctx)
-		if err != nil {
-			return false, err
-		}
-		store := wippyhost.GetAsyncValueStore(ctx)
-		if store == nil {
-			return false, errSchedulerRequired
-		}
-		value, ok := store.Take(token)
-		if !ok {
-			return false, errors.New("invalid-send-completion")
-		}
-		result, ok := value.(process.SendResult)
-		if !ok {
-			return false, fmt.Errorf("invalid-send-completion: %T", value)
-		}
-		return result.Error == nil, result.Error
+		return resumeSend(ctx)
 	}
 	if async == nil {
 		return false, errSchedulerRequired
@@ -122,34 +105,42 @@ func (*Host) Send(ctx context.Context, target, topic string, inputs []Payload) (
 	if !ok {
 		return false, ErrActorRequired
 	}
-	if !security.IsAllowed(ctx, "process.send", to.String(), map[string]any{"pid": self.String()}) {
+	selfName := self.String()
+	if !security.IsAllowed(ctx, "process.send", to.String(), map[string]any{"pid": selfName}) {
 		return false, errors.New("denied")
 	}
 	if len(inputs) > MaxPayloads {
 		return false, ErrTooLarge
 	}
+	n, err := messageHeaderSize(selfName, topic, len(inputs), m.limits.MessageBytes)
+	if err != nil {
+		return false, err
+	}
+	// Validate all inputs before allocating owned dispatcher payloads.
+	for _, input := range inputs {
+		switch input.Format {
+		case "bytes", "text", "json":
+		default:
+			return false, ErrUnsupportedPayload
+		}
+		size, err := encodedSize(input.Format, input.Data, "", m.limits.MessageBytes-n)
+		if err != nil {
+			return false, err
+		}
+		n += size
+	}
+	// Canonical ABI input slices can reference guest memory. Snapshot before
+	// suspending; dispatcher execution happens after this host invocation ends.
 	pls := make(payload.Payloads, len(inputs))
 	for i, input := range inputs {
-		var format string
+		format := payload.Bytes
 		switch input.Format {
-		case "bytes":
-			format = payload.Bytes
 		case "text":
 			format = payload.String
 		case "json":
 			format = payload.JSON
-		default:
-			return false, ErrUnsupportedPayload
 		}
-		pls[i] = payload.NewPayload(input.Data, format)
-	}
-	if _, err := messageSize(self.String(), &relay.Message{Topic: topic, Payloads: pls}, m.limits.MessageBytes); err != nil {
-		return false, err
-	}
-	// Canonical ABI input slices can reference guest memory. Snapshot before
-	// suspending; dispatcher execution happens after this host invocation ends.
-	for i, input := range inputs {
-		pls[i] = payload.NewPayload(append([]byte(nil), input.Data...), pls[i].Format())
+		pls[i] = payload.NewPayload(append([]byte(nil), input.Data...), format)
 	}
 	op := &sendPending{command: &process.SendCmd{From: self, To: to, Topic: strings.Clone(topic), Payloads: pls}}
 	if err := wasmengine.Suspend(ctx, op); err != nil {
@@ -163,3 +154,24 @@ type sendPending struct{ command *process.SendCmd }
 func (*sendPending) CmdID() wasmengine.CommandID             { return wasmengine.CommandID(process.Send) }
 func (s *sendPending) ToCommand() dispatcher.Command         { return s.command }
 func (*sendPending) Execute(context.Context) (uint64, error) { return 0, errSchedulerRequired }
+
+// resumeSend consumes only the dispatcher completion; the send owns its inputs.
+func resumeSend(ctx context.Context) (bool, error) {
+	token, err := wasmengine.Resume(ctx)
+	if err != nil {
+		return false, err
+	}
+	store := wippyhost.GetAsyncValueStore(ctx)
+	if store == nil {
+		return false, errSchedulerRequired
+	}
+	value, ok := store.Take(token)
+	if !ok {
+		return false, errors.New("invalid-send-completion")
+	}
+	result, ok := value.(process.SendResult)
+	if !ok {
+		return false, fmt.Errorf("invalid-send-completion: %T", value)
+	}
+	return result.Error == nil, result.Error
+}

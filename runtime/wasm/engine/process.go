@@ -613,8 +613,8 @@ func (p *Process) encodeCustomResult(ctx context.Context, value any) (payload.Pa
 }
 
 func (p *Process) resolveYieldValue(data any) (uint64, error) {
-	value, err := yieldResultValue(data)
-	if err == nil {
+	value, numeric := yieldResultValue(data)
+	if numeric {
 		return value, nil
 	}
 
@@ -642,45 +642,45 @@ func bridgePendingCommand(op wasmengine.PendingOp) (dispatcher.Command, error) {
 	return cmd, nil
 }
 
-func yieldResultValue(data any) (uint64, error) {
+func yieldResultValue(data any) (uint64, bool) {
 	switch v := data.(type) {
 	case nil:
-		return 0, nil
+		return 0, true
 	case uint64:
-		return v, nil
+		return v, true
 	case uint32:
-		return uint64(v), nil
+		return uint64(v), true
 	case uint16:
-		return uint64(v), nil
+		return uint64(v), true
 	case uint8:
-		return uint64(v), nil
+		return uint64(v), true
 	case int:
 		if v < 0 {
-			return 0, fmt.Errorf("negative int value")
+			return 0, false
 		}
-		return uint64(v), nil
+		return uint64(v), true
 	case int64:
 		if v < 0 {
-			return 0, fmt.Errorf("negative int64 value")
+			return 0, false
 		}
-		return uint64(v), nil
+		return uint64(v), true
 	case int32:
 		if v < 0 {
-			return 0, fmt.Errorf("negative int32 value")
+			return 0, false
 		}
-		return uint64(v), nil
+		return uint64(v), true
 	case int16:
 		if v < 0 {
-			return 0, fmt.Errorf("negative int16 value")
+			return 0, false
 		}
-		return uint64(v), nil
+		return uint64(v), true
 	case int8:
 		if v < 0 {
-			return 0, fmt.Errorf("negative int8 value")
+			return 0, false
 		}
-		return uint64(v), nil
+		return uint64(v), true
 	default:
-		return 0, fmt.Errorf("unsupported type %T", data)
+		return 0, false
 	}
 }
 

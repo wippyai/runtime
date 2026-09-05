@@ -20,8 +20,8 @@ import (
 type ActorProcess struct {
 	*Process
 	mailbox          *actor.Mailbox
-	mailboxLimits    actor.Limits
 	releaseResources func()
+	mailboxLimits    actor.Limits
 	initialized      bool
 }
 
@@ -33,7 +33,7 @@ func (p *ActorProcess) Init(ctx context.Context, method string, input payload.Pa
 	if p.initialized {
 		return errors.New("WASM actor already initialized")
 	}
-	if p.Process == nil || p.Process.module == nil {
+	if p.Process == nil || p.module == nil {
 		return errors.New("WASM actor module required")
 	}
 	p.initialized = true
@@ -47,7 +47,7 @@ func (p *ActorProcess) ExecutionTimeout() time.Duration {
 	if p.Process == nil {
 		return 0
 	}
-	return time.Duration(p.Process.limits.MaxExecutionMS) * time.Millisecond
+	return time.Duration(p.limits.MaxExecutionMS) * time.Millisecond
 }
 
 func (p *ActorProcess) Step(events []process.Event, out *process.StepOutput) error {

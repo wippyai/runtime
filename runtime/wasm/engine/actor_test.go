@@ -35,7 +35,7 @@ func newMessagingActor(t testing.TB) (*ActorProcess, pid.PID, pid.PID) {
 	if err := runtimeapi.SetFramePID(ctx, self); err != nil {
 		t.Fatal(err)
 	}
-	rt, err := wasmrt.New(ctx)
+	rt, err := wasmrt.NewWithConfig(ctx, &wasmrt.Config{CloseOnContextDone: true})
 	if err != nil {
 		t.Fatal(err)
 	}

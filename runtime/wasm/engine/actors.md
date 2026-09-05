@@ -77,7 +77,8 @@ recycling limits on functions preserve their existing meaning.
 
 Actor `max_execution_ms` limits total lifetime, including parked time; zero means
 indefinite lifetime. Function `max_execution_ms` remains a per-call deadline.
-Cancellation interrupts a tight guest loop by closing its instance. It is not
+Both actor and function runtimes interrupt a tight guest loop on cancellation or
+execution deadline by closing its instance. This is not
 resumable preemption. WASM actors therefore require a `wasm` process host, whose
 workers use dedicated OS threads and the reserved WASM CPU set when affinity is
 enabled. CPU isolation without an enabled affinity partition is not guaranteed.
@@ -104,12 +105,21 @@ liveness, indirect canonical results, post-return cleanup, cancellation, and
 resource ownership. Actor runtimes are isolated; cold spawning currently recompiles
 inside a fresh runtime.
 
-An illustrative counter round trip on a Ryzen 7950X3D measured approximately
-11 microseconds, 4.8 KB allocated, and 123 allocations. It includes the real Rust
-guest, ingress copying, Canonical ABI, and Asyncify resumption. It excludes the
-scheduler dispatcher and network transport. Caching canonical allocator bindings
-reduced allocated bytes by about 91% from the initial implementation. Timing was
-measured on a shared machine and is not a native-indexer comparison.
+Actor messaging uses typed host invocation and compiled canonical result plans.
+`send` has an explicit completion continuation that avoids decoding the original
+arguments again on rewind. Bounds checks, payload snapshots, authorization, and
+cancellation remain enabled. Temporary memory/allocator wrappers are returned to
+a pool after each host invocation with all instance/context references cleared.
+
+The counter benchmark includes the real Rust guest, ingress copying, Canonical
+ABI, and Asyncify resumption. With the production cancellation setting enabled,
+the same-machine baseline was approximately 13–14 microseconds, 7.4 KB, and 164
+allocations per round trip. The optimized path measures approximately 9
+microseconds, 5.3 KB, and 114 allocations. Scheduler routing and network transport
+are excluded; this is not a native-indexer comparison. The older 11-microsecond /
+123-allocation measurement used a fixture with cancellation checks disabled and
+must not be used as the production baseline. Wazero's per-call cancellation
+watchers remain the largest allocation source in the optimized profile.
 
 This enables a stateful indexing actor; it does not implement an indexer or replace
 Wippy's Lua compiler/type system. MQTT remains a follow-up server workload:

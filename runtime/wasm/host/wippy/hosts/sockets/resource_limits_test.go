@@ -3,8 +3,9 @@ package sockets
 
 import (
 	"context"
-	"github.com/wippyai/wasm-runtime/wasi/preview2"
 	"testing"
+
+	"github.com/wippyai/wasm-runtime/wasi/preview2"
 )
 
 func TestSocketLimitSharedAcrossTCPAndUDP(t *testing.T) {

@@ -64,13 +64,13 @@ type queuedMessage struct {
 }
 
 type Mailbox struct {
-	mu     sync.Mutex
-	limits Limits
 	inbox  []queuedMessage
+	limits Limits
+	mu     sync.Mutex
+	bytes  int64
 	head   int
 	length int
 	count  int
-	bytes  int64
 	closed bool
 }
 
@@ -183,38 +183,57 @@ func (m *Mailbox) AdmitEvent(event process.Event) (process.Event, error) {
 	return event, nil
 }
 
-func messageSize(from string, msg *relay.Message, limit int64) (int64, error) {
-	if msg == nil || len(msg.Topic) == 0 || len(msg.Topic) > MaxTopicBytes || strings.HasPrefix(msg.Topic, "@") || !utf8.ValidString(msg.Topic) || len(msg.Payloads) > MaxPayloads {
+func messageHeaderSize(from, topic string, count int, limit int64) (int64, error) {
+	if len(topic) == 0 || len(topic) > MaxTopicBytes || strings.HasPrefix(topic, "@") || !utf8.ValidString(topic) || count > MaxPayloads {
 		return 0, ErrInvalidMessage
 	}
-	n := int64(messageOverhead + len(from) + len(msg.Topic) + len(msg.Payloads)*64)
+	n := int64(messageOverhead + len(from) + len(topic) + count*64)
 	if n > limit {
 		return 0, ErrTooLarge
+	}
+	return n, nil
+}
+
+func encodedSize(format string, data []byte, str string, remaining int64) (int64, error) {
+	size := len(data)
+	if data == nil {
+		size = len(str)
+	}
+	if int64(size) > remaining {
+		return 0, ErrTooLarge
+	}
+	if format == "text" && ((data != nil && !utf8.Valid(data)) || (data == nil && !utf8.ValidString(str))) {
+		return 0, ErrInvalidMessage
+	}
+	if format == "json" {
+		if data == nil {
+			data = []byte(str)
+		}
+		if !utf8.Valid(data) || !json.Valid(data) {
+			return 0, ErrInvalidMessage
+		}
+	}
+	return int64(size), nil
+}
+
+func messageSize(from string, msg *relay.Message, limit int64) (int64, error) {
+	if msg == nil {
+		return 0, ErrInvalidMessage
+	}
+	n, err := messageHeaderSize(from, msg.Topic, len(msg.Payloads), limit)
+	if err != nil {
+		return 0, err
 	}
 	for _, input := range msg.Payloads {
 		format, data, str, err := encodedPayload(input)
 		if err != nil {
 			return 0, err
 		}
-		size := len(data)
-		if data == nil {
-			size = len(str)
+		size, err := encodedSize(format, data, str, limit-n)
+		if err != nil {
+			return 0, err
 		}
-		if int64(size) > limit-n {
-			return 0, ErrTooLarge
-		}
-		n += int64(size)
-		if format == "text" && ((data != nil && !utf8.Valid(data)) || (data == nil && !utf8.ValidString(str))) {
-			return 0, ErrInvalidMessage
-		}
-		if format == "json" {
-			if data == nil {
-				data = []byte(str)
-			}
-			if !utf8.Valid(data) || !json.Valid(data) {
-				return 0, ErrInvalidMessage
-			}
-		}
+		n += size
 	}
 	return n, nil
 }

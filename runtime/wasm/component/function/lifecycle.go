@@ -274,7 +274,7 @@ func (m *Manager) loadIsolatedModule(ctx context.Context, cfg *configEntry) (*wa
 		return m.loadModule(ctx, cfg)
 	}
 
-	rt, err := wasmrt.New(ctx)
+	rt, err := wasmrt.NewWithConfig(ctx, &wasmrt.Config{CloseOnContextDone: true})
 	if err != nil {
 		return nil, err
 	}

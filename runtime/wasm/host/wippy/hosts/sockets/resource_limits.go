@@ -3,6 +3,7 @@ package sockets
 
 import (
 	"errors"
+
 	"github.com/wippyai/wasm-runtime/wasi/preview2"
 )
 

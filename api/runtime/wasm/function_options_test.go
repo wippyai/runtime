@@ -52,9 +52,9 @@ func decodeWATTestEntry(t *testing.T, data string, meta attrs.Bag) (*WATFunction
 
 func TestFunctionConfig_RootLimitsAndPoolRejection(t *testing.T) {
 	tests := []struct {
+		targetErr error
 		name      string
 		rawJSON   string
-		targetErr error
 	}{
 		{
 			name:      "root limits with values",
@@ -106,9 +106,9 @@ func TestFunctionConfig_RootLimitsAndPoolRejection(t *testing.T) {
 
 func TestWATFunctionConfig_RootLimitsAndPoolRejection(t *testing.T) {
 	tests := []struct {
+		targetErr error
 		name      string
 		rawJSON   string
-		targetErr error
 	}{
 		{
 			name:      "root limits with values",
@@ -202,9 +202,9 @@ func TestFunctionConfig_UnknownFieldsInsideOptions(t *testing.T) {
 
 func TestFunctionConfig_InvalidOptionTypes(t *testing.T) {
 	tests := []struct {
+		targetErr error
 		name      string
 		rawJSON   string
-		targetErr error
 	}{
 		{
 			name: "options not object",

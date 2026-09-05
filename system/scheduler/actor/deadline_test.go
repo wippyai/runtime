@@ -19,8 +19,8 @@ import (
 )
 
 type deadlineTestProcess struct {
-	timeout     time.Duration
 	initCtx     context.Context
+	timeout     time.Duration
 	closed      atomic.Bool
 	steps       atomic.Int32
 	idleOnStep  bool

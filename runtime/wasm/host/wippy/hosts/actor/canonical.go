@@ -4,6 +4,7 @@ package actor
 import (
 	"context"
 	"encoding/binary"
+
 	"github.com/tetratelabs/wazero/api"
 	wasmengine "github.com/wippyai/wasm-runtime/engine"
 )
@@ -13,9 +14,9 @@ import (
 func (h *Host) Register() map[string]any {
 	return map[string]any{
 		"self":        h.Self,
-		"receive":     h.Receive,
-		"try-receive": h.TryReceive,
-		"send":        wasmengine.CheckedHostFunction{Handler: h.Send, Validate: validateSendArguments},
+		"receive":     wasmengine.BindResult0(h.Receive),
+		"try-receive": wasmengine.BindResult0(h.TryReceive),
+		"send":        wasmengine.CheckedHostFunction{Handler: wasmengine.BindResult3WithResume(h.Send, resumeSend), Validate: validateSendArguments},
 	}
 }
 

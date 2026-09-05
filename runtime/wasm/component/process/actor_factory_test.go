@@ -46,8 +46,8 @@ func testActorHostProfile() wasmcomponent.HostProfile {
 }
 
 type testMemoryFS struct {
-	mu    sync.RWMutex
 	files map[string][]byte
+	mu    sync.RWMutex
 }
 
 func newTestMemoryFS() *testMemoryFS {

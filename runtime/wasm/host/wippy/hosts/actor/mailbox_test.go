@@ -145,17 +145,17 @@ func BenchmarkMailboxRoundTrip(b *testing.B) {
 
 func TestMailboxInvalidPayloads(t *testing.T) {
 	cases := []struct {
-		name, topic string
 		p           payload.Payload
 		want        error
+		name, topic string
 	}{
-		{"reserved", "@pid/events", payload.NewString("x"), ErrInvalidMessage},
-		{"empty topic", "", payload.NewString("x"), ErrInvalidMessage},
-		{"bad utf8", "data", payload.NewPayload([]byte{0xff}, payload.String), ErrInvalidMessage},
-		{"non-UTF8 json", "data", payload.NewPayload([]byte{34, 255, 34}, payload.JSON), ErrInvalidMessage},
-		{"bad json", "data", payload.NewPayload([]byte("{"), payload.JSON), ErrInvalidMessage},
-		{"object handle", "data", payload.New(map[string]any{"x": 1}), ErrUnsupportedPayload},
-		{"too large", "data", payload.NewPayload(make([]byte, 1024), payload.Bytes), ErrTooLarge},
+		{name: "reserved", topic: "@pid/events", p: payload.NewString("x"), want: ErrInvalidMessage},
+		{name: "empty topic", topic: "", p: payload.NewString("x"), want: ErrInvalidMessage},
+		{name: "bad utf8", topic: "data", p: payload.NewPayload([]byte{0xff}, payload.String), want: ErrInvalidMessage},
+		{name: "non-UTF8 json", topic: "data", p: payload.NewPayload([]byte{34, 255, 34}, payload.JSON), want: ErrInvalidMessage},
+		{name: "bad json", topic: "data", p: payload.NewPayload([]byte("{"), payload.JSON), want: ErrInvalidMessage},
+		{name: "object handle", topic: "data", p: payload.New(map[string]any{"x": 1}), want: ErrUnsupportedPayload},
+		{name: "too large", topic: "data", p: payload.NewPayload(make([]byte, 1024), payload.Bytes), want: ErrTooLarge},
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {

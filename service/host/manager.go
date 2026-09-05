@@ -103,11 +103,9 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 			opts = append(opts, actor.WithWorkers(len(m.wasmAffinity)), actor.WithThreadPin(m.wasmAffinity))
 			h.affinityManaged = true
 		}
-	} else {
-		if len(m.actorAffinity) > 0 {
-			opts = append(opts, actor.WithWorkers(len(m.actorAffinity)), actor.WithThreadPin(m.actorAffinity))
-			h.affinityManaged = true
-		}
+	} else if len(m.actorAffinity) > 0 {
+		opts = append(opts, actor.WithWorkers(len(m.actorAffinity)), actor.WithThreadPin(m.actorAffinity))
+		h.affinityManaged = true
 	}
 
 	scheduler := actor.NewScheduler(m.commandRegistry, opts...)

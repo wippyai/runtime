@@ -11,9 +11,9 @@ type admissionTestEvent struct{ discarded int }
 func (e *admissionTestEvent) DiscardEvent() { e.discarded++ }
 
 type admissionTestPolicy struct {
-	calls int
 	err   error
 	event *admissionTestEvent
+	calls int
 }
 
 func (p *admissionTestPolicy) AdmitEvent(e Event) (Event, error) {
@@ -51,7 +51,6 @@ func TestQueueAdmissionOwnership(t *testing.T) {
 	if policy.event.discarded != 0 {
 		t.Fatal("queue discarded consumer-owned event")
 	}
-	events = nil
 }
 
 func TestQueueRejectsStaleBeforeAdmission(t *testing.T) {
@@ -68,7 +67,7 @@ func TestQueueRejectsStaleBeforeAdmission(t *testing.T) {
 	}
 	want := errors.New("mailbox full")
 	policy.err = want
-	if err := q.PushWithError(Event{Type: EventMessage}, q.Generation()); err != want {
+	if err := q.PushWithError(Event{Type: EventMessage}, q.Generation()); !errors.Is(err, want) {
 		t.Fatalf("lost overload error: %v", err)
 	}
 	if q.HasEvents() {

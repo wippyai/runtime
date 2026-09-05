@@ -38,10 +38,10 @@ type EntryConfig struct {
 // Config represents configuration for a process host service
 type Config struct {
 	// Scheduler settings
-	Workers        int    `json:"workers"`                    // Number of worker goroutines (default: NumCPU)
-	QueueSize      int    `json:"queue_size"`                 // Global queue capacity (default: 1024)
-	LocalQueueSize int    `json:"local_queue_size"`           // Per-worker local deque size (default: 256)
-	WorkerClass    string `json:"worker_class,omitempty"`     // Execution class: "" (actor/default) or "wasm"
+	Workers        int    `json:"workers"`                // Number of worker goroutines (default: NumCPU)
+	QueueSize      int    `json:"queue_size"`             // Global queue capacity (default: 1024)
+	LocalQueueSize int    `json:"local_queue_size"`       // Per-worker local deque size (default: 256)
+	WorkerClass    string `json:"worker_class,omitempty"` // Execution class: "" (actor/default) or "wasm"
 }
 
 func (cfg *EntryConfig) initDefaults() {

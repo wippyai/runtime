@@ -5,6 +5,7 @@ package wasm
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/goccy/go-yaml"
@@ -222,9 +223,9 @@ func TestProcessConfig_SetOptionsProgrammatic(t *testing.T) {
 
 func TestProcessConfig_RootLimitsAndPoolRejection(t *testing.T) {
 	tests := []struct {
+		targetErr error
 		name      string
 		rawJSON   string
-		targetErr error
 	}{
 		{
 			name:      "root limits with values",
@@ -354,9 +355,9 @@ func TestProcessConfig_UnknownFieldsInsideControls(t *testing.T) {
 
 func TestProcessConfig_InvalidBudgets(t *testing.T) {
 	tests := []struct {
+		targetErr error
 		name      string
 		rawJSON   string
-		targetErr error
 	}{
 		{
 			name: "memory_bytes is 0",
@@ -520,10 +521,10 @@ func TestProcessConfig_InconsistentBudgets(t *testing.T) {
 
 func TestProcessConfig_InvalidTypes(t *testing.T) {
 	tests := []struct {
+		targetErr  error
 		name       string
 		rawJSON    string
 		errSegment string
-		targetErr  error
 	}{
 		{
 			name: "options is string",
@@ -607,9 +608,9 @@ func TestProcessConfig_InvalidTypes(t *testing.T) {
 
 func TestProcessConfig_StaticFieldsValidation(t *testing.T) {
 	tests := []struct {
+		targetErr error
 		name      string
 		config    ProcessConfig
-		targetErr error
 	}{
 		{
 			name: "missing fs",
@@ -747,7 +748,8 @@ func TestProcessConfig_ErrorsKind(t *testing.T) {
 	}
 
 	for _, err := range errs {
-		apiErr, ok := err.(apierror.Error)
+		var apiErr apierror.Error
+		ok := errors.As(err, &apiErr)
 		require.True(t, ok, "error %v should implement apierror.Error", err)
 		assert.Equal(t, apierror.Invalid, apiErr.Kind())
 		assert.Equal(t, apierror.False, apiErr.Retryable())

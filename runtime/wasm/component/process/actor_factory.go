@@ -26,14 +26,14 @@ var (
 
 // ActorFactory produces isolated ActorProcess instances for a verified WASM actor module.
 type ActorFactory struct {
-	bytes        []byte
-	isComponent  bool
+	fsRegistry   fsapi.Registry
 	cfg          *api.ProcessConfig
 	hostRegistry *wasmcomponent.HostRegistry
-	fsRegistry   fsapi.Registry
-	memoryPages  uint32
+	bytes        []byte
 	mu           sync.RWMutex
+	memoryPages  uint32
 	closed       atomic.Bool
+	isComponent  bool
 }
 
 // NewActorFactory creates a new actor factory with frozen verified bytes.

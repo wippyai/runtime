@@ -4,9 +4,11 @@ package actor
 import (
 	"context"
 	"encoding/binary"
+	"errors"
+	"testing"
+
 	"github.com/tetratelabs/wazero"
 	"github.com/wippyai/wasm-runtime/wat"
-	"testing"
 )
 
 func TestCanonicalSendPreflight(t *testing.T) {
@@ -31,15 +33,15 @@ func TestCanonicalSendPreflight(t *testing.T) {
 	mem.Write(64, header)
 	valid := []uint64{0, 1, 0, 1, 64, 1, 100}
 	for _, tc := range []struct {
-		name   string
 		mutate func([]uint64)
+		name   string
 		bad    bool
 	}{
-		{"valid", func([]uint64) {}, false},
-		{"huge payload count", func(s []uint64) { s[5] = 1 << 27 }, true},
-		{"huge target", func(s []uint64) { s[1] = 1 << 30 }, true},
-		{"huge topic", func(s []uint64) { s[3] = 1 << 30 }, true},
-		{"invalid headers", func(s []uint64) { s[4] = 65532 }, true},
+		{name: "valid", mutate: func([]uint64) {}, bad: false},
+		{name: "huge payload count", mutate: func(s []uint64) { s[5] = 1 << 27 }, bad: true},
+		{name: "huge target", mutate: func(s []uint64) { s[1] = 1 << 30 }, bad: true},
+		{name: "huge topic", mutate: func(s []uint64) { s[3] = 1 << 30 }, bad: true},
+		{name: "invalid headers", mutate: func(s []uint64) { s[4] = 65532 }, bad: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := append([]uint64(nil), valid...)
@@ -51,7 +53,7 @@ func TestCanonicalSendPreflight(t *testing.T) {
 	}
 	binary.LittleEndian.PutUint32(header[12:], 1<<30)
 	mem.Write(64, header)
-	if err := validateSendArguments(ctx, mod, valid); err != ErrTooLarge {
+	if err := validateSendArguments(ctx, mod, valid); !errors.Is(err, ErrTooLarge) {
 		t.Fatalf("oversized nested data: %v", err)
 	}
 }
