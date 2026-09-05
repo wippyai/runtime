@@ -138,16 +138,24 @@ Actor messaging uses typed host invocation and compiled canonical result plans.
 arguments again on rewind. Bounds checks, payload snapshots, authorization, and
 cancellation remain enabled. Temporary memory/allocator wrappers are returned to
 a pool after each host invocation with all instance/context references cleared.
+Successful Asyncify control transitions use mutable globals only when trusted
+linker/engine metadata proves that this load generated the controls. Invalid
+transitions, bounds traps, cancellation, and closed modules use the original
+functions to preserve their effects. Externally transformed and guest-authored
+controls retain the function path. Regular guest execution keeps cancellation
+instrumentation enabled.
 
 The counter benchmark includes the real Rust guest, ingress copying, Canonical
 ABI, and Asyncify resumption. With the production cancellation setting enabled,
 the same-machine baseline was approximately 13–14 microseconds, 7.4 KB, and 164
-allocations per round trip. The optimized path measures approximately 9
-microseconds, 5.3 KB, and 114 allocations. Scheduler routing and network transport
+allocations per round trip. The optimized path measures 6.68–6.76 microseconds,
+approximately 3.86 KB, and 82 allocations. A sequential before/after comparison
+of the generated-control optimization measured 8.48–8.59 microseconds, 5.34 KB,
+and 114 allocations before the change. Scheduler routing and network transport
 are excluded; this is not a native-indexer comparison. The older 11-microsecond /
 123-allocation measurement used a fixture with cancellation checks disabled and
-must not be used as the production baseline. Wazero's per-call cancellation
-watchers remain the largest allocation source in the optimized profile.
+must not be used as the production baseline. Regular guest calls still incur
+Wazero's per-call cancellation watchers.
 
 The checked-in standard WASI 0.2.8 TCP component exercises canonical IPv4
 addresses, socket creation, connect, buffered ping/pong, connection-refused error
