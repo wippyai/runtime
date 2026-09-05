@@ -95,7 +95,18 @@ Preview2 TCP/UDP sockets and legacy core `socket` connections together against
 failed operations release them. Each actor owns an independent budget. Closing
 the resource scope prevents late resource publication.
 `socket_timeout_ms` currently applies to the core socket profile. Preview2 socket
-operations inherit process cancellation but still need uniform operation timeouts.
+operations still need uniform operation timeouts. Pending dispatcher accepts
+close their listener on process cancellation and release unadopted connections.
+
+`wasi:io/poll.poll` suspends until a timer or notifying resource is ready, with
+one dispatcher wait per suspended poll and no worker blocking. Inputs are capped
+at 4096 before canonical list lifting; empty lists and invalid handles trap.
+Manual pollables expose live signals, wake on resource drop, and do not fabricate
+readiness when blocked. Single timer `pollable.block` retains the clock path.
+TCP stream/socket subscriptions still use snapshots and need live readiness,
+bounded buffers, and an accept queue; this foundation alone does not make them
+safe for server workloads. Multi-source selection currently uses Go reflection
+in the dispatcher wait, outside the actor messaging path.
 
 ## Scope and measurements
 
@@ -124,6 +135,6 @@ watchers remain the largest allocation source in the optimized profile.
 
 This enables a stateful indexing actor; it does not implement an indexer or replace
 Wippy's Lua compiler/type system. MQTT remains a follow-up server workload:
-Preview2 multi-source blocking poll, uniform network deadlines, aggregate host
+Live TCP readiness and buffering, uniform network deadlines, aggregate host
 memory accounting, and a real server/concurrency benchmark are not validated
 by the counter fixture. Do not treat this PR as production MQTT support.

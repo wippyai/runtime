@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	clockapi "github.com/wippyai/runtime/api/clock"
 	wippypoll "github.com/wippyai/runtime/runtime/wasm/host/wippy/hosts/poll"
 	wasmengine "github.com/wippyai/wasm-runtime/engine"
@@ -77,9 +79,7 @@ func TestHostPollAndNilGuards(t *testing.T) {
 	if got := nilHost.Namespace(); got != wippypoll.PollNamespace {
 		t.Fatalf("Namespace() = %q, want %q", got, wippypoll.PollNamespace)
 	}
-	if out := nilHost.Poll(context.Background(), []uint32{1, 2}); out != nil {
-		t.Fatalf("Poll(nil host) = %#v, want nil", out)
-	}
+	require.Panics(t, func() { nilHost.Poll(context.Background(), []uint32{1, 2}) })
 
 	res := preview2.NewResourceTable()
 	mono := NewMonotonicClockHost(res)

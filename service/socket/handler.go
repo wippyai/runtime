@@ -29,6 +29,7 @@ func (d *Dispatcher) RegisterAll(register func(id dispatcher.CommandID, h dispat
 	register(socketapi.SocketAccept, dispatcher.HandlerFunc(d.handleAccept))
 	register(socketapi.SocketBind, dispatcher.HandlerFunc(d.handleBind))
 	register(socketapi.SocketResolve, dispatcher.HandlerFunc(d.handleResolve))
+	register(socketapi.SocketPollWait, dispatcher.HandlerFunc(d.handlePollWait))
 }
 
 func (d *Dispatcher) handleConnect(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
@@ -60,10 +61,30 @@ func (d *Dispatcher) handleListen(ctx context.Context, cmd dispatcher.Command, t
 func (d *Dispatcher) handleAccept(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	c := cmd.(*socketapi.AcceptCmd)
 	go func() {
+		if c == nil || c.Listener == nil {
+			if ctx.Err() == nil {
+				receiver.CompleteYield(tag, &socketapi.AcceptResult{Err: fmt.Errorf("nil listener")}, nil)
+			}
+			return
+		}
+
+		cancelDone := make(chan struct{})
+		stop := context.AfterFunc(ctx, func() {
+			defer close(cancelDone)
+			_ = c.Listener.Close()
+		})
+
 		conn, err := c.Listener.Accept()
-		if ctx.Err() == nil {
-			receiver.CompleteYield(tag, &socketapi.AcceptResult{Conn: conn, Err: err}, nil)
-		} else if conn != nil {
+		if stop() {
+			if ctx.Err() == nil {
+				receiver.CompleteYield(tag, &socketapi.AcceptResult{Conn: conn, Err: err}, nil)
+				return
+			}
+		} else {
+			<-cancelDone
+		}
+
+		if conn != nil {
 			_ = conn.Close()
 		}
 	}()
