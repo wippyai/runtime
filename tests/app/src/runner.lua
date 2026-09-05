@@ -258,7 +258,7 @@ local function run_tests()
 	io.print("")
 
 	-- Find tests
-	local entries, err = registry.find({type = "test"})
+	local entries, err = registry.find({["meta.type"] = "test"})
 	if err then
 		io.print(red("  Error: " .. tostring(err)))
 		return 1

@@ -4,9 +4,10 @@ package supervisor
 
 import (
 	"context"
+	"testing"
+
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/supervisor"
-	"testing"
 )
 
 func TestRemovalRetiresDependencyWithoutRestartingDependent(t *testing.T) {
