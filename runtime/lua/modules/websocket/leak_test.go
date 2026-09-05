@@ -355,6 +355,36 @@ func goroutinesSettle(baseline int, budget stdtime.Duration) int {
 
 // WS normal connect/use/close: the subscription returns to 0 and the read-loop
 // goroutine exits.
+func TestWsSendAndPingReturnDispatcherResults(t *testing.T) {
+	srv := echoServer(t)
+	defer srv.Close()
+	tc := setupWsTest(t, 2)
+	defer tc.Close()
+	script := fmt.Sprintf(`
+		local conn = assert(websocket.connect(%q))
+		local ch = assert(conn:channel())
+		local ok, err = conn:send("hello")
+		assert(ok == true and err == nil, "send must report success")
+		local msg = ch:receive()
+		assert(msg.data == "hello")
+		ok, err = conn:ping()
+		assert(ok == true and err == nil, "ping must report success")
+		conn:close()
+		ok, err = conn:send("closed")
+		assert(ok == false and err ~= nil, "send must preserve dispatcher error")
+		ok, err = conn:ping()
+		assert(ok == false and err ~= nil, "ping must preserve dispatcher error")
+		return "ok"
+	`, wsURLOf(srv))
+	frameCtx, runPID := tc.frameCtxPID(t)
+	result, err := tc.scheduler.Execute(frameCtx, runPID, newWsProcess(t, script), "", nil)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Nil(t, result.Error, "script error: %v", result.Error)
+	require.NotNil(t, result.Value)
+	require.Equal(t, "ok", resultString(result.Value.Data()))
+}
+
 func TestLeak_WsConnectUseCloseReclaims(t *testing.T) {
 	srv := echoServer(t)
 	defer srv.Close()

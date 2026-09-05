@@ -207,7 +207,7 @@ local function render_layout_tab(w: integer, h: integer): string
     local vert = tty.text.join_vertical(CENTER, box_a, box_b)
     local joined = tty.text.join_horizontal(TOP, horiz, "   ", vert)
 
-    local pw = math.min(30, w - 4)
+    local pw = math.floor(math.min(30, w - 4))
     local placed = tty.text.place(pw, 3, CENTER, CENTER, "centered")
     local placed_box = tty.style():border(ROUNDED):border_foreground("#444444"):render(placed)
 
@@ -261,11 +261,11 @@ local function render_bindings_tab(w: integer, h: integer): string
 
     lines[#lines + 1] = "  " .. sec:render("Match tests:")
     local tests = {
-        {name = "q",          ev = {type = "key", key = "q",   key_type = "runes", ctrl = false, alt = false, shift = false}},
-        {name = "ctrl+c",     ev = {type = "key", key = "c",   key_type = "runes", ctrl = true,  alt = false, shift = false}},
-        {name = "esc",        ev = {type = "key", key = "esc", key_type = "esc",   ctrl = false, alt = false, shift = false}},
-        {name = "x (no)",     ev = {type = "key", key = "x",   key_type = "runes", ctrl = false, alt = false, shift = false}},
-        {name = "mouse (no)", ev = {type = "mouse", action = "press", button = "left"}},
+        {name = "q",          ev = {type = "key", action = "press", key = "q",   key_type = "runes", ctrl = false, alt = false, shift = false}},
+        {name = "ctrl+c",     ev = {type = "key", action = "press", key = "c",   key_type = "runes", ctrl = true,  alt = false, shift = false}},
+        {name = "esc",        ev = {type = "key", action = "press", key = "esc", key_type = "esc",   ctrl = false, alt = false, shift = false}},
+        {name = "x (no)",     ev = {type = "key", action = "press", key = "x",   key_type = "runes", ctrl = false, alt = false, shift = false}},
+        {name = "mouse (no)", ev = {type = "mouse", action = "press", button = "left", x = 0, y = 0, ctrl = false, alt = false, shift = false}},
     }
     for _, t in ipairs(tests) do
         local m = bindings.quit:matches(t.ev)
@@ -392,6 +392,13 @@ end
 -- Main
 
 local function main()
+    -- Subscribe before starting input delivery so the initial event is retained.
+    local ch = tty.events()
+    if not ch then
+        io.print("tty.events failed")
+        return
+    end
+
     local ok, err = tty.start()
     if not ok then
         io.print("tty.start failed: " .. tostring(err))
@@ -403,13 +410,6 @@ local function main()
     if cols then
         width = cols
         height = rows
-    end
-
-    local ch = tty.events()
-    if not ch then
-        tty.stop()
-        io.print("tty.events failed")
-        return
     end
 
     tty.mouse(true)
