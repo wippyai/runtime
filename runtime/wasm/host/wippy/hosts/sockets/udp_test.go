@@ -47,7 +47,7 @@ func TestS11UDPStreamDefaultRemote(t *testing.T) {
 	socket.SetState(preview2.UDPStateBound)
 	socket.SetConn(conn)
 	handle := resources.Add(socket)
-	remote := IPSocketAddress{Address: "127.0.0.1", Port: 45678}
+	remote := *SocketAddressFromHostPort("127.0.0.1", 45678)
 
 	incomingHandle, outgoingHandle, networkErr := host.MethodUDPSocketStream(context.Background(), handle, &remote)
 	if networkErr != nil {
@@ -72,14 +72,14 @@ func TestS11UDPStreamDefaultRemote(t *testing.T) {
 	if !ok {
 		t.Fatalf("outgoing resource type = %T", outgoingResource)
 	}
-	if address, port, present := incoming.RemoteAddr(); !present || address != remote.Address || port != remote.Port {
-		t.Fatalf("incoming default remote = (%q, %d, %v), want (%q, %d, true)", address, port, present, remote.Address, remote.Port)
+	if address, port, present := incoming.RemoteAddr(); !present || address != remote.IPString() || port != remote.Port() {
+		t.Fatalf("incoming default remote = (%q, %d, %v), want (%q, %d, true)", address, port, present, remote.IPString(), remote.Port())
 	}
-	if address, port, present := outgoing.RemoteAddr(); !present || address != remote.Address || port != remote.Port {
-		t.Fatalf("outgoing default remote = (%q, %d, %v), want (%q, %d, true)", address, port, present, remote.Address, remote.Port)
+	if address, port, present := outgoing.RemoteAddr(); !present || address != remote.IPString() || port != remote.Port() {
+		t.Fatalf("outgoing default remote = (%q, %d, %v), want (%q, %d, true)", address, port, present, remote.IPString(), remote.Port())
 	}
 	storedRemote, networkErr := host.MethodUDPSocketRemoteAddress(context.Background(), handle)
-	if networkErr != nil || storedRemote == nil || *storedRemote != remote {
+	if networkErr != nil || storedRemote == nil || !storedRemote.Equal(&remote) {
 		t.Fatalf("socket default remote = %#v, error = %v, want %#v", storedRemote, networkErr, remote)
 	}
 }
@@ -152,7 +152,7 @@ func TestS13UDPDatagramLoopback(t *testing.T) {
 	senderSocket.SetConn(sender)
 	senderHandle := resources.Add(senderSocket)
 	receiverAddress := receiver.LocalAddr().(*net.UDPAddr)
-	remote := IPSocketAddress{Address: receiverAddress.IP.String(), Port: uint16(receiverAddress.Port)}
+	remote := *SocketAddressFromIP(receiverAddress.IP, uint16(receiverAddress.Port))
 	_, outgoingHandle, networkErr := host.MethodUDPSocketStream(context.Background(), senderHandle, &remote)
 	if networkErr != nil {
 		t.Fatalf("create outgoing stream: %v", networkErr)
@@ -180,8 +180,73 @@ func TestS13UDPDatagramLoopback(t *testing.T) {
 		t.Fatalf("received datagrams = %#v, want payload %q", received, payload)
 	}
 	senderAddress := sender.LocalAddr().(*net.UDPAddr)
-	wantSender := IPSocketAddress{Address: senderAddress.IP.String(), Port: uint16(senderAddress.Port)}
-	if received[0].RemoteAddress != wantSender {
+	wantSender := *SocketAddressFromIP(senderAddress.IP, uint16(senderAddress.Port))
+	if !received[0].RemoteAddress.Equal(&wantSender) {
+		t.Fatalf("sender address = %#v, want %#v", received[0].RemoteAddress, wantSender)
+	}
+}
+
+func TestUDPDatagramLoopbackIPv6Zone(t *testing.T) {
+	sender, err := net.ListenUDP("udp6", &net.UDPAddr{IP: net.IPv6loopback})
+	if err != nil {
+		t.Skipf("IPv6 not supported on host: %v", err)
+	}
+	t.Cleanup(func() { _ = sender.Close() })
+	receiver, err := net.ListenUDP("udp6", &net.UDPAddr{IP: net.IPv6loopback})
+	if err != nil {
+		t.Skipf("IPv6 not supported on host: %v", err)
+	}
+	t.Cleanup(func() { _ = receiver.Close() })
+
+	deadline := time.Now().Add(2 * time.Second)
+	if err := sender.SetDeadline(deadline); err != nil {
+		t.Fatal(err)
+	}
+	if err := receiver.SetDeadline(deadline); err != nil {
+		t.Fatal(err)
+	}
+
+	resources := preview2.NewResourceTable()
+	host := NewUDPHost(resources)
+
+	senderSocket := preview2.NewUDPSocketResource(AddressFamilyIPv6)
+	senderSocket.SetState(preview2.UDPStateBound)
+	senderSocket.SetConn(sender)
+	senderHandle := resources.Add(senderSocket)
+
+	receiverAddress := receiver.LocalAddr().(*net.UDPAddr)
+	remote := *SocketAddressFromNetAddr(receiverAddress)
+	_, outgoingHandle, networkErr := host.MethodUDPSocketStream(context.Background(), senderHandle, &remote)
+	if networkErr != nil {
+		t.Fatalf("create outgoing stream: %v", networkErr)
+	}
+
+	receiverSocket := preview2.NewUDPSocketResource(AddressFamilyIPv6)
+	receiverSocket.SetState(preview2.UDPStateBound)
+	receiverSocket.SetConn(receiver)
+	receiverHandle := resources.Add(receiverSocket)
+	incomingHandle, _, networkErr := host.MethodUDPSocketStream(context.Background(), receiverHandle, nil)
+	if networkErr != nil {
+		t.Fatalf("create incoming stream: %v", networkErr)
+	}
+
+	payload := []byte("wasi-ipv6-datagram")
+	sent, networkErr := host.MethodOutgoingDatagramStreamSend(context.Background(), outgoingHandle, []OutgoingDatagram{{Data: payload}})
+	if networkErr != nil || sent != 1 {
+		t.Fatalf("send datagram: count = %d, error = %v", sent, networkErr)
+	}
+
+	received, networkErr := host.MethodIncomingDatagramStreamReceive(context.Background(), incomingHandle, 1)
+	if networkErr != nil {
+		t.Fatalf("receive datagram: %v", networkErr)
+	}
+	if len(received) != 1 || string(received[0].Data) != string(payload) {
+		t.Fatalf("received datagrams = %#v, want payload %q", received, payload)
+	}
+
+	senderAddress := sender.LocalAddr().(*net.UDPAddr)
+	wantSender := *SocketAddressFromNetAddr(senderAddress)
+	if !received[0].RemoteAddress.Equal(&wantSender) {
 		t.Fatalf("sender address = %#v, want %#v", received[0].RemoteAddress, wantSender)
 	}
 }

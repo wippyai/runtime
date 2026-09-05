@@ -1,0 +1,10 @@
+package wippy:tcp-fixture@0.1.0;
+
+world tcp {
+    import wasi:io/streams@0.2.8;
+    import wasi:sockets/instance-network@0.2.8;
+    import wasi:sockets/tcp-create-socket@0.2.8;
+    import wasi:sockets/tcp@0.2.8;
+
+    export run: func() -> result<string, string>;
+}

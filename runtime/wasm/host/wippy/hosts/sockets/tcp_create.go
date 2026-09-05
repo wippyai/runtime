@@ -45,6 +45,17 @@ func (e *NetworkError) Error() string {
 	return "network error"
 }
 
+// WITErrorPayload returns the canonical enum discriminant for WASI network error-code.
+func (e *NetworkError) WITErrorPayload() any {
+	if e == nil {
+		return uint32(NetworkErrorUnknown)
+	}
+	if e.Code > NetworkErrorPermanentResolverFailure {
+		return uint32(NetworkErrorUnknown)
+	}
+	return uint32(e.Code)
+}
+
 const (
 	AddressFamilyIPv4 uint8 = 0
 	AddressFamilyIPv6 uint8 = 1

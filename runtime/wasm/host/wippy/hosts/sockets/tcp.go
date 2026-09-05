@@ -39,7 +39,6 @@ func (h *TCPHost) AsyncFunctions() []string {
 	}
 }
 
-// IPSocketAddress represents an IP address and port.
 type TCPStreams struct {
 	Input  uint32
 	Output uint32
@@ -49,18 +48,6 @@ type TCPAccepted struct {
 	Socket uint32
 	Input  uint32
 	Output uint32
-}
-
-type IPSocketAddress struct {
-	Address string
-	Port    uint16
-}
-
-func (a *IPSocketAddress) String() string {
-	if a == nil {
-		return ""
-	}
-	return net.JoinHostPort(a.Address, strconv.Itoa(int(a.Port)))
 }
 
 func closeAsyncSocketResult(value any) {
@@ -107,7 +94,14 @@ func (h *TCPHost) MethodTCPSocketStartBind(_ context.Context, self uint32, _ uin
 		return &NetworkError{Code: NetworkErrorInvalidState}
 	}
 
-	socket.SetLocalAddr(localAddress.Address, localAddress.Port)
+	if err := ValidateAddressFamily(&localAddress, socket.Family()); err != nil {
+		return err
+	}
+	if err := ValidateFlowInfo(&localAddress); err != nil {
+		return err
+	}
+
+	socket.SetLocalAddr(localAddress.IPString(), localAddress.Port())
 	socket.SetState(preview2.TCPStateBindInProgress)
 
 	return nil
@@ -171,7 +165,11 @@ func (h *TCPHost) MethodTCPSocketStartConnect(ctx context.Context, self uint32, 
 
 		socket.SetConn(connectResult.Conn)
 		if tcpAddr, ok := connectResult.Conn.LocalAddr().(*net.TCPAddr); ok {
-			socket.SetLocalAddr(tcpAddr.IP.String(), uint16(tcpAddr.Port))
+			if local := SocketAddressFromNetAddr(tcpAddr); local != nil {
+				socket.SetLocalAddr(local.IPString(), local.Port())
+			} else {
+				socket.SetLocalAddr(tcpAddr.IP.String(), uint16(tcpAddr.Port))
+			}
 		}
 		return nil
 	}
@@ -186,8 +184,15 @@ func (h *TCPHost) MethodTCPSocketStartConnect(ctx context.Context, self uint32, 
 		return &NetworkError{Code: NetworkErrorInvalidState}
 	}
 
+	if err := ValidateAddressFamily(&remoteAddress, socket.Family()); err != nil {
+		return err
+	}
+	if err := ValidateFlowInfo(&remoteAddress); err != nil {
+		return err
+	}
+
 	addr := remoteAddress.String()
-	socket.SetRemoteAddr(remoteAddress.Address, remoteAddress.Port)
+	socket.SetRemoteAddr(remoteAddress.IPString(), remoteAddress.Port())
 	socket.SetState(preview2.TCPStateConnectInProgress)
 
 	op := &connectPendingOp{cmd: &socketapi.ConnectCmd{Network: "tcp", Address: addr}}
@@ -276,7 +281,11 @@ func (h *TCPHost) MethodTCPSocketStartListen(ctx context.Context, self uint32) *
 
 		socket.SetListener(listenResult.Listener)
 		if tcpAddr, ok := listenResult.Listener.Addr().(*net.TCPAddr); ok {
-			socket.SetLocalAddr(tcpAddr.IP.String(), uint16(tcpAddr.Port))
+			if local := SocketAddressFromNetAddr(tcpAddr); local != nil {
+				socket.SetLocalAddr(local.IPString(), local.Port())
+			} else {
+				socket.SetLocalAddr(tcpAddr.IP.String(), uint16(tcpAddr.Port))
+			}
 		}
 		return nil
 	}
@@ -291,7 +300,7 @@ func (h *TCPHost) MethodTCPSocketStartListen(ctx context.Context, self uint32) *
 		return &NetworkError{Code: NetworkErrorInvalidState}
 	}
 
-	addr := (&IPSocketAddress{Address: socket.LocalAddr(), Port: socket.LocalPort()}).String()
+	addr := net.JoinHostPort(socket.LocalAddr(), strconv.Itoa(int(socket.LocalPort())))
 	socket.SetState(preview2.TCPStateListenInProgress)
 
 	op := &listenPendingOp{cmd: &socketapi.ListenCmd{Network: "tcp", Address: addr}}
@@ -371,10 +380,18 @@ func (h *TCPHost) MethodTCPSocketAccept(ctx context.Context, self uint32) (*TCPA
 		newSocket.SetConn(acceptResult.Conn)
 
 		if tcpAddr, ok := acceptResult.Conn.LocalAddr().(*net.TCPAddr); ok {
-			newSocket.SetLocalAddr(tcpAddr.IP.String(), uint16(tcpAddr.Port))
+			if local := SocketAddressFromNetAddr(tcpAddr); local != nil {
+				newSocket.SetLocalAddr(local.IPString(), local.Port())
+			} else {
+				newSocket.SetLocalAddr(tcpAddr.IP.String(), uint16(tcpAddr.Port))
+			}
 		}
 		if tcpAddr, ok := acceptResult.Conn.RemoteAddr().(*net.TCPAddr); ok {
-			newSocket.SetRemoteAddr(tcpAddr.IP.String(), uint16(tcpAddr.Port))
+			if remote := SocketAddressFromNetAddr(tcpAddr); remote != nil {
+				newSocket.SetRemoteAddr(remote.IPString(), remote.Port())
+			} else {
+				newSocket.SetRemoteAddr(tcpAddr.IP.String(), uint16(tcpAddr.Port))
+			}
 		}
 
 		socketHandle, addErr := h.resources.TryAdd(newSocket)
@@ -480,10 +497,11 @@ func (h *TCPHost) MethodTCPSocketLocalAddress(_ context.Context, self uint32) (*
 		return nil, &NetworkError{Code: NetworkErrorInvalidState}
 	}
 
-	return &IPSocketAddress{
-		Address: socket.LocalAddr(),
-		Port:    socket.LocalPort(),
-	}, nil
+	addr := SocketAddressFromHostPort(socket.LocalAddr(), socket.LocalPort())
+	if addr == nil || ValidateAddressFamily(addr, socket.Family()) != nil {
+		return nil, &NetworkError{Code: NetworkErrorUnknown}
+	}
+	return addr, nil
 }
 
 // [method]tcp-socket.remote-address
@@ -497,10 +515,11 @@ func (h *TCPHost) MethodTCPSocketRemoteAddress(_ context.Context, self uint32) (
 		return nil, &NetworkError{Code: NetworkErrorInvalidState}
 	}
 
-	return &IPSocketAddress{
-		Address: socket.RemoteAddr(),
-		Port:    socket.RemotePort(),
-	}, nil
+	addr := SocketAddressFromHostPort(socket.RemoteAddr(), socket.RemotePort())
+	if addr == nil || ValidateAddressFamily(addr, socket.Family()) != nil {
+		return nil, &NetworkError{Code: NetworkErrorUnknown}
+	}
+	return addr, nil
 }
 
 // [method]tcp-socket.is-listening

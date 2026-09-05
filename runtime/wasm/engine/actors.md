@@ -140,9 +140,17 @@ are excluded; this is not a native-indexer comparison. The older 11-microsecond 
 must not be used as the production baseline. Wazero's per-call cancellation
 watchers remain the largest allocation source in the optimized profile.
 
+The checked-in standard WASI 0.2.8 TCP component exercises canonical IPv4
+addresses, socket creation, connect, buffered ping/pong, connection-refused error
+encoding, and resource drops through the actual process and embedded Asyncify
+path. Tests supply a controlled connection at the dispatcher boundary and verify
+socket quota is returned. The fixture can be rebuilt byte-for-byte from its
+locked Rust sources. This covers neither OS routing nor a real listener workload.
+
 This enables a stateful indexing actor; it does not implement an indexer or replace
 Wippy's Lua compiler/type system. MQTT remains a follow-up server workload:
-Listening-socket readiness, standard WASI networking guest conformance, uniform
-network deadlines, aggregate host memory accounting, and a real server/concurrency
-benchmark remain unverified. Buffered I/O tests cover actual connections and host
-suspension/resumption; they do not replace a real networking guest fixture. Do not treat this PR as production MQTT support.
+listening-socket readiness, split-phase connect/listen, bounded queued accepts,
+uniform network deadlines, aggregate host memory accounting, and a real
+server/concurrency benchmark remain unverified. Nonzero IPv6 flow-info is
+explicitly unsupported; numeric scope IDs are preserved. Do not treat this PR
+as production MQTT support.

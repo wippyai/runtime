@@ -102,10 +102,11 @@ func (h *IPNameLookupHost) MethodResolveAddressStreamResolveNextAddress(_ contex
 		return nil, nil
 	}
 
-	return &IPSocketAddress{
-		Address: *addr,
-		Port:    0,
-	}, nil
+	parsed := SocketAddressFromHostPort(*addr, 0)
+	if parsed == nil {
+		return nil, &NetworkError{Code: NetworkErrorNameUnresolvable}
+	}
+	return parsed, nil
 }
 
 // [method]resolve-address-stream.subscribe

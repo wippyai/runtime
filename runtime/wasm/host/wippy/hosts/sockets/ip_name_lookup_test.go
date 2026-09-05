@@ -41,7 +41,7 @@ func TestS16ResolveStreamSingleUse(t *testing.T) {
 
 	for index, want := range addresses {
 		address, err := host.MethodResolveAddressStreamResolveNextAddress(context.Background(), handle)
-		if err != nil || address == nil || address.Address != want || address.Port != 0 {
+		if err != nil || address == nil || address.IPString() != want || address.Port() != 0 {
 			t.Fatalf("address %d = %#v, error = %v, want %q", index, address, err, want)
 		}
 	}

@@ -156,7 +156,7 @@ func TestS06TCPBindStateTransition(t *testing.T) {
 	host := NewTCPHost(resources)
 	socket := preview2.NewTCPSocketResource(AddressFamilyIPv4)
 	handle := resources.Add(socket)
-	address := IPSocketAddress{Address: "127.0.0.1", Port: 43123}
+	address := *SocketAddressFromHostPort("127.0.0.1", 43123)
 
 	if err := host.MethodTCPSocketStartBind(context.Background(), handle, 0, address); err != nil {
 		t.Fatalf("start bind: %v", err)
@@ -170,9 +170,9 @@ func TestS06TCPBindStateTransition(t *testing.T) {
 	if socket.State() != preview2.TCPStateBound {
 		t.Fatalf("state after finish bind = %d, want bound", socket.State())
 	}
-	requireNetworkError(t, host.MethodTCPSocketStartBind(context.Background(), handle, 0, IPSocketAddress{Address: "127.0.0.2", Port: 1}), NetworkErrorInvalidState)
+	requireNetworkError(t, host.MethodTCPSocketStartBind(context.Background(), handle, 0, *SocketAddressFromHostPort("127.0.0.2", 1)), NetworkErrorInvalidState)
 	local, err := host.MethodTCPSocketLocalAddress(context.Background(), handle)
-	if err != nil || local == nil || *local != address {
+	if err != nil || local == nil || !local.Equal(&address) {
 		t.Fatalf("local address after repeated bind = %#v, error = %v, want %#v", local, err, address)
 	}
 }

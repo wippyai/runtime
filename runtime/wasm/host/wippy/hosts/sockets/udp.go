@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/netip"
 
 	"github.com/wippyai/runtime/api/dispatcher"
 	socketapi "github.com/wippyai/runtime/api/socket"
@@ -39,8 +40,8 @@ func (h *UDPHost) AsyncFunctions() []string {
 
 // IncomingDatagram represents an incoming UDP datagram.
 type IncomingDatagram struct {
-	Data          []byte
 	RemoteAddress IPSocketAddress
+	Data          []byte
 }
 
 // OutgoingDatagram represents an outgoing UDP datagram.
@@ -101,7 +102,11 @@ func (h *UDPHost) MethodUDPSocketStartBind(ctx context.Context, self uint32, _ u
 
 		socket.SetConn(bindResult.Conn)
 		if actualAddr, ok := bindResult.Conn.LocalAddr().(*net.UDPAddr); ok {
-			socket.SetLocalAddr(actualAddr.IP.String(), uint16(actualAddr.Port))
+			if local := SocketAddressFromNetAddr(actualAddr); local != nil {
+				socket.SetLocalAddr(local.IPString(), local.Port())
+			} else {
+				socket.SetLocalAddr(actualAddr.IP.String(), uint16(actualAddr.Port))
+			}
 		}
 		return nil
 	}
@@ -115,12 +120,19 @@ func (h *UDPHost) MethodUDPSocketStartBind(ctx context.Context, self uint32, _ u
 		return &NetworkError{Code: NetworkErrorInvalidState}
 	}
 
+	if err := ValidateAddressFamily(&localAddress, socket.Family()); err != nil {
+		return err
+	}
+	if err := ValidateFlowInfo(&localAddress); err != nil {
+		return err
+	}
+
 	addr := localAddress.String()
 	if !security.IsAllowed(ctx, "socket.listen", addr, nil) {
 		return &NetworkError{Code: NetworkErrorAccessDenied}
 	}
 
-	socket.SetLocalAddr(localAddress.Address, localAddress.Port)
+	socket.SetLocalAddr(localAddress.IPString(), localAddress.Port())
 	socket.SetState(preview2.UDPStateBindInProgress)
 
 	op := &bindPendingOp{cmd: &socketapi.BindCmd{Network: "udp", Address: addr}}
@@ -174,8 +186,14 @@ func (h *UDPHost) MethodUDPSocketStream(_ context.Context, self uint32, remoteAd
 	var remoteAddr string
 	var remotePort uint16
 	if remoteAddress != nil {
-		remoteAddr = remoteAddress.Address
-		remotePort = remoteAddress.Port
+		if err := ValidateAddressFamily(remoteAddress, socket.Family()); err != nil {
+			return 0, 0, err
+		}
+		if err := ValidateFlowInfo(remoteAddress); err != nil {
+			return 0, 0, err
+		}
+		remoteAddr = remoteAddress.IPString()
+		remotePort = remoteAddress.Port()
 		socket.SetRemoteAddr(remoteAddr, remotePort)
 	}
 
@@ -210,10 +228,11 @@ func (h *UDPHost) MethodUDPSocketLocalAddress(_ context.Context, self uint32) (*
 		return nil, &NetworkError{Code: NetworkErrorInvalidState}
 	}
 
-	return &IPSocketAddress{
-		Address: socket.LocalAddr(),
-		Port:    socket.LocalPort(),
-	}, nil
+	addr := SocketAddressFromHostPort(socket.LocalAddr(), socket.LocalPort())
+	if addr == nil || ValidateAddressFamily(addr, socket.Family()) != nil {
+		return nil, &NetworkError{Code: NetworkErrorUnknown}
+	}
+	return addr, nil
 }
 
 // [method]udp-socket.remote-address
@@ -227,10 +246,11 @@ func (h *UDPHost) MethodUDPSocketRemoteAddress(_ context.Context, self uint32) (
 		return nil, &NetworkError{Code: NetworkErrorInvalidState}
 	}
 
-	return &IPSocketAddress{
-		Address: socket.RemoteAddr(),
-		Port:    socket.RemotePort(),
-	}, nil
+	addr := SocketAddressFromHostPort(socket.RemoteAddr(), socket.RemotePort())
+	if addr == nil || ValidateAddressFamily(addr, socket.Family()) != nil {
+		return nil, &NetworkError{Code: NetworkErrorUnknown}
+	}
+	return addr, nil
 }
 
 // [method]udp-socket.subscribe
@@ -367,8 +387,14 @@ func (h *UDPHost) MethodIncomingDatagramStreamReceive(_ context.Context, self ui
 			break
 		}
 
-		if remoteAddr, remotePort, hasRemote := stream.RemoteAddr(); hasRemote {
-			if addr.IP.String() != remoteAddr || uint16(addr.Port) != remotePort {
+		remoteAddr := SocketAddressFromNetAddr(addr)
+		if remoteAddr == nil {
+			return nil, &NetworkError{Code: NetworkErrorUnknown}
+		}
+
+		if defaultHost, defaultPort, hasRemote := stream.RemoteAddr(); hasRemote {
+			expected := SocketAddressFromHostPort(defaultHost, defaultPort)
+			if expected == nil || !remoteAddr.Equal(expected) {
 				continue
 			}
 		}
@@ -377,11 +403,8 @@ func (h *UDPHost) MethodIncomingDatagramStreamReceive(_ context.Context, self ui
 		copy(data, buf[:n])
 
 		results = append(results, IncomingDatagram{
-			Data: data,
-			RemoteAddress: IPSocketAddress{
-				Address: addr.IP.String(),
-				Port:    uint16(addr.Port),
-			},
+			Data:          data,
+			RemoteAddress: *remoteAddr,
 		})
 	}
 
@@ -434,22 +457,34 @@ func (h *UDPHost) MethodOutgoingDatagramStreamSend(_ context.Context, self uint3
 		var addr *net.UDPAddr
 
 		if dg.RemoteAddress != nil {
-			ip := net.ParseIP(dg.RemoteAddress.Address)
+			if err := ValidateAddressFamily(dg.RemoteAddress, socket.Family()); err != nil {
+				return sent, err
+			}
+			if err := ValidateFlowInfo(dg.RemoteAddress); err != nil {
+				return sent, err
+			}
+			ip := dg.RemoteAddress.IP()
 			if ip == nil {
 				return sent, &NetworkError{Code: NetworkErrorInvalidArgument}
 			}
+			var zone string
+			if dg.RemoteAddress.IPv6 != nil && dg.RemoteAddress.IPv6.ScopeID != 0 {
+				zone = ZoneFromScopeID(dg.RemoteAddress.IPv6.ScopeID)
+			}
 			addr = &net.UDPAddr{
 				IP:   ip,
-				Port: int(dg.RemoteAddress.Port),
+				Port: int(dg.RemoteAddress.Port()),
+				Zone: zone,
 			}
 		} else if hasDefault {
-			ip := net.ParseIP(defaultAddr)
-			if ip == nil {
+			parsed, err := netip.ParseAddr(defaultAddr)
+			if err != nil {
 				return sent, &NetworkError{Code: NetworkErrorInvalidArgument}
 			}
 			addr = &net.UDPAddr{
-				IP:   ip,
+				IP:   parsed.AsSlice(),
 				Port: int(defaultPort),
+				Zone: parsed.Zone(),
 			}
 		} else {
 			return sent, &NetworkError{Code: NetworkErrorInvalidArgument}
@@ -492,9 +527,15 @@ func (h *UDPHost) ResourceDropOutgoingDatagramStream(_ context.Context, self uin
 
 func (h *UDPHost) Register() map[string]any {
 	return map[string]any{
-		"[method]udp-socket.start-bind":               h.MethodUDPSocketStartBind,
-		"[method]udp-socket.finish-bind":              h.MethodUDPSocketFinishBind,
-		"[method]udp-socket.stream":                   h.MethodUDPSocketStream,
+		"[method]udp-socket.start-bind":  h.MethodUDPSocketStartBind,
+		"[method]udp-socket.finish-bind": h.MethodUDPSocketFinishBind,
+		"[method]udp-socket.stream": func(ctx context.Context, self uint32, remote *IPSocketAddress) (*UDPStreams, *NetworkError) {
+			incoming, outgoing, err := h.MethodUDPSocketStream(ctx, self, remote)
+			if err != nil {
+				return nil, err
+			}
+			return &UDPStreams{Incoming: incoming, Outgoing: outgoing}, nil
+		},
 		"[method]udp-socket.address-family":           h.MethodUDPSocketAddressFamily,
 		"[method]udp-socket.local-address":            h.MethodUDPSocketLocalAddress,
 		"[method]udp-socket.remote-address":           h.MethodUDPSocketRemoteAddress,
@@ -530,4 +571,10 @@ func (o *bindPendingOp) ToCommand() dispatcher.Command {
 
 func (o *bindPendingOp) Execute(_ context.Context) (uint64, error) {
 	return 0, fmt.Errorf("UDP bind requires dispatcher")
+}
+
+// UDPStreams is the single tuple payload of result<tuple<incoming, outgoing>, error-code>.
+type UDPStreams struct {
+	Incoming uint32
+	Outgoing uint32
 }
