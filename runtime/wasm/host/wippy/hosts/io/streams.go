@@ -6,6 +6,9 @@ import (
 	"context"
 	"errors"
 
+	pollhost "github.com/wippyai/runtime/runtime/wasm/host/wippy/hosts/poll"
+	wasmengine "github.com/wippyai/wasm-runtime/engine"
+
 	"github.com/wippyai/wasm-runtime/wasi/preview2"
 )
 
@@ -44,16 +47,16 @@ func (h *StreamsHost) MethodInputStreamRead(_ context.Context, self uint32, leng
 	}
 
 	if length > preview2.MaxAllocationSize {
-		return nil, &preview2.StreamError{LastOpFailed: true}
+		return nil, h.operationFailed()
 	}
 
 	data, err := stream.Read(length)
 	if err != nil {
 		var se *preview2.StreamError
 		if errors.As(err, &se) {
-			return nil, se
+			return nil, h.streamError(se)
 		}
-		return nil, &preview2.StreamError{LastOpFailed: true}
+		return nil, h.operationFailed()
 	}
 
 	return data, nil
@@ -61,6 +64,9 @@ func (h *StreamsHost) MethodInputStreamRead(_ context.Context, self uint32, leng
 
 // MethodInputStreamBlockingRead reads from an input stream (blocking variant).
 func (h *StreamsHost) MethodInputStreamBlockingRead(ctx context.Context, self uint32, length uint64) ([]byte, *preview2.StreamError) {
+	if !h.awaitInput(ctx, self, length) {
+		return nil, nil
+	}
 	return h.MethodInputStreamRead(ctx, self, length)
 }
 
@@ -77,16 +83,16 @@ func (h *StreamsHost) MethodInputStreamSkip(_ context.Context, self uint32, leng
 	}
 
 	if length > preview2.MaxAllocationSize {
-		return 0, &preview2.StreamError{LastOpFailed: true}
+		return 0, h.operationFailed()
 	}
 
 	data, err := stream.Read(length)
 	if err != nil {
 		var se *preview2.StreamError
 		if errors.As(err, &se) {
-			return 0, se
+			return 0, h.streamError(se)
 		}
-		return 0, &preview2.StreamError{LastOpFailed: true}
+		return 0, h.operationFailed()
 	}
 
 	return uint64(len(data)), nil
@@ -94,14 +100,47 @@ func (h *StreamsHost) MethodInputStreamSkip(_ context.Context, self uint32, leng
 
 // MethodInputStreamBlockingSkip skips bytes on an input stream (blocking variant).
 func (h *StreamsHost) MethodInputStreamBlockingSkip(ctx context.Context, self uint32, length uint64) (uint64, *preview2.StreamError) {
+	if !h.awaitInput(ctx, self, length) {
+		return 0, nil
+	}
 	return h.MethodInputStreamSkip(ctx, self, length)
 }
 
 // MethodInputStreamSubscribe subscribes to input stream readiness.
-func (h *StreamsHost) MethodInputStreamSubscribe(_ context.Context, _ uint32) uint32 {
+func (h *StreamsHost) MethodInputStreamSubscribe(_ context.Context, self uint32) uint32 {
+	r, ok := h.resources.Get(self)
+	if !ok {
+		panic("invalid input stream handle")
+	}
+	if _, ok := r.(interface{ Read(uint64) ([]byte, error) }); !ok {
+		panic("resource is not an input stream")
+	}
+	if subscriber, ok := r.(interface{ Subscribe() preview2.Pollable }); ok {
+		return h.resources.Add(subscriber.Subscribe())
+	}
 	pollable := &preview2.PollableResource{}
 	pollable.SetReady(true)
 	return h.resources.Add(pollable)
+}
+
+func (h *StreamsHost) awaitInput(ctx context.Context, self uint32, length uint64) bool {
+	// Preserve the normal read error path for invalid lengths/handles.
+	if length == 0 || length > preview2.MaxAllocationSize {
+		return true
+	}
+	r, ok := h.resources.Get(self)
+	if !ok {
+		return true
+	}
+	if subscriber, ok := r.(interface{ Subscribe() preview2.Pollable }); ok {
+		return pollhost.AwaitReady(ctx, subscriber.Subscribe())
+	}
+	return true
+}
+
+// AsyncFunctions declares blocking input operations for embedded Asyncify.
+func (*StreamsHost) AsyncFunctions() []string {
+	return []string{"[method]input-stream.blocking-read", "[method]input-stream.blocking-skip", "[method]output-stream.blocking-write-and-flush", "[method]output-stream.blocking-flush", "[method]output-stream.blocking-write-zeroes-and-flush", "[method]output-stream.blocking-splice"}
 }
 
 // MethodOutputStreamCheckWrite checks how many bytes can be written.
@@ -120,9 +159,9 @@ func (h *StreamsHost) MethodOutputStreamCheckWrite(_ context.Context, self uint3
 	if err != nil {
 		var se *preview2.StreamError
 		if errors.As(err, &se) {
-			return 0, se
+			return 0, h.streamError(se)
 		}
-		return 0, &preview2.StreamError{LastOpFailed: true}
+		return 0, h.operationFailed()
 	}
 
 	return size, nil
@@ -141,12 +180,15 @@ func (h *StreamsHost) MethodOutputStreamWrite(_ context.Context, self uint32, co
 	}
 
 	err := stream.Write(contents)
+	if errors.Is(err, preview2.ErrWritePermit) {
+		panic(err)
+	}
 	if err != nil {
 		var se *preview2.StreamError
 		if errors.As(err, &se) {
-			return se
+			return h.streamError(se)
 		}
-		return &preview2.StreamError{LastOpFailed: true}
+		return h.operationFailed()
 	}
 
 	return nil
@@ -154,6 +196,12 @@ func (h *StreamsHost) MethodOutputStreamWrite(_ context.Context, self uint32, co
 
 // MethodOutputStreamBlockingWriteAndFlush writes and flushes (blocking variant).
 func (h *StreamsHost) MethodOutputStreamBlockingWriteAndFlush(ctx context.Context, self uint32, contents []byte) *preview2.StreamError {
+	if len(contents) > 4096 {
+		panic("blocking-write-and-flush exceeds 4096 bytes")
+	}
+	if err, handled := h.blockingOutput(ctx, self, contents, false); handled {
+		return err
+	}
 	if err := h.MethodOutputStreamWrite(ctx, self, contents); err != nil {
 		return err
 	}
@@ -171,9 +219,9 @@ func (h *StreamsHost) MethodOutputStreamFlush(_ context.Context, self uint32) *p
 		if err := flusher.Flush(); err != nil {
 			var se *preview2.StreamError
 			if errors.As(err, &se) {
-				return se
+				return h.streamError(se)
 			}
-			return &preview2.StreamError{LastOpFailed: true}
+			return h.operationFailed()
 		}
 	}
 	return nil
@@ -181,11 +229,24 @@ func (h *StreamsHost) MethodOutputStreamFlush(_ context.Context, self uint32) *p
 
 // MethodOutputStreamBlockingFlush flushes an output stream (blocking variant).
 func (h *StreamsHost) MethodOutputStreamBlockingFlush(ctx context.Context, self uint32) *preview2.StreamError {
+	if err, handled := h.blockingOutput(ctx, self, nil, true); handled {
+		return err
+	}
 	return h.MethodOutputStreamFlush(ctx, self)
 }
 
 // MethodOutputStreamSubscribe subscribes to output stream readiness.
-func (h *StreamsHost) MethodOutputStreamSubscribe(_ context.Context, _ uint32) uint32 {
+func (h *StreamsHost) MethodOutputStreamSubscribe(_ context.Context, self uint32) uint32 {
+	r, ok := h.resources.Get(self)
+	if !ok {
+		panic("invalid output stream handle")
+	}
+	if _, ok := r.(interface{ Write([]byte) error }); !ok {
+		panic("resource is not an output stream")
+	}
+	if subscriber, ok := r.(interface{ Subscribe() preview2.Pollable }); ok {
+		return h.resources.Add(subscriber.Subscribe())
+	}
 	pollable := &preview2.PollableResource{}
 	pollable.SetReady(true)
 	return h.resources.Add(pollable)
@@ -204,17 +265,23 @@ func (h *StreamsHost) MethodOutputStreamWriteZeroes(_ context.Context, self uint
 	}
 
 	if length > preview2.MaxAllocationSize {
-		return &preview2.StreamError{LastOpFailed: true}
+		return h.operationFailed()
 	}
 
+	if _, ok := r.(*preview2.TCPOutputStreamResource); ok && length > preview2.DefaultBufferSize {
+		panic(preview2.ErrWritePermit)
+	}
 	zeroes := make([]byte, length)
 	err := stream.Write(zeroes)
+	if errors.Is(err, preview2.ErrWritePermit) {
+		panic(err)
+	}
 	if err != nil {
 		var se *preview2.StreamError
 		if errors.As(err, &se) {
-			return se
+			return h.streamError(se)
 		}
-		return &preview2.StreamError{LastOpFailed: true}
+		return h.operationFailed()
 	}
 
 	return nil
@@ -222,10 +289,13 @@ func (h *StreamsHost) MethodOutputStreamWriteZeroes(_ context.Context, self uint
 
 // MethodOutputStreamBlockingWriteZeroesAndFlush writes zeroes and flushes (blocking variant).
 func (h *StreamsHost) MethodOutputStreamBlockingWriteZeroesAndFlush(ctx context.Context, self uint32, length uint64) *preview2.StreamError {
-	if err := h.MethodOutputStreamWriteZeroes(ctx, self, length); err != nil {
-		return err
+	if length > 4096 {
+		panic("blocking-write-zeroes-and-flush exceeds 4096 bytes")
 	}
-	return h.MethodOutputStreamFlush(ctx, self)
+	if async := wasmengine.GetAsyncify(ctx); async != nil && async.IsRewinding(ctx) {
+		return h.MethodOutputStreamBlockingWriteAndFlush(ctx, self, nil)
+	}
+	return h.MethodOutputStreamBlockingWriteAndFlush(ctx, self, make([]byte, length))
 }
 
 // MethodOutputStreamSplice splices data from input to output stream.
@@ -250,22 +320,35 @@ func (h *StreamsHost) MethodOutputStreamSplice(_ context.Context, self uint32, s
 		return 0, &preview2.StreamError{Closed: true}
 	}
 
+	if length > preview2.MaxAllocationSize {
+		return 0, h.operationFailed()
+	}
+	if checker, ok := dstR.(interface{ CheckWrite() (uint64, error) }); ok {
+		permit, err := checker.CheckWrite()
+		if err != nil {
+			return 0, h.streamError(streamFailure(err))
+		}
+		length = min(length, permit)
+	}
+	if length == 0 {
+		return 0, nil
+	}
 	data, err := srcStream.Read(length)
 	if err != nil {
 		var se *preview2.StreamError
 		if errors.As(err, &se) {
-			return 0, se
+			return 0, h.streamError(se)
 		}
-		return 0, &preview2.StreamError{LastOpFailed: true}
+		return 0, h.operationFailed()
 	}
 
 	err = dstStream.Write(data)
 	if err != nil {
 		var se *preview2.StreamError
 		if errors.As(err, &se) {
-			return 0, se
+			return 0, h.streamError(se)
 		}
-		return 0, &preview2.StreamError{LastOpFailed: true}
+		return 0, h.operationFailed()
 	}
 
 	return uint64(len(data)), nil
@@ -273,6 +356,18 @@ func (h *StreamsHost) MethodOutputStreamSplice(_ context.Context, self uint32, s
 
 // MethodOutputStreamBlockingSplice splices data (blocking variant).
 func (h *StreamsHost) MethodOutputStreamBlockingSplice(ctx context.Context, self uint32, src uint32, length uint64) (uint64, *preview2.StreamError) {
+	if !h.awaitInput(ctx, src, length) {
+		return 0, nil
+	}
+	if length > 0 && length <= preview2.MaxAllocationSize {
+		if r, ok := h.resources.Get(self); ok {
+			if subscriber, ok := r.(interface{ Subscribe() preview2.Pollable }); ok {
+				if !pollhost.AwaitReady(ctx, subscriber.Subscribe()) {
+					return 0, nil
+				}
+			}
+		}
+	}
 	return h.MethodOutputStreamSplice(ctx, self, src, length)
 }
 
@@ -296,8 +391,8 @@ func (h *StreamsHost) Register() map[string]any {
 		"[method]input-stream.subscribe":     h.MethodInputStreamSubscribe,
 
 		"[method]output-stream.check-write":                     h.MethodOutputStreamCheckWrite,
-		"[method]output-stream.write":                           h.MethodOutputStreamWrite,
-		"[method]output-stream.blocking-write-and-flush":        h.MethodOutputStreamBlockingWriteAndFlush,
+		"[method]output-stream.write":                           wasmengine.CheckedHostFunction{Handler: h.MethodOutputStreamWrite, Validate: validateOutputWrite},
+		"[method]output-stream.blocking-write-and-flush":        wasmengine.CheckedHostFunction{Handler: h.MethodOutputStreamBlockingWriteAndFlush, Validate: validateBlockingOutputWrite},
 		"[method]output-stream.flush":                           h.MethodOutputStreamFlush,
 		"[method]output-stream.blocking-flush":                  h.MethodOutputStreamBlockingFlush,
 		"[method]output-stream.subscribe":                       h.MethodOutputStreamSubscribe,

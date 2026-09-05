@@ -30,6 +30,7 @@ func (d *Dispatcher) RegisterAll(register func(id dispatcher.CommandID, h dispat
 	register(socketapi.SocketBind, dispatcher.HandlerFunc(d.handleBind))
 	register(socketapi.SocketResolve, dispatcher.HandlerFunc(d.handleResolve))
 	register(socketapi.SocketPollWait, dispatcher.HandlerFunc(d.handlePollWait))
+	register(socketapi.SocketStreamWait, dispatcher.HandlerFunc(d.handleStreamWait))
 }
 
 func (d *Dispatcher) handleConnect(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {

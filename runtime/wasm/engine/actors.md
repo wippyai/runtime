@@ -103,10 +103,17 @@ one dispatcher wait per suspended poll and no worker blocking. Inputs are capped
 at 4096 before canonical list lifting; empty lists and invalid handles trap.
 Manual pollables expose live signals, wake on resource drop, and do not fabricate
 readiness when blocked. Single timer `pollable.block` retains the clock path.
-TCP stream/socket subscriptions still use snapshots and need live readiness,
-bounded buffers, and an accept queue; this foundation alone does not make them
-safe for server workloads. Multi-source selection currently uses Go reflection
-in the dispatcher wait, outside the actor messaging path.
+TCP input and output stream resources now have live subscriptions and fixed
+64 KiB rings per direction. At most one reader and one writer pump own the
+network calls for each connected socket; guest reads and writes only copy buffered
+data. Blocking input and output operations suspend through the dispatcher, with
+write completion retained across rewind so flushing cannot repeat a write.
+Subscriptions borrow their stream; dropping a subscription leaves the stream
+alive. Socket close stops and joins both pumps before returning socket quota.
+These host buffers are bounded by socket count but are not charged to
+`memory_bytes`. Listening sockets still need an accept queue and live readiness.
+Multi-source selection currently uses Go reflection in the dispatcher wait,
+outside the actor messaging path.
 
 ## Scope and measurements
 
@@ -135,6 +142,7 @@ watchers remain the largest allocation source in the optimized profile.
 
 This enables a stateful indexing actor; it does not implement an indexer or replace
 Wippy's Lua compiler/type system. MQTT remains a follow-up server workload:
-Live TCP readiness and buffering, uniform network deadlines, aggregate host
-memory accounting, and a real server/concurrency benchmark are not validated
-by the counter fixture. Do not treat this PR as production MQTT support.
+Listening-socket readiness, standard WASI networking guest conformance, uniform
+network deadlines, aggregate host memory accounting, and a real server/concurrency
+benchmark remain unverified. Buffered I/O tests cover actual connections and host
+suspension/resumption; they do not replace a real networking guest fixture. Do not treat this PR as production MQTT support.

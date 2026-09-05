@@ -251,6 +251,10 @@ func TestS08TCPFinishConnectAdoptsStreams(t *testing.T) {
 		t.Fatalf("output resource type = %T", outputResource)
 	}
 
+	permit, permitErr := output.CheckWrite()
+	if permitErr != nil || permit < 3 {
+		t.Fatalf("adopted output permit=%d err=%v", permit, permitErr)
+	}
 	writeResult := make(chan error, 1)
 	go func() { writeResult <- output.Write([]byte("out")) }()
 	peerData := make([]byte, 3)
@@ -268,6 +272,11 @@ func TestS08TCPFinishConnectAdoptsStreams(t *testing.T) {
 		_, err := right.Write([]byte("in"))
 		peerWrite <- err
 	}()
+	select {
+	case <-input.Notify():
+	case <-time.After(time.Second):
+		t.Fatal("adopted input did not become ready")
+	}
 	inputData, err := input.Read(2)
 	if err != nil {
 		t.Fatalf("read adopted input stream: %v", err)

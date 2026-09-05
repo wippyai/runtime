@@ -61,16 +61,7 @@ func (h *Host) AsyncFunctions() []string {
 func (h *Host) Poll(ctx context.Context, pollables []uint32) []uint32 {
 	async := wasmengine.GetAsyncify(ctx)
 	if async != nil && async.IsRewinding(ctx) {
-		token, err := wasmengine.Resume(ctx)
-		if err != nil {
-			panic(fmt.Errorf("poll resume: %w", err))
-		}
-		value, ok := wippyhost.GetAsyncValueStore(ctx).Take(token)
-		ready, typed := value.([]uint32)
-		if !ok || !typed || len(ready) == 0 {
-			panic("poll resumed without ready indexes")
-		}
-		return ready
+		return resumeIndexes(ctx)
 	}
 	// Bound host-side fan-in independently of a component's linear memory cap.
 	if len(pollables) == 0 || len(pollables) > 4096 {
@@ -143,4 +134,40 @@ func validatePollArguments(_ context.Context, mod api.Module, stack []uint64) er
 		return errors.New("poll list outside memory")
 	}
 	return nil
+}
+
+func resumeIndexes(ctx context.Context) []uint32 {
+	token, err := wasmengine.Resume(ctx)
+	if err != nil {
+		panic(fmt.Errorf("poll resume: %w", err))
+	}
+	value, ok := wippyhost.GetAsyncValueStore(ctx).Take(token)
+	ready, typed := value.([]uint32)
+	if !ok || !typed || len(ready) == 0 {
+		panic("poll resumed without ready indexes")
+	}
+	return ready
+}
+
+// AwaitReady suspends a blocking host operation on a resource without allocating
+// a guest pollable handle. False means the host must return while unwinding.
+func AwaitReady(ctx context.Context, source preview2.Pollable) bool {
+	async := wasmengine.GetAsyncify(ctx)
+	if async != nil && async.IsRewinding(ctx) {
+		indexes := resumeIndexes(ctx)
+		if len(indexes) != 1 || indexes[0] != 0 {
+			panic("invalid single-resource poll result")
+		}
+		return true
+	}
+	if source.Ready() {
+		return true
+	}
+	if async == nil {
+		panic("blocking stream requires asyncify scheduler context")
+	}
+	if err := wasmengine.Suspend(ctx, &waitSources{sources: []preview2.Pollable{source}}); err != nil {
+		panic(fmt.Errorf("stream wait suspend: %w", err))
+	}
+	return false
 }

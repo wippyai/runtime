@@ -77,6 +77,7 @@ func TestDispatcher_RegisterAll(t *testing.T) {
 	assert.Contains(t, registered, socketapi.SocketBind)
 	assert.Contains(t, registered, socketapi.SocketResolve)
 	assert.Contains(t, registered, socketapi.SocketPollWait)
+	assert.Contains(t, registered, socketapi.SocketStreamWait)
 }
 
 func TestDispatcher_HandleConnect(t *testing.T) {
