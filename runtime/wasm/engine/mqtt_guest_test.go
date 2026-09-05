@@ -31,12 +31,13 @@ import (
 // Only the address is redirected: accepted connections and socket dispatch use
 // real loopback TCP. This exercises the documented MQTT fixture subset, not a broker.
 func TestMQTTGuestLoopbackServer(t *testing.T) {
-	t.Run("two-clients", func(t *testing.T) { testMQTTGuestLoopbackServer(t, false, false) })
-	t.Run("oversized-frame", func(t *testing.T) { testMQTTGuestLoopbackServer(t, true, false) })
-	t.Run("cancel-pending-accept", func(t *testing.T) { testMQTTGuestLoopbackServer(t, false, true) })
+	t.Run("two-clients", func(t *testing.T) { testMQTTGuestLoopbackServer(t, false, false, false) })
+	t.Run("oversized-frame", func(t *testing.T) { testMQTTGuestLoopbackServer(t, true, false, false) })
+	t.Run("cancel-pending-accept", func(t *testing.T) { testMQTTGuestLoopbackServer(t, false, true, false) })
+	t.Run("idle-past-startup-deadline", func(t *testing.T) { testMQTTGuestLoopbackServer(t, false, false, true) })
 }
 
-func testMQTTGuestLoopbackServer(t *testing.T, malformed, cancelAccept bool) {
+func testMQTTGuestLoopbackServer(t *testing.T, malformed, cancelAccept, idlePastStartup bool) {
 	t.Helper()
 	ctx, frame := ctxapi.OpenFrameContext(ctxapi.NewRootContext())
 	defer frame.Close()
@@ -56,7 +57,11 @@ func testMQTTGuestLoopbackServer(t *testing.T, malformed, cancelAccept bool) {
 	module, err := rt.LoadComponent(ctx, code)
 	require.NoError(t, err)
 	require.NoError(t, module.Compile(ctx))
-	p := NewActorProcess(NewProcess(module, "", wasmapi.WASIConfig{}, wasmapi.LimitsConfig{MaxExecutionMS: 10000}, nil), actor.DefaultLimits(), nil)
+	limits := wasmapi.LimitsConfig{MaxExecutionMS: 10000}
+	if idlePastStartup {
+		limits.SocketTimeoutMS = 200
+	}
+	p := NewActorProcess(NewProcess(module, "", wasmapi.WASIConfig{}, limits, nil), actor.DefaultLimits(), nil)
 	p.SetSocketBudget(table.SocketBudget())
 	defer p.Close()
 	require.NoError(t, p.Init(ctx, "run", nil))
@@ -124,6 +129,16 @@ func testMQTTGuestLoopbackServer(t *testing.T, malformed, cancelAccept bool) {
 			} else if !waitedForAccept {
 				waitedForAccept = true
 				if !cancelAccept {
+					if idlePastStartup {
+						require.False(t, network.startupDeadline.IsZero())
+						timer := time.NewTimer(time.Until(network.startupDeadline) + 25*time.Millisecond)
+						select {
+						case <-timer.C:
+						case <-waitCtx.Done():
+							timer.Stop()
+							t.Fatal(waitCtx.Err())
+						}
+					}
 					close(clientStart)
 				}
 			}
@@ -175,9 +190,10 @@ func (r *mqttGuestReceiver) CompleteYield(tag uint64, data any, err error) {
 
 type mqttTestNetwork struct {
 	netapi.Service
-	address  chan string
-	start    chan struct{}
-	listener net.Listener
+	startupDeadline time.Time
+	address         chan string
+	start           chan struct{}
+	listener        net.Listener
 }
 
 func (n *mqttTestNetwork) Listen(ctx context.Context, network, address string) (net.Listener, error) {
@@ -191,6 +207,7 @@ func (n *mqttTestNetwork) Listen(ctx context.Context, network, address string) (
 	}
 	listener, err := (&net.ListenConfig{}).Listen(ctx, "tcp4", "127.0.0.1:0")
 	if err == nil {
+		n.startupDeadline, _ = ctx.Deadline()
 		n.listener = listener
 		n.address <- listener.Addr().String()
 	}

@@ -28,6 +28,9 @@ func mapNetError(err error) *NetworkError {
 	if errors.Is(err, socketapi.ErrAlreadyStarted) {
 		return &NetworkError{Code: NetworkErrorConcurrencyConflict}
 	}
+	if errors.Is(err, socketapi.ErrInvalidTimeout) {
+		return &NetworkError{Code: NetworkErrorInvalidArgument}
+	}
 	if errors.Is(err, context.Canceled) {
 		return &NetworkError{Code: NetworkErrorConnectionAborted}
 	}

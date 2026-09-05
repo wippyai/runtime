@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"time"
 
 	"github.com/wippyai/runtime/api/dispatcher"
 	netapi "github.com/wippyai/runtime/api/net"
@@ -137,7 +138,7 @@ func (d *Dispatcher) handleStartConnect(ctx context.Context, cmd dispatcher.Comm
 		receiver.CompleteYield(tag, &socketapi.StartResult{Err: socketapi.ErrNilOperation}, nil)
 		return nil
 	}
-	return d.startJob(ctx, c.Operation, tag, receiver, func(opCtx context.Context) (io.Closer, error) {
+	return d.startJob(ctx, c.Operation, c.Timeout, tag, receiver, func(opCtx context.Context) (io.Closer, error) {
 		return d.netSvc.DialContext(opCtx, c.Network, c.Address)
 	})
 }
@@ -148,14 +149,18 @@ func (d *Dispatcher) handleStartListen(ctx context.Context, cmd dispatcher.Comma
 		receiver.CompleteYield(tag, &socketapi.StartResult{Err: socketapi.ErrNilOperation}, nil)
 		return nil
 	}
-	return d.startJob(ctx, c.Operation, tag, receiver, func(opCtx context.Context) (io.Closer, error) {
+	return d.startJob(ctx, c.Operation, c.Timeout, tag, receiver, func(opCtx context.Context) (io.Closer, error) {
 		return d.netSvc.Listen(opCtx, c.Network, c.Address)
 	})
 }
 
-func (d *Dispatcher) startJob(ctx context.Context, op *socketapi.PendingOperation, tag uint64, receiver dispatcher.ResultReceiver, run func(context.Context) (io.Closer, error)) error {
+func (d *Dispatcher) startJob(ctx context.Context, op *socketapi.PendingOperation, timeout time.Duration, tag uint64, receiver dispatcher.ResultReceiver, run func(context.Context) (io.Closer, error)) error {
 	if op == nil {
 		receiver.CompleteYield(tag, &socketapi.StartResult{Err: socketapi.ErrNilOperation}, nil)
+		return nil
+	}
+	if timeout < 0 {
+		receiver.CompleteYield(tag, &socketapi.StartResult{Err: socketapi.ErrInvalidTimeout}, nil)
 		return nil
 	}
 	opCtx, ok := op.Start(ctx)
@@ -163,8 +168,17 @@ func (d *Dispatcher) startJob(ctx context.Context, op *socketapi.PendingOperatio
 		receiver.CompleteYield(tag, &socketapi.StartResult{Err: socketapi.ErrAlreadyStarted}, nil)
 		return nil
 	}
+	jobCtx := opCtx
+	cancel := context.CancelFunc(func() {})
+	if timeout > 0 {
+		jobCtx, cancel = context.WithTimeout(opCtx, timeout)
+	}
 	go func() {
-		value, err := run(opCtx)
+		defer cancel()
+		value, err := run(jobCtx)
+		if jobCtx.Err() != nil {
+			err = jobCtx.Err()
+		}
 		op.Complete(value, err)
 	}()
 	receiver.CompleteYield(tag, &socketapi.StartResult{}, nil)

@@ -9,6 +9,7 @@ import (
 	"strconv"
 
 	socketapi "github.com/wippyai/runtime/api/socket"
+	wippyhost "github.com/wippyai/runtime/runtime/wasm/host/wippy"
 	wasmengine "github.com/wippyai/wasm-runtime/engine"
 	"github.com/wippyai/wasm-runtime/wasi/preview2"
 )
@@ -151,7 +152,10 @@ func (h *TCPHost) MethodTCPSocketStartConnect(ctx context.Context, self uint32, 
 		operation.Close()
 		return mapNetError(err)
 	}
-	cmd := &socketapi.StartConnectCmd{Operation: operation, Network: "tcp", Address: remoteAddress.String()}
+	cmd := &socketapi.StartConnectCmd{
+		Operation: operation, Network: "tcp", Address: remoteAddress.String(),
+		Timeout: wippyhost.GetCallLimits(ctx).EffectiveSocketTimeout(),
+	}
 	if err := wasmengine.Suspend(ctx, &socketStartOp{cmd: cmd}); err != nil {
 		operation.Close()
 		panic(fmt.Errorf("tcp start-connect suspend: %w", err))
@@ -231,7 +235,10 @@ func (h *TCPHost) MethodTCPSocketStartListen(ctx context.Context, self uint32) *
 		operation.Close()
 		return mapNetError(err)
 	}
-	cmd := &socketapi.StartListenCmd{Operation: operation, Network: "tcp", Address: net.JoinHostPort(socket.LocalAddr(), strconv.Itoa(int(socket.LocalPort())))}
+	cmd := &socketapi.StartListenCmd{
+		Operation: operation, Network: "tcp", Address: net.JoinHostPort(socket.LocalAddr(), strconv.Itoa(int(socket.LocalPort()))),
+		Timeout: wippyhost.GetCallLimits(ctx).EffectiveSocketTimeout(),
+	}
 	if err := wasmengine.Suspend(ctx, &socketStartOp{cmd: cmd}); err != nil {
 		operation.Close()
 		panic(fmt.Errorf("tcp start-listen suspend: %w", err))

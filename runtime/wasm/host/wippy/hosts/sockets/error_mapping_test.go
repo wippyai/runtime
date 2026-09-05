@@ -81,6 +81,7 @@ func TestPendingNetworkErrorMapping(t *testing.T) {
 		{resource.ErrClosed, NetworkErrorInvalidState},
 		{socketapi.ErrOperationClosed, NetworkErrorInvalidState},
 		{socketapi.ErrAlreadyStarted, NetworkErrorConcurrencyConflict},
+		{socketapi.ErrInvalidTimeout, NetworkErrorInvalidArgument},
 		{context.Canceled, NetworkErrorConnectionAborted},
 		{context.DeadlineExceeded, NetworkErrorTimeout},
 	} {

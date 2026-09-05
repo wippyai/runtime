@@ -4,6 +4,7 @@ package socket
 
 import (
 	"net"
+	"time"
 
 	"github.com/wippyai/runtime/api/dispatcher"
 )
@@ -99,6 +100,8 @@ type StartConnectCmd struct {
 	Operation *PendingOperation
 	Network   string
 	Address   string
+	// Timeout is the network-start deadline. Zero keeps the caller context.
+	Timeout time.Duration
 }
 
 func (c *StartConnectCmd) CmdID() dispatcher.CommandID { return SocketStartConnect }
@@ -108,6 +111,8 @@ type StartListenCmd struct {
 	Operation *PendingOperation
 	Network   string
 	Address   string
+	// Timeout is the network-start deadline. Zero keeps the caller context.
+	Timeout time.Duration
 }
 
 func (c *StartListenCmd) CmdID() dispatcher.CommandID { return SocketStartListen }

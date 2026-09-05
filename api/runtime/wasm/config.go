@@ -74,6 +74,11 @@ type (
 
 	// WATFunctionConfig defines configuration for inline WAT function entries.
 	WATFunctionConfig struct {
+		// RootLimits and RootPool capture root-level limits and pool to detect and reject invalid configuration.
+		RootLimits any `json:"limits,omitempty" yaml:"limits,omitempty"`
+		RootPool   any `json:"pool,omitempty" yaml:"pool,omitempty"`
+		options    *FunctionOptions
+
 		Meta      attrs.Bag     `json:"meta,omitempty" yaml:"meta,omitempty"`
 		Source    string        `json:"source" yaml:"source" resolve:"-"`
 		Method    string        `json:"method" yaml:"method"`
@@ -84,17 +89,17 @@ type (
 		Pool      PoolConfig    `json:"-" yaml:"-"`
 		Limits    LimitsConfig  `json:"-" yaml:"-"`
 
-		// RootLimits and RootPool capture root-level limits and pool to detect and reject invalid configuration.
-		RootLimits any `json:"limits,omitempty" yaml:"limits,omitempty"`
-		RootPool   any `json:"pool,omitempty" yaml:"pool,omitempty"`
-
 		hasRootLimits bool
 		hasRootPool   bool
-		options       *FunctionOptions
 	}
 
 	// FunctionConfig defines configuration for precompiled WASM function entries.
 	FunctionConfig struct {
+		// RootLimits and RootPool capture root-level limits and pool to detect and reject invalid configuration.
+		RootLimits any `json:"limits,omitempty" yaml:"limits,omitempty"`
+		RootPool   any `json:"pool,omitempty" yaml:"pool,omitempty"`
+		options    *FunctionOptions
+
 		Meta      attrs.Bag     `json:"meta,omitempty" yaml:"meta,omitempty"`
 		FS        string        `json:"fs" yaml:"fs"`
 		Path      string        `json:"path" yaml:"path"`
@@ -107,13 +112,8 @@ type (
 		Pool      PoolConfig    `json:"-" yaml:"-"`
 		Limits    LimitsConfig  `json:"-" yaml:"-"`
 
-		// RootLimits and RootPool capture root-level limits and pool to detect and reject invalid configuration.
-		RootLimits any `json:"limits,omitempty" yaml:"limits,omitempty"`
-		RootPool   any `json:"pool,omitempty" yaml:"pool,omitempty"`
-
 		hasRootLimits bool
 		hasRootPool   bool
-		options       *FunctionOptions
 	}
 )
 

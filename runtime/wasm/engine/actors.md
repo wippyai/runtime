@@ -94,8 +94,12 @@ Preview2 TCP/UDP sockets and legacy core `socket` connections together against
 `max_open_sockets`. Reservations remain held until the underlying socket closes;
 failed operations release them. Each actor owns an independent budget. Closing
 the resource scope prevents late resource publication.
-`socket_timeout_ms` currently applies to the core socket profile. Preview2 socket
-operations still need uniform operation timeouts. Legacy dispatcher accept commands
+`socket_timeout_ms` applies to the core socket profile and Preview2 TCP
+connect/listen startup. A startup deadline stops the network job; it does not
+expire an established connection or listener while the guest delays finish or
+waits for clients. Generic poll and idle accept remain indefinite. Preview2
+blocking stream operations, UDP, and DNS still need uniform operation timeouts.
+Legacy dispatcher accept commands
 close their listener on process cancellation and release unadopted connections;
 WASM listener accepts now use the socket-owned queue described below.
 

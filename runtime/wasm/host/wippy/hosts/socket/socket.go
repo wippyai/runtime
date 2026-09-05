@@ -126,15 +126,11 @@ func getConnection(ctx context.Context, handle uint32) (*connection, bool) {
 }
 
 func socketTimeout(limits wasmapi.LimitsConfig, requested uint32) time.Duration {
-	milliseconds := int64(limits.EffectiveSocketTimeoutMS())
-	if requested > 0 && int64(requested) < milliseconds {
-		milliseconds = int64(requested)
+	timeout := limits.EffectiveSocketTimeout()
+	if requested > 0 {
+		return min(timeout, time.Duration(requested)*time.Millisecond)
 	}
-	maxMilliseconds := int64(^uint64(0)>>1) / int64(time.Millisecond)
-	if milliseconds > maxMilliseconds {
-		return time.Duration(1<<63 - 1)
-	}
-	return time.Duration(milliseconds) * time.Millisecond
+	return timeout
 }
 
 func boundOperation(ctx context.Context, conn net.Conn, limits wasmapi.LimitsConfig) (context.Context, func()) {
