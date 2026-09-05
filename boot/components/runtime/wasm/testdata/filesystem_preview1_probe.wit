@@ -1,0 +1,1 @@
+package test:mount; world probe { export check: func() -> u32; }
