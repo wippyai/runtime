@@ -7,12 +7,15 @@ import (
 	"net"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	socketapi "github.com/wippyai/runtime/api/socket"
 	"github.com/wippyai/wasm-runtime/wasi/preview2"
 )
 
 func TestS05ResolveRejectsWrongAsyncType(t *testing.T) {
 	resources := preview2.NewResourceTable()
+	t.Cleanup(func() { require.NoError(t, resources.Close()) })
 	host := NewIPNameLookupHost(resources)
 	left, right := net.Pipe()
 	carried := &closeCountingConn{Conn: left}
@@ -35,13 +38,14 @@ func TestS05ResolveRejectsWrongAsyncType(t *testing.T) {
 
 func TestS16ResolveStreamSingleUse(t *testing.T) {
 	resources := preview2.NewResourceTable()
+	t.Cleanup(func() { require.NoError(t, resources.Close()) })
 	host := NewIPNameLookupHost(resources)
 	addresses := []string{"192.0.2.1", "2001:db8::1", "198.51.100.7"}
 	handle := resources.Add(preview2.NewResolveAddressStreamResource(addresses))
 
 	for index, want := range addresses {
 		address, err := host.MethodResolveAddressStreamResolveNextAddress(context.Background(), handle)
-		if err != nil || address == nil || address.IPString() != want || address.Port() != 0 {
+		if err != nil || address == nil || address.String() != want {
 			t.Fatalf("address %d = %#v, error = %v, want %q", index, address, err, want)
 		}
 	}
@@ -55,9 +59,5 @@ func TestS16ResolveStreamSingleUse(t *testing.T) {
 	}
 
 	host.ResourceDropResolveAddressStream(context.Background(), handle)
-	address, err = host.MethodResolveAddressStreamResolveNextAddress(context.Background(), handle)
-	requireNetworkError(t, err, NetworkErrorInvalidArgument)
-	if address != nil {
-		t.Fatalf("post-drop address = %#v, want nil", address)
-	}
+	require.Panics(t, func() { host.MethodResolveAddressStreamResolveNextAddress(context.Background(), handle) })
 }

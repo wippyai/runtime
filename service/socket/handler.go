@@ -123,14 +123,30 @@ func (d *Dispatcher) handleBind(ctx context.Context, cmd dispatcher.Command, tag
 }
 
 func (d *Dispatcher) handleResolve(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
-	c := cmd.(*socketapi.ResolveCmd)
-	go func() {
-		addrs, err := d.netSvc.LookupHost(ctx, c.Host)
-		if ctx.Err() == nil {
-			receiver.CompleteYield(tag, &socketapi.ResolveResult{Addresses: addrs, Err: err}, nil)
+	c, ok := cmd.(*socketapi.ResolveCmd)
+	if !ok || c == nil {
+		receiver.CompleteYield(tag, &socketapi.StartResult{Err: socketapi.ErrNilOperation}, nil)
+		return nil
+	}
+	if c.Operation == nil {
+		go func() {
+			addrs, err := d.netSvc.LookupHost(ctx, c.Host)
+			if ctx.Err() == nil {
+				receiver.CompleteYield(tag, &socketapi.ResolveResult{Addresses: addrs, Err: err}, nil)
+			}
+		}()
+		return nil
+	}
+	return d.startJob(ctx, c.Operation, c.Timeout, tag, receiver, func(opCtx context.Context) (io.Closer, error) {
+		addrs, err := d.netSvc.LookupHost(opCtx, c.Host)
+		if err != nil {
+			return nil, err
 		}
-	}()
-	return nil
+		if len(addrs) == 0 {
+			return nil, &net.DNSError{Err: "no suitable addresses", Name: c.Host, IsNotFound: true}
+		}
+		return socketapi.NewResolvedAddresses(addrs)
+	})
 }
 
 func (d *Dispatcher) handleStartConnect(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {

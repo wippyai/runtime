@@ -85,7 +85,9 @@ type BindResult struct {
 
 // ResolveCmd requests DNS resolution of a hostname.
 type ResolveCmd struct {
-	Host string
+	Operation *PendingOperation
+	Host      string
+	Timeout   time.Duration
 }
 
 func (c *ResolveCmd) CmdID() dispatcher.CommandID { return SocketResolve }

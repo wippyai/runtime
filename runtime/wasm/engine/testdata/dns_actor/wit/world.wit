@@ -1,0 +1,11 @@
+package wippy:dns-actor@0.1.0;
+
+world dns-actor {
+    import wasi:io/poll@0.2.8;
+    import wasi:sockets/instance-network@0.2.8;
+    import wasi:sockets/ip-name-lookup@0.2.8;
+
+    export run: func() -> result<string, string>;
+    export wait: func() -> result<string, string>;
+    export timeout: func() -> result<string, string>;
+}

@@ -105,8 +105,8 @@ The guest receives `last-operation-failed` with an owned timeout error; subseque
 stream operations report closed. A successful completion stays successful if
 the guest resumes after the deadline. Generic poll and idle accept remain
 indefinite. Preview2 UDP receive/send operate on bounded host queues and never
-wait for network I/O. DNS still needs uniform operation timeouts; mixed splices
-cannot bound a synchronous non-TCP resource's own blocking implementation.
+wait for network I/O. Managed DNS lookups use the same socket timeout; mixed
+splices cannot bound a synchronous non-TCP resource's own blocking implementation.
 Legacy dispatcher accept commands
 close their listener on process cancellation and release unadopted connections;
 WASM listener accepts now use the socket-owned queue described below.
@@ -160,6 +160,39 @@ the host network. The current actor transport requires a native `*net.UDPConn`;
 other packet providers return `not-supported` and their results are closed.
 General overlay datagram adapters remain future work.
 
+## DNS resolve streams
+
+DNS name input is capped at 1,024 UTF-8 bytes before canonical string lifting.
+Names are validated and converted with IDNA; invalid names return
+`invalid-argument`, while input exceeding the host byte limit traps. IP literals
+produce a ready stream without calling a resolver. Lookup results use canonical
+`ip-address` variants without ports, with IPv4-mapped IPv6 normalized to IPv4.
+`socket.resolve` authorization uses the normalized name. A selected network
+provider handles hostname lookup; missing or failed overlays do not fall back
+to host DNS.
+
+Hostname resolution returns a stream after dispatcher startup acknowledgement,
+without waiting for lookup completion. `resolve-next-address` returns
+`would-block` while pending; subscriptions signal completion or failure and
+remain ready at EOF. A snapshot holds at most 64 addresses and 4,096 total
+address-string bytes. Exceeding either snapshot limit returns `out-of-memory`;
+these limits bound retained runtime snapshots, not allocations made inside a
+network provider. Successful empty lookup results become `name-unresolvable`.
+
+The stream owns its pending lookup until drop, even after results are consumed.
+Drop cancels and joins the operation and any in-flight result disposal before
+clearing references. Dropping a subscription leaves the stream alive. Startup
+uses `socket_timeout_ms`; a later poll does not restart the deadline. Resource
+handles bound simultaneous streams, and these host snapshots are not charged
+to `memory_bytes`.
+
+The real Rust DNS fixture validates parallel lookups, IDNA normalization,
+literal handling, pending readiness, IPv4/IPv6 results, deadlines, cancellation,
+and cleanup. It exposed an embedded Asyncify local-liveness defect: a skipped
+assignment could incorrectly suppress saving a live resource handle. The backend
+now computes liveness across control-flow joins and loop backedges, preserving
+selective saves. Both a minimal unwind/rewind regression and the DNS guest pass.
+
 ## Scope and measurements
 
 The actor fixture covers repeated receive/send, retained state, PID identity,
@@ -183,7 +216,7 @@ instrumentation enabled.
 
 The counter benchmark includes the real Rust guest, ingress copying, Canonical
 ABI, and Asyncify resumption. With production cancellation enabled, the latest
-same-machine samples measure 7.17–7.27 microseconds, approximately 3.33 KB, and
+same-machine samples measure 6.77–8.37 microseconds, approximately 3.33 KB, and
 70 allocations per round trip on a shared Ryzen 7950X3D. The original production
 baseline was approximately 13–14 microseconds, 7.4 KB, and 164 allocations.
 Before correcting GC-unsafe list backing, this measured 6.48–6.68 microseconds
@@ -245,11 +278,11 @@ reports aggregate throughput cost separately from measured client RTT.
 Allocation counts include clients and the driver. Source and reproduction
 instructions are in `testdata/concurrent_tcp/README.md`.
 
-The eight-client TCP benchmark measures 38.03–39.06 microseconds per echoed
-64-byte frame in aggregate throughput, with 295.2–306.4 microseconds mean client
-RTT, approximately 5.54–5.64 KB and 109–112 whole-harness allocations per frame.
-The Go reference measures 30.15–35.65 microseconds throughput cost and
-235.9–279.4 microseconds mean RTT. Before correcting GC-unsafe list backing,
+The eight-client TCP benchmark measures 37.31–38.06 microseconds per echoed
+64-byte frame in aggregate throughput, with 287.6–299.2 microseconds mean client
+RTT, approximately 5.59–5.67 KB and 111–112 whole-harness allocations per frame.
+The Go reference measures 30.68–32.03 microseconds throughput cost and
+238.6–253.5 microseconds mean RTT. Before correcting GC-unsafe list backing,
 typed nonblocking stream bindings measured 96–97 allocations and
 37.74–38.08 microseconds per frame. The earlier untyped bindings measured
 152–154 allocations. The safety fix increases allocations; these shared-machine

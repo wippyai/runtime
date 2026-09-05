@@ -126,6 +126,17 @@ func (s *SecureService) LookupHost(ctx context.Context, host string) ([]string, 
 	if !security.IsAllowed(ctx, "socket.resolve", host, nil) {
 		return nil, netapi.ErrAccessDenied
 	}
+	if networkID := netapi.GetDefaultNetwork(ctx); networkID != "" {
+		reg := netapi.GetNetworkRegistry(ctx)
+		if reg == nil {
+			return nil, fmt.Errorf("network %q selected without a network registry", networkID)
+		}
+		svc, err := reg.GetNetwork(registry.ParseID(networkID))
+		if err != nil {
+			return nil, fmt.Errorf("network %q: %w", networkID, err)
+		}
+		return svc.LookupHost(ctx, host)
+	}
 	r := net.Resolver{}
 	return r.LookupHost(ctx, host)
 }
