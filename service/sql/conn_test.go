@@ -28,6 +28,7 @@ func newTestPool(t *testing.T) *ConnPool {
 	pool := &ConnPool{
 		kind:   apiconfig.SQLite,
 		db:     db,
+		driver: func() Driver { d, _ := testDriverFor(apiconfig.SQLite); return d }(),
 		status: make(chan any, 1),
 	}
 
@@ -177,6 +178,23 @@ func TestConnPool_StopTimeout(t *testing.T) {
 	err = pool.Stop(stopCtx)
 	assert.Error(t, err)
 	assert.Equal(t, context.DeadlineExceeded, err)
+}
+
+func TestConnPool_StopTimeoutStillCleansUp(t *testing.T) {
+	pool := newTestPool(t)
+	ctx := context.Background()
+	_, err := pool.Start(ctx)
+	require.NoError(t, err)
+	res, err := pool.Acquire(ctx, testID, resource.ModeNormal)
+	require.NoError(t, err)
+	stopCtx, cancel := context.WithTimeout(ctx, 25*time.Millisecond)
+	err = pool.Stop(stopCtx)
+	cancel()
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	res.Release()
+	require.NoError(t, pool.Stop(ctx))
+	_, err = pool.Start(ctx)
+	assert.ErrorIs(t, err, ErrPoolClosed)
 }
 
 func TestDBConn_DoubleRelease(t *testing.T) {
@@ -363,133 +381,6 @@ func TestConnPool_UpdateConfigSwapsStandardDBAndRetiresOldAfterRelease(t *testin
 	require.NoError(t, pool.Stop(ctx))
 }
 
-func TestBuildDSN(t *testing.T) {
-	tests := []struct {
-		cfg     *apiconfig.DBConfig
-		name    string
-		kind    string
-		wantErr bool
-	}{
-		{
-			name: "postgres",
-			kind: apiconfig.Postgres,
-			cfg: &apiconfig.DBConfig{
-				Host: "localhost", Port: 5432, Database: "db",
-				Username: "user", Password: "pass",
-			},
-			wantErr: false,
-		},
-		{
-			name: "mysql",
-			kind: apiconfig.MySQL,
-			cfg: &apiconfig.DBConfig{
-				Host: "localhost", Port: 3306, Database: "db",
-				Username: "user", Password: "pass",
-			},
-			wantErr: false,
-		},
-		{
-			name:    "unsupported",
-			kind:    "db.unknown",
-			cfg:     &apiconfig.DBConfig{},
-			wantErr: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			_, err := buildDSN(tt.kind, tt.cfg)
-			if tt.wantErr {
-				assert.Error(t, err)
-			} else {
-				assert.NoError(t, err)
-			}
-		})
-	}
-}
-
-func TestBuildOptionsString(t *testing.T) {
-	t.Run("empty options", func(t *testing.T) {
-		result := buildOptionsString(nil)
-		assert.Empty(t, result)
-	})
-
-	t.Run("single option", func(t *testing.T) {
-		result := buildOptionsString(map[string]string{"sslmode": "disable"})
-		assert.Equal(t, "sslmode='disable'", result)
-	})
-
-	t.Run("postgres options are stable and space separated", func(t *testing.T) {
-		result := buildPostgresOptionsString(map[string]string{
-			"sslmode":          "disable",
-			"connect_timeout":  "10",
-			"application_name": "test",
-		})
-		assert.Equal(t, "application_name='test' connect_timeout='10' sslmode='disable'", result)
-	})
-
-	t.Run("mysql options are stable query parameters", func(t *testing.T) {
-		result := buildMySQLOptionsString(map[string]string{
-			"charset":   "utf8mb4",
-			"parseTime": "true",
-			"timeout":   "2s",
-		})
-		assert.Equal(t, "charset=utf8mb4&parseTime=true&timeout=2s", result)
-	})
-}
-
-func TestQuotePostgresValue(t *testing.T) {
-	assert.Equal(t, "'alice'", quotePostgresValue("alice"))
-	assert.Equal(t, "''", quotePostgresValue(""))
-	assert.Equal(t, "'se cret'", quotePostgresValue("se cret"))
-	assert.Equal(t, `'O\'Brien'`, quotePostgresValue("O'Brien"))
-	assert.Equal(t, `'a\\b'`, quotePostgresValue(`a\b`))
-}
-
-func TestValidateDSNFields(t *testing.T) {
-	base := func() *apiconfig.DBConfig {
-		return &apiconfig.DBConfig{Host: "h", Port: 5432, Username: "u", Database: "d"}
-	}
-
-	require.NoError(t, validateDSNFields(base()))
-
-	c := base()
-	c.Host = ""
-	assert.ErrorContains(t, validateDSNFields(c), "host is empty")
-
-	c = base()
-	c.Port = 0
-	assert.ErrorContains(t, validateDSNFields(c), "port is invalid")
-
-	c = base()
-	c.Username = ""
-	assert.ErrorContains(t, validateDSNFields(c), "username is empty")
-
-	c = base()
-	c.Database = ""
-	assert.ErrorContains(t, validateDSNFields(c), "database is empty")
-}
-
-func TestBuildDSN_EmptyUsernameDoesNotAbsorbNextToken(t *testing.T) {
-	cfg := &apiconfig.DBConfig{
-		Host:     "h",
-		Port:     5432,
-		Database: "d",
-		Username: "",
-		Password: "secret",
-	}
-
-	_, err := buildDSN(apiconfig.Postgres, cfg)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "username is empty")
-}
-
-func TestGetDriver(t *testing.T) {
-	assert.Equal(t, "postgres", getDriver(apiconfig.Postgres))
-	assert.Equal(t, "mysql", getDriver(apiconfig.MySQL))
-	assert.Equal(t, "unknown", getDriver("unknown"))
-}
-
 // Benchmarks
 
 func newBenchPool(b *testing.B) *ConnPool {
@@ -558,32 +449,4 @@ func BenchmarkConnPool_ConcurrentAcquire(b *testing.B) {
 			res.Release()
 		}
 	})
-}
-
-func BenchmarkBuildDSN_Postgres(b *testing.B) {
-	cfg := &apiconfig.DBConfig{
-		Host: "localhost", Port: 5432, Database: "db",
-		Username: "user", Password: "pass",
-		Options: map[string]string{"sslmode": "disable"},
-	}
-
-	b.ResetTimer()
-	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
-		_, _ = buildDSN(apiconfig.Postgres, cfg)
-	}
-}
-
-func BenchmarkBuildOptionsString(b *testing.B) {
-	opts := map[string]string{
-		"sslmode":          "disable",
-		"connect_timeout":  "10",
-		"application_name": "test",
-	}
-
-	b.ResetTimer()
-	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
-		_ = buildOptionsString(opts)
-	}
 }

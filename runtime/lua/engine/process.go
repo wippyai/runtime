@@ -79,17 +79,20 @@ func WithStateOptions(opts lua.Options) ProcessOption {
 // Combines VM + CVM + Runner into a single unit.
 // Module binders and state options are stored in Factory for sharing across processes.
 type Process struct {
-	ctx            context.Context
-	linkDownError  error
-	execErr        error
-	result         payload.Payload
-	channelQueue   *TaskQueue
-	subs           *subscribeContext
-	mainTask       *Task
-	upgradeRequest *UpgradeRequest
-	proto          *lua.FunctionProto
-	queue          *TaskQueue
-	factory        *Factory
+	ctx           context.Context
+	linkDownError error
+	execErr       error
+	result        payload.Payload
+	// Message queue limits apply only to messages that opt into bounded
+	// retention through relay metadata. Ordinary process messages preserve
+	// their historical behavior.
+	messageQueueLimits     map[string]int64
+	messageQueueItemLimits map[string]int
+	mainTask               *Task
+	upgradeRequest         *UpgradeRequest
+	proto                  *lua.FunctionProto
+	queue                  *TaskQueue
+	factory                *Factory
 	// pendingOutdated holds the single coalesced OUTDATED event awaiting
 	// delivery to an upgradable process's events channel. Nil when none pending.
 	pendingOutdated *topology.OutdatedEvent
@@ -97,36 +100,51 @@ type Process struct {
 	channels        map[*Channel]int
 	state           *lua.LState
 	handlers        map[string]TopicHandler
-	// stalledChans tracks channels that retained an undeliverable message in
-	// the current flush pass, keyed on the resolved *Channel. Once a channel
-	// stalls, every later mailbox message for it (including a terminal) is also
-	// retained so a terminal cannot overtake earlier retained data on the same
-	// channel. Lazily created on first stall, cleared at the start of each flush.
-	stalledChans  map[*Channel]struct{}
-	exported      map[string]*lua.LFunction
-	scriptName    string
-	script        string
-	outTasks      []*Task
-	externalTasks []*Task
-	yieldBuf      []*Task
-	messageQueue  []queuedMessage
-	threads       []*Task
-	yieldSeq      uint64
+	// stalledChans records channels that could not accept a message during the
+	// current flush. Later messages for the same channel, including terminals,
+	// remain queued so delivery order cannot be inverted.
+	stalledChans           map[*Channel]struct{}
+	exported               map[string]*lua.LFunction
+	messageQueueDiscarded  map[string]struct{}
+	messageQueueOverflowed map[string]struct{}
+	channelQueue           *TaskQueue
+	subs                   *subscribeContext
+	// messageQueueBytes accounts only messages that opt into a byte limit via
+	// relay metadata. Ordinary process messages keep their historical behavior.
+	messageQueueBytes map[string]int64
+	messageQueueItems map[string]int
+	script            string
+	scriptName        string
+	messageQueue      []queuedMessage
+	yieldBuf          []*Task
+	externalTasks     []*Task
+	outTasks          []*Task
+	threads           []*Task
+	yieldSeq          uint64
 	// epoch is the monotonic incarnation counter. Incremented on every
 	// Init / clearExecution / Close drain and on Abort. Producers stamp
 	// every SubscriptionFrame with the epoch they were registered under;
 	// deliverMessage compares atomically so frames from prior incarnations
 	// are dropped without locking.
-	epoch      atomic.Uint64
-	trapLinks  bool
-	upgradable bool
+	epoch            atomic.Uint64
+	flushingMessages bool
+	trapLinks        bool
+	upgradable       bool
 }
 
 // queuedMessage stores a message waiting to be delivered
 type queuedMessage struct {
-	Source   pid.PID
-	Topic    string
-	Payloads []payload.Payload
+	// Lease transfers the upstream EventQueue reservation into this mailbox.
+	// It is released only when this queued message is delivered, discarded, or
+	// the process execution is reset. A leased message is already bounded by
+	// the upstream queue and therefore does not consume a second local budget.
+	Lease        relay.RetentionLease
+	Source       pid.PID
+	Topic        string
+	Payloads     []payload.Payload
+	MaxItems     int
+	PayloadBytes int64
+	MaxBytes     int64
 }
 
 // GetProcess retrieves the Process from LState via Owner.
@@ -196,16 +214,29 @@ func (p *Process) SetSubscriptionCleanup(ch *Channel, fn func()) bool {
 		return false
 	}
 	p.subs.mu.Lock()
-	defer p.subs.mu.Unlock()
 	topic, ok := p.subs.byChannel[ch]
 	if !ok {
+		p.subs.mu.Unlock()
 		return false
 	}
 	sub := p.subs.byTopic[topic]
 	if sub == nil {
+		p.subs.mu.Unlock()
 		return false
 	}
-	sub.cleanup = fn
+	overflowed := false
+	if _, exists := p.messageQueueOverflowed[topic]; exists {
+		overflowed = true
+	}
+	p.subs.mu.Unlock()
+	sub.setCleanup(fn)
+	// If admission overflowed before the Lua subscription yield completed,
+	// stop the source as soon as its cleanup hook becomes available. Do this
+	// outside the subscription lock because cleanup may unsubscribe the same
+	// channel.
+	if overflowed {
+		sub.callCleanup()
+	}
 	return true
 }
 
@@ -252,6 +283,16 @@ func (p *Process) closeChannel(ch *Channel) bool {
 	if sub != nil {
 		sub.gen.Add(1)
 		sub.callCleanup()
+	}
+	if p.topicHasBoundedMessages(topic) {
+		if p.flushingMessages {
+			if p.messageQueueDiscarded == nil {
+				p.messageQueueDiscarded = make(map[string]struct{})
+			}
+			p.messageQueueDiscarded[topic] = struct{}{}
+		} else {
+			p.discardMessageTopic(topic)
+		}
 	}
 	if !ch.IsClosed() {
 		p.applyExternalChannelResult(ch.Close(nil))
@@ -535,8 +576,10 @@ func (p *Process) Init(ctx context.Context, method string, input payload.Payload
 		p.channelQueue.Drain()
 	}
 
-	// Clear message queue
-	p.messageQueue = p.messageQueue[:0]
+	// Clear message queue and all accounting, including payload references in
+	// the retained backing array. Processes are pooled, so truncating the slice
+	// alone would keep the previous execution's data alive.
+	p.clearMessageQueue()
 	p.pendingOutdated = nil
 
 	// Seal the frame - no more modifications allowed after this
@@ -672,10 +715,17 @@ func (p *Process) Step(events []process.Event, out *process.StepOutput) error {
 	// Add incoming messages to queue first (before any processing)
 	for _, pkg := range messages {
 		for _, msg := range pkg.Messages {
-			p.messageQueue = append(p.messageQueue, queuedMessage{
-				Source:   pkg.Source,
-				Topic:    msg.Topic,
-				Payloads: msg.Payloads,
+			if msg == nil {
+				continue
+			}
+			p.enqueueMessage(queuedMessage{
+				Source:       pkg.Source,
+				Topic:        msg.Topic,
+				Payloads:     msg.Payloads,
+				MaxItems:     msg.MaxItems,
+				PayloadBytes: msg.PayloadBytes,
+				MaxBytes:     msg.MaxBytes,
+				Lease:        msg.TakeRetentionLease(),
 			})
 		}
 		relay.ReleasePackage(pkg)
@@ -1057,12 +1107,18 @@ func (p *Process) flushMessageQueue(subs *subscribeContext) {
 
 		// Process queue, retaining undelivered messages in order.
 		remaining := p.messageQueue[:0]
+		p.flushingMessages = true
 		for _, qm := range p.messageQueue {
 			if p.deliverMessage(subs, qm) {
 				remaining = append(remaining, qm) // retain in queue
+			} else {
+				p.releaseQueuedMessage(qm)
 			}
 		}
+		p.flushingMessages = false
 		p.messageQueue = remaining
+		clear(p.messageQueue[len(remaining):])
+		p.finishDiscardedTopics()
 	}
 
 	// A coalesced OUTDATED event lives outside the queue in a single slot and is
@@ -1070,6 +1126,264 @@ func (p *Process) flushMessageQueue(subs *subscribeContext) {
 	if p.pendingOutdated != nil {
 		p.tryDeliverPendingOutdated(subs)
 	}
+}
+
+// clearMessageQueue releases queued payload references before truncating the
+// reusable slice. This is required on both execution reset and process-pool
+// reuse; otherwise a single large message remains reachable through the
+// backing array until that slice grows past its old capacity.
+func (p *Process) clearMessageQueue() {
+	for _, qm := range p.messageQueue {
+		p.releaseQueuedMessage(qm)
+	}
+	clear(p.messageQueue)
+	p.messageQueue = p.messageQueue[:0]
+	clear(p.messageQueueItems)
+	clear(p.messageQueueBytes)
+	clear(p.messageQueueItemLimits)
+	clear(p.messageQueueLimits)
+	clear(p.messageQueueOverflowed)
+	clear(p.messageQueueDiscarded)
+	clear(p.stalledChans)
+	p.flushingMessages = false
+}
+
+// enqueueMessage is the single handoff from relay delivery into the process
+// mailbox. Limits are opt-in: only messages carrying MaxItems/MaxBytes are
+// bounded, so unrelated process topics retain their historical behavior.
+func (p *Process) enqueueMessage(qm queuedMessage) {
+	if qm.MaxItems <= 0 {
+		qm.MaxItems = p.messageQueueItemLimits[qm.Topic]
+	}
+	if qm.MaxBytes <= 0 {
+		qm.MaxBytes = p.messageQueueLimits[qm.Topic]
+	}
+	if qm.MaxItems > 0 {
+		if p.messageQueueItemLimits == nil {
+			p.messageQueueItemLimits = make(map[string]int)
+		}
+		if previous := p.messageQueueItemLimits[qm.Topic]; previous > 0 && previous < qm.MaxItems {
+			qm.MaxItems = previous
+		}
+		p.messageQueueItemLimits[qm.Topic] = qm.MaxItems
+	}
+	if qm.MaxBytes > 0 {
+		if p.messageQueueLimits == nil {
+			p.messageQueueLimits = make(map[string]int64)
+		}
+		if previous := p.messageQueueLimits[qm.Topic]; previous > 0 && previous < qm.MaxBytes {
+			qm.MaxBytes = previous
+		}
+		p.messageQueueLimits[qm.Topic] = qm.MaxBytes
+	}
+	if _, discarded := p.messageQueueDiscarded[qm.Topic]; discarded && messageIsBounded(qm) {
+		releaseMessageLease(qm)
+		return
+	}
+	if !hasDataPayload(qm.Payloads) {
+		if _, overflowed := p.messageQueueOverflowed[qm.Topic]; overflowed {
+			releaseMessageLease(qm)
+			return
+		}
+		if isOverflowTerminal(qm.Payloads) {
+			if p.messageQueueOverflowed == nil {
+				p.messageQueueOverflowed = make(map[string]struct{})
+			}
+			p.messageQueueOverflowed[qm.Topic] = struct{}{}
+			if p.subs != nil {
+				if sub, ok := p.subs.get(qm.Topic); ok {
+					sub.callCleanup()
+				}
+			}
+		}
+		// Terminals are always admissible and never consume backlog capacity.
+		p.messageQueue = append(p.messageQueue, qm)
+		return
+	}
+
+	if _, overflowed := p.messageQueueOverflowed[qm.Topic]; overflowed {
+		releaseMessageLease(qm)
+		return
+	}
+
+	if qm.Lease == nil && (qm.MaxItems > 0 || qm.MaxBytes > 0) {
+		// A bounded producer must provide a conservative size. If it does not,
+		// charge the whole budget rather than retaining an unaccounted value.
+		if qm.PayloadBytes <= 0 && hasDataPayload(qm.Payloads) {
+			if qm.MaxBytes > 0 {
+				qm.PayloadBytes = qm.MaxBytes
+			}
+		}
+		queuedItems := p.messageQueueItems[qm.Topic]
+		queuedBytes := p.messageQueueBytes[qm.Topic]
+		if (qm.MaxItems > 0 && queuedItems >= qm.MaxItems) ||
+			(qm.MaxBytes > 0 && (qm.PayloadBytes > qm.MaxBytes || queuedBytes > qm.MaxBytes-qm.PayloadBytes)) {
+			p.overflowMessageQueue(qm)
+			return
+		}
+		if qm.MaxItems > 0 {
+			if p.messageQueueItems == nil {
+				p.messageQueueItems = make(map[string]int)
+			}
+			p.messageQueueItems[qm.Topic] = queuedItems + 1
+		}
+		if qm.MaxBytes > 0 && qm.PayloadBytes > 0 {
+			if p.messageQueueBytes == nil {
+				p.messageQueueBytes = make(map[string]int64)
+			}
+			p.messageQueueBytes[qm.Topic] = queuedBytes + qm.PayloadBytes
+		}
+	}
+	p.messageQueue = append(p.messageQueue, qm)
+}
+
+func (p *Process) overflowMessageQueue(qm queuedMessage) {
+	releaseMessageLease(qm)
+	if p.messageQueueOverflowed == nil {
+		p.messageQueueOverflowed = make(map[string]struct{})
+	}
+	if _, exists := p.messageQueueOverflowed[qm.Topic]; exists {
+		return
+	}
+	p.messageQueueOverflowed[qm.Topic] = struct{}{}
+
+	// Stop the producer through the subscription's existing ownership hook.
+	// The channel is closed by the terminal below on the process step goroutine.
+	if p.subs != nil {
+		if sub, ok := p.subs.get(qm.Topic); ok {
+			sub.callCleanup()
+		}
+	}
+	p.messageQueue = append(p.messageQueue, queuedMessage{
+		Source:   qm.Source,
+		Topic:    qm.Topic,
+		Payloads: payload.Payloads{payload.NewError(process.ErrMessageQueueOverflow), payload.NewTerminal()},
+		MaxItems: qm.MaxItems,
+		MaxBytes: qm.MaxBytes,
+	})
+}
+
+func (p *Process) releaseQueuedMessage(qm queuedMessage) {
+	releaseMessageLease(qm)
+	if qm.Lease != nil {
+		return
+	}
+	if qm.MaxItems > 0 && p.messageQueueItems != nil {
+		remaining := p.messageQueueItems[qm.Topic] - 1
+		if remaining > 0 {
+			p.messageQueueItems[qm.Topic] = remaining
+		} else {
+			delete(p.messageQueueItems, qm.Topic)
+		}
+	}
+	if qm.MaxBytes > 0 && qm.PayloadBytes > 0 && p.messageQueueBytes != nil {
+		remaining := p.messageQueueBytes[qm.Topic] - qm.PayloadBytes
+		if remaining > 0 {
+			p.messageQueueBytes[qm.Topic] = remaining
+		} else {
+			delete(p.messageQueueBytes, qm.Topic)
+		}
+	}
+}
+
+func releaseMessageLease(qm queuedMessage) {
+	if qm.Lease != nil {
+		qm.Lease.Release()
+	}
+}
+
+func messageIsBounded(qm queuedMessage) bool {
+	return qm.Lease != nil || qm.MaxItems > 0 || qm.MaxBytes > 0
+}
+
+// topicHasBoundedMessages reports whether closing a subscription must leave a
+// bounded-topic tombstone. The limit maps persist after delivery so a producer
+// that is still racing with close is treated consistently; ordinary messages
+// on the same topic remain eligible for their historical inbox behavior.
+func (p *Process) topicHasBoundedMessages(topic string) bool {
+	if _, ok := p.messageQueueOverflowed[topic]; ok {
+		return true
+	}
+	if p.messageQueueItemLimits[topic] > 0 || p.messageQueueLimits[topic] > 0 {
+		return true
+	}
+	for _, qm := range p.messageQueue {
+		if qm.Topic == topic && messageIsBounded(qm) {
+			return true
+		}
+	}
+	return false
+}
+
+func (p *Process) discardMessageTopic(topic string) {
+	queued := p.messageQueue
+	remaining := queued[:0]
+	for _, qm := range queued {
+		if qm.Topic == topic && messageIsBounded(qm) {
+			p.releaseQueuedMessage(qm)
+			continue
+		}
+		remaining = append(remaining, qm)
+	}
+	p.messageQueue = remaining
+	clear(queued[len(remaining):])
+	delete(p.messageQueueItems, topic)
+	delete(p.messageQueueBytes, topic)
+	delete(p.messageQueueItemLimits, topic)
+	delete(p.messageQueueLimits, topic)
+	delete(p.messageQueueOverflowed, topic)
+	delete(p.messageQueueDiscarded, topic)
+}
+
+func (p *Process) finishDiscardedTopics() {
+	for topic := range p.messageQueueDiscarded {
+		found := false
+		for _, qm := range p.messageQueue {
+			if qm.Topic == topic && messageIsBounded(qm) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			delete(p.messageQueueItems, topic)
+			delete(p.messageQueueBytes, topic)
+			delete(p.messageQueueItemLimits, topic)
+			delete(p.messageQueueLimits, topic)
+			delete(p.messageQueueOverflowed, topic)
+			delete(p.messageQueueDiscarded, topic)
+		}
+	}
+}
+
+func hasDataPayload(payloads payload.Payloads) bool {
+	hasTerminal := len(payloads) > 0 && payload.IsTerminal(payloads[len(payloads)-1])
+	for _, pl := range payloads {
+		if pl == nil || payload.IsTerminal(pl) {
+			continue
+		}
+		// A Go error is data unless it is part of the terminal result shape.
+		// Treating every GoError as control would allow an unbounded stream of
+		// non-terminal errors to bypass the producer budget.
+		if hasTerminal && pl.Format() == payload.GoError {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+func isOverflowTerminal(payloads payload.Payloads) bool {
+	if len(payloads) == 0 || !payload.IsTerminal(payloads[len(payloads)-1]) {
+		return false
+	}
+	for _, pl := range payloads {
+		if pl == nil || pl.Format() != payload.GoError {
+			continue
+		}
+		err, ok := pl.Data().(error)
+		return ok && errors.Is(err, process.ErrMessageQueueOverflow)
+	}
+	return false
 }
 
 // markStalled records that a channel retained a message in the current flush
@@ -1100,6 +1414,9 @@ func (p *Process) isStalled(ch *Channel) bool {
 // stall; pure data retries normally and a full buffer preserves its order.
 func (p *Process) deliverMessage(subs *subscribeContext, qm queuedMessage) (keep bool) {
 	topic := qm.Topic
+	if _, discarded := p.messageQueueDiscarded[topic]; discarded && messageIsBounded(qm) {
+		return false
+	}
 	handlerTopic := topic
 	frame, hasFrame := subscriptionFrameFromPayloads(qm.Payloads)
 
@@ -1131,6 +1448,13 @@ func (p *Process) deliverMessage(subs *subscribeContext, qm queuedMessage) (keep
 	if !exists {
 		if hasFrame {
 			return false
+		}
+		// Bounded producer messages must wait for their exact subscription. The
+		// inbox is a compatibility fallback for ordinary process messages, but
+		// routing a bounded startup message there can consume/close the wrong
+		// channel before the producer's subscription is registered.
+		if messageIsBounded(qm) {
+			return true
 		}
 		// Fallback to inbox for non-@ topics
 		if !strings.HasPrefix(topic, "@") {
@@ -1566,6 +1890,7 @@ func (p *Process) Close() {
 	p.yieldBuf = p.yieldBuf[:0]
 	p.externalTasks = p.externalTasks[:0]
 	p.outTasks = p.outTasks[:0]
+	p.clearMessageQueue()
 
 	// Clear all references
 	p.ctx = nil
@@ -1583,6 +1908,13 @@ func (p *Process) Close() {
 	p.subs = nil
 	p.handlers = nil
 	p.messageQueue = nil
+	p.messageQueueItems = nil
+	p.messageQueueBytes = nil
+	p.messageQueueItemLimits = nil
+	p.messageQueueLimits = nil
+	p.messageQueueOverflowed = nil
+	p.messageQueueDiscarded = nil
+	p.flushingMessages = false
 	p.stalledChans = nil
 	p.trapLinks = false
 	p.upgradable = false
@@ -1699,6 +2031,9 @@ func (p *Process) clearExecution() {
 	if p.channelQueue != nil {
 		p.channelQueue.Drain()
 	}
+	// Keep undelivered ordinary messages observable until the scheduler retires
+	// or reinitializes this execution. Init and Close clear the backing storage,
+	// including bounded retention leases, before a pooled process can be reused.
 
 	// Clear yield buffer
 	p.yieldBuf = p.yieldBuf[:0]

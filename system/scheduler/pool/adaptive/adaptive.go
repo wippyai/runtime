@@ -222,11 +222,22 @@ func (a *Pool) QueueLen() int {
 
 // Send implements relay.Receiver for message routing.
 func (a *Pool) Send(pkg *relay.Package) error {
+	return a.SendContext(context.Background(), pkg)
+}
+
+// SendContext implements relay.ContextSender for message routing.
+func (a *Pool) SendContext(ctx context.Context, pkg *relay.Package) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	v, ok := a.active.Load(pkg.Target.UniqID)
 	if !ok {
 		return process.ErrProcessNotFound
 	}
-	return v.(*pool.Executor).Send(pkg)
+	return v.(*pool.Executor).SendContext(ctx, pkg)
 }
 
 // Call executes a function call using an available worker.

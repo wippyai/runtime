@@ -162,6 +162,14 @@ func (s *Service) submitAndWait(fn func() error) error {
 	case err := <-done:
 		return err
 	case <-s.ctx.Done():
+		// Cancellation does not interrupt the event loop's active action.
+		// Join it before callers can read results captured by that action.
+		s.wg.Wait()
+		select {
+		case err := <-done:
+			return err
+		default:
+		}
 		return kvapi.ErrKVClosed
 	}
 }

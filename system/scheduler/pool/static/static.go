@@ -138,11 +138,22 @@ func (s *Pool) Stop() {
 
 // Send implements relay.Receiver for message routing.
 func (s *Pool) Send(pkg *relay.Package) error {
+	return s.SendContext(context.Background(), pkg)
+}
+
+// SendContext implements relay.ContextSender for message routing.
+func (s *Pool) SendContext(ctx context.Context, pkg *relay.Package) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	v, ok := s.active.Load(pkg.Target.UniqID)
 	if !ok {
 		return process.ErrProcessNotFound
 	}
-	return v.(*pool.Executor).Send(pkg)
+	return v.(*pool.Executor).SendContext(ctx, pkg)
 }
 
 // Call executes a function call using an available worker.

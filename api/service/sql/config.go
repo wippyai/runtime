@@ -34,7 +34,24 @@ const (
 
 	// DefaultMaxLifetime is the default maximum lifetime of a connection
 	DefaultMaxLifetime = 1 * time.Hour
+
+	// DefaultMaxMutationChanges bounds the in-memory candidate row count held
+	// by the SQLite observer for one transaction.
+	DefaultMaxMutationChanges = 100000
+	// DefaultMaxMutationBytes is the conservative retained logical-byte bound
+	// for one SQLite transaction. SQLite delivers a complete native row to the
+	// pre-update hook, so one row can transiently materialize before the bound
+	// rejects the candidate.
+	DefaultMaxMutationBytes = 64 * 1024 * 1024
 )
+
+// EngineConfig is the contract every engine configuration satisfies, letting the
+// generic pool lifecycle validate and read lifecycle settings without knowing the
+// concrete engine type.
+type EngineConfig interface {
+	Validate() error
+	LifecycleConfig() supervisor.LifecycleConfig
+}
 
 type (
 	// PoolConfig defines settings for a database connection pool
@@ -58,10 +75,14 @@ type (
 
 	// SQLiteConfig defines SQLite-specific configuration
 	SQLiteConfig struct {
-		Options   map[string]string          `json:"options"`
-		File      string                     `json:"file"`
-		Lifecycle supervisor.LifecycleConfig `json:"lifecycle"`
-		Pool      PoolConfig                 `json:"pool"`
+		Options            map[string]string          `json:"options"`
+		File               string                     `json:"file"`
+		Lifecycle          supervisor.LifecycleConfig `json:"lifecycle"`
+		Pool               PoolConfig                 `json:"pool"`
+		MaxMutationChanges int                        `json:"max_mutation_changes,omitempty"`
+		// MaxMutationBytes is a conservative retained logical-byte bound. A
+		// native SQLite row is materialized before the observer can reject it.
+		MaxMutationBytes int `json:"max_mutation_bytes,omitempty"`
 	}
 )
 
@@ -104,6 +125,17 @@ func (c *SQLiteConfig) InitDefaults() {
 
 	// Initialize lifecycle defaults
 	c.Lifecycle.InitDefaults()
+	if c.MaxMutationChanges == 0 {
+		c.MaxMutationChanges = DefaultMaxMutationChanges
+	}
+	if c.MaxMutationBytes == 0 {
+		c.MaxMutationBytes = DefaultMaxMutationBytes
+	}
+}
+
+// LifecycleConfig returns the supervisor lifecycle settings for the database.
+func (c *DBConfig) LifecycleConfig() supervisor.LifecycleConfig {
+	return c.Lifecycle
 }
 
 // Validate checks if the DBConfig has all required fields set to valid values
@@ -143,6 +175,11 @@ func (c *DBConfig) Validate() error {
 	return nil
 }
 
+// LifecycleConfig returns the supervisor lifecycle settings for the database.
+func (c *SQLiteConfig) LifecycleConfig() supervisor.LifecycleConfig {
+	return c.Lifecycle
+}
+
 // Validate checks if the SQLiteConfig has all required fields set to valid values
 func (c *SQLiteConfig) Validate() error {
 	if c.File == "" {
@@ -151,6 +188,12 @@ func (c *SQLiteConfig) Validate() error {
 
 	if c.Pool.MaxLifetime <= 0 {
 		return ErrInvalidMaxLifetime
+	}
+	if c.MaxMutationChanges < 0 {
+		return ErrInvalidMaxMutationChanges
+	}
+	if c.MaxMutationBytes < 0 {
+		return ErrInvalidMaxMutationBytes
 	}
 
 	return nil

@@ -38,8 +38,18 @@ func ReleaseMessage(m *Message) {
 	if m == nil {
 		return
 	}
+	// A package may be released by the scheduler before its consumer takes
+	// ownership of a bounded-retention reservation. Consume that handoff here
+	// so the reservation is released exactly once and pooled messages never
+	// retain a callback into a retired queue.
+	if lease := m.TakeRetentionLease(); lease != nil {
+		lease.Release()
+	}
 	m.Topic = ""
 	m.Payloads = nil
+	m.PayloadBytes = 0
+	m.MaxBytes = 0
+	m.MaxItems = 0
 	messagePool.Put(m)
 }
 

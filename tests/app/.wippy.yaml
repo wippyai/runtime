@@ -11,6 +11,13 @@ logger:
   level: debug               # debug | info | warn | error
   encoding: console          # json | console
 
+# The application suite intentionally exercises APIs both with and without an
+# ambient security context. Keep the fixture permissive so the runner can
+# discover and invoke tests; individual security tests install explicit
+# actor/scope pairs when they need to exercise authorization.
+security:
+  strict_mode: false
+
 # Log Manager configuration
 # Controls log propagation and streaming
 logmanager:

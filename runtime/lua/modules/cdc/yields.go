@@ -122,6 +122,15 @@ func cdcChangeHandler(_ context.Context, l *lua.LState, _ pid.PID, _ string, pay
 	if len(payloads) == 0 {
 		return lua.LNil
 	}
+	if payloads[0].Format() == payload.GoError {
+		streamErr, ok := payloads[0].Data().(error)
+		if !ok {
+			return lua.NewLuaError(l, fmt.Sprintf("cdc stream error payload has invalid type %T", payloads[0].Data())).
+				WithKind(lua.Internal).
+				WithRetryable(false)
+		}
+		return lua.WrapErrorWithLua(l, streamErr, "cdc stream")
+	}
 	change, ok := payloads[0].Data().(cdcapi.Change)
 	if !ok {
 		if ptr, ptrOK := payloads[0].Data().(*cdcapi.Change); ptrOK && ptr != nil {
@@ -145,7 +154,17 @@ func cdcChangeHandler(_ context.Context, l *lua.LState, _ pid.PID, _ string, pay
 }
 
 func changeToLua(l *lua.LState, change cdcapi.Change) (lua.LValue, error) {
-	tbl := l.CreateTable(0, 10)
+	tbl := l.CreateTable(0, 18)
+	if len(change.Unchanged) > 0 {
+		names := l.CreateTable(len(change.Unchanged), 0)
+		for i, name := range change.Unchanged {
+			names.RawSetInt(i+1, lua.LString(name))
+		}
+		tbl.RawSetString("unchanged", names)
+	}
+	if !isZeroRegistryID(change.SourceID) {
+		tbl.RawSetString("source_id", lua.LString(registryIDString(change.SourceID)))
+	}
 	tbl.RawSetString("source", lua.LString(change.Source))
 	tbl.RawSetString("op", lua.LString(change.Op))
 	tbl.RawSetString("schema", lua.LString(change.Schema))
@@ -154,6 +173,18 @@ func changeToLua(l *lua.LState, change cdcapi.Change) (lua.LValue, error) {
 	tbl.RawSetString("lsn", lua.LString(change.LSN))
 	if change.CommitLSN != "" {
 		tbl.RawSetString("commit_lsn", lua.LString(change.CommitLSN))
+	}
+	if change.Cursor != "" {
+		tbl.RawSetString("cursor", lua.LString(change.Cursor))
+	}
+	if change.Generation != "" {
+		tbl.RawSetString("generation", lua.LString(change.Generation))
+	}
+	if change.Transaction != "" {
+		tbl.RawSetString("transaction", lua.LString(change.Transaction))
+	}
+	if change.Error != "" {
+		tbl.RawSetString("error", lua.LString(change.Error))
 	}
 	if change.XID != 0 {
 		tbl.RawSetString("xid", lua.LInteger(change.XID))

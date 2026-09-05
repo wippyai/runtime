@@ -285,7 +285,23 @@ func TestSQLiteConfig_InitDefaults(t *testing.T) {
 	assert.Equal(t, DefaultMaxOpen, config.Pool.MaxOpen)
 	assert.Equal(t, DefaultMaxIdle, config.Pool.MaxIdle)
 	assert.Equal(t, DefaultMaxLifetime, config.Pool.MaxLifetime)
+	assert.Equal(t, DefaultMaxMutationChanges, config.MaxMutationChanges)
+	assert.Equal(t, DefaultMaxMutationBytes, config.MaxMutationBytes)
 	assert.NotNil(t, config.Options)
+}
+
+func TestSQLiteConfig_RejectsNegativeMutationLimits(t *testing.T) {
+	base := SQLiteConfig{File: ":memory:", Pool: PoolConfig{MaxLifetime: time.Hour}}
+	base.MaxMutationChanges = -1
+	assert.ErrorIs(t, base.Validate(), ErrInvalidMaxMutationChanges)
+	base.MaxMutationChanges = 0
+	base.MaxMutationBytes = -1
+	assert.ErrorIs(t, base.Validate(), ErrInvalidMaxMutationBytes)
+
+	base.MaxMutationChanges = -1
+	base.MaxMutationBytes = 0
+	base.InitDefaults()
+	assert.Equal(t, -1, base.MaxMutationChanges, "negative limits must not be silently defaulted")
 }
 
 func TestPoolConfig_UnmarshalJSON_InvalidDuration(t *testing.T) {

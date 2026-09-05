@@ -32,6 +32,7 @@ go test \
 	./system/env/... \
 	./service/env/... \
 	./service/sql/... \
+	./service/cdc/sqlite \
 	./service/cdc/postgres \
 	./runtime/lua/modules/cdc \
 	./runtime/lua/modules/hub \
@@ -39,6 +40,9 @@ go test \
 	./api/fs \
 	./boot/... \
 	./system/registry/...
+
+echo "running sqlite cdc implementation and integration tests (local temp file, no docker)"
+make test-cdc-sqlite
 
 if [[ -n "${WIPPY_CDC_IT_REPL_DSN:-}" && -n "${WIPPY_CDC_IT_ADMIN_DSN:-}" ]]; then
 	go test -tags integration ./service/cdc/postgres

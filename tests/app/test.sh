@@ -51,12 +51,12 @@ if ! docker image inspect alpine:latest >/dev/null 2>&1; then
 fi
 
 GOCACHE=/tmp/wippy-gocache GOTMPDIR=/tmp/wippy-gotmp OTEL_SDK_DISABLED=true SKIP_TEMPORAL_TESTS=1 SKIP_CLOUDSTORAGE_TESTS=1 GOEXPERIMENT=jsonv2 \
-	go run -tags treesitter ../../cmd/wippy test -c -s | tee "$test_log"
+	go run -tags "fts5 sqlite_vec treesitter sqlite_preupdate_hook" ../../cmd/wippy test -c -s | tee "$test_log"
 
 # The test runner currently prints failures but exits 0; enforce failure here.
 clean_log="$(mktemp /tmp/wippy-app-tests-clean.XXXXXX.log)"
 sed -E 's/\x1B\[[0-9;?]*[ -\/]*[@-~]//g' "$test_log" > "$clean_log"
-if grep -qE "(^|[[:space:]])[1-9][0-9]* failed([[:space:]]|$)|(^|[[:space:]])FAILED([[:space:]]|$)" "$clean_log"; then
+if grep -qE "No tests found|No tests match filter|(^|[[:space:]])[1-9][0-9]* failed([[:space:]]|$)|(^|[[:space:]])FAILED([[:space:]]|$)" "$clean_log"; then
 	echo "wippy app test runner reported failures (see $test_log)"
 	exit 1
 fi

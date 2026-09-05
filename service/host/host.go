@@ -188,6 +188,7 @@ func processName(start *process.Start) string {
 func (h *Host) sendMessages(target pid.PID, messages []*relay.Message) {
 	pkg := relay.NewMessagePackage(pid.PID{}, target, messages...)
 	if err := h.scheduler.Send(pkg); err != nil {
+		relay.ReleasePackage(pkg)
 		h.log.Warn("failed to send messages",
 			zap.String("target", target.String()),
 			zap.Error(err))
@@ -204,10 +205,23 @@ func (h *Host) AcceptsFrameAttachments() bool { return true }
 
 // Send implements relay.Receiver.
 func (h *Host) Send(pkg *relay.Package) error {
+	return h.SendContext(context.Background(), pkg)
+}
+
+// SendContext implements relay.ContextSender. The actor scheduler admits
+// messages without a blocking goroutine, so cancellation can stop a relay
+// directly at the host boundary.
+func (h *Host) SendContext(ctx context.Context, pkg *relay.Package) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if h.shutdown.Load() {
 		return ErrHostShuttingDown
 	}
-	return h.scheduler.Send(pkg)
+	return h.scheduler.SendContext(ctx, pkg)
 }
 
 // Start implements supervisor.Service.

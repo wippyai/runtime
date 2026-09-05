@@ -149,7 +149,13 @@ func (sp *sequencer) processStartOperations(ctx context.Context, operations []op
 				sp.logger.Info("starting service",
 					zap.String("service_id", op.id))
 
-				if err := op.controller.Start(); err != nil {
+				var err error
+				if contextual, ok := op.controller.(contextStartControllable); ok {
+					err = contextual.startContext(ctx)
+				} else {
+					err = op.controller.Start()
+				}
+				if err != nil {
 					resultCh <- startResult{
 						serviceID: op.id,
 						err:       NewServiceStartError(op.id, err),
@@ -225,6 +231,10 @@ type backgroundStartControllable interface {
 
 type startStateChangeNotifier interface {
 	startStateChanged() <-chan struct{}
+}
+
+type contextStartControllable interface {
+	startContext(context.Context) error
 }
 
 func forwardStartStateChanges(

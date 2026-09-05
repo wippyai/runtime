@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"sort"
 	"strconv"
 	"sync"
 
@@ -20,14 +21,17 @@ import (
 	"go.uber.org/zap"
 )
 
+// Manager is the legacy PostgreSQL-specific registry and lifecycle wrapper.
+//
+// Deprecated: use service/cdc.Manager with NewDriver so source identity and
+// lifecycle are owned by the driver-neutral CDC manager.
 type Manager struct {
-	dtt        payload.Transcoder
-	bus        event.Bus
-	log        *zap.Logger
-	sources    map[registry.ID]*Source
-	infos      map[registry.ID]config.SourceInfo
-	infosByKey map[string]registry.ID
-	mu         sync.Mutex
+	dtt     payload.Transcoder
+	bus     event.Bus
+	log     *zap.Logger
+	sources map[registry.ID]*Source
+	infos   map[registry.ID]config.SourceInfo
+	mu      sync.Mutex
 }
 
 func NewManager(dtt payload.Transcoder, bus event.Bus, log *zap.Logger) (*Manager, error) {
@@ -41,12 +45,11 @@ func NewManager(dtt payload.Transcoder, bus event.Bus, log *zap.Logger) (*Manage
 		log = zap.NewNop()
 	}
 	return &Manager{
-		dtt:        dtt,
-		bus:        bus,
-		log:        log,
-		sources:    make(map[registry.ID]*Source),
-		infos:      make(map[registry.ID]config.SourceInfo),
-		infosByKey: make(map[string]registry.ID),
+		dtt:     dtt,
+		bus:     bus,
+		log:     log,
+		sources: make(map[registry.ID]*Source),
+		infos:   make(map[registry.ID]config.SourceInfo),
 	}, nil
 }
 
@@ -68,7 +71,9 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	if err := cfg.Validate(); err != nil {
 		return NewInvalidConfigError(err)
 	}
-
+	if err := validateConfigIdentifiers(cfg); err != nil {
+		return NewInvalidConfigError(err)
+	}
 	standby, _ := cfg.StandbyDuration()
 	status, _ := cfg.StatusDuration()
 	replDSN, adminDSN, err := buildDSNs(cfg)
@@ -76,20 +81,24 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 		return err
 	}
 	src := NewSource(SourceOptions{
-		ReplDSN:           replDSN,
-		AdminDSN:          adminDSN,
-		Name:              entry.ID.String(),
-		Slot:              cfg.SlotName,
-		Publication:       cfg.Publication,
-		Tables:            cfg.Tables,
-		Temporary:         cfg.Temporary,
-		Snapshot:          cfg.Snapshot,
-		Streaming:         cfg.Streaming,
-		Failover:          cfg.Failover,
-		StandbyInterval:   standby,
-		StatusInterval:    status,
-		SnapshotFetchSize: cfg.SnapshotFetchSize,
-		Log:               m.log.With(zap.String("id", entry.ID.String())),
+		ReplDSN:               replDSN,
+		AdminDSN:              adminDSN,
+		Name:                  entry.ID.String(),
+		Slot:                  cfg.SlotName,
+		Publication:           cfg.Publication,
+		Tables:                cfg.Tables,
+		Temporary:             cfg.Temporary,
+		Snapshot:              cfg.Snapshot,
+		Streaming:             cfg.Streaming,
+		Failover:              cfg.Failover,
+		StandbyInterval:       standby,
+		StatusInterval:        status,
+		SnapshotFetchSize:     cfg.SnapshotFetchSize,
+		MaxTransactionChanges: cfg.MaxTransactionChanges,
+		MaxTransactionBytes:   cfg.MaxTransactionBytes,
+		MaxInflightChanges:    cfg.MaxInflightChanges,
+		MaxInflightBytes:      cfg.MaxInflightBytes,
+		Log:                   m.log.With(zap.String("id", entry.ID.String())),
 	})
 
 	m.sources[entry.ID] = src
@@ -116,7 +125,9 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	if err := cfg.Validate(); err != nil {
 		return NewInvalidConfigError(err)
 	}
-
+	if err := validateConfigIdentifiers(cfg); err != nil {
+		return NewInvalidConfigError(err)
+	}
 	replDSN, adminDSN, err := buildDSNs(cfg)
 	if err != nil {
 		return err
@@ -132,20 +143,24 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	standby, _ := cfg.StandbyDuration()
 	status, _ := cfg.StatusDuration()
 	src := NewSource(SourceOptions{
-		ReplDSN:           replDSN,
-		AdminDSN:          adminDSN,
-		Name:              entry.ID.String(),
-		Slot:              cfg.SlotName,
-		Publication:       cfg.Publication,
-		Tables:            cfg.Tables,
-		Temporary:         cfg.Temporary,
-		Snapshot:          cfg.Snapshot,
-		Streaming:         cfg.Streaming,
-		Failover:          cfg.Failover,
-		StandbyInterval:   standby,
-		StatusInterval:    status,
-		SnapshotFetchSize: cfg.SnapshotFetchSize,
-		Log:               m.log.With(zap.String("id", entry.ID.String())),
+		ReplDSN:               replDSN,
+		AdminDSN:              adminDSN,
+		Name:                  entry.ID.String(),
+		Slot:                  cfg.SlotName,
+		Publication:           cfg.Publication,
+		Tables:                cfg.Tables,
+		Temporary:             cfg.Temporary,
+		Snapshot:              cfg.Snapshot,
+		Streaming:             cfg.Streaming,
+		Failover:              cfg.Failover,
+		StandbyInterval:       standby,
+		StatusInterval:        status,
+		SnapshotFetchSize:     cfg.SnapshotFetchSize,
+		MaxTransactionChanges: cfg.MaxTransactionChanges,
+		MaxTransactionBytes:   cfg.MaxTransactionBytes,
+		MaxInflightChanges:    cfg.MaxInflightChanges,
+		MaxInflightBytes:      cfg.MaxInflightBytes,
+		Log:                   m.log.With(zap.String("id", entry.ID.String())),
 	})
 	m.sources[entry.ID] = src
 	m.storeInfo(entry, cfg)
@@ -181,16 +196,10 @@ func (m *Manager) storeInfo(entry registry.Entry, cfg *config.Config) {
 		Snapshot:    cfg.Snapshot,
 	}
 	m.infos[entry.ID] = info
-	m.infosByKey[info.Slot] = entry.ID
 }
 
 func (m *Manager) removeInfo(id registry.ID) {
-	if info, ok := m.infos[id]; ok {
-		if current, present := m.infosByKey[info.Slot]; present && current == id {
-			delete(m.infosByKey, info.Slot)
-		}
-		delete(m.infos, id)
-	}
+	delete(m.infos, id)
 }
 
 func (m *Manager) List() []config.SourceInfo {
@@ -201,6 +210,7 @@ func (m *Manager) List() []config.SourceInfo {
 	for _, info := range m.infos {
 		out = append(out, info)
 	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
 }
 
@@ -208,15 +218,9 @@ func (m *Manager) Get(name string) (config.SourceInfo, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if id, ok := m.infosByKey[name]; ok {
-		if info, present := m.infos[id]; present {
-			return info, true
-		}
-	}
-	for _, info := range m.infos {
-		if info.Name == name {
-			return info, true
-		}
+	id := registry.ParseID(name)
+	if info, ok := m.infos[id]; ok {
+		return info, true
 	}
 	return config.SourceInfo{}, false
 }
@@ -228,21 +232,21 @@ func (m *Manager) Stream(_ context.Context, name string, opts config.StreamOptio
 	if !ok {
 		return nil, config.SourceInfo{}, NewServiceNotFoundError(registry.ParseID(name))
 	}
-	return src.Subscribe(opts), info, nil
+	stream := src.Subscribe(opts)
+	if stream == nil {
+		return nil, info, config.ErrSourceNotReady
+	}
+	return stream, info, nil
 }
 
 func (m *Manager) lookupSourceLocked(name string) (*Source, config.SourceInfo, bool) {
-	if id, ok := m.infosByKey[name]; ok {
-		if src := m.sources[id]; src != nil {
-			return src, m.infos[id], true
-		}
+	id := registry.ParseID(name)
+	info, ok := m.infos[id]
+	if !ok {
+		return nil, config.SourceInfo{}, false
 	}
-	for id, info := range m.infos {
-		if info.Name == name {
-			if src := m.sources[id]; src != nil {
-				return src, info, true
-			}
-		}
+	if src := m.sources[id]; src != nil {
+		return src, info, true
 	}
 	return nil, config.SourceInfo{}, false
 }
