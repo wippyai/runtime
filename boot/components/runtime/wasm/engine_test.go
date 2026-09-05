@@ -53,7 +53,7 @@ func TestEngineAlias(t *testing.T) {
 func TestDefaultHostProfiles(t *testing.T) {
 	profiles := DefaultHostProfiles(nil, nil)
 	want := []string{
-		"funcs", "wasi1",
+		"wippy:actor", "funcs", "wasi1",
 		"wasi:io", "wasi:poll", "wasi:clocks", "wasi:cli",
 		"wasi:filesystem", "wasi:random", "wasi:sockets", "wasi:http",
 		"socket",

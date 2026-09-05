@@ -39,6 +39,12 @@ func WithThreadPin(set affinity.Set) Option {
 	return func(s *Scheduler) { s.pinSet = set }
 }
 
+// WithDedicatedThreads locks each scheduler worker goroutine to its own OS
+// thread even when CPU thread pinning is disabled.
+func WithDedicatedThreads() Option {
+	return func(s *Scheduler) { s.dedicatedThreads = true }
+}
+
 func WithLifecycle(l process.Lifecycle) Option {
 	return func(s *Scheduler) { s.lifecycle = l }
 }
@@ -74,9 +80,10 @@ type Scheduler struct {
 	drainCh         chan struct{}
 	byQueue         sync.Map
 	byPID           sync.Map
-	workers         atomic.Pointer[workerSet]
-	pinSet          affinity.Set
-	wg              sync.WaitGroup
+	workers          atomic.Pointer[workerSet]
+	pinSet           affinity.Set
+	dedicatedThreads bool
+	wg               sync.WaitGroup
 	controlMu       sync.Mutex
 	initialWorkers  int
 	maxProcesses    int64
@@ -241,6 +248,10 @@ func (s *Scheduler) WakeProcessor(q *process.EventQueue, gen uint64) {
 		s.injectOrGlobal(proc)
 		return
 	}
+	if proc.casState(StateIdle, StateReady) {
+		s.injectOrGlobal(proc)
+		return
+	}
 	proc.setWakeup(StateRunning)
 }
 
@@ -252,8 +263,22 @@ func (s *Scheduler) Submit(ctx context.Context, pid pid.PID, p process.Process, 
 		return nil, process.ErrMaxProcessesExceeded
 	}
 
-	// Create cancellable context first so Init receives the right context
-	procCtx, cancel := context.WithCancel(ctx)
+	var procCtx context.Context
+	var cancel context.CancelFunc
+
+	if tp, ok := p.(process.ExecutionTimeoutProvider); ok {
+		timeout := tp.ExecutionTimeout()
+		if timeout < 0 {
+			return nil, process.ErrInvalidExecutionTimeout
+		}
+		if timeout > 0 {
+			procCtx, cancel = context.WithTimeout(ctx, timeout)
+		} else {
+			procCtx, cancel = context.WithCancel(ctx)
+		}
+	} else {
+		procCtx, cancel = context.WithCancel(ctx)
+	}
 
 	if err := p.Init(procCtx, method, input); err != nil {
 		cancel()
@@ -272,6 +297,9 @@ func (s *Scheduler) Submit(ctx context.Context, pid pid.PID, p process.Process, 
 
 	// Reset queue for this execution and cache generation
 	proc.queue.Reset()
+	if admission, ok := p.(interface{ EventAdmission() process.EventAdmission }); ok {
+		proc.queue.SetAdmission(admission.EventAdmission())
+	}
 	proc.gen.Store(proc.queue.Generation())
 	proc.publishSignalRef()
 	proc.publishInspectorRef()
@@ -292,6 +320,16 @@ func (s *Scheduler) Submit(ctx context.Context, pid pid.PID, p process.Process, 
 			return nil, err
 		}
 	}
+
+	// Cancellation must also wake an actor parked without incoming messages.
+	// Capture only queue identity/generation: Processor objects are pooled.
+	q, gen := proc.queue, proc.gen.Load()
+	stopWake := context.AfterFunc(procCtx, func() {
+		if q.Push(process.Event{Type: process.EventMessage}, gen) {
+			s.WakeProcessor(q, gen)
+		}
+	})
+	proc.cancel = func() { stopWake(); cancel() }
 
 	s.global.Push(proc)
 	s.wakeAny()
@@ -439,12 +477,16 @@ func (s *Scheduler) Send(pkg *relay.Package) error {
 	}
 	proc := v.(*Processor)
 
-	if !s.deliverToProc(proc, proc.gen.Load(), pkg) {
-		// Push failed - queue closed, process is terminating
+	return s.deliverToTarget(proc, target, pkg)
+}
+
+// deliverToTarget rejects a processor slot that was reused after byPID.Load.
+func (s *Scheduler) deliverToTarget(proc *Processor, target pid.PID, pkg *relay.Package) error {
+	ref := proc.sig.Load()
+	if ref == nil || ref.pid.String() != target.String() {
 		return process.ErrProcessClosed
 	}
-
-	return nil
+	return s.deliverToProcError(proc, ref.gen, pkg)
 }
 
 // deliverToProc pushes pkg onto proc's queue under the expected generation and
@@ -453,11 +495,15 @@ func (s *Scheduler) Send(pkg *relay.Package) error {
 // callers holding an out-of-band snapshot never deliver to a different process
 // that has since inherited the slot. Returns whether the push succeeded.
 func (s *Scheduler) deliverToProc(proc *Processor, gen uint64, pkg *relay.Package) bool {
-	if !proc.queue.Push(process.Event{
+	return s.deliverToProcError(proc, gen, pkg) == nil
+}
+
+func (s *Scheduler) deliverToProcError(proc *Processor, gen uint64, pkg *relay.Package) error {
+	if err := proc.queue.PushWithError(process.Event{
 		Type: process.EventMessage,
 		Data: pkg,
-	}, gen) {
-		return false
+	}, gen); err != nil {
+		return err
 	}
 
 	// Wake process if waiting for messages.
@@ -469,7 +515,7 @@ func (s *Scheduler) deliverToProc(proc *Processor, gen uint64, pkg *relay.Packag
 		s.injectOrGlobal(proc)
 	}
 
-	return true
+	return nil
 }
 
 func (s *Scheduler) Stats() map[string]uint64 {
@@ -576,7 +622,7 @@ func (s *Scheduler) SendOutdated(affected map[registry.ID]bool) {
 		// fields: concurrent completion may be deleting the pid and the pool may
 		// be resetting/reusing this object.
 		ref := proc.sig.Load()
-		if ref == nil || !affected[ref.source] {
+		if ref == nil || ref.source.Name == "" || !affected[ref.source] {
 			return true
 		}
 		// Deliver straight to this processor under the snapshot's generation.

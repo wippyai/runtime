@@ -5,8 +5,10 @@ package wasm
 
 import (
 	"encoding/json"
+	"math"
 	"path"
 	"strings"
+	"time"
 
 	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/registry"
@@ -72,30 +74,46 @@ type (
 
 	// WATFunctionConfig defines configuration for inline WAT function entries.
 	WATFunctionConfig struct {
-		Meta      attrs.Bag     `json:"meta,omitempty"`
-		Source    string        `json:"source" resolve:"-"`
-		Method    string        `json:"method"`
-		Transport string        `json:"transport,omitempty"`
-		WIT       string        `json:"wit,omitempty"`
-		WASI      WASIConfig    `json:"wasi,omitempty"`
-		Imports   []registry.ID `json:"imports,omitempty"`
-		Pool      PoolConfig    `json:"pool,omitempty"`
-		Limits    LimitsConfig  `json:"limits,omitempty"`
+		Meta      attrs.Bag     `json:"meta,omitempty" yaml:"meta,omitempty"`
+		Source    string        `json:"source" yaml:"source" resolve:"-"`
+		Method    string        `json:"method" yaml:"method"`
+		Transport string        `json:"transport,omitempty" yaml:"transport,omitempty"`
+		WIT       string        `json:"wit,omitempty" yaml:"wit,omitempty"`
+		WASI      WASIConfig    `json:"wasi,omitempty" yaml:"wasi,omitempty"`
+		Imports   []registry.ID `json:"imports,omitempty" yaml:"imports,omitempty"`
+		Pool      PoolConfig    `json:"-" yaml:"-"`
+		Limits    LimitsConfig  `json:"-" yaml:"-"`
+
+		// RootLimits and RootPool capture root-level limits and pool to detect and reject invalid configuration.
+		RootLimits any `json:"limits,omitempty" yaml:"limits,omitempty"`
+		RootPool   any `json:"pool,omitempty" yaml:"pool,omitempty"`
+
+		hasRootLimits bool
+		hasRootPool   bool
+		options       *FunctionOptions
 	}
 
 	// FunctionConfig defines configuration for precompiled WASM function entries.
 	FunctionConfig struct {
-		Meta      attrs.Bag     `json:"meta,omitempty"`
-		FS        string        `json:"fs"`
-		Path      string        `json:"path"`
-		Hash      string        `json:"hash"`
-		Method    string        `json:"method"`
-		Transport string        `json:"transport,omitempty"`
-		WIT       string        `json:"wit,omitempty"`
-		WASI      WASIConfig    `json:"wasi,omitempty"`
-		Imports   []registry.ID `json:"imports,omitempty"`
-		Pool      PoolConfig    `json:"pool,omitempty"`
-		Limits    LimitsConfig  `json:"limits,omitempty"`
+		Meta      attrs.Bag     `json:"meta,omitempty" yaml:"meta,omitempty"`
+		FS        string        `json:"fs" yaml:"fs"`
+		Path      string        `json:"path" yaml:"path"`
+		Hash      string        `json:"hash" yaml:"hash"`
+		Method    string        `json:"method" yaml:"method"`
+		Transport string        `json:"transport,omitempty" yaml:"transport,omitempty"`
+		WIT       string        `json:"wit,omitempty" yaml:"wit,omitempty"`
+		WASI      WASIConfig    `json:"wasi,omitempty" yaml:"wasi,omitempty"`
+		Imports   []registry.ID `json:"imports,omitempty" yaml:"imports,omitempty"`
+		Pool      PoolConfig    `json:"-" yaml:"-"`
+		Limits    LimitsConfig  `json:"-" yaml:"-"`
+
+		// RootLimits and RootPool capture root-level limits and pool to detect and reject invalid configuration.
+		RootLimits any `json:"limits,omitempty" yaml:"limits,omitempty"`
+		RootPool   any `json:"pool,omitempty" yaml:"pool,omitempty"`
+
+		hasRootLimits bool
+		hasRootPool   bool
+		options       *FunctionOptions
 	}
 )
 
@@ -201,6 +219,232 @@ func (c LimitsConfig) EffectiveSocketTimeoutMS() int {
 	return DefaultSocketTimeoutMS
 }
 
+type watFunctionConfigJSON struct {
+	Meta      attrs.Bag     `json:"meta,omitempty" yaml:"meta,omitempty"`
+	Source    string        `json:"source" yaml:"source"`
+	Method    string        `json:"method" yaml:"method"`
+	Transport string        `json:"transport,omitempty" yaml:"transport,omitempty"`
+	WIT       string        `json:"wit,omitempty" yaml:"wit,omitempty"`
+	WASI      WASIConfig    `json:"wasi,omitempty" yaml:"wasi,omitempty"`
+	Imports   []registry.ID `json:"imports,omitempty" yaml:"imports,omitempty"`
+	Limits    any           `json:"limits,omitempty" yaml:"limits,omitempty"`
+	Pool      any           `json:"pool,omitempty" yaml:"pool,omitempty"`
+}
+
+// UnmarshalJSON deserializes WATFunctionConfig and flags any presence of root-level limits or pool.
+func (c *WATFunctionConfig) UnmarshalJSON(data []byte) error {
+	var decoded watFunctionConfigJSON
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+
+	var hasLimits, hasPool bool
+	var rawMap map[string]json.RawMessage
+	if err := json.Unmarshal(data, &rawMap); err == nil {
+		if _, exists := rawMap["limits"]; exists {
+			hasLimits = true
+		}
+		if _, exists := rawMap["pool"]; exists {
+			hasPool = true
+		}
+	}
+
+	*c = WATFunctionConfig{
+		Meta:          decoded.Meta,
+		Source:        decoded.Source,
+		Method:        decoded.Method,
+		Transport:     decoded.Transport,
+		WIT:           decoded.WIT,
+		WASI:          decoded.WASI,
+		Imports:       decoded.Imports,
+		RootLimits:    decoded.Limits,
+		RootPool:      decoded.Pool,
+		hasRootLimits: hasLimits,
+		hasRootPool:   hasPool,
+		options:       nil,
+	}
+	return nil
+}
+
+// UnmarshalYAML deserializes WATFunctionConfig and flags any presence of root-level limits or pool.
+func (c *WATFunctionConfig) UnmarshalYAML(unmarshal func(any) error) error {
+	var decoded watFunctionConfigJSON
+	if err := unmarshal(&decoded); err != nil {
+		return err
+	}
+
+	var hasLimits, hasPool bool
+	var rawMap map[string]any
+	if err := unmarshal(&rawMap); err == nil {
+		if _, exists := rawMap["limits"]; exists {
+			hasLimits = true
+		}
+		if _, exists := rawMap["pool"]; exists {
+			hasPool = true
+		}
+	}
+
+	*c = WATFunctionConfig{
+		Meta:          decoded.Meta,
+		Source:        decoded.Source,
+		Method:        decoded.Method,
+		Transport:     decoded.Transport,
+		WIT:           decoded.WIT,
+		WASI:          decoded.WASI,
+		Imports:       decoded.Imports,
+		RootLimits:    decoded.Limits,
+		RootPool:      decoded.Pool,
+		hasRootLimits: hasLimits,
+		hasRootPool:   hasPool,
+		options:       nil,
+	}
+	return nil
+}
+
+// MarshalJSON serializes WATFunctionConfig, excluding any root limits or pool fields.
+func (c WATFunctionConfig) MarshalJSON() ([]byte, error) {
+	return json.Marshal(watFunctionConfigJSON{
+		Meta:      c.Meta,
+		Source:    c.Source,
+		Method:    c.Method,
+		Transport: c.Transport,
+		WIT:       c.WIT,
+		WASI:      c.WASI,
+		Imports:   c.Imports,
+	})
+}
+
+// MarshalYAML serializes WATFunctionConfig, excluding any root limits or pool fields.
+func (c WATFunctionConfig) MarshalYAML() (any, error) {
+	return watFunctionConfigJSON{
+		Meta:      c.Meta,
+		Source:    c.Source,
+		Method:    c.Method,
+		Transport: c.Transport,
+		WIT:       c.WIT,
+		WASI:      c.WASI,
+		Imports:   c.Imports,
+	}, nil
+}
+
+type functionConfigJSON struct {
+	Meta      attrs.Bag     `json:"meta,omitempty" yaml:"meta,omitempty"`
+	FS        string        `json:"fs" yaml:"fs"`
+	Path      string        `json:"path" yaml:"path"`
+	Hash      string        `json:"hash" yaml:"hash"`
+	Method    string        `json:"method" yaml:"method"`
+	Transport string        `json:"transport,omitempty" yaml:"transport,omitempty"`
+	WIT       string        `json:"wit,omitempty" yaml:"wit,omitempty"`
+	WASI      WASIConfig    `json:"wasi,omitempty" yaml:"wasi,omitempty"`
+	Imports   []registry.ID `json:"imports,omitempty" yaml:"imports,omitempty"`
+	Limits    any           `json:"limits,omitempty" yaml:"limits,omitempty"`
+	Pool      any           `json:"pool,omitempty" yaml:"pool,omitempty"`
+}
+
+// UnmarshalJSON deserializes FunctionConfig and flags any presence of root-level limits or pool.
+func (c *FunctionConfig) UnmarshalJSON(data []byte) error {
+	var decoded functionConfigJSON
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+
+	var hasLimits, hasPool bool
+	var rawMap map[string]json.RawMessage
+	if err := json.Unmarshal(data, &rawMap); err == nil {
+		if _, exists := rawMap["limits"]; exists {
+			hasLimits = true
+		}
+		if _, exists := rawMap["pool"]; exists {
+			hasPool = true
+		}
+	}
+
+	*c = FunctionConfig{
+		Meta:          decoded.Meta,
+		FS:            decoded.FS,
+		Path:          decoded.Path,
+		Hash:          decoded.Hash,
+		Method:        decoded.Method,
+		Transport:     decoded.Transport,
+		WIT:           decoded.WIT,
+		WASI:          decoded.WASI,
+		Imports:       decoded.Imports,
+		RootLimits:    decoded.Limits,
+		RootPool:      decoded.Pool,
+		hasRootLimits: hasLimits,
+		hasRootPool:   hasPool,
+		options:       nil,
+	}
+	return nil
+}
+
+// UnmarshalYAML deserializes FunctionConfig and flags any presence of root-level limits or pool.
+func (c *FunctionConfig) UnmarshalYAML(unmarshal func(any) error) error {
+	var decoded functionConfigJSON
+	if err := unmarshal(&decoded); err != nil {
+		return err
+	}
+
+	var hasLimits, hasPool bool
+	var rawMap map[string]any
+	if err := unmarshal(&rawMap); err == nil {
+		if _, exists := rawMap["limits"]; exists {
+			hasLimits = true
+		}
+		if _, exists := rawMap["pool"]; exists {
+			hasPool = true
+		}
+	}
+
+	*c = FunctionConfig{
+		Meta:          decoded.Meta,
+		FS:            decoded.FS,
+		Path:          decoded.Path,
+		Hash:          decoded.Hash,
+		Method:        decoded.Method,
+		Transport:     decoded.Transport,
+		WIT:           decoded.WIT,
+		WASI:          decoded.WASI,
+		Imports:       decoded.Imports,
+		RootLimits:    decoded.Limits,
+		RootPool:      decoded.Pool,
+		hasRootLimits: hasLimits,
+		hasRootPool:   hasPool,
+		options:       nil,
+	}
+	return nil
+}
+
+// MarshalJSON serializes FunctionConfig, excluding any root limits or pool fields.
+func (c FunctionConfig) MarshalJSON() ([]byte, error) {
+	return json.Marshal(functionConfigJSON{
+		Meta:      c.Meta,
+		FS:        c.FS,
+		Path:      c.Path,
+		Hash:      c.Hash,
+		Method:    c.Method,
+		Transport: c.Transport,
+		WIT:       c.WIT,
+		WASI:      c.WASI,
+		Imports:   c.Imports,
+	})
+}
+
+// MarshalYAML serializes FunctionConfig, excluding any root limits or pool fields.
+func (c FunctionConfig) MarshalYAML() (any, error) {
+	return functionConfigJSON{
+		Meta:      c.Meta,
+		FS:        c.FS,
+		Path:      c.Path,
+		Hash:      c.Hash,
+		Method:    c.Method,
+		Transport: c.Transport,
+		WIT:       c.WIT,
+		WASI:      c.WASI,
+		Imports:   c.Imports,
+	}, nil
+}
+
 // EffectiveTransport returns the transport, defaulting to payload.
 func (c *WATFunctionConfig) EffectiveTransport() string {
 	if c.Transport == "" {
@@ -211,6 +455,12 @@ func (c *WATFunctionConfig) EffectiveTransport() string {
 
 // Validate checks if the WATFunctionConfig has required fields and valid values.
 func (c *WATFunctionConfig) Validate() error {
+	if c.RootLimits != nil || c.hasRootLimits {
+		return ErrFunctionRootLimitsForbidden
+	}
+	if c.RootPool != nil || c.hasRootPool {
+		return ErrFunctionRootPoolForbidden
+	}
 	if c.Source == "" {
 		return ErrSourceRequired
 	}
@@ -223,14 +473,35 @@ func (c *WATFunctionConfig) Validate() error {
 	if err := validateTransport(c.Transport); err != nil {
 		return err
 	}
-	if err := validatePool(c.Pool); err != nil {
-		return err
-	}
-	if err := validateLimits(c.Limits); err != nil {
-		return err
-	}
 	if err := validateWASI(c.WASI); err != nil {
 		return err
+	}
+
+	if hasMetaKey(c.Meta, "options") {
+		opts, err := parseAndValidateFunctionOptions(c.Meta)
+		if err != nil {
+			return err
+		}
+		c.options = &opts
+		c.Pool = opts.Pool
+		c.Limits = opts.Limits
+	} else if c.options != nil {
+		opts, err := validateFunctionOptionsStruct(*c.options)
+		if err != nil {
+			return err
+		}
+		c.options = &opts
+		c.Pool = opts.Pool
+		c.Limits = opts.Limits
+	} else {
+		if err := validatePool(c.Pool); err != nil {
+			return err
+		}
+		if err := validateLimits(c.Limits); err != nil {
+			return err
+		}
+		opts := FunctionOptions{Pool: c.Pool, Limits: c.Limits}
+		c.options = &opts
 	}
 	return nil
 }
@@ -245,6 +516,12 @@ func (c *FunctionConfig) EffectiveTransport() string {
 
 // Validate checks if the WASMFunctionConfig has required fields and valid values.
 func (c *FunctionConfig) Validate() error {
+	if c.RootLimits != nil || c.hasRootLimits {
+		return ErrFunctionRootLimitsForbidden
+	}
+	if c.RootPool != nil || c.hasRootPool {
+		return ErrFunctionRootPoolForbidden
+	}
 	if c.FS == "" {
 		return ErrFSRequired
 	}
@@ -263,14 +540,35 @@ func (c *FunctionConfig) Validate() error {
 	if err := validateTransport(c.Transport); err != nil {
 		return err
 	}
-	if err := validatePool(c.Pool); err != nil {
-		return err
-	}
-	if err := validateLimits(c.Limits); err != nil {
-		return err
-	}
 	if err := validateWASI(c.WASI); err != nil {
 		return err
+	}
+
+	if hasMetaKey(c.Meta, "options") {
+		opts, err := parseAndValidateFunctionOptions(c.Meta)
+		if err != nil {
+			return err
+		}
+		c.options = &opts
+		c.Pool = opts.Pool
+		c.Limits = opts.Limits
+	} else if c.options != nil {
+		opts, err := validateFunctionOptionsStruct(*c.options)
+		if err != nil {
+			return err
+		}
+		c.options = &opts
+		c.Pool = opts.Pool
+		c.Limits = opts.Limits
+	} else {
+		if err := validatePool(c.Pool); err != nil {
+			return err
+		}
+		if err := validateLimits(c.Limits); err != nil {
+			return err
+		}
+		opts := FunctionOptions{Pool: c.Pool, Limits: c.Limits}
+		c.options = &opts
 	}
 	return nil
 }
@@ -328,7 +626,7 @@ func validatePool(pool PoolConfig) error {
 }
 
 func validateLimits(limits LimitsConfig) error {
-	if limits.MaxExecutionMS < 0 {
+	if limits.MaxExecutionMS < 0 || int64(limits.MaxExecutionMS) > math.MaxInt64/int64(time.Millisecond) {
 		return ErrInvalidExecutionLimit
 	}
 	if limits.MaxRetainedMemoryBytes < 0 {
@@ -340,7 +638,7 @@ func validateLimits(limits LimitsConfig) error {
 	if limits.MaxOpenSockets < 0 {
 		return ErrInvalidMaxOpenSockets
 	}
-	if limits.SocketTimeoutMS < 0 {
+	if limits.SocketTimeoutMS < 0 || int64(limits.SocketTimeoutMS) > math.MaxInt64/int64(time.Millisecond) {
 		return ErrInvalidSocketTimeout
 	}
 	return nil

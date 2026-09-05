@@ -80,6 +80,7 @@ func Host() boot.Component {
 			manager := host.NewManager(bus, dtt, registry, factory, pidGen, logger)
 			if part, ok := affinity.PartitionFromContext(ctx); ok && part.Enabled {
 				manager.SetActorAffinity(part.ActorCPUs)
+				manager.SetWASMAffinity(part.WASMCPUs)
 			}
 			handlers.RegisterListener("process.host", manager)
 

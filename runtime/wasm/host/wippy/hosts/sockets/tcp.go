@@ -377,7 +377,11 @@ func (h *TCPHost) MethodTCPSocketAccept(ctx context.Context, self uint32) (*TCPA
 			newSocket.SetRemoteAddr(tcpAddr.IP.String(), uint16(tcpAddr.Port))
 		}
 
-		socketHandle := h.resources.Add(newSocket)
+		socketHandle, addErr := h.resources.TryAdd(newSocket)
+		if addErr != nil {
+			newSocket.Drop()
+			return nil, resourceLimitError(addErr)
+		}
 
 		inputStream := preview2.NewTCPInputStreamResource(newSocket)
 		outputStream := preview2.NewTCPOutputStreamResource(newSocket)

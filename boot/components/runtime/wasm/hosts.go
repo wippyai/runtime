@@ -20,6 +20,7 @@ type hostFactory func(resources *preview2.ResourceTable) []wasmrt.Host
 // DefaultHostProfiles returns the default WASM host profiles wired by boot.
 func DefaultHostProfiles(log *zap.Logger, disp dispatcher.Dispatcher) []wasmcomponent.HostProfile {
 	return []wasmcomponent.HostProfile{
+		actorHostProfile(),
 		funcsHostProfile(log),
 		wasi1HostProfile(),
 		wasiIOProfile(log),

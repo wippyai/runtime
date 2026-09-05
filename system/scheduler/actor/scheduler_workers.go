@@ -121,10 +121,12 @@ func (s *Scheduler) startWorker(w *Worker) {
 	go func() {
 		defer s.wg.Done()
 		defer close(w.done)
-		if len(s.pinSet) > 0 {
+		if s.dedicatedThreads || len(s.pinSet) > 0 {
 			goruntime.LockOSThread()
 			defer goruntime.UnlockOSThread()
-			_ = affinity.Apply(s.pinSet)
+			if len(s.pinSet) > 0 {
+				_ = affinity.Apply(s.pinSet)
+			}
 		}
 		w.run()
 	}()

@@ -239,3 +239,32 @@ func normalizeImportToken(raw string) string {
 	}
 	return name
 }
+
+// Fork copies profile definitions into an independent registration and resource
+// scope. Actors must not inherit another instance's WASI resource handles.
+func (r *HostRegistry) Fork() *HostRegistry {
+	child := NewHostRegistry()
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for name, profile := range r.profiles {
+		profile.Aliases = append([]string(nil), profile.Aliases...)
+		child.profiles[name] = profile
+	}
+	for alias, name := range r.aliases {
+		child.aliases[alias] = name
+	}
+	return child
+}
+
+// CloseResources releases resources owned by this scope after execution stops.
+// Callers must stop guest execution and pending host operations before closing.
+func (r *HostRegistry) CloseResources() {
+	r.mu.Lock()
+	resources := r.sharedResources
+	r.sharedResources = nil
+	r.loaded = make(map[*wasmrt.Runtime]map[string]bool)
+	r.mu.Unlock()
+	if closer, ok := resources.(interface{ Clear() }); ok {
+		closer.Clear()
+	}
+}

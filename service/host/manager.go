@@ -32,6 +32,7 @@ type Manager struct {
 	log             *zap.Logger
 	hosts           map[registry.ID]*Host
 	actorAffinity   affinity.Set
+	wasmAffinity    affinity.Set
 	mutationMu      sync.Mutex
 	mu              sync.RWMutex
 }
@@ -42,6 +43,15 @@ type Manager struct {
 func (m *Manager) SetActorAffinity(set affinity.Set) {
 	m.mutationMu.Lock()
 	m.actorAffinity = append(affinity.Set(nil), set...)
+	m.mutationMu.Unlock()
+}
+
+// SetWASMAffinity pins each WASM host's scheduler workers to the given CPU set
+// and sizes the worker pool to it. Empty (the default) leaves scheduling unpinned.
+// Call before Add.
+func (m *Manager) SetWASMAffinity(set affinity.Set) {
+	m.mutationMu.Lock()
+	m.wasmAffinity = append(affinity.Set(nil), set...)
 	m.mutationMu.Unlock()
 }
 
@@ -87,9 +97,17 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 		actor.WithLocalQueueSize(cfg.HostConfig.LocalQueueSize),
 		actor.WithLifecycle(lifecycle),
 	}
-	if len(m.actorAffinity) > 0 {
-		opts = append(opts, actor.WithWorkers(len(m.actorAffinity)), actor.WithThreadPin(m.actorAffinity))
-		h.affinityManaged = true
+	if cfg.HostConfig.WorkerClass == hostapi.WorkerClassWASM {
+		opts = append(opts, actor.WithDedicatedThreads())
+		if len(m.wasmAffinity) > 0 {
+			opts = append(opts, actor.WithWorkers(len(m.wasmAffinity)), actor.WithThreadPin(m.wasmAffinity))
+			h.affinityManaged = true
+		}
+	} else {
+		if len(m.actorAffinity) > 0 {
+			opts = append(opts, actor.WithWorkers(len(m.actorAffinity)), actor.WithThreadPin(m.actorAffinity))
+			h.affinityManaged = true
+		}
 	}
 
 	scheduler := actor.NewScheduler(m.commandRegistry, opts...)

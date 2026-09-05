@@ -69,7 +69,11 @@ func (h *TCPCreateSocketHost) CreateTCPSocket(_ context.Context, addressFamily u
 	}
 
 	socket := preview2.NewTCPSocketResource(addressFamily)
-	handle := h.resources.Add(socket)
+	handle, err := h.resources.TryAdd(socket)
+	if err != nil {
+		socket.Drop()
+		return 0, resourceLimitError(err)
+	}
 	return handle, nil
 }
 

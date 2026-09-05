@@ -69,7 +69,7 @@ func TestDecodeWATEntryLimitsOmittedResolveToDefaults(t *testing.T) {
 }
 
 func TestDecodeWATEntryLimitsBindConfiguredKeys(t *testing.T) {
-	cfg := decodeWATEntry(t, `{"source":"(module)","method":"handle","limits":{"max_execution_ms":250,"max_retained_memory_bytes":1048576,"retained_memory_check_interval":4,"max_open_sockets":8,"socket_timeout_ms":5000}}`)
+	cfg := decodeWATEntry(t, `{"source":"(module)","method":"handle","meta":{"options":{"limits":{"max_execution_ms":250,"max_retained_memory_bytes":1048576,"retained_memory_check_interval":4,"max_open_sockets":8,"socket_timeout_ms":5000}}}}`)
 
 	assert.Equal(t, 250, cfg.Limits.MaxExecutionMS)
 	assert.Equal(t, int64(1048576), cfg.Limits.MaxRetainedMemoryBytes)
@@ -81,17 +81,39 @@ func TestDecodeWATEntryLimitsBindConfiguredKeys(t *testing.T) {
 }
 
 func TestDecodeWATEntryExplicitZeroDisablesRetainedMemoryLimit(t *testing.T) {
-	cfg := decodeWATEntry(t, `{"source":"(module)","method":"handle","limits":{"max_retained_memory_bytes":0}}`)
+	cfg := decodeWATEntry(t, `{"source":"(module)","method":"handle","meta":{"options":{"limits":{"max_retained_memory_bytes":0}}}}`)
 
 	assert.True(t, cfg.Limits.HasMaxRetainedMemoryBytes())
 	assert.Zero(t, cfg.Limits.EffectiveMaxRetainedMemoryBytes())
+}
+
+func TestDecodeWATEntryRejectsRootLimits(t *testing.T) {
+	entry := registry.Entry{
+		ID:   registry.NewID("app.test", "fn"),
+		Kind: wasmapi.FunctionWAT,
+		Data: payload.NewPayload(`{"source":"(module)","method":"handle","limits":{"max_execution_ms":250}}`, payload.JSON),
+	}
+	_, err := entrycfg.DecodeEntryConfigFromContext[wasmapi.WATFunctionConfig](limitsDecodeContext(), entry)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, wasmapi.ErrFunctionRootLimitsForbidden)
+}
+
+func TestDecodeWATEntryRejectsRootPool(t *testing.T) {
+	entry := registry.Entry{
+		ID:   registry.NewID("app.test", "fn"),
+		Kind: wasmapi.FunctionWAT,
+		Data: payload.NewPayload(`{"source":"(module)","method":"handle","pool":{"type":"inline"}}`, payload.JSON),
+	}
+	_, err := entrycfg.DecodeEntryConfigFromContext[wasmapi.WATFunctionConfig](limitsDecodeContext(), entry)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, wasmapi.ErrFunctionRootPoolForbidden)
 }
 
 func TestDecodeWASMEntryLimitsBindConfiguredKeys(t *testing.T) {
 	entry := registry.Entry{
 		ID:   registry.NewID("app.test", "fn"),
 		Kind: wasmapi.FunctionWASM,
-		Data: payload.NewPayload(`{"fs":"app.fs:data","path":"/fn.wasm","hash":"sha256:0","method":"handle","limits":{"max_retained_memory_bytes":2097152,"retained_memory_check_interval":8}}`, payload.JSON),
+		Data: payload.NewPayload(`{"fs":"app.fs:data","path":"/fn.wasm","hash":"sha256:0","method":"handle","meta":{"options":{"limits":{"max_retained_memory_bytes":2097152,"retained_memory_check_interval":8}}}}`, payload.JSON),
 	}
 
 	cfg, err := entrycfg.DecodeEntryConfigFromContext[wasmapi.FunctionConfig](limitsDecodeContext(), entry)
@@ -100,4 +122,26 @@ func TestDecodeWASMEntryLimitsBindConfiguredKeys(t *testing.T) {
 	assert.Equal(t, int64(2097152), cfg.Limits.MaxRetainedMemoryBytes)
 	assert.Equal(t, 8, cfg.Limits.RetainedMemoryCheckInterval)
 	assert.Equal(t, 8, cfg.Limits.EffectiveRetainedMemoryCheckInterval())
+}
+
+func TestDecodeWASMEntryRejectsRootLimits(t *testing.T) {
+	entry := registry.Entry{
+		ID:   registry.NewID("app.test", "fn"),
+		Kind: wasmapi.FunctionWASM,
+		Data: payload.NewPayload(`{"fs":"app.fs:data","path":"/fn.wasm","hash":"sha256:0","method":"handle","limits":{"max_execution_ms":100}}`, payload.JSON),
+	}
+	_, err := entrycfg.DecodeEntryConfigFromContext[wasmapi.FunctionConfig](limitsDecodeContext(), entry)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, wasmapi.ErrFunctionRootLimitsForbidden)
+}
+
+func TestDecodeWASMEntryRejectsRootPool(t *testing.T) {
+	entry := registry.Entry{
+		ID:   registry.NewID("app.test", "fn"),
+		Kind: wasmapi.FunctionWASM,
+		Data: payload.NewPayload(`{"fs":"app.fs:data","path":"/fn.wasm","hash":"sha256:0","method":"handle","pool":{"type":"inline"}}`, payload.JSON),
+	}
+	_, err := entrycfg.DecodeEntryConfigFromContext[wasmapi.FunctionConfig](limitsDecodeContext(), entry)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, wasmapi.ErrFunctionRootPoolForbidden)
 }

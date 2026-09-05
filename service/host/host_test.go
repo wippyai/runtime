@@ -50,6 +50,7 @@ func namedOptions(name string) attrs.Bag {
 type mockProcess struct {
 	initErr  error
 	stepFunc func([]process.Event, *process.StepOutput) error
+	closed   atomic.Bool
 }
 
 func (m *mockProcess) Init(_ context.Context, _ string, _ payload.Payloads) error {
@@ -64,7 +65,9 @@ func (m *mockProcess) Step(events []process.Event, out *process.StepOutput) erro
 	return nil
 }
 
-func (m *mockProcess) Close() {}
+func (m *mockProcess) Close() {
+	m.closed.Store(true)
+}
 
 // mockFactory implements process.Factory for testing.
 type mockFactory struct {
@@ -890,6 +893,126 @@ func TestHost_RunAppliesEntrySecurity(t *testing.T) {
 	require.NotNil(t, gotScope)
 	assert.True(t, gotScope.Contains(entryPolicyID), "entry policy must be present")
 	assert.True(t, gotScope.Contains(launchPolicy.ID()), "launch policy must be preserved")
+}
+
+func TestHost_Run_WorkerClassPlacement(t *testing.T) {
+	t.Run("incompatible WASM spawn rejected and process closed", func(t *testing.T) {
+		proc := &mockProcess{}
+		factory := &mockFactory{
+			proc: proc,
+			meta: &process.Meta{WorkerClass: "wasm"},
+		}
+		th := newTestHost(func(h *testHost) {
+			h.factory = factory
+		})
+		th.host.cfg = &hostapi.EntryConfig{
+			HostConfig: hostapi.Config{WorkerClass: ""},
+		}
+		th.start(t)
+		defer th.stop()
+
+		runPID, err := th.host.Run(ctxWithAppContext(), &process.Start{
+			Source: registry.NewID("test", "wasm_actor"),
+		})
+		require.Error(t, err)
+		assert.Equal(t, pid.PID{}, runPID)
+		assert.True(t, proc.closed.Load(), "process must be closed on mismatch")
+		assert.Contains(t, err.Error(), "worker class mismatch")
+	})
+
+	t.Run("correctly classed spawn accepted", func(t *testing.T) {
+		proc := &mockProcess{}
+		factory := &mockFactory{
+			proc: proc,
+			meta: &process.Meta{WorkerClass: "wasm"},
+		}
+		th := newTestHost(func(h *testHost) {
+			h.factory = factory
+		})
+		th.host.cfg = &hostapi.EntryConfig{
+			HostConfig: hostapi.Config{WorkerClass: "wasm"},
+		}
+		th.start(t)
+		defer th.stop()
+
+		runPID, err := th.host.Run(ctxWithAppContext(), &process.Start{
+			Source: registry.NewID("test", "wasm_actor"),
+		})
+		require.NoError(t, err)
+		assert.NotEqual(t, pid.PID{}, runPID)
+		assert.False(t, proc.closed.Load(), "process must not be closed on success")
+	})
+
+	t.Run("normal Lua unaffected on default host", func(t *testing.T) {
+		proc := &mockProcess{}
+		factory := &mockFactory{
+			proc: proc,
+			meta: &process.Meta{WorkerClass: ""},
+		}
+		th := newTestHost(func(h *testHost) {
+			h.factory = factory
+		})
+		th.host.cfg = &hostapi.EntryConfig{
+			HostConfig: hostapi.Config{WorkerClass: ""},
+		}
+		th.start(t)
+		defer th.stop()
+
+		runPID, err := th.host.Run(ctxWithAppContext(), &process.Start{
+			Source: registry.NewID("test", "lua_actor"),
+		})
+		require.NoError(t, err)
+		assert.NotEqual(t, pid.PID{}, runPID)
+		assert.False(t, proc.closed.Load(), "process must not be closed on success")
+	})
+
+	t.Run("normal Lua rejected on WASM host and process closed", func(t *testing.T) {
+		proc := &mockProcess{}
+		factory := &mockFactory{
+			proc: proc,
+			meta: &process.Meta{WorkerClass: ""},
+		}
+		th := newTestHost(func(h *testHost) {
+			h.factory = factory
+		})
+		th.host.cfg = &hostapi.EntryConfig{
+			HostConfig: hostapi.Config{WorkerClass: "wasm"},
+		}
+		th.start(t)
+		defer th.stop()
+
+		runPID, err := th.host.Run(ctxWithAppContext(), &process.Start{
+			Source: registry.NewID("test", "lua_actor"),
+		})
+		require.Error(t, err)
+		assert.Equal(t, pid.PID{}, runPID)
+		assert.True(t, proc.closed.Load(), "process must be closed on mismatch")
+		assert.Contains(t, err.Error(), "worker class mismatch")
+	})
+
+	t.Run("malformed process class rejected and closed", func(t *testing.T) {
+		proc := &mockProcess{}
+		factory := &mockFactory{
+			proc: proc,
+			meta: &process.Meta{WorkerClass: "unsupported_class"},
+		}
+		th := newTestHost(func(h *testHost) {
+			h.factory = factory
+		})
+		th.host.cfg = &hostapi.EntryConfig{
+			HostConfig: hostapi.Config{WorkerClass: "wasm"},
+		}
+		th.start(t)
+		defer th.stop()
+
+		runPID, err := th.host.Run(ctxWithAppContext(), &process.Start{
+			Source: registry.NewID("test", "unknown_actor"),
+		})
+		require.Error(t, err)
+		assert.Equal(t, pid.PID{}, runPID)
+		assert.True(t, proc.closed.Load(), "process must be closed on mismatch")
+		assert.Contains(t, err.Error(), "worker class mismatch")
+	})
 }
 
 // --- Interface Compliance ---

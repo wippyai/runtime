@@ -18,6 +18,7 @@ import (
 	"github.com/wippyai/runtime/runtime/security"
 	runtimewasm "github.com/wippyai/runtime/runtime/wasm"
 	wippyhost "github.com/wippyai/runtime/runtime/wasm/host/wippy"
+	actorhost "github.com/wippyai/runtime/runtime/wasm/host/wippy/hosts/actor"
 	wasmtransport "github.com/wippyai/runtime/runtime/wasm/transport"
 	wasmengine "github.com/wippyai/wasm-runtime/engine"
 	wasmrt "github.com/wippyai/wasm-runtime/runtime"
@@ -56,6 +57,7 @@ type Process struct {
 	retainedMemoryCheckCalls    int
 	retainedMemoryCheckInterval int
 	waitingYield                bool
+	waitingMailbox              bool
 	ownedModule                 bool
 	hasMemory                   bool
 	done                        bool
@@ -160,12 +162,26 @@ func (p *Process) stepSync(out *process.StepOutput) error {
 
 	p.result = result
 	p.done = true
+	if actorhost.GetMailbox(p.execCtx) != nil {
+		p.endExecution()
+		out.Done(result)
+		return nil
+	}
 	replaceErr := p.resetAfterSync()
 	out.Done(result)
 	return replaceErr
 }
 
 func (p *Process) stepAsync(out *process.StepOutput) error {
+	if p.waitingMailbox {
+		mailbox := actorhost.GetMailbox(p.execCtx)
+		if mailbox == nil || !mailbox.Ready() {
+			out.Idle()
+			return nil
+		}
+		p.waitingMailbox = false
+		p.pendingYield = &wasmengine.YieldResult{}
+	}
 	if p.waitingYield && p.pendingYield == nil {
 		out.WaitForYields()
 		return nil
@@ -180,6 +196,15 @@ func (p *Process) stepAsync(out *process.StepOutput) error {
 
 	switch sr.Status {
 	case wasmengine.StepContinue:
+		if _, ok := sr.PendingOp.(*actorhost.ReceivePending); ok {
+			if actorhost.GetMailbox(p.execCtx) == nil {
+				p.endExecution()
+				return actorhost.ErrActorRequired
+			}
+			p.waitingMailbox = true
+			out.Idle()
+			return nil
+		}
 		cmd, bridgeErr := bridgePendingCommand(sr.PendingOp)
 		if bridgeErr != nil {
 			p.endExecution()
@@ -244,6 +269,9 @@ func (p *Process) startExecution() error {
 		instCfg := &wasmengine.InstanceConfig{
 			EnableAsyncify: true,
 			DecodeOptions:  p.decodeOptions(),
+		}
+		if actorhost.GetMailbox(execCtx) != nil {
+			instCfg.EntryExport = p.method
 		}
 		// Core wasi_snapshot_preview1 modules read env/args/preopens from the wazero
 		// module config, so thread the resolved WASI mapping through.
@@ -353,6 +381,7 @@ func (p *Process) softReset() {
 	p.pendingYield = nil
 	p.pendingTag = 0
 	p.waitingYield = false
+	p.waitingMailbox = false
 	p.started = false
 	if p.asyncValues != nil {
 		p.asyncValues.Reset()

@@ -10,7 +10,9 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/wippyai/runtime/api/attrs"
 	ctxapi "github.com/wippyai/runtime/api/context"
+	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/registry"
@@ -99,6 +101,19 @@ func (h *Host) Run(ctx context.Context, start *process.Start) (pid.PID, error) {
 	proc, meta, err := h.factory.Create(start.Source)
 	if err != nil {
 		return pid.PID{}, err
+	}
+
+	var reqClass string
+	if meta != nil {
+		reqClass = meta.WorkerClass
+	}
+	var hostClass string
+	if h.cfg != nil {
+		hostClass = h.cfg.HostConfig.WorkerClass
+	}
+	if !matchWorkerClass(hostClass, reqClass) {
+		proc.Close()
+		return pid.PID{}, NewWorkerClassMismatchError(reqClass, hostClass)
 	}
 
 	processID := h.preparePID(ctx, start)
@@ -283,6 +298,36 @@ func (h *Host) OnComplete(ctx context.Context, _ pid.PID, _ *runtime.Result) {
 	if fc := ctxapi.FrameFromContext(ctx); fc != nil {
 		ctxapi.ReleaseFrameContext(fc)
 	}
+}
+
+// Config returns the host configuration entry.
+func (h *Host) Config() *hostapi.EntryConfig { return h.cfg }
+
+// AffinityManaged reports whether the host scheduler workers are managed by CPU affinity.
+func (h *Host) AffinityManaged() bool { return h.affinityManaged }
+
+// Scheduler returns the host's underlying actor scheduler.
+func (h *Host) Scheduler() *actor.Scheduler { return h.scheduler }
+
+func matchWorkerClass(hostClass, procClass string) bool {
+	normHost := hostClass
+	if normHost == hostapi.WorkerClassDefault || normHost == hostapi.WorkerClassActor {
+		normHost = hostapi.WorkerClassActor
+	}
+	normProc := procClass
+	if normProc == hostapi.WorkerClassDefault || normProc == hostapi.WorkerClassActor {
+		normProc = hostapi.WorkerClassActor
+	}
+	return normHost == normProc
+}
+
+func NewWorkerClassMismatchError(required, actual string) apierror.Error {
+	return apierror.New(apierror.Invalid, fmt.Sprintf("worker class mismatch: process requires %q, host configured for %q", required, actual)).
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{
+			"required": required,
+			"actual":   actual,
+		}))
 }
 
 var _ process.Host = (*Host)(nil)

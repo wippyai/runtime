@@ -5,7 +5,20 @@ package process
 import (
 	"sync"
 	"sync/atomic"
+
+	"github.com/wippyai/runtime/api/relay"
 )
+
+// EventAdmission optionally validates and takes ownership of messages at the
+// scheduler ingress boundary. On error the original event remains caller-owned.
+// On success the returned event is queue-owned, including any transformed data.
+// Implementations must not call back into the queue. Calls are serialized.
+type EventAdmission interface {
+	AdmitEvent(Event) (Event, error)
+}
+
+// EventDiscarder releases an admitted event that will never reach Process.Step.
+type EventDiscarder interface{ DiscardEvent() }
 
 // todo: move from api
 const defaultQueueCap = 16
@@ -23,6 +36,7 @@ type EventQueue struct {
 	generation atomic.Uint64
 	mu         sync.Mutex
 	closed     atomic.Bool
+	admission  EventAdmission
 }
 
 // NewEventQueue creates a queue with default capacity.
@@ -44,19 +58,32 @@ func (q *EventQueue) Generation() uint64 {
 // Push adds an event if queue is open and generation matches.
 // Returns false if queue is closed or generation mismatch (stale sender).
 func (q *EventQueue) Push(e Event, gen uint64) bool {
+	return q.PushWithError(e, gen) == nil
+}
+
+// PushWithError preserves admission errors such as a full bounded mailbox.
+func (q *EventQueue) PushWithError(e Event, gen uint64) error {
 	// Fast path: check generation and closed without lock
 	if q.generation.Load() != gen {
-		return false
+		return ErrProcessClosed
 	}
 	if q.closed.Load() {
-		return false
+		return ErrProcessClosed
 	}
 
 	q.mu.Lock()
 	// Recheck under lock
 	if q.generation.Load() != gen || q.closed.Load() {
 		q.mu.Unlock()
-		return false
+		return ErrProcessClosed
+	}
+	if q.admission != nil && e.Type == EventMessage {
+		var err error
+		e, err = q.admission.AdmitEvent(e)
+		if err != nil {
+			q.mu.Unlock()
+			return err
+		}
 	}
 	q.events = append(q.events, e)
 	q.mu.Unlock()
@@ -66,7 +93,15 @@ func (q *EventQueue) Push(e Event, gen uint64) bool {
 	case q.signal <- struct{}{}:
 	default:
 	}
-	return true
+	return nil
+}
+
+// SetAdmission installs an execution's ingress policy before publishing its
+// queue to senders. Reset removes the old policy before a queue is reused.
+func (q *EventQueue) SetAdmission(admission EventAdmission) {
+	q.mu.Lock()
+	q.admission = admission
+	q.mu.Unlock()
 }
 
 // PushDirect adds an event without generation check (for scheduler's own use).
@@ -92,6 +127,7 @@ func (q *EventQueue) Drain() []Event {
 	}
 
 	// Swap buffers to avoid allocation
+	clear(q.drainBuf) // the prior drained batch has been consumed by Step
 	q.drainBuf, q.events = q.events, q.drainBuf[:0]
 	result := q.drainBuf
 	q.mu.Unlock()
@@ -116,7 +152,9 @@ func (q *EventQueue) Signal() <-chan struct{} {
 func (q *EventQueue) Close() {
 	q.mu.Lock()
 	q.closed.Store(true)
+	q.discardPending()
 	q.events = q.events[:0]
+	clear(q.drainBuf)
 	q.mu.Unlock()
 
 	// Wake any waiters
@@ -130,8 +168,11 @@ func (q *EventQueue) Close() {
 func (q *EventQueue) Reset() {
 	q.mu.Lock()
 	q.generation.Add(1) // Invalidate all existing senders
+	q.discardPending()
+	q.admission = nil
 	q.closed.Store(false)
 	q.events = q.events[:0]
+	clear(q.drainBuf)
 	q.drainBuf = q.drainBuf[:0]
 	q.mu.Unlock()
 
@@ -139,6 +180,22 @@ func (q *EventQueue) Reset() {
 	select {
 	case <-q.signal:
 	default:
+	}
+}
+
+// Caller holds mu. Drained events are consumer-owned and must not be released
+// again; only pending, undelivered events are discarded here.
+func (q *EventQueue) discardPending() {
+	for i := range q.events {
+		e := &q.events[i]
+		if d, ok := e.Data.(EventDiscarder); ok {
+			d.DiscardEvent()
+		} else if e.Type == EventMessage {
+			if pkg, ok := e.Data.(*relay.Package); ok {
+				relay.ReleasePackage(pkg)
+			}
+		}
+		*e = Event{}
 	}
 }
 

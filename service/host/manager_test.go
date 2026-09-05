@@ -808,6 +808,131 @@ func TestCompositeLifecycle_OnStart_Order(t *testing.T) {
 	assert.Equal(t, []string{"global", "host"}, order)
 }
 
+func makeHostEntryWithClass(id registry.ID, workers int, workerClass string) registry.Entry {
+	data := map[string]any{
+		"host": map[string]any{
+			"workers":      workers,
+			"worker_class": workerClass,
+		},
+	}
+	return registry.Entry{
+		ID:   id,
+		Kind: host.Host,
+		Meta: attrs.NewBag(),
+		Data: payload.New(data),
+	}
+}
+
+func TestManager_Update_WorkerClassChangeRejectedWithoutMutation(t *testing.T) {
+	mgr := newTestManager(t)
+	ctx := context.Background()
+	hostID := registry.NewID("test", "host")
+
+	// 1. Host started with default worker class
+	entry := makeHostEntryWithClass(hostID, 4, "")
+	require.NoError(t, mgr.Add(ctx, entry))
+
+	h, ok := mgr.GetHost(hostID.String())
+	require.True(t, ok)
+	hostImpl := h.(*Host)
+	assert.Equal(t, "", hostImpl.Config().HostConfig.WorkerClass)
+
+	// Attempt update to "wasm"
+	updateEntry := makeHostEntryWithClass(hostID, 4, "wasm")
+	err := mgr.Update(ctx, updateEntry)
+	require.Error(t, err)
+	var apiErr apierror.Error
+	require.True(t, errors.As(err, &apiErr))
+	assert.Equal(t, apierror.Conflict, apiErr.Kind())
+	assert.Contains(t, err.Error(), "unsupported runtime changes")
+	fieldsVal, ok := apiErr.Details().Get("fields")
+	require.True(t, ok)
+	assert.Contains(t, fieldsVal, "host.worker_class")
+
+	// Verify no mutation
+	assert.Equal(t, "", hostImpl.Config().HostConfig.WorkerClass)
+
+	// 2. Host started with "wasm" worker class
+	wasmHostID := registry.NewID("test", "wasm-host")
+	wasmEntry := makeHostEntryWithClass(wasmHostID, 4, "wasm")
+	require.NoError(t, mgr.Add(ctx, wasmEntry))
+
+	wh, ok := mgr.GetHost(wasmHostID.String())
+	require.True(t, ok)
+	wasmHostImpl := wh.(*Host)
+	assert.Equal(t, "wasm", wasmHostImpl.Config().HostConfig.WorkerClass)
+
+	// Attempt update to empty/actor
+	updateWASMEntry := makeHostEntryWithClass(wasmHostID, 4, "")
+	err = mgr.Update(ctx, updateWASMEntry)
+	require.Error(t, err)
+	require.True(t, errors.As(err, &apiErr))
+	assert.Equal(t, apierror.Conflict, apiErr.Kind())
+	assert.Contains(t, err.Error(), "unsupported runtime changes")
+	fieldsVal, ok = apiErr.Details().Get("fields")
+	require.True(t, ok)
+	assert.Contains(t, fieldsVal, "host.worker_class")
+
+	// Verify no mutation
+	assert.Equal(t, "wasm", wasmHostImpl.Config().HostConfig.WorkerClass)
+}
+
+func TestManager_AffinityPartitioning(t *testing.T) {
+	mgr := newTestManager(t)
+	mgr.SetActorAffinity(affinity.Set{0, 1})
+	mgr.SetWASMAffinity(affinity.Set{2, 3, 4})
+
+	ctx := context.Background()
+
+	// Ordinary host should use ActorCPUs
+	actorHostID := registry.NewID("test", "actor-host")
+	require.NoError(t, mgr.Add(ctx, makeHostEntryWithClass(actorHostID, 8, "")))
+
+	h, ok := mgr.GetHost(actorHostID.String())
+	require.True(t, ok)
+	actorHost := h.(*Host)
+	assert.True(t, actorHost.AffinityManaged())
+	assert.Equal(t, uint64(2), actorHost.Scheduler().Stats()["workers"])
+
+	// WASM host should use WASMCPUs
+	wasmHostID := registry.NewID("test", "wasm-host")
+	require.NoError(t, mgr.Add(ctx, makeHostEntryWithClass(wasmHostID, 8, "wasm")))
+
+	wh, ok := mgr.GetHost(wasmHostID.String())
+	require.True(t, ok)
+	wasmHost := wh.(*Host)
+	assert.True(t, wasmHost.AffinityManaged())
+	assert.Equal(t, uint64(3), wasmHost.Scheduler().Stats()["workers"])
+}
+
+func TestManager_WASMHost_DedicatedThreadsWithoutAffinity(t *testing.T) {
+	mgr := newTestManager(t)
+	// Global affinity disabled
+	ctx := context.Background()
+
+	wasmHostID := registry.NewID("test", "wasm-host-no-affinity")
+	require.NoError(t, mgr.Add(ctx, makeHostEntryWithClass(wasmHostID, 5, "wasm")))
+
+	wh, ok := mgr.GetHost(wasmHostID.String())
+	require.True(t, ok)
+	wasmHost := wh.(*Host)
+	assert.False(t, wasmHost.AffinityManaged())
+	assert.Equal(t, uint64(5), wasmHost.Scheduler().Stats()["workers"])
+}
+
+func TestManager_Add_MalformedWorkerClass_Rejected(t *testing.T) {
+	mgr := newTestManager(t)
+	ctx := context.Background()
+
+	invalidHostID := registry.NewID("test", "invalid-host")
+	err := mgr.Add(ctx, makeHostEntryWithClass(invalidHostID, 4, "bad_class"))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "worker class")
+
+	_, ok := mgr.GetHost(invalidHostID.String())
+	assert.False(t, ok)
+}
+
 // --- Interface Compliance ---
 
 var _ registry.EntryListener = (*Manager)(nil)
