@@ -9,12 +9,15 @@ import (
 	"testing"
 	"time"
 
+	ctxapi "github.com/wippyai/runtime/api/context"
+	securityapi "github.com/wippyai/runtime/api/security"
 	socketapi "github.com/wippyai/runtime/api/socket"
 	"github.com/wippyai/wasm-runtime/wasi/preview2"
 )
 
 func TestS04UDPBindRejectsWrongAsyncType(t *testing.T) {
 	resources := preview2.NewResourceTable()
+	t.Cleanup(func() { _ = resources.Close() })
 	host := NewUDPHost(resources)
 	socket := preview2.NewUDPSocketResource(AddressFamilyIPv4)
 	socket.SetState(preview2.UDPStateBindInProgress)
@@ -30,13 +33,14 @@ func TestS04UDPBindRejectsWrongAsyncType(t *testing.T) {
 	if carried.closes.Load() != 1 {
 		t.Fatalf("unadopted connection close count = %d, want 1", carried.closes.Load())
 	}
-	if socket.Conn() != nil || socket.State() != preview2.UDPStateBindInProgress {
-		t.Fatalf("socket changed after rejected result: conn = %v, state = %d", socket.Conn(), socket.State())
+	if socket.Conn() != nil || socket.State() != preview2.UDPStateUnbound {
+		t.Fatalf("socket did not reset after rejected acknowledgement: conn = %v, state = %d", socket.Conn(), socket.State())
 	}
 }
 
 func TestS11UDPStreamDefaultRemote(t *testing.T) {
 	resources := preview2.NewResourceTable()
+	t.Cleanup(func() { _ = resources.Close() })
 	host := NewUDPHost(resources)
 	conn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.ParseIP("127.0.0.1")})
 	if err != nil {
@@ -49,7 +53,7 @@ func TestS11UDPStreamDefaultRemote(t *testing.T) {
 	handle := resources.Add(socket)
 	remote := *SocketAddressFromHostPort("127.0.0.1", 45678)
 
-	incomingHandle, outgoingHandle, networkErr := host.MethodUDPSocketStream(context.Background(), handle, &remote)
+	incomingHandle, outgoingHandle, networkErr := host.MethodUDPSocketStream(udpTestContext(), handle, &remote)
 	if networkErr != nil {
 		t.Fatalf("create datagram streams: %v", networkErr)
 	}
@@ -78,7 +82,7 @@ func TestS11UDPStreamDefaultRemote(t *testing.T) {
 	if address, port, present := outgoing.RemoteAddr(); !present || address != remote.IPString() || port != remote.Port() {
 		t.Fatalf("outgoing default remote = (%q, %d, %v), want (%q, %d, true)", address, port, present, remote.IPString(), remote.Port())
 	}
-	storedRemote, networkErr := host.MethodUDPSocketRemoteAddress(context.Background(), handle)
+	storedRemote, networkErr := host.MethodUDPSocketRemoteAddress(udpTestContext(), handle)
 	if networkErr != nil || storedRemote == nil || !storedRemote.Equal(&remote) {
 		t.Fatalf("socket default remote = %#v, error = %v, want %#v", storedRemote, networkErr, remote)
 	}
@@ -86,6 +90,7 @@ func TestS11UDPStreamDefaultRemote(t *testing.T) {
 
 func TestS12UDPSendRequiresDestination(t *testing.T) {
 	resources := preview2.NewResourceTable()
+	t.Cleanup(func() { _ = resources.Close() })
 	host := NewUDPHost(resources)
 	sender, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.ParseIP("127.0.0.1")})
 	if err != nil {
@@ -105,12 +110,13 @@ func TestS12UDPSendRequiresDestination(t *testing.T) {
 	socket.SetState(preview2.UDPStateBound)
 	socket.SetConn(sender)
 	handle := resources.Add(socket)
-	_, outgoingHandle, networkErr := host.MethodUDPSocketStream(context.Background(), handle, nil)
+	_, outgoingHandle, networkErr := host.MethodUDPSocketStream(udpTestContext(), handle, nil)
 	if networkErr != nil {
 		t.Fatalf("create datagram streams: %v", networkErr)
 	}
 
-	sent, networkErr := host.MethodOutgoingDatagramStreamSend(context.Background(), outgoingHandle, []OutgoingDatagram{{Data: []byte("must-not-send")}})
+	requireUDPSendPermit(t, host, outgoingHandle)
+	sent, networkErr := host.MethodOutgoingDatagramStreamSend(udpTestContext(), outgoingHandle, []OutgoingDatagram{{Data: []byte("must-not-send")}})
 	requireNetworkError(t, networkErr, NetworkErrorInvalidArgument)
 	if sent != 0 {
 		t.Fatalf("sent count = %d, want zero", sent)
@@ -128,6 +134,7 @@ func TestS12UDPSendRequiresDestination(t *testing.T) {
 
 func TestS13UDPDatagramLoopback(t *testing.T) {
 	resources := preview2.NewResourceTable()
+	t.Cleanup(func() { _ = resources.Close() })
 	host := NewUDPHost(resources)
 	sender, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.ParseIP("127.0.0.1")})
 	if err != nil {
@@ -153,7 +160,7 @@ func TestS13UDPDatagramLoopback(t *testing.T) {
 	senderHandle := resources.Add(senderSocket)
 	receiverAddress := receiver.LocalAddr().(*net.UDPAddr)
 	remote := *SocketAddressFromIP(receiverAddress.IP, uint16(receiverAddress.Port))
-	_, outgoingHandle, networkErr := host.MethodUDPSocketStream(context.Background(), senderHandle, &remote)
+	_, outgoingHandle, networkErr := host.MethodUDPSocketStream(udpTestContext(), senderHandle, &remote)
 	if networkErr != nil {
 		t.Fatalf("create outgoing stream: %v", networkErr)
 	}
@@ -162,17 +169,19 @@ func TestS13UDPDatagramLoopback(t *testing.T) {
 	receiverSocket.SetState(preview2.UDPStateBound)
 	receiverSocket.SetConn(receiver)
 	receiverHandle := resources.Add(receiverSocket)
-	incomingHandle, _, networkErr := host.MethodUDPSocketStream(context.Background(), receiverHandle, nil)
+	incomingHandle, _, networkErr := host.MethodUDPSocketStream(udpTestContext(), receiverHandle, nil)
 	if networkErr != nil {
 		t.Fatalf("create incoming stream: %v", networkErr)
 	}
 
 	payload := []byte("wasi-datagram")
-	sent, networkErr := host.MethodOutgoingDatagramStreamSend(context.Background(), outgoingHandle, []OutgoingDatagram{{Data: payload}})
+	requireUDPSendPermit(t, host, outgoingHandle)
+	sent, networkErr := host.MethodOutgoingDatagramStreamSend(udpTestContext(), outgoingHandle, []OutgoingDatagram{{Data: payload}})
 	if networkErr != nil || sent != 1 {
 		t.Fatalf("send datagram: count = %d, error = %v", sent, networkErr)
 	}
-	received, networkErr := host.MethodIncomingDatagramStreamReceive(context.Background(), incomingHandle, 1)
+	awaitUDPIncoming(t, receiverSocket)
+	received, networkErr := host.MethodIncomingDatagramStreamReceive(udpTestContext(), incomingHandle, 1)
 	if networkErr != nil {
 		t.Fatalf("receive datagram: %v", networkErr)
 	}
@@ -207,6 +216,7 @@ func TestUDPDatagramLoopbackIPv6Zone(t *testing.T) {
 	}
 
 	resources := preview2.NewResourceTable()
+	t.Cleanup(func() { _ = resources.Close() })
 	host := NewUDPHost(resources)
 
 	senderSocket := preview2.NewUDPSocketResource(AddressFamilyIPv6)
@@ -216,7 +226,7 @@ func TestUDPDatagramLoopbackIPv6Zone(t *testing.T) {
 
 	receiverAddress := receiver.LocalAddr().(*net.UDPAddr)
 	remote := *SocketAddressFromNetAddr(receiverAddress)
-	_, outgoingHandle, networkErr := host.MethodUDPSocketStream(context.Background(), senderHandle, &remote)
+	_, outgoingHandle, networkErr := host.MethodUDPSocketStream(udpTestContext(), senderHandle, &remote)
 	if networkErr != nil {
 		t.Fatalf("create outgoing stream: %v", networkErr)
 	}
@@ -225,18 +235,20 @@ func TestUDPDatagramLoopbackIPv6Zone(t *testing.T) {
 	receiverSocket.SetState(preview2.UDPStateBound)
 	receiverSocket.SetConn(receiver)
 	receiverHandle := resources.Add(receiverSocket)
-	incomingHandle, _, networkErr := host.MethodUDPSocketStream(context.Background(), receiverHandle, nil)
+	incomingHandle, _, networkErr := host.MethodUDPSocketStream(udpTestContext(), receiverHandle, nil)
 	if networkErr != nil {
 		t.Fatalf("create incoming stream: %v", networkErr)
 	}
 
 	payload := []byte("wasi-ipv6-datagram")
-	sent, networkErr := host.MethodOutgoingDatagramStreamSend(context.Background(), outgoingHandle, []OutgoingDatagram{{Data: payload}})
+	requireUDPSendPermit(t, host, outgoingHandle)
+	sent, networkErr := host.MethodOutgoingDatagramStreamSend(udpTestContext(), outgoingHandle, []OutgoingDatagram{{Data: payload}})
 	if networkErr != nil || sent != 1 {
 		t.Fatalf("send datagram: count = %d, error = %v", sent, networkErr)
 	}
 
-	received, networkErr := host.MethodIncomingDatagramStreamReceive(context.Background(), incomingHandle, 1)
+	awaitUDPIncoming(t, receiverSocket)
+	received, networkErr := host.MethodIncomingDatagramStreamReceive(udpTestContext(), incomingHandle, 1)
 	if networkErr != nil {
 		t.Fatalf("receive datagram: %v", networkErr)
 	}
@@ -249,4 +261,27 @@ func TestUDPDatagramLoopbackIPv6Zone(t *testing.T) {
 	if !received[0].RemoteAddress.Equal(&wantSender) {
 		t.Fatalf("sender address = %#v, want %#v", received[0].RemoteAddress, wantSender)
 	}
+}
+
+func requireUDPSendPermit(t *testing.T, host *UDPHost, handle uint32) {
+	t.Helper()
+	count, err := host.MethodOutgoingDatagramStreamCheckSend(udpTestContext(), handle)
+	if err != nil || count == 0 {
+		t.Fatalf("check-send count=%d error=%v", count, err)
+	}
+}
+
+func awaitUDPIncoming(t *testing.T, socket *preview2.UDPSocketResource) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(udpTestContext(), 2*time.Second)
+	defer cancel()
+	pollable := socket.IncomingPollable()
+	pollable.Block(ctx)
+	if ctx.Err() != nil {
+		t.Fatal("UDP readiness did not arrive:", ctx.Err())
+	}
+}
+
+func udpTestContext() context.Context {
+	return securityapi.SetStrictMode(ctxapi.NewRootContext(), false)
 }

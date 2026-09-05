@@ -107,6 +107,17 @@ func (s *SecureService) ListenPacket(ctx context.Context, network, address strin
 	if !security.IsAllowed(ctx, "socket.listen", address, nil) {
 		return nil, netapi.ErrAccessDenied
 	}
+	if networkID := netapi.GetDefaultNetwork(ctx); networkID != "" {
+		reg := netapi.GetNetworkRegistry(ctx)
+		if reg == nil {
+			return nil, fmt.Errorf("network %q selected without a network registry", networkID)
+		}
+		svc, err := reg.GetNetwork(registry.ParseID(networkID))
+		if err != nil {
+			return nil, fmt.Errorf("network %q: %w", networkID, err)
+		}
+		return svc.ListenPacket(ctx, network, address)
+	}
 	lc := net.ListenConfig{}
 	return lc.ListenPacket(ctx, network, address)
 }

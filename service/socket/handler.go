@@ -30,6 +30,7 @@ func (d *Dispatcher) RegisterAll(register func(id dispatcher.CommandID, h dispat
 	register(socketapi.SocketListen, dispatcher.HandlerFunc(d.handleListen))
 	register(socketapi.SocketAccept, dispatcher.HandlerFunc(d.handleAccept))
 	register(socketapi.SocketBind, dispatcher.HandlerFunc(d.handleBind))
+	register(socketapi.SocketStartBind, dispatcher.HandlerFunc(d.handleStartBind))
 	register(socketapi.SocketResolve, dispatcher.HandlerFunc(d.handleResolve))
 	register(socketapi.SocketPollWait, dispatcher.HandlerFunc(d.handlePollWait))
 	register(socketapi.SocketStreamWait, dispatcher.HandlerFunc(d.handleStreamWait))
@@ -151,6 +152,30 @@ func (d *Dispatcher) handleStartListen(ctx context.Context, cmd dispatcher.Comma
 	}
 	return d.startJob(ctx, c.Operation, c.Timeout, tag, receiver, func(opCtx context.Context) (io.Closer, error) {
 		return d.netSvc.Listen(opCtx, c.Network, c.Address)
+	})
+}
+
+func (d *Dispatcher) handleStartBind(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
+	c, ok := cmd.(*socketapi.StartBindCmd)
+	if !ok || c == nil {
+		receiver.CompleteYield(tag, &socketapi.StartResult{Err: socketapi.ErrNilOperation}, nil)
+		return nil
+	}
+	return d.startJob(ctx, c.Operation, c.Timeout, tag, receiver, func(opCtx context.Context) (io.Closer, error) {
+		conn, err := d.netSvc.ListenPacket(opCtx, c.Network, c.Address)
+		if udp, ok := conn.(*net.UDPConn); ok && udp == nil {
+			if err != nil {
+				return nil, err
+			}
+			return nil, fmt.Errorf("%w: ListenPacket returned a nil UDP connection", netapi.ErrNotSupported)
+		}
+		if err != nil {
+			return conn, err
+		}
+		if _, ok := conn.(*net.UDPConn); !ok {
+			return conn, fmt.Errorf("%w: ListenPacket returned %T, expected *net.UDPConn", netapi.ErrNotSupported, conn)
+		}
+		return conn, nil
 	})
 }
 

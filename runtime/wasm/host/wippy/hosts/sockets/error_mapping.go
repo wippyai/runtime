@@ -12,6 +12,7 @@ import (
 	netapi "github.com/wippyai/runtime/api/net"
 	socketapi "github.com/wippyai/runtime/api/socket"
 	"github.com/wippyai/wasm-runtime/resource"
+	"github.com/wippyai/wasm-runtime/wasi/preview2"
 )
 
 // mapNetError converts Go net package errors to WASI network error codes.
@@ -19,10 +20,19 @@ func mapNetError(err error) *NetworkError {
 	if err == nil {
 		return nil
 	}
+	if errors.Is(err, netapi.ErrNotSupported) {
+		return &NetworkError{Code: NetworkErrorNotSupported}
+	}
 	if errors.Is(err, netapi.ErrAccessDenied) {
 		return &NetworkError{Code: NetworkErrorAccessDenied}
 	}
-	if errors.Is(err, resource.ErrClosed) || errors.Is(err, socketapi.ErrOperationClosed) {
+	if errors.Is(err, preview2.ErrDatagramTooLarge) {
+		return &NetworkError{Code: NetworkErrorDatagramTooLarge}
+	}
+	if errors.Is(err, preview2.ErrUDPSocketNotBound) {
+		return &NetworkError{Code: NetworkErrorInvalidState}
+	}
+	if errors.Is(err, preview2.ErrUDPSocketClosed) || errors.Is(err, net.ErrClosed) || errors.Is(err, resource.ErrClosed) || errors.Is(err, socketapi.ErrOperationClosed) {
 		return &NetworkError{Code: NetworkErrorInvalidState}
 	}
 	if errors.Is(err, socketapi.ErrAlreadyStarted) {
@@ -147,19 +157,4 @@ func mapErrno(errno syscall.Errno) *NetworkError {
 	default:
 		return &NetworkError{Code: NetworkErrorUnknown}
 	}
-}
-
-// isWouldBlock returns true if the error indicates the operation would block.
-func isWouldBlock(err error) bool {
-	var opErr *net.OpError
-	if errors.As(err, &opErr) {
-		if opErr.Timeout() {
-			return true
-		}
-		var errno syscall.Errno
-		if errors.As(opErr.Err, &errno) {
-			return errno == syscall.EWOULDBLOCK || errno == syscall.EAGAIN || errno == syscall.EINPROGRESS
-		}
-	}
-	return false
 }

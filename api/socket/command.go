@@ -12,7 +12,7 @@ import (
 func init() {
 	dispatcher.MustRegisterCommands("socket",
 		SocketConnect, SocketListen, SocketAccept, SocketBind, SocketResolve,
-		SocketStartConnect, SocketStartListen)
+		SocketStartConnect, SocketStartListen, SocketStartBind)
 }
 
 // Command IDs for socket operations.
@@ -25,6 +25,7 @@ const (
 	SocketResolve      dispatcher.CommandID = 34
 	SocketStartConnect dispatcher.CommandID = 37
 	SocketStartListen  dispatcher.CommandID = 38
+	SocketStartBind    dispatcher.CommandID = 39
 )
 
 // ConnectCmd requests a TCP connection to a remote address.
@@ -121,3 +122,14 @@ func (c *StartListenCmd) CmdID() dispatcher.CommandID { return SocketStartListen
 type StartResult struct {
 	Err error
 }
+
+// StartBindCmd begins a socket-owned UDP bind operation. The dispatcher
+// acknowledges startup; the resource owns completion, cancellation, and cleanup.
+type StartBindCmd struct {
+	Operation *PendingOperation
+	Network   string
+	Address   string
+	Timeout   time.Duration
+}
+
+func (*StartBindCmd) CmdID() dispatcher.CommandID { return SocketStartBind }

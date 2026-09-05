@@ -95,7 +95,7 @@ Preview2 TCP/UDP sockets and legacy core `socket` connections together against
 failed operations release them. Each actor owns an independent budget. Closing
 the resource scope prevents late resource publication.
 `socket_timeout_ms` applies to the core socket profile and Preview2 TCP
-connect/listen startup. A startup deadline stops the network job; it does not
+connect/listen startup and Preview2 UDP bind startup. A startup deadline stops the network job; it does not
 expire an established connection or listener while the guest delays finish or
 waits for clients. Explicit TCP blocking read, skip, write-and-flush,
 write-zeroes-and-flush, flush, and splice use one absolute deadline per host
@@ -104,10 +104,8 @@ joins both network pumps, even when the connection rejects deadline setters.
 The guest receives `last-operation-failed` with an owned timeout error; subsequent
 stream operations report closed. A successful completion stays successful if
 the guest resumes after the deadline. Generic poll and idle accept remain
-indefinite. Preview2 UDP receive/send still perform synchronous network I/O
-and its stream subscriptions report unconditional readiness; UDP is not yet
-suitable for nonblocking actor workloads. UDP and DNS also need uniform operation
-timeouts; mixed splices
+indefinite. Preview2 UDP receive/send operate on bounded host queues and never
+wait for network I/O. DNS still needs uniform operation timeouts; mixed splices
 cannot bound a synchronous non-TCP resource's own blocking implementation.
 Legacy dispatcher accept commands
 close their listener on process cancellation and release unadopted connections;
@@ -134,6 +132,34 @@ connections before releasing quota; dropping a subscription does not close it.
 Multi-source selection currently uses Go reflection in the dispatcher wait,
 outside the actor messaging path.
 
+UDP sockets use one reader and one writer pump with at most 16 queued datagrams
+per direction; the outgoing limit includes the in-flight write. Each payload is
+at most 65,535 bytes. The reader additionally owns a 65,535-byte scratch buffer
+and may hold one received packet while the queue is full. These buffers are
+bounded by socket count, not charged to `memory_bytes`. Closing a socket joins
+both pumps and any pending bind before releasing its quota.
+
+UDP `receive` returns an empty success when idle. `check-send` grants a one-use
+permit; sending without a sufficient permit traps. `send` reports packets
+accepted into the queue, and a later packet error preserves the accepted count.
+Connected streams restrict destinations and filter incoming peers. Both stream
+association and send check `socket.connect`; private, loopback, and link-local
+addresses also require `socket.private_ip`, matching TCP dialing policy. Stream
+subscriptions reflect queue readiness and wake on stream drop. Canonical send
+preflight caps batches at 16 records and 1,048,560 payload bytes before copying
+guest memory. Ordinary oversized packets return `datagram-too-large`; batches
+exceeding the host byte budget trap. This budget is an explicit host limit.
+
+The standard WASI UDP fixture verifies idle receive, real loopback echoes,
+zero-length datagrams, and cancellation cleanup through embedded Asyncify. A
+client ACK confirms delivery before the guest drops its socket; queued sends
+alone do not establish delivery.
+
+UDP bind honors the selected network provider and never silently falls back to
+the host network. The current actor transport requires a native `*net.UDPConn`;
+other packet providers return `not-supported` and their results are closed.
+General overlay datagram adapters remain future work.
+
 ## Scope and measurements
 
 The actor fixture covers repeated receive/send, retained state, PID identity,
@@ -157,9 +183,11 @@ instrumentation enabled.
 
 The counter benchmark includes the real Rust guest, ingress copying, Canonical
 ABI, and Asyncify resumption. With production cancellation enabled, the latest
-same-machine samples measure 6.48–6.68 microseconds, approximately 3.25 KB, and
-66 allocations per round trip on a shared Ryzen 7950X3D. The original production
+same-machine samples measure 7.17–7.27 microseconds, approximately 3.33 KB, and
+70 allocations per round trip on a shared Ryzen 7950X3D. The original production
 baseline was approximately 13–14 microseconds, 7.4 KB, and 164 allocations.
+Before correcting GC-unsafe list backing, this measured 6.48–6.68 microseconds
+and 66 allocations; the current change adds four allocations per round trip.
 Scheduler routing and network transport are excluded; this is not a native-indexer
 comparison. The older 11-microsecond / 123-allocation measurement disabled
 cancellation checks and must not be used as the production baseline.
@@ -217,13 +245,14 @@ reports aggregate throughput cost separately from measured client RTT.
 Allocation counts include clients and the driver. Source and reproduction
 instructions are in `testdata/concurrent_tcp/README.md`.
 
-The eight-client TCP benchmark measures 37.74–38.08 microseconds per echoed
-64-byte frame in aggregate throughput, with 293.5–296.4 microseconds mean client
-RTT, approximately 5.4 KB and 96–97 whole-harness allocations per frame.
-The Go reference measures 29.19–30.00 microseconds throughput cost and
-227.5–235.8 microseconds mean RTT. Sequential samples before typed nonblocking
-stream bindings and direct scalar memory writes measured 152–154 allocations
-and 38.02–38.78 microseconds per frame. This demonstrates lower allocation cost;
-transport throughput is similar. Both use three two-second samples on the same
-shared machine. Nonblocking read, skip, check-write, write, and flush use typed
-adapters with the existing bounds checks and stream-error semantics.
+The eight-client TCP benchmark measures 38.03–39.06 microseconds per echoed
+64-byte frame in aggregate throughput, with 295.2–306.4 microseconds mean client
+RTT, approximately 5.54–5.64 KB and 109–112 whole-harness allocations per frame.
+The Go reference measures 30.15–35.65 microseconds throughput cost and
+235.9–279.4 microseconds mean RTT. Before correcting GC-unsafe list backing,
+typed nonblocking stream bindings measured 96–97 allocations and
+37.74–38.08 microseconds per frame. The earlier untyped bindings measured
+152–154 allocations. The safety fix increases allocations; these shared-machine
+samples do not establish a throughput improvement. Both current benchmarks use
+three two-second samples. Nonblocking read, skip, check-write, write, and flush
+use typed adapters with the existing bounds checks and stream-error semantics.

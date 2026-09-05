@@ -6,9 +6,7 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"net/netip"
 
-	"github.com/wippyai/runtime/api/dispatcher"
 	socketapi "github.com/wippyai/runtime/api/socket"
 	"github.com/wippyai/runtime/runtime/security"
 	wippyhost "github.com/wippyai/runtime/runtime/wasm/host/wippy"
@@ -21,10 +19,11 @@ const UDPNamespace = "wasi:sockets/udp@0.2.8"
 // UDPHost implements wasi:sockets/udp@0.2.8.
 type UDPHost struct {
 	resources *preview2.ResourceTable
+	permits   map[uint32]udpSendPermit
 }
 
 func NewUDPHost(resources *preview2.ResourceTable) *UDPHost {
-	return &UDPHost{resources: resources}
+	return &UDPHost{resources: resources, permits: make(map[uint32]udpSendPermit)}
 }
 
 func (h *UDPHost) Namespace() string {
@@ -62,118 +61,110 @@ func (h *UDPHost) getSocket(handle uint32) (*preview2.UDPSocketResource, *Networ
 	return socket, nil
 }
 
-// [method]udp-socket.start-bind
-func (h *UDPHost) MethodUDPSocketStartBind(ctx context.Context, self uint32, _ uint32, localAddress IPSocketAddress) *NetworkError {
-	async := wasmengine.GetAsyncify(ctx)
-
-	if async != nil && async.IsRewinding(ctx) {
-		result, resumeErr := wasmengine.Resume(ctx)
-		if resumeErr != nil {
-			panic(fmt.Errorf("udp start-bind resume: %w", resumeErr))
-		}
-
-		store := wippyhost.GetAsyncValueStore(ctx)
-		if store == nil {
-			panic("udp start-bind: async value store not found")
-		}
-
-		data, ok := store.Take(result)
-		if !ok {
-			panic(fmt.Sprintf("udp start-bind: token %d not found", result))
-		}
-
-		bindResult, ok := data.(*socketapi.BindResult)
-		if !ok || bindResult == nil {
-			closeAsyncSocketResult(data)
-			return &NetworkError{Code: NetworkErrorInvalidArgument}
-		}
-		socket, err := h.getSocket(self)
-		if err != nil {
-			if bindResult.Conn != nil {
-				_ = bindResult.Conn.Close()
-			}
-			return err
-		}
-
-		if bindResult.Err != nil {
-			socket.SetPendingError(bindResult.Err)
-			return nil
-		}
-
-		socket.SetConn(bindResult.Conn)
-		if actualAddr, ok := bindResult.Conn.LocalAddr().(*net.UDPAddr); ok {
-			if local := SocketAddressFromNetAddr(actualAddr); local != nil {
-				socket.SetLocalAddr(local.IPString(), local.Port())
-			} else {
-				socket.SetLocalAddr(actualAddr.IP.String(), uint16(actualAddr.Port))
-			}
-		}
-		return nil
+// Start acknowledges dispatch; the socket owns the unfinished bind result.
+func (h *UDPHost) MethodUDPSocketStartBind(ctx context.Context, self uint32, network uint32, localAddress IPSocketAddress) *NetworkError {
+	if async := wasmengine.GetAsyncify(ctx); async != nil && async.IsRewinding(ctx) {
+		return h.resumeUDPBindStart(ctx, self)
 	}
-
 	socket, err := h.getSocket(self)
 	if err != nil {
 		return err
 	}
-
 	if socket.State() != preview2.UDPStateUnbound {
 		return &NetworkError{Code: NetworkErrorInvalidState}
 	}
-
 	if err := ValidateAddressFamily(&localAddress, socket.Family()); err != nil {
 		return err
 	}
 	if err := ValidateFlowInfo(&localAddress); err != nil {
 		return err
 	}
-
-	addr := localAddress.String()
-	if !security.IsAllowed(ctx, "socket.listen", addr, nil) {
+	resource, ok := h.resources.Get(network)
+	if !ok || resource.Type() != preview2.ResourceNetwork {
+		return &NetworkError{Code: NetworkErrorInvalidArgument}
+	}
+	if !security.IsAllowed(ctx, "socket.listen", localAddress.String(), nil) {
 		return &NetworkError{Code: NetworkErrorAccessDenied}
 	}
-
+	if wasmengine.GetAsyncify(ctx) == nil {
+		panic("UDP start-bind requires asyncify context")
+	}
+	operation := socketapi.NewPendingOperation()
 	socket.SetLocalAddr(localAddress.IPString(), localAddress.Port())
 	socket.SetState(preview2.UDPStateBindInProgress)
-
-	op := &bindPendingOp{cmd: &socketapi.BindCmd{Network: "udp", Address: addr}}
-
-	if async == nil {
-		panic("udp start-bind requires asyncify context")
+	if err := socket.SetPendingOperation(operation); err != nil {
+		_ = operation.Close()
+		return mapNetError(err)
 	}
-
-	if suspendErr := wasmengine.Suspend(ctx, op); suspendErr != nil {
-		panic(fmt.Errorf("udp start-bind suspend: %w", suspendErr))
+	cmd := &socketapi.StartBindCmd{Operation: operation, Network: "udp", Address: localAddress.String(), Timeout: wippyhost.GetCallLimits(ctx).EffectiveSocketTimeout()}
+	if err := wasmengine.Suspend(ctx, &socketStartOp{cmd: cmd}); err != nil {
+		_ = operation.Close()
+		panic(fmt.Errorf("UDP bind suspend: %w", err))
 	}
-
 	return nil
 }
 
-// [method]udp-socket.finish-bind
+func (h *UDPHost) resumeUDPBindStart(ctx context.Context, self uint32) *NetworkError {
+	token, err := wasmengine.Resume(ctx)
+	if err != nil {
+		panic(fmt.Errorf("UDP bind resume: %w", err))
+	}
+	store := wippyhost.GetAsyncValueStore(ctx)
+	if store == nil {
+		panic("UDP bind acknowledgement store missing")
+	}
+	value, ok := store.Take(token)
+	if !ok {
+		panic("UDP bind acknowledgement missing")
+	}
+	socket, socketErr := h.getSocket(self)
+	if socketErr != nil {
+		closeAsyncSocketResult(value)
+		return socketErr
+	}
+	ack, valid := value.(*socketapi.StartResult)
+	if valid && ack != nil && ack.Err == nil {
+		return nil
+	}
+	closeAsyncSocketResult(value)
+	if pending := socket.PendingOperation(); pending != nil {
+		_ = pending.Close()
+		_, _ = socket.ResolvePendingBind()
+	}
+	socket.ClearPendingError()
+	socket.SetState(preview2.UDPStateUnbound)
+	if valid && ack != nil {
+		return mapNetError(ack.Err)
+	}
+	return &NetworkError{Code: NetworkErrorInvalidArgument}
+}
+
 func (h *UDPHost) MethodUDPSocketFinishBind(_ context.Context, self uint32) *NetworkError {
 	socket, err := h.getSocket(self)
 	if err != nil {
 		return err
 	}
-
 	if socket.State() != preview2.UDPStateBindInProgress {
 		if socket.State() == preview2.UDPStateUnbound {
 			return &NetworkError{Code: NetworkErrorNotInProgress}
 		}
 		return &NetworkError{Code: NetworkErrorInvalidState}
 	}
-
-	if pendingErr := socket.PendingError(); pendingErr != nil {
+	ready, bindErr := socket.ResolvePendingBind()
+	if bindErr != nil {
 		socket.ClearPendingError()
 		socket.SetState(preview2.UDPStateUnbound)
-		return mapNetError(pendingErr)
+		return mapNetError(bindErr)
 	}
-
+	if !ready {
+		return &NetworkError{Code: NetworkErrorWouldBlock}
+	}
 	socket.SetState(preview2.UDPStateBound)
 	return nil
 }
 
 // [method]udp-socket.stream
-func (h *UDPHost) MethodUDPSocketStream(_ context.Context, self uint32, remoteAddress *IPSocketAddress) (uint32, uint32, *NetworkError) {
+func (h *UDPHost) MethodUDPSocketStream(ctx context.Context, self uint32, remoteAddress *IPSocketAddress) (uint32, uint32, *NetworkError) {
 	socket, err := h.getSocket(self)
 	if err != nil {
 		return 0, 0, err
@@ -186,25 +177,42 @@ func (h *UDPHost) MethodUDPSocketStream(_ context.Context, self uint32, remoteAd
 	var remoteAddr string
 	var remotePort uint16
 	if remoteAddress != nil {
-		if err := ValidateAddressFamily(remoteAddress, socket.Family()); err != nil {
+		if err := validateUDPRemote(remoteAddress, socket.Family()); err != nil {
 			return 0, 0, err
 		}
-		if err := ValidateFlowInfo(remoteAddress); err != nil {
+		if err := authorizeUDPDestination(ctx, remoteAddress); err != nil {
 			return 0, 0, err
 		}
-		remoteAddr = remoteAddress.IPString()
-		remotePort = remoteAddress.Port()
-		socket.SetRemoteAddr(remoteAddr, remotePort)
+		remoteAddr, remotePort = remoteAddress.IPString(), remoteAddress.Port()
 	}
-
+	// WASI permits trapping if a previous stream pair has not been dropped.
+	oldIn, oldOut := socket.StreamHandles()
+	if prior, ok := h.resources.Get(oldIn); ok {
+		if stream, typed := prior.(*preview2.IncomingDatagramStreamResource); typed && stream.Socket() == socket {
+			panic("UDP stream requires dropping previous streams")
+		}
+	}
+	if prior, ok := h.resources.Get(oldOut); ok {
+		if stream, typed := prior.(*preview2.OutgoingDatagramStreamResource); typed && stream.Socket() == socket {
+			panic("UDP stream requires dropping previous streams")
+		}
+	}
 	incomingStream := preview2.NewIncomingDatagramStreamResource(socket, remoteAddr, remotePort)
 	outgoingStream := preview2.NewOutgoingDatagramStreamResource(socket, remoteAddr, remotePort)
-
-	incomingHandle := h.resources.Add(incomingStream)
-	outgoingHandle := h.resources.Add(outgoingStream)
-
+	incomingHandle, addErr := h.resources.TryAdd(incomingStream)
+	if addErr != nil {
+		incomingStream.Drop()
+		outgoingStream.Drop()
+		return 0, 0, resourceLimitError(addErr)
+	}
+	outgoingHandle, addErr := h.resources.TryAdd(outgoingStream)
+	if addErr != nil {
+		h.resources.Remove(incomingHandle)
+		outgoingStream.Drop()
+		return 0, 0, resourceLimitError(addErr)
+	}
+	socket.SetRemoteAddr(remoteAddr, remotePort)
 	socket.SetStreamHandles(incomingHandle, outgoingHandle)
-
 	return incomingHandle, outgoingHandle, nil
 }
 
@@ -224,7 +232,7 @@ func (h *UDPHost) MethodUDPSocketLocalAddress(_ context.Context, self uint32) (*
 		return nil, err
 	}
 
-	if socket.State() == preview2.UDPStateUnbound {
+	if socket.State() != preview2.UDPStateBound {
 		return nil, &NetworkError{Code: NetworkErrorInvalidState}
 	}
 
@@ -255,17 +263,11 @@ func (h *UDPHost) MethodUDPSocketRemoteAddress(_ context.Context, self uint32) (
 
 // [method]udp-socket.subscribe
 func (h *UDPHost) MethodUDPSocketSubscribe(_ context.Context, self uint32) uint32 {
-	socket, _ := h.getSocket(self)
-
-	pollable := &preview2.PollableResource{}
-	if socket != nil {
-		ready := socket.State() == preview2.UDPStateBound ||
-			socket.State() == preview2.UDPStateClosed ||
-			socket.PendingError() != nil ||
-			socket.Conn() != nil
-		pollable.SetReady(ready)
+	socket, err := h.getSocket(self)
+	if err != nil {
+		panic("invalid UDP socket subscription")
 	}
-	return h.resources.Add(pollable)
+	return h.addUDPPollable(socket.Subscribe())
 }
 
 // [method]udp-socket.receive-buffer-size
@@ -349,165 +351,154 @@ func (h *UDPHost) getOutgoingStream(handle uint32) (*preview2.OutgoingDatagramSt
 	return stream, nil
 }
 
-const maxDatagramsPerReceive = 1024
+// Guest host calls are serialized by the actor. A permit is tied to the
+// resource identity as well as the handle, so recycling a handle cannot reuse it.
+type udpSendPermit struct {
+	stream *preview2.OutgoingDatagramStreamResource
+	count  uint64
+}
 
-// [method]incoming-datagram-stream.receive
 func (h *UDPHost) MethodIncomingDatagramStreamReceive(_ context.Context, self uint32, maxResults uint64) ([]IncomingDatagram, *NetworkError) {
 	stream, err := h.getIncomingStream(self)
 	if err != nil {
 		return nil, err
 	}
-
 	socket := stream.Socket()
-	if socket == nil || socket.Conn() == nil {
+	if socket == nil || socket.State() != preview2.UDPStateBound || socket.Conn() == nil {
 		return nil, &NetworkError{Code: NetworkErrorInvalidState}
 	}
-
-	conn, ok := socket.Conn().(*net.UDPConn)
-	if !ok {
-		return nil, &NetworkError{Code: NetworkErrorInvalidState}
+	packets, receiveErr := socket.ReceiveDatagrams(min(maxResults, maxUDPBatch))
+	if receiveErr != nil {
+		return nil, mapNetError(receiveErr)
 	}
-
-	if maxResults > maxDatagramsPerReceive {
-		maxResults = maxDatagramsPerReceive
+	results := make([]IncomingDatagram, 0, len(packets))
+	host, port, connected := stream.RemoteAddr()
+	var expected *IPSocketAddress
+	if connected {
+		expected = SocketAddressFromHostPort(host, port)
 	}
-
-	results := make([]IncomingDatagram, 0, maxResults)
-	buf := make([]byte, preview2.DefaultBufferSize)
-
-	for i := uint64(0); i < maxResults; i++ {
-		n, addr, readErr := conn.ReadFromUDP(buf)
-		if readErr != nil {
-			if isWouldBlock(readErr) && len(results) > 0 {
-				break
-			}
-			if len(results) == 0 {
-				return nil, mapNetError(readErr)
-			}
-			break
-		}
-
-		remoteAddr := SocketAddressFromNetAddr(addr)
-		if remoteAddr == nil {
+	for _, packet := range packets {
+		remote := SocketAddressFromNetAddr(packet.Address)
+		if remote == nil {
 			return nil, &NetworkError{Code: NetworkErrorUnknown}
 		}
-
-		if defaultHost, defaultPort, hasRemote := stream.RemoteAddr(); hasRemote {
-			expected := SocketAddressFromHostPort(defaultHost, defaultPort)
-			if expected == nil || !remoteAddr.Equal(expected) {
-				continue
-			}
+		if connected && (expected == nil || !remote.Equal(expected)) {
+			continue
 		}
-
-		data := make([]byte, n)
-		copy(data, buf[:n])
-
-		results = append(results, IncomingDatagram{
-			Data:          data,
-			RemoteAddress: *remoteAddr,
-		})
+		results = append(results, IncomingDatagram{Data: packet.Data, RemoteAddress: *remote})
 	}
-
 	return results, nil
 }
 
-// [method]incoming-datagram-stream.subscribe
-func (h *UDPHost) MethodIncomingDatagramStreamSubscribe(_ context.Context, _ uint32) uint32 {
-	pollable := &preview2.PollableResource{}
-	pollable.SetReady(true)
-	return h.resources.Add(pollable)
+func (h *UDPHost) MethodIncomingDatagramStreamSubscribe(_ context.Context, self uint32) uint32 {
+	stream, err := h.getIncomingStream(self)
+	if err != nil {
+		panic("invalid incoming datagram stream")
+	}
+	return h.addUDPPollable(stream.Pollable())
 }
 
-// [method]outgoing-datagram-stream.check-send
 func (h *UDPHost) MethodOutgoingDatagramStreamCheckSend(_ context.Context, self uint32) (uint64, *NetworkError) {
+	delete(h.permits, self)
 	stream, err := h.getOutgoingStream(self)
 	if err != nil {
 		return 0, err
 	}
-
 	socket := stream.Socket()
-	if socket == nil || socket.Conn() == nil {
+	if socket == nil || socket.State() != preview2.UDPStateBound || socket.Conn() == nil {
 		return 0, &NetworkError{Code: NetworkErrorInvalidState}
 	}
-
-	return preview2.DefaultBufferSize, nil
+	count, checkErr := socket.CheckSend()
+	if checkErr != nil {
+		return 0, mapNetError(checkErr)
+	}
+	count = min(count, maxUDPBatch)
+	h.permits[self] = udpSendPermit{stream: stream, count: count}
+	return count, nil
 }
 
-// [method]outgoing-datagram-stream.send
-func (h *UDPHost) MethodOutgoingDatagramStreamSend(_ context.Context, self uint32, datagrams []OutgoingDatagram) (uint64, *NetworkError) {
+func (h *UDPHost) MethodOutgoingDatagramStreamSend(ctx context.Context, self uint32, datagrams []OutgoingDatagram) (uint64, *NetworkError) {
 	stream, err := h.getOutgoingStream(self)
 	if err != nil {
 		return 0, err
 	}
-
+	permit, permitted := h.permits[self]
+	delete(h.permits, self)
+	if !permitted || permit.stream != stream || uint64(len(datagrams)) > permit.count {
+		panic("UDP send requires a sufficient check-send permit")
+	}
 	socket := stream.Socket()
-	if socket == nil || socket.Conn() == nil {
+	if socket == nil || socket.State() != preview2.UDPStateBound || socket.Conn() == nil {
 		return 0, &NetworkError{Code: NetworkErrorInvalidState}
 	}
-
-	conn, ok := socket.Conn().(*net.UDPConn)
-	if !ok {
-		return 0, &NetworkError{Code: NetworkErrorInvalidState}
+	defaultHost, defaultPort, connected := stream.RemoteAddr()
+	var destination *IPSocketAddress
+	if connected {
+		destination = SocketAddressFromHostPort(defaultHost, defaultPort)
 	}
-
-	defaultAddr, defaultPort, hasDefault := stream.RemoteAddr()
-
 	var sent uint64
-	for _, dg := range datagrams {
-		var addr *net.UDPAddr
-
-		if dg.RemoteAddress != nil {
-			if err := ValidateAddressFamily(dg.RemoteAddress, socket.Family()); err != nil {
-				return sent, err
-			}
-			if err := ValidateFlowInfo(dg.RemoteAddress); err != nil {
-				return sent, err
-			}
-			ip := dg.RemoteAddress.IP()
-			if ip == nil {
-				return sent, &NetworkError{Code: NetworkErrorInvalidArgument}
-			}
-			var zone string
-			if dg.RemoteAddress.IPv6 != nil && dg.RemoteAddress.IPv6.ScopeID != 0 {
-				zone = ZoneFromScopeID(dg.RemoteAddress.IPv6.ScopeID)
-			}
-			addr = &net.UDPAddr{
-				IP:   ip,
-				Port: int(dg.RemoteAddress.Port()),
-				Zone: zone,
-			}
-		} else if hasDefault {
-			parsed, err := netip.ParseAddr(defaultAddr)
-			if err != nil {
-				return sent, &NetworkError{Code: NetworkErrorInvalidArgument}
-			}
-			addr = &net.UDPAddr{
-				IP:   parsed.AsSlice(),
-				Port: int(defaultPort),
-				Zone: parsed.Zone(),
-			}
-		} else {
-			return sent, &NetworkError{Code: NetworkErrorInvalidArgument}
+	for _, datagram := range datagrams {
+		address := datagram.RemoteAddress
+		if address == nil {
+			address = destination
 		}
-
-		_, writeErr := conn.WriteToUDP(dg.Data, addr)
-		if writeErr != nil {
-			if sent == 0 {
-				return 0, mapNetError(writeErr)
+		validation := validateUDPRemote(address, socket.Family())
+		if validation == nil && connected && (destination == nil || !address.Equal(destination)) {
+			validation = &NetworkError{Code: NetworkErrorInvalidArgument}
+		}
+		if validation == nil && len(datagram.Data) > maxUDPDatagramBytes {
+			validation = &NetworkError{Code: NetworkErrorDatagramTooLarge}
+		}
+		if validation == nil {
+			validation = authorizeUDPDestination(ctx, address)
+		}
+		if validation != nil {
+			if sent > 0 {
+				return sent, nil
 			}
+			return 0, validation
+		}
+		addr := &net.UDPAddr{IP: address.IP(), Port: int(address.Port())}
+		if address.IPv6 != nil {
+			addr.Zone = ZoneFromScopeID(address.IPv6.ScopeID)
+		}
+		count, sendErr := socket.SendDatagrams([]preview2.UDPDatagram{{Data: datagram.Data, Address: addr}})
+		sent += count
+		if sendErr != nil {
+			if sent > 0 {
+				return sent, nil
+			}
+			return 0, mapNetError(sendErr)
+		}
+		if count == 0 {
 			break
 		}
-		sent++
 	}
-
 	return sent, nil
 }
 
-// [method]outgoing-datagram-stream.subscribe
-func (h *UDPHost) MethodOutgoingDatagramStreamSubscribe(_ context.Context, _ uint32) uint32 {
-	pollable := &preview2.PollableResource{}
-	pollable.SetReady(true)
-	return h.resources.Add(pollable)
+func validateUDPRemote(address *IPSocketAddress, family uint8) *NetworkError {
+	if address == nil {
+		return &NetworkError{Code: NetworkErrorInvalidArgument}
+	}
+	if err := ValidateAddressFamily(address, family); err != nil {
+		return err
+	}
+	if err := ValidateFlowInfo(address); err != nil {
+		return err
+	}
+	if address.Port() == 0 || address.IP() == nil || address.IP().IsUnspecified() {
+		return &NetworkError{Code: NetworkErrorInvalidArgument}
+	}
+	return nil
+}
+
+func (h *UDPHost) MethodOutgoingDatagramStreamSubscribe(_ context.Context, self uint32) uint32 {
+	stream, err := h.getOutgoingStream(self)
+	if err != nil {
+		panic("invalid outgoing datagram stream")
+	}
+	return h.addUDPPollable(stream.Pollable())
 }
 
 // ResourceDropUDPSocket drops a UDP socket resource.
@@ -522,6 +513,7 @@ func (h *UDPHost) ResourceDropIncomingDatagramStream(_ context.Context, self uin
 
 // ResourceDropOutgoingDatagramStream drops an outgoing datagram stream resource.
 func (h *UDPHost) ResourceDropOutgoingDatagramStream(_ context.Context, self uint32) {
+	delete(h.permits, self)
 	h.resources.Remove(self)
 }
 
@@ -551,30 +543,23 @@ func (h *UDPHost) Register() map[string]any {
 		"[method]incoming-datagram-stream.subscribe":  h.MethodIncomingDatagramStreamSubscribe,
 		"[resource-drop]incoming-datagram-stream":     h.ResourceDropIncomingDatagramStream,
 		"[method]outgoing-datagram-stream.check-send": h.MethodOutgoingDatagramStreamCheckSend,
-		"[method]outgoing-datagram-stream.send":       h.MethodOutgoingDatagramStreamSend,
+		"[method]outgoing-datagram-stream.send":       wasmengine.CheckedHostFunction{Handler: h.MethodOutgoingDatagramStreamSend, Validate: validateUDPDatagrams},
 		"[method]outgoing-datagram-stream.subscribe":  h.MethodOutgoingDatagramStreamSubscribe,
 		"[resource-drop]outgoing-datagram-stream":     h.ResourceDropOutgoingDatagramStream,
 	}
-}
-
-type bindPendingOp struct {
-	cmd *socketapi.BindCmd
-}
-
-func (o *bindPendingOp) CmdID() wasmengine.CommandID {
-	return wasmengine.CommandID(socketapi.SocketBind)
-}
-
-func (o *bindPendingOp) ToCommand() dispatcher.Command {
-	return o.cmd
-}
-
-func (o *bindPendingOp) Execute(_ context.Context) (uint64, error) {
-	return 0, fmt.Errorf("UDP bind requires dispatcher")
 }
 
 // UDPStreams is the single tuple payload of result<tuple<incoming, outgoing>, error-code>.
 type UDPStreams struct {
 	Incoming uint32
 	Outgoing uint32
+}
+
+func (h *UDPHost) addUDPPollable(p preview2.Pollable) uint32 {
+	handle, err := h.resources.TryAdd(p)
+	if err != nil {
+		p.Drop()
+		panic(fmt.Errorf("UDP subscription: %w", err))
+	}
+	return handle
 }

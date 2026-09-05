@@ -474,6 +474,7 @@ func TestFlowInfoRejectionAcrossEntrypoints(t *testing.T) {
 	dgrams := []OutgoingDatagram{
 		{RemoteAddress: &nonzeroFlowAddr, Data: []byte("test")},
 	}
+	requireUDPSendPermit(t, udpHost, outHandle)
 	sent, errSend := udpHost.MethodOutgoingDatagramStreamSend(context.Background(), outHandle, dgrams)
 	require.Equal(t, uint64(0), sent)
 	require.NotNil(t, errSend)
@@ -528,6 +529,7 @@ func TestAddressFamilyValidationAcrossEntrypoints(t *testing.T) {
 	require.Equal(t, NetworkErrorInvalidArgument, streamErr.Code)
 
 	_, outHandle, _ := udpHost.MethodUDPSocketStream(context.Background(), udp6Handle, nil)
+	requireUDPSendPermit(t, udpHost, outHandle)
 	sent, sendErr := udpHost.MethodOutgoingDatagramStreamSend(context.Background(), outHandle, []OutgoingDatagram{
 		{RemoteAddress: &ipv4Addr, Data: []byte("fail")},
 	})
@@ -548,6 +550,7 @@ func TestAddressFamilyValidationAcrossEntrypoints(t *testing.T) {
 	require.Equal(t, NetworkErrorInvalidArgument, streamErr4.Code)
 
 	_, outHandle4, _ := udpHost.MethodUDPSocketStream(context.Background(), udp4Handle, nil)
+	requireUDPSendPermit(t, udpHost, outHandle4)
 	sent4, sendErr4 := udpHost.MethodOutgoingDatagramStreamSend(context.Background(), outHandle4, []OutgoingDatagram{
 		{RemoteAddress: &ipv6Addr, Data: []byte("fail")},
 	})
