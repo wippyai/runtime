@@ -320,16 +320,16 @@ func (h *StreamsHost) ResourceDropOutputStream(_ context.Context, self uint32) {
 // Register returns explicit WIT function mappings.
 func (h *StreamsHost) Register() map[string]any {
 	return map[string]any{
-		"[method]input-stream.read":          h.MethodInputStreamRead,
+		"[method]input-stream.read":          wasmengine.BindResult2(h.typedInputStreamRead),
 		"[method]input-stream.blocking-read": h.MethodInputStreamBlockingRead,
-		"[method]input-stream.skip":          h.MethodInputStreamSkip,
+		"[method]input-stream.skip":          wasmengine.BindResult2(h.typedInputStreamSkip),
 		"[method]input-stream.blocking-skip": h.MethodInputStreamBlockingSkip,
 		"[method]input-stream.subscribe":     h.MethodInputStreamSubscribe,
 
-		"[method]output-stream.check-write":                     h.MethodOutputStreamCheckWrite,
-		"[method]output-stream.write":                           wasmengine.CheckedHostFunction{Handler: h.MethodOutputStreamWrite, Validate: validateOutputWrite},
+		"[method]output-stream.check-write":                     wasmengine.BindResult1(h.typedOutputStreamCheckWrite),
+		"[method]output-stream.write":                           wasmengine.CheckedHostFunction{Handler: wasmengine.BindResult2(h.typedOutputStreamWrite), Validate: validateOutputWrite},
 		"[method]output-stream.blocking-write-and-flush":        wasmengine.CheckedHostFunction{Handler: h.MethodOutputStreamBlockingWriteAndFlush, Validate: validateBlockingOutputWrite},
-		"[method]output-stream.flush":                           h.MethodOutputStreamFlush,
+		"[method]output-stream.flush":                           wasmengine.BindResult1(h.typedOutputStreamFlush),
 		"[method]output-stream.blocking-flush":                  h.MethodOutputStreamBlockingFlush,
 		"[method]output-stream.subscribe":                       h.MethodOutputStreamSubscribe,
 		"[method]output-stream.write-zeroes":                    h.MethodOutputStreamWriteZeroes,

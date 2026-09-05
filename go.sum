@@ -596,6 +596,8 @@ github.com/wippyai/wasm-runtime v0.0.0-20260905090448-24ccb376266d h1:Vvc1ayfM6d
 github.com/wippyai/wasm-runtime v0.0.0-20260905090448-24ccb376266d/go.mod h1:81IhzsGQBNRyLqynOAYK9WLsMx9CoqtwsEf0B6PwL5k=
 github.com/wippyai/wasm-runtime v0.0.0-20260905094937-7107682c3d57 h1:LWOrY/RuMuKmImLmieFH5ub4X1/8ZNk5qAV9VADah30=
 github.com/wippyai/wasm-runtime v0.0.0-20260905094937-7107682c3d57/go.mod h1:81IhzsGQBNRyLqynOAYK9WLsMx9CoqtwsEf0B6PwL5k=
+github.com/wippyai/wasm-runtime v0.0.0-20260905131153-432180006b2e h1:UtTJcUJzOlGLwsO0aFsh3bWE3SuhVKHpDdqjNY6uwes=
+github.com/wippyai/wasm-runtime v0.0.0-20260905131153-432180006b2e/go.mod h1:81IhzsGQBNRyLqynOAYK9WLsMx9CoqtwsEf0B6PwL5k=
 github.com/x448/float16 v0.8.4 h1:qLwI1I70+NjRFUR3zs1JPUCgaCXSh3SW62uAKT1mSBM=
 github.com/x448/float16 v0.8.4/go.mod h1:14CWIYCyZA/cWjXOioeEpHeN/83MdbZDRQHoFcYsOfg=
 github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e h1:JVG44RsyaB9T2KIHavMF/ppJZNG9ZpyihvCd0w101no=

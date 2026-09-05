@@ -153,22 +153,20 @@ controls retain the function path. Regular guest execution keeps cancellation
 instrumentation enabled.
 
 The counter benchmark includes the real Rust guest, ingress copying, Canonical
-ABI, and Asyncify resumption. With the production cancellation setting enabled,
-the same-machine baseline was approximately 13–14 microseconds, 7.4 KB, and 164
-allocations per round trip. The optimized path measures 6.32–6.37 microseconds,
-approximately 3.25 KB, and 69 allocations. This pass measured 6.69–6.75
-microseconds, 3.86 KB, and 82 allocations before consolidating immutable call
-contexts, skipping fully overridden canonical wrappers, forwarding on the
-existing call stack, and storing actor send commands in their continuations.
-A sequential before/after comparison
-of the generated-control optimization measured 8.48–8.59 microseconds, 5.34 KB,
-and 114 allocations before the change. Scheduler routing and network transport
-are excluded; this is not a native-indexer comparison. The older 11-microsecond /
-123-allocation measurement used a fixture with cancellation checks disabled and
-must not be used as the production baseline. Regular guest calls still incur
-Wazero's per-call cancellation watchers. Linker module wrappers remain immutable;
-only canonical imports with both explicit memory and realloc bindings skip the
-shared fallback wrapper. Partially bound imports preserve that fallback.
+ABI, and Asyncify resumption. With production cancellation enabled, the latest
+same-machine samples measure 6.48–6.68 microseconds, approximately 3.25 KB, and
+66 allocations per round trip on a shared Ryzen 7950X3D. The original production
+baseline was approximately 13–14 microseconds, 7.4 KB, and 164 allocations.
+Scheduler routing and network transport are excluded; this is not a native-indexer
+comparison. The older 11-microsecond / 123-allocation measurement disabled
+cancellation checks and must not be used as the production baseline.
+Regular guest calls still incur Wazero's per-call cancellation watchers.
+Linker module wrappers remain immutable; only canonical imports with both
+explicit memory and realloc bindings skip the shared fallback wrapper.
+Partially bound imports preserve that fallback. Shared virtual function imports
+route to the calling instance's own canonical handler and allocator; this does
+not establish isolation for every synthetic memory/table bridge in a shared
+backend runtime. Actors already use separate backend runtimes.
 
 The checked-in standard WASI 0.2.8 TCP component exercises canonical IPv4
 addresses, socket creation, connect, buffered ping/pong, connection-refused error
@@ -188,8 +186,8 @@ and verify that late connections close and all socket reservations return.
 
 This enables a stateful indexing actor; it does not implement an indexer or replace
 Wippy's Lua compiler/type system. Production server support still needs
-uniform network deadlines, aggregate host memory accounting, and a real
-server/concurrency benchmark. Nonzero IPv6 flow-info is
+uniform network deadlines, aggregate host memory accounting, and application
+workload measurements including outer scheduler routing. Nonzero IPv6 flow-info is
 explicitly unsupported; numeric scope IDs are preserved. Do not treat this PR
 as production MQTT support.
 
@@ -204,3 +202,25 @@ This fixture is not a broker: it lacks publish/subscribe, concurrent clients,
 authentication, and keep-alive enforcement, and supplies no broker performance
 claim. Its source, locked dependencies, and exact supported protocol are in
 `testdata/mqtt/README.md`.
+
+A concurrent standard-WASI TCP echo fixture serves eight loopback clients using
+one bounded frame buffer per connection and a stack list of at most nine
+pollables. An integration test stalls one client halfway through a frame while
+the other seven finish; a partial-EOF test covers error cleanup. Both check socket
+reservations return to zero. `BenchmarkConcurrentTCPEcho` uses the same clients
+against this guest and a Go reference. It includes real socket dispatch and
+transport, excludes compile/setup and outer process-scheduler routing, and
+reports aggregate throughput cost separately from measured client RTT.
+Allocation counts include clients and the driver. Source and reproduction
+instructions are in `testdata/concurrent_tcp/README.md`.
+
+The eight-client TCP benchmark measures 37.74–38.08 microseconds per echoed
+64-byte frame in aggregate throughput, with 293.5–296.4 microseconds mean client
+RTT, approximately 5.4 KB and 96–97 whole-harness allocations per frame.
+The Go reference measures 29.19–30.00 microseconds throughput cost and
+227.5–235.8 microseconds mean RTT. Sequential samples before typed nonblocking
+stream bindings and direct scalar memory writes measured 152–154 allocations
+and 38.02–38.78 microseconds per frame. This demonstrates lower allocation cost;
+transport throughput is similar. Both use three two-second samples on the same
+shared machine. Nonblocking read, skip, check-write, write, and flush use typed
+adapters with the existing bounds checks and stream-error semantics.
