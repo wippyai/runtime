@@ -140,13 +140,6 @@ func runTest(cmd *cobra.Command, args []string) error {
 func runWithUseCase(cmd *cobra.Command, args []string, useCase string) error {
 	memLimit := initMemoryLimit()
 
-	var commandName string
-	var commandArgs []string
-	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
-		commandName = args[0]
-		commandArgs = args[1:]
-	}
-
 	execSpec := ""
 	execHost := ""
 	registryURL := ""
@@ -154,6 +147,14 @@ func runWithUseCase(cmd *cobra.Command, args []string, useCase string) error {
 		execSpec, _ = cmd.Flags().GetString("exec")
 		execHost, _ = cmd.Flags().GetString("host")
 		registryURL, _ = cmd.Flags().GetString("registry")
+	}
+
+	// With an explicit entry, every positional token belongs to that process.
+	var commandName string
+	var commandArgs []string
+	if execSpec == "" && len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+		commandName = args[0]
+		commandArgs = args[1:]
 	}
 
 	if commandName != "" {
