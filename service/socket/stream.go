@@ -11,11 +11,17 @@ import (
 
 func (d *Dispatcher) handleStreamWait(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	c, ok := cmd.(*socketapi.StreamWaitCmd)
-	if !ok || c.Run == nil {
+	if !ok || c == nil || c.Run == nil {
 		return errors.New("stream wait requires a continuation")
 	}
+	waitCtx := ctx
+	cancel := context.CancelFunc(func() {})
+	if !c.Deadline.IsZero() {
+		waitCtx, cancel = context.WithDeadline(ctx, c.Deadline)
+	}
 	go func() {
-		result := c.Run(ctx)
+		defer cancel()
+		result := c.Run(waitCtx)
 		if ctx.Err() == nil {
 			receiver.CompleteYield(tag, result, nil)
 		}

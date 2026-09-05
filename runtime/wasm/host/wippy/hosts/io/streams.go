@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 
-	pollhost "github.com/wippyai/runtime/runtime/wasm/host/wippy/hosts/poll"
 	wasmengine "github.com/wippyai/wasm-runtime/engine"
 
 	"github.com/wippyai/wasm-runtime/wasi/preview2"
@@ -64,8 +63,9 @@ func (h *StreamsHost) MethodInputStreamRead(_ context.Context, self uint32, leng
 
 // MethodInputStreamBlockingRead reads from an input stream (blocking variant).
 func (h *StreamsHost) MethodInputStreamBlockingRead(ctx context.Context, self uint32, length uint64) ([]byte, *preview2.StreamError) {
-	if !h.awaitInput(ctx, self, length) {
-		return nil, nil
+	data, _, err, handled := h.blockingInput(ctx, self, length, false)
+	if handled {
+		return data, err
 	}
 	return h.MethodInputStreamRead(ctx, self, length)
 }
@@ -100,8 +100,9 @@ func (h *StreamsHost) MethodInputStreamSkip(_ context.Context, self uint32, leng
 
 // MethodInputStreamBlockingSkip skips bytes on an input stream (blocking variant).
 func (h *StreamsHost) MethodInputStreamBlockingSkip(ctx context.Context, self uint32, length uint64) (uint64, *preview2.StreamError) {
-	if !h.awaitInput(ctx, self, length) {
-		return 0, nil
+	_, n, err, handled := h.blockingInput(ctx, self, length, true)
+	if handled {
+		return n, err
 	}
 	return h.MethodInputStreamSkip(ctx, self, length)
 }
@@ -121,21 +122,6 @@ func (h *StreamsHost) MethodInputStreamSubscribe(_ context.Context, self uint32)
 	pollable := &preview2.PollableResource{}
 	pollable.SetReady(true)
 	return h.resources.Add(pollable)
-}
-
-func (h *StreamsHost) awaitInput(ctx context.Context, self uint32, length uint64) bool {
-	// Preserve the normal read error path for invalid lengths/handles.
-	if length == 0 || length > preview2.MaxAllocationSize {
-		return true
-	}
-	r, ok := h.resources.Get(self)
-	if !ok {
-		return true
-	}
-	if subscriber, ok := r.(interface{ Subscribe() preview2.Pollable }); ok {
-		return pollhost.AwaitReady(ctx, subscriber.Subscribe())
-	}
-	return true
 }
 
 // AsyncFunctions declares blocking input operations for embedded Asyncify.
@@ -304,69 +290,19 @@ func (h *StreamsHost) MethodOutputStreamSplice(_ context.Context, self uint32, s
 	if !ok {
 		return 0, &preview2.StreamError{Closed: true}
 	}
-
 	dstR, ok := h.resources.Get(self)
 	if !ok {
 		return 0, &preview2.StreamError{Closed: true}
 	}
-
-	srcStream, ok := srcR.(interface{ Read(uint64) ([]byte, error) })
-	if !ok {
-		return 0, &preview2.StreamError{Closed: true}
-	}
-
-	dstStream, ok := dstR.(interface{ Write([]byte) error })
-	if !ok {
-		return 0, &preview2.StreamError{Closed: true}
-	}
-
-	if length > preview2.MaxAllocationSize {
-		return 0, h.operationFailed()
-	}
-	if checker, ok := dstR.(interface{ CheckWrite() (uint64, error) }); ok {
-		permit, err := checker.CheckWrite()
-		if err != nil {
-			return 0, h.streamError(streamFailure(err))
-		}
-		length = min(length, permit)
-	}
-	if length == 0 {
-		return 0, nil
-	}
-	data, err := srcStream.Read(length)
-	if err != nil {
-		var se *preview2.StreamError
-		if errors.As(err, &se) {
-			return 0, h.streamError(se)
-		}
-		return 0, h.operationFailed()
-	}
-
-	err = dstStream.Write(data)
-	if err != nil {
-		var se *preview2.StreamError
-		if errors.As(err, &se) {
-			return 0, h.streamError(se)
-		}
-		return 0, h.operationFailed()
-	}
-
-	return uint64(len(data)), nil
+	n, se, _ := spliceOnce(srcR, dstR, length)
+	return n, h.streamError(se)
 }
 
 // MethodOutputStreamBlockingSplice splices data (blocking variant).
 func (h *StreamsHost) MethodOutputStreamBlockingSplice(ctx context.Context, self uint32, src uint32, length uint64) (uint64, *preview2.StreamError) {
-	if !h.awaitInput(ctx, src, length) {
-		return 0, nil
-	}
-	if length > 0 && length <= preview2.MaxAllocationSize {
-		if r, ok := h.resources.Get(self); ok {
-			if subscriber, ok := r.(interface{ Subscribe() preview2.Pollable }); ok {
-				if !pollhost.AwaitReady(ctx, subscriber.Subscribe()) {
-					return 0, nil
-				}
-			}
-		}
+	n, err, handled := h.blockingSplice(ctx, self, src, length)
+	if handled {
+		return n, err
 	}
 	return h.MethodOutputStreamSplice(ctx, self, src, length)
 }

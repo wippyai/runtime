@@ -97,8 +97,15 @@ the resource scope prevents late resource publication.
 `socket_timeout_ms` applies to the core socket profile and Preview2 TCP
 connect/listen startup. A startup deadline stops the network job; it does not
 expire an established connection or listener while the guest delays finish or
-waits for clients. Generic poll and idle accept remain indefinite. Preview2
-blocking stream operations, UDP, and DNS still need uniform operation timeouts.
+waits for clients. Explicit TCP blocking read, skip, write-and-flush,
+write-zeroes-and-flush, flush, and splice use one absolute deadline per host
+operation, including dispatcher waits. Expiry aborts the owning TCP socket and
+joins both network pumps, even when the connection rejects deadline setters.
+The guest receives `last-operation-failed` with an owned timeout error; subsequent
+stream operations report closed. A successful completion stays successful if
+the guest resumes after the deadline. Generic poll and idle accept remain
+indefinite. UDP and DNS still need uniform operation timeouts; mixed splices
+cannot bound a synchronous non-TCP resource's own blocking implementation.
 Legacy dispatcher accept commands
 close their listener on process cancellation and release unadopted connections;
 WASM listener accepts now use the socket-owned queue described below.
