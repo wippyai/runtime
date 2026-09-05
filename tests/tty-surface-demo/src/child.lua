@@ -9,7 +9,7 @@ local function main(command)
     assert(tty.start())
 
     local executor = assert(exec.get("tty_proof:exec"))
-    local process = assert(executor:exec(command or "/bin/sh", {
+    local process = assert(executor:exec(command or "/bin/bash --noprofile --norc", {
         pty = {term = "xterm-256color"},
     }))
     local session = assert(process:attach_terminal())

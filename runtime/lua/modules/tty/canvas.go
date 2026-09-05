@@ -23,6 +23,7 @@ const (
 // multiply as independently rendered surfaces overlap.
 type canvasWrapper struct {
 	screen *canvasBuffer
+	region canvasRegion
 	width  int
 	height int
 }
@@ -100,7 +101,8 @@ func canvasClear(l *lua.LState) int {
 		// Decode one complete fill row, then copy its styled cells. StyledString
 		// uses the bounded shared ANSI parser pool and understands SGR and OSC 8.
 		row := &canvasBuffer{Buffer: uv.NewBuffer(c.width, 1)}
-		uv.NewStyledString(ansi.Cut(fill, 0, c.width)).Draw(row, row.Bounds())
+		region := &canvasRegion{canvasBuffer: row, area: row.Bounds()}
+		uv.NewStyledString(ansi.Cut(fill, 0, c.width)).Draw(region, region.Bounds())
 		for y := 0; y < c.height; y++ {
 			for x := 0; x < c.width; x++ {
 				c.screen.SetCell(x, y, row.CellAt(x, 0))
@@ -195,10 +197,13 @@ func (c *canvasWrapper) put(x, y int, text string, limit int) {
 		return
 	}
 	// ansi.Cut may retain discarded trailing control sequences by design. The
-	// styled-cell decoder consumes those controls, while Draw exposes only the
-	// bounded cell area to the destination.
+	// drawing target independently rejects control-only cells and writes outside
+	// the placement rectangle, including decoder tail writes.
 	clipped := ansi.Cut(text, sourceX, sourceX+covered)
-	uv.NewStyledString(clipped).Draw(c.screen, uv.Rect(x, y, covered, 1))
+	// Canvas is owned by one Lua state. Reuse its drawing target rather than
+	// allocating a region for every row in an animated frame.
+	c.region.canvasBuffer, c.region.area = c.screen, uv.Rect(x, y, covered, 1)
+	uv.NewStyledString(clipped).Draw(&c.region, c.region.Bounds())
 }
 
 func canvasRows(l *lua.LState) int {
