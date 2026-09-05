@@ -95,8 +95,9 @@ Preview2 TCP/UDP sockets and legacy core `socket` connections together against
 failed operations release them. Each actor owns an independent budget. Closing
 the resource scope prevents late resource publication.
 `socket_timeout_ms` currently applies to the core socket profile. Preview2 socket
-operations still need uniform operation timeouts. Pending dispatcher accepts
-close their listener on process cancellation and release unadopted connections.
+operations still need uniform operation timeouts. Legacy dispatcher accept commands
+close their listener on process cancellation and release unadopted connections;
+WASM listener accepts now use the socket-owned queue described below.
 
 `wasi:io/poll.poll` suspends until a timer or notifying resource is ready, with
 one dispatcher wait per suspended poll and no worker blocking. Inputs are capped
@@ -111,7 +112,11 @@ write completion retained across rewind so flushing cannot repeat a write.
 Subscriptions borrow their stream; dropping a subscription leaves the stream
 alive. Socket close stops and joins both pumps before returning socket quota.
 These host buffers are bounded by socket count but are not charged to
-`memory_bytes`. Listening sockets still need an accept queue and live readiness.
+`memory_bytes`. Listening sockets use a fixed accept ring (up to 128 queued connections) and live readiness.
+The accept pump reserves socket quota before entering the OS accept call;
+queued and in-flight accepts count alongside guest-owned sockets. Empty accept
+returns `would-block`. Closing the listener joins the pump and closes queued
+connections before releasing quota; dropping a subscription does not close it.
 Multi-source selection currently uses Go reflection in the dispatcher wait,
 outside the actor messaging path.
 
@@ -148,9 +153,20 @@ socket quota is returned. The fixture can be rebuilt byte-for-byte from its
 locked Rust sources. This covers neither OS routing nor a real listener workload.
 
 This enables a stateful indexing actor; it does not implement an indexer or replace
-Wippy's Lua compiler/type system. MQTT remains a follow-up server workload:
-listening-socket readiness, split-phase connect/listen, bounded queued accepts,
+Wippy's Lua compiler/type system. Production server support still needs
+split-phase connect/listen,
 uniform network deadlines, aggregate host memory accounting, and a real
 server/concurrency benchmark remain unverified. Nonzero IPv6 flow-info is
 explicitly unsupported; numeric scope IDs are preserved. Do not treat this PR
 as production MQTT support.
+
+A second standard-WASI Rust fixture runs a limited MQTT 3.1.1 server through
+real loopback TCP and socket dispatcher commands. It handles CONNECT/CONNACK,
+PINGREQ/PINGRESP, and DISCONNECT for two sequential clients, retaining the
+served-client count in guest state. Tests force an empty-listener poll before
+allowing clients to connect, reject an oversized frame, and close the resource
+scope while accept is parked. Every case returns all socket reservations.
+This fixture is not a broker: it lacks publish/subscribe, concurrent clients,
+authentication, and keep-alive enforcement, and supplies no broker performance
+claim. Its source, locked dependencies, and exact supported protocol are in
+`testdata/mqtt/README.md`.
