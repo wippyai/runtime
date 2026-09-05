@@ -142,17 +142,19 @@ func (*Host) Send(ctx context.Context, target, topic string, inputs []Payload) (
 		}
 		pls[i] = payload.NewPayload(append([]byte(nil), input.Data...), format)
 	}
-	op := &sendPending{command: &process.SendCmd{From: self, To: to, Topic: strings.Clone(topic), Payloads: pls}}
+	op := &sendPending{command: process.SendCmd{From: self, To: to, Topic: strings.Clone(topic), Payloads: pls}}
 	if err := wasmengine.Suspend(ctx, op); err != nil {
 		return false, err
 	}
 	return false, nil
 }
 
-type sendPending struct{ command *process.SendCmd }
+// The pending operation and its dispatcher command share one owned lifetime.
+// Returning the embedded command keeps that allocation alive through dispatch.
+type sendPending struct{ command process.SendCmd }
 
 func (*sendPending) CmdID() wasmengine.CommandID             { return wasmengine.CommandID(process.Send) }
-func (s *sendPending) ToCommand() dispatcher.Command         { return s.command }
+func (s *sendPending) ToCommand() dispatcher.Command         { return &s.command }
 func (*sendPending) Execute(context.Context) (uint64, error) { return 0, errSchedulerRequired }
 
 // resumeSend consumes only the dispatcher completion; the send owns its inputs.
