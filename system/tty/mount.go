@@ -141,8 +141,17 @@ func (m *mountRecord) close() {
 		m.mu.Lock()
 		m.timer.Stop()
 		close(m.done)
+		attached := m.attached
 		m.mu.Unlock()
 		_ = m.view.Close()
+		m.service.mu.Lock()
+		mesh := m.service.mesh
+		m.service.mu.Unlock()
+		// Revocation is independent of observation: input-only mounts have no
+		// snapshot pump, but must learn of owner exit without waiting for a ping.
+		if attached && mesh != nil && m.recipient.Node != mesh.local {
+			_ = mesh.send(m.recipient.Node, wireFrame{Op: opClosed, Ref: m.ref})
+		}
 	})
 }
 func (s *Service) revokeIssuer(v *viewport) {

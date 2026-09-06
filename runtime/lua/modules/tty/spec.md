@@ -132,8 +132,10 @@ transactionally: a rejected process start restores an unresolved grant, while
 a process that has resolved the port consumes it permanently. Unsupported
 hosts reject terminal attachments rather than dropping them.
 
-`handle()` returns a viewer capability. `tty.attach(handle)` adds another local
-viewer. Handles do not grant presentation ownership and do not cross nodes.
+`handle()` returns a local viewport identifier. `tty.attach(handle)` adds a local
+viewer; a non-owner requires `tty.observe`, with input and resize granted only
+when permitted by its scope. Handles do not grant authority by themselves and
+do not cross nodes; use recipient-bound mounts for delegation.
 
 | Method | Purpose |
 |---|---|

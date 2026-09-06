@@ -40,3 +40,18 @@ The security boundary trusts each participating runtime to identify its own
 processes. An unrelated peer cannot use a claimed PID to redeem a mount for
 another node. A runtime compromised on the authorized recipient's own node is
 inside that runtime trust boundary.
+
+Closing a remote view wakes both its in-flight RPC and operations queued behind
+it immediately; caller cancellation also interrupts queue admission. Neither
+path waits for the peer's five-second response timeout. A close that races with
+attachment cannot repopulate the closed view's cached screen. Owner exit and
+revocation notify input-only attachments too; they do not depend on an
+observation pump or the next heartbeat. Supervised restarts require new mounts
+for the new process PID; old references never regain authority.
+
+Local and remote views expose the same cached snapshot and update interface.
+A shell can clip their rows into canvas regions and present the composed frame
+through one physical Surface, with local controls painted outside those regions.
+Translate input coordinates into the focused region. Forward remote input from
+a separate Lua coroutine so network waits cannot block local exit controls;
+use a bounded input queue and report overflow instead of discarding clicks.

@@ -284,7 +284,7 @@ func (m *meshService) handle(peer string, f wireFrame) {
 }
 func (m *meshService) watch(record *mountRecord) {
 	defer m.wg.Done()
-	defer func() { _ = m.send(record.recipient.Node, wireFrame{Op: opClosed, Ref: record.ref}) }()
+	defer m.service.removeMount(record.ref)
 	for {
 		select {
 		case <-m.done:
@@ -311,7 +311,7 @@ func (m *meshService) watch(record *mountRecord) {
 		}
 	}
 }
-func (m *meshService) rpc(ctx context.Context, peer string, f wireFrame) (wireFrame, error) {
+func (m *meshService) rpc(ctx context.Context, peer string, f wireFrame, closed <-chan struct{}) (wireFrame, error) {
 	if err := ctx.Err(); err != nil {
 		return wireFrame{}, err
 	}
@@ -335,6 +335,8 @@ func (m *meshService) rpc(ctx context.Context, peer string, f wireFrame) (wireFr
 		return wireFrame{}, err
 	}
 	select {
+	case <-closed:
+		return wireFrame{}, ttyapi.ErrMountExpired
 	case reply := <-p.reply:
 		return reply, fromWireError(reply.Error)
 	case <-ctx.Done():
@@ -358,7 +360,7 @@ func (m *meshService) attach(ctx context.Context, ref string, owner pid.PID) (tt
 	if owner.Node != m.local || owner.Host == "" || owner.UniqID == "" {
 		return nil, ttyapi.ErrPermissionDenied
 	}
-	v := &remoteViewport{mesh: m, peer: peer, ref: ref, owner: owner, dirty: make(chan struct{}, 1), updates: make(chan ttyapi.Update, 1), done: make(chan struct{})}
+	v := &remoteViewport{callGate: make(chan struct{}, 1), mesh: m, peer: peer, ref: ref, owner: owner, dirty: make(chan struct{}, 1), updates: make(chan ttyapi.Update, 1), done: make(chan struct{})}
 	m.mu.Lock()
 	if m.closed || len(m.views) >= maxMounts {
 		m.mu.Unlock()
@@ -380,6 +382,13 @@ func (m *meshService) attach(ctx context.Context, ref string, owner pid.PID) (tt
 		return nil, err
 	}
 	v.mu.Lock()
+	select {
+	case <-v.done:
+		v.mu.Unlock()
+		m.wg.Done()
+		return nil, ttyapi.ErrMountExpired
+	default:
+	}
 	v.rights = reply.Rights
 	v.snapshot = reply.Snapshot
 	v.mu.Unlock()
@@ -419,6 +428,7 @@ func (m *meshService) close() {
 
 type remoteViewport struct {
 	updates  chan ttyapi.Update
+	callGate chan struct{}
 	done     chan struct{}
 	dirty    chan struct{}
 	mesh     *meshService
@@ -428,7 +438,6 @@ type remoteViewport struct {
 	snapshot ttyapi.Snapshot
 	seq      uint64
 	once     sync.Once
-	callMu   sync.Mutex
 	mu       sync.Mutex
 	rights   ttyapi.MountRights
 }
@@ -463,8 +472,16 @@ func (v *remoteViewport) Snapshot() ttyapi.Snapshot {
 	return v.snapshot
 }
 func (v *remoteViewport) call(ctx context.Context, f wireFrame) (wireFrame, error) {
-	v.callMu.Lock()
-	defer v.callMu.Unlock()
+	select {
+	case v.callGate <- struct{}{}:
+		defer func() { <-v.callGate }()
+	case <-ctx.Done():
+		return wireFrame{}, ctx.Err()
+	case <-v.done:
+		return wireFrame{}, ttyapi.ErrMountExpired
+	case <-v.mesh.done:
+		return wireFrame{}, ttyapi.ErrServiceUnavailable
+	}
 	if err := ctx.Err(); err != nil {
 		return wireFrame{}, err
 	}
@@ -477,7 +494,7 @@ func (v *remoteViewport) call(ctx context.Context, f wireFrame) (wireFrame, erro
 	f.Seq = v.seq
 	f.Ref = v.ref
 	f.Caller = v.owner
-	return v.mesh.rpc(ctx, v.peer, f)
+	return v.mesh.rpc(ctx, v.peer, f, v.done)
 }
 func (v *remoteViewport) Send(e ttyapi.Event) error { return v.send(context.Background(), e) }
 func (v *remoteViewport) SendContext(ctx context.Context, e ttyapi.Event) error {

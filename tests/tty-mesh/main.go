@@ -52,7 +52,7 @@ import (
 )
 
 type proofKeys struct {
-	A, B   []byte
+	Nodes  map[string][]byte
 	Secret []byte
 }
 type references struct{ Observe, Input string }
@@ -121,9 +121,11 @@ type runner struct {
 	completed chan completion
 	local     string
 	peer      string
+	recipient string
 	out       string
 	frames    []ctxapi.FrameContext
 	latencies []time.Duration
+	commands  int
 	mu        sync.Mutex
 }
 
@@ -157,7 +159,8 @@ func (r *runner) spawn(id, script, grant string, refs references) error {
 		engine.LoadModuleDef(l, engine.ChannelModule)
 		engine.LoadModuleDef(l, luatty.Module)
 		engine.LoadModuleDef(l, luaexec.Module)
-		l.SetGlobal("recipient", lua.LString((&pid.PID{Node: r.peer, Host: "agents", UniqID: "agent"}).String()))
+		l.SetGlobal("commands", lua.LInteger(r.commands))
+		l.SetGlobal("recipient", lua.LString((&pid.PID{Node: r.recipient, Host: "agents", UniqID: "agent"}).String()))
 		l.SetGlobal("observe_ref", lua.LString(refs.Observe))
 		l.SetGlobal("input_ref", lua.LString(refs.Input))
 		l.SetGlobal("spawn_child", lua.LGoFunc(func(l *lua.LState) int {
@@ -246,7 +249,7 @@ local function wait_for(marker)
 end
 wait_for("MESH_READY>")
 assert(control:resize(100,30))
-for i=1,20 do
+for i=1,commands do
  measure("start")
  -- Split the marker in the echoed command so only executed Bash output can
  -- satisfy the screen assertion. Clear the screen to test actual VT state.
@@ -262,23 +265,26 @@ assert(observer:close())
 return "mesh Lua PTY proof passed"
 `
 
-func initKeys(dir, ips string) error {
+func initKeys(dir, ips string, count int) error {
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return err
 	}
-	_, a, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		return err
+	if count < 2 || count > 8 {
+		return errors.New("node count must be 2..8")
 	}
-	_, b, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		return err
+	nodes := make(map[string][]byte, count)
+	for i := range count {
+		_, key, err := ed25519.GenerateKey(rand.Reader)
+		if err != nil {
+			return err
+		}
+		nodes[string(rune('a'+i))] = key
 	}
 	secret := make([]byte, 32)
-	if _, err = rand.Read(secret); err != nil {
+	if _, err := rand.Read(secret); err != nil {
 		return err
 	}
-	data, err := json.Marshal(proofKeys{A: a, B: b, Secret: secret})
+	data, err := json.Marshal(proofKeys{Nodes: nodes, Secret: secret})
 	if err != nil {
 		return err
 	}
@@ -320,7 +326,13 @@ func run() error {
 	initDir := flag.String("init", "", "generate disposable proof identities and TLS certificate")
 	ips := flag.String("ips", "127.0.0.1", "comma-separated certificate IPs")
 	keysDir := flag.String("keys", "", "proof identity directory")
-	local := flag.String("node", "a", "a or b")
+	local := flag.String("node", "a", "local node ID")
+	count := flag.Int("nodes", 2, "number of generated identities, 2..8")
+	peerID := flag.String("peer-node", "", "node whose terminal this agent drives")
+	recipient := flag.String("recipient-node", "", "node allowed to attach to this producer")
+	meshFile := flag.String("mesh-peers", "", "JSON map of node IDs to address/port")
+	commands := flag.Int("commands", 20, "commands executed by each agent")
+	releaseFile := flag.String("release-file", "", "keep producer alive until orchestrator creates this file")
 	bind := flag.String("bind", "127.0.0.1", "listen address")
 	port := flag.Int("port", 19470, "internode listen port")
 	peerAddr := flag.String("peer-address", "127.0.0.1", "peer address")
@@ -330,10 +342,10 @@ func run() error {
 	hold := flag.Duration("hold", 3*time.Second, "keep local producer alive after agent completes")
 	flag.Parse()
 	if *initDir != "" {
-		return initKeys(*initDir, *ips)
+		return initKeys(*initDir, *ips, *count)
 	}
-	if *keysDir == "" || *out == "" || *peerFile == "" || (*local != "a" && *local != "b") {
-		return errors.New("keys, refs-out, peer-refs and node a/b are required")
+	if *keysDir == "" || *out == "" || *peerFile == "" || *commands < 1 {
+		return errors.New("keys, refs-out, peer-refs and positive commands are required")
 	}
 	data, err := os.ReadFile(filepath.Join(*keysDir, "keys.json"))
 	if err != nil {
@@ -343,14 +355,33 @@ func run() error {
 	if err = json.Unmarshal(data, &keys); err != nil {
 		return err
 	}
-	peer := "b"
-	own, other := keys.A, keys.B
-	if *local == "b" {
-		peer = "a"
-		own, other = keys.B, keys.A
+	peer := *peerID
+	if peer == "" {
+		peer = "b"
+		if *local == "b" {
+			peer = "a"
+		}
 	}
-	if len(own) != ed25519.PrivateKeySize || len(other) != ed25519.PrivateKeySize {
-		return errors.New("invalid proof key")
+	if *recipient == "" {
+		*recipient = peer
+	}
+	own := keys.Nodes[*local]
+	if len(own) != ed25519.PrivateKeySize || len(keys.Nodes[peer]) != ed25519.PrivateKeySize {
+		return errors.New("invalid proof identity")
+	}
+	type endpoint struct {
+		Address string
+		Port    int
+	}
+	peers := map[string]endpoint{peer: {Address: *peerAddr, Port: *peerPort}}
+	if *meshFile != "" {
+		data, err := os.ReadFile(*meshFile)
+		if err != nil {
+			return err
+		}
+		if err := json.Unmarshal(data, &peers); err != nil {
+			return err
+		}
 	}
 	cfg := internode.DefaultManagerConfig()
 	cfg.LocalNodeID = *local
@@ -361,9 +392,13 @@ func run() error {
 	cfg.AuthenticationKey = keys.Secret
 	cfg.SigningKey = ed25519.PrivateKey(own)
 	cfg.ResolvePeerKey = func(id string) (ed25519.PublicKey, bool) {
-		return ed25519.PrivateKey(other).Public().(ed25519.PublicKey), id == peer
+		key := keys.Nodes[id]
+		if len(key) != ed25519.PrivateKeySize {
+			return nil, false
+		}
+		return ed25519.PrivateKey(key).Public().(ed25519.PublicKey), id != *local
 	}
-	cfg.AuthorizePeer = func(id string, _ net.Addr) bool { return id == peer }
+	cfg.AuthorizePeer = func(id string, _ net.Addr) bool { return id != *local && len(keys.Nodes[id]) == ed25519.PrivateKeySize }
 	cfg.TLS = internode.ManagerTLSConfig{Enabled: true, CertFile: filepath.Join(*keysDir, "cert.pem"), CAFile: filepath.Join(*keysDir, "cert.pem"), KeyFile: filepath.Join(*keysDir, "key.pem")}
 	cm := internode.NewConnectionManager(cfg, nil)
 	ctx, cancel := context.WithTimeout(ctxapi.NewRootContext(), 90*time.Second)
@@ -372,8 +407,14 @@ func run() error {
 		return err
 	}
 	defer func() { _ = cm.Stop() }()
-	cm.AddManagedNode(peer)
-	cm.EnsureConnection(peer, *peerAddr, *peerPort)
+	expectedPeers := 0
+	for id, address := range peers {
+		if id != *local {
+			expectedPeers++
+			cm.AddManagedNode(id)
+			cm.EnsureConnection(id, address.Address, address.Port)
+		}
+	}
 	service := ttysys.NewService()
 	defer service.Close()
 	if err = service.SetMesh(*local, transport{cm}); err != nil {
@@ -398,8 +439,9 @@ func run() error {
 	root = relay.WithNode(root, node)
 	sched.Start()
 
-	r := &runner{root: root, scheduler: sched, service: service, local: *local, peer: peer, out: *out, completed: completed}
+	r := &runner{recipient: *recipient, commands: *commands, root: root, scheduler: sched, service: service, local: *local, peer: peer, out: *out, completed: completed}
 	defer func() {
+		cancel()
 		stop, c := context.WithTimeout(context.Background(), 5*time.Second)
 		defer c()
 		sched.Stop(stop)
@@ -425,7 +467,7 @@ waitPeer:
 			return ctx.Err()
 		case <-ticker.C:
 			data, err = os.ReadFile(*peerFile)
-			if err == nil && json.Unmarshal(data, &refs) == nil && refs.Observe != "" && len(cm.ConnectedNodes()) > 0 {
+			if err == nil && json.Unmarshal(data, &refs) == nil && refs.Observe != "" && len(cm.ConnectedNodes()) >= expectedPeers {
 				break waitPeer
 			}
 		}
@@ -445,13 +487,25 @@ waitPeer:
 			r.mu.Lock()
 			samples := append([]time.Duration(nil), r.latencies...)
 			r.mu.Unlock()
-			if len(samples) != 20 {
-				return fmt.Errorf("expected 20 command results, got %d", len(samples))
+			if len(samples) != *commands {
+				return fmt.Errorf("expected %d command results, got %d", *commands, len(samples))
 			}
 			sort.Slice(samples, func(i, j int) bool { return samples[i] < samples[j] })
-			report := map[string]any{"node": *local, "peer": peer, "commands": len(samples), "p50_ms": float64(samples[len(samples)/2]) / float64(time.Millisecond), "p95_ms": float64(samples[len(samples)*95/100]) / float64(time.Millisecond), "result": "PASS", "transport": "mutual TLS + authenticated internode", "lua_workers": 1}
+			report := map[string]any{"node": *local, "peer": peer, "commands": len(samples), "connected_peers": len(cm.ConnectedNodes()), "p50_ms": float64(samples[len(samples)/2]) / float64(time.Millisecond), "p95_ms": float64(samples[len(samples)*95/100]) / float64(time.Millisecond), "result": "PASS", "transport": "mutual TLS + authenticated internode", "lua_workers": 1}
 			encoded, _ := json.Marshal(report)
 			fmt.Println(string(encoded))
+			if *releaseFile != "" {
+				for {
+					if _, err := os.Stat(*releaseFile); err == nil {
+						return nil
+					}
+					select {
+					case <-ticker.C:
+					case <-ctx.Done():
+						return ctx.Err()
+					}
+				}
+			}
 			select {
 			case <-time.After(*hold):
 				return nil

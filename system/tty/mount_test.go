@@ -129,7 +129,7 @@ func (t *testSurfaceTransport) Send(peer string, b []byte) error {
 	}
 	return nil
 }
-func meshFixture(t *testing.T) (*Service, *Service, *testSurfaceTransport, *testSurfaceTransport) {
+func meshFixture(t testing.TB) (*Service, *Service, *testSurfaceTransport, *testSurfaceTransport) {
 	t.Helper()
 	n := &testSurfaceNetwork{}
 	a, b := NewService(), NewService()
@@ -139,7 +139,7 @@ func meshFixture(t *testing.T) (*Service, *Service, *testSurfaceTransport, *test
 	t.Cleanup(func() { require.NoError(t, a.Close()); require.NoError(t, b.Close()) })
 	return a, b, ta, tb
 }
-func meshContext(t *testing.T, s *Service, node, id string) (context.Context, *inbox) {
+func meshContext(t testing.TB, s *Service, node, id string) (context.Context, *inbox) {
 	t.Helper()
 	ctx := ttyapi.WithService(ctxapi.NewRootContext(), s)
 	relayNode := relaysys.NewNode(node)
@@ -258,6 +258,11 @@ func TestInputOnlyMountCannotReadSnapshot(t *testing.T) {
 	require.Empty(t, remote.Snapshot().Rows)
 	require.Zero(t, remote.Snapshot().Width)
 	require.ErrorIs(t, remote.(ttyapi.CheckedViewport).Check(agent, ttyapi.RightObserve), ttyapi.ErrPermissionDenied)
+	ownerPID, _ := runtime.GetFramePID(owner)
+	a.OnComplete(owner, ownerPID, nil)
+	require.Eventually(t, func() bool {
+		return remote.(ttyapi.CheckedViewport).Check(agent, ttyapi.RightInput) != nil
+	}, time.Second, time.Millisecond, "input-only mounts must be notified on owner exit")
 	require.NoError(t, remote.Close())
 }
 
@@ -280,4 +285,149 @@ func TestMeshMountLeaseExpiryClosesObservation(t *testing.T) {
 	record.mu.Unlock()
 	require.Eventually(t, func() bool { return remote.(ttyapi.CheckedViewport).Check(agent, ttyapi.RightObserve) != nil }, time.Second, time.Millisecond)
 	require.Zero(t, remote.Snapshot().Width)
+}
+
+func TestRemoteCloseInterruptsOutstandingAndQueuedCalls(t *testing.T) {
+	for _, closeKind := range []string{"viewport", "owner", "service"} {
+		t.Run(closeKind, func(t *testing.T) {
+			a, b, _, tb := meshFixture(t)
+			owner, _ := meshContext(t, a, "a", "owner")
+			agent, _ := meshContext(t, b, "b", "agent")
+			view, err := a.Create(owner, 80, 24)
+			require.NoError(t, err)
+			target, _ := runtime.GetFramePID(agent)
+			ref, err := view.(ttyapi.MountableViewport).Mount(owner, target, ttyapi.MountRights{Observe: true})
+			require.NoError(t, err)
+			mounted, err := b.Attach(agent, ref)
+			require.NoError(t, err)
+			remote := mounted.(*remoteViewport)
+			tb.drop.Store(true)
+			results := make(chan error, 2)
+			call := func() {
+				_, err := remote.call(context.Background(), wireFrame{Op: opPing})
+				results <- err
+			}
+			go call()
+			require.Eventually(t, func() bool {
+				b.mesh.mu.Lock()
+				defer b.mesh.mu.Unlock()
+				return len(b.mesh.pending) == 1
+			}, time.Second, time.Millisecond)
+			go call()
+			switch closeKind {
+			case "viewport":
+				require.NoError(t, remote.Close())
+			case "owner":
+				b.mesh.closeOwner(target)
+			case "service":
+				require.NoError(t, b.Close())
+			}
+			for range 2 {
+				select {
+				case err := <-results:
+					require.Error(t, err)
+				case <-time.After(time.Second):
+					t.Fatal("close waited for the remote RPC timeout")
+				}
+			}
+			b.mesh.mu.Lock()
+			require.Empty(t, b.mesh.pending)
+			b.mesh.mu.Unlock()
+			require.Zero(t, remote.Snapshot().Width)
+		})
+	}
+}
+
+func TestRemoteQueuedCallHonorsCancellation(t *testing.T) {
+	a, b, _, tb := meshFixture(t)
+	owner, _ := meshContext(t, a, "a", "owner")
+	agent, _ := meshContext(t, b, "b", "agent")
+	view, err := a.Create(owner, 80, 24)
+	require.NoError(t, err)
+	target, _ := runtime.GetFramePID(agent)
+	ref, err := view.(ttyapi.MountableViewport).Mount(owner, target, ttyapi.MountRights{Observe: true})
+	require.NoError(t, err)
+	mounted, err := b.Attach(agent, ref)
+	require.NoError(t, err)
+	remote := mounted.(*remoteViewport)
+	defer remote.Close()
+	tb.drop.Store(true)
+	first := make(chan error, 1)
+	go func() {
+		_, err := remote.call(context.Background(), wireFrame{Op: opPing})
+		first <- err
+	}()
+	require.Eventually(t, func() bool {
+		b.mesh.mu.Lock()
+		defer b.mesh.mu.Unlock()
+		return len(b.mesh.pending) == 1
+	}, time.Second, time.Millisecond)
+	ctx, cancel := context.WithCancel(agent)
+	cancel()
+	second := make(chan error, 1)
+	go func() { _, err := remote.call(ctx, wireFrame{Op: opPing}); second <- err }()
+	select {
+	case err := <-second:
+		require.ErrorIs(t, err, context.Canceled)
+	case <-time.After(time.Second):
+		t.Fatal("cancelled call waited behind an unresponsive peer")
+	}
+	require.NoError(t, remote.Close())
+	select {
+	case err := <-first:
+		require.Error(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("outstanding call did not exit")
+	}
+}
+
+func TestStalledPeerDoesNotBlockHealthySurface(t *testing.T) {
+	a, b, ta, _ := meshFixture(t)
+	c := NewService()
+	tc := ta.network.node("c")
+	require.NoError(t, c.SetMesh("c", tc))
+	defer c.Close()
+	owner, _ := meshContext(t, a, "a", "owner")
+	healthy, _ := meshContext(t, b, "b", "healthy")
+	stalled, _ := meshContext(t, c, "c", "stalled")
+	view, err := a.Create(owner, 80, 24)
+	require.NoError(t, err)
+	binding, err := a.Binding(view.Grant())
+	require.NoError(t, err)
+	port, err := binding.Resolve(owner)
+	require.NoError(t, err)
+	surface, err := port.OpenSurface(ttyapi.SurfaceOptions{})
+	require.NoError(t, err)
+	mount := func(ctx context.Context, service *Service) *remoteViewport {
+		target, _ := runtime.GetFramePID(ctx)
+		ref, err := view.(ttyapi.MountableViewport).Mount(owner, target, ttyapi.MountRights{Observe: true})
+		require.NoError(t, err)
+		remote, err := service.Attach(ctx, ref)
+		require.NoError(t, err)
+		return remote.(*remoteViewport)
+	}
+	good, bad := mount(healthy, b), mount(stalled, c)
+	defer good.Close()
+	defer bad.Close()
+	tc.drop.Store(true)
+	blocked := make(chan error, 1)
+	go func() { _, err := bad.call(context.Background(), wireFrame{Op: opPing}); blocked <- err }()
+	require.Eventually(t, func() bool { c.mesh.mu.Lock(); defer c.mesh.mu.Unlock(); return len(c.mesh.pending) == 1 }, time.Second, time.Millisecond)
+	for range 1000 {
+		_, err = surface.Present(ttyapi.Frame{Rows: []string{"healthy remains responsive"}})
+		require.NoError(t, err)
+	}
+	require.Eventually(t, func() bool {
+		s := good.Snapshot()
+		return len(s.Rows) == 1 && s.Rows[0] == "healthy remains responsive"
+	}, time.Second, time.Millisecond)
+	require.NoError(t, bad.Close())
+	select {
+	case err := <-blocked:
+		require.Error(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("stalled peer did not close")
+	}
+	// Releasing the stalled consumer must not revoke another peer's authority.
+	require.NoError(t, good.Check(healthy, ttyapi.RightObserve))
 }
