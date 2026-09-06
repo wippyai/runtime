@@ -1285,6 +1285,16 @@ func foldRootDependencyComponents(deps []desiredDependency, fresh map[string]str
 		if !elected {
 			controller = group[0]
 		}
+		if strict && controller.definition.Version == "" {
+			return nil, nil, apierror.New(apierror.Invalid, fmt.Sprintf(
+				"dependency %s (%s) requires a version; specify a version constraint or explicit '*'",
+				controller.entry.ID.String(), component,
+			)).WithDetails(attrs.NewBagFrom(map[string]any{
+				"entry_id":  controller.entry.ID.String(),
+				"component": component,
+				"field":     "version",
+			}))
+		}
 
 		for _, dep := range group {
 			if idsEqual(dep.entry.ID, controller.entry.ID) {
