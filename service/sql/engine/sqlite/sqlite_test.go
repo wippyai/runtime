@@ -70,7 +70,7 @@ func TestTuneSingleWriter(t *testing.T) {
 	assert.Equal(t, 1, db.Stats().MaxOpenConnections)
 }
 
-func TestTuneHonorsFilePoolWidth(t *testing.T) {
+func TestTunePreservesSingleApplicationConnection(t *testing.T) {
 	db, err := sql.Open("sqlite3", "file:test-tune-pool?mode=memory&cache=shared")
 	require.NoError(t, err)
 	defer func() { _ = db.Close() }()
@@ -79,7 +79,7 @@ func TestTuneHonorsFilePoolWidth(t *testing.T) {
 		File: filepath.Join(t.TempDir(), "tune.db"),
 		Pool: config.PoolConfig{MaxOpen: 4, MaxIdle: 3, MaxLifetime: time.Hour},
 	})
-	assert.Equal(t, 4, db.Stats().MaxOpenConnections)
+	assert.Equal(t, 1, db.Stats().MaxOpenConnections)
 }
 
 func TestValidateConfigType(t *testing.T) {

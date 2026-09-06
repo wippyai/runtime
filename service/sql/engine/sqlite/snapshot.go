@@ -24,7 +24,10 @@ func (b *sqliteBackend) Snapshot(ctx context.Context, opts sqlapi.SnapshotOption
 	}
 	b.mu.Lock()
 	closed := b.closed
-	db := b.db
+	db := b.snapshotDB
+	if db == nil {
+		db = b.db
+	}
 	b.mu.Unlock()
 	if closed {
 		return nil, errObserverClosed
@@ -32,7 +35,8 @@ func (b *sqliteBackend) Snapshot(ctx context.Context, opts sqlapi.SnapshotOption
 	if db == nil {
 		return nil, errors.New("sqlite snapshot has no database")
 	}
-	// Reserve the physical connection before taking the fence. SQL pools may
+	// File snapshots use a separate read-only pool to leave the application
+	// writer available. Reserve its connection before taking the fence. SQL pools may
 	// have a single connection; taking the fence first would let a writer hold
 	// that connection while waiting for the snapshot and deadlock both paths.
 	conn, err := db.Conn(ctx)

@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -48,6 +49,11 @@ func (c *sqliteConnector) Connect(context.Context) (driver.Conn, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Snapshot connections share driver configuration but do not participate
+	// in mutation observation: their DSN enforces read-only access.
+	if c.backend == nil {
+		return raw, nil
+	}
 	sqliteConn, ok := raw.(*sqlite3.SQLiteConn)
 	if !ok {
 		_ = raw.Close()
@@ -83,6 +89,26 @@ func openSQLite(_ context.Context, dsn string, limits ...int) (*sql.DB, sqlapi.C
 	}
 	db := sql.OpenDB(connector)
 	backend.db = db
+	if dsn != ":memory:" {
+		readDSN, err := url.Parse(dsn)
+		if err != nil {
+			_ = backend.Close()
+			_ = db.Close()
+			return nil, nil, err
+		}
+		params := readDSN.Query()
+		if params.Get("mode") != "memory" {
+			params.Set("mode", "ro")
+			readDSN.RawQuery = params.Encode()
+			readDB := sql.OpenDB(&sqliteConnector{driver: connector.driver, dsn: readDSN.String()})
+			// One scan at a time bounds snapshot connections independently of
+			// the application's single writer. Opening remains lazy until CDC
+			// requests a snapshot; ordinary SQL adds no physical connection.
+			readDB.SetMaxOpenConns(1)
+			readDB.SetMaxIdleConns(1)
+			backend.snapshotDB = readDB
+		}
+	}
 	return db, backend, nil
 }
 
@@ -91,6 +117,7 @@ type sqliteBackend struct {
 	streams      map[*mutationStream]struct{}
 	fence        chan struct{}
 	db           *sql.DB
+	snapshotDB   *sql.DB
 	relayDone    chan struct{}
 	relayQueue   []*backendBatch
 	maxChanges   int
@@ -349,6 +376,9 @@ func (b *sqliteBackend) Close() error {
 	b.mu.Unlock()
 
 	b.closeStreams(streams, errObserverClosed)
+	if b.snapshotDB != nil {
+		_ = b.snapshotDB.Close()
+	}
 	b.signalRelay()
 	<-b.relayDone
 	return nil
