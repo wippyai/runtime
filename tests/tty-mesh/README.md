@@ -1,5 +1,8 @@
 # Concurrent Lua / PTY mesh proof
 
+See the [Lua agent guide](LUA_GUIDE.md) for the cross-node API workflow and
+the [V1 assessment](V1_REVIEW.md) for evidence and remaining shared-mesh limits.
+
 This harness runs 2–8 independent Wippy actor schedulers and the real internode
 connection manager in a fully connected mesh. Each node starts a Bash PTY behind
 the existing Lua `exec` and terminal proxy APIs. Agents drive the next node in

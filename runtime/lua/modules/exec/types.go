@@ -34,7 +34,7 @@ func init() {
 	})
 	terminalSessionType = typ.NewInterface("exec.TerminalSession", []typ.Method{
 		{Name: "send", Type: typ.Func().Param("self", typ.Self).
-			Param("event", luatty.EventType()).
+			Param("event", luatty.InputEventType()).
 			Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "close", Type: typ.Func().Param("self", typ.Self).
 			Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},

@@ -178,6 +178,12 @@ executors.
 
 ## Process-bound mounts over the mesh
 
+See the [agent workflow guide](../../../../tests/tty-mesh/LUA_GUIDE.md) for
+node/host identity, controller discovery, simulated input, and restart handling.
+`tty.MountRights` names the grant options; `tty.InputEvent` describes synthetic
+input (modifier flags default to false), while `tty.TTYEvent` describes received
+events. Input channels support both `receive()` and `case_receive()`.
+
 A viewport owner can delegate independent observation, input, and resize rights
 using a mount reference. The reference is bound to an exact process PID,
 including its node. It is not a reusable bearer credential: another process,

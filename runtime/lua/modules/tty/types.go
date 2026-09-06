@@ -36,7 +36,7 @@ var styleType = typ.NewInterface("tty.Style", []typ.Method{
 
 // KeyBinding interface returned by tty.bind()
 var keyBindingType = typ.NewInterface("tty.KeyBinding", []typ.Method{
-	{Name: "matches", Type: typ.Func().Param("self", typ.Self).Param("event", ttyEventType).Returns(typ.Boolean).Build()},
+	{Name: "matches", Type: typ.Func().Param("self", typ.Self).Param("event", inputEventType).Returns(typ.Boolean).Build()},
 	{Name: "set_enabled", Type: typ.Func().Param("self", typ.Self).Param("enabled", typ.Boolean).Returns(typ.Self).Build()},
 	{Name: "is_enabled", Type: typ.Func().Param("self", typ.Self).Returns(typ.Boolean).Build()},
 	{Name: "help", Type: typ.Func().Param("self", typ.Self).Returns(bindingHelpType).Build()},
@@ -124,13 +124,41 @@ var ttyEventType = typ.NewUnion(
 	closeEventType,
 )
 
+// Input events accept omitted modifier flags, matching DecodeEvent. Events
+// returned by tty.events retain their fully populated output contract.
+var inputEventType = typ.NewUnion(
+	typ.NewRecord().
+		ReadonlyField("type", typ.LiteralString("key")).
+		ReadonlyField("key", typ.String).
+		ReadonlyField("key_type", typ.String).
+		ReadonlyField("action", typ.NewUnion(typ.LiteralString("press"), typ.LiteralString("release"))).
+		OptReadonlyField("alt", typ.Boolean).
+		OptReadonlyField("ctrl", typ.Boolean).
+		OptReadonlyField("shift", typ.Boolean).Build(),
+	typ.NewRecord().
+		ReadonlyField("type", typ.LiteralString("mouse")).
+		ReadonlyField("action", typ.NewUnion(typ.LiteralString("press"), typ.LiteralString("release"), typ.LiteralString("motion"), typ.LiteralString("wheel"))).
+		ReadonlyField("button", typ.String).
+		ReadonlyField("x", typ.Integer).
+		ReadonlyField("y", typ.Integer).
+		OptReadonlyField("alt", typ.Boolean).
+		OptReadonlyField("ctrl", typ.Boolean).
+		OptReadonlyField("shift", typ.Boolean).Build(),
+	resizeEventType, startEventType, focusEventType, visibilityEventType, pasteEventType, closeEventType,
+)
+
+// InputEventType exposes the event contract accepted by terminal input adapters.
+func InputEventType() typ.Type { return inputEventType }
+
 // EventType exposes the structural terminal event contract to optional Lua
 // adapters without making them duplicate or weaken it to any.
 func EventType() typ.Type { return ttyEventType }
 
 // Channel type for tty.events()
 var eventChannelType = typ.NewInterface("tty.EventChannel", []typ.Method{
-	{Name: "receive", Type: typ.Func().Param("self", typ.Self).Returns(typ.NewOptional(ttyEventType)).Build()},
+	{Name: "receive", Type: typ.Func().Param("self", typ.Self).Returns(typ.NewOptional(ttyEventType), typ.Boolean).Build()},
+	{Name: "case_receive", Type: typ.Func().Param("self", typ.Self).Returns(typ.Any).Build()},
+	{Name: "close", Type: typ.Func().Param("self", typ.Self).Build()},
 })
 
 var viewportUpdateChannelType = typ.NewInterface("tty.ViewportUpdateChannel", []typ.Method{
@@ -193,14 +221,19 @@ var viewportSnapshotType = typ.NewRecord().
 		Build()).
 	Build()
 
+var mountRightsType = typ.NewRecord().
+	OptField("observe", typ.Boolean).
+	OptField("input", typ.Boolean).
+	OptField("resize", typ.Boolean).Build()
+
 var viewportType = typ.NewInterface("tty.Viewport", []typ.Method{
-	{Name: "mount", Type: typ.Func().Param("self", typ.Self).Param("recipient", typ.String).Param("rights", typ.NewRecord().OptField("observe", typ.Boolean).OptField("input", typ.Boolean).OptField("resize", typ.Boolean).Build()).Returns(typ.String, typ.NewOptional(typ.LuaError)).Build()},
+	{Name: "mount", Type: typ.Func().Param("self", typ.Self).Param("recipient", typ.String).Param("rights", mountRightsType).Returns(typ.String, typ.NewOptional(typ.LuaError)).Build()},
 	{Name: "revoke", Type: typ.Func().Param("self", typ.Self).Param("reference", typ.String).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
 	{Name: "grant", Type: typ.Func().Param("self", typ.Self).Returns(typ.String, typ.NewOptional(typ.LuaError)).Build()},
-	{Name: "handle", Type: typ.Func().Param("self", typ.Self).Returns(typ.String).Build()},
+	{Name: "handle", Type: typ.Func().Param("self", typ.Self).Returns(typ.String, typ.NewOptional(typ.LuaError)).Build()},
 	{Name: "snapshot", Type: typ.Func().Param("self", typ.Self).OptParam("after_revision", typ.Integer).Returns(typ.NewOptional(viewportSnapshotType), typ.NewOptional(typ.LuaError)).Build()},
 	{Name: "updates", Type: typ.Func().Param("self", typ.Self).Returns(viewportUpdateChannelType, typ.NewOptional(typ.LuaError)).Build()},
-	{Name: "send", Type: typ.Func().Param("self", typ.Self).Param("event", ttyEventType).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
+	{Name: "send", Type: typ.Func().Param("self", typ.Self).Param("event", inputEventType).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
 	{Name: "resize", Type: typ.Func().Param("self", typ.Self).Param("width", typ.Integer).Param("height", typ.Integer).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
 	{Name: "close", Type: typ.Func().Param("self", typ.Self).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
 })
@@ -268,6 +301,8 @@ func ModuleTypes() *typio.Manifest {
 	m.DefineType("PasteEvent", pasteEventType)
 	m.DefineType("CloseEvent", closeEventType)
 	m.DefineType("TTYEvent", ttyEventType)
+	m.DefineType("InputEvent", inputEventType)
+	m.DefineType("MountRights", mountRightsType)
 	m.DefineType("EventChannel", eventChannelType)
 	m.DefineType("Surface", surfaceType)
 	m.DefineType("Canvas", canvasType)
