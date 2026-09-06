@@ -96,17 +96,12 @@ func (engine) Tune(db *sql.DB, ec config.EngineConfig) {
 		return
 	}
 
-	// A private in-memory database is scoped to one physical connection, so
-	// sharing it across a pool would create multiple unrelated databases. File
-	// databases, however, need the configured pool width so a snapshot read
-	// transaction does not consume the only writer connection.
-	if cfg.File == ":memory:" {
-		db.SetMaxOpenConns(1)
-		db.SetMaxIdleConns(1)
-	} else {
-		db.SetMaxOpenConns(cfg.Pool.MaxOpen)
-		db.SetMaxIdleConns(cfg.Pool.MaxIdle)
-	}
+	// Serialize application operations for the full lifetime of a transaction.
+	// Multiple deferred read/write transactions can otherwise fail to upgrade
+	// their WAL snapshot even with a busy timeout. CDC snapshots own a separate
+	// read-only pool and must not widen this application pool.
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
 	db.SetConnMaxLifetime(cfg.Pool.MaxLifetime)
 }
 
