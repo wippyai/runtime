@@ -668,3 +668,54 @@ func TestNodeStateManager_Concurrent_AddressUpdates(t *testing.T) {
 
 	wg.Wait()
 }
+
+func TestSurfaceRequeuePreservesAcceptedFramesAtCapacity(t *testing.T) {
+	nsm := setupStateManager()
+	nsm.CreateNodeState("peer")
+	for i := range 32 {
+		require.NoError(t, nsm.QueueMessageClass("peer", []byte{byte(i)}, ClassSurface))
+	}
+	batch := nsm.DrainMessages("peer", 128)
+	require.Len(t, batch, 32)
+	for i := range 32 {
+		require.NoError(t, nsm.QueueMessageClass("peer", []byte{byte(i + 32)}, ClassSurface))
+	}
+	nsm.RequeueMessages("peer", batch)
+	// Repeated failed writes neither lose accepted frames nor reopen admission
+	// while the reserved retry batch occupies the queue.
+	for range 10 {
+		batch = nsm.DrainMessages("peer", 128)
+		require.Len(t, batch, 32)
+		require.ErrorIs(t, nsm.QueueMessageClass("peer", []byte("overflow"), ClassSurface), ErrQueueFull)
+		nsm.RequeueMessages("peer", batch)
+	}
+	got := nsm.DrainMessages("peer", 128)
+	got = append(got, nsm.DrainMessages("peer", 128)...)
+	require.Len(t, got, 64)
+	for i, frame := range got {
+		require.Equal(t, []byte{byte(i)}, frame.Data)
+	}
+	require.Empty(t, nsm.DrainMessages("peer", 128))
+}
+
+func TestSurfaceQueueBoundAndApplicationFairness(t *testing.T) {
+	nsm := setupStateManager()
+	nsm.CreateNodeState("peer")
+	for range 32 {
+		require.NoError(t, nsm.QueueMessageClass("peer", []byte("surface"), ClassSurface))
+	}
+	require.ErrorIs(t, nsm.QueueMessageClass("peer", []byte("overflow"), ClassSurface), ErrQueueFull)
+	require.Error(t, nsm.QueueMessageClass("peer", make([]byte, MaxSurfaceFrameSize+1), ClassSurface))
+	for range 32 {
+		require.NoError(t, nsm.QueueMessageClass("peer", []byte("process"), ClassPGBroadcast))
+	}
+	// Even a one-message drain must give both application classes a turn.
+	for range 32 {
+		a := nsm.DrainMessages("peer", 1)
+		b := nsm.DrainMessages("peer", 1)
+		require.Len(t, a, 1)
+		require.Len(t, b, 1)
+		require.NotEqual(t, a[0].Class, b[0].Class)
+	}
+	require.Empty(t, nsm.DrainMessages("peer", 32))
+}

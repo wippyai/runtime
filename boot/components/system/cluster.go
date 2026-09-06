@@ -277,13 +277,14 @@ func Cluster() boot.Component {
 			// leader thrashes on the failing operation.
 			raftEligible := clusterRaftEnabled(clusterCfg) && clusterCfg.GetBool(ClusterRaftEligible, true)
 			nodeMeta := clusterapi.NodeMeta{
-				"version":                   "1.0.0",
-				"role":                      "wippy",
-				internode.MetadataPort:      strconv.Itoa(actualPort),
-				internode.MetadataPublicKey: base64.RawStdEncoding.EncodeToString(publicKey),
-				"raft_eligible":             strconv.FormatBool(raftEligible),
-				"raft_priority":             strconv.Itoa(clusterCfg.GetInt(ClusterRaftPriority, 100)),
-				"failure_domain":            clusterCfg.GetString(ClusterFailureDomain, ""),
+				"version":                         "1.0.0",
+				internode.MetadataSurfaceProtocol: "1",
+				"role":                            "wippy",
+				internode.MetadataPort:            strconv.Itoa(actualPort),
+				internode.MetadataPublicKey:       base64.RawStdEncoding.EncodeToString(publicKey),
+				"raft_eligible":                   strconv.FormatBool(raftEligible),
+				"raft_priority":                   strconv.Itoa(clusterCfg.GetInt(ClusterRaftPriority, 100)),
+				"failure_domain":                  clusterCfg.GetString(ClusterFailureDomain, ""),
 			}
 			if advertiseAddr != "" {
 				// v2 metadata is additive: old peers ignore it and keep using

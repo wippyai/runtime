@@ -9,13 +9,14 @@ func init() {
 	dispatcher.MustRegisterCommands("tty",
 		Read, ReadLine, RawEnable, RawDisable,
 		StartInput, StopInput, ScreenSize,
-		EnableMouse, DisableMouse,
+		EnableMouse, DisableMouse, ViewportIO,
 	)
 }
 
 // Command IDs for terminal I/O.
 // Range 70-79 is reserved for terminal operations.
 const (
+	ViewportIO   dispatcher.CommandID = 79 // Cancellable remote viewport operations
 	Read         dispatcher.CommandID = 70 // Read bytes from stdin
 	ReadLine     dispatcher.CommandID = 71 // Read a line from stdin
 	RawEnable    dispatcher.CommandID = 72 // Enable raw terminal mode
@@ -103,3 +104,16 @@ type DisableMouseCmd struct{}
 func (c DisableMouseCmd) CmdID() dispatcher.CommandID {
 	return DisableMouse
 }
+
+// ViewportIOCmd runs only through the asynchronous terminal dispatcher.
+// Caller identity comes from its process context, never from command fields.
+type ViewportIOCmd struct {
+	View      RemoteViewport
+	Handle    string
+	Operation string
+	Event     Event
+	Width     int
+	Height    int
+}
+
+func (ViewportIOCmd) CmdID() dispatcher.CommandID { return ViewportIO }

@@ -194,9 +194,11 @@ var viewportSnapshotType = typ.NewRecord().
 	Build()
 
 var viewportType = typ.NewInterface("tty.Viewport", []typ.Method{
+	{Name: "mount", Type: typ.Func().Param("self", typ.Self).Param("recipient", typ.String).Param("rights", typ.NewRecord().OptField("observe", typ.Boolean).OptField("input", typ.Boolean).OptField("resize", typ.Boolean).Build()).Returns(typ.String, typ.NewOptional(typ.LuaError)).Build()},
+	{Name: "revoke", Type: typ.Func().Param("self", typ.Self).Param("reference", typ.String).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
 	{Name: "grant", Type: typ.Func().Param("self", typ.Self).Returns(typ.String, typ.NewOptional(typ.LuaError)).Build()},
 	{Name: "handle", Type: typ.Func().Param("self", typ.Self).Returns(typ.String).Build()},
-	{Name: "snapshot", Type: typ.Func().Param("self", typ.Self).OptParam("after_revision", typ.Integer).Returns(typ.NewOptional(viewportSnapshotType)).Build()},
+	{Name: "snapshot", Type: typ.Func().Param("self", typ.Self).OptParam("after_revision", typ.Integer).Returns(typ.NewOptional(viewportSnapshotType), typ.NewOptional(typ.LuaError)).Build()},
 	{Name: "updates", Type: typ.Func().Param("self", typ.Self).Returns(viewportUpdateChannelType, typ.NewOptional(typ.LuaError)).Build()},
 	{Name: "send", Type: typ.Func().Param("self", typ.Self).Param("event", ttyEventType).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
 	{Name: "resize", Type: typ.Func().Param("self", typ.Self).Param("width", typ.Integer).Param("height", typ.Integer).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},

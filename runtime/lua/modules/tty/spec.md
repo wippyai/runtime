@@ -173,3 +173,76 @@ For a byte-oriented PTY such as a shell, Codex, or Claude Code, allocate it with
 resize, input encoding, graceful termination, forced termination, and reaping;
 the enclosing surface/viewport model stays the same for native and Docker
 executors.
+
+## Process-bound mounts over the mesh
+
+A viewport owner can delegate independent observation, input, and resize rights
+using a mount reference. The reference is bound to an exact process PID,
+including its node. It is not a reusable bearer credential: another process,
+a different authenticated peer, or an already redeemed reference is rejected.
+
+```lua
+-- Owner, on the node hosting the viewport and producer.
+local view = assert(tty.viewport({width = 100, height = 30}))
+local observation = assert(view:mount(agent_pid, {observe = true}))
+local control = assert(view:mount(agent_pid, {input = true, resize = true}))
+
+-- Start the producer on this node with the existing terminal option.
+local child = assert(process.with_options({terminal = view:grant()})
+    :spawn("app:terminal_child", "app:workers"))
+-- Pass observation/control to that exact agent through the application's
+-- existing process messaging or orchestration. The child needs no mesh code.
+```
+
+```lua
+-- Agent, potentially on another mesh node.
+local observer = assert(tty.attach(observation))
+local control = assert(tty.attach(control))
+local changes = assert(observer:updates())
+local snapshot = assert(observer:snapshot())
+
+assert(control:send({type = "paste", text = "echo hello"}))
+assert(control:send({
+    type = "key", key = "enter", key_type = "enter", action = "press",
+}))
+assert(control:resize(120, 40))
+
+-- Updates are coalesced revision hints. Read the current snapshot for state.
+local revision, open = changes:receive()
+if open then snapshot = observer:snapshot() end
+```
+
+`viewport:mount(recipient_pid, {observe?, input?, resize?}) -> reference, error`
+requires `tty.mount` and each requested right (`tty.observe`, `tty.input`,
+`tty.resize`) on the owner's viewport handle. Every right defaults to false;
+an empty grant is rejected. Only the original owner can delegate, and mounted
+views cannot issue producer grants or further mounts. Input does not imply
+observation, and sending a resize event cannot bypass the resize right.
+
+`viewport:revoke(reference) -> true, error` revokes an issued mount. Closing
+its owner viewport or completing the owner process revokes its mounts too.
+Snapshots and updates require observation rights; snapshots return `nil, error`
+when access is denied or the mounted view has ended. Already delivered content
+cannot be recalled by revocation.
+
+A viewport's plain `handle()` is an address, not observation authority.
+Attaching another process to that handle locally now requires `tty.observe`.
+Input and resize are separately selected from the attaching process's scope.
+The creator retains access to its own viewport. This intentionally tightens
+older code that shared handles without assigning any observation permission.
+
+Remote `tty.attach`, `send`, and `resize` yield through the dispatcher. Snapshot
+reads use a local cache; update subscriptions retain the existing channel API.
+Remote ports are not synthesized from OS file descriptors: producers keep
+using their node-local terminal grant, `tty.surface`, or `exec:attach_terminal`.
+This also preserves the existing VT interpretation of PTY output and cursor
+state. Arbitrary process spawning across nodes remains the responsibility of
+application orchestration; a surface mount does not grant process or exec
+permissions.
+
+Remote mounts use a 30-second lease, renewed every 10 seconds while attached.
+Unused grants expire after 30 seconds; local redeemed mounts are process-owned.
+Remote operations time out after 5 seconds. Re-attachment requires a fresh
+mount; transport reconnection does not permit replaying terminal input.
+Both nodes must advertise surface protocol version 1. Peers without that
+capability are rejected before writing a new protocol class to their connection.
