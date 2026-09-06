@@ -5,6 +5,7 @@ package registry
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/attrs"
@@ -193,33 +194,141 @@ func dependencyRootsToLuaTable(l *lua.LState, roots []regapi.DependencyRoot) *lu
 	return table
 }
 
-// convertFilterToMetadata converts a Lua filter table to registry metadata
-func convertFilterToMetadata(_ *lua.LState, filterTable *lua.LTable) attrs.Bag {
+// filterOperators are the finder operator prefixes a metadata selector may carry.
+const filterOperators = "~*^$"
+
+// rootFieldPrefix marks a finder root selector such as ".kind".
+const rootFieldPrefix = "."
+
+// metaFieldPrefix marks a finder metadata selector such as "meta.type".
+const metaFieldPrefix = "meta."
+
+// rootSelectorList spells the accepted root selectors for error messages.
+const rootSelectorList = `".kind", ".ns", ".name" or ".id"`
+
+// rootFilterFields are the entry fields a root selector addresses.
+var rootFilterFields = map[string]struct{}{
+	"kind": {},
+	"ns":   {},
+	"name": {},
+	"id":   {},
+}
+
+// splitFilterOperator separates a leading finder operator from the field name.
+func splitFilterOperator(key string) (operator, field string) {
+	if key != "" && strings.ContainsRune(filterOperators, rune(key[0])) {
+		return key[:1], key[1:]
+	}
+	return "", key
+}
+
+// checkFilterKey validates a top-level filter key. A key is a selector: it
+// either starts with "." and names an entry field, or carries an optional
+// operator and names a metadata field as "meta.<field>".
+func checkFilterKey(key string) error {
+	if strings.HasPrefix(key, rootFieldPrefix) {
+		field := strings.TrimPrefix(key, rootFieldPrefix)
+		if _, ok := rootFilterFields[field]; ok {
+			return nil
+		}
+		return fmt.Errorf("filter key %q is not a root selector: use %s for entry fields or %q for metadata",
+			key, rootSelectorList, metaFieldPrefix+field)
+	}
+
+	operator, field := splitFilterOperator(key)
+	if strings.HasPrefix(field, metaFieldPrefix) {
+		if field == metaFieldPrefix {
+			return fmt.Errorf("filter key %q names no metadata field", key)
+		}
+		return nil
+	}
+
+	metaForm := operator + metaFieldPrefix + field
+	if _, ok := rootFilterFields[field]; ok && operator == "" {
+		return fmt.Errorf("filter key %q is not a selector: use %q for the entry %s or %q for metadata",
+			key, rootFieldPrefix+field, field, metaForm)
+	}
+	return fmt.Errorf("filter key %q is not a selector: use %s for entry fields or %q for metadata",
+		key, rootSelectorList, metaForm)
+}
+
+// checkMetaFilterKey validates a key of the nested meta table. Those keys name
+// metadata fields directly, so they carry no prefix beyond an operator.
+func checkMetaFilterKey(key string) error {
+	operator, field := splitFilterOperator(key)
+	switch {
+	case field == "":
+		return fmt.Errorf("filter key %q in the meta table names no metadata field", key)
+	case strings.HasPrefix(field, metaFieldPrefix):
+		return fmt.Errorf("filter key %q in the meta table repeats the %q prefix: use %q",
+			key, metaFieldPrefix, operator+strings.TrimPrefix(field, metaFieldPrefix))
+	case strings.HasPrefix(field, rootFieldPrefix):
+		return fmt.Errorf("filter key %q in the meta table must name a metadata field", key)
+	}
+	return nil
+}
+
+// convertFilterToMetadata converts a Lua filter table to finder search criteria.
+// Top-level keys are selectors; the nested meta table names metadata fields.
+func convertFilterToMetadata(_ *lua.LState, filterTable *lua.LTable) (attrs.Bag, error) {
 	meta := attrs.Bag{}
+	var keyErr error
+
+	nested, hasNested := filterTable.RawGetString("meta").(*lua.LTable)
 
 	filterTable.ForEach(func(k, v lua.LValue) {
-		if kStr, ok := k.(lua.LString); ok {
-			key := string(kStr)
+		if keyErr != nil {
+			return
+		}
 
-			if key == "meta" {
+		kStr, ok := k.(lua.LString)
+		if !ok {
+			keyErr = fmt.Errorf("filter keys must be strings, got %s", k.Type())
+			return
+		}
+
+		key := string(kStr)
+		if key == "meta" {
+			if !hasNested {
+				keyErr = errors.New(`filter key "meta" must be a table of metadata selectors`)
+			}
+			return
+		}
+
+		if err := checkFilterKey(key); err != nil {
+			keyErr = err
+			return
+		}
+
+		meta[key] = value.ToGoAny(v)
+	})
+
+	if hasNested {
+		nested.ForEach(func(k, v lua.LValue) {
+			if keyErr != nil {
 				return
 			}
 
-			meta[key] = value.ToGoAny(v)
-		}
-	})
-
-	// Process nested metadata table
-	metaVal := filterTable.RawGetString("meta")
-	if metaVal.Type() == lua.LTTable {
-		metaTable := metaVal.(*lua.LTable)
-		metaTable.ForEach(func(k, v lua.LValue) {
-			if kStr, ok := k.(lua.LString); ok {
-				key := string(kStr)
-				meta[key] = value.ToGoAny(v)
+			kStr, ok := k.(lua.LString)
+			if !ok {
+				keyErr = fmt.Errorf("meta filter keys must be strings, got %s", k.Type())
+				return
 			}
+
+			key := string(kStr)
+			if err := checkMetaFilterKey(key); err != nil {
+				keyErr = err
+				return
+			}
+
+			operator, field := splitFilterOperator(key)
+			meta[operator+metaFieldPrefix+field] = value.ToGoAny(v)
 		})
 	}
 
-	return meta
+	if keyErr != nil {
+		return nil, keyErr
+	}
+
+	return meta, nil
 }

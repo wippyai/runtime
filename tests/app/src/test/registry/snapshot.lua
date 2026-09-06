@@ -24,7 +24,7 @@ local function main()
 	assert.eq(type(ns_entries), "table", "namespace returns table")
 
 	-- find from snapshot
-	local found = snap:find({type = "test"})
+	local found = snap:find({meta = {type = "test"}})
 	assert.not_nil(found, "find from snapshot works")
 	assert.eq(type(found), "table", "find returns table")
 

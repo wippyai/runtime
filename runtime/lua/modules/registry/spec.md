@@ -65,16 +65,23 @@ Searches for entries matching filter criteria.
 
 | Param | Type | Required | Default | Notes |
 |-------|------|----------|---------|-------|
-| filter | table | yes | - | Search criteria with metadata fields |
+| filter | table | yes | - | Search criteria, every key is a selector |
 
-**filter fields:**
+**filter keys:**
 
-| Field | Type | Notes |
-|-------|------|-------|
-| kind | string | Filter by entry kind |
-| type | string | Filter by meta.type field |
-| meta | table | Nested metadata filters |
-| (any) | any | Any other field filters metadata |
+| Key | Type | Notes |
+|-----|------|-------|
+| .kind, .ns, .name, .id | string | Entry fields, glob `*` supported |
+| meta.\<field\> | any | Metadata field |
+| meta | table | Nested table, each key names a metadata field |
+
+Metadata selectors accept an operator prefix, both as `meta.<field>` keys and
+inside the nested `meta` table: `~` regex, `*` contains, `^` prefix, `$` suffix.
+Keys inside the nested `meta` table carry no `meta.` prefix of their own.
+
+Any other key is rejected: a bare `kind`, `type` or `name` is ambiguous between
+an entry field and a metadata field, so `find` returns an error naming the key
+and both valid spellings.
 
 **Returns:**
 
@@ -90,10 +97,16 @@ Searches for entries matching filter criteria.
 | Finder not available | errors.INTERNAL | no |
 | Find operation failed | errors.INTERNAL | no |
 | Conversion failed | errors.INTERNAL | no |
+| Filter key is not a selector | errors.INVALID | no |
 
 ```lua
-local entries, err = registry.find({kind = "function.lua"})
-local tests, err = registry.find({type = "test"})
+local entries, err = registry.find({[".kind"] = "function.lua"})
+local tests, err = registry.find({["meta.type"] = "test"})
+local apps = registry.find({[".kind"] = "process.lua", meta = {type = "desktop.application"}})
+local named = registry.find({["~meta.name"] = "^app"})
+
+-- error: filter key "kind" is not a selector
+local bad, err = registry.find({kind = "function.lua"})
 ```
 
 ### snapshot() → Snapshot, error
@@ -375,9 +388,10 @@ Searches entries in snapshot matching filter criteria.
 
 | Param | Type | Required | Default | Notes |
 |-------|------|----------|---------|-------|
-| filter | table | yes | - | Search criteria |
+| filter | table | yes | - | Search criteria, selectors as in `registry.find` |
 
-**Returns:** Array of entry tables matching filter
+**Returns:** Array of entry tables matching filter, or nil and an error when a
+filter key is not a selector
 
 #### snapshot:changes() → Changes
 
@@ -619,7 +633,7 @@ local id = registry.parse_id(entry.id)
 print(id.ns, id.name)  -- "app.lib" "assert"
 
 -- Find entries
-local entries, err = registry.find({kind = "function.lua"})
+local entries, err = registry.find({[".kind"] = "function.lua"})
 if err then error(err) end
 
 -- Work with snapshots and versions

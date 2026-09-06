@@ -16,6 +16,8 @@ import (
 	luapayload "github.com/wippyai/runtime/runtime/lua/engine/payload"
 	transcoder "github.com/wippyai/runtime/system/payload"
 	"github.com/wippyai/runtime/system/payload/json"
+	"github.com/wippyai/runtime/system/registry/finder"
+	"go.uber.org/zap"
 
 	lua "github.com/wippyai/go-lua"
 )
@@ -649,7 +651,11 @@ func (m *mockRegistry) GetEntry(id regapi.ID) (regapi.Entry, error) {
 }
 
 func (m *mockRegistry) GetAllEntries() ([]regapi.Entry, error) {
-	return nil, nil
+	entries := make([]regapi.Entry, 0, len(m.entries))
+	for _, entry := range m.entries {
+		entries = append(entries, entry)
+	}
+	return entries, nil
 }
 
 func (m *mockRegistry) Current() (regapi.Version, error) {
@@ -991,5 +997,92 @@ func TestRegistryGet_DoesNotResolveEnvOrPlaceholders(t *testing.T) {
 	`)
 	if err != nil {
 		t.Errorf("registry read leaked resolved values into Lua: %v", err)
+	}
+}
+
+// TestRegistryFindFilterSelectors drives registry.find through a real finder to
+// prove each selector narrows the result set and that a bare key is rejected.
+func TestRegistryFindFilterSelectors(t *testing.T) {
+	ctx := setupContextWithTranscoder()
+
+	mockReg := &mockRegistry{
+		entries: map[string]regapi.Entry{
+			"app:alpha": {
+				ID:   regapi.NewID("app", "alpha"),
+				Kind: "process.lua",
+				Meta: map[string]any{"type": "desktop.application", "name": "Alpha"},
+			},
+			"app:beta": {
+				ID:   regapi.NewID("app", "beta"),
+				Kind: "process.lua",
+				Meta: map[string]any{"type": "tool", "name": "Beta"},
+			},
+			"lib:gamma": {
+				ID:   regapi.NewID("lib", "gamma"),
+				Kind: "function.lua",
+				Meta: map[string]any{"type": "tool", "name": "Gamma"},
+			},
+		},
+	}
+
+	ctx = regapi.WithRegistry(ctx, mockReg)
+	ctx = regapi.WithFinder(ctx, finder.NewFinder(mockReg, zap.NewNop()))
+
+	l := lua.NewState()
+	defer l.Close()
+	l.SetContext(ctx)
+	lua.OpenErrors(l)
+	setupModule(l)
+
+	err := l.DoString(`
+		local function expect(filter, label, count, ...)
+			local entries, err = registry.find(filter)
+			if err then
+				error(label .. " failed: " .. tostring(err))
+			end
+			local found = {}
+			local actual = 0
+			for _, entry in ipairs(entries) do
+				found[entry.id] = true
+				actual = actual + 1
+			end
+			if actual ~= count then
+				error(label .. ": expected " .. count .. " entries, got " .. actual)
+			end
+			for _, id in ipairs({...}) do
+				if not found[id] then
+					error(label .. ": missing " .. id)
+				end
+			end
+		end
+
+		expect({[".kind"] = "process.lua"}, "root kind", 2, "app:alpha", "app:beta")
+		expect({[".ns"] = "lib"}, "root ns", 1, "lib:gamma")
+		expect({[".id"] = "app:alpha"}, "root id", 1, "app:alpha")
+		expect({["meta.type"] = "tool"}, "metadata type", 2, "app:beta", "lib:gamma")
+		expect({meta = {type = "tool"}}, "nested metadata type", 2, "app:beta", "lib:gamma")
+		expect({[".kind"] = "process.lua", meta = {type = "desktop.application"}}, "kind and type", 1, "app:alpha")
+		expect({["~meta.name"] = "^A"}, "metadata regex", 1, "app:alpha")
+		expect({meta = {["~name"] = "^A"}}, "nested metadata regex", 1, "app:alpha")
+		expect({["meta.missing"] = "zzz"}, "unknown metadata field", 0)
+		expect({}, "empty filter", 3, "app:alpha", "app:beta", "lib:gamma")
+
+		local entries, err = registry.find({kind = "process.lua"})
+		if entries ~= nil then
+			error("bare kind should not return entries")
+		end
+		if err == nil then
+			error("bare kind should return an error")
+		end
+		local message = tostring(err)
+		if not string.find(message, ".kind", 1, true) then
+			error("error should name the .kind selector, got " .. message)
+		end
+		if not string.find(message, "meta.kind", 1, true) then
+			error("error should name the meta.kind selector, got " .. message)
+		end
+	`)
+	if err != nil {
+		t.Errorf("registry.find filter selectors failed: %v", err)
 	}
 }

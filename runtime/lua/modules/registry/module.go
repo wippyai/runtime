@@ -275,7 +275,15 @@ func registryFind(l *lua.LState) int {
 		return 2
 	}
 
-	meta := convertFilterToMetadata(l, filterTable)
+	meta, convErr := convertFilterToMetadata(l, filterTable)
+	if convErr != nil {
+		err := lua.WrapErrorWithLua(l, convErr, "invalid find filter").
+			WithKind(lua.Invalid).
+			WithRetryable(false)
+		l.Push(lua.LNil)
+		l.Push(err)
+		return 2
+	}
 
 	finder := regapi.GetFinder(ctx)
 	if finder == nil {
