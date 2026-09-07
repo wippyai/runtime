@@ -139,6 +139,13 @@ func (y *WsSendYield) ToCommand() dispatcher.Command {
 
 func (y *WsSendYield) Release() { ReleaseWsSendYield(y) }
 
+func (y *WsSendYield) HandleResult(l *lua.LState, _ any, err error) []lua.LValue {
+	if err != nil {
+		return []lua.LValue{lua.LFalse, lua.NewLuaError(l, err.Error()).WithKind(lua.Internal).WithRetryable(false)}
+	}
+	return []lua.LValue{lua.LTrue, lua.LNil}
+}
+
 // WsSubscribeYield is yielded to start receiving messages on a channel.
 // This subscribes the channel to the topic and starts the dispatcher read loop.
 type WsSubscribeYield struct {
@@ -349,3 +356,10 @@ func (y *WsPingYield) ToCommand() dispatcher.Command {
 }
 
 func (y *WsPingYield) Release() { ReleaseWsPingYield(y) }
+
+func (y *WsPingYield) HandleResult(l *lua.LState, _ any, err error) []lua.LValue {
+	if err != nil {
+		return []lua.LValue{lua.LFalse, lua.NewLuaError(l, err.Error()).WithKind(lua.Internal).WithRetryable(false)}
+	}
+	return []lua.LValue{lua.LTrue, lua.LNil}
+}
