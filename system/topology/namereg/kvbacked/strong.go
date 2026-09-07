@@ -497,7 +497,14 @@ func (st *strongState) leaderPromote(name string, epoch, headerVer uint64, hdr p
 		{Kind: kvapi.TxnPut, Cond: kvapi.CondAny, Key: nodeIndexKey(p, name), Value: idx},
 	}
 	for _, n := range hdr.RequiredNodes {
-		ops = append(ops, kvapi.TxnOp{Kind: kvapi.TxnDelete, Cond: kvapi.CondAny, Key: ackKey(name, epoch, n)})
+		// The leader's preceding scan is only a hint. Validate the entire
+		// admission decision in the committed transaction so a rejection that
+		// precedes promotion in Raft order cannot be ignored.
+		ops = append(ops,
+			kvapi.TxnOp{Kind: kvapi.TxnCheck, Cond: kvapi.CondExists, Key: ackKey(name, epoch, n)},
+			kvapi.TxnOp{Kind: kvapi.TxnCheck, Cond: kvapi.CondAbsent, Key: rejectKey(name, epoch, n)},
+			kvapi.TxnOp{Kind: kvapi.TxnDelete, Cond: kvapi.CondAny, Key: ackKey(name, epoch, n)},
+		)
 	}
 	committed, terr := st.svc.engine.Txn(ops)
 	if terr != nil {
