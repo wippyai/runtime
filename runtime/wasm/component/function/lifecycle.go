@@ -123,6 +123,8 @@ func (m *Manager) addWAT(ctx context.Context, entry registry.Entry) error {
 		return err
 	}
 
+	wasmcomponent.LogOptionDeprecations(m.log, entry.ID, cfg)
+
 	m.log.Debug("wasm wat function added",
 		zap.String("id", entry.ID.String()),
 		zap.String("method", cfg.Method),
@@ -165,6 +167,8 @@ func (m *Manager) addWASM(ctx context.Context, entry registry.Entry) error {
 		return err
 	}
 
+	wasmcomponent.LogOptionDeprecations(m.log, entry.ID, cfg)
+
 	m.log.Debug("wasm function added",
 		zap.String("id", entry.ID.String()),
 		zap.String("method", cfg.Method),
@@ -206,6 +210,8 @@ func (m *Manager) updateWAT(ctx context.Context, entry registry.Entry) error {
 		return err
 	}
 
+	wasmcomponent.LogOptionDeprecations(m.log, entry.ID, cfg)
+
 	m.log.Debug("wasm wat function updated", zap.String("id", entry.ID.String()))
 	return nil
 }
@@ -242,6 +248,8 @@ func (m *Manager) updateWASM(ctx context.Context, entry registry.Entry) error {
 	if err := m.registerCaller(ctx, entry.ID, opts); err != nil {
 		return err
 	}
+
+	wasmcomponent.LogOptionDeprecations(m.log, entry.ID, cfg)
 
 	m.log.Debug("wasm function updated", zap.String("id", entry.ID.String()))
 	return nil

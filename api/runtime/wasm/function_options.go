@@ -5,39 +5,44 @@ package wasm
 import (
 	"github.com/wippyai/runtime/api/attrs"
 	apierror "github.com/wippyai/runtime/api/error"
+	"github.com/wippyai/runtime/api/registry"
 )
 
 // Function configuration errors.
 var (
-	// ErrFunctionRootLimitsForbidden is returned when root-level limits are provided on a function entry.
+	// ErrFunctionRootLimitsForbidden is retained for source compatibility.
+	//
+	// Deprecated: flat root limits are accepted with an admission warning.
 	ErrFunctionRootLimitsForbidden = apierror.New(apierror.Invalid, "root-level limits not allowed for function; configure limits in meta.options.limits").WithRetryable(apierror.False)
 
-	// ErrFunctionRootPoolForbidden is returned when root-level pool is provided on a function entry.
+	// ErrFunctionRootPoolForbidden is retained for source compatibility.
+	//
+	// Deprecated: root pool is accepted and remains the canonical pool path.
 	ErrFunctionRootPoolForbidden = apierror.New(apierror.Invalid, "root-level pool not allowed for function; configure pool in meta.options.pool").WithRetryable(apierror.False)
 
-	// ErrFunctionOptionsInvalidType is returned when meta.options is not an object.
+	// ErrFunctionOptionsInvalidType is returned when the options value has an unsupported type.
 	ErrFunctionOptionsInvalidType = apierror.New(apierror.Invalid, "meta.options must be an object").WithRetryable(apierror.False)
 
-	// ErrFunctionLimitsInvalidType is returned when meta.options.limits is not an object.
+	// ErrFunctionLimitsInvalidType is returned when an authored limits control is not an object.
 	ErrFunctionLimitsInvalidType = apierror.New(apierror.Invalid, "meta.options.limits must be an object").WithRetryable(apierror.False)
 
-	// ErrFunctionPoolInvalidType is returned when meta.options.pool is not an object.
+	// ErrFunctionPoolInvalidType is returned when an authored pool control is not an object.
 	ErrFunctionPoolInvalidType = apierror.New(apierror.Invalid, "meta.options.pool must be an object").WithRetryable(apierror.False)
 
-	// ErrFunctionPoolTypeInvalidType is returned when pool.type is not a string.
+	// ErrFunctionPoolTypeInvalidType is returned when a pool type field is not a string.
 	ErrFunctionPoolTypeInvalidType = apierror.New(apierror.Invalid, "meta.options.pool.type must be a string").WithRetryable(apierror.False)
 
-	// ErrFunctionPoolWorkerClassInvalidType is returned when pool.worker_class is not a string.
+	// ErrFunctionPoolWorkerClassInvalidType is returned when a pool worker class field is not a string.
 	ErrFunctionPoolWorkerClassInvalidType = apierror.New(apierror.Invalid, "meta.options.pool.worker_class must be a string").WithRetryable(apierror.False)
 
-	// ErrFunctionPoolWarmStartInvalidType is returned when pool.warm_start is not a boolean.
+	// ErrFunctionPoolWarmStartInvalidType is returned when a pool warm-start field is not a boolean.
 	ErrFunctionPoolWarmStartInvalidType = apierror.New(apierror.Invalid, "meta.options.pool.warm_start must be a boolean").WithRetryable(apierror.False)
 
 	// ErrFunctionUnknownField is the sentinel cause when an unknown field is encountered inside options.
 	ErrFunctionUnknownField = ErrProcessUnknownField
 )
 
-// FunctionOptions encapsulates execution controls defined inside meta.options for function entries.
+// FunctionOptions contains the typed pool and resource controls for function entries.
 type FunctionOptions struct {
 	Pool   PoolConfig   `json:"pool,omitempty" yaml:"pool,omitempty"`
 	Limits LimitsConfig `json:"limits,omitempty" yaml:"limits,omitempty"`
@@ -53,15 +58,16 @@ func (o FunctionOptions) EffectiveLimits() LimitsConfig {
 	return o.Limits
 }
 
-// Options returns the resolved execution controls from meta.options with defaults applied.
+// Options returns execution controls with defaults applied. Validate reports invalid input.
 func (c *FunctionConfig) Options() FunctionOptions {
 	if c.options != nil {
 		return *c.options
 	}
-	opts, err := parseAndValidateFunctionOptions(c.Meta)
+	fallback := FunctionOptions{Pool: c.Pool, Limits: c.Limits}
+	opts, _, err := normalizeFunctionConfigOptions(FunctionWASM, c.OptionsConfig, c.hasOptions, c.RootPool, c.hasRootPool, c.RootLimits, c.hasRootLimits, c.Meta, fallback)
 	if err != nil {
-		return FunctionOptions{Pool: c.Pool, Limits: c.Limits}
-	}
+		return fallback
+	} // Validate reports invalid authored controls.
 	return opts
 }
 
@@ -75,26 +81,30 @@ func (c *FunctionConfig) LimitsConfig() LimitsConfig {
 	return c.Options().Limits
 }
 
-// SetOptions programmatically sets execution options on the configuration and updates meta.options.
+// SetOptions programmatically sets execution options on the configuration and replaces authored control aliases without changing invocation defaults.
 func (c *FunctionConfig) SetOptions(opts FunctionOptions) {
-	c.options = &opts
+	copy := opts
+	c.options = &copy
 	c.Pool = opts.Pool
 	c.Limits = opts.Limits
-	if c.Meta == nil {
-		c.Meta = attrs.NewBag()
-	}
-	c.Meta.Set("options", serializeFunctionOptions(opts))
+	c.OptionsConfig = opts
+	c.hasOptions = true
+	c.RootLimits, c.RootPool = nil, nil
+	c.hasRootLimits, c.hasRootPool = false, false
+	c.deprecated = nil
+	c.Meta = cloneMetaWithoutControlOptions(c.Meta, FunctionWASM)
 }
 
-// Options returns the resolved execution controls from meta.options with defaults applied.
+// Options returns execution controls with defaults applied. Validate reports invalid input.
 func (c *WATFunctionConfig) Options() FunctionOptions {
 	if c.options != nil {
 		return *c.options
 	}
-	opts, err := parseAndValidateFunctionOptions(c.Meta)
+	fallback := FunctionOptions{Pool: c.Pool, Limits: c.Limits}
+	opts, _, err := normalizeFunctionConfigOptions(FunctionWAT, c.OptionsConfig, c.hasOptions, c.RootPool, c.hasRootPool, c.RootLimits, c.hasRootLimits, c.Meta, fallback)
 	if err != nil {
-		return FunctionOptions{Pool: c.Pool, Limits: c.Limits}
-	}
+		return fallback
+	} // Validate reports invalid authored controls.
 	return opts
 }
 
@@ -108,15 +118,75 @@ func (c *WATFunctionConfig) LimitsConfig() LimitsConfig {
 	return c.Options().Limits
 }
 
-// SetOptions programmatically sets execution options on the configuration and updates meta.options.
+// SetOptions programmatically sets execution options on the configuration and replaces authored control aliases without changing invocation defaults.
 func (c *WATFunctionConfig) SetOptions(opts FunctionOptions) {
-	c.options = &opts
+	copy := opts
+	c.options = &copy
 	c.Pool = opts.Pool
 	c.Limits = opts.Limits
-	if c.Meta == nil {
-		c.Meta = attrs.NewBag()
+	c.OptionsConfig = opts
+	c.hasOptions = true
+	c.RootLimits, c.RootPool = nil, nil
+	c.hasRootLimits, c.hasRootPool = false, false
+	c.deprecated = nil
+	c.Meta = cloneMetaWithoutControlOptions(c.Meta, FunctionWAT)
+}
+
+func serializedFunctionRootOptions(opts FunctionOptions) map[string]any {
+	all := serializeFunctionOptions(opts)
+	delete(all, "pool")
+	return all
+}
+
+func serializedFunctionRootPool(opts FunctionOptions) any {
+	all := serializeFunctionOptions(opts)
+	return all["pool"]
+}
+
+func functionOptionsInput(v any) any {
+	switch typed := v.(type) {
+	case FunctionOptions:
+		return typed
+	case *FunctionOptions:
+		if typed == nil {
+			return nil
+		}
+		return typed
+	default:
+		return v
 	}
-	c.Meta.Set("options", serializeFunctionOptions(opts))
+}
+
+func normalizeFunctionConfigOptions(kind registry.Kind, rootOptions any, hasOptions bool, rootPool any, hasPool bool, rootLimits any, hasLimits bool, meta attrs.Bag, fallback FunctionOptions) (FunctionOptions, []DeprecatedOptionPath, error) {
+	data := map[string]any{}
+	if hasOptions || rootOptions != nil {
+		data["options"] = functionOptionsInput(rootOptions)
+	}
+	if hasPool || rootPool != nil {
+		data["pool"] = rootPool
+	}
+	if hasLimits || rootLimits != nil {
+		data["limits"] = rootLimits
+	}
+	groups, deprecated, err := NormalizeEntryOptions(kind, data, meta)
+	if err != nil {
+		return FunctionOptions{}, nil, err
+	}
+	if len(groups) == 0 {
+		validated, err := validateFunctionOptionsStruct(fallback)
+		return validated, deprecated, err
+	}
+	parsed, err := parseAndValidateFunctionOptions(attrs.Bag{"options": groups})
+	return parsed, deprecated, err
+}
+
+// DeprecatedOptionPaths returns accepted legacy paths without exposing the
+// configuration's internal diagnostic slice.
+func (c *FunctionConfig) DeprecatedOptionPaths() []DeprecatedOptionPath {
+	return append([]DeprecatedOptionPath(nil), c.deprecated...)
+}
+func (c *WATFunctionConfig) DeprecatedOptionPaths() []DeprecatedOptionPath {
+	return append([]DeprecatedOptionPath(nil), c.deprecated...)
 }
 
 func parseAndValidateFunctionOptions(meta attrs.Bag) (FunctionOptions, error) {
@@ -380,12 +450,4 @@ func serializeFunctionOptions(opts FunctionOptions) map[string]any {
 		optMap["limits"] = limMap
 	}
 	return optMap
-}
-
-func hasMetaKey(meta attrs.Bag, key string) bool {
-	if meta == nil {
-		return false
-	}
-	_, ok := meta.Get(key)
-	return ok
 }

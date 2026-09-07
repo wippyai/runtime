@@ -15,8 +15,9 @@ func (h *Host) Register() map[string]any {
 	return map[string]any{
 		"self":        h.Self,
 		"receive":     wasmengine.BindResult0(h.Receive),
+		"subscribe":   h.Subscribe,
 		"try-receive": wasmengine.BindResult0(h.TryReceive),
-		"send":        wasmengine.CheckedHostFunction{Handler: wasmengine.BindResult3WithResume(h.Send, resumeSend), Validate: validateSendArguments},
+		"send":        wasmengine.CheckedHostFunction{Handler: wasmengine.BindResult3WithOwnedArgsAndResume(h.Send, h.sendLifted, resumeSend), Validate: validateSendArguments},
 	}
 }
 

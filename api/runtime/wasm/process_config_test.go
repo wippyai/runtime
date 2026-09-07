@@ -221,70 +221,17 @@ func TestProcessConfig_SetOptionsProgrammatic(t *testing.T) {
 	assert.Equal(t, "isolated", cfg.WorkerClass())
 }
 
-func TestProcessConfig_RootLimitsAndPoolRejection(t *testing.T) {
-	tests := []struct {
-		targetErr error
-		name      string
-		rawJSON   string
-	}{
-		{
-			name:      "root limits with values",
-			rawJSON:   `{"fs":"app.fs:code","path":"/actor.wasm","hash":"sha256:0","method":"run","limits":{"max_execution_ms":100}}`,
-			targetErr: ErrProcessRootLimitsForbidden,
-		},
-		{
-			name:      "root limits empty object",
-			rawJSON:   `{"fs":"app.fs:code","path":"/actor.wasm","hash":"sha256:0","method":"run","limits":{}}`,
-			targetErr: ErrProcessRootLimitsForbidden,
-		},
-		{
-			name:      "root limits explicit null",
-			rawJSON:   `{"fs":"app.fs:code","path":"/actor.wasm","hash":"sha256:0","method":"run","limits":null}`,
-			targetErr: ErrProcessRootLimitsForbidden,
-		},
-		{
-			name:      "root pool with static type",
-			rawJSON:   `{"fs":"app.fs:code","path":"/actor.wasm","hash":"sha256:0","method":"run","pool":{"type":"static","size":4}}`,
-			targetErr: ErrProcessRootPoolForbidden,
-		},
-		{
-			name:      "root pool empty object",
-			rawJSON:   `{"fs":"app.fs:code","path":"/actor.wasm","hash":"sha256:0","method":"run","pool":{}}`,
-			targetErr: ErrProcessRootPoolForbidden,
-		},
-		{
-			name:      "root pool explicit null",
-			rawJSON:   `{"fs":"app.fs:code","path":"/actor.wasm","hash":"sha256:0","method":"run","pool":null}`,
-			targetErr: ErrProcessRootPoolForbidden,
-		},
-		{
-			name:      "both root limits and meta.options",
-			rawJSON:   `{"fs":"app.fs:code","path":"/actor.wasm","hash":"sha256:0","method":"run","limits":{"max_execution_ms":100},"meta":{"options":{"limits":{"memory_bytes":67108864}}}}`,
-			targetErr: ErrProcessRootLimitsForbidden,
-		},
-		{
-			name:      "both root pool and meta.options",
-			rawJSON:   `{"fs":"app.fs:code","path":"/actor.wasm","hash":"sha256:0","method":"run","pool":{"type":"static"},"meta":{"options":{"worker_class":"wasm"}}}`,
-			targetErr: ErrProcessRootPoolForbidden,
-		},
-	}
+func TestProcessConfig_FlatLimitsCompatibilityAndPoolRejection(t *testing.T) {
+	flat := `{"fs":"app.fs:code","path":"/actor.wasm","hash":"sha256:0","method":"run","limits":{"max_execution_ms":100}}`
+	var cfg ProcessConfig
+	require.NoError(t, json.Unmarshal([]byte(flat), &cfg))
+	require.NoError(t, cfg.Validate())
+	require.Equal(t, 100, cfg.Limits().MaxExecutionMS)
+	require.Equal(t, []DeprecatedOptionPath{{Path: "limits", Replacement: "options.limits"}}, cfg.DeprecatedOptionPaths())
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Direct JSON unmarshal
-			var cfg ProcessConfig
-			err := json.Unmarshal([]byte(tt.rawJSON), &cfg)
-			require.NoError(t, err)
-			err = cfg.Validate()
-			require.Error(t, err)
-			assert.ErrorIs(t, err, tt.targetErr)
-
-			// Entry decode
-			_, err = decodeProcessEntry(t, tt.rawJSON, nil)
-			require.Error(t, err)
-			assert.ErrorIs(t, err, tt.targetErr)
-		})
-	}
+	pool := `{"fs":"app.fs:code","path":"/actor.wasm","hash":"sha256:0","method":"run","pool":{}}`
+	require.NoError(t, json.Unmarshal([]byte(pool), &cfg))
+	require.ErrorIs(t, cfg.Validate(), ErrProcessRootPoolForbidden)
 }
 
 func TestProcessConfig_UnknownFieldsInsideControls(t *testing.T) {
@@ -731,7 +678,6 @@ meta:
 func TestProcessConfig_ErrorsKind(t *testing.T) {
 	// Verify that custom errors implement apierror.Error and have Kind Invalid
 	errs := []error{
-		ErrProcessRootLimitsForbidden,
 		ErrProcessRootPoolForbidden,
 		ErrProcessOptionsInvalidType,
 		ErrProcessLimitsInvalidType,
@@ -889,7 +835,7 @@ func TestProcessConfig_ReusedStructStateReset(t *testing.T) {
 		limitsJSON := `{"fs":"app.fs:code","path":"/actor.wasm","hash":"sha256:0","method":"run","limits":{"max_execution_ms":100}}`
 		err = json.Unmarshal([]byte(limitsJSON), &cfg)
 		require.NoError(t, err)
-		require.ErrorIs(t, cfg.Validate(), ErrProcessRootLimitsForbidden)
+		require.NoError(t, cfg.Validate())
 
 		// Unmarshal clean JSON into the SAME struct; old rootLimits flag must not survive
 		err = json.Unmarshal([]byte(cleanJSON), &cfg)
@@ -949,7 +895,7 @@ limits:
 `
 		err = yaml.Unmarshal([]byte(limitsYAML), &cfg)
 		require.NoError(t, err)
-		require.ErrorIs(t, cfg.Validate(), ErrProcessRootLimitsForbidden)
+		require.NoError(t, cfg.Validate())
 
 		// Unmarshal clean YAML into SAME struct; old rootLimits flag must not survive
 		err = yaml.Unmarshal([]byte(cleanYAML), &cfg)

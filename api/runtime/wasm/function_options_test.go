@@ -5,6 +5,7 @@ package wasm
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/goccy/go-yaml"
@@ -50,111 +51,39 @@ func decodeWATTestEntry(t *testing.T, data string, meta attrs.Bag) (*WATFunction
 	return entrycfg.DecodeEntryConfigFromContext[WATFunctionConfig](functionTestDecodeContext(), entry)
 }
 
-func TestFunctionConfig_RootLimitsAndPoolRejection(t *testing.T) {
-	tests := []struct {
-		targetErr error
-		name      string
-		rawJSON   string
-	}{
-		{
-			name:      "root limits with values",
-			rawJSON:   `{"fs":"app:fs","path":"/test.wasm","hash":"sha256:0","method":"run","limits":{"max_execution_ms":100}}`,
-			targetErr: ErrFunctionRootLimitsForbidden,
-		},
-		{
-			name:      "root limits empty object",
-			rawJSON:   `{"fs":"app:fs","path":"/test.wasm","hash":"sha256:0","method":"run","limits":{}}`,
-			targetErr: ErrFunctionRootLimitsForbidden,
-		},
-		{
-			name:      "root limits explicit null",
-			rawJSON:   `{"fs":"app:fs","path":"/test.wasm","hash":"sha256:0","method":"run","limits":null}`,
-			targetErr: ErrFunctionRootLimitsForbidden,
-		},
-		{
-			name:      "root pool with type",
-			rawJSON:   `{"fs":"app:fs","path":"/test.wasm","hash":"sha256:0","method":"run","pool":{"type":"inline"}}`,
-			targetErr: ErrFunctionRootPoolForbidden,
-		},
-		{
-			name:      "root pool empty object",
-			rawJSON:   `{"fs":"app:fs","path":"/test.wasm","hash":"sha256:0","method":"run","pool":{}}`,
-			targetErr: ErrFunctionRootPoolForbidden,
-		},
-		{
-			name:      "root pool explicit null",
-			rawJSON:   `{"fs":"app:fs","path":"/test.wasm","hash":"sha256:0","method":"run","pool":null}`,
-			targetErr: ErrFunctionRootPoolForbidden,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run("WASM_"+tt.name, func(t *testing.T) {
-			var cfg FunctionConfig
-			err := json.Unmarshal([]byte(tt.rawJSON), &cfg)
-			require.NoError(t, err)
-			err = cfg.Validate()
-			require.Error(t, err)
-			assert.ErrorIs(t, err, tt.targetErr)
-
-			_, err = decodeFunctionEntry(t, tt.rawJSON, nil)
-			require.Error(t, err)
-			assert.ErrorIs(t, err, tt.targetErr)
-		})
+func TestFunctionConfig_FlatRootCompatibility(t *testing.T) {
+	for _, raw := range []string{
+		`{"fs":"app:fs","path":"/test.wasm","hash":"sha256:0","method":"run","limits":{"max_execution_ms":100}}`,
+		`{"fs":"app:fs","path":"/test.wasm","hash":"sha256:0","method":"run","pool":{"type":"inline"}}`,
+	} {
+		var cfg FunctionConfig
+		require.NoError(t, json.Unmarshal([]byte(raw), &cfg))
+		require.NoError(t, cfg.Validate())
+		if strings.Contains(raw, "limits") {
+			require.Len(t, cfg.DeprecatedOptionPaths(), 1)
+		} else {
+			require.Empty(t, cfg.DeprecatedOptionPaths())
+		}
+		_, err := decodeFunctionEntry(t, raw, nil)
+		require.NoError(t, err)
 	}
 }
 
-func TestWATFunctionConfig_RootLimitsAndPoolRejection(t *testing.T) {
-	tests := []struct {
-		targetErr error
-		name      string
-		rawJSON   string
-	}{
-		{
-			name:      "root limits with values",
-			rawJSON:   `{"source":"(module)","method":"run","limits":{"max_execution_ms":100}}`,
-			targetErr: ErrFunctionRootLimitsForbidden,
-		},
-		{
-			name:      "root limits empty object",
-			rawJSON:   `{"source":"(module)","method":"run","limits":{}}`,
-			targetErr: ErrFunctionRootLimitsForbidden,
-		},
-		{
-			name:      "root limits explicit null",
-			rawJSON:   `{"source":"(module)","method":"run","limits":null}`,
-			targetErr: ErrFunctionRootLimitsForbidden,
-		},
-		{
-			name:      "root pool with type",
-			rawJSON:   `{"source":"(module)","method":"run","pool":{"type":"inline"}}`,
-			targetErr: ErrFunctionRootPoolForbidden,
-		},
-		{
-			name:      "root pool empty object",
-			rawJSON:   `{"source":"(module)","method":"run","pool":{}}`,
-			targetErr: ErrFunctionRootPoolForbidden,
-		},
-		{
-			name:      "root pool explicit null",
-			rawJSON:   `{"source":"(module)","method":"run","pool":null}`,
-			targetErr: ErrFunctionRootPoolForbidden,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run("WAT_"+tt.name, func(t *testing.T) {
-			var cfg WATFunctionConfig
-			err := json.Unmarshal([]byte(tt.rawJSON), &cfg)
-			require.NoError(t, err)
-			err = cfg.Validate()
-			require.Error(t, err)
-			assert.ErrorIs(t, err, tt.targetErr)
-
-			_, err = decodeWATTestEntry(t, tt.rawJSON, nil)
-			require.Error(t, err)
-			assert.ErrorIs(t, err, tt.targetErr)
-		})
+func TestWATFunctionConfig_FlatRootCompatibility(t *testing.T) {
+	for _, raw := range []string{
+		`{"source":"(module)","method":"run","limits":{"max_execution_ms":100}}`,
+		`{"source":"(module)","method":"run","pool":{"type":"inline"}}`,
+	} {
+		var cfg WATFunctionConfig
+		require.NoError(t, json.Unmarshal([]byte(raw), &cfg))
+		require.NoError(t, cfg.Validate())
+		if strings.Contains(raw, "limits") {
+			require.Len(t, cfg.DeprecatedOptionPaths(), 1)
+		} else {
+			require.Empty(t, cfg.DeprecatedOptionPaths())
+		}
+		_, err := decodeWATTestEntry(t, raw, nil)
+		require.NoError(t, err)
 	}
 }
 
@@ -165,27 +94,18 @@ func TestFunctionConfig_UnknownFieldsInsideOptions(t *testing.T) {
 		errSegment string
 	}{
 		{
-			name: "unknown field in options",
-			rawJSON: `{
-				"fs":"app:fs","path":"/test.wasm","hash":"sha256:0","method":"run",
-				"meta":{"options":{"unknown_field":123}}
-			}`,
-			errSegment: `unknown field "unknown_field" in meta.options`,
+			name:       "unknown field in options",
+			rawJSON:    `{"fs":"app:fs","path":"/test.wasm","hash":"sha256:0","method":"run","options":{"unknown_field":123}}`,
+			errSegment: `unknown field "unknown_field" in options`,
 		},
 		{
-			name: "unknown field in pool",
-			rawJSON: `{
-				"fs":"app:fs","path":"/test.wasm","hash":"sha256:0","method":"run",
-				"meta":{"options":{"pool":{"unknown_pool_knob":123}}}
-			}`,
+			name:       "unknown field in pool",
+			rawJSON:    `{"fs":"app:fs","path":"/test.wasm","hash":"sha256:0","method":"run","options":{"pool":{"unknown_pool_knob":123}}}`,
 			errSegment: `unknown field "unknown_pool_knob" in meta.options.pool`,
 		},
 		{
-			name: "unknown field in limits",
-			rawJSON: `{
-				"fs":"app:fs","path":"/test.wasm","hash":"sha256:0","method":"run",
-				"meta":{"options":{"limits":{"unknown_limit_knob":123}}}
-			}`,
+			name:       "unknown field in limits",
+			rawJSON:    `{"fs":"app:fs","path":"/test.wasm","hash":"sha256:0","method":"run","options":{"limits":{"unknown_limit_knob":123}}}`,
 			errSegment: `unknown field "unknown_limit_knob" in meta.options.limits`,
 		},
 	}
@@ -333,7 +253,7 @@ func TestFunctionConfig_SetOptions(t *testing.T) {
 	assert.Equal(t, 2000, cfg.Options().Limits.MaxExecutionMS)
 }
 
-func TestFunctionConfig_MarshalExcludesRootLimitsAndPool(t *testing.T) {
+func TestFunctionConfig_MarshalCanonicalOptionsAndRootPool(t *testing.T) {
 	cfg := FunctionConfig{
 		FS:     "app:fs",
 		Path:   "/test.wasm",
@@ -344,11 +264,11 @@ func TestFunctionConfig_MarshalExcludesRootLimitsAndPool(t *testing.T) {
 
 	data, err := json.Marshal(cfg)
 	require.NoError(t, err)
-	assert.NotContains(t, string(data), `"pool"`)
+	assert.Contains(t, string(data), `"pool"`)
 	assert.NotContains(t, string(data), `"limits"`)
 
 	yamlData, err := yaml.Marshal(cfg)
 	require.NoError(t, err)
-	assert.NotContains(t, string(yamlData), "pool:")
+	assert.Contains(t, string(yamlData), "pool:")
 	assert.NotContains(t, string(yamlData), "limits:")
 }

@@ -74,46 +74,53 @@ type (
 
 	// WATFunctionConfig defines configuration for inline WAT function entries.
 	WATFunctionConfig struct {
-		// RootLimits and RootPool capture root-level limits and pool to detect and reject invalid configuration.
+		// OptionsConfig carries the raw authored root options object.
+		OptionsConfig any `json:"options,omitempty" yaml:"options,omitempty"`
+		// RootLimits and RootPool retain flat compatibility input.
 		RootLimits any `json:"limits,omitempty" yaml:"limits,omitempty"`
 		RootPool   any `json:"pool,omitempty" yaml:"pool,omitempty"`
 		options    *FunctionOptions
 
-		Meta      attrs.Bag     `json:"meta,omitempty" yaml:"meta,omitempty"`
-		Source    string        `json:"source" yaml:"source" resolve:"-"`
-		Method    string        `json:"method" yaml:"method"`
-		Transport string        `json:"transport,omitempty" yaml:"transport,omitempty"`
-		WIT       string        `json:"wit,omitempty" yaml:"wit,omitempty"`
-		WASI      WASIConfig    `json:"wasi,omitempty" yaml:"wasi,omitempty"`
-		Imports   []registry.ID `json:"imports,omitempty" yaml:"imports,omitempty"`
-		Pool      PoolConfig    `json:"-" yaml:"-"`
-		Limits    LimitsConfig  `json:"-" yaml:"-"`
+		Meta       attrs.Bag     `json:"meta,omitempty" yaml:"meta,omitempty"`
+		Source     string        `json:"source" yaml:"source" resolve:"-"`
+		Method     string        `json:"method" yaml:"method"`
+		Transport  string        `json:"transport,omitempty" yaml:"transport,omitempty"`
+		WIT        string        `json:"wit,omitempty" yaml:"wit,omitempty"`
+		WASI       WASIConfig    `json:"wasi,omitempty" yaml:"wasi,omitempty"`
+		Imports    []registry.ID `json:"imports,omitempty" yaml:"imports,omitempty"`
+		deprecated []DeprecatedOptionPath
+		Pool       PoolConfig   `json:"-" yaml:"-"`
+		Limits     LimitsConfig `json:"-" yaml:"-"`
 
 		hasRootLimits bool
 		hasRootPool   bool
+		hasOptions    bool
 	}
 
 	// FunctionConfig defines configuration for precompiled WASM function entries.
 	FunctionConfig struct {
-		// RootLimits and RootPool capture root-level limits and pool to detect and reject invalid configuration.
+		OptionsConfig any `json:"options,omitempty" yaml:"options,omitempty"`
+		// RootLimits and RootPool retain flat compatibility input.
 		RootLimits any `json:"limits,omitempty" yaml:"limits,omitempty"`
 		RootPool   any `json:"pool,omitempty" yaml:"pool,omitempty"`
 		options    *FunctionOptions
 
-		Meta      attrs.Bag     `json:"meta,omitempty" yaml:"meta,omitempty"`
-		FS        string        `json:"fs" yaml:"fs"`
-		Path      string        `json:"path" yaml:"path"`
-		Hash      string        `json:"hash" yaml:"hash"`
-		Method    string        `json:"method" yaml:"method"`
-		Transport string        `json:"transport,omitempty" yaml:"transport,omitempty"`
-		WIT       string        `json:"wit,omitempty" yaml:"wit,omitempty"`
-		WASI      WASIConfig    `json:"wasi,omitempty" yaml:"wasi,omitempty"`
-		Imports   []registry.ID `json:"imports,omitempty" yaml:"imports,omitempty"`
-		Pool      PoolConfig    `json:"-" yaml:"-"`
-		Limits    LimitsConfig  `json:"-" yaml:"-"`
+		Meta       attrs.Bag     `json:"meta,omitempty" yaml:"meta,omitempty"`
+		FS         string        `json:"fs" yaml:"fs"`
+		Path       string        `json:"path" yaml:"path"`
+		Hash       string        `json:"hash" yaml:"hash"`
+		Method     string        `json:"method" yaml:"method"`
+		Transport  string        `json:"transport,omitempty" yaml:"transport,omitempty"`
+		WIT        string        `json:"wit,omitempty" yaml:"wit,omitempty"`
+		WASI       WASIConfig    `json:"wasi,omitempty" yaml:"wasi,omitempty"`
+		Imports    []registry.ID `json:"imports,omitempty" yaml:"imports,omitempty"`
+		deprecated []DeprecatedOptionPath
+		Pool       PoolConfig   `json:"-" yaml:"-"`
+		Limits     LimitsConfig `json:"-" yaml:"-"`
 
 		hasRootLimits bool
 		hasRootPool   bool
+		hasOptions    bool
 	}
 )
 
@@ -220,6 +227,7 @@ func (c LimitsConfig) EffectiveSocketTimeoutMS() int {
 }
 
 type watFunctionConfigJSON struct {
+	Options   any           `json:"options,omitempty" yaml:"options,omitempty"`
 	Limits    any           `json:"limits,omitempty" yaml:"limits,omitempty"`
 	Pool      any           `json:"pool,omitempty" yaml:"pool,omitempty"`
 	Meta      attrs.Bag     `json:"meta,omitempty" yaml:"meta,omitempty"`
@@ -238,7 +246,7 @@ func (c *WATFunctionConfig) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	var hasLimits, hasPool bool
+	var hasLimits, hasPool, hasOptions bool
 	var rawMap map[string]json.RawMessage
 	if err := json.Unmarshal(data, &rawMap); err == nil {
 		if _, exists := rawMap["limits"]; exists {
@@ -247,10 +255,14 @@ func (c *WATFunctionConfig) UnmarshalJSON(data []byte) error {
 		if _, exists := rawMap["pool"]; exists {
 			hasPool = true
 		}
+		if _, exists := rawMap["options"]; exists {
+			hasOptions = true
+		}
 	}
 
 	*c = WATFunctionConfig{
 		Meta:          decoded.Meta,
+		OptionsConfig: decoded.Options,
 		Source:        decoded.Source,
 		Method:        decoded.Method,
 		Transport:     decoded.Transport,
@@ -261,6 +273,7 @@ func (c *WATFunctionConfig) UnmarshalJSON(data []byte) error {
 		RootPool:      decoded.Pool,
 		hasRootLimits: hasLimits,
 		hasRootPool:   hasPool,
+		hasOptions:    hasOptions,
 		options:       nil,
 	}
 	return nil
@@ -273,7 +286,7 @@ func (c *WATFunctionConfig) UnmarshalYAML(unmarshal func(any) error) error {
 		return err
 	}
 
-	var hasLimits, hasPool bool
+	var hasLimits, hasPool, hasOptions bool
 	var rawMap map[string]any
 	if err := unmarshal(&rawMap); err == nil {
 		if _, exists := rawMap["limits"]; exists {
@@ -282,10 +295,14 @@ func (c *WATFunctionConfig) UnmarshalYAML(unmarshal func(any) error) error {
 		if _, exists := rawMap["pool"]; exists {
 			hasPool = true
 		}
+		if _, exists := rawMap["options"]; exists {
+			hasOptions = true
+		}
 	}
 
 	*c = WATFunctionConfig{
 		Meta:          decoded.Meta,
+		OptionsConfig: decoded.Options,
 		Source:        decoded.Source,
 		Method:        decoded.Method,
 		Transport:     decoded.Transport,
@@ -296,14 +313,23 @@ func (c *WATFunctionConfig) UnmarshalYAML(unmarshal func(any) error) error {
 		RootPool:      decoded.Pool,
 		hasRootLimits: hasLimits,
 		hasRootPool:   hasPool,
+		hasOptions:    hasOptions,
 		options:       nil,
 	}
 	return nil
 }
 
-// MarshalJSON serializes WATFunctionConfig, excluding any root limits or pool fields.
+// MarshalJSON serializes WATFunctionConfig, using canonical control paths and preserving invocation metadata.
 func (c WATFunctionConfig) MarshalJSON() ([]byte, error) {
+	opts, _, err := normalizeFunctionConfigOptions(FunctionWAT, c.OptionsConfig, c.hasOptions, c.RootPool, c.hasRootPool, c.RootLimits, c.hasRootLimits, c.Meta, FunctionOptions{Pool: c.Pool, Limits: c.Limits})
+	if err != nil {
+		return nil, err
+	}
+	c.options = &opts
+	c.Meta = cloneMetaWithoutControlOptions(c.Meta, FunctionWAT)
 	return json.Marshal(watFunctionConfigJSON{
+		Options:   serializedFunctionRootOptions(c.Options()),
+		Pool:      serializedFunctionRootPool(c.Options()),
 		Meta:      c.Meta,
 		Source:    c.Source,
 		Method:    c.Method,
@@ -314,9 +340,17 @@ func (c WATFunctionConfig) MarshalJSON() ([]byte, error) {
 	})
 }
 
-// MarshalYAML serializes WATFunctionConfig, excluding any root limits or pool fields.
+// MarshalYAML serializes WATFunctionConfig, using canonical control paths and preserving invocation metadata.
 func (c WATFunctionConfig) MarshalYAML() (any, error) {
+	opts, _, err := normalizeFunctionConfigOptions(FunctionWAT, c.OptionsConfig, c.hasOptions, c.RootPool, c.hasRootPool, c.RootLimits, c.hasRootLimits, c.Meta, FunctionOptions{Pool: c.Pool, Limits: c.Limits})
+	if err != nil {
+		return nil, err
+	}
+	c.options = &opts
+	c.Meta = cloneMetaWithoutControlOptions(c.Meta, FunctionWAT)
 	return watFunctionConfigJSON{
+		Options:   serializedFunctionRootOptions(c.Options()),
+		Pool:      serializedFunctionRootPool(c.Options()),
 		Meta:      c.Meta,
 		Source:    c.Source,
 		Method:    c.Method,
@@ -328,6 +362,7 @@ func (c WATFunctionConfig) MarshalYAML() (any, error) {
 }
 
 type functionConfigJSON struct {
+	Options   any           `json:"options,omitempty" yaml:"options,omitempty"`
 	Limits    any           `json:"limits,omitempty" yaml:"limits,omitempty"`
 	Pool      any           `json:"pool,omitempty" yaml:"pool,omitempty"`
 	Meta      attrs.Bag     `json:"meta,omitempty" yaml:"meta,omitempty"`
@@ -348,7 +383,7 @@ func (c *FunctionConfig) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	var hasLimits, hasPool bool
+	var hasLimits, hasPool, hasOptions bool
 	var rawMap map[string]json.RawMessage
 	if err := json.Unmarshal(data, &rawMap); err == nil {
 		if _, exists := rawMap["limits"]; exists {
@@ -357,10 +392,14 @@ func (c *FunctionConfig) UnmarshalJSON(data []byte) error {
 		if _, exists := rawMap["pool"]; exists {
 			hasPool = true
 		}
+		if _, exists := rawMap["options"]; exists {
+			hasOptions = true
+		}
 	}
 
 	*c = FunctionConfig{
 		Meta:          decoded.Meta,
+		OptionsConfig: decoded.Options,
 		FS:            decoded.FS,
 		Path:          decoded.Path,
 		Hash:          decoded.Hash,
@@ -373,6 +412,7 @@ func (c *FunctionConfig) UnmarshalJSON(data []byte) error {
 		RootPool:      decoded.Pool,
 		hasRootLimits: hasLimits,
 		hasRootPool:   hasPool,
+		hasOptions:    hasOptions,
 		options:       nil,
 	}
 	return nil
@@ -385,7 +425,7 @@ func (c *FunctionConfig) UnmarshalYAML(unmarshal func(any) error) error {
 		return err
 	}
 
-	var hasLimits, hasPool bool
+	var hasLimits, hasPool, hasOptions bool
 	var rawMap map[string]any
 	if err := unmarshal(&rawMap); err == nil {
 		if _, exists := rawMap["limits"]; exists {
@@ -394,10 +434,14 @@ func (c *FunctionConfig) UnmarshalYAML(unmarshal func(any) error) error {
 		if _, exists := rawMap["pool"]; exists {
 			hasPool = true
 		}
+		if _, exists := rawMap["options"]; exists {
+			hasOptions = true
+		}
 	}
 
 	*c = FunctionConfig{
 		Meta:          decoded.Meta,
+		OptionsConfig: decoded.Options,
 		FS:            decoded.FS,
 		Path:          decoded.Path,
 		Hash:          decoded.Hash,
@@ -410,14 +454,23 @@ func (c *FunctionConfig) UnmarshalYAML(unmarshal func(any) error) error {
 		RootPool:      decoded.Pool,
 		hasRootLimits: hasLimits,
 		hasRootPool:   hasPool,
+		hasOptions:    hasOptions,
 		options:       nil,
 	}
 	return nil
 }
 
-// MarshalJSON serializes FunctionConfig, excluding any root limits or pool fields.
+// MarshalJSON serializes FunctionConfig, using canonical control paths and preserving invocation metadata.
 func (c FunctionConfig) MarshalJSON() ([]byte, error) {
+	opts, _, err := normalizeFunctionConfigOptions(FunctionWASM, c.OptionsConfig, c.hasOptions, c.RootPool, c.hasRootPool, c.RootLimits, c.hasRootLimits, c.Meta, FunctionOptions{Pool: c.Pool, Limits: c.Limits})
+	if err != nil {
+		return nil, err
+	}
+	c.options = &opts
+	c.Meta = cloneMetaWithoutControlOptions(c.Meta, FunctionWASM)
 	return json.Marshal(functionConfigJSON{
+		Options:   serializedFunctionRootOptions(c.Options()),
+		Pool:      serializedFunctionRootPool(c.Options()),
 		Meta:      c.Meta,
 		FS:        c.FS,
 		Path:      c.Path,
@@ -430,9 +483,17 @@ func (c FunctionConfig) MarshalJSON() ([]byte, error) {
 	})
 }
 
-// MarshalYAML serializes FunctionConfig, excluding any root limits or pool fields.
+// MarshalYAML serializes FunctionConfig, using canonical control paths and preserving invocation metadata.
 func (c FunctionConfig) MarshalYAML() (any, error) {
+	opts, _, err := normalizeFunctionConfigOptions(FunctionWASM, c.OptionsConfig, c.hasOptions, c.RootPool, c.hasRootPool, c.RootLimits, c.hasRootLimits, c.Meta, FunctionOptions{Pool: c.Pool, Limits: c.Limits})
+	if err != nil {
+		return nil, err
+	}
+	c.options = &opts
+	c.Meta = cloneMetaWithoutControlOptions(c.Meta, FunctionWASM)
 	return functionConfigJSON{
+		Options:   serializedFunctionRootOptions(c.Options()),
+		Pool:      serializedFunctionRootPool(c.Options()),
 		Meta:      c.Meta,
 		FS:        c.FS,
 		Path:      c.Path,
@@ -455,12 +516,6 @@ func (c *WATFunctionConfig) EffectiveTransport() string {
 
 // Validate checks if the WATFunctionConfig has required fields and valid values.
 func (c *WATFunctionConfig) Validate() error {
-	if c.RootLimits != nil || c.hasRootLimits {
-		return ErrFunctionRootLimitsForbidden
-	}
-	if c.RootPool != nil || c.hasRootPool {
-		return ErrFunctionRootPoolForbidden
-	}
 	if c.Source == "" {
 		return ErrSourceRequired
 	}
@@ -477,32 +532,11 @@ func (c *WATFunctionConfig) Validate() error {
 		return err
 	}
 
-	if hasMetaKey(c.Meta, "options") {
-		opts, err := parseAndValidateFunctionOptions(c.Meta)
-		if err != nil {
-			return err
-		}
-		c.options = &opts
-		c.Pool = opts.Pool
-		c.Limits = opts.Limits
-	} else if c.options != nil {
-		opts, err := validateFunctionOptionsStruct(*c.options)
-		if err != nil {
-			return err
-		}
-		c.options = &opts
-		c.Pool = opts.Pool
-		c.Limits = opts.Limits
-	} else {
-		if err := validatePool(c.Pool); err != nil {
-			return err
-		}
-		if err := validateLimits(c.Limits); err != nil {
-			return err
-		}
-		opts := FunctionOptions{Pool: c.Pool, Limits: c.Limits}
-		c.options = &opts
+	opts, deprecated, err := normalizeFunctionConfigOptions(FunctionWAT, c.OptionsConfig, c.hasOptions, c.RootPool, c.hasRootPool, c.RootLimits, c.hasRootLimits, c.Meta, FunctionOptions{Pool: c.Pool, Limits: c.Limits})
+	if err != nil {
+		return err
 	}
+	c.options, c.Pool, c.Limits, c.deprecated = &opts, opts.Pool, opts.Limits, deprecated
 	return nil
 }
 
@@ -516,12 +550,6 @@ func (c *FunctionConfig) EffectiveTransport() string {
 
 // Validate checks if the WASMFunctionConfig has required fields and valid values.
 func (c *FunctionConfig) Validate() error {
-	if c.RootLimits != nil || c.hasRootLimits {
-		return ErrFunctionRootLimitsForbidden
-	}
-	if c.RootPool != nil || c.hasRootPool {
-		return ErrFunctionRootPoolForbidden
-	}
 	if c.FS == "" {
 		return ErrFSRequired
 	}
@@ -544,32 +572,11 @@ func (c *FunctionConfig) Validate() error {
 		return err
 	}
 
-	if hasMetaKey(c.Meta, "options") {
-		opts, err := parseAndValidateFunctionOptions(c.Meta)
-		if err != nil {
-			return err
-		}
-		c.options = &opts
-		c.Pool = opts.Pool
-		c.Limits = opts.Limits
-	} else if c.options != nil {
-		opts, err := validateFunctionOptionsStruct(*c.options)
-		if err != nil {
-			return err
-		}
-		c.options = &opts
-		c.Pool = opts.Pool
-		c.Limits = opts.Limits
-	} else {
-		if err := validatePool(c.Pool); err != nil {
-			return err
-		}
-		if err := validateLimits(c.Limits); err != nil {
-			return err
-		}
-		opts := FunctionOptions{Pool: c.Pool, Limits: c.Limits}
-		c.options = &opts
+	opts, deprecated, err := normalizeFunctionConfigOptions(FunctionWASM, c.OptionsConfig, c.hasOptions, c.RootPool, c.hasRootPool, c.RootLimits, c.hasRootLimits, c.Meta, FunctionOptions{Pool: c.Pool, Limits: c.Limits})
+	if err != nil {
+		return err
 	}
+	c.options, c.Pool, c.Limits, c.deprecated = &opts, opts.Pool, opts.Limits, deprecated
 	return nil
 }
 

@@ -17,17 +17,42 @@ import (
 	"github.com/wippyai/runtime/runtime/security"
 	wippyhost "github.com/wippyai/runtime/runtime/wasm/host/wippy"
 	wasmengine "github.com/wippyai/wasm-runtime/engine"
+	"github.com/wippyai/wasm-runtime/wasi/preview2"
 )
 
 const Namespace = "wippy:actor/process@0.1.0"
 
 var errSchedulerRequired = errors.New("actor-scheduler-required")
 
-type Host struct{}
+type Host struct{ resources *preview2.ResourceTable }
 
-func NewHost() *Host                   { return &Host{} }
+// NewHost accepts the shared per-instance table used by wasi:io/poll. The
+// optional form preserves existing direct construction for legacy actor calls.
+// Subscribe deliberately requires an injected table: a private table would
+// manufacture handles that wasi:io/poll cannot resolve or own at shutdown.
+func NewHost(resources ...*preview2.ResourceTable) *Host {
+	var table *preview2.ResourceTable
+	if len(resources) != 0 {
+		table = resources[0]
+	}
+	return &Host{resources: table}
+}
 func (*Host) Namespace() string        { return Namespace }
 func (*Host) AsyncFunctions() []string { return []string{"send", "receive"} }
+
+// Subscribe returns a standard wasi:io/poll pollable handle from this
+// actor instance's shared ResourceTable. Readiness observes only mailbox state;
+// it never consumes a queued message.
+func (h *Host) Subscribe(ctx context.Context) uint32 {
+	m := GetMailbox(ctx)
+	if m == nil {
+		panic(ErrActorRequired)
+	}
+	if h == nil || h.resources == nil {
+		panic("actor poll resource table missing")
+	}
+	return h.resources.Add(m.Subscribe())
+}
 
 func (*Host) Self(ctx context.Context) string {
 	if GetMailbox(ctx) == nil {
@@ -82,7 +107,24 @@ type ReceivePending struct{}
 func (*ReceivePending) CmdID() wasmengine.CommandID             { return 0 }
 func (*ReceivePending) Execute(context.Context) (uint64, error) { return 0, errSchedulerRequired }
 
-func (*Host) Send(ctx context.Context, target, topic string, inputs []Payload) (bool, error) {
+// Send is the public, borrowed-input entry point. It snapshots values before
+// an async send retains them, so direct Go callers and dynamic lowering may
+// safely reuse their argument storage after Send returns.
+func (h *Host) Send(ctx context.Context, target, topic string, inputs []Payload) (bool, error) {
+	return h.send(ctx, target, topic, inputs, false)
+}
+
+// sendLifted is used only by the typed Canonical ABI binder. That binder fully
+// lifts strings and list<u8> data into fresh Go storage before this method is
+// entered, so SendCmd may adopt the payload bytes across Asyncify suspension.
+func (h *Host) sendLifted(ctx context.Context, target, topic string, inputs []Payload) (bool, error) {
+	return h.send(ctx, target, topic, inputs, true)
+}
+
+// send validates all values before allocating the command retained by the
+// dispatcher. ownedInputs describes whether topic and payload data may be
+// adopted; callers must not use it for borrowed storage.
+func (h *Host) send(ctx context.Context, target, topic string, inputs []Payload, ownedInputs bool) (bool, error) {
 	m := GetMailbox(ctx)
 	if m == nil {
 		return false, ErrActorRequired
@@ -116,7 +158,6 @@ func (*Host) Send(ctx context.Context, target, topic string, inputs []Payload) (
 	if err != nil {
 		return false, err
 	}
-	// Validate all inputs before allocating owned dispatcher payloads.
 	for _, input := range inputs {
 		switch input.Format {
 		case "bytes", "text", "json":
@@ -129,8 +170,11 @@ func (*Host) Send(ctx context.Context, target, topic string, inputs []Payload) (
 		}
 		n += size
 	}
-	// Canonical ABI input slices can reference guest memory. Snapshot before
-	// suspending; dispatcher execution happens after this host invocation ends.
+
+	commandTopic := topic
+	if !ownedInputs {
+		commandTopic = strings.Clone(topic)
+	}
 	pls := make(payload.Payloads, len(inputs))
 	for i, input := range inputs {
 		format := payload.Bytes
@@ -140,9 +184,13 @@ func (*Host) Send(ctx context.Context, target, topic string, inputs []Payload) (
 		case "json":
 			format = payload.JSON
 		}
-		pls[i] = payload.NewPayload(append([]byte(nil), input.Data...), format)
+		data := input.Data
+		if !ownedInputs {
+			data = append([]byte(nil), data...)
+		}
+		pls[i] = payload.NewPayload(data, format)
 	}
-	op := &sendPending{command: process.SendCmd{From: self, To: to, Topic: strings.Clone(topic), Payloads: pls}}
+	op := &sendPending{command: process.SendCmd{From: self, To: to, Topic: commandTopic, Payloads: pls}}
 	if err := wasmengine.Suspend(ctx, op); err != nil {
 		return false, err
 	}

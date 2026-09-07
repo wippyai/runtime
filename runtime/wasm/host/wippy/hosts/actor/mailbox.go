@@ -16,6 +16,7 @@ import (
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/topology"
+	"github.com/wippyai/wasm-runtime/wasi/preview2"
 )
 
 var (
@@ -64,14 +65,15 @@ type queuedMessage struct {
 }
 
 type Mailbox struct {
-	inbox  []queuedMessage
-	limits Limits
-	mu     sync.Mutex
-	bytes  int64
-	head   int
-	length int
-	count  int
-	closed bool
+	readyCh chan struct{}
+	inbox   []queuedMessage
+	limits  Limits
+	bytes   int64
+	head    int
+	length  int
+	count   int
+	mu      sync.Mutex
+	closed  bool
 }
 
 // NewMailbox fails closed for invalid limits. Configuration loaders should
@@ -165,7 +167,11 @@ func (m *Mailbox) AdmitEvent(event process.Event) (process.Event, error) {
 	}
 	d := &delivery{mailbox: m, messages: make([]queuedMessage, len(pkg.Messages))}
 	for i, msg := range pkg.Messages {
-		out := Message{From: strings.Clone(from), Topic: strings.Clone(msg.Topic), Payloads: make([]Payload, len(msg.Payloads))}
+		// PID.String returns an immutable, independently formatted string (or
+		// its cached equivalent). It is already owned and bounded above, so
+		// messages in this delivery may share it. Topics and payloads still
+		// need snapshots because their storage belongs to the incoming package.
+		out := Message{From: from, Topic: strings.Clone(msg.Topic), Payloads: make([]Payload, len(msg.Payloads))}
 		for j, input := range msg.Payloads {
 			format, data, str, _ := encodedPayload(input)
 			if data != nil {
@@ -292,6 +298,9 @@ func (m *Mailbox) Deliver(event process.Event) bool {
 			d.messages[i] = queuedMessage{}
 		}
 		d.messages = nil
+		// Notify is a level-triggered state transition protected by the same
+		// lock as Ready/Notify. Existing waiters observe this exact channel.
+		m.signalReadyLocked()
 		m.mu.Unlock()
 	} else {
 		m.mu.Unlock()
@@ -331,7 +340,66 @@ func (m *Mailbox) takeValue() (Message, bool, error) {
 func (m *Mailbox) Ready() bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.closed || m.length != 0
+	return m.readyLocked()
+}
+
+// Subscribe returns a derived standard WASI pollable. Dropping the derived
+// resource does not mutate the mailbox; the actor remains its owner.
+func (m *Mailbox) Subscribe() preview2.Pollable { return &mailboxPollable{mailbox: m} }
+
+func (m *Mailbox) readyLocked() bool { return m.closed || m.length != 0 }
+
+func (m *Mailbox) notifyLocked() <-chan struct{} {
+	if m.readyLocked() {
+		return closedMailboxReady
+	}
+	if m.readyCh == nil {
+		m.readyCh = make(chan struct{})
+	}
+	return m.readyCh
+}
+
+// Notify participates in the poll host's Ready/Notify/recheck protocol. It
+// returns a pre-closed channel when readiness won before registration.
+func (m *Mailbox) Notify() <-chan struct{} {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.notifyLocked()
+}
+
+func (m *Mailbox) signalReadyLocked() {
+	if m.readyCh != nil {
+		close(m.readyCh)
+		m.readyCh = nil
+	}
+}
+
+var closedMailboxReady = func() <-chan struct{} {
+	ch := make(chan struct{})
+	close(ch)
+	return ch
+}()
+
+type mailboxPollable struct{ mailbox *Mailbox }
+
+var _ preview2.NotifyPollable = (*mailboxPollable)(nil)
+
+func (*mailboxPollable) Type() preview2.ResourceType { return preview2.ResourcePollable }
+func (*mailboxPollable) Drop()                       {}
+func (p *mailboxPollable) Ready() bool               { return p.mailbox.Ready() }
+func (p *mailboxPollable) Notify() <-chan struct{}   { return p.mailbox.Notify() }
+
+func (p *mailboxPollable) Block(ctx context.Context) {
+	for {
+		if ctx.Err() != nil || p.Ready() {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-p.Notify():
+		}
+	}
 }
 
 func (m *Mailbox) Close() {
@@ -347,4 +415,7 @@ func (m *Mailbox) Close() {
 		m.inbox[i] = queuedMessage{}
 	}
 	m.inbox = nil
+	// Closing is terminal readiness: it releases poll waiters so callers can
+	// observe the ordinary closed-mailbox result through try-receive.
+	m.signalReadyLocked()
 }

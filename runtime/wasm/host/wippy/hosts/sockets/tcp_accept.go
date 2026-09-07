@@ -35,6 +35,12 @@ func (h *TCPHost) MethodTCPSocketAccept(_ context.Context, self uint32) (*TCPAcc
 	if remote := SocketAddressFromNetAddr(conn.RemoteAddr()); remote != nil {
 		child.SetRemoteAddr(remote.IPString(), remote.Port())
 	}
+	input, output, setupErr := h.resources.NewTCPDuplexStreams(child)
+	if setupErr != nil {
+		child.Drop()
+		lease.Release()
+		return nil, resourceLimitError(setupErr)
+	}
 	var handle uint32
 	var addErr error
 	if lease == nil {
@@ -47,14 +53,12 @@ func (h *TCPHost) MethodTCPSocketAccept(_ context.Context, self uint32) (*TCPAcc
 		lease.Release()
 		return nil, resourceLimitError(addErr)
 	}
-	input := preview2.NewTCPInputStreamResource(child)
 	inputHandle, addErr := h.resources.TryAdd(input)
 	if addErr != nil {
 		input.Drop()
 		h.resources.Remove(handle)
 		return nil, resourceLimitError(addErr)
 	}
-	output := preview2.NewTCPOutputStreamResource(child)
 	outputHandle, addErr := h.resources.TryAdd(output)
 	if addErr != nil {
 		output.Drop()

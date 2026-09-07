@@ -48,6 +48,10 @@ func NewSetValueError(namespace, entryName, path string, cause error) apierror.E
 	return apierror.New(apierror.Internal, fmt.Sprintf("failed to set %s:%s at %s", namespace, entryName, path)).WithCause(cause)
 }
 
+func NewOverrideAliasConflictError(namespace, entryName, path, prior string) apierror.Error {
+	return apierror.New(apierror.Invalid, fmt.Sprintf("duplicate WASM option override for %s:%s at %s and %s", namespace, entryName, path, prior)).WithRetryable(apierror.False)
+}
+
 func NewOverrideErrors(errs []error) apierror.Error {
 	return apierror.New(apierror.Internal, fmt.Sprintf("override errors: %v", errs))
 }

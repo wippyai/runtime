@@ -142,13 +142,13 @@ func (d *FS) Open(name string) (fs.File, error) {
 }
 
 // OpenFile implements WriteFS.
-func (d *FS) OpenFile(name string, flag int, perm fs.FileMode) (fsapi.File, error) {
+func (d *FS) prepareOpenFile(name string, flag int, perm fs.FileMode) (string, fs.FileMode, error) {
 	displayName := name
 	norm := d.normalizePath(name)
 
 	// Check if the provided perm has bits outside of fs.ModePerm.
 	if perm&^fs.ModePerm != 0 {
-		return nil, &fs.PathError{
+		return "", 0, &fs.PathError{
 			Op:   "open",
 			Path: displayName,
 			Err:  fsapi.ErrInvalidFileMode,
@@ -156,37 +156,48 @@ func (d *FS) OpenFile(name string, flag int, perm fs.FileMode) (fsapi.File, erro
 	}
 
 	if d.closed.Load() {
-		return nil, &fs.PathError{
+		return "", 0, &fs.PathError{
 			Op:   "open",
 			Path: displayName,
 			Err:  fsapi.ErrClosed,
 		}
 	}
 
-	// Check permissions based on flags.
-	if flag&(os.O_WRONLY|os.O_RDWR) != 0 {
-		if err := d.checkPermissions("open", displayName, permWrite); err != nil {
-			return nil, err
-		}
+	// Access mode zero is O_RDONLY and still requires the read capability.
+	// Creation/truncation/append can mutate even when access mode is read-only.
+	var access permCheck
+	switch flag & (os.O_WRONLY | os.O_RDWR) {
+	case os.O_RDONLY:
+		access = permRead
+	case os.O_WRONLY:
+		access = permWrite
+	case os.O_RDWR:
+		access = permRead | permWrite
+	default:
+		return "", 0, &fs.PathError{Op: "open", Path: displayName, Err: fs.ErrInvalid}
 	}
-	if flag&os.O_RDWR != 0 {
-		if err := d.checkPermissions("open", displayName, permRead); err != nil {
-			return nil, err
-		}
+	if flag&(os.O_CREATE|os.O_TRUNC|os.O_APPEND) != 0 {
+		access |= permWrite
+	}
+	if err := d.checkPermissions("open", displayName, access); err != nil {
+		return "", 0, err
 	}
 
 	// Restrict permissions to the FS's mode.
 	perm &= d.mode
 
+	return norm, perm, nil
+}
+
+func (d *FS) OpenFile(name string, flag int, perm fs.FileMode) (fsapi.File, error) {
+	norm, perm, err := d.prepareOpenFile(name, flag, perm)
+	if err != nil {
+		return nil, err
+	}
 	f, err := d.root.OpenFile(norm, flag, perm)
 	if err != nil {
-		return nil, &fs.PathError{
-			Op:   "open",
-			Path: displayName,
-			Err:  err,
-		}
+		return nil, &fs.PathError{Op: "open", Path: name, Err: err}
 	}
-
 	return f, nil
 }
 

@@ -259,7 +259,7 @@ func Merge(base, override boot.Config) boot.Config {
 		opts = append(opts, boot.WithSection(section, values))
 	}
 
-	return boot.NewConfig(opts...)
+	return boot.WithConfigLayers(boot.NewConfig(opts...), base, override)
 }
 
 func splitKey(key string) []string {

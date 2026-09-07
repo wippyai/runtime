@@ -1,0 +1,19 @@
+[package]
+name = "sqlite-actor-fixture"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+wit-bindgen = "=0.58.0"
+rusqlite = { version = "=0.40.2", default-features = false, features = ["bundled", "cache"] }
+libsqlite3-sys = { version = "=0.38.2", features = ["bundled"] }
+
+[build-dependencies]
+cc = "=1.4.5"
+
+[profile.release]
+opt-level = 2
+panic = "abort"

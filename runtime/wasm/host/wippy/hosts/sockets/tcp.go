@@ -192,14 +192,17 @@ func (h *TCPHost) MethodTCPSocketFinishConnect(_ context.Context, self uint32) (
 		}
 	}
 
-	inputStream := preview2.NewTCPInputStreamResource(socket)
+	inputStream, outputStream, setupErr := h.resources.NewTCPDuplexStreams(socket)
+	if setupErr != nil {
+		socket.Drop()
+		return nil, resourceLimitError(setupErr)
+	}
 	inputHandle, addErr := h.resources.TryAdd(inputStream)
 	if addErr != nil {
 		inputStream.Drop()
 		socket.Drop()
 		return nil, resourceLimitError(addErr)
 	}
-	outputStream := preview2.NewTCPOutputStreamResource(socket)
 	outputHandle, addErr := h.resources.TryAdd(outputStream)
 	if addErr != nil {
 		outputStream.Drop()

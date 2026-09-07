@@ -130,8 +130,8 @@ func TestSharedSocketBudget_InterleavePreview2AndCore(t *testing.T) {
 	_ = callStatus(ctx, t, inst, "close", handle2)
 }
 
-// Tests that failed or cancelled dials release capacity immediately.
-func TestSharedSocketBudget_FailedAndCancelledDialReleasesCapacity(t *testing.T) {
+// Tests failed-dial rollback and rejection of calls canceled before guest entry.
+func TestSharedSocketBudget_FailedDialAndPreCanceledCallPreserveCapacity(t *testing.T) {
 	table := preview2.NewResourceTableWithLimits(10, 1)
 	budget := table.SocketBudget()
 
@@ -180,15 +180,15 @@ func TestSharedSocketBudget_FailedAndCancelledDialReleasesCapacity(t *testing.T)
 	}
 	defer inst2.Close(ctx)
 
-	// Now verify cancelled dial context releases capacity
+	// Execution admission rejects a canceled context before entering the guest.
 	cancelledCtx, cancel := context.WithCancel(ctx)
-	cancel() // Cancel before dial
-	status, _ = callPacked(cancelledCtx, t, inst2, "connect")
-	if status == StatusOK {
-		t.Fatal("expected connect failure on cancelled ctx")
+	cancel()
+	_, err = inst2.Call(cancelledCtx, "connect")
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("pre-canceled connect error = %v, want context.Canceled", err)
 	}
 	if budget.Used() != 0 {
-		t.Fatalf("expected budget used=0 after cancelled dial, got %d", budget.Used())
+		t.Fatalf("expected budget used=0 after pre-canceled call, got %d", budget.Used())
 	}
 
 	// Normal connect succeeds because capacity wasn't leaked

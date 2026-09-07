@@ -20,6 +20,13 @@ import (
 	wasmrt "github.com/wippyai/wasm-runtime/runtime"
 )
 
+func actorFixturePath() string {
+	if path := os.Getenv("WIPPY_ACTOR_FIXTURE"); path != "" {
+		return path
+	}
+	return "testdata/actor.wasm"
+}
+
 func newMessagingActor(t testing.TB) (*ActorProcess, pid.PID, pid.PID) {
 	t.Helper()
 	ctx, frame := ctxapi.OpenFrameContext(ctxapi.NewRootContext())
@@ -43,7 +50,7 @@ func newMessagingActor(t testing.TB) (*ActorProcess, pid.PID, pid.PID) {
 	if err := rt.RegisterHost(actor.NewHost()); err != nil {
 		t.Fatal(err)
 	}
-	data, err := os.ReadFile("testdata/actor.wasm")
+	data, err := os.ReadFile(actorFixturePath())
 	if err != nil {
 		t.Fatal(err)
 	}

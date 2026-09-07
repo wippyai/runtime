@@ -87,26 +87,26 @@ func TestDecodeWATEntryExplicitZeroDisablesRetainedMemoryLimit(t *testing.T) {
 	assert.Zero(t, cfg.Limits.EffectiveMaxRetainedMemoryBytes())
 }
 
-func TestDecodeWATEntryRejectsRootLimits(t *testing.T) {
+func TestDecodeWATEntryAcceptsFlatRootLimits(t *testing.T) {
 	entry := registry.Entry{
 		ID:   registry.NewID("app.test", "fn"),
 		Kind: wasmapi.FunctionWAT,
 		Data: payload.NewPayload(`{"source":"(module)","method":"handle","limits":{"max_execution_ms":250}}`, payload.JSON),
 	}
-	_, err := entrycfg.DecodeEntryConfigFromContext[wasmapi.WATFunctionConfig](limitsDecodeContext(), entry)
-	require.Error(t, err)
-	assert.ErrorIs(t, err, wasmapi.ErrFunctionRootLimitsForbidden)
+	cfg, err := entrycfg.DecodeEntryConfigFromContext[wasmapi.WATFunctionConfig](limitsDecodeContext(), entry)
+	require.NoError(t, err)
+	assert.Equal(t, 250, cfg.Limits.MaxExecutionMS)
 }
 
-func TestDecodeWATEntryRejectsRootPool(t *testing.T) {
+func TestDecodeWATEntryAcceptsRootPool(t *testing.T) {
 	entry := registry.Entry{
 		ID:   registry.NewID("app.test", "fn"),
 		Kind: wasmapi.FunctionWAT,
 		Data: payload.NewPayload(`{"source":"(module)","method":"handle","pool":{"type":"inline"}}`, payload.JSON),
 	}
-	_, err := entrycfg.DecodeEntryConfigFromContext[wasmapi.WATFunctionConfig](limitsDecodeContext(), entry)
-	require.Error(t, err)
-	assert.ErrorIs(t, err, wasmapi.ErrFunctionRootPoolForbidden)
+	cfg, err := entrycfg.DecodeEntryConfigFromContext[wasmapi.WATFunctionConfig](limitsDecodeContext(), entry)
+	require.NoError(t, err)
+	assert.Equal(t, wasmapi.PoolTypeInline, cfg.Pool.Type)
 }
 
 func TestDecodeWASMEntryLimitsBindConfiguredKeys(t *testing.T) {
@@ -124,24 +124,24 @@ func TestDecodeWASMEntryLimitsBindConfiguredKeys(t *testing.T) {
 	assert.Equal(t, 8, cfg.Limits.EffectiveRetainedMemoryCheckInterval())
 }
 
-func TestDecodeWASMEntryRejectsRootLimits(t *testing.T) {
+func TestDecodeWASMEntryAcceptsFlatRootLimits(t *testing.T) {
 	entry := registry.Entry{
 		ID:   registry.NewID("app.test", "fn"),
 		Kind: wasmapi.FunctionWASM,
 		Data: payload.NewPayload(`{"fs":"app.fs:data","path":"/fn.wasm","hash":"sha256:0","method":"handle","limits":{"max_execution_ms":100}}`, payload.JSON),
 	}
-	_, err := entrycfg.DecodeEntryConfigFromContext[wasmapi.FunctionConfig](limitsDecodeContext(), entry)
-	require.Error(t, err)
-	assert.ErrorIs(t, err, wasmapi.ErrFunctionRootLimitsForbidden)
+	cfg, err := entrycfg.DecodeEntryConfigFromContext[wasmapi.FunctionConfig](limitsDecodeContext(), entry)
+	require.NoError(t, err)
+	assert.Equal(t, 100, cfg.Limits.MaxExecutionMS)
 }
 
-func TestDecodeWASMEntryRejectsRootPool(t *testing.T) {
+func TestDecodeWASMEntryAcceptsRootPool(t *testing.T) {
 	entry := registry.Entry{
 		ID:   registry.NewID("app.test", "fn"),
 		Kind: wasmapi.FunctionWASM,
 		Data: payload.NewPayload(`{"fs":"app.fs:data","path":"/fn.wasm","hash":"sha256:0","method":"handle","pool":{"type":"inline"}}`, payload.JSON),
 	}
-	_, err := entrycfg.DecodeEntryConfigFromContext[wasmapi.FunctionConfig](limitsDecodeContext(), entry)
-	require.Error(t, err)
-	assert.ErrorIs(t, err, wasmapi.ErrFunctionRootPoolForbidden)
+	cfg, err := entrycfg.DecodeEntryConfigFromContext[wasmapi.FunctionConfig](limitsDecodeContext(), entry)
+	require.NoError(t, err)
+	assert.Equal(t, wasmapi.PoolTypeInline, cfg.Pool.Type)
 }

@@ -15,7 +15,6 @@ import (
 	wasmcomponent "github.com/wippyai/runtime/runtime/wasm/component"
 	entrycfg "github.com/wippyai/runtime/system/entry"
 	wasmlib "github.com/wippyai/wasm-runtime/component"
-	wasmrt "github.com/wippyai/wasm-runtime/runtime"
 	"go.uber.org/zap"
 )
 
@@ -82,7 +81,9 @@ func (m *Manager) Invalidate(ctx context.Context, ids []registry.ID) {
 		frozenBytes := append([]byte(nil), data...)
 		isComponent := wasmlib.IsComponent(frozenBytes)
 
-		if err := m.validateModule(ctx, old.cfg, frozenBytes, isComponent); err != nil {
+		newFactory := NewActorFactory(frozenBytes, isComponent, old.cfg, m.hostRegistry, m.fsRegistry)
+		if err := newFactory.warm(ctx); err != nil {
+			newFactory.Close()
 			m.log.Error("failed to validate reloaded wasm process module",
 				zap.String("id", id.String()),
 				zap.Error(err),
@@ -90,7 +91,6 @@ func (m *Manager) Invalidate(ctx context.Context, ids []registry.ID) {
 			continue
 		}
 
-		newFactory := NewActorFactory(frozenBytes, isComponent, old.cfg, m.hostRegistry, m.fsRegistry)
 		method := old.cfg.Method
 		if method == "" {
 			method = "run"
@@ -143,11 +143,12 @@ func (m *Manager) addWASM(ctx context.Context, entry registry.Entry) error {
 	frozenBytes := append([]byte(nil), data...)
 	isComponent := wasmlib.IsComponent(frozenBytes)
 
-	if err := m.validateModule(ctx, cfg, frozenBytes, isComponent); err != nil {
+	factory := NewActorFactory(frozenBytes, isComponent, cfg, m.hostRegistry, m.fsRegistry)
+	if err := factory.warm(ctx); err != nil {
+		factory.Close()
 		return err
 	}
 
-	factory := NewActorFactory(frozenBytes, isComponent, cfg, m.hostRegistry, m.fsRegistry)
 	method := cfg.Method
 	if method == "" {
 		method = "run"
@@ -165,6 +166,8 @@ func (m *Manager) addWASM(ctx context.Context, entry registry.Entry) error {
 		factory:     factory,
 		security:    cfg.Security,
 	})
+
+	wasmcomponent.LogOptionDeprecations(m.log, entry.ID, cfg)
 
 	m.log.Debug("wasm process added",
 		zap.String("id", entry.ID.String()),
@@ -200,11 +203,12 @@ func (m *Manager) updateWASM(ctx context.Context, entry registry.Entry) error {
 	frozenBytes := append([]byte(nil), data...)
 	isComponent := wasmlib.IsComponent(frozenBytes)
 
-	if err := m.validateModule(ctx, cfg, frozenBytes, isComponent); err != nil {
+	newFactory := NewActorFactory(frozenBytes, isComponent, cfg, m.hostRegistry, m.fsRegistry)
+	if err := newFactory.warm(ctx); err != nil {
+		newFactory.Close()
 		return err
 	}
 
-	newFactory := NewActorFactory(frozenBytes, isComponent, cfg, m.hostRegistry, m.fsRegistry)
 	method := cfg.Method
 	if method == "" {
 		method = "run"
@@ -227,46 +231,9 @@ func (m *Manager) updateWASM(ctx context.Context, entry registry.Entry) error {
 		old.factory.Close()
 	}
 
+	wasmcomponent.LogOptionDeprecations(m.log, entry.ID, cfg)
+
 	m.log.Debug("wasm process updated", zap.String("id", entry.ID.String()))
-	return nil
-}
-
-func (m *Manager) validateModule(ctx context.Context, cfg *api.ProcessConfig, bytes []byte, isComponent bool) error {
-	memBytes := cfg.Limits().EffectiveMemoryBytes()
-	pages := uint32(memBytes / api.MinProcessMemoryBytesMultiple)
-	tempRT, err := wasmrt.NewWithConfig(ctx, &wasmrt.Config{
-		MemoryLimitPages:   pages,
-		CloseOnContextDone: true,
-	})
-	if err != nil {
-		return err
-	}
-	defer func() {
-		_ = tempRT.Close(context.Background())
-	}()
-
-	tempHosts := m.hostRegistry.Fork()
-	defer tempHosts.CloseResources()
-
-	if err := tempHosts.EnsureImports(ctx, tempRT, cfg.Imports, isComponent); err != nil {
-		return err
-	}
-
-	var mod *wasmrt.Module
-	var loadErr error
-	if isComponent {
-		mod, loadErr = tempRT.LoadComponent(ctx, bytes)
-	} else {
-		mod, loadErr = tempRT.LoadWASM(ctx, bytes, cfg.WIT)
-	}
-	if loadErr != nil {
-		return runtimewasm.NewLoadWASMError(loadErr)
-	}
-
-	if err := mod.Compile(ctx); err != nil {
-		return runtimewasm.NewCompileModuleError(err)
-	}
-
 	return nil
 }
 

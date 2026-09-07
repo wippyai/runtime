@@ -10,7 +10,12 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/tetratelabs/wazero"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/pid"
+	"github.com/wippyai/runtime/api/process"
+	"github.com/wippyai/runtime/api/relay"
 	wippyhost "github.com/wippyai/runtime/runtime/wasm/host/wippy"
+	"github.com/wippyai/runtime/runtime/wasm/host/wippy/hosts/actor"
 	"github.com/wippyai/runtime/runtime/wasm/host/wippy/hosts/clocks"
 	wasmengine "github.com/wippyai/wasm-runtime/engine"
 	"github.com/wippyai/wasm-runtime/wasi/preview2"
@@ -144,5 +149,45 @@ func TestPollWaitWakesWhenResourceScopeCloses(t *testing.T) {
 		require.Equal(t, []uint32{0}, indexes)
 	case <-ctx.Done():
 		t.Fatal("scope close did not wake poll")
+	}
+}
+
+func TestPollWaitObservesActorMailboxThroughSharedPollable(t *testing.T) {
+	table := preview2.NewResourceTable()
+	mailbox := actor.NewMailbox(actor.Limits{Capacity: 2, Bytes: 4096, MessageBytes: 1024})
+	defer mailbox.Close()
+	mailboxHandle := table.Add(mailbox.Subscribe())
+	mailboxResource, ok := table.Get(mailboxHandle)
+	if !ok {
+		t.Fatal("mailbox pollable not in table")
+	}
+	other := &signaledPollable{signal: make(chan struct{}), registered: make(chan struct{}, 1)}
+	wait := &waitSources{sources: []preview2.Pollable{mailboxResource.(preview2.Pollable), other}}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	result := make(chan []uint32, 1)
+	go func() {
+		indexes, err := wait.wait(ctx)
+		if err != nil {
+			indexes = nil
+		}
+		result <- indexes
+	}()
+	// The second source reports registration after the mailbox Notify call, so
+	// delivery here exercises wakeup after the wait has captured all signals.
+	select {
+	case <-other.registered:
+	case <-ctx.Done():
+		t.Fatal("mixed poll did not register")
+	}
+	event := process.Event{Type: process.EventMessage, Data: relay.NewPackage(pid.PID{Node: "local", Host: "actors", UniqID: "sender"}, pid.PID{}, "mailbox", payload.NewPayload([]byte("x"), payload.Bytes))}
+	admitted, err := mailbox.AdmitEvent(event)
+	require.NoError(t, err)
+	mailbox.Deliver(admitted)
+	select {
+	case got := <-result:
+		require.Equal(t, []uint32{0}, got)
+	case <-ctx.Done():
+		t.Fatal("mixed poll lost mailbox readiness")
 	}
 }

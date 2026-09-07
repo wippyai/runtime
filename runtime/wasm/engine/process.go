@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"time"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
@@ -21,6 +22,7 @@ import (
 	actorhost "github.com/wippyai/runtime/runtime/wasm/host/wippy/hosts/actor"
 	wasmtransport "github.com/wippyai/runtime/runtime/wasm/transport"
 	wasmengine "github.com/wippyai/wasm-runtime/engine"
+	memorybudget "github.com/wippyai/wasm-runtime/memory/budget"
 	wasmrt "github.com/wippyai/wasm-runtime/runtime"
 	wasmtranscoder "github.com/wippyai/wasm-runtime/transcoder"
 )
@@ -35,6 +37,7 @@ type Transport interface {
 // Asyncified modules run through session-based yield/resume; synchronous
 // modules execute as direct calls.
 type Process struct {
+	memoryBudget                *memorybudget.Budget
 	resolvedTransport           Transport
 	ctx                         context.Context
 	execCtx                     context.Context
@@ -233,9 +236,14 @@ func (p *Process) stepAsync(out *process.StepOutput) error {
 
 		p.result = result
 		p.done = true
-		p.endExecution()
+		if actorhost.GetMailbox(p.execCtx) != nil {
+			p.endExecution()
+			out.Done(result)
+			return nil
+		}
+		replaceErr := p.resetAfterSync()
 		out.Done(result)
-		return nil
+		return replaceErr
 
 	case wasmengine.StepIdle:
 		out.Idle()
@@ -268,10 +276,11 @@ func (p *Process) startExecution() error {
 	if p.inst == nil {
 		instCfg := &wasmengine.InstanceConfig{
 			EnableAsyncify: true,
+			MemoryBudget:   p.memoryBudget,
 			DecodeOptions:  p.decodeOptions(),
 		}
-		if actorhost.GetMailbox(execCtx) != nil {
-			instCfg.EntryExport = p.method
+		if entry := p.resolveEntryExport(execCtx); entry != "" {
+			instCfg.EntryExport = entry
 		}
 		// Core wasi_snapshot_preview1 modules read env/args/preopens from the wazero
 		// module config, so thread the resolved WASI mapping through.
@@ -280,14 +289,9 @@ func (p *Process) startExecution() error {
 			instCfg.Env = wc.Env
 			for _, mnt := range wc.Mounts {
 				m := wasmengine.Mount{Guest: mnt.Guest, ReadOnly: mnt.ReadOnly}
-				// Read-only mounts go through the sandboxed fs.FS; only writable
-				// mounts use a host directory path (resolved + access-checked in
-				// resolveWASICallConfig), which wazero sandboxes to that directory.
-				if mnt.Host != "" {
-					m.Host = mnt.Host
-				} else {
-					m.FS = mnt.Filesystem
-				}
+				// Keep the registered filesystem capability: converting it to
+				// a host path bypasses its confinement and permission checks.
+				m.FS = wasiMountFilesystem{FS: mnt.Filesystem}
 				instCfg.Mounts = append(instCfg.Mounts, m)
 			}
 		}
@@ -297,7 +301,7 @@ func (p *Process) startExecution() error {
 			return runtimewasm.NewInstantiateModuleError(err)
 		}
 		p.inst = inst
-		p.hasMemory = inst.HasMemory()
+		_, p.hasMemory = inst.LinearMemoryUsage()
 	}
 
 	args, err := p.prepareArgs(execCtx)
@@ -357,19 +361,18 @@ func (p *Process) shouldRecycleRetainedInstance() bool {
 		return false
 	}
 	p.retainedMemoryCheckCalls = 0
-	return retainedMemoryExceedsLimit(p.inst.MemorySize(), p.limits.MaxRetainedMemoryBytes)
+	size, _ := p.inst.LinearMemoryUsage()
+	return retainedMemoryExceedsLimit(size, p.limits.MaxRetainedMemoryBytes)
 }
 
-func retainedMemoryExceedsLimit(size uint32, limit int64) bool {
-	return size == 0 || int64(size) > limit
+func retainedMemoryExceedsLimit(size uint64, limit int64) bool {
+	return size == 0 || limit <= 0 || size > uint64(limit)
 }
 
-// softReset clears per-call state while keeping the instance warm for reuse.
-// A WASI component's synthetic import bridges are bound to the core instance
-// that first created them, so re-instantiating from the same module after a
-// WASI host call has been made corrupts subsequent instances. Reusing one warm
-// instance for sequential synchronous calls (the inline pool serializes them)
-// sidesteps that. Asynchronous calls still close the instance per call below.
+// softReset clears per-call state while retaining the instance for sequential
+// function calls. The caller applies the retained-memory recycling policy.
+// Actor entry-point completion and failed executions use endExecution to close
+// the instance before clearing this state.
 func (p *Process) softReset() {
 	if p.cancel != nil {
 		p.cancel()
@@ -489,15 +492,7 @@ func (p *Process) resolveWASICallConfig(ctx context.Context) (*wippyhost.WASICal
 				Guest:      item.Guest,
 				ReadOnly:   item.ReadOnly,
 			}
-			// For a host-backed directory, mount it by its own sandboxed root
-			// path: wazero re-roots the guest at exactly that directory (never the
-			// host root), it is the only form that supports writable mounts, and
-			// it reads faithfully (an fs.FS mount is read-only and lossy for e.g.
-			// lazy-loaded package data). Non-directory filesystems fall back to the
-			// sandboxed fs.FS below.
-			if hp, ok := fsys.(fsapi.HostPathFS); ok {
-				binding.Host = hp.RootPath()
-			}
+
 			callCfg.Mounts = append(callCfg.Mounts, binding)
 		}
 	}
@@ -684,4 +679,83 @@ func yieldResultValue(data any) (uint64, bool) {
 	}
 }
 
+// resolveEntryExport uses the same exact name as the subsequent call. Choosing
+// a different alias or default here can bind an unrelated module's memory.
+func (p *Process) resolveEntryExport(execCtx context.Context) string {
+	if (p.module != nil && p.module.IsComponent()) || actorhost.GetMailbox(execCtx) != nil {
+		return p.method
+	}
+	return ""
+}
+
 var _ process.Process = (*Process)(nil)
+
+// wasiMountFilesystem adapts Wippy's file return type and domain errors to the
+// backend-neutral filesystem capability contract. The registry owns FS; each
+// opened file is owned by the guest descriptor and closed by the WASI runtime.
+type wasiMountFilesystem struct{ fsapi.FS }
+
+func wasiMountError(err error) error {
+	if errors.Is(err, fsapi.ErrPermissionDenied) {
+		return errors.Join(fs.ErrPermission, err)
+	}
+	if errors.Is(err, fsapi.ErrClosed) {
+		return errors.Join(fs.ErrClosed, err)
+	}
+	return err
+}
+func (f wasiMountFilesystem) Open(name string) (fs.File, error) {
+	file, err := f.FS.Open(name)
+	return file, wasiMountError(err)
+}
+func (f wasiMountFilesystem) OpenFile(name string, flags int, mode fs.FileMode) (fs.File, error) {
+	file, err := f.FS.OpenFile(name, flags, mode)
+	return file, wasiMountError(err)
+}
+func (f wasiMountFilesystem) Stat(name string) (fs.FileInfo, error) {
+	info, err := f.FS.Stat(name)
+	return info, wasiMountError(err)
+}
+func (f wasiMountFilesystem) Lstat(name string) (fs.FileInfo, error) {
+	info, err := f.FS.Lstat(name)
+	return info, wasiMountError(err)
+}
+func (f wasiMountFilesystem) ReadDir(name string) ([]fs.DirEntry, error) {
+	entries, err := f.FS.ReadDir(name)
+	return entries, wasiMountError(err)
+}
+func (f wasiMountFilesystem) Mkdir(name string, mode fs.FileMode) error {
+	return wasiMountError(f.FS.Mkdir(name, mode))
+}
+func (f wasiMountFilesystem) Rename(oldname, newname string) error {
+	return wasiMountError(f.FS.Rename(oldname, newname))
+}
+func (f wasiMountFilesystem) Remove(name string) error { return wasiMountError(f.FS.Remove(name)) }
+func (f wasiMountFilesystem) Truncate(name string, size int64) error {
+	return wasiMountError(f.FS.Truncate(name, size))
+}
+func (f wasiMountFilesystem) Chtimes(name string, atime, mtime time.Time) error {
+	return wasiMountError(f.FS.Chtimes(name, atime, mtime))
+}
+
+func (f wasiMountFilesystem) OpenFileNoFollow(name string, flags int, mode fs.FileMode) (fs.File, error) {
+	opener, ok := f.FS.(interface {
+		OpenFileNoFollow(string, int, fs.FileMode) (fsapi.File, error)
+	})
+	if !ok {
+		return nil, &fs.PathError{Op: "open-nofollow", Path: name, Err: errors.ErrUnsupported}
+	}
+	file, err := opener.OpenFileNoFollow(name, flags, mode)
+	return file, wasiMountError(err)
+}
+
+func (f wasiMountFilesystem) OpenDirectory(name string, noFollow bool) (fs.File, error) {
+	opener, ok := f.FS.(interface {
+		OpenDirectory(string, bool) (fs.File, error)
+	})
+	if !ok {
+		return nil, &fs.PathError{Op: "open-directory", Path: name, Err: errors.ErrUnsupported}
+	}
+	file, err := opener.OpenDirectory(name, noFollow)
+	return file, wasiMountError(err)
+}

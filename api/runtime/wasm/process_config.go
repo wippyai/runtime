@@ -39,26 +39,31 @@ const (
 
 // Process configuration errors.
 var (
-	// ErrProcessRootLimitsForbidden is returned when root-level limits are provided on a process.wasm entry.
+	// ErrProcessRootLimitsForbidden is retained for source compatibility.
+	//
+	// Deprecated: flat root limits are accepted with an admission warning.
 	ErrProcessRootLimitsForbidden = apierror.New(apierror.Invalid, "root-level limits not allowed for process.wasm; configure limits in meta.options").WithRetryable(apierror.False)
 
 	// ErrProcessRootPoolForbidden is returned when root-level pool is provided on a process.wasm entry.
 	ErrProcessRootPoolForbidden = apierror.New(apierror.Invalid, "root-level pool not allowed for process.wasm; pooling is meaningless for a persistent actor").WithRetryable(apierror.False)
 
-	// ErrProcessOptionsInvalidType is returned when meta.options is not an object.
+	// ErrProcessOptionsInvalidType is returned when the options value has an unsupported type.
 	ErrProcessOptionsInvalidType = apierror.New(apierror.Invalid, "meta.options must be an object").WithRetryable(apierror.False)
 
-	// ErrProcessLimitsInvalidType is returned when meta.options.limits is not an object.
+	// ErrProcessLimitsInvalidType is returned when an authored limits control is not an object.
 	ErrProcessLimitsInvalidType = apierror.New(apierror.Invalid, "meta.options.limits must be an object").WithRetryable(apierror.False)
 
-	// ErrProcessMailboxInvalidType is returned when meta.options.mailbox is not an object.
+	// ErrProcessMailboxInvalidType is returned when an authored mailbox control is not an object.
 	ErrProcessMailboxInvalidType = apierror.New(apierror.Invalid, "meta.options.mailbox must be an object").WithRetryable(apierror.False)
 
-	// ErrProcessWorkerClassInvalidType is returned when meta.options.worker_class is not a string.
+	// ErrProcessWorkerClassInvalidType is returned when an authored worker class control is not a string.
 	ErrProcessWorkerClassInvalidType = apierror.New(apierror.Invalid, "meta.options.worker_class must be a string").WithRetryable(apierror.False)
 
 	// ErrProcessMemoryBytesInvalid is returned when memory_bytes is zero or negative.
 	ErrProcessMemoryBytesInvalid = apierror.New(apierror.Invalid, "limits.memory_bytes must be positive").WithRetryable(apierror.False)
+
+	// ErrProcessHostBufferBytesInvalid is returned for a negative host-buffer ceiling.
+	ErrProcessHostBufferBytesInvalid = apierror.New(apierror.Invalid, "limits.host_buffer_bytes must not be negative").WithRetryable(apierror.False)
 
 	// ErrProcessMemoryBytesExceeded is returned when memory_bytes exceeds 4 GiB.
 	ErrProcessMemoryBytesExceeded = apierror.New(apierror.Invalid, "limits.memory_bytes cannot exceed 4GiB").WithRetryable(apierror.False)
@@ -90,11 +95,17 @@ func newUnknownFieldError(path, field string) error {
 
 type (
 	// ProcessLimitsConfig defines execution and resource limits for a persistent WASM actor.
-	// Configured within meta.options.limits.
+	// Configured within options.limits.
 	ProcessLimitsConfig struct {
 		// MemoryBytes defines the actor linear memory ceiling.
 		// Defaults to 64 MiB (67108864). Must be a positive multiple of 64 KiB <= 4 GiB.
 		MemoryBytes int64 `json:"memory_bytes,omitempty" yaml:"memory_bytes,omitempty"`
+
+		// HostBufferBytes caps explicitly accounted resident host-buffer capacity.
+		// Zero (default) adds no byte ceiling. TCP duplex rings currently charge
+		// 128 KiB per connection. This excludes guest memory, mailbox payloads,
+		// kernel buffers, and untracked Go allocations; it is not an RSS limit.
+		HostBufferBytes int64 `json:"host_buffer_bytes,omitempty" yaml:"host_buffer_bytes,omitempty"`
 
 		// MaxExecutionMS defines the actor lifetime limit in milliseconds if nonzero.
 		// A value of 0 indicates indefinite lifetime. Must not be negative.
@@ -110,7 +121,7 @@ type (
 	}
 
 	// ProcessMailboxConfig defines message queue and buffering controls for a persistent WASM actor.
-	// Configured within meta.options.mailbox.
+	// Configured within options.mailbox.
 	ProcessMailboxConfig struct {
 		// Capacity defines maximum number of unread messages queued in the actor mailbox.
 		// Defaults to 128. Must be > 0.
@@ -125,7 +136,7 @@ type (
 		MessageBytes int64 `json:"message_bytes,omitempty" yaml:"message_bytes,omitempty"`
 	}
 
-	// ProcessOptions encapsulates execution controls defined inside meta.options.
+	// ProcessOptions encapsulates execution controls defined under root options.
 	ProcessOptions struct {
 		WorkerClass string               `json:"worker_class,omitempty" yaml:"worker_class,omitempty"`
 		Limits      ProcessLimitsConfig  `json:"limits,omitempty" yaml:"limits,omitempty"`
@@ -134,15 +145,16 @@ type (
 
 	// ProcessConfig defines configuration for precompiled WASM process/actor entries (process.wasm).
 	// It describes the static code configuration (fs/path/hash/method/imports/wit/wasi) and
-	// extracts actor execution controls from meta.options.
+	// extracts actor execution controls from root options and legacy aliases.
 	//
-	// Root-level limits and pool are explicitly forbidden; persistent actors do not support
-	// function pooling or root-level limits.
+	// Persistent actors do not support function pooling.
 	ProcessConfig struct {
-		Meta     attrs.Bag        `json:"meta,omitempty" yaml:"meta,omitempty"`
-		Security *security.Config `json:"security,omitempty" yaml:"security,omitempty"`
+		Meta          attrs.Bag        `json:"meta,omitempty" yaml:"meta,omitempty"`
+		Security      *security.Config `json:"security,omitempty" yaml:"security,omitempty"`
+		OptionsConfig any              `json:"options,omitempty" yaml:"options,omitempty"`
 
-		// RootLimits and RootPool capture root-level limits and pool to detect and reject invalid configuration.
+		// RootLimits is accepted as a deprecated compatibility spelling.
+		// RootPool remains invalid for persistent actors.
 		RootLimits any `json:"limits,omitempty" yaml:"limits,omitempty"`
 		RootPool   any `json:"pool,omitempty" yaml:"pool,omitempty"`
 
@@ -155,14 +167,17 @@ type (
 		WIT           string        `json:"wit,omitempty" yaml:"wit,omitempty"`
 		WASI          WASIConfig    `json:"wasi,omitempty" yaml:"wasi,omitempty"`
 		Imports       []registry.ID `json:"imports,omitempty" yaml:"imports,omitempty"`
+		deprecated    []DeprecatedOptionPath
 		hasRootLimits bool
 		hasRootPool   bool
+		hasOptions    bool
 	}
 )
 
 type processConfigJSON struct {
 	Meta      attrs.Bag        `json:"meta,omitempty" yaml:"meta,omitempty"`
 	Security  *security.Config `json:"security,omitempty" yaml:"security,omitempty"`
+	Options   any              `json:"options,omitempty" yaml:"options,omitempty"`
 	Limits    any              `json:"limits,omitempty" yaml:"limits,omitempty"`
 	Pool      any              `json:"pool,omitempty" yaml:"pool,omitempty"`
 	FS        string           `json:"fs" yaml:"fs"`
@@ -182,7 +197,7 @@ func (c *ProcessConfig) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	var hasLimits, hasPool bool
+	var hasLimits, hasPool, hasOptions bool
 	var rawMap map[string]json.RawMessage
 	if err := json.Unmarshal(data, &rawMap); err == nil {
 		if _, exists := rawMap["limits"]; exists {
@@ -191,11 +206,15 @@ func (c *ProcessConfig) UnmarshalJSON(data []byte) error {
 		if _, exists := rawMap["pool"]; exists {
 			hasPool = true
 		}
+		if _, exists := rawMap["options"]; exists {
+			hasOptions = true
+		}
 	}
 
 	*c = ProcessConfig{
 		Meta:          decoded.Meta,
 		Security:      decoded.Security,
+		OptionsConfig: decoded.Options,
 		FS:            decoded.FS,
 		Path:          decoded.Path,
 		Hash:          decoded.Hash,
@@ -208,6 +227,7 @@ func (c *ProcessConfig) UnmarshalJSON(data []byte) error {
 		RootPool:      decoded.Pool,
 		hasRootLimits: hasLimits,
 		hasRootPool:   hasPool,
+		hasOptions:    hasOptions,
 		options:       nil,
 	}
 
@@ -221,7 +241,7 @@ func (c *ProcessConfig) UnmarshalYAML(unmarshal func(any) error) error {
 		return err
 	}
 
-	var hasLimits, hasPool bool
+	var hasLimits, hasPool, hasOptions bool
 	var rawMap map[string]any
 	if err := unmarshal(&rawMap); err == nil {
 		if _, exists := rawMap["limits"]; exists {
@@ -230,11 +250,15 @@ func (c *ProcessConfig) UnmarshalYAML(unmarshal func(any) error) error {
 		if _, exists := rawMap["pool"]; exists {
 			hasPool = true
 		}
+		if _, exists := rawMap["options"]; exists {
+			hasOptions = true
+		}
 	}
 
 	*c = ProcessConfig{
 		Meta:          decoded.Meta,
 		Security:      decoded.Security,
+		OptionsConfig: decoded.Options,
 		FS:            decoded.FS,
 		Path:          decoded.Path,
 		Hash:          decoded.Hash,
@@ -247,17 +271,35 @@ func (c *ProcessConfig) UnmarshalYAML(unmarshal func(any) error) error {
 		RootPool:      decoded.Pool,
 		hasRootLimits: hasLimits,
 		hasRootPool:   hasPool,
+		hasOptions:    hasOptions,
 		options:       nil,
 	}
 
 	return nil
 }
 
-// MarshalJSON serializes the ProcessConfig, excluding any root limits or pool fields.
+// MarshalJSON serializes canonical root options and excludes legacy aliases.
 func (c ProcessConfig) MarshalJSON() ([]byte, error) {
+	data := map[string]any{}
+	if c.hasOptions || c.OptionsConfig != nil {
+		data["options"] = processOptionsInput(c.OptionsConfig)
+	}
+	if c.hasRootLimits || c.RootLimits != nil {
+		data["limits"] = c.RootLimits
+	}
+	if c.hasRootPool || c.RootPool != nil {
+		return nil, ErrProcessRootPoolForbidden
+	}
+	opts, _, err := normalizeProcessConfigOptions(data, c.Meta, c.options)
+	if err != nil {
+		return nil, err
+	}
+	c.options = &opts
+	c.Meta = cloneMetaWithoutControlOptions(c.Meta, ProcessWASM)
 	return json.Marshal(processConfigJSON{
 		Meta:      c.Meta,
 		Security:  c.Security,
+		Options:   serializeProcessOptions(c.Options()),
 		FS:        c.FS,
 		Path:      c.Path,
 		Hash:      c.Hash,
@@ -271,9 +313,26 @@ func (c ProcessConfig) MarshalJSON() ([]byte, error) {
 
 // MarshalYAML serializes the ProcessConfig, excluding any root limits or pool fields.
 func (c ProcessConfig) MarshalYAML() (any, error) {
+	data := map[string]any{}
+	if c.hasOptions || c.OptionsConfig != nil {
+		data["options"] = processOptionsInput(c.OptionsConfig)
+	}
+	if c.hasRootLimits || c.RootLimits != nil {
+		data["limits"] = c.RootLimits
+	}
+	if c.hasRootPool || c.RootPool != nil {
+		return nil, ErrProcessRootPoolForbidden
+	}
+	opts, _, err := normalizeProcessConfigOptions(data, c.Meta, c.options)
+	if err != nil {
+		return nil, err
+	}
+	c.options = &opts
+	c.Meta = cloneMetaWithoutControlOptions(c.Meta, ProcessWASM)
 	return processConfigJSON{
 		Meta:      c.Meta,
 		Security:  c.Security,
+		Options:   serializeProcessOptions(c.Options()),
 		FS:        c.FS,
 		Path:      c.Path,
 		Hash:      c.Hash,
@@ -354,15 +413,22 @@ func (c *ProcessConfig) EffectiveTransport() string {
 	return c.Transport
 }
 
-// Options returns the resolved execution controls from meta.options with defaults applied.
+// Options returns execution controls with defaults applied. Validate reports invalid input.
 func (c *ProcessConfig) Options() ProcessOptions {
 	if c.options != nil {
 		return *c.options
 	}
-	opts, err := parseAndValidateOptions(c.Meta)
+	data := map[string]any{}
+	if c.hasOptions || c.OptionsConfig != nil {
+		data["options"] = processOptionsInput(c.OptionsConfig)
+	}
+	if c.hasRootLimits || c.RootLimits != nil {
+		data["limits"] = c.RootLimits
+	}
+	opts, _, err := normalizeProcessConfigOptions(data, c.Meta, nil)
 	if err != nil {
 		return defaultProcessOptions()
-	}
+	} // Validate reports invalid authored controls.
 	return opts
 }
 
@@ -391,15 +457,23 @@ func (c *ProcessConfig) EffectiveLimitsConfig() LimitsConfig {
 	}
 }
 
-// SetOptions programmatically sets execution options on the configuration and updates meta.options.
+// SetOptions programmatically sets execution options on the configuration and replaces authored control aliases.
 func (c *ProcessConfig) SetOptions(opts ProcessOptions) {
-	c.options = &opts
-	if c.Meta == nil {
-		c.Meta = attrs.NewBag()
-	}
+	copy := opts
+	c.options = &copy
+	c.OptionsConfig = opts
+	c.hasOptions = true
+	c.RootLimits, c.RootPool = nil, nil
+	c.hasRootLimits, c.hasRootPool = false, false
+	c.deprecated = nil
+	c.Meta = cloneMetaWithoutControlOptions(c.Meta, ProcessWASM)
+}
+
+func serializeProcessOptions(opts ProcessOptions) map[string]any {
 	optMap := map[string]any{
 		"limits": map[string]any{
 			"memory_bytes":      opts.Limits.EffectiveMemoryBytes(),
+			"host_buffer_bytes": opts.Limits.HostBufferBytes,
 			"max_execution_ms":  opts.Limits.EffectiveMaxExecutionMS(),
 			"max_open_sockets":  opts.Limits.EffectiveMaxOpenSockets(),
 			"socket_timeout_ms": opts.Limits.EffectiveSocketTimeoutMS(),
@@ -411,20 +485,17 @@ func (c *ProcessConfig) SetOptions(opts ProcessOptions) {
 		},
 		"worker_class": opts.EffectiveWorkerClass(),
 	}
-	c.Meta.Set("options", optMap)
+	return optMap
 }
 
-// Validate verifies the static code configuration and meta.options execution controls.
+// Validate verifies the static code configuration and root options execution controls.
 // It enforces:
-// - Rejection of root-level limits or pool
+// - Compatibility normalization of root options, legacy meta.options, and flat limits
 // - Required static fields (fs, path, hash, method) and valid wasi/imports/transport
-// - Strict types and bounded values in meta.options
+// - Strict types and bounded values in controls
 // - Rejection of unknown fields inside controls
 // - Mailbox budget consistency (message_bytes <= bytes)
 func (c *ProcessConfig) Validate() error {
-	if c.RootLimits != nil || c.hasRootLimits {
-		return ErrProcessRootLimitsForbidden
-	}
 	if c.RootPool != nil || c.hasRootPool {
 		return ErrProcessRootPoolForbidden
 	}
@@ -450,12 +521,53 @@ func (c *ProcessConfig) Validate() error {
 		return err
 	}
 
-	opts, err := parseAndValidateOptions(c.Meta)
+	data := map[string]any{}
+	if c.hasOptions || c.OptionsConfig != nil {
+		data["options"] = processOptionsInput(c.OptionsConfig)
+	}
+	if c.hasRootLimits || c.RootLimits != nil {
+		data["limits"] = c.RootLimits
+	}
+	opts, deprecated, err := normalizeProcessConfigOptions(data, c.Meta, c.options)
 	if err != nil {
 		return err
 	}
 	c.options = &opts
+	c.deprecated = deprecated
 	return nil
+}
+
+func processOptionsInput(v any) any {
+	switch typed := v.(type) {
+	case ProcessOptions:
+		return typed
+	case *ProcessOptions:
+		if typed == nil {
+			return nil
+		}
+		return typed
+	default:
+		return v
+	}
+}
+
+func normalizeProcessConfigOptions(data map[string]any, meta attrs.Bag, fallback *ProcessOptions) (ProcessOptions, []DeprecatedOptionPath, error) {
+	groups, deprecated, err := NormalizeEntryOptions(ProcessWASM, data, meta)
+	if err != nil {
+		return ProcessOptions{}, nil, err
+	}
+	if len(groups) == 0 && fallback != nil {
+		validated, err := validateOptionsStruct(*fallback)
+		return validated, deprecated, err
+	}
+	parsed, err := parseAndValidateOptions(attrs.Bag{"options": groups})
+	return parsed, deprecated, err
+}
+
+// DeprecatedOptionPaths returns accepted legacy paths without exposing the
+// configuration's internal diagnostic slice.
+func (c *ProcessConfig) DeprecatedOptionPaths() []DeprecatedOptionPath {
+	return append([]DeprecatedOptionPath(nil), c.deprecated...)
 }
 
 func defaultProcessOptions() ProcessOptions {
@@ -541,7 +653,7 @@ func parseAndValidateOptions(meta attrs.Bag) (ProcessOptions, error) {
 
 		for k := range limMap {
 			switch k {
-			case "memory_bytes", "max_execution_ms", "max_open_sockets", "socket_timeout_ms":
+			case "memory_bytes", "host_buffer_bytes", "max_execution_ms", "max_open_sockets", "socket_timeout_ms":
 			default:
 				return opts, newUnknownFieldError("meta.options.limits", k)
 			}
@@ -562,6 +674,17 @@ func parseAndValidateOptions(meta attrs.Bag) (ProcessOptions, error) {
 				return opts, ErrProcessMemoryBytesAlignment
 			}
 			opts.Limits.MemoryBytes = mb
+		}
+
+		if v, ok := limMap["host_buffer_bytes"]; ok && v != nil {
+			bytes, err := asExactInt64(v, "meta.options.limits.host_buffer_bytes")
+			if err != nil {
+				return opts, err
+			}
+			if bytes < 0 {
+				return opts, ErrProcessHostBufferBytesInvalid
+			}
+			opts.Limits.HostBufferBytes = bytes
 		}
 
 		if v, ok := limMap["max_execution_ms"]; ok && v != nil {
@@ -679,6 +802,11 @@ func validateOptionsStruct(opts ProcessOptions) (ProcessOptions, error) {
 		}
 		resolved.Limits.MemoryBytes = mb
 	}
+
+	if opts.Limits.HostBufferBytes < 0 {
+		return resolved, ErrProcessHostBufferBytesInvalid
+	}
+	resolved.Limits.HostBufferBytes = opts.Limits.HostBufferBytes
 
 	if opts.Limits.MaxExecutionMS < 0 || int64(opts.Limits.MaxExecutionMS) > math.MaxInt64/int64(time.Millisecond) {
 		return resolved, ErrInvalidExecutionLimit

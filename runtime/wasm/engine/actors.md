@@ -16,18 +16,18 @@ entries:
 
   - name: indexer
     kind: process.wasm
-    meta:
-      options:
-        worker_class: wasm
-        limits:
-          memory_bytes: 67108864
-          max_execution_ms: 0
-          max_open_sockets: 16
-          socket_timeout_ms: 30000
-        mailbox:
-          capacity: 128
-          bytes: 8388608
-          message_bytes: 1048576
+    options:
+      worker_class: wasm
+      limits:
+        memory_bytes: 67108864
+        host_buffer_bytes: 2097152
+        max_execution_ms: 0
+        max_open_sockets: 16
+        socket_timeout_ms: 30000
+      mailbox:
+        capacity: 128
+        bytes: 8388608
+        message_bytes: 1048576
     fs: app:assets
     path: indexer.wasm
     hash: sha256:<component-content-hash>
@@ -66,14 +66,41 @@ profiles for explicitly granted host capabilities.
 These contracts do not depend on the W1 scheduler implementation and are intended
 to survive the W2 port. W2 code is not changed by this work.
 
+## Mailbox and socket selection
+
+The actor interface also provides `subscribe() -> pollable`. It observes mailbox
+readiness without removing a message; the guest calls `try-receive` or `receive`
+to take the message after polling. Readiness is level-triggered, and mailbox
+closure wakes a pending waiter. Dropping the subscription leaves the mailbox
+alive. Mailbox and socket subscriptions use the same per-instance WASI resource
+table, so the guest can pass both to one WASI poll call.
+
+The guest world must import `wasi:io/poll@0.2.8`; the runtime entry enables it
+with these host profiles:
+
+```yaml
+imports:
+  - wippy:actor
+  - wasi:poll
+```
+
+Socket guests also need `wasi:sockets` and `wasi:io` for the interfaces they use.
+`wasi:io` alone does not register poll. A manually registered actor host must
+receive the instance's shared resource table. The legacy zero-argument host
+constructor supports the original messaging methods but rejects `subscribe`
+without that table.
+
 ## Limits and placement
 
-Execution controls belong in `meta.options` for `process.wasm`, `function.wasm`,
-and `function.wat`. Code, entrypoint, imports, WIT, WASI mappings, and transport
-remain at the entry root. Functions put `pool` and `limits` under `meta.options`.
-Actors reject pool settings. Root-level `pool` and `limits` are rejected with a
-migration error, including empty or null values. Explicit zero retained-memory
-recycling limits on functions preserve their existing meaning.
+For `process.wasm`, execution controls are `options.worker_class`,
+`options.limits`, and `options.mailbox`. For `function.wasm` and `function.wat`,
+limits are `options.limits`; root `pool` remains the function pool path.
+Control groups under `meta.options`, and flat `limits`, remain compatibility
+aliases with admission warnings. Aliases for the same group cannot be combined
+in one declaration; a later deployment layer may override an earlier one.
+Function invocation defaults under `meta.options` retain their existing behavior.
+A `process.wasm` root `pool` remains invalid. Code, entrypoint, imports, WIT,
+WASI mappings, and transport remain at the entry root.
 
 Actor `max_execution_ms` limits total lifetime, including parked time; zero means
 indefinite lifetime. Function `max_execution_ms` remains a per-call deadline.
@@ -83,8 +110,27 @@ resumable preemption. WASM actors therefore require a `wasm` process host, whose
 workers use dedicated OS threads and the reserved WASM CPU set when affinity is
 enabled. CPU isolation without an enabled affinity partition is not guaranteed.
 
-`memory_bytes` is a ceiling per linear memory, not an aggregate component or Go
-heap quota. Mailbox budgets include envelope overhead (256 bytes per message and
+`memory_bytes` caps aggregate logical guest linear-memory bytes per actor,
+including unexported memories and repeated core definitions. Imported aliases
+are counted only once. Initial memory is admitted before guest initialization;
+later growth is denied when the remaining budget is insufficient. The per-core
+compiler ceiling remains an additional bound. This does not measure backing
+capacity, transient growth copies, compiled code, host buffers, or Go heap/RSS.
+Memory charges are released after owned modules close; a canceled shutdown join
+retains them until shutdown is retried successfully.
+
+`host_buffer_bytes` independently caps explicitly accounted resident host-buffer
+capacity. Omission or zero adds no extra host-byte ceiling; negative values are
+invalid. The current charge is two 64 KiB TCP rings per connected socket. Both
+reservations precede ring allocation; failures close the connection and return
+`out-of-memory` without publishing a stream tuple. A socket retains its full
+128 KiB charge until both pumps have exited, including when stream handles were
+dropped earlier. Each PID has its own budget. These semantics are independent of
+guest linear memory, mailbox limits, and socket-count admission. The ceiling
+currently excludes UDP buffers, HTTP buffers, filesystem buffers, legacy core
+socket allocations, Go objects/stacks, and kernel buffers; it is not an RSS cap.
+
+Mailbox budgets include envelope overhead (256 bytes per message and
 64 bytes per payload, plus encoded data and strings). A single message must fit
 both the per-message and total mailbox budgets. Runtime lifecycle signals use
 the existing reserved system channel, separate from application-message budgets.
@@ -123,8 +169,8 @@ data. Blocking input and output operations suspend through the dispatcher, with
 write completion retained across rewind so flushing cannot repeat a write.
 Subscriptions borrow their stream; dropping a subscription leaves the stream
 alive. Socket close stops and joins both pumps before returning socket quota.
-These host buffers are bounded by socket count but are not charged to
-`memory_bytes`. Listening sockets use a fixed accept ring (up to 128 queued connections) and live readiness.
+These TCP rings count against `host_buffer_bytes` when configured, and remain
+bounded by socket count otherwise. They never consume `memory_bytes`. Listening sockets use a fixed accept ring (up to 128 queued connections) and live readiness.
 The accept pump reserves socket quota before entering the OS accept call;
 queued and in-flight accepts count alongside guest-owned sockets. Empty accept
 returns `would-block`. Closing the listener joins the pump and closes queued
@@ -199,8 +245,9 @@ The actor fixture covers repeated receive/send, retained state, PID identity,
 empty nonblocking receive, denied sends, and mailbox arrivals during a pending
 send. Backend regressions cover conditional branches, rewind routing, loop-local
 liveness, indirect canonical results, post-return cleanup, cancellation, and
-resource ownership. Actor runtimes are isolated; cold spawning currently recompiles
-inside a fresh runtime.
+resource ownership. Actor runtimes are isolated. A factory generation shares compiled
+machine code across those runtimes; guest memory and host resources remain separate.
+The cache stays alive while the factory, a pending spawn or a live actor retains it.
 
 Actor messaging uses typed host invocation and compiled canonical result plans.
 `send` has an explicit completion continuation that avoids decoding the original
@@ -214,23 +261,9 @@ functions to preserve their effects. Externally transformed and guest-authored
 controls retain the function path. Regular guest execution keeps cancellation
 instrumentation enabled.
 
-The counter benchmark includes the real Rust guest, ingress copying, Canonical
-ABI, and Asyncify resumption. With production cancellation enabled, the latest
-same-machine samples measure 6.77–8.37 microseconds, approximately 3.33 KB, and
-70 allocations per round trip on a shared Ryzen 7950X3D. The original production
-baseline was approximately 13–14 microseconds, 7.4 KB, and 164 allocations.
-Before correcting GC-unsafe list backing, this measured 6.48–6.68 microseconds
-and 66 allocations; the current change adds four allocations per round trip.
-Scheduler routing and network transport are excluded; this is not a native-indexer
-comparison. The older 11-microsecond / 123-allocation measurement disabled
-cancellation checks and must not be used as the production baseline.
-Regular guest calls still incur Wazero's per-call cancellation watchers.
-Linker module wrappers remain immutable; only canonical imports with both
-explicit memory and realloc bindings skip the shared fallback wrapper.
-Partially bound imports preserve that fallback. Shared virtual function imports
-route to the calling instance's own canonical handler and allocator; this does
-not establish isolation for every synthetic memory/table bridge in a shared
-backend runtime. Actors already use separate backend runtimes.
+Actor performance measurements are diagnostic and exclude outer scheduler
+routing and transport; they make no indexer-performance or sustainable-capacity
+claim.
 
 The checked-in standard WASI 0.2.8 TCP component exercises canonical IPv4
 addresses, socket creation, connect, buffered ping/pong, connection-refused error

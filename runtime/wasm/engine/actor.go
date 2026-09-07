@@ -14,6 +14,7 @@ import (
 	wippyhost "github.com/wippyai/runtime/runtime/wasm/host/wippy"
 	"github.com/wippyai/runtime/runtime/wasm/host/wippy/hosts/actor"
 	sysprocess "github.com/wippyai/runtime/system/process"
+	memorybudget "github.com/wippyai/wasm-runtime/memory/budget"
 	"github.com/wippyai/wasm-runtime/wasi/preview2"
 )
 
@@ -23,6 +24,7 @@ type ActorProcess struct {
 	*Process
 	mailbox          *actor.Mailbox
 	releaseResources func()
+	hostBufferBudget *preview2.HostBufferBudget
 	socketBudget     *preview2.SocketBudget
 	mailboxLimits    actor.Limits
 	initialized      bool
@@ -31,6 +33,29 @@ type ActorProcess struct {
 func NewActorProcess(execution *Process, limits actor.Limits, releaseResources func()) *ActorProcess {
 	return &ActorProcess{Process: execution, mailboxLimits: limits, releaseResources: releaseResources}
 }
+
+// SetMemoryBudget configures the actor's aggregate logical guest-memory owner
+// before initialization. Host resource owners may reserve from the same ledger.
+func (p *ActorProcess) SetMemoryBudget(b *memorybudget.Budget) {
+	if p.initialized {
+		panic("actor memory budget cannot change after Init")
+	}
+	p.memoryBudget = b
+}
+
+func (p *ActorProcess) MemoryBudget() *memorybudget.Budget { return p.memoryBudget }
+
+// SetHostBufferBudget retains the host resource table's budget for inspection.
+// The caller must pass the same domain installed on that table before Init.
+func (p *ActorProcess) SetHostBufferBudget(b *preview2.HostBufferBudget) {
+	if p.initialized {
+		panic("actor host-buffer budget cannot change after Init")
+	}
+	p.hostBufferBudget = b
+}
+
+// HostBufferBudget returns the optional host-buffer domain owned by this PID.
+func (p *ActorProcess) HostBufferBudget() *preview2.HostBufferBudget { return p.hostBufferBudget }
 
 // SetSocketBudget configures the shared socket budget before Init.
 func (p *ActorProcess) SetSocketBudget(budget *preview2.SocketBudget) {
