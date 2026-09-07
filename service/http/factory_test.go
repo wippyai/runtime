@@ -209,6 +209,26 @@ func TestEndpointFactory_CreateHandler(t *testing.T) {
 		Func:   apiregistry.NewID("test", "func1"),
 	}
 
+	t.Run("status-only response retains late headers", func(t *testing.T) {
+		registry.Register(cfg.Func, func(ctx context.Context, _ runtime.Task) (*runtime.Result, error) {
+			rctx, ok := config.GetRequestContext(ctx)
+			require.True(t, ok)
+			rctx.SetResponseStatus(http.StatusNoContent)
+			rctx.ResponseWriter().Header().Set("X-After-Status", "present")
+			return &runtime.Result{}, nil
+		})
+		handler, err := factory.CreateHandler(context.Background(), cfg)
+		require.NoError(t, err)
+		ctx, _ := ctxapi.OpenFrameContext(ctxapi.NewRootContext())
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, httptest.NewRequestWithContext(ctx, "GET", "/test", nil))
+		result := recorder.Result()
+		defer result.Body.Close()
+		require.Equal(t, http.StatusNoContent, result.StatusCode)
+		require.Equal(t, "present", result.Header.Get("X-After-Status"))
+		require.Empty(t, recorder.Body.String())
+	})
+
 	t.Run("successful handler creation", func(t *testing.T) {
 		ctx := ctxapi.NewRootContext()
 
