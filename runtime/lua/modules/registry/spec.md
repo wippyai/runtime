@@ -65,23 +65,24 @@ Searches for entries matching filter criteria.
 
 | Param | Type | Required | Default | Notes |
 |-------|------|----------|---------|-------|
-| filter | table | yes | - | Search criteria, every key is a selector |
+| filter | table | yes | - | Search criteria with metadata fields |
 
-**filter keys:**
+**filter fields:**
 
-| Key | Type | Notes |
-|-----|------|-------|
-| .kind, .ns, .name, .id | string | Entry fields, glob `*` supported |
-| meta.\<field\> | any | Metadata field |
-| meta | table | Nested table, each key names a metadata field |
+| Field | Type | Notes |
+|-------|------|-------|
+| .kind | string | Entry kind |
+| .ns | string | Entry namespace |
+| .name | string | Entry name |
+| .id | string | Full entry ID |
+| meta.<field> | any | Metadata equality filter |
+| ~meta.<field>, *meta.<field>, ^meta.<field>, $meta.<field> | string | Regex, contains, prefix, suffix |
 
-Metadata selectors accept an operator prefix, both as `meta.<field>` keys and
-inside the nested `meta` table: `~` regex, `*` contains, `^` prefix, `$` suffix.
-Keys inside the nested `meta` table carry no `meta.` prefix of their own.
-
-Any other key is rejected: a bare `kind`, `type` or `name` is ambiguous between
-an entry field and a metadata field, so `find` returns an error naming the key
-and both valid spellings.
+Bare keys, non-string keys, and nested `meta` filters are deprecated and log a
+warning. Their existing conversion and results are preserved for compatibility;
+unsupported keys may leave the query unfiltered. Migrate to flat selectors.
+Nested keys retain their old flattening and override matching top-level keys;
+they do not automatically gain a `meta.` prefix. No new filter error is returned.
 
 **Returns:**
 
@@ -97,16 +98,10 @@ and both valid spellings.
 | Finder not available | errors.INTERNAL | no |
 | Find operation failed | errors.INTERNAL | no |
 | Conversion failed | errors.INTERNAL | no |
-| Filter key is not a selector | errors.INVALID | no |
 
 ```lua
 local entries, err = registry.find({[".kind"] = "function.lua"})
 local tests, err = registry.find({["meta.type"] = "test"})
-local apps = registry.find({[".kind"] = "process.lua", meta = {type = "desktop.application"}})
-local named = registry.find({["~meta.name"] = "^app"})
-
--- error: filter key "kind" is not a selector
-local bad, err = registry.find({kind = "function.lua"})
 ```
 
 ### snapshot() → Snapshot, error
@@ -386,12 +381,14 @@ Returns all entries in a specific namespace.
 
 Searches entries in snapshot matching filter criteria.
 
+Uses the same selectors and deprecation warnings as `registry.find`; legacy
+filter behavior and the existing return shape are preserved.
+
 | Param | Type | Required | Default | Notes |
 |-------|------|----------|---------|-------|
-| filter | table | yes | - | Search criteria, selectors as in `registry.find` |
+| filter | table | yes | - | Search criteria |
 
-**Returns:** Array of entry tables matching filter, or nil and an error when a
-filter key is not a selector
+**Returns:** Array of entry tables matching filter
 
 #### snapshot:changes() → Changes
 
@@ -633,7 +630,7 @@ local id = registry.parse_id(entry.id)
 print(id.ns, id.name)  -- "app.lib" "assert"
 
 -- Find entries
-local entries, err = registry.find({[".kind"] = "function.lua"})
+local entries, err = registry.find({kind = "function.lua"})
 if err then error(err) end
 
 -- Work with snapshots and versions

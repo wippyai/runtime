@@ -234,15 +234,7 @@ func snapshotFind(l *lua.LState) int {
 	}
 
 	filterTable := l.CheckTable(2)
-	meta, convErr := convertFilterToMetadata(l, filterTable)
-	if convErr != nil {
-		err := lua.WrapErrorWithLua(l, convErr, "invalid find filter").
-			WithKind(lua.Invalid).
-			WithRetryable(false)
-		l.Push(lua.LNil)
-		l.Push(err)
-		return 2
-	}
+	meta := convertFilterToMetadata(l, filterTable)
 
 	mainFinder := regapi.GetFinder(l.Context())
 	var entries []regapi.Entry

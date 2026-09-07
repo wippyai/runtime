@@ -5,13 +5,13 @@ local registry = require("registry")
 
 local function main()
 -- find by kind
-	local entries, err = registry.find({[".kind"] = "function.lua"})
+	local entries, err = registry.find({kind = "function.lua"})
 	assert.is_nil(err, "find by kind no error")
 	assert.not_nil(entries, "find returns entries")
 	assert.eq(type(entries), "table", "entries is table")
 
 	-- find by type in meta
-	entries, err = registry.find({meta = {type = "test"}})
+	entries, err = registry.find({type = "test"})
 	assert.is_nil(err, "find by type no error")
 	assert.not_nil(entries, "find by type returns entries")
 	assert.ok(#entries > 0, "find by type has results")
@@ -22,11 +22,6 @@ local function main()
 		assert.eq(type(entry.id), "string", "id is string")
 		assert.not_nil(entry.kind, "entry has kind")
 	end
-
-	-- bare keys are rejected
-	entries, err = registry.find({kind = "function.lua"})
-	assert.is_nil(entries, "bare key returns no entries")
-	assert.not_nil(err, "bare key returns an error")
 
 	-- find returns table even with empty filter
 	entries, err = registry.find({})
