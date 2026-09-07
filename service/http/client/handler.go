@@ -98,9 +98,19 @@ func (d *Dispatcher) RegisterAll(register func(id dispatcher.CommandID, h dispat
 	register(httpapi.RequestBatch, dispatcher.HandlerFunc(d.handleRequestBatch))
 }
 
+// An embedded dispatcher can supply its own registry. Otherwise resolve from
+// the completed application context: the network component may load after the
+// HTTP dispatcher is constructed. Do not cache a missing registry at boot.
+func (d *Dispatcher) requestNetworkRegistry(ctx context.Context) netapi.NetworkRegistry {
+	if d.networkReg != nil {
+		return d.networkReg
+	}
+	return netapi.GetNetworkRegistry(ctx)
+}
+
 func (d *Dispatcher) handleRequest(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	req := cmd.(*httpapi.RequestCmd)
-	networkReg := d.networkReg
+	networkReg := d.requestNetworkRegistry(ctx)
 
 	go func() {
 		result := executeRequest(ctx, d.pool, networkReg, req, true)
@@ -114,7 +124,7 @@ func (d *Dispatcher) handleRequest(ctx context.Context, cmd dispatcher.Command, 
 
 func (d *Dispatcher) handleRequestBatch(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	batch := cmd.(*httpapi.RequestBatchCmd)
-	networkReg := d.networkReg
+	networkReg := d.requestNetworkRegistry(ctx)
 
 	if len(batch.Requests) == 0 {
 		receiver.CompleteYield(tag, httpapi.BatchResponse{Responses: []httpapi.Response{}}, nil)
