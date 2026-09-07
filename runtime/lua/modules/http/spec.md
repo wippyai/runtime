@@ -386,7 +386,8 @@ Returned by `http.response()`. Provides methods to build and send HTTP responses
 
 #### response:set_status(code: integer) → error
 
-Sets HTTP response status code.
+Selects the HTTP response status without sending headers. Headers are committed
+on the first write or flush, or when the handler returns without a body.
 
 | Param | Type | Required | Default | Notes |
 |-------|------|----------|---------|-------|
@@ -399,6 +400,7 @@ Sets HTTP response status code.
 | Condition | Kind | Retryable |
 |-----------|------|-----------|
 | headers already sent | errors.INVALID | no |
+| code outside 100–999 | errors.INVALID | no |
 
 **Notes:**
 - Must be called before any write operations

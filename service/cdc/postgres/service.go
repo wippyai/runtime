@@ -5,27 +5,22 @@ package postgres
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pglogrepl"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgproto3"
-	"github.com/lib/pq"
-	"go.uber.org/zap"
-
 	"github.com/wippyai/runtime/api/metrics"
-	config "github.com/wippyai/runtime/api/service/cdc"
+	"go.uber.org/zap"
 )
 
 const (
-	retainedWALGauge = "wippy_cdc_retained_wal_bytes"
-	changesCounter   = "wippy_cdc_changes_total"
-	errorsCounter    = "wippy_cdc_errors_total"
+	retainedWALGauge        = "wippy_cdc_retained_wal_bytes"
+	changesCounter          = "wippy_cdc_changes_total"
+	errorsCounter           = "wippy_cdc_errors_total"
+	transactionLimitCounter = "wippy_cdc_transaction_limit_total"
 )
 
 const (
@@ -52,42 +47,93 @@ type SourceOptions struct {
 	StatusInterval    time.Duration
 	SnapshotFetchSize int
 	Temporary         bool
-	Snapshot          bool
-	Streaming         bool
-	Failover          bool
+	// Snapshot makes the atomic snapshot handoff the default for each
+	// subscriber. It is an entry default; Start never emits a source-global
+	// snapshot.
+	Snapshot  bool
+	Streaming bool
+	Failover  bool
+	// MaxTransactionChanges bounds the number of row changes retained before
+	// an ordinary or streamed transaction commits. Zero uses the safe default.
+	MaxTransactionChanges int
+	// MaxTransactionBytes bounds the estimated memory retained for one
+	// ordinary or streamed transaction. Zero uses the safe default.
+	MaxTransactionBytes int64
+	// MaxInflightChanges bounds all uncommitted row changes across interleaved
+	// ordinary and streamed transactions. Zero uses the safe default.
+	MaxInflightChanges int
+	// MaxInflightBytes bounds estimated memory retained by all uncommitted
+	// ordinary and streamed transactions. Zero uses the safe default.
+	MaxInflightBytes int64
 }
 
 type Source struct {
-	log               *zap.Logger
-	coll              metrics.Collector
-	injectedCP        Checkpointer
-	cancel            context.CancelFunc
-	done              chan struct{}
-	subs              map[uint64]*sourceSubscription
-	replDSN           string
-	adminDSN          string
-	name              string
-	slot              string
-	publication       string
-	tables            []string
-	standbyInterval   time.Duration
-	statusInterval    time.Duration
-	mu                sync.Mutex
-	subMu             sync.RWMutex
-	nextSubID         uint64
-	snapshotFetchSize int
-	temporary         bool
-	snapshot          bool
-	streaming         bool
-	failover          bool
-	stopped           atomic.Bool
-	dropSlot          atomic.Bool
+	coll                  metrics.Collector
+	injectedCP            Checkpointer
+	sourceErr             error
+	log                   *zap.Logger
+	cancel                context.CancelFunc
+	done                  chan struct{}
+	subs                  map[uint64]*sourceSubscription
+	streamNotify          chan struct{}
+	snapshotGate          chan struct{} // one temporary logical snapshot per source
+	replDSN               string
+	adminDSN              string
+	name                  string
+	slot                  string
+	publication           string
+	tables                []string
+	standbyInterval       time.Duration
+	statusInterval        time.Duration
+	nextSubID             uint64
+	snapshotFetchSize     int
+	maxTransactionChanges int
+	maxTransactionBytes   int64
+	maxInflightChanges    int
+	maxInflightBytes      int64
+	snapshotWG            sync.WaitGroup
+	streamPosition        pglogrepl.LSN
+	subMu                 sync.RWMutex
+	mu                    sync.Mutex
+	dropMu                sync.Mutex
+	dropSlot              atomic.Bool
+	dropDone              atomic.Bool
+	temporary             bool
+	snapshot              bool
+	streaming             bool
+	failover              bool
+	permanentlyClosed     bool
+	state                 sourceState
 }
+
+type sourceState uint8
+
+const (
+	sourceNew sourceState = iota
+	sourceStarting
+	sourceRunning
+	sourceStopping
+	sourceFailed
+	sourceStopped
+)
 
 var snapshotFailpoint func() error
 
 func (s *Source) MarkForSlotDrop() {
 	s.dropSlot.Store(true)
+	s.mu.Lock()
+	s.permanentlyClosed = true
+	s.mu.Unlock()
+}
+
+// Close permanently retires a source. Stop alone is restartable so a
+// supervisor can recover a failed generation; callers removing a source from
+// the registry should use Close when the instance must not be started again.
+func (s *Source) Close(ctx context.Context) error {
+	s.mu.Lock()
+	s.permanentlyClosed = true
+	s.mu.Unlock()
+	return s.Stop(ctx)
 }
 
 func NewSource(opts SourceOptions) *Source {
@@ -107,109 +153,234 @@ func NewSource(opts SourceOptions) *Source {
 	if fetch <= 0 {
 		fetch = defaultSnapshotFetchSize
 	}
+	limits := normalizeDecoderLimits(decoderLimits{
+		maxChanges:         opts.MaxTransactionChanges,
+		maxBytes:           opts.MaxTransactionBytes,
+		maxInflightChanges: opts.MaxInflightChanges,
+		maxInflightBytes:   opts.MaxInflightBytes,
+	})
 	return &Source{
-		log:               log,
-		injectedCP:        opts.Checkpoint,
-		replDSN:           opts.ReplDSN,
-		adminDSN:          opts.AdminDSN,
-		name:              opts.Name,
-		slot:              opts.Slot,
-		publication:       opts.Publication,
-		tables:            opts.Tables,
-		subs:              make(map[uint64]*sourceSubscription),
-		temporary:         opts.Temporary,
-		snapshot:          opts.Snapshot,
-		streaming:         opts.Streaming,
-		failover:          opts.Failover,
-		standbyInterval:   standby,
-		statusInterval:    status,
-		snapshotFetchSize: fetch,
+		log:                   log,
+		injectedCP:            opts.Checkpoint,
+		replDSN:               opts.ReplDSN,
+		adminDSN:              opts.AdminDSN,
+		name:                  opts.Name,
+		slot:                  opts.Slot,
+		publication:           opts.Publication,
+		tables:                append([]string(nil), opts.Tables...),
+		subs:                  make(map[uint64]*sourceSubscription),
+		temporary:             opts.Temporary,
+		snapshot:              opts.Snapshot,
+		streaming:             opts.Streaming,
+		failover:              opts.Failover,
+		standbyInterval:       standby,
+		statusInterval:        status,
+		snapshotFetchSize:     fetch,
+		maxTransactionChanges: limits.maxChanges,
+		maxTransactionBytes:   limits.maxBytes,
+		maxInflightChanges:    limits.maxInflightChanges,
+		maxInflightBytes:      limits.maxInflightBytes,
+		streamNotify:          make(chan struct{}),
+		snapshotGate:          make(chan struct{}, 1),
 	}
 }
 
 func (s *Source) Start(ctx context.Context) (<-chan any, error) {
-	if s.stopped.Load() {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	runCtx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+
+	s.mu.Lock()
+	if s.permanentlyClosed {
+		s.mu.Unlock()
+		cancel()
 		return nil, ErrSourceClosed
+	}
+	switch s.state {
+	case sourceStarting, sourceRunning:
+		s.mu.Unlock()
+		cancel()
+		return nil, ErrSourceRunning
+	case sourceStopping:
+		s.mu.Unlock()
+		cancel()
+		return nil, ErrSourceStopping
+	default:
+		s.state = sourceStarting
+		s.cancel = cancel
+		s.done = done
+		// A failed snapshot/start may have dropped and checkpoint-cleaned the
+		// previous slot. This start may create a new slot generation, so the
+		// destructive cleanup marker must apply to that generation as well.
+		s.dropDone.Store(false)
+	}
+	s.mu.Unlock()
+
+	failStart := func(startErr error) {
+		cancel()
+		s.mu.Lock()
+		if s.done == done {
+			switch s.state {
+			case sourceStopping:
+				s.state = sourceStopped
+			case sourceStarting:
+				s.state = sourceFailed
+				s.sourceErr = startErr
+			}
+			s.cancel = nil
+			close(done)
+		}
+		s.mu.Unlock()
 	}
 
 	adminDB, err := sql.Open("postgres", s.adminDSN)
 	if err != nil {
-		return nil, fmt.Errorf("open admin connection: %w", err)
+		startErr := fmt.Errorf("open admin connection: %w", err)
+		failStart(startErr)
+		return nil, startErr
 	}
 	adminDB.SetMaxOpenConns(2)
 	adminDB.SetMaxIdleConns(1)
-	if err := adminDB.PingContext(ctx); err != nil {
+	if err := adminDB.PingContext(runCtx); err != nil {
 		_ = adminDB.Close()
-		return nil, fmt.Errorf("ping admin connection: %w", err)
+		startErr := fmt.Errorf("ping admin connection: %w", err)
+		failStart(startErr)
+		return nil, startErr
 	}
 
 	cp := s.injectedCP
 	if cp == nil {
-		dbcp, cpErr := NewDBCheckpointer(ctx, adminDB)
+		dbcp, cpErr := NewDBCheckpointer(runCtx, adminDB)
 		if cpErr != nil {
 			_ = adminDB.Close()
+			failStart(cpErr)
 			return nil, cpErr
 		}
 		cp = dbcp
 	}
 
-	publication, err := s.ensurePublication(ctx, adminDB)
+	publication, err := s.ensurePublication(runCtx, adminDB)
 	if err != nil {
 		_ = adminDB.Close()
+		failStart(err)
 		return nil, err
 	}
 
-	conn, err := pgconn.Connect(ctx, s.replDSN)
+	conn, err := pgconn.Connect(runCtx, s.replDSN)
 	if err != nil {
 		_ = adminDB.Close()
-		return nil, fmt.Errorf("replication connect: %w", err)
+		startErr := fmt.Errorf("replication connect: %w", err)
+		failStart(startErr)
+		return nil, startErr
 	}
 
-	sysident, err := pglogrepl.IdentifySystem(ctx, conn)
+	sysident, err := pglogrepl.IdentifySystem(runCtx, conn)
 	if err != nil {
-		_ = conn.Close(ctx)
+		_ = conn.Close(context.Background())
 		_ = adminDB.Close()
-		return nil, fmt.Errorf("identify system: %w", err)
+		startErr := fmt.Errorf("identify system: %w", err)
+		failStart(startErr)
+		return nil, startErr
 	}
 
-	startLSN, snapshotName, err := s.prepareSlot(ctx, conn, adminDB, cp, sysident.XLogPos)
+	startLSN, slotCreated, err := s.prepareSlot(runCtx, conn, adminDB, cp, sysident.XLogPos)
 	if err != nil {
-		_ = conn.Close(ctx)
+		_ = conn.Close(context.Background())
 		_ = adminDB.Close()
+		if slotCreated {
+			s.cleanupFreshSlot()
+		}
+		failStart(err)
 		return nil, err
 	}
 
-	runCtx, cancel := context.WithCancel(ctx)
 	status := make(chan any, 8)
-	done := make(chan struct{})
 
 	s.mu.Lock()
-	s.cancel = cancel
-	s.done = done
+	if s.state != sourceStarting {
+		// Stop may have been requested while the synchronous connection and
+		// slot setup was in progress. Do not publish a source that is already
+		// being stopped.
+		s.mu.Unlock()
+		_ = conn.Close(context.Background())
+		_ = adminDB.Close()
+		if slotCreated {
+			s.cleanupFreshSlot()
+		}
+		failStart(ErrSourceClosed)
+		return nil, ErrSourceClosed
+	}
+	s.state = sourceRunning
+	s.sourceErr = nil
+	s.publication = publication
+	s.streamPosition = startLSN
+	if s.streamNotify == nil {
+		s.streamNotify = make(chan struct{})
+	}
 	s.mu.Unlock()
 
 	s.log.Info("cdc source started",
 		zap.String("slot", s.slot),
 		zap.String("publication", publication),
 		zap.String("start_lsn", startLSN.String()),
-		zap.Bool("snapshot", snapshotName != ""))
+		zap.Bool("snapshot", s.snapshot))
 	select {
 	case status <- "cdc replication started":
 	default:
 	}
 
-	s.coll = metrics.GetCollector(ctx)
-	go s.run(runCtx, conn, adminDB, cp, startLSN, snapshotName, publication, s.coll, status, done)
+	s.coll = metrics.GetCollector(runCtx)
+	go s.run(runCtx, conn, adminDB, cp, startLSN, slotCreated, publication, s.coll, status, done)
 	return status, nil
 }
 
 func (s *Source) Stop(ctx context.Context) error {
-	if !s.stopped.CompareAndSwap(false, true) {
-		return nil
+	if ctx == nil {
+		ctx = context.Background()
 	}
-	defer s.closeSubscriptions()
 
 	s.mu.Lock()
+	if s.state == sourceStopped {
+		drop := s.dropSlot.Load()
+		s.mu.Unlock()
+		if drop {
+			return s.dropSlotAndCheckpoint(ctx)
+		}
+		return nil
+	}
+	if s.state == sourceNew || s.state == sourceFailed {
+		if s.state == sourceNew {
+			// Keep the generation stopping until all snapshot workers have
+			// joined. This prevents a concurrent Start from resetting state
+			// while a worker can still call WaitGroup.Done.
+			s.state = sourceStopping
+			s.cancel = nil
+			s.mu.Unlock()
+			s.closeSubscriptions()
+			if err := s.waitSnapshots(ctx); err != nil {
+				return err
+			}
+			s.mu.Lock()
+			if s.state == sourceStopping {
+				s.state = sourceStopped
+			}
+			s.mu.Unlock()
+			if s.dropSlot.Load() {
+				return s.dropSlotAndCheckpoint(ctx)
+			}
+			return nil
+		}
+		// A replication run marks the source failed before its deferred
+		// cleanup closes done. Keep the source stopping until that run has
+		// fully released its connections; replacement and slot deletion must
+		// not race the failed generation.
+		s.state = sourceStopping
+	}
+	if s.state == sourceStarting || s.state == sourceRunning {
+		s.state = sourceStopping
+	}
 	cancel := s.cancel
 	done := s.done
 	s.mu.Unlock()
@@ -217,527 +388,85 @@ func (s *Source) Stop(ctx context.Context) error {
 	if cancel != nil {
 		cancel()
 	}
+	s.closeSubscriptions()
 	if done != nil {
 		select {
 		case <-done:
 		case <-ctx.Done():
 			return ctx.Err()
 		}
+	} else {
+		s.mu.Lock()
+		if s.state == sourceStopping {
+			s.state = sourceStopped
+			s.cancel = nil
+		}
+		s.mu.Unlock()
 	}
+	if err := s.waitSnapshots(ctx); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	if s.state == sourceStopping {
+		s.state = sourceStopped
+		s.cancel = nil
+	}
+	s.mu.Unlock()
 
-	if s.dropSlot.Load() && !s.temporary {
+	if s.dropSlot.Load() {
 		return s.dropSlotAndCheckpoint(ctx)
 	}
 	return nil
 }
 
-func (s *Source) run(
-	ctx context.Context,
-	conn *pgconn.PgConn,
-	adminDB *sql.DB,
-	cp Checkpointer,
-	startLSN pglogrepl.LSN,
-	snapshotName string,
-	publication string,
-	mc metrics.Collector,
-	status chan any,
-	done chan struct{},
-) {
-	defer close(done)
-	defer close(status)
-	defer s.closeSubscriptions()
-	defer func() { _ = adminDB.Close() }()
-	defer func() { _ = conn.Close(context.Background()) }()
-
-	if snapshotName != "" {
-		if err := s.snapshotExisting(ctx, adminDB, publication, snapshotName); err != nil {
-			s.abortFreshSnapshot(conn)
-			s.fail(ctx, status, err)
-			return
-		}
-	}
-
-	protoVersion := config.ProtocolVersion
-	if s.streaming {
-		protoVersion = config.StreamingProtocolVersion
-	}
-	pluginArgs := []string{
-		fmt.Sprintf("proto_version '%d'", protoVersion),
-		fmt.Sprintf("publication_names '%s'", publication),
-	}
-	if s.streaming {
-		pluginArgs = append(pluginArgs, "streaming 'on'")
-	}
-	if err := pglogrepl.StartReplication(ctx, conn, s.slot, startLSN,
-		pglogrepl.StartReplicationOptions{PluginArgs: pluginArgs}); err != nil {
-		s.fail(ctx, status, err)
+// advanceStreamPosition publishes the replication receive watermark after a
+// complete XLogData message has been decoded and emitted, or after a server
+// keepalive reports its WAL end. Snapshot handoff waits for this watermark
+// before releasing its pending live queue, so a change at or before the
+// exported snapshot fence cannot arrive late and be duplicated after the
+// handoff. It never updates the transaction-safe checkpoint.
+func (s *Source) advanceStreamPosition(done chan struct{}, position pglogrepl.LSN) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.done != done || position <= s.streamPosition {
 		return
 	}
+	s.streamPosition = position
+	close(s.streamNotify)
+	s.streamNotify = make(chan struct{})
+}
 
-	dec := newDecoder()
-	if s.streaming {
-		dec = newStreamingDecoder()
-	}
+func (s *Source) observeKeepalive(done chan struct{}, keepalive pglogrepl.PrimaryKeepaliveMessage) {
+	s.advanceStreamPosition(done, keepalive.ServerWALEnd)
+}
 
-	var opLabels map[Op]metrics.Labels
-	if mc != nil {
-		opLabels = map[Op]metrics.Labels{
-			OpInsert:   {"slot": s.slot, "op": string(OpInsert)},
-			OpUpdate:   {"slot": s.slot, "op": string(OpUpdate)},
-			OpDelete:   {"slot": s.slot, "op": string(OpDelete)},
-			OpTruncate: {"slot": s.slot, "op": string(OpTruncate)},
-			OpSnapshot: {"slot": s.slot, "op": string(OpSnapshot)},
-		}
-	}
-
-	clientPos := startLSN
-	lastSaved := pglogrepl.LSN(0)
-	now := time.Now()
-	nextStandby := now.Add(s.standbyInterval)
-	nextStatus := now.Add(s.statusInterval)
-
+func (s *Source) waitStreamPosition(ctx context.Context, fence pglogrepl.LSN) error {
 	for {
-		if ctx.Err() != nil {
-			return
-		}
-
-		now = time.Now()
-		if !now.Before(nextStandby) {
-			if clientPos > lastSaved {
-				if err := cp.Save(ctx, s.slot, clientPos); err != nil {
-					s.fail(ctx, status, err)
-					return
-				}
-				lastSaved = clientPos
-			}
-			if err := pglogrepl.SendStandbyStatusUpdate(ctx, conn,
-				pglogrepl.StandbyStatusUpdate{WALWritePosition: clientPos}); err != nil {
-				s.fail(ctx, status, err)
-				return
-			}
-			nextStandby = now.Add(s.standbyInterval)
-		}
-		if !now.Before(nextStatus) {
-			s.reportLag(ctx, adminDB, mc)
-			nextStatus = now.Add(s.statusInterval)
-		}
-
-		rctx, rcancel := context.WithDeadline(ctx, nextStandby)
-		raw, err := conn.ReceiveMessage(rctx)
-		rcancel()
-		if err != nil {
-			if pgconn.Timeout(err) {
-				continue
-			}
-			if ctx.Err() != nil {
-				return
-			}
-			s.fail(ctx, status, err)
-			return
-		}
-
-		cd, ok := raw.(*pgproto3.CopyData)
-		if !ok {
-			continue
-		}
-
-		switch cd.Data[0] {
-		case pglogrepl.PrimaryKeepaliveMessageByteID:
-			ka, kaErr := pglogrepl.ParsePrimaryKeepaliveMessage(cd.Data[1:])
-			if kaErr != nil {
-				s.fail(ctx, status, kaErr)
-				return
-			}
-			if ka.ServerWALEnd > clientPos {
-				clientPos = ka.ServerWALEnd
-			}
-			if ka.ReplyRequested {
-				if err := pglogrepl.SendStandbyStatusUpdate(ctx, conn,
-					pglogrepl.StandbyStatusUpdate{WALWritePosition: clientPos}); err != nil {
-					s.fail(ctx, status, err)
-					return
-				}
-			}
-		case pglogrepl.XLogDataByteID:
-			xld, xErr := pglogrepl.ParseXLogData(cd.Data[1:])
-			if xErr != nil {
-				s.fail(ctx, status, xErr)
-				return
-			}
-			changes, dErr := dec.decode(xld.WALData, xld.WALStart)
-			if dErr != nil {
-				s.fail(ctx, status, dErr)
-				return
-			}
-			for i := range changes {
-				s.emitChange(ctx, changes[i])
-				if mc != nil {
-					mc.CounterInc(changesCounter, opLabels[changes[i].Op])
-				}
-			}
-			if end := xld.WALStart + pglogrepl.LSN(len(xld.WALData)); end > clientPos {
-				clientPos = end
-			}
-		}
-	}
-}
-
-func (s *Source) emitChange(ctx context.Context, c RowChange) {
-	s.publishChange(ctx, config.Change{
-		Source:    s.name,
-		Op:        string(c.Op),
-		Schema:    c.Schema,
-		Table:     c.Table,
-		Relation:  c.Relation(),
-		LSN:       c.LSN,
-		CommitLSN: c.CommitLSN,
-		XID:       c.XID,
-		Before:    c.Before,
-		After:     c.After,
-	})
-}
-
-func (s *Source) reportLag(ctx context.Context, adminDB *sql.DB, mc metrics.Collector) {
-	var retained int64
-	err := adminDB.QueryRowContext(ctx,
-		`SELECT COALESCE(pg_wal_lsn_diff(pg_current_wal_lsn(), restart_lsn), 0)::bigint
-		   FROM pg_replication_slots WHERE slot_name = $1`, s.slot).Scan(&retained)
-	if err != nil {
-		s.log.Warn("cdc lag query failed", zap.String("slot", s.slot), zap.Error(err))
-		return
-	}
-	if mc != nil {
-		mc.GaugeSet(retainedWALGauge, float64(retained), metrics.Labels{"slot": s.slot})
-	}
-}
-
-func (s *Source) fail(_ context.Context, status chan any, err error) {
-	s.log.Error("cdc stream error", zap.String("slot", s.slot), zap.Error(err))
-	if s.coll != nil {
-		s.coll.CounterInc(errorsCounter, metrics.Labels{"slot": s.slot})
-	}
-	select {
-	case status <- err:
-	default:
-	}
-}
-
-func (s *Source) prepareSlot(
-	ctx context.Context,
-	conn *pgconn.PgConn,
-	adminDB *sql.DB,
-	cp Checkpointer,
-	fallback pglogrepl.LSN,
-) (pglogrepl.LSN, string, error) {
-	var start pglogrepl.LSN
-	resumed := false
-	if cpLSN, ok, err := cp.Load(ctx, s.slot); err != nil {
-		return 0, "", err
-	} else if ok {
-		start = cpLSN
-		resumed = true
-	}
-
-	exists := false
-	if !s.temporary {
-		var err error
-		exists, err = slotExists(ctx, adminDB, s.slot)
-		if err != nil {
-			return 0, "", err
-		}
-	}
-
-	snapshotName := ""
-	if !exists {
-		opts := pglogrepl.CreateReplicationSlotOptions{Temporary: s.temporary}
-		wantSnapshot := s.snapshot && !resumed
-		if wantSnapshot {
-			opts.SnapshotAction = "EXPORT_SNAPSHOT"
-		}
-		res, err := pglogrepl.CreateReplicationSlot(ctx, conn, s.slot, config.OutputPlugin, opts)
-		if err != nil {
-			return 0, "", fmt.Errorf("create replication slot: %w", err)
-		}
-		cpoint, err := pglogrepl.ParseLSN(res.ConsistentPoint)
-		if err != nil {
-			return 0, "", fmt.Errorf("parse consistent point %q: %w", res.ConsistentPoint, err)
-		}
-		if cpoint > start {
-			start = cpoint
-		}
-		if wantSnapshot {
-			snapshotName = res.SnapshotName
-		}
-	}
-
-	if s.failover && !s.temporary {
-		if err := s.setSlotFailover(ctx, conn); err != nil {
-			return 0, "", err
-		}
-	}
-
-	if start == 0 {
-		start = fallback
-	}
-	return start, snapshotName, nil
-}
-
-func (s *Source) setSlotFailover(ctx context.Context, conn *pgconn.PgConn) error {
-	cmd := fmt.Sprintf("ALTER_REPLICATION_SLOT %s ( FAILOVER )", s.slot)
-	if err := conn.Exec(ctx, cmd).Close(); err != nil {
-		return fmt.Errorf("set slot failover: %w", err)
-	}
-	s.log.Info("cdc slot marked for failover", zap.String("slot", s.slot))
-	return nil
-}
-
-type tableRef struct {
-	schema string
-	name   string
-}
-
-func (t tableRef) quoted() string {
-	return pq.QuoteIdentifier(t.schema) + "." + pq.QuoteIdentifier(t.name)
-}
-
-func (s *Source) snapshotExisting(ctx context.Context, adminDB *sql.DB, publication, snapshotName string) error {
-	conn, err := adminDB.Conn(ctx)
-	if err != nil {
-		return fmt.Errorf("snapshot connection: %w", err)
-	}
-	defer func() { _ = conn.Close() }()
-
-	if _, err := conn.ExecContext(ctx, "BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY"); err != nil {
-		return fmt.Errorf("begin snapshot transaction: %w", err)
-	}
-	committed := false
-	defer func() {
-		if !committed {
-			_, _ = conn.ExecContext(context.WithoutCancel(ctx), "ROLLBACK")
-		}
-	}()
-
-	setup := []string{
-		"SET TRANSACTION SNAPSHOT " + pq.QuoteLiteral(snapshotName),
-		"SET LOCAL bytea_output = 'hex'",
-		"SET LOCAL extra_float_digits = 3",
-		"SET LOCAL TimeZone = 'UTC'",
-	}
-	for _, stmt := range setup {
-		if _, err := conn.ExecContext(ctx, stmt); err != nil {
-			return fmt.Errorf("snapshot session setup: %w", err)
-		}
-	}
-
-	if snapshotFailpoint != nil {
-		if err := snapshotFailpoint(); err != nil {
-			return err
-		}
-	}
-
-	tables, err := publishedTables(ctx, conn, publication)
-	if err != nil {
-		return err
-	}
-
-	total := 0
-	for _, tbl := range tables {
-		n, err := s.snapshotTable(ctx, conn, tbl)
-		if err != nil {
-			return err
-		}
-		total += n
-	}
-
-	if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
-		return fmt.Errorf("commit snapshot transaction: %w", err)
-	}
-	committed = true
-	s.log.Info("cdc snapshot complete",
-		zap.String("slot", s.slot), zap.Int("tables", len(tables)), zap.Int("rows", total))
-	return nil
-}
-
-func (s *Source) snapshotTable(ctx context.Context, conn *sql.Conn, tbl tableRef) (int, error) {
-	if _, err := conn.ExecContext(ctx,
-		"DECLARE "+snapshotCursor+" NO SCROLL CURSOR FOR SELECT * FROM "+tbl.quoted()); err != nil {
-		return 0, fmt.Errorf("declare cursor %s.%s: %w", tbl.schema, tbl.name, err)
-	}
-	defer func() { _, _ = conn.ExecContext(context.WithoutCancel(ctx), snapshotCloseSQL) }()
-
-	fetchSQL := fmt.Sprintf("FETCH %d FROM %s", s.snapshotFetchSize, snapshotCursor)
-	n := 0
-	for {
-		got, err := s.fetchSnapshotBatch(ctx, conn, tbl, fetchSQL)
-		if err != nil {
-			return n, err
-		}
-		n += got
-		if got < s.snapshotFetchSize {
-			return n, nil
-		}
-	}
-}
-
-func (s *Source) fetchSnapshotBatch(ctx context.Context, conn *sql.Conn, tbl tableRef, fetchSQL string) (int, error) {
-	rows, err := conn.QueryContext(ctx, fetchSQL)
-	if err != nil {
-		return 0, fmt.Errorf("fetch %s.%s: %w", tbl.schema, tbl.name, err)
-	}
-	defer func() { _ = rows.Close() }()
-
-	cols, err := rows.Columns()
-	if err != nil {
-		return 0, fmt.Errorf("snapshot columns %s.%s: %w", tbl.schema, tbl.name, err)
-	}
-
-	vals := make([]sql.NullString, len(cols))
-	ptrs := make([]any, len(cols))
-	for i := range vals {
-		ptrs[i] = &vals[i]
-	}
-
-	got := 0
-	for rows.Next() {
-		if err := rows.Scan(ptrs...); err != nil {
-			return got, fmt.Errorf("scan snapshot row: %w", err)
-		}
-		after := make(map[string]any, len(cols))
-		for i, c := range cols {
-			if vals[i].Valid {
-				after[c] = vals[i].String
-			} else {
-				after[c] = nil
-			}
-		}
-		s.emitChange(ctx, RowChange{Op: OpSnapshot, Schema: tbl.schema, Table: tbl.name, After: after})
-		got++
-	}
-	return got, rows.Err()
-}
-
-func publishedTables(ctx context.Context, conn *sql.Conn, publication string) ([]tableRef, error) {
-	rows, err := conn.QueryContext(ctx,
-		`SELECT schemaname, tablename FROM pg_publication_tables WHERE pubname = $1
-		 ORDER BY schemaname, tablename`, publication)
-	if err != nil {
-		return nil, fmt.Errorf("list published tables: %w", err)
-	}
-	defer func() { _ = rows.Close() }()
-
-	var tables []tableRef
-	for rows.Next() {
-		var t tableRef
-		if err := rows.Scan(&t.schema, &t.name); err != nil {
-			return nil, fmt.Errorf("scan published table: %w", err)
-		}
-		tables = append(tables, t)
-	}
-	return tables, rows.Err()
-}
-
-func slotExists(ctx context.Context, adminDB *sql.DB, slot string) (bool, error) {
-	var n int
-	err := adminDB.QueryRowContext(ctx,
-		`SELECT count(*) FROM pg_replication_slots WHERE slot_name = $1`, slot).Scan(&n)
-	if err != nil {
-		return false, fmt.Errorf("check slot existence: %w", err)
-	}
-	return n > 0, nil
-}
-
-func (s *Source) ensurePublication(ctx context.Context, adminDB *sql.DB) (string, error) {
-	if s.publication != "" {
-		return s.publication, nil
-	}
-	if len(s.tables) == 0 {
-		return "", ErrNoPublication
-	}
-	name := s.slot + "_pub"
-
-	var n int
-	if err := adminDB.QueryRowContext(ctx,
-		`SELECT count(*) FROM pg_publication WHERE pubname = $1`, name).Scan(&n); err != nil {
-		return "", fmt.Errorf("check publication: %w", err)
-	}
-	if n == 0 {
-		quoted := make([]string, len(s.tables))
-		for i, t := range s.tables {
-			quoted[i] = quoteQualifiedIdent(t)
-		}
-		stmt := fmt.Sprintf("CREATE PUBLICATION %s FOR TABLE %s",
-			pq.QuoteIdentifier(name), strings.Join(quoted, ", "))
-		if _, err := adminDB.ExecContext(ctx, stmt); err != nil {
-			return "", fmt.Errorf("create publication: %w", err)
-		}
-	}
-	return name, nil
-}
-
-func (s *Source) abortFreshSnapshot(conn *pgconn.PgConn) {
-	_ = conn.Close(context.Background())
-	if s.temporary {
-		return
-	}
-	cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	if err := s.dropSlotAndCheckpoint(cleanupCtx); err != nil {
-		s.log.Warn("cdc cleanup after snapshot failure failed",
-			zap.String("slot", s.slot), zap.Error(err))
-	}
-}
-
-func (s *Source) dropSlotAndCheckpoint(ctx context.Context) error {
-	adminDB, err := sql.Open("postgres", s.adminDSN)
-	if err != nil {
-		return fmt.Errorf("open admin connection for slot drop: %w", err)
-	}
-	adminDB.SetMaxOpenConns(1)
-	defer func() { _ = adminDB.Close() }()
-
-	if err := dropReplicationSlot(ctx, adminDB, s.slot); err != nil {
-		return fmt.Errorf("drop replication slot %q: %w", s.slot, err)
-	}
-	s.log.Info("cdc dropped replication slot on delete", zap.String("slot", s.slot))
-
-	if s.injectedCP != nil {
-		if err := s.injectedCP.Delete(ctx, s.slot); err != nil {
-			return fmt.Errorf("delete checkpoint: %w", err)
-		}
-		return nil
-	}
-	if _, err := adminDB.ExecContext(ctx, `DELETE FROM wippy_cdc_offsets WHERE slot = $1`, s.slot); err != nil {
-		return fmt.Errorf("delete checkpoint: %w", err)
-	}
-	return nil
-}
-
-func dropReplicationSlot(ctx context.Context, adminDB *sql.DB, slot string) error {
-	var lastErr error
-	for attempt := 0; attempt < slotDropMaxAttempts; attempt++ {
-		_, err := adminDB.ExecContext(ctx, `SELECT pg_drop_replication_slot($1)`, slot)
-		if err == nil {
+		s.mu.Lock()
+		if s.streamPosition >= fence {
+			s.mu.Unlock()
 			return nil
 		}
-		lastErr = err
-
-		var pqErr *pq.Error
-		if !errors.As(err, &pqErr) || string(pqErr.Code) != slotActiveSQLState {
-			return err
-		}
+		notify := s.streamNotify
+		s.mu.Unlock()
 		select {
+		case <-notify:
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-time.After(slotDropRetryDelay):
 		}
 	}
-	return lastErr
 }
 
-func quoteQualifiedIdent(name string) string {
-	parts := strings.Split(name, ".")
-	for i, p := range parts {
-		parts[i] = pq.QuoteIdentifier(p)
+func (s *Source) finishRunGeneration(done chan struct{}) (bool, []*sourceSubscription) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.done != done {
+		return false, nil
 	}
-	return strings.Join(parts, ".")
+	switch s.state {
+	case sourceRunning, sourceStarting:
+		s.state = sourceFailed
+	}
+	s.cancel = nil
+	return true, s.detachSubscriptionsLocked()
 }

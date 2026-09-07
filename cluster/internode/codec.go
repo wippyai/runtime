@@ -21,8 +21,11 @@ type encodedPayload struct {
 }
 
 type encodedMessage struct {
-	Topic    string
-	Payloads []encodedPayload
+	Topic        string
+	Payloads     []encodedPayload
+	PayloadBytes int64
+	MaxBytes     int64
+	MaxItems     int
 }
 
 type encodedPackage struct {
@@ -101,8 +104,11 @@ func (c *MessageCodec) Encode(pkg *relay.Package) ([]byte, error) {
 
 	for i, msg := range pkg.Messages {
 		encMsg := &encodedMessage{
-			Topic:    msg.Topic,
-			Payloads: make([]encodedPayload, len(msg.Payloads)),
+			Topic:        msg.Topic,
+			Payloads:     make([]encodedPayload, len(msg.Payloads)),
+			PayloadBytes: msg.PayloadBytes,
+			MaxBytes:     msg.MaxBytes,
+			MaxItems:     msg.MaxItems,
 		}
 
 		for j, p := range msg.Payloads {
@@ -159,6 +165,9 @@ func (c *MessageCodec) Decode(data []byte) (*relay.Package, error) {
 	for i, encMsg := range encPkg.Messages {
 		finalMsg := relay.AcquireMessage()
 		finalMsg.Topic = encMsg.Topic
+		finalMsg.PayloadBytes = encMsg.PayloadBytes
+		finalMsg.MaxBytes = encMsg.MaxBytes
+		finalMsg.MaxItems = encMsg.MaxItems
 		finalMsg.Payloads = make(payload.Payloads, len(encMsg.Payloads))
 
 		for j, encP := range encMsg.Payloads {

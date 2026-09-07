@@ -104,6 +104,7 @@ func NewMockConnPool(kind registry.Kind) *ConnPool {
 	pool := &ConnPool{
 		kind:   kind,
 		db:     db,
+		driver: func() Driver { d, _ := testDriverFor(kind); return d }(),
 		status: make(chan any, 1),
 		closed: atomic.Bool{},
 	}
@@ -143,16 +144,21 @@ func NewMockConnPool(kind registry.Kind) *ConnPool {
 	return pool
 }
 
+type standardPoolCall struct {
+	Cfg  *apiconfig.DBConfig
+	Kind registry.Kind
+}
+
+type sqlitePoolCall struct {
+	Cfg  *apiconfig.SQLiteConfig
+	Kind registry.Kind
+}
+
 // Mock factory implementation
 type TestPoolFactory struct {
-	standardPoolCalls []struct {
-		Cfg  *apiconfig.DBConfig
-		Kind registry.Kind
-	}
-	sqlitePoolCalls []struct {
-		Cfg *apiconfig.SQLiteConfig
-	}
-	shouldFailNext bool
+	standardPoolCalls []standardPoolCall
+	sqlitePoolCalls   []sqlitePoolCall
+	shouldFailNext    bool
 }
 
 func NewTestPoolFactory() *TestPoolFactory {
@@ -162,32 +168,58 @@ func NewTestPoolFactory() *TestPoolFactory {
 	}
 }
 
-func (f *TestPoolFactory) CreateStandardPool(_ context.Context, kind registry.Kind, cfg *apiconfig.DBConfig) (*ConnPool, error) {
-	f.standardPoolCalls = append(f.standardPoolCalls, struct {
-		Cfg  *apiconfig.DBConfig
-		Kind registry.Kind
-	}{
-		Kind: kind,
-		Cfg:  cfg,
-	})
-
+func (f *TestPoolFactory) CreatePool(ctx context.Context, deps EngineDeps, entry registry.Entry) (*ConnPool, apiconfig.EngineConfig, error) {
 	if f.shouldFailNext {
-		return nil, assert.AnError
+		return nil, nil, assert.AnError
 	}
-	return NewMockConnPool(kind), nil
+
+	eng, ok := testDriverFor(entry.Kind)
+	if !ok {
+		return nil, nil, NewUnsupportedEntryKindError(entry.Kind)
+	}
+	cfg, err := eng.DecodeConfig(ctx, deps.Transcoder, entry)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := eng.ResolveEnv(ctx, deps, cfg); err != nil {
+		return nil, nil, err
+	}
+	if err := cfg.Validate(); err != nil {
+		return nil, nil, NewInvalidConfigError(err)
+	}
+
+	if c, ok := cfg.(*apiconfig.SQLiteConfig); ok {
+		f.sqlitePoolCalls = append(f.sqlitePoolCalls, sqlitePoolCall{Kind: entry.Kind, Cfg: c})
+	} else if c, ok := cfg.(*apiconfig.DBConfig); ok {
+		f.standardPoolCalls = append(f.standardPoolCalls, standardPoolCall{Kind: entry.Kind, Cfg: c})
+	}
+
+	pool := NewMockConnPool(entry.Kind)
+	var cfgAny any = cfg
+	pool.config.Store(&cfgAny)
+	return pool, cfg, nil
 }
 
-func (f *TestPoolFactory) CreateSQLitePool(_ context.Context, cfg *apiconfig.SQLiteConfig) (*ConnPool, error) {
-	f.sqlitePoolCalls = append(f.sqlitePoolCalls, struct {
-		Cfg *apiconfig.SQLiteConfig
-	}{
-		Cfg: cfg,
-	})
-
+func (f *TestPoolFactory) UpdatePool(ctx context.Context, deps EngineDeps, pool *ConnPool, entry registry.Entry) (apiconfig.EngineConfig, error) {
 	if f.shouldFailNext {
 		return nil, assert.AnError
 	}
-	return NewMockConnPool(apiconfig.SQLite), nil
+
+	eng, ok := testDriverFor(entry.Kind)
+	if !ok {
+		return nil, NewUnsupportedEntryKindError(entry.Kind)
+	}
+	cfg, err := eng.DecodeConfig(ctx, deps.Transcoder, entry)
+	if err != nil {
+		return nil, err
+	}
+	if err := eng.ResolveEnv(ctx, deps, cfg); err != nil {
+		return nil, err
+	}
+	if err := pool.updateConfig(ctx, eng, cfg); err != nil {
+		return nil, err
+	}
+	return cfg, nil
 }
 
 // MockEnvRegistry implements envapi.Registry for testing
@@ -255,7 +287,7 @@ func newTestManager(t *testing.T) (*Manager, event.Bus, *TestPoolFactory) {
 	transcoder := &TestTranscoder{}
 	factory := NewTestPoolFactory()
 
-	manager, err := NewManagerWithFactory(transcoder, bus, logger, factory)
+	manager, err := NewManagerWithFactory(transcoder, bus, logger, NewMockEnvRegistry(), factory)
 	require.NoError(t, err)
 	return manager, bus, factory
 }
@@ -267,7 +299,7 @@ func TestNewManagerWithFactory(t *testing.T) {
 	factory := NewTestPoolFactory()
 
 	t.Run("Valid initialization", func(t *testing.T) {
-		manager, err := NewManagerWithFactory(transcoder, bus, logger, factory)
+		manager, err := NewManagerWithFactory(transcoder, bus, logger, NewMockEnvRegistry(), factory)
 		assert.NoError(t, err)
 		assert.NotNil(t, manager)
 		assert.Equal(t, logger, manager.log)
@@ -278,21 +310,21 @@ func TestNewManagerWithFactory(t *testing.T) {
 	})
 
 	t.Run("Nil transcoder", func(t *testing.T) {
-		manager, err := NewManagerWithFactory(nil, bus, logger, factory)
+		manager, err := NewManagerWithFactory(nil, bus, logger, NewMockEnvRegistry(), factory)
 		require.Error(t, err)
 		assert.Nil(t, manager)
 		assert.Contains(t, err.Error(), "transcoder is required")
 	})
 
 	t.Run("Nil event bus", func(t *testing.T) {
-		manager, err := NewManagerWithFactory(transcoder, nil, logger, factory)
+		manager, err := NewManagerWithFactory(transcoder, nil, logger, NewMockEnvRegistry(), factory)
 		require.Error(t, err)
 		assert.Nil(t, manager)
 		assert.Contains(t, err.Error(), "event bus is required")
 	})
 
 	t.Run("Nil factory", func(t *testing.T) {
-		manager, err := NewManagerWithFactory(transcoder, bus, logger, nil)
+		manager, err := NewManagerWithFactory(transcoder, bus, logger, NewMockEnvRegistry(), nil)
 		require.Error(t, err)
 		assert.Nil(t, manager)
 		assert.Contains(t, err.Error(), "pool factory is required")
@@ -350,7 +382,12 @@ func TestManager_Add(t *testing.T) {
 		id            registry.ID
 		shouldFail    bool
 		expectSuccess bool
-	}{}
+	}{
+		{name: "add postgres", kind: apiconfig.Postgres, id: registry.NewID("test", "add-pg"), shouldFail: false, expectSuccess: true},
+		{name: "add sqlite", kind: apiconfig.SQLite, id: registry.NewID("test", "add-lite"), shouldFail: false, expectSuccess: true},
+		{name: "add failure", kind: apiconfig.Postgres, id: registry.NewID("test", "add-fail"), shouldFail: true, expectSuccess: false},
+		{name: "unsupported kind", kind: "db.unsupported", id: registry.NewID("test", "add-bad"), shouldFail: false, expectSuccess: false},
+	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

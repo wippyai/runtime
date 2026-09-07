@@ -7,6 +7,7 @@ import (
 
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/pid"
+	"github.com/wippyai/runtime/api/registry"
 )
 
 func init() {
@@ -18,22 +19,35 @@ const (
 )
 
 type StreamOptions struct {
+	// After is an opaque source cursor. A driver that cannot resume from a
+	// cursor must return ErrUnsupported rather than silently ignore it.
+	After  string
 	Tables []string
 	Ops    []string
-	Buffer int
+	// MaxBytes bounds the retained logical size of one subscriber backlog.
+	// Zero selects DefaultMaxStreamBytes; negative values are invalid.
+	MaxBytes int64
+	Buffer   int
+	Snapshot bool
 }
 
 type Change struct {
-	Before    map[string]any `json:"before,omitempty"`
-	After     map[string]any `json:"after,omitempty"`
-	Source    string         `json:"source"`
-	Op        string         `json:"op"`
-	Schema    string         `json:"schema"`
-	Table     string         `json:"table"`
-	Relation  string         `json:"relation"`
-	LSN       string         `json:"lsn"`
-	CommitLSN string         `json:"commit_lsn,omitempty"`
-	XID       uint32         `json:"xid,omitempty"`
+	After       map[string]any `json:"after,omitempty"`
+	Before      map[string]any `json:"before,omitempty"`
+	SourceID    registry.ID    `json:"source_id,omitempty"`
+	Table       string         `json:"table"`
+	Source      string         `json:"source"`
+	Op          string         `json:"op"`
+	Schema      string         `json:"schema"`
+	Relation    string         `json:"relation"`
+	LSN         string         `json:"lsn"`
+	CommitLSN   string         `json:"commit_lsn,omitempty"`
+	Cursor      string         `json:"cursor,omitempty"`
+	Generation  string         `json:"generation,omitempty"`
+	Transaction string         `json:"transaction,omitempty"`
+	Error       string         `json:"error,omitempty"`
+	Unchanged   []string       `json:"unchanged,omitempty"`
+	XID         uint32         `json:"xid,omitempty"`
 }
 
 type SubscribeCmd struct {

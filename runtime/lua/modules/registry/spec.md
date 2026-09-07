@@ -71,10 +71,18 @@ Searches for entries matching filter criteria.
 
 | Field | Type | Notes |
 |-------|------|-------|
-| kind | string | Filter by entry kind |
-| type | string | Filter by meta.type field |
-| meta | table | Nested metadata filters |
-| (any) | any | Any other field filters metadata |
+| .kind | string | Entry kind |
+| .ns | string | Entry namespace |
+| .name | string | Entry name |
+| .id | string | Full entry ID |
+| meta.<field> | any | Metadata equality filter |
+| ~meta.<field>, *meta.<field>, ^meta.<field>, $meta.<field> | string | Regex, contains, prefix, suffix |
+
+Bare keys, non-string keys, and nested `meta` filters are deprecated and log a
+warning. Their existing conversion and results are preserved for compatibility;
+unsupported keys may leave the query unfiltered. Migrate to flat selectors.
+Nested keys retain their old flattening and override matching top-level keys;
+they do not automatically gain a `meta.` prefix. No new filter error is returned.
 
 **Returns:**
 
@@ -92,8 +100,8 @@ Searches for entries matching filter criteria.
 | Conversion failed | errors.INTERNAL | no |
 
 ```lua
-local entries, err = registry.find({kind = "function.lua"})
-local tests, err = registry.find({type = "test"})
+local entries, err = registry.find({[".kind"] = "function.lua"})
+local tests, err = registry.find({["meta.type"] = "test"})
 ```
 
 ### snapshot() → Snapshot, error
@@ -372,6 +380,9 @@ Returns all entries in a specific namespace.
 #### snapshot:find(filter: table) → table[]
 
 Searches entries in snapshot matching filter criteria.
+
+Uses the same selectors and deprecation warnings as `registry.find`; legacy
+filter behavior and the existing return shape are preserved.
 
 | Param | Type | Required | Default | Notes |
 |-------|------|----------|---------|-------|

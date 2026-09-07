@@ -98,12 +98,25 @@ func NewController(
 
 // Start initiates the service and transitions it to the running state.
 func (c *Controller) Start() error {
+	return c.startContext(context.Background())
+}
+
+// startContext starts the service while honoring the caller's lifecycle
+// context. The controller root remains independent so a canceled supervisor
+// run can still perform a bounded Stop afterward.
+func (c *Controller) startContext(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	c.state.setDesiredStatus(supervisor.StatusRunning)
 	if c.securityErr != nil {
 		c.updateState(supervisor.StatusExited, c.securityErr)
 		return c.securityErr
 	}
-	return c.runCommand(ctrlOp{kind: ctrlStart})
+	return c.runCommand(ctrlOp{kind: ctrlStart, ctx: ctx})
 }
 
 // Stop gracefully stops the service and transitions it to the stopped state.
@@ -137,6 +150,14 @@ func (c *Controller) cancelStart() {
 	if cancel != nil {
 		cancel()
 	}
+}
+
+// close releases the controller's supervision context after the service has
+// been stopped or detached from the supervisor. Stop intentionally does not
+// cancel this context because callers may retry a failed stop; once a
+// controller is replaced or removed there is no future lifecycle work for it.
+func (c *Controller) close() {
+	c.cancel()
 }
 
 func (c *Controller) setStartCancel(cancel context.CancelFunc) {
@@ -274,6 +295,13 @@ func (c *Controller) supervise() {
 				continue
 
 			case ctrlStart:
+				if op.ctx != nil {
+					if startErr := op.ctx.Err(); startErr != nil {
+						c.state.setDesiredStatus(supervisor.StatusStopped)
+						err = startErr
+						break
+					}
+				}
 				if c.state.getDesiredStatus() != supervisor.StatusRunning {
 					err = context.Canceled
 					break
@@ -282,10 +310,29 @@ func (c *Controller) supervise() {
 					break
 				}
 				ctx, cancel = context.WithCancel(c.ctx)
+				var stopStartPropagation func() bool
+				if op.ctx != nil {
+					stopStartPropagation = context.AfterFunc(op.ctx, cancel)
+				}
 				c.setStartCancel(cancel)
 				detailsCh, sErr := c.tryStart(ctx, cancel)
+				if stopStartPropagation != nil {
+					stopStartPropagation()
+				}
 				c.clearStartCancel()
 				if sErr != nil {
+					if op.ctx != nil && op.ctx.Err() != nil {
+						// The lifecycle operation was canceled by the supervisor
+						// run context. Do not leave Desired=Running, otherwise the
+						// retry policy can resurrect this generation after commit
+						// cancellation. The root controller context remains alive
+						// for an independent bounded Stop.
+						c.state.setDesiredStatus(supervisor.StatusStopped)
+						err = op.ctx.Err()
+						c.updateState(supervisor.StatusStopped, err)
+						respondAndCancel(err)
+						break
+					}
 					if startCh == nil && op.result != nil {
 						startCh = op.result
 						op.result = nil

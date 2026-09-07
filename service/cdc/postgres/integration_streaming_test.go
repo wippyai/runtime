@@ -15,13 +15,16 @@ import (
 
 const streamSlot = "wippy_cdc_stream"
 
-func forceStreaming(t *testing.T, db *sql.DB) {
+func forceStreaming(t *testing.T, db *sql.DB) func() {
 	t.Helper()
 	_, err := db.Exec(`ALTER ROLE cdc_repl SET logical_decoding_work_mem = '64kB'`)
 	require.NoError(t, err)
-	t.Cleanup(func() {
-		_, _ = db.Exec(`ALTER ROLE cdc_repl RESET logical_decoding_work_mem`)
-	})
+	// The caller defers this before its DB close. t.Cleanup would run after
+	// that deferred close and silently leave the role setting behind.
+	return func() {
+		_, err := db.Exec(`ALTER ROLE cdc_repl RESET logical_decoding_work_mem`)
+		require.NoError(t, err)
+	}
 }
 
 func TestStreamingLargeTransactionDelivers(t *testing.T) {
@@ -30,7 +33,7 @@ func TestStreamingLargeTransactionDelivers(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = db.Close() }()
 	setupSchema(t, db)
-	forceStreaming(t, db)
+	defer forceStreaming(t, db)()
 	_, err = db.Exec(`DELETE FROM accounts`)
 	require.NoError(t, err)
 	dropNamedSlot(t, repl, streamSlot)
@@ -80,7 +83,7 @@ func TestStreamingAbortedTransactionDiscarded(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = db.Close() }()
 	setupSchema(t, db)
-	forceStreaming(t, db)
+	defer forceStreaming(t, db)()
 	_, err = db.Exec(`DELETE FROM accounts`)
 	require.NoError(t, err)
 	dropNamedSlot(t, repl, streamSlot)

@@ -7,7 +7,10 @@ physical TTY → shell surface → virtual viewport → child process → PTY pr
 ```
 
 The shell owns placement and input routing. The child only sees its granted
-terminal and runs a real `/bin/sh` through the `terminal` adapter.
+terminal and runs Bash through the `terminal` adapter. Bash is used deliberately
+because minimal `/bin/sh` implementations such as Dash do not provide
+interactive line editing: arrow and Home keys would be echoed as escape
+sequences even when the terminal transport is correct.
 
 ```bash
 make build-wippy-linux-amd64

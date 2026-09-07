@@ -12,6 +12,7 @@ import (
 
 	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/dispatcher"
+	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/process"
@@ -22,7 +23,18 @@ import (
 	"github.com/wippyai/runtime/system/scheduler/affinity"
 )
 
+// The scheduler phase is monotonic. Draining closes admission but keeps workers
+// alive for asynchronous cancellation/cleanup yields. Worker exit is permitted
+// only after the process set drains or its shutdown deadline expires.
+const (
+	phaseRunning uint32 = iota
+	phaseDraining
+	phaseStoppingWorkers
+)
+
 type Option func(*Scheduler)
+
+var errNilPackage = apierror.New(apierror.Invalid, "cannot send nil package").WithRetryable(apierror.False)
 
 func WithWorkers(n int) Option {
 	return func(s *Scheduler) {
@@ -74,29 +86,31 @@ func WithMaxProcesses(maxProcs int64) Option {
 }
 
 type Scheduler struct {
-	lifecycle       process.Lifecycle
-	registry        dispatcher.Registry
-	global          *Queue
-	drainCh         chan struct{}
-	byQueue         sync.Map
-	byPID           sync.Map
+	lifecycle        process.Lifecycle
+	registry         dispatcher.Registry
+	global           *Queue
+	drainCh          chan struct{}
+	byQueue          sync.Map
+	byPID            sync.Map
 	workers          atomic.Pointer[workerSet]
 	pinSet           affinity.Set
-	dedicatedThreads bool
 	wg               sync.WaitGroup
-	controlMu       sync.Mutex
-	initialWorkers  int
-	maxProcesses    int64
-	localQueueSize  int
-	processorCount  atomic.Int64
-	retiredExecuted atomic.Uint64
-	retiredStolen   atomic.Uint64
-	queueSize       int
-	nextID          atomic.Uint64
-	stopping        atomic.Bool
-	collectStats    atomic.Bool
-	started         bool
+	controlMu        sync.Mutex
+	initialWorkers   int
+	maxProcesses     int64
+	localQueueSize   int
+	processorCount   atomic.Int64
+	retiredExecuted  atomic.Uint64
+	retiredStolen    atomic.Uint64
+	queueSize        int
+	nextID           atomic.Uint64
+	phase            atomic.Uint32
+	collectStats     atomic.Bool
+	started          bool
+	dedicatedThreads bool
 }
+
+func (s *Scheduler) isStopping() bool { return s.phase.Load() != phaseRunning }
 
 func NewScheduler(registry dispatcher.Registry, opts ...Option) *Scheduler {
 	s := &Scheduler{
@@ -128,17 +142,17 @@ func (s *Scheduler) getHandler(cmd dispatcher.Command) dispatcher.Handler {
 // Stop gracefully shuts down the scheduler.
 // Sends cancel events and waits for processes to complete or context deadline.
 func (s *Scheduler) Stop(ctx context.Context) {
-	// Publish the terminal state while serialized with Start and Resize, then
+	// Begin draining while serialized with Start and Resize, then
 	// release the control lock before lifecycle callbacks and worker waits.
 	s.controlMu.Lock()
-	if s.stopping.Swap(true) {
+	if !s.phase.CompareAndSwap(phaseRunning, phaseDraining) {
 		s.controlMu.Unlock()
 		return
 	}
 	s.controlMu.Unlock()
 
 	// Push cancel event directly to each processor's queue.
-	// Safe because stopping=true prevents pool release.
+	// Safe because draining prevents pool release.
 	// Wake idle/blocked processors so they process the cancel.
 	s.byPID.Range(func(_, value any) bool {
 		proc := value.(*Processor)
@@ -189,6 +203,9 @@ func (s *Scheduler) Stop(ctx context.Context) {
 	}
 
 	// Wake and wait for workers to exit
+	// Admission closes before cancellation, but workers must remain available
+	// for asynchronous cleanup until processes drain or the deadline expires.
+	s.phase.CompareAndSwap(phaseDraining, phaseStoppingWorkers)
 	s.wakeAll()
 	s.wg.Wait()
 
@@ -256,7 +273,7 @@ func (s *Scheduler) WakeProcessor(q *process.EventQueue, gen uint64) {
 }
 
 func (s *Scheduler) Submit(ctx context.Context, pid pid.PID, p process.Process, method string, input payload.Payloads) (*Processor, error) {
-	if s.stopping.Load() {
+	if s.isStopping() {
 		return nil, process.ErrSchedulerStopping
 	}
 	if s.maxProcesses > 0 && s.processorCount.Load() >= s.maxProcesses {
@@ -382,7 +399,7 @@ func (s *Scheduler) finishProcessor(proc *Processor, result *process.StepOutput,
 	s.byPID.Delete(proc.pid.String())
 	s.byQueue.Delete(proc.queue)
 
-	stopping := s.stopping.Load()
+	stopping := s.isStopping()
 	if !proc.pooled {
 		if s.processorCount.Add(-1) == 0 && stopping {
 			select {
@@ -417,7 +434,7 @@ func (s *Scheduler) finishProcessor(proc *Processor, result *process.StepOutput,
 }
 
 func (s *Scheduler) CreateProcessor(ctx context.Context, pid pid.PID, p process.Process) (*Processor, error) {
-	if s.stopping.Load() {
+	if s.isStopping() {
 		return nil, process.ErrSchedulerStopping
 	}
 	if s.maxProcesses > 0 && s.processorCount.Load() >= s.maxProcesses {
@@ -469,6 +486,24 @@ func (s *Scheduler) ReleaseProcessor(proc *Processor) {
 // Send implements relay.Receiver. Routes package to target process.
 // Wakes the process if it's idle or blocked waiting for messages.
 func (s *Scheduler) Send(pkg *relay.Package) error {
+	return s.SendContext(context.Background(), pkg)
+}
+
+// SendContext implements relay.ContextSender. Admission into a process queue
+// is non-blocking. Cancellation is checked before the target lookup; once
+// PushMessage accepts a package, ownership transfers
+// to the process queue and a later cancellation cannot undo that transfer.
+func (s *Scheduler) SendContext(ctx context.Context, pkg *relay.Package) error {
+	if pkg == nil {
+		return errNilPackage
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	target := pkg.Target // copy before push - pkg may be released after queue receives it
 
 	v, ok := s.byPID.Load(target.String())
@@ -499,11 +534,18 @@ func (s *Scheduler) deliverToProc(proc *Processor, gen uint64, pkg *relay.Packag
 }
 
 func (s *Scheduler) deliverToProcError(proc *Processor, gen uint64, pkg *relay.Package) error {
-	if err := proc.queue.PushWithError(process.Event{
+	admission, err := proc.queue.PushMessageWithError(process.Event{
 		Type: process.EventMessage,
 		Data: pkg,
-	}, gen); err != nil {
+	}, gen)
+	if err != nil {
 		return err
+	}
+	if admission == process.MessageRejected {
+		return process.ErrProcessClosed
+	}
+	if admission == process.MessageDropped {
+		relay.ReleasePackage(pkg)
 	}
 
 	// Wake process if waiting for messages.

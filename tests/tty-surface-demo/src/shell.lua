@@ -6,8 +6,8 @@ local time = require("time")
 local tty = require("tty")
 
 local function main()
-    assert(tty.start())
     local events = assert(tty.events())
+    assert(tty.start())
     local lifecycle = assert(process.events())
     local output = assert(tty.surface({
         alternate_screen = true,
@@ -21,7 +21,7 @@ local function main()
     local updates = assert(viewport:updates())
     local grant = assert(viewport:grant())
     local child = assert(process.with_options({terminal = grant})
-        :spawn_monitored("tty_proof:child", "tty_proof:workers", "/bin/sh"))
+        :spawn_monitored("tty_proof:child", "tty_proof:workers", "/bin/bash --noprofile --norc"))
 
     local revision = -1
     local snapshot: any = {rows = {}}
@@ -31,7 +31,7 @@ local function main()
 
     local function draw()
         local rows = {tty.text.truncate(
-            " Wippy TTY proof — real /bin/sh in a process-owned viewport (Ctrl+Q exits) ",
+            " Wippy TTY proof — real Bash in a process-owned viewport (Ctrl+Q exits) ",
             width)}
         for index = 1, height - 1 do
             rows[index + 1] = snapshot.rows[index] or ""

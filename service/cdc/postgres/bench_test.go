@@ -24,6 +24,12 @@ func BenchmarkDecoderInsert(b *testing.B) {
 		if _, err := d.apply(msg, 0x20); err != nil {
 			b.Fatal(err)
 		}
+		if _, err := d.apply(&pglogrepl.CommitMessage{CommitLSN: 0x30}, 0); err != nil {
+			b.Fatal(err)
+		}
+		if _, err := d.apply(&pglogrepl.BeginMessage{FinalLSN: 0x10, Xid: 7}, 0); err != nil {
+			b.Fatal(err)
+		}
 	}
 }
 
@@ -38,6 +44,12 @@ func BenchmarkDecoderUpdate(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		if _, err := d.apply(msg, 0x30); err != nil {
+			b.Fatal(err)
+		}
+		if _, err := d.apply(&pglogrepl.CommitMessage{CommitLSN: 0x40}, 0); err != nil {
+			b.Fatal(err)
+		}
+		if _, err := d.apply(&pglogrepl.BeginMessage{FinalLSN: 0x10, Xid: 7}, 0); err != nil {
 			b.Fatal(err)
 		}
 	}

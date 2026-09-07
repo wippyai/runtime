@@ -4,6 +4,11 @@ version: "1.0"
 namespace: app
 
 entries:
+  - name: fsdir_fixture
+    kind: ns.dependency
+    component: wippy/fsdir-fixture
+    version: ">=0.0.0"
+
   # app:gateway - HTTP server
   - name: gateway
     kind: http.service

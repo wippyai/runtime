@@ -79,6 +79,8 @@ func (f *EndpointFactory) CreateHandler(_ context.Context, cfg *config.EndpointC
 		}
 
 		result, err := f.funcs.Call(execCtx, task)
+		// A handler may select a status without writing a body (e.g. 204).
+		rCtx.CommitResponseStatus()
 		if err != nil {
 			if !rCtx.ResponseHandled() {
 				http.Error(w, err.Error(), http.StatusInternalServerError)

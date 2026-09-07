@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -122,7 +123,10 @@ func (t *MockTranscoder) Transcode(p payload.Payload, format payload.Format) (pa
 
 // setupTestDB creates a in-memory SQLite database for testing
 func setupTestDB(t *testing.T) *sql.DB {
-	db, err := sql.Open("sqlite3", "file:memdb1?mode=memory&cache=shared")
+	t.Helper()
+	// Concurrent store operations need one database across pool connections.
+	// Use a real isolated database; the supported driver omits shared cache.
+	db, err := sql.Open("sqlite3", filepath.Join(t.TempDir(), "store.db")+"?_journal_mode=WAL&_busy_timeout=5000")
 	require.NoError(t, err)
 	return db
 }

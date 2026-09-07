@@ -146,11 +146,23 @@ func (l *Pool) Call(ctx context.Context, method string, input payload.Payloads) 
 
 // Send implements relay.Receiver. Routes package to target execution.
 func (l *Pool) Send(pkg *relay.Package) error {
+	return l.SendContext(context.Background(), pkg)
+}
+
+// SendContext implements relay.ContextSender. Routes package to target
+// execution while honoring cancellation before queue admission.
+func (l *Pool) SendContext(ctx context.Context, pkg *relay.Package) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	v, ok := l.activeExec.Load(pkg.Target.UniqID)
 	if !ok {
 		return process.ErrProcessNotFound
 	}
-	return v.(*pool.Executor).Send(pkg)
+	return v.(*pool.Executor).SendContext(ctx, pkg)
 }
 
 // acquire gets an idle process or creates a new one.

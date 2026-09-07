@@ -49,9 +49,9 @@ func TestRestartSameInstanceAfterFailure(t *testing.T) {
 		t.Fatal("run goroutine did not exit after backend termination")
 	}
 
-	attachCapture(t, ctx, src, capture)
 	_, err = src.Start(ctx)
 	require.NoError(t, err, "Start must succeed on the same instance after a failure (supervisor retry contract)")
+	attachCapture(t, ctx, src, capture)
 
 	_, err = db.Exec(`INSERT INTO accounts (email, balance) VALUES ('rs2@w.ai', 2)`)
 	require.NoError(t, err)

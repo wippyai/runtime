@@ -13,13 +13,27 @@ import (
 	ttyapi "github.com/wippyai/runtime/api/tty"
 )
 
+// modeAlternateScroll is xterm's alternate scroll mode; the vendored ansi
+// package defines no constant for it.
+const modeAlternateScroll = ansi.DECMode(1007)
+
+// xterm delivers three cursor key presses per wheel notch under alternate scroll.
+const alternateScrollLines = 3
+
 type inputState struct {
 	keyboard       keyboardState
 	appCursor      atomic.Bool
+	altScreen      atomic.Bool
+	altScroll      atomic.Bool
 	bracketedPaste atomic.Bool
 	focusEvents    atomic.Bool
 	mouseEnabled   atomic.Bool
 	mouseSGR       atomic.Bool
+}
+
+// init applies the power-on mode defaults that differ from the zero value.
+func (s *inputState) init() {
+	s.altScroll.Store(true)
 }
 
 func (p *Proxy) handle(event ttyapi.Event) error {
@@ -138,7 +152,7 @@ func modifier(event ttyapi.Event) int {
 
 func (s *inputState) mouse(event ttyapi.Event) string {
 	if !s.mouseEnabled.Load() {
-		return ""
+		return s.alternateScroll(event)
 	}
 	button, ok := mouseButtons[event.Button]
 	if !ok {
@@ -155,6 +169,30 @@ func (s *inputState) mouse(event ttyapi.Event) string {
 	return ansi.MouseX10(encoded, x, y)
 }
 
+// alternateScroll implements xterm's DECSET 1007: while the alternate screen
+// buffer is active and mouse tracking is off, a wheel notch reaches the child
+// as cursor key presses. On the main screen the wheel belongs to the host
+// terminal's own scrollback.
+func (s *inputState) alternateScroll(event ttyapi.Event) string {
+	if !s.altScreen.Load() || !s.altScroll.Load() {
+		return ""
+	}
+	var name string
+	switch event.Button {
+	case "wheel_up":
+		name = "up"
+	case "wheel_down":
+		name = "down"
+	default:
+		return ""
+	}
+	prefix := "\x1b["
+	if s.appCursor.Load() {
+		prefix = "\x1bO"
+	}
+	return strings.Repeat(prefix+cursorKeys[name], alternateScrollLines)
+}
+
 var mouseButtons = map[string]ansi.MouseButton{
 	"none": ansi.MouseNone, "left": ansi.MouseLeft, "middle": ansi.MouseMiddle,
 	"right": ansi.MouseRight, "wheel_up": ansi.MouseWheelUp, "wheel_down": ansi.MouseWheelDown,
@@ -166,6 +204,10 @@ func (s *inputState) set(mode ansi.Mode, enabled bool) {
 	switch mode {
 	case ansi.ModeCursorKeys:
 		s.appCursor.Store(enabled)
+	case ansi.ModeAltScreen, ansi.ModeAltScreenSaveCursor:
+		s.altScreen.Store(enabled)
+	case modeAlternateScroll:
+		s.altScroll.Store(enabled)
 	case ansi.ModeBracketedPaste:
 		s.bracketedPaste.Store(enabled)
 	case ansi.ModeFocusEvent:

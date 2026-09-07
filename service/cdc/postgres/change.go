@@ -20,6 +20,7 @@ type RowChange struct {
 	Table     string         `json:"table"`
 	LSN       string         `json:"lsn"`
 	CommitLSN string         `json:"commit_lsn,omitempty"`
+	Unchanged []string       `json:"unchanged,omitempty"`
 	XID       uint32         `json:"xid,omitempty"`
 }
 

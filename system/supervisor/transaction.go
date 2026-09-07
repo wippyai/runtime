@@ -10,17 +10,19 @@ import (
 )
 
 type regTx struct {
-	register map[string]*supervisor.Entry
-	remove   map[string]struct{}
-	logger   *zap.Logger
-	open     bool
+	register               map[string]*supervisor.Entry
+	remove                 map[string]struct{}
+	registeredBeforeRemove map[string]bool
+	logger                 *zap.Logger
+	open                   bool
 }
 
 func newRegTx(logger *zap.Logger) *regTx {
 	return &regTx{
-		register: make(map[string]*supervisor.Entry),
-		remove:   make(map[string]struct{}),
-		logger:   logger,
+		register:               make(map[string]*supervisor.Entry),
+		remove:                 make(map[string]struct{}),
+		registeredBeforeRemove: make(map[string]bool),
+		logger:                 logger,
 	}
 }
 
@@ -30,8 +32,7 @@ func (th *regTx) begin() {
 	}
 
 	th.open = true
-	th.register = make(map[string]*supervisor.Entry)
-	th.remove = make(map[string]struct{})
+	th.resetChanges()
 }
 
 func (th *regTx) commit(removeFn func(string) error, registerFn func(string, *supervisor.Entry) error) error {
@@ -88,7 +89,17 @@ func (th *regTx) registerService(id string, entry *supervisor.Entry) error {
 		return supervisor.ErrOutsideTransaction
 	}
 
-	delete(th.remove, id)
+	if _, removed := th.remove[id]; removed {
+		// A register following a remove is a replacement when the remove was
+		// already pending before this transaction saw a registration. Keep both
+		// operations so commit stops the old controller before installing the
+		// new one. A register/remove/register sequence is a canceled
+		// registration and retains the historical cancellation behavior.
+		if th.registeredBeforeRemove[id] {
+			delete(th.remove, id)
+			delete(th.registeredBeforeRemove, id)
+		}
+	}
 	th.register[id] = entry // always use the latest entry
 	return nil
 }
@@ -98,19 +109,29 @@ func (th *regTx) removeService(id string) error {
 		return supervisor.ErrOutsideTransaction
 	}
 
-	// duplicate check
+	// A duplicate remove is idempotent, but a remove after a replacement's
+	// register cancels that new registration while retaining removal of the old
+	// controller. This preserves the final event in the transaction.
 	if _, exists := th.remove[id]; exists {
+		delete(th.register, id)
 		return nil
 	}
 
+	_, registered := th.register[id]
 	delete(th.register, id)
 	th.remove[id] = struct{}{}
+	th.registeredBeforeRemove[id] = registered
 
 	return nil
 }
 
 func (th *regTx) reset() {
 	th.open = false
+	th.resetChanges()
+}
+
+func (th *regTx) resetChanges() {
 	th.register = make(map[string]*supervisor.Entry)
 	th.remove = make(map[string]struct{})
+	th.registeredBeforeRemove = make(map[string]bool)
 }

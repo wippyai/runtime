@@ -17,8 +17,6 @@ import (
 )
 
 type Worker struct {
-	dispatchesSinceFair uint8
-	fairSource          uint8
 	batchBuf            [32]*Processor
 	local               *Deque
 	inject              *InjectQueue
@@ -32,6 +30,8 @@ type Worker struct {
 	stolen              atomic.Uint64
 	notified            atomic.Bool
 	retiring            atomic.Bool
+	dispatchesSinceFair uint8
+	fairSource          uint8
 }
 
 func newWorker(id int, s *Scheduler) *Worker {
@@ -67,7 +67,7 @@ func (w *Worker) run() {
 			continue
 		}
 
-		if s.stopping.Load() {
+		if s.phase.Load() == phaseStoppingWorkers {
 			w.drain()
 			return
 		}
@@ -87,7 +87,7 @@ func (w *Worker) run() {
 			w.handoffQueuedWork()
 			return
 		}
-		if s.stopping.Load() {
+		if s.phase.Load() == phaseStoppingWorkers {
 			w.drain()
 			return
 		}
@@ -153,7 +153,7 @@ func (w *Worker) park() {
 			w.executed.Add(1)
 			return
 		}
-		if s.stopping.Load() {
+		if s.phase.Load() == phaseStoppingWorkers {
 			w.parkMu.Unlock()
 			return
 		}

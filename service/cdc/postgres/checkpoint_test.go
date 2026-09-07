@@ -39,6 +39,17 @@ func TestMemoryCheckpointerRoundtrip(t *testing.T) {
 	assert.False(t, ok)
 }
 
+func TestMemoryCheckpointerIsMonotonic(t *testing.T) {
+	cp := NewMemoryCheckpointer()
+	ctx := context.Background()
+	require.NoError(t, cp.Save(ctx, "slot", pglogrepl.LSN(0x200)))
+	require.NoError(t, cp.Save(ctx, "slot", pglogrepl.LSN(0x100)))
+	lsn, ok, err := cp.Load(ctx, "slot")
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.Equal(t, pglogrepl.LSN(0x200), lsn)
+}
+
 func TestMemoryCheckpointerDelete(t *testing.T) {
 	cp := NewMemoryCheckpointer()
 	ctx := context.Background()

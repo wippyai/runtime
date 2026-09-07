@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"os"
 	"runtime"
 	"strings"
 	"sync"
@@ -492,4 +493,73 @@ func TestProxyRunsNativeTerminal(t *testing.T) {
 	rendered := strings.Join(surface.rows, "\n")
 	surface.mu.Unlock()
 	require.Contains(t, rendered, "30 100")
+}
+
+func TestProxyRunsNativeInteractiveEditingKeys(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("native PTY integration requires Unix")
+	}
+	if _, err := os.Stat("/bin/bash"); err != nil {
+		t.Skip("interactive PTY integration requires Bash")
+	}
+	executor := native.NewNativeExecutor(zap.NewNop(), &execapi.NativeExecutorConfig{})
+	process, err := executor.NewProcess(
+		"/bin/bash --noprofile --norc",
+		execapi.ProcessOptions{PTY: &execapi.PTYOptions{Width: 80, Height: 20, Term: "xterm-256color"}},
+	)
+	require.NoError(t, err)
+	ptyProcess, ok := process.(execapi.PTYProcess)
+	require.True(t, ok)
+	surface := &testSurface{}
+	proxy, err := New(ptyProcess, surface, 80, 20)
+	require.NoError(t, err)
+	events := make(chan ttyapi.Event, 32)
+	done := make(chan error, 1)
+	go func() { done <- proxy.Run(context.Background(), events) }()
+
+	sendText := func(value string) {
+		events <- ttyapi.Event{Type: "key", KeyType: "runes", Key: value, Action: "press"}
+	}
+	sendKey := func(name string) {
+		events <- ttyapi.Event{Type: "key", KeyType: name, Key: name, Action: "press"}
+	}
+	require.Eventually(t, func() bool {
+		surface.mu.Lock()
+		defer surface.mu.Unlock()
+		return strings.Contains(strings.Join(surface.rows, "\n"), "bash-")
+	}, 3*time.Second, 10*time.Millisecond)
+
+	// Left inserts in the middle instead of echoing its escape sequence.
+	sendText("printf ac")
+	sendKey("left")
+	sendText("b")
+	sendKey("enter")
+
+	// Backspace edits the line according to the PTY's configured erase byte.
+	sendText("printf backX")
+	sendKey("backspace")
+	sendText("-ok")
+	sendKey("enter")
+
+	// Home followed by Ctrl+K replaces the whole current input line.
+	sendText("printf discarded")
+	sendKey("home")
+	events <- ttyapi.Event{Type: "key", KeyType: "runes", Key: "k", Ctrl: true, Action: "press"}
+	sendText("printf home-ok")
+	sendKey("enter")
+	sendText("exit")
+	sendKey("enter")
+
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("interactive terminal proxy did not finish")
+	}
+	surface.mu.Lock()
+	rendered := strings.Join(surface.rows, "\n")
+	surface.mu.Unlock()
+	require.Contains(t, rendered, "abc")
+	require.Contains(t, rendered, "back-ok")
+	require.Contains(t, rendered, "home-ok")
 }

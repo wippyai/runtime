@@ -52,22 +52,8 @@ func NewUnsupportedAccessModeError(mode string) apierror.Error {
 		WithDetails(attrs.NewBagFrom(map[string]any{"mode": mode}))
 }
 
-func NewUnsupportedDatabaseTypeError(kind registry.Kind) apierror.Error {
-	return apierror.New(apierror.Invalid, "unsupported database type").
-		WithRetryable(apierror.False).
-		WithDetails(attrs.NewBagFrom(map[string]any{"database_type": kind}))
-}
-
 func NewConnectionPoolCreationError(err error) apierror.Error {
 	apiErr := apierror.New(apierror.Internal, "failed to create connection pool").WithRetryable(apierror.False)
-	if err != nil {
-		apiErr = apiErr.WithDetails(attrs.NewBagFrom(map[string]any{"cause": err.Error()})).WithCause(err)
-	}
-	return apiErr
-}
-
-func NewSQLiteConnectionCreationError(err error) apierror.Error {
-	apiErr := apierror.New(apierror.Internal, "failed to create SQLite connection").WithRetryable(apierror.False)
 	if err != nil {
 		apiErr = apiErr.WithDetails(attrs.NewBagFrom(map[string]any{"cause": err.Error()})).WithCause(err)
 	}
@@ -110,14 +96,6 @@ func NewServiceNotFoundError(id registry.ID) apierror.Error {
 
 func NewPoolUpdateError(err error) apierror.Error {
 	apiErr := apierror.New(apierror.Internal, "failed to update pool config").WithRetryable(apierror.False)
-	if err != nil {
-		apiErr = apiErr.WithDetails(attrs.NewBagFrom(map[string]any{"cause": err.Error()})).WithCause(err)
-	}
-	return apiErr
-}
-
-func NewSQLiteUpdateError(err error) apierror.Error {
-	apiErr := apierror.New(apierror.Internal, "failed to update SQLite config").WithRetryable(apierror.False)
 	if err != nil {
 		apiErr = apiErr.WithDetails(attrs.NewBagFrom(map[string]any{"cause": err.Error()})).WithCause(err)
 	}

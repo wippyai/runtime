@@ -46,6 +46,12 @@ func attachCapture(t *testing.T, ctx context.Context, src *Source, capture *chan
 		size = capacity[0]
 	}
 	stream := src.Subscribe(cdcapi.StreamOptions{Buffer: size})
+	require.NotNil(t, stream, "source must admit the capture subscription")
+	t.Cleanup(func() {
+		stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		require.NoError(t, src.Stop(stopCtx))
+	})
 	t.Cleanup(stream.Close)
 	go func() {
 		for {
@@ -65,6 +71,7 @@ func attachCapture(t *testing.T, ctx context.Context, src *Source, capture *chan
 
 func rowChangeFromAPI(change cdcapi.Change) RowChange {
 	return RowChange{
+		Unchanged: change.Unchanged,
 		Before:    change.Before,
 		After:     change.After,
 		Op:        Op(change.Op),
@@ -171,9 +178,9 @@ func TestSourceStreamsAndResumes(t *testing.T) {
 		ops[c.Op]++
 		assert.Equal(t, "accounts", c.Table)
 	}
-	assert.GreaterOrEqual(t, ops[OpInsert], 1)
-	assert.GreaterOrEqual(t, ops[OpUpdate], 1)
-	assert.GreaterOrEqual(t, ops[OpDelete], 1)
+	require.GreaterOrEqual(t, ops[OpInsert], 1)
+	require.GreaterOrEqual(t, ops[OpUpdate], 1)
+	require.GreaterOrEqual(t, ops[OpDelete], 1)
 	assert.Equal(t, "it@w.ai", got[0].After["email"])
 
 	require.Eventually(t, func() bool {
