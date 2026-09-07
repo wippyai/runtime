@@ -63,6 +63,12 @@ type TxnOp struct {
 	Cond   TxnCond
 }
 
+// SnapshotReader reads selected keys from one local immutable view. Missing keys
+// are omitted. Values belong to the caller. This does not imply quorum freshness.
+type SnapshotReader interface {
+	GetMany(keys []string) (map[string]Entry, error)
+}
+
 // Engine is the low-level coordination key-value store. Reads are always local
 // (served from an in-memory replica); writes may replicate depending on the
 // backend (raft for store.kv.raft, gossip CRDT for store.kv.crdt).

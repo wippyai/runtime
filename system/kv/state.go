@@ -3,13 +3,17 @@
 package kv
 
 import (
+	"maps"
 	"strings"
 
+	"github.com/cespare/xxhash/v2"
 	kvapi "github.com/wippyai/runtime/api/store/kv"
 )
 
 // state holds the mutable KV data, accessed only from the event loop goroutine.
 type state struct {
+	published  *stateSnapshot
+	dirty      map[string]struct{}
 	entries    map[string]*entry
 	leases     map[kvapi.LeaseID]*leaseState
 	version    kvapi.Version // global monotonic revision counter
@@ -72,6 +76,7 @@ func (s *state) set(key string, value []byte, leaseID kvapi.LeaseID) (*entry, kv
 		epoch:   s.applyIndex,
 	}
 	s.entries[key] = e
+	s.markDirty(key)
 
 	// Attach to lease
 	if leaseID != "" {
@@ -91,6 +96,7 @@ func (s *state) del(key string) *entry {
 	}
 
 	delete(s.entries, key)
+	s.markDirty(key)
 
 	// Detach from lease
 	if e.leaseID != "" {
@@ -192,45 +198,97 @@ func (s *state) removeLease(id kvapi.LeaseID) []string {
 	return keys
 }
 
-// snapshot builds an immutable copy of all entries for lock-free reads.
-func (s *state) snapshot() *stateSnapshot {
-	snap := &stateSnapshot{
-		entries: make(map[string]*kvapi.Entry, len(s.entries)),
+// Snapshot publication copies only shards containing changed keys. Unchanged
+// maps and entries remain immutable and are shared with older readers.
+const snapshotShards = 256
+
+func snapshotShard(key string) uint64 { return xxhash.Sum64String(key) % snapshotShards }
+
+func (s *state) markDirty(key string) {
+	if s.dirty == nil {
+		s.dirty = make(map[string]struct{})
 	}
-	for k, e := range s.entries {
-		snap.entries[k] = &kvapi.Entry{
-			Key:     e.key,
-			Value:   copyBytes(e.value),
-			Version: e.version,
-			LeaseID: e.leaseID,
-			Epoch:   e.epoch,
+	s.dirty[key] = struct{}{}
+}
+
+func (s *state) snapshot() *stateSnapshot {
+	snap := &stateSnapshot{index: s.applyIndex, version: s.version}
+	if s.published != nil {
+		snap.shards = s.published.shards
+	} else {
+		for key := range s.entries {
+			s.markDirty(key)
 		}
 	}
+	var cloned [snapshotShards]bool
+	for key := range s.dirty {
+		shard := snapshotShard(key)
+		if !cloned[shard] {
+			snap.shards[shard] = maps.Clone(snap.shards[shard])
+			if snap.shards[shard] == nil {
+				snap.shards[shard] = make(map[string]*kvapi.Entry)
+			}
+			cloned[shard] = true
+		}
+		if e := s.entries[key]; e != nil {
+			snap.shards[shard][key] = &kvapi.Entry{Key: e.key, Value: copyBytes(e.value), Version: e.version, LeaseID: e.leaseID, Epoch: e.epoch}
+		} else {
+			delete(snap.shards[shard], key)
+		}
+	}
+	clear(s.dirty)
+	s.published = snap
 	return snap
 }
 
-// stateSnapshot is an immutable point-in-time view for lock-free reads.
+// stateSnapshot carries the applied KV index with precisely the entries that
+// were published at that index. It never samples Raft's possibly newer commit.
 type stateSnapshot struct {
-	entries map[string]*kvapi.Entry
+	shards  [snapshotShards]map[string]*kvapi.Entry
+	version uint64
+	index   uint64
+}
+
+func (s *stateSnapshot) getMany(keys []string) (map[string]kvapi.Entry, error) {
+	if s == nil {
+		return nil, kvapi.ErrKVClosed
+	}
+	out := make(map[string]kvapi.Entry, len(keys))
+	for _, key := range keys {
+		if e := s.get(key); e != nil {
+			out[key] = *e
+		}
+	}
+	return out, nil
 }
 
 func (s *stateSnapshot) get(key string) *kvapi.Entry {
 	if s == nil {
 		return nil
 	}
-	return s.entries[key]
+	e := s.shards[snapshotShard(key)][key]
+	if e == nil {
+		return nil
+	}
+	out := *e
+	out.Value = copyBytes(e.Value)
+	return &out
 }
 
 func (s *stateSnapshot) scan(prefix string, fn func(kvapi.Entry) bool) {
 	if s == nil {
 		return
 	}
-	for k, e := range s.entries {
-		if prefix != "" && !strings.HasPrefix(k, prefix) {
-			continue
-		}
-		if !fn(*e) {
-			return
+	for _, shard := range s.shards {
+		for k, e := range shard {
+			if prefix != "" && !strings.HasPrefix(k, prefix) {
+				continue
+			}
+			out := *e
+			out.Value = copyBytes(e.Value)
+			if !fn(out) {
+				return
+			}
 		}
 	}
 }
