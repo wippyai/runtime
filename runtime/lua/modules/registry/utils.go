@@ -5,9 +5,11 @@ package registry
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/attrs"
+	"github.com/wippyai/runtime/api/logs"
 	"github.com/wippyai/runtime/api/payload"
 	regapi "github.com/wippyai/runtime/api/registry"
 	luaconv "github.com/wippyai/runtime/runtime/lua/engine/payload"
@@ -194,18 +196,25 @@ func dependencyRootsToLuaTable(l *lua.LState, roots []regapi.DependencyRoot) *lu
 }
 
 // convertFilterToMetadata converts a Lua filter table to registry metadata
-func convertFilterToMetadata(_ *lua.LState, filterTable *lua.LTable) attrs.Bag {
+func convertFilterToMetadata(l *lua.LState, filterTable *lua.LTable) attrs.Bag {
 	meta := attrs.Bag{}
+	deprecated := false
 
 	filterTable.ForEach(func(k, v lua.LValue) {
 		if kStr, ok := k.(lua.LString); ok {
 			key := string(kStr)
 
 			if key == "meta" {
+				deprecated = true
 				return
 			}
 
+			if !supportedFilterSelector(key) {
+				deprecated = true
+			}
 			meta[key] = value.ToGoAny(v)
+		} else {
+			deprecated = true
 		}
 	})
 
@@ -221,5 +230,21 @@ func convertFilterToMetadata(_ *lua.LState, filterTable *lua.LTable) attrs.Bag {
 		})
 	}
 
+	// Diagnose legacy filters without changing their criteria, precedence, or
+	// result shape. In particular, nested meta keys retain their old flattening.
+	if deprecated {
+		logs.GetLogger(l.Context()).Warn("deprecated registry.find/snapshot:find filter syntax; use flat selectors .kind, .ns, .name, .id or meta.<field> (optional ~, *, ^, $ metadata operator); legacy behavior is preserved and unsupported keys may leave the query unfiltered")
+	}
 	return meta
+}
+
+func supportedFilterSelector(key string) bool {
+	switch key {
+	case ".kind", ".ns", ".name", ".id":
+		return true
+	}
+	if len(key) > 0 && strings.ContainsRune("~*^$", rune(key[0])) {
+		key = key[1:]
+	}
+	return strings.HasPrefix(key, "meta.") && len(key) > len("meta.")
 }
