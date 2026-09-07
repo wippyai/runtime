@@ -237,9 +237,10 @@ type snapLease struct {
 }
 
 type fsmState struct {
-	Entries []snapEntry
-	Leases  []snapLease
-	Version uint64
+	Entries    []snapEntry
+	Leases     []snapLease
+	ApplyIndex uint64
+	Version    uint64
 }
 
 // Snapshot captures a consistent copy of the kv state. raft serializes this
@@ -248,7 +249,7 @@ func (f *RaftFSM) Snapshot() (hraft.FSMSnapshot, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
-	st := fsmState{Version: f.state.version}
+	st := fsmState{Version: f.state.version, ApplyIndex: f.state.applyIndex}
 	for _, e := range f.state.entries {
 		st.Entries = append(st.Entries, snapEntry{
 			Key: e.key, Value: e.value, Version: e.version, LeaseID: string(e.leaseID), Epoch: e.epoch,
@@ -291,12 +292,16 @@ func (f *RaftFSM) Restore(rc io.ReadCloser) error {
 
 	fresh := newState()
 	fresh.version = st.Version
+	fresh.applyIndex = st.ApplyIndex
 	freshLeases := newLeaseManager()
 	for _, l := range st.Leases {
 		fresh.addLease(kvapi.LeaseID(l.ID), l.TTLms, l.ExpiresAtMs)
 		freshLeases.grant(kvapi.LeaseID(l.ID), msToDuration(l.TTLms), time.Now())
 	}
 	for _, e := range st.Entries {
+		if e.Epoch > fresh.applyIndex {
+			fresh.applyIndex = e.Epoch
+		}
 		fresh.entries[e.Key] = &entry{
 			key: e.Key, value: e.Value, version: e.Version, leaseID: kvapi.LeaseID(e.LeaseID), epoch: e.Epoch,
 		}

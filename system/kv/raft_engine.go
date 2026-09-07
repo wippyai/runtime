@@ -135,6 +135,10 @@ func (e *RaftEngine) proposeRaw(cmd []byte) (applyResult, error) {
 
 // --- kvapi.Engine reads (local) ---
 
+func (e *RaftEngine) GetMany(keys []string) (map[string]kvapi.Entry, error) {
+	return e.fsm.snap.Load().getMany(keys)
+}
+
 func (e *RaftEngine) Get(key string) (kvapi.Entry, error) {
 	ent, ok := e.fsm.get(key)
 	if !ok {
@@ -167,15 +171,15 @@ func (e *RaftEngine) GetLinearizable(key string) (kvapi.Entry, error) {
 	return e.Get(key)
 }
 
-// ScanAtIndex captures the cluster commit index, then scans the published
-// snapshot under prefix, returning the index as the consistent "as-of" point.
+// ScanAtIndex barriers on the leader, then reads entries and their applied KV
+// index from one immutable snapshot. Other Raft domains may have newer indexes.
 func (e *RaftEngine) ScanAtIndex(prefix string, fn func(kvapi.Entry) bool) (uint64, error) {
 	if err := e.raft.Barrier(raftApplyTimeout); err != nil {
 		return 0, err
 	}
-	idx := e.raft.CommitIndex()
-	e.fsm.scan(prefix, fn)
-	return idx, nil
+	snap := e.fsm.snap.Load()
+	snap.scan(prefix, fn)
+	return snap.index, nil
 }
 
 func (e *RaftEngine) Watch(ctx context.Context, prefix string) (kvapi.Watcher, error) {
