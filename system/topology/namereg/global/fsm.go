@@ -187,7 +187,9 @@ func (f *FSM) applyRegister(cmd *Command, index uint64) any {
 		return &RegisterResult{PID: existing, FenceToken: index}
 	case registerDedupe:
 		f.tel.recordGlobalregDedupe()
-		return &RegisterResult{PID: existing, FenceToken: index}
+		// Retrying the same claim does not establish a new ownership epoch.
+		_, established, _ := f.state.LookupWithIndex(cmd.Name)
+		return &RegisterResult{PID: existing, FenceToken: established}
 	case registerConflict:
 		winner := f.resolve(cmd.Name, existing, cmd.PID)
 		if winner == cmd.PID {
