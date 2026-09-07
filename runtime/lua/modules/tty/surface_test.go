@@ -30,8 +30,8 @@ func TestSurfacePresentDiffsRowsAndSkipsUnchangedFrame(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 3, changed)
 	assert.Equal(t, output.Len(), written)
-	assert.Contains(t, output.String(), "\x1b[1;1Hone")
-	assert.Contains(t, output.String(), "\x1b[3;1Hthree")
+	assert.Contains(t, output.String(), "\x1b[1;1H\x1b[0m\x1b[Kone")
+	assert.Contains(t, output.String(), "\x1b[3;1H\x1b[0m\x1b[Kthree")
 
 	output.Reset()
 	changed, written, err = surface.present([]string{"one", "two", "three"})
@@ -45,7 +45,7 @@ func TestSurfacePresentDiffsRowsAndSkipsUnchangedFrame(t *testing.T) {
 	assert.Equal(t, 1, changed)
 	assert.Equal(t, output.Len(), written)
 	assert.NotContains(t, output.String(), "\x1b[1;1H")
-	assert.Contains(t, output.String(), "\x1b[2;1Hchanged")
+	assert.Contains(t, output.String(), "\x1b[2;1H\x1b[0m\x1b[Kchanged")
 }
 
 func TestSurfacePresentClearsRemovedRows(t *testing.T) {

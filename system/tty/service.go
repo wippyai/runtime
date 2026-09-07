@@ -13,12 +13,16 @@ import (
 	processapi "github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
+	"github.com/wippyai/runtime/api/security"
 	ttyapi "github.com/wippyai/runtime/api/tty"
+	"github.com/wippyai/runtime/service/terminal"
 )
 
 // Service is a zero-goroutine, in-memory viewport broker. The AppContext owns
 // the service; process frames own bindings and redeemed ports.
 type Service struct {
+	mounts   map[string]*mountRecord
+	mesh     *meshService
 	sessions map[string]*session
 	grants   map[string]*session
 	mu       sync.Mutex
@@ -26,25 +30,29 @@ type Service struct {
 }
 
 type session struct {
-	router    relay.Receiver
-	watches   map[uint64]watch
-	service   *Service
-	cursor    *ttyapi.Cursor
-	viewers   map[pid.PID]int
-	target    pid.PID
-	grant     string
-	handle    string
-	rows      []string
-	nextWatch uint64
-	revision  uint64
-	width     int
-	height    int
-	bindings  int
-	mu        sync.RWMutex
-	inputOpen bool
-	producer  bool
-	invalid   bool
-	closed    bool
+	page         *ttyapi.Page
+	pageRenderer *terminal.PageRenderer
+	sourceRows   []string
+	router       relay.Receiver
+	watches      map[uint64]watch
+	service      *Service
+	cursor       *ttyapi.Cursor
+	viewers      map[pid.PID]int
+	creator      pid.PID
+	target       pid.PID
+	grant        string
+	handle       string
+	rows         []string
+	nextWatch    uint64
+	revision     uint64
+	width        int
+	height       int
+	bindings     int
+	mu           sync.RWMutex
+	inputOpen    bool
+	producer     bool
+	invalid      bool
+	closed       bool
 }
 
 type watch struct {
@@ -53,7 +61,7 @@ type watch struct {
 }
 
 func NewService() *Service {
-	return &Service{sessions: make(map[string]*session), grants: make(map[string]*session)}
+	return &Service{mounts: make(map[string]*mountRecord), sessions: make(map[string]*session), grants: make(map[string]*session)}
 }
 
 func token(prefix string) (string, error) {
@@ -81,7 +89,7 @@ func (s *Service) Create(ctx context.Context, width, height int) (ttyapi.Viewpor
 		return nil, ttyapi.ErrInvalidGrant
 	}
 	ss := &session{
-		service: s, grant: grant, handle: handle, width: width, height: height,
+		service: s, creator: owner, grant: grant, handle: handle, width: width, height: height,
 		viewers: map[pid.PID]int{owner: 1}, watches: make(map[uint64]watch),
 	}
 	s.mu.Lock()
@@ -95,6 +103,9 @@ func (s *Service) Create(ctx context.Context, width, height int) (ttyapi.Viewpor
 }
 
 func (s *Service) Attach(ctx context.Context, handle string) (ttyapi.Viewport, error) {
+	if isMountRef(handle) {
+		return s.attachMount(ctx, handle)
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed {
@@ -108,6 +119,9 @@ func (s *Service) Attach(ctx context.Context, handle string) (ttyapi.Viewport, e
 	if !ok {
 		return nil, ttyapi.ErrInvalidGrant
 	}
+	if !samePID(owner, ss.creator) && !security.IsAllowed(ctx, ttyapi.RightObserve, handle, nil) {
+		return nil, ttyapi.ErrPermissionDenied
+	}
 	ss.mu.Lock()
 	if ss.closed {
 		ss.mu.Unlock()
@@ -115,6 +129,7 @@ func (s *Service) Attach(ctx context.Context, handle string) (ttyapi.Viewport, e
 	}
 	ss.viewers[owner]++
 	view := ss.newViewportLocked(owner, "")
+	view.rights = ttyapi.MountRights{Observe: true, Input: samePID(owner, ss.creator) || security.IsAllowed(ctx, ttyapi.RightInput, handle, nil), Resize: samePID(owner, ss.creator) || security.IsAllowed(ctx, ttyapi.RightResize, handle, nil)}
 	ss.mu.Unlock()
 	return view, nil
 }
@@ -144,9 +159,18 @@ func (s *Service) Close() error {
 	}
 	s.closed = true
 	sessions := s.sessions
+	mounts := s.mounts
+	mesh := s.mesh
+	s.mounts = nil
 	s.sessions = nil
 	s.grants = nil
 	s.mu.Unlock()
+	if mesh != nil {
+		mesh.close()
+	}
+	for _, m := range mounts {
+		m.close()
+	}
 	for _, ss := range sessions {
 		ss.closeAll()
 	}
@@ -158,6 +182,7 @@ func (s *Service) OnStart(context.Context, pid.PID, processapi.Process) error { 
 // OnComplete deterministically detaches views owned by the exiting process.
 // The producer and terminal state remain alive for another shell to attach.
 func (s *Service) OnComplete(ctx context.Context, owner pid.PID, _ *runtime.Result) {
+	s.closeOwnerMounts(owner)
 	// The frame owns either the unresolved binding or its resolved port. Frame
 	// contexts do not close stored values themselves, so the lifecycle hook is
 	// the canonical release barrier for both paths.

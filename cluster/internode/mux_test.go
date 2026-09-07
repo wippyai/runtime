@@ -3,6 +3,9 @@
 package internode
 
 import (
+	"bytes"
+	"encoding/binary"
+	"io"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -36,7 +39,7 @@ func TestMux_ClassRoundTripPerClass(t *testing.T) {
 		})
 	}()
 
-	classes := []Class{ClassRaftControl, ClassGossip, ClassPGBroadcast, ClassRaftRPC}
+	classes := []Class{ClassRaftControl, ClassGossip, ClassPGBroadcast, ClassRaftRPC, ClassSurface}
 	for _, c := range classes {
 		payload := []byte("payload-" + c.String())
 		srcA.push(payload, c)
@@ -70,7 +73,7 @@ func TestMux_ConcurrentSendersDoNotInterleave(t *testing.T) {
 	a, b, srcA := p.a, p.b, p.srcA
 
 	const perClass = 500
-	classes := []Class{ClassRaftControl, ClassGossip, ClassPGBroadcast, ClassRaftRPC}
+	classes := []Class{ClassRaftControl, ClassGossip, ClassPGBroadcast, ClassRaftRPC, ClassSurface}
 
 	var perClassCount [numClasses]atomic.Int64
 	done := make(chan struct{})
@@ -245,4 +248,15 @@ func isConnected(mgr ConnectionManager, peer string) bool {
 		}
 	}
 	return false
+}
+
+func TestSurfaceRejectsOversizedHeaderBeforeReadingBody(t *testing.T) {
+	// A surface frame has a much smaller limit than a Raft snapshot. The peer
+	// must reject the header without allocating or waiting for the claimed body.
+	var header [frameHeaderSize]byte
+	header[0], header[1] = protocolVersion, byte(ClassSurface)
+	binary.LittleEndian.PutUint32(header[2:], MaxSurfaceFrameSize+1)
+	_, _, err := readFrame(bytes.NewReader(header[:]), 512<<20)
+	require.Error(t, err)
+	require.NotErrorIs(t, err, io.EOF)
 }

@@ -107,6 +107,7 @@ func New(process execapi.PTYProcess, surface ttyapi.Surface, width, height int) 
 		CursorVisibility: p.cursorVisible.Store,
 	})
 	p.installKeyboardHandlers()
+	p.installPageHandlers()
 	return p, nil
 }
 
