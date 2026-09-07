@@ -323,12 +323,22 @@ func parseAndValidateFunctionOptions(meta attrs.Bag) (FunctionOptions, error) {
 
 		for k := range limMap {
 			switch k {
-			case "max_execution_ms", "max_open_sockets", "socket_timeout_ms", "max_retained_memory_bytes", "retained_memory_check_interval":
+			case "asyncify_stack_bytes", "max_execution_ms", "max_open_sockets", "socket_timeout_ms", "max_retained_memory_bytes", "retained_memory_check_interval":
 			default:
 				return opts, newUnknownFieldError("meta.options.limits", k)
 			}
 		}
 
+		if v, ok := limMap["asyncify_stack_bytes"]; ok && v != nil {
+			size, err := asExactInt64(v, "meta.options.limits.asyncify_stack_bytes")
+			if err != nil {
+				return opts, err
+			}
+			if size < 0 || size > int64(MaxAsyncifyStackBytes) {
+				return opts, ErrInvalidAsyncifyStackBytes
+			}
+			opts.Limits.AsyncifyStackBytes = uint32(size)
+		}
 		if v, ok := limMap["max_execution_ms"]; ok && v != nil {
 			ms, err := asExactInt(v, "meta.options.limits.max_execution_ms")
 			if err != nil {
@@ -431,6 +441,9 @@ func serializeFunctionOptions(opts FunctionOptions) map[string]any {
 	}
 
 	limMap := map[string]any{}
+	if opts.Limits.AsyncifyStackBytes > 0 {
+		limMap["asyncify_stack_bytes"] = opts.Limits.AsyncifyStackBytes
+	}
 	if opts.Limits.MaxExecutionMS > 0 {
 		limMap["max_execution_ms"] = opts.Limits.MaxExecutionMS
 	}

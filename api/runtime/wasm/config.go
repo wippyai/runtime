@@ -14,6 +14,9 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 )
 
+// MaxAsyncifyStackBytes leaves room for the wasm32 suspension header.
+const MaxAsyncifyStackBytes uint32 = math.MaxUint32 - 8
+
 type (
 	// PoolConfig defines settings for a pool of WASM executors.
 	PoolConfig struct {
@@ -45,6 +48,10 @@ type (
 		// DefaultRetainedMemoryCheckInterval and an explicit limit is checked after
 		// every call.
 		RetainedMemoryCheckInterval int `json:"retained_memory_check_interval,omitempty"`
+
+		// AsyncifyStackBytes requests guest-allocated suspension storage per core module.
+		// Zero retains the legacy stack configuration. Storage counts toward linear memory.
+		AsyncifyStackBytes uint32 `json:"asyncify_stack_bytes,omitempty"`
 
 		maxRetainedMemoryBytesSet bool
 	}
@@ -130,6 +137,7 @@ type limitsConfigJSON struct {
 	MaxOpenSockets              int    `json:"max_open_sockets,omitempty" yaml:"max_open_sockets,omitempty"`
 	SocketTimeoutMS             int    `json:"socket_timeout_ms,omitempty" yaml:"socket_timeout_ms,omitempty"`
 	RetainedMemoryCheckInterval int    `json:"retained_memory_check_interval,omitempty" yaml:"retained_memory_check_interval,omitempty"`
+	AsyncifyStackBytes          uint32 `json:"asyncify_stack_bytes,omitempty" yaml:"asyncify_stack_bytes,omitempty"`
 }
 
 func (c *LimitsConfig) UnmarshalJSON(data []byte) error {
@@ -153,6 +161,7 @@ func (c *LimitsConfig) UnmarshalYAML(unmarshal func(any) error) error {
 
 func (c *LimitsConfig) applyDecoded(decoded limitsConfigJSON) {
 	*c = LimitsConfig{
+		AsyncifyStackBytes:          decoded.AsyncifyStackBytes,
 		MaxExecutionMS:              decoded.MaxExecutionMS,
 		MaxOpenSockets:              decoded.MaxOpenSockets,
 		SocketTimeoutMS:             decoded.SocketTimeoutMS,
@@ -173,6 +182,7 @@ func (c LimitsConfig) MarshalYAML() (any, error) {
 
 func (c LimitsConfig) encoded() limitsConfigJSON {
 	encoded := limitsConfigJSON{
+		AsyncifyStackBytes:          c.AsyncifyStackBytes,
 		MaxExecutionMS:              c.MaxExecutionMS,
 		MaxOpenSockets:              c.MaxOpenSockets,
 		SocketTimeoutMS:             c.SocketTimeoutMS,
@@ -633,6 +643,9 @@ func validatePool(pool PoolConfig) error {
 }
 
 func validateLimits(limits LimitsConfig) error {
+	if limits.AsyncifyStackBytes > MaxAsyncifyStackBytes {
+		return ErrInvalidAsyncifyStackBytes
+	}
 	if limits.MaxExecutionMS < 0 || int64(limits.MaxExecutionMS) > math.MaxInt64/int64(time.Millisecond) {
 		return ErrInvalidExecutionLimit
 	}

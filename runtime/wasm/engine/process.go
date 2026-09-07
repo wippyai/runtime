@@ -275,9 +275,10 @@ func (p *Process) startExecution() error {
 
 	if p.inst == nil {
 		instCfg := &wasmengine.InstanceConfig{
-			EnableAsyncify: true,
-			MemoryBudget:   p.memoryBudget,
-			DecodeOptions:  p.decodeOptions(),
+			EnableAsyncify:     true,
+			AsyncifyStackBytes: p.limits.AsyncifyStackBytes,
+			MemoryBudget:       p.memoryBudget,
+			DecodeOptions:      p.decodeOptions(),
 		}
 		if entry := p.resolveEntryExport(execCtx); entry != "" {
 			instCfg.EntryExport = entry

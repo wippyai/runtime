@@ -42,6 +42,7 @@ import (
 	clockhost "github.com/wippyai/runtime/runtime/wasm/host/wippy/hosts/clocks"
 	fshost "github.com/wippyai/runtime/runtime/wasm/host/wippy/hosts/filesystem"
 	iohost "github.com/wippyai/runtime/runtime/wasm/host/wippy/hosts/io"
+	randhost "github.com/wippyai/runtime/runtime/wasm/host/wippy/hosts/random"
 	stdiohost "github.com/wippyai/runtime/runtime/wasm/host/wippy/hosts/stdio"
 	servicehost "github.com/wippyai/runtime/service/host"
 	sysprocess "github.com/wippyai/runtime/system/process"
@@ -708,6 +709,16 @@ func createWASMActorProcess(
 	memLimitBytes int64,
 	actorLimits actorhost.Limits,
 ) (processapi.Process, error) {
+	return createWASMActorProcessWithExecutionLimits(ctx, wasmBytes, memLimitBytes, actorLimits, wasmapi.LimitsConfig{})
+}
+
+func createWASMActorProcessWithExecutionLimits(
+	ctx context.Context,
+	wasmBytes []byte,
+	memLimitBytes int64,
+	actorLimits actorhost.Limits,
+	executionLimits wasmapi.LimitsConfig,
+) (processapi.Process, error) {
 	rtCfg := &wasmrt.Config{
 		CloseOnContextDone: true,
 	}
@@ -727,7 +738,8 @@ func createWASMActorProcess(
 		clihost.NewEnvironmentHost(), clihost.NewExitHost(),
 		stdiohost.NewHost(resources), stdiohost.NewStdoutHost(resources), stdiohost.NewStderrHost(resources),
 		stdiohost.NewTerminalStdinHost(), stdiohost.NewTerminalStdoutHost(), stdiohost.NewTerminalStderrHost(),
-		clockhost.NewWallClockHost(), fshost.NewTypesHost(resources), fshost.NewPreopensHost(resources),
+		clockhost.NewWallClockHost(), clockhost.NewMonotonicClockHost(resources),
+		randhost.NewSecureRandomHost(), fshost.NewTypesHost(resources), fshost.NewPreopensHost(resources),
 	} {
 		if err := rt.RegisterHost(h); err != nil {
 			_ = resources.Close()
@@ -760,7 +772,7 @@ func createWASMActorProcess(
 		}
 	}
 
-	proc := NewProcess(mod, "", wasmapi.WASIConfig{}, wasmapi.LimitsConfig{}, nil)
+	proc := NewProcess(mod, "", wasmapi.WASIConfig{}, executionLimits, nil)
 	actorProc := NewActorProcess(proc, actorLimits, cleanup)
 	return actorProc, nil
 }

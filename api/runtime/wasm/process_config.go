@@ -97,6 +97,8 @@ type (
 	// ProcessLimitsConfig defines execution and resource limits for a persistent WASM actor.
 	// Configured within options.limits.
 	ProcessLimitsConfig struct {
+		// AsyncifyStackBytes requests guest-allocated suspension storage per core module.
+		AsyncifyStackBytes uint32 `json:"asyncify_stack_bytes,omitempty" yaml:"asyncify_stack_bytes,omitempty"`
 		// MemoryBytes defines the actor linear memory ceiling.
 		// Defaults to 64 MiB (67108864). Must be a positive multiple of 64 KiB <= 4 GiB.
 		MemoryBytes int64 `json:"memory_bytes,omitempty" yaml:"memory_bytes,omitempty"`
@@ -451,9 +453,10 @@ func (c *ProcessConfig) WorkerClass() string {
 func (c *ProcessConfig) EffectiveLimitsConfig() LimitsConfig {
 	lim := c.Limits()
 	return LimitsConfig{
-		MaxExecutionMS:  lim.EffectiveMaxExecutionMS(),
-		MaxOpenSockets:  lim.EffectiveMaxOpenSockets(),
-		SocketTimeoutMS: lim.EffectiveSocketTimeoutMS(),
+		AsyncifyStackBytes: lim.AsyncifyStackBytes,
+		MaxExecutionMS:     lim.EffectiveMaxExecutionMS(),
+		MaxOpenSockets:     lim.EffectiveMaxOpenSockets(),
+		SocketTimeoutMS:    lim.EffectiveSocketTimeoutMS(),
 	}
 }
 
@@ -472,11 +475,12 @@ func (c *ProcessConfig) SetOptions(opts ProcessOptions) {
 func serializeProcessOptions(opts ProcessOptions) map[string]any {
 	optMap := map[string]any{
 		"limits": map[string]any{
-			"memory_bytes":      opts.Limits.EffectiveMemoryBytes(),
-			"host_buffer_bytes": opts.Limits.HostBufferBytes,
-			"max_execution_ms":  opts.Limits.EffectiveMaxExecutionMS(),
-			"max_open_sockets":  opts.Limits.EffectiveMaxOpenSockets(),
-			"socket_timeout_ms": opts.Limits.EffectiveSocketTimeoutMS(),
+			"memory_bytes":         opts.Limits.EffectiveMemoryBytes(),
+			"host_buffer_bytes":    opts.Limits.HostBufferBytes,
+			"asyncify_stack_bytes": opts.Limits.AsyncifyStackBytes,
+			"max_execution_ms":     opts.Limits.EffectiveMaxExecutionMS(),
+			"max_open_sockets":     opts.Limits.EffectiveMaxOpenSockets(),
+			"socket_timeout_ms":    opts.Limits.EffectiveSocketTimeoutMS(),
 		},
 		"mailbox": map[string]any{
 			"capacity":      opts.Mailbox.EffectiveCapacity(),
@@ -653,7 +657,7 @@ func parseAndValidateOptions(meta attrs.Bag) (ProcessOptions, error) {
 
 		for k := range limMap {
 			switch k {
-			case "memory_bytes", "host_buffer_bytes", "max_execution_ms", "max_open_sockets", "socket_timeout_ms":
+			case "asyncify_stack_bytes", "memory_bytes", "host_buffer_bytes", "max_execution_ms", "max_open_sockets", "socket_timeout_ms":
 			default:
 				return opts, newUnknownFieldError("meta.options.limits", k)
 			}
@@ -687,6 +691,16 @@ func parseAndValidateOptions(meta attrs.Bag) (ProcessOptions, error) {
 			opts.Limits.HostBufferBytes = bytes
 		}
 
+		if v, ok := limMap["asyncify_stack_bytes"]; ok && v != nil {
+			size, err := asExactInt64(v, "meta.options.limits.asyncify_stack_bytes")
+			if err != nil {
+				return opts, err
+			}
+			if size < 0 || size > int64(MaxAsyncifyStackBytes) {
+				return opts, ErrInvalidAsyncifyStackBytes
+			}
+			opts.Limits.AsyncifyStackBytes = uint32(size)
+		}
 		if v, ok := limMap["max_execution_ms"]; ok && v != nil {
 			ms, err := asExactInt(v, "meta.options.limits.max_execution_ms")
 			if err != nil {
@@ -807,6 +821,10 @@ func validateOptionsStruct(opts ProcessOptions) (ProcessOptions, error) {
 		return resolved, ErrProcessHostBufferBytesInvalid
 	}
 	resolved.Limits.HostBufferBytes = opts.Limits.HostBufferBytes
+	if opts.Limits.AsyncifyStackBytes > MaxAsyncifyStackBytes {
+		return resolved, ErrInvalidAsyncifyStackBytes
+	}
+	resolved.Limits.AsyncifyStackBytes = opts.Limits.AsyncifyStackBytes
 
 	if opts.Limits.MaxExecutionMS < 0 || int64(opts.Limits.MaxExecutionMS) > math.MaxInt64/int64(time.Millisecond) {
 		return resolved, ErrInvalidExecutionLimit
