@@ -72,7 +72,7 @@ func printFunc(l *lua.LState) int {
 
 	parts := make([]string, l.GetTop())
 	for i := 1; i <= l.GetTop(); i++ {
-		parts[i-1] = l.ToString(i)
+		parts[i-1] = l.ToStringMeta(l.Get(i)).String()
 	}
 	msg := strings.Join(parts, " ")
 
