@@ -105,6 +105,20 @@ func (s *inputState) key(event ttyapi.Event) string {
 		return "\x1b[" + final
 	}
 	if sequence, ok := fixedKeys[name]; ok {
+		if name == "tab" && event.Shift {
+			if event.Alt || event.Ctrl {
+				return "\x1b[1;" + strconv.Itoa(modifier(event)) + "Z"
+			}
+			return "\x1b[Z"
+		}
+		if event.Shift || event.Alt || event.Ctrl {
+			if strings.HasPrefix(sequence, "\x1b[") && strings.HasSuffix(sequence, "~") {
+				return strings.TrimSuffix(sequence, "~") + ";" + strconv.Itoa(modifier(event)) + "~"
+			}
+			if strings.HasPrefix(sequence, "\x1bO") {
+				return "\x1b[1;" + strconv.Itoa(modifier(event)) + sequence[2:]
+			}
+		}
 		if event.Alt {
 			return "\x1b" + sequence
 		}
@@ -126,10 +140,10 @@ func (s *inputState) key(event ttyapi.Event) string {
 	return sequence
 }
 
-var cursorKeys = map[string]string{"up": "A", "down": "B", "right": "C", "left": "D"}
+var cursorKeys = map[string]string{"up": "A", "down": "B", "right": "C", "left": "D", "home": "H", "end": "F"}
 var fixedKeys = map[string]string{
 	"enter": "\r", "tab": "\t", "backspace": "\x7f", "esc": "\x1b", "space": " ",
-	"insert": "\x1b[2~", "delete": "\x1b[3~", "home": "\x1b[H", "end": "\x1b[F",
+	"insert": "\x1b[2~", "delete": "\x1b[3~",
 	"pgup": "\x1b[5~", "pgdown": "\x1b[6~", "f1": "\x1bOP", "f2": "\x1bOQ",
 	"f3": "\x1bOR", "f4": "\x1bOS", "f5": "\x1b[15~", "f6": "\x1b[17~",
 	"f7": "\x1b[18~", "f8": "\x1b[19~", "f9": "\x1b[20~", "f10": "\x1b[21~",
