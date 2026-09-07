@@ -997,7 +997,12 @@ func TestHost_Run_WorkerClassPlacement(t *testing.T) {
 	})
 
 	t.Run("correctly classed spawn accepted", func(t *testing.T) {
-		proc := &mockProcess{}
+		// Stay alive until host shutdown: a mock that immediately completes
+		// may legitimately close before Run returns on a fast scheduler.
+		proc := &mockProcess{stepFunc: func(_ []process.Event, out *process.StepOutput) error {
+			out.Idle()
+			return nil
+		}}
 		factory := &mockFactory{
 			proc: proc,
 			meta: &process.Meta{WorkerClass: "wasm"},
@@ -1015,12 +1020,18 @@ func TestHost_Run_WorkerClassPlacement(t *testing.T) {
 			Source: registry.NewID("test", "wasm_actor"),
 		})
 		require.NoError(t, err)
+		defer func() { require.NoError(t, th.host.Terminate(context.Background(), runPID)) }()
 		assert.NotEqual(t, pid.PID{}, runPID)
 		assert.False(t, proc.closed.Load(), "process must not be closed on success")
 	})
 
 	t.Run("normal Lua unaffected on default host", func(t *testing.T) {
-		proc := &mockProcess{}
+		// Stay alive until host shutdown: a mock that immediately completes
+		// may legitimately close before Run returns on a fast scheduler.
+		proc := &mockProcess{stepFunc: func(_ []process.Event, out *process.StepOutput) error {
+			out.Idle()
+			return nil
+		}}
 		factory := &mockFactory{
 			proc: proc,
 			meta: &process.Meta{WorkerClass: ""},
@@ -1038,6 +1049,7 @@ func TestHost_Run_WorkerClassPlacement(t *testing.T) {
 			Source: registry.NewID("test", "lua_actor"),
 		})
 		require.NoError(t, err)
+		defer func() { require.NoError(t, th.host.Terminate(context.Background(), runPID)) }()
 		assert.NotEqual(t, pid.PID{}, runPID)
 		assert.False(t, proc.closed.Load(), "process must not be closed on success")
 	})

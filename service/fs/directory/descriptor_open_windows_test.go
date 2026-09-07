@@ -5,7 +5,6 @@
 package directory
 
 import (
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,7 +12,7 @@ import (
 )
 
 func TestDescriptorWindowsPathRejectsEscapesAndDevices(t *testing.T) {
-	for _, name := range []string{"", "/absolute", `\absolute`, "../escape", "C:relative", "file:stream", "child//grandchild", "child\\grandchild", "child/./grandchild"} {
+	for _, name := range []string{"", "/absolute", `\absolute`, "../escape", "C:relative", "file:stream", "child//grandchild", `child\\grandchild`, "child/./grandchild"} {
 		if got, err := descriptorWindowsPath(name); err == nil {
 			t.Errorf("descriptorWindowsPath(%q) = %q, nil error; want rejection", name, got)
 		}
@@ -38,8 +37,7 @@ func TestRenameAtRejectsTargetJunctionEscape(t *testing.T) {
 		t.Fatal(err)
 	}
 	junction := filepath.Join(root, "junction")
-	command := fmt.Sprintf("mklink /J %q %q", junction, outside)
-	if output, err := exec.Command("cmd", "/c", command).CombinedOutput(); err != nil {
+	if output, err := exec.Command("cmd", "/c", "mklink", "/J", junction, outside).CombinedOutput(); err != nil {
 		t.Fatalf("create target junction: %v: %s", err, output)
 	}
 	filesystem, err := NewFS(root, 0700, false)
