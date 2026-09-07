@@ -50,7 +50,7 @@ type (
 		RetainedMemoryCheckInterval int `json:"retained_memory_check_interval,omitempty"`
 
 		// AsyncifyStackBytes requests guest-allocated suspension storage per core module.
-		// Zero retains the legacy stack configuration. Storage counts toward linear memory.
+		// Zero selects the backend default (64 KiB). Storage counts toward linear memory.
 		AsyncifyStackBytes uint32 `json:"asyncify_stack_bytes,omitempty"`
 
 		maxRetainedMemoryBytesSet bool

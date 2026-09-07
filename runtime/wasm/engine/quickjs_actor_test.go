@@ -26,7 +26,7 @@ func TestQuickJSActor_StateAndIsolation(t *testing.T) {
 	code, err := os.ReadFile(fixture)
 	require.NoError(t, err)
 	factory := func() (processapi.Process, error) {
-		return createWASMActorProcessWithExecutionLimits(context.Background(), code, 64<<20, actorhost.DefaultLimits(), wasmapi.LimitsConfig{AsyncifyStackBytes: 64 << 10})
+		return createWASMActorProcessWithExecutionLimits(context.Background(), code, 64<<20, actorhost.DefaultLimits(), wasmapi.LimitsConfig{})
 	}
 	cluster := newHarnessCluster(t, 2, factory)
 	first := cluster.SpawnActor(t, "quickjs-first")
@@ -91,7 +91,7 @@ func BenchmarkQuickJSActorRoundTrip(b *testing.B) {
 	code, err := os.ReadFile(fixture)
 	require.NoError(b, err)
 	factory := func() (processapi.Process, error) {
-		return createWASMActorProcessWithExecutionLimits(context.Background(), code, 64<<20, actorhost.DefaultLimits(), wasmapi.LimitsConfig{AsyncifyStackBytes: 64 << 10})
+		return createWASMActorProcessWithExecutionLimits(context.Background(), code, 64<<20, actorhost.DefaultLimits(), wasmapi.LimitsConfig{})
 	}
 	startup := time.Now()
 	cluster := newHarnessCluster(b, 1, factory)

@@ -599,7 +599,7 @@ func runOpenLoopLoad(t testing.TB, cfg openLoopConfig) *openLoopResult {
 	var activeGatedMu sync.Mutex
 
 	factoryFunc := func() (processapi.Process, error) {
-		p, err := createWASMActorProcess(context.Background(), wasmBytes, 0, mailboxLimits)
+		p, err := createSQLiteWASMActorProcess(context.Background(), wasmBytes, 0, mailboxLimits)
 		if err != nil {
 			return nil, err
 		}

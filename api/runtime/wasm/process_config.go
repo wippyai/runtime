@@ -97,7 +97,8 @@ type (
 	// ProcessLimitsConfig defines execution and resource limits for a persistent WASM actor.
 	// Configured within options.limits.
 	ProcessLimitsConfig struct {
-		// AsyncifyStackBytes requests guest-allocated suspension storage per core module.
+		// AsyncifyStackBytes bounds owned suspension storage per core module.
+		// Zero selects the backend default (64 KiB); allocation failure rejects startup.
 		AsyncifyStackBytes uint32 `json:"asyncify_stack_bytes,omitempty" yaml:"asyncify_stack_bytes,omitempty"`
 		// MemoryBytes defines the actor linear memory ceiling.
 		// Defaults to 64 MiB (67108864). Must be a positive multiple of 64 KiB <= 4 GiB.

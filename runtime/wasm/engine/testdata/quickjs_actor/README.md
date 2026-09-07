@@ -17,7 +17,7 @@ be compiled to JavaScript. Node.js modules, browser APIs, dynamic module loading
 and a Promise event loop are not provided by this example.
 
 The test configures 64 MiB maximum WASM linear memory, an 8 MiB QuickJS heap,
-and 64 KiB of guest-allocated Asyncify stack per core. The latter lives within
+and uses the default 64 KiB owned Asyncify stack per core. The latter lives within
 the linear-memory ceiling; it is separate from the interpreter's own stack.
 Randomness and clocks use the production WASI hosts. No filesystem preopens
 are granted. There is no preemptive scheduling in this demo.

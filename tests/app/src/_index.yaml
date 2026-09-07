@@ -53,6 +53,18 @@ entries:
     lifecycle:
       auto_start: true
 
+  # app:wasm_processes - dedicated process host for Wasm actors
+  - name: wasm_processes
+    kind: process.host
+    meta:
+      comment: Wasm process execution host
+    host:
+      max_processes: 10000
+      workers: 32
+      worker_class: wasm
+    lifecycle:
+      auto_start: true
+
   # app:terminal - terminal host for CLI apps
   - name: terminal
     kind: terminal.host

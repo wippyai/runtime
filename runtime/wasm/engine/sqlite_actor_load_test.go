@@ -20,6 +20,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/stretchr/testify/require"
+	"github.com/tetratelabs/wazero"
 	wazeroapi "github.com/tetratelabs/wazero/api"
 	"github.com/tetratelabs/wazero/experimental"
 	"go.uber.org/zap"
@@ -52,6 +53,22 @@ import (
 	wasmrt "github.com/wippyai/wasm-runtime/runtime"
 	"github.com/wippyai/wasm-runtime/wasi/preview2"
 )
+
+// sqliteFixtureCompilationCache shares only compiled SQLite fixture code. Each
+// actor still receives a fresh runtime, host registry, resource table, module
+// instance, and guest memory.
+var sqliteFixtureCompilationCache = wazero.NewCompilationCache()
+
+func TestMain(m *testing.M) {
+	code := m.Run()
+	if err := sqliteFixtureCompilationCache.Close(context.Background()); err != nil {
+		fmt.Fprintf(os.Stderr, "close SQLite fixture compilation cache: %v\n", err)
+		if code == 0 {
+			code = 1
+		}
+	}
+	os.Exit(code)
+}
 
 // --- Harness Infrastructure: Scheduler Host, Relay, and Client ---
 
@@ -719,7 +736,28 @@ func createWASMActorProcessWithExecutionLimits(
 	actorLimits actorhost.Limits,
 	executionLimits wasmapi.LimitsConfig,
 ) (processapi.Process, error) {
+	return createWASMActorProcessWithCompilationCache(ctx, wasmBytes, memLimitBytes, actorLimits, executionLimits, nil)
+}
+
+func createSQLiteWASMActorProcess(
+	ctx context.Context,
+	wasmBytes []byte,
+	memLimitBytes int64,
+	actorLimits actorhost.Limits,
+) (processapi.Process, error) {
+	return createWASMActorProcessWithCompilationCache(ctx, wasmBytes, memLimitBytes, actorLimits, wasmapi.LimitsConfig{}, sqliteFixtureCompilationCache)
+}
+
+func createWASMActorProcessWithCompilationCache(
+	ctx context.Context,
+	wasmBytes []byte,
+	memLimitBytes int64,
+	actorLimits actorhost.Limits,
+	executionLimits wasmapi.LimitsConfig,
+	compilationCache wazero.CompilationCache,
+) (processapi.Process, error) {
 	rtCfg := &wasmrt.Config{
+		CompilationCache:   compilationCache,
 		CloseOnContextDone: true,
 	}
 	if memLimitBytes > 0 {
@@ -840,7 +878,7 @@ func TestSQLiteActor_Correctness_1Actor(t *testing.T) {
 	}
 
 	factoryFunc := func() (processapi.Process, error) {
-		return createWASMActorProcess(context.Background(), wasmBytes, 0, actorhost.DefaultLimits())
+		return createSQLiteWASMActorProcess(context.Background(), wasmBytes, 0, actorhost.DefaultLimits())
 	}
 
 	cluster := newHarnessCluster(t, 2, factoryFunc)
@@ -945,7 +983,7 @@ func TestSQLiteActor_Correctness_4Actors_Concurrent(t *testing.T) {
 	const nRows = int64(10000)
 
 	factoryFunc := func() (processapi.Process, error) {
-		return createWASMActorProcess(context.Background(), wasmBytes, 0, actorhost.DefaultLimits())
+		return createSQLiteWASMActorProcess(context.Background(), wasmBytes, 0, actorhost.DefaultLimits())
 	}
 
 	cluster := newHarnessCluster(t, numActors, factoryFunc)
@@ -1139,7 +1177,7 @@ func TestSQLiteActorLoad_Sustained(t *testing.T) {
 	runtime.ReadMemStats(&mBaseline)
 
 	factoryFunc := func() (processapi.Process, error) {
-		return createWASMActorProcess(context.Background(), wasmBytes, 0, actorhost.DefaultLimits())
+		return createSQLiteWASMActorProcess(context.Background(), wasmBytes, 0, actorhost.DefaultLimits())
 	}
 
 	cluster := newHarnessCluster(t, concurrency, factoryFunc)
@@ -1402,7 +1440,7 @@ func TestSQLiteActor_MemoryLimits(t *testing.T) {
 	// 2 MB memory limit (32 WASM pages)
 	const tightLimit = int64(2 * 1024 * 1024)
 	factoryFunc := func() (processapi.Process, error) {
-		return createWASMActorProcess(context.Background(), wasmBytes, tightLimit, actorhost.DefaultLimits())
+		return createSQLiteWASMActorProcess(context.Background(), wasmBytes, tightLimit, actorhost.DefaultLimits())
 	}
 
 	cluster := newHarnessCluster(t, 2, factoryFunc)
@@ -1445,7 +1483,7 @@ func TestSQLiteActor_MemoryLimits(t *testing.T) {
 	// 2. Verify a healthy actor with sufficient memory still functions normally
 	const healthyLimit = int64(32 * 1024 * 1024) // 32 MB
 	healthyFactory := func() (processapi.Process, error) {
-		return createWASMActorProcess(context.Background(), wasmBytes, healthyLimit, actorhost.DefaultLimits())
+		return createSQLiteWASMActorProcess(context.Background(), wasmBytes, healthyLimit, actorhost.DefaultLimits())
 	}
 	healthyCluster := newHarnessCluster(t, 2, healthyFactory)
 	healthyPID := healthyCluster.SpawnActor(t, "healthy-mem-actor")
@@ -1516,7 +1554,7 @@ func TestSQLiteActor_LifecycleAndCancellation(t *testing.T) {
 		return nil
 	}))
 	factoryFunc := func() (processapi.Process, error) {
-		return createWASMActorProcess(compileCtx, wasmBytes, 0, actorhost.DefaultLimits())
+		return createSQLiteWASMActorProcess(compileCtx, wasmBytes, 0, actorhost.DefaultLimits())
 	}
 
 	cluster := newHarnessCluster(t, 2, factoryFunc)
@@ -1599,7 +1637,7 @@ func TestSQLiteActor_Overload(t *testing.T) {
 	var activeGatedMu sync.Mutex
 
 	factoryFunc := func() (processapi.Process, error) {
-		p, err := createWASMActorProcess(context.Background(), wasmBytes, 0, tightMailbox)
+		p, err := createSQLiteWASMActorProcess(context.Background(), wasmBytes, 0, tightMailbox)
 		if err != nil {
 			return nil, err
 		}

@@ -31,17 +31,18 @@ const (
 
 // EntryConfig represents the full configuration entry for a process host service including lifecycle management.
 type EntryConfig struct {
-	Lifecycle  supervisor.LifecycleConfig `json:"lifecycle"`
 	HostConfig Config                     `json:"host"`
+	Lifecycle  supervisor.LifecycleConfig `json:"lifecycle"`
 }
 
 // Config represents configuration for a process host service
 type Config struct {
+	WorkerClass string `json:"worker_class,omitempty"` // Execution class: "" (actor/default) or "wasm"
+
 	// Scheduler settings
-	Workers        int    `json:"workers"`                // Number of worker goroutines (default: NumCPU)
-	QueueSize      int    `json:"queue_size"`             // Global queue capacity (default: 1024)
-	LocalQueueSize int    `json:"local_queue_size"`       // Per-worker local deque size (default: 256)
-	WorkerClass    string `json:"worker_class,omitempty"` // Execution class: "" (actor/default) or "wasm"
+	Workers        int `json:"workers"`          // Number of worker goroutines (default: NumCPU)
+	QueueSize      int `json:"queue_size"`       // Global queue capacity (default: 1024)
+	LocalQueueSize int `json:"local_queue_size"` // Per-worker local deque size (default: 256)
 }
 
 func (cfg *EntryConfig) initDefaults() {

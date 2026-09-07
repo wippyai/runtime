@@ -4,8 +4,8 @@ package engine
 
 import (
 	"context"
-	"encoding/hex"
 	"errors"
+	"os"
 	"testing"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
@@ -16,79 +16,12 @@ import (
 	wasmrt "github.com/wippyai/wasm-runtime/runtime"
 )
 
-// asyncComponentWASMHex is a self-contained 648-byte WebAssembly component with
-// Asyncify stubs in its core module and exported canonical functions:
-// - inc() -> s32: increments a mutable global counter and returns new value
-// - exchange(val: s32) -> s32: writes val to memory offset 1024 and returns previous value
-// - grow(pages: s32) -> s32: grows linear memory and returns previous page count
-//
-// Generated from WAT:
-// (component
-//
-//	(core module $main
-//	  (memory (export "memory") 1)
-//	  (global $counter (mut i32) (i32.const 0))
-//	  (func (export "asyncify_get_state") (result i32) (i32.const 0))
-//	  (func (export "asyncify_start_unwind") (param i32))
-//	  (func (export "asyncify_stop_unwind"))
-//	  (func (export "asyncify_start_rewind") (param i32))
-//	  (func (export "asyncify_stop_rewind"))
-//	  (func (export "inc") (result i32)
-//	    (global.set $counter (i32.add (global.get $counter) (i32.const 1)))
-//	    (global.get $counter)
-//	  )
-//	  (func (export "exchange") (param $val i32) (result i32)
-//	    (local $old i32)
-//	    (local.set $old (i32.load (i32.const 1024)))
-//	    (i32.store (i32.const 1024) (local.get $val))
-//	    (local.get $old)
-//	  )
-//	  (func (export "grow") (param $pages i32) (result i32)
-//	    (local.get $pages)
-//	    (memory.grow)
-//	  )
-//	)
-//	(core instance $main_inst (instantiate $main))
-//	(alias core export $main_inst "memory" (core memory $mem))
-//	(alias core export $main_inst "inc" (core func $inc_core))
-//	(alias core export $main_inst "exchange" (core func $exchange_core))
-//	(alias core export $main_inst "grow" (core func $grow_core))
-//	(type $inc_type (func (result s32)))
-//	(func $inc_func (type $inc_type) (canon lift (core func $inc_core)))
-//	(export "inc" (func $inc_func))
-//	(type $exchange_type (func (param "val" s32) (result s32)))
-//	(func $exchange_func (type $exchange_type) (canon lift (core func $exchange_core)))
-//	(export "exchange" (func $exchange_func))
-//	(type $grow_type (func (param "pages" s32) (result s32)))
-//	(func $grow_func (type $grow_type) (canon lift (core func $grow_core)))
-//	(export "grow" (func $grow_func))
-//
-// )
-const asyncComponentWASMHex = "" +
-	"0061736d0d00010001bb020061736d010000000111046000017f60017f0060000060" +
-	"017f017f030908000102010200030305030100010606017f0141000b07950109066d" +
-	"656d6f72790200126173796e636966795f6765745f73746174650000156173796e63" +
-	"6966795f73746172745f756e77696e640001146173796e636966795f73746f705f75" +
-	"6e77696e640002156173796e636966795f73746172745f726577696e640003146173" +
-	"796e636966795f73746f705f726577696e64000403696e6300050865786368616e67" +
-	"6500060467726f7700070a3c08040041000b02000b02000b02000b02000b0b002300" +
-	"41016a240023000b1601017f4180082802002101418008200036020020010b060020" +
-	"0040000b0030046e616d650005046d61696e0216020602000376616c01036f6c6407" +
-	"0100057061676573070a010007636f756e746572020401000000062a040002010006" +
-	"6d656d6f72790000010003696e63000001000865786368616e676500000100046772" +
-	"6f770705014000007a08060100000000000b09010003696e63010000070a01400103" +
-	"76616c7a007a08060100000100010b0e01000865786368616e6765010200070c0140" +
-	"010570616765737a007a08060100000200020b0a01000467726f7701040000ad010e" +
-	"636f6d706f6e656e742d6e616d6501270000030008696e635f636f7265010d657863" +
-	"68616e67655f636f7265020967726f775f636f7265010800020100036d656d010900" +
-	"110100046d61696e010e00120100096d61696e5f696e7374012601030008696e635f" +
-	"66756e63020d65786368616e67655f66756e63040967726f775f66756e6301260303" +
-	"0008696e635f74797065010d65786368616e67655f74797065020967726f775f7479" +
-	"7065"
-
+// The fixture exports Asyncify controls, a bounded allocator, and inc/exchange/grow.
+// Its 1 KiB suspension stack is allocated above the value at address 1024.
+// Source: testdata/process_async_reuse.wat; rebuild with wasm-tools parse.
 func loadSelfContainedAsyncModule(ctx context.Context, t testing.TB) (*wasmrt.Runtime, *wasmrt.Module) {
 	t.Helper()
-	data, err := hex.DecodeString(asyncComponentWASMHex)
+	data, err := os.ReadFile("testdata/process_async_reuse.wasm")
 	if err != nil {
 		t.Fatalf("hex.DecodeString: %v", err)
 	}
@@ -120,7 +53,7 @@ func TestProcessAsyncReuse_StateRetainedAcrossInitStep(t *testing.T) {
 	rt, mod := loadSelfContainedAsyncModule(ctx, t)
 	defer func() { _ = rt.Close(ctx) }()
 
-	p := NewProcess(mod, wasmapi.TransportTypePayload, wasmapi.WASIConfig{}, wasmapi.LimitsConfig{}, nil)
+	p := NewProcess(mod, wasmapi.TransportTypePayload, wasmapi.WASIConfig{}, wasmapi.LimitsConfig{AsyncifyStackBytes: 1024}, nil)
 	defer p.Close()
 
 	// 1. First execution: call "inc", expect 1
@@ -219,6 +152,7 @@ func TestProcessAsyncReuse_MaxRetainedMemoryRecycling(t *testing.T) {
 
 	t.Run("instance kept warm when memory within limit", func(t *testing.T) {
 		p := NewProcess(mod, wasmapi.TransportTypePayload, wasmapi.WASIConfig{}, wasmapi.LimitsConfig{
+			AsyncifyStackBytes:     1024,
 			MaxRetainedMemoryBytes: 1024 * 1024, // 1MB > 64KB initial page
 		}, nil)
 		defer p.Close()
@@ -241,6 +175,7 @@ func TestProcessAsyncReuse_MaxRetainedMemoryRecycling(t *testing.T) {
 	t.Run("replacement requested when memory grows above limit", func(t *testing.T) {
 		// Limit exactly 1 page (64KB = 65536 bytes)
 		p := NewProcess(mod, wasmapi.TransportTypePayload, wasmapi.WASIConfig{}, wasmapi.LimitsConfig{
+			AsyncifyStackBytes:     1024,
 			MaxRetainedMemoryBytes: 64 * 1024,
 		}, nil)
 		defer p.Close()
@@ -280,6 +215,7 @@ func TestProcessAsyncReuse_MaxRetainedMemoryRecycling(t *testing.T) {
 
 	t.Run("explicit zero limit disables memory recycling", func(t *testing.T) {
 		p := NewProcess(mod, wasmapi.TransportTypePayload, wasmapi.WASIConfig{}, wasmapi.LimitsConfig{
+			AsyncifyStackBytes:     1024,
 			MaxRetainedMemoryBytes: 0,
 		}, nil)
 		defer p.Close()
@@ -374,7 +310,7 @@ func TestProcessAsyncReuse_ResetSoundness(t *testing.T) {
 	rt, mod := loadSelfContainedAsyncModule(ctx, t)
 	defer func() { _ = rt.Close(ctx) }()
 
-	p := NewProcess(mod, wasmapi.TransportTypePayload, wasmapi.WASIConfig{}, wasmapi.LimitsConfig{}, nil)
+	p := NewProcess(mod, wasmapi.TransportTypePayload, wasmapi.WASIConfig{}, wasmapi.LimitsConfig{AsyncifyStackBytes: 1024}, nil)
 	defer p.Close()
 
 	// 1. Consecutive Init calls before Step should cleanly overwrite without panic or leak
@@ -445,7 +381,7 @@ func TestProcessAsyncReuse_CancelAndErrorCleanup(t *testing.T) {
 	rt, mod := loadSelfContainedAsyncModule(ctx, t)
 	defer func() { _ = rt.Close(ctx) }()
 
-	p := NewProcess(mod, wasmapi.TransportTypePayload, wasmapi.WASIConfig{}, wasmapi.LimitsConfig{}, nil)
+	p := NewProcess(mod, wasmapi.TransportTypePayload, wasmapi.WASIConfig{}, wasmapi.LimitsConfig{AsyncifyStackBytes: 1024}, nil)
 	defer p.Close()
 
 	// 1. Initial successful call establishing warm instance
@@ -505,7 +441,7 @@ func TestProcessAsyncReuse_CloseSoundness(t *testing.T) {
 	rt, mod := loadSelfContainedAsyncModule(ctx, t)
 	defer func() { _ = rt.Close(ctx) }()
 
-	p := NewProcess(mod, wasmapi.TransportTypePayload, wasmapi.WASIConfig{}, wasmapi.LimitsConfig{}, nil)
+	p := NewProcess(mod, wasmapi.TransportTypePayload, wasmapi.WASIConfig{}, wasmapi.LimitsConfig{AsyncifyStackBytes: 1024}, nil)
 
 	if err := p.Init(ctx, "inc", nil); err != nil {
 		t.Fatal(err)
