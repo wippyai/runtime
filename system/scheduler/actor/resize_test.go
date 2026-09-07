@@ -142,7 +142,7 @@ func TestSchedulerResizeRejectsWhileStopping(t *testing.T) {
 		sched.Stop(ctx)
 		close(stopDone)
 	}()
-	waitFor(t, func() bool { return sched.stopping.Load() })
+	waitFor(t, func() bool { return sched.isStopping() })
 
 	started := time.Now()
 	if err := sched.ResizeWorkers(2); !errors.Is(err, process.ErrSchedulerStopping) {

@@ -23,6 +23,15 @@ import (
 	"github.com/wippyai/runtime/system/scheduler/affinity"
 )
 
+// The scheduler phase is monotonic. Draining closes admission but keeps workers
+// alive for asynchronous cancellation/cleanup yields. Worker exit is permitted
+// only after the process set drains or its shutdown deadline expires.
+const (
+	phaseRunning uint32 = iota
+	phaseDraining
+	phaseStoppingWorkers
+)
+
 type Option func(*Scheduler)
 
 var errNilPackage = apierror.New(apierror.Invalid, "cannot send nil package").WithRetryable(apierror.False)
@@ -89,10 +98,12 @@ type Scheduler struct {
 	retiredStolen   atomic.Uint64
 	queueSize       int
 	nextID          atomic.Uint64
-	stopping        atomic.Bool
+	phase           atomic.Uint32
 	collectStats    atomic.Bool
 	started         bool
 }
+
+func (s *Scheduler) isStopping() bool { return s.phase.Load() != phaseRunning }
 
 func NewScheduler(registry dispatcher.Registry, opts ...Option) *Scheduler {
 	s := &Scheduler{
@@ -124,17 +135,17 @@ func (s *Scheduler) getHandler(cmd dispatcher.Command) dispatcher.Handler {
 // Stop gracefully shuts down the scheduler.
 // Sends cancel events and waits for processes to complete or context deadline.
 func (s *Scheduler) Stop(ctx context.Context) {
-	// Publish the terminal state while serialized with Start and Resize, then
+	// Begin draining while serialized with Start and Resize, then
 	// release the control lock before lifecycle callbacks and worker waits.
 	s.controlMu.Lock()
-	if s.stopping.Swap(true) {
+	if !s.phase.CompareAndSwap(phaseRunning, phaseDraining) {
 		s.controlMu.Unlock()
 		return
 	}
 	s.controlMu.Unlock()
 
 	// Push cancel event directly to each processor's queue.
-	// Safe because stopping=true prevents pool release.
+	// Safe because draining prevents pool release.
 	// Wake idle/blocked processors so they process the cancel.
 	s.byPID.Range(func(_, value any) bool {
 		proc := value.(*Processor)
@@ -185,6 +196,9 @@ func (s *Scheduler) Stop(ctx context.Context) {
 	}
 
 	// Wake and wait for workers to exit
+	// Admission closes before cancellation, but workers must remain available
+	// for asynchronous cleanup until processes drain or the deadline expires.
+	s.phase.CompareAndSwap(phaseDraining, phaseStoppingWorkers)
 	s.wakeAll()
 	s.wg.Wait()
 
@@ -248,7 +262,7 @@ func (s *Scheduler) WakeProcessor(q *process.EventQueue, gen uint64) {
 }
 
 func (s *Scheduler) Submit(ctx context.Context, pid pid.PID, p process.Process, method string, input payload.Payloads) (*Processor, error) {
-	if s.stopping.Load() {
+	if s.isStopping() {
 		return nil, process.ErrSchedulerStopping
 	}
 	if s.maxProcesses > 0 && s.processorCount.Load() >= s.maxProcesses {
@@ -347,7 +361,7 @@ func (s *Scheduler) finishProcessor(proc *Processor, result *process.StepOutput,
 	s.byPID.Delete(proc.pid.String())
 	s.byQueue.Delete(proc.queue)
 
-	stopping := s.stopping.Load()
+	stopping := s.isStopping()
 	if !proc.pooled {
 		if s.processorCount.Add(-1) == 0 && stopping {
 			select {
@@ -382,7 +396,7 @@ func (s *Scheduler) finishProcessor(proc *Processor, result *process.StepOutput,
 }
 
 func (s *Scheduler) CreateProcessor(ctx context.Context, pid pid.PID, p process.Process) (*Processor, error) {
-	if s.stopping.Load() {
+	if s.isStopping() {
 		return nil, process.ErrSchedulerStopping
 	}
 	if s.maxProcesses > 0 && s.processorCount.Load() >= s.maxProcesses {

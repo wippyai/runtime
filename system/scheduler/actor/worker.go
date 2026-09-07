@@ -65,7 +65,7 @@ func (w *Worker) run() {
 			continue
 		}
 
-		if s.stopping.Load() {
+		if s.phase.Load() == phaseStoppingWorkers {
 			w.drain()
 			return
 		}
@@ -85,7 +85,7 @@ func (w *Worker) run() {
 			w.handoffQueuedWork()
 			return
 		}
-		if s.stopping.Load() {
+		if s.phase.Load() == phaseStoppingWorkers {
 			w.drain()
 			return
 		}
@@ -151,7 +151,7 @@ func (w *Worker) park() {
 			w.executed.Add(1)
 			return
 		}
-		if s.stopping.Load() {
+		if s.phase.Load() == phaseStoppingWorkers {
 			w.parkMu.Unlock()
 			return
 		}
