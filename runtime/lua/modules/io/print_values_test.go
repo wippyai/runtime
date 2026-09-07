@@ -28,3 +28,18 @@ func TestPrintValuesUseLuaConversion(t *testing.T) {
 	require.Equal(t, "true\tfalse\tnil\t42\tcustom\ttail\n", stdout.String())
 	require.Equal(t, stdout.String(), stderr.String())
 }
+
+func TestWriteRetainsExistingConversion(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	bindIO(l)
+	var stdout bytes.Buffer
+	ctx, _ := ctxapi.OpenFrameContext(ctxapi.NewRootContext())
+	require.NoError(t, terminal.WithTerminalContext(ctx, terminal.NewTerminalContext(nil, &stdout, nil)))
+	l.SetContext(ctx)
+	require.NoError(t, l.DoString(`
+		local custom = setmetatable({}, {__tostring = function() error("must not run") end})
+		assert(io.write("head", 42, true, nil, custom, "tail"))
+	`))
+	require.Equal(t, "head42tail", stdout.String())
+}

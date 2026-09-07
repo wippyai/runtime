@@ -48,7 +48,7 @@ func ioWrite(l *lua.LState) int {
 
 	n := l.GetTop()
 	for i := 1; i <= n; i++ {
-		s := l.ToStringMeta(l.Get(i)).String()
+		s := l.ToString(i)
 		_, err := tc.Stdout.Write([]byte(s))
 		if err != nil {
 			l.Push(lua.LNil)
