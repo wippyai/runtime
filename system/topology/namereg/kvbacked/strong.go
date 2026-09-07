@@ -185,16 +185,11 @@ func (st *strongState) register(ctx context.Context, name string, p pid.PID) (gl
 	if dl, ok := ctx.Deadline(); ok && dl.Before(deadline) && time.Until(dl) >= 50*time.Millisecond {
 		deadline = dl
 	}
-	// Guarantee the wait is bounded: if the caller's context has no deadline, the
-	// waiter must still not block forever should a reconcile path skip delivery.
-	// The backstop fires a grace period AFTER the Strong deadline so the normal
-	// expiry path (leader timer -> leaderExpire -> deliver) wins the race and
-	// returns the typed StrongRegistrationTimeoutError rather than ctx.Err().
-	if _, ok := ctx.Deadline(); !ok {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithDeadline(ctx, deadline.Add(2*time.Second))
-		defer cancel()
-	}
+	// Bound result waiting even when the caller supplies a distant deadline.
+	// An earlier caller deadline is preserved by context.WithDeadline. The
+	// grace lets the normal expiry transaction win before reporting uncertainty.
+	ctx, cancel := context.WithDeadline(ctx, deadline.Add(2*time.Second))
+	defer cancel()
 
 	hdr, err := encode(pendingHeader{
 		PID:              p.String(),
@@ -459,11 +454,12 @@ func (st *strongState) leaderDrive(name string, epoch, headerVer uint64, hdr pen
 	}
 	// Deadline reached. Barrier so a committed-but-unapplied ack set is not
 	// falsely expired, then re-check completion before giving up. The barrier
-	// runs at most once per reservation (the deadline tick), never on the hot
-	// ack path.
+	// runs on deadline attempts; failures retry with a delay. It is not needed
+	// on the normal acknowledgement path.
 	if st.svc.barrier != nil {
 		if err := st.svc.barrier(); err != nil {
-			st.armTimer(name, hdr.DeadlineUnixNano)
+			// A past deadline would schedule an immediate callback loop.
+			st.armTimer(name, time.Now().Add(time.Second).UnixNano())
 			return
 		}
 	}
