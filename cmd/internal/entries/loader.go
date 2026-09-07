@@ -38,6 +38,9 @@ import (
 // If modules are missing, it auto-installs them before loading entries.
 func LoadFromLockFile(ctx context.Context, logger *zap.Logger) error {
 	lockFilePath := lock.DefaultFilename
+	if cfg := boot.GetConfig(ctx); cfg != nil {
+		lockFilePath = cfg.GetString("registry.dependency_lock_path", lockFilePath)
+	}
 
 	lockPath, err := lock.Find(".", lockFilePath)
 	if err != nil {

@@ -543,7 +543,10 @@ func ResolveModuleDir(vendorDir string, name graph.Name, version string) Resolve
 // Find locates a lock file in the given directory.
 // Returns absolute path to the lock file.
 func Find(dir, filename string) (string, error) {
-	lockPath := filepath.Join(dir, filename)
+	lockPath := filename
+	if !filepath.IsAbs(lockPath) {
+		lockPath = filepath.Join(dir, filename)
+	}
 	absPath, err := filepath.Abs(lockPath)
 	if err != nil {
 		return "", err

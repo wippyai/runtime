@@ -824,3 +824,18 @@ func TestModulePath(t *testing.T) {
 		t.Errorf("expected %q, got %q", expected, path)
 	}
 }
+
+func TestFindAbsolutePathIgnoresSearchDirectory(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "selected.lock")
+	if err := os.WriteFile(path, []byte("directories: {}"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	found, err := Find(t.TempDir(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if found != path {
+		t.Fatalf("Find = %s, want %s", found, path)
+	}
+}

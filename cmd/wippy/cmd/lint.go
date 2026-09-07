@@ -351,7 +351,7 @@ func bootstrapLintContext(cfg boot.Config) (ctx context.Context, loader *bootpkg
 		return nil, nil, NewInitializeBootstrapContextError(err)
 	}
 
-	components := StandardComponents()
+	components := selectedComponents()
 	reservedNames := make(map[string]struct{}, len(components))
 	for _, comp := range components {
 		if comp == nil {
