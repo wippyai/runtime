@@ -33,7 +33,7 @@ require (
 	github.com/expr-lang/expr v1.17.8
 	github.com/fatih/color v1.19.0
 	github.com/go-json-experiment/json v0.0.0-20260623181947-01eb4420fa68
-	github.com/go-sql-driver/mysql v1.10.0
+	github.com/go-sql-driver/mysql v1.10.1
 	github.com/goccy/go-yaml v1.19.2
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/google/uuid v1.6.0
@@ -46,12 +46,12 @@ require (
 	github.com/jackc/pglogrepl v0.0.0-20260401131349-e37c41485510
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/kaptinlin/jsonschema v0.9.9
-	github.com/klauspost/compress v1.19.2
+	github.com/klauspost/compress v1.20.0
 	github.com/lib/pq v1.12.3
 	github.com/mattn/go-sqlite3 v1.14.50
 	github.com/microcosm-cc/bluemonday v1.0.27
-	github.com/moby/moby/api v1.55.0
-	github.com/moby/moby/client v0.5.1
+	github.com/moby/moby/api v1.56.0
+	github.com/moby/moby/client v0.6.0
 	github.com/muesli/termenv v0.16.0
 	github.com/prometheus/client_golang v1.24.1
 	github.com/rabbitmq/amqp091-go v1.14.0
@@ -76,6 +76,7 @@ require (
 	github.com/wippyai/wapp v0.1.2
 	github.com/wippyai/wasm-runtime v0.0.0-20260907195539-b54b080a4242
 	github.com/xuri/excelize/v2 v2.11.0
+	go.bytecodealliance.org v0.7.0
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.71.0
 	go.opentelemetry.io/otel v1.46.0
 	go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc v1.46.0
@@ -90,7 +91,7 @@ require (
 	go.temporal.io/sdk v1.48.0
 	go.temporal.io/sdk/contrib/opentelemetry v0.8.1
 	go.uber.org/zap v1.28.0
-	golang.org/x/crypto v0.55.0
+	golang.org/x/crypto v0.56.0
 	golang.org/x/net v0.58.0
 	golang.org/x/sys v0.47.0
 	golang.org/x/term v0.45.0
@@ -227,7 +228,6 @@ require (
 	gitlab.com/golang-commonmark/markdown v0.0.0-20211110145824-bf3e522c626a // indirect
 	gitlab.com/golang-commonmark/mdurl v0.0.0-20191124015652-932350d1cb84 // indirect
 	gitlab.com/golang-commonmark/puny v0.0.0-20191124015043-9f83538fa04f // indirect
-	go.bytecodealliance.org v0.7.0 // indirect
 	go.etcd.io/bbolt v1.4.3 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.46.0 // indirect
