@@ -6,8 +6,8 @@ local time = require("time")
 local tty = require("tty")
 
 local function main()
-    assert(tty.start())
     local events = assert(tty.events())
+    assert(tty.start())
     local lifecycle = assert(process.events())
     local output = assert(tty.surface({
         alternate_screen = true,

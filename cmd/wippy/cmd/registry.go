@@ -12,10 +12,10 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/boot"
+	"github.com/wippyai/runtime/api/payload"
 	regapi "github.com/wippyai/runtime/api/registry"
 	appinit "github.com/wippyai/runtime/cmd/internal/app"
 	clilogger "github.com/wippyai/runtime/cmd/internal/logger"
-	transcoder "github.com/wippyai/runtime/system/payload"
 	"github.com/wippyai/runtime/system/registry/finder"
 	"go.uber.org/zap"
 	"gopkg.in/yaml.v3"
@@ -121,7 +121,7 @@ func runRegistryList(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("--registry-meta requires --json or --yaml")
 	}
 
-	allEntries, err := loadRegistryEntries(cmd, lockFile)
+	allEntries, _, err := loadRegistryEntries(cmd, lockFile)
 	if err != nil {
 		return err
 	}
@@ -187,7 +187,7 @@ func runRegistryShow(cmd *cobra.Command, args []string) error {
 	rawOutput, _ := cmd.Flags().GetBool("raw")
 	lockFile, _ := cmd.Flags().GetString("lock-file")
 
-	allEntries, err := loadRegistryEntries(cmd, lockFile)
+	allEntries, dtt, err := loadRegistryEntries(cmd, lockFile)
 	if err != nil {
 		return err
 	}
@@ -213,54 +213,59 @@ func runRegistryShow(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("entry not found: %s", entryID)
 	}
 
+	dataMap, err := extractDataMap(entry, dtt)
+	if err != nil {
+		return err
+	}
+
 	// If field specified, extract just that field
 	if fieldName != "" {
-		return showEntryField(entry, fieldName, jsonOutput, yamlOutput, rawOutput)
+		return showEntryField(dataMap, fieldName, jsonOutput, yamlOutput, rawOutput)
 	}
 
 	// Show full entry
 	if jsonOutput {
-		return outputEntryJSON(entry)
+		return outputEntryJSON(entry, dataMap)
 	}
 	if yamlOutput || rawOutput {
-		return outputEntryYAML(entry)
+		return outputEntryYAML(entry, dataMap)
 	}
 
-	outputEntryTable(entry)
+	outputEntryTable(entry, dataMap)
 	return nil
 }
 
-func loadRegistryEntries(cmd *cobra.Command, lockFile string) ([]regapi.Entry, error) {
+func loadRegistryEntries(cmd *cobra.Command, lockFile string) ([]regapi.Entry, payload.Transcoder, error) {
 	logger, err := clilogger.CreateLogger(clilogger.Config{
 		Silent:       true,
 		AppStartTime: appStartTime,
 	})
 	if err != nil {
-		return nil, NewCreateLoggerError(err)
+		return nil, nil, NewCreateLoggerError(err)
 	}
 	defer func() { _ = logger.Sync() }()
 
 	app, err := appinit.Init(cmd.Context(), false, false, false, true, appStartTime)
 	if err != nil {
-		return nil, NewInitAppError(err)
+		return nil, nil, NewInitAppError(err)
 	}
 	runtimeCfg, err := loadRuntimeConfig(cmd, logger)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	boot.WithConfig(app.Ctx, runtimeCfg)
 
 	lockPath, lockObj, err := loadValidatedLock(".", lockFile, runtimeCfg, logger)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	allEntries, err := ensureModulesAndLoadEntries(app.Ctx, lockPath, lockObj, logger, false)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	return allEntries, nil
+	return allEntries, app.Transcoder, nil
 }
 
 func parseMetaFilter(filter string) (key, value, operator string) {
@@ -415,10 +420,7 @@ func outputEntriesTable(entries []regapi.Entry) {
 	}
 }
 
-func outputEntryJSON(entry *regapi.Entry) error {
-	// Convert data to map for JSON output
-	dataMap := extractDataMap(entry)
-
+func outputEntryJSON(entry *regapi.Entry, dataMap map[string]any) error {
 	output := map[string]any{
 		"id":   entry.ID.String(),
 		"kind": entry.Kind,
@@ -434,9 +436,7 @@ func outputEntryJSON(entry *regapi.Entry) error {
 	return nil
 }
 
-func outputEntryYAML(entry *regapi.Entry) error {
-	dataMap := extractDataMap(entry)
-
+func outputEntryYAML(entry *regapi.Entry, dataMap map[string]any) error {
 	output := map[string]any{
 		"id":   entry.ID.String(),
 		"kind": entry.Kind,
@@ -452,7 +452,7 @@ func outputEntryYAML(entry *regapi.Entry) error {
 	return nil
 }
 
-func outputEntryTable(entry *regapi.Entry) {
+func outputEntryTable(entry *regapi.Entry, dataMap map[string]any) {
 	labelStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("14"))
 	valueStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("15"))
 	keyStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("12"))
@@ -487,7 +487,6 @@ func outputEntryTable(entry *regapi.Entry) {
 		}
 	}
 
-	dataMap := extractDataMap(entry)
 	if len(dataMap) > 0 {
 		if console {
 			fmt.Printf("\n%s\n", sectionStyle.Render("Data:"))
@@ -511,9 +510,7 @@ func outputEntryTable(entry *regapi.Entry) {
 	}
 }
 
-func showEntryField(entry *regapi.Entry, fieldName string, jsonOutput, yamlOutput, rawOutput bool) error {
-	dataMap := extractDataMap(entry)
-
+func showEntryField(dataMap map[string]any, fieldName string, jsonOutput, yamlOutput, rawOutput bool) error {
 	value, exists := dataMap[fieldName]
 	if !exists {
 		return fmt.Errorf("field %q not found in entry data", fieldName)
@@ -552,14 +549,14 @@ func showEntryField(entry *regapi.Entry, fieldName string, jsonOutput, yamlOutpu
 	return nil
 }
 
-func extractDataMap(entry *regapi.Entry) map[string]any {
+func extractDataMap(entry *regapi.Entry, dtt payload.Transcoder) (map[string]any, error) {
 	if entry.Data == nil {
-		return nil
+		return nil, nil
 	}
 
 	var dataMap map[string]any
-	if err := transcoder.GlobalTranscoder().Unmarshal(entry.Data, &dataMap); err != nil {
-		return nil
+	if err := dtt.Unmarshal(entry.Data, &dataMap); err != nil {
+		return nil, fmt.Errorf("decode data for entry %s: %w", entry.ID.String(), err)
 	}
-	return dataMap
+	return dataMap, nil
 }

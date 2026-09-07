@@ -101,6 +101,7 @@ func New(process execapi.PTYProcess, surface ttyapi.Surface, width, height int) 
 	p.screen.SetScrollbackSize(retainedScrollbackLines)
 	p.height.Store(int64(height))
 	p.cursorVisible.Store(true)
+	p.input.init()
 	p.screen.SetCallbacks(vt.Callbacks{
 		EnableMode: p.input.enable, DisableMode: p.input.disable,
 		CursorVisibility: p.cursorVisible.Store,

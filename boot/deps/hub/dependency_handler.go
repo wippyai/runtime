@@ -206,6 +206,14 @@ func (h *DependencyHandler) PrepareRestore(ctx context.Context, history regapi.H
 	if err != nil {
 		return err
 	}
+	// A configured workspace replacement is a mutable development source: its
+	// recorded digest is the checkpoint of the run that wrote it, not a durable
+	// artifact identity. Restore re-snapshots every replacement from its current
+	// tree exactly as reconciliation does, so materialization verifies the
+	// generation it is about to load. Hub artifacts keep their recorded digest.
+	if err := h.refreshReplacementModuleIdentities(effective); err != nil {
+		return err
+	}
 	if deployment == nil {
 		// A source checkout has an unrooted lock: its ordinary lock loader has
 		// already published the deployment sources. History may add modules, but
@@ -220,6 +228,9 @@ func (h *DependencyHandler) PrepareRestore(ctx context.Context, history regapi.H
 	h.deployment = deployment
 	baseline, err := resolvedModulesFromRecords(deployment.Modules)
 	if err != nil {
+		return err
+	}
+	if err := h.refreshReplacementModuleIdentities(baseline); err != nil {
 		return err
 	}
 	ctx = regapi.WithDependencyAccess(ctx, regapi.DependencyAccessOnline)
@@ -1284,6 +1295,16 @@ func foldRootDependencyComponents(deps []desiredDependency, fresh map[string]str
 		}
 		if !elected {
 			controller = group[0]
+		}
+		if strict && controller.definition.Version == "" {
+			return nil, nil, apierror.New(apierror.Invalid, fmt.Sprintf(
+				"dependency %s (%s) requires a version; specify a version constraint or explicit '*'",
+				controller.entry.ID.String(), component,
+			)).WithDetails(attrs.NewBagFrom(map[string]any{
+				"entry_id":  controller.entry.ID.String(),
+				"component": component,
+				"field":     "version",
+			}))
 		}
 
 		for _, dep := range group {

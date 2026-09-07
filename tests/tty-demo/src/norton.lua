@@ -417,6 +417,13 @@ end
 
 -- Main
 local function main()
+    -- Subscribe before starting input delivery so the initial event is retained.
+    local ch = tty.events()
+    if not ch then
+        io.print("tty.events failed")
+        return
+    end
+
     local ok, err = tty.start()
     if not ok then
         io.print("tty.start failed: " .. tostring(err))
@@ -428,13 +435,6 @@ local function main()
     if cols then
         width = cols
         height = rows
-    end
-
-    local ch = tty.events()
-    if not ch then
-        tty.stop()
-        io.print("tty.events failed")
-        return
     end
 
     io.write(ALT_SCREEN_ON .. CURSOR_HIDE)
