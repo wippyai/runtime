@@ -535,13 +535,35 @@ func (st *strongState) leaderExpire(name string, epoch, headerVer uint64, hdr pe
 		{Kind: kvapi.TxnDelete, Cond: kvapi.CondAny, Key: pendingKey(name)},
 	}
 	for _, n := range hdr.RequiredNodes {
-		if _, err := st.svc.engine.Get(ackKey(name, epoch, n)); err != nil {
+		ack := ackKey(name, epoch, n)
+		_, err := st.svc.engine.Get(ack)
+		if err != nil && !errors.Is(err, kvapi.ErrKeyNotFound) {
+			return
+		}
+		absent := errors.Is(err, kvapi.ErrKeyNotFound)
+		if absent {
 			missing = append(missing, n)
 		}
+		if reason == "deadline" {
+			// Keep the reported missing set and rejection precedence true at
+			// commit, not merely at the leader's earlier read.
+			condition := kvapi.CondExists
+			if absent {
+				condition = kvapi.CondAbsent
+			}
+			ops = append(ops,
+				kvapi.TxnOp{Kind: kvapi.TxnCheck, Cond: condition, Key: ack},
+				kvapi.TxnOp{Kind: kvapi.TxnCheck, Cond: kvapi.CondAbsent, Key: rejectKey(name, epoch, n)},
+			)
+		}
 		ops = append(ops,
-			kvapi.TxnOp{Kind: kvapi.TxnDelete, Cond: kvapi.CondAny, Key: ackKey(name, epoch, n)},
+			kvapi.TxnOp{Kind: kvapi.TxnDelete, Cond: kvapi.CondAny, Key: ack},
 			kvapi.TxnOp{Kind: kvapi.TxnDelete, Cond: kvapi.CondAny, Key: rejectKey(name, epoch, n)},
 		)
+	}
+	if reason == "deadline" && len(missing) == 0 {
+		st.leaderPromote(name, epoch, headerVer, hdr)
+		return
 	}
 	if committed, terr := st.svc.engine.Txn(ops); terr != nil || !committed {
 		return
