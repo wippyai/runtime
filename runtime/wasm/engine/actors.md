@@ -121,14 +121,27 @@ retains them until shutdown is retried successfully.
 
 `host_buffer_bytes` independently caps explicitly accounted resident host-buffer
 capacity. Omission or zero adds no extra host-byte ceiling; negative values are
-invalid. The current charge is two 64 KiB TCP rings per connected socket. Both
+invalid. TCP uses two 64 KiB rings per connected socket. Both
 reservations precede ring allocation; failures close the connection and return
 `out-of-memory` without publishing a stream tuple. A socket retains its full
 128 KiB charge until both pumps have exited, including when stream handles were
-dropped earlier. Each PID has its own budget. These semantics are independent of
-guest linear memory, mailbox limits, and socket-count admission. The ceiling
-currently excludes UDP buffers, HTTP buffers, filesystem buffers, legacy core
-socket allocations, Go objects/stacks, and kernel buffers; it is not an RSS cap.
+dropped earlier. Each filesystem input/output stream reserves one 64 KiB buffer
+before allocation and holds that charge until the dropped stream’s I/O worker
+exits. File streams share retained descriptors; they never reopen a pathname or
+read the whole file into host memory. Each PID has its own budget. These
+semantics are independent of guest linear memory, mailbox limits, and
+socket-count admission. The ceiling
+currently excludes UDP buffers, HTTP buffers, filesystem metadata and transient
+result copies, legacy core socket allocations, Go objects/stacks, and kernel buffers; it is not an RSS cap.
+
+Filesystem child opens and mutations use retained directory capabilities. Linux
+permits in-root symlink traversal through `openat2`; other native implementations
+conservatively reject symlinks/reparse points. Providers without these capabilities
+return unsupported instead of reopening paths. Streams accept regular files only.
+Atomic append requires a backing append capability (Linux `RWF_APPEND`); there is
+no seek/write emulation on unsupported providers. Filesystem metadata and direct
+descriptor calls may still perform synchronous I/O; bounded stream workers do not
+provide a general cancellable-filesystem or preemptive scheduling guarantee.
 
 Mailbox budgets include envelope overhead (256 bytes per message and
 64 bytes per payload, plus encoded data and strings). A single message must fit

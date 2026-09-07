@@ -106,7 +106,8 @@ type (
 
 		// HostBufferBytes caps explicitly accounted resident host-buffer capacity.
 		// Zero (default) adds no byte ceiling. TCP duplex rings currently charge
-		// 128 KiB per connection. This excludes guest memory, mailbox payloads,
+		// 128 KiB per connection; filesystem input/output streams charge 64 KiB each.
+		// This excludes guest memory, mailbox payloads,
 		// kernel buffers, and untracked Go allocations; it is not an RSS limit.
 		HostBufferBytes int64 `json:"host_buffer_bytes,omitempty" yaml:"host_buffer_bytes,omitempty"`
 

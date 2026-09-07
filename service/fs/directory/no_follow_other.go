@@ -14,5 +14,11 @@ func (d *FS) OpenFileNoFollow(name string, flag int, perm fs.FileMode) (fsapi.Fi
 }
 
 func (d *FS) OpenDirectory(name string, noFollow bool) (fs.File, error) {
+	if !noFollow {
+		// os.Root (used by FS) keeps traversal within the registered root on
+		// this platform. It is sufficient for a retained preopen directory;
+		// callers asking for no-follow still fail closed below.
+		return d.Open(name)
+	}
 	return nil, &fs.PathError{Op: "open-directory", Path: name, Err: errors.ErrUnsupported}
 }

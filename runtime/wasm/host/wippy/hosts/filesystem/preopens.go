@@ -51,7 +51,12 @@ func (h *PreopensHost) GetDirectories(ctx context.Context) [][2]interface{} {
 		if m.Guest == "" || m.Filesystem == nil {
 			continue
 		}
-		desc := newDescriptorResource(m.Filesystem, ".", true, m.ReadOnly)
+		desc, err := newPreopenDescriptorResource(m.Filesystem, ".", m.ReadOnly)
+		if err != nil {
+			// A mount that cannot provide a retained directory capability is
+			// not safe to expose as a WASI preopen.
+			continue
+		}
 		handle := h.resources.Add(desc)
 		out = append(out, [2]interface{}{handle, m.Guest})
 	}
