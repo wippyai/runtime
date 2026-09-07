@@ -99,6 +99,9 @@ func (v *viewport) Resize(width, height int) error {
 	changed := v.session.width != width || v.session.height != height
 	v.session.width, v.session.height = width, height
 	if changed {
+		if v.session.page != nil {
+			v.session.resolvePageRows(nil, nil)
+		}
 		v.session.revision++
 		update := ttyapi.Update{Revision: v.session.revision}
 		for _, watcher := range v.session.watches {

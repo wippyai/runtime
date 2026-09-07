@@ -204,9 +204,15 @@ var canvasType = typ.NewInterface("tty.Canvas", []typ.Method{
 	{Name: "rows", Type: typ.Func().Param("self", typ.Self).Returns(typ.NewArray(typ.String)).Build()},
 })
 
+var viewportPageType = typ.NewRecord().
+	Field("foreground", typ.String).
+	Field("background", typ.String).
+	Build()
+
 var viewportOptionsType = typ.NewRecord().
 	OptField("width", typ.Integer).
 	OptField("height", typ.Integer).
+	OptField("page", viewportPageType).
 	Build()
 
 var viewportSnapshotType = typ.NewRecord().
@@ -227,6 +233,7 @@ var mountRightsType = typ.NewRecord().
 	OptField("resize", typ.Boolean).Build()
 
 var viewportType = typ.NewInterface("tty.Viewport", []typ.Method{
+	{Name: "set_page", Type: typ.Func().Param("self", typ.Self).OptParam("page", typ.NewOptional(viewportPageType)).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
 	{Name: "mount", Type: typ.Func().Param("self", typ.Self).Param("recipient", typ.String).Param("rights", mountRightsType).Returns(typ.String, typ.NewOptional(typ.LuaError)).Build()},
 	{Name: "revoke", Type: typ.Func().Param("self", typ.Self).Param("reference", typ.String).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
 	{Name: "grant", Type: typ.Func().Param("self", typ.Self).Returns(typ.String, typ.NewOptional(typ.LuaError)).Build()},
@@ -310,6 +317,7 @@ func ModuleTypes() *typio.Manifest {
 	m.DefineType("SurfaceStats", surfaceStatsType)
 	m.DefineType("Viewport", viewportType)
 	m.DefineType("ViewportOptions", viewportOptionsType)
+	m.DefineType("ViewportPage", viewportPageType)
 	m.DefineType("ViewportSnapshot", viewportSnapshotType)
 
 	moduleMethodsType := typ.NewInterface("tty", []typ.Method{

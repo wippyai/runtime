@@ -17,7 +17,9 @@ func TestAgentSurfaceSDKTypes(t *testing.T) {
 	checker := code.NewTypeChecker(config, []*luaapi.ModuleDef{Module})
 	_, diagnostics, err := checker.Check(`
 local tty = require("tty")
-local owner = tty.viewport({width=120,height=40})
+local owner = tty.viewport({width=120,height=40,page={foreground="#102030",background="#f0e0d0"}})
+assert(owner:set_page({foreground="#ffffff",background="#000000"}))
+assert(owner:set_page(nil))
 local ref = owner:mount("{remote@agents|agent}", {observe=true,input=true,resize=true})
 local view = tty.attach(ref)
 view:send({type="key",key="enter",key_type="enter",action="press"})

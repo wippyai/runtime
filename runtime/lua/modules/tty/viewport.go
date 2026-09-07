@@ -31,6 +31,7 @@ func init() {
 			"snapshot": viewportSnapshot, "updates": viewportUpdates, "send": viewportSend,
 			"resize": viewportResize, "close": viewportClose,
 			"mount": viewportMount, "revoke": viewportRevoke,
+			"set_page": viewportSetPage,
 		})
 }
 
@@ -70,8 +71,12 @@ func ttyViewportNew(l *lua.LState) int {
 		return 2
 	}
 	width, height := 80, 24
+	var page *ttyapi.Page
 	if options := l.OptTable(1, nil); options != nil {
 		var err error
+		if page, err = pageFromLua(options.RawGetString("page")); err != nil {
+			return invalidArgument(l, err.Error())
+		}
 		if width, err = viewportDimension(options, "width", width); err != nil {
 			return invalidArgument(l, err.Error())
 		}
@@ -93,6 +98,19 @@ func ttyViewportNew(l *lua.LState) int {
 		l.Push(lua.NewLuaError(l, "created viewport is unavailable").
 			WithKind(lua.Internal).WithRetryable(false))
 		return 2
+	}
+	if page != nil {
+		setter, ok := view.(ttyapi.PageViewport)
+		if !ok {
+			_ = view.Close()
+			return invalidArgument(l, "viewport does not support page configuration")
+		}
+		if err := setter.SetPage(l.Context(), page); err != nil {
+			_ = view.Close()
+			l.Push(lua.LNil)
+			l.Push(lua.WrapErrorWithLua(l, err, "set viewport page"))
+			return 2
+		}
 	}
 	pushViewport(l, view)
 	return 2

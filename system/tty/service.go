@@ -15,6 +15,7 @@ import (
 	"github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/api/security"
 	ttyapi "github.com/wippyai/runtime/api/tty"
+	"github.com/wippyai/runtime/service/terminal"
 )
 
 // Service is a zero-goroutine, in-memory viewport broker. The AppContext owns
@@ -29,26 +30,29 @@ type Service struct {
 }
 
 type session struct {
-	router    relay.Receiver
-	watches   map[uint64]watch
-	service   *Service
-	cursor    *ttyapi.Cursor
-	viewers   map[pid.PID]int
-	creator   pid.PID
-	target    pid.PID
-	grant     string
-	handle    string
-	rows      []string
-	nextWatch uint64
-	revision  uint64
-	width     int
-	height    int
-	bindings  int
-	mu        sync.RWMutex
-	inputOpen bool
-	producer  bool
-	invalid   bool
-	closed    bool
+	page         *ttyapi.Page
+	pageRenderer *terminal.PageRenderer
+	sourceRows   []string
+	router       relay.Receiver
+	watches      map[uint64]watch
+	service      *Service
+	cursor       *ttyapi.Cursor
+	viewers      map[pid.PID]int
+	creator      pid.PID
+	target       pid.PID
+	grant        string
+	handle       string
+	rows         []string
+	nextWatch    uint64
+	revision     uint64
+	width        int
+	height       int
+	bindings     int
+	mu           sync.RWMutex
+	inputOpen    bool
+	producer     bool
+	invalid      bool
+	closed       bool
 }
 
 type watch struct {

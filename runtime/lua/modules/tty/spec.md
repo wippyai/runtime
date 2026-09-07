@@ -146,11 +146,51 @@ do not cross nodes; use recipient-bound mounts for delegation.
 | `send(event)` | Forward validated input to a started producer |
 | `resize(width, height)` | Update geometry and notify producer/viewers when changed |
 | `close()` | Detach only this viewer |
+| `set_page(page?)` | Creator process only: replace opaque page defaults, or clear them with `nil` |
 
 Updates are bounded hints, not an event log. A slow viewer receives the newest
 available watermark and must call `snapshot()`. Presentation and resize never
 block on slow viewers. Closing the last viewer does not kill a live producer;
 closing the producer port does not destroy state while viewers remain.
+
+## Opaque viewport pages
+
+A compositing shell can supply its page defaults once, without rewriting child
+ANSI output or filling behind every child row:
+
+```lua
+local view = assert(tty.viewport({width = 80, height = 24,
+    page = {foreground = "#102030", background = "#f0e0d0"}}))
+-- When the shell changes palette; the producer need not repaint default cells.
+assert(view:set_page({foreground = "#e0def4", background = "#191724"}))
+```
+
+Both colours must be opaque `#RRGGBB` strings. Only the creator process can change the page, including through a local handle
+it reattaches after an in-process upgrade. Other viewers and delegated mounts
+cannot change it, even with resize rights. `set_page(nil)` restores the
+producer's original rows. Without a page, viewport output keeps its previous
+terminal-default behaviour; ordinary PTY sessions keep emulator defaults.
+
+A page resolves default foreground/background cells, SGR resets, unstyled spaces,
+and omitted rows to explicit colours across the viewport width and height.
+Explicit ANSI colours, attributes, hyperlinks, and painted blanks survive.
+Wide glyphs clipped at the right edge become styled blanks. Frames are complete
+row replacements, not terminal command streams; PTY cursor movement and erasure
+are interpreted by the emulator before those rows reach the compositor.
+
+Changed source rows are resolved once at presentation; unchanged rows reuse
+cached strings. Snapshot reads do no parsing or recolouring. Page/size changes
+rebuild resolved rows and advance the existing revision, waking local and mesh
+observers even without producer output. Already published snapshots stay intact.
+The existing mesh row format carries explicit resolved colours, so peers require
+no page-policy support or protocol change. A versioned public cell-snapshot API
+is separate work; this API still exports styled rows.
+
+PTY OSC 10/11 colour queries use the viewport's page at query time. Explicit
+program palettes are not automatically recoloured, and changing the page does
+not force a third-party program to query again or rebuild its own palette.
+Physical presentation clears old rows before painting, preserving full-width
+coloured blanks and the bottom-right cell under delayed autowrap.
 
 ## Minimal composite example
 
