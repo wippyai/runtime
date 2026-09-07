@@ -281,3 +281,55 @@ func TestFileAppendRequiresAtomicBackingCapability(t *testing.T) {
 		t.Fatalf("unsupported append modified content: %q", data)
 	}
 }
+
+// Admission can fail after a stream worker has acquired its buffer and file.
+// The rejected handle must unwind those leases without closing its descriptor.
+func TestFileStreamHandleExhaustionReleasesWorkerLeases(t *testing.T) {
+	for _, output := range []bool{false, true} {
+		name := "read"
+		if output {
+			name = "write"
+		}
+		t.Run(name, func(t *testing.T) {
+			owner, _ := testStreamOwner(t, []byte("retained"))
+			buffers := preview2.NewHostBufferBudget(fileStreamBufferBytes)
+			table := preview2.NewResourceTableWithBudgets(1, preview2.NewSocketBudget(1), buffers)
+			defer table.Close()
+			handle := table.Add(&descriptorResource{file: owner, readable: true, writable: true})
+			host := NewTypesHost(table)
+			var trap any
+			func() {
+				defer func() { trap = recover() }()
+				if output {
+					_, err := host.MethodDescriptorWriteViaStream(context.Background(), handle, 0)
+					if err != nil {
+						t.Errorf("unexpected pre-admission error: %v", err)
+					}
+				} else {
+					_, err := host.MethodDescriptorReadViaStream(context.Background(), handle, 0)
+					if err != nil {
+						t.Errorf("unexpected pre-admission error: %v", err)
+					}
+				}
+			}()
+			trapErr, ok := trap.(error)
+			if !ok || !errors.Is(trapErr, preview2.ErrResourceLimit) {
+				t.Fatalf("handle-exhaustion trap: %v", trap)
+			}
+			deadline := time.Now().Add(3 * time.Second)
+			for buffers.Usage().Used != 0 && time.Now().Before(deadline) {
+				time.Sleep(time.Millisecond)
+			}
+			if used := buffers.Usage().Used; used != 0 {
+				t.Fatalf("rejected stream retained %d buffer bytes", used)
+			}
+			if _, err := owner.stat(); err != nil {
+				t.Fatalf("rejected child closed parent descriptor: %v", err)
+			}
+			table.Close()
+			if _, err := owner.stat(); !errors.Is(err, os.ErrClosed) {
+				t.Fatalf("descriptor close left a worker lease: %v", err)
+			}
+		})
+	}
+}
