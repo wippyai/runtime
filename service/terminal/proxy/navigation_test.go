@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: MPL-2.0
+
 package proxy
 
 import (
 	"fmt"
+	"testing"
+
 	"github.com/stretchr/testify/require"
 	ttyapi "github.com/wippyai/runtime/api/tty"
-	"testing"
 )
 
 func TestLegacyNavigationMatrix(t *testing.T) {
