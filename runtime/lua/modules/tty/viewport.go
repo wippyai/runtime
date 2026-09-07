@@ -18,7 +18,9 @@ type viewportWrapper struct {
 	view     ttyapi.Viewport
 	updates  *updateBridge
 	closeErr error
-	once     sync.Once
+	// Lua-thread-only cache of immutable string values, never returned as a table.
+	rows []lua.LValue
+	once sync.Once
 }
 
 func init() {
@@ -152,7 +154,8 @@ func viewportHandle(l *lua.LState) int {
 }
 
 func viewportSnapshot(l *lua.LState) int {
-	view := checkViewport(l).view
+	v := checkViewport(l)
+	view := v.view
 	if !checkViewportRight(l, view, ttyapi.RightObserve) {
 		return 2
 	}
@@ -169,8 +172,15 @@ func viewportSnapshot(l *lua.LState) int {
 		}
 	}
 	rows := l.CreateTable(len(s.Rows), 0)
+	if len(v.rows) != len(s.Rows) {
+		// Replace on resize so a smaller screen does not retain old rows.
+		v.rows = make([]lua.LValue, len(s.Rows))
+	}
 	for i, row := range s.Rows {
-		rows.RawSetInt(i+1, lua.LString(row))
+		if previous, ok := v.rows[i].(lua.LString); !ok || string(previous) != row {
+			v.rows[i] = lua.LString(row)
+		}
+		rows.RawSetInt(i+1, v.rows[i])
 	}
 	result := l.CreateTable(0, 4)
 	result.RawSetString("revision", lua.LInteger(s.Revision))
@@ -280,6 +290,7 @@ func viewportClose(l *lua.LState) int {
 
 func (v *viewportWrapper) close() {
 	v.once.Do(func() {
+		v.rows = nil
 		if v.updates != nil {
 			v.updates.close()
 		}

@@ -38,8 +38,16 @@ snapshot materialization path, with populated 120×40 rows:
 
 | Operation | Approximate time/call | Allocation/call |
 |---|---:|---:|
-| Full `snapshot()` | 1.03 µs | 1,879 bytes, 45 allocations |
-| `snapshot(last_revision)` when unchanged | 140 ns | 7 bytes amortized; allocations/op rounds to zero |
+| Full `snapshot()`, unchanged row content, warmed cache | 0.79 µs | 1,239 bytes, 5 allocations |
+| `snapshot(last_revision)` when unchanged | 149 ns | 7 bytes amortized; allocations/op rounds to zero |
+
+The viewport reuses boxed Lua strings for unchanged rows. This reduced repeated
+full reads from 1,879 bytes / 45 allocations and about 1.03 µs. Each changed row
+still needs a new string wrapper; the Go string conversion shares its backing
+bytes. Each call returns independent mutable snapshot and row tables, so caller
+edits cannot corrupt later reads or retained snapshots. The cache holds only one
+screen of row values, replaces its storage on row-count changes, and clears on
+close. It does not pool returned tables or change the Lua API.
 
 The unchanged check avoids building a screen table. Prefer update-driven reads
 and keep the last revision; do not poll full snapshots in a tight loop. These
