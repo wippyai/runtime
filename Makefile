@@ -4,6 +4,11 @@
 # with Go 1.27's default experiment set. Do not disable jsonv2 here.
 export GOFLAGS := -buildvcs=false
 
+# The runtime race suite compiles SQLite and QuickJS guests in isolated runtimes.
+# Its aggregate duration can exceed Go's default 10m package timeout on CI.
+# Individual operation deadlines remain enforced by the tests themselves.
+RUNTIME_TEST_TIMEOUT ?= 20m
+
 test-clean:
 	go clean -testcache
 
@@ -13,7 +18,7 @@ test:
 	go test ./system/... -v -race -short
 	go test ./service/... -v -race -short
 	go test ./cluster/... -v -race -short
-	go test --tags "fts5 sqlite_vec treesitter sqlite_preupdate_hook" ./runtime/... -v -race -short
+	go test --tags "fts5 sqlite_vec treesitter sqlite_preupdate_hook" ./runtime/... -v -race -short -timeout $(RUNTIME_TEST_TIMEOUT)
 	go test ./boot/... -v -race -short
 	go test --tags "fts5 sqlite_vec treesitter sqlite_preupdate_hook" ./cmd/... -v -race -short
 
@@ -43,7 +48,7 @@ test-system:
 test-runtime:
 	go test ./internal/... -v -race
 	go test ./api/... -v -race
-	go test --tags "fts5 sqlite_vec treesitter sqlite_preupdate_hook" ./runtime/... -v -race
+	go test --tags "fts5 sqlite_vec treesitter sqlite_preupdate_hook" ./runtime/... -v -race -timeout $(RUNTIME_TEST_TIMEOUT)
 
 test-service:
 	go test ./internal/... -v -race
