@@ -266,16 +266,19 @@ func (n *Node) Stop(_ context.Context) error {
 	}
 
 	f := n.raft.Shutdown()
-	if err := f.Error(); err != nil {
-		return fmt.Errorf("raft shutdown: %w", err)
-	}
-
+	// Shutdown signals Raft workers, but its future joins them before closing
+	// transport. Wake outstanding RPCs now so a silent peer cannot hold that
+	// join until its normal request deadline. Leadership transfer has finished.
 	if n.transport != nil {
 		if closer, ok := n.transport.(hraft.WithClose); ok {
 			if err := closer.Close(); err != nil {
 				n.logger.Warn("raft transport close failed", zap.Error(err))
 			}
 		}
+	}
+
+	if err := f.Error(); err != nil {
+		return fmt.Errorf("raft shutdown: %w", err)
 	}
 
 	if n.closeStores != nil {
