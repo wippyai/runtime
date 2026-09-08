@@ -287,11 +287,21 @@ func (nsm *NodeStateManager) SetNodeConnection(nodeID cluster.NodeID, conn *Node
 		nsm.logger.Warn("Attempted to set connection for an unmanaged node", zap.String("node_id", nodeID))
 		return
 	}
+	nsm.setNodeConnectionForState(nodeID, state, conn, newState)
+}
 
+// setNodeConnectionForState updates only the supplied generation. A control
+// loop retains this pointer so cleanup from an old incarnation cannot modify
+// a replacement that has reused the same node ID.
+func (nsm *NodeStateManager) setNodeConnectionForState(nodeID cluster.NodeID, state *NodeState, conn *NodeConnection, newState ConnectionState) bool {
+	if state == nil || nsm.GetNodeState(nodeID) != state {
+		return false
+	}
 	state.stateMu.Lock()
 	state.connection = conn
 	state.state = newState
 	state.stateMu.Unlock()
+	return true
 }
 
 func (nsm *NodeStateManager) GetNodeConnection(nodeID cluster.NodeID) (*NodeConnection, ConnectionState) {
@@ -314,10 +324,17 @@ func (nsm *NodeStateManager) SetNodeState(nodeID cluster.NodeID, newState Connec
 		nsm.logger.Warn("Attempted to set state for an unmanaged node", zap.String("node_id", nodeID))
 		return
 	}
+	nsm.setNodeStateForState(nodeID, state, newState)
+}
 
+func (nsm *NodeStateManager) setNodeStateForState(nodeID cluster.NodeID, state *NodeState, newState ConnectionState) bool {
+	if state == nil || nsm.GetNodeState(nodeID) != state {
+		return false
+	}
 	state.stateMu.Lock()
 	state.state = newState
 	state.stateMu.Unlock()
+	return true
 }
 
 func (nsm *NodeStateManager) UpdateNodeAddress(nodeID cluster.NodeID, addr string, port int) {
@@ -337,7 +354,13 @@ func (nsm *NodeStateManager) GetNodeAddress(nodeID cluster.NodeID) (string, int,
 	if state == nil {
 		return "", 0, false
 	}
+	return nsm.getNodeAddressForState(nodeID, state)
+}
 
+func (nsm *NodeStateManager) getNodeAddressForState(nodeID cluster.NodeID, state *NodeState) (string, int, bool) {
+	if state == nil || nsm.GetNodeState(nodeID) != state {
+		return "", 0, false
+	}
 	state.stateMu.RLock()
 	addr := state.address
 	state.stateMu.RUnlock()
@@ -359,7 +382,14 @@ var drainClasses = [numClasses]Class{
 
 func (nsm *NodeStateManager) DrainMessages(nodeID cluster.NodeID, maxCount int) []Outbound {
 	state := nsm.GetNodeState(nodeID)
-	if state == nil || maxCount <= 0 {
+	return nsm.drainMessagesForState(nodeID, state, maxCount)
+}
+
+// drainMessagesForState drains only the supplied generation. Connection drain
+// callbacks retain their loop's state pointer, preventing a detached
+// connection from consuming a replacement's queue.
+func (nsm *NodeStateManager) drainMessagesForState(nodeID cluster.NodeID, state *NodeState, maxCount int) []Outbound {
+	if state == nil || nsm.GetNodeState(nodeID) != state || maxCount <= 0 {
 		return nil
 	}
 
@@ -414,6 +444,16 @@ func (nsm *NodeStateManager) GetMessageNotifier(nodeID cluster.NodeID) <-chan st
 // without losing QoS context. Internally splits the input by class and
 // delegates to RequeueMessagesClass for the per-class cap arithmetic.
 func (nsm *NodeStateManager) RequeueMessages(nodeID cluster.NodeID, messages []Outbound) {
+	state := nsm.GetNodeState(nodeID)
+	nsm.requeueMessagesForState(nodeID, state, messages)
+}
+
+// requeueMessagesForState returns frames only to the supplied generation.
+// A stale connection must never repopulate a newer peer incarnation's queue.
+func (nsm *NodeStateManager) requeueMessagesForState(nodeID cluster.NodeID, state *NodeState, messages []Outbound) {
+	if state == nil || nsm.GetNodeState(nodeID) != state {
+		return
+	}
 	if len(messages) == 0 {
 		return
 	}
@@ -431,7 +471,7 @@ func (nsm *NodeStateManager) RequeueMessages(nodeID cluster.NodeID, messages []O
 		if len(perClass[c]) == 0 {
 			continue
 		}
-		nsm.RequeueMessagesClass(nodeID, perClass[c], Class(c))
+		nsm.requeueMessagesClassForState(nodeID, state, perClass[c], Class(c))
 	}
 }
 
@@ -439,11 +479,15 @@ func (nsm *NodeStateManager) RequeueMessages(nodeID cluster.NodeID, messages []O
 // of the per-class queue. Reliable classes are preserved while the peer
 // remains managed. Gossip keeps its lossy cap.
 func (nsm *NodeStateManager) RequeueMessagesClass(nodeID cluster.NodeID, messages [][]byte, class Class) {
+	state := nsm.GetNodeState(nodeID)
+	nsm.requeueMessagesClassForState(nodeID, state, messages, class)
+}
+
+func (nsm *NodeStateManager) requeueMessagesClassForState(nodeID cluster.NodeID, state *NodeState, messages [][]byte, class Class) {
 	if len(messages) == 0 {
 		return
 	}
-	state := nsm.GetNodeState(nodeID)
-	if state == nil {
+	if state == nil || nsm.GetNodeState(nodeID) != state {
 		nsm.logger.Warn("Dropping messages to requeue for unmanaged node",
 			zap.String("node_id", nodeID),
 			zap.Int("message_count", len(messages)),
@@ -503,14 +547,24 @@ func (nsm *NodeStateManager) RequeueMessagesClass(nodeID cluster.NodeID, message
 // RemoveNodeState completely removes a node's state from memory.
 // This should only be called by the manager when a node leaves the cluster.
 func (nsm *NodeStateManager) RemoveNodeState(nodeID cluster.NodeID) {
+	nsm.closeDetachedNodeState(nodeID, nsm.detachNodeState(nodeID))
+}
+
+// Separate identity removal from resource cleanup so a manager can serialize
+// join/leave decisions without holding its lifecycle lock during Close.
+func (nsm *NodeStateManager) detachNodeState(nodeID cluster.NodeID) *NodeState {
 	state, ok := nsm.nodeStates.LoadAndDelete(nodeID)
 	if !ok {
+		return nil
+	}
+	return state.(*NodeState)
+}
+
+func (nsm *NodeStateManager) closeDetachedNodeState(nodeID cluster.NodeID, nodeState *NodeState) {
+	if nodeState == nil {
 		return
 	}
-
 	nsm.logger.Info("Removing managed state for node", zap.String("node", nodeID))
-	nodeState := state.(*NodeState)
-
 	nodeState.stateMu.Lock()
 	if nodeState.connection != nil {
 		nodeState.connection.Close()

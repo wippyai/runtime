@@ -156,6 +156,7 @@ type nodeControlLoop struct {
 	logger     *zap.Logger
 	cancel     context.CancelFunc
 	nodeID     cluster.NodeID
+	nodeState  *NodeState
 	addr       string
 	state      ConnectionState
 	retryDelay time.Duration
@@ -349,6 +350,9 @@ func (m *manager) ConnectedNodes() []cluster.NodeID {
 }
 
 func (m *manager) AddManagedNode(nodeID cluster.NodeID) {
+	// Serialize membership and inbound admission with state detachment.
+	m.controlLoopsMu.Lock()
+	defer m.controlLoopsMu.Unlock()
 	m.logger.Info("Adding new managed node", zap.String("node", nodeID))
 
 	// If the node already has state, it was either:
@@ -369,13 +373,11 @@ func (m *manager) AddManagedNode(nodeID cluster.NodeID) {
 	// If there's an old control loop for this node (e.g. from a previous
 	// incarnation that left and is now rejoining), tear it down first to
 	// prevent the old loop from interfering with the new state.
-	m.controlLoopsMu.Lock()
 	if oldLoop, exists := m.controlLoops[nodeID]; exists {
 		m.logger.Info("Tearing down stale control loop for rejoining node", zap.String("node", nodeID))
 		oldLoop.cancel()
 		delete(m.controlLoops, nodeID)
 	}
-	m.controlLoopsMu.Unlock()
 
 	m.nodeStates.CreateNodeState(nodeID)
 }
@@ -392,9 +394,11 @@ func (m *manager) RemoveManagedNode(nodeID cluster.NodeID) {
 		loop.cancel()
 		delete(m.controlLoops, nodeID)
 	}
+	state := m.nodeStates.detachNodeState(nodeID)
 	m.controlLoopsMu.Unlock()
 
-	m.nodeStates.RemoveNodeState(nodeID)
+	// Close connections and drain old queues without holding the lifecycle lock.
+	m.nodeStates.closeDetachedNodeState(nodeID, state)
 }
 
 func (m *manager) GetListenPort() int {
@@ -500,7 +504,8 @@ func (m *manager) sendCommand(nodeID cluster.NodeID, cmd nodeCommand) {
 	loop, exists := m.controlLoops[nodeID]
 	if !exists {
 		// Before creating a loop, verify the underlying state exists.
-		if m.nodeStates.GetNodeState(nodeID) == nil {
+		state := m.nodeStates.GetNodeState(nodeID)
+		if state == nil {
 			m.controlLoopsMu.Unlock()
 			m.logger.Error("Attempted to create control loop for unmanaged node", zap.String("node", nodeID))
 			return
@@ -509,6 +514,7 @@ func (m *manager) sendCommand(nodeID cluster.NodeID, cmd nodeCommand) {
 		ctx, cancel := context.WithCancel(m.ctx)
 		loop = &nodeControlLoop{
 			nodeID:     nodeID,
+			nodeState:  state,
 			manager:    m,
 			commands:   make(chan nodeCommand, m.config.CommandQueueSize),
 			state:      StateNone,
@@ -595,7 +601,9 @@ func (loop *nodeControlLoop) handleConnect(data connectData) {
 	}
 	loop.state = StateConnecting
 	loop.isOutbound = true
-	loop.manager.nodeStates.SetNodeState(loop.nodeID, loop.state)
+	if !loop.manager.nodeStates.setNodeStateForState(loop.nodeID, loop.nodeState, loop.state) {
+		return
+	}
 
 	addr, port := loop.addr, loop.port
 	loop.manager.wg.Add(1)
@@ -627,7 +635,14 @@ func (loop *nodeControlLoop) handleConnected(data connectedData) {
 	loop.state = StateConnected
 	loop.retryCount = 0
 	loop.retryDelay = loop.manager.config.InitialRetryDelay
-	loop.manager.nodeStates.SetNodeConnection(loop.nodeID, loop.connection, loop.state)
+	if !loop.manager.nodeStates.setNodeConnectionForState(loop.nodeID, loop.nodeState, loop.connection, loop.state) {
+		if loop.connection != nil {
+			loop.connection.Close()
+		}
+		loop.connection = nil
+		loop.state = StateNone
+		return
+	}
 	loop.logger.Info("Connection established successfully", zap.Bool("is_outbound", loop.isOutbound))
 
 	// Wire the connection's writeLoop to drain this node's per-class queues
@@ -651,15 +666,16 @@ func (loop *nodeControlLoop) handleConnected(data connectedData) {
 func (loop *nodeControlLoop) bindConnectionDrain() {
 	nodeID := loop.nodeID
 	nsm := loop.manager.nodeStates
-	notify := nsm.GetMessageNotifier(nodeID)
+	state := loop.nodeState
+	notify := state.messageNotify
 	if notify == nil {
 		loop.logger.Error("no message notifier for managed node", zap.String("node", nodeID))
 		notify = make(chan struct{})
 	}
 	loop.connection.bindDrain(
 		notify,
-		func(n int) []Outbound { return nsm.DrainMessages(nodeID, n) },
-		func(b []Outbound) { nsm.RequeueMessages(nodeID, b) },
+		func(n int) []Outbound { return nsm.drainMessagesForState(nodeID, state, n) },
+		func(b []Outbound) { nsm.requeueMessagesForState(nodeID, state, b) },
 		loop.manager.config.DrainBatchSize,
 	)
 }
@@ -681,7 +697,7 @@ func (loop *nodeControlLoop) handleDisconnected(data disconnectedData) {
 		loop.connection.Close()
 		loop.connection = nil
 	}
-	loop.manager.nodeStates.SetNodeConnection(loop.nodeID, nil, StateNone)
+	loop.manager.nodeStates.setNodeConnectionForState(loop.nodeID, loop.nodeState, nil, StateNone)
 
 	if data.ShouldRetry && loop.isOutbound && loop.retryCount < loop.manager.config.MaxRetryAttempts {
 		loop.state = StateRetrying
@@ -691,7 +707,7 @@ func (loop *nodeControlLoop) handleDisconnected(data disconnectedData) {
 		}
 		fallbackAddr, fallbackPort := loop.addr, loop.port
 		time.AfterFunc(loop.retryDelay, func() {
-			addr, port, hasAddr := loop.manager.nodeStates.GetNodeAddress(loop.nodeID)
+			addr, port, hasAddr := loop.manager.nodeStates.getNodeAddressForState(loop.nodeID, loop.nodeState)
 			if !hasAddr {
 				addr, port = fallbackAddr, fallbackPort
 			}
@@ -711,7 +727,7 @@ func (loop *nodeControlLoop) cleanup() {
 		loop.connection.Close()
 		loop.connection = nil
 	}
-	loop.manager.nodeStates.SetNodeConnection(loop.nodeID, nil, StateNone)
+	loop.manager.nodeStates.setNodeConnectionForState(loop.nodeID, loop.nodeState, nil, StateNone)
 }
 
 func (loop *nodeControlLoop) sendCommandToSelf(cmd nodeCommand) {
@@ -859,7 +875,7 @@ func (m *manager) handleInboundConnection(conn net.Conn) {
 			return
 		}
 		m.logger.Info("Auto-managing authorized inbound node", zap.String("node", remoteNodeID))
-		m.nodeStates.CreateNodeState(remoteNodeID)
+		m.AddManagedNode(remoteNodeID)
 	}
 
 	_, currentState := m.nodeStates.GetNodeConnection(remoteNodeID)
