@@ -43,3 +43,9 @@ Host-selected registry paths override package settings so an application update
 cannot relocate its deployment lock or registry history.
 
 Run `make test-application` for the host, deployment and command regression tests.
+
+For an assembled-binary Hub protocol acceptance test, set
+`WIPPY_TEST_APPLICATION_BINARY` and `WIPPY_TEST_APPLICATION_PACK` to the builder's
+hello executable and pack, then run `make test-application`. The fixture serves
+canonical Hub manifest/download RPCs locally and verifies a root-plus-dependency
+update, cold restart, explicit base recovery and failed-update preservation.
