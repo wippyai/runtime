@@ -13,8 +13,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/bubbles/progress"
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 	"github.com/wippyai/runtime/api/attrs"
@@ -85,7 +83,6 @@ type packModel struct {
 	embedPatterns []string
 	logs          []string
 	resources     []resourceInfo
-	progress      progress.Model
 	fileSize      int64
 	percent       float64
 	entryCount    int
@@ -129,34 +126,22 @@ type logMsg struct {
 	message string
 }
 
-func (m *packModel) Init() tea.Cmd {
-	return nil
-}
-
-func (m *packModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m *packModel) apply(msg any) {
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		if msg.String() == "ctrl+c" || msg.String() == "q" {
-			return m, tea.Quit
-		}
-
 	case logMsg:
 		if m.verbose {
 			m.addLog(msg)
 		}
-		return m, nil
 
 	case progressMsg:
 		m.stage = msg.stage
 		m.percent = msg.percent
 		m.status = msg.status
-		return m, m.progress.SetPercent(msg.percent)
 
 	case statsMsg:
 		m.entryCount = msg.entryCount
 		m.resourceCount = msg.resourceCount
 		m.resources = msg.resources
-		return m, nil
 
 	case completedMsg:
 		m.stage = stageDone
@@ -164,170 +149,42 @@ func (m *packModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.metadata = msg.metadata
 		m.percent = 1.0
 		m.done = true
-		return m, tea.Sequence(m.progress.SetPercent(1.0), tea.Quit)
 
 	case errorMsg:
 		m.stage = stageError
 		m.err = msg.err
 		m.done = true
-		return m, tea.Quit
-
-	case progress.FrameMsg:
-		progressModel, cmd := m.progress.Update(msg)
-		m.progress = progressModel.(progress.Model)
-		return m, cmd
 	}
-
-	return m, nil
 }
 
 func (m *packModel) addLog(msg logMsg) {
-	levelColor := "8"
 	levelIcon := "•"
 
 	switch msg.level {
 	case "info":
-		levelColor = "14"
 		levelIcon = "●"
 	case "warn":
-		levelColor = "11"
 		levelIcon = "⚠"
 	case "error":
-		levelColor = "9"
 		levelIcon = "✗"
 	case "debug":
-		levelColor = "8"
 		levelIcon = "○"
 	}
 
-	levelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(levelColor)).Bold(true)
-	msgStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("15"))
-	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
-
-	logLine := fmt.Sprintf("%s %s", levelStyle.Render(levelIcon), msgStyle.Render(msg.message))
+	logLine := fmt.Sprintf("%s %s", levelIcon, msg.message)
 
 	if len(msg.fields) > 0 {
 		var fields []string
 		for k, v := range msg.fields {
 			fields = append(fields, fmt.Sprintf("%s=%v", k, v))
 		}
-		logLine += " " + dimStyle.Render(strings.Join(fields, " "))
+		logLine += " " + strings.Join(fields, " ")
 	}
 
 	m.logs = append(m.logs, logLine)
 	if len(m.logs) > m.maxLogs {
 		m.logs = m.logs[len(m.logs)-m.maxLogs:]
 	}
-}
-
-func (m *packModel) View() string {
-	if m.done && m.err != nil {
-		return lipgloss.NewStyle().
-			Foreground(lipgloss.Color("9")).
-			Bold(true).
-			Render(fmt.Sprintf("\n✗ Error: %v\n", m.err))
-	}
-
-	if m.done {
-		successStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("10")).
-			Bold(true)
-
-		dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
-		labelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("14"))
-
-		sizeKB := float64(m.fileSize) / 1024
-		var sizeStr string
-		if sizeKB > 1024 {
-			sizeStr = fmt.Sprintf("%.2f MB", sizeKB/1024)
-		} else {
-			sizeStr = fmt.Sprintf("%.2f KB", sizeKB)
-		}
-
-		info := fmt.Sprintf("\n  %s %s", labelStyle.Render("File:"), m.outputFile)
-		info += fmt.Sprintf("\n  %s %s", labelStyle.Render("Size:"), sizeStr)
-
-		if desc := m.metadata.GetString("description", ""); desc != "" {
-			info += fmt.Sprintf("\n  %s %s", labelStyle.Render("Description:"), desc)
-		}
-
-		if tags, ok := m.metadata["tags"].([]string); ok && len(tags) > 0 {
-			info += fmt.Sprintf("\n  %s %s", labelStyle.Render("Tags:"), strings.Join(tags, ", "))
-		}
-
-		if wippyVer := m.metadata.GetString("wippy_version", ""); wippyVer != "" {
-			commit := m.metadata.GetString("wippy_commit", "")
-			if len(commit) > 7 {
-				commit = commit[:7]
-			}
-			info += fmt.Sprintf("\n  %s %s (%s)", labelStyle.Render("Wippy:"), wippyVer, commit)
-		}
-
-		if packedAt := m.metadata.GetString("packed_at", ""); packedAt != "" {
-			info += fmt.Sprintf("\n  %s %s", labelStyle.Render("Packed:"), packedAt)
-		}
-
-		info += fmt.Sprintf("\n  %s %d", labelStyle.Render("Entries:"), m.entryCount)
-
-		if m.resourceCount > 0 {
-			info += fmt.Sprintf("\n\n  %s", labelStyle.Render("Embedded resources:"))
-			for _, res := range m.resources {
-				resSize := float64(res.size) / 1024
-				var resSizeStr string
-				if resSize > 1024 {
-					resSizeStr = fmt.Sprintf("%.2f MB", resSize/1024)
-				} else {
-					resSizeStr = fmt.Sprintf("%.2f KB", resSize)
-				}
-				info += fmt.Sprintf("\n    • %s (%d files, %s)",
-					dimStyle.Render(res.name),
-					res.fileCount,
-					resSizeStr)
-			}
-		}
-
-		return successStyle.Render("\n✓ Pack created successfully") +
-			dimStyle.Render(info) +
-			"\n\n"
-	}
-
-	titleStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("12")).
-		Bold(true)
-
-	statusStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("8"))
-
-	var embedInfo string
-	if m.embedAll {
-		embedInfo = statusStyle.Render("  Embed patterns: all fs.directory entries\n")
-	} else if len(m.embedPatterns) > 0 {
-		embedInfo = statusStyle.Render(fmt.Sprintf("  Embed patterns: %s\n", strings.Join(m.embedPatterns, ", ")))
-	}
-
-	var view strings.Builder
-	view.WriteString("\n")
-	view.WriteString(titleStyle.Render("Creating pack: " + m.outputFile))
-	view.WriteString("\n")
-	view.WriteString(embedInfo)
-	view.WriteString("\n")
-
-	if m.verbose && len(m.logs) > 0 {
-		logStyle := lipgloss.NewStyle().
-			MaxHeight(15).
-			PaddingLeft(1)
-
-		view.WriteString(logStyle.Render(strings.Join(m.logs, "\n")))
-		view.WriteString("\n\n")
-	}
-
-	view.WriteString("  ")
-	view.WriteString(m.progress.View())
-	view.WriteString("\n\n  ")
-	view.WriteString(statusStyle.Render(m.status))
-	view.WriteString("\n\n")
-
-	return view.String()
 }
 
 func runPack(cmd *cobra.Command, args []string) error {
@@ -375,10 +232,8 @@ func runPack(cmd *cobra.Command, args []string) error {
 	}
 	verboseMode := rootCmd.PersistentFlags().Lookup("verbose").Changed
 
-	prog := progress.New(progress.WithDefaultGradient())
 	m := &packModel{
 		stage:         stageInit,
-		progress:      prog,
 		status:        "Initializing...",
 		embedPatterns: embedConfig.patterns,
 		embedAll:      embedConfig.all,
@@ -387,27 +242,21 @@ func runPack(cmd *cobra.Command, args []string) error {
 		maxLogs:       20,
 	}
 
-	p := newCLIProgram(m)
+	reporter := newCLIProgressReporter(cmd.Context(), os.Stdout)
+	reporter.pack = m
+	defer reporter.Close()
 
-	go func() {
-		if err := performPack(cmd, args, app, p); err != nil {
-			p.Send(errorMsg{err: err})
-		}
-	}()
-
-	finalModel, err := p.Run()
-	if err != nil {
+	if err := performPack(cmd, args, app, reporter); err != nil {
+		reporter.Send(errorMsg{err: err})
 		return err
 	}
-
-	if packModel, ok := finalModel.(*packModel); ok && packModel.err != nil {
-		return packModel.err
+	if err := reporter.Err(); err != nil {
+		return err
 	}
-
 	return nil
 }
 
-func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *tea.Program) error {
+func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *cliProgressReporter) error {
 	logger := app.Logger.Named("pack")
 	outputFile := args[0]
 	lockFile, _ := cmd.Flags().GetString("lock-file")
