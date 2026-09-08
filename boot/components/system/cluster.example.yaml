@@ -83,3 +83,15 @@ cluster:
 #     # future compaction mode; do not treat a TTL as causal proof.
 #     global_dissem_tombstone_retention: 0
 #   kv_crdt_tombstone_retention: 0
+
+# Context-aware proposal admission (cluster.raft):
+#   raft:
+#     max_pending_applies: 128
+#     max_pending_apply_bytes: 67108864
+# Both budgets must be positive integers. They bound unresolved ApplyContext
+# futures and retained command payloads, including proposals whose callers have
+# canceled. Capacity returns when the underlying Apply actually finishes.
+# Cancellation does not roll back admitted work; do not automatically retry an
+# uncertain proposal. Budgets do not cover persistent Raft log/FSM storage.
+# Existing Apply callers retain their existing behavior; KV/naming adoption of
+# the optional ApplyContext interface is a separate integration change.

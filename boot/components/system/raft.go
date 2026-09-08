@@ -220,16 +220,22 @@ func Raft() boot.Component {
 			// existing peers with raft_status=in and skip bootstrap; the
 			// leader's reconciler adds them via AddVoter.
 			bootstrapExpect = raftCfg.GetInt(ClusterRaftBootstrapExpect, 1)
+			maxPendingApplies, maxPendingApplyBytes, err := loadPendingApplyLimits(raftCfg)
+			if err != nil {
+				return ctx, err
+			}
 			rc := raftapi.Config{
-				BootstrapExpect:   bootstrapExpect,
-				SnapshotThreshold: uint64(raftCfg.GetInt(ClusterRaftSnapshotThreshold, 0)),
-				SnapshotInterval:  raftCfg.GetDuration(ClusterRaftSnapshotInterval, 0),
-				SnapshotRetain:    raftCfg.GetInt(ClusterRaftSnapshotRetain, 0),
-				TrailingLogs:      uint64(raftCfg.GetInt(ClusterRaftTrailingLogs, 0)),
-				MaxAppendEntries:  raftCfg.GetInt(ClusterRaftMaxAppendEntries, 0),
-				HeartbeatTimeout:  raftCfg.GetDuration(ClusterRaftHeartbeatTimeout, 0),
-				ElectionTimeout:   raftCfg.GetDuration(ClusterRaftElectionTimeout, 0),
-				CommitTimeout:     raftCfg.GetDuration(ClusterRaftCommitTimeout, 0),
+				MaxPendingApplies:    maxPendingApplies,
+				MaxPendingApplyBytes: maxPendingApplyBytes,
+				BootstrapExpect:      bootstrapExpect,
+				SnapshotThreshold:    uint64(raftCfg.GetInt(ClusterRaftSnapshotThreshold, 0)),
+				SnapshotInterval:     raftCfg.GetDuration(ClusterRaftSnapshotInterval, 0),
+				SnapshotRetain:       raftCfg.GetInt(ClusterRaftSnapshotRetain, 0),
+				TrailingLogs:         uint64(raftCfg.GetInt(ClusterRaftTrailingLogs, 0)),
+				MaxAppendEntries:     raftCfg.GetInt(ClusterRaftMaxAppendEntries, 0),
+				HeartbeatTimeout:     raftCfg.GetDuration(ClusterRaftHeartbeatTimeout, 0),
+				ElectionTimeout:      raftCfg.GetDuration(ClusterRaftElectionTimeout, 0),
+				CommitTimeout:        raftCfg.GetDuration(ClusterRaftCommitTimeout, 0),
 			}
 			// store.kv.raft requires a durable raft; default the node data_dir to
 			// ~/.wippy/store so raft is fs-durable out of the box (no toggle). The

@@ -4,6 +4,7 @@
 package raft
 
 import (
+	"context"
 	"time"
 )
 
@@ -134,3 +135,9 @@ type (
 		IsVoter bool
 	}
 )
+
+// ContextApplier optionally supports cancellable proposal waiting. Cancellation
+// after admission means an unknown outcome, not proof that no commit occurred.
+type ContextApplier interface {
+	ApplyContext(context.Context, []byte, time.Duration) (*ApplyResponse, error)
+}

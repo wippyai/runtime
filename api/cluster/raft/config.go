@@ -4,6 +4,12 @@ package raft
 
 import "time"
 
+// DefaultMaxPendingApplies bounds context-aware future tracking per node.
+const DefaultMaxPendingApplies = 128
+
+// DefaultMaxPendingApplyBytes bounds retained command copies for unresolved work.
+const DefaultMaxPendingApplyBytes = 64 << 20
+
 // Config holds configuration for a Raft node.
 //
 // Raft defaults to a diskless control plane (in-memory stores): cluster state
@@ -26,16 +32,21 @@ import "time"
 // see existing peers as raft_status="in" and skip bootstrap; the leader's
 // reconciler adds them via AddVoter.
 type Config struct {
-	DataDir           string        `json:"data_dir,omitempty"`
-	CommitTimeout     time.Duration `json:"commit_timeout"`
-	SnapshotInterval  time.Duration `json:"snapshot_interval"`
-	ElectionTimeout   time.Duration `json:"election_timeout"`
-	HeartbeatTimeout  time.Duration `json:"heartbeat_timeout"`
-	SnapshotThreshold uint64        `json:"snapshot_threshold"`
-	TrailingLogs      uint64        `json:"trailing_logs"`
-	BootstrapExpect   int           `json:"bootstrap_expect,omitempty"`
-	SnapshotRetain    int           `json:"snapshot_retain"`
-	MaxPool           int           `json:"max_pool"`
+	DataDir string `json:"data_dir,omitempty"`
+	// MaxPendingApplies and MaxPendingApplyBytes bound unresolved context-aware
+	// proposal count and owned command bytes, including canceled callers.
+	// Zero selects the defaults. These do not bound log or FSM storage.
+	MaxPendingApplyBytes int           `json:"max_pending_apply_bytes"`
+	MaxPendingApplies    int           `json:"max_pending_applies"`
+	CommitTimeout        time.Duration `json:"commit_timeout"`
+	SnapshotInterval     time.Duration `json:"snapshot_interval"`
+	ElectionTimeout      time.Duration `json:"election_timeout"`
+	HeartbeatTimeout     time.Duration `json:"heartbeat_timeout"`
+	SnapshotThreshold    uint64        `json:"snapshot_threshold"`
+	TrailingLogs         uint64        `json:"trailing_logs"`
+	BootstrapExpect      int           `json:"bootstrap_expect,omitempty"`
+	SnapshotRetain       int           `json:"snapshot_retain"`
+	MaxPool              int           `json:"max_pool"`
 	// ShutdownTransferTimeout bounds the best-effort leadership transfer
 	// attempted by Stop() when this node is leader. Zero defaults to one
 	// election timeout. The transfer is an availability optimization, not a
@@ -54,6 +65,12 @@ type Config struct {
 
 // InitDefaults fills zero-valued fields with sensible defaults.
 func (c *Config) InitDefaults() {
+	if c.MaxPendingApplyBytes <= 0 {
+		c.MaxPendingApplyBytes = DefaultMaxPendingApplyBytes
+	}
+	if c.MaxPendingApplies <= 0 {
+		c.MaxPendingApplies = DefaultMaxPendingApplies
+	}
 	if c.SnapshotRetain == 0 {
 		c.SnapshotRetain = 3
 	}

@@ -31,6 +31,7 @@ import (
 // Node wraps a hashicorp/raft instance and integrates it with the wippy
 // event bus and cluster membership system.
 type Node struct {
+	proposals   proposalWaits
 	fsm         hraft.FSM
 	bus         event.Bus
 	logStore    hraft.LogStore
@@ -56,13 +57,14 @@ func NewNode(localID string, fsm hraft.FSM, cfg raftapi.Config, bus event.Bus, l
 	coll metrics.Collector, mp otelmetric.MeterProvider, tp trace.TracerProvider) *Node {
 	cfg.InitDefaults()
 	return &Node{
-		fsm:     fsm,
-		config:  cfg,
-		localID: localID,
-		bus:     bus,
-		logger:  logger,
-		stopCh:  make(chan struct{}),
-		tel:     newTelemetry(coll, mp, tp),
+		proposals: proposalWaits{slots: make(chan struct{}, cfg.MaxPendingApplies), maxBytes: cfg.MaxPendingApplyBytes},
+		fsm:       fsm,
+		config:    cfg,
+		localID:   localID,
+		bus:       bus,
+		logger:    logger,
+		stopCh:    make(chan struct{}),
+		tel:       newTelemetry(coll, mp, tp),
 	}
 }
 
