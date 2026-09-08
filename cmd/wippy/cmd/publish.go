@@ -121,16 +121,20 @@ func runPublish(cmd *cobra.Command, _ []string) error {
 		registryURL = store.DefaultRegistry()
 	}
 
-	cred, err := store.Get(registryURL)
-	if err != nil {
-		return NewPublishNotAuthenticatedError(registryURL, err)
+	var token string
+	if !dryRun {
+		cred, err := store.Get(registryURL)
+		if err != nil {
+			return NewPublishNotAuthenticatedError(registryURL, err)
+		}
+		token = cred.Token
 	}
 
 	// Resolve version interactively when not provided and not publishing a label
-	if label == "" && cfg.Version == "" {
+	if !dryRun && label == "" && cfg.Version == "" {
 		hubClient, clientErr := hub.NewClient(hub.Options{
 			BaseURL: registryURL,
-			Token:   cred.Token,
+			Token:   token,
 		})
 		if clientErr != nil {
 			return NewPublishClientError(registryURL, clientErr)
@@ -183,7 +187,7 @@ func runPublish(cmd *cobra.Command, _ []string) error {
 
 	client, err := hub.NewClient(hub.Options{
 		BaseURL: registryURL,
-		Token:   cred.Token,
+		Token:   token,
 	})
 	if err != nil {
 		return NewPublishClientError(registryURL, err)
