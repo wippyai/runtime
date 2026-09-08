@@ -527,7 +527,7 @@ func (s *Service) registerConsistent(name string, p pid.PID) (global.RegisterOut
 		}, global.ErrNameAlreadyRegistered
 	}
 
-	if result.ResolvedPID != (pid.PID{}) {
+	if !result.ResolvedPID.Equal(pid.PID{}) {
 		s.tel.recordReregistration(s.localNode, "global")
 	}
 

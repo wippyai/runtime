@@ -119,13 +119,13 @@ func (r *PIDRegistry) Register(name string, p pid.PID) (pid.PID, error) {
 	// different pid during the promotion window.
 	if gr := r.loadGlobalReg(); gr != nil {
 		if res, err := gr.Lookup(context.Background(), name); err == nil && res.Found {
-			if sameProcessIdentity(res.PID, p) {
+			if res.PID.Equal(p) {
 				return p, nil // same PID registered globally — allow
 			}
 			return res.PID, topology.ErrNameAlreadyRegistered
 		}
 		if reserved, ok := gr.IsStrongReserved(name); ok {
-			if sameProcessIdentity(reserved, p) {
+			if reserved.Equal(p) {
 				return p, nil // same PID reserved — allow
 			}
 			return reserved, topology.ErrNameAlreadyRegistered
@@ -137,7 +137,7 @@ func (r *PIDRegistry) Register(name string, p pid.PID) (pid.PID, error) {
 		// existing-binding fast paths.
 		if !gr.NameReady() {
 			if existing, ok := r.nameToID.Load(name); ok {
-				if ep, ok2 := existing.(pid.PID); ok2 && sameProcessIdentity(ep, p) {
+				if ep, ok2 := existing.(pid.PID); ok2 && ep.Equal(p) {
 					return p, nil
 				}
 			}
@@ -148,7 +148,7 @@ func (r *PIDRegistry) Register(name string, p pid.PID) (pid.PID, error) {
 	// Check eventual registry second to prevent local shadowing of eventual names.
 	if er := r.loadEventualReg(); er != nil {
 		if res, err := er.Lookup(context.Background(), name); err == nil && res.Found {
-			if sameProcessIdentity(res.PID, p) {
+			if res.PID.Equal(p) {
 				return p, nil // same PID registered eventually — allow
 			}
 			return res.PID, topology.ErrNameAlreadyRegistered
@@ -162,7 +162,7 @@ func (r *PIDRegistry) Register(name string, p pid.PID) (pid.PID, error) {
 			return p, nil
 		}
 		// Name already exists - check if it's the same PID (re-registration is ok)
-		if sameProcessIdentity(existingPID, p) {
+		if existingPID.Equal(p) {
 			return p, nil
 		}
 		return existingPID, topology.ErrNameAlreadyRegistered
@@ -319,9 +319,3 @@ func (r *PIDRegistry) Remove(p pid.PID) {
 
 // Ensure Registry implements the operation.Registry interface
 var _ topology.PIDRegistry = (*PIDRegistry)(nil)
-
-// sameProcessIdentity excludes PID's optional string cache from ownership.
-// Compare fields directly to avoid formatting or allocations in admission.
-func sameProcessIdentity(a, b pid.PID) bool {
-	return a.Node == b.Node && a.Host == b.Host && a.UniqID == b.UniqID
-}
