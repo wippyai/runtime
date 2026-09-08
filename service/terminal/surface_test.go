@@ -7,9 +7,41 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/charmbracelet/x/vt"
 	"github.com/stretchr/testify/require"
 	ttyapi "github.com/wippyai/runtime/api/tty"
 )
+
+func TestSurfaceShrinkPreservesBottomRow(t *testing.T) {
+	for _, invalidate := range []bool{false, true} {
+		screen := vt.NewEmulator(8, 4)
+		surface := NewSurface(screen, ttyapi.SurfaceOptions{})
+		_, err := surface.Present(ttyapi.Frame{Rows: []string{"content", "taskbar", "old", "tail"}})
+		require.NoError(t, err)
+		screen.Resize(8, 2)
+		if invalidate {
+			surface.Invalidate()
+		}
+		_, err = surface.Present(ttyapi.Frame{Rows: []string{"content", "taskbar"}})
+		require.NoError(t, err)
+		require.Contains(t, screen.Render(), "taskbar")
+	}
+}
+
+func TestSurfacePreservesFullWidthRows(t *testing.T) {
+	screen := vt.NewEmulator(8, 2)
+	surface := NewSurface(screen, ttyapi.SurfaceOptions{})
+	for _, rows := range [][]string{
+		{"12345678", "abcdefgh"},
+		{"87654321", "hgfedcba"},
+	} {
+		_, err := surface.Present(ttyapi.Frame{Rows: rows})
+		require.NoError(t, err)
+		for _, row := range rows {
+			require.Contains(t, screen.Render(), row)
+		}
+	}
+}
 
 type failingWriter struct {
 	err     error
