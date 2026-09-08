@@ -72,6 +72,12 @@ func rewindContext(t *testing.T, value any) context.Context {
 	if err := scheduler.Execute(ctx, module.ExportedFunction("noop")); err != nil {
 		t.Fatalf("initialize rewind helper: %v", err)
 	}
+	// Establish an actual yielded operation before injecting its completion.
+	// This host-only fixture does not execute the dispatcher command.
+	require.NoError(t, wasmengine.Suspend(ctx, &resolvePendingOp{}))
+	step, err := scheduler.Step(ctx, nil)
+	require.NoError(t, err)
+	require.Equal(t, wasmengine.StepContinue, step.Status)
 	token := store.Put(value)
 	_, stepErr := scheduler.Step(ctx, &wasmengine.YieldResult{Value: token})
 	if stepErr == nil || !async.IsRewinding(ctx) {

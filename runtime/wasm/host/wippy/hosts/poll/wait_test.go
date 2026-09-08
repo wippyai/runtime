@@ -118,6 +118,11 @@ func TestPollRewindConsumesDispatcherResultOnce(t *testing.T) {
 	mod, err := rt.Instantiate(ctx, code)
 	require.NoError(t, err)
 	require.NoError(t, scheduler.Execute(ctx, mod.ExportedFunction("noop")))
+	// The completion belongs to an operation that has actually yielded.
+	require.NoError(t, wasmengine.Suspend(ctx, &waitSources{}))
+	step, err := scheduler.Step(ctx, nil)
+	require.NoError(t, err)
+	require.Equal(t, wasmengine.StepContinue, step.Status)
 	token := store.Put([]uint32{1, 3})
 	_, err = scheduler.Step(ctx, &wasmengine.YieldResult{Value: token})
 	require.Error(t, err) // no-op fixture has no Asyncify exports
