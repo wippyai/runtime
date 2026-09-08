@@ -54,7 +54,14 @@ func (s *Surface) Present(frame ttyapi.Frame) (ttyapi.PresentStats, error) {
 	if len(s.rows) > limit {
 		limit = len(s.rows)
 	}
-	for index := 0; index < limit; index++ {
+	// Clear removed rows first. After a terminal shrink, cursor moves to
+	// those old rows clamp to the new bottom row; painting must follow cleanup.
+	removed := limit - len(rows)
+	for step := 0; step < limit; step++ {
+		index := step - removed
+		if step < removed {
+			index = len(rows) + step
+		}
 		current, previous := "", ""
 		if index < len(rows) {
 			current = rows[index]
@@ -62,7 +69,7 @@ func (s *Surface) Present(frame ttyapi.Frame) (ttyapi.PresentStats, error) {
 		if index < len(s.rows) {
 			previous = s.rows[index]
 		}
-		if !s.invalid && current == previous && index < len(rows) && index < len(s.rows) {
+		if !s.invalid && removed == 0 && current == previous && index < len(rows) && index < len(s.rows) {
 			continue
 		}
 		changed++
