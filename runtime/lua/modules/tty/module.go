@@ -34,6 +34,7 @@ func buildModule() (*lua.LTable, []luaapi.YieldType) {
 	mod.RawSetString("screen_size", lua.LGoFunc(ttyScreenSize))
 	mod.RawSetString("events", lua.LGoFunc(ttyEvents))
 	mod.RawSetString("mouse", lua.LGoFunc(ttyMouse))
+	mod.RawSetString("image", lua.LGoFunc(ttyImageNew))
 	mod.RawSetString("surface", lua.LGoFunc(ttySurfaceNew))
 	mod.RawSetString("canvas", lua.LGoFunc(ttyCanvasNew))
 	mod.RawSetString("viewport", lua.LGoFunc(ttyViewportNew))

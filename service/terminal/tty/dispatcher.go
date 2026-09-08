@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	"github.com/wippyai/runtime/api/dispatcher"
+	"github.com/wippyai/runtime/api/runtime/resource"
 	ttyapi "github.com/wippyai/runtime/api/tty"
 )
 
@@ -346,6 +347,21 @@ func (d *Dispatcher) handleViewportIO(ctx context.Context, command dispatcher.Co
 		var result any
 		var err error
 		switch c.Operation {
+		case "image_import":
+			provider, ok := ttyapi.GetService(runCtx).(interface {
+				ImageStore() *ttyapi.ImageStore
+			})
+			if !ok {
+				err = ttyapi.ErrServiceUnavailable
+			} else {
+				result, err = provider.ImageStore().ImportPNG(c.ImageData)
+			}
+		case "capture":
+			if c.CaptureSource == nil {
+				err = ttyapi.ErrInvalidPort
+			} else {
+				result, err = c.CaptureSource.Capture(runCtx)
+			}
 		case "attach":
 			service := ttyapi.GetService(runCtx)
 			if service == nil {
@@ -370,6 +386,29 @@ func (d *Dispatcher) handleViewportIO(ctx context.Context, command dispatcher.Co
 		default:
 			err = ttyapi.ErrInvalidPort
 		}
+
+		if owned, ok := result.(interface{ Close() error }); ok && (c.Operation == "capture" || c.Operation == "image_import") {
+			transfer := ttyapi.ImageIOResult{}
+			if img, ok := result.(*ttyapi.Image); ok {
+				transfer.Image = img
+			}
+			if capture, ok := result.(*ttyapi.Capture); ok {
+				transfer.Capture = capture
+			}
+			if store := resource.GetStore(runCtx); store != nil {
+				transfer.Cancel = store.AddCleanup(owned.Close)
+			}
+			result = transfer
+			if runCtx.Err() != nil {
+				if transfer.Cancel != nil {
+					transfer.Cancel()
+				}
+				_ = owned.Close()
+				result = nil
+				err = runCtx.Err()
+			}
+		}
+
 		receiver.CompleteYield(tag, result, err)
 	}()
 	return nil

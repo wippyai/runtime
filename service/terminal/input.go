@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/charmbracelet/x/term"
 	"github.com/wippyai/runtime/api/payload"
@@ -19,24 +20,26 @@ import (
 
 // InputReader reads terminal input and delivers parsed events to a sink.
 type InputReader struct {
-	output       io.Writer
-	emitter      *inputEmitter
-	raw          *RawManager
-	sink         func(tty.Event)
-	reader       terminalInputReader
-	cancel       context.CancelFunc
-	stopDone     chan struct{}
-	stopErr      error
-	done         chan struct{}
-	err          error
-	stdin        *os.File
-	wg           sync.WaitGroup
-	mu           sync.Mutex
-	started      bool
-	stopping     bool
-	mouseEnabled bool
-	pasteEnabled bool
-	doneClosed   bool
+	graphicsProbeAt time.Time
+	output          io.Writer
+	emitter         *inputEmitter
+	raw             *RawManager
+	sink            func(tty.Event)
+	reader          terminalInputReader
+	cancel          context.CancelFunc
+	stopDone        chan struct{}
+	stopErr         error
+	done            chan struct{}
+	err             error
+	stdin           *os.File
+	graphicsMode    string
+	wg              sync.WaitGroup
+	mu              sync.Mutex
+	started         bool
+	stopping        bool
+	mouseEnabled    bool
+	pasteEnabled    bool
+	doneClosed      bool
 }
 
 // NewEventInputReader creates an InputReader that delivers events to the given sink
@@ -321,7 +324,7 @@ func (r *InputReader) readLoop(ctx context.Context, reader terminalInputReader, 
 		}
 	}()
 
-	readErr = streamTerminalInput(ctx, reader, r.sendEvent)
+	readErr = streamTerminalInput(ctx, reader, r.sendEvent, r.graphicsReply)
 }
 
 func (r *InputReader) emitResize() {

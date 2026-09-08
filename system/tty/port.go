@@ -196,3 +196,7 @@ func (i *input) ScreenSize() (int, int, error) {
 }
 func (i *input) EnableMouse()  {}
 func (i *input) DisableMouse() {}
+
+func (s *surface) Capabilities() ttyapi.SurfaceCapabilities {
+	return ttyapi.SurfaceCapabilities{Images: "native"}
+}

@@ -181,6 +181,19 @@ func (y *ViewportIOYield) HandleResult(l *lua.LState, data any, err error) []lua
 	if err != nil {
 		return []lua.LValue{lua.LNil, lua.WrapErrorWithLua(l, err, "remote viewport")}
 	}
+
+	if result, ok := data.(ttyapi.ImageIOResult); ok {
+		if result.Image != nil {
+			pushImage(l, result.Image, result.Cancel)
+		} else if result.Capture != nil {
+			pushCapture(l, result.Capture, result.Cancel)
+		} else {
+			return handleBoolResult(l, nil, ttyapi.ErrImageInvalid, "image result")
+		}
+		out := []lua.LValue{l.Get(-2), l.Get(-1)}
+		l.Pop(2)
+		return out
+	}
 	if view, ok := data.(ttyapi.Viewport); ok {
 		pushViewport(l, view)
 		out := []lua.LValue{l.Get(-2), l.Get(-1)}

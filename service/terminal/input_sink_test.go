@@ -263,9 +263,30 @@ func TestTerminalInputReleasesCompletedLargePasteBudget(t *testing.T) {
 		if event != nil && event.Type == "paste" {
 			got = append(got, event.Paste)
 		}
-	})
+	}, nil)
 	require.ErrorIs(t, err, io.EOF)
 	require.Equal(t, []string{first, second}, got)
+}
+
+func TestTerminalInputConsumesGraphicsReplyBeforeUserEvents(t *testing.T) {
+	input := &eofWithDataReader{data: []byte("\x1b_Gi=4294967294;OK\x1b\\z")}
+	var events []*TTYEvent
+	var replyID int
+	var replyPayload string
+	err := streamTerminalInput(context.Background(), input, func(event *TTYEvent) {
+		if event != nil {
+			events = append(events, event)
+		}
+	}, func(id int, payload []byte) bool {
+		replyID = id
+		replyPayload = string(payload)
+		return id == graphicsProbeID
+	})
+	require.ErrorIs(t, err, io.EOF)
+	require.Equal(t, graphicsProbeID, replyID)
+	require.Equal(t, "OK", replyPayload)
+	require.Len(t, events, 1)
+	require.Equal(t, "z", events[0].Key)
 }
 
 type eofWithDataReader struct {

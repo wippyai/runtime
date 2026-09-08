@@ -297,7 +297,6 @@ mount; transport reconnection does not permit replaying terminal input.
 Both nodes must advertise surface protocol version 1. Peers without that
 capability are rejected before writing a new protocol class to their connection.
 
-
 ### Physical clipboard request
 
 `surface:clipboard(text) -> (boolean, error?)` writes a bounded OSC52 clipboard
@@ -307,3 +306,32 @@ Success means the output accepted the request; terminal policy may still ignore
 it. No clipboard read, operating-system acknowledgement, replay, or persistence
 is provided. Virtual surfaces return unsupported; clients must route explicit
 copy operations to their own physical output instead of putting them in frames.
+
+### Retained images
+
+`tty.image(png_bytes) -> Image, error?` validates and imports a PNG in the
+asynchronous dispatcher. This is bounded ingress I/O, not pixel processing in
+Lua. `image:info()` returns `{id, format, width, height, bytes}`;
+`image:read()` explicitly exports its encoded PNG bytes; `image:close()` releases
+its reference. Process resource cleanup closes forgotten handles.
+
+`surface:present(rows, {images = {...}, cursor = ...})` accepts a complete image
+set. Each item has `placement_id`, an `image` handle, one-based cell `x, y`,
+positive `cols, rows`, optional signed `z`, source-pixel `src = {x, y, width,
+height}`, and `alt`. Source pixel coordinates are zero-based. Omitted `images`
+clears old placements. IDs are scoped to the producing surface. Image placement
+must be clipped by the compositor before physical presentation.
+
+`surface:capabilities()` returns `{images = "native" | "kitty" | "pending" |
+"none"}`. Start terminal input before probing. The physical backend queries
+through the existing input reader and times out after 250 ms. Polling before
+first presentation probes before entering the alternate screen. Unsupported or
+pending hosts display a dimmed text placeholder; virtual surfaces retain images.
+
+Snapshots add `images`, `layers`, and `images_omitted`. Image metadata contains
+`placement_id`, `image_id`, `kind`, destination and source geometry, `z`, `alt`,
+and `resource` metadata. A plain snapshot does not retain bytes. Use yielding
+`view:capture()` to atomically pin a revision and its resources, then
+`capture:snapshot()` and `capture:image(image_id)`. The latter returns a new
+owned Image reference. `capture:close()` releases the capture; already acquired
+image references remain valid. Hashes alone never grant resource access.

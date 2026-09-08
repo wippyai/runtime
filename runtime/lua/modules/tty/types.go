@@ -182,9 +182,11 @@ var surfaceStatsType = typ.NewRecord().
 	Build()
 
 var surfaceType = typ.NewInterface("tty.Surface", []typ.Method{
+	{Name: "capabilities", Type: typ.Func().Param("self", typ.Self).Returns(typ.NewRecord().ReadonlyField("images", typ.String).Build()).Build()},
 	{Name: "present", Type: typ.Func().Param("self", typ.Self).
 		Param("rows", typ.NewArray(typ.String)).
 		OptParam("options", typ.NewRecord().
+			OptField("images", typ.NewArray(placedImageType)).
 			OptField("cursor", typ.NewRecord().
 				Field("x", typ.Integer).
 				Field("y", typ.Integer).
@@ -221,6 +223,9 @@ var viewportOptionsType = typ.NewRecord().
 	Build()
 
 var viewportSnapshotType = typ.NewRecord().
+	ReadonlyField("images", typ.NewArray(snapshotImageType)).
+	ReadonlyField("layers", typ.NewArray(typ.String)).
+	ReadonlyField("images_omitted", typ.Boolean).
 	ReadonlyField("revision", typ.Integer).
 	ReadonlyField("width", typ.Integer).
 	ReadonlyField("height", typ.Integer).
@@ -238,6 +243,7 @@ var mountRightsType = typ.NewRecord().
 	OptField("resize", typ.Boolean).Build()
 
 var viewportType = typ.NewInterface("tty.Viewport", []typ.Method{
+	{Name: "capture", Type: typ.Func().Param("self", typ.Self).Returns(captureType, typ.NewOptional(typ.LuaError)).Build()},
 	{Name: "set_page", Type: typ.Func().Param("self", typ.Self).OptParam("page", typ.NewOptional(viewportPageType)).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
 	{Name: "mount", Type: typ.Func().Param("self", typ.Self).Param("recipient", typ.String).Param("rights", mountRightsType).Returns(typ.String, typ.NewOptional(typ.LuaError)).Build()},
 	{Name: "revoke", Type: typ.Func().Param("self", typ.Self).Param("reference", typ.String).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
@@ -317,6 +323,10 @@ func ModuleTypes() *typio.Manifest {
 	m.DefineType("InputEvent", inputEventType)
 	m.DefineType("MountRights", mountRightsType)
 	m.DefineType("EventChannel", eventChannelType)
+	m.DefineType("Image", imageType)
+	m.DefineType("ImageInfo", imageInfoType)
+	m.DefineType("ImagePlacement", placedImageType)
+	m.DefineType("Capture", captureType)
 	m.DefineType("Surface", surfaceType)
 	m.DefineType("Canvas", canvasType)
 	m.DefineType("SurfaceOptions", surfaceOptionsType)
@@ -332,6 +342,7 @@ func ModuleTypes() *typio.Manifest {
 		{Name: "screen_size", Type: typ.Func().Returns(typ.Integer, typ.Integer, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "events", Type: typ.Func().Returns(eventChannelType, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "mouse", Type: typ.Func().Param("enable", typ.Boolean).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "image", Type: typ.Func().Param("png", typ.String).Returns(imageType, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "surface", Type: typ.Func().OptParam("options", surfaceOptionsType).Returns(surfaceType, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "canvas", Type: typ.Func().Param("width", typ.Integer).Param("height", typ.Integer).Returns(canvasType).Build()},
 		{Name: "viewport", Type: typ.Func().OptParam("options", viewportOptionsType).Returns(viewportType, typ.NewOptional(typ.LuaError)).Build()},
