@@ -29,6 +29,8 @@ var updateCmd = &cobra.Command{
 
 Without arguments, scans source directory and re-resolves the entire dependency graph,
 updating all modules to their latest compatible versions.
+For a published deployment, resolves from the application root in wippy.lock;
+no source directory is required and unrelated local source is not consulted.
 
 With module arguments, updates only the specified modules to their highest version
 compatible with other locked dependencies. New transitive dependencies are auto-added.
@@ -122,7 +124,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Full update otherwise
-	logger.Info("re-resolving all dependencies from source")
+	logger.Info("re-resolving application dependencies")
 
 	// Load old lock file for comparison
 	var oldLockObj *lock.Lock
@@ -136,17 +138,15 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Scan only application roots. Selected replacement modules expose their
-	// transitive declarations lazily through the replacement-aware resolver.
+	// Resolve the selected deployment root or scan source application roots.
+	// Replacement modules expose transitive declarations through the resolver.
 	logger.Info("scanning dependency sources", zap.String("src_dir", srcDir))
 
-	entries, err := loadDependencyScanEntries(app.Ctx, app.Loader, srcDir, oldLockObj, logger)
+	rootDeps, err := loadUpdateRoots(app.Ctx, app.Loader, srcDir, oldLockObj, app.Transcoder, logger)
 	if err != nil {
 		return NewLoadEntriesFromSourceError(err)
 	}
 
-	// Extract root dependencies from entries
-	rootDeps := extractRootDependencies(entries, app.Transcoder)
 	logger.Info("found root dependencies", zap.Int("count", len(rootDeps)))
 
 	resolvedModules := make([]hub.ResolvedModule, 0)
@@ -342,14 +342,13 @@ func runTargetedUpdate(cmd *cobra.Command, lockFilePath, srcDir, modulesDir stri
 		return nil
 	}
 
-	// Scan app source plus local replacement sources to get constraints.
-	entries, err := loadDependencyScanEntries(app.Ctx, app.Loader, srcDir, lockObj, logger)
+	// Use the locked deployment root or source application constraints.
+	rootDeps, err := loadUpdateRoots(app.Ctx, app.Loader, srcDir, lockObj, app.Transcoder, logger)
 	if err != nil {
 		return NewLoadEntriesFromSourceError(err)
 	}
 
 	// Extract source constraints
-	rootDeps := extractRootDependencies(entries, app.Transcoder)
 	sourceConstraints := make(map[string]string)
 	for _, dep := range rootDeps {
 		key := fmt.Sprintf("%s/%s", dep.Org, dep.Module)
@@ -446,6 +445,31 @@ func runTargetedUpdate(cmd *cobra.Command, lockFilePath, srcDir, modulesDir stri
 
 	logger.Info("update completed successfully")
 	return nil
+}
+
+// loadUpdateRoots preserves the lock's application identity for published
+// deployments. Such deployments need no source directory; scanning the caller's
+// source would allow unrelated files to replace the selected application.
+func loadUpdateRoots(ctx context.Context, ldr boot.Loader, srcDir string, locked *lock.Lock, transcoder payload.Transcoder, logger *zap.Logger) ([]dependencyRequest, error) {
+	if locked != nil {
+		roots := locked.GetRootModules()
+		if len(roots) != 0 {
+			requests := make([]dependencyRequest, 0, len(roots))
+			for _, root := range roots {
+				org, name, ok := strings.Cut(root, "/")
+				if !ok || org == "" || name == "" {
+					return nil, fmt.Errorf("invalid deployment root %q", root)
+				}
+				requests = append(requests, dependencyRequest{Org: org, Module: name})
+			}
+			return requests, nil
+		}
+	}
+	loaded, err := loadDependencyScanEntries(ctx, ldr, srcDir, locked, logger)
+	if err != nil {
+		return nil, err
+	}
+	return extractRootDependencies(loaded, transcoder), nil
 }
 
 func loadDependencyScanEntries(ctx context.Context, ldr boot.Loader, srcDir string, lockObj *lock.Lock, logger *zap.Logger) ([]regapi.Entry, error) {
