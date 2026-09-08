@@ -94,6 +94,56 @@ func TestLuaViewportAttachHandleAndRevisionPolling(t *testing.T) {
 	require.True(t, attached.closed)
 }
 
+func TestLuaViewportSnapshotRowsRemainIndependent(t *testing.T) {
+	view := &viewportTestView{snapshot: ttyapi.Snapshot{
+		Revision: 1, Width: 10, Height: 2, Rows: []string{"first", "stable"},
+	}}
+	l := lua.NewState()
+	defer l.Close()
+	bindTTY(l)
+	l.SetContext(ttyapi.WithService(ctxapi.NewRootContext(), &viewportTestService{created: view}))
+	require.NoError(t, l.DoString(`
+		view = assert(tty.viewport())
+		old = view:snapshot()
+		edited = view:snapshot()
+		edited.rows[1] = "caller mutation"
+		edited.rows[2] = nil
+		edited.width = 99
+		fresh = view:snapshot()
+		assert(fresh.rows[1] == "first" and fresh.rows[2] == "stable")
+		assert(fresh.width == 10)
+	`))
+	view.snapshot.Revision++
+	view.snapshot.Rows = []string{"changed", "stable"}
+	require.NoError(t, l.DoString(`
+		new = view:snapshot(old.revision)
+		assert(new.rows[1] == "changed" and new.rows[2] == "stable")
+		assert(old.rows[1] == "first" and old.rows[2] == "stable")
+	`))
+	view.snapshot.Revision++
+	view.snapshot.Height = 1
+	view.snapshot.Rows = []string{"small"}
+	require.NoError(t, l.DoString(`
+		local small = view:snapshot()
+		assert(#small.rows == 1 and small.rows[1] == "small")
+		assert(new.rows[2] == "stable")
+	`))
+	wrapper := l.GetGlobal("view").(*lua.LUserData).Value.(*viewportWrapper)
+	require.Len(t, wrapper.rows, 1)
+	require.Equal(t, 1, cap(wrapper.rows))
+	view.snapshot.Revision++
+	view.snapshot.Rows = nil
+	require.NoError(t, l.DoString(`assert(#view:snapshot().rows == 0)`))
+	require.Empty(t, wrapper.rows)
+	view.snapshot.Rows = []string{"after clear"}
+	require.NoError(t, l.DoString(`
+		assert(view:snapshot().rows[1] == "after clear")
+		assert(view:close())
+		assert(old.rows[1] == "first" and new.rows[1] == "changed")
+	`))
+	require.Nil(t, wrapper.rows)
+}
+
 func TestLuaViewportRejectsMalformedInput(t *testing.T) {
 	created := &viewportTestView{}
 	service := &viewportTestService{created: created}

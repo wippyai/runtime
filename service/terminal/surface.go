@@ -69,8 +69,11 @@ func (s *Surface) Present(frame ttyapi.Frame) (ttyapi.PresentStats, error) {
 		output = append(output, '\x1b', '[')
 		output = strconv.AppendInt(output, int64(index+1), 10)
 		output = append(output, ';', '1', 'H')
-		output = append(output, current...)
+		// Clear the old extent before painting. EL after a full-width row
+		// erases its last cell while the terminal is in delayed autowrap.
 		output = append(output, "\x1b[0m\x1b[K"...)
+		output = append(output, current...)
+		output = append(output, "\x1b[0m"...)
 	}
 	if s.invalid && limit == 0 {
 		output = append(output, "\x1b[H\x1b[0m\x1b[J"...)

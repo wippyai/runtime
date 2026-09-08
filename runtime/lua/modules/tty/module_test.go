@@ -32,7 +32,7 @@ func TestModuleInfo(t *testing.T) {
 func TestModuleBuild(t *testing.T) {
 	tbl, yields := Module.Build()
 	require.NotNil(t, tbl)
-	assert.Equal(t, 5, len(yields))
+	assert.Equal(t, 6, len(yields))
 }
 
 func TestYieldTypes(t *testing.T) {

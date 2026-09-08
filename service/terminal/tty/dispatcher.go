@@ -34,11 +34,14 @@ func WithWorkers(n int) Option {
 
 // Dispatcher handles terminal I/O commands via an async worker pool.
 type Dispatcher struct {
-	ctx     context.Context
-	jobs    chan job
-	cancel  context.CancelFunc
-	wg      sync.WaitGroup
-	workers int
+	ctx        context.Context
+	jobs       chan job
+	cancel     context.CancelFunc
+	asyncSlots chan struct{}
+	wg         sync.WaitGroup
+	workers    int
+	asyncMu    sync.Mutex
+	stopping   bool
 }
 
 type job struct {
@@ -50,7 +53,7 @@ type job struct {
 
 // NewDispatcher creates a terminal I/O dispatcher with default 1 worker.
 func NewDispatcher(opts ...Option) *Dispatcher {
-	d := &Dispatcher{workers: 1}
+	d := &Dispatcher{workers: 1, asyncSlots: make(chan struct{}, 128)}
 	for _, opt := range opts {
 		opt(d)
 	}
@@ -70,6 +73,9 @@ func (d *Dispatcher) Start(ctx context.Context) error {
 
 // Stop shuts down the dispatcher and drains pending jobs.
 func (d *Dispatcher) Stop(_ context.Context) error {
+	d.asyncMu.Lock()
+	d.stopping = true
+	d.asyncMu.Unlock()
 	if d.cancel != nil {
 		d.cancel()
 	}
@@ -245,6 +251,7 @@ func (d *Dispatcher) handle(ctx context.Context, cmd dispatcher.Command, tag uin
 
 // RegisterAll registers all terminal I/O handlers.
 func (d *Dispatcher) RegisterAll(register func(id dispatcher.CommandID, h dispatcher.Handler)) {
+	register(ttyapi.ViewportIO, dispatcher.HandlerFunc(d.handleViewportIO))
 	h := dispatcher.HandlerFunc(d.handle)
 	register(ttyapi.Read, h)
 	register(ttyapi.ReadLine, h)
@@ -255,4 +262,62 @@ func (d *Dispatcher) RegisterAll(register func(id dispatcher.CommandID, h dispat
 	register(ttyapi.ScreenSize, h)
 	register(ttyapi.EnableMouse, h)
 	register(ttyapi.DisableMouse, h)
+}
+
+// Remote operations must never occupy the terminal read worker or a Lua
+// scheduler worker. Admission is bounded and cancellation releases the slot.
+func (d *Dispatcher) handleViewportIO(ctx context.Context, command dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
+	c := command.(ttyapi.ViewportIOCmd)
+	d.asyncMu.Lock()
+	if d.stopping {
+		d.asyncMu.Unlock()
+		return ttyapi.ErrServiceUnavailable
+	}
+	select {
+	case d.asyncSlots <- struct{}{}:
+	default:
+		d.asyncMu.Unlock()
+		return ttyapi.ErrMeshBusy
+	}
+	d.wg.Add(1)
+	d.asyncMu.Unlock()
+	go func() {
+		defer d.wg.Done()
+		defer func() { <-d.asyncSlots }()
+		runCtx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		if d.ctx != nil {
+			stop := context.AfterFunc(d.ctx, cancel)
+			defer stop()
+		}
+		var result any
+		var err error
+		switch c.Operation {
+		case "attach":
+			service := ttyapi.GetService(runCtx)
+			if service == nil {
+				err = ttyapi.ErrServiceUnavailable
+			} else {
+				result, err = service.Attach(runCtx, c.Handle)
+			}
+		case "send":
+			if c.View == nil {
+				err = ttyapi.ErrInvalidPort
+			} else {
+				err = c.View.SendContext(runCtx, c.Event)
+				result = true
+			}
+		case "resize":
+			if c.View == nil {
+				err = ttyapi.ErrInvalidPort
+			} else {
+				err = c.View.ResizeContext(runCtx, c.Width, c.Height)
+				result = true
+			}
+		default:
+			err = ttyapi.ErrInvalidPort
+		}
+		receiver.CompleteYield(tag, result, err)
+	}()
+	return nil
 }
