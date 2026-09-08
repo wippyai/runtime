@@ -269,7 +269,7 @@ func (s *Service) register(name string, p pid.PID, opts ...RegisterOption) (pid.
 	// Cross-scope check first — refuse to shadow CONSISTENT or LOCAL.
 	if s.cfg.CrossScope != nil {
 		if existing, found := s.cfg.CrossScope.LookupOther(name); found {
-			if existing == p {
+			if existing.Equal(p) {
 				return p, nil
 			}
 			s.tel.recordRegister("conflict_other_scope")
@@ -279,7 +279,7 @@ func (s *Service) register(name string, p pid.PID, opts ...RegisterOption) (pid.
 		// unless this node already holds the name to the same pid (re-register is
 		// safe — no shadowing risk).
 		if !s.cfg.CrossScope.NameReady() {
-			if cur, ok := s.state.Lookup(name); ok && cur == p {
+			if cur, ok := s.state.Lookup(name); ok && cur.Equal(p) {
 				return p, nil
 			}
 			s.tel.recordRegister("not_ready")
@@ -346,7 +346,7 @@ func (s *Service) RevokeForStrong(name string, keep pid.PID) bool {
 		return false
 	}
 	cur, ok := s.state.Lookup(name)
-	if !ok || cur == keep {
+	if !ok || cur.Equal(keep) {
 		return false
 	}
 	e := s.state.Unregister(name, time.Now().UnixMilli())
@@ -775,7 +775,7 @@ func (s *Service) reassertOwned(name string) {
 	if !ok {
 		return
 	}
-	if cur, found := s.state.Lookup(name); found && cur == reg.pid {
+	if cur, found := s.state.Lookup(name); found && cur.Equal(reg.pid) {
 		return
 	}
 	res := s.state.Register(name, reg.pid, time.Now().UnixMilli(), reg.priority)

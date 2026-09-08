@@ -303,7 +303,7 @@ func (s *State) Register(name string, p pid.PID, wallMs int64, priority uint32) 
 
 	rec, existed := sh.entries[name]
 	if existed {
-		if cur, ok := rec.dots[s.localNode]; ok && !cur.Deleted && cur.PID != p {
+		if cur, ok := rec.dots[s.localNode]; ok && !cur.Deleted && !cur.PID.Equal(p) {
 			return RegisterResult{Entry: cur, Winner: s.winnerOf(rec), Won: false}
 		}
 	} else {
