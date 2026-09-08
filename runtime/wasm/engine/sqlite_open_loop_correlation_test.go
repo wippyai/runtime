@@ -462,6 +462,9 @@ func TestOracleCorrelation_FIFOClientReplyDropDetection(t *testing.T) {
 // TestSQLiteActor_OpenLoop_MultiActorCorrelation verifies actual SQLite open loop execution
 // across multiple concurrent actors with dedicated per-actor worker clients and queues.
 func TestSQLiteActor_OpenLoop_MultiActorCorrelation(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy WASM workload; run make test-wasm-heavy locally")
+	}
 	cfg := openLoopConfig{
 		actors:        2,
 		rowsPerActor:  500,

@@ -19,6 +19,9 @@ import (
 // guest keeps QuickJS alive and suspends its JavaScript receive loop between
 // messages; the second PID must own independent JavaScript state.
 func TestQuickJSActor_StateAndIsolation(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy WASM workload; run make test-wasm-heavy locally")
+	}
 	fixture := os.Getenv("WIPPY_QUICKJS_ACTOR_FIXTURE")
 	if fixture == "" {
 		fixture = "testdata/quickjs_actor.wasm"

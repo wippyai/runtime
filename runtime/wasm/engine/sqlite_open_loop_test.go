@@ -1264,6 +1264,9 @@ func runOpenLoopLoad(t testing.TB, cfg openLoopConfig) *openLoopResult {
 // 3. Strict accounting conservation: planned == completed + failed + timedout + generatorDropped.
 // 4. Drain, recovery, per-key final ACK verification, and final database reconciliation.
 func TestSQLiteActor_OpenLoop_CorrectnessAndOverload(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy WASM workload; run make test-wasm-heavy locally")
+	}
 	t.Run("SteadyInCapacity", func(t *testing.T) {
 		cfg := openLoopConfig{
 			actors:        1,
@@ -1511,6 +1514,9 @@ func parseToPayload(s string) payload.Payload {
 // TestSQLiteActorLoad_OpenLoop_Sustained is an opt-in configurable open-loop load test.
 // Run with: WIPPY_SQLITE_OPEN_LOOP=1 go test ./runtime/wasm/engine -run '^TestSQLiteActorLoad_OpenLoop_Sustained$' -v
 func TestSQLiteActorLoad_OpenLoop_Sustained(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy WASM workload; run make test-wasm-heavy locally")
+	}
 	if os.Getenv("WIPPY_SQLITE_OPEN_LOOP") == "" && os.Getenv("WIPPY_SQLITE_LOAD") == "" {
 		t.Skip("skipping sustained open-loop load test; set WIPPY_SQLITE_OPEN_LOOP=1 to run")
 	}

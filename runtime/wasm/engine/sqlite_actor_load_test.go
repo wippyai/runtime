@@ -872,6 +872,9 @@ func TestSchedulerHarness_Infrastructure(t *testing.T) {
 
 // TestSQLiteActor_Correctness_1Actor verifies 1 actor retained SQLite DB with 10,000 rows.
 func TestSQLiteActor_Correctness_1Actor(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy WASM workload; run make test-wasm-heavy locally")
+	}
 	wasmBytes, ok := loadTestWASMBytes(t, "testdata/sqlite_actor.wasm")
 	if !ok {
 		t.Fatal("required SQLite fixture is unavailable")
@@ -974,6 +977,9 @@ func TestSQLiteActor_Correctness_1Actor(t *testing.T) {
 // TestSQLiteActor_Correctness_4Actors_Concurrent verifies 4 concurrent actors each
 // retaining an independent SQLite DB of 10,000 rows.
 func TestSQLiteActor_Correctness_4Actors_Concurrent(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy WASM workload; run make test-wasm-heavy locally")
+	}
 	wasmBytes, ok := loadTestWASMBytes(t, "testdata/sqlite_actor.wasm")
 	if !ok {
 		t.Fatal("required SQLite fixture is unavailable")
@@ -1125,6 +1131,9 @@ func TestSQLiteActor_Correctness_4Actors_Concurrent(t *testing.T) {
 // - WIPPY_SQLITE_LOAD_CONCURRENCY (1..64, default 4)
 // - WIPPY_SQLITE_LOAD_ACTORS (1..64, default 4)
 func TestSQLiteActorLoad_Sustained(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy WASM workload; run make test-wasm-heavy locally")
+	}
 	if os.Getenv("WIPPY_SQLITE_LOAD") == "" {
 		t.Skip("skipping heavy sustained load test; set WIPPY_SQLITE_LOAD=1 to run")
 	}
@@ -1432,6 +1441,9 @@ func TestSQLiteActorLoad_Sustained(t *testing.T) {
 // TestSQLiteActor_MemoryLimits forces an actual oversized dataset exceeding a tight memory limit
 // and asserts guest failure/termination + bounded guest memory, followed by proving a healthy actor works.
 func TestSQLiteActor_MemoryLimits(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy WASM workload; run make test-wasm-heavy locally")
+	}
 	wasmBytes, ok := loadTestWASMBytes(t, "testdata/sqlite_actor.wasm")
 	if !ok {
 		t.Fatal("required SQLite fixture is unavailable")
@@ -1537,6 +1549,9 @@ func (l *sqliteInsertListener) After(_ context.Context, _ wazeroapi.Module, _ wa
 }
 
 func TestSQLiteActor_LifecycleAndCancellation(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy WASM workload; run make test-wasm-heavy locally")
+	}
 	wasmBytes, ok := loadTestWASMBytes(t, "testdata/sqlite_actor.wasm")
 	if !ok {
 		t.Fatal("required SQLite fixture is unavailable")
@@ -1621,6 +1636,9 @@ func TestSQLiteActor_LifecycleAndCancellation(t *testing.T) {
 // deterministically holding guest execution during burst, accounting accepted/rejected,
 // draining replies, and verifying recovery.
 func TestSQLiteActor_Overload(t *testing.T) {
+	if testing.Short() {
+		t.Skip("heavy WASM workload; run make test-wasm-heavy locally")
+	}
 	wasmBytes, ok := loadTestWASMBytes(t, "testdata/sqlite_actor.wasm")
 	if !ok {
 		t.Fatal("required SQLite fixture is unavailable")

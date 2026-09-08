@@ -4,11 +4,6 @@
 # with Go 1.27's default experiment set. Do not disable jsonv2 here.
 export GOFLAGS := -buildvcs=false
 
-# The runtime race suite compiles SQLite and QuickJS guests in isolated runtimes.
-# Its aggregate duration can exceed Go's default 10m package timeout on CI.
-# Individual operation deadlines remain enforced by the tests themselves.
-RUNTIME_TEST_TIMEOUT ?= 20m
-
 test-clean:
 	go clean -testcache
 
@@ -18,9 +13,15 @@ test:
 	go test ./system/... -v -race -short
 	go test ./service/... -v -race -short
 	go test ./cluster/... -v -race -short
-	go test --tags "fts5 sqlite_vec treesitter sqlite_preupdate_hook" ./runtime/... -v -race -short -timeout $(RUNTIME_TEST_TIMEOUT)
+	go test --tags "fts5 sqlite_vec treesitter sqlite_preupdate_hook" ./runtime/... -v -race -short
 	go test ./boot/... -v -race -short
 	go test --tags "fts5 sqlite_vec treesitter sqlite_preupdate_hook" ./cmd/... -v -race -short
+
+# Local heavy WASM acceptance, excluded from the normal CI short suite.
+# Includes both sustained SQLite load windows; fixtures fail closed if missing.
+.PHONY: test-wasm-heavy
+test-wasm-heavy:
+	WIPPY_SQLITE_LOAD=1 WIPPY_SQLITE_OPEN_LOOP=1 go test ./runtime/wasm/engine -race -count=1 -short=false -timeout 30m -v -run '^(TestSQLiteActor_|TestSQLiteActorLoad_|TestQuickJSActor_)'
 
 # The default service test intentionally stays untagged so the SQLite stub and
 # the non-CGO portability path remain covered. The real preupdate-hook source
@@ -48,7 +49,7 @@ test-system:
 test-runtime:
 	go test ./internal/... -v -race
 	go test ./api/... -v -race
-	go test --tags "fts5 sqlite_vec treesitter sqlite_preupdate_hook" ./runtime/... -v -race -timeout $(RUNTIME_TEST_TIMEOUT)
+	go test --tags "fts5 sqlite_vec treesitter sqlite_preupdate_hook" ./runtime/... -v -race
 
 test-service:
 	go test ./internal/... -v -race
