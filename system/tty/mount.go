@@ -118,7 +118,11 @@ func (v *viewport) Revoke(ctx context.Context, ref string) error {
 	s := v.session.service
 	s.mu.Lock()
 	m := s.mounts[ref]
-	if m == nil || m.issuer != v {
+	if m == nil {
+		s.mu.Unlock()
+		return nil // Recipient EXIT or an earlier revoke already removed this mount.
+	}
+	if m.issuer != v {
 		s.mu.Unlock()
 		return ttyapi.ErrInvalidGrant
 	}
