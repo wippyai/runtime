@@ -94,6 +94,9 @@ func normalizeWindowsNTError(err error) error {
 		if status == windows.STATUS_REPARSE_POINT_ENCOUNTERED {
 			return syscall.ELOOP
 		}
+		if status == windows.STATUS_FILE_IS_A_DIRECTORY {
+			return fsapi.ErrIsDirectory
+		}
 		errno := status.Errno()
 		switch errno {
 		case syscall.ERROR_FILE_EXISTS, syscall.ERROR_ALREADY_EXISTS:
@@ -101,10 +104,13 @@ func normalizeWindowsNTError(err error) error {
 		case syscall.ERROR_FILE_NOT_FOUND, syscall.ERROR_PATH_NOT_FOUND:
 			return fs.ErrNotExist
 		case windows.ERROR_DIRECTORY:
-			// FILE_DIRECTORY_FILE against a regular file is reported as
-			// ERROR_DIRECTORY. Normalize it to the portable error that the
-			// Preview2 layer maps to not-directory.
-			return syscall.ENOTDIR
+			// syscall.ENOTDIR aliases ERROR_PATH_NOT_FOUND on Windows. Keep
+			// the known type failure distinct from a genuinely missing path.
+			return fsapi.ErrNotDirectory
+		case windows.ERROR_DIR_NOT_EMPTY:
+			return fsapi.ErrNotEmpty
+		case windows.ERROR_SHARING_VIOLATION, windows.ERROR_LOCK_VIOLATION:
+			return fsapi.ErrBusy
 		case syscall.ERROR_ACCESS_DENIED, syscall.ERROR_PRIVILEGE_NOT_HELD:
 			return fs.ErrPermission
 		default:

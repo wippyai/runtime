@@ -341,6 +341,28 @@ func TestDescriptorOpenAtEnforcesAtomicOpenFlags(t *testing.T) {
 	}
 }
 
+func TestDescriptorMutationPreservesDirectoryErrors(t *testing.T) {
+	if runtime.GOOS != "linux" && runtime.GOOS != "windows" {
+		t.Skip("checks Linux and Windows native mutation error classification")
+	}
+	host, _, rootDescriptor, root := newDirectoryDescriptorHost(t)
+	if err := os.Mkdir(root+"/nonempty", 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(root+"/nonempty/item", []byte("retained"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if got := host.MethodDescriptorUnlinkFileAt(context.Background(), rootDescriptor, "nonempty"); got == nil || got.Code != ErrorIsDirectory {
+		t.Fatalf("unlink directory = %#v, want is-directory", got)
+	}
+	if got := host.MethodDescriptorRemoveDirectoryAt(context.Background(), rootDescriptor, "nonempty"); got == nil || got.Code != ErrorNotEmpty {
+		t.Fatalf("remove nonempty directory = %#v, want not-empty", got)
+	}
+	if data, err := os.ReadFile(root + "/nonempty/item"); err != nil || string(data) != "retained" {
+		t.Fatalf("failed mutation changed contents: %q, %v", data, err)
+	}
+}
+
 func TestDescriptorOpenAtZeroRightsCannotReadOrList(t *testing.T) {
 	if runtime.GOOS != "linux" && runtime.GOOS != "windows" && runtime.GOOS != "darwin" && runtime.GOOS != "freebsd" {
 		t.Skip("descriptor-root open-at requires a native descriptor opener")

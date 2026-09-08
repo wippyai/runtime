@@ -95,6 +95,20 @@ func mapOSError(err error) *Error {
 	if errors.Is(err, errors.ErrUnsupported) {
 		return &Error{Code: ErrorUnsupported}
 	}
+	if errors.Is(err, fsapi.ErrNotDirectory) {
+		return &Error{Code: ErrorNotDirectory}
+	}
+	if errors.Is(err, fsapi.ErrIsDirectory) {
+		return &Error{Code: ErrorIsDirectory}
+	}
+	// ENOTEMPTY also matches fs.ErrExist on Unix. Preserve the more specific
+	// native error before checking the broad portable categories below.
+	if errors.Is(err, fsapi.ErrNotEmpty) || errors.Is(err, syscall.ENOTEMPTY) {
+		return &Error{Code: ErrorNotEmpty}
+	}
+	if errors.Is(err, fsapi.ErrBusy) {
+		return &Error{Code: ErrorBusy}
+	}
 	if errors.Is(err, fs.ErrNotExist) {
 		return &Error{Code: ErrorNoEntry}
 	}

@@ -5,18 +5,42 @@
 package directory
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"syscall"
 	"testing"
 
+	fsapi "github.com/wippyai/runtime/api/fs"
 	"golang.org/x/sys/windows"
 )
 
 func TestNormalizeWindowsNTErrorNotDirectory(t *testing.T) {
-	if got := normalizeWindowsNTError(windows.STATUS_NOT_A_DIRECTORY); got != syscall.ENOTDIR {
-		t.Fatalf("normalizeWindowsNTError(STATUS_NOT_A_DIRECTORY) = %v, want %v", got, syscall.ENOTDIR)
+	if got := normalizeWindowsNTError(windows.STATUS_NOT_A_DIRECTORY); got != fsapi.ErrNotDirectory {
+		t.Fatalf("normalizeWindowsNTError(STATUS_NOT_A_DIRECTORY) = %v, want %v", got, fsapi.ErrNotDirectory)
+	}
+	for _, status := range []windows.NTStatus{windows.STATUS_OBJECT_NAME_NOT_FOUND, windows.STATUS_OBJECT_PATH_NOT_FOUND} {
+		got := normalizeWindowsNTError(status)
+		if !errors.Is(got, fs.ErrNotExist) || errors.Is(got, fsapi.ErrNotDirectory) {
+			t.Fatalf("normalizeWindowsNTError(%v) = %v, want missing path", status, got)
+		}
+	}
+}
+
+func TestNormalizeWindowsNTErrorPreservesMutationFailures(t *testing.T) {
+	for _, tc := range []struct {
+		want   error
+		status windows.NTStatus
+	}{
+		{fsapi.ErrIsDirectory, windows.STATUS_FILE_IS_A_DIRECTORY},
+		{fsapi.ErrNotEmpty, windows.STATUS_DIRECTORY_NOT_EMPTY},
+		{fsapi.ErrBusy, windows.STATUS_SHARING_VIOLATION},
+		{fsapi.ErrBusy, windows.STATUS_FILE_LOCK_CONFLICT},
+	} {
+		if got := normalizeWindowsNTError(tc.status); !errors.Is(got, tc.want) {
+			t.Errorf("normalizeWindowsNTError(%v) = %v, want %v", tc.status, got, tc.want)
+		}
 	}
 }
 
