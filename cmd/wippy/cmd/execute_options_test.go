@@ -3,9 +3,10 @@
 package cmd
 
 import (
+	"testing"
+
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/boot"
-	"testing"
 )
 
 func TestNativeComponentsCannotReplaceBuiltins(t *testing.T) {

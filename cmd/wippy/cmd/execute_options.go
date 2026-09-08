@@ -18,13 +18,13 @@ import (
 // ConfigFiles are explicit required files; an empty list disables ambient config.
 // Defaults have lower precedence than packed application and file configuration.
 type ExecuteOptions struct {
+	Defaults boot.Config
+	// Overrides are host-selected settings applied after package and CLI settings.
+	Overrides   boot.Config
+	LockFile    string
 	Args        []string
 	Components  []boot.Component
-	LockFile    string
 	ConfigFiles []string
-	Defaults    boot.Config
-	// Overrides are host-selected settings applied after package and CLI settings.
-	Overrides boot.Config
 }
 
 var nativeExecution atomic.Bool

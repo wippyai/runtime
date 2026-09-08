@@ -19,12 +19,12 @@ import (
 // DataEnv maps application-owned environment variables to paths within StateDir.
 // Existing environment values remain explicit user overrides.
 type Options struct {
+	DataEnv    map[string]string
+	Components []boot.Component
 	Name       string
 	Command    string
 	Mode       string
 	Bundle     Bundle
-	Components []boot.Component
-	DataEnv    map[string]string
 }
 
 var applicationName = regexp.MustCompile(`^[a-z][a-z0-9_-]*$`)

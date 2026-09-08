@@ -58,7 +58,8 @@ func runChild(ctx context.Context, state string, args ...string) error {
 	if err != nil {
 		return err
 	}
-	command := exec.CommandContext(ctx, executable, append([]string{"--state-dir", state, "runtime"}, args...)...)
+	// Reexecute this binary with argv, never an application-selected executable or shell.
+	command := exec.CommandContext(ctx, executable, append([]string{"--state-dir", state, "runtime"}, args...)...) //nolint:gosec // executable comes only from os.Executable
 	command.Stdin, command.Stdout, command.Stderr = os.Stdin, os.Stdout, os.Stderr
 	return command.Run()
 }
