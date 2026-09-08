@@ -75,6 +75,8 @@ func TestMountPermissionsRecipientAndRevocation(t *testing.T) {
 	_, err = s.Attach(agent, ref)
 	require.ErrorIs(t, err, ttyapi.ErrInvalidGrant)
 	require.NoError(t, issuer.Revoke(ctx, ref))
+	require.NoError(t, issuer.Revoke(ctx, ref), "revocation is idempotent after recipient cleanup")
+	require.ErrorIs(t, issuer.Revoke(stranger, ref), ttyapi.ErrPermissionDenied)
 	require.ErrorIs(t, mounted.(ttyapi.CheckedViewport).Check(agent, ttyapi.RightObserve), ttyapi.ErrMountExpired)
 	require.Zero(t, mounted.Snapshot().Width)
 	_, open := <-mounted.Updates()
