@@ -560,6 +560,8 @@ github.com/wippyai/go-lua v1.5.19 h1:z8D+PujogG+ky/60qDj9wBh5bkR569Rdj9O+v/QSZEs
 github.com/wippyai/go-lua v1.5.19/go.mod h1:cwD+390gJgx9cs+Zamby/lch5csqPV9RN1aDEfx/27M=
 github.com/wippyai/module-registry-proto-go v0.0.1 h1:EYnW8MTrI/gs7TJ0ilTVgJal3e0NWmXQigeamrXu0mk=
 github.com/wippyai/module-registry-proto-go v0.0.1/go.mod h1:p4ihYQKRQuqRVLxaH1YL0IEnkz4zKdyfVADOwvA5Tno=
+github.com/wippyai/module-registry-proto-go v0.0.2-0.20260908140534-f6e2910c835f h1:AoKS058roqnsHXaJ8Gww7ODz14qJqOK5QBeoALvcq6I=
+github.com/wippyai/module-registry-proto-go v0.0.2-0.20260908140534-f6e2910c835f/go.mod h1:p4ihYQKRQuqRVLxaH1YL0IEnkz4zKdyfVADOwvA5Tno=
 github.com/wippyai/tree-sitter-markdown v0.0.3 h1:u6e53+hzPSS848Xhm+I48SwtvWQHrC21wDrogdwCwuc=
 github.com/wippyai/tree-sitter-markdown v0.0.3/go.mod h1:LDcC3ar1PlugUgz7YetXmrEoSDMeQuh+CoW53+QpZtc=
 github.com/wippyai/tree-sitter-sql v0.0.4 h1:0hJyjkV6/lhoGA5FJAaf96od2xyo+OJINSEMx/IYqLQ=
