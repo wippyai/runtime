@@ -5,6 +5,7 @@ package cmd
 import (
 	"context"
 	stdjson "encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"runtime"
@@ -649,16 +650,7 @@ func lintOneEntry(entry regapi.Entry, data entryData, linter *lint.Linter, manif
 
 	stmts, parseErr := parse.ParseString(data.Source, entryID)
 	if parseErr != nil {
-		return &entryResult{
-			entryID: entry.ID,
-			diagnostics: []Diagnostic{{
-				EntryID:  entryID,
-				Code:     "P0001",
-				Severity: "error",
-				Message:  parseErr.Error(),
-			}},
-			errors: 1,
-		}
+		return parseErrorResult(entry.ID, parseErr, sourceLines)
 	}
 
 	imports := make(map[string]*io.Manifest)
@@ -747,6 +739,42 @@ func lintOneEntry(entry regapi.Entry, data entryData, linter *lint.Linter, manif
 	}
 
 	return er
+}
+
+// parseErrorResult reports a syntax error the same way a type error is
+// reported: counted, listed, and rendered with its line so it cannot pass
+// unnoticed in the terminal report.
+func parseErrorResult(id regapi.ID, parseErr error, sourceLines diag.SourceLines) *entryResult {
+	entryID := id.String()
+	message := parseErr.Error()
+	position := diag.Position{File: entryID, Line: 1, Column: 1}
+	var syntaxErr *parse.Error
+	if errors.As(parseErr, &syntaxErr) {
+		message = syntaxErr.Message
+		if syntaxErr.Pos.Line == parse.EOF {
+			position.Line = len(sourceLines)
+			if position.Line < 1 {
+				position.Line = 1
+			}
+		} else if syntaxErr.Pos.Line > 0 {
+			position.Line = syntaxErr.Pos.Line
+			position.Column = syntaxErr.Pos.Column
+		}
+	}
+	rendered := diag.Diagnostic{Severity: diag.SeverityError, Message: message, Position: position}
+	return &entryResult{
+		entryID: id,
+		diagnostics: []Diagnostic{{
+			EntryID:  entryID,
+			Code:     "P0001",
+			Severity: severityError.String(),
+			Message:  message,
+			Line:     position.Line,
+			Column:   position.Column,
+		}},
+		rich:   []RichDiagnostic{{EntryID: entryID, Diag: rendered, Source: sourceLines}},
+		errors: 1,
+	}
 }
 
 func mergeEntryResult(result *LintResult, er *entryResult, manifestMap map[regapi.ID]*io.Manifest, reportSet map[regapi.ID]bool) {

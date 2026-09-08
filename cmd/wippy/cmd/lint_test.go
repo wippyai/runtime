@@ -8,10 +8,13 @@ import (
 	"testing"
 
 	"github.com/wippyai/go-lua/compiler/parse"
+	"github.com/wippyai/go-lua/types/diag"
 	"github.com/wippyai/go-lua/types/io"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
+	"github.com/wippyai/runtime/runtime/lua/code"
+	"github.com/wippyai/runtime/runtime/lua/code/lint"
 	"github.com/wippyai/runtime/runtime/lua/component"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	transcoder "github.com/wippyai/runtime/system/payload"
@@ -206,5 +209,29 @@ func TestLintRequireDeclarations_NonAmbientRegisteredModuleMustBeDeclared(t *tes
 		map[string]registry.ID{"json": registry.NewID("wippy.json", "json")}, builtins)
 	if len(clean) != 0 {
 		t.Fatalf("declared json import must clear the diagnostic, got %v", clean)
+	}
+}
+
+func TestLintOneEntryRendersParseErrors(t *testing.T) {
+	typeChecker := code.NewTypeChecker(code.TypeCheckConfig{Enabled: true, Strict: true}, nil)
+	linter := lint.New(typeChecker, lint.NewRegistry())
+	entry := registry.Entry{ID: registry.NewID("app", "broken"), Kind: luaapi.Library}
+	data := entryData{Source: "local M = {}\nlocal interface = 1\nreturn M\n"}
+	result := lintOneEntry(entry, data, linter, map[registry.ID]*io.Manifest{}, severityWarning, lintCache{}, lintFingerprints{})
+	if result == nil || result.errors != 1 || len(result.diagnostics) != 1 {
+		t.Fatalf("parse failure must produce exactly one error, got %+v", result)
+	}
+	if result.diagnostics[0].Line != 2 {
+		t.Fatalf("parse error line = %d, want 2", result.diagnostics[0].Line)
+	}
+	if len(result.rich) != 1 {
+		t.Fatalf("parse error must be rendered like every other diagnostic, rich = %d", len(result.rich))
+	}
+	rich := result.rich[0]
+	if rich.Diag.Severity != diag.SeverityError || rich.Diag.Position.Line != 2 || rich.Source == nil {
+		t.Fatalf("rendered parse error lacks position or source: %+v", rich.Diag)
+	}
+	if !strings.Contains(renderRichDiag(rich, true), "interface") {
+		t.Fatalf("rendered parse error must show the offending line, got %q", renderRichDiag(rich, true))
 	}
 }
