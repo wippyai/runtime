@@ -21,6 +21,10 @@ const numShards = 32
 // processState pool reuse. It is not a wire token or remote installation proof.
 type monitorAttempt byte
 
+// callerLifetime fences sends against processState pooling and same-PID reuse.
+// Allocated lazily only for processes that issue remote monitor requests.
+type callerLifetime byte
+
 type watchedProcess struct {
 	attempt *monitorAttempt
 	pid.PID
@@ -28,10 +32,11 @@ type watchedProcess struct {
 
 // processState holds all state for a single registered process.
 type processState struct {
-	watchers map[string]pid.PID
-	links    map[string]pid.PID
-	watching map[string]watchedProcess
-	pid      pid.PID
+	remoteLifetime *callerLifetime
+	watchers       map[string]pid.PID
+	links          map[string]pid.PID
+	watching       map[string]watchedProcess
+	pid            pid.PID
 }
 
 // shard holds a subset of processes with its own lock.
@@ -112,6 +117,7 @@ func (t *Topology) recycleState(s *processState) {
 			clear(s.watching)
 		}
 	}
+	s.remoteLifetime = nil
 	t.statePool.Put(s)
 }
 
@@ -186,7 +192,8 @@ func (t *Topology) Monitor(caller, target pid.PID) error {
 	if target.Node != "" && target.Node != t.localNodeID {
 		callerSh := t.getShard(callerKey)
 		callerSh.mu.Lock()
-		if _, exists := callerSh.processes[callerKey]; !exists {
+		callerState, exists := callerSh.processes[callerKey]
+		if !exists {
 			callerSh.mu.Unlock()
 			return topology.ErrPIDNotRegistered.WithDetails(attrs.Bag{
 				"pid":       callerKey,
@@ -194,6 +201,10 @@ func (t *Topology) Monitor(caller, target pid.PID) error {
 				"role":      "caller",
 			})
 		}
+		if callerState.remoteLifetime == nil {
+			callerState.remoteLifetime = new(callerLifetime)
+		}
+		lifetime := callerState.remoteLifetime
 		callerSh.mu.Unlock()
 
 		pkg := topology.MonitorRequestPackage(caller, target)
@@ -202,12 +213,20 @@ func (t *Topology) Monitor(caller, target pid.PID) error {
 		}
 
 		callerSh.mu.Lock()
-		if callerState, exists := callerSh.processes[callerKey]; exists && callerState.pid == caller {
-			if callerState.watching == nil {
-				callerState.watching = make(map[string]watchedProcess)
-			}
-			callerState.watching[targetKey] = watchedProcess{PID: target, attempt: new(monitorAttempt)}
+		callerState, exists = callerSh.processes[callerKey]
+		if !exists || callerState.remoteLifetime != lifetime {
+			callerSh.mu.Unlock()
+			// Sending succeeded, but its issuer no longer exists. Do not adopt
+			// the request into a replacement lifetime. An unversioned release
+			// here could erase that replacement's own remote monitor.
+			return topology.ErrPIDNotRegistered.WithDetails(attrs.Bag{
+				"pid": callerKey, "operation": "monitor", "role": "caller",
+			})
 		}
+		if callerState.watching == nil {
+			callerState.watching = make(map[string]watchedProcess)
+		}
+		callerState.watching[targetKey] = watchedProcess{PID: target, attempt: new(monitorAttempt)}
 		callerSh.mu.Unlock()
 		return nil
 	}
