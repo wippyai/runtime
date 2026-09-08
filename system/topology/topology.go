@@ -16,11 +16,21 @@ import (
 
 const numShards = 32
 
+// monitorAttempt is a non-zero-sized identity for one local remote-monitor
+// observation. A retained pointer cannot alias a later attempt, including after
+// processState pool reuse. It is not a wire token or remote installation proof.
+type monitorAttempt byte
+
+type watchedProcess struct {
+	attempt *monitorAttempt
+	pid.PID
+}
+
 // processState holds all state for a single registered process.
 type processState struct {
 	watchers map[string]pid.PID
 	links    map[string]pid.PID
-	watching map[string]pid.PID
+	watching map[string]watchedProcess
 	pid      pid.PID
 }
 
@@ -131,11 +141,20 @@ func (t *Topology) Register(p pid.PID) error {
 
 // addToNodeIndex adds a PID key to the node index.
 func (t *Topology) addToNodeIndex(node pid.NodeID, key string) {
-	val, _ := t.nodeIndex.LoadOrStore(node, &nodeKeys{})
-	nk := val.(*nodeKeys)
-	nk.mu.Lock()
-	defer nk.mu.Unlock()
-	nk.keys = append(nk.keys, key)
+	for {
+		val, _ := t.nodeIndex.LoadOrStore(node, &nodeKeys{})
+		nk := val.(*nodeKeys)
+		nk.mu.Lock()
+		// The last removal or node retirement may detach this bucket while
+		// we wait for it. Never append to an index that is no longer live.
+		current, ok := t.nodeIndex.Load(node)
+		if ok && current == nk {
+			nk.keys = append(nk.keys, key)
+			nk.mu.Unlock()
+			return
+		}
+		nk.mu.Unlock()
+	}
 }
 
 // removeFromNodeIndex removes a PID key from the node index.
@@ -154,7 +173,7 @@ func (t *Topology) removeFromNodeIndex(node pid.NodeID, key string) {
 		}
 	}
 	if len(nk.keys) == 0 {
-		t.nodeIndex.Delete(node)
+		t.nodeIndex.CompareAndDelete(node, nk)
 	}
 }
 
@@ -185,9 +204,9 @@ func (t *Topology) Monitor(caller, target pid.PID) error {
 		callerSh.mu.Lock()
 		if callerState, exists := callerSh.processes[callerKey]; exists && callerState.pid == caller {
 			if callerState.watching == nil {
-				callerState.watching = make(map[string]pid.PID)
+				callerState.watching = make(map[string]watchedProcess)
 			}
-			callerState.watching[targetKey] = target
+			callerState.watching[targetKey] = watchedProcess{PID: target, attempt: new(monitorAttempt)}
 		}
 		callerSh.mu.Unlock()
 		return nil
@@ -229,9 +248,9 @@ func (t *Topology) monitorSameShard(callerKey, targetKey string, caller, target 
 
 	if callerState, ok := sh.processes[callerKey]; ok {
 		if callerState.watching == nil {
-			callerState.watching = make(map[string]pid.PID)
+			callerState.watching = make(map[string]watchedProcess)
 		}
-		callerState.watching[targetKey] = target
+		callerState.watching[targetKey] = watchedProcess{PID: target}
 	}
 
 	return nil
@@ -272,9 +291,9 @@ func (t *Topology) monitorDifferentShards(callerKey, targetKey string, caller, t
 	callerSh := &t.shards[callerIdx]
 	if callerState, ok := callerSh.processes[callerKey]; ok {
 		if callerState.watching == nil {
-			callerState.watching = make(map[string]pid.PID)
+			callerState.watching = make(map[string]watchedProcess)
 		}
-		callerState.watching[targetKey] = target
+		callerState.watching[targetKey] = watchedProcess{PID: target}
 	}
 
 	return nil
@@ -287,14 +306,22 @@ func (t *Topology) Demonitor(caller, target pid.PID) error {
 
 	// Remote demonitoring
 	if target.Node != "" && target.Node != t.localNodeID {
+		callerSh := t.getShard(callerKey)
+		callerSh.mu.RLock()
+		var observed *monitorAttempt
+		if state, exists := callerSh.processes[callerKey]; exists {
+			observed = state.watching[targetKey].attempt
+		}
+		callerSh.mu.RUnlock()
+
 		pkg := topology.MonitorReleasePackage(caller, target)
 		if err := t.router.Send(pkg); err != nil {
 			return err
 		}
 
-		callerSh := t.getShard(callerKey)
 		callerSh.mu.Lock()
-		if callerState, exists := callerSh.processes[callerKey]; exists {
+		if callerState, exists := callerSh.processes[callerKey]; exists && observed != nil &&
+			callerState.watching[targetKey].attempt == observed {
 			delete(callerState.watching, targetKey)
 		}
 		callerSh.mu.Unlock()
@@ -601,7 +628,7 @@ func (t *Topology) Complete(p pid.PID, result *runtime.Result) {
 	var remoteWatching []pid.PID
 	for _, targetPID := range state.watching {
 		if targetPID.Node != "" && targetPID.Node != t.localNodeID {
-			remoteWatching = append(remoteWatching, targetPID)
+			remoteWatching = append(remoteWatching, targetPID.PID)
 		}
 	}
 
@@ -653,7 +680,7 @@ func (t *Topology) Complete(p pid.PID, result *runtime.Result) {
 	}
 }
 
-// cleanupReferences removes this PID from other processes' links/watching maps.
+// cleanupReferences removes both directions of this PID's relationships.
 func (t *Topology) cleanupReferences(key string, state *processState) {
 	// Remove from linked processes
 	for linkedKey := range state.links {
@@ -673,6 +700,18 @@ func (t *Topology) cleanupReferences(key string, state *processState) {
 			delete(watcherState.watching, key)
 		}
 		watcherSh.mu.Unlock()
+	}
+
+	// A departing observer must also leave the targets it was watching. Without
+	// this direction, long-lived targets retain every completed local observer
+	// and later send exit notifications to those dead processes.
+	for targetKey := range state.watching {
+		targetSh := t.getShard(targetKey)
+		targetSh.mu.Lock()
+		if targetState, ok := targetSh.processes[targetKey]; ok {
+			delete(targetState.watchers, key)
+		}
+		targetSh.mu.Unlock()
 	}
 }
 
@@ -703,48 +742,51 @@ func (t *Topology) Remove(p pid.PID) {
 // HandleNodeExit handles node failure by notifying all local processes
 // that were watching or linked to PIDs on the failed node.
 func (t *Topology) HandleNodeExit(nodeID pid.NodeID, exitErr error) {
-	// Get PIDs on the failed node (may be empty if we only had watchers)
-	var deadPIDKeys []string
-	deadKeySet := make(map[string]bool)
-
-	if val, ok := t.nodeIndex.Load(nodeID); ok {
-		nk := val.(*nodeKeys)
-		nk.mu.Lock()
-		deadPIDKeys = make([]string, len(nk.keys))
-		copy(deadPIDKeys, nk.keys)
-		nk.mu.Unlock()
-
-		for _, key := range deadPIDKeys {
-			deadKeySet[key] = true
-		}
-	}
-
+	// Detach the old index before sweeping. Concurrent registrations publish in
+	// a fresh bucket; addToNodeIndex revalidates any bucket captured before this
+	// detach. Do not delete the new bucket at the end of retirement.
+	t.nodeIndex.LoadAndDelete(nodeID)
 	type notification struct {
 		caller pid.PID
 		target pid.PID
 	}
 	var toNotify []notification
-
-	// Scan all shards for processes watching/linked to dead node
 	for i := range t.shards {
 		sh := &t.shards[i]
-		sh.mu.RLock()
-		for _, state := range sh.processes {
+		sh.mu.Lock()
+		for key, state := range sh.processes {
 			for targetKey, targetPID := range state.watching {
-				if deadKeySet[targetKey] || targetPID.Node == nodeID {
-					toNotify = append(toNotify, notification{state.pid, targetPID})
+				if targetPID.Node == nodeID {
+					toNotify = append(toNotify, notification{state.pid, targetPID.PID})
+					delete(state.watching, targetKey)
 				}
 			}
 			for linkedKey, linkedPID := range state.links {
-				if deadKeySet[linkedKey] || linkedPID.Node == nodeID {
+				if linkedPID.Node == nodeID {
 					toNotify = append(toNotify, notification{state.pid, linkedPID})
+					delete(state.links, linkedKey)
 				}
 			}
+			for watcherKey, watcherPID := range state.watchers {
+				if watcherPID.Node == nodeID {
+					delete(state.watchers, watcherKey)
+				}
+			}
+			if nodeID != "" && state.pid.Node == nodeID {
+				delete(sh.processes, key)
+				// A registration concurrent with index detachment may already
+				// have published here. Remove only this retired process's key.
+				t.removeFromNodeIndex(nodeID, key)
+				t.recycleState(state)
+			}
 		}
-		sh.mu.RUnlock()
+		sh.mu.Unlock()
 	}
 
-	// Send notifications
+	// All cleanup precedes notifications: a consumer can synchronously register
+	// a replacement without a trailing cleanup phase erasing it. Each shard has
+	// its own sweep boundary; this is not a distributed incarnation fence.
+	// Routing and user callbacks must never execute while topology is locked.
 	for _, n := range toNotify {
 		linkDownPayload := payload.New(&topology.ExitEvent{
 			At:   time.Now(),
@@ -756,42 +798,6 @@ func (t *Topology) HandleNodeExit(nodeID pid.NodeID, exitErr error) {
 		})
 		pkg := relay.NewPackage(topology.SystemPID, n.caller, topology.TopicEvents, linkDownPayload)
 		_ = t.router.Send(pkg)
-	}
-
-	// Cleanup: remove dead node PIDs from all shards
-	for _, pidKey := range deadPIDKeys {
-		sh := t.getShard(pidKey)
-		sh.mu.Lock()
-		if state, exists := sh.processes[pidKey]; exists {
-			delete(sh.processes, pidKey)
-			t.recycleState(state)
-		}
-		sh.mu.Unlock()
-	}
-	t.nodeIndex.Delete(nodeID)
-
-	// Clean up references in remaining processes
-	for i := range t.shards {
-		sh := &t.shards[i]
-		sh.mu.Lock()
-		for _, state := range sh.processes {
-			for targetKey, targetPID := range state.watching {
-				if deadKeySet[targetKey] || targetPID.Node == nodeID {
-					delete(state.watching, targetKey)
-				}
-			}
-			for linkedKey, linkedPID := range state.links {
-				if deadKeySet[linkedKey] || linkedPID.Node == nodeID {
-					delete(state.links, linkedKey)
-				}
-			}
-			for watcherKey, watcherPID := range state.watchers {
-				if deadKeySet[watcherKey] || watcherPID.Node == nodeID {
-					delete(state.watchers, watcherKey)
-				}
-			}
-		}
-		sh.mu.Unlock()
 	}
 }
 
