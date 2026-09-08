@@ -8,8 +8,17 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"syscall"
 	"testing"
+
+	"golang.org/x/sys/windows"
 )
+
+func TestNormalizeWindowsNTErrorNotDirectory(t *testing.T) {
+	if got := normalizeWindowsNTError(windows.STATUS_NOT_A_DIRECTORY); got != syscall.ENOTDIR {
+		t.Fatalf("normalizeWindowsNTError(STATUS_NOT_A_DIRECTORY) = %v, want %v", got, syscall.ENOTDIR)
+	}
+}
 
 func TestDescriptorWindowsPathRejectsEscapesAndDevices(t *testing.T) {
 	for _, name := range []string{"", "/absolute", `\absolute`, "../escape", "C:relative", "file:stream", "child//grandchild", `child\\grandchild`, "child/./grandchild"} {

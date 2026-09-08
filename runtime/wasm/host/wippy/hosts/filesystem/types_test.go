@@ -296,6 +296,13 @@ func TestDescriptorOpenAtRetainsOpenedFileAcrossReplacement(t *testing.T) {
 	if err := os.WriteFile(replacement, []byte("after"), 0600); err != nil {
 		t.Fatal(err)
 	}
+	// Rebind the pathname in two steps. The contract under test is that the
+	// descriptor remains attached to the opened file after the pathname is
+	// replaced; it does not depend on a platform's replace-existing rename
+	// behavior for an open destination.
+	if err := os.Rename(path, path+".old"); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.Rename(replacement, path); err != nil {
 		t.Fatal(err)
 	}

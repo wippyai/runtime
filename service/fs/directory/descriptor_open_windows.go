@@ -100,6 +100,11 @@ func normalizeWindowsNTError(err error) error {
 			return fs.ErrExist
 		case syscall.ERROR_FILE_NOT_FOUND, syscall.ERROR_PATH_NOT_FOUND:
 			return fs.ErrNotExist
+		case windows.ERROR_DIRECTORY:
+			// FILE_DIRECTORY_FILE against a regular file is reported as
+			// ERROR_DIRECTORY. Normalize it to the portable error that the
+			// Preview2 layer maps to not-directory.
+			return syscall.ENOTDIR
 		case syscall.ERROR_ACCESS_DENIED, syscall.ERROR_PRIVILEGE_NOT_HELD:
 			return fs.ErrPermission
 		default:

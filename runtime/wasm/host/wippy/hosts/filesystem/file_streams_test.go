@@ -23,7 +23,7 @@ func testStreamOwner(t *testing.T, data []byte) (*retainedFile, string) {
 	if err := os.WriteFile(path, data, 0600); err != nil {
 		t.Fatal(err)
 	}
-	f, err := os.OpenFile(path, os.O_RDWR, 0600)
+	f, err := openRetainedTestFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
