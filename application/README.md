@@ -2,8 +2,8 @@
 
 This package provides the boot boundary used by standalone Wippy applications.
 The application supplies a complete, versioned bundle of canonical Hub packs and
-an explicit list of native boot components. The generated executable imports
-`application.Run`; it does not copy CLI loaders or implement a Hub resolver.
+an explicit list of native boot components. The generated executable calls
+`application.Run`, which uses Wippy's command paths and Hub resolver.
 
 `Bundle.Seed` validates pack hashes and published identities before creating a
 canonical deployment lock and vendor directory. An existing lock selecting the

@@ -14,7 +14,7 @@ import (
 )
 
 // ExecuteOptions configures a native application's use of the Wippy CLI.
-// Components are additional host-selected components, never package grants.
+// Components are additional services selected by the host.
 // ConfigFiles are explicit required files; an empty list disables ambient config.
 // Defaults have lower precedence than packed application and file configuration.
 type ExecuteOptions struct {
@@ -30,9 +30,9 @@ type ExecuteOptions struct {
 var nativeExecution atomic.Bool
 var nativeOptions *ExecuteOptions
 
-// ExecuteWithOptions runs one command using the canonical Wippy command paths.
+// ExecuteWithOptions runs one command using the Wippy command paths.
 // Like Execute, it owns the process command state and signal handlers. Call it
-// once from main, never concurrently or from an application actor.
+// once from main; command state is process-global.
 func ExecuteWithOptions(ctx context.Context, options ExecuteOptions) error {
 	if ctx == nil {
 		return fmt.Errorf("execution context is required")

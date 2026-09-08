@@ -31,7 +31,7 @@ var applicationName = regexp.MustCompile(`^[a-z][a-z0-9_-]*$`)
 var environmentName = regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)
 
 // Run is the process entry point for a standalone application. Application
-// arguments follow `run`; `runtime` exposes the canonical Wippy CLI, including
+// arguments follow `run`; `runtime` exposes the Wippy CLI, including
 // Hub authentication, update and source inspection commands.
 func Run(ctx context.Context, options Options, args []string) error {
 	if !applicationName.MatchString(options.Name) {

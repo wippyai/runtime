@@ -18,7 +18,7 @@ import (
 	"github.com/wippyai/wapp"
 )
 
-// Pack is an exact published artifact, including its canonical Hub identity.
+// Pack is an exact published artifact, including its Hub identity.
 // Digest is the SHA-256 of Data, with a sha256: prefix.
 type Pack struct {
 	Module  string
@@ -73,10 +73,10 @@ func (bundle Bundle) validate() error {
 	return nil
 }
 
-// Seed installs an initial canonical deployment in directory and returns its
+// Seed installs an initial Wippy deployment in directory and returns its
 // lock path. An existing deployment must select the same application and is
 // never replaced, including when its version differs from the embedded pack.
-// Directory is exclusively for deployment files, not application databases.
+// Directory contains deployment files. Store application databases separately.
 func (bundle Bundle) Seed(directory string) (string, error) {
 	if err := bundle.validate(); err != nil {
 		return "", err

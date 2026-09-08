@@ -58,13 +58,13 @@ func runChild(ctx context.Context, state string, args ...string) error {
 	if err != nil {
 		return err
 	}
-	// Reexecute this binary with argv, never an application-selected executable or shell.
+	// Reexecute the running binary with the supplied argument slice.
 	command := exec.CommandContext(ctx, executable, append([]string{"--state-dir", state, "runtime"}, args...)...) //nolint:gosec // executable comes only from os.Executable
 	command.Stdin, command.Stdout, command.Stderr = os.Stdin, os.Stdout, os.Stderr
 	return command.Run()
 }
 
-// updateDeployment runs canonical update and lint in a disposable deployment.
+// updateDeployment runs Wippy update and lint in a disposable deployment.
 // Activation changes only after both commands and artifact verification succeed.
 func updateDeployment(ctx context.Context, options Options, state, current string, args []string, run commandRunner) error {
 	revisions := filepath.Join(state, "revisions")
