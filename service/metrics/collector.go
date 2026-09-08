@@ -19,6 +19,7 @@ type collector struct {
 	wg        sync.WaitGroup
 	dropped   atomic.Uint64
 	exportMu  sync.RWMutex
+	recordMu  sync.RWMutex // excludes in-flight send admission from shutdown
 	closed    atomic.Bool
 }
 
@@ -67,6 +68,15 @@ func (c *collector) HistogramObserve(name string, value float64, labels api.Labe
 }
 
 func (c *collector) record(name string, typ api.MetricType, value float64, labels api.Labels) {
+	if c.closed.Load() {
+		c.dropped.Add(1)
+		return
+	}
+
+	c.recordMu.RLock()
+	defer c.recordMu.RUnlock()
+	// Close may have won after the fast check. A read lock held through send
+	// admission ensures the export loop cannot close the channel underneath it.
 	if c.closed.Load() {
 		c.dropped.Add(1)
 		return
@@ -135,10 +145,14 @@ func (c *collector) flush(batch []recordEvent) {
 }
 
 func (c *collector) Close() error {
+	c.recordMu.Lock()
 	if !c.closed.CompareAndSwap(false, true) {
+		c.recordMu.Unlock()
 		return nil
 	}
+	// All admitted senders have left; later record calls observe closed.
 	close(c.stopCh)
+	c.recordMu.Unlock()
 	c.wg.Wait()
 
 	c.exportMu.RLock()
