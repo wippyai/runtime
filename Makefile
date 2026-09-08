@@ -194,3 +194,7 @@ build-sign-wippy-windows: build-wippy-windows-amd64 sign-wippy-windows
 .PHONY: run-wippy
 run-wippy:
 	go run --tags "fts5 sqlite_vec treesitter sqlite_preupdate_hook" -ldflags="$(WIPPY_LDFLAGS)" ./cmd/wippy/ $(ARGS)
+
+.PHONY: test-application
+test-application:
+	go test -tags "fts5 sqlite_vec treesitter sqlite_preupdate_hook" ./application ./cmd/wippy/cmd ./cmd/internal/entries ./boot/deps/lock

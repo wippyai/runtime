@@ -68,7 +68,16 @@ func Run(ctx context.Context, options Options, args []string) error {
 	if err := configureDataEnvironment(stateDir, options.DataEnv); err != nil {
 		return err
 	}
-	deployment := filepath.Join(stateDir, "deployment")
+	unlock, err := lockApplication(stateDir)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	deployment, err := selectedDeployment(stateDir)
+	if err != nil {
+		return err
+	}
+	historyPath := filepath.Join(stateDir, "registry.db")
 	if *base {
 		if options.Mode != "base" {
 			return fmt.Errorf("bootstrap applications do not expose a base deployment")
@@ -76,12 +85,19 @@ func Run(ctx context.Context, options Options, args []string) error {
 		// Each executable's embedded content selects an independent baseline.
 		// Application databases are intentionally not rolled back or removed.
 		deployment = filepath.Join(stateDir, "base", bundleID(options.Bundle))
+		historyPath = filepath.Join(deployment, "registry.db")
 	}
 	lockPath, err := options.Bundle.Seed(deployment)
 	if err != nil {
 		return err
 	}
 	remaining := flags.Args()
+	if len(remaining) > 0 && remaining[0] == "update" {
+		if *base {
+			return fmt.Errorf("base recovery cannot be updated")
+		}
+		return updateDeployment(ctx, options, stateDir, deployment, remaining[1:], runChild)
+	}
 	runtimeArgs := []string{"run", "--silent", "--", *command}
 	if len(remaining) > 0 && remaining[0] == "runtime" {
 		if *base {
@@ -106,10 +122,10 @@ func Run(ctx context.Context, options Options, args []string) error {
 		LockFile:    lockPath,
 		ConfigFiles: configFiles,
 		Components:  options.Components,
-		Defaults: boot.NewConfig(boot.WithSection("registry", map[string]any{
+		Overrides: boot.NewConfig(boot.WithSection("registry", map[string]any{
 			"enable_history": true,
 			"history_type":   "sqlite",
-			"history_path":   filepath.Join(stateDir, "registry.db"),
+			"history_path":   historyPath,
 		})),
 	})
 }

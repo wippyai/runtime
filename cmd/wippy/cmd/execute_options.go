@@ -23,6 +23,8 @@ type ExecuteOptions struct {
 	LockFile    string
 	ConfigFiles []string
 	Defaults    boot.Config
+	// Overrides are host-selected settings applied after package and CLI settings.
+	Overrides boot.Config
 }
 
 var nativeExecution atomic.Bool
@@ -114,6 +116,7 @@ func applyNativeDeploymentConfig(cfg boot.Config) boot.Config {
 	if nativeOptions == nil {
 		return cfg
 	}
+	cfg = bootconfig.Merge(cfg, nativeOptions.Overrides)
 	return bootconfig.Merge(cfg, boot.NewConfig(boot.WithSection("registry", map[string]any{
 		"dependency_lock_path": nativeOptions.LockFile,
 	})))

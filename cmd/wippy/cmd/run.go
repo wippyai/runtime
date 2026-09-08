@@ -347,7 +347,6 @@ func loadRuntimeConfigWithDefaults(cmd *cobra.Command, logger *zap.Logger, runti
 	}
 
 	cfg = bootconfig.Merge(nativeBootDefaults(), cfg)
-	cfg = applyNativeDeploymentConfig(cfg)
 	cfg, err = bootconfig.ApplyProfiles(cfg, selectedProfiles(cmd))
 	if err != nil {
 		return nil, err
@@ -356,7 +355,7 @@ func loadRuntimeConfigWithDefaults(cmd *cobra.Command, logger *zap.Logger, runti
 	cfg = applyCLIOverrides(cfg)
 
 	if cmd == nil {
-		return bootconfig.ResolveVariables(cfg)
+		return bootconfig.ResolveVariables(applyNativeDeploymentConfig(cfg))
 	}
 
 	if sets, _ := cmd.Flags().GetStringArray("set"); len(sets) > 0 {
@@ -369,14 +368,14 @@ func loadRuntimeConfigWithDefaults(cmd *cobra.Command, logger *zap.Logger, runti
 
 	overrides, _ := cmd.Flags().GetStringSlice("override")
 	if len(overrides) == 0 {
-		return bootconfig.ResolveVariables(cfg)
+		return bootconfig.ResolveVariables(applyNativeDeploymentConfig(cfg))
 	}
 
 	cfg, err = applyOverrideFlags(cfg, overrides, logger)
 	if err != nil {
 		return nil, err
 	}
-	return bootconfig.ResolveVariables(cfg)
+	return bootconfig.ResolveVariables(applyNativeDeploymentConfig(cfg))
 }
 
 func selectedProfiles(cmd *cobra.Command) []string {
