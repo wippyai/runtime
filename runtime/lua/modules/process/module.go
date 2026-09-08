@@ -795,7 +795,11 @@ func registryLookup(l *lua.LState) int {
 
 	if reg := topology.GetRegistry(ctx); reg != nil {
 		checked = true
-		if p, found := reg.Lookup(name); found {
+		p, found, err := topology.LookupPID(ctx, reg, name)
+		if err != nil {
+			return pushProcessError(l, lua.LNil, wrapProcessError(l, err, "", lua.Internal))
+		}
+		if found {
 			l.Push(lua.LString(p.String()))
 			return 1
 		}

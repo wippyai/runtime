@@ -32,28 +32,45 @@ type ResolvedDestination struct {
 // Registries are read from ctx via global.GetRegistry,
 // topology.GetEventualRegistry and topology.GetRegistry. A nil registry at
 // any layer is skipped silently — callers that need a layer to be present
-// must enforce that themselves.
+// must enforce that themselves. A lookup error stops resolution: an unavailable
+// stronger scope is not evidence that its name is absent.
 func ResolveDestination(ctx context.Context, dest string) (ResolvedDestination, error) {
+	if err := ctx.Err(); err != nil {
+		return ResolvedDestination{}, err
+	}
 	if p, err := pidapi.ParsePID(dest); err == nil {
 		return ResolvedDestination{PID: p}, nil
 	}
 
 	if gr := global.GetRegistry(ctx); gr != nil {
 		result, err := gr.Lookup(ctx, dest)
-		if err == nil && result.Found {
+		if err != nil {
+			return ResolvedDestination{}, err
+		}
+		if result.Found {
 			return ResolvedDestination{PID: result.PID}, nil
 		}
 	}
 
 	if er := topology.GetEventualRegistry(ctx); er != nil {
 		result, err := er.Lookup(ctx, dest)
-		if err == nil && result.Found {
+		if err != nil {
+			return ResolvedDestination{}, err
+		}
+		if result.Found {
 			return ResolvedDestination{PID: result.PID}, nil
 		}
 	}
 
+	if err := ctx.Err(); err != nil {
+		return ResolvedDestination{}, err
+	}
 	if pr := topology.GetRegistry(ctx); pr != nil {
-		if p, ok := pr.Lookup(dest); ok {
+		p, found, err := topology.LookupPID(ctx, pr, dest)
+		if err != nil {
+			return ResolvedDestination{}, err
+		}
+		if found {
 			return ResolvedDestination{PID: p}, nil
 		}
 	}
