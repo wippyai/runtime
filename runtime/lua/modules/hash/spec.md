@@ -2,7 +2,7 @@
 
 # hash
 
-Cryptographic hash functions, HMAC, and PBKDF2. Encoding, security, deterministic.
+Cryptographic hash functions, streaming hashers, HMAC, and PBKDF2. Encoding, security, deterministic.
 
 ## Loading
 
@@ -273,4 +273,52 @@ print(type(fnv))  -- "number"
 
 -- All hash functions are deterministic
 assert(hash.md5("test") == hash.md5("test"))
+```
+
+### new(algorithm: string) → Hasher, error
+
+Creates a streaming hasher, so input too large to hold in one string (a file read in chunks) digests exactly as the one-shot function would.
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| algorithm | string | yes | - | `md5`, `sha1`, `sha256` or `sha512` |
+
+**Returns:**
+- Success: `Hasher`
+- Error: `nil, error` - structured error
+
+**Errors (structured):**
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| algorithm not a string | errors.INVALID | no |
+| unsupported algorithm | errors.INVALID | no |
+
+## Hasher
+
+### update(data: string) → boolean, error
+
+Appends data to the running hash.
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| data not a string | errors.INVALID | no |
+
+### sum(raw?: boolean) → string, error
+
+Returns the digest of everything appended so far (hex, or raw bytes when `raw` is true) and keeps the state, so more data may follow.
+
+### reset()
+
+Discards everything appended so far.
+
+```lua
+local hasher = hash.new("sha256")
+local file = vol:open("large.bin", "r")
+while true do
+  local chunk, err = file:read(65536)
+  if not chunk then break end
+  hasher:update(chunk)
+end
+local digest = hasher:sum()
 ```
