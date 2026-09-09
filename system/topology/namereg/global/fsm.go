@@ -178,7 +178,7 @@ func (f *FSM) applyRegister(cmd *Command, index uint64) any {
 	if nodeID == "" {
 		nodeID = cmd.PID.Node
 	}
-	existing, outcome := f.state.register(cmd.Name, cmd.PID, nodeID, index)
+	existing, established, outcome := f.state.register(cmd.Name, cmd.PID, nodeID, index)
 	switch outcome {
 	case registerInserted:
 		f.tel.recordFenceToken(f.pgLabel, nodeID, index)
@@ -187,12 +187,13 @@ func (f *FSM) applyRegister(cmd *Command, index uint64) any {
 		return &RegisterResult{PID: existing, FenceToken: index}
 	case registerDedupe:
 		f.tel.recordGlobalregDedupe()
-		return &RegisterResult{PID: existing, FenceToken: index}
+		// Retrying the same claim does not establish a new ownership epoch.
+		return &RegisterResult{PID: existing, FenceToken: established}
 	case registerConflict:
 		winner := f.resolve(cmd.Name, existing, cmd.PID)
 		if winner == cmd.PID {
 			f.state.unregister(cmd.Name)
-			f.state.register(cmd.Name, cmd.PID, nodeID, index)
+			_, _, _ = f.state.register(cmd.Name, cmd.PID, nodeID, index)
 			f.tel.recordFenceToken(f.pgLabel, nodeID, index)
 			f.tel.recordGlobalregSize(f.state.Len())
 			f.emitBinding(BindingEvent{Name: cmd.Name, PID: cmd.PID, RaftIndex: index})

@@ -184,17 +184,20 @@ const (
 )
 
 // register attempts to insert or verify a name → PID mapping.
-// On success it returns the supplied PID and either registerInserted (fresh)
-// or registerDedupe (already mapped to the same PID — idempotent no-op).
-// On collision it returns the existing owner PID and registerConflict.
-func (s *shardedState) register(name string, p pid.PID, nodeID pid.NodeID, index uint64) (pid.PID, registerOutcome) {
+// It also returns the stored establishment token: the insertion index for an
+// active entry or the reservation epoch for a pending entry. On success it
+// returns the supplied PID and either registerInserted (fresh) or
+// registerDedupe (already mapped to the same PID — idempotent no-op). On
+// collision it returns the existing owner PID and registerConflict.
+func (s *shardedState) register(name string, p pid.PID, nodeID pid.NodeID, index uint64) (pid.PID, uint64, registerOutcome) {
 	s.pendingMu.RLock()
 	if e, ok := s.pending[name]; ok {
+		existingPID, epoch := e.PID, e.Epoch
 		s.pendingMu.RUnlock()
-		if e.PID == p {
-			return p, registerDedupe
+		if existingPID == p {
+			return p, epoch, registerDedupe
 		}
-		return e.PID, registerConflict
+		return existingPID, epoch, registerConflict
 	}
 	s.pendingMu.RUnlock()
 
@@ -204,10 +207,10 @@ func (s *shardedState) register(name string, p pid.PID, nodeID pid.NodeID, index
 
 	if existing, ok := sh.names[name]; ok {
 		if existing.PID == p {
-			return p, registerDedupe
+			return p, existing.AppliedAt, registerDedupe
 		}
 
-		return existing.PID, registerConflict
+		return existing.PID, existing.AppliedAt, registerConflict
 	}
 
 	sh.names[name] = &nameEntry{PID: p, NodeID: nodeID, AppliedAt: index}
@@ -217,7 +220,7 @@ func (s *shardedState) register(name string, p pid.PID, nodeID pid.NodeID, index
 
 	s.addToNodeIndex(nodeID, pidKey)
 
-	return p, registerInserted
+	return p, index, registerInserted
 }
 
 // pendingOutcome captures the disposition of a registerPending attempt.
