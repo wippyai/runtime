@@ -24,6 +24,7 @@ import (
 var (
 	_ execapi.ProcessExecutor = (*Executor)(nil)
 	_ execapi.Process         = (*ProcessExecutor)(nil)
+	_ execapi.ProcessIdentity = (*ProcessExecutor)(nil)
 	_ execapi.PTYProcess      = (*ptyProcess)(nil)
 )
 
@@ -39,6 +40,7 @@ type Executor struct {
 	defaultEnv       map[string]string
 	defaultWD        string
 	commandWhitelist []string
+	processGroup     bool
 }
 
 // NewNativeExecutor creates a new native process executor
@@ -48,6 +50,7 @@ func NewNativeExecutor(log *zap.Logger, config *execapi.NativeExecutorConfig) *E
 		defaultEnv:       config.DefaultEnv,
 		defaultWD:        config.DefaultWorkDir,
 		commandWhitelist: config.CommandWhitelist,
+		processGroup:     config.ProcessGroup,
 	}
 }
 
@@ -63,6 +66,13 @@ func (e *Executor) NewProcess(cmd string, options execapi.ProcessOptions) (execa
 		if _, _, err := ptyOptions.Dimensions(); err != nil {
 			return nil, err
 		}
+	}
+	processGroup := e.processGroup
+	if options.ProcessGroup != nil {
+		processGroup = *options.ProcessGroup
+	}
+	if processGroup && !processGroupSupported {
+		return nil, execapi.ErrProcessGroupUnsupported
 	}
 	if len(e.commandWhitelist) > 0 {
 		allowed := false
@@ -108,6 +118,7 @@ func (e *Executor) NewProcess(cmd string, options execapi.ProcessOptions) (execa
 		WithWorkingDir(workDir),
 		WithEnv(env),
 		WithPTY(ptyOptions),
+		WithProcessGroup(processGroup),
 	)
 	if ptyOptions != nil {
 		return &ptyProcess{ProcessExecutor: process}, nil
@@ -122,22 +133,24 @@ type ptyProcess struct{ *ProcessExecutor }
 
 // ProcessExecutor represents a native process implementation
 type ProcessExecutor struct {
-	stderrp     io.ReadCloser
-	stdoutp     io.ReadCloser
-	stdinPipe   io.WriteCloser
-	cmd         *exec.Cmd
-	log         *zap.Logger
-	envs        map[string]string
-	ptyMaster   *os.File
-	pty         *execapi.PTYOptions
-	wd          string
-	state       string
-	command     string
-	pid         int
-	mu          sync.RWMutex
-	ptyClose    sync.Once
-	stopped     atomic.Bool
-	stdoutOwned bool
+	stderrp      io.ReadCloser
+	stdoutp      io.ReadCloser
+	stdinPipe    io.WriteCloser
+	cmd          *exec.Cmd
+	log          *zap.Logger
+	envs         map[string]string
+	ptyMaster    *os.File
+	pty          *execapi.PTYOptions
+	wd           string
+	state        string
+	command      string
+	pid          int
+	pgid         int
+	mu           sync.RWMutex
+	ptyClose     sync.Once
+	stopped      atomic.Bool
+	stdoutOwned  bool
+	processGroup bool
 }
 
 // NewProcessExecutor creates a new process executor
@@ -184,6 +197,13 @@ func NewProcessExecutor(log *zap.Logger, opts ...Option) *ProcessExecutor {
 		command.Dir = e.wd
 	}
 
+	// A PTY child is started through pty.StartWithAttrs, which replaces
+	// SysProcAttr with a session of its own; setsid already makes that child the
+	// leader of a fresh process group, and adding setpgid on top of it fails.
+	if e.processGroup && e.pty == nil {
+		applyProcessGroup(command)
+	}
+
 	// we can safely skip the error here
 	// because we don't initialize stderrpipe twice or after the process was already started
 	if e.pty == nil {
@@ -225,8 +245,29 @@ func (e *ProcessExecutor) Start() error {
 	}
 
 	e.pid = e.cmd.Process.Pid
+	// Both paths that give the child a group of its own make it the leader:
+	// setpgid with a zero target group, and the PTY path's setsid. The group
+	// identifier is therefore the child pid.
+	if e.processGroup {
+		e.pgid = e.pid
+	}
 	e.state = running
 	return nil
+}
+
+// Pid implements exec.ProcessIdentity. It reports the identifier of the started
+// child so callers can record which OS process an attempt ran as.
+func (e *ProcessExecutor) Pid() (int, error) {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	if e.state == notStarted {
+		return 0, ErrProcessNotStarted
+	}
+	if e.pid <= 0 {
+		return 0, ErrInvalidPID
+	}
+	return e.pid, nil
 }
 
 func (p *ptyProcess) Resize(width, height int) error {
@@ -298,6 +339,14 @@ func (e *ProcessExecutor) Signal(sig int) error {
 		return ErrInvalidPID
 	}
 
+	if e.processGroup {
+		if err := signalProcessGroup(e.pgid, syscall.Signal(sig)); err != nil {
+			e.log.Error("error sending signal to process group", zap.Error(err))
+			return err
+		}
+		return nil
+	}
+
 	// we're using os.FindProcess to avoid touching e.cmd
 	pp, err := os.FindProcess(e.pid)
 	if err != nil {
@@ -349,14 +398,18 @@ func (e *ProcessExecutor) Stop() {
 		return
 	}
 
-	pp, err := os.FindProcess(e.pid)
-	if err != nil {
-		e.log.Error("error finding process", zap.Error(err))
-		return
-	}
+	if e.processGroup {
+		_ = signalProcessGroup(e.pgid, syscall.SIGKILL)
+	} else {
+		pp, err := os.FindProcess(e.pid)
+		if err != nil {
+			e.log.Error("error finding process", zap.Error(err))
+			return
+		}
 
-	// kill the process
-	_ = pp.Kill()
+		// kill the process
+		_ = pp.Kill()
+	}
 	// to prevent multiple calls to close()
 	e.pid = 0
 	e.state = terminated

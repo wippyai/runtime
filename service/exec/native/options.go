@@ -31,3 +31,9 @@ func WithCmd(cmd string) Option {
 func WithPTY(options *execapi.PTYOptions) Option {
 	return func(e *ProcessExecutor) { e.pty = options }
 }
+
+// WithProcessGroup starts the process in a process group of its own so signals
+// addressed to it reach its descendants.
+func WithProcessGroup(enabled bool) Option {
+	return func(e *ProcessExecutor) { e.processGroup = enabled }
+}

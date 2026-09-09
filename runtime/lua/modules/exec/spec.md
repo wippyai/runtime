@@ -81,6 +81,7 @@ Creates a new process with the specified command.
 | work_dir | string | nil | Working directory for the process |
 | env | {[string]: string} | nil | Environment variables as key-value map |
 | pty | PTYOptions | nil | Allocate a pseudo-terminal for the child |
+| process_group | boolean | executor default | Start the child in its own process group so `signal()` and `close()` reach its descendants |
 
 **PTYOptions fields:**
 
@@ -89,6 +90,25 @@ Creates a new process with the specified command.
 | width | integer | 80 | Initial PTY columns |
 | height | integer | 24 | Initial PTY rows |
 | term | string | nil | Child `TERM` value, such as `xterm-256color` |
+
+**Process groups**
+
+By default the child shares the runtime's process group, so a signal reaches
+only the child itself; anything it spawns survives and is reparented. With
+`process_group = true` the child leads a group of its own, and `signal()`,
+`close()` and the cleanup that runs when the owning process exits address the
+whole group. Use it for a command that spawns its own subprocesses, such as a
+tool harness or a language server.
+
+The executor entry sets the default with its `process_group` config field; the
+per-command option overrides it in both directions. A PTY-backed child already
+has a session of its own, so the option only changes how signals are addressed
+there. Process groups are a Unix facility: on Windows the option is rejected
+with `errors.UNAVAILABLE` rather than silently ignored.
+
+A container executor confines the tree to the container's pid namespace, where
+signaling the container's first process already ends everything it spawned, so
+the option carries no additional meaning there.
 
 **Returns:**
 - Success: `Process, nil` - process object (not started)
@@ -102,6 +122,7 @@ Creates a new process with the specified command.
 | cmd is empty string | errors.INVALID | no |
 | cmd contains an unclosed quote | errors.INVALID | no |
 | permission denied | errors.INVALID | no |
+| process_group requested on Windows | errors.UNAVAILABLE | no |
 | process creation failed | errors.INTERNAL | no |
 
 **Example:**
@@ -134,7 +155,8 @@ Returned by `executor:exec()`. Represents a process instance.
 |--------|-----------|---------|-------|
 | start | () | boolean, error | Starts the process |
 | wait | () | integer, error | Waits for process to exit, yields |
-| signal | (sig: integer) | boolean, error | Sends signal to process |
+| signal | (sig: integer) | boolean, error | Sends signal to process, or to its group when `process_group` is set |
+| pid | () | integer, error | Host process id of the started child |
 | write_stdin | (data: string) | boolean, error | Writes to process stdin |
 | stdout_stream | () | Stream, error | Returns stdout stream |
 | stderr_stream | () | Stream, error | Returns stderr stream |
@@ -167,7 +189,9 @@ Ordinary pipe-backed processes return an error.
 #### process:close(force?: boolean) → boolean, error
 
 Releases the process. A started child is sent `SIGTERM`, or `SIGKILL` when
-`force` is true, then reaped; an unstarted handle is simply invalidated.
+`force` is true, then reaped; an unstarted handle is simply invalidated. A
+process started with `process_group` is signaled as a group, so its descendants
+go with it.
 
 Reaping is what releases the child's entry in the OS process table; without it a
 stopped process lingers as a zombie for the lifetime of the runtime. It happens
@@ -239,7 +263,8 @@ end
 
 #### process:signal(sig: integer) → boolean, error
 
-Sends a signal to the running process.
+Sends a signal to the running process, or to its whole process group when the
+process was created with `process_group = true`.
 
 | Param | Type | Required | Default | Notes |
 |-------|------|----------|---------|-------|
@@ -263,6 +288,31 @@ Sends a signal to the running process.
 local SIGTERM = 15
 proc:start()
 local ok, err = proc:signal(SIGTERM)
+if err then error(err) end
+```
+
+#### process:pid() → integer, error
+
+Returns the operating system process id of the started child, for recording
+which process an attempt ran as.
+
+**Returns:**
+- Success: `pid: integer, nil`
+- Error: `nil, error` - error is structured
+
+**Errors (structured):**
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| process closed | errors.INVALID | no |
+| process not started | errors.INVALID | no |
+| executor exposes no host pid | errors.UNAVAILABLE | no |
+
+**Example:**
+
+```lua
+proc:start()
+local pid, err = proc:pid()
 if err then error(err) end
 ```
 
@@ -364,7 +414,7 @@ if err then
 end
 ```
 
-**Possible kinds:** `errors.INVALID`, `errors.INTERNAL`
+**Possible kinds:** `errors.INVALID`, `errors.INTERNAL`, `errors.UNAVAILABLE`
 
 ## Example
 
