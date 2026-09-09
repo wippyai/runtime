@@ -3,6 +3,7 @@
 package metrics
 
 import (
+	"errors"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -12,6 +13,7 @@ import (
 )
 
 type collector struct {
+	closeErr  error
 	recordCh  chan recordEvent
 	stopCh    chan struct{}
 	exporters []api.Exporter
@@ -20,8 +22,11 @@ type collector struct {
 	dropped   atomic.Uint64
 	exportMu  sync.RWMutex
 	recordMu  sync.RWMutex // excludes in-flight send admission from shutdown
+	closeOnce sync.Once
 	closed    atomic.Bool
 }
+
+var errCollectorClosed = errors.New("metrics collector is closed")
 
 type recordEvent struct {
 	labels api.Labels
@@ -96,6 +101,9 @@ func (c *collector) Dropped() uint64 {
 func (c *collector) RegisterExporter(e api.Exporter) error {
 	c.exportMu.Lock()
 	defer c.exportMu.Unlock()
+	if c.closed.Load() {
+		return errCollectorClosed
+	}
 	c.exporters = append(c.exporters, e)
 	return nil
 }
@@ -120,14 +128,20 @@ func (c *collector) exportLoop() {
 				batch = batch[:0]
 			}
 		case <-c.stopCh:
-			close(c.recordCh)
-			for ev := range c.recordCh {
-				batch = append(batch, ev)
+			// Close establishes a send-admission barrier before signaling stop,
+			// so no producer can add another event while this drains the buffer.
+			// The receiving goroutine therefore does not need to close recordCh.
+			for {
+				select {
+				case ev := <-c.recordCh:
+					batch = append(batch, ev)
+				default:
+					if len(batch) > 0 {
+						c.flush(batch)
+					}
+					return
+				}
 			}
-			if len(batch) > 0 {
-				c.flush(batch)
-			}
-			return
 		}
 	}
 }
@@ -145,22 +159,25 @@ func (c *collector) flush(batch []recordEvent) {
 }
 
 func (c *collector) Close() error {
-	c.recordMu.Lock()
-	if !c.closed.CompareAndSwap(false, true) {
+	c.closeOnce.Do(func() {
+		c.recordMu.Lock()
+		c.closed.Store(true)
+		// All admitted senders have left; later record calls observe closed.
+		close(c.stopCh)
 		c.recordMu.Unlock()
-		return nil
-	}
-	// All admitted senders have left; later record calls observe closed.
-	close(c.stopCh)
-	c.recordMu.Unlock()
-	c.wg.Wait()
+		c.wg.Wait()
 
-	c.exportMu.RLock()
-	exporters := c.exporters
-	c.exportMu.RUnlock()
+		c.exportMu.RLock()
+		exporters := append([]api.Exporter(nil), c.exporters...)
+		c.exportMu.RUnlock()
 
-	for _, e := range exporters {
-		_ = e.Close()
-	}
-	return nil
+		var errs []error
+		for _, e := range exporters {
+			if err := e.Close(); err != nil {
+				errs = append(errs, err)
+			}
+		}
+		c.closeErr = errors.Join(errs...)
+	})
+	return c.closeErr
 }
