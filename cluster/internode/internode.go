@@ -40,7 +40,6 @@ type PackageCallback func(*relay.Package) error
 type Service struct {
 	ctx              context.Context
 	cancel           context.CancelFunc
-	localNodeID      cluster.NodeID
 	logger           *zap.Logger
 	connMan          ConnectionManager
 	codec            cluster.MessageCodec
@@ -48,6 +47,7 @@ type Service struct {
 	bus              event.Bus
 	membership       cluster.Membership
 	subscriber       *eventbus.Subscriber
+	localNodeID      cluster.NodeID
 }
 
 func NewService(

@@ -24,7 +24,7 @@ func TestZeroPortReportsRetainedEndpoint(t *testing.T) {
 			defer manager.Stop()
 			port := manager.GetListenPort()
 			require.Positive(t, port)
-			listener, err := net.Listen("tcp", net.JoinHostPort(cfg.BindAddr, strconv.Itoa(port)))
+			listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", net.JoinHostPort(cfg.BindAddr, strconv.Itoa(port)))
 			if listener != nil {
 				_ = listener.Close()
 			}

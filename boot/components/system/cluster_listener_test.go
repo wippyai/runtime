@@ -88,14 +88,14 @@ func checkClusterBootListener(t *testing.T, failJoin bool) {
 	require.Positive(t, port)
 	endpoint := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
 	if !failJoin {
-		probe, err := net.Listen("tcp", endpoint)
+		probe, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", endpoint)
 		if probe != nil {
 			_ = probe.Close()
 		}
 		require.Error(t, err, "advertised endpoint must remain reserved")
 	}
 	require.NoError(t, stop.Stop(ctx))
-	probe, err := net.Listen("tcp", endpoint)
+	probe, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", endpoint)
 	require.NoError(t, err, "shutdown must release the retained socket")
 	require.NoError(t, probe.Close())
 }

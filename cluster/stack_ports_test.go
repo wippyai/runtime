@@ -94,7 +94,7 @@ func TestConcurrentAutomaticPorts(t *testing.T) {
 		require.False(t, ports[port], "duplicate listener port")
 		ports[port] = true
 		require.Equal(t, strconv.Itoa(port), stack.Membership.LocalNode().Meta[internode.MetadataPort])
-		listener, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
+		listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
 		if listener != nil {
 			_ = listener.Close()
 		}
@@ -113,7 +113,7 @@ func TestConcurrentAutomaticPorts(t *testing.T) {
 	// its previous endpoint being available after shutdown.
 	oldPort := stacks[count-1].ConnMgr.GetListenPort()
 	require.NoError(t, stacks[count-1].Stop())
-	occupied, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(oldPort)))
+	occupied, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(oldPort)))
 	require.NoError(t, err)
 	defer occupied.Close()
 	cfg := config(count - 1)
@@ -163,11 +163,11 @@ func TestFailedJoinReleasesAutomaticPorts(t *testing.T) {
 	for _, address := range []string{
 		net.JoinHostPort("127.0.0.1", strconv.Itoa(port)), stack.Membership.LocalNode().Addr,
 	} {
-		listener, err := net.Listen("tcp", address)
+		listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", address)
 		require.NoError(t, err, "failed startup must release %s", address)
 		require.NoError(t, listener.Close())
 	}
-	packet, err := net.ListenPacket("udp", stack.Membership.LocalNode().Addr)
+	packet, err := (&net.ListenConfig{}).ListenPacket(t.Context(), "udp", stack.Membership.LocalNode().Addr)
 	require.NoError(t, err, "failed startup must release gossip UDP")
 	require.NoError(t, packet.Close())
 	require.NoError(t, stack.Stop())
