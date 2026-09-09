@@ -495,33 +495,7 @@ Returned by `process.inbox()` receive or `process.listen()` with `{message = tru
 |--------|-----------|---------|-------|
 | topic | () | string | Topic the message was sent to |
 | payload | () | any | Message payload(s) - single value or table of values |
-| from | () | string | Claimed source PID, or empty string if unknown |
-| ingress | () | process.Ingress? | Native immediate-peer evidence; nil for local delivery |
-
-### Ingress
-
-An immutable native handle returned by `Message:ingress()`. Lua cannot construct
-it from a table. It reports the immediate transport peer; `Message:from()` may
-name a different, forwarded origin. Neither is an application permission.
-
-| Method | Signature | Returns |
-|--------|-----------|---------|
-| node | () | string |
-| authenticated | () | boolean |
-| integrity_protected | () | boolean |
-| live | () | boolean |
-| same_connection | (other: process.Ingress) | boolean |
-
-Admission must check the expected peer, both protection flags, `live()`, and its
-own authorization policy. Retain the handle to fence an exchange against a
-replacement connection with `same_connection()`. Equality does not imply
-liveness: two handles for the same closed connection still compare equal. A
-missing lifetime capability reports `live() == false` and cannot establish
-connection equality. Recheck liveness when consuming delayed replies. The check
-is an instantaneous observation, not an atomic guard for a later operation;
-long-lived grants still need their own owner-controlled lifetime and revocation.
-Native code injecting relay packages remains inside the trusted runtime boundary.
-Handles are local evidence and must not be treated as serializable credentials.
+| from | () | string? | Sender PID, or nil if unknown |
 
 ### Spawner
 
