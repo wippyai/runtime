@@ -935,14 +935,9 @@ func listen(l *lua.LState) int {
 		return pushProcessError(l, lua.LNil, newProcessError(l, lua.Invalid, "cannot listen to @ topics"))
 	}
 
-	// Check for options table (second argument)
-	// Options: { message = true } to receive Message objects instead of raw payloads
-	var handler engine.TopicHandler // default: nil = raw payloads (Lua tables/strings)
-	if l.GetTop() >= 2 && l.Get(2).Type() == lua.LTTable {
-		options := l.CheckTable(2)
-		if msgMode := options.RawGetString("message"); msgMode == lua.LTrue {
-			handler = MessageHandler // Message objects with :from(), :payload(), :topic()
-		}
+	handler, err := listenHandler(l.Get(2))
+	if err != nil {
+		return pushProcessError(l, lua.LNil, newProcessError(l, lua.Invalid, err.Error()))
 	}
 
 	req := &engine.SubscribeRequest{
