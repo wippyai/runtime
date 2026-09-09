@@ -35,7 +35,7 @@ func TestReplay_Integration(t *testing.T) {
 	var result map[string]any
 	require.NoError(t, run.Get(f.ctx, &result))
 
-	hist := fetchHistory(t, f.ctx, f.temporalClient, run.GetID(), run.GetRunID())
+	hist := fetchHistory(f.ctx, t, f.temporalClient, run.GetID(), run.GetRunID())
 	require.NotEmpty(t, hist.Events)
 
 	dc := dataconverter.NewDataConverter(newTestTranscoder())
@@ -55,7 +55,7 @@ func TestReplay_Integration(t *testing.T) {
 	require.NoError(t, replayer.ReplayWorkflowHistoryFromJSONFile(nil, histFile))
 }
 
-func fetchHistory(t *testing.T, ctx context.Context, c client.Client, wfID, runID string) *historypb.History {
+func fetchHistory(ctx context.Context, t *testing.T, c client.Client, wfID, runID string) *historypb.History {
 	t.Helper()
 	it := c.GetWorkflowHistory(ctx, wfID, runID, false, enumspb.HISTORY_EVENT_FILTER_TYPE_ALL_EVENT)
 	var events []*historypb.HistoryEvent
