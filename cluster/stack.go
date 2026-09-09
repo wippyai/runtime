@@ -90,6 +90,9 @@ type StackConfig struct {
 	InternodeBindPort             int // zero asks the OS for an internode TCP port
 	MembershipSuspicionMult       int
 	InternodeAutoPort             bool
+	// InternodeTLS selects the existing native mutual-TLS transport. Certificate
+	// loading happens during Start. The zero value preserves plaintext transport.
+	InternodeTLS internode.ManagerTLSConfig
 }
 
 // AssembleStack constructs the relay node, router, membership service,
@@ -149,6 +152,7 @@ func AssembleStack(cfg StackConfig) (*Stack, error) {
 	mgrCfg.AuthenticationKey = secretKey
 	mgrCfg.SigningKey = signingKey
 	mgrCfg.RequireAuthentication = true
+	mgrCfg.TLS = cfg.InternodeTLS
 	var memSvc *membership.Service
 	mgrCfg.ResolvePeerKey = func(id clusterapi.NodeID) (ed25519.PublicKey, bool) {
 		return internode.ResolveMemberKey(cfg.NodeName, id, trustedPeerKeys, cfg.InternodePeerKeySource, memSvc)
