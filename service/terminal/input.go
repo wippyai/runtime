@@ -30,7 +30,6 @@ type InputReader struct {
 	stopDone     chan struct{}
 	stopErr      error
 	done         chan struct{}
-	doneClosed   bool
 	err          error
 	stdin        *os.File
 	wg           sync.WaitGroup
@@ -39,6 +38,7 @@ type InputReader struct {
 	stopping     bool
 	mouseEnabled bool
 	pasteEnabled bool
+	doneClosed   bool
 }
 
 // NewEventInputReader creates an InputReader that delivers events to the given sink
