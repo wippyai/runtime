@@ -31,6 +31,7 @@ const (
 	ReleasedControl  ControlKind = "released"
 	RejectedControl  ControlKind = "rejected"
 	MissingControl   ControlKind = "target_missing"
+	exitedControl    ControlKind = "exited"
 )
 
 var ErrInvalidControl = errors.New("invalid remote topology control")
@@ -74,7 +75,7 @@ func (c Control) request() bool { return c.Kind == MonitorControl || c.Kind == R
 
 func (c Control) valid() bool {
 	switch c.Kind {
-	case MonitorControl, ReleaseControl, InstalledControl, ReleasedControl, RejectedControl, MissingControl:
+	case MonitorControl, ReleaseControl, InstalledControl, ReleasedControl, RejectedControl, MissingControl, exitedControl:
 	default:
 		return false
 	}
@@ -86,6 +87,13 @@ func (c Control) valid() bool {
 // EncodeControl creates the one-message native envelope. Callers own the returned
 // package until successful relay admission and release it on rejection.
 func EncodeControl(c Control) (*relay.Package, error) {
+	if c.Kind == exitedControl {
+		return nil, ErrInvalidControl
+	}
+	return encodeControl(c)
+}
+
+func encodeControl(c Control) (*relay.Package, error) {
 	if !c.valid() {
 		return nil, ErrInvalidControl
 	}
@@ -108,6 +116,14 @@ func EncodeControl(c Control) (*relay.Package, error) {
 // It borrows pkg and never consumes it, on either success or rejection. Connection
 // lifetime must also be checked at the serialized grant/session admission gate.
 func DecodeControl(pkg *relay.Package, localNode pid.NodeID) (Control, error) {
+	c, err := decodeControl(pkg, localNode, ControlTopic, 1)
+	if err == nil && c.Kind == exitedControl {
+		return Control{}, ErrInvalidControl
+	}
+	return c, err
+}
+
+func decodeControl(pkg *relay.Package, localNode pid.NodeID, topic relay.Topic, count int) (Control, error) {
 	var c Control
 	if pkg == nil || localNode == "" || len(pkg.Messages) != 1 || pkg.Messages[0] == nil {
 		return c, ErrInvalidControl
@@ -125,7 +141,7 @@ func DecodeControl(pkg *relay.Package, localNode pid.NodeID) (Control, error) {
 	default:
 	}
 	message := pkg.Messages[0]
-	if message.Topic != ControlTopic || len(message.Payloads) != 1 || message.Payloads[0] == nil || message.Payloads[0].Format() != payload.JSON {
+	if message.Topic != topic || len(message.Payloads) != count || message.Payloads[0] == nil || message.Payloads[0].Format() != payload.JSON {
 		return c, ErrInvalidControl
 	}
 	data, ok := message.Payloads[0].Data().([]byte)
