@@ -225,6 +225,10 @@ func Cluster() boot.Component {
 
 			// Create connection manager config
 			connManagerCfg := internode.DefaultManagerConfig()
+			connManagerCfg.TLS, err = clusterTLSConfig(clusterCfg)
+			if err != nil {
+				return ctx, err
+			}
 			connManagerCfg.LocalNodeID = nodeName
 			connManagerCfg.BindAddr = clusterCfg.GetString(ClusterInternodeBindAddr, "0.0.0.0")
 			connManagerCfg.BindPort = clusterCfg.GetInt(ClusterInternodeBindPort, 0)
