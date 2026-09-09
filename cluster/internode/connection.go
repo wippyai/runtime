@@ -256,7 +256,8 @@ func (c *NodeConnection) Run(handler func(class Class, msg []byte)) *ConnectionE
 	}
 }
 
-// Close terminates the connection gracefully and cancels all ongoing operations.
+// Close aborts the session transport and cancels all ongoing operations.
+// It does not drain queued frames or wait for a TLS close notification.
 func (c *NodeConnection) Close() {
 	if c.closed.CompareAndSwap(false, true) {
 		c.lifecycleMu.Lock()
@@ -264,7 +265,7 @@ func (c *NodeConnection) Close() {
 			c.cancel()
 		}
 		c.lifecycleMu.Unlock()
-		_ = c.conn.Close()
+		abortConnection(c.conn)
 	}
 }
 

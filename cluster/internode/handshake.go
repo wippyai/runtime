@@ -228,7 +228,7 @@ func performAuthenticatedServerHandshake(conn net.Conn, config NodeConnectionCon
 // On success, ownership of the connection is transferred to the returned NodeConnection.
 func PerformClientHandshake(conn net.Conn, config NodeConnectionConfig, logger *zap.Logger, selfID, expectedRemoteNodeID cluster.NodeID) (*NodeConnection, error) {
 	if err := conn.SetDeadline(time.Now().Add(config.HandshakeTimeout)); err != nil {
-		_ = conn.Close()
+		abortConnection(conn)
 		return nil, &ConnectionError{Reason: ExitNetworkError, Err: NewSetDeadlineError(err)}
 	}
 
@@ -247,7 +247,7 @@ func PerformClientHandshake(conn net.Conn, config NodeConnectionConfig, logger *
 		}
 	}
 	if err != nil {
-		_ = conn.Close()
+		abortConnection(conn)
 		return nil, &ConnectionError{Reason: ExitProtocolError, Err: err}
 	}
 
@@ -258,7 +258,7 @@ func PerformClientHandshake(conn net.Conn, config NodeConnectionConfig, logger *
 // PerformServerHandshake executes the server side of the handshake protocol.
 func PerformServerHandshake(conn net.Conn, config NodeConnectionConfig, logger *zap.Logger, selfID cluster.NodeID) (*NodeConnection, error) {
 	if err := conn.SetDeadline(time.Now().Add(config.HandshakeTimeout)); err != nil {
-		_ = conn.Close()
+		abortConnection(conn)
 		return nil, &ConnectionError{Reason: ExitNetworkError, Err: NewSetDeadlineError(err)}
 	}
 
@@ -275,7 +275,7 @@ func PerformServerHandshake(conn net.Conn, config NodeConnectionConfig, logger *
 		}
 	}
 	if err != nil {
-		_ = conn.Close()
+		abortConnection(conn)
 		return nil, &ConnectionError{Reason: ExitProtocolError, Err: err}
 	}
 
