@@ -5,12 +5,30 @@ package funcs
 import (
 	"github.com/wippyai/go-lua/types/io"
 	"github.com/wippyai/go-lua/types/typ"
+	"github.com/wippyai/runtime/runtime/lua/engine"
 )
+
+// Future response values are the native completion channels created by the
+// async adapter. They carry an opaque payload, since the invoked function's
+// result is only known at runtime, and may be absent for an invalid future.
+var futureResponseChannelType = futureChannelType()
+
+func futureChannelType() typ.Type {
+	if manifest := engine.ChannelModuleTypes(); manifest != nil {
+		if channel, ok := manifest.LookupType("Channel"); ok {
+			if generic, ok := channel.(*typ.Generic); ok {
+				return typ.NewOptional(typ.Instantiate(generic, typ.Unknown))
+			}
+			return typ.NewOptional(channel)
+		}
+	}
+	return typ.Any
+}
 
 // Future type
 var futureType = typ.NewInterface("funcs.Future", []typ.Method{
-	{Name: "response", Type: typ.Func().Param("self", typ.Self).Returns(typ.Any).Build()},
-	{Name: "channel", Type: typ.Func().Param("self", typ.Self).Returns(typ.Any).Build()},
+	{Name: "response", Type: typ.Func().Param("self", typ.Self).Returns(futureResponseChannelType).Build()},
+	{Name: "channel", Type: typ.Func().Param("self", typ.Self).Returns(futureResponseChannelType).Build()},
 	{Name: "is_complete", Type: typ.Func().Param("self", typ.Self).Returns(typ.Boolean).Build()},
 	{Name: "is_canceled", Type: typ.Func().Param("self", typ.Self).Returns(typ.Boolean).Build()},
 	{Name: "result", Type: typ.Func().Param("self", typ.Self).Returns(typ.Any, typ.NewOptional(typ.LuaError)).Build()},
