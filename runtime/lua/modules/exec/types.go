@@ -26,6 +26,7 @@ func init() {
 		OptField("work_dir", typ.String).
 		OptField("env", typ.NewMap(typ.String, typ.String)).
 		OptField("pty", ptyOptionsType).
+		OptField("process_group", typ.Boolean).
 		Build()
 	terminalCompletionType = typ.NewInterface("exec.TerminalCompletionChannel", []typ.Method{
 		{Name: "receive", Type: typ.Func().Param("self", typ.Self).
@@ -48,6 +49,7 @@ func init() {
 		{Name: "start", Type: typ.Func().Param("self", typ.Self).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "wait", Type: typ.Func().Param("self", typ.Self).Returns(typ.Any, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "signal", Type: typ.Func().Param("self", typ.Self).Param("sig", typ.Number).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "pid", Type: typ.Func().Param("self", typ.Self).Returns(typ.Integer, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "write_stdin", Type: typ.Func().Param("self", typ.Self).Param("data", typ.String).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "close_stdin", Type: typ.Func().Param("self", typ.Self).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "stdout_stream", Type: typ.Func().Param("self", typ.Self).Returns(typ.Any, typ.NewOptional(typ.LuaError)).Build()},

@@ -174,6 +174,7 @@ var processMethods = map[string]lua.LGoFunc{
 	"close_stdin":     procCloseStdin,
 	"stdout_stream":   procStdout,
 	"stderr_stream":   procStderr,
+	"pid":             procPid,
 	"close":           procClose,
 	"resize":          procResize,
 	"attach_terminal": procAttachTerminal,
@@ -299,6 +300,45 @@ func procWait(l *lua.LState) int {
 
 	l.Push(yield)
 	return -1
+}
+
+func procPid(l *lua.LState) int {
+	p := checkProcess(l, 1)
+	if p == nil {
+		return 0
+	}
+	p.mu.Lock()
+	if p.closed {
+		p.mu.Unlock()
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "process is closed").WithKind(lua.Invalid).WithRetryable(false))
+		return 2
+	}
+	if !p.started {
+		p.mu.Unlock()
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "process not started: call start() first").WithKind(lua.Invalid).WithRetryable(false))
+		return 2
+	}
+	handle := p.handle
+	p.mu.Unlock()
+
+	identity, ok := handle.(apiexec.ProcessIdentity)
+	if !ok {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "process has no host process id").WithKind(lua.Unavailable).WithRetryable(false))
+		return 2
+	}
+	pid, err := identity.Pid()
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(wrapExecError(l, err, "read process id", lua.Internal))
+		return 2
+	}
+
+	l.Push(lua.LInteger(pid))
+	l.Push(lua.LNil)
+	return 2
 }
 
 func procSignal(l *lua.LState) int {

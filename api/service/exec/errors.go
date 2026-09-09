@@ -13,4 +13,6 @@ var ErrInvalidPTYSize = apierror.New(apierror.Invalid, "PTY dimensions must be p
 
 var ErrCommandRequired = apierror.New(apierror.Invalid, "command is required").WithRetryable(apierror.False)
 
+var ErrProcessGroupUnsupported = apierror.New(apierror.Unavailable, "process groups are not supported on this platform").WithRetryable(apierror.False)
+
 var ErrInvalidCommand = apierror.New(apierror.Invalid, "invalid command").WithRetryable(apierror.False)

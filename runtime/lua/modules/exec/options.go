@@ -49,6 +49,14 @@ func parseProcessOptions(value lua.LValue) (apiexec.ProcessOptions, error) {
 			return apiexec.ProcessOptions{}, envErr
 		}
 	}
+	if value := table.RawGetString("process_group"); value != lua.LNil {
+		enabled, ok := value.(lua.LBool)
+		if !ok {
+			return apiexec.ProcessOptions{}, fmt.Errorf("process_group must be a boolean")
+		}
+		group := bool(enabled)
+		options.ProcessGroup = &group
+	}
 	if value := table.RawGetString("pty"); value != lua.LNil {
 		pty, ok := value.(*lua.LTable)
 		if !ok {
