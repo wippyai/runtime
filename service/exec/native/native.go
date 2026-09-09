@@ -138,6 +138,7 @@ type ProcessExecutor struct {
 	ptyClose    sync.Once
 	stopped     atomic.Bool
 	stdoutOwned bool
+	stdinClosed bool
 }
 
 // NewProcessExecutor creates a new process executor
@@ -259,6 +260,10 @@ func (e *ProcessExecutor) WriteStdin(data []byte) error {
 		e.log.Error("process is not running", zap.String("state", state))
 		return ErrProcessNotRunning
 	}
+	if e.stdinClosed {
+		e.mu.RUnlock()
+		return ErrStdinClosed
+	}
 	stdin := e.stdinPipe
 	e.mu.RUnlock()
 
@@ -276,6 +281,28 @@ func (e *ProcessExecutor) WriteStdin(data []byte) error {
 	e.log.Debug("written to stdin", zap.Int("bytes", n))
 
 	return nil
+}
+
+// CloseStdin implements exec.StdinCloser: it ends the child's stdin so a
+// reader that waits for end of file proceeds. The PTY master is the
+// child's terminal, not a separate stdin, and stays open.
+func (e *ProcessExecutor) CloseStdin() error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.state != running {
+		return ErrProcessNotRunning
+	}
+	if e.pty != nil {
+		return ErrStdinPTY
+	}
+	if e.stdinClosed {
+		return nil
+	}
+	e.stdinClosed = true
+	if e.stdinPipe == nil {
+		return nil
+	}
+	return e.stdinPipe.Close()
 }
 
 // Signal implements exec.Process
