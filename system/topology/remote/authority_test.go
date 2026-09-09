@@ -331,3 +331,48 @@ func TestAuthorityUsePanicReleasesAdmissionGate(t *testing.T) {
 	}()
 	require.True(t, a.Revoke(token), "panic must not strand the revocation gate")
 }
+
+// A second retirement must join the first even after the admission gate has
+// closed, while map reclamation and the cleanup notification are still pending.
+func TestConcurrentRetirementWaitsForCleanupSignal(t *testing.T) {
+	a, err := NewAuthority(localNode, 1)
+	require.NoError(t, err)
+	token, _ := mintGrant(t, a)
+	a.mu.Lock()
+	g := a.grants[token]
+	first := make(chan bool, 1)
+	go func() { first <- a.deactivate(g, ErrGrantRevoked) }()
+	// Hold map reclamation so the intermediate inactive state is observable.
+	deadline := time.Now().Add(time.Second)
+	inactive := false
+	for time.Now().Before(deadline) {
+		g.gate.RLock()
+		inactive = !g.active
+		g.gate.RUnlock()
+		if inactive {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if !inactive {
+		a.mu.Unlock()
+		t.Fatal("first retirement did not close admission")
+	}
+	second := make(chan bool, 1)
+	go func() { second <- a.deactivate(g, ErrAuthorityClosed) }()
+	select {
+	case <-second:
+		a.mu.Unlock()
+		t.Fatal("concurrent retirement returned before cleanup")
+	case <-time.After(20 * time.Millisecond):
+	}
+	a.mu.Unlock()
+	require.True(t, <-first)
+	require.False(t, <-second)
+	select {
+	case <-g.done:
+	default:
+		t.Fatal("retirement returned before Done")
+	}
+	a.Close()
+}

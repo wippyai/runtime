@@ -380,7 +380,11 @@ func (a *Authority) deactivate(g *grant, reason error) bool {
 	// authority map lock while it waits or while external code is running.
 	g.gate.Lock()
 	if !g.active {
+		done := g.done
 		g.gate.Unlock()
+		// Another retirement may have released the gate while reclaiming its
+		// map slot. Join its completion before reporting this grant retired.
+		<-done
 		return false
 	}
 	g.active = false
@@ -394,10 +398,10 @@ func (a *Authority) deactivate(g *grant, reason error) bool {
 	if current, ok := a.grants[g.token]; ok && current == g {
 		delete(a.grants, g.token)
 	}
-	a.mu.Unlock()
-	// Done is a cleanup signal. Publish it only after a sequential Grant can
-	// observe reclaimed capacity, rather than exposing a transient full table.
+	// Publish retirement under the map lock: Close must not miss a removed
+	// grant whose cleanup signal has not yet been published.
 	close(g.done)
+	a.mu.Unlock()
 	return true
 }
 
