@@ -59,9 +59,14 @@ func TestSurfacePresentClearsRemovedRows(t *testing.T) {
 
 	changed, _, err := surface.present([]string{"one"})
 	require.NoError(t, err)
-	assert.Equal(t, 2, changed)
+	// A physical shrink can clamp clears of removed rows onto the surviving
+	// bottom row, so it must be repainted even though its content is unchanged.
+	assert.Equal(t, 3, changed)
 	assert.Contains(t, output.String(), "\x1b[2;1H\x1b[0m\x1b[K")
 	assert.Contains(t, output.String(), "\x1b[3;1H\x1b[0m\x1b[K")
+	repaint := strings.LastIndex(output.String(), "\x1b[1;1H\x1b[0m\x1b[Kone")
+	assert.Greater(t, repaint, strings.Index(output.String(), "\x1b[2;1H"))
+	assert.Greater(t, repaint, strings.Index(output.String(), "\x1b[3;1H"))
 }
 
 func TestSurfacePresentsCursorWithoutRepaintingRows(t *testing.T) {
