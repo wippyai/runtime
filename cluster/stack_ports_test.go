@@ -52,6 +52,15 @@ func TestConcurrentAutomaticPorts(t *testing.T) {
 		}
 		stopping.Wait()
 	}()
+	defer func() {
+		if t.Failed() {
+			for _, stack := range stacks {
+				if stack != nil {
+					t.Logf("node=%s members=%d connected=%v", stack.Membership.LocalNode().ID, len(stack.Membership.Nodes()), stack.ConnMgr.ConnectedNodes())
+				}
+			}
+		}
+	}()
 	config := func(i int) StackConfig {
 		return StackConfig{
 			NodeName: fmt.Sprintf("project-%d", i), Logger: zap.NewNop(),
