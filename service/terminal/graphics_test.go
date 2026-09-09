@@ -142,3 +142,18 @@ func TestGraphicsPartialWriteInvalidatesUploadsAndCleansOnRetry(t *testing.T) {
 	require.Less(t, strings.Index(wire, "a=d,d=I,"), strings.Index(wire, "a=t,"))
 	require.NoError(t, s.Close())
 }
+
+func TestGraphicsFallbackPaintsImageOnlyFramesWithinHostBounds(t *testing.T) {
+	_, img := graphicFixture(t)
+	defer img.Close()
+	var out bytes.Buffer
+	s := NewSurface(&out, ttyapi.SurfaceOptions{})
+	s.size = func() (int, int, error) { return 20, 10, nil }
+	_, err := s.Present(ttyapi.Frame{Images: []ttyapi.PlacedImage{{Resource: img, Placement: ttyapi.Placement{ID: "p", Destination: ttyapi.CellRect{X: 1, Y: 2, Cols: 15, Rows: 2}}}}})
+	require.NoError(t, err)
+	require.Contains(t, out.String(), "[image]")
+	require.NotContains(t, out.String(), "\x1b_G")
+	require.Contains(t, out.String(), "\x1b[3;1H")
+	require.NoError(t, s.Close())
+	require.Nil(t, s.scratch)
+}

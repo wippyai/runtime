@@ -86,9 +86,11 @@ func (s *surface) Present(frame ttyapi.Frame) (ttyapi.PresentStats, error) {
 		ttyapi.ClosePlacements(ss.images)
 		ss.images, ss.placements = images, placements
 		images = nil
-		previousSource, previousRows := ss.sourceRows, ss.rows
-		ss.sourceRows = append([]string(nil), frame.Rows...)
-		ss.resolvePageRows(previousSource, previousRows)
+		if changed != 0 {
+			previousSource, previousRows := ss.sourceRows, ss.rows
+			ss.sourceRows = append([]string(nil), frame.Rows...)
+			ss.resolvePageRows(previousSource, previousRows)
+		}
 		ss.invalid = false
 		if frame.Cursor != nil {
 			copy := *frame.Cursor

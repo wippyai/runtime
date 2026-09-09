@@ -45,6 +45,7 @@ type ImageStore struct {
 	mu      sync.Mutex
 	limit   int64
 	used    int64
+	closed  bool
 }
 type imageData struct {
 	encoded []byte
@@ -68,32 +69,99 @@ func NewImageStore(limit int64) *ImageStore {
 // ImportPNG is a native ingress seam for file readers and future Wasm codecs.
 // Admission precedes full decoding and copying. No Lua pixel processing is needed.
 func (s *ImageStore) ImportPNG(encoded []byte) (*Image, error) {
-	if len(encoded) == 0 || len(encoded) > MaxImageBytes {
-		return nil, ErrImageInvalid
+	info, err := inspectPNG(encoded)
+	if err != nil {
+		return nil, err
 	}
-	config, err := png.DecodeConfig(bytes.NewReader(encoded))
-	if err != nil || config.Width < 1 || config.Height < 1 || config.Width > MaxImagePixels/config.Height {
-		return nil, ErrImageInvalid
-	}
-	sum := sha256.Sum256(encoded)
-	id := "sha256:" + hex.EncodeToString(sum[:])
-	charge := int64(len(encoded)) + int64(config.Width)*int64(config.Height)*8
+	charge := imageCharge(info)
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	if d := s.entries[id]; d != nil {
+	if s.closed {
+		s.mu.Unlock()
+		return nil, ErrImageClosed
+	}
+	if d := s.entries[info.ID]; d != nil {
 		d.refs++
+		s.mu.Unlock()
 		return &Image{store: s, data: d}, nil
 	}
 	if charge > s.limit-s.used {
+		s.mu.Unlock()
 		return nil, ErrImageBudget
 	}
-	// Decode validates the complete PNG, not merely an attacker-controlled header.
-	if _, err := png.Decode(bytes.NewReader(encoded)); err != nil {
+	s.used += charge
+	s.mu.Unlock()
+	return s.finishImport(encoded, info, charge, false)
+}
+func inspectPNG(encoded []byte) (ImageInfo, error) {
+	if len(encoded) == 0 || len(encoded) > MaxImageBytes {
+		return ImageInfo{}, ErrImageInvalid
+	}
+	config, err := png.DecodeConfig(bytes.NewReader(encoded))
+	if err != nil || config.Width < 1 || config.Height < 1 || config.Width > MaxImagePixels/config.Height {
+		return ImageInfo{}, ErrImageInvalid
+	}
+	sum := sha256.Sum256(encoded)
+	return ImageInfo{ID: "sha256:" + hex.EncodeToString(sum[:]), Format: "png", Width: config.Width, Height: config.Height, Bytes: len(encoded)}, nil
+}
+func imageCharge(info ImageInfo) int64 {
+	return int64(info.Bytes) + int64(info.Width)*int64(info.Height)*8
+}
+
+// ImportPNGReader reserves staging and decode memory before reading any bulk
+// bytes. Identity is verified against the supplied bytes, never redeemed by ID.
+// Network waits and PNG decoding hold no store lock.
+func (s *ImageStore) ImportPNGReader(info ImageInfo, reader io.Reader) (*Image, error) {
+	if info.Format != "png" || info.Bytes < 1 || info.Bytes > MaxImageBytes || info.Width < 1 || info.Height < 1 || info.Width > MaxImagePixels/info.Height {
 		return nil, ErrImageInvalid
 	}
-	d := &imageData{info: ImageInfo{ID: id, Format: "png", Width: config.Width, Height: config.Height, Bytes: len(encoded)}, encoded: bytes.Clone(encoded), refs: 1, charge: charge}
-	s.entries[id] = d
+	charge := imageCharge(info)
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return nil, ErrImageClosed
+	}
+	if charge > s.limit-s.used {
+		s.mu.Unlock()
+		return nil, ErrImageBudget
+	}
 	s.used += charge
+	s.mu.Unlock()
+	data := make([]byte, info.Bytes)
+	if _, err := io.ReadFull(reader, data); err != nil {
+		s.releaseCharge(charge)
+		return nil, err
+	}
+	actual, err := inspectPNG(data)
+	if err != nil || actual != info {
+		s.releaseCharge(charge)
+		return nil, ErrImageInvalid
+	}
+	return s.finishImport(data, info, charge, true)
+}
+func (s *ImageStore) releaseCharge(charge int64) { s.mu.Lock(); s.used -= charge; s.mu.Unlock() }
+func (s *ImageStore) finishImport(encoded []byte, info ImageInfo, charge int64, owned bool) (*Image, error) {
+	// The complete PNG must decode, including checksum and pixel stream validation.
+	if _, err := png.Decode(bytes.NewReader(encoded)); err != nil {
+		s.releaseCharge(charge)
+		return nil, ErrImageInvalid
+	}
+	data := encoded
+	if !owned {
+		data = bytes.Clone(encoded)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		s.used -= charge
+		return nil, ErrImageClosed
+	}
+	if d := s.entries[info.ID]; d != nil {
+		s.used -= charge
+		d.refs++
+		return &Image{store: s, data: d}, nil
+	}
+	d := &imageData{info: info, encoded: data, refs: 1, charge: charge}
+	s.entries[info.ID] = d
 	return &Image{store: s, data: d}, nil
 }
 
@@ -308,3 +376,6 @@ type CaptureViewport interface {
 // Images is "native", "kitty", "pending", or "none".
 type SurfaceCapabilities struct{ Images string }
 type CapableSurface interface{ Capabilities() SurfaceCapabilities }
+
+// Close stops admission without recalling independently retained resources.
+func (s *ImageStore) Close() error { s.mu.Lock(); s.closed = true; s.mu.Unlock(); return nil }

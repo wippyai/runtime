@@ -15,6 +15,7 @@ import (
 
 // Surface is the physical ANSI implementation of tty.Surface.
 type Surface struct {
+	size     func() (int, int, error)
 	probe    func() ttyapi.SurfaceCapabilities
 	graphics graphicsState
 	out      io.Writer
@@ -50,7 +51,17 @@ func (s *Surface) Present(frame ttyapi.Frame) (ttyapi.PresentStats, error) {
 		enabled = s.capabilities().Images == "kitty"
 	}
 	if !enabled && len(images) > 0 {
-		frame.Rows = placeholderRows(frame.Rows, images)
+		width, height := 0, 0
+		if s.size != nil {
+			width, height, err = s.size()
+			if err != nil {
+				return ttyapi.PresentStats{}, err
+			}
+		}
+		frame.Rows, err = placeholderRows(frame.Rows, images, width, height)
+		if err != nil {
+			return ttyapi.PresentStats{}, err
+		}
 	}
 	output := s.scratch[:0]
 	if s.opts.Synchronized {
@@ -157,7 +168,12 @@ func (s *Surface) Present(frame ttyapi.Frame) (ttyapi.PresentStats, error) {
 	}
 	s.opened = true
 	s.invalid = false
-	s.scratch = output
+	// Do not retain a large base64 upload buffer for the surface lifetime.
+	if cap(output) <= 256<<10 {
+		s.scratch = output
+	} else {
+		s.scratch = nil
+	}
 	s.rows = append(s.rows[:0], rows...)
 	if frame.Cursor != nil {
 		copy := *frame.Cursor
@@ -188,6 +204,7 @@ func (s *Surface) Close() error {
 		return s.closeErr
 	}
 	s.closed = true
+	s.scratch, s.rows, s.cursor = nil, nil, nil
 	if !s.acquired {
 		return nil
 	}

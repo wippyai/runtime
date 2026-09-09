@@ -360,6 +360,7 @@ func (h *Host) prepareContext(ctx context.Context, processID pid.PID, start *pro
 	tc.Surface = func(options ttyapi.SurfaceOptions) (ttyapi.Surface, error) {
 		s := NewSurface(os.Stdout, options)
 		s.probe = tc.Input.(*InputReader).ProbeGraphics
+		s.size = tc.Input.ScreenSize
 		return s, nil
 	}
 	pairs[3] = ctxapi.Pair{Key: terminalapi.Key(), Value: tc}

@@ -117,3 +117,56 @@ func TestImageConcurrentRetainClose(t *testing.T) {
 	wg.Wait()
 	require.Zero(t, store.Used())
 }
+
+type blockedImageReader struct {
+	reader  io.Reader
+	entered chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (r *blockedImageReader) Read(p []byte) (int, error) {
+	r.once.Do(func() { close(r.entered); <-r.release })
+	return r.reader.Read(p)
+}
+func TestReaderAdmissionPrecedesAllocationAndCloseCancelsImport(t *testing.T) {
+	data := testPNG(t)
+	info, err := inspectPNG(data)
+	require.NoError(t, err)
+	store := NewImageStore(imageCharge(info))
+	reader := &blockedImageReader{reader: bytes.NewReader(data), entered: make(chan struct{}), release: make(chan struct{})}
+	done := make(chan error, 1)
+	go func() {
+		img, err := store.ImportPNGReader(info, reader)
+		if img != nil {
+			_ = img.Close()
+		}
+		done <- err
+	}()
+	<-reader.entered
+	require.Equal(t, imageCharge(info), store.Used())
+	_, err = store.ImportPNG(data)
+	require.ErrorIs(t, err, ErrImageBudget)
+	require.NoError(t, store.Close())
+	close(reader.release)
+	require.ErrorIs(t, <-done, ErrImageClosed)
+	require.Zero(t, store.Used())
+}
+func TestReaderIdentityIsNotAuthorityAndFailureReleasesBudget(t *testing.T) {
+	data := testPNG(t)
+	store := NewImageStore(DefaultImageBudget)
+	img, err := store.ImportPNG(data)
+	require.NoError(t, err)
+	info, _ := img.Info()
+	before := store.Used()
+	corrupt := bytes.Clone(data)
+	corrupt[0] ^= 1
+	_, err = store.ImportPNGReader(info, bytes.NewReader(corrupt))
+	require.ErrorIs(t, err, ErrImageInvalid)
+	require.Equal(t, before, store.Used())
+	_, err = store.ImportPNGReader(info, bytes.NewReader(data[:5]))
+	require.Error(t, err)
+	require.Equal(t, before, store.Used())
+	require.NoError(t, img.Close())
+	require.Zero(t, store.Used())
+}

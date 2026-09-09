@@ -73,3 +73,44 @@ GOWORK=off go test ./system/tty -run '^$' \
 
 These in-memory transport benchmarks include snapshot encoding/decoding and
 report coalesced wire frames per presentation; they do not measure network RTT.
+
+## Remote image proof
+
+The same harness can run native Lua PNG producers and image observers instead
+of Bash PTYs. This is the actual typed `tty.image` → virtual surface → native
+TLS mesh → `view:capture` → `capture:image` path, with one Lua worker per node:
+
+```sh
+GOWORK=off go build -o /tmp/wippy-tty-images-mesh-proof ./tests/tty-mesh
+python3 tests/tty-mesh/run.py --binary /tmp/wippy-tty-images-mesh-proof \
+  --images --nodes 2 --commands 20
+```
+
+The generated PNG is 262,586 bytes and requires 17 resource chunks. The final
+report verifies exactly that many image bytes sent by each producer even after
+repeated movement and captures. Lua compares the full received PNG with the
+producer fixture, rejects image access through an input-only mount, and proves
+an explicitly retained image survives observer detach. The harness also accepts
+`--nodes 8` and the existing authorized SSH options.
+
+Image mode's latency measures input → snapshot → retained capture/export;
+text mode measures Bash command completion. Their p95 values describe different
+workloads and must not be compared as a before/after performance claim. The
+separate deterministic stalled-chunk test asserts that input makes progress
+while a blob reply is blocked.
+
+This fixture explicitly advertises image support because both binaries are built
+from the same source. Normal boot uses `tty_surface_graphics=1` metadata plus an
+attach acknowledgment. The embedded cluster stack does not install a TTY broker
+by itself and does not advertise graphics automatically; an embedding must wire
+the service/transport and advertise only capabilities it actually implements.
+
+Measure repeated captures after warming the attachment cache:
+
+```sh
+GOWORK=off go test ./system/tty -run '^$' \
+  -bench BenchmarkMeshImageCaptureWarm -benchmem
+```
+
+The benchmark asserts no further image chunks and reports metadata wire bytes
+per capture. It uses an in-memory transport, not a network latency simulation.

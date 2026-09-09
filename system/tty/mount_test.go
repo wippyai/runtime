@@ -88,12 +88,17 @@ type testSurfaceNetwork struct {
 	mu    sync.Mutex
 }
 type testSurfaceTransport struct {
-	network   *testSurfaceNetwork
-	receiver  func(string, []byte)
-	local     string
-	sent      atomic.Int64
-	duplicate atomic.Bool
-	drop      atomic.Bool
+	onSend      func(string, []byte) error
+	network     *testSurfaceNetwork
+	receiver    func(string, []byte)
+	local       string
+	imageChunks atomic.Uint64
+	wireBytes   atomic.Uint64
+	sent        atomic.Int64
+	busy        atomic.Int32
+	graphics    atomic.Bool
+	duplicate   atomic.Bool
+	drop        atomic.Bool
 }
 
 func (n *testSurfaceNetwork) node(id string) *testSurfaceTransport {
@@ -111,7 +116,26 @@ func (t *testSurfaceTransport) Receive(fn func(string, []byte)) error {
 	return nil
 }
 func (t *testSurfaceTransport) Send(peer string, b []byte) error {
+	if t.busy.Load() > 0 && t.busy.Add(-1) >= 0 {
+		return ttyapi.ErrMeshBusy
+	}
 	t.sent.Add(1)
+	t.wireBytes.Add(uint64(len(b)))
+	if t.graphics.Load() {
+		var f wireFrame
+		h := codec.MsgpackHandle{}
+		if codec.NewDecoderBytes(b, &h).Decode(&f) == nil && f.Op == opImageChunk {
+			t.imageChunks.Add(1)
+		}
+	}
+	t.network.mu.Lock()
+	hook := t.onSend
+	t.network.mu.Unlock()
+	if hook != nil {
+		if err := hook(peer, b); err != nil {
+			return err
+		}
+	}
 	if t.drop.Load() {
 		return nil
 	}
@@ -432,4 +456,12 @@ func TestStalledPeerDoesNotBlockHealthySurface(t *testing.T) {
 	}
 	// Releasing the stalled consumer must not revoke another peer's authority.
 	require.NoError(t, good.Check(healthy, ttyapi.RightObserve))
+}
+
+func (t *testSurfaceTransport) SupportsGraphics(string) bool { return t.graphics.Load() }
+
+func (t *testSurfaceTransport) setHook(hook func(string, []byte) error) {
+	t.network.mu.Lock()
+	t.onSend = hook
+	t.network.mu.Unlock()
 }

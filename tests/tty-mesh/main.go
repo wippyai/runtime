@@ -56,10 +56,20 @@ type proofKeys struct {
 	Secret []byte
 }
 type references struct{ Observe, Input string }
-type transport struct{ cm internode.ConnectionManager }
+type transport struct {
+	cm      internode.ConnectionManager
+	metrics *imageMetrics
+}
 
 func (t transport) Send(peer string, b []byte) error {
-	return t.cm.SendToNode(peer, b, internode.ClassSurface)
+	err := t.cm.SendToNode(peer, b, internode.ClassSurface)
+	if errors.Is(err, internode.ErrQueueFull) {
+		return ttyapi.ErrMeshBusy
+	}
+	if err == nil && t.metrics != nil {
+		t.metrics.observe(b)
+	}
+	return err
 }
 func (t transport) Receive(fn func(string, []byte)) error {
 	if !t.cm.RegisterClassReceiver(internode.ClassSurface, fn) {
@@ -67,6 +77,8 @@ func (t transport) Receive(fn func(string, []byte)) error {
 	}
 	return nil
 }
+
+func (t transport) SupportsGraphics(string) bool { return t.metrics != nil }
 
 // The proof registers one real native executor without booting a registry DB.
 // All Lua security checks and the normal exec/PTY implementation still run.
@@ -115,6 +127,7 @@ func (l *lifecycle) OnComplete(ctx context.Context, p pid.PID, r *runtime.Result
 }
 
 type runner struct {
+	imagePNG  []byte
 	root      context.Context
 	scheduler *actor.Scheduler
 	service   *ttysys.Service
@@ -130,6 +143,14 @@ type runner struct {
 }
 
 func (r *runner) spawn(id, script, grant string, refs references) error {
+	if len(r.imagePNG) > 0 {
+		if id == "child" {
+			script = imageChildScript
+		}
+		if id == "agent" {
+			script = imageAgentScript
+		}
+	}
 	ctx, frame := ctxapi.OpenFrameContext(r.root)
 	p := pid.PID{Node: r.local, Host: "agents", UniqID: id}
 	if err := frame.Set(runtime.FramePIDKey, p); err != nil {
@@ -159,6 +180,7 @@ func (r *runner) spawn(id, script, grant string, refs references) error {
 		engine.LoadModuleDef(l, engine.ChannelModule)
 		engine.LoadModuleDef(l, luatty.Module)
 		engine.LoadModuleDef(l, luaexec.Module)
+		l.SetGlobal("proof_image_png", lua.LString(r.imagePNG))
 		l.SetGlobal("commands", lua.LInteger(r.commands))
 		l.SetGlobal("recipient", lua.LString((&pid.PID{Node: r.recipient, Host: "agents", UniqID: "agent"}).String()))
 		l.SetGlobal("observe_ref", lua.LString(refs.Observe))
@@ -323,6 +345,7 @@ func main() {
 	}
 }
 func run() error {
+	images := flag.Bool("images", false, "exercise remote PNG capture and transmit-once resources instead of PTY commands")
 	initDir := flag.String("init", "", "generate disposable proof identities and TLS certificate")
 	ips := flag.String("ips", "127.0.0.1", "comma-separated certificate IPs")
 	keysDir := flag.String("keys", "", "proof identity directory")
@@ -417,7 +440,16 @@ func run() error {
 	}
 	service := ttysys.NewService()
 	defer service.Close()
-	if err = service.SetMesh(*local, transport{cm}); err != nil {
+	var metrics *imageMetrics
+	var imagePNG []byte
+	if *images {
+		metrics = &imageMetrics{}
+		imagePNG, err = proofImage()
+		if err != nil {
+			return err
+		}
+	}
+	if err = service.SetMesh(*local, transport{cm: cm, metrics: metrics}); err != nil {
 		return err
 	}
 	root := ttyapi.WithService(ctx, service)
@@ -439,7 +471,7 @@ func run() error {
 	root = relay.WithNode(root, node)
 	sched.Start()
 
-	r := &runner{recipient: *recipient, commands: *commands, root: root, scheduler: sched, service: service, local: *local, peer: peer, out: *out, completed: completed}
+	r := &runner{imagePNG: imagePNG, recipient: *recipient, commands: *commands, root: root, scheduler: sched, service: service, local: *local, peer: peer, out: *out, completed: completed}
 	defer func() {
 		cancel()
 		stop, c := context.WithTimeout(context.Background(), 5*time.Second)
@@ -492,11 +524,23 @@ waitPeer:
 			}
 			sort.Slice(samples, func(i, j int) bool { return samples[i] < samples[j] })
 			report := map[string]any{"node": *local, "peer": peer, "commands": len(samples), "connected_peers": len(cm.ConnectedNodes()), "p50_ms": float64(samples[len(samples)/2]) / float64(time.Millisecond), "p95_ms": float64(samples[len(samples)*95/100]) / float64(time.Millisecond), "result": "PASS", "transport": "mutual TLS + authenticated internode", "lua_workers": 1}
+			if metrics != nil {
+				report["mode"] = "images"
+				report["image_bytes_sent"] = metrics.bytes.Load()
+				report["image_chunks_sent"] = metrics.chunks.Load()
+				report["image_bytes_expected"] = len(imagePNG)
+			}
 			encoded, _ := json.Marshal(report)
 			fmt.Println(string(encoded))
 			if *releaseFile != "" {
 				for {
 					if _, err := os.Stat(*releaseFile); err == nil {
+						if metrics != nil {
+							report["image_bytes_sent"] = metrics.bytes.Load()
+							report["image_chunks_sent"] = metrics.chunks.Load()
+							final, _ := json.Marshal(report)
+							fmt.Println(string(final))
+						}
 						return nil
 					}
 					select {

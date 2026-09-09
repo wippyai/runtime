@@ -279,6 +279,7 @@ func Cluster() boot.Component {
 			nodeMeta := clusterapi.NodeMeta{
 				"version":                         "1.0.0",
 				internode.MetadataSurfaceProtocol: "1",
+				internode.MetadataSurfaceGraphics: "1",
 				"role":                            "wippy",
 				internode.MetadataPort:            strconv.Itoa(actualPort),
 				internode.MetadataPublicKey:       base64.RawStdEncoding.EncodeToString(publicKey),

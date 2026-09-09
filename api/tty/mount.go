@@ -58,3 +58,7 @@ type MeshTransport interface {
 // MeshPeerChecker optionally rejects peers lacking surface protocol support
 // before sending a new class byte on a shared mesh connection.
 type MeshPeerChecker interface{ CheckPeer(string) error }
+
+// MeshGraphicsChecker advertises an additive capability. Absence means text-only;
+// new resource operations must never be sent based on surface protocol 1 alone.
+type MeshGraphicsChecker interface{ SupportsGraphics(string) bool }

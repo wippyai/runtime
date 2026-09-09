@@ -161,12 +161,31 @@ func (s *Surface) commitGraphics(placements map[string]hostPlacement) {
 		}
 	}
 }
-func placeholderRows(rows []string, images []ttyapi.PlacedImage) []string {
-	out := slices.Clone(rows)
-	width := 0
+func placeholderRows(rows []string, images []ttyapi.PlacedImage, width, height int) ([]string, error) {
+	desiredHeight := len(rows)
+	inferredWidth := 0
 	for _, row := range rows {
-		width = max(width, ansi.StringWidth(row))
+		inferredWidth = max(inferredWidth, ansi.StringWidth(row))
 	}
+	for _, item := range images {
+		d := item.Placement.Destination
+		desiredHeight = max(desiredHeight, d.Y+d.Rows)
+		inferredWidth = max(inferredWidth, d.X+d.Cols)
+	}
+	if width <= 0 {
+		width = inferredWidth
+	}
+	if height <= 0 {
+		height = desiredHeight
+	}
+	if ttyapi.ValidateViewportSize(width, height) != nil {
+		return nil, ttyapi.ErrInvalidViewportSize
+	}
+	out := slices.Clone(rows)
+	for len(out) < min(height, desiredHeight) {
+		out = append(out, "")
+	}
+
 	for _, item := range images {
 		p := item.Placement
 		d := p.Destination
@@ -196,5 +215,5 @@ func placeholderRows(rows []string, images []ttyapi.PlacedImage) []string {
 			out[y] = prefix + "\x1b[0;2m" + text + "\x1b[0m" + ansi.Cut(out[y], right, width)
 		}
 	}
-	return out
+	return out, nil
 }

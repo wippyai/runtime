@@ -38,18 +38,23 @@ const (
 // Sequence numbers are per attachment, not per TCP connection. Internode can
 // replay a partially flushed batch after reconnect; input must execute once.
 type wireFrame struct {
-	Caller   pid.PID
-	Ref      string
-	Error    string
-	Snapshot ttyapi.Snapshot
-	Event    ttyapi.Event
-	ID       uint64
-	Seq      uint64
-	Width    int
-	Height   int
-	Rights   ttyapi.MountRights
-	Version  uint8
-	Op       uint8
+	Data      []byte `codec:",omitempty"`
+	ImageID   string `codec:",omitempty"`
+	Caller    pid.PID
+	Ref       string
+	Error     string
+	Snapshot  ttyapi.Snapshot
+	Event     ttyapi.Event
+	CaptureID uint64 `codec:",omitempty"`
+	Offset    int    `codec:",omitempty"`
+	ID        uint64
+	Seq       uint64
+	Width     int
+	Height    int
+	Rights    ttyapi.MountRights
+	Version   uint8
+	Graphics  bool `codec:",omitempty"`
+	Op        uint8
 }
 type incomingFrame struct {
 	peer  string
@@ -62,19 +67,20 @@ type pendingFrame struct {
 }
 
 type meshService struct {
-	transport ttyapi.MeshTransport
-	views     map[string]*remoteViewport
-	service   *Service
-	requests  chan incomingFrame
-	done      chan struct{}
-	pending   map[uint64]pendingFrame
-	local     string
-	codec     codec.MsgpackHandle
-	wg        sync.WaitGroup
-	next      atomic.Uint64
-	once      sync.Once
-	mu        sync.Mutex
-	closed    bool
+	imageTransfers chan struct{}
+	transport      ttyapi.MeshTransport
+	views          map[string]*remoteViewport
+	service        *Service
+	requests       chan incomingFrame
+	done           chan struct{}
+	pending        map[uint64]pendingFrame
+	local          string
+	codec          codec.MsgpackHandle
+	wg             sync.WaitGroup
+	next           atomic.Uint64
+	once           sync.Once
+	mu             sync.Mutex
+	closed         bool
 }
 
 // SetMesh installs the optional transport before the broker is exposed to
@@ -88,7 +94,7 @@ func (s *Service) SetMesh(local string, transport ttyapi.MeshTransport) error {
 	if s.closed || s.mesh != nil {
 		return ttyapi.ErrServiceUnavailable
 	}
-	m := &meshService{service: s, transport: transport, local: local, requests: make(chan incomingFrame, 128), done: make(chan struct{}), pending: make(map[uint64]pendingFrame), views: make(map[string]*remoteViewport)}
+	m := &meshService{imageTransfers: make(chan struct{}, 4), service: s, transport: transport, local: local, requests: make(chan incomingFrame, 128), done: make(chan struct{}), pending: make(map[uint64]pendingFrame), views: make(map[string]*remoteViewport)}
 	m.codec.WriteExt = true
 	m.codec.MaxInitLen = 1024
 	if err := transport.Receive(m.receive); err != nil {
@@ -102,8 +108,8 @@ func (s *Service) SetMesh(local string, transport ttyapi.MeshTransport) error {
 	return nil
 }
 func (m *meshService) send(peer string, f wireFrame) error {
-	// Image transport is enabled in the capability-gated resource stage.
-	if len(f.Snapshot.Images) != 0 {
+	// Only mutually capable peers receive image metadata.
+	if len(f.Snapshot.Images) != 0 && !f.Graphics {
 		f.Snapshot.ImagesOmitted = true
 		f.Snapshot.Images = nil
 	}
@@ -111,6 +117,14 @@ func (m *meshService) send(peer string, f wireFrame) error {
 	var b bytes.Buffer
 	if err := codec.NewEncoder(&b, &m.codec).Encode(f); err != nil {
 		return err
+	}
+	if b.Len() > maxWireBytes && len(f.Snapshot.Images) > 0 {
+		f.Snapshot.Images = nil
+		f.Snapshot.ImagesOmitted = true
+		b.Reset()
+		if err := codec.NewEncoder(&b, &m.codec).Encode(f); err != nil {
+			return err
+		}
 	}
 	if b.Len() > maxWireBytes {
 		return ttyapi.ErrMeshProtocol
@@ -181,6 +195,12 @@ func wireError(err error) string {
 	switch {
 	case err == nil:
 		return ""
+	case errors.Is(err, ttyapi.ErrImageClosed):
+		return "image_closed"
+	case errors.Is(err, ttyapi.ErrImageInvalid):
+		return "image_invalid"
+	case errors.Is(err, ttyapi.ErrImageBudget):
+		return "image_budget"
 	case errors.Is(err, ttyapi.ErrPermissionDenied):
 		return "permission"
 	case errors.Is(err, ttyapi.ErrInputInactive):
@@ -195,6 +215,12 @@ func fromWireError(code string) error {
 	switch code {
 	case "":
 		return nil
+	case "image_closed":
+		return ttyapi.ErrImageClosed
+	case "image_invalid":
+		return ttyapi.ErrImageInvalid
+	case "image_budget":
+		return ttyapi.ErrImageBudget
 	case "permission":
 		return ttyapi.ErrPermissionDenied
 	case "inactive":
@@ -214,6 +240,10 @@ func (m *meshService) handle(peer string, f wireFrame) {
 	if record == nil || peer != record.recipient.Node || !samePID(f.Caller, record.recipient) {
 		reply.Error = "permission"
 		_ = m.send(peer, reply)
+		return
+	}
+	if imageOperation(f.Op) {
+		m.handleImage(peer, f, record)
 		return
 	}
 	if f.Op == opRelease {
@@ -245,6 +275,7 @@ func (m *meshService) handle(peer string, f wireFrame) {
 	startPump := false
 	switch f.Op {
 	case opAttach:
+		record.graphics = f.Graphics && m.supportsGraphics(peer)
 		record.attached = true
 		reply.Rights = record.rights
 		if record.rights.Observe {
@@ -273,6 +304,7 @@ func (m *meshService) handle(peer string, f wireFrame) {
 	default:
 		err = ttyapi.ErrMeshProtocol
 	}
+	reply.Graphics = record.graphics
 	reply.Error = wireError(err)
 	record.lastSeq = f.Seq
 	record.lastReply = reply
@@ -336,8 +368,14 @@ func (m *meshService) rpc(ctx context.Context, peer string, f wireFrame, closed 
 	m.pending[f.ID] = p
 	m.mu.Unlock()
 	defer func() { m.mu.Lock(); delete(m.pending, f.ID); m.mu.Unlock() }()
-	if err := m.send(peer, f); err != nil {
-		return wireFrame{}, err
+	var sendErr error
+	if imageOperation(f.Op) {
+		sendErr = m.sendImage(ctx, peer, f)
+	} else {
+		sendErr = m.send(peer, f)
+	}
+	if sendErr != nil {
+		return wireFrame{}, sendErr
 	}
 	select {
 	case <-closed:
@@ -365,7 +403,7 @@ func (m *meshService) attach(ctx context.Context, ref string, owner pid.PID) (tt
 	if owner.Node != m.local || owner.Host == "" || owner.UniqID == "" {
 		return nil, ttyapi.ErrPermissionDenied
 	}
-	v := &remoteViewport{callGate: make(chan struct{}, 1), mesh: m, peer: peer, ref: ref, owner: owner, dirty: make(chan struct{}, 1), updates: make(chan ttyapi.Update, 1), done: make(chan struct{})}
+	v := &remoteViewport{imageGate: make(chan struct{}, 1), imageCache: make(map[string]*ttyapi.Image), callGate: make(chan struct{}, 1), mesh: m, peer: peer, ref: ref, owner: owner, dirty: make(chan struct{}, 1), updates: make(chan ttyapi.Update, 1), done: make(chan struct{})}
 	m.mu.Lock()
 	if m.closed || len(m.views) >= maxMounts {
 		m.mu.Unlock()
@@ -380,7 +418,7 @@ func (m *meshService) attach(ctx context.Context, ref string, owner pid.PID) (tt
 	// Wait even when an attachment is still awaiting its first response.
 	m.wg.Add(1)
 	m.mu.Unlock()
-	reply, err := v.call(ctx, wireFrame{Op: opAttach})
+	reply, err := v.call(ctx, wireFrame{Op: opAttach, Graphics: m.supportsGraphics(peer)})
 	if err != nil {
 		v.finish(true)
 		m.wg.Done()
@@ -394,6 +432,7 @@ func (m *meshService) attach(ctx context.Context, ref string, owner pid.PID) (tt
 		return nil, ttyapi.ErrMountExpired
 	default:
 	}
+	v.graphics = reply.Graphics && m.supportsGraphics(peer)
 	v.rights = reply.Rights
 	v.snapshot = reply.Snapshot
 	v.mu.Unlock()
@@ -432,19 +471,22 @@ func (m *meshService) close() {
 }
 
 type remoteViewport struct {
-	updates  chan ttyapi.Update
-	callGate chan struct{}
-	done     chan struct{}
-	dirty    chan struct{}
-	mesh     *meshService
-	owner    pid.PID
-	ref      string
-	peer     string
-	snapshot ttyapi.Snapshot
-	seq      uint64
-	once     sync.Once
-	mu       sync.Mutex
-	rights   ttyapi.MountRights
+	imageGate  chan struct{}
+	imageCache map[string]*ttyapi.Image
+	updates    chan ttyapi.Update
+	callGate   chan struct{}
+	done       chan struct{}
+	dirty      chan struct{}
+	mesh       *meshService
+	owner      pid.PID
+	ref        string
+	peer       string
+	snapshot   ttyapi.Snapshot
+	seq        uint64
+	once       sync.Once
+	mu         sync.Mutex
+	rights     ttyapi.MountRights
+	graphics   bool
 }
 
 func (v *remoteViewport) Grant() string                 { return "" }
@@ -589,6 +631,10 @@ func (v *remoteViewport) finish(release bool) {
 		close(v.done)
 		close(v.updates)
 		v.snapshot = ttyapi.Snapshot{}
+		for _, img := range v.imageCache {
+			_ = img.Close()
+		}
+		v.imageCache = nil
 		v.mu.Unlock()
 		v.mesh.mu.Lock()
 		if v.mesh.views[v.ref] == v {

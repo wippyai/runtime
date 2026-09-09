@@ -163,6 +163,7 @@ func (s *Service) Close() error {
 		return nil
 	}
 	s.closed = true
+	_ = s.images.Close()
 	sessions := s.sessions
 	mounts := s.mounts
 	mesh := s.mesh

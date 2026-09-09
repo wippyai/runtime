@@ -21,20 +21,24 @@ const mountLease = 30 * time.Second
 // A reference is only a lookup key. Authority remains in this owner-side
 // record, bound to the exact recipient process and authenticated peer.
 type mountRecord struct {
-	done      chan struct{}
-	issuer    *viewport
-	view      *viewport
-	service   *Service
-	timer     *time.Timer
-	ack       chan struct{}
-	recipient pid.PID
-	ref       string
-	lastReply wireFrame
-	lastSeq   uint64
-	once      sync.Once
-	mu        sync.Mutex
-	rights    ttyapi.MountRights
-	attached  bool
+	capture      *ttyapi.Capture
+	captureTimer *time.Timer
+	done         chan struct{}
+	issuer       *viewport
+	view         *viewport
+	service      *Service
+	timer        *time.Timer
+	ack          chan struct{}
+	recipient    pid.PID
+	ref          string
+	lastReply    wireFrame
+	captureID    uint64
+	lastSeq      uint64
+	once         sync.Once
+	mu           sync.Mutex
+	rights       ttyapi.MountRights
+	attached     bool
+	graphics     bool
 }
 
 func samePID(a, b pid.PID) bool { return a.Node == b.Node && a.Host == b.Host && a.UniqID == b.UniqID }
@@ -144,6 +148,7 @@ func (m *mountRecord) close() {
 	m.once.Do(func() {
 		m.mu.Lock()
 		m.timer.Stop()
+		m.closeCaptureLocked()
 		close(m.done)
 		attached := m.attached
 		m.mu.Unlock()

@@ -13,6 +13,7 @@ import time
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--binary", default="/tmp/wippy-tty-mesh-proof")
+    parser.add_argument("--images", action="store_true", help="exercise remote image capture instead of PTY commands")
     parser.add_argument("--ssh", help="SSH target for node b; other nodes run locally")
     parser.add_argument("--peer-address", help="mesh IP of SSH host")
     parser.add_argument("--local-address", default="127.0.0.1")
@@ -76,6 +77,8 @@ def main():
                            "-mesh-peers", root + "/peers.json", "-commands", str(args.commands),
                            "-refs-out", f"{root}/{node}.json", "-peer-refs", f"{root}/{nodes[(i + 1) % len(nodes)]}.json",
                            "-release-file", root + "/release"]
+                if args.images:
+                    command.append("-images")
                 if remote:
                     launch = f"echo $$ > {shlex.quote(root + '/pid')}; exec {shlex.join(command)}"
                     command = ["ssh", "-n", *ssh_options, args.ssh, launch]
@@ -103,6 +106,10 @@ def main():
             for node, log in zip(nodes, logs):
                 log.seek(0)
                 print(f"node {node}:\n{log.read()}", flush=True)
+            if args.images:
+                for report in result.values():
+                    if report.get("image_bytes_sent") != report.get("image_bytes_expected"):
+                        raise RuntimeError("image bytes were retransmitted or omitted")
             if (len(result) != args.nodes or not all(p.poll() == 0 for p in processes)
                     or any(report.get("connected_peers") != args.nodes - 1 for report in result.values())):
                 raise RuntimeError("multi-node Lua/PTY proof failed")
