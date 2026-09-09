@@ -170,15 +170,21 @@ Ordinary pipe-backed processes return an error.
 #### process:close(force?: boolean) → boolean, error
 
 Releases the process. A started child is sent `SIGTERM`, or `SIGKILL` when
-`force` is true, then reaped; an unstarted handle is simply invalidated.
+`force` is true, then reaped; an unstarted handle is simply invalidated. A
+process started with `process_group` is signaled as a group, so its descendants
+go with it. The group outlives the child that leads it, so `close()` still
+reaches the descendants when the child's own exit has already been observed
+through `done()`.
 
 Reaping is what releases the child's entry in the OS process table; without it a
 stopped process lingers as a zombie for the lifetime of the runtime. It happens
 in the background so `close()` does not block, and a child still running after a
 grace period is killed so the reap always completes.
 
-Because reaping closes the process's stdout and stderr pipes, its streams are
-finished with once it is closed. Read any output you need before calling this.
+A stream taken from `stdout_stream()` or `stderr_stream()` outlives the reap:
+the bytes the child wrote before it exited are still readable, and the stream
+ends when the last writer closes the pipe, which may be a descendant rather than
+the child itself.
 
 After `close()` every method on the process, including `wait()`, reports
 `process closed`. Use `done()` instead when the exit code matters and the
@@ -217,9 +223,9 @@ Waits for the process to exit and returns the exit code.
 
 `wait()` consumes the handle. The process is released the moment `wait()` is
 called, before it yields: every other method, `wait()` included, reports
-`process closed` from then on, and the stdout and stderr pipes are closed by
-the reap. Read the output you need first, and use `done()` when the handle must
-stay usable.
+`process closed` from then on. Take the streams you need before calling it, and
+use `done()` when the handle must stay usable; a stream already taken stays
+readable through the exit.
 
 A child killed by a signal has no exit code of its own; it is reported as
 `128 + signal`, so `SIGTERM` becomes 143 and `SIGKILL` 137. That is not an
@@ -279,9 +285,10 @@ blocking.
 | signal | integer | Signal that killed the child; absent when it exited on its own |
 | error | error | Set only when the exit could not be observed at all |
 
-`done()` reaps the child as soon as it exits, and reaping closes its stdout and
-stderr pipes -- the same consequence `close()` documents. Read output as it
-arrives rather than after the exit.
+`done()` reaps the child as soon as it exits, and the streams survive that: what
+the child wrote on its way out is still there to be read once the exit has been
+delivered. The streams end on their own, when the last process holding the pipe
+closes it.
 
 **Returns:**
 - Success: `channel, nil`

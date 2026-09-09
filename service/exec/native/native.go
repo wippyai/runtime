@@ -133,9 +133,10 @@ type ptyProcess struct{ *ProcessExecutor }
 
 // ProcessExecutor represents a native process implementation
 type ProcessExecutor struct {
-<<<<<<< HEAD
 	stderrp      io.ReadCloser
 	stdoutp      io.ReadCloser
+	stdoutw      *os.File
+	stderrw      *os.File
 	stdinPipe    io.WriteCloser
 	cmd          *exec.Cmd
 	log          *zap.Logger
@@ -152,6 +153,7 @@ type ProcessExecutor struct {
 	stopped      atomic.Bool
 	stdoutOwned  bool
 	stdinClosed  bool
+	stderrOwned  bool
 	processGroup bool
 }
 
@@ -206,19 +208,26 @@ func NewProcessExecutor(log *zap.Logger, opts ...Option) *ProcessExecutor {
 		applyProcessGroup(command)
 	}
 
-	// we can safely skip the error here
-	// because we don't initialize stderrpipe twice or after the process was already started
+	// The output pipes belong to the executor, not to os/exec. Cmd.Wait closes
+	// the pipes StdoutPipe and StderrPipe create, which would discard whatever
+	// the child wrote just before exiting the moment it is reaped, while the
+	// caller still holds the reader. Handing Cmd a plain file leaves the
+	// lifetime here, where the reader's owner decides it.
 	if e.pty == nil {
-		e.stderrp, _ = command.StderrPipe()
-	}
+		if reader, writer, err := os.Pipe(); err == nil {
+			e.stderrp, e.stderrw = reader, writer
+			command.Stderr = writer
+		} else {
+			e.log.Error("error creating stderr pipe", zap.Error(err))
+		}
 
-	// we can safely skip the error here
-	// because we don't initialize stdoutpipe twice or after the process was already started
-	if e.pty == nil {
-		e.stdoutp, _ = command.StdoutPipe()
-	}
+		if reader, writer, err := os.Pipe(); err == nil {
+			e.stdoutp, e.stdoutw = reader, writer
+			command.Stdout = writer
+		} else {
+			e.log.Error("error creating stdout pipe", zap.Error(err))
+		}
 
-	if e.pty == nil {
 		ip, _ := command.StdinPipe()
 		e.stdinPipe = ip
 	}
@@ -244,9 +253,16 @@ func (e *ProcessExecutor) Start() error {
 		e.ptyMaster = master
 		e.stdinPipe, e.stdoutp = master, master
 		e.stderrp = io.NopCloser(strings.NewReader(""))
-	} else if err := e.cmd.Start(); err != nil {
-		e.stopped.Store(true)
-		return err
+	} else {
+		err := e.cmd.Start()
+		// The child inherited its own descriptors for the write ends; keeping
+		// the executor's copies open would hold the readers past the last real
+		// writer and EOF would never arrive.
+		e.releaseOutputWriters()
+		if err != nil {
+			e.stopped.Store(true)
+			return err
+		}
 	}
 
 	e.pid = e.cmd.Process.Pid
@@ -258,6 +274,20 @@ func (e *ProcessExecutor) Start() error {
 	}
 	e.state = running
 	return nil
+}
+
+// releaseOutputWriters closes the executor's copies of the output pipe write
+// ends. The readers then end when the last process writing to them is gone,
+// which is what distinguishes a closed pipe from a finished child.
+func (e *ProcessExecutor) releaseOutputWriters() {
+	if e.stdoutw != nil {
+		_ = e.stdoutw.Close()
+		e.stdoutw = nil
+	}
+	if e.stderrw != nil {
+		_ = e.stderrw.Close()
+		e.stderrw = nil
+	}
 }
 
 // Pid implements exec.ProcessIdentity. It reports the identifier of the started
@@ -355,27 +385,41 @@ func (e *ProcessExecutor) Signal(sig int) error {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 
-	if e.state != running {
-		state := e.state
-		if state == terminated {
-			e.log.Debug("process already terminated")
-			return errors.Join(ErrProcessNotRunning, os.ErrProcessDone)
-		}
-		e.log.Error("process is not running", zap.String("state", state))
+	if e.state == notStarted {
+		e.log.Error("process is not running", zap.String("state", e.state))
 		return ErrProcessNotRunning
+	}
+
+	// A process group outlives the child that leads it: the descendants stay in
+	// the group after the leader has been reaped, and the leader's identifier is
+	// not handed to a new process while the group still has members. Addressing
+	// the group therefore stays meaningful once the child's own exit has been
+	// observed, which is when a supervisor most needs it. An empty group answers
+	// ESRCH, and that is the state the caller is told about.
+	if e.processGroup {
+		if e.pgid <= 0 {
+			e.log.Error("pgid is not a positive int", zap.Int("pgid", e.pgid))
+			return ErrInvalidPID
+		}
+		if err := signalProcessGroup(e.pgid, syscall.Signal(sig)); err != nil {
+			if errors.Is(err, syscall.ESRCH) {
+				e.log.Debug("process group already terminated")
+				return errors.Join(ErrProcessNotRunning, os.ErrProcessDone)
+			}
+			e.log.Error("error sending signal to process group", zap.Error(err))
+			return err
+		}
+		return nil
+	}
+
+	if e.state != running {
+		e.log.Debug("process already terminated")
+		return errors.Join(ErrProcessNotRunning, os.ErrProcessDone)
 	}
 
 	if e.pid <= 0 {
 		e.log.Error("pid is not a positive int", zap.Int("pid", e.pid))
 		return ErrInvalidPID
-	}
-
-	if e.processGroup {
-		if err := signalProcessGroup(e.pgid, syscall.Signal(sig)); err != nil {
-			e.log.Error("error sending signal to process group", zap.Error(err))
-			return err
-		}
-		return nil
 	}
 
 	// we're using os.FindProcess to avoid touching e.cmd
@@ -396,8 +440,11 @@ func (e *ProcessExecutor) Signal(sig int) error {
 
 // Stderr implements exec.Process
 func (e *ProcessExecutor) Stderr() io.ReadCloser {
-	e.mu.RLock()
-	defer e.mu.RUnlock()
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.stderrp != nil {
+		e.stderrOwned = true
+	}
 
 	return e.stderrp
 }
@@ -406,7 +453,7 @@ func (e *ProcessExecutor) Stderr() io.ReadCloser {
 func (e *ProcessExecutor) Stdout() io.ReadCloser {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if e.ptyMaster != nil && e.stdoutp != nil {
+	if e.stdoutp != nil {
 		e.stdoutOwned = true
 	}
 
@@ -474,11 +521,20 @@ func (e *ProcessExecutor) Wait() error {
 	}
 
 	e.mu.Lock()
-	// A PTY master is not one of os/exec's managed pipes. Wait releases an
-	// unclaimed master; once Stdout hands it to a caller, that reader owns the
-	// final drain and close so the child's last terminal frame is not truncated.
-	if e.ptyMaster != nil && !e.stdoutOwned {
-		e.closePTY()
+	// Wait releases the output nobody asked for. Once Stdout or Stderr hands a
+	// reader to a caller, that reader owns the final drain and close, so the
+	// child's last bytes outlive the reap instead of being thrown away with it.
+	if e.ptyMaster != nil {
+		if !e.stdoutOwned {
+			e.closePTY()
+		}
+	} else {
+		if e.stdoutp != nil && !e.stdoutOwned {
+			_ = e.stdoutp.Close()
+		}
+		if e.stderrp != nil && !e.stderrOwned {
+			_ = e.stderrp.Close()
+		}
 	}
 	e.state = terminated
 	e.mu.Unlock()
