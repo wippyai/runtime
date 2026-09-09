@@ -26,3 +26,21 @@ func TestConsistentRetryReturnsEstablishingIndex(t *testing.T) {
 		t.Fatalf("reclaimed retry: %+v", last)
 	}
 }
+
+func TestConsistentRetryOfPendingClaimReturnsReservationEpoch(t *testing.T) {
+	f := NewFSM()
+	p := makePID("node", "host", "owner")
+	pending := applyAt(t, f, &Command{
+		Type: CmdRegisterPending,
+		Name: "claim",
+		PID:  p,
+	}, 10).(*RegisterResult)
+	if pending.Err != nil || pending.FenceToken != 10 {
+		t.Fatalf("pending: %+v", pending)
+	}
+
+	retry := applyAt(t, f, &Command{Type: CmdRegister, Name: "claim", PID: p}, 20).(*RegisterResult)
+	if retry.Err != nil || retry.FenceToken != pending.FenceToken {
+		t.Fatalf("pending retry changed the reservation epoch: pending=%+v retry=%+v", pending, retry)
+	}
+}
