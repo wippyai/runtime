@@ -205,7 +205,6 @@ type ConnectionManager interface {
 }
 
 type manager struct {
-	managedMu      sync.Mutex
 	managedChanged chan struct{}
 	ctx            context.Context
 	listener       net.Listener
@@ -224,6 +223,7 @@ type manager struct {
 	actualPort     int
 	controlLoopsMu sync.Mutex
 	registerMu     sync.Mutex
+	managedMu      sync.Mutex
 }
 
 func NewConnectionManager(config ManagerConfig, coll metrics.Collector) ConnectionManager {

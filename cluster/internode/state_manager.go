@@ -32,12 +32,12 @@ type NodeState struct {
 	queues        [numClasses]*classQueue
 	messageNotify chan struct{}
 	connection    *NodeConnection
+	queueMu       queueMutex
 	address       nodeAddress
 	lastDepth     [numClasses]int // last queue depth emitted to telemetry; guarded by queueMu
 	surfaceTurn   bool            // guarded by queueMu; fair turns between application classes
 	state         ConnectionState
 	stateMu       sync.RWMutex
-	queueMu       queueMutex
 }
 
 // classQueue is a FIFO of pending messages for one Class.
