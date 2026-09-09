@@ -3,6 +3,7 @@
 package internode
 
 import (
+	"context"
 	"errors"
 	"sync"
 	"time"
@@ -36,7 +37,7 @@ type NodeState struct {
 	surfaceTurn   bool            // guarded by queueMu; fair turns between application classes
 	state         ConnectionState
 	stateMu       sync.RWMutex
-	queueMu       sync.Mutex
+	queueMu       queueMutex
 }
 
 // classQueue is a FIFO of pending messages for one Class.
@@ -240,6 +241,21 @@ func (nsm *NodeStateManager) GetNodeState(nodeID cluster.NodeID) *NodeState {
 // Returns ErrNodeNotManaged if no state exists for nodeID.
 // Returns ErrQueueFull for gossip or surface traffic when full.
 func (nsm *NodeStateManager) QueueMessageClass(nodeID cluster.NodeID, data []byte, class Class) error {
+	return nsm.queueMessageClass(context.Background(), nodeID, data, class, false)
+}
+
+// QueueMessageClassContext cancels queue-lock admission, not accepted delivery.
+func (nsm *NodeStateManager) QueueMessageClassContext(ctx context.Context, nodeID cluster.NodeID, data []byte, class Class) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return nsm.queueMessageClass(ctx, nodeID, data, class, true)
+}
+
+func (nsm *NodeStateManager) queueMessageClass(ctx context.Context, nodeID cluster.NodeID, data []byte, class Class, cancellable bool) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	state := nsm.GetNodeState(nodeID)
 	if state == nil {
 		return ErrNodeNotManaged
@@ -254,7 +270,17 @@ func (nsm *NodeStateManager) QueueMessageClass(nodeID cluster.NodeID, data []byt
 	if class == ClassSurface && len(data) > MaxSurfaceFrameSize {
 		return NewMessageSizeExceedsMaxError(len(data), MaxSurfaceFrameSize)
 	}
-	state.queueMu.Lock()
+	if cancellable {
+		if err := state.queueMu.LockContext(ctx); err != nil {
+			return err
+		}
+	} else {
+		state.queueMu.Lock()
+	}
+	if nsm.GetNodeState(nodeID) != state {
+		state.queueMu.Unlock()
+		return ErrNodeNotManaged
+	}
 	q := state.queues[class]
 	var rejected bool
 	switch class {

@@ -4,6 +4,7 @@ package internode
 
 import (
 	"context"
+	"errors"
 	"net"
 	"strconv"
 	"strings"
@@ -159,6 +160,59 @@ func (s *Service) Stop() error {
 	}
 	return s.connMan.Stop()
 }
+
+var ErrContextQueueUnsupported = errors.New("internode: connection manager does not support cancellable queue admission")
+
+// SendContext transfers package ownership only on successful queue admission.
+// Cancellation stops waiting to admit; it cannot recall an accepted message.
+func (s *Service) SendContext(ctx context.Context, pkg *relay.Package) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if pkg == nil {
+		return errors.New("internode: nil package")
+	}
+	sender, ok := s.connMan.(ContextConnectionManager)
+	if !ok {
+		return ErrContextQueueUnsupported
+	}
+	data, err := s.codec.Encode(pkg)
+	if err != nil {
+		return NewEncodePackageError(pkg.Target.Node, err)
+	}
+	var topic string
+	if len(pkg.Messages) > 0 {
+		topic = pkg.Messages[0].Topic
+	}
+	// Discovery consumers may run before the transport subscriber. Wait for
+	// its registration without recreating state from a membership snapshot.
+	if !s.connMan.IsManaged(pkg.Target.Node) && s.membership != nil {
+		for _, member := range s.membership.Nodes() {
+			if member.ID != pkg.Target.Node {
+				continue
+			}
+			if waiter, ok := s.connMan.(interface {
+				WaitManaged(context.Context, cluster.NodeID) error
+			}); ok {
+				if err := waiter.WaitManaged(ctx, pkg.Target.Node); err != nil {
+					return err
+				}
+			}
+			break
+		}
+	}
+	// Queue admission still checks the state: a departure may race the wait.
+	if err := sender.SendToNodeContext(ctx, pkg.Target.Node, data, ClassForTopic(topic)); err != nil {
+		return err
+	}
+	relay.ReleasePackage(pkg)
+	return nil
+}
+
+var _ relay.ContextSender = (*Service)(nil)
 
 func (s *Service) Send(pkg *relay.Package) error {
 	data, err := s.codec.Encode(pkg)
