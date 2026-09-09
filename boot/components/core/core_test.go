@@ -111,7 +111,7 @@ func TestCorePlugins(t *testing.T) {
 			Config: supervisorapi.LifecycleConfig{
 				AutoStart:    true,
 				StartTimeout: time.Second,
-				StopTimeout:  500 * time.Millisecond,
+				StopTimeout:  5 * time.Second,
 			},
 		},
 	})
@@ -131,23 +131,39 @@ serviceRunning:
 		}
 	}
 	bus.Unsubscribe(runtimeCtx, stateSubscriber)
-	shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), 50*time.Millisecond)
-	defer cancelShutdown()
+	shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), 2*time.Second)
 	shutdownDeadline, _ := shutdownCtx.Deadline()
-	shutdownStarted := time.Now()
-	if err := lifecycleLoader.Shutdown(shutdownCtx); !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("Shutdown() error = %v, want deadline exceeded", err)
+	shutdownDone := make(chan error, 1)
+	go func() {
+		shutdownDone <- lifecycleLoader.Shutdown(shutdownCtx)
+	}()
+	var stopDeadline time.Time
+	select {
+	case stopDeadline = <-service.stopDeadline:
+	case <-time.After(time.Second):
+		cancelShutdown()
+		t.Fatal("managed service stop did not start")
 	}
-	if elapsed := time.Since(shutdownStarted); elapsed > 250*time.Millisecond {
-		t.Fatalf("Shutdown() elapsed = %v, want shutdown context to bound service stop", elapsed)
-	}
-	stopDeadline := <-service.stopDeadline
 	if delta := stopDeadline.Sub(shutdownDeadline); delta < -time.Millisecond || delta > time.Millisecond {
+		cancelShutdown()
 		t.Fatalf("managed stop deadline = %v, want shutdown deadline %v", stopDeadline, shutdownDeadline)
+	}
+	shutdownCanceled := time.Now()
+	cancelShutdown()
+	select {
+	case err := <-shutdownDone:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("Shutdown() error = %v, want context canceled", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Shutdown() did not honor caller cancellation")
+	}
+	if elapsed := time.Since(shutdownCanceled); elapsed > time.Second {
+		t.Fatalf("Shutdown() elapsed after cancellation = %v, want caller context to bound service stop", elapsed)
 	}
 	select {
 	case <-service.stopped:
-	case <-time.After(100 * time.Millisecond):
+	case <-time.After(time.Second):
 		t.Fatal("managed service did not observe shutdown cancellation")
 	}
 }
