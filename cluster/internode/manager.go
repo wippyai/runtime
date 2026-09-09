@@ -204,14 +204,15 @@ type ConnectionManager interface {
 }
 
 type manager struct {
-	ctx          context.Context
-	listener     net.Listener
-	cancel       context.CancelFunc
-	logger       *zap.Logger
-	onMessage    func(cluster.NodeID, []byte)
-	tlsConfig    *tls.Config
-	nodeStates   *NodeStateManager
-	controlLoops map[cluster.NodeID]*nodeControlLoop
+	onObservedMessage func(cluster.NodeID, []byte, <-chan struct{})
+	ctx               context.Context
+	listener          net.Listener
+	cancel            context.CancelFunc
+	logger            *zap.Logger
+	onMessage         func(cluster.NodeID, []byte)
+	tlsConfig         *tls.Config
+	nodeStates        *NodeStateManager
+	controlLoops      map[cluster.NodeID]*nodeControlLoop
 	// classReceivers is accessed on every inbound frame (lookupClassReceiver
 	// runs in the read hot path). Registrations happen only at boot, so we
 	// keep the array behind an atomic.Pointer snapshot.
@@ -237,6 +238,14 @@ func NewConnectionManager(config ManagerConfig, coll metrics.Collector) Connecti
 }
 
 func (m *manager) Start(ctx context.Context, onMessage func(nodeID cluster.NodeID, data []byte)) error {
+	return m.start(ctx, onMessage, nil)
+}
+
+// StartWithConnectionLifecycle supplies the exact ingress connection lifetime.
+func (m *manager) StartWithConnectionLifecycle(ctx context.Context, observed func(cluster.NodeID, []byte, <-chan struct{})) error {
+	return m.start(ctx, nil, observed)
+}
+func (m *manager) start(ctx context.Context, onMessage func(cluster.NodeID, []byte), observed func(cluster.NodeID, []byte, <-chan struct{})) error {
 	if m.config.RequireAuthentication {
 		if len(m.config.AuthenticationKey) == 0 {
 			return fmt.Errorf("internode authentication key is required")
@@ -253,6 +262,7 @@ func (m *manager) Start(ctx context.Context, onMessage func(nodeID cluster.NodeI
 	}
 	m.ctx, m.cancel = context.WithCancel(ctx)
 	m.onMessage = onMessage
+	m.onObservedMessage = observed
 
 	if m.config.TLS.Enabled {
 		tlsConfig, err := loadTLSConfig(m.config.TLS)
@@ -760,7 +770,11 @@ func (loop *nodeControlLoop) monitorConnection(conn *NodeConnection) {
 			recv(loop.nodeID, msg)
 			return
 		}
-		loop.manager.onMessage(loop.nodeID, msg)
+		if observed := loop.manager.onObservedMessage; observed != nil {
+			observed(loop.nodeID, msg, conn.Closed())
+		} else {
+			loop.manager.onMessage(loop.nodeID, msg)
+		}
 	})
 	shouldRetry := false
 	if err != nil {
@@ -913,3 +927,9 @@ func loadTLSConfig(cfg ManagerTLSConfig) (*tls.Config, error) {
 		MinVersion:   tls.VersionTLS12,
 	}, nil
 }
+
+// AuthenticatesPeers reports the immutable handshake policy.
+func (m *manager) AuthenticatesPeers() bool { return m.config.RequireAuthentication }
+
+// ProtectsPayloads reports transport integrity, independently of handshake identity.
+func (m *manager) ProtectsPayloads() bool { return m.config.TLS.Enabled }

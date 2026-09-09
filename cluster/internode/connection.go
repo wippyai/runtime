@@ -139,6 +139,7 @@ func DefaultNodeConnectionConfig() NodeConnectionConfig {
 // via bindDrain) so there is a single queue and a single goroutine wakeup
 // per frame on the send path.
 type NodeConnection struct {
+	closedSignal  chan struct{} // guarded by lifecycleMu
 	conn          net.Conn
 	logger        *zap.Logger
 	cancel        context.CancelFunc
@@ -262,6 +263,13 @@ func (c *NodeConnection) Close() {
 		c.lifecycleMu.Lock()
 		if c.cancel != nil {
 			c.cancel()
+		}
+		if c.closedSignal != nil {
+			select {
+			case <-c.closedSignal:
+			default:
+				close(c.closedSignal)
+			}
 		}
 		c.lifecycleMu.Unlock()
 		_ = c.conn.Close()
@@ -458,4 +466,19 @@ func readFrame(r io.Reader, maxMessageSize uint32) (Class, []byte, error) {
 
 	// It was a large message allocated on its own.
 	return class, msg, nil
+}
+
+// Closed observes loss of this exact connection, not gossip departure or later
+// reconnection to the same peer. Subscription after Close is already signaled.
+// No channel is allocated for connections whose lifecycle nobody observes.
+func (c *NodeConnection) Closed() <-chan struct{} {
+	c.lifecycleMu.Lock()
+	defer c.lifecycleMu.Unlock()
+	if c.closedSignal == nil {
+		c.closedSignal = make(chan struct{})
+		if c.closed.Load() {
+			close(c.closedSignal)
+		}
+	}
+	return c.closedSignal
 }

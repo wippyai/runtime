@@ -67,7 +67,14 @@ func (s *Service) Start(ctx context.Context) error {
 	s.ctx = ctx
 	s.logger.Info("Starting inter-node service...")
 
-	onMessage := func(nodeID cluster.NodeID, data []byte) {
+	authenticated, protected := false, false
+	if provider, ok := s.connMan.(interface{ AuthenticatesPeers() bool }); ok {
+		authenticated = provider.AuthenticatesPeers()
+	}
+	if provider, ok := s.connMan.(interface{ ProtectsPayloads() bool }); ok {
+		protected = provider.ProtectsPayloads()
+	}
+	onMessage := func(nodeID cluster.NodeID, data []byte, closed <-chan struct{}) {
 		s.logger.Debug("Received raw message from remote node",
 			zap.String("from_node", nodeID),
 			zap.Int("data_len", len(data)))
@@ -79,6 +86,8 @@ func (s *Service) Start(ctx context.Context) error {
 			s.connMan.RecordDropReason("decode_failed")
 			return
 		}
+		// Overwrite codec output: immediate-peer provenance never comes from bytes.
+		pkg.Ingress = relay.IngressIdentity{ConnectionClosed: closed, Node: nodeID, Authenticated: authenticated && nodeID != "", IntegrityProtected: protected}
 		s.logger.Debug("Decoded message, delivering",
 			zap.String("from_node", nodeID),
 			zap.String("target_host", pkg.Target.Host))
@@ -93,8 +102,16 @@ func (s *Service) Start(ctx context.Context) error {
 		}
 	}
 
-	if err := s.connMan.Start(ctx, onMessage); err != nil {
-		return NewStartConnectionManagerError(err)
+	var startErr error
+	if observer, ok := s.connMan.(interface {
+		StartWithConnectionLifecycle(context.Context, func(cluster.NodeID, []byte, <-chan struct{})) error
+	}); ok {
+		startErr = observer.StartWithConnectionLifecycle(ctx, onMessage)
+	} else {
+		startErr = s.connMan.Start(ctx, func(node cluster.NodeID, data []byte) { onMessage(node, data, nil) })
+	}
+	if startErr != nil {
+		return NewStartConnectionManagerError(startErr)
 	}
 
 	sub, err := eventbus.NewSubscriber(ctx, s.bus, cluster.System, "node.(joined|left)", s.handleMembershipEvent)

@@ -23,12 +23,14 @@ func TestPackage_Pool(t *testing.T) {
 		require.NotNil(t, p)
 		require.NotNil(t, p.Messages)
 
+		p.Ingress = IngressIdentity{Node: "peer", Authenticated: true, IntegrityProtected: true, ConnectionClosed: make(chan struct{})}
 		p.Source = pid.PID{Host: "host1", UniqID: "proc1"}
 		p.Target = pid.PID{Host: "host2", UniqID: "proc2"}
 		p.Messages = append(p.Messages, &Message{Topic: "test"})
 
 		ReleasePackage(p)
 
+		assert.Equal(t, IngressIdentity{}, p.Ingress)
 		assert.Empty(t, p.Source.Host)
 		assert.Empty(t, p.Target.Host)
 		assert.Empty(t, p.Messages)

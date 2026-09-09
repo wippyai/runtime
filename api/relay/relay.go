@@ -73,8 +73,26 @@ type (
 		MaxItems int
 	}
 
+	// IngressIdentity records the immediate network peer observed by the local
+	// transport. It is never serialized and does not authenticate Package.Source
+	// or a transitive origin. Authenticated describes the peer handshake, not
+	// payload integrity on plaintext transport. Local packages have a zero identity. Go receivers
+	// may rely on it only within the trusted local runtime transport boundary.
+	IngressIdentity struct {
+		// ConnectionClosed is the locally observed lifetime of the exact ingress
+		// connection. Nil means the transport does not provide this capability.
+		ConnectionClosed <-chan struct{}
+		Node             pid.NodeID
+		Authenticated    bool
+		// IntegrityProtected reports transport protection of frame contents.
+		// It does not by itself authenticate Node; consumers requiring both
+		// guarantees must check both flags and authorize the immediate peer.
+		IntegrityProtected bool
+	}
+
 	// Package combines source, target and messages for delivery.
 	Package struct {
+		Ingress  IngressIdentity `json:"-" codec:"-"`
 		Source   pid.PID
 		Target   pid.PID
 		Messages []*Message
