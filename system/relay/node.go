@@ -18,7 +18,7 @@ import (
 // must be targeted to a host registered within this Node instance.
 type Node struct {
 	nodeID pid.NodeID
-	hosts  sync.Map // stores mapping: HostID -> api.Receiver
+	hosts  sync.Map // stores mapping: HostID -> *hostRegistration
 }
 
 // NewNode creates a new, isolated messaging node with the specified ID.
@@ -33,32 +33,54 @@ func (n *Node) ID() pid.NodeID {
 	return n.nodeID
 }
 
-// RegisterHost adds a new host to the node with the specified host ID.
-// Returns an error if a host with the same ID is already registered.
-func (n *Node) RegisterHost(hostID pid.HostID, host api.Receiver) error {
-	_, loaded := n.hosts.LoadOrStore(hostID, host)
-	if loaded {
-		return NewHostExistsError(hostID, n.nodeID)
-	}
-	return nil
+// hostRegistration distinguishes successive registrations even when they reuse
+// the same receiver. Optional receiver capabilities are never wrapped or hidden.
+type hostRegistration struct {
+	receiver api.Receiver
 }
 
-// UnregisterHost removes a host from the node by its host ID.
+var _ api.OwnedHostRegistrar = (*Node)(nil)
+
+// RegisterHost adds a host until explicit UnregisterHost by its owning composition.
+func (n *Node) RegisterHost(hostID pid.HostID, host api.Receiver) error {
+	_, err := n.RegisterOwnedHost(hostID, host)
+	return err
+}
+
+// RegisterOwnedHost returns an idempotent release for this registration only.
+// Release stops new lookups; a receiver already obtained by Send, GetHost or
+// Attach may still be in use. The receiver owns admission fencing and draining.
+func (n *Node) RegisterOwnedHost(hostID pid.HostID, host api.Receiver) (context.CancelFunc, error) {
+	registration := &hostRegistration{receiver: host}
+	if _, loaded := n.hosts.LoadOrStore(hostID, registration); loaded {
+		return nil, NewHostExistsError(hostID, n.nodeID)
+	}
+	return func() { n.hosts.CompareAndDelete(hostID, registration) }, nil
+}
+
+// UnregisterHost unconditionally removes the current host. It remains available
+// to the owning composition; replaceable components should use RegisterOwnedHost.
 func (n *Node) UnregisterHost(hostID pid.HostID) {
 	n.hosts.Delete(hostID)
 }
 
-// GetHost returns a host by ID if it exists.
+// lookupHost keeps missing registrations distinct from invalid stored values.
+func (n *Node) lookupHost(hostID pid.HostID) (api.Receiver, bool) {
+	value, found := n.hosts.Load(hostID)
+	if !found {
+		return nil, false
+	}
+	registration, ok := value.(*hostRegistration)
+	if !ok {
+		return nil, true
+	}
+	return registration.receiver, true
+}
+
+// GetHost returns the original receiver with all its optional capabilities.
 func (n *Node) GetHost(hostID pid.HostID) (api.Receiver, bool) {
-	h, ok := n.hosts.Load(hostID)
-	if !ok {
-		return nil, false
-	}
-	receiver, ok := h.(api.Receiver)
-	if !ok {
-		return nil, false
-	}
-	return receiver, true
+	receiver, found := n.lookupHost(hostID)
+	return receiver, found && receiver != nil
 }
 
 // Send delivers a package to its destination. The destination must be a host
@@ -89,13 +111,13 @@ func (n *Node) send(ctx context.Context, pkg *api.Package) error {
 		return NewExternalNodeError(pkg.Target.Node)
 	}
 
-	h, ok := n.hosts.Load(pkg.Target.Host)
+	h, ok := n.lookupHost(pkg.Target.Host)
 	if !ok {
 		return NewHostNotFoundError(pkg.Target.Host, n.nodeID)
 	}
 
-	receiver, ok := h.(api.Receiver)
-	if !ok {
+	receiver := h
+	if receiver == nil {
 		return NewInvalidHostTypeError(pkg.Target.Host, n.nodeID)
 	}
 
@@ -115,7 +137,7 @@ func (n *Node) Attach(p pid.PID, ch chan *api.Package) (context.CancelFunc, erro
 		return nil, NewExternalNodeError(p.Node)
 	}
 
-	h, ok := n.hosts.Load(p.Host)
+	h, ok := n.lookupHost(p.Host)
 	if !ok {
 		return nil, NewHostNotFoundError(p.Host, n.nodeID)
 	}
@@ -134,7 +156,7 @@ func (n *Node) Detach(p pid.PID) {
 		return
 	}
 
-	h, ok := n.hosts.Load(p.Host)
+	h, ok := n.lookupHost(p.Host)
 	if !ok {
 		return
 	}
