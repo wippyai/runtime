@@ -13,6 +13,7 @@ type CreateFSConfig struct {
 	DirPath  string
 	Mode     fs.FileMode
 	AutoInit bool
+	ReadOnly bool
 }
 
 // FactoryAPI defines the interface for creating filesystem instances.
@@ -31,5 +32,8 @@ func NewFactory() *Factory {
 
 // CreateFS creates a new directory filesystem.
 func (f *Factory) CreateFS(cfg CreateFSConfig) (fsapi.FS, error) {
+	if cfg.ReadOnly {
+		return NewReadOnlyFS(cfg.DirPath, cfg.Mode)
+	}
 	return NewFS(cfg.DirPath, cfg.Mode, cfg.AutoInit)
 }

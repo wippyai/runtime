@@ -79,6 +79,16 @@ func TestConfig_MarshalUnmarshal(t *testing.T) {
 	}
 }
 
+func TestConfig_ReadOnly(t *testing.T) {
+	decoded := Config{}
+	require.NoError(t, json.Unmarshal([]byte(`{"directory": "/var/data", "readonly": true}`), &decoded))
+	assert.True(t, decoded.ReadOnly)
+	require.NoError(t, decoded.Validate())
+
+	conflict := Config{Directory: "/var/data", ReadOnly: true, AutoInit: true}
+	assert.ErrorIs(t, conflict.Validate(), ErrReadOnlyAutoInit)
+}
+
 func TestConfig_Validate(t *testing.T) {
 	tests := []struct {
 		name    string

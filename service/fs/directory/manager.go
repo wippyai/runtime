@@ -146,6 +146,7 @@ func (m *Manager) registerFSLocked(ctx context.Context, entry registry.Entry, cf
 		DirPath:  dirPath,
 		Mode:     cfg.GetMode(),
 		AutoInit: cfg.AutoInit,
+		ReadOnly: cfg.ReadOnly,
 	})
 	if err != nil {
 		m.log.Error("failed to create filesystem instance",

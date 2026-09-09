@@ -26,10 +26,16 @@ const (
 
 // FS implements both ReadFS and WriteFS interfaces.
 type FS struct {
-	root    *os.Root
-	dirPath string // original path for error messages
-	mode    fs.FileMode
-	closed  atomic.Bool
+	root     *os.Root
+	dirPath  string // original path for error messages
+	mode     fs.FileMode
+	readOnly bool
+	closed   atomic.Bool
+}
+
+// ReadOnly reports whether every mutation is refused at the boundary.
+func (d *FS) ReadOnly() bool {
+	return d.readOnly
 }
 
 // RootPath returns the absolute host path backing this filesystem.
@@ -40,6 +46,18 @@ func (d *FS) RootPath() string {
 // NewFS creates a new FS instance. It automatically adds execute bits
 // if the read bits are set but the execute bits are missing.
 func NewFS(dirPath string, mode fs.FileMode, autoInit bool) (*FS, error) {
+	return newFS(dirPath, mode, autoInit, false)
+}
+
+// NewReadOnlyFS creates an FS that refuses every mutation at the boundary:
+// writable or creating opens, truncation, removal, rename, directory
+// creation and metadata changes fail with ErrReadOnly whatever the mode
+// says, and handles it hands out are read-only. It never creates its root.
+func NewReadOnlyFS(dirPath string, mode fs.FileMode) (*FS, error) {
+	return newFS(dirPath, mode, false, true)
+}
+
+func newFS(dirPath string, mode fs.FileMode, autoInit bool, readOnly bool) (*FS, error) {
 	absPath, err := filepath.Abs(dirPath)
 	if err != nil {
 		return nil, systemfs.NewInvalidPathError(err)
@@ -62,9 +80,10 @@ func NewFS(dirPath string, mode fs.FileMode, autoInit bool) (*FS, error) {
 	}
 
 	return &FS{
-		root:    root,
-		dirPath: absPath,
-		mode:    mode,
+		root:     root,
+		dirPath:  absPath,
+		mode:     mode,
+		readOnly: readOnly,
 	}, nil
 }
 
@@ -89,6 +108,14 @@ func (d *FS) checkPermissions(op, displayPath string, check permCheck) error {
 			Op:   op,
 			Path: displayPath,
 			Err:  fsapi.ErrClosed,
+		}
+	}
+
+	if d.readOnly && check&permWrite != 0 {
+		return &fs.PathError{
+			Op:   op,
+			Path: displayPath,
+			Err:  fsapi.ErrReadOnly,
 		}
 	}
 
@@ -163,8 +190,9 @@ func (d *FS) OpenFile(name string, flag int, perm fs.FileMode) (fsapi.File, erro
 		}
 	}
 
-	// Check permissions based on flags.
-	if flag&(os.O_WRONLY|os.O_RDWR) != 0 {
+	// Check permissions based on flags. Creating, truncating or appending
+	// mutates as much as writing does.
+	if flag&(os.O_WRONLY|os.O_RDWR|os.O_CREATE|os.O_TRUNC|os.O_APPEND) != 0 {
 		if err := d.checkPermissions("open", displayName, permWrite); err != nil {
 			return nil, err
 		}
