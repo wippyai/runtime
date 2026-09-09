@@ -10,13 +10,30 @@ import (
 	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pid"
+	"github.com/wippyai/runtime/api/relay"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	runtimelua "github.com/wippyai/runtime/runtime/lua"
 )
 
 // TopicHandler processes incoming messages for a topic before channel delivery.
+// Context carries only this delivery's native provenance through TopicIngress.
 // Return value is what gets sent to the channel. Return nil to skip channel send.
 type TopicHandler func(ctx context.Context, l *lua.LState, source pid.PID, topic string, payloads []payload.Payload) lua.LValue
+
+// topicIngressKey is deliberately private: only the engine stamps delivery
+// provenance. It is not installed in a process or application context.
+type topicIngressKey struct{}
+
+// TopicIngress returns transport-observed provenance for the current callback.
+// A zero value is local delivery, not authenticated remote authority. Consumers
+// must authorize the immediate peer and check transport protection and lifetime.
+func TopicIngress(ctx context.Context) relay.IngressIdentity {
+	if ctx == nil {
+		return relay.IngressIdentity{}
+	}
+	ingress, _ := ctx.Value(topicIngressKey{}).(relay.IngressIdentity)
+	return ingress
+}
 
 // subscribeContext manages topic-to-channel mappings.
 // The subscription owns the channel - channels are created here, not by callers.

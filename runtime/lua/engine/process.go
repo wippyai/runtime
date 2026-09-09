@@ -134,6 +134,7 @@ type Process struct {
 
 // queuedMessage stores a message waiting to be delivered
 type queuedMessage struct {
+	Ingress relay.IngressIdentity
 	// Lease transfers the upstream EventQueue reservation into this mailbox.
 	// It is released only when this queued message is delivered, discarded, or
 	// the process execution is reset. A leased message is already bounded by
@@ -720,6 +721,7 @@ func (p *Process) Step(events []process.Event, out *process.StepOutput) error {
 			}
 			p.enqueueMessage(queuedMessage{
 				Source:       pkg.Source,
+				Ingress:      pkg.Ingress,
 				Topic:        msg.Topic,
 				Payloads:     msg.Payloads,
 				MaxItems:     msg.MaxItems,
@@ -1505,7 +1507,7 @@ func (p *Process) deliverMessage(subs *subscribeContext, qm queuedMessage) (keep
 	// Check for topic handler
 	var value lua.LValue
 	if handler, ok := p.GetTopicHandler(handlerTopic); ok {
-		value = handler(p.ctx, p.state, qm.Source, topic, payloads)
+		value = handler(context.WithValue(p.ctx, topicIngressKey{}, qm.Ingress), p.state, qm.Source, topic, payloads)
 		if value == nil {
 			// Handler processed but doesn't want to send to channel
 			if hasTerminal {

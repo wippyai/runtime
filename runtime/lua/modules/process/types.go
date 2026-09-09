@@ -12,6 +12,7 @@ import (
 
 var (
 	messageType        *typ.Interface
+	ingressType        *typ.Interface
 	processEventType   typ.Type
 	messageChannelType typ.Type
 	eventChannelType   typ.Type
@@ -20,7 +21,15 @@ var (
 )
 
 func init() {
+	ingressType = typ.NewInterface("process.Ingress", []typ.Method{
+		{Name: "node", Type: typ.Func().Param("self", typ.Self).Returns(typ.String).Build()},
+		{Name: "authenticated", Type: typ.Func().Param("self", typ.Self).Returns(typ.Boolean).Build()},
+		{Name: "integrity_protected", Type: typ.Func().Param("self", typ.Self).Returns(typ.Boolean).Build()},
+		{Name: "live", Type: typ.Func().Param("self", typ.Self).Returns(typ.Boolean).Build()},
+		{Name: "same_connection", Type: typ.Func().Param("self", typ.Self).Param("other", typ.Self).Returns(typ.Boolean).Build()},
+	})
 	messageType = typ.NewInterface("process.Message", []typ.Method{
+		{Name: "ingress", Type: typ.Func().Param("self", typ.Self).Returns(typ.NewOptional(ingressType)).Build()},
 		{Name: "from", Type: typ.Func().Param("self", typ.Self).Returns(typ.String).Build()},
 		{Name: "topic", Type: typ.Func().Param("self", typ.Self).Returns(typ.String).Build()},
 		{Name: "payload", Type: typ.Func().Param("self", typ.Self).Returns(typ.Any).Build()},
@@ -188,6 +197,7 @@ func ModuleTypes() *io.Manifest {
 	m := io.NewManifest("process")
 
 	m.DefineType("Message", messageType)
+	m.DefineType("Ingress", ingressType)
 	m.DefineType("Event", processEventType)
 	m.DefineType("Options", processOptionsType)
 	m.DefineType("SpawnBuilder", spawnBuilderType)

@@ -8,6 +8,8 @@ import (
 	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pid"
+	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/runtime/lua/engine"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	payloadmod "github.com/wippyai/runtime/runtime/lua/modules/payload"
 )
@@ -17,6 +19,7 @@ import (
 const messageTypeName = "process.Message"
 
 type Message struct {
+	ingress  relay.IngressIdentity
 	From     pid.PID
 	Topic    string
 	Payloads payload.Payloads
@@ -24,6 +27,7 @@ type Message struct {
 
 var messageMethods = map[string]lua.LGoFunc{
 	"topic":   messageTopic,
+	"ingress": messageIngress,
 	"payload": messagePayload,
 	"from":    messageFrom,
 }
@@ -106,7 +110,8 @@ func messageToString(l *lua.LState) int {
 }
 
 // MessageHandler creates messages from incoming payloads for channel delivery.
-func MessageHandler(_ context.Context, l *lua.LState, source pid.PID, topic string, payloads []payload.Payload) lua.LValue {
+func MessageHandler(ctx context.Context, l *lua.LState, source pid.PID, topic string, payloads []payload.Payload) lua.LValue {
 	msg := NewMessage(source, topic, payloads)
+	msg.ingress = engine.TopicIngress(ctx)
 	return WrapMessage(l, msg)
 }
