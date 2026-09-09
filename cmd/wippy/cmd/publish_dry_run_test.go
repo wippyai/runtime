@@ -14,12 +14,12 @@ import (
 func TestPublishCredentialRequirements(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
-		dryRun  bool
 		version string
 		want    string
+		dryRun  bool
 	}{
-		{"dry run requires explicit version", true, "", "version is required"},
-		{"upload requires credentials", false, "1.2.3", "not authenticated"},
+		{"dry run requires explicit version", "", "version is required", true},
+		{"upload requires credentials", "1.2.3", "not authenticated", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
