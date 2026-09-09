@@ -20,8 +20,8 @@ const hasherTypeName = "hash.Hasher"
 // hasher accumulates input across calls so that data too large to hold in
 // one string, such as a file read in chunks, digests the same as one-shot.
 type hasher struct {
-	algorithm string
 	h         hash.Hash
+	algorithm string
 }
 
 var hasherMetatable *lua.LTable
@@ -39,9 +39,9 @@ func init() {
 func newHashFunc(algorithm string) (func() hash.Hash, bool) {
 	switch algorithm {
 	case "md5":
-		return md5.New, true //nolint:gosec
+		return md5.New, true
 	case "sha1":
-		return sha1.New, true //nolint:gosec
+		return sha1.New, true
 	case "sha256":
 		return sha256.New, true
 	case "sha512":
