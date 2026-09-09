@@ -73,25 +73,6 @@ func internodeAdvertiseEndpoint(clusterCfg boot.Config, bindPort int) (string, i
 	return addr, configuredPort, nil
 }
 
-// discoverInternodePort starts a throwaway connection manager just long
-// enough to learn the actual listen port (AutoPort picks an ephemeral one),
-// then stops it. The discovered port is pinned on the real manager's config
-// so it binds the same port across restarts, and is advertised in node
-// metadata before the real manager starts.
-func discoverInternodePort(cfg internode.ManagerConfig, coll metricsapi.Collector) (int, error) {
-	tmp := internode.NewConnectionManager(cfg, coll)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	if err := tmp.Start(ctx, func(clusterapi.NodeID, []byte) {}); err != nil {
-		return 0, NewConnectionManagerPreStartError(err)
-	}
-	port := tmp.GetListenPort()
-	if err := tmp.Stop(); err != nil {
-		return 0, NewConnectionManagerStopError(err)
-	}
-	return port, nil
-}
-
 // clusterHealthScoreCeiling is the maximum memberlist health score
 // (where 0 = healthy) at which the activity-based liveness check still
 // reports healthy. Memberlist scores 1 or 2 commonly during chaos
@@ -130,6 +111,24 @@ func Cluster() boot.Component {
 	var internodeSvc *internode.Service
 	var connMgr internode.ConnectionManager
 	var logger *zap.Logger
+	var advertiseConfig boot.Config
+	var internodeActive, membershipActive bool
+	// Boot lifecycle calls are serialized. Clear each ownership flag before
+	// cleanup so failed Start followed by Loader.Shutdown cannot stop it twice.
+	stopServices := func() {
+		if internodeActive {
+			internodeActive = false
+			if err := internodeSvc.Stop(); err != nil {
+				logger.Error("failed to stop internode service", zap.Error(err))
+			}
+		}
+		if membershipActive {
+			membershipActive = false
+			if err := membershipSvc.Stop(); err != nil {
+				logger.Error("failed to stop membership service", zap.Error(err))
+			}
+		}
+	}
 
 	return boot.New(boot.P{
 		Name:      ClusterName,
@@ -247,19 +246,11 @@ func Cluster() boot.Component {
 				return ok
 			}
 
-			// Discover the actual internode port (AutoPort picks an
-			// ephemeral one) before the real start, since it's advertised in
-			// node metadata. Pin it so the real manager binds the same port
-			// across restarts.
-			actualPort, err := discoverInternodePort(connManagerCfg, metricsapi.GetCollector(ctx))
-			if err != nil {
-				return ctx, err
-			}
-			connManagerCfg.BindPort = actualPort
-			connManagerCfg.AutoPort = false
 			connMgr = internode.NewConnectionManager(connManagerCfg, metricsapi.GetCollector(ctx))
-
-			advertiseAddr, advertisePort, err := internodeAdvertiseEndpoint(clusterCfg, actualPort)
+			advertiseConfig = clusterCfg
+			// Validate overrides now; resolve an automatic port from the live
+			// listener during Start, before membership can advertise it.
+			_, _, err = internodeAdvertiseEndpoint(clusterCfg, 1)
 			if err != nil {
 				return ctx, err
 			}
@@ -281,17 +272,10 @@ func Cluster() boot.Component {
 				internode.MetadataSurfaceProtocol: "1",
 				internode.MetadataSurfaceGraphics: "1",
 				"role":                            "wippy",
-				internode.MetadataPort:            strconv.Itoa(actualPort),
 				internode.MetadataPublicKey:       base64.RawStdEncoding.EncodeToString(publicKey),
 				"raft_eligible":                   strconv.FormatBool(raftEligible),
 				"raft_priority":                   strconv.Itoa(clusterCfg.GetInt(ClusterRaftPriority, 100)),
 				"failure_domain":                  clusterCfg.GetString(ClusterFailureDomain, ""),
-			}
-			if advertiseAddr != "" {
-				// v2 metadata is additive: old peers ignore it and keep using
-				// internode_port plus the memberlist address.
-				nodeMeta[internode.MetadataAdvertiseAddr] = advertiseAddr
-				nodeMeta[internode.MetadataAdvertisePort] = strconv.Itoa(advertisePort)
 			}
 
 			// Create membership service config
@@ -405,7 +389,6 @@ func Cluster() boot.Component {
 
 			logger.Info("cluster initialized",
 				zap.String("node_name", nodeName),
-				zap.Int("internode_port", actualPort),
 				zap.Int("membership_port", memberCfg.BindPort),
 				zap.Strings("join_addrs", joinAddrs),
 			)
@@ -413,17 +396,34 @@ func Cluster() boot.Component {
 			return ctx, nil
 		},
 		Start: func(ctx context.Context) error {
-			if membershipSvc != nil {
-				logger.Info("starting cluster membership service")
-				if err := membershipSvc.Start(ctx); err != nil {
-					return NewMembershipStartError(err)
-				}
+			if internodeActive || membershipActive {
+				return fmt.Errorf("cluster component already started")
 			}
-
 			if internodeSvc != nil {
-				logger.Info("starting cluster internode service")
 				if err := internodeSvc.Start(ctx); err != nil {
 					return NewInternodeStartError(err)
+				}
+				internodeActive = true
+				actualPort := connMgr.GetListenPort()
+				addr, port, err := internodeAdvertiseEndpoint(advertiseConfig, actualPort)
+				if err != nil {
+					stopServices()
+					return err
+				}
+				meta := map[string]string{internode.MetadataPort: strconv.Itoa(actualPort)}
+				if addr != "" {
+					meta[internode.MetadataAdvertiseAddr] = addr
+					meta[internode.MetadataAdvertisePort] = strconv.Itoa(port)
+				}
+				membershipSvc.UpdateMeta(meta)
+			}
+			if membershipSvc != nil {
+				logger.Info("starting cluster membership service")
+				// Membership can acquire sockets before reporting a join error.
+				membershipActive = true
+				if err := membershipSvc.Start(ctx); err != nil {
+					stopServices()
+					return NewMembershipStartError(err)
 				}
 			}
 
@@ -463,20 +463,7 @@ func Cluster() boot.Component {
 			return nil
 		},
 		Stop: func(_ context.Context) error {
-			if internodeSvc != nil {
-				logger.Info("stopping cluster internode service")
-				if err := internodeSvc.Stop(); err != nil {
-					logger.Error("failed to stop internode service", zap.Error(err))
-				}
-			}
-
-			if membershipSvc != nil {
-				logger.Info("stopping cluster membership service")
-				if err := membershipSvc.Stop(); err != nil {
-					logger.Error("failed to stop membership service", zap.Error(err))
-				}
-			}
-
+			stopServices()
 			return nil
 		},
 	})

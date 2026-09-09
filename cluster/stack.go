@@ -85,8 +85,8 @@ type StackConfig struct {
 	MembershipProbeInterval       time.Duration
 	MembershipProbeTimeout        time.Duration
 	MembershipTCPTimeout          time.Duration
-	MembershipBindPort            int
-	InternodeBindPort             int
+	MembershipBindPort            int // zero asks the OS for a TCP/UDP gossip port
+	InternodeBindPort             int // zero asks the OS for an internode TCP port
 	MembershipSuspicionMult       int
 	InternodeAutoPort             bool
 }
@@ -137,8 +137,8 @@ func AssembleStack(cfg StackConfig) (*Stack, error) {
 	node := relay.NewNode(cfg.NodeName)
 	codec := internode.NewMessageCodec(cfg.Transcoder)
 
-	// Pre-start a temporary connection manager to discover the actual
-	// internode port (especially under AutoPort). Mirrors the boot flow.
+	// Bind during Start and publish the retained listener's actual endpoint
+	// before joining membership. Construction must not reserve network ports.
 	mgrCfg := internode.DefaultManagerConfig()
 	mgrCfg.LocalNodeID = cfg.NodeName
 	mgrCfg.BindAddr = stringOr(cfg.InternodeBindAddr, "0.0.0.0")
@@ -171,36 +171,20 @@ func AssembleStack(cfg StackConfig) (*Stack, error) {
 		return ok
 	}
 
-	tempMgr := internode.NewConnectionManager(mgrCfg, cfg.Collector)
-	tempCtx, tempCancel := context.WithCancel(context.Background())
-	if err := tempMgr.Start(tempCtx, func(_ clusterapi.NodeID, _ []byte) {}); err != nil {
-		tempCancel()
-		return nil, fmt.Errorf("cluster: pre-start connection manager: %w", err)
-	}
-	actualPort := tempMgr.GetListenPort()
-	if err := tempMgr.Stop(); err != nil {
-		tempCancel()
-		return nil, fmt.Errorf("cluster: stop pre-start connection manager: %w", err)
-	}
-	tempCancel()
-
-	// Pin the discovered port for the real manager.
-	mgrCfg.BindPort = actualPort
-	mgrCfg.AutoPort = false
 	connMgr := internode.NewConnectionManager(mgrCfg, cfg.Collector)
 
-	// Augment meta with the discovered port.
+	// Copy caller metadata and publish the identity. Start adds the retained
+	// listener port before membership begins advertising.
 	meta := clusterapi.NodeMeta{}
 	for k, v := range cfg.Meta {
 		meta[k] = v
 	}
-	meta[internode.MetadataPort] = strconv.Itoa(actualPort)
 	meta[internode.MetadataPublicKey] = base64.RawStdEncoding.EncodeToString(publicKey)
 
 	memCfg := membership.Config{
 		NodeName:            cfg.NodeName,
 		BindAddr:            stringOr(cfg.MembershipBindAddr, "0.0.0.0"),
-		BindPort:            intOr(cfg.MembershipBindPort, 7946),
+		BindPort:            cfg.MembershipBindPort,
 		JoinAddrs:           cfg.JoinAddrs,
 		SecretKey:           secretKey,
 		AdvertiseIP:         cfg.MembershipAdvertise,
@@ -253,8 +237,7 @@ func AssembleStack(cfg StackConfig) (*Stack, error) {
 	}, nil
 }
 
-// Start brings up membership and internode. Order matches the boot path:
-// membership first (so internode has a peer set ready), then internode.
+// Start retains the internode listener before advertising it through membership.
 func (s *Stack) Start(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -262,17 +245,19 @@ func (s *Stack) Start(ctx context.Context) error {
 		return fmt.Errorf("cluster: stack already started")
 	}
 
+	if err := s.Internode.Start(ctx); err != nil {
+		return fmt.Errorf("cluster: start internode: %w", err)
+	}
+	s.Membership.UpdateMeta(map[string]string{
+		internode.MetadataPort: strconv.Itoa(s.ConnMgr.GetListenPort()),
+	})
 	if err := s.Membership.Start(ctx); err != nil {
 		// memberlist.Create binds the gossip port BEFORE attempting Join,
 		// so a Join failure leaks the port even though Start returned an
 		// error. Tear membership down so a caller-side retry can re-bind.
 		_ = s.Membership.Stop()
+		_ = s.Internode.Stop()
 		return fmt.Errorf("cluster: start membership: %w", err)
-	}
-	if err := s.Internode.Start(ctx); err != nil {
-		// Best effort: tear membership down so we don't leak a half-up stack.
-		_ = s.Membership.Stop()
-		return fmt.Errorf("cluster: start internode: %w", err)
 	}
 	s.started = true
 	return nil
@@ -301,13 +286,6 @@ func (s *Stack) Stop() error {
 
 func stringOr(v, def string) string {
 	if v == "" {
-		return def
-	}
-	return v
-}
-
-func intOr(v, def int) int {
-	if v == 0 {
 		return def
 	}
 	return v
