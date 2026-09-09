@@ -21,12 +21,66 @@ var errPTYOwnership = errors.New("PTY process is unavailable or already owned")
 type Process struct {
 	handle        apiexec.Process
 	cancelCleanup func()
+	exit          *apiexec.ExitStatus
+	waitErr       error
+	exited        chan struct{}
+	doneChannel   *lua.LUserData
 	stdoutID      uint64
 	stderrID      uint64
 	mu            sync.Mutex
 	started       bool
 	closed        bool
+	reaping       bool
 }
+
+// reap waits on the child exactly once and records how it exited. done(),
+// wait() and close() all funnel through here, so the child is waited on once
+// however many of them are in play, and every caller observes the same exit.
+func (p *Process) reap(handle apiexec.Process) apiexec.ExitStatus {
+	p.mu.Lock()
+	if p.exited == nil {
+		p.exited = make(chan struct{})
+	}
+	exited, owner := p.exited, !p.reaping
+	p.reaping = true
+	p.mu.Unlock()
+
+	if owner {
+		err := handle.Wait()
+		status := apiexec.ClassifyExit(err)
+		p.mu.Lock()
+		p.exit, p.waitErr = &status, err
+		p.mu.Unlock()
+		close(exited)
+	} else {
+		<-exited
+	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return *p.exit
+}
+
+// reapError reports the untouched error of the single wait, for callers that
+// classify it themselves.
+func (p *Process) reapError(handle apiexec.Process) error {
+	p.reap(handle)
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.waitErr
+}
+
+// processReaper routes the wait yield through the wrapper's single reap. A
+// child that done() or close() already reaped still reports its exit instead of
+// failing a second wait.
+type processReaper struct {
+	apiexec.Process
+	proc *Process
+}
+
+func (r *processReaper) AwaitExit() apiexec.ExitStatus { return r.proc.reap(r.Process) }
+
+func (r *processReaper) Wait() error { return r.proc.reapError(r.Process) }
 
 func NewProcess(ctx context.Context, handle apiexec.Process) *Process {
 	p := &Process{
@@ -82,7 +136,7 @@ func (p *Process) close(force bool) {
 	// operation: the child may already have exited, but it must still be waited
 	// on so the OS can reclaim it.
 	_ = handle.Signal(int(signal))
-	go reapReleased(handle, force)
+	go p.reapReleased(handle, force)
 }
 
 // takePTYProcess transfers an unstarted PTY process out of its Lua exec
@@ -137,15 +191,15 @@ const reapGrace = 10 * time.Second
 // Wait closes the stdout and stderr pipes it created. That is inherent to
 // reaping and is the documented consequence of close(): the process is finished
 // with, and its streams along with it.
-func reapReleased(handle apiexec.Process, killed bool) {
-	reapReleasedWithGrace(handle, killed, reapGrace)
+func (p *Process) reapReleased(handle apiexec.Process, killed bool) {
+	p.reapReleasedWithGrace(handle, killed, reapGrace)
 }
 
-func reapReleasedWithGrace(handle apiexec.Process, killed bool, grace time.Duration) {
+func (p *Process) reapReleasedWithGrace(handle apiexec.Process, killed bool, grace time.Duration) {
 	exited := make(chan struct{})
 	go func() {
 		defer close(exited)
-		_ = handle.Wait()
+		p.reap(handle)
 	}()
 
 	if !killed {
@@ -169,6 +223,7 @@ func reapReleasedWithGrace(handle apiexec.Process, killed bool, grace time.Durat
 var processMethods = map[string]lua.LGoFunc{
 	"start":           procStart,
 	"wait":            procWait,
+	"done":            procDone,
 	"signal":          procSignal,
 	"write_stdin":     procWriteStdin,
 	"stdout_stream":   procStdout,
@@ -294,7 +349,7 @@ func procWait(l *lua.LState) int {
 	}
 
 	yield := AcquireProcessWaitYield()
-	yield.Process = handle
+	yield.Process = &processReaper{Process: handle, proc: p}
 
 	l.Push(yield)
 	return -1

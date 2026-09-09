@@ -94,7 +94,7 @@ func waitFor(t *testing.T, timeout time.Duration, cond func() bool) bool {
 func TestReapReleasedWaitsOnGracefulStop(t *testing.T) {
 	probe := newReapProbe()
 
-	reapReleased(probe, false)
+	(&Process{}).reapReleased(probe, false)
 
 	if probe.waits() != 1 {
 		t.Fatalf("expected the released process to be waited on once, got %d", probe.waits())
@@ -104,7 +104,7 @@ func TestReapReleasedWaitsOnGracefulStop(t *testing.T) {
 func TestReapReleasedWaitsOnForcedStop(t *testing.T) {
 	probe := newReapProbe()
 
-	reapReleased(probe, true)
+	(&Process{}).reapReleased(probe, true)
 
 	if probe.waits() != 1 {
 		t.Fatalf("expected the killed process to be waited on once, got %d", probe.waits())
@@ -123,7 +123,7 @@ func TestReapReleasedEscalatesToKill(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		reapReleasedWithGrace(probe, false, 10*time.Millisecond)
+		(&Process{}).reapReleasedWithGrace(probe, false, 10*time.Millisecond)
 	}()
 
 	// Let the escalation fire, then release the stand-in child as a real one
@@ -228,7 +228,7 @@ func TestClosedProcessIsNotLeftAsZombie(t *testing.T) {
 	handle := &cmdProcess{cmd: cmd, stdout: stdout}
 
 	_ = handle.Signal(int(syscall.SIGTERM))
-	go reapReleased(handle, false)
+	go (&Process{}).reapReleased(handle, false)
 
 	// A reaped child leaves the process table entirely; an unreaped one lingers
 	// in state Z until the parent exits.
