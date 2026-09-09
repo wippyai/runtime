@@ -69,16 +69,19 @@ type StackConfig struct {
 	// the harness to avoid disturbing the runtime's raft quorum.
 	Meta clusterapi.NodeMeta
 
-	NodeName                      string
-	MembershipBindAddr            string
-	MembershipAdvertise           string
-	SecretKey                     string
-	SecretFile                    string
-	InternodeIdentityKey          string
-	InternodeIdentityKeyFile      string
-	InternodeTrustedPeerKeys      map[string]string
-	InternodePeerKeySource        clusterapi.PeerKeySource
-	InternodeBindAddr             string
+	NodeName                 string
+	MembershipBindAddr       string
+	MembershipAdvertise      string
+	SecretKey                string
+	SecretFile               string
+	InternodeIdentityKey     string
+	InternodeIdentityKeyFile string
+	InternodeTrustedPeerKeys map[string]string
+	InternodePeerKeySource   clusterapi.PeerKeySource
+	InternodeBindAddr        string
+	// InternodeTLS selects the existing native mutual-TLS transport. Certificate
+	// loading happens during Start. The zero value preserves plaintext transport.
+	InternodeTLS                  internode.ManagerTLSConfig
 	JoinAddrs                     []string
 	MembershipGossipInterval      time.Duration
 	MembershipPushPullInterval    time.Duration
@@ -90,9 +93,6 @@ type StackConfig struct {
 	InternodeBindPort             int // zero asks the OS for an internode TCP port
 	MembershipSuspicionMult       int
 	InternodeAutoPort             bool
-	// InternodeTLS selects the existing native mutual-TLS transport. Certificate
-	// loading happens during Start. The zero value preserves plaintext transport.
-	InternodeTLS internode.ManagerTLSConfig
 }
 
 // AssembleStack constructs the relay node, router, membership service,

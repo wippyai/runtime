@@ -13,6 +13,9 @@ import (
 // clusterTLSConfig selects the same TLS implementation used by native stacks.
 // Invalid explicit configuration never silently selects plaintext.
 func clusterTLSConfig(cluster boot.Config) (internode.ManagerTLSConfig, error) {
+	if _, present := cluster.Get("internode.tls"); present {
+		return internode.ManagerTLSConfig{}, fmt.Errorf("cluster.internode.tls requires named settings such as enabled and cert_file, not a root value")
+	}
 	cfg := cluster.Sub("internode.tls")
 	var result internode.ManagerTLSConfig
 	for _, key := range cfg.Keys() {

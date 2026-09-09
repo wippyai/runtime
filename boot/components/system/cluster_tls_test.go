@@ -54,6 +54,10 @@ func TestClusterBootTLSConfigurationFailsClosed(t *testing.T) {
 			require.Error(t, err)
 		})
 	}
+	for _, raw := range []any{true, "enabled", nil, map[string]any{"enabled": true}} {
+		_, err := clusterTLSConfig(boot.NewConfig(boot.WithSection("cluster", map[string]any{"internode.tls": raw})).Sub("cluster"))
+		require.Error(t, err, "an explicit TLS root value must not silently become plaintext")
+	}
 	config, err := clusterTLSConfig(boot.NewConfig().Sub("cluster"))
 	require.NoError(t, err)
 	require.False(t, config.Enabled)
@@ -126,16 +130,16 @@ func TestClusterBootTLSUsesNativeManager(t *testing.T) {
 			roots := x509.NewCertPool()
 			roots.AddCert(cert)
 			dialer := &net.Dialer{Timeout: time.Second}
-			connection, err := tls.DialWithDialer(dialer, "tcp", endpoint, &tls.Config{RootCAs: roots, Certificates: []tls.Certificate{pair}, MinVersion: tls.VersionTLS12})
+			connection, err := (&tls.Dialer{NetDialer: dialer, Config: &tls.Config{RootCAs: roots, Certificates: []tls.Certificate{pair}, MinVersion: tls.VersionTLS12}}).DialContext(ctx, "tcp", endpoint)
 			require.NoError(t, err)
-			require.True(t, connection.ConnectionState().HandshakeComplete)
-			require.NotEmpty(t, connection.ConnectionState().VerifiedChains)
-			require.NoError(t, connection.NetConn().Close())
+			require.True(t, connection.(*tls.Conn).ConnectionState().HandshakeComplete)
+			require.NotEmpty(t, connection.(*tls.Conn).ConnectionState().VerifiedChains)
+			require.NoError(t, connection.(*tls.Conn).NetConn().Close())
 			// Cancellation must release admission before Loader reaches Stop;
 			// other components may still be draining user processes.
 			cancel()
 			require.Eventually(t, func() bool {
-				probe, err := net.DialTimeout("tcp", endpoint, 50*time.Millisecond)
+				probe, err := (&net.Dialer{Timeout: 50 * time.Millisecond}).DialContext(t.Context(), "tcp", endpoint)
 				if err != nil {
 					return true
 				}
@@ -148,7 +152,7 @@ func TestClusterBootTLSUsesNativeManager(t *testing.T) {
 			}
 			stops.Wait()
 			require.NoError(t, component.(boot.Stopper).Stop(ctx))
-			listener, err := net.Listen("tcp", endpoint)
+			listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", endpoint)
 			require.NoError(t, err)
 			require.NoError(t, listener.Close())
 		})

@@ -94,12 +94,12 @@ func generateTestTLSCerts(t *testing.T, nameA, nameB string) (internode.ManagerT
 
 type twoStackEnv struct {
 	collector apimetrics.Collector
+	trusted   map[string]string
 	secret    []byte
 	privA     ed25519.PrivateKey
 	privB     ed25519.PrivateKey
 	pubA      ed25519.PublicKey
 	pubB      ed25519.PublicKey
-	trusted   map[string]string
 }
 
 func setupTwoStackEnv(t *testing.T) *twoStackEnv {
@@ -265,25 +265,20 @@ func TestTwoStackTLSCommunication(t *testing.T) {
 	require.NoError(t, stackB.Node.RegisterHost("tls-proof", tlsInbox{received}))
 	testPayload := []byte("hello-over-native-tls")
 	pkg := relay.NewServicePackage("node-a", "fixture", "node-b", "tls-proof", "proof", apipayload.NewPayload(testPayload, apipayload.Bytes))
-	if err := stackA.Router.SendContext(ctx, pkg); err != nil {
+	if err := stackA.Router.Send(pkg); err != nil {
 		relay.ReleasePackage(pkg)
 		t.Fatal(err)
 	}
 	select {
 	case message := <-received:
 		require.Equal(t, testPayload, message.body)
-		require.Equal(t, clusterapi.NodeID("node-a"), message.ingress.Node)
-		require.True(t, message.ingress.Authenticated)
-		require.True(t, message.ingress.IntegrityProtected)
-		require.NotNil(t, message.ingress.ConnectionClosed)
 	case <-ctx.Done():
 		t.Fatal("TLS relay message not received", ctx.Err())
 	}
 }
 
 type tlsMessage struct {
-	body    []byte
-	ingress relay.IngressIdentity
+	body []byte
 }
 type tlsInbox struct{ received chan tlsMessage }
 
@@ -298,7 +293,7 @@ func (r tlsInbox) Send(pkg *relay.Package) error {
 			return errors.New("unexpected TLS payload type")
 		}
 		select {
-		case r.received <- tlsMessage{body: append([]byte(nil), body...), ingress: pkg.Ingress}:
+		case r.received <- tlsMessage{body: append([]byte(nil), body...)}:
 		default:
 			return errors.New("unexpected TLS duplicate")
 		}
