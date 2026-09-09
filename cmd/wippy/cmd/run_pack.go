@@ -599,7 +599,7 @@ func runFromPackFile(cmd *cobra.Command, packFile string, args []string, useCase
 	}
 	entries.ConfigureSourceLoader(ctx, sourcePaths, runLogger)
 
-	return runPackEntries(ctx, loader, runLogger, packEntries, args, useCase, mainModule)
+	return runPackEntries(ctx, loader, runLogger, packEntries, args, useCase, mainModule, commandHost(cmd))
 }
 
 // runFromPackFiles executes runtime from multiple already resolved .wapp files.
@@ -652,7 +652,7 @@ func runFromPackFiles(cmd *cobra.Command, packFiles []string, args []string, use
 	}
 	entries.ConfigureSourceLoader(ctx, sourcePaths, runLogger)
 
-	return runPackEntries(ctx, loader, runLogger, packEntries, args, useCase, mainModule)
+	return runPackEntries(ctx, loader, runLogger, packEntries, args, useCase, mainModule, commandHost(cmd))
 }
 
 func packSourcePaths(packFiles []string, rootModule string) ([]lock.ModuleLoadPath, error) {
@@ -682,6 +682,7 @@ func runPackEntries(
 	args []string,
 	useCase string,
 	mainModule string,
+	hostID string,
 ) error {
 	sigChan := setupSupervisorSignalChannel(ctx)
 	defer signal.Stop(sigChan)
@@ -716,7 +717,7 @@ func runPackEntries(
 
 	if entryID != "" {
 		execCtx, stopExecSignals := newExecSignalContext(appCtx)
-		execErr := launchExecProcess(execCtx, logger, entryID, "", args)
+		execErr := launchExecProcess(execCtx, logger, entryID, hostID, args)
 		interrupted := execWasInterrupted(execCtx, appCtx, execErr)
 		stopExecSignals()
 		if execErr != nil && !interrupted {

@@ -137,15 +137,23 @@ func runTest(cmd *cobra.Command, args []string) error {
 	return runWithUseCase(cmd, args, "test")
 }
 
+// commandHost applies the operator's selection equally to source and pack launches.
+func commandHost(cmd *cobra.Command) string {
+	if cmd == nil {
+		return ""
+	}
+	host, _ := cmd.Flags().GetString("host")
+	return host
+}
+
 func runWithUseCase(cmd *cobra.Command, args []string, useCase string) error {
 	memLimit := initMemoryLimit()
 
 	execSpec := ""
-	execHost := ""
+	execHost := commandHost(cmd)
 	registryURL := ""
 	if cmd != nil {
 		execSpec, _ = cmd.Flags().GetString("exec")
-		execHost, _ = cmd.Flags().GetString("host")
 		registryURL, _ = cmd.Flags().GetString("registry")
 	}
 
