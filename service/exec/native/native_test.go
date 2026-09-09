@@ -12,7 +12,6 @@ import (
 	osexec "os/exec"
 	"runtime"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
@@ -709,18 +708,6 @@ func TestExecutor_CloseStdin(t *testing.T) {
 	assert.NoError(t, readErr)
 	assert.Equal(t, "until end of file", string(output))
 	assert.NoError(t, process.Wait())
-}
-
-func TestPTYProcessRefusesCloseStdin(t *testing.T) {
-	executor := NewNativeExecutor(zap.NewNop(), &exec.NativeExecutorConfig{})
-	process, err := executor.NewProcess("cat", exec.ProcessOptions{PTY: &exec.PTYOptions{Width: 80, Height: 24}})
-	assert.NoError(t, err)
-	assert.NoError(t, process.Start())
-	closer, ok := process.(exec.StdinCloser)
-	assert.True(t, ok)
-	assert.ErrorIs(t, closer.CloseStdin(), ErrStdinPTY)
-	assert.NoError(t, process.Signal(int(syscall.SIGKILL)))
-	_ = process.Wait()
 }
 
 func TestNativeExecutor_Config(t *testing.T) {

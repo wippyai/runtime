@@ -215,6 +215,9 @@ func (e *ProcessExecutor) Start() error {
 		master, err := pty.StartWithSize(e.cmd, &pty.Winsize{Cols: uint16(width), Rows: uint16(height)})
 		if err != nil {
 			e.stopped.Store(true)
+			if errors.Is(err, pty.ErrUnsupported) {
+				return execapi.ErrPTYUnavailable.WithCause(err)
+			}
 			return err
 		}
 		e.ptyMaster = master
