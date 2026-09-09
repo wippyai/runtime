@@ -3,7 +3,7 @@
 See the [Lua agent guide](LUA_GUIDE.md) for the cross-node API workflow and
 the [V1 assessment](V1_REVIEW.md) for evidence and remaining shared-mesh limits.
 
-This harness runs 2–8 independent Wippy actor schedulers and the real internode
+This harness runs 2–16 independent Wippy actor schedulers and the real internode
 connection manager in a fully connected mesh. Each node starts a Bash PTY behind
 the existing Lua `exec` and terminal proxy APIs. Agents drive the next node in
 a ring concurrently, so every runtime both produces and consumes a surface.
@@ -114,3 +114,25 @@ GOWORK=off go test ./system/tty -run '^$' \
 
 The benchmark asserts no further image chunks and reports metadata wire bytes
 per capture. It uses an in-memory transport, not a network latency simulation.
+
+For sustained resource traffic, add `--image-churn`: producers alternate two
+different PNGs on every command, forcing the attachment cache to fetch again.
+The harness checks the exact total transferred bytes. For example:
+
+```sh
+python3 tests/tty-mesh/run.py --binary /tmp/wippy-tty-images-mesh-proof \
+  --images --image-churn --nodes 16 --commands 200
+```
+
+Local validation with 16 processes and 15 connected peers each:
+- 1,000 cached commands per node: p95 3.66–4.71 ms; one PNG transfer per node.
+- 200 changing-image commands per node: 844,476,576 total image bytes,
+  p95 26.37–31.34 ms; 1,573,748 charged image-store bytes per node at completion.
+- Repeated replacement/deletion test checks cache accounting returns to zero
+  after each of 100 cycles, under the race detector.
+
+These are ring workloads on loopback: every node is connected to every other
+node but drives one neighbor. They do not establish all-to-all observation
+capacity, WAN latency, peak RSS, fairness under arbitrary application traffic,
+or performance at saturation. The changing-image workload measures input through
+completed capture; it is not an independent keystroke latency measurement.

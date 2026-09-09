@@ -12,10 +12,10 @@ import (
 )
 
 // A deterministic, poorly compressible PNG forces multiple native mesh chunks.
-func proofImage() ([]byte, error) {
+func proofImage(seed int64) ([]byte, error) {
 	rgba := image.NewNRGBA(image.Rect(0, 0, 256, 256))
 	//nolint:gosec // Reproducible visual fixture, never keys or authorization tokens.
-	_, _ = rand.New(rand.NewSource(17)).Read(rgba.Pix)
+	_, _ = rand.New(rand.NewSource(seed)).Read(rgba.Pix)
 	var b bytes.Buffer
 	err := png.Encode(&b, rgba)
 	return b.Bytes(), err
@@ -40,9 +40,11 @@ local events=assert(tty.events())
 assert(tty.start())
 local surface=assert(tty.surface())
 local image=assert(tty.image(proof_image_png))
+local alternate=nil
+if proof_image_churn then alternate=assert(tty.image(proof_image_alternate)) end
 local sequence=0
 local function paint()
- assert(surface:present({"IMAGE_READY:"..sequence},{images={{placement_id="chart",image=image,x=1+sequence%30,y=3,cols=32,rows=8,alt="Remote chart"}}}))
+ assert(surface:present({"IMAGE_READY:"..sequence},{images={{placement_id="chart",image=(alternate and sequence%2==1) and alternate or image,x=1+sequence%30,y=3,cols=32,rows=8,alt="Remote chart"}}}))
 end
 paint()
 while true do
@@ -53,6 +55,7 @@ while true do
 end
 assert(surface:close())
 assert(image:close())
+if alternate then assert(alternate:close()) end
 `
 const imageAgentScript = `
 local observer=assert(tty.attach(observe_ref))
@@ -83,7 +86,7 @@ for i=1,commands do
  assert(snap.width==100 and snap.height==30 and snap.layers[2]=="images")
  assert(snap.images[1].x==1+i%30)
  local image=assert(capture:image(snap.images[1].image_id))
- assert(image:read()==proof_image_png)
+ assert(image:read()==((proof_image_churn and i%2==1) and proof_image_alternate or proof_image_png))
  assert(image:close());assert(capture:close())
  measure("end")
 end

@@ -109,6 +109,24 @@ func TestMeshImagesCaptureCacheAndRevocation(t *testing.T) {
 	require.Zero(t, f.b.images.Used())
 	require.Zero(t, f.a.images.Used())
 }
+func TestMeshImagesRepeatedReplacementReleasesCache(t *testing.T) {
+	f := imageMesh(t, true, true)
+	for range 100 {
+		_, err := f.output.Present(f.frame)
+		require.NoError(t, err)
+		capture, err := f.remote.(ttyapi.CaptureViewport).Capture(f.agent)
+		require.NoError(t, err)
+		require.NoError(t, capture.Close())
+		require.Equal(t, f.a.images.Used(), f.b.images.Used(), "only the current resource is cached")
+		_, err = f.output.Present(ttyapi.Frame{Rows: []string{"cleared"}})
+		require.NoError(t, err)
+		cleared, err := f.remote.(ttyapi.CaptureViewport).Capture(f.agent)
+		require.NoError(t, err)
+		require.NoError(t, cleared.Close())
+		require.Zero(t, f.b.images.Used(), "replacement must release the previous cache")
+	}
+}
+
 func TestMeshImagesMixedCapabilitiesStayTextOnly(t *testing.T) {
 	for _, pair := range [][2]bool{{true, false}, {false, true}} {
 		t.Run(string(rune('0'+btoi(pair[0]))), func(t *testing.T) {
