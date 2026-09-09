@@ -11,6 +11,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/wippyai/runtime/api/boot"
@@ -113,8 +114,15 @@ func Cluster() boot.Component {
 	var logger *zap.Logger
 	var advertiseConfig boot.Config
 	var internodeActive, membershipActive bool
-	// Boot lifecycle calls are serialized. Clear each ownership flag before
-	// cleanup so failed Start followed by Loader.Shutdown cannot stop it twice.
+	var lifecycle sync.Mutex
+	type execution struct {
+		cancelWatch func() bool
+		done        chan struct{}
+	}
+	var current *execution
+	// The lifecycle lock also serializes context cancellation with boot calls.
+	// Clear ownership before cleanup so a failed Start followed by shutdown
+	// cannot stop a service twice.
 	stopServices := func() {
 		if internodeActive {
 			internodeActive = false
@@ -134,6 +142,11 @@ func Cluster() boot.Component {
 		Name:      ClusterName,
 		DependsOn: []boot.Name{metricsboot.Name},
 		Load: func(ctx context.Context) (context.Context, error) {
+			lifecycle.Lock()
+			defer lifecycle.Unlock()
+			if current != nil || internodeActive || membershipActive {
+				return ctx, fmt.Errorf("cluster component already started")
+			}
 			logger = logapi.GetLogger(ctx).Named("cluster")
 			cfg := boot.GetConfig(ctx)
 
@@ -395,7 +408,12 @@ func Cluster() boot.Component {
 			return ctx, nil
 		},
 		Start: func(ctx context.Context) error {
-			if internodeActive || membershipActive {
+			lifecycle.Lock()
+			defer lifecycle.Unlock()
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			if current != nil || internodeActive || membershipActive {
 				return fmt.Errorf("cluster component already started")
 			}
 			if internodeSvc != nil {
@@ -459,10 +477,32 @@ func Cluster() boot.Component {
 				})
 			}
 
+			// Network admission ends with this execution, independently of reverse
+			// loader shutdown order (a supervisor may still be draining actors).
+			run := &execution{done: make(chan struct{})}
+			current = run
+			run.cancelWatch = context.AfterFunc(ctx, func() {
+				defer close(run.done)
+				lifecycle.Lock()
+				defer lifecycle.Unlock()
+				if current == run {
+					stopServices()
+				}
+			})
 			return nil
 		},
 		Stop: func(_ context.Context) error {
+			lifecycle.Lock()
+			run := current
+			join := run != nil && !run.cancelWatch()
 			stopServices()
+			current = nil
+			lifecycle.Unlock()
+			// An already scheduled callback may be waiting for the lock. Join it
+			// without holding the lock; its identity cannot stop a later Start.
+			if join {
+				<-run.done
+			}
 			return nil
 		},
 	})

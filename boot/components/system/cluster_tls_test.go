@@ -13,6 +13,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -130,6 +131,22 @@ func TestClusterBootTLSUsesNativeManager(t *testing.T) {
 			require.True(t, connection.ConnectionState().HandshakeComplete)
 			require.NotEmpty(t, connection.ConnectionState().VerifiedChains)
 			require.NoError(t, connection.NetConn().Close())
+			// Cancellation must release admission before Loader reaches Stop;
+			// other components may still be draining user processes.
+			cancel()
+			require.Eventually(t, func() bool {
+				probe, err := net.DialTimeout("tcp", endpoint, 50*time.Millisecond)
+				if err != nil {
+					return true
+				}
+				_ = probe.Close()
+				return false
+			}, time.Second, 5*time.Millisecond)
+			var stops sync.WaitGroup
+			for range 8 {
+				stops.Go(func() { _ = component.(boot.Stopper).Stop(ctx) })
+			}
+			stops.Wait()
 			require.NoError(t, component.(boot.Stopper).Stop(ctx))
 			listener, err := net.Listen("tcp", endpoint)
 			require.NoError(t, err)
