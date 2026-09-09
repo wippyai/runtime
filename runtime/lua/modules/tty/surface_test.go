@@ -59,7 +59,8 @@ func TestSurfacePresentClearsRemovedRows(t *testing.T) {
 
 	changed, _, err := surface.present([]string{"one"})
 	require.NoError(t, err)
-	assert.Equal(t, 2, changed)
+	assert.Equal(t, 3, changed, "shrink cleanup repaints the retained row after clearing clamped rows")
+	assert.Contains(t, output.String(), "\x1b[1;1H\x1b[0m\x1b[Kone")
 	assert.Contains(t, output.String(), "\x1b[2;1H\x1b[0m\x1b[K")
 	assert.Contains(t, output.String(), "\x1b[3;1H\x1b[0m\x1b[K")
 }
