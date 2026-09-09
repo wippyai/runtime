@@ -49,7 +49,7 @@ func TestFutureManifestMatchesRegisteredMethods(t *testing.T) {
 	}
 }
 
-func TestFutureManifestChannelsAreOptionalUnknownChannels(t *testing.T) {
+func TestFutureManifestChannelsAreUnknownChannels(t *testing.T) {
 	target, ok := funcs.ModuleTypes().LookupType("Future")
 	if !ok {
 		t.Fatal("Future type not found in funcs manifest")
@@ -73,16 +73,12 @@ func TestFutureManifestChannelsAreOptionalUnknownChannels(t *testing.T) {
 			if len(fn.Returns) != 1 {
 				t.Fatalf("Future.%s type = %v, want one return", name, method.Type)
 			}
-			optional, ok := fn.Returns[0].(*typ.Optional)
-			if !ok {
-				t.Fatalf("Future.%s return = %v, want optional channel", name, fn.Returns[0])
-			}
-			channel, ok := optional.Inner.(*typ.Instantiated)
+			channel, ok := fn.Returns[0].(*typ.Instantiated)
 			if !ok || channel.Generic.Name != "channel.Channel" {
-				t.Fatalf("Future.%s return = %v, want channel.Channel<unknown>?", name, fn.Returns[0])
+				t.Fatalf("Future.%s return = %v, want channel.Channel<unknown>", name, fn.Returns[0])
 			}
 			if len(channel.TypeArgs) != 1 || !channel.TypeArgs[0].Equals(typ.Unknown) {
-				t.Fatalf("Future.%s return = %v, want channel.Channel<unknown>?", name, fn.Returns[0])
+				t.Fatalf("Future.%s return = %v, want channel.Channel<unknown>", name, fn.Returns[0])
 			}
 		})
 	}

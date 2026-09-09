@@ -10,16 +10,16 @@ import (
 
 // Future response values are the native completion channels created by the
 // async adapter. They carry an opaque payload, since the invoked function's
-// result is only known at runtime, and may be absent for an invalid future.
+// result is only known at runtime.
 var futureResponseChannelType = futureChannelType()
 
 func futureChannelType() typ.Type {
 	if manifest := engine.ChannelModuleTypes(); manifest != nil {
 		if channel, ok := manifest.LookupType("Channel"); ok {
 			if generic, ok := channel.(*typ.Generic); ok {
-				return typ.NewOptional(typ.Instantiate(generic, typ.Unknown))
+				return typ.Instantiate(generic, typ.Unknown)
 			}
-			return typ.NewOptional(channel)
+			return channel
 		}
 	}
 	return typ.Any
