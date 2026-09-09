@@ -211,6 +211,15 @@ func Cluster() boot.Component {
 				return ctx, fmt.Errorf("trusted internode key for local node %q is required and must match its identity", nodeName)
 			}
 
+			var peerKeySource clusterapi.PeerKeySource
+			if rawSource, present := clusterCfg.Get(ClusterInternodePeerKeySource); present {
+				var valid bool
+				peerKeySource, valid = rawSource.(clusterapi.PeerKeySource)
+				if !valid || peerKeySource == nil {
+					return ctx, fmt.Errorf("cluster.internode.peer_key_source requires a native PeerKeySource")
+				}
+			}
+
 			// Create message codec
 			messageCodec := internode.NewMessageCodec(dtt)
 
@@ -225,21 +234,7 @@ func Cluster() boot.Component {
 			connManagerCfg.SigningKey = signingKey
 			connManagerCfg.RequireAuthentication = true
 			connManagerCfg.ResolvePeerKey = func(id clusterapi.NodeID) (ed25519.PublicKey, bool) {
-				trustedKey, trusted := trustedPeerKeys[id]
-				if !trusted || id == "" || id == nodeName || membershipSvc == nil {
-					return nil, false
-				}
-				for _, nodeInfo := range membershipSvc.Nodes() {
-					if nodeInfo.ID != id {
-						continue
-					}
-					advertisedKey, err := internode.ParseIdentityPublicKey(nodeInfo.Meta[internode.MetadataPublicKey])
-					if err != nil || !advertisedKey.Equal(trustedKey) {
-						return nil, false
-					}
-					return trustedKey, true
-				}
-				return nil, false
+				return internode.ResolveMemberKey(nodeName, id, trustedPeerKeys, peerKeySource, membershipSvc)
 			}
 			connManagerCfg.AuthorizePeer = func(id clusterapi.NodeID, _ net.Addr) bool {
 				_, ok := connManagerCfg.ResolvePeerKey(id)
