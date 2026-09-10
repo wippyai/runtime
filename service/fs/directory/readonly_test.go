@@ -13,71 +13,99 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	fsapi "github.com/wippyai/runtime/api/fs"
+	dirapi "github.com/wippyai/runtime/api/service/fs/directory"
 	"github.com/wippyai/runtime/tests/tempfiles"
 )
 
 func requireReadOnly(t *testing.T, err error) {
 	t.Helper()
 	require.Error(t, err)
-	var pathErr *iofs.PathError
-	require.ErrorAs(t, err, &pathErr)
-	assert.ErrorIs(t, pathErr.Err, fsapi.ErrReadOnly)
+	assert.ErrorIs(t, err, fsapi.ErrReadOnly)
 }
 
-func TestFS_ReadOnlyVolume(t *testing.T) {
+func TestFactory_ReadOnlyVolume(t *testing.T) {
 	root, cleanup := tempfiles.TempDirWithFiles(t, "readonly_test", map[string]string{
 		"file1.txt":      "content1",
 		"dir1/file2.txt": "content2",
 	})
 	defer cleanup()
 
-	// The mode grants everything; read-only refuses mutations regardless.
-	fs, err := NewReadOnlyFS(root, 0755)
+	filesystem, err := NewFactory().CreateFS(CreateFSConfig{
+		DirPath:  root,
+		Mode:     0755,
+		ReadOnly: true,
+	})
 	require.NoError(t, err)
-	defer func() { require.NoError(t, fs.Close()) }()
-	assert.True(t, fs.ReadOnly())
+	defer func() { require.NoError(t, filesystem.(io.Closer).Close()) }()
+	_, exposesHostPath := filesystem.(fsapi.HostPathFS)
+	assert.False(t, exposesHostPath)
 
-	// Reads, stats and listings work, including chunked reads for streaming.
-	f, err := fs.Open("file1.txt")
+	file, err := filesystem.Open("file1.txt")
 	require.NoError(t, err)
 	buf := make([]byte, 3)
-	n, err := f.Read(buf)
+	n, err := file.Read(buf)
 	require.NoError(t, err)
 	assert.Equal(t, "con", string(buf[:n]))
-	rest, err := io.ReadAll(f)
-	require.NoError(t, err)
-	assert.Equal(t, "tent1", string(rest))
-	require.NoError(t, f.Close())
+	_, exposesChmod := file.(interface{ Chmod(os.FileMode) error })
+	assert.False(t, exposesChmod)
+	writer, exposesWrite := file.(io.Writer)
+	require.True(t, exposesWrite)
+	_, err = writer.Write([]byte("x"))
+	requireReadOnly(t, err)
+	require.NoError(t, file.Close())
 
-	info, err := fs.Stat("dir1/file2.txt")
+	info, err := filesystem.Stat("dir1/file2.txt")
 	require.NoError(t, err)
 	assert.Equal(t, int64(8), info.Size())
-	_, err = fs.Lstat("file1.txt")
+	_, err = filesystem.Lstat("file1.txt")
 	require.NoError(t, err)
-	entries, err := fs.ReadDir("dir1")
+	entries, err := filesystem.ReadDir("dir1")
 	require.NoError(t, err)
 	assert.Len(t, entries, 1)
-
-	rf, err := fs.OpenFile("file1.txt", os.O_RDONLY, 0)
+	directoryFile, err := filesystem.Open("dir1")
 	require.NoError(t, err)
-	_, err = rf.Write([]byte("x"))
-	assert.Error(t, err, "a handle from a read-only volume never writes")
-	require.NoError(t, rf.Close())
+	readDirectory, ok := directoryFile.(iofs.ReadDirFile)
+	require.True(t, ok)
+	entries, err = readDirectory.ReadDir(-1)
+	require.NoError(t, err)
+	assert.Len(t, entries, 1)
+	require.NoError(t, directoryFile.Close())
 
-	// Every mutation is refused at the boundary.
-	for _, flag := range []int{os.O_WRONLY, os.O_RDWR, os.O_RDONLY | os.O_CREATE, os.O_RDONLY | os.O_TRUNC, os.O_RDONLY | os.O_APPEND} {
-		_, err = fs.OpenFile("file1.txt", flag, 0644)
-		requireReadOnly(t, err)
-	}
-	_, err = fs.OpenFile("created.txt", os.O_CREATE|os.O_WRONLY, 0644)
+	readFile, err := filesystem.OpenFile("file1.txt", os.O_RDONLY, 0)
+	require.NoError(t, err)
+	_, err = readFile.Seek(3, io.SeekStart)
+	require.NoError(t, err)
+	rest, err := io.ReadAll(readFile)
+	require.NoError(t, err)
+	assert.Equal(t, "tent1", string(rest))
+	_, exposesChmod = readFile.(interface{ Chmod(os.FileMode) error })
+	assert.False(t, exposesChmod)
+	_, err = readFile.Write([]byte("x"))
 	requireReadOnly(t, err)
-	requireReadOnly(t, fs.Remove("file1.txt"))
-	requireReadOnly(t, fs.Mkdir("newdir", 0755))
-	requireReadOnly(t, fs.Rename("file1.txt", "moved.txt"))
-	requireReadOnly(t, fs.Truncate("file1.txt", 0))
-	requireReadOnly(t, fs.Chtimes("file1.txt", time.Now(), time.Now()))
+	require.NoError(t, readFile.Close())
 
-	// Nothing changed on disk.
+	for _, flag := range []int{
+		os.O_WRONLY,
+		os.O_RDWR,
+		os.O_RDONLY | os.O_CREATE,
+		os.O_RDONLY | os.O_TRUNC,
+		os.O_RDONLY | os.O_APPEND,
+		os.O_WRONLY | os.O_CREATE | os.O_EXCL,
+	} {
+		_, err = filesystem.OpenFile("file1.txt", flag, 0644)
+		requireReadOnly(t, err)
+		var pathErr *iofs.PathError
+		require.ErrorAs(t, err, &pathErr)
+		assert.Equal(t, "open", pathErr.Op)
+	}
+	_, err = filesystem.OpenFile("created.txt", os.O_CREATE|os.O_WRONLY, 0644)
+	requireReadOnly(t, err)
+	requireReadOnly(t, filesystem.Remove("file1.txt"))
+	requireReadOnly(t, filesystem.Mkdir("newdir", 0755))
+	requireReadOnly(t, filesystem.Rename("file1.txt", "moved.txt"))
+	requireReadOnly(t, filesystem.Truncate("file1.txt", 0))
+	requireReadOnly(t, filesystem.Chtimes("file1.txt", time.Now(), time.Now()))
+
 	content, err := os.ReadFile(filepath.Join(root, "file1.txt"))
 	require.NoError(t, err)
 	assert.Equal(t, "content1", string(content))
@@ -87,31 +115,43 @@ func TestFS_ReadOnlyVolume(t *testing.T) {
 	assert.True(t, os.IsNotExist(err))
 }
 
-func TestFS_ReadOnlyVolume_NeverCreatesRoot(t *testing.T) {
+func TestFactory_ReadOnlyNeverCreatesRoot(t *testing.T) {
 	root, cleanup := tempfiles.TempDirWithFiles(t, "readonly_root", map[string]string{})
 	defer cleanup()
-	_, err := NewReadOnlyFS(filepath.Join(root, "absent"), 0755)
+	absent := filepath.Join(root, "absent")
+
+	_, err := NewFactory().CreateFS(CreateFSConfig{DirPath: absent, Mode: 0755, ReadOnly: true})
 	require.Error(t, err)
+	_, statErr := os.Stat(absent)
+	assert.True(t, os.IsNotExist(statErr))
 }
 
-func TestFactory_CreateFS_ReadOnly(t *testing.T) {
-	root, cleanup := tempfiles.TempDirWithFiles(t, "readonly_factory", map[string]string{"file.txt": "x"})
-	defer cleanup()
-	created, err := NewFactory().CreateFS(CreateFSConfig{DirPath: root, Mode: 0755, ReadOnly: true})
+func TestFactory_RejectsReadOnlyAutoInit(t *testing.T) {
+	_, err := NewFactory().CreateFS(CreateFSConfig{
+		DirPath:  filepath.Join(t.TempDir(), "absent"),
+		Mode:     0755,
+		AutoInit: true,
+		ReadOnly: true,
+	})
+	assert.ErrorIs(t, err, dirapi.ErrReadOnlyAutoInit)
+}
+
+func TestFactory_WritableVolumeRetainsHostPath(t *testing.T) {
+	filesystem, err := NewFactory().CreateFS(CreateFSConfig{DirPath: t.TempDir(), Mode: 0755})
 	require.NoError(t, err)
-	readOnly, ok := created.(*FS)
-	require.True(t, ok)
-	defer func() { _ = readOnly.Close() }()
-	assert.True(t, readOnly.ReadOnly())
-	_, err = created.OpenFile("file.txt", os.O_WRONLY, 0644)
-	requireReadOnly(t, err)
-	writable, err := NewFactory().CreateFS(CreateFSConfig{DirPath: root, Mode: 0755})
+	defer func() { require.NoError(t, filesystem.(io.Closer).Close()) }()
+	_, exposesHostPath := filesystem.(fsapi.HostPathFS)
+	assert.True(t, exposesHostPath)
+}
+
+func TestFactory_ReadOnlyCloseClosesDirectory(t *testing.T) {
+	filesystem, err := NewFactory().CreateFS(CreateFSConfig{
+		DirPath:  t.TempDir(),
+		Mode:     0755,
+		ReadOnly: true,
+	})
 	require.NoError(t, err)
-	writableFS, ok := writable.(*FS)
-	require.True(t, ok)
-	defer func() { _ = writableFS.Close() }()
-	assert.False(t, writableFS.ReadOnly())
-	wf, err := writable.OpenFile("file.txt", os.O_WRONLY|os.O_TRUNC, 0644)
-	require.NoError(t, err)
-	require.NoError(t, wf.Close())
+	require.NoError(t, filesystem.(io.Closer).Close())
+	_, err = filesystem.Open(".")
+	assert.ErrorIs(t, err, fsapi.ErrClosed)
 }

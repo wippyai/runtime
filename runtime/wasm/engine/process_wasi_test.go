@@ -9,6 +9,8 @@ import (
 	"testing"
 	"testing/fstest"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	envapi "github.com/wippyai/runtime/api/env"
 	fsapi "github.com/wippyai/runtime/api/fs"
@@ -70,6 +72,13 @@ func (r *testFSRegistry) GetFS(name string) (fsapi.FS, bool) {
 	fs, ok := r.entries[name]
 	return fs, ok
 }
+
+type testHostPathFS struct {
+	fsapi.FS
+	root string
+}
+
+func (f *testHostPathFS) RootPath() string { return f.root }
 
 func TestResolveWASICallConfig_Empty(t *testing.T) {
 	p := &Process{}
@@ -144,6 +153,52 @@ func TestResolveWASICallConfig_ResolvesEnvAndMounts(t *testing.T) {
 	if cfg.Mounts[0].Filesystem != mockFS {
 		t.Fatal("cfg.Mounts[0].Filesystem does not match expected FS instance")
 	}
+}
+
+func TestResolveWASICallConfig_ReadOnlyFilesystemHidesHostPath(t *testing.T) {
+	ctx := ctxapi.NewRootContext()
+	secapi.SetStrictMode(ctx, false)
+	base := &testHostPathFS{
+		FS:   fsapi.NewReadOnlyFS(fstest.MapFS{}),
+		root: t.TempDir(),
+	}
+	readOnly := fsapi.NewReadOnlyFS(base)
+	p := &Process{
+		wasi: wasmapi.WASIConfig{Mounts: []wasmapi.WASIMountConfig{{
+			FS:       registry.ParseID("app.fs:data"),
+			Guest:    "/data",
+			ReadOnly: false,
+		}}},
+		fsReg: &testFSRegistry{entries: map[string]fsapi.FS{"app.fs:data": readOnly}},
+	}
+
+	cfg, err := p.resolveWASICallConfig(ctx)
+	require.NoError(t, err)
+	require.Len(t, cfg.Mounts, 1)
+	assert.Empty(t, cfg.Mounts[0].Host)
+	assert.Same(t, readOnly, cfg.Mounts[0].Filesystem)
+}
+
+func TestResolveWASICallConfig_WritableFilesystemUsesHostPath(t *testing.T) {
+	ctx := ctxapi.NewRootContext()
+	secapi.SetStrictMode(ctx, false)
+	hostPath := t.TempDir()
+	writable := &testHostPathFS{
+		FS:   fsapi.NewReadOnlyFS(fstest.MapFS{}),
+		root: hostPath,
+	}
+	p := &Process{
+		wasi: wasmapi.WASIConfig{Mounts: []wasmapi.WASIMountConfig{{
+			FS:    registry.ParseID("app.fs:data"),
+			Guest: "/data",
+		}}},
+		fsReg: &testFSRegistry{entries: map[string]fsapi.FS{"app.fs:data": writable}},
+	}
+
+	cfg, err := p.resolveWASICallConfig(ctx)
+	require.NoError(t, err)
+	require.Len(t, cfg.Mounts, 1)
+	assert.Equal(t, hostPath, cfg.Mounts[0].Host)
 }
 
 func TestResolveWASICallConfig_RequiredEnvMissing(t *testing.T) {

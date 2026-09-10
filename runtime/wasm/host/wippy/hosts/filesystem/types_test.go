@@ -187,3 +187,10 @@ func TestR11RenameRejectsReadonlyDestination(t *testing.T) {
 		t.Fatalf("source missing after rejected rename: %v", statErr)
 	}
 }
+
+func TestMapOSErrorReadOnly(t *testing.T) {
+	got := mapOSError(&fs.PathError{Op: "open", Path: "item", Err: fsapi.ErrReadOnly})
+	if got == nil || got.Code != ErrorReadOnly {
+		t.Fatalf("mapOSError() = %#v, want read-only", got)
+	}
+}

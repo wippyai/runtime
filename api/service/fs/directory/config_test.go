@@ -53,6 +53,7 @@ func TestConfig_MarshalUnmarshal(t *testing.T) {
 			config: Config{
 				Directory: "/usr/share",
 				Mode:      "0444",
+				ReadOnly:  true,
 			},
 			wantErr: false,
 		},
@@ -75,6 +76,7 @@ func TestConfig_MarshalUnmarshal(t *testing.T) {
 			assert.Equal(t, tt.config.Mode, decoded.Mode)
 			assert.Equal(t, tt.config.Type, decoded.Type)
 			assert.Equal(t, tt.config.Base, decoded.Base)
+			assert.Equal(t, tt.config.ReadOnly, decoded.ReadOnly)
 		})
 	}
 }
