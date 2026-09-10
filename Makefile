@@ -203,4 +203,4 @@ run-wippy:
 
 .PHONY: test-application
 test-application:
-	go test -tags "fts5 sqlite_vec treesitter sqlite_preupdate_hook" ./application ./cmd/wippy/cmd ./cmd/internal/entries ./boot/deps/lock
+	go test -tags "fts5 sqlite_vec treesitter sqlite_preupdate_hook" ./cmd/app ./cmd/wippy/cmd ./cmd/internal/entries ./boot/deps/lock

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
-// Package application hosts native applications built on the Wippy runtime.
-package application
+// Package app hosts native applications built on the Wippy runtime.
+package app
 
 import (
 	"bytes"
