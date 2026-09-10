@@ -14,6 +14,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -235,6 +236,15 @@ func TestTwoStackTLSCommunication(t *testing.T) {
 
 	cfgA := env.config("node-a", env.privA)
 	cfgA.InternodeTLS = tlsA
+	cfgA.InternodeTrustedPeerKeys = map[string]string{"node-a": env.trusted["node-a"]}
+	var keyLookups atomic.Int64
+	cfgA.InternodePeerKeySource = func(node string) (ed25519.PublicKey, bool) {
+		if node != "node-b" {
+			return nil, false
+		}
+		keyLookups.Add(1)
+		return append(ed25519.PublicKey(nil), env.pubB...), true
+	}
 
 	stackA, err := AssembleStack(cfgA)
 	require.NoError(t, err)
@@ -259,6 +269,7 @@ func TestTwoStackTLSCommunication(t *testing.T) {
 
 	require.Equal(t, []clusterapi.NodeID{"node-b"}, stackA.ConnMgr.ConnectedNodes())
 	require.Equal(t, []clusterapi.NodeID{"node-a"}, stackB.ConnMgr.ConnectedNodes())
+	require.Positive(t, keyLookups.Load(), "TLS admission must use the host-approved peer key")
 
 	// Inspect an actual decoded relay message, not a copied configuration flag.
 	received := make(chan tlsMessage, 1)
