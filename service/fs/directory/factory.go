@@ -6,6 +6,7 @@ import (
 	"io/fs"
 
 	fsapi "github.com/wippyai/runtime/api/fs"
+	dirapi "github.com/wippyai/runtime/api/service/fs/directory"
 )
 
 // CreateFSConfig is a config for CreateFS.
@@ -13,6 +14,7 @@ type CreateFSConfig struct {
 	DirPath  string
 	Mode     fs.FileMode
 	AutoInit bool
+	ReadOnly bool
 }
 
 // FactoryAPI defines the interface for creating filesystem instances.
@@ -31,5 +33,16 @@ func NewFactory() *Factory {
 
 // CreateFS creates a new directory filesystem.
 func (f *Factory) CreateFS(cfg CreateFSConfig) (fsapi.FS, error) {
-	return NewFS(cfg.DirPath, cfg.Mode, cfg.AutoInit)
+	if cfg.ReadOnly && cfg.AutoInit {
+		return nil, dirapi.ErrReadOnlyAutoInit
+	}
+
+	filesystem, err := NewFS(cfg.DirPath, cfg.Mode, cfg.AutoInit)
+	if err != nil {
+		return nil, err
+	}
+	if cfg.ReadOnly {
+		return fsapi.NewReadOnlyFS(filesystem), nil
+	}
+	return filesystem, nil
 }

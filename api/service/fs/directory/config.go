@@ -21,6 +21,10 @@ type Config struct {
 	Base       string `json:"base"`
 	parsedMode fs.FileMode
 	AutoInit   bool `json:"auto_init"`
+	// ReadOnly refuses every mutation at the filesystem boundary, whatever
+	// the mode says: no writable open, creation, truncation, removal,
+	// rename, directory creation or metadata change goes through.
+	ReadOnly bool `json:"readonly"`
 }
 
 const (
@@ -46,6 +50,10 @@ func (c *Config) Validate() error {
 
 	if c.Base != "" && c.Base != BaseProject && c.Base != BaseModule {
 		return NewInvalidBaseError(c.Base)
+	}
+
+	if c.ReadOnly && c.AutoInit {
+		return ErrReadOnlyAutoInit
 	}
 
 	if c.Mode != "" {

@@ -163,8 +163,9 @@ func (d *FS) OpenFile(name string, flag int, perm fs.FileMode) (fsapi.File, erro
 		}
 	}
 
-	// Check permissions based on flags.
-	if flag&(os.O_WRONLY|os.O_RDWR) != 0 {
+	// Check permissions based on flags. Creating, truncating or appending
+	// mutates as much as writing does.
+	if flag&(os.O_WRONLY|os.O_RDWR|os.O_CREATE|os.O_TRUNC|os.O_APPEND) != 0 {
 		if err := d.checkPermissions("open", displayName, permWrite); err != nil {
 			return nil, err
 		}
