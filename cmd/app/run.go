@@ -4,6 +4,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -19,6 +20,7 @@ import (
 // DataEnv maps application-owned environment variables to paths within StateDir.
 // Existing environment values remain explicit user overrides.
 type Options struct {
+	Launch     Launch
 	DataEnv    map[string]string
 	Components []boot.Component
 	Name       string
@@ -34,6 +36,12 @@ var environmentName = regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)
 // arguments follow `run`; `runtime` exposes the Wippy CLI, including
 // Hub authentication, update and source inspection commands.
 func Run(ctx context.Context, options Options, args []string) error {
+	if ctx == nil {
+		return fmt.Errorf("application context is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if !applicationName.MatchString(options.Name) {
 		return fmt.Errorf("invalid application name")
 	}
@@ -62,23 +70,79 @@ func Run(ctx context.Context, options Options, args []string) error {
 	if err != nil {
 		return err
 	}
+	remaining := append([]string(nil), flags.Args()...)
+	ordinary := !*base && (len(remaining) == 0 || (remaining[0] != "runtime" && remaining[0] != "update"))
+	if options.Launch != nil && ordinary {
+		if len(remaining) > 0 && remaining[0] == "run" {
+			remaining = remaining[1:]
+		}
+		directory, err := os.Getwd()
+		if err != nil {
+			return err
+		}
+		request := LaunchRequest{Name: options.Name, Module: options.Bundle.Root, StateDir: stateDir,
+			Directory: directory, Command: *command, Arguments: append([]string(nil), remaining...)}
+		return launch(ctx, options.Launch, request, func(ctx context.Context, owner OwnerOptions) error {
+			selected := *command
+			if owner.Command != "" {
+				selected = owner.Command
+			}
+			arguments := remaining
+			if owner.Arguments != nil {
+				arguments = owner.Arguments
+			}
+			return runApplication(ctx, options, stateDir, false, selected, append([]string{"run"}, arguments...), owner)
+		})
+	}
+	return runApplication(ctx, options, stateDir, *base, *command, remaining, OwnerOptions{})
+}
+
+func runApplication(ctx context.Context, options Options, stateDir string, base bool, command string, remaining []string, owner OwnerOptions) (result error) {
 	if err := os.MkdirAll(stateDir, 0o700); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	unlock, err := lockApplication(stateDir)
+	if err != nil {
+		if errors.Is(err, errLockBusy) {
+			return fmt.Errorf("%w: %w", ErrBusy, err)
+		}
+		return err
+	}
+	defer unlock()
+	var overrides boot.Config
+	if owner.Prepare != nil {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		resources, err := owner.Prepare(ctx)
+		if resources.Close != nil {
+			defer func() { result = errors.Join(result, resources.Close()) }()
+		}
+		if err != nil {
+			return err
+		}
+		if !resources.Deadline.IsZero() {
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithDeadline(ctx, resources.Deadline)
+			defer cancel()
+		}
+		overrides = resources.Config
+	}
+	if err := ctx.Err(); err != nil {
 		return err
 	}
 	if err := configureDataEnvironment(stateDir, options.DataEnv); err != nil {
 		return err
 	}
-	unlock, err := lockApplication(stateDir)
-	if err != nil {
-		return err
-	}
-	defer unlock()
 	deployment, err := selectedDeployment(stateDir)
 	if err != nil {
 		return err
 	}
 	historyPath := filepath.Join(stateDir, "registry.db")
-	if *base {
+	if base {
 		if options.Mode != "base" {
 			return fmt.Errorf("bootstrap applications do not expose a base deployment")
 		}
@@ -91,16 +155,15 @@ func Run(ctx context.Context, options Options, args []string) error {
 	if err != nil {
 		return err
 	}
-	remaining := flags.Args()
 	if len(remaining) > 0 && remaining[0] == "update" {
-		if *base {
+		if base {
 			return fmt.Errorf("base recovery cannot be updated")
 		}
 		return updateDeployment(ctx, options, stateDir, deployment, remaining[1:], runChild)
 	}
-	runtimeArgs := []string{"run", "--silent", "--", *command}
+	runtimeArgs := []string{"run", "--silent", "--", command}
 	if len(remaining) > 0 && remaining[0] == "runtime" {
-		if *base {
+		if base {
 			return fmt.Errorf("base recovery only runs the embedded application")
 		}
 		runtimeArgs = remaining[1:]
@@ -122,11 +185,7 @@ func Run(ctx context.Context, options Options, args []string) error {
 		LockFile:    lockPath,
 		ConfigFiles: configFiles,
 		Components:  options.Components,
-		Overrides: boot.NewConfig(boot.WithSection("registry", map[string]any{
-			"enable_history": true,
-			"history_type":   "sqlite",
-			"history_path":   historyPath,
-		})),
+		Overrides:   launchOverrides(overrides, historyPath),
 	})
 }
 
