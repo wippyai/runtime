@@ -15,6 +15,7 @@ import (
 	ctxapi "github.com/wippyai/runtime/api/context"
 	terminalapi "github.com/wippyai/runtime/api/service/terminal"
 	ttyapi "github.com/wippyai/runtime/api/tty"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	terminalsvc "github.com/wippyai/runtime/service/terminal"
 )
 
@@ -313,4 +314,53 @@ func BenchmarkSurfacePresentOneChangedRow1000Rows(b *testing.B) {
 		}
 		surface.present(rows)
 	}
+}
+
+func TestTTYClipboardUsesPhysicalLease(t *testing.T) {
+	var output bytes.Buffer
+	l := lua.NewState()
+	defer l.Close()
+	bindTTY(l)
+	ctx := ctxapi.NewRootContext()
+	ctx, frame := ctxapi.OpenFrameContext(ctx)
+	defer frame.Close()
+	tc := terminalapi.NewTerminalContext(nil, &output, nil)
+	tc.Surface = func(options ttyapi.SurfaceOptions) (ttyapi.Surface, error) {
+		return terminalsvc.NewSurface(&output, options), nil
+	}
+	require.NoError(t, terminalapi.WithTerminalContext(ctx, tc))
+	l.SetContext(ctx)
+	require.NoError(t, l.DoString(`
+ local surface = assert(tty.surface())
+ local ok, err = surface:clipboard("hello")
+ assert(ok and err == nil)
+ assert(surface:close())
+ local stale, stale_err = surface:clipboard("stale")
+ assert(not stale and stale_err ~= nil)
+ `))
+	require.Equal(t, "\x1b]52;c;aGVsbG8=\x07", output.String())
+}
+
+type clipboardUnsupportedSurface struct{ calls int }
+
+func (s *clipboardUnsupportedSurface) Present(ttyapi.Frame) (ttyapi.PresentStats, error) {
+	s.calls++
+	return ttyapi.PresentStats{}, nil
+}
+func (*clipboardUnsupportedSurface) Invalidate()  {}
+func (*clipboardUnsupportedSurface) Close() error { return nil }
+
+func TestTTYClipboardUnsupportedDoesNotPresentText(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	bindTTY(l)
+	backend := &clipboardUnsupportedSurface{}
+	value.PushTypedUserData(l, &surfaceWrapper{backend: backend}, surfaceTypeName)
+	l.SetGlobal("surface", l.Get(-1))
+	l.Pop(1)
+	require.NoError(t, l.DoString(`
+ local ok, err = surface:clipboard("private")
+ assert(not ok and err ~= nil)
+ `))
+	require.Zero(t, backend.calls)
 }

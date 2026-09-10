@@ -294,3 +294,14 @@ Remote operations time out after 5 seconds. Re-attachment requires a fresh
 mount; transport reconnection does not permit replaying terminal input.
 Both nodes must advertise surface protocol version 1. Peers without that
 capability are rejected before writing a new protocol class to their connection.
+
+
+### Physical clipboard request
+
+`surface:clipboard(text) -> (boolean, error?)` writes a bounded OSC52 clipboard
+request on a physical surface. Text must be valid UTF-8 and at most 65,536 bytes.
+The physical surface serializes it with frame writes and rejects a closed lease.
+Success means the output accepted the request; terminal policy may still ignore
+it. No clipboard read, operating-system acknowledgement, replay, or persistence
+is provided. Virtual surfaces return unsupported; clients must route explicit
+copy operations to their own physical output instead of putting them in frames.

@@ -89,6 +89,19 @@ func (s *leasedSurface) Present(frame ttyapi.Frame) (ttyapi.PresentStats, error)
 	return s.Surface.Present(frame)
 }
 
+func (s *leasedSurface) Clipboard(text string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return ttyapi.ErrInvalidPort
+	}
+	output, ok := s.Surface.(ttyapi.ClipboardSurface)
+	if !ok {
+		return ttyapi.ErrClipboardUnsupported
+	}
+	return output.Clipboard(text)
+}
+
 func (s *leasedSurface) Invalidate() {
 	s.mu.Lock()
 	defer s.mu.Unlock()

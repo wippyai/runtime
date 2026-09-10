@@ -58,6 +58,16 @@ type Surface interface {
 	Close() error
 }
 
+// ClipboardSurface is an optional physical output capability. Clipboard requests
+// are explicit side effects, never frame content. Success means the request was
+// written, not that the host terminal changed the operating-system clipboard.
+// Virtual surfaces must not store or broadcast clipboard requests.
+type ClipboardSurface interface {
+	Clipboard(text string) error
+}
+
+const MaxClipboardBytes = 64 * 1024
+
 // Port is the minimal process-scoped terminal attachment. Implementations must
 // be safe to close more than once. Byte streams and raw mode are optional and
 // deliberately live on StreamPort rather than being faked by virtual ports.

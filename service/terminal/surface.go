@@ -3,10 +3,12 @@
 package terminal
 
 import (
+	"encoding/base64"
 	"fmt"
 	"io"
 	"strconv"
 	"sync"
+	"unicode/utf8"
 
 	ttyapi "github.com/wippyai/runtime/api/tty"
 )
@@ -181,3 +183,22 @@ func (s *Surface) Close() error {
 }
 
 var _ ttyapi.Surface = (*Surface)(nil)
+
+// Clipboard writes one bounded OSC52 request under the same lock as frames.
+// The request is never retained in surface history or repeated by Invalidate.
+func (s *Surface) Clipboard(text string) error {
+	if len(text) > ttyapi.MaxClipboardBytes || !utf8.ValidString(text) {
+		return fmt.Errorf("invalid clipboard text: expected UTF-8 within %d bytes", ttyapi.MaxClipboardBytes)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return ttyapi.ErrInvalidPort
+	}
+	request := "\x1b]52;c;" + base64.StdEncoding.EncodeToString([]byte(text)) + "\x07"
+	n, err := io.WriteString(s.out, request)
+	if err == nil && n != len(request) {
+		return io.ErrShortWrite
+	}
+	return err
+}
