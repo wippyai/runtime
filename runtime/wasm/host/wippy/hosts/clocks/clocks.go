@@ -140,6 +140,9 @@ func (p *DispatcherTimerPollable) Ready() bool {
 	return !time.Now().Before(p.deadline)
 }
 
+// Deadline returns the absolute readiness time for multi-source polling.
+func (p *DispatcherTimerPollable) Deadline() time.Time { return p.deadline }
+
 // Remaining returns remaining time until deadline.
 func (p *DispatcherTimerPollable) Remaining() time.Duration {
 	remaining := time.Until(p.deadline)

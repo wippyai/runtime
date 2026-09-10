@@ -51,6 +51,35 @@ func TestLink_WithDefault(t *testing.T) {
 	assert.Equal(t, "default_value", data["field"])
 }
 
+func TestLink_WASMRequirementUsesExistingCanonicalGroup(t *testing.T) {
+	ctx, _ := setupTestContext()
+	entries := []registry.Entry{
+		{
+			ID:   registry.NewID("test", "limit"),
+			Kind: registry.NamespaceRequirement,
+			Data: payload.New(map[string]any{
+				"default": 10,
+				"targets": []any{map[string]any{
+					"entry": "converter",
+					"path":  ".limits.max_execution_ms",
+				}},
+			}),
+		},
+		{
+			ID:   registry.NewID("test", "converter"),
+			Kind: "function.wasm",
+			Data: payload.New(map[string]any{"options": map[string]any{"limits": map[string]any{"max_execution_ms": 1}}}),
+		},
+	}
+
+	require.NoError(t, executeLinkFixture(ctx, &entries, Link()))
+	target := findEntry(entries, "test", "converter")
+	require.NotNil(t, target)
+	data := target.Data.Data().(map[string]any)
+	assert.NotContains(t, data, "limits")
+	assert.Equal(t, 10, data["options"].(map[string]any)["limits"].(map[string]any)["max_execution_ms"])
+}
+
 func TestLink_FromDependency(t *testing.T) {
 	ctx, _ := setupTestContext()
 
@@ -2244,4 +2273,20 @@ func findEntry(entries []registry.Entry, ns, name string) *registry.Entry {
 		}
 	}
 	return nil
+}
+
+func TestLink_WholeLegacyOptionsUpdatesExistingCanonicalGroup(t *testing.T) {
+	ctx, _ := setupTestContext()
+	entries := []registry.Entry{
+		{ID: registry.NewID("test", "options"), Kind: registry.NamespaceRequirement, Data: payload.New(map[string]any{
+			"default": map[string]any{"limits": map[string]any{"max_execution_ms": 25}, "retry": 3},
+			"targets": []any{map[string]any{"entry": "converter", "path": "meta.options"}},
+		})},
+		{ID: registry.NewID("test", "converter"), Kind: "function.wasm", Data: payload.New(map[string]any{"options": map[string]any{"limits": map[string]any{"max_execution_ms": 1}}})},
+	}
+	require.NoError(t, executeLinkFixture(ctx, &entries, Link()))
+	target := findEntry(entries, "test", "converter")
+	data := target.Data.Data().(map[string]any)
+	require.Equal(t, 25, data["options"].(map[string]any)["limits"].(map[string]any)["max_execution_ms"])
+	require.Equal(t, map[string]any{"retry": 3}, target.Meta["options"])
 }

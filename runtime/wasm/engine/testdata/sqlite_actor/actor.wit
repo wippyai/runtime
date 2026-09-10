@@ -1,0 +1,27 @@
+package wippy:actor@0.1.0;
+
+interface process {
+    type pid = string;
+
+    // Allowed formats: bytes, text (UTF-8), json (UTF-8 JSON).
+    record payload {
+        format: string,
+        data: list<u8>,
+    }
+
+    record message {
+        %from: pid,
+        topic: string,
+        payloads: list<payload>,
+    }
+
+    self: func() -> pid;
+    send: func(target: pid, topic: string, payloads: list<payload>) -> result<bool, string>;
+    try-receive: func() -> result<option<message>, string>;
+    receive: func() -> result<message, string>;
+}
+
+world actor {
+    import process;
+    export run: func() -> result<_, string>;
+}

@@ -15,6 +15,7 @@ import (
 	processapi "github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/registry"
 	api "github.com/wippyai/runtime/api/runtime/wasm"
+	"github.com/wippyai/runtime/api/security"
 	"go.uber.org/zap"
 )
 
@@ -96,9 +97,8 @@ func TestDeleteSendsFactoryDelete(t *testing.T) {
 func TestRegisterFactoryRequiresAwaitService(t *testing.T) {
 	m := NewManager(zap.NewNop(), &testBus{}, nil)
 	id := registry.ParseID("app.test:proc")
-	cfg := &configEntry{method: "run"}
 
-	err := m.registerFactory(ctxapi.NewRootContext(), id, cfg, nil)
+	err := m.registerFactory(ctxapi.NewRootContext(), id, "run", nil, api.WorkerClassWASM, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to register process factory")
 }
@@ -107,7 +107,6 @@ func TestRegisterFactoryPreparesBeforeSend(t *testing.T) {
 	bus := &testBus{}
 	m := NewManager(zap.NewNop(), bus, nil)
 	id := registry.ParseID("app.test:proc")
-	cfg := &configEntry{method: "run"}
 
 	awaitSvc := &testPrepareAwaitService{
 		result: event.AwaitResult{Accepted: true},
@@ -120,7 +119,68 @@ func TestRegisterFactoryPreparesBeforeSend(t *testing.T) {
 	}
 
 	ctx := event.WithAwaitService(ctxapi.NewRootContext(), awaitSvc)
-	err := m.registerFactory(ctx, id, cfg, nil)
+	err := m.registerFactory(ctx, id, "run", nil, api.WorkerClassWASM, nil)
 	require.NoError(t, err)
 	assert.False(t, sendBeforePrepare, "factory register was sent before await prepare")
+}
+
+func TestRegisterFactoryPreservesSecurity(t *testing.T) {
+	bus := &testBus{}
+	m := NewManager(zap.NewNop(), bus, nil)
+	id := registry.ParseID("app.test:proc")
+
+	awaitSvc := &testPrepareAwaitService{
+		result: event.AwaitResult{Accepted: true},
+	}
+	ctx := event.WithAwaitService(ctxapi.NewRootContext(), awaitSvc)
+	sec := &security.Config{
+		Actor: security.Actor{ID: "app.test:actor"},
+	}
+	err := m.registerFactory(ctx, id, "run", sec, api.WorkerClassWASM, nil)
+	require.NoError(t, err)
+	require.Len(t, bus.events, 1)
+	regEntry, ok := bus.events[0].Data.(*processapi.FactoryEntry)
+	require.True(t, ok)
+	assert.Same(t, sec, regEntry.Meta.Security)
+	assert.Equal(t, api.WorkerClassWASM, regEntry.Meta.WorkerClass)
+}
+
+func TestRegisterFactorySetsWorkerClass(t *testing.T) {
+	bus := &testBus{}
+	m := NewManager(zap.NewNop(), bus, nil)
+	id := registry.ParseID("app.test:proc")
+
+	awaitSvc := &testPrepareAwaitService{
+		result: event.AwaitResult{Accepted: true},
+	}
+	ctx := event.WithAwaitService(ctxapi.NewRootContext(), awaitSvc)
+	err := m.registerFactory(ctx, id, "run", nil, "wasm", nil)
+	require.NoError(t, err)
+	require.Len(t, bus.events, 1)
+	regEntry, ok := bus.events[0].Data.(*processapi.FactoryEntry)
+	require.True(t, ok)
+	assert.Equal(t, "wasm", regEntry.Meta.WorkerClass)
+}
+
+func TestManager_StopSerialization_NoFactoryPublishedAfterStop(t *testing.T) {
+	bus := &testBus{}
+	m := NewManager(zap.NewNop(), bus, nil)
+	require.NoError(t, m.Start(context.Background()))
+
+	// Stop manager
+	m.Stop()
+	assert.False(t, m.isStarted())
+
+	// Attempting Update after Stop must fail immediately without publishing
+	entry := registry.Entry{
+		ID:   registry.ParseID("app.test:proc"),
+		Kind: api.ProcessWASM,
+	}
+	err := m.Update(context.Background(), entry)
+	require.Error(t, err)
+	assert.Empty(t, bus.events)
+
+	err = m.Add(context.Background(), entry)
+	require.Error(t, err)
+	assert.Empty(t, bus.events)
 }

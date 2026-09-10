@@ -17,9 +17,6 @@ func IsAllowed(ctx context.Context, action, resource string, meta attrs.Bag) boo
 	actor, hasActor := security.GetActor(ctx)
 	scope, hasScope := security.GetScope(ctx)
 
-	// Get logger from context
-	logger := logs.GetLogger(ctx)
-
 	// If we have both actor and scope, evaluate directly
 	if hasActor && hasScope {
 		result := scope.Evaluate(actor, action, resource, meta)
@@ -27,6 +24,7 @@ func IsAllowed(ctx context.Context, action, resource string, meta attrs.Bag) boo
 	}
 
 	// Security context is incomplete - get PID and ID for debugging
+	logger := logs.GetLogger(ctx)
 	pid, hasPID := runtime.GetFramePID(ctx)
 	pidStr := ""
 	if hasPID {

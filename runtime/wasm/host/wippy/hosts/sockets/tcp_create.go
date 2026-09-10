@@ -45,6 +45,17 @@ func (e *NetworkError) Error() string {
 	return "network error"
 }
 
+// WITErrorPayload returns the canonical enum discriminant for WASI network error-code.
+func (e *NetworkError) WITErrorPayload() any {
+	if e == nil {
+		return uint32(NetworkErrorUnknown)
+	}
+	if e.Code > NetworkErrorPermanentResolverFailure {
+		return uint32(NetworkErrorUnknown)
+	}
+	return uint32(e.Code)
+}
+
 const (
 	AddressFamilyIPv4 uint8 = 0
 	AddressFamilyIPv6 uint8 = 1
@@ -69,7 +80,11 @@ func (h *TCPCreateSocketHost) CreateTCPSocket(_ context.Context, addressFamily u
 	}
 
 	socket := preview2.NewTCPSocketResource(addressFamily)
-	handle := h.resources.Add(socket)
+	handle, err := h.resources.TryAdd(socket)
+	if err != nil {
+		socket.Drop()
+		return 0, resourceLimitError(err)
+	}
 	return handle, nil
 }
 

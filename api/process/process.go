@@ -41,8 +41,9 @@ type (
 	Meta struct {
 		// Security carries the entry-declared security configuration; hosts
 		// apply it to the process frame context at start.
-		Security *security.Config
-		Method   string
+		Security    *security.Config
+		Method      string
+		WorkerClass string
 	}
 
 	// Start contains the configuration needed to start a new process.

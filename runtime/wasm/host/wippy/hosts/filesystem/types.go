@@ -7,10 +7,13 @@ import (
 	"errors"
 	"io"
 	"io/fs"
+	"math"
 	"os"
+	"reflect"
 	"syscall"
 	"time"
 
+	fsapi "github.com/wippyai/runtime/api/fs"
 	"github.com/wippyai/wasm-runtime/wasi/preview2"
 )
 
@@ -86,6 +89,26 @@ func mapOSError(err error) *Error {
 	if err == nil {
 		return nil
 	}
+	if errors.Is(err, preview2.ErrHostBufferLimit) {
+		return &Error{Code: ErrorInsufficientMemory}
+	}
+	if errors.Is(err, errors.ErrUnsupported) {
+		return &Error{Code: ErrorUnsupported}
+	}
+	if errors.Is(err, fsapi.ErrNotDirectory) {
+		return &Error{Code: ErrorNotDirectory}
+	}
+	if errors.Is(err, fsapi.ErrIsDirectory) {
+		return &Error{Code: ErrorIsDirectory}
+	}
+	// ENOTEMPTY also matches fs.ErrExist on Unix. Preserve the more specific
+	// native error before checking the broad portable categories below.
+	if errors.Is(err, fsapi.ErrNotEmpty) || errors.Is(err, syscall.ENOTEMPTY) {
+		return &Error{Code: ErrorNotEmpty}
+	}
+	if errors.Is(err, fsapi.ErrBusy) {
+		return &Error{Code: ErrorBusy}
+	}
 	if errors.Is(err, fs.ErrNotExist) {
 		return &Error{Code: ErrorNoEntry}
 	}
@@ -94,6 +117,10 @@ func mapOSError(err error) *Error {
 	}
 	if errors.Is(err, fs.ErrExist) {
 		return &Error{Code: ErrorExist}
+	}
+	var errno syscall.Errno
+	if errors.As(err, &errno) {
+		return mapErrno(errno)
 	}
 	var pathErr *os.PathError
 	if errors.As(err, &pathErr) {
@@ -194,12 +221,33 @@ func (h *TypesHost) getDescriptor(handle uint32) (*descriptorResource, *Error) {
 	return desc, nil
 }
 
-// resolvePath normalizes a relative path for use with the descriptor's FS.
-func resolvePath(desc *descriptorResource, path string) string {
-	if desc.path == "." || desc.path == "" {
-		return path
+func (d *descriptorResource) requireFile() (*retainedFile, *Error) {
+	if d.file == nil {
+		return nil, &Error{Code: ErrorIo}
 	}
-	return desc.path + "/" + path
+	return d.file, nil
+}
+
+func (d *descriptorResource) borrowDirectory() (fs.File, func(), *Error) {
+	if !d.isDir {
+		return nil, nil, &Error{Code: ErrorNotDirectory}
+	}
+	if d.file == nil {
+		return nil, nil, &Error{Code: ErrorBadDescriptor}
+	}
+	dir, release, err := d.file.borrow()
+	if err != nil {
+		return nil, nil, mapOSError(err)
+	}
+	return dir, release, nil
+}
+
+func sameFilesystem(left, right fsapi.FS) bool {
+	if left == nil || right == nil || reflect.TypeOf(left) != reflect.TypeOf(right) {
+		return false
+	}
+	typ := reflect.TypeOf(left)
+	return typ.Comparable() && left == right
 }
 
 func fileInfoToDescriptorType(info fs.FileInfo) DescriptorType {
@@ -251,33 +299,36 @@ func (h *TypesHost) MethodDescriptorRead(_ context.Context, self uint32, length 
 	if desc.isDir {
 		return nil, &Error{Code: ErrorIsDirectory}
 	}
+	if !desc.readable {
+		return nil, &Error{Code: ErrorNotPermitted}
+	}
+	if offset > math.MaxInt64 {
+		return nil, &Error{Code: ErrorOverflow}
+	}
 
+	// Descriptor reads return a transient list, so cap them to one stream-sized
+	// chunk. The guest can issue another offset read; allocating up to 1GiB here
+	// would bypass the explicit host-buffer admission used by streams.
+	if length > preview2.DefaultBufferSize {
+		length = preview2.DefaultBufferSize
+	}
 	allocationSize, ok := boundedAllocationSize(length)
 	if !ok {
 		return nil, &Error{Code: ErrorInsufficientMemory}
 	}
 
-	file, fsErr := desc.fs.OpenFile(desc.path, os.O_RDONLY, 0)
-	if fsErr != nil {
-		return nil, mapOSError(fsErr)
-	}
-	defer func() { _ = file.Close() }()
-
-	if offset > 0 {
-		_, fsErr = file.Seek(int64(offset), 0)
-		if fsErr != nil {
-			return nil, mapOSError(fsErr)
-		}
-	}
-
 	buf := make([]byte, allocationSize)
-	n, fsErr := file.Read(buf)
-	eof := false
+	file, fsErr := desc.requireFile()
 	if fsErr != nil {
-		if errors.Is(fsErr, io.EOF) {
+		return nil, fsErr
+	}
+	n, readErr := file.readAt(buf, int64(offset))
+	eof := false
+	if readErr != nil {
+		if errors.Is(readErr, io.EOF) {
 			eof = true
 		} else if n == 0 {
-			return nil, mapOSError(fsErr)
+			return nil, mapOSError(readErr)
 		}
 	}
 
@@ -290,28 +341,24 @@ func (h *TypesHost) MethodDescriptorWrite(_ context.Context, self uint32, buffer
 		return 0, err
 	}
 
-	if desc.readOnly {
+	if !desc.writable {
 		return 0, &Error{Code: ErrorReadOnly}
 	}
 
 	if desc.isDir {
 		return 0, &Error{Code: ErrorIsDirectory}
 	}
-
-	file, fsErr := desc.fs.OpenFile(desc.path, os.O_WRONLY, 0)
-	if fsErr != nil {
-		return 0, mapOSError(fsErr)
-	}
-	defer func() { _ = file.Close() }()
-
-	_, fsErr = file.Seek(int64(offset), 0)
-	if fsErr != nil {
-		return 0, mapOSError(fsErr)
+	if offset > math.MaxInt64 {
+		return 0, &Error{Code: ErrorOverflow}
 	}
 
-	n, fsErr := file.Write(buffer)
+	file, fsErr := desc.requireFile()
 	if fsErr != nil {
-		return uint64(n), mapOSError(fsErr)
+		return 0, fsErr
+	}
+	n, writeErr := file.writeAt(buffer, int64(offset))
+	if writeErr != nil {
+		return uint64(n), mapOSError(writeErr)
 	}
 
 	return uint64(n), nil
@@ -323,9 +370,13 @@ func (h *TypesHost) MethodDescriptorGetType(_ context.Context, self uint32) (Des
 		return DescriptorTypeUnknown, err
 	}
 
-	info, fsErr := desc.fs.Lstat(desc.path)
+	file, fsErr := desc.requireFile()
 	if fsErr != nil {
-		return DescriptorTypeUnknown, mapOSError(fsErr)
+		return DescriptorTypeUnknown, fsErr
+	}
+	info, statErr := file.stat()
+	if statErr != nil {
+		return DescriptorTypeUnknown, mapOSError(statErr)
 	}
 
 	return fileInfoToDescriptorType(info), nil
@@ -337,9 +388,13 @@ func (h *TypesHost) MethodDescriptorStat(_ context.Context, self uint32) (*Descr
 		return nil, err
 	}
 
-	info, fsErr := desc.fs.Stat(desc.path)
+	file, fsErr := desc.requireFile()
 	if fsErr != nil {
-		return nil, mapOSError(fsErr)
+		return nil, fsErr
+	}
+	info, statErr := file.stat()
+	if statErr != nil {
+		return nil, mapOSError(statErr)
 	}
 
 	mod := toDatetime(info.ModTime())
@@ -370,9 +425,13 @@ func (h *TypesHost) MethodDescriptorSeek(_ context.Context, self uint32, offset 
 	case 1:
 		newPosition = desc.position + offset
 	case 2:
-		info, fsErr := desc.fs.Stat(desc.path)
+		file, fsErr := desc.requireFile()
 		if fsErr != nil {
-			return 0, mapOSError(fsErr)
+			return 0, fsErr
+		}
+		info, statErr := file.stat()
+		if statErr != nil {
+			return 0, mapOSError(statErr)
 		}
 		newPosition = info.Size() + offset
 	default:
@@ -387,37 +446,83 @@ func (h *TypesHost) MethodDescriptorSeek(_ context.Context, self uint32, offset 
 	return uint64(newPosition), nil
 }
 
-func (h *TypesHost) MethodDescriptorGetFlags(_ context.Context, _ uint32) (uint32, *Error) {
-	return 0, nil
-}
-
-func (h *TypesHost) MethodDescriptorOpenAt(_ context.Context, self uint32, _ uint32, path string, openFlags uint32, _ uint32) (uint32, *Error) {
+func (h *TypesHost) MethodDescriptorGetFlags(_ context.Context, self uint32) (uint32, *Error) {
 	desc, err := h.getDescriptor(self)
 	if err != nil {
 		return 0, err
 	}
-
-	fullPath := resolvePath(desc, path)
-	createFlag := (openFlags & 1) != 0
-
-	info, fsErr := desc.fs.Stat(fullPath)
-	if fsErr != nil {
-		if errors.Is(fsErr, fs.ErrNotExist) && createFlag && !desc.readOnly {
-			file, createErr := desc.fs.OpenFile(fullPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
-			if createErr != nil {
-				return 0, mapOSError(createErr)
-			}
-			_ = file.Close()
-			info, fsErr = desc.fs.Stat(fullPath)
-			if fsErr != nil {
-				return 0, mapOSError(fsErr)
-			}
-		} else {
-			return 0, mapOSError(fsErr)
-		}
+	var flags uint32
+	if desc.readable {
+		flags |= 1
 	}
+	if desc.writable {
+		flags |= 2
+	}
+	if desc.mutable {
+		flags |= 32
+	}
+	return flags, nil
+}
 
-	newDesc := newDescriptorResource(desc.fs, fullPath, info.IsDir(), desc.readOnly)
+func (h *TypesHost) MethodDescriptorOpenAt(_ context.Context, self uint32, pathFlags uint32, path string, openFlags uint32, descriptorFlags uint32) (uint32, *Error) {
+	desc, err := h.getDescriptor(self)
+	if err != nil {
+		return 0, err
+	}
+	if !desc.isDir {
+		return 0, &Error{Code: ErrorNotDirectory}
+	}
+	if pathFlags&^uint32(1) != 0 || openFlags&^uint32(0x0f) != 0 || descriptorFlags&^uint32(0x3f) != 0 {
+		return 0, &Error{Code: ErrorInvalid}
+	}
+	if descriptorFlags&0x1c != 0 {
+		return 0, &Error{Code: ErrorUnsupported}
+	}
+	if openFlags&4 != 0 && openFlags&1 == 0 {
+		return 0, &Error{Code: ErrorInvalid}
+	}
+	request := fsapi.DescriptorOpenRequest{
+		Read:            descriptorFlags&1 != 0,
+		Write:           descriptorFlags&2 != 0,
+		MutateDirectory: descriptorFlags&32 != 0,
+		Create:          openFlags&1 != 0,
+		Directory:       openFlags&2 != 0,
+		Exclusive:       openFlags&4 != 0,
+		Truncate:        openFlags&8 != 0,
+		NoFollow:        pathFlags&1 == 0,
+	}
+	if request.Write && !desc.writable && !desc.mutable {
+		return 0, &Error{Code: ErrorReadOnly}
+	}
+	if request.MutateDirectory && !desc.mutable {
+		return 0, &Error{Code: ErrorReadOnly}
+	}
+	if request.Read && !desc.readable {
+		return 0, &Error{Code: ErrorNotPermitted}
+	}
+	if (request.Create || request.Exclusive) && !desc.mutable {
+		return 0, &Error{Code: ErrorReadOnly}
+	}
+	if request.Truncate && !desc.writable && !desc.mutable {
+		return 0, &Error{Code: ErrorReadOnly}
+	}
+	opener, ok := desc.fs.(fsapi.DescriptorOpener)
+	if !ok {
+		return 0, &Error{Code: ErrorUnsupported}
+	}
+	dir, release, borrowErr := desc.borrowDirectory()
+	if borrowErr != nil {
+		return 0, borrowErr
+	}
+	defer release()
+	file, openErr := opener.OpenDescriptorAt(dir, path, request)
+	if openErr != nil {
+		return 0, mapOSError(openErr)
+	}
+	newDesc, newErr := newOpenedDescriptorResource(desc.fs, file, request.Read, request.Write && (desc.writable || desc.mutable), request.MutateDirectory && desc.mutable)
+	if newErr != nil {
+		return 0, mapOSError(newErr)
+	}
 	handle := h.resources.Add(newDesc)
 	return handle, nil
 }
@@ -427,17 +532,21 @@ func (h *TypesHost) MethodDescriptorCreateDirectoryAt(_ context.Context, self ui
 	if err != nil {
 		return err
 	}
-
-	if desc.readOnly {
+	if !desc.mutable {
 		return &Error{Code: ErrorReadOnly}
 	}
-
-	fullPath := resolvePath(desc, path)
-	fsErr := desc.fs.Mkdir(fullPath, 0755)
-	if fsErr != nil {
-		return mapOSError(fsErr)
+	mutator, ok := desc.fs.(fsapi.DescriptorMutator)
+	if !ok {
+		return &Error{Code: ErrorUnsupported}
 	}
-
+	dir, release, dirErr := desc.borrowDirectory()
+	if dirErr != nil {
+		return dirErr
+	}
+	defer release()
+	if createErr := mutator.CreateDirectoryAt(dir, path, 0755); createErr != nil {
+		return mapOSError(createErr)
+	}
 	return nil
 }
 
@@ -450,40 +559,38 @@ func (h *TypesHost) MethodDescriptorReadDirectory(_ context.Context, self uint32
 	if !desc.isDir {
 		return 0, &Error{Code: ErrorNotDirectory}
 	}
-
-	entries, fsErr := desc.fs.ReadDir(desc.path)
-	if fsErr != nil {
-		return 0, mapOSError(fsErr)
+	if !desc.readable {
+		return 0, &Error{Code: ErrorNotPermitted}
 	}
 
-	dirEntries := make([]preview2.DirectoryEntry, 0, len(entries))
-	for _, entry := range entries {
-		info, _ := entry.Info()
-		var dtype uint8
-		if info != nil {
-			dtype = uint8(fileInfoToDescriptorType(info))
-		} else if entry.IsDir() {
-			dtype = uint8(DescriptorTypeDirectory)
-		} else {
-			dtype = uint8(DescriptorTypeRegularFile)
-		}
-		dirEntries = append(dirEntries, preview2.DirectoryEntry{
-			Type: dtype,
-			Name: entry.Name(),
-		})
+	stream, streamErr := newDirectoryEntryStreamResource(desc)
+	if streamErr != nil {
+		return 0, mapOSError(streamErr)
 	}
-
-	stream := preview2.NewDirectoryEntryStreamResource(dirEntries)
 	handle := h.resources.Add(stream)
 	return handle, nil
 }
 
-func (h *TypesHost) MethodDescriptorSync(_ context.Context, _ uint32) *Error {
+func (h *TypesHost) MethodDescriptorSync(_ context.Context, self uint32) *Error {
+	desc, err := h.getDescriptor(self)
+	if err != nil {
+		return err
+	}
+	if desc.isDir || desc.readOnly {
+		return nil
+	}
+	file, fileErr := desc.requireFile()
+	if fileErr != nil {
+		return fileErr
+	}
+	if syncErr := file.sync(); syncErr != nil {
+		return mapOSError(syncErr)
+	}
 	return nil
 }
 
-func (h *TypesHost) MethodDescriptorSyncData(_ context.Context, _ uint32) *Error {
-	return nil
+func (h *TypesHost) MethodDescriptorSyncData(ctx context.Context, self uint32) *Error {
+	return h.MethodDescriptorSync(ctx, self)
 }
 
 func (h *TypesHost) MethodDescriptorReadViaStream(_ context.Context, self uint32, offset uint64) (uint32, *Error) {
@@ -495,19 +602,18 @@ func (h *TypesHost) MethodDescriptorReadViaStream(_ context.Context, self uint32
 	if desc.isDir {
 		return 0, &Error{Code: ErrorIsDirectory}
 	}
+	if !desc.readable {
+		return 0, &Error{Code: ErrorNotPermitted}
+	}
 
-	data, fsErr := readAllFrom(desc.fs, desc.path)
+	file, fsErr := desc.requireFile()
 	if fsErr != nil {
-		return 0, mapOSError(fsErr)
+		return 0, fsErr
 	}
-
-	if offset > uint64(len(data)) {
-		data = nil
-	} else {
-		data = data[offset:]
+	stream, streamErr := newFileInputStreamResource(file, offset, h.resources.HostBufferBudget())
+	if streamErr != nil {
+		return 0, mapOSError(streamErr)
 	}
-
-	stream := preview2.NewInputStreamResource(data)
 	handle := h.resources.Add(stream)
 	return handle, nil
 }
@@ -520,25 +626,18 @@ func (h *TypesHost) MethodDescriptorWriteViaStream(_ context.Context, self uint3
 	if desc.isDir {
 		return 0, &Error{Code: ErrorIsDirectory}
 	}
-	if desc.readOnly {
+	if !desc.writable {
 		return 0, &Error{Code: ErrorReadOnly}
 	}
 
-	flags := os.O_WRONLY | os.O_CREATE
-	file, fsErr := desc.fs.OpenFile(desc.path, flags, 0644)
+	file, fsErr := desc.requireFile()
 	if fsErr != nil {
-		return 0, mapOSError(fsErr)
+		return 0, fsErr
 	}
-
-	if offset > 0 {
-		_, fsErr = file.Seek(int64(offset), 0)
-		if fsErr != nil {
-			_ = file.Close()
-			return 0, mapOSError(fsErr)
-		}
+	stream, streamErr := newFileOutputStreamResource(file, offset, false, h.resources.HostBufferBudget())
+	if streamErr != nil {
+		return 0, mapOSError(streamErr)
 	}
-
-	stream := newFileOutputStreamResource(file)
 	handle := h.resources.Add(stream)
 	return handle, nil
 }
@@ -551,17 +650,18 @@ func (h *TypesHost) MethodDescriptorAppendViaStream(_ context.Context, self uint
 	if desc.isDir {
 		return 0, &Error{Code: ErrorIsDirectory}
 	}
-	if desc.readOnly {
+	if !desc.writable {
 		return 0, &Error{Code: ErrorReadOnly}
 	}
 
-	flags := os.O_WRONLY | os.O_CREATE | os.O_APPEND
-	file, fsErr := desc.fs.OpenFile(desc.path, flags, 0644)
+	file, fsErr := desc.requireFile()
 	if fsErr != nil {
-		return 0, mapOSError(fsErr)
+		return 0, fsErr
 	}
-
-	stream := newFileOutputStreamResource(file)
+	stream, streamErr := newFileOutputStreamResource(file, 0, true, h.resources.HostBufferBudget())
+	if streamErr != nil {
+		return 0, mapOSError(streamErr)
+	}
 	handle := h.resources.Add(stream)
 	return handle, nil
 }
@@ -572,28 +672,25 @@ func (h *TypesHost) MethodDescriptorMetadataHash(_ context.Context, self uint32)
 		return 0, err
 	}
 
-	info, fsErr := desc.fs.Stat(desc.path)
+	file, fsErr := desc.requireFile()
 	if fsErr != nil {
-		return 0, mapOSError(fsErr)
+		return 0, fsErr
+	}
+	info, statErr := file.stat()
+	if statErr != nil {
+		return 0, mapOSError(statErr)
 	}
 
 	hash := uint64(info.Size()) ^ uint64(info.ModTime().UnixNano())
 	return hash, nil
 }
 
-func (h *TypesHost) MethodDescriptorMetadataHashAt(_ context.Context, self uint32, _ uint32, path string) (uint64, *Error) {
-	desc, err := h.getDescriptor(self)
+func (h *TypesHost) MethodDescriptorMetadataHashAt(_ context.Context, self uint32, pathFlags uint32, path string) (uint64, *Error) {
+	stat, err := h.MethodDescriptorStatAt(context.Background(), self, pathFlags, path)
 	if err != nil {
 		return 0, err
 	}
-
-	fullPath := resolvePath(desc, path)
-	info, fsErr := desc.fs.Stat(fullPath)
-	if fsErr != nil {
-		return 0, mapOSError(fsErr)
-	}
-
-	hash := uint64(info.Size()) ^ uint64(info.ModTime().UnixNano())
+	hash := stat.Size ^ (stat.DataModificationTimestamp.Seconds*1_000_000_000 + uint64(stat.DataModificationTimestamp.Nanoseconds))
 	return hash, nil
 }
 
@@ -603,7 +700,7 @@ func (h *TypesHost) MethodDescriptorRenameAt(_ context.Context, self uint32, old
 		return err
 	}
 
-	if oldDesc.readOnly {
+	if !oldDesc.mutable {
 		return &Error{Code: ErrorReadOnly}
 	}
 
@@ -612,18 +709,30 @@ func (h *TypesHost) MethodDescriptorRenameAt(_ context.Context, self uint32, old
 		return err
 	}
 
-	if newDesc.readOnly {
+	if !newDesc.mutable {
 		return &Error{Code: ErrorReadOnly}
 	}
 
-	oldFullPath := resolvePath(oldDesc, oldPath)
-	newFullPath := resolvePath(newDesc, newPath)
-
-	fsErr := oldDesc.fs.Rename(oldFullPath, newFullPath)
-	if fsErr != nil {
-		return mapOSError(fsErr)
+	if !sameFilesystem(oldDesc.fs, newDesc.fs) {
+		return &Error{Code: ErrorCrossDevice}
 	}
-
+	mutator, ok := oldDesc.fs.(fsapi.DescriptorMutator)
+	if !ok {
+		return &Error{Code: ErrorUnsupported}
+	}
+	oldDir, releaseOld, oldDirErr := oldDesc.borrowDirectory()
+	if oldDirErr != nil {
+		return oldDirErr
+	}
+	defer releaseOld()
+	newDir, releaseNew, newDirErr := newDesc.borrowDirectory()
+	if newDirErr != nil {
+		return newDirErr
+	}
+	defer releaseNew()
+	if renameErr := mutator.RenameAt(oldDir, oldPath, newDir, newPath); renameErr != nil {
+		return mapOSError(renameErr)
+	}
 	return nil
 }
 
@@ -633,25 +742,22 @@ func (h *TypesHost) MethodDescriptorUnlinkFileAt(_ context.Context, self uint32,
 		return err
 	}
 
-	if desc.readOnly {
+	if !desc.mutable {
 		return &Error{Code: ErrorReadOnly}
 	}
 
-	fullPath := resolvePath(desc, path)
-	info, fsErr := desc.fs.Lstat(fullPath)
-	if fsErr != nil {
-		return mapOSError(fsErr)
+	mutator, ok := desc.fs.(fsapi.DescriptorMutator)
+	if !ok {
+		return &Error{Code: ErrorUnsupported}
 	}
-
-	if info.IsDir() {
-		return &Error{Code: ErrorIsDirectory}
+	dir, release, dirErr := desc.borrowDirectory()
+	if dirErr != nil {
+		return dirErr
 	}
-
-	fsErr = desc.fs.Remove(fullPath)
-	if fsErr != nil {
-		return mapOSError(fsErr)
+	defer release()
+	if removeErr := mutator.UnlinkFileAt(dir, path); removeErr != nil {
+		return mapOSError(removeErr)
 	}
-
 	return nil
 }
 
@@ -661,56 +767,32 @@ func (h *TypesHost) MethodDescriptorRemoveDirectoryAt(_ context.Context, self ui
 		return err
 	}
 
-	if desc.readOnly {
+	if !desc.mutable {
 		return &Error{Code: ErrorReadOnly}
 	}
 
-	fullPath := resolvePath(desc, path)
-	info, fsErr := desc.fs.Lstat(fullPath)
-	if fsErr != nil {
-		return mapOSError(fsErr)
+	mutator, ok := desc.fs.(fsapi.DescriptorMutator)
+	if !ok {
+		return &Error{Code: ErrorUnsupported}
 	}
-
-	if !info.IsDir() {
-		return &Error{Code: ErrorNotDirectory}
+	dir, release, dirErr := desc.borrowDirectory()
+	if dirErr != nil {
+		return dirErr
 	}
-
-	fsErr = desc.fs.Remove(fullPath)
-	if fsErr != nil {
-		return mapOSError(fsErr)
+	defer release()
+	if removeErr := mutator.RemoveDirectoryAt(dir, path); removeErr != nil {
+		return mapOSError(removeErr)
 	}
-
 	return nil
 }
 
 func (h *TypesHost) MethodDescriptorStatAt(_ context.Context, self uint32, pathFlags uint32, path string) (*DescriptorStat, *Error) {
-	desc, err := h.getDescriptor(self)
+	opened, err := h.MethodDescriptorOpenAt(context.Background(), self, pathFlags, path, 0, 1)
 	if err != nil {
 		return nil, err
 	}
-
-	fullPath := resolvePath(desc, path)
-
-	var info fs.FileInfo
-	var fsErr error
-	if pathFlags&1 != 0 {
-		info, fsErr = desc.fs.Stat(fullPath)
-	} else {
-		info, fsErr = desc.fs.Lstat(fullPath)
-	}
-	if fsErr != nil {
-		return nil, mapOSError(fsErr)
-	}
-
-	mod := toDatetime(info.ModTime())
-	return &DescriptorStat{
-		Type:                      fileInfoToDescriptorType(info),
-		LinkCount:                 1,
-		Size:                      uint64(info.Size()),
-		DataAccessTimestamp:       mod,
-		DataModificationTimestamp: mod,
-		StatusChangeTimestamp:     mod,
-	}, nil
+	defer h.resources.Remove(opened)
+	return h.MethodDescriptorStat(context.Background(), opened)
 }
 
 func (h *TypesHost) MethodDescriptorSymlinkAt(_ context.Context, _ uint32, _ string, _ string) *Error {
@@ -725,47 +807,30 @@ func (h *TypesHost) MethodDescriptorLinkAt(_ context.Context, _ uint32, _ uint32
 	return &Error{Code: ErrorUnsupported}
 }
 
-func (h *TypesHost) MethodDescriptorSetTimes(_ context.Context, self uint32, atimeNs uint64, mtimeNs uint64) *Error {
+func (h *TypesHost) MethodDescriptorSetTimes(_ context.Context, self uint32, _ uint64, _ uint64) *Error {
 	desc, err := h.getDescriptor(self)
 	if err != nil {
 		return err
 	}
 
-	if desc.readOnly {
+	if !desc.writable {
 		return &Error{Code: ErrorReadOnly}
 	}
 
-	atime := time.Unix(0, int64(atimeNs))
-	mtime := time.Unix(0, int64(mtimeNs))
-
-	fsErr := desc.fs.Chtimes(desc.path, atime, mtime)
-	if fsErr != nil {
-		return mapOSError(fsErr)
-	}
-
-	return nil
+	return &Error{Code: ErrorUnsupported}
 }
 
-func (h *TypesHost) MethodDescriptorSetTimesAt(_ context.Context, self uint32, _ uint32, path string, atimeNs uint64, mtimeNs uint64) *Error {
+func (h *TypesHost) MethodDescriptorSetTimesAt(_ context.Context, self uint32, _ uint32, _ string, _ uint64, _ uint64) *Error {
 	desc, err := h.getDescriptor(self)
 	if err != nil {
 		return err
 	}
 
-	if desc.readOnly {
+	if !desc.writable {
 		return &Error{Code: ErrorReadOnly}
 	}
 
-	fullPath := resolvePath(desc, path)
-	atime := time.Unix(0, int64(atimeNs))
-	mtime := time.Unix(0, int64(mtimeNs))
-
-	fsErr := desc.fs.Chtimes(fullPath, atime, mtime)
-	if fsErr != nil {
-		return mapOSError(fsErr)
-	}
-
-	return nil
+	return &Error{Code: ErrorUnsupported}
 }
 
 func (h *TypesHost) MethodDescriptorSetSize(_ context.Context, self uint32, size uint64) *Error {
@@ -774,17 +839,23 @@ func (h *TypesHost) MethodDescriptorSetSize(_ context.Context, self uint32, size
 		return err
 	}
 
-	if desc.readOnly {
+	if !desc.writable {
 		return &Error{Code: ErrorReadOnly}
 	}
 
 	if desc.isDir {
 		return &Error{Code: ErrorIsDirectory}
 	}
+	if size > math.MaxInt64 {
+		return &Error{Code: ErrorOverflow}
+	}
 
-	fsErr := desc.fs.Truncate(desc.path, int64(size))
-	if fsErr != nil {
-		return mapOSError(fsErr)
+	file, fileErr := desc.requireFile()
+	if fileErr != nil {
+		return fileErr
+	}
+	if truncateErr := file.truncate(int64(size)); truncateErr != nil {
+		return mapOSError(truncateErr)
 	}
 
 	return nil
@@ -805,7 +876,15 @@ func (h *TypesHost) MethodDescriptorIsSameObject(_ context.Context, self uint32,
 		return false
 	}
 
-	return selfDesc.fs == otherDesc.fs && selfDesc.path == otherDesc.path
+	if selfDesc.file == nil || otherDesc.file == nil {
+		return false
+	}
+	if selfDesc.file == otherDesc.file {
+		return true
+	}
+	selfInfo, selfErr := selfDesc.file.stat()
+	otherInfo, otherErr := otherDesc.file.stat()
+	return selfErr == nil && otherErr == nil && os.SameFile(selfInfo, otherInfo)
 }
 
 func (h *TypesHost) ResourceDropDescriptor(_ context.Context, self uint32) {
@@ -822,17 +901,30 @@ func (h *TypesHost) MethodDirectoryEntryStreamReadDirectoryEntry(_ context.Conte
 		return nil, &Error{Code: ErrorBadDescriptor}
 	}
 
+	if stream, ok := r.(*directoryEntryStreamResource); ok {
+		entry, streamErr := stream.readNext()
+		if streamErr != nil {
+			return nil, mapOSError(streamErr)
+		}
+		if entry == nil {
+			return nil, nil
+		}
+		info, _ := entry.Info()
+		dtype := uint8(DescriptorTypeRegularFile)
+		if info != nil {
+			dtype = uint8(fileInfoToDescriptorType(info))
+		} else if entry.IsDir() {
+			dtype = uint8(DescriptorTypeDirectory)
+		}
+		return &preview2.DirectoryEntry{Type: dtype, Name: entry.Name()}, nil
+	}
+	// Keep decoding existing backend directory stream handles, including any
+	// supplied by a sibling host implementation during migration.
 	stream, ok := r.(*preview2.DirectoryEntryStreamResource)
 	if !ok {
 		return nil, &Error{Code: ErrorBadDescriptor}
 	}
-
-	entry := stream.ReadNext()
-	if entry == nil {
-		return nil, nil
-	}
-
-	return entry, nil
+	return stream.ReadNext(), nil
 }
 
 func (h *TypesHost) Register() map[string]any {

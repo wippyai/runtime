@@ -27,6 +27,8 @@ var (
 
 	ErrInvalidTransportType = apierror.New(apierror.Invalid, "invalid transport type").WithRetryable(apierror.False)
 
+	ErrInvalidAsyncifyStackBytes = apierror.New(apierror.Invalid, "limits.asyncify_stack_bytes must be between 0 and 4294967287").WithRetryable(apierror.False)
+
 	ErrInvalidExecutionLimit = apierror.New(apierror.Invalid, "limits.max_execution_ms cannot be negative").WithRetryable(apierror.False)
 
 	ErrInvalidRetainedMemoryLimit = apierror.New(apierror.Invalid, "limits.max_retained_memory_bytes cannot be negative").WithRetryable(apierror.False)

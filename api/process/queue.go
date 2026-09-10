@@ -10,6 +10,17 @@ import (
 	"github.com/wippyai/runtime/api/relay"
 )
 
+// EventAdmission optionally validates and takes ownership of messages at the
+// scheduler ingress boundary. On error the original event remains caller-owned.
+// On success the returned event is queue-owned, including any transformed data.
+// Implementations must not call back into the queue. Calls are serialized.
+type EventAdmission interface {
+	AdmitEvent(Event) (Event, error)
+}
+
+// EventDiscarder releases an admitted event that will never reach Process.Step.
+type EventDiscarder interface{ DiscardEvent() }
+
 // todo: move from api
 const defaultQueueCap = 16
 
@@ -20,7 +31,8 @@ const defaultQueueCap = 16
 // Generation counter ensures stale senders from previous executions
 // cannot push to a reused queue.
 type EventQueue struct {
-	signal chan struct{}
+	signal    chan struct{}
+	admission EventAdmission
 	// Message accounting is opt-in. Ordinary event traffic keeps the
 	// historical unbounded queue semantics; CDC messages carry MaxItems and/or
 	// MaxBytes and are admitted through PushMessage.
@@ -103,25 +115,53 @@ func (q *EventQueue) Generation() uint64 {
 // Push adds an event if queue is open and generation matches.
 // Returns false if queue is closed or generation mismatch (stale sender).
 func (q *EventQueue) Push(e Event, gen uint64) bool {
+	return q.PushWithError(e, gen) == nil
+}
+
+// PushWithError preserves admission errors such as a full bounded mailbox.
+func (q *EventQueue) PushWithError(e Event, gen uint64) error {
 	// Fast path: check generation and closed without lock
 	if q.generation.Load() != gen {
-		return false
+		return ErrProcessClosed
 	}
 	if q.closed.Load() {
-		return false
+		return ErrProcessClosed
 	}
 
 	q.mu.Lock()
 	// Recheck under lock
 	if q.generation.Load() != gen || q.closed.Load() {
 		q.mu.Unlock()
-		return false
+		return ErrProcessClosed
+	}
+	var err error
+	e, err = q.admitEventLocked(e)
+	if err != nil {
+		q.mu.Unlock()
+		return err
 	}
 	q.events = append(q.events, e)
 	q.mu.Unlock()
 
 	q.signalPush()
-	return true
+	return nil
+}
+
+// SetAdmission installs an execution's ingress policy before publishing its
+// queue to senders. Reset removes the old policy before a queue is reused.
+func (q *EventQueue) SetAdmission(admission EventAdmission) {
+	q.mu.Lock()
+	q.admission = admission
+	q.mu.Unlock()
+}
+
+// Caller holds mu. It must run after the generation and closed checks, so a
+// stale sender cannot consume an admission reservation from a newer process.
+func (q *EventQueue) admitEventLocked(e Event) (Event, error) {
+	if q.admission == nil || e.Type != EventMessage {
+		return e, nil
+	}
+	return q.admission.AdmitEvent(e)
 }
 
 func (q *EventQueue) signalPush() {
@@ -141,39 +181,58 @@ func (q *EventQueue) signalPush() {
 // The queue owns an accepted package and the scheduler releases it after
 // processing. The caller owns rejected or fully dropped packages.
 func (q *EventQueue) PushMessage(e Event, gen uint64) MessageAdmission {
+	admission, _ := q.PushMessageWithError(e, gen)
+	return admission
+}
+
+// PushMessageWithError combines an optional process admission policy with the
+// CDC retention admission. A policy runs first: it may reject a message or
+// replace its package with owned event data (as the WASM mailbox does). Only
+// a package which remains after that step is subject to topic accounting.
+//
+// A non-nil error means the caller still owns the original event data. A nil
+// error with MessageDropped means the queue emitted the overflow terminal but
+// did not retain the supplied package, so the caller must release it.
+func (q *EventQueue) PushMessageWithError(e Event, gen uint64) (MessageAdmission, error) {
 	if e.Type != EventMessage {
-		if q.Push(e, gen) {
-			return MessageAccepted
+		if err := q.PushWithError(e, gen); err != nil {
+			return MessageRejected, err
 		}
-		return MessageRejected
-	}
-	pkg, ok := e.Data.(*relay.Package)
-	if !ok || pkg == nil {
-		if q.Push(e, gen) {
-			return MessageAccepted
-		}
-		return MessageRejected
+		return MessageAccepted, nil
 	}
 
 	if q.generation.Load() != gen || q.closed.Load() {
-		return MessageRejected
+		return MessageRejected, ErrProcessClosed
 	}
 
 	q.mu.Lock()
 	if q.generation.Load() != gen || q.closed.Load() {
 		q.mu.Unlock()
-		return MessageRejected
+		return MessageRejected, ErrProcessClosed
+	}
+	var err error
+	e, err = q.admitEventLocked(e)
+	if err != nil {
+		q.mu.Unlock()
+		return MessageRejected, err
+	}
+	pkg, ok := e.Data.(*relay.Package)
+	if !ok || pkg == nil {
+		q.events = append(q.events, e)
+		q.mu.Unlock()
+		q.signalPush()
+		return MessageAccepted, nil
 	}
 	accepted := q.admitPackageLocked(pkg)
 	if !accepted {
 		q.mu.Unlock()
-		return MessageDropped
+		return MessageDropped, nil
 	}
 	q.events = append(q.events, e)
 	q.mu.Unlock()
 
 	q.signalPush()
-	return MessageAccepted
+	return MessageAccepted, nil
 }
 
 func (q *EventQueue) admitPackageLocked(pkg *relay.Package) bool {
@@ -381,6 +440,7 @@ func (q *EventQueue) Drain() []Event {
 	}
 
 	// Swap buffers to avoid allocation
+	clear(q.drainBuf) // the prior drained batch has been consumed by Step
 	q.drainBuf, q.events = q.events, q.drainBuf[:0]
 	result := q.drainBuf
 	q.mu.Unlock()
@@ -405,11 +465,7 @@ func (q *EventQueue) Signal() <-chan struct{} {
 func (q *EventQueue) Close() {
 	q.mu.Lock()
 	q.closed.Store(true)
-	for i, event := range q.events {
-		q.retireEventTopicsLocked(event)
-		q.releaseEventPackageLocked(event)
-		q.events[i] = Event{}
-	}
+	q.discardPending()
 	q.events = q.events[:0]
 	q.clearMessageAccountingLocked()
 	// A drained batch belongs to the scheduler. Drop the queue's reference
@@ -429,12 +485,9 @@ func (q *EventQueue) Close() {
 func (q *EventQueue) Reset() {
 	q.mu.Lock()
 	q.generation.Add(1) // Invalidate all existing senders
+	q.discardPending()
+	q.admission = nil
 	q.closed.Store(false)
-	for i, event := range q.events {
-		q.retireEventTopicsLocked(event)
-		q.releaseEventPackageLocked(event)
-		q.events[i] = Event{}
-	}
 	q.events = q.events[:0]
 	// See Close: the previous Drain result is consumer-owned. Detach it
 	// rather than touching a potentially concurrent scheduler slice.
@@ -449,6 +502,22 @@ func (q *EventQueue) Reset() {
 	}
 }
 
+// Caller holds mu. Drained events are consumer-owned and must not be released
+// again; only pending, undelivered events are discarded here.
+func (q *EventQueue) discardPending() {
+	for i := range q.events {
+		e := &q.events[i]
+		q.retireEventTopicsLocked(*e)
+		if d, ok := e.Data.(EventDiscarder); ok {
+			d.DiscardEvent()
+		} else if e.Type == EventMessage {
+			if pkg, ok := e.Data.(*relay.Package); ok {
+				relay.ReleasePackage(pkg)
+			}
+		}
+		*e = Event{}
+	}
+}
 func (q *EventQueue) retireEventTopicsLocked(event Event) {
 	if event.Type != EventMessage {
 		return
@@ -463,15 +532,6 @@ func (q *EventQueue) retireEventTopicsLocked(event Event) {
 		}
 		topic := msg.Topic
 		delete(q.messageTopics, topic)
-	}
-}
-
-func (q *EventQueue) releaseEventPackageLocked(event Event) {
-	if event.Type != EventMessage {
-		return
-	}
-	if pkg, ok := event.Data.(*relay.Package); ok {
-		relay.ReleasePackage(pkg)
 	}
 }
 

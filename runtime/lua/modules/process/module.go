@@ -311,6 +311,10 @@ func spawnMonitored(l *lua.LState) int {
 		return pushProcessError(l, lua.LNil, newProcessError(l, lua.PermissionDenied, fmt.Sprintf("not allowed to spawn monitored process: %s", id)))
 	}
 
+	if !security.IsAllowed(l.Context(), "process.host", hostID, secAttrs) {
+		return pushProcessError(l, lua.LNil, newProcessError(l, lua.PermissionDenied, fmt.Sprintf("not allowed to spawn on host: %s", hostID)))
+	}
+
 	payloads := createPayloadsFromArgs(l)
 
 	options := attrs.NewBag()
@@ -350,6 +354,10 @@ func spawnLinked(l *lua.LState) int {
 
 	if !security.IsAllowed(l.Context(), "process.spawn.linked", id, secAttrs) {
 		return pushProcessError(l, lua.LNil, newProcessError(l, lua.PermissionDenied, fmt.Sprintf("not allowed to spawn linked process: %s", id)))
+	}
+
+	if !security.IsAllowed(l.Context(), "process.host", hostID, secAttrs) {
+		return pushProcessError(l, lua.LNil, newProcessError(l, lua.PermissionDenied, fmt.Sprintf("not allowed to spawn on host: %s", hostID)))
 	}
 
 	payloads := createPayloadsFromArgs(l)
@@ -395,6 +403,10 @@ func spawnLinkedMonitored(l *lua.LState) int {
 
 	if !security.IsAllowed(l.Context(), "process.spawn.linked", id, secAttrs) {
 		return pushProcessError(l, lua.LNil, newProcessError(l, lua.PermissionDenied, fmt.Sprintf("not allowed to spawn linked process: %s", id)))
+	}
+
+	if !security.IsAllowed(l.Context(), "process.host", hostID, secAttrs) {
+		return pushProcessError(l, lua.LNil, newProcessError(l, lua.PermissionDenied, fmt.Sprintf("not allowed to spawn on host: %s", hostID)))
 	}
 
 	payloads := createPayloadsFromArgs(l)

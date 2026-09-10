@@ -59,7 +59,7 @@ func TestHost_RegisterAndAsyncFunctions(t *testing.T) {
 	}
 
 	async := host.AsyncFunctions()
-	if len(async) != 1 || async[0] != "[method]pollable.block" {
+	if len(async) != 2 || async[0] != "poll" || async[1] != "[method]pollable.block" {
 		t.Fatalf("AsyncFunctions() = %#v, want [\"[method]pollable.block\"]", async)
 	}
 }
@@ -105,7 +105,7 @@ func TestHost_BlockAndDrop(t *testing.T) {
 	}
 
 	host.ResourceDropPollable(context.Background(), handle)
-	if host.MethodPollableReady(context.Background(), handle) {
+	if _, ok := resources.Get(handle); ok {
 		t.Fatal("pollable should be removed after drop")
 	}
 }

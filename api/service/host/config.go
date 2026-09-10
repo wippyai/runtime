@@ -6,8 +6,21 @@ package host
 import (
 	"runtime"
 
+	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/supervisor"
+)
+
+// Execution class constants for HostConfig.
+const (
+	WorkerClassDefault = ""
+	WorkerClassActor   = "actor"
+	WorkerClassWASM    = "wasm"
+)
+
+// Host configuration errors.
+var (
+	ErrInvalidWorkerClass = apierror.New(apierror.Invalid, "worker class must be empty, \"actor\", or \"wasm\"").WithRetryable(apierror.False)
 )
 
 // Registry kind constants for Process Host components
@@ -18,12 +31,14 @@ const (
 
 // EntryConfig represents the full configuration entry for a process host service including lifecycle management.
 type EntryConfig struct {
-	Lifecycle  supervisor.LifecycleConfig `json:"lifecycle"`
 	HostConfig Config                     `json:"host"`
+	Lifecycle  supervisor.LifecycleConfig `json:"lifecycle"`
 }
 
 // Config represents configuration for a process host service
 type Config struct {
+	WorkerClass string `json:"worker_class,omitempty"` // Execution class: "" (actor/default) or "wasm"
+
 	// Scheduler settings
 	Workers        int `json:"workers"`          // Number of worker goroutines (default: NumCPU)
 	QueueSize      int `json:"queue_size"`       // Global queue capacity (default: 1024)
@@ -62,6 +77,12 @@ func (cfg *EntryConfig) Validate() error {
 
 	if c.LocalQueueSize <= 0 {
 		return ErrInvalidLocalQueueSize
+	}
+
+	switch c.WorkerClass {
+	case WorkerClassDefault, WorkerClassActor, WorkerClassWASM:
+	default:
+		return ErrInvalidWorkerClass
 	}
 
 	return nil

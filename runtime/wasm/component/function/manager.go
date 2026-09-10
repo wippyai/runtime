@@ -111,12 +111,12 @@ func (m *Manager) Start(ctx context.Context) error {
 	m.pidReg = topology.GetRegistry(ctx)
 	m.node = relay.GetNode(ctx)
 
-	coreRT, err := wasmrt.New(ctx)
+	coreRT, err := wasmrt.NewWithConfig(ctx, &wasmrt.Config{CloseOnContextDone: true})
 	if err != nil {
 		return err
 	}
 
-	componentRT, err := wasmrt.New(ctx)
+	componentRT, err := wasmrt.NewWithConfig(ctx, &wasmrt.Config{CloseOnContextDone: true})
 	if err != nil {
 		_ = coreRT.Close(ctx)
 		return err

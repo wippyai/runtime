@@ -5,7 +5,12 @@ package engine
 import (
 	"context"
 	"errors"
+	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"testing/fstest"
 
@@ -14,9 +19,12 @@ import (
 	ctxapi "github.com/wippyai/runtime/api/context"
 	envapi "github.com/wippyai/runtime/api/env"
 	fsapi "github.com/wippyai/runtime/api/fs"
+	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/registry"
 	wasmapi "github.com/wippyai/runtime/api/runtime/wasm"
 	secapi "github.com/wippyai/runtime/api/security"
+	"github.com/wippyai/runtime/service/fs/directory"
+	wasmrt "github.com/wippyai/wasm-runtime/runtime"
 )
 
 type testEnvRegistry struct {
@@ -155,7 +163,7 @@ func TestResolveWASICallConfig_ResolvesEnvAndMounts(t *testing.T) {
 	}
 }
 
-func TestResolveWASICallConfig_ReadOnlyFilesystemHidesHostPath(t *testing.T) {
+func TestResolveWASICallConfig_ReadOnlyFilesystemRetainsCapability(t *testing.T) {
 	ctx := ctxapi.NewRootContext()
 	secapi.SetStrictMode(ctx, false)
 	base := &testHostPathFS{
@@ -175,11 +183,10 @@ func TestResolveWASICallConfig_ReadOnlyFilesystemHidesHostPath(t *testing.T) {
 	cfg, err := p.resolveWASICallConfig(ctx)
 	require.NoError(t, err)
 	require.Len(t, cfg.Mounts, 1)
-	assert.Empty(t, cfg.Mounts[0].Host)
 	assert.Same(t, readOnly, cfg.Mounts[0].Filesystem)
 }
 
-func TestResolveWASICallConfig_WritableFilesystemUsesHostPath(t *testing.T) {
+func TestResolveWASICallConfig_WritableFilesystemRetainsCapability(t *testing.T) {
 	ctx := ctxapi.NewRootContext()
 	secapi.SetStrictMode(ctx, false)
 	hostPath := t.TempDir()
@@ -198,7 +205,7 @@ func TestResolveWASICallConfig_WritableFilesystemUsesHostPath(t *testing.T) {
 	cfg, err := p.resolveWASICallConfig(ctx)
 	require.NoError(t, err)
 	require.Len(t, cfg.Mounts, 1)
-	assert.Equal(t, hostPath, cfg.Mounts[0].Host)
+	assert.Same(t, writable, cfg.Mounts[0].Filesystem)
 }
 
 func TestResolveWASICallConfig_RequiredEnvMissing(t *testing.T) {
@@ -280,5 +287,271 @@ func TestResolveWASICallConfig_MountFSMissing(t *testing.T) {
 	}
 	if got := err.Error(); got == "" || !strings.Contains(got, "wasi mount filesystem not found") {
 		t.Fatalf("error = %q, want wasi mount filesystem not found", got)
+	}
+}
+
+// TestProcess_WASIRegisteredMountConfinement uses the production Process mount
+// resolution with an os.Root-backed registered filesystem and a real WASI guest.
+func TestProcess_WASIRegisteredMountConfinement(t *testing.T) {
+	for _, readOnly := range []bool{false, true} {
+		for _, escape := range []bool{false, true} {
+			t.Run(fmt.Sprintf("readonly=%v/escape=%v", readOnly, escape), func(t *testing.T) {
+				ctx := ctxapi.NewRootContext()
+				secapi.SetStrictMode(ctx, false)
+				root := t.TempDir()
+				target := filepath.Join(root, "escape")
+				if escape {
+					target = t.TempDir()
+				} else if err := os.Mkdir(target, 0700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(target, "sentinel"), []byte("OWNED-TEST-SENTINEL-OUTSIDE-GRANT"), 0600); err != nil {
+					t.Fatal(err)
+				}
+				if escape {
+					if err := os.Symlink(target, filepath.Join(root, "escape")); err != nil {
+						t.Fatal(err)
+					}
+				}
+				registered, err := directory.NewFS(root, 0700, false)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer registered.Close()
+				rt, err := wasmrt.NewWithConfig(ctx, &wasmrt.Config{CloseOnContextDone: true})
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer rt.Close(ctx)
+				source, err := os.ReadFile("testdata/internal-validation/mount-probe.wat")
+				if err != nil {
+					t.Fatal(err)
+				}
+				mod, err := rt.LoadWAT(ctx, string(source), "probe: func() -> u32;")
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := mod.Compile(ctx); err != nil {
+					t.Fatal(err)
+				}
+				p := NewProcess(mod, wasmapi.TransportTypePayload, wasmapi.WASIConfig{Mounts: []wasmapi.WASIMountConfig{{FS: registry.ParseID("test:root"), Guest: "/mount", ReadOnly: readOnly}}}, wasmapi.LimitsConfig{}, &testFSRegistry{entries: map[string]fsapi.FS{"test:root": registered}})
+				defer p.Close()
+				if err := p.Init(ctx, "probe", nil); err != nil {
+					t.Fatal(err)
+				}
+				var out process.StepOutput
+				if err := p.Step(nil, &out); err != nil {
+					t.Fatal(err)
+				}
+				if !out.IsDone() || out.Result() == nil {
+					t.Fatal("missing guest result")
+				}
+				errno, ok := out.Result().Data().(uint32)
+				if !ok {
+					t.Fatalf("unexpected errno result type %T", out.Result().Data())
+				}
+				if escape && errno == 0 {
+					t.Fatal("guest opened a host symlink outside its registered filesystem")
+				}
+				if !escape && errno != 0 {
+					t.Fatalf("ordinary confined read failed: errno=%d", errno)
+				}
+			})
+		}
+	}
+}
+
+// capabilityTrackedFS borrows the registered filesystem and tracks only files
+// it lends to WASI. The registry itself must remain usable after Process.Close.
+type capabilityTrackedFS struct {
+	fsapi.FS
+	opened, closed atomic.Int64
+}
+
+func (f *capabilityTrackedFS) RootPath() string { return f.FS.(fsapi.HostPathFS).RootPath() }
+
+type capabilityTrackedReadFile struct {
+	fs.File
+	owner *capabilityTrackedFS
+}
+
+func (f *capabilityTrackedReadFile) Close() error { f.owner.closed.Add(1); return f.File.Close() }
+
+type capabilityTrackedWriteFile struct {
+	fsapi.File
+	owner *capabilityTrackedFS
+}
+
+func (f *capabilityTrackedWriteFile) Close() error { f.owner.closed.Add(1); return f.File.Close() }
+func (f *capabilityTrackedFS) Open(name string) (fs.File, error) {
+	file, err := f.FS.Open(name)
+	if err != nil {
+		return nil, err
+	}
+	f.opened.Add(1)
+	return &capabilityTrackedReadFile{file, f}, nil
+}
+func (f *capabilityTrackedFS) OpenFile(name string, flags int, mode fs.FileMode) (fsapi.File, error) {
+	file, err := f.FS.OpenFile(name, flags, mode)
+	if err != nil {
+		return nil, err
+	}
+	f.opened.Add(1)
+	return &capabilityTrackedWriteFile{file, f}, nil
+}
+func TestProcess_WASIRegisteredMountWritePermissionsAndClose(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		mode     fs.FileMode
+		readonly bool
+		allow    bool
+		escape   bool
+	}{
+		{name: "writable", readonly: false, mode: 0700, allow: true, escape: false}, {name: "readonly-mount", readonly: true, mode: 0700, allow: false, escape: false}, {name: "readonly-registry", readonly: false, mode: 0500, allow: false, escape: false}, {name: "symlink-write", readonly: false, mode: 0700, allow: false, escape: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := ctxapi.NewRootContext()
+			secapi.SetStrictMode(ctx, false)
+			root := t.TempDir()
+			path := filepath.Join(root, "file.txt")
+			const original = "ORIGINAL-MUST-NOT-BE-TRUNCATED"
+			if err := os.WriteFile(path, []byte(original), 0600); err != nil {
+				t.Fatal(err)
+			}
+			if tc.escape {
+				outside := filepath.Join(t.TempDir(), "sentinel")
+				if err := os.WriteFile(outside, []byte(original), 0600); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Remove(path); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(outside, path); err != nil {
+					t.Fatal(err)
+				}
+			}
+			registered, err := directory.NewFS(root, tc.mode, false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer registered.Close()
+			tracked := &capabilityTrackedFS{FS: registered}
+			rt, err := wasmrt.NewWithConfig(ctx, &wasmrt.Config{CloseOnContextDone: true})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer rt.Close(ctx)
+			source, err := os.ReadFile("testdata/internal-validation/mount-write.wat")
+			if err != nil {
+				t.Fatal(err)
+			}
+			mod, err := rt.LoadWAT(ctx, string(source), "probe: func() -> u32;")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := mod.Compile(ctx); err != nil {
+				t.Fatal(err)
+			}
+			p := NewProcess(mod, wasmapi.TransportTypePayload, wasmapi.WASIConfig{Mounts: []wasmapi.WASIMountConfig{{FS: registry.ParseID("test:root"), Guest: "/mount", ReadOnly: tc.readonly}}}, wasmapi.LimitsConfig{}, &testFSRegistry{entries: map[string]fsapi.FS{"test:root": tracked}})
+			defer p.Close()
+			if err := p.Init(ctx, "probe", nil); err != nil {
+				t.Fatal(err)
+			}
+			var out process.StepOutput
+			if err := p.Step(nil, &out); err != nil {
+				t.Fatal(err)
+			}
+			if !out.IsDone() || out.Result() == nil {
+				t.Fatal("missing guest result")
+			}
+			errno, ok := out.Result().Data().(uint32)
+			if !ok {
+				t.Fatalf("unexpected errno type %T", out.Result().Data())
+			}
+			if tc.allow && errno != 0 {
+				t.Fatalf("writable mount failed: errno=%d", errno)
+			}
+			if !tc.allow && errno == 0 {
+				t.Fatal("guest bypassed declared write restriction")
+			}
+			actual, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := original
+			if tc.allow {
+				want = "GUESTOK"
+			}
+			if string(actual) != want {
+				t.Fatalf("file content=%q, want %q", actual, want)
+			}
+			// Guest intentionally leaves its file descriptor open.
+			p.Close()
+			if tc.allow && tracked.opened.Load() == 0 {
+				t.Fatal("filesystem capability was bypassed")
+			}
+			if tracked.opened.Load() != tracked.closed.Load() {
+				t.Fatalf("file ownership mismatch: opened=%d closed=%d", tracked.opened.Load(), tracked.closed.Load())
+			}
+			p.Close()
+			if tracked.opened.Load() != tracked.closed.Load() {
+				t.Fatal("repeated Close closed a file twice")
+			}
+			file, err := registered.Open(".")
+			if err != nil {
+				t.Fatalf("Process closed borrowed registry filesystem: %v", err)
+			}
+			if err := file.Close(); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+// TestProcess_WASIRegisteredMountMissingFileErrno protects the optional-file
+// lookup used during Python initialization. Nested root/service errors must
+// remain WASI ENOENT (44), rather than becoming generic EIO (29).
+func TestProcess_WASIRegisteredMountMissingFileErrno(t *testing.T) {
+	ctx := ctxapi.NewRootContext()
+	secapi.SetStrictMode(ctx, false)
+	registered, err := directory.NewFS(t.TempDir(), 0700, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer registered.Close()
+	rt, err := wasmrt.NewWithConfig(ctx, &wasmrt.Config{CloseOnContextDone: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rt.Close(ctx)
+	source, err := os.ReadFile("testdata/internal-validation/mount-probe.wat")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mod, err := rt.LoadWAT(ctx, string(source), "probe: func() -> u32;")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := mod.Compile(ctx); err != nil {
+		t.Fatal(err)
+	}
+	p := NewProcess(mod, wasmapi.TransportTypePayload, wasmapi.WASIConfig{Mounts: []wasmapi.WASIMountConfig{{FS: registry.ParseID("test:root"), Guest: "/mount", ReadOnly: true}}}, wasmapi.LimitsConfig{}, &testFSRegistry{entries: map[string]fsapi.FS{"test:root": registered}})
+	defer p.Close()
+	if err := p.Init(ctx, "probe", nil); err != nil {
+		t.Fatal(err)
+	}
+	var out process.StepOutput
+	if err := p.Step(nil, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !out.IsDone() || out.Result() == nil {
+		t.Fatal("missing guest result")
+	}
+	errno, ok := out.Result().Data().(uint32)
+	if !ok {
+		t.Fatalf("unexpected errno type %T", out.Result().Data())
+	}
+	if errno != 44 {
+		t.Fatalf("missing optional file: WASI errno=%d, want ENOENT(44)", errno)
 	}
 }

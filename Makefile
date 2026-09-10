@@ -17,6 +17,12 @@ test:
 	go test ./boot/... -v -race -short
 	go test --tags "fts5 sqlite_vec treesitter sqlite_preupdate_hook" ./cmd/... -v -race -short
 
+# Local heavy WASM acceptance, excluded from the normal CI short suite.
+# Includes both sustained SQLite load windows; fixtures fail closed if missing.
+.PHONY: test-wasm-heavy
+test-wasm-heavy:
+	WIPPY_SQLITE_LOAD=1 WIPPY_SQLITE_OPEN_LOOP=1 go test ./runtime/wasm/engine -race -count=1 -short=false -timeout 30m -v -run '^(TestSQLiteActor_|TestSQLiteActorLoad_|TestQuickJSActor_)'
+
 # The default service test intentionally stays untagged so the SQLite stub and
 # the non-CGO portability path remain covered. The real preupdate-hook source
 # is exercised by the Linux CGO CI job through this target.

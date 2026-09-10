@@ -160,6 +160,47 @@ func TestEntryConfig_Validate(t *testing.T) {
 			wantErr: true,
 			errMsg:  "local queue size must be greater than 0",
 		},
+		{
+			name: "valid worker class empty",
+			config: EntryConfig{
+				HostConfig: Config{
+					Workers:     2,
+					WorkerClass: "",
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid worker class actor",
+			config: EntryConfig{
+				HostConfig: Config{
+					Workers:     2,
+					WorkerClass: WorkerClassActor,
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid worker class wasm",
+			config: EntryConfig{
+				HostConfig: Config{
+					Workers:     2,
+					WorkerClass: WorkerClassWASM,
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "invalid worker class",
+			config: EntryConfig{
+				HostConfig: Config{
+					Workers:     2,
+					WorkerClass: "invalid_class",
+				},
+			},
+			wantErr: true,
+			errMsg:  "worker class must be empty, \"actor\", or \"wasm\"",
+		},
 	}
 
 	for _, tt := range tests {
@@ -194,6 +235,12 @@ func TestError_Interface(t *testing.T) {
 	t.Run("ErrInvalidLocalQueueSize", func(t *testing.T) {
 		err := ErrInvalidLocalQueueSize
 		assert.Equal(t, "local queue size must be greater than 0", err.Error())
+		assert.Equal(t, apierror.Invalid, err.Kind())
+	})
+
+	t.Run("ErrInvalidWorkerClass", func(t *testing.T) {
+		err := ErrInvalidWorkerClass
+		assert.Equal(t, "worker class must be empty, \"actor\", or \"wasm\"", err.Error())
 		assert.Equal(t, apierror.Invalid, err.Kind())
 	})
 }

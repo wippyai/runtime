@@ -72,8 +72,9 @@ require (
 	github.com/wippyai/tree-sitter-markdown v0.0.3
 	github.com/wippyai/tree-sitter-sql v0.0.4
 	github.com/wippyai/wapp v0.1.2
-	github.com/wippyai/wasm-runtime v0.0.0-20260905205449-47930c13b478
+	github.com/wippyai/wasm-runtime v0.0.0-20260908002211-e36d5ba6e45f
 	github.com/xuri/excelize/v2 v2.11.0
+	go.bytecodealliance.org v0.7.0
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.71.0
 	go.opentelemetry.io/otel v1.46.0
 	go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc v1.46.0
@@ -221,7 +222,6 @@ require (
 	gitlab.com/golang-commonmark/markdown v0.0.0-20211110145824-bf3e522c626a // indirect
 	gitlab.com/golang-commonmark/mdurl v0.0.0-20191124015652-932350d1cb84 // indirect
 	gitlab.com/golang-commonmark/puny v0.0.0-20191124015043-9f83538fa04f // indirect
-	go.bytecodealliance.org v0.7.0 // indirect
 	go.etcd.io/bbolt v1.4.3 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.46.0 // indirect

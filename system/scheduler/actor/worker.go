@@ -17,19 +17,21 @@ import (
 )
 
 type Worker struct {
-	batchBuf  [32]*Processor
-	local     *Deque
-	inject    *InjectQueue
-	scheduler *Scheduler
-	parkCond  *sync.Cond
-	done      chan struct{}
-	parkMu    sync.Mutex
-	routeMu   sync.Mutex
-	id        int
-	executed  atomic.Uint64
-	stolen    atomic.Uint64
-	notified  atomic.Bool
-	retiring  atomic.Bool
+	batchBuf            [32]*Processor
+	local               *Deque
+	inject              *InjectQueue
+	scheduler           *Scheduler
+	parkCond            *sync.Cond
+	done                chan struct{}
+	parkMu              sync.Mutex
+	routeMu             sync.Mutex
+	id                  int
+	executed            atomic.Uint64
+	stolen              atomic.Uint64
+	notified            atomic.Bool
+	retiring            atomic.Bool
+	dispatchesSinceFair uint8
+	fairSource          uint8
 }
 
 func newWorker(id int, s *Scheduler) *Worker {
@@ -188,7 +190,40 @@ func (w *Worker) signal() bool {
 	return true
 }
 
+// localDispatchQuantum bounds preference for the cache-hot local continuation.
+// Fair turns rotate through injected wakeups, global submissions and the oldest
+// local continuation. This is cooperative dispatch fairness, not guest preemption.
+const localDispatchQuantum = 32
+
+func (w *Worker) takeFairWork() *Processor {
+	for attempt := 0; attempt < 3; attempt++ {
+		source := w.fairSource
+		w.fairSource = (w.fairSource + 1) % 3
+		var p *Processor
+		switch source {
+		case 0:
+			p = w.inject.Pop()
+		case 1:
+			p = w.scheduler.global.Pop()
+		case 2:
+			p = w.local.Steal()
+		}
+		if p != nil {
+			return p
+		}
+	}
+	return nil
+}
+
 func (w *Worker) findWork() *Processor {
+	w.dispatchesSinceFair++
+	if w.dispatchesSinceFair == localDispatchQuantum {
+		w.dispatchesSinceFair = 0
+		if p := w.takeFairWork(); p != nil {
+			return p
+		}
+	}
+
 	// Check local deque first (LIFO, cache-hot)
 	if p := w.local.Pop(); p != nil {
 		return p

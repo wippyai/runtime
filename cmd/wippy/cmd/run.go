@@ -747,16 +747,7 @@ func coerceSetValue(s string) any {
 func applyOverrideFlags(cfg boot.Config, overrides []string, logger *zap.Logger) (boot.Config, error) {
 	overrideMap := make(map[string]any)
 
-	if cfg != nil {
-		sub := cfg.Sub("override")
-		if sub != nil {
-			for _, key := range sub.Keys() {
-				if val, ok := sub.Get(key); ok {
-					overrideMap[key] = val
-				}
-			}
-		}
-	}
+	// Keep CLI declarations separate so alias resolution retains layer precedence.
 
 	for _, override := range overrides {
 		namespace, entry, field, value, err := parseOverride(override)
