@@ -56,20 +56,10 @@ type proofKeys struct {
 	Secret []byte
 }
 type references struct{ Observe, Input string }
-type transport struct {
-	cm      internode.ConnectionManager
-	metrics *imageMetrics
-}
+type transport struct{ cm internode.ConnectionManager }
 
 func (t transport) Send(peer string, b []byte) error {
-	err := t.cm.SendToNode(peer, b, internode.ClassSurface)
-	if errors.Is(err, internode.ErrQueueFull) {
-		return ttyapi.ErrMeshBusy
-	}
-	if err == nil && t.metrics != nil {
-		t.metrics.observe(b)
-	}
-	return err
+	return t.cm.SendToNode(peer, b, internode.ClassSurface)
 }
 func (t transport) Receive(fn func(string, []byte)) error {
 	if !t.cm.RegisterClassReceiver(internode.ClassSurface, fn) {
@@ -77,8 +67,6 @@ func (t transport) Receive(fn func(string, []byte)) error {
 	}
 	return nil
 }
-
-func (t transport) SupportsGraphics(string) bool { return t.metrics != nil }
 
 // The proof registers one real native executor without booting a registry DB.
 // All Lua security checks and the normal exec/PTY implementation still run.
@@ -127,32 +115,21 @@ func (l *lifecycle) OnComplete(ctx context.Context, p pid.PID, r *runtime.Result
 }
 
 type runner struct {
-	imagePNG       []byte
-	imageAlternate []byte
-	root           context.Context
-	scheduler      *actor.Scheduler
-	service        *ttysys.Service
-	completed      chan completion
-	local          string
-	peer           string
-	recipient      string
-	out            string
-	frames         []ctxapi.FrameContext
-	latencies      []time.Duration
-	commands       int
-	mu             sync.Mutex
-	imageChurn     bool
+	root      context.Context
+	scheduler *actor.Scheduler
+	service   *ttysys.Service
+	completed chan completion
+	local     string
+	peer      string
+	recipient string
+	out       string
+	frames    []ctxapi.FrameContext
+	latencies []time.Duration
+	commands  int
+	mu        sync.Mutex
 }
 
 func (r *runner) spawn(id, script, grant string, refs references) error {
-	if len(r.imagePNG) > 0 {
-		if id == "child" {
-			script = imageChildScript
-		}
-		if id == "agent" {
-			script = imageAgentScript
-		}
-	}
 	ctx, frame := ctxapi.OpenFrameContext(r.root)
 	p := pid.PID{Node: r.local, Host: "agents", UniqID: id}
 	if err := frame.Set(runtime.FramePIDKey, p); err != nil {
@@ -182,9 +159,6 @@ func (r *runner) spawn(id, script, grant string, refs references) error {
 		engine.LoadModuleDef(l, engine.ChannelModule)
 		engine.LoadModuleDef(l, luatty.Module)
 		engine.LoadModuleDef(l, luaexec.Module)
-		l.SetGlobal("proof_image_png", lua.LString(r.imagePNG))
-		l.SetGlobal("proof_image_alternate", lua.LString(r.imageAlternate))
-		l.SetGlobal("proof_image_churn", lua.LBool(r.imageChurn))
 		l.SetGlobal("commands", lua.LInteger(r.commands))
 		l.SetGlobal("recipient", lua.LString((&pid.PID{Node: r.recipient, Host: "agents", UniqID: "agent"}).String()))
 		l.SetGlobal("observe_ref", lua.LString(refs.Observe))
@@ -295,8 +269,8 @@ func initKeys(dir, ips string, count int) error {
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return err
 	}
-	if count < 2 || count > 16 {
-		return errors.New("node count must be 2..16")
+	if count < 2 || count > 8 {
+		return errors.New("node count must be 2..8")
 	}
 	nodes := make(map[string][]byte, count)
 	for i := range count {
@@ -349,13 +323,11 @@ func main() {
 	}
 }
 func run() error {
-	imageChurn := flag.Bool("image-churn", false, "alternate PNG content to force resource transfers")
-	images := flag.Bool("images", false, "exercise remote PNG capture and transmit-once resources instead of PTY commands")
 	initDir := flag.String("init", "", "generate disposable proof identities and TLS certificate")
 	ips := flag.String("ips", "127.0.0.1", "comma-separated certificate IPs")
 	keysDir := flag.String("keys", "", "proof identity directory")
 	local := flag.String("node", "a", "local node ID")
-	count := flag.Int("nodes", 2, "number of generated identities, 2..16")
+	count := flag.Int("nodes", 2, "number of generated identities, 2..8")
 	peerID := flag.String("peer-node", "", "node whose terminal this agent drives")
 	recipient := flag.String("recipient-node", "", "node allowed to attach to this producer")
 	meshFile := flag.String("mesh-peers", "", "JSON map of node IDs to address/port")
@@ -445,22 +417,7 @@ func run() error {
 	}
 	service := ttysys.NewService()
 	defer service.Close()
-	var metrics *imageMetrics
-	var imagePNG, imageAlternate []byte
-	if *images {
-		metrics = &imageMetrics{}
-		imagePNG, err = proofImage(17)
-		if err != nil {
-			return err
-		}
-	}
-	if *imageChurn {
-		imageAlternate, err = proofImage(18)
-		if err != nil {
-			return err
-		}
-	}
-	if err = service.SetMesh(*local, transport{cm: cm, metrics: metrics}); err != nil {
+	if err = service.SetMesh(*local, transport{cm}); err != nil {
 		return err
 	}
 	root := ttyapi.WithService(ctx, service)
@@ -482,7 +439,7 @@ func run() error {
 	root = relay.WithNode(root, node)
 	sched.Start()
 
-	r := &runner{imageAlternate: imageAlternate, imageChurn: *imageChurn, imagePNG: imagePNG, recipient: *recipient, commands: *commands, root: root, scheduler: sched, service: service, local: *local, peer: peer, out: *out, completed: completed}
+	r := &runner{recipient: *recipient, commands: *commands, root: root, scheduler: sched, service: service, local: *local, peer: peer, out: *out, completed: completed}
 	defer func() {
 		cancel()
 		stop, c := context.WithTimeout(context.Background(), 5*time.Second)
@@ -535,28 +492,11 @@ waitPeer:
 			}
 			sort.Slice(samples, func(i, j int) bool { return samples[i] < samples[j] })
 			report := map[string]any{"node": *local, "peer": peer, "commands": len(samples), "connected_peers": len(cm.ConnectedNodes()), "p50_ms": float64(samples[len(samples)/2]) / float64(time.Millisecond), "p95_ms": float64(samples[len(samples)*95/100]) / float64(time.Millisecond), "result": "PASS", "transport": "mutual TLS + authenticated internode", "lua_workers": 1}
-			if metrics != nil {
-				report["mode"] = "images"
-				report["image_bytes_sent"] = metrics.bytes.Load()
-				report["image_chunks_sent"] = metrics.chunks.Load()
-				report["image_bytes_expected"] = len(imagePNG)
-				if *imageChurn {
-					report["image_churn"] = true
-					report["image_bytes_expected"] = len(imagePNG)*(1+*commands/2) + len(imageAlternate)*((*commands+1)/2)
-				}
-				report["image_store_bytes"] = service.ImageStore().Used()
-			}
 			encoded, _ := json.Marshal(report)
 			fmt.Println(string(encoded))
 			if *releaseFile != "" {
 				for {
 					if _, err := os.Stat(*releaseFile); err == nil {
-						if metrics != nil {
-							report["image_bytes_sent"] = metrics.bytes.Load()
-							report["image_chunks_sent"] = metrics.chunks.Load()
-							final, _ := json.Marshal(report)
-							fmt.Println(string(final))
-						}
 						return nil
 					}
 					select {

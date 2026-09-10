@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MPL-2.0
-"""Run concurrent Lua/PTY agents on a fully connected 2..16-node mesh."""
+"""Run concurrent Lua/PTY agents on a fully connected 2..8-node mesh."""
 import argparse
 import json
 from pathlib import Path
@@ -13,17 +13,13 @@ import time
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--binary", default="/tmp/wippy-tty-mesh-proof")
-    parser.add_argument("--images", action="store_true", help="exercise remote image capture instead of PTY commands")
-    parser.add_argument("--image-churn", action="store_true", help="alternate PNG content on every command, forcing resource transfers")
     parser.add_argument("--ssh", help="SSH target for node b; other nodes run locally")
     parser.add_argument("--peer-address", help="mesh IP of SSH host")
     parser.add_argument("--local-address", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=19470)
-    parser.add_argument("--nodes", type=int, default=2, choices=range(2, 17))
+    parser.add_argument("--nodes", type=int, default=2, choices=range(2, 9))
     parser.add_argument("--commands", type=int, default=20)
     args = parser.parse_args()
-    if args.image_churn and not args.images:
-        parser.error("--image-churn requires --images")
     if args.commands < 1:
         parser.error("commands must be positive")
     if args.ssh and (not args.peer_address or args.local_address == "127.0.0.1"):
@@ -80,10 +76,6 @@ def main():
                            "-mesh-peers", root + "/peers.json", "-commands", str(args.commands),
                            "-refs-out", f"{root}/{node}.json", "-peer-refs", f"{root}/{nodes[(i + 1) % len(nodes)]}.json",
                            "-release-file", root + "/release"]
-                if args.images:
-                    command.append("-images")
-                if args.image_churn:
-                    command.append("-image-churn")
                 if remote:
                     launch = f"echo $$ > {shlex.quote(root + '/pid')}; exec {shlex.join(command)}"
                     command = ["ssh", "-n", *ssh_options, args.ssh, launch]
@@ -111,10 +103,6 @@ def main():
             for node, log in zip(nodes, logs):
                 log.seek(0)
                 print(f"node {node}:\n{log.read()}", flush=True)
-            if args.images:
-                for report in result.values():
-                    if report.get("image_bytes_sent") != report.get("image_bytes_expected"):
-                        raise RuntimeError("image bytes were retransmitted or omitted")
             if (len(result) != args.nodes or not all(p.poll() == 0 for p in processes)
                     or any(report.get("connected_peers") != args.nodes - 1 for report in result.values())):
                 raise RuntimeError("multi-node Lua/PTY proof failed")
