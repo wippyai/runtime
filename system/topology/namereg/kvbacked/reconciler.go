@@ -4,6 +4,7 @@ package kvbacked
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -13,19 +14,48 @@ import (
 	"go.uber.org/zap"
 )
 
+type reconcilerLifecycle struct{ ctx context.Context }
+
 // StartReconciler drives the registry off the kv watch stream: active-binding
 // changes feed the dissem cache (so non-members resolve names), and Strong
 // pending/ack/reject changes advance the Strong state machine. No-op when
 // neither dissem nor Strong is configured. The watcher stops when ctx ends.
-func (s *Service) StartReconciler(ctx context.Context) error {
+// Successful startup owns this Service for its lifetime: restarting requires a
+// new Service (including fresh dissemination state). Failed startup may retry.
+func (s *Service) StartReconciler(ctx context.Context) (err error) {
 	if s.strong == nil && s.dissem == nil {
 		return nil
 	}
-	w, err := s.engine.Watch(ctx, registryPrefix)
-	if err != nil {
+	if err := ctx.Err(); err != nil {
 		return err
 	}
-	s.seed()
+	ctx, cancel := context.WithCancel(ctx)
+	run := &reconcilerLifecycle{ctx: ctx}
+	if !s.reconciler.CompareAndSwap(nil, run) {
+		cancel()
+		return fmt.Errorf("registry reconciler already started; use a new service after shutdown")
+	}
+	defer func() {
+		if err != nil {
+			cancel()
+			s.reconciler.CompareAndSwap(run, nil)
+		}
+	}()
+	w, err := s.engine.Watch(ctx, registryPrefix)
+	if err != nil {
+		cancel()
+		return err
+	}
+	if err := s.seed(); err != nil {
+		cancel()
+		_ = w.Close()
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		cancel()
+		_ = w.Close()
+		return err
+	}
 	// The node has now learned and latched the cluster's in-flight/active Strong
 	// reservations; name-readiness can flip so cross-scope guards see them.
 	s.ready.Store(true)
@@ -36,7 +66,13 @@ func (s *Service) StartReconciler(ctx context.Context) error {
 		go s.leaderSweep(ctx)
 	}
 	go func() {
-		defer func() { _ = w.Close() }()
+		defer func() {
+			// A stopped update stream cannot justify further cross-scope
+			// admission. Stop the associated sweep even if the parent lives.
+			s.ready.Store(false)
+			cancel()
+			_ = w.Close()
+		}()
 		if s.dissem != nil {
 			defer s.dissem.Stop()
 		}
@@ -68,7 +104,9 @@ func (s *Service) leaderSweep(ctx context.Context) {
 			return
 		case <-t.C:
 			if s.leaderFn() {
-				s.strong.reconcileAllPending()
+				if err := s.strong.reconcileAllPending(); err != nil {
+					s.logger.Debug("registry pending scan failed", zap.Error(err))
+				}
 			}
 		}
 	}
@@ -76,27 +114,47 @@ func (s *Service) leaderSweep(ctx context.Context) {
 
 // seed primes local state from the current kv snapshot: dissem cache from active
 // bindings, and the Strong machine from in-flight pending reservations.
-func (s *Service) seed() {
-	if s.dissem != nil {
-		_ = s.engine.Scan(activePrefix, func(e kvapi.Entry) bool {
-			s.translateActive(strings.TrimPrefix(e.Key, activePrefix), e.Value, e.Epoch, false)
-			return true
-		})
-	}
+func (s *Service) seed() error {
 	if s.strong != nil {
-		s.strong.reconcileAllPending()
-		// Re-latch exclusions for ACTIVE Strong names recovered from the kv
-		// (snapshot restore / restart): in-memory strongState starts empty, and
-		// stable active names emit no watch event, so without this scan
-		// IsStrongReserved would wrongly report them free and a LOCAL/EVENTUAL
-		// register could shadow a live Strong name.
-		_ = s.engine.Scan(activePrefix, func(e kvapi.Entry) bool {
-			if av, derr := decodeActive(e.Value); derr == nil && av.Strong {
-				s.strong.reconcile(strings.TrimPrefix(e.Key, activePrefix))
-			}
-			return true
-		})
+		if err := s.strong.reconcileAllPending(); err != nil {
+			return err
+		}
 	}
+	// Scan active records once for both consumers. A skipped malformed
+	// record cannot justify opening cross-scope admission after startup.
+	var recordErr error
+	err := s.engine.Scan(activePrefix, func(e kvapi.Entry) bool {
+		active, err := decodeActive(e.Value)
+		if err != nil {
+			recordErr = fmt.Errorf("registry record %q: %w", e.Key, err)
+			return false
+		}
+		if recordErr = validateNamingRecord(e.Key, activePrefix, active.Name, active.PID); recordErr != nil {
+			return false
+		}
+		name := strings.TrimPrefix(e.Key, activePrefix)
+		if s.dissem != nil {
+			s.translateActive(name, e.Value, e.Epoch, false)
+		}
+		if s.strong != nil && active.Strong {
+			s.strong.reconcile(name)
+		}
+		return true
+	})
+	if err != nil {
+		return err
+	}
+	return recordErr
+}
+
+func validateNamingRecord(key, prefix, name, owner string) error {
+	if key != prefix+name {
+		return fmt.Errorf("registry record %q: name mismatch", key)
+	}
+	if _, err := pid.ParsePID(owner); err != nil {
+		return fmt.Errorf("registry record %q: invalid owner: %w", key, err)
+	}
+	return nil
 }
 
 func (s *Service) handleWatchEvent(ev kvapi.WatchEvent) {
@@ -131,7 +189,9 @@ func (s *Service) handleWatchEvent(ev kvapi.WatchEvent) {
 		}
 	case strings.HasPrefix(key, ackPrefix), strings.HasPrefix(key, rejectPrefix):
 		if s.strong != nil {
-			s.strong.reconcileAllPending()
+			if err := s.strong.reconcileAllPending(); err != nil {
+				s.logger.Debug("registry pending scan failed", zap.Error(err))
+			}
 		}
 	}
 }
@@ -163,13 +223,28 @@ func (s *Service) translateActive(name string, value []byte, raftIndex uint64, d
 	}
 }
 
-func (st *strongState) reconcileAllPending() {
+func (st *strongState) reconcileAllPending() error {
 	var names []string
-	_ = st.svc.engine.Scan(pendingPrefix, func(e kvapi.Entry) bool {
+	var recordErr error
+	if err := st.svc.engine.Scan(pendingPrefix, func(e kvapi.Entry) bool {
+		header, err := decodePending(e.Value)
+		if err != nil {
+			recordErr = fmt.Errorf("registry record %q: %w", e.Key, err)
+			return false
+		}
+		if recordErr = validateNamingRecord(e.Key, pendingPrefix, header.Name, header.PID); recordErr != nil {
+			return false
+		}
 		names = append(names, strings.TrimPrefix(e.Key, pendingPrefix))
 		return true
-	})
+	}); err != nil {
+		return err
+	}
+	if recordErr != nil {
+		return recordErr
+	}
 	for _, n := range names {
 		st.reconcile(n)
 	}
+	return nil
 }

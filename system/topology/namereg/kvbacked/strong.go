@@ -173,6 +173,11 @@ func (s *Service) nameReady() bool {
 	// No Strong plane -> no join barrier needed. Otherwise the node is ready
 	// only once the reconciler has seeded (learned and latched the cluster's
 	// in-flight/active Strong reservations), so it cannot shadow one.
+	if s.strong != nil {
+		if run := s.reconciler.Load(); run != nil && run.ctx.Err() != nil {
+			return false
+		}
+	}
 	return s.strong == nil || s.ready.Load()
 }
 
