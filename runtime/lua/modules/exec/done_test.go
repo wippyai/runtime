@@ -5,6 +5,7 @@ package exec
 import (
 	"context"
 	osexec "os/exec"
+	"runtime"
 	"testing"
 	"time"
 
@@ -106,6 +107,9 @@ func luaInt(t *testing.T, table *lua.LTable, key string) int {
 // the child and steering it with signals while another coroutine waits for it to
 // finish. wait() cannot serve that, because it consumes the handle.
 func TestProcessDoneDeliversExitWhileHandleStaysUsable(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("native signals are not supported on Windows")
+	}
 	out := runExecScript(t, `
 local function main()
     local child, err = executor:exec("cat")
