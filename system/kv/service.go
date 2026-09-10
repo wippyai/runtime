@@ -181,10 +181,6 @@ func (s *Service) publishSnapshot() {
 
 // --- kvapi.Engine read operations (lock-free, from snapshot) ---
 
-func (s *Service) GetMany(keys []string) (map[string]kvapi.Entry, error) {
-	return s.snap.Load().getMany(keys)
-}
-
 func (s *Service) Get(key string) (kvapi.Entry, error) {
 	snap := s.snap.Load()
 	if snap == nil {

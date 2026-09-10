@@ -30,7 +30,7 @@ func TestGetManyNeverTearsAtomicTransaction(t *testing.T) {
 	}()
 	defer writer.Wait()
 	for i := 0; i < 1000; i++ {
-		entries, err := e.GetMany([]string{"a", "b", "missing"})
+		entries, err := e.fsm.snap.Load().getMany([]string{"a", "b", "missing"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -47,7 +47,7 @@ func TestGetManyNeverTearsAtomicTransaction(t *testing.T) {
 		}
 	}
 	writer.Wait()
-	entries, err := e.GetMany([]string{"a", "b"})
+	entries, err := e.fsm.snap.Load().getMany([]string{"a", "b"})
 	if err != nil || string(entries["a"].Value) != "999" || string(entries["b"].Value) != "999" {
 		t.Fatalf("returned values mutated replica: %v, %v", entries, err)
 	}

@@ -135,10 +135,6 @@ func (e *RaftEngine) proposeRaw(cmd []byte) (applyResult, error) {
 
 // --- kvapi.Engine reads (local) ---
 
-func (e *RaftEngine) GetMany(keys []string) (map[string]kvapi.Entry, error) {
-	return e.fsm.snap.Load().getMany(keys)
-}
-
 func (e *RaftEngine) Get(key string) (kvapi.Entry, error) {
 	ent, ok := e.fsm.get(key)
 	if !ok {
