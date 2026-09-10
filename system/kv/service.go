@@ -208,12 +208,12 @@ func (s *Service) GetLinearizable(key string) (kvapi.Entry, error) { return s.Ge
 
 // ScanAtIndex scans and returns the current global version as the as-of index.
 func (s *Service) ScanAtIndex(prefix string, fn func(kvapi.Entry) bool) (uint64, error) {
-	if err := s.Scan(prefix, fn); err != nil {
-		return 0, err
+	snap := s.snap.Load()
+	if snap == nil {
+		return 0, kvapi.ErrKVClosed
 	}
-	var idx uint64
-	err := s.submitAndWait(func() error { idx = s.state.version; return nil })
-	return idx, err
+	snap.scan(prefix, fn)
+	return snap.version, nil
 }
 
 // --- kvapi.Engine write operations (serialized through event loop) ---
