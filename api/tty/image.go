@@ -303,3 +303,8 @@ func (c *Capture) Close() error {
 type CaptureViewport interface {
 	Capture(context.Context) (*Capture, error)
 }
+
+// SurfaceCapabilities describes the selected backend, not the producer protocol.
+// Images is "native", "kitty", "pending", or "none".
+type SurfaceCapabilities struct{ Images string }
+type CapableSurface interface{ Capabilities() SurfaceCapabilities }

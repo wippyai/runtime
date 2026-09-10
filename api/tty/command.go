@@ -108,12 +108,22 @@ func (c DisableMouseCmd) CmdID() dispatcher.CommandID {
 // ViewportIOCmd runs only through the asynchronous terminal dispatcher.
 // Caller identity comes from its process context, never from command fields.
 type ViewportIOCmd struct {
-	View      RemoteViewport
-	Handle    string
-	Operation string
-	Event     Event
-	Width     int
-	Height    int
+	CaptureSource CaptureViewport
+	ImageData     []byte
+	View          RemoteViewport
+	Handle        string
+	Operation     string
+	Event         Event
+	Width         int
+	Height        int
 }
 
 func (ViewportIOCmd) CmdID() dispatcher.CommandID { return ViewportIO }
+
+// ImageIOResult transfers dispatcher cleanup ownership to the Lua wrapper.
+// Cancel unlinks frame cleanup; it does not close the resource.
+type ImageIOResult struct {
+	Image   *Image
+	Capture *Capture
+	Cancel  func()
+}

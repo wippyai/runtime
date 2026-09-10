@@ -19,7 +19,7 @@ func newTerminalInputReader(stdin *os.File, termType string) (terminalInputReade
 	return input.NewReader(stdin, termType, 0)
 }
 
-func streamTerminalInput(ctx context.Context, reader terminalInputReader, sink inputEventSink) error {
+func streamTerminalInput(ctx context.Context, reader terminalInputReader, sink inputEventSink, graphics graphicsEventSink) error {
 	legacy, ok := reader.(*input.Reader)
 	if !ok {
 		return errors.New("windows terminal input reader is not x/input")
@@ -33,6 +33,9 @@ func streamTerminalInput(ctx context.Context, reader terminalInputReader, sink i
 
 		events, err := legacy.ReadEvents()
 		for _, event := range events {
+			if reply, ok := event.(input.KittyGraphicsEvent); ok && graphics != nil && graphics(reply.Options.ID, reply.Payload) {
+				continue
+			}
 			sink(ConvertInputEvent(event))
 		}
 		if err == nil {

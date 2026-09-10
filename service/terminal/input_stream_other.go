@@ -14,7 +14,7 @@ func newTerminalInputReader(stdin *os.File, _ string) (terminalInputReader, erro
 	return uv.NewCancelReader(stdin)
 }
 
-func streamTerminalInput(ctx context.Context, reader terminalInputReader, sink inputEventSink) error {
+func streamTerminalInput(ctx context.Context, reader terminalInputReader, sink inputEventSink, graphics graphicsEventSink) error {
 	framed := newFramedTerminalInput(reader)
 	terminalReader := uv.NewTerminalReader(framed, os.Getenv("TERM"))
 	events := make(chan uv.Event)
@@ -34,6 +34,9 @@ func streamTerminalInput(ctx context.Context, reader terminalInputReader, sink i
 			}
 			framed.acknowledgeEvent()
 			if !stopping {
+				if reply, ok := event.(uv.KittyGraphicsEvent); ok && graphics != nil && graphics(reply.Options.ID, reply.Payload) {
+					continue
+				}
 				sink(convertUVInputEvent(event))
 			}
 		case err := <-streamDone:

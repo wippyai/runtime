@@ -13,3 +13,4 @@ type terminalInputReader interface {
 }
 
 type inputEventSink func(*TTYEvent)
+type graphicsEventSink func(id int, payload []byte) bool

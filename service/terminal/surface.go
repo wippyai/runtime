@@ -15,6 +15,8 @@ import (
 
 // Surface is the physical ANSI implementation of tty.Surface.
 type Surface struct {
+	probe    func() ttyapi.SurfaceCapabilities
+	graphics graphicsState
 	out      io.Writer
 	closeErr error
 	cursor   *ttyapi.Cursor
@@ -33,13 +35,22 @@ func NewSurface(out io.Writer, opts ttyapi.SurfaceOptions) *Surface {
 }
 
 func (s *Surface) Present(frame ttyapi.Frame) (ttyapi.PresentStats, error) {
-	if len(frame.Images) != 0 {
-		return ttyapi.PresentStats{}, ttyapi.ErrGraphicsUnsupported
-	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed {
 		return ttyapi.PresentStats{}, fmt.Errorf("surface is closed")
+	}
+	images, err := ttyapi.RetainPlacements(frame.Images)
+	if err != nil {
+		return ttyapi.PresentStats{}, err
+	}
+	defer ttyapi.ClosePlacements(images)
+	enabled := false
+	if len(images) > 0 {
+		enabled = s.capabilities().Images == "kitty"
+	}
+	if !enabled && len(images) > 0 {
+		frame.Rows = placeholderRows(frame.Rows, images)
 	}
 	output := s.scratch[:0]
 	if s.opts.Synchronized {
@@ -90,6 +101,17 @@ func (s *Surface) Present(frame ttyapi.Frame) (ttyapi.PresentStats, error) {
 	if s.invalid && limit == 0 {
 		output = append(output, "\x1b[H\x1b[0m\x1b[J"...)
 	}
+	graphicsStart := len(output)
+	var desired map[string]hostPlacement
+	if len(images) > 0 || len(s.graphics.known) > 0 {
+		var err error
+		output, desired, err = s.appendGraphics(output, images, enabled)
+		if err != nil {
+			s.invalid = true
+			return ttyapi.PresentStats{}, err
+		}
+	}
+	graphicsChanged := len(output) != graphicsStart
 	// Painting rows moves the physical terminal cursor even when the logical
 	// frame cursor itself did not change. Cursor placement is therefore dirty
 	// whenever either cell damage or cursor state changed, and must be the last
@@ -99,7 +121,7 @@ func (s *Surface) Present(frame ttyapi.Frame) (ttyapi.PresentStats, error) {
 		effectiveCursor = s.cursor
 	}
 	cursorChanged := frame.Cursor != nil && !sameSurfaceCursor(s.cursor, frame.Cursor)
-	if effectiveCursor != nil && (s.invalid || changed != 0 || cursorChanged) {
+	if effectiveCursor != nil && (s.invalid || changed != 0 || cursorChanged || graphicsChanged) {
 		output = append(output, '\x1b', '[')
 		output = strconv.AppendInt(output, int64(max(0, effectiveCursor.Row)+1), 10)
 		output = append(output, ';')
@@ -122,11 +144,16 @@ func (s *Surface) Present(frame ttyapi.Frame) (ttyapi.PresentStats, error) {
 		s.acquired = true
 		written, err := s.out.Write(output)
 		if err != nil {
+			s.invalid = true
 			return ttyapi.PresentStats{}, err
 		}
 		if written != len(output) {
+			s.invalid = true
 			return ttyapi.PresentStats{}, io.ErrShortWrite
 		}
+	}
+	if desired != nil {
+		s.commitGraphics(desired)
 	}
 	s.opened = true
 	s.invalid = false
@@ -165,6 +192,10 @@ func (s *Surface) Close() error {
 		return nil
 	}
 	restore := make([]byte, 0, 32)
+	for _, id := range s.graphics.known {
+		restore = deleteHostImage(restore, id)
+	}
+	s.graphics = graphicsState{}
 	if s.opts.Synchronized {
 		restore = append(restore, "\x1b[?2026l"...)
 	}
@@ -204,4 +235,17 @@ func (s *Surface) Clipboard(text string) error {
 		return io.ErrShortWrite
 	}
 	return err
+}
+
+func (s *Surface) Capabilities() ttyapi.SurfaceCapabilities {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.capabilities()
+}
+
+func (s *Surface) capabilities() ttyapi.SurfaceCapabilities {
+	if s.probe != nil {
+		return s.probe()
+	}
+	return ttyapi.SurfaceCapabilities{Images: "none"}
 }

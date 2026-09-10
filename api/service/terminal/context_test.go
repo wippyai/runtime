@@ -207,3 +207,18 @@ func TestClipboardLeaseRejectsUnsupportedAndRetiredSurface(t *testing.T) {
 	require.NoError(t, surface.Close())
 	require.ErrorIs(t, copy.Clipboard("text"), ttyapi.ErrInvalidPort)
 }
+
+type capableTestSurface struct{ testSurface }
+
+func (*capableTestSurface) Capabilities() ttyapi.SurfaceCapabilities {
+	return ttyapi.SurfaceCapabilities{Images: "kitty"}
+}
+func TestSurfaceLeaseForwardsCapabilities(t *testing.T) {
+	tc := NewTerminalContext(nil, nil, nil)
+	tc.Surface = func(ttyapi.SurfaceOptions) (ttyapi.Surface, error) { return &capableTestSurface{}, nil }
+	s, err := tc.OpenSurface(ttyapi.SurfaceOptions{})
+	require.NoError(t, err)
+	require.Equal(t, "kitty", s.(ttyapi.CapableSurface).Capabilities().Images)
+	require.NoError(t, s.Close())
+	require.Equal(t, "none", s.(ttyapi.CapableSurface).Capabilities().Images)
+}

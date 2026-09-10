@@ -31,7 +31,7 @@ func init() {
 			"snapshot": viewportSnapshot, "updates": viewportUpdates, "send": viewportSend,
 			"resize": viewportResize, "close": viewportClose,
 			"mount": viewportMount, "revoke": viewportRevoke,
-			"set_page": viewportSetPage,
+			"set_page": viewportSetPage, "capture": viewportCapture,
 		})
 }
 
@@ -213,6 +213,7 @@ func viewportSnapshot(l *lua.LState) int {
 		cursor.Immutable = true
 		result.RawSetString("cursor", cursor)
 	}
+	addSnapshotImages(l, result, s)
 	l.Push(result)
 	return 1
 }

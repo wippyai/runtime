@@ -189,3 +189,14 @@ func WithTerminalContext(ctx context.Context, tc *PipeContext) error {
 	}
 	return fc.Set(ttyapi.PortKey(), tc)
 }
+
+func (s *leasedSurface) Capabilities() ttyapi.SurfaceCapabilities {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.closed {
+		if backend, ok := s.Surface.(ttyapi.CapableSurface); ok {
+			return backend.Capabilities()
+		}
+	}
+	return ttyapi.SurfaceCapabilities{Images: "none"}
+}

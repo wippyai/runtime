@@ -22,10 +22,11 @@ func init() {
 			"__gc":       surfaceGC,
 		},
 		map[string]lua.LGoFunc{
-			"present":    surfacePresent,
-			"clipboard":  surfaceClipboard,
-			"invalidate": surfaceInvalidate,
-			"close":      surfaceClose,
+			"present":      surfacePresent,
+			"clipboard":    surfaceClipboard,
+			"capabilities": surfaceCapabilities,
+			"invalidate":   surfaceInvalidate,
+			"close":        surfaceClose,
 		})
 }
 
@@ -119,6 +120,11 @@ func surfacePresent(l *lua.LState) int {
 	}
 	frame := ttyapi.Frame{Rows: rows}
 	if options := l.OptTable(3, nil); options != nil {
+		var err error
+		frame.Images, err = placedImagesFromLua(options.RawGetString("images"))
+		if err != nil {
+			return imageError(l, err)
+		}
 		if value := options.RawGetString("cursor"); value != lua.LNil {
 			cursor, ok := value.(*lua.LTable)
 			if !ok {
@@ -250,4 +256,16 @@ func surfaceClipboard(l *lua.LState) int {
 	l.Push(lua.LTrue)
 	l.Push(lua.LNil)
 	return 2
+}
+
+func surfaceCapabilities(l *lua.LState) int {
+	caps := ttyapi.SurfaceCapabilities{Images: "none"}
+	if backend, ok := checkSurface(l).backend.(ttyapi.CapableSurface); ok {
+		caps = backend.Capabilities()
+	}
+	t := l.CreateTable(0, 1)
+	t.RawSetString("images", lua.LString(caps.Images))
+	t.Immutable = true
+	l.Push(t)
+	return 1
 }

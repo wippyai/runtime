@@ -358,7 +358,9 @@ func (h *Host) prepareContext(ctx context.Context, processID pid.PID, start *pro
 	tc.Raw = h.raw
 	tc.Input = NewInputReader(os.Stdin, tc.Stdout, h.raw, h.scheduler, processID)
 	tc.Surface = func(options ttyapi.SurfaceOptions) (ttyapi.Surface, error) {
-		return NewSurface(os.Stdout, options), nil
+		s := NewSurface(os.Stdout, options)
+		s.probe = tc.Input.(*InputReader).ProbeGraphics
+		return s, nil
 	}
 	pairs[3] = ctxapi.Pair{Key: terminalapi.Key(), Value: tc}
 	copy(pairs[4:], start.Context)
