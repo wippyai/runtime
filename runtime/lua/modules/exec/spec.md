@@ -81,6 +81,7 @@ Creates a new process with the specified command.
 | work_dir | string | nil | Working directory for the process |
 | env | {[string]: string} | nil | Environment variables as key-value map |
 | pty | PTYOptions | nil | Allocate a pseudo-terminal for the child |
+| process_group | boolean | executor default | Start the child in its own process group so signals reach descendants; unsupported on Windows |
 
 **PTYOptions fields:**
 
@@ -136,6 +137,7 @@ Returned by `executor:exec()`. Represents a process instance.
 | wait | () | integer, error | Waits for process to exit, consumes the handle, yields |
 | done | () | ProcessExitChannel, error | One-shot channel carrying the exit; keeps the handle usable |
 | signal | (sig: integer) | boolean, error | Sends signal to process |
+| pid | () | integer, error | Returns the started child process ID |
 | write_stdin | (data: string) | boolean, error | Writes to process stdin |
 | stdout_stream | () | Stream, error | Returns stdout stream |
 | stderr_stream | () | Stream, error | Returns stderr stream |
