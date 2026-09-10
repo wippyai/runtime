@@ -18,12 +18,14 @@ var (
 	errNoTerminalContext = errors.New("no terminal context")
 	errNoRawController   = errors.New("raw terminal control unavailable")
 	errNoInputController = errors.New("input controller unavailable")
+	errDispatcherBusy    = errors.New("terminal command queue capacity exceeded")
+	errDispatcherStarted = errors.New("terminal dispatcher already started")
 )
 
 // Option configures a Dispatcher.
 type Option func(*Dispatcher)
 
-// WithWorkers sets the number of worker goroutines.
+// WithWorkers sets the worker count for each of the read and control lanes.
 func WithWorkers(n int) Option {
 	return func(d *Dispatcher) {
 		if n > 0 {
@@ -32,16 +34,19 @@ func WithWorkers(n int) Option {
 	}
 }
 
-// Dispatcher handles terminal I/O commands via an async worker pool.
+// Dispatcher isolates blocking stream reads from terminal control commands.
+// Each lane has a bounded queue and the configured worker count.
 type Dispatcher struct {
-	ctx        context.Context
-	jobs       chan job
-	cancel     context.CancelFunc
-	asyncSlots chan struct{}
-	wg         sync.WaitGroup
-	workers    int
-	asyncMu    sync.Mutex
-	stopping   bool
+	ctx         context.Context
+	reads       chan job
+	jobs        chan job
+	cancel      context.CancelFunc
+	asyncSlots  chan struct{}
+	wg          sync.WaitGroup
+	workers     int
+	asyncMu     sync.Mutex
+	lifecycleMu sync.Mutex
+	stopping    bool
 }
 
 type job struct {
@@ -51,7 +56,7 @@ type job struct {
 	tag      uint64
 }
 
-// NewDispatcher creates a terminal I/O dispatcher with default 1 worker.
+// NewDispatcher creates a terminal I/O dispatcher with one worker per lane.
 func NewDispatcher(opts ...Option) *Dispatcher {
 	d := &Dispatcher{workers: 1, asyncSlots: make(chan struct{}, 128)}
 	for _, opt := range opts {
@@ -62,51 +67,99 @@ func NewDispatcher(opts ...Option) *Dispatcher {
 
 // Start initializes the worker pool.
 func (d *Dispatcher) Start(ctx context.Context) error {
+	d.lifecycleMu.Lock()
+	defer d.lifecycleMu.Unlock()
+	d.asyncMu.Lock()
+	defer d.asyncMu.Unlock()
+	if d.jobs != nil {
+		return errDispatcherStarted
+	}
+	d.stopping = false
 	d.ctx, d.cancel = context.WithCancel(ctx)
 	d.jobs = make(chan job, d.workers*2)
+	d.reads = make(chan job, d.workers*2)
 	for i := 0; i < d.workers; i++ {
-		d.wg.Add(1)
-		go d.worker()
+		d.wg.Add(2)
+		go d.worker(d.jobs)
+		go d.worker(d.reads)
 	}
 	return nil
 }
 
 // Stop shuts down the dispatcher and drains pending jobs.
 func (d *Dispatcher) Stop(_ context.Context) error {
+	d.lifecycleMu.Lock()
+	defer d.lifecycleMu.Unlock()
 	d.asyncMu.Lock()
 	d.stopping = true
-	d.asyncMu.Unlock()
-	if d.cancel != nil {
-		d.cancel()
+	cancel := d.cancel
+	jobs, reads := d.jobs, d.reads
+	d.cancel = nil
+	d.ctx = nil
+	d.jobs, d.reads = nil, nil
+	if jobs != nil {
+		close(jobs)
+		close(reads)
 	}
-	if d.jobs != nil {
-		close(d.jobs)
+	d.asyncMu.Unlock()
+	if cancel != nil {
+		cancel()
 	}
 	d.wg.Wait()
-	d.jobs = nil
-	d.cancel = nil
 	return nil
 }
 
-func (d *Dispatcher) worker() {
+func (d *Dispatcher) worker(jobs <-chan job) {
 	defer d.wg.Done()
-	for j := range d.jobs {
+	for j := range jobs {
 		d.execute(j)
 	}
 }
 
-func (d *Dispatcher) submit(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) {
+func (d *Dispatcher) submit(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	j := job{ctx: ctx, cmd: cmd, tag: tag, receiver: receiver}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	d.asyncMu.Lock()
 	if d.jobs == nil {
+		stopping := d.stopping
+		d.asyncMu.Unlock()
+		if stopping {
+			return ttyapi.ErrServiceUnavailable
+		}
 		d.execute(j)
-		return
+		return nil
+	}
+	if d.stopping {
+		d.asyncMu.Unlock()
+		return ttyapi.ErrServiceUnavailable
+	}
+	if err := ctx.Err(); err != nil {
+		d.asyncMu.Unlock()
+		return err
+	}
+	if err := d.ctx.Err(); err != nil {
+		d.asyncMu.Unlock()
+		return err
 	}
 
+	queue := d.jobs
+	switch cmd.(type) {
+	case ttyapi.ReadCmd, ttyapi.ReadLineCmd:
+		queue = d.reads
+	}
 	select {
-	case d.jobs <- j:
+	case queue <- j:
+		d.asyncMu.Unlock()
+		return nil
 	case <-d.ctx.Done():
+		err := d.ctx.Err()
+		d.asyncMu.Unlock()
+		return err
 	default:
-		d.execute(j)
+		d.asyncMu.Unlock()
+		return errDispatcherBusy
 	}
 }
 
@@ -245,8 +298,7 @@ func trimLine(line string) string {
 }
 
 func (d *Dispatcher) handle(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
-	d.submit(ctx, cmd, tag, receiver)
-	return nil
+	return d.submit(ctx, cmd, tag, receiver)
 }
 
 // RegisterAll registers all terminal I/O handlers.
@@ -280,14 +332,15 @@ func (d *Dispatcher) handleViewportIO(ctx context.Context, command dispatcher.Co
 		return ttyapi.ErrMeshBusy
 	}
 	d.wg.Add(1)
+	lifecycleCtx := d.ctx
 	d.asyncMu.Unlock()
 	go func() {
 		defer d.wg.Done()
 		defer func() { <-d.asyncSlots }()
 		runCtx, cancel := context.WithCancel(ctx)
 		defer cancel()
-		if d.ctx != nil {
-			stop := context.AfterFunc(d.ctx, cancel)
+		if lifecycleCtx != nil {
+			stop := context.AfterFunc(lifecycleCtx, cancel)
 			defer stop()
 		}
 		var result any
