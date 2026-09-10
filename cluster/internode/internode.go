@@ -106,7 +106,7 @@ func (s *Service) Start(ctx context.Context) error {
 		return NewStartConnectionManagerError(err)
 	}
 
-	sub, err := eventbus.NewSubscriber(ctx, s.bus, cluster.System, "node.(joined|left)", s.handleMembershipEvent)
+	sub, err := eventbus.NewSubscriber(ctx, s.bus, cluster.System, "node.(joined|left|updated)", s.handleMembershipEvent)
 	if err != nil {
 		s.cancel()
 		_ = s.connMan.Stop()
@@ -284,6 +284,10 @@ func (s *Service) handleMembershipEvent(e event.Event) {
 			zap.String("node_id", nodeInfo.ID))
 		s.connMan.AddManagedNode(nodeInfo.ID)
 		s.connectToNode(nodeInfo)
+	case cluster.NodeUpdated:
+		if s.connMan.IsManaged(nodeInfo.ID) {
+			s.connectToNode(nodeInfo)
+		}
 	case cluster.NodeLeft:
 		s.logger.Info("Node left cluster, cleaning up state and connection",
 			zap.String("node_id", nodeInfo.ID))
