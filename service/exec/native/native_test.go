@@ -613,6 +613,41 @@ func TestExecutor_ReadWithInvalidCommand(t *testing.T) {
 	_ = process.Wait()
 }
 
+func TestExecutorReleasesPipesWhenProcessNeverStarts(t *testing.T) {
+	for _, start := range []bool{false, true} {
+		t.Run(map[bool]string{false: "abandoned", true: "start_failure"}[start], func(t *testing.T) {
+			logger, _ := mocklogger.ZapTestLogger(zap.DebugLevel)
+			executor := NewNativeExecutor(logger, &exec.NativeExecutorConfig{})
+			process, err := executor.NewProcess("wippy-command-that-does-not-exist", exec.ProcessOptions{})
+			require.NoError(t, err)
+			native := process.(*ProcessExecutor)
+			stdout := process.Stdout()
+			stderr := process.Stderr()
+			require.NotNil(t, stdout)
+			require.NotNil(t, stderr)
+
+			if start {
+				require.Error(t, process.Start())
+			} else {
+				native.Stop()
+			}
+
+			_, stdoutErr := stdout.Read(make([]byte, 1))
+			_, stderrErr := stderr.Read(make([]byte, 1))
+			require.Error(t, stdoutErr)
+			require.Error(t, stderrErr)
+			native.mu.RLock()
+			require.Nil(t, native.stdinPipe)
+			require.Nil(t, native.stdoutp)
+			require.Nil(t, native.stderrp)
+			require.Equal(t, terminated, native.state)
+			require.True(t, native.stdinClosed)
+			native.mu.RUnlock()
+			require.True(t, native.stopped.Load())
+		})
+	}
+}
+
 func TestExecutor_WriteStdin(t *testing.T) {
 	tests := []struct {
 		name    string

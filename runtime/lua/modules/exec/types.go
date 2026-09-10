@@ -39,7 +39,7 @@ func init() {
 		{Name: "receive", Type: typ.Func().Param("self", typ.Self).
 			Returns(typ.NewOptional(processExitType), typ.Boolean).Build()},
 		{Name: "case_receive", Type: typ.Func().Param("self", typ.Self).
-			Returns(typ.Any).Build()},
+			Returns(engine.ChannelSelectCaseType(typ.Self, processExitType)).Build()},
 	})
 	terminalCompletionType = typ.NewInterface("exec.TerminalCompletionChannel", []typ.Method{
 		{Name: "receive", Type: typ.Func().Param("self", typ.Self).

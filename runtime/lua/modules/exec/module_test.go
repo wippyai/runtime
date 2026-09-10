@@ -812,6 +812,20 @@ func TestProcessStartFailureClosesHandle(t *testing.T) {
 	require.Nil(t, process.handle)
 }
 
+type stoppableProcess struct {
+	mockProcess
+	stopped bool
+}
+
+func (p *stoppableProcess) Stop() { p.stopped = true }
+
+func TestProcessCloseReleasesUnstartedNativeCapability(t *testing.T) {
+	handle := &stoppableProcess{}
+	process := NewProcess(context.Background(), handle)
+	process.close(false)
+	require.True(t, handle.stopped)
+}
+
 func (m *mockProcess) Signal(_ int) error {
 	m.signalCalled++
 	return m.signalErr

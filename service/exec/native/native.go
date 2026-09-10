@@ -244,6 +244,7 @@ func (e *ProcessExecutor) Start() error {
 		width, height, _ := e.pty.Dimensions()
 		master, err := pty.StartWithSize(e.cmd, &pty.Winsize{Cols: uint16(width), Rows: uint16(height)})
 		if err != nil {
+			e.releaseFailedStart()
 			e.stopped.Store(true)
 			if errors.Is(err, pty.ErrUnsupported) {
 				return execapi.ErrPTYUnavailable.WithCause(err)
@@ -255,14 +256,15 @@ func (e *ProcessExecutor) Start() error {
 		e.stderrp = io.NopCloser(strings.NewReader(""))
 	} else {
 		err := e.cmd.Start()
+		if err != nil {
+			e.releaseFailedStart()
+			e.stopped.Store(true)
+			return err
+		}
 		// The child inherited its own descriptors for the write ends; keeping
 		// the executor's copies open would hold the readers past the last real
 		// writer and EOF would never arrive.
 		e.releaseOutputWriters()
-		if err != nil {
-			e.stopped.Store(true)
-			return err
-		}
 	}
 
 	e.pid = e.cmd.Process.Pid
@@ -288,6 +290,24 @@ func (e *ProcessExecutor) releaseOutputWriters() {
 		_ = e.stderrw.Close()
 		e.stderrw = nil
 	}
+}
+
+func (e *ProcessExecutor) releaseFailedStart() {
+	e.releaseOutputWriters()
+	if e.stdinPipe != nil {
+		_ = e.stdinPipe.Close()
+		e.stdinPipe = nil
+	}
+	if e.stdoutp != nil {
+		_ = e.stdoutp.Close()
+		e.stdoutp = nil
+	}
+	if e.stderrp != nil {
+		_ = e.stderrp.Close()
+		e.stderrp = nil
+	}
+	e.stdinClosed = true
+	e.state = terminated
 }
 
 // Pid implements exec.ProcessIdentity. It reports the identifier of the started
@@ -466,8 +486,9 @@ func (e *ProcessExecutor) Stop() {
 	defer e.mu.Unlock()
 
 	if e.pid <= 0 {
+		e.releaseFailedStart()
 		e.closePTY()
-		e.log.Warn("pid is not a positive int", zap.Int("pid", e.pid))
+		e.stopped.Store(true)
 		return
 	}
 

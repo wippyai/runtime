@@ -125,7 +125,13 @@ func (p *Process) close(force bool) {
 	if cancel != nil {
 		cancel()
 	}
-	if handle == nil || !started {
+	if handle == nil {
+		return
+	}
+	if !started {
+		if stopper, ok := handle.(interface{ Stop() }); ok {
+			stopper.Stop()
+		}
 		return
 	}
 	signal := syscall.SIGTERM
@@ -529,17 +535,17 @@ func procStdout(l *lua.LState) int {
 		return 2
 	}
 
-	reader := handle.Stdout()
-	if reader == nil {
-		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "stdout not available").WithKind(lua.Internal).WithRetryable(false))
-		return 2
-	}
-
 	table := resource.GetTable(ctx)
 	if table == nil {
 		l.Push(lua.LNil)
 		l.Push(lua.NewLuaError(l, "resource table not available").WithKind(lua.Internal).WithRetryable(false))
+		return 2
+	}
+
+	reader := handle.Stdout()
+	if reader == nil {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "stdout not available").WithKind(lua.Internal).WithRetryable(false))
 		return 2
 	}
 
@@ -578,17 +584,17 @@ func procStderr(l *lua.LState) int {
 		return 2
 	}
 
-	reader := handle.Stderr()
-	if reader == nil {
-		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "stderr not available").WithKind(lua.Internal).WithRetryable(false))
-		return 2
-	}
-
 	table := resource.GetTable(ctx)
 	if table == nil {
 		l.Push(lua.LNil)
 		l.Push(lua.NewLuaError(l, "resource table not available").WithKind(lua.Internal).WithRetryable(false))
+		return 2
+	}
+
+	reader := handle.Stderr()
+	if reader == nil {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "stderr not available").WithKind(lua.Internal).WithRetryable(false))
 		return 2
 	}
 
