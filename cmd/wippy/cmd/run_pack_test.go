@@ -1454,7 +1454,6 @@ func TestRunPackEntries_ExplicitHostDoesNotFallBack(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer embedReg.Close()
-	defer shutdown.Perform(ctx, loader, logger, true)
 	entries := []regapi.Entry{{
 		ID: regapi.NewID("test", "runner"), Kind: "process.lua",
 		Meta: map[string]any{"command": map[string]any{"name": "probe"}},
