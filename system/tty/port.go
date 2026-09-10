@@ -3,6 +3,7 @@
 package tty
 
 import (
+	"slices"
 	"sync"
 	"sync/atomic"
 
@@ -66,6 +67,13 @@ func (s *surface) Present(frame ttyapi.Frame) (ttyapi.PresentStats, error) {
 		ss.mu.Unlock()
 		return ttyapi.PresentStats{}, ttyapi.ErrViewportClosed
 	}
+	images, err := ttyapi.RetainPlacements(frame.Images)
+	if err != nil {
+		ss.mu.Unlock()
+		return ttyapi.PresentStats{}, err
+	}
+	placements := ttyapi.PlacementMetadata(images)
+	imagesChanged := !slices.Equal(ss.placements, placements)
 	changed := changedRows(ss.sourceRows, frame.Rows)
 	forced := ss.invalid
 	if forced && changed == 0 {
@@ -74,7 +82,10 @@ func (s *surface) Present(frame ttyapi.Frame) (ttyapi.PresentStats, error) {
 	// A nil cursor means row-only presentation and preserves terminal state,
 	// matching the Frame contract and physical surface implementation.
 	cursorChanged := frame.Cursor != nil && !sameCursor(ss.cursor, frame.Cursor)
-	if forced || changed != 0 || cursorChanged {
+	if forced || changed != 0 || cursorChanged || imagesChanged {
+		ttyapi.ClosePlacements(ss.images)
+		ss.images, ss.placements = images, placements
+		images = nil
 		previousSource, previousRows := ss.sourceRows, ss.rows
 		ss.sourceRows = append([]string(nil), frame.Rows...)
 		ss.resolvePageRows(previousSource, previousRows)
@@ -89,6 +100,7 @@ func (s *surface) Present(frame ttyapi.Frame) (ttyapi.PresentStats, error) {
 			publishLatest(watcher.ch, update)
 		}
 	}
+	ttyapi.ClosePlacements(images)
 	ss.mu.Unlock()
 	return ttyapi.PresentStats{Rows: len(frame.Rows), ChangedRows: changed}, nil
 }

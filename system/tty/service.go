@@ -21,6 +21,7 @@ import (
 // Service is a zero-goroutine, in-memory viewport broker. The AppContext owns
 // the service; process frames own bindings and redeemed ports.
 type Service struct {
+	images   *ttyapi.ImageStore
 	mounts   map[string]*mountRecord
 	mesh     *meshService
 	sessions map[string]*session
@@ -30,6 +31,8 @@ type Service struct {
 }
 
 type session struct {
+	images       []ttyapi.PlacedImage
+	placements   []ttyapi.Placement
 	page         *ttyapi.Page
 	pageRenderer *terminal.PageRenderer
 	sourceRows   []string
@@ -61,8 +64,10 @@ type watch struct {
 }
 
 func NewService() *Service {
-	return &Service{mounts: make(map[string]*mountRecord), sessions: make(map[string]*session), grants: make(map[string]*session)}
+	return &Service{images: ttyapi.NewImageStore(ttyapi.DefaultImageBudget), mounts: make(map[string]*mountRecord), sessions: make(map[string]*session), grants: make(map[string]*session)}
 }
+
+func (s *Service) ImageStore() *ttyapi.ImageStore { return s.images }
 
 func token(prefix string) (string, error) {
 	var raw [24]byte
@@ -211,14 +216,16 @@ func (s *Service) OnComplete(ctx context.Context, owner pid.PID, _ *runtime.Resu
 func (s *Service) collect(ss *session) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	ss.mu.RLock()
-	defer ss.mu.RUnlock()
+	ss.mu.Lock()
+	defer ss.mu.Unlock()
 	if len(ss.viewers) != 0 || ss.bindings != 0 || ss.producer {
 		return
 	}
 	if s.sessions[ss.handle] == ss {
 		delete(s.sessions, ss.handle)
 		delete(s.grants, ss.grant)
+		ttyapi.ClosePlacements(ss.images)
+		ss.images, ss.placements = nil, nil
 	}
 }
 
@@ -229,6 +236,8 @@ func (s *session) closeAll() {
 		close(watcher.ch)
 		delete(s.watches, id)
 	}
+	ttyapi.ClosePlacements(s.images)
+	s.images, s.placements = nil, nil
 	s.rows, s.router, s.viewers = nil, nil, nil
 	s.mu.Unlock()
 }

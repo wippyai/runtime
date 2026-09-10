@@ -33,6 +33,8 @@ type Cursor struct {
 // Frame augments surface rows with optional terminal state. A nil Cursor lets
 // a renderer preserve its configured cursor behavior.
 type Frame struct {
+	// Images is the complete placement set. Nil clears previously presented images.
+	Images []PlacedImage
 	Cursor *Cursor
 	Rows   []string
 }

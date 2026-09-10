@@ -37,6 +37,8 @@ type Snapshot struct {
 	// Cursor is nil until a producer first publishes explicit cursor state.
 	// Row-only frames preserve the last explicit value.
 	Cursor *Cursor
+	// Images carries resolved metadata only. Capture pins resources atomically.
+	Images []Placement
 	// Rows is immutable and remains valid after later presents. Consumers must
 	// not modify it. This lets unchanged UI frames inspect snapshots without an
 	// allocation or copy.
@@ -44,6 +46,8 @@ type Snapshot struct {
 	Revision uint64
 	Width    int
 	Height   int
+	// ImagesOmitted reports an explicit text-only projection of graphical content.
+	ImagesOmitted bool
 }
 
 // Update announces that a newer snapshot may be read. Notifications are

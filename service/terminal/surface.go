@@ -33,6 +33,9 @@ func NewSurface(out io.Writer, opts ttyapi.SurfaceOptions) *Surface {
 }
 
 func (s *Surface) Present(frame ttyapi.Frame) (ttyapi.PresentStats, error) {
+	if len(frame.Images) != 0 {
+		return ttyapi.PresentStats{}, ttyapi.ErrGraphicsUnsupported
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed {

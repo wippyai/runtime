@@ -270,3 +270,17 @@ func (v *mountedViewport) Updates() <-chan ttyapi.Update { return v.record.view.
 func (v *mountedViewport) Send(e ttyapi.Event) error     { return v.record.view.Send(e) }
 func (v *mountedViewport) Resize(w, h int) error         { return v.record.view.Resize(w, h) }
 func (v *mountedViewport) Close() error                  { v.record.service.removeMount(v.record.ref); return nil }
+
+func (v *mountedViewport) Capture(ctx context.Context) (*ttyapi.Capture, error) {
+	if err := v.Check(ctx, ttyapi.RightObserve); err != nil {
+		return nil, err
+	}
+	v.record.mu.Lock()
+	defer v.record.mu.Unlock()
+	select {
+	case <-v.record.done:
+		return nil, ttyapi.ErrMountExpired
+	default:
+	}
+	return v.record.view.Capture(ctx)
+}

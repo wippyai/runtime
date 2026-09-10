@@ -102,6 +102,11 @@ func (s *Service) SetMesh(local string, transport ttyapi.MeshTransport) error {
 	return nil
 }
 func (m *meshService) send(peer string, f wireFrame) error {
+	// Image transport is enabled in the capability-gated resource stage.
+	if len(f.Snapshot.Images) != 0 {
+		f.Snapshot.ImagesOmitted = true
+		f.Snapshot.Images = nil
+	}
 	f.Version = wireVersion
 	var b bytes.Buffer
 	if err := codec.NewEncoder(&b, &m.codec).Encode(f); err != nil {

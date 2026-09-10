@@ -53,7 +53,7 @@ func (v *viewport) Snapshot() ttyapi.Snapshot {
 		copy := *v.session.cursor
 		cursor = &copy
 	}
-	return ttyapi.Snapshot{Revision: v.session.revision, Width: v.session.width,
+	return ttyapi.Snapshot{Images: append([]ttyapi.Placement(nil), v.session.placements...), Revision: v.session.revision, Width: v.session.width,
 		Height: v.session.height, Rows: v.session.rows, Cursor: cursor}
 }
 
@@ -157,4 +157,21 @@ func (v *viewport) Check(ctx context.Context, right string) error {
 		return ttyapi.ErrViewportClosed
 	}
 	return nil
+}
+
+// Capture obtains metadata and resource references under the same publication lock.
+func (v *viewport) Capture(ctx context.Context) (*ttyapi.Capture, error) {
+	if err := v.Check(ctx, ttyapi.RightObserve); err != nil {
+		return nil, err
+	}
+	ss := v.session
+	ss.mu.RLock()
+	defer ss.mu.RUnlock()
+	if ss.closed || v.closed.Load() {
+		return nil, ttyapi.ErrViewportClosed
+	}
+	if _, ok := ss.watches[v.watchID]; !ok {
+		return nil, ttyapi.ErrViewportClosed
+	}
+	return ttyapi.NewCapture(ttyapi.Snapshot{Rows: ss.rows, Cursor: ss.cursor, Revision: ss.revision, Width: ss.width, Height: ss.height}, ss.images)
 }
