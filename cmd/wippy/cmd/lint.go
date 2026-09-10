@@ -5,6 +5,7 @@ package cmd
 import (
 	"context"
 	stdjson "encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"runtime"
@@ -164,9 +165,10 @@ type Diagnostic struct {
 
 // RichDiagnostic holds a diagnostic with source for rendering.
 type RichDiagnostic struct {
-	EntryID string
-	Diag    diag.Diagnostic
-	Source  diag.SourceLines
+	EntryID     string
+	displayCode string
+	Diag        diag.Diagnostic
+	Source      diag.SourceLines
 }
 
 // LintResult holds the complete lint results.
@@ -196,6 +198,8 @@ type entryData struct {
 	Source  string
 	Method  string
 }
+
+const parseErrorCode = "P0001"
 
 // lintConfig holds runtime configuration for a lint session.
 type lintConfig struct {
@@ -649,16 +653,7 @@ func lintOneEntry(entry regapi.Entry, data entryData, linter *lint.Linter, manif
 
 	stmts, parseErr := parse.ParseString(data.Source, entryID)
 	if parseErr != nil {
-		return &entryResult{
-			entryID: entry.ID,
-			diagnostics: []Diagnostic{{
-				EntryID:  entryID,
-				Code:     "P0001",
-				Severity: "error",
-				Message:  parseErr.Error(),
-			}},
-			errors: 1,
-		}
+		return parseErrorResult(entry.ID, parseErr, sourceLines)
 	}
 
 	imports := make(map[string]*io.Manifest)
@@ -747,6 +742,49 @@ func lintOneEntry(entry regapi.Entry, data entryData, linter *lint.Linter, manif
 	}
 
 	return er
+}
+
+// parseErrorResult reports a syntax error the same way a type error is
+// reported: counted, listed, and rendered with its line so it cannot pass
+// unnoticed in the terminal report.
+func parseErrorResult(id regapi.ID, parseErr error, sourceLines diag.SourceLines) *entryResult {
+	entryID := id.String()
+	message := parseErr.Error()
+	position := diag.Position{File: entryID, Line: 1, Column: 1}
+	var syntaxErr *parse.Error
+	if errors.As(parseErr, &syntaxErr) {
+		message = syntaxErr.Message
+		if syntaxErr.Pos.Line == parse.EOF {
+			position.Line = len(sourceLines)
+			if position.Line < 1 {
+				position.Line = 1
+			}
+		} else if syntaxErr.Pos.Line > 0 {
+			position.Line = syntaxErr.Pos.Line
+			if syntaxErr.Pos.Column > 0 {
+				position.Column = syntaxErr.Pos.Column
+			}
+		}
+	}
+	rendered := diag.Diagnostic{Severity: diag.SeverityError, Message: message, Position: position}
+	return &entryResult{
+		entryID: id,
+		diagnostics: []Diagnostic{{
+			EntryID:  entryID,
+			Code:     parseErrorCode,
+			Severity: severityError.String(),
+			Message:  message,
+			Line:     position.Line,
+			Column:   position.Column,
+		}},
+		rich: []RichDiagnostic{{
+			EntryID:     entryID,
+			Diag:        rendered,
+			Source:      sourceLines,
+			displayCode: parseErrorCode,
+		}},
+		errors: 1,
+	}
 }
 
 func mergeEntryResult(result *LintResult, er *entryResult, manifestMap map[regapi.ID]*io.Manifest, reportSet map[regapi.ID]bool) {
@@ -1125,10 +1163,17 @@ func renderRichDiag(rd RichDiagnostic, noColor bool) string {
 	} else {
 		rendered = rd.Diag.RenderColored(rd.Source)
 	}
-	if rd.Diag.Code >= lint.LintCodeBase {
-		rendered = strings.Replace(rendered, rd.Diag.Code.Name(), lint.FormatLintCode(rd.Diag.Code), 1)
+	if code := richDiagnosticCode(rd); code != rd.Diag.Code.Name() {
+		rendered = strings.Replace(rendered, rd.Diag.Code.Name(), code, 1)
 	}
 	return rendered
+}
+
+func richDiagnosticCode(rd RichDiagnostic) string {
+	if rd.displayCode != "" {
+		return rd.displayCode
+	}
+	return formatDiagCode(rd.Diag.Code)
 }
 
 func sortLintResults(result *LintResult) {
@@ -1166,8 +1211,9 @@ func sortLintResults(result *LintResult) {
 		if a.Diag.Position.Column != b.Diag.Position.Column {
 			return a.Diag.Position.Column < b.Diag.Position.Column
 		}
-		if a.Diag.Code != b.Diag.Code {
-			return a.Diag.Code < b.Diag.Code
+		aCode, bCode := richDiagnosticCode(a), richDiagnosticCode(b)
+		if aCode != bCode {
+			return aCode < bCode
 		}
 		return a.Diag.Message < b.Diag.Message
 	})
@@ -1196,7 +1242,7 @@ func filterByCode(result *LintResult, codes []string) *LintResult {
 	}
 
 	for _, rd := range result.RichDiagnostics {
-		if codeSet[strings.ToUpper(formatDiagCode(rd.Diag.Code))] {
+		if codeSet[strings.ToUpper(richDiagnosticCode(rd))] {
 			filtered.RichDiagnostics = append(filtered.RichDiagnostics, rd)
 		}
 	}
