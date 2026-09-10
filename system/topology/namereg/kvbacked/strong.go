@@ -173,6 +173,11 @@ func (s *Service) nameReady() bool {
 	// No Strong plane -> no join barrier needed. Otherwise the node is ready
 	// only once the reconciler has seeded (learned and latched the cluster's
 	// in-flight/active Strong reservations), so it cannot shadow one.
+	if s.strong != nil {
+		if run := s.reconciler.Load(); run != nil && run.ctx.Err() != nil {
+			return false
+		}
+	}
 	return s.strong == nil || s.ready.Load()
 }
 
@@ -497,7 +502,14 @@ func (st *strongState) leaderPromote(name string, epoch, headerVer uint64, hdr p
 		{Kind: kvapi.TxnPut, Cond: kvapi.CondAny, Key: nodeIndexKey(p, name), Value: idx},
 	}
 	for _, n := range hdr.RequiredNodes {
-		ops = append(ops, kvapi.TxnOp{Kind: kvapi.TxnDelete, Cond: kvapi.CondAny, Key: ackKey(name, epoch, n)})
+		// The leader's preceding scan is only a hint. Validate the entire
+		// admission decision in the committed transaction so a rejection that
+		// precedes promotion in Raft order cannot be ignored.
+		ops = append(ops,
+			kvapi.TxnOp{Kind: kvapi.TxnCheck, Cond: kvapi.CondExists, Key: ackKey(name, epoch, n)},
+			kvapi.TxnOp{Kind: kvapi.TxnCheck, Cond: kvapi.CondAbsent, Key: rejectKey(name, epoch, n)},
+			kvapi.TxnOp{Kind: kvapi.TxnDelete, Cond: kvapi.CondAny, Key: ackKey(name, epoch, n)},
+		)
 	}
 	committed, terr := st.svc.engine.Txn(ops)
 	if terr != nil {
@@ -528,13 +540,35 @@ func (st *strongState) leaderExpire(name string, epoch, headerVer uint64, hdr pe
 		{Kind: kvapi.TxnDelete, Cond: kvapi.CondAny, Key: pendingKey(name)},
 	}
 	for _, n := range hdr.RequiredNodes {
-		if _, err := st.svc.engine.Get(ackKey(name, epoch, n)); err != nil {
+		ack := ackKey(name, epoch, n)
+		_, err := st.svc.engine.Get(ack)
+		if err != nil && !errors.Is(err, kvapi.ErrKeyNotFound) {
+			return
+		}
+		absent := errors.Is(err, kvapi.ErrKeyNotFound)
+		if absent {
 			missing = append(missing, n)
 		}
+		if reason == "deadline" {
+			// Keep the reported missing set and rejection precedence true at
+			// commit, not merely at the leader's earlier read.
+			condition := kvapi.CondExists
+			if absent {
+				condition = kvapi.CondAbsent
+			}
+			ops = append(ops,
+				kvapi.TxnOp{Kind: kvapi.TxnCheck, Cond: condition, Key: ack},
+				kvapi.TxnOp{Kind: kvapi.TxnCheck, Cond: kvapi.CondAbsent, Key: rejectKey(name, epoch, n)},
+			)
+		}
 		ops = append(ops,
-			kvapi.TxnOp{Kind: kvapi.TxnDelete, Cond: kvapi.CondAny, Key: ackKey(name, epoch, n)},
+			kvapi.TxnOp{Kind: kvapi.TxnDelete, Cond: kvapi.CondAny, Key: ack},
 			kvapi.TxnOp{Kind: kvapi.TxnDelete, Cond: kvapi.CondAny, Key: rejectKey(name, epoch, n)},
 		)
+	}
+	if reason == "deadline" && len(missing) == 0 {
+		st.leaderPromote(name, epoch, headerVer, hdr)
+		return
 	}
 	if committed, terr := st.svc.engine.Txn(ops); terr != nil || !committed {
 		return
