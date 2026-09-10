@@ -4,6 +4,7 @@ package boot
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"strings"
 
@@ -54,9 +55,22 @@ func getPeerManager(ctx context.Context) *relay.PeerManager {
 // The logger is wrapped with event streaming capabilities, allowing runtime control
 // of log propagation and streaming to the event bus.
 func NewBootstrapContext(logger *zap.Logger, cfg boot.Config) (context.Context, error) {
+	return NewBootstrapContextWithParent(context.Background(), logger, cfg)
+}
+
+// NewBootstrapContextWithParent preserves the caller's cancellation, deadline
+// and values while installing a fresh application context. Native application
+// runners must use it so their owner lifetime reaches runtime components.
+func NewBootstrapContextWithParent(parent context.Context, logger *zap.Logger, cfg boot.Config) (context.Context, error) {
+	if parent == nil {
+		return nil, fmt.Errorf("bootstrap parent context is required")
+	}
+	if err := parent.Err(); err != nil {
+		return nil, err
+	}
 	// Create AppContext and attach config
 	appCtx := contextapi.NewAppContext()
-	ctx := contextapi.WithAppContext(context.Background(), appCtx)
+	ctx := contextapi.WithAppContext(parent, appCtx)
 	ctx = moduleapi.WithSourceRegistry(ctx, moduleapi.NewSourceRegistry())
 	if cfg != nil {
 		ctx = boot.WithConfig(ctx, cfg)
