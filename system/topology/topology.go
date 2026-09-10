@@ -183,6 +183,31 @@ func (t *Topology) removeFromNodeIndex(node pid.NodeID, key string) {
 	}
 }
 
+// detachNodeIndex removes and snapshots one node's current registration
+// bucket. The bucket lock makes the snapshot and detach one boundary with
+// respect to addToNodeIndex: a registration that races the retirement either
+// lands in this returned snapshot or publishes to a fresh bucket.
+func (t *Topology) detachNodeIndex(node pid.NodeID) []string {
+	for {
+		val, ok := t.nodeIndex.Load(node)
+		if !ok {
+			return nil
+		}
+		nk := val.(*nodeKeys)
+		nk.mu.Lock()
+		current, live := t.nodeIndex.Load(node)
+		if !live || current != nk {
+			nk.mu.Unlock()
+			continue
+		}
+
+		keys := append([]string(nil), nk.keys...)
+		t.nodeIndex.CompareAndDelete(node, nk)
+		nk.mu.Unlock()
+		return keys
+	}
+}
+
 // Monitor attaches a caller to monitor a target pid.
 func (t *Topology) Monitor(caller, target pid.PID) error {
 	callerKey := caller.String()
@@ -763,8 +788,12 @@ func (t *Topology) Remove(p pid.PID) {
 func (t *Topology) HandleNodeExit(nodeID pid.NodeID, exitErr error) {
 	// Detach the old index before sweeping. Concurrent registrations publish in
 	// a fresh bucket; addToNodeIndex revalidates any bucket captured before this
-	// detach. Do not delete the new bucket at the end of retirement.
-	t.nodeIndex.LoadAndDelete(nodeID)
+	// detach. Sweep only the registrations that belonged to the detached bucket.
+	deadPIDKeys := t.detachNodeIndex(nodeID)
+	deadKeySet := make(map[string]struct{}, len(deadPIDKeys))
+	for _, key := range deadPIDKeys {
+		deadKeySet[key] = struct{}{}
+	}
 	type notification struct {
 		caller pid.PID
 		target pid.PID
@@ -791,11 +820,8 @@ func (t *Topology) HandleNodeExit(nodeID pid.NodeID, exitErr error) {
 					delete(state.watchers, watcherKey)
 				}
 			}
-			if nodeID != "" && state.pid.Node == nodeID {
+			if _, dead := deadKeySet[key]; dead {
 				delete(sh.processes, key)
-				// A registration concurrent with index detachment may already
-				// have published here. Remove only this retired process's key.
-				t.removeFromNodeIndex(nodeID, key)
 				t.recycleState(state)
 			}
 		}

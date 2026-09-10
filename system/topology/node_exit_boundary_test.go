@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/pid"
@@ -105,6 +106,67 @@ func TestNodeIndexLastRemovalRacesRegistration(t *testing.T) {
 		require.Equal(t, []string{fresh.String()}, keys)
 		topo.Remove(fresh)
 	}
+}
+
+func TestNodeExitConcurrentRegistrationAfterDetachSurvives(t *testing.T) {
+	topo := NewTopology(nodeExitBoundaryRouter(func(pkg *relay.Package) error {
+		relay.ReleasePackage(pkg)
+		return nil
+	}), "local")
+	old := pid.PID{Node: "remote", Host: "app", UniqID: "old"}
+	require.NoError(t, topo.Register(old))
+
+	var fresh pid.PID
+	for i := 0; ; i++ {
+		candidate := pid.PID{Node: "remote", Host: "app", UniqID: fmt.Sprintf("fresh-%d", i)}
+		if shardIndex(candidate.String()) == numShards-1 {
+			fresh = candidate
+			break
+		}
+	}
+
+	// Hold the first shard so retirement is paused after its index detach and
+	// allow a new registration to publish in a later shard.
+	gate := &topo.shards[0]
+	gate.mu.Lock()
+	done := make(chan struct{})
+	go func() {
+		topo.HandleNodeExit("remote", nil)
+		close(done)
+	}()
+
+	deadline := time.Now().Add(time.Second)
+	for {
+		if _, exists := topo.nodeIndex.Load("remote"); !exists {
+			break
+		}
+		if time.Now().After(deadline) {
+			gate.mu.Unlock()
+			t.Fatal("node index was not detached")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	require.NoError(t, topo.Register(fresh))
+	gate.mu.Unlock()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("node exit did not finish")
+	}
+
+	sh := topo.getShard(fresh.String())
+	sh.mu.RLock()
+	_, exists := sh.processes[fresh.String()]
+	sh.mu.RUnlock()
+	require.True(t, exists, "registration after the retirement boundary must survive")
+	index, indexed := topo.nodeIndex.Load("remote")
+	require.True(t, indexed)
+	nk := index.(*nodeKeys)
+	nk.mu.Lock()
+	keys := append([]string(nil), nk.keys...)
+	nk.mu.Unlock()
+	require.Equal(t, []string{fresh.String()}, keys)
 }
 
 // Isolate the unrelated-process scan. There are no notifications or failed-node
