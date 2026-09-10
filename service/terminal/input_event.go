@@ -3,6 +3,7 @@
 package terminal
 
 import (
+	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/input"
 	ttyapi "github.com/wippyai/runtime/api/tty"
@@ -88,6 +89,35 @@ func ConvertInputEvent(ev input.Event) *TTYEvent {
 	}
 }
 
+// convertUVInputEvent adapts ultraviolet's streaming decoder events to the
+// established terminal event contract.
+func convertUVInputEvent(ev uv.Event) *TTYEvent {
+	switch e := ev.(type) {
+	case uv.KeyPressEvent:
+		return convertUVKeyEvent(uv.Key(e), "press")
+	case uv.KeyReleaseEvent:
+		return convertUVKeyEvent(uv.Key(e), "release")
+	case uv.MouseClickEvent:
+		return convertUVMouseEvent(uv.Mouse(e), "press")
+	case uv.MouseReleaseEvent:
+		return convertUVMouseEvent(uv.Mouse(e), "release")
+	case uv.MouseMotionEvent:
+		return convertUVMouseEvent(uv.Mouse(e), "motion")
+	case uv.MouseWheelEvent:
+		return convertUVMouseEvent(uv.Mouse(e), "wheel")
+	case uv.WindowSizeEvent:
+		return &TTYEvent{Type: "resize", Width: e.Width, Height: e.Height}
+	case uv.FocusEvent:
+		return &TTYEvent{Type: "focus", Focused: true}
+	case uv.BlurEvent:
+		return &TTYEvent{Type: "focus", Focused: false}
+	case uv.PasteEvent:
+		return &TTYEvent{Type: "paste", Paste: e.Content}
+	default:
+		return nil
+	}
+}
+
 func convertKeyEvent(k input.Key, action string) *TTYEvent {
 	ev := &TTYEvent{
 		Type:   "key",
@@ -130,5 +160,108 @@ func convertMouseEvent(m input.Mouse, action string) *TTYEvent {
 		Alt:   m.Mod.Contains(input.ModAlt),
 		Ctrl:  m.Mod.Contains(input.ModCtrl),
 		Shift: m.Mod.Contains(input.ModShift),
+	}
+}
+
+func convertUVKeyEvent(k uv.Key, action string) *TTYEvent {
+	ev := &TTYEvent{
+		Type:   "key",
+		Action: action,
+		Alt:    k.Mod.Contains(uv.ModAlt),
+		Ctrl:   k.Mod.Contains(uv.ModCtrl),
+		Shift:  k.Mod.Contains(uv.ModShift),
+	}
+
+	if name := uvKeyTypeName(k.Code); name != "" {
+		ev.KeyType = name
+		ev.Key = name
+	} else if k.Text != "" {
+		ev.KeyType = "runes"
+		ev.Key = k.Text
+	} else if k.Code > 0 && k.Code < uv.KeyExtended {
+		ev.KeyType = "runes"
+		ev.Key = string(k.Code)
+	} else {
+		ev.KeyType = "unknown"
+		ev.Key = k.Keystroke()
+	}
+	return ev
+}
+
+func uvKeyTypeName(code rune) string {
+	switch code {
+	case uv.KeyEnter:
+		return "enter"
+	case uv.KeyTab:
+		return "tab"
+	case uv.KeyBackspace:
+		return "backspace"
+	case uv.KeyEscape:
+		return "esc"
+	case uv.KeySpace:
+		return "space"
+	case uv.KeyUp:
+		return "up"
+	case uv.KeyDown:
+		return "down"
+	case uv.KeyLeft:
+		return "left"
+	case uv.KeyRight:
+		return "right"
+	case uv.KeyHome:
+		return "home"
+	case uv.KeyEnd:
+		return "end"
+	case uv.KeyPgUp:
+		return "pgup"
+	case uv.KeyPgDown:
+		return "pgdown"
+	case uv.KeyInsert:
+		return "insert"
+	case uv.KeyDelete:
+		return "delete"
+	case uv.KeyF1:
+		return "f1"
+	case uv.KeyF2:
+		return "f2"
+	case uv.KeyF3:
+		return "f3"
+	case uv.KeyF4:
+		return "f4"
+	case uv.KeyF5:
+		return "f5"
+	case uv.KeyF6:
+		return "f6"
+	case uv.KeyF7:
+		return "f7"
+	case uv.KeyF8:
+		return "f8"
+	case uv.KeyF9:
+		return "f9"
+	case uv.KeyF10:
+		return "f10"
+	case uv.KeyF11:
+		return "f11"
+	case uv.KeyF12:
+		return "f12"
+	default:
+		return ""
+	}
+}
+
+func convertUVMouseEvent(m uv.Mouse, action string) *TTYEvent {
+	btn := "none"
+	if name, ok := mouseButtonName[m.Button]; ok {
+		btn = name
+	}
+	return &TTYEvent{
+		Type:   "mouse",
+		Action: action,
+		Button: btn,
+		X:      m.X + 1,
+		Y:      m.Y + 1,
+		Alt:    m.Mod.Contains(uv.ModAlt),
+		Ctrl:   m.Mod.Contains(uv.ModCtrl),
+		Shift:  m.Mod.Contains(uv.ModShift),
 	}
 }

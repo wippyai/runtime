@@ -9,6 +9,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -75,6 +76,225 @@ func TestNewEventInputReader_DirectSinkDelivery(t *testing.T) {
 	assert.Equal(t, 20, delivered[1].Y)
 	mu.Unlock()
 }
+
+func TestInputReaderFramesFragmentedWheelBurstBeforeFollowingKey(t *testing.T) {
+	master, slave, err := pty.Open()
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_ = master.Close()
+		_ = slave.Close()
+	})
+	require.NoError(t, pty.Setsize(slave, &pty.Winsize{Rows: 24, Cols: 80}))
+
+	events := make(chan tty.Event, 64)
+	reader := NewEventInputReader(slave, io.Discard, NewRawManager(slave), func(event tty.Event) {
+		events <- event
+	})
+	require.NoError(t, reader.Start())
+	t.Cleanup(func() { require.NoError(t, reader.Stop()) })
+
+	// The burst is deliberately larger than x/input's 256-byte read buffer,
+	// leaving one SGR sequence split across reads. Trackpads commonly produce
+	// this shape; a wheel produces the identical SGR records individually.
+	var burst strings.Builder
+	for range 12 {
+		burst.WriteString("\x1b[<64;5;5M")
+	}
+	for range 40 {
+		burst.WriteString("\x1b[<65;5;5M")
+	}
+	_, err = io.WriteString(master, burst.String()+"z")
+	require.NoError(t, err)
+
+	var received []tty.Event
+	require.Eventually(t, func() bool {
+		for {
+			select {
+			case event := <-events:
+				if event.Type != "start" {
+					received = append(received, event)
+				}
+			default:
+				return len(received) >= 53
+			}
+		}
+	}, time.Second, time.Millisecond)
+
+	var wheelUp, wheelDown int
+	var keys []string
+	for _, event := range received {
+		switch event.Type {
+		case "mouse":
+			require.Equal(t, "wheel", event.Action)
+			switch event.Button {
+			case "wheel_up":
+				wheelUp++
+			case "wheel_down":
+				wheelDown++
+			default:
+				t.Fatalf("unexpected mouse button %q", event.Button)
+			}
+		case "key":
+			keys = append(keys, event.Key)
+		default:
+			t.Fatalf("unexpected event %#v", event)
+		}
+	}
+	require.Equal(t, 12, wheelUp)
+	require.Equal(t, 40, wheelDown)
+	require.Equal(t, []string{"z"}, keys)
+}
+
+func TestInputReaderPreservesEscapeTimeoutAndFragmentedNavigation(t *testing.T) {
+	master, slave, err := pty.Open()
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_ = master.Close()
+		_ = slave.Close()
+	})
+	events := make(chan tty.Event, 4)
+	reader := NewEventInputReader(slave, io.Discard, NewRawManager(slave), func(event tty.Event) {
+		if event.Type == "key" {
+			events <- event
+		}
+	})
+	require.NoError(t, reader.Start())
+	t.Cleanup(func() { require.NoError(t, reader.Stop()) })
+
+	_, err = master.Write([]byte("\x1b"))
+	require.NoError(t, err)
+	select {
+	case event := <-events:
+		require.Equal(t, "esc", event.KeyType)
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("standalone escape did not honor the decoder timeout")
+	}
+
+	_, err = master.Write([]byte("\x1b["))
+	require.NoError(t, err)
+	time.Sleep(10 * time.Millisecond)
+	_, err = master.Write([]byte("A"))
+	require.NoError(t, err)
+	select {
+	case event := <-events:
+		require.Equal(t, "up", event.KeyType)
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("fragmented navigation sequence was not decoded")
+	}
+}
+
+func TestInputReaderStopDrainsPartialEscape(t *testing.T) {
+	master, slave, err := pty.Open()
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_ = master.Close()
+		_ = slave.Close()
+	})
+	reader := NewEventInputReader(slave, io.Discard, NewRawManager(slave), func(tty.Event) {})
+	require.NoError(t, reader.Start())
+	_, err = master.Write([]byte("\x1b["))
+	require.NoError(t, err)
+
+	stopped := make(chan error, 1)
+	go func() { stopped <- reader.Stop() }()
+	select {
+	case err := <-stopped:
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("Stop blocked while the decoder held a partial escape")
+	}
+}
+
+func TestInputReaderDeliversDataReturnedWithEOF(t *testing.T) {
+	input := &eofWithDataReader{data: []byte("z")}
+	events := make(chan tty.Event, 1)
+	reader := NewEventInputReader(nil, io.Discard, nil, func(event tty.Event) { events <- event })
+	reader.started = true
+	reader.reader = input
+	reader.emitter = newInputEmitter(reader.deliverToSink)
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	reader.wg.Add(1)
+	go reader.readLoop(ctx, input, reader.Done())
+
+	select {
+	case event := <-events:
+		require.Equal(t, "key", event.Type)
+		require.Equal(t, "z", event.Key)
+	case <-time.After(time.Second):
+		t.Fatal("data returned with EOF was not delivered")
+	}
+	select {
+	case <-reader.Done():
+	case <-time.After(time.Second):
+		t.Fatal("reader did not complete after EOF")
+	}
+	require.ErrorIs(t, reader.Err(), io.EOF)
+}
+
+func TestInputReaderBoundsUnterminatedBracketedPaste(t *testing.T) {
+	// Thousands of already-decoded keys make the event acknowledgements drain
+	// the preceding read. The unterminated paste that follows must still reach
+	// the framing limit instead of growing indefinitely.
+	input := &unterminatedPasteReader{prefix: []byte(strings.Repeat("z", terminalInputReadSize-6) + "\x1b[200~")}
+	reader := NewEventInputReader(nil, io.Discard, nil, func(tty.Event) {})
+	reader.started = true
+	reader.reader = input
+	reader.emitter = newInputEmitter(reader.deliverToSink)
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	reader.wg.Add(1)
+	go reader.readLoop(ctx, input, reader.Done())
+
+	select {
+	case <-reader.Done():
+	case <-time.After(time.Second):
+		t.Fatal("unterminated paste did not reach the frame limit")
+	}
+	require.ErrorIs(t, reader.Err(), ErrInputFrameTooLarge)
+}
+
+type eofWithDataReader struct {
+	data   []byte
+	offset int
+}
+
+func (r *eofWithDataReader) Read(p []byte) (int, error) {
+	if r.offset == len(r.data) {
+		return 0, io.EOF
+	}
+	n := copy(p, r.data[r.offset:])
+	r.offset += n
+	if r.offset == len(r.data) {
+		return n, io.EOF
+	}
+	return n, nil
+}
+
+func (r *eofWithDataReader) Cancel() bool { return true }
+
+func (r *eofWithDataReader) Close() error { return nil }
+
+type unterminatedPasteReader struct {
+	prefix []byte
+	offset int
+}
+
+func (r *unterminatedPasteReader) Read(p []byte) (int, error) {
+	if r.offset < len(r.prefix) {
+		n := copy(p, r.prefix[r.offset:])
+		r.offset += n
+		return n, nil
+	}
+	for index := range p {
+		p[index] = 'x'
+	}
+	return len(p), nil
+}
+
+func (r *unterminatedPasteReader) Cancel() bool { return true }
+
+func (r *unterminatedPasteReader) Close() error { return nil }
 
 func TestNewInputReader_SchedulerAdapterCompatibility(t *testing.T) {
 	targetPID := pid.PID{Host: "node1", UniqID: "proc123"}

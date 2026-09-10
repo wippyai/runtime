@@ -9,9 +9,7 @@ import (
 	"os"
 	"sync"
 
-	"github.com/charmbracelet/x/input"
 	"github.com/charmbracelet/x/term"
-	"github.com/muesli/cancelreader"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/relay"
@@ -25,7 +23,7 @@ type InputReader struct {
 	emitter      *inputEmitter
 	raw          *RawManager
 	sink         func(tty.Event)
-	reader       *input.Reader
+	reader       terminalInputReader
 	cancel       context.CancelFunc
 	stopDone     chan struct{}
 	stopErr      error
@@ -135,8 +133,7 @@ func (r *InputReader) Start() error {
 		return errors.New("stdin is required")
 	}
 
-	termType := os.Getenv("TERM")
-	reader, err := input.NewReader(r.stdin, termType, 0)
+	reader, err := newTerminalInputReader(r.stdin, os.Getenv("TERM"))
 	if err != nil {
 		_ = r.raw.Disable()
 		return err
@@ -315,7 +312,7 @@ func (r *InputReader) screenSize() (int, int, error) {
 	return term.GetSize(r.stdin.Fd())
 }
 
-func (r *InputReader) readLoop(ctx context.Context, reader *input.Reader, session <-chan struct{}) {
+func (r *InputReader) readLoop(ctx context.Context, reader terminalInputReader, session <-chan struct{}) {
 	var readErr error
 	defer func() {
 		r.wg.Done()
@@ -324,32 +321,7 @@ func (r *InputReader) readLoop(ctx context.Context, reader *input.Reader, sessio
 		}
 	}()
 
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		default:
-		}
-
-		events, err := reader.ReadEvents()
-		for _, ev := range events {
-			ttyEv := ConvertInputEvent(ev)
-			if ttyEv != nil {
-				r.sendEvent(ttyEv)
-			}
-		}
-
-		if err != nil {
-			r.mu.Lock()
-			stopping := r.stopping
-			r.mu.Unlock()
-			if stopping || ctx.Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, cancelreader.ErrCanceled) {
-				return
-			}
-			readErr = err
-			return
-		}
-	}
+	readErr = streamTerminalInput(ctx, reader, r.sendEvent)
 }
 
 func (r *InputReader) emitResize() {
