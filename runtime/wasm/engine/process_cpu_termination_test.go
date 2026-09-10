@@ -298,18 +298,18 @@ func testSchedulerDedicatedWorkerOccupiedUntilTermination(t *testing.T) {
 		t.Fatalf("freshMod.Compile: %v", err)
 	}
 
-	var cpuReleased atomic.Bool
+	cpuReleased := make(chan struct{})
 	cpuProc := NewActorProcess(
 		NewProcess(cpuMod, "", wasmapi.WASIConfig{}, wasmapi.LimitsConfig{}, nil),
 		actor.DefaultLimits(),
-		func() { cpuReleased.Store(true) },
+		func() { close(cpuReleased) },
 	)
 
-	var freshReleased atomic.Bool
+	freshReleased := make(chan struct{})
 	freshProc := NewActorProcess(
 		NewProcess(freshMod, "", wasmapi.WASIConfig{}, wasmapi.LimitsConfig{}, nil),
 		actor.DefaultLimits(),
-		func() { freshReleased.Store(true) },
+		func() { close(freshReleased) },
 	)
 
 	cpuCompletedCh := make(chan *runtime.Result, 1)
@@ -401,13 +401,17 @@ func testSchedulerDedicatedWorkerOccupiedUntilTermination(t *testing.T) {
 		t.Fatal("Scheduler: timed out waiting for fresh actor completion result")
 	}
 
-	// 6. Assert resources were released upon termination
-	if !cpuReleased.Load() {
-		t.Fatal("Scheduler: expected CPU actor resources to be released upon termination")
+	// Completion notifications precede process Close; wait for both releases.
+	select {
+	case <-cpuReleased:
+	case <-time.After(3 * time.Second):
+		t.Fatal("Scheduler: timed out waiting for CPU actor resource release")
 	}
 
-	if !freshReleased.Load() {
-		t.Fatal("Scheduler: fresh actor resources were not released")
+	select {
+	case <-freshReleased:
+	case <-time.After(3 * time.Second):
+		t.Fatal("Scheduler: timed out waiting for fresh actor resource release")
 	}
 
 	// 7. Verify process is evicted from scheduler lookup
