@@ -20,7 +20,10 @@ import (
 // DataEnv maps application-owned environment variables to paths within StateDir.
 // Existing environment values remain explicit user overrides.
 type Options struct {
-	Launch     Launch
+	Launch Launch
+	// Baseline selects ordinary startup code: "activated" (also the default)
+	// or "embedded". Both retain the selected state's registry history.
+	Baseline   string
 	DataEnv    map[string]string
 	Components []boot.Component
 	Name       string
@@ -50,6 +53,9 @@ func Run(ctx context.Context, options Options, args []string) error {
 	}
 	if options.Command == "" {
 		return fmt.Errorf("application command is required")
+	}
+	if options.Baseline != "" && options.Baseline != "activated" && options.Baseline != "embedded" {
+		return fmt.Errorf("application baseline must be activated or embedded")
 	}
 	flags := flag.NewFlagSet(options.Name, flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
@@ -137,19 +143,10 @@ func runApplication(ctx context.Context, options Options, stateDir string, base 
 	if err := configureDataEnvironment(stateDir, options.DataEnv); err != nil {
 		return err
 	}
-	deployment, err := selectedDeployment(stateDir)
+	ordinary := len(remaining) == 0 || (remaining[0] != "runtime" && remaining[0] != "update")
+	deployment, historyPath, err := selectLaunchDeployment(stateDir, options.Bundle, ordinary && options.Baseline == "embedded", base, options.Mode)
 	if err != nil {
 		return err
-	}
-	historyPath := filepath.Join(stateDir, "registry.db")
-	if base {
-		if options.Mode != "base" {
-			return fmt.Errorf("bootstrap applications do not expose a base deployment")
-		}
-		// Each executable's embedded content selects an independent baseline.
-		// Application databases are intentionally not rolled back or removed.
-		deployment = filepath.Join(stateDir, "base", bundleID(options.Bundle))
-		historyPath = filepath.Join(deployment, "registry.db")
 	}
 	lockPath, err := options.Bundle.Seed(deployment)
 	if err != nil {
