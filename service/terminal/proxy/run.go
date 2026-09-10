@@ -246,9 +246,7 @@ func (p *Proxy) copyOutput(reader io.Reader, dirty chan<- struct{}, done chan<- 
 	for {
 		n, err := reader.Read(buf)
 		if n > 0 {
-			p.screenMu.Lock()
-			_, writeErr := p.screen.Write(buf[:n])
-			p.screenMu.Unlock()
+			_, writeErr := p.writeOutput(buf[:n])
 			if writeErr != nil {
 				done <- writeErr
 				return
@@ -263,6 +261,21 @@ func (p *Proxy) copyOutput(reader io.Reader, dirty chan<- struct{}, done chan<- 
 			return
 		}
 	}
+}
+
+// writeOutput updates the emulator and keeps a scrolled primary viewport on
+// the same lines while history grows. Once the fixed-size x/vt buffer evicts
+// an old line its length no longer changes, and its public API has no stable
+// line identity to retain that anchor without a second terminal parser.
+func (p *Proxy) writeOutput(data []byte) (int, error) {
+	p.screenMu.Lock()
+	defer p.screenMu.Unlock()
+	before := p.screen.ScrollbackLen()
+	n, err := p.screen.Write(data)
+	if added := p.screen.ScrollbackLen() - before; added > 0 && p.viewOffset > 0 && !p.input.altScreen.Load() {
+		p.viewOffset = min(p.viewOffset+added, p.screen.ScrollbackLen())
+	}
+	return n, err
 }
 
 func terminalEOF(err error) bool {

@@ -45,6 +45,8 @@ func (p *Proxy) handle(event ttyapi.Event) error {
 		p.screenMu.Lock()
 		p.height.Store(int64(event.Height))
 		p.screen.Resize(event.Width, event.Height)
+		p.resizeScrollbackLocked(event.Width)
+		p.viewOffset = min(p.viewOffset, p.screen.ScrollbackLen())
 		p.screenMu.Unlock()
 		if err := p.process.Resize(event.Width, event.Height); err != nil {
 			return err
@@ -55,7 +57,7 @@ func (p *Proxy) handle(event ttyapi.Event) error {
 		if p.input.bracketedPaste.Load() {
 			text = ansi.BracketedPasteStart + text + ansi.BracketedPasteEnd
 		}
-		return p.write(text)
+		return p.writeLive(text)
 	case "focus":
 		if p.input.focusEvents.Load() {
 			if event.Focused {
@@ -64,11 +66,65 @@ func (p *Proxy) handle(event ttyapi.Event) error {
 			return p.write("\x1b[O")
 		}
 	case "key":
-		return p.write(p.input.key(event))
+		return p.writeLive(p.input.key(event))
 	case "mouse":
-		return p.write(p.input.mouse(event))
+		if p.input.mouseEnabled.Load() {
+			return p.writeLive(p.input.mouse(event))
+		}
+		if p.input.altScreen.Load() {
+			return p.write(p.input.alternateScroll(event))
+		}
+		return p.scroll(event)
 	}
 	return nil
+}
+
+// writeLive returns a history viewport to the live screen before delivering
+// user input. Output keeps a history viewport stable while x/vt's retained
+// history is still growing; after eviction x/vt exposes no line identity with
+// which to anchor a viewport. A resize keeps it where possible (clamped to
+// retained history).
+func (p *Proxy) writeLive(sequence string) error {
+	if sequence == "" {
+		return nil
+	}
+	p.screenMu.Lock()
+	changed := p.viewOffset != 0
+	p.viewOffset = 0
+	p.screenMu.Unlock()
+	if changed {
+		if err := p.present(); err != nil {
+			return err
+		}
+	}
+	return p.write(sequence)
+}
+
+// scroll consumes a primary-screen wheel event for the proxy's native history.
+// Mouse-tracking children and alternate-screen applications are handled before
+// this function is called.
+func (p *Proxy) scroll(event ttyapi.Event) error {
+	if event.Action != "wheel" {
+		return nil
+	}
+	var delta int
+	switch event.Button {
+	case "wheel_up":
+		delta = scrollLinesPerWheel
+	case "wheel_down":
+		delta = -scrollLinesPerWheel
+	default:
+		return nil
+	}
+	p.screenMu.Lock()
+	old := p.viewOffset
+	p.viewOffset = min(max(p.viewOffset+delta, 0), p.screen.ScrollbackLen())
+	changed := p.viewOffset != old
+	p.screenMu.Unlock()
+	if !changed {
+		return nil
+	}
+	return p.present()
 }
 
 func (p *Proxy) write(sequence string) error {
