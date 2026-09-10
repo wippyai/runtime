@@ -150,7 +150,7 @@ func TestErrorMethods(t *testing.T) {
 }
 
 func TestProcessMethodsRegistered(t *testing.T) {
-	methods := []string{"start", "wait", "signal", "write_stdin", "stdout_stream", "stderr_stream", "close"}
+	methods := []string{"start", "wait", "signal", "write_stdin", "close_stdin", "stdout_stream", "stderr_stream", "close"}
 
 	for _, m := range methods {
 		if _, ok := processMethods[m]; !ok {
