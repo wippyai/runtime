@@ -5,6 +5,7 @@ package proxy
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"runtime"
@@ -14,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/stretchr/testify/require"
 	execapi "github.com/wippyai/runtime/api/service/exec"
 	ttyapi "github.com/wippyai/runtime/api/tty"
@@ -79,7 +81,7 @@ func (s *testSurface) Present(frame ttyapi.Frame) (ttyapi.PresentStats, error) {
 	return ttyapi.PresentStats{Rows: len(frame.Rows), ChangedRows: len(frame.Rows)}, nil
 }
 
-func TestProxyDoesNotRetainInaccessibleScrollback(t *testing.T) {
+func TestProxyBoundsRetainedScrollbackByViewportWidth(t *testing.T) {
 	proxy, err := New(
 		&testProcess{input: make(chan []byte, 1)},
 		&testSurface{},
@@ -87,7 +89,205 @@ func TestProxyDoesNotRetainInaccessibleScrollback(t *testing.T) {
 		24,
 	)
 	require.NoError(t, err)
-	require.Equal(t, retainedScrollbackLines, proxy.screen.Scrollback().MaxLines())
+	require.Equal(t, 256, proxy.screen.Scrollback().MaxLines())
+
+	wide, err := New(&testProcess{input: make(chan []byte, 1)}, &testSurface{}, execapi.MaxPTYDimension, 4)
+	require.NoError(t, err)
+	require.Equal(t, 1, wide.screen.Scrollback().MaxLines())
+}
+
+func TestProxyPrimaryScreenWheelPresentsBoundedHistory(t *testing.T) {
+	process := &testProcess{stdout: io.NopCloser(strings.NewReader("")), input: make(chan []byte, 1)}
+	surface := &testSurface{}
+	proxy, err := New(process, surface, 12, 2)
+	require.NoError(t, err)
+	_, err = proxy.writeOutput([]byte("one\r\ntwo\r\nthree\r\nfour\r\nfive"))
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, proxy.screen.ScrollbackLen(), 3)
+
+	require.NoError(t, proxy.handle(wheel("wheel_up")))
+	surface.mu.Lock()
+	rows, cursor := append([]string(nil), surface.rows...), *surface.cursor
+	surface.mu.Unlock()
+	require.Equal(t, []string{"one", "two"}, rows)
+	require.False(t, cursor.Visible)
+	select {
+	case unexpected := <-process.input:
+		t.Fatalf("primary-screen wheel reached child: %q", unexpected)
+	default:
+	}
+
+	// Growing history keeps the reader on the same lines.
+	_, err = proxy.writeOutput([]byte("\r\nsix"))
+	require.NoError(t, err)
+	require.NoError(t, proxy.present())
+	surface.mu.Lock()
+	rows = append([]string(nil), surface.rows...)
+	surface.mu.Unlock()
+	require.Equal(t, []string{"one", "two"}, rows)
+
+	// Actual input returns the viewport to the live screen before forwarding.
+	require.NoError(t, proxy.handle(ttyapi.Event{Type: "key", Key: "x", Action: "press"}))
+	require.Equal(t, "x", string(<-process.input))
+	surface.mu.Lock()
+	cursor = *surface.cursor
+	surface.mu.Unlock()
+	require.True(t, cursor.Visible)
+}
+
+func TestProxyPrimaryTrackpadTicksScrollHistory(t *testing.T) {
+	process := &testProcess{stdout: io.NopCloser(strings.NewReader("")), input: make(chan []byte, 1)}
+	proxy, err := New(process, &testSurface{}, 12, 2)
+	require.NoError(t, err)
+	_, err = proxy.writeOutput([]byte("one\r\ntwo\r\nthree\r\nfour\r\nfive\r\nsix\r\nseven\r\neight\r\nnine\r\nten\r\neleven\r\ntwelve"))
+	require.NoError(t, err)
+
+	// Physical ports normalize wheel and trackpad movement into the same
+	// discrete wheel event; a trackpad gesture therefore delivers many ticks.
+	for range 3 {
+		require.NoError(t, proxy.handle(wheel("wheel_up")))
+	}
+	require.Equal(t, 9, proxy.viewOffset)
+	select {
+	case unexpected := <-process.input:
+		t.Fatalf("primary-screen trackpad tick reached child: %q", unexpected)
+	default:
+	}
+}
+
+func TestProxyIgnoresNonWheelMouseActionsOnPrimaryScreen(t *testing.T) {
+	proxy, err := New(&testProcess{input: make(chan []byte, 1)}, &testSurface{}, 12, 2)
+	require.NoError(t, err)
+	_, err = proxy.writeOutput([]byte("one\r\ntwo\r\nthree\r\nfour\r\nfive"))
+	require.NoError(t, err)
+
+	for _, action := range []string{"press", "release"} {
+		require.NoError(t, proxy.handle(ttyapi.Event{Type: "mouse", Action: action, Button: "wheel_up"}))
+	}
+	require.Zero(t, proxy.viewOffset)
+}
+
+func TestProxyResizeClampsHistoryAndReboundsItsCellBudget(t *testing.T) {
+	process := &testProcess{stdout: io.NopCloser(strings.NewReader("")), input: make(chan []byte, 1)}
+	proxy, err := New(process, &testSurface{}, 80, 2)
+	require.NoError(t, err)
+	_, err = proxy.writeOutput([]byte("one\r\ntwo\r\nthree\r\nfour"))
+	require.NoError(t, err)
+	require.NoError(t, proxy.handle(wheel("wheel_up")))
+	require.Positive(t, proxy.screen.ScrollbackLen())
+
+	require.NoError(t, proxy.handle(ttyapi.Event{Type: "resize", Width: execapi.MaxPTYDimension, Height: 4}))
+	require.Equal(t, 1, proxy.screen.Scrollback().MaxLines())
+	require.LessOrEqual(t, proxy.screen.ScrollbackLen(), proxy.screen.Scrollback().MaxLines())
+
+	require.NoError(t, proxy.handle(ttyapi.Event{Type: "resize", Width: 80, Height: 4}))
+	require.Equal(t, 256, proxy.screen.Scrollback().MaxLines())
+}
+
+func TestProxyNarrowResizeDropsOverwideHistory(t *testing.T) {
+	proxy, err := New(&testProcess{input: make(chan []byte, 1)}, &testSurface{}, execapi.MaxPTYDimension, 1)
+	require.NoError(t, err)
+	_, err = proxy.writeOutput([]byte("\x1b[1;65535HX\r\n"))
+	require.NoError(t, err)
+	require.Equal(t, 1, proxy.screen.ScrollbackLen())
+	require.Greater(t, len(proxy.screen.Scrollback().Line(0)), scrollbackCellBudget)
+
+	require.NoError(t, proxy.handle(ttyapi.Event{Type: "resize", Width: 80, Height: 1}))
+	require.Zero(t, proxy.screen.ScrollbackLen())
+	require.Equal(t, maxScrollbackLines, proxy.screen.Scrollback().MaxLines())
+}
+
+func TestProxyNarrowResizeCapsLaterOutputAroundRetainedWideRows(t *testing.T) {
+	proxy, err := New(&testProcess{input: make(chan []byte, 1)}, &testSurface{}, 5_000, 1)
+	require.NoError(t, err)
+	for i := range 4 {
+		_, err = proxy.writeOutput([]byte(fmt.Sprintf("\x1b[1;4000H%d\r\n", i)))
+		require.NoError(t, err)
+	}
+	require.Equal(t, 4, proxy.screen.ScrollbackLen())
+
+	require.NoError(t, proxy.handle(ttyapi.Event{Type: "resize", Width: 80, Height: 1}))
+	// Four 4,000-cell rows leave space for only 56 current-width rows.
+	require.Equal(t, 60, proxy.screen.Scrollback().MaxLines())
+	narrowRow := []byte(strings.Repeat("n", 80) + "\r\n")
+	for range maxScrollbackLines {
+		_, err = proxy.writeOutput(narrowRow)
+		require.NoError(t, err)
+	}
+	lines := proxy.screen.Scrollback().Lines()
+	used := 0
+	for _, line := range lines {
+		used += len(line)
+	}
+	require.LessOrEqual(t, used, scrollbackCellBudget)
+}
+
+func TestProxyForwardsPrimaryWheelWhenChildTracksMouse(t *testing.T) {
+	process := &testProcess{stdout: io.NopCloser(strings.NewReader("")), input: make(chan []byte, 1)}
+	proxy, err := New(process, &testSurface{}, 12, 2)
+	require.NoError(t, err)
+	_, err = proxy.writeOutput([]byte("one\r\ntwo\r\nthree\r\nfour"))
+	require.NoError(t, err)
+	_, err = proxy.screen.Write([]byte(ansi.SetModeMouseNormal))
+	require.NoError(t, err)
+
+	require.NoError(t, proxy.handle(wheel("wheel_up")))
+	require.Equal(t, ansi.MouseX10(ansi.EncodeMouseButton(ansi.MouseWheelUp, false, false, false, false), 2, 3), string(<-process.input))
+}
+
+func TestProxyScrolledViewportMovesAfterHistoryEviction(t *testing.T) {
+	process := &testProcess{stdout: io.NopCloser(strings.NewReader("")), input: make(chan []byte, 1)}
+	surface := &testSurface{}
+	proxy, err := New(process, surface, 8, 1)
+	require.NoError(t, err)
+	for i := range maxScrollbackLines + 1 {
+		_, err = proxy.writeOutput([]byte(fmt.Sprintf("%03d\r\n", i)))
+		require.NoError(t, err)
+	}
+	require.Equal(t, maxScrollbackLines, proxy.screen.ScrollbackLen())
+	require.NoError(t, proxy.handle(wheel("wheel_up")))
+	surface.mu.Lock()
+	before := surface.rows[0]
+	surface.mu.Unlock()
+
+	_, err = proxy.writeOutput([]byte("999\r\n"))
+	require.NoError(t, err)
+	require.NoError(t, proxy.present())
+	surface.mu.Lock()
+	after := surface.rows[0]
+	surface.mu.Unlock()
+	require.NotEqual(t, before, after, "x/vt does not expose an eviction generation to anchor a full history viewport")
+}
+
+func BenchmarkProxyOutputScrollback(b *testing.B) {
+	for _, limit := range []struct {
+		name   string
+		lines  int
+		legacy bool
+	}{
+		{name: "previous_retain_1", lines: 1, legacy: true},
+		{name: "bounded_256", lines: maxScrollbackLines},
+	} {
+		b.Run(limit.name, func(b *testing.B) {
+			proxy, err := New(&testProcess{input: make(chan []byte, 1)}, &testSurface{}, 80, 24)
+			require.NoError(b, err)
+			proxy.screen.SetScrollbackSize(limit.lines)
+			b.ReportAllocs()
+			b.ResetTimer()
+			for range b.N {
+				if limit.legacy {
+					proxy.screenMu.Lock()
+					_, err = proxy.screen.Write([]byte("benchmark output\r\n"))
+					proxy.screenMu.Unlock()
+				} else {
+					_, err = proxy.writeOutput([]byte("benchmark output\r\n"))
+				}
+				if err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
 }
 
 func TestProxyCoalescesTransportChunksIntoOneCursorFrame(t *testing.T) {
