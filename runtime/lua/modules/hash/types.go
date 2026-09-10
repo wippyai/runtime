@@ -23,6 +23,15 @@ func ModuleTypes() *io.Manifest {
 	// pbkdf2 function type: (password: string, salt: string, iterations: number, key_length: number, algo?: string): string, Error?
 	pbkdf2Fn := typ.Func().Param("password", typ.String).Param("salt", typ.String).Param("iterations", typ.Number).Param("key_length", typ.Number).OptParam("algo", typ.String).Returns(typ.String, typ.NewOptional(typ.LuaError)).Build()
 
+	// streaming hasher: hash.new(algorithm: string): Hasher, Error?
+	hasherType := typ.NewInterface("hash.Hasher", []typ.Method{
+		{Name: "update", Type: typ.Func().Param("self", typ.Self).Param("data", typ.String).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "sum", Type: typ.Func().Param("self", typ.Self).OptParam("raw", typ.Boolean).Returns(typ.String, typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "reset", Type: typ.Func().Param("self", typ.Self).Build()},
+	})
+	m.DefineType("Hasher", hasherType)
+	newFn := typ.Func().Param("algorithm", typ.String).Returns(hasherType, typ.NewOptional(typ.LuaError)).Build()
+
 	moduleType := typ.NewInterface("hash", []typ.Method{
 		{Name: "md5", Type: hashFn},
 		{Name: "sha1", Type: hashFn},
@@ -35,6 +44,7 @@ func ModuleTypes() *io.Manifest {
 		{Name: "hmac_sha1", Type: hmacFn},
 		{Name: "hmac_md5", Type: hmacFn},
 		{Name: "pbkdf2", Type: pbkdf2Fn},
+		{Name: "new", Type: newFn},
 	})
 
 	m.SetExport(moduleType)
