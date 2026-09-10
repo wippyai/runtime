@@ -150,7 +150,7 @@ func TestErrorMethods(t *testing.T) {
 }
 
 func TestProcessMethodsRegistered(t *testing.T) {
-	methods := []string{"start", "wait", "signal", "write_stdin", "close_stdin", "stdout_stream", "stderr_stream", "close"}
+	methods := []string{"start", "wait", "done", "signal", "pid", "write_stdin", "close_stdin", "stdout_stream", "stderr_stream", "close"}
 
 	for _, m := range methods {
 		if _, ok := processMethods[m]; !ok {
@@ -810,6 +810,20 @@ func TestProcessStartFailureClosesHandle(t *testing.T) {
 	defer process.mu.Unlock()
 	require.True(t, process.closed)
 	require.Nil(t, process.handle)
+}
+
+type stoppableProcess struct {
+	mockProcess
+	stopped bool
+}
+
+func (p *stoppableProcess) Stop() { p.stopped = true }
+
+func TestProcessCloseReleasesUnstartedNativeCapability(t *testing.T) {
+	handle := &stoppableProcess{}
+	process := NewProcess(context.Background(), handle)
+	process.close(false)
+	require.True(t, handle.stopped)
 }
 
 func (m *mockProcess) Signal(_ int) error {

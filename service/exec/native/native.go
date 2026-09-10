@@ -24,6 +24,7 @@ import (
 var (
 	_ execapi.ProcessExecutor = (*Executor)(nil)
 	_ execapi.Process         = (*ProcessExecutor)(nil)
+	_ execapi.ProcessIdentity = (*ProcessExecutor)(nil)
 	_ execapi.PTYProcess      = (*ptyProcess)(nil)
 )
 
@@ -39,6 +40,7 @@ type Executor struct {
 	defaultEnv       map[string]string
 	defaultWD        string
 	commandWhitelist []string
+	processGroup     bool
 }
 
 // NewNativeExecutor creates a new native process executor
@@ -48,6 +50,7 @@ func NewNativeExecutor(log *zap.Logger, config *execapi.NativeExecutorConfig) *E
 		defaultEnv:       config.DefaultEnv,
 		defaultWD:        config.DefaultWorkDir,
 		commandWhitelist: config.CommandWhitelist,
+		processGroup:     config.ProcessGroup,
 	}
 }
 
@@ -63,6 +66,13 @@ func (e *Executor) NewProcess(cmd string, options execapi.ProcessOptions) (execa
 		if _, _, err := ptyOptions.Dimensions(); err != nil {
 			return nil, err
 		}
+	}
+	processGroup := e.processGroup
+	if options.ProcessGroup != nil {
+		processGroup = *options.ProcessGroup
+	}
+	if processGroup && !processGroupSupported {
+		return nil, execapi.ErrProcessGroupUnsupported
 	}
 	if len(e.commandWhitelist) > 0 {
 		allowed := false
@@ -108,6 +118,7 @@ func (e *Executor) NewProcess(cmd string, options execapi.ProcessOptions) (execa
 		WithWorkingDir(workDir),
 		WithEnv(env),
 		WithPTY(ptyOptions),
+		WithProcessGroup(processGroup),
 	)
 	if ptyOptions != nil {
 		return &ptyProcess{ProcessExecutor: process}, nil
@@ -122,23 +133,28 @@ type ptyProcess struct{ *ProcessExecutor }
 
 // ProcessExecutor represents a native process implementation
 type ProcessExecutor struct {
-	stderrp     io.ReadCloser
-	stdoutp     io.ReadCloser
-	stdinPipe   io.WriteCloser
-	cmd         *exec.Cmd
-	log         *zap.Logger
-	envs        map[string]string
-	ptyMaster   *os.File
-	pty         *execapi.PTYOptions
-	wd          string
-	state       string
-	command     string
-	pid         int
-	mu          sync.RWMutex
-	ptyClose    sync.Once
-	stopped     atomic.Bool
-	stdoutOwned bool
-	stdinClosed bool
+	stderrp      io.ReadCloser
+	stdoutp      io.ReadCloser
+	stdoutw      *os.File
+	stderrw      *os.File
+	stdinPipe    io.WriteCloser
+	cmd          *exec.Cmd
+	log          *zap.Logger
+	envs         map[string]string
+	ptyMaster    *os.File
+	pty          *execapi.PTYOptions
+	wd           string
+	state        string
+	command      string
+	pid          int
+	pgid         int
+	mu           sync.RWMutex
+	ptyClose     sync.Once
+	stopped      atomic.Bool
+	stdoutOwned  bool
+	stdinClosed  bool
+	stderrOwned  bool
+	processGroup bool
 }
 
 // NewProcessExecutor creates a new process executor
@@ -185,19 +201,33 @@ func NewProcessExecutor(log *zap.Logger, opts ...Option) *ProcessExecutor {
 		command.Dir = e.wd
 	}
 
-	// we can safely skip the error here
-	// because we don't initialize stderrpipe twice or after the process was already started
-	if e.pty == nil {
-		e.stderrp, _ = command.StderrPipe()
+	// A PTY child is started through pty.StartWithAttrs, which replaces
+	// SysProcAttr with a session of its own; setsid already makes that child the
+	// leader of a fresh process group, and adding setpgid on top of it fails.
+	if e.processGroup && e.pty == nil {
+		applyProcessGroup(command)
 	}
 
-	// we can safely skip the error here
-	// because we don't initialize stdoutpipe twice or after the process was already started
+	// The output pipes belong to the executor, not to os/exec. Cmd.Wait closes
+	// the pipes StdoutPipe and StderrPipe create, which would discard whatever
+	// the child wrote just before exiting the moment it is reaped, while the
+	// caller still holds the reader. Handing Cmd a plain file leaves the
+	// lifetime here, where the reader's owner decides it.
 	if e.pty == nil {
-		e.stdoutp, _ = command.StdoutPipe()
-	}
+		if reader, writer, err := os.Pipe(); err == nil {
+			e.stderrp, e.stderrw = reader, writer
+			command.Stderr = writer
+		} else {
+			e.log.Error("error creating stderr pipe", zap.Error(err))
+		}
 
-	if e.pty == nil {
+		if reader, writer, err := os.Pipe(); err == nil {
+			e.stdoutp, e.stdoutw = reader, writer
+			command.Stdout = writer
+		} else {
+			e.log.Error("error creating stdout pipe", zap.Error(err))
+		}
+
 		ip, _ := command.StdinPipe()
 		e.stdinPipe = ip
 	}
@@ -214,6 +244,7 @@ func (e *ProcessExecutor) Start() error {
 		width, height, _ := e.pty.Dimensions()
 		master, err := pty.StartWithSize(e.cmd, &pty.Winsize{Cols: uint16(width), Rows: uint16(height)})
 		if err != nil {
+			e.releaseFailedStart()
 			e.stopped.Store(true)
 			if errors.Is(err, pty.ErrUnsupported) {
 				return execapi.ErrPTYUnavailable.WithCause(err)
@@ -223,14 +254,75 @@ func (e *ProcessExecutor) Start() error {
 		e.ptyMaster = master
 		e.stdinPipe, e.stdoutp = master, master
 		e.stderrp = io.NopCloser(strings.NewReader(""))
-	} else if err := e.cmd.Start(); err != nil {
-		e.stopped.Store(true)
-		return err
+	} else {
+		err := e.cmd.Start()
+		if err != nil {
+			e.releaseFailedStart()
+			e.stopped.Store(true)
+			return err
+		}
+		// The child inherited its own descriptors for the write ends; keeping
+		// the executor's copies open would hold the readers past the last real
+		// writer and EOF would never arrive.
+		e.releaseOutputWriters()
 	}
 
 	e.pid = e.cmd.Process.Pid
+	// Both paths that give the child a group of its own make it the leader:
+	// setpgid with a zero target group, and the PTY path's setsid. The group
+	// identifier is therefore the child pid.
+	if e.processGroup {
+		e.pgid = e.pid
+	}
 	e.state = running
 	return nil
+}
+
+// releaseOutputWriters closes the executor's copies of the output pipe write
+// ends. The readers then end when the last process writing to them is gone,
+// which is what distinguishes a closed pipe from a finished child.
+func (e *ProcessExecutor) releaseOutputWriters() {
+	if e.stdoutw != nil {
+		_ = e.stdoutw.Close()
+		e.stdoutw = nil
+	}
+	if e.stderrw != nil {
+		_ = e.stderrw.Close()
+		e.stderrw = nil
+	}
+}
+
+func (e *ProcessExecutor) releaseFailedStart() {
+	e.releaseOutputWriters()
+	if e.stdinPipe != nil {
+		_ = e.stdinPipe.Close()
+		e.stdinPipe = nil
+	}
+	if e.stdoutp != nil {
+		_ = e.stdoutp.Close()
+		e.stdoutp = nil
+	}
+	if e.stderrp != nil {
+		_ = e.stderrp.Close()
+		e.stderrp = nil
+	}
+	e.stdinClosed = true
+	e.state = terminated
+}
+
+// Pid implements exec.ProcessIdentity. It reports the identifier of the started
+// child so callers can record which OS process an attempt ran as.
+func (e *ProcessExecutor) Pid() (int, error) {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	if e.state == notStarted {
+		return 0, ErrProcessNotStarted
+	}
+	if e.pid <= 0 {
+		return 0, ErrInvalidPID
+	}
+	return e.pid, nil
 }
 
 func (p *ptyProcess) Resize(width, height int) error {
@@ -313,14 +405,36 @@ func (e *ProcessExecutor) Signal(sig int) error {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 
-	if e.state != running {
-		state := e.state
-		if state == terminated {
-			e.log.Debug("process already terminated")
-			return errors.Join(ErrProcessNotRunning, os.ErrProcessDone)
-		}
-		e.log.Error("process is not running", zap.String("state", state))
+	if e.state == notStarted {
+		e.log.Error("process is not running", zap.String("state", e.state))
 		return ErrProcessNotRunning
+	}
+
+	// A process group outlives the child that leads it: the descendants stay in
+	// the group after the leader has been reaped, and the leader's identifier is
+	// not handed to a new process while the group still has members. Addressing
+	// the group therefore stays meaningful once the child's own exit has been
+	// observed, which is when a supervisor most needs it. An empty group answers
+	// ESRCH, and that is the state the caller is told about.
+	if e.processGroup {
+		if e.pgid <= 0 {
+			e.log.Error("pgid is not a positive int", zap.Int("pgid", e.pgid))
+			return ErrInvalidPID
+		}
+		if err := signalProcessGroup(e.pgid, syscall.Signal(sig)); err != nil {
+			if errors.Is(err, syscall.ESRCH) {
+				e.log.Debug("process group already terminated")
+				return errors.Join(ErrProcessNotRunning, os.ErrProcessDone)
+			}
+			e.log.Error("error sending signal to process group", zap.Error(err))
+			return err
+		}
+		return nil
+	}
+
+	if e.state != running {
+		e.log.Debug("process already terminated")
+		return errors.Join(ErrProcessNotRunning, os.ErrProcessDone)
 	}
 
 	if e.pid <= 0 {
@@ -346,8 +460,11 @@ func (e *ProcessExecutor) Signal(sig int) error {
 
 // Stderr implements exec.Process
 func (e *ProcessExecutor) Stderr() io.ReadCloser {
-	e.mu.RLock()
-	defer e.mu.RUnlock()
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.stderrp != nil {
+		e.stderrOwned = true
+	}
 
 	return e.stderrp
 }
@@ -356,7 +473,7 @@ func (e *ProcessExecutor) Stderr() io.ReadCloser {
 func (e *ProcessExecutor) Stdout() io.ReadCloser {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if e.ptyMaster != nil && e.stdoutp != nil {
+	if e.stdoutp != nil {
 		e.stdoutOwned = true
 	}
 
@@ -369,8 +486,9 @@ func (e *ProcessExecutor) Stop() {
 	defer e.mu.Unlock()
 
 	if e.pid <= 0 {
+		e.releaseFailedStart()
 		e.closePTY()
-		e.log.Warn("pid is not a positive int", zap.Int("pid", e.pid))
+		e.stopped.Store(true)
 		return
 	}
 
@@ -379,14 +497,18 @@ func (e *ProcessExecutor) Stop() {
 		return
 	}
 
-	pp, err := os.FindProcess(e.pid)
-	if err != nil {
-		e.log.Error("error finding process", zap.Error(err))
-		return
-	}
+	if e.processGroup {
+		_ = signalProcessGroup(e.pgid, syscall.SIGKILL)
+	} else {
+		pp, err := os.FindProcess(e.pid)
+		if err != nil {
+			e.log.Error("error finding process", zap.Error(err))
+			return
+		}
 
-	// kill the process
-	_ = pp.Kill()
+		// kill the process
+		_ = pp.Kill()
+	}
 	// to prevent multiple calls to close()
 	e.pid = 0
 	e.state = terminated
@@ -420,11 +542,20 @@ func (e *ProcessExecutor) Wait() error {
 	}
 
 	e.mu.Lock()
-	// A PTY master is not one of os/exec's managed pipes. Wait releases an
-	// unclaimed master; once Stdout hands it to a caller, that reader owns the
-	// final drain and close so the child's last terminal frame is not truncated.
-	if e.ptyMaster != nil && !e.stdoutOwned {
-		e.closePTY()
+	// Wait releases the output nobody asked for. Once Stdout or Stderr hands a
+	// reader to a caller, that reader owns the final drain and close, so the
+	// child's last bytes outlive the reap instead of being thrown away with it.
+	if e.ptyMaster != nil {
+		if !e.stdoutOwned {
+			e.closePTY()
+		}
+	} else {
+		if e.stdoutp != nil && !e.stdoutOwned {
+			_ = e.stdoutp.Close()
+		}
+		if e.stderrp != nil && !e.stderrOwned {
+			_ = e.stderrp.Close()
+		}
 	}
 	e.state = terminated
 	e.mu.Unlock()

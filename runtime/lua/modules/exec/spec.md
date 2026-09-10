@@ -81,6 +81,7 @@ Creates a new process with the specified command.
 | work_dir | string | nil | Working directory for the process |
 | env | {[string]: string} | nil | Environment variables as key-value map |
 | pty | PTYOptions | nil | Allocate a pseudo-terminal for the child |
+| process_group | boolean | executor default | Start the child in its own process group so signals reach descendants; unsupported on Windows |
 
 **PTYOptions fields:**
 
@@ -133,8 +134,10 @@ Returned by `executor:exec()`. Represents a process instance.
 | Method | Signature | Returns | Notes |
 |--------|-----------|---------|-------|
 | start | () | boolean, error | Starts the process |
-| wait | () | integer, error | Waits for process to exit, yields |
+| wait | () | integer, error | Waits for process to exit, consumes the handle, yields |
+| done | () | ProcessExitChannel, error | One-shot channel carrying the exit; keeps the handle usable |
 | signal | (sig: integer) | boolean, error | Sends signal to process |
+| pid | () | integer, error | Returns the started child process ID |
 | write_stdin | (data: string) | boolean, error | Writes to process stdin |
 | stdout_stream | () | Stream, error | Returns stdout stream |
 | stderr_stream | () | Stream, error | Returns stderr stream |
@@ -169,18 +172,25 @@ Ordinary pipe-backed processes return an error.
 #### process:close(force?: boolean) → boolean, error
 
 Releases the process. A started child is sent `SIGTERM`, or `SIGKILL` when
-`force` is true, then reaped; an unstarted handle is simply invalidated.
+`force` is true, then reaped; an unstarted handle is simply invalidated. A
+process started with `process_group` is signaled as a group, so its descendants
+go with it. The group outlives the child that leads it, so `close()` still
+reaches the descendants when the child's own exit has already been observed
+through `done()`.
 
 Reaping is what releases the child's entry in the OS process table; without it a
 stopped process lingers as a zombie for the lifetime of the runtime. It happens
 in the background so `close()` does not block, and a child still running after a
 grace period is killed so the reap always completes.
 
-Because reaping closes the process's stdout and stderr pipes, its streams are
-finished with once it is closed. Read any output you need before calling this.
+A stream taken from `stdout_stream()` or `stderr_stream()` outlives the reap:
+the bytes the child wrote before it exited are still readable, and the stream
+ends when the last writer closes the pipe, which may be a descendant rather than
+the child itself.
 
 After `close()` every method on the process, including `wait()`, reports
-`process closed`. Use `signal()` and `wait()` instead when the exit code matters.
+`process closed`. Use `done()` instead when the exit code matters and the
+handle has to stay usable, or `wait()` when it does not.
 
 **Returns:**
 - Success: `true, nil`
@@ -211,7 +221,22 @@ if err then error(err) end
 
 #### process:wait() → integer, error
 
-Waits for the process to exit and returns the exit code. Automatically closes the process.
+Waits for the process to exit and returns the exit code.
+
+`wait()` consumes the handle. The process is released the moment `wait()` is
+called, before it yields: every other method, `wait()` included, reports
+`process closed` from then on. Take the streams you need before calling it, and
+use `done()` when the handle must stay usable; a stream already taken stays
+readable through the exit.
+
+A child killed by a signal has no exit code of its own; it is reported as
+`128 + signal`, so `SIGTERM` becomes 143 and `SIGKILL` 137. That is not an
+error: the error return is reserved for a failure to observe the exit at all.
+The signal number itself is on the `done()` value.
+
+`wait()` after `done()` has delivered the exit returns the recorded exit code
+rather than failing. The child is waited on once, whichever of `done()`,
+`wait()` and `close()` gets there first.
 
 **Yields:** until process exits
 
@@ -237,6 +262,61 @@ if err then error(err) end
 if exitCode ~= 0 then
     error("process failed with code " .. exitCode)
 end
+```
+
+#### process:done() → ProcessExitChannel, error
+
+Returns a channel that delivers the child's exit exactly once, then closes.
+Unlike `wait()` it leaves the handle open: `write_stdin()`, `signal()`, the
+streams and `close()` all keep working, so a supervisor can keep driving the
+child while another coroutine waits for it to finish.
+
+Draining stdout is not a substitute for this. A grandchild inherits the pipe
+and can hold it open long after the child itself is gone, so an EOF that never
+arrives says nothing about the exit.
+
+Calling `done()` again returns the same channel. Because the channel closes
+behind the single value, a second `receive()` reports `nil, false` instead of
+blocking.
+
+**The exit value:**
+
+| Field | Type | Notes |
+|-------|------|-------|
+| code | integer | Exit code, or `128 + signal` for a child killed by a signal |
+| signal | integer | Signal that killed the child; absent when it exited on its own |
+| error | error | Set only when the exit could not be observed at all |
+
+`done()` reaps the child as soon as it exits, and the streams survive that: what
+the child wrote on its way out is still there to be read once the exit has been
+delivered. The streams end on their own, when the last process holding the pipe
+closes it.
+
+**Returns:**
+- Success: `channel, nil`
+- Error: `nil, error` - error is structured
+
+**Errors (structured):**
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| process closed | errors.INVALID | no |
+| process not started | errors.INVALID | no |
+| process context unavailable | errors.UNAVAILABLE | no |
+
+**Example:**
+
+```lua
+proc:start()
+local exit = assert(proc:done())
+
+coroutine.spawn(function()
+    local status = channel.select{ exit:case_receive() }.value
+    print("child exited with", status.code, status.signal)
+end)
+
+proc:write_stdin("work\n")
+proc:signal(15)
 ```
 
 #### process:signal(sig: integer) → boolean, error
@@ -351,6 +431,15 @@ proc:start()
 proc:wait()
 ```
 
+### ProcessExitChannel
+
+Returned by `process:done()`. A standard channel carrying a single exit value.
+
+| Method | Signature | Returns | Notes |
+|--------|-----------|---------|-------|
+| receive | () | ProcessExit, boolean | Yields until the child exits; `nil, false` once the value has been taken |
+| case_receive | () | case | Case for `channel.select` |
+
 ## Errors
 
 This module returns structured errors. Check kind with `errors.*` constants:
@@ -366,7 +455,7 @@ if err then
 end
 ```
 
-**Possible kinds:** `errors.INVALID`, `errors.INTERNAL`
+**Possible kinds:** `errors.INVALID`, `errors.INTERNAL`, `errors.UNAVAILABLE`
 
 ## Example
 

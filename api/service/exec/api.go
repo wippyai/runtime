@@ -20,9 +20,13 @@ const (
 
 // ProcessOptions defines options for creating a new process
 type ProcessOptions struct {
-	Env     map[string]string
-	PTY     *PTYOptions
-	WorkDir string
+	Env map[string]string
+	PTY *PTYOptions
+	// ProcessGroup places the child in its own process group so that signals
+	// addressed to the process reach its descendants as well. Nil selects the
+	// executor default.
+	ProcessGroup *bool
+	WorkDir      string
 }
 
 type PTYOptions struct {
@@ -107,6 +111,13 @@ type PTYProcess interface {
 // process has no separate stdin to close.
 type StdinCloser interface {
 	CloseStdin() error
+}
+
+// ProcessIdentity is an optional capability exposed by processes that carry an
+// operating system process identifier on the host running the runtime.
+type ProcessIdentity interface {
+	// Pid returns the identifier of the started child process.
+	Pid() (int, error)
 }
 
 // WaitCanceler is an optional lifecycle capability for remote executors whose

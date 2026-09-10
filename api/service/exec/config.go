@@ -12,6 +12,10 @@ type NativeExecutorConfig struct {
 
 	// Command whitelist - if set, only commands in this list will be allowed
 	CommandWhitelist []string `json:"command_whitelist"`
+
+	// Start every process in its own process group so signals reach the whole
+	// tree. A per-command process_group option overrides this default.
+	ProcessGroup bool `json:"process_group"`
 }
 
 // DockerExecutorConfig defines configuration for Docker container execution

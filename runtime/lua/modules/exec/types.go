@@ -11,6 +11,8 @@ import (
 
 var executorType typ.Type
 var processType typ.Type
+var processExitType typ.Type
+var processExitChannelType typ.Type
 var terminalCompletionType typ.Type
 var terminalSessionType typ.Type
 var ptyOptionsType typ.Type
@@ -26,7 +28,19 @@ func init() {
 		OptField("work_dir", typ.String).
 		OptField("env", typ.NewMap(typ.String, typ.String)).
 		OptField("pty", ptyOptionsType).
+		OptField("process_group", typ.Boolean).
 		Build()
+	processExitType = typ.NewRecord().
+		Field("code", typ.Integer).
+		OptField("signal", typ.Integer).
+		OptField("error", typ.LuaError).
+		Build()
+	processExitChannelType = typ.NewInterface("exec.ProcessExitChannel", []typ.Method{
+		{Name: "receive", Type: typ.Func().Param("self", typ.Self).
+			Returns(typ.NewOptional(processExitType), typ.Boolean).Build()},
+		{Name: "case_receive", Type: typ.Func().Param("self", typ.Self).
+			Returns(engine.ChannelSelectCaseType(typ.Self, processExitType)).Build()},
+	})
 	terminalCompletionType = typ.NewInterface("exec.TerminalCompletionChannel", []typ.Method{
 		{Name: "receive", Type: typ.Func().Param("self", typ.Self).
 			Returns(typ.Boolean, typ.Boolean).Build()},
@@ -47,7 +61,9 @@ func init() {
 	processType = typ.NewInterface("exec.Process", []typ.Method{
 		{Name: "start", Type: typ.Func().Param("self", typ.Self).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "wait", Type: typ.Func().Param("self", typ.Self).Returns(typ.Any, typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "done", Type: typ.Func().Param("self", typ.Self).Returns(processExitChannelType, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "signal", Type: typ.Func().Param("self", typ.Self).Param("sig", typ.Number).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "pid", Type: typ.Func().Param("self", typ.Self).Returns(typ.Integer, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "write_stdin", Type: typ.Func().Param("self", typ.Self).Param("data", typ.String).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "close_stdin", Type: typ.Func().Param("self", typ.Self).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "stdout_stream", Type: typ.Func().Param("self", typ.Self).Returns(typ.Any, typ.NewOptional(typ.LuaError)).Build()},
@@ -72,6 +88,8 @@ func ModuleTypes() *io.Manifest {
 
 	m.DefineType("Executor", executorType)
 	m.DefineType("Process", processType)
+	m.DefineType("ProcessExit", processExitType)
+	m.DefineType("ProcessExitChannel", processExitChannelType)
 	m.DefineType("TerminalCompletionChannel", terminalCompletionType)
 	m.DefineType("TerminalSession", terminalSessionType)
 	m.DefineType("PTYOptions", ptyOptionsType)
