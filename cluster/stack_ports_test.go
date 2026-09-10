@@ -168,9 +168,13 @@ func TestFailedJoinReleasesAutomaticPorts(t *testing.T) {
 	require.NoError(t, err)
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
-	require.Error(t, stack.Start(ctx))
+	err = stack.Start(ctx)
+	require.ErrorContains(t, err, "join", "the test must reach membership joining")
 	port := stack.ConnMgr.GetListenPort()
 	require.Positive(t, port, "internode must have started before the failed join")
+	_, gossipPort, err := net.SplitHostPort(stack.Membership.LocalNode().Addr)
+	require.NoError(t, err, "membership must have bound a gossip port before joining")
+	require.NotEqual(t, "0", gossipPort)
 	for _, address := range []string{
 		net.JoinHostPort("127.0.0.1", strconv.Itoa(port)), stack.Membership.LocalNode().Addr,
 	} {

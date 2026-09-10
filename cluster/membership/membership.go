@@ -306,7 +306,7 @@ func (s *Service) Start(ctx context.Context) error {
 	}
 
 	// Create memberlist
-	ml, err := memberlist.Create(mlConfig)
+	ml, err := createMemberlist(s.ctx, mlConfig, memberlist.NewNetTransport)
 	if err != nil {
 		return NewCreateMemberlistError(err)
 	}
