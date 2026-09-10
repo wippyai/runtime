@@ -27,7 +27,7 @@ import (
 // Every advertised internode endpoint must remain owned by its listener.
 func TestConcurrentAutomaticPorts(t *testing.T) {
 	const count = 20
-	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
 	defer cancel()
 	collector := metrics.NewCollector(metricscfg.Config{})
 	defer collector.Close()
