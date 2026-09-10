@@ -30,7 +30,11 @@ func bootstrapPackRuntimeWithDefaults(cmd *cobra.Command, baseLogger *zap.Logger
 		return nil, nil, nil, nil, err
 	}
 
-	ctx, err := bootpkg.NewBootstrapContext(baseLogger, cfg)
+	parent := context.Background()
+	if cmd != nil {
+		parent = cmd.Context()
+	}
+	ctx, err := bootpkg.NewBootstrapContextWithParent(parent, baseLogger, cfg)
 	if err != nil {
 		baseLogger.Error("failed to initialize bootstrap context", zap.Error(err))
 		return nil, nil, nil, nil, NewInitializeBootstrapContextError(err)
@@ -60,9 +64,16 @@ func bootstrapPackRuntimeWithDefaults(cmd *cobra.Command, baseLogger *zap.Logger
 		return nil, nil, nil, nil, NewCreateLoaderError(err)
 	}
 
-	ctx, err = loader.Load(ctx)
+	loadedContext, loadError := loader.Load(ctx)
+	if loadedContext != nil {
+		ctx = loadedContext
+	}
+	err = loadError
 	if err != nil {
 		logger.Error("load failed", zap.Error(err))
+		// Successful earlier Load calls already own resources even though a
+		// later component failed. Release them before dropping the context.
+		(&runShutdown{}).perform(ctx, loader, logger, silentLogs)
 		embedReg.Close()
 		return nil, nil, nil, nil, NewLoadComponentsError(err)
 	}

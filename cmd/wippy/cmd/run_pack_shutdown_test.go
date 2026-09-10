@@ -139,7 +139,7 @@ func TestWaitForShutdownSignal_InvokesOnFirstSignalOnlyWhenSet(t *testing.T) {
 		sigChan <- syscall.SIGTERM
 
 		called := make(chan struct{}, 1)
-		waitForShutdownSignal(sigChan, zap.NewNop(), func() { called <- struct{}{} })
+		waitForShutdownSignal(t.Context(), sigChan, zap.NewNop(), func() { called <- struct{}{} })
 
 		select {
 		case <-called:
@@ -152,7 +152,7 @@ func TestWaitForShutdownSignal_InvokesOnFirstSignalOnlyWhenSet(t *testing.T) {
 		sigChan := make(chan os.Signal, 1)
 		sigChan <- syscall.SIGTERM
 
-		waitForShutdownSignal(sigChan, zap.NewNop(), nil)
+		waitForShutdownSignal(t.Context(), sigChan, zap.NewNop(), nil)
 	})
 }
 
@@ -183,4 +183,19 @@ func waitForServiceStatus(t *testing.T, sup *supervisorpkg.Supervisor, serviceID
 	}
 
 	t.Fatalf("timeout waiting for service %q to reach status %q", serviceID, status)
+}
+
+func TestWaitForShutdownSignalAcceptsParentCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	done := make(chan struct{})
+	go func() {
+		waitForShutdownSignal(ctx, make(chan os.Signal, 1), zap.NewNop(), func() { t.Error("cancellation reported an OS signal") })
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("shutdown waiter ignored parent cancellation")
+	}
 }

@@ -37,15 +37,12 @@ func TestRunPackEntries_InvalidRequirementFailsNormalizationPipeline(t *testing.
 
 	setTestConfigFiles(t, cfgPath)
 
-	ctx, loader, logger, embedReg, err := bootstrapPackRuntime(nil, zap.NewNop())
+	ctx, loader, _, embedReg, err := bootstrapPackRuntime(nil, zap.NewNop())
 	if err != nil {
 		t.Fatalf("bootstrap pack runtime: %v", err)
 	}
 	t.Cleanup(func() {
 		_ = embedReg.Close()
-	})
-	t.Cleanup(func() {
-		_ = shutdown.Perform(ctx, loader, logger, true)
 	})
 
 	packEntries := []regapi.Entry{
@@ -1457,7 +1454,6 @@ func TestRunPackEntries_ExplicitHostDoesNotFallBack(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer embedReg.Close()
-	defer shutdown.Perform(ctx, loader, logger, true)
 	entries := []regapi.Entry{{
 		ID: regapi.NewID("test", "runner"), Kind: "process.lua",
 		Meta: map[string]any{"command": map[string]any{"name": "probe"}},

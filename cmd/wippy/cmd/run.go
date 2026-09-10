@@ -34,7 +34,6 @@ import (
 	"github.com/wippyai/runtime/cmd/internal/banner"
 	"github.com/wippyai/runtime/cmd/internal/bootconfig"
 	"github.com/wippyai/runtime/cmd/internal/entries"
-	"github.com/wippyai/runtime/cmd/internal/shutdown"
 	embedpkg "github.com/wippyai/runtime/service/fs/embed"
 	terminalservice "github.com/wippyai/runtime/service/terminal"
 	securitysys "github.com/wippyai/runtime/system/security"
@@ -146,7 +145,7 @@ func commandHost(cmd *cobra.Command) string {
 	return host
 }
 
-func runWithUseCase(cmd *cobra.Command, args []string, useCase string) error {
+func runWithUseCase(cmd *cobra.Command, args []string, useCase string) (result error) {
 	memLimit := initMemoryLimit()
 
 	execSpec := ""
@@ -223,7 +222,13 @@ func runWithUseCase(cmd *cobra.Command, args []string, useCase string) error {
 		return err
 	}
 
-	ctx, err := bootpkg.NewBootstrapContext(logger, cfg)
+	parent := context.Background()
+	if cmd != nil {
+		parent = cmd.Context()
+	}
+	parent, cancelRuntime := context.WithCancel(parent)
+	defer cancelRuntime()
+	ctx, err := bootpkg.NewBootstrapContextWithParent(parent, logger, cfg)
 	if err != nil {
 		logger.Error("failed to initialize bootstrap context", zap.Error(err))
 		return NewInitializeBootstrapContextError(err)
@@ -259,15 +264,27 @@ func runWithUseCase(cmd *cobra.Command, args []string, useCase string) error {
 		return NewCreateLoaderError(err)
 	}
 
-	ctx, err = loader.Load(ctx)
+	runtimeShutdown := &runShutdown{}
+	var sigChan chan os.Signal
+	defer func() {
+		runtimeShutdown.deferCleanup(ctx, &result, loader, logger, silentLogs)
+		if sigChan != nil {
+			signal.Stop(sigChan)
+		}
+	}()
+
+	loadedContext, loadError := loader.Load(ctx)
+	if loadedContext != nil {
+		ctx = loadedContext
+	}
+	err = loadError
 	if err != nil {
 		logger.Error("load failed", zap.Error(err))
 		return NewLoadComponentsError(err)
 	}
 	logger.Info("components loaded successfully")
 
-	sigChan := setupSupervisorSignalChannel(ctx)
-	defer signal.Stop(sigChan)
+	sigChan = setupSupervisorSignalChannel(ctx)
 
 	err = loader.Start(ctx)
 	if err != nil {
@@ -317,15 +334,8 @@ func runWithUseCase(cmd *cobra.Command, args []string, useCase string) error {
 		}
 	}
 
-	waitForShutdownSignal(sigChan, logger, nil)
-
-	exitCode := shutdown.Perform(ctx, loader, logger, silentLogs)
-	if exitCode != 0 {
-		_ = logger.Sync()
-		os.Exit(exitCode)
-	}
-
-	return nil
+	waitForShutdownSignal(ctx, sigChan, logger, nil)
+	return ctx.Err()
 }
 
 // loadRuntimeConfig resolves the effective runtime configuration for run-like
@@ -1044,17 +1054,26 @@ func setupSupervisorSignalChannel(ctx context.Context) chan os.Signal {
 
 // waitForShutdownSignal handles first-signal graceful shutdown and second-signal
 // forced process termination.
-func waitForShutdownSignal(sigChan chan os.Signal, logger *zap.Logger, onFirstSignal func()) {
-	sig := <-sigChan
+func waitForShutdownSignal(ctx context.Context, sigChan chan os.Signal, logger *zap.Logger, onFirstSignal func()) {
+	var sig os.Signal
+	select {
+	case <-ctx.Done():
+		return
+	case sig = <-sigChan:
+	}
 	logger.Info("received shutdown signal", zap.String("signal", sig.String()))
 	if onFirstSignal != nil {
 		onFirstSignal()
 	}
 
 	go func() {
-		<-sigChan
-		logger.Error("force exit")
-		os.Exit(1)
+		select {
+		case <-ctx.Done():
+			return
+		case <-sigChan:
+			logger.Error("force exit")
+			os.Exit(1)
+		}
 	}()
 
 	if !silentLogs {
