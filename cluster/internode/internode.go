@@ -32,6 +32,8 @@ const (
 	MetadataPublicKey     = "internode_public_key"
 )
 
+// PackageCallback takes ownership only when it returns nil. On error it must
+// leave the package owned by Service, which releases it after rejection.
 type PackageCallback func(*relay.Package) error
 
 type Service struct {
@@ -83,6 +85,7 @@ func (s *Service) Start(ctx context.Context) error {
 			zap.String("from_node", nodeID),
 			zap.String("target_host", pkg.Target.Host))
 		if err := s.deliveryCallback(pkg); err != nil {
+			relay.ReleasePackage(pkg)
 			// Hot path under partition: the local PG host may have torn down
 			// while a peer is still sending to it. Counted as a drop with
 			// no per-message log to avoid the chaos-time spam we observed.
