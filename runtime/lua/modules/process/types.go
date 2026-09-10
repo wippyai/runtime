@@ -3,15 +3,13 @@
 package process
 
 import (
-	"github.com/wippyai/go-lua/types/constraint"
-	"github.com/wippyai/go-lua/types/contract"
 	"github.com/wippyai/go-lua/types/io"
 	"github.com/wippyai/go-lua/types/typ"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 )
 
 var (
-	messageType        *typ.Interface
+	messageType        typ.Type
 	processEventType   typ.Type
 	messageChannelType typ.Type
 	eventChannelType   typ.Type
@@ -19,12 +17,43 @@ var (
 	channelGen         *typ.Generic
 )
 
-func init() {
-	messageType = typ.NewInterface("process.Message", []typ.Method{
+var messageElement = typ.NewTypeParam("T", nil)
+var messageGeneric = typ.NewGeneric("process.Message", []*typ.TypeParam{messageElement},
+	typ.NewInterface("process.Message", []typ.Method{
 		{Name: "from", Type: typ.Func().Param("self", typ.Self).Returns(typ.String).Build()},
 		{Name: "topic", Type: typ.Func().Param("self", typ.Self).Returns(typ.String).Build()},
 		{Name: "payload", Type: typ.Func().Param("self", typ.Self).Returns(typ.Any).Build()},
-	})
+		{Name: "data", Type: typ.Func().Param("self", typ.Self).Returns(messageElement).Build()},
+	}))
+
+// The type argument belongs to the receiving process. Message mode changes the
+// envelope only; the same T is checked for both raw and message delivery.
+func listenType() typ.Type {
+	t := typ.NewTypeParam("T", nil)
+	rawOptions := typ.NewRecord().OptField("message", typ.False).Build()
+	messageOptions := typ.NewRecord().Field("message", typ.True).Build()
+	typedRawOptions := typ.NewRecord().OptField("message", typ.False).Field("type", typ.NewMeta(t)).Build()
+	typedMessageOptions := typ.NewRecord().Field("message", typ.True).Field("type", typ.NewMeta(t)).Build()
+	dynamicOptions := typ.NewRecord().OptField("message", typ.Boolean).Build()
+	typedDynamicOptions := typ.NewRecord().OptField("message", typ.Boolean).Field("type", typ.NewMeta(t)).Build()
+	return typ.NewUnion(
+		typ.Func().TypeParam("T", nil).Param("topic", typ.String).Param("options", typedDynamicOptions).
+			Returns(typ.NewUnion(typ.Instantiate(channelGen, t), typ.Instantiate(channelGen, typ.Instantiate(messageGeneric, t))), typ.NewOptional(typ.LuaError)).Build(),
+		typ.Func().Param("topic", typ.String).Param("options", dynamicOptions).
+			Returns(typ.NewUnion(rawChannelType, messageChannelType), typ.NewOptional(typ.LuaError)).Build(),
+		typ.Func().TypeParam("T", nil).Param("topic", typ.String).Param("options", typedMessageOptions).
+			Returns(typ.Instantiate(channelGen, typ.Instantiate(messageGeneric, t)), typ.NewOptional(typ.LuaError)).Build(),
+		typ.Func().TypeParam("T", nil).Param("topic", typ.String).Param("options", typedRawOptions).
+			Returns(typ.Instantiate(channelGen, t), typ.NewOptional(typ.LuaError)).Build(),
+		typ.Func().Param("topic", typ.String).Param("options", messageOptions).
+			Returns(messageChannelType, typ.NewOptional(typ.LuaError)).Build(),
+		typ.Func().Param("topic", typ.String).OptParam("options", rawOptions).
+			Returns(rawChannelType, typ.NewOptional(typ.LuaError)).Build(),
+	)
+}
+
+func init() {
+	messageType = typ.Instantiate(messageGeneric, typ.Any)
 
 	eventRecord := typ.NewRecord().
 		Field("kind", typ.String).
@@ -194,6 +223,7 @@ func ModuleTypes() *io.Manifest {
 
 	moduleFieldsType := typ.NewRecord().
 		Field("event", eventType).
+		Field("listen", listenType()).
 		Field("registry", registrySubType).
 		Build()
 
@@ -275,19 +305,6 @@ func ModuleTypes() *io.Manifest {
 			Build()},
 		{Name: "events", Type: typ.Func().
 			Returns(eventChannelType).
-			Build()},
-		{Name: "listen", Type: typ.Func().
-			Param("topic", typ.String).
-			OptParam("options", typ.Any).
-			Returns(rawChannelType, typ.NewOptional(typ.LuaError)).
-			Spec(contract.NewSpec().WithReturnCase(
-				constraint.FromConstraints(constraint.FieldEquals{
-					Target: constraint.ParamPath(1),
-					Field:  "message",
-					Value:  typ.True,
-				}),
-				messageChannelType,
-			)).
 			Build()},
 		{Name: "unlisten", Type: typ.Func().
 			Param("listener", typ.Any).
