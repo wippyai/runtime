@@ -205,14 +205,15 @@ type ConnectionManager interface {
 }
 
 type manager struct {
-	ctx          context.Context
-	listener     net.Listener
-	cancel       context.CancelFunc
-	logger       *zap.Logger
-	onMessage    func(cluster.NodeID, []byte)
-	tlsConfig    *tls.Config
-	nodeStates   *NodeStateManager
-	controlLoops map[cluster.NodeID]*nodeControlLoop
+	managedChanged chan struct{}
+	ctx            context.Context
+	listener       net.Listener
+	cancel         context.CancelFunc
+	logger         *zap.Logger
+	onMessage      func(cluster.NodeID, []byte)
+	tlsConfig      *tls.Config
+	nodeStates     *NodeStateManager
+	controlLoops   map[cluster.NodeID]*nodeControlLoop
 	// classReceivers is accessed on every inbound frame (lookupClassReceiver
 	// runs in the read hot path). Registrations happen only at boot, so we
 	// keep the array behind an atomic.Pointer snapshot.
@@ -222,6 +223,7 @@ type manager struct {
 	actualPort     int
 	controlLoopsMu sync.Mutex
 	registerMu     sync.Mutex
+	managedMu      sync.Mutex
 }
 
 func NewConnectionManager(config ManagerConfig, coll metrics.Collector) ConnectionManager {
@@ -302,6 +304,31 @@ func (m *manager) Stop() error {
 	return nil
 }
 
+// ContextConnectionManager is optional transactional queue admission. Error
+// means data was not retained; success does not guarantee remote delivery.
+type ContextConnectionManager interface {
+	SendToNodeContext(context.Context, cluster.NodeID, []byte, Class) error
+}
+
+func (m *manager) SendToNodeContext(ctx context.Context, nodeID cluster.NodeID, data []byte, class Class) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if m.ctx != nil {
+		if err := m.ctx.Err(); err != nil {
+			return err
+		}
+		admissionCtx, cancel := context.WithCancel(ctx)
+		stop := context.AfterFunc(m.ctx, cancel)
+		defer stop()
+		defer cancel()
+		ctx = admissionCtx
+	}
+	// Unlike legacy best-effort SendToNode, never report success for an
+	// unmanaged destination. The caller must know admission did not occur.
+	return m.nodeStates.QueueMessageClassContext(ctx, nodeID, data, class)
+}
+
 func (m *manager) SendToNode(nodeID cluster.NodeID, data []byte, class Class) error {
 	err := m.nodeStates.QueueMessageClass(nodeID, data, class)
 	if err != nil {
@@ -350,6 +377,7 @@ func (m *manager) ConnectedNodes() []cluster.NodeID {
 }
 
 func (m *manager) AddManagedNode(nodeID cluster.NodeID) {
+	defer m.notifyManagedChange()
 	// Serialize membership and inbound admission with state detachment.
 	m.controlLoopsMu.Lock()
 	defer m.controlLoopsMu.Unlock()

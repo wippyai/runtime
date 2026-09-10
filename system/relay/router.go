@@ -3,6 +3,7 @@
 package relay
 
 import (
+	"context"
 	"sync"
 	"sync/atomic"
 
@@ -66,27 +67,49 @@ func (r *Router) SetInternode(receiver api.Receiver) {
 // Send routes the package to the appropriate destination.
 // Routing priority: local node → peer nodes → internode fallback.
 func (r *Router) Send(pkg *api.Package) error {
+	receiver, err := r.receiverFor(pkg)
+	if err != nil {
+		return err
+	}
+	return receiver.Send(pkg)
+}
+
+// SendContext preserves routing precedence while requiring a cancellable
+// receiver. It never detaches a legacy Send in a goroutine. On error the caller
+// still owns the package; a successful send transfers it to the receiver.
+func (r *Router) SendContext(ctx context.Context, pkg *api.Package) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	receiver, err := r.receiverFor(pkg)
+	if err != nil {
+		return err
+	}
+	if sender, ok := receiver.(api.ContextSender); ok {
+		return sender.SendContext(ctx, pkg)
+	}
+	return NewContextUnsupportedError(pkg.Target.Host, pkg.Target.Node)
+}
+
+func (r *Router) receiverFor(pkg *api.Package) (api.Receiver, error) {
 	if pkg == nil {
-		return NewNilPackageError()
+		return nil, NewNilPackageError()
 	}
-
-	// Route to local node if target node is empty or matches the local node's ID.
 	if pkg.Target.Node == "" || pkg.Target.Node == r.localNode.ID() {
-		return r.localNode.Send(pkg)
+		return r.localNode, nil
 	}
-
-	// Check if it's for a registered peer node.
 	if receiver, ok := r.peers.Load(pkg.Target.Node); ok {
 		if rec, ok := receiver.(api.Receiver); ok {
-			return rec.Send(pkg)
+			return rec, nil
 		}
 	}
-
-	// Fallback to internode for unknown nodes. Lock-free hot-path read:
-	// atomic.Pointer.Load is a single MOV on every message send.
 	if p := r.internode.Load(); p != nil {
-		return (*p).Send(pkg)
+		return *p, nil
 	}
-
-	return NewNodeNotFoundError(pkg.Target.Node)
+	return nil, NewNodeNotFoundError(pkg.Target.Node)
 }
+
+var _ api.ContextSender = (*Router)(nil)
