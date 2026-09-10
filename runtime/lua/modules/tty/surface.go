@@ -23,6 +23,7 @@ func init() {
 		},
 		map[string]lua.LGoFunc{
 			"present":    surfacePresent,
+			"clipboard":  surfaceClipboard,
 			"invalidate": surfaceInvalidate,
 			"close":      surfaceClose,
 		})
@@ -227,4 +228,26 @@ func surfaceGC(l *lua.LState) int {
 
 func (s *surfaceWrapper) close() error {
 	return s.backend.Close()
+}
+
+func surfaceClipboard(l *lua.LState) int {
+	surface := checkSurface(l)
+	if surface == nil {
+		return 0
+	}
+	text := l.CheckString(2)
+	output, ok := surface.backend.(ttyapi.ClipboardSurface)
+	if !ok {
+		l.Push(lua.LFalse)
+		l.Push(lua.NewLuaError(l, ttyapi.ErrClipboardUnsupported.Error()).WithKind(lua.Unavailable).WithRetryable(false))
+		return 2
+	}
+	if err := output.Clipboard(text); err != nil {
+		l.Push(lua.LFalse)
+		l.Push(lua.WrapErrorWithLua(l, err, "request terminal clipboard write"))
+		return 2
+	}
+	l.Push(lua.LTrue)
+	l.Push(lua.LNil)
+	return 2
 }

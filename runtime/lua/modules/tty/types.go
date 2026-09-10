@@ -192,6 +192,8 @@ var surfaceType = typ.NewInterface("tty.Surface", []typ.Method{
 				Build()).
 			Build()).
 		Returns(surfaceStatsType, typ.NewOptional(typ.LuaError)).Build()},
+	{Name: "clipboard", Type: typ.Func().Param("self", typ.Self).Param("text", typ.String).
+		Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
 	{Name: "invalidate", Type: typ.Func().Param("self", typ.Self).
 		Returns(typ.Boolean).Build()},
 	{Name: "close", Type: typ.Func().Param("self", typ.Self).

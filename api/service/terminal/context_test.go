@@ -195,3 +195,15 @@ func TestPipeContextReleasesPresentationLeaseWhenCloseFails(t *testing.T) {
 	require.Len(t, created, 2)
 	require.ErrorIs(t, second.Close(), closeErr)
 }
+
+func TestClipboardLeaseRejectsUnsupportedAndRetiredSurface(t *testing.T) {
+	tc := NewTerminalContext(nil, &bytes.Buffer{}, nil)
+	tc.Surface = func(ttyapi.SurfaceOptions) (ttyapi.Surface, error) { return &testSurface{}, nil }
+	surface, err := tc.OpenSurface(ttyapi.SurfaceOptions{})
+	require.NoError(t, err)
+	copy, ok := surface.(ttyapi.ClipboardSurface)
+	require.True(t, ok)
+	require.ErrorIs(t, copy.Clipboard("text"), ttyapi.ErrClipboardUnsupported)
+	require.NoError(t, surface.Close())
+	require.ErrorIs(t, copy.Clipboard("text"), ttyapi.ErrInvalidPort)
+}
