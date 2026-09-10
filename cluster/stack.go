@@ -69,16 +69,19 @@ type StackConfig struct {
 	// the harness to avoid disturbing the runtime's raft quorum.
 	Meta clusterapi.NodeMeta
 
-	NodeName                      string
-	MembershipBindAddr            string
-	MembershipAdvertise           string
-	SecretKey                     string
-	SecretFile                    string
-	InternodeIdentityKey          string
-	InternodeIdentityKeyFile      string
-	InternodeTrustedPeerKeys      map[string]string
-	InternodePeerKeySource        clusterapi.PeerKeySource
-	InternodeBindAddr             string
+	NodeName                 string
+	MembershipBindAddr       string
+	MembershipAdvertise      string
+	SecretKey                string
+	SecretFile               string
+	InternodeIdentityKey     string
+	InternodeIdentityKeyFile string
+	InternodeTrustedPeerKeys map[string]string
+	InternodePeerKeySource   clusterapi.PeerKeySource
+	InternodeBindAddr        string
+	// InternodeTLS selects the existing native mutual-TLS transport. Certificate
+	// loading happens during Start. The zero value preserves plaintext transport.
+	InternodeTLS                  internode.ManagerTLSConfig
 	JoinAddrs                     []string
 	MembershipGossipInterval      time.Duration
 	MembershipPushPullInterval    time.Duration
@@ -149,6 +152,7 @@ func AssembleStack(cfg StackConfig) (*Stack, error) {
 	mgrCfg.AuthenticationKey = secretKey
 	mgrCfg.SigningKey = signingKey
 	mgrCfg.RequireAuthentication = true
+	mgrCfg.TLS = cfg.InternodeTLS
 	var memSvc *membership.Service
 	mgrCfg.ResolvePeerKey = func(id clusterapi.NodeID) (ed25519.PublicKey, bool) {
 		return internode.ResolveMemberKey(cfg.NodeName, id, trustedPeerKeys, cfg.InternodePeerKeySource, memSvc)
