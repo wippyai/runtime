@@ -60,8 +60,8 @@ const forwardReplyGrace = 2 * time.Second
 const forwardWaitTimeout = raftApplyTimeout + forwardReplyGrace
 
 // errForwardNotLeader marks a forwarded write that reached a non-leader. The op
-// was provably NOT applied (a leader that loses leadership mid-Apply does not
-// commit), so the caller may safely re-resolve the leader and retry.
+// was rejected before acceptance, so the caller may safely re-resolve and retry.
+// Losing leadership after acceptance is a different, uncertain outcome.
 var errForwardNotLeader = staticErr("kv: forwarded write reached a non-leader")
 
 // errForwardTimeout marks a forwarded write whose reply never arrived. Unlike a
@@ -118,7 +118,8 @@ func kindToErr(kind byte, msg string) error {
 	case errNotLeaderCode:
 		return errForwardNotLeader
 	default:
-		return staticErr(msg)
+		// Remote text must never recreate a local control-flow sentinel.
+		return errors.New(msg)
 	}
 }
 
@@ -458,23 +459,46 @@ func (e *RaftEngine) handleForwardResp(msg *relay.Message) {
 		return
 	}
 	out, ok := msg.Payloads[0].Data().([]byte)
-	if !ok || len(out) < 18 {
+	if !ok || len(out) < 8 {
 		return
 	}
 	corr := binary.BigEndian.Uint64(out[:8])
-	res := applyResult{
-		Version: binary.BigEndian.Uint64(out[8:16]),
-		OK:      out[16] == 1,
-		Err:     kindToErr(out[17], string(out[18:])),
-	}
+
 	e.fwdMu.Lock()
 	ch, found := e.pending[corr]
 	e.fwdMu.Unlock()
 	if !found {
 		return
 	}
+	res := decodeForwardWriteResponse(out)
 	select {
 	case ch <- res:
 	default:
 	}
+}
+
+// Only a canonical explicit not-leader rejection permits a retry. Malformed
+// replies are uncertain outcomes even if some bytes resemble a rejection.
+func decodeForwardWriteResponse(out []byte) applyResult {
+	if len(out) < 18 {
+		return applyResult{Err: staticErr("kv: write response header truncated")}
+	}
+	if out[16] > 1 {
+		return applyResult{Err: staticErr("kv: write response invalid success flag")}
+	}
+	kind := out[17]
+	if kind > errOther {
+		return applyResult{Err: staticErr("kv: write response unknown error kind")}
+	}
+	if kind != errOther && len(out) != 18 {
+		return applyResult{Err: staticErr("kv: write response trailing data")}
+	}
+	if kind != errNone && out[16] != 0 {
+		return applyResult{Err: staticErr("kv: write response contradictory result")}
+	}
+	version := binary.BigEndian.Uint64(out[8:16])
+	if kind == errNotLeaderCode && version != 0 {
+		return applyResult{Err: staticErr("kv: write response rejection has a version")}
+	}
+	return applyResult{Version: version, OK: out[16] == 1, Err: kindToErr(kind, string(out[18:]))}
 }
