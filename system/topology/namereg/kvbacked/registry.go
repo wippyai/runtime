@@ -103,6 +103,7 @@ type barrierEngine interface {
 
 // Service is the kv-backed name registry.
 type Service struct {
+	reconciler atomic.Pointer[reconcilerLifecycle]
 	engine     kvapi.Engine
 	leaderRead leaderReadEngine
 	topo       topology.Topology
