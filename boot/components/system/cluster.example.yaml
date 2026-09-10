@@ -9,6 +9,13 @@
 # list to enumerate and no "new vs existing" state to flip by hand.
 #
 # Three topologies are shown below; use one.
+#
+# For several instances on one machine, membership.bind_port: 0 and
+# internode.bind_port: 0 ask the OS for available ports. The internode listener
+# stays bound while its port is published in membership metadata; startup never
+# releases a probe socket and tries to reclaim it. Read LocalNode().Addr and its
+# internode_port metadata after Start succeeds to obtain actual endpoints.
+# Discovery and peer authorization remain the application's responsibility.
 
 # ---------------------------------------------------------------------------
 # 1. Single node (development). Cluster enabled with no peers: the one node

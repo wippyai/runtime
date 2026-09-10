@@ -39,6 +39,7 @@ type PackageCallback func(*relay.Package) error
 
 type Service struct {
 	ctx              context.Context
+	cancel           context.CancelFunc
 	logger           *zap.Logger
 	connMan          ConnectionManager
 	codec            cluster.MessageCodec
@@ -46,6 +47,7 @@ type Service struct {
 	bus              event.Bus
 	membership       cluster.Membership
 	subscriber       *eventbus.Subscriber
+	localNodeID      cluster.NodeID
 }
 
 func NewService(
@@ -67,7 +69,9 @@ func NewService(
 }
 
 func (s *Service) Start(ctx context.Context) error {
+	ctx, s.cancel = context.WithCancel(ctx)
 	s.ctx = ctx
+	s.localNodeID = s.membership.LocalNode().ID
 	s.logger.Info("Starting inter-node service...")
 
 	onMessage := func(nodeID cluster.NodeID, data []byte) {
@@ -98,11 +102,13 @@ func (s *Service) Start(ctx context.Context) error {
 	}
 
 	if err := s.connMan.Start(ctx, onMessage); err != nil {
+		s.cancel()
 		return NewStartConnectionManagerError(err)
 	}
 
-	sub, err := eventbus.NewSubscriber(ctx, s.bus, cluster.System, "node.(joined|left)", s.handleMembershipEvent)
+	sub, err := eventbus.NewSubscriber(ctx, s.bus, cluster.System, "node.(joined|left|updated)", s.handleMembershipEvent)
 	if err != nil {
+		s.cancel()
 		_ = s.connMan.Stop()
 		return NewSubscribeMembershipError(err)
 	}
@@ -110,7 +116,7 @@ func (s *Service) Start(ctx context.Context) error {
 
 	// Process nodes that are already in the cluster at startup.
 	for _, nodeInfo := range s.membership.Nodes() {
-		if nodeInfo.ID != s.membership.LocalNode().ID {
+		if nodeInfo.ID != s.localNodeID {
 			s.logger.Info("Processing pre-existing cluster member", zap.String("node_id", nodeInfo.ID))
 			s.connMan.AddManagedNode(nodeInfo.ID)
 			s.connectToNode(nodeInfo)
@@ -141,7 +147,7 @@ func (s *Service) orphanSweepLoop(ctx context.Context) {
 		case <-t.C:
 			members := s.membership.Nodes()
 			known := make(map[cluster.NodeID]struct{}, len(members)+1)
-			known[s.membership.LocalNode().ID] = struct{}{}
+			known[s.localNodeID] = struct{}{}
 			for _, n := range members {
 				known[n.ID] = struct{}{}
 			}
@@ -155,6 +161,9 @@ func (s *Service) orphanSweepLoop(ctx context.Context) {
 
 func (s *Service) Stop() error {
 	s.logger.Info("Stopping inter-node service...")
+	if s.cancel != nil {
+		s.cancel()
+	}
 	if s.subscriber != nil {
 		s.subscriber.Close()
 	}
@@ -265,7 +274,7 @@ func (s *Service) handleMembershipEvent(e event.Event) {
 		return
 	}
 	nodeInfo := nodeEvent.Node
-	if nodeInfo.ID == s.membership.LocalNode().ID {
+	if nodeInfo.ID == s.localNodeID {
 		return
 	}
 
@@ -275,6 +284,10 @@ func (s *Service) handleMembershipEvent(e event.Event) {
 			zap.String("node_id", nodeInfo.ID))
 		s.connMan.AddManagedNode(nodeInfo.ID)
 		s.connectToNode(nodeInfo)
+	case cluster.NodeUpdated:
+		if s.connMan.IsManaged(nodeInfo.ID) {
+			s.connectToNode(nodeInfo)
+		}
 	case cluster.NodeLeft:
 		s.logger.Info("Node left cluster, cleaning up state and connection",
 			zap.String("node_id", nodeInfo.ID))

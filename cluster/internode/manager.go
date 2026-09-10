@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -352,6 +353,7 @@ func (m *manager) EnsureConnection(nodeID cluster.NodeID, addr string, port int)
 		return
 	}
 
+	m.nodeStates.UpdateNodeAddress(nodeID, addr, port)
 	_, currentState := m.nodeStates.GetNodeConnection(nodeID)
 	if currentState == StateConnected {
 		return
@@ -361,7 +363,6 @@ func (m *manager) EnsureConnection(nodeID cluster.NodeID, addr string, port int)
 		return
 	}
 
-	m.nodeStates.UpdateNodeAddress(nodeID, addr, port)
 	m.sendCommand(nodeID, nodeCommand{
 		Type: cmdConnect,
 		Data: connectData{Addr: addr, Port: port},
@@ -824,23 +825,30 @@ func (m *manager) startListener() (net.Listener, int, error) {
 	if m.config.AutoPort {
 		return m.tryPortRange()
 	}
-	addr := fmt.Sprintf("%s:%d", m.config.BindAddr, m.config.BindPort)
+	addr := net.JoinHostPort(m.config.BindAddr, strconv.Itoa(m.config.BindPort))
 	listener, err := m.listen(addr)
-	return listener, m.config.BindPort, err
+	if err != nil {
+		return nil, 0, err
+	}
+	return listener, listener.Addr().(*net.TCPAddr).Port, nil
 }
 
 func (m *manager) tryPortRange() (net.Listener, int, error) {
 	startPort := m.config.BindPort
 	if startPort == 0 {
-		startPort = DefaultPortRangeStart
+		listener, err := m.listen(net.JoinHostPort(m.config.BindAddr, "0"))
+		if err != nil {
+			return nil, 0, err
+		}
+		return listener, listener.Addr().(*net.TCPAddr).Port, nil
 	}
 	for port := startPort; port <= DefaultPortRangeEnd; port++ {
-		addr := fmt.Sprintf("%s:%d", m.config.BindAddr, port)
+		addr := net.JoinHostPort(m.config.BindAddr, strconv.Itoa(port))
 		if listener, err := m.listen(addr); err == nil {
 			return listener, port, nil
 		}
 	}
-	addr := fmt.Sprintf("%s:0", m.config.BindAddr)
+	addr := net.JoinHostPort(m.config.BindAddr, "0")
 	listener, err := m.listen(addr)
 	if err != nil {
 		return nil, 0, err
