@@ -5,6 +5,7 @@ package tty
 import (
 	typio "github.com/wippyai/go-lua/types/io"
 	"github.com/wippyai/go-lua/types/typ"
+	"github.com/wippyai/runtime/runtime/lua/engine"
 )
 
 // Style interface returned by tty.style()
@@ -157,13 +158,15 @@ func EventType() typ.Type { return ttyEventType }
 // Channel type for tty.events()
 var eventChannelType = typ.NewInterface("tty.EventChannel", []typ.Method{
 	{Name: "receive", Type: typ.Func().Param("self", typ.Self).Returns(typ.NewOptional(ttyEventType), typ.Boolean).Build()},
-	{Name: "case_receive", Type: typ.Func().Param("self", typ.Self).Returns(typ.Any).Build()},
+	{Name: "case_receive", Type: typ.Func().Param("self", typ.Self).
+		Returns(engine.ChannelSelectCaseType(typ.Self, ttyEventType)).Build()},
 	{Name: "close", Type: typ.Func().Param("self", typ.Self).Build()},
 })
 
 var viewportUpdateChannelType = typ.NewInterface("tty.ViewportUpdateChannel", []typ.Method{
 	{Name: "receive", Type: typ.Func().Param("self", typ.Self).Returns(typ.Integer, typ.Boolean).Build()},
-	{Name: "case_receive", Type: typ.Func().Param("self", typ.Self).Returns(typ.Any).Build()},
+	{Name: "case_receive", Type: typ.Func().Param("self", typ.Self).
+		Returns(engine.ChannelSelectCaseType(typ.Self, typ.Integer)).Build()},
 })
 
 var surfaceOptionsType = typ.NewRecord().
