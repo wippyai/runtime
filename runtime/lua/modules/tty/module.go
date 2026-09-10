@@ -65,6 +65,7 @@ func buildModule() (*lua.LTable, []luaapi.YieldType) {
 	text.RawSetString("width", lua.LGoFunc(textWidth))
 	text.RawSetString("truncate", lua.LGoFunc(textTruncate))
 	text.RawSetString("cut", lua.LGoFunc(textCut))
+	text.RawSetString("plain", lua.LGoFunc(textPlain))
 	text.RawSetString("height", lua.LGoFunc(textHeight))
 	text.RawSetString("size", lua.LGoFunc(textSize))
 	text.RawSetString("join_horizontal", lua.LGoFunc(textJoinHorizontal))

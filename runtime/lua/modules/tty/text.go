@@ -3,10 +3,28 @@
 package tty
 
 import (
+	"strings"
+	"unicode"
+
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 	lua "github.com/wippyai/go-lua"
 )
+
+// textPlain extracts display text without terminal instructions. Keep line
+// feeds and tabs; strip other control characters, including carriage returns.
+// Use textCut first when selecting a range of terminal cells.
+func textPlain(l *lua.LState) int {
+	plain := ansi.Strip(l.CheckString(1))
+	plain = strings.Map(func(r rune) rune {
+		if r != '\n' && r != '\t' && unicode.IsControl(r) {
+			return -1
+		}
+		return r
+	}, plain)
+	l.Push(lua.LString(plain))
+	return 1
+}
 
 // textTruncate truncates styled text to a printable width without splitting
 // ANSI control sequences or multi-byte characters.

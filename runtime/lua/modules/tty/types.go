@@ -278,6 +278,7 @@ func init() {
 		ReadonlyField("width", typ.Func().Param("s", typ.String).Returns(typ.Integer).Build()).
 		ReadonlyField("truncate", typ.Func().Param("s", typ.String).Param("width", typ.Integer).OptParam("tail", typ.String).Returns(typ.String).Build()).
 		ReadonlyField("cut", typ.Func().Param("s", typ.String).Param("left", typ.Integer).Param("right", typ.Integer).Returns(typ.String).Build()).
+		ReadonlyField("plain", typ.Func().Param("s", typ.String).Returns(typ.String).Build()).
 		ReadonlyField("height", typ.Func().Param("s", typ.String).Returns(typ.Integer).Build()).
 		ReadonlyField("size", typ.Func().Param("s", typ.String).Returns(typ.Integer, typ.Integer).Build()).
 		ReadonlyField("join_horizontal", typ.Func().Param("pos", typ.Number).Variadic(typ.String).Returns(typ.String).Build()).
