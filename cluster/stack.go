@@ -77,6 +77,7 @@ type StackConfig struct {
 	InternodeIdentityKey          string
 	InternodeIdentityKeyFile      string
 	InternodeTrustedPeerKeys      map[string]string
+	InternodePeerKeySource        clusterapi.PeerKeySource
 	InternodeBindAddr             string
 	JoinAddrs                     []string
 	MembershipGossipInterval      time.Duration
@@ -150,21 +151,7 @@ func AssembleStack(cfg StackConfig) (*Stack, error) {
 	mgrCfg.RequireAuthentication = true
 	var memSvc *membership.Service
 	mgrCfg.ResolvePeerKey = func(id clusterapi.NodeID) (ed25519.PublicKey, bool) {
-		trustedKey, trusted := trustedPeerKeys[id]
-		if !trusted || id == "" || id == cfg.NodeName || memSvc == nil {
-			return nil, false
-		}
-		for _, nodeInfo := range memSvc.Nodes() {
-			if nodeInfo.ID != id {
-				continue
-			}
-			advertisedKey, err := internode.ParseIdentityPublicKey(nodeInfo.Meta[internode.MetadataPublicKey])
-			if err != nil || !advertisedKey.Equal(trustedKey) {
-				return nil, false
-			}
-			return trustedKey, true
-		}
-		return nil, false
+		return internode.ResolveMemberKey(cfg.NodeName, id, trustedPeerKeys, cfg.InternodePeerKeySource, memSvc)
 	}
 	mgrCfg.AuthorizePeer = func(id clusterapi.NodeID, _ net.Addr) bool {
 		_, ok := mgrCfg.ResolvePeerKey(id)

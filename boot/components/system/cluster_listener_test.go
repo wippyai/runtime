@@ -31,11 +31,25 @@ import (
 )
 
 func TestClusterBootPublishesOnlyRetainedListener(t *testing.T) {
-	t.Run("normal_shutdown", func(t *testing.T) { checkClusterBootListener(t, false) })
-	t.Run("failed_join_shutdown", func(t *testing.T) { checkClusterBootListener(t, true) })
+	t.Run("normal_shutdown", func(t *testing.T) { checkClusterBootListener(t, false, nil, false) })
+	t.Run("failed_join_shutdown", func(t *testing.T) { checkClusterBootListener(t, true, nil, false) })
 }
 
-func checkClusterBootListener(t *testing.T, failJoin bool) {
+func TestClusterBootRequiresNativePeerKeySource(t *testing.T) {
+	t.Run("native", func(t *testing.T) {
+		checkClusterBootListener(t, false, clusterapi.PeerKeySource(func(string) (ed25519.PublicKey, bool) {
+			return nil, false
+		}), false)
+	})
+	t.Run("yaml_value", func(t *testing.T) {
+		checkClusterBootListener(t, false, "allow-all", true)
+	})
+	t.Run("nil_function", func(t *testing.T) {
+		checkClusterBootListener(t, false, clusterapi.PeerKeySource(nil), true)
+	})
+}
+
+func checkClusterBootListener(t *testing.T, failJoin bool, source any, wantLoadError bool) {
 	t.Helper()
 	pub, key, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
@@ -50,6 +64,9 @@ func checkClusterBootListener(t *testing.T, failJoin bool) {
 		"internode.auto_port":                        true,
 		"internode.identity_key":                     base64.RawStdEncoding.EncodeToString(key),
 		"internode.trusted_peer_keys.listener-proof": base64.RawStdEncoding.EncodeToString(pub),
+	}
+	if source != nil {
+		settings[ClusterInternodePeerKeySource] = source
 	}
 	if failJoin {
 		settings[ClusterMembershipJoin] = "127.0.0.1:1"
@@ -70,6 +87,10 @@ func checkClusterBootListener(t *testing.T, failJoin bool) {
 	ctx = metricsapi.WithCollector(ctx, collector)
 	component := Cluster()
 	ctx, err = component.Load(ctx)
+	if wantLoadError {
+		require.ErrorContains(t, err, "requires a native PeerKeySource")
+		return
+	}
 	require.NoError(t, err)
 	membership := clusterapi.GetMembership(ctx)
 	require.NotNil(t, membership)
