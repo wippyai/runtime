@@ -539,8 +539,8 @@ func TestModuleBuild(t *testing.T) {
 		t.Error("module table should be immutable")
 	}
 
-	if len(yields) != 8 {
-		t.Errorf("expected 8 yield types, got %d", len(yields))
+	if len(yields) != 9 {
+		t.Errorf("expected 9 yield types, got %d", len(yields))
 	}
 }
 
@@ -730,5 +730,16 @@ func TestScannerSplitWords(t *testing.T) {
 		if w != expected[i] {
 			t.Errorf("word[%d]: expected '%s', got '%s'", i, expected[i], w)
 		}
+	}
+}
+
+func TestWriteYieldPreservesPartialErrorCount(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	y := AcquireWriteYield(1, []byte("payload"))
+	defer ReleaseWriteYield(y)
+	result := y.HandleResult(l, int64(3), errors.New("connection ended after partial write"))
+	if len(result) != 2 || result[0] != lua.LNumber(3) || result[1] == lua.LNil {
+		t.Fatalf("partial result lost: %v", result)
 	}
 }

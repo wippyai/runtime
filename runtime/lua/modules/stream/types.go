@@ -32,7 +32,7 @@ func ModuleTypes() *io.Manifest {
 	m.DefineType("Stream", StreamType)
 	m.DefineType("Scanner", scannerType)
 
-	moduleType := typ.NewInterface("stream", []typ.Method{})
+	moduleType := typ.NewInterface("stream", []typ.Method{{Name: "pipe", Type: typ.Func().Param("peer", typ.String).Param("limit", typ.Integer).Returns(typ.NewOptional(StreamType), typ.NewOptional(typ.String), typ.NewOptional(typ.LuaError)).Build()}})
 
 	m.SetExport(moduleType)
 	return m

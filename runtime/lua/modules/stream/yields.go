@@ -157,10 +157,11 @@ func (y *WriteYield) Release() { ReleaseWriteYield(y) }
 
 func (y *WriteYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
 	if err != nil {
+		n, _ := data.(int64)
 		luaErr := lua.WrapErrorWithLua(l, err, "stream write").
 			WithKind(lua.Internal).
 			WithRetryable(false)
-		return []lua.LValue{lua.LNumber(0), luaErr}
+		return []lua.LValue{lua.LNumber(n), luaErr}
 	}
 	if n, ok := data.(int64); ok {
 		return []lua.LValue{lua.LNumber(n), lua.LNil}

@@ -11,6 +11,7 @@ import (
 	"io"
 	"sync"
 	"sync/atomic"
+	"unicode/utf8"
 
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/runtime/resource"
@@ -165,6 +166,15 @@ func Read(table *resource.Table, id uint64, size int64) ([]byte, error) {
 // The caller MUST call buf.Release() when done with the data.
 // Returns nil buffer on EOF with no data.
 func ReadBuffered(table *resource.Table, id uint64, size int64) (*streamapi.Buffer, error) {
+	return ReadBufferedContext(context.Background(), table, id, size)
+}
+
+// ReadBufferedContext supplies cancellation to streams implementing ContextReader.
+// Ordinary io.Reader implementations retain their existing blocking behavior.
+func ReadBufferedContext(ctx context.Context, table *resource.Table, id uint64, size int64) (*streamapi.Buffer, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	entry, err := Get(table, id)
 	if err != nil {
 		return nil, err
@@ -183,7 +193,12 @@ func ReadBuffered(table *resource.Table, id uint64, size int64) (*streamapi.Buff
 	if readSize > int64(len(buf.Data)) {
 		readSize = int64(len(buf.Data))
 	}
-	n, err := entry.reader.Read(buf.Data[:readSize])
+	var n int
+	if reader, ok := entry.reader.(streamapi.ContextReader); ok {
+		n, err = reader.ReadContext(ctx, buf.Data[:readSize])
+	} else {
+		n, err = entry.reader.Read(buf.Data[:readSize])
+	}
 	buf.N = n
 
 	if errors.Is(err, io.EOF) {
@@ -204,6 +219,15 @@ func ReadBuffered(table *resource.Table, id uint64, size int64) (*streamapi.Buff
 
 // Write writes data to stream with given ID.
 func Write(table *resource.Table, id uint64, data []byte) (int, error) {
+	return WriteContext(context.Background(), table, id, data)
+}
+
+// WriteContext supplies cancellation to streams implementing ContextWriter.
+// It never retries a write, including after partial delivery or cancellation.
+func WriteContext(ctx context.Context, table *resource.Table, id uint64, data []byte) (int, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
 	entry, err := Get(table, id)
 	if err != nil {
 		return 0, err
@@ -212,6 +236,9 @@ func Write(table *resource.Table, id uint64, data []byte) (int, error) {
 		return 0, streamapi.ErrNotWritable
 	}
 
+	if writer, ok := entry.writer.(streamapi.ContextWriter); ok {
+		return writer.WriteContext(ctx, data)
+	}
 	return entry.writer.Write(data)
 }
 
@@ -431,29 +458,78 @@ func (d *Dispatcher) worker() {
 
 func (d *Dispatcher) submit(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) {
 	j := job{ctx: ctx, cmd: cmd, tag: tag, receiver: receiver}
+	if err := ctx.Err(); err != nil {
+		receiver.CompleteYield(tag, nil, err)
+		return
+	}
 	if d.jobs == nil {
-		d.execute(j)
+		receiver.CompleteYield(tag, nil, streamapi.ErrUnavailable)
 		return
 	}
 
 	select {
 	case d.jobs <- j:
 	case <-d.ctx.Done():
+		receiver.CompleteYield(tag, nil, d.ctx.Err())
 	default:
-		d.execute(j)
+		receiver.CompleteYield(tag, nil, streamapi.ErrBusy)
 	}
 }
 
 func (d *Dispatcher) execute(j job) {
+	if err := j.ctx.Err(); err != nil {
+		j.receiver.CompleteYield(j.tag, nil, err)
+		return
+	}
+	if err := d.ctx.Err(); err != nil {
+		j.receiver.CompleteYield(j.tag, nil, err)
+		return
+	}
 	table := resource.GetTable(j.ctx)
 	if table == nil {
 		j.receiver.CompleteYield(j.tag, nil, streamapi.ErrNoTable)
 		return
 	}
+	ioCtx, cancel := context.WithCancel(j.ctx)
+	stop := context.AfterFunc(d.ctx, cancel)
+	defer func() { stop(); cancel() }()
 
 	switch c := j.cmd.(type) {
+	case streamapi.PipeCmd:
+		allocator := streamapi.GetPipeAllocator(j.ctx)
+		if allocator == nil {
+			j.receiver.CompleteYield(j.tag, nil, streamapi.ErrUnavailable)
+			return
+		}
+		if len(c.Peer) == 0 || len(c.Peer) > 512 || !utf8.ValidString(c.Peer) || c.Limit == 0 || c.Limit > 1<<40 {
+			j.receiver.CompleteYield(j.tag, nil, errors.New("invalid pipe request"))
+			return
+		}
+		endpoint, offer, err := allocator.Allocate(ioCtx, j.ctx, c.Peer, c.Limit)
+		if err != nil {
+			if endpoint != nil {
+				endpoint.Close()
+			}
+			j.receiver.CompleteYield(j.tag, nil, err)
+			return
+		}
+		if endpoint == nil || len(offer) == 0 || len(offer) > 16*1024 || !utf8.ValidString(offer) || ioCtx.Err() != nil {
+			if endpoint != nil {
+				endpoint.Close()
+			}
+			j.receiver.CompleteYield(j.tag, nil, errors.New("invalid or retired pipe allocation"))
+			return
+		}
+		handle := Insert(table, endpoint)
+		if handle == 0 {
+			endpoint.Close()
+			j.receiver.CompleteYield(j.tag, nil, streamapi.ErrClosed)
+			return
+		}
+		j.receiver.CompleteYield(j.tag, streamapi.PipeResult{StreamID: handle, Offer: offer}, nil)
+
 	case streamapi.ReadCmd:
-		buf, err := ReadBuffered(table, c.StreamID, c.Size)
+		buf, err := ReadBufferedContext(ioCtx, table, c.StreamID, c.Size)
 		if errors.Is(err, io.EOF) {
 			j.receiver.CompleteYield(j.tag, nil, nil)
 			return
@@ -465,9 +541,9 @@ func (d *Dispatcher) execute(j job) {
 		j.receiver.CompleteYield(j.tag, buf, nil)
 
 	case streamapi.WriteCmd:
-		n, err := Write(table, c.StreamID, c.Data)
+		n, err := WriteContext(ioCtx, table, c.StreamID, c.Data)
 		if err != nil {
-			j.receiver.CompleteYield(j.tag, nil, err)
+			j.receiver.CompleteYield(j.tag, int64(n), err)
 			return
 		}
 		j.receiver.CompleteYield(j.tag, int64(n), nil)
@@ -537,6 +613,7 @@ func (d *Dispatcher) handle(ctx context.Context, cmd dispatcher.Command, tag uin
 // RegisterAll registers all stream handlers.
 func (d *Dispatcher) RegisterAll(register func(id dispatcher.CommandID, h dispatcher.Handler)) {
 	h := dispatcher.HandlerFunc(d.handle)
+	register(streamapi.Pipe, h)
 	register(streamapi.Read, h)
 	register(streamapi.Write, h)
 	register(streamapi.Close, h)

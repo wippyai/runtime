@@ -13,4 +13,6 @@ var (
 	ErrNotSeekable     = errors.New("stream is not seekable")
 	ErrNoTable         = errors.New("resource table not available")
 	ErrScannerNotFound = errors.New("scanner not found")
+	ErrBusy            = errors.New("stream dispatcher queue full")
+	ErrUnavailable     = errors.New("stream dispatcher not running")
 )

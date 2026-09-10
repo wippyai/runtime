@@ -21,10 +21,12 @@ func buildModule() (*lua.LTable, []luaapi.YieldType) {
 	registerStreamMetatable()
 	registerScannerMetatable()
 
-	mod := lua.CreateTable(0, 0)
+	mod := lua.CreateTable(0, 1)
+	mod.RawSetString("pipe", lua.LGoFunc(allocatePipe))
 	mod.Immutable = true
 
 	yields := []luaapi.YieldType{
+		{Sample: &pipeYield{}, CmdID: streamapi.Pipe},
 		{Sample: &ReadYield{}, CmdID: streamapi.Read},
 		{Sample: &WriteYield{}, CmdID: streamapi.Write},
 		{Sample: &SeekYield{}, CmdID: streamapi.Seek},

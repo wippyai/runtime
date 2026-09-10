@@ -6,7 +6,28 @@ Stream read/write operations. IO, nondeterministic.
 
 ## Types
 
-Stream module does not export module-level functions. Stream objects are obtained from other modules (e.g., `http.request():stream()`, `fs.open()`).
+Stream objects are obtained from other modules (e.g., `http.request():stream()`,
+`fs.open()`) or from the host-configured pipe allocator below.
+
+### stream.pipe(peer, limit) → Stream?, offer?, error?
+
+Allocates a receive endpoint through an allocator installed by the host in the
+actual caller's frame. `peer` is a nonempty UTF-8 string of at most 512 bytes;
+`limit` is an integer total-byte budget from 1 through 2^40. The host can impose
+stricter limits, lifetime bounds and exact-peer permissions.
+
+Returns an ordinary Stream, a bounded UTF-8 offer string for the producer, and
+nil error. On failure both values are nil and a structured error is returned.
+An offer is routing metadata, not authorization to read or send producer data.
+No allocator is installed by default. The method yields through the existing
+Stream dispatcher; it does not create a second transport or image API.
+
+Native host composition supplies `api/stream.PipeAllocator` through a
+non-inherited FrameContext key before sealing the frame. The allocator receives
+an operation context and the caller lifetime separately, so completion of the
+allocation command does not cancel the returned endpoint. The endpoint belongs
+to the caller's existing Stream resource table and is closed on resource cleanup.
+The initial API exposes receive pipes; producer admission remains host-specific.
 
 ### Stream
 
@@ -54,7 +75,9 @@ Writes data to stream.
 
 **Returns:**
 - Success: `integer, nil` - number of bytes written
-- Error: `0, error` - structured error
+- Error: `integer, error` - bytes written before failure and a structured error.
+  A nonzero count does not prove remote consumption or file persistence. Do not
+  automatically replay a failed write.
 
 **Yields:** until write completes
 

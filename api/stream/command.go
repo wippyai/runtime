@@ -11,7 +11,7 @@ func init() {
 	dispatcher.MustRegisterCommands("stream",
 		Read, Close, Write,
 		Seek, Flush, Stat,
-		ScannerCreate, ScannerScan,
+		ScannerCreate, ScannerScan, Pipe,
 	)
 }
 
@@ -26,6 +26,7 @@ const (
 	Stat          dispatcher.CommandID = 55 // Get stream info (size, etc)
 	ScannerCreate dispatcher.CommandID = 56 // Create scanner from stream
 	ScannerScan   dispatcher.CommandID = 57 // Scan next token
+	Pipe          dispatcher.CommandID = 58 // Allocate an admitted receive pipe
 )
 
 // Seek whence constants (matching io.Seek*)
