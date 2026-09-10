@@ -38,7 +38,7 @@ type Snapshot struct {
 	// Row-only frames preserve the last explicit value.
 	Cursor *Cursor
 	// Images carries resolved metadata only. Capture pins resources atomically.
-	Images []Placement
+	Images []Placement `codec:",omitempty"`
 	// Rows is immutable and remains valid after later presents. Consumers must
 	// not modify it. This lets unchanged UI frames inspect snapshots without an
 	// allocation or copy.
@@ -47,7 +47,7 @@ type Snapshot struct {
 	Width    int
 	Height   int
 	// ImagesOmitted reports an explicit text-only projection of graphical content.
-	ImagesOmitted bool
+	ImagesOmitted bool `codec:",omitempty"`
 }
 
 // Update announces that a newer snapshot may be read. Notifications are

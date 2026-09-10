@@ -27,3 +27,17 @@ func TestSurfaceMeshChecksPeerProtocolBeforeAttach(t *testing.T) {
 	require.ErrorIs(t, transport.CheckPeer("absent"), ttyapi.ErrServiceUnavailable)
 	require.ErrorIs(t, (surfaceMesh{}).CheckPeer("new"), ttyapi.ErrServiceUnavailable)
 }
+
+func TestSurfaceGraphicsCapabilityIsAdditive(t *testing.T) {
+	transport := surfaceMesh{membership: surfaceMembership{
+		{ID: "text", Meta: clusterapi.NodeMeta{internode.MetadataSurfaceProtocol: "1"}},
+		{ID: "images", Meta: clusterapi.NodeMeta{internode.MetadataSurfaceProtocol: "1", internode.MetadataSurfaceGraphics: "1"}},
+		{ID: "wrong", Meta: clusterapi.NodeMeta{internode.MetadataSurfaceProtocol: "2", internode.MetadataSurfaceGraphics: "1"}},
+	}}
+	require.NoError(t, transport.CheckPeer("text"))
+	require.NoError(t, transport.CheckPeer("images"))
+	require.False(t, transport.SupportsGraphics("text"))
+	require.True(t, transport.SupportsGraphics("images"))
+	require.False(t, transport.SupportsGraphics("wrong"))
+	require.False(t, transport.SupportsGraphics("absent"))
+}

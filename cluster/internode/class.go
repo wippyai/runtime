@@ -72,3 +72,7 @@ func ClassForTopic(topic string) Class {
 		return ClassPGBroadcast
 	}
 }
+
+// MetadataSurfaceGraphics enables optional image metadata and resource ops
+// within the existing surface class. Surface protocol remains version 1.
+const MetadataSurfaceGraphics = "tty_surface_graphics"

@@ -46,7 +46,11 @@ type surfaceMesh struct {
 }
 
 func (t surfaceMesh) Send(peer string, data []byte) error {
-	return t.cm.SendToNode(peer, data, internode.ClassSurface)
+	err := t.cm.SendToNode(peer, data, internode.ClassSurface)
+	if errors.Is(err, internode.ErrQueueFull) {
+		return ttyapi.ErrMeshBusy
+	}
+	return err
 }
 func (t surfaceMesh) Receive(fn func(string, []byte)) error {
 	if !t.cm.RegisterClassReceiver(internode.ClassSurface, fn) {
@@ -64,4 +68,15 @@ func (t surfaceMesh) CheckPeer(peer string) error {
 		}
 	}
 	return ttyapi.ErrServiceUnavailable
+}
+
+func (t surfaceMesh) SupportsGraphics(peer string) bool {
+	if t.membership != nil {
+		for _, node := range t.membership.Nodes() {
+			if node.ID == peer {
+				return node.Meta[internode.MetadataSurfaceProtocol] == "1" && node.Meta[internode.MetadataSurfaceGraphics] == "1"
+			}
+		}
+	}
+	return false
 }

@@ -50,6 +50,7 @@ func TestImagePublicationCaptureAndCleanup(t *testing.T) {
 	require.NoError(t, err)
 	require.Zero(t, stats.ChangedRows)
 	require.Greater(t, v.Snapshot().Revision, before.Revision)
+	require.Same(t, &before.Rows[0], &v.Snapshot().Rows[0], "image-only changes reuse resolved text rows")
 	require.Zero(t, before.Images[0].Destination.X, "old metadata remains immutable")
 	capture, err := v.(ttyapi.CaptureViewport).Capture(ctx)
 	require.NoError(t, err)
