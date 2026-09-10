@@ -700,13 +700,11 @@ func TestConsumer_DeadWorkerTimeout(t *testing.T) {
 
 	startedProcessing := make(chan struct{})
 	blockForever := make(chan struct{})
+	t.Cleanup(func() { close(blockForever) })
 
 	funcReg := &mockFuncRegistry{
 		onCall: func() {
-			select {
-			case startedProcessing <- struct{}{}:
-			default:
-			}
+			close(startedProcessing)
 			<-blockForever
 		},
 	}
@@ -830,6 +828,7 @@ func TestConsumer_StopWithAllWorkersBlocked(t *testing.T) {
 
 	allWorkersStarted := make(chan struct{})
 	blockAllWorkers := make(chan struct{})
+	t.Cleanup(func() { close(blockAllWorkers) })
 	workersStarted := atomic.Int32{}
 
 	funcReg := &mockFuncRegistry{

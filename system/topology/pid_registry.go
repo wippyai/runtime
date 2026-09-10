@@ -118,7 +118,11 @@ func (r *PIDRegistry) Register(name string, p pid.PID) (pid.PID, error) {
 	// also blocks a conflicting local bind so the name cannot be granted to a
 	// different pid during the promotion window.
 	if gr := r.loadGlobalReg(); gr != nil {
-		if res, err := gr.Lookup(context.Background(), name); err == nil && res.Found {
+		res, err := gr.Lookup(context.Background(), name)
+		if err != nil {
+			return pid.PID{}, err
+		}
+		if res.Found {
 			if res.PID.Equal(p) {
 				return p, nil // same PID registered globally — allow
 			}
@@ -147,7 +151,11 @@ func (r *PIDRegistry) Register(name string, p pid.PID) (pid.PID, error) {
 
 	// Check eventual registry second to prevent local shadowing of eventual names.
 	if er := r.loadEventualReg(); er != nil {
-		if res, err := er.Lookup(context.Background(), name); err == nil && res.Found {
+		res, err := er.Lookup(context.Background(), name)
+		if err != nil {
+			return pid.PID{}, err
+		}
+		if res.Found {
 			if res.PID.Equal(p) {
 				return p, nil // same PID registered eventually — allow
 			}
@@ -243,32 +251,49 @@ func (r *PIDRegistry) Unregister(name string) bool {
 	return true
 }
 
+// Lookup is the legacy facade. An error is unrepresentable here, but must
+// never authorize fallback to a different owner in a weaker scope.
 func (r *PIDRegistry) Lookup(name string) (pid.PID, bool) {
-	// Check global registry first — global names take priority (strongest consistency).
+	p, found, err := r.LookupContext(context.Background(), name)
+	if err != nil {
+		return pid.PID{}, false
+	}
+	return p, found
+}
+
+var _ topology.ContextPIDRegistry = (*PIDRegistry)(nil)
+
+// LookupContext preserves precedence and caller lifetime through all scopes and
+// parent registries. Only successful absence permits fallback.
+func (r *PIDRegistry) LookupContext(ctx context.Context, name string) (pid.PID, bool, error) {
+	if err := ctx.Err(); err != nil {
+		return pid.PID{}, false, err
+	}
 	if gr := r.loadGlobalReg(); gr != nil {
-		if res, err := gr.Lookup(context.Background(), name); err == nil && res.Found {
-			return res.PID, true
+		res, err := gr.Lookup(ctx, name)
+		if err != nil {
+			return pid.PID{}, false, err
+		}
+		if res.Found {
+			return res.PID, true, nil
 		}
 	}
-
-	// Check eventual registry second — gossip-replicated names.
 	if er := r.loadEventualReg(); er != nil {
-		if res, err := er.Lookup(context.Background(), name); err == nil && res.Found {
-			return res.PID, true
+		res, err := er.Lookup(ctx, name)
+		if err != nil {
+			return pid.PID{}, false, err
+		}
+		if res.Found {
+			return res.PID, true, nil
 		}
 	}
-
-	if pidVal, exists := r.nameToID.Load(name); exists {
-		if p, ok := pidVal.(pid.PID); ok {
-			return p, true
-		}
+	if err := ctx.Err(); err != nil {
+		return pid.PID{}, false, err
 	}
-
-	if r.parent != nil {
-		return r.parent.Lookup(name)
+	if p, found := r.LookupLocal(name); found {
+		return p, true, nil
 	}
-
-	return pid.PID{}, false
+	return topology.LookupPID(ctx, r.parent, name)
 }
 
 // LookupLocal reads only this registry's own name table, bypassing the global

@@ -100,7 +100,8 @@ type (
 
 		// Lookup finds the Target registered with a given name.
 		// Checks the global registry first (if available), then local.
-		// Returns the Target and true if found, empty Target and false if not found
+		// Returns the Target and true if found. False cannot distinguish absence
+		// from lookup failure; use ContextPIDRegistry for error-aware resolution.
 		Lookup(name string) (pid.PID, bool)
 
 		// Remove completely removes a pid from a registry
