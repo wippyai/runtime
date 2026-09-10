@@ -140,9 +140,11 @@ func TestConcurrentAutomaticPorts(t *testing.T) {
 			}
 		}
 	}()
+	// A missed leave requires dead-node detection, the 30s reclaim delay,
+	// and anti-entropy before the same name can move to a new address.
 	require.Eventually(t, func() bool {
 		return len(restarted.ConnMgr.ConnectedNodes()) == count-1
-	}, 15*time.Second, 50*time.Millisecond, "same identity must rejoin at a new endpoint")
+	}, 60*time.Second, 50*time.Millisecond, "same identity must rejoin at a new endpoint")
 	joined = true
 }
 

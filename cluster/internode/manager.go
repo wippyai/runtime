@@ -353,6 +353,7 @@ func (m *manager) EnsureConnection(nodeID cluster.NodeID, addr string, port int)
 		return
 	}
 
+	m.nodeStates.UpdateNodeAddress(nodeID, addr, port)
 	_, currentState := m.nodeStates.GetNodeConnection(nodeID)
 	if currentState == StateConnected {
 		return
@@ -362,7 +363,6 @@ func (m *manager) EnsureConnection(nodeID cluster.NodeID, addr string, port int)
 		return
 	}
 
-	m.nodeStates.UpdateNodeAddress(nodeID, addr, port)
 	m.sendCommand(nodeID, nodeCommand{
 		Type: cmdConnect,
 		Data: connectData{Addr: addr, Port: port},

@@ -9,7 +9,25 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/cluster"
 	"github.com/wippyai/runtime/api/event"
+	"go.uber.org/zap"
 )
+
+func TestConnectedPeerRetainsUpdatedEndpointForRetry(t *testing.T) {
+	cfg := insecureManagerConfig()
+	cfg.Logger = zap.NewNop()
+	m := NewConnectionManager(cfg, nil).(*manager)
+	m.AddManagedNode("peer")
+	defer m.RemoveManagedNode("peer")
+	m.nodeStates.UpdateNodeAddress("peer", "127.0.0.1", 9100)
+	m.nodeStates.SetNodeConnection("peer", nil, StateConnected)
+	m.EnsureConnection("peer", "127.0.0.2", 9200)
+	addr, port, ok := m.nodeStates.GetNodeAddress("peer")
+	require.True(t, ok)
+	require.Equal(t, "127.0.0.2", addr)
+	require.Equal(t, 9200, port)
+	_, state := m.nodeStates.GetNodeConnection("peer")
+	require.Equal(t, StateConnected, state)
+}
 
 func TestServiceMembershipUpdateRefreshesManagedEndpoint(t *testing.T) {
 	service, manager, _, bus, ctx, cancel := setupService(t)
