@@ -191,7 +191,7 @@ func (f *FSM) applyRegister(cmd *Command, index uint64) any {
 		return &RegisterResult{PID: existing, FenceToken: established}
 	case registerConflict:
 		winner := f.resolve(cmd.Name, existing, cmd.PID)
-		if winner == cmd.PID {
+		if winner.Equal(cmd.PID) {
 			f.state.unregister(cmd.Name)
 			_, _, _ = f.state.register(cmd.Name, cmd.PID, nodeID, index)
 			f.tel.recordFenceToken(f.pgLabel, nodeID, index)
