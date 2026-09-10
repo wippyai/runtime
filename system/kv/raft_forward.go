@@ -234,7 +234,9 @@ func (e *RaftEngine) forwardReadHop(key string, hop byte) (readResult, error) {
 			time.Sleep(50 * time.Millisecond)
 			continue
 		}
-		return res, nil
+		// Decoder failures must survive both a direct read and a re-forwarding
+		// hop; a found flag alone does not make a malformed value valid.
+		return res, res.err
 	}
 	return readResult{}, errNoForwardLeader
 }
