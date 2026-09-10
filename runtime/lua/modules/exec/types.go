@@ -5,6 +5,7 @@ package exec
 import (
 	"github.com/wippyai/go-lua/types/io"
 	"github.com/wippyai/go-lua/types/typ"
+	"github.com/wippyai/runtime/runtime/lua/engine"
 	luatty "github.com/wippyai/runtime/runtime/lua/modules/tty"
 )
 
@@ -30,7 +31,7 @@ func init() {
 		{Name: "receive", Type: typ.Func().Param("self", typ.Self).
 			Returns(typ.Boolean, typ.Boolean).Build()},
 		{Name: "case_receive", Type: typ.Func().Param("self", typ.Self).
-			Returns(typ.Any).Build()},
+			Returns(engine.ChannelSelectCaseType(typ.Self, typ.Boolean)).Build()},
 	})
 	terminalSessionType = typ.NewInterface("exec.TerminalSession", []typ.Method{
 		{Name: "send", Type: typ.Func().Param("self", typ.Self).

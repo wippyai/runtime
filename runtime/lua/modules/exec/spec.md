@@ -155,7 +155,9 @@ local child = assert(executor:exec("bash", {
 local session = assert(child:attach_terminal())
 ```
 
-The session exposes `send(event)`, `done()`, `status()`, and `close()`.
+The session exposes `send(event)`, `done()`, `status()`, and `close()`. The
+completion channel's `receive()` and `case_receive()` values are booleans, so a
+`channel.select` result from `done():case_receive()` carries a boolean value.
 Resize, keyboard, mouse, focus, and paste events use the canonical `tty`
 event records.
 

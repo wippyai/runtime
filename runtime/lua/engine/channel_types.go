@@ -63,6 +63,14 @@ var channelType = typ.NewInterface("channel.Channel", []typ.Method{
 
 var channelGeneric = typ.NewGeneric("channel.Channel", []*typ.TypeParam{channelElem}, channelType)
 
+// ChannelSelectCaseType returns the canonical SelectCase<C, T> type used by
+// channel.select. Native channel wrappers use this helper so their
+// case_receive methods participate in the same select result inference as
+// channels created by channel.new.
+func ChannelSelectCaseType(channel, value typ.Type) typ.Type {
+	return typ.Instantiate(selectCaseGeneric, channel, value)
+}
+
 // SelectResult type returned by channel.select
 var selectResultType = typ.NewRecord().
 	Field("channel", typ.Any).

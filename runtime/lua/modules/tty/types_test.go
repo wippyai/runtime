@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/code"
+	"github.com/wippyai/runtime/runtime/lua/engine"
 )
 
 func TestAgentSurfaceSDKTypes(t *testing.T) {
@@ -52,4 +53,32 @@ func TestAgentSurfaceSDKRejectsInvalidInput(t *testing.T) {
  `, "invalid_surface_input.lua", nil)
 	require.NoError(t, err)
 	require.True(t, code.HasErrors(diagnostics), "invalid input must be rejected by SDK types")
+}
+
+func TestNativeChannelsPreserveSelectValueTypes(t *testing.T) {
+	config := code.DefaultTypeCheckConfig()
+	config.Enabled = true
+	config.SkipUntyped = false
+	checker := code.NewTypeChecker(config, []*luaapi.ModuleDef{engine.ChannelModule, Module})
+	_, diagnostics, err := checker.Check(`
+local channel = require("channel")
+local tty = require("tty")
+
+local events = tty.events()
+local view = tty.viewport()
+local updates = view:updates()
+local selected = channel.select({
+    events:case_receive(),
+    updates:case_receive(),
+})
+
+if selected.channel == events then
+    local event: tty.TTYEvent = selected.value
+    local event_type: string = event.type
+else
+    local revision: integer = selected.value
+end
+`, "native_channel_select_types.lua", nil)
+	require.NoError(t, err)
+	require.False(t, code.HasErrors(diagnostics), "native select types lost their value contract: %v", diagnostics)
 }

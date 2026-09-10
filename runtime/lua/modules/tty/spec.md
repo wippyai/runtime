@@ -222,7 +222,9 @@ See the [agent workflow guide](../../../../tests/tty-mesh/LUA_GUIDE.md) for
 node/host identity, controller discovery, simulated input, and restart handling.
 `tty.MountRights` names the grant options; `tty.InputEvent` describes synthetic
 input (modifier flags default to false), while `tty.TTYEvent` describes received
-events. Input channels support both `receive()` and `case_receive()`.
+events. Input channels support both `receive()` and `case_receive()`; a
+`channel.select` result from `case_receive()` carries the corresponding event
+type. Viewport update channels likewise carry an integer revision in select.
 
 A viewport owner can delegate independent observation, input, and resize rights
 using a mount reference. The reference is bound to an exact process PID,
