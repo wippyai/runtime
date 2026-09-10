@@ -143,6 +143,15 @@ type (
 		Detach(pid.PID)
 	}
 
+	// OwnedHostRegistrar is an optional native composition capability. Its release
+	// removes only the registration it created, never a later replacement, and
+	// is safe to call repeatedly. Failure returns no release authority.
+	// Release does not cancel or drain calls already dispatched to the receiver.
+	// Registration is routing configuration, not remote operation authorization.
+	OwnedHostRegistrar interface {
+		RegisterOwnedHost(pid.HostID, Receiver) (context.CancelFunc, error)
+	}
+
 	// Node represents a messaging node that hosts and routes messages.
 	Node interface {
 		Receiver
