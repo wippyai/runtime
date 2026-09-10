@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
 
-package application
+package app
 
 import (
 	"context"

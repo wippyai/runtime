@@ -2,7 +2,7 @@
 
 //go:build windows
 
-package application
+package app
 
 import (
 	"errors"
