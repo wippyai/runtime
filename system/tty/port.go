@@ -66,7 +66,7 @@ func (s *surface) Present(frame ttyapi.Frame) (ttyapi.PresentStats, error) {
 		ss.mu.Unlock()
 		return ttyapi.PresentStats{}, ttyapi.ErrViewportClosed
 	}
-	changed := changedRows(ss.rows, frame.Rows)
+	changed := changedRows(ss.sourceRows, frame.Rows)
 	forced := ss.invalid
 	if forced && changed == 0 {
 		changed = len(frame.Rows)
@@ -75,7 +75,9 @@ func (s *surface) Present(frame ttyapi.Frame) (ttyapi.PresentStats, error) {
 	// matching the Frame contract and physical surface implementation.
 	cursorChanged := frame.Cursor != nil && !sameCursor(ss.cursor, frame.Cursor)
 	if forced || changed != 0 || cursorChanged {
-		ss.rows = append([]string(nil), frame.Rows...)
+		previousSource, previousRows := ss.sourceRows, ss.rows
+		ss.sourceRows = append([]string(nil), frame.Rows...)
+		ss.resolvePageRows(previousSource, previousRows)
 		ss.invalid = false
 		if frame.Cursor != nil {
 			copy := *frame.Cursor

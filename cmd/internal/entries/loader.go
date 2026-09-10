@@ -38,9 +38,20 @@ import (
 // If modules are missing, it auto-installs them before loading entries.
 func LoadFromLockFile(ctx context.Context, logger *zap.Logger) error {
 	lockFilePath := lock.DefaultFilename
+	explicitLock := false
+	if cfg := boot.GetConfig(ctx); cfg != nil {
+		selected := cfg.GetString("registry.dependency_lock_path", "")
+		if selected != "" {
+			lockFilePath = selected
+			explicitLock = true
+		}
+	}
 
 	lockPath, err := lock.Find(".", lockFilePath)
 	if err != nil {
+		if explicitLock {
+			return NewLoadLockFileError(err)
+		}
 		if !os.IsNotExist(err) {
 			return NewLoadLockFileError(err)
 		}

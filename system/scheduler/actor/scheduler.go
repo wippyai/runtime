@@ -518,7 +518,7 @@ func (s *Scheduler) SendContext(ctx context.Context, pkg *relay.Package) error {
 // deliverToTarget rejects a processor slot that was reused after byPID.Load.
 func (s *Scheduler) deliverToTarget(proc *Processor, target pid.PID, pkg *relay.Package) error {
 	ref := proc.sig.Load()
-	if ref == nil || ref.pid.String() != target.String() {
+	if ref == nil || !ref.pid.Equal(target) {
 		return process.ErrProcessClosed
 	}
 	return s.deliverToProcError(proc, ref.gen, pkg)

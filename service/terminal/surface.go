@@ -54,7 +54,14 @@ func (s *Surface) Present(frame ttyapi.Frame) (ttyapi.PresentStats, error) {
 	if len(s.rows) > limit {
 		limit = len(s.rows)
 	}
-	for index := 0; index < limit; index++ {
+	// Clear removed rows first. After a terminal shrink, cursor moves to
+	// those old rows clamp to the new bottom row; painting must follow cleanup.
+	removed := limit - len(rows)
+	for step := 0; step < limit; step++ {
+		index := step - removed
+		if step < removed {
+			index = len(rows) + step
+		}
 		current, previous := "", ""
 		if index < len(rows) {
 			current = rows[index]
@@ -62,15 +69,18 @@ func (s *Surface) Present(frame ttyapi.Frame) (ttyapi.PresentStats, error) {
 		if index < len(s.rows) {
 			previous = s.rows[index]
 		}
-		if !s.invalid && current == previous && index < len(rows) && index < len(s.rows) {
+		if !s.invalid && removed == 0 && current == previous && index < len(rows) && index < len(s.rows) {
 			continue
 		}
 		changed++
 		output = append(output, '\x1b', '[')
 		output = strconv.AppendInt(output, int64(index+1), 10)
 		output = append(output, ';', '1', 'H')
-		output = append(output, current...)
+		// Clear the old extent before painting. EL after a full-width row
+		// erases its last cell while the terminal is in delayed autowrap.
 		output = append(output, "\x1b[0m\x1b[K"...)
+		output = append(output, current...)
+		output = append(output, "\x1b[0m"...)
 	}
 	if s.invalid && limit == 0 {
 		output = append(output, "\x1b[H\x1b[0m\x1b[J"...)

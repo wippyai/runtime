@@ -171,6 +171,7 @@ var processMethods = map[string]lua.LGoFunc{
 	"wait":            procWait,
 	"signal":          procSignal,
 	"write_stdin":     procWriteStdin,
+	"close_stdin":     procCloseStdin,
 	"stdout_stream":   procStdout,
 	"stderr_stream":   procStderr,
 	"close":           procClose,
@@ -326,6 +327,47 @@ func procSignal(l *lua.LState) int {
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(wrapExecError(l, err, "send signal", lua.Internal))
+		return 2
+	}
+
+	l.Push(lua.LTrue)
+	l.Push(lua.LNil)
+	return 2
+}
+
+// procCloseStdin ends the child's stdin after the caller wrote everything,
+// so a child that reads until end of file proceeds. Idempotent; a process
+// without the capability, such as a PTY-backed one, reports why.
+func procCloseStdin(l *lua.LState) int {
+	p := checkProcess(l, 1)
+	if p == nil {
+		return 0
+	}
+	p.mu.Lock()
+	if p.closed {
+		p.mu.Unlock()
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "process is closed").WithKind(lua.Invalid).WithRetryable(false))
+		return 2
+	}
+	if !p.started {
+		p.mu.Unlock()
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "process not started: call start() first").WithKind(lua.Invalid).WithRetryable(false))
+		return 2
+	}
+	handle := p.handle
+	p.mu.Unlock()
+
+	closer, ok := handle.(apiexec.StdinCloser)
+	if !ok {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "this process cannot close stdin").WithKind(lua.Unavailable).WithRetryable(false))
+		return 2
+	}
+	if err := closer.CloseStdin(); err != nil {
+		l.Push(lua.LNil)
+		l.Push(wrapExecError(l, err, "close stdin", lua.Internal))
 		return 2
 	}
 

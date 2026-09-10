@@ -184,17 +184,20 @@ const (
 )
 
 // register attempts to insert or verify a name → PID mapping.
-// On success it returns the supplied PID and either registerInserted (fresh)
-// or registerDedupe (already mapped to the same PID — idempotent no-op).
-// On collision it returns the existing owner PID and registerConflict.
-func (s *shardedState) register(name string, p pid.PID, nodeID pid.NodeID, index uint64) (pid.PID, registerOutcome) {
+// It also returns the stored establishment token: the insertion index for an
+// active entry or the reservation epoch for a pending entry. On success it
+// returns the supplied PID and either registerInserted (fresh) or
+// registerDedupe (already mapped to the same PID — idempotent no-op). On
+// collision it returns the existing owner PID and registerConflict.
+func (s *shardedState) register(name string, p pid.PID, nodeID pid.NodeID, index uint64) (pid.PID, uint64, registerOutcome) {
 	s.pendingMu.RLock()
 	if e, ok := s.pending[name]; ok {
+		existingPID, epoch := e.PID, e.Epoch
 		s.pendingMu.RUnlock()
-		if e.PID == p {
-			return p, registerDedupe
+		if existingPID.Equal(p) {
+			return p, epoch, registerDedupe
 		}
-		return e.PID, registerConflict
+		return existingPID, epoch, registerConflict
 	}
 	s.pendingMu.RUnlock()
 
@@ -203,11 +206,11 @@ func (s *shardedState) register(name string, p pid.PID, nodeID pid.NodeID, index
 	defer sh.mu.Unlock()
 
 	if existing, ok := sh.names[name]; ok {
-		if existing.PID == p {
-			return p, registerDedupe
+		if existing.PID.Equal(p) {
+			return p, existing.AppliedAt, registerDedupe
 		}
 
-		return existing.PID, registerConflict
+		return existing.PID, existing.AppliedAt, registerConflict
 	}
 
 	sh.names[name] = &nameEntry{PID: p, NodeID: nodeID, AppliedAt: index}
@@ -217,7 +220,7 @@ func (s *shardedState) register(name string, p pid.PID, nodeID pid.NodeID, index
 
 	s.addToNodeIndex(nodeID, pidKey)
 
-	return p, registerInserted
+	return p, index, registerInserted
 }
 
 // pendingOutcome captures the disposition of a registerPending attempt.
@@ -245,7 +248,7 @@ func (s *shardedState) registerPending(name string, p pid.PID, nodeID pid.NodeID
 	existing, hasActive := sh.names[name]
 	sh.mu.RUnlock()
 	if hasActive {
-		if existing.PID == p {
+		if existing.PID.Equal(p) {
 			return p, pendingDedupe
 		}
 		return existing.PID, pendingConflictActive
@@ -254,7 +257,7 @@ func (s *shardedState) registerPending(name string, p pid.PID, nodeID pid.NodeID
 	s.pendingMu.Lock()
 	defer s.pendingMu.Unlock()
 	if e, ok := s.pending[name]; ok {
-		if e.PID == p && e.Epoch == epoch {
+		if e.PID.Equal(p) && e.Epoch == epoch {
 			return p, pendingDedupe
 		}
 		return e.PID, pendingConflictPending
@@ -449,7 +452,7 @@ func (s *shardedState) unreservePending(name string, p pid.PID) (*pendingEntry, 
 	if !ok {
 		return nil, false
 	}
-	if p != (pid.PID{}) && e.PID != p {
+	if !p.Equal(pid.PID{}) && !e.PID.Equal(p) {
 		return e, false
 	}
 	delete(s.pending, name)
@@ -636,7 +639,7 @@ func (s *shardedState) lookupPendingByPID(p pid.PID) []string {
 	defer s.pendingMu.RUnlock()
 	out := make([]string, 0, 4)
 	for name, e := range s.pending {
-		if e.PID == p {
+		if e.PID.Equal(p) {
 			out = append(out, name)
 		}
 	}

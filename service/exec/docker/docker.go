@@ -176,6 +176,7 @@ func (e *Executor) Close() error {
 type Process struct {
 	waitCtx         context.Context
 	stdinWriter     io.WriteCloser
+	stdinCloser     interface{ CloseWrite() error }
 	stderrReader    io.ReadCloser
 	stdoutReader    io.ReadCloser
 	tmpfs           map[string]string
@@ -310,6 +311,7 @@ func (p *Process) Start() error {
 	stdoutPipeR, stdoutPipeW := io.Pipe()
 	stderrPipeR, stderrPipeW := io.Pipe()
 	p.stdinWriter = attachResp.Conn
+	p.stdinCloser = &attachResp
 	p.stdoutReader = stdoutPipeR
 	p.stderrReader = stderrPipeR
 	p.started = true
@@ -381,6 +383,26 @@ func (p *Process) Signal(sig int) error {
 
 	p.log.Debug("signal sent", zap.String("id", containerID), zap.String("signal", sigName))
 	return nil
+}
+
+// CloseStdin implements exec.StdinCloser by half-closing the attached
+// connection, which the container sees as end of file on its stdin.
+func (p *Process) CloseStdin() error {
+	p.mu.RLock()
+	if !p.started {
+		p.mu.RUnlock()
+		return ErrContainerNotStarted
+	}
+	if p.stopped {
+		p.mu.RUnlock()
+		return ErrContainerStopped
+	}
+	closer := p.stdinCloser
+	p.mu.RUnlock()
+	if closer == nil {
+		return ErrStdinNotAvailable
+	}
+	return closer.CloseWrite()
 }
 
 // WriteStdin writes data to the container's stdin

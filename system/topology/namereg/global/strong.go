@@ -359,10 +359,10 @@ func (s *Service) localConflict(name string, pendingPID pid.PID) (pid.PID, bool)
 	if lp == nil {
 		return pid.PID{}, false
 	}
-	if p, ok := lp.LookupLocal(name); ok && p != pendingPID {
+	if p, ok := lp.LookupLocal(name); ok && !p.Equal(pendingPID) {
 		return p, true
 	}
-	if p, ok := lp.LookupEventual(name); ok && p != pendingPID {
+	if p, ok := lp.LookupEventual(name); ok && !p.Equal(pendingPID) {
 		return p, true
 	}
 	return pid.PID{}, false

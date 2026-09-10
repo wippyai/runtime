@@ -13,6 +13,8 @@ var (
 	ErrProcessNotRunning = apierror.New(apierror.Invalid, "process is not running").WithRetryable(apierror.False)
 	ErrProcessNotStarted = apierror.New(apierror.Invalid, "process not started").WithRetryable(apierror.False)
 	ErrInvalidPID        = apierror.New(apierror.Invalid, "pid is not a positive int, process is possibly not running").WithRetryable(apierror.False)
+	ErrStdinClosed       = apierror.New(apierror.Invalid, "stdin is closed").WithRetryable(apierror.False)
+	ErrStdinPTY          = apierror.New(apierror.Invalid, "a PTY process has no separate stdin to close").WithRetryable(apierror.False)
 )
 
 func NewCommandNotAllowedError(cmd string) apierror.Error {

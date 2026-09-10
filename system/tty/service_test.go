@@ -34,6 +34,7 @@ func processContextFor(t testing.TB, service *Service, id string) (context.Conte
 	ctx = relay.WithNode(ctx, node)
 	ctx, frame := ctxapi.OpenFrameContext(ctx)
 	require.NoError(t, frame.Set(runtime.FramePIDKey, pid.PID{Node: "node", Host: "workers", UniqID: id}))
+	allowTTY(ctx, t, "tty.mount", ttyapi.RightObserve, ttyapi.RightInput, ttyapi.RightResize)
 	return ctx, frame, box
 }
 

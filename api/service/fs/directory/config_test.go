@@ -53,6 +53,7 @@ func TestConfig_MarshalUnmarshal(t *testing.T) {
 			config: Config{
 				Directory: "/usr/share",
 				Mode:      "0444",
+				ReadOnly:  true,
 			},
 			wantErr: false,
 		},
@@ -75,8 +76,19 @@ func TestConfig_MarshalUnmarshal(t *testing.T) {
 			assert.Equal(t, tt.config.Mode, decoded.Mode)
 			assert.Equal(t, tt.config.Type, decoded.Type)
 			assert.Equal(t, tt.config.Base, decoded.Base)
+			assert.Equal(t, tt.config.ReadOnly, decoded.ReadOnly)
 		})
 	}
+}
+
+func TestConfig_ReadOnly(t *testing.T) {
+	decoded := Config{}
+	require.NoError(t, json.Unmarshal([]byte(`{"directory": "/var/data", "readonly": true}`), &decoded))
+	assert.True(t, decoded.ReadOnly)
+	require.NoError(t, decoded.Validate())
+
+	conflict := Config{Directory: "/var/data", ReadOnly: true, AutoInit: true}
+	assert.ErrorIs(t, conflict.Validate(), ErrReadOnlyAutoInit)
 }
 
 func TestConfig_Validate(t *testing.T) {

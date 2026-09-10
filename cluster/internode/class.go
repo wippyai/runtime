@@ -13,6 +13,7 @@ package internode
 //   - ClassRaftRPC: raft RPC request/reply frames over internode. The name
 //     is kept for wire compatibility with the prior raft class byte; it no
 //     longer carries a byte stream.
+//   - ClassSurface: bounded admission; accepted frames survive write retries.
 type Class uint8
 
 const (
@@ -20,11 +21,23 @@ const (
 	ClassGossip
 	ClassPGBroadcast
 	ClassRaftRPC
+	// ClassSurface carries bounded terminal mount traffic. Both peers must
+	// support this protocol before a surface mount is used.
+	ClassSurface
 )
 
 // numClasses is the count of Class values. If a new Class is added, this
 // MUST be updated; the per-state ring slice is sized from it.
-const numClasses = 4
+const numClasses = 5
+
+// MetadataSurfaceProtocol advertises support before a peer emits the new
+// surface class on an existing connection to a potentially older node.
+const MetadataSurfaceProtocol = "tty_surface_protocol"
+
+// MaxSurfaceFrameSize bounds queued and in-flight surface payloads to 32 MiB
+// per managed peer (32 admission slots plus a reserved retry batch of 32),
+// independent of the larger Raft snapshot frame limit.
+const MaxSurfaceFrameSize = 512 << 10
 
 // String renders Class for log/metric labels.
 func (c Class) String() string {
@@ -37,6 +50,8 @@ func (c Class) String() string {
 		return "pg"
 	case ClassRaftRPC:
 		return "raft-rpc"
+	case ClassSurface:
+		return "surface"
 	default:
 		return "unknown"
 	}

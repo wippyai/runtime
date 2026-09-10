@@ -3,8 +3,10 @@
 package fs
 
 import (
+	"errors"
 	"fmt"
 	"io"
+	iofs "io/fs"
 	"os"
 	"path"
 	"strings"
@@ -18,6 +20,16 @@ import (
 type FS struct {
 	fs  fsapi.FS
 	cwd string
+}
+
+func wrapFilesystemError(l *lua.LState, err error, message string, fallback lua.Kind) *lua.Error {
+	kind := fallback
+	if errors.Is(err, fsapi.ErrReadOnly) ||
+		errors.Is(err, fsapi.ErrPermissionDenied) ||
+		errors.Is(err, iofs.ErrPermission) {
+		kind = lua.PermissionDenied
+	}
+	return lua.WrapErrorWithLua(l, err, message).WithKind(kind)
 }
 
 // dirIterator is a userdata-based iterator for directory entries
@@ -96,7 +108,7 @@ func fsChdir(l *lua.LState) int {
 	info, err := fs.fs.Stat(target)
 	if err != nil {
 		l.Push(lua.LFalse)
-		l.Push(lua.WrapErrorWithLua(l, err, "failed to stat directory").WithKind(lua.NotFound))
+		l.Push(wrapFilesystemError(l, err, "failed to stat directory", lua.NotFound))
 		return 2
 	}
 	if !info.IsDir() {
@@ -168,7 +180,7 @@ func fsOpen(l *lua.LState) int {
 	file, err := fs.fs.OpenFile(resolved, flag, 0644)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.WrapErrorWithLua(l, err, "failed to open file").WithKind(lua.NotFound))
+		l.Push(wrapFilesystemError(l, err, "failed to open file", lua.NotFound))
 		return 2
 	}
 
@@ -197,7 +209,7 @@ func fsStat(l *lua.LState) int {
 	info, err := fs.fs.Stat(resolved)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.WrapErrorWithLua(l, err, "stat failed").WithKind(lua.NotFound))
+		l.Push(wrapFilesystemError(l, err, "stat failed", lua.NotFound))
 		return 2
 	}
 	l.Push(pushFileInfo(l, info))
@@ -230,7 +242,7 @@ func fsMkdir(l *lua.LState) int {
 	}
 	if err := fs.fs.Mkdir(resolved, 0755); err != nil {
 		l.Push(lua.LFalse)
-		l.Push(lua.WrapErrorWithLua(l, err, "mkdir failed").WithKind(lua.Internal))
+		l.Push(wrapFilesystemError(l, err, "mkdir failed", lua.Internal))
 		return 2
 	}
 	l.Push(lua.LTrue)
@@ -266,7 +278,7 @@ func fsRemove(l *lua.LState) int {
 	}
 	if err := fs.fs.Remove(resolved); err != nil {
 		l.Push(lua.LFalse)
-		l.Push(lua.WrapErrorWithLua(l, err, "remove failed").WithKind(lua.Internal))
+		l.Push(wrapFilesystemError(l, err, "remove failed", lua.Internal))
 		return 2
 	}
 	l.Push(lua.LTrue)
@@ -294,7 +306,7 @@ func fsReaddir(l *lua.LState) int {
 	info, err := fs.fs.Stat(resolved)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.WrapErrorWithLua(l, err, "failed to stat directory").WithKind(lua.NotFound))
+		l.Push(wrapFilesystemError(l, err, "failed to stat directory", lua.NotFound))
 		return 2
 	}
 	if !info.IsDir() {
@@ -305,7 +317,7 @@ func fsReaddir(l *lua.LState) int {
 	entries, err := fs.fs.ReadDir(resolved)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.WrapErrorWithLua(l, err, "readdir failed").WithKind(lua.Internal))
+		l.Push(wrapFilesystemError(l, err, "readdir failed", lua.Internal))
 		return 2
 	}
 
@@ -380,7 +392,7 @@ func fsIsdir(l *lua.LState) int {
 	info, err := fs.fs.Stat(resolved)
 	if err != nil {
 		l.Push(lua.LFalse)
-		l.Push(lua.WrapErrorWithLua(l, err, "stat failed").WithKind(lua.NotFound))
+		l.Push(wrapFilesystemError(l, err, "stat failed", lua.NotFound))
 		return 2
 	}
 	l.Push(lua.LBool(info.IsDir()))
@@ -408,7 +420,7 @@ func fsReadfile(l *lua.LState) int {
 	file, err := fs.fs.OpenFile(resolved, os.O_RDONLY, 0)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.WrapErrorWithLua(l, err, "failed to open file").WithKind(lua.NotFound))
+		l.Push(wrapFilesystemError(l, err, "failed to open file", lua.NotFound))
 		return 2
 	}
 	defer func() { _ = file.Close() }()
@@ -416,7 +428,7 @@ func fsReadfile(l *lua.LState) int {
 	data, err := io.ReadAll(file)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.WrapErrorWithLua(l, err, "failed to read file").WithKind(lua.Internal))
+		l.Push(wrapFilesystemError(l, err, "failed to read file", lua.Internal))
 		return 2
 	}
 
@@ -466,7 +478,7 @@ func fsWritefile(l *lua.LState) int {
 	dstFile, err := fs.fs.OpenFile(resolved, flag, 0644)
 	if err != nil {
 		l.Push(lua.LFalse)
-		l.Push(lua.WrapErrorWithLua(l, err, "failed to open destination").WithKind(lua.NotFound))
+		l.Push(wrapFilesystemError(l, err, "failed to open destination", lua.NotFound))
 		return 2
 	}
 	defer func() { _ = dstFile.Close() }()
@@ -499,7 +511,7 @@ func fsWritefile(l *lua.LState) int {
 
 	if _, err := io.Copy(dstFile, reader); err != nil {
 		l.Push(lua.LFalse)
-		l.Push(lua.WrapErrorWithLua(l, err, "copy failed").WithKind(lua.Internal))
+		l.Push(wrapFilesystemError(l, err, "copy failed", lua.Internal))
 		return 2
 	}
 

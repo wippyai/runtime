@@ -33,6 +33,7 @@ type NodeState struct {
 	connection    *NodeConnection
 	address       nodeAddress
 	lastDepth     [numClasses]int // last queue depth emitted to telemetry; guarded by queueMu
+	surfaceTurn   bool            // guarded by queueMu; fair turns between application classes
 	state         ConnectionState
 	stateMu       sync.RWMutex
 	queueMu       sync.Mutex
@@ -202,6 +203,9 @@ func (nsm *NodeStateManager) CreateNodeState(nodeID cluster.NodeID) {
 		ClassGossip:      nsm.config.GossipQueueCap,
 		ClassPGBroadcast: 0,
 		ClassRaftRPC:     0,
+		// Admission and drain each allow 32 surface frames. Reserve another
+		// batch so a failed write can requeue every accepted frame.
+		ClassSurface: 64,
 	}
 	queues := [numClasses]*classQueue{}
 	for i := range queues {
@@ -228,13 +232,13 @@ func (nsm *NodeStateManager) GetNodeState(nodeID cluster.NodeID) *NodeState {
 // Delivery policy is class-specific:
 //   - ClassRaftControl, ClassPGBroadcast, and ClassRaftRPC are reliable
 //     while the peer remains managed.
-//   - ClassGossip drops the new entry and returns ErrQueueFull when full.
+//   - ClassGossip and ClassSurface reject the new entry and returns ErrQueueFull when full.
 //
 // In all drop cases, internode_dropped_total{class,reason="queue_full"}
 // is incremented.
 //
 // Returns ErrNodeNotManaged if no state exists for nodeID.
-// Returns ErrQueueFull for gossip when full.
+// Returns ErrQueueFull for gossip or surface traffic when full.
 func (nsm *NodeStateManager) QueueMessageClass(nodeID cluster.NodeID, data []byte, class Class) error {
 	state := nsm.GetNodeState(nodeID)
 	if state == nil {
@@ -247,12 +251,21 @@ func (nsm *NodeStateManager) QueueMessageClass(nodeID cluster.NodeID, data []byt
 		return ErrUnknownClass
 	}
 
+	if class == ClassSurface && len(data) > MaxSurfaceFrameSize {
+		return NewMessageSizeExceedsMaxError(len(data), MaxSurfaceFrameSize)
+	}
 	state.queueMu.Lock()
 	q := state.queues[class]
 	var rejected bool
 	switch class {
 	case ClassRaftControl, ClassPGBroadcast, ClassRaftRPC:
 		q.pushNewest(data)
+	case ClassSurface:
+		if q.len() >= 32 {
+			rejected = true
+		} else {
+			q.pushNewest(data)
+		}
 	case ClassGossip:
 		if !q.pushNewest(data) {
 			rejected = true
@@ -345,17 +358,10 @@ func (nsm *NodeStateManager) GetNodeAddress(nodeID cluster.NodeID) (string, int,
 	return addr.addr, addr.port, addr.addr != "" && addr.port != 0
 }
 
-// drainClasses defines the QoS draining order. ClassRaftControl drains
-// first (smallest latency budget); ClassRaftRPC second so raft RPC
-// frames stay responsive; gossip and PG broadcast last. The order
-// matters under per-batch caps: a saturated control plane should not
-// starve raft RPC traffic forever.
-var drainClasses = [numClasses]Class{
-	ClassRaftControl,
-	ClassRaftRPC,
-	ClassGossip,
-	ClassPGBroadcast,
-}
+// Control traffic retains its existing priority. Surface and PG application
+// frames then take alternating turns so adding interactive traffic cannot
+// starve ordinary process messages (including when maxCount is one).
+var drainClasses = [...]Class{ClassRaftControl, ClassRaftRPC, ClassGossip}
 
 func (nsm *NodeStateManager) DrainMessages(nodeID cluster.NodeID, maxCount int) []Outbound {
 	state := nsm.GetNodeState(nodeID)
@@ -377,6 +383,28 @@ func (nsm *NodeStateManager) DrainMessages(nodeID cluster.NodeID, maxCount int) 
 			break
 		}
 	}
+	surfaceCount := 0
+	for len(out) < maxCount {
+		first, second := ClassPGBroadcast, ClassSurface
+		if state.surfaceTurn {
+			first, second = second, first
+		}
+		class := first
+		if state.queues[class].len() == 0 || (class == ClassSurface && surfaceCount == 32) {
+			class = second
+		}
+		if state.queues[class].len() == 0 || (class == ClassSurface && surfaceCount == 32) {
+			break
+		}
+		data, _ := state.queues[class].pop()
+		if data != nil {
+			out = append(out, Outbound{Data: data, Class: class})
+		}
+		if class == ClassSurface {
+			surfaceCount++
+		}
+		state.surfaceTurn = class != ClassSurface
+	}
 	// Snapshot post-drain depths. internode_queue_depth is a gauge — emit
 	// only the classes whose depth changed so an idle drain does not write
 	// numClasses no-op metric events.
@@ -389,9 +417,9 @@ func (nsm *NodeStateManager) DrainMessages(nodeID cluster.NodeID, maxCount int) 
 	}
 	state.queueMu.Unlock()
 
-	for _, class := range drainClasses {
+	for class := range numClasses {
 		if depthChanged[class] {
-			nsm.tel.recordQueueDepth(class, nodeID, depths[class])
+			nsm.tel.recordQueueDepth(Class(class), nodeID, depths[class])
 		}
 	}
 	return out
@@ -465,7 +493,7 @@ func (nsm *NodeStateManager) RequeueMessagesClass(nodeID cluster.NodeID, message
 			}
 			q.pushFront(messages[i])
 		}
-	case ClassGossip:
+	case ClassGossip, ClassSurface:
 		for i := len(messages) - 1; i >= 0; i-- {
 			if messages[i] == nil {
 				continue

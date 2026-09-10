@@ -101,6 +101,14 @@ type PTYProcess interface {
 	Resize(width, height int) error
 }
 
+// StdinCloser is the capability of a process whose stdin can be closed
+// after the caller wrote everything, so a child that reads until end of
+// file sees it. Closing is idempotent; later writes fail. A PTY-backed
+// process has no separate stdin to close.
+type StdinCloser interface {
+	CloseStdin() error
+}
+
 // WaitCanceler is an optional lifecycle capability for remote executors whose
 // Wait operation can otherwise outlive an abandoned proxy or runtime process.
 type WaitCanceler interface {

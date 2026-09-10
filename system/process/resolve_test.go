@@ -18,7 +18,8 @@ import (
 // fakeGlobalReg is an in-memory global.Registry used to drive the
 // global-name branch of ResolveDestination.
 type fakeGlobalReg struct {
-	entries map[string]pidapi.PID
+	lookupErr error
+	entries   map[string]pidapi.PID
 }
 
 func newFakeGlobalReg() *fakeGlobalReg {
@@ -48,6 +49,9 @@ func (r *fakeGlobalReg) Unregister(_ context.Context, name string) (bool, error)
 }
 
 func (r *fakeGlobalReg) Lookup(_ context.Context, name string, opts ...global.LookupOption) (global.LookupResult, error) {
+	if r.lookupErr != nil {
+		return global.LookupResult{}, r.lookupErr
+	}
 	var o global.LookupOptions
 	for _, opt := range opts {
 		opt(&o)
@@ -69,7 +73,8 @@ func (r *fakeGlobalReg) RemoveNode(_ context.Context, _ pidapi.NodeID) error { r
 
 // fakeEventualReg implements topology.EventualRegistry with no fencing.
 type fakeEventualReg struct {
-	entries map[string]pidapi.PID
+	lookupErr error
+	entries   map[string]pidapi.PID
 }
 
 func newFakeEventualReg() *fakeEventualReg {
@@ -94,6 +99,9 @@ func (r *fakeEventualReg) Unregister(name string) bool {
 }
 
 func (r *fakeEventualReg) Lookup(_ context.Context, name string, _ ...global.LookupOption) (global.LookupResult, error) {
+	if r.lookupErr != nil {
+		return global.LookupResult{}, r.lookupErr
+	}
 	p, ok := r.entries[name]
 	if !ok {
 		return global.LookupResult{}, nil
@@ -206,4 +214,69 @@ func TestResolveDestination_GlobalShadowsEventualAndLocal(t *testing.T) {
 	resolved, err := ResolveDestination(ctx, "svc")
 	require.NoError(t, err)
 	assert.Equal(t, globalPID, resolved.PID, "global registration must win")
+}
+
+func TestResolveDestinationDoesNotRouteAroundRegistryFailure(t *testing.T) {
+	for _, layer := range []string{"global", "eventual"} {
+		t.Run(layer, func(t *testing.T) {
+			gr, er, lr := newFakeGlobalReg(), newFakeEventualReg(), newFakeLocalReg()
+			failure := errors.New("registry unavailable")
+			shadow := pidapi.PID{Host: "h", UniqID: "shadow"}
+			_, err := lr.Register("svc", shadow)
+			require.NoError(t, err)
+			if layer == "global" {
+				gr.lookupErr = failure
+				er.put("svc", shadow)
+			} else {
+				er.lookupErr = failure
+			}
+			result, err := ResolveDestination(buildCtx(gr, er, lr), "svc")
+			require.ErrorIs(t, err, failure)
+			require.Empty(t, result.PID.Host, "failed authoritative lookup must not select a weaker-scope process")
+		})
+	}
+}
+
+func TestResolveDestinationCanceledNameDoesNotSelectLocal(t *testing.T) {
+	lr := newFakeLocalReg()
+	_, err := lr.Register("svc", pidapi.PID{Host: "h", UniqID: "shadow"})
+	require.NoError(t, err)
+	ctx, cancel := context.WithCancel(buildCtx(nil, nil, lr))
+	cancel()
+	result, err := ResolveDestination(ctx, "svc")
+	require.ErrorIs(t, err, context.Canceled)
+	require.Empty(t, result.PID.Host)
+}
+
+func TestResolveDestinationConfirmedAbsenceStillFallsThrough(t *testing.T) {
+	gr, er, lr := newFakeGlobalReg(), newFakeEventualReg(), newFakeLocalReg()
+	target := pidapi.PID{Host: "h", UniqID: "eventual"}
+	er.put("svc", target)
+	result, err := ResolveDestination(buildCtx(gr, er, lr), "svc")
+	require.NoError(t, err)
+	require.Equal(t, target, result.PID)
+	er.Unregister("svc")
+	_, err = lr.Register("svc", target)
+	require.NoError(t, err)
+	result, err = ResolveDestination(buildCtx(gr, er, lr), "svc")
+	require.NoError(t, err)
+	require.Equal(t, target, result.PID)
+}
+
+type contextualLocalRegistry struct {
+	*fakeLocalReg
+	failure error
+}
+
+func (*contextualLocalRegistry) Lookup(string) (pidapi.PID, bool) { panic("legacy lookup used") }
+func (r *contextualLocalRegistry) LookupContext(context.Context, string) (pidapi.PID, bool, error) {
+	return pidapi.PID{}, false, r.failure
+}
+
+func TestResolveDestinationUsesContextualAggregateRegistry(t *testing.T) {
+	failure := errors.New("aggregate unavailable")
+	ctx := ctxapi.NewRootContext()
+	topology.WithRegistry(ctx, &contextualLocalRegistry{fakeLocalReg: newFakeLocalReg(), failure: failure})
+	_, err := ResolveDestination(ctx, "svc")
+	require.ErrorIs(t, err, failure)
 }

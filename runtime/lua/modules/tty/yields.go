@@ -11,6 +11,7 @@ import (
 )
 
 var yieldTypes = []luaYieldType{
+	{Sample: &ViewportIOYield{}, CmdID: ttyapi.ViewportIO},
 	{Sample: &StartInputYield{}, CmdID: ttyapi.StartInput},
 	{Sample: &StopInputYield{}, CmdID: ttyapi.StopInput},
 	{Sample: &ScreenSizeYield{}, CmdID: ttyapi.ScreenSize},
@@ -167,4 +168,24 @@ func handleBoolResult(l *lua.LState, data any, err error, op string) []lua.LValu
 		return []lua.LValue{lua.LNil, lua.NewLuaError(l, "invalid response type").
 			WithKind(lua.Internal).WithRetryable(false)}
 	}
+}
+
+// ViewportIOYield keeps network waits off the Lua scheduler.
+type ViewportIOYield struct{ Command ttyapi.ViewportIOCmd }
+
+func (*ViewportIOYield) String() string                  { return "<tty_viewport_io_yield>" }
+func (*ViewportIOYield) Type() lua.LValueType            { return lua.LTUserData }
+func (*ViewportIOYield) CmdID() dispatcher.CommandID     { return ttyapi.ViewportIO }
+func (y *ViewportIOYield) ToCommand() dispatcher.Command { return y.Command }
+func (y *ViewportIOYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
+	if err != nil {
+		return []lua.LValue{lua.LNil, lua.WrapErrorWithLua(l, err, "remote viewport")}
+	}
+	if view, ok := data.(ttyapi.Viewport); ok {
+		pushViewport(l, view)
+		out := []lua.LValue{l.Get(-2), l.Get(-1)}
+		l.Pop(2)
+		return out
+	}
+	return handleBoolResult(l, data, nil, "remote viewport")
 }

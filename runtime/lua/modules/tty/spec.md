@@ -132,8 +132,10 @@ transactionally: a rejected process start restores an unresolved grant, while
 a process that has resolved the port consumes it permanently. Unsupported
 hosts reject terminal attachments rather than dropping them.
 
-`handle()` returns a viewer capability. `tty.attach(handle)` adds another local
-viewer. Handles do not grant presentation ownership and do not cross nodes.
+`handle()` returns a local viewport identifier. `tty.attach(handle)` adds a local
+viewer; a non-owner requires `tty.observe`, with input and resize granted only
+when permitted by its scope. Handles do not grant authority by themselves and
+do not cross nodes; use recipient-bound mounts for delegation.
 
 | Method | Purpose |
 |---|---|
@@ -144,11 +146,51 @@ viewer. Handles do not grant presentation ownership and do not cross nodes.
 | `send(event)` | Forward validated input to a started producer |
 | `resize(width, height)` | Update geometry and notify producer/viewers when changed |
 | `close()` | Detach only this viewer |
+| `set_page(page?)` | Creator process only: replace opaque page defaults, or clear them with `nil` |
 
 Updates are bounded hints, not an event log. A slow viewer receives the newest
 available watermark and must call `snapshot()`. Presentation and resize never
 block on slow viewers. Closing the last viewer does not kill a live producer;
 closing the producer port does not destroy state while viewers remain.
+
+## Opaque viewport pages
+
+A compositing shell can supply its page defaults once, without rewriting child
+ANSI output or filling behind every child row:
+
+```lua
+local view = assert(tty.viewport({width = 80, height = 24,
+    page = {foreground = "#102030", background = "#f0e0d0"}}))
+-- When the shell changes palette; the producer need not repaint default cells.
+assert(view:set_page({foreground = "#e0def4", background = "#191724"}))
+```
+
+Both colours must be opaque `#RRGGBB` strings. Only the creator process can change the page, including through a local handle
+it reattaches after an in-process upgrade. Other viewers and delegated mounts
+cannot change it, even with resize rights. `set_page(nil)` restores the
+producer's original rows. Without a page, viewport output keeps its previous
+terminal-default behaviour; ordinary PTY sessions keep emulator defaults.
+
+A page resolves default foreground/background cells, SGR resets, unstyled spaces,
+and omitted rows to explicit colours across the viewport width and height.
+Explicit ANSI colours, attributes, hyperlinks, and painted blanks survive.
+Wide glyphs clipped at the right edge become styled blanks. Frames are complete
+row replacements, not terminal command streams; PTY cursor movement and erasure
+are interpreted by the emulator before those rows reach the compositor.
+
+Changed source rows are resolved once at presentation; unchanged rows reuse
+cached strings. Snapshot reads do no parsing or recolouring. Page/size changes
+rebuild resolved rows and advance the existing revision, waking local and mesh
+observers even without producer output. Already published snapshots stay intact.
+The existing mesh row format carries explicit resolved colours, so peers require
+no page-policy support or protocol change. A versioned public cell-snapshot API
+is separate work; this API still exports styled rows.
+
+PTY OSC 10/11 colour queries use the viewport's page at query time. Explicit
+program palettes are not automatically recoloured, and changing the page does
+not force a third-party program to query again or rebuild its own palette.
+Physical presentation clears old rows before painting, preserving full-width
+coloured blanks and the bottom-right cell under delayed autowrap.
 
 ## Minimal composite example
 
@@ -173,3 +215,82 @@ For a byte-oriented PTY such as a shell, Codex, or Claude Code, allocate it with
 resize, input encoding, graceful termination, forced termination, and reaping;
 the enclosing surface/viewport model stays the same for native and Docker
 executors.
+
+## Process-bound mounts over the mesh
+
+See the [agent workflow guide](../../../../tests/tty-mesh/LUA_GUIDE.md) for
+node/host identity, controller discovery, simulated input, and restart handling.
+`tty.MountRights` names the grant options; `tty.InputEvent` describes synthetic
+input (modifier flags default to false), while `tty.TTYEvent` describes received
+events. Input channels support both `receive()` and `case_receive()`.
+
+A viewport owner can delegate independent observation, input, and resize rights
+using a mount reference. The reference is bound to an exact process PID,
+including its node. It is not a reusable bearer credential: another process,
+a different authenticated peer, or an already redeemed reference is rejected.
+
+```lua
+-- Owner, on the node hosting the viewport and producer.
+local view = assert(tty.viewport({width = 100, height = 30}))
+local observation = assert(view:mount(agent_pid, {observe = true}))
+local control = assert(view:mount(agent_pid, {input = true, resize = true}))
+
+-- Start the producer on this node with the existing terminal option.
+local child = assert(process.with_options({terminal = view:grant()})
+    :spawn("app:terminal_child", "app:workers"))
+-- Pass observation/control to that exact agent through the application's
+-- existing process messaging or orchestration. The child needs no mesh code.
+```
+
+```lua
+-- Agent, potentially on another mesh node.
+local observer = assert(tty.attach(observation))
+local control = assert(tty.attach(control))
+local changes = assert(observer:updates())
+local snapshot = assert(observer:snapshot())
+
+assert(control:send({type = "paste", text = "echo hello"}))
+assert(control:send({
+    type = "key", key = "enter", key_type = "enter", action = "press",
+}))
+assert(control:resize(120, 40))
+
+-- Updates are coalesced revision hints. Read the current snapshot for state.
+local revision, open = changes:receive()
+if open then snapshot = observer:snapshot() end
+```
+
+`viewport:mount(recipient_pid, {observe?, input?, resize?}) -> reference, error`
+requires `tty.mount` and each requested right (`tty.observe`, `tty.input`,
+`tty.resize`) on the owner's viewport handle. Every right defaults to false;
+an empty grant is rejected. Only the original owner can delegate, and mounted
+views cannot issue producer grants or further mounts. Input does not imply
+observation, and sending a resize event cannot bypass the resize right.
+
+`viewport:revoke(reference) -> true, error` revokes an issued mount. Closing
+its owner viewport or completing the owner process revokes its mounts too.
+Snapshots and updates require observation rights; snapshots return `nil, error`
+when access is denied or the mounted view has ended. Already delivered content
+cannot be recalled by revocation.
+
+A viewport's plain `handle()` is an address, not observation authority.
+Attaching another process to that handle locally now requires `tty.observe`.
+Input and resize are separately selected from the attaching process's scope.
+The creator retains access to its own viewport. This intentionally tightens
+older code that shared handles without assigning any observation permission.
+
+Remote `tty.attach`, `send`, and `resize` yield through the dispatcher. Snapshot
+reads use a local cache; update subscriptions retain the existing channel API.
+Remote ports are not synthesized from OS file descriptors: producers keep
+using their node-local terminal grant, `tty.surface`, or `exec:attach_terminal`.
+This also preserves the existing VT interpretation of PTY output and cursor
+state. Arbitrary process spawning across nodes remains the responsibility of
+application orchestration; a surface mount does not grant process or exec
+permissions.
+
+Remote mounts use a 30-second lease, renewed every 10 seconds while attached.
+Unused grants expire after 30 seconds; local redeemed mounts are process-owned.
+Remote operations time out after 5 seconds. Re-attachment requires a fresh
+mount; transport reconnection does not permit replaying terminal input.
+Both nodes must advertise surface protocol version 1. Peers without that
+capability are rejected before writing a new protocol class to their connection.

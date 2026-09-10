@@ -65,6 +65,15 @@ type fakePIDRegistry struct {
 	entries map[string]pid.PID
 }
 
+type failingContextPIDRegistry struct {
+	*fakePIDRegistry
+	err error
+}
+
+func (r *failingContextPIDRegistry) LookupContext(context.Context, string) (pid.PID, bool, error) {
+	return pid.PID{}, false, r.err
+}
+
 func (r *fakePIDRegistry) Register(name string, p pid.PID) (pid.PID, error) {
 	if r.entries == nil {
 		r.entries = make(map[string]pid.PID)
@@ -701,6 +710,26 @@ func TestRegistryLookup_NotFound(t *testing.T) {
 		end
 	`)
 	assert.NoError(t, err)
+}
+
+func TestRegistryLookup_ContextFailure(t *testing.T) {
+	reg := &failingContextPIDRegistry{
+		fakePIDRegistry: &fakePIDRegistry{},
+		err:             errors.New("registry unavailable"),
+	}
+	l, _ := newLuaWithPIDAndRegistry(t, reg)
+
+	err := l.DoString(`
+		local pid, lookup_err = process.registry.lookup("service")
+		if pid ~= nil then error("expected nil") end
+		if lookup_err:kind() ~= "Internal" then
+			error("expected Internal kind, got: " .. tostring(lookup_err:kind()))
+		end
+		if tostring(lookup_err) ~= "registry unavailable" then
+			error("unexpected error: " .. tostring(lookup_err))
+		end
+	`)
+	require.NoError(t, err)
 }
 
 func TestRegistryRegister_AndLookup(t *testing.T) {

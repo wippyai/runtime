@@ -31,3 +31,21 @@ func TestSendRejectsReusedProcessorIdentity(t *testing.T) {
 		t.Fatalf("stale generation accepted: %v", err)
 	}
 }
+
+func TestSendAcceptsEquivalentProcessorIdentity(t *testing.T) {
+	target := pid.PID{Node: "local", Host: "actors", UniqID: "target"}
+	stale := pid.PID{Node: "local", Host: "actors", UniqID: "stale"}
+	cached := stale.Precomputed()
+	cached.UniqID = target.UniqID
+
+	p := &Processor{pid: cached, ctx: context.Background(), queue: process.NewEventQueue()}
+	p.gen.Store(p.queue.Generation())
+	p.publishSignalRef()
+	pkg := relay.NewPackage(target, target, "data")
+
+	if err := (&Scheduler{}).deliverToTarget(p, target, pkg); err != nil {
+		relay.ReleasePackage(pkg)
+		t.Fatalf("equivalent identity rejected: %v", err)
+	}
+	p.queue.Close()
+}

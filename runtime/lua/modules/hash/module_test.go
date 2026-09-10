@@ -25,7 +25,7 @@ func TestLoad(t *testing.T) {
 	}
 
 	modTbl := mod.(*lua.LTable)
-	funcs := []string{"md5", "sha1", "sha256", "sha512", "fnv32", "fnv64", "hmac_sha256", "hmac_sha512", "hmac_sha1", "hmac_md5", "pbkdf2"}
+	funcs := []string{"md5", "sha1", "sha256", "sha512", "fnv32", "fnv64", "hmac_sha256", "hmac_sha512", "hmac_sha1", "hmac_md5", "pbkdf2", "new"}
 	for _, fn := range funcs {
 		if modTbl.RawGetString(fn).Type() != lua.LTFunction {
 			t.Errorf("%s function not registered", fn)

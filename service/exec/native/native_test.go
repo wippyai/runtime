@@ -691,6 +691,25 @@ func TestExecutor_WriteStdin(t *testing.T) {
 	}
 }
 
+func TestExecutor_CloseStdin(t *testing.T) {
+	executor := NewNativeExecutor(zap.NewNop(), &exec.NativeExecutorConfig{})
+	process, err := executor.NewProcess("cat", exec.ProcessOptions{})
+	assert.NoError(t, err)
+	closer, ok := process.(exec.StdinCloser)
+	assert.True(t, ok)
+	assert.ErrorIs(t, closer.CloseStdin(), ErrProcessNotRunning)
+	assert.NoError(t, process.Start())
+	stdout := process.Stdout()
+	assert.NoError(t, process.WriteStdin([]byte("until end of file")))
+	assert.NoError(t, closer.CloseStdin())
+	assert.NoError(t, closer.CloseStdin())
+	assert.ErrorIs(t, process.WriteStdin([]byte("late")), ErrStdinClosed)
+	output, readErr := io.ReadAll(stdout)
+	assert.NoError(t, readErr)
+	assert.Equal(t, "until end of file", string(output))
+	assert.NoError(t, process.Wait())
+}
+
 func TestNativeExecutor_Config(t *testing.T) {
 	logger := zap.NewNop()
 

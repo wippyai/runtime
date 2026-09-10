@@ -197,6 +197,12 @@ func (c *NodeConnection) bindDrain(notify <-chan struct{}, drain func(int) []Out
 // ExitCleanShutdown and Run returns the writer's error.
 func (c *NodeConnection) Run(handler func(class Class, msg []byte)) *ConnectionError {
 	c.lifecycleMu.Lock()
+	// Close may win before the monitor goroutine starts. Do not publish a
+	// fresh writer context after the one-shot Close has already completed.
+	if c.closed.Load() {
+		c.lifecycleMu.Unlock()
+		return &ConnectionError{Reason: ExitCleanShutdown, Err: ErrCleanShutdown}
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	c.cancel = cancel
 	c.lifecycleMu.Unlock()
@@ -410,6 +416,9 @@ func readFrame(r io.Reader, maxMessageSize uint32) (Class, []byte, error) {
 		return 0, nil, protocolError(fmt.Sprintf("unknown sub-protocol class %d", header[1]))
 	}
 	size := binary.LittleEndian.Uint32(header[2:])
+	if class == ClassSurface && size > MaxSurfaceFrameSize {
+		return 0, nil, NewMessageSizeExceedsMaxError(int(size), MaxSurfaceFrameSize)
+	}
 	if size > maxMessageSize {
 		return 0, nil, NewMessageSizeExceedsMaxError(int(size), int(maxMessageSize))
 	}

@@ -25,14 +25,14 @@ func init() {
 	// Policy type
 	policyType = typ.NewInterface("security.Policy", []typ.Method{
 		{Name: "id", Type: typ.Func().Param("self", typ.Self).Returns(typ.String).Build()},
-		{Name: "evaluate", Type: typ.Func().Param("self", typ.Self).Param("actor", actorType).Param("resource", typ.String).Param("action", typ.String).OptParam("context", typ.Any).Returns(typ.String).Build()},
+		{Name: "evaluate", Type: typ.Func().Param("self", typ.Self).Param("actor", actorType).Param("action", typ.String).Param("resource", typ.String).OptParam("context", typ.Any).Returns(typ.String).Build()},
 	})
 
 	// Scope type (self-referential and references policyType)
 	scopeType = typ.NewInterface("security.Scope", []typ.Method{
 		{Name: "with", Type: typ.Func().Param("self", typ.Self).Param("policy", policyType).Returns(typ.Self).Build()},
 		{Name: "without", Type: typ.Func().Param("self", typ.Self).Param("policy", typ.Any).Returns(typ.Self).Build()},
-		{Name: "evaluate", Type: typ.Func().Param("self", typ.Self).Param("actor", actorType).Param("resource", typ.String).Param("action", typ.String).OptParam("context", typ.Any).Returns(typ.String).Build()},
+		{Name: "evaluate", Type: typ.Func().Param("self", typ.Self).Param("actor", actorType).Param("action", typ.String).Param("resource", typ.String).OptParam("context", typ.Any).Returns(typ.String).Build()},
 		{Name: "contains", Type: typ.Func().Param("self", typ.Self).Param("policy", typ.Any).Returns(typ.Boolean).Build()},
 		{Name: "policies", Type: typ.Func().Param("self", typ.Self).Returns(typ.NewArray(policyType)).Build()},
 	})
@@ -58,7 +58,7 @@ func ModuleTypes() *io.Manifest {
 	moduleType := typ.NewInterface("security", []typ.Method{
 		{Name: "actor", Type: typ.Func().Returns(typ.NewOptional(actorType)).Build()},
 		{Name: "scope", Type: typ.Func().Returns(typ.NewOptional(scopeType)).Build()},
-		{Name: "can", Type: typ.Func().Param("resource", typ.String).Param("action", typ.String).OptParam("context", typ.Any).Returns(typ.Boolean).Build()},
+		{Name: "can", Type: typ.Func().Param("action", typ.String).Param("resource", typ.String).OptParam("context", typ.Any).Returns(typ.Boolean).Build()},
 		{Name: "policy", Type: typ.Func().Param("name", typ.String).Returns(policyType, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "named_scope", Type: typ.Func().Param("name", typ.String).Returns(scopeType, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "new_scope", Type: typ.Func().OptParam("policies", typ.NewArray(policyType)).Returns(scopeType).Build()},

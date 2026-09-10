@@ -34,7 +34,7 @@ func init() {
 	})
 	terminalSessionType = typ.NewInterface("exec.TerminalSession", []typ.Method{
 		{Name: "send", Type: typ.Func().Param("self", typ.Self).
-			Param("event", luatty.EventType()).
+			Param("event", luatty.InputEventType()).
 			Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "close", Type: typ.Func().Param("self", typ.Self).
 			Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
@@ -48,6 +48,7 @@ func init() {
 		{Name: "wait", Type: typ.Func().Param("self", typ.Self).Returns(typ.Any, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "signal", Type: typ.Func().Param("self", typ.Self).Param("sig", typ.Number).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "write_stdin", Type: typ.Func().Param("self", typ.Self).Param("data", typ.String).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "close_stdin", Type: typ.Func().Param("self", typ.Self).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "stdout_stream", Type: typ.Func().Param("self", typ.Self).Returns(typ.Any, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "stderr_stream", Type: typ.Func().Param("self", typ.Self).Returns(typ.Any, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "close", Type: typ.Func().Param("self", typ.Self).OptParam("force", typ.Boolean).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
