@@ -160,11 +160,15 @@ func processSecurityMeta(options apiexec.ProcessOptions) attrs.Bag {
 		width, height, _ := options.PTY.Dimensions()
 		terminal["width"], terminal["height"], terminal["term"] = width, height, options.PTY.Term
 	}
+	var processGroup any
+	if options.ProcessGroup != nil {
+		processGroup = *options.ProcessGroup
+	}
 	return attrs.Bag{
 		"work_dir":      options.WorkDir,
 		"env_names":     envNames,
 		"pty":           terminal,
-		"process_group": options.ProcessGroup != nil && *options.ProcessGroup,
+		"process_group": processGroup,
 	}
 }
 

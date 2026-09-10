@@ -213,10 +213,10 @@ func TestParseProcessOptionsProcessGroup(t *testing.T) {
 	_, err = parseProcessOptions(table)
 	require.ErrorContains(t, err, "process_group must be a boolean")
 
-	// An unset option leaves the executor default in force and reports nothing
-	// requested to the policy.
+	// An unset option leaves the executor default in force. Policy metadata
+	// preserves that distinction from an explicit false override.
 	empty, err := parseProcessOptions(l.NewTable())
 	require.NoError(t, err)
 	assert.Nil(t, empty.ProcessGroup)
-	assert.Equal(t, false, processSecurityMeta(empty)["process_group"])
+	assert.Nil(t, processSecurityMeta(empty)["process_group"])
 }
