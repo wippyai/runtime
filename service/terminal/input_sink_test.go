@@ -254,6 +254,20 @@ func TestInputReaderBoundsUnterminatedBracketedPaste(t *testing.T) {
 	require.ErrorIs(t, reader.Err(), ErrInputFrameTooLarge)
 }
 
+func TestTerminalInputReleasesCompletedLargePasteBudget(t *testing.T) {
+	first := strings.Repeat("a", 56*1024)
+	second := strings.Repeat("b", 12*1024)
+	input := &eofWithDataReader{data: []byte("\x1b[200~" + first + "\x1b[201~\x1b[200~" + second + "\x1b[201~")}
+	var got []string
+	err := streamTerminalInput(context.Background(), input, func(event *TTYEvent) {
+		if event != nil && event.Type == "paste" {
+			got = append(got, event.Paste)
+		}
+	})
+	require.ErrorIs(t, err, io.EOF)
+	require.Equal(t, []string{first, second}, got)
+}
+
 type eofWithDataReader struct {
 	data   []byte
 	offset int

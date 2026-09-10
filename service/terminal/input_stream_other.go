@@ -27,7 +27,11 @@ func streamTerminalInput(ctx context.Context, reader terminalInputReader, sink i
 	stopping := false
 	for {
 		select {
-		case event := <-events:
+		case event, ok := <-events:
+			if !ok {
+				events = nil
+				continue
+			}
 			framed.acknowledgeEvent()
 			if !stopping {
 				sink(convertUVInputEvent(event))

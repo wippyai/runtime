@@ -60,7 +60,9 @@ func (r *framedTerminalInput) Read(p []byte) (int, error) {
 
 func (r *framedTerminalInput) acknowledgeEvent() {
 	r.mu.Lock()
-	r.retained -= min(r.retained, terminalInputReadSize)
+	// The completed event may span many reads. Only bytes trailing it in the
+	// decoder's current read can still be incomplete.
+	r.retained = min(r.retained, terminalInputReadSize)
 	r.mu.Unlock()
 }
 
