@@ -27,7 +27,7 @@ import (
 // Every advertised internode endpoint must remain owned by its listener.
 func TestConcurrentAutomaticPorts(t *testing.T) {
 	const count = 20
-	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
+	ctx, cancel := context.WithTimeout(t.Context(), 4*time.Minute)
 	defer cancel()
 	collector := metrics.NewCollector(metricscfg.Config{})
 	defer collector.Close()
@@ -140,11 +140,11 @@ func TestConcurrentAutomaticPorts(t *testing.T) {
 			}
 		}
 	}()
-	// A missed leave requires dead-node detection, the 30s reclaim delay,
-	// and anti-entropy before the same name can move to a new address.
+	// A missed leave can require a full probe round (~20s), suspicion (~23s),
+	// the 30s reclaim delay, and anti-entropy before the address can change.
 	require.Eventually(t, func() bool {
 		return len(restarted.ConnMgr.ConnectedNodes()) == count-1
-	}, 60*time.Second, 50*time.Millisecond, "same identity must rejoin at a new endpoint")
+	}, 2*time.Minute, 50*time.Millisecond, "same identity must rejoin at a new endpoint")
 	joined = true
 }
 
