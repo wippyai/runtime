@@ -165,9 +165,10 @@ type Diagnostic struct {
 
 // RichDiagnostic holds a diagnostic with source for rendering.
 type RichDiagnostic struct {
-	EntryID string
-	Diag    diag.Diagnostic
-	Source  diag.SourceLines
+	EntryID     string
+	displayCode string
+	Diag        diag.Diagnostic
+	Source      diag.SourceLines
 }
 
 // LintResult holds the complete lint results.
@@ -197,6 +198,8 @@ type entryData struct {
 	Source  string
 	Method  string
 }
+
+const parseErrorCode = "P0001"
 
 // lintConfig holds runtime configuration for a lint session.
 type lintConfig struct {
@@ -758,7 +761,9 @@ func parseErrorResult(id regapi.ID, parseErr error, sourceLines diag.SourceLines
 			}
 		} else if syntaxErr.Pos.Line > 0 {
 			position.Line = syntaxErr.Pos.Line
-			position.Column = syntaxErr.Pos.Column
+			if syntaxErr.Pos.Column > 0 {
+				position.Column = syntaxErr.Pos.Column
+			}
 		}
 	}
 	rendered := diag.Diagnostic{Severity: diag.SeverityError, Message: message, Position: position}
@@ -766,13 +771,18 @@ func parseErrorResult(id regapi.ID, parseErr error, sourceLines diag.SourceLines
 		entryID: id,
 		diagnostics: []Diagnostic{{
 			EntryID:  entryID,
-			Code:     "P0001",
+			Code:     parseErrorCode,
 			Severity: severityError.String(),
 			Message:  message,
 			Line:     position.Line,
 			Column:   position.Column,
 		}},
-		rich:   []RichDiagnostic{{EntryID: entryID, Diag: rendered, Source: sourceLines}},
+		rich: []RichDiagnostic{{
+			EntryID:     entryID,
+			Diag:        rendered,
+			Source:      sourceLines,
+			displayCode: parseErrorCode,
+		}},
 		errors: 1,
 	}
 }
@@ -1153,10 +1163,17 @@ func renderRichDiag(rd RichDiagnostic, noColor bool) string {
 	} else {
 		rendered = rd.Diag.RenderColored(rd.Source)
 	}
-	if rd.Diag.Code >= lint.LintCodeBase {
-		rendered = strings.Replace(rendered, rd.Diag.Code.Name(), lint.FormatLintCode(rd.Diag.Code), 1)
+	if code := richDiagnosticCode(rd); code != rd.Diag.Code.Name() {
+		rendered = strings.Replace(rendered, rd.Diag.Code.Name(), code, 1)
 	}
 	return rendered
+}
+
+func richDiagnosticCode(rd RichDiagnostic) string {
+	if rd.displayCode != "" {
+		return rd.displayCode
+	}
+	return formatDiagCode(rd.Diag.Code)
 }
 
 func sortLintResults(result *LintResult) {
@@ -1194,8 +1211,9 @@ func sortLintResults(result *LintResult) {
 		if a.Diag.Position.Column != b.Diag.Position.Column {
 			return a.Diag.Position.Column < b.Diag.Position.Column
 		}
-		if a.Diag.Code != b.Diag.Code {
-			return a.Diag.Code < b.Diag.Code
+		aCode, bCode := richDiagnosticCode(a), richDiagnosticCode(b)
+		if aCode != bCode {
+			return aCode < bCode
 		}
 		return a.Diag.Message < b.Diag.Message
 	})
@@ -1224,7 +1242,7 @@ func filterByCode(result *LintResult, codes []string) *LintResult {
 	}
 
 	for _, rd := range result.RichDiagnostics {
-		if codeSet[strings.ToUpper(formatDiagCode(rd.Diag.Code))] {
+		if codeSet[strings.ToUpper(richDiagnosticCode(rd))] {
 			filtered.RichDiagnostics = append(filtered.RichDiagnostics, rd)
 		}
 	}

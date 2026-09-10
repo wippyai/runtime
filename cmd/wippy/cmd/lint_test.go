@@ -4,9 +4,11 @@ package cmd
 
 import (
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
+	"github.com/wippyai/go-lua/compiler/ast"
 	"github.com/wippyai/go-lua/compiler/parse"
 	"github.com/wippyai/go-lua/types/diag"
 	"github.com/wippyai/go-lua/types/io"
@@ -224,6 +226,9 @@ func TestLintOneEntryRendersParseErrors(t *testing.T) {
 	if result.diagnostics[0].Line != 2 {
 		t.Fatalf("parse error line = %d, want 2", result.diagnostics[0].Line)
 	}
+	if result.diagnostics[0].Code != "P0001" {
+		t.Fatalf("parse error code = %q, want P0001", result.diagnostics[0].Code)
+	}
 	if len(result.rich) != 1 {
 		t.Fatalf("parse error must be rendered like every other diagnostic, rich = %d", len(result.rich))
 	}
@@ -231,7 +236,79 @@ func TestLintOneEntryRendersParseErrors(t *testing.T) {
 	if rich.Diag.Severity != diag.SeverityError || rich.Diag.Position.Line != 2 || rich.Source == nil {
 		t.Fatalf("rendered parse error lacks position or source: %+v", rich.Diag)
 	}
-	if !strings.Contains(renderRichDiag(rich, true), "interface") {
-		t.Fatalf("rendered parse error must show the offending line, got %q", renderRichDiag(rich, true))
+	rendered := renderRichDiag(rich, true)
+	hasCode := strings.Contains(rendered, "error[P0001]")
+	hasLocation := strings.Contains(rendered, "app:broken:2:")
+	hasSource := strings.Contains(rendered, "interface")
+	if !hasCode || !hasLocation || !hasSource {
+		t.Fatalf("rendered parse error must show its code, location, and source, got %q", rendered)
+	}
+
+	lintResult := &LintResult{
+		Diagnostics:     result.diagnostics,
+		RichDiagnostics: result.rich,
+		TotalEntries:    1,
+		ErrorCount:      1,
+	}
+	filtered := filterByCode(lintResult, []string{"P0001"})
+	if len(filtered.Diagnostics) != 1 || len(filtered.RichDiagnostics) != 1 || filtered.ErrorCount != 1 {
+		t.Fatalf("P0001 filter dropped parse error: %+v", filtered)
+	}
+	if got := filterByCode(lintResult, []string{"E0000"}); len(got.Diagnostics) != 0 || len(got.RichDiagnostics) != 0 {
+		t.Fatalf("parse error leaked through E0000 filter: %+v", got)
+	}
+}
+
+func TestParseErrorResultUsesSafeFallbackPositions(t *testing.T) {
+	tests := []struct {
+		err         error
+		name        string
+		wantMessage string
+		source      diag.SourceLines
+		wantLine    int
+		wantColumn  int
+	}{
+		{
+			name:        "EOF uses last source line",
+			err:         &parse.Error{Pos: ast.Position{Line: parse.EOF}, Message: "unexpected EOF"},
+			source:      diag.ParseSource("local function broken()\nreturn 1"),
+			wantLine:    2,
+			wantColumn:  1,
+			wantMessage: "unexpected EOF",
+		},
+		{
+			name:        "missing parser column stays one based",
+			err:         &parse.Error{Pos: ast.Position{Line: 2}, Message: "unexpected token"},
+			source:      diag.ParseSource("first\nsecond"),
+			wantLine:    2,
+			wantColumn:  1,
+			wantMessage: "unexpected token",
+		},
+		{
+			name:        "opaque error uses origin",
+			err:         errors.New("parser failed"),
+			source:      nil,
+			wantLine:    1,
+			wantColumn:  1,
+			wantMessage: "parser failed",
+		},
+	}
+
+	id := registry.NewID("app", "broken")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := parseErrorResult(id, tt.err, tt.source)
+			if len(result.diagnostics) != 1 || len(result.rich) != 1 || result.errors != 1 {
+				t.Fatalf("parse error result shape = %+v", result)
+			}
+			got := result.diagnostics[0]
+			if got.Code != parseErrorCode || got.Message != tt.wantMessage ||
+				got.Line != tt.wantLine || got.Column != tt.wantColumn {
+				t.Fatalf("parse error diagnostic = %+v, want %s at %d:%d", got, tt.wantMessage, tt.wantLine, tt.wantColumn)
+			}
+			if richDiagnosticCode(result.rich[0]) != parseErrorCode {
+				t.Fatalf("rich parse code = %q, want %s", richDiagnosticCode(result.rich[0]), parseErrorCode)
+			}
+		})
 	}
 }
