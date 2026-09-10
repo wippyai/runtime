@@ -68,7 +68,7 @@ func TestRunPackEntries_InvalidRequirementFailsNormalizationPipeline(t *testing.
 		},
 	}
 
-	err = runPackEntries(ctx, loader, zap.NewNop(), packEntries, []string{"missing"}, defaultUseCase, "")
+	err = runPackEntries(ctx, loader, zap.NewNop(), packEntries, []string{"missing"}, defaultUseCase, "", "")
 	if err == nil {
 		t.Fatal("expected normalization pipeline error")
 	}
@@ -101,7 +101,7 @@ func TestRunPackEntries_NoEntrypointRunsAsServer(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		done <- runPackEntries(ctx, loader, zap.NewNop(), nil, nil, defaultUseCase, "")
+		done <- runPackEntries(ctx, loader, zap.NewNop(), nil, nil, defaultUseCase, "", "")
 	}()
 
 	select {
@@ -139,7 +139,7 @@ func TestRunPackEntries_TestModeWithoutTestEntrypointErrors(t *testing.T) {
 		_ = embedReg.Close()
 	})
 
-	err = runPackEntries(ctx, loader, zap.NewNop(), nil, nil, "test", "")
+	err = runPackEntries(ctx, loader, zap.NewNop(), nil, nil, "test", "", "")
 	if err == nil {
 		t.Fatal("expected an error when there is no test entrypoint")
 	}
@@ -165,7 +165,7 @@ func TestRunPackEntries_RunModeUnknownCommandErrors(t *testing.T) {
 		_ = embedReg.Close()
 	})
 
-	err = runPackEntries(ctx, loader, zap.NewNop(), nil, []string{"nope"}, defaultUseCase, "")
+	err = runPackEntries(ctx, loader, zap.NewNop(), nil, []string{"nope"}, defaultUseCase, "", "")
 	if err == nil {
 		t.Fatal("expected an error for an unknown command")
 	}
@@ -1442,4 +1442,29 @@ type failingPackRegistry struct {
 
 func (f failingPackRegistry) Register(_ string, _ *wapp.Reader, _ *os.File) error {
 	return f.err
+}
+
+// Explicit host selection must reach execution even when there is no terminal
+// host to auto-detect. A missing selected host must never silently fall back.
+func TestRunPackEntries_ExplicitHostDoesNotFallBack(t *testing.T) {
+	cfgPath := filepath.Join(t.TempDir(), "wippy.yaml")
+	if err := os.WriteFile(cfgPath, []byte("version: \"1.0\"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	setTestConfigFiles(t, cfgPath)
+	ctx, loader, logger, embedReg, err := bootstrapPackRuntime(nil, zap.NewNop())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer embedReg.Close()
+	defer shutdown.Perform(ctx, loader, logger, true)
+	entries := []regapi.Entry{{
+		ID: regapi.NewID("test", "runner"), Kind: "process.lua",
+		Meta: map[string]any{"command": map[string]any{"name": "probe"}},
+		Data: payload.New(map[string]any{"source": "return {main = function() return 0 end}", "method": "main"}),
+	}}
+	err = runPackEntries(ctx, loader, logger, entries, []string{"probe"}, defaultUseCase, "", "test:chosen-host")
+	if err == nil || !strings.Contains(err.Error(), "test:chosen-host") {
+		t.Fatalf("expected selected host failure, got %v", err)
+	}
 }
