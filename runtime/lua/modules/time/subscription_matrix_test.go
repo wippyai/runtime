@@ -74,13 +74,7 @@ func TestTimeSubscriptionLifecycleProofMatrix(t *testing.T) {
 		if result == nil || result.Error != nil {
 			t.Fatalf("discard-before-fire script failed: %v", resultErr(result))
 		}
-		if got := sched.clock.TimerCount(); got != 0 {
-			t.Errorf("dispatcher leaked %d timers after discard-before-fire", got)
-		}
-		timers, _ := sched.clock.ReverseMapSize()
-		if timers != 0 {
-			t.Errorf("dispatcher timer reverse map = %d, want 0", timers)
-		}
+		waitTimerCleanup(t, sched)
 	})
 
 	// case13 ticker-never-stopped (->0 on process drain): a ticker is
@@ -179,10 +173,25 @@ func TestTimeSubscriptionLifecycleProofMatrix(t *testing.T) {
 		if result == nil || result.Error != nil {
 			t.Fatalf("losing-select script failed: %v", resultErr(result))
 		}
-		if got := sched.clock.TimerCount(); got != 0 {
-			t.Errorf("dispatcher leaked %d timers after losing select", got)
-		}
+		waitTimerCleanup(t, sched)
 	})
+}
+
+func waitTimerCleanup(t *testing.T, sched *testScheduler) {
+	t.Helper()
+	// Timer delivery can complete the process before its deferred cleanup runs.
+	deadline := stdtime.Now().Add(stdtime.Second)
+	for {
+		timers := sched.clock.TimerCount()
+		reverse, _ := sched.clock.ReverseMapSize()
+		if timers == 0 && reverse == 0 {
+			return
+		}
+		if stdtime.Now().After(deadline) {
+			t.Fatalf("timer cleanup incomplete: timers=%d reverse=%d, want both zero", timers, reverse)
+		}
+		stdtime.Sleep(stdtime.Millisecond)
+	}
 }
 
 func waitTickerCount(t *testing.T, sched *testScheduler, want int) {
