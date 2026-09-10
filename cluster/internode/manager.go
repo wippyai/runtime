@@ -311,10 +311,18 @@ type ContextConnectionManager interface {
 }
 
 func (m *manager) SendToNodeContext(ctx context.Context, nodeID cluster.NodeID, data []byte, class Class) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if m.ctx != nil {
 		if err := m.ctx.Err(); err != nil {
 			return err
 		}
+		admissionCtx, cancel := context.WithCancel(ctx)
+		stop := context.AfterFunc(m.ctx, cancel)
+		defer stop()
+		defer cancel()
+		ctx = admissionCtx
 	}
 	// Unlike legacy best-effort SendToNode, never report success for an
 	// unmanaged destination. The caller must know admission did not occur.

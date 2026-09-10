@@ -56,6 +56,53 @@ func TestContextManagerDoesNotHideUnmanagedDestination(t *testing.T) {
 	}
 }
 
+func TestContextQueueManagerShutdownCancelsAdmission(t *testing.T) {
+	states := setupStateManager()
+	states.CreateNodeState("peer")
+	state := states.GetNodeState("peer")
+	state.queueMu.Lock()
+	defer state.queueMu.Unlock()
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	m := &manager{ctx: ctx, nodeStates: states}
+	caller, cancelCaller := context.WithCancel(t.Context())
+	defer cancelCaller()
+	done := make(chan error, 1)
+	go func() { done <- m.SendToNodeContext(caller, "peer", []byte("rejected"), ClassRaftRPC) }()
+	require.Eventually(t, func() bool { return state.queueMu.waiting.Load() != nil }, time.Second, time.Millisecond)
+	cancel()
+	select {
+	case err := <-done:
+		require.ErrorIs(t, err, context.Canceled)
+	case <-time.After(time.Second):
+		t.Fatal("manager shutdown did not cancel queue admission")
+	}
+	require.Zero(t, state.queues[ClassRaftRPC].len())
+}
+
+func TestContextQueueRejectsReplacedPeerGeneration(t *testing.T) {
+	states := setupStateManager()
+	states.CreateNodeState("peer")
+	state := states.GetNodeState("peer")
+	state.queueMu.Lock()
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- states.QueueMessageClassContext(ctx, "peer", []byte("old"), ClassRaftRPC) }()
+	require.Eventually(t, func() bool { return state.queueMu.waiting.Load() != nil }, time.Second, time.Millisecond)
+	require.Same(t, state, states.detachNodeState("peer"))
+	states.CreateNodeState("peer")
+	state.queueMu.Unlock()
+	select {
+	case err := <-done:
+		require.ErrorIs(t, err, ErrNodeNotManaged)
+	case <-time.After(time.Second):
+		t.Fatal("queue admission did not finish after peer replacement")
+	}
+	require.Zero(t, state.queues[ClassRaftRPC].len())
+	require.Empty(t, drainAllData(states, "peer"))
+}
+
 func TestInternodeContextFailureLeavesPackageWithCaller(t *testing.T) {
 	for _, failure := range []string{"canceled", "unmanaged", "encode"} {
 		t.Run(failure, func(t *testing.T) {
