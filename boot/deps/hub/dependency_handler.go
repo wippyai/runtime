@@ -1641,7 +1641,10 @@ func (h *DependencyHandler) refreshReplacementModuleIdentities(modules []Resolve
 		}
 		digest, size, err := digestReplacementTree(replacement)
 		if err != nil {
-			return NewDependencyIntegrityError(modKey(*mod), err, mod.Digest, mod.SizeBytes)
+			return apierror.New(apierror.Invalid, fmt.Sprintf("load local replacement %s from %q", modKey(*mod), replacement)).
+				WithDetails(attrs.NewBagFrom(map[string]any{"module": modKey(*mod), "path": replacement})).
+				WithCause(err).
+				WithRetryable(apierror.False)
 		}
 		mod.Digest = digest
 		mod.Source = moduleSourceReplacementTreeV1

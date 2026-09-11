@@ -329,7 +329,7 @@ func (c *Controller) supervise() {
 						// for an independent bounded Stop.
 						c.state.setDesiredStatus(supervisor.StatusStopped)
 						err = op.ctx.Err()
-						c.updateState(supervisor.StatusStopped, err)
+						c.updateState(supervisor.StatusFailed, err)
 						respondAndCancel(err)
 						break
 					}
@@ -451,6 +451,8 @@ func (e *controllerStopBoundError) Error() string { return e.cause.Error() }
 func (e *controllerStopBoundError) Unwrap() error { return e.cause }
 
 func boundControllerStopContext(parent, bound context.Context) (context.Context, context.CancelFunc) {
+	// Cleanup retains service values but is bounded independently of its run.
+	parent = context.WithoutCancel(parent)
 	deadlineCtx := parent
 	cancelDeadline := func() {}
 	if deadline, ok := bound.Deadline(); ok {
