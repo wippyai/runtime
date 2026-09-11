@@ -6,7 +6,7 @@ go 1.27
 
 require (
 	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.12-20260825204119-511051f7f437.2
-	connectrpc.com/connect v1.20.0
+	connectrpc.com/connect v1.21.0
 	github.com/CloudyKit/jet/v6 v6.3.2
 	github.com/Masterminds/semver/v3 v3.5.0
 	github.com/Masterminds/squirrel v1.5.4
@@ -50,6 +50,7 @@ require (
 	github.com/microcosm-cc/bluemonday v1.0.27
 	github.com/moby/moby/api v1.56.0
 	github.com/moby/moby/client v0.6.0
+	github.com/muesli/cancelreader v0.2.2
 	github.com/muesli/termenv v0.16.0
 	github.com/prometheus/client_golang v1.24.1
 	github.com/rabbitmq/amqp091-go v1.14.0
@@ -187,7 +188,6 @@ require (
 	github.com/miekg/dns v1.1.72 // indirect
 	github.com/mitchellh/go-ps v1.0.0 // indirect
 	github.com/moby/docker-image-spec v1.3.1 // indirect
-	github.com/muesli/cancelreader v0.2.2 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/nexus-rpc/nexus-proto-annotations v0.1.1-0.20260629224316-835bd8d49cb4 // indirect
 	github.com/nexus-rpc/sdk-go v0.7.0 // indirect
