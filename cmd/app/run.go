@@ -11,6 +11,8 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
+	"strings"
 
 	"github.com/wippyai/runtime/api/boot"
 	"github.com/wippyai/runtime/cmd/wippy/cmd"
@@ -98,10 +100,10 @@ func Run(ctx context.Context, options Options, args []string) error {
 }
 
 func runApplication(ctx context.Context, options Options, stateDir string, base bool, command string, remaining []string, owner OwnerOptions) (result error) {
-	if err := os.MkdirAll(stateDir, 0o700); err != nil {
+	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := ctx.Err(); err != nil {
+	if err := os.MkdirAll(stateDir, 0o700); err != nil {
 		return err
 	}
 	unlock, err := lockApplication(stateDir)
@@ -190,12 +192,20 @@ func runApplication(ctx context.Context, options Options, stateDir string, base 
 }
 
 func configureDataEnvironment(state string, variables map[string]string) error {
-	for name, relative := range variables {
-		if !environmentName.MatchString(name) || !filepath.IsLocal(relative) {
+	names := make([]string, 0, len(variables))
+	for name := range variables {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		relative := variables[name]
+		if !environmentName.MatchString(name) || !filepath.IsLocal(relative) || strings.ContainsRune(relative, 0) {
 			return fmt.Errorf("invalid application data environment binding %q", name)
 		}
+	}
+	for _, name := range names {
 		if _, exists := os.LookupEnv(name); !exists {
-			if err := os.Setenv(name, filepath.Join(state, relative)); err != nil {
+			if err := os.Setenv(name, filepath.Join(state, variables[name])); err != nil {
 				return err
 			}
 		}
