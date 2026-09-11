@@ -42,7 +42,7 @@ require (
 	github.com/hashicorp/raft-boltdb/v2 v2.3.1
 	github.com/hashicorp/raft-wal v0.4.2
 	github.com/jackc/pglogrepl v0.0.0-20260401131349-e37c41485510
-	github.com/jackc/pgx/v5 v5.10.0
+	github.com/jackc/pgx/v5 v5.11.0
 	github.com/kaptinlin/jsonschema v0.9.9
 	github.com/klauspost/compress v1.20.0
 	github.com/lib/pq v1.12.3
