@@ -50,9 +50,15 @@ func runSearch(cmd *cobra.Command, args []string) error {
 	if registryURL == "" {
 		registryURL = store.DefaultRegistry()
 	}
+	cred, _ := store.Get(registryURL)
+	var token string
+	if cred != nil {
+		token = cred.Token
+	}
 
 	client, err := hub.NewClient(hub.Options{
 		BaseURL: registryURL,
+		Token:   token,
 	})
 	if err != nil {
 		return NewSearchClientError(registryURL, err)
