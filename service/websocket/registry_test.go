@@ -179,6 +179,7 @@ func TestRegistryResourceCleanup(t *testing.T) {
 
 func TestRegistryReadLoop(t *testing.T) {
 	const numMessages = 3
+	ready := make(chan struct{})
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, err := websocket.Accept(w, r, nil)
 		if err != nil {
@@ -186,6 +187,13 @@ func TestRegistryReadLoop(t *testing.T) {
 		}
 		defer func() { _ = conn.CloseNow() }()
 
+		select {
+		case <-ready:
+		case <-r.Context().Done():
+			return
+		case <-time.After(5 * time.Second):
+			return
+		}
 		for i := 0; i < numMessages; i++ {
 			_ = conn.Write(r.Context(), websocket.MessageText, []byte("msg"))
 		}
@@ -208,10 +216,26 @@ func TestRegistryReadLoop(t *testing.T) {
 	r := NewRegistry(store.Table(), nil)
 	id := r.Register(ctx, conn, 16, 0)
 
-	msgCh, _ := r.GetMessageChan(id)
-
+	msgCh, err := r.GetMessageChan(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	close(ready)
+	deadline := time.NewTimer(5 * time.Second)
+	defer deadline.Stop()
 	var received int
-	for msg := range msgCh {
+readMessages:
+	for {
+		var msg wsapi.Message
+		var ok bool
+		select {
+		case msg, ok = <-msgCh:
+			if !ok {
+				break readMessages
+			}
+		case <-deadline.C:
+			t.Fatal("timed out receiving websocket messages")
+		}
 		if msg.EOF {
 			break
 		}
@@ -224,6 +248,7 @@ func TestRegistryReadLoop(t *testing.T) {
 }
 
 func TestRegistryReadLoopBinary(t *testing.T) {
+	ready := make(chan struct{})
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, err := websocket.Accept(w, r, nil)
 		if err != nil {
@@ -231,6 +256,13 @@ func TestRegistryReadLoopBinary(t *testing.T) {
 		}
 		defer func() { _ = conn.CloseNow() }()
 
+		select {
+		case <-ready:
+		case <-r.Context().Done():
+			return
+		case <-time.After(5 * time.Second):
+			return
+		}
 		_ = conn.Write(r.Context(), websocket.MessageBinary, []byte{0x01, 0x02})
 		_ = conn.Close(websocket.StatusNormalClosure, "done")
 	}))
@@ -251,8 +283,17 @@ func TestRegistryReadLoopBinary(t *testing.T) {
 	r := NewRegistry(store.Table(), nil)
 	id := r.Register(ctx, conn, 16, 0)
 
-	msgCh, _ := r.GetMessageChan(id)
-	msg := <-msgCh
+	msgCh, err := r.GetMessageChan(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	close(ready)
+	var msg wsapi.Message
+	select {
+	case msg = <-msgCh:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out receiving binary websocket message")
+	}
 
 	if msg.MessageType != wsapi.MessageBinary {
 		t.Errorf("expected binary, got %d", msg.MessageType)
