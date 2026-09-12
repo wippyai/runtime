@@ -15,81 +15,22 @@ import (
 )
 
 func TestTopology_RemoteMonitoring(t *testing.T) {
-	router := newMockUpstream()
-	topo := NewTopology(router, "local")
-
-	localPID := pid.PID{Node: "local", Host: "host1", UniqID: "1"}
-	localPID.Precomputed()
-	remotePID := pid.PID{Node: "remote", Host: "host2", UniqID: "2"}
-	remotePID.Precomputed()
-
-	// Register local caller for remote monitoring tests
-	_ = topo.Register(localPID)
-
-	t.Run("Wait on remote node sends MonitorRequest", func(t *testing.T) {
-		router.reset()
-
-		err := topo.Monitor(localPID, remotePID)
-		require.NoError(t, err)
-
-		pkgs := router.getSends(remotePID)
-		require.Len(t, pkgs, 1, "should send MonitorRequest package")
-
-		assert.Equal(t, remotePID, pkgs[0].Target)
-
-		var monitorReq *topology.MonitorRequestEvent
-		for _, msg := range pkgs[0].Messages {
-			for _, p := range msg.Payloads {
-				if req, ok := p.Data().(*topology.MonitorRequestEvent); ok {
-					monitorReq = req
-					break
-				}
-			}
-		}
-
-		require.NotNil(t, monitorReq, "package should contain MonitorRequestEvent")
-		assert.Equal(t, topology.MonitorRequest, monitorReq.Kind)
-		assert.Equal(t, localPID, monitorReq.Caller)
-		assert.Equal(t, remotePID, monitorReq.Target)
-	})
-
-	t.Run("Release on remote node sends MonitorRelease", func(t *testing.T) {
-		router.reset()
-
-		err := topo.Demonitor(localPID, remotePID)
-		require.NoError(t, err)
-
-		pkgs := router.getSends(remotePID)
-		require.Len(t, pkgs, 1, "should send MonitorRelease package")
-
-		var releaseReq *topology.MonitorReleaseEvent
-		for _, msg := range pkgs[0].Messages {
-			for _, p := range msg.Payloads {
-				if req, ok := p.Data().(*topology.MonitorReleaseEvent); ok {
-					releaseReq = req
-					break
-				}
-			}
-		}
-
-		require.NotNil(t, releaseReq, "package should contain MonitorReleaseEvent")
-		assert.Equal(t, topology.MonitorRelease, releaseReq.Kind)
-		assert.Equal(t, localPID, releaseReq.Caller)
-		assert.Equal(t, remotePID, releaseReq.Target)
-	})
-
-	t.Run("Wait on local node does not use router", func(t *testing.T) {
-		router.reset()
-
-		// localPID already registered above
-		localPID2 := pid.PID{Node: "local", Host: "host2", UniqID: "2"}
-		localPID2.Precomputed()
-		err := topo.Monitor(localPID2, localPID)
-		require.NoError(t, err)
-
-		pkgs := router.getSends(localPID)
-		assert.Len(t, pkgs, 0, "should not send package for local monitoring")
-	})
+	f := newMonitorSenderFixture(t)
+	require.NoError(t, f.local.Monitor(f.caller, f.target))
+	require.Len(t, f.controls, 1)
+	request := f.controls[0]
+	assert.Equal(t, topology.MonitorRequest, request.kind)
+	assert.True(t, request.caller.Equal(f.caller))
+	assert.True(t, request.target.Equal(f.target))
+	require.NoError(t, f.local.Demonitor(f.caller, f.target))
+	require.Len(t, f.controls, 2)
+	release := f.controls[1]
+	assert.Equal(t, topology.MonitorRelease, release.kind)
+	assert.Equal(t, request.reference, release.reference)
+	localTarget := pid.PID{Node: f.caller.Node, Host: "process", UniqID: "local"}
+	require.NoError(t, f.local.Register(localTarget))
+	require.NoError(t, f.local.Monitor(f.caller, localTarget))
+	require.Len(t, f.controls, 2, "local monitoring must not use mesh")
 }
 
 func TestTopology_RemoteLinking(t *testing.T) {
@@ -201,6 +142,7 @@ func TestTopology_RemoteLinking(t *testing.T) {
 func TestTopology_WatcherDeathSendsMonitorRelease(t *testing.T) {
 	router := newMockUpstream()
 	topo := NewTopology(router, "local")
+	startFixtureMonitorNetwork(t, topo)
 
 	localPID := pid.PID{Node: "local", Host: "host1", UniqID: "1"}
 	localPID.Precomputed()
@@ -224,20 +166,13 @@ func TestTopology_WatcherDeathSendsMonitorRelease(t *testing.T) {
 		pkgs := router.getSends(remotePID)
 		require.Len(t, pkgs, 1, "should send MonitorRelease package to remote target")
 
-		var releaseReq *topology.MonitorReleaseEvent
-		for _, msg := range pkgs[0].Messages {
-			for _, p := range msg.Payloads {
-				if req, ok := p.Data().(*topology.MonitorReleaseEvent); ok {
-					releaseReq = req
-					break
-				}
-			}
-		}
+		fields, ok := pkgs[0].Messages[0].Payloads[0].Data().(map[string]any)
+		require.True(t, ok)
+		assert.Equal(t, topology.MonitorRelease, fields["kind"])
+		assert.True(t, fields["caller"].(pid.PID).Equal(localPID))
+		assert.True(t, fields["target"].(pid.PID).Equal(remotePID))
+		assert.NotEmpty(t, fields["ref"])
 
-		require.NotNil(t, releaseReq, "package should contain MonitorReleaseEvent")
-		assert.Equal(t, topology.MonitorRelease, releaseReq.Kind)
-		assert.Equal(t, localPID, releaseReq.Caller)
-		assert.Equal(t, remotePID, releaseReq.Target)
 	})
 
 	t.Run("Complete does not send MonitorRelease for local targets", func(t *testing.T) {
@@ -494,6 +429,7 @@ func TestTopology_RemoteMonitoringWithNotification(t *testing.T) {
 func TestTopology_HandleNodeExit(t *testing.T) {
 	router := newMockUpstream()
 	topo := NewTopology(router, "local")
+	startFixtureMonitorNetwork(t, topo)
 
 	localPID1 := pid.PID{Node: "local", Host: "host1", UniqID: "p1"}
 	localPID1.Precomputed()
@@ -601,6 +537,7 @@ func TestTopology_HandleNodeExit(t *testing.T) {
 	t.Run("HandleNodeExit removes registered remote PIDs from topology", func(t *testing.T) {
 		router.reset()
 		topo2 := NewTopology(router, "local")
+		startFixtureMonitorNetwork(t, topo2)
 
 		// Register a "remote" PID (simulating a remote process registered via handleMonitorRequest)
 		remotePID := pid.PID{Node: "dying-node", Host: "h", UniqID: "r1"}
@@ -638,6 +575,7 @@ func TestTopology_HandleNodeExit(t *testing.T) {
 	t.Run("HandleNodeExit cleans up links in remaining processes", func(t *testing.T) {
 		router.reset()
 		topo2 := NewTopology(router, "local")
+		startFixtureMonitorNetwork(t, topo2)
 
 		localPID := pid.PID{Node: "local", Host: "h", UniqID: "l1"}
 		localPID.Precomputed()
@@ -668,6 +606,7 @@ func TestTopology_HandleNodeExit(t *testing.T) {
 	t.Run("HandleNodeExit cleans up watchers when remote watcher dies", func(t *testing.T) {
 		router.reset()
 		topo2 := NewTopology(router, "local")
+		startFixtureMonitorNetwork(t, topo2)
 
 		localPID := pid.PID{Node: "local", Host: "h", UniqID: "l1"}
 		localPID.Precomputed()
@@ -697,6 +636,7 @@ func TestTopology_HandleNodeExit(t *testing.T) {
 	t.Run("HandleNodeExit with multiple processes watching same remote", func(t *testing.T) {
 		router.reset()
 		topo2 := NewTopology(router, "local")
+		startFixtureMonitorNetwork(t, topo2)
 
 		local1 := pid.PID{Node: "local", Host: "h1", UniqID: "l1"}
 		local1.Precomputed()
@@ -730,6 +670,7 @@ func TestTopology_HandleNodeExit(t *testing.T) {
 	t.Run("HandleNodeExit with empty node is no-op", func(t *testing.T) {
 		router.reset()
 		topo2 := NewTopology(router, "local")
+		startFixtureMonitorNetwork(t, topo2)
 
 		// Just call with unknown node - should not panic
 		topo2.HandleNodeExit("unknown-node", errors.New("died"))

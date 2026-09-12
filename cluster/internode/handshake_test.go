@@ -67,12 +67,15 @@ func TestHandshake_Authenticated(t *testing.T) {
 		serverKey        string
 		clientSigningKey ed25519.PrivateKey
 		authorizePeer    bool
+		acceptanceMode   string
 		wantError        bool
 	}{
 		{name: "matching identity", clientKey: "shared-secret", serverKey: "shared-secret", clientSigningKey: clientSigningKey, authorizePeer: true},
 		{name: "wrong client key", clientKey: "attacker-secret", serverKey: "shared-secret", clientSigningKey: clientSigningKey, authorizePeer: true, wantError: true},
 		{name: "forged client identity", clientKey: "shared-secret", serverKey: "shared-secret", clientSigningKey: attackerSigningKey, authorizePeer: true, wantError: true},
 		{name: "unauthorized peer", clientKey: "shared-secret", serverKey: "shared-secret", clientSigningKey: clientSigningKey, wantError: true},
+		{name: "corrupted acceptance", clientKey: "shared-secret", serverKey: "shared-secret", clientSigningKey: clientSigningKey, authorizePeer: true, acceptanceMode: "corrupt", wantError: true},
+		{name: "server proof is not acceptance", clientKey: "shared-secret", serverKey: "shared-secret", clientSigningKey: clientSigningKey, authorizePeer: true, acceptanceMode: "replay", wantError: true},
 	}
 
 	for _, tt := range tests {
@@ -95,6 +98,10 @@ func TestHandshake_Authenticated(t *testing.T) {
 				return tt.authorizePeer && id == "node-A"
 			}
 			serverConn, clientConn := net.Pipe()
+			var serverWire net.Conn = serverConn
+			if tt.acceptanceMode != "" {
+				serverWire = &handshakeAcceptanceMutation{Conn: serverConn, mode: tt.acceptanceMode}
+			}
 			clientErrors := make(chan error, 1)
 			serverErrors := make(chan error, 1)
 
@@ -106,7 +113,7 @@ func TestHandshake_Authenticated(t *testing.T) {
 				clientErrors <- err
 			}()
 			go func() {
-				nodeConn, err := PerformServerHandshake(serverConn, serverCfg, zap.NewNop(), "node-B")
+				nodeConn, err := PerformServerHandshake(serverWire, serverCfg, zap.NewNop(), "node-B")
 				if nodeConn != nil {
 					_ = nodeConn.conn.Close()
 				}
@@ -116,7 +123,12 @@ func TestHandshake_Authenticated(t *testing.T) {
 			clientErr := <-clientErrors
 			serverErr := <-serverErrors
 			if tt.wantError {
-				require.Error(t, errors.Join(clientErr, serverErr))
+				require.Error(t, clientErr, "outbound handshake must not succeed before server admission")
+				if tt.acceptanceMode != "" {
+					require.NoError(t, serverErr)
+				} else {
+					require.Error(t, serverErr)
+				}
 				return
 			}
 			require.NoError(t, clientErr)
@@ -167,4 +179,28 @@ func TestHandshake_Client_UnexpectedRemoteID(t *testing.T) {
 	// The server should succeed - it completed its handshake correctly
 	// Server doesn't know what the client expected
 	require.NoError(t, serverErr)
+}
+
+// Mutate only the final server signature, after a valid identity proof. This
+// proves that identity authentication cannot be replayed as admission acceptance.
+type handshakeAcceptanceMutation struct {
+	net.Conn
+	mode  string
+	proof []byte
+}
+
+func (c *handshakeAcceptanceMutation) Write(data []byte) (int, error) {
+	if len(data) == ed25519.SignatureSize {
+		if c.proof == nil {
+			c.proof = append([]byte(nil), data...)
+		} else {
+			data = append([]byte(nil), data...)
+			if c.mode == "replay" {
+				copy(data, c.proof)
+			} else {
+				data[0] ^= 1
+			}
+		}
+	}
+	return c.Conn.Write(data)
 }

@@ -75,18 +75,36 @@ type (
 
 	// Package combines source, target and messages for delivery.
 	Package struct {
-		Source   pid.PID
-		Target   pid.PID
-		Messages []*Message
+		// ReceivedFrom is the immediate connection peer stamped by native
+		// internode delivery. It is local metadata, never a wire field. A
+		// claimed Source may differ (for example during forwarding).
+		// Authentication depends on the transport's configured policy; this
+		// field alone proves neither process ownership nor proxy authority.
+		ReceivedFrom pid.NodeID `codec:"-" json:"-"`
+		Source       pid.PID
+		Target       pid.PID
+		Messages     []*Message
 	}
 
-	// PeerInfo contains metadata about a peer node.
+	// PeerInfo identifies one local peer registration lifetime.
+	// Publish the same *PeerInfo as Data in PeerRegister and PeerDelete.
+	// Allocate a fresh object for each registration, even for the same receiver,
+	// and do not copy it or mutate its metadata after publication. A delete is never address-only.
 	// Peer nodes are external receivers (e.g., Temporal) registered at runtime.
 	PeerInfo struct {
+		retired  atomic.Bool
 		Receiver Receiver
 		NodeID   pid.NodeID
 	}
 )
+
+// Retire permanently closes this registration lifetime. It also fences a register
+// event still queued when its corresponding delete is processed. This is local
+// event ownership state, not a remote process-death assertion.
+func (p *PeerInfo) Retire() { p.retired.Store(true) }
+
+// Retired reports whether this registration lifetime has ended.
+func (p *PeerInfo) Retired() bool { return p.retired.Load() }
 
 // SetRetentionLease attaches a bounded-retention ownership token to m.
 //
@@ -146,10 +164,40 @@ type (
 	// OwnedHostRegistrar is an optional native composition capability. Its release
 	// removes only the registration it created, never a later replacement, and
 	// is safe to call repeatedly. Failure returns no release authority.
-	// Release does not cancel or drain calls already dispatched to the receiver.
+	// Release does not drain ordinary calls already dispatched to the receiver.
+	// Implementations offering LocalBinder may cancel bound admission and reserve
+	// the address until those calls return, preventing reuse during admission.
 	// Registration is routing configuration, not remote operation authorization.
 	OwnedHostRegistrar interface {
 		RegisterOwnedHost(pid.HostID, Receiver) (context.CancelFunc, error)
+	}
+
+	// PeerBinding identifies one local virtual-peer registration. It is native
+	// routing provenance, not a physical network ingress identity. Current is
+	// an observation of registration state, not a lifetime pin or death proof.
+	PeerBinding interface {
+		Receiver() Receiver
+		Current() bool
+		// WithReceiver holds this exact registration through call. Retirement
+		// cancels its context and prevents address reuse until call returns.
+		// The callback must honor cancellation and must not retain the supplied
+		// context as authority for later work; later calls need fresh admission.
+		// Already admitted work may finish; retirement is not process death.
+		WithReceiver(context.Context, func(context.Context, Receiver) error) error
+	}
+
+	// LocalPeerResolver resolves only explicitly registered local providers;
+	// physical internode fallback is never returned by this capability.
+	LocalPeerResolver interface {
+		LookupLocalPeer(pid.NodeID) (PeerBinding, bool)
+	}
+
+	// OwnedPeerRegistrar removes only its own registration, even if a receiver
+	// is later registered again at the same address. Release does not join calls
+	// already dispatched by ordinary Send; receiver lifecycle owns their drain.
+	// WithReceiver admission is canceled and reserves the address until it returns.
+	OwnedPeerRegistrar interface {
+		RegisterOwnedPeer(pid.NodeID, Receiver) (context.CancelFunc, error)
 	}
 
 	// Node represents a messaging node that hosts and routes messages.

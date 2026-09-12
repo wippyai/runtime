@@ -4,6 +4,7 @@ package topology
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"sync/atomic"
 
@@ -15,6 +16,7 @@ import (
 // PIDRegistry provides Erlang-style name registration for PIDs.
 // It is optimized for concurrent access.
 type PIDRegistry struct {
+	nameGuard   *topology.NameGuard
 	parent      topology.PIDRegistry
 	globalReg   atomic.Value // stores topology.GlobalRegistry
 	eventualReg atomic.Value // stores topology.EventualRegistry
@@ -31,6 +33,11 @@ type pidNames struct {
 
 // Option configures a PIDRegistry.
 type Option func(*PIDRegistry)
+
+// WithNameGuard shares admission with the node's other naming scopes.
+func WithNameGuard(guard *topology.NameGuard) Option {
+	return func(r *PIDRegistry) { r.nameGuard = guard }
+}
 
 // WithParent sets a parent registry for fallback lookups.
 func WithParent(parent topology.PIDRegistry) Option {
@@ -113,6 +120,11 @@ func NewPIDRegistry(opts ...Option) *PIDRegistry {
 // If a global registry is configured, local registration is rejected when
 // the name already exists globally (prevents local shadowing of global names).
 func (r *PIDRegistry) Register(name string, p pid.PID) (pid.PID, error) {
+	release, err := r.nameGuard.LockContext(context.Background(), name)
+	if err != nil {
+		return p, err
+	}
+	defer release()
 	// Check global registry first to prevent local shadowing of global names.
 	// A held Strong reservation (a pending the node acked, awaiting promotion)
 	// also blocks a conflicting local bind so the name cannot be granted to a
@@ -330,7 +342,14 @@ func (r *PIDRegistry) Remove(p pid.PID) {
 	pn.mu.Unlock()
 
 	for _, name := range names {
-		r.nameToID.Delete(name)
+		// The reverse index may outlive an unregister/reassignment. Compare
+		// semantic identity first (PID can cache its string), then atomically
+		// delete the exact observed value so a newer owner survives cleanup.
+		if current, ok := r.nameToID.Load(name); ok {
+			if owner, ok := current.(pid.PID); ok && owner.Equal(p) {
+				r.nameToID.CompareAndDelete(name, current)
+			}
+		}
 	}
 
 	r.logger.Debug("removed PID from registry",
@@ -344,3 +363,21 @@ func (r *PIDRegistry) Remove(p pid.PID) {
 
 // Ensure Registry implements the operation.Registry interface
 var _ topology.PIDRegistry = (*PIDRegistry)(nil)
+
+// WithdrawLocal permanently closes shared name admission and removes this
+// registry's local bindings. Parent/global/eventual registries are untouched.
+// This does not stop processes or revoke PIDs already resolved by callers.
+func (r *PIDRegistry) WithdrawLocal(ctx context.Context) error {
+	if ctx == nil || r.nameGuard == nil {
+		return errors.New("local withdrawal requires a context and shared name guard")
+	}
+	if err := r.nameGuard.Close(ctx); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	r.nameToID.Clear()
+	r.idToName.Clear()
+	return nil
+}

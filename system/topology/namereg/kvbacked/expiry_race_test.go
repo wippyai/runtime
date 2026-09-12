@@ -3,6 +3,7 @@
 package kvbacked
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -44,12 +45,9 @@ func TestExpiryValidatesVotesAtCommit(t *testing.T) {
 			t.Cleanup(func() { r.strong.stopTimer("claim") })
 			owner := mkPID("node-1", "owner")
 			hdr := pendingHeader{PID: owner.String(), Name: "claim", RequiredNodes: []pid.NodeID{"node-1", "peer"}, DeadlineUnixNano: time.Now().Add(-time.Second).UnixNano()}
-			value, err := encode(hdr)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if _, err := r.engine.Set(pendingKey("claim"), value); err != nil {
-				t.Fatal(err)
+			hdr.AttemptID = "expiry-race"
+			if committed, err := r.strong.createPending(context.Background(), hdr); err != nil || !committed {
+				t.Fatalf("admission failed: %v", err)
 			}
 			pe, err := r.engine.Get(pendingKey("claim"))
 			if err != nil {
@@ -76,7 +74,11 @@ func TestExpiryValidatesVotesAtCommit(t *testing.T) {
 
 			r.strong.reconcile("claim")
 			if reject {
-				reason, _, _ := r.strong.takeTerminal("claim")
+				_, result, err := readStrongOutcome(base.Get, hdr.AttemptID, "claim", owner.String(), r.strong.resultPolicy.RecordBytes)
+				if err != nil {
+					t.Fatal(err)
+				}
+				reason := result.Reason
 				if reason != strongRejectConflict {
 					t.Fatalf("committed rejection became timeout: %q", reason)
 				}

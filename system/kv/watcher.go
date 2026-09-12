@@ -15,6 +15,7 @@ type watcher struct {
 	ctx    context.Context
 	bus    event.Bus
 	events chan kvapi.WatchEvent
+	done   chan struct{}
 	cancel context.CancelFunc
 	subID  event.SubscriberID
 }
@@ -40,6 +41,7 @@ func newWatcher(ctx context.Context, bus event.Bus, system event.System, prefix 
 
 	w := &watcher{
 		events: watchCh,
+		done:   make(chan struct{}),
 		cancel: cancel,
 		subID:  subID,
 		bus:    bus,
@@ -53,6 +55,7 @@ func newWatcher(ctx context.Context, bus event.Bus, system event.System, prefix 
 // deliver reads from the event bus channel, filters by prefix, and forwards
 // to the watcher's output channel.
 func (w *watcher) deliver(source <-chan event.Event, prefix string) {
+	defer close(w.done)
 	defer close(w.events)
 	for {
 		select {
@@ -91,6 +94,8 @@ func (w *watcher) Events() <-chan kvapi.WatchEvent {
 func (w *watcher) Close() error {
 	w.cancel()
 	w.bus.Unsubscribe(context.Background(), w.subID)
+	// Unsubscription joins the bus sender; also join our output delivery.
+	<-w.done
 	return nil
 }
 

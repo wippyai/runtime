@@ -1,0 +1,126 @@
+// SPDX-License-Identifier: MPL-2.0
+package kvbacked
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/pid"
+	kvapi "github.com/wippyai/runtime/api/store/kv"
+	globalapi "github.com/wippyai/runtime/api/topology/namereg/global"
+)
+
+type terminalCommitObserver struct {
+	kvapi.Engine
+	after func()
+}
+
+func (e *terminalCommitObserver) Txn(ops []kvapi.TxnOp) (bool, error) {
+	committed, err := e.Engine.Txn(ops)
+	if committed && err == nil && e.after != nil {
+		for _, op := range ops {
+			if op.Kind == kvapi.TxnDelete && op.Key == pendingKey("claim") {
+				observe := e.after
+				e.after = nil
+				observe() // model a watch processing committed deletion before Txn returns
+				break
+			}
+		}
+	}
+	return committed, err
+}
+
+func TestResearchStrongTerminalDetailPublishedWithDecision(t *testing.T) {
+	r := newStrongReg(t, []pid.NodeID{"node-1", "missing-peer"}, time.Second, nil)
+	owner := mkPID("node-1", "owner")
+	hdr := pendingHeader{Name: "claim", PID: owner.String(), NodeID: owner.Node, RequiredNodes: []pid.NodeID{"missing-peer"}, DeadlineUnixNano: time.Now().Add(-time.Second).UnixNano()}
+	value, err := encode(hdr)
+	require.NoError(t, err)
+	_, err = r.engine.Set(pendingKey("claim"), value)
+	require.NoError(t, err)
+	entry, err := r.engine.Get(pendingKey("claim"))
+	require.NoError(t, err)
+	waiter := &strongWaiter{epoch: entry.Epoch, ch: make(chan globalapi.RegisterOutcome, 1)}
+	r.strong.addWaiter("claim", waiter)
+	defer r.strong.removeWaiter("claim", waiter)
+	var resultErr error
+	delivered := false
+	r.engine = &terminalCommitObserver{Engine: r.engine, after: func() {
+		r.strong.onTerminal("claim", r.strong.observeTerminal("claim"), entry.Epoch)
+		select {
+		case outcome := <-waiter.ch:
+			delivered = true
+			_, resultErr = r.strong.finalize("claim", owner, outcome)
+		default:
+			t.Error("committed deletion did not notify existing waiter")
+		}
+	}}
+	r.strong.leaderExpire("claim", entry.Epoch, entry.Version, hdr, "deadline")
+	require.True(t, delivered)
+	var timeout *globalapi.StrongRegistrationTimeoutError
+	require.ErrorAs(t, resultErr, &timeout)
+	require.Equal(t, entry.Epoch, timeout.Epoch, "result must identify the committed attempt")
+	require.Contains(t, timeout.MissingAcks, "missing-peer", "terminal decision must include its committed diagnostic evidence")
+}
+
+func TestResearchStrongTerminalDetailCannotCrossAttemptEpoch(t *testing.T) {
+	r := newStrongReg(t, []pid.NodeID{"node-1"}, time.Second, nil)
+	owner := mkPID("node-1", "owner")
+	// Two completed attempts may reuse a name before the first caller runs.
+	r.strong.setTerminal("claim", strongRejectConflict, nil, 41)
+	r.strong.setTerminal("claim", "deadline", []pid.NodeID{"new-attempt-peer"}, 42)
+	_, err := r.strong.finalize("claim", owner, globalapi.RegisterOutcome{State: globalapi.RegisterStateExpired, Epoch: 41})
+	var conflict *globalapi.StrongConflictError
+	require.ErrorAs(t, err, &conflict, "old attempt must not consume a newer attempt's reason")
+	require.Equal(t, uint64(41), conflict.Epoch)
+}
+
+// Creation and observation are separate operations. A reconciler can finish
+// the committed reservation while its creator is still returning from Txn.
+type pendingCreateObserver struct {
+ kvapi.Engine
+ after func()
+}
+
+func (e *pendingCreateObserver) Txn(ops []kvapi.TxnOp) (bool, error) {
+ committed, err := e.Engine.Txn(ops)
+ if committed && err == nil && e.after != nil {
+  for _, op := range ops {
+   if op.Kind == kvapi.TxnPut && op.Key == pendingKey("claim") {
+    after := e.after
+    e.after = nil
+    after()
+    break
+   }
+  }
+ }
+ return committed, err
+}
+
+func TestResearchStrongCompletionBeforeWaiterAttachment(t *testing.T) {
+ r := newStrongReg(t, []pid.NodeID{"node-1"}, time.Second, nil)
+ owner := mkPID("node-1", "owner")
+ engine := r.engine
+ promoted := false
+ r.engine = &pendingCreateObserver{Engine: engine, after: func() {
+  entry, err := engine.Get(pendingKey("claim"))
+  require.NoError(t, err)
+  header, err := decodePending(entry.Value)
+  require.NoError(t, err)
+  require.NoError(t, r.strong.attestHeader("claim", entry.Epoch, owner, header))
+  r.strong.leaderPromote("claim", entry.Epoch, entry.Version, header)
+  active, err := engine.Get(activeKey("claim"))
+  require.NoError(t, err, "fixture must commit promotion before creator resumes")
+  value, err := decodeActive(active.Value)
+  require.NoError(t, err)
+  require.Equal(t, owner.String(), value.PID)
+  promoted = true
+ }}
+ out, err := r.RegisterScope(context.Background(), "claim", owner, globalapi.Strong)
+ require.True(t, promoted)
+ require.NoError(t, err, "a committed successful claim must remain observable by its creator")
+ require.Equal(t, globalapi.RegisterStateActive, out.State)
+ require.Equal(t, owner.String(), out.PID.String())
+}

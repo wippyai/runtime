@@ -86,6 +86,8 @@ func (s *Service) Start(ctx context.Context) error {
 			s.connMan.RecordDropReason("decode_failed")
 			return
 		}
+		// Preserve connection provenance independently of the wire-supplied source.
+		pkg.ReceivedFrom = nodeID
 		s.logger.Debug("Decoded message, delivering",
 			zap.String("from_node", nodeID),
 			zap.String("target_host", pkg.Target.Host))
@@ -223,48 +225,31 @@ func (s *Service) SendContext(ctx context.Context, pkg *relay.Package) error {
 
 var _ relay.ContextSender = (*Service)(nil)
 
+// Send transfers package ownership only when the connection manager reports
+// success. Encoding or send failure leaves it intact for caller release or retry.
 func (s *Service) Send(pkg *relay.Package) error {
+	if pkg == nil {
+		return errors.New("internode: nil package")
+	}
 	data, err := s.codec.Encode(pkg)
 	targetNode := pkg.Target
 	var topic string
 	if len(pkg.Messages) > 0 {
 		topic = pkg.Messages[0].Topic
 	}
-	relay.ReleasePackage(pkg)
 	if err != nil {
 		return NewEncodePackageError(targetNode.Node, err)
 	}
 
-	// Ensure the target node is managed before sending. This covers the race
-	// where a higher-level service (e.g. PG) reacts to a NodeJoined event
-	// and sends a message before the internode event handler has had a chance
-	// to call AddManagedNode + EnsureConnection.
-	s.ensureNodeManaged(targetNode.Node)
+	// Ordinary Send refuses immediately when transport membership is not ready.
+	// Only the membership owner may create peer state; SendContext can wait
+	// for its registration when the caller supplies a cancellation policy.
 
-	return s.connMan.SendToNode(targetNode.Node, data, ClassForTopic(topic))
-}
-
-// ensureNodeManaged verifies that the target node is registered as a managed
-// node in the connection manager. If not, and the node is a current cluster
-// member, it registers it and initiates a connection.
-func (s *Service) ensureNodeManaged(nodeID cluster.NodeID) {
-	if s.membership == nil {
-		return
+	if err := s.connMan.SendToNode(targetNode.Node, data, ClassForTopic(topic)); err != nil {
+		return err
 	}
-
-	// Fast path: already managed (may or may not be connected yet).
-	if s.connMan.IsManaged(nodeID) {
-		return
-	}
-
-	// Look up the node in the membership list.
-	for _, nodeInfo := range s.membership.Nodes() {
-		if nodeInfo.ID == nodeID {
-			s.connMan.AddManagedNode(nodeID)
-			s.connectToNode(nodeInfo)
-			return
-		}
-	}
+	relay.ReleasePackage(pkg)
+	return nil
 }
 
 func (s *Service) handleMembershipEvent(e event.Event) {

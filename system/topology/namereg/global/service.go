@@ -74,6 +74,9 @@ const (
 // It wraps a Raft-backed FSM and provides leader forwarding for writes
 // and topology-based auto-cleanup.
 type Service struct {
+	joinConfig       JoinConfig
+	joinSlots        chan struct{}
+	nameGuard        *topology.NameGuard
 	localPresence    atomic.Value
 	router           relay.Receiver
 	raftSvc          raftapi.Service
@@ -716,7 +719,7 @@ func (s *Service) Send(pkg *relay.Package) error {
 		case topicDigestDelta:
 			s.handleDigestDelta(msg)
 		case topology.TopicEvents:
-			s.handleExitEvent(msg)
+			s.handleExitEvent(pkg, msg)
 		}
 	}
 
@@ -725,10 +728,13 @@ func (s *Service) Send(pkg *relay.Package) error {
 
 // handleExitEvent processes topology exit events for monitored PIDs.
 // When a globally registered process exits, its names are auto-removed.
-func (s *Service) handleExitEvent(msg *relay.Message) {
+func (s *Service) handleExitEvent(pkg *relay.Package, msg *relay.Message) {
 	for _, p := range msg.Payloads {
 		exitEvent, ok := p.Data().(*topology.ExitEvent)
-		if !ok {
+		if !ok || exitEvent == nil || exitEvent.Kind != topology.Exit {
+			continue
+		}
+		if !exitEvent.From.Equal(pkg.Source) || (pkg.ReceivedFrom != "" && exitEvent.From.Node != pkg.ReceivedFrom) {
 			continue
 		}
 		s.HandleProcessExit(exitEvent.From)
@@ -897,3 +903,6 @@ var (
 	_ global.Registry = (*Service)(nil)
 	_ relay.Receiver  = (*Service)(nil)
 )
+
+// SetNameGuard wires shared scope admission before the service starts.
+func (s *Service) SetNameGuard(guard *topology.NameGuard) { s.nameGuard = guard }

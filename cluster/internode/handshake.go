@@ -58,7 +58,7 @@ func readPrefixedBytes(r io.Reader, maxSize int) ([]byte, error) {
 	return data, nil
 }
 
-var authenticatedHandshakeMagic = [4]byte{'W', 'I', 'P', 2}
+var authenticatedHandshakeMagic = [4]byte{'W', 'I', 'P', 3}
 
 const (
 	handshakeNonceSize     = 32
@@ -158,6 +158,18 @@ func performAuthenticatedClientHandshake(conn net.Conn, config NodeConnectionCon
 	if err := writeHandshakeBytes(conn, ed25519.Sign(config.SigningKey, clientTranscript)); err != nil {
 		return "", err
 	}
+	// Writing our proof does not mean the server admitted it. Do not expose a
+	// usable connection (and lose queued application frames) before acceptance.
+	// A role-separated signature binds acceptance to this exact handshake, even
+	// when authenticated transport is embedded without TLS.
+	acceptance := make([]byte, handshakeSignatureSize)
+	if _, err := io.ReadFull(conn, acceptance); err != nil {
+		return "", err
+	}
+	acceptedTranscript := handshakeTranscript("accepted", selfID, remoteNodeID, clientNonce, serverNonce)
+	if !ed25519.Verify(peerKey, acceptedTranscript, acceptance) {
+		return "", fmt.Errorf("internode server acceptance authentication failed")
+	}
 	return remoteNodeID, nil
 }
 
@@ -219,6 +231,10 @@ func performAuthenticatedServerHandshake(conn net.Conn, config NodeConnectionCon
 	}
 	if config.AuthorizePeer == nil || !config.AuthorizePeer(remoteNodeID, conn.RemoteAddr()) {
 		return "", fmt.Errorf("internode peer %q is not authorized", remoteNodeID)
+	}
+	acceptedTranscript := handshakeTranscript("accepted", remoteNodeID, selfID, clientNonce, serverNonce)
+	if err := writeHandshakeBytes(conn, ed25519.Sign(config.SigningKey, acceptedTranscript)); err != nil {
+		return "", err
 	}
 	return remoteNodeID, nil
 }

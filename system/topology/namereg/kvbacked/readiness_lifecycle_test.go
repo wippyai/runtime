@@ -63,9 +63,14 @@ func TestReadinessClearedWhenReconcilerStops(t *testing.T) {
 			if r.NameReady() {
 				t.Fatal("node remains ready after naming synchronization stopped")
 			}
-			if watcher.ctx.Err() == nil {
-				t.Fatal("reconciliation worker context survived update-stream shutdown")
+			if cancelContext && watcher.ctx.Err() == nil {
+				t.Fatal("reconciliation worker context survived cancellation")
 			}
+			if !cancelContext && watcher.ctx.Err() != nil {
+				t.Fatal("watch loss killed the recovery owner")
+			}
+			cancel()
+			<-r.reconciler.Load().done
 		})
 	}
 }

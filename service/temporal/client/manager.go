@@ -39,6 +39,7 @@ type Manager struct {
 	configs               map[registry.ID]*api.ClientConfig
 	services              map[registry.ID]*Client
 	peers                 map[registry.ID]*peer.Receiver
+	peerRegistrations     map[registry.ID]*relay.PeerInfo
 	clientInterceptors    []interceptor.ClientInterceptor
 	mu                    sync.RWMutex
 }
@@ -114,9 +115,10 @@ func WithFactory(factory Factory) ManagerOption {
 // NewManager creates a new client manager instance with functional options
 func NewManager(opts ...ManagerOption) (*Manager, error) {
 	m := &Manager{
-		configs:  make(map[registry.ID]*api.ClientConfig),
-		services: make(map[registry.ID]*Client),
-		peers:    make(map[registry.ID]*peer.Receiver),
+		configs:           make(map[registry.ID]*api.ClientConfig),
+		services:          make(map[registry.ID]*Client),
+		peers:             make(map[registry.ID]*peer.Receiver),
+		peerRegistrations: make(map[registry.ID]*relay.PeerInfo),
 	}
 
 	for _, opt := range opts {
@@ -218,10 +220,13 @@ func (m *Manager) AddClient(ctx context.Context, id registry.ID, cfg *api.Client
 
 	// Create peer receiver
 	var peerReceiver *peer.Receiver
+	var peerRegistration *relay.PeerInfo
 	router := relay.GetRouter(ctx)
 	if router != nil {
-		peerReceiver = peer.NewReceiver(ctx, id.String(), service.TemporalClient(), router, m.log.Named("peer"))
+		peerReceiver = peer.NewReceiver(ctx, id.String(), service.TemporalClient(), router, m.log.Named("peer"), peer.WithMonitorConfig(cfg.Monitor))
 		m.peers[id] = peerReceiver
+		peerRegistration = &relay.PeerInfo{NodeID: id.String(), Receiver: peerReceiver}
+		m.peerRegistrations[id] = peerRegistration
 	}
 	m.mu.Unlock()
 
@@ -254,10 +259,7 @@ func (m *Manager) AddClient(ctx context.Context, id registry.ID, cfg *api.Client
 			System: relay.System,
 			Kind:   relay.PeerRegister,
 			Path:   id.String(),
-			Data: relay.PeerInfo{
-				NodeID:   id.String(),
-				Receiver: peerReceiver,
-			},
+			Data:   peerRegistration,
 		})
 	}
 
@@ -369,13 +371,16 @@ func (m *Manager) DeleteClient(ctx context.Context, id registry.ID) error {
 
 	// Stop and unregister peer receiver
 	if peerReceiver, exists := m.peers[id]; exists {
+		m.peerRegistrations[id].Retire()
 		peerReceiver.Stop()
 		m.bus.Send(ctx, event.Event{
 			System: relay.System,
 			Kind:   relay.PeerDelete,
 			Path:   id.String(),
+			Data:   m.peerRegistrations[id],
 		})
 		delete(m.peers, id)
+		delete(m.peerRegistrations, id)
 	}
 
 	delete(m.configs, id)

@@ -30,6 +30,7 @@ const (
 
 // ClientConfig defines the configuration for a Temporal client connection
 type ClientConfig struct {
+	Monitor                  MonitorConfig              `json:"monitor,omitempty"`
 	Meta                     attrs.Bag                  `json:"meta"`
 	TLS                      *TLSConfig                 `json:"tls,omitempty"`
 	SecurityHMACKey          []byte                     `json:"security_hmac_key,omitempty"`
@@ -82,6 +83,7 @@ type HealthCheckConfig struct {
 // connection timeout 10s, keep-alive time 30s, keep-alive timeout 10s,
 // health check interval 30s (when enabled), and auth type "none".
 func (c *ClientConfig) InitDefaults() {
+	c.Monitor.InitDefaults()
 	if c.Namespace == "" {
 		c.Namespace = "default"
 	}
@@ -109,6 +111,10 @@ func (c *ClientConfig) InitDefaults() {
 
 // Validate checks if the configuration is valid
 func (c *ClientConfig) Validate() error {
+	c.Monitor.InitDefaults()
+	if err := c.Monitor.Validate(); err != nil {
+		return err
+	}
 	if c.Address == "" {
 		return ErrAddressRequired
 	}

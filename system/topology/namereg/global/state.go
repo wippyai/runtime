@@ -471,50 +471,6 @@ func (s *shardedState) pendingByName(name string) *PendingView {
 	return e.view()
 }
 
-// strongActiveView is a read-only view of a promoted Strong name. A promoted
-// Strong entry is distinguished from a plain Consistent register by carrying a
-// non-empty RequiredNodes set and a non-zero Epoch (set at promotePending);
-// Consistent entries leave both empty/zero. The join-epoch snapshot enumerates
-// these so a joining node installs an Active exclusion for each.
-type strongActiveView struct {
-	PID   pid.PID
-	Name  string
-	Epoch uint64
-}
-
-// activeBinding is a read-only view of an ACTIVE binding (any scope), keyed by
-// the Raft index at which the binding was committed. The join-snapshot
-// enumerates these so a joining node seeds the dissem cache for CONSISTENT
-// names alongside the existing STRONG seeding.
-type activeBinding struct {
-	PID       pid.PID
-	Name      string
-	RaftIndex uint64
-}
-
-// listActiveConsistent returns every active CONSISTENT name across all shards.
-// CONSISTENT and STRONG entries are distinguished by RequiredNodes: STRONG
-// carries the exclusion-holder set, CONSISTENT leaves it empty.
-func (s *shardedState) listActiveConsistent() []activeBinding {
-	for i := range s.shards {
-		s.shards[i].mu.RLock()
-	}
-	var out []activeBinding
-	for i := range s.shards {
-		sh := &s.shards[i]
-		for name, e := range sh.names {
-			if len(e.RequiredNodes) > 0 {
-				continue
-			}
-			out = append(out, activeBinding{Name: name, PID: e.PID, RaftIndex: e.AppliedAt})
-		}
-	}
-	for i := range s.shards {
-		s.shards[i].mu.RUnlock()
-	}
-	return out
-}
-
 // allActiveNames returns every active name across all shards (CONSISTENT and
 // STRONG). Used by anti-entropy digest construction on members where the FSM
 // is authoritative.
@@ -527,30 +483,6 @@ func (s *shardedState) allActiveNames() []string {
 		sh := &s.shards[i]
 		for name := range sh.names {
 			out = append(out, name)
-		}
-	}
-	for i := range s.shards {
-		s.shards[i].mu.RUnlock()
-	}
-	return out
-}
-
-// listActiveStrong returns every promoted Strong name across all shards. It
-// holds all shard read-locks for a point-in-time consistent view, matching
-// snapshot(). The discriminator is len(RequiredNodes) > 0 — only a promoted
-// Strong entry carries the exclusion-holder set.
-func (s *shardedState) listActiveStrong() []strongActiveView {
-	for i := range s.shards {
-		s.shards[i].mu.RLock()
-	}
-	var out []strongActiveView
-	for i := range s.shards {
-		sh := &s.shards[i]
-		for name, e := range sh.names {
-			if len(e.RequiredNodes) == 0 {
-				continue
-			}
-			out = append(out, strongActiveView{Name: name, PID: e.PID, Epoch: e.Epoch})
 		}
 	}
 	for i := range s.shards {
@@ -882,8 +814,9 @@ type pendingSnapshotEntry struct {
 // pending Strong reservations. Pending is omitempty, so a snapshot with no
 // pending reservations decodes with a nil Pending slice.
 type fsmSnapshotPayload struct {
-	Entries []snapshotEntry        `codec:"e"`
-	Pending []pendingSnapshotEntry `codec:"p,omitempty"`
+	AppliedIndex uint64                 `codec:"i"`
+	Entries      []snapshotEntry        `codec:"e"`
+	Pending      []pendingSnapshotEntry `codec:"p,omitempty"`
 }
 
 // snapshotAbove returns entries with AppliedAt strictly greater than threshold.

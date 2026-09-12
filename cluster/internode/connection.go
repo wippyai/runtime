@@ -110,8 +110,10 @@ var bufferPool = sync.Pool{
 // without inspecting the payload, and so requeue-on-disconnect honors the
 // original QoS class.
 type Outbound struct {
-	Data  []byte
-	Class Class
+	generation  *queueGeneration
+	reservation *outboundReservation
+	Data        []byte
+	Class       Class
 }
 
 // NodeConnectionConfig holds configuration parameters for a NodeConnection.
@@ -145,6 +147,7 @@ type NodeConnection struct {
 	messageNotify <-chan struct{}
 	drainFn       func(int) []Outbound
 	requeueFn     func([]Outbound)
+	flushedFn     func([]Outbound)
 	remoteNode    cluster.NodeID
 	config        NodeConnectionConfig
 	drainBatch    int
@@ -168,11 +171,14 @@ func newNodeConnection(conn net.Conn, remoteNode cluster.NodeID, config NodeConn
 // when a message is queued); drain pulls up to batch messages in QoS order;
 // requeue returns an un-flushed batch to the per-class queues after a write
 // failure so a subsequent connection can deliver them.
-func (c *NodeConnection) bindDrain(notify <-chan struct{}, drain func(int) []Outbound, requeue func([]Outbound), batch int) {
+// The optional flushed callback releases local retention after successful flush;
+// it is not an acknowledgement of remote delivery or application processing.
+func (c *NodeConnection) bindDrain(notify <-chan struct{}, drain func(int) []Outbound, requeue func([]Outbound), batch int, flushed func([]Outbound)) {
 	c.messageNotify = notify
 	c.drainFn = drain
 	c.requeueFn = requeue
 	c.drainBatch = batch
+	c.flushedFn = flushed
 }
 
 // Run starts the connection's read/write loops and blocks until termination.
@@ -307,8 +313,8 @@ func (c *NodeConnection) writeLoop(ctx context.Context) *ConnectionError {
 				}
 				return &ConnectionError{Reason: ExitNetworkError, Err: err}
 			}
-			if len(batch) < c.drainBatch {
-				break
+			if c.flushedFn != nil {
+				c.flushedFn(batch)
 			}
 		}
 

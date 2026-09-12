@@ -40,8 +40,67 @@ cluster:
     # gossip_interval: 500ms       # UDP gossip cadence; lower is faster but noisier.
     # push_pull_interval: 5s       # TCP full-state anti-entropy cadence.
     # dead_node_reclaim_time: 30s  # same-name/different-address reclaim after hard death.
+  # Reliable mesh admission: accepted queued + writer-owned payloads.
+  # Shared across actor/PG and Raft classes. These are ceilings, not allocations.
+  # Gossip/surface queues, encoding buffers and other heap usage are separate.
+  # Context-aware sends wait for capacity; ordinary sends refuse before transfer.
+  # An individual frame larger than peer_bytes or total_bytes is refused.
+  # internode:
+  #   outbound:
+  #     batch_bytes: 1048576 # scheduling target; one larger frame may run alone
+  #     peer_entries: 256
+  #     peer_bytes: 536870912
+  #     total_entries: 4096
+  #     total_bytes: 2147483648
+  #     # Control reserves are carved out of totals; defaults shown (zero disables).
+  #     # Ordinary frame size must fit peer_bytes - control.peer_bytes and
+  #     # total_bytes - control.total_bytes. These are fixed capacity limits, not latency guarantees.
+  #     # Raft snapshots still share the control class; this protects against
+  #     # application backlog, not snapshot or on-wire head-of-line blocking.
+  #     control:
+  #       peer_entries: 16
+  #       peer_bytes: 1048576
+  #       total_entries: 256
+  #       total_bytes: 16777216
   raft:
     bootstrap_expect: 3    # size of the initial voter quorum
+    # startup_timeout: 30s      # fail startup if no leader becomes known
+    # startup_poll_interval: 100ms # bounded startup-only observation
+    # KV naming participants enroll before application admission. These limits
+    # bound snapshot work; refresh_interval is a lost-update backstop, not a lease.
+    # naming:
+    #   max_participants: 4096  # active + retained retired node identities
+    #   max_entries: 16384
+    #   max_value_bytes: 4194304
+    #   max_wire_bytes: 16777216
+    #   max_concurrent_requests: 8 # plus at most 8 refusal-only workers
+    #   max_redirects: 4
+    #   request_timeout: 5s
+    #   refresh_interval: 1s
+    #   strong:
+    #     ack_deadline: 10s       # an earlier caller deadline is always respected
+    #     result_wait_grace: 2s  # zero allowed; never extends caller deadline
+    #     results:              # attempt evidence; retention never expires names
+    #       max_entries: 4096
+    #       max_bytes: 16777216  # reserved serialized key/value bytes
+    #       max_record_bytes: 1048576
+    #       retention: 1m
+    #       reclaim_batch: 64
+    #     retry_interval: 1s     # retry after failed authority barrier
+    #   cleanup:
+    #     max_pending: 256     # distinct validated exit owners, including retries
+    #     max_bytes: 1048576   # retained PID/key bytes; count bounds object overhead
+    #     batch_size: 32      # owners per authority snapshot
+    #     retry_interval: 1s  # retry policy, not process-death evidence
+    # Cleanup is held in memory. Forced stop reports unfinished owners;
+    # queue admission is not a durable receipt across runtime crashes.
+    # Global-FSM name join snapshots: reject oversized snapshots as a whole.
+    # The KV backend uses the separate naming limits below.
+    # join:
+    #   timeout: 10s        # authority barrier / reply-wait budget
+    #   max_entries: 65536
+    #   max_bytes: 16777216 # encoded response size
+    #   max_concurrent: 4  # captures and outgoing join waits per service
 
 # ---------------------------------------------------------------------------
 # 3. Bounded-raft cluster: a few raft servers + many gossip-only clients.

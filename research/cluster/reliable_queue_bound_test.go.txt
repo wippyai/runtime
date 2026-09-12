@@ -1,0 +1,24 @@
+package internode
+
+import (
+ "context"
+ "testing"
+ "github.com/stretchr/testify/require"
+ "go.uber.org/zap"
+)
+
+func TestResearchReliableQueueHonorsConfiguredBound(t *testing.T) {
+ for _, class := range []Class{ClassRaftControl,ClassRaftRPC,ClassPGBroadcast} {
+  t.Run(class.String(),func(t *testing.T){
+   config := DefaultManagerConfig()
+   config.OutboundQueueSize = 8
+   states := NewNodeStateManager(config,newTelemetry(nil),zap.NewNop())
+   states.CreateNodeState("stalled-peer")
+   accepted := 0
+   for i:=0;i<32;i++ {
+    if err := states.QueueMessageClassContext(context.Background(),"stalled-peer",make([]byte,4096),class);err==nil {accepted++}
+   }
+   require.LessOrEqual(t,accepted,config.OutboundQueueSize,"a stalled peer must not accept unlimited reliable backlog")
+  })
+ }
+}

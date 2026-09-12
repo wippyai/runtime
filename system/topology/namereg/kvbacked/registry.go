@@ -51,10 +51,12 @@ func nodeIndexKey(p pid.PID, name string) string {
 
 // activeValue is the stored payload of an active name binding.
 type activeValue struct {
-	PID           string       `codec:"p"`
-	Name          string       `codec:"n"`
-	RequiredNodes []pid.NodeID `codec:"r,omitempty"`
-	Strong        bool         `codec:"s,omitempty"`
+	AttemptID            string                `codec:"a,omitempty"`
+	RequiredIncarnations map[pid.NodeID]string `codec:"ri,omitempty"`
+	PID                  string                `codec:"p"`
+	Name                 string                `codec:"n"`
+	RequiredNodes        []pid.NodeID          `codec:"r,omitempty"`
+	Strong               bool                  `codec:"s,omitempty"`
 }
 
 // indexValue is the payload of a reverse-index key: it carries the canonical
@@ -64,16 +66,21 @@ type indexValue struct {
 	Name string `codec:"n"`
 }
 
+// MessagePack handles cache type metadata and support concurrent readers.
+// Keep configuration immutable; encoders/decoders and their buffers remain
+// owned by each call and are never shared between goroutines.
+var registryMsgpackHandle codec.MsgpackHandle
+
 func encode(v any) ([]byte, error) {
 	var buf []byte
-	if err := codec.NewEncoderBytes(&buf, &codec.MsgpackHandle{}).Encode(v); err != nil {
+	if err := codec.NewEncoderBytes(&buf, &registryMsgpackHandle).Encode(v); err != nil {
 		return nil, err
 	}
 	return buf, nil
 }
 
 func decodeInto(data []byte, v any) error {
-	return codec.NewDecoderBytes(data, &codec.MsgpackHandle{}).Decode(v)
+	return codec.NewDecoderBytes(data, &registryMsgpackHandle).Decode(v)
 }
 
 func decodeActive(data []byte) (activeValue, error) {
@@ -84,7 +91,7 @@ func decodeActive(data []byte) (activeValue, error) {
 
 func decodeIndex(data []byte) (indexValue, error) {
 	var v indexValue
-	err := codec.NewDecoderBytes(data, &codec.MsgpackHandle{}).Decode(&v)
+	err := codec.NewDecoderBytes(data, &registryMsgpackHandle).Decode(&v)
 	return v, err
 }
 
@@ -103,21 +110,22 @@ type barrierEngine interface {
 
 // Service is the kv-backed name registry.
 type Service struct {
-	reconciler atomic.Pointer[reconcilerLifecycle]
-	engine     kvapi.Engine
-	leaderRead leaderReadEngine
-	topo       topology.Topology
-	leaderFn   func() bool
-	nonMember  func() bool
-	strong     *strongState
-	dissem     *global.Dissem
-	logger     *zap.Logger
-	barrier    func() error
-	resolve    globalapi.ResolveFunc
-	self       pid.PID
-	monitored  sync.Map
-	selfNode   pid.NodeID
-	ready      atomic.Bool
+	cleanupSnapshot func(context.Context) (*participantSnapshot, error)
+	reconciler      atomic.Pointer[reconcilerLifecycle]
+	engine          kvapi.Engine
+	leaderRead      leaderReadEngine
+	topo            topology.Topology
+	leaderFn        func() bool
+	nonMember       func() bool
+	strong          *strongState
+	dissem          *global.Dissem
+	logger          *zap.Logger
+	barrier         func() error
+	resolve         globalapi.ResolveFunc
+	self            pid.PID
+	monitored       sync.Map
+	selfNode        pid.NodeID
+	ready           atomic.Bool
 }
 
 // ConfigureDissem attaches the active-binding dissemination plane so non-member
@@ -142,6 +150,20 @@ func (s *Service) SetNonMember(fn func() bool) { s.nonMember = fn }
 
 // get reads a key through the leader when the backend supports it, so a write
 // path observes its own and prior committed writes even on a follower.
+// getContext preserves authoritative leader reads while propagating the
+// operation lifetime to engines that support cancellable forwarding.
+func (s *Service) getContext(ctx context.Context, key string) (kvapi.Entry, error) {
+	if err := ctx.Err(); err != nil {
+		return kvapi.Entry{}, err
+	}
+	if reader, ok := s.leaderRead.(interface {
+		GetViaLeaderContext(context.Context, string) (kvapi.Entry, error)
+	}); ok {
+		return reader.GetViaLeaderContext(ctx, key)
+	}
+	return s.get(key)
+}
+
 func (s *Service) get(key string) (kvapi.Entry, error) {
 	if s.leaderRead != nil {
 		return s.leaderRead.GetViaLeader(key)
@@ -187,6 +209,12 @@ func (s *Service) Register(ctx context.Context, name string, p pid.PID) (pid.PID
 
 // RegisterScope dispatches by scope. Local/Eventual are caller errors here.
 func (s *Service) RegisterScope(ctx context.Context, name string, p pid.PID, mode globalapi.RegistrationMode) (globalapi.RegisterOutcome, error) {
+	leave, err := s.admitMutation(ctx)
+	if err != nil {
+		return globalapi.RegisterOutcome{}, err
+	}
+	defer leave()
+
 	switch mode {
 	case globalapi.Consistent:
 		return s.registerConsistent(name, p)
@@ -311,9 +339,20 @@ func (s *Service) Unregister(ctx context.Context, name string) (bool, error) {
 
 // UnregisterScope removes the registration for the given scope.
 func (s *Service) UnregisterScope(ctx context.Context, name string, mode globalapi.RegistrationMode) (bool, error) {
+	leave, err := s.admitMutation(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer leave()
+
 	if mode == globalapi.Strong {
 		return s.unregisterStrong(ctx, name)
 	}
+	return s.unregisterConsistent(name)
+}
+
+// unregisterConsistent runs inside an already-admitted mutation.
+func (s *Service) unregisterConsistent(name string) (bool, error) {
 	e, err := s.get(activeKey(name))
 	if errors.Is(err, kvapi.ErrKeyNotFound) {
 		return false, nil
@@ -393,64 +432,135 @@ func (s *Service) namesForPID(p pid.PID) []string {
 }
 
 // Remove removes all names registered to p.
-func (s *Service) Remove(_ context.Context, p pid.PID) error {
-	s.reap(pidIndexBase(p))
-	return nil
+func (s *Service) Remove(ctx context.Context, p pid.PID) error {
+	leave, err := s.admitMutation(ctx)
+	if err != nil {
+		return err
+	}
+	defer leave()
+	return s.reapBindingsContext(ctx, pidIndexBase(p), false)
 }
 
 // RemoveNode removes all names owned by processes on nodeID.
-func (s *Service) RemoveNode(_ context.Context, nodeID pid.NodeID) error {
-	s.reap(nodeIndexBase(nodeID))
-	return nil
+func (s *Service) RemoveNode(ctx context.Context, nodeID pid.NodeID) error {
+	leave, err := s.admitMutation(ctx)
+	if err != nil {
+		return err
+	}
+	defer leave()
+	return s.reapBindingsContext(ctx, nodeIndexBase(nodeID), false)
 }
 
-// reap deletes every binding referenced by the reverse-index keys under base.
-// Idempotent: a key already removed by a concurrent reaper is harmless.
-func (s *Service) reap(base string) {
+// reapBindings deletes indexed bindings under base. Concurrently removed keys
+// are harmless; active ownership is still checked at each conditional delete.
+func (s *Service) reapBindings(base string, preserveParticipants bool) error {
+	return s.reapBindingsContext(s.reconcileContext(), base, preserveParticipants)
+}
+func (s *Service) reapBindingsContext(ctx context.Context, base string, preserveParticipants bool) error {
+	if s.cleanupSnapshot != nil {
+		return s.reapSnapshot(ctx, base, preserveParticipants)
+	}
+	if s.nonMember != nil && s.nonMember() {
+		return errors.New("forwarding cleanup requires an authority snapshot")
+	}
+
 	type victim struct {
 		p    pid.PID
 		name string
 	}
 	var victims []victim
-	_ = s.engine.Scan(base, func(e kvapi.Entry) bool {
+	var decodeErr error
+	scanErr := s.engine.Scan(base, func(e kvapi.Entry) bool {
 		iv, err := decodeIndex(e.Value)
 		if err != nil {
-			return true
+			decodeErr = err
+			return false
 		}
 		p, perr := pid.ParsePID(iv.PID)
 		if perr != nil {
-			return true
+			decodeErr = perr
+			return false
 		}
 		victims = append(victims, victim{p: p, name: iv.Name})
 		return true
 	})
-	for _, v := range victims {
-		s.deleteBinding(v.p, v.name)
+	if err := errors.Join(scanErr, decodeErr); err != nil {
+		return err
 	}
+	var cleanupErr error
+	for _, v := range victims {
+		cleanupErr = errors.Join(cleanupErr, s.deleteBindingWithPolicyContext(ctx, v.p, v.name, preserveParticipants))
+	}
+	return cleanupErr
 }
 
-// deleteBinding reaps p's binding for name. p's stale reverse-index keys are
-// always removed, but the active binding is deleted only if it still belongs to
-// p (version-guarded) — so reaping a dead PID never clobbers a name that a live
-// PID has since taken over.
-func (s *Service) deleteBinding(p pid.PID, name string) {
+// deleteBinding reaps p's binding for name under an authoritative version or
+// absence check. Uncertain reads and concurrent changes preserve indexes for
+// later cleanup; a replacement owner's active binding is never deleted.
+func (s *Service) deleteBinding(p pid.PID, name string) error {
+	return s.deleteBindingWithPolicyContext(s.reconcileContext(), p, name, false)
+}
+
+func (s *Service) deleteBindingWithPolicyContext(ctx context.Context, p pid.PID, name string, preserveParticipants bool) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	ops := []kvapi.TxnOp{
 		{Kind: kvapi.TxnDelete, Cond: kvapi.CondAny, Key: pidIndexKey(p, name)},
 		{Kind: kvapi.TxnDelete, Cond: kvapi.CondAny, Key: nodeIndexKey(p, name)},
 	}
-	if e, err := s.engine.Get(activeKey(name)); err == nil {
-		if av, derr := decodeActive(e.Value); derr == nil {
-			if owner, perr := pid.ParsePID(av.PID); perr == nil && owner.String() == p.String() {
-				ops = append(ops,
-					kvapi.TxnOp{Kind: kvapi.TxnCheck, Cond: kvapi.CondVersion, Key: activeKey(name), Expect: e.Version},
-					kvapi.TxnOp{Kind: kvapi.TxnDelete, Cond: kvapi.CondAny, Key: activeKey(name)},
-				)
-			}
+	// Reaping is a mutation: a lagging local miss is not evidence that the
+	// active binding is absent. Keep its reverse indexes if authority is unknown.
+	e, err := s.getContext(ctx, activeKey(name))
+	// A synchronous backend read may outlive cancellation. Do not dispatch
+	// a new conditional mutation after that cancellation becomes visible.
+	if canceled := ctx.Err(); canceled != nil {
+		return canceled
+	}
+	if errors.Is(err, kvapi.ErrKeyNotFound) {
+		ops = append(ops, kvapi.TxnOp{Kind: kvapi.TxnCheck, Cond: kvapi.CondAbsent, Key: activeKey(name)})
+	} else if err != nil {
+		s.logger.Debug("kvreg reap authority read failed", zap.String("name", name), zap.Error(err))
+		return err
+	} else {
+		av, err := decodeActive(e.Value)
+		if err != nil {
+			s.logger.Debug("kvreg reap invalid active record", zap.String("name", name), zap.Error(err))
+			return err
+		}
+		if preserveParticipants && av.RequiredIncarnations != nil {
+			return nil
+		}
+		owner, err := pid.ParsePID(av.PID)
+		if err != nil {
+			s.logger.Debug("kvreg reap invalid owner", zap.String("name", name), zap.Error(err))
+			return err
+		}
+		// Even a different owner may change back before commit. Guard the read
+		// so cleanup cannot erase freshly recreated indexes for the old PID.
+		ops = append(ops, kvapi.TxnOp{Kind: kvapi.TxnCheck, Cond: kvapi.CondVersion, Key: activeKey(name), Expect: e.Version})
+		if owner.String() == p.String() {
+			ops = append(ops, kvapi.TxnOp{Kind: kvapi.TxnDelete, Cond: kvapi.CondAny, Key: activeKey(name)})
 		}
 	}
-	if _, err := s.engine.Txn(ops); err != nil {
-		s.logger.Debug("kvreg reap delete failed", zap.String("name", name), zap.Error(err))
+
+	if err := ctx.Err(); err != nil {
+		return err
 	}
+	txn := s.engine.Txn
+	if contextual, ok := s.engine.(interface {
+		TxnContext(context.Context, []kvapi.TxnOp) (bool, error)
+	}); ok {
+		txn = func(ops []kvapi.TxnOp) (bool, error) { return contextual.TxnContext(ctx, ops) }
+	}
+	committed, err := txn(ops)
+	if err != nil {
+		return err
+	}
+	if !committed {
+		return kvapi.ErrVersionMismatch
+	}
+	return nil
 }
 
 // IsStrongReserved reports a local Strong reservation for name. Implemented in

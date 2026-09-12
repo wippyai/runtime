@@ -87,7 +87,7 @@ func TestPeerManager_Register(t *testing.T) {
 		System: relay.System,
 		Kind:   relay.PeerRegister,
 		Path:   "peer1",
-		Data: relay.PeerInfo{
+		Data: &relay.PeerInfo{
 			NodeID:   "peer1",
 			Receiver: peerReceiver,
 		},
@@ -177,7 +177,7 @@ func TestPeerManager_RegisterDuplicate(t *testing.T) {
 		System: relay.System,
 		Kind:   relay.PeerRegister,
 		Path:   "peer1",
-		Data: relay.PeerInfo{
+		Data: &relay.PeerInfo{
 			NodeID:   "peer1",
 			Receiver: peerReceiver1,
 		},
@@ -191,7 +191,7 @@ func TestPeerManager_RegisterDuplicate(t *testing.T) {
 		System: relay.System,
 		Kind:   relay.PeerRegister,
 		Path:   "peer1",
-		Data: relay.PeerInfo{
+		Data: &relay.PeerInfo{
 			NodeID:   "peer1",
 			Receiver: peerReceiver2,
 		},
@@ -235,7 +235,7 @@ func TestPeerManager_RegisterConflictWithLocalNode(t *testing.T) {
 		System: relay.System,
 		Kind:   relay.PeerRegister,
 		Path:   "local",
-		Data: relay.PeerInfo{
+		Data: &relay.PeerInfo{
 			NodeID:   "local",
 			Receiver: peerReceiver,
 		},
@@ -275,14 +275,12 @@ func TestPeerManager_Unregister(t *testing.T) {
 	defer func() { _ = manager.Stop() }()
 
 	peerReceiver := &mockPeerReceiver{}
+	info := &relay.PeerInfo{NodeID: "peer1", Receiver: peerReceiver}
 	bus.Send(ctx, event.Event{
 		System: relay.System,
 		Kind:   relay.PeerRegister,
 		Path:   "peer1",
-		Data: relay.PeerInfo{
-			NodeID:   "peer1",
-			Receiver: peerReceiver,
-		},
+		Data:   info,
 	})
 
 	time.Sleep(50 * time.Millisecond)
@@ -292,6 +290,7 @@ func TestPeerManager_Unregister(t *testing.T) {
 		System: relay.System,
 		Kind:   relay.PeerDelete,
 		Path:   "peer1",
+		Data:   info,
 	})
 
 	time.Sleep(50 * time.Millisecond)
@@ -335,6 +334,7 @@ func TestPeerManager_UnregisterNonexistent(t *testing.T) {
 		System: relay.System,
 		Kind:   relay.PeerDelete,
 		Path:   "nonexistent",
+		Data:   &relay.PeerInfo{NodeID: "nonexistent"},
 	})
 
 	time.Sleep(50 * time.Millisecond)

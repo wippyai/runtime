@@ -5,11 +5,19 @@ package host
 
 import (
 	"runtime"
+	"time"
 
 	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/supervisor"
 )
+
+const DefaultRemoteMonitorLimit = 256
+
+// Monitor replies have independent per-host bounds; a stalled peer cannot
+// retain an unbounded number of workers or block replies indefinitely.
+const DefaultRemoteMonitorReplies = 128
+const DefaultRemoteMonitorReplyTimeout = 5 * time.Second
 
 // Execution class constants for HostConfig.
 const (
@@ -20,7 +28,8 @@ const (
 
 // Host configuration errors.
 var (
-	ErrInvalidWorkerClass = apierror.New(apierror.Invalid, "worker class must be empty, \"actor\", or \"wasm\"").WithRetryable(apierror.False)
+	ErrInvalidRemoteMonitorLimit = apierror.New(apierror.Invalid, "remote_monitor_limit must be positive")
+	ErrInvalidWorkerClass        = apierror.New(apierror.Invalid, "worker class must be empty, \"actor\", or \"wasm\"").WithRetryable(apierror.False)
 )
 
 // Registry kind constants for Process Host components
@@ -37,7 +46,14 @@ type EntryConfig struct {
 
 // Config represents configuration for a process host service
 type Config struct {
-	WorkerClass string `json:"worker_class,omitempty"` // Execution class: "" (actor/default) or "wasm"
+	// RemoteMonitorLimit bounds active and retired remote observer records per process.
+	RemoteMonitorLimit int `json:"remote_monitor_limit,omitempty"`
+	// RemoteMonitorReplies bounds admitted, unfinished control replies per host.
+	RemoteMonitorReplies int `json:"remote_monitor_replies,omitempty"`
+	// RemoteMonitorReplyTimeout bounds reply delivery, never process lifetime.
+	// Expiry leaves installation uncertain for the requester; it does not undo it.
+	RemoteMonitorReplyTimeout time.Duration `json:"remote_monitor_reply_timeout,omitempty"`
+	WorkerClass               string        `json:"worker_class,omitempty"` // Execution class: "" (actor/default) or "wasm"
 
 	// Scheduler settings
 	Workers        int `json:"workers"`          // Number of worker goroutines (default: NumCPU)
@@ -47,6 +63,16 @@ type Config struct {
 
 func (cfg *EntryConfig) initDefaults() {
 	cfg.Lifecycle.InitDefaults()
+	if cfg.HostConfig.RemoteMonitorLimit == 0 {
+		cfg.HostConfig.RemoteMonitorLimit = DefaultRemoteMonitorLimit
+	}
+
+	if cfg.HostConfig.RemoteMonitorReplies == 0 {
+		cfg.HostConfig.RemoteMonitorReplies = DefaultRemoteMonitorReplies
+	}
+	if cfg.HostConfig.RemoteMonitorReplyTimeout == 0 {
+		cfg.HostConfig.RemoteMonitorReplyTimeout = DefaultRemoteMonitorReplyTimeout
+	}
 
 	if cfg.HostConfig.Workers == 0 {
 		cfg.HostConfig.Workers = runtime.NumCPU()
@@ -66,6 +92,12 @@ func (cfg *EntryConfig) Validate() error {
 	cfg.initDefaults()
 
 	c := cfg.HostConfig
+	if c.RemoteMonitorReplies <= 0 || c.RemoteMonitorReplyTimeout <= 0 {
+		return apierror.New(apierror.Invalid, "remote monitor reply capacity and timeout must be positive")
+	}
+	if c.RemoteMonitorLimit <= 0 {
+		return ErrInvalidRemoteMonitorLimit
+	}
 
 	if c.Workers <= 0 {
 		return ErrInvalidWorkers

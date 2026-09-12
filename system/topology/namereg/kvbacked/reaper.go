@@ -4,6 +4,7 @@ package kvbacked
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/wippyai/runtime/api/pid"
@@ -39,17 +40,55 @@ func (s *Service) monitor(p pid.PID) {
 
 // Send implements relay.Receiver: a registered process's exit removes its names.
 func (s *Service) Send(pkg *relay.Package) error {
-	defer relay.ReleasePackage(pkg)
+	if pkg == nil {
+		return fmt.Errorf("nil registry package")
+	}
+	leave, err := s.admitMutation(context.Background())
+	if err != nil {
+		return err
+	}
+	defer leave()
+	return s.handleExitPackage(pkg)
+}
+
+// handleExitPackage owns an already-admitted package until cleanup finishes.
+func (s *Service) exitPackageOwner(pkg *relay.Package) (pid.PID, bool) {
+	var selected pid.PID
+	found := false
 	for _, msg := range pkg.Messages {
 		if msg.Topic != topology.TopicEvents {
 			continue
 		}
 		for _, p := range msg.Payloads {
-			if ev, ok := p.Data().(*topology.ExitEvent); ok {
-				s.monitored.Delete(ev.From.String())
-				_ = s.Remove(context.Background(), ev.From)
+			if owner, ok := registryExitOwner(p.Data()); ok {
+				// A payload cannot grant authority over another PID. Native
+				// topology preserves the target as Source after validating its
+				// monitor reference; raw mesh delivery must also agree with the
+				// connection-derived peer. Native providers have no wire ingress.
+				if !owner.Equal(pkg.Source) || (pkg.ReceivedFrom != "" && owner.Node != pkg.ReceivedFrom) {
+					s.logger.Debug("registry ignored exit with mismatched origin", zap.String("pid", owner.String()), zap.String("source", pkg.Source.String()), zap.String("peer", pkg.ReceivedFrom))
+					continue
+				}
+				selected, found = owner, true
 			}
 		}
+	}
+	return selected, found
+}
+
+func (s *Service) handleExitPackage(pkg *relay.Package) error {
+	defer relay.ReleasePackage(pkg)
+	selected, found := s.exitPackageOwner(pkg)
+	if !found {
+		return nil
+	}
+	// Origin validation means every admissible event in this package has the
+	// same owner. Deduplicate it without retaining every payload or result.
+	key := selected.String()
+	if err := s.reapOwners(s.reconcileContext(), []pid.PID{selected})[key]; err != nil {
+		s.logger.Warn("registry exit cleanup incomplete", zap.String("pid", key), zap.Error(err))
+	} else {
+		s.monitored.Delete(key)
 	}
 	return nil
 }
@@ -58,7 +97,18 @@ func (s *Service) Send(pkg *relay.Package) error {
 // it from any in-flight Strong reservation's required set so promotion can still
 // complete on the survivors.
 func (s *Service) DropNode(node pid.NodeID) {
-	_ = s.RemoveNode(context.Background(), node)
+	// Discovery loss cannot retire an enrolled incarnation or its claims.
+	if s.strong != nil && s.strong.incarnation != "" {
+		return
+	}
+	leave, err := s.admitMutation(context.Background())
+	if err != nil {
+		return
+	}
+	defer leave()
+	if err := s.reapBindings(nodeIndexBase(node), true); err != nil {
+		s.logger.Warn("registry node cleanup incomplete", zap.String("node", node), zap.Error(err))
+	}
 	if s.strong != nil {
 		s.strong.dropNode(node)
 	}
@@ -86,7 +136,7 @@ func (st *strongState) dropNodeFromPending(name string, node pid.NodeID) {
 		return
 	}
 	hdr, derr := decodePending(pe.Value)
-	if derr != nil {
+	if derr != nil || hdr.RequiredIncarnations != nil {
 		return
 	}
 	idx := -1
@@ -120,3 +170,24 @@ func (st *strongState) dropNodeFromPending(name string, node pid.NodeID) {
 }
 
 var _ relay.Receiver = (*Service)(nil)
+
+// Native MsgPack preserves PID extensions but decodes event structs as maps.
+// Only a process exit is cleanup evidence; link loss and cancellation are not.
+func registryExitOwner(data any) (pid.PID, bool) {
+	switch ev := data.(type) {
+	case *topology.ExitEvent:
+		if ev != nil && ev.Kind == topology.Exit {
+			return ev.From, true
+		}
+	case map[string]any:
+		kind, ok := ev["kind"].(string)
+		if !ok || kind != topology.Exit {
+			break
+		}
+		owner, ok := ev["from"].(pid.PID)
+		if ok {
+			return owner, true
+		}
+	}
+	return pid.PID{}, false
+}

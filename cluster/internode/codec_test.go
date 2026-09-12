@@ -973,3 +973,27 @@ func TestMessageCodec_JSONBytesPreserved(t *testing.T) {
 		t.Errorf("Data = %s, want %s", string(data), string(jsonBytes))
 	}
 }
+
+func TestMessageCodecDoesNotTransmitConnectionProvenance(t *testing.T) {
+	codec := NewMessageCodec(&mockTranscoder{})
+	source := pid.PID{Node: "claimed", Host: "service"}
+	target := pid.PID{Node: "destination", Host: "service"}
+	pkg := relay.NewServicePackage(source.Node, source.Host, target.Node, target.Host, "test")
+	defer relay.ReleasePackage(pkg)
+	pkg.ReceivedFrom = "forged-peer"
+	data, err := codec.Encode(pkg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := codec.Decode(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer relay.ReleasePackage(decoded)
+	if decoded.ReceivedFrom != "" {
+		t.Fatalf("wire retained local provenance: %q", decoded.ReceivedFrom)
+	}
+	if decoded.Source.Node != source.Node {
+		t.Fatal("claimed application source changed")
+	}
+}

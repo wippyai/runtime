@@ -374,6 +374,7 @@ func TestService_Send_EncodeError(t *testing.T) {
 	codec.encodeError = errors.New("encoding failed")
 
 	pkg := relay.AcquirePackage()
+	defer relay.ReleasePackage(pkg)
 	pkg.Target = pid.PID{Node: "remote-node"}
 
 	err = service.Send(pkg)
@@ -392,6 +393,7 @@ func TestService_Send_SendError(t *testing.T) {
 	connMan.sendError = errors.New("send failed")
 
 	pkg := relay.AcquirePackage()
+	defer relay.ReleasePackage(pkg)
 	pkg.Target = pid.PID{Node: "remote-node"}
 
 	err = service.Send(pkg)
@@ -576,10 +578,13 @@ func TestService_OnMessage_Success(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = service.Stop() }()
 
-	connMan.onMessage("remote-node", []byte("incoming-data"))
+	connMan.onMessage("connection-peer", []byte("incoming-data"))
 
 	assert.True(t, deliveryCalled)
-	assert.NotNil(t, deliveredPkg)
+	require.NotNil(t, deliveredPkg)
+	assert.Equal(t, "connection-peer", deliveredPkg.ReceivedFrom)
+	assert.Equal(t, "remote-node", deliveredPkg.Source.Node, "claimed source must remain separate from the connection peer")
+	relay.ReleasePackage(deliveredPkg)
 }
 
 func TestService_OnMessage_DecodeError(t *testing.T) {

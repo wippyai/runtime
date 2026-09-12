@@ -6,7 +6,9 @@ import (
 	"context"
 	"errors"
 	"io"
+	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	hraft "github.com/hashicorp/raft"
@@ -101,3 +103,41 @@ func (*shutdownTestFSM) Snapshot() (hraft.FSMSnapshot, error) {
 	return nil, errors.New("snapshot unused in shutdown test")
 }
 func (*shutdownTestFSM) Restore(reader io.ReadCloser) error { return reader.Close() }
+
+func TestTransportCloseJoinsAdmittedRequestAndRefusesNewWork(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		conn := newRaftTransportFabric().conn("receiver")
+		transport, err := newRaftMessageTransport("receiver", conn, time.Minute, zap.NewNop())
+		require.NoError(t, err)
+		entered, release := make(chan struct{}), make(chan struct{})
+		var releaseOnce sync.Once
+		unblock := func() { releaseOnce.Do(func() { close(release) }) }
+		t.Cleanup(func() { unblock(); _ = transport.Close() })
+		transport.SetHeartbeatHandler(func(hraft.RPC) { close(entered); <-release })
+		payload, err := encodeMsgpack(&hraft.AppendEntriesRequest{Term: 1, RPCHeader: hraft.RPCHeader{Addr: []byte("sender")}})
+		require.NoError(t, err)
+		wire, err := encodeMsgpack(&raftFrame{ID: 1, Type: raftRPCAppendEntries, Request: true, Payload: payload})
+		require.NoError(t, err)
+		transport.onFrame("sender", wire)
+		<-entered
+		stopped := make(chan struct{})
+		go func() { _ = transport.Close(); close(stopped) }()
+		<-transport.closeCh
+		synctest.Wait()
+		select {
+		case <-stopped:
+			t.Fatal("Close returned while an admitted request handler still ran")
+		default:
+		}
+		// The registered worker is still held. Shutdown must forbid another handler
+		// even though inflight has ample room, independent of select scheduling.
+		transport.onFrame("sender", wire)
+		unblock()
+		select {
+		case <-stopped:
+		case <-time.After(time.Second):
+			t.Fatal("Close did not join released request handler")
+		}
+		require.Empty(t, transport.inflight)
+	})
+}

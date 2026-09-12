@@ -64,17 +64,7 @@ func TestExpiredStrongBarrierFailureDoesNotSpin(t *testing.T) {
 	t.Cleanup(func() { leader.Store(false); r.strong.stopTimer("claim") })
 	owner := mkPID("node-1", "owner")
 	hdr := pendingHeader{PID: owner.String(), Name: "claim", RequiredNodes: []pid.NodeID{"node-1", "ghost"}, DeadlineUnixNano: time.Now().Add(-time.Second).UnixNano()}
-	value, err := encode(hdr)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := r.engine.Set(pendingKey("claim"), value); err != nil {
-		t.Fatal(err)
-	}
-	pe, err := r.engine.Get(pendingKey("claim"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	hdr, pe := seedStrongPending(t, r, hdr)
 	r.strong.leaderDrive("claim", pe.Epoch, pe.Version, hdr)
 	time.Sleep(75 * time.Millisecond)
 	if got := probes.Load(); got != 1 {

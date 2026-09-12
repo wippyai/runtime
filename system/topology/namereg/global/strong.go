@@ -324,15 +324,10 @@ func (s *Service) handlePendingEvent(ev PendingEvent) {
 	go s.evaluatePending(ev.Name, ev.Epoch, ev.PID)
 }
 
-// evaluatePending performs the conditional ack: check local non-presence and
-// latch a reservation, then ack; or, on conflict, send a terminal NACK and ack
-// nothing. The check+latch run under reserveMu so a competing latch cannot slip
-// between "checked absent" and "reserved". The latch and the cross-scope
-// IsStrongReserved guard (LOCAL PIDRegistry, EVENTUAL register) form a two-sided
-// check: each side reads the other before committing. They run under separate
-// locks, so a register racing the latch is resolved by whichever observes the
-// other first — a single residual window inherent to the AP/CP boundary, not a
-// shared critical section.
+// evaluatePending checks local non-presence and latches an exclusion before
+// acknowledging. The shared name guard serializes that decision with LOCAL and
+// EVENTUAL admission; reserveMu protects the exclusion table itself. Both are
+// released before sending the acknowledgement or rejection.
 func (s *Service) evaluatePending(name string, epoch uint64, pendingPID pid.PID) {
 	reserved := s.reserveCheckAndLatch(name, pendingPID, epoch, func() (pid.PID, bool) {
 		return s.localConflict(name, pendingPID)
@@ -375,6 +370,12 @@ func (s *Service) localConflict(name string, pendingPID pid.PID) (pid.PID, bool)
 // installed idempotently and true is returned. An existing exclusion for the
 // same name+epoch is treated as already satisfied regardless of its state.
 func (s *Service) reserveCheckAndLatch(name string, pendingPID pid.PID, epoch uint64, conflict func() (pid.PID, bool)) bool {
+	release, err := s.nameGuard.LockContext(context.Background(), name)
+	if err != nil {
+		return false
+	}
+	defer release()
+
 	s.reserveMu.Lock()
 	defer s.reserveMu.Unlock()
 	if existing, ok := s.strongExclusions[name]; ok && existing.epoch == epoch {

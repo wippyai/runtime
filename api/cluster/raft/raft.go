@@ -79,10 +79,9 @@ type (
 		// Useful for read-after-write consistency.
 		Barrier(timeout time.Duration) error
 
-		// CommitIndex returns the highest committed Raft log index. The
-		// join-epoch barrier reads it to stamp the strong_index a snapshot of
-		// PENDING∪ACTIVE Strong names was taken at, so a concurrently-admitted
-		// name is either fully in or fully out of the snapshot.
+		// CommitIndex returns the highest committed Raft log index. It may be
+		// ahead of local FSM application and must not stamp a state snapshot;
+		// use the revision captured atomically with that FSM state instead.
 		CommitIndex() uint64
 
 		// AddVoter adds a node as a voting member of the cluster.

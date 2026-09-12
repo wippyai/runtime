@@ -16,7 +16,7 @@ import (
 type Router struct {
 	localNode api.Node
 	internode atomic.Pointer[api.Receiver]
-	peers     sync.Map // NodeID -> Receiver
+	peers     sync.Map // NodeID -> *peerBinding
 }
 
 // NewRouter creates a new router.
@@ -33,25 +33,62 @@ func NewRouter(localNode api.Node, internode api.Receiver) *Router {
 // RegisterPeer registers a peer node receiver with the router.
 // Peer nodes are external receivers (e.g., Temporal) that can receive packages.
 func (r *Router) RegisterPeer(nodeID pid.NodeID, receiver api.Receiver) error {
-	if nodeID == "" {
-		return api.ErrEmptyNodeID
-	}
-	if nodeID == r.localNode.ID() {
-		return NewPeerConflictError(nodeID)
-	}
-
-	if _, loaded := r.peers.LoadOrStore(nodeID, receiver); loaded {
-		return NewPeerExistsError(nodeID)
-	}
-
-	return nil
+	_, err := r.RegisterOwnedPeer(nodeID, receiver)
+	return err
 }
 
-// UnregisterPeer removes a peer node from the router.
-// Returns true if the peer existed and was removed, false if it didn't exist.
+type peerBinding struct {
+	registrationLifetime
+	router   *Router
+	nodeID   pid.NodeID
+	receiver api.Receiver
+}
+
+func (b *peerBinding) Receiver() api.Receiver { return b.receiver }
+func (b *peerBinding) Current() bool {
+	current, ok := b.router.peers.Load(b.nodeID)
+	return ok && current == b && !b.retired.Load()
+}
+
+func (b *peerBinding) WithReceiver(ctx context.Context, call func(context.Context, api.Receiver) error) error {
+	return b.withContext(ctx, func(ctx context.Context) error { return call(ctx, b.receiver) })
+}
+
+func (r *Router) RegisterOwnedPeer(nodeID pid.NodeID, receiver api.Receiver) (context.CancelFunc, error) {
+	if nodeID == "" {
+		return nil, api.ErrEmptyNodeID
+	}
+	if nodeID == r.localNode.ID() {
+		return nil, NewPeerConflictError(nodeID)
+	}
+	binding := &peerBinding{router: r, nodeID: nodeID, receiver: receiver}
+	binding.init(func() { r.peers.CompareAndDelete(nodeID, binding) })
+	if _, loaded := r.peers.LoadOrStore(nodeID, binding); loaded {
+		binding.cancel()
+		return nil, NewPeerExistsError(nodeID)
+	}
+	return binding.retire, nil
+}
+
+func (r *Router) LookupLocalPeer(nodeID pid.NodeID) (api.PeerBinding, bool) {
+	value, ok := r.peers.Load(nodeID)
+	if !ok {
+		return nil, false
+	}
+	binding, ok := value.(*peerBinding)
+	return binding, ok
+}
+
+// UnregisterPeer retires the current peer and cancels pinned admission. Its
+// address remains reserved until admitted calls return. Returns true only for
+// the first retirement of the current registration.
 func (r *Router) UnregisterPeer(nodeID pid.NodeID) bool {
-	_, existed := r.peers.LoadAndDelete(nodeID)
-	return existed
+	value, existed := r.peers.Load(nodeID)
+	if !existed {
+		return false
+	}
+	binding, ok := value.(*peerBinding)
+	return ok && binding.closeAdmission()
 }
 
 // SetInternode sets (or replaces) the internode fallback receiver.
@@ -101,10 +138,12 @@ func (r *Router) receiverFor(pkg *api.Package) (api.Receiver, error) {
 	if pkg.Target.Node == "" || pkg.Target.Node == r.localNode.ID() {
 		return r.localNode, nil
 	}
-	if receiver, ok := r.peers.Load(pkg.Target.Node); ok {
-		if rec, ok := receiver.(api.Receiver); ok {
-			return rec, nil
+	if value, ok := r.peers.Load(pkg.Target.Node); ok {
+		binding := value.(*peerBinding)
+		if binding.retired.Load() {
+			return nil, api.ErrBindingRetired
 		}
+		return binding.receiver, nil
 	}
 	if p := r.internode.Load(); p != nil {
 		return *p, nil
@@ -113,3 +152,6 @@ func (r *Router) receiverFor(pkg *api.Package) (api.Receiver, error) {
 }
 
 var _ api.ContextSender = (*Router)(nil)
+
+var _ api.OwnedPeerRegistrar = (*Router)(nil)
+var _ api.LocalPeerResolver = (*Router)(nil)

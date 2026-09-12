@@ -45,6 +45,7 @@ func EventualReg() boot.Component {
 			}
 
 			cfg := eventual.Config{
+				NameGuard:        topology.GetNameGuard(ctx),
 				LocalNodeID:      memSvc.LocalNode().ID,
 				Peers:            &membershipPeerInventory{m: memSvc},
 				CrossScope:       newCrossScopeChecker(ctx),
@@ -245,7 +246,7 @@ func (c *localNameRevoker) RevokeLocal(name string, keep pid.PID) bool {
 		return false
 	}
 	held, found := local.LookupLocal(name)
-	if !found || held == keep {
+	if !found || held.Equal(keep) {
 		return false
 	}
 	if !lr.Unregister(name) {

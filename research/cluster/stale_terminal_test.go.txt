@@ -1,0 +1,28 @@
+package kvbacked
+
+import (
+ "testing"
+ kvapi "github.com/wippyai/runtime/api/store/kv"
+)
+
+type delayedAbsentEngine struct {
+ kvapi.Engine
+ beforeReturn func()
+}
+func (e *delayedAbsentEngine) Get(key string)(kvapi.Entry,error){
+ if key == pendingKey("name") {
+  e.beforeReturn()
+  return kvapi.Entry{},kvapi.ErrKeyNotFound
+ }
+ return e.Engine.Get(key)
+}
+func TestResearchDelayedAbsenceMustNotClearNewerExclusion(t *testing.T){
+ r := newStrongReg(t,nil,0,nil)
+ owner := mkPID("node-1","new")
+ r.engine = &delayedAbsentEngine{Engine:r.engine,beforeReturn:func(){
+  if _,err := r.strong.learnExclusion("name",owner,2,exclusionActive); err != nil { t.Fatal(err) }
+ }}
+ if err := r.strong.reconcile("name"); err != nil { t.Fatal(err) }
+ got,held := r.IsStrongReserved("name")
+ if !held || !got.Equal(owner) { t.Fatal("delayed absence removed newer exclusion") }
+}

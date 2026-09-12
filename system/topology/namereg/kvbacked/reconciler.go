@@ -6,15 +6,33 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/wippyai/runtime/api/pid"
 	kvapi "github.com/wippyai/runtime/api/store/kv"
+	globalapi "github.com/wippyai/runtime/api/topology/namereg/global"
 	"github.com/wippyai/runtime/system/topology/namereg/global"
 	"go.uber.org/zap"
 )
 
-type reconcilerLifecycle struct{ ctx context.Context }
+type reconcilerLifecycle struct {
+	bootstrapped       atomic.Bool // first authority snapshot completed; not transient readiness
+	recover            chan struct{}
+	recoveryGeneration uint64        // protected by admission
+	refresh            chan struct{} // participant feed hints; nil for local-watch owners
+	ctx                context.Context
+	cancel             context.CancelFunc
+	done               chan struct{}
+	workers            sync.WaitGroup
+	calls              sync.WaitGroup
+	admission          sync.Mutex
+	stopping           bool
+	mutationsSealed    atomic.Bool
+	mutationCount      int           // protected by admission
+	mutationsDrained   chan struct{} // allocated only on explicit seal
+}
 
 // StartReconciler drives the registry off the kv watch stream: active-binding
 // changes feed the dissem cache (so non-members resolve names), and Strong
@@ -22,22 +40,65 @@ type reconcilerLifecycle struct{ ctx context.Context }
 // neither dissem nor Strong is configured. The watcher stops when ctx ends.
 // Successful startup owns this Service for its lifetime: restarting requires a
 // new Service (including fresh dissemination state). Failed startup may retry.
-func (s *Service) StartReconciler(ctx context.Context) (err error) {
+func (s *Service) StartReconciler(ctx context.Context) error {
+	if s.strong != nil && s.strong.participants != nil {
+		return fmt.Errorf("enrolled naming requires participant bootstrap")
+	}
+	var recovery *participantRecovery
+	if s.strong != nil {
+		// Membership-only registries also lose watch progress during leader changes.
+		// Re-subscribe before re-reading the local replica; retain exclusions and
+		// keep admission closed until seed and queued watch events reconcile. Never
+		// replay the failed transaction or infer its outcome from transport errors.
+		recovery = &participantRecovery{
+			interval: s.strong.retryInterval,
+			refresh:  func(ctx context.Context) error { return ctx.Err() },
+		}
+	}
+	return s.startReconciler(ctx, nil, recovery)
+}
+
+// startReconciler acquires the lifecycle and subscribes before bootstrap, so
+// enrollment/snapshot installation cannot leave an unobserved update window.
+func (s *Service) startReconciler(ctx context.Context, bootstrap func(context.Context) error, recovery *participantRecovery) (err error) {
 	if s.strong == nil && s.dissem == nil {
 		return nil
 	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if s.strong != nil {
+		if s.nonMember != nil && s.nonMember() {
+			return fmt.Errorf("naming participant without a local replica requires an authority feed")
+		}
+		if _, ok := s.engine.(kvapi.LocalSnapshotReader); !ok {
+			return fmt.Errorf("registry reconciliation requires atomic local snapshot reads")
+		}
+	}
 	ctx, cancel := context.WithCancel(ctx)
-	run := &reconcilerLifecycle{ctx: ctx}
+	run := &reconcilerLifecycle{ctx: ctx, cancel: cancel, done: make(chan struct{})}
+	if recovery != nil {
+		run.recover = make(chan struct{}, 1)
+	}
 	if !s.reconciler.CompareAndSwap(nil, run) {
 		cancel()
 		return fmt.Errorf("registry reconciler already started; use a new service after shutdown")
 	}
+	if s.strong != nil {
+		s.strong.mu.Lock()
+		s.strong.timersSealed = false
+		s.strong.mu.Unlock()
+	}
 	defer func() {
 		if err != nil {
 			cancel()
+			if s.strong != nil {
+				_ = s.strong.stopTimers(context.Background())
+			}
+			run.closeAdmission()
+			run.calls.Wait()
+			run.workers.Wait()
+			close(run.done)
 			s.reconciler.CompareAndSwap(run, nil)
 		}
 	}()
@@ -45,6 +106,14 @@ func (s *Service) StartReconciler(ctx context.Context) (err error) {
 	if err != nil {
 		cancel()
 		return err
+	}
+	if bootstrap != nil {
+		s.ready.Store(false)
+		if err := bootstrap(ctx); err != nil {
+			cancel()
+			_ = w.Close()
+			return err
+		}
 	}
 	if err := s.seed(); err != nil {
 		cancel()
@@ -58,12 +127,13 @@ func (s *Service) StartReconciler(ctx context.Context) (err error) {
 	}
 	// The node has now learned and latched the cluster's in-flight/active Strong
 	// reservations; name-readiness can flip so cross-scope guards see them.
+	run.bootstrapped.Store(true)
 	s.ready.Store(true)
 	if s.dissem != nil {
-		go s.dissem.RunGC()
+		run.workers.Go(s.dissem.RunGC)
 	}
 	if s.strong != nil {
-		go s.leaderSweep(ctx)
+		run.workers.Go(func() { s.leaderSweep(ctx) })
 	}
 	go func() {
 		defer func() {
@@ -71,20 +141,58 @@ func (s *Service) StartReconciler(ctx context.Context) (err error) {
 			// admission. Stop the associated sweep even if the parent lives.
 			s.ready.Store(false)
 			cancel()
-			_ = w.Close()
+			if w != nil {
+				_ = w.Close()
+				w = nil
+			}
+			if s.dissem != nil {
+				s.dissem.Stop()
+			}
+			if s.strong != nil {
+				_ = s.strong.stopTimers(context.Background())
+			}
+			run.closeAdmission()
+			run.calls.Wait()
+			run.workers.Wait()
+			close(run.done)
 		}()
-		if s.dissem != nil {
-			defer s.dissem.Stop()
-		}
 		for {
 			select {
 			case <-ctx.Done():
 				return
-			case ev, ok := <-w.Events():
-				if !ok {
+			case <-run.recover:
+				if w != nil {
+					_ = w.Close()
+					w = nil
+				}
+				replacement, err := s.recoverParticipantWatch(ctx, recovery)
+				if err != nil {
 					return
 				}
-				s.handleWatchEvent(ev)
+				w = replacement
+			case ev, ok := <-w.Events():
+				var syncErr error
+				if !ok {
+					syncErr = fmt.Errorf("registry update stream closed")
+				} else {
+					syncErr = s.handleWatchEvent(ev)
+				}
+				if syncErr != nil {
+					s.ready.Store(false)
+					s.logger.Error("registry synchronization failed", zap.Error(syncErr))
+					if recovery == nil {
+						return
+					}
+					if w != nil {
+						_ = w.Close()
+						w = nil
+					}
+					replacement, err := s.recoverParticipantWatch(ctx, recovery)
+					if err != nil {
+						return
+					}
+					w = replacement
+				}
 			}
 		}
 	}()
@@ -106,6 +214,9 @@ func (s *Service) leaderSweep(ctx context.Context) {
 			if s.leaderFn() {
 				if err := s.strong.reconcileAllPending(); err != nil {
 					s.logger.Debug("registry pending scan failed", zap.Error(err))
+				}
+				if err := s.strong.reclaimStrongResults(ctx); err != nil {
+					s.logger.Debug("registry result reclamation failed", zap.Error(err))
 				}
 			}
 		}
@@ -137,7 +248,10 @@ func (s *Service) seed() error {
 			s.translateActive(name, e.Value, e.Epoch, false)
 		}
 		if s.strong != nil && active.Strong {
-			s.strong.reconcile(name)
+			if err := s.strong.reconcile(name); err != nil {
+				recordErr = err
+				return false
+			}
 		}
 		return true
 	})
@@ -157,7 +271,7 @@ func validateNamingRecord(key, prefix, name, owner string) error {
 	return nil
 }
 
-func (s *Service) handleWatchEvent(ev kvapi.WatchEvent) {
+func (s *Service) handleWatchEvent(ev kvapi.WatchEvent) error {
 	key := ""
 	switch {
 	case ev.Current != nil:
@@ -181,19 +295,26 @@ func (s *Service) handleWatchEvent(ev kvapi.WatchEvent) {
 			s.translateActive(name, nil, ev.Index, true)
 		}
 		if s.strong != nil {
-			s.strong.reconcile(name)
+			return s.strong.reconcile(name)
 		}
 	case strings.HasPrefix(key, pendingPrefix):
 		if s.strong != nil {
-			s.strong.reconcile(strings.TrimPrefix(key, pendingPrefix))
+			return s.strong.reconcile(strings.TrimPrefix(key, pendingPrefix))
+		}
+	case strings.HasPrefix(key, participantAckPrefix), strings.HasPrefix(key, participantRejectPrefix):
+		if s.strong != nil {
+			if name, ok := participantVoteName(key); ok {
+				return s.strong.reconcile(name)
+			}
 		}
 	case strings.HasPrefix(key, ackPrefix), strings.HasPrefix(key, rejectPrefix):
 		if s.strong != nil {
 			if err := s.strong.reconcileAllPending(); err != nil {
-				s.logger.Debug("registry pending scan failed", zap.Error(err))
+				return err
 			}
 		}
 	}
+	return nil
 }
 
 // translateActive feeds one active-binding change into the dissem plane: the
@@ -244,7 +365,79 @@ func (st *strongState) reconcileAllPending() error {
 		return recordErr
 	}
 	for _, n := range names {
-		st.reconcile(n)
+		if err := st.reconcile(n); err != nil {
+			return err
+		}
 	}
 	return nil
+}
+
+// reconcileContext is the lifetime of the current startup/watch owner. Direct
+// standalone calls have no reconciler lifetime and use their existing behavior.
+func (s *Service) reconcileContext() context.Context {
+	if run := s.reconciler.Load(); run != nil {
+		return run.ctx
+	}
+	return context.Background()
+}
+
+// StopReconciler closes admission, cancels the watch owner, and joins its workers
+// and timer callbacks. A context deadline bounds only the wait; it does not
+// report completion or release ownership. Call again to finish a canceled wait.
+func (s *Service) StopReconciler(ctx context.Context) error {
+	run := s.reconciler.Load()
+	if run == nil {
+		return nil
+	}
+	s.ready.Store(false)
+	run.closeAdmission()
+	select {
+	case <-run.done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (run *reconcilerLifecycle) closeAdmission() {
+	run.admission.Lock()
+	run.stopping = true
+	run.cancel()
+	run.admission.Unlock()
+}
+
+// admitMutation joins direct mutation calls to the current owner.
+// Standalone services preserve their existing caller-owned lifetime.
+func (s *Service) admitMutation(ctx context.Context) (func(), error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	run := s.reconciler.Load()
+	if run == nil {
+		// Configured cluster participants cannot fall back to standalone writes
+		// before enrollment, or after bootstrap failed and released its owner.
+		if s.strong != nil && s.strong.participants != nil {
+			return nil, globalapi.ErrNotReady
+		}
+		return func() {}, nil
+	}
+	run.admission.Lock()
+	defer run.admission.Unlock()
+	if s.strong != nil && s.strong.participants != nil && !run.bootstrapped.Load() {
+		return nil, globalapi.ErrNotReady
+	}
+	if run.stopping || run.mutationsSealed.Load() || run.ctx.Err() != nil {
+		return nil, context.Canceled
+	}
+	run.calls.Add(1)
+	run.mutationCount++
+	return func() {
+		run.admission.Lock()
+		run.mutationCount--
+		run.calls.Done()
+		if run.mutationCount == 0 && run.mutationsDrained != nil {
+			close(run.mutationsDrained)
+		}
+		run.admission.Unlock()
+	}, nil
 }

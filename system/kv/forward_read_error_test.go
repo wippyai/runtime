@@ -31,7 +31,7 @@ func (r *truncatedReadRouter) Send(pkg *relay.Package) error {
 		copy(reply[:8], req[:8])
 		reply[8] = 1 // Found, but the declared value is missing from the frame.
 		binary.BigEndian.PutUint32(reply[25:29], 10)
-		return r.receiver.Send(relay.NewServicePackage("leader", KVRaftHostID, "client", KVRaftHostID, topicKVReadResp, payload.New(reply)))
+		return r.receiver.Send(relay.NewServicePackage(pkg.Target.Node, KVRaftHostID, pkg.Source.Node, KVRaftHostID, topicKVReadResp, payload.New(reply)))
 	}
 	return nil
 }

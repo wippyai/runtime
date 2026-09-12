@@ -6,7 +6,6 @@ import (
 	"context"
 	"fmt"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -338,87 +337,18 @@ func (n *MockPeerNode) SimulateFailure(targetPID pid.PID, err error) error {
 // TestIntegration_CrossNodeMonitoring_EndToEnd tests the complete flow of monitoring
 // a workflow on a peer node from start to completion.
 func TestIntegration_CrossNodeMonitoring_EndToEnd(t *testing.T) {
-	// Setup: Create local node with router and topology
-	localNode := relaysys.NewNode("local")
-	router := relaysys.NewRouter(localNode, nil)
-	topo := NewTopology(router, "local")
-
-	// Register dummy host for the local node
-	err := localNode.RegisterHost("myhost", &dummyHost{})
-	require.NoError(t, err)
-
-	// Setup: Create mock peer node (simulating Temporal)
-	peerNode := NewMockPeerNode("temporal-prod", router, t)
-	err = router.RegisterPeer("temporal-prod", peerNode)
-	require.NoError(t, err)
-
-	// Setup PIDs
-	localProcessPID := pid.PID{
-		Node:   "local",
-		Host:   "myhost",
-		UniqID: "process-1",
-	}
-	localProcessPID = localProcessPID.Precomputed()
-
-	workflowPID := pid.PID{
-		Node:   "temporal-prod",
-		Host:   "my-task-queue",
-		UniqID: "workflow-123",
-	}
-	workflowPID = workflowPID.Precomputed()
-
-	// Register local process
-	err = topo.Register(localProcessPID)
-	require.NoError(t, err)
-
-	// Setup: Create channel to receive exit notifications
-	exitCh := make(chan *relay.Package, 10)
-	cancel, err := localNode.Attach(localProcessPID, exitCh)
-	require.NoError(t, err)
-	defer cancel()
-
-	// ACT: Local process starts monitoring the workflow
-	err = topo.Monitor(localProcessPID, workflowPID)
-	require.NoError(t, err)
-
-	// Give time for message propagation
-	time.Sleep(10 * time.Millisecond)
-
-	// ASSERT: Virtual node should have received the monitor request
-	watchers := peerNode.GetWatchers(workflowPID)
-	require.Len(t, watchers, 1, "peer node should have 1 watcher")
-	assert.Equal(t, localProcessPID, watchers[0])
-
-	// ACT: Simulate workflow completion
-	workflowResult := "workflow completed successfully"
-	err = peerNode.SimulateCompletion(workflowPID, workflowResult, nil)
-	require.NoError(t, err)
-
-	// ASSERT: Local process should receive exit notification
-	select {
-	case pkg := <-exitCh:
-		assert.Equal(t, localProcessPID, pkg.Target, "exit event should target local process")
-
-		var found bool
-		for _, msg := range pkg.Messages {
-			for _, p := range msg.Payloads {
-				if exitEvt, ok := p.Data().(*topology.ExitEvent); ok {
-					found = true
-					assert.Equal(t, workflowPID, exitEvt.From)
-					assert.Equal(t, topology.Exit, exitEvt.Kind)
-					assert.Nil(t, exitEvt.Result.Error)
-				}
-			}
-		}
-		assert.True(t, found, "package should contain ExitEvent")
-
-	case <-time.After(100 * time.Millisecond):
-		t.Fatal("timeout waiting for exit notification")
-	}
-
-	// ASSERT: Virtual node should have cleaned up monitors after completion
-	watchers = peerNode.GetWatchers(workflowPID)
-	assert.Len(t, watchers, 0, "peer node should cleanup monitors after completion")
+	// Production sender, target admission and completion handler across native
+	// codec boundaries. OS-process/TLS proof lives in the boot harness.
+	f := newMonitorSenderFixture(t)
+	require.NoError(t, f.local.Monitor(f.caller, f.target))
+	f.remote.Complete(f.target, &runtime.Result{Value: payload.New("completed")})
+	require.Len(t, f.deliveries, 1)
+	require.True(t, f.deliveryTargets[0].Equal(f.caller))
+	require.Equal(t, topology.Exit, f.deliveries[0]["kind"])
+	require.True(t, f.deliveries[0]["from"].(pid.PID).Equal(f.target))
+	require.NotNil(t, f.deliveries[0]["result"])
+	f.remote.Complete(f.target, &runtime.Result{})
+	require.Len(t, f.deliveries, 1, "completed target must not notify twice")
 }
 
 // TestIntegration_CrossNodeLinking_EndToEnd tests the complete flow of linking
@@ -502,141 +432,37 @@ func TestIntegration_CrossNodeLinking_EndToEnd(t *testing.T) {
 
 // TestIntegration_MultipleWatchers tests multiple processes monitoring the same workflow.
 func TestIntegration_MultipleWatchers(t *testing.T) {
-	// Setup
-	localNode := relaysys.NewNode("local")
-	router := relaysys.NewRouter(localNode, nil)
-	topo := NewTopology(router, "local")
-
-	// Register hosts for all processes
-	err := localNode.RegisterHost("host1", &dummyHost{})
-	require.NoError(t, err)
-	err = localNode.RegisterHost("host2", &dummyHost{})
-	require.NoError(t, err)
-	err = localNode.RegisterHost("host3", &dummyHost{})
-	require.NoError(t, err)
-
-	peerNode := NewMockPeerNode("temporal-prod", router, t)
-	err = router.RegisterPeer("temporal-prod", peerNode)
-	require.NoError(t, err)
-
-	// Create multiple local processes
-	process1PID := pid.PID{Node: "local", Host: "host1", UniqID: "p1"}
-	process1PID = process1PID.Precomputed()
-	process2PID := pid.PID{Node: "local", Host: "host2", UniqID: "p2"}
-	process2PID = process2PID.Precomputed()
-	process3PID := pid.PID{Node: "local", Host: "host3", UniqID: "p3"}
-	process3PID = process3PID.Precomputed()
-
-	workflowPID := pid.PID{Node: "temporal-prod", Host: "queue", UniqID: "wf-789"}
-	workflowPID = workflowPID.Precomputed()
-
-	err = topo.Register(process1PID)
-	require.NoError(t, err)
-	err = topo.Register(process2PID)
-	require.NoError(t, err)
-	err = topo.Register(process3PID)
-	require.NoError(t, err)
-
-	// Setup channels for all processes
-	ch1 := make(chan *relay.Package, 10)
-	cancel1, _ := localNode.Attach(process1PID, ch1)
-	defer cancel1()
-
-	ch2 := make(chan *relay.Package, 10)
-	cancel2, _ := localNode.Attach(process2PID, ch2)
-	defer cancel2()
-
-	ch3 := make(chan *relay.Package, 10)
-	cancel3, _ := localNode.Attach(process3PID, ch3)
-	defer cancel3()
-
-	// ACT: All three processes monitor the same workflow
-	err = topo.Monitor(process1PID, workflowPID)
-	require.NoError(t, err)
-	err = topo.Monitor(process2PID, workflowPID)
-	require.NoError(t, err)
-	err = topo.Monitor(process3PID, workflowPID)
-	require.NoError(t, err)
-
-	time.Sleep(10 * time.Millisecond)
-
-	watchers := peerNode.GetWatchers(workflowPID)
-	assert.Len(t, watchers, 3, "peer node should have 3 watchers")
-
-	// ACT: Workflow completes
-	err = peerNode.SimulateCompletion(workflowPID, "result", nil)
-	require.NoError(t, err)
-
-	// ASSERT: All three processes should receive exit notification
-	var receivedCount int32
-	done := make(chan bool, 3)
-
-	checkExit := func(ch chan *relay.Package) {
-		select {
-		case pkg := <-ch:
-			for _, msg := range pkg.Messages {
-				for _, p := range msg.Payloads {
-					if _, ok := p.Data().(*topology.ExitEvent); ok {
-						atomic.AddInt32(&receivedCount, 1)
-						done <- true
-						return
-					}
-				}
-			}
-		case <-time.After(100 * time.Millisecond):
-			done <- false
+	f := newMonitorSenderFixture(t)
+	callers := []pid.PID{f.caller, {Node: f.caller.Node, Host: "second", UniqID: "two"}, {Node: f.caller.Node, Host: "third", UniqID: "three"}}
+	for i, caller := range callers {
+		if i != 0 {
+			require.NoError(t, f.local.Register(caller))
 		}
+		require.NoError(t, f.local.Monitor(caller, f.target))
 	}
-
-	go checkExit(ch1)
-	go checkExit(ch2)
-	go checkExit(ch3)
-
-	for i := 0; i < 3; i++ {
-		<-done
+	f.remote.Complete(f.target, &runtime.Result{})
+	require.Len(t, f.deliveries, 3)
+	got := make(map[string]bool)
+	for _, target := range f.deliveryTargets {
+		require.False(t, got[target.String()])
+		got[target.String()] = true
 	}
-
-	assert.Equal(t, int32(3), receivedCount, "all 3 processes should receive exit notification")
+	for _, caller := range callers {
+		require.True(t, got[caller.String()])
+	}
 }
 
 // TestIntegration_ReleaseMonitor tests releasing monitoring before completion.
 func TestIntegration_ReleaseMonitor(t *testing.T) {
-	// Setup
-	localNode := relaysys.NewNode("local")
-	router := relaysys.NewRouter(localNode, nil)
-	topo := NewTopology(router, "local")
-
-	// Register host
-	err := localNode.RegisterHost("host1", &dummyHost{})
-	require.NoError(t, err)
-
-	peerNode := NewMockPeerNode("temporal-prod", router, t)
-	err = router.RegisterPeer("temporal-prod", peerNode)
-	require.NoError(t, err)
-
-	localPID := pid.PID{Node: "local", Host: "host1", UniqID: "p1"}
-	localPID = localPID.Precomputed()
-	workflowPID := pid.PID{Node: "temporal-prod", Host: "queue", UniqID: "wf-release"}
-	workflowPID = workflowPID.Precomputed()
-
-	err = topo.Register(localPID)
-	require.NoError(t, err)
-
-	// ACT: Monitor then release
-	err = topo.Monitor(localPID, workflowPID)
-	require.NoError(t, err)
-
-	time.Sleep(10 * time.Millisecond)
-	assert.Len(t, peerNode.GetWatchers(workflowPID), 1)
-
-	err = topo.Demonitor(localPID, workflowPID)
-	require.NoError(t, err)
-
-	time.Sleep(10 * time.Millisecond)
-
-	// ASSERT: Virtual node should have no watchers
-	assert.Len(t, peerNode.GetWatchers(workflowPID), 0,
-		"peer node should have no watchers after release")
+	f := newMonitorSenderFixture(t)
+	other := pid.PID{Node: f.caller.Node, Host: "other", UniqID: "observer"}
+	require.NoError(t, f.local.Register(other))
+	require.NoError(t, f.local.Monitor(f.caller, f.target))
+	require.NoError(t, f.local.Monitor(other, f.target))
+	require.NoError(t, f.local.Demonitor(f.caller, f.target))
+	f.remote.Complete(f.target, &runtime.Result{})
+	require.Len(t, f.deliveries, 1, "released observer must not receive completion")
+	require.True(t, f.deliveryTargets[0].Equal(other))
 }
 
 // TestIntegration_UnlinkBeforeFailure tests unlinking before workflow failure.

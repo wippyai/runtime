@@ -3,6 +3,7 @@
 package raft
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -42,19 +43,30 @@ type raftFrame struct {
 }
 
 type raftMessageTransport struct {
-	connMgr     internode.ConnectionManager
-	heartbeatFn atomic.Value
-	logger      *zap.Logger
-	pending     map[uint64]chan raftFrame
-	snapshots   map[raftRequestKey]*raftSnapshotStream
-	consumerCh  chan hraft.RPC
-	inflight    chan struct{}
-	closeCh     chan struct{}
-	local       cluster.NodeID
-	nextID      atomic.Uint64
-	timeout     time.Duration
-	closeOnce   sync.Once
-	mu          sync.Mutex
+	connMgr        internode.ConnectionManager
+	ctx            context.Context
+	cancel         context.CancelCauseFunc
+	heartbeatFn    atomic.Value
+	logger         *zap.Logger
+	pending        map[uint64]raftPendingReply
+	snapshots      map[raftRequestKey]*raftSnapshotStream
+	consumerCh     chan hraft.RPC
+	inflight       chan struct{}
+	closeCh        chan struct{}
+	local          cluster.NodeID
+	nextID         atomic.Uint64
+	timeout        time.Duration
+	closeOnce      sync.Once
+	requestWorkers sync.WaitGroup
+	mu             sync.Mutex
+}
+
+// raftPendingReply binds completion to the authenticated destination and RPC
+// kind. Request IDs alone are not authority to complete another peer's call.
+type raftPendingReply struct {
+	peer cluster.NodeID
+	typ  uint8
+	ch   chan raftFrame
 }
 
 type raftHeartbeatHandler struct {
@@ -72,7 +84,9 @@ type raftSnapshotStream struct {
 }
 
 func newRaftMessageTransport(local cluster.NodeID, connMgr internode.ConnectionManager, timeout time.Duration, logger *zap.Logger) (*raftMessageTransport, error) {
+	ctx, cancel := context.WithCancelCause(context.Background())
 	t := &raftMessageTransport{
+		ctx: ctx, cancel: cancel,
 		local:      local,
 		connMgr:    connMgr,
 		timeout:    timeout,
@@ -80,10 +94,11 @@ func newRaftMessageTransport(local cluster.NodeID, connMgr internode.ConnectionM
 		consumerCh: make(chan hraft.RPC, 256),
 		inflight:   make(chan struct{}, maxInboundRaftRPC),
 		closeCh:    make(chan struct{}),
-		pending:    map[uint64]chan raftFrame{},
+		pending:    map[uint64]raftPendingReply{},
 		snapshots:  map[raftRequestKey]*raftSnapshotStream{},
 	}
 	if !connMgr.RegisterClassReceiver(internode.ClassRaftRPC, t.onFrame) {
+		cancel(hraft.ErrTransportShutdown)
 		return nil, errors.New("raft internode: raft RPC receiver already registered")
 	}
 	return t, nil
@@ -137,6 +152,7 @@ func (t *raftMessageTransport) SetHeartbeatHandler(cb func(hraft.RPC)) {
 
 func (t *raftMessageTransport) Close() error {
 	t.closeOnce.Do(func() {
+		t.cancel(hraft.ErrTransportShutdown)
 		close(t.closeCh)
 		_ = t.connMgr.RegisterClassReceiver(internode.ClassRaftRPC, nil)
 
@@ -152,6 +168,7 @@ func (t *raftMessageTransport) Close() error {
 			delete(t.snapshots, key)
 		}
 		t.mu.Unlock()
+		t.requestWorkers.Wait()
 	})
 	return nil
 }
@@ -165,7 +182,7 @@ func (t *raftMessageTransport) rpc(_ hraft.ServerID, target hraft.ServerAddress,
 	id := t.nextID.Add(1)
 	respCh := make(chan raftFrame, 1)
 	t.mu.Lock()
-	t.pending[id] = respCh
+	t.pending[id] = raftPendingReply{peer: cluster.NodeID(target), typ: typ, ch: respCh}
 	t.mu.Unlock()
 	defer t.removePending(id)
 
@@ -178,6 +195,29 @@ func (t *raftMessageTransport) rpc(_ hraft.ServerID, target hraft.ServerAddress,
 }
 
 func (t *raftMessageTransport) snapshotRPC(target hraft.ServerAddress, args *hraft.InstallSnapshotRequest, resp *hraft.InstallSnapshotResponse, data io.Reader, timeout time.Duration) error {
+	sender, ok := t.connMgr.(internode.ContextConnectionManager)
+	if !ok {
+		return errors.New("raft internode: snapshot requires context-aware admission")
+	}
+	if timeout <= 0 {
+		timeout = t.timeout
+	}
+	ctx, cancel := context.WithTimeout(t.ctx, timeout)
+	defer cancel()
+	send := func(frame raftFrame) error {
+		if err := ctx.Err(); err != nil {
+			return context.Cause(ctx)
+		}
+		wire, err := encodeMsgpack(&frame)
+		if err != nil {
+			return err
+		}
+		err = sender.SendToNodeContext(ctx, cluster.NodeID(target), wire, internode.ClassRaftRPC)
+		if err != nil && ctx.Err() != nil {
+			return context.Cause(ctx)
+		}
+		return err
+	}
 	payload, err := encodeMsgpack(args)
 	if err != nil {
 		return err
@@ -186,24 +226,34 @@ func (t *raftMessageTransport) snapshotRPC(target hraft.ServerAddress, args *hra
 	id := t.nextID.Add(1)
 	respCh := make(chan raftFrame, 1)
 	t.mu.Lock()
-	t.pending[id] = respCh
+	t.pending[id] = raftPendingReply{peer: cluster.NodeID(target), typ: raftRPCInstallSnapshot, ch: respCh}
 	t.mu.Unlock()
 	defer t.removePending(id)
 
-	peer := cluster.NodeID(target)
 	header := raftFrame{ID: id, Type: raftRPCInstallSnapshot, Request: true, Payload: payload}
-	if err := t.sendFrame(peer, header); err != nil {
+	if err := send(header); err != nil {
 		return err
 	}
-	if err := t.sendSnapshotChunks(peer, id, data); err != nil {
+	if err := t.sendSnapshotChunks(ctx, id, data, send); err != nil {
 		return err
 	}
-	return t.waitReply(raftRPCInstallSnapshot, target, respCh, resp, timeout)
+	select {
+	case reply := <-respCh:
+		if reply.Error != "" {
+			return errors.New(reply.Error)
+		}
+		return decodeMsgpack(reply.Payload, resp)
+	case <-ctx.Done():
+		return context.Cause(ctx)
+	}
 }
 
-func (t *raftMessageTransport) sendSnapshotChunks(peer cluster.NodeID, id uint64, data io.Reader) error {
+func (t *raftMessageTransport) sendSnapshotChunks(ctx context.Context, id uint64, data io.Reader, send func(raftFrame) error) error {
 	buf := make([]byte, raftSnapshotChunkSize)
 	for {
+		if ctx.Err() != nil {
+			return context.Cause(ctx)
+		}
 		n, readErr := data.Read(buf)
 		if n > 0 {
 			frame := raftFrame{
@@ -212,15 +262,15 @@ func (t *raftMessageTransport) sendSnapshotChunks(peer cluster.NodeID, id uint64
 				Request:  true,
 				Snapshot: buf[:n],
 			}
-			if err := t.sendFrame(peer, frame); err != nil {
+			if err := send(frame); err != nil {
 				return err
 			}
 		}
 		if readErr == io.EOF {
-			return t.sendFrame(peer, raftFrame{ID: id, Type: raftRPCInstallSnapshot, Request: true, EOF: true})
+			return send(raftFrame{ID: id, Type: raftRPCInstallSnapshot, Request: true, EOF: true})
 		}
 		if readErr != nil {
-			_ = t.sendFrame(peer, raftFrame{ID: id, Type: raftRPCInstallSnapshot, Request: true, EOF: true, Error: readErr.Error()})
+			_ = send(raftFrame{ID: id, Type: raftRPCInstallSnapshot, Request: true, EOF: true, Error: readErr.Error()})
 			return readErr
 		}
 	}
@@ -271,15 +321,16 @@ func (t *raftMessageTransport) onFrame(peer cluster.NodeID, data []byte) {
 	}
 	if !frame.Request {
 		t.mu.Lock()
-		ch := t.pending[frame.ID]
-		t.mu.Unlock()
-		if ch == nil {
+		pending, ok := t.pending[frame.ID]
+		if !ok || pending.peer != peer || pending.typ != frame.Type {
+			t.mu.Unlock()
 			return
 		}
-		select {
-		case ch <- frame:
-		case <-t.closeCh:
-		}
+		// Claim completion once, before publishing. The channel has one slot
+		// and one producer, so duplicates never block the mesh receive loop.
+		delete(t.pending, frame.ID)
+		t.mu.Unlock()
+		pending.ch <- frame
 		return
 	}
 	if frame.Type == raftRPCInstallSnapshot && len(frame.Payload) == 0 {
@@ -288,42 +339,65 @@ func (t *raftMessageTransport) onFrame(peer cluster.NodeID, data []byte) {
 	}
 	if frame.Type == raftRPCInstallSnapshot {
 		key := raftRequestKey{peer: peer, id: frame.ID}
+		t.mu.Lock()
+		select {
+		case <-t.closeCh:
+			t.mu.Unlock()
+			return
+		default:
+		}
+		if t.snapshots[key] != nil {
+			t.mu.Unlock()
+			return // duplicate header cannot replace an active reader
+		}
 		reader, writer := io.Pipe()
 		stream := &raftSnapshotStream{writer: writer}
 		stream.timer = time.AfterFunc(t.timeout, func() {
-			t.removeSnapshotWriter(key, errors.New("raft internode: snapshot stream timed out"))
+			t.removeSnapshotWriter(key, stream, errors.New("raft internode: snapshot stream timed out"))
 		})
-		t.mu.Lock()
 		t.snapshots[key] = stream
 		t.mu.Unlock()
-		t.dispatchRequest(peer, frame, reader, key)
+		t.dispatchRequest(peer, frame, reader, key, stream)
 		return
 	}
-	t.dispatchRequest(peer, frame, nil, raftRequestKey{})
+	t.dispatchRequest(peer, frame, nil, raftRequestKey{}, nil)
 }
 
-func (t *raftMessageTransport) dispatchRequest(peer cluster.NodeID, frame raftFrame, snapshotReader *io.PipeReader, snapshotKey raftRequestKey) {
-	select {
-	case t.inflight <- struct{}{}:
-		go func() {
-			defer func() { <-t.inflight }()
-			t.handleRequest(peer, frame, snapshotReader, snapshotKey)
-		}()
-	case <-t.closeCh:
+func (t *raftMessageTransport) dispatchRequest(peer cluster.NodeID, frame raftFrame, snapshotReader *io.PipeReader, snapshotKey raftRequestKey, snapshotStream *raftSnapshotStream) {
+	// Serialize worker registration with Close's admission barrier. The lock is
+	// released before any handler or resource cleanup, including reply delivery.
+	t.mu.Lock()
+	if t.ctx.Err() != nil {
+		t.mu.Unlock()
 		if snapshotReader != nil {
-			t.removeSnapshotWriter(snapshotKey, hraft.ErrTransportShutdown)
+			t.removeSnapshotWriter(snapshotKey, snapshotStream, hraft.ErrTransportShutdown)
 			_ = snapshotReader.Close()
 		}
+		return
+	}
+	select {
+	case t.inflight <- struct{}{}:
+		t.requestWorkers.Add(1)
+		t.mu.Unlock()
+		go func() {
+			defer t.requestWorkers.Done()
+			defer func() { <-t.inflight }()
+			t.handleRequest(peer, frame, snapshotReader, snapshotKey, snapshotStream)
+		}()
 	default:
+		t.mu.Unlock()
 		if snapshotReader != nil {
-			t.removeSnapshotWriter(snapshotKey, errors.New("raft internode: inbound rpc limit reached"))
+			t.removeSnapshotWriter(snapshotKey, snapshotStream, errors.New("raft internode: inbound rpc limit reached"))
 			_ = snapshotReader.Close()
 		}
 		t.sendReply(peer, frame.ID, frame.Type, nil, errors.New("raft internode: inbound rpc limit reached"))
 	}
 }
 
-func (t *raftMessageTransport) handleRequest(peer cluster.NodeID, frame raftFrame, snapshotReader *io.PipeReader, snapshotKey raftRequestKey) {
+func (t *raftMessageTransport) handleRequest(peer cluster.NodeID, frame raftFrame, snapshotReader *io.PipeReader, snapshotKey raftRequestKey, snapshotStream *raftSnapshotStream) {
+	if snapshotReader != nil {
+		defer t.removeSnapshotWriter(snapshotKey, snapshotStream, hraft.ErrTransportShutdown)
+	}
 	var cmd any
 	var err error
 	switch frame.Type {
@@ -351,6 +425,9 @@ func (t *raftMessageTransport) handleRequest(peer cluster.NodeID, frame raftFram
 		err = fmt.Errorf("unknown raft rpc type %d", frame.Type)
 	}
 	if err != nil {
+		if snapshotReader != nil {
+			_ = snapshotReader.Close()
+		}
 		t.sendReply(peer, frame.ID, frame.Type, nil, err)
 		return
 	}
@@ -358,7 +435,6 @@ func (t *raftMessageTransport) handleRequest(peer cluster.NodeID, frame raftFram
 	respCh := make(chan hraft.RPCResponse, 1)
 	rpc := hraft.RPC{Command: cmd, RespChan: respCh}
 	if frame.Type == raftRPCInstallSnapshot {
-		defer t.removeSnapshotWriter(snapshotKey, hraft.ErrTransportShutdown)
 		rpc.Reader = snapshotReader
 	}
 
@@ -378,36 +454,37 @@ func (t *raftMessageTransport) handleSnapshotChunk(peer cluster.NodeID, frame ra
 	key := raftRequestKey{peer: peer, id: frame.ID}
 	t.mu.Lock()
 	stream := t.snapshots[key]
+	if stream != nil {
+		stream.timer.Reset(t.timeout)
+	}
 	t.mu.Unlock()
 	if stream == nil {
 		return
 	}
-	stream.timer.Reset(t.timeout)
 	if frame.Error != "" {
-		t.removeSnapshotWriter(key, errors.New(frame.Error))
+		t.removeSnapshotWriter(key, stream, errors.New(frame.Error))
 		return
 	}
 	if len(frame.Snapshot) > 0 {
 		if _, err := stream.writer.Write(frame.Snapshot); err != nil {
-			t.removeSnapshotWriter(key, err)
+			t.removeSnapshotWriter(key, stream, err)
 			return
 		}
 	}
 	if frame.EOF {
-		t.removeSnapshotWriter(key, nil)
+		t.removeSnapshotWriter(key, stream, nil)
 	}
 }
 
-func (t *raftMessageTransport) removeSnapshotWriter(key raftRequestKey, err error) {
+func (t *raftMessageTransport) removeSnapshotWriter(key raftRequestKey, expected *raftSnapshotStream, err error) {
 	t.mu.Lock()
 	stream := t.snapshots[key]
-	if stream != nil {
-		delete(t.snapshots, key)
-	}
-	t.mu.Unlock()
-	if stream == nil {
+	if stream == nil || stream != expected {
+		t.mu.Unlock()
 		return
 	}
+	delete(t.snapshots, key)
+	t.mu.Unlock()
 	if stream.timer != nil {
 		stream.timer.Stop()
 	}

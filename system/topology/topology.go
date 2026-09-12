@@ -3,6 +3,7 @@
 package topology
 
 import (
+	"context"
 	"sync"
 	"time"
 
@@ -23,7 +24,11 @@ type monitorAttempt byte
 
 // callerLifetime fences sends against processState pooling and same-PID reuse.
 // Allocated lazily only for processes that issue remote monitor requests.
-type callerLifetime byte
+type callerLifetime struct {
+	destination relay.ContextSender
+	ctx         context.Context
+	cancel      context.CancelFunc
+}
 
 type watchedProcess struct {
 	attempt *monitorAttempt
@@ -32,11 +37,13 @@ type watchedProcess struct {
 
 // processState holds all state for a single registered process.
 type processState struct {
-	remoteLifetime *callerLifetime
-	watchers       map[string]pid.PID
-	links          map[string]pid.PID
-	watching       map[string]watchedProcess
-	pid            pid.PID
+	remoteWatching  map[string]*remoteWatch
+	remoteObservers *remoteMonitorSet
+	remoteLifetime  *callerLifetime
+	watchers        map[string]pid.PID
+	links           map[string]pid.PID
+	watching        map[string]watchedProcess
+	pid             pid.PID
 }
 
 // shard holds a subset of processes with its own lock.
@@ -54,11 +61,14 @@ type nodeKeys struct {
 // Topology implements process monitoring, linking, and lifecycle management.
 // Uses sharding to reduce lock contention under high concurrency.
 type Topology struct {
-	statePool   sync.Pool
-	router      relay.Receiver
-	nodeIndex   sync.Map
-	localNodeID pid.NodeID
-	shards      [numShards]shard
+	monitorMu         sync.Mutex
+	monitorEndpoint   *monitorExchange
+	monitorMaxRecords int
+	statePool         sync.Pool
+	router            relay.Receiver
+	nodeIndex         sync.Map
+	localNodeID       pid.NodeID
+	shards            [numShards]shard
 }
 
 // NewTopology creates a new Topology instance.
@@ -117,6 +127,11 @@ func (t *Topology) recycleState(s *processState) {
 			clear(s.watching)
 		}
 	}
+	if s.remoteObservers != nil {
+		s.remoteObservers.close()
+		s.remoteObservers = nil
+	}
+	s.remoteWatching = nil
 	s.remoteLifetime = nil
 	t.statePool.Put(s)
 }
@@ -215,45 +230,7 @@ func (t *Topology) Monitor(caller, target pid.PID) error {
 
 	// Remote monitoring
 	if target.Node != "" && target.Node != t.localNodeID {
-		callerSh := t.getShard(callerKey)
-		callerSh.mu.Lock()
-		callerState, exists := callerSh.processes[callerKey]
-		if !exists {
-			callerSh.mu.Unlock()
-			return topology.ErrPIDNotRegistered.WithDetails(attrs.Bag{
-				"pid":       callerKey,
-				"operation": "monitor",
-				"role":      "caller",
-			})
-		}
-		if callerState.remoteLifetime == nil {
-			callerState.remoteLifetime = new(callerLifetime)
-		}
-		lifetime := callerState.remoteLifetime
-		callerSh.mu.Unlock()
-
-		pkg := topology.MonitorRequestPackage(caller, target)
-		if err := t.router.Send(pkg); err != nil {
-			return err
-		}
-
-		callerSh.mu.Lock()
-		callerState, exists = callerSh.processes[callerKey]
-		if !exists || callerState.remoteLifetime != lifetime {
-			callerSh.mu.Unlock()
-			// Sending succeeded, but its issuer no longer exists. Do not adopt
-			// the request into a replacement lifetime. An unversioned release
-			// here could erase that replacement's own remote monitor.
-			return topology.ErrPIDNotRegistered.WithDetails(attrs.Bag{
-				"pid": callerKey, "operation": "monitor", "role": "caller",
-			})
-		}
-		if callerState.watching == nil {
-			callerState.watching = make(map[string]watchedProcess)
-		}
-		callerState.watching[targetKey] = watchedProcess{PID: target, attempt: new(monitorAttempt)}
-		callerSh.mu.Unlock()
-		return nil
+		return t.remoteMonitor(caller, target, true)
 	}
 
 	// Local monitoring - lock shards in consistent order
@@ -350,26 +327,7 @@ func (t *Topology) Demonitor(caller, target pid.PID) error {
 
 	// Remote demonitoring
 	if target.Node != "" && target.Node != t.localNodeID {
-		callerSh := t.getShard(callerKey)
-		callerSh.mu.RLock()
-		var observed *monitorAttempt
-		if state, exists := callerSh.processes[callerKey]; exists {
-			observed = state.watching[targetKey].attempt
-		}
-		callerSh.mu.RUnlock()
-
-		pkg := topology.MonitorReleasePackage(caller, target)
-		if err := t.router.Send(pkg); err != nil {
-			return err
-		}
-
-		callerSh.mu.Lock()
-		if callerState, exists := callerSh.processes[callerKey]; exists && observed != nil &&
-			callerState.watching[targetKey].attempt == observed {
-			delete(callerState.watching, targetKey)
-		}
-		callerSh.mu.Unlock()
-		return nil
+		return t.remoteMonitor(caller, target, false)
 	}
 
 	// Local demonitoring - lock shards in consistent order to prevent race conditions
@@ -649,6 +607,10 @@ func (t *Topology) Complete(p pid.PID, result *runtime.Result) {
 		return
 	}
 
+	var remoteObservers []remoteMonitorObserver
+	if state.remoteObservers != nil {
+		remoteObservers = state.remoteObservers.close()
+	}
 	hasWatchers := len(state.watchers) > 0
 	hasLinks := result.Error != nil && len(state.links) > 0
 
@@ -668,14 +630,22 @@ func (t *Topology) Complete(p pid.PID, result *runtime.Result) {
 		}
 	}
 
-	// Collect remote targets this process was watching
-	var remoteWatching []pid.PID
-	for _, targetPID := range state.watching {
-		if targetPID.Node != "" && targetPID.Node != t.localNodeID {
-			remoteWatching = append(remoteWatching, targetPID.PID)
+	// Capture exact remote references before recycling the caller. Uncertain
+	// installs may already exist at the target and also need an exact release.
+	type monitorCleanup struct {
+		control remoteMonitorControl
+		binding relay.PeerBinding
+	}
+	var remoteWatching []monitorCleanup
+	for _, record := range state.remoteWatching {
+		if record.active || record.operation != "" {
+			remoteWatching = append(remoteWatching, monitorCleanup{binding: record.binding, control: remoteMonitorControl{kind: topology.MonitorRelease, caller: p, target: record.target, reference: record.reference}})
 		}
 	}
 
+	if state.remoteLifetime != nil {
+		state.remoteLifetime.cancel()
+	}
 	delete(sh.processes, key)
 	sh.mu.Unlock()
 
@@ -691,6 +661,14 @@ func (t *Topology) Complete(p pid.PID, result *runtime.Result) {
 	t.recycleState(state)
 
 	// Send notifications
+	for _, observer := range remoteObservers {
+		pkg := relay.NewPackage(p, pid.PID{Node: observer.caller.Node, Host: monitorControlHostID}, topology.TopicEvents, payload.New(map[string]any{
+			"v": remoteMonitorVersion, "kind": topology.Exit, "ref": observer.reference, "from": p, "caller": observer.caller, "result": result,
+		}))
+		if err := t.router.Send(pkg); err != nil {
+			relay.ReleasePackage(pkg)
+		}
+	}
 	if len(watchers) > 0 {
 		exitPayload := payload.New(&topology.ExitEvent{
 			At:     time.Now(),
@@ -717,11 +695,29 @@ func (t *Topology) Complete(p pid.PID, result *runtime.Result) {
 		}
 	}
 
-	// Release monitors on remote targets
-	for _, targetPID := range remoteWatching {
-		pkg := topology.MonitorReleasePackage(p, targetPID)
-		_ = t.router.Send(pkg)
+	// Best-effort cleanup retains exact identity even when the caller's process
+	// state has gone. Delivery failure is not evidence of remote cleanup.
+	for _, cleanup := range remoteWatching {
+		control := cleanup.control
+		if cleanup.binding != nil {
+			t.monitorMu.Lock()
+			exchange := t.monitorEndpoint
+			t.monitorMu.Unlock()
+			if exchange != nil {
+				ctx, cancel := context.WithTimeout(exchange.ctx, exchange.timeout)
+				_ = t.monitorRoundTrip(ctx, exchange, &remoteWatch{binding: cleanup.binding}, nil, control)
+				cancel()
+			}
+			continue
+		}
+		pkg := relay.NewPackage(p, control.target, topology.TopicEvents, payload.New(map[string]any{
+			"v": remoteMonitorVersion, "kind": topology.MonitorRelease, "ref": control.reference, "caller": p, "target": control.target,
+		}))
+		if err := t.router.Send(pkg); err != nil {
+			relay.ReleasePackage(pkg)
+		}
 	}
+
 }
 
 // cleanupReferences removes both directions of this PID's relationships.
@@ -771,6 +767,9 @@ func (t *Topology) Remove(p pid.PID) {
 		return
 	}
 
+	if state.remoteLifetime != nil {
+		state.remoteLifetime.cancel()
+	}
 	delete(sh.processes, key)
 	sh.mu.Unlock()
 
@@ -803,6 +802,14 @@ func (t *Topology) HandleNodeExit(nodeID pid.NodeID, exitErr error) {
 		sh := &t.shards[i]
 		sh.mu.Lock()
 		for key, state := range sh.processes {
+			// Include pending installs: their acknowledgment can race this
+			// disconnect before a watching entry has been published.
+			for _, record := range state.remoteWatching {
+				if record.target.Node == nodeID && !record.terminal && (record.active || record.operation != "") {
+					record.needsRefresh = true
+					record.disconnectGeneration++
+				}
+			}
 			for targetKey, targetPID := range state.watching {
 				if targetPID.Node == nodeID {
 					toNotify = append(toNotify, notification{state.pid, targetPID.PID})
@@ -821,6 +828,9 @@ func (t *Topology) HandleNodeExit(nodeID pid.NodeID, exitErr error) {
 				}
 			}
 			if _, dead := deadKeySet[key]; dead {
+				if state.remoteLifetime != nil {
+					state.remoteLifetime.cancel()
+				}
 				delete(sh.processes, key)
 				t.recycleState(state)
 			}

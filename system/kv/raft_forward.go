@@ -3,6 +3,7 @@
 package kv
 
 import (
+	"context"
 	"encoding/binary"
 	"errors"
 	"sync/atomic"
@@ -13,6 +14,7 @@ import (
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/relay"
 	kvapi "github.com/wippyai/runtime/api/store/kv"
+	"github.com/wippyai/runtime/cluster/raft/multiplex"
 	"go.uber.org/zap"
 )
 
@@ -26,6 +28,23 @@ const (
 	topicKVReadReq     relay.Topic = "kv.read.req"
 	topicKVReadResp    relay.Topic = "kv.read.resp"
 )
+
+// forwardReply binds a correlation to the immediate node selected for this
+// attempt. A proxy returns its own response after forwarding, so each hop has
+// its own expected peer. Native receive metadata is never read from the wire.
+type forwardReply[T any] struct {
+	peer   pid.NodeID
+	result chan T
+}
+
+func validForwardPeer(pkg *relay.Package, expected pid.NodeID) bool {
+	if pkg.Source.Node != expected || pkg.Source.Host != KVRaftHostID {
+		return false
+	}
+	// Empty provenance denotes trusted in-process routing. Native internode
+	// delivery always stamps the actual connection peer before dispatch.
+	return pkg.ReceivedFrom == "" || pkg.ReceivedFrom == expected
+}
 
 // readResult is a forwarded leader-read reply. err carries errForwardNotLeader
 // when the target was not the leader, so the caller re-resolves and retries.
@@ -86,12 +105,15 @@ const (
 	errVersionMismatch
 	errNotLeaderCode
 	errOther
+	errOverloadedCode
 )
 
 func errToKind(err error) (byte, string) {
 	switch {
 	case err == nil:
 		return errNone, ""
+	case errors.Is(err, kvapi.ErrOverloaded):
+		return errOverloadedCode, ""
 	case errors.Is(err, kvapi.ErrKeyNotFound):
 		return errKeyNotFound, ""
 	case errors.Is(err, kvapi.ErrLeaseNotFound):
@@ -109,6 +131,8 @@ func kindToErr(kind byte, msg string) error {
 	switch kind {
 	case errNone:
 		return nil
+	case errOverloadedCode:
+		return kvapi.ErrOverloaded
 	case errKeyNotFound:
 		return kvapi.ErrKeyNotFound
 	case errLeaseNotFound:
@@ -131,15 +155,25 @@ func (e *RaftEngine) forwardToLeader(data []byte) (applyResult, error) {
 }
 
 func (e *RaftEngine) forwardToLeaderHop(data []byte, hop byte) (applyResult, error) {
+	return e.forwardToLeaderHopContext(e.ctx, data, hop)
+}
+func (e *RaftEngine) forwardToLeaderHopContext(ctx context.Context, data []byte, hop byte) (applyResult, error) {
 	for attempt := 0; attempt < maxForwardRetries; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return applyResult{}, err
+		}
 		leaderID, _, err := e.raft.Leader()
 		if err != nil || leaderID == "" {
-			time.Sleep(50 * time.Millisecond)
+			if err := waitForwardRetry(ctx); err != nil {
+				return applyResult{}, err
+			}
 			continue
 		}
-		res, transportErr := e.sendForward(leaderID, data, hop)
+		res, transportErr := e.sendForwardContext(ctx, leaderID, data, hop)
 		if errors.Is(transportErr, errForwardNotLeader) {
-			time.Sleep(50 * time.Millisecond)
+			if err := waitForwardRetry(ctx); err != nil {
+				return applyResult{}, err
+			}
 			continue
 		}
 		if transportErr != nil {
@@ -153,10 +187,16 @@ func (e *RaftEngine) forwardToLeaderHop(data []byte, hop byte) (applyResult, err
 // sendForward performs one forward round-trip to leaderNode. A errForwardNotLeader
 // transport error means the target rejected as non-leader (caller retries).
 func (e *RaftEngine) sendForward(leaderNode string, data []byte, hop byte) (applyResult, error) {
+	return e.sendForwardContext(e.ctx, leaderNode, data, hop)
+}
+func (e *RaftEngine) sendForwardContext(ctx context.Context, leaderNode string, data []byte, hop byte) (applyResult, error) {
+	if err := ctx.Err(); err != nil {
+		return applyResult{}, err
+	}
 	corr := kvCorrIDCounter.Add(1)
 	ch := make(chan applyResult, 1)
 	e.fwdMu.Lock()
-	e.pending[corr] = ch
+	e.pending[corr] = forwardReply[applyResult]{peer: leaderNode, result: ch}
 	e.fwdMu.Unlock()
 	defer func() {
 		e.fwdMu.Lock()
@@ -171,18 +211,24 @@ func (e *RaftEngine) sendForward(leaderNode string, data []byte, hop byte) (appl
 
 	pkg := relay.NewServicePackage(e.localNode, KVRaftHostID, leaderNode, KVRaftHostID,
 		topicKVForwardReq, payload.New(env))
-	if err := e.router.Send(pkg); err != nil {
+	if err := e.sendPackageContext(ctx, pkg); err != nil {
 		relay.ReleasePackage(pkg)
 		return applyResult{}, err
 	}
 
+	timer := time.NewTimer(e.forwardWait)
+	defer timer.Stop()
 	select {
+	case <-ctx.Done():
+		// Acceptance is not a commit receipt. Cancellation leaves outcome unknown
+		// and must never cause automatic replay of this mutation.
+		return applyResult{}, ctx.Err()
 	case res := <-ch:
 		if errors.Is(res.Err, errForwardNotLeader) {
 			return applyResult{}, errForwardNotLeader
 		}
 		return res, nil
-	case <-time.After(e.forwardWait):
+	case <-timer.C:
 		// Final non-blocking check: a response that arrived simultaneously with
 		// the timeout must not be dropped (else an applied write is mistaken for a
 		// timeout). A genuine timeout returns errForwardTimeout, which the caller
@@ -202,6 +248,20 @@ func (e *RaftEngine) sendForward(leaderNode string, data []byte, hop byte) (appl
 	}
 }
 
+// sendPackage keeps native transport backpressure within the engine lifetime.
+// A refused package remains owned by the caller. Legacy in-process receivers
+// retain their synchronous Send contract.
+func (e *RaftEngine) sendPackage(pkg *relay.Package) error {
+	return e.sendPackageContext(e.ctx, pkg)
+}
+
+func (e *RaftEngine) sendPackageContext(ctx context.Context, pkg *relay.Package) error {
+	if sender, ok := e.router.(relay.ContextSender); ok {
+		return sender.SendContext(ctx, pkg)
+	}
+	return e.router.Send(pkg)
+}
+
 // GetViaLeader reads a key from the raft leader's applied state, giving
 // read-your-writes after a forwarded write even on a follower. On the leader
 // (or with no router) it reads locally.
@@ -212,8 +272,32 @@ func (e *RaftEngine) GetViaLeader(key string) (kvapi.Entry, error) {
 	return e.forwardRead(key)
 }
 
+// GetViaLeaderContext bounds this read independently of the engine lifetime.
+// Canceling a read releases its correlation; it does not stop the shared engine.
+func (e *RaftEngine) GetViaLeaderContext(ctx context.Context, key string) (kvapi.Entry, error) {
+	if err := ctx.Err(); err != nil {
+		return kvapi.Entry{}, err
+	}
+	if e.raft.IsLeader() || e.router == nil {
+		return e.Get(key)
+	}
+	if e.ctx == nil {
+		return kvapi.Entry{}, staticErr("kv: engine not started")
+	}
+	if err := e.ctx.Err(); err != nil {
+		return kvapi.Entry{}, err
+	}
+	owned, cancel := context.WithCancel(ctx)
+	stop := context.AfterFunc(e.ctx, cancel)
+	defer func() { stop(); cancel() }()
+	return e.forwardReadContext(owned, key)
+}
+
 func (e *RaftEngine) forwardRead(key string) (kvapi.Entry, error) {
-	res, err := e.forwardReadHop(key, 0)
+	return e.forwardReadContext(e.ctx, key)
+}
+func (e *RaftEngine) forwardReadContext(ctx context.Context, key string) (kvapi.Entry, error) {
+	res, err := e.forwardReadHopContext(ctx, key, 0)
 	if err != nil {
 		return kvapi.Entry{}, err
 	}
@@ -224,15 +308,25 @@ func (e *RaftEngine) forwardRead(key string) (kvapi.Entry, error) {
 }
 
 func (e *RaftEngine) forwardReadHop(key string, hop byte) (readResult, error) {
+	return e.forwardReadHopContext(e.ctx, key, hop)
+}
+func (e *RaftEngine) forwardReadHopContext(ctx context.Context, key string, hop byte) (readResult, error) {
 	for attempt := 0; attempt < maxForwardRetries; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return readResult{}, err
+		}
 		leaderID, _, err := e.raft.Leader()
 		if err != nil || leaderID == "" {
-			time.Sleep(50 * time.Millisecond)
+			if err := waitForwardRetry(ctx); err != nil {
+				return readResult{}, err
+			}
 			continue
 		}
-		res, transportErr := e.sendRead(leaderID, key, hop)
+		res, transportErr := e.sendReadContext(ctx, leaderID, key, hop)
 		if transportErr != nil || errors.Is(res.err, errForwardNotLeader) {
-			time.Sleep(50 * time.Millisecond)
+			if err := waitForwardRetry(ctx); err != nil {
+				return readResult{}, err
+			}
 			continue
 		}
 		// Decoder failures must survive both a direct read and a re-forwarding
@@ -243,10 +337,16 @@ func (e *RaftEngine) forwardReadHop(key string, hop byte) (readResult, error) {
 }
 
 func (e *RaftEngine) sendRead(leaderNode, key string, hop byte) (readResult, error) {
+	return e.sendReadContext(e.ctx, leaderNode, key, hop)
+}
+func (e *RaftEngine) sendReadContext(ctx context.Context, leaderNode, key string, hop byte) (readResult, error) {
+	if err := ctx.Err(); err != nil {
+		return readResult{}, err
+	}
 	corr := kvCorrIDCounter.Add(1)
 	ch := make(chan readResult, 1)
 	e.fwdMu.Lock()
-	e.pendingReads[corr] = ch
+	e.pendingReads[corr] = forwardReply[readResult]{peer: leaderNode, result: ch}
 	e.fwdMu.Unlock()
 	defer func() {
 		e.fwdMu.Lock()
@@ -261,14 +361,18 @@ func (e *RaftEngine) sendRead(leaderNode, key string, hop byte) (readResult, err
 
 	pkg := relay.NewServicePackage(e.localNode, KVRaftHostID, leaderNode, KVRaftHostID,
 		topicKVReadReq, payload.New(env))
-	if err := e.router.Send(pkg); err != nil {
+	if err := e.sendPackageContext(ctx, pkg); err != nil {
 		relay.ReleasePackage(pkg)
 		return readResult{}, err
 	}
+	timer := time.NewTimer(e.forwardWait)
+	defer timer.Stop()
 	select {
+	case <-ctx.Done():
+		return readResult{}, ctx.Err()
 	case res := <-ch:
 		return res, nil
-	case <-time.After(e.forwardWait):
+	case <-timer.C:
 		select {
 		case res := <-ch:
 			return res, nil
@@ -280,22 +384,87 @@ func (e *RaftEngine) sendRead(leaderNode, key string, hop byte) (readResult, err
 	}
 }
 
+// Keep the existing retry cadence, but allow cancellation during backoff.
+func waitForwardRetry(ctx context.Context) error {
+	timer := time.NewTimer(50 * time.Millisecond)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
 // Send implements relay.Receiver: the leader side serves forwarded writes and
 // reads, the follower side delivers replies to the waiting caller.
 func (e *RaftEngine) Send(pkg *relay.Package) error {
-	defer relay.ReleasePackage(pkg)
+	if pkg == nil {
+		return staticErr("kv: nil forward package")
+	}
+	if pkg.Source.Host != KVRaftHostID || (pkg.ReceivedFrom != "" && pkg.Source.Node != pkg.ReceivedFrom) {
+		relay.ReleasePackage(pkg)
+		return nil
+	}
+	requests, replies := false, false
 	for _, msg := range pkg.Messages {
+		if msg == nil {
+			return staticErr("kv: nil forward message")
+		}
 		switch msg.Topic {
-		case topicKVForwardReq:
-			e.handleForwardReq(pkg.Source, msg)
-		case topicKVForwardResp:
-			e.handleForwardResp(msg)
-		case topicKVReadReq:
-			e.handleReadReq(pkg.Source, msg)
-		case topicKVReadResp:
-			e.handleReadResp(msg)
+		case topicKVForwardReq, topicKVReadReq:
+			requests = true
+		case topicKVForwardResp, topicKVReadResp:
+			replies = true
 		}
 	}
+	if requests && replies {
+		return staticErr("kv: mixed request and reply batch")
+	}
+	if !requests {
+		defer relay.ReleasePackage(pkg)
+		for _, msg := range pkg.Messages {
+			switch msg.Topic {
+			case topicKVForwardResp:
+				e.handleForwardResp(pkg, msg)
+			case topicKVReadResp:
+				e.handleReadResp(pkg, msg)
+			}
+		}
+		return nil
+	}
+	// Apply/re-forward waits cannot run on the native reader that must deliver
+	// their Raft acknowledgements. Reply dispatch never needs a request slot.
+	e.forwardAdmission.Lock()
+	if !e.forwardStarted || e.forwardStopped || e.ctx.Err() != nil {
+		e.forwardAdmission.Unlock()
+		return staticErr("kv: engine stopped or not started")
+	}
+	select {
+	case e.forwardSlots <- struct{}{}:
+	default:
+		err := e.refuseForwardLocked(pkg)
+		e.forwardAdmission.Unlock()
+		return err
+	}
+	e.wg.Add(1)
+	e.forwardAdmission.Unlock()
+	go func() {
+		defer e.wg.Done()
+		defer func() { <-e.forwardSlots }()
+		defer relay.ReleasePackage(pkg)
+		for _, msg := range pkg.Messages {
+			if e.ctx.Err() != nil {
+				return
+			}
+			switch msg.Topic {
+			case topicKVForwardReq:
+				e.handleForwardReq(pkg.Source, msg)
+			case topicKVReadReq:
+				e.handleReadReq(pkg.Source, msg)
+			}
+		}
+	}()
 	return nil
 }
 
@@ -323,13 +492,14 @@ func (e *RaftEngine) handleReadReq(source pid.PID, msg *relay.Message) {
 		e.replyRead(source.Node, corr, readResult{err: errForwardNotLeader})
 		return
 	}
-	go func() {
-		res, err := e.forwardReadHop(key, hop+1)
-		if err != nil {
-			res = readResult{err: errForwardNotLeader}
+	res, err := e.forwardReadHop(key, hop+1)
+	if err != nil {
+		res = readResult{err: errForwardNotLeader}
+		if errors.Is(err, kvapi.ErrOverloaded) {
+			res.err = kvapi.ErrOverloaded
 		}
-		e.replyRead(source.Node, corr, res)
-	}()
+	}
+	e.replyRead(source.Node, corr, res)
 }
 
 func (e *RaftEngine) replyRead(node pid.NodeID, corr uint64, res readResult) {
@@ -339,6 +509,9 @@ func (e *RaftEngine) replyRead(node pid.NodeID, corr uint64, res readResult) {
 	}
 	if errors.Is(res.err, errForwardNotLeader) {
 		flags |= 2
+	}
+	if errors.Is(res.err, kvapi.ErrOverloaded) {
+		flags |= 4
 	}
 	out := make([]byte, 29+len(res.value))
 	binary.BigEndian.PutUint64(out[:8], corr)
@@ -350,13 +523,13 @@ func (e *RaftEngine) replyRead(node pid.NodeID, corr uint64, res readResult) {
 
 	pkg := relay.NewServicePackage(e.localNode, KVRaftHostID, node, KVRaftHostID,
 		topicKVReadResp, payload.New(out))
-	if err := e.router.Send(pkg); err != nil {
+	if err := e.sendPackage(pkg); err != nil {
 		relay.ReleasePackage(pkg)
 		e.logger.Debug("kv: send read response failed", zap.Error(err))
 	}
 }
 
-func (e *RaftEngine) handleReadResp(msg *relay.Message) {
+func (e *RaftEngine) handleReadResp(pkg *relay.Package, msg *relay.Message) {
 	if len(msg.Payloads) == 0 {
 		return
 	}
@@ -365,6 +538,12 @@ func (e *RaftEngine) handleReadResp(msg *relay.Message) {
 		return
 	}
 	corr := binary.BigEndian.Uint64(out[:8])
+	e.fwdMu.Lock()
+	pending, found := e.pendingReads[corr]
+	e.fwdMu.Unlock()
+	if !found || !validForwardPeer(pkg, pending.peer) {
+		return
+	}
 	flags := out[8]
 	res := readResult{
 		found:   flags&1 != 0,
@@ -373,6 +552,9 @@ func (e *RaftEngine) handleReadResp(msg *relay.Message) {
 	}
 	if flags&2 != 0 {
 		res.err = errForwardNotLeader
+	}
+	if flags&4 != 0 {
+		res.err = kvapi.ErrOverloaded
 	}
 	vlen := binary.BigEndian.Uint32(out[25:29])
 	if 29+int(vlen) <= len(out) {
@@ -383,14 +565,8 @@ func (e *RaftEngine) handleReadResp(msg *relay.Message) {
 		res.err = staticErr("kv: read response truncated")
 	}
 
-	e.fwdMu.Lock()
-	ch, found := e.pendingReads[corr]
-	e.fwdMu.Unlock()
-	if !found {
-		return
-	}
 	select {
-	case ch <- res:
+	case pending.result <- res:
 	default:
 	}
 }
@@ -406,6 +582,13 @@ func (e *RaftEngine) handleForwardReq(source pid.PID, msg *relay.Message) {
 	corr := binary.BigEndian.Uint64(env[:8])
 	hop := env[8]
 	data := env[9:]
+
+	// This host forwards KV mutations, not arbitrary commands to the shared
+	// Raft dispatcher. Check before applying OR proxying to another member.
+	if len(data) < 2 || data[0] != multiplex.KVDomain {
+		e.replyForward(source.Node, corr, applyResult{Err: staticErr("kv: invalid forwarded command domain")})
+		return
+	}
 
 	if e.raft.IsLeader() {
 		var res applyResult
@@ -425,14 +608,11 @@ func (e *RaftEngine) handleForwardReq(source pid.PID, msg *relay.Message) {
 		e.replyForward(source.Node, corr, applyResult{Err: raftapi.ErrNotLeader})
 		return
 	}
-	relayed := append([]byte(nil), data...)
-	go func() {
-		res, err := e.forwardToLeaderHop(relayed, hop+1)
-		if err != nil {
-			res = applyResult{Err: err}
-		}
-		e.replyForward(source.Node, corr, res)
-	}()
+	res, err := e.forwardToLeaderHop(data, hop+1)
+	if err != nil {
+		res = applyResult{Err: err}
+	}
+	e.replyForward(source.Node, corr, res)
 }
 
 func (e *RaftEngine) replyForward(node pid.NodeID, corr uint64, res applyResult) {
@@ -448,13 +628,13 @@ func (e *RaftEngine) replyForward(node pid.NodeID, corr uint64, res applyResult)
 
 	pkg := relay.NewServicePackage(e.localNode, KVRaftHostID, node, KVRaftHostID,
 		topicKVForwardResp, payload.New(out))
-	if err := e.router.Send(pkg); err != nil {
+	if err := e.sendPackage(pkg); err != nil {
 		relay.ReleasePackage(pkg)
 		e.logger.Debug("kv: send forward response failed", zap.Error(err))
 	}
 }
 
-func (e *RaftEngine) handleForwardResp(msg *relay.Message) {
+func (e *RaftEngine) handleForwardResp(pkg *relay.Package, msg *relay.Message) {
 	if len(msg.Payloads) == 0 {
 		return
 	}
@@ -465,14 +645,14 @@ func (e *RaftEngine) handleForwardResp(msg *relay.Message) {
 	corr := binary.BigEndian.Uint64(out[:8])
 
 	e.fwdMu.Lock()
-	ch, found := e.pending[corr]
+	pending, found := e.pending[corr]
 	e.fwdMu.Unlock()
-	if !found {
+	if !found || !validForwardPeer(pkg, pending.peer) {
 		return
 	}
 	res := decodeForwardWriteResponse(out)
 	select {
-	case ch <- res:
+	case pending.result <- res:
 	default:
 	}
 }
@@ -487,7 +667,7 @@ func decodeForwardWriteResponse(out []byte) applyResult {
 		return applyResult{Err: staticErr("kv: write response invalid success flag")}
 	}
 	kind := out[17]
-	if kind > errOther {
+	if kind > errOverloadedCode {
 		return applyResult{Err: staticErr("kv: write response unknown error kind")}
 	}
 	if kind != errOther && len(out) != 18 {
@@ -497,7 +677,7 @@ func decodeForwardWriteResponse(out []byte) applyResult {
 		return applyResult{Err: staticErr("kv: write response contradictory result")}
 	}
 	version := binary.BigEndian.Uint64(out[8:16])
-	if kind == errNotLeaderCode && version != 0 {
+	if (kind == errNotLeaderCode || kind == errOverloadedCode) && version != 0 {
 		return applyResult{Err: staticErr("kv: write response rejection has a version")}
 	}
 	return applyResult{Version: version, OK: out[16] == 1, Err: kindToErr(kind, string(out[18:]))}

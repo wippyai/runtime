@@ -44,27 +44,35 @@ type LinearizableEngine interface {
 // leaseSweepInterval is how often the leader scans for expired leases.
 const leaseSweepInterval = time.Second
 
+// DefaultForwardingConcurrency bounds concurrent received KV request batches.
+const DefaultForwardingConcurrency = 16
+
 // RaftEngine implements kvapi.Engine over the shared cluster raft. Reads are
 // local from the replicated FSM; writes are proposed through raft on the leader.
 // A single RaftEngine is shared node-wide; store.kv.raft entries scope it by
 // key namespace.
 type RaftEngine struct {
-	raft         raftSubmitter
-	bus          event.Bus
-	ctx          context.Context
-	fsm          *RaftFSM
-	logger       *zap.Logger
-	router       relay.Receiver
-	deadlines    map[kvapi.LeaseID]time.Time
-	pending      map[uint64]chan applyResult
-	pendingReads map[uint64]chan readResult
-	cancel       context.CancelFunc
-	localNode    string
-	forwardWait  time.Duration
-	wg           sync.WaitGroup
-	leaseSeq     atomic.Uint64
-	schedMu      sync.Mutex
-	fwdMu        sync.Mutex
+	raft             raftSubmitter
+	bus              event.Bus
+	ctx              context.Context
+	fsm              *RaftFSM
+	logger           *zap.Logger
+	router           relay.Receiver
+	deadlines        map[kvapi.LeaseID]time.Time
+	pending          map[uint64]forwardReply[applyResult]
+	pendingReads     map[uint64]forwardReply[readResult]
+	cancel           context.CancelFunc
+	localNode        string
+	forwardWait      time.Duration
+	wg               sync.WaitGroup
+	leaseSeq         atomic.Uint64
+	schedMu          sync.Mutex
+	fwdMu            sync.Mutex
+	forwardAdmission sync.Mutex
+	forwardSlots     chan struct{}
+	forwardRefusals  chan forwardRefusal
+	forwardStarted   bool
+	forwardStopped   bool
 }
 
 // NewRaftEngine builds the shared engine. localNode scopes generated lease ids.
@@ -75,32 +83,58 @@ func NewRaftEngine(raft raftSubmitter, fsm *RaftFSM, bus event.Bus, localNode st
 		logger = zap.NewNop()
 	}
 	return &RaftEngine{
-		raft:         raft,
-		fsm:          fsm,
-		bus:          bus,
-		logger:       logger.Named("kv-raft"),
-		router:       router,
-		localNode:    localNode,
-		forwardWait:  forwardWaitTimeout,
-		deadlines:    make(map[kvapi.LeaseID]time.Time),
-		pending:      make(map[uint64]chan applyResult),
-		pendingReads: make(map[uint64]chan readResult),
+		raft:            raft,
+		fsm:             fsm,
+		bus:             bus,
+		logger:          logger.Named("kv-raft"),
+		router:          router,
+		localNode:       localNode,
+		forwardWait:     forwardWaitTimeout,
+		forwardSlots:    make(chan struct{}, DefaultForwardingConcurrency),
+		forwardRefusals: make(chan forwardRefusal, DefaultForwardingConcurrency),
+		deadlines:       make(map[kvapi.LeaseID]time.Time),
+		pending:         make(map[uint64]forwardReply[applyResult]),
+		pendingReads:    make(map[uint64]forwardReply[readResult]),
 	}
+}
+
+// ConfigureForwarding bounds retained request batches and workers. Configure
+// before publishing the host or calling Start; replies do not consume this budget.
+func (e *RaftEngine) ConfigureForwarding(maxConcurrentRequests int) error {
+	e.forwardAdmission.Lock()
+	defer e.forwardAdmission.Unlock()
+	if maxConcurrentRequests <= 0 || e.forwardStarted || e.forwardStopped {
+		return fmt.Errorf("kv: forwarding limits require a positive bound before startup")
+	}
+	e.forwardSlots = make(chan struct{}, maxConcurrentRequests)
+	e.forwardRefusals = make(chan forwardRefusal, maxConcurrentRequests)
+	return nil
 }
 
 // Start launches the leader-side lease expiry sweeper.
 func (e *RaftEngine) Start(ctx context.Context) error {
+	e.forwardAdmission.Lock()
+	defer e.forwardAdmission.Unlock()
+	if e.forwardStarted || e.forwardStopped {
+		return fmt.Errorf("kv: engine already started or stopped")
+	}
 	e.ctx, e.cancel = context.WithCancel(ctx)
-	e.wg.Add(1)
+	e.forwardStarted = true
+	e.wg.Add(2)
+	go e.refusalLoop()
 	go e.leaseSweeper()
 	return nil
 }
 
-// Stop halts the sweeper.
+// Stop closes forwarded request admission, cancels pending forwarding waits,
+// and joins accepted request workers before releasing the engine's lifetime.
 func (e *RaftEngine) Stop() error {
+	e.forwardAdmission.Lock()
+	e.forwardStopped = true
 	if e.cancel != nil {
 		e.cancel()
 	}
+	e.forwardAdmission.Unlock()
 	e.wg.Wait()
 	return nil
 }
@@ -114,10 +148,26 @@ func (e *RaftEngine) propose(c command) (applyResult, error) {
 // proposeRaw submits an already-encoded kv command (single command or txn)
 // through raft, forwarding to the leader on a follower.
 func (e *RaftEngine) proposeRaw(cmd []byte) (applyResult, error) {
+	return e.proposeRawContext(context.Background(), cmd)
+}
+
+func (e *RaftEngine) proposeRawContext(ctx context.Context, cmd []byte) (applyResult, error) {
+	if err := ctx.Err(); err != nil {
+		return applyResult{}, err
+	}
 	data := append([]byte{multiplex.KVDomain}, cmd...)
 	resp, err := e.raft.Apply(data, raftApplyTimeout)
 	if errors.Is(err, raftapi.ErrNotLeader) && e.router != nil {
-		res, ferr := e.forwardToLeader(data)
+		if err := ctx.Err(); err != nil {
+			return applyResult{}, err
+		}
+		if e.ctx == nil {
+			return applyResult{}, staticErr("kv: engine not started")
+		}
+		owned, cancel := context.WithCancel(ctx)
+		stop := context.AfterFunc(e.ctx, cancel)
+		defer func() { stop(); cancel() }()
+		res, ferr := e.forwardToLeaderHopContext(owned, data, 0)
 		if ferr != nil {
 			return applyResult{}, ferr
 		}
@@ -167,15 +217,36 @@ func (e *RaftEngine) GetLinearizable(key string) (kvapi.Entry, error) {
 	return e.Get(key)
 }
 
+// SnapshotAuthority returns a routing hint, not proof that a snapshot is current.
+// ScanAtIndex still barriers on every request, including after this observation.
+func (e *RaftEngine) SnapshotAuthority() (string, error) {
+	if e.raft.IsLeader() {
+		return e.localNode, nil
+	}
+	leader, _, err := e.raft.Leader()
+	return leader, err
+}
+
 // ScanAtIndex barriers on the leader, then reads entries and their applied KV
 // index from one immutable snapshot. Other Raft domains may have newer indexes.
 func (e *RaftEngine) ScanAtIndex(prefix string, fn func(kvapi.Entry) bool) (uint64, error) {
+	revision, _, err := e.ScanAtIndexSince(prefix, 0, fn)
+	return revision, err
+}
+
+// ScanAtIndexSince performs the same authority barrier as ScanAtIndex. Only a
+// nonzero matching revision permits skipping the scan; local replica equality
+// never bypasses the barrier. Comparison and scan use one published snapshot.
+func (e *RaftEngine) ScanAtIndexSince(prefix string, known uint64, fn func(kvapi.Entry) bool) (uint64, bool, error) {
 	if err := e.raft.Barrier(raftApplyTimeout); err != nil {
-		return 0, err
+		return 0, false, err
 	}
 	snap := e.fsm.snap.Load()
+	if known != 0 && known == snap.index {
+		return snap.index, true, nil
+	}
 	snap.scan(prefix, fn)
-	return snap.index, nil
+	return snap.index, false, nil
 }
 
 func (e *RaftEngine) Watch(ctx context.Context, prefix string) (kvapi.Watcher, error) {
@@ -204,6 +275,18 @@ func (e *RaftEngine) SetIfAbsent(key string, value []byte) (kvapi.Version, bool,
 
 func (e *RaftEngine) CompareAndDelete(key string, expect kvapi.Version) (bool, error) {
 	res, err := e.propose(command{Op: opCompareAndDelete, Key: key, Expect: expect})
+	return res.OK, err
+}
+
+// TxnContext propagates cancellation through forwarded transaction admission
+// and reply waiting. After dispatch, cancellation is an uncertain outcome, not
+// proof of rollback. A synchronous local Raft Apply remains joined until its
+// existing bounded Apply call returns; a known committed result is preserved.
+func (e *RaftEngine) TxnContext(ctx context.Context, ops []kvapi.TxnOp) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	res, err := e.proposeRawContext(ctx, encodeTxn(ops))
 	return res.OK, err
 }
 

@@ -36,6 +36,7 @@ func (n *Node) ID() pid.NodeID {
 // hostRegistration distinguishes successive registrations even when they reuse
 // the same receiver. Optional receiver capabilities are never wrapped or hidden.
 type hostRegistration struct {
+	registrationLifetime
 	receiver api.Receiver
 }
 
@@ -50,18 +51,26 @@ func (n *Node) RegisterHost(hostID pid.HostID, host api.Receiver) error {
 // RegisterOwnedHost returns an idempotent release for this registration only.
 // Release stops new lookups; a receiver already obtained by Send, GetHost or
 // Attach may still be in use. The receiver owns admission fencing and draining.
+// Bound admission is canceled; its address remains reserved until those calls return.
 func (n *Node) RegisterOwnedHost(hostID pid.HostID, host api.Receiver) (context.CancelFunc, error) {
 	registration := &hostRegistration{receiver: host}
+	registration.init(func() { n.hosts.CompareAndDelete(hostID, registration) })
 	if _, loaded := n.hosts.LoadOrStore(hostID, registration); loaded {
+		registration.cancel()
 		return nil, NewHostExistsError(hostID, n.nodeID)
 	}
-	return func() { n.hosts.CompareAndDelete(hostID, registration) }, nil
+	return registration.retire, nil
 }
 
-// UnregisterHost unconditionally removes the current host. It remains available
-// to the owning composition; replaceable components should use RegisterOwnedHost.
+// UnregisterHost retires the current host and cancels bound admission. The
+// address becomes reusable after those calls return. It remains available to
+// the owning composition; replaceable components should use RegisterOwnedHost.
 func (n *Node) UnregisterHost(hostID pid.HostID) {
-	n.hosts.Delete(hostID)
+	if value, ok := n.hosts.Load(hostID); ok {
+		if registration, ok := value.(*hostRegistration); ok {
+			registration.retire()
+		}
+	}
 }
 
 // lookupHost keeps missing registrations distinct from invalid stored values.
@@ -73,6 +82,9 @@ func (n *Node) lookupHost(hostID pid.HostID) (api.Receiver, bool) {
 	registration, ok := value.(*hostRegistration)
 	if !ok {
 		return nil, true
+	}
+	if registration.retired.Load() {
+		return nil, false
 	}
 	return registration.receiver, true
 }
