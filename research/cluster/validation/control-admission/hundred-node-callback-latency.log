@@ -5,4 +5,4 @@
     mesh_scale_test.go:178: mixed ring load over full mesh: 12800 messages, 419840000 bytes in 307.298777ms; admission-to-callback-entry p50=35.24517ms p95=146.171902ms p99=183.315492ms
 --- PASS: TestIntegration_TLSHundredNodeMesh (42.50s)
 PASS
-ok  	github.com/wippyai/runtime/cluster/internode	42.614s
+ok      github.com/wippyai/runtime/cluster/internode    42.614s

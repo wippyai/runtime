@@ -1,60 +1,60 @@
 --- FAIL: TestBulkCannotConsumeProtectedControlCapacity (0.00s)
     --- FAIL: TestBulkCannotConsumeProtectedControlCapacity/peer/entries/queued (0.00s)
-        control_capacity_test.go:59: 
-            	Error Trace:	/home/wolfy-j/wippy/runtime-cluster-integration-20260911/cluster/internode/control_capacity_test.go:59
-            	Error:      	Received unexpected error:
-            	            	internode: send queue is full
-            	Test:       	TestBulkCannotConsumeProtectedControlCapacity/peer/entries/queued
-            	Messages:   	bulk backlog must leave bounded control capacity
+        control_capacity_test.go:59:
+                Error Trace:    /home/wolfy-j/wippy/runtime-cluster-integration-20260911/cluster/internode/control_capacity_test.go:59
+                Error:          Received unexpected error:
+                                internode: send queue is full
+                Test:           TestBulkCannotConsumeProtectedControlCapacity/peer/entries/queued
+                Messages:       bulk backlog must leave bounded control capacity
     --- FAIL: TestBulkCannotConsumeProtectedControlCapacity/peer/entries/inflight (0.00s)
-        control_capacity_test.go:59: 
-            	Error Trace:	/home/wolfy-j/wippy/runtime-cluster-integration-20260911/cluster/internode/control_capacity_test.go:59
-            	Error:      	Received unexpected error:
-            	            	internode: send queue is full
-            	Test:       	TestBulkCannotConsumeProtectedControlCapacity/peer/entries/inflight
-            	Messages:   	bulk backlog must leave bounded control capacity
+        control_capacity_test.go:59:
+                Error Trace:    /home/wolfy-j/wippy/runtime-cluster-integration-20260911/cluster/internode/control_capacity_test.go:59
+                Error:          Received unexpected error:
+                                internode: send queue is full
+                Test:           TestBulkCannotConsumeProtectedControlCapacity/peer/entries/inflight
+                Messages:       bulk backlog must leave bounded control capacity
     --- FAIL: TestBulkCannotConsumeProtectedControlCapacity/peer/bytes/queued (0.00s)
-        control_capacity_test.go:59: 
-            	Error Trace:	/home/wolfy-j/wippy/runtime-cluster-integration-20260911/cluster/internode/control_capacity_test.go:59
-            	Error:      	Received unexpected error:
-            	            	internode: send queue is full
-            	Test:       	TestBulkCannotConsumeProtectedControlCapacity/peer/bytes/queued
-            	Messages:   	bulk backlog must leave bounded control capacity
+        control_capacity_test.go:59:
+                Error Trace:    /home/wolfy-j/wippy/runtime-cluster-integration-20260911/cluster/internode/control_capacity_test.go:59
+                Error:          Received unexpected error:
+                                internode: send queue is full
+                Test:           TestBulkCannotConsumeProtectedControlCapacity/peer/bytes/queued
+                Messages:       bulk backlog must leave bounded control capacity
     --- FAIL: TestBulkCannotConsumeProtectedControlCapacity/peer/bytes/inflight (0.00s)
-        control_capacity_test.go:59: 
-            	Error Trace:	/home/wolfy-j/wippy/runtime-cluster-integration-20260911/cluster/internode/control_capacity_test.go:59
-            	Error:      	Received unexpected error:
-            	            	internode: send queue is full
-            	Test:       	TestBulkCannotConsumeProtectedControlCapacity/peer/bytes/inflight
-            	Messages:   	bulk backlog must leave bounded control capacity
+        control_capacity_test.go:59:
+                Error Trace:    /home/wolfy-j/wippy/runtime-cluster-integration-20260911/cluster/internode/control_capacity_test.go:59
+                Error:          Received unexpected error:
+                                internode: send queue is full
+                Test:           TestBulkCannotConsumeProtectedControlCapacity/peer/bytes/inflight
+                Messages:       bulk backlog must leave bounded control capacity
     --- FAIL: TestBulkCannotConsumeProtectedControlCapacity/aggregate/entries/queued (0.00s)
-        control_capacity_test.go:59: 
-            	Error Trace:	/home/wolfy-j/wippy/runtime-cluster-integration-20260911/cluster/internode/control_capacity_test.go:59
-            	Error:      	Received unexpected error:
-            	            	internode: send queue is full
-            	Test:       	TestBulkCannotConsumeProtectedControlCapacity/aggregate/entries/queued
-            	Messages:   	bulk backlog must leave bounded control capacity
+        control_capacity_test.go:59:
+                Error Trace:    /home/wolfy-j/wippy/runtime-cluster-integration-20260911/cluster/internode/control_capacity_test.go:59
+                Error:          Received unexpected error:
+                                internode: send queue is full
+                Test:           TestBulkCannotConsumeProtectedControlCapacity/aggregate/entries/queued
+                Messages:       bulk backlog must leave bounded control capacity
     --- FAIL: TestBulkCannotConsumeProtectedControlCapacity/aggregate/entries/inflight (0.00s)
-        control_capacity_test.go:59: 
-            	Error Trace:	/home/wolfy-j/wippy/runtime-cluster-integration-20260911/cluster/internode/control_capacity_test.go:59
-            	Error:      	Received unexpected error:
-            	            	internode: send queue is full
-            	Test:       	TestBulkCannotConsumeProtectedControlCapacity/aggregate/entries/inflight
-            	Messages:   	bulk backlog must leave bounded control capacity
+        control_capacity_test.go:59:
+                Error Trace:    /home/wolfy-j/wippy/runtime-cluster-integration-20260911/cluster/internode/control_capacity_test.go:59
+                Error:          Received unexpected error:
+                                internode: send queue is full
+                Test:           TestBulkCannotConsumeProtectedControlCapacity/aggregate/entries/inflight
+                Messages:       bulk backlog must leave bounded control capacity
     --- FAIL: TestBulkCannotConsumeProtectedControlCapacity/aggregate/bytes/queued (0.00s)
-        control_capacity_test.go:59: 
-            	Error Trace:	/home/wolfy-j/wippy/runtime-cluster-integration-20260911/cluster/internode/control_capacity_test.go:59
-            	Error:      	Received unexpected error:
-            	            	internode: send queue is full
-            	Test:       	TestBulkCannotConsumeProtectedControlCapacity/aggregate/bytes/queued
-            	Messages:   	bulk backlog must leave bounded control capacity
+        control_capacity_test.go:59:
+                Error Trace:    /home/wolfy-j/wippy/runtime-cluster-integration-20260911/cluster/internode/control_capacity_test.go:59
+                Error:          Received unexpected error:
+                                internode: send queue is full
+                Test:           TestBulkCannotConsumeProtectedControlCapacity/aggregate/bytes/queued
+                Messages:       bulk backlog must leave bounded control capacity
     --- FAIL: TestBulkCannotConsumeProtectedControlCapacity/aggregate/bytes/inflight (0.00s)
-        control_capacity_test.go:59: 
-            	Error Trace:	/home/wolfy-j/wippy/runtime-cluster-integration-20260911/cluster/internode/control_capacity_test.go:59
-            	Error:      	Received unexpected error:
-            	            	internode: send queue is full
-            	Test:       	TestBulkCannotConsumeProtectedControlCapacity/aggregate/bytes/inflight
-            	Messages:   	bulk backlog must leave bounded control capacity
+        control_capacity_test.go:59:
+                Error Trace:    /home/wolfy-j/wippy/runtime-cluster-integration-20260911/cluster/internode/control_capacity_test.go:59
+                Error:          Received unexpected error:
+                                internode: send queue is full
+                Test:           TestBulkCannotConsumeProtectedControlCapacity/aggregate/bytes/inflight
+                Messages:       bulk backlog must leave bounded control capacity
 FAIL
-FAIL	github.com/wippyai/runtime/cluster/internode	0.006s
+FAIL    github.com/wippyai/runtime/cluster/internode    0.006s
 FAIL

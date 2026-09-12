@@ -1,2 +1,2 @@
-ok  	github.com/wippyai/runtime/cluster/raft	1.120s
-ok  	github.com/wippyai/runtime/boot/components/system	30.312s
+ok      github.com/wippyai/runtime/cluster/raft 1.120s
+ok      github.com/wippyai/runtime/boot/components/system   30.312s
