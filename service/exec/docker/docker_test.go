@@ -128,18 +128,44 @@ func TestDockerPTYProcessMountsUseSeparateHomes(t *testing.T) {
 		Image: "alpine:latest", AutoRemove: true,
 	})
 	require.NoError(t, err)
-	defer func() { _ = executor.Close() }()
+	t.Cleanup(func() { _ = executor.Close() })
+	processes := make([]execapi.PTYProcess, 0, len(homes))
+	outputs := make([]chan string, 0, len(homes))
 	for index, home := range homes {
-		process, processErr := executor.NewProcess(fmt.Sprintf("sh -c 'printf home-%d >/home/marker; sleep 1'", index), execapi.ProcessOptions{
+		process, processErr := executor.NewProcess(fmt.Sprintf("sh -c 'stty -echo; printf home-%d >/home/marker; echo ready; read value; stty size; cat /home/marker; echo'", index), execapi.ProcessOptions{
 			PTY:    &execapi.PTYOptions{Width: 80, Height: 24},
 			Mounts: []execapi.Mount{{Source: home, Target: "/home"}},
 		})
 		require.NoError(t, processErr)
-		_, hasPTY := process.(execapi.PTYProcess)
+		pty, hasPTY := process.(execapi.PTYProcess)
 		require.True(t, hasPTY)
 		require.NoError(t, process.Start())
+		t.Cleanup(func() { _ = process.Signal(9) })
+		output := process.Stdout()
+		t.Cleanup(func() { _ = output.Close() })
+		lines := make(chan string, 4)
+		go func() {
+			scanner := bufio.NewScanner(output)
+			for scanner.Scan() {
+				lines <- strings.TrimSpace(scanner.Text())
+			}
+			close(lines)
+		}()
+		require.Equal(t, "ready", awaitLine(t, lines, "ready"))
+		processes = append(processes, pty)
+		outputs = append(outputs, lines)
+	}
+	// Both containers are alive at the input barrier. Resize and release them
+	// independently, then verify both terminal output and retained host data.
+	for index, process := range processes {
+		require.NoError(t, process.Resize(100+index, 30+index))
+		require.NoError(t, process.WriteStdin([]byte("continue\n")))
+		size := fmt.Sprintf("%d %d", 30+index, 100+index)
+		require.Equal(t, size, awaitLine(t, outputs[index], size))
+		marker := fmt.Sprintf("home-%d", index)
+		require.Equal(t, marker, awaitLine(t, outputs[index], marker))
 		require.NoError(t, process.Wait())
-		content, readErr := os.ReadFile(filepath.Join(home, "marker"))
+		content, readErr := os.ReadFile(filepath.Join(homes[index], "marker"))
 		require.NoError(t, readErr)
 		require.Equal(t, fmt.Sprintf("home-%d", index), string(content))
 	}
