@@ -24,6 +24,15 @@ type failingProbeService struct {
 	listened chan struct{}
 }
 
+func requestServer(t *testing.T, client *http.Client, address string) (*http.Response, error) {
+	t.Helper()
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://"+address, nil)
+	if err != nil {
+		return nil, err
+	}
+	return client.Do(request)
+}
+
 func serverHostHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fc := contextapi.FrameFromContext(r.Context())
@@ -60,7 +69,7 @@ func TestServerService_PortZeroPublishesBoundAddress(t *testing.T) {
 		require.True(t, strings.HasPrefix(address, "service listening on 127.0.0.1:"))
 		require.NotContains(t, address, ":0")
 		bound := strings.TrimPrefix(address, "service listening on ")
-		response, requestErr := client.Get("http://" + bound)
+		response, requestErr := requestServer(t, client, bound)
 		require.NoError(t, requestErr)
 		body, readErr := io.ReadAll(response.Body)
 		require.NoError(t, response.Body.Close())
@@ -131,7 +140,7 @@ func TestServerService_NonZeroNamedHostPreserved(t *testing.T) {
 	select {
 	case details := <-statusCh:
 		require.Equal(t, "service listening on "+configured, details)
-		response, requestErr := client.Get("http://" + configured)
+		response, requestErr := requestServer(t, client, configured)
 		require.NoError(t, requestErr)
 		body, readErr := io.ReadAll(response.Body)
 		require.NoError(t, response.Body.Close())
@@ -168,7 +177,7 @@ func TestServerService_PortZeroRestartReportsCurrentAddress(t *testing.T) {
 	}
 	ctx1, cancel1 := context.WithCancel(overlayCtx())
 	address1 := start(ctx1)
-	response, err := client.Get("http://" + address1)
+	response, err := requestServer(t, client, address1)
 	require.NoError(t, err)
 	body, err := io.ReadAll(response.Body)
 	require.NoError(t, err)
@@ -185,7 +194,7 @@ func TestServerService_PortZeroRestartReportsCurrentAddress(t *testing.T) {
 	defer cancel2()
 	address2 := start(ctx2)
 	require.NotEqual(t, address1, address2)
-	response, err = client.Get("http://" + address2)
+	response, err = requestServer(t, client, address2)
 	require.NoError(t, err)
 	body, err = io.ReadAll(response.Body)
 	require.NoError(t, err)
