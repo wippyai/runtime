@@ -121,6 +121,30 @@ func TestDockerPTYResize(t *testing.T) {
 	require.NoError(t, process.Wait())
 }
 
+func TestDockerPTYProcessMountsUseSeparateHomes(t *testing.T) {
+	skipIfNoDocker(t)
+	homes := []string{t.TempDir(), t.TempDir()}
+	executor, err := NewDockerExecutor(zap.NewNop(), &execapi.DockerExecutorConfig{
+		Image: "alpine:latest", AutoRemove: true,
+	})
+	require.NoError(t, err)
+	defer func() { _ = executor.Close() }()
+	for index, home := range homes {
+		process, processErr := executor.NewProcess(fmt.Sprintf("sh -c 'printf home-%d >/home/marker; sleep 1'", index), execapi.ProcessOptions{
+			PTY:    &execapi.PTYOptions{Width: 80, Height: 24},
+			Mounts: []execapi.Mount{{Source: home, Target: "/home"}},
+		})
+		require.NoError(t, processErr)
+		_, hasPTY := process.(execapi.PTYProcess)
+		require.True(t, hasPTY)
+		require.NoError(t, process.Start())
+		require.NoError(t, process.Wait())
+		content, readErr := os.ReadFile(filepath.Join(home, "marker"))
+		require.NoError(t, readErr)
+		require.Equal(t, fmt.Sprintf("home-%d", index), string(content))
+	}
+}
+
 func TestDockerPTYResizeRejectsInvalidSizeBeforeDaemonCall(t *testing.T) {
 	process := &ptyProcess{Process: &Process{pty: &execapi.PTYOptions{}, started: true}}
 	require.ErrorIs(t, process.Resize(execapi.MaxPTYDimension+1, 1), execapi.ErrInvalidPTYSize)
@@ -199,6 +223,41 @@ func TestDockerExecutor_RequiresImage(t *testing.T) {
 
 	_, err := NewDockerExecutor(log, config)
 	assert.ErrorIs(t, err, execapi.ErrImageRequired)
+}
+
+func TestDockerExecutorRejectsStaticMountTargetCollision(t *testing.T) {
+	_, err := NewDockerExecutor(zap.NewNop(), &execapi.DockerExecutorConfig{
+		Image:   "alpine:latest",
+		Volumes: []string{"/one:/workspace", "/two:/workspace/"},
+	})
+	assert.ErrorIs(t, err, execapi.ErrDuplicateMountTarget)
+}
+
+func TestDockerExecutorRejectsProcessMountTargetCollision(t *testing.T) {
+	for _, volume := range []string{
+		"/one:/workspace", "named:/workspace/:ro", `C:\host\one:/workspace:ro`,
+		"c:/host/one:/workspace", `\\server\share:/workspace`,
+	} {
+		t.Run(volume, func(t *testing.T) {
+			executor := &Executor{volumes: []string{volume}}
+			_, err := executor.NewProcess("true", execapi.ProcessOptions{
+				Mounts: []execapi.Mount{{Source: "/two", Target: "/workspace"}},
+			})
+			assert.ErrorIs(t, err, execapi.ErrDuplicateMountTarget)
+		})
+	}
+}
+
+func TestDockerExecutorProcessMountsAreIsolated(t *testing.T) {
+	executor := &Executor{image: "alpine:latest"}
+	firstOptions := execapi.ProcessOptions{Mounts: []execapi.Mount{{Source: "/first", Target: "/workspace"}}}
+	first, err := executor.NewProcess("true", firstOptions)
+	require.NoError(t, err)
+	second, err := executor.NewProcess("true", execapi.ProcessOptions{Mounts: []execapi.Mount{{Source: "/second", Target: "/workspace"}}})
+	require.NoError(t, err)
+	firstOptions.Mounts[0].Source = "/mutated"
+	require.Equal(t, "/first", first.(*Process).mounts[0].Source)
+	require.Equal(t, "/second", second.(*Process).mounts[0].Source)
 }
 
 func TestDockerExecutorRejectsMissingAndMalformedCommands(t *testing.T) {
