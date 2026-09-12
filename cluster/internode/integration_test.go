@@ -4,6 +4,7 @@ package internode
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -484,6 +485,7 @@ func TestIntegration_HighThroughput(t *testing.T) {
 	const messageCount = 100
 
 	var received atomic.Int32
+	var invalid atomic.Bool
 
 	config1 := insecureManagerConfig()
 	config1.LocalNodeID = "sender"
@@ -506,8 +508,11 @@ func TestIntegration_HighThroughput(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = cm1.Stop() }()
 
-	err = cm2.Start(ctx, func(_ cluster.NodeID, _ []byte) {
-		received.Add(1)
+	err = cm2.Start(ctx, func(peer cluster.NodeID, data []byte) {
+		sequence := received.Add(1) - 1
+		if peer != "sender" || string(data) != fmt.Sprintf("message-%d", sequence) {
+			invalid.Store(true)
+		}
 	})
 	require.NoError(t, err)
 	defer func() { _ = cm2.Stop() }()
@@ -533,7 +538,7 @@ func TestIntegration_HighThroughput(t *testing.T) {
 	// Send messages with small delays to allow drain cycles
 	start := time.Now()
 	for i := 0; i < messageCount; i++ {
-		_ = cm1.SendToNode("receiver", []byte("high throughput test message"), ClassRaftControl)
+		require.NoError(t, cm1.SendToNode("receiver", []byte(fmt.Sprintf("message-%d", i)), ClassRaftControl), "every measured frame must be admitted")
 		if i%10 == 0 {
 			time.Sleep(time.Millisecond)
 		}
@@ -551,7 +556,8 @@ func TestIntegration_HighThroughput(t *testing.T) {
 	elapsed := time.Since(start)
 	t.Logf("Sent %d messages in %v (%.0f msg/sec)", messageCount, elapsed, float64(messageCount)/elapsed.Seconds())
 
-	assert.GreaterOrEqual(t, received.Load(), int32(messageCount), "all messages should be delivered")
+	require.Equal(t, int32(messageCount), received.Load(), "delivery count must match admitted frames")
+	require.False(t, invalid.Load(), "payloads must preserve sender and per-class order")
 }
 
 func TestIntegration_ShortNetworkDisruption(t *testing.T) {

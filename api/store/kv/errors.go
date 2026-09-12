@@ -10,6 +10,8 @@ var (
 	ErrLeaseNotFound   = apierror.New(apierror.NotFound, "lease not found").WithRetryable(apierror.False)
 	ErrLeaseExpired    = apierror.New(apierror.Invalid, "lease has expired").WithRetryable(apierror.False)
 	ErrVersionMismatch = apierror.New(apierror.Invalid, "version mismatch").WithRetryable(apierror.True)
-	ErrKVClosed        = apierror.New(apierror.Unavailable, "kv is closed").WithRetryable(apierror.False)
-	ErrUnsupported     = apierror.New(apierror.Invalid, "operation not supported by this backend").WithRetryable(apierror.False)
+	// ErrOverloaded means the operation was refused before execution.
+	ErrOverloaded  = apierror.New(apierror.Unavailable, "kv request capacity exhausted").WithRetryable(apierror.True)
+	ErrKVClosed    = apierror.New(apierror.Unavailable, "kv is closed").WithRetryable(apierror.False)
+	ErrUnsupported = apierror.New(apierror.Invalid, "operation not supported by this backend").WithRetryable(apierror.False)
 )

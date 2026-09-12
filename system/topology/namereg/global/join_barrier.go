@@ -3,6 +3,7 @@
 package global
 
 import (
+	"context"
 	"time"
 
 	"github.com/wippyai/runtime/api/payload"
@@ -24,9 +25,6 @@ const (
 	// The joining node seeds it into the dissem cache (no exclusion to install
 	// — CONSISTENT names do not participate in the strong exclusion table).
 	joinSnapshotStateConsistent uint8 = 2
-
-	// joinBarrierTimeout bounds a single JoinNameEpoch round-trip.
-	joinBarrierTimeout = 10 * time.Second
 )
 
 // joinRequestEnvelope is the wire form of a JoinNameEpoch request (topicJoinRequest).
@@ -51,61 +49,112 @@ type joinEntryEnvelope struct {
 	State uint8   `codec:"s"`
 }
 
-// joinResponseEnvelope is the leader's reply to a JoinNameEpoch request. Entries
-// is the full PENDING∪ACTIVE Strong name set as of StrongIndex (the commit index
-// the snapshot was linearized against).
+// joinResponseEnvelope is the leader's reply. Entries contains the complete
+// registration state at StrongIndex, the captured FSM applied revision.
 type joinResponseEnvelope struct {
 	Entries     []joinEntryEnvelope `codec:"en"`
 	CorrID      uint64              `codec:"c"`
 	StrongIndex uint64              `codec:"si"`
 }
 
-// JoinNameEpoch requests the leader's PENDING∪ACTIVE Strong-name snapshot for
-// this node. If this node is the leader it snapshots directly; otherwise it
-// forwards to the leader over the relay. The snapshot is linearized against the
-// current commit index: pending opens serialize through Raft Apply, so listing
-// PENDING∪ACTIVE under the state read-locks at a single commit index yields a
-// torn-free set (a concurrently-admitted name is either fully in PENDING or, if
-// it just promoted, fully in ACTIVE — never split).
+// JoinNameEpoch requests the leader's complete registration snapshot for this
+// node. The leader first barriers, then captures pending and active names with
+// their applied revision while excluding concurrent Apply/Restore operations.
+// A commit index alone is insufficient: it can be ahead of applied state.
 func (s *Service) JoinNameEpoch(nodeEpoch uint64) (*joinResponseEnvelope, error) {
 	if s.raftSvc != nil && s.raftSvc.IsLeader() {
-		return s.buildJoinSnapshot(0), nil
+		return s.captureJoinSnapshot(0)
 	}
 	return s.forwardJoinRequest(nodeEpoch)
 }
 
-// buildJoinSnapshot captures the full non-terminal Strong namespace as of the
-// current commit index. corrID is stamped into the reply so the leader-side
-// handler can address the response; a local (leader) snapshot passes 0.
-func (s *Service) buildJoinSnapshot(corrID uint64) *joinResponseEnvelope {
+// captureJoinSnapshot establishes authority before capturing the applied state.
+func (s *Service) captureJoinSnapshot(corrID uint64) (*joinResponseEnvelope, error) {
+	snapshot, _, err := s.captureEncodedJoinSnapshot(corrID)
+	return snapshot, err
+}
+
+func (s *Service) captureEncodedJoinSnapshot(corrID uint64) (*joinResponseEnvelope, []byte, error) {
+	cfg, release, err := s.acquireJoin()
+	if err != nil {
+		return nil, nil, err
+	}
+	defer release()
+	if s.raftSvc == nil || s.fsm == nil {
+		return nil, nil, global.ErrNotAvailable
+	}
+	if err := s.raftSvc.Barrier(cfg.Timeout); err != nil {
+		return nil, nil, err
+	}
+	snapshot, err := s.buildJoinSnapshot(corrID, cfg.MaxEntries)
+	if err != nil {
+		return nil, nil, err
+	}
+	data, err := encodeJoinSnapshot(snapshot, cfg.MaxBytes)
+	if err != nil {
+		return nil, nil, err
+	}
+	return snapshot, data, nil
+}
+
+// buildJoinSnapshot captures all registration states and their applied index
+// under the same FSM boundary. The caller supplies the authority barrier.
+func (s *Service) buildJoinSnapshot(corrID uint64, maxEntries int) (*joinResponseEnvelope, error) {
 	resp := &joinResponseEnvelope{CorrID: corrID}
 	if s.fsm == nil {
-		return resp
+		return nil, global.ErrNotAvailable
 	}
-	if s.raftSvc != nil {
-		resp.StrongIndex = s.raftSvc.CommitIndex()
+	s.fsm.snapshotMu.RLock()
+	defer s.fsm.snapshotMu.RUnlock()
+	resp.StrongIndex = s.fsm.appliedIndex
+	entries, err := s.fsm.state.joinEntries(maxEntries)
+	if err != nil {
+		return nil, err
 	}
-	for _, pv := range s.fsm.State().listPending() {
-		resp.Entries = append(resp.Entries, joinEntryEnvelope{
-			Name:  pv.Name,
-			Owner: pv.PID,
-			Epoch: pv.Epoch,
+	resp.Entries = entries
+	return resp, nil
+}
+
+// joinEntries copies the wire fields directly from one state view. The caller
+// holds the FSM snapshot boundary; shard locks also protect direct state readers.
+func (s *shardedState) joinEntries(maxEntries int) ([]joinEntryEnvelope, error) {
+	for i := range s.shards {
+		s.shards[i].mu.RLock()
+	}
+	s.pendingMu.RLock()
+	defer func() {
+		s.pendingMu.RUnlock()
+		for i := len(s.shards) - 1; i >= 0; i-- {
+			s.shards[i].mu.RUnlock()
+		}
+	}()
+	count := len(s.pending)
+	for i := range s.shards {
+		count += len(s.shards[i].names)
+	}
+	if maxEntries <= 0 || count > maxEntries {
+		return nil, ErrJoinSnapshotTooLarge
+	}
+	if count == 0 {
+		return nil, nil
+	}
+	entries := make([]joinEntryEnvelope, 0, count)
+	for _, pending := range s.pending {
+		entries = append(entries, joinEntryEnvelope{
+			Name: pending.Name, Owner: pending.PID, Epoch: pending.Epoch,
 			State: joinSnapshotStatePending,
 		})
 	}
-	for _, av := range s.fsm.State().listActiveStrong() {
-		resp.Entries = append(resp.Entries, joinEntryEnvelope{
-			Name:  av.Name,
-			Owner: av.PID,
-			Epoch: av.Epoch,
-			State: joinSnapshotStateActive,
-		})
+	for i := range s.shards {
+		for name, active := range s.shards[i].names {
+			state, epoch := joinSnapshotStateConsistent, active.AppliedAt
+			if len(active.RequiredNodes) > 0 {
+				state, epoch = joinSnapshotStateActive, active.Epoch
+			}
+			entries = append(entries, joinEntryEnvelope{Name: name, Owner: active.PID, Epoch: epoch, State: state})
+		}
 	}
-	// Extend with active CONSISTENT bindings so the joining node seeds its
-	// dissem cache. Without these, a non-member's Lookup for a pre-existing
-	// CONSISTENT name resolves only after the first cold-miss forward-resolve.
-	s.appendConsistentEntries(resp)
-	return resp
+	return entries, nil
 }
 
 // forwardJoinRequest sends a JoinNameEpoch request through the leader-directed
@@ -113,6 +162,11 @@ func (s *Service) buildJoinSnapshot(corrID uint64) *joinResponseEnvelope {
 // resolveForwardTarget so a non-member (which never observes the leader
 // directly) can still pull the snapshot through any raft member.
 func (s *Service) forwardJoinRequest(nodeEpoch uint64) (*joinResponseEnvelope, error) {
+	cfg, release, err := s.acquireJoin()
+	if err != nil {
+		return nil, err
+	}
+	defer release()
 	targets, err := s.waitForForwardTargets()
 	if err != nil {
 		return nil, err
@@ -133,10 +187,7 @@ func (s *Service) forwardJoinRequest(nodeEpoch uint64) (*joinResponseEnvelope, e
 	if attempts > 3 {
 		attempts = 3
 	}
-	perAttempt := joinBarrierTimeout / time.Duration(attempts)
-	if perAttempt < time.Second {
-		perAttempt = time.Second
-	}
+	perAttempt := cfg.Timeout / time.Duration(attempts)
 
 	body, err := marshalMsgpack(joinRequestEnvelope{NodeID: s.localNode, NodeEpoch: nodeEpoch, CorrID: corrID})
 	if err != nil {
@@ -194,10 +245,9 @@ func (s *Service) handleJoinRequest(msg *relay.Message) {
 		return
 	}
 	if s.raftSvc != nil && s.raftSvc.IsLeader() {
-		resp := s.buildJoinSnapshot(env.CorrID)
-		respBody, err := marshalMsgpack(resp)
+		_, respBody, err := s.captureEncodedJoinSnapshot(env.CorrID)
 		if err != nil {
-			s.logger.Warn("globalreg: encode join snapshot", zap.Error(err))
+			s.logger.Debug("globalreg: capture join snapshot", zap.Error(err))
 			return
 		}
 		pkg := relay.NewServicePackage(
@@ -245,8 +295,8 @@ func (s *Service) handleJoinResponse(msg *relay.Message) {
 	if !ok || len(body) == 0 {
 		return
 	}
-	var env joinResponseEnvelope
-	if err := unmarshalMsgpack(body, &env); err != nil {
+	env, err := decodeJoinSnapshot(body, s.joinPolicy())
+	if err != nil {
 		s.logger.Warn("globalreg: malformed join snapshot", zap.Error(err))
 		return
 	}
@@ -257,7 +307,7 @@ func (s *Service) handleJoinResponse(msg *relay.Message) {
 		return
 	}
 	select {
-	case ch <- &env:
+	case ch <- env:
 	default:
 	}
 }
@@ -279,18 +329,21 @@ func (s *Service) runJoinBarrier(epoch uint64) error {
 	}
 
 	for _, e := range snap.Entries {
-		switch e.State {
-		case joinSnapshotStateConsistent:
-			// CONSISTENT entries do not participate in the strong exclusion
-			// table; they seed the dissem cache only. The seed happens via
-			// seedDissemFromSnapshot below.
+		if e.State == joinSnapshotStateConsistent {
 			continue
+		}
+		release, err := s.nameGuard.LockContext(context.Background(), e.Name)
+		if err != nil {
+			return err
+		}
+		switch e.State {
 		case joinSnapshotStateActive:
 			s.installSnapshotExclusion(e.Name, e.Owner, e.Epoch, exclusionActive)
 		default:
 			s.installSnapshotExclusion(e.Name, e.Owner, e.Epoch, exclusionPending)
 		}
 		s.revokeLocalConflict(e.Name, e.Owner)
+		release()
 	}
 
 	// Seed the dissem cache with ACTIVE entries (STRONG + CONSISTENT) from the
@@ -347,16 +400,9 @@ func (s *Service) revokeLocalConflict(name string, owner pid.PID) {
 	}
 }
 
-// joinBarrierOnStart runs the first-join barrier behind Raft readiness. It waits
-// for the Raft barrier (so a member node has caught up and the snapshot it may
-// serve is current) then runs the join barrier for the current node epoch. A
-// non-member node (empty FSM) still gets the leader's snapshot over the relay.
-func (s *Service) joinBarrierOnStart() {
-	if s.raftSvc != nil {
-		_ = s.raftSvc.Barrier(joinBarrierTimeout)
-	}
-	s.attemptJoinBarrier()
-}
+// joinBarrierOnStart retries the authoritative snapshot path. That path owns
+// the barrier; an ignored extra local barrier cannot establish readiness.
+func (s *Service) joinBarrierOnStart() { s.attemptJoinBarrier() }
 
 // attemptJoinBarrier runs the barrier for the current node epoch, retrying on a
 // transient failure (no leader yet) until it completes or the service stops or a

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	hraft "github.com/hashicorp/raft"
@@ -53,6 +54,12 @@ func (c *raftTransportConn) SendToNode(nodeID cluster.NodeID, data []byte, class
 	cp := append([]byte(nil), data...)
 	recv(c.id, cp)
 	return nil
+}
+func (c *raftTransportConn) SendToNodeContext(ctx context.Context, peer cluster.NodeID, data []byte, class internode.Class) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return c.SendToNode(peer, data, class)
 }
 func (c *raftTransportConn) EnsureConnection(cluster.NodeID, string, int)     {}
 func (c *raftTransportConn) DisconnectFromNode(cluster.NodeID)                {}
@@ -316,3 +323,138 @@ func TestRaftMessageTransport_InboundRPCLimitReturnsBusy(t *testing.T) {
 }
 
 func bytesReader(s string) io.Reader { return strings.NewReader(s) }
+
+func TestRaftReplyRequiresExpectedPeerAndType(t *testing.T) {
+	fabric := newRaftTransportFabric()
+	transport, err := newRaftMessageTransport("local", fabric.conn("local"), time.Second, zap.NewNop())
+	require.NoError(t, err)
+	defer transport.Close()
+	replies := make(chan raftFrame, 1)
+	transport.pending[7] = raftPendingReply{peer: "expected", typ: raftRPCRequestVote, ch: replies}
+	deliver := func(peer cluster.NodeID, typ uint8, value string) {
+		wire, err := encodeMsgpack(&raftFrame{ID: 7, Type: typ, Error: value})
+		require.NoError(t, err)
+		transport.onFrame(peer, wire)
+	}
+	deliver("different-authenticated-peer", raftRPCRequestVote, "wrong peer")
+	deliver("expected", raftRPCAppendEntries, "wrong type")
+	require.Empty(t, replies)
+	require.Len(t, transport.pending, 1, "invalid replies cannot consume the pending request")
+	deliver("expected", raftRPCRequestVote, "first")
+	// The first reply remains unread: repeated responses must not block ingress.
+	deliver("expected", raftRPCRequestVote, "duplicate")
+	require.Empty(t, transport.pending)
+	require.Equal(t, "first", (<-replies).Error)
+	require.Empty(t, replies)
+}
+
+func TestRaftSnapshotDuplicateHeaderPreservesReader(t *testing.T) {
+	fabric := newRaftTransportFabric()
+	tr, err := newRaftMessageTransport("local", fabric.conn("local"), time.Hour, zap.NewNop())
+	require.NoError(t, err)
+	defer tr.Close()
+	payload, err := encodeMsgpack(&hraft.InstallSnapshotRequest{Term: 1, Size: 1})
+	require.NoError(t, err)
+	wire, err := encodeMsgpack(&raftFrame{ID: 9, Type: raftRPCInstallSnapshot, Request: true, Payload: payload})
+	require.NoError(t, err)
+	tr.onFrame("peer", wire)
+	rpc := <-tr.Consumer()
+	key := raftRequestKey{peer: "peer", id: 9}
+	tr.mu.Lock()
+	original := tr.snapshots[key]
+	tr.mu.Unlock()
+	tr.onFrame("peer", wire)
+	tr.mu.Lock()
+	current := tr.snapshots[key]
+	tr.mu.Unlock()
+	require.Same(t, original, current)
+	// The originally dispatched reader must receive the bytes after the duplicate.
+	done := make(chan struct{})
+	go func() {
+		tr.handleSnapshotChunk("peer", raftFrame{ID: 9, Snapshot: []byte("x"), EOF: true})
+		close(done)
+	}()
+	data, err := io.ReadAll(rpc.Reader)
+	require.NoError(t, err)
+	require.Equal(t, []byte("x"), data)
+	<-done
+}
+
+func TestRaftSnapshotMalformedRequestReleasesImmediately(t *testing.T) {
+	fabric := newRaftTransportFabric()
+	tr, err := newRaftMessageTransport("local", fabric.conn("local"), time.Hour, zap.NewNop())
+	require.NoError(t, err)
+	defer tr.Close()
+	key := raftRequestKey{peer: "peer", id: 3}
+	reader, writer := io.Pipe()
+	stream := &raftSnapshotStream{writer: writer}
+	tr.snapshots[key] = stream
+	tr.handleRequest("peer", raftFrame{ID: 3, Type: raftRPCInstallSnapshot, Payload: []byte{0xc1}}, reader, key, stream)
+	require.Empty(t, tr.snapshots)
+	_, err = writer.Write([]byte("x"))
+	require.Error(t, err)
+}
+
+func TestRaftSnapshotOldCleanupCannotRemoveReplacement(t *testing.T) {
+	fabric := newRaftTransportFabric()
+	tr, err := newRaftMessageTransport("local", fabric.conn("local"), time.Hour, zap.NewNop())
+	require.NoError(t, err)
+	defer tr.Close()
+	key := raftRequestKey{peer: "peer", id: 3}
+	oldReader, oldWriter := io.Pipe()
+	defer oldReader.Close()
+	defer oldWriter.Close()
+	reader, writer := io.Pipe()
+	defer reader.Close()
+	old := &raftSnapshotStream{writer: oldWriter}
+	replacement := &raftSnapshotStream{writer: writer}
+	tr.snapshots[key] = replacement
+	tr.removeSnapshotWriter(key, old, io.ErrUnexpectedEOF)
+	require.Same(t, replacement, tr.snapshots[key])
+	tr.removeSnapshotWriter(key, replacement, nil)
+	require.Empty(t, tr.snapshots)
+	_, err = reader.Read(make([]byte, 1))
+	require.ErrorIs(t, err, io.EOF)
+}
+
+type blockedSnapshotAdmission struct {
+	*raftTransportConn
+	entered chan struct{}
+}
+
+func (c *blockedSnapshotAdmission) SendToNodeContext(ctx context.Context, _ cluster.NodeID, _ []byte, _ internode.Class) error {
+	close(c.entered)
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+func TestRaftSnapshotShutdownCancelsAdmission(t *testing.T) {
+	fabric := newRaftTransportFabric()
+	conn := &blockedSnapshotAdmission{raftTransportConn: fabric.conn("local"), entered: make(chan struct{})}
+	tr, err := newRaftMessageTransport("local", conn, time.Hour, zap.NewNop())
+	require.NoError(t, err)
+	defer tr.Close()
+	done := make(chan error, 1)
+	go func() {
+		done <- tr.InstallSnapshot("peer", "peer", &hraft.InstallSnapshotRequest{Size: 1}, new(hraft.InstallSnapshotResponse), bytes.NewReader([]byte("x")))
+	}()
+	<-conn.entered
+	require.NoError(t, tr.Close())
+	require.ErrorIs(t, <-done, hraft.ErrTransportShutdown)
+	tr.mu.Lock()
+	require.Empty(t, tr.pending)
+	tr.mu.Unlock()
+}
+
+func TestRaftSnapshotDeadlineIncludesAdmission(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		fabric := newRaftTransportFabric()
+		conn := &blockedSnapshotAdmission{raftTransportConn: fabric.conn("local"), entered: make(chan struct{})}
+		tr, err := newRaftMessageTransport("local", conn, time.Second, zap.NewNop())
+		require.NoError(t, err)
+		defer tr.Close()
+		err = tr.InstallSnapshot("peer", "peer", &hraft.InstallSnapshotRequest{Size: 1}, new(hraft.InstallSnapshotResponse), bytes.NewReader([]byte("x")))
+		require.ErrorIs(t, err, context.DeadlineExceeded)
+		require.Empty(t, tr.pending)
+	})
+}

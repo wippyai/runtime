@@ -1,0 +1,11 @@
+// SPDX-License-Identifier: MPL-2.0
+package topology
+
+import "testing"
+
+// The original schedule replaced the router after Monitor. Monitor now captures
+// its destination at admission. Keep the historical gate on the real equivalent:
+// pause bound delivery, retire/reattach the caller, and resume.
+func TestResearchMonitorCompletionMustNotReachReplacement(t *testing.T) {
+ TestMonitorCompletionCannotReachReplacementMailbox(t)
+}

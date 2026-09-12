@@ -522,29 +522,6 @@ func encodeBindingFramesBounded(deltas []bindingDelta, maxBytes int) [][]byte {
 	return frames
 }
 
-// startJoinSnapshotSeedingForConsistent extends the join-epoch snapshot with
-// active CONSISTENT bindings. The leader already returns active STRONG names;
-// here we layer the CONSISTENT names so a joining non-member resolves all
-// pre-existing CONSISTENT names locally immediately after the barrier.
-//
-// Wire shape: a separate envelope appended in the join snapshot so members
-// running an older Service still parse the original payload.
-//
-// This helper is called from buildJoinSnapshot via a shared seam.
-func (s *Service) appendConsistentEntries(resp *joinResponseEnvelope) {
-	if s.fsm == nil {
-		return
-	}
-	for _, e := range s.fsm.State().listActiveConsistent() {
-		resp.Entries = append(resp.Entries, joinEntryEnvelope{
-			Name:  e.Name,
-			Owner: e.PID,
-			Epoch: e.RaftIndex,
-			State: joinSnapshotStateConsistent,
-		})
-	}
-}
-
 // seedDissemFromSnapshot installs every snapshot entry into the local dissem
 // cache. STRONG entries are seeded with their Epoch as the lww dot; CONSISTENT
 // entries carry the raft index as the dot. Called by runJoinBarrier after the

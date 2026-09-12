@@ -1,0 +1,8 @@
+=== RUN   TestIntegration_TLSHundredNodeMesh
+    mesh_scale_test.go:123: connected: 100 nodes, 4950 TLS connections in 1.007655797s
+    mesh_scale_test.go:133: idle 30s: goroutines 29802 -> 29802; heap allocated 1019933288 -> 1019933536 bytes (process total, no forced GC)
+    mesh_scale_test.go:137: idle heap after explicit GC: 889241104 bytes, 901009 objects
+    mesh_scale_test.go:178: mixed ring load over full mesh: 12800 messages, 419840000 bytes in 307.298777ms; admission-to-callback-entry p50=35.24517ms p95=146.171902ms p99=183.315492ms
+--- PASS: TestIntegration_TLSHundredNodeMesh (42.50s)
+PASS
+ok  	github.com/wippyai/runtime/cluster/internode	42.614s

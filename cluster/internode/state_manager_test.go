@@ -6,6 +6,7 @@ import (
 	"net"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -27,6 +28,10 @@ func setupStateManagerSmallCaps(cap int) *NodeStateManager {
 	config := insecureManagerConfig()
 	config.Logger = zap.NewNop()
 	config.GossipQueueCap = cap
+	config.OutboundQueueSize = cap
+	// This fixture deliberately exercises a single shared capacity without reserves.
+	config.OutboundControlPeerEntries, config.OutboundControlPeerBytes = 0, 0
+	config.OutboundControlTotalEntries, config.OutboundControlTotalBytes = 0, 0
 	return NewNodeStateManager(config, newTelemetry(nil), zap.NewNop())
 }
 
@@ -38,6 +43,7 @@ func drainAllData(nsm *NodeStateManager, nodeID cluster.NodeID) [][]byte {
 	for _, o := range out {
 		data = append(data, o.Data)
 	}
+	releaseOutbound(out)
 	return data
 }
 
@@ -458,6 +464,7 @@ func TestNodeStateManager_Concurrent_QueueDrain(t *testing.T) {
 	const numGoroutines = 10
 	const messagesPerGoroutine = 100
 
+	var accepted, refused atomic.Int64
 	var wg sync.WaitGroup
 	wg.Add(numGoroutines * 2) // Queuers + Drainers
 
@@ -467,7 +474,15 @@ func TestNodeStateManager_Concurrent_QueueDrain(t *testing.T) {
 			defer wg.Done()
 			for j := 0; j < messagesPerGoroutine; j++ {
 				data := []byte{byte(id), byte(j)}
-				_ = nsm.QueueMessageClass(nodeID, data, ClassRaftControl)
+				err := nsm.QueueMessageClass(nodeID, data, ClassRaftControl)
+				switch err {
+				case nil:
+					accepted.Add(1)
+				case ErrQueueFull:
+					refused.Add(1)
+				default:
+					t.Errorf("unexpected admission error: %v", err)
+				}
 			}
 		}(i)
 	}
@@ -483,6 +498,7 @@ func TestNodeStateManager_Concurrent_QueueDrain(t *testing.T) {
 				drainMu.Lock()
 				totalDrained += len(messages)
 				drainMu.Unlock()
+				releaseOutbound(messages)
 			}
 		}()
 	}
@@ -492,9 +508,12 @@ func TestNodeStateManager_Concurrent_QueueDrain(t *testing.T) {
 	// Drain remaining
 	remaining := nsm.DrainMessages(nodeID, 10000)
 	totalDrained += len(remaining)
+	releaseOutbound(remaining)
 
 	// Verify we got all messages
-	assert.Equal(t, numGoroutines*messagesPerGoroutine, totalDrained)
+	assert.Equal(t, int64(numGoroutines*messagesPerGoroutine), accepted.Load()+refused.Load())
+	assert.Equal(t, accepted.Load(), int64(totalDrained))
+	assert.Zero(t, nsm.reliable.entries)
 }
 
 func TestNodeStateManager_Concurrent_StateUpdates(t *testing.T) {
@@ -561,53 +580,56 @@ func TestNodeStateManager_Concurrent_CreateRemove(_ *testing.T) {
 	wg.Wait()
 }
 
-func TestQueueMessageClass_RaftRPCReliablePastConfiguredCap(t *testing.T) {
+func TestQueueMessageClass_RaftRPCRefusesBeforeConfiguredCapOverflow(t *testing.T) {
 	const cap = 4
 	nsm := setupStateManagerSmallCaps(cap)
 	nodeID := "peer-1"
 	nsm.CreateNodeState(nodeID)
 
-	for i := 0; i < cap*3; i++ {
+	for i := 0; i < cap; i++ {
 		require.NoError(t, nsm.QueueMessageClass(nodeID, []byte{byte(i)}, ClassRaftRPC))
 	}
 
+	require.ErrorIs(t, nsm.QueueMessageClass(nodeID, []byte("overflow"), ClassRaftRPC), ErrQueueFull)
 	got := drainAllData(nsm, nodeID)
-	require.Len(t, got, cap*3)
-	for i := 0; i < cap*3; i++ {
+	require.Len(t, got, cap)
+	for i := 0; i < cap; i++ {
 		assert.Equal(t, []byte{byte(i)}, got[i], "raft RPC frame %d out of order", i)
 	}
 }
 
-func TestQueueMessageClass_PGBroadcastReliablePastConfiguredCap(t *testing.T) {
+func TestQueueMessageClass_PGBroadcastRefusesBeforeConfiguredCapOverflow(t *testing.T) {
 	const cap = 4
 	nsm := setupStateManagerSmallCaps(cap)
 	nodeID := "peer-1"
 	nsm.CreateNodeState(nodeID)
 
-	for i := 0; i < cap*3; i++ {
+	for i := 0; i < cap; i++ {
 		require.NoError(t, nsm.QueueMessageClass(nodeID, []byte{byte(i)}, ClassPGBroadcast))
 	}
 
+	require.ErrorIs(t, nsm.QueueMessageClass(nodeID, []byte("overflow"), ClassPGBroadcast), ErrQueueFull)
 	got := drainAllData(nsm, nodeID)
-	require.Len(t, got, cap*3)
-	for i := 0; i < cap*3; i++ {
+	require.Len(t, got, cap)
+	for i := 0; i < cap; i++ {
 		assert.Equal(t, []byte{byte(i)}, got[i], "pg frame %d out of order", i)
 	}
 }
 
-func TestQueueMessageClass_RaftControlReliablePastConfiguredCap(t *testing.T) {
+func TestQueueMessageClass_RaftControlRefusesBeforeConfiguredCapOverflow(t *testing.T) {
 	const cap = 4
 	nsm := setupStateManagerSmallCaps(cap)
 	nodeID := "peer-1"
 	nsm.CreateNodeState(nodeID)
 
-	for i := 0; i < cap*3; i++ {
+	for i := 0; i < cap; i++ {
 		require.NoError(t, nsm.QueueMessageClass(nodeID, []byte{byte(i)}, ClassRaftControl))
 	}
 
+	require.ErrorIs(t, nsm.QueueMessageClass(nodeID, []byte("overflow"), ClassRaftControl), ErrQueueFull)
 	got := drainAllData(nsm, nodeID)
-	require.Len(t, got, cap*3)
-	for i := 0; i < cap*3; i++ {
+	require.Len(t, got, cap)
+	for i := 0; i < cap; i++ {
 		assert.Equal(t, []byte{byte(i)}, got[i])
 	}
 }

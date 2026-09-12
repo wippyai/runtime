@@ -341,17 +341,25 @@ func (s *State) Register(name string, p pid.PID, wallMs int64, priority uint32) 
 // Unregister tombstones a local registration. Returns the tombstone entry
 // that callers should broadcast, or nil if the name wasn't held live locally.
 func (s *State) Unregister(name string, wallMs int64) *Entry {
+	e, _ := s.unregisterLocal(name, wallMs, nil)
+	return e
+}
+
+// unregisterLocal checks and tombstones the local-origin dot under one shard
+// lock. A remote winner is irrelevant to ownership of that dot. If keep is
+// supplied, its local binding survives. The returned PID is the revoked owner.
+func (s *State) unregisterLocal(name string, wallMs int64, keep *pid.PID) (*Entry, pid.PID) {
 	sh := &s.shards[ShardFor(name)]
 	sh.mu.Lock()
 	defer sh.mu.Unlock()
 
 	rec, ok := sh.entries[name]
 	if !ok {
-		return nil
+		return nil, pid.PID{}
 	}
 	cur, ok := rec.dots[s.localNode]
-	if !ok || cur.Deleted {
-		return nil
+	if !ok || cur.Deleted || (keep != nil && cur.PID.Equal(*keep)) {
+		return nil, pid.PID{}
 	}
 	prevWinner := s.winnerOf(rec)
 	counter := s.nextCounter()
@@ -366,7 +374,7 @@ func (s *State) Unregister(name string, wallMs int64) *Entry {
 	rec.dots[s.localNode] = e
 	s.bumpCV(s.localNode, counter)
 	s.adjustCounts(sh, name, prevWinner, s.winnerOf(rec))
-	return e
+	return e, cur.PID
 }
 
 // Apply merges a remote dot into the per-origin record. Returns the outcome,

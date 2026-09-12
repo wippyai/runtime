@@ -10,6 +10,7 @@ import (
 )
 
 var (
+	nameGuardKey   = &ctxapi.Key{Name: "topology.name_guard"}
 	topologyKey    = &ctxapi.Key{Name: "topology.topology"}
 	registryKey    = &ctxapi.Key{Name: "topology.registry"}
 	globalRegKey   = &ctxapi.Key{Name: "topology.global_registry"}
@@ -122,6 +123,22 @@ func GetTopology(ctx context.Context) Topology {
 		if top, ok := val.(Topology); ok {
 			return top
 		}
+	}
+	return nil
+}
+
+// WithNameGuard installs the shared local admission guard during boot.
+func WithNameGuard(ctx context.Context, guard *NameGuard) context.Context {
+	if ac := ctxapi.AppFromContext(ctx); ac != nil && ac.Get(nameGuardKey) == nil {
+		ac.With(nameGuardKey, guard)
+	}
+	return ctx
+}
+
+func GetNameGuard(ctx context.Context) *NameGuard {
+	if ac := ctxapi.AppFromContext(ctx); ac != nil {
+		guard, _ := ac.Get(nameGuardKey).(*NameGuard)
+		return guard
 	}
 	return nil
 }

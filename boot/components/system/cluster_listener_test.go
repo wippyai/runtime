@@ -49,7 +49,12 @@ func TestClusterBootRequiresNativePeerKeySource(t *testing.T) {
 	})
 }
 
-func checkClusterBootListener(t *testing.T, failJoin bool, source any, wantLoadError bool) {
+func TestClusterBootIdentityMatchesRelay(t *testing.T) {
+	t.Run("default uses relay", func(t *testing.T) { checkClusterBootListener(t, false, nil, false, "") })
+	t.Run("conflict refused", func(t *testing.T) { checkClusterBootListener(t, false, nil, false, "different-node") })
+}
+
+func checkClusterBootListener(t *testing.T, failJoin bool, source any, wantLoadError bool, configuredName ...string) {
 	t.Helper()
 	pub, key, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
@@ -64,6 +69,9 @@ func checkClusterBootListener(t *testing.T, failJoin bool, source any, wantLoadE
 		"internode.auto_port":                        true,
 		"internode.identity_key":                     base64.RawStdEncoding.EncodeToString(key),
 		"internode.trusted_peer_keys.listener-proof": base64.RawStdEncoding.EncodeToString(pub),
+	}
+	if len(configuredName) != 0 {
+		settings[ClusterNodeName] = configuredName[0]
 	}
 	if source != nil {
 		settings[ClusterInternodePeerKeySource] = source
@@ -87,6 +95,10 @@ func checkClusterBootListener(t *testing.T, failJoin bool, source any, wantLoadE
 	ctx = metricsapi.WithCollector(ctx, collector)
 	component := Cluster()
 	ctx, err = component.Load(ctx)
+	if len(configuredName) != 0 && configuredName[0] != "" && configuredName[0] != relayNode.ID() {
+		require.ErrorContains(t, err, "node identity mismatch")
+		return
+	}
 	if wantLoadError {
 		require.ErrorContains(t, err, "requires a native PeerKeySource")
 		return
@@ -94,6 +106,7 @@ func checkClusterBootListener(t *testing.T, failJoin bool, source any, wantLoadE
 	require.NoError(t, err)
 	membership := clusterapi.GetMembership(ctx)
 	require.NotNil(t, membership)
+	require.Equal(t, relayNode.ID(), membership.LocalNode().ID)
 	require.Empty(t, membership.LocalNode().Meta[internode.MetadataPort], "Load cannot advertise a temporary probe")
 	stop := component.(boot.Stopper)
 	defer stop.Stop(ctx)

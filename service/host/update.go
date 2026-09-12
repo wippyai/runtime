@@ -41,6 +41,17 @@ func unsupportedHostUpdateFields(current, desired *hostapi.EntryConfig, affinity
 	if !reflect.DeepEqual(canonicalLifecycle(current.Lifecycle), canonicalLifecycle(desired.Lifecycle)) {
 		fields = append(fields, "lifecycle")
 	}
+	if configuredRemoteMonitorLimit(current) != configuredRemoteMonitorLimit(desired) {
+		fields = append(fields, "host.remote_monitor_limit")
+	}
+	currentReplies, currentTimeout := configuredMonitorReplies(current)
+	desiredReplies, desiredTimeout := configuredMonitorReplies(desired)
+	if currentReplies != desiredReplies {
+		fields = append(fields, "host.remote_monitor_replies")
+	}
+	if currentTimeout != desiredTimeout {
+		fields = append(fields, "host.remote_monitor_reply_timeout")
+	}
 	if current.HostConfig.QueueSize != desired.HostConfig.QueueSize {
 		fields = append(fields, "host.queue_size")
 	}

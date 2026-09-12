@@ -7,6 +7,7 @@ package global
 import (
 	"fmt"
 	"io"
+	"sync"
 	"time"
 
 	"github.com/hashicorp/go-msgpack/v2/codec"
@@ -63,18 +64,26 @@ const strongRejectConflict = "conflict"
 
 // FSM implements the hashicorp/raft.FSM interface.
 // It is the replicated state machine for the global name registry.
-// All Apply calls are serialized by Raft, so no additional locking is
-// needed for write operations beyond what the shardedState already provides.
+// Raft serializes Apply; snapshotMu additionally coordinates complete join
+// captures with Apply and Restore. Ordinary reads use the sharded state locks.
 type FSM struct {
-	state     *shardedState
-	resolve   global.ResolveFunc
-	tel       *telemetry
-	onRestore func()
-	onPending func(PendingEvent)
-	onActive  func(ActiveEvent)
-	onExpired func(ExpiredEvent)
-	onBinding func(BindingEvent)
-	pgLabel   string
+	// snapshotMu serializes complete captures with Apply/Restore. Ordinary
+	// name lookups retain their shard locks and do not acquire this mutex.
+	snapshotMu sync.RWMutex
+	// Apply notifications remain ordered even for direct in-process callers.
+	applyMu      sync.Mutex
+	appliedIndex uint64
+	// Reused only by Raft-serialized Apply; callbacks run after capture unlocks.
+	applyEvents []any
+	state       *shardedState
+	resolve     global.ResolveFunc
+	tel         *telemetry
+	onRestore   func()
+	onPending   func(PendingEvent)
+	onActive    func(ActiveEvent)
+	onExpired   func(ExpiredEvent)
+	onBinding   func(BindingEvent)
+	pgLabel     string
 }
 
 // NewFSM creates a new FSM with an empty sharded state.
@@ -142,6 +151,14 @@ func (f *FSM) State() *shardedState {
 // Apply is called by Raft once a log entry has been committed by a quorum.
 // The returned value is available via the ApplyFuture.Response().
 func (f *FSM) Apply(log *hraft.Log) any {
+	f.applyMu.Lock()
+	defer f.applyMu.Unlock()
+	f.snapshotMu.Lock()
+	defer func() {
+		f.appliedIndex = log.Index
+		f.snapshotMu.Unlock()
+		f.deliverApplyEvents()
+	}()
 	cmd, err := DecodeCommand(log.Data)
 	if err != nil {
 		return fmt.Errorf("decode global registry command: %w", err)
@@ -219,7 +236,7 @@ func (f *FSM) applyRegister(cmd *Command, index uint64) any {
 // Called from every Apply path that mutates the ACTIVE binding set.
 func (f *FSM) emitBinding(ev BindingEvent) {
 	if f.onBinding != nil {
-		f.onBinding(ev)
+		f.queueApplyEvent(ev)
 	}
 }
 
@@ -231,7 +248,7 @@ func (f *FSM) applyUnregister(cmd *Command, index uint64) any {
 		// terminal for any held exclusion: deliver a release to its holders.
 		if f.onExpired != nil && len(removed.RequiredNodes) > 0 {
 			f.tel.recordStrongRelease("unregister_active")
-			f.onExpired(ExpiredEvent{
+			f.queueApplyEvent(ExpiredEvent{
 				Name:          cmd.Name,
 				PID:           removed.PID,
 				Epoch:         removed.Epoch,
@@ -254,7 +271,7 @@ func (f *FSM) applyRemovePID(cmd *Command, index uint64) any {
 		if e, ok := f.state.unreservePending(n, cmd.PID); ok && e != nil {
 			f.tel.recordStrongRelease("pid_exit")
 			if f.onExpired != nil {
-				f.onExpired(ExpiredEvent{
+				f.queueApplyEvent(ExpiredEvent{
 					Name:          n,
 					PID:           e.PID,
 					Epoch:         e.Epoch,
@@ -271,7 +288,7 @@ func (f *FSM) applyRemovePID(cmd *Command, index uint64) any {
 		// its exclusion on the holders.
 		f.tel.recordStrongRelease("pid_exit_active")
 		if f.onExpired != nil {
-			f.onExpired(ExpiredEvent{
+			f.queueApplyEvent(ExpiredEvent{
 				Name:          st.Name,
 				PID:           st.PID,
 				Epoch:         st.Epoch,
@@ -300,7 +317,7 @@ func (f *FSM) applyRemoveNode(cmd *Command, index uint64) any {
 		// exclusion on the surviving holders.
 		f.tel.recordStrongRelease("node_removed_active")
 		if f.onExpired != nil {
-			f.onExpired(ExpiredEvent{
+			f.queueApplyEvent(ExpiredEvent{
 				Name:          st.Name,
 				PID:           st.PID,
 				Epoch:         st.Epoch,
@@ -341,7 +358,7 @@ func (f *FSM) applyRegisterPending(cmd *Command, index uint64) any {
 		if f.onPending != nil {
 			req := make([]pid.NodeID, len(cmd.RequiredNodes))
 			copy(req, cmd.RequiredNodes)
-			f.onPending(PendingEvent{
+			f.queueApplyEvent(PendingEvent{
 				Name:             cmd.Name,
 				PID:              cmd.PID,
 				Epoch:            epoch,
@@ -398,7 +415,7 @@ func (f *FSM) applyRegisterAck(cmd *Command, index uint64) any {
 	f.tel.setStrongPendingInFlight(f.state.PendingLen())
 	f.tel.recordGlobalregSize(f.state.Len())
 	if f.onActive != nil {
-		f.onActive(ActiveEvent{
+		f.queueApplyEvent(ActiveEvent{
 			Name:           cmd.Name,
 			PID:            promoted.PID,
 			Epoch:          cmd.Epoch,
@@ -419,7 +436,7 @@ func (f *FSM) applyRegisterExpired(cmd *Command, index uint64) any {
 	f.tel.recordStrongExpired(cmd.Reason)
 	f.tel.setStrongPendingInFlight(f.state.PendingLen())
 	if f.onExpired != nil {
-		f.onExpired(ExpiredEvent{
+		f.queueApplyEvent(ExpiredEvent{
 			Name:          cmd.Name,
 			PID:           e.PID,
 			Epoch:         cmd.Epoch,
@@ -444,7 +461,7 @@ func (f *FSM) applyRegisterUnreserve(cmd *Command, index uint64) any {
 			f.tel.recordGlobalregSize(f.state.Len())
 			if f.onExpired != nil && len(removed.RequiredNodes) > 0 {
 				f.tel.recordStrongRelease("unreserve_active")
-				f.onExpired(ExpiredEvent{
+				f.queueApplyEvent(ExpiredEvent{
 					Name:          cmd.Name,
 					PID:           removed.PID,
 					Epoch:         removed.Epoch,
@@ -462,7 +479,7 @@ func (f *FSM) applyRegisterUnreserve(cmd *Command, index uint64) any {
 	f.tel.recordStrongRelease("unreserve")
 	f.tel.setStrongPendingInFlight(f.state.PendingLen())
 	if f.onExpired != nil {
-		f.onExpired(ExpiredEvent{
+		f.queueApplyEvent(ExpiredEvent{
 			Name:          cmd.Name,
 			PID:           e.PID,
 			Epoch:         e.Epoch,
@@ -499,7 +516,7 @@ func (f *FSM) applyDropRequired(cmd *Command, index uint64) any {
 	f.tel.setStrongPendingInFlight(f.state.PendingLen())
 	f.tel.recordGlobalregSize(f.state.Len())
 	if f.onActive != nil {
-		f.onActive(ActiveEvent{
+		f.queueApplyEvent(ActiveEvent{
 			Name:           cmd.Name,
 			PID:            promoted.PID,
 			Epoch:          cmd.Epoch,
@@ -534,7 +551,7 @@ func (f *FSM) applyRegisterReject(cmd *Command, index uint64) any {
 		}
 	}
 	if f.onExpired != nil {
-		f.onExpired(ExpiredEvent{
+		f.queueApplyEvent(ExpiredEvent{
 			Name:          cmd.Name,
 			PID:           e.PID,
 			Epoch:         cmd.Epoch,
@@ -570,6 +587,39 @@ func ackBucket(n int) string {
 		return "6-9"
 	default:
 		return "10+"
+	}
+}
+
+// queueApplyEvent retains command notifications until all state mutations and
+// the applied revision have been published. Apply remains serialized by Raft.
+func (f *FSM) queueApplyEvent(ev any) {
+	f.applyEvents = append(f.applyEvents, ev)
+}
+
+func (f *FSM) deliverApplyEvents() {
+	defer func() {
+		clear(f.applyEvents)
+		f.applyEvents = f.applyEvents[:0]
+	}()
+	for _, event := range f.applyEvents {
+		switch ev := event.(type) {
+		case BindingEvent:
+			if f.onBinding != nil {
+				f.onBinding(ev)
+			}
+		case PendingEvent:
+			if f.onPending != nil {
+				f.onPending(ev)
+			}
+		case ActiveEvent:
+			if f.onActive != nil {
+				f.onActive(ev)
+			}
+		case ExpiredEvent:
+			if f.onExpired != nil {
+				f.onExpired(ev)
+			}
+		}
 	}
 }
 
@@ -628,9 +678,11 @@ type RejectResult struct {
 // Snapshot returns a point-in-time snapshot of the FSM state.
 // Called by Raft periodically for log compaction.
 func (f *FSM) Snapshot() (hraft.FSMSnapshot, error) {
+	f.snapshotMu.RLock()
+	defer f.snapshotMu.RUnlock()
 	entries := f.state.snapshot()
 	pending := f.state.pendingSnapshot()
-	return &fsmSnapshot{payload: fsmSnapshotPayload{Entries: entries, Pending: pending}}, nil
+	return &fsmSnapshot{payload: fsmSnapshotPayload{Entries: entries, Pending: pending, AppliedIndex: f.appliedIndex}}, nil
 }
 
 // Restore replaces the entire FSM state from a snapshot.
@@ -644,7 +696,12 @@ func (f *FSM) Restore(rc io.ReadCloser) error {
 		return fmt.Errorf("decode snapshot: %w", err)
 	}
 
+	f.applyMu.Lock()
+	defer f.applyMu.Unlock()
+	f.snapshotMu.Lock()
 	f.state.restore(payload.Entries, payload.Pending)
+	f.appliedIndex = payload.AppliedIndex
+	f.snapshotMu.Unlock()
 	f.tel.recordGlobalregSize(f.state.Len())
 	f.tel.setStrongPendingInFlight(f.state.PendingLen())
 	if f.onRestore != nil {

@@ -5,6 +5,7 @@ package internode
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
@@ -27,8 +28,13 @@ var (
 	ErrUnknownClass = errors.New("internode: unknown queue class (programmer error)")
 )
 
+// Generation identity and retained capacity follow the same queue lifetime.
+type queueGeneration struct{ reliable *outboundBudget }
+
 type NodeState struct {
-	createdAt     time.Time // for observability: when this state was first created
+	reliable      *outboundBudget  // immutable peer lifetime; closes without queueMu
+	generation    *queueGeneration // guarded by queueMu
+	createdAt     time.Time        // for observability: when this state was first created
 	queues        [numClasses]*classQueue
 	messageNotify chan struct{}
 	connection    *NodeConnection
@@ -44,9 +50,10 @@ type NodeState struct {
 // All access is guarded by NodeState.queueMu (held for cross-class
 // operations). A zero capacity is unbounded.
 type classQueue struct {
-	buf       [][]byte
+	buf       []Outbound
 	head      int // index of the oldest element (next to drain)
 	size      int // number of valid entries
+	limit     int // bounded capacity, independent of currently allocated storage
 	unbounded bool
 }
 
@@ -54,17 +61,40 @@ func newClassQueue(cap int) *classQueue {
 	if cap <= 0 {
 		return &classQueue{unbounded: true}
 	}
-	return &classQueue{buf: make([][]byte, cap)}
+	return &classQueue{limit: cap}
+}
+
+// reserveBoundedSlot grows storage only on demand. A full ring is copied in
+// logical FIFO order, including wrapped heads; the configured cap never grows.
+func (q *classQueue) reserveBoundedSlot() bool {
+	if q.size == q.limit {
+		return false
+	}
+	if q.size < len(q.buf) {
+		return true
+	}
+	capacity := min(q.limit, 8)
+	if len(q.buf) != 0 {
+		capacity = len(q.buf) + min(len(q.buf), q.limit-len(q.buf))
+	}
+	storage := make([]Outbound, capacity)
+	if q.size != 0 {
+		copied := copy(storage, q.buf[q.head:])
+		copy(storage[copied:], q.buf[:q.head])
+	}
+	q.buf, q.head = storage, 0
+	return true
 }
 
 // pushNewest appends if there is room. Returns false if full (no insert).
-func (q *classQueue) pushNewest(data []byte) (accepted bool) {
+func (q *classQueue) pushNewest(data []byte) bool { return q.pushFrame(Outbound{Data: data}) }
+func (q *classQueue) pushFrame(data Outbound) (accepted bool) {
 	if q.unbounded {
 		q.buf = append(q.buf, data)
 		q.size++
 		return true
 	}
-	if q.size == len(q.buf) {
+	if !q.reserveBoundedSlot() {
 		return false
 	}
 	tail := (q.head + q.size) % len(q.buf)
@@ -75,20 +105,21 @@ func (q *classQueue) pushNewest(data []byte) (accepted bool) {
 
 // pushFront inserts at the front for requeue (callers must respect cap).
 // Returns false if full.
-func (q *classQueue) pushFront(data []byte) (accepted bool) {
+func (q *classQueue) pushFront(data []byte) bool { return q.pushFrontFrame(Outbound{Data: data}) }
+func (q *classQueue) pushFrontFrame(data Outbound) (accepted bool) {
 	if q.unbounded {
 		if q.head > 0 {
 			q.head--
 			q.buf[q.head] = data
 		} else {
-			q.buf = append(q.buf, nil)
+			q.buf = append(q.buf, Outbound{})
 			copy(q.buf[1:], q.buf)
 			q.buf[0] = data
 		}
 		q.size++
 		return true
 	}
-	if q.size == len(q.buf) {
+	if !q.reserveBoundedSlot() {
 		return false
 	}
 	q.head = (q.head - 1 + len(q.buf)) % len(q.buf)
@@ -98,13 +129,13 @@ func (q *classQueue) pushFront(data []byte) (accepted bool) {
 }
 
 // pop removes and returns the oldest entry; ok=false when empty.
-func (q *classQueue) pop() (data []byte, ok bool) {
+func (q *classQueue) pop() (data Outbound, ok bool) {
 	if q.size == 0 {
-		return nil, false
+		return Outbound{}, false
 	}
 	if q.unbounded {
 		data = q.buf[q.head]
-		q.buf[q.head] = nil
+		q.buf[q.head] = Outbound{}
 		q.head++
 		q.size--
 		if q.size == 0 {
@@ -113,7 +144,7 @@ func (q *classQueue) pop() (data []byte, ok bool) {
 		} else if q.head > 1024 && q.head*2 >= len(q.buf) {
 			copy(q.buf, q.buf[q.head:])
 			for i := q.size; i < len(q.buf); i++ {
-				q.buf[i] = nil
+				q.buf[i] = Outbound{}
 			}
 			q.buf = q.buf[:q.size]
 			q.head = 0
@@ -121,7 +152,7 @@ func (q *classQueue) pop() (data []byte, ok bool) {
 		return data, true
 	}
 	data = q.buf[q.head]
-	q.buf[q.head] = nil // release reference
+	q.buf[q.head] = Outbound{} // release reference
 	q.head = (q.head + 1) % len(q.buf)
 	q.size--
 	return data, true
@@ -130,7 +161,8 @@ func (q *classQueue) pop() (data []byte, ok bool) {
 // reset drops all entries. Allocations remain.
 func (q *classQueue) reset() {
 	for i := range q.buf {
-		q.buf[i] = nil
+		q.buf[i].reservation.release()
+		q.buf[i] = Outbound{}
 	}
 	if q.unbounded {
 		q.buf = q.buf[:0]
@@ -147,6 +179,8 @@ type nodeAddress struct {
 }
 
 type NodeStateManager struct {
+	reliable   *outboundBudget
+	budgetErr  error
 	nodeStates sync.Map // cluster.NodeID -> *NodeState
 	logger     *zap.Logger
 	tel        *telemetry
@@ -154,11 +188,47 @@ type NodeStateManager struct {
 }
 
 func NewNodeStateManager(config ManagerConfig, tel *telemetry, logger *zap.Logger) *NodeStateManager {
+	defaults := DefaultManagerConfig()
+	if config.DrainBatchBytes == 0 {
+		config.DrainBatchBytes = defaults.DrainBatchBytes
+	}
+	if config.OutboundQueueSize == 0 {
+		config.OutboundQueueSize = defaults.OutboundQueueSize
+	}
+	if config.OutboundPeerBytes == 0 {
+		config.OutboundPeerBytes = defaults.OutboundPeerBytes
+	}
+	if config.OutboundTotalBytes == 0 {
+		config.OutboundTotalBytes = defaults.OutboundTotalBytes
+	}
+	if config.OutboundTotalEntries == 0 {
+		config.OutboundTotalEntries = defaults.OutboundTotalEntries
+	}
+	root, err := newOutboundBudget(config.OutboundTotalEntries, config.OutboundTotalBytes)
+	if config.OutboundQueueSize < 0 {
+		err = fmt.Errorf("outbound queue size must be positive")
+	}
+	if err == nil {
+		if config.OutboundControlPeerEntries >= uint64(config.OutboundQueueSize) || config.OutboundControlPeerBytes >= config.OutboundPeerBytes {
+			err = fmt.Errorf("outbound peer control reserve must leave ordinary capacity")
+		} else if protectErr := root.protect(config.OutboundControlTotalEntries, config.OutboundControlTotalBytes); protectErr != nil {
+			err = fmt.Errorf("outbound total control reserve: %w", protectErr)
+		}
+	}
 	return &NodeStateManager{
+		reliable: root, budgetErr: err,
 		logger: logger.Named("state"),
 		tel:    tel,
 		config: config,
 	}
+}
+
+func (nsm *NodeStateManager) newQueueGeneration(parent *outboundBudget) *queueGeneration {
+	budget, _ := parent.child(uint64(nsm.config.OutboundQueueSize), nsm.config.OutboundPeerBytes)
+	if nsm.budgetErr == nil {
+		_ = budget.protect(nsm.config.OutboundControlPeerEntries, nsm.config.OutboundControlPeerBytes)
+	}
+	return &queueGeneration{reliable: budget}
 }
 
 // CreateNodeState initializes the in-memory state for a new node.
@@ -176,6 +246,16 @@ func (nsm *NodeStateManager) CreateNodeState(nodeID cluster.NodeID) {
 	if existing, ok := nsm.nodeStates.Load(nodeID); ok {
 		oldState := existing.(*NodeState)
 
+		// Reset all queues
+		oldState.queueMu.Lock()
+		oldState.generation.reliable.close()
+		oldState.generation = nsm.newQueueGeneration(oldState.reliable)
+		for i := range oldState.queues {
+			oldState.queues[i].reset()
+		}
+		oldState.lastDepth = [numClasses]int{}
+		oldState.queueMu.Unlock()
+
 		// Reset connection
 		oldState.stateMu.Lock()
 		if oldState.connection != nil {
@@ -185,14 +265,6 @@ func (nsm *NodeStateManager) CreateNodeState(nodeID cluster.NodeID) {
 		oldState.state = StateNone
 		oldState.address = nodeAddress{}
 		oldState.stateMu.Unlock()
-
-		// Reset all queues
-		oldState.queueMu.Lock()
-		for i := range oldState.queues {
-			oldState.queues[i].reset()
-		}
-		oldState.lastDepth = [numClasses]int{}
-		oldState.queueMu.Unlock()
 
 		// Do NOT replace messageNotify — existing control loops hold a reference.
 		nsm.logger.Debug("Reset existing state for rejoining node", zap.String("node_id", nodeID))
@@ -212,8 +284,14 @@ func (nsm *NodeStateManager) CreateNodeState(nodeID cluster.NodeID) {
 	for i := range queues {
 		queues[i] = newClassQueue(caps[i])
 	}
+	peerBudget, _ := nsm.reliable.child(uint64(nsm.config.OutboundQueueSize), nsm.config.OutboundPeerBytes)
+	if nsm.budgetErr == nil {
+		_ = peerBudget.protect(nsm.config.OutboundControlPeerEntries, nsm.config.OutboundControlPeerBytes)
+	}
 	newState := &NodeState{
+		reliable:      peerBudget,
 		queues:        queues,
+		generation:    nsm.newQueueGeneration(peerBudget),
 		messageNotify: make(chan struct{}, 1),
 		state:         StateNone,
 		createdAt:     time.Now(),
@@ -232,14 +310,14 @@ func (nsm *NodeStateManager) GetNodeState(nodeID cluster.NodeID) *NodeState {
 // QueueMessageClass enqueues data for nodeID under the given class.
 // Delivery policy is class-specific:
 //   - ClassRaftControl, ClassPGBroadcast, and ClassRaftRPC are reliable
-//     while the peer remains managed.
+//     after admission while the peer remains managed. Admission is bounded.
 //   - ClassGossip and ClassSurface reject the new entry and returns ErrQueueFull when full.
 //
 // In all drop cases, internode_dropped_total{class,reason="queue_full"}
 // is incremented.
 //
 // Returns ErrNodeNotManaged if no state exists for nodeID.
-// Returns ErrQueueFull for gossip or surface traffic when full.
+// Returns ErrQueueFull before ownership transfer when the applicable budget is full.
 func (nsm *NodeStateManager) QueueMessageClass(nodeID cluster.NodeID, data []byte, class Class) error {
 	return nsm.queueMessageClass(context.Background(), nodeID, data, class, false)
 }
@@ -281,11 +359,37 @@ func (nsm *NodeStateManager) queueMessageClass(ctx context.Context, nodeID clust
 		state.queueMu.Unlock()
 		return ErrNodeNotManaged
 	}
+	generation := state.generation
+	var reservation *outboundReservation
+	reliable := class == ClassRaftControl || class == ClassRaftRPC || class == ClassPGBroadcast
+	if reliable {
+		state.queueMu.Unlock()
+		if nsm.budgetErr != nil {
+			return nsm.budgetErr
+		}
+		var err error
+		reservation, err = generation.reliable.reserveTraffic(ctx, uint64(len(data)), cancellable, class == ClassRaftControl || class == ClassRaftRPC)
+		if err != nil {
+			if errors.Is(err, ErrQueueFull) {
+				nsm.tel.recordDrop(class, "queue_full")
+			}
+			return err
+		}
+		if err = state.queueMu.LockContext(ctx); err != nil {
+			reservation.release()
+			return err
+		}
+		if nsm.GetNodeState(nodeID) != state || state.generation != generation {
+			state.queueMu.Unlock()
+			reservation.release()
+			return ErrNodeNotManaged
+		}
+	}
 	q := state.queues[class]
 	var rejected bool
 	switch class {
 	case ClassRaftControl, ClassPGBroadcast, ClassRaftRPC:
-		q.pushNewest(data)
+		q.pushFrame(Outbound{Data: data, reservation: reservation, generation: generation})
 	case ClassSurface:
 		if q.len() >= 32 {
 			rejected = true
@@ -421,26 +525,58 @@ func (nsm *NodeStateManager) DrainMessages(nodeID cluster.NodeID, maxCount int) 
 // callbacks retain their loop's state pointer, preventing a detached
 // connection from consuming a replacement's queue.
 func (nsm *NodeStateManager) drainMessagesForState(nodeID cluster.NodeID, state *NodeState, maxCount int) []Outbound {
-	if state == nil || nsm.GetNodeState(nodeID) != state || maxCount <= 0 {
+	if state == nil {
 		return nil
 	}
-
 	state.queueMu.Lock()
+	generation := state.generation
+	state.queueMu.Unlock()
+	return nsm.drainMessagesForGeneration(nodeID, state, generation, maxCount)
+}
+
+func (nsm *NodeStateManager) drainMessagesForGeneration(nodeID cluster.NodeID, state *NodeState, generation *queueGeneration, maxCount int) []Outbound {
+	if state == nil || maxCount <= 0 {
+		return nil
+	}
+	state.queueMu.Lock()
+	if nsm.GetNodeState(nodeID) != state || state.generation != generation {
+		state.queueMu.Unlock()
+		return nil
+	}
 	out := make([]Outbound, 0, maxCount)
+	var batchBytes uint64
+	batchFull := false
+	fits := func(q *classQueue) bool {
+		// One already-admitted oversized frame must make progress. The batch
+		// target bounds additional frames; it does not change message-size limits.
+		if len(out) == 0 {
+			return true
+		}
+		return batchBytes < nsm.config.DrainBatchBytes && uint64(len(q.buf[q.head].Data)) <= nsm.config.DrainBatchBytes-batchBytes
+	}
 	for _, class := range drainClasses {
 		q := state.queues[class]
 		for q.len() > 0 && len(out) < maxCount {
+			if !fits(q) {
+				batchFull = true
+				break
+			}
 			d, _ := q.pop()
-			if d != nil {
-				out = append(out, Outbound{Data: d, Class: class})
+			if d.Data != nil {
+				d.Class = class
+				d.generation = generation
+				out = append(out, d)
+				batchBytes += uint64(len(d.Data))
+			} else {
+				d.reservation.release()
 			}
 		}
-		if len(out) >= maxCount {
+		if batchFull || len(out) >= maxCount {
 			break
 		}
 	}
 	surfaceCount := 0
-	for len(out) < maxCount {
+	for !batchFull && len(out) < maxCount {
 		first, second := ClassPGBroadcast, ClassSurface
 		if state.surfaceTurn {
 			first, second = second, first
@@ -452,9 +588,17 @@ func (nsm *NodeStateManager) drainMessagesForState(nodeID cluster.NodeID, state 
 		if state.queues[class].len() == 0 || (class == ClassSurface && surfaceCount == 32) {
 			break
 		}
+		if !fits(state.queues[class]) {
+			break
+		}
 		data, _ := state.queues[class].pop()
-		if data != nil {
-			out = append(out, Outbound{Data: data, Class: class})
+		if data.Data != nil {
+			data.Class = class
+			data.generation = generation
+			out = append(out, data)
+			batchBytes += uint64(len(data.Data))
+		} else {
+			data.reservation.release()
 		}
 		if class == ClassSurface {
 			surfaceCount++
@@ -505,97 +649,61 @@ func (nsm *NodeStateManager) RequeueMessages(nodeID cluster.NodeID, messages []O
 // requeueMessagesForState returns frames only to the supplied generation.
 // A stale connection must never repopulate a newer peer incarnation's queue.
 func (nsm *NodeStateManager) requeueMessagesForState(nodeID cluster.NodeID, state *NodeState, messages []Outbound) {
-	if state == nil || nsm.GetNodeState(nodeID) != state {
+	if state == nil {
+		releaseOutbound(messages)
 		return
 	}
-	if len(messages) == 0 {
-		return
-	}
-	var perClass [numClasses][][]byte
-	for _, m := range messages {
-		if m.Data == nil {
-			continue
-		}
-		if int(m.Class) >= numClasses {
-			continue
-		}
-		perClass[m.Class] = append(perClass[m.Class], m.Data)
-	}
-	for c := 0; c < numClasses; c++ {
-		if len(perClass[c]) == 0 {
-			continue
-		}
-		nsm.requeueMessagesClassForState(nodeID, state, perClass[c], Class(c))
-	}
-}
-
-// RequeueMessagesClass returns previously-extracted messages to the head
-// of the per-class queue. Reliable classes are preserved while the peer
-// remains managed. Gossip keeps its lossy cap.
-func (nsm *NodeStateManager) RequeueMessagesClass(nodeID cluster.NodeID, messages [][]byte, class Class) {
-	state := nsm.GetNodeState(nodeID)
-	nsm.requeueMessagesClassForState(nodeID, state, messages, class)
-}
-
-func (nsm *NodeStateManager) requeueMessagesClassForState(nodeID cluster.NodeID, state *NodeState, messages [][]byte, class Class) {
-	if len(messages) == 0 {
-		return
-	}
-	if state == nil || nsm.GetNodeState(nodeID) != state {
-		nsm.logger.Warn("Dropping messages to requeue for unmanaged node",
-			zap.String("node_id", nodeID),
-			zap.Int("message_count", len(messages)),
-			zap.String("class", class.String()))
-		return
-	}
-	if int(class) >= numClasses {
-		return
-	}
-
 	state.queueMu.Lock()
-	q := state.queues[class]
-	dropped := 0
-	switch class {
-	case ClassRaftControl, ClassPGBroadcast, ClassRaftRPC:
-		for i := len(messages) - 1; i >= 0; i-- {
-			if messages[i] == nil {
-				continue
-			}
-			q.pushFront(messages[i])
+	if nsm.GetNodeState(nodeID) != state {
+		state.queueMu.Unlock()
+		releaseOutbound(messages)
+		return
+	}
+	var drops [numClasses]int
+	for i := len(messages) - 1; i >= 0; i-- {
+		frame := messages[i]
+		if frame.Data == nil || int(frame.Class) >= numClasses || (frame.generation != nil && frame.generation != state.generation) {
+			frame.reservation.release()
+			continue
 		}
-	case ClassGossip, ClassSurface:
-		for i := len(messages) - 1; i >= 0; i-- {
-			if messages[i] == nil {
-				continue
-			}
-			if !q.pushFront(messages[i]) {
-				dropped++
-			}
+		if !state.queues[frame.Class].pushFrontFrame(frame) {
+			frame.reservation.release()
+			drops[frame.Class]++
 		}
 	}
-	depth := q.len()
-	depthChanged := depth != state.lastDepth[class]
-	state.lastDepth[class] = depth
+	var depths [numClasses]int
+	var changed [numClasses]bool
+	for class, q := range state.queues {
+		depths[class] = q.len()
+		changed[class] = depths[class] != state.lastDepth[class]
+		state.lastDepth[class] = depths[class]
+	}
 	state.queueMu.Unlock()
-
-	for i := 0; i < dropped; i++ {
-		nsm.tel.recordDrop(class, "requeue_overflow")
+	for class := range numClasses {
+		for range drops[class] {
+			nsm.tel.recordDrop(Class(class), "requeue_overflow")
+		}
+		if changed[class] {
+			nsm.tel.recordQueueDepth(Class(class), nodeID, depths[class])
+		}
 	}
-	if depthChanged {
-		nsm.tel.recordQueueDepth(class, nodeID, depth)
-	}
-
-	if dropped > 0 {
-		nsm.logger.Warn("Dropped messages during requeue (queue full)",
-			zap.String("node_id", nodeID),
-			zap.String("class", class.String()),
-			zap.Int("dropped", dropped))
-	}
-
 	select {
 	case state.messageNotify <- struct{}{}:
 	default:
 	}
+}
+
+// RequeueMessagesClass is the raw-frame adapter; reserved writer batches must
+// use RequeueMessages so their retained-byte ownership follows the batch.
+func (nsm *NodeStateManager) RequeueMessagesClass(nodeID cluster.NodeID, messages [][]byte, class Class) {
+	nsm.requeueMessagesClassForState(nodeID, nsm.GetNodeState(nodeID), messages, class)
+}
+func (nsm *NodeStateManager) requeueMessagesClassForState(nodeID cluster.NodeID, state *NodeState, messages [][]byte, class Class) {
+	frames := make([]Outbound, len(messages))
+	for i, data := range messages {
+		frames[i] = Outbound{Data: data, Class: class}
+	}
+	nsm.requeueMessagesForState(nodeID, state, frames)
 }
 
 // RemoveNodeState completely removes a node's state from memory.
@@ -611,7 +719,9 @@ func (nsm *NodeStateManager) detachNodeState(nodeID cluster.NodeID) *NodeState {
 	if !ok {
 		return nil
 	}
-	return state.(*NodeState)
+	node := state.(*NodeState)
+	node.reliable.close()
+	return node
 }
 
 func (nsm *NodeStateManager) closeDetachedNodeState(nodeID cluster.NodeID, nodeState *NodeState) {

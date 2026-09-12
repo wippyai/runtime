@@ -69,6 +69,8 @@ type MessageSender interface {
 
 // Config configures a Service.
 type Config struct {
+	// NameGuard must be shared with LOCAL and Strong admission on this node.
+	NameGuard *topology.NameGuard
 	// Peers supplies the current alive peer set.
 	Peers PeerInventory
 	// CrossScope optionally cross-checks CONSISTENT/LOCAL on Register.
@@ -129,6 +131,7 @@ type Service struct {
 	cfg                Config
 	stopOnce           sync.Once
 	ownedMu            sync.Mutex
+	withdrawn          bool // protected by ownedMu; terminal local-origin withdrawal
 	lastShardRequestMu sync.Mutex
 	stopped            atomic.Bool
 }
@@ -257,6 +260,16 @@ func (s *Service) RegisterWithOptions(name string, p pid.PID, opts ...RegisterOp
 }
 
 func (s *Service) register(name string, p pid.PID, opts ...RegisterOption) (pid.PID, error) {
+	release, err := s.cfg.NameGuard.LockContext(context.Background(), name)
+	if err != nil {
+		return p, err
+	}
+	defer func() {
+		if release != nil {
+			release()
+		}
+	}()
+
 	if s.stopped.Load() {
 		return pid.PID{}, ErrServiceStopped
 	}
@@ -287,7 +300,14 @@ func (s *Service) register(name string, p pid.PID, opts ...RegisterOption) (pid.
 		}
 	}
 
+	s.ownedMu.Lock()
 	res := s.state.Register(name, p, time.Now().UnixMilli(), o.priority)
+	if res.Won {
+		s.owned[name] = ownedReg{pid: p, priority: o.priority}
+	}
+	s.ownedMu.Unlock()
+	release()
+	release = nil
 	if !res.Won {
 		if res.Lost != nil {
 			// Cross-origin loss: the local dot was minted and installed, so
@@ -304,9 +324,6 @@ func (s *Service) register(name string, p pid.PID, opts ...RegisterOption) (pid.
 		return res.Winner.PID, ErrNameAlreadyRegistered
 	}
 	s.queue.Push(res.Entry)
-	s.ownedMu.Lock()
-	s.owned[name] = ownedReg{pid: p, priority: o.priority}
-	s.ownedMu.Unlock()
 	s.tel.recordRegister("ok")
 	s.tel.setEntries(s.state.LiveCount(), s.state.TombstoneCount())
 	s.tel.setQueueDepth(s.queue.Depth())
@@ -345,19 +362,19 @@ func (s *Service) RevokeForStrong(name string, keep pid.PID) bool {
 	if s.stopped.Load() {
 		return false
 	}
-	cur, ok := s.state.Lookup(name)
-	if !ok || cur.Equal(keep) {
-		return false
+	s.ownedMu.Lock()
+	e, revoked := s.state.unregisterLocal(name, time.Now().UnixMilli(), &keep)
+	// Disarm conflicting reassertion intent even if its dot was already removed.
+	// A hidden same-owner local binding and its intent must survive.
+	if owned, ok := s.owned[name]; ok && !owned.pid.Equal(keep) {
+		delete(s.owned, name)
 	}
-	e := s.state.Unregister(name, time.Now().UnixMilli())
+	s.ownedMu.Unlock()
 	if e == nil {
 		return false
 	}
-	s.ownedMu.Lock()
-	delete(s.owned, name)
-	s.ownedMu.Unlock()
 	s.queue.Push(e)
-	s.emitRevoke(&LostBinding{Name: name, PID: cur})
+	s.emitRevoke(&LostBinding{Name: name, PID: revoked})
 	s.tel.setEntries(s.state.LiveCount(), s.state.TombstoneCount())
 	s.tel.setQueueDepth(s.queue.Depth())
 	return true
@@ -365,17 +382,23 @@ func (s *Service) RevokeForStrong(name string, keep pid.PID) bool {
 
 // Unregister tombstones a name. Returns true if the name was held by us.
 func (s *Service) Unregister(name string) bool {
+	release, err := s.cfg.NameGuard.LockContext(context.Background(), name)
+	if err != nil {
+		return false
+	}
+	defer release()
+
 	if s.stopped.Load() {
 		return false
 	}
+	s.ownedMu.Lock()
 	e := s.state.Unregister(name, time.Now().UnixMilli())
+	delete(s.owned, name)
+	s.ownedMu.Unlock()
 	if e == nil {
 		s.tel.recordUnregister("not_found")
 		return false
 	}
-	s.ownedMu.Lock()
-	delete(s.owned, name)
-	s.ownedMu.Unlock()
 	s.queue.Push(e)
 	s.tel.recordUnregister("ok")
 	s.tel.setEntries(s.state.LiveCount(), s.state.TombstoneCount())
@@ -720,7 +743,22 @@ func (s *Service) applyIncoming(e *Entry, originStr string) {
 	internedOrigin := s.state.internNode(originStr)
 	e.Node = internedOrigin
 
+	// Only local-origin echoes share the withdrawal lock. Remote-origin
+	// traffic keeps the normal sharded state path.
+	localOrigin := e.Node == s.state.LocalNode()
+	if localOrigin {
+		s.ownedMu.Lock()
+		if s.withdrawn && !e.Deleted {
+			tomb := *e
+			tomb.Deleted = true
+			tomb.PID = pid.PID{}
+			e = &tomb
+		}
+	}
 	outcome, _, lost := s.state.Apply(e)
+	if localOrigin {
+		s.ownedMu.Unlock()
+	}
 
 	// Epidemic forwarding: a frame that changed local state is new information,
 	// so re-broadcast it. The origin emits each delta one-shot to only
@@ -769,16 +807,47 @@ func (s *Service) applyIncoming(e *Entry, originStr string) {
 // name is not owned or already resolves to our pid, so it fires at most once per
 // stale override and cannot loop.
 func (s *Service) reassertOwned(name string) {
-	s.ownedMu.Lock()
-	reg, ok := s.owned[name]
-	s.ownedMu.Unlock()
-	if !ok {
+	release, err := s.cfg.NameGuard.LockContext(context.Background(), name)
+	if err != nil {
 		return
 	}
+	defer func() {
+		if release != nil {
+			release()
+		}
+	}()
+
+	var other pid.PID
+	var held bool
+	if s.cfg.CrossScope != nil {
+		other, held = s.cfg.CrossScope.LookupOther(name)
+	}
+	s.ownedMu.Lock()
+	reg, ok := s.owned[name]
+	if !ok || s.stopped.Load() {
+		s.ownedMu.Unlock()
+		return
+	}
+	// Reassertion is a new local claim when the old dot has disappeared.
+	// It must not revive an owner displaced by another scope in the meantime.
+	if held {
+		if !other.Equal(reg.pid) {
+			delete(s.owned, name)
+			s.ownedMu.Unlock()
+			release()
+			release = nil
+			s.emitRevoke(&LostBinding{Name: name, PID: reg.pid})
+			return
+		}
+	}
 	if cur, found := s.state.Lookup(name); found && cur.Equal(reg.pid) {
+		s.ownedMu.Unlock()
 		return
 	}
 	res := s.state.Register(name, reg.pid, time.Now().UnixMilli(), reg.priority)
+	s.ownedMu.Unlock()
+	release()
+	release = nil
 	s.queue.Push(res.Entry)
 	s.tel.recordReregistration()
 	s.tel.setEntries(s.state.LiveCount(), s.state.TombstoneCount())

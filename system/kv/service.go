@@ -208,12 +208,22 @@ func (s *Service) GetLinearizable(key string) (kvapi.Entry, error) { return s.Ge
 
 // ScanAtIndex scans and returns the current global version as the as-of index.
 func (s *Service) ScanAtIndex(prefix string, fn func(kvapi.Entry) bool) (uint64, error) {
+	revision, _, err := s.ScanAtIndexSince(prefix, 0, fn)
+	return revision, err
+}
+
+// ScanAtIndexSince skips visiting an unchanged nonzero revision in this
+// single-node authoritative engine. A zero known revision always scans.
+func (s *Service) ScanAtIndexSince(prefix string, known uint64, fn func(kvapi.Entry) bool) (uint64, bool, error) {
 	snap := s.snap.Load()
 	if snap == nil {
-		return 0, kvapi.ErrKVClosed
+		return 0, false, kvapi.ErrKVClosed
+	}
+	if known != 0 && known == snap.version {
+		return snap.version, true, nil
 	}
 	snap.scan(prefix, fn)
-	return snap.version, nil
+	return snap.version, false, nil
 }
 
 // --- kvapi.Engine write operations (serialized through event loop) ---

@@ -21,6 +21,7 @@ const TopologyName = "system.topology"
 
 func Topology() boot.Component {
 	var listener *topologyEventListener
+	var stopMonitoring func() error
 
 	return boot.New(boot.P{
 		Name: TopologyName,
@@ -41,13 +42,34 @@ func Topology() boot.Component {
 			}
 
 			topo := topology.NewTopology(router, node.ID())
-			pidReg := topology.NewPIDRegistry(topology.WithLogger(logger.Named("pid")))
+			registrar, ok := node.(relayapi.OwnedHostRegistrar)
+			if !ok {
+				return ctx, errors.New("topology requires owned relay host registration")
+			}
+			monitorConfig := topology.MonitorConfig{MaxRecordsPerCaller: topology.DefaultMonitorMaxRecordsPerCaller, MaxPending: topology.DefaultMonitorMaxPending, RequestTimeout: topology.DefaultMonitorRequestTimeout}
+			if cfg := boot.GetConfig(ctx); cfg != nil {
+				monitorConfig.MaxRecordsPerCaller = cfg.GetInt("topology.monitor.max_records_per_caller", monitorConfig.MaxRecordsPerCaller)
+				monitorConfig.MaxPending = cfg.GetInt("topology.monitor.max_pending", monitorConfig.MaxPending)
+				monitorConfig.RequestTimeout = cfg.GetDuration("topology.monitor.request_timeout", monitorConfig.RequestTimeout)
+			}
+			var err error
+			stopMonitoring, err = topo.StartRemoteMonitoring(ctx, registrar, monitorConfig)
+			if err != nil {
+				return ctx, err
+			}
+
+			guard := topapi.GetNameGuard(ctx)
+			if guard == nil {
+				guard = &topapi.NameGuard{}
+				ctx = topapi.WithNameGuard(ctx, guard)
+			}
+			pidReg := topology.NewPIDRegistry(topology.WithLogger(logger.Named("pid")), topology.WithNameGuard(guard))
 
 			bus := event.GetBus(ctx)
 			if bus != nil {
 				listener = newTopologyEventListener(topo, bus, logger)
 				if err := listener.Start(ctx); err != nil {
-					return ctx, err
+					return ctx, errors.Join(err, stopMonitoring())
 				}
 			}
 
@@ -58,24 +80,33 @@ func Topology() boot.Component {
 			return ctx, nil
 		},
 		Stop: func(ctx context.Context) error {
-			if listener != nil {
-				return listener.Stop(ctx)
+			var monitorErr, listenerErr error
+			if stopMonitoring != nil {
+				monitorErr = stopMonitoring()
 			}
-			return nil
+			if listener != nil {
+				listenerErr = listener.Stop(ctx)
+			}
+			return errors.Join(monitorErr, listenerErr)
 		},
 	})
 }
 
-// topologyEventListener handles node exit events from multiple sources.
+// topologyEventListener handles physical cluster disconnect observations.
+// Local provider retirement is fenced by its exact relay registration; a
+// PeerDelete command is neither physical disconnection nor process death.
 type topologyEventListener struct {
-	bus    event.Bus
-	ctx    context.Context
-	topo   *topology.Topology
-	logger *zap.Logger
-	events chan event.Event
-	cancel context.CancelFunc
-	subIDs []event.SubscriberID
-	wg     sync.WaitGroup
+	lifecycleMu      sync.Mutex
+	stopOnce         sync.Once
+	started, stopped bool
+	bus              event.Bus
+	ctx              context.Context
+	topo             *topology.Topology
+	logger           *zap.Logger
+	events           chan event.Event
+	cancel           context.CancelFunc
+	subIDs           []event.SubscriberID
+	wg               sync.WaitGroup
 }
 
 func newTopologyEventListener(topo *topology.Topology, bus event.Bus, logger *zap.Logger) *topologyEventListener {
@@ -88,22 +119,26 @@ func newTopologyEventListener(topo *topology.Topology, bus event.Bus, logger *za
 }
 
 func (l *topologyEventListener) Start(ctx context.Context) error {
+	if ctx == nil {
+		return errors.New("topology listener requires context")
+	}
+	l.lifecycleMu.Lock()
+	defer l.lifecycleMu.Unlock()
+	if l.started || l.stopped {
+		return errors.New("topology listener lifetime already used")
+	}
+	l.started = true
 	l.ctx, l.cancel = context.WithCancel(ctx)
 
-	// Subscribe to peer delete events (relay system)
-	subID1, err := l.bus.Subscribe(l.ctx, relayapi.System, l.events)
+	// Only physical membership events belong to this listener. A local provider
+	// delete may be stale, refused, or precede registration and cannot invalidate
+	// every monitor sharing its address.
+	subID, err := l.bus.SubscribeP(l.ctx, cluster.System, cluster.NodeLeft, l.events)
 	if err != nil {
+		l.cancel()
 		return err
 	}
-	l.subIDs = append(l.subIDs, subID1)
-
-	// Subscribe to cluster node left events
-	subID2, err := l.bus.SubscribeP(l.ctx, cluster.System, cluster.NodeLeft, l.events)
-	if err != nil {
-		l.bus.Unsubscribe(l.ctx, subID1)
-		return err
-	}
-	l.subIDs = append(l.subIDs, subID2)
+	l.subIDs = append(l.subIDs, subID)
 
 	l.wg.Add(1)
 	go l.eventLoop()
@@ -112,26 +147,25 @@ func (l *topologyEventListener) Start(ctx context.Context) error {
 }
 
 func (l *topologyEventListener) Stop(_ context.Context) error {
-	// Cancel context first to signal eventLoop to stop processing
-	l.cancel()
-
-	// Unsubscribe from bus
-	for _, subID := range l.subIDs {
-		l.bus.Unsubscribe(l.ctx, subID)
-	}
-
-	// Drain any remaining events to prevent send-to-closed-channel panic
-	go func() {
-		//nolint:revive // intentionally empty drain loop
+	l.stopOnce.Do(func() {
+		l.lifecycleMu.Lock()
+		l.stopped = true
+		cancel, ctx := l.cancel, l.ctx
+		ids := l.subIDs
+		l.lifecycleMu.Unlock()
+		if cancel != nil {
+			cancel()
+		}
+		// Unsubscribe is the event bus's publication barrier. Join the consumer
+		// before closing/draining its channel; no extra drain goroutine is needed.
+		for _, id := range ids {
+			l.bus.Unsubscribe(ctx, id)
+		}
+		l.wg.Wait()
+		close(l.events)
 		for range l.events {
 		}
-	}()
-
-	// Close channel to stop drain goroutine
-	close(l.events)
-
-	// Wait for eventLoop to finish
-	l.wg.Wait()
+	})
 	return nil
 }
 
@@ -146,7 +180,7 @@ func (l *topologyEventListener) eventLoop() {
 			if !ok {
 				return
 			}
-			if evt.Kind != relayapi.PeerDelete && evt.Kind != cluster.NodeLeft {
+			if evt.System != cluster.System || evt.Kind != cluster.NodeLeft {
 				continue
 			}
 

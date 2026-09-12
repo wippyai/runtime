@@ -41,17 +41,7 @@ func testStrongChangedAdmission(t *testing.T, reject bool) {
 	r := newStrongReg(t, []pid.NodeID{"node-1"}, time.Second, nil)
 	p := mkPID("node-1", "owner")
 	hdr := pendingHeader{PID: p.String(), Name: "claim", RequiredNodes: []pid.NodeID{"node-1"}}
-	encoded, err := encode(hdr)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := r.engine.Set(pendingKey("claim"), encoded); err != nil {
-		t.Fatal(err)
-	}
-	pe, err := r.engine.Get(pendingKey("claim"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	hdr, pe := seedStrongPending(t, r, hdr)
 	if _, err := r.engine.Set(ackKey("claim", pe.Epoch, "node-1"), []byte("node-1")); err != nil {
 		t.Fatal(err)
 	}

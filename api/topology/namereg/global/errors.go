@@ -43,6 +43,17 @@ var (
 	// the offender.
 	ErrStrongRegistrationTimeout = apierror.New(apierror.Timeout, "strong registration timed out before all live nodes acked").WithRetryable(apierror.True)
 
+	// ErrStrongResultCapacity means retained attempt evidence fills the configured
+	// quota. A later attempt may succeed after acknowledged/expired evidence drains.
+	ErrStrongResultCapacity = apierror.New(apierror.RateLimited, "strong result capacity exhausted").WithRetryable(apierror.True)
+
+	// ErrStrongResultTooLarge requires smaller admission input or changed limits;
+	// waiting for other attempts to drain cannot make this record fit.
+	ErrStrongResultTooLarge = apierror.New(apierror.Invalid, "strong result exceeds configured record size").WithRetryable(apierror.False)
+
+	// ErrStrongRegistrationWithdrawn reports an explicitly withdrawn pending attempt.
+	ErrStrongRegistrationWithdrawn = apierror.New(apierror.Canceled, "strong registration withdrawn").WithRetryable(apierror.False)
+
 	// ErrStrongRegistrationRejected is returned when a required node rejected
 	// a Strong-scope register (e.g. a cross-scope conflict). Distinct from a
 	// timeout: the registration failed terminally and is not retryable.

@@ -3,10 +3,10 @@
 package topology
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
 	topapi "github.com/wippyai/runtime/api/topology"
@@ -16,41 +16,31 @@ import (
 // request that was still being admitted when the previous process completed.
 func TestRemoteMonitorCannotAdoptReplacementCaller(t *testing.T) {
 	for _, replace := range []bool{false, true} {
-		name := "departed"
-		if replace {
-			name = "replacement"
-		}
-		t.Run(name, func(t *testing.T) {
-			caller := pid.PID{Node: "local", Host: "app", UniqID: "caller"}
-			target := pid.PID{Node: "remote", Host: "app", UniqID: "target"}
-			var topo *Topology
-			topo = NewTopology(nodeExitBoundaryRouter(func(pkg *relay.Package) error {
-				defer relay.ReleasePackage(pkg)
-				for _, msg := range pkg.Messages {
-					for _, pl := range msg.Payloads {
-						if _, ok := pl.Data().(*topapi.MonitorRequestEvent); ok {
-							topo.Complete(caller, &runtime.Result{})
-							if replace {
-								require.NoError(t, topo.Register(caller))
-							}
-						}
-					}
+		t.Run(fmt.Sprint(replace), func(t *testing.T) {
+			f := newMonitorSenderFixture(t)
+			f.afterAdmission = func(*relay.Package) error {
+				// Completion also sends an exact release. Avoid recursively completing
+				// the caller while processing that cleanup control.
+				f.afterAdmission = nil
+				f.local.Complete(f.caller, &runtime.Result{})
+				if replace {
+					require.NoError(t, f.local.Register(f.caller))
 				}
 				return nil
-			}), "local")
-			require.NoError(t, topo.Register(caller))
-			err := topo.Monitor(caller, target)
-			require.Error(t, err, "a departed caller cannot own successful monitor admission")
-			sh := topo.getShard(caller.String())
-			sh.mu.RLock()
-			state, exists := sh.processes[caller.String()]
-			watching := false
-			if exists {
-				_, watching = state.watching[target.String()]
 			}
-			sh.mu.RUnlock()
+			require.ErrorIs(t, f.local.Monitor(f.caller, f.target), topapi.ErrPIDNotRegistered)
+			sh := f.local.getShard(f.caller.String())
+			sh.mu.RLock()
+			defer sh.mu.RUnlock()
+			state, exists := sh.processes[f.caller.String()]
 			require.Equal(t, replace, exists)
-			require.False(t, watching, "late admission cannot attach to a replacement lifetime")
+			if exists {
+				require.Empty(t, state.watching)
+				require.Empty(t, state.remoteWatching)
+			}
+			require.Len(t, f.controls, 2)
+			require.Equal(t, topapi.MonitorRelease, f.controls[1].kind)
+			require.Equal(t, f.controls[0].reference, f.controls[1].reference)
 		})
 	}
 }

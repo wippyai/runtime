@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/wippyai/runtime/api/attrs"
 	ctxapi "github.com/wippyai/runtime/api/context"
@@ -35,14 +36,20 @@ func WithPIDRegistry(reg topology.PIDRegistry) Option {
 
 // Host implements process.Host using the actor scheduler.
 type Host struct {
-	factory   process.Factory
-	pidGen    process.PIDGenerator
-	pidReg    topology.PIDRegistry
-	ctx       context.Context
-	cfg       *hostapi.EntryConfig
-	log       *zap.Logger
-	scheduler *actor.Scheduler
-	id        registry.ID
+	remoteMonitorLimit  int
+	monitorReplies      chan struct{}
+	monitorReplyTimeout time.Duration
+	monitorCtx          context.Context
+	monitorCancel       context.CancelFunc
+	monitorWorkers      sync.WaitGroup
+	factory             process.Factory
+	pidGen              process.PIDGenerator
+	pidReg              topology.PIDRegistry
+	ctx                 context.Context
+	cfg                 *hostapi.EntryConfig
+	log                 *zap.Logger
+	scheduler           *actor.Scheduler
+	id                  registry.ID
 	// affinityManaged is fixed when the host is built. Manager affinity changes
 	// apply only to subsequently created hosts and must not change which live
 	// updates an existing scheduler can accept.
@@ -65,6 +72,10 @@ func NewHost(id registry.ID, cfg *hostapi.EntryConfig, scheduler *actor.Schedule
 		factory:   factory,
 		pidGen:    pidGen,
 	}
+	h.remoteMonitorLimit = configuredRemoteMonitorLimit(cfg)
+	replyCapacity, replyTimeout := configuredMonitorReplies(cfg)
+	h.monitorReplies = make(chan struct{}, replyCapacity)
+	h.monitorReplyTimeout = replyTimeout
 	for _, opt := range opts {
 		opt(h)
 	}
@@ -236,6 +247,15 @@ func (h *Host) SendContext(ctx context.Context, pkg *relay.Package) error {
 	if h.shutdown.Load() {
 		return ErrHostShuttingDown
 	}
+	if isRemoteMonitorControl(pkg) {
+		if pkg.Target.Host != h.id.String() {
+			return errors.New("remote monitor target does not belong to receiving host")
+		}
+		if !h.running.Load() || h.ctx == nil {
+			return ErrHostNotRunning
+		}
+		return h.sendRemoteMonitor(pkg)
+	}
 	return h.scheduler.SendContext(ctx, pkg)
 }
 
@@ -246,11 +266,13 @@ func (h *Host) Start(ctx context.Context) (<-chan any, error) {
 	if h.shutdown.Load() {
 		return nil, ErrHostShuttingDown
 	}
-	if h.running.Swap(true) {
+	if h.running.Load() {
 		return nil, ErrHostAlreadyRunning
 	}
 
 	h.ctx = ctx
+	h.monitorCtx, h.monitorCancel = context.WithCancel(ctx)
+	h.running.Store(true)
 	h.scheduler.Start()
 
 	h.log.Info("host started", zap.String("id", h.id.String()))
@@ -262,7 +284,11 @@ func (h *Host) Stop(ctx context.Context) error {
 	h.lifecycleMu.Lock()
 	wasRunning := h.running.Swap(false)
 	h.shutdown.Store(true)
+	if h.monitorCancel != nil {
+		h.monitorCancel()
+	}
 	h.lifecycleMu.Unlock()
+	h.monitorWorkers.Wait()
 
 	// Publish the terminal host state before draining the scheduler. Draining
 	// may wait for a process step or invoke lifecycle callbacks; Start and live

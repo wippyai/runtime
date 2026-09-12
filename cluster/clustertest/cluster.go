@@ -252,19 +252,16 @@ func (r *relayRouter) Send(pkg *relay.Package) error {
 	src := pkg.Source.Node
 	dst := pkg.Target.Node
 	if r.mesh != nil && !r.mesh.reachable(src, dst) {
-		relay.ReleasePackage(pkg)
 		return errBlocked
 	}
 	r.mu.Lock()
 	hosts := r.hosts[dst]
 	r.mu.Unlock()
 	if hosts == nil {
-		relay.ReleasePackage(pkg)
 		return fmt.Errorf("clustertest: no node %q", dst)
 	}
 	recv := hosts[pkg.Target.Host]
 	if recv == nil {
-		relay.ReleasePackage(pkg)
 		return fmt.Errorf("clustertest: no host %q on %q", pkg.Target.Host, dst)
 	}
 	return recv.Send(pkg)

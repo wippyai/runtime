@@ -77,6 +77,16 @@ type ManagerConfig struct {
 	CommandQueueSize  int
 	HandshakeTimeout  time.Duration
 	OutboundQueueSize int
+	// Reliable budgets cover queued and writer-owned frames. Zero uses defaults.
+	OutboundPeerBytes    uint64
+	OutboundTotalBytes   uint64
+	OutboundTotalEntries uint64
+	// Control reserves are carved out of the reliable totals. Zero disables that
+	// reserve; explicit values must leave capacity for ordinary traffic.
+	OutboundControlPeerEntries  uint64
+	OutboundControlPeerBytes    uint64
+	OutboundControlTotalEntries uint64
+	OutboundControlTotalBytes   uint64
 	// GossipQueueCap bounds SWIM/memberlist-style gossip. Gossip is the only
 	// intentionally lossy internode class; reliable actor and raft classes
 	// queue while the peer remains managed and are discarded only on node
@@ -86,6 +96,7 @@ type ManagerConfig struct {
 	InitialRetryDelay     time.Duration
 	MaxRetryDelay         time.Duration
 	DrainBatchSize        int
+	DrainBatchBytes       uint64
 	MaxMessageSize        uint32
 	AutoPort              bool
 	RequireAuthentication bool
@@ -93,19 +104,27 @@ type ManagerConfig struct {
 
 func DefaultManagerConfig() ManagerConfig {
 	return ManagerConfig{
-		HandshakeTimeout:      5 * time.Second,
-		OutboundQueueSize:     256,
-		MaxMessageSize:        512 * 1024 * 1024,
-		TLS:                   ManagerTLSConfig{Enabled: false},
-		InitialRetryDelay:     10 * time.Millisecond,
-		MaxRetryDelay:         5 * time.Second,
-		AutoPort:              true,
-		BindPort:              DefaultPortRangeStart,
-		DrainBatchSize:        32,
-		CommandQueueSize:      256,
-		MaxRetryAttempts:      10,
-		GossipQueueCap:        1024,
-		RequireAuthentication: true,
+		HandshakeTimeout:            5 * time.Second,
+		OutboundQueueSize:           256,
+		OutboundPeerBytes:           512 * 1024 * 1024,
+		OutboundTotalBytes:          2 * 1024 * 1024 * 1024,
+		OutboundTotalEntries:        4096,
+		OutboundControlPeerEntries:  16,
+		OutboundControlPeerBytes:    1 << 20,
+		OutboundControlTotalEntries: 256,
+		OutboundControlTotalBytes:   16 << 20,
+		MaxMessageSize:              512 * 1024 * 1024,
+		TLS:                         ManagerTLSConfig{Enabled: false},
+		InitialRetryDelay:           10 * time.Millisecond,
+		MaxRetryDelay:               5 * time.Second,
+		AutoPort:                    true,
+		BindPort:                    DefaultPortRangeStart,
+		DrainBatchSize:              32,
+		DrainBatchBytes:             1 << 20,
+		CommandQueueSize:            256,
+		MaxRetryAttempts:            10,
+		GossipQueueCap:              1024,
+		RequireAuthentication:       true,
 	}
 }
 
@@ -150,20 +169,23 @@ type disconnectedData struct {
 }
 
 type nodeControlLoop struct {
-	ctx        context.Context
-	manager    *manager
-	commands   chan nodeCommand
-	connection *NodeConnection
-	logger     *zap.Logger
-	cancel     context.CancelFunc
-	nodeID     cluster.NodeID
-	nodeState  *NodeState
-	addr       string
-	state      ConnectionState
-	retryDelay time.Duration
-	retryCount int
-	port       int
-	isOutbound bool
+	commandMu      sync.Mutex
+	commandClosed  bool
+	commandSenders sync.WaitGroup
+	ctx            context.Context
+	manager        *manager
+	commands       chan nodeCommand
+	connection     *NodeConnection
+	logger         *zap.Logger
+	cancel         context.CancelFunc
+	nodeID         cluster.NodeID
+	nodeState      *NodeState
+	addr           string
+	state          ConnectionState
+	retryDelay     time.Duration
+	retryCount     int
+	port           int
+	isOutbound     bool
 }
 
 type ConnectionManager interface {
@@ -206,6 +228,8 @@ type ConnectionManager interface {
 }
 
 type manager struct {
+	stopping       atomic.Bool
+	stopOnce       sync.Once
 	managedChanged chan struct{}
 	ctx            context.Context
 	listener       net.Listener
@@ -241,6 +265,14 @@ func NewConnectionManager(config ManagerConfig, coll metrics.Collector) Connecti
 }
 
 func (m *manager) Start(ctx context.Context, onMessage func(nodeID cluster.NodeID, data []byte)) error {
+	m.controlLoopsMu.Lock()
+	defer m.controlLoopsMu.Unlock()
+	if m.stopping.Load() {
+		return ErrNodeNotManaged
+	}
+	if m.nodeStates.budgetErr != nil {
+		return m.nodeStates.budgetErr
+	}
 	if m.config.RequireAuthentication {
 		if len(m.config.AuthenticationKey) == 0 {
 			return fmt.Errorf("internode authentication key is required")
@@ -285,23 +317,33 @@ func (m *manager) Start(ctx context.Context, onMessage func(nodeID cluster.NodeI
 }
 
 func (m *manager) Stop() error {
-	m.logger.Info("Stopping connection manager...")
-	if m.cancel != nil {
-		m.cancel()
-	}
-	if m.listener != nil {
-		_ = m.listener.Close()
-	}
+	m.stopOnce.Do(func() {
+		m.controlLoopsMu.Lock()
+		m.stopping.Store(true)
+		m.controlLoopsMu.Unlock()
+		m.logger.Info("Stopping connection manager...")
+		m.nodeStates.reliable.close()
+		if m.cancel != nil {
+			m.cancel()
+		}
+		if m.listener != nil {
+			_ = m.listener.Close()
+		}
 
-	m.controlLoopsMu.Lock()
-	for _, loop := range m.controlLoops {
-		loop.cancel()
-	}
-	m.controlLoops = make(map[cluster.NodeID]*nodeControlLoop)
-	m.controlLoopsMu.Unlock()
+		m.controlLoopsMu.Lock()
+		for _, loop := range m.controlLoops {
+			loop.cancel()
+		}
+		m.controlLoops = make(map[cluster.NodeID]*nodeControlLoop)
+		m.controlLoopsMu.Unlock()
 
-	m.wg.Wait()
-	m.logger.Info("Connection manager stopped")
+		m.wg.Wait()
+		m.nodeStates.nodeStates.Range(func(key, _ any) bool {
+			m.nodeStates.RemoveNodeState(key.(cluster.NodeID))
+			return true
+		})
+		m.logger.Info("Connection manager stopped")
+	})
 	return nil
 }
 
@@ -312,6 +354,9 @@ type ContextConnectionManager interface {
 }
 
 func (m *manager) SendToNodeContext(ctx context.Context, nodeID cluster.NodeID, data []byte, class Class) error {
+	if m.stopping.Load() {
+		return ErrNodeNotManaged
+	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -325,21 +370,21 @@ func (m *manager) SendToNodeContext(ctx context.Context, nodeID cluster.NodeID, 
 		defer cancel()
 		ctx = admissionCtx
 	}
-	// Unlike legacy best-effort SendToNode, never report success for an
-	// unmanaged destination. The caller must know admission did not occur.
+	// An unmanaged destination is a refusal in both send paths; cancellation
+	// additionally bounds waiting for queue admission here.
 	return m.nodeStates.QueueMessageClassContext(ctx, nodeID, data, class)
 }
 
 func (m *manager) SendToNode(nodeID cluster.NodeID, data []byte, class Class) error {
+	if m.stopping.Load() {
+		return ErrNodeNotManaged
+	}
 	err := m.nodeStates.QueueMessageClass(nodeID, data, class)
 	if err != nil {
 		if errors.Is(err, ErrNodeNotManaged) {
-			// Hot path under partition: gossip can mark a peer dead before
-			// the PG layer stops targeting it. Counted as a drop with no
-			// log to avoid the kind of flood we saw during chaos (thousands
-			// per second per pod). The metric is the source of truth.
+			// Preserve the quiet metric on partition hot paths, but report refusal:
+			// counting a drop is not successful queue admission.
 			m.nodeStates.tel.recordDrop(class, "node_not_managed")
-			return nil
 		}
 		// ErrQueueFull surfaces to the caller (broadcast path will count it).
 		return err
@@ -382,6 +427,9 @@ func (m *manager) AddManagedNode(nodeID cluster.NodeID) {
 	// Serialize membership and inbound admission with state detachment.
 	m.controlLoopsMu.Lock()
 	defer m.controlLoopsMu.Unlock()
+	if m.stopping.Load() {
+		return
+	}
 	m.logger.Info("Adding new managed node", zap.String("node", nodeID))
 
 	// If the node already has state, it was either:
@@ -528,8 +576,21 @@ func (m *manager) EvictOrphanNodes(known map[cluster.NodeID]struct{}) int {
 	return len(orphans)
 }
 
+// A connection carried by an unaccepted command remains owned by its sender.
+func discardNodeCommand(cmd nodeCommand) {
+	if data, ok := cmd.Data.(connectedData); ok && data.Connection != nil {
+		data.Connection.Close()
+	}
+}
+
 func (m *manager) sendCommand(nodeID cluster.NodeID, cmd nodeCommand) {
 	m.controlLoopsMu.Lock()
+	if m.stopping.Load() {
+		m.controlLoopsMu.Unlock()
+		discardNodeCommand(cmd)
+		return
+	}
+
 	loop, exists := m.controlLoops[nodeID]
 	if !exists {
 		// Before creating a loop, verify the underlying state exists.
@@ -537,6 +598,7 @@ func (m *manager) sendCommand(nodeID cluster.NodeID, cmd nodeCommand) {
 		if state == nil {
 			m.controlLoopsMu.Unlock()
 			m.logger.Error("Attempted to create control loop for unmanaged node", zap.String("node", nodeID))
+			discardNodeCommand(cmd)
 			return
 		}
 
@@ -563,10 +625,7 @@ func (m *manager) sendCommand(nodeID cluster.NodeID, cmd nodeCommand) {
 	}
 	m.controlLoopsMu.Unlock()
 
-	select {
-	case loop.commands <- cmd:
-	case <-loop.ctx.Done():
-	}
+	loop.enqueueCommand(cmd)
 }
 
 func (m *manager) cleanupControlLoop(nodeID cluster.NodeID, self *nodeControlLoop) {
@@ -696,6 +755,9 @@ func (loop *nodeControlLoop) bindConnectionDrain() {
 	nodeID := loop.nodeID
 	nsm := loop.manager.nodeStates
 	state := loop.nodeState
+	state.queueMu.Lock()
+	generation := state.generation
+	state.queueMu.Unlock()
 	notify := state.messageNotify
 	if notify == nil {
 		loop.logger.Error("no message notifier for managed node", zap.String("node", nodeID))
@@ -703,9 +765,10 @@ func (loop *nodeControlLoop) bindConnectionDrain() {
 	}
 	loop.connection.bindDrain(
 		notify,
-		func(n int) []Outbound { return nsm.drainMessagesForState(nodeID, state, n) },
+		func(n int) []Outbound { return nsm.drainMessagesForGeneration(nodeID, state, generation, n) },
 		func(b []Outbound) { nsm.requeueMessagesForState(nodeID, state, b) },
 		loop.manager.config.DrainBatchSize,
+		releaseOutbound,
 	)
 }
 
@@ -752,6 +815,26 @@ func (loop *nodeControlLoop) handleKill() {
 }
 
 func (loop *nodeControlLoop) cleanup() {
+	// Seal before cancel/join: producers may choose a writable buffer even when
+	// cancellation is ready. Once admitted producers return, drain every command
+	// still owned by this queue, including completed handshake connections.
+	loop.commandMu.Lock()
+	loop.commandClosed = true
+	if loop.cancel != nil {
+		loop.cancel()
+	}
+	loop.commandMu.Unlock()
+	loop.commandSenders.Wait()
+	for {
+		select {
+		case cmd := <-loop.commands:
+			discardNodeCommand(cmd)
+		default:
+			goto drained
+		}
+	}
+drained:
+
 	if loop.connection != nil {
 		loop.connection.Close()
 		loop.connection = nil
@@ -760,9 +843,23 @@ func (loop *nodeControlLoop) cleanup() {
 }
 
 func (loop *nodeControlLoop) sendCommandToSelf(cmd nodeCommand) {
+	loop.enqueueCommand(cmd)
+}
+
+func (loop *nodeControlLoop) enqueueCommand(cmd nodeCommand) {
+	loop.commandMu.Lock()
+	if loop.commandClosed || loop.ctx.Err() != nil {
+		loop.commandMu.Unlock()
+		discardNodeCommand(cmd)
+		return
+	}
+	loop.commandSenders.Add(1)
+	loop.commandMu.Unlock()
+	defer loop.commandSenders.Done()
 	select {
 	case loop.commands <- cmd:
 	case <-loop.ctx.Done():
+		discardNodeCommand(cmd)
 	}
 }
 
@@ -788,9 +885,15 @@ func (loop *nodeControlLoop) attemptConnection(addr string, port int) {
 		loop.sendDisconnected(err, true)
 		return
 	}
+	stopCancellation := bindHandshakeCancellation(loop.ctx, conn)
 	nodeConn, err := PerformClientHandshake(conn, loop.manager.config.NodeConnectionConfig(), loop.logger, loop.manager.config.LocalNodeID, loop.nodeID)
+	stopCancellation()
 	if err != nil {
 		loop.sendDisconnected(err, true)
+		return
+	}
+	if loop.ctx.Err() != nil {
+		nodeConn.Close()
 		return
 	}
 	loop.sendCommandToSelf(nodeCommand{Type: cmdConnected, Data: connectedData{Connection: nodeConn}})
@@ -896,9 +999,18 @@ func (m *manager) handleInboundConnection(conn net.Conn) {
 		zap.String("remote_addr", conn.RemoteAddr().String()),
 		zap.String("local_node", m.config.LocalNodeID))
 
+	// The handshake owns the accepted socket until it hands off a session.
+	// Cancellation aborts the underlying transport, including a stalled TLS
+	// negotiation. Join an executing cancellation callback before handoff.
+	stopCancellation := bindHandshakeCancellation(m.ctx, conn)
 	nodeConn, err := PerformServerHandshake(conn, m.config.NodeConnectionConfig(), m.logger, m.config.LocalNodeID)
+	stopCancellation()
 	if err != nil {
 		m.logger.Warn("Inbound handshake failed", zap.Error(err), zap.String("remote_addr", conn.RemoteAddr().String()))
+		return
+	}
+	if m.stopping.Load() || (m.ctx != nil && m.ctx.Err() != nil) {
+		nodeConn.Close()
 		return
 	}
 	remoteNodeID := nodeConn.RemoteNodeID()

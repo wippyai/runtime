@@ -209,6 +209,11 @@ func (m *Mailbox) Send(pkg *api.Package) error {
 // is canceled. The caller context is owned by the delivery operation; the
 // mailbox context remains the lifecycle boundary for its workers.
 func (m *Mailbox) SendContext(ctx context.Context, pkg *api.Package) error {
+	return m.sendContext(ctx, pkg, nil)
+}
+
+// A bound receiver bypasses address lookup, retaining its attachment lifetime.
+func (m *Mailbox) sendContext(ctx context.Context, pkg *api.Package, bound *mailboxReceiver) error {
 	if pkg == nil {
 		return NewNilPackageError()
 	}
@@ -242,9 +247,21 @@ func (m *Mailbox) SendContext(ctx context.Context, pkg *api.Package) error {
 	// Capture the attachment incarnation under the same lock as admission. A
 	// worker must never look up the target again after Detach/reattach, or a
 	// package accepted for an old channel could be delivered to a new one.
-	var receiver *mailboxReceiver
-	if value, ok := m.receivers.Load(targetKey); ok {
-		receiver, _ = value.(*mailboxReceiver)
+	var detached <-chan struct{}
+	receiver := bound
+	if bound == nil {
+		if value, ok := m.receivers.Load(targetKey); ok {
+			receiver, _ = value.(*mailboxReceiver)
+		}
+	} else {
+		detached = bound.done
+		select {
+		case <-bound.done:
+			m.admissions.Done()
+			m.lifecycle.RUnlock()
+			return api.ErrBindingRetired
+		default:
+		}
 	}
 	job := mailboxJob{pkg: pkg, receiver: receiver}
 	defer func() {
@@ -256,6 +273,8 @@ func (m *Mailbox) SendContext(ctx context.Context, pkg *api.Package) error {
 	select {
 	case m.jobQueues[workerIndex] <- job:
 		return nil
+	case <-detached:
+		return api.ErrBindingRetired
 	case <-ctx.Done():
 		return ctx.Err()
 	case <-m.ctx.Done():

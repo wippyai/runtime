@@ -44,6 +44,7 @@ func TestNodeExitNotificationCannotEraseLaterRegistration(t *testing.T) {
 		require.NoError(t, topo.Monitor(observer, fresh))
 		return nil
 	}), "local")
+	startFixtureMonitorNetwork(t, topo)
 	for _, p := range []pid.PID{old, observer} {
 		require.NoError(t, topo.Register(p))
 	}

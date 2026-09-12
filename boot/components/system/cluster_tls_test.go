@@ -20,13 +20,17 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/boot"
 	clusterapi "github.com/wippyai/runtime/api/cluster"
+	raftapi "github.com/wippyai/runtime/api/cluster/raft"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/event"
 	logsapi "github.com/wippyai/runtime/api/logs"
 	metricsapi "github.com/wippyai/runtime/api/metrics"
 	payloadapi "github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/pid"
 	relayapi "github.com/wippyai/runtime/api/relay"
 	metricscfg "github.com/wippyai/runtime/api/service/metrics"
+	topologyapi "github.com/wippyai/runtime/api/topology"
+	globalapi "github.com/wippyai/runtime/api/topology/namereg/global"
 	"github.com/wippyai/runtime/cluster/internode"
 	"github.com/wippyai/runtime/service/metrics"
 	"github.com/wippyai/runtime/system/eventbus"
@@ -64,11 +68,10 @@ func TestClusterBootTLSConfigurationFailsClosed(t *testing.T) {
 }
 
 func TestClusterBootTLSUsesNativeManager(t *testing.T) {
-	for _, invalid := range []bool{false, true} {
-		name := "mutual-tls"
-		if invalid {
-			name = "invalid-certificates"
-		}
+	for _, name := range []string{"mutual-tls", "invalid-certificates", "mutual-tls-naming", "mutual-tls-naming-canceled"} {
+		invalid := name == "invalid-certificates"
+		canceledNaming := name == "mutual-tls-naming-canceled"
+		naming := name == "mutual-tls-naming" || canceledNaming
 		t.Run(name, func(t *testing.T) {
 			pub, key, err := ed25519.GenerateKey(rand.Reader)
 			require.NoError(t, err)
@@ -90,7 +93,8 @@ func TestClusterBootTLSUsesNativeManager(t *testing.T) {
 			require.NoError(t, err)
 			nodeName := "boot-tls-proof"
 			cfg := boot.NewConfig(boot.WithSection("cluster", map[string]any{
-				"enabled": true, ClusterNodeName: nodeName, "raft.enabled": false,
+				"enabled": true, ClusterNodeName: nodeName, "raft.enabled": naming,
+				"raft.data_dir":        t.TempDir(),
 				"membership.bind_addr": "127.0.0.1", "membership.bind_port": 0,
 				ClusterMembershipSecret: base64.StdEncoding.EncodeToString(secret),
 				"internode.bind_addr":   "127.0.0.1", "internode.auto_port": true,
@@ -99,7 +103,7 @@ func TestClusterBootTLSUsesNativeManager(t *testing.T) {
 				"internode.tls.enabled":                   true, "internode.tls.cert_file": path,
 				"internode.tls.key_file": path, "internode.tls.ca_file": path,
 			}))
-			base, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			base, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 			defer cancel()
 			ctx := ctxapi.WithAppContext(base, ctxapi.NewAppContext())
 			ctx = boot.WithConfig(ctx, cfg)
@@ -116,6 +120,21 @@ func TestClusterBootTLSUsesNativeManager(t *testing.T) {
 			ctx, err = component.Load(ctx)
 			require.NoError(t, err)
 			defer component.(boot.Stopper).Stop(ctx)
+			var namingComponents []boot.Component
+			if naming {
+				for _, dependent := range []boot.Component{Topology(), EventualReg(), Raft()} {
+					ctx, err = dependent.Load(ctx)
+					require.NoError(t, err)
+					namingComponents = append(namingComponents, dependent)
+				}
+				defer func() {
+					stopCtx, done := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+					defer done()
+					for i := len(namingComponents) - 1; i >= 0; i-- {
+						_ = namingComponents[i].(boot.Stopper).Stop(stopCtx)
+					}
+				}()
+			}
 			err = component.(boot.Starter).Start(ctx)
 			if invalid {
 				require.Error(t, err)
@@ -123,6 +142,22 @@ func TestClusterBootTLSUsesNativeManager(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
+			for _, dependent := range namingComponents {
+				if starter, ok := dependent.(boot.Starter); ok {
+					require.NoError(t, starter.Start(ctx))
+				}
+			}
+			var enrolledInventory []byte
+			if naming {
+				registry := globalapi.GetRegistry(ctx)
+				require.True(t, topologyapi.GetGlobalRegistry(ctx).NameReady())
+				out, err := registry.RegisterScope(ctx, "boot-strong", pid.PID{Node: nodeName, Host: "process", UniqID: "owner"}, globalapi.Strong)
+				require.NoError(t, err)
+				require.Equal(t, globalapi.RegisterStateActive, out.State)
+				inventory, err := GetKVRaftEngine(ctx).GetLinearizable("_sys:registry:participants")
+				require.NoError(t, err)
+				enrolledInventory = append([]byte(nil), inventory.Value...)
+			}
 			info := clusterapi.GetMembership(ctx).LocalNode()
 			endpoint := net.JoinHostPort("127.0.0.1", info.Meta[internode.MetadataPort])
 			pair, err := tls.X509KeyPair(bundle, bundle)
@@ -135,6 +170,33 @@ func TestClusterBootTLSUsesNativeManager(t *testing.T) {
 			require.True(t, connection.(*tls.Conn).ConnectionState().HandshakeComplete)
 			require.NotEmpty(t, connection.(*tls.Conn).ConnectionState().VerifiedChains)
 			require.NoError(t, connection.(*tls.Conn).NetConn().Close())
+			if naming {
+				if canceledNaming {
+					cancel()
+				}
+				shutdownCtx, shutdownCancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+				defer shutdownCancel()
+				for len(namingComponents) != 0 {
+					i := len(namingComponents) - 1
+					stopErr := namingComponents[i].(boot.Stopper).Stop(shutdownCtx)
+					if canceledNaming && namingComponents[i].Name() == RaftName {
+						require.ErrorIs(t, stopErr, context.Canceled, "shutdown must retain the retirement failure")
+						require.Equal(t, raftapi.Shutdown, raftapi.GetService(ctx).State(), "retirement failure must not leak the local Raft service")
+						inventory, err := GetKVRaftEngine(ctx).Get("_sys:registry:participants")
+						require.NoError(t, err)
+						require.Equal(t, enrolledInventory, inventory.Value, "local cleanup must retain unresolved committed ownership")
+						unlock, err := topologyapi.GetNameGuard(ctx).LockContext(shutdownCtx, "late")
+						if unlock != nil {
+							unlock()
+						}
+						require.ErrorIs(t, err, topologyapi.ErrNameAdmissionClosed)
+					} else {
+						require.NoError(t, stopErr)
+					}
+					namingComponents = namingComponents[:i]
+				}
+				require.False(t, topologyapi.GetGlobalRegistry(ctx).NameReady())
+			}
 			// Cancellation must release admission before Loader reaches Stop;
 			// other components may still be draining user processes.
 			cancel()

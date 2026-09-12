@@ -9,8 +9,11 @@ import (
 	"time"
 
 	"github.com/wippyai/runtime/api/pid"
+	kvapi "github.com/wippyai/runtime/api/store/kv"
 	globalapi "github.com/wippyai/runtime/api/topology/namereg/global"
 	"github.com/wippyai/runtime/system/topology/namereg/kvbacked"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest/observer"
 )
 
 // TestE2E_KVRegistry_StrongPromotesOnSurvivorsAfterLeaderKill is the failure-
@@ -42,9 +45,38 @@ func TestE2E_KVRegistry_StrongPromotesOnSurvivorsAfterLeaderKill(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	regs := make(map[string]*kvbacked.Service, len(c.Nodes()))
+	core, logs := observer.New(zap.DebugLevel)
+	// Failure evidence must survive leader loss: sample local replicas without
+	// requiring a new quorum round trip, and retain each reconciler's errors.
+	defer func() {
+		if !t.Failed() {
+			return
+		}
+		for _, event := range logs.All() {
+			t.Logf("registry event: level=%s message=%s fields=%v", event.Level, event.Message, event.ContextMap())
+		}
+		for _, node := range c.Nodes() {
+			reg := regs[node.ID]
+			if reg == nil {
+				continue
+			}
+			t.Logf("registry node=%s leader=%v ready=%v", node.ID, node.Raft.IsLeader(), reg.NameReady())
+			err := node.KV.Scan("_sys:registry:", func(entry kvapi.Entry) bool {
+				value := entry.Value
+				if len(value) > 512 {
+					value = value[:512]
+				}
+				t.Logf("registry node=%s key=%s epoch=%d version=%d value-prefix=%x", node.ID, entry.Key, entry.Epoch, entry.Version, value)
+				return true
+			})
+			if err != nil {
+				t.Logf("registry node=%s scan error=%v", node.ID, err)
+			}
+		}
+	}()
 	for _, n := range c.Nodes() {
 		node := n
-		reg := kvbacked.NewService(node.KV, node.ID, nil, nil)
+		reg := kvbacked.NewService(node.KV, node.ID, nil, zap.New(core).With(zap.String("node", node.ID)))
 		reg.ConfigureStrong(kvbacked.StrongDeps{
 			Membership: membership,
 			IsLeader:   func() bool { return node.Raft.IsLeader() },
@@ -62,7 +94,7 @@ func TestE2E_KVRegistry_StrongPromotesOnSurvivorsAfterLeaderKill(t *testing.T) {
 	done := make(chan globalapi.RegisterOutcome, 1)
 	errc := make(chan error, 1)
 	go func() {
-		out, err := regs[f.ID].RegisterScope(context.Background(), "strongsvc", p, globalapi.Strong)
+		out, err := regs[f.ID].RegisterScope(ctx, "strongsvc", p, globalapi.Strong)
 		if err != nil {
 			errc <- err
 			return

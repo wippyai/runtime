@@ -62,6 +62,7 @@ func ReleasePackage(p *Package) {
 	for _, msg := range p.Messages {
 		ReleaseMessage(msg)
 	}
+	p.ReceivedFrom = ""
 	p.Source = pid.PID{}
 	p.Target = pid.PID{}
 	p.Messages = p.Messages[:0]

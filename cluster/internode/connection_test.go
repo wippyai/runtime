@@ -93,7 +93,7 @@ func newTestDrainSource() *testDrainSource {
 }
 
 func (s *testDrainSource) bind(c *NodeConnection) {
-	c.bindDrain(s.notify, s.drain, s.requeue, 32)
+	c.bindDrain(s.notify, s.drain, s.requeue, 32, nil)
 }
 
 func (s *testDrainSource) push(data []byte, class Class) {

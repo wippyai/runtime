@@ -1,0 +1,39 @@
+=== RUN   TestBulkCannotConsumeProtectedControlCapacity
+=== RUN   TestBulkCannotConsumeProtectedControlCapacity/peer/entries/queued
+=== RUN   TestBulkCannotConsumeProtectedControlCapacity/peer/entries/inflight
+=== RUN   TestBulkCannotConsumeProtectedControlCapacity/peer/bytes/queued
+=== RUN   TestBulkCannotConsumeProtectedControlCapacity/peer/bytes/inflight
+=== RUN   TestBulkCannotConsumeProtectedControlCapacity/aggregate/entries/queued
+=== RUN   TestBulkCannotConsumeProtectedControlCapacity/aggregate/entries/inflight
+=== RUN   TestBulkCannotConsumeProtectedControlCapacity/aggregate/bytes/queued
+=== RUN   TestBulkCannotConsumeProtectedControlCapacity/aggregate/bytes/inflight
+--- PASS: TestBulkCannotConsumeProtectedControlCapacity (0.00s)
+    --- PASS: TestBulkCannotConsumeProtectedControlCapacity/peer/entries/queued (0.00s)
+    --- PASS: TestBulkCannotConsumeProtectedControlCapacity/peer/entries/inflight (0.00s)
+    --- PASS: TestBulkCannotConsumeProtectedControlCapacity/peer/bytes/queued (0.00s)
+    --- PASS: TestBulkCannotConsumeProtectedControlCapacity/peer/bytes/inflight (0.00s)
+    --- PASS: TestBulkCannotConsumeProtectedControlCapacity/aggregate/entries/queued (0.00s)
+    --- PASS: TestBulkCannotConsumeProtectedControlCapacity/aggregate/entries/inflight (0.00s)
+    --- PASS: TestBulkCannotConsumeProtectedControlCapacity/aggregate/bytes/queued (0.00s)
+    --- PASS: TestBulkCannotConsumeProtectedControlCapacity/aggregate/bytes/inflight (0.00s)
+=== RUN   TestIntegration_TLSControlAdmissionUnderApplicationPressure
+    secure_load_test.go:303: control admission under actual TLS application backpressure: 6.352µs; 62 accepted application frames
+--- PASS: TestIntegration_TLSControlAdmissionUnderApplicationPressure (0.08s)
+PASS
+ok  	github.com/wippyai/runtime/cluster/internode	1.118s
+=== RUN   TestClusterOutboundConfiguration
+--- PASS: TestClusterOutboundConfiguration (0.00s)
+=== RUN   TestClusterOutboundRejectsInvalidConfigurationWithoutPartialMutation
+--- PASS: TestClusterOutboundRejectsInvalidConfigurationWithoutPartialMutation (0.00s)
+=== RUN   TestClusterOutboundControlReserves
+=== RUN   TestClusterOutboundControlReserves/peer_entries
+=== RUN   TestClusterOutboundControlReserves/peer_bytes
+=== RUN   TestClusterOutboundControlReserves/total_entries
+=== RUN   TestClusterOutboundControlReserves/total_bytes
+--- PASS: TestClusterOutboundControlReserves (0.00s)
+    --- PASS: TestClusterOutboundControlReserves/peer_entries (0.00s)
+    --- PASS: TestClusterOutboundControlReserves/peer_bytes (0.00s)
+    --- PASS: TestClusterOutboundControlReserves/total_entries (0.00s)
+    --- PASS: TestClusterOutboundControlReserves/total_bytes (0.00s)
+PASS
+ok  	github.com/wippyai/runtime/boot/components/system	1.035s

@@ -1,0 +1,53 @@
+// SPDX-License-Identifier: MPL-2.0
+package internode
+
+import (
+ "testing"
+ "github.com/stretchr/testify/require"
+ "go.uber.org/zap"
+)
+
+// Desired admission contract, currently failing: application backlog must not
+// consume all control capacity, including while a writer owns drained frames.
+// This does not prove wire preemption or isolation from Raft snapshot traffic.
+func TestResearchBulkCannotConsumeAllControlCapacity(t *testing.T) {
+ for _, scope := range []string{"peer", "aggregate"} {
+  for _, pressure := range []string{"entries", "bytes"} {
+   for _, inFlight := range []bool{false, true} {
+    state := "queued"
+    if inFlight { state = "inflight" }
+    t.Run(scope+"/"+pressure+"/"+state, func(t *testing.T) {
+     cfg := DefaultManagerConfig()
+     cfg.OutboundQueueSize, cfg.OutboundPeerBytes = 4, 16
+     cfg.OutboundTotalEntries, cfg.OutboundTotalBytes = 8, 32
+     states := NewNodeStateManager(cfg, newTelemetry(nil), zap.NewNop())
+     peers := []string{"bulk-a"}
+     target := "bulk-a"
+     if scope == "aggregate" {
+      peers = append(peers, "bulk-b")
+      target = "control"
+      states.CreateNodeState(target)
+     }
+     defer func() {
+      for _, peer := range peers { states.RemoveNodeState(peer) }
+      if scope == "aggregate" { states.RemoveNodeState(target) }
+     }()
+     for _, peer := range peers {
+      states.CreateNodeState(peer)
+      if pressure == "entries" {
+       for range 4 { require.NoError(t, states.QueueMessageClass(peer, []byte("x"), ClassPGBroadcast)) }
+      } else {
+       require.NoError(t, states.QueueMessageClass(peer, make([]byte, 16), ClassPGBroadcast))
+      }
+      if inFlight {
+       frames := states.DrainMessages(peer, 4)
+       require.NotEmpty(t, frames)
+       defer releaseOutbound(frames)
+      }
+     }
+     require.NoError(t, states.QueueMessageClass(target, []byte("c"), ClassRaftRPC), "bulk backlog must leave bounded control capacity")
+    })
+   }
+  }
+ }
+}

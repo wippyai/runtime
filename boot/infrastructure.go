@@ -68,6 +68,10 @@ func NewBootstrapContextWithParent(parent context.Context, logger *zap.Logger, c
 	if err := parent.Err(); err != nil {
 		return nil, err
 	}
+	nodeName, err := bootstrapNodeName(cfg)
+	if err != nil {
+		return nil, err
+	}
 	// Create AppContext and attach config
 	appCtx := contextapi.NewAppContext()
 	ctx := contextapi.WithAppContext(parent, appCtx)
@@ -91,7 +95,7 @@ func NewBootstrapContextWithParent(parent context.Context, logger *zap.Logger, c
 	ctx, logManager := createEventInfrastructure(ctx, logger, bus, cfg)
 
 	// Setup relay infrastructure (node, router, managers)
-	ctx, nodeManager, peerManager := createRelayInfrastructure(ctx, bus, cfg)
+	ctx, nodeManager, peerManager := createRelayInfrastructure(ctx, bus, nodeName)
 
 	// Setup hosts for message handling
 	if err := createHosts(ctx, cfg); err != nil {
@@ -119,15 +123,8 @@ func createEventInfrastructure(ctx context.Context, logger *zap.Logger, bus even
 }
 
 // createRelayInfrastructure sets up relay node, router, and managers
-func createRelayInfrastructure(ctx context.Context, bus event.Bus, cfg boot.Config) (context.Context, *relay.NodeManager, *relay.PeerManager) {
+func createRelayInfrastructure(ctx context.Context, bus event.Bus, nodeName string) (context.Context, *relay.NodeManager, *relay.PeerManager) {
 	logger := logapi.GetLogger(ctx)
-
-	nodeName := defaultNodeName()
-	if cfg != nil {
-		if name := cfg.Sub("relay").GetString("node_name", ""); name != "" {
-			nodeName = name
-		}
-	}
 
 	node := relay.NewNode(nodeName)
 	router := relay.NewRouter(node, nil)
@@ -138,6 +135,30 @@ func createRelayInfrastructure(ctx context.Context, bus event.Bus, cfg boot.Conf
 	ctx = relayapi.WithRouter(ctx, router)
 
 	return ctx, nodeManager, peerManager
+}
+
+// bootstrapNodeName chooses one identity before allocating infrastructure.
+// Explicit relay and enabled-cluster names must agree. A cluster-only name is
+// also the relay name; without either, retain the normal stable local default.
+func bootstrapNodeName(cfg boot.Config) (string, error) {
+	if cfg == nil {
+		return defaultNodeName(), nil
+	}
+	relayName := cfg.Sub("relay").GetString("node_name", "")
+	clusterCfg := cfg.Sub("cluster")
+	if clusterCfg.GetBool("enabled", false) {
+		clusterName := clusterCfg.GetString("name", "")
+		if clusterName != "" {
+			if relayName != "" && relayName != clusterName {
+				return "", fmt.Errorf("node identity mismatch: relay.node_name %q and cluster.name %q must agree", relayName, clusterName)
+			}
+			return clusterName, nil
+		}
+	}
+	if relayName != "" {
+		return relayName, nil
+	}
+	return defaultNodeName(), nil
 }
 
 // defaultNodeName derives a relay node identity that is stable across restarts

@@ -1,0 +1,800 @@
+// SPDX-License-Identifier: MPL-2.0
+
+package kvbacked
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"strconv"
+	"sync"
+	"time"
+
+	"github.com/wippyai/runtime/api/pid"
+	kvapi "github.com/wippyai/runtime/api/store/kv"
+	"github.com/wippyai/runtime/api/topology"
+	globalapi "github.com/wippyai/runtime/api/topology/namereg/global"
+	globalreg "github.com/wippyai/runtime/system/topology/namereg/global"
+	"go.uber.org/zap"
+)
+
+// Strong-scope on kv. A reservation is a pending header key; each required node
+// attests by writing its own ack key (replicated by raft — no ack relay); the
+// leader promotes when every required ack is present, or expires on deadline or
+// reject. Per-node exclusions block LOCAL/EVENTUAL shadowing during the window.
+// reconcile(name) is the single state-machine step run on every kv change and on
+// the leader deadline timer; it is idempotent and safe to call redundantly.
+
+const (
+	pendingPrefix = registryPrefix + "pending:"
+	ackPrefix     = registryPrefix + "ack:"
+	rejectPrefix  = registryPrefix + "reject:"
+)
+
+// strongRejectConflict mirrors the global service reason for a cross-scope NACK.
+const strongRejectConflict = "cross_scope_conflict"
+
+func pendingKey(name string) string { return pendingPrefix + name }
+
+func ackBase(name string, epoch uint64) string {
+	return ackPrefix + name + ":" + strconv.FormatUint(epoch, 10) + ":"
+}
+
+func ackKey(name string, epoch uint64, node pid.NodeID) string { return ackBase(name, epoch) + node }
+
+func rejectBase(name string, epoch uint64) string {
+	return rejectPrefix + name + ":" + strconv.FormatUint(epoch, 10) + ":"
+}
+
+func rejectKey(name string, epoch uint64, node pid.NodeID) string {
+	return rejectBase(name, epoch) + node
+}
+
+// pendingHeader is the stored payload of a Strong reservation. Epoch is not
+// stored here: the authoritative epoch is the kv entry's raft index (Entry.Epoch)
+// of the pending key, derived on read so every node agrees on the instance id.
+type pendingHeader struct {
+	PID              string       `codec:"p"`
+	Name             string       `codec:"n"`
+	NodeID           pid.NodeID   `codec:"d"`
+	RequiredNodes    []pid.NodeID `codec:"r"`
+	DeadlineUnixNano int64        `codec:"dl"`
+	CreatedAt        int64        `codec:"c"`
+}
+
+func decodePending(data []byte) (pendingHeader, error) {
+	var v pendingHeader
+	err := decodeInto(data, &v)
+	return v, err
+}
+
+type exclusionState uint8
+
+const (
+	exclusionPending exclusionState = iota
+	exclusionActive
+)
+
+type strongExclusion struct {
+	generation uint64
+	pid        pid.PID
+	epoch      uint64
+	state      exclusionState
+}
+
+type strongWaiter struct {
+	epoch uint64
+	ch    chan globalapi.RegisterOutcome
+}
+
+// StrongDeps are the cluster hooks the Strong plane needs. membership returns the
+// current live participant set (all required acknowledgements, including self); isLeader gates
+// leader-only promotion/expiry; localConflict reports a conflicting LOCAL/EVENTUAL
+// binding so this node NACKs instead of acking.
+type StrongDeps struct {
+	// LocalRevoker removes conflicting weaker bindings learned during admission.
+	// Supply it whenever the node hosts LOCAL or EVENTUAL names.
+	LocalRevoker  globalreg.LocalNameRevoker
+	NameGuard     *topology.NameGuard
+	Membership    func() []pid.NodeID
+	IsLeader      func() bool
+	LocalConflict func(name string, p pid.PID) (pid.PID, bool)
+	Clock         func() time.Time
+	Deadline      time.Duration
+}
+
+type strongState struct {
+	nextGeneration  uint64
+	localRevoker    globalreg.LocalNameRevoker
+	nameGuard       *topology.NameGuard
+	svc             *Service
+	membership      func() []pid.NodeID
+	isLeader        func() bool
+	localConflict   func(name string, p pid.PID) (pid.PID, bool)
+	clock           func() time.Time
+	logger          *zap.Logger
+	exclusions      map[string]strongExclusion
+	timers          map[string]*time.Timer
+	waiters         map[string][]*strongWaiter
+	terminalReason  map[string]string
+	terminalMissing map[string][]pid.NodeID
+	terminalEpoch   map[string]uint64
+	deadline        time.Duration
+	mu              sync.Mutex
+}
+
+// ConfigureStrong enables the Strong-scope plane with cluster hooks. Until it is
+// called, Strong registers are rejected with ErrNotAvailable.
+func (s *Service) ConfigureStrong(deps StrongDeps) {
+	clock := deps.Clock
+	if clock == nil {
+		clock = time.Now
+	}
+	deadline := deps.Deadline
+	if deadline <= 0 {
+		deadline = globalapi.StrongDeadline
+	}
+	localConflict := deps.LocalConflict
+	if localConflict == nil {
+		localConflict = func(string, pid.PID) (pid.PID, bool) { return pid.PID{}, false }
+	}
+	isLeader := deps.IsLeader
+	if isLeader == nil {
+		isLeader = func() bool { return true }
+	}
+	s.SetLeaderFunc(isLeader)
+	s.strong = &strongState{
+		localRevoker:    deps.LocalRevoker,
+		nameGuard:       deps.NameGuard,
+		svc:             s,
+		membership:      deps.Membership,
+		isLeader:        isLeader,
+		localConflict:   localConflict,
+		clock:           clock,
+		deadline:        deadline,
+		logger:          s.logger.Named("strong"),
+		exclusions:      make(map[string]strongExclusion),
+		timers:          make(map[string]*time.Timer),
+		waiters:         make(map[string][]*strongWaiter),
+		terminalReason:  make(map[string]string),
+		terminalMissing: make(map[string][]pid.NodeID),
+		terminalEpoch:   make(map[string]uint64),
+	}
+}
+
+func (s *Service) registerStrong(ctx context.Context, name string, p pid.PID) (globalapi.RegisterOutcome, error) {
+	if s.strong == nil || s.strong.membership == nil {
+		return globalapi.RegisterOutcome{}, globalapi.ErrNotAvailable
+	}
+	return s.strong.register(ctx, name, p)
+}
+
+func (s *Service) unregisterStrong(_ context.Context, name string) (bool, error) {
+	if s.strong == nil {
+		return false, nil
+	}
+	return s.strong.unreserve(name)
+}
+
+func (s *Service) strongReserved(name string) (pid.PID, bool) {
+	if s.strong == nil {
+		return pid.PID{}, false
+	}
+	return s.strong.reserved(name)
+}
+
+func (s *Service) nameReady() bool {
+	// No Strong plane -> no join barrier needed. Otherwise the node is ready
+	// only once the reconciler has seeded (learned and latched the cluster's
+	// in-flight/active Strong reservations), so it cannot shadow one.
+	if s.strong != nil {
+		if run := s.reconciler.Load(); run != nil && run.ctx.Err() != nil {
+			return false
+		}
+	}
+	return s.strong == nil || s.ready.Load()
+}
+
+func (st *strongState) register(ctx context.Context, name string, p pid.PID) (globalapi.RegisterOutcome, error) {
+	nodeID := p.Node
+	if nodeID == "" {
+		nodeID = st.svc.selfNode
+	}
+	deadline := st.clock().Add(st.deadline)
+	if dl, ok := ctx.Deadline(); ok && dl.Before(deadline) && time.Until(dl) >= 50*time.Millisecond {
+		deadline = dl
+	}
+	// Bound result waiting even when the caller supplies a distant deadline.
+	// An earlier caller deadline is preserved by context.WithDeadline. The
+	// grace lets the normal expiry transaction win before reporting uncertainty.
+	ctx, cancel := context.WithDeadline(ctx, deadline.Add(2*time.Second))
+	defer cancel()
+
+	hdr, err := encode(pendingHeader{
+		PID:              p.String(),
+		Name:             name,
+		NodeID:           nodeID,
+		RequiredNodes:    st.requiredNodes(),
+		DeadlineUnixNano: deadline.UnixNano(),
+		CreatedAt:        st.clock().UnixNano(),
+	})
+	if err != nil {
+		return globalapi.RegisterOutcome{}, err
+	}
+
+	committed, err := st.svc.engine.Txn([]kvapi.TxnOp{
+		{Kind: kvapi.TxnCheck, Cond: kvapi.CondAbsent, Key: activeKey(name)},
+		{Kind: kvapi.TxnPut, Cond: kvapi.CondAbsent, Key: pendingKey(name), Value: hdr},
+	})
+	if err != nil {
+		return globalapi.RegisterOutcome{}, err
+	}
+	if !committed {
+		return st.conflictOutcome(name, p)
+	}
+
+	pe, err := st.svc.get(pendingKey(name))
+	if err != nil {
+		return globalapi.RegisterOutcome{}, err
+	}
+	epoch := pe.Epoch
+
+	// Decode before installing the waiter: an undecodable pending (should never
+	// happen — we just wrote it) must fail fast, not hang the waiter forever.
+	// Best-effort remove the bad entry so it does not linger.
+	phdr, derr := decodePending(pe.Value)
+	if derr != nil {
+		_, _ = st.svc.engine.CompareAndDelete(pendingKey(name), pe.Version)
+		return globalapi.RegisterOutcome{}, derr
+	}
+	pendingPID, _ := pid.ParsePID(phdr.PID)
+
+	waiter := &strongWaiter{epoch: epoch, ch: make(chan globalapi.RegisterOutcome, 1)}
+	st.addWaiter(name, waiter)
+	defer st.removeWaiter(name, waiter)
+
+	// Drive the just-opened pending directly: the caller goroutine knows it
+	// exists (read via the leader), so it must not go through reconcile, whose
+	// local read may not see the freshly-forwarded write yet and would
+	// mis-fire onTerminal. The watch reconciler advances it from here on.
+	st.attest(name, epoch, pendingPID, phdr.RequiredNodes)
+	if st.isLeader() {
+		st.leaderDrive(name, epoch, pe.Version, phdr)
+	}
+
+	select {
+	case <-ctx.Done():
+		return globalapi.RegisterOutcome{Epoch: epoch}, ctx.Err()
+	case out := <-waiter.ch:
+		return st.finalize(name, p, out)
+	}
+}
+
+func (st *strongState) finalize(name string, p pid.PID, out globalapi.RegisterOutcome) (globalapi.RegisterOutcome, error) {
+	switch out.State {
+	case globalapi.RegisterStateActive:
+		if out.PID.String() != p.String() {
+			return globalapi.RegisterOutcome{ExistingPID: out.PID}, globalapi.ErrNameAlreadyRegistered
+		}
+		return globalapi.RegisterOutcome{PID: p, Epoch: out.Epoch, State: globalapi.RegisterStateActive}, nil
+	case globalapi.RegisterStateExpired:
+		reason, missing, epoch := st.takeTerminal(name)
+		if reason == strongRejectConflict {
+			return out, &globalapi.StrongConflictError{Name: name, Epoch: epoch, Reason: strongRejectConflict}
+		}
+		return out, &globalapi.StrongRegistrationTimeoutError{Name: name, Epoch: epoch, MissingAcks: missing}
+	default:
+		return out, globalapi.ErrNotAvailable
+	}
+}
+
+func (st *strongState) setTerminal(name, reason string, missing []pid.NodeID, epoch uint64) {
+	st.mu.Lock()
+	st.terminalReason[name] = reason
+	st.terminalEpoch[name] = epoch
+	if len(missing) > 0 {
+		st.terminalMissing[name] = missing
+	}
+	st.mu.Unlock()
+}
+
+// takeTerminal returns and clears the terminal reason, missing-ack node set, and
+// epoch for a name — the authoritative outcome detail, independent of which
+// concurrent onTerminal delivered the (epoch-less) Expired signal.
+func (st *strongState) takeTerminal(name string) (string, []string, uint64) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	r := st.terminalReason[name]
+	delete(st.terminalReason, name)
+	ep := st.terminalEpoch[name]
+	delete(st.terminalEpoch, name)
+	m := st.terminalMissing[name]
+	delete(st.terminalMissing, name)
+	out := make([]string, len(m))
+	copy(out, m)
+	return r, out, ep
+}
+
+func (st *strongState) conflictOutcome(name string, p pid.PID) (globalapi.RegisterOutcome, error) {
+	if e, err := st.svc.get(activeKey(name)); err == nil {
+		if av, derr := decodeActive(e.Value); derr == nil {
+			existing, _ := pid.ParsePID(av.PID)
+			if existing.String() == p.String() {
+				return globalapi.RegisterOutcome{PID: p, Epoch: e.Epoch, State: globalapi.RegisterStateActive}, nil
+			}
+			return globalapi.RegisterOutcome{ExistingPID: existing}, globalapi.ErrNameAlreadyRegistered
+		}
+	}
+	if e, err := st.svc.get(pendingKey(name)); err == nil {
+		if hdr, derr := decodePending(e.Value); derr == nil {
+			existing, _ := pid.ParsePID(hdr.PID)
+			if existing.String() == p.String() {
+				return globalapi.RegisterOutcome{PID: p, Epoch: e.Epoch}, nil
+			}
+			return globalapi.RegisterOutcome{ExistingPID: existing}, globalapi.ErrPendingConflict
+		}
+	}
+	return globalapi.RegisterOutcome{}, globalapi.ErrNameAlreadyRegistered
+}
+
+func (st *strongState) requiredNodes() []pid.NodeID {
+	nodes := st.membership()
+	if len(nodes) == 0 {
+		return []pid.NodeID{st.svc.selfNode}
+	}
+	seen := make(map[pid.NodeID]struct{}, len(nodes)+1)
+	out := make([]pid.NodeID, 0, len(nodes)+1)
+	for _, n := range append(nodes, st.svc.selfNode) {
+		if _, dup := seen[n]; dup || n == "" {
+			continue
+		}
+		seen[n] = struct{}{}
+		out = append(out, n)
+	}
+	return out
+}
+
+// reconcile advances the Strong state machine for name. Safe to call on any node
+// on any observed change and on the leader deadline tick; idempotent.
+func (st *strongState) reconcile(name string) (err error) {
+	defer func() {
+		if err != nil {
+			st.svc.ready.Store(false)
+		}
+	}()
+	if err := st.svc.reconcileContext().Err(); err != nil {
+		return err
+	}
+	// Capture local obligations before the read. A delayed result may only
+	// retire these identities, never a replacement installed while reading.
+	observed := st.observeTerminal(name)
+	reader, ok := st.svc.engine.(kvapi.LocalSnapshotReader)
+	if !ok {
+		return fmt.Errorf("registry reconciliation requires atomic local snapshot reads")
+	}
+	entries, index, err := reader.ReadLocalSnapshot([]string{activeKey(name), pendingKey(name)})
+	if err != nil {
+		return err
+	}
+	if e, found := entries[activeKey(name)]; found {
+		av, err := decodeActive(e.Value)
+		if err != nil {
+			return err
+		}
+		if err := validateNamingRecord(e.Key, activePrefix, av.Name, av.PID); err != nil {
+			return err
+		}
+		if av.Strong {
+			owner, err := pid.ParsePID(av.PID)
+			if err != nil {
+				return err
+			}
+			return st.onActive(name, e.Epoch, owner)
+		}
+	}
+	pe, found := entries[pendingKey(name)]
+	if !found {
+		st.onTerminal(name, observed, index)
+		return nil
+	}
+
+	hdr, derr := decodePending(pe.Value)
+	if derr != nil {
+		return derr
+	}
+	if err := validateNamingRecord(pe.Key, pendingPrefix, hdr.Name, hdr.PID); err != nil {
+		return err
+	}
+	epoch := pe.Epoch
+	pendingPID, err := pid.ParsePID(hdr.PID)
+	if err != nil {
+		return err
+	}
+
+	if err := st.attest(name, epoch, pendingPID, hdr.RequiredNodes); err != nil {
+		return err
+	}
+
+	if st.isLeader() {
+		// A required node that left the cluster between reservation and promotion
+		// (e.g. it died coincident with a leadership change, so this leader never
+		// received its NodeLeft) would otherwise block completion until the
+		// deadline. Prune it against the live membership so the reservation can
+		// promote on the survivors. dropNodeFromPending re-drives reconcile with
+		// the fresh header, so return after a prune to act on up-to-date state.
+		if st.pruneDepartedRequired(name, hdr) {
+			return nil
+		}
+		st.leaderDrive(name, epoch, pe.Version, hdr)
+	}
+	return nil
+}
+
+// pruneDepartedRequired drops from name's pending RequiredNodes any node no
+// longer in the live membership (self is always live). Leader-only. Returns true
+// if it dropped one — dropNodeFromPending is atomic, version-guarded, and tail-
+// reconciles, so the caller should stop and let that re-drive continue. A node
+// still present but merely un-acked is NOT pruned (the all-required-ack guarantee
+// for live nodes is preserved).
+func (st *strongState) pruneDepartedRequired(name string, hdr pendingHeader) bool {
+	live := make(map[pid.NodeID]struct{}, len(hdr.RequiredNodes))
+	for _, n := range st.requiredNodes() {
+		live[n] = struct{}{}
+	}
+	for _, n := range hdr.RequiredNodes {
+		if _, ok := live[n]; !ok {
+			st.dropNodeFromPending(name, n)
+			return true
+		}
+	}
+	return false
+}
+
+// attest makes this node ack (and latch an exclusion) or reject the pending,
+// once, based on a cross-scope local conflict check.
+func (st *strongState) attest(name string, epoch uint64, pendingPID pid.PID, required []pid.NodeID) error {
+	if !contains(required, st.svc.selfNode) {
+		// A later joiner must honor the pending exclusion without changing the
+		// reservation's committed participant set or issuing an extra vote.
+		_, err := st.learnExclusion(name, pendingPID, epoch, exclusionPending)
+		return err
+	}
+	if _, err := st.svc.engine.Get(ackKey(name, epoch, st.svc.selfNode)); err == nil {
+		// A persisted acknowledgement does not recreate in-memory exclusion
+		// state after restart. Restore it before opening weaker-scope admission.
+		_, err := st.learnExclusion(name, pendingPID, epoch, exclusionPending)
+		return err
+	} else if !errors.Is(err, kvapi.ErrKeyNotFound) {
+		return err
+	}
+	if _, err := st.svc.engine.Get(rejectKey(name, epoch, st.svc.selfNode)); err == nil {
+		return nil // already rejected
+	} else if !errors.Is(err, kvapi.ErrKeyNotFound) {
+		return err
+	}
+	release, err := st.nameGuard.LockContext(st.svc.reconcileContext(), name)
+	if err != nil {
+		return err
+	}
+	if cp, conflict := st.localConflict(name, pendingPID); conflict && !cp.Equal(pendingPID) {
+		release()
+		st.setTerminal(name, strongRejectConflict, nil, epoch)
+		if _, _, err := st.svc.engine.SetIfAbsent(rejectKey(name, epoch, st.svc.selfNode), []byte(strongRejectConflict)); err != nil {
+			return err
+		}
+		return nil
+	}
+	st.latch(name, pendingPID, epoch)
+	release()
+	if _, _, err := st.svc.engine.SetIfAbsent(ackKey(name, epoch, st.svc.selfNode), []byte(st.svc.selfNode)); err != nil {
+		return err
+	}
+	return nil
+}
+
+// leaderDrive promotes when the ack set is complete, or expires on reject or
+// deadline. Runs only on the leader.
+func (st *strongState) leaderDrive(name string, epoch, headerVer uint64, hdr pendingHeader) {
+	// Watch-driven path needs no barrier: raft applies in order, so the ack/
+	// reject event that triggered this drive implies all prior acks/rejects are
+	// already applied locally. A reject wins; a complete ack set promotes.
+	for _, n := range hdr.RequiredNodes {
+		if _, err := st.svc.engine.Get(rejectKey(name, epoch, n)); err == nil {
+			st.leaderExpire(name, epoch, headerVer, hdr, strongRejectConflict)
+			return
+		}
+	}
+	if st.complete(name, epoch, hdr.RequiredNodes) {
+		st.leaderPromote(name, epoch, headerVer, hdr)
+		return
+	}
+	if st.clock().UnixNano() <= hdr.DeadlineUnixNano {
+		st.armTimer(name, hdr.DeadlineUnixNano)
+		return
+	}
+	// Deadline reached. Barrier so a committed-but-unapplied ack set is not
+	// falsely expired, then re-check completion before giving up. The barrier
+	// runs on deadline attempts; failures retry with a delay. It is not needed
+	// on the normal acknowledgement path.
+	if st.svc.barrier != nil {
+		if err := st.svc.barrier(); err != nil {
+			// A past deadline would schedule an immediate callback loop.
+			st.armTimer(name, time.Now().Add(time.Second).UnixNano())
+			return
+		}
+	}
+	if st.complete(name, epoch, hdr.RequiredNodes) {
+		st.leaderPromote(name, epoch, headerVer, hdr)
+		return
+	}
+	st.leaderExpire(name, epoch, headerVer, hdr, "deadline")
+}
+
+func (st *strongState) complete(name string, epoch uint64, required []pid.NodeID) bool {
+	for _, n := range required {
+		if _, err := st.svc.engine.Get(ackKey(name, epoch, n)); err != nil {
+			return false
+		}
+	}
+	return true
+}
+
+func (st *strongState) leaderPromote(name string, epoch, headerVer uint64, hdr pendingHeader) {
+	av, err := encode(activeValue{PID: hdr.PID, Name: name, RequiredNodes: hdr.RequiredNodes, Strong: true})
+	if err != nil {
+		return
+	}
+	p, _ := pid.ParsePID(hdr.PID)
+	idx, err := encode(indexValue{PID: hdr.PID, Name: name})
+	if err != nil {
+		return
+	}
+	ops := []kvapi.TxnOp{
+		{Kind: kvapi.TxnCheck, Cond: kvapi.CondVersion, Key: pendingKey(name), Expect: headerVer},
+		{Kind: kvapi.TxnDelete, Cond: kvapi.CondAny, Key: pendingKey(name)},
+		{Kind: kvapi.TxnPut, Cond: kvapi.CondAbsent, Key: activeKey(name), Value: av},
+		{Kind: kvapi.TxnPut, Cond: kvapi.CondAny, Key: pidIndexKey(p, name), Value: idx},
+		{Kind: kvapi.TxnPut, Cond: kvapi.CondAny, Key: nodeIndexKey(p, name), Value: idx},
+	}
+	for _, n := range hdr.RequiredNodes {
+		// The leader's preceding scan is only a hint. Validate the entire
+		// admission decision in the committed transaction so a rejection that
+		// precedes promotion in Raft order cannot be ignored.
+		ops = append(ops,
+			kvapi.TxnOp{Kind: kvapi.TxnCheck, Cond: kvapi.CondExists, Key: ackKey(name, epoch, n)},
+			kvapi.TxnOp{Kind: kvapi.TxnCheck, Cond: kvapi.CondAbsent, Key: rejectKey(name, epoch, n)},
+			kvapi.TxnOp{Kind: kvapi.TxnDelete, Cond: kvapi.CondAny, Key: ackKey(name, epoch, n)},
+		)
+	}
+	committed, terr := st.svc.engine.Txn(ops)
+	if terr != nil {
+		return
+	}
+	if !committed {
+		// Promotion failed. If a conflicting binding now holds the name (active
+		// not absent), the reservation lost -> terminal conflict (otherwise it is
+		// a benign version race the next reconcile/sweep retries). Without this a
+		// complete-but-unpromotable pending would retry forever and hang the
+		// waiter until its deadline.
+		if _, gerr := st.svc.engine.Get(activeKey(name)); gerr == nil {
+			st.leaderExpire(name, epoch, headerVer, hdr, strongRejectConflict)
+		}
+		return
+	}
+	st.takeTerminal(name)
+	st.stopTimer(name)
+	st.reconcile(name)
+}
+
+func (st *strongState) leaderExpire(name string, epoch, headerVer uint64, hdr pendingHeader, reason string) {
+	// Compute the missing-ack set before the txn deletes the ack keys, so the
+	// timeout error can report which nodes failed to ack.
+	var missing []pid.NodeID
+	ops := []kvapi.TxnOp{
+		{Kind: kvapi.TxnCheck, Cond: kvapi.CondVersion, Key: pendingKey(name), Expect: headerVer},
+		{Kind: kvapi.TxnDelete, Cond: kvapi.CondAny, Key: pendingKey(name)},
+	}
+	for _, n := range hdr.RequiredNodes {
+		ack := ackKey(name, epoch, n)
+		_, err := st.svc.engine.Get(ack)
+		if err != nil && !errors.Is(err, kvapi.ErrKeyNotFound) {
+			return
+		}
+		absent := errors.Is(err, kvapi.ErrKeyNotFound)
+		if absent {
+			missing = append(missing, n)
+		}
+		if reason == "deadline" {
+			// Keep the reported missing set and rejection precedence true at
+			// commit, not merely at the leader's earlier read.
+			condition := kvapi.CondExists
+			if absent {
+				condition = kvapi.CondAbsent
+			}
+			ops = append(ops,
+				kvapi.TxnOp{Kind: kvapi.TxnCheck, Cond: condition, Key: ack},
+				kvapi.TxnOp{Kind: kvapi.TxnCheck, Cond: kvapi.CondAbsent, Key: rejectKey(name, epoch, n)},
+			)
+		}
+		ops = append(ops,
+			kvapi.TxnOp{Kind: kvapi.TxnDelete, Cond: kvapi.CondAny, Key: ack},
+			kvapi.TxnOp{Kind: kvapi.TxnDelete, Cond: kvapi.CondAny, Key: rejectKey(name, epoch, n)},
+		)
+	}
+	if reason == "deadline" && len(missing) == 0 {
+		st.leaderPromote(name, epoch, headerVer, hdr)
+		return
+	}
+	if committed, terr := st.svc.engine.Txn(ops); terr != nil || !committed {
+		return
+	}
+	st.setTerminal(name, reason, missing, epoch)
+	st.stopTimer(name)
+	st.reconcile(name)
+}
+
+func (st *strongState) unreserve(name string) (bool, error) {
+	pe, err := st.svc.get(pendingKey(name))
+	if err == nil {
+		hdr, derr := decodePending(pe.Value)
+		if derr == nil {
+			st.leaderExpire(name, pe.Epoch, pe.Version, hdr, "unreserve")
+		}
+	}
+	return st.svc.UnregisterScope(context.Background(), name, globalapi.Consistent)
+}
+
+// --- exclusions + waiters + timers ---
+
+func (st *strongState) latch(name string, p pid.PID, epoch uint64) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	if ex, ok := st.exclusions[name]; ok && ex.epoch >= epoch {
+		return
+	}
+	st.nextGeneration++
+	st.exclusions[name] = strongExclusion{pid: p, epoch: epoch, state: exclusionPending, generation: st.nextGeneration}
+}
+
+// learnExclusion installs a previously accepted claim on this node. It shares
+// admission with weaker scopes and withdraws conflicting local ownership before
+// admission resumes. Withdrawal does not establish process completion.
+func (st *strongState) learnExclusion(name string, owner pid.PID, epoch uint64, state exclusionState) (bool, error) {
+	release, err := st.nameGuard.LockContext(st.svc.reconcileContext(), name)
+	if err != nil {
+		return false, err
+	}
+	defer release()
+	st.mu.Lock()
+	existing, exists := st.exclusions[name]
+	if exists && (existing.epoch > epoch || (existing.epoch == epoch && !existing.pid.Equal(owner))) {
+		st.mu.Unlock()
+		return false, nil
+	}
+	if exists && existing.epoch == epoch && existing.state == exclusionActive {
+		state = exclusionActive
+	}
+	st.nextGeneration++
+	st.exclusions[name] = strongExclusion{pid: owner, epoch: epoch, state: state, generation: st.nextGeneration}
+	st.mu.Unlock()
+	if st.localRevoker != nil {
+		st.localRevoker.RevokeLocal(name, owner)
+		st.localRevoker.RevokeEventual(name, owner)
+	}
+	// The presence reader is raw: a composed lookup could hide the losing
+	// local owner behind the very exclusion being installed here.
+	if conflict, found := st.localConflict(name, owner); found && !conflict.Equal(owner) {
+		return false, fmt.Errorf("registry name %q: conflicting local owner %s remains after withdrawal", name, conflict.String())
+	}
+	return true, nil
+}
+
+func (st *strongState) onActive(name string, epoch uint64, ap pid.PID) error {
+	learned, err := st.learnExclusion(name, ap, epoch, exclusionActive)
+	if err != nil || !learned {
+		return err
+	}
+	st.stopTimer(name)
+	st.svc.monitor(ap)
+	st.deliver(name, globalapi.RegisterOutcome{PID: ap, Epoch: epoch, State: globalapi.RegisterStateActive})
+	return nil
+}
+
+type terminalObservation struct {
+	exclusion strongExclusion
+	held      bool
+	timer     *time.Timer
+	waiters   []*strongWaiter
+}
+
+func (st *strongState) observeTerminal(name string) terminalObservation {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	exclusion, held := st.exclusions[name]
+	return terminalObservation{exclusion: exclusion, held: held, timer: st.timers[name], waiters: append([]*strongWaiter(nil), st.waiters[name]...)}
+}
+
+func (st *strongState) onTerminal(name string, _ terminalObservation, _ uint64) {
+ st.mu.Lock(); delete(st.exclusions,name); st.mu.Unlock()
+ st.stopTimer(name)
+ st.deliver(name,globalapi.RegisterOutcome{State:globalapi.RegisterStateExpired})
+}
+
+func (st *strongState) reserved(name string) (pid.PID, bool) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	if ex, ok := st.exclusions[name]; ok {
+		return ex.pid, true
+	}
+	return pid.PID{}, false
+}
+
+func (st *strongState) addWaiter(name string, w *strongWaiter) {
+	st.mu.Lock()
+	st.waiters[name] = append(st.waiters[name], w)
+	st.mu.Unlock()
+}
+
+func (st *strongState) removeWaiter(name string, w *strongWaiter) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	ws := st.waiters[name]
+	for i, x := range ws {
+		if x == w {
+			st.waiters[name] = append(ws[:i], ws[i+1:]...)
+			break
+		}
+	}
+	if len(st.waiters[name]) == 0 {
+		delete(st.waiters, name)
+	}
+}
+
+func (st *strongState) deliver(name string, out globalapi.RegisterOutcome) {
+	st.mu.Lock()
+	ws := append([]*strongWaiter(nil), st.waiters[name]...)
+	st.mu.Unlock()
+	for _, w := range ws {
+		select {
+		case w.ch <- out:
+		default:
+		}
+	}
+}
+
+func (st *strongState) armTimer(name string, deadlineUnixNano int64) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	if _, ok := st.timers[name]; ok {
+		return
+	}
+	d := time.Until(time.Unix(0, deadlineUnixNano))
+	if d < 0 {
+		d = 0
+	}
+	st.timers[name] = time.AfterFunc(d, func() {
+		st.mu.Lock()
+		delete(st.timers, name)
+		st.mu.Unlock()
+		st.reconcile(name)
+	})
+}
+
+func (st *strongState) stopTimer(name string) {
+	st.mu.Lock()
+	t, ok := st.timers[name]
+	delete(st.timers, name)
+	st.mu.Unlock()
+	if ok {
+		t.Stop()
+	}
+}
+
+func contains(s []pid.NodeID, v pid.NodeID) bool {
+	for _, x := range s {
+		if x == v {
+			return true
+		}
+	}
+	return false
+}

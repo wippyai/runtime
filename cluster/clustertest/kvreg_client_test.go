@@ -47,7 +47,7 @@ func (c *Cluster) newClientRegistryTarget(t *testing.T, id string, target func()
 	if err := eng.Start(context.Background()); err != nil {
 		t.Fatalf("start client engine: %v", err)
 	}
-	t.Cleanup(func() { _ = eng.Stop() })
+	t.Cleanup(func() { _ = eng.Stop(); bus.Stop() })
 	reg := kvbacked.NewService(eng, id, nil, nil)
 	reg.SetNonMember(func() bool { return true })
 	return reg

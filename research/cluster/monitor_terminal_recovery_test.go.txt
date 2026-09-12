@@ -1,0 +1,52 @@
+// SPDX-License-Identifier: MPL-2.0
+package topology
+
+import (
+	"context"
+	"errors"
+	"testing"
+
+	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/api/runtime"
+	topapi "github.com/wippyai/runtime/api/topology"
+)
+
+// The existing receiver retry test manually retains and resubmits a package.
+// This gate exercises the real lifecycle sender and exact-reference refresh.
+func TestResearchTerminalNoticeSurvivesFailedDelivery(t *testing.T) {
+	for _, failure := range []string{"consumer-full", "send-refused", "accepted-then-lost"} {
+		t.Run(failure, func(t *testing.T) {
+			f := newMonitorSenderFixture(t)
+			require.NoError(t, f.local.Monitor(f.caller, f.target))
+			transport := f.remote.router
+			switch failure {
+			case "consumer-full":
+				f.deliveryErr = errors.New("receiver at capacity")
+			case "send-refused":
+				f.remote.router = monitorContextSender(func(context.Context, *relay.Package) error { return errors.New("disconnected") })
+			case "accepted-then-lost":
+				f.remote.router = monitorContextSender(func(_ context.Context, p *relay.Package) error {
+					relay.ReleasePackage(p) // Transport ownership does not prove remote admission.
+					return nil
+				})
+			}
+			f.remote.Complete(f.target, &runtime.Result{})
+			require.Empty(t, f.deliveries)
+			f.deliveryErr = nil
+			f.remote.router = transport
+			// Reconnection must reconcile the same admitted relationship. A missing
+			// target must not substitute for the terminal result the source observed.
+			f.local.HandleNodeExit(f.target.Node, errors.New("connection interrupted"))
+			err := f.local.Monitor(f.caller, f.target)
+			require.NoError(t, err, "completed source forgot an acknowledged observer before terminal delivery")
+			exits := 0
+			for _, event := range f.deliveries {
+				if event["kind"] == topapi.Exit {
+					exits++
+				}
+			}
+			require.Equal(t, 1, exits, "recovery lost the source-confirmed terminal result")
+		})
+	}
+}

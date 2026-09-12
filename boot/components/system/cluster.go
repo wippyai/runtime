@@ -8,7 +8,6 @@ import (
 	"encoding/base64"
 	"fmt"
 	"net"
-	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -160,16 +159,6 @@ func Cluster() boot.Component {
 				return ctx, nil
 			}
 
-			// Get node name
-			nodeName := clusterCfg.GetString(ClusterNodeName, "")
-			if nodeName == "" {
-				hostname, err := os.Hostname()
-				if err != nil {
-					return ctx, NewHostnameError(err)
-				}
-				nodeName = hostname
-			}
-
 			// Get dependencies from context
 			bus := event.GetBus(ctx)
 			if bus == nil {
@@ -184,6 +173,14 @@ func Cluster() boot.Component {
 			node := relayapi.GetNode(ctx)
 			if node == nil {
 				return ctx, ErrRelayNotAvailableForCluster
+			}
+
+			// Routing and connection authentication must identify the same node.
+			// This also validates native embedders that supply their own relay.
+			nodeName := node.ID()
+			configuredName := clusterCfg.GetString(ClusterNodeName, "")
+			if nodeName == "" || (configuredName != "" && configuredName != nodeName) {
+				return ctx, fmt.Errorf("node identity mismatch: relay %q and cluster.name %q must agree", nodeName, configuredName)
 			}
 
 			// Parse join addresses
@@ -238,6 +235,9 @@ func Cluster() boot.Component {
 
 			// Create connection manager config
 			connManagerCfg := internode.DefaultManagerConfig()
+			if err := configureClusterOutbound(clusterCfg, &connManagerCfg); err != nil {
+				return ctx, err
+			}
 			connManagerCfg.TLS, err = clusterTLSConfig(clusterCfg)
 			if err != nil {
 				return ctx, err

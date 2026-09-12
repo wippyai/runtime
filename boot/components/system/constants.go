@@ -106,6 +106,10 @@ const (
 	ClusterRaftDataDir             boot.Name = "raft.data_dir"
 	ClusterRaftLeaderProbeInterval boot.Name = "raft.leader_probe_interval"
 	ClusterRaftLeaderProbeGrace    boot.Name = "raft.leader_probe_grace"
+	ClusterRaftJoinTimeout         boot.Name = "raft.join.timeout"
+	ClusterRaftJoinMaxEntries      boot.Name = "raft.join.max_entries"
+	ClusterRaftJoinMaxBytes        boot.Name = "raft.join.max_bytes"
+	ClusterRaftJoinMaxConcurrent   boot.Name = "raft.join.max_concurrent"
 	// ClusterRaftGlobalDissemTombstoneRetention bounds how long the AP
 	// global-name dissemination cache retains delete tombstones as stale-gossip
 	// fences. The Raft FSM remains authoritative; this only tunes cache memory

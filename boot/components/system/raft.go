@@ -4,6 +4,7 @@ package system
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -16,7 +17,6 @@ import (
 	"github.com/wippyai/runtime/api/event"
 	logapi "github.com/wippyai/runtime/api/logs"
 	metricsapi "github.com/wippyai/runtime/api/metrics"
-	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/topology"
 	globalapi "github.com/wippyai/runtime/api/topology/namereg/global"
@@ -81,24 +81,21 @@ func GetKVRaftEngine(ctx context.Context) *systemkv.RaftEngine {
 // Raft returns a boot component that initializes the Raft consensus layer
 // and the global registry service. Raft is only active when the cluster
 // is enabled and raft is explicitly enabled in config.
-// loadClientRegistry wires the kv-backed name registry on a node that runs no
-// raft Node (cluster.raft.role=client / raft.enabled=false). Such a node has no
-// FSM, so it forwards every kv op over the relay to a raft member it picks from
-// the gossip view (sysraft.PickForwardTarget); that member re-forwards to the
-// leader. Lookups resolve from the gossiped dissem cache, then cold-miss
-// forward-resolve through the leader. The registry is exposed on the same two
-// context facades as the server path, so every consumer is backend-agnostic.
+// loadClientRegistry wires naming for a node without a Raft server. Its local
+// KV view is not replicated; writes and authoritative misses forward through a
+// member selected from gossip. Lookups use dissemination and cold-miss resolve.
+// Naming admission requires committed enrollment and an authoritative exclusion snapshot.
 //
-// It is a no-op (returns ctx unchanged) when the kv backend is not selected or a
-// prerequisite (relay, membership, topology) is missing — preserving the prior
-// behavior where a client wired no global registry at all. raftCfg is cluster.*.
-func loadClientRegistry(ctx context.Context, raftCfg boot.Config, logger *zap.Logger) (context.Context, error) {
+// Returned engine/registry handles belong to the Raft boot component, including
+// on partial failure. The component owns endpoint startup, retirement and shutdown.
+// No registry is installed when the backend or prerequisites are unavailable.
+func loadClientRegistry(ctx context.Context, raftCfg boot.Config, logger *zap.Logger) (context.Context, *systemkv.RaftEngine, *kvbacked.Service, *kvbacked.ParticipantEndpoint, error) {
 	if logger == nil {
 		logger = zap.NewNop()
 	}
 	if !strings.EqualFold(
 		raftCfg.GetString(ClusterRaftRegistryBackend, registryBackendKV), registryBackendKV) {
-		return ctx, nil
+		return ctx, nil, nil, nil, nil
 	}
 
 	bus := event.GetBus(ctx)
@@ -107,7 +104,7 @@ func loadClientRegistry(ctx context.Context, raftCfg boot.Config, logger *zap.Lo
 	topo := topology.GetTopology(ctx)
 	memSvc, _ := clusterapi.GetMembership(ctx).(*membership.Service)
 	if bus == nil || node == nil || router == nil || topo == nil || memSvc == nil {
-		return ctx, nil
+		return ctx, nil, nil, nil, nil
 	}
 
 	selfID := node.ID()
@@ -116,24 +113,28 @@ func loadClientRegistry(ctx context.Context, raftCfg boot.Config, logger *zap.Lo
 		return sysraft.PickForwardTarget(memSvc.Nodes(), selfID)
 	}}
 	kvEngine := systemkv.NewRaftEngine(submitter, kvFSM, bus, selfID, router, logger.Named("kv"))
+	if err := kvEngine.ConfigureForwarding(raftCfg.GetInt("raft.kv.max_concurrent_requests", systemkv.DefaultForwardingConcurrency)); err != nil {
+		return ctx, kvEngine, nil, nil, err
+	}
 	if err := node.RegisterHost(systemkv.KVRaftHostID, kvEngine); err != nil {
-		return ctx, fmt.Errorf("raft(client): register kv relay host: %w", err)
+		return ctx, kvEngine, nil, nil, fmt.Errorf("raft(client): register kv relay host: %w", err)
 	}
 	if err := kvEngine.Start(ctx); err != nil {
-		return ctx, fmt.Errorf("raft(client): start kv engine: %w", err)
+		return ctx, kvEngine, nil, nil, fmt.Errorf("raft(client): start kv engine: %w", err)
 	}
 
 	kvReg := kvbacked.NewService(kvEngine, selfID, nil, logger.Named("kvreg"))
 	kvReg.SetTopology(topo)
 	kvReg.SetNonMember(func() bool { return true })
 	kvReg.SetLeaderFunc(func() bool { return false })
-	if err := node.RegisterHost(kvbacked.RegistryHostID, kvReg); err != nil {
-		return ctx, fmt.Errorf("raft(client): register kv registry relay host: %w", err)
+	endpoint, err := configureNamingParticipant(ctx, raftCfg, kvReg, func() bool { return false })
+	if err != nil {
+		return ctx, kvEngine, kvReg, endpoint, err
 	}
 
 	dissem := global.NewDissem(selfID, logger.Named("dissem"))
 	if err := memSvc.RegisterUserDelegate(dissem); err != nil {
-		return ctx, fmt.Errorf("raft(client): register dissem delegate: %w", err)
+		return ctx, kvEngine, kvReg, endpoint, fmt.Errorf("raft(client): register dissem delegate: %w", err)
 	}
 	kvReg.ConfigureDissem(dissem)
 
@@ -152,8 +153,8 @@ func loadClientRegistry(ctx context.Context, raftCfg boot.Config, logger *zap.Lo
 	ctx = topology.WithGlobalRegistry(ctx, liveReg)
 	ctx = globalapi.WithRegistry(ctx, liveReg)
 
-	logger.Info("raft(client): kv name registry wired (non-member, forward-resolve)")
-	return ctx, nil
+	logger.Info("raft(client): naming participant wired (forwarding, enrollment required)")
+	return ctx, kvEngine, kvReg, endpoint, nil
 }
 
 func Raft() boot.Component {
@@ -167,13 +168,17 @@ func Raft() boot.Component {
 	var kvEngine *systemkv.RaftEngine
 	var lockSvc *systemkv.LockService
 	var kvReg *kvbacked.Service
+	var participant *kvbacked.ParticipantEndpoint
+	var participantStarted bool
+	var participantRetirementErr error
 	var useKVRegistry bool
 	var bootstrapExpect int
+	var startupTimeout, startupPollInterval time.Duration
 	var globalDissemTombstoneRetention time.Duration
 
 	return boot.New(boot.P{
 		Name:      RaftName,
-		DependsOn: []boot.Name{ClusterName, TopologyName},
+		DependsOn: []boot.Name{ClusterName, TopologyName, EventualRegName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			logger = logapi.GetLogger(ctx).Named("raft")
 			cfg := boot.GetConfig(ctx)
@@ -188,7 +193,9 @@ func Raft() boot.Component {
 			// gossip+dissem without running a raft Node.
 			raftCfg := cfg.Sub(ClusterName)
 			if !clusterRaftEnabled(raftCfg) {
-				return loadClientRegistry(ctx, raftCfg, logger)
+				var err error
+				ctx, kvEngine, kvReg, participant, err = loadClientRegistry(ctx, raftCfg, logger)
+				return ctx, err
 			}
 
 			bus := event.GetBus(ctx)
@@ -220,6 +227,11 @@ func Raft() boot.Component {
 			// existing peers with raft_status=in and skip bootstrap; the
 			// leader's reconciler adds them via AddVoter.
 			bootstrapExpect = raftCfg.GetInt(ClusterRaftBootstrapExpect, 1)
+			startupTimeout = raftCfg.GetDuration("raft.startup_timeout", 30*time.Second)
+			startupPollInterval = raftCfg.GetDuration("raft.startup_poll_interval", 100*time.Millisecond)
+			if startupTimeout <= 0 || startupPollInterval <= 0 {
+				return ctx, fmt.Errorf("raft startup timeout and poll interval must be positive")
+			}
 			rc := raftapi.Config{
 				BootstrapExpect:   bootstrapExpect,
 				SnapshotThreshold: uint64(raftCfg.GetInt(ClusterRaftSnapshotThreshold, 0)),
@@ -295,6 +307,9 @@ func Raft() boot.Component {
 			// kv engine forwards follower writes to the leader over the relay;
 			// register it as a relay host so forwarded requests/responses land.
 			kvEngine = systemkv.NewRaftEngine(raftNode, kvFSM, bus, node.ID(), router, logger.Named("kv"))
+			if err := kvEngine.ConfigureForwarding(raftCfg.GetInt("raft.kv.max_concurrent_requests", systemkv.DefaultForwardingConcurrency)); err != nil {
+				return ctx, err
+			}
 			if err := node.RegisterHost(systemkv.KVRaftHostID, kvEngine); err != nil {
 				return ctx, fmt.Errorf("raft: register kv relay host: %w", err)
 			}
@@ -315,6 +330,16 @@ func Raft() boot.Component {
 				logger.Named("globalreg"),
 				coll, mp, tp,
 			)
+
+			joinConfig := global.DefaultJoinConfig()
+			joinConfig.Timeout = raftCfg.GetDuration(ClusterRaftJoinTimeout, joinConfig.Timeout)
+			joinConfig.MaxEntries = raftCfg.GetInt(ClusterRaftJoinMaxEntries, joinConfig.MaxEntries)
+			joinConfig.MaxBytes = raftCfg.GetInt(ClusterRaftJoinMaxBytes, joinConfig.MaxBytes)
+			joinConfig.MaxConcurrent = raftCfg.GetInt(ClusterRaftJoinMaxConcurrent, joinConfig.MaxConcurrent)
+			if err := globalRegSvc.SetJoinConfig(joinConfig); err != nil {
+				return ctx, fmt.Errorf("raft: join configuration: %w", err)
+			}
+			globalRegSvc.SetNameGuard(topology.GetNameGuard(ctx))
 
 			// Tune the leader-reachability monitor that gates name-readiness.
 			// Zero values keep the service defaults.
@@ -356,34 +381,10 @@ func Raft() boot.Component {
 			if useKVRegistry {
 				kvReg = kvbacked.NewService(kvEngine, node.ID(), nil, logger.Named("kvreg"))
 				kvReg.SetTopology(topo)
-				kvReg.ConfigureStrong(kvbacked.StrongDeps{
-					Membership: func() []pid.NodeID {
-						ms, ok := clusterapi.GetMembership(ctx).(*membership.Service)
-						if !ok || ms == nil {
-							return nil
-						}
-						var out []pid.NodeID
-						for _, n := range ms.Nodes() {
-							if n.ID != "" {
-								out = append(out, n.ID)
-							}
-						}
-						return out
-					},
-					IsLeader: raftNode.IsLeader,
-					LocalConflict: func(name string, _ pid.PID) (pid.PID, bool) {
-						lp := &localPresenceChecker{ctx: ctx}
-						if cp, ok := lp.LookupLocal(name); ok {
-							return cp, true
-						}
-						if cp, ok := lp.LookupEventual(name); ok {
-							return cp, true
-						}
-						return pid.PID{}, false
-					},
-				})
-				if err := node.RegisterHost(kvbacked.RegistryHostID, kvReg); err != nil {
-					return ctx, fmt.Errorf("raft: register kv registry relay host: %w", err)
+				var err error
+				participant, err = configureNamingParticipant(ctx, raftCfg, kvReg, raftNode.IsLeader)
+				if err != nil {
+					return ctx, err
 				}
 				liveReg = kvReg
 			}
@@ -443,6 +444,12 @@ func Raft() boot.Component {
 		},
 		Start: func(ctx context.Context) error {
 			if raftNode == nil {
+				if participant != nil {
+					if err := participant.StartAfterRetirement(ctx); err != nil {
+						return err
+					}
+					participantStarted = true
+				}
 				return nil
 			}
 
@@ -531,15 +538,11 @@ func Raft() boot.Component {
 					zap.Int("bootstrap_expect", bootstrapExpect))
 			}
 
-			// Wait for leader election before proceeding. For a single-node
-			// bootstrap this is near-instant; for multi-node it may take
-			// longer while the watcher waits for peers in gossip.
-			leaderCh := raftNode.LeaderCh()
-			select {
-			case <-leaderCh:
-				logger.Info("raft leader election completed")
-			case <-time.After(10 * time.Second):
-				logger.Warn("raft leader election timed out (continuing anyway)")
+			if err := waitRaftLeader(ctx, func() bool {
+				leader, _, err := raftNode.Leader()
+				return err == nil && leader != ""
+			}, startupTimeout, startupPollInterval); err != nil {
+				return fmt.Errorf("wait for raft leader: %w", err)
 			}
 
 			// Start membership handler to sync Raft voters with cluster membership.
@@ -582,10 +585,11 @@ func Raft() boot.Component {
 			// Start the live name registry: the kv reconciler when the kv
 			// backend is selected, otherwise the dedicated registry FSM service.
 			if useKVRegistry {
-				if kvReg != nil {
-					if err := kvReg.StartReconciler(ctx); err != nil {
-						return fmt.Errorf("start kv registry reconciler: %w", err)
+				if participant != nil {
+					if err := participant.StartAfterRetirement(ctx); err != nil {
+						return fmt.Errorf("start naming participant: %w", err)
 					}
+					participantStarted = true
 				}
 			} else if globalRegSvc != nil {
 				if membership != nil {
@@ -611,11 +615,32 @@ func Raft() boot.Component {
 			logger.Info("raft node started")
 			return nil
 		},
-		Stop: func(_ context.Context) error {
+		Stop: func(ctx context.Context) error {
 			if nodeLeftSub != nil {
 				nodeLeftSub.Close()
 			}
 
+			if participant != nil {
+				if participantStarted {
+					if err := participant.Retire(ctx, withdrawBootNames); err != nil {
+						participantRetirementErr = fmt.Errorf("retire naming participant: %w", err)
+					}
+					// Shutdown terminates this local lifetime even if its committed
+					// retirement is uncertain. Never replay that mutation on Stop.
+					participantStarted = false
+				}
+				if err := participant.Stop(ctx); err != nil {
+					return errors.Join(participantRetirementErr, fmt.Errorf("stop naming participant: %w", err))
+				}
+				if participantRetirementErr != nil {
+					// Parent cancellation may have prevented Retire from entering.
+					// After joining endpoint work, still seal/withdraw local scopes.
+					// This is local cleanup, not a committed retirement retry.
+					if err := withdrawBootNames(ctx); err != nil {
+						return errors.Join(participantRetirementErr, fmt.Errorf("withdraw naming during shutdown: %w", err))
+					}
+				}
+			}
 			if kvEngine != nil {
 				_ = kvEngine.Stop()
 			}
@@ -640,7 +665,7 @@ func Raft() boot.Component {
 				}
 			}
 
-			return nil
+			return participantRetirementErr
 		},
 	})
 }
