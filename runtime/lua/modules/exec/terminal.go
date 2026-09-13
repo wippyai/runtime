@@ -8,6 +8,7 @@ import (
 	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
+	execapi "github.com/wippyai/runtime/api/service/exec"
 	ttyapi "github.com/wippyai/runtime/api/tty"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
@@ -63,6 +64,7 @@ func procAttachTerminal(l *lua.LState) int {
 		pushTerminalError(l, err, "acquire PTY process")
 		return 2
 	}
+	identity, _ := process.(execapi.ProcessIdentity)
 	bridge, err := proxy.New(process, surface, width, height)
 	if err != nil {
 		completion.close()
@@ -70,7 +72,7 @@ func procAttachTerminal(l *lua.LState) int {
 		pushTerminalError(l, err, "create terminal proxy")
 		return 2
 	}
-	session := newTerminalSession(bridge, completion)
+	session := newTerminalSession(bridge, completion, identity)
 	go func() {
 		err := bridge.Run(ctx, session.events)
 		_ = surface.Close()

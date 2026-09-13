@@ -158,7 +158,11 @@ local child = assert(executor:exec("bash", {
 local session = assert(child:attach_terminal())
 ```
 
-The session exposes `send(event)`, `done()`, `status()`, and `close()`. The
+The session exposes `send(event)`, `done()`, `pid()`, `status()`, and `close()`.
+`pid()` returns the host process identifier when the attached process exposes
+that capability. The call may return a not-started error while the asynchronous
+attachment is starting; once the session has completed with a startup error,
+it returns that terminal error instead of a retryable pending result.
 completion channel's `receive()` and `case_receive()` values are booleans, so a
 `channel.select` result from `done():case_receive()` carries a boolean value.
 Resize, keyboard, mouse, focus, and paste events use the canonical `tty`

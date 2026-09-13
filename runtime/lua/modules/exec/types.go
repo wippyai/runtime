@@ -55,6 +55,8 @@ func init() {
 			Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "done", Type: typ.Func().Param("self", typ.Self).
 			Returns(terminalCompletionType).Build()},
+		{Name: "pid", Type: typ.Func().Param("self", typ.Self).
+			Returns(typ.Integer, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "status", Type: typ.Func().Param("self", typ.Self).
 			Returns(typ.NewUnion(typ.LiteralString("running"), typ.LiteralString("done")), typ.NewOptional(typ.LuaError)).Build()},
 	})

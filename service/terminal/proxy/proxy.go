@@ -53,7 +53,7 @@ type Proxy struct {
 	lifecycleMu     sync.Mutex
 	closeRequested  atomic.Bool
 	cursorVisible   atomic.Bool
-	started         bool
+	started         atomic.Bool
 }
 
 // RequestClose accepts asynchronous shutdown intent. Run owns termination and
@@ -63,9 +63,15 @@ func (p *Proxy) RequestClose() {
 	p.closeNotifyOnce.Do(func() { close(p.closeNotify) })
 	p.lifecycleMu.Lock()
 	defer p.lifecycleMu.Unlock()
-	if p.started {
+	if p.started.Load() {
 		_ = p.signalCloseLocked()
 	}
+}
+
+// Started reports whether the process startup phase has completed. It does not
+// inspect the process or acquire its startup lock.
+func (p *Proxy) Started() bool {
+	return p.started.Load()
 }
 
 // start serializes process startup with an early close request. Once Start
@@ -77,7 +83,7 @@ func (p *Proxy) start() error {
 	}
 	p.lifecycleMu.Lock()
 	defer p.lifecycleMu.Unlock()
-	p.started = true
+	p.started.Store(true)
 	if p.closeRequested.Load() {
 		_ = p.signalCloseLocked()
 	}
