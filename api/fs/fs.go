@@ -82,3 +82,13 @@ type (
 		GetFS(name string) (FS, bool)
 	}
 )
+
+// AtomicWriteFS is an optional whole-file publication capability. Implementations
+// must publish either all content or none, without following symbolic-link
+// parents. Existing nonregular targets are refused. It does not provide compare-
+// and-swap between writers. ErrPublishedSyncFailed means publication happened but
+// its durability is uncertain; callers must inspect state before retrying.
+// Unsupported platforms/providers return ErrAtomicWriteUnsupported.
+type AtomicWriteFS interface {
+	WriteFileAtomic(name string, data []byte, perm fs.FileMode) error
+}

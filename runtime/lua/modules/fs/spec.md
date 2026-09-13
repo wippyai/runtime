@@ -322,6 +322,29 @@ Writes data to a file.
 - Created files have mode 0644
 - File is automatically closed after writing
 
+### writefile_atomic(path: string, content: string) → boolean, error
+
+Publishes a complete file through the filesystem's atomic-write capability.
+The runtime passes the data to that capability with mode `0600`; it never
+falls back to truncating or recreating the destination. Input is limited to
+8 MiB before the filesystem is called. The operation accepts a string only;
+it does not consume arbitrary readers.
+
+The operation returns `false, error` when the filesystem does not support
+atomic writes (`errors.UNAVAILABLE`), when input is invalid or oversized
+(`errors.INVALID`), or when the write fails (`errors.INTERNAL`). If the
+filesystem reports `ErrPublishedSyncFailed`, the error is
+`errors.UNAVAILABLE` with text beginning `atomic write published; sync status
+uncertain`; publication has happened but durability is uncertain, so callers
+must inspect state before retrying. Permission failures use
+`errors.PERMISSION_DENIED`.
+
+The directory filesystem provides this capability on Linux and macOS. It pins
+each parent directory without following symbolic-link parents, refuses
+nonregular existing targets (including final symbolic links), writes with
+0600 permissions, syncs the file, atomically renames it, and syncs the parent
+directory.
+
 ## File Object Methods
 
 ### read(size?: integer) → string, error

@@ -22,6 +22,8 @@ type FS struct {
 	cwd string
 }
 
+const maxAtomicWriteBytes = 8 << 20
+
 func wrapFilesystemError(l *lua.LState, err error, message string, fallback lua.Kind) *lua.Error {
 	kind := fallback
 	if errors.Is(err, fsapi.ErrReadOnly) ||
@@ -73,19 +75,20 @@ func (f *FS) resolvePath(p string) (string, error) {
 }
 
 var fsMethods = map[string]lua.LGoFunc{
-	"chdir":      fsChdir,
-	"pwd":        fsPwd,
-	"open":       fsOpen,
-	"stat":       fsStat,
-	"mkdir":      fsMkdir,
-	"remove":     fsRemove,
-	"readdir":    fsReaddir,
-	"exists":     fsExists,
-	"isdir":      fsIsdir,
-	"readfile":   fsReadfile,
-	"read_file":  fsReadfile,
-	"writefile":  fsWritefile,
-	"write_file": fsWritefile,
+	"chdir":            fsChdir,
+	"pwd":              fsPwd,
+	"open":             fsOpen,
+	"stat":             fsStat,
+	"mkdir":            fsMkdir,
+	"remove":           fsRemove,
+	"readdir":          fsReaddir,
+	"exists":           fsExists,
+	"isdir":            fsIsdir,
+	"readfile":         fsReadfile,
+	"read_file":        fsReadfile,
+	"writefile":        fsWritefile,
+	"write_file":       fsWritefile,
+	"writefile_atomic": fsWritefileAtomic,
 }
 
 func fsChdir(l *lua.LState) int {
@@ -512,6 +515,80 @@ func fsWritefile(l *lua.LState) int {
 	if _, err := io.Copy(dstFile, reader); err != nil {
 		l.Push(lua.LFalse)
 		l.Push(wrapFilesystemError(l, err, "copy failed", lua.Internal))
+		return 2
+	}
+
+	l.Push(lua.LTrue)
+	l.Push(lua.LNil)
+	return 2
+}
+
+// fsWritefileAtomic delegates the complete replacement to the filesystem's
+// optional atomic capability. The Lua layer buffers and bounds the input so a
+// backend is never asked to publish an oversized document or a partial stream.
+func fsWritefileAtomic(l *lua.LState) int {
+	fs := checkFS(l, 1)
+	if fs == nil {
+		return 0
+	}
+	pathArg := l.CheckString(2)
+	if pathArg == "" {
+		l.Push(lua.LFalse)
+		l.Push(lua.NewLuaError(l, "path required").WithKind(lua.Invalid))
+		return 2
+	}
+	content := l.Get(3)
+	if content == lua.LNil {
+		l.Push(lua.LFalse)
+		l.Push(lua.NewLuaError(l, "data argument required").WithKind(lua.Invalid))
+		return 2
+	}
+
+	resolved, err := fs.resolvePath(pathArg)
+	if err != nil {
+		l.Push(lua.LFalse)
+		l.Push(lua.WrapErrorWithLua(l, err, "invalid path").WithKind(lua.Invalid))
+		return 2
+	}
+
+	atomicFS, ok := fs.fs.(fsapi.AtomicWriteFS)
+	if !ok {
+		l.Push(lua.LFalse)
+		l.Push(lua.WrapErrorWithLua(l, fsapi.ErrAtomicWriteUnsupported, "atomic write unsupported").WithKind(lua.Unavailable).WithRetryable(false))
+		return 2
+	}
+
+	value, ok := content.(lua.LString)
+	if !ok {
+		l.Push(lua.LFalse)
+		l.Push(lua.NewLuaError(l, "content must be a string").WithKind(lua.Invalid).WithRetryable(false))
+		return 2
+	}
+	if len(value) > maxAtomicWriteBytes {
+		l.Push(lua.LFalse)
+		l.Push(lua.NewLuaError(l, "atomic write input exceeds 8 MiB").WithKind(lua.Invalid).WithRetryable(false))
+		return 2
+	}
+	data := []byte(string(value))
+
+	if err := atomicFS.WriteFileAtomic(resolved, data, 0600); err != nil {
+		if errors.Is(err, fsapi.ErrPublishedSyncFailed) {
+			l.Push(lua.LFalse)
+			l.Push(lua.WrapErrorWithLua(l, fsapi.ErrPublishedSyncFailed, "atomic write published; sync status uncertain").WithKind(lua.Unavailable).WithRetryable(false))
+			return 2
+		}
+		if errors.Is(err, fsapi.ErrAtomicWriteUnsupported) {
+			l.Push(lua.LFalse)
+			l.Push(lua.WrapErrorWithLua(l, fsapi.ErrAtomicWriteUnsupported, "atomic write unsupported").WithKind(lua.Unavailable).WithRetryable(false))
+			return 2
+		}
+		if errors.Is(err, fsapi.ErrReadOnly) || errors.Is(err, fsapi.ErrPermissionDenied) || errors.Is(err, iofs.ErrPermission) {
+			l.Push(lua.LFalse)
+			l.Push(lua.NewLuaError(l, "atomic write permission denied").WithKind(lua.PermissionDenied).WithRetryable(false))
+			return 2
+		}
+		l.Push(lua.LFalse)
+		l.Push(lua.NewLuaError(l, "atomic write failed").WithKind(lua.Internal).WithRetryable(false))
 		return 2
 	}
 
