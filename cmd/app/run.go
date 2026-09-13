@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/wippyai/runtime/api/boot"
+	"github.com/wippyai/runtime/cmd/internal/bootconfig"
 	"github.com/wippyai/runtime/cmd/wippy/cmd"
 )
 
@@ -154,6 +155,9 @@ func runApplication(ctx context.Context, options Options, stateDir string, base 
 	if err != nil {
 		return err
 	}
+	if err := seedDependencyCache(stateDir, deployment, options.Bundle); err != nil {
+		return err
+	}
 	if len(remaining) > 0 && remaining[0] == "update" {
 		if base {
 			return fmt.Errorf("base recovery cannot be updated")
@@ -179,12 +183,19 @@ func runApplication(ctx context.Context, options Options, stateDir string, base 
 	} else if !os.IsNotExist(err) {
 		return err
 	}
+	overrides = launchOverrides(overrides, historyPath)
+	// Keep dependency artifacts in application state so a new executable can
+	// restore an older registry graph without contacting the Hub. The lock and
+	// deployment source files remain selected independently above.
+	overrides = bootconfig.Merge(overrides, boot.NewConfig(boot.WithSection("registry", map[string]any{
+		"dependency_vendor_dir": dependencyVendorDirectory(stateDir),
+	})))
 	return cmd.ExecuteWithOptions(ctx, cmd.ExecuteOptions{
 		Args:        runtimeArgs,
 		LockFile:    lockPath,
 		ConfigFiles: configFiles,
 		Components:  options.Components,
-		Overrides:   launchOverrides(overrides, historyPath),
+		Overrides:   overrides,
 	})
 }
 
