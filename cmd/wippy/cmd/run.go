@@ -100,7 +100,7 @@ func init() {
 	listCmd.Flags().StringArray("set", nil, "override a merged runtime config value (format: section.path=value, repeatable)")
 	runCmd.Flags().StringSliceP("override", "o", nil, "Override entry values (format: namespace:entry:field=value)")
 	runCmd.Flags().StringP("exec", "x", "", "Execute process and exit (format: namespace:entry)")
-	runCmd.Flags().String("host", "", "Terminal host ID for exec (auto-detected if only one terminal.host exists)")
+	runCmd.Flags().String("host", "", "Terminal host ID for exec (defaults to command metadata, then a single terminal.host)")
 	runCmd.Flags().String("registry", "", "Registry URL for hub modules (default: from credentials)")
 	runCmd.Flags().StringArray("set", nil, "override a merged runtime config value (format: section.path=value, repeatable)")
 	runCmd.Flags().StringArray("profile", nil, "apply a profile from the merged runtime config or packed runtime metadata (repeatable, applied in order)")
@@ -114,6 +114,9 @@ func init() {
 
 // commandMeta represents the command metadata from entry.Meta
 type commandMeta struct {
+	// Host selects the terminal host for this command when --host is omitted.
+	// It does not change the command's security context.
+	Host string `json:"host,omitempty"`
 	// Security is the security context the command runs under when launched
 	// from the CLI. It lives inside meta.command on purpose: it applies only
 	// to the trusted terminal-launcher path, never to ordinary spawns of the
@@ -443,6 +446,9 @@ func extractCommandMeta(meta map[string]any) (*commandMeta, error) {
 		return nil, fmt.Errorf("decode command metadata: %w", err)
 	}
 	if command.Name == "" {
+		if _, declared := commandFields["host"]; declared {
+			return nil, fmt.Errorf("decode command metadata: host requires a command name")
+		}
 		if _, declared := commandFields["security"]; declared {
 			return nil, fmt.Errorf("decode command metadata: security requires a command name")
 		}
@@ -450,6 +456,12 @@ func extractCommandMeta(meta map[string]any) (*commandMeta, error) {
 	}
 	if command.UseCase == "" {
 		command.UseCase = defaultUseCase
+	}
+	if _, declared := commandFields["host"]; declared {
+		namespace, name, err := parseExecSpec(command.Host)
+		if err != nil || command.Host != namespace+":"+name || strings.ContainsAny(command.Host, " \t\r\n") {
+			return nil, fmt.Errorf("decode command metadata: host must be a namespace:name identifier")
+		}
 	}
 
 	if securityData, declared := commandFields["security"]; declared {
@@ -926,7 +938,7 @@ func launchExecProcess(ctx context.Context, logger *zap.Logger, execSpec, hostID
 	}
 
 	if hostID == "" {
-		hostID, err = findTerminalHost(ctx)
+		hostID, err = resolveCommandHost(ctx, source)
 		if err != nil {
 			return err
 		}
@@ -969,6 +981,38 @@ func launchExecProcess(ctx context.Context, logger *zap.Logger, execSpec, hostID
 		zap.Int("exit_code", exitCode))
 
 	return nil
+}
+
+// resolveCommandHost honors the command's declared execution host before
+// automatic discovery. Host selection supplies no actor or permission grants.
+func resolveCommandHost(ctx context.Context, source registry.ID) (string, error) {
+	reg := registry.GetRegistry(ctx)
+	if reg == nil {
+		return "", fmt.Errorf("registry not available")
+	}
+	entry, err := reg.GetEntry(source)
+	if err != nil {
+		return "", fmt.Errorf("get command entry: %w", err)
+	}
+	command, err := extractCommandMeta(entry.Meta)
+	if err != nil {
+		return "", err
+	}
+	if command != nil && command.Host != "" {
+		namespace, name, err := parseExecSpec(command.Host)
+		if err != nil {
+			return "", err
+		}
+		host, err := reg.GetEntry(registry.NewID(namespace, name))
+		if err != nil {
+			return "", fmt.Errorf("get declared command host %s: %w", command.Host, err)
+		}
+		if host.Kind != "terminal.host" {
+			return "", fmt.Errorf("declared command host %s is not a terminal.host", command.Host)
+		}
+		return command.Host, nil
+	}
+	return findTerminalHost(ctx)
 }
 
 // resolveCommandSecurity reads meta.command.security from the command entry
