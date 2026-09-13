@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/moby/moby/api/pkg/stdcopy"
 	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/api/types/mount"
 	"github.com/moby/moby/api/types/network"
 	"github.com/moby/moby/client"
 	execapi "github.com/wippyai/runtime/api/service/exec"
@@ -61,6 +63,9 @@ func NewDockerExecutor(log *zap.Logger, config *execapi.DockerExecutorConfig) (*
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
+	if err := validateStaticMountTargets(config.Volumes); err != nil {
+		return nil, err
+	}
 
 	opts := []client.Opt{client.FromEnv}
 	if config.Host != "" {
@@ -96,18 +101,18 @@ func NewDockerExecutor(log *zap.Logger, config *execapi.DockerExecutorConfig) (*
 
 // NewProcess creates a new container process
 func (e *Executor) NewProcess(cmd string, options execapi.ProcessOptions) (execapi.Process, error) {
+	options, err := options.Clone()
+	if err != nil {
+		return nil, err
+	}
+	if err := validateProcessMountTargets(e.volumes, options.Mounts); err != nil {
+		return nil, err
+	}
 	command, err := execapi.ParseCommand(cmd)
 	if err != nil {
 		return nil, err
 	}
 	ptyOptions := options.PTY
-	if ptyOptions != nil {
-		copy := *ptyOptions
-		ptyOptions = &copy
-		if _, _, err := ptyOptions.Dimensions(); err != nil {
-			return nil, err
-		}
-	}
 	if len(e.commandWhitelist) > 0 {
 		allowed := false
 		for _, whitelistedCmd := range e.commandWhitelist {
@@ -141,7 +146,8 @@ func (e *Executor) NewProcess(cmd string, options execapi.ProcessOptions) (execa
 		env:             env,
 		workDir:         workDir,
 		networkMode:     e.networkMode,
-		volumes:         e.volumes,
+		volumes:         append([]string(nil), e.volumes...),
+		mounts:          append([]execapi.Mount(nil), options.Mounts...),
 		user:            e.user,
 		memoryLimit:     e.memoryLimit,
 		cpuQuota:        e.cpuQuota,
@@ -191,6 +197,7 @@ type Process struct {
 	user            string
 	capDrop         []string
 	volumes         []string
+	mounts          []execapi.Mount
 	cmd             []string
 	capAdd          []string
 	env             []string
@@ -223,10 +230,20 @@ func (p *Process) Start() error {
 	if err != nil {
 		return err
 	}
+	mounts := make([]mount.Mount, 0, len(p.mounts))
+	for _, processMount := range p.mounts {
+		mounts = append(mounts, mount.Mount{
+			Type:     mount.TypeBind,
+			Source:   processMount.Source,
+			Target:   processMount.Target,
+			ReadOnly: processMount.ReadOnly,
+		})
+	}
 
 	hostConfig := &container.HostConfig{
 		AutoRemove:     p.autoRemove,
 		Binds:          binds,
+		Mounts:         mounts,
 		ReadonlyRootfs: p.readOnlyRootfs,
 		Tmpfs:          p.tmpfs,
 		CapDrop:        p.capDrop,
@@ -550,6 +567,55 @@ func buildBinds(volumes []string) ([]string, error) {
 		binds = append(binds, volume)
 	}
 	return binds, nil
+}
+
+func validateStaticMountTargets(volumes []string) error {
+	seen := make(map[string]struct{}, len(volumes))
+	for _, volume := range volumes {
+		target, ok := bindTarget(volume)
+		if !ok {
+			continue
+		}
+		if _, exists := seen[target]; exists {
+			return fmt.Errorf("%w: %q", execapi.ErrDuplicateMountTarget, target)
+		}
+		seen[target] = struct{}{}
+	}
+	return nil
+}
+
+func validateProcessMountTargets(volumes []string, mounts []execapi.Mount) error {
+	if err := validateStaticMountTargets(volumes); err != nil {
+		return err
+	}
+	staticTargets := make(map[string]struct{}, len(volumes))
+	for _, volume := range volumes {
+		if target, ok := bindTarget(volume); ok {
+			staticTargets[target] = struct{}{}
+		}
+	}
+	for _, processMount := range mounts {
+		target := path.Clean(processMount.Target)
+		if _, exists := staticTargets[target]; exists {
+			return fmt.Errorf("%w: %q", execapi.ErrDuplicateMountTarget, target)
+		}
+	}
+	return nil
+}
+
+// bindTarget extracts a Unix container target, including binds whose host
+// source has a Windows drive prefix. Other syntax remains daemon-owned.
+func bindTarget(volume string) (string, bool) {
+	if len(volume) >= 3 && volume[1] == ':' &&
+		((volume[0] >= 'A' && volume[0] <= 'Z') || (volume[0] >= 'a' && volume[0] <= 'z')) &&
+		(volume[2] == '/' || volume[2] == '\\') {
+		volume = volume[2:]
+	}
+	parts := strings.SplitN(volume, ":", 3)
+	if len(parts) < 2 || !strings.HasPrefix(parts[1], "/") {
+		return "", false
+	}
+	return path.Clean(parts[1]), true
 }
 
 func isExplicitRelativePath(source string) bool {

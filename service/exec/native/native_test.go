@@ -90,6 +90,12 @@ func TestPTYCapabilityMatchesProcessConfiguration(t *testing.T) {
 	assert.True(t, hasPTYCapability)
 }
 
+func TestNativeExecutorRejectsProcessMounts(t *testing.T) {
+	executor := NewNativeExecutor(zap.NewNop(), &exec.NativeExecutorConfig{})
+	_, err := executor.NewProcess("true", exec.ProcessOptions{Mounts: []exec.Mount{{Source: "/host", Target: "/workspace"}}})
+	assert.ErrorIs(t, err, exec.ErrMountsUnsupported)
+}
+
 func TestPTYWaitReleasesMasterFile(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("PTY test requires Unix")

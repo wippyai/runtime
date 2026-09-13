@@ -82,6 +82,23 @@ Creates a new process with the specified command.
 | env | {[string]: string} | nil | Environment variables as key-value map |
 | pty | PTYOptions | nil | Allocate a pseudo-terminal for the child |
 | process_group | boolean | executor default | Start the child in its own process group so signals reach descendants; unsupported on Windows |
+| mounts | Mount[] | nil | Bind host paths into the process; each mount requires `exec.mount` permission |
+
+**Mount fields:**
+
+| Field | Type | Default | Notes |
+|---|---|---|---|
+| source | string | required | Clean absolute host path checked by the separate mount permission |
+| target | string | required | Absolute path inside the process |
+| read_only | boolean | false | Mount the source read-only |
+
+Docker supports these per-process bind mounts; native execution rejects them.
+Each source is authorized with action `exec.mount`, resource equal to `source`,
+and `target` and `read_only` attributes before process creation. This permission
+checks the supplied path; it does not resolve symlinks or provide filesystem
+confinement. The source refers to the Docker daemon's host. Duplicate targets
+within the request or against configured Unix container bind targets are refused.
+Process options are copied at creation so later caller changes cannot alter them.
 
 **PTYOptions fields:**
 

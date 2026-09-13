@@ -121,6 +121,56 @@ func TestDockerPTYResize(t *testing.T) {
 	require.NoError(t, process.Wait())
 }
 
+func TestDockerPTYProcessMountsUseSeparateHomes(t *testing.T) {
+	skipIfNoDocker(t)
+	homes := []string{t.TempDir(), t.TempDir()}
+	executor, err := NewDockerExecutor(zap.NewNop(), &execapi.DockerExecutorConfig{
+		Image: "alpine:latest", AutoRemove: true,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = executor.Close() })
+	processes := make([]execapi.PTYProcess, 0, len(homes))
+	outputs := make([]chan string, 0, len(homes))
+	for index, home := range homes {
+		process, processErr := executor.NewProcess(fmt.Sprintf("sh -c 'stty -echo; printf home-%d >/home/marker; echo ready; read value; stty size; cat /home/marker; echo'", index), execapi.ProcessOptions{
+			PTY:    &execapi.PTYOptions{Width: 80, Height: 24},
+			Mounts: []execapi.Mount{{Source: home, Target: "/home"}},
+		})
+		require.NoError(t, processErr)
+		pty, hasPTY := process.(execapi.PTYProcess)
+		require.True(t, hasPTY)
+		require.NoError(t, process.Start())
+		t.Cleanup(func() { _ = process.Signal(9) })
+		output := process.Stdout()
+		t.Cleanup(func() { _ = output.Close() })
+		lines := make(chan string, 4)
+		go func() {
+			scanner := bufio.NewScanner(output)
+			for scanner.Scan() {
+				lines <- strings.TrimSpace(scanner.Text())
+			}
+			close(lines)
+		}()
+		require.Equal(t, "ready", awaitLine(t, lines, "ready"))
+		processes = append(processes, pty)
+		outputs = append(outputs, lines)
+	}
+	// Both containers are alive at the input barrier. Resize and release them
+	// independently, then verify both terminal output and retained host data.
+	for index, process := range processes {
+		require.NoError(t, process.Resize(100+index, 30+index))
+		require.NoError(t, process.WriteStdin([]byte("continue\n")))
+		size := fmt.Sprintf("%d %d", 30+index, 100+index)
+		require.Equal(t, size, awaitLine(t, outputs[index], size))
+		marker := fmt.Sprintf("home-%d", index)
+		require.Equal(t, marker, awaitLine(t, outputs[index], marker))
+		require.NoError(t, process.Wait())
+		content, readErr := os.ReadFile(filepath.Join(homes[index], "marker"))
+		require.NoError(t, readErr)
+		require.Equal(t, fmt.Sprintf("home-%d", index), string(content))
+	}
+}
+
 func TestDockerPTYResizeRejectsInvalidSizeBeforeDaemonCall(t *testing.T) {
 	process := &ptyProcess{Process: &Process{pty: &execapi.PTYOptions{}, started: true}}
 	require.ErrorIs(t, process.Resize(execapi.MaxPTYDimension+1, 1), execapi.ErrInvalidPTYSize)
@@ -199,6 +249,41 @@ func TestDockerExecutor_RequiresImage(t *testing.T) {
 
 	_, err := NewDockerExecutor(log, config)
 	assert.ErrorIs(t, err, execapi.ErrImageRequired)
+}
+
+func TestDockerExecutorRejectsStaticMountTargetCollision(t *testing.T) {
+	_, err := NewDockerExecutor(zap.NewNop(), &execapi.DockerExecutorConfig{
+		Image:   "alpine:latest",
+		Volumes: []string{"/one:/workspace", "/two:/workspace/"},
+	})
+	assert.ErrorIs(t, err, execapi.ErrDuplicateMountTarget)
+}
+
+func TestDockerExecutorRejectsProcessMountTargetCollision(t *testing.T) {
+	for _, volume := range []string{
+		"/one:/workspace", "named:/workspace/:ro", `C:\host\one:/workspace:ro`,
+		"c:/host/one:/workspace", `\\server\share:/workspace`,
+	} {
+		t.Run(volume, func(t *testing.T) {
+			executor := &Executor{volumes: []string{volume}}
+			_, err := executor.NewProcess("true", execapi.ProcessOptions{
+				Mounts: []execapi.Mount{{Source: "/two", Target: "/workspace"}},
+			})
+			assert.ErrorIs(t, err, execapi.ErrDuplicateMountTarget)
+		})
+	}
+}
+
+func TestDockerExecutorProcessMountsAreIsolated(t *testing.T) {
+	executor := &Executor{image: "alpine:latest"}
+	firstOptions := execapi.ProcessOptions{Mounts: []execapi.Mount{{Source: "/first", Target: "/workspace"}}}
+	first, err := executor.NewProcess("true", firstOptions)
+	require.NoError(t, err)
+	second, err := executor.NewProcess("true", execapi.ProcessOptions{Mounts: []execapi.Mount{{Source: "/second", Target: "/workspace"}}})
+	require.NoError(t, err)
+	firstOptions.Mounts[0].Source = "/mutated"
+	require.Equal(t, "/first", first.(*Process).mounts[0].Source)
+	require.Equal(t, "/second", second.(*Process).mounts[0].Source)
 }
 
 func TestDockerExecutorRejectsMissingAndMalformedCommands(t *testing.T) {

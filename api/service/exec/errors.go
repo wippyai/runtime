@@ -16,3 +16,9 @@ var ErrCommandRequired = apierror.New(apierror.Invalid, "command is required").W
 var ErrProcessGroupUnsupported = apierror.New(apierror.Unavailable, "process groups are not supported on this platform").WithRetryable(apierror.False)
 
 var ErrInvalidCommand = apierror.New(apierror.Invalid, "invalid command").WithRetryable(apierror.False)
+
+var ErrInvalidMount = apierror.New(apierror.Invalid, "invalid process mount").WithRetryable(apierror.False)
+
+var ErrDuplicateMountTarget = apierror.New(apierror.Invalid, "duplicate process mount target").WithRetryable(apierror.False)
+
+var ErrMountsUnsupported = apierror.New(apierror.Unavailable, "process mounts are not supported by this executor").WithRetryable(apierror.False)

@@ -133,6 +133,16 @@ func executorExec(l *lua.LState) int {
 		l.Push(lua.NewLuaError(l, "permission denied: execute command").WithKind(lua.Invalid).WithRetryable(false))
 		return 2
 	}
+	for _, mount := range opts.Mounts {
+		if !security.IsAllowed(ctx, "exec.mount", mount.Source, attrs.Bag{
+			"target":    mount.Target,
+			"read_only": mount.ReadOnly,
+		}) {
+			l.Push(lua.LNil)
+			l.Push(lua.NewLuaError(l, "permission denied: mount host path").WithKind(lua.Invalid).WithRetryable(false))
+			return 2
+		}
+	}
 
 	proc, err := factory.NewProcess(cmd, opts)
 	if err != nil {

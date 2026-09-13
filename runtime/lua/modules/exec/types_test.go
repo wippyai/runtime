@@ -35,3 +35,19 @@ return completion_value
 	require.NoError(t, err)
 	require.False(t, code.HasErrors(diagnostics), "terminal completion select type was lost: %v", diagnostics)
 }
+
+func TestProcessMountOptionsAreTyped(t *testing.T) {
+	config := code.DefaultTypeCheckConfig()
+	config.Enabled = true
+	config.SkipUntyped = false
+	checker := code.NewTypeChecker(config, []*luaapi.ModuleDef{Module})
+	_, diagnostics, err := checker.Check(`
+local exec = require("exec")
+local function options() : exec.ProcessOptions
+    return {mounts = {{source = "/host", target = "/workspace", read_only = true}}}
+end
+return options
+`, "process_mount_options.lua", nil)
+	require.NoError(t, err)
+	require.False(t, code.HasErrors(diagnostics), "process mount options type was rejected: %v", diagnostics)
+}

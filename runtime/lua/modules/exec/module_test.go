@@ -17,7 +17,26 @@ import (
 	securityapi "github.com/wippyai/runtime/api/security"
 	execapi "github.com/wippyai/runtime/api/service/exec"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
+	secsystem "github.com/wippyai/runtime/system/security"
 )
+
+type mountPermissionPolicy struct {
+	metadata   attrs.Bag
+	allowMount bool
+}
+
+func (mountPermissionPolicy) ID() registry.ID { return registry.ParseID("test:exec-mount") }
+
+func (p *mountPermissionPolicy) Evaluate(_ securityapi.Actor, action, resource string, metadata attrs.Bag) securityapi.Result {
+	if action == "exec.run" {
+		return securityapi.Allow
+	}
+	if action == "exec.mount" && p.allowMount {
+		p.metadata = attrs.Bag{"resource": resource, "target": metadata["target"], "read_only": metadata["read_only"]}
+		return securityapi.Allow
+	}
+	return securityapi.Deny
+}
 
 func setupState() *lua.LState {
 	l := lua.NewState()
@@ -665,6 +684,13 @@ func TestExecutorExecParsesPTYOptions(t *testing.T) {
 	pty.RawSetString("height", lua.LInteger(30))
 	pty.RawSetString("term", lua.LString("xterm-256color"))
 	options.RawSetString("pty", pty)
+	mounts := l.NewTable()
+	mount := l.NewTable()
+	mount.RawSetString("source", lua.LString("/host/project"))
+	mount.RawSetString("target", lua.LString("/workspace"))
+	mount.RawSetString("read_only", lua.LTrue)
+	mounts.RawSetInt(1, mount)
+	options.RawSetString("mounts", mounts)
 	l.Push(options)
 
 	if returns := executorExec(l); returns != 2 {
@@ -684,6 +710,39 @@ func TestExecutorExecParsesPTYOptions(t *testing.T) {
 	}) {
 		t.Fatalf("PTY options = %+v", factory.lastOptions.PTY)
 	}
+	if len(factory.lastOptions.Mounts) != 1 || factory.lastOptions.Mounts[0] != (execapi.Mount{Source: "/host/project", Target: "/workspace", ReadOnly: true}) {
+		t.Fatalf("mount options = %+v", factory.lastOptions.Mounts)
+	}
+}
+
+func TestExecutorExecRequiresSeparateMountPermission(t *testing.T) {
+	l := setupState()
+	defer l.Close()
+	ctx := context.Background()
+	appCtx := ctxapi.NewAppContext()
+	ctx = ctxapi.WithAppContext(ctx, appCtx)
+	ctx, frame := ctxapi.OpenFrameContext(ctx)
+	defer frame.Close()
+	policy := &mountPermissionPolicy{}
+	require.NoError(t, securityapi.SetActor(ctx, securityapi.Actor{ID: "caller"}))
+	require.NoError(t, securityapi.SetScope(ctx, secsystem.NewScope([]securityapi.Policy{policy})))
+	l.SetContext(ctx)
+	factory := &mockProcessExecutor{}
+	value.PushTypedUserData(l, NewExecutor(ctx, nil, factory), executorTypeName)
+	l.Push(lua.LString("echo mounted"))
+	options := l.NewTable()
+	mounts := l.NewTable()
+	mount := l.NewTable()
+	mount.RawSetString("source", lua.LString("/host/project"))
+	mount.RawSetString("target", lua.LString("/workspace"))
+	mounts.RawSetInt(1, mount)
+	options.RawSetString("mounts", mounts)
+	l.Push(options)
+
+	require.Equal(t, 2, executorExec(l))
+	require.Equal(t, 0, factory.newProcessN, "mount denial must happen before NewProcess")
+	require.Equal(t, lua.LNil, l.Get(-2))
+	require.NotEqual(t, lua.LNil, l.Get(-1))
 }
 
 func TestProcessSecurityMetaExposesShapeWithoutEnvironmentValues(t *testing.T) {
@@ -764,6 +823,28 @@ func TestExecutorExecRejectsMalformedProcessOptions(t *testing.T) {
 			env := l.NewTable()
 			env.RawSetString("PORT", lua.LInteger(8080))
 			table.RawSetString("env", env)
+			return table
+		}},
+		{name: "mounts are not a table", build: func(l *lua.LState) lua.LValue {
+			table := l.NewTable()
+			table.RawSetString("mounts", lua.LString("/host:/workspace"))
+			return table
+		}},
+		{name: "mount entry is not a table", build: func(l *lua.LState) lua.LValue {
+			table := l.NewTable()
+			mounts := l.NewTable()
+			mounts.RawSetInt(1, lua.LString("/host:/workspace"))
+			table.RawSetString("mounts", mounts)
+			return table
+		}},
+		{name: "mount target is relative", build: func(l *lua.LState) lua.LValue {
+			table := l.NewTable()
+			mounts := l.NewTable()
+			mount := l.NewTable()
+			mount.RawSetString("source", lua.LString("/host"))
+			mount.RawSetString("target", lua.LString("workspace"))
+			mounts.RawSetInt(1, mount)
+			table.RawSetString("mounts", mounts)
 			return table
 		}},
 	}
