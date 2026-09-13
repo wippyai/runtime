@@ -21,3 +21,8 @@ var (
 	ErrNotEmpty    = errors.New("directory is not empty")
 	ErrBusy        = errors.New("filesystem resource is busy")
 )
+
+var (
+	ErrAtomicWriteUnsupported = errors.New("atomic file publication is unsupported")
+	ErrPublishedSyncFailed    = errors.New("file published but directory sync failed")
+)

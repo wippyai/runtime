@@ -181,6 +181,12 @@ func init() {
 			OptParam("mode", typ.String).
 			Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).
 			Build()},
+		{Name: "writefile_atomic", Type: typ.Func().
+			Param("self", typ.Self).
+			Param("path", typ.String).
+			Param("content", typ.String).
+			Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).
+			Build()},
 	})
 }
 
