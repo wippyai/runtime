@@ -124,7 +124,10 @@ func Registry() boot.Component {
 			if err != nil {
 				logger.Warn("dependency handler disabled", zap.Error(err))
 			} else if depHandler != nil {
-				if err := depHandler.PrepareRestore(ctx, hist); err != nil {
+				// Startup restores installed artifacts locally. Downloads belong
+				// to explicit install/update operations, never implicit recovery.
+				restoreCtx := regapi.WithDependencyAccess(ctx, regapi.DependencyAccessVerifiedOffline)
+				if err := depHandler.PrepareRestore(restoreCtx, hist); err != nil {
 					return nil, fmt.Errorf("prepare dependency restore: %w", err)
 				}
 				registryOpts = append(registryOpts,

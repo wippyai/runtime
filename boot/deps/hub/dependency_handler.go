@@ -172,8 +172,8 @@ func NewDependencyHandler(opts DependencyHandlerOptions) (*DependencyHandler, er
 // PrepareRestore loads the deployment baseline and prefetches immutable artifacts
 // recorded for the current registry version. Historical local replacements are
 // validated during reconciliation against the final declarations. Version
-// selection remains the stored resolution; the Hub is used only when a verified
-// artifact is absent locally.
+// selection remains the stored resolution. The caller's dependency access
+// policy determines whether a missing artifact may be downloaded.
 func (h *DependencyHandler) PrepareRestore(ctx context.Context, history regapi.History) error {
 	resolutions, ok := history.(regapi.ResolutionHistory)
 	if h == nil || !ok {
@@ -214,7 +214,6 @@ func (h *DependencyHandler) PrepareRestore(ctx context.Context, history regapi.H
 		// it must not turn that development shape into a persisted Hub root.
 		if h.lock != nil {
 			h.deployment = nil
-			ctx = regapi.WithDependencyAccess(ctx, regapi.DependencyAccessOnline)
 			return h.prepareRecordedArtifacts(ctx, effective)
 		}
 		return fmt.Errorf("persisted deployment baseline is unavailable; start once with its lock file")
@@ -227,7 +226,6 @@ func (h *DependencyHandler) PrepareRestore(ctx context.Context, history regapi.H
 	if err := h.refreshReplacementModuleIdentities(baseline); err != nil {
 		return err
 	}
-	ctx = regapi.WithDependencyAccess(ctx, regapi.DependencyAccessOnline)
 	if err := h.prepareRestoreSources(ctx, baseline); err != nil {
 		return err
 	}
