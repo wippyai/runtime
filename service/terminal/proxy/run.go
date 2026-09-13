@@ -24,7 +24,12 @@ const (
 
 // Run starts the external terminal and owns its I/O until completion,
 // cancellation, or a close event. The caller owns the events channel.
-func (p *Proxy) Run(ctx context.Context, events <-chan ttyapi.Event) error {
+func (p *Proxy) Run(ctx context.Context, events <-chan ttyapi.Event) (result error) {
+	defer func() {
+		if ctx.Err() != nil {
+			result = errors.Join(ctx.Err(), result)
+		}
+	}()
 	if err := p.start(); err != nil {
 		return err
 	}
@@ -36,6 +41,25 @@ func (p *Proxy) Run(ctx context.Context, events <-chan ttyapi.Event) error {
 		return stopStartedProcess(p.process, execapi.ErrPTYUnavailable, p.shutdownTimeout())
 	}
 	defer func() { _ = output.Close() }()
+	finished := make(chan struct{})
+	watcherDone := make(chan struct{})
+	shutdownErrors := make(chan error, 2)
+	defer func() {
+		close(finished)
+		<-watcherDone
+		for {
+			select {
+			case err := <-shutdownErrors:
+				result = errors.Join(result, err)
+			default:
+				return
+			}
+		}
+	}()
+	go func() {
+		defer close(watcherDone)
+		p.watchShutdown(ctx, output, finished, shutdownErrors)
+	}()
 	defer func() {
 		// Closing the response pipe wakes copyResponses without racing x/vt's
 		// output parser through Emulator.Close's unsynchronized closed flag.
@@ -61,8 +85,6 @@ func (p *Proxy) Run(ctx context.Context, events <-chan ttyapi.Event) error {
 	closing := false
 	var frameTimer *time.Timer
 	var frameReady <-chan time.Time
-	var shutdownTimer <-chan time.Time
-	var forcedShutdownTimer <-chan time.Time
 	stopFrameTimer := func() {
 		if frameTimer != nil {
 			if !frameTimer.Stop() {
@@ -97,7 +119,6 @@ func (p *Proxy) Run(ctx context.Context, events <-chan ttyapi.Event) error {
 		if err := p.closeSignalError(); err != nil && !errors.Is(err, os.ErrProcessDone) {
 			shutdownCause = errors.Join(shutdownCause, err)
 		}
-		shutdownTimer = time.After(p.shutdownTimeout())
 	}
 	if p.closeRequested.Load() {
 		beginShutdown(nil, true)
@@ -110,15 +131,11 @@ func (p *Proxy) Run(ctx context.Context, events <-chan ttyapi.Event) error {
 			beginShutdown(nil, true)
 		case <-ctxDone:
 			beginShutdown(ctx.Err(), p.closeRequested.Load())
-		case <-shutdownTimer:
-			shutdownTimer = nil
-			if err := p.process.Signal(int(syscall.SIGKILL)); err != nil && !errors.Is(err, os.ErrProcessDone) {
-				shutdownCause = errors.Join(shutdownCause, err)
+		case err := <-shutdownErrors:
+			shutdownCause = errors.Join(shutdownCause, err)
+			if errors.Is(err, ErrShutdownTimeout) {
+				return shutdownCause
 			}
-			forcedShutdownTimer = time.After(p.shutdownTimeout())
-		case <-forcedShutdownTimer:
-			cancelProcessWait(p.process)
-			return errors.Join(shutdownCause, ErrShutdownTimeout)
 		case err := <-waitDone:
 			waitErr, processDone, waitDone = err, true, nil
 			if outputClosed {
@@ -184,6 +201,50 @@ func (p *Proxy) Run(ctx context.Context, events <-chan ttyapi.Event) error {
 			}
 		}
 	}
+}
+
+// watchShutdown owns escalation independently of synchronous terminal writes.
+// A child may ignore TERM while leaving its PTY input blocked. Run still owns
+// normal completion and reaping; finished retires the watcher on every return.
+func (p *Proxy) watchShutdown(ctx context.Context, output io.Closer, finished <-chan struct{}, shutdownErrors chan<- error) {
+	select {
+	case <-finished:
+		return
+	case <-ctx.Done():
+	case <-p.closeNotify:
+	}
+	select {
+	case <-finished:
+		return
+	default:
+	}
+	p.RequestClose()
+	timer := time.NewTimer(p.shutdownTimeout())
+	defer timer.Stop()
+	select {
+	case <-finished:
+		return
+	case <-timer.C:
+	}
+	err := p.process.Signal(int(syscall.SIGKILL))
+	if err != nil && !errors.Is(err, os.ErrProcessDone) {
+		shutdownErrors <- err
+	}
+	timer.Reset(p.shutdownTimeout())
+	select {
+	case <-finished:
+		return
+	case <-timer.C:
+	}
+	// Stop owned I/O as well as waiting. Docker can half-close its attached
+	// socket; native PTYs share their output descriptor with input and cannot
+	// be half-closed. Closing output releases that descriptor on abandonment.
+	shutdownErrors <- ErrShutdownTimeout
+	if closer, ok := p.process.(execapi.StdinCloser); ok {
+		_ = closer.CloseStdin()
+	}
+	_ = output.Close()
+	cancelProcessWait(p.process)
 }
 
 // stopStartedProcess closes the ownership gap between Start and the proxy event
