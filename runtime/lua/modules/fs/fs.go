@@ -574,7 +574,7 @@ func fsWritefileAtomic(l *lua.LState) int {
 	if err := atomicFS.WriteFileAtomic(resolved, data, 0600); err != nil {
 		if errors.Is(err, fsapi.ErrPublishedSyncFailed) {
 			l.Push(lua.LFalse)
-			l.Push(lua.WrapErrorWithLua(l, fsapi.ErrPublishedSyncFailed, "atomic write published; sync status uncertain").WithKind(lua.Unavailable).WithRetryable(false))
+			l.Push(lua.WrapErrorWithLua(l, fsapi.ErrPublishedSyncFailed, "atomic write published; sync status uncertain").WithKind(lua.Unavailable).WithRetryable(false).WithDetails(map[string]any{"published": true}))
 			return 2
 		}
 		if errors.Is(err, fsapi.ErrAtomicWriteUnsupported) {

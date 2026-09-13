@@ -335,8 +335,10 @@ atomic writes (`errors.UNAVAILABLE`), when input is invalid or oversized
 (`errors.INVALID`), or when the write fails (`errors.INTERNAL`). If the
 filesystem reports `ErrPublishedSyncFailed`, the error is
 `errors.UNAVAILABLE` with text beginning `atomic write published; sync status
-uncertain`; publication has happened but durability is uncertain, so callers
-must inspect state before retrying. Permission failures use
+uncertain` and `err:details().published == true`; publication has happened but
+durability is uncertain, so callers must inspect state before retrying. The
+structured detail lets callers detect this outcome without parsing error text.
+Permission failures use
 `errors.PERMISSION_DENIED`.
 
 The directory filesystem provides this capability on Linux and macOS. It pins

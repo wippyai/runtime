@@ -160,5 +160,6 @@ func TestFSWritefileAtomicPublishedSyncFailureIsUncertain(t *testing.T) {
 	luaErr := requireLuaError(t, l.Get(-1))
 	assert.Equal(t, lua.Unavailable, luaErr.Kind())
 	assert.Contains(t, luaErr.Error(), "atomic write published; sync status uncertain")
+	assert.Equal(t, true, luaErr.Details()["published"])
 	assert.True(t, backend.called)
 }
