@@ -42,8 +42,10 @@ func TestDependencyHandlerPrepareRestoreMaterializesRecordedArtifacts(t *testing
 	sum := sha256.Sum256(artifact)
 	digest := "sha256:" + hex.EncodeToString(sum[:])
 	downloads := 0
+	requests := 0
 	client := &fakeHub{
 		getDownload: func(_ context.Context, params *DownloadParams) (*DownloadInfo, error) {
+			requests++
 			require.Equal(t, "acme", params.Org)
 			require.Equal(t, "worker", params.Module)
 			require.Equal(t, "1.2.3", params.Version)
@@ -83,9 +85,14 @@ func TestDependencyHandlerPrepareRestoreMaterializesRecordedArtifacts(t *testing
 	require.NoError(t, history.SaveWithDependencyResolution(head, nil, resolution, true))
 
 	ctx := moduleapi.WithSourceRegistry(newTestContext(), moduleapi.NewSourceRegistry())
+	offline := regapi.WithDependencyAccess(ctx, regapi.DependencyAccessVerifiedOffline)
+	require.Error(t, handler.PrepareRestore(offline, history), "missing local artifact must refuse offline restore")
+	require.Zero(t, requests, "offline restore must not query the Hub")
+	require.Zero(t, downloads)
 	require.NoError(t, handler.PrepareRestore(ctx, history))
 	require.Equal(t, 1, downloads)
-	require.NoError(t, handler.PrepareRestore(ctx, history))
+	require.NoError(t, handler.PrepareRestore(offline, history))
+	require.Equal(t, 1, requests, "offline restart must reuse the verified artifact")
 	require.Equal(t, 1, downloads, "verified cache must make repeated boot preparation idempotent")
 	sources := moduleapi.GetSourceRegistry(ctx).Snapshot()
 	require.Len(t, sources, 1)
@@ -113,8 +120,10 @@ func TestDependencyHandlerPrepareRestoreKeepsUnrootedSourceLock(t *testing.T) {
 	sum := sha256.Sum256(artifact)
 	digest := "sha256:" + hex.EncodeToString(sum[:])
 	downloads := 0
+	requests := 0
 	client := &fakeHub{
 		getDownload: func(_ context.Context, params *DownloadParams) (*DownloadInfo, error) {
+			requests++
 			require.Equal(t, "1.2.3", params.Version)
 			return &DownloadInfo{URL: "memory://worker", Digest: digest, Size: uint64(len(artifact))}, nil
 		},
@@ -152,7 +161,13 @@ modules:
 	}).Canonical()
 	require.NoError(t, history.SaveWithDependencyResolution(head, nil, resolution, true))
 
+	offline := regapi.WithDependencyAccess(t.Context(), regapi.DependencyAccessVerifiedOffline)
+	require.Error(t, handler.PrepareRestore(offline, history))
+	require.Zero(t, requests, "source checkout restore must honor offline access too")
+	require.Zero(t, downloads)
 	require.NoError(t, handler.PrepareRestore(t.Context(), history))
+	require.NoError(t, handler.PrepareRestore(offline, history))
+	require.Equal(t, 1, requests)
 	require.Equal(t, 1, downloads)
 	require.Nil(t, handler.deployment)
 }
