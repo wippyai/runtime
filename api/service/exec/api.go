@@ -54,7 +54,13 @@ func (m Mount) Validate() error {
 	if !filepath.IsAbs(m.Source) && !path.IsAbs(m.Source) {
 		return fmt.Errorf("%w: source must be absolute", ErrInvalidMount)
 	}
-	if filepath.Clean(m.Source) != m.Source {
+	// The daemon may be on a Unix host even when the client runs on Windows.
+	// Clean Unix absolute paths as Unix paths, not as drive-relative Windows paths.
+	cleanSource := path.Clean(m.Source)
+	if filepath.IsAbs(m.Source) {
+		cleanSource = filepath.Clean(m.Source)
+	}
+	if cleanSource != m.Source {
 		return fmt.Errorf("%w: source must be a clean absolute path", ErrInvalidMount)
 	}
 	if m.Target == "" {

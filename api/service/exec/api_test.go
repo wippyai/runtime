@@ -107,6 +107,9 @@ func TestProcessOptionsCloneDeepCopiesAndValidatesMounts(t *testing.T) {
 }
 
 func TestValidateMountsRejectsMalformedAndDuplicateTargets(t *testing.T) {
+	// A Windows client can submit Unix paths to a remote Linux Docker daemon.
+	require.NoError(t, (Mount{Source: "/host/project", Target: "/workspace"}).Validate())
+	require.NoError(t, (Mount{Source: t.TempDir(), Target: "/workspace"}).Validate())
 	tests := []Mount{
 		{Target: "/workspace"},
 		{Source: "relative", Target: "/workspace"},
