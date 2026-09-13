@@ -627,6 +627,13 @@ type mockPTYProcess struct{ mockProcess }
 
 func (*mockPTYProcess) Resize(int, int) error { return nil }
 
+type mockPTYIdentityProcess struct {
+	*mockPTYProcess
+	pid int
+}
+
+func (p *mockPTYIdentityProcess) Pid() (int, error) { return p.pid, nil }
+
 func TestTakePTYProcessTransfersExclusiveOwnership(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
@@ -643,6 +650,27 @@ func TestTakePTYProcessTransfersExclusiveOwnership(t *testing.T) {
 	}
 	if _, err := takePTYProcess(ud); !errors.Is(err, errPTYOwnership) {
 		t.Fatalf("second transfer error = %v, want %v", err, errPTYOwnership)
+	}
+}
+
+func TestTakePTYProcessRetainsOptionalIdentity(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	handle := &mockPTYIdentityProcess{mockPTYProcess: &mockPTYProcess{}, pid: 42}
+	p := NewProcess(context.Background(), handle)
+	ud := value.PushTypedUserData(l, p, processTypeName)
+
+	got, err := takePTYProcess(ud)
+	if err != nil {
+		t.Fatalf("take PTY process: %v", err)
+	}
+	identity, ok := got.(execapi.ProcessIdentity)
+	if !ok {
+		t.Fatal("transferred PTY process lost its optional process identity")
+	}
+	pid, err := identity.Pid()
+	if err != nil || pid != 42 {
+		t.Fatalf("transferred process identity = (%d, %v), want (42, nil)", pid, err)
 	}
 }
 

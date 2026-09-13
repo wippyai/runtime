@@ -35,3 +35,28 @@ return completion_value
 	require.NoError(t, err)
 	require.False(t, code.HasErrors(diagnostics), "terminal completion select type was lost: %v", diagnostics)
 }
+
+func TestTerminalSessionPIDType(t *testing.T) {
+	config := code.DefaultTypeCheckConfig()
+	config.Enabled = true
+	config.SkipUntyped = false
+	checker := code.NewTypeChecker(config, []*luaapi.ModuleDef{Module})
+	_, diagnostics, err := checker.Check(`
+local exec = require("exec")
+
+local function session_pid(session: exec.TerminalSession): integer
+    local pid, err = session:pid()
+    if err ~= nil then
+        return 0
+    end
+    if pid == nil then
+        return 0
+    end
+    return pid
+end
+
+return session_pid
+`, "terminal_session_pid_types.lua", nil)
+	require.NoError(t, err)
+	require.False(t, code.HasErrors(diagnostics), "terminal session pid type was not exposed: %v", diagnostics)
+}
