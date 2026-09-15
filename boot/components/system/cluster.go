@@ -436,7 +436,7 @@ func Cluster() boot.Component {
 			}
 			if membershipSvc != nil {
 				logger.Info("starting cluster membership service")
-				// Membership can acquire sockets before reporting a join error.
+				// Start can acquire sockets before a later initialization error.
 				membershipActive = true
 				if err := membershipSvc.Start(ctx); err != nil {
 					stopServices()

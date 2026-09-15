@@ -62,3 +62,23 @@ func TestClusterRaftEnabled_RoleComposition(t *testing.T) {
 		})
 	}
 }
+
+func TestRaftBootstrapExpect(t *testing.T) {
+	cases := []struct {
+		section map[string]any
+		name    string
+		want    int
+	}{
+		{name: "local bootstrap default", section: map[string]any{}, want: 1},
+		{name: "joining node default", section: map[string]any{"membership.join_addrs": "127.0.0.1:7946"}, want: 0},
+		{name: "blank seed is local", section: map[string]any{"membership.join_addrs": "  "}, want: 1},
+		{name: "explicit bootstrap wins", section: map[string]any{"membership.join_addrs": "127.0.0.1:7946", "raft.bootstrap_expect": 3}, want: 3},
+		{name: "explicit zero", section: map[string]any{"raft.bootstrap_expect": 0}, want: 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := boot.NewConfig(boot.WithSection(ClusterName, tc.section))
+			require.Equal(t, tc.want, raftBootstrapExpect(cfg.Sub(ClusterName)))
+		})
+	}
+}

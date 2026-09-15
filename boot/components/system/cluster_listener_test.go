@@ -32,7 +32,7 @@ import (
 
 func TestClusterBootPublishesOnlyRetainedListener(t *testing.T) {
 	t.Run("normal_shutdown", func(t *testing.T) { checkClusterBootListener(t, false, nil, false) })
-	t.Run("failed_join_shutdown", func(t *testing.T) { checkClusterBootListener(t, true, nil, false) })
+	t.Run("offline_seed_shutdown", func(t *testing.T) { checkClusterBootListener(t, true, nil, false) })
 }
 
 func TestClusterBootRequiresNativePeerKeySource(t *testing.T) {
@@ -98,25 +98,19 @@ func checkClusterBootListener(t *testing.T, failJoin bool, source any, wantLoadE
 	stop := component.(boot.Stopper)
 	defer stop.Stop(ctx)
 	startErr := component.(boot.Starter).Start(ctx)
-	if failJoin {
-		require.Error(t, startErr)
-	} else {
-		require.NoError(t, startErr)
-	}
+	require.NoError(t, startErr)
 	node := membership.LocalNode()
 	port, err := strconv.Atoi(node.Meta[internode.MetadataPort])
 	require.NoError(t, err)
 	require.Positive(t, port)
 	endpoint := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
-	if !failJoin {
-		probe, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", endpoint)
-		if probe != nil {
-			_ = probe.Close()
-		}
-		require.Error(t, err, "advertised endpoint must remain reserved")
-	}
-	require.NoError(t, stop.Stop(ctx))
 	probe, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", endpoint)
+	if probe != nil {
+		_ = probe.Close()
+	}
+	require.Error(t, err, "advertised endpoint must remain reserved")
+	require.NoError(t, stop.Stop(ctx))
+	probe, err = (&net.ListenConfig{}).Listen(t.Context(), "tcp", endpoint)
 	require.NoError(t, err, "shutdown must release the retained socket")
 	require.NoError(t, probe.Close())
 }

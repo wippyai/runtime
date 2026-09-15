@@ -54,6 +54,16 @@ const raftLivenessLastContactCeiling = 30 * time.Second
 // (cluster.gossip), which has its own staleness window.
 const raftLivenessNonVoterCeiling = 5 * time.Minute
 
+func raftBootstrapExpect(cfg boot.Config) int {
+	if _, configured := cfg.Get(ClusterRaftBootstrapExpect); configured {
+		return cfg.GetInt(ClusterRaftBootstrapExpect, 1)
+	}
+	if strings.TrimSpace(cfg.GetString(ClusterMembershipJoin, "")) != "" {
+		return 0
+	}
+	return 1
+}
+
 // Context keys for raft and global registry components.
 var (
 	raftNodeKey     = &ctxapi.Key{Name: "raft.node"}
@@ -219,7 +229,7 @@ func Raft() boot.Component {
 			// BootstrapCluster with it. Nodes joining a running cluster see
 			// existing peers with raft_status=in and skip bootstrap; the
 			// leader's reconciler adds them via AddVoter.
-			bootstrapExpect = raftCfg.GetInt(ClusterRaftBootstrapExpect, 1)
+			bootstrapExpect = raftBootstrapExpect(raftCfg)
 			rc := raftapi.Config{
 				BootstrapExpect:   bootstrapExpect,
 				SnapshotThreshold: uint64(raftCfg.GetInt(ClusterRaftSnapshotThreshold, 0)),

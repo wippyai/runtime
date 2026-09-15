@@ -6,6 +6,8 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"sync"
@@ -17,6 +19,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/cluster"
 	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/api/metrics"
+	"github.com/wippyai/runtime/internal/telemetrytest"
 	"github.com/wippyai/runtime/system/eventbus"
 	"go.uber.org/zap"
 )
@@ -158,6 +162,69 @@ func TestService_Start_Success(t *testing.T) {
 
 	assert.NotNil(t, service.memberlist)
 	assert.NotNil(t, service.ctx)
+}
+
+func TestService_StartDoesNotWaitForConfiguredSeed(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	recorder := telemetrytest.NewRecorder()
+
+	service := NewService(Config{
+		NodeName:  "offline-joiner",
+		BindAddr:  "127.0.0.1",
+		BindPort:  0,
+		JoinAddrs: []string{"[invalid-seed"},
+	}, eventbus.NewBus(), zap.NewNop(), recorder, nil, nil)
+
+	started := time.Now()
+	startMembershipServiceForTest(ctx, t, "offline joiner", service)
+	// A synchronous join would remain in its retry loop until cancellation.
+	// Leave enough headroom for slow Windows CI listener startup.
+	require.Less(t, time.Since(started), 8*time.Second)
+	require.Len(t, service.memberlist.Members(), 1)
+	time.Sleep(25 * time.Millisecond)
+	stopStarted := time.Now()
+	require.NoError(t, service.Stop())
+	require.Less(t, time.Since(stopStarted), 2*time.Second)
+	atStop := recorder.CounterValue("gossip_join_total", metrics.Labels{"result": "err"})
+	time.Sleep(600 * time.Millisecond)
+	require.Equal(t, atStop, recorder.CounterValue("gossip_join_total", metrics.Labels{"result": "err"}))
+}
+
+func TestService_ConfiguredSeedConvergesAfterOfflineStart(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	var listenConfig net.ListenConfig
+	udp, err := listenConfig.ListenPacket(t.Context(), "udp4", "127.0.0.1:0")
+	require.NoError(t, err)
+	seedPort := udp.LocalAddr().(*net.UDPAddr).Port
+	tcp, err := listenConfig.Listen(t.Context(), "tcp4", fmt.Sprintf("127.0.0.1:%d", seedPort))
+	require.NoError(t, err)
+	require.NoError(t, tcp.Close())
+	require.NoError(t, udp.Close())
+
+	joiner := NewService(Config{
+		NodeName:  "late-seed-joiner",
+		BindAddr:  "127.0.0.1",
+		BindPort:  0,
+		JoinAddrs: []string{fmt.Sprintf("127.0.0.1:%d", seedPort)},
+	}, eventbus.NewBus(), zap.NewNop(), nil, nil, nil)
+	startMembershipServiceForTest(ctx, t, "late-seed joiner", joiner)
+	defer func() { _ = joiner.Stop() }()
+	require.Len(t, joiner.memberlist.Members(), 1)
+
+	seed := NewService(Config{
+		NodeName: "late-seed",
+		BindAddr: "127.0.0.1",
+		BindPort: seedPort,
+	}, eventbus.NewBus(), zap.NewNop(), nil, nil, nil)
+	startMembershipServiceForTest(ctx, t, "late seed", seed)
+	defer func() { _ = seed.Stop() }()
+
+	require.Eventually(t, func() bool {
+		return joiner.memberlist.NumMembers() == 2 && seed.memberlist.NumMembers() == 2
+	}, 5*time.Second, 50*time.Millisecond)
 }
 
 func TestService_Start_WithSecretKey(t *testing.T) {
