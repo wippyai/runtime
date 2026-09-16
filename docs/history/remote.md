@@ -4,15 +4,15 @@ Use `wippy run --set registry.history_type=grpc` to select the remote service. S
 
 History uses the default Wippy credential. Set `WIPPY_TOKEN` or use the credential saved by `wippy auth login`. The runtime uses the same credential selection order as Hub: runtime override, environment, local login, then global login. The History server must authorize that credential for the selected registry.
 
-For Stage, put these settings in `.wippy.yaml`:
+Put these settings in `.wippy.yaml`:
 
 ```yaml
 version: "1.0"
 registry:
   history_type: grpc
-  history_endpoint: history.stage.wippy.ai:443
+  history_endpoint: history.example.com:443
   history_tenant_id: <organization-id>
-  history_environment_id: stage
+  history_environment_id: <environment-id>
   history_registry_id: <registry-id>
 ```
 
