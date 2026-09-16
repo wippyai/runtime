@@ -68,7 +68,13 @@ func Registry() boot.Component {
 				if !enableHistory {
 					hist = historynil.New()
 				} else {
-					historyType := registryCfg.GetString(RegistryHistoryType, "memory")
+					historyType := registryCfg.GetString(RegistryHistoryType, "")
+					if historyType == "" {
+						historyType = "memory"
+						if registryCfg.GetString("history_endpoint", "") != "" {
+							historyType = "grpc"
+						}
+					}
 
 					switch historyType {
 					case "sqlite":

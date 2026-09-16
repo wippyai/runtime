@@ -1,6 +1,6 @@
 # Remote registry history
 
-Use `wippy run --set registry.history_type=grpc` to select the remote service. Set each option with a separate `--set` argument.
+Set `registry.history_endpoint` to use the remote service. Wippy selects gRPC automatically. No `history_type` setting is needed.
 
 History uses the default Wippy credential. Set `WIPPY_TOKEN` or use the credential saved by `wippy auth login`. The runtime uses the same credential selection order as Hub: runtime override, environment, local login, then global login. The History server must authorize that credential for the selected registry.
 
@@ -9,7 +9,6 @@ Put these settings in `.wippy.yaml`:
 ```yaml
 version: "1.0"
 registry:
-  history_type: grpc
   history_endpoint: history.example.com:443
   history_environment_id: <environment-id>
   history_registry_id: <registry-id>

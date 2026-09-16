@@ -102,6 +102,21 @@ func TestRegistryRemoteHistoryRequiresEndpoint(t *testing.T) {
 	require.ErrorContains(t, err, "history endpoint is required")
 }
 
+func TestRegistryRemoteEndpointRequiresCredentials(t *testing.T) {
+	t.Chdir(t.TempDir())
+	t.Setenv(bootauth.EnvToken, "")
+	t.Setenv(bootauth.EnvRegistry, "https://history-endpoint-test.invalid")
+	cfg := boot.NewConfig(boot.WithSection(RegistryName, map[string]any{
+		"history_endpoint": "history.example.com:443",
+	}))
+	ctx, err := bootpkg.NewBootstrapContext(zap.NewNop(), cfg)
+	require.NoError(t, err)
+	loader, err := bootpkg.NewLoader(Artifacts(), Registry())
+	require.NoError(t, err)
+	_, err = loader.Load(ctx)
+	require.ErrorContains(t, err, "history authentication is required")
+}
+
 type emptyRemoteRegistryServer struct {
 	historyv1.UnimplementedHistoryServiceServer
 }
@@ -114,7 +129,7 @@ func (*emptyRemoteRegistryServer) GetVersion(_ context.Context, request *history
 }
 
 func TestRegistryRemoteFirstBoot(t *testing.T) {
-	for _, source := range []string{"file", "environment", "login", "environment-over-login"} {
+	for _, source := range []string{"file", "environment", "login", "environment-over-login", "empty-type"} {
 		t.Run(source, func(t *testing.T) { testRegistryRemoteFirstBoot(t, source) })
 	}
 }
@@ -145,20 +160,24 @@ func testRegistryRemoteFirstBoot(t *testing.T, source string) {
 	tokenFile := filepath.Join(t.TempDir(), "token")
 	require.NoError(t, os.WriteFile(caFile, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certificate.Certificate[0]}), 0600))
 	settings := map[string]any{
-		RegistryEnableHistory: true, RegistryHistoryType: "grpc",
-		"history_endpoint": listener.Addr().String(), "history_ca_file": caFile,
+		RegistryEnableHistory: true,
+		"history_endpoint":    listener.Addr().String(), "history_ca_file": caFile,
 		"history_tenant_id": "test", "history_environment_id": "test", "history_registry_id": "test",
 	}
 	switch source {
 	case "file":
+		settings[RegistryHistoryType] = "grpc"
 		require.NoError(t, os.WriteFile(tokenFile, []byte(token), 0600))
 		settings["history_token_file"] = tokenFile
 		settings["history_replica_id"] = "test"
 		settings["history_timeout"] = time.Second
 		settings["history_poll_interval"] = time.Millisecond
 		t.Setenv(bootauth.EnvToken, "wrong-environment-token")
-	case "environment":
+	case "environment", "empty-type":
 		t.Setenv(bootauth.EnvToken, token)
+		if source == "empty-type" {
+			settings[RegistryHistoryType] = ""
+		}
 	case "login", "environment-over-login":
 		projectDir, err := os.Getwd()
 		require.NoError(t, err)
