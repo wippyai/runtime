@@ -1,6 +1,6 @@
 # Remote registry history
 
-Set `registry.history_endpoint` to use the remote service. Wippy selects gRPC automatically. No `history_type` setting is needed.
+Set `registry.history_registry_id` to use the remote service. Wippy selects gRPC automatically. No `history_type` setting is needed.
 
 History uses the default Wippy credential. Set `WIPPY_TOKEN` or use the credential saved by `wippy auth login`. The runtime uses the same credential selection order as Hub: runtime override, environment, local login, then global login. The History server must authorize that credential for the selected registry.
 
@@ -9,10 +9,10 @@ Put these settings in `.wippy.yaml`:
 ```yaml
 version: "1.0"
 registry:
-  history_endpoint: history.example.com:443
-  history_environment_id: <environment-id>
-  history_registry_id: <registry-id>
+  history_registry_id: my-app
 ```
+
+Wippy uses `WIPPY_REGISTRY` or the default Hub from the saved login. It replaces `hub.` with `history.` and uses port 443 unless the Hub URL has an explicit port. The first domain label after `hub.` supplies the environment name. For example, `https://hub.preview.example.com` selects `history.preview.example.com:443` and environment `preview`. `https://hub.example.com` selects `history.example.com:443` and environment `example`. The Hub URL must use HTTPS. For a different address format, set `history_endpoint` and `history_environment_id` explicitly.
 
 Then run `wippy run`. History uses the organization from the project's `wippy.yaml`. If the project has no organization and the token has access to one organization, History selects it automatically. For several organizations, set `registry.history_organization` to the organization name, such as `my-team`. No organization UUID is required.
 
@@ -22,11 +22,11 @@ A separate History token file and a replica ID are optional.
 
 | Option | Source |
 | --- | --- |
-| `registry.history_endpoint` | Required service address. |
+| `registry.history_endpoint` | Optional service address. Defaults to the History address derived from the selected Hub. |
 | `registry.history_organization` | Optional organization name. Overrides the organization in `wippy.yaml`. |
 | `registry.history_tenant_id` | Optional tenant identity for existing service configurations. Bypasses organization lookup. Cannot be combined with `history_organization`. |
-| `registry.history_environment_id` | Required environment identity. |
-| `registry.history_registry_id` | Required registry identity. |
+| `registry.history_environment_id` | Optional environment name. Defaults to the first domain label after `hub.`. |
+| `registry.history_registry_id` | Required history name. Reuse it to recover the same history. |
 | `registry.history_replica_id` | Optional replica identity. The runtime generates a unique ID for each History connection. |
 | `registry.history_token_file` | Optional credential override. An unreadable or empty file fails without falling back to the default credential. |
 | `registry.history_ca_file` | Service CA file. The system trust store applies when this option is empty. |

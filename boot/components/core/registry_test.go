@@ -92,14 +92,14 @@ func TestRegistryPostgresHistoryRequiresDSN(t *testing.T) {
 	assert.Contains(t, err.Error(), "history DSN is required")
 }
 
-func TestRegistryRemoteHistoryRequiresEndpoint(t *testing.T) {
+func TestRegistryRemoteHistoryRequiresName(t *testing.T) {
 	cfg := boot.NewConfig(boot.WithSection(RegistryName, map[string]any{RegistryEnableHistory: true, RegistryHistoryType: "grpc"}))
 	ctx, err := bootpkg.NewBootstrapContext(zap.NewNop(), cfg)
 	require.NoError(t, err)
 	loader, err := bootpkg.NewLoader(Artifacts(), Registry())
 	require.NoError(t, err)
 	_, err = loader.Load(ctx)
-	require.ErrorContains(t, err, "history endpoint is required")
+	require.ErrorContains(t, err, "history_registry_id is required")
 }
 
 func TestRegistryRemoteEndpointRequiresCredentials(t *testing.T) {
@@ -107,7 +107,9 @@ func TestRegistryRemoteEndpointRequiresCredentials(t *testing.T) {
 	t.Setenv(bootauth.EnvToken, "")
 	t.Setenv(bootauth.EnvRegistry, "https://history-endpoint-test.invalid")
 	cfg := boot.NewConfig(boot.WithSection(RegistryName, map[string]any{
-		"history_endpoint": "history.example.com:443",
+		"history_endpoint":       "history.example.com:443",
+		"history_environment_id": "test",
+		"history_registry_id":    "app",
 	}))
 	ctx, err := bootpkg.NewBootstrapContext(zap.NewNop(), cfg)
 	require.NoError(t, err)
@@ -204,4 +206,19 @@ func testRegistryRemoteFirstBoot(t *testing.T, source string) {
 	require.Zero(t, head.ID())
 	require.NoError(t, regapi.GetRegistry(ctx).LoadState(ctx, nil, head))
 	require.NoError(t, loader.Start(ctx))
+}
+
+func TestRegistryHistoryNameRequiresCredentials(t *testing.T) {
+	t.Chdir(t.TempDir())
+	t.Setenv(bootauth.EnvToken, "")
+	t.Setenv(bootauth.EnvRegistry, "https://hub.history-name-test.invalid")
+	cfg := boot.NewConfig(boot.WithSection(RegistryName, map[string]any{
+		"history_registry_id": "app",
+	}))
+	ctx, err := bootpkg.NewBootstrapContext(zap.NewNop(), cfg)
+	require.NoError(t, err)
+	loader, err := bootpkg.NewLoader(Artifacts(), Registry())
+	require.NoError(t, err)
+	_, err = loader.Load(ctx)
+	require.ErrorContains(t, err, "history authentication is required")
 }

@@ -4,8 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -37,8 +40,8 @@ func historyConnectionConfig(ctx context.Context, cfg boot.Config) (remote.DialC
 		CertFile:   cfg.GetString("history_cert_file", ""),
 		KeyFile:    cfg.GetString("history_key_file", ""),
 	}
-	if dial.Endpoint == "" {
-		return dial, nil
+	if dial.Key.RegistryId == "" {
+		return dial, errors.New("history_registry_id is required")
 	}
 	if dial.Timeout <= 0 {
 		return dial, errors.New("history timeout must be positive")
@@ -47,15 +50,27 @@ func historyConnectionConfig(ctx context.Context, cfg boot.Config) (remote.DialC
 	if dial.Key.TenantId != "" && organization != "" {
 		return dial, errors.New("set history_organization or history_tenant_id, not both")
 	}
-	if dial.TokenFile != "" && dial.Key.TenantId != "" {
-		return dial, nil
-	}
 	projectDir, err := os.Getwd()
 	if err != nil {
 		return dial, fmt.Errorf("resolve history credentials: %w", err)
 	}
 	store := bootauth.NewStore(bootauth.NewConfig(projectDir))
 	registryURL := store.DefaultRegistry()
+	if dial.Endpoint == "" || dial.Key.EnvironmentId == "" {
+		endpoint, environment, err := historyRegistryDefaults(registryURL)
+		if err != nil {
+			return dial, err
+		}
+		if dial.Endpoint == "" {
+			dial.Endpoint = endpoint
+		}
+		if dial.Key.EnvironmentId == "" {
+			dial.Key.EnvironmentId = environment
+		}
+	}
+	if dial.TokenFile != "" && dial.Key.TenantId != "" {
+		return dial, nil
+	}
 	if dial.TokenFile != "" {
 		data, err := os.ReadFile(dial.TokenFile)
 		if err != nil {
@@ -119,4 +134,34 @@ func historyOrganizationID(organizations []bootauth.OrgInfo, name string) (strin
 		return id.String(), nil
 	}
 	return "", fmt.Errorf("organization %q is not available for this Wippy token", name)
+}
+
+func historyRegistryDefaults(registry string) (string, string, error) {
+	registryURL, err := url.Parse(registry)
+	if err != nil || registryURL.Scheme != "https" || registryURL.User != nil || registryURL.RawQuery != "" || registryURL.ForceQuery || registryURL.Fragment != "" || (registryURL.Path != "" && registryURL.Path != "/") {
+		return "", "", errors.New("cannot derive History settings: use an HTTPS Hub URL or set history_endpoint and history_environment_id")
+	}
+	host := strings.ToLower(registryURL.Hostname())
+	domain, ok := strings.CutPrefix(host, "hub.")
+	environment, _, hasDomain := strings.Cut(domain, ".")
+	if !ok || !hasDomain || strings.HasSuffix(registryURL.Host, ":") {
+		return "", "", errors.New("cannot derive History settings: Hub host must start with hub. and include a domain")
+	}
+	for label := range strings.SplitSeq(domain, ".") {
+		if label == "" || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+			return "", "", errors.New("cannot derive History settings: invalid Hub domain")
+		}
+		for _, character := range label {
+			if (character < 'a' || character > 'z') && (character < '0' || character > '9') && character != '-' {
+				return "", "", errors.New("cannot derive History settings: invalid Hub domain")
+			}
+		}
+	}
+	port := registryURL.Port()
+	if port == "" {
+		port = "443"
+	} else if number, err := strconv.Atoi(port); err != nil || number < 1 || number > 65535 {
+		return "", "", errors.New("cannot derive History settings: invalid Hub port")
+	}
+	return net.JoinHostPort("history."+domain, port), environment, nil
 }

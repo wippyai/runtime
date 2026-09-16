@@ -71,7 +71,7 @@ func Registry() boot.Component {
 					historyType := registryCfg.GetString(RegistryHistoryType, "")
 					if historyType == "" {
 						historyType = "memory"
-						if registryCfg.GetString("history_endpoint", "") != "" {
+						if registryCfg.GetString("history_endpoint", "") != "" || registryCfg.GetString("history_registry_id", "") != "" {
 							historyType = "grpc"
 						}
 					}
