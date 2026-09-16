@@ -7,6 +7,7 @@ History uses the default Wippy credential. Set `WIPPY_TOKEN` or use the credenti
 For Stage, put these settings in `.wippy.yaml`:
 
 ```yaml
+version: "1.0"
 registry:
   history_type: grpc
   history_endpoint: history.stage.wippy.ai:443
