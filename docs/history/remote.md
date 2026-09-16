@@ -11,17 +11,21 @@ version: "1.0"
 registry:
   history_type: grpc
   history_endpoint: history.example.com:443
-  history_tenant_id: <organization-id>
   history_environment_id: <environment-id>
   history_registry_id: <registry-id>
 ```
 
-Then run `wippy run`. A separate History token file and a replica ID are optional.
+Then run `wippy run`. History uses the organization from the project's `wippy.yaml`. If the project has no organization and the token has access to one organization, History selects it automatically. For several organizations, set `registry.history_organization` to the organization name, such as `my-team`. No organization UUID is required.
+
+Organization selection uses the current Wippy registry and credential. The token needs permission to list organizations. The History service still checks access for every selected organization. An ambiguous or unavailable organization stops startup. It never selects the first organization from a list.
+
+A separate History token file and a replica ID are optional.
 
 | Option | Source |
 | --- | --- |
 | `registry.history_endpoint` | Required service address. |
-| `registry.history_tenant_id` | Required tenant identity. |
+| `registry.history_organization` | Optional organization name. Overrides the organization in `wippy.yaml`. |
+| `registry.history_tenant_id` | Optional tenant identity for existing service configurations. Bypasses organization lookup. Cannot be combined with `history_organization`. |
 | `registry.history_environment_id` | Required environment identity. |
 | `registry.history_registry_id` | Required registry identity. |
 | `registry.history_replica_id` | Optional replica identity. The runtime generates a unique ID for each History connection. |
