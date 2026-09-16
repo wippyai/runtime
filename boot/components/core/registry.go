@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -21,6 +22,7 @@ import (
 	historyv1 "github.com/wippyai/runtime/api/registry/history/v1"
 	bootpkg "github.com/wippyai/runtime/boot"
 	"github.com/wippyai/runtime/boot/deps/artifact"
+	bootauth "github.com/wippyai/runtime/boot/deps/auth"
 	hubdeps "github.com/wippyai/runtime/boot/deps/hub"
 	"github.com/wippyai/runtime/boot/deps/lock"
 	"github.com/wippyai/runtime/system/registry"
@@ -87,6 +89,19 @@ func Registry() boot.Component {
 						histCloser = sqliteHist
 
 					case "grpc":
+						var token string
+						if registryCfg.GetString("history_token_file", "") == "" && registryCfg.GetString("history_endpoint", "") != "" {
+							projectDir, err := os.Getwd()
+							if err != nil {
+								return nil, fmt.Errorf("resolve history credentials: %w", err)
+							}
+							store := bootauth.NewStore(bootauth.NewConfig(projectDir))
+							credential, err := store.Get("")
+							if err != nil {
+								return nil, errors.New("history authentication is required: set WIPPY_TOKEN or run wippy auth login")
+							}
+							token = credential.Token
+						}
 						remoteHist, err := remote.Dial(ctx, remote.DialConfig{
 							Config: remote.Config{
 								Key: &historyv1.RegistryKey{
@@ -95,11 +110,12 @@ func Registry() boot.Component {
 									RegistryId:    registryCfg.GetString("history_registry_id", ""),
 								},
 								ReplicaID:       registryCfg.GetString("history_replica_id", ""),
-								Timeout:         registryCfg.GetDuration("history_timeout", 0),
-								PollInterval:    registryCfg.GetDuration("history_poll_interval", 0),
+								Timeout:         registryCfg.GetDuration("history_timeout", 15*time.Second),
+								PollInterval:    registryCfg.GetDuration("history_poll_interval", 100*time.Millisecond),
 								MaxMessageBytes: registryCfg.GetInt("history_max_message_bytes", remote.MaxMessageBytes),
 							},
 							Endpoint:   registryCfg.GetString("history_endpoint", ""),
+							Token:      token,
 							TokenFile:  registryCfg.GetString("history_token_file", ""),
 							CAFile:     registryCfg.GetString("history_ca_file", ""),
 							ServerName: registryCfg.GetString("history_server_name", ""),

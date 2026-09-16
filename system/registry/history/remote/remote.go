@@ -57,8 +57,8 @@ type History struct {
 var _ registry.PublishedHistory = (*History)(nil)
 
 func New(connection grpc.ClientConnInterface, cfg Config) (*History, error) {
-	if connection == nil || cfg.Key.GetTenantId() == "" || cfg.Key.GetEnvironmentId() == "" || cfg.Key.GetRegistryId() == "" || cfg.ReplicaID == "" {
-		return nil, errors.New("history connection, registry identity, and replica ID are required")
+	if connection == nil || cfg.Key.GetTenantId() == "" || cfg.Key.GetEnvironmentId() == "" || cfg.Key.GetRegistryId() == "" {
+		return nil, errors.New("history connection and registry identity are required")
 	}
 	if cfg.Timeout <= 0 || cfg.PollInterval <= 0 {
 		return nil, errors.New("history timeout and poll interval must be positive")
@@ -68,6 +68,13 @@ func New(connection grpc.ClientConnInterface, cfg Config) (*History, error) {
 	}
 	if cfg.MaxMessageBytes < 0 {
 		return nil, errors.New("history message size must be positive")
+	}
+	if cfg.ReplicaID == "" {
+		id, err := uuid.NewRandom()
+		if err != nil {
+			return nil, fmt.Errorf("create history replica identity: %w", err)
+		}
+		cfg.ReplicaID = id.String()
 	}
 	return &History{client: historyv1.NewHistoryServiceClient(connection), key: proto.Clone(cfg.Key).(*historyv1.RegistryKey), replicaID: cfg.ReplicaID, timeout: cfg.Timeout, pollInterval: cfg.PollInterval, maxMessageBytes: cfg.MaxMessageBytes}, nil
 }

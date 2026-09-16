@@ -15,14 +15,17 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	authapi "github.com/wippyai/runtime/api/auth"
 	"github.com/wippyai/runtime/api/boot"
 	regapi "github.com/wippyai/runtime/api/registry"
 	historyv1 "github.com/wippyai/runtime/api/registry/history/v1"
 	bootpkg "github.com/wippyai/runtime/boot"
+	bootauth "github.com/wippyai/runtime/boot/deps/auth"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
 
@@ -111,27 +114,63 @@ func (*emptyRemoteRegistryServer) GetVersion(_ context.Context, request *history
 }
 
 func TestRegistryRemoteFirstBoot(t *testing.T) {
+	for _, source := range []string{"file", "environment", "login", "environment-over-login"} {
+		t.Run(source, func(t *testing.T) { testRegistryRemoteFirstBoot(t, source) })
+	}
+}
+
+func testRegistryRemoteFirstBoot(t *testing.T, source string) {
+	t.Helper()
 	t.Chdir(t.TempDir())
+	t.Setenv(bootauth.EnvToken, "")
+	t.Setenv(bootauth.EnvRegistry, "https://history-auth-test.invalid")
+	const token = "wpy_history_test_credential"
 	certificateServer := httptest.NewTLSServer(nil)
 	certificate := certificateServer.TLS.Certificates[0]
 	certificateServer.Close()
 	listenConfig := net.ListenConfig{}
 	listener, err := listenConfig.Listen(t.Context(), "tcp", "127.0.0.1:0")
 	require.NoError(t, err)
-	server := grpc.NewServer(grpc.Creds(credentials.NewTLS(&tls.Config{MinVersion: tls.VersionTLS13, Certificates: []tls.Certificate{certificate}})))
+	server := grpc.NewServer(grpc.Creds(credentials.NewTLS(&tls.Config{MinVersion: tls.VersionTLS13, Certificates: []tls.Certificate{certificate}})), grpc.UnaryInterceptor(func(ctx context.Context, request any, _ *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+		values := metadata.ValueFromIncomingContext(ctx, "authorization")
+		if len(values) != 1 || values[0] != "Bearer "+token {
+			return nil, status.Error(codes.Unauthenticated, "incorrect credential")
+		}
+		return handler(ctx, request)
+	}))
 	historyv1.RegisterHistoryServiceServer(server, &emptyRemoteRegistryServer{})
 	go server.Serve(listener)
 	defer server.Stop()
 	caFile := filepath.Join(t.TempDir(), "ca.pem")
 	tokenFile := filepath.Join(t.TempDir(), "token")
 	require.NoError(t, os.WriteFile(caFile, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certificate.Certificate[0]}), 0600))
-	require.NoError(t, os.WriteFile(tokenFile, []byte("test-token"), 0600))
-	cfg := boot.NewConfig(boot.WithSection(RegistryName, map[string]any{
+	settings := map[string]any{
 		RegistryEnableHistory: true, RegistryHistoryType: "grpc",
-		"history_endpoint": listener.Addr().String(), "history_token_file": tokenFile, "history_ca_file": caFile,
-		"history_tenant_id": "test", "history_environment_id": "test", "history_registry_id": "test", "history_replica_id": "test",
-		"history_timeout": time.Second, "history_poll_interval": time.Millisecond,
-	}))
+		"history_endpoint": listener.Addr().String(), "history_ca_file": caFile,
+		"history_tenant_id": "test", "history_environment_id": "test", "history_registry_id": "test",
+	}
+	switch source {
+	case "file":
+		require.NoError(t, os.WriteFile(tokenFile, []byte(token), 0600))
+		settings["history_token_file"] = tokenFile
+		settings["history_replica_id"] = "test"
+		settings["history_timeout"] = time.Second
+		settings["history_poll_interval"] = time.Millisecond
+		t.Setenv(bootauth.EnvToken, "wrong-environment-token")
+	case "environment":
+		t.Setenv(bootauth.EnvToken, token)
+	case "login", "environment-over-login":
+		projectDir, err := os.Getwd()
+		require.NoError(t, err)
+		store := bootauth.NewStore(bootauth.NewConfig(projectDir))
+		stored := token
+		if source == "environment-over-login" {
+			stored = "wrong-saved-token"
+			t.Setenv(bootauth.EnvToken, token)
+		}
+		require.NoError(t, store.Set(&authapi.Credential{Token: stored, Registry: "https://history-auth-test.invalid"}, false))
+	}
+	cfg := boot.NewConfig(boot.WithSection(RegistryName, settings))
 	ctx, err := bootpkg.NewBootstrapContext(zap.NewNop(), cfg)
 	require.NoError(t, err)
 	component := Registry()

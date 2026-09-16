@@ -15,6 +15,7 @@ import (
 
 type DialConfig struct {
 	Endpoint   string
+	Token      string
 	TokenFile  string
 	CAFile     string
 	ServerName string
@@ -34,16 +35,16 @@ func Dial(ctx context.Context, cfg DialConfig) (*History, error) {
 	if strings.TrimSpace(cfg.Endpoint) == "" {
 		return nil, errors.New("history endpoint is required")
 	}
-	if cfg.TokenFile == "" {
-		return nil, errors.New("history token file is required")
+	credential := strings.TrimSpace(cfg.Token)
+	if cfg.TokenFile != "" {
+		token, err := os.ReadFile(cfg.TokenFile)
+		if err != nil {
+			return nil, fmt.Errorf("read history token: %w", err)
+		}
+		credential = strings.TrimSpace(string(token))
 	}
-	token, err := os.ReadFile(cfg.TokenFile)
-	if err != nil {
-		return nil, fmt.Errorf("read history token: %w", err)
-	}
-	credential := strings.TrimSpace(string(token))
 	if credential == "" {
-		return nil, errors.New("history token is empty")
+		return nil, errors.New("history authentication is required: set WIPPY_TOKEN or run wippy auth login")
 	}
 	tlsConfig := &tls.Config{MinVersion: tls.VersionTLS13, ServerName: cfg.ServerName}
 	if cfg.CAFile != "" {

@@ -2,27 +2,42 @@
 
 Use `wippy run --set registry.history_type=grpc` to select the remote service. Set each option with a separate `--set` argument.
 
+History uses the default Wippy credential. Set `WIPPY_TOKEN` or use the credential saved by `wippy auth login`. The runtime uses the same credential selection order as Hub: runtime override, environment, local login, then global login. The History server must authorize that credential for the selected registry.
+
+For Stage, put these settings in `.wippy.yaml`:
+
+```yaml
+registry:
+  history_type: grpc
+  history_endpoint: history.stage.wippy.ai:443
+  history_tenant_id: <organization-id>
+  history_environment_id: stage
+  history_registry_id: <registry-id>
+```
+
+Then run `wippy run`. A separate History token file and a replica ID are optional.
+
 | Option | Source |
 | --- | --- |
 | `registry.history_endpoint` | Required service address. |
 | `registry.history_tenant_id` | Required tenant identity. |
 | `registry.history_environment_id` | Required environment identity. |
 | `registry.history_registry_id` | Required registry identity. |
-| `registry.history_replica_id` | Required replica identity. |
-| `registry.history_token_file` | Required file with a scoped bearer token. |
+| `registry.history_replica_id` | Optional replica identity. The runtime generates a unique ID for each History connection. |
+| `registry.history_token_file` | Optional credential override. An unreadable or empty file fails without falling back to the default credential. |
 | `registry.history_ca_file` | Service CA file. The system trust store applies when this option is empty. |
 | `registry.history_server_name` | TLS server name. The connection target supplies the name when this option is empty. |
 | `registry.history_cert_file` | Optional client certificate for mutual TLS. |
 | `registry.history_key_file` | Client key. Set this option with the client certificate. |
-| `registry.history_timeout` | Required positive request timeout. Select it from network and failover tests. |
-| `registry.history_poll_interval` | Required positive receipt poll interval. Select it from publication latency and request load tests. |
+| `registry.history_timeout` | Request timeout. The default is 15s. An explicit value must be positive. |
+| `registry.history_poll_interval` | Receipt poll interval. The default is 100ms. An explicit value must be positive. |
 | `registry.history_max_message_bytes` | Message limit. The default is the gRPC Go receive limit. Set it to the measured service limit. |
 
 The gRPC Go receive default is 4 MiB. See the [gRPC Go source](https://github.com/grpc/grpc-go/blob/v1.83.2/clientconn.go). The entry codec uses the same upper limit. MessagePack supplies the decoder depth and initial allocation limits. See the [MessagePack decoder source](https://github.com/hashicorp/go-msgpack/blob/v2.1.5/codec/decode.go). Stream reconnection uses the [gRPC backoff configuration](https://github.com/grpc/grpc-go/blob/v1.83.2/backoff/backoff.go). These library defaults are protocol limits. They are not measured capacity targets.
 
 A registry snapshot must fit in one response. Measure its protobuf size before migration. Configure the client and service to use the same tested limit. The service can store many separate registries. This protocol does not split one snapshot into message chunks.
 
-Use one stable `registry.history_replica_id` for each runtime replica. The service uses this identity for apply reports. Each submission and restore request includes the revision of the applied state. The service rejects the request if the stored revision changed. The runtime returns this response as a conflict. It does not retry the planned change with a newer revision. If a commit result is unknown, retry the same operation. The runtime keeps the same request ID, expected revision, mutations, and resolution. A confirmed write or a successfully applied publication advances the expected revision.
+The generated replica ID stays fixed for the lifetime of the History connection. Set `registry.history_replica_id` when an operator requires the same identity across restarts, such as for an explicit replica acknowledgement list. The service uses this identity for apply reports. Each submission and restore request includes the revision of the applied state. The service rejects the request if the stored revision changed. The runtime returns this response as a conflict. It does not retry the planned change with a newer revision. If a commit result is unknown, retry the same operation. The runtime keeps the same request ID, expected revision, mutations, and resolution. A confirmed write or a successfully applied publication advances the expected revision.
 
 The runtime confirms local application only after the service publishes a version. A stored receipt can remain pending while Temporal is unavailable. A conflict or rejected graph leaves the last applied version active. The client resolves a lost commit response with the original request ID. It retains an unknown request for a retry with the same data.
 

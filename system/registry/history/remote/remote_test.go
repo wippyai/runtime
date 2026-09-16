@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/registry"
 	historyv1 "github.com/wippyai/runtime/api/registry/history/v1"
@@ -52,6 +53,11 @@ func (s *testServer) ReportApplied(context.Context, *historyv1.AppliedRequest) (
 
 func newTestHistory(t testing.TB, server historyv1.HistoryServiceServer) *History {
 	t.Helper()
+	return newTestHistoryWithReplica(t, server, "replica")
+}
+
+func newTestHistoryWithReplica(t testing.TB, server historyv1.HistoryServiceServer, replica string) *History {
+	t.Helper()
 	listener := bufconn.Listen(1024 * 1024)
 	grpcServer := grpc.NewServer()
 	historyv1.RegisterHistoryServiceServer(grpcServer, server)
@@ -60,9 +66,38 @@ func newTestHistory(t testing.TB, server historyv1.HistoryServiceServer) *Histor
 	connection, err := grpc.NewClient("passthrough:///history", grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return listener.Dial() }))
 	require.NoError(t, err)
 	t.Cleanup(func() { connection.Close() })
-	history, err := New(connection, Config{Key: &historyv1.RegistryKey{TenantId: "tenant", EnvironmentId: "stage", RegistryId: "registry"}, ReplicaID: "replica", Timeout: time.Second, PollInterval: time.Millisecond})
+	history, err := New(connection, Config{Key: &historyv1.RegistryKey{TenantId: "tenant", EnvironmentId: "stage", RegistryId: "registry"}, ReplicaID: replica, Timeout: time.Second, PollInterval: time.Millisecond})
 	require.NoError(t, err)
 	return history
+}
+
+type replicaReportServer struct {
+	replicas chan string
+	testServer
+}
+
+func (s *replicaReportServer) ReportApplied(_ context.Context, request *historyv1.AppliedRequest) (*historyv1.Empty, error) {
+	s.replicas <- request.ReplicaId
+	return &historyv1.Empty{}, nil
+}
+
+func TestAutomaticReplicaReportsRemainStableAndDistinct(t *testing.T) {
+	server := &replicaReportServer{replicas: make(chan string, 4)}
+	first := newTestHistoryWithReplica(t, server, "")
+	second := newTestHistoryWithReplica(t, server, "")
+	explicit := newTestHistoryWithReplica(t, server, "operator-replica")
+	for _, history := range []*History{first, second, explicit} {
+		require.NoError(t, history.ReportApplied(t.Context(), &registry.PublishedState{Version: version.New(1)}, nil))
+	}
+	require.NoError(t, first.ReportApplied(t.Context(), &registry.PublishedState{Version: version.New(2)}, nil))
+	firstID, secondID, explicitID, repeatedID := <-server.replicas, <-server.replicas, <-server.replicas, <-server.replicas
+	_, err := uuid.Parse(firstID)
+	require.NoError(t, err)
+	_, err = uuid.Parse(secondID)
+	require.NoError(t, err)
+	require.NotEqual(t, firstID, secondID)
+	require.Equal(t, firstID, repeatedID)
+	require.Equal(t, "operator-replica", explicitID)
 }
 
 func TestLostResponseUsesOriginalReceipt(t *testing.T) {
