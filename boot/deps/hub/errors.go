@@ -4,9 +4,13 @@ package hub
 
 import (
 	"errors"
+	"fmt"
 	"strconv"
 
 	"connectrpc.com/connect"
+
+	"github.com/wippyai/runtime/api/attrs"
+	apierror "github.com/wippyai/runtime/api/error"
 )
 
 var (
@@ -140,4 +144,135 @@ func searchSubstring(s, substr string) bool {
 		}
 	}
 	return false
+}
+
+func NewDependencyEntryInvalidError(entryID, detail, component string) apierror.Error {
+	return apierror.New(apierror.Invalid, "invalid dependency entry").
+		WithDetails(attrs.NewBagFrom(map[string]any{
+			"entry_id":  entryID,
+			"detail":    detail,
+			"component": component,
+		}))
+}
+
+func NewDependencyEntryDecodeError(entryID string, cause error) apierror.Error {
+	return apierror.New(apierror.Invalid, "decode dependency entry").
+		WithDetails(attrs.NewBagFrom(map[string]any{"entry_id": entryID})).
+		WithCause(cause)
+}
+
+func NewDependencyEntryMissingError(entryID string) apierror.Error {
+	return apierror.New(apierror.NotFound, "dependency entry not found").
+		WithDetails(attrs.NewBagFrom(map[string]any{"entry_id": entryID}))
+}
+
+func NewDependencyResolutionError(cause error) apierror.Error {
+	err := apierror.New(apierror.Unavailable, "dependency resolution failed").
+		WithRetryable(apierror.False).
+		WithCause(cause)
+	if cause != nil {
+		err = err.WithDetails(attrs.NewBagFrom(map[string]any{"reason": cause.Error()}))
+	}
+	return err
+}
+
+// NewDependencyOfflineError reports unavailable verified dependency evidence.
+func NewDependencyOfflineError(operation, module string) apierror.Error {
+	details := map[string]any{
+		"operation": operation,
+		"hint":      "run an explicit wippy update/install while online, then retry startup",
+	}
+	if module != "" {
+		details["module"] = module
+	}
+	return apierror.New(apierror.Invalid, "verified dependency evidence is unavailable during offline startup").
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(details))
+}
+
+func NewDependencyResolutionErrors(errs []ResolutionError) apierror.Error {
+	details := make([]map[string]any, 0, len(errs))
+	unauthenticated := false
+	for _, e := range errs {
+		details = append(details, map[string]any{
+			"module":     e.Org + "/" + e.Name,
+			"constraint": e.Constraint,
+			"message":    e.Message,
+		})
+		if errors.Is(e.Err, ErrNotAuthenticated) {
+			unauthenticated = true
+		}
+	}
+
+	summary := formatResolutionErrors(errs)
+	bag := map[string]any{
+		"count":   len(errs),
+		"summary": summary,
+		"errors":  details,
+	}
+	if unauthenticated {
+		bag["hint"] = registryAuthHint
+	}
+
+	message := "dependency resolution failed"
+	if summary != "" {
+		message += ": " + summary
+	}
+
+	return apierror.New(apierror.Conflict, message).
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(bag))
+}
+
+func NewDependencyDownloadError(module string, cause error) apierror.Error {
+	return apierror.New(apierror.Unavailable, "module download failed").
+		WithDetails(attrs.NewBagFrom(map[string]any{"module": module})).
+		WithCause(cause)
+}
+
+func NewDependencyLoadError(path string, cause error) apierror.Error {
+	return apierror.New(apierror.Internal, "load module entries failed").
+		WithDetails(attrs.NewBagFrom(map[string]any{"path": path})).
+		WithCause(cause)
+}
+
+func NewDependencyIntegrityError(module string, cause error, expectedDigest string, expectedSize uint64) apierror.Error {
+	details := map[string]any{"module": module}
+	if expectedDigest != "" {
+		details["expected_digest"] = expectedDigest
+	}
+	if expectedSize > 0 {
+		details["expected_size"] = expectedSize
+	}
+
+	return apierror.New(apierror.Invalid, "downloaded module artifact failed integrity verification").
+		WithDetails(attrs.NewBagFrom(details)).
+		WithCause(cause).
+		WithRetryable(apierror.False)
+}
+
+func NewDependencyPipelineError(cause error) apierror.Error {
+	return apierror.New(apierror.Internal, "dependency pipeline failed").WithCause(cause)
+}
+
+func NewDependencyEntryConflictError(entryID, existingModule, desiredModule string) apierror.Error {
+	msg := fmt.Sprintf("entry %q conflicts: owned by %q, wanted by %q", entryID, existingModule, desiredModule)
+	return apierror.New(apierror.Conflict, msg).
+		WithDetails(attrs.NewBagFrom(map[string]any{
+			"entry_id":        entryID,
+			"existing_module": existingModule,
+			"desired_module":  desiredModule,
+		})).
+		WithRetryable(apierror.False)
+}
+
+func NewDependencyRootConflictError(component, existingEntryID, requestedEntryID string) apierror.Error {
+	msg := fmt.Sprintf("dependency component %q is already installed as %q; update that dependency instead of creating %q", component, existingEntryID, requestedEntryID)
+	return apierror.New(apierror.Conflict, msg).
+		WithDetails(attrs.NewBagFrom(map[string]any{
+			"component":          component,
+			"existing_entry_id":  existingEntryID,
+			"requested_entry_id": requestedEntryID,
+		})).
+		WithRetryable(apierror.False)
 }

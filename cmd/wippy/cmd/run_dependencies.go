@@ -99,7 +99,9 @@ func prepareRunDependencies(
 		}
 	}
 	if resolved == nil || err != nil {
-		resolved, err = resolveRunDependencies(ctx, client, lockObj, roots)
+		// Completing the graph is explicit workspace work, so it may reach the Hub.
+		onlineCtx := regapi.WithDependencyAccess(ctx, regapi.DependencyAccessOnline)
+		resolved, err = resolveRunDependencies(onlineCtx, client, lockObj, roots)
 		if err != nil {
 			return err
 		}

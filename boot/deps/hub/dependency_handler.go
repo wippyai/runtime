@@ -175,8 +175,16 @@ func NewDependencyHandler(opts DependencyHandlerOptions) (*DependencyHandler, er
 // selection remains the stored resolution. The caller's dependency access
 // policy determines whether a missing artifact may be downloaded.
 func (h *DependencyHandler) PrepareRestore(ctx context.Context, history regapi.History) error {
+	if h == nil {
+		return ErrDependencyHandlerNotConfigured
+	}
 	resolutions, ok := history.(regapi.ResolutionHistory)
-	if h == nil || !ok {
+	if !ok {
+		// A history that records no resolutions has no recorded artifacts to
+		// materialize, so startup proceeds on the baseline alone.
+		if h.logger != nil {
+			h.logger.Debug("history records no dependency resolutions, skipping restore")
+		}
 		return nil
 	}
 	configured, err := h.deploymentFromLock()
@@ -1413,12 +1421,12 @@ func (h *DependencyHandler) resolveModules(
 	resolveCtx, cancel := withOptionalTimeout(ctx, h.resolveTimeout)
 	defer cancel()
 
-	provider := ManifestProvider(h.hub)
+	provider := ManifestProvider(h.hubFor(ctx))
 	if h.manifestCache != nil {
 		provider = h.manifestCache
 	}
 	baselineDigests := h.baselineModuleDigests()
-	if regapi.DependencyAccessFromContext(ctx) == regapi.DependencyAccessVerifiedOffline {
+	if offlineStartup(ctx) {
 		provider = newLockedManifestProvider(h, h.offlineModules(resolution))
 	}
 	provider = &replacementManifestProvider{
@@ -1441,7 +1449,7 @@ func (h *DependencyHandler) resolveModules(
 		if h.logger != nil {
 			h.logger.Error("dependency resolution failed", zap.String("errors", formatResolutionErrors(result.Errors)))
 		}
-		if regapi.DependencyAccessFromContext(ctx) == regapi.DependencyAccessVerifiedOffline {
+		if offlineStartup(ctx) {
 			// A replaced module resolves from its local tree, so its failure
 			// is never a missing-evidence failure; the full error set carries
 			// the actual cause.
@@ -1532,7 +1540,7 @@ func (h *DependencyHandler) resolveEffectiveModules(
 	lockedVersions map[string]string,
 	resolution *regapi.DependencyResolution,
 ) ([]ResolvedModule, error) {
-	if regapi.DependencyAccessFromContext(ctx) == regapi.DependencyAccessVerifiedOffline {
+	if offlineStartup(ctx) {
 		if resolved, ok := h.lockedResolution(deps, lockedVersions); ok {
 			if h.logger != nil {
 				h.logger.Debug("using locked dependency resolution",
@@ -1831,9 +1839,9 @@ func (p *replacementManifestProvider) localReplacementVersion(name string) strin
 	return replacementZeroVersion
 }
 
-// offlineStartup reports that this resolution may not reach the Hub at all.
+// offlineStartup reports that this operation may not reach the Hub at all.
 func offlineStartup(ctx context.Context) bool {
-	return regapi.DependencyAccessFromContext(ctx) == regapi.DependencyAccessVerifiedOffline
+	return !regapi.DependencyDownloadsAllowed(ctx)
 }
 
 func isExactModuleVersion(value string) bool {
@@ -2345,7 +2353,7 @@ func (h *DependencyHandler) ensureModuleAvailable(ctx context.Context, mod Resol
 	} else if !errors.Is(statErr, os.ErrNotExist) {
 		return "", NewDependencyDownloadError(modKey(mod), statErr)
 	}
-	if regapi.DependencyAccessFromContext(ctx) == regapi.DependencyAccessVerifiedOffline {
+	if offlineStartup(ctx) {
 		return "", NewDependencyOfflineError("load artifact", modKey(mod))
 	}
 
@@ -2458,7 +2466,7 @@ func (h *DependencyHandler) downloadModuleArtifact(ctx context.Context, mod Reso
 	downloadCtx, cancel := withOptionalTimeout(ctx, h.downloadTimeout)
 	defer cancel()
 
-	downloadErr := h.hub.DownloadToFile(downloadCtx, url, destination)
+	downloadErr := h.hubFor(ctx).DownloadToFile(downloadCtx, url, destination)
 	if downloadErr != nil && !urlIsFresh {
 		// mod.URL is a presigned URL captured at resolve time; on a long-lived
 		// process it can expire (15-min TTL) before download. Fetch a fresh URL
@@ -2475,7 +2483,7 @@ func (h *DependencyHandler) downloadModuleArtifact(ctx context.Context, mod Reso
 			}
 			retryCtx, retryCancel := withOptionalTimeout(ctx, h.downloadTimeout)
 			defer retryCancel()
-			downloadErr = h.hub.DownloadToFile(retryCtx, info.URL, destination)
+			downloadErr = h.hubFor(ctx).DownloadToFile(retryCtx, info.URL, destination)
 		}
 	}
 	if downloadErr != nil {
@@ -2563,13 +2571,13 @@ func validateDownloadInfo(mod ResolvedModule, info *DownloadInfo) error {
 // Used both when the resolved manifest carries no URL and to refresh a URL
 // that expired before the artifact could be downloaded.
 func (h *DependencyHandler) freshDownloadInfo(ctx context.Context, mod ResolvedModule) (*DownloadInfo, error) {
-	if regapi.DependencyAccessFromContext(ctx) == regapi.DependencyAccessVerifiedOffline {
+	if offlineStartup(ctx) {
 		return nil, NewDependencyOfflineError("fetch artifact metadata", modKey(mod))
 	}
 	downloadURLCtx, cancel := withOptionalTimeout(ctx, h.downloadTimeout)
 	defer cancel()
 
-	return h.hub.GetDownloadURL(downloadURLCtx, &DownloadParams{
+	return h.hubFor(ctx).GetDownloadURL(downloadURLCtx, &DownloadParams{
 		Org:     mod.Org,
 		Module:  mod.Name,
 		Version: mod.Version,
@@ -3046,134 +3054,3 @@ var (
 )
 
 const registryAuthHint = "registry authentication required: start the process with WIPPY_TOKEN set, push a token at runtime via hub.auth.authenticate, or run `wippy auth login`"
-
-func NewDependencyEntryInvalidError(entryID, detail, component string) apierror.Error {
-	return apierror.New(apierror.Invalid, "invalid dependency entry").
-		WithDetails(attrs.NewBagFrom(map[string]any{
-			"entry_id":  entryID,
-			"detail":    detail,
-			"component": component,
-		}))
-}
-
-func NewDependencyEntryDecodeError(entryID string, cause error) apierror.Error {
-	return apierror.New(apierror.Invalid, "decode dependency entry").
-		WithDetails(attrs.NewBagFrom(map[string]any{"entry_id": entryID})).
-		WithCause(cause)
-}
-
-func NewDependencyEntryMissingError(entryID string) apierror.Error {
-	return apierror.New(apierror.NotFound, "dependency entry not found").
-		WithDetails(attrs.NewBagFrom(map[string]any{"entry_id": entryID}))
-}
-
-func NewDependencyResolutionError(cause error) apierror.Error {
-	err := apierror.New(apierror.Unavailable, "dependency resolution failed").
-		WithRetryable(apierror.False).
-		WithCause(cause)
-	if cause != nil {
-		err = err.WithDetails(attrs.NewBagFrom(map[string]any{"reason": cause.Error()}))
-	}
-	return err
-}
-
-// NewDependencyOfflineError reports unavailable verified dependency evidence.
-func NewDependencyOfflineError(operation, module string) apierror.Error {
-	details := map[string]any{
-		"operation": operation,
-		"hint":      "run an explicit wippy update/install while online, then retry startup",
-	}
-	if module != "" {
-		details["module"] = module
-	}
-	return apierror.New(apierror.Invalid, "verified dependency evidence is unavailable during offline startup").
-		WithRetryable(apierror.False).
-		WithDetails(attrs.NewBagFrom(details))
-}
-
-func NewDependencyResolutionErrors(errs []ResolutionError) apierror.Error {
-	details := make([]map[string]any, 0, len(errs))
-	unauthenticated := false
-	for _, e := range errs {
-		details = append(details, map[string]any{
-			"module":     e.Org + "/" + e.Name,
-			"constraint": e.Constraint,
-			"message":    e.Message,
-		})
-		if errors.Is(e.Err, ErrNotAuthenticated) {
-			unauthenticated = true
-		}
-	}
-
-	summary := formatResolutionErrors(errs)
-	bag := map[string]any{
-		"count":   len(errs),
-		"summary": summary,
-		"errors":  details,
-	}
-	if unauthenticated {
-		bag["hint"] = registryAuthHint
-	}
-
-	message := "dependency resolution failed"
-	if summary != "" {
-		message += ": " + summary
-	}
-
-	return apierror.New(apierror.Conflict, message).
-		WithRetryable(apierror.False).
-		WithDetails(attrs.NewBagFrom(bag))
-}
-
-func NewDependencyDownloadError(module string, cause error) apierror.Error {
-	return apierror.New(apierror.Unavailable, "module download failed").
-		WithDetails(attrs.NewBagFrom(map[string]any{"module": module})).
-		WithCause(cause)
-}
-
-func NewDependencyLoadError(path string, cause error) apierror.Error {
-	return apierror.New(apierror.Internal, "load module entries failed").
-		WithDetails(attrs.NewBagFrom(map[string]any{"path": path})).
-		WithCause(cause)
-}
-
-func NewDependencyIntegrityError(module string, cause error, expectedDigest string, expectedSize uint64) apierror.Error {
-	details := map[string]any{"module": module}
-	if expectedDigest != "" {
-		details["expected_digest"] = expectedDigest
-	}
-	if expectedSize > 0 {
-		details["expected_size"] = expectedSize
-	}
-
-	return apierror.New(apierror.Invalid, "downloaded module artifact failed integrity verification").
-		WithDetails(attrs.NewBagFrom(details)).
-		WithCause(cause).
-		WithRetryable(apierror.False)
-}
-
-func NewDependencyPipelineError(cause error) apierror.Error {
-	return apierror.New(apierror.Internal, "dependency pipeline failed").WithCause(cause)
-}
-
-func NewDependencyEntryConflictError(entryID, existingModule, desiredModule string) apierror.Error {
-	msg := fmt.Sprintf("entry %q conflicts: owned by %q, wanted by %q", entryID, existingModule, desiredModule)
-	return apierror.New(apierror.Conflict, msg).
-		WithDetails(attrs.NewBagFrom(map[string]any{
-			"entry_id":        entryID,
-			"existing_module": existingModule,
-			"desired_module":  desiredModule,
-		})).
-		WithRetryable(apierror.False)
-}
-
-func NewDependencyRootConflictError(component, existingEntryID, requestedEntryID string) apierror.Error {
-	msg := fmt.Sprintf("dependency component %q is already installed as %q; update that dependency instead of creating %q", component, existingEntryID, requestedEntryID)
-	return apierror.New(apierror.Conflict, msg).
-		WithDetails(attrs.NewBagFrom(map[string]any{
-			"component":          component,
-			"existing_entry_id":  existingEntryID,
-			"requested_entry_id": requestedEntryID,
-		})).
-		WithRetryable(apierror.False)
-}

@@ -162,7 +162,7 @@ func TestLoadStateDefaultsDependencyAccessToVerifiedOffline(t *testing.T) {
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			seen := regapi.DependencyAccessUnspecified
+			seen := regapi.DependencyAccessOnline
 			directive := hardeningDirective{expand: func(ctx context.Context, _ regapi.Operation, _ regapi.State) (regapi.DirectiveResult, error) {
 				seen = regapi.DependencyAccessFromContext(ctx)
 				return regapi.DirectiveResult{}, nil
