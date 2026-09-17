@@ -14,17 +14,19 @@ import (
 	apierror "github.com/wippyai/runtime/api/error"
 )
 
+// Conditions the Hub reports, carrying the kind and retryability a caller needs
+// to decide without parsing a message. Callers match them with errors.Is.
 var (
-	ErrNotAuthenticated  = errors.New("not authenticated")
-	ErrVersionExists     = errors.New("version already exists")
-	ErrInvalidVersion    = errors.New("invalid version format")
-	ErrOrgAccessDenied   = errors.New("organization access denied")
-	ErrModuleNotFound    = errors.New("module not found")
-	ErrDigestMismatch    = errors.New("digest mismatch")
-	ErrUploadExpired     = errors.New("upload URL expired")
-	ErrPublishInProgress = errors.New("publish already in progress")
-	ErrQuotaExceeded     = errors.New("quota exceeded")
-	ErrHubUnavailable    = errors.New("hub unavailable")
+	ErrNotAuthenticated  = apierror.New(apierror.PermissionDenied, "not authenticated").WithRetryable(apierror.False)
+	ErrVersionExists     = apierror.New(apierror.AlreadyExists, "version already exists").WithRetryable(apierror.False)
+	ErrInvalidVersion    = apierror.New(apierror.Invalid, "invalid version format").WithRetryable(apierror.False)
+	ErrOrgAccessDenied   = apierror.New(apierror.PermissionDenied, "organization access denied").WithRetryable(apierror.False)
+	ErrModuleNotFound    = apierror.New(apierror.NotFound, "module not found").WithRetryable(apierror.False)
+	ErrDigestMismatch    = apierror.New(apierror.Invalid, "digest mismatch").WithRetryable(apierror.False)
+	ErrUploadExpired     = apierror.New(apierror.Invalid, "upload URL expired").WithRetryable(apierror.False)
+	ErrPublishInProgress = apierror.New(apierror.Conflict, "publish already in progress").WithRetryable(apierror.False)
+	ErrQuotaExceeded     = apierror.New(apierror.RateLimited, "quota exceeded").WithRetryable(apierror.False)
+	ErrHubUnavailable    = apierror.New(apierror.Unavailable, "hub unavailable").WithRetryable(apierror.True)
 
 	// Causes a replacement fails verification with. They are sentinels so a
 	// caller can match the reason rather than parse a message.
@@ -33,6 +35,11 @@ var (
 	errReplacementDigestMismatch     = errors.New("replacement content digest mismatch")
 	errReplacementSizeMismatch       = errors.New("replacement content size mismatch")
 	errStoredReplacementUnconfigured = errors.New("stored local replacement is not configured")
+)
+
+var (
+	_ apierror.Error = (*UnavailableError)(nil)
+	_ apierror.Error = (*QuotaExceededError)(nil)
 )
 
 type UnavailableError struct {
@@ -65,6 +72,25 @@ func (e *UnavailableError) Unwrap() error {
 	return e.cause
 }
 
+// Kind, Retryable and Details put this error on the same surface as the rest of
+// the package. The type stays because its message varies with Retry-After while
+// it must still match ErrHubUnavailable, and apierror compares kind and message
+// for equality, so a varying message could not match a fixed sentinel.
+func (e *UnavailableError) Kind() apierror.Kind { return apierror.Unavailable }
+
+func (e *UnavailableError) Retryable() apierror.Ternary { return apierror.True }
+
+func (e *UnavailableError) Details() attrs.Attributes {
+	details := map[string]any{}
+	if e.RetryAfter != "" {
+		details["retry_after"] = e.RetryAfter
+	}
+	if e.Detail != "" {
+		details["detail"] = e.Detail
+	}
+	return attrs.NewBagFrom(details)
+}
+
 type QuotaExceededError struct {
 	Reason string
 }
@@ -79,6 +105,20 @@ func (e *QuotaExceededError) Error() string {
 
 func (e *QuotaExceededError) Is(target error) bool {
 	return target == ErrQuotaExceeded
+}
+
+// Kind, Retryable and Details put this error on the same surface as the rest of
+// the package, for the same reason as UnavailableError.
+func (e *QuotaExceededError) Kind() apierror.Kind { return apierror.RateLimited }
+
+func (e *QuotaExceededError) Retryable() apierror.Ternary { return apierror.False }
+
+func (e *QuotaExceededError) Details() attrs.Attributes {
+	details := map[string]any{}
+	if e.Reason != "" {
+		details["reason"] = e.Reason
+	}
+	return attrs.NewBagFrom(details)
 }
 
 func QuotaReason(err error) string {
