@@ -483,11 +483,65 @@ changes:delete({ns = "app.test", name = "example"})
 changes:delete(snapshot:entries())
 ```
 
+#### changes:plan() → table, error
+
+Computes what `apply()` would do without doing it. The registry runs the same
+dependency expansion an apply runs, then releases every staged resource. No
+entry is created, no version advances, no effect is prepared.
+
+A successful plan binds the next `apply()` on the same changeset to exactly
+what was reviewed: if the registry moved or any external input (a Hub artifact,
+a source tree, a filesystem target) changed in between, `apply()` refuses with
+`errors.CONFLICT`. Mutating the changeset after `plan()` drops the binding;
+`apply()` then runs unbound but still fenced on the snapshot version.
+
+`plan()` is authorized exactly like `apply()`: you cannot plan what you could
+not apply.
+
+**Returns:**
+
+- Success: plan table, nil
+- Error: nil, structured error
+
+```lua
+local snap = registry.snapshot()
+local changes = snap:changes()
+changes:create({ id = "app.deps:crm", kind = "ns.dependency",
+                 data = { component = "acme/crm", version = "^2.1" } })
+
+local plan, err = changes:plan()
+-- plan.base        Version the plan was computed against
+-- plan.digest      binds changes, history, resolution and effects
+-- plan.changes     every operation after expansion: { op = "create", entry = {...} }
+-- plan.history     the subset recorded in durable history
+-- plan.resolution  exact module graph: versions, digests, sources
+-- plan.effects     external work: { kind = "hub.artifact", digest = "..." }
+
+-- review plan.changes here; nothing has been installed
+
+local version, err = changes:apply()
+```
+
+**Errors (structured):**
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| Overlay snapshot | errors.INVALID | no |
+| No changes to plan | errors.INVALID | no |
+| Permission denied | errors.PERMISSION_DENIED | no |
+| Snapshot version is no longer current | errors.CONFLICT | yes |
+| Expansion failed | errors.INTERNAL | no |
+
 #### changes:apply() → Version, error
 
 Applies the changeset. A normal snapshot creates a registry version. An overlay
 snapshot changes only its process-local overlay and returns the unchanged
 current durable version.
+
+A durable apply is fenced on the snapshot version: if the registry moved since
+`registry.snapshot()`, it refuses with `errors.CONFLICT` and applies nothing.
+When `plan()` succeeded on this changeset, the apply is also held to the plan
+digest, so what was reviewed is what gets applied.
 
 **Returns:**
 
@@ -500,8 +554,21 @@ current durable version.
 |-----------|------|-----------|
 | No changes to apply | errors.INVALID | no |
 | Permission denied | errors.PERMISSION_DENIED | no |
+| Registry moved since the snapshot | errors.CONFLICT | yes |
+| Plan inputs changed since plan() | errors.CONFLICT | yes |
+| Registry cannot fence an apply | errors.INTERNAL | no |
 | Sort operations failed | errors.INTERNAL | no |
 | Apply changes failed | errors.INTERNAL | no |
+
+**Security:** a durable `plan()` or `apply()` requires
+
+- `registry.apply` (resource `""`)
+- `registry.create.<kind>`, `registry.update.<kind>`, or
+  `registry.delete.<kind>` on each entry ID, where `<kind>` is the entry kind
+  in the snapshot for updates and deletes
+
+One denied operation refuses the whole changeset. This mirrors the overlay
+actions listed under `registry.overlay()`.
 
 ### Version
 

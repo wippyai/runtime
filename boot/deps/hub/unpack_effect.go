@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 
@@ -141,6 +142,31 @@ func (h *DependencyHandler) hasCurrentUnpackedModule(mod ResolvedModule) bool {
 		return false
 	}
 	return verifyExtractedModule(targetDir, mod.Digest, mod.SizeBytes) == nil
+}
+
+// Target measures the module trees this effect activates and the source set
+// they publish. Staging directories are per-run and stay out of it.
+func (e *moduleFilesystemEffect) Target() (regapi.EffectTarget, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	type target struct {
+		Module string `json:"module"`
+		Path   string `json:"path"`
+	}
+	targets := make([]target, len(e.staged))
+	for i, staged := range e.staged {
+		targets[i] = target{Module: staged.module, Path: staged.targetDir}
+	}
+	sort.Slice(targets, func(i, j int) bool {
+		if targets[i].Module != targets[j].Module {
+			return targets[i].Module < targets[j].Module
+		}
+		return targets[i].Path < targets[j].Path
+	})
+	return regapi.NewEffectTarget("hub.module_filesystem", struct {
+		Sources any      `json:"sources,omitempty"`
+		Targets []target `json:"targets"`
+	}{Targets: targets, Sources: e.sources.targetValue()})
 }
 
 func (e *moduleFilesystemEffect) Prepare(ctx context.Context) error {

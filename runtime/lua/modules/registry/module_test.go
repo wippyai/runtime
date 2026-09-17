@@ -635,9 +635,40 @@ type mockRegistry struct {
 	snapshot       regapi.Snapshot
 	entries        map[string]regapi.Entry
 	overlayEntries map[string]regapi.State
+	plannedBase    regapi.Version
+	appliedBase    regapi.Version
+	appliedPlan    *regapi.Plan
 	appliedOwner   string
 	appliedChanges regapi.ChangeSet
 	generation     uint64
+}
+
+// Plan returns the requested operations as the plan, with one synthetic
+// effect target, so Lua tests can observe the plan shape and its binding.
+func (m *mockRegistry) Plan(_ context.Context, base regapi.Version, changes regapi.ChangeSet) (*regapi.Plan, error) {
+	m.plannedBase = base
+	requested := append(regapi.ChangeSet(nil), changes...)
+	return &regapi.Plan{
+		Base:      base,
+		Requested: requested,
+		Changes:   append(regapi.ChangeSet(nil), changes...),
+		History:   append(regapi.ChangeSet(nil), changes...),
+		Effects:   []regapi.EffectTarget{{Kind: "test.effect", Digest: "effect-digest"}},
+		Digest:    "plan-digest-" + base.String(),
+	}, nil
+}
+
+func (m *mockRegistry) ApplyAt(_ context.Context, base regapi.Version, changes regapi.ChangeSet) (regapi.Version, error) {
+	m.appliedBase = base
+	m.appliedChanges = append(regapi.ChangeSet(nil), changes...)
+	return m.currentVersion, nil
+}
+
+func (m *mockRegistry) ApplyPlan(_ context.Context, plan *regapi.Plan) (regapi.Version, error) {
+	m.appliedPlan = plan
+	m.appliedBase = plan.Base
+	m.appliedChanges = append(regapi.ChangeSet(nil), plan.Requested...)
+	return m.currentVersion, nil
 }
 
 func (m *mockRegistry) GetEntry(id regapi.ID) (regapi.Entry, error) {
