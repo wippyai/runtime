@@ -255,6 +255,7 @@ func (s *ServerService) Start(ctx context.Context) (<-chan any, error) {
 	} else {
 		baseHandler = s.routeMgr
 	}
+	listenAddr := ""
 
 	// Wrap handler with per-request FrameContext creation
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -264,7 +265,7 @@ func (s *ServerService) Start(ctx context.Context) (<-chan any, error) {
 
 		// Set all HTTP-specific metadata in FrameContext in one place
 		_ = config.SetServerID(ctx, s.id.String())
-		_ = config.SetServerHost(ctx, s.config.Addr)
+		_ = config.SetServerHost(ctx, listenAddr)
 		_ = fc.Set(config.ServerKey(), s)
 
 		baseHandler.ServeHTTP(w, r.WithContext(ctx))
@@ -287,6 +288,7 @@ func (s *ServerService) Start(ctx context.Context) (<-chan any, error) {
 		s.mu.Unlock()
 		return nil, err
 	}
+	listenAddr = reportedListenAddr(s.config.Addr, ln)
 	s.server = srv
 	s.started.Store(true)
 
@@ -306,7 +308,7 @@ func (s *ServerService) Start(ctx context.Context) (<-chan any, error) {
 		s.started.Store(false)
 	}()
 
-	if err := s.ensureRunning(ctx, probe); err != nil {
+	if err := s.ensureRunning(ctx, probe, listenAddr); err != nil {
 		_ = ln.Close()
 		_ = srv.Close()
 		s.mu.Lock()
@@ -336,7 +338,7 @@ func (s *ServerService) Start(ctx context.Context) (<-chan any, error) {
 	})
 
 	select {
-	case s.statusChan <- fmt.Sprintf("service listening on %s", s.config.Addr):
+	case s.statusChan <- fmt.Sprintf("service listening on %s", listenAddr):
 	default:
 	}
 
@@ -367,9 +369,17 @@ func (s *ServerService) Stop(ctx context.Context) error {
 // services, and the overlay driver when cfg.Network is set.
 type probeFunc func(ctx context.Context, addr string) (net.Conn, error)
 
+func reportedListenAddr(configured string, ln net.Listener) string {
+	_, port, err := net.SplitHostPort(configured)
+	if err == nil && port == "0" {
+		return ln.Addr().String()
+	}
+	return configured
+}
+
 // ensureRunning verifies that the server is listening by dialing itself on
 // the same fabric it bound on.
-func (s *ServerService) ensureRunning(ctx context.Context, probe probeFunc) error {
+func (s *ServerService) ensureRunning(ctx context.Context, probe probeFunc, listenAddr string) error {
 	timeout := time.After(BootTimeout)
 	ticker := time.NewTicker(CheckInterval)
 	defer ticker.Stop()
@@ -382,7 +392,7 @@ func (s *ServerService) ensureRunning(ctx context.Context, probe probeFunc) erro
 			return NewStartupCanceledError(ctx.Err())
 		case <-ticker.C:
 			dialCtx, cancel := context.WithTimeout(ctx, time.Second)
-			conn, err := probe(dialCtx, s.config.Addr)
+			conn, err := probe(dialCtx, listenAddr)
 			cancel()
 			if err == nil {
 				_ = conn.Close()

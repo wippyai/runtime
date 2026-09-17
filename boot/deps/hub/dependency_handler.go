@@ -169,9 +169,11 @@ func NewDependencyHandler(opts DependencyHandlerOptions) (*DependencyHandler, er
 	}, nil
 }
 
-// PrepareRestore materializes the exact module artifacts recorded for the
-// current registry version. Version selection remains the stored resolution;
-// the Hub is used only when a verified artifact is absent locally.
+// PrepareRestore loads the deployment baseline and prefetches immutable artifacts
+// recorded for the current registry version. Historical local replacements are
+// validated during reconciliation against the final declarations. Version
+// selection remains the stored resolution; the Hub is used only when a verified
+// artifact is absent locally.
 func (h *DependencyHandler) PrepareRestore(ctx context.Context, history regapi.History) error {
 	resolutions, ok := history.(regapi.ResolutionHistory)
 	if h == nil || !ok {
@@ -206,14 +208,6 @@ func (h *DependencyHandler) PrepareRestore(ctx context.Context, history regapi.H
 	if err != nil {
 		return err
 	}
-	// A configured workspace replacement is a mutable development source: its
-	// recorded digest is the checkpoint of the run that wrote it, not a durable
-	// artifact identity. Restore re-snapshots every replacement from its current
-	// tree exactly as reconciliation does, so materialization verifies the
-	// generation it is about to load. Hub artifacts keep their recorded digest.
-	if err := h.refreshReplacementModuleIdentities(effective); err != nil {
-		return err
-	}
 	if deployment == nil {
 		// A source checkout has an unrooted lock: its ordinary lock loader has
 		// already published the deployment sources. History may add modules, but
@@ -221,7 +215,7 @@ func (h *DependencyHandler) PrepareRestore(ctx context.Context, history regapi.H
 		if h.lock != nil {
 			h.deployment = nil
 			ctx = regapi.WithDependencyAccess(ctx, regapi.DependencyAccessOnline)
-			return h.materializeRestoreModules(ctx, effective)
+			return h.prepareRecordedArtifacts(ctx, effective)
 		}
 		return fmt.Errorf("persisted deployment baseline is unavailable; start once with its lock file")
 	}
@@ -237,7 +231,7 @@ func (h *DependencyHandler) PrepareRestore(ctx context.Context, history regapi.H
 	if err := h.prepareRestoreSources(ctx, baseline); err != nil {
 		return err
 	}
-	return h.materializeRestoreModules(ctx, effective)
+	return h.prepareRecordedArtifacts(ctx, effective)
 }
 
 func (h *DependencyHandler) deploymentFromLock() (*regapi.Deployment, error) {
