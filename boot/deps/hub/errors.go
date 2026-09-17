@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"connectrpc.com/connect"
 
@@ -24,6 +25,14 @@ var (
 	ErrPublishInProgress = errors.New("publish already in progress")
 	ErrQuotaExceeded     = errors.New("quota exceeded")
 	ErrHubUnavailable    = errors.New("hub unavailable")
+
+	// Causes a replacement fails verification with. They are sentinels so a
+	// caller can match the reason rather than parse a message.
+	errReplacementNotDirectory       = errors.New("replacement path is not a directory")
+	errReplacementChangedWhileLoad   = errors.New("replacement changed while it was being loaded")
+	errReplacementDigestMismatch     = errors.New("replacement content digest mismatch")
+	errReplacementSizeMismatch       = errors.New("replacement content size mismatch")
+	errStoredReplacementUnconfigured = errors.New("stored local replacement is not configured")
 )
 
 type UnavailableError struct {
@@ -147,7 +156,7 @@ func searchSubstring(s, substr string) bool {
 }
 
 func NewDependencyEntryInvalidError(entryID, detail, component string) apierror.Error {
-	return apierror.New(apierror.Invalid, "invalid dependency entry").
+	return apierror.New(apierror.Invalid, "invalid dependency entry: "+detail).
 		WithDetails(attrs.NewBagFrom(map[string]any{
 			"entry_id":  entryID,
 			"detail":    detail,
@@ -275,4 +284,177 @@ func NewDependencyRootConflictError(component, existingEntryID, requestedEntryID
 			"requested_entry_id": requestedEntryID,
 		})).
 		WithRetryable(apierror.False)
+}
+
+// withCauseDetails carries a rich cause's details onto the wrapping error.
+// Nesting one apierror inside another otherwise hides the inner details from
+// errors.As, which stops at the outermost match, so a caller inspecting the
+// error it received would lose the module or path the cause identified.
+func withCauseDetails(details map[string]any, cause error) map[string]any {
+	var rich apierror.Error
+	if !errors.As(cause, &rich) {
+		return details
+	}
+	bag, ok := rich.Details().(attrs.Bag)
+	if !ok {
+		return details
+	}
+	bag.Iterate(func(key string, value any) {
+		if _, taken := details[key]; !taken {
+			details[key] = value
+		}
+	})
+	return details
+}
+
+// NewVersionSelectionError reports a constraint the resolver cannot satisfy.
+// The cause carries the sentinel a caller matches on with errors.Is.
+func NewVersionSelectionError(detail string, cause error, fields map[string]any) apierror.Error {
+	details := map[string]any{"detail": detail}
+	for key, value := range fields {
+		details[key] = value
+	}
+	return apierror.New(apierror.Invalid, detail).
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(withCauseDetails(details, cause))).
+		WithCause(cause)
+}
+
+// NewHubRequestError reports a failed exchange with the Hub service: building,
+// sending, or decoding a request the caller may retry once connectivity holds.
+func NewHubRequestError(operation string, cause error) apierror.Error {
+	return apierror.New(apierror.Unavailable, "hub request failed: "+operation).
+		WithDetails(attrs.NewBagFrom(map[string]any{"operation": operation})).
+		WithCause(cause)
+}
+
+// NewHubResponseError reports a Hub response the client cannot act on.
+func NewHubResponseError(operation string, status int, body string) apierror.Error {
+	return apierror.New(apierror.Unavailable, fmt.Sprintf("hub returned an unusable response: %s %d", operation, status)).
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{
+			"operation": operation,
+			"status":    status,
+			"body":      strings.TrimSpace(body),
+		}))
+}
+
+// NewArtifactIOError reports failed local filesystem work behind the artifact
+// cache, staged module trees, and downloads.
+func NewArtifactIOError(operation, target string, cause error) apierror.Error {
+	details := map[string]any{"operation": operation}
+	subject := operation
+	if target != "" {
+		details["target"] = target
+		subject = operation + " " + target
+	}
+	return apierror.New(apierror.Internal, "artifact storage operation failed: "+subject).
+		WithDetails(attrs.NewBagFrom(withCauseDetails(details, cause))).
+		WithCause(cause)
+}
+
+// NewArtifactPathError reports a path that leaves, or cannot be confined to,
+// the vendor directory it must stay inside.
+func NewArtifactPathError(detail, path string, cause error) apierror.Error {
+	return apierror.New(apierror.Invalid, "artifact path is not usable: "+detail).
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"detail": detail, "path": path})).
+		WithCause(cause)
+}
+
+// NewArtifactContentError reports content that fails its recorded identity,
+// where no module name attributes the failure.
+func NewArtifactContentError(detail string, fields map[string]any) apierror.Error {
+	details := map[string]any{"detail": detail}
+	for key, value := range fields {
+		details[key] = value
+	}
+	return apierror.New(apierror.Invalid, "artifact content failed verification: "+detail).
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(details))
+}
+
+// NewModuleIdentityError reports a module name, version or digest that does not
+// satisfy the form the resolver and cache require.
+func NewModuleIdentityError(detail, module string, fields map[string]any) apierror.Error {
+	details := map[string]any{"detail": detail}
+	if module != "" {
+		details["module"] = module
+	}
+	for key, value := range fields {
+		details[key] = value
+	}
+	return apierror.New(apierror.Invalid, "module identity is invalid: "+detail).
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(details))
+}
+
+// NewModuleTreeError reports a replacement tree holding an entry the digest
+// cannot represent reproducibly.
+func NewModuleTreeError(detail, path string) apierror.Error {
+	return apierror.New(apierror.Invalid, "module tree is not reproducible: "+detail).
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"detail": detail, "path": path}))
+}
+
+// NewStoredResolutionError reports persisted resolution state that no longer
+// describes a graph the handler can rebuild.
+func NewStoredResolutionError(detail string, fields map[string]any) apierror.Error {
+	details := map[string]any{"detail": detail}
+	for key, value := range fields {
+		details[key] = value
+	}
+	message := "stored dependency resolution is invalid"
+	if detail != "" {
+		message += ": " + detail
+	}
+	return apierror.New(apierror.Invalid, message).
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(details))
+}
+
+// NewEffectStateError reports an effect driven out of its lifecycle order.
+func NewEffectStateError(operation string, state int) apierror.Error {
+	return apierror.New(apierror.Internal, fmt.Sprintf("module effect reached an unexpected state: %s in state %d", operation, state)).
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"operation": operation, "state": state}))
+}
+
+// NewClientConfigError reports Hub client options that cannot form a client.
+func NewClientConfigError(detail string, cause error) apierror.Error {
+	return apierror.New(apierror.Invalid, "hub client configuration is invalid: "+detail).
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"detail": detail})).
+		WithCause(cause)
+}
+
+// NewPublishError reports a publish the Hub did not complete.
+func NewPublishError(detail string, fields map[string]any) apierror.Error {
+	details := map[string]any{"detail": detail}
+	for key, value := range fields {
+		details[key] = value
+	}
+	return apierror.New(apierror.Internal, "module publish did not complete: "+detail).
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(details))
+}
+
+// NewRestoreReadError reports history the restore path could not read.
+func NewRestoreReadError(operation string, cause error) apierror.Error {
+	return apierror.New(apierror.Internal, "dependency restore could not read registry history: "+operation).
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"operation": operation})).
+		WithCause(cause)
+}
+
+// NewDeploymentBaselineError reports a deployment baseline that cannot anchor a
+// restore, naming what the operator must do to supply one.
+func NewDeploymentBaselineError(detail, hint string) apierror.Error {
+	details := map[string]any{"detail": detail}
+	if hint != "" {
+		details["hint"] = hint
+	}
+	return apierror.New(apierror.Invalid, "deployment baseline is unusable: "+detail).
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(details))
 }

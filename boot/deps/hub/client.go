@@ -5,7 +5,6 @@ package hub
 import (
 	"context"
 	"crypto/tls"
-	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
@@ -54,12 +53,12 @@ type Options struct {
 
 func NewClient(opts Options) (*Client, error) {
 	if opts.BaseURL == "" {
-		return nil, fmt.Errorf("base URL is required")
+		return nil, NewClientConfigError("base URL is required", nil)
 	}
 
 	u, err := url.Parse(opts.BaseURL)
 	if err != nil {
-		return nil, fmt.Errorf("invalid registry URL: %w", err)
+		return nil, NewClientConfigError("invalid registry URL", err)
 	}
 
 	host := u.Hostname()
@@ -70,7 +69,7 @@ func NewClient(opts Options) (*Client, error) {
 		// HTTP across them is no riskier than localhost.
 		host == "host.docker.internal" || host == "host.containers.internal"
 	if u.Scheme != "https" && !isLocal {
-		return nil, fmt.Errorf("registry must use HTTPS")
+		return nil, NewClientConfigError("registry must use HTTPS", nil)
 	}
 
 	baseURL := strings.TrimSuffix(opts.BaseURL, "/")

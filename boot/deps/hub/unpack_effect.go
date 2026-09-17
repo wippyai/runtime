@@ -42,7 +42,7 @@ func (p *unpackPlan) cleanup() error {
 	var errs []error
 	for _, staged := range p.staged {
 		if err := os.RemoveAll(staged.stagingDir); err != nil {
-			errs = append(errs, fmt.Errorf("remove staged module %s: %w", staged.module, err))
+			errs = append(errs, NewArtifactIOError("remove staged module", staged.module, err))
 		}
 	}
 	p.staged = nil
@@ -151,7 +151,7 @@ func (e *moduleFilesystemEffect) Prepare(ctx context.Context) error {
 		return nil
 	}
 	if e.state != filesystemEffectPlanned {
-		return fmt.Errorf("prepare module filesystem effect in state %d", e.state)
+		return NewEffectStateError("prepare module filesystem effect", int(e.state))
 	}
 
 	ops := e.ops.withDefaults()
@@ -203,7 +203,7 @@ func (e *moduleFilesystemEffect) Commit(context.Context) error {
 		return nil
 	}
 	if e.state != filesystemEffectPrepared {
-		return fmt.Errorf("commit module filesystem effect in state %d", e.state)
+		return NewEffectStateError("commit module filesystem effect", int(e.state))
 	}
 	e.state = filesystemEffectCommitted
 	return nil
@@ -217,7 +217,7 @@ func (e *moduleFilesystemEffect) Rollback(ctx context.Context) error {
 		return nil
 	}
 	if e.state == filesystemEffectFinalized {
-		return fmt.Errorf("rollback finalized module filesystem effect")
+		return NewEffectStateError("rollback finalized module filesystem effect", int(e.state))
 	}
 	ops := e.ops.withDefaults()
 	if e.state == filesystemEffectPlanned {
@@ -266,7 +266,7 @@ func (e *moduleFilesystemEffect) Finalize(context.Context) error {
 		return nil
 	}
 	if e.state != filesystemEffectPrepared && e.state != filesystemEffectCommitted {
-		return fmt.Errorf("finalize module filesystem effect in state %d", e.state)
+		return NewEffectStateError("finalize module filesystem effect", int(e.state))
 	}
 	var errs []error
 	remaining := make([]activatedModuleDirectory, 0, len(e.activated))
@@ -276,7 +276,7 @@ func (e *moduleFilesystemEffect) Finalize(context.Context) error {
 			continue
 		}
 		if err := ops.removeAll(activated.backupDir); err != nil {
-			errs = append(errs, fmt.Errorf("remove module backup %s: %w", activated.module, err))
+			errs = append(errs, NewArtifactIOError("remove module backup", activated.module, err))
 			remaining = append(remaining, activated)
 		}
 	}
@@ -309,36 +309,37 @@ func activateModuleDirectory(staged stagedModuleDirectory, ops moduleFilesystemO
 	activated := activatedModuleDirectory{stagedModuleDirectory: staged}
 	parent := filepath.Dir(staged.targetDir)
 	if filepath.Dir(staged.stagingDir) != parent {
-		return activated, fmt.Errorf("staged module %s is not beside its target", staged.module)
+		detail := fmt.Sprintf("staged module %s is not beside its target", staged.module)
+		return activated, NewArtifactPathError(detail, staged.stagingDir, nil)
 	}
 	if err := os.MkdirAll(parent, 0755); err != nil {
-		return activated, fmt.Errorf("create module parent %s: %w", staged.module, err)
+		return activated, NewArtifactIOError("create module parent", staged.module, err)
 	}
 
 	if _, err := os.Lstat(staged.targetDir); err == nil {
 		backupDir, backupErr := reserveSiblingPath(parent, "."+filepath.Base(staged.targetDir)+".backup-*")
 		if backupErr != nil {
-			return activated, fmt.Errorf("reserve module backup %s: %w", staged.module, backupErr)
+			return activated, NewArtifactIOError("reserve module backup", staged.module, backupErr)
 		}
 		if err := ops.rename(staged.targetDir, backupDir); err != nil {
-			return activated, fmt.Errorf("move active module %s to backup: %w", staged.module, err)
+			return activated, NewArtifactIOError("move active module to backup", staged.module, err)
 		}
 		activated.backupDir = backupDir
 	} else if !errors.Is(err, os.ErrNotExist) {
-		return activated, fmt.Errorf("inspect active module %s: %w", staged.module, err)
+		return activated, NewArtifactIOError("inspect active module", staged.module, err)
 	}
 
 	if err := ops.rename(staged.stagingDir, staged.targetDir); err != nil {
 		if activated.backupDir != "" {
 			if restoreErr := ops.rename(activated.backupDir, staged.targetDir); restoreErr != nil {
 				return activated, errors.Join(
-					fmt.Errorf("activate staged module %s: %w", staged.module, err),
-					fmt.Errorf("restore module %s after activation failure: %w", staged.module, restoreErr),
+					NewArtifactIOError("activate staged module", staged.module, err),
+					NewArtifactIOError("restore module after activation failure", staged.module, restoreErr),
 				)
 			}
 			activated.backupDir = ""
 		}
-		return activated, fmt.Errorf("activate staged module %s: %w", staged.module, err)
+		return activated, NewArtifactIOError("activate staged module", staged.module, err)
 	}
 	return activated, nil
 }
@@ -349,7 +350,7 @@ func restoreModuleDirectory(activated *activatedModuleDirectory, ops moduleFiles
 	}
 	if activated.discardDir != "" && activated.backupDir == "" {
 		if err := ops.removeAll(activated.discardDir); err != nil {
-			return fmt.Errorf("remove rolled-back module %s: %w", activated.module, err)
+			return NewArtifactIOError("remove rolled-back module", activated.module, err)
 		}
 		activated.discardDir = ""
 		return nil
@@ -357,28 +358,28 @@ func restoreModuleDirectory(activated *activatedModuleDirectory, ops moduleFiles
 	if _, err := os.Lstat(activated.targetDir); errors.Is(err, os.ErrNotExist) {
 		if activated.backupDir != "" {
 			if err := ops.rename(activated.backupDir, activated.targetDir); err != nil {
-				return fmt.Errorf("restore missing previous module %s: %w", activated.module, err)
+				return NewArtifactIOError("restore missing previous module", activated.module, err)
 			}
 			activated.backupDir = ""
 		}
 		if activated.discardDir != "" {
 			if err := ops.removeAll(activated.discardDir); err != nil {
-				return fmt.Errorf("remove rolled-back module %s: %w", activated.module, err)
+				return NewArtifactIOError("remove rolled-back module", activated.module, err)
 			}
 			activated.discardDir = ""
 		}
 		return nil
 	} else if err != nil {
-		return fmt.Errorf("inspect active module %s during rollback: %w", activated.module, err)
+		return NewArtifactIOError("inspect active module during rollback", activated.module, err)
 	}
 
 	parent := filepath.Dir(activated.targetDir)
 	discard, err := reserveSiblingPath(parent, "."+filepath.Base(activated.targetDir)+".discard-*")
 	if err != nil {
-		return fmt.Errorf("reserve rollback path for %s: %w", activated.module, err)
+		return NewArtifactIOError("reserve rollback path", activated.module, err)
 	}
 	if err := ops.rename(activated.targetDir, discard); err != nil {
-		return fmt.Errorf("move staged module %s out of service: %w", activated.module, err)
+		return NewArtifactIOError("move staged module out of service", activated.module, err)
 	}
 	activated.discardDir = discard
 
@@ -389,14 +390,14 @@ func restoreModuleDirectory(activated *activatedModuleDirectory, ops moduleFiles
 				activated.discardDir = ""
 			}
 			return errors.Join(
-				fmt.Errorf("restore previous module %s: %w", activated.module, err),
+				NewArtifactIOError("restore previous module", activated.module, err),
 				wrapRollbackRestoreError(activated.module, restoreErr),
 			)
 		}
 		activated.backupDir = ""
 	}
 	if err := ops.removeAll(discard); err != nil {
-		return fmt.Errorf("remove rolled-back module %s: %w", activated.module, err)
+		return NewArtifactIOError("remove rolled-back module", activated.module, err)
 	}
 	activated.discardDir = ""
 	return nil
@@ -406,7 +407,7 @@ func wrapRollbackRestoreError(module string, err error) error {
 	if err == nil {
 		return nil
 	}
-	return fmt.Errorf("put staged module %s back after restore failure: %w", module, err)
+	return NewArtifactIOError("put staged module back after restore failure", module, err)
 }
 
 func reserveSiblingPath(parent, pattern string) (string, error) {
@@ -425,7 +426,7 @@ func cleanupStagedModuleDirectories(staged []stagedModuleDirectory, removeAll fu
 	var errs []error
 	for _, module := range staged {
 		if err := removeAll(module.stagingDir); err != nil {
-			errs = append(errs, fmt.Errorf("remove staged module %s: %w", module.module, err))
+			errs = append(errs, NewArtifactIOError("remove staged module", module.module, err))
 		}
 	}
 	return errors.Join(errs...)

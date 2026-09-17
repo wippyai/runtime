@@ -198,7 +198,7 @@ func (h *DependencyHandler) PrepareRestore(ctx context.Context, history regapi.H
 			h.deployment = configured
 			return nil
 		}
-		return fmt.Errorf("read registry head for dependency restore: %w", err)
+		return NewRestoreReadError("read registry head", err)
 	}
 	resolution, err := resolutions.GetDependencyResolution(head)
 	if errors.Is(err, regapi.ErrDependencyResolutionNotFound) {
@@ -206,7 +206,7 @@ func (h *DependencyHandler) PrepareRestore(ctx context.Context, history regapi.H
 		return nil
 	}
 	if err != nil {
-		return fmt.Errorf("read dependency resolution for restore: %w", err)
+		return NewRestoreReadError("read dependency resolution", err)
 	}
 	deployment := configured
 	if deployment == nil {
@@ -224,7 +224,7 @@ func (h *DependencyHandler) PrepareRestore(ctx context.Context, history regapi.H
 			h.deployment = nil
 			return h.prepareRecordedArtifacts(ctx, effective)
 		}
-		return fmt.Errorf("persisted deployment baseline is unavailable; start once with its lock file")
+		return NewDeploymentBaselineError("persisted deployment baseline is unavailable", "start once with its lock file")
 	}
 	h.deployment = deployment
 	baseline, err := resolvedModulesFromRecords(deployment.Modules)
@@ -255,7 +255,7 @@ func (h *DependencyHandler) deploymentFromLock() (*regapi.Deployment, error) {
 	for _, module := range h.lock.GetModules() {
 		algorithm, digest, err := parseExpectedDigest(module.Hash)
 		if err != nil || algorithm != "sha256" || len(digest) != 64 {
-			return nil, fmt.Errorf("deployment module %s has invalid artifact digest", module.Name)
+			return nil, NewModuleIdentityError("deployment module has invalid artifact digest", module.Name, nil)
 		}
 		deployment.Modules = append(deployment.Modules, regapi.ResolvedModule{
 			Name: module.Name, Version: module.Version, VersionID: module.Version,
@@ -371,10 +371,12 @@ func (h *DependencyHandler) expand(
 	for _, ref := range refDeps {
 		selected, ok := selectedModuleVersion(resolved, ref.definition.Component)
 		if !ok || !storedVersionSatisfies(selected, ref.definition.Version) {
-			return regapi.DirectiveResult{}, NewDependencyResolutionError(fmt.Errorf(
-				"folded dependency reference %s requires %s@%s, selection is %s",
-				ref.entry.ID.String(), ref.definition.Component, ref.definition.Version, selected,
-			))
+			return regapi.DirectiveResult{}, NewStoredResolutionError("folded dependency reference is not satisfied by the selection", map[string]any{
+				"entry_id":  ref.entry.ID.String(),
+				"component": ref.definition.Component,
+				"required":  ref.definition.Version,
+				"selected":  selected,
+			})
 		}
 	}
 
@@ -693,7 +695,7 @@ func (h *DependencyHandler) ReconcileResolution(
 		return regapi.DirectiveResult{}, ErrDependencyHandlerNotConfigured
 	}
 	if resolution == nil || !resolution.Valid() {
-		return regapi.DirectiveResult{}, NewDependencyResolutionError(fmt.Errorf("stored dependency resolution is invalid"))
+		return regapi.DirectiveResult{}, NewStoredResolutionError("", nil)
 	}
 	transcoder := payload.GetTranscoder(ctx)
 	if transcoder == nil {
@@ -761,10 +763,10 @@ func (h *DependencyHandler) ReconcileResolution(
 		}
 		desiredDeps = append(append([]desiredDependency(nil), rootDeps...), refDeps...)
 		if got := dependencyInputDigest(rootDeps); got != resolution.InputDigest {
-			return regapi.DirectiveResult{}, NewDependencyResolutionError(fmt.Errorf(
-				"stored dependency input digest does not match declarations: stored %s, current %s",
-				resolution.InputDigest, got,
-			))
+			return regapi.DirectiveResult{}, NewStoredResolutionError("stored dependency input digest does not match declarations", map[string]any{
+				"stored":  resolution.InputDigest,
+				"current": got,
+			})
 		}
 		resolved, err = resolvedModulesFromStored(resolution)
 		if err != nil {
@@ -774,10 +776,12 @@ func (h *DependencyHandler) ReconcileResolution(
 	for _, root := range desiredDeps {
 		selected, ok := selectedModuleVersion(resolved, root.definition.Component)
 		if !ok || !storedVersionSatisfies(selected, root.definition.Version) {
-			return regapi.DirectiveResult{}, NewDependencyResolutionError(fmt.Errorf(
-				"selected module %s@%s does not satisfy %s declared by %s",
-				root.definition.Component, selected, root.definition.Version, root.entry.ID.String(),
-			))
+			return regapi.DirectiveResult{}, NewStoredResolutionError("selected module does not satisfy its declaration", map[string]any{
+				"component": root.definition.Component,
+				"selected":  selected,
+				"declared":  root.definition.Version,
+				"entry_id":  root.entry.ID.String(),
+			})
 		}
 	}
 	if err := h.refreshReplacementModuleIdentities(resolved); err != nil {
@@ -1063,10 +1067,10 @@ func (h *DependencyHandler) collectResolutionDependencies(
 		}
 	}
 	if len(byID) != len(roots)+len(references) {
-		return nil, nil, NewDependencyResolutionError(fmt.Errorf(
-			"stored dependency root set has %d entries, current declarations have %d",
-			len(roots)+len(references), len(byID),
-		))
+		return nil, nil, NewStoredResolutionError("stored dependency root set does not match current declarations", map[string]any{
+			"stored":  len(roots) + len(references),
+			"current": len(byID),
+		})
 	}
 	deps := make([]desiredDependency, 0, len(roots))
 	seenIDs := make(map[string]struct{}, len(roots)+len(references))
@@ -1074,30 +1078,33 @@ func (h *DependencyHandler) collectResolutionDependencies(
 	for _, root := range roots {
 		rootKey := idKey(regapi.ParseID(root.ID))
 		if rootKey == ":" {
-			return nil, nil, NewDependencyResolutionError(fmt.Errorf("stored dependency root has an empty id"))
+			return nil, nil, NewStoredResolutionError("stored dependency root has an empty id", nil)
 		}
 		if _, duplicate := seenIDs[rootKey]; duplicate {
-			return nil, nil, NewDependencyResolutionError(fmt.Errorf("duplicate stored dependency root %s", root.ID))
+			return nil, nil, NewStoredResolutionError("duplicate stored dependency root", map[string]any{"root_id": root.ID})
 		}
 		seenIDs[rootKey] = struct{}{}
 		entry, ok := byID[rootKey]
 		if !ok {
-			return nil, nil, NewDependencyResolutionError(fmt.Errorf("stored dependency root %s is missing", root.ID))
+			return nil, nil, NewStoredResolutionError("stored dependency root is missing", map[string]any{"root_id": root.ID})
 		}
 		definition, err := decodeDependency(ctx, transcoder, entry)
 		if err != nil {
 			return nil, nil, err
 		}
 		if definition.Component != root.Component || definition.Version != root.Version {
-			return nil, nil, NewDependencyResolutionError(fmt.Errorf(
-				"stored dependency root %s expected %s@%s, got %s@%s",
-				root.ID, root.Component, root.Version, definition.Component, definition.Version,
-			))
+			return nil, nil, NewStoredResolutionError("stored dependency root does not match its entry", map[string]any{
+				"root_id":  root.ID,
+				"expected": root.Component + "@" + root.Version,
+				"got":      definition.Component + "@" + definition.Version,
+			})
 		}
 		if previousID, duplicate := seenComponents[definition.Component]; duplicate {
-			return nil, nil, NewDependencyResolutionError(fmt.Errorf(
-				"duplicate stored dependency component %s in roots %s and %s", definition.Component, previousID, root.ID,
-			))
+			return nil, nil, NewStoredResolutionError("duplicate stored dependency component across roots", map[string]any{
+				"component": definition.Component,
+				"first":     previousID,
+				"second":    root.ID,
+			})
 		}
 		seenComponents[definition.Component] = root.ID
 		deps = append(deps, desiredDependency{entry: entry, definition: definition})
@@ -1106,15 +1113,15 @@ func (h *DependencyHandler) collectResolutionDependencies(
 	for _, reference := range references {
 		refKey := idKey(regapi.ParseID(reference.ID))
 		if refKey == ":" {
-			return nil, nil, NewDependencyResolutionError(fmt.Errorf("stored dependency reference has an empty id"))
+			return nil, nil, NewStoredResolutionError("stored dependency reference has an empty id", nil)
 		}
 		if _, duplicate := seenIDs[refKey]; duplicate {
-			return nil, nil, NewDependencyResolutionError(fmt.Errorf("duplicate stored dependency declaration %s", reference.ID))
+			return nil, nil, NewStoredResolutionError("duplicate stored dependency declaration", map[string]any{"reference_id": reference.ID})
 		}
 		seenIDs[refKey] = struct{}{}
 		entry, ok := byID[refKey]
 		if !ok {
-			return nil, nil, NewDependencyResolutionError(fmt.Errorf("stored dependency reference %s is missing", reference.ID))
+			return nil, nil, NewStoredResolutionError("stored dependency reference is missing", map[string]any{"reference_id": reference.ID})
 		}
 		definition, err := decodeDependency(ctx, transcoder, entry)
 		if err != nil {
@@ -1125,15 +1132,17 @@ func (h *DependencyHandler) collectResolutionDependencies(
 			declared = "*"
 		}
 		if definition.Component != reference.Component || declared != reference.Version {
-			return nil, nil, NewDependencyResolutionError(fmt.Errorf(
-				"stored dependency reference %s expected %s@%s, got %s@%s",
-				reference.ID, reference.Component, reference.Version, definition.Component, declared,
-			))
+			return nil, nil, NewStoredResolutionError("stored dependency reference does not match its entry", map[string]any{
+				"reference_id": reference.ID,
+				"expected":     reference.Component + "@" + reference.Version,
+				"got":          definition.Component + "@" + declared,
+			})
 		}
 		if _, anchored := seenComponents[definition.Component]; !anchored {
-			return nil, nil, NewDependencyResolutionError(fmt.Errorf(
-				"stored dependency reference %s has no root for component %s", reference.ID, definition.Component,
-			))
+			return nil, nil, NewStoredResolutionError("stored dependency reference has no root for its component", map[string]any{
+				"reference_id": reference.ID,
+				"component":    definition.Component,
+			})
 		}
 		refs = append(refs, desiredDependency{entry: entry, definition: definition})
 	}
@@ -1587,20 +1596,20 @@ func (h *DependencyHandler) resolveEffectiveModules(
 
 func validateModuleArtifactIdentity(name graph.Name, version, digest string) error {
 	if !validModuleIdentifier(name.Organization) || !validModuleIdentifier(name.Module) {
-		return fmt.Errorf("invalid module name %q: organization and module must be lowercase alphanumeric with hyphens", name.String())
+		return NewModuleIdentityError(fmt.Sprintf("invalid module name %q: organization and module must be lowercase alphanumeric with hyphens", name.String()), name.String(), nil)
 	}
 	if _, err := hubsemver.ParseVersion(strings.TrimSpace(version)); err != nil {
-		return fmt.Errorf("invalid exact module version %q for %s", version, name.String())
+		return NewModuleIdentityError("module version is not an exact release", name.String(), map[string]any{"version": version})
 	}
 	if digest == "" {
 		return nil // Older hubs and local replacements did not always provide one.
 	}
 	algorithm, value, err := parseExpectedDigest(digest)
 	if err != nil || algorithm != "sha256" || len(value) != sha256.Size*2 {
-		return fmt.Errorf("invalid sha256 digest for %s@%s", name.String(), version)
+		return NewModuleIdentityError(fmt.Sprintf("invalid sha256 digest for %s@%s", name.String(), version), name.String(), map[string]any{"version": version})
 	}
 	if _, err := hex.DecodeString(value); err != nil {
-		return fmt.Errorf("invalid sha256 digest for %s@%s", name.String(), version)
+		return NewModuleIdentityError(fmt.Sprintf("invalid sha256 digest for %s@%s", name.String(), version), name.String(), map[string]any{"version": version})
 	}
 	return nil
 }
@@ -1610,20 +1619,20 @@ func validateStoredModuleArtifactIdentity(name graph.Name, version, source, dige
 		return err
 	}
 	if digest == "" {
-		return fmt.Errorf("stored module %s@%s has no content digest", name.String(), version)
+		return NewModuleIdentityError("stored module has no content digest", name.String(), map[string]any{"version": version})
 	}
 	algorithm, value, err := parseExpectedDigest(digest)
 	wantAlgorithm := "sha256"
 	if source == moduleSourceReplacementTreeV1 {
 		wantAlgorithm = "sha256-tree-v1"
 	} else if source != "" && source != moduleSourceHub {
-		return fmt.Errorf("stored module %s@%s has unsupported source %q", name.String(), version, source)
+		return NewModuleIdentityError("stored module has an unsupported source", name.String(), map[string]any{"version": version, "source": source})
 	}
 	if err != nil || algorithm != wantAlgorithm || len(value) != sha256.Size*2 {
-		return fmt.Errorf("invalid %s digest for %s@%s", wantAlgorithm, name.String(), version)
+		return NewModuleIdentityError(fmt.Sprintf("invalid %s digest for %s@%s", wantAlgorithm, name.String(), version), name.String(), map[string]any{"version": version, "algorithm": wantAlgorithm})
 	}
 	if _, err := hex.DecodeString(value); err != nil {
-		return fmt.Errorf("invalid %s digest for %s@%s", wantAlgorithm, name.String(), version)
+		return NewModuleIdentityError(fmt.Sprintf("invalid %s digest for %s@%s", wantAlgorithm, name.String(), version), name.String(), map[string]any{"version": version, "algorithm": wantAlgorithm})
 	}
 	return nil
 }
@@ -1766,7 +1775,7 @@ func artifactIdentityFromPath(path string) (string, uint64, error) {
 			return "", 0, err
 		}
 		if meta.Digest == "" {
-			return "", 0, fmt.Errorf("extracted module has no content digest")
+			return "", 0, NewArtifactContentError("extracted module has no content digest", nil)
 		}
 		return meta.Digest, meta.Size, nil
 	}
@@ -1910,7 +1919,7 @@ func loadReplacementEntries(
 		return nil, NewDependencyLoadError(path, err)
 	}
 	if !stat.IsDir() {
-		return nil, NewDependencyLoadError(path, fmt.Errorf("replacement path is not a directory"))
+		return nil, NewDependencyLoadError(path, errReplacementNotDirectory)
 	}
 
 	cfg, _ := depconfig.Load(path)
@@ -2151,7 +2160,7 @@ func (h *DependencyHandler) loadEntriesForModulePlan(ctx context.Context, transc
 			return nil, nil, NewDependencyIntegrityError(modKey(mod), digestErr, mod.Digest, mod.SizeBytes)
 		}
 		if !strings.EqualFold(digest, mod.Digest) || (mod.SizeBytes > 0 && size != mod.SizeBytes) {
-			return nil, nil, NewDependencyIntegrityError(modKey(mod), fmt.Errorf("replacement changed while it was being loaded"), mod.Digest, mod.SizeBytes)
+			return nil, nil, NewDependencyIntegrityError(modKey(mod), errReplacementChangedWhileLoad, mod.Digest, mod.SizeBytes)
 		}
 	}
 	return entries, staged, nil
@@ -2272,22 +2281,22 @@ func (h *DependencyHandler) ensureModuleAvailable(ctx context.Context, mod Resol
 			return "", NewDependencyLoadError(replacementPath, err)
 		}
 		if !stat.IsDir() {
-			return "", NewDependencyLoadError(replacementPath, fmt.Errorf("replacement path is not a directory"))
+			return "", NewDependencyLoadError(replacementPath, errReplacementNotDirectory)
 		}
 		digest, size, err := digestReplacementTree(replacementPath)
 		if err != nil {
 			return "", NewDependencyIntegrityError(modKey(mod), err, mod.Digest, mod.SizeBytes)
 		}
 		if mod.Digest != "" && !strings.EqualFold(mod.Digest, digest) {
-			return "", NewDependencyIntegrityError(modKey(mod), fmt.Errorf("replacement content digest mismatch"), mod.Digest, mod.SizeBytes)
+			return "", NewDependencyIntegrityError(modKey(mod), errReplacementDigestMismatch, mod.Digest, mod.SizeBytes)
 		}
 		if mod.SizeBytes > 0 && mod.SizeBytes != size {
-			return "", NewDependencyIntegrityError(modKey(mod), fmt.Errorf("replacement content size mismatch"), mod.Digest, mod.SizeBytes)
+			return "", NewDependencyIntegrityError(modKey(mod), errReplacementSizeMismatch, mod.Digest, mod.SizeBytes)
 		}
 		return replacementPath, nil
 	}
 	if mod.Source == moduleSourceReplacementTreeV1 {
-		return "", NewDependencyLoadError(moduleName, fmt.Errorf("stored local replacement is not configured"))
+		return "", NewDependencyLoadError(moduleName, errStoredReplacementUnconfigured)
 	}
 
 	expectedDigest, expectedSize := mod.Digest, mod.SizeBytes
@@ -2509,19 +2518,19 @@ func (h *DependencyHandler) downloadModuleArtifact(ctx context.Context, mod Reso
 
 func containedPath(root, relative string) (string, error) {
 	if filepath.IsAbs(relative) {
-		return "", fmt.Errorf("artifact path %q is absolute", relative)
+		return "", NewArtifactPathError(fmt.Sprintf("artifact path %q is absolute", relative), relative, nil)
 	}
 	rootAbs, err := filepath.Abs(root)
 	if err != nil {
-		return "", fmt.Errorf("resolve vendor directory: %w", err)
+		return "", NewArtifactIOError("resolve vendor directory", root, err)
 	}
 	targetAbs, err := filepath.Abs(filepath.Join(rootAbs, relative))
 	if err != nil {
-		return "", fmt.Errorf("resolve artifact path: %w", err)
+		return "", NewArtifactIOError("resolve artifact path", relative, err)
 	}
 	rel, err := filepath.Rel(rootAbs, targetAbs)
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("artifact path %q escapes vendor directory", relative)
+		return "", NewArtifactPathError(fmt.Sprintf("artifact path %q escapes vendor directory", relative), relative, nil)
 	}
 	cursor := rootAbs
 	for _, component := range strings.Split(rel, string(filepath.Separator)) {
@@ -2534,10 +2543,10 @@ func containedPath(root, relative string) (string, error) {
 			break
 		}
 		if statErr != nil {
-			return "", fmt.Errorf("inspect artifact path %q: %w", relative, statErr)
+			return "", NewArtifactIOError("inspect artifact path", relative, statErr)
 		}
 		if info.Mode()&os.ModeSymlink != 0 {
-			return "", fmt.Errorf("artifact path %q traverses symlink %q", relative, cursor)
+			return "", NewArtifactPathError(fmt.Sprintf("artifact path %q traverses symlink %q", relative, cursor), relative, nil)
 		}
 	}
 	return targetAbs, nil
@@ -2551,18 +2560,18 @@ func validateDownloadInfo(mod ResolvedModule, info *DownloadInfo) error {
 		got := strings.TrimPrefix(strings.TrimSpace(info.Version), "v")
 		want := strings.TrimPrefix(strings.TrimSpace(mod.Version), "v")
 		if got != want {
-			return fmt.Errorf("download version mismatch: expected %s, got %s", mod.Version, info.Version)
+			return NewArtifactContentError(fmt.Sprintf("download version mismatch: expected %s, got %s", mod.Version, info.Version), map[string]any{"expected": mod.Version, "got": info.Version})
 		}
 	}
 	if mod.Digest != "" && info.Digest != "" {
 		wantAlgorithm, want, wantErr := parseExpectedDigest(mod.Digest)
 		gotAlgorithm, got, gotErr := parseExpectedDigest(info.Digest)
 		if wantErr != nil || gotErr != nil || wantAlgorithm != gotAlgorithm || !strings.EqualFold(want, got) {
-			return fmt.Errorf("download digest mismatch: expected %s, got %s", mod.Digest, info.Digest)
+			return NewArtifactContentError(fmt.Sprintf("download digest mismatch: expected %s, got %s", mod.Digest, info.Digest), map[string]any{"expected": mod.Digest, "got": info.Digest})
 		}
 	}
 	if mod.SizeBytes > 0 && info.Size > 0 && mod.SizeBytes != info.Size {
-		return fmt.Errorf("download size mismatch: expected %d bytes, got %d bytes", mod.SizeBytes, info.Size)
+		return NewArtifactContentError(fmt.Sprintf("download size mismatch: expected %d bytes, got %d bytes", mod.SizeBytes, info.Size), map[string]any{"expected_bytes": mod.SizeBytes, "got_bytes": info.Size})
 	}
 	return nil
 }
@@ -2696,7 +2705,7 @@ func VerifyDownloadedArtifact(path, expectedDigest string, expectedSize uint64) 
 		return err
 	}
 	if expectedSize > 0 && uint64(info.Size()) != expectedSize {
-		return fmt.Errorf("size mismatch: expected %d bytes, got %d bytes", expectedSize, info.Size())
+		return NewArtifactContentError(fmt.Sprintf("size mismatch: expected %d bytes, got %d bytes", expectedSize, info.Size()), map[string]any{"expected_bytes": expectedSize, "got_bytes": info.Size()})
 	}
 	if expectedDigest == "" {
 		return nil
@@ -2707,7 +2716,7 @@ func VerifyDownloadedArtifact(path, expectedDigest string, expectedSize uint64) 
 		return err
 	}
 	if alg != "sha256" {
-		return fmt.Errorf("unsupported digest algorithm %q", alg)
+		return NewArtifactContentError(fmt.Sprintf("unsupported digest algorithm %q", alg), map[string]any{"algorithm": alg})
 	}
 
 	gotDigest, err := sha256FileHex(path)
@@ -2715,7 +2724,7 @@ func VerifyDownloadedArtifact(path, expectedDigest string, expectedSize uint64) 
 		return err
 	}
 	if !strings.EqualFold(gotDigest, wantDigest) {
-		return fmt.Errorf("digest mismatch: expected %s, got sha256:%s", expectedDigest, gotDigest)
+		return NewArtifactContentError(fmt.Sprintf("digest mismatch: expected %s, got sha256:%s", expectedDigest, gotDigest), map[string]any{"expected": expectedDigest, "got": "sha256:" + gotDigest})
 	}
 	return nil
 }
@@ -2736,11 +2745,11 @@ func writeExtractedModuleMeta(dirPath, digest string, size uint64) error {
 	}
 	treeDigest, _, err := digestDirectoryTree(dirPath)
 	if err != nil {
-		return fmt.Errorf("hash extracted module: %w", err)
+		return NewArtifactIOError("hash extracted module", "", err)
 	}
 	data, err := yaml.Marshal(extractedModuleMetadata{Digest: digest, Size: size, TreeDigest: treeDigest})
 	if err != nil {
-		return fmt.Errorf("marshal extracted module metadata: %w", err)
+		return NewArtifactIOError("marshal extracted module metadata", "", err)
 	}
 	return os.WriteFile(filepath.Join(dirPath, extractedModuleMeta), data, 0600)
 }
@@ -2755,23 +2764,23 @@ func verifyExtractedModule(dirPath, expectedDigest string, expectedSize uint64) 
 	}
 	var meta extractedModuleMetadata
 	if err := yaml.Unmarshal(data, &meta); err != nil {
-		return fmt.Errorf("read extracted module metadata: %w", err)
+		return NewArtifactIOError("read extracted module metadata", "", err)
 	}
 	if expectedDigest != "" && !strings.EqualFold(meta.Digest, expectedDigest) {
-		return fmt.Errorf("digest mismatch: expected %s, got %s", expectedDigest, meta.Digest)
+		return NewArtifactContentError(fmt.Sprintf("digest mismatch: expected %s, got %s", expectedDigest, meta.Digest), map[string]any{"expected": expectedDigest, "got": meta.Digest})
 	}
 	if expectedSize > 0 && meta.Size != expectedSize {
-		return fmt.Errorf("size mismatch: expected %d bytes, got %d bytes", expectedSize, meta.Size)
+		return NewArtifactContentError(fmt.Sprintf("size mismatch: expected %d bytes, got %d bytes", expectedSize, meta.Size), map[string]any{"expected_bytes": expectedSize, "got_bytes": meta.Size})
 	}
 	if meta.TreeDigest == "" {
-		return fmt.Errorf("extracted module has no tree digest")
+		return NewArtifactContentError("extracted module has no tree digest", nil)
 	}
 	treeDigest, _, err := digestDirectoryTree(dirPath)
 	if err != nil {
-		return fmt.Errorf("hash extracted module: %w", err)
+		return NewArtifactIOError("hash extracted module", "", err)
 	}
 	if !strings.EqualFold(meta.TreeDigest, treeDigest) {
-		return fmt.Errorf("extracted module tree digest mismatch: expected %s, got %s", meta.TreeDigest, treeDigest)
+		return NewArtifactContentError(fmt.Sprintf("extracted module tree digest mismatch: expected %s, got %s", meta.TreeDigest, treeDigest), map[string]any{"expected": meta.TreeDigest, "got": treeDigest})
 	}
 	return nil
 }
@@ -2779,7 +2788,7 @@ func verifyExtractedModule(dirPath, expectedDigest string, expectedSize uint64) 
 func parseExpectedDigest(raw string) (algorithm string, value string, err error) {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {
-		return "", "", fmt.Errorf("empty digest")
+		return "", "", NewArtifactContentError("digest is empty", nil)
 	}
 	if !strings.Contains(trimmed, ":") {
 		return "sha256", trimmed, nil
@@ -2789,7 +2798,7 @@ func parseExpectedDigest(raw string) (algorithm string, value string, err error)
 	algorithm = strings.ToLower(strings.TrimSpace(parts[0]))
 	value = strings.TrimSpace(parts[1])
 	if algorithm == "" || value == "" {
-		return "", "", fmt.Errorf("invalid digest format %q", raw)
+		return "", "", NewArtifactContentError("digest format is invalid", map[string]any{"digest": raw})
 	}
 	return algorithm, value, nil
 }

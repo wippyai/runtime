@@ -4,7 +4,6 @@ package hub
 
 import (
 	"context"
-	"fmt"
 	"path/filepath"
 
 	moduleapi "github.com/wippyai/runtime/api/modules"
@@ -17,11 +16,11 @@ func (h *DependencyHandler) prepareRestoreSources(ctx context.Context, modules [
 	for index, module := range modules {
 		path, err := h.ensureModuleAvailable(ctx, module)
 		if err != nil {
-			return fmt.Errorf("materialize recorded module %s: %w", modKey(module), err)
+			return NewArtifactIOError("materialize recorded module", modKey(module), err)
 		}
 		absolutePath, err := filepath.Abs(path)
 		if err != nil {
-			return fmt.Errorf("resolve recorded module %s: %w", modKey(module), err)
+			return NewArtifactIOError("resolve recorded module", modKey(module), err)
 		}
 		name := module.Org + "/" + module.Name
 		source := moduleapi.Source{
@@ -58,7 +57,7 @@ func (h *DependencyHandler) prepareRecordedArtifacts(ctx context.Context, module
 			continue
 		}
 		if _, err := h.ensureModuleAvailable(ctx, module); err != nil {
-			return fmt.Errorf("materialize recorded module %s: %w", modKey(module), err)
+			return NewArtifactIOError("materialize recorded module", modKey(module), err)
 		}
 	}
 	return nil
