@@ -473,12 +473,12 @@ func (br *BusRunner) applyOperation(
 	if ctx.Err() != nil {
 		return state, NewOperationCanceledError(op.Entry.ID, op.Entry.Kind, ctx.Err())
 	}
-	br.log.Error("event handler timeout - no listener responded",
+	br.log.Error("event handler timeout - no accept or reject arrived",
 		zap.String("id", op.Entry.ID.String()),
 		zap.String("kind", op.Entry.Kind),
 		zap.String("operation", op.Kind),
 		zap.Duration("timeout", br.waitTimeout),
-		zap.String("hint", "check if a listener is registered for this entry kind"))
+		zap.String("hint", "either no listener is registered for this entry kind, or its handler is still working (compiling or analyzing an entry can outlast this wait)"))
 	return state, NewEventHandlerTimeoutError(br.waitTimeout, op.Entry.ID, op.Entry.Kind)
 }
 
