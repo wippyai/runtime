@@ -37,7 +37,7 @@ func newCRDTGossipNode(ctx context.Context, t *testing.T, name string, join ...s
 }
 
 func (n *crdtNode) addr() string {
-	ln := n.m.memberlist.LocalNode()
+	ln := n.m.memberlist.Load().LocalNode()
 	return fmt.Sprintf("%s:%d", ln.Addr, ln.Port)
 }
 
@@ -75,7 +75,7 @@ func TestCRDTGossip_ConvergesOverRealMemberlist(t *testing.T) {
 
 	// Wait for 2-node membership.
 	deadline := time.Now().Add(15 * time.Second)
-	for time.Now().Before(deadline) && (a.m.memberlist.NumMembers() < 2 || b.m.memberlist.NumMembers() < 2) {
+	for time.Now().Before(deadline) && (a.m.memberlist.Load().NumMembers() < 2 || b.m.memberlist.Load().NumMembers() < 2) {
 		time.Sleep(50 * time.Millisecond)
 	}
 
