@@ -97,10 +97,10 @@ func Run(ctx context.Context, options Options, args []string) error {
 		if options.DefaultStateDir != nil {
 			selected, err := options.DefaultStateDir()
 			if err != nil {
-				return fmt.Errorf("resolve application state directory: %w", err)
+				return NewDefaultStateResolveError(err)
 			}
 			if selected == "" {
-				return fmt.Errorf("application default state directory is empty")
+				return ErrEmptyDefaultState
 			}
 			*state = selected
 		} else {

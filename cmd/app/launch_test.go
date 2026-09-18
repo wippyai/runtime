@@ -12,6 +12,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/boot"
+	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/cmd/internal/bootconfig"
 )
 
@@ -82,12 +83,15 @@ func TestExplicitStateBypassesExecutableDefault(t *testing.T) {
 }
 
 func TestInvalidExecutableDefaultRefusesBeforeLaunch(t *testing.T) {
+	unavailable := errors.New("unavailable")
 	for _, test := range []struct {
 		resolve func() (string, error)
+		cause   error
 		name    string
+		kind    apierror.Kind
 	}{
-		{name: "empty", resolve: func() (string, error) { return "", nil }},
-		{name: "failure", resolve: func() (string, error) { return "", errors.New("unavailable") }},
+		{name: "empty", resolve: func() (string, error) { return "", nil }, kind: apierror.Invalid},
+		{name: "failure", resolve: func() (string, error) { return "", unavailable }, kind: apierror.Internal, cause: unavailable},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			options := launchOptions(func(context.Context, LaunchRequest, func(OwnerOptions) error) error {
@@ -95,7 +99,13 @@ func TestInvalidExecutableDefaultRefusesBeforeLaunch(t *testing.T) {
 				return nil
 			})
 			options.DefaultStateDir = test.resolve
-			require.Error(t, Run(t.Context(), options, nil))
+			err := Run(t.Context(), options, nil)
+			var rich apierror.Error
+			require.ErrorAs(t, err, &rich)
+			require.Equal(t, test.kind, rich.Kind())
+			if test.cause != nil {
+				require.ErrorIs(t, err, test.cause)
+			}
 		})
 	}
 }

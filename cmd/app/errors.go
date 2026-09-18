@@ -13,6 +13,19 @@ import (
 // It says nothing about the owner's identity, readiness or ability to accept clients.
 var ErrBusy apierror.Error = apierror.New(apierror.Conflict, "application state is owned")
 
+// ErrEmptyDefaultState reports an executable whose default state resolver
+// selected no directory.
+var ErrEmptyDefaultState apierror.Error = apierror.New(apierror.Invalid, "application default state directory is empty").
+	WithRetryable(apierror.False)
+
+// NewDefaultStateResolveError reports an executable whose default state
+// resolver failed, so no state directory can be selected.
+func NewDefaultStateResolveError(cause error) apierror.Error {
+	return apierror.New(apierror.Internal, "application default state directory could not be resolved").
+		WithRetryable(apierror.False).
+		WithCause(cause)
+}
+
 // NewOwnedStateError reports that another invocation holds the application
 // state directory, carrying the lock attempt that observed it.
 func NewOwnedStateError(cause error) apierror.Error {
