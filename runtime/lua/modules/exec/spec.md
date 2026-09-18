@@ -100,6 +100,18 @@ confinement. The source refers to the Docker daemon's host. Duplicate targets
 within the request or against configured Unix container bind targets are refused.
 Process options are copied at creation so later caller changes cannot alter them.
 
+```lua
+local proc, err = exec.process("python worker.py", {
+  work_dir = "/workspace",
+  mounts = {
+    { source = "/srv/data", target = "/workspace/data", read_only = true },
+    { source = "/srv/out",  target = "/workspace/out" },
+  },
+})
+-- refused with errors.PERMISSION_DENIED when any mount's source is not
+-- allowed for exec.mount; details.source names the refused path
+```
+
 **PTYOptions fields:**
 
 | Field | Type | Default | Notes |

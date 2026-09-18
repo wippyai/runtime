@@ -4,7 +4,6 @@
 package exec
 
 import (
-	"fmt"
 	"io"
 	"path"
 	"path/filepath"
@@ -46,13 +45,13 @@ type Mount struct {
 // Validate checks a mount before it reaches an executor or security policy.
 func (m Mount) Validate() error {
 	if m.Source == "" {
-		return fmt.Errorf("%w: source is required", ErrInvalidMount)
+		return NewInvalidMountError("source is required")
 	}
 	if strings.IndexByte(m.Source, 0) >= 0 {
-		return fmt.Errorf("%w: source contains NUL", ErrInvalidMount)
+		return NewInvalidMountError("source contains NUL")
 	}
 	if !filepath.IsAbs(m.Source) && !path.IsAbs(m.Source) {
-		return fmt.Errorf("%w: source must be absolute", ErrInvalidMount)
+		return NewInvalidMountError("source must be absolute")
 	}
 	// The daemon may be on a Unix host even when the client runs on Windows.
 	// Clean Unix absolute paths as Unix paths, not as drive-relative Windows paths.
@@ -61,16 +60,16 @@ func (m Mount) Validate() error {
 		cleanSource = filepath.Clean(m.Source)
 	}
 	if cleanSource != m.Source {
-		return fmt.Errorf("%w: source must be a clean absolute path", ErrInvalidMount)
+		return NewInvalidMountError("source must be a clean absolute path")
 	}
 	if m.Target == "" {
-		return fmt.Errorf("%w: target is required", ErrInvalidMount)
+		return NewInvalidMountError("target is required")
 	}
 	if strings.IndexByte(m.Target, 0) >= 0 {
-		return fmt.Errorf("%w: target contains NUL", ErrInvalidMount)
+		return NewInvalidMountError("target contains NUL")
 	}
 	if !path.IsAbs(m.Target) {
-		return fmt.Errorf("%w: target must be absolute", ErrInvalidMount)
+		return NewInvalidMountError("target must be absolute")
 	}
 	return nil
 }
@@ -84,7 +83,7 @@ func ValidateMounts(mounts []Mount) error {
 		}
 		target := path.Clean(mount.Target)
 		if _, exists := seen[target]; exists {
-			return fmt.Errorf("%w: %q", ErrDuplicateMountTarget, target)
+			return NewDuplicateMountTargetError(target)
 		}
 		seen[target] = struct{}{}
 	}

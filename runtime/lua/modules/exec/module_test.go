@@ -21,8 +21,15 @@ import (
 )
 
 type mountPermissionPolicy struct {
-	metadata   attrs.Bag
-	allowMount bool
+	metadata attrs.Bag
+	// allowedSources scopes exec.mount to named host paths; nil means none.
+	allowedSources map[string]bool
+	// evaluated counts exec.mount evaluations, so a test can prove validation
+	// refused a mount before policy ever saw it.
+	evaluated int
+	// requireReadOnly grants exec.mount only when the read_only attribute is set.
+	requireReadOnly bool
+	allowMount      bool
 }
 
 func (mountPermissionPolicy) ID() registry.ID { return registry.ParseID("test:exec-mount") }
@@ -31,11 +38,20 @@ func (p *mountPermissionPolicy) Evaluate(_ securityapi.Actor, action, resource s
 	if action == "exec.run" {
 		return securityapi.Allow
 	}
-	if action == "exec.mount" && p.allowMount {
-		p.metadata = attrs.Bag{"resource": resource, "target": metadata["target"], "read_only": metadata["read_only"]}
-		return securityapi.Allow
+	if action != "exec.mount" {
+		return securityapi.Deny
 	}
-	return securityapi.Deny
+	p.evaluated++
+	allowed := p.allowMount || p.allowedSources[resource]
+	if p.requireReadOnly {
+		readOnly, _ := metadata["read_only"].(bool)
+		allowed = allowed && readOnly
+	}
+	if !allowed {
+		return securityapi.Deny
+	}
+	p.metadata = attrs.Bag{"resource": resource, "target": metadata["target"], "read_only": metadata["read_only"]}
+	return securityapi.Allow
 }
 
 func setupState() *lua.LState {
@@ -96,7 +112,7 @@ func TestGetNoContext(t *testing.T) {
 	tbl, _ := Module.Build()
 	l.SetGlobal(Module.Name, tbl)
 
-	// Without context, security strict mode blocks access with INVALID (permission denied)
+	// Without context, security strict mode blocks access with PERMISSION_DENIED
 	err := l.DoString(`
 		local ok, err = exec.get("test:executor")
 		if ok ~= nil then
@@ -105,7 +121,7 @@ func TestGetNoContext(t *testing.T) {
 		if not err then
 			error("expected error")
 		end
-		if err:kind() ~= errors.INVALID then
+		if err:kind() ~= errors.PERMISSION_DENIED then
 			error("expected INVALID error kind (security denial), got: " .. tostring(err:kind()))
 		end
 	`)
@@ -926,4 +942,82 @@ func (m *mockProcess) Stdout() io.ReadCloser {
 
 func (m *mockProcess) Stderr() io.ReadCloser {
 	return io.NopCloser(strings.NewReader(""))
+}
+
+// mountExecState runs exec.process with the given mounts under policy and
+// returns the Lua state after the call, with the factory for assertions.
+func mountExecState(t *testing.T, policy *mountPermissionPolicy, mounts ...map[string]any) (*lua.LState, *mockProcessExecutor) {
+	t.Helper()
+	l := setupState()
+	t.Cleanup(l.Close)
+	ctx := ctxapi.WithAppContext(context.Background(), ctxapi.NewAppContext())
+	ctx, frame := ctxapi.OpenFrameContext(ctx)
+	t.Cleanup(func() { frame.Close() })
+	require.NoError(t, securityapi.SetActor(ctx, securityapi.Actor{ID: "caller"}))
+	require.NoError(t, securityapi.SetScope(ctx, secsystem.NewScope([]securityapi.Policy{policy})))
+	l.SetContext(ctx)
+	factory := &mockProcessExecutor{}
+	value.PushTypedUserData(l, NewExecutor(ctx, nil, factory), executorTypeName)
+	l.Push(lua.LString("echo mounted"))
+	options := l.NewTable()
+	list := l.NewTable()
+	for i, m := range mounts {
+		mount := l.NewTable()
+		for k, v := range m {
+			switch typed := v.(type) {
+			case string:
+				mount.RawSetString(k, lua.LString(typed))
+			case bool:
+				mount.RawSetString(k, lua.LBool(typed))
+			}
+		}
+		list.RawSetInt(i+1, mount)
+	}
+	options.RawSetString("mounts", list)
+	l.Push(options)
+	require.Equal(t, 2, executorExec(l))
+	return l, factory
+}
+
+func TestExecutorExecMountPolicyScopesEachSource(t *testing.T) {
+	policy := &mountPermissionPolicy{allowedSources: map[string]bool{"/srv/data": true}}
+	l, factory := mountExecState(t, policy,
+		map[string]any{"source": "/srv/data", "target": "/workspace/data"},
+		map[string]any{"source": "/srv/other", "target": "/workspace/other"},
+	)
+	require.Equal(t, lua.LNil, l.Get(-2))
+	luaErr, ok := l.Get(-1).(*lua.Error)
+	require.True(t, ok)
+	require.Equal(t, lua.PermissionDenied, luaErr.Kind())
+	require.Equal(t, "/srv/other", luaErr.Details()["source"], "the refused mount is named")
+	require.Equal(t, 0, factory.newProcessN, "one refused mount refuses the whole process")
+	require.Equal(t, 2, policy.evaluated, "every mount is evaluated against policy")
+}
+
+func TestExecutorExecMountPolicySeesAttributes(t *testing.T) {
+	t.Run("read-only mount allowed", func(t *testing.T) {
+		policy := &mountPermissionPolicy{allowMount: true, requireReadOnly: true}
+		l, factory := mountExecState(t, policy, map[string]any{"source": "/srv/data", "target": "/workspace/data", "read_only": true})
+		require.NotEqual(t, lua.LNil, l.Get(-2))
+		require.Equal(t, 1, factory.newProcessN)
+		require.Equal(t, "/workspace/data", policy.metadata["target"])
+		require.Equal(t, true, policy.metadata["read_only"])
+	})
+	t.Run("writable mount refused", func(t *testing.T) {
+		policy := &mountPermissionPolicy{allowMount: true, requireReadOnly: true}
+		l, factory := mountExecState(t, policy, map[string]any{"source": "/srv/data", "target": "/workspace/data"})
+		require.Equal(t, lua.LNil, l.Get(-2))
+		require.Equal(t, 0, factory.newProcessN)
+	})
+}
+
+func TestExecutorExecValidatesMountsBeforePolicy(t *testing.T) {
+	policy := &mountPermissionPolicy{allowMount: true}
+	l, factory := mountExecState(t, policy, map[string]any{"source": "/srv/data/../etc", "target": "/workspace/data"})
+	require.Equal(t, lua.LNil, l.Get(-2))
+	luaErr, ok := l.Get(-1).(*lua.Error)
+	require.True(t, ok)
+	require.Equal(t, lua.Invalid, luaErr.Kind(), "a malformed mount is invalid input, not a policy decision")
+	require.Equal(t, 0, policy.evaluated, "policy never sees a path that did not validate")
+	require.Equal(t, 0, factory.newProcessN)
 }
