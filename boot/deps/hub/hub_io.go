@@ -8,8 +8,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
-	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -50,7 +48,7 @@ type UploadOutput struct {
 // not silently fail.
 func (c *Client) PublishViaHub(ctx context.Context, in UploadInput) (*UploadOutput, error) {
 	if c.token == "" {
-		return nil, errors.New("publish requires an authentication token")
+		return nil, ErrNotAuthenticated
 	}
 
 	// Load the body once; the hub-mediated handler caps at 100 MB so we
@@ -58,7 +56,7 @@ func (c *Client) PublishViaHub(ctx context.Context, in UploadInput) (*UploadOutp
 	// retry attempt keeps the op closure idempotent.
 	body, err := os.ReadFile(in.FilePath)
 	if err != nil {
-		return nil, fmt.Errorf("read %s: %w", filepath.Base(in.FilePath), err)
+		return nil, NewArtifactIOError("read artifact file", filepath.Base(in.FilePath), err)
 	}
 	sum := sha256.Sum256(body)
 	digest := hex.EncodeToString(sum[:])
@@ -70,7 +68,7 @@ func (c *Client) PublishViaHub(ctx context.Context, in UploadInput) (*UploadOutp
 	err = retryDo(ctx, DefaultRetryConfig(), func(_ int) error {
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, uploadURL, bytes.NewReader(body))
 		if err != nil {
-			return fmt.Errorf("build upload request: %w", err)
+			return NewHubRequestError("build upload request", err)
 		}
 		req.ContentLength = size
 		req.Header.Set("Authorization", "Bearer "+c.token)
@@ -108,10 +106,10 @@ func (c *Client) PublishViaHub(ctx context.Context, in UploadInput) (*UploadOutp
 
 		var fresh UploadOutput
 		if err := json.NewDecoder(io.LimitReader(resp.Body, maxResponseSize)).Decode(&fresh); err != nil {
-			return fmt.Errorf("decode upload response: %w", err)
+			return NewHubRequestError("decode upload response", err)
 		}
 		if fresh.PublishID == "" {
-			return errors.New("hub returned empty publish_id")
+			return NewPublishError("hub returned an empty publish_id", nil)
 		}
 		out = fresh
 		return nil
@@ -129,19 +127,19 @@ func (c *Client) PublishViaHub(ctx context.Context, in UploadInput) (*UploadOutp
 // cleaned up and the install fails.
 func (c *Client) DownloadViaHub(ctx context.Context, digest, destPath string) error {
 	if len(digest) != 64 {
-		return fmt.Errorf("invalid digest: expected 64-char hex, got %d", len(digest))
+		return NewArtifactContentError("invalid digest: expected 64-char hex", map[string]any{"digest_length": len(digest)})
 	}
 
 	downloadURL := c.baseURL + "/api/v1/wapp/" + digest
 
 	if err := os.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
-		return fmt.Errorf("create directory: %w", err)
+		return NewArtifactIOError("create directory", filepath.Dir(destPath), err)
 	}
 
 	return retryDo(ctx, DefaultRetryConfig(), func(_ int) error {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, downloadURL, nil)
 		if err != nil {
-			return fmt.Errorf("build download request: %w", err)
+			return NewHubRequestError("build download request", err)
 		}
 		if c.token != "" {
 			req.Header.Set("Authorization", "Bearer "+c.token)
@@ -162,7 +160,7 @@ func (c *Client) DownloadViaHub(ctx context.Context, digest, destPath string) er
 		// into place once we've successfully copied + synced everything.
 		tmp, err := os.CreateTemp(filepath.Dir(destPath), filepath.Base(destPath)+".part-*")
 		if err != nil {
-			return fmt.Errorf("create temp file: %w", err)
+			return NewArtifactIOError("create temp file", filepath.Dir(destPath), err)
 		}
 		tmpPath := tmp.Name()
 		// Best-effort cleanup; ignored if the rename below succeeds first.
@@ -178,10 +176,10 @@ func (c *Client) DownloadViaHub(ctx context.Context, digest, destPath string) er
 		}
 		if err := tmp.Sync(); err != nil {
 			tmp.Close()
-			return fmt.Errorf("sync temp file: %w", err)
+			return NewArtifactIOError("sync temp file", tmpPath, err)
 		}
 		if err := tmp.Close(); err != nil {
-			return fmt.Errorf("close temp file: %w", err)
+			return NewArtifactIOError("close temp file", tmpPath, err)
 		}
 		return os.Rename(tmpPath, destPath)
 	})

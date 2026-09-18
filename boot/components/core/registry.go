@@ -5,7 +5,6 @@ package core
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"path/filepath"
 	"strings"
@@ -138,7 +137,7 @@ func Registry() boot.Component {
 					if histCloser != nil {
 						err = errors.Join(err, histCloser.Close())
 					}
-					return nil, fmt.Errorf("prepare dependency restore: %w", err)
+					return nil, NewDependencyRestoreError(err)
 				}
 				registryOpts = append(registryOpts,
 					registry.WithKindDirective(regapi.NamespaceDependency, regexp.NewDependencyDirective(depHandler.Expand).WithResolutionTransition(depHandler.ReconcileResolution).WithChangesExpansion(depHandler.ExpandChanges)),
@@ -260,12 +259,12 @@ func newDependencyHandler(
 	}
 	artifactRegistry := artifact.GetRegistry(ctx)
 	if artifactRegistry == nil {
-		return nil, fmt.Errorf("artifact registry is not initialized")
+		return nil, ErrArtifactRegistryNotAvailable
 	}
 	opts.Artifacts = artifactRegistry
 	workspaceReplacements, err := lock.WorkspaceReplacements(cfg)
 	if err != nil {
-		return nil, fmt.Errorf("load workspace replacements: %w", err)
+		return nil, NewWorkspaceReplacementsError(err)
 	}
 	opts.WorkspaceReplacements = workspaceReplacements
 

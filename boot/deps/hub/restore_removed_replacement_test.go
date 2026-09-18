@@ -28,7 +28,7 @@ func TestColdRestartReconcilesRemovedReplacementBeforeLoadingArtifacts(t *testin
 		{name: "history-owned-still-required", historyOwned: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			ctx := regapi.WithDependencyAccess(newTestContext(), regapi.DependencyAccessUnspecified)
+			ctx := regapi.WithDependencyAccess(newTestContext(), regapi.DependencyAccessOnline)
 			f := newTestFixture(t)
 			f.writeLock(t, "", "")
 			digest, size, err := digestReplacementTree(f.replacementPath)

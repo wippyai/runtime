@@ -5,7 +5,6 @@ package hub
 import (
 	"context"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -145,7 +144,7 @@ func (e *embedPackEffect) Finalize(_ context.Context) error {
 				zap.String("module", op.module),
 				zap.String("version", op.version),
 				zap.Error(err))
-			errs = append(errs, fmt.Errorf("unregister embedded pack %s@%s: %w", op.module, op.version, err))
+			errs = append(errs, NewArtifactIOError("unregister embedded pack", op.module+"@"+op.version, err))
 			continue
 		}
 		e.logger.Debug("released obsolete embedded pack",
