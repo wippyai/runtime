@@ -8,6 +8,7 @@ import (
 	"sort"
 
 	moduleapi "github.com/wippyai/runtime/api/modules"
+	regapi "github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/boot/deps/graph"
 	"github.com/wippyai/runtime/boot/deps/lock"
 )
@@ -156,4 +157,23 @@ func transitionSources(
 		return nil, nil
 	}
 	return registry.Transition(desired, transition, ids...)
+}
+
+// targetValue describes the source set this effect publishes, ordered so the
+// measurement does not depend on resolution order.
+func (e *sourceEffect) targetValue() any {
+	if e == nil {
+		return nil
+	}
+	modules := append([]string(nil), e.modules...)
+	sort.Strings(modules)
+	return struct {
+		Desired any      `json:"desired"`
+		Modules []string `json:"modules"`
+	}{Desired: e.desired, Modules: modules}
+}
+
+// Target measures the published source set.
+func (e *sourceEffect) Target() (regapi.EffectTarget, error) {
+	return regapi.NewEffectTarget("hub.sources", e.targetValue())
 }
