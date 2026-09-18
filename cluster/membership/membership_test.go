@@ -11,6 +11,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -161,7 +162,7 @@ func TestService_Start_Success(t *testing.T) {
 	startMembershipServiceForTest(ctx, t, "", service)
 	defer func() { _ = service.Stop() }()
 
-	assert.NotNil(t, service.memberlist)
+	assert.NotNil(t, service.memberlist.Load())
 	assert.NotNil(t, service.ctx)
 }
 
@@ -181,7 +182,7 @@ func TestService_StartSucceedsWithUnjoinableSeed(t *testing.T) {
 	// reports success and the local memberlist serves the rest of the runtime
 	// while the lifecycle-owned worker keeps retrying.
 	startMembershipServiceForTest(ctx, t, "offline joiner", service)
-	require.Len(t, service.memberlist.Members(), 1)
+	require.Len(t, service.memberlist.Load().Members(), 1)
 	require.Eventually(t, func() bool {
 		return recorder.CounterValue("gossip_join_total", metrics.Labels{"result": "err"}) > 0
 	}, 5*time.Second, 10*time.Millisecond, "the join worker must keep retrying the seed")
@@ -279,14 +280,8 @@ func TestService_ConfiguredSeedConvergesAfterOfflineStart(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	var listenConfig net.ListenConfig
-	udp, err := listenConfig.ListenPacket(t.Context(), "udp4", "127.0.0.1:0")
+	seedPort, err := freeLoopbackPort(t)
 	require.NoError(t, err)
-	seedPort := udp.LocalAddr().(*net.UDPAddr).Port
-	tcp, err := listenConfig.Listen(t.Context(), "tcp4", fmt.Sprintf("127.0.0.1:%d", seedPort))
-	require.NoError(t, err)
-	require.NoError(t, tcp.Close())
-	require.NoError(t, udp.Close())
 
 	joiner := NewService(Config{
 		NodeName:  "late-seed-joiner",
@@ -296,7 +291,7 @@ func TestService_ConfiguredSeedConvergesAfterOfflineStart(t *testing.T) {
 	}, eventbus.NewBus(), zap.NewNop(), nil, nil, nil)
 	startMembershipServiceForTest(ctx, t, "late-seed joiner", joiner)
 	defer func() { _ = joiner.Stop() }()
-	require.Len(t, joiner.memberlist.Members(), 1)
+	require.Len(t, joiner.memberlist.Load().Members(), 1)
 
 	seed := NewService(Config{
 		NodeName: "late-seed",
@@ -307,7 +302,7 @@ func TestService_ConfiguredSeedConvergesAfterOfflineStart(t *testing.T) {
 	defer func() { _ = seed.Stop() }()
 
 	require.Eventually(t, func() bool {
-		return joiner.memberlist.NumMembers() == 2 && seed.memberlist.NumMembers() == 2
+		return joiner.memberlist.Load().NumMembers() == 2 && seed.memberlist.Load().NumMembers() == 2
 	}, 5*time.Second, 50*time.Millisecond)
 }
 
@@ -330,7 +325,7 @@ func TestService_Start_WithSecretKey(t *testing.T) {
 	startMembershipServiceForTest(ctx, t, "", service)
 	defer func() { _ = service.Stop() }()
 
-	assert.NotNil(t, service.memberlist)
+	assert.NotNil(t, service.memberlist.Load())
 }
 
 func TestService_SendUserMessageRejectsOversizedPayloadBeforeStart(t *testing.T) {
@@ -359,7 +354,7 @@ func TestService_Start_WithAdvertiseIP(t *testing.T) {
 	startMembershipServiceForTest(ctx, t, "", service)
 	defer func() { _ = service.Stop() }()
 
-	assert.NotNil(t, service.memberlist)
+	assert.NotNil(t, service.memberlist.Load())
 }
 
 func TestService_Stop(t *testing.T) {
@@ -397,7 +392,7 @@ func TestService_Start_VeryVerbose(t *testing.T) {
 	startMembershipServiceForTest(ctx, t, "", service)
 	defer func() { _ = service.Stop() }()
 
-	assert.NotNil(t, service.memberlist)
+	assert.NotNil(t, service.memberlist.Load())
 }
 
 // Node Management Tests
@@ -1064,4 +1059,37 @@ func TestService_LoadSecretKey_PrefersFile(t *testing.T) {
 
 	fileKeyDecoded, _ := base64.StdEncoding.DecodeString(fileKey)
 	assert.Equal(t, fileKeyDecoded, key)
+}
+
+func TestService_ReadersAreSafeDuringStart(t *testing.T) {
+	service := NewService(Config{
+		NodeName: "readers-during-start",
+		BindAddr: "127.0.0.1",
+		BindPort: 0,
+	}, eventbus.NewBus(), zap.NewNop(), nil, nil, nil)
+
+	started := make(chan struct{})
+	var readers sync.WaitGroup
+	readers.Add(1)
+	go func() {
+		defer readers.Done()
+		for {
+			select {
+			case <-started:
+				return
+			default:
+			}
+			_ = service.HealthScore()
+			_ = service.LocalNode()
+			runtime.Gosched()
+		}
+	}()
+
+	startMembershipServiceForTest(t.Context(), t, "", service)
+	defer func() { _ = service.Stop() }()
+	close(started)
+	readers.Wait()
+
+	require.GreaterOrEqual(t, service.HealthScore(), 0)
+	require.Equal(t, "readers-during-start", service.LocalNode().ID)
 }

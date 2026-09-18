@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/hashicorp/memberlist"
@@ -54,7 +55,7 @@ type Service struct {
 	bus            event.Bus
 	transport      memberlist.Transport
 	logger         *zap.Logger
-	memberlist     *memberlist.Memberlist
+	memberlist     atomic.Pointer[memberlist.Memberlist]
 	nodes          map[string]cluster.NodeInfo
 	nodeStates     map[string]memberlist.NodeStateType
 	tel            *telemetry
@@ -104,7 +105,8 @@ func (s *Service) SendUserMessage(targetNodeID string, kind byte, payload []byte
 		return fmt.Errorf("membership: reliable payload too large: %d > %d",
 			len(payload), ReliableUserMessageMaxPayloadBytes)
 	}
-	if s.memberlist == nil {
+	ml := s.memberlist.Load()
+	if ml == nil {
 		return errors.New("membership: not started")
 	}
 	wrapped := make([]byte, 0, len(payload)+5)
@@ -112,9 +114,9 @@ func (s *Service) SendUserMessage(targetNodeID string, kind byte, payload []byte
 	n := uint32(len(payload))
 	wrapped = append(wrapped, byte(n), byte(n>>8), byte(n>>16), byte(n>>24))
 	wrapped = append(wrapped, payload...)
-	for _, m := range s.memberlist.Members() {
+	for _, m := range ml.Members() {
 		if m.Name == targetNodeID {
-			return s.memberlist.SendReliable(m, wrapped)
+			return ml.SendReliable(m, wrapped)
 		}
 	}
 	return fmt.Errorf("membership: target node %q not in member list", targetNodeID)
@@ -311,7 +313,7 @@ func (s *Service) Start(ctx context.Context) error {
 	if err != nil {
 		return NewCreateMemberlistError(err)
 	}
-	s.memberlist = ml
+	s.memberlist.Store(ml)
 
 	// Join cluster if addresses are configured. Seed availability is not a
 	// readiness condition: the local memberlist is already active and can serve
@@ -449,16 +451,16 @@ func (s *Service) rejoinLoop(ctx context.Context) {
 			return
 		case <-t.C:
 		}
-		if s.memberlist == nil {
+		ml := s.memberlist.Load()
+		if ml == nil {
 			continue
 		}
-		members := s.memberlist.Members()
-		if len(members) > 1 {
+		if len(ml.Members()) > 1 {
 			continue
 		}
 		s.logger.Warn("memberlist isolated (only self), re-attempting Join",
 			zap.Strings("join_addresses", s.config.JoinAddrs))
-		n, err := s.memberlist.Join(s.config.JoinAddrs)
+		n, err := ml.Join(s.config.JoinAddrs)
 		if err != nil {
 			s.logger.Warn("rejoin attempt failed",
 				zap.Error(err),
@@ -486,10 +488,11 @@ func (s *Service) emitHealthLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			if s.memberlist == nil {
+			ml := s.memberlist.Load()
+			if ml == nil {
 				continue
 			}
-			score := s.memberlist.GetHealthScore()
+			score := ml.GetHealthScore()
 			if score > 0 {
 				s.tel.recordProbeFailure(s.config.NodeName)
 				s.tel.recordProbe(errProbeUnhealthy, 0)
@@ -509,10 +512,11 @@ var errProbeUnhealthy = errors.New("memberlist health score > 0")
 // 0 means healthy, larger values indicate failed probes / suspect peers.
 // Returns -1 if memberlist is not yet running.
 func (s *Service) HealthScore() int {
-	if s.memberlist == nil {
+	ml := s.memberlist.Load()
+	if ml == nil {
 		return -1
 	}
-	return s.memberlist.GetHealthScore()
+	return ml.GetHealthScore()
 }
 
 // Stop gracefully shuts down the membership service
@@ -528,17 +532,17 @@ func (s *Service) Stop() error {
 
 	s.tel.recordLeave()
 
-	if s.memberlist != nil {
+	if ml := s.memberlist.Load(); ml != nil {
 		// Leave cluster gracefully
 		s.logger.Info("leaving cluster gracefully")
-		if err := s.memberlist.Leave(3 * time.Second); err != nil {
+		if err := ml.Leave(3 * time.Second); err != nil {
 			s.logger.Warn("failed to leave cluster gracefully", zap.Error(err))
 		} else {
 			s.logger.Info("left cluster successfully")
 		}
 
 		// Shutdown memberlist
-		if err := s.memberlist.Shutdown(); err != nil {
+		if err := ml.Shutdown(); err != nil {
 			s.logger.Warn("failed to shutdown memberlist cleanly", zap.Error(err))
 		}
 	}
@@ -565,7 +569,8 @@ func (s *Service) LocalNode() cluster.NodeInfo {
 	meta := cloneMeta(s.config.Meta)
 	s.mu.RUnlock()
 
-	if s.memberlist == nil {
+	ml := s.memberlist.Load()
+	if ml == nil {
 		// Return info from config if memberlist isn't up yet
 		return cluster.NodeInfo{
 			ID:   s.config.NodeName,
@@ -574,7 +579,7 @@ func (s *Service) LocalNode() cluster.NodeInfo {
 		}
 	}
 
-	local := s.memberlist.LocalNode()
+	local := ml.LocalNode()
 	return cluster.NodeInfo{
 		ID:   local.Name,
 		Addr: local.Address(),
@@ -600,7 +605,7 @@ func (s *Service) UpdateMeta(updates map[string]string) {
 	for k, v := range updates {
 		s.config.Meta[k] = v
 	}
-	ml := s.memberlist
+	ml := s.memberlist.Load()
 	s.mu.Unlock()
 
 	if ml == nil {
@@ -661,7 +666,7 @@ func (s *Service) loadSecretKey() ([]byte, error) {
 // hooks while holding its internal node lock, and Members() re-acquires the
 // same lock — calling it inline would deadlock.
 func (s *Service) refreshMemberStateGauges() {
-	if s.memberlist == nil {
+	if s.memberlist.Load() == nil {
 		return
 	}
 
@@ -669,12 +674,13 @@ func (s *Service) refreshMemberStateGauges() {
 }
 
 func (s *Service) computeMemberStateGauges() {
-	if s.memberlist == nil {
+	ml := s.memberlist.Load()
+	if ml == nil {
 		return
 	}
 
 	alive, suspect, dead, left := 0, 0, 0, 0
-	for _, m := range s.memberlist.Members() {
+	for _, m := range ml.Members() {
 		switch m.State {
 		case memberlist.StateAlive:
 			alive++
@@ -871,8 +877,8 @@ func newDelegate(service *Service, retransmitMult int) *delegate {
 }
 
 func (s *Service) broadcastNodeCount() int {
-	if s.memberlist != nil {
-		if n := len(s.memberlist.Members()); n > 0 {
+	if ml := s.memberlist.Load(); ml != nil {
+		if n := len(ml.Members()); n > 0 {
 			return n
 		}
 	}

@@ -32,6 +32,10 @@ type HandlerRegistry interface {
 
 	// TransactionParticipants returns handler reply ids for registry transaction barriers.
 	TransactionParticipants() []string
+
+	// HandlesKind reports whether any registered handler replies to entry
+	// events for the given entry kind.
+	HandlesKind(kind registry.Kind) bool
 }
 
 type handlerRegistry struct {
@@ -73,6 +77,23 @@ func (r *handlerRegistry) TransactionParticipants() []string {
 		}
 	}
 	return participants
+}
+
+// HandlesKind reports whether an entry of this kind would reach a handler that
+// answers it. A handler registered through Register without a declared kind
+// matcher may reply for any kind, so it counts as a match rather than being
+// guessed at; only handlers that declare their kinds can rule themselves out.
+func (r *handlerRegistry) HandlesKind(kind registry.Kind) bool {
+	for _, handler := range r.handlers {
+		matcher, ok := handler.(registry.KindHandler)
+		if !ok {
+			return true
+		}
+		if matcher.HandlesKind(kind) {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *handlerRegistry) RegisterObserver(kinds registry.Kind, listener registry.EntryListener) {
@@ -154,7 +175,7 @@ func wrapListener(kinds registry.Kind, listener registry.EntryListener) eventbus
 			return nil
 		},
 	)
-	return &transactionAwareHandler{inner: inner, transactionParticipantID: txParticipantID}
+	return &transactionAwareHandler{inner: inner, replyKinds: w, transactionParticipantID: txParticipantID}
 }
 
 // wrapObserver wraps a registry.EntryListener for observation only.
@@ -189,8 +210,16 @@ func wrapObserver(kinds registry.Kind, listener registry.EntryListener) eventbus
 }
 
 type transactionAwareHandler struct {
-	inner                    eventbus.EventHandler
+	inner eventbus.EventHandler
+	// replyKinds matches the entry kinds this handler answers. Observers leave
+	// it nil: they consume entry events without ever replying.
+	replyKinds               *wildcard.Wildcard
 	transactionParticipantID string
+}
+
+// HandlesKind implements registry.KindHandler.
+func (h *transactionAwareHandler) HandlesKind(kind registry.Kind) bool {
+	return h.replyKinds != nil && h.replyKinds.Match(kind)
 }
 
 func (h *transactionAwareHandler) Pattern() eventbus.Pattern {

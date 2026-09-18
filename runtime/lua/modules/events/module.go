@@ -64,7 +64,7 @@ func subscribe(l *lua.LState) int {
 	if !security.IsAllowed(ctx, "events.subscribe", system, nil) {
 		l.Push(lua.LNil)
 		err := lua.NewLuaError(l, fmt.Sprintf("not allowed to subscribe to events from system: %s", system)).
-			WithKind(lua.Invalid).
+			WithKind(lua.PermissionDenied).
 			WithRetryable(false)
 		l.Push(err)
 		return 2
@@ -138,7 +138,7 @@ func send(l *lua.LState) int {
 	if !security.IsAllowed(ctx, "events.send", system, nil) {
 		l.Push(lua.LNil)
 		err := lua.NewLuaError(l, fmt.Sprintf("not allowed to send events to system: %s", system)).
-			WithKind(lua.Invalid).
+			WithKind(lua.PermissionDenied).
 			WithRetryable(false)
 		l.Push(err)
 		return 2

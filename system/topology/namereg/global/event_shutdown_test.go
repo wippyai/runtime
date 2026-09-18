@@ -28,6 +28,8 @@ func (b *cancelBarrierBus) SubscribeP(ctx context.Context, system event.System, 
 	return b.Subscribe(ctx, system, ch)
 }
 
+func (*cancelBarrierBus) HasSubscribers(event.System, event.Kind) bool { return true }
+
 func (b *cancelBarrierBus) Unsubscribe(_ context.Context, _ event.SubscriberID) {
 	b.mu.Lock()
 	ctx := b.ctx

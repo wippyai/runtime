@@ -154,6 +154,8 @@ func (lintCacheEventBus) SubscribeP(context.Context, event.System, event.Kind, c
 	return "lint-cache-test", nil
 }
 
+func (lintCacheEventBus) HasSubscribers(event.System, event.Kind) bool { return true }
+
 func (lintCacheEventBus) Unsubscribe(context.Context, event.SubscriberID) {}
 
 func cacheFileModTimes(t *testing.T, root string) map[string]time.Time {

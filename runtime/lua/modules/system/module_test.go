@@ -9,10 +9,12 @@ import (
 	"testing"
 
 	lua "github.com/wippyai/go-lua"
+	"github.com/wippyai/runtime/api/attrs"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	moduleapi "github.com/wippyai/runtime/api/modules"
 	regapi "github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/security"
+	secsystem "github.com/wippyai/runtime/system/security"
 )
 
 func TestLoad(t *testing.T) {
@@ -387,6 +389,7 @@ func TestProcessFunctions(t *testing.T) {
 func TestSupervisorFunctions(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
+	lua.OpenErrors(l)
 
 	tbl, _ := Module.Build()
 	l.SetGlobal("system", tbl)
@@ -396,6 +399,7 @@ func TestSupervisorFunctions(t *testing.T) {
 			local state, err = system.supervisor.state("test:service")
 			assert(state == nil, "expected nil state")
 			assert(err ~= nil, "expected error")
+			assert(err:kind() == errors.PERMISSION_DENIED, "expected PERMISSION_DENIED kind, got: " .. tostring(err:kind()))
 		`)
 		if err != nil {
 			t.Errorf("supervisor.state test failed: %v", err)
@@ -407,6 +411,7 @@ func TestSupervisorFunctions(t *testing.T) {
 			local states, err = system.supervisor.states()
 			assert(states == nil, "expected nil states")
 			assert(err ~= nil, "expected error")
+			assert(err:kind() == errors.PERMISSION_DENIED, "expected PERMISSION_DENIED kind, got: " .. tostring(err:kind()))
 		`)
 		if err != nil {
 			t.Errorf("supervisor.states test failed: %v", err)
@@ -454,6 +459,9 @@ func TestErrorKinds(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 	lua.OpenErrors(l)
+
+	ctx := security.SetStrictMode(ctxapi.NewRootContext(), false)
+	l.SetContext(ctx)
 
 	tbl, _ := Module.Build()
 	l.SetGlobal("system", tbl)
@@ -521,4 +529,79 @@ func checkFunction(t *testing.T, l *lua.LState, parent, name string) {
 		t.Errorf("%s.%s is not a function", parent, name)
 	}
 	l.Pop(1)
+}
+
+func TestSystemPermissionDenied(t *testing.T) {
+	calls := []string{
+		`system.memory.stats()`,
+		`system.memory.allocated()`,
+		`system.memory.heap_objects()`,
+		`system.memory.set_limit(1 << 30)`,
+		`system.memory.get_limit()`,
+		`system.gc.collect()`,
+		`system.gc.set_percent(100)`,
+		`system.gc.get_percent()`,
+		`system.runtime.goroutines()`,
+		`system.runtime.max_procs(2)`,
+		`system.runtime.max_procs()`,
+		`system.runtime.cpu_count()`,
+		`system.process.pid()`,
+		`system.process.cwd()`,
+		`system.process.hostname()`,
+		`system.exit()`,
+		`system.modules()`,
+		`system.source.load()`,
+		`system.supervisor.state("test:service")`,
+		`system.supervisor.states()`,
+		`system.hosts.list()`,
+		`system.hosts.processes("test:host")`,
+	}
+
+	for _, call := range calls {
+		t.Run(call, func(t *testing.T) {
+			l := lua.NewState()
+			defer l.Close()
+			lua.OpenErrors(l)
+
+			l.SetContext(denyContext(t))
+
+			tbl, _ := Module.Build()
+			l.SetGlobal("system", tbl)
+
+			if err := l.DoString(`
+				local v, err = ` + call + `
+				assert(v == nil, "expected nil result under a deny policy")
+				assert(err ~= nil, "expected error under a deny policy")
+				assert(err:kind() == errors.PERMISSION_DENIED, "expected PERMISSION_DENIED kind, got: " .. tostring(err:kind()))
+				assert(err:retryable() == false, "expected not retryable")
+			`); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+// denyContext builds a security context whose scope denies every action.
+func denyContext(t *testing.T) context.Context {
+	t.Helper()
+
+	ctx := security.SetStrictMode(ctxapi.NewRootContext(), false)
+	ctx, fc := ctxapi.OpenFrameContext(ctx)
+	t.Cleanup(func() { ctxapi.ReleaseFrameContext(fc) })
+
+	if err := security.SetActor(ctx, security.Actor{ID: "tester"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := security.SetScope(ctx, secsystem.NewScope([]security.Policy{denyAllPolicy{}})); err != nil {
+		t.Fatal(err)
+	}
+	return ctx
+}
+
+type denyAllPolicy struct{}
+
+func (denyAllPolicy) ID() regapi.ID { return regapi.NewID("test", "deny-all") }
+
+func (denyAllPolicy) Evaluate(_ security.Actor, _, _ string, _ attrs.Bag) security.Result {
+	return security.Deny
 }

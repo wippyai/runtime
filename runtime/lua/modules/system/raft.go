@@ -20,7 +20,7 @@ func raftNotAvailable(l *lua.LState) int {
 func raftIsLeader(l *lua.LState) int {
 	if !security.IsAllowed(l.Context(), "system.read", "raft", nil) {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "permission denied: system.read on raft").WithKind(lua.Invalid).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "permission denied: system.read on raft").WithKind(lua.PermissionDenied).WithRetryable(false))
 		return 2
 	}
 
@@ -37,7 +37,7 @@ func raftIsLeader(l *lua.LState) int {
 func raftIsMember(l *lua.LState) int {
 	if !security.IsAllowed(l.Context(), "system.read", "raft", nil) {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "permission denied: system.read on raft").WithKind(lua.Invalid).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "permission denied: system.read on raft").WithKind(lua.PermissionDenied).WithRetryable(false))
 		return 2
 	}
 
@@ -54,7 +54,7 @@ func raftIsMember(l *lua.LState) int {
 func raftRole(l *lua.LState) int {
 	if !security.IsAllowed(l.Context(), "system.read", "raft", nil) {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "permission denied: system.read on raft").WithKind(lua.Invalid).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "permission denied: system.read on raft").WithKind(lua.PermissionDenied).WithRetryable(false))
 		return 2
 	}
 
@@ -71,7 +71,7 @@ func raftRole(l *lua.LState) int {
 func raftTerm(l *lua.LState) int {
 	if !security.IsAllowed(l.Context(), "system.read", "raft", nil) {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "permission denied: system.read on raft").WithKind(lua.Invalid).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "permission denied: system.read on raft").WithKind(lua.PermissionDenied).WithRetryable(false))
 		return 2
 	}
 
@@ -93,7 +93,7 @@ func raftTerm(l *lua.LState) int {
 func raftCommitIndex(l *lua.LState) int {
 	if !security.IsAllowed(l.Context(), "system.read", "raft", nil) {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "permission denied: system.read on raft").WithKind(lua.Invalid).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "permission denied: system.read on raft").WithKind(lua.PermissionDenied).WithRetryable(false))
 		return 2
 	}
 
@@ -110,7 +110,7 @@ func raftCommitIndex(l *lua.LState) int {
 func raftStats(l *lua.LState) int {
 	if !security.IsAllowed(l.Context(), "system.read", "raft_stats", nil) {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "permission denied: system.read on raft_stats").WithKind(lua.Invalid).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "permission denied: system.read on raft_stats").WithKind(lua.PermissionDenied).WithRetryable(false))
 		return 2
 	}
 
