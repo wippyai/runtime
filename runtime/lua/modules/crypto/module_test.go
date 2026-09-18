@@ -870,3 +870,31 @@ func TestJWTRequireExpiration(t *testing.T) {
 		t.Errorf("JWT require expiration test failed: %v", err)
 	}
 }
+
+// TestJWTEncodeEmptyPayloadTable covers the empty claim set. An object-hinted
+// and an array-hinted empty payload table both encode, and a populated array
+// payload is still refused because a claim set is an object.
+func TestJWTEncodeEmptyPayloadTable(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	setTimeGlobals(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
+
+	err := l.DoString(`
+		local object_token, object_err = crypto.jwt.encode(table.create(0, 1), "secret")
+		if not object_token then error("object hint: " .. tostring(object_err)) end
+
+		local array_token, array_err = crypto.jwt.encode(table.create(1, 0), "secret")
+		if not array_token then error("array hint: " .. tostring(array_err)) end
+
+		local populated = table.create(1, 0)
+		populated[1] = "claim"
+		local populated_token, populated_err = crypto.jwt.encode(populated, "secret")
+		if populated_token then error("an empty list is an empty claim set, but a populated list must be refused") end
+		if not populated_err then error("a populated list payload must report a conversion error") end
+	`)
+	if err != nil {
+		t.Errorf("JWT empty payload test failed: %v", err)
+	}
+}

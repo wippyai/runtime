@@ -114,7 +114,9 @@ func GoToLua(v any) (lua.LValue, error) {
 			// Return nil for nil slices
 			return lua.LNil, nil
 		}
-		table := lua.CreateTable(rv.Len(), 0)
+		// An empty Go slice still reaches Lua as a list, so reserve one array
+		// slot even when the slice has no elements.
+		table := lua.CreateTable(max(1, rv.Len()), 0)
 		for i := 0; i < rv.Len(); i++ {
 			lval, err := GoToLua(rv.Index(i).Interface())
 			if err != nil {
@@ -126,11 +128,14 @@ func GoToLua(v any) (lua.LValue, error) {
 
 	case reflect.Map:
 		if rv.IsNil() {
-			// Return empty table for nil maps
-			return lua.CreateTable(0, 0), nil
+			// Return empty object-shaped table for nil maps. Allocating one
+			// hash slot keeps the empty table an object through a round trip.
+			return lua.CreateTable(0, 1), nil
 		}
 
-		table := lua.CreateTable(0, rv.Len())
+		// An empty Go map still reaches Lua as an object, so reserve one hash
+		// slot even when the map has no entries.
+		table := lua.CreateTable(0, max(1, rv.Len()))
 		iter := rv.MapRange()
 		for iter.Next() {
 			key := iter.Key()
@@ -158,7 +163,7 @@ func GoToLua(v any) (lua.LValue, error) {
 			switch fieldValue.Kind() {
 			case reflect.Map:
 				if fieldValue.IsNil() {
-					lval = lua.CreateTable(0, 0) // Empty table for nil maps
+					lval = lua.CreateTable(0, 1) // Empty object for nil maps
 					err = nil
 				} else {
 					lval, err = GoToLua(fieldValue.Interface())

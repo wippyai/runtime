@@ -298,10 +298,20 @@ func tableToGoAny(tbl *lua.LTable, path []*lua.LTable) any {
 	path = append(path, tbl)
 
 	maxn := tbl.MaxN()
-	if maxn == 0 {
-		return tableToMap(tbl, path)
+	if maxn > 0 {
+		return tableToSlice(tbl, maxn, path)
 	}
-	return tableToSlice(tbl, maxn, path)
+	// An empty table keeps the shape of the allocation its author selected.
+	// A hash allocation (table.create(0, n), or any authored key) is an
+	// object and an array allocation (table.create(n, 0)) is a list. An
+	// unhinted {} carries neither allocation and stays a map: Lua writes {}
+	// for an empty object far more often than for an empty list, and the
+	// json module reads the allocation directly, so it still encodes that
+	// same unhinted table as [].
+	if tbl.Array != nil && tbl.Strdict == nil && tbl.Dict == nil {
+		return []any{}
+	}
+	return tableToMap(tbl, path)
 }
 
 // TableToMap converts a Lua table to a Go map.
