@@ -148,7 +148,7 @@ func TestConcurrentAutomaticPorts(t *testing.T) {
 	joined = true
 }
 
-func TestFailedJoinReleasesAutomaticPorts(t *testing.T) {
+func TestOfflineSeedRetainsAutomaticPortsUntilStop(t *testing.T) {
 	collector := metrics.NewCollector(metricscfg.Config{})
 	defer collector.Close()
 	pub, key, err := ed25519.GenerateKey(rand.Reader)
@@ -157,21 +157,21 @@ func TestFailedJoinReleasesAutomaticPorts(t *testing.T) {
 	_, err = rand.Read(secret)
 	require.NoError(t, err)
 	stack, err := AssembleStack(StackConfig{
-		NodeName: "failed-join", Logger: zap.NewNop(), Bus: eventbus.NewBus(),
+		NodeName: "offline-seed-node", Logger: zap.NewNop(), Bus: eventbus.NewBus(),
 		Transcoder: payload.NewTranscoder(), Collector: collector,
 		MembershipBindAddr: "127.0.0.1", InternodeBindAddr: "127.0.0.1",
 		JoinAddrs:                []string{"127.0.0.1:1"},
 		SecretKey:                base64.StdEncoding.EncodeToString(secret),
 		InternodeIdentityKey:     base64.RawStdEncoding.EncodeToString(key),
-		InternodeTrustedPeerKeys: map[string]string{"failed-join": base64.RawStdEncoding.EncodeToString(pub)},
+		InternodeTrustedPeerKeys: map[string]string{"offline-seed-node": base64.RawStdEncoding.EncodeToString(pub)},
 	})
 	require.NoError(t, err)
-	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	err = stack.Start(ctx)
-	require.ErrorContains(t, err, "join", "the test must reach membership joining")
+	require.NoError(t, err)
 	port := stack.ConnMgr.GetListenPort()
-	require.Positive(t, port, "internode must have started before the failed join")
+	require.Positive(t, port, "internode must listen while the seed stays offline")
 	_, gossipPort, err := net.SplitHostPort(stack.Membership.LocalNode().Addr)
 	require.NoError(t, err, "membership must have bound a gossip port before joining")
 	require.NotEqual(t, "0", gossipPort)
@@ -179,11 +179,25 @@ func TestFailedJoinReleasesAutomaticPorts(t *testing.T) {
 		net.JoinHostPort("127.0.0.1", strconv.Itoa(port)), stack.Membership.LocalNode().Addr,
 	} {
 		listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", address)
-		require.NoError(t, err, "failed startup must release %s", address)
-		require.NoError(t, listener.Close())
+		if listener != nil {
+			require.NoError(t, listener.Close())
+		}
+		require.Error(t, err, "active offline stack must retain %s", address)
 	}
 	packet, err := (&net.ListenConfig{}).ListenPacket(t.Context(), "udp", stack.Membership.LocalNode().Addr)
-	require.NoError(t, err, "failed startup must release gossip UDP")
-	require.NoError(t, packet.Close())
+	if packet != nil {
+		require.NoError(t, packet.Close())
+	}
+	require.Error(t, err, "active offline stack must retain gossip UDP")
 	require.NoError(t, stack.Stop())
+	for _, address := range []string{
+		net.JoinHostPort("127.0.0.1", strconv.Itoa(port)), stack.Membership.LocalNode().Addr,
+	} {
+		listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", address)
+		require.NoError(t, err, "stopped stack must release %s", address)
+		require.NoError(t, listener.Close())
+	}
+	packet, err = (&net.ListenConfig{}).ListenPacket(t.Context(), "udp", stack.Membership.LocalNode().Addr)
+	require.NoError(t, err, "stopped stack must release gossip UDP")
+	require.NoError(t, packet.Close())
 }

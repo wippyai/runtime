@@ -32,6 +32,10 @@ const (
 	// BootTimeout is the maximum time to wait for the server to start
 	BootTimeout = 30 * time.Second
 
+	// ShutdownTimeout bounds the graceful shutdown triggered by the
+	// cancellation of the context a start was launched with
+	ShutdownTimeout = 30 * time.Second
+
 	// CheckInterval is the interval between server availability checks during startup
 	CheckInterval = 100 * time.Millisecond
 
@@ -51,9 +55,9 @@ type ServerService struct {
 	mountHandlers map[registry.ID]http.Handler
 	routeMgr      *RouteManager
 	config        *config.ServerConfig
+	stopWatch     chan struct{}
 	id            registry.ID
 	mu            sync.RWMutex
-	shutdownOnce  sync.Once
 	started       atomic.Bool
 }
 
@@ -289,6 +293,9 @@ func (s *ServerService) Start(ctx context.Context) (<-chan any, error) {
 		return nil, err
 	}
 	listenAddr = reportedListenAddr(s.config.Addr, ln)
+	s.retireWatchLocked()
+	watch := make(chan struct{})
+	s.stopWatch = watch
 	s.server = srv
 	s.started.Store(true)
 
@@ -305,7 +312,11 @@ func (s *ServerService) Start(ctx context.Context) (<-chan any, error) {
 			}
 		}
 
-		s.started.Store(false)
+		s.mu.Lock()
+		if s.server == srv {
+			s.started.Store(false)
+		}
+		s.mu.Unlock()
 	}()
 
 	if err := s.ensureRunning(ctx, probe, listenAddr); err != nil {
@@ -313,29 +324,17 @@ func (s *ServerService) Start(ctx context.Context) (<-chan any, error) {
 		_ = srv.Close()
 		s.mu.Lock()
 		if s.server == srv {
+			s.retireWatchLocked()
 			s.server = nil
 			s.host = nil
+			s.started.Store(false)
 		}
 		s.mu.Unlock()
-		s.started.Store(false)
 		return nil, NewStartupCheckError(err)
 	}
 
-	// Handle shutdown via context (only once)
-	s.shutdownOnce.Do(func() {
-		go func() {
-			<-ctx.Done()
-			shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			defer cancel()
-
-			if err := s.Stop(shutdownCtx); err != nil {
-				select {
-				case s.statusChan <- NewShutdownError(err):
-				default:
-				}
-			}
-		}()
-	})
+	// Shut down when the context this start was launched with is canceled
+	go s.watchStartContext(ctx, srv, watch)
 
 	select {
 	case s.statusChan <- fmt.Sprintf("service listening on %s", listenAddr):
@@ -350,6 +349,14 @@ func (s *ServerService) Stop(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	return s.stopLocked(ctx)
+}
+
+// stopLocked shuts the current server down and retires the watcher that
+// belongs to it. Callers hold s.mu.
+func (s *ServerService) stopLocked(ctx context.Context) error {
+	s.retireWatchLocked()
+
 	// Gracefully shutdown the server
 	if s.server != nil {
 		if err := s.server.Shutdown(ctx); err != nil {
@@ -363,6 +370,43 @@ func (s *ServerService) Stop(ctx context.Context) error {
 	s.started.Store(false)
 
 	return nil
+}
+
+// retireWatchLocked releases the watcher of the start that is being replaced
+// or torn down. Callers hold s.mu.
+func (s *ServerService) retireWatchLocked() {
+	if s.stopWatch != nil {
+		close(s.stopWatch)
+		s.stopWatch = nil
+	}
+}
+
+// watchStartContext stops srv once the context that started it is canceled.
+// It exits as soon as that start is retired, so a context belonging to an
+// earlier start can never reach the server a later start installed.
+func (s *ServerService) watchStartContext(ctx context.Context, srv *http.Server, retired <-chan struct{}) {
+	select {
+	case <-retired:
+		return
+	case <-ctx.Done():
+	}
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), ShutdownTimeout)
+	defer cancel()
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.server != srv {
+		return
+	}
+
+	if err := s.stopLocked(shutdownCtx); err != nil {
+		select {
+		case s.statusChan <- NewShutdownError(err):
+		default:
+		}
+	}
 }
 
 // probeFunc dials the server's bind fabric — clearnet for addr-only

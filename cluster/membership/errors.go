@@ -18,10 +18,6 @@ func NewCreateMemberlistError(err error) apierror.Error {
 	return apierror.New(apierror.Internal, "failed to create memberlist").WithCause(err).WithRetryable(apierror.False)
 }
 
-func NewJoinClusterError(err error) apierror.Error {
-	return apierror.New(apierror.Unavailable, "failed to join cluster").WithCause(err).WithRetryable(apierror.True)
-}
-
 func NewReadSecretFileError(err error) apierror.Error {
 	return apierror.New(apierror.Invalid, "failed to read secret file").WithCause(err).WithRetryable(apierror.False)
 }
