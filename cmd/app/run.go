@@ -6,12 +6,12 @@ import (
 	"context"
 	"errors"
 	"flag"
-	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/wippyai/runtime/api/boot"
@@ -31,27 +31,44 @@ type Options struct {
 	Bundle     Bundle
 }
 
+// Reserved commands address the runner and the Wippy CLI rather than the
+// embedded application.
+const (
+	reservedUpdate  = "update"
+	reservedRuntime = "runtime"
+)
+
 var applicationName = regexp.MustCompile(`^[a-z][a-z0-9_-]*$`)
 var environmentName = regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)
+
+// reservedCommand names the runner command the invocation selects, or an empty
+// string when the arguments address the embedded application.
+func reservedCommand(args []string) string {
+	if len(args) == 0 {
+		return ""
+	}
+	switch args[0] {
+	case reservedUpdate, reservedRuntime:
+		return args[0]
+	}
+	return ""
+}
 
 // Run is the process entry point for a standalone application. Application
 // arguments follow `run`; `runtime` exposes the Wippy CLI, including
 // Hub authentication, update and source inspection commands.
 func Run(ctx context.Context, options Options, args []string) error {
-	if ctx == nil {
-		return fmt.Errorf("application context is required")
-	}
-	if err := ctx.Err(); err != nil {
-		return err
-	}
 	if !applicationName.MatchString(options.Name) {
-		return fmt.Errorf("invalid application name")
+		return NewInvalidApplicationNameError(options.Name)
 	}
 	if options.Mode != "base" && options.Mode != "bootstrap" {
-		return fmt.Errorf("application mode must be base or bootstrap")
+		return NewInvalidApplicationModeError(options.Mode)
 	}
 	if options.Command == "" {
-		return fmt.Errorf("application command is required")
+		return NewMissingApplicationCommandError()
+	}
+	if err := validateDataEnvironment(options.DataEnv); err != nil {
+		return err
 	}
 	flags := flag.NewFlagSet(options.Name, flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
@@ -73,17 +90,13 @@ func Run(ctx context.Context, options Options, args []string) error {
 		return err
 	}
 	remaining := append([]string(nil), flags.Args()...)
-	ordinary := !*base && (len(remaining) == 0 || (remaining[0] != "runtime" && remaining[0] != "update"))
+	ordinary := !*base && reservedCommand(remaining) == ""
 	if options.Launch != nil && ordinary {
 		if len(remaining) > 0 && remaining[0] == "run" {
 			remaining = remaining[1:]
 		}
-		directory, err := os.Getwd()
-		if err != nil {
-			return err
-		}
 		request := LaunchRequest{Name: options.Name, Module: options.Bundle.Root, StateDir: stateDir,
-			Directory: directory, Command: *command, Arguments: append([]string(nil), remaining...)}
+			Command: *command, Arguments: append([]string(nil), remaining...)}
 		return launch(ctx, options.Launch, request, func(ctx context.Context, owner OwnerOptions) error {
 			selected := *command
 			if owner.Command != "" {
@@ -100,6 +113,7 @@ func Run(ctx context.Context, options Options, args []string) error {
 }
 
 func runApplication(ctx context.Context, options Options, stateDir string, base bool, command string, remaining []string, owner OwnerOptions) (result error) {
+	// Nothing below this point leaves the state directory untouched.
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -109,16 +123,13 @@ func runApplication(ctx context.Context, options Options, stateDir string, base 
 	unlock, err := lockApplication(stateDir)
 	if err != nil {
 		if errors.Is(err, errLockBusy) {
-			return fmt.Errorf("%w: %w", ErrBusy, err)
+			return NewOwnedStateError(err)
 		}
 		return err
 	}
 	defer unlock()
 	var overrides boot.Config
 	if owner.Prepare != nil {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
 		resources, err := owner.Prepare(ctx)
 		if resources.Close != nil {
 			defer func() { result = errors.Join(result, resources.Close()) }()
@@ -126,13 +137,10 @@ func runApplication(ctx context.Context, options Options, stateDir string, base 
 		if err != nil {
 			return err
 		}
-		if !resources.Deadline.IsZero() {
-			var cancel context.CancelFunc
-			ctx, cancel = context.WithDeadline(ctx, resources.Deadline)
-			defer cancel()
-		}
 		overrides = resources.Config
 	}
+	// Preparation runs for as long as the owner needs; the deployment and the
+	// runtime process below must not open once the invocation is abandoned.
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -146,7 +154,7 @@ func runApplication(ctx context.Context, options Options, stateDir string, base 
 	historyPath := filepath.Join(stateDir, "registry.db")
 	if base {
 		if options.Mode != "base" {
-			return fmt.Errorf("bootstrap applications do not expose a base deployment")
+			return NewBaseDeploymentUnavailableError(options.Mode)
 		}
 		// Each executable's embedded content selects an independent baseline.
 		// Application databases are intentionally not rolled back or removed.
@@ -157,16 +165,17 @@ func runApplication(ctx context.Context, options Options, stateDir string, base 
 	if err != nil {
 		return err
 	}
-	if len(remaining) > 0 && remaining[0] == "update" {
+	reserved := reservedCommand(remaining)
+	if reserved == reservedUpdate {
 		if base {
-			return fmt.Errorf("base recovery cannot be updated")
+			return NewBaseUpdateRejectedError()
 		}
 		return updateDeployment(ctx, options, stateDir, deployment, remaining[1:], runChild)
 	}
 	runtimeArgs := []string{"run", "--silent", "--", command}
-	if len(remaining) > 0 && remaining[0] == "runtime" {
+	if reserved == reservedRuntime {
 		if base {
-			return fmt.Errorf("base recovery only runs the embedded application")
+			return NewBaseRuntimeRejectedError()
 		}
 		runtimeArgs = remaining[1:]
 	} else {
@@ -191,19 +200,24 @@ func runApplication(ctx context.Context, options Options, stateDir string, base 
 	})
 }
 
-func configureDataEnvironment(state string, variables map[string]string) error {
-	names := make([]string, 0, len(variables))
-	for name := range variables {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	for _, name := range names {
+// validateDataEnvironment accepts only bindings that name an application
+// variable and resolve inside the state directory. Every invocation checks the
+// executable's declaration, whether or not it goes on to own the state.
+func validateDataEnvironment(variables map[string]string) error {
+	for _, name := range slices.Sorted(maps.Keys(variables)) {
 		relative := variables[name]
 		if !environmentName.MatchString(name) || !filepath.IsLocal(relative) || strings.ContainsRune(relative, 0) {
-			return fmt.Errorf("invalid application data environment binding %q", name)
+			return NewDataEnvironmentBindingError(name, relative)
 		}
 	}
-	for _, name := range names {
+	return nil
+}
+
+func configureDataEnvironment(state string, variables map[string]string) error {
+	if err := validateDataEnvironment(variables); err != nil {
+		return err
+	}
+	for _, name := range slices.Sorted(maps.Keys(variables)) {
 		if _, exists := os.LookupEnv(name); !exists {
 			if err := os.Setenv(name, filepath.Join(state, variables[name])); err != nil {
 				return err
