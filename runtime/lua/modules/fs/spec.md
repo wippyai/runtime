@@ -333,14 +333,16 @@ only its survival across a crash is unknown. Publishing the same content again
 is safe, since a whole-file replacement is idempotent. The structured detail
 lets callers detect this outcome without parsing error text.
 
-The directory filesystem provides this capability on Linux, macOS and
-Windows. It pins each parent directory without following symbolic-link
-parents, refuses nonregular existing targets (including final symbolic links),
-writes the temporary file, syncs it, and atomically renames it. The rename is
-then made durable: on Linux and macOS by syncing the parent directory, on
-Windows by flushing the published file, which forces the NTFS journal holding
-the rename to stable storage. It demands the same write capability as an
-ordinary write.
+The directory filesystem provides this capability on Linux and macOS. It pins
+each parent directory without following symbolic-link parents, refuses
+nonregular existing targets (including final symbolic links), writes the
+temporary file, syncs it, atomically renames it, and syncs the parent
+directory. It demands the same write capability as an ordinary write.
+
+Windows is refused with `errors.UNAVAILABLE`. A replacement there fails while
+another handle holds the destination: a concurrent reader meets a sharing
+violation and a concurrent writer is denied, so publication cannot be both
+atomic and dependable under concurrent access.
 
 **Errors (structured):**
 
