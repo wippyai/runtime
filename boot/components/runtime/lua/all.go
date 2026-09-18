@@ -33,6 +33,7 @@ func All() []boot.Component {
 		Payload(),
 		Queue(),
 		Registry(),
+		Replayer(),
 		Security(),
 		SQL(),
 		Store(),
