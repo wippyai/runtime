@@ -146,8 +146,8 @@ func (e *Executor) NewProcess(cmd string, options execapi.ProcessOptions) (execa
 		env:             env,
 		workDir:         workDir,
 		networkMode:     e.networkMode,
-		volumes:         append([]string(nil), e.volumes...),
-		mounts:          append([]execapi.Mount(nil), options.Mounts...),
+		volumes:         e.volumes,
+		mounts:          options.Mounts,
 		user:            e.user,
 		memoryLimit:     e.memoryLimit,
 		cpuQuota:        e.cpuQuota,
@@ -584,10 +584,10 @@ func validateStaticMountTargets(volumes []string) error {
 	return nil
 }
 
+// validateProcessMountTargets rejects a process mount that shadows one of the
+// executor's static binds. NewDockerExecutor already rejects collisions inside
+// the static set.
 func validateProcessMountTargets(volumes []string, mounts []execapi.Mount) error {
-	if err := validateStaticMountTargets(volumes); err != nil {
-		return err
-	}
 	staticTargets := make(map[string]struct{}, len(volumes))
 	for _, volume := range volumes {
 		if target, ok := bindTarget(volume); ok {
