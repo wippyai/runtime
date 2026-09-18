@@ -24,7 +24,7 @@ func TestActorFactoryAggregateMemoryAdmission(t *testing.T) {
 		// This fixed-memory allocator fixture reserves a small explicit stack;
 		// production default-stack allocation is covered by the engine tests.
 		cfg.SetOptions(api.ProcessOptions{Limits: api.ProcessLimitsConfig{MemoryBytes: pages * 65536, AsyncifyStackBytes: 1024}})
-		factory := NewActorFactory(code, true, cfg, wasmcomponent.NewHostRegistry(), nil, wasmcomponent.InMemoryCompilationCache)
+		factory := NewActorFactory(code, true, cfg, wasmcomponent.NewHostRegistry(), nil, wasmcomponent.InMemoryCaches())
 		defer factory.Close()
 		var live []*wasmengine.ActorProcess
 		for index := 0; index < 2; index++ {

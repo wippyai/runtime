@@ -107,7 +107,7 @@ func TestActorFactory_IsolatedSpawnResources(t *testing.T) {
 		},
 	})
 
-	factory := NewActorFactory(actorBytes, true, cfg, hostReg, nil, wasmcomponent.InMemoryCompilationCache)
+	factory := NewActorFactory(actorBytes, true, cfg, hostReg, nil, wasmcomponent.InMemoryCaches())
 	spawnFunc := factory.Create()
 
 	proc1, err := spawnFunc()
@@ -157,7 +157,7 @@ func TestActorFactory_FailureCleanup(t *testing.T) {
 		Method:  "run",
 		Imports: []registry.ID{registry.ParseID("wippy:actor")},
 	}
-	factory := NewActorFactory(actorBytes, true, cfg, hostReg, nil, wasmcomponent.InMemoryCompilationCache)
+	factory := NewActorFactory(actorBytes, true, cfg, hostReg, nil, wasmcomponent.InMemoryCaches())
 	spawnFunc := factory.Create()
 
 	proc, err := spawnFunc()
@@ -175,7 +175,7 @@ func TestActorFactory_ClosedRejectsSpawn(t *testing.T) {
 		Method:  "run",
 		Imports: []registry.ID{registry.ParseID("wippy:actor")},
 	}
-	factory := NewActorFactory(actorBytes, true, cfg, hostReg, nil, wasmcomponent.InMemoryCompilationCache)
+	factory := NewActorFactory(actorBytes, true, cfg, hostReg, nil, wasmcomponent.InMemoryCaches())
 	spawnFunc := factory.Create()
 
 	factory.Close()
@@ -193,7 +193,7 @@ func TestManager_AddAndSpawnActor(t *testing.T) {
 	fsReg.set("actor.wasm", actorBytes)
 
 	bus := &testBus{}
-	m := NewManager(zap.NewNop(), bus, fsReg, wasmcomponent.InMemoryCompilationCache)
+	m := NewManager(zap.NewNop(), bus, fsReg, wasmcomponent.InMemoryCaches())
 	require.NoError(t, m.RegisterHostProfiles(testActorHostProfile()))
 
 	awaitSvc := &testPrepareAwaitService{result: event.AwaitResult{Accepted: true}}
@@ -245,7 +245,7 @@ func TestManager_FailedUpdatePreservesConfig(t *testing.T) {
 	fsReg.set("bad.wasm", []byte("not-wasm-bytes"))
 
 	bus := &testBus{}
-	m := NewManager(zap.NewNop(), bus, fsReg, wasmcomponent.InMemoryCompilationCache)
+	m := NewManager(zap.NewNop(), bus, fsReg, wasmcomponent.InMemoryCaches())
 	require.NoError(t, m.RegisterHostProfiles(testActorHostProfile()))
 
 	awaitSvc := &testPrepareAwaitService{result: event.AwaitResult{Accepted: true}}
@@ -300,7 +300,7 @@ func TestManager_StopBehavior(t *testing.T) {
 	fsReg.set("actor.wasm", actorBytes)
 
 	bus := &testBus{}
-	m := NewManager(zap.NewNop(), bus, fsReg, wasmcomponent.InMemoryCompilationCache)
+	m := NewManager(zap.NewNop(), bus, fsReg, wasmcomponent.InMemoryCaches())
 	require.NoError(t, m.RegisterHostProfiles(testActorHostProfile()))
 
 	awaitSvc := &testPrepareAwaitService{result: event.AwaitResult{Accepted: true}}
@@ -344,7 +344,7 @@ func TestManager_InvalidateRefreezesBytes(t *testing.T) {
 	fsReg.set("actor.wasm", actorBytes)
 
 	bus := &testBus{}
-	m := NewManager(zap.NewNop(), bus, fsReg, wasmcomponent.InMemoryCompilationCache)
+	m := NewManager(zap.NewNop(), bus, fsReg, wasmcomponent.InMemoryCaches())
 	require.NoError(t, m.RegisterHostProfiles(testActorHostProfile()))
 
 	awaitSvc := &testPrepareAwaitService{result: event.AwaitResult{Accepted: true}}
@@ -387,7 +387,7 @@ func TestManager_DeleteCleansUpFactory(t *testing.T) {
 	fsReg.set("actor.wasm", actorBytes)
 
 	bus := &testBus{}
-	m := NewManager(zap.NewNop(), bus, fsReg, wasmcomponent.InMemoryCompilationCache)
+	m := NewManager(zap.NewNop(), bus, fsReg, wasmcomponent.InMemoryCaches())
 	require.NoError(t, m.RegisterHostProfiles(testActorHostProfile()))
 
 	awaitSvc := &testPrepareAwaitService{result: event.AwaitResult{Accepted: true}}
@@ -423,7 +423,7 @@ func TestManager_FailedAddCleansUpTempRuntime(t *testing.T) {
 	fsReg.set("invalid.wasm", []byte("invalid-wasm-bytes"))
 
 	bus := &testBus{}
-	m := NewManager(zap.NewNop(), bus, fsReg, wasmcomponent.InMemoryCompilationCache)
+	m := NewManager(zap.NewNop(), bus, fsReg, wasmcomponent.InMemoryCaches())
 	require.NoError(t, m.RegisterHostProfiles(testActorHostProfile()))
 
 	awaitSvc := &testPrepareAwaitService{result: event.AwaitResult{Accepted: true}}
@@ -455,7 +455,7 @@ func TestActorFactory_NoCapturedRegistrationDeadlines(t *testing.T) {
 	fsReg.set("actor.wasm", actorBytes)
 
 	bus := &testBus{}
-	m := NewManager(zap.NewNop(), bus, fsReg, wasmcomponent.InMemoryCompilationCache)
+	m := NewManager(zap.NewNop(), bus, fsReg, wasmcomponent.InMemoryCaches())
 	require.NoError(t, m.RegisterHostProfiles(testActorHostProfile()))
 
 	awaitSvc := &testPrepareAwaitService{result: event.AwaitResult{Accepted: true}}
@@ -496,7 +496,7 @@ func TestCoreProcessSupport(t *testing.T) {
 	}
 
 	// Core process without actor import is supported safely
-	factory := NewActorFactory(coreBytes, false, cfg, hostReg, nil, wasmcomponent.InMemoryCompilationCache)
+	factory := NewActorFactory(coreBytes, false, cfg, hostReg, nil, wasmcomponent.InMemoryCaches())
 	proc, err := factory.Create()()
 	require.NoError(t, err)
 	require.NotNil(t, proc)
@@ -528,7 +528,7 @@ func TestActorFactory_LateSpawnCloseRaceWithBarrier(t *testing.T) {
 		Method:  "run",
 		Imports: []registry.ID{registry.ParseID("wippy:actor")},
 	}
-	factory := NewActorFactory(actorBytes, true, cfg, hostReg, nil, wasmcomponent.InMemoryCompilationCache)
+	factory := NewActorFactory(actorBytes, true, cfg, hostReg, nil, wasmcomponent.InMemoryCaches())
 	spawnFunc := factory.Create()
 
 	type spawnResult struct {
@@ -564,7 +564,7 @@ func TestManager_AddPreservesSecurityMetadata(t *testing.T) {
 	fsReg.set("actor.wasm", actorBytes)
 
 	bus := &testBus{}
-	m := NewManager(zap.NewNop(), bus, fsReg, wasmcomponent.InMemoryCompilationCache)
+	m := NewManager(zap.NewNop(), bus, fsReg, wasmcomponent.InMemoryCaches())
 	require.NoError(t, m.RegisterHostProfiles(testActorHostProfile()))
 
 	awaitSvc := &testPrepareAwaitService{result: event.AwaitResult{Accepted: true}}
@@ -616,7 +616,7 @@ func TestActorFactory_SharedSocketBudget(t *testing.T) {
 		},
 	})
 
-	factory := NewActorFactory(actorBytes, true, cfg, hostReg, nil, wasmcomponent.InMemoryCompilationCache)
+	factory := NewActorFactory(actorBytes, true, cfg, hostReg, nil, wasmcomponent.InMemoryCaches())
 	spawnFunc := factory.Create()
 
 	proc1, err := spawnFunc()

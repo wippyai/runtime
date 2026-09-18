@@ -30,7 +30,7 @@ func TestFunctionRuntimeDeadlineInterruptsGuestLoop(t *testing.T) {
 		return
 	}
 	ctx := context.Background()
-	m := NewManager(zap.NewNop(), nil, noopDispatcher{}, nil, wasmcomponent.InMemoryCompilationCache)
+	m := NewManager(zap.NewNop(), nil, noopDispatcher{}, nil, wasmcomponent.InMemoryCaches())
 	if err := m.Start(ctx); err != nil {
 		t.Fatal(err)
 	}

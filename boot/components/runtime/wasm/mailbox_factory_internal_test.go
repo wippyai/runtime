@@ -34,7 +34,7 @@ func TestActorFactoryMailboxPollDefaultProfiles(t *testing.T) {
 		return nil
 	}}))
 	cfg := &wasmapi.ProcessConfig{Method: "run", Imports: []registry.ID{registry.ParseID("wippy:actor"), registry.ParseID(component.HostProfileWASIPoll), registry.ParseID("test:capture")}}
-	factory := actorcomponent.NewActorFactory(code, true, cfg, hosts, nil, component.InMemoryCompilationCache)
+	factory := actorcomponent.NewActorFactory(code, true, cfg, hosts, nil, component.InMemoryCaches())
 	defer factory.Close()
 	var actors []*engine.ActorProcess
 	for range 2 {

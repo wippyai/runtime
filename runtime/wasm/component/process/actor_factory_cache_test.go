@@ -15,6 +15,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/tetratelabs/wazero"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/payload"
@@ -26,6 +27,7 @@ import (
 	wasmcomponent "github.com/wippyai/runtime/runtime/wasm/component"
 	wasmengine "github.com/wippyai/runtime/runtime/wasm/engine"
 	"github.com/wippyai/runtime/runtime/wasm/host/wippy/hosts/actor"
+	"github.com/wippyai/wasm-runtime/asyncify"
 	wasmrt "github.com/wippyai/wasm-runtime/runtime"
 	"go.uber.org/zap"
 )
@@ -82,7 +84,7 @@ func newCacheTestActorFactory(t *testing.T) *ActorFactory {
 			MessageBytes: 512 * 1024,
 		},
 	})
-	factory := NewActorFactory(actorBytes, true, cfg, hostReg, nil, wasmcomponent.InMemoryCompilationCache)
+	factory := NewActorFactory(actorBytes, true, cfg, hostReg, nil, wasmcomponent.InMemoryCaches())
 	t.Cleanup(factory.Close)
 	return factory
 }
@@ -251,7 +253,7 @@ func TestActorFactory_FailedHostRegistrationDoesNotLeakGenerationRef(t *testing.
 		Method:  "run",
 		Imports: []registry.ID{registry.ParseID("wippy:actor")},
 	}
-	factory := NewActorFactory(actorBytes, true, cfg, hostReg, nil, wasmcomponent.InMemoryCompilationCache)
+	factory := NewActorFactory(actorBytes, true, cfg, hostReg, nil, wasmcomponent.InMemoryCaches())
 	t.Cleanup(factory.Close)
 
 	proc, err := factory.Create()()
@@ -284,7 +286,7 @@ func TestActorFactory_FailedSpawnHostRegistrationAfterWarmDoesNotLeak(t *testing
 		Method:  "run",
 		Imports: []registry.ID{registry.ParseID("wippy:actor")},
 	}
-	factory := NewActorFactory(actorBytes, true, cfg, hostReg, nil, wasmcomponent.InMemoryCompilationCache)
+	factory := NewActorFactory(actorBytes, true, cfg, hostReg, nil, wasmcomponent.InMemoryCaches())
 	t.Cleanup(factory.Close)
 
 	require.NoError(t, factory.warm(context.Background()))
@@ -310,7 +312,7 @@ func TestActorFactory_FailedWarmDoesNotLeakGeneration(t *testing.T) {
 		Method:  "run",
 		Imports: []registry.ID{registry.ParseID("wippy:actor")},
 	}
-	factory := NewActorFactory([]byte("not-a-wasm-module"), true, cfg, hostReg, nil, wasmcomponent.InMemoryCompilationCache)
+	factory := NewActorFactory([]byte("not-a-wasm-module"), true, cfg, hostReg, nil, wasmcomponent.InMemoryCaches())
 	t.Cleanup(factory.Close)
 
 	err := factory.warm(context.Background())
@@ -342,7 +344,7 @@ func TestActorFactory_WarmCloseRaceKeepsCacheAliveUntilWarmUnwinds(t *testing.T)
 		Method:  "run",
 		Imports: []registry.ID{registry.ParseID("wippy:actor")},
 	}
-	factory := NewActorFactory(actorBytes, true, cfg, hostReg, nil, wasmcomponent.InMemoryCompilationCache)
+	factory := NewActorFactory(actorBytes, true, cfg, hostReg, nil, wasmcomponent.InMemoryCaches())
 	t.Cleanup(factory.Close)
 
 	errChan := make(chan error, 1)
@@ -388,7 +390,7 @@ func TestActorFactory_LateSpawnCloseRaceAfterWarmDoesNotLeakRef(t *testing.T) {
 		Method:  "run",
 		Imports: []registry.ID{registry.ParseID("wippy:actor")},
 	}
-	factory := NewActorFactory(actorBytes, true, cfg, hostReg, nil, wasmcomponent.InMemoryCompilationCache)
+	factory := NewActorFactory(actorBytes, true, cfg, hostReg, nil, wasmcomponent.InMemoryCaches())
 	t.Cleanup(factory.Close)
 	require.NoError(t, factory.warm(context.Background()))
 
@@ -457,7 +459,7 @@ func TestActorFactory_CoreProcessPinLifecycle(t *testing.T) {
 
 	hostReg := wasmcomponent.NewHostRegistry()
 	cfg := &api.ProcessConfig{Method: "answer"}
-	factory := NewActorFactory(coreBytes, false, cfg, hostReg, nil, wasmcomponent.InMemoryCompilationCache)
+	factory := NewActorFactory(coreBytes, false, cfg, hostReg, nil, wasmcomponent.InMemoryCaches())
 	t.Cleanup(factory.Close)
 
 	require.NoError(t, factory.warm(context.Background()))
@@ -489,7 +491,7 @@ func TestManager_InvalidateKeepsLiveActorAndNewFactory(t *testing.T) {
 	fsReg.set("actor.wasm", actorBytes)
 
 	bus := &testBus{}
-	m := NewManager(zap.NewNop(), bus, fsReg, wasmcomponent.InMemoryCompilationCache)
+	m := NewManager(zap.NewNop(), bus, fsReg, wasmcomponent.InMemoryCaches())
 	require.NoError(t, m.RegisterHostProfiles(testActorHostProfile()))
 
 	awaitSvc := &testPrepareAwaitService{result: event.AwaitResult{Accepted: true}}
@@ -547,7 +549,7 @@ func TestManager_StopKeepsLiveActorAndRejectsSpawn(t *testing.T) {
 	fsReg.set("actor.wasm", actorBytes)
 
 	bus := &testBus{}
-	m := NewManager(zap.NewNop(), bus, fsReg, wasmcomponent.InMemoryCompilationCache)
+	m := NewManager(zap.NewNop(), bus, fsReg, wasmcomponent.InMemoryCaches())
 	require.NoError(t, m.RegisterHostProfiles(testActorHostProfile()))
 
 	awaitSvc := &testPrepareAwaitService{result: event.AwaitResult{Accepted: true}}
@@ -624,8 +626,13 @@ func TestActorFactory_DirCachePersistenceAcrossGenerations(t *testing.T) {
 		},
 	})
 
+	caches := wasmcomponent.Caches{
+		Compilation: wasmcomponent.DirCompilationCache(cacheDir),
+		Transform:   asyncify.NewMemoryTransformCache(),
+	}
+
 	// Generation 1: warms and compiles module into cacheDir.
-	factory1 := NewActorFactory(actorBytes, true, cfg, hostReg, nil, wasmcomponent.DirCompilationCache(cacheDir))
+	factory1 := NewActorFactory(actorBytes, true, cfg, hostReg, nil, caches)
 	require.NoError(t, factory1.warm(context.Background()))
 	filesAfterGen1 := listDirFiles(t, cacheDir)
 	require.NotEmpty(t, filesAfterGen1)
@@ -638,10 +645,44 @@ func TestActorFactory_DirCachePersistenceAcrossGenerations(t *testing.T) {
 	assert.Equal(t, filesAfterGen1, filesAfterClose)
 
 	// Generation 2: new generation over same directory adds no new files for same module.
-	factory2 := NewActorFactory(actorBytes, true, cfg, hostReg, nil, wasmcomponent.DirCompilationCache(cacheDir))
+	factory2 := NewActorFactory(actorBytes, true, cfg, hostReg, nil, caches)
 	t.Cleanup(factory2.Close)
 	require.NoError(t, factory2.warm(context.Background()))
 
 	filesAfterGen2 := listDirFiles(t, cacheDir)
 	assert.Equal(t, filesAfterGen1, filesAfterGen2)
+}
+
+func TestActorFactory_RuntimeConfigCarriesBothCaches(t *testing.T) {
+	actorBytes, _ := loadActorWASM(t)
+	hostReg := wasmcomponent.NewHostRegistry()
+	require.NoError(t, hostReg.RegisterProfiles(testActorHostProfile()))
+	cfg := &api.ProcessConfig{
+		Method:  "run",
+		Imports: []registry.ID{registry.ParseID("wippy:actor")},
+	}
+	cfg.SetOptions(api.ProcessOptions{
+		Limits: api.ProcessLimitsConfig{
+			MemoryBytes:    64 * 1024 * 1024,
+			MaxOpenSockets: 4,
+		},
+	})
+
+	rawCompCache, err := wasmcomponent.InMemoryCompilationCache()
+	require.NoError(t, err)
+	rawTransCache := asyncify.NewMemoryTransformCache()
+
+	caches := wasmcomponent.Caches{
+		Compilation: func() (wazero.CompilationCache, error) { return rawCompCache, nil },
+		Transform:   rawTransCache,
+	}
+
+	factory := NewActorFactory(actorBytes, true, cfg, hostReg, nil, caches)
+	t.Cleanup(factory.Close)
+
+	runtimeCfg := factory.runtimeConfig()
+	require.NotNil(t, runtimeCfg)
+	assert.Same(t, rawCompCache, runtimeCfg.CompilationCache)
+	assert.Same(t, rawTransCache, runtimeCfg.TransformCache)
+	assert.True(t, runtimeCfg.CloseOnContextDone)
 }

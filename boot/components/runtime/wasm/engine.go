@@ -15,12 +15,18 @@ import (
 	bootpkg "github.com/wippyai/runtime/boot"
 	"github.com/wippyai/runtime/boot/components/dispatchers"
 	"github.com/wippyai/runtime/internal/cachedir"
+	"github.com/wippyai/runtime/internal/toolchain"
 	wasmcomponent "github.com/wippyai/runtime/runtime/wasm/component"
 	wasmfunc "github.com/wippyai/runtime/runtime/wasm/component/function"
 	wasmproc "github.com/wippyai/runtime/runtime/wasm/component/process"
 	"github.com/wippyai/runtime/system/scheduler/affinity"
+	"github.com/wippyai/wasm-runtime/asyncify"
 	"go.uber.org/zap"
 )
+
+const wasmRuntimeModulePath = "github.com/wippyai/wasm-runtime"
+
+type identityResolver func(string) (string, error)
 
 // Engine wires WASM function registry handling and runtime lifecycle.
 func Engine() boot.Component {
@@ -30,6 +36,10 @@ func Engine() boot.Component {
 // EngineWithHostProfiles wires WASM function runtime using provided host profiles.
 // This is the extension point for boot-time host plugins.
 func EngineWithHostProfiles(hostProfiles ...wasmcomponent.HostProfile) boot.Component {
+	return newEngine(toolchain.ModuleIdentity, hostProfiles...)
+}
+
+func newEngine(resolveIdentity identityResolver, hostProfiles ...wasmcomponent.HostProfile) boot.Component {
 	profiles := append([]wasmcomponent.HostProfile(nil), hostProfiles...)
 	var funcs *wasmfunc.Manager
 	var procs *wasmproc.Manager
@@ -53,7 +63,7 @@ func EngineWithHostProfiles(hostProfiles ...wasmcomponent.HostProfile) boot.Comp
 			}
 
 			cfg := boot.GetConfig(ctx)
-			cacheFactory := resolveCacheFactory(cfg, logger.Named("wasm"))
+			caches := resolveCaches(cfg, logger.Named("wasm"), resolveIdentity)
 
 			fsReg := fsapi.GetRegistry(ctx)
 			funcs = wasmfunc.NewManager(
@@ -61,7 +71,7 @@ func EngineWithHostProfiles(hostProfiles ...wasmcomponent.HostProfile) boot.Comp
 				bus,
 				disp,
 				fsReg,
-				cacheFactory,
+				caches,
 			)
 			if part, ok := affinity.PartitionFromContext(ctx); ok && part.Enabled {
 				funcs.SetWASMAffinity(part.WASMCPUs)
@@ -70,7 +80,7 @@ func EngineWithHostProfiles(hostProfiles ...wasmcomponent.HostProfile) boot.Comp
 				logger.Named("wasm.process"),
 				bus,
 				fsReg,
-				cacheFactory,
+				caches,
 			)
 			effectiveProfiles := profiles
 			if len(effectiveProfiles) == 0 {
@@ -113,7 +123,7 @@ func EngineWithHostProfiles(hostProfiles ...wasmcomponent.HostProfile) boot.Comp
 	})
 }
 
-func resolveCacheFactory(cfg boot.Config, logger *zap.Logger) wasmcomponent.CompilationCacheFactory {
+func resolveCaches(cfg boot.Config, logger *zap.Logger, resolveIdentity identityResolver) wasmcomponent.Caches {
 	enabled := true
 	dir := filepath.Join(cachedir.Dir(), "wasm")
 	if cfg != nil {
@@ -129,14 +139,44 @@ func resolveCacheFactory(cfg boot.Config, logger *zap.Logger) wasmcomponent.Comp
 		}
 	}
 	if !enabled {
-		return wasmcomponent.InMemoryCompilationCache
+		return wasmcomponent.InMemoryCaches()
 	}
 	if err := cachedir.Probe(dir); err != nil {
 		logger.Warn("wasm compilation cache directory unusable; falling back to in-memory cache",
 			zap.String("dir", dir),
 			zap.Error(err),
 		)
-		return wasmcomponent.InMemoryCompilationCache
+		return wasmcomponent.InMemoryCaches()
 	}
-	return wasmcomponent.DirCompilationCache(dir)
+
+	compilationCache := wasmcomponent.DirCompilationCache(dir)
+
+	identity, err := resolveIdentity(wasmRuntimeModulePath)
+	if err != nil {
+		logger.Warn("wasm transform cache module identity unresolvable; falling back to in-memory cache",
+			zap.Error(err),
+		)
+		return wasmcomponent.Caches{
+			Compilation: compilationCache,
+			Transform:   asyncify.NewMemoryTransformCache(),
+		}
+	}
+
+	transformDir := filepath.Join(dir, "asyncify", identity)
+	transformCache, err := asyncify.NewDirTransformCache(transformDir)
+	if err != nil {
+		logger.Warn("wasm transform cache directory unusable; falling back to in-memory cache",
+			zap.String("dir", transformDir),
+			zap.Error(err),
+		)
+		return wasmcomponent.Caches{
+			Compilation: compilationCache,
+			Transform:   asyncify.NewMemoryTransformCache(),
+		}
+	}
+
+	return wasmcomponent.Caches{
+		Compilation: compilationCache,
+		Transform:   transformCache,
+	}
 }

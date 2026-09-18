@@ -16,6 +16,7 @@ import (
 	wasmcomponent "github.com/wippyai/runtime/runtime/wasm/component"
 	wasmengine "github.com/wippyai/runtime/runtime/wasm/engine"
 	"github.com/wippyai/runtime/runtime/wasm/host/wippy/hosts/actor"
+	"github.com/wippyai/wasm-runtime/asyncify"
 	memorybudget "github.com/wippyai/wasm-runtime/memory/budget"
 	wasmrt "github.com/wippyai/wasm-runtime/runtime"
 	"github.com/wippyai/wasm-runtime/wasi/preview2"
@@ -75,6 +76,7 @@ type ActorFactory struct {
 	hostRegistry    *wasmcomponent.HostRegistry
 	gen             *factoryGeneration
 	pinRT           *wasmrt.Runtime
+	transformCache  asyncify.TransformCache
 	bytes           []byte
 	hostBufferBytes int64
 	pinOnce         sync.Once
@@ -92,7 +94,7 @@ func NewActorFactory(
 	cfg *api.ProcessConfig,
 	hostRegistry *wasmcomponent.HostRegistry,
 	fsRegistry fsapi.Registry,
-	newCache wasmcomponent.CompilationCacheFactory,
+	caches wasmcomponent.Caches,
 ) *ActorFactory {
 	memBytes := cfg.Limits().EffectiveMemoryBytes()
 	pages := uint32(memBytes / api.MinProcessMemoryBytesMultiple)
@@ -104,12 +106,13 @@ func NewActorFactory(
 		fsRegistry:      fsRegistry,
 		memoryPages:     pages,
 		hostBufferBytes: cfg.Limits().HostBufferBytes,
-		gen:             newFactoryGeneration(newCache),
+		gen:             newFactoryGeneration(caches.Compilation),
+		transformCache:  caches.Transform,
 	}
 }
 
 func (f *ActorFactory) runtimeConfig() *wasmrt.Config {
-	return wasmcomponent.RuntimeConfig(f.gen.cache, f.memoryPages)
+	return wasmcomponent.RuntimeConfig(f.gen.cache, f.transformCache, f.memoryPages)
 }
 
 // Close invalidates the factory, preventing subsequent spawns.
