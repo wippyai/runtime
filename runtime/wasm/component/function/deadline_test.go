@@ -11,6 +11,7 @@ import (
 
 	processapi "github.com/wippyai/runtime/api/process"
 	wasmapi "github.com/wippyai/runtime/api/runtime/wasm"
+	wasmcomponent "github.com/wippyai/runtime/runtime/wasm/component"
 	wasmengine "github.com/wippyai/runtime/runtime/wasm/engine"
 	wasmrt "github.com/wippyai/wasm-runtime/runtime"
 	"go.uber.org/zap"
@@ -29,7 +30,7 @@ func TestFunctionRuntimeDeadlineInterruptsGuestLoop(t *testing.T) {
 		return
 	}
 	ctx := context.Background()
-	m := NewManager(zap.NewNop(), nil, noopDispatcher{}, nil)
+	m := NewManager(zap.NewNop(), nil, noopDispatcher{}, nil, wasmcomponent.InMemoryCompilationCache)
 	if err := m.Start(ctx); err != nil {
 		t.Fatal(err)
 	}

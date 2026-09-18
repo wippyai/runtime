@@ -31,13 +31,20 @@ var (
 // Cache.Close runs when the last ref is released, after those runtimes have closed.
 type factoryGeneration struct {
 	cache       wazero.CompilationCache
+	err         error
 	refs        atomic.Int32
 	cacheClosed atomic.Bool
 }
 
-func newFactoryGeneration() *factoryGeneration {
-	g := &factoryGeneration{cache: wazero.NewCompilationCache()}
+func newFactoryGeneration(newCache wasmcomponent.CompilationCacheFactory) *factoryGeneration {
+	g := &factoryGeneration{}
 	g.refs.Store(1)
+	cache, err := newCache()
+	if err != nil {
+		g.err = err
+		return g
+	}
+	g.cache = cache
 	return g
 }
 
@@ -85,6 +92,7 @@ func NewActorFactory(
 	cfg *api.ProcessConfig,
 	hostRegistry *wasmcomponent.HostRegistry,
 	fsRegistry fsapi.Registry,
+	newCache wasmcomponent.CompilationCacheFactory,
 ) *ActorFactory {
 	memBytes := cfg.Limits().EffectiveMemoryBytes()
 	pages := uint32(memBytes / api.MinProcessMemoryBytesMultiple)
@@ -96,16 +104,12 @@ func NewActorFactory(
 		fsRegistry:      fsRegistry,
 		memoryPages:     pages,
 		hostBufferBytes: cfg.Limits().HostBufferBytes,
-		gen:             newFactoryGeneration(),
+		gen:             newFactoryGeneration(newCache),
 	}
 }
 
 func (f *ActorFactory) runtimeConfig() *wasmrt.Config {
-	return &wasmrt.Config{
-		CompilationCache:   f.gen.cache,
-		MemoryLimitPages:   f.memoryPages,
-		CloseOnContextDone: true,
-	}
+	return wasmcomponent.RuntimeConfig(f.gen.cache, f.memoryPages)
 }
 
 // Close invalidates the factory, preventing subsequent spawns.
@@ -182,6 +186,9 @@ func (f *ActorFactory) ensurePin(ctx context.Context) error {
 }
 
 func (f *ActorFactory) initPin(ctx context.Context) error {
+	if f.gen.err != nil {
+		return f.gen.err
+	}
 	rt, err := wasmrt.NewWithConfig(context.Background(), f.runtimeConfig())
 	if err != nil {
 		return err

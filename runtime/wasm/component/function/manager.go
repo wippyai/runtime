@@ -8,6 +8,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/tetratelabs/wazero"
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/event"
 	fsapi "github.com/wippyai/runtime/api/fs"
@@ -66,6 +67,8 @@ type Manager struct {
 	coreRT       *wasmrt.Runtime
 	componentRT  *wasmrt.Runtime
 	hostRegistry *wasmcomponent.HostRegistry
+	newCache     wasmcomponent.CompilationCacheFactory
+	cache        wazero.CompilationCache
 	wasmAffinity affinity.Set
 	mu           sync.RWMutex
 	hostSeq      atomic.Uint64
@@ -79,18 +82,25 @@ func (m *Manager) SetWASMAffinity(set affinity.Set) {
 	m.wasmAffinity = set
 }
 
+// runtimeConfig builds the wasmrt.Config used by every function runtime.
+func (m *Manager) runtimeConfig() *wasmrt.Config {
+	return wasmcomponent.RuntimeConfig(m.cache, 0)
+}
+
 // NewManager creates a new WASM function manager.
 func NewManager(
 	log *zap.Logger,
 	bus event.Bus,
 	disp dispatcher.Dispatcher,
 	fsRegistry fsapi.Registry,
+	newCache wasmcomponent.CompilationCacheFactory,
 ) *Manager {
 	return &Manager{
 		log:          log,
 		bus:          bus,
 		dispatcher:   disp,
 		fsRegistry:   fsRegistry,
+		newCache:     newCache,
 		pools:        make(map[registry.ID]*poolEntry),
 		configs:      make(map[registry.ID]*configEntry),
 		hostRegistry: wasmcomponent.NewHostRegistry(),
@@ -111,14 +121,25 @@ func (m *Manager) Start(ctx context.Context) error {
 	m.pidReg = topology.GetRegistry(ctx)
 	m.node = relay.GetNode(ctx)
 
-	coreRT, err := wasmrt.NewWithConfig(ctx, &wasmrt.Config{CloseOnContextDone: true})
+	cache, err := m.newCache()
 	if err != nil {
 		return err
 	}
+	m.cache = cache
 
-	componentRT, err := wasmrt.NewWithConfig(ctx, &wasmrt.Config{CloseOnContextDone: true})
+	cfg := m.runtimeConfig()
+	coreRT, err := wasmrt.NewWithConfig(ctx, cfg)
+	if err != nil {
+		_ = cache.Close(context.Background())
+		m.cache = nil
+		return err
+	}
+
+	componentRT, err := wasmrt.NewWithConfig(ctx, cfg)
 	if err != nil {
 		_ = coreRT.Close(ctx)
+		_ = cache.Close(context.Background())
+		m.cache = nil
 		return err
 	}
 
@@ -127,6 +148,8 @@ func (m *Manager) Start(ctx context.Context) error {
 		m.mu.Unlock()
 		_ = componentRT.Close(ctx)
 		_ = coreRT.Close(ctx)
+		_ = cache.Close(context.Background())
+		m.cache = nil
 		return nil
 	}
 	m.coreRT = coreRT
@@ -175,6 +198,10 @@ func (m *Manager) Stop() {
 	if m.coreRT != nil {
 		_ = m.coreRT.Close(context.Background())
 		m.coreRT = nil
+	}
+	if m.cache != nil {
+		_ = m.cache.Close(context.Background())
+		m.cache = nil
 	}
 	m.hostRegistry.ResetLoaded()
 
