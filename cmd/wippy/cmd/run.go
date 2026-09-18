@@ -26,6 +26,7 @@ import (
 	"github.com/wippyai/runtime/api/relay"
 	secapi "github.com/wippyai/runtime/api/security"
 	embedapi "github.com/wippyai/runtime/api/service/fs/embed"
+	terminalapi "github.com/wippyai/runtime/api/service/terminal"
 	supervisorapi "github.com/wippyai/runtime/api/supervisor"
 	bootpkg "github.com/wippyai/runtime/boot"
 	"github.com/wippyai/runtime/boot/deps/client"
@@ -100,13 +101,13 @@ func init() {
 	listCmd.Flags().StringArray("set", nil, "override a merged runtime config value (format: section.path=value, repeatable)")
 	runCmd.Flags().StringSliceP("override", "o", nil, "Override entry values (format: namespace:entry:field=value)")
 	runCmd.Flags().StringP("exec", "x", "", "Execute process and exit (format: namespace:entry)")
-	runCmd.Flags().String("host", "", "Terminal host ID for exec (auto-detected if only one terminal.host exists)")
+	runCmd.Flags().String("host", "", "Terminal host ID for exec (defaults to command metadata, then a single terminal.host)")
 	runCmd.Flags().String("registry", "", "Registry URL for hub modules (default: from credentials)")
 	runCmd.Flags().StringArray("set", nil, "override a merged runtime config value (format: section.path=value, repeatable)")
 	runCmd.Flags().StringArray("profile", nil, "apply a profile from the merged runtime config or packed runtime metadata (repeatable, applied in order)")
 
 	testCmd.Flags().StringSliceP("override", "o", nil, "Override entry values (format: namespace:entry:field=value)")
-	testCmd.Flags().String("host", "", "Terminal host ID for exec (auto-detected if only one terminal.host exists)")
+	testCmd.Flags().String("host", "", "Terminal host ID for exec (defaults to command metadata, then a single terminal.host)")
 	testCmd.Flags().String("registry", "", "Registry URL for hub modules (default: from credentials)")
 	testCmd.Flags().StringArray("set", nil, "override a merged runtime config value (format: section.path=value, repeatable)")
 	testCmd.Flags().StringArray("profile", nil, "apply a profile from the merged runtime config or packed runtime metadata (repeatable, applied in order)")
@@ -114,6 +115,9 @@ func init() {
 
 // commandMeta represents the command metadata from entry.Meta
 type commandMeta struct {
+	// Host selects the terminal host for this command when --host is omitted.
+	// It does not change the command's security context.
+	Host string `json:"host,omitempty"`
 	// Security is the security context the command runs under when launched
 	// from the CLI. It lives inside meta.command on purpose: it applies only
 	// to the trusted terminal-launcher path, never to ordinary spawns of the
@@ -443,6 +447,9 @@ func extractCommandMeta(meta map[string]any) (*commandMeta, error) {
 		return nil, fmt.Errorf("decode command metadata: %w", err)
 	}
 	if command.Name == "" {
+		if _, declared := commandFields["host"]; declared {
+			return nil, fmt.Errorf("decode command metadata: host requires a command name")
+		}
 		if _, declared := commandFields["security"]; declared {
 			return nil, fmt.Errorf("decode command metadata: security requires a command name")
 		}
@@ -450,6 +457,12 @@ func extractCommandMeta(meta map[string]any) (*commandMeta, error) {
 	}
 	if command.UseCase == "" {
 		command.UseCase = defaultUseCase
+	}
+	if _, declared := commandFields["host"]; declared {
+		namespace, name, err := parseExecSpec(command.Host)
+		if err != nil || command.Host != namespace+":"+name || strings.ContainsAny(command.Host, " \t\r\n") {
+			return nil, fmt.Errorf("decode command metadata: host must be a namespace:name identifier")
+		}
 	}
 
 	if securityData, declared := commandFields["security"]; declared {
@@ -887,26 +900,26 @@ func parseExecSpec(spec string) (namespace, entry string, err error) {
 func findTerminalHost(ctx context.Context) (string, error) {
 	reg := registry.GetRegistry(ctx)
 	if reg == nil {
-		return "", fmt.Errorf("registry not available")
+		return "", ErrRegistryNotFound
 	}
 
 	allEntries, err := reg.GetAllEntries()
 	if err != nil {
-		return "", fmt.Errorf("failed to query registry for terminal hosts: %w", err)
+		return "", NewQueryTerminalHostsError(err)
 	}
 
 	var hosts []string
 	for _, e := range allEntries {
-		if e.Kind == "terminal.host" {
+		if e.Kind == terminalapi.Host {
 			hosts = append(hosts, e.ID.String())
 		}
 	}
 
 	if len(hosts) == 0 {
-		return "", fmt.Errorf("no terminal.host found in registry")
+		return "", NewNoTerminalHostError()
 	}
 	if len(hosts) > 1 {
-		return "", fmt.Errorf("multiple terminal hosts found (%s), use --host to specify", strings.Join(hosts, ", "))
+		return "", NewMultipleTerminalHostsError(hosts)
 	}
 	return hosts[0], nil
 }
@@ -920,16 +933,19 @@ func launchExecProcess(ctx context.Context, logger *zap.Logger, execSpec, hostID
 	}
 	source := registry.NewID(namespace, entry)
 
-	securityPairs, err := resolveCommandSecurity(ctx, source)
+	command, err := loadCommandMeta(ctx, source)
 	if err != nil {
-		return fmt.Errorf("resolve command security for %s: %w", source.String(), err)
+		return NewLoadCommandMetaError(source.String(), err)
 	}
 
-	if hostID == "" {
-		hostID, err = findTerminalHost(ctx)
-		if err != nil {
-			return err
-		}
+	securityPairs, err := resolveCommandSecurity(ctx, command)
+	if err != nil {
+		return NewResolveCommandSecurityError(source.String(), err)
+	}
+
+	hostID, err = resolveCommandHost(ctx, command, hostID)
+	if err != nil {
+		return err
 	}
 
 	if err := waitForHostRunning(ctx, hostID); err != nil {
@@ -971,29 +987,58 @@ func launchExecProcess(ctx context.Context, logger *zap.Logger, execSpec, hostID
 	return nil
 }
 
-// resolveCommandSecurity reads meta.command.security from the command entry
-// and resolves it into context pairs for the process start. Entries without a
-// command security block resolve to no pairs, preserving the caller context.
-// A declared but invalid security block fails closed before the process starts.
-func resolveCommandSecurity(ctx context.Context, source registry.ID) ([]ctxapi.Pair, error) {
+// loadCommandMeta decodes meta.command from the command entry. Host and
+// security selection share this single decode.
+func loadCommandMeta(ctx context.Context, source registry.ID) (*commandMeta, error) {
 	reg := registry.GetRegistry(ctx)
 	if reg == nil {
-		return nil, fmt.Errorf("registry not available")
+		return nil, ErrRegistryNotFound
 	}
 	entry, err := reg.GetEntry(source)
 	if err != nil {
-		return nil, fmt.Errorf("get command entry: %w", err)
+		return nil, NewGetCommandEntryError(source.String(), err)
+	}
+	return extractCommandMeta(entry.Meta)
+}
+
+// resolveCommandHost orders host selection: an explicit --host, then the host
+// declared in meta.command, then automatic discovery. Host selection supplies
+// no actor or permission grants.
+func resolveCommandHost(ctx context.Context, command *commandMeta, hostID string) (string, error) {
+	if hostID != "" {
+		return hostID, nil
+	}
+	if command == nil || command.Host == "" {
+		return findTerminalHost(ctx)
 	}
 
-	cmdMeta, err := extractCommandMeta(entry.Meta)
-	if err != nil {
-		return nil, err
+	reg := registry.GetRegistry(ctx)
+	if reg == nil {
+		return "", ErrRegistryNotFound
 	}
-	if cmdMeta == nil || cmdMeta.Security == nil {
+	// extractCommandMeta accepts a declared host only when it round-trips as
+	// namespace:name, so the spec parses here.
+	namespace, name, _ := parseExecSpec(command.Host)
+	host, err := reg.GetEntry(registry.NewID(namespace, name))
+	if err != nil {
+		return "", NewGetDeclaredCommandHostError(command.Host, err)
+	}
+	if host.Kind != terminalapi.Host {
+		return "", NewDeclaredCommandHostKindError(command.Host)
+	}
+	return command.Host, nil
+}
+
+// resolveCommandSecurity resolves meta.command.security into context pairs for
+// the process start. Commands without a security block resolve to no pairs,
+// preserving the caller context. A declared but invalid security block fails
+// closed while the metadata decodes, before the process starts.
+func resolveCommandSecurity(ctx context.Context, command *commandMeta) ([]ctxapi.Pair, error) {
+	if command == nil || command.Security == nil {
 		return nil, nil
 	}
 
-	return securitysys.ResolveConfigPairs(ctx, cmdMeta.Security)
+	return securitysys.ResolveConfigPairs(ctx, command.Security)
 }
 
 // waitForHostRunning waits until host is both running in supervisor state and

@@ -70,7 +70,7 @@ func TestHost_BlockAndDrop(t *testing.T) {
 	mono := clocks.NewMonotonicClockHost(resources)
 	host := NewHost(resources)
 
-	handle := mono.SubscribeDuration(context.Background(), uint64(8*time.Millisecond))
+	handle := mono.SubscribeDuration(context.Background(), uint64(time.Hour))
 	if handle == 0 {
 		t.Fatal("SubscribeDuration() returned zero handle")
 	}
@@ -115,13 +115,13 @@ func TestHost_BlockRewindWhenAlreadyReady(t *testing.T) {
 	mono := clocks.NewMonotonicClockHost(resources)
 	host := NewHost(resources)
 
-	handle := mono.SubscribeDuration(context.Background(), uint64(2*time.Millisecond))
-	if handle == 0 {
+	pending := mono.SubscribeDuration(context.Background(), uint64(time.Hour))
+	if pending == 0 {
 		t.Fatal("SubscribeDuration() returned zero handle")
 	}
 
 	ctx, async := newAsyncContext()
-	host.MethodPollableBlock(ctx, handle)
+	host.MethodPollableBlock(ctx, pending)
 	if !async.IsUnwinding(ctx) {
 		t.Fatal("MethodPollableBlock() should suspend via asyncify unwind")
 	}
@@ -133,9 +133,14 @@ func TestHost_BlockRewindWhenAlreadyReady(t *testing.T) {
 		t.Fatalf("StartRewind() error = %v", err)
 	}
 
-	// The timer can become ready before the rewound host call executes.
-	time.Sleep(5 * time.Millisecond)
-	host.MethodPollableBlock(ctx, handle)
+	// Readiness is a function of the deadline alone, so a timer whose deadline
+	// is the clock's start instant stands for the suspended timer after its
+	// deadline has passed by the time the rewound host call executes.
+	elapsed := mono.SubscribeInstant(context.Background(), 0)
+	if !host.MethodPollableReady(context.Background(), elapsed) {
+		t.Fatal("timer at the clock start instant should be ready")
+	}
+	host.MethodPollableBlock(ctx, elapsed)
 	if !async.IsNormal(ctx) {
 		t.Fatal("MethodPollableBlock() should resume even when pollable is already ready")
 	}
@@ -146,7 +151,7 @@ func TestHost_BlockPanicsWithoutAsyncContext(t *testing.T) {
 	mono := clocks.NewMonotonicClockHost(resources)
 	host := NewHost(resources)
 
-	handle := mono.SubscribeDuration(context.Background(), uint64(5*time.Millisecond))
+	handle := mono.SubscribeDuration(context.Background(), uint64(time.Hour))
 	if handle == 0 {
 		t.Fatal("SubscribeDuration() returned zero handle")
 	}
@@ -165,7 +170,7 @@ func TestHost_BlockDoesNotDispatchSynchronously(t *testing.T) {
 	mono := clocks.NewMonotonicClockHost(resources)
 	host := NewHost(resources)
 
-	handle := mono.SubscribeDuration(context.Background(), uint64(50*time.Millisecond))
+	handle := mono.SubscribeDuration(context.Background(), uint64(time.Hour))
 	if handle == 0 {
 		t.Fatal("SubscribeDuration() returned zero handle")
 	}

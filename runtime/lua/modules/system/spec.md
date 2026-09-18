@@ -26,7 +26,7 @@ Triggers system shutdown with exit code.
 
 | Condition | Kind | Retryable |
 |-----------|------|-----------|
-| permission denied | errors.INVALID | no |
+| permission denied | errors.PERMISSION_DENIED | no |
 
 **Permissions:** Requires `system.exit` permission.
 
@@ -48,7 +48,7 @@ Returns list of all loaded Lua modules with metadata.
 
 | Condition | Kind | Retryable |
 |-----------|------|-----------|
-| permission denied | errors.INVALID | no |
+| permission denied | errors.PERMISSION_DENIED | no |
 | code manager unavailable | errors.INTERNAL | no |
 
 **Permissions:** Requires `system.read` on `modules`.
@@ -102,7 +102,7 @@ Returns detailed memory statistics.
 
 | Condition | Kind | Retryable |
 |-----------|------|-----------|
-| permission denied | errors.INVALID | no |
+| permission denied | errors.PERMISSION_DENIED | no |
 
 **Permissions:** Requires `system.read` on `memory`.
 
@@ -116,7 +116,7 @@ Returns current bytes allocated and in use.
 
 | Condition | Kind | Retryable |
 |-----------|------|-----------|
-| permission denied | errors.INVALID | no |
+| permission denied | errors.PERMISSION_DENIED | no |
 
 **Permissions:** Requires `system.read` on `memory`.
 
@@ -130,7 +130,7 @@ Returns number of allocated heap objects.
 
 | Condition | Kind | Retryable |
 |-----------|------|-----------|
-| permission denied | errors.INVALID | no |
+| permission denied | errors.PERMISSION_DENIED | no |
 
 **Permissions:** Requires `system.read` on `memory`.
 
@@ -148,7 +148,7 @@ Sets memory limit and returns previous limit.
 
 | Condition | Kind | Retryable |
 |-----------|------|-----------|
-| permission denied | errors.INVALID | no |
+| permission denied | errors.PERMISSION_DENIED | no |
 | missing limit argument | errors.INVALID | no |
 | limit < -1 | errors.INVALID | no |
 
@@ -164,7 +164,7 @@ Returns current memory limit.
 
 | Condition | Kind | Retryable |
 |-----------|------|-----------|
-| permission denied | errors.INVALID | no |
+| permission denied | errors.PERMISSION_DENIED | no |
 
 **Permissions:** Requires `system.read` on `memory_limit`.
 
@@ -182,7 +182,7 @@ Forces garbage collection.
 
 | Condition | Kind | Retryable |
 |-----------|------|-----------|
-| permission denied | errors.INVALID | no |
+| permission denied | errors.PERMISSION_DENIED | no |
 
 **Permissions:** Requires `system.gc` on `gc`.
 
@@ -200,7 +200,7 @@ Sets GC target percentage and returns previous value.
 
 | Condition | Kind | Retryable |
 |-----------|------|-----------|
-| permission denied | errors.INVALID | no |
+| permission denied | errors.PERMISSION_DENIED | no |
 | missing percent argument | errors.INVALID | no |
 
 **Permissions:** Requires `system.gc` on `gc_percent`.
@@ -217,7 +217,7 @@ Returns current GC target percentage.
 
 | Condition | Kind | Retryable |
 |-----------|------|-----------|
-| permission denied | errors.INVALID | no |
+| permission denied | errors.PERMISSION_DENIED | no |
 
 **Permissions:** Requires `system.read` on `gc_percent`.
 
@@ -237,7 +237,7 @@ Returns number of active goroutines.
 
 | Condition | Kind | Retryable |
 |-----------|------|-----------|
-| permission denied | errors.INVALID | no |
+| permission denied | errors.PERMISSION_DENIED | no |
 
 **Permissions:** Requires `system.read` on `goroutines`.
 
@@ -259,7 +259,7 @@ Gets or sets GOMAXPROCS value.
 
 | Condition | Kind | Retryable |
 |-----------|------|-----------|
-| permission denied | errors.INVALID | no |
+| permission denied | errors.PERMISSION_DENIED | no |
 | n <= 0 | errors.INVALID | no |
 
 ### cpu_count() → number, error
@@ -272,7 +272,7 @@ Returns number of logical CPUs.
 
 | Condition | Kind | Retryable |
 |-----------|------|-----------|
-| permission denied | errors.INVALID | no |
+| permission denied | errors.PERMISSION_DENIED | no |
 
 **Permissions:** Requires `system.read` on `cpu`.
 
@@ -290,7 +290,7 @@ Returns current process ID.
 
 | Condition | Kind | Retryable |
 |-----------|------|-----------|
-| permission denied | errors.INVALID | no |
+| permission denied | errors.PERMISSION_DENIED | no |
 
 **Permissions:** Requires `system.read` on `pid`.
 
@@ -304,7 +304,7 @@ Returns system hostname.
 
 | Condition | Kind | Retryable |
 |-----------|------|-----------|
-| permission denied | errors.INVALID | no |
+| permission denied | errors.PERMISSION_DENIED | no |
 | OS error getting hostname | errors.INTERNAL | no |
 
 **Permissions:** Requires `system.read` on `hostname`.
@@ -324,7 +324,7 @@ Returns the local node identifier.
 
 | Condition | Kind | Retryable |
 |-----------|------|-----------|
-| permission denied | errors.INVALID | no |
+| permission denied | errors.PERMISSION_DENIED | no |
 | relay node unavailable | errors.INTERNAL | no |
 
 **Permissions:** Requires `system.read` on `node`.
@@ -339,7 +339,7 @@ Returns the local node network address as advertised through cluster membership.
 
 | Condition | Kind | Retryable |
 |-----------|------|-----------|
-| permission denied | errors.INVALID | no |
+| permission denied | errors.PERMISSION_DENIED | no |
 | address unavailable | errors.INTERNAL | no |
 
 **Permissions:** Requires `system.read` on `node`.
@@ -354,7 +354,7 @@ Returns the local Raft role: `"leader"`, `"voter"`, `"standby"` (non-voting lear
 
 | Condition | Kind | Retryable |
 |-----------|------|-----------|
-| permission denied | errors.INVALID | no |
+| permission denied | errors.PERMISSION_DENIED | no |
 
 **Permissions:** Requires `system.read` on `node`.
 
@@ -381,7 +381,7 @@ Full cluster membership snapshot. Local node sorts first; remaining nodes by ID.
 
 | Condition | Kind | Retryable |
 |-----------|------|-----------|
-| permission denied | errors.INVALID | no |
+| permission denied | errors.PERMISSION_DENIED | no |
 | no cluster information available | errors.INTERNAL | no |
 
 **Permissions:** Requires `system.read` on `cluster`.
@@ -396,7 +396,7 @@ Current Raft leader NodeID. Returns the empty string when the leader is unknown 
 
 | Condition | Kind | Retryable |
 |-----------|------|-----------|
-| permission denied | errors.INVALID | no |
+| permission denied | errors.PERMISSION_DENIED | no |
 
 **Permissions:** Requires `system.read` on `cluster`.
 
@@ -410,7 +410,7 @@ Number of alive members visible to the local node.
 
 | Condition | Kind | Retryable |
 |-----------|------|-----------|
-| permission denied | errors.INVALID | no |
+| permission denied | errors.PERMISSION_DENIED | no |
 
 **Permissions:** Requires `system.read` on `cluster`.
 
@@ -428,7 +428,7 @@ True iff this node is currently the Raft leader.
 
 | Condition | Kind | Retryable |
 |-----------|------|-----------|
-| permission denied | errors.INVALID | no |
+| permission denied | errors.PERMISSION_DENIED | no |
 | raft not available | errors.INTERNAL | no |
 
 **Permissions:** Requires `system.read` on `raft`.
@@ -443,7 +443,7 @@ True iff the local NodeID appears as voter or non-voter in the committed Raft co
 
 | Condition | Kind | Retryable |
 |-----------|------|-----------|
-| permission denied | errors.INVALID | no |
+| permission denied | errors.PERMISSION_DENIED | no |
 | raft not available | errors.INTERNAL | no |
 
 **Permissions:** Requires `system.read` on `raft`.
@@ -458,7 +458,7 @@ Local Raft role: `"leader"`, `"voter"`, `"standby"`, or `"non-member"`.
 
 | Condition | Kind | Retryable |
 |-----------|------|-----------|
-| permission denied | errors.INVALID | no |
+| permission denied | errors.PERMISSION_DENIED | no |
 | raft not available | errors.INTERNAL | no |
 
 **Permissions:** Requires `system.read` on `raft`.
@@ -473,7 +473,7 @@ Current Raft term parsed from the local stats snapshot. Returns 0 when the stat 
 
 | Condition | Kind | Retryable |
 |-----------|------|-----------|
-| permission denied | errors.INVALID | no |
+| permission denied | errors.PERMISSION_DENIED | no |
 | raft not available | errors.INTERNAL | no |
 
 **Permissions:** Requires `system.read` on `raft`.
@@ -488,7 +488,7 @@ Highest committed Raft log index on the local node.
 
 | Condition | Kind | Retryable |
 |-----------|------|-----------|
-| permission denied | errors.INVALID | no |
+| permission denied | errors.PERMISSION_DENIED | no |
 | raft not available | errors.INTERNAL | no |
 
 **Permissions:** Requires `system.read` on `raft`.
@@ -503,7 +503,7 @@ Full Raft stats snapshot as a table of string keys to string values (term, commi
 
 | Condition | Kind | Retryable |
 |-----------|------|-----------|
-| permission denied | errors.INVALID | no |
+| permission denied | errors.PERMISSION_DENIED | no |
 | raft not available | errors.INTERNAL | no |
 
 **Permissions:** Requires `system.read` on `raft_stats`.
@@ -600,7 +600,7 @@ Returns state for specific service.
 
 | Condition | Kind | Retryable |
 |-----------|------|-----------|
-| permission denied | errors.INVALID | no |
+| permission denied | errors.PERMISSION_DENIED | no |
 | service_id empty | errors.INVALID | no |
 | service info unavailable | errors.INTERNAL | no |
 | get state error | errors.INTERNAL | no |
@@ -619,7 +619,7 @@ Returns states for all services.
 
 | Condition | Kind | Retryable |
 |-----------|------|-----------|
-| permission denied | errors.INVALID | no |
+| permission denied | errors.PERMISSION_DENIED | no |
 | service info unavailable | errors.INTERNAL | no |
 
 **Permissions:** Requires `system.read` on `supervisor`.
@@ -631,15 +631,17 @@ This module returns structured errors. Check kind with `errors.*` constants:
 ```lua
 local result, err = system.memory.stats()
 if err then
-    if err:kind() == errors.INVALID then
-        -- permission denied or invalid argument
+    if err:kind() == errors.PERMISSION_DENIED then
+        -- the security policy denies the call
+    elseif err:kind() == errors.INVALID then
+        -- invalid argument
     elseif err:kind() == errors.INTERNAL then
         -- internal system error
     end
 end
 ```
 
-**Possible kinds:** `errors.INVALID`, `errors.INTERNAL`
+**Possible kinds:** `errors.INVALID`, `errors.PERMISSION_DENIED`, `errors.INTERNAL`
 
 ## Example
 

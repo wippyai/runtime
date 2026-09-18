@@ -191,6 +191,7 @@ func TestCluster_PermissionDenied(t *testing.T) {
 		t.Run(tc.call, func(t *testing.T) {
 			l := lua.NewState()
 			t.Cleanup(func() { l.Close() })
+			lua.OpenErrors(l)
 
 			ctx := ctxapi.WithAppContext(context.Background(), ctxapi.NewAppContext())
 			ctx = security.SetStrictMode(ctx, true)
@@ -203,6 +204,7 @@ func TestCluster_PermissionDenied(t *testing.T) {
 				local v, err = ` + tc.call + `
 				assert(v == nil, "expected nil under strict security")
 				assert(err ~= nil, "expected permission-denied error")
+				assert(err:kind() == errors.PERMISSION_DENIED, "expected PERMISSION_DENIED kind, got: " .. tostring(err:kind()))
 			`)
 			require.NoError(t, err)
 		})

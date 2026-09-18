@@ -33,6 +33,7 @@ func newLockTestState(t *testing.T, p pidapi.PID, ls *systemkv.LockService, stri
 	t.Helper()
 	l := lua.NewState()
 	t.Cleanup(func() { l.Close() })
+	lua.OpenErrors(l)
 
 	ctx := ctxapi.WithAppContext(context.Background(), ctxapi.NewAppContext())
 	ctx = security.SetStrictMode(ctx, strict)
@@ -133,6 +134,7 @@ func TestLockAcquire_PermissionDenied(t *testing.T) {
 		local ok, err = system.lock.acquire("x")
 		assert(ok == nil, "expected nil under strict security")
 		assert(err ~= nil, "expected permission-denied error")
+		assert(err:kind() == errors.PERMISSION_DENIED, "expected PERMISSION_DENIED kind, got: " .. tostring(err:kind()))
 	`))
 }
 
@@ -144,6 +146,7 @@ func TestLockRelease_PermissionDenied(t *testing.T) {
 		local ok, err = system.lock.release("x")
 		assert(ok == nil, "expected nil under strict security")
 		assert(err ~= nil, "expected permission-denied error")
+		assert(err:kind() == errors.PERMISSION_DENIED, "expected PERMISSION_DENIED kind, got: " .. tostring(err:kind()))
 	`))
 }
 

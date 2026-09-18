@@ -84,12 +84,30 @@ func init() {
 		{Name: "string", Type: typ.Func().Param("self", typ.Self).Returns(typ.String).Build()},
 	})
 
+	planOperationType := typ.NewRecord().
+		Field("op", typ.String).
+		Field("entry", stateEntryType).
+		Build()
+	effectTargetType := typ.NewRecord().
+		Field("kind", typ.String).
+		Field("digest", typ.String).
+		Build()
+	planType := typ.NewRecord().
+		Field("base", versionType).
+		Field("digest", typ.String).
+		Field("changes", typ.NewArray(planOperationType)).
+		Field("history", typ.NewArray(planOperationType)).
+		Field("effects", typ.NewArray(effectTargetType)).
+		OptField("resolution", resolutionType).
+		Build()
+
 	// Changes type (self-referential via create/update/delete, references versionType)
 	changesType = typ.NewInterface("registry.Changes", []typ.Method{
 		{Name: "ops", Type: typ.Func().Param("self", typ.Self).Returns(typ.NewArray(typ.Any)).Build()},
 		{Name: "create", Type: typ.Func().Param("self", typ.Self).Param("op", typ.Any).Returns(typ.Self, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "update", Type: typ.Func().Param("self", typ.Self).Param("op", typ.Any).Returns(typ.Self, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "delete", Type: typ.Func().Param("self", typ.Self).Param("op_or_ops", typ.Any).Returns(typ.Self, typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "plan", Type: typ.Func().Param("self", typ.Self).Returns(planType, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "apply", Type: typ.Func().Param("self", typ.Self).Returns(versionType, typ.NewOptional(typ.LuaError)).Build()},
 	})
 

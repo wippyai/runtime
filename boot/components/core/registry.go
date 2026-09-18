@@ -4,6 +4,7 @@ package core
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"path/filepath"
@@ -128,7 +129,15 @@ func Registry() boot.Component {
 			if err != nil {
 				logger.Warn("dependency handler disabled", zap.Error(err))
 			} else if depHandler != nil {
-				if err := depHandler.PrepareRestore(ctx, hist); err != nil {
+				// Startup restores installed artifacts locally. Downloads belong
+				// to explicit install/update operations, never implicit recovery.
+				restoreCtx := regapi.WithDependencyAccess(ctx, regapi.DependencyAccessVerifiedOffline)
+				if err := depHandler.PrepareRestore(restoreCtx, hist); err != nil {
+					// Startup stops here, so the shutdown hook that owns the history
+					// never runs; release it now or the store stays open.
+					if histCloser != nil {
+						err = errors.Join(err, histCloser.Close())
+					}
 					return nil, fmt.Errorf("prepare dependency restore: %w", err)
 				}
 				registryOpts = append(registryOpts,

@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	lua "github.com/wippyai/go-lua"
+	"github.com/wippyai/runtime/api/event"
 	regapi "github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	"github.com/wippyai/runtime/runtime/security"
@@ -16,7 +17,10 @@ import (
 type Changes struct {
 	snapshot *Snapshot
 	log      *zap.Logger
-	ops      []regapi.Operation
+	// plan is the reviewed plan a later apply is bound to. Any mutation of
+	// ops drops it, since the reviewed changeset no longer exists.
+	plan *regapi.Plan
+	ops  []regapi.Operation
 }
 
 // changesOps returns the operations in a changeset
@@ -72,6 +76,7 @@ func changesCreate(l *lua.LState) int {
 		return 2
 	}
 
+	changes.plan = nil
 	changes.ops = append(changes.ops, regapi.Operation{
 		Kind:  regapi.EntryCreate,
 		Entry: entry,
@@ -100,6 +105,7 @@ func changesUpdate(l *lua.LState) int {
 		return 2
 	}
 
+	changes.plan = nil
 	changes.ops = append(changes.ops, regapi.Operation{
 		Kind:  regapi.EntryUpdate,
 		Entry: entry,
@@ -131,6 +137,7 @@ func changesDelete(l *lua.LState) int {
 			continue
 		}
 		seen[id] = struct{}{}
+		changes.plan = nil
 		changes.ops = append(changes.ops, regapi.Operation{
 			Kind:  regapi.EntryDelete,
 			Entry: regapi.Entry{ID: id},
@@ -284,28 +291,176 @@ func changesApply(l *lua.LState) int {
 		return 2
 	}
 
-	if !security.IsAllowed(l.Context(), "registry.apply", "", nil) {
-		err := lua.NewLuaError(l, "not allowed to apply registry changes").
-			WithKind(lua.PermissionDenied).
-			WithRetryable(false)
+	if denied := authorizeDurableChanges(l, changes); denied != nil {
 		l.Push(lua.LNil)
-		l.Push(err)
+		l.Push(denied)
+		return 2
+	}
+	applier, ok := changes.snapshot.reg.(regapi.PlanApplier)
+	if !ok {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "registry cannot fence an apply on the snapshot version").
+			WithKind(lua.Internal).
+			WithRetryable(false))
 		return 2
 	}
 
-	version, applyErr := changes.snapshot.reg.Apply(l.Context(), changes.ops)
+	// An explicit apply from Lua is an explicit install: dependency directives
+	// in the changeset may resolve and download from the Hub.
+	ctx := regapi.WithDependencyAccess(l.Context(), regapi.DependencyAccessOnline)
+
+	var (
+		version  regapi.Version
+		applyErr error
+	)
+	if changes.plan != nil {
+		version, applyErr = applier.ApplyPlan(ctx, changes.plan)
+	} else {
+		version, applyErr = applier.ApplyAt(ctx, changes.snapshot.version, changes.ops)
+	}
 	if applyErr != nil {
-		err := lua.WrapErrorWithLua(l, applyErr, "apply changes").
-			WithKind(lua.Internal).
-			WithRetryable(false)
 		l.Push(lua.LNil)
-		l.Push(err)
+		l.Push(lua.WrapErrorWithLua(l, applyErr, "apply changes"))
 		return 2
 	}
+	changes.plan = nil
 
 	value.PushTypedUserData(l, version, typeVersion)
 	l.Push(lua.LNil)
 	return 2
+}
+
+// authorizeDurableChanges evaluates registry.apply once per operation with the
+// entry ID as the resource, the way registry.get is evaluated per entry. A
+// policy granting registry.apply on every resource behaves as before; a policy
+// scoped to a namespace pattern grants write authority over those entries only.
+// One denied operation refuses the whole changeset.
+func authorizeDurableChanges(l *lua.LState, changes *Changes) *lua.Error {
+	for _, op := range changes.ops {
+		if security.IsAllowed(l.Context(), "registry.apply", op.Entry.ID.String(), nil) {
+			continue
+		}
+		return lua.NewLuaError(l, "not allowed to "+operationVerb(op.Kind)+" registry entry: "+op.Entry.ID.String()).
+			WithKind(lua.PermissionDenied).
+			WithRetryable(false).
+			WithDetails(map[string]any{"entry_id": op.Entry.ID.String(), "action": "registry.apply"})
+	}
+	return nil
+}
+
+func operationVerb(kind event.Kind) string {
+	switch kind {
+	case regapi.EntryCreate:
+		return "create"
+	case regapi.EntryUpdate:
+		return "update"
+	case regapi.EntryDelete:
+		return "delete"
+	}
+	return "unknown"
+}
+
+// changesPlan computes what applying the changeset would do without doing it.
+// A successful plan binds the next apply to exactly what was reviewed.
+func changesPlan(l *lua.LState) int {
+	changes := checkChanges(l)
+	if changes == nil {
+		return 0
+	}
+	if changes.snapshot.overlayOwner != "" {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "plan requires a durable registry snapshot").
+			WithKind(lua.Invalid).
+			WithRetryable(false))
+		return 2
+	}
+	if len(changes.ops) == 0 {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "no changes to plan").
+			WithKind(lua.Invalid).
+			WithRetryable(false))
+		return 2
+	}
+	if denied := authorizeDurableChanges(l, changes); denied != nil {
+		l.Push(lua.LNil)
+		l.Push(denied)
+		return 2
+	}
+	planner, ok := changes.snapshot.reg.(regapi.Planner)
+	if !ok {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "registry cannot plan changes").
+			WithKind(lua.Internal).
+			WithRetryable(false))
+		return 2
+	}
+	// Planning a dependency directive resolves it and stages its artifacts in
+	// the cache, so the plan runs with the same access the apply gets.
+	ctx := regapi.WithDependencyAccess(l.Context(), regapi.DependencyAccessOnline)
+
+	plan, err := planner.Plan(ctx, changes.snapshot.version, changes.ops)
+	if err != nil {
+		changes.plan = nil
+		l.Push(lua.LNil)
+		l.Push(lua.WrapErrorWithLua(l, err, "plan changes"))
+		return 2
+	}
+	table, convErr := planToLuaTable(l, plan)
+	if convErr != nil {
+		changes.plan = nil
+		l.Push(lua.LNil)
+		l.Push(lua.WrapErrorWithLua(l, convErr, "convert plan"))
+		return 2
+	}
+	changes.plan = plan
+	l.Push(table)
+	l.Push(lua.LNil)
+	return 2
+}
+
+func planToLuaTable(l *lua.LState, plan *regapi.Plan) (*lua.LTable, error) {
+	operations := func(changes regapi.ChangeSet) (*lua.LTable, error) {
+		list := l.CreateTable(len(changes), 0)
+		for i, op := range changes {
+			entry, err := stateEntryToLuaTable(l, op.Entry)
+			if err != nil {
+				return nil, err
+			}
+			item := l.CreateTable(0, 2)
+			item.RawSetString("op", lua.LString(operationVerb(op.Kind)))
+			item.RawSetString("entry", entry)
+			list.RawSetInt(i+1, item)
+		}
+		return list, nil
+	}
+	changesTable, err := operations(plan.Changes)
+	if err != nil {
+		return nil, err
+	}
+	historyTable, err := operations(plan.History)
+	if err != nil {
+		return nil, err
+	}
+	effects := l.CreateTable(len(plan.Effects), 0)
+	for i, target := range plan.Effects {
+		item := l.CreateTable(0, 2)
+		item.RawSetString("kind", lua.LString(target.Kind))
+		item.RawSetString("digest", lua.LString(target.Digest))
+		effects.RawSetInt(i+1, item)
+	}
+
+	result := l.CreateTable(0, 6)
+	value.PushTypedUserData(l, plan.Base, typeVersion)
+	result.RawSetString("base", l.Get(-1))
+	l.Pop(1)
+	result.RawSetString("digest", lua.LString(plan.Digest))
+	result.RawSetString("changes", changesTable)
+	result.RawSetString("history", historyTable)
+	result.RawSetString("effects", effects)
+	if plan.Resolution != nil {
+		result.RawSetString("resolution", resolutionToLuaTable(l, plan.Resolution))
+	}
+	return result, nil
 }
 
 // checkChanges checks if the first argument is a Changes userdata
