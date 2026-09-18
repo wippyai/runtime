@@ -279,14 +279,8 @@ func TestService_ConfiguredSeedConvergesAfterOfflineStart(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	var listenConfig net.ListenConfig
-	udp, err := listenConfig.ListenPacket(t.Context(), "udp4", "127.0.0.1:0")
+	seedPort, err := freeLoopbackPort(t)
 	require.NoError(t, err)
-	seedPort := udp.LocalAddr().(*net.UDPAddr).Port
-	tcp, err := listenConfig.Listen(t.Context(), "tcp4", fmt.Sprintf("127.0.0.1:%d", seedPort))
-	require.NoError(t, err)
-	require.NoError(t, tcp.Close())
-	require.NoError(t, udp.Close())
 
 	joiner := NewService(Config{
 		NodeName:  "late-seed-joiner",
