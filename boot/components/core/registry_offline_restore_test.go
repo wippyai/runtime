@@ -69,6 +69,10 @@ modules:
 	require.Contains(t, offline.Details().GetString("hint", ""), "wippy update/install")
 	require.Equal(t, "wippy/llm@0.4.46", offline.Details().GetString("module", ""))
 
+	// A failed start releases the history it opened: sqlite drops the WAL
+	// sidecars only when the last connection closes cleanly.
+	require.NoFileExists(t, dbPath+"-wal", "history left open after a failed start")
+	require.NoFileExists(t, dbPath+"-shm", "history left open after a failed start")
 	entries, readErr := os.ReadDir(vendorDir)
 	require.NoError(t, readErr)
 	require.Empty(t, entries, "a refused startup must not materialize any artifact")
