@@ -31,7 +31,14 @@ func TestFSWritefileAtomicWithDirectoryBackend(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join(root, "state", "config"))
 	require.NoError(t, err)
 	require.Equal(t, "published", string(data))
+	// One verb, one mode: an atomic publication creates the file exactly as an
+	// ordinary writefile does on the same mount, including the mount's cap.
+	plain, err := backend.OpenFile("state/plain", os.O_WRONLY|os.O_CREATE, 0644)
+	require.NoError(t, err)
+	require.NoError(t, plain.Close())
+	plainInfo, err := os.Stat(filepath.Join(root, "state", "plain"))
+	require.NoError(t, err)
 	info, err := os.Stat(filepath.Join(root, "state", "config"))
 	require.NoError(t, err)
-	require.Equal(t, os.FileMode(0600), info.Mode().Perm())
+	require.Equal(t, plainInfo.Mode().Perm(), info.Mode().Perm())
 }

@@ -35,7 +35,8 @@ func (d *FS) atomicParent(name string) (*os.Root, string, error) {
 			parent.Close()
 			return nil, "", err
 		}
-		if !before.IsDir() || before.Mode()&fs.ModeSymlink != 0 {
+		// Lstat reports a symbolic link as a link, never as a directory.
+		if !before.IsDir() {
 			parent.Close()
 			return nil, "", fs.ErrInvalid
 		}
@@ -47,7 +48,7 @@ func (d *FS) atomicParent(name string) (*os.Root, string, error) {
 		opened, openErr := child.Lstat(".")
 		after, afterErr := parent.Lstat(part)
 		parent.Close()
-		if openErr != nil || afterErr != nil || !after.IsDir() || after.Mode()&fs.ModeSymlink != 0 || !os.SameFile(before, opened) || !os.SameFile(after, opened) {
+		if openErr != nil || afterErr != nil || !after.IsDir() || !os.SameFile(before, opened) || !os.SameFile(after, opened) {
 			child.Close()
 			return nil, "", fs.ErrInvalid
 		}
@@ -56,25 +57,27 @@ func (d *FS) atomicParent(name string) (*os.Root, string, error) {
 	return parent, parts[len(parts)-1], nil
 }
 
-type atomicOutput interface {
-	io.Writer
-	Sync() error
-	Close() error
-}
-type atomicDirectory interface {
-	create(string, fs.FileMode) (atomicOutput, error)
-	regular(string) error
-	remove(string) error
-	rename(string, string) error
-	sync() error
-}
-type rootedAtomicDirectory struct{ root *os.Root }
+// atomicRename and atomicSyncDirectory are seams for the two outcomes a real
+// directory cannot be driven into once the temporary file exists: a refused
+// publication that must roll back, and a publication whose durability is
+// unknown.
+var (
+	atomicRename = func(parent *os.Root, oldName, newName string) error {
+		return parent.Rename(oldName, newName)
+	}
+	atomicSyncDirectory = func(parent *os.Root) error {
+		f, err := parent.Open(".")
+		if err != nil {
+			return err
+		}
+		return errors.Join(f.Sync(), f.Close())
+	}
+)
 
-func (p rootedAtomicDirectory) create(name string, mode fs.FileMode) (atomicOutput, error) {
-	return p.root.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
-}
-func (p rootedAtomicDirectory) regular(name string) error {
-	info, err := p.root.Lstat(name)
+// atomicRegular accepts a missing target and a regular one; everything else,
+// including a symbolic link, belongs to another owner and is refused.
+func atomicRegular(parent *os.Root, name string) error {
+	info, err := parent.Lstat(name)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil
 	}
@@ -86,29 +89,20 @@ func (p rootedAtomicDirectory) regular(name string) error {
 	}
 	return nil
 }
-func (p rootedAtomicDirectory) remove(name string) error     { return p.root.Remove(name) }
-func (p rootedAtomicDirectory) rename(old, new string) error { return p.root.Rename(old, new) }
-func (p rootedAtomicDirectory) sync() error {
-	f, err := p.root.Open(".")
-	if err != nil {
-		return err
-	}
-	return errors.Join(f.Sync(), f.Close())
-}
 
-func publishAtomic(parent atomicDirectory, name string, data []byte, mode fs.FileMode) (result error) {
-	if err := parent.regular(name); err != nil {
+func publishAtomic(parent *os.Root, name string, data []byte, mode fs.FileMode) (result error) {
+	if err := atomicRegular(parent, name); err != nil {
 		return err
 	}
 	temporary := ".wippy-write-" + rand.Text()
-	f, err := parent.create(temporary, mode)
+	f, err := parent.OpenFile(temporary, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
 	if err != nil {
 		return err
 	}
 	unpublished := true
 	defer func() {
 		if unpublished {
-			result = errors.Join(result, parent.remove(temporary))
+			result = errors.Join(result, parent.Remove(temporary))
 		}
 	}()
 	n, writeErr := f.Write(data)
@@ -125,14 +119,14 @@ func publishAtomic(parent atomicDirectory, name string, data []byte, mode fs.Fil
 		return err
 	}
 	// Recheck the target's kind; Rename never follows a final symbolic link.
-	if err := parent.regular(name); err != nil {
+	if err := atomicRegular(parent, name); err != nil {
 		return err
 	}
-	if err := parent.rename(temporary, name); err != nil {
+	if err := atomicRename(parent, temporary, name); err != nil {
 		return err
 	}
 	unpublished = false
-	if err := parent.sync(); err != nil {
+	if err := atomicSyncDirectory(parent); err != nil {
 		return errors.Join(fsapi.ErrPublishedSyncFailed, err)
 	}
 	return nil
@@ -142,7 +136,9 @@ func (d *FS) WriteFileAtomic(name string, data []byte, perm fs.FileMode) error {
 	if perm&^fs.ModePerm != 0 {
 		return fsapi.ErrInvalidFileMode
 	}
-	if err := d.checkPermissions("writefile_atomic", name, permRead|permWrite|permExec); err != nil {
+	// Publication creates, writes and renames within the pinned parent, which is
+	// the capability the ordinary write path demands for O_WRONLY|O_CREATE.
+	if err := d.checkPermissions("writefile_atomic", name, permWrite); err != nil {
 		return err
 	}
 	parent, base, err := d.atomicParent(name)
@@ -150,7 +146,7 @@ func (d *FS) WriteFileAtomic(name string, data []byte, perm fs.FileMode) error {
 		return &fs.PathError{Op: "writefile_atomic", Path: name, Err: err}
 	}
 	defer parent.Close()
-	if err := publishAtomic(rootedAtomicDirectory{parent}, base, data, perm&d.mode); err != nil {
+	if err := publishAtomic(parent, base, data, perm&d.mode); err != nil {
 		return &fs.PathError{Op: "writefile_atomic", Path: path.Clean(name), Err: err}
 	}
 	return nil

@@ -287,7 +287,7 @@ Reads entire file contents.
 - Binary data is preserved in returned string
 - File is automatically closed after reading
 
-### writefile(path: string, data: string|Reader, mode?: string) → boolean, error
+### writefile(path: string, data: string|Reader, options?: string|table) → boolean, error
 
 Writes data to a file.
 
@@ -295,7 +295,14 @@ Writes data to a file.
 |-------|------|----------|---------|-------|
 | path | string | yes | - | File path |
 | data | string or Reader | yes | - | Data to write (string or stream) |
-| mode | string | no | "w" | Write mode: "w", "wx", "a" |
+| options | string or table | no | "w" | Write mode string, or option table |
+
+**Option table fields:**
+
+| Field | Type | Default | Notes |
+|-------|------|---------|-------|
+| mode | string | "w" | Write mode: "w", "wx", "a" |
+| atomic | boolean | false | Publish the whole file atomically |
 
 **Modes:**
 - `"w"` - Write, create or truncate existing
@@ -303,6 +310,29 @@ Writes data to a file.
 - `"a"` - Append to existing or create
 
 **Returns:** `true, nil` on success, or `false, error` on failure
+
+**Atomic publication:**
+
+`{ atomic = true }` publishes the complete file through the filesystem's
+atomic-write capability instead of truncating the destination. Publication
+either replaces the whole file or leaves it untouched; it does not provide
+compare-and-swap between writers. The option requires mode `"w"`, accepts a
+string only (not a Reader), limits input to 8 MiB before the filesystem is
+called, and creates the file with mode `0644`.
+
+A filesystem that does not provide the capability returns
+`errors.UNAVAILABLE`. When the filesystem reports that the file was published
+but its directory sync failed, the error is `errors.UNAVAILABLE` with text
+beginning `atomic write published; sync status uncertain` and
+`err:details().published == true`; publication has happened but durability is
+uncertain, so callers must inspect state before retrying. The structured
+detail lets callers detect this outcome without parsing error text.
+
+The directory filesystem provides this capability on Linux and macOS. It pins
+each parent directory without following symbolic-link parents, refuses
+nonregular existing targets (including final symbolic links), writes the
+temporary file, syncs it, atomically renames it, and syncs the parent
+directory. It demands the same write capability as an ordinary write.
 
 **Errors (structured):**
 
@@ -313,39 +343,21 @@ Writes data to a file.
 | data argument is nil | errors.INVALID | no |
 | invalid mode | errors.INVALID | no |
 | invalid input type | errors.INVALID | no |
+| atomic with mode other than "w" | errors.INVALID | no |
+| atomic with non-string data | errors.INVALID | no |
+| atomic input exceeds 8 MiB | errors.INVALID | no |
+| atomic on a filesystem without the capability | errors.UNAVAILABLE | no |
+| atomic published, directory sync failed | errors.UNAVAILABLE | no |
 | failed to get reader | errors.INTERNAL | no |
 | failed to open destination | errors.NOT_FOUND | no |
 | copy failed | errors.INTERNAL | no |
+| atomic write failed | errors.INTERNAL | no |
+| permission denied | errors.PERMISSION_DENIED | no |
 
 **Notes:**
 - Accepts string or io.Reader (stream)
 - Created files have mode 0644
 - File is automatically closed after writing
-
-### writefile_atomic(path: string, content: string) → boolean, error
-
-Publishes a complete file through the filesystem's atomic-write capability.
-The runtime passes the data to that capability with mode `0600`; it never
-falls back to truncating or recreating the destination. Input is limited to
-8 MiB before the filesystem is called. The operation accepts a string only;
-it does not consume arbitrary readers.
-
-The operation returns `false, error` when the filesystem does not support
-atomic writes (`errors.UNAVAILABLE`), when input is invalid or oversized
-(`errors.INVALID`), or when the write fails (`errors.INTERNAL`). If the
-filesystem reports `ErrPublishedSyncFailed`, the error is
-`errors.UNAVAILABLE` with text beginning `atomic write published; sync status
-uncertain` and `err:details().published == true`; publication has happened but
-durability is uncertain, so callers must inspect state before retrying. The
-structured detail lets callers detect this outcome without parsing error text.
-Permission failures use
-`errors.PERMISSION_DENIED`.
-
-The directory filesystem provides this capability on Linux and macOS. It pins
-each parent directory without following symbolic-link parents, refuses
-nonregular existing targets (including final symbolic links), writes with
-0600 permissions, syncs the file, atomically renames it, and syncs the parent
-directory.
 
 ## File Object Methods
 

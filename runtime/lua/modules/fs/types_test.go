@@ -88,3 +88,20 @@ end
 	require.NoError(t, err)
 	require.False(t, code.HasErrors(diagnostics), "unexpected diagnostics: %v", diagnostics)
 }
+
+// writefile accepts the write mode as a bare string and as an option table
+// carrying the atomic publication request.
+func TestWritefileAcceptsModeStringAndOptionTable(t *testing.T) {
+	tc := code.NewTypeChecker(code.TypeCheckConfig{Enabled: true, Strict: true}, nil)
+
+	_, diagnostics, err := tc.Check(`
+local fs = require("fs")
+local volume = fs.get("app:temp")
+local ok = volume:writefile("plain", "x")
+ok = volume:writefile("exclusive", "x", "wx")
+ok = volume:writefile("appended", "x", { mode = "a" })
+ok = volume:writefile("published", "x", { atomic = true })
+`, "fs_writefile_options.lua", map[string]*io.Manifest{"fs": ModuleTypes()})
+	require.NoError(t, err)
+	require.False(t, code.HasErrors(diagnostics), "writefile options rejected: %v", diagnostics)
+}
