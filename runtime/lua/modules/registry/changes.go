@@ -293,7 +293,11 @@ func changesApply(l *lua.LState) int {
 		return 2
 	}
 
-	version, applyErr := changes.snapshot.reg.Apply(l.Context(), changes.ops)
+	// An explicit apply from Lua is an explicit install: dependency directives
+	// in the changeset may resolve and download from the Hub.
+	ctx := regapi.WithDependencyAccess(l.Context(), regapi.DependencyAccessOnline)
+
+	version, applyErr := changes.snapshot.reg.Apply(ctx, changes.ops)
 	if applyErr != nil {
 		err := lua.WrapErrorWithLua(l, applyErr, "apply changes").
 			WithKind(lua.Internal).
