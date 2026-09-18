@@ -37,6 +37,8 @@ func (b *lifecycleTestBus) Subscribe(context.Context, event.System, chan<- event
 func (b *lifecycleTestBus) SubscribeP(context.Context, event.System, event.Kind, chan<- event.Event) (event.SubscriberID, error) {
 	return "", nil
 }
+func (*lifecycleTestBus) HasSubscribers(event.System, event.Kind) bool { return true }
+
 func (b *lifecycleTestBus) Unsubscribe(context.Context, event.SubscriberID) {}
 func (b *lifecycleTestBus) Send(_ context.Context, evt event.Event) {
 	if b.onSend != nil {

@@ -9,6 +9,7 @@ import (
 	"io"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"go.uber.org/zap"
 
@@ -110,7 +111,10 @@ func Registry() boot.Component {
 			stateBuilder := regtop.NewStateBuilder(logger, resolver)
 
 			internalKinds := defaultDispatchInternalKinds()
-			eventWaitTimeout := event.DefaultAwaitTimeout
+			// Unset means no fixed cap: an operation waits as long as its
+			// context allows, because a listener that compiles or analyzes an
+			// entry has no meaningful fixed budget. A configured value caps it.
+			eventWaitTimeout := time.Duration(0)
 			if cfg != nil {
 				registryCfg := cfg.Sub(RegistryName)
 				if kinds, ok := readKindSlice(registryCfg, RegistryDispatchInternalKinds); ok {
@@ -153,6 +157,13 @@ func Registry() boot.Component {
 							return nil
 						}
 						return handlerRegistry.TransactionParticipants()
+					}),
+					runner.WithKindHandlerCheck(func(kind regapi.Kind) bool {
+						handlerRegistry := bootpkg.GetHandlerRegistry(ctx)
+						if handlerRegistry == nil {
+							return true
+						}
+						return handlerRegistry.HandlesKind(kind)
 					}),
 				),
 				stateBuilder,
