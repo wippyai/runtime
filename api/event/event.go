@@ -50,5 +50,12 @@ type (
 		// lossless while the publisher and subscriber contexts stay active;
 		// cancellation may abort queued or in-progress delivery.
 		Send(context.Context, Event)
+
+		// HasSubscribers reports whether at least one live subscription would
+		// receive an event published for the given system and kind. It is a
+		// point-in-time read of the subscription table: a subscriber may
+		// appear or disappear immediately after it returns, so callers use it
+		// to detect that nothing can ever answer, not as a delivery guarantee.
+		HasSubscribers(System, Kind) bool
 	}
 )

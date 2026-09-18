@@ -41,6 +41,7 @@ func All() []boot.Component {
 		Template(),
 		Text(),
 		Time(),
+		TOML(),
 		TreeSitter(),
 		TTY(),
 		UUID(),

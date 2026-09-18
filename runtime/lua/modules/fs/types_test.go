@@ -88,3 +88,45 @@ end
 	require.NoError(t, err)
 	require.False(t, code.HasErrors(diagnostics), "unexpected diagnostics: %v", diagnostics)
 }
+
+// writefile accepts the write mode as a bare string and as an option table
+// carrying the atomic publication request.
+func TestWritefileAcceptsModeStringAndOptionTable(t *testing.T) {
+	tc := code.NewTypeChecker(code.TypeCheckConfig{Enabled: true, Strict: true}, nil)
+
+	_, diagnostics, err := tc.Check(`
+local fs = require("fs")
+local volume = fs.get("app:temp")
+local ok = volume:writefile("plain", "x")
+ok = volume:writefile("exclusive", "x", "wx")
+ok = volume:writefile("appended", "x", { mode = "a" })
+ok = volume:writefile("published", "x", { atomic = true })
+local mode = "a"
+ok = volume:writefile("held", "x", mode)
+local options = { mode = "w", atomic = true }
+ok = volume:writefile("table held", "x", options)
+`, "fs_writefile_options.lua", map[string]*io.Manifest{"fs": ModuleTypes()})
+	require.NoError(t, err)
+	require.False(t, code.HasErrors(diagnostics), "writefile options rejected: %v", diagnostics)
+}
+
+// The declaration types each option field, so the type checker reports a
+// mistyped value before the code runs. Field names and mode values are
+// validated by the call itself.
+func TestWritefileRejectsMalformedOptionsStatically(t *testing.T) {
+	for name, call := range map[string]string{
+		"atomic not a boolean": `volume:writefile("p", "x", { atomic = "yes" })`,
+		"mode not a string":    `volume:writefile("p", "x", { mode = 1 })`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			tc := code.NewTypeChecker(code.TypeCheckConfig{Enabled: true, Strict: true}, nil)
+			_, diagnostics, err := tc.Check(`
+local fs = require("fs")
+local volume = fs.get("app:temp")
+local ok = `+call+`
+`, "fs_writefile_malformed.lua", map[string]*io.Manifest{"fs": ModuleTypes()})
+			require.NoError(t, err)
+			require.True(t, code.HasErrors(diagnostics), "accepted: %s", call)
+		})
+	}
+}

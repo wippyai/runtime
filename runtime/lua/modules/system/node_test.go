@@ -81,6 +81,8 @@ func TestNodeID_PermissionDenied(t *testing.T) {
 	l := lua.NewState()
 	t.Cleanup(func() { l.Close() })
 
+	lua.OpenErrors(l)
+
 	ctx := ctxapi.WithAppContext(context.Background(), ctxapi.NewAppContext())
 	ctx = security.SetStrictMode(ctx, true)
 	l.SetContext(ctx)
@@ -92,6 +94,7 @@ func TestNodeID_PermissionDenied(t *testing.T) {
 		local id, err = system.node.id()
 		assert(id == nil, "expected nil id under strict security")
 		assert(err ~= nil, "expected permission-denied error")
+		assert(err:kind() == errors.PERMISSION_DENIED, "expected PERMISSION_DENIED kind, got: " .. tostring(err:kind()))
 	`)
 	require.NoError(t, err)
 }
@@ -151,6 +154,8 @@ func TestNodeAddr_PermissionDenied(t *testing.T) {
 	l := lua.NewState()
 	t.Cleanup(func() { l.Close() })
 
+	lua.OpenErrors(l)
+
 	ctx := ctxapi.WithAppContext(context.Background(), ctxapi.NewAppContext())
 	ctx = security.SetStrictMode(ctx, true)
 	l.SetContext(ctx)
@@ -162,6 +167,7 @@ func TestNodeAddr_PermissionDenied(t *testing.T) {
 		local addr, err = system.node.addr()
 		assert(addr == nil, "expected nil under strict security")
 		assert(err ~= nil, "expected permission-denied error")
+		assert(err:kind() == errors.PERMISSION_DENIED, "expected PERMISSION_DENIED kind, got: " .. tostring(err:kind()))
 	`)
 	require.NoError(t, err)
 }
@@ -169,6 +175,8 @@ func TestNodeAddr_PermissionDenied(t *testing.T) {
 func TestNodeRole_PermissionDenied(t *testing.T) {
 	l := lua.NewState()
 	t.Cleanup(func() { l.Close() })
+
+	lua.OpenErrors(l)
 
 	ctx := ctxapi.WithAppContext(context.Background(), ctxapi.NewAppContext())
 	ctx = security.SetStrictMode(ctx, true)
@@ -181,6 +189,7 @@ func TestNodeRole_PermissionDenied(t *testing.T) {
 		local role, err = system.node.role()
 		assert(role == nil, "expected nil under strict security")
 		assert(err ~= nil, "expected permission-denied error")
+		assert(err:kind() == errors.PERMISSION_DENIED, "expected PERMISSION_DENIED kind, got: " .. tostring(err:kind()))
 	`)
 	require.NoError(t, err)
 }

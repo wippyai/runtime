@@ -36,6 +36,7 @@ const (
 	TemplateName     = "lua.template"
 	TextName         = "lua.text"
 	TimeName         = "lua.time"
+	TOMLName         = "lua.toml"
 	TreeSitterName   = "lua.treesitter"
 	QueueName        = "lua.queue"
 	TTYName          = "lua.tty"

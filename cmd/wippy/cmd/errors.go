@@ -4,8 +4,10 @@ package cmd
 
 import (
 	"fmt"
+	"strings"
 
 	apierror "github.com/wippyai/runtime/api/error"
+	terminalapi "github.com/wippyai/runtime/api/service/terminal"
 )
 
 var (
@@ -200,4 +202,36 @@ func NewInstallFailedError(cause error) apierror.Error {
 
 func NewLintFailedError(errors, warnings int) apierror.Error {
 	return apierror.New(apierror.Invalid, fmt.Sprintf("lint failed: %d errors, %d warnings", errors, warnings)).WithRetryable(apierror.False)
+}
+
+func NewQueryTerminalHostsError(cause error) apierror.Error {
+	return apierror.New(apierror.Internal, "failed to query registry for terminal hosts").WithCause(cause).WithRetryable(apierror.False)
+}
+
+func NewNoTerminalHostError() apierror.Error {
+	return apierror.New(apierror.NotFound, "no "+terminalapi.Host+" found in registry").WithRetryable(apierror.False)
+}
+
+func NewMultipleTerminalHostsError(hosts []string) apierror.Error {
+	return apierror.New(apierror.Invalid, fmt.Sprintf("multiple terminal hosts found (%s), use --host to specify", strings.Join(hosts, ", "))).WithRetryable(apierror.False)
+}
+
+func NewGetCommandEntryError(source string, cause error) apierror.Error {
+	return apierror.New(apierror.NotFound, "get command entry "+source).WithCause(cause).WithRetryable(apierror.False)
+}
+
+func NewLoadCommandMetaError(source string, cause error) apierror.Error {
+	return apierror.New(apierror.Invalid, "load command metadata for "+source).WithCause(cause).WithRetryable(apierror.False)
+}
+
+func NewResolveCommandSecurityError(source string, cause error) apierror.Error {
+	return apierror.New(apierror.Invalid, "resolve command security for "+source).WithCause(cause).WithRetryable(apierror.False)
+}
+
+func NewGetDeclaredCommandHostError(host string, cause error) apierror.Error {
+	return apierror.New(apierror.NotFound, "get declared command host "+host).WithCause(cause).WithRetryable(apierror.False)
+}
+
+func NewDeclaredCommandHostKindError(host string) apierror.Error {
+	return apierror.New(apierror.Invalid, "declared command host "+host+" is not a "+terminalapi.Host).WithRetryable(apierror.False)
 }

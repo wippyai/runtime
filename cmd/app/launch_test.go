@@ -9,26 +9,49 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/boot"
+	"github.com/wippyai/runtime/cmd/internal/bootconfig"
 )
 
 func launchOptions(callback Launch) Options {
 	return Options{Name: "launch-test", Command: "desktop", Mode: "base", Launch: callback}
 }
 
+func requireSameConfig(t *testing.T, expected, actual boot.Config) {
+	t.Helper()
+	require.ElementsMatch(t, expected.Keys(), actual.Keys())
+	for _, key := range expected.Keys() {
+		want, found := expected.Get(key)
+		require.True(t, found, key)
+		got, present := actual.Get(key)
+		require.True(t, present, key)
+		require.Equal(t, want, got, key)
+	}
+}
+
 func TestClientLaunchDoesNotOpenOwnerState(t *testing.T) {
+	const binding = "WIPPY_APP_TEST_CLIENT_BINDING"
 	state := filepath.Join(t.TempDir(), "absent")
+	calls := 0
 	options := launchOptions(func(_ context.Context, request LaunchRequest, _ func(OwnerOptions) error) error {
+		calls++
 		require.Equal(t, state, request.StateDir)
 		require.Equal(t, []string{"terminal", "two words"}, request.Arguments)
-		require.NotEmpty(t, request.Directory)
 		return nil
 	})
-	options.DataEnv = map[string]string{"INVALID NAME": "../outside"}
+	options.DataEnv = map[string]string{binding: "data"}
 	require.NoError(t, Run(t.Context(), options, []string{"--state-dir", state, "run", "terminal", "two words"}))
+	require.Equal(t, 1, calls)
+	require.NoDirExists(t, state)
+	_, bound := os.LookupEnv(binding)
+	require.False(t, bound, "client launch applied an owner data binding")
+
+	options.DataEnv = map[string]string{"INVALID NAME": "../outside"}
+	require.ErrorContains(t, Run(t.Context(), options, []string{"--state-dir", state, "run"}),
+		"invalid application data environment binding")
+	require.Equal(t, 1, calls, "invalid data environment reached the launch callback")
 	require.NoDirExists(t, state)
 }
 
@@ -94,6 +117,11 @@ func TestBusyOwnerCanSelectClientWithoutOpeningStores(t *testing.T) {
 		return nil
 	})
 	options.DataEnv = map[string]string{"INVALID NAME": "../outside"}
+	require.ErrorContains(t, Run(t.Context(), options, []string{"--state-dir", state}),
+		"invalid application data environment binding")
+	require.False(t, called, "invalid data environment reached the launch callback")
+
+	options.DataEnv = nil
 	require.NoError(t, Run(t.Context(), options, []string{"--state-dir", state}))
 	require.True(t, called)
 	require.False(t, prepared)
@@ -193,15 +221,18 @@ func TestLaunchReturnCancelsAndJoinsOwner(t *testing.T) {
 	goroutine.Wait()
 }
 
-func TestExpiredOwnerDoesNotOpenDeployment(t *testing.T) {
+func TestCanceledPreparationDoesNotOpenDeployment(t *testing.T) {
 	state := t.TempDir()
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
 	closes := 0
 	options := launchOptions(func(_ context.Context, _ LaunchRequest, run func(OwnerOptions) error) error {
 		return run(OwnerOptions{Prepare: func(context.Context) (OwnerResources, error) {
-			return OwnerResources{Deadline: time.Now().Add(-time.Second), Close: func() error { closes++; return nil }}, nil
+			cancel()
+			return OwnerResources{Close: func() error { closes++; return nil }}, nil
 		}})
 	})
-	require.ErrorIs(t, Run(t.Context(), options, []string{"--state-dir", state}), context.DeadlineExceeded)
+	require.ErrorIs(t, Run(ctx, options, []string{"--state-dir", state}), context.Canceled)
 	require.Equal(t, 1, closes)
 	require.NoDirExists(t, filepath.Join(state, "deployment"))
 }
@@ -214,4 +245,15 @@ func TestOwnerConfigCannotRedirectHistory(t *testing.T) {
 	require.Equal(t, "sqlite", config.GetString("registry.history_type", ""))
 	require.True(t, config.GetBool("registry.enable_history", false))
 	require.True(t, config.GetBool("cluster.enabled", false))
+}
+
+func TestOwnerConfigMergesThroughBootConfig(t *testing.T) {
+	history := boot.NewConfig(boot.WithSection("registry", map[string]any{
+		"enable_history": true, "history_type": "sqlite", "history_path": "selected/registry.db",
+	}))
+	owner := boot.NewConfig(boot.WithSection("registry", map[string]any{
+		"enable_history": false, "history_type": "other", "history_path": "elsewhere", "cache_size": 32,
+	}), boot.WithSection("cluster", map[string]any{"enabled": true, "peers.count": 3}))
+	requireSameConfig(t, bootconfig.Merge(owner, history), launchOverrides(owner, "selected/registry.db"))
+	requireSameConfig(t, history, launchOverrides(nil, "selected/registry.db"))
 }

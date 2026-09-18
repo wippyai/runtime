@@ -4,10 +4,12 @@ package core
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"go.uber.org/zap"
 
@@ -109,7 +111,10 @@ func Registry() boot.Component {
 			stateBuilder := regtop.NewStateBuilder(logger, resolver)
 
 			internalKinds := defaultDispatchInternalKinds()
-			eventWaitTimeout := event.DefaultAwaitTimeout
+			// Unset means no fixed cap: an operation waits as long as its
+			// context allows, because a listener that compiles or analyzes an
+			// entry has no meaningful fixed budget. A configured value caps it.
+			eventWaitTimeout := time.Duration(0)
 			if cfg != nil {
 				registryCfg := cfg.Sub(RegistryName)
 				if kinds, ok := readKindSlice(registryCfg, RegistryDispatchInternalKinds); ok {
@@ -124,7 +129,15 @@ func Registry() boot.Component {
 			if err != nil {
 				logger.Warn("dependency handler disabled", zap.Error(err))
 			} else if depHandler != nil {
-				if err := depHandler.PrepareRestore(ctx, hist); err != nil {
+				// Startup restores installed artifacts locally. Downloads belong
+				// to explicit install/update operations, never implicit recovery.
+				restoreCtx := regapi.WithDependencyAccess(ctx, regapi.DependencyAccessVerifiedOffline)
+				if err := depHandler.PrepareRestore(restoreCtx, hist); err != nil {
+					// Startup stops here, so the shutdown hook that owns the history
+					// never runs; release it now or the store stays open.
+					if histCloser != nil {
+						err = errors.Join(err, histCloser.Close())
+					}
 					return nil, fmt.Errorf("prepare dependency restore: %w", err)
 				}
 				registryOpts = append(registryOpts,
@@ -144,6 +157,13 @@ func Registry() boot.Component {
 							return nil
 						}
 						return handlerRegistry.TransactionParticipants()
+					}),
+					runner.WithKindHandlerCheck(func(kind regapi.Kind) bool {
+						handlerRegistry := bootpkg.GetHandlerRegistry(ctx)
+						if handlerRegistry == nil {
+							return true
+						}
+						return handlerRegistry.HandlesKind(kind)
 					}),
 				),
 				stateBuilder,

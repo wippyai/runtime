@@ -314,4 +314,14 @@ type (
 		// RegistryTransactionParticipantID returns the participant's stable in-process reply id.
 		RegistryTransactionParticipantID() string
 	}
+
+	// KindHandler marks event handlers that declare which entry kinds they
+	// reply to. Entry events reach every registry handler on the bus and each
+	// one filters by entry kind itself, so this is what lets a caller tell
+	// that an operation would reach a handler that answers it. Handlers that
+	// observe without replying implement it and answer false.
+	KindHandler interface {
+		// HandlesKind reports whether this handler replies for an entry kind.
+		HandlesKind(kind Kind) bool
+	}
 )

@@ -814,6 +814,12 @@ func TestBusRunner_CustomEventWaitTimeout(t *testing.T) {
 	defer func() { _ = awaitSvc.Stop() }()
 	ctx = event.WithAwaitService(ctx, awaitSvc)
 
+	// A subscriber that never answers isolates the configured cap from the
+	// missing-listener case, which is reported without any wait.
+	silentSub, err := eventbus.NewSubscriber(ctx, bus, registry.System, registry.AllEvents, func(event.Event) {})
+	require.NoError(t, err)
+	defer silentSub.Close()
+
 	busRunner := NewBusRunner(
 		bus,
 		zap.NewNop(),
@@ -834,7 +840,7 @@ func TestBusRunner_CustomEventWaitTimeout(t *testing.T) {
 	}
 
 	start := time.Now()
-	_, err := busRunner.Transition(ctx, initialState, changeSet)
+	_, err = busRunner.Transition(ctx, initialState, changeSet)
 	elapsed := time.Since(start)
 
 	require.Error(t, err)
