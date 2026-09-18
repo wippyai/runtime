@@ -141,10 +141,7 @@ func TestDurableApplyAuthorizesEachOperation(t *testing.T) {
 		return changes:apply()
 	`
 	t.Run("one operation denied refuses the whole changeset", func(t *testing.T) {
-		ctx, release := strictOverlayContext(t,
-			"registry.apply\x00",
-			"registry.create.registry.entry\x00app:svc",
-		)
+		ctx, release := strictOverlayContext(t, "registry.apply\x00app:svc")
 		defer release()
 		reg := planTestMock()
 		reg.snapshot = regapi.Snapshot{Version: reg.currentVersion, Entries: regapi.State{stored}}
@@ -152,15 +149,15 @@ func TestDurableApplyAuthorizesEachOperation(t *testing.T) {
 			local version, err = (function() `+source+` end)()
 			assert(version == nil and err ~= nil)
 			assert(err:kind() == errors.PERMISSION_DENIED)
+			assert(err:details().entry_id == "app:old")
 		`)
 		assert.Nil(t, reg.appliedBase)
 		assert.Empty(t, reg.appliedChanges)
 	})
 	t.Run("every operation granted applies", func(t *testing.T) {
 		ctx, release := strictOverlayContext(t,
-			"registry.apply\x00",
-			"registry.create.registry.entry\x00app:svc",
-			"registry.delete.db.sql.postgres\x00app:old",
+			"registry.apply\x00app:svc",
+			"registry.apply\x00app:old",
 		)
 		defer release()
 		reg := planTestMock()
@@ -171,8 +168,8 @@ func TestDurableApplyAuthorizesEachOperation(t *testing.T) {
 		`)
 		require.Len(t, reg.appliedChanges, 2)
 	})
-	t.Run("the coarse apply grant alone is not enough", func(t *testing.T) {
-		ctx, release := strictOverlayContext(t, "registry.apply\x00")
+	t.Run("a grant on an unrelated entry covers nothing", func(t *testing.T) {
+		ctx, release := strictOverlayContext(t, "registry.apply\x00app:unrelated")
 		defer release()
 		reg := planTestMock()
 		reg.snapshot = regapi.Snapshot{Version: reg.currentVersion, Entries: regapi.State{stored}}
@@ -184,7 +181,7 @@ func TestDurableApplyAuthorizesEachOperation(t *testing.T) {
 		assert.Empty(t, reg.appliedChanges)
 	})
 	t.Run("plan is held to the same authorization as apply", func(t *testing.T) {
-		ctx, release := strictOverlayContext(t, "registry.apply\x00")
+		ctx, release := strictOverlayContext(t, "registry.apply\x00app:unrelated")
 		defer release()
 		reg := planTestMock()
 		runRegistryLua(ctx, t, reg, `
