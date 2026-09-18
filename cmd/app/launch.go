@@ -5,17 +5,11 @@ package app
 import (
 	"context"
 	"errors"
-	"fmt"
-	"strings"
 	"sync"
-	"time"
 
 	"github.com/wippyai/runtime/api/boot"
+	"github.com/wippyai/runtime/cmd/internal/bootconfig"
 )
-
-// ErrBusy means another invocation owns the selected application state.
-// It says nothing about the owner's identity, readiness or ability to accept clients.
-var ErrBusy = errors.New("application state is owned")
 
 // Launch runs an application-specific invocation before owner state is opened.
 // It may run a client without calling runOwner. The callback owns discovery,
@@ -29,7 +23,6 @@ type Launch func(ctx context.Context, request LaunchRequest, runOwner func(Owner
 type LaunchRequest struct {
 	Name      string
 	Module    string
-	Directory string
 	StateDir  string
 	Command   string
 	Arguments []string
@@ -46,11 +39,10 @@ type OwnerOptions struct {
 
 // OwnerResources lives inside the owner's exclusive lifetime. Close runs after
 // runtime shutdown and before unlocking, even when preparation or startup fails.
-// Config cannot redirect registry history. Deadline optionally bounds execution.
+// Config cannot redirect registry history.
 type OwnerResources struct {
-	Config   boot.Config
-	Close    func() error
-	Deadline time.Time
+	Config boot.Config
+	Close  func() error
 }
 
 func launch(ctx context.Context, callback Launch, request LaunchRequest, run func(context.Context, OwnerOptions) error) (result error) {
@@ -62,7 +54,7 @@ func launch(ctx context.Context, callback Launch, request LaunchRequest, run fun
 		mu.Lock()
 		closed = true
 		if active {
-			result = errors.Join(result, fmt.Errorf("application launch returned before owner runner completed"))
+			result = errors.Join(result, NewLaunchIncompleteError())
 		}
 		mu.Unlock()
 		cancel()
@@ -72,7 +64,7 @@ func launch(ctx context.Context, callback Launch, request LaunchRequest, run fun
 		mu.Lock()
 		if closed || started {
 			mu.Unlock()
-			return fmt.Errorf("application owner runner is single-use and valid only during launch")
+			return NewOwnerRunnerReusedError()
 		}
 		started = true
 		active = true
@@ -84,39 +76,16 @@ func launch(ctx context.Context, callback Launch, request LaunchRequest, run fun
 			mu.Unlock()
 			running.Done()
 		}()
-		if err := ctx.Err(); err != nil {
-			return err
-		}
 		return run(ctx, options)
 	})
 }
 
+// launchOverrides layers the owner's settings under the registry history the
+// runner pins to the selected state, so no owner key can redirect history.
 func launchOverrides(config boot.Config, historyPath string) boot.Config {
-	sections := make(map[string]map[string]any)
-	if config != nil {
-		for _, key := range config.Keys() {
-			section, name, ok := strings.Cut(key, boot.ConfigSep)
-			if !ok {
-				continue
-			}
-			if sections[section] == nil {
-				sections[section] = make(map[string]any)
-			}
-			value, found := config.Get(key)
-			if found {
-				sections[section][name] = value
-			}
-		}
-	}
-	if sections["registry"] == nil {
-		sections["registry"] = make(map[string]any)
-	}
-	sections["registry"]["enable_history"] = true
-	sections["registry"]["history_type"] = "sqlite"
-	sections["registry"]["history_path"] = historyPath
-	options := make([]boot.ConfigOption, 0, len(sections))
-	for section, values := range sections {
-		options = append(options, boot.WithSection(section, values))
-	}
-	return boot.NewConfig(options...)
+	return bootconfig.Merge(config, boot.NewConfig(boot.WithSection("registry", map[string]any{
+		"enable_history": true,
+		"history_type":   "sqlite",
+		"history_path":   historyPath,
+	})))
 }
