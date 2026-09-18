@@ -22,6 +22,13 @@ type FS struct {
 	cwd string
 }
 
+const (
+	maxAtomicWriteBytes = 8 << 20
+	// Atomic publication creates files with the same mode as an ordinary
+	// writefile, so one verb has one default.
+	atomicWriteFileMode = 0644
+)
+
 func wrapFilesystemError(l *lua.LState, err error, message string, fallback lua.Kind) *lua.Error {
 	kind := fallback
 	if errors.Is(err, fsapi.ErrReadOnly) ||
@@ -454,7 +461,12 @@ func fsWritefile(l *lua.LState) int {
 		l.Push(lua.NewLuaError(l, "data argument required").WithKind(lua.Invalid))
 		return 2
 	}
-	mode := l.OptString(4, "w")
+	mode, atomic, optErr := writefileOptions(l, 4)
+	if optErr != nil {
+		l.Push(lua.LFalse)
+		l.Push(optErr)
+		return 2
+	}
 	var flag int
 	switch mode {
 	case "w":
@@ -468,6 +480,11 @@ func fsWritefile(l *lua.LState) int {
 		l.Push(lua.NewLuaError(l, "invalid mode; must be 'w', 'wx' or 'a'").WithKind(lua.Invalid))
 		return 2
 	}
+	if atomic && mode != "w" {
+		l.Push(lua.LFalse)
+		l.Push(lua.NewLuaError(l, "atomic write requires mode 'w'").WithKind(lua.Invalid).WithRetryable(false))
+		return 2
+	}
 
 	resolved, err := fs.resolvePath(path)
 	if err != nil {
@@ -475,6 +492,11 @@ func fsWritefile(l *lua.LState) int {
 		l.Push(lua.WrapErrorWithLua(l, err, "invalid path").WithKind(lua.Invalid))
 		return 2
 	}
+
+	if atomic {
+		return writefileAtomic(l, fs, resolved, v)
+	}
+
 	dstFile, err := fs.fs.OpenFile(resolved, flag, 0644)
 	if err != nil {
 		l.Push(lua.LFalse)
@@ -512,6 +534,97 @@ func fsWritefile(l *lua.LState) int {
 	if _, err := io.Copy(dstFile, reader); err != nil {
 		l.Push(lua.LFalse)
 		l.Push(wrapFilesystemError(l, err, "copy failed", lua.Internal))
+		return 2
+	}
+
+	l.Push(lua.LTrue)
+	l.Push(lua.LNil)
+	return 2
+}
+
+// writefileOptions reads the fourth writefile argument, which is either the
+// write mode as a string or an option table carrying that mode plus the atomic
+// publication request. A table is validated in full: a field the call does not
+// know, or a value of the wrong type, is an error, so a request for atomic
+// publication is never dropped in favor of an ordinary write.
+func writefileOptions(l *lua.LState, index int) (mode string, atomic bool, optErr *lua.Error) {
+	mode = "w"
+	arg := l.Get(index)
+	if arg == lua.LNil {
+		return mode, false, nil
+	}
+	table, ok := arg.(*lua.LTable)
+	if !ok {
+		return l.CheckString(index), false, nil
+	}
+	invalid := func(message string) *lua.Error {
+		return lua.NewLuaError(l, message).WithKind(lua.Invalid).WithRetryable(false)
+	}
+	table.ForEach(func(key, value lua.LValue) {
+		if optErr != nil {
+			return
+		}
+		name, isString := key.(lua.LString)
+		switch {
+		case !isString:
+			optErr = invalid("writefile options must be a table of named fields")
+		case name == "mode":
+			text, isText := value.(lua.LString)
+			if !isText {
+				optErr = invalid("writefile option 'mode' must be a string")
+				return
+			}
+			mode = string(text)
+		case name == "atomic":
+			flag, isFlag := value.(lua.LBool)
+			if !isFlag {
+				optErr = invalid("writefile option 'atomic' must be a boolean")
+				return
+			}
+			atomic = bool(flag)
+		default:
+			optErr = invalid("unknown writefile option: " + string(name))
+		}
+	})
+	if optErr != nil {
+		return "", false, optErr
+	}
+	return mode, atomic, nil
+}
+
+// writefileAtomic delegates the complete replacement to the filesystem's
+// optional atomic capability. The Lua layer buffers and bounds the input so a
+// backend is never asked to publish an oversized document or a partial stream.
+func writefileAtomic(l *lua.LState, fs *FS, resolved string, content lua.LValue) int {
+	atomicFS, ok := fs.fs.(fsapi.AtomicWriteFS)
+	if !ok {
+		l.Push(lua.LFalse)
+		l.Push(lua.WrapErrorWithLua(l, fsapi.ErrAtomicWriteUnsupported, "atomic write unsupported").WithKind(lua.Unavailable).WithRetryable(false))
+		return 2
+	}
+
+	value, ok := content.(lua.LString)
+	if !ok {
+		l.Push(lua.LFalse)
+		l.Push(lua.NewLuaError(l, "atomic write requires string content").WithKind(lua.Invalid).WithRetryable(false))
+		return 2
+	}
+	if len(value) > maxAtomicWriteBytes {
+		l.Push(lua.LFalse)
+		l.Push(lua.NewLuaError(l, "atomic write input exceeds 8 MiB").WithKind(lua.Invalid).WithRetryable(false))
+		return 2
+	}
+
+	if err := atomicFS.WriteFileAtomic(resolved, []byte(string(value)), atomicWriteFileMode); err != nil {
+		l.Push(lua.LFalse)
+		switch {
+		case errors.Is(err, fsapi.ErrPublishedSyncFailed):
+			l.Push(lua.WrapErrorWithLua(l, err, "atomic write published; sync status uncertain").WithKind(lua.Unavailable).WithRetryable(false).WithDetails(map[string]any{"published": true}))
+		case errors.Is(err, fsapi.ErrAtomicWriteUnsupported):
+			l.Push(lua.WrapErrorWithLua(l, err, "atomic write unsupported").WithKind(lua.Unavailable).WithRetryable(false))
+		default:
+			l.Push(wrapFilesystemError(l, err, "atomic write failed", lua.Internal))
+		}
 		return 2
 	}
 
