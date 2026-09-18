@@ -683,7 +683,7 @@ func TestEnsureRunning(t *testing.T) {
 	ctx, cancel := context.WithTimeout(contextapi.NewRootContext(), 2*time.Second)
 	defer cancel()
 
-	err = server.ensureRunning(ctx, probe)
+	err = server.ensureRunning(ctx, probe, cfg.Addr)
 	assert.NoError(t, err)
 
 	// Now stop the server and the check should fail
@@ -701,7 +701,7 @@ func TestEnsureRunning(t *testing.T) {
 	ctx2, cancel2 := context.WithTimeout(contextapi.NewRootContext(), 500*time.Millisecond) // Short timeout
 	defer cancel2()
 
-	err = server.ensureRunning(ctx2, probe)
+	err = server.ensureRunning(ctx2, probe, cfg.Addr)
 	assert.Error(t, err)
 }
 
