@@ -25,35 +25,43 @@ func dependencyVendorDirectory(state string) string {
 // left untouched; only exact content-addressed files enter the stable vendor.
 // The cache layout, publication and verification belong to boot/deps/hub, which
 // is also the component that reads the cache back at startup.
-func seedDependencyCache(state, deployment string, bundle Bundle) error {
+//
+// The selected deployment is the one about to start, so content it pins must
+// reach the cache and its failures end the launch. Every other retained
+// deployment is an optimization source: a failure reading one is returned in
+// skipped for the caller to report, and the remaining sources still contribute.
+func seedDependencyCache(state, deployment string, bundle Bundle) (skipped []error, err error) {
 	cache := dependencyVendorDirectory(state)
 	stateRoot, err := os.OpenRoot(state)
 	if err != nil {
-		return NewApplicationStateError("open application state", state, err)
+		return nil, NewApplicationStateError("open application state", state, err)
 	}
 	mkdirErr := stateRoot.MkdirAll(filepath.ToSlash(filepath.Join(artifactCacheDirectory, "vendor")), 0o700)
 	if err := errors.Join(mkdirErr, stateRoot.Close()); err != nil {
-		return NewApplicationStateError("create dependency artifact cache", cache, err)
+		return nil, NewApplicationStateError("create dependency artifact cache", cache, err)
 	}
 	for _, pack := range bundle.Packs {
 		_, relative, err := immutableArtifactPath(pack.Module, pack.Version, pack.Digest)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if err := hub.PublishImmutableArtifact(cache, relative, bytes.NewReader(pack.Data), pack.Digest, uint64(len(pack.Data))); err != nil {
-			return NewArtifactCacheError("cache embedded module", pack.Module+"@"+pack.Version, err)
+			return nil, NewArtifactCacheError("cache embedded module", pack.Module+"@"+pack.Version, err)
 		}
 	}
-	roots, err := retainedDeploymentRoots(state, deployment, bundle)
+	selected, retained, err := retainedDeploymentRoots(state, deployment, bundle)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	for _, root := range roots {
-		if err := importDeploymentArtifacts(root, cache); err != nil {
-			return err
+	if err := importDeploymentArtifacts(selected, cache); err != nil {
+		return nil, err
+	}
+	for _, root := range retained {
+		if importErr := importDeploymentArtifacts(root, cache); importErr != nil {
+			skipped = append(skipped, NewRetainedDeploymentError("retained deployment contributed no artifacts", root, importErr))
 		}
 	}
-	return nil
+	return skipped, nil
 }
 
 // immutableArtifactPath names the cache entry a module record pins. A record
@@ -72,9 +80,16 @@ func immutableArtifactPath(module, version, digest string) (graph.Name, string, 
 	return name, relative, nil
 }
 
-func retainedDeploymentRoots(state, selected string, bundle Bundle) ([]string, error) {
-	roots := make([]string, 0, 8)
-	seen := make(map[string]struct{})
+// retainedDeploymentRoots returns the absolute path of the selected deployment
+// and every other retained deployment the state directory holds, each once.
+func retainedDeploymentRoots(state, selected string, bundle Bundle) (string, []string, error) {
+	selectedRoot, err := filepath.Abs(selected)
+	if err != nil {
+		return "", nil, err
+	}
+	selectedRoot = filepath.Clean(selectedRoot)
+	retained := make([]string, 0, 8)
+	seen := map[string]struct{}{selectedRoot: {}}
 	add := func(root string) error {
 		if root == "" {
 			return nil
@@ -86,22 +101,19 @@ func retainedDeploymentRoots(state, selected string, bundle Bundle) ([]string, e
 		absolute = filepath.Clean(absolute)
 		if _, exists := seen[absolute]; !exists {
 			seen[absolute] = struct{}{}
-			roots = append(roots, absolute)
+			retained = append(retained, absolute)
 		}
 		return nil
 	}
-	if err := add(selected); err != nil {
-		return nil, err
-	}
 	if err := add(embeddedDeployment(state, bundle)); err != nil {
-		return nil, err
+		return "", nil, err
 	}
 	active, err := selectedDeployment(state)
 	if err != nil {
-		return nil, NewApplicationStateError("read application activation record", state, err)
+		return "", nil, NewApplicationStateError("read application activation record", state, err)
 	}
 	if err := add(active); err != nil {
-		return nil, err
+		return "", nil, err
 	}
 	for _, parent := range []string{filepath.Join(state, "base"), filepath.Join(state, "revisions")} {
 		entries, err := os.ReadDir(parent)
@@ -109,7 +121,7 @@ func retainedDeploymentRoots(state, selected string, bundle Bundle) ([]string, e
 			continue
 		}
 		if err != nil {
-			return nil, NewApplicationStateError("read retained deployments", parent, err)
+			return "", nil, NewApplicationStateError("read retained deployments", parent, err)
 		}
 		for _, entry := range entries {
 			if !entry.IsDir() || entry.Type()&os.ModeSymlink != 0 {
@@ -120,11 +132,11 @@ func retainedDeploymentRoots(state, selected string, bundle Bundle) ([]string, e
 				root = filepath.Join(root, "deployment")
 			}
 			if err := add(root); err != nil {
-				return nil, err
+				return "", nil, err
 			}
 		}
 	}
-	return roots, nil
+	return selectedRoot, retained, nil
 }
 
 func importDeploymentArtifacts(deployment, cache string) error {
