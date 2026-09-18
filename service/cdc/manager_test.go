@@ -162,6 +162,8 @@ func (b *recordingBus) SubscribeP(context.Context, event.System, event.Kind, cha
 	return "", nil
 }
 
+func (*recordingBus) HasSubscribers(event.System, event.Kind) bool { return true }
+
 func (*recordingBus) Unsubscribe(context.Context, event.SubscriberID) {}
 
 func (b *recordingBus) Send(_ context.Context, e event.Event) {

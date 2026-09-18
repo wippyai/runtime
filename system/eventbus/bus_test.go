@@ -1378,3 +1378,58 @@ func TestBurstQueueGrowth(t *testing.T) {
 	// All events should be delivered
 	assert.Equal(t, expected, received.Load(), "all events should be delivered")
 }
+
+func TestHasSubscribersMatchesSendFilters(t *testing.T) {
+	bus := newTestBus(t)
+	defer bus.Stop()
+
+	ctx := context.Background()
+	ch := make(chan event.Event, 1)
+	subID, err := bus.SubscribeP(ctx, "registry", "(entry|registry).(create|update|delete|begin|commit|discard)", ch)
+	require.NoError(t, err)
+
+	assert.True(t, bus.HasSubscribers("registry", "entry.create"))
+	assert.True(t, bus.HasSubscribers("registry", "registry.commit"))
+	assert.False(t, bus.HasSubscribers("registry", "entry.accept"))
+	assert.False(t, bus.HasSubscribers("process", "entry.create"))
+
+	bus.Unsubscribe(ctx, subID)
+	assert.False(t, bus.HasSubscribers("registry", "entry.create"))
+}
+
+func TestHasSubscribersHonorsWildcardSubscriptions(t *testing.T) {
+	bus := newTestBus(t)
+	defer bus.Stop()
+
+	ch := make(chan event.Event, 1)
+	_, err := bus.Subscribe(context.Background(), "registry", ch)
+	require.NoError(t, err)
+
+	assert.True(t, bus.HasSubscribers("registry", "any.kind"))
+	assert.False(t, bus.HasSubscribers("other", "any.kind"))
+}
+
+func TestHasSubscribersSkipsExpiredSubscriptions(t *testing.T) {
+	bus := newTestBus(t)
+	defer bus.Stop()
+
+	subCtx, cancel := context.WithCancel(context.Background())
+	ch := make(chan event.Event, 1)
+	_, err := bus.SubscribeP(subCtx, "registry", "entry.create", ch)
+	require.NoError(t, err)
+	require.True(t, bus.HasSubscribers("registry", "entry.create"))
+
+	cancel()
+	assert.False(t, bus.HasSubscribers("registry", "entry.create"))
+}
+
+func TestHasSubscribersAfterStop(t *testing.T) {
+	bus := newTestBus(t)
+
+	ch := make(chan event.Event, 1)
+	_, err := bus.SubscribeP(context.Background(), "registry", "entry.create", ch)
+	require.NoError(t, err)
+
+	bus.Stop()
+	assert.False(t, bus.HasSubscribers("registry", "entry.create"))
+}

@@ -89,6 +89,8 @@ func (b *nopBus) SubscribeP(_ context.Context, _ event.System, _ event.Kind, _ c
 func (b *nopBus) Subscribe(_ context.Context, _ event.System, _ chan<- event.Event) (event.SubscriberID, error) {
 	return event.SubscriberID(""), nil
 }
+func (*nopBus) HasSubscribers(event.System, event.Kind) bool { return true }
+
 func (b *nopBus) Unsubscribe(_ context.Context, _ event.SubscriberID) {}
 func (b *nopBus) Send(_ context.Context, _ event.Event)               {}
 

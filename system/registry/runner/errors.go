@@ -61,14 +61,21 @@ func NewOperationCanceledError(entryID registry.ID, kind registry.Kind, err erro
 		WithCause(err)
 }
 
-// NewEventHandlerTimeoutError creates an error when event handler times out.
-//
-// The runner cannot tell a missing listener from one that is still working, and
-// both reach this point, so the message names both rather than asserting the
-// first: an entry whose handler compiles or analyzes code can legitimately hold
-// the operation longer than the wait allows.
+// NewNoListenerError creates an error when an operation dispatches to an event
+// the bus has no subscriber for. Nothing can accept or reject it, so the runner
+// reports it at once instead of holding the operation open.
+func NewNoListenerError(entryID registry.ID, kind registry.Kind) apierror.Error {
+	return apierror.New(apierror.Unavailable, "no registry listener is subscribed for entry "+entryID.String()+" (kind: "+kind+")").
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"entry_id": entryID.String(), "kind": kind}))
+}
+
+// NewEventHandlerTimeoutError creates an error when an operation exceeds the
+// configured registry.event_wait_timeout cap. A missing listener is detected
+// separately and reports NewNoListenerError, so reaching this point means a
+// subscribed handler held the operation past the cap.
 func NewEventHandlerTimeoutError(timeout time.Duration, entryID registry.ID, kind registry.Kind) apierror.Error {
-	return apierror.New(apierror.Timeout, "event handler timeout after "+timeout.String()+" for entry "+entryID.String()+" (kind: "+kind+"): no accept or reject arrived - either no listener is registered for this kind, or its handler is still working").
+	return apierror.New(apierror.Timeout, "event handler timeout after "+timeout.String()+" for entry "+entryID.String()+" (kind: "+kind+"): the subscribed handler did not accept or reject within the configured registry.event_wait_timeout").
 		WithRetryable(apierror.True).
 		WithDetails(attrs.NewBagFrom(map[string]any{"timeout": timeout.String(), "entry_id": entryID.String(), "kind": kind}))
 }

@@ -38,6 +38,8 @@ func (b *mockBus) SubscribeP(ctx context.Context, system event.System, _ event.K
 	return b.Subscribe(ctx, system, ch)
 }
 
+func (*mockBus) HasSubscribers(event.System, event.Kind) bool { return true }
+
 func (b *mockBus) Unsubscribe(_ context.Context, id event.SubscriberID) {
 	delete(b.subscribers, id)
 }
@@ -380,6 +382,8 @@ func (b *errorBus) Subscribe(_ context.Context, _ event.System, _ chan<- event.E
 func (b *errorBus) SubscribeP(_ context.Context, _ event.System, _ event.Kind, _ chan<- event.Event) (event.SubscriberID, error) {
 	return "", b.err
 }
+
+func (*errorBus) HasSubscribers(event.System, event.Kind) bool { return true }
 
 func (b *errorBus) Unsubscribe(_ context.Context, _ event.SubscriberID) {}
 

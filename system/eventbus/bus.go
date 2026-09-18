@@ -19,6 +19,7 @@ const (
 	actSubscribe actKind = iota
 	actUnsubscribe
 	actSend
+	actProbe
 	actStop
 )
 
@@ -37,6 +38,7 @@ type action struct {
 	ctx         context.Context
 	subscribe   *subscribeRequest
 	unsubscribe *unsubscribeRequest
+	probe       *probeRequest
 	event       event.Event
 	kind        actKind
 }
@@ -49,6 +51,15 @@ type subscribeRequest struct {
 type unsubscribeRequest struct {
 	doneCh chan struct{}
 	subID  event.SubscriberID
+}
+
+// probeRequest asks the dispatcher whether the subscription table currently
+// holds a subscription matching a system/kind pair. It travels the action
+// queue so the answer is read from the same goroutine that owns the table.
+type probeRequest struct {
+	doneCh chan bool
+	system event.System
+	kind   event.Kind
 }
 
 type sub struct {
@@ -230,6 +241,27 @@ func (b *Bus) Send(ctx context.Context, e event.Event) {
 	})
 }
 
+// HasSubscribers reports whether any live subscription matches the given
+// system and kind. The answer is produced by the dispatcher against the same
+// subscription table that Send filters on, so it reflects every subscribe and
+// unsubscribe already accepted by the bus. A closed bus has no subscribers.
+func (b *Bus) HasSubscribers(system event.System, kind event.Kind) bool {
+	req := &probeRequest{
+		system: system,
+		kind:   kind,
+		doneCh: make(chan bool, 1),
+	}
+
+	if err := b.enqueueAction(action{
+		kind:  actProbe,
+		probe: req,
+	}); err != nil {
+		return false
+	}
+
+	return <-req.doneCh
+}
+
 // Stop gracefully shuts down the event bus.
 func (b *Bus) Stop() {
 	// Atomically set closed and enqueue stop action
@@ -276,6 +308,8 @@ func (b *Bus) enqueueAction(a action) error {
 			a.unsubscribe.doneCh <- struct{}{}
 		case actSend:
 			// Silently drop send operations when closed
+		case actProbe:
+			a.probe.doneCh <- false
 		case actStop:
 			// Should not happen, but handle gracefully
 		}
@@ -389,6 +423,9 @@ func (b *Bus) processActions() bool {
 				b.recordSubscribers()
 			}
 
+		case actProbe:
+			a.probe.doneCh <- b.matchesSubscriber(a.probe.system, a.probe.kind)
+
 		case actStop:
 			// Clean up all subscribers
 			b.subscribers = make(map[event.SubscriberID]sub)
@@ -433,10 +470,31 @@ func (b *Bus) drainQueue() {
 			a.unsubscribe.doneCh <- struct{}{}
 		case actSend:
 			// Drop send events during shutdown
+		case actProbe:
+			a.probe.doneCh <- false
 		case actStop:
 			// Ignore additional stop actions
 		}
 	}
+}
+
+// matchesSubscriber applies the same filters Send uses, so a positive answer
+// means the event would reach at least one subscriber. Subscriptions whose
+// context is already done are skipped: Send drops them on the next delivery.
+func (b *Bus) matchesSubscriber(system event.System, kind event.Kind) bool {
+	for _, s := range b.subscribers {
+		if s.ctx.Err() != nil {
+			continue
+		}
+		if s.system != nil && !s.system.Match(system) {
+			continue
+		}
+		if s.kind != nil && !s.kind.Match(kind) {
+			continue
+		}
+		return true
+	}
+	return false
 }
 
 func (b *Bus) generateSubscriberID() event.SubscriberID {

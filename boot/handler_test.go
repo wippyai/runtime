@@ -343,3 +343,36 @@ func TestHandlerRegistryIntegration(t *testing.T) {
 		assert.Equal(t, int32(1), atomic.LoadInt32(&listener2.addCount), "listener2 should receive http entry")
 	})
 }
+
+func TestHandlerRegistryHandlesKind(t *testing.T) {
+	t.Run("empty registry answers for no kind", func(t *testing.T) {
+		reg := NewHandlerRegistry()
+		assert.False(t, reg.HandlesKind("function.wasm"))
+	})
+
+	t.Run("listener answers for its declared kinds only", func(t *testing.T) {
+		reg := NewHandlerRegistry()
+		reg.RegisterListener("function.(wasm|wat)", &mockEntryListener{})
+
+		assert.True(t, reg.HandlesKind("function.wasm"))
+		assert.True(t, reg.HandlesKind("function.wat"))
+		assert.False(t, reg.HandlesKind("service.http.nope"))
+	})
+
+	t.Run("observer never answers", func(t *testing.T) {
+		reg := NewHandlerRegistry()
+		reg.RegisterObserver("function.wasm", &mockEntryListener{})
+
+		assert.False(t, reg.HandlesKind("function.wasm"))
+	})
+
+	t.Run("handler without a declared matcher may answer for any kind", func(t *testing.T) {
+		reg := NewHandlerRegistry()
+		reg.Register(eventbus.NewBaseHandler(
+			eventbus.Pattern{System: registry.System, Kind: registry.AllEvents},
+			func(context.Context, event.Event) error { return nil },
+		))
+
+		assert.True(t, reg.HandlesKind("anything.at.all"))
+	})
+}
