@@ -188,7 +188,7 @@ func TestEnsureModuleAvailableMigratesLegacyArtifactThroughPrivateCopy(t *testin
 		t.Fatalf("new handler: %v", err)
 	}
 
-	gotPath, err := handler.ensureModuleAvailable(context.Background(), ResolvedModule{
+	gotPath, err := handler.ensureModuleAvailable(onlineContext(), ResolvedModule{
 		Org: "acme", Name: "widget", Version: "1.2.3", Digest: digest, SizeBytes: uint64(len(content)),
 	})
 	if err != nil {
@@ -240,7 +240,7 @@ func TestEnsureModuleAvailableIgnoresNonRegularLegacyPath(t *testing.T) {
 		t.Fatalf("new handler: %v", err)
 	}
 
-	gotPath, err := handler.ensureModuleAvailable(context.Background(), ResolvedModule{
+	gotPath, err := handler.ensureModuleAvailable(onlineContext(), ResolvedModule{
 		Org: "acme", Name: "widget", Version: "1.2.3", URL: "memory://widget",
 		Digest: digest, SizeBytes: uint64(len(content)),
 	})
@@ -289,7 +289,7 @@ func TestEnsureModuleAvailableConcurrentPublishers(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			<-start
-			path, err := handler.ensureModuleAvailable(context.Background(), mod)
+			path, err := handler.ensureModuleAvailable(onlineContext(), mod)
 			paths <- path
 			errs <- err
 		}()
@@ -348,11 +348,11 @@ func TestEnsureModuleAvailableRollbackSelectsExactDigestAtSameVersion(t *testing
 		}
 	}
 	first, second := module("memory://first"), module("memory://second")
-	firstPath, err := handler.ensureModuleAvailable(context.Background(), first)
+	firstPath, err := handler.ensureModuleAvailable(onlineContext(), first)
 	if err != nil {
 		t.Fatalf("ensure first build: %v", err)
 	}
-	secondPath, err := handler.ensureModuleAvailable(context.Background(), second)
+	secondPath, err := handler.ensureModuleAvailable(onlineContext(), second)
 	if err != nil {
 		t.Fatalf("ensure second build: %v", err)
 	}
@@ -360,7 +360,7 @@ func TestEnsureModuleAvailableRollbackSelectsExactDigestAtSameVersion(t *testing
 		t.Fatalf("same-version builds share path %q", firstPath)
 	}
 
-	rollbackPath, err := handler.ensureModuleAvailable(context.Background(), first)
+	rollbackPath, err := handler.ensureModuleAvailable(onlineContext(), first)
 	if err != nil {
 		t.Fatalf("select first build for rollback: %v", err)
 	}
