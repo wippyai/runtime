@@ -288,6 +288,8 @@ func (b *recordingBus) SubscribeP(
 	return "", nil
 }
 
+func (*recordingBus) HasSubscribers(eventapi.System, eventapi.Kind) bool { return true }
+
 func (b *recordingBus) Unsubscribe(context.Context, eventapi.SubscriberID) {}
 
 func (b *recordingBus) Send(_ context.Context, evt eventapi.Event) {
