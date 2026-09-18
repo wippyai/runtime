@@ -122,7 +122,7 @@ func policy(l *lua.LState) int {
 
 	if !luasec.IsAllowed(ctx, "security.policy.get", idStr, nil) {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "permission denied: access policy").WithKind(lua.Invalid).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "permission denied: access policy").WithKind(lua.PermissionDenied).WithRetryable(false))
 		return 2
 	}
 
@@ -151,7 +151,7 @@ func namedScope(l *lua.LState) int {
 
 	if !luasec.IsAllowed(ctx, "security.policy_group.get", idStr, nil) {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "permission denied: access policy group").WithKind(lua.Invalid).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "permission denied: access policy group").WithKind(lua.PermissionDenied).WithRetryable(false))
 		return 2
 	}
 
