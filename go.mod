@@ -52,6 +52,7 @@ require (
 	github.com/moby/moby/client v0.6.0
 	github.com/muesli/cancelreader v0.2.2
 	github.com/muesli/termenv v0.16.0
+	github.com/pelletier/go-toml/v2 v2.4.3
 	github.com/prometheus/client_golang v1.24.1
 	github.com/rabbitmq/amqp091-go v1.14.0
 	github.com/sergi/go-diff v1.4.0
