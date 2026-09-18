@@ -8,7 +8,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"io"
 	"net/http"
 	"os"
@@ -49,7 +48,7 @@ type UploadOutput struct {
 // not silently fail.
 func (c *Client) PublishViaHub(ctx context.Context, in UploadInput) (*UploadOutput, error) {
 	if c.token == "" {
-		return nil, errors.New("publish requires an authentication token")
+		return nil, ErrNotAuthenticated
 	}
 
 	// Load the body once; the hub-mediated handler caps at 100 MB so we
@@ -110,7 +109,7 @@ func (c *Client) PublishViaHub(ctx context.Context, in UploadInput) (*UploadOutp
 			return NewHubRequestError("decode upload response", err)
 		}
 		if fresh.PublishID == "" {
-			return errors.New("hub returned empty publish_id")
+			return NewPublishError("hub returned an empty publish_id", nil)
 		}
 		out = fresh
 		return nil
