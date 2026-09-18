@@ -58,7 +58,7 @@ func seedDependencyCache(state, deployment string, bundle Bundle) (skipped []err
 	}
 	for _, root := range retained {
 		if importErr := importDeploymentArtifacts(root, cache); importErr != nil {
-			skipped = append(skipped, NewRetainedDeploymentError("retained deployment contributed no artifacts", root, importErr))
+			skipped = append(skipped, NewRetainedDeploymentError("retained deployment import stopped", root, importErr))
 		}
 	}
 	return skipped, nil
