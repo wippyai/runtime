@@ -37,6 +37,7 @@ type Reg struct {
 	log               *zap.Logger
 	depIndex          *topology.DepIndex
 	overlayOwners     map[registry.ID]string
+	overlayShadows    map[registry.ID]overlayShadow
 	overlayGeneration map[string]uint64
 	snapshot          atomic.Pointer[registry.Snapshot]
 	state             registry.State
@@ -70,6 +71,7 @@ func NewRegistry(
 		stateIndex:        make(map[registry.ID]int),
 		overlays:          make(map[string]registry.State),
 		overlayOwners:     make(map[registry.ID]string),
+		overlayShadows:    make(map[registry.ID]overlayShadow),
 		overlayGeneration: make(map[string]uint64),
 		log:               log,
 		currentVersion:    version.FromParent(nil, 0), // initial version
@@ -270,6 +272,7 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 		preparedEff      []registry.Effect
 		planner          *regexp.Planner
 		targetResolution *registry.DependencyResolution
+		targetShadows    map[registry.ID]overlayShadow
 	)
 	if resolutionHistory, ok := r.history.(registry.ResolutionHistory); ok {
 		stored, resolutionErr := resolutionHistory.GetDependencyResolution(targetVersion)
@@ -318,10 +321,12 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 			return NewExpandChangesError(errors.New("stored dependency resolution has no configured reconciler"))
 		}
 		var buildErr error
-		if composeErr := r.composeOverlays(stateMap); composeErr != nil {
+		rebasedShadows, composeErr := r.composeOverlays(stateMap)
+		if composeErr != nil {
 			planner.RollbackEffects(ctx, preparedEff)
 			return NewComputeTransitionError(composeErr)
 		}
+		targetShadows = rebasedShadows
 		allOps, buildErr = r.builder.BuildDelta(snapshot, topology.StateMapToSlice(stateMap))
 		if buildErr != nil {
 			planner.RollbackEffects(ctx, preparedEff)
@@ -366,10 +371,12 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 			}
 			applyStateOperations(stateMap, ops)
 		}
-		if composeErr := r.composeOverlays(stateMap); composeErr != nil {
+		rebasedShadows, composeErr := r.composeOverlays(stateMap)
+		if composeErr != nil {
 			planner.RollbackEffects(ctx, preparedEff)
 			return NewComputeTransitionError(composeErr)
 		}
+		targetShadows = rebasedShadows
 		allOps, err = r.builder.BuildDelta(snapshot, topology.StateMapToSlice(stateMap))
 		if err != nil {
 			planner.RollbackEffects(ctx, preparedEff)
@@ -377,9 +384,11 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 		}
 	} else {
 		stateMap := topology.NewStateMap(targetState)
-		if composeErr := r.composeOverlays(stateMap); composeErr != nil {
+		rebasedShadows, composeErr := r.composeOverlays(stateMap)
+		if composeErr != nil {
 			return NewComputeTransitionError(composeErr)
 		}
+		targetShadows = rebasedShadows
 		delta, err := r.builder.BuildDelta(snapshot, topology.StateMapToSlice(stateMap))
 		if err != nil {
 			return NewComputeTransitionError(err)
@@ -480,6 +489,7 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 	}
 
 	r.state = newState
+	r.overlayShadows = targetShadows
 	r.rebuildIndex()
 	r.rebuildDepIndex()
 	r.currentVersion = targetVersion
@@ -850,6 +860,7 @@ func (r *Reg) LoadState(ctx context.Context, baseline registry.State, targetVers
 	// process-local and their owning controllers reconcile them after boot.
 	r.overlays = make(map[string]registry.State)
 	r.overlayOwners = make(map[registry.ID]string)
+	r.overlayShadows = make(map[registry.ID]overlayShadow)
 	r.overlayGeneration = make(map[string]uint64)
 	// Invalidate snapshots retained across an explicit reload. A newly
 	// constructed registry starts at epoch zero; a live registry never reuses a

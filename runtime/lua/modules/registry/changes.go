@@ -237,33 +237,39 @@ func changesApply(l *lua.LState) int {
 		}
 		for _, op := range changes.ops {
 			kind := op.Entry.Kind
+			shadow := false
 			if op.Kind == regapi.EntryUpdate || op.Kind == regapi.EntryDelete {
 				stored, getErr := changes.snapshot.GetEntry(op.Entry.ID)
 				if getErr != nil {
-					l.Push(lua.LNil)
-					l.Push(lua.NewLuaError(l, "registry overlay entry not found: "+op.Entry.ID.String()).
-						WithKind(lua.NotFound).
-						WithRetryable(false).
-						WithDetails(map[string]any{"entry_id": op.Entry.ID.String(), "owner": owner}))
-					return 2
+					// An entry the overlay does not own is a durable entry the
+					// operation shadows, and carries the durable kind.
+					durable, durableErr := changes.snapshot.reg.GetEntry(op.Entry.ID)
+					if durableErr != nil {
+						l.Push(lua.LNil)
+						l.Push(lua.NewLuaError(l, "registry overlay entry not found: "+op.Entry.ID.String()).
+							WithKind(lua.NotFound).
+							WithRetryable(false).
+							WithDetails(map[string]any{"entry_id": op.Entry.ID.String(), "owner": owner}))
+						return 2
+					}
+					stored, shadow = durable, true
 				}
 				kind = stored.Kind
 			}
-			verb := "unknown"
-			switch op.Kind {
-			case regapi.EntryCreate:
-				verb = "create"
-			case regapi.EntryUpdate:
-				verb = "update"
-			case regapi.EntryDelete:
-				verb = "delete"
-			}
-			action := "registry.overlay." + verb + "." + kind
+			action := "registry.overlay." + operationVerb(op.Kind) + "." + kind
 			if !security.IsAllowed(l.Context(), action, op.Entry.ID.String(), nil) {
 				l.Push(lua.LNil)
 				l.Push(lua.NewLuaError(l, "not allowed to apply "+kind+" overlay entry: "+op.Entry.ID.String()).
 					WithKind(lua.PermissionDenied).
 					WithRetryable(false))
+				return 2
+			}
+			if shadow && !security.IsAllowed(l.Context(), "registry.overlay.shadow", op.Entry.ID.String(), nil) {
+				l.Push(lua.LNil)
+				l.Push(lua.NewLuaError(l, "not allowed to shadow durable entry: "+op.Entry.ID.String()).
+					WithKind(lua.PermissionDenied).
+					WithRetryable(false).
+					WithDetails(map[string]any{"entry_id": op.Entry.ID.String(), "owner": owner}))
 				return 2
 			}
 		}

@@ -97,7 +97,7 @@ func TestOverlaySurvivesVersionSelection(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestOverlayCannotShadowOrLeakIntoHistory(t *testing.T) {
+func TestOverlayCannotClaimDurableEntryOnCreateOrLeakIntoHistory(t *testing.T) {
 	ctx := context.Background()
 	reg, _ := newOverlayTestRegistry(t)
 	base := regapi.Entry{ID: regapi.NewID("app", "base"), Kind: regapi.EntryKind, Data: payload.New("base")}
