@@ -216,7 +216,7 @@ func TestNodeFailureDetection(t *testing.T) {
 	require.Len(t, node1.Nodes(), 1)
 
 	// Simulate crash - shutdown memberlist without graceful leave
-	_ = node2.memberlist.Shutdown()
+	_ = node2.memberlist.Load().Shutdown()
 
 	// Wait for failure detection (memberlist's suspicion mechanism)
 	select {
@@ -368,7 +368,7 @@ func TestMetadataUpdate(t *testing.T) {
 
 	// Update node2's metadata
 	node2.config.Meta["version"] = "2.0"
-	_ = node2.memberlist.UpdateNode(time.Second)
+	_ = node2.memberlist.Load().UpdateNode(time.Second)
 
 	// Wait for update event
 	select {

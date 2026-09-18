@@ -46,10 +46,10 @@ Keys prefixed with `x_` (e.g. `x_original_queue`, `x_dead_letter_reason`, `x_dea
 | Condition | Kind | Retryable | Notes |
 |-----------|------|-----------|-------|
 | no context | errors.INVALID | no | |
-| queue publishing not allowed | errors.INVALID | no | Security check failed |
+| queue publishing not allowed | errors.PERMISSION_DENIED | no | Security check failed |
 | queue manager not found | errors.INVALID | no | |
 | queue ID empty | errors.INVALID | no | |
-| not allowed to publish to queue | errors.INVALID | no | Queue-specific security check |
+| not allowed to publish to queue | errors.PERMISSION_DENIED | no | Queue-specific security check |
 | message data required | errors.INVALID | no | |
 | message data cannot be empty | errors.INVALID | no | |
 | publish operation fails | errors.INTERNAL | no | Queue manager error |
@@ -235,15 +235,17 @@ This module returns structured errors. Check kind with `errors.*` constants:
 ```lua
 local ok, err = queue.publish("app.queue:tasks", data)
 if err then
-    if err:kind() == errors.INVALID then
-        -- bad input or security violation
+    if err:kind() == errors.PERMISSION_DENIED then
+        -- the security policy denies the publish
+    elseif err:kind() == errors.INVALID then
+        -- bad input
     elseif err:kind() == errors.INTERNAL then
         -- queue manager error
     end
 end
 ```
 
-**Possible kinds:** `errors.INVALID`, `errors.INTERNAL`
+**Possible kinds:** `errors.INVALID`, `errors.PERMISSION_DENIED`, `errors.INTERNAL`
 
 ## Example
 

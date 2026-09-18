@@ -216,3 +216,27 @@ func NewTransitionBaseMismatchError(expected, actual int) apierror.Error {
 		WithRetryable(apierror.False).
 		WithDetails(attrs.NewBagFrom(map[string]any{"base_entries": expected, "current_entries": actual}))
 }
+
+// ErrPlanBaseRequired reports a plan that names no registry version.
+var ErrPlanBaseRequired = apierror.New(apierror.Invalid, "plan has no base version").WithRetryable(apierror.False)
+
+// NewPlanBaseConflictError reports a plan computed against a version that is
+// no longer the head.
+func NewPlanBaseConflictError(expected, actual uint) apierror.Error {
+	return apierror.New(apierror.Conflict, "registry moved since the plan was computed").
+		WithRetryable(apierror.True).
+		WithDetails(attrs.NewBagFrom(map[string]any{"plan_version": expected, "current_version": actual}))
+}
+
+// NewPlanDriftError reports external inputs that changed since the plan was
+// computed, so applying it would not do what was reviewed.
+func NewPlanDriftError(expected, actual string) apierror.Error {
+	return apierror.New(apierror.Conflict, "plan inputs changed since it was computed").
+		WithRetryable(apierror.True).
+		WithDetails(attrs.NewBagFrom(map[string]any{"plan_digest": expected, "current_digest": actual}))
+}
+
+// NewPlanDigestError reports a plan whose inputs could not be measured.
+func NewPlanDigestError(cause error) apierror.Error {
+	return apierror.New(apierror.Internal, "failed to measure plan").WithCause(cause)
+}

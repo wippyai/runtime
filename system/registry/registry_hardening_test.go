@@ -100,6 +100,10 @@ type hardeningEffect struct {
 	rolledBack int
 }
 
+func (e *hardeningEffect) Target() (regapi.EffectTarget, error) {
+	return regapi.EffectTarget{Kind: "hardening", Digest: "static"}, nil
+}
+
 func (e *hardeningEffect) Prepare(context.Context) error {
 	e.prepared++
 	return nil
