@@ -9,19 +9,20 @@ import (
 	tomlmod "github.com/wippyai/runtime/runtime/lua/modules/toml"
 )
 
-// TOML registers the deterministic TOML codec.
 func TOML() boot.Component {
 	return boot.New(boot.P{
 		Name:      TOMLName,
 		DependsOn: []boot.Name{EngineName},
 		Load: func(ctx context.Context) (context.Context, error) {
-			manager := GetCodeManager(ctx)
-			if manager == nil {
+			cm := GetCodeManager(ctx)
+			if cm == nil {
 				return ctx, nil
 			}
-			if err := AddModules(ctx, manager, tomlmod.Module); err != nil {
+
+			if err := AddModules(ctx, cm, tomlmod.Module); err != nil {
 				return ctx, err
 			}
+
 			return ctx, nil
 		},
 	})

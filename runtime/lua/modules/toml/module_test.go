@@ -3,239 +3,486 @@
 package toml
 
 import (
-	"bytes"
 	"fmt"
-	"math"
 	"testing"
-	"time"
 
-	tomllib "github.com/pelletier/go-toml/v2"
-	"github.com/stretchr/testify/require"
 	lua "github.com/wippyai/go-lua"
-	"github.com/wippyai/runtime/runtime/lua/engine"
 )
 
 func newState(t *testing.T) *lua.LState {
 	t.Helper()
-	state := lua.NewState()
-	t.Cleanup(state.Close)
-	lua.OpenErrors(state)
-	engine.LoadModuleDef(state, Module)
-	return state
+	l := lua.NewState()
+	t.Cleanup(l.Close)
+	lua.OpenErrors(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
+	return l
 }
 
-func TestInsertPreservesConfigurationAndNativeValues(t *testing.T) {
-	state := newState(t)
-	require.NoError(t, state.DoString(`
-		local source = [=[
-[ui]
-screen_mode = "minimal"
-released = 1979-05-27T07:32:00Z
+func TestLoad(t *testing.T) {
+	l := newState(t)
 
-[mcp_servers.existing]
-url = "https://example.test/mcp"
+	mod := l.GetGlobal("toml")
+	if mod.Type() != lua.LTTable {
+		t.Fatal("toml module not registered")
+	}
 
-[[hooks.Stop]]
-matcher = ""
-]=]
-		local bee = [=[
-[mcp_servers.bee]
-url = "http://127.0.0.1:32123/mcp/action"
-enabled = true
-
-[mcp_servers.bee.headers]
-Authorization = "Bearer ${BEE_TOKEN}"
-]=]
-		local encoded, encode_error = toml.insert(source, {"mcp_servers", "bee"}, bee)
-		assert(encoded and encode_error == nil, tostring(encode_error))
-		result = encoded
-	`))
-
-	var decoded map[string]any
-	err := tomllib.Unmarshal([]byte(state.GetGlobal("result").String()), &decoded)
-	require.NoError(t, err)
-	require.Equal(t, "minimal", decoded["ui"].(map[string]any)["screen_mode"])
-	require.Equal(t, time.Date(1979, 5, 27, 7, 32, 0, 0, time.UTC), decoded["ui"].(map[string]any)["released"])
-	servers := decoded["mcp_servers"].(map[string]any)
-	require.Equal(t, "https://example.test/mcp", servers["existing"].(map[string]any)["url"])
-	require.Equal(t, "Bearer ${BEE_TOKEN}", servers["bee"].(map[string]any)["headers"].(map[string]any)["Authorization"])
-	require.Equal(t, "", decoded["hooks"].(map[string]any)["Stop"].([]any)[0].(map[string]any)["matcher"])
+	modTbl := mod.(*lua.LTable)
+	if modTbl.RawGetString("encode").Type() != lua.LTFunction {
+		t.Error("encode function not registered")
+	}
+	if modTbl.RawGetString("decode").Type() != lua.LTFunction {
+		t.Error("decode function not registered")
+	}
+	if modTbl.RawGetString("insert") != lua.LNil {
+		t.Error("insert must not be part of the surface")
+	}
 }
 
-func TestInsertPreservesTOMLValueKinds(t *testing.T) {
-	state := newState(t)
-	require.NoError(t, state.DoString(`
-		local source = [=[
-[types]
-offset = 1979-05-27T07:32:00Z
-local_datetime = 1979-05-27T07:32:00
-local_date = 1979-05-27
-local_time = 07:32:00
-integer = 42
-float = 1.25
-positive_infinity = inf
-not_a_number = nan
-boolean = true
-escaped = "line\nvalue"
-inline = { enabled = true, count = 2 }
-array = [1, 2, 3]
-dates = [1979-05-27, 1980-05-27]
+func TestLoadReuse(t *testing.T) {
+	l1 := lua.NewState()
+	defer l1.Close()
+	l2 := lua.NewState()
+	defer l2.Close()
 
-[[types.items]]
-name = "first"
+	tbl, _ := Module.Build()
+	l1.SetGlobal(Module.Name, tbl)
+	l2.SetGlobal(Module.Name, tbl)
 
-["quoted.key"."space key"]
-value = "unicode-λ"
-]=]
-		local bee = [=[
-["mcp.servers"."bee server"]
-url = "http://127.0.0.1/mcp"
-]=]
-		local encoded, encode_error = toml.insert(source, {"mcp.servers", "bee server"}, bee)
-		assert(encoded and encode_error == nil, tostring(encode_error))
-		result = encoded
-	`))
+	mod1 := l1.GetGlobal("toml").(*lua.LTable)
+	mod2 := l2.GetGlobal("toml").(*lua.LTable)
 
-	var before, after map[string]any
-	err := tomllib.Unmarshal([]byte(`
-[types]
-offset = 1979-05-27T07:32:00Z
-local_datetime = 1979-05-27T07:32:00
-local_date = 1979-05-27
-local_time = 07:32:00
-integer = 42
-float = 1.25
-positive_infinity = inf
-not_a_number = nan
-boolean = true
-escaped = "line\nvalue"
-inline = { enabled = true, count = 2 }
-array = [1, 2, 3]
-dates = [1979-05-27, 1980-05-27]
-[[types.items]]
-name = "first"
-["quoted.key"."space key"]
-value = "unicode-λ"
-`), &before)
-	require.NoError(t, err)
-	err = tomllib.Unmarshal([]byte(state.GetGlobal("result").String()), &after)
-	require.NoError(t, err)
-	beforeTypes := before["types"].(map[string]any)
-	afterTypes := after["types"].(map[string]any)
-	require.True(t, math.IsNaN(beforeTypes["not_a_number"].(float64)))
-	require.True(t, math.IsNaN(afterTypes["not_a_number"].(float64)))
-	delete(beforeTypes, "not_a_number")
-	delete(afterTypes, "not_a_number")
-	require.Equal(t, beforeTypes, afterTypes)
-	require.Equal(t, before["quoted.key"], after["quoted.key"])
-	require.Equal(t, "http://127.0.0.1/mcp", after["mcp.servers"].(map[string]any)["bee server"].(map[string]any)["url"])
+	if mod1 != mod2 {
+		t.Error("module table should be reused across states")
+	}
 }
 
-func TestInsertRefusesExistingTarget(t *testing.T) {
-	state := newState(t)
-	require.NoError(t, state.DoString(`
-		local result, err = toml.insert(
-			"[mcp_servers.bee]\nurl = \"https://user.example/mcp\"\n",
-			{"mcp_servers", "bee"},
-			"[mcp_servers.bee]\nurl = \"https://bee.example/mcp\"\n")
-		assert(result == nil and err:kind() == errors.CONFLICT and err:retryable() == false)
-		local scalar, scalar_error = toml.insert(
-			"mcp_servers = \"occupied\"\n",
-			{"mcp_servers", "bee"},
-			"[mcp_servers.bee]\nurl = \"https://bee.example/mcp\"\n")
-		assert(scalar == nil and scalar_error:kind() == errors.CONFLICT and scalar_error:retryable() == false)
-	`))
+func TestEncodeTable(t *testing.T) {
+	l := newState(t)
+
+	err := l.DoString(`
+		local result, err = toml.encode({name = "test", value = 123})
+		if not result then error(err) end
+		if not result:find("name") then error("name not found in output") end
+		if not result:find("test") then error("test value not found") end
+		if not result:find("value = 123") then error("integer not written as integer: " .. result) end
+	`)
+	if err != nil {
+		t.Errorf("encode table test failed: %v", err)
+	}
 }
 
-func TestInsertRejectsInvalidOrBroadSource(t *testing.T) {
-	state := newState(t)
-	require.NoError(t, state.DoString(`
-		local invalid, invalid_error = toml.insert("[broken", {"mcp_servers", "bee"}, "[mcp_servers.bee]\nurl=\"x\"\n")
-		assert(invalid == nil and invalid_error:kind() == errors.INVALID)
-		local broad, broad_error = toml.insert("", {"mcp_servers", "bee"}, "[mcp_servers.bee]\nurl=\"x\"\n[ui]\ntheme=\"dark\"\n")
-		assert(broad == nil and broad_error:kind() == errors.INVALID)
-		local path, path_error = toml.insert("", {"mcp_servers", bee = true}, "[mcp_servers.bee]\nurl=\"x\"\n")
-		assert(path == nil and path_error:kind() == errors.INVALID)
-		local missing, missing_error = toml.insert("", {"mcp_servers", "bee"}, "[mcp_servers.other]\nurl=\"x\"\n")
-		assert(missing == nil and missing_error:kind() == errors.INVALID)
-		local scalar, scalar_error = toml.insert("", {"mcp_servers", "bee"}, "mcp_servers=\"x\"\n")
-		assert(scalar == nil and scalar_error:kind() == errors.INVALID)
-		local sibling, sibling_error = toml.insert("", {"mcp_servers", "bee"}, "[mcp_servers.bee]\nurl=\"x\"\n[mcp_servers.other]\nurl=\"y\"\n")
-		assert(sibling == nil and sibling_error:kind() == errors.INVALID)
-		local extra, extra_error = toml.insert("", {"mcp_servers", "bee"}, "[mcp_servers.bee]\nurl=\"x\"\n[ui]\ntheme=\"dark\"\n")
-		assert(extra == nil and extra_error:kind() == errors.INVALID)
-	`))
+func TestEncodeNestedTable(t *testing.T) {
+	l := newState(t)
+
+	err := l.DoString(`
+		local result, err = toml.encode({parent = {child = {value = 123}}})
+		if not result then error(err) end
+		if not result:find("%[parent%.child%]") then error("nested header missing: " .. result) end
+	`)
+	if err != nil {
+		t.Errorf("encode nested table test failed: %v", err)
+	}
 }
 
-func TestInsertInputAndPathLimits(t *testing.T) {
-	state := newState(t)
-	require.NoError(t, state.DoString(`
-		local source = "[mcp_servers.bee]\nurl=\"x\"\n"
-		for _, arguments in ipairs({
-			{false, {"mcp_servers", "bee"}, source},
-			{"", false, source},
-			{"", {"mcp_servers", "bee"}, false},
-			{"", {}, source},
-			{"", {[2] = "bee"}, source},
-			{"", {"mcp_servers", bee = true}, source},
-			{"", {string.rep("x", 129)}, "[\"" .. string.rep("x", 129) .. "\"]\nvalue=1\n"},
-		}) do
-			local result, err = toml.insert(arguments[1], arguments[2], arguments[3])
-			assert(result == nil and err:kind() == errors.INVALID and err:retryable() == false)
+func TestEncodeArrayValue(t *testing.T) {
+	l := newState(t)
+
+	err := l.DoString(`
+		local result, err = toml.encode({numbers = {1, 2, 3}, flags = {true, false}})
+		if not result then error(err) end
+		if not result:find("numbers = %[1, 2, 3%]") then error("array not written: " .. result) end
+		if not result:find("flags = %[true, false%]") then error("boolean array not written: " .. result) end
+	`)
+	if err != nil {
+		t.Errorf("encode array value test failed: %v", err)
+	}
+}
+
+func TestEncodeArrayRoot(t *testing.T) {
+	l := newState(t)
+
+	err := l.DoString(`
+		local result, err = toml.encode({1, 2, 3})
+		if result ~= nil then
+			error("expected nil result")
 		end
-		local path = {}
-		for index = 1, 32 do path[index] = "p" .. tostring(index) end
-		local header = "[" .. table.concat(path, ".") .. "]\nvalue=1\n"
-		local result, err = toml.insert("", path, header)
-		assert(result and err == nil)
-		path[33] = "overflow"
-		local overflow, overflow_error = toml.insert("", path, header)
-		assert(overflow == nil and overflow_error:kind() == errors.INVALID)
-		local long_path = {}
-		for index = 1, 8 do long_path[index] = string.rep(string.char(96 + index), 128) end
-		local long_header = "[" .. table.concat(long_path, ".") .. "]\nvalue=1\n"
-		local long_result, long_error = toml.insert("", long_path, long_header)
-		assert(long_result and long_error == nil)
-		long_path[9] = "z"
-		local too_long, too_long_error = toml.insert("", long_path, long_header)
-		assert(too_long == nil and too_long_error:kind() == errors.INVALID)
-	`))
-
-	oversizedDocument := `result, failure = toml.insert(string.rep("x", 262145), {"a"}, "[a]\nx=1\n")`
-	require.NoError(t, state.DoString(oversizedDocument))
-	require.Equal(t, lua.LNil, state.GetGlobal("result"))
-	oversizedSource := `result, failure = toml.insert("", {"a"}, string.rep("x", 262145))`
-	require.NoError(t, state.DoString(oversizedSource))
-	require.Equal(t, lua.LNil, state.GetGlobal("result"))
+		if err == nil then
+			error("expected error")
+		end
+		if err:kind() ~= errors.INTERNAL then
+			error("expected Internal kind, got: " .. tostring(err:kind()))
+		end
+		if err:retryable() ~= false then
+			error("expected retryable to be false")
+		end
+	`)
+	if err != nil {
+		t.Errorf("encode array root test failed: %v", err)
+	}
 }
 
-func TestInsertRejectsDeepOrWideValues(t *testing.T) {
-	state := newState(t)
-	deep := ""
-	for index := 0; index < maxStructureDepth+1; index++ {
-		deep += "["
-	}
-	deep += "1"
-	for index := 0; index < maxStructureDepth+1; index++ {
-		deep += "]"
-	}
-	require.NoError(t, state.DoString(`
-		result, failure = toml.insert("", {"a"}, "[a]\nvalue=" .. `+fmt.Sprintf("%q", deep)+` .. "\n")
-		assert(result == nil and failure:kind() == errors.INVALID)
-	`))
+func TestEncodeInvalidInput(t *testing.T) {
+	l := newState(t)
 
-	var wide bytes.Buffer
-	wide.WriteString("[a]\nvalues=[")
-	for index := 0; index < maxStructureEntries+1; index++ {
-		if index > 0 {
-			wide.WriteByte(',')
-		}
-		wide.WriteByte('1')
+	err := l.DoString(`
+		local result, err = toml.encode(123)
+		if result ~= nil then
+			error("expected nil result")
+		end
+		if err == nil then
+			error("expected error")
+		end
+		if err:kind() ~= errors.INVALID then
+			error("expected Invalid kind, got: " .. tostring(err:kind()))
+		end
+		if err:retryable() ~= false then
+			error("expected retryable to be false")
+		end
+		if not tostring(err):find("table expected") then
+			error("expected table expected message, got: " .. tostring(err))
+		end
+	`)
+	if err != nil {
+		t.Errorf("test failed: %v", err)
 	}
-	wide.WriteString("]\n")
-	state.SetGlobal("wide", lua.LString(wide.String()))
-	require.NoError(t, state.DoString(`
-		result, failure = toml.insert("", {"a"}, wide)
-		assert(result == nil and failure:kind() == errors.INVALID)
-	`))
+}
+
+func TestEncodeMissingInput(t *testing.T) {
+	l := newState(t)
+
+	err := l.DoString(`
+		local result, err = toml.encode()
+		if result ~= nil then
+			error("expected nil result")
+		end
+		if err == nil then
+			error("expected error")
+		end
+		if err:kind() ~= errors.INVALID then
+			error("expected Invalid kind, got: " .. tostring(err:kind()))
+		end
+		if not tostring(err):find("table expected") then
+			error("expected table expected message, got: " .. tostring(err))
+		end
+	`)
+	if err != nil {
+		t.Errorf("test failed: %v", err)
+	}
+}
+
+func TestEncodeOutputByteLimit(t *testing.T) {
+	l := newState(t)
+
+	err := l.DoString(fmt.Sprintf(`
+		local result, err = toml.encode({value = string.rep("x", %d)})
+		if result ~= nil then
+			error("expected nil result")
+		end
+		if err == nil then
+			error("expected error")
+		end
+		if err:kind() ~= errors.INVALID then
+			error("expected Invalid kind, got: " .. tostring(err:kind()))
+		end
+		if err:retryable() ~= false then
+			error("expected retryable to be false")
+		end
+		if not tostring(err):find("output exceeds byte limit") then
+			error("expected byte limit message, got: " .. tostring(err))
+		end
+	`, maxEncodeBytes+1))
+	if err != nil {
+		t.Errorf("encode output byte limit test failed: %v", err)
+	}
+}
+
+func TestEncodeOutputAtByteLimit(t *testing.T) {
+	l := newState(t)
+
+	err := l.DoString(fmt.Sprintf(`
+		local result, err = toml.encode({value = string.rep("x", %d)})
+		if not result then error(err) end
+		if #result > %d then error("output above limit was accepted") end
+	`, maxEncodeBytes/2, maxEncodeBytes))
+	if err != nil {
+		t.Errorf("encode below byte limit test failed: %v", err)
+	}
+}
+
+func TestDecodeTable(t *testing.T) {
+	l := newState(t)
+
+	err := l.DoString(`
+		local result, err = toml.decode("name = 'test'\nvalue = 123\nratio = 1.5\nflag = true")
+		if not result then error(err) end
+		if result.name ~= "test" then error("name mismatch") end
+		if result.value ~= 123 then error("value mismatch") end
+		if math.type(result.value) ~= "integer" then error("integer decoded as " .. tostring(math.type(result.value))) end
+		if result.ratio ~= 1.5 then error("ratio mismatch") end
+		if math.type(result.ratio) ~= "float" then error("float decoded as " .. tostring(math.type(result.ratio))) end
+		if result.flag ~= true then error("flag mismatch") end
+	`)
+	if err != nil {
+		t.Errorf("decode table test failed: %v", err)
+	}
+}
+
+func TestDecodeArray(t *testing.T) {
+	l := newState(t)
+
+	err := l.DoString(`
+		local result, err = toml.decode("numbers = [1, 2, 3]")
+		if not result then error(err) end
+		if result.numbers[1] ~= 1 then error("first element mismatch") end
+		if #result.numbers ~= 3 then error("array length mismatch") end
+	`)
+	if err != nil {
+		t.Errorf("decode array test failed: %v", err)
+	}
+}
+
+func TestDecodeArrayOfTables(t *testing.T) {
+	l := newState(t)
+
+	err := l.DoString(`
+		local result, err = toml.decode("[[items]]\nname = 'a'\n\n[[items]]\nname = 'b'\n")
+		if not result then error(err) end
+		if #result.items ~= 2 then error("array of tables length mismatch") end
+		if result.items[2].name ~= "b" then error("array of tables value mismatch") end
+	`)
+	if err != nil {
+		t.Errorf("decode array of tables test failed: %v", err)
+	}
+}
+
+func TestDecodeNestedStructure(t *testing.T) {
+	l := newState(t)
+
+	err := l.DoString(`
+		local tomlStr = [[
+[parent.child]
+value = 123
+]]
+		local result, err = toml.decode(tomlStr)
+		if not result then error(err) end
+		if result.parent.child.value ~= 123 then error("nested value mismatch") end
+	`)
+	if err != nil {
+		t.Errorf("decode nested structure test failed: %v", err)
+	}
+}
+
+func TestDecodeDatesAsText(t *testing.T) {
+	l := newState(t)
+
+	err := l.DoString(`
+		local result, err = toml.decode([[
+odt = 1979-05-27T07:32:00Z
+ldt = 1979-05-27T07:32:00
+ld = 1979-05-27
+lt = 07:32:00
+nested = [{ at = 1979-05-27T07:32:00Z }]
+]])
+		if not result then error(err) end
+		if result.odt ~= "1979-05-27T07:32:00Z" then error("offset date-time: " .. tostring(result.odt)) end
+		if result.ldt ~= "1979-05-27T07:32:00" then error("local date-time: " .. tostring(result.ldt)) end
+		if result.ld ~= "1979-05-27" then error("local date: " .. tostring(result.ld)) end
+		if result.lt ~= "07:32:00" then error("local time: " .. tostring(result.lt)) end
+		if result.nested[1].at ~= "1979-05-27T07:32:00Z" then error("nested date: " .. tostring(result.nested[1].at)) end
+	`)
+	if err != nil {
+		t.Errorf("decode dates test failed: %v", err)
+	}
+}
+
+func TestEncodeDoesNotSynthesizeDates(t *testing.T) {
+	l := newState(t)
+
+	err := l.DoString(`
+		local result, err = toml.encode({at = "1979-05-27T07:32:00Z"})
+		if not result then error(err) end
+		if not result:find("'1979%-05%-27T07:32:00Z'") then
+			error("date text must stay a string: " .. result)
+		end
+	`)
+	if err != nil {
+		t.Errorf("encode date text test failed: %v", err)
+	}
+}
+
+func TestDecodeInvalidInput(t *testing.T) {
+	l := newState(t)
+
+	err := l.DoString(`
+		local result, err = toml.decode(123)
+		if result ~= nil then
+			error("expected nil result")
+		end
+		if err == nil then
+			error("expected error")
+		end
+		if err:kind() ~= errors.INVALID then
+			error("expected Invalid kind, got: " .. tostring(err:kind()))
+		end
+		if err:retryable() ~= false then
+			error("expected retryable to be false")
+		end
+		if not tostring(err):find("string expected") then
+			error("expected string expected message, got: " .. tostring(err))
+		end
+	`)
+	if err != nil {
+		t.Errorf("test failed: %v", err)
+	}
+}
+
+func TestDecodeEmpty(t *testing.T) {
+	l := newState(t)
+
+	err := l.DoString(`
+		local result, err = toml.decode("")
+		if result ~= nil then
+			error("expected nil result")
+		end
+		if err == nil then
+			error("expected error")
+		end
+		if err:kind() ~= errors.INVALID then
+			error("expected Invalid kind, got: " .. tostring(err:kind()))
+		end
+		if not tostring(err):find("input cannot be empty") then
+			error("expected empty input message, got: " .. tostring(err))
+		end
+	`)
+	if err != nil {
+		t.Errorf("test failed: %v", err)
+	}
+}
+
+func TestDecodeInvalidTOML(t *testing.T) {
+	l := newState(t)
+
+	err := l.DoString(`
+		local result, err = toml.decode("value = [1,")
+		if result ~= nil then
+			error("expected nil result")
+		end
+		if err == nil then
+			error("expected error")
+		end
+		if err:kind() ~= errors.INTERNAL then
+			error("expected Internal kind, got: " .. tostring(err:kind()))
+		end
+		if err:retryable() ~= false then
+			error("expected retryable to be false")
+		end
+		if #tostring(err) == 0 then
+			error("expected the parser failure in the message")
+		end
+		failure = err
+	`)
+	if err != nil {
+		t.Errorf("test failed: %v", err)
+	}
+
+	luaErr, ok := lua.AsError(l.GetGlobal("failure"))
+	if !ok {
+		t.Fatal("decode did not return a structured error")
+	}
+	if luaErr.Context != "decode failed" {
+		t.Errorf("expected decode failed context, got: %q", luaErr.Context)
+	}
+}
+
+func TestDecodeInputByteLimit(t *testing.T) {
+	l := newState(t)
+
+	err := l.DoString(fmt.Sprintf(`
+		local result, err = toml.decode(string.rep("x", %d))
+		if result ~= nil then
+			error("expected nil result")
+		end
+		if err == nil then
+			error("expected error")
+		end
+		if err:kind() ~= errors.INVALID then
+			error("expected Invalid kind, got: " .. tostring(err:kind()))
+		end
+		if err:retryable() ~= false then
+			error("expected retryable to be false")
+		end
+		if not tostring(err):find("input exceeds byte limit") then
+			error("expected byte limit message, got: " .. tostring(err))
+		end
+	`, maxDecodeBytes+1))
+	if err != nil {
+		t.Errorf("decode input byte limit test failed: %v", err)
+	}
+}
+
+func TestDecodeInputAtByteLimit(t *testing.T) {
+	l := newState(t)
+
+	padding := maxDecodeBytes - len("value = ''\n")
+	err := l.DoString(fmt.Sprintf(`
+		local input = "value = '" .. string.rep("x", %d) .. "'\n"
+		if #input ~= %d then error("test input is not exactly at the limit: " .. #input) end
+		local result, err = toml.decode(input)
+		if not result then error(err) end
+		if #result.value ~= %d then error("value length mismatch") end
+	`, padding, maxDecodeBytes, padding))
+	if err != nil {
+		t.Errorf("decode at byte limit test failed: %v", err)
+	}
+}
+
+func TestRoundTrip(t *testing.T) {
+	l := newState(t)
+
+	err := l.DoString(`
+		local original = {name = "test", numbers = {1, 2, 3}, nested = {flag = true, ratio = 1.5}}
+		local encoded, err = toml.encode(original)
+		if not encoded then error(err) end
+		local decoded, err = toml.decode(encoded)
+		if not decoded then error(err) end
+		if decoded.name ~= "test" then error("name mismatch") end
+		if #decoded.numbers ~= 3 then error("numbers mismatch") end
+		if decoded.numbers[3] ~= 3 then error("numbers element mismatch") end
+		if decoded.nested.flag ~= true then error("flag mismatch") end
+		if decoded.nested.ratio ~= 1.5 then error("ratio mismatch") end
+	`)
+	if err != nil {
+		t.Errorf("round trip test failed: %v", err)
+	}
+}
+
+func TestRoundTripProviderConfig(t *testing.T) {
+	l := newState(t)
+
+	err := l.DoString(`
+		local existing = "[mcp_servers.other]\nurl = 'http://127.0.0.1:1111/mcp'\n"
+		local config, err = toml.decode(existing)
+		if not config then error(err) end
+		if config.mcp_servers.bee ~= nil then error("bee must be absent") end
+
+		config.mcp_servers.bee = {url = "http://127.0.0.1:4321/mcp/action"}
+		local encoded, err = toml.encode(config)
+		if not encoded then error(err) end
+		if not encoded:find("%[mcp_servers%.bee%]") then
+			error("mcp_servers.bee header missing: " .. encoded)
+		end
+
+		local decoded, err = toml.decode(encoded)
+		if not decoded then error(err) end
+		if decoded.mcp_servers.bee.url ~= "http://127.0.0.1:4321/mcp/action" then
+			error("bee url mismatch: " .. tostring(decoded.mcp_servers.bee.url))
+		end
+		if decoded.mcp_servers.other.url ~= "http://127.0.0.1:1111/mcp" then
+			error("existing entry lost: " .. tostring(decoded.mcp_servers.other))
+		end
+	`)
+	if err != nil {
+		t.Errorf("provider config round trip test failed: %v", err)
+	}
 }

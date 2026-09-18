@@ -9,14 +9,13 @@ import (
 
 // ModuleTypes describes the toml Lua surface.
 func ModuleTypes() *io.Manifest {
-	manifest := io.NewManifest("toml")
-	manifest.SetExport(typ.NewInterface("toml", []typ.Method{
-		{Name: "insert", Type: typ.Func().
-			Param("document", typ.String).
-			Param("path", typ.NewArray(typ.String)).
-			Param("source", typ.String).
-			Returns(typ.String, typ.NewOptional(typ.LuaError)).
-			Build()},
-	}))
-	return manifest
+	m := io.NewManifest("toml")
+
+	moduleType := typ.NewInterface("toml", []typ.Method{
+		{Name: "encode", Type: typ.Func().Param("value", typ.Any).Returns(typ.String, typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "decode", Type: typ.Func().Param("str", typ.String).Returns(typ.Any, typ.NewOptional(typ.LuaError)).Build()},
+	})
+
+	m.SetExport(moduleType)
+	return m
 }
