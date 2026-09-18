@@ -494,3 +494,124 @@ func (failingArtifactReader) Read(p []byte) (int, error) {
 }
 
 var _ io.Reader = failingArtifactReader{}
+
+func TestPublishImmutableArtifactRepairsCorruptExistingEntry(t *testing.T) {
+	t.Parallel()
+
+	cacheDir := t.TempDir()
+	content := []byte("verified module content")
+	digest := fmt.Sprintf("sha256:%x", sha256.Sum256(content))
+	relative, err := ImmutableWappRelativePath(graph.MustParseName("wippy/agent"), "0.1.0-dev", digest)
+	if err != nil {
+		t.Fatalf("immutable path: %v", err)
+	}
+	destination := filepath.Join(cacheDir, relative)
+	if err := os.MkdirAll(filepath.Dir(destination), 0o755); err != nil {
+		t.Fatalf("create cache directory: %v", err)
+	}
+	for _, damage := range [][]byte{content[:7], []byte("garbage"), nil} {
+		if err := os.WriteFile(destination, damage, 0o600); err != nil {
+			t.Fatalf("write damaged entry: %v", err)
+		}
+		if err := PublishImmutableArtifact(cacheDir, relative, bytes.NewReader(content), digest, uint64(len(content))); err != nil {
+			t.Fatalf("publish over damaged entry: %v", err)
+		}
+		if err := verifyDownloadedArtifact(destination, digest, uint64(len(content))); err != nil {
+			t.Fatalf("verify repaired entry: %v", err)
+		}
+	}
+	matches, err := filepath.Glob(filepath.Join(cacheDir, filepath.Dir(relative), ".artifact-*"))
+	if err != nil {
+		t.Fatalf("glob private files: %v", err)
+	}
+	if len(matches) != 0 {
+		t.Fatalf("private files leaked: %v", matches)
+	}
+}
+
+func TestPublishImmutableArtifactKeepsVerifiedExistingEntry(t *testing.T) {
+	t.Parallel()
+
+	cacheDir := t.TempDir()
+	content := []byte("verified module content")
+	digest := fmt.Sprintf("sha256:%x", sha256.Sum256(content))
+	relative, err := ImmutableWappRelativePath(graph.MustParseName("wippy/agent"), "0.1.0-dev", digest)
+	if err != nil {
+		t.Fatalf("immutable path: %v", err)
+	}
+	destination := filepath.Join(cacheDir, relative)
+	if err := os.MkdirAll(filepath.Dir(destination), 0o755); err != nil {
+		t.Fatalf("create cache directory: %v", err)
+	}
+	if err := os.WriteFile(destination, content, 0o600); err != nil {
+		t.Fatalf("write existing entry: %v", err)
+	}
+	before, err := os.Stat(destination)
+	if err != nil {
+		t.Fatalf("stat existing entry: %v", err)
+	}
+
+	if err := PublishImmutableArtifact(cacheDir, relative, bytes.NewReader(content), digest, uint64(len(content))); err != nil {
+		t.Fatalf("publish over verified entry: %v", err)
+	}
+	after, err := os.Stat(destination)
+	if err != nil {
+		t.Fatalf("stat entry after publish: %v", err)
+	}
+	if !os.SameFile(before, after) {
+		t.Fatal("a verified cache entry was replaced")
+	}
+	if !before.ModTime().Equal(after.ModTime()) {
+		t.Fatalf("modification time = %v, want %v", after.ModTime(), before.ModTime())
+	}
+}
+
+func TestPublishImmutableArtifactConcurrentRepairOfCorruptEntry(t *testing.T) {
+	t.Parallel()
+
+	cacheDir := t.TempDir()
+	content := []byte("verified module content")
+	digest := fmt.Sprintf("sha256:%x", sha256.Sum256(content))
+	relative, err := ImmutableWappRelativePath(graph.MustParseName("wippy/agent"), "0.1.0-dev", digest)
+	if err != nil {
+		t.Fatalf("immutable path: %v", err)
+	}
+	destination := filepath.Join(cacheDir, relative)
+	if err := os.MkdirAll(filepath.Dir(destination), 0o755); err != nil {
+		t.Fatalf("create cache directory: %v", err)
+	}
+	if err := os.WriteFile(destination, []byte("corrupt"), 0o600); err != nil {
+		t.Fatalf("write corrupt entry: %v", err)
+	}
+
+	const writers = 12
+	start := make(chan struct{})
+	errs := make(chan error, writers)
+	var wait sync.WaitGroup
+	for range writers {
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			<-start
+			errs <- PublishImmutableArtifact(cacheDir, relative, bytes.NewReader(content), digest, uint64(len(content)))
+		}()
+	}
+	close(start)
+	wait.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Errorf("publish: %v", err)
+		}
+	}
+	if err := verifyDownloadedArtifact(destination, digest, uint64(len(content))); err != nil {
+		t.Fatalf("verify repaired entry: %v", err)
+	}
+	matches, err := filepath.Glob(filepath.Join(cacheDir, filepath.Dir(relative), ".artifact-*"))
+	if err != nil {
+		t.Fatalf("glob private files: %v", err)
+	}
+	if len(matches) != 0 {
+		t.Fatalf("private files leaked: %v", matches)
+	}
+}
