@@ -26,6 +26,7 @@ import (
 	pollhost "github.com/wippyai/runtime/runtime/wasm/host/wippy/hosts/poll"
 	sockethost "github.com/wippyai/runtime/runtime/wasm/host/wippy/hosts/sockets"
 	socketservice "github.com/wippyai/runtime/service/socket"
+	wasmengine "github.com/wippyai/wasm-runtime/engine"
 	wasmrt "github.com/wippyai/wasm-runtime/runtime"
 	"github.com/wippyai/wasm-runtime/wasi/preview2"
 )
@@ -37,7 +38,6 @@ type concurrentTCPNetwork struct {
 	netapi.Service
 	address chan string
 	reads   chan int
-	arm     func()
 }
 
 func (n *concurrentTCPNetwork) Listen(ctx context.Context, network, address string) (net.Listener, error) {
@@ -52,7 +52,7 @@ func (n *concurrentTCPNetwork) Listen(ctx context.Context, network, address stri
 	if n.reads == nil {
 		return listener, nil
 	}
-	return &concurrentTCPObservedListener{Listener: listener, reads: n.reads, arm: n.arm}, nil
+	return &concurrentTCPObservedListener{Listener: listener, reads: n.reads}, nil
 }
 
 // concurrentTCPObservedListener exposes the real host read that transfers the
@@ -61,7 +61,6 @@ func (n *concurrentTCPNetwork) Listen(ctx context.Context, network, address stri
 type concurrentTCPObservedListener struct {
 	net.Listener
 	reads chan int
-	arm   func()
 }
 
 func (l *concurrentTCPObservedListener) Accept() (net.Conn, error) {
@@ -69,13 +68,12 @@ func (l *concurrentTCPObservedListener) Accept() (net.Conn, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &concurrentTCPObservedConn{Conn: conn, reads: l.reads, arm: l.arm}, nil
+	return &concurrentTCPObservedConn{Conn: conn, reads: l.reads}, nil
 }
 
 type concurrentTCPObservedConn struct {
 	net.Conn
 	reads     chan int
-	arm       func()
 	readBytes int
 	once      sync.Once
 }
@@ -86,11 +84,6 @@ func (c *concurrentTCPObservedConn) Read(p []byte) (int, error) {
 		c.readBytes += n
 		if c.readBytes >= concurrentTCPFrame/2 {
 			c.once.Do(func() {
-				// Arm before returning the half-frame to the stream driver;
-				// the guest can reach its next poll immediately afterward.
-				if c.arm != nil {
-					c.arm()
-				}
 				c.reads <- c.readBytes
 			})
 		}
@@ -358,9 +351,44 @@ func (i *concurrentTCPActorInstance) assertClean(t testing.TB) {
 	require.Zero(t, i.used, "actor retained socket reservations at resource cleanup")
 }
 
+type concurrentTCPStreamsHost struct {
+	*iohost.StreamsHost
+	onRead func(self uint32, n int)
+}
+
+func (h *concurrentTCPStreamsHost) MethodInputStreamRead(ctx context.Context, self uint32, length uint64) ([]byte, *preview2.StreamError) {
+	data, err := h.StreamsHost.MethodInputStreamRead(ctx, self, length)
+	if h.onRead != nil && len(data) > 0 {
+		h.onRead(self, len(data))
+	}
+	return data, err
+}
+
+func (h *concurrentTCPStreamsHost) MethodInputStreamBlockingRead(ctx context.Context, self uint32, length uint64) ([]byte, *preview2.StreamError) {
+	data, err := h.StreamsHost.MethodInputStreamBlockingRead(ctx, self, length)
+	if h.onRead != nil && len(data) > 0 {
+		h.onRead(self, len(data))
+	}
+	return data, err
+}
+
+func (h *concurrentTCPStreamsHost) Register() map[string]any {
+	funcs := h.StreamsHost.Register()
+	funcs["[method]input-stream.read"] = wasmengine.BindResult2(func(ctx context.Context, self uint32, length uint64) ([]byte, error) {
+		data, err := h.MethodInputStreamRead(ctx, self, length)
+		if err != nil {
+			return nil, err
+		}
+		return data, nil
+	})
+	funcs["[method]input-stream.blocking-read"] = h.MethodInputStreamBlockingRead
+	return funcs
+}
+
 type concurrentTCPActorFactory struct {
-	instances chan *concurrentTCPActorInstance
-	wasm      []byte
+	instances   chan *concurrentTCPActorInstance
+	onGuestRead func(self uint32, n int)
+	wasm        []byte
 }
 
 func (f *concurrentTCPActorFactory) create() (process.Process, error) {
@@ -375,9 +403,13 @@ func (f *concurrentTCPActorFactory) create() (process.Process, error) {
 		_ = rt.Close(context.Background())
 		return nil, err
 	}
+	streams := &concurrentTCPStreamsHost{
+		StreamsHost: iohost.NewStreamsHost(table),
+		onRead:      f.onGuestRead,
+	}
 	for _, host := range []wasmrt.Host{
 		sockethost.NewTCPCreateSocketHost(table), sockethost.NewTCPHost(table), sockethost.NewInstanceNetworkHost(table), sockethost.NewNetworkHost(table),
-		iohost.NewStreamsHost(table), iohost.NewErrorHost(table), pollhost.NewHost(table),
+		streams, iohost.NewErrorHost(table), pollhost.NewHost(table),
 	} {
 		if err := rt.RegisterHost(host); err != nil {
 			return fail(fmt.Errorf("register %s host: %w", host.Namespace(), err))
@@ -465,7 +497,18 @@ func TestConcurrentTCPGuestBlockedReadCancellationViaActorScheduler(t *testing.T
 	factory := &concurrentTCPActorFactory{wasm: wasm, instances: make(chan *concurrentTCPActorInstance, 2)}
 	network := &concurrentTCPNetwork{address: make(chan string, 2), reads: make(chan int, 2)}
 	polls := &observedConcurrentTCPPollHandler{entered: make(chan *concurrentTCPPollObservation, 4)}
-	network.arm = func() { polls.armed.Store(true) }
+
+	guestReads := make(chan int, 4)
+	var guestReadBytes atomic.Int64
+	var armOnce sync.Once
+	factory.onGuestRead = func(_ uint32, n int) {
+		if total := int(guestReadBytes.Add(int64(n))); total >= concurrentTCPFrame/2 {
+			armOnce.Do(func() {
+				polls.armed.Store(true)
+				guestReads <- total
+			})
+		}
+	}
 
 	cluster := newHarnessClusterWithCommands(t, 1, factory.create, func(register func(dispatcher.CommandID, dispatcher.Handler)) {
 		socketservice.NewDispatcher(network).RegisterAll(func(id dispatcher.CommandID, handler dispatcher.Handler) {
@@ -498,6 +541,13 @@ func TestConcurrentTCPGuestBlockedReadCancellationViaActorScheduler(t *testing.T
 		t.Fatal("host did not read the peer's partial frame")
 	}
 
+	select {
+	case n := <-guestReads:
+		require.Equal(t, len(partial), n, "guest did not consume the partial frame")
+	case <-ctx.Done():
+		t.Fatal("guest did not consume the partial frame")
+	}
+
 	var observation *concurrentTCPPollObservation
 	select {
 	case observation = <-polls.entered:
@@ -505,9 +555,9 @@ func TestConcurrentTCPGuestBlockedReadCancellationViaActorScheduler(t *testing.T
 		t.Fatal("guest did not enter the blocked socket read poll")
 	}
 
-	// The observed host read proves that the checked-in fixture has accepted
-	// this peer and has its half-frame. Its next input read cannot complete a
-	// 64-byte frame, so this socket.poll is the blocked read barrier.
+	// The observed host read and guest read prove that the checked-in fixture
+	// has accepted this peer and consumed its half-frame. Its next input read
+	// cannot complete a 64-byte frame, so this socket.poll is the blocked read barrier.
 	require.NoError(t, cluster.host.Terminate(ctx, blockedPID))
 	select {
 	case result := <-blockedDone:
@@ -522,6 +572,7 @@ func TestConcurrentTCPGuestBlockedReadCancellationViaActorScheduler(t *testing.T
 		t.Fatal("blocked socket poll did not observe cancellation")
 	}
 	blocked.assertClean(t)
+	factory.onGuestRead = nil
 
 	// A late frame completion may be accepted by the local TCP stack before it
 	// notices closure, but it must never produce a reply or revive this PID.
