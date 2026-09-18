@@ -62,3 +62,54 @@ func TestClusterRaftEnabled_RoleComposition(t *testing.T) {
 		})
 	}
 }
+
+func TestRaftBootstrapExpect(t *testing.T) {
+	cases := []struct {
+		section map[string]any
+		name    string
+		want    int
+	}{
+		{name: "local bootstrap default", section: map[string]any{}, want: 1},
+		{name: "joining node default", section: map[string]any{"membership.join_addrs": "127.0.0.1:7946"}, want: 0},
+		{name: "blank seed is local", section: map[string]any{"membership.join_addrs": "  "}, want: 1},
+		{name: "explicit bootstrap wins", section: map[string]any{"membership.join_addrs": "127.0.0.1:7946", "raft.bootstrap_expect": 3}, want: 3},
+		{name: "explicit zero", section: map[string]any{"raft.bootstrap_expect": 0}, want: 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := boot.NewConfig(boot.WithSection(ClusterName, tc.section))
+			require.Equal(t, tc.want, raftBootstrapExpect(cfg.Sub(ClusterName)))
+		})
+	}
+}
+
+// TestClusterSeedAddrs pins the single reading of membership.join_addrs that
+// both the membership service and raft bootstrap sizing depend on.
+func TestClusterSeedAddrs(t *testing.T) {
+	cases := []struct {
+		name  string
+		value string
+		want  []string
+	}{
+		{name: "unset", value: "", want: nil},
+		{name: "whitespace only", value: "  ", want: nil},
+		{name: "blank entry dropped", value: "a, ,b", want: []string{"a", "b"}},
+		{name: "entries trimmed", value: " a , b ", want: []string{"a", "b"}},
+		{name: "single seed", value: "127.0.0.1:7946", want: []string{"127.0.0.1:7946"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := boot.NewConfig(boot.WithSection(ClusterName, map[string]any{
+				ClusterMembershipJoin: tc.value,
+			})).Sub(ClusterName)
+			seeds := clusterSeedAddrs(cfg)
+			require.Equal(t, tc.want, seeds)
+			wantBootstrap := 1
+			if len(tc.want) > 0 {
+				wantBootstrap = 0
+			}
+			require.Equal(t, wantBootstrap, raftBootstrapExpect(cfg),
+				"raft bootstrap sizing must read the same seed list")
+		})
+	}
+}

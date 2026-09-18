@@ -271,3 +271,75 @@ func TestN01ServerProbeFailureRollsBack(t *testing.T) {
 	require.NoError(t, err, "failed startup left its listener bound")
 	require.NoError(t, rebound.Close())
 }
+
+func TestServerService_RestartIgnoresPreviousStartContext(t *testing.T) {
+	server, err := NewServerService(
+		registry.NewID("test", "restart-stale-context"),
+		&config.ServerConfig{Addr: "127.0.0.1:0"},
+		NewMiddlewareRegistry(zap.NewNop()),
+	)
+	require.NoError(t, err)
+	server.SetHandlerFunc(serverHostHandler())
+	client := &http.Client{Timeout: time.Second}
+
+	ctx1, cancel1 := context.WithCancel(overlayCtx())
+	address1 := startAndReportAddress(ctx1, t, server)
+	require.NoError(t, server.Stop(context.Background()))
+
+	ctx2, cancel2 := context.WithCancel(overlayCtx())
+	defer cancel2()
+	address2 := startAndReportAddress(ctx2, t, server)
+	require.NotEqual(t, address1, address2)
+
+	cancel1()
+
+	require.Never(t, func() bool { return !server.started.Load() }, 300*time.Millisecond, 10*time.Millisecond,
+		"the first start's context must not stop the server started after it")
+	response, err := requestServer(t, client, address2)
+	require.NoError(t, err)
+	body, err := io.ReadAll(response.Body)
+	require.NoError(t, err)
+	require.NoError(t, response.Body.Close())
+	require.Equal(t, address2, string(body))
+
+	require.NoError(t, server.Stop(context.Background()))
+}
+
+func TestServerService_RestartHonorsCurrentStartContext(t *testing.T) {
+	server, err := NewServerService(
+		registry.NewID("test", "restart-current-context"),
+		&config.ServerConfig{Addr: "127.0.0.1:0"},
+		NewMiddlewareRegistry(zap.NewNop()),
+	)
+	require.NoError(t, err)
+	server.SetHandlerFunc(serverHostHandler())
+
+	ctx1, cancel1 := context.WithCancel(overlayCtx())
+	defer cancel1()
+	startAndReportAddress(ctx1, t, server)
+	require.NoError(t, server.Stop(context.Background()))
+
+	ctx2, cancel2 := context.WithCancel(overlayCtx())
+	defer cancel2()
+	startAndReportAddress(ctx2, t, server)
+
+	cancel2()
+
+	require.Eventually(t, func() bool { return !server.started.Load() }, 2*time.Second, 10*time.Millisecond,
+		"canceling the current start's context must stop the server")
+}
+
+func startAndReportAddress(ctx context.Context, t *testing.T, server *ServerService) string {
+	t.Helper()
+	statusCh, err := server.Start(ctx)
+	require.NoError(t, err)
+	select {
+	case details := <-statusCh:
+		address, ok := details.(string)
+		require.True(t, ok)
+		return strings.TrimPrefix(address, "service listening on ")
+	case <-time.After(time.Second):
+		t.Fatal("server did not report readiness")
+		return ""
+	}
+}
