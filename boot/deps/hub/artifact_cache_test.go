@@ -3,9 +3,12 @@
 package hub
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -25,11 +28,11 @@ func TestImmutableWappRelativePathSeparatesDigestsForSameVersion(t *testing.T) {
 	one := "sha256:" + strings.Repeat("1", 64)
 	two := "sha256:" + strings.Repeat("2", 64)
 
-	onePath, err := immutableWappRelativePath(name, "1.2.3", one)
+	onePath, err := ImmutableWappRelativePath(name, "1.2.3", one)
 	if err != nil {
 		t.Fatalf("first path: %v", err)
 	}
-	twoPath, err := immutableWappRelativePath(name, "1.2.3", two)
+	twoPath, err := ImmutableWappRelativePath(name, "1.2.3", two)
 	if err != nil {
 		t.Fatalf("second path: %v", err)
 	}
@@ -44,7 +47,7 @@ func TestImmutableWappRelativePathSeparatesDigestsForSameVersion(t *testing.T) {
 func TestImmutableWappRelativePathRejectsNonHexDigest(t *testing.T) {
 	t.Parallel()
 
-	_, err := immutableWappRelativePath(
+	_, err := ImmutableWappRelativePath(
 		graph.MustParseName("acme/widget"),
 		"1.2.3",
 		"sha256:"+strings.Repeat("z", 64),
@@ -140,7 +143,7 @@ func TestPublishVerifiedArtifactSameVersionDifferentDigestsCoexist(t *testing.T)
 	for i, content := range [][]byte{[]byte("first build"), []byte("second build")} {
 		sum := sha256.Sum256(content)
 		digest := fmt.Sprintf("sha256:%x", sum)
-		relative, err := immutableWappRelativePath(name, "1.2.3", digest)
+		relative, err := ImmutableWappRelativePath(name, "1.2.3", digest)
 		if err != nil {
 			t.Fatalf("artifact %d path: %v", i, err)
 		}
@@ -194,7 +197,7 @@ func TestEnsureModuleAvailableMigratesLegacyArtifactThroughPrivateCopy(t *testin
 	if err != nil {
 		t.Fatalf("ensure module: %v", err)
 	}
-	wantRelative, err := immutableWappRelativePath(name, "1.2.3", digest)
+	wantRelative, err := ImmutableWappRelativePath(name, "1.2.3", digest)
 	if err != nil {
 		t.Fatalf("immutable path: %v", err)
 	}
@@ -371,3 +374,123 @@ func TestEnsureModuleAvailableRollbackSelectsExactDigestAtSameVersion(t *testing
 		t.Fatalf("downloads = %d, want 2; rollback should reuse its exact digest", got)
 	}
 }
+
+func TestPublishImmutableArtifactConcurrentIdenticalContent(t *testing.T) {
+	t.Parallel()
+
+	cacheDir := t.TempDir()
+	content := []byte("same")
+	digest := fmt.Sprintf("sha256:%x", sha256.Sum256(content))
+	relative, err := ImmutableWappRelativePath(graph.MustParseName("wippy/agent"), "0.1.0-dev", digest)
+	if err != nil {
+		t.Fatalf("immutable path: %v", err)
+	}
+
+	const writers = 12
+	start := make(chan struct{})
+	errs := make(chan error, writers)
+	var wait sync.WaitGroup
+	for range writers {
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			<-start
+			errs <- PublishImmutableArtifact(cacheDir, relative, bytes.NewReader(content), digest, uint64(len(content)))
+		}()
+	}
+	close(start)
+	wait.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Errorf("publish: %v", err)
+		}
+	}
+	if err := verifyDownloadedArtifact(filepath.Join(cacheDir, relative), digest, uint64(len(content))); err != nil {
+		t.Fatalf("verify published artifact: %v", err)
+	}
+	matches, err := filepath.Glob(filepath.Join(cacheDir, filepath.Dir(relative), ".artifact-*"))
+	if err != nil {
+		t.Fatalf("glob private files: %v", err)
+	}
+	if len(matches) != 0 {
+		t.Fatalf("private files leaked: %v", matches)
+	}
+}
+
+func TestPublishImmutableArtifactReaderFailureLeavesNoArtifact(t *testing.T) {
+	t.Parallel()
+
+	cacheDir := t.TempDir()
+	content := []byte("expected")
+	digest := fmt.Sprintf("sha256:%x", sha256.Sum256(content))
+	relative, err := ImmutableWappRelativePath(graph.MustParseName("wippy/agent"), "0.1.0-dev", digest)
+	if err != nil {
+		t.Fatalf("immutable path: %v", err)
+	}
+
+	err = PublishImmutableArtifact(cacheDir, relative, failingArtifactReader{}, digest, uint64(len(content)))
+	if err == nil {
+		t.Fatal("expected a failing reader to fail publication")
+	}
+	if !errors.Is(err, io.ErrUnexpectedEOF) {
+		t.Fatalf("error = %v, want it to carry the read failure", err)
+	}
+	if _, err := os.Stat(filepath.Join(cacheDir, relative)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("stat published artifact = %v, want it absent", err)
+	}
+}
+
+func TestPublishImmutableArtifactDigestMismatchLeavesNoArtifact(t *testing.T) {
+	t.Parallel()
+
+	cacheDir := t.TempDir()
+	content := []byte("expected")
+	digest := fmt.Sprintf("sha256:%x", sha256.Sum256(content))
+	relative, err := ImmutableWappRelativePath(graph.MustParseName("wippy/agent"), "0.1.0-dev", digest)
+	if err != nil {
+		t.Fatalf("immutable path: %v", err)
+	}
+
+	tampered := []byte("tampered")
+	if err := PublishImmutableArtifact(cacheDir, relative, bytes.NewReader(tampered), digest, uint64(len(tampered))); err == nil {
+		t.Fatal("expected content that does not match its identity to fail publication")
+	}
+	if _, err := os.Stat(filepath.Join(cacheDir, relative)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("stat published artifact = %v, want it absent", err)
+	}
+}
+
+func TestImmutableWappDigestReadsBackPublishedLayout(t *testing.T) {
+	t.Parallel()
+
+	digest := fmt.Sprintf("sha256:%x", sha256.Sum256([]byte("module bytes")))
+	relative, err := ImmutableWappRelativePath(graph.MustParseName("wippy/agent"), "0.1.0-dev", digest)
+	if err != nil {
+		t.Fatalf("immutable path: %v", err)
+	}
+	got, ok := ImmutableWappDigest(filepath.Base(relative))
+	if !ok {
+		t.Fatalf("digest of %q was not recognized", relative)
+	}
+	if got != digest {
+		t.Fatalf("digest = %q, want %q", got, digest)
+	}
+	for _, filename := range []string{"agent-0.1.0-dev.wapp", "agent-0.1.0-dev.sha256-short.wapp", ".sha256-" + strings.Repeat("a", 64) + ".wapp"} {
+		if _, ok := ImmutableWappDigest(filename); ok {
+			t.Fatalf("filename %q was read as an immutable artifact", filename)
+		}
+	}
+}
+
+type failingArtifactReader struct{}
+
+func (failingArtifactReader) Read(p []byte) (int, error) {
+	if len(p) == 0 {
+		return 0, nil
+	}
+	p[0] = 'x'
+	return 1, io.ErrUnexpectedEOF
+}
+
+var _ io.Reader = failingArtifactReader{}

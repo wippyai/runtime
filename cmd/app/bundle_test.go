@@ -17,7 +17,6 @@ import (
 	ctxapi "github.com/wippyai/runtime/api/context"
 	moduleapi "github.com/wippyai/runtime/api/modules"
 	regapi "github.com/wippyai/runtime/api/registry"
-	"github.com/wippyai/runtime/boot/deps/graph"
 	"github.com/wippyai/runtime/boot/deps/hub"
 	"github.com/wippyai/runtime/boot/deps/lock"
 	"github.com/wippyai/runtime/internal/version"
@@ -127,9 +126,8 @@ func TestChangedBundleSeedsRetainedImmutableOverlayOffline(t *testing.T) {
 	// lock. It is still a retained immutable artifact and must be carried over.
 	overlay := []byte("retained overlay artifact")
 	overlayDigest := fmt.Sprintf("sha256:%x", sha256.Sum256(overlay))
-	overlayName, err := graph.ParseName("wippy/agent")
-	require.NoError(t, err)
-	overlayPath := filepath.Join(oldDeployment, ".wippy", "vendor", immutableRelativePath(overlayName, "0.1.0-dev", overlayDigest))
+	overlayRelative := immutableRelative(t, "wippy/agent", "0.1.0-dev", overlayDigest)
+	overlayPath := filepath.Join(oldDeployment, ".wippy", "vendor", overlayRelative)
 	require.NotEmpty(t, overlayPath)
 	require.NoError(t, os.MkdirAll(filepath.Dir(overlayPath), 0o700))
 	require.NoError(t, os.WriteFile(overlayPath, overlay, 0o600))
@@ -141,9 +139,9 @@ func TestChangedBundleSeedsRetainedImmutableOverlayOffline(t *testing.T) {
 	require.NoError(t, seedDependencyCache(state, newDeployment, newBundle))
 
 	cache := dependencyVendorDirectory(state)
-	require.NoError(t, verifyCachedPath(cache, immutableRelativePath(graph.MustParseName("acme/app"), "1.0.0", newBundle.Packs[0].Digest), newBundle.Packs[0].Digest, uint64(len(newBundle.Packs[0].Data))))
-	retainedRelative := immutableRelativePath(overlayName, "0.1.0-dev", overlayDigest)
-	require.NoError(t, verifyCachedPath(cache, retainedRelative, overlayDigest, uint64(len(overlay))))
+	rootRelative := immutableRelative(t, "acme/app", "1.0.0", newBundle.Packs[0].Digest)
+	require.NoError(t, hub.VerifyDownloadedArtifact(filepath.Join(cache, rootRelative), newBundle.Packs[0].Digest, uint64(len(newBundle.Packs[0].Data))))
+	require.NoError(t, hub.VerifyDownloadedArtifact(filepath.Join(cache, overlayRelative), overlayDigest, uint64(len(overlay))))
 
 	oldLock, err := os.ReadFile(filepath.Join(oldDeployment, lock.DefaultFilename))
 	require.NoError(t, err)
@@ -202,7 +200,7 @@ func TestChangedBundleRestoresHistoricalOverlayOffline(t *testing.T) {
 
 	overlay := []byte("retained overlay artifact")
 	overlayDigest := fmt.Sprintf("sha256:%x", sha256.Sum256(overlay))
-	overlayRelative := immutableRelativePath(graph.MustParseName("wippy/agent"), "0.1.0-dev", overlayDigest)
+	overlayRelative := immutableRelative(t, "wippy/agent", "0.1.0-dev", overlayDigest)
 	overlayPath := filepath.Join(oldDeployment, ".wippy", "vendor", overlayRelative)
 	require.NoError(t, os.MkdirAll(filepath.Dir(overlayPath), 0o700))
 	require.NoError(t, os.WriteFile(overlayPath, overlay, 0o600))

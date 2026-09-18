@@ -3,93 +3,79 @@
 package app
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
-	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/wippyai/runtime/boot/deps/lock"
 )
 
-func TestPublishArtifactConcurrentIdenticalArtifacts(t *testing.T) {
-	root := t.TempDir()
-	relative := filepath.Join("wippy", "agent-0.1.0-dev.sha256-"+digestFor([]byte("same"))+".wapp")
-	data := []byte("same")
-	digest := "sha256:" + digestFor(data)
-	handle, err := os.OpenRoot(root)
+// retainRow adds a module row to a retained deployment lock without touching the
+// artifacts it points at, reproducing a lock a previous runtime left behind.
+func retainRow(t *testing.T, deployment string, module lock.Module) {
+	t.Helper()
+	locked, err := lock.New(filepath.Join(deployment, lock.DefaultFilename))
 	require.NoError(t, err)
-	require.NoError(t, handle.MkdirAll(filepath.Dir(relative), 0o700))
-	handle.Close()
-
-	const writers = 12
-	start := make(chan struct{})
-	errs := make(chan error, writers)
-	var wait sync.WaitGroup
-	for range writers {
-		wait.Add(1)
-		go func() {
-			defer wait.Done()
-			<-start
-			handle, err := os.OpenRoot(root)
-			if err == nil {
-				err = publishArtifact(handle, relative, bytes.NewReader(data), digest, uint64(len(data)))
-				handle.Close()
-			}
-			errs <- err
-		}()
-	}
-	close(start)
-	wait.Wait()
-	close(errs)
-	for err := range errs {
-		require.NoError(t, err)
-	}
-	require.NoError(t, verifyCachedPath(root, relative, digest, uint64(len(data))))
+	locked.SetModule(module)
+	require.NoError(t, locked.Write())
 }
 
-func TestPublishArtifactReaderFailureLeavesNoFinalArtifact(t *testing.T) {
-	root := t.TempDir()
-	relative := filepath.Join("wippy", "agent-0.1.0-dev.sha256-"+digestFor([]byte("expected"))+".wapp")
-	handle, err := os.OpenRoot(root)
+func seededDeployment(t *testing.T) (string, string, Bundle) {
+	t.Helper()
+	state := t.TempDir()
+	bundle := bundleWithMarker(t, "stable")
+	deployment := embeddedDeployment(state, bundle)
+	_, err := bundle.Seed(deployment)
 	require.NoError(t, err)
-	require.NoError(t, handle.MkdirAll(filepath.Dir(relative), 0o700))
-	err = publishArtifact(handle, relative, failingArtifactReader{}, "sha256:"+digestFor([]byte("expected")), uint64(len("expected")))
-	handle.Close()
+	return state, deployment, bundle
+}
+
+func TestSeedDependencyCacheReportsUnparsableRetainedModuleName(t *testing.T) {
+	state, deployment, bundle := seededDeployment(t)
+	digest := fmt.Sprintf("sha256:%x", sha256.Sum256([]byte("retained")))
+	retainRow(t, deployment, lock.Module{Name: "wippy/agent/extra", Version: "0.1.0-dev", Hash: digest})
+
+	err := seedDependencyCache(state, deployment, bundle)
 	require.Error(t, err)
-	require.ErrorIs(t, err, io.ErrUnexpectedEOF)
-	_, err = os.Stat(filepath.Join(root, relative))
-	require.ErrorIs(t, err, os.ErrNotExist)
+	require.ErrorContains(t, err, "wippy/agent/extra")
 }
 
-func TestPublishArtifactDigestMismatchLeavesNoFinalArtifact(t *testing.T) {
-	root := t.TempDir()
-	relative := filepath.Join("wippy", "agent-0.1.0-dev.sha256-"+digestFor([]byte("expected"))+".wapp")
-	handle, err := os.OpenRoot(root)
-	require.NoError(t, err)
-	require.NoError(t, handle.MkdirAll(filepath.Dir(relative), 0o700))
-	err = publishArtifact(handle, relative, bytes.NewReader([]byte("tampered")), "sha256:"+digestFor([]byte("expected")), uint64(len("tampered")))
-	handle.Close()
+func TestSeedDependencyCacheReportsMalformedRetainedModuleDigest(t *testing.T) {
+	state, deployment, bundle := seededDeployment(t)
+	retainRow(t, deployment, lock.Module{Name: "wippy/agent", Version: "0.1.0-dev", Hash: "sha256:not-a-digest"})
+
+	err := seedDependencyCache(state, deployment, bundle)
 	require.Error(t, err)
-	_, err = os.Stat(filepath.Join(root, relative))
-	require.ErrorIs(t, err, os.ErrNotExist)
+	require.ErrorContains(t, err, "wippy/agent")
 }
 
-type failingArtifactReader struct{}
+// A lock row without a hash carries no immutable identity, so there is nothing
+// to address it by in a content-addressed cache. It is not corruption.
+func TestSeedDependencyCacheAcceptsRetainedModuleWithoutDigest(t *testing.T) {
+	state, deployment, bundle := seededDeployment(t)
+	retainRow(t, deployment, lock.Module{Name: "wippy/agent", Version: "0.1.0-dev"})
 
-func (failingArtifactReader) Read(p []byte) (int, error) {
-	if len(p) == 0 {
-		return 0, nil
-	}
-	p[0] = 'x'
-	return 1, io.ErrUnexpectedEOF
+	require.NoError(t, seedDependencyCache(state, deployment, bundle))
 }
 
-func digestFor(data []byte) string {
-	return fmt.Sprintf("%x", sha256.Sum256(data))
+func TestSeedDependencyCacheReportsCorruptActivation(t *testing.T) {
+	state, deployment, bundle := seededDeployment(t)
+	require.NoError(t, os.WriteFile(filepath.Join(state, "active.json"), []byte("{"), 0o600))
+
+	err := seedDependencyCache(state, deployment, bundle)
+	require.Error(t, err)
+	require.ErrorContains(t, err, "activation")
 }
 
-var _ io.Reader = failingArtifactReader{}
+// immutableRelative names a cache entry through the same contract production
+// code publishes it under.
+func immutableRelative(t *testing.T, module, version, digest string) string {
+	t.Helper()
+	_, relative, err := immutableArtifactPath(module, version, digest)
+	require.NoError(t, err)
+	return relative
+}

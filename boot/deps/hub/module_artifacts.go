@@ -218,7 +218,7 @@ func (h *DependencyHandler) ensureModuleAvailable(ctx context.Context, mod Resol
 	return immutablePath, nil
 }
 func (h *DependencyHandler) immutableArtifactPath(name graph.Name, version, digest string) (string, error) {
-	relative, err := immutableWappRelativePath(name, version, digest)
+	relative, err := ImmutableWappRelativePath(name, version, digest)
 	if err != nil {
 		return "", err
 	}
@@ -241,27 +241,22 @@ func (h *DependencyHandler) soleImmutableArtifact(name graph.Name, version strin
 	if err != nil {
 		return "", "", 0, false, err
 	}
-	prefix := name.Module + "-" + version + ".sha256-"
-	const suffix = ".wapp"
+	prefix := name.Module + "-" + version + immutableWappDigestMarker
 	var foundPath, foundDigest string
 	var foundSize uint64
 	for _, entry := range entries {
 		filename := entry.Name()
-		if !strings.HasPrefix(filename, prefix) || !strings.HasSuffix(filename, suffix) {
+		if !strings.HasPrefix(filename, prefix) {
 			continue
 		}
-		hexDigest := strings.TrimSuffix(strings.TrimPrefix(filename, prefix), suffix)
-		if len(hexDigest) != sha256.Size*2 {
-			continue
-		}
-		if _, decodeErr := hex.DecodeString(hexDigest); decodeErr != nil {
+		digest, ok := ImmutableWappDigest(filename)
+		if !ok {
 			continue
 		}
 		path, pathErr := containedPath(h.vendorDir, filepath.Join(name.Organization, filename))
 		if pathErr != nil {
 			return "", "", 0, false, pathErr
 		}
-		digest := "sha256:" + strings.ToLower(hexDigest)
 		if verifyErr := verifyExistingImmutableArtifact(path, digest, 0); verifyErr != nil {
 			continue
 		}
