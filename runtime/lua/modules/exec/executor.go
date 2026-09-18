@@ -64,7 +64,7 @@ func execGet(l *lua.LState) int {
 
 	if !security.IsAllowed(ctx, "exec.get", id, nil) {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "permission denied: access executor").WithKind(lua.Invalid).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "permission denied: access executor").WithKind(lua.PermissionDenied).WithRetryable(false))
 		return 2
 	}
 
@@ -130,8 +130,21 @@ func executorExec(l *lua.LState) int {
 
 	if !security.IsAllowed(ctx, "exec.run", cmd, processSecurityMeta(opts)) {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "permission denied: execute command").WithKind(lua.Invalid).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "permission denied: execute command").WithKind(lua.PermissionDenied).WithRetryable(false))
 		return 2
+	}
+	for _, mount := range opts.Mounts {
+		if !security.IsAllowed(ctx, "exec.mount", mount.Source, attrs.Bag{
+			"target":    mount.Target,
+			"read_only": mount.ReadOnly,
+		}) {
+			l.Push(lua.LNil)
+			l.Push(lua.NewLuaError(l, "permission denied: mount host path "+mount.Source).
+				WithKind(lua.PermissionDenied).
+				WithRetryable(false).
+				WithDetails(map[string]any{"source": mount.Source, "target": mount.Target, "read_only": mount.ReadOnly}))
+			return 2
+		}
 	}
 
 	proc, err := factory.NewProcess(cmd, opts)

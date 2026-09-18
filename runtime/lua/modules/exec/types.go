@@ -16,6 +16,7 @@ var processExitChannelType typ.Type
 var terminalCompletionType typ.Type
 var terminalSessionType typ.Type
 var ptyOptionsType typ.Type
+var mountType typ.Type
 var processOptionsType typ.Type
 
 func init() {
@@ -24,11 +25,17 @@ func init() {
 		OptField("height", typ.Integer).
 		OptField("term", typ.String).
 		Build()
+	mountType = typ.NewRecord().
+		Field("source", typ.String).
+		Field("target", typ.String).
+		OptField("read_only", typ.Boolean).
+		Build()
 	processOptionsType = typ.NewRecord().
 		OptField("work_dir", typ.String).
 		OptField("env", typ.NewMap(typ.String, typ.String)).
 		OptField("pty", ptyOptionsType).
 		OptField("process_group", typ.Boolean).
+		OptField("mounts", typ.NewArray(mountType)).
 		Build()
 	processExitType = typ.NewRecord().
 		Field("code", typ.Integer).
@@ -93,6 +100,7 @@ func ModuleTypes() *io.Manifest {
 	m.DefineType("TerminalCompletionChannel", terminalCompletionType)
 	m.DefineType("TerminalSession", terminalSessionType)
 	m.DefineType("PTYOptions", ptyOptionsType)
+	m.DefineType("Mount", mountType)
 	m.DefineType("ProcessOptions", processOptionsType)
 
 	moduleType := typ.NewInterface("exec", []typ.Method{

@@ -42,6 +42,7 @@ func init() {
 			"create": changesCreate,
 			"update": changesUpdate,
 			"delete": changesDelete,
+			"plan":   changesPlan,
 			"apply":  changesApply,
 		})
 

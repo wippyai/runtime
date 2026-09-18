@@ -38,7 +38,10 @@ profiler:
 # Controls registry history and rollback capabilities
 registry:
   enable_history: true        # Enable version history (memory-based), false uses nil history (forward-only)
-  event_wait_timeout: 120s    # Max wait per registry operation for event listeners to accept/reject
+  # event_wait_timeout: optional cap per registry operation once a listener is
+  # subscribed. Unset, the wait follows the operation context, so a handler that
+  # compiles or analyzes an entry is not cut off. An operation dispatched to a
+  # kind with no subscriber fails at once and never waits.
   dependency_resolve_timeout: 20s   # Timeout for dependency graph resolution against Hub
   dependency_download_timeout: 45s  # Timeout for downloading dependency artifacts
 

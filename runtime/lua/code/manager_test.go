@@ -42,6 +42,8 @@ func (b *testEventBus) SubscribeP(_ context.Context, _ event.System, _ event.Kin
 	return "test", nil
 }
 
+func (*testEventBus) HasSubscribers(event.System, event.Kind) bool { return true }
+
 func (b *testEventBus) Unsubscribe(_ context.Context, _ event.SubscriberID) {
 }
 

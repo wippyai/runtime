@@ -54,7 +54,7 @@ Subscribes to events from the event bus. Returns a subscription object with a ch
 | Condition | Kind | Retryable |
 |-----------|------|-----------|
 | system empty or nil | errors.INVALID | no |
-| security policy denies subscription | errors.INVALID | no |
+| security policy denies subscription | errors.PERMISSION_DENIED | no |
 | no process context | errors.INTERNAL | no |
 
 **Usage:**
@@ -94,7 +94,7 @@ Sends an event to the event bus. Event is delivered to all matching subscribers.
 | system empty or nil | errors.INVALID | no |
 | kind empty or nil | errors.INVALID | no |
 | path empty or nil | errors.INVALID | no |
-| security policy denies send | errors.INVALID | no |
+| security policy denies send | errors.PERMISSION_DENIED | no |
 
 **Usage:**
 
@@ -181,7 +181,7 @@ if err then
 end
 ```
 
-**Possible kinds:** `errors.INVALID`, `errors.INTERNAL`
+**Possible kinds:** `errors.INVALID`, `errors.PERMISSION_DENIED`, `errors.INTERNAL`
 
 ## Example
 

@@ -125,7 +125,7 @@ func localAddr(ctx context.Context) string {
 func nodeID(l *lua.LState) int {
 	if !security.IsAllowed(l.Context(), "system.read", "node", nil) {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "permission denied: system.read on node").WithKind(lua.Invalid).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "permission denied: system.read on node").WithKind(lua.PermissionDenied).WithRetryable(false))
 		return 2
 	}
 
@@ -144,7 +144,7 @@ func nodeID(l *lua.LState) int {
 func nodeAddr(l *lua.LState) int {
 	if !security.IsAllowed(l.Context(), "system.read", "node", nil) {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "permission denied: system.read on node").WithKind(lua.Invalid).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "permission denied: system.read on node").WithKind(lua.PermissionDenied).WithRetryable(false))
 		return 2
 	}
 
@@ -163,7 +163,7 @@ func nodeAddr(l *lua.LState) int {
 func nodeRole(l *lua.LState) int {
 	if !security.IsAllowed(l.Context(), "system.read", "node", nil) {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "permission denied: system.read on node").WithKind(lua.Invalid).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "permission denied: system.read on node").WithKind(lua.PermissionDenied).WithRetryable(false))
 		return 2
 	}
 
