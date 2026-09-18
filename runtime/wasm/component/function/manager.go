@@ -67,7 +67,7 @@ type Manager struct {
 	coreRT       *wasmrt.Runtime
 	componentRT  *wasmrt.Runtime
 	hostRegistry *wasmcomponent.HostRegistry
-	newCache     wasmcomponent.CompilationCacheFactory
+	caches       wasmcomponent.Caches
 	cache        wazero.CompilationCache
 	wasmAffinity affinity.Set
 	mu           sync.RWMutex
@@ -84,7 +84,7 @@ func (m *Manager) SetWASMAffinity(set affinity.Set) {
 
 // runtimeConfig builds the wasmrt.Config used by every function runtime.
 func (m *Manager) runtimeConfig() *wasmrt.Config {
-	return wasmcomponent.RuntimeConfig(m.cache, 0)
+	return wasmcomponent.RuntimeConfig(m.cache, m.caches.Transform, 0)
 }
 
 // NewManager creates a new WASM function manager.
@@ -93,14 +93,14 @@ func NewManager(
 	bus event.Bus,
 	disp dispatcher.Dispatcher,
 	fsRegistry fsapi.Registry,
-	newCache wasmcomponent.CompilationCacheFactory,
+	caches wasmcomponent.Caches,
 ) *Manager {
 	return &Manager{
 		log:          log,
 		bus:          bus,
 		dispatcher:   disp,
 		fsRegistry:   fsRegistry,
-		newCache:     newCache,
+		caches:       caches,
 		pools:        make(map[registry.ID]*poolEntry),
 		configs:      make(map[registry.ID]*configEntry),
 		hostRegistry: wasmcomponent.NewHostRegistry(),
@@ -121,7 +121,7 @@ func (m *Manager) Start(ctx context.Context) error {
 	m.pidReg = topology.GetRegistry(ctx)
 	m.node = relay.GetNode(ctx)
 
-	cache, err := m.newCache()
+	cache, err := m.caches.Compilation()
 	if err != nil {
 		return err
 	}

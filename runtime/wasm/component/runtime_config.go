@@ -4,6 +4,7 @@ package component
 
 import (
 	"github.com/tetratelabs/wazero"
+	"github.com/wippyai/wasm-runtime/asyncify"
 	wasmrt "github.com/wippyai/wasm-runtime/runtime"
 )
 
@@ -23,10 +24,25 @@ func DirCompilationCache(dir string) CompilationCacheFactory {
 	}
 }
 
-// RuntimeConfig constructs a wasmrt.Config configured with the compilation cache.
-func RuntimeConfig(cache wazero.CompilationCache, memoryLimitPages uint32) *wasmrt.Config {
+// Caches groups the compilation cache factory and the process-wide transform cache.
+type Caches struct {
+	Compilation CompilationCacheFactory
+	Transform   asyncify.TransformCache
+}
+
+// InMemoryCaches builds a Caches value with process-local compilation and transform caches.
+func InMemoryCaches() Caches {
+	return Caches{
+		Compilation: InMemoryCompilationCache,
+		Transform:   asyncify.NewMemoryTransformCache(),
+	}
+}
+
+// RuntimeConfig constructs a wasmrt.Config configured with the compilation and transform caches.
+func RuntimeConfig(compilation wazero.CompilationCache, transform asyncify.TransformCache, memoryLimitPages uint32) *wasmrt.Config {
 	return &wasmrt.Config{
-		CompilationCache:   cache,
+		CompilationCache:   compilation,
+		TransformCache:     transform,
 		MemoryLimitPages:   memoryLimitPages,
 		CloseOnContextDone: true,
 	}
