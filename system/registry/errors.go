@@ -208,15 +208,6 @@ func NewComputeTransitionError(err error) apierror.Error {
 		WithCause(err)
 }
 
-// NewTransitionBaseMismatchError reports that registry state was replaced while
-// a transition was in flight. applyMu is the only writer gate, so this is a
-// serialization defect in a caller rather than a recoverable conflict.
-func NewTransitionBaseMismatchError(expected, actual int) apierror.Error {
-	return apierror.New(apierror.Internal, "registry state changed outside the apply serializer").
-		WithRetryable(apierror.False).
-		WithDetails(attrs.NewBagFrom(map[string]any{"base_entries": expected, "current_entries": actual}))
-}
-
 // ErrPlanBaseRequired reports a plan that names no registry version.
 var ErrPlanBaseRequired = apierror.New(apierror.Invalid, "plan has no base version").WithRetryable(apierror.False)
 

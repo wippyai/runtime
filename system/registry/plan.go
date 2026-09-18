@@ -240,11 +240,12 @@ func (r *Reg) applyLocked(ctx context.Context, changes registry.ChangeSet, expec
 		resolutionChanged bool
 	)
 
-	base := r.captureBase()
-	snapshot = make(registry.State, len(base.state))
-	copy(snapshot, base.state)
-	baseVersion = base.version
-	resolution = base.resolution
+	r.mu.RLock()
+	snapshot = make(registry.State, len(r.state))
+	copy(snapshot, r.state)
+	baseVersion = r.currentVersion
+	resolution = r.currentResolution
+	r.mu.RUnlock()
 	changes = normalizeRegistryMetadata(changes, snapshot)
 
 	var effects []registry.Effect
@@ -306,24 +307,27 @@ func (r *Reg) applyLocked(ctx context.Context, changes registry.ChangeSet, expec
 		}
 	}
 
-	if fenceErr := r.checkBaseVersionFence(baseVersion); fenceErr != nil {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if baseVersion != nil && r.currentVersion != nil && r.currentVersion.ID() != baseVersion.ID() {
 		if planner != nil {
 			planner.RollbackEffects(ctx, preparedEff)
 		}
-		return nil, fenceErr
+		return nil, NewConcurrentApplyError(baseVersion.ID(), r.currentVersion.ID())
 	}
 
 	var newVersion registry.Version
 	if len(historyOps) > 0 {
-		newVersion = version.FromParent(base.version, r.nextVersionID(base.version))
+		newVersion = version.FromParent(r.currentVersion, r.nextVersionID(r.currentVersion))
 	}
 
 	r.log.Debug("calling runner.Transition")
-	newState, err := r.runner.Transition(ctx, base.state, allOps)
+	newState, err := r.runner.Transition(ctx, r.state, allOps)
 	if err != nil {
 		r.log.Error("failed to apply changes", zap.Error(err))
 		if newState != nil && ctx.Err() == nil {
-			if rerr := r.rollback(ctx, newState, base.state); rerr != nil {
+			if rerr := r.rollback(ctx, newState, r.state); rerr != nil {
 				if planner != nil {
 					planner.RollbackEffects(ctx, preparedEff)
 				}
@@ -339,7 +343,7 @@ func (r *Reg) applyLocked(ctx context.Context, changes registry.ChangeSet, expec
 	if planner != nil {
 		if err := planner.CommitEffects(ctx, preparedEff); err != nil {
 			r.log.Error("failed to commit effects", zap.Error(err))
-			if rerr := r.rollback(ctx, newState, base.state); rerr != nil {
+			if rerr := r.rollback(ctx, newState, r.state); rerr != nil {
 				planner.RollbackEffects(ctx, preparedEff)
 				return nil, NewCommitEffectsError(err, rerr)
 			}
@@ -351,7 +355,7 @@ func (r *Reg) applyLocked(ctx context.Context, changes registry.ChangeSet, expec
 	if len(historyOps) > 0 {
 		r.log.Debug("saving new version", zap.Any("new_version", newVersion))
 
-		enrichedChanges := r.enrichChangeset(base.state, historyOps)
+		enrichedChanges := r.enrichChangeset(historyOps)
 		var saveErr error
 		if resolutionChanged {
 			resolutionHistory, ok := r.history.(registry.ResolutionHistory)
@@ -365,7 +369,7 @@ func (r *Reg) applyLocked(ctx context.Context, changes registry.ChangeSet, expec
 		}
 		if saveErr != nil {
 			r.log.Error("failed to save new version", zap.Error(saveErr))
-			if rerr := r.rollback(ctx, newState, base.state); rerr != nil {
+			if rerr := r.rollback(ctx, newState, r.state); rerr != nil {
 				if planner != nil {
 					planner.RollbackEffects(ctx, preparedEff)
 				}
@@ -382,29 +386,23 @@ func (r *Reg) applyLocked(ctx context.Context, changes registry.ChangeSet, expec
 			}
 		}
 
-		if publishErr := r.publish(base, func() {
-			r.state = newState
-			r.rebuildIndex()
-			r.patchDepIndex(allOps)
-			r.currentVersion = newVersion
-			r.currentResolution = resolution
-		}); publishErr != nil {
-			return nil, publishErr
-		}
-		return newVersion, nil
-	}
-
-	if publishErr := r.publish(base, func() {
 		r.state = newState
 		r.rebuildIndex()
 		r.patchDepIndex(allOps)
-	}); publishErr != nil {
-		return nil, publishErr
+		r.currentVersion = newVersion
+		r.currentResolution = resolution
+		r.publishSnapshot()
+		return newVersion, nil
 	}
+
+	r.state = newState
+	r.rebuildIndex()
+	r.patchDepIndex(allOps)
+	r.publishSnapshot()
 	if planner != nil {
 		if finalizeErr := planner.FinalizeEffects(ctx, preparedEff); finalizeErr != nil {
 			r.log.Warn("failed to finalize effects after baseline transition", zap.Error(finalizeErr))
 		}
 	}
-	return base.version, nil
+	return r.currentVersion, nil
 }
