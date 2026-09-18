@@ -631,13 +631,15 @@ func TestParseIDEdgeCases(t *testing.T) {
 
 // mockRegistry implements regapi.Registry for testing
 type mockRegistry struct {
-	currentVersion regapi.Version
-	snapshot       regapi.Snapshot
-	entries        map[string]regapi.Entry
-	overlayEntries map[string]regapi.State
-	appliedOwner   string
-	appliedChanges regapi.ChangeSet
-	generation     uint64
+	currentVersion  regapi.Version
+	applyCtx        context.Context
+	overlayApplyCtx context.Context
+	snapshot        regapi.Snapshot
+	entries         map[string]regapi.Entry
+	overlayEntries  map[string]regapi.State
+	appliedOwner    string
+	appliedChanges  regapi.ChangeSet
+	generation      uint64
 }
 
 func (m *mockRegistry) GetEntry(id regapi.ID) (regapi.Entry, error) {
@@ -663,8 +665,9 @@ func (m *mockRegistry) Snapshot() regapi.Snapshot {
 	return regapi.Snapshot{Version: m.currentVersion}
 }
 
-func (m *mockRegistry) Apply(_ context.Context, _ regapi.ChangeSet) (regapi.Version, error) {
-	return nil, nil
+func (m *mockRegistry) Apply(ctx context.Context, _ regapi.ChangeSet) (regapi.Version, error) {
+	m.applyCtx = ctx
+	return m.currentVersion, nil
 }
 
 func (m *mockRegistry) ApplyVersion(_ context.Context, _ regapi.Version) error {
@@ -683,7 +686,8 @@ func (m *mockRegistry) RegisterDependencyPattern(_ regapi.DependencyPattern) err
 	return nil
 }
 
-func (m *mockRegistry) ApplyOverlay(_ context.Context, owner string, _ uint64, changes regapi.ChangeSet) (uint64, error) {
+func (m *mockRegistry) ApplyOverlay(ctx context.Context, owner string, _ uint64, changes regapi.ChangeSet) (uint64, error) {
+	m.overlayApplyCtx = ctx
 	m.appliedOwner = owner
 	m.appliedChanges = append(regapi.ChangeSet(nil), changes...)
 	m.generation++
@@ -746,6 +750,55 @@ func TestRegistryOverlayUsesNormalSnapshotAndChanges(t *testing.T) {
 	assert.Equal(t, owner, mockReg.appliedOwner)
 	require.Len(t, mockReg.appliedChanges, 1)
 	assert.Equal(t, regapi.EntryUpdate, mockReg.appliedChanges[0].Kind)
+}
+
+func TestChangesApplyGrantsDependencyDownloads(t *testing.T) {
+	mockReg := &mockRegistry{
+		entries:        map[string]regapi.Entry{},
+		currentVersion: &mockVersion{id: 3, str: "v3"},
+	}
+	ctx := regapi.WithRegistry(setupContextWithTranscoder(), mockReg)
+
+	l := lua.NewState()
+	defer l.Close()
+	l.SetContext(ctx)
+	lua.OpenErrors(l)
+	setupModule(l)
+	require.NoError(t, l.DoString(`
+		local snap = assert(registry.snapshot())
+		local changes = snap:changes()
+		changes:create({ id = "app:module", kind = "ns.dependency", data = { module = "org/module", version = "1.2.3" } })
+		local version, err = changes:apply()
+		assert(err == nil)
+		assert(version ~= nil)
+	`))
+	require.NotNil(t, mockReg.applyCtx)
+	assert.True(t, regapi.DependencyDownloadsAllowed(mockReg.applyCtx))
+}
+
+func TestChangesOverlayApplyKeepsDependencyDownloadsOffline(t *testing.T) {
+	owner := "app.runtime:source-1"
+	mockReg := &mockRegistry{
+		entries:        map[string]regapi.Entry{},
+		overlayEntries: map[string]regapi.State{owner: nil},
+		currentVersion: &mockVersion{id: 3, str: "v3"},
+	}
+	ctx := regapi.WithRegistry(setupContextWithTranscoder(), mockReg)
+
+	l := lua.NewState()
+	defer l.Close()
+	l.SetContext(ctx)
+	lua.OpenErrors(l)
+	setupModule(l)
+	require.NoError(t, l.DoString(`
+		local snap = assert(registry.overlay("app.runtime:source-1"))
+		local changes = snap:changes()
+		changes:create({ id = "app:handler", kind = "function.lua", data = { source = "return 1" } })
+		local _, err = changes:apply()
+		assert(err == nil)
+	`))
+	require.NotNil(t, mockReg.overlayApplyCtx)
+	assert.False(t, regapi.DependencyDownloadsAllowed(mockReg.overlayApplyCtx))
 }
 
 func TestRegistryOverlayWithoutContextOrRegistry(t *testing.T) {
