@@ -58,7 +58,7 @@ func raftBootstrapExpect(cfg boot.Config) int {
 	if _, configured := cfg.Get(ClusterRaftBootstrapExpect); configured {
 		return cfg.GetInt(ClusterRaftBootstrapExpect, 1)
 	}
-	if strings.TrimSpace(cfg.GetString(ClusterMembershipJoin, "")) != "" {
+	if len(clusterSeedAddrs(cfg)) > 0 {
 		return 0
 	}
 	return 1

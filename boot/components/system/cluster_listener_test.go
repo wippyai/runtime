@@ -49,7 +49,7 @@ func TestClusterBootRequiresNativePeerKeySource(t *testing.T) {
 	})
 }
 
-func checkClusterBootListener(t *testing.T, failJoin bool, source any, wantLoadError bool) {
+func checkClusterBootListener(t *testing.T, offlineSeed bool, source any, wantLoadError bool) {
 	t.Helper()
 	pub, key, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
@@ -68,7 +68,7 @@ func checkClusterBootListener(t *testing.T, failJoin bool, source any, wantLoadE
 	if source != nil {
 		settings[ClusterInternodePeerKeySource] = source
 	}
-	if failJoin {
+	if offlineSeed {
 		settings[ClusterMembershipJoin] = "127.0.0.1:1"
 	}
 	cfg := boot.NewConfig(boot.WithSection("cluster", settings))
