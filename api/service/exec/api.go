@@ -5,6 +5,9 @@ package exec
 
 import (
 	"io"
+	"path"
+	"path/filepath"
+	"strings"
 
 	"github.com/wippyai/runtime/api/registry"
 )
@@ -27,6 +30,104 @@ type ProcessOptions struct {
 	// executor default.
 	ProcessGroup *bool
 	WorkDir      string
+	Mounts       []Mount
+}
+
+// Mount is a host path exposed at a path in a process. Mounts are bind mounts
+// for executors that support them; the executor does not infer additional
+// mounts from this value.
+type Mount struct {
+	Source   string `json:"source"`
+	Target   string `json:"target"`
+	ReadOnly bool   `json:"read_only"`
+}
+
+// Validate checks a mount before it reaches an executor or security policy.
+func (m Mount) Validate() error {
+	if m.Source == "" {
+		return NewInvalidMountError("source is required")
+	}
+	if strings.IndexByte(m.Source, 0) >= 0 {
+		return NewInvalidMountError("source contains NUL")
+	}
+	if !filepath.IsAbs(m.Source) && !path.IsAbs(m.Source) {
+		return NewInvalidMountError("source must be absolute")
+	}
+	// The daemon may be on a Unix host even when the client runs on Windows.
+	// Clean Unix absolute paths as Unix paths, not as drive-relative Windows paths.
+	cleanSource := path.Clean(m.Source)
+	if filepath.IsAbs(m.Source) {
+		cleanSource = filepath.Clean(m.Source)
+	}
+	if cleanSource != m.Source {
+		return NewInvalidMountError("source must be a clean absolute path")
+	}
+	if m.Target == "" {
+		return NewInvalidMountError("target is required")
+	}
+	if strings.IndexByte(m.Target, 0) >= 0 {
+		return NewInvalidMountError("target contains NUL")
+	}
+	if !path.IsAbs(m.Target) {
+		return NewInvalidMountError("target must be absolute")
+	}
+	return nil
+}
+
+// ValidateMounts validates each mount and rejects duplicate container targets.
+func ValidateMounts(mounts []Mount) error {
+	seen := make(map[string]struct{}, len(mounts))
+	for _, mount := range mounts {
+		if err := mount.Validate(); err != nil {
+			return err
+		}
+		target := path.Clean(mount.Target)
+		if _, exists := seen[target]; exists {
+			return NewDuplicateMountTargetError(target)
+		}
+		seen[target] = struct{}{}
+	}
+	return nil
+}
+
+// Clone validates and deep-copies process options. Executors retain the clone
+// so callers cannot mutate a process after NewProcess returns.
+func (o ProcessOptions) Clone() (ProcessOptions, error) {
+	if err := o.Validate(); err != nil {
+		return ProcessOptions{}, err
+	}
+	clone := o
+	if o.Env != nil {
+		clone.Env = make(map[string]string, len(o.Env))
+		for name, value := range o.Env {
+			clone.Env[name] = value
+		}
+	}
+	if o.PTY != nil {
+		pty := *o.PTY
+		clone.PTY = &pty
+	}
+	if o.ProcessGroup != nil {
+		group := *o.ProcessGroup
+		clone.ProcessGroup = &group
+	}
+	if o.Mounts != nil {
+		clone.Mounts = append([]Mount(nil), o.Mounts...)
+	}
+	return clone, nil
+}
+
+// Validate checks process options without retaining or mutating them.
+func (o ProcessOptions) Validate() error {
+	if err := ValidateMounts(o.Mounts); err != nil {
+		return err
+	}
+	if o.PTY != nil {
+		if _, _, err := o.PTY.Dimensions(); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 type PTYOptions struct {
