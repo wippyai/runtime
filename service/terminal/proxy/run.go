@@ -25,11 +25,6 @@ const (
 // Run starts the external terminal and owns its I/O until completion,
 // cancellation, or a close event. The caller owns the events channel.
 func (p *Proxy) Run(ctx context.Context, events <-chan ttyapi.Event) (result error) {
-	defer func() {
-		if ctx.Err() != nil {
-			result = errors.Join(ctx.Err(), result)
-		}
-	}()
 	if err := p.start(); err != nil {
 		return err
 	}
@@ -103,9 +98,10 @@ func (p *Proxy) Run(ctx context.Context, events <-chan ttyapi.Event) (result err
 		if suppressExit {
 			// Once the owner has requested shutdown, terminal I/O commonly
 			// unwinds with a closed-pipe or platform-specific process error.
-			// RequestClose reports the signal failure directly; Run owns only
-			// failures needed to terminate and reap the process from here.
-			cause = nil
+			// The cause recorded with that request is what the run failed on;
+			// RequestClose reports the signal failure directly, and Run owns
+			// only failures needed to terminate and reap the process here.
+			cause = p.closeCauseError()
 		}
 		if closing {
 			if shutdownCause == nil && cause != nil {
@@ -115,7 +111,7 @@ func (p *Proxy) Run(ctx context.Context, events <-chan ttyapi.Event) (result err
 		}
 		closing, shutdownCause, ctxDone = true, cause, nil
 		suppressExitError = suppressExit
-		p.RequestClose()
+		p.requestClose(cause)
 		if err := p.closeSignalError(); err != nil && !errors.Is(err, os.ErrProcessDone) {
 			shutdownCause = errors.Join(shutdownCause, err)
 		}
@@ -207,10 +203,12 @@ func (p *Proxy) Run(ctx context.Context, events <-chan ttyapi.Event) (result err
 // A child may ignore TERM while leaving its PTY input blocked. Run still owns
 // normal completion and reaping; finished retires the watcher on every return.
 func (p *Proxy) watchShutdown(ctx context.Context, output io.Closer, finished <-chan struct{}, shutdownErrors chan<- error) {
+	var cause error
 	select {
 	case <-finished:
 		return
 	case <-ctx.Done():
+		cause = ctx.Err()
 	case <-p.closeNotify:
 	}
 	select {
@@ -218,7 +216,7 @@ func (p *Proxy) watchShutdown(ctx context.Context, output io.Closer, finished <-
 		return
 	default:
 	}
-	p.RequestClose()
+	p.requestClose(cause)
 	timer := time.NewTimer(p.shutdownTimeout())
 	defer timer.Stop()
 	select {
