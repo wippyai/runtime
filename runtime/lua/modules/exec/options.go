@@ -57,6 +57,53 @@ func parseProcessOptions(value lua.LValue) (apiexec.ProcessOptions, error) {
 		group := bool(enabled)
 		options.ProcessGroup = &group
 	}
+	if value := table.RawGetString("mounts"); value != lua.LNil {
+		mounts, ok := value.(*lua.LTable)
+		if !ok {
+			return options, fmt.Errorf("mounts must be a table")
+		}
+		options.Mounts = make([]apiexec.Mount, 0, mounts.Len())
+		var mountsErr error
+		var nextIndex int64 = 1
+		mounts.ForEach(func(key, value lua.LValue) {
+			if mountsErr != nil {
+				return
+			}
+			index, indexOK := mountIndex(key)
+			if !indexOK || index != nextIndex {
+				mountsErr = fmt.Errorf("mounts must be a contiguous array")
+				return
+			}
+			nextIndex++
+			mount, mountOK := value.(*lua.LTable)
+			if !mountOK {
+				mountsErr = fmt.Errorf("mounts entries must be tables")
+				return
+			}
+			source, sourceOK := mount.RawGetString("source").(lua.LString)
+			target, targetOK := mount.RawGetString("target").(lua.LString)
+			if !sourceOK || !targetOK {
+				mountsErr = fmt.Errorf("mount source and target must be strings")
+				return
+			}
+			readOnly := false
+			if value := mount.RawGetString("read_only"); value != lua.LNil {
+				readOnlyValue, readOnlyOK := value.(lua.LBool)
+				if !readOnlyOK {
+					mountsErr = fmt.Errorf("mount read_only must be a boolean")
+					return
+				}
+				readOnly = bool(readOnlyValue)
+			}
+			options.Mounts = append(options.Mounts, apiexec.Mount{Source: string(source), Target: string(target), ReadOnly: readOnly})
+		})
+		if mountsErr != nil {
+			return apiexec.ProcessOptions{}, mountsErr
+		}
+		if err := apiexec.ValidateMounts(options.Mounts); err != nil {
+			return apiexec.ProcessOptions{}, err
+		}
+	}
 	if value := table.RawGetString("pty"); value != lua.LNil {
 		pty, ok := value.(*lua.LTable)
 		if !ok {
@@ -69,6 +116,19 @@ func parseProcessOptions(value lua.LValue) (apiexec.ProcessOptions, error) {
 		}
 	}
 	return options, nil
+}
+
+func mountIndex(value lua.LValue) (int64, bool) {
+	switch value := value.(type) {
+	case lua.LInteger:
+		return int64(value), true
+	case lua.LNumber:
+		number := float64(value)
+		if math.Trunc(number) == number {
+			return int64(number), true
+		}
+	}
+	return 0, false
 }
 
 func parsePTYOptions(table *lua.LTable) (*apiexec.PTYOptions, error) {

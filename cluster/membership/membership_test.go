@@ -6,6 +6,9 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
+	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"sync"
@@ -17,6 +20,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/cluster"
 	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/api/metrics"
+	"github.com/wippyai/runtime/internal/telemetrytest"
 	"github.com/wippyai/runtime/system/eventbus"
 	"go.uber.org/zap"
 )
@@ -158,6 +163,152 @@ func TestService_Start_Success(t *testing.T) {
 
 	assert.NotNil(t, service.memberlist)
 	assert.NotNil(t, service.ctx)
+}
+
+func TestService_StartSucceedsWithUnjoinableSeed(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	recorder := telemetrytest.NewRecorder()
+
+	service := NewService(Config{
+		NodeName:  "offline-joiner",
+		BindAddr:  "127.0.0.1",
+		BindPort:  0,
+		JoinAddrs: []string{"[invalid-seed"},
+	}, eventbus.NewBus(), zap.NewNop(), recorder, nil, nil)
+
+	// A seed the node can never reach is not a readiness condition: Start
+	// reports success and the local memberlist serves the rest of the runtime
+	// while the lifecycle-owned worker keeps retrying.
+	startMembershipServiceForTest(ctx, t, "offline joiner", service)
+	require.Len(t, service.memberlist.Members(), 1)
+	require.Eventually(t, func() bool {
+		return recorder.CounterValue("gossip_join_total", metrics.Labels{"result": "err"}) > 0
+	}, 5*time.Second, 10*time.Millisecond, "the join worker must keep retrying the seed")
+
+	require.NoError(t, service.Stop())
+	atStop := recorder.CounterValue("gossip_join_total", metrics.Labels{"result": "err"})
+	time.Sleep(600 * time.Millisecond)
+	require.Equal(t, atStop, recorder.CounterValue("gossip_join_total", metrics.Labels{"result": "err"}),
+		"Stop must terminate the join worker")
+}
+
+func TestService_StopCancelsInFlightSeedJoin(t *testing.T) {
+	// memberlist bounds a dial and the push/pull exchange that follows it with
+	// TCPTimeout alone, so a seed that accepts connections and never answers
+	// holds one join attempt for the whole timeout, per address.
+	const seedTCPTimeout = 20 * time.Second
+	// Far below one TCPTimeout, let alone one per configured seed, while
+	// leaving room for slow Windows listener teardown.
+	const cancelBound = 8 * time.Second
+
+	seedAddr, accepted := startBlackholeSeed(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*seedTCPTimeout)
+	defer cancel()
+
+	service := NewService(Config{
+		NodeName:   "blackholed-joiner",
+		BindAddr:   "127.0.0.1",
+		BindPort:   0,
+		TCPTimeout: seedTCPTimeout,
+		JoinAddrs:  []string{seedAddr, seedAddr, seedAddr},
+	}, eventbus.NewBus(), zap.NewNop(), nil, nil, nil)
+
+	startedAt := time.Now()
+	startMembershipServiceForTest(ctx, t, "blackholed joiner", service)
+	require.Less(t, time.Since(startedAt), cancelBound,
+		"Start must not wait for the seed join")
+
+	var seedConn net.Conn
+	select {
+	case seedConn = <-accepted:
+	case <-time.After(cancelBound):
+		t.Fatal("the join worker never dialed the seed")
+	}
+
+	stoppedAt := time.Now()
+	require.NoError(t, service.Stop())
+	require.Less(t, time.Since(stoppedAt), cancelBound,
+		"Stop must not wait out TCPTimeout for every configured seed")
+
+	require.NoError(t, seedConn.SetReadDeadline(time.Now().Add(cancelBound)))
+	_, err := io.Copy(io.Discard, seedConn)
+	require.False(t, os.IsTimeout(err), "cancellation must close the in-flight seed connection")
+}
+
+// startBlackholeSeed listens on loopback and hands every accepted connection to
+// the caller without reading from it or answering, reproducing a seed whose
+// host is up but whose gossip peer is gone.
+func startBlackholeSeed(t *testing.T) (string, <-chan net.Conn) {
+	t.Helper()
+
+	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+
+	var mu sync.Mutex
+	var conns []net.Conn
+	accepted := make(chan net.Conn, 8)
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			mu.Lock()
+			conns = append(conns, conn)
+			mu.Unlock()
+			select {
+			case accepted <- conn:
+			default:
+			}
+		}
+	}()
+	t.Cleanup(func() {
+		_ = listener.Close()
+		mu.Lock()
+		defer mu.Unlock()
+		for _, conn := range conns {
+			_ = conn.Close()
+		}
+	})
+
+	return listener.Addr().String(), accepted
+}
+
+func TestService_ConfiguredSeedConvergesAfterOfflineStart(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	var listenConfig net.ListenConfig
+	udp, err := listenConfig.ListenPacket(t.Context(), "udp4", "127.0.0.1:0")
+	require.NoError(t, err)
+	seedPort := udp.LocalAddr().(*net.UDPAddr).Port
+	tcp, err := listenConfig.Listen(t.Context(), "tcp4", fmt.Sprintf("127.0.0.1:%d", seedPort))
+	require.NoError(t, err)
+	require.NoError(t, tcp.Close())
+	require.NoError(t, udp.Close())
+
+	joiner := NewService(Config{
+		NodeName:  "late-seed-joiner",
+		BindAddr:  "127.0.0.1",
+		BindPort:  0,
+		JoinAddrs: []string{fmt.Sprintf("127.0.0.1:%d", seedPort)},
+	}, eventbus.NewBus(), zap.NewNop(), nil, nil, nil)
+	startMembershipServiceForTest(ctx, t, "late-seed joiner", joiner)
+	defer func() { _ = joiner.Stop() }()
+	require.Len(t, joiner.memberlist.Members(), 1)
+
+	seed := NewService(Config{
+		NodeName: "late-seed",
+		BindAddr: "127.0.0.1",
+		BindPort: seedPort,
+	}, eventbus.NewBus(), zap.NewNop(), nil, nil, nil)
+	startMembershipServiceForTest(ctx, t, "late seed", seed)
+	defer func() { _ = seed.Stop() }()
+
+	require.Eventually(t, func() bool {
+		return joiner.memberlist.NumMembers() == 2 && seed.memberlist.NumMembers() == 2
+	}, 5*time.Second, 50*time.Millisecond)
 }
 
 func TestService_Start_WithSecretKey(t *testing.T) {
