@@ -4,22 +4,21 @@
 package hub
 
 import (
-	"fmt"
 	"os"
 )
 
 func syncDirectory(path string) error {
 	dir, err := os.Open(path)
 	if err != nil {
-		return fmt.Errorf("open artifact cache directory for sync: %w", err)
+		return NewArtifactIOError("open artifact cache directory for sync", path, err)
 	}
 	syncErr := dir.Sync()
 	closeErr := dir.Close()
 	if syncErr != nil {
-		return fmt.Errorf("sync artifact cache directory: %w", syncErr)
+		return NewArtifactIOError("sync artifact cache directory", path, syncErr)
 	}
 	if closeErr != nil {
-		return fmt.Errorf("close artifact cache directory: %w", closeErr)
+		return NewArtifactIOError("close artifact cache directory", path, closeErr)
 	}
 	return nil
 }

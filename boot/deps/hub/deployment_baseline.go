@@ -97,7 +97,7 @@ func (h *DependencyHandler) deploymentBaselineDigest(
 		Roots   []deploymentRoot `json:"roots"`
 	}{Model: "deployment-overlay-v1", Modules: modules, Roots: roots})
 	if err != nil {
-		return "", fmt.Errorf("encode deployment dependency baseline: %w", err)
+		return "", NewArtifactIOError("encode deployment dependency baseline", "", err)
 	}
 	sum := sha256.Sum256(data)
 	return "sha256:" + hex.EncodeToString(sum[:]), nil
@@ -303,13 +303,13 @@ func resolvedModulesFromRecords(modules []regapi.ResolvedModule) ([]ResolvedModu
 	for _, mod := range modules {
 		name, err := graph.ParseName(mod.Name)
 		if err != nil || mod.Version == "" {
-			return nil, NewDependencyResolutionError(fmt.Errorf("invalid stored module %q@%s", mod.Name, mod.Version))
+			return nil, NewStoredResolutionError(fmt.Sprintf("invalid stored module %q@%s", mod.Name, mod.Version), map[string]any{"module": mod.Name, "version": mod.Version})
 		}
 		if err := validateStoredModuleArtifactIdentity(name, mod.Version, mod.Source, mod.Digest); err != nil {
 			return nil, NewDependencyResolutionError(err)
 		}
 		if _, duplicate := seen[mod.Name]; duplicate {
-			return nil, NewDependencyResolutionError(fmt.Errorf("duplicate stored module %q", mod.Name))
+			return nil, NewStoredResolutionError(fmt.Sprintf("duplicate stored module %q", mod.Name), map[string]any{"module": mod.Name})
 		}
 		seen[mod.Name] = struct{}{}
 		resolved = append(resolved, ResolvedModule{

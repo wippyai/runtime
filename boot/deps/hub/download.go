@@ -134,17 +134,17 @@ func (c *Client) DownloadToFile(ctx context.Context, url, destPath string) error
 		}
 	}
 
-	return fmt.Errorf("download failed after retries")
+	return NewHubRequestError("download file after retries", nil)
 }
 
 func (c *Client) downloadToFileOnce(ctx context.Context, url, destPath string) error {
 	if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
-		return fmt.Errorf("create directory: %w", err)
+		return NewArtifactIOError("create directory", filepath.Dir(destPath), err)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return fmt.Errorf("create request: %w", err)
+		return NewHubRequestError("create download request", err)
 	}
 
 	resp, err := c.httpClient.Do(req)
@@ -163,7 +163,7 @@ func (c *Client) downloadToFileOnce(ctx context.Context, url, destPath string) e
 
 	f, err := os.CreateTemp(filepath.Dir(destPath), filepath.Base(destPath)+".part-*")
 	if err != nil {
-		return fmt.Errorf("create temp file: %w", err)
+		return NewArtifactIOError("create temp file", filepath.Dir(destPath), err)
 	}
 	tmpPath := f.Name()
 	committed := false
@@ -175,18 +175,18 @@ func (c *Client) downloadToFileOnce(ctx context.Context, url, destPath string) e
 
 	if _, err := io.Copy(f, resp.Body); err != nil {
 		f.Close()
-		return fmt.Errorf("write file: %w", err)
+		return NewArtifactIOError("write file", "", err)
 	}
 
 	if err := f.Sync(); err != nil {
 		f.Close()
-		return fmt.Errorf("sync file: %w", err)
+		return NewArtifactIOError("sync file", tmpPath, err)
 	}
 	if err := f.Close(); err != nil {
-		return fmt.Errorf("close file: %w", err)
+		return NewArtifactIOError("close file", tmpPath, err)
 	}
 	if err := os.Rename(tmpPath, destPath); err != nil {
-		return fmt.Errorf("activate downloaded file: %w", err)
+		return NewArtifactIOError("activate downloaded file", destPath, err)
 	}
 	committed = true
 	return syncDirectory(filepath.Dir(destPath))

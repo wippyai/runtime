@@ -4,7 +4,6 @@ package hub
 
 import (
 	"context"
-	"fmt"
 	"path/filepath"
 
 	moduleapi "github.com/wippyai/runtime/api/modules"
@@ -17,11 +16,11 @@ func (h *DependencyHandler) prepareRestoreSources(ctx context.Context, modules [
 	for index, module := range modules {
 		path, err := h.ensureModuleAvailable(ctx, module)
 		if err != nil {
-			return fmt.Errorf("materialize recorded module %s: %w", modKey(module), err)
+			return NewArtifactIOError("materialize recorded module", modKey(module), err)
 		}
 		absolutePath, err := filepath.Abs(path)
 		if err != nil {
-			return fmt.Errorf("resolve recorded module %s: %w", modKey(module), err)
+			return NewArtifactIOError("resolve recorded module", modKey(module), err)
 		}
 		name := module.Org + "/" + module.Name
 		source := moduleapi.Source{
@@ -46,10 +45,19 @@ func (h *DependencyHandler) prepareRestoreSources(ctx context.Context, modules [
 	return nil
 }
 
-func (h *DependencyHandler) materializeRestoreModules(ctx context.Context, modules []ResolvedModule) error {
+// prepareRecordedArtifacts prefetches immutable history artifacts while online
+// access is available. Local trees cannot be recovered from the Hub: the final
+// declaration graph must select them before reconciliation snapshots and loads
+// them. Deployment baseline sources are loaded separately by prepareRestoreSources
+// (or the source checkout loader), including the application root.
+func (h *DependencyHandler) prepareRecordedArtifacts(ctx context.Context, modules []ResolvedModule) error {
 	for _, module := range modules {
+		_, replaced := h.replacementPath(module.Org + "/" + module.Name)
+		if module.Source == moduleSourceReplacementTreeV1 || replaced {
+			continue
+		}
 		if _, err := h.ensureModuleAvailable(ctx, module); err != nil {
-			return fmt.Errorf("materialize recorded module %s: %w", modKey(module), err)
+			return NewArtifactIOError("materialize recorded module", modKey(module), err)
 		}
 	}
 	return nil

@@ -237,7 +237,9 @@ func resolveUpdatedWorkspaceDependencies(
 	if err != nil {
 		return nil, NewBuildDependencyGraphError(err)
 	}
-	modules, err := handler.UpdateWorkspaceDependencies(ctx, definitions, updateModules)
+	// Updating the workspace is explicit user work, so it may reach the Hub.
+	onlineCtx := regapi.WithDependencyAccess(ctx, regapi.DependencyAccessOnline)
+	modules, err := handler.UpdateWorkspaceDependencies(onlineCtx, definitions, updateModules)
 	if err != nil {
 		return nil, NewBuildDependencyGraphError(err)
 	}

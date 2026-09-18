@@ -682,7 +682,7 @@ func TestMaterializeModuleForLoad_StagesCachedWappUntilPrepare(t *testing.T) {
 	require.NoError(t, err)
 
 	gotPath, staged, err := handler.materializeModuleForLoad(
-		context.Background(),
+		onlineContext(),
 		ResolvedModule{Org: "org", Name: "mod", Version: "1.0.0", Digest: digest, SizeBytes: size},
 	)
 	require.NoError(t, err)
@@ -746,7 +746,7 @@ func TestMaterializeModuleForLoad_DownloadsPrivatelyUntilPrepare(t *testing.T) {
 	require.NoError(t, err)
 
 	gotPath, staged, err := handler.materializeModuleForLoad(
-		context.Background(),
+		onlineContext(),
 		ResolvedModule{Org: "org", Name: "mod", Version: "2.0.0", Digest: digest, SizeBytes: size},
 	)
 	require.NoError(t, err)
