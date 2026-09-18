@@ -8,7 +8,9 @@ import (
 	"io"
 	"net"
 	"strconv"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/hashicorp/memberlist"
 	"github.com/stretchr/testify/require"
@@ -112,12 +114,41 @@ func TestAutomaticTransportClosesWhenCanceledAfterBind(t *testing.T) {
 func TestFixedTransportDoesNotUseAutomaticAllocator(t *testing.T) {
 	cfg := automaticTransportConfig()
 	cfg.BindPort = -1
-	_, err := createMemberlist(t.Context(), cfg, func(*memberlist.NetTransportConfig) (*memberlist.NetTransport, error) {
-		t.Fatal("explicit port must not use automatic allocator")
-		return nil, nil
+	attempts := 0
+	_, err := createMemberlist(t.Context(), cfg, func(nc *memberlist.NetTransportConfig) (*memberlist.NetTransport, error) {
+		attempts++
+		require.Equal(t, -1, nc.BindPort, "explicit port must not use automatic allocator")
+		return memberlist.NewNetTransport(nc)
 	})
 	require.Error(t, err)
+	require.Equal(t, 1, attempts, "explicit port must not be retried on a fresh candidate")
 	require.Equal(t, -1, cfg.BindPort)
+}
+
+func TestFixedTransportIsCancelable(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	cfg := automaticTransportConfig()
+	port, err := freeLoopbackPort(t)
+	require.NoError(t, err)
+	cfg.BindPort = port
+	ml, err := createMemberlist(ctx, cfg, memberlist.NewNetTransport)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ml.Shutdown() })
+	require.IsType(t, &cancelableTransport{}, cfg.Transport)
+	cancel()
+	_, err = cfg.Transport.DialTimeout(net.JoinHostPort(cfg.BindAddr, strconv.Itoa(port)), time.Minute)
+	require.ErrorIs(t, err, context.Canceled)
+}
+
+func freeLoopbackPort(t *testing.T) (int, error) {
+	t.Helper()
+	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		return 0, err
+	}
+	port := listener.Addr().(*net.TCPAddr).Port
+	return port, listener.Close()
 }
 
 func assertTransportPortReleased(t *testing.T, address string) {
@@ -128,4 +159,90 @@ func assertTransportPortReleased(t *testing.T, address string) {
 	udp, err := (&net.ListenConfig{}).ListenPacket(t.Context(), "udp", address)
 	require.NoError(t, err)
 	require.NoError(t, udp.Close())
+}
+
+// TestCancelableTransportAbortsBlockedDial covers the dial itself, which no
+// context reaches: the wrapped transport owns it and only its own timeout ends
+// it, so an unreachable seed would otherwise hold the caller for TCPTimeout.
+func TestCancelableTransportAbortsBlockedDial(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	inner := &blockingDialTransport{
+		started: make(chan struct{}, 1),
+		release: make(chan struct{}),
+		dialed:  make(chan *closeSignalConn, 1),
+	}
+	transport := newCancelableTransport(ctx, inner)
+
+	dialErr := make(chan error, 1)
+	go func() {
+		_, err := transport.DialTimeout("127.0.0.1:7946", time.Minute)
+		dialErr <- err
+	}()
+	<-inner.started
+	cancel()
+	select {
+	case err := <-dialErr:
+		require.ErrorIs(t, err, context.Canceled)
+	case <-time.After(5 * time.Second):
+		t.Fatal("cancellation must abort a dial the transport cannot interrupt")
+	}
+
+	close(inner.release)
+	conn := <-inner.dialed
+	select {
+	case <-conn.closed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("a connection that lands after cancellation must be closed")
+	}
+}
+
+func TestCancelableTransportClosesConnOnCancel(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	inner := &blockingDialTransport{
+		started: make(chan struct{}, 1),
+		release: make(chan struct{}),
+		dialed:  make(chan *closeSignalConn, 1),
+	}
+	close(inner.release)
+	transport := newCancelableTransport(ctx, inner)
+
+	conn, err := transport.DialTimeout("127.0.0.1:7946", time.Minute)
+	require.NoError(t, err)
+	cancel()
+	select {
+	case <-(<-inner.dialed).closed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("cancellation must close an established connection")
+	}
+	require.NoError(t, conn.Close())
+}
+
+type blockingDialTransport struct {
+	memberlist.Transport
+	started chan struct{}
+	release chan struct{}
+	dialed  chan *closeSignalConn
+}
+
+func (t *blockingDialTransport) DialTimeout(string, time.Duration) (net.Conn, error) {
+	t.started <- struct{}{}
+	<-t.release
+	local, remote := net.Pipe()
+	_ = remote.Close()
+	conn := &closeSignalConn{Conn: local, closed: make(chan struct{})}
+	t.dialed <- conn
+	return conn, nil
+}
+
+type closeSignalConn struct {
+	net.Conn
+	closed chan struct{}
+	once   sync.Once
+}
+
+func (c *closeSignalConn) Close() error {
+	c.once.Do(func() { close(c.closed) })
+	return c.Conn.Close()
 }

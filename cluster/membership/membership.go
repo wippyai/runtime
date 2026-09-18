@@ -61,6 +61,7 @@ type Service struct {
 	userDelegates  map[byte]UserDelegate
 	lastChangeAt   time.Time
 	config         Config
+	background     sync.WaitGroup
 	userDelegateMu sync.RWMutex
 	mu             sync.RWMutex
 }
@@ -312,7 +313,9 @@ func (s *Service) Start(ctx context.Context) error {
 	}
 	s.memberlist = ml
 
-	// Join cluster if addresses provided.
+	// Join cluster if addresses are configured. Seed availability is not a
+	// readiness condition: the local memberlist is already active and can serve
+	// the rest of the runtime while this lifecycle-owned worker retries.
 	//
 	// Retry with exponential backoff up to s.ctx cancellation so a
 	// transient DNS outage at boot does not crash the pod: under DNSChaos
@@ -328,16 +331,10 @@ func (s *Service) Start(ctx context.Context) error {
 	if len(s.config.JoinAddrs) > 0 {
 		s.logger.Info("joining existing cluster",
 			zap.Strings("join_addresses", s.config.JoinAddrs))
-
-		if err := s.joinWithRetry(s.ctx, ml); err != nil {
-			s.tel.recordJoin(err)
-			return NewJoinClusterError(err)
-		}
 	} else {
 		s.logger.Info("starting as cluster bootstrap node")
+		s.tel.recordJoin(nil)
 	}
-
-	s.tel.recordJoin(nil)
 
 	// Log initial cluster state
 	members := ml.Members()
@@ -347,9 +344,22 @@ func (s *Service) Start(ctx context.Context) error {
 
 	s.refreshMemberStateGauges()
 
-	go s.emitHealthLoop(s.ctx)
+	s.background.Add(1)
+	go func() {
+		defer s.background.Done()
+		s.emitHealthLoop(s.ctx)
+	}()
 	if len(s.config.JoinAddrs) > 0 {
-		go s.rejoinLoop(s.ctx)
+		s.background.Add(1)
+		go func() {
+			defer s.background.Done()
+			if err := s.joinWithRetry(s.ctx, ml); err != nil {
+				return
+			}
+			s.tel.recordJoin(nil)
+			s.refreshMemberStateGauges()
+			s.rejoinLoop(s.ctx)
+		}()
 	}
 
 	return nil
@@ -374,8 +384,14 @@ func (s *Service) joinWithRetry(ctx context.Context, ml *memberlist.Memberlist) 
 	lastSummaryAt := time.Now()
 
 	for {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		attempt++
 		n, err := ml.Join(s.config.JoinAddrs)
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		if err == nil {
 			s.logger.Info("successfully joined cluster",
 				zap.Int("discovered_nodes", n),
@@ -400,10 +416,7 @@ func (s *Service) joinWithRetry(ctx context.Context, ml *memberlist.Memberlist) 
 
 		select {
 		case <-ctx.Done():
-			s.logger.Error("join cancelled by ctx",
-				zap.Int("attempts", attempt),
-				zap.Error(err))
-			return err
+			return ctx.Err()
 		case <-time.After(backoff):
 		}
 
@@ -511,6 +524,7 @@ func (s *Service) Stop() error {
 	if s.cancel != nil {
 		s.cancel()
 	}
+	s.background.Wait()
 
 	s.tel.recordLeave()
 

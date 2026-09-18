@@ -61,9 +61,14 @@ func NewOperationCanceledError(entryID registry.ID, kind registry.Kind, err erro
 		WithCause(err)
 }
 
-// NewEventHandlerTimeoutError creates an error when event handler times out
+// NewEventHandlerTimeoutError creates an error when event handler times out.
+//
+// The runner cannot tell a missing listener from one that is still working, and
+// both reach this point, so the message names both rather than asserting the
+// first: an entry whose handler compiles or analyzes code can legitimately hold
+// the operation longer than the wait allows.
 func NewEventHandlerTimeoutError(timeout time.Duration, entryID registry.ID, kind registry.Kind) apierror.Error {
-	return apierror.New(apierror.Timeout, "event handler timeout after "+timeout.String()+" for entry "+entryID.String()+" (kind: "+kind+"): no listener responded - check if listener is registered for this kind").
+	return apierror.New(apierror.Timeout, "event handler timeout after "+timeout.String()+" for entry "+entryID.String()+" (kind: "+kind+"): no accept or reject arrived - either no listener is registered for this kind, or its handler is still working").
 		WithRetryable(apierror.True).
 		WithDetails(attrs.NewBagFrom(map[string]any{"timeout": timeout.String(), "entry_id": entryID.String(), "kind": kind}))
 }

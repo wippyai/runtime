@@ -107,6 +107,21 @@ func WithInternodeService(ctx context.Context, svc *internode.Service) context.C
 	return ctx
 }
 
+// clusterSeedAddrs reads membership.join_addrs as the comma-separated seed
+// list it is. Entries are trimmed and blanks dropped, so a value that carries
+// no address at all means "no seeds" to every reader of the key: the
+// membership service that dials them and the raft bootstrap sizing that treats
+// a seeded node as one joining an existing cluster.
+func clusterSeedAddrs(cfg boot.Config) []string {
+	var addrs []string
+	for _, addr := range strings.Split(cfg.GetString(ClusterMembershipJoin, ""), ",") {
+		if trimmed := strings.TrimSpace(addr); trimmed != "" {
+			addrs = append(addrs, trimmed)
+		}
+	}
+	return addrs
+}
+
 func Cluster() boot.Component {
 	var membershipSvc *membership.Service
 	var internodeSvc *internode.Service
@@ -186,14 +201,7 @@ func Cluster() boot.Component {
 				return ctx, ErrRelayNotAvailableForCluster
 			}
 
-			// Parse join addresses
-			var joinAddrs []string
-			joinStr := clusterCfg.GetString(ClusterMembershipJoin, "")
-			if joinStr != "" {
-				for _, addr := range strings.Split(joinStr, ",") {
-					joinAddrs = append(joinAddrs, strings.TrimSpace(addr))
-				}
-			}
+			joinAddrs := clusterSeedAddrs(clusterCfg)
 
 			secretKey, err := membership.ResolveSecretKey(
 				clusterCfg.GetString(ClusterMembershipSecret, ""),
@@ -436,7 +444,7 @@ func Cluster() boot.Component {
 			}
 			if membershipSvc != nil {
 				logger.Info("starting cluster membership service")
-				// Membership can acquire sockets before reporting a join error.
+				// Start can acquire sockets before a later initialization error.
 				membershipActive = true
 				if err := membershipSvc.Start(ctx); err != nil {
 					stopServices()
