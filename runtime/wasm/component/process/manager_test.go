@@ -16,6 +16,7 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	api "github.com/wippyai/runtime/api/runtime/wasm"
 	"github.com/wippyai/runtime/api/security"
+	wasmcomponent "github.com/wippyai/runtime/runtime/wasm/component"
 	"go.uber.org/zap"
 )
 
@@ -64,7 +65,7 @@ func (a *testPrepareAwaitService) Start(context.Context) error { return nil }
 func (a *testPrepareAwaitService) Stop() error                 { return nil }
 
 func TestManagerInvalidKind(t *testing.T) {
-	m := NewManager(zap.NewNop(), nil, nil)
+	m := NewManager(zap.NewNop(), nil, nil, wasmcomponent.InMemoryCompilationCache)
 	ctx := context.Background()
 	entry := registry.Entry{Kind: "invalid.kind"}
 
@@ -83,7 +84,7 @@ func TestManagerInvalidKind(t *testing.T) {
 
 func TestDeleteSendsFactoryDelete(t *testing.T) {
 	bus := &testBus{}
-	m := NewManager(zap.NewNop(), bus, nil)
+	m := NewManager(zap.NewNop(), bus, nil, wasmcomponent.InMemoryCompilationCache)
 	entry := registry.Entry{
 		ID:   registry.ParseID("app.test:proc"),
 		Kind: api.ProcessWASM,
@@ -97,7 +98,7 @@ func TestDeleteSendsFactoryDelete(t *testing.T) {
 }
 
 func TestRegisterFactoryRequiresAwaitService(t *testing.T) {
-	m := NewManager(zap.NewNop(), &testBus{}, nil)
+	m := NewManager(zap.NewNop(), &testBus{}, nil, wasmcomponent.InMemoryCompilationCache)
 	id := registry.ParseID("app.test:proc")
 
 	err := m.registerFactory(ctxapi.NewRootContext(), id, "run", nil, api.WorkerClassWASM, nil)
@@ -107,7 +108,7 @@ func TestRegisterFactoryRequiresAwaitService(t *testing.T) {
 
 func TestRegisterFactoryPreparesBeforeSend(t *testing.T) {
 	bus := &testBus{}
-	m := NewManager(zap.NewNop(), bus, nil)
+	m := NewManager(zap.NewNop(), bus, nil, wasmcomponent.InMemoryCompilationCache)
 	id := registry.ParseID("app.test:proc")
 
 	awaitSvc := &testPrepareAwaitService{
@@ -128,7 +129,7 @@ func TestRegisterFactoryPreparesBeforeSend(t *testing.T) {
 
 func TestRegisterFactoryPreservesSecurity(t *testing.T) {
 	bus := &testBus{}
-	m := NewManager(zap.NewNop(), bus, nil)
+	m := NewManager(zap.NewNop(), bus, nil, wasmcomponent.InMemoryCompilationCache)
 	id := registry.ParseID("app.test:proc")
 
 	awaitSvc := &testPrepareAwaitService{
@@ -149,7 +150,7 @@ func TestRegisterFactoryPreservesSecurity(t *testing.T) {
 
 func TestRegisterFactorySetsWorkerClass(t *testing.T) {
 	bus := &testBus{}
-	m := NewManager(zap.NewNop(), bus, nil)
+	m := NewManager(zap.NewNop(), bus, nil, wasmcomponent.InMemoryCompilationCache)
 	id := registry.ParseID("app.test:proc")
 
 	awaitSvc := &testPrepareAwaitService{
@@ -166,7 +167,7 @@ func TestRegisterFactorySetsWorkerClass(t *testing.T) {
 
 func TestManager_StopSerialization_NoFactoryPublishedAfterStop(t *testing.T) {
 	bus := &testBus{}
-	m := NewManager(zap.NewNop(), bus, nil)
+	m := NewManager(zap.NewNop(), bus, nil, wasmcomponent.InMemoryCompilationCache)
 	require.NoError(t, m.Start(context.Background()))
 
 	// Stop manager

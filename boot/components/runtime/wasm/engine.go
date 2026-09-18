@@ -4,6 +4,8 @@ package wasm
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 
 	"github.com/wippyai/runtime/api/boot"
 	dispatcherapi "github.com/wippyai/runtime/api/dispatcher"
@@ -13,10 +15,12 @@ import (
 	wasmapi "github.com/wippyai/runtime/api/runtime/wasm"
 	bootpkg "github.com/wippyai/runtime/boot"
 	"github.com/wippyai/runtime/boot/components/dispatchers"
+	"github.com/wippyai/runtime/internal/cachedir"
 	wasmcomponent "github.com/wippyai/runtime/runtime/wasm/component"
 	wasmfunc "github.com/wippyai/runtime/runtime/wasm/component/function"
 	wasmproc "github.com/wippyai/runtime/runtime/wasm/component/process"
 	"github.com/wippyai/runtime/system/scheduler/affinity"
+	"go.uber.org/zap"
 )
 
 // Engine wires WASM function registry handling and runtime lifecycle.
@@ -49,12 +53,16 @@ func EngineWithHostProfiles(hostProfiles ...wasmcomponent.HostProfile) boot.Comp
 				return ctx, dispatchers.ErrDispatcherNotFound
 			}
 
+			cfg := boot.GetConfig(ctx)
+			cacheFactory := resolveCacheFactory(cfg, logger.Named("wasm"))
+
 			fsReg := fsapi.GetRegistry(ctx)
 			funcs = wasmfunc.NewManager(
 				logger.Named("wasm.func"),
 				bus,
 				disp,
 				fsReg,
+				cacheFactory,
 			)
 			if part, ok := affinity.PartitionFromContext(ctx); ok && part.Enabled {
 				funcs.SetWASMAffinity(part.WASMCPUs)
@@ -63,6 +71,7 @@ func EngineWithHostProfiles(hostProfiles ...wasmcomponent.HostProfile) boot.Comp
 				logger.Named("wasm.process"),
 				bus,
 				fsReg,
+				cacheFactory,
 			)
 			effectiveProfiles := profiles
 			if len(effectiveProfiles) == 0 {
@@ -103,4 +112,45 @@ func EngineWithHostProfiles(hostProfiles ...wasmcomponent.HostProfile) boot.Comp
 			return nil
 		},
 	})
+}
+
+func probeCacheDir(dir string) error {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	f, err := os.CreateTemp(dir, ".probe-*")
+	if err != nil {
+		return err
+	}
+	probeName := f.Name()
+	_ = f.Close()
+	return os.Remove(probeName)
+}
+
+func resolveCacheFactory(cfg boot.Config, logger *zap.Logger) wasmcomponent.CompilationCacheFactory {
+	enabled := true
+	dir := filepath.Join(cachedir.Dir(), "wasm")
+	if cfg != nil {
+		wasmCfg := cfg.Sub("wasm")
+		if _, ok := wasmCfg.Get("cache.enabled"); ok {
+			enabled = wasmCfg.GetBool("cache.enabled", enabled)
+		}
+		dir = wasmCfg.GetString("cache.dir", dir)
+		if dir != "" && !filepath.IsAbs(dir) {
+			if baseDir := cfg.GetString("boot.config_dir", ""); baseDir != "" {
+				dir = filepath.Join(baseDir, dir)
+			}
+		}
+	}
+	if !enabled {
+		return wasmcomponent.InMemoryCompilationCache
+	}
+	if err := probeCacheDir(dir); err != nil {
+		logger.Warn("wasm compilation cache directory unusable; falling back to in-memory cache",
+			zap.String("dir", dir),
+			zap.Error(err),
+		)
+		return wasmcomponent.InMemoryCompilationCache
+	}
+	return wasmcomponent.DirCompilationCache(dir)
 }

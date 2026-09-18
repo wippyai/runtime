@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -80,7 +82,7 @@ func newCacheTestActorFactory(t *testing.T) *ActorFactory {
 			MessageBytes: 512 * 1024,
 		},
 	})
-	factory := NewActorFactory(actorBytes, true, cfg, hostReg, nil)
+	factory := NewActorFactory(actorBytes, true, cfg, hostReg, nil, wasmcomponent.InMemoryCompilationCache)
 	t.Cleanup(factory.Close)
 	return factory
 }
@@ -249,7 +251,7 @@ func TestActorFactory_FailedHostRegistrationDoesNotLeakGenerationRef(t *testing.
 		Method:  "run",
 		Imports: []registry.ID{registry.ParseID("wippy:actor")},
 	}
-	factory := NewActorFactory(actorBytes, true, cfg, hostReg, nil)
+	factory := NewActorFactory(actorBytes, true, cfg, hostReg, nil, wasmcomponent.InMemoryCompilationCache)
 	t.Cleanup(factory.Close)
 
 	proc, err := factory.Create()()
@@ -282,7 +284,7 @@ func TestActorFactory_FailedSpawnHostRegistrationAfterWarmDoesNotLeak(t *testing
 		Method:  "run",
 		Imports: []registry.ID{registry.ParseID("wippy:actor")},
 	}
-	factory := NewActorFactory(actorBytes, true, cfg, hostReg, nil)
+	factory := NewActorFactory(actorBytes, true, cfg, hostReg, nil, wasmcomponent.InMemoryCompilationCache)
 	t.Cleanup(factory.Close)
 
 	require.NoError(t, factory.warm(context.Background()))
@@ -308,7 +310,7 @@ func TestActorFactory_FailedWarmDoesNotLeakGeneration(t *testing.T) {
 		Method:  "run",
 		Imports: []registry.ID{registry.ParseID("wippy:actor")},
 	}
-	factory := NewActorFactory([]byte("not-a-wasm-module"), true, cfg, hostReg, nil)
+	factory := NewActorFactory([]byte("not-a-wasm-module"), true, cfg, hostReg, nil, wasmcomponent.InMemoryCompilationCache)
 	t.Cleanup(factory.Close)
 
 	err := factory.warm(context.Background())
@@ -340,7 +342,7 @@ func TestActorFactory_WarmCloseRaceKeepsCacheAliveUntilWarmUnwinds(t *testing.T)
 		Method:  "run",
 		Imports: []registry.ID{registry.ParseID("wippy:actor")},
 	}
-	factory := NewActorFactory(actorBytes, true, cfg, hostReg, nil)
+	factory := NewActorFactory(actorBytes, true, cfg, hostReg, nil, wasmcomponent.InMemoryCompilationCache)
 	t.Cleanup(factory.Close)
 
 	errChan := make(chan error, 1)
@@ -386,7 +388,7 @@ func TestActorFactory_LateSpawnCloseRaceAfterWarmDoesNotLeakRef(t *testing.T) {
 		Method:  "run",
 		Imports: []registry.ID{registry.ParseID("wippy:actor")},
 	}
-	factory := NewActorFactory(actorBytes, true, cfg, hostReg, nil)
+	factory := NewActorFactory(actorBytes, true, cfg, hostReg, nil, wasmcomponent.InMemoryCompilationCache)
 	t.Cleanup(factory.Close)
 	require.NoError(t, factory.warm(context.Background()))
 
@@ -455,7 +457,7 @@ func TestActorFactory_CoreProcessPinLifecycle(t *testing.T) {
 
 	hostReg := wasmcomponent.NewHostRegistry()
 	cfg := &api.ProcessConfig{Method: "answer"}
-	factory := NewActorFactory(coreBytes, false, cfg, hostReg, nil)
+	factory := NewActorFactory(coreBytes, false, cfg, hostReg, nil, wasmcomponent.InMemoryCompilationCache)
 	t.Cleanup(factory.Close)
 
 	require.NoError(t, factory.warm(context.Background()))
@@ -487,7 +489,7 @@ func TestManager_InvalidateKeepsLiveActorAndNewFactory(t *testing.T) {
 	fsReg.set("actor.wasm", actorBytes)
 
 	bus := &testBus{}
-	m := NewManager(zap.NewNop(), bus, fsReg)
+	m := NewManager(zap.NewNop(), bus, fsReg, wasmcomponent.InMemoryCompilationCache)
 	require.NoError(t, m.RegisterHostProfiles(testActorHostProfile()))
 
 	awaitSvc := &testPrepareAwaitService{result: event.AwaitResult{Accepted: true}}
@@ -545,7 +547,7 @@ func TestManager_StopKeepsLiveActorAndRejectsSpawn(t *testing.T) {
 	fsReg.set("actor.wasm", actorBytes)
 
 	bus := &testBus{}
-	m := NewManager(zap.NewNop(), bus, fsReg)
+	m := NewManager(zap.NewNop(), bus, fsReg, wasmcomponent.InMemoryCompilationCache)
 	require.NoError(t, m.RegisterHostProfiles(testActorHostProfile()))
 
 	awaitSvc := &testPrepareAwaitService{result: event.AwaitResult{Accepted: true}}
@@ -579,4 +581,67 @@ func TestManager_StopKeepsLiveActorAndRejectsSpawn(t *testing.T) {
 	actorProc.Close()
 	requireGenerationDrained(t, factory)
 	assert.NotPanics(t, func() { m.Stop() })
+}
+
+func listDirFiles(t *testing.T, dir string) []string {
+	t.Helper()
+	var names []string
+	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() {
+			rel, relErr := filepath.Rel(dir, path)
+			if relErr == nil {
+				names = append(names, rel)
+			}
+		}
+		return nil
+	})
+	require.NoError(t, err)
+	sort.Strings(names)
+	return names
+}
+
+func TestActorFactory_DirCachePersistenceAcrossGenerations(t *testing.T) {
+	cacheDir := filepath.Join(t.TempDir(), "wasm-cache")
+	actorBytes, _ := loadActorWASM(t)
+	hostReg := wasmcomponent.NewHostRegistry()
+	require.NoError(t, hostReg.RegisterProfiles(testActorHostProfile()))
+	cfg := &api.ProcessConfig{
+		Method:  "run",
+		Imports: []registry.ID{registry.ParseID("wippy:actor")},
+	}
+	cfg.SetOptions(api.ProcessOptions{
+		Limits: api.ProcessLimitsConfig{
+			MemoryBytes:    64 * 1024 * 1024,
+			MaxOpenSockets: 4,
+		},
+		Mailbox: api.ProcessMailboxConfig{
+			Capacity:     64,
+			Bytes:        4 * 1024 * 1024,
+			MessageBytes: 512 * 1024,
+		},
+	})
+
+	// Generation 1: warms and compiles module into cacheDir.
+	factory1 := NewActorFactory(actorBytes, true, cfg, hostReg, nil, wasmcomponent.DirCompilationCache(cacheDir))
+	require.NoError(t, factory1.warm(context.Background()))
+	filesAfterGen1 := listDirFiles(t, cacheDir)
+	require.NotEmpty(t, filesAfterGen1)
+
+	// Close generation 1: cache object closes, directory files remain intact.
+	factory1.Close()
+	requireGenerationDrained(t, factory1)
+
+	filesAfterClose := listDirFiles(t, cacheDir)
+	assert.Equal(t, filesAfterGen1, filesAfterClose)
+
+	// Generation 2: new generation over same directory adds no new files for same module.
+	factory2 := NewActorFactory(actorBytes, true, cfg, hostReg, nil, wasmcomponent.DirCompilationCache(cacheDir))
+	t.Cleanup(factory2.Close)
+	require.NoError(t, factory2.warm(context.Background()))
+
+	filesAfterGen2 := listDirFiles(t, cacheDir)
+	assert.Equal(t, filesAfterGen1, filesAfterGen2)
 }

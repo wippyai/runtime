@@ -29,7 +29,7 @@ func TestActorFactoryHostBufferDomains(t *testing.T) {
 			}
 			return nil
 		}}))
-		factory := NewActorFactory(code, true, cfg, hosts, nil)
+		factory := NewActorFactory(code, true, cfg, hosts, nil, component.InMemoryCompilationCache)
 		defer factory.Close()
 		// The factory's frozen ceiling cannot be changed by mutating caller config.
 		cfg.SetOptions(api.ProcessOptions{Limits: api.ProcessLimitsConfig{MemoryBytes: guestPages * 65536, HostBufferBytes: 1}})
@@ -65,7 +65,7 @@ func TestActorFactoryHostBufferDomains(t *testing.T) {
 		require.Zero(t, actors[1].HostBufferBudget().Usage().Used)
 	}
 	cfg := &api.ProcessConfig{Method: "func1"}
-	factory := NewActorFactory(code, true, cfg, component.NewHostRegistry(), nil)
+	factory := NewActorFactory(code, true, cfg, component.NewHostRegistry(), nil, component.InMemoryCompilationCache)
 	defer factory.Close()
 	raw, err := factory.Create()()
 	require.NoError(t, err)
