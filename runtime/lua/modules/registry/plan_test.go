@@ -195,3 +195,62 @@ func TestDurableApplyAuthorizesEachOperation(t *testing.T) {
 		assert.Nil(t, reg.plannedBase, "a denied plan computes nothing")
 	})
 }
+
+func TestChangesPlanGrantsDependencyDownloads(t *testing.T) {
+	reg := planTestMock()
+	runRegistryLua(setupContextWithTranscoder(), t, reg, `
+		local snap = assert(registry.snapshot())
+		local changes = snap:changes()
+		changes:create({ id = "app:module", kind = "ns.dependency", data = { module = "org/module", version = "1.2.3" } })
+		local plan, err = changes:plan()
+		assert(err == nil, tostring(err))
+		assert(plan ~= nil)
+	`)
+	require.NotNil(t, reg.planCtx)
+	assert.Equal(t, regapi.DependencyAccessOnline, regapi.DependencyAccessFromContext(reg.planCtx))
+}
+
+func TestChangesApplyGrantsDependencyDownloads(t *testing.T) {
+	t.Run("unplanned", func(t *testing.T) {
+		reg := planTestMock()
+		runRegistryLua(setupContextWithTranscoder(), t, reg, `
+			local snap = assert(registry.snapshot())
+			local changes = snap:changes()
+			changes:create({ id = "app:module", kind = "ns.dependency", data = { module = "org/module", version = "1.2.3" } })
+			local version, err = changes:apply()
+			assert(err == nil, tostring(err))
+			assert(version ~= nil)
+		`)
+		require.NotNil(t, reg.applyAtCtx)
+		assert.Equal(t, regapi.DependencyAccessOnline, regapi.DependencyAccessFromContext(reg.applyAtCtx))
+	})
+
+	t.Run("planned", func(t *testing.T) {
+		reg := planTestMock()
+		runRegistryLua(setupContextWithTranscoder(), t, reg, `
+			local snap = assert(registry.snapshot())
+			local changes = snap:changes()
+			changes:create({ id = "app:module", kind = "ns.dependency", data = { module = "org/module", version = "1.2.3" } })
+			assert(changes:plan())
+			local version, err = changes:apply()
+			assert(err == nil, tostring(err))
+			assert(version ~= nil)
+		`)
+		require.NotNil(t, reg.applyPlanCtx)
+		assert.Equal(t, regapi.DependencyAccessOnline, regapi.DependencyAccessFromContext(reg.applyPlanCtx))
+	})
+}
+
+func TestChangesOverlayApplyKeepsDependencyDownloadsOffline(t *testing.T) {
+	reg := planTestMock()
+	reg.overlayEntries["app.runtime:source-1"] = nil
+	runRegistryLua(setupContextWithTranscoder(), t, reg, `
+		local snap = assert(registry.overlay("app.runtime:source-1"))
+		local changes = snap:changes()
+		changes:create({ id = "app:handler", kind = "function.lua", data = { source = "return 1" } })
+		local _, err = changes:apply()
+		assert(err == nil, tostring(err))
+	`)
+	require.NotNil(t, reg.overlayApplyCtx)
+	assert.NotEqual(t, regapi.DependencyAccessOnline, regapi.DependencyAccessFromContext(reg.overlayApplyCtx))
+}

@@ -631,21 +631,26 @@ func TestParseIDEdgeCases(t *testing.T) {
 
 // mockRegistry implements regapi.Registry for testing
 type mockRegistry struct {
-	currentVersion regapi.Version
-	snapshot       regapi.Snapshot
-	entries        map[string]regapi.Entry
-	overlayEntries map[string]regapi.State
-	plannedBase    regapi.Version
-	appliedBase    regapi.Version
-	appliedPlan    *regapi.Plan
-	appliedOwner   string
-	appliedChanges regapi.ChangeSet
-	generation     uint64
+	currentVersion  regapi.Version
+	planCtx         context.Context
+	applyAtCtx      context.Context
+	applyPlanCtx    context.Context
+	overlayApplyCtx context.Context
+	snapshot        regapi.Snapshot
+	entries         map[string]regapi.Entry
+	overlayEntries  map[string]regapi.State
+	plannedBase     regapi.Version
+	appliedBase     regapi.Version
+	appliedPlan     *regapi.Plan
+	appliedOwner    string
+	appliedChanges  regapi.ChangeSet
+	generation      uint64
 }
 
 // Plan returns the requested operations as the plan, with one synthetic
 // effect target, so Lua tests can observe the plan shape and its binding.
-func (m *mockRegistry) Plan(_ context.Context, base regapi.Version, changes regapi.ChangeSet) (*regapi.Plan, error) {
+func (m *mockRegistry) Plan(ctx context.Context, base regapi.Version, changes regapi.ChangeSet) (*regapi.Plan, error) {
+	m.planCtx = ctx
 	m.plannedBase = base
 	requested := append(regapi.ChangeSet(nil), changes...)
 	return &regapi.Plan{
@@ -658,13 +663,15 @@ func (m *mockRegistry) Plan(_ context.Context, base regapi.Version, changes rega
 	}, nil
 }
 
-func (m *mockRegistry) ApplyAt(_ context.Context, base regapi.Version, changes regapi.ChangeSet) (regapi.Version, error) {
+func (m *mockRegistry) ApplyAt(ctx context.Context, base regapi.Version, changes regapi.ChangeSet) (regapi.Version, error) {
+	m.applyAtCtx = ctx
 	m.appliedBase = base
 	m.appliedChanges = append(regapi.ChangeSet(nil), changes...)
 	return m.currentVersion, nil
 }
 
-func (m *mockRegistry) ApplyPlan(_ context.Context, plan *regapi.Plan) (regapi.Version, error) {
+func (m *mockRegistry) ApplyPlan(ctx context.Context, plan *regapi.Plan) (regapi.Version, error) {
+	m.applyPlanCtx = ctx
 	m.appliedPlan = plan
 	m.appliedBase = plan.Base
 	m.appliedChanges = append(regapi.ChangeSet(nil), plan.Requested...)
@@ -714,7 +721,8 @@ func (m *mockRegistry) RegisterDependencyPattern(_ regapi.DependencyPattern) err
 	return nil
 }
 
-func (m *mockRegistry) ApplyOverlay(_ context.Context, owner string, _ uint64, changes regapi.ChangeSet) (uint64, error) {
+func (m *mockRegistry) ApplyOverlay(ctx context.Context, owner string, _ uint64, changes regapi.ChangeSet) (uint64, error) {
+	m.overlayApplyCtx = ctx
 	m.appliedOwner = owner
 	m.appliedChanges = append(regapi.ChangeSet(nil), changes...)
 	m.generation++
