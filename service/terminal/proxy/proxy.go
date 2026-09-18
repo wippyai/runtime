@@ -39,6 +39,7 @@ const (
 type Proxy struct {
 	surface         ttyapi.Surface
 	closeErr        error
+	closeCause      error
 	process         execapi.PTYProcess
 	screen          *vt.SafeEmulator
 	closeNotify     chan struct{}
@@ -56,9 +57,16 @@ type Proxy struct {
 	started         bool
 }
 
-// RequestClose accepts asynchronous shutdown intent. Run owns termination and
-// reaping; the immediate signal also interrupts a blocked terminal write.
-func (p *Proxy) RequestClose() {
+// RequestClose accepts asynchronous shutdown intent from an owner that has no
+// failure to report. Run owns termination and reaping; the immediate signal
+// also interrupts a blocked terminal write.
+func (p *Proxy) RequestClose() { p.requestClose(nil) }
+
+// requestClose records why shutdown starts before waking the run loop. A
+// signaled child unwinds its terminal I/O with incidental closed-pipe and
+// platform errors, and the recorded cause is what the run actually failed on.
+func (p *Proxy) requestClose(cause error) {
+	p.recordCloseCause(cause)
 	p.closeRequested.Store(true)
 	p.closeNotifyOnce.Do(func() { close(p.closeNotify) })
 	p.lifecycleMu.Lock()
@@ -66,6 +74,25 @@ func (p *Proxy) RequestClose() {
 	if p.started {
 		_ = p.signalCloseLocked()
 	}
+}
+
+// recordCloseCause keeps the first cause observed. Later shutdown steps report
+// their own failures through Run's shutdown error channel.
+func (p *Proxy) recordCloseCause(cause error) {
+	if cause == nil {
+		return
+	}
+	p.lifecycleMu.Lock()
+	defer p.lifecycleMu.Unlock()
+	if p.closeCause == nil {
+		p.closeCause = cause
+	}
+}
+
+func (p *Proxy) closeCauseError() error {
+	p.lifecycleMu.Lock()
+	defer p.lifecycleMu.Unlock()
+	return p.closeCause
 }
 
 // start serializes process startup with an early close request. Once Start
