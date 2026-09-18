@@ -68,25 +68,28 @@ type retainedMainKey struct {
 
 // Compiler retains compiled code until its owning registry nodes are invalidated.
 type Compiler struct {
-	retainedProtos map[retainedProtoKey]*glua.FunctionProto
-	retainedMains  map[retainedMainKey]*CompiledMain
-	protosByNode   map[registry.ID]map[retainedProtoKey]struct{}
-	mainsByNode    map[registry.ID]map[retainedMainKey]struct{}
-	compileFn      CompileFn
-	compileMemoFn  compileMemoFn
-	retainedMu     sync.RWMutex
+	retainedProtos    map[retainedProtoKey]*glua.FunctionProto
+	retainedMains     map[retainedMainKey]*CompiledMain
+	protosByNode      map[registry.ID]map[retainedProtoKey]struct{}
+	mainsByNode       map[registry.ID]map[retainedMainKey]struct{}
+	compileFn         CompileFn
+	compileMemoFn     compileMemoFn
+	toolchainIdentity string
+	retainedMu        sync.RWMutex
 }
 
 // NewCompiler returns a compiler with lifecycle-owned retained code.
-func NewCompiler(compileFn CompileFn) *Compiler {
+func NewCompiler(compileFn CompileFn, toolchainIdentity string) *Compiler {
 	compiler := newCompiler()
 	compiler.compileFn = compileFn
+	compiler.toolchainIdentity = toolchainIdentity
 	return compiler
 }
 
-func newCompilerWithMemo(compileFn compileMemoFn) *Compiler {
+func newCompilerWithMemo(compileFn compileMemoFn, toolchainIdentity string) *Compiler {
 	compiler := newCompiler()
 	compiler.compileMemoFn = compileFn
+	compiler.toolchainIdentity = toolchainIdentity
 	return compiler
 }
 
@@ -105,7 +108,7 @@ func (c *Compiler) getCompiledProto(memGraph *MemoryGraph, node *Node, memo *bui
 		return nil, ErrModuleNotCompiled
 	}
 
-	tag, err := runtimeFingerprintMemo(memGraph, node.ID, memo.runtime)
+	tag, err := runtimeFingerprintMemo(memGraph, node.ID, memo.runtime, c.toolchainIdentity)
 	if err != nil {
 		return nil, err
 	}
@@ -167,7 +170,7 @@ func (c *Compiler) Compile(
 	}
 
 	memo := newBuildMemo()
-	tag, err := runtimeFingerprintMemo(memGraph, entrypoint, memo.runtime)
+	tag, err := runtimeFingerprintMemo(memGraph, entrypoint, memo.runtime, c.toolchainIdentity)
 	if err != nil {
 		return nil, err
 	}

@@ -224,7 +224,7 @@ func (cm *Manager) compileFingerprintMemo(memGraph *MemoryGraph, id registry.ID,
 			CompileFingerprint: fp,
 		})
 	}
-	fp := CompileFingerprint(node.ID.String(), node.Kind, nodeContentHash(node), node.Method, depFPs)
+	fp := CompileFingerprint(cm.toolchainIdentity, node.ID.String(), node.Kind, nodeContentHash(node), node.Method, depFPs)
 	memo[id] = fp
 	meta[id] = depMeta
 	return fp, nil
@@ -272,7 +272,7 @@ func (cm *Manager) typecheckFingerprintMemo(memGraph *MemoryGraph, id registry.I
 			TypecheckFingerprint: fp,
 		})
 	}
-	fp := TypecheckFingerprint(node.ID.String(), node.Kind, nodeContentHash(node), node.Method, cm.typeCfgHash, cm.builtinHash, depFPs)
+	fp := TypecheckFingerprint(cm.toolchainIdentity, node.ID.String(), node.Kind, nodeContentHash(node), node.Method, cm.typeCfgHash, cm.builtinHash, depFPs)
 	memo[id] = fp
 	meta[id] = depMeta
 	return fp, nil
@@ -317,4 +317,12 @@ func (cm *Manager) TypeCheckConfig() TypeCheckConfig {
 		return DefaultTypeCheckConfig()
 	}
 	return cm.typeChecker.config
+}
+
+// ToolchainIdentity returns the toolchain identity used for cache keys.
+func (cm *Manager) ToolchainIdentity() string {
+	if cm == nil {
+		return ""
+	}
+	return cm.toolchainIdentity
 }

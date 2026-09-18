@@ -6,10 +6,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/boot"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/dispatcher"
@@ -19,6 +22,7 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	bootpkg "github.com/wippyai/runtime/boot"
+	"github.com/wippyai/runtime/internal/cachedir"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest/observer"
 )
@@ -199,11 +203,12 @@ func TestL04EngineLifecycleIdempotent(t *testing.T) {
 }
 
 func TestL05EngineSettingsDefaults(t *testing.T) {
-	settings := resolveEngineSettings(nil)
+	settings := resolveEngineSettings(nil, zap.NewNop())
 	if settings.TypeCheck.Enabled || settings.TypeCheck.Strict {
 		t.Fatalf("type check defaults = %#v, want disabled and non-strict", settings.TypeCheck)
 	}
-	if settings.Cache.Enabled || settings.Cache.Dir != ".wippy/cache/lua" || string(settings.Cache.Mode) != "readwrite" {
+	expectedDir := filepath.Join(cachedir.Dir(), "lua")
+	if !settings.Cache.Enabled || settings.Cache.Dir != expectedDir || string(settings.Cache.Mode) != "readwrite" {
 		t.Fatalf("cache defaults = %#v", settings.Cache)
 	}
 	if !settings.Cache.CompileEnabled || !settings.Cache.TypecheckEnabled {
@@ -222,17 +227,19 @@ func TestL06EngineCacheEnablePrecedence(t *testing.T) {
 		values map[string]any
 		want   bool
 	}{
-		{values: nil, want: false},
+		{values: nil, want: true},
 		{values: map[string]any{"type_system.enabled": true}, want: true},
+		{values: map[string]any{"type_system.enabled": false}, want: true},
 		{values: map[string]any{"type_system.enabled": false, "cache.enabled": true}, want: true},
 		{values: map[string]any{"type_system.enabled": true, "cache.enabled": false}, want: false},
+		{values: map[string]any{"cache.enabled": false}, want: false},
 	}
 	for index, fixture := range fixtures {
 		cfg := boot.NewConfig()
 		if fixture.values != nil {
 			cfg = boot.NewConfig(boot.WithSection("lua", fixture.values))
 		}
-		if got := resolveEngineSettings(cfg).Cache.Enabled; got != fixture.want {
+		if got := resolveEngineSettings(cfg, zap.NewNop()).Cache.Enabled; got != fixture.want {
 			t.Fatalf("fixture %d cache enabled = %v, want %v", index, got, fixture.want)
 		}
 	}
@@ -244,7 +251,7 @@ func TestL07EngineRelativeCacheDirectory(t *testing.T) {
 		boot.WithSection("boot", map[string]any{"config_dir": "/srv/wippy/config"}),
 	)
 	want := filepath.Join("/srv/wippy/config", "state/lua")
-	if got := resolveEngineSettings(cfg).Cache.Dir; got != want {
+	if got := resolveEngineSettings(cfg, zap.NewNop()).Cache.Dir; got != want {
 		t.Fatalf("relative cache directory = %q, want %q", got, want)
 	}
 }
@@ -255,7 +262,7 @@ func TestL08EngineAbsoluteCacheDirectory(t *testing.T) {
 		boot.WithSection("lua", map[string]any{"cache.dir": absoluteCacheDir}),
 		boot.WithSection("boot", map[string]any{"config_dir": filepath.Join(t.TempDir(), "config")}),
 	)
-	if got := resolveEngineSettings(cfg).Cache.Dir; got != absoluteCacheDir {
+	if got := resolveEngineSettings(cfg, zap.NewNop()).Cache.Dir; got != absoluteCacheDir {
 		t.Fatalf("absolute cache directory = %q, want %q", got, absoluteCacheDir)
 	}
 }
@@ -278,7 +285,7 @@ func TestL09EngineInvalidationTimeoutPrecedence(t *testing.T) {
 		if fixture.registry != nil {
 			opts = append(opts, boot.WithSection("registry", fixture.registry))
 		}
-		if got := resolveEngineSettings(boot.NewConfig(opts...)).InvalidationWaitTimeout; got != fixture.want {
+		if got := resolveEngineSettings(boot.NewConfig(opts...), zap.NewNop()).InvalidationWaitTimeout; got != fixture.want {
 			t.Fatalf("fixture %d invalidation timeout = %v, want %v", index, got, fixture.want)
 		}
 	}
@@ -314,4 +321,84 @@ func TestL11LuaErrorMetadataNilCases(t *testing.T) {
 			t.Fatalf("fixture %d metadata = %#v, want nil", index, got)
 		}
 	}
+}
+
+func TestEngineSettings_CacheDefaults(t *testing.T) {
+	settings := resolveEngineSettings(nil, zap.NewNop())
+	assert.False(t, settings.TypeCheck.Enabled, "type system should be off by default")
+	assert.True(t, settings.Cache.Enabled, "cache should be enabled by default")
+}
+
+func TestEngineSettings_CacheExplicitlyDisabled(t *testing.T) {
+	core, logs := observer.New(zap.WarnLevel)
+	logger := zap.New(core)
+
+	cfg := boot.NewConfig(boot.WithSection("lua", map[string]any{"cache.enabled": false}))
+	settings := resolveEngineSettings(cfg, logger)
+	assert.False(t, settings.Cache.Enabled, "lua.cache.enabled=false must disable cache")
+	assert.Empty(t, logs.FilterLevelExact(zap.WarnLevel).All(), "must not log any warning when cache is explicitly disabled")
+}
+
+func TestEngineSettings_UnsetDirResolvesUnderMachineCacheDir(t *testing.T) {
+	tempCache := t.TempDir()
+	t.Setenv("WIPPY_CACHE_DIR", tempCache)
+
+	settings := resolveEngineSettings(nil, zap.NewNop())
+	expectedDir := filepath.Join(tempCache, "lua")
+	assert.Equal(t, expectedDir, settings.Cache.Dir)
+}
+
+func TestEngineSettings_ExplicitRelativeDirResolvesAgainstConfigDir(t *testing.T) {
+	configDir := filepath.Join(t.TempDir(), "app-config")
+	cfg := boot.NewConfig(
+		boot.WithSection("lua", map[string]any{"cache.dir": "custom/cache"}),
+		boot.WithSection("boot", map[string]any{"config_dir": configDir}),
+	)
+	settings := resolveEngineSettings(cfg, zap.NewNop())
+	expectedDir := filepath.Join(configDir, "custom/cache")
+	assert.Equal(t, expectedDir, settings.Cache.Dir)
+}
+
+func TestEngineSettings_UnwritableDirFallback(t *testing.T) {
+	tempDir := t.TempDir()
+	regularFile := filepath.Join(tempDir, "file-not-a-dir")
+	require.NoError(t, os.WriteFile(regularFile, []byte("regular file content"), 0o644))
+
+	unwritableDir := filepath.Join(regularFile, "lua-cache")
+	cfg := boot.NewConfig(
+		boot.WithSection("lua", map[string]any{"cache.dir": unwritableDir}),
+	)
+
+	core, logs := observer.New(zap.WarnLevel)
+	logger := zap.New(core)
+
+	settings := resolveEngineSettings(cfg, logger)
+	assert.False(t, settings.Cache.Enabled, "cache must be disabled when dir is unusable")
+
+	warnings := logs.FilterLevelExact(zap.WarnLevel).All()
+	require.Len(t, warnings, 1, "must log exactly one warning")
+	assert.Contains(t, warnings[0].Message, "cache directory unusable")
+	assert.Equal(t, unwritableDir, warnings[0].ContextMap()["dir"])
+	assert.NotEmpty(t, warnings[0].ContextMap()["error"])
+}
+
+func TestEngineSettings_UnresolvableIdentityFallback(t *testing.T) {
+	prev := toolchainIdentityResolver
+	toolchainIdentityResolver = func() (string, error) {
+		return "", errors.New("simulated toolchain identity error")
+	}
+	t.Cleanup(func() {
+		toolchainIdentityResolver = prev
+	})
+
+	core, logs := observer.New(zap.WarnLevel)
+	logger := zap.New(core)
+
+	settings := resolveEngineSettings(nil, logger)
+	assert.False(t, settings.Cache.Enabled, "cache must be disabled when toolchain identity is unresolvable")
+
+	warnings := logs.FilterLevelExact(zap.WarnLevel).All()
+	require.Len(t, warnings, 1, "must log exactly one warning")
+	assert.Contains(t, warnings[0].Message, "toolchain identity unavailable")
+	assert.NotEmpty(t, warnings[0].ContextMap()["error"])
 }

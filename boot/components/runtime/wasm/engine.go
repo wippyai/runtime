@@ -4,7 +4,6 @@ package wasm
 
 import (
 	"context"
-	"os"
 	"path/filepath"
 
 	"github.com/wippyai/runtime/api/boot"
@@ -114,19 +113,6 @@ func EngineWithHostProfiles(hostProfiles ...wasmcomponent.HostProfile) boot.Comp
 	})
 }
 
-func probeCacheDir(dir string) error {
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
-	f, err := os.CreateTemp(dir, ".probe-*")
-	if err != nil {
-		return err
-	}
-	probeName := f.Name()
-	_ = f.Close()
-	return os.Remove(probeName)
-}
-
 func resolveCacheFactory(cfg boot.Config, logger *zap.Logger) wasmcomponent.CompilationCacheFactory {
 	enabled := true
 	dir := filepath.Join(cachedir.Dir(), "wasm")
@@ -145,7 +131,7 @@ func resolveCacheFactory(cfg boot.Config, logger *zap.Logger) wasmcomponent.Comp
 	if !enabled {
 		return wasmcomponent.InMemoryCompilationCache
 	}
-	if err := probeCacheDir(dir); err != nil {
+	if err := cachedir.Probe(dir); err != nil {
 		logger.Warn("wasm compilation cache directory unusable; falling back to in-memory cache",
 			zap.String("dir", dir),
 			zap.Error(err),
