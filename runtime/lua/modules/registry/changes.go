@@ -332,34 +332,20 @@ func changesApply(l *lua.LState) int {
 	return 2
 }
 
-// authorizeDurableChanges holds a durable changeset to the same shape the
-// overlay path already enforces: a coarse apply grant plus one grant per
-// operation naming the entry, so policy can scope write authority by entry.
+// authorizeDurableChanges evaluates registry.apply once per operation with the
+// entry ID as the resource, the way registry.get is evaluated per entry. A
+// policy granting registry.apply on every resource behaves as before; a policy
+// scoped to a namespace pattern grants write authority over those entries only.
+// One denied operation refuses the whole changeset.
 func authorizeDurableChanges(l *lua.LState, changes *Changes) *lua.Error {
-	if !security.IsAllowed(l.Context(), "registry.apply", "", nil) {
-		return lua.NewLuaError(l, "not allowed to apply registry changes").
-			WithKind(lua.PermissionDenied).
-			WithRetryable(false)
-	}
 	for _, op := range changes.ops {
-		kind := op.Entry.Kind
-		if op.Kind == regapi.EntryUpdate || op.Kind == regapi.EntryDelete {
-			stored, getErr := changes.snapshot.GetEntry(op.Entry.ID)
-			if getErr != nil {
-				return lua.NewLuaError(l, "registry entry not found: "+op.Entry.ID.String()).
-					WithKind(lua.NotFound).
-					WithRetryable(false).
-					WithDetails(map[string]any{"entry_id": op.Entry.ID.String()})
-			}
-			kind = stored.Kind
+		if security.IsAllowed(l.Context(), "registry.apply", op.Entry.ID.String(), nil) {
+			continue
 		}
-		action := "registry." + operationVerb(op.Kind) + "." + kind
-		if !security.IsAllowed(l.Context(), action, op.Entry.ID.String(), nil) {
-			return lua.NewLuaError(l, "not allowed to "+operationVerb(op.Kind)+" "+kind+" entry: "+op.Entry.ID.String()).
-				WithKind(lua.PermissionDenied).
-				WithRetryable(false).
-				WithDetails(map[string]any{"entry_id": op.Entry.ID.String(), "action": action})
-		}
+		return lua.NewLuaError(l, "not allowed to "+operationVerb(op.Kind)+" registry entry: "+op.Entry.ID.String()).
+			WithKind(lua.PermissionDenied).
+			WithRetryable(false).
+			WithDetails(map[string]any{"entry_id": op.Entry.ID.String(), "action": "registry.apply"})
 	}
 	return nil
 }

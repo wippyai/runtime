@@ -582,15 +582,12 @@ digest, so what was reviewed is what gets applied.
 | Sort operations failed | errors.INTERNAL | no |
 | Apply changes failed | errors.INTERNAL | no |
 
-**Security:** a durable `plan()` or `apply()` requires
-
-- `registry.apply` (resource `""`)
-- `registry.create.<kind>`, `registry.update.<kind>`, or
-  `registry.delete.<kind>` on each entry ID, where `<kind>` is the entry kind
-  in the snapshot for updates and deletes
-
-One denied operation refuses the whole changeset. This mirrors the overlay
-actions listed under `registry.overlay()`.
+**Security:** a durable `plan()` or `apply()` evaluates `registry.apply` once
+per operation with the entry ID as the resource, the way `registry.get` is
+evaluated per entry. A policy that grants `registry.apply` on every resource
+behaves as it always has; a policy scoped to a namespace pattern grants write
+authority over those entries only. One denied operation refuses the whole
+changeset, and the error names the entry in `details.entry_id`.
 
 ### Version
 
