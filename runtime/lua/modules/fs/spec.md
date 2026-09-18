@@ -304,6 +304,10 @@ Writes data to a file.
 | mode | string | "w" | Write mode: "w", "wx", "a" |
 | atomic | boolean | false | Publish the whole file atomically |
 
+The table is validated in full. An unknown field, or a field of the wrong
+type, is `errors.INVALID` and nothing is written, so a misspelled `atomic` is
+never downgraded to an ordinary truncating write.
+
 **Modes:**
 - `"w"` - Write, create or truncate existing
 - `"wx"` - Write exclusive, fails if file exists
@@ -322,17 +326,21 @@ called, and creates the file with mode `0644`.
 
 A filesystem that does not provide the capability returns
 `errors.UNAVAILABLE`. When the filesystem reports that the file was published
-but its directory sync failed, the error is `errors.UNAVAILABLE` with text
-beginning `atomic write published; sync status uncertain` and
-`err:details().published == true`; publication has happened but durability is
-uncertain, so callers must inspect state before retrying. The structured
-detail lets callers detect this outcome without parsing error text.
+but the step that makes the rename durable failed, the error is
+`errors.UNAVAILABLE` with text beginning `atomic write published; sync status
+uncertain` and `err:details().published == true`. The new content is in place;
+only its survival across a crash is unknown. Publishing the same content again
+is safe, since a whole-file replacement is idempotent. The structured detail
+lets callers detect this outcome without parsing error text.
 
-The directory filesystem provides this capability on Linux and macOS. It pins
-each parent directory without following symbolic-link parents, refuses
-nonregular existing targets (including final symbolic links), writes the
-temporary file, syncs it, atomically renames it, and syncs the parent
-directory. It demands the same write capability as an ordinary write.
+The directory filesystem provides this capability on Linux, macOS and
+Windows. It pins each parent directory without following symbolic-link
+parents, refuses nonregular existing targets (including final symbolic links),
+writes the temporary file, syncs it, and atomically renames it. The rename is
+then made durable: on Linux and macOS by syncing the parent directory, on
+Windows by flushing the published file, which forces the NTFS journal holding
+the rename to stable storage. It demands the same write capability as an
+ordinary write.
 
 **Errors (structured):**
 
@@ -343,11 +351,12 @@ directory. It demands the same write capability as an ordinary write.
 | data argument is nil | errors.INVALID | no |
 | invalid mode | errors.INVALID | no |
 | invalid input type | errors.INVALID | no |
+| unknown or mistyped option field | errors.INVALID | no |
 | atomic with mode other than "w" | errors.INVALID | no |
 | atomic with non-string data | errors.INVALID | no |
 | atomic input exceeds 8 MiB | errors.INVALID | no |
 | atomic on a filesystem without the capability | errors.UNAVAILABLE | no |
-| atomic published, directory sync failed | errors.UNAVAILABLE | no |
+| atomic published, durability sync failed | errors.UNAVAILABLE | no |
 | failed to get reader | errors.INTERNAL | no |
 | failed to open destination | errors.NOT_FOUND | no |
 | copy failed | errors.INTERNAL | no |

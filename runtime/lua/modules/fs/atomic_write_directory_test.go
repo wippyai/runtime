@@ -1,4 +1,4 @@
-//go:build linux || darwin
+//go:build linux || darwin || windows
 
 // SPDX-License-Identifier: MPL-2.0
 

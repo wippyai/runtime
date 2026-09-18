@@ -1,4 +1,4 @@
-//go:build linux || darwin
+//go:build linux || darwin || windows
 
 // SPDX-License-Identifier: MPL-2.0
 
@@ -57,7 +57,7 @@ func (d *FS) atomicParent(name string) (*os.Root, string, error) {
 	return parent, parts[len(parts)-1], nil
 }
 
-// atomicRename and atomicSyncDirectory are seams for the two outcomes a real
+// atomicRename and atomicSyncPublication are seams for the two outcomes a real
 // directory cannot be driven into once the temporary file exists: a refused
 // publication that must roll back, and a publication whose durability is
 // unknown.
@@ -65,13 +65,7 @@ var (
 	atomicRename = func(parent *os.Root, oldName, newName string) error {
 		return parent.Rename(oldName, newName)
 	}
-	atomicSyncDirectory = func(parent *os.Root) error {
-		f, err := parent.Open(".")
-		if err != nil {
-			return err
-		}
-		return errors.Join(f.Sync(), f.Close())
-	}
+	atomicSyncPublication = syncPublication
 )
 
 // atomicRegular accepts a missing target and a regular one; everything else,
@@ -126,7 +120,7 @@ func publishAtomic(parent *os.Root, name string, data []byte, mode fs.FileMode) 
 		return err
 	}
 	unpublished = false
-	if err := atomicSyncDirectory(parent); err != nil {
+	if err := atomicSyncPublication(parent, name); err != nil {
 		return errors.Join(fsapi.ErrPublishedSyncFailed, err)
 	}
 	return nil

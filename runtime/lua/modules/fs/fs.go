@@ -461,7 +461,12 @@ func fsWritefile(l *lua.LState) int {
 		l.Push(lua.NewLuaError(l, "data argument required").WithKind(lua.Invalid))
 		return 2
 	}
-	mode, atomic := writefileOptions(l, 4)
+	mode, atomic, optErr := writefileOptions(l, 4)
+	if optErr != nil {
+		l.Push(lua.LFalse)
+		l.Push(optErr)
+		return 2
+	}
 	var flag int
 	switch mode {
 	case "w":
@@ -539,21 +544,52 @@ func fsWritefile(l *lua.LState) int {
 
 // writefileOptions reads the fourth writefile argument, which is either the
 // write mode as a string or an option table carrying that mode plus the atomic
-// publication request.
-func writefileOptions(l *lua.LState, index int) (mode string, atomic bool) {
+// publication request. A table is validated in full: a field the call does not
+// know, or a value of the wrong type, is an error, so a request for atomic
+// publication is never dropped in favor of an ordinary write.
+func writefileOptions(l *lua.LState, index int) (mode string, atomic bool, optErr *lua.Error) {
 	mode = "w"
 	arg := l.Get(index)
 	if arg == lua.LNil {
-		return mode, false
+		return mode, false, nil
 	}
 	table, ok := arg.(*lua.LTable)
 	if !ok {
-		return l.CheckString(index), false
+		return l.CheckString(index), false, nil
 	}
-	if v := table.RawGetString("mode"); v != lua.LNil {
-		mode = v.String()
+	invalid := func(message string) *lua.Error {
+		return lua.NewLuaError(l, message).WithKind(lua.Invalid).WithRetryable(false)
 	}
-	return mode, lua.LVAsBool(table.RawGetString("atomic"))
+	table.ForEach(func(key, value lua.LValue) {
+		if optErr != nil {
+			return
+		}
+		name, isString := key.(lua.LString)
+		switch {
+		case !isString:
+			optErr = invalid("writefile options must be a table of named fields")
+		case name == "mode":
+			text, isText := value.(lua.LString)
+			if !isText {
+				optErr = invalid("writefile option 'mode' must be a string")
+				return
+			}
+			mode = string(text)
+		case name == "atomic":
+			flag, isFlag := value.(lua.LBool)
+			if !isFlag {
+				optErr = invalid("writefile option 'atomic' must be a boolean")
+				return
+			}
+			atomic = bool(flag)
+		default:
+			optErr = invalid("unknown writefile option: " + string(name))
+		}
+	})
+	if optErr != nil {
+		return "", false, optErr
+	}
+	return mode, atomic, nil
 }
 
 // writefileAtomic delegates the complete replacement to the filesystem's

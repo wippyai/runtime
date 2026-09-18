@@ -24,5 +24,5 @@ var (
 
 var (
 	ErrAtomicWriteUnsupported = errors.New("atomic file publication is unsupported")
-	ErrPublishedSyncFailed    = errors.New("file published but directory sync failed")
+	ErrPublishedSyncFailed    = errors.New("file published but durability sync failed")
 )

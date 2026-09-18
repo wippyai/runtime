@@ -282,3 +282,33 @@ func TestFSWritefileAtomicPublishedSyncFailureIsUncertain(t *testing.T) {
 	assert.Equal(t, true, luaErr.Details()["published"])
 	assert.True(t, backend.called)
 }
+
+// A misspelled or mistyped option must never degrade silently into an ordinary
+// truncating write: the caller asked for something the call cannot honor.
+func TestFSWritefileRejectsMalformedOptionTable(t *testing.T) {
+	for name, options := range map[string]map[string]lua.LValue{
+		"unknown field":        {"atomik": lua.LTrue},
+		"unknown beside known": {"atomic": lua.LTrue, "sync": lua.LTrue},
+		"atomic not a boolean": {"atomic": lua.LString("yes")},
+		"mode not a string":    {"mode": lua.LNumber(1)},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f, backend, cleanup := newAtomicTestFS(t, nil)
+			defer cleanup()
+			require.NoError(t, os.WriteFile(filepath.Join(backend.root, "config"), []byte("old"), 0644))
+
+			l, nret := callWrite(t, f, "config", lua.LString("new"), options)
+			defer l.Close()
+			require.Equal(t, 2, nret)
+			assert.Equal(t, lua.LFalse, l.Get(-2))
+			luaErr := requireLuaError(t, l.Get(-1))
+			assert.Equal(t, lua.Invalid, luaErr.Kind())
+			assert.Equal(t, lua.TernaryFalse, luaErr.Retryable())
+			assert.False(t, backend.called)
+
+			data, err := os.ReadFile(filepath.Join(backend.root, "config"))
+			require.NoError(t, err)
+			assert.Equal(t, "old", string(data), "a refused call leaves the file untouched")
+		})
+	}
+}
