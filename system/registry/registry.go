@@ -128,6 +128,87 @@ func (r *Reg) sortWithIndex(fromState registry.State, cs registry.ChangeSet) (re
 	return r.builder.SortChangeSet(fromState, cs)
 }
 
+// transitionBase is the set of registry fields one transition starts from.
+//
+// Lock discipline: applyMu serializes every writer (Apply, ApplyVersion,
+// ApplyOverlay, LoadState), and Runner.Transition returns a new state instead
+// of mutating r.state. A writer therefore holds r.mu only to read these fields
+// and to publish the result; entry-kind handlers run with r.mu free, so readers
+// are served throughout and a handler may itself read the registry.
+type transitionBase struct {
+	version    registry.Version
+	resolution *registry.DependencyResolution
+	state      registry.State
+}
+
+// baseLocked captures the fields a transition starts from. Caller must hold
+// r.mu. The state slice is captured by identity, not copied: it is what the
+// transition is dispatched against and what publish asserts against.
+func (r *Reg) baseLocked() transitionBase {
+	return transitionBase{
+		state:      r.state,
+		version:    r.currentVersion,
+		resolution: r.currentResolution,
+	}
+}
+
+// captureBase reads the fields a transition starts from. Caller must hold
+// applyMu, which keeps the captured values authoritative for the whole
+// transition even though r.mu is released while handlers work.
+func (r *Reg) captureBase() transitionBase {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.baseLocked()
+}
+
+// checkBaseVersionFence rejects a transition whose base version is no longer
+// the registry head. applyMu cannot be held by two writers at once, so the head
+// cannot move between captureBase and this check; the fence remains the
+// explicit statement of that invariant and catches any writer that reaches
+// registry state without the serializer.
+func (r *Reg) checkBaseVersionFence(baseVersion registry.Version) error {
+	if baseVersion == nil {
+		return nil
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if r.currentVersion == nil || r.currentVersion.ID() == baseVersion.ID() {
+		return nil
+	}
+	return NewConcurrentApplyError(baseVersion.ID(), r.currentVersion.ID())
+}
+
+// publish installs the result of one completed transition under the write lock.
+// Caller must hold applyMu and must not hold r.mu. install runs only after the
+// registry is confirmed to still hold the state the transition started from; a
+// mismatch means some writer bypassed applyMu, which no caller can recover
+// from, so it surfaces as an internal error instead of a silent overwrite.
+func (r *Reg) publish(base transitionBase, install func()) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if !sameTransitionBase(r.state, base.state) {
+		return NewTransitionBaseMismatchError(len(base.state), len(r.state))
+	}
+
+	install()
+	r.publishSnapshot()
+	return nil
+}
+
+// sameTransitionBase reports whether state is still the slice the transition
+// started from. Only applyMu holders replace r.state, so slice identity is the
+// entire invariant and entry contents are not compared.
+func sameTransitionBase(current, base registry.State) bool {
+	if len(current) != len(base) {
+		return false
+	}
+	if len(current) == 0 {
+		return true
+	}
+	return &current[0] == &base[0]
+}
+
 // --- EntryReader Interface Implementation ---
 
 func (r *Reg) GetAllEntries() ([]registry.Entry, error) {
@@ -196,12 +277,11 @@ func (r *Reg) Apply(ctx context.Context, changes registry.ChangeSet) (registry.V
 		resolutionChanged bool
 	)
 
-	r.mu.RLock()
-	snapshot = make(registry.State, len(r.state))
-	copy(snapshot, r.state)
-	baseVersion = r.currentVersion
-	resolution = r.currentResolution
-	r.mu.RUnlock()
+	base := r.captureBase()
+	snapshot = make(registry.State, len(base.state))
+	copy(snapshot, base.state)
+	baseVersion = base.version
+	resolution = base.resolution
 	changes = normalizeRegistryMetadata(changes, snapshot)
 
 	if len(r.directivesByKind) > 0 {
@@ -258,27 +338,24 @@ func (r *Reg) Apply(ctx context.Context, changes registry.ChangeSet) (registry.V
 		return nil, err
 	}
 
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	if baseVersion != nil && r.currentVersion != nil && r.currentVersion.ID() != baseVersion.ID() {
+	if fenceErr := r.checkBaseVersionFence(baseVersion); fenceErr != nil {
 		if planner != nil {
 			planner.RollbackEffects(ctx, preparedEff)
 		}
-		return nil, NewConcurrentApplyError(baseVersion.ID(), r.currentVersion.ID())
+		return nil, fenceErr
 	}
 
 	var newVersion registry.Version
 	if len(historyOps) > 0 {
-		newVersion = version.FromParent(r.currentVersion, r.nextVersionID(r.currentVersion))
+		newVersion = version.FromParent(base.version, r.nextVersionID(base.version))
 	}
 
 	r.log.Debug("calling runner.Transition")
-	newState, err := r.runner.Transition(ctx, r.state, allOps)
+	newState, err := r.runner.Transition(ctx, base.state, allOps)
 	if err != nil {
 		r.log.Error("failed to apply changes", zap.Error(err))
 		if newState != nil && ctx.Err() == nil {
-			if rerr := r.rollback(ctx, newState, r.state); rerr != nil {
+			if rerr := r.rollback(ctx, newState, base.state); rerr != nil {
 				if planner != nil {
 					planner.RollbackEffects(ctx, preparedEff)
 				}
@@ -294,7 +371,7 @@ func (r *Reg) Apply(ctx context.Context, changes registry.ChangeSet) (registry.V
 	if planner != nil {
 		if err := planner.CommitEffects(ctx, preparedEff); err != nil {
 			r.log.Error("failed to commit effects", zap.Error(err))
-			if rerr := r.rollback(ctx, newState, r.state); rerr != nil {
+			if rerr := r.rollback(ctx, newState, base.state); rerr != nil {
 				planner.RollbackEffects(ctx, preparedEff)
 				return nil, NewCommitEffectsError(err, rerr)
 			}
@@ -306,7 +383,7 @@ func (r *Reg) Apply(ctx context.Context, changes registry.ChangeSet) (registry.V
 	if len(historyOps) > 0 {
 		r.log.Debug("saving new version", zap.Any("new_version", newVersion))
 
-		enrichedChanges := r.enrichChangeset(historyOps)
+		enrichedChanges := r.enrichChangeset(base.state, historyOps)
 		var saveErr error
 		if resolutionChanged {
 			resolutionHistory, ok := r.history.(registry.ResolutionHistory)
@@ -320,7 +397,7 @@ func (r *Reg) Apply(ctx context.Context, changes registry.ChangeSet) (registry.V
 		}
 		if saveErr != nil {
 			r.log.Error("failed to save new version", zap.Error(saveErr))
-			if rerr := r.rollback(ctx, newState, r.state); rerr != nil {
+			if rerr := r.rollback(ctx, newState, base.state); rerr != nil {
 				if planner != nil {
 					planner.RollbackEffects(ctx, preparedEff)
 				}
@@ -337,25 +414,31 @@ func (r *Reg) Apply(ctx context.Context, changes registry.ChangeSet) (registry.V
 			}
 		}
 
-		r.state = newState
-		r.rebuildIndex()
-		r.patchDepIndex(allOps)
-		r.currentVersion = newVersion
-		r.currentResolution = resolution
-		r.publishSnapshot()
+		if publishErr := r.publish(base, func() {
+			r.state = newState
+			r.rebuildIndex()
+			r.patchDepIndex(allOps)
+			r.currentVersion = newVersion
+			r.currentResolution = resolution
+		}); publishErr != nil {
+			return nil, publishErr
+		}
 		return newVersion, nil
 	}
 
-	r.state = newState
-	r.rebuildIndex()
-	r.patchDepIndex(allOps)
-	r.publishSnapshot()
+	if publishErr := r.publish(base, func() {
+		r.state = newState
+		r.rebuildIndex()
+		r.patchDepIndex(allOps)
+	}); publishErr != nil {
+		return nil, publishErr
+	}
 	if planner != nil {
 		if finalizeErr := planner.FinalizeEffects(ctx, preparedEff); finalizeErr != nil {
 			r.log.Warn("failed to finalize effects after baseline transition", zap.Error(finalizeErr))
 		}
 	}
-	return r.currentVersion, nil
+	return base.version, nil
 }
 
 // normalizeRegistryMetadata prevents entry-authored changes from assigning
@@ -407,11 +490,10 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 		baseVersion registry.Version
 	)
 
-	r.mu.RLock()
-	snapshot = make(registry.State, len(r.state))
-	copy(snapshot, r.state)
-	baseVersion = r.currentVersion
-	r.mu.RUnlock()
+	base := r.captureBase()
+	snapshot = make(registry.State, len(base.state))
+	copy(snapshot, base.state)
+	baseVersion = base.version
 
 	if baseVersion != nil && baseVersion.ID() == v.ID() {
 		if cas, ok := r.history.(registry.HeadCASHistory); ok {
@@ -589,21 +671,18 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 		return preflightErr
 	}
 
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	if baseVersion != nil && r.currentVersion != nil && r.currentVersion.ID() != baseVersion.ID() {
+	if fenceErr := r.checkBaseVersionFence(baseVersion); fenceErr != nil {
 		if planner != nil {
 			planner.RollbackEffects(ctx, preparedEff)
 		}
-		return NewConcurrentApplyError(baseVersion.ID(), r.currentVersion.ID())
+		return fenceErr
 	}
 
-	newState, err := r.runner.Transition(ctx, r.state, allOps)
+	newState, err := r.runner.Transition(ctx, base.state, allOps)
 	if err != nil {
 		r.log.Error("failed to apply squashed changeset", zap.Error(err))
 		if newState != nil && ctx.Err() == nil {
-			if rerr := r.rollback(ctx, newState, r.state); rerr != nil {
+			if rerr := r.rollback(ctx, newState, base.state); rerr != nil {
 				if planner != nil {
 					planner.RollbackEffects(ctx, preparedEff)
 				}
@@ -619,7 +698,7 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 	if planner != nil {
 		if err := planner.CommitEffects(ctx, preparedEff); err != nil {
 			r.log.Error("failed to commit effects", zap.Error(err))
-			if rerr := r.rollback(ctx, newState, r.state); rerr != nil {
+			if rerr := r.rollback(ctx, newState, base.state); rerr != nil {
 				planner.RollbackEffects(ctx, preparedEff)
 				return NewCommitEffectsError(err, rerr)
 			}
@@ -637,7 +716,7 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 	if headUpdateErr != nil {
 		headErr := NewSetHeadError(targetVersion.ID(), headUpdateErr)
 		var compensationErr error
-		if rollbackErr := r.rollback(ctx, newState, r.state); rollbackErr != nil {
+		if rollbackErr := r.rollback(ctx, newState, base.state); rollbackErr != nil {
 			compensationErr = errors.Join(compensationErr, rollbackErr)
 		}
 		if planner != nil {
@@ -654,12 +733,15 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 		}
 	}
 
-	r.state = newState
-	r.rebuildIndex()
-	r.rebuildDepIndex()
-	r.currentVersion = targetVersion
-	r.currentResolution = targetResolution
-	r.publishSnapshot()
+	if publishErr := r.publish(base, func() {
+		r.state = newState
+		r.rebuildIndex()
+		r.rebuildDepIndex()
+		r.currentVersion = targetVersion
+		r.currentResolution = targetResolution
+	}); publishErr != nil {
+		return publishErr
+	}
 
 	r.log.Debug("version applied successfully", zap.Uint("version", targetVersion.ID()))
 	return nil
@@ -784,8 +866,7 @@ func (r *Reg) LoadState(ctx context.Context, baseline registry.State, targetVers
 	r.applyMu.Lock()
 	defer r.applyMu.Unlock()
 
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	base := r.captureBase()
 
 	allocatorVersion := targetVersion.ID()
 	if bounds, ok := r.history.(registry.VersionIDBounds); ok {
@@ -967,11 +1048,11 @@ func (r *Reg) LoadState(ctx context.Context, baseline registry.State, targetVers
 	}
 
 	finalState := topology.StateMapToSlice(stateMap)
-	newState, err := r.transitionState(ctx, r.state, finalState)
+	newState, err := r.transitionState(ctx, base.state, finalState)
 	if err != nil {
 		r.log.Error("failed to load state", zap.String("version", targetVersion.String()), zap.Error(err))
 		if newState != nil && ctx.Err() == nil {
-			if rerr := r.rollback(ctx, newState, r.state); rerr != nil {
+			if rerr := r.rollback(ctx, newState, base.state); rerr != nil {
 				if planner != nil {
 					planner.RollbackEffects(ctx, preparedEff)
 				}
@@ -987,7 +1068,7 @@ func (r *Reg) LoadState(ctx context.Context, baseline registry.State, targetVers
 	if planner != nil {
 		if err := planner.CommitEffects(ctx, preparedEff); err != nil {
 			r.log.Error("failed to commit load-state effects", zap.Error(err))
-			if rerr := r.rollback(ctx, newState, r.state); rerr != nil {
+			if rerr := r.rollback(ctx, newState, base.state); rerr != nil {
 				planner.RollbackEffects(ctx, preparedEff)
 				return NewCommitEffectsError(err, rerr)
 			}
@@ -1005,7 +1086,7 @@ func (r *Reg) LoadState(ctx context.Context, baseline registry.State, targetVers
 	}
 	if headCheckErr != nil {
 		var rollbackErr error
-		if transitionErr := r.rollback(ctx, newState, r.state); transitionErr != nil {
+		if transitionErr := r.rollback(ctx, newState, base.state); transitionErr != nil {
 			rollbackErr = transitionErr
 		}
 		if planner != nil {
@@ -1019,27 +1100,30 @@ func (r *Reg) LoadState(ctx context.Context, baseline registry.State, targetVers
 		}
 	}
 
-	r.state = newState
-	r.baseline = append(registry.State(nil), baseline...)
-	// LoadState is the cold/reinitialization boundary. Overlays are deliberately
-	// process-local and their owning controllers reconcile them after boot.
-	r.overlays = make(map[string]registry.State)
-	r.overlayOwners = make(map[registry.ID]string)
-	r.overlayGeneration = make(map[string]uint64)
-	// Invalidate snapshots retained across an explicit reload. A newly
-	// constructed registry starts at epoch zero; a live registry never reuses a
-	// generation token.
-	if r.stateLoaded || r.overlayEpoch > 0 {
-		r.overlayEpoch++
+	if publishErr := r.publish(base, func() {
+		r.state = newState
+		r.baseline = append(registry.State(nil), baseline...)
+		// LoadState is the cold/reinitialization boundary. Overlays are deliberately
+		// process-local and their owning controllers reconcile them after boot.
+		r.overlays = make(map[string]registry.State)
+		r.overlayOwners = make(map[registry.ID]string)
+		r.overlayGeneration = make(map[string]uint64)
+		// Invalidate snapshots retained across an explicit reload. A newly
+		// constructed registry starts at epoch zero; a live registry never reuses a
+		// generation token.
+		if r.stateLoaded || r.overlayEpoch > 0 {
+			r.overlayEpoch++
+		}
+		r.overlayFloor = r.overlayEpoch
+		r.stateLoaded = true
+		r.rebuildIndex()
+		r.rebuildDepIndex()
+		r.currentVersion = targetVersion
+		r.currentResolution = resolution
+		r.versionNum.Store(uint64(allocatorVersion))
+	}); publishErr != nil {
+		return publishErr
 	}
-	r.overlayFloor = r.overlayEpoch
-	r.stateLoaded = true
-	r.rebuildIndex()
-	r.rebuildDepIndex()
-	r.currentVersion = targetVersion
-	r.currentResolution = resolution
-	r.versionNum.Store(uint64(allocatorVersion))
-	r.publishSnapshot()
 
 	return nil
 }
@@ -1090,7 +1174,10 @@ func canonicalEntryID(id registry.ID) registry.ID {
 	return id.Canonical()
 }
 
-// rollback state desync between actual state in system and state in history
+// rollback returns the live system to the state a failed transition started
+// from. It drives handlers through the runner, so the caller must hold applyMu
+// and must not hold r.mu; only the desynced partial state is published under
+// the write lock.
 func (r *Reg) rollback(ctx context.Context, from, to registry.State) error {
 	r.log.Debug("attempting to rollback")
 
@@ -1098,6 +1185,9 @@ func (r *Reg) rollback(ctx context.Context, from, to registry.State) error {
 	if err == nil {
 		return nil // success
 	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
 
 	r.state = partial // we remain in a desynced state
 	r.rebuildIndex()
@@ -1156,10 +1246,13 @@ func (r *Reg) nextVersionID(head registry.Version) uint {
 	return uint(r.versionNum.Add(1))
 }
 
-// enrichChangeset creates a copy of the changeset with OriginalEntry populated for reversal
-func (r *Reg) enrichChangeset(changes registry.ChangeSet) registry.ChangeSet {
-	stateMap := make(map[registry.ID]registry.Entry, len(r.state))
-	for _, entry := range r.state {
+// enrichChangeset creates a copy of the changeset with OriginalEntry populated
+// for reversal. The originals come from the state the transition started from,
+// which the caller passes explicitly so history records what the transition
+// actually replaced.
+func (r *Reg) enrichChangeset(state registry.State, changes registry.ChangeSet) registry.ChangeSet {
+	stateMap := make(map[registry.ID]registry.Entry, len(state))
+	for _, entry := range state {
 		stateMap[entry.ID] = entry
 	}
 

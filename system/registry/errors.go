@@ -207,3 +207,12 @@ func NewComputeTransitionError(err error) apierror.Error {
 		WithDetails(attrs.NewBagFrom(map[string]any{"cause": err.Error()})).
 		WithCause(err)
 }
+
+// NewTransitionBaseMismatchError reports that registry state was replaced while
+// a transition was in flight. applyMu is the only writer gate, so this is a
+// serialization defect in a caller rather than a recoverable conflict.
+func NewTransitionBaseMismatchError(expected, actual int) apierror.Error {
+	return apierror.New(apierror.Internal, "registry state changed outside the apply serializer").
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"base_entries": expected, "current_entries": actual}))
+}
