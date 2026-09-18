@@ -305,14 +305,18 @@ func changesApply(l *lua.LState) int {
 		return 2
 	}
 
+	// An explicit apply from Lua is an explicit install: dependency directives
+	// in the changeset may resolve and download from the Hub.
+	ctx := regapi.WithDependencyAccess(l.Context(), regapi.DependencyAccessOnline)
+
 	var (
 		version  regapi.Version
 		applyErr error
 	)
 	if changes.plan != nil {
-		version, applyErr = applier.ApplyPlan(l.Context(), changes.plan)
+		version, applyErr = applier.ApplyPlan(ctx, changes.plan)
 	} else {
-		version, applyErr = applier.ApplyAt(l.Context(), changes.snapshot.version, changes.ops)
+		version, applyErr = applier.ApplyAt(ctx, changes.snapshot.version, changes.ops)
 	}
 	if applyErr != nil {
 		l.Push(lua.LNil)
@@ -390,7 +394,11 @@ func changesPlan(l *lua.LState) int {
 			WithRetryable(false))
 		return 2
 	}
-	plan, err := planner.Plan(l.Context(), changes.snapshot.version, changes.ops)
+	// Planning a dependency directive resolves it and stages its artifacts in
+	// the cache, so the plan runs with the same access the apply gets.
+	ctx := regapi.WithDependencyAccess(l.Context(), regapi.DependencyAccessOnline)
+
+	plan, err := planner.Plan(ctx, changes.snapshot.version, changes.ops)
 	if err != nil {
 		changes.plan = nil
 		l.Push(lua.LNil)
