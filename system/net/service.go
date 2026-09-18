@@ -4,62 +4,68 @@ package net
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"net"
+	"net/netip"
+	"strings"
+	"syscall"
 
 	netapi "github.com/wippyai/runtime/api/net"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/runtime/security"
 )
 
-func isPrivateIP(ip net.IP) bool {
-	if ip == nil {
-		return false
-	}
-	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
-		ip.IsLinkLocalMulticast() || ip.IsUnspecified()
+func isIPNetwork(network string) bool {
+	return strings.HasPrefix(network, "tcp") ||
+		strings.HasPrefix(network, "udp") ||
+		strings.HasPrefix(network, "ip")
 }
 
-func checkPrivateIP(ctx context.Context, address string) error {
-	host, _, err := net.SplitHostPort(address)
-	if err != nil {
-		host = address
+func isPrivateIP(addr netip.Addr) bool {
+	if !addr.IsValid() {
+		return false
 	}
+	addr = addr.Unmap()
+	return addr.IsLoopback() || addr.IsPrivate() || addr.IsLinkLocalUnicast() ||
+		addr.IsLinkLocalMulticast() || addr.IsUnspecified()
+}
 
-	if ip := net.ParseIP(host); ip != nil {
-		if isPrivateIP(ip) {
-			if !security.IsAllowed(ctx, "socket.private_ip", host, nil) {
-				return netapi.ErrAccessDenied
-			}
-		}
-		return nil
+func checkPrivateIPAddress(ctx context.Context, addr netip.Addr) error {
+	addr = addr.Unmap()
+	if isPrivateIP(addr) && !security.IsAllowed(ctx, "socket.private_ip", addr.String(), nil) {
+		return netapi.ErrAccessDenied
 	}
-
-	ips, err := net.DefaultResolver.LookupIP(ctx, "ip", host)
-	if err != nil {
-		return nil
-	}
-
-	for _, ip := range ips {
-		if isPrivateIP(ip) {
-			if !security.IsAllowed(ctx, "socket.private_ip", ip.String(), nil) {
-				return netapi.ErrAccessDenied
-			}
-		}
-	}
-
 	return nil
 }
 
 func checkPrivateLiteral(ctx context.Context, address string) error {
-	host, _, err := net.SplitHostPort(address)
-	if err != nil {
-		host = address
+	host, port, err := net.SplitHostPort(address)
+	if err != nil || port == "" {
+		if err == nil {
+			err = errors.New("missing port in address")
+		}
+		return NewInvalidAddressError(address, err)
 	}
-	if ip := net.ParseIP(host); isPrivateIP(ip) && !security.IsAllowed(ctx, "socket.private_ip", ip.String(), nil) {
-		return netapi.ErrAccessDenied
+	if addr, err := netip.ParseAddr(host); err == nil {
+		return checkPrivateIPAddress(ctx, addr)
 	}
 	return nil
+}
+
+func controlHook(ctx context.Context, network, address string, _ syscall.RawConn) error {
+	if !isIPNetwork(network) {
+		return nil
+	}
+	ap, err := netip.ParseAddrPort(address)
+	if err != nil {
+		if strings.HasPrefix(network, "ip") {
+			if addr, aErr := netip.ParseAddr(address); aErr == nil {
+				return checkPrivateIPAddress(ctx, addr)
+			}
+		}
+		return NewInvalidAddressError(address, err)
+	}
+	return checkPrivateIPAddress(ctx, ap.Addr())
 }
 
 // SecureService enforces security checks before delegating to standard net operations.
@@ -80,18 +86,17 @@ func (s *SecureService) DialContext(ctx context.Context, network, address string
 		}
 		reg := netapi.GetNetworkRegistry(ctx)
 		if reg == nil {
-			return nil, fmt.Errorf("network %q selected without a network registry", networkID)
+			return nil, NewNetworkRegistryMissingError(networkID)
 		}
 		svc, err := reg.GetNetwork(registry.ParseID(networkID))
 		if err != nil {
-			return nil, fmt.Errorf("network %q: %w", networkID, err)
+			return nil, NewNetworkLookupError(networkID, err)
 		}
 		return svc.DialContext(ctx, network, address)
 	}
-	if err := checkPrivateIP(ctx, address); err != nil {
-		return nil, err
+	d := net.Dialer{
+		ControlContext: controlHook,
 	}
-	d := net.Dialer{}
 	return d.DialContext(ctx, network, address)
 }
 
@@ -110,11 +115,11 @@ func (s *SecureService) ListenPacket(ctx context.Context, network, address strin
 	if networkID := netapi.GetDefaultNetwork(ctx); networkID != "" {
 		reg := netapi.GetNetworkRegistry(ctx)
 		if reg == nil {
-			return nil, fmt.Errorf("network %q selected without a network registry", networkID)
+			return nil, NewNetworkRegistryMissingError(networkID)
 		}
 		svc, err := reg.GetNetwork(registry.ParseID(networkID))
 		if err != nil {
-			return nil, fmt.Errorf("network %q: %w", networkID, err)
+			return nil, NewNetworkLookupError(networkID, err)
 		}
 		return svc.ListenPacket(ctx, network, address)
 	}
@@ -129,11 +134,11 @@ func (s *SecureService) LookupHost(ctx context.Context, host string) ([]string, 
 	if networkID := netapi.GetDefaultNetwork(ctx); networkID != "" {
 		reg := netapi.GetNetworkRegistry(ctx)
 		if reg == nil {
-			return nil, fmt.Errorf("network %q selected without a network registry", networkID)
+			return nil, NewNetworkRegistryMissingError(networkID)
 		}
 		svc, err := reg.GetNetwork(registry.ParseID(networkID))
 		if err != nil {
-			return nil, fmt.Errorf("network %q: %w", networkID, err)
+			return nil, NewNetworkLookupError(networkID, err)
 		}
 		return svc.LookupHost(ctx, host)
 	}

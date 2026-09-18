@@ -180,7 +180,7 @@ func testGranularWASIProfiles(d dispatcher.Dispatcher) []wasmcomponent.HostProfi
 func TestLoadWATModule_NoImplicitHostImports(t *testing.T) {
 	ctx := ctxapi.NewRootContext()
 
-	m := NewManager(zap.NewNop(), nil, nil, nil)
+	m := NewManager(zap.NewNop(), nil, nil, nil, wasmcomponent.InMemoryCompilationCache)
 	require.NoError(t, m.Start(ctx))
 	t.Cleanup(m.Stop)
 
@@ -201,7 +201,7 @@ func TestLoadWATModule_NoImplicitHostImports(t *testing.T) {
 func TestLoadWATModule_ComponentOnlyImportRejected(t *testing.T) {
 	ctx := ctxapi.NewRootContext()
 
-	m := NewManager(zap.NewNop(), nil, nil, nil)
+	m := NewManager(zap.NewNop(), nil, nil, nil, wasmcomponent.InMemoryCompilationCache)
 	registerDefaultHostProfiles(t, m)
 	require.NoError(t, m.Start(ctx))
 	t.Cleanup(m.Stop)
@@ -226,7 +226,7 @@ func TestLoadWATModule_ComponentOnlyImportRejected(t *testing.T) {
 func TestEnsureImportHosts_FuncsRequiresRegistry(t *testing.T) {
 	ctx := ctxapi.NewRootContext()
 
-	m := NewManager(zap.NewNop(), nil, nil, nil)
+	m := NewManager(zap.NewNop(), nil, nil, nil, wasmcomponent.InMemoryCompilationCache)
 	registerDefaultHostProfiles(t, m)
 	require.NoError(t, m.Start(ctx))
 	t.Cleanup(m.Stop)
@@ -242,7 +242,7 @@ func TestEnsureImportHosts_FuncsRegistersOnce(t *testing.T) {
 	ctx := ctxapi.NewRootContext()
 	ctx = functionapi.WithRegistry(ctx, noopFunctionRegistry{})
 
-	m := NewManager(zap.NewNop(), nil, nil, nil)
+	m := NewManager(zap.NewNop(), nil, nil, nil, wasmcomponent.InMemoryCompilationCache)
 	registerDefaultHostProfiles(t, m)
 	require.NoError(t, m.Start(ctx))
 	t.Cleanup(m.Stop)
@@ -258,7 +258,7 @@ func TestEnsureImportHosts_FuncsRegistersOnce(t *testing.T) {
 func TestEnsureImportHosts_GranularProfileRegistersOnce(t *testing.T) {
 	ctx := ctxapi.NewRootContext()
 
-	m := NewManager(zap.NewNop(), nil, noopDispatcher{}, nil)
+	m := NewManager(zap.NewNop(), nil, noopDispatcher{}, nil, wasmcomponent.InMemoryCompilationCache)
 	registerDefaultHostProfiles(t, m)
 	require.NoError(t, m.Start(ctx))
 	t.Cleanup(m.Stop)
@@ -274,7 +274,7 @@ func TestEnsureImportHosts_GranularProfileRegistersOnce(t *testing.T) {
 func TestEnsureImportHosts_HTTPRequiresDispatcher(t *testing.T) {
 	ctx := ctxapi.NewRootContext()
 
-	m := NewManager(zap.NewNop(), nil, nil, nil)
+	m := NewManager(zap.NewNop(), nil, nil, nil, wasmcomponent.InMemoryCompilationCache)
 	registerDefaultHostProfiles(t, m)
 	require.NoError(t, m.Start(ctx))
 	t.Cleanup(m.Stop)
@@ -287,7 +287,7 @@ func TestEnsureImportHosts_HTTPRequiresDispatcher(t *testing.T) {
 func TestEnsureImportHosts_EmptyNoRegistration(t *testing.T) {
 	ctx := ctxapi.NewRootContext()
 
-	m := NewManager(zap.NewNop(), nil, nil, nil)
+	m := NewManager(zap.NewNop(), nil, nil, nil, wasmcomponent.InMemoryCompilationCache)
 	var calls int32
 	require.NoError(t, m.RegisterHostProfiles(wasmcomponent.HostProfile{
 		Name:          "test-empty",
@@ -308,7 +308,7 @@ func TestEnsureImportHosts_EmptyNoRegistration(t *testing.T) {
 func TestEnsureImportHosts_RegistersOnceAcrossConcurrentLoads(t *testing.T) {
 	ctx := ctxapi.NewRootContext()
 
-	m := NewManager(zap.NewNop(), nil, nil, nil)
+	m := NewManager(zap.NewNop(), nil, nil, nil, wasmcomponent.InMemoryCompilationCache)
 	var calls int32
 	require.NoError(t, m.RegisterHostProfiles(wasmcomponent.HostProfile{
 		Name:          "test-concurrent",
@@ -351,7 +351,7 @@ func TestEnsureImportHosts_RegistersOnceAcrossConcurrentLoads(t *testing.T) {
 func TestEnsureImportHosts_RegistersOncePerRuntime(t *testing.T) {
 	ctx := ctxapi.NewRootContext()
 
-	m := NewManager(zap.NewNop(), nil, nil, nil)
+	m := NewManager(zap.NewNop(), nil, nil, nil, wasmcomponent.InMemoryCompilationCache)
 	var calls int32
 	require.NoError(t, m.RegisterHostProfiles(wasmcomponent.HostProfile{
 		Name:          "test-per-runtime",
@@ -380,7 +380,7 @@ func TestEnsureImportHosts_RegistersOncePerRuntime(t *testing.T) {
 }
 
 func TestResolveHostProfile(t *testing.T) {
-	m := NewManager(zap.NewNop(), nil, nil, nil)
+	m := NewManager(zap.NewNop(), nil, nil, nil, wasmcomponent.InMemoryCompilationCache)
 	registerDefaultHostProfiles(t, m)
 
 	tests := []struct {

@@ -166,6 +166,21 @@ an owner field to `meta` or otherwise changes user metadata. Kinds handled by a
 registry expansion directive are rejected because their generated entries and
 effects do not have process-local ownership semantics.
 
+An overlay may also shadow a durable entry: `changes:update(entry)` on a
+durable entry replaces its content in effective state, and `changes:delete(id)`
+removes it from effective state. Every other component sees an ordinary entry
+change; only the registry knows the entry is shadowed. Creating an entry whose
+ID already exists durably remains a conflict, shadowing is update and delete
+only.
+
+One durable entry carries at most one shadow. A second overlay that tries to
+shadow it fails with `errors.CONFLICT`, and while a shadow is live a durable
+`apply` that targets the entry is refused as well. Deleting a shadowed entry
+from the overlay that owns it releases the shadow instead of removing it: the
+durable entry of the currently selected version returns to effective state.
+A shadow may not remove an entry other live entries depend on, and a shadowed
+entry may still be depended on durably because the entry itself is resident.
+
 ```lua
 local live, err = registry.overlay("controllers:customer-db")
 if err then return nil, err end
@@ -193,6 +208,11 @@ snapshot operation and apply. Required actions are:
 - `registry.overlay.apply` on the overlay ID
 - `registry.overlay.create.<kind>`, `registry.overlay.update.<kind>`, or
   `registry.overlay.delete.<kind>` on each real entry ID
+- `registry.overlay.shadow` on the durable entry ID, in addition to the
+  per-kind action, when the operation shadows a durable entry the overlay does
+  not own. `<kind>` is the durable entry's kind. Creating overlay entries and
+  mutating entries the overlay already owns, including releasing a shadow, do
+  not need it.
 
 This second, per-entry check prevents a controller authorized for one overlay
 from creating arbitrary kinds or writing outside its allowed namespaces.
@@ -213,7 +233,9 @@ effective registry and continue to require their existing per-entry
 | Owner read/apply denied | errors.PERMISSION_DENIED | no |
 | Entry operation denied | errors.PERMISSION_DENIED | no |
 | Updated/deleted entry absent from snapshot | errors.NOT_FOUND | no |
+| Shadow denied | errors.PERMISSION_DENIED | no |
 | Stale overlay generation | errors.CONFLICT | yes |
+| Entry already shadowed by another overlay | errors.CONFLICT | no |
 | Directive-owned kind | errors.INVALID | no |
 
 ### current_version() → Version, error

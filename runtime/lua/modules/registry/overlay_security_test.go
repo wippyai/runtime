@@ -208,3 +208,117 @@ func TestOverlayChangesOpsReauthorizesRetainedSnapshot(t *testing.T) {
 		assert(err:kind() == errors.PERMISSION_DENIED)
 	`))
 }
+
+// A durable entry the overlay does not own is a shadow target: the per-kind
+// grant alone does not authorize displacing it.
+func TestOverlayShadowRequiresShadowGrant(t *testing.T) {
+	const owner = "data-sources:one"
+	durable := regapi.Entry{
+		ID:   regapi.NewID("app", "setting"),
+		Kind: "db.sql.postgres",
+		Data: payload.NewPayload(map[string]any{"host": "db.internal"}, payload.Golang),
+	}
+	shadowRegistry := func() *mockRegistry {
+		reg := overlayTestRegistry(owner, nil)
+		reg.entries[durable.ID.String()] = durable
+		return reg
+	}
+
+	t.Run("update and shadow grants allow the shadow", func(t *testing.T) {
+		ctx, release := strictOverlayContext(t,
+			"registry.overlay.get\x00"+owner,
+			"registry.overlay.apply\x00"+owner,
+			"registry.overlay.update.db.sql.postgres\x00"+durable.ID.String(),
+			"registry.overlay.shadow\x00"+durable.ID.String(),
+		)
+		defer release()
+		reg := shadowRegistry()
+		runOverlayLua(ctx, t, reg, `
+			local snap = assert(registry.overlay("data-sources:one"))
+			local changes = snap:changes()
+			changes:update({ id = "app:setting", kind = "db.sql.postgres" })
+			local _, err = changes:apply()
+			assert(err == nil)
+		`)
+		require.Len(t, reg.appliedChanges, 1)
+		assert.Equal(t, regapi.EntryUpdate, reg.appliedChanges[0].Kind)
+		assert.Equal(t, durable.ID, reg.appliedChanges[0].Entry.ID)
+	})
+
+	t.Run("update grant alone refuses the shadow", func(t *testing.T) {
+		ctx, release := strictOverlayContext(t,
+			"registry.overlay.get\x00"+owner,
+			"registry.overlay.apply\x00"+owner,
+			"registry.overlay.update.db.sql.postgres\x00"+durable.ID.String(),
+		)
+		defer release()
+		reg := shadowRegistry()
+		runOverlayLua(ctx, t, reg, `
+			local snap = assert(registry.overlay("data-sources:one"))
+			local changes = snap:changes()
+			changes:update({ id = "app:setting", kind = "db.sql.postgres" })
+			local version, err = changes:apply()
+			assert(version == nil and err ~= nil)
+			assert(err:kind() == errors.PERMISSION_DENIED)
+		`)
+		assert.Empty(t, reg.appliedChanges)
+	})
+
+	t.Run("shadow grant alone refuses the shadow", func(t *testing.T) {
+		ctx, release := strictOverlayContext(t,
+			"registry.overlay.get\x00"+owner,
+			"registry.overlay.apply\x00"+owner,
+			"registry.overlay.shadow\x00"+durable.ID.String(),
+		)
+		defer release()
+		reg := shadowRegistry()
+		runOverlayLua(ctx, t, reg, `
+			local snap = assert(registry.overlay("data-sources:one"))
+			local changes = snap:changes()
+			changes:update({ id = "app:setting", kind = "db.sql.postgres" })
+			local version, err = changes:apply()
+			assert(version == nil and err ~= nil)
+			assert(err:kind() == errors.PERMISSION_DENIED)
+		`)
+		assert.Empty(t, reg.appliedChanges)
+	})
+
+	t.Run("shadow delete requires both grants", func(t *testing.T) {
+		ctx, release := strictOverlayContext(t,
+			"registry.overlay.get\x00"+owner,
+			"registry.overlay.apply\x00"+owner,
+			"registry.overlay.delete.db.sql.postgres\x00"+durable.ID.String(),
+		)
+		defer release()
+		reg := shadowRegistry()
+		runOverlayLua(ctx, t, reg, `
+			local snap = assert(registry.overlay("data-sources:one"))
+			local changes = snap:changes()
+			changes:delete("app:setting")
+			local version, err = changes:apply()
+			assert(version == nil and err ~= nil)
+			assert(err:kind() == errors.PERMISSION_DENIED)
+		`)
+		assert.Empty(t, reg.appliedChanges)
+	})
+
+	t.Run("releasing an owned shadow needs no shadow grant", func(t *testing.T) {
+		ctx, release := strictOverlayContext(t,
+			"registry.overlay.get\x00"+owner,
+			"registry.overlay.apply\x00"+owner,
+			"registry.overlay.delete.db.sql.postgres\x00"+durable.ID.String(),
+		)
+		defer release()
+		reg := overlayTestRegistry(owner, regapi.State{durable})
+		reg.entries[durable.ID.String()] = durable
+		runOverlayLua(ctx, t, reg, `
+			local snap = assert(registry.overlay("data-sources:one"))
+			local changes = snap:changes()
+			changes:delete("app:setting")
+			local _, err = changes:apply()
+			assert(err == nil)
+		`)
+		require.Len(t, reg.appliedChanges, 1)
+		assert.Equal(t, regapi.EntryDelete, reg.appliedChanges[0].Kind)
+	})
+}

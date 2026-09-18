@@ -4,13 +4,21 @@ package registry
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/system/registry/topology"
 )
+
+// overlayShadow records one overlay's claim over a durable entry: the durable
+// content the claim displaces and whether the claim also removes that entry
+// from effective state. Releasing the claim restores original.
+type overlayShadow struct {
+	owner    string
+	original registry.Entry
+	removed  bool
+}
 
 // ApplyOverlay applies an owner-scoped process-local changeset without
 // advancing registry history. The entries remain part of effective state until
@@ -59,6 +67,10 @@ func (r *Reg) applyOverlayLocked(ctx context.Context, owner string, expectedGene
 	for id, value := range r.overlayOwners {
 		owners[id] = value
 	}
+	shadows := make(map[registry.ID]overlayShadow, len(r.overlayShadows))
+	for id, value := range r.overlayShadows {
+		shadows[id] = value
+	}
 	r.mu.RUnlock()
 	if currentGeneration != expectedGeneration {
 		return 0, NewOverlayGenerationConflictError(owner, expectedGeneration, currentGeneration)
@@ -69,6 +81,11 @@ func (r *Reg) applyOverlayLocked(ctx context.Context, owner string, expectedGene
 	for id, entryOwner := range owners {
 		candidateOwners[id] = entryOwner
 	}
+	candidateShadows := make(map[registry.ID]overlayShadow, len(shadows)+len(changes))
+	for id, shadow := range shadows {
+		candidateShadows[id] = shadow
+	}
+	transition := make(registry.ChangeSet, 0, len(changes))
 	seen := make(map[registry.ID]struct{}, len(changes))
 	deleted := make(map[registry.ID]struct{})
 	for i := range changes {
@@ -78,45 +95,99 @@ func (r *Reg) applyOverlayLocked(ctx context.Context, owner string, expectedGene
 			original := cloneOverlayEntry(*op.OriginalEntry)
 			op.OriginalEntry = &original
 		}
-		if _, duplicate := seen[op.Entry.ID]; duplicate {
-			return 0, NewOverlayValidationError("registry overlay changes contain a duplicate entry", map[string]any{"entry_id": op.Entry.ID.String()})
+		id := op.Entry.ID
+		if _, duplicate := seen[id]; duplicate {
+			return 0, NewOverlayValidationError("registry overlay changes contain a duplicate entry", map[string]any{"entry_id": id.String()})
 		}
-		seen[op.Entry.ID] = struct{}{}
-		entryOwner, overlayEntry := candidateOwners[op.Entry.ID]
+		seen[id] = struct{}{}
+		entryOwner, overlayEntry := candidateOwners[id]
+		shadow, shadowed := candidateShadows[id]
+		durable, resident := effective[id]
 		switch op.Kind {
 		case registry.EntryCreate:
 			if overlayEntry {
-				return 0, NewOverlayConflictError("registry overlay entry is already owned", map[string]any{"entry_id": op.Entry.ID.String(), "owner": entryOwner})
+				return 0, NewOverlayConflictError("registry overlay entry is already owned", map[string]any{"entry_id": id.String(), "owner": entryOwner})
 			}
-			if _, exists := effective[op.Entry.ID]; exists {
-				return 0, NewOverlayConflictError("registry overlay entry conflicts with durable state", map[string]any{"entry_id": op.Entry.ID.String()})
+			if resident {
+				return 0, NewOverlayConflictError("registry overlay entry conflicts with durable state", map[string]any{"entry_id": id.String()})
 			}
 		case registry.EntryUpdate, registry.EntryDelete:
-			if !overlayEntry || entryOwner != owner {
-				return 0, NewOverlayConflictError("registry overlay owner cannot mutate entry", map[string]any{"entry_id": op.Entry.ID.String(), "owner": owner})
+			if overlayEntry && entryOwner != owner {
+				return 0, NewOverlayConflictError("registry overlay owner cannot mutate entry", map[string]any{"entry_id": id.String(), "owner": owner})
+			}
+			if !overlayEntry && !resident {
+				return 0, NewOverlayConflictError("registry overlay owner cannot mutate entry", map[string]any{"entry_id": id.String(), "owner": owner})
 			}
 		default:
 			return 0, NewOverlayValidationError("unknown registry overlay operation", map[string]any{"operation": op.Kind})
 		}
-		if op.Kind != registry.EntryDelete {
-			if err := validateOverlayEntryMetadata(op.Entry); err != nil {
+
+		// A shadow claims a durable entry: the claimed content is what the
+		// registry restores when the claim is released.
+		var claimed *registry.Entry
+		switch {
+		case shadowed:
+			original := shadow.original
+			claimed = &original
+		case !overlayEntry:
+			original := cloneOverlayEntry(durable)
+			claimed = &original
+		}
+		if claimed != nil {
+			if err := r.validateOverlayKind(id, claimed.Kind); err != nil {
 				return 0, err
 			}
-			if len(r.directivesByKind[op.Entry.Kind]) != 0 {
-				return 0, NewOverlayValidationError("registry overlay entries cannot use directive-owned kinds", map[string]any{
-					"entry_id": op.Entry.ID.String(),
-					"kind":     op.Entry.Kind,
-				})
+		}
+		if op.Kind != registry.EntryDelete {
+			if err := validateOverlayEntryMetadata(op.Entry, claimed); err != nil {
+				return 0, err
+			}
+			if err := r.validateOverlayKind(id, op.Entry.Kind); err != nil {
+				return 0, err
 			}
 		}
+
 		switch op.Kind {
-		case registry.EntryCreate, registry.EntryUpdate:
-			effective[op.Entry.ID] = op.Entry
-			candidateOwners[op.Entry.ID] = owner
+		case registry.EntryCreate:
+			effective[id] = op.Entry
+			candidateOwners[id] = owner
+			transition = append(transition, registry.Operation{Kind: registry.EntryCreate, Entry: op.Entry})
+		case registry.EntryUpdate:
+			entry := op.Entry
+			kind := registry.EntryUpdate
+			if claimed != nil {
+				entry.Registry = claimed.Registry
+				candidateShadows[id] = overlayShadow{owner: owner, original: *claimed}
+				if shadowed && shadow.removed {
+					kind = registry.EntryCreate
+				}
+			}
+			effective[id] = entry
+			candidateOwners[id] = owner
+			transition = append(transition, registry.Operation{Kind: kind, Entry: entry})
 		case registry.EntryDelete:
-			delete(effective, op.Entry.ID)
-			delete(candidateOwners, op.Entry.ID)
-			deleted[op.Entry.ID] = struct{}{}
+			switch {
+			case shadowed:
+				kind := registry.EntryUpdate
+				if shadow.removed {
+					kind = registry.EntryCreate
+				}
+				effective[id] = shadow.original
+				delete(candidateOwners, id)
+				delete(candidateShadows, id)
+				transition = append(transition, registry.Operation{Kind: kind, Entry: shadow.original})
+			case overlayEntry:
+				delete(effective, id)
+				delete(candidateOwners, id)
+				deleted[id] = struct{}{}
+				transition = append(transition, registry.Operation{Kind: registry.EntryDelete, Entry: op.Entry})
+			default:
+				candidateOwners[id] = owner
+				candidateShadows[id] = overlayShadow{owner: owner, original: *claimed, removed: true}
+				delete(effective, id)
+				deleted[id] = struct{}{}
+				transition = append(transition, registry.Operation{Kind: registry.EntryDelete, Entry: *claimed})
+			}
 		}
 	}
 	if len(deleted) != 0 {
@@ -124,11 +195,11 @@ func (r *Reg) applyOverlayLocked(ctx context.Context, owner string, expectedGene
 			return 0, err
 		}
 	}
-	if err := r.validateOverlayComposition(effective, candidateOwners); err != nil {
+	if err := r.validateOverlayComposition(effective, candidateOwners, candidateShadows); err != nil {
 		return 0, err
 	}
 
-	sorted, err := r.sortWithIndex(snapshot, changes)
+	sorted, err := r.sortWithIndex(snapshot, transition)
 	if err != nil {
 		return 0, NewSortChangesError(err)
 	}
@@ -139,14 +210,14 @@ func (r *Reg) applyOverlayLocked(ctx context.Context, owner string, expectedGene
 	if err != nil {
 		if newState != nil && ctx.Err() == nil {
 			if rollbackErr := r.rollback(ctx, newState, r.state); rollbackErr != nil {
-				r.reconcileOverlayIndexesAfterFailedRollback(owner, owners, changes)
+				r.reconcileOverlayIndexesAfterFailedRollback(owner, owners, candidateOwners, shadows, candidateShadows)
 				return 0, NewApplyChangesError(err, rollbackErr)
 			}
 		}
 		return 0, NewApplyChangesError(err, nil)
 	}
 
-	r.rebuildOverlayIndexes(candidateOwners, newState)
+	r.rebuildOverlayIndexes(candidateOwners, candidateShadows, newState)
 	nextGeneration := r.bumpOverlayGeneration(owner)
 	r.state = newState
 	r.rebuildIndex()
@@ -203,22 +274,44 @@ func cloneOverlayEntry(entry registry.Entry) registry.Entry {
 	return entry
 }
 
-func validateOverlayEntryMetadata(entry registry.Entry) error {
-	if entry.Registry != (registry.EntryMetadata{}) {
-		return NewOverlayValidationError("registry overlay entry cannot set registry metadata", map[string]any{
-			"entry_id": entry.ID.String(),
-		})
+// validateOverlayEntryMetadata keeps registry metadata out of overlay-authored
+// entries. A shadow carries the claimed durable entry's metadata, so an owner
+// may round-trip the entry it reads back from its overlay.
+func validateOverlayEntryMetadata(entry registry.Entry, claimed *registry.Entry) error {
+	if entry.Registry == (registry.EntryMetadata{}) {
+		return nil
 	}
-	return nil
+	if claimed != nil && entry.Registry == claimed.Registry {
+		return nil
+	}
+	return NewOverlayValidationError("registry overlay entry cannot set registry metadata", map[string]any{
+		"entry_id": entry.ID.String(),
+	})
 }
 
-func (r *Reg) validateOverlayComposition(effective registry.StateMap, owners map[registry.ID]string) error {
+// validateOverlayKind keeps directive-owned kinds out of overlays, both for
+// overlay-authored entries and for the durable entries a shadow claims.
+func (r *Reg) validateOverlayKind(id registry.ID, kind registry.Kind) error {
+	if len(r.directivesByKind[kind]) == 0 {
+		return nil
+	}
+	return NewOverlayValidationError("registry overlay entries cannot use directive-owned kinds", map[string]any{
+		"entry_id": id.String(),
+		"kind":     kind,
+	})
+}
+
+// validateOverlayComposition keeps process-local entries out of the durable
+// dependency graph. A shadowed entry is exempt as a target: the durable entry
+// is still resident, only its content is process-local.
+func (r *Reg) validateOverlayComposition(effective registry.StateMap, owners map[registry.ID]string, shadows map[registry.ID]overlayShadow) error {
 	if len(owners) == 0 {
 		return nil
 	}
 	return topology.VisitDependencies(effective, r.resolver, func(source, target registry.ID) error {
 		sourceOwner, sourceOverlay := owners[source]
 		targetOwner, targetOverlay := owners[target]
+		_, targetShadow := shadows[target]
 		switch {
 		case sourceOverlay && targetOverlay && sourceOwner != targetOwner:
 			return NewOverlayConflictError("registry overlay dependency crosses owner boundary", map[string]any{
@@ -227,7 +320,7 @@ func (r *Reg) validateOverlayComposition(effective registry.StateMap, owners map
 				"dependency_id": target.String(),
 				"target_owner":  targetOwner,
 			})
-		case !sourceOverlay && targetOverlay:
+		case !sourceOverlay && targetOverlay && !targetShadow:
 			return NewOverlayConflictError("durable registry entry depends on process-local overlay", map[string]any{
 				"entry_id":      source.String(),
 				"dependency_id": target.String(),
@@ -272,38 +365,68 @@ func (r *Reg) validateDurableTransitionAgainstOverlays(allOps registry.ChangeSet
 		return err
 	}
 	applyStateOperations(current, allOps)
-	return r.validateOverlayComposition(current, r.overlayOwners)
+	return r.validateOverlayComposition(current, r.overlayOwners, r.overlayShadows)
 }
 
-func (r *Reg) composeOverlays(stateMap registry.StateMap) error {
+// composeOverlays folds process-local state onto one durable version and
+// returns the shadow claims rebased on that version. The caller commits the
+// returned claims only once the transition succeeds, so a refused version
+// selection leaves the live claims untouched.
+func (r *Reg) composeOverlays(stateMap registry.StateMap) (map[registry.ID]overlayShadow, error) {
 	for id, entry := range stateMap {
 		canonicalID := canonicalEntryID(id)
 		entry.ID = canonicalEntryID(entry.ID)
 		if !canonicalID.Equal(entry.ID) {
-			return fmt.Errorf("durable state key %s does not match entry %s", id, entry.ID)
+			return nil, NewOverlayValidationError("durable state key does not match its entry", map[string]any{"key": id.String(), "entry_id": entry.ID.String()})
 		}
 		if canonicalID != id {
 			delete(stateMap, id)
 			if _, duplicate := stateMap[canonicalID]; duplicate {
-				return fmt.Errorf("selected durable version contains duplicate entry %s", canonicalID)
+				return nil, NewOverlayValidationError("selected durable version contains a duplicate entry", map[string]any{"entry_id": canonicalID.String()})
 			}
 			stateMap[canonicalID] = entry
+		}
+	}
+	shadows := make(map[registry.ID]overlayShadow, len(r.overlayShadows))
+	for id, shadow := range r.overlayShadows {
+		durable, resident := stateMap[id]
+		if !resident {
+			return nil, NewOverlayConflictError("selected durable version removes a shadowed registry entry", map[string]any{
+				"entry_id": id.String(),
+				"owner":    shadow.owner,
+			})
+		}
+		shadows[id] = overlayShadow{owner: shadow.owner, original: durable, removed: shadow.removed}
+		if shadow.removed {
+			delete(stateMap, id)
 		}
 	}
 	for owner, entries := range r.overlays {
 		for _, entry := range entries {
 			entry.ID = canonicalEntryID(entry.ID)
+			if shadow, isShadow := shadows[entry.ID]; isShadow {
+				entry.Registry = shadow.original.Registry
+				stateMap[entry.ID] = entry
+				continue
+			}
 			if _, exists := stateMap[entry.ID]; exists {
-				return fmt.Errorf("overlay entry %s owned by %s conflicts with selected durable version", entry.ID, owner)
+				return nil, NewOverlayConflictError("overlay entry conflicts with the selected durable version", map[string]any{"entry_id": entry.ID.String(), "owner": owner})
 			}
 			stateMap[entry.ID] = entry
 		}
 	}
-	return r.validateOverlayComposition(stateMap, r.overlayOwners)
+	return shadows, r.validateOverlayComposition(stateMap, r.overlayOwners, shadows)
 }
 
-func (r *Reg) reconcileOverlayIndexesAfterFailedRollback(owner string, previousOwners map[registry.ID]string, changes registry.ChangeSet) {
-	knownOwners := make(map[registry.ID]string, len(previousOwners)+len(changes))
+// reconcileOverlayIndexesAfterFailedRollback rebuilds the overlay indexes from
+// the claims that were live before the changeset plus the ones it would have
+// created, and lets the rebuild decide which of them the desynced state kept.
+func (r *Reg) reconcileOverlayIndexesAfterFailedRollback(
+	owner string,
+	previousOwners, candidateOwners map[registry.ID]string,
+	previousShadows, candidateShadows map[registry.ID]overlayShadow,
+) {
+	knownOwners := make(map[registry.ID]string, len(previousOwners)+len(candidateOwners))
 	ownerGenerationInvalidated := false
 	for id, entryOwner := range previousOwners {
 		knownOwners[id] = entryOwner
@@ -311,13 +434,18 @@ func (r *Reg) reconcileOverlayIndexesAfterFailedRollback(owner string, previousO
 			ownerGenerationInvalidated = true
 		}
 	}
-	for _, op := range changes {
-		if op.Kind != registry.EntryDelete {
-			knownOwners[canonicalEntryID(op.Entry.ID)] = owner
-		}
+	for id, entryOwner := range candidateOwners {
+		knownOwners[id] = entryOwner
+	}
+	knownShadows := make(map[registry.ID]overlayShadow, len(previousShadows)+len(candidateShadows))
+	for id, shadow := range previousShadows {
+		knownShadows[id] = shadow
+	}
+	for id, shadow := range candidateShadows {
+		knownShadows[id] = shadow
 	}
 
-	r.rebuildOverlayIndexes(knownOwners, r.state)
+	r.rebuildOverlayIndexes(knownOwners, knownShadows, r.state)
 	if !ownerGenerationInvalidated {
 		r.bumpOverlayGeneration(owner)
 	}
@@ -330,20 +458,36 @@ func (r *Reg) reconcileKnownOverlaysAfterFailedRollback() {
 		knownOwners[id] = owner
 		owners[owner] = struct{}{}
 	}
-	r.rebuildOverlayIndexes(knownOwners, r.state)
+	knownShadows := make(map[registry.ID]overlayShadow, len(r.overlayShadows))
+	for id, shadow := range r.overlayShadows {
+		knownShadows[id] = shadow
+	}
+	r.rebuildOverlayIndexes(knownOwners, knownShadows, r.state)
 	for owner := range owners {
 		r.bumpOverlayGeneration(owner)
 	}
 }
 
-func (r *Reg) rebuildOverlayIndexes(knownOwners map[registry.ID]string, effective registry.State) {
+// rebuildOverlayIndexes keeps the claims the resident state actually carries.
+// A shadow that removes its durable entry has no resident entry to find, so it
+// is kept exactly while that entry is absent.
+func (r *Reg) rebuildOverlayIndexes(knownOwners map[registry.ID]string, knownShadows map[registry.ID]overlayShadow, effective registry.State) {
 	nextOwners := make(map[registry.ID]string)
+	nextShadows := make(map[registry.ID]overlayShadow)
 	nextOverlays := make(map[string]registry.StateMap)
+	resident := make(map[registry.ID]struct{}, len(effective))
 	for _, entry := range effective {
 		id := entry.ID
+		resident[id] = struct{}{}
 		entryOwner, isOverlay := knownOwners[id]
 		if !isOverlay {
 			continue
+		}
+		if shadow, isShadow := knownShadows[id]; isShadow {
+			if shadow.removed {
+				continue
+			}
+			nextShadows[id] = shadow
 		}
 		entry.ID = id
 		nextOwners[id] = entryOwner
@@ -352,7 +496,21 @@ func (r *Reg) rebuildOverlayIndexes(knownOwners map[registry.ID]string, effectiv
 		}
 		nextOverlays[entryOwner][id] = cloneOverlayEntry(entry)
 	}
+	for id, shadow := range knownShadows {
+		if !shadow.removed {
+			continue
+		}
+		if _, present := resident[id]; present {
+			continue
+		}
+		if _, isOverlay := knownOwners[id]; !isOverlay {
+			continue
+		}
+		nextOwners[id] = shadow.owner
+		nextShadows[id] = shadow
+	}
 	r.overlayOwners = nextOwners
+	r.overlayShadows = nextShadows
 	r.overlays = make(map[string]registry.State, len(nextOverlays))
 	for entryOwner, entries := range nextOverlays {
 		r.overlays[entryOwner] = topology.StateMapToSlice(entries)
