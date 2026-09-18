@@ -58,7 +58,6 @@ func (r *Reg) applyOverlayLocked(ctx context.Context, owner string, expectedGene
 	canonicalizeChangeSetIDs(changes)
 
 	r.mu.RLock()
-	base := r.baseLocked()
 	snapshot := append(registry.State(nil), r.state...)
 	currentGeneration, activeOwner := r.overlayGeneration[owner]
 	if !activeOwner {
@@ -205,31 +204,25 @@ func (r *Reg) applyOverlayLocked(ctx context.Context, owner string, expectedGene
 		return 0, NewSortChangesError(err)
 	}
 
-	// Handlers run with r.mu free. applyMu is held for the whole call, so the
-	// captured base stays the registry's live state until this overlay publishes.
-	newState, err := r.runner.Transition(ctx, base.state, sorted)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	newState, err := r.runner.Transition(ctx, r.state, sorted)
 	if err != nil {
 		if newState != nil && ctx.Err() == nil {
-			if rollbackErr := r.rollback(ctx, newState, base.state); rollbackErr != nil {
-				r.mu.Lock()
+			if rollbackErr := r.rollback(ctx, newState, r.state); rollbackErr != nil {
 				r.reconcileOverlayIndexesAfterFailedRollback(owner, owners, candidateOwners, shadows, candidateShadows)
-				r.mu.Unlock()
 				return 0, NewApplyChangesError(err, rollbackErr)
 			}
 		}
 		return 0, NewApplyChangesError(err, nil)
 	}
 
-	var nextGeneration uint64
-	if publishErr := r.publish(base, func() {
-		r.rebuildOverlayIndexes(candidateOwners, candidateShadows, newState)
-		nextGeneration = r.bumpOverlayGeneration(owner)
-		r.state = newState
-		r.rebuildIndex()
-		r.patchDepIndex(sorted)
-	}); publishErr != nil {
-		return 0, publishErr
-	}
+	r.rebuildOverlayIndexes(candidateOwners, candidateShadows, newState)
+	nextGeneration := r.bumpOverlayGeneration(owner)
+	r.state = newState
+	r.rebuildIndex()
+	r.patchDepIndex(sorted)
+	r.publishSnapshot()
 	return nextGeneration, nil
 }
 

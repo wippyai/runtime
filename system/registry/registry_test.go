@@ -1420,7 +1420,7 @@ func TestEnrichChangeset(t *testing.T) {
 			{Kind: registry.EntryCreate, Entry: entry2},
 		}
 
-		enriched := reg.enrichChangeset(reg.state, changes)
+		enriched := reg.enrichChangeset(changes)
 
 		assert.Len(t, enriched, 1)
 		assert.Nil(t, enriched[0].OriginalEntry)
@@ -1439,7 +1439,7 @@ func TestEnrichChangeset(t *testing.T) {
 			{Kind: registry.EntryUpdate, Entry: updatedEntry},
 		}
 
-		enriched := reg.enrichChangeset(reg.state, changes)
+		enriched := reg.enrichChangeset(changes)
 
 		assert.Len(t, enriched, 1)
 		assert.NotNil(t, enriched[0].OriginalEntry)
@@ -1457,7 +1457,7 @@ func TestEnrichChangeset(t *testing.T) {
 			{Kind: registry.EntryDelete, Entry: entry1},
 		}
 
-		enriched := reg.enrichChangeset(reg.state, changes)
+		enriched := reg.enrichChangeset(changes)
 
 		assert.Len(t, enriched, 1)
 		assert.NotNil(t, enriched[0].OriginalEntry)
@@ -1474,7 +1474,7 @@ func TestEnrichChangeset(t *testing.T) {
 			{Kind: registry.EntryUpdate, Entry: entry2}, // entry2 not in state
 		}
 
-		enriched := reg.enrichChangeset(reg.state, changes)
+		enriched := reg.enrichChangeset(changes)
 
 		assert.Len(t, enriched, 1)
 		assert.Nil(t, enriched[0].OriginalEntry)
@@ -1490,7 +1490,7 @@ func TestEnrichChangeset(t *testing.T) {
 			{Kind: registry.EntryDelete, Entry: entry2}, // entry2 not in state
 		}
 
-		enriched := reg.enrichChangeset(reg.state, changes)
+		enriched := reg.enrichChangeset(changes)
 
 		assert.Len(t, enriched, 1)
 		assert.Nil(t, enriched[0].OriginalEntry)
@@ -1516,7 +1516,7 @@ func TestEnrichChangeset(t *testing.T) {
 			{Kind: registry.EntryDelete, Entry: entry2},
 		}
 
-		enriched := reg.enrichChangeset(reg.state, changes)
+		enriched := reg.enrichChangeset(changes)
 
 		assert.Len(t, enriched, 3)
 		assert.Nil(t, enriched[0].OriginalEntry, "Create should not have OriginalEntry")
