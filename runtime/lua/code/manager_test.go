@@ -86,6 +86,27 @@ func TestNewCodeManager(t *testing.T) {
 	}
 }
 
+func TestNewCodeManager_RefusesEmptyToolchainIdentityWhenCacheEnabled(t *testing.T) {
+	logger := zap.NewNop()
+	bus := &testEventBus{}
+	cfg := Config{
+		Cache: cache.Config{
+			Dir:               t.TempDir(),
+			Enabled:           true,
+			ToolchainIdentity: "",
+		},
+	}
+
+	cm, err := NewCodeManager(logger, bus, cfg)
+	assert.Error(t, err)
+	assert.Nil(t, cm)
+
+	cfg.Cache.ToolchainIdentity = "valid-identity"
+	cm, err = NewCodeManager(logger, bus, cfg)
+	assert.NoError(t, err)
+	assert.NotNil(t, cm)
+}
+
 func TestManager_Transaction(t *testing.T) {
 	logger := zap.NewNop()
 	bus := &testEventBus{}
@@ -978,10 +999,11 @@ func TestManager_TypecheckCachePropagatesDependencyManifest(t *testing.T) {
 	typeCfg.Strict = true
 	cfg := Config{
 		Cache: cache.Config{
-			Dir:              cacheDir,
-			Enabled:          true,
-			CompileEnabled:   true,
-			TypecheckEnabled: true,
+			Dir:               cacheDir,
+			Enabled:           true,
+			CompileEnabled:    true,
+			TypecheckEnabled:  true,
+			ToolchainIdentity: "test-toolchain-identity",
 		},
 		TypeCheck: typeCfg,
 	}

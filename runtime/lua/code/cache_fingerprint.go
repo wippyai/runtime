@@ -11,14 +11,27 @@ import (
 	"github.com/wippyai/go-lua/types/io"
 	"github.com/wippyai/runtime/api/registry"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
+	"github.com/wippyai/runtime/internal/toolchain"
 	"github.com/wippyai/runtime/runtime/lua/code/cache"
 )
 
-const cacheCompilerVersion = "lua-cache-v4"
+const cacheSchemaVersion = "lua-cache-v4"
+
+const goLuaModulePath = "github.com/wippyai/go-lua"
+
+// ToolchainIdentity returns the toolchain identity for Lua compilation.
+func ToolchainIdentity() (string, error) {
+	return toolchain.ModuleIdentity(goLuaModulePath)
+}
 
 // CacheCompilerVersion returns the cache compiler version string.
 func CacheCompilerVersion() string {
-	return cacheCompilerVersion
+	return cacheSchemaVersion
+}
+
+// CacheSchemaVersion returns the cache schema version string.
+func CacheSchemaVersion() string {
+	return cacheSchemaVersion
 }
 
 // TypecheckConfigHash hashes typecheck configuration for cache keys.
@@ -85,14 +98,14 @@ func EffectiveMethod(kind, method string) string {
 }
 
 // CompileFingerprint computes the compile fingerprint for a node.
-func CompileFingerprint(entryID, kind, sourceHash, method string, deps []cache.DepFingerprint) string {
-	self := cache.HashStrings("compile", cacheCompilerVersion, entryID, kind, method, sourceHash)
+func CompileFingerprint(toolchainIdentity, entryID, kind, sourceHash, method string, deps []cache.DepFingerprint) string {
+	self := cache.HashStrings("compile", cacheSchemaVersion, toolchainIdentity, entryID, kind, method, sourceHash)
 	return cache.Fingerprint(self, deps)
 }
 
 // TypecheckFingerprint computes the typecheck fingerprint for a node.
-func TypecheckFingerprint(entryID, kind, sourceHash, method, typecheckHash, builtinHash string, deps []cache.DepFingerprint) string {
-	self := cache.HashStrings("typecheck", cacheCompilerVersion, entryID, kind, method, sourceHash, typecheckHash, builtinHash)
+func TypecheckFingerprint(toolchainIdentity, entryID, kind, sourceHash, method, typecheckHash, builtinHash string, deps []cache.DepFingerprint) string {
+	self := cache.HashStrings("typecheck", cacheSchemaVersion, toolchainIdentity, entryID, kind, method, sourceHash, typecheckHash, builtinHash)
 	return cache.Fingerprint(self, deps)
 }
 
@@ -100,10 +113,11 @@ func TypecheckFingerprint(entryID, kind, sourceHash, method, typecheckHash, buil
 // intentionally includes the mutable registry revision so delete/recreate and
 // bytecode replacement cannot collide with older compiled artifacts for the
 // same registry ID.
-func RuntimeFingerprint(entryID, kind, contentHash, method string, revision uint64, deps []cache.DepFingerprint) string {
+func RuntimeFingerprint(toolchainIdentity, entryID, kind, contentHash, method string, revision uint64, deps []cache.DepFingerprint) string {
 	self := cache.HashStrings(
 		"runtime",
-		cacheCompilerVersion,
+		cacheSchemaVersion,
+		toolchainIdentity,
 		entryID,
 		kind,
 		method,
@@ -153,7 +167,7 @@ func appendSortedStrings(parts []string, label string, values []string) []string
 	return append(parts, copied...)
 }
 
-func runtimeFingerprintMemo(memGraph *MemoryGraph, id registry.ID, memo map[registry.ID]string) (string, error) {
+func runtimeFingerprintMemo(memGraph *MemoryGraph, id registry.ID, memo map[registry.ID]string, toolchainIdentity string) (string, error) {
 	if v, ok := memo[id]; ok {
 		return v, nil
 	}
@@ -164,7 +178,7 @@ func runtimeFingerprintMemo(memGraph *MemoryGraph, id registry.ID, memo map[regi
 	deps, _ := memGraph.GetDependenciesWithAliases(id)
 	depFPs := make([]cache.DepFingerprint, 0, len(deps))
 	for _, dep := range deps {
-		fp, err := runtimeFingerprintMemo(memGraph, dep.ID, memo)
+		fp, err := runtimeFingerprintMemo(memGraph, dep.ID, memo, toolchainIdentity)
 		if err != nil {
 			return "", err
 		}
@@ -175,6 +189,7 @@ func runtimeFingerprintMemo(memGraph *MemoryGraph, id registry.ID, memo map[regi
 		})
 	}
 	fp := RuntimeFingerprint(
+		toolchainIdentity,
 		node.ID.String(),
 		node.Kind,
 		nodeContentHash(node),
