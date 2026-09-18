@@ -141,14 +141,22 @@ func TestFixedTransportIsCancelable(t *testing.T) {
 	require.ErrorIs(t, err, context.Canceled)
 }
 
+// freeLoopbackPort reserves a port that is free for both UDP and TCP, the two
+// protocols memberlist binds. The UDP allocator goes first: it never hands out
+// a port from a range the platform excludes for UDP.
 func freeLoopbackPort(t *testing.T) (int, error) {
 	t.Helper()
-	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
+	var listenConfig net.ListenConfig
+	udp, err := listenConfig.ListenPacket(t.Context(), "udp4", "127.0.0.1:0")
 	if err != nil {
 		return 0, err
 	}
-	port := listener.Addr().(*net.TCPAddr).Port
-	return port, listener.Close()
+	port := udp.LocalAddr().(*net.UDPAddr).Port
+	tcp, err := listenConfig.Listen(t.Context(), "tcp4", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
+	if err != nil {
+		return 0, errors.Join(err, udp.Close())
+	}
+	return port, errors.Join(tcp.Close(), udp.Close())
 }
 
 func assertTransportPortReleased(t *testing.T, address string) {
