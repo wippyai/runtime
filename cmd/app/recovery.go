@@ -21,7 +21,9 @@ type receipt struct {
 	Executable string `json:"executable_sha256"`
 }
 
-// recordRecovery announces the recovery on stderr and writes its receipt.
+// recordRecovery announces the recovery on stderr and writes its receipt. The
+// receipt shares the directory the fresh history lives in, so writing it opens
+// that directory for the history the runtime starts next.
 func recordRecovery(e Executable, l Launch, deployment string) error {
 	history := recoveryHistoryPath(l.State)
 	fmt.Fprintf(os.Stderr, "recover: deployment %s bundle %s history %s\n", deployment, e.Bundle.ID(), history)
