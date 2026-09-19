@@ -19,8 +19,8 @@ func TestLaunchGrammar(t *testing.T) {
 	for _, testCase := range []struct {
 		name     string
 		args     []string
-		op       Op
 		expected []string
+		op       Op
 	}{
 		{name: "bare", args: nil, op: OpRun, expected: []string{}},
 		{name: "run", args: []string{"run", "one", "two"}, op: OpRun, expected: []string{"one", "two"}},
@@ -75,8 +75,8 @@ func TestOpString(t *testing.T) {
 func TestDeclarationIsValidatedBeforeAnyFilesystemEffect(t *testing.T) {
 	for _, testCase := range []struct {
 		name       string
-		executable Executable
 		message    string
+		executable Executable
 	}{
 		{name: "empty name", executable: Executable{Command: "desktop"}, message: "invalid application name"},
 		{name: "upper case name", executable: Executable{Name: "Desktop", Command: "desktop"}, message: "invalid application name"},

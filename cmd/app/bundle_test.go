@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
@@ -89,4 +90,21 @@ func TestBundleConcurrentFirstLaunch(t *testing.T) {
 	for err := range failures {
 		require.NoError(t, err)
 	}
+}
+
+func TestBundleIdentityNamesExactContent(t *testing.T) {
+	bundle := testBundle(t)
+	require.Equal(t, bundle.ID(), testBundle(t).ID())
+
+	root := testBundle(t)
+	root.Root = "acme/other"
+	require.NotEqual(t, bundle.ID(), root.ID())
+
+	release := testBundle(t)
+	release.Packs[0].Version = "2.0.0"
+	require.NotEqual(t, bundle.ID(), release.ID())
+
+	content := testBundle(t)
+	content.Packs[0].Digest = "sha256:" + strings.Repeat("0", 64)
+	require.NotEqual(t, bundle.ID(), content.ID())
 }

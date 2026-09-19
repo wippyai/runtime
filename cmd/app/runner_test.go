@@ -30,8 +30,8 @@ func (h *plannedHost) Plan(_ context.Context, l Launch) (Plan, error) {
 
 // execution records the options an operation hands the Wippy CLI.
 type execution struct {
-	options cmd.ExecuteOptions
 	err     error
+	options cmd.ExecuteOptions
 	calls   int
 }
 
