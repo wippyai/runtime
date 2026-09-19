@@ -51,6 +51,51 @@ func NewDataEnvironmentBindingError(name, path string) apierror.Error {
 		WithDetails(attrs.NewBagFrom(map[string]any{"name": name, "path": path}))
 }
 
+// NewBundledPackError reports a shipped pack that does not carry the identity
+// or the content the bundle declares for it. Detail names the part of the pack
+// the executable and the bundle disagree about.
+func NewBundledPackError(module, detail string, cause error) apierror.Error {
+	message := "pack " + module
+	if detail != "" {
+		message += " " + detail
+	}
+	return apierror.New(apierror.Invalid, message).
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"module": module, "detail": detail})).
+		WithCause(cause)
+}
+
+// NewDuplicateBundledModuleError reports a module a bundle ships twice, which
+// leaves the version the deployment selects undecided.
+func NewDuplicateBundledModuleError(module string) apierror.Error {
+	return apierror.New(apierror.Invalid, "duplicate bundled module "+module).
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"module": module}))
+}
+
+// NewMissingBundledApplicationError reports a bundle whose packs do not
+// include the application it selects as its root.
+func NewMissingBundledApplicationError(root string) apierror.Error {
+	return apierror.New(apierror.Invalid, "bundled application "+root+" is missing").
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"root": root}))
+}
+
+// NewExistingDeploymentLockError reports a deployment directory whose lock file
+// the executable cannot read.
+func NewExistingDeploymentLockError(cause error) apierror.Error {
+	return apierror.New(apierror.Internal, "existing deployment lock").
+		WithCause(cause)
+}
+
+// NewDeploymentApplicationError reports a deployment that selects an
+// application other than the one the executable ships.
+func NewDeploymentApplicationError(root string) apierror.Error {
+	return apierror.New(apierror.Invalid, "deployment does not select "+root).
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"root": root}))
+}
+
 // NewApplicationStateError reports an operation on the application state
 // directory that could not be completed.
 func NewApplicationStateError(operation, target string, cause error) apierror.Error {
