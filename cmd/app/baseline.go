@@ -3,7 +3,6 @@
 package app
 
 import (
-	"fmt"
 	"path/filepath"
 )
 
@@ -15,14 +14,17 @@ func embeddedDeployment(state string, bundle Bundle) string {
 }
 
 // selectLaunchDeployment applies the host-selected deployment policy. Embedded
-// startup intentionally does not inspect active.json: that record belongs to
-// the separately updateable deployment. The returned history path stays in the
-// state directory except for explicit base recovery.
+// startup resolves the deployment from the executable's own bundle digest and
+// leaves the activation record to address the separately updateable deployment.
+// The returned history path stays in the state directory, except under explicit
+// base recovery, which keeps a history beside the baseline it starts.
 func selectLaunchDeployment(state string, bundle Bundle, embedded, base bool, mode string) (string, string, error) {
 	if base {
 		if mode != "base" {
-			return "", "", fmt.Errorf("bootstrap applications do not expose a base deployment")
+			return "", "", NewBaseDeploymentUnavailableError(mode)
 		}
+		// Each executable's embedded content selects an independent baseline,
+		// while application databases stay in the state directory.
 		deployment := embeddedDeployment(state, bundle)
 		return deployment, filepath.Join(deployment, "registry.db"), nil
 	}
