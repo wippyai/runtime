@@ -19,6 +19,10 @@ import (
 // dir. Tests replace it to drive an update without a child process.
 type commandRunner func(ctx context.Context, dir string, args []string) error
 
+// childRunner runs the update stages of this invocation. Tests replace it to
+// drive the operation dispatch without a child process.
+var childRunner commandRunner = runChild
+
 func runChild(ctx context.Context, dir string, args []string) error {
 	executable, err := os.Executable()
 	if err != nil {

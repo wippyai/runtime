@@ -85,7 +85,7 @@ func operate(ctx context.Context, e Executable, l Launch, prepare func(context.C
 		return err
 	}
 	if l.Op == OpUpdate {
-		return updateDeployment(ctx, e, l, deployment, runChild)
+		return updateDeployment(ctx, e, l, deployment, childRunner)
 	}
 	skipped, err := seedCache(l.State, deployment, e.Bundle)
 	if err != nil {
