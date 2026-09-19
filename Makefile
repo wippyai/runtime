@@ -16,6 +16,7 @@ test:
 	go test --tags "fts5 sqlite_vec treesitter sqlite_preupdate_hook" ./runtime/... -v -race -short
 	go test ./boot/... -v -race -short
 	go test --tags "fts5 sqlite_vec treesitter sqlite_preupdate_hook" ./cmd/... -v -race -short
+	cd third_party/ansi && go test ./... -v -race -short
 
 # Local heavy WASM acceptance, excluded from the normal CI short suite.
 # Includes both sustained SQLite load windows; fixtures fail closed if missing.
