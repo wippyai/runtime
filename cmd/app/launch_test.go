@@ -30,6 +30,11 @@ func TestLaunchGrammar(t *testing.T) {
 		{name: "wippy", args: []string{"wippy", "lint", "--json"}, op: OpWippy, expected: []string{"lint", "--json"}},
 		{name: "verb after run", args: []string{"run", "update", "wippy"}, op: OpRun, expected: []string{"update", "wippy"}},
 		{name: "flag after verb", args: []string{"run", "--state", "elsewhere"}, op: OpRun, expected: []string{"--state", "elsewhere"}},
+		{name: "application flag", args: []string{"--verbose", "one"}, op: OpRun, expected: []string{"--verbose", "one"}},
+		{name: "short help", args: []string{"-h"}, op: OpRun, expected: []string{"-h"}},
+		{name: "long help", args: []string{"--help"}, op: OpRun, expected: []string{"--help"}},
+		{name: "state after application flag", args: []string{"--verbose", "--state", "elsewhere"}, op: OpRun,
+			expected: []string{"--verbose", "--state", "elsewhere"}},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			launch, err := parseLaunch(testExecutable(), append([]string{"--state", state}, testCase.args...))
@@ -60,9 +65,20 @@ func TestLaunchStateSelection(t *testing.T) {
 	require.Equal(t, filepath.Join(working, "relative-state"), relative.State)
 }
 
+func TestLaunchReadsStateJoinedToItsFlag(t *testing.T) {
+	state := t.TempDir()
+	launch, err := parseLaunch(testExecutable(), []string{"--state=" + state, "run", "one"})
+	require.NoError(t, err)
+	require.Equal(t, state, launch.State)
+	require.True(t, launch.Explicit)
+	require.Equal(t, []string{"one"}, launch.Args)
+}
+
 func TestLaunchRejectsStateWithoutValue(t *testing.T) {
-	_, err := parseLaunch(testExecutable(), []string{"--state"})
-	require.Error(t, err)
+	for _, args := range [][]string{{"--state"}, {"--state="}} {
+		_, err := parseLaunch(testExecutable(), args)
+		require.ErrorContains(t, err, "state directory")
+	}
 }
 
 func TestOpString(t *testing.T) {
@@ -111,38 +127,28 @@ func TestDeclarationIsValidatedBeforeAnyFilesystemEffect(t *testing.T) {
 	}
 }
 
-func TestOwnedProbeReportsAnotherHolder(t *testing.T) {
+func TestOwnedReportsAnotherHolder(t *testing.T) {
 	state := t.TempDir()
-	owned, err := probeOwned(state)
+	owned, err := Owned(state)
 	require.NoError(t, err)
 	require.False(t, owned, "an absent lock file reports no owner")
 
 	unlock, err := lockState(state)
 	require.NoError(t, err)
-	owned, err = probeOwned(state)
+	owned, err = Owned(state)
 	require.NoError(t, err)
 	require.True(t, owned)
 
 	require.NoError(t, unlock())
-	owned, err = probeOwned(state)
+	owned, err = Owned(state)
 	require.NoError(t, err)
 	require.False(t, owned)
 }
 
-func TestOwnedProbeLeavesAbsentStateAbsent(t *testing.T) {
+func TestOwnedLeavesAbsentStateAbsent(t *testing.T) {
 	state := filepath.Join(t.TempDir(), "absent")
-	owned, err := probeOwned(state)
+	owned, err := Owned(state)
 	require.NoError(t, err)
 	require.False(t, owned)
 	require.NoDirExists(t, state)
-}
-
-func TestLaunchCarriesOwnership(t *testing.T) {
-	state := t.TempDir()
-	unlock, err := lockState(state)
-	require.NoError(t, err)
-	defer func() { _ = unlock() }()
-	launch, err := parseLaunch(testExecutable(), []string{"--state", state, "run"})
-	require.NoError(t, err)
-	require.True(t, launch.Owned)
 }

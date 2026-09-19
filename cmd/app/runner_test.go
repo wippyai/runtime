@@ -68,7 +68,6 @@ func TestPlannedRunLeavesStateUntouched(t *testing.T) {
 	require.Equal(t, state, host.observed.State)
 	require.True(t, host.observed.Explicit)
 	require.Equal(t, []string{"terminal"}, host.observed.Args)
-	require.False(t, host.observed.Owned)
 	require.NoDirExists(t, state)
 	_, bound := os.LookupEnv("WIPPY_APP_TEST_PLANNED_RUN")
 	require.False(t, bound, "a planned run applied a data binding")

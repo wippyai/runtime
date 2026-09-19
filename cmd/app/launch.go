@@ -5,10 +5,9 @@ package app
 import (
 	"context"
 	"errors"
-	"flag"
-	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/wippyai/runtime/api/boot"
 )
@@ -38,8 +37,8 @@ func (op Op) String() string {
 }
 
 // Launch describes one invocation to the host. State is already resolved and
-// absolute. Owned is a snapshot of the state lock taken before anything opens
-// the state, so it reports the owner that existed at that moment.
+// absolute, and Explicit reports that --state selected it. Owned answers
+// whether a state has an owner, including a state the host selects itself.
 type Launch struct {
 	Command  string
 	State    string
@@ -47,7 +46,6 @@ type Launch struct {
 	Args     []string
 	Op       Op
 	Explicit bool
-	Owned    bool
 }
 
 // Plan is the host's decision for one launch. A non-empty State, Command or
@@ -67,17 +65,15 @@ type Host interface {
 	Plan(ctx context.Context, l Launch) (Plan, error)
 }
 
-// parseLaunch reads the argument grammar. Parsing stops at the first argument
-// that is not a host flag, so the verb and everything after it stay intact.
+// parseLaunch reads the argument grammar. A leading --state is the only
+// argument the runner consumes, so every other argument, including one shaped
+// like a flag, reaches the verb and the application exactly as it was typed.
 func parseLaunch(e Executable, args []string) (Launch, error) {
-	flags := flag.NewFlagSet(e.Name, flag.ContinueOnError)
-	flags.SetOutput(io.Discard)
-	selected := flags.String("state", "", "application state directory")
-	if err := flags.Parse(args); err != nil {
+	state, remaining, err := parseState(args)
+	if err != nil {
 		return Launch{}, err
 	}
-	launch := Launch{Command: e.Command, Explicit: *selected != ""}
-	state := *selected
+	launch := Launch{Command: e.Command, Explicit: state != ""}
 	if state == "" {
 		config, err := os.UserConfigDir()
 		if err != nil {
@@ -93,7 +89,6 @@ func parseLaunch(e Executable, args []string) (Launch, error) {
 	if launch.Dir, err = os.Getwd(); err != nil {
 		return Launch{}, NewApplicationStateError("resolve working directory", "", err)
 	}
-	remaining := flags.Args()
 	launch.Op, launch.Args = OpRun, remaining
 	if len(remaining) > 0 {
 		switch remaining[0] {
@@ -102,10 +97,28 @@ func parseLaunch(e Executable, args []string) (Launch, error) {
 		}
 	}
 	launch.Args = append([]string{}, launch.Args...)
-	if launch.Owned, err = probeOwned(launch.State); err != nil {
-		return Launch{}, err
-	}
 	return launch, nil
+}
+
+// parseState takes a leading --state DIR or --state=DIR off the arguments and
+// returns the directory it names with the arguments that follow it.
+func parseState(args []string) (string, []string, error) {
+	if len(args) == 0 {
+		return "", args, nil
+	}
+	if value, joined := strings.CutPrefix(args[0], "--state="); joined {
+		if value == "" {
+			return "", nil, NewMissingStateDirectoryError()
+		}
+		return value, args[1:], nil
+	}
+	if args[0] == "--state" {
+		if len(args) == 1 {
+			return "", nil, NewMissingStateDirectoryError()
+		}
+		return args[1], args[2:], nil
+	}
+	return "", args, nil
 }
 
 func verb(word string) Op {
@@ -121,10 +134,12 @@ func verb(word string) Op {
 	}
 }
 
-// probeOwned reports whether another invocation holds the state lock at the
-// moment of the call. It opens the lock file only when it already exists and
-// releases the lock immediately, so the probe leaves an absent state absent.
-func probeOwned(state string) (bool, error) {
+// Owned reports whether an invocation holds the state lock at the moment of
+// the call. It is a snapshot: it opens the lock file only when that file
+// already exists, releases the lock immediately and creates nothing, so it
+// leaves an absent state absent. A host uses it to describe the state it is
+// about to select; ErrOwned from Run is the authoritative answer.
+func Owned(state string) (bool, error) {
 	path := filepath.Join(state, lockFilename)
 	file, err := os.OpenFile(path, os.O_RDWR, 0o600)
 	if errors.Is(err, os.ErrNotExist) {

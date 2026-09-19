@@ -37,6 +37,12 @@ func NewMissingApplicationCommandError() apierror.Error {
 		WithRetryable(apierror.False)
 }
 
+// NewMissingStateDirectoryError reports a --state flag that names no directory.
+func NewMissingStateDirectoryError() apierror.Error {
+	return apierror.New(apierror.Invalid, "--state requires a state directory").
+		WithRetryable(apierror.False)
+}
+
 // NewDataEnvironmentBindingError reports a data environment entry whose name
 // or relative path cannot bind to a path inside the state directory.
 func NewDataEnvironmentBindingError(name, path string) apierror.Error {

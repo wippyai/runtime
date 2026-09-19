@@ -7,13 +7,15 @@
 //
 //	<exe> [--state DIR] run     <app args...>    ordinary start
 //	<exe> [--state DIR] update  <hub args...>    move the deployment forward
-//	<exe> [--state DIR] recover                  boot the shipped packs afresh
+//	<exe> [--state DIR] recover <app args...>    boot the shipped packs afresh
 //	<exe> [--state DIR] wippy   <cli args...>    the Wippy CLI on the deployment
 //
 // run, update, recover and wippy are reserved as the first argument by design.
 // A bare invocation, or one whose first word is none of the four, selects run
-// and passes every argument to the application. --state is the only host flag
-// and precedes the verb; everything after the verb belongs to the verb.
+// and passes every argument to the application. --state DIR or --state=DIR is
+// the only argument the runner reads and it precedes the verb; everything
+// after the verb belongs to the verb, including an argument shaped like a
+// flag. Owned reports whether a state directory has an owner right now.
 package app
 
 import (
@@ -32,9 +34,17 @@ import (
 )
 
 // Executable is the complete declaration of a native Wippy application.
-// Data maps application-owned environment variables to paths inside the state
-// directory; a variable already present in the environment is a user override
-// and keeps its value.
+//
+//	Name       addresses the default state directory, ^[a-z][a-z0-9_-]*$
+//	Command    the application command an ordinary start runs
+//	Bundle     the packs the executable ships, immutable
+//	Data       application-owned environment variables bound to paths inside
+//	           the state directory; a variable the environment already carries
+//	           is a user override and keeps its value
+//	Components the native components the host adds to the runtime
+//	Host       decides what an invocation does, optional
+//
+// The declaration order below follows the memory layout the runtime pins.
 type Executable struct {
 	Data       map[string]string
 	Host       Host
