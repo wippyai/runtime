@@ -303,4 +303,26 @@ func TestShutdownContext(t *testing.T) {
 		setExitCode(0)
 		shutdownSent.Store(false)
 	})
+
+	// A process that completes after the first shutdown request (for example,
+	// a co-resident service unwinding in response to the SIGTERM the first
+	// request already sent) must not overwrite the exit code the first
+	// requester reported.
+	t.Run("TriggerShutdown_FirstCallWinsExitCode", func(t *testing.T) {
+		setExitCode(0)
+		shutdownSent.Store(false)
+		appCtx := ctxapi.NewAppContext()
+		ctx := ctxapi.WithAppContext(context.Background(), appCtx)
+
+		ch := make(chan os.Signal, 2)
+		SetSignalChannel(ctx, ch)
+
+		TriggerShutdown(ctx, 1)
+		TriggerShutdown(ctx, 0)
+
+		assert.Equal(t, 1, GetExitCode())
+		assert.Equal(t, 1, len(ch))
+		setExitCode(0)
+		shutdownSent.Store(false)
+	})
 }

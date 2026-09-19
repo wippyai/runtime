@@ -55,13 +55,15 @@ func getSignalChannel(ctx context.Context) chan<- os.Signal {
 }
 
 // TriggerShutdown sets the exit code and sends a SIGTERM signal to trigger
-// graceful application shutdown. Only the first call sends the signal;
-// subsequent calls update the exit code but do not send duplicate signals.
+// graceful application shutdown. Only the first call decides the exit code
+// and sends the signal; subsequent calls (for example a co-resident process
+// unwinding in response to the SIGTERM the first call already sent) are
+// no-ops.
 func TriggerShutdown(ctx context.Context, code int) {
-	setExitCode(code)
 	if !shutdownSent.CompareAndSwap(false, true) {
 		return
 	}
+	setExitCode(code)
 	if ch := getSignalChannel(ctx); ch != nil {
 		ch <- syscall.SIGTERM
 	}
