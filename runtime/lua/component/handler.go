@@ -51,6 +51,16 @@ func (h *Handler) Handle(ctx context.Context, evt event.Event) error {
 	return h.inner.Handle(ctx, evt)
 }
 
+// HandlesKind implements registry.KindHandler by deferring to the registry
+// handler that owns the kind pattern.
+func (h *Handler) HandlesKind(kind registry.Kind) bool {
+	matcher, ok := h.inner.(registry.KindHandler)
+	if !ok {
+		return false
+	}
+	return matcher.HandlesKind(kind)
+}
+
 func (h *Handler) RegistryTransactionParticipantID() string {
 	participant, ok := h.inner.(registry.TransactionParticipant)
 	if !ok {

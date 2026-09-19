@@ -56,17 +56,17 @@ func NewNativeExecutor(log *zap.Logger, config *execapi.NativeExecutorConfig) *E
 
 // NewProcess implements exec.ProcessExecutor interface
 func (e *Executor) NewProcess(cmd string, options execapi.ProcessOptions) (execapi.Process, error) {
+	options, err := options.Clone()
+	if err != nil {
+		return nil, err
+	}
+	if len(options.Mounts) > 0 {
+		return nil, execapi.ErrMountsUnsupported
+	}
 	if _, err := execapi.ParseCommand(cmd); err != nil {
 		return nil, err
 	}
 	ptyOptions := options.PTY
-	if ptyOptions != nil {
-		copy := *ptyOptions
-		ptyOptions = &copy
-		if _, _, err := ptyOptions.Dimensions(); err != nil {
-			return nil, err
-		}
-	}
 	processGroup := e.processGroup
 	if options.ProcessGroup != nil {
 		processGroup = *options.ProcessGroup

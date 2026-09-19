@@ -37,6 +37,7 @@ type Reg struct {
 	log               *zap.Logger
 	depIndex          *topology.DepIndex
 	overlayOwners     map[registry.ID]string
+	overlayShadows    map[registry.ID]overlayShadow
 	overlayGeneration map[string]uint64
 	snapshot          atomic.Pointer[registry.Snapshot]
 	state             registry.State
@@ -70,6 +71,7 @@ func NewRegistry(
 		stateIndex:        make(map[registry.ID]int),
 		overlays:          make(map[string]registry.State),
 		overlayOwners:     make(map[registry.ID]string),
+		overlayShadows:    make(map[registry.ID]overlayShadow),
 		overlayGeneration: make(map[string]uint64),
 		log:               log,
 		currentVersion:    version.FromParent(nil, 0), // initial version
@@ -180,182 +182,7 @@ func (r *Reg) publishSnapshot() {
 func (r *Reg) Apply(ctx context.Context, changes registry.ChangeSet) (registry.Version, error) {
 	r.applyMu.Lock()
 	defer r.applyMu.Unlock()
-	changes = append(registry.ChangeSet(nil), changes...)
-	canonicalizeChangeSetIDs(changes)
-
-	r.log.Info("apply started", zap.Int("change_count", len(changes)))
-
-	var (
-		allOps            registry.ChangeSet
-		historyOps        registry.ChangeSet
-		preparedEff       []registry.Effect
-		planner           *regexp.Planner
-		snapshot          registry.State
-		baseVersion       registry.Version
-		resolution        *registry.DependencyResolution
-		resolutionChanged bool
-	)
-
-	r.mu.RLock()
-	snapshot = make(registry.State, len(r.state))
-	copy(snapshot, r.state)
-	baseVersion = r.currentVersion
-	resolution = r.currentResolution
-	r.mu.RUnlock()
-	changes = normalizeRegistryMetadata(changes, snapshot)
-
-	if len(r.directivesByKind) > 0 {
-		planner = regexp.NewPlanner(r.directivesByKind, r.resolver, r.log.Named("expansion"))
-
-		plan, err := planner.Expand(ctx, changes, snapshot)
-		if err != nil {
-			return nil, NewExpandChangesError(err)
-		}
-
-		plan.Ops, err = planner.SortOps(snapshot, plan.Ops)
-		if err != nil {
-			planner.RollbackEffects(ctx, plan.Effects)
-			return nil, NewSortChangesError(err)
-		}
-
-		allOps, historyOps = plan.SplitScopes()
-		if plan.Resolution != nil {
-			resolution = plan.Resolution.Canonical()
-			resolutionChanged = true
-		}
-
-		preparedEff, err = planner.PrepareEffects(ctx, plan.Effects)
-		if err != nil {
-			planner.RollbackEffects(ctx, preparedEff)
-			return nil, NewPrepareEffectsError(err)
-		}
-	} else {
-		sorted, err := r.sortWithIndex(snapshot, changes)
-		if err != nil {
-			return nil, NewSortChangesError(err)
-		}
-		allOps = sorted
-		historyOps = sorted
-	}
-
-	// Topologically sort the changeset before dispatching to the runner so
-	// deletes hit the dep graph in reverse-dependency order (dependants
-	// first). Planner.SortOps only runs when expansion produced ops; the
-	// no-expansion path would otherwise reach the runner unsorted and fail
-	// against any dependency-aware runner (memory_graph.RemoveNode).
-	if sorted, sortErr := r.sortWithIndex(snapshot, allOps); sortErr == nil {
-		allOps = sorted
-	} else {
-		if planner != nil {
-			planner.RollbackEffects(ctx, preparedEff)
-		}
-		return nil, NewSortChangesError(sortErr)
-	}
-	if err := r.validateDurableTransitionAgainstOverlays(allOps); err != nil {
-		if planner != nil {
-			planner.RollbackEffects(ctx, preparedEff)
-		}
-		return nil, err
-	}
-
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	if baseVersion != nil && r.currentVersion != nil && r.currentVersion.ID() != baseVersion.ID() {
-		if planner != nil {
-			planner.RollbackEffects(ctx, preparedEff)
-		}
-		return nil, NewConcurrentApplyError(baseVersion.ID(), r.currentVersion.ID())
-	}
-
-	var newVersion registry.Version
-	if len(historyOps) > 0 {
-		newVersion = version.FromParent(r.currentVersion, r.nextVersionID(r.currentVersion))
-	}
-
-	r.log.Debug("calling runner.Transition")
-	newState, err := r.runner.Transition(ctx, r.state, allOps)
-	if err != nil {
-		r.log.Error("failed to apply changes", zap.Error(err))
-		if newState != nil && ctx.Err() == nil {
-			if rerr := r.rollback(ctx, newState, r.state); rerr != nil {
-				if planner != nil {
-					planner.RollbackEffects(ctx, preparedEff)
-				}
-				return nil, NewApplyChangesError(err, rerr)
-			}
-		}
-		if planner != nil {
-			planner.RollbackEffects(ctx, preparedEff)
-		}
-		return nil, NewApplyChangesError(err, nil)
-	}
-
-	if planner != nil {
-		if err := planner.CommitEffects(ctx, preparedEff); err != nil {
-			r.log.Error("failed to commit effects", zap.Error(err))
-			if rerr := r.rollback(ctx, newState, r.state); rerr != nil {
-				planner.RollbackEffects(ctx, preparedEff)
-				return nil, NewCommitEffectsError(err, rerr)
-			}
-			planner.RollbackEffects(ctx, preparedEff)
-			return nil, NewCommitEffectsError(err, nil)
-		}
-	}
-
-	if len(historyOps) > 0 {
-		r.log.Debug("saving new version", zap.Any("new_version", newVersion))
-
-		enrichedChanges := r.enrichChangeset(historyOps)
-		var saveErr error
-		if resolutionChanged {
-			resolutionHistory, ok := r.history.(registry.ResolutionHistory)
-			if !ok {
-				saveErr = ErrDurableResolutionUnsupported
-			} else {
-				saveErr = resolutionHistory.SaveWithDependencyResolution(newVersion, enrichedChanges, resolution, true)
-			}
-		} else {
-			saveErr = r.history.Save(newVersion, enrichedChanges, true)
-		}
-		if saveErr != nil {
-			r.log.Error("failed to save new version", zap.Error(saveErr))
-			if rerr := r.rollback(ctx, newState, r.state); rerr != nil {
-				if planner != nil {
-					planner.RollbackEffects(ctx, preparedEff)
-				}
-				return nil, NewSaveVersionError(saveErr, rerr)
-			}
-			if planner != nil {
-				planner.RollbackEffects(ctx, preparedEff)
-			}
-			return nil, NewSaveVersionError(saveErr, nil)
-		}
-		if planner != nil {
-			if finalizeErr := planner.FinalizeEffects(ctx, preparedEff); finalizeErr != nil {
-				r.log.Warn("failed to finalize effects after saving version", zap.Error(finalizeErr))
-			}
-		}
-
-		r.state = newState
-		r.rebuildIndex()
-		r.patchDepIndex(allOps)
-		r.currentVersion = newVersion
-		r.currentResolution = resolution
-		r.publishSnapshot()
-		return newVersion, nil
-	}
-
-	r.state = newState
-	r.rebuildIndex()
-	r.patchDepIndex(allOps)
-	r.publishSnapshot()
-	if planner != nil {
-		if finalizeErr := planner.FinalizeEffects(ctx, preparedEff); finalizeErr != nil {
-			r.log.Warn("failed to finalize effects after baseline transition", zap.Error(finalizeErr))
-		}
-	}
-	return r.currentVersion, nil
+	return r.applyLocked(ctx, changes, nil)
 }
 
 // normalizeRegistryMetadata prevents entry-authored changes from assigning
@@ -445,6 +272,7 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 		preparedEff      []registry.Effect
 		planner          *regexp.Planner
 		targetResolution *registry.DependencyResolution
+		targetShadows    map[registry.ID]overlayShadow
 	)
 	if resolutionHistory, ok := r.history.(registry.ResolutionHistory); ok {
 		stored, resolutionErr := resolutionHistory.GetDependencyResolution(targetVersion)
@@ -493,10 +321,12 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 			return NewExpandChangesError(errors.New("stored dependency resolution has no configured reconciler"))
 		}
 		var buildErr error
-		if composeErr := r.composeOverlays(stateMap); composeErr != nil {
+		rebasedShadows, composeErr := r.composeOverlays(stateMap)
+		if composeErr != nil {
 			planner.RollbackEffects(ctx, preparedEff)
 			return NewComputeTransitionError(composeErr)
 		}
+		targetShadows = rebasedShadows
 		allOps, buildErr = r.builder.BuildDelta(snapshot, topology.StateMapToSlice(stateMap))
 		if buildErr != nil {
 			planner.RollbackEffects(ctx, preparedEff)
@@ -541,10 +371,12 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 			}
 			applyStateOperations(stateMap, ops)
 		}
-		if composeErr := r.composeOverlays(stateMap); composeErr != nil {
+		rebasedShadows, composeErr := r.composeOverlays(stateMap)
+		if composeErr != nil {
 			planner.RollbackEffects(ctx, preparedEff)
 			return NewComputeTransitionError(composeErr)
 		}
+		targetShadows = rebasedShadows
 		allOps, err = r.builder.BuildDelta(snapshot, topology.StateMapToSlice(stateMap))
 		if err != nil {
 			planner.RollbackEffects(ctx, preparedEff)
@@ -552,9 +384,11 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 		}
 	} else {
 		stateMap := topology.NewStateMap(targetState)
-		if composeErr := r.composeOverlays(stateMap); composeErr != nil {
+		rebasedShadows, composeErr := r.composeOverlays(stateMap)
+		if composeErr != nil {
 			return NewComputeTransitionError(composeErr)
 		}
+		targetShadows = rebasedShadows
 		delta, err := r.builder.BuildDelta(snapshot, topology.StateMapToSlice(stateMap))
 		if err != nil {
 			return NewComputeTransitionError(err)
@@ -655,6 +489,7 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 	}
 
 	r.state = newState
+	r.overlayShadows = targetShadows
 	r.rebuildIndex()
 	r.rebuildDepIndex()
 	r.currentVersion = targetVersion
@@ -1021,6 +856,7 @@ func (r *Reg) LoadState(ctx context.Context, baseline registry.State, targetVers
 	// process-local and their owning controllers reconcile them after boot.
 	r.overlays = make(map[string]registry.State)
 	r.overlayOwners = make(map[registry.ID]string)
+	r.overlayShadows = make(map[registry.ID]overlayShadow)
 	r.overlayGeneration = make(map[string]uint64)
 	// Invalidate snapshots retained across an explicit reload. A newly
 	// constructed registry starts at epoch zero; a live registry never reuses a

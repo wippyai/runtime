@@ -156,3 +156,9 @@ func NewTypeCheckDiagnosticError(id registry.ID, diagnostics []diag.Diagnostic) 
 			"error_count": len(msgs),
 		}))
 }
+
+// NewMissingToolchainIdentityError reports that cache is enabled without a toolchain identity.
+func NewMissingToolchainIdentityError() apierror.Error {
+	return apierror.New(apierror.Invalid, "cache enabled but toolchain identity is empty").
+		WithRetryable(apierror.False)
+}

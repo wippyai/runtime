@@ -13,6 +13,8 @@ import (
 	"sync"
 
 	"github.com/wippyai/wapp"
+
+	registry "github.com/wippyai/runtime/api/registry"
 )
 
 // WAPP identifies one already-selected module pack. Selection, download, and
@@ -124,6 +126,29 @@ func newEffect(
 }
 
 // Results returns a copy of the successfully prepared outputs.
+// Target measures the packs and resources this effect materializes under root.
+// Staged and activated paths are per-run and stay out of the measurement.
+func (e *Effect) Target() (registry.EffectTarget, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	type resource struct {
+		Meta          wapp.Metadata `json:"meta"`
+		ModuleVersion string        `json:"module_version"`
+		ResourceID    string        `json:"resource_id"`
+		Source        string        `json:"source"`
+	}
+	resources := make([]resource, len(e.resources))
+	for i, item := range e.resources {
+		resources[i] = resource{Meta: item.Meta, ModuleVersion: item.ModuleVersion, ResourceID: item.ResourceID.String(), Source: item.Source}
+	}
+	return registry.NewEffectTarget("hub.artifact", struct {
+		Root      string     `json:"root"`
+		Packs     []WAPP     `json:"packs"`
+		Resources []resource `json:"resources"`
+		Exact     bool       `json:"exact"`
+	}{Root: e.root, Exact: e.exact, Packs: e.packs, Resources: resources})
+}
+
 func (e *Effect) Results() []Materialized {
 	e.mu.Lock()
 	defer e.mu.Unlock()

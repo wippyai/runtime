@@ -33,6 +33,10 @@ type testEffect struct {
 	rollbackCall int
 }
 
+func (t *testEffect) Target() (regapi.EffectTarget, error) {
+	return regapi.EffectTarget{Kind: "test", Digest: "static"}, nil
+}
+
 func (t *testEffect) Prepare(context.Context) error {
 	t.prepareCall++
 	return t.prepareErr

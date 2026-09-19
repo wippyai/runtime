@@ -256,7 +256,7 @@ func TestMultiplex_TwoNodes_UserBroadcastDelivers(t *testing.T) {
 	startMembershipServiceForTest(ctx, t, "node a", svcA)
 	defer func() { _ = svcA.Stop() }()
 
-	addrA := fmt.Sprintf("%s:%d", svcA.memberlist.LocalNode().Addr, svcA.memberlist.LocalNode().Port)
+	addrA := fmt.Sprintf("%s:%d", svcA.memberlist.Load().LocalNode().Addr, svcA.memberlist.Load().LocalNode().Port)
 
 	// Node B — joins A.
 	cfgB := Config{NodeName: "node-b", BindAddr: "127.0.0.1", BindPort: 0, JoinAddrs: []string{addrA}}
@@ -273,14 +273,14 @@ func TestMultiplex_TwoNodes_UserBroadcastDelivers(t *testing.T) {
 	// on A before B is a peer, drain the one-shot, and gossip to zero peers.
 	convergeDeadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(convergeDeadline) {
-		if svcA.memberlist.NumMembers() >= 2 && svcB.memberlist.NumMembers() >= 2 {
+		if svcA.memberlist.Load().NumMembers() >= 2 && svcB.memberlist.Load().NumMembers() >= 2 {
 			break
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	if svcA.memberlist.NumMembers() < 2 || svcB.memberlist.NumMembers() < 2 {
+	if svcA.memberlist.Load().NumMembers() < 2 || svcB.memberlist.Load().NumMembers() < 2 {
 		t.Fatalf("membership did not converge: A=%d B=%d",
-			svcA.memberlist.NumMembers(), svcB.memberlist.NumMembers())
+			svcA.memberlist.Load().NumMembers(), svcB.memberlist.Load().NumMembers())
 	}
 	delA.Arm([]byte("hello-from-a"))
 
@@ -295,7 +295,7 @@ func TestMultiplex_TwoNodes_UserBroadcastDelivers(t *testing.T) {
 
 	if delB.rx.Load() == 0 {
 		t.Fatalf("node B never received the user-broadcast from A; getCalls on A=%d, members=%d",
-			delA.getCalls.Load(), svcA.memberlist.NumMembers())
+			delA.getCalls.Load(), svcA.memberlist.Load().NumMembers())
 	}
 	// Stop queuing the body so further gossip cycles don't re-deliver.
 	delA.Disarm()

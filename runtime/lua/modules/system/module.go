@@ -150,7 +150,7 @@ func createHostsTable() *lua.LTable {
 func memStats(l *lua.LState) int {
 	if !security.IsAllowed(l.Context(), "system.read", "memory", nil) {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "permission denied: system.read on memory").WithKind(lua.Invalid).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "permission denied: system.read on memory").WithKind(lua.PermissionDenied).WithRetryable(false))
 		return 2
 	}
 
@@ -182,7 +182,7 @@ func memStats(l *lua.LState) int {
 func allocated(l *lua.LState) int {
 	if !security.IsAllowed(l.Context(), "system.read", "memory", nil) {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "permission denied: system.read on memory").WithKind(lua.Invalid).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "permission denied: system.read on memory").WithKind(lua.PermissionDenied).WithRetryable(false))
 		return 2
 	}
 
@@ -197,7 +197,7 @@ func allocated(l *lua.LState) int {
 func heapObjects(l *lua.LState) int {
 	if !security.IsAllowed(l.Context(), "system.read", "memory", nil) {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "permission denied: system.read on memory").WithKind(lua.Invalid).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "permission denied: system.read on memory").WithKind(lua.PermissionDenied).WithRetryable(false))
 		return 2
 	}
 
@@ -212,7 +212,7 @@ func heapObjects(l *lua.LState) int {
 func setMemoryLimit(l *lua.LState) int {
 	if !security.IsAllowed(l.Context(), "system.control", "memory_limit", nil) {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "permission denied: system.control on memory_limit").WithKind(lua.Invalid).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "permission denied: system.control on memory_limit").WithKind(lua.PermissionDenied).WithRetryable(false))
 		return 2
 	}
 
@@ -245,7 +245,7 @@ func setMemoryLimit(l *lua.LState) int {
 func getMemoryLimit(l *lua.LState) int {
 	if !security.IsAllowed(l.Context(), "system.read", "memory_limit", nil) {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "permission denied: system.read on memory_limit").WithKind(lua.Invalid).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "permission denied: system.read on memory_limit").WithKind(lua.PermissionDenied).WithRetryable(false))
 		return 2
 	}
 
@@ -262,7 +262,7 @@ func getMemoryLimit(l *lua.LState) int {
 func gcCollect(l *lua.LState) int {
 	if !security.IsAllowed(l.Context(), "system.gc", "gc", nil) {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "permission denied: system.gc on gc").WithKind(lua.Invalid).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "permission denied: system.gc on gc").WithKind(lua.PermissionDenied).WithRetryable(false))
 		return 2
 	}
 
@@ -276,7 +276,7 @@ func gcCollect(l *lua.LState) int {
 func setGCPercent(l *lua.LState) int {
 	if !security.IsAllowed(l.Context(), "system.gc", "gc_percent", nil) {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "permission denied: system.gc on gc_percent").WithKind(lua.Invalid).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "permission denied: system.gc on gc_percent").WithKind(lua.PermissionDenied).WithRetryable(false))
 		return 2
 	}
 
@@ -304,7 +304,7 @@ func setGCPercent(l *lua.LState) int {
 func getGCPercent(l *lua.LState) int {
 	if !security.IsAllowed(l.Context(), "system.read", "gc_percent", nil) {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "permission denied: system.read on gc_percent").WithKind(lua.Invalid).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "permission denied: system.read on gc_percent").WithKind(lua.PermissionDenied).WithRetryable(false))
 		return 2
 	}
 
@@ -325,7 +325,7 @@ func getGCPercent(l *lua.LState) int {
 func numGoroutines(l *lua.LState) int {
 	if !security.IsAllowed(l.Context(), "system.read", "goroutines", nil) {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "permission denied: system.read on goroutines").WithKind(lua.Invalid).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "permission denied: system.read on goroutines").WithKind(lua.PermissionDenied).WithRetryable(false))
 		return 2
 	}
 
@@ -338,7 +338,7 @@ func goMaxProcs(l *lua.LState) int {
 	if l.GetTop() > 0 {
 		if !security.IsAllowed(l.Context(), "system.control", "gomaxprocs", nil) {
 			l.Push(lua.LNil)
-			l.Push(lua.NewLuaError(l, "permission denied: system.control on gomaxprocs").WithKind(lua.Invalid).WithRetryable(false))
+			l.Push(lua.NewLuaError(l, "permission denied: system.control on gomaxprocs").WithKind(lua.PermissionDenied).WithRetryable(false))
 			return 2
 		}
 		n := l.CheckInt(1)
@@ -352,7 +352,7 @@ func goMaxProcs(l *lua.LState) int {
 	} else {
 		if !security.IsAllowed(l.Context(), "system.read", "gomaxprocs", nil) {
 			l.Push(lua.LNil)
-			l.Push(lua.NewLuaError(l, "permission denied: system.read on gomaxprocs").WithKind(lua.Invalid).WithRetryable(false))
+			l.Push(lua.NewLuaError(l, "permission denied: system.read on gomaxprocs").WithKind(lua.PermissionDenied).WithRetryable(false))
 			return 2
 		}
 		l.Push(lua.LNumber(goruntime.GOMAXPROCS(0)))
@@ -364,7 +364,7 @@ func goMaxProcs(l *lua.LState) int {
 func numCPU(l *lua.LState) int {
 	if !security.IsAllowed(l.Context(), "system.read", "cpu", nil) {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "permission denied: system.read on cpu").WithKind(lua.Invalid).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "permission denied: system.read on cpu").WithKind(lua.PermissionDenied).WithRetryable(false))
 		return 2
 	}
 
@@ -376,7 +376,7 @@ func numCPU(l *lua.LState) int {
 func pid(l *lua.LState) int {
 	if !security.IsAllowed(l.Context(), "system.read", "pid", nil) {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "permission denied: system.read on pid").WithKind(lua.Invalid).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "permission denied: system.read on pid").WithKind(lua.PermissionDenied).WithRetryable(false))
 		return 2
 	}
 
@@ -388,7 +388,7 @@ func pid(l *lua.LState) int {
 func cwd(l *lua.LState) int {
 	if !security.IsAllowed(l.Context(), "system.read", "cwd", nil) {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "permission denied: system.read on cwd").WithKind(lua.Invalid).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "permission denied: system.read on cwd").WithKind(lua.PermissionDenied).WithRetryable(false))
 		return 2
 	}
 
@@ -407,7 +407,7 @@ func cwd(l *lua.LState) int {
 func hostname(l *lua.LState) int {
 	if !security.IsAllowed(l.Context(), "system.read", "hostname", nil) {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "permission denied: system.read on hostname").WithKind(lua.Invalid).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "permission denied: system.read on hostname").WithKind(lua.PermissionDenied).WithRetryable(false))
 		return 2
 	}
 
@@ -426,7 +426,7 @@ func hostname(l *lua.LState) int {
 func exit(l *lua.LState) int {
 	if !security.IsAllowed(l.Context(), "system.exit", "", nil) {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "permission denied: system.exit").WithKind(lua.Invalid).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "permission denied: system.exit").WithKind(lua.PermissionDenied).WithRetryable(false))
 		return 2
 	}
 
@@ -445,7 +445,7 @@ func exit(l *lua.LState) int {
 func modules(l *lua.LState) int {
 	if !security.IsAllowed(l.Context(), "system.read", "modules", nil) {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "permission denied: system.read on modules").WithKind(lua.Invalid).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "permission denied: system.read on modules").WithKind(lua.PermissionDenied).WithRetryable(false))
 		return 2
 	}
 

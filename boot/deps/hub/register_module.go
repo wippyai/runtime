@@ -6,7 +6,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"io"
 	"net/http"
 )
@@ -40,10 +39,6 @@ type RegisteredModule struct {
 	Visibility  string `json:"visibility"`
 }
 
-// ErrModuleAlreadyExists is returned when the hub responds 409 to a
-// register request — the module is already in the registry.
-var ErrModuleAlreadyExists = errors.New("module already exists")
-
 // RegisterModule POSTs to the hub's account-module REST endpoint to create
 // the module record before any version is published. The publish flow
 // requires the module row to exist in advance; this is the
@@ -53,7 +48,7 @@ var ErrModuleAlreadyExists = errors.New("module already exists")
 // can treat re-runs as idempotent.
 func (c *Client) RegisterModule(ctx context.Context, p *RegisterModuleParams) (*RegisteredModule, error) {
 	if c.baseURL == "" {
-		return nil, errors.New("hub client missing base URL")
+		return nil, NewClientConfigError("base URL is missing", nil)
 	}
 	body, err := json.Marshal(p)
 	if err != nil {

@@ -170,6 +170,8 @@ func (d *Dispatcher) handleSend(ctx context.Context, cmd dispatcher.Command, tag
 }
 
 // Unsubscribe removes a subscription by topic.
+func (*Dispatcher) HasSubscribers(event.System, event.Kind) bool { return true }
+
 func (d *Dispatcher) Unsubscribe(topic string) {
 	d.mu.Lock()
 	delete(d.subs, topic)

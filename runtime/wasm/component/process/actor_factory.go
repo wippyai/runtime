@@ -16,6 +16,7 @@ import (
 	wasmcomponent "github.com/wippyai/runtime/runtime/wasm/component"
 	wasmengine "github.com/wippyai/runtime/runtime/wasm/engine"
 	"github.com/wippyai/runtime/runtime/wasm/host/wippy/hosts/actor"
+	"github.com/wippyai/wasm-runtime/asyncify"
 	memorybudget "github.com/wippyai/wasm-runtime/memory/budget"
 	wasmrt "github.com/wippyai/wasm-runtime/runtime"
 	"github.com/wippyai/wasm-runtime/wasi/preview2"
@@ -31,13 +32,20 @@ var (
 // Cache.Close runs when the last ref is released, after those runtimes have closed.
 type factoryGeneration struct {
 	cache       wazero.CompilationCache
+	err         error
 	refs        atomic.Int32
 	cacheClosed atomic.Bool
 }
 
-func newFactoryGeneration() *factoryGeneration {
-	g := &factoryGeneration{cache: wazero.NewCompilationCache()}
+func newFactoryGeneration(newCache wasmcomponent.CompilationCacheFactory) *factoryGeneration {
+	g := &factoryGeneration{}
 	g.refs.Store(1)
+	cache, err := newCache()
+	if err != nil {
+		g.err = err
+		return g
+	}
+	g.cache = cache
 	return g
 }
 
@@ -68,6 +76,7 @@ type ActorFactory struct {
 	hostRegistry    *wasmcomponent.HostRegistry
 	gen             *factoryGeneration
 	pinRT           *wasmrt.Runtime
+	transformCache  asyncify.TransformCache
 	bytes           []byte
 	hostBufferBytes int64
 	pinOnce         sync.Once
@@ -85,6 +94,7 @@ func NewActorFactory(
 	cfg *api.ProcessConfig,
 	hostRegistry *wasmcomponent.HostRegistry,
 	fsRegistry fsapi.Registry,
+	caches wasmcomponent.Caches,
 ) *ActorFactory {
 	memBytes := cfg.Limits().EffectiveMemoryBytes()
 	pages := uint32(memBytes / api.MinProcessMemoryBytesMultiple)
@@ -96,16 +106,13 @@ func NewActorFactory(
 		fsRegistry:      fsRegistry,
 		memoryPages:     pages,
 		hostBufferBytes: cfg.Limits().HostBufferBytes,
-		gen:             newFactoryGeneration(),
+		gen:             newFactoryGeneration(caches.Compilation),
+		transformCache:  caches.Transform,
 	}
 }
 
 func (f *ActorFactory) runtimeConfig() *wasmrt.Config {
-	return &wasmrt.Config{
-		CompilationCache:   f.gen.cache,
-		MemoryLimitPages:   f.memoryPages,
-		CloseOnContextDone: true,
-	}
+	return wasmcomponent.RuntimeConfig(f.gen.cache, f.transformCache, f.memoryPages)
 }
 
 // Close invalidates the factory, preventing subsequent spawns.
@@ -182,6 +189,9 @@ func (f *ActorFactory) ensurePin(ctx context.Context) error {
 }
 
 func (f *ActorFactory) initPin(ctx context.Context) error {
+	if f.gen.err != nil {
+		return f.gen.err
+	}
 	rt, err := wasmrt.NewWithConfig(context.Background(), f.runtimeConfig())
 	if err != nil {
 		return err

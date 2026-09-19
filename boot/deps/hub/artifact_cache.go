@@ -64,16 +64,15 @@ func ImmutableWappDigest(filename string) (string, bool) {
 // cache rooted at cacheDir. Relative names the identity content must satisfy,
 // so an entry that already carries it is kept and content is never read.
 // Otherwise content is staged in a private file, verified against digest and
-// size, and only then linked into place.
+// size, and only then placed at the cache path.
 func PublishImmutableArtifact(cacheDir, relative string, content io.Reader, digest string, size uint64) error {
 	destination, err := containedPath(cacheDir, relative)
 	if err != nil {
 		return err
 	}
-	if err := verifyExistingImmutableArtifact(destination, digest, size); err == nil {
+	existing := verifyExistingImmutableArtifact(destination, digest, size)
+	if existing == nil {
 		return nil
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return err
 	}
 	directory := filepath.Dir(destination)
 	if err := os.MkdirAll(directory, 0o755); err != nil {
@@ -84,7 +83,32 @@ func PublishImmutableArtifact(cacheDir, relative string, content io.Reader, dige
 		return err
 	}
 	defer os.Remove(staged)
-	return publishVerifiedArtifact(staged, destination, digest, size)
+	if errors.Is(existing, os.ErrNotExist) {
+		return publishVerifiedArtifact(staged, destination, digest, size)
+	}
+	return repairImmutableArtifact(staged, destination, digest, size)
+}
+
+// repairImmutableArtifact replaces a cache entry that does not carry the content
+// its name pins. The cache is derived data, so an entry nothing can read is
+// rebuilt from verified content. publishVerifiedArtifact keeps such an entry
+// instead, because the Hub download path treats a published immutable path as
+// settled; replacement is this seeding entry point's decision.
+//
+// Rename leaves no moment in which the cache path is absent, and every
+// publisher renames content of the same digest, so the entry verifies under any
+// ordering of concurrent repairs. The result is read back before it is accepted.
+func repairImmutableArtifact(staged, destination, digest string, size uint64) error {
+	if err := verifyDownloadedArtifact(staged, digest, size); err != nil {
+		return NewArtifactIOError("verify private artifact", staged, err)
+	}
+	if err := os.Rename(staged, destination); err != nil {
+		return NewArtifactIOError("repair immutable artifact cache entry", destination, err)
+	}
+	if err := syncDirectory(filepath.Dir(destination)); err != nil {
+		return err
+	}
+	return verifyExistingImmutableArtifact(destination, digest, size)
 }
 
 // publishVerifiedArtifact publishes an already-downloaded private candidate at

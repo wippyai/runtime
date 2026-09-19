@@ -3,14 +3,19 @@
 package cache
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/wippyai/go-lua/types/diag"
 )
 
 const (
@@ -56,7 +61,11 @@ func NewBoundedDiskStore(dir string, maxBytes int64, maxEntries, pruneInterval i
 func (s *DiskStore) Delete(key string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return os.RemoveAll(s.entryDir(key))
+	err := os.RemoveAll(s.entryDir(key))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	return err
 }
 
 // Get retrieves a cache entry by key.
@@ -79,16 +88,36 @@ func (s *DiskStore) Get(key string) (*Entry, bool, error) {
 	}
 
 	entry := &Entry{Meta: meta}
-	if data, err := os.ReadFile(filepath.Join(entryDir, manifestFile)); err == nil {
+	if meta.ManifestHash != "" {
+		data, err := os.ReadFile(filepath.Join(entryDir, manifestFile))
+		if err != nil || hashBytes(data) != meta.ManifestHash {
+			return nil, false, nil
+		}
 		entry.Manifest = data
 	}
-	if data, err := os.ReadFile(filepath.Join(entryDir, diagsFile)); err == nil {
-		if len(data) > 0 {
-			_ = json.Unmarshal(data, &entry.Diagnostics)
+
+	if meta.DiagnosticsHash != "" {
+		data, err := os.ReadFile(filepath.Join(entryDir, diagsFile))
+		if err != nil || hashBytes(data) != meta.DiagnosticsHash {
+			return nil, false, nil
 		}
+		var diags []diag.Diagnostic
+		if err := json.Unmarshal(data, &diags); err != nil {
+			return nil, false, nil
+		}
+		entry.Diagnostics = diags
 	}
-	if data, err := os.ReadFile(filepath.Join(entryDir, protoFile)); err == nil {
+
+	if meta.ProtoHash != "" {
+		data, err := os.ReadFile(filepath.Join(entryDir, protoFile))
+		if err != nil || hashBytes(data) != meta.ProtoHash {
+			return nil, false, nil
+		}
 		entry.Proto = data
+	}
+
+	if _, err := os.Stat(metaPath); err != nil {
+		return nil, false, nil
 	}
 
 	return entry, true, nil
@@ -117,10 +146,20 @@ func (s *DiskStore) put(key string, entry *Entry) error {
 		return err
 	}
 
+	meta := entry.Meta
+	meta.SchemaVersion = SchemaVersion
+	if meta.CreatedAt.IsZero() {
+		meta.CreatedAt = nowUTC()
+	}
+
 	if len(entry.Manifest) > 0 {
+		meta.ManifestHash = hashBytes(entry.Manifest)
 		if err := writeFileAtomic(entryDir, manifestFile, entry.Manifest); err != nil {
 			return err
 		}
+	} else {
+		meta.ManifestHash = ""
+		_ = os.Remove(filepath.Join(entryDir, manifestFile))
 	}
 
 	if len(entry.Diagnostics) > 0 {
@@ -128,28 +167,36 @@ func (s *DiskStore) put(key string, entry *Entry) error {
 		if err != nil {
 			return err
 		}
+		meta.DiagnosticsHash = hashBytes(data)
 		if err := writeFileAtomic(entryDir, diagsFile, data); err != nil {
 			return err
 		}
+	} else {
+		meta.DiagnosticsHash = ""
+		_ = os.Remove(filepath.Join(entryDir, diagsFile))
 	}
 
 	if len(entry.Proto) > 0 {
+		meta.ProtoHash = hashBytes(entry.Proto)
 		if err := writeFileAtomic(entryDir, protoFile, entry.Proto); err != nil {
 			return err
 		}
+	} else {
+		meta.ProtoHash = ""
+		_ = os.Remove(filepath.Join(entryDir, protoFile))
 	}
 
-	meta := entry.Meta
-	meta.SchemaVersion = SchemaVersion
-	if meta.CreatedAt.IsZero() {
-		meta.CreatedAt = nowUTC()
-	}
 	metaData, err := json.Marshal(meta)
 	if err != nil {
 		return err
 	}
 
 	return writeFileAtomic(entryDir, metaFile, metaData)
+}
+
+func hashBytes(data []byte) string {
+	h := sha256.Sum256(data)
+	return hex.EncodeToString(h[:])
 }
 
 type diskEntryInfo struct {
@@ -182,11 +229,20 @@ func (s *DiskStore) Prune() error {
 		info := diskEntryInfo{path: path}
 		walkErr := filepath.WalkDir(path, func(_ string, d os.DirEntry, walkErr error) error {
 			if walkErr != nil {
+				if errors.Is(walkErr, os.ErrNotExist) {
+					return nil
+				}
 				return walkErr
 			}
 			if d.Type().IsRegular() {
+				if strings.Contains(d.Name(), ".tmp-") {
+					return nil
+				}
 				stat, statErr := d.Info()
 				if statErr != nil {
+					if errors.Is(statErr, os.ErrNotExist) {
+						return nil
+					}
 					return statErr
 				}
 				info.size += stat.Size()
@@ -197,6 +253,9 @@ func (s *DiskStore) Prune() error {
 			return nil
 		})
 		if walkErr != nil {
+			if errors.Is(walkErr, os.ErrNotExist) {
+				continue
+			}
 			return walkErr
 		}
 		if data, readErr := os.ReadFile(filepath.Join(path, metaFile)); readErr == nil {
@@ -217,7 +276,7 @@ func (s *DiskStore) Prune() error {
 	for len(entries) > s.maxEntries || total > s.maxBytes {
 		oldest := entries[0]
 		entries = entries[1:]
-		if err := os.RemoveAll(oldest.path); err != nil {
+		if err := os.RemoveAll(oldest.path); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
 		total -= oldest.size

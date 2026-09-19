@@ -22,14 +22,15 @@ const (
 
 // Config controls cache behavior.
 type Config struct {
-	Dir              string
-	Mode             Mode
-	Enabled          bool
-	CompileEnabled   bool
-	TypecheckEnabled bool
-	MaxBytes         int64
-	MaxEntries       int
-	PruneInterval    int
+	Dir               string
+	Mode              Mode
+	ToolchainIdentity string
+	MaxBytes          int64
+	MaxEntries        int
+	PruneInterval     int
+	Enabled           bool
+	CompileEnabled    bool
+	TypecheckEnabled  bool
 }
 
 // Normalize applies default values.

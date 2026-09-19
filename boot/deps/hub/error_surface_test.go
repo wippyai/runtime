@@ -4,6 +4,8 @@ package hub
 
 import (
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -29,6 +31,7 @@ func TestHubConditionsCarryKindAndStayMatchable(t *testing.T) {
 		{name: "publish in progress", err: ErrPublishInProgress, kind: apierror.Conflict},
 		{name: "quota exceeded", err: ErrQuotaExceeded, kind: apierror.RateLimited},
 		{name: "hub unavailable", err: ErrHubUnavailable, kind: apierror.Unavailable},
+		{name: "module already exists", err: ErrModuleAlreadyExists, kind: apierror.AlreadyExists},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			var rich apierror.Error
@@ -72,4 +75,38 @@ func TestWrappedConditionsStayMatchable(t *testing.T) {
 	var rich apierror.Error
 	require.True(t, errors.As(wrapped, &rich))
 	require.Equal(t, "acme/worker", rich.Details().GetString("target", ""))
+}
+
+// TestClientRefusalsAreTyped covers the conditions the client detects itself,
+// before or after talking to the Hub; they sit on the same surface as the
+// conditions the Hub reports.
+func TestClientRefusalsAreTyped(t *testing.T) {
+	t.Run("register without a base URL", func(t *testing.T) {
+		_, err := (&Client{}).RegisterModule(t.Context(), &RegisterModuleParams{})
+		var rich apierror.Error
+		require.ErrorAs(t, err, &rich)
+		require.Equal(t, apierror.Invalid, rich.Kind())
+	})
+
+	t.Run("publish without a token", func(t *testing.T) {
+		_, err := (&Client{baseURL: "http://hub.invalid"}).PublishViaHub(t.Context(), UploadInput{})
+		require.ErrorIs(t, err, ErrNotAuthenticated)
+	})
+
+	t.Run("publish answered without a publish id", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"publish_id":""}`))
+		}))
+		defer srv.Close()
+		client, err := NewClient(Options{BaseURL: srv.URL, Token: "tok"})
+		require.NoError(t, err)
+
+		_, err = client.PublishViaHub(t.Context(), UploadInput{
+			Org: "acme", Module: "widgets", Version: "1.0.0", FilePath: wappFixture(t),
+		})
+		var rich apierror.Error
+		require.ErrorAs(t, err, &rich)
+		require.Equal(t, apierror.Internal, rich.Kind())
+	})
 }

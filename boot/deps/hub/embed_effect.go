@@ -7,9 +7,11 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sort"
 
 	"github.com/wippyai/runtime/api/attrs"
 	apierror "github.com/wippyai/runtime/api/error"
+	regapi "github.com/wippyai/runtime/api/registry"
 	embedpkg "github.com/wippyai/runtime/service/fs/embed"
 	"github.com/wippyai/wapp"
 	"go.uber.org/zap"
@@ -58,6 +60,40 @@ type embedPackEffect struct {
 	logger   *zap.Logger
 
 	prepared []string // pack paths registered by Prepare, for rollback
+}
+
+// Target measures the packs this effect registers and retires.
+func (e *embedPackEffect) Target() (regapi.EffectTarget, error) {
+	type pack struct {
+		Module  string `json:"module"`
+		Version string `json:"version"`
+		Path    string `json:"path,omitempty"`
+	}
+	staged := make([]pack, len(e.staged))
+	for i, item := range e.staged {
+		staged[i] = pack{Module: item.module, Version: item.version, Path: item.packPath}
+	}
+	obsolete := make([]pack, len(e.obsolete))
+	for i, item := range e.obsolete {
+		obsolete[i] = pack{Module: item.module, Version: item.version}
+	}
+	less := func(items []pack) func(i, j int) bool {
+		return func(i, j int) bool {
+			if items[i].Module != items[j].Module {
+				return items[i].Module < items[j].Module
+			}
+			if items[i].Version != items[j].Version {
+				return items[i].Version < items[j].Version
+			}
+			return items[i].Path < items[j].Path
+		}
+	}
+	sort.Slice(staged, less(staged))
+	sort.Slice(obsolete, less(obsolete))
+	return regapi.NewEffectTarget("hub.embed_pack", struct {
+		Staged   []pack `json:"staged"`
+		Obsolete []pack `json:"obsolete"`
+	}{Staged: staged, Obsolete: obsolete})
 }
 
 func (e *embedPackEffect) Prepare(_ context.Context) error {

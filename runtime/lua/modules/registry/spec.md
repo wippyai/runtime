@@ -166,6 +166,21 @@ an owner field to `meta` or otherwise changes user metadata. Kinds handled by a
 registry expansion directive are rejected because their generated entries and
 effects do not have process-local ownership semantics.
 
+An overlay may also shadow a durable entry: `changes:update(entry)` on a
+durable entry replaces its content in effective state, and `changes:delete(id)`
+removes it from effective state. Every other component sees an ordinary entry
+change; only the registry knows the entry is shadowed. Creating an entry whose
+ID already exists durably remains a conflict, shadowing is update and delete
+only.
+
+One durable entry carries at most one shadow. A second overlay that tries to
+shadow it fails with `errors.CONFLICT`, and while a shadow is live a durable
+`apply` that targets the entry is refused as well. Deleting a shadowed entry
+from the overlay that owns it releases the shadow instead of removing it: the
+durable entry of the currently selected version returns to effective state.
+A shadow may not remove an entry other live entries depend on, and a shadowed
+entry may still be depended on durably because the entry itself is resident.
+
 ```lua
 local live, err = registry.overlay("controllers:customer-db")
 if err then return nil, err end
@@ -193,6 +208,11 @@ snapshot operation and apply. Required actions are:
 - `registry.overlay.apply` on the overlay ID
 - `registry.overlay.create.<kind>`, `registry.overlay.update.<kind>`, or
   `registry.overlay.delete.<kind>` on each real entry ID
+- `registry.overlay.shadow` on the durable entry ID, in addition to the
+  per-kind action, when the operation shadows a durable entry the overlay does
+  not own. `<kind>` is the durable entry's kind. Creating overlay entries and
+  mutating entries the overlay already owns, including releasing a shadow, do
+  not need it.
 
 This second, per-entry check prevents a controller authorized for one overlay
 from creating arbitrary kinds or writing outside its allowed namespaces.
@@ -213,7 +233,9 @@ effective registry and continue to require their existing per-entry
 | Owner read/apply denied | errors.PERMISSION_DENIED | no |
 | Entry operation denied | errors.PERMISSION_DENIED | no |
 | Updated/deleted entry absent from snapshot | errors.NOT_FOUND | no |
+| Shadow denied | errors.PERMISSION_DENIED | no |
 | Stale overlay generation | errors.CONFLICT | yes |
+| Entry already shadowed by another overlay | errors.CONFLICT | no |
 | Directive-owned kind | errors.INVALID | no |
 
 ### current_version() → Version, error
@@ -483,11 +505,65 @@ changes:delete({ns = "app.test", name = "example"})
 changes:delete(snapshot:entries())
 ```
 
+#### changes:plan() → table, error
+
+Computes what `apply()` would do without doing it. The registry runs the same
+dependency expansion an apply runs, then releases every staged resource. No
+entry is created, no version advances, no effect is prepared.
+
+A successful plan binds the next `apply()` on the same changeset to exactly
+what was reviewed: if the registry moved or any external input (a Hub artifact,
+a source tree, a filesystem target) changed in between, `apply()` refuses with
+`errors.CONFLICT`. Mutating the changeset after `plan()` drops the binding;
+`apply()` then runs unbound but still fenced on the snapshot version.
+
+`plan()` is authorized exactly like `apply()`: you cannot plan what you could
+not apply.
+
+**Returns:**
+
+- Success: plan table, nil
+- Error: nil, structured error
+
+```lua
+local snap = registry.snapshot()
+local changes = snap:changes()
+changes:create({ id = "app.deps:crm", kind = "ns.dependency",
+                 data = { component = "acme/crm", version = "^2.1" } })
+
+local plan, err = changes:plan()
+-- plan.base        Version the plan was computed against
+-- plan.digest      binds changes, history, resolution and effects
+-- plan.changes     every operation after expansion: { op = "create", entry = {...} }
+-- plan.history     the subset recorded in durable history
+-- plan.resolution  exact module graph: versions, digests, sources
+-- plan.effects     external work: { kind = "hub.artifact", digest = "..." }
+
+-- review plan.changes here; nothing has been installed
+
+local version, err = changes:apply()
+```
+
+**Errors (structured):**
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| Overlay snapshot | errors.INVALID | no |
+| No changes to plan | errors.INVALID | no |
+| Permission denied | errors.PERMISSION_DENIED | no |
+| Snapshot version is no longer current | errors.CONFLICT | yes |
+| Expansion failed | errors.INTERNAL | no |
+
 #### changes:apply() → Version, error
 
 Applies the changeset. A normal snapshot creates a registry version. An overlay
 snapshot changes only its process-local overlay and returns the unchanged
 current durable version.
+
+A durable apply is fenced on the snapshot version: if the registry moved since
+`registry.snapshot()`, it refuses with `errors.CONFLICT` and applies nothing.
+When `plan()` succeeded on this changeset, the apply is also held to the plan
+digest, so what was reviewed is what gets applied.
 
 **Returns:**
 
@@ -500,8 +576,18 @@ current durable version.
 |-----------|------|-----------|
 | No changes to apply | errors.INVALID | no |
 | Permission denied | errors.PERMISSION_DENIED | no |
+| Registry moved since the snapshot | errors.CONFLICT | yes |
+| Plan inputs changed since plan() | errors.CONFLICT | yes |
+| Registry cannot fence an apply | errors.INTERNAL | no |
 | Sort operations failed | errors.INTERNAL | no |
 | Apply changes failed | errors.INTERNAL | no |
+
+**Security:** a durable `plan()` or `apply()` evaluates `registry.apply` once
+per operation with the entry ID as the resource, the way `registry.get` is
+evaluated per entry. A policy that grants `registry.apply` on every resource
+behaves as it always has; a policy scoped to a namespace pattern grants write
+authority over those entries only. One denied operation refuses the whole
+changeset, and the error names the entry in `details.entry_id`.
 
 ### Version
 

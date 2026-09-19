@@ -27,6 +27,8 @@ var (
 	ErrPublishInProgress = apierror.New(apierror.Conflict, "publish already in progress").WithRetryable(apierror.False)
 	ErrQuotaExceeded     = apierror.New(apierror.RateLimited, "quota exceeded").WithRetryable(apierror.False)
 	ErrHubUnavailable    = apierror.New(apierror.Unavailable, "hub unavailable").WithRetryable(apierror.True)
+	// ErrModuleAlreadyExists reports a register request the Hub answered with 409.
+	ErrModuleAlreadyExists = apierror.New(apierror.AlreadyExists, "module already exists").WithRetryable(apierror.False)
 
 	// Causes a replacement fails verification with. They are sentinels so a
 	// caller can match the reason rather than parse a message.

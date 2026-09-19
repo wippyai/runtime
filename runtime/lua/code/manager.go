@@ -104,6 +104,7 @@ type (
 		txAffected              map[registry.ID]registry.Kind
 		typeCfgHash             string
 		builtinHash             string
+		toolchainIdentity       string
 		cacheCfg                cache.Config
 		revision                atomic.Uint64
 		invalidationSeq         atomic.Uint64
@@ -116,8 +117,8 @@ type (
 	Config struct {
 		Modules                 []*api.ModuleDef
 		Cache                   cache.Config
-		TypeCheck               TypeCheckConfig
 		InvalidationWaitTimeout time.Duration
+		TypeCheck               TypeCheckConfig
 	}
 )
 
@@ -130,6 +131,10 @@ func NewCodeManager(log *zap.Logger, bus event.Bus, cfg Config) (*Manager, error
 	typeChecker := NewTypeChecker(cfg.TypeCheck, cfg.Modules)
 	cacheCfg := cfg.Cache.Normalize()
 
+	if cacheCfg.Enabled && cacheCfg.ToolchainIdentity == "" {
+		return nil, NewMissingToolchainIdentityError()
+	}
+
 	cm := &Manager{
 		log:                     log,
 		bus:                     bus,
@@ -138,6 +143,7 @@ func NewCodeManager(log *zap.Logger, bus event.Bus, cfg Config) (*Manager, error
 		txAffected:              make(map[registry.ID]registry.Kind),
 		cacheCfg:                cacheCfg,
 		typeCfgHash:             TypecheckConfigHash(cfg.TypeCheck),
+		toolchainIdentity:       cacheCfg.ToolchainIdentity,
 		invalidationWaitTimeout: cfg.InvalidationWaitTimeout,
 	}
 	if cacheCfg.Enabled {
@@ -261,6 +267,7 @@ func NewCodeManager(log *zap.Logger, bus event.Bus, cfg Config) (*Manager, error
 
 			return fnProto, nil
 		},
+		cm.toolchainIdentity,
 	)
 
 	// built-in modules
@@ -696,7 +703,7 @@ func (cm *Manager) AddNodeWithProto(_ context.Context, node Node, deps []Import,
 
 	// Retain the supplied proto for the active node version.
 	if proto != nil {
-		tag, err := runtimeFingerprintMemo(cm.memGraph, node.ID, make(map[registry.ID]string))
+		tag, err := runtimeFingerprintMemo(cm.memGraph, node.ID, make(map[registry.ID]string), cm.toolchainIdentity)
 		if err != nil {
 			_ = cm.memGraph.RemoveNode(node.ID)
 			return err
@@ -744,7 +751,7 @@ func (cm *Manager) UpdateNodeWithProto(_ context.Context, node Node, deps []Impo
 
 	// Retain the supplied proto for the active node version.
 	if proto != nil {
-		tag, err := runtimeFingerprintMemo(cm.memGraph, node.ID, make(map[registry.ID]string))
+		tag, err := runtimeFingerprintMemo(cm.memGraph, node.ID, make(map[registry.ID]string), cm.toolchainIdentity)
 		if err != nil {
 			return err
 		}

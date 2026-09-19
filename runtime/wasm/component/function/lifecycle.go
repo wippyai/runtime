@@ -5,6 +5,7 @@ package function
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/runtime"
@@ -282,7 +283,7 @@ func (m *Manager) loadIsolatedModule(ctx context.Context, cfg *configEntry) (*wa
 		return m.loadModule(ctx, cfg)
 	}
 
-	rt, err := wasmrt.NewWithConfig(ctx, &wasmrt.Config{CloseOnContextDone: true})
+	rt, err := wasmrt.NewWithConfig(ctx, m.runtimeConfig())
 	if err != nil {
 		return nil, err
 	}
@@ -345,6 +346,7 @@ func (m *Manager) loadWASMModule(ctx context.Context, cfg *api.FunctionConfig) (
 		return nil, false, runtimewasm.ErrRuntimeNotStarted
 	}
 
+	loadStart := time.Now()
 	var module *wasmrt.Module
 	if isComponent {
 		module, err = rt.LoadComponent(ctx, data)
@@ -354,9 +356,17 @@ func (m *Manager) loadWASMModule(ctx context.Context, cfg *api.FunctionConfig) (
 	if err != nil {
 		return nil, false, runtimewasm.NewLoadWASMError(err)
 	}
+	loaded := time.Now()
 
 	if err := module.Compile(ctx); err != nil {
 		return nil, false, runtimewasm.NewCompileModuleError(err)
 	}
+	m.log.Info("wasm module compiled",
+		zap.String("path", cfg.Path),
+		zap.Int("bytes", len(data)),
+		zap.Bool("component", isComponent),
+		zap.Duration("load", loaded.Sub(loadStart)),
+		zap.Duration("compile", time.Since(loaded)),
+	)
 	return module, isComponent, nil
 }

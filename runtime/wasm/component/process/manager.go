@@ -31,17 +31,19 @@ type Manager struct {
 	fsRegistry   fsapi.Registry
 	hostRegistry *wasmcomponent.HostRegistry
 	configs      map[registry.ID]*configEntry
+	caches       wasmcomponent.Caches
 	mu           sync.RWMutex
 	opMu         sync.Mutex
 	started      bool
 }
 
 // NewManager creates a new WASM process manager.
-func NewManager(log *zap.Logger, bus event.Bus, fsRegistry fsapi.Registry) *Manager {
+func NewManager(log *zap.Logger, bus event.Bus, fsRegistry fsapi.Registry, caches wasmcomponent.Caches) *Manager {
 	return &Manager{
 		log:          log,
 		bus:          bus,
 		fsRegistry:   fsRegistry,
+		caches:       caches,
 		configs:      make(map[registry.ID]*configEntry),
 		hostRegistry: wasmcomponent.NewHostRegistry(),
 	}

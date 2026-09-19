@@ -25,6 +25,7 @@ import (
 	"github.com/wippyai/runtime/boot/deps/lock"
 	"github.com/wippyai/runtime/cmd/internal/banner"
 	"github.com/wippyai/runtime/cmd/internal/entries"
+	"github.com/wippyai/runtime/internal/cachedir"
 	"github.com/wippyai/wapp"
 	"go.uber.org/zap"
 )
@@ -359,7 +360,7 @@ func downloadHubModule(ctx context.Context, ref string, registryURL string) ([]s
 
 	fmt.Printf("%s Resolved %d module(s)\n", dimStyle.Render(""), len(resolved.Modules))
 
-	cacheDir := getCacheDir()
+	cacheDir := cachedir.Dir()
 	var packPaths []string
 	var mainPackPath string
 
@@ -537,19 +538,6 @@ func isVersionString(s string) bool {
 		}
 	}
 	return true
-}
-
-// getCacheDir returns the local cache directory used for downloaded packs.
-func getCacheDir() string {
-	if cacheDir := os.Getenv("WIPPY_CACHE_DIR"); cacheDir != "" {
-		return cacheDir
-	}
-
-	if homeDir, err := os.UserHomeDir(); err == nil {
-		return filepath.Join(homeDir, ".wippy", "cache")
-	}
-
-	return filepath.Join(os.TempDir(), "wippy-cache")
 }
 
 // runFromPackFile executes runtime from one .wapp file.

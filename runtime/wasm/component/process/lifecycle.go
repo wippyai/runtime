@@ -81,7 +81,7 @@ func (m *Manager) Invalidate(ctx context.Context, ids []registry.ID) {
 		frozenBytes := append([]byte(nil), data...)
 		isComponent := wasmlib.IsComponent(frozenBytes)
 
-		newFactory := NewActorFactory(frozenBytes, isComponent, old.cfg, m.hostRegistry, m.fsRegistry)
+		newFactory := NewActorFactory(frozenBytes, isComponent, old.cfg, m.hostRegistry, m.fsRegistry, m.caches)
 		if err := newFactory.warm(ctx); err != nil {
 			newFactory.Close()
 			m.log.Error("failed to validate reloaded wasm process module",
@@ -143,7 +143,7 @@ func (m *Manager) addWASM(ctx context.Context, entry registry.Entry) error {
 	frozenBytes := append([]byte(nil), data...)
 	isComponent := wasmlib.IsComponent(frozenBytes)
 
-	factory := NewActorFactory(frozenBytes, isComponent, cfg, m.hostRegistry, m.fsRegistry)
+	factory := NewActorFactory(frozenBytes, isComponent, cfg, m.hostRegistry, m.fsRegistry, m.caches)
 	if err := factory.warm(ctx); err != nil {
 		factory.Close()
 		return err
@@ -203,7 +203,7 @@ func (m *Manager) updateWASM(ctx context.Context, entry registry.Entry) error {
 	frozenBytes := append([]byte(nil), data...)
 	isComponent := wasmlib.IsComponent(frozenBytes)
 
-	newFactory := NewActorFactory(frozenBytes, isComponent, cfg, m.hostRegistry, m.fsRegistry)
+	newFactory := NewActorFactory(frozenBytes, isComponent, cfg, m.hostRegistry, m.fsRegistry, m.caches)
 	if err := newFactory.warm(ctx); err != nil {
 		newFactory.Close()
 		return err
