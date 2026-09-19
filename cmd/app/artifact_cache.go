@@ -38,6 +38,9 @@ func seedCache(state, deployment string, bundle Bundle) (skipped []error, err er
 			return nil, NewArtifactCacheError("cache shipped module", pack.Module+"@"+pack.Version, err)
 		}
 	}
+	if err := importLegacyArtifactCache(state, cache); err != nil {
+		return nil, err
+	}
 	selected, retained, err := retainedDeployments(state, deployment)
 	if err != nil {
 		return nil, err
@@ -51,6 +54,54 @@ func seedCache(state, deployment string, bundle Bundle) (skipped []error, err er
 		}
 	}
 	return skipped, nil
+}
+
+// importLegacyArtifactCache carries immutable artifacts forward from the
+// pre-787 application cache layout. The old cache is derived data and remains
+// untouched; only files that pass the same content-addressed publication
+// checks as shipped and retained artifacts enter the current cache.
+//
+// Both legacy path components are checked before opening the root. This keeps
+// the migration boundary explicit even when an old state contains a symlink
+// left by an interrupted or externally modified installation.
+func importLegacyArtifactCache(state, cache string) error {
+	stateRoot, err := os.OpenRoot(state)
+	if err != nil {
+		return NewApplicationStateError("open application state for legacy artifact migration", state, err)
+	}
+	defer func() { _ = stateRoot.Close() }()
+
+	legacyInfo, err := stateRoot.Lstat(legacyCacheDir)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return NewApplicationStateError("inspect legacy artifact cache", legacyCacheDir, err)
+	}
+	if legacyInfo.Mode()&os.ModeSymlink != 0 || !legacyInfo.IsDir() {
+		return NewRetainedDeploymentError("legacy artifact cache is not a regular directory", legacyCacheDir, nil)
+	}
+
+	vendorInfo, err := stateRoot.Lstat(filepath.ToSlash(filepath.Join(legacyCacheDir, "vendor")))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return NewApplicationStateError("inspect legacy artifact vendor", legacyArtifactVendorPath(state), err)
+	}
+	if vendorInfo.Mode()&os.ModeSymlink != 0 || !vendorInfo.IsDir() {
+		return NewRetainedDeploymentError("legacy artifact vendor is not a regular directory", legacyArtifactVendorPath(state), nil)
+	}
+
+	vendor, err := stateRoot.OpenRoot(filepath.ToSlash(filepath.Join(legacyCacheDir, "vendor")))
+	if err != nil {
+		return NewApplicationStateError("open legacy artifact vendor", legacyArtifactVendorPath(state), err)
+	}
+	defer func() { _ = vendor.Close() }()
+	if err := importImmutableArtifacts(vendor, cache); err != nil {
+		return NewArtifactCacheError("migrate legacy artifact cache", legacyArtifactVendorPath(state), err)
+	}
+	return nil
 }
 
 // immutableArtifactPath names the cache entry a module record pins. A record

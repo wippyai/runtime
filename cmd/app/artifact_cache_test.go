@@ -69,6 +69,52 @@ func immutableRelative(t *testing.T, module, version, digest string) string {
 	return relative
 }
 
+func legacyArtifact(t *testing.T, state, content string) (string, string) {
+	t.Helper()
+	digest := fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(content)))
+	relative := immutableRelative(t, "wippy/agent", "0.1.0-dev", digest)
+	path := filepath.Join(legacyArtifactVendorPath(state), relative)
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o700))
+	require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
+	return relative, digest
+}
+
+func TestSeedCacheImportsVerifiedLegacyArtifacts(t *testing.T) {
+	state, deployment, bundle := seededState(t)
+	relative, digest := legacyArtifact(t, state, "legacy artifact")
+
+	_, err := seedCache(state, deployment, bundle)
+	require.NoError(t, err)
+	require.NoError(t, hub.VerifyDownloadedArtifact(filepath.Join(cachePath(state), relative), digest, 0))
+	require.FileExists(t, filepath.Join(legacyArtifactVendorPath(state), relative))
+}
+
+func TestImportLegacyArtifactCacheRejectsCorruptContent(t *testing.T) {
+	state := t.TempDir()
+	digest := fmt.Sprintf("sha256:%x", sha256.Sum256([]byte("expected artifact")))
+	relative := immutableRelative(t, "wippy/agent", "0.1.0-dev", digest)
+	path := filepath.Join(legacyArtifactVendorPath(state), relative)
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o700))
+	require.NoError(t, os.WriteFile(path, []byte("corrupt artifact"), 0o600))
+
+	err := importLegacyArtifactCache(state, cachePath(state))
+	require.Error(t, err)
+	require.ErrorContains(t, err, "digest")
+}
+
+func TestImportLegacyArtifactCacheRejectsSymlinkBoundary(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink permissions vary on Windows")
+	}
+	state := t.TempDir()
+	outside := t.TempDir()
+	require.NoError(t, os.Symlink(outside, filepath.Join(state, legacyCacheDir)))
+
+	err := importLegacyArtifactCache(state, cachePath(state))
+	require.Error(t, err)
+	require.ErrorContains(t, err, "legacy artifact cache")
+}
+
 // retainedOverlay writes an immutable artifact into a retained deployment
 // vendor and returns its cache-relative path and digest.
 func retainedOverlay(t *testing.T, deployment, content string) (string, string) {

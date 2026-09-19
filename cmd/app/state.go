@@ -17,6 +17,7 @@ const (
 	recoveryDir     = "recovery"
 	receiptFilename = "receipt.json"
 	cacheDir        = "cache"
+	legacyCacheDir  = "artifact-cache"
 	stagingDir      = "staging"
 	configFilename  = ".wippy.yaml"
 	updatePrefix    = "update-"
@@ -35,6 +36,10 @@ func recoveryHistoryPath(state string) string {
 func receiptPath(state string) string { return filepath.Join(state, recoveryDir, receiptFilename) }
 
 func cachePath(state string) string { return filepath.Join(state, cacheDir) }
+
+func legacyArtifactVendorPath(state string) string {
+	return filepath.Join(state, legacyCacheDir, "vendor")
+}
 
 // stagingPath holds the scratch states updates build their candidates in. It
 // sits beside deployments so the artifact cache, which reads every deployment
