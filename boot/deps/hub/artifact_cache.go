@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/wippyai/runtime/boot/deps/graph"
 )
@@ -21,6 +22,14 @@ const (
 	immutableWappDigestMarker = ".sha256-"
 	immutableWappSuffix       = ".wapp"
 )
+
+// immutableArtifactPublishMu serializes verification and replacement of cache
+// entries in this process. A repair replaces a bad entry, while verification
+// opens that entry to hash it. Windows cannot replace a path while another
+// goroutine has it open, so the whole decision and replacement form one
+// critical section. Publication happens during boot/update and is infrequent;
+// one lock also avoids retaining a mutex for every cache path.
+var immutableArtifactPublishMu sync.Mutex
 
 // ImmutableWappRelativePath returns the cache-relative path naming the exact
 // content that digest identifies, under the organization that owns the module.
@@ -66,6 +75,9 @@ func ImmutableWappDigest(filename string) (string, bool) {
 // Otherwise content is staged in a private file, verified against digest and
 // size, and only then placed at the cache path.
 func PublishImmutableArtifact(cacheDir, relative string, content io.Reader, digest string, size uint64) error {
+	immutableArtifactPublishMu.Lock()
+	defer immutableArtifactPublishMu.Unlock()
+
 	destination, err := containedPath(cacheDir, relative)
 	if err != nil {
 		return err
