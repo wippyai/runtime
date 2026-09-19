@@ -10,16 +10,16 @@ import (
 
 // The state directory layout the runner owns.
 const (
-	lockFilename        = "lock"
-	deploymentsDir      = "deployments"
-	currentFilename     = "current"
-	historyFilename     = "registry.db"
-	recoveryDir         = "recovery"
-	receiptFilename     = "receipt.json"
-	cacheDir            = "cache"
-	configFilename      = ".wippy.yaml"
-	updatePrefix        = "update-"
-	updateStagingPrefix = ".update-"
+	lockFilename    = "lock"
+	deploymentsDir  = "deployments"
+	currentFilename = "current"
+	historyFilename = "registry.db"
+	recoveryDir     = "recovery"
+	receiptFilename = "receipt.json"
+	cacheDir        = "cache"
+	stagingDir      = "staging"
+	configFilename  = ".wippy.yaml"
+	updatePrefix    = "update-"
 )
 
 func deploymentsPath(state string) string { return filepath.Join(state, deploymentsDir) }
@@ -35,6 +35,11 @@ func recoveryHistoryPath(state string) string {
 func receiptPath(state string) string { return filepath.Join(state, recoveryDir, receiptFilename) }
 
 func cachePath(state string) string { return filepath.Join(state, cacheDir) }
+
+// stagingPath holds the scratch states updates build their candidates in. It
+// sits beside deployments so the artifact cache, which reads every deployment
+// the state retains, never reaches a candidate that is still being built.
+func stagingPath(state string) string { return filepath.Join(state, stagingDir) }
 
 // configFiles returns the runtime configuration files the state carries.
 func configFiles(state string) ([]string, error) {

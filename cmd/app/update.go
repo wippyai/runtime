@@ -37,17 +37,24 @@ func runChild(ctx context.Context, dir string, args []string) error {
 
 // updateDeployment moves the deployment forward in a candidate copy and selects
 // it only after the Wippy CLI has updated it, linted it against this executable
-// and every module artifact it pins has verified. The candidate is built inside
-// a state of its own, so the child invocations that carry out the update own
-// that state while this invocation keeps the lock on the application state.
-// Any failure removes the candidate and leaves the current deployment selected.
+// and every module artifact it pins has verified.
+//
+// The candidate is built inside a scratch state under staging whose only
+// deployment is the candidate itself. Each child invocation owns that scratch
+// state and addresses the candidate through it, while this invocation keeps the
+// lock on the application state for the whole update. A scratch state an
+// interrupted update left behind is removed before this one starts, and any
+// failure removes the candidate and leaves the current deployment selected.
 func updateDeployment(ctx context.Context, e Executable, l Launch, deployment string, run commandRunner) (result error) {
 	deployments := deploymentsPath(l.State)
 	name, err := nextUpdateName(deployments)
 	if err != nil {
 		return err
 	}
-	staging := filepath.Join(deployments, updateStagingPrefix+strings.TrimPrefix(name, updatePrefix))
+	if err := os.RemoveAll(stagingPath(l.State)); err != nil {
+		return NewApplicationStateError("remove update staging", stagingPath(l.State), err)
+	}
+	staging := filepath.Join(stagingPath(l.State), name)
 	candidate := filepath.Join(staging, deploymentsDir, e.Bundle.ID())
 	selected := filepath.Join(deployments, name)
 	committed := false
@@ -55,7 +62,7 @@ func updateDeployment(ctx context.Context, e Executable, l Launch, deployment st
 		if !committed {
 			_ = os.RemoveAll(selected)
 		}
-		_ = os.RemoveAll(staging)
+		_ = os.RemoveAll(stagingPath(l.State))
 	}()
 	if err := os.CopyFS(candidate, os.DirFS(deployment)); err != nil {
 		return NewUpdateError("stage", err)

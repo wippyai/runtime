@@ -152,3 +152,40 @@ func TestUpdateRunsThroughTheOperationDispatch(t *testing.T) {
 	require.True(t, found)
 	require.Equal(t, deploymentsDir+"/update-1", current.Directory)
 }
+
+func TestInterruptedUpdateLeavesNoStagingBehind(t *testing.T) {
+	state, executable, deployment := updateState(t)
+	// An interrupted update leaves its scratch state in place.
+	leftover := filepath.Join(stagingPath(state), "update-1", deploymentsDir, executable.Bundle.ID())
+	require.NoError(t, os.MkdirAll(leftover, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(leftover, lock.DefaultFilename), []byte("not: [yaml"), 0o600))
+
+	run := func(context.Context, string, []string) error { return nil }
+	require.NoError(t, updateDeployment(t.Context(), executable, Launch{State: state, Op: OpUpdate}, deployment, run))
+
+	record, found, err := readCurrent(state)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, deploymentsDir+"/update-1", record.Directory)
+	require.NoDirExists(t, stagingPath(state))
+}
+
+func TestFailedUpdateLeavesNoStagingBehind(t *testing.T) {
+	state, executable, deployment := updateState(t)
+	run := func(context.Context, string, []string) error { return errors.New("injected failure") }
+
+	require.Error(t, updateDeployment(t.Context(), executable, Launch{State: state, Op: OpUpdate}, deployment, run))
+	require.NoDirExists(t, stagingPath(state))
+}
+
+func TestStagingIsNotARetainedDeployment(t *testing.T) {
+	state, executable, deployment := updateState(t)
+	staging := filepath.Join(stagingPath(state), "update-1", deploymentsDir, executable.Bundle.ID())
+	_, err := executable.Bundle.Seed(staging)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(staging, lock.DefaultFilename), []byte("not: [yaml"), 0o600))
+
+	skipped, err := seedCache(state, deployment, executable.Bundle)
+	require.NoError(t, err)
+	require.Empty(t, skipped, "the artifact cache read a scratch state as a retained deployment")
+}
