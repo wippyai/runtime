@@ -93,7 +93,8 @@ func entryToLuaTable(l *lua.LState, entry regapi.Entry) (*lua.LTable, error) {
 	entryTable.RawSetString("kind", lua.LString(entry.Kind))
 
 	// Convert metadata
-	metaTable := l.CreateTable(0, len(entry.Meta))
+	// Reserve one hash slot for an empty bag so it stays object-shaped on read.
+	metaTable := l.CreateTable(0, max(1, len(entry.Meta)))
 	for k, v := range entry.Meta {
 		luaValue, err := luaconv.GoToLua(v)
 		if err != nil {
