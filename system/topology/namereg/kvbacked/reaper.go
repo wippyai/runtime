@@ -110,8 +110,8 @@ func (st *strongState) dropNodeFromPending(name string, node pid.NodeID) {
 	committed, terr := st.svc.engine.Txn([]kvapi.TxnOp{
 		{Kind: kvapi.TxnCheck, Cond: kvapi.CondVersion, Key: pendingKey(name), Expect: pe.Version},
 		{Kind: kvapi.TxnPut, Cond: kvapi.CondAny, Key: pendingKey(name), Value: val},
-		{Kind: kvapi.TxnDelete, Cond: kvapi.CondAny, Key: ackKey(name, pe.Epoch, node)},
-		{Kind: kvapi.TxnDelete, Cond: kvapi.CondAny, Key: rejectKey(name, pe.Epoch, node)},
+		{Kind: kvapi.TxnDelete, Cond: kvapi.CondAny, Key: ackKey(name, hdr.AttemptID, node)},
+		{Kind: kvapi.TxnDelete, Cond: kvapi.CondAny, Key: rejectKey(name, hdr.AttemptID, node)},
 	})
 	if terr != nil || !committed {
 		return

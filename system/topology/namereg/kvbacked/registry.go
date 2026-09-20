@@ -53,6 +53,7 @@ func nodeIndexKey(p pid.PID, name string) string {
 type activeValue struct {
 	PID           string       `codec:"p"`
 	Name          string       `codec:"n"`
+	AttemptID     string       `codec:"a,omitempty"`
 	RequiredNodes []pid.NodeID `codec:"r,omitempty"`
 	Strong        bool         `codec:"s,omitempty"`
 }

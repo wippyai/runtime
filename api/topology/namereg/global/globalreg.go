@@ -25,8 +25,9 @@ const (
 	// Consistent registers the name cluster-wide via Raft as a linearizable
 	// singleton.
 	Consistent RegistrationMode = 2
-	// Strong registers the name cluster-wide via Raft plus an all-live-node
-	// ack on the committed epoch within a deadline. Strictest scope.
+	// Strong registers the name cluster-wide via Raft plus an acknowledgement
+	// from every required node for the committed attempt within a deadline.
+	// Strictest scope.
 	Strong RegistrationMode = 3
 )
 

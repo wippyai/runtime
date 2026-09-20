@@ -14,6 +14,8 @@ import (
 	systemkv "github.com/wippyai/runtime/system/kv"
 )
 
+const testStrongAttemptID = "00000000000000000000000000000001"
+
 func newStrongReg(t *testing.T, members []pid.NodeID, deadline time.Duration, lc func(string, pid.PID) (pid.PID, bool)) *Service {
 	t.Helper()
 	eng := systemkv.NewService("reg", nil)

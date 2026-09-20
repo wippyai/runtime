@@ -43,7 +43,7 @@ func TestExpiryValidatesVotesAtCommit(t *testing.T) {
 			r := newStrongReg(t, []pid.NodeID{"node-1", "peer"}, time.Second, nil)
 			t.Cleanup(func() { r.strong.stopTimer("claim") })
 			owner := mkPID("node-1", "owner")
-			hdr := pendingHeader{PID: owner.String(), Name: "claim", RequiredNodes: []pid.NodeID{"node-1", "peer"}, DeadlineUnixNano: time.Now().Add(-time.Second).UnixNano()}
+			hdr := pendingHeader{PID: owner.String(), Name: "claim", AttemptID: testStrongAttemptID, RequiredNodes: []pid.NodeID{"node-1", "peer"}, DeadlineUnixNano: time.Now().Add(-time.Second).UnixNano()}
 			value, err := encode(hdr)
 			if err != nil {
 				t.Fatal(err)
@@ -56,14 +56,14 @@ func TestExpiryValidatesVotesAtCommit(t *testing.T) {
 				t.Fatal(err)
 			}
 			epoch := pe.Epoch
-			if _, err := r.engine.Set(ackKey("claim", epoch, "node-1"), []byte("node-1")); err != nil {
+			if _, err := r.engine.Set(ackKey("claim", hdr.AttemptID, "node-1"), []byte("node-1")); err != nil {
 				t.Fatal(err)
 			}
 			base := r.engine
 			r.engine = &beforeExpiryEngine{Engine: base, before: func() {
-				key := ackKey("claim", epoch, "peer")
+				key := ackKey("claim", hdr.AttemptID, "peer")
 				if reject {
-					key = rejectKey("claim", epoch, "peer")
+					key = rejectKey("claim", hdr.AttemptID, "peer")
 				}
 				if _, err := base.Set(key, []byte("peer")); err != nil {
 					t.Fatal(err)

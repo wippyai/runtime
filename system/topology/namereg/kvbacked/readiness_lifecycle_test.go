@@ -112,7 +112,10 @@ func TestReadinessRequiresSuccessfulSeed(t *testing.T) {
 
 func TestReadinessRejectsMalformedNamingSeed(t *testing.T) {
 	for _, prefix := range []string{activePrefix, pendingPrefix} {
-		for _, defect := range []string{"encoding", "name", "owner"} {
+		for _, defect := range []string{"encoding", "name", "owner", "attempt"} {
+			if prefix == activePrefix && defect == "attempt" {
+				continue
+			}
 			t.Run(prefix+defect, func(t *testing.T) {
 				r := newStrongReg(t, []pid.NodeID{"node-1"}, time.Second, nil)
 				key := prefix + "broken"
@@ -131,7 +134,11 @@ func TestReadinessRejectsMalformedNamingSeed(t *testing.T) {
 					if prefix == activePrefix {
 						value, err = encode(activeValue{Name: name, PID: owner, Strong: true})
 					} else {
-						value, err = encode(pendingHeader{Name: name, PID: owner, RequiredNodes: []pid.NodeID{"node-1"}})
+						attemptID := testStrongAttemptID
+						if defect == "attempt" {
+							attemptID = ""
+						}
+						value, err = encode(pendingHeader{Name: name, PID: owner, AttemptID: attemptID, RequiredNodes: []pid.NodeID{"node-1"}})
 					}
 					if err != nil {
 						t.Fatal(err)
