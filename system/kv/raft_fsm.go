@@ -292,6 +292,7 @@ func (f *RaftFSM) Restore(rc io.ReadCloser) error {
 
 	fresh := newState()
 	fresh.version = st.Version
+	fresh.revision = st.Version // Raft snapshot reads use applyIndex; entry versions preserve legacy replay.
 	fresh.applyIndex = st.ApplyIndex
 	freshLeases := newLeaseManager()
 	for _, l := range st.Leases {
