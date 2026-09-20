@@ -16,11 +16,14 @@ import (
 	"github.com/wippyai/runtime/system/topology/namereg/eventual"
 )
 
+// The embedded interface stubs the unused GlobalRegistry methods in tests.
+//
+//nolint:govet // Test-only stub; embedding keeps the failure cases focused.
 type crossScopeGlobal struct {
-	topology.GlobalRegistry
 	owner       pid.PID
 	reserved    pid.PID
 	lookupError error
+	topology.GlobalRegistry
 }
 
 func (g crossScopeGlobal) Lookup(context.Context, string, ...globalapi.LookupOption) (globalapi.LookupResult, error) {
@@ -42,7 +45,7 @@ func namingContext() context.Context {
 
 func namingPID(id string) pid.PID { return pid.PID{Node: "node-a", Host: "host", UniqID: id} }
 
-func newCheckedEventual(t *testing.T, ctx context.Context) *eventual.Service {
+func newCheckedEventual(ctx context.Context, t *testing.T) *eventual.Service {
 	t.Helper()
 	svc := eventual.NewService(eventual.Config{LocalNodeID: "node-a", CrossScope: newCrossScopeChecker(ctx)})
 	require.NoError(t, svc.Start(ctx))
@@ -54,7 +57,7 @@ func TestEventualAdmissionIgnoresComposedOwnBinding(t *testing.T) {
 	ctx := namingContext()
 	lr := localreg.NewPIDRegistry()
 	topology.WithRegistry(ctx, lr)
-	svc := newCheckedEventual(t, ctx)
+	svc := newCheckedEventual(ctx, t)
 	lr.SetEventualRegistry(svc)
 	owner := namingPID("owner")
 	_, err := svc.Register("own", owner)
@@ -104,7 +107,7 @@ func TestEventualAdmissionChecksEveryOtherScope(t *testing.T) {
 				require.NoError(t, err)
 			}
 			topology.WithRegistry(ctx, lr)
-			svc := newCheckedEventual(t, ctx)
+			svc := newCheckedEventual(ctx, t)
 			got, err := svc.Register("shared", namingPID("owner"))
 			if tc.accepted {
 				require.NoError(t, err)
@@ -127,7 +130,7 @@ func TestEventualAdmissionLookupFailureDoesNotClaimName(t *testing.T) {
 	topology.WithGlobalRegistry(ctx, crossScopeGlobal{lookupError: sentinel})
 	lr := localreg.NewPIDRegistry()
 	topology.WithRegistry(ctx, lr)
-	svc := newCheckedEventual(t, ctx)
+	svc := newCheckedEventual(ctx, t)
 	owner := namingPID("owner")
 	_, err := svc.Register("unavailable", owner)
 	require.ErrorIs(t, err, sentinel)
@@ -144,7 +147,7 @@ type registryWithoutLocal struct{ topology.PIDRegistry }
 func TestEventualAdmissionRejectsUnknownLocalRegistry(t *testing.T) {
 	ctx := namingContext()
 	topology.WithRegistry(ctx, registryWithoutLocal{})
-	svc := newCheckedEventual(t, ctx)
+	svc := newCheckedEventual(ctx, t)
 	_, err := svc.Register("unverifiable", namingPID("owner"))
 	require.ErrorContains(t, err, "lacks LookupLocal")
 	require.Empty(t, svc.DrainBroadcasts(0, 1<<20))
