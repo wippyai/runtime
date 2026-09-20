@@ -64,6 +64,7 @@ func ReleasePackage(p *Package) {
 	}
 	p.Source = pid.PID{}
 	p.Target = pid.PID{}
+	p.IngressNode = ""
 	p.Messages = p.Messages[:0]
 	packagePool.Put(p)
 }

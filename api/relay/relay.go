@@ -75,9 +75,15 @@ type (
 
 	// Package combines source, target and messages for delivery.
 	Package struct {
-		Source   pid.PID
-		Target   pid.PID
-		Messages []*Message
+		Source pid.PID
+		Target pid.PID
+		// IngressNode is the physical peer reported by the internode connection
+		// on receipt. It is local provenance, never encoded on the wire; empty
+		// means no network ingress is recorded. Cryptographic peer authentication
+		// depends on the transport configuration. The logical Source.Node may
+		// differ from this peer for a forwarded or virtual event.
+		IngressNode pid.NodeID
+		Messages    []*Message
 	}
 
 	// PeerInfo contains metadata about a peer node.

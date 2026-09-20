@@ -81,8 +81,9 @@ func TestMessageCodec_PackagePIDs_SourceTarget(t *testing.T) {
 
 	// Create package with both Source and Target
 	originalPkg := &relay.Package{
-		Source: sourcePID,
-		Target: targetPID,
+		Source:      sourcePID,
+		Target:      targetPID,
+		IngressNode: "transport-peer",
 		Messages: []*relay.Message{
 			{
 				Topic:        "test.topic",
@@ -109,6 +110,9 @@ func TestMessageCodec_PackagePIDs_SourceTarget(t *testing.T) {
 	decoded, err := codec.Decode(encoded)
 	if err != nil {
 		t.Fatalf("Decode failed: %v", err)
+	}
+	if decoded.IngressNode != "" {
+		t.Fatal("local transport provenance was encoded on the wire")
 	}
 
 	t.Logf("Decoded Source: %s", decoded.Source.String())
