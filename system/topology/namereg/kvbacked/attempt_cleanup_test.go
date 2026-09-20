@@ -90,7 +90,7 @@ func TestStrongPromotionContinuationCannotStopReplacementTimer(t *testing.T) {
 		PID: owner.String(), Name: "claim", AttemptID: "old", RequiredNodes: []pid.NodeID{"node-1"},
 		DeadlineUnixNano: time.Now().Add(time.Minute).UnixNano(),
 	})
-	if _, err := base.Set(ackKey("claim", old.Epoch, "node-1"), []byte("node-1")); err != nil {
+	if _, err := base.Set(ackKey("claim", "old", "node-1"), []byte("node-1")); err != nil {
 		t.Fatal(err)
 	}
 	entered := make(chan struct{})

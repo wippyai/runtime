@@ -428,7 +428,7 @@ func TestStrongWatchSnapshotErrorStopsAdmission(t *testing.T) {
 	}
 	defer engine.Stop(context.Background())
 	owner := mkPID("node-1", "owner")
-	pending := putPendingSnapshotRecord(t, engine, "claim", owner, []pid.NodeID{"node-1", "ghost"})
+	putPendingSnapshotRecord(t, engine, "claim", owner, []pid.NodeID{"node-1", "ghost"})
 	wrapped := &toggleSnapshotEngine{Engine: engine}
 	r := NewService(wrapped, "node-1", nil, nil)
 	r.ConfigureStrong(StrongDeps{
@@ -454,7 +454,7 @@ func TestStrongWatchSnapshotErrorStopsAdmission(t *testing.T) {
 		t.Fatal("in-flight Strong claim did not establish its exclusion")
 	}
 	wrapped.failed.Store(true)
-	if _, err := engine.Set(ackKey("claim", pending.Epoch, "ghost"), []byte("ghost")); err != nil {
+	if _, err := engine.Set(ackKey("claim", "attempt-snapshot", "ghost"), []byte("ghost")); err != nil {
 		t.Fatal(err)
 	}
 	if !eventually(t, time.Second, func() bool { return !r.NameReady() }) {

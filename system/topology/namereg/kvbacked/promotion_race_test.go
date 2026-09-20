@@ -60,7 +60,7 @@ func testStrongChangedAdmission(t *testing.T, reject bool) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := r.engine.Set(ackKey("claim", pe.Epoch, "node-1"), []byte("node-1")); err != nil {
+	if _, err := r.engine.Set(ackKey("claim", "attempt-promotion", "node-1"), []byte("node-1")); err != nil {
 		t.Fatal(err)
 	}
 	base := r.engine
@@ -68,11 +68,11 @@ func testStrongChangedAdmission(t *testing.T, reject bool) {
 		// A rejection wins the Raft order after the leader's ACK scan but
 		// before its promotion transaction. Header version remains unchanged.
 		if reject {
-			if _, err := base.Set(rejectKey("claim", pe.Epoch, "node-1"), []byte(strongRejectConflict)); err != nil {
+			if _, err := base.Set(rejectKey("claim", "attempt-promotion", "node-1"), []byte(strongRejectConflict)); err != nil {
 				t.Fatal(err)
 			}
 		} else {
-			if err := base.Delete(ackKey("claim", pe.Epoch, "node-1")); err != nil {
+			if err := base.Delete(ackKey("claim", "attempt-promotion", "node-1")); err != nil {
 				t.Fatal(err)
 			}
 		}

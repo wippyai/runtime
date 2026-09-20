@@ -66,14 +66,14 @@ func TestExpiryValidatesVotesAtCommit(t *testing.T) {
 			epoch := pe.Epoch
 			t.Cleanup(func() { r.strong.stopTimer("claim", hdr.AttemptID) })
 			r.strong.addWaiter("claim", &strongWaiter{ch: make(chan globalapi.RegisterOutcome, 1), attemptID: hdr.AttemptID, pid: owner})
-			if _, err := r.engine.Set(ackKey("claim", epoch, "node-1"), []byte("node-1")); err != nil {
+			if _, err := r.engine.Set(ackKey("claim", "attempt-expiry", "node-1"), []byte("node-1")); err != nil {
 				t.Fatal(err)
 			}
 			base := r.engine
 			r.engine = &beforeExpiryEngine{Engine: base, before: func() {
-				key := ackKey("claim", epoch, "peer")
+				key := ackKey("claim", "attempt-expiry", "peer")
 				if reject {
-					key = rejectKey("claim", epoch, "peer")
+					key = rejectKey("claim", "attempt-expiry", "peer")
 				}
 				if _, err := base.Set(key, []byte("peer")); err != nil {
 					t.Fatal(err)
