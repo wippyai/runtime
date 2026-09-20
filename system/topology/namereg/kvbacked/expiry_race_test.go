@@ -15,6 +15,14 @@ type beforeExpiryEngine struct {
 	before func()
 }
 
+func (e *beforeExpiryEngine) ReadLocalSnapshot(keys []string) (map[string]kvapi.Entry, uint64, error) {
+	reader, ok := e.Engine.(kvapi.LocalSnapshotReader)
+	if !ok {
+		return nil, 0, kvapi.ErrKVClosed
+	}
+	return reader.ReadLocalSnapshot(keys)
+}
+
 func (e *beforeExpiryEngine) Txn(ops []kvapi.TxnOp) (bool, error) {
 	expiry := false
 	for _, op := range ops {

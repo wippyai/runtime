@@ -27,6 +27,14 @@ type readinessEngine struct {
 	watcher *readinessWatcher
 }
 
+func (e *readinessEngine) ReadLocalSnapshot(keys []string) (map[string]kvapi.Entry, uint64, error) {
+	reader, ok := e.Engine.(kvapi.LocalSnapshotReader)
+	if !ok {
+		return nil, 0, kvapi.ErrKVClosed
+	}
+	return reader.ReadLocalSnapshot(keys)
+}
+
 func (e *readinessEngine) Watch(ctx context.Context, _ string) (kvapi.Watcher, error) {
 	e.watcher.ctx = ctx
 	return e.watcher, nil
