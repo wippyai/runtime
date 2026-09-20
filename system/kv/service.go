@@ -411,9 +411,9 @@ func (s *Service) eventSystem() event.System {
 // is being mutated. Transactions publish their complete snapshot before these
 // events are sent, so callbacks never observe an older publication.
 type pendingWatchEvent struct {
-	typ     kvapi.WatchEventType
 	current *kvapi.Entry
 	prev    *entry
+	typ     kvapi.WatchEventType
 }
 
 func (s *Service) pendingPutEvent(key string, prev *entry) pendingWatchEvent {
