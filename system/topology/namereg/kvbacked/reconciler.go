@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/wippyai/runtime/api/pid"
@@ -14,7 +15,13 @@ import (
 	"go.uber.org/zap"
 )
 
-type reconcilerLifecycle struct{ ctx context.Context }
+type reconcilerLifecycle struct {
+	ctx   context.Context
+	watch atomic.Pointer[reconcilerWatch]
+	ready atomic.Bool
+}
+
+type reconcilerWatch struct{ kvapi.Watcher }
 
 // StartReconciler drives the registry off the kv watch stream: active-binding
 // changes feed the dissem cache (so non-members resolve names), and Strong
@@ -46,6 +53,19 @@ func (s *Service) StartReconciler(ctx context.Context) (err error) {
 		cancel()
 		return err
 	}
+	run.watch.Store(&reconcilerWatch{Watcher: w})
+	// The delivery worker may be blocked in a snapshot read. Watch validity
+	// must close admission independently of that worker's next receive.
+	go func() {
+		select {
+		case <-w.Done():
+			if s.reconciler.Load() == run {
+				run.ready.Store(false)
+				cancel()
+			}
+		case <-ctx.Done():
+		}
+	}()
 	if err := s.seed(); err != nil {
 		cancel()
 		_ = w.Close()
@@ -56,9 +76,16 @@ func (s *Service) StartReconciler(ctx context.Context) (err error) {
 		_ = w.Close()
 		return err
 	}
+	select {
+	case <-w.Done():
+		cancel()
+		_ = w.Close()
+		return fmt.Errorf("registry watch invalid during seed: %w", w.Err())
+	default:
+	}
 	// The node has now learned and latched the cluster's in-flight/active Strong
 	// reservations; name-readiness can flip so cross-scope guards see them.
-	s.ready.Store(true)
+	run.ready.Store(true)
 	if s.dissem != nil {
 		go s.dissem.RunGC()
 	}
@@ -69,7 +96,7 @@ func (s *Service) StartReconciler(ctx context.Context) (err error) {
 		defer func() {
 			// A stopped update stream cannot justify further cross-scope
 			// admission. Stop the associated sweep even if the parent lives.
-			s.ready.Store(false)
+			run.ready.Store(false)
 			cancel()
 			_ = w.Close()
 		}()
@@ -80,9 +107,16 @@ func (s *Service) StartReconciler(ctx context.Context) (err error) {
 			select {
 			case <-ctx.Done():
 				return
+			case <-w.Done():
+				return
 			case ev, ok := <-w.Events():
 				if !ok {
 					return
+				}
+				select {
+				case <-w.Done():
+					return
+				default:
 				}
 				s.handleWatchEvent(ev)
 			}

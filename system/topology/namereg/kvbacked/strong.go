@@ -173,12 +173,23 @@ func (s *Service) nameReady() bool {
 	// No Strong plane -> no join barrier needed. Otherwise the node is ready
 	// only once the reconciler has seeded (learned and latched the cluster's
 	// in-flight/active Strong reservations), so it cannot shadow one.
-	if s.strong != nil {
-		if run := s.reconciler.Load(); run != nil && run.ctx.Err() != nil {
-			return false
-		}
+	if s.strong == nil {
+		return true
 	}
-	return s.strong == nil || s.ready.Load()
+	run := s.reconciler.Load()
+	if run == nil || !run.ready.Load() || run.ctx.Err() != nil {
+		return false
+	}
+	watch := run.watch.Load()
+	if watch == nil {
+		return false
+	}
+	select {
+	case <-watch.Done():
+		return false
+	default:
+		return true
+	}
 }
 
 func (st *strongState) register(ctx context.Context, name string, p pid.PID) (globalapi.RegisterOutcome, error) {

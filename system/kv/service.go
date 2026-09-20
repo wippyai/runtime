@@ -9,7 +9,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/wippyai/runtime/api/event"
 	kvapi "github.com/wippyai/runtime/api/store/kv"
 	"go.uber.org/zap"
 )
@@ -20,32 +19,39 @@ type action func()
 // Service implements kvapi.Engine using an in-memory store with a single-goroutine
 // event loop for serialized writes and atomic snapshot pointer for lock-free reads.
 type Service struct {
-	bus      event.Bus
 	state    *state
 	leases   *leaseManager
+	watch    *watchSource
 	logger   *zap.Logger
 	ctx      context.Context
 	cancel   context.CancelFunc
 	actions  chan action
 	snap     atomic.Pointer[stateSnapshot]
-	name     string // scope name, used as event.System for watch
+	name     string
+	outbox   []watchRecord
 	leaseSeq uint64
 	wg       sync.WaitGroup
+	dirty    bool
 }
 
 // NewService creates a new in-memory KV service.
-func NewService(name string, bus event.Bus, logger *zap.Logger) *Service {
+func NewService(name string, logger *zap.Logger) *Service {
 	if logger == nil {
 		logger = zap.NewNop()
 	}
 	return &Service{
 		name:    name,
-		bus:     bus,
+		watch:   defaultWatchSource(),
 		logger:  logger.Named("kv").Named(name),
 		state:   newState(),
 		leases:  newLeaseManager(),
 		actions: make(chan action, 256),
 	}
+}
+
+// SetWatchLimits configures bounded delivery while no watchers are active.
+func (s *Service) SetWatchLimits(limits WatchLimits) error {
+	return s.watch.setLimits(limits)
 }
 
 // Start begins the event loop.
@@ -63,6 +69,7 @@ func (s *Service) Start(ctx context.Context) (<-chan any, error) {
 // Stop shuts down the service.
 func (s *Service) Stop(_ context.Context) error {
 	s.logger.Info("kv service stopping")
+	s.watch.close()
 	s.cancel()
 	s.wg.Wait()
 	s.snap.Store(nil)
@@ -73,6 +80,7 @@ func (s *Service) Stop(_ context.Context) error {
 // eventLoop processes all actions sequentially and manages lease expiry.
 func (s *Service) eventLoop() {
 	defer s.wg.Done()
+	defer s.watch.close()
 
 	var leaseTimer *time.Timer
 	var leaseC <-chan time.Time
@@ -113,6 +121,7 @@ func (s *Service) eventLoop() {
 
 		case <-leaseC:
 			s.processExpiredLeases()
+			s.flush()
 			resetLeaseTimer()
 		}
 	}
@@ -126,13 +135,12 @@ func (s *Service) processExpiredLeases() {
 		return
 	}
 
-	var events []pendingWatchEvent
 	for _, leaseID := range expired {
 		keys := s.state.removeLease(leaseID)
 		for _, key := range keys {
 			prev := s.state.del(key)
 			if prev != nil {
-				events = append(events, s.pendingDeleteEvent(kvapi.WatchExpired, prev))
+				s.emitEvent(kvapi.WatchExpired, nil, prev)
 			}
 		}
 		if handle, ok := s.leases.handles[leaseID]; ok {
@@ -142,7 +150,6 @@ func (s *Service) processExpiredLeases() {
 	}
 
 	s.publishSnapshot()
-	s.emitPendingEvents(events)
 	s.logger.Debug("leases expired", zap.Int("count", len(expired)))
 }
 
@@ -158,7 +165,9 @@ func (s *Service) submit(fn action) {
 func (s *Service) submitAndWait(fn func() error) error {
 	done := make(chan error, 1)
 	s.submit(func() {
-		done <- fn()
+		err := fn()
+		s.flush()
+		done <- err
 	})
 	select {
 	case err := <-done:
@@ -176,9 +185,30 @@ func (s *Service) submitAndWait(fn func() error) error {
 	}
 }
 
-// publishSnapshot rebuilds the atomic snapshot after a state mutation.
+// publishSnapshot marks a complete action for atomic publication with its
+// buffered notifications. The event loop flushes after all mutations finish.
 func (s *Service) publishSnapshot() {
-	s.snap.Store(s.state.snapshot())
+	s.dirty = true
+}
+
+func (s *Service) flush() {
+	if !s.dirty {
+		return
+	}
+	// Build the immutable view under the event-loop writer ownership. Hold
+	// the watcher registration gate only for its pointer publication and
+	// notifications, so subscriptions do not wait on snapshot construction.
+	published := s.state.snapshot()
+	s.watch.publishRecords(s.outbox, func() { s.snap.Store(published) })
+	if len(s.outbox) > defaultWatchLimits.MaxEvents {
+		// A rare huge transaction should not pin its staging array for the
+		// entire service lifetime. Regular writes reuse their small buffer.
+		s.outbox = nil
+	} else {
+		clear(s.outbox)
+		s.outbox = s.outbox[:0]
+	}
+	s.dirty = false
 }
 
 // --- kvapi.Engine read operations (lock-free, from snapshot) ---
@@ -295,23 +325,21 @@ func (s *Service) Txn(ops []kvapi.TxnOp) (bool, error) {
 				return nil
 			}
 		}
-		var events []pendingWatchEvent
 		for _, op := range ops {
 			switch op.Kind {
 			case kvapi.TxnPut:
 				prev := s.state.get(op.Key)
 				s.state.set(op.Key, op.Value, "")
-				events = append(events, s.pendingPutEvent(op.Key, prev))
+				s.emitPut(op.Key, prev)
 			case kvapi.TxnDelete:
 				if prev := s.state.del(op.Key); prev != nil {
-					events = append(events, s.pendingDeleteEvent(kvapi.WatchDelete, prev))
+					s.emitEvent(kvapi.WatchDelete, nil, prev)
 				}
 			case kvapi.TxnCheck:
 			}
 		}
 		committed = true
 		s.publishSnapshot()
-		s.emitPendingEvents(events)
 		return nil
 	})
 	return committed, err
@@ -376,16 +404,14 @@ func (s *Service) GrantLease(_ context.Context, ttl time.Duration) (kvapi.Lease,
 	handle.revoke = func(_ context.Context) error {
 		return s.submitAndWait(func() error {
 			keys := s.state.removeLease(handle.id)
-			var events []pendingWatchEvent
 			for _, key := range keys {
 				prev := s.state.del(key)
 				if prev != nil {
-					events = append(events, s.pendingDeleteEvent(kvapi.WatchExpired, prev))
+					s.emitEvent(kvapi.WatchExpired, nil, prev)
 				}
 			}
 			s.leases.revoke(handle.id)
 			s.publishSnapshot()
-			s.emitPendingEvents(events)
 			return nil
 		})
 	}
@@ -393,41 +419,10 @@ func (s *Service) GrantLease(_ context.Context, ttl time.Duration) (kvapi.Lease,
 	return handle, nil
 }
 
-// --- Watch (via event bus) ---
+// --- Watch ---
 
 func (s *Service) Watch(ctx context.Context, prefix string) (kvapi.Watcher, error) {
-	if s.bus == nil {
-		return nil, fmt.Errorf("kv: event bus not available")
-	}
-	return newWatcher(ctx, s.bus, s.eventSystem(), prefix)
-}
-
-// eventSystem returns the event.System identifier for this KV instance.
-func (s *Service) eventSystem() event.System {
-	return "kv:" + s.name
-}
-
-// pendingWatchEvent holds an event payload captured while the event-loop state
-// is being mutated. Transactions publish their complete snapshot before these
-// events are sent, so callbacks never observe an older publication.
-type pendingWatchEvent struct {
-	current *kvapi.Entry
-	prev    *entry
-	typ     kvapi.WatchEventType
-}
-
-func (s *Service) pendingPutEvent(key string, prev *entry) pendingWatchEvent {
-	return pendingWatchEvent{typ: kvapi.WatchPut, current: entryToCluster(s.state.get(key)), prev: prev}
-}
-
-func (s *Service) pendingDeleteEvent(typ kvapi.WatchEventType, prev *entry) pendingWatchEvent {
-	return pendingWatchEvent{typ: typ, prev: prev}
-}
-
-func (s *Service) emitPendingEvents(events []pendingWatchEvent) {
-	for _, pending := range events {
-		s.emitEvent(pending.typ, pending.current, pending.prev)
-	}
+	return s.watch.watch(ctx, prefix, nil)
 }
 
 // emitPut emits a WatchPut event for a key that was just written.
@@ -436,50 +431,12 @@ func (s *Service) emitPut(key string, prev *entry) {
 	if current == nil {
 		return
 	}
-	cur := entryToCluster(current)
-	s.emitEvent(kvapi.WatchPut, cur, prev)
+	s.emitEvent(kvapi.WatchPut, current, prev)
 }
 
-// emitEvent publishes a watch event to the event bus.
-func (s *Service) emitEvent(typ kvapi.WatchEventType, current *kvapi.Entry, prev *entry) {
-	if s.bus == nil {
-		return
-	}
-
-	evt := kvapi.WatchEvent{
-		Type:    typ,
-		Current: current,
-	}
-	if prev != nil {
-		p := entryToCluster(prev)
-		evt.Previous = p
-	}
-
-	key := ""
-	if current != nil {
-		key = current.Key
-	} else if prev != nil {
-		key = prev.key
-	}
-
-	s.bus.Send(s.ctx, event.Event{
-		System: s.eventSystem(),
-		Kind:   key,
-		Data:   evt,
-	})
-}
-
-func entryToCluster(e *entry) *kvapi.Entry {
-	if e == nil {
-		return nil
-	}
-	return &kvapi.Entry{
-		Key:     e.key,
-		Value:   e.value,
-		Version: e.version,
-		LeaseID: e.leaseID,
-		Epoch:   e.epoch,
-	}
+// emitEvent records a watch event for this action's complete publication.
+func (s *Service) emitEvent(typ kvapi.WatchEventType, current, prev *entry) {
+	s.outbox = append(s.outbox, watchRecord{typ: typ, current: current, previous: prev})
 }
 
 // Verify interface compliance.

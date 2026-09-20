@@ -117,7 +117,6 @@ type Service struct {
 	self       pid.PID
 	monitored  sync.Map
 	selfNode   pid.NodeID
-	ready      atomic.Bool
 }
 
 // ConfigureDissem attaches the active-binding dissemination plane so non-member

@@ -11,7 +11,6 @@ import (
 	"time"
 
 	kvapi "github.com/wippyai/runtime/api/store/kv"
-	"github.com/wippyai/runtime/system/eventbus"
 )
 
 func TestEncodeDecodeTxn(t *testing.T) {
@@ -38,11 +37,9 @@ func TestEncodeDecodeTxn(t *testing.T) {
 }
 
 func TestRaftEngine_CASWatchPrevious(t *testing.T) {
-	// Shared bus so the watcher (engine bus) sees FSM-emitted events, mirroring
-	// production wiring (newEngine uses split buses for non-watch tests).
-	bus := eventbus.NewBus()
-	fsm := NewRaftFSM(bus)
-	eng := NewRaftEngine(&fakeRaft{fsm: fsm, leader: true}, fsm, bus, "node-1", nil, nil)
+	// Watch and writes share the FSM's owned snapshot publication source.
+	fsm := NewRaftFSM()
+	eng := NewRaftEngine(&fakeRaft{fsm: fsm, leader: true}, fsm, "node-1", nil, nil)
 	if err := eng.Start(context.Background()); err != nil {
 		t.Fatalf("start: %v", err)
 	}
@@ -243,7 +240,7 @@ func TestRaftFSM_SnapshotRestorePreservesEpoch(t *testing.T) {
 		t.Fatalf("persist: %v", err)
 	}
 
-	fresh := NewRaftFSM(nil)
+	fresh := NewRaftFSM()
 	if err := fresh.Restore(io.NopCloser(bytes.NewReader(sink.buf))); err != nil {
 		t.Fatalf("restore: %v", err)
 	}
@@ -278,7 +275,7 @@ func TestRaftFSM_RestoreLegacySnapshot(t *testing.T) {
 		t.Fatalf("encode legacy: %v", err)
 	}
 
-	fsm := NewRaftFSM(nil)
+	fsm := NewRaftFSM()
 	if err := fsm.Restore(io.NopCloser(bytes.NewReader(buf.Bytes()))); err != nil {
 		t.Fatalf("restore legacy: %v", err)
 	}

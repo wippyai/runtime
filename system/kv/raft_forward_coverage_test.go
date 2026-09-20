@@ -18,9 +18,9 @@ func startForwardCluster(t *testing.T, leaderOf map[string]string) map[string]*R
 	router := &routerTo{}
 	engines := map[string]*RaftEngine{}
 	for node, lead := range leaderOf {
-		fsm := NewRaftFSM(nil)
+		fsm := NewRaftFSM()
 		engines[node] = NewRaftEngine(
-			&fakeRaft{fsm: fsm, leader: node == lead, leaderID: lead}, fsm, nil, node, router, nil)
+			&fakeRaft{fsm: fsm, leader: node == lead, leaderID: lead}, fsm, node, router, nil)
 	}
 	router.engines = engines
 	for _, e := range engines {

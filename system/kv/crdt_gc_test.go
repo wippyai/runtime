@@ -256,8 +256,8 @@ func TestCRDTEngine_FullStateEnvelopeConsumesMalformedHeader(t *testing.T) {
 }
 
 func BenchmarkCRDTEngine_FullStateEnvelopeMerge(b *testing.B) {
-	src := NewCRDTEngine("node-a", nil, nil)
-	dst := NewCRDTEngine("node-b", nil, nil)
+	src := NewCRDTEngine("node-a", nil)
+	dst := NewCRDTEngine("node-b", nil)
 	if err := src.Start(context.Background()); err != nil {
 		b.Fatalf("start src: %v", err)
 	}
