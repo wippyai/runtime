@@ -126,12 +126,13 @@ func (s *Service) processExpiredLeases() {
 		return
 	}
 
+	var events []pendingWatchEvent
 	for _, leaseID := range expired {
 		keys := s.state.removeLease(leaseID)
 		for _, key := range keys {
 			prev := s.state.del(key)
 			if prev != nil {
-				s.emitEvent(kvapi.WatchExpired, nil, prev)
+				events = append(events, s.pendingDeleteEvent(kvapi.WatchExpired, prev))
 			}
 		}
 		if handle, ok := s.leases.handles[leaseID]; ok {
@@ -141,6 +142,7 @@ func (s *Service) processExpiredLeases() {
 	}
 
 	s.publishSnapshot()
+	s.emitPendingEvents(events)
 	s.logger.Debug("leases expired", zap.Int("count", len(expired)))
 }
 
@@ -223,8 +225,8 @@ func (s *Service) Set(key string, value []byte) (kvapi.Version, error) {
 	err := s.submitAndWait(func() error {
 		prev, v := s.state.set(key, value, "")
 		ver = v
-		s.emitPut(key, prev)
 		s.publishSnapshot()
+		s.emitPut(key, prev)
 		return nil
 	})
 	return ver, err
@@ -236,8 +238,8 @@ func (s *Service) Delete(key string) error {
 		if prev == nil {
 			return kvapi.ErrKeyNotFound
 		}
-		s.emitEvent(kvapi.WatchDelete, nil, prev)
 		s.publishSnapshot()
+		s.emitEvent(kvapi.WatchDelete, nil, prev)
 		return nil
 	})
 }
@@ -248,8 +250,8 @@ func (s *Service) SetIfAbsent(key string, value []byte) (kvapi.Version, bool, er
 	err := s.submitAndWait(func() error {
 		ver, ok = s.state.setIfAbsent(key, value, "")
 		if ok {
-			s.emitPut(key, nil)
 			s.publishSnapshot()
+			s.emitPut(key, nil)
 		}
 		return nil
 	})
@@ -263,8 +265,8 @@ func (s *Service) CompareAndSwap(key string, expect kvapi.Version, value []byte)
 		prev := s.state.get(key)
 		ver, ok = s.state.cas(key, expect, value)
 		if ok {
-			s.emitPut(key, prev)
 			s.publishSnapshot()
+			s.emitPut(key, prev)
 		}
 		return nil
 	})
@@ -277,8 +279,8 @@ func (s *Service) CompareAndDelete(key string, expect kvapi.Version) (bool, erro
 		prev := s.state.get(key)
 		deleted, _ = s.state.compareAndDelete(key, expect)
 		if deleted {
-			s.emitEvent(kvapi.WatchDelete, nil, prev)
 			s.publishSnapshot()
+			s.emitEvent(kvapi.WatchDelete, nil, prev)
 		}
 		return nil
 	})
@@ -293,21 +295,23 @@ func (s *Service) Txn(ops []kvapi.TxnOp) (bool, error) {
 				return nil
 			}
 		}
+		var events []pendingWatchEvent
 		for _, op := range ops {
 			switch op.Kind {
 			case kvapi.TxnPut:
 				prev := s.state.get(op.Key)
 				s.state.set(op.Key, op.Value, "")
-				s.emitPut(op.Key, prev)
+				events = append(events, s.pendingPutEvent(op.Key, prev))
 			case kvapi.TxnDelete:
 				if prev := s.state.del(op.Key); prev != nil {
-					s.emitEvent(kvapi.WatchDelete, nil, prev)
+					events = append(events, s.pendingDeleteEvent(kvapi.WatchDelete, prev))
 				}
 			case kvapi.TxnCheck:
 			}
 		}
 		committed = true
 		s.publishSnapshot()
+		s.emitPendingEvents(events)
 		return nil
 	})
 	return committed, err
@@ -321,8 +325,8 @@ func (s *Service) SetWithLease(key string, value []byte, leaseID kvapi.LeaseID) 
 		}
 		prev, v := s.state.set(key, value, leaseID)
 		ver = v
-		s.emitPut(key, prev)
 		s.publishSnapshot()
+		s.emitPut(key, prev)
 		return nil
 	})
 	return ver, err
@@ -337,8 +341,8 @@ func (s *Service) SetIfAbsentWithLease(key string, value []byte, leaseID kvapi.L
 		}
 		ver, ok = s.state.setIfAbsent(key, value, leaseID)
 		if ok {
-			s.emitPut(key, nil)
 			s.publishSnapshot()
+			s.emitPut(key, nil)
 		}
 		return nil
 	})
@@ -372,14 +376,16 @@ func (s *Service) GrantLease(_ context.Context, ttl time.Duration) (kvapi.Lease,
 	handle.revoke = func(_ context.Context) error {
 		return s.submitAndWait(func() error {
 			keys := s.state.removeLease(handle.id)
+			var events []pendingWatchEvent
 			for _, key := range keys {
 				prev := s.state.del(key)
 				if prev != nil {
-					s.emitEvent(kvapi.WatchExpired, nil, prev)
+					events = append(events, s.pendingDeleteEvent(kvapi.WatchExpired, prev))
 				}
 			}
 			s.leases.revoke(handle.id)
 			s.publishSnapshot()
+			s.emitPendingEvents(events)
 			return nil
 		})
 	}
@@ -399,6 +405,29 @@ func (s *Service) Watch(ctx context.Context, prefix string) (kvapi.Watcher, erro
 // eventSystem returns the event.System identifier for this KV instance.
 func (s *Service) eventSystem() event.System {
 	return "kv:" + s.name
+}
+
+// pendingWatchEvent holds an event payload captured while the event-loop state
+// is being mutated. Transactions publish their complete snapshot before these
+// events are sent, so callbacks never observe an older publication.
+type pendingWatchEvent struct {
+	typ     kvapi.WatchEventType
+	current *kvapi.Entry
+	prev    *entry
+}
+
+func (s *Service) pendingPutEvent(key string, prev *entry) pendingWatchEvent {
+	return pendingWatchEvent{typ: kvapi.WatchPut, current: entryToCluster(s.state.get(key)), prev: prev}
+}
+
+func (s *Service) pendingDeleteEvent(typ kvapi.WatchEventType, prev *entry) pendingWatchEvent {
+	return pendingWatchEvent{typ: typ, prev: prev}
+}
+
+func (s *Service) emitPendingEvents(events []pendingWatchEvent) {
+	for _, pending := range events {
+		s.emitEvent(pending.typ, pending.current, pending.prev)
+	}
 }
 
 // emitPut emits a WatchPut event for a key that was just written.
