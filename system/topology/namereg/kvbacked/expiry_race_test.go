@@ -8,6 +8,7 @@ import (
 
 	"github.com/wippyai/runtime/api/pid"
 	kvapi "github.com/wippyai/runtime/api/store/kv"
+	globalapi "github.com/wippyai/runtime/api/topology/namereg/global"
 )
 
 type beforeExpiryEngine struct {
@@ -51,7 +52,7 @@ func TestExpiryValidatesVotesAtCommit(t *testing.T) {
 			r := newStrongReg(t, []pid.NodeID{"node-1", "peer"}, time.Second, nil)
 			t.Cleanup(func() { r.strong.stopTimer("claim") })
 			owner := mkPID("node-1", "owner")
-			hdr := pendingHeader{PID: owner.String(), Name: "claim", RequiredNodes: []pid.NodeID{"node-1", "peer"}, DeadlineUnixNano: time.Now().Add(-time.Second).UnixNano()}
+			hdr := pendingHeader{PID: owner.String(), Name: "claim", AttemptID: "attempt-expiry", RequiredNodes: []pid.NodeID{"node-1", "peer"}, DeadlineUnixNano: time.Now().Add(-time.Second).UnixNano()}
 			value, err := encode(hdr)
 			if err != nil {
 				t.Fatal(err)
@@ -64,6 +65,7 @@ func TestExpiryValidatesVotesAtCommit(t *testing.T) {
 				t.Fatal(err)
 			}
 			epoch := pe.Epoch
+			r.strong.addWaiter("claim", &strongWaiter{ch: make(chan globalapi.RegisterOutcome, 1), attemptID: hdr.AttemptID, pid: owner})
 			if _, err := r.engine.Set(ackKey("claim", epoch, "node-1"), []byte("node-1")); err != nil {
 				t.Fatal(err)
 			}
@@ -84,7 +86,7 @@ func TestExpiryValidatesVotesAtCommit(t *testing.T) {
 
 			r.strong.reconcile("claim")
 			if reject {
-				reason, _, _ := r.strong.takeTerminal("claim")
+				reason, _, _ := r.strong.takeTerminal("attempt-expiry")
 				if reason != strongRejectConflict {
 					t.Fatalf("committed rejection became timeout: %q", reason)
 				}

@@ -48,7 +48,7 @@ func testStrongChangedAdmission(t *testing.T, reject bool) {
 	t.Helper()
 	r := newStrongReg(t, []pid.NodeID{"node-1"}, time.Second, nil)
 	p := mkPID("node-1", "owner")
-	hdr := pendingHeader{PID: p.String(), Name: "claim", RequiredNodes: []pid.NodeID{"node-1"}}
+	hdr := pendingHeader{PID: p.String(), Name: "claim", AttemptID: "attempt-promotion", RequiredNodes: []pid.NodeID{"node-1"}}
 	encoded, err := encode(hdr)
 	if err != nil {
 		t.Fatal(err)

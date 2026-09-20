@@ -73,7 +73,7 @@ func (e *toggleSnapshotEngine) ReadLocalSnapshot(keys []string) (map[string]kvap
 
 func putPendingSnapshotRecord(t *testing.T, engine kvapi.Engine, name string, owner pid.PID, required []pid.NodeID) kvapi.Entry {
 	t.Helper()
-	value, err := encode(pendingHeader{PID: owner.String(), Name: name, RequiredNodes: required, DeadlineUnixNano: time.Now().Add(time.Minute).UnixNano()})
+	value, err := encode(pendingHeader{PID: owner.String(), Name: name, AttemptID: "attempt-snapshot", RequiredNodes: required, DeadlineUnixNano: time.Now().Add(time.Minute).UnixNano()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,20 +104,20 @@ func (e *promotionBetweenReadsEngine) ReadLocalSnapshot(keys []string) (map[stri
 	return entries, revision, err
 }
 
-func ownerPIDFromPending(entry kvapi.Entry) (string, error) {
+func ownerFromPending(entry kvapi.Entry) (pendingHeader, error) {
 	hdr, err := decodePending(entry.Value)
 	if err != nil {
-		return "", err
+		return pendingHeader{}, err
 	}
-	return hdr.PID, nil
+	return hdr, nil
 }
 
 func (e *promotionBetweenReadsEngine) promote(pending kvapi.Entry) error {
-	owner, err := ownerPIDFromPending(pending)
+	hdr, err := ownerFromPending(pending)
 	if err != nil {
 		return err
 	}
-	active, err := encode(activeValue{PID: owner, Name: "claim", Strong: true})
+	active, err := encode(activeValue{PID: hdr.PID, Name: "claim", AttemptID: hdr.AttemptID, Strong: true})
 	if err != nil {
 		return err
 	}
@@ -162,7 +162,7 @@ func TestReconcileUsesOneSnapshotAcrossPromotion(t *testing.T) {
 	defer engine.Stop(context.Background())
 
 	owner := mkPID("node-1", "owner")
-	hdr, err := encode(pendingHeader{PID: owner.String(), Name: "claim", RequiredNodes: []pid.NodeID{"node-1"}})
+	hdr, err := encode(pendingHeader{PID: owner.String(), Name: "claim", AttemptID: "attempt-promotion", RequiredNodes: []pid.NodeID{"node-1"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -180,7 +180,7 @@ func TestReconcileUsesOneSnapshotAcrossPromotion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r.strong.latch("claim", owner, pending.Epoch)
+	r.strong.latch("claim", owner, "attempt-promotion", pending.Epoch)
 
 	raced := &promotionBetweenReadsEngine{Engine: engine}
 	r.engine = raced
@@ -294,8 +294,8 @@ func TestStrongInvalidSnapshotRecordPreservesObligations(t *testing.T) {
 			if _, err := r.engine.Set(tc.key, tc.value); err != nil {
 				t.Fatal(err)
 			}
-			r.strong.latch("claim", owner, 1)
-			waiter := &strongWaiter{ch: make(chan globalapi.RegisterOutcome, 1)}
+			r.strong.latch("claim", owner, "attempt-invalid", 1)
+			waiter := &strongWaiter{ch: make(chan globalapi.RegisterOutcome, 1), attemptID: "attempt-invalid", pid: owner}
 			r.strong.addWaiter("claim", waiter)
 			if err := r.strong.reconcile("claim"); err == nil {
 				t.Fatal("invalid record was mistaken for an absent claim")
@@ -335,8 +335,8 @@ func TestOldSnapshotAndFailureCannotChangeReplacementOwner(t *testing.T) {
 	r.reconciler.Store(old)
 	r.ready.Store(true)
 	owner := mkPID("node-1", "owner")
-	r.strong.latch("claim", owner, 1)
-	waiter := &strongWaiter{ch: make(chan globalapi.RegisterOutcome, 1)}
+	r.strong.latch("claim", owner, "attempt-old", 1)
+	waiter := &strongWaiter{ch: make(chan globalapi.RegisterOutcome, 1), attemptID: "attempt-old", pid: owner}
 	r.strong.addWaiter("claim", waiter)
 	paused := &pausedSnapshotEngine{Engine: r.engine, entered: make(chan struct{}), release: make(chan struct{})}
 	r.engine = paused
@@ -390,7 +390,7 @@ func TestStrongSnapshotErrorDirectPreservesExclusion(t *testing.T) {
 	pending := putPendingSnapshotRecord(t, engine, "claim", owner, []pid.NodeID{"node-1"})
 	r := NewService(&failingSnapshotEngine{Engine: engine, err: errors.New("snapshot unavailable")}, "node-1", nil, nil)
 	r.ConfigureStrong(StrongDeps{Membership: func() []pid.NodeID { return []pid.NodeID{"node-1"} }})
-	r.strong.latch("claim", owner, pending.Epoch)
+	r.strong.latch("claim", owner, "attempt-snapshot", pending.Epoch)
 	if err := r.strong.reconcile("claim"); err == nil || !strings.Contains(err.Error(), "snapshot unavailable") {
 		t.Fatalf("direct snapshot failure error=%v", err)
 	}
@@ -409,7 +409,7 @@ func TestStrongStartupSnapshotErrorPreservesExclusion(t *testing.T) {
 	pending := putPendingSnapshotRecord(t, engine, "claim", owner, []pid.NodeID{"node-1"})
 	r := NewService(&failingSnapshotEngine{Engine: engine, err: errors.New("snapshot unavailable")}, "node-1", nil, nil)
 	r.ConfigureStrong(StrongDeps{Membership: func() []pid.NodeID { return []pid.NodeID{"node-1"} }})
-	r.strong.latch("claim", owner, pending.Epoch)
+	r.strong.latch("claim", owner, "attempt-snapshot", pending.Epoch)
 	if err := r.StartReconciler(context.Background()); err == nil || !strings.Contains(err.Error(), "snapshot unavailable") {
 		t.Fatalf("startup snapshot failure error=%v", err)
 	}

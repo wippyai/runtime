@@ -273,11 +273,24 @@ func (s *Service) handleWatchEvent(ev kvapi.WatchEvent) error {
 			s.translateActive(name, nil, ev.Index, true)
 		}
 		if s.strong != nil {
-			return s.strong.reconcile(name)
+			attemptID := ""
+			if ev.Current == nil && ev.Previous != nil {
+				if previous, err := decodeActive(ev.Previous.Value); err == nil && previous.Strong {
+					attemptID = previous.AttemptID
+				}
+			}
+			return s.strong.reconcileDeleted(name, attemptID, false)
 		}
 	case strings.HasPrefix(key, pendingPrefix):
 		if s.strong != nil {
-			return s.strong.reconcile(strings.TrimPrefix(key, pendingPrefix))
+			name := strings.TrimPrefix(key, pendingPrefix)
+			attemptID := ""
+			if ev.Current == nil && ev.Previous != nil {
+				if previous, err := decodePending(ev.Previous.Value); err == nil {
+					attemptID = previous.AttemptID
+				}
+			}
+			return s.strong.reconcileDeleted(name, attemptID, true)
 		}
 	case strings.HasPrefix(key, ackPrefix), strings.HasPrefix(key, rejectPrefix):
 		if s.strong != nil {

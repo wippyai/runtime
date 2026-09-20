@@ -96,6 +96,10 @@ func TestE2E_KVRegistry_StrongPromotes(t *testing.T) {
 	if out.State != globalapi.RegisterStateActive || out.PID.String() != p.String() {
 		t.Fatalf("strong outcome: %+v", out)
 	}
+	active, err := c.Leader().KV.Get("_sys:registry:active:strongsvc")
+	if err != nil || active.Epoch == 0 || out.Epoch != active.Epoch {
+		t.Fatalf("active fence epoch=%d, returned epoch=%d, err=%v", active.Epoch, out.Epoch, err)
+	}
 
 	for _, n := range c.Nodes() {
 		waitLookup(t, regs[n.ID], "strongsvc", p, 5*time.Second)
