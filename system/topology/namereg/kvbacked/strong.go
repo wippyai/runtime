@@ -53,7 +53,7 @@ func ackBase(name, attemptID string) string {
 }
 
 func ackKey(name, attemptID string, node pid.NodeID) string {
-	return ackBase(name, attemptID) + voteComponent(string(node))
+	return ackBase(name, attemptID) + voteComponent(node)
 }
 
 func rejectBase(name, attemptID string) string {

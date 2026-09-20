@@ -152,7 +152,7 @@ func TestStrongPromotesAcrossThreeRealRaftNodes(t *testing.T) {
 		}
 		engines[id] = engine
 		t.Cleanup(func() { _ = engine.Stop() })
-		registry := NewService(engine, pid.NodeID(id), nil, nil)
+		registry := NewService(engine, id, nil, nil)
 		registry.ConfigureStrong(StrongDeps{
 			Membership: func() []pid.NodeID { return []pid.NodeID{"n1", "n2", "n3"} },
 			IsLeader:   func() bool { return rafts[id].State() == hraft.Leader },
@@ -164,7 +164,7 @@ func TestStrongPromotesAcrossThreeRealRaftNodes(t *testing.T) {
 		}
 	}
 
-	owner := pid.PID{Node: pid.NodeID(leaderID), Host: "h", UniqID: "real-raft"}
+	owner := pid.PID{Node: leaderID, Host: "h", UniqID: "real-raft"}
 	out, err := registries[leaderID].RegisterScope(context.Background(), "real.raft", owner, global.Strong)
 	if err != nil {
 		t.Fatalf("strong register through three-node raft: %v", err)

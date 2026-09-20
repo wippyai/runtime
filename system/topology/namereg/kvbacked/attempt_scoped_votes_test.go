@@ -100,7 +100,7 @@ func TestStrongVoteKeyEscapesColonBearingComponents(t *testing.T) {
 	attemptA := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	attemptB := "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 	left := ackKey("x:"+attemptB, attemptA, "node")
-	right := ackKey("x", attemptB, pid.NodeID(attemptA+":node"))
+	right := ackKey("x", attemptB, attemptA+":node")
 	if left == right {
 		t.Fatalf("vote key components alias: %q", left)
 	}
