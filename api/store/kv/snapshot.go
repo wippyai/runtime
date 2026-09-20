@@ -2,6 +2,8 @@
 
 package kv
 
+import "context"
+
 // LocalSnapshotReader reads the requested keys from one immutable local
 // revision. Missing keys are absent from the returned map, duplicate keys are
 // returned once, and values in the result are owned by the caller. The
@@ -16,4 +18,28 @@ package kv
 // network round trip.
 type LocalSnapshotReader interface {
 	ReadLocalSnapshot(keys []string) (map[string]Entry, uint64, error)
+}
+
+// AuthoritySnapshot is a detached, immutable-at-publication view of selected
+// keys. Revision is the applied revision of the KV domain that published all
+// entries in the view. A key absent from Entries was absent at that revision.
+//
+// The map and entry values are detached copies. Callers must treat the map as
+// read-only after receiving it; a later KV mutation cannot change this view.
+type AuthoritySnapshot struct {
+	Entries  map[string]Entry
+	Revision uint64
+}
+
+// Get returns the entry for key and whether it was present in the snapshot.
+func (s AuthoritySnapshot) Get(key string) (Entry, bool) {
+	e, ok := s.Entries[key]
+	return e, ok
+}
+
+// AuthoritySnapshotReader reads a bounded set of keys from an authoritative
+// publication point. Implementations must return one coherent revision and
+// must not silently substitute a stale local replica.
+type AuthoritySnapshotReader interface {
+	ReadAuthoritySnapshot(context.Context, []string) (AuthoritySnapshot, error)
 }

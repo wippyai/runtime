@@ -158,12 +158,52 @@ func TestRaftEngine_FollowerWriteRejected(t *testing.T) {
 type routerTo struct{ engines map[string]*RaftEngine }
 
 func (r *routerTo) Send(pkg *relay.Package) error {
+	pkg.IngressNode = pkg.Source.Node
 	e, ok := r.engines[pkg.Target.Node]
 	if !ok {
 		relay.ReleasePackage(pkg)
 		return errors.New("no engine for target")
 	}
 	return e.Send(pkg)
+}
+
+func (r *routerTo) SendContext(ctx context.Context, pkg *relay.Package) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	e, ok := r.engines[pkg.Target.Node]
+	if !ok {
+		return errors.New("no engine for target") // caller still owns pkg
+	}
+	// RaftEngine.Send consumes its input even on error. A separate package
+	// preserves ContextSender's caller-ownership contract on failure.
+	delivered := relay.AcquirePackage()
+	delivered.Source, delivered.Target, delivered.IngressNode = pkg.Source, pkg.Target, pkg.Source.Node
+	for _, msg := range pkg.Messages {
+		copyMsg := relay.AcquireMessage()
+		copyMsg.Topic = msg.Topic
+		copyMsg.Payloads = append(copyMsg.Payloads, msg.Payloads...)
+		copyMsg.PayloadBytes = msg.PayloadBytes
+		copyMsg.MaxBytes, copyMsg.MaxItems = msg.MaxBytes, msg.MaxItems
+		delivered.Messages = append(delivered.Messages, copyMsg)
+	}
+	if err := e.Send(delivered); err != nil {
+		return err
+	}
+	relay.ReleasePackage(pkg)
+	return nil
+}
+
+func TestRouterToContextFailureKeepsPackage(t *testing.T) {
+	router := &routerTo{engines: make(map[string]*RaftEngine)}
+	pkg := relay.NewServicePackage("client", KVRaftHostID, "missing", KVRaftHostID, topicKVAuthorityReq)
+	if err := router.SendContext(context.Background(), pkg); err == nil {
+		t.Fatal("missing destination was accepted")
+	}
+	if pkg.Source.Node != "client" || len(pkg.Messages) != 1 {
+		t.Fatalf("failed SendContext consumed caller package: %+v", pkg)
+	}
+	relay.ReleasePackage(pkg)
 }
 
 // TestRaftEngine_ForwardToLeader verifies a follower's write is forwarded over
