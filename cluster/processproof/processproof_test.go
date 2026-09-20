@@ -55,10 +55,8 @@ func dumpProcessProofStacks(phase string) {
 }
 
 type helperConfig struct {
-	FailEarly  bool              `json:"fail_early,omitempty"`
-	CleanExit  bool              `json:"clean_exit,omitempty"`
+	Trusted    map[string]string `json:"trusted"`
 	Node       string            `json:"node"`
-	Membership int               `json:"membership_port"`
 	Join       string            `json:"join"`
 	DataDir    string            `json:"data_dir"`
 	TLSCert    string            `json:"tls_cert"`
@@ -66,8 +64,10 @@ type helperConfig struct {
 	TLSCA      string            `json:"tls_ca"`
 	Secret     string            `json:"secret"`
 	Identity   string            `json:"identity"`
-	Trusted    map[string]string `json:"trusted"`
 	Control    string            `json:"control"`
+	Membership int               `json:"membership_port"`
+	FailEarly  bool              `json:"fail_early,omitempty"`
+	CleanExit  bool              `json:"clean_exit,omitempty"`
 }
 
 type controlRequest struct {
@@ -78,21 +78,21 @@ type controlRequest struct {
 
 type controlResponse struct {
 	Error      string   `json:"error,omitempty"`
-	Members    int      `json:"members,omitempty"`
 	State      string   `json:"state,omitempty"`
 	Leader     string   `json:"leader,omitempty"`
-	Voters     []string `json:"voters,omitempty"`
-	Found      bool     `json:"found,omitempty"`
 	PID        string   `json:"pid,omitempty"`
+	Voters     []string `json:"voters,omitempty"`
+	Members    int      `json:"members,omitempty"`
+	Epoch      uint64   `json:"epoch,omitempty"`
+	Found      bool     `json:"found,omitempty"`
 	Registered bool     `json:"registered,omitempty"`
 	Active     bool     `json:"active,omitempty"`
-	Epoch      uint64   `json:"epoch,omitempty"`
 	Removed    bool     `json:"removed,omitempty"`
 }
 
 type lockedBuffer struct {
-	mu sync.Mutex
 	b  []byte
+	mu sync.Mutex
 }
 
 func (b *lockedBuffer) Write(p []byte) (int, error) {
@@ -274,13 +274,13 @@ func TestHelperCleanExitWithoutShutdownIsReported(t *testing.T) {
 }
 
 type helperProcess struct {
-	cfg      helperConfig
-	cmd      *exec.Cmd
-	stderr   lockedBuffer
-	mu       sync.Mutex
-	done     chan error
-	stopOnce sync.Once
 	stopErr  error
+	cmd      *exec.Cmd
+	done     chan error
+	cfg      helperConfig
+	stderr   lockedBuffer
+	stopOnce sync.Once
+	mu       sync.Mutex
 }
 
 func launchHelper(t *testing.T, cfg helperConfig) *helperProcess {
@@ -288,7 +288,9 @@ func launchHelper(t *testing.T, cfg helperConfig) *helperProcess {
 	raw, err := json.Marshal(cfg)
 	require.NoError(t, err)
 	p := &helperProcess{cfg: cfg, done: make(chan error, 1)}
-	p.cmd = exec.Command(os.Args[0], "-test.run=^$")
+	// stop owns diagnostics, shutdown acknowledgement and reaping; a canceled
+	// test context must not kill the child before that lifecycle completes.
+	p.cmd = exec.CommandContext(context.Background(), os.Args[0], "-test.run=^$")
 	configureHelperCommand(p.cmd)
 	p.cmd.Env = append(os.Environ(), helperEnv+"="+string(raw))
 	p.cmd.Stderr = &p.stderr
@@ -314,7 +316,8 @@ func (p *helperProcess) waitReady(t *testing.T) {
 func (p *helperProcess) call(req controlRequest) (controlResponse, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	conn, err := net.DialTimeout("unix", p.cfg.Control, time.Second)
+	dialer := net.Dialer{Timeout: time.Second}
+	conn, err := dialer.DialContext(context.Background(), "unix", p.cfg.Control)
 	if err != nil {
 		return controlResponse{}, err
 	}
@@ -342,7 +345,7 @@ func (p *helperProcess) stop() error {
 		select {
 		case err := <-p.done:
 			if shutdownErr != nil {
-				p.stopErr = fmt.Errorf("helper exited without shutdown response: %w (exit: %v; stderr: %s)", shutdownErr, err, p.stderr.String())
+				p.stopErr = fmt.Errorf("helper exited without shutdown response: %w; stderr: %s", errors.Join(shutdownErr, err), p.stderr.String())
 			} else if err != nil {
 				p.stopErr = err
 			} else if !shutdownResponse.Removed {
@@ -352,10 +355,14 @@ func (p *helperProcess) stop() error {
 			_ = p.cmd.Process.Signal(helperDiagnosticSignal())
 			select {
 			case err := <-p.done:
-				p.stopErr = fmt.Errorf("shutdown timed out; SIGQUIT helper dump captured: %w; helper stderr: %s", err, p.stderr.String())
+				p.stopErr = errors.Join(fmt.Errorf("shutdown timed out; SIGQUIT helper dump captured; helper stderr: %s", p.stderr.String()), err)
 			case <-time.After(time.Second):
 				_ = terminateHelper(p.cmd)
-				p.stopErr = fmt.Errorf("forced helper teardown after shutdown response=%+v error=%v: %w; helper stderr: %s", shutdownResponse, shutdownErr, <-p.done, p.stderr.String())
+				exitErr := <-p.done
+				p.stopErr = errors.Join(
+					fmt.Errorf("forced helper teardown after shutdown response=%+v; helper stderr: %s", shutdownResponse, p.stderr.String()),
+					shutdownErr, exitErr,
+				)
 			}
 		}
 	})
@@ -431,7 +438,7 @@ func runHelper(cfg helperConfig) (result error) {
 		}
 		return err
 	}
-	listener, err := net.Listen("unix", cfg.Control)
+	listener, err := (&net.ListenConfig{}).Listen(ctx, "unix", cfg.Control)
 	if err != nil {
 		if shutdownErr := loader.Shutdown(bootCtx); shutdownErr != nil {
 			return errors.Join(err, shutdownErr)
@@ -633,9 +640,9 @@ func serveControl(ctx context.Context, conn net.Conn, startupError func() error,
 }
 
 type credentials struct {
-	ca, secret          string
 	certs, keys         map[string]string
 	identities, trusted map[string]string
+	ca, secret          string
 }
 
 func makeCredentials(t *testing.T, dir string) credentials {
@@ -676,7 +683,7 @@ func makeCredentials(t *testing.T, dir string) credentials {
 
 func freeTCPPort(t *testing.T) int {
 	t.Helper()
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	defer listener.Close()
 	return listener.Addr().(*net.TCPAddr).Port
