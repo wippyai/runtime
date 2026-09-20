@@ -94,6 +94,16 @@ type strongWaiter struct {
 	pid       pid.PID
 }
 
+// strongTimer is owned by exactly one reservation. Timer lifecycle operations
+// must carry that identity: a delayed completion of an older transaction may
+// run after the name has already been reserved again.
+type strongTimer struct {
+	timer     *time.Timer
+	attemptID string
+	epoch     uint64
+	version   uint64
+}
+
 // StrongDeps are the cluster hooks the Strong plane needs. membership returns the
 // current live node set (the required-ack quorum, including self); isLeader gates
 // leader-only promotion/expiry; localConflict reports a conflicting LOCAL/EVENTUAL
@@ -114,7 +124,7 @@ type strongState struct {
 	clock           func() time.Time
 	logger          *zap.Logger
 	exclusions      map[string]strongExclusion
-	timers          map[string]*time.Timer
+	timers          map[string]strongTimer
 	waiters         map[string][]*strongWaiter
 	terminalReason  map[string]string
 	terminalMissing map[string][]pid.NodeID
@@ -165,7 +175,7 @@ func (s *Service) ConfigureStrong(deps StrongDeps) {
 		deadline:        deadline,
 		logger:          s.logger.Named("strong"),
 		exclusions:      make(map[string]strongExclusion),
-		timers:          make(map[string]*time.Timer),
+		timers:          make(map[string]strongTimer),
 		waiters:         make(map[string][]*strongWaiter),
 		terminalReason:  make(map[string]string),
 		terminalMissing: make(map[string][]pid.NodeID),
@@ -586,7 +596,7 @@ func (st *strongState) leaderDrive(name string, epoch, headerVer uint64, hdr pen
 		return
 	}
 	if st.clock().UnixNano() <= hdr.DeadlineUnixNano {
-		st.armTimer(name, hdr.DeadlineUnixNano)
+		st.armTimer(name, hdr.AttemptID, epoch, headerVer, hdr.DeadlineUnixNano)
 		return
 	}
 	// Deadline reached. Barrier so a committed-but-unapplied ack set is not
@@ -596,7 +606,7 @@ func (st *strongState) leaderDrive(name string, epoch, headerVer uint64, hdr pen
 	if st.svc.barrier != nil {
 		if err := st.svc.barrier(); err != nil {
 			// A past deadline would schedule an immediate callback loop.
-			st.armTimer(name, time.Now().Add(time.Second).UnixNano())
+			st.armTimer(name, hdr.AttemptID, epoch, headerVer, time.Now().Add(time.Second).UnixNano())
 			return
 		}
 	}
@@ -658,8 +668,11 @@ func (st *strongState) leaderPromote(name string, epoch, headerVer uint64, hdr p
 		}
 		return
 	}
+	// The promotion belongs to this attempt. A replacement may already have
+	// armed a timer after the transaction committed, so cleanup is conditional
+	// on the old identity.
 	st.takeTerminal(hdr.AttemptID)
-	st.stopTimer(name)
+	st.stopTimer(name, hdr.AttemptID)
 	_ = st.reconcile(name)
 }
 
@@ -706,7 +719,7 @@ func (st *strongState) leaderExpire(name string, epoch, headerVer uint64, hdr pe
 		return
 	}
 	st.setTerminal(name, hdr.AttemptID, reason, missing, epoch)
-	st.stopTimer(name)
+	st.stopTimer(name, hdr.AttemptID)
 	// The delete is this attempt's terminal event. Deliver it with the stable
 	// identity immediately; a later watch/sweep for the same name must not be
 	// able to complete a replacement attempt.
@@ -743,7 +756,7 @@ func (st *strongState) onActive(name string, epoch uint64, attemptID string, ap 
 	}
 	st.exclusions[name] = strongExclusion{pid: ap, attemptID: attemptID, epoch: epoch, state: exclusionActive}
 	st.mu.Unlock()
-	st.stopTimer(name)
+	st.stopTimer(name, attemptID)
 	st.svc.monitor(ap)
 	st.deliver(name, attemptID, ap, globalapi.RegisterOutcome{PID: ap, Epoch: epoch, State: globalapi.RegisterStateActive})
 }
@@ -769,7 +782,7 @@ func (st *strongState) onTerminal(name, attemptID string) {
 	}
 	st.mu.Unlock()
 	if ok {
-		st.stopTimer(name)
+		st.stopTimer(name, ex.attemptID)
 	}
 	// finalize reads terminal detail by attempt, so a delayed terminal event for
 	// an older registration cannot complete a replacement waiter.
@@ -854,21 +867,33 @@ func (st *strongState) deliverAttempt(name, attemptID string, out globalapi.Regi
 	}
 }
 
-func (st *strongState) armTimer(name string, deadlineUnixNano int64) {
-	st.mu.Lock()
-	defer st.mu.Unlock()
-	if _, ok := st.timers[name]; ok {
-		return
-	}
+func (st *strongState) armTimer(name, attemptID string, epoch, version uint64, deadlineUnixNano int64) {
 	d := time.Until(time.Unix(0, deadlineUnixNano))
 	if d < 0 {
 		d = 0
 	}
 	run := st.svc.reconciler.Load()
 	var timer *time.Timer
+	var replaced *time.Timer
+	st.mu.Lock()
+	if current, ok := st.timers[name]; ok {
+		if current.attemptID == attemptID && current.epoch == epoch && current.version == version {
+			st.mu.Unlock()
+			return
+		}
+		// A stale continuation may arrive after a replacement has installed
+		// its timer. The KV version orders reservations even without Raft
+		// epochs, so an older observation cannot replace a newer timer.
+		if current.version > version || (current.version == version && current.epoch >= epoch) {
+			st.mu.Unlock()
+			return
+		}
+		replaced = current.timer
+	}
 	timer = time.AfterFunc(d, func() {
 		st.mu.Lock()
-		if st.timers[name] != timer {
+		current, ok := st.timers[name]
+		if !ok || current.timer != timer || current.attemptID != attemptID || current.epoch != epoch || current.version != version {
 			st.mu.Unlock()
 			return
 		}
@@ -876,17 +901,23 @@ func (st *strongState) armTimer(name string, deadlineUnixNano int64) {
 		st.mu.Unlock()
 		_ = st.reconcileForRun(name, run)
 	})
-	st.timers[name] = timer
+	st.timers[name] = strongTimer{timer: timer, attemptID: attemptID, epoch: epoch, version: version}
+	st.mu.Unlock()
+	if replaced != nil {
+		replaced.Stop()
+	}
 }
 
-func (st *strongState) stopTimer(name string) {
+func (st *strongState) stopTimer(name, attemptID string) {
 	st.mu.Lock()
 	t, ok := st.timers[name]
+	if !ok || t.attemptID != attemptID {
+		st.mu.Unlock()
+		return
+	}
 	delete(st.timers, name)
 	st.mu.Unlock()
-	if ok {
-		t.Stop()
-	}
+	t.timer.Stop()
 }
 
 func contains(s []pid.NodeID, v pid.NodeID) bool {
