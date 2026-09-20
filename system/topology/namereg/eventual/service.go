@@ -125,9 +125,12 @@ type Service struct {
 	queue            *BroadcastQueue
 	// owned holds names this node registered live and still intends to keep, with
 	// the pid/priority to re-assert them. Guarded by ownedMu.
-	owned              map[string]ownedReg
-	cfg                Config
-	stopOnce           sync.Once
+	owned    map[string]ownedReg
+	cfg      Config
+	stopOnce sync.Once
+	// Keep one name's State dot and owned intent in order. Distinct shards can
+	// mutate concurrently; ownedMu only protects the shared map itself.
+	ownedMutations     [ShardCount]sync.Mutex
 	ownedMu            sync.Mutex
 	lastShardRequestMu sync.Mutex
 	stopped            atomic.Bool
@@ -287,7 +290,15 @@ func (s *Service) register(name string, p pid.PID, opts ...RegisterOption) (pid.
 		}
 	}
 
+	mutation := &s.ownedMutations[ShardFor(name)]
+	mutation.Lock()
 	res := s.state.Register(name, p, time.Now().UnixMilli(), o.priority)
+	if res.Won {
+		s.ownedMu.Lock()
+		s.owned[name] = ownedReg{pid: p, priority: o.priority}
+		s.ownedMu.Unlock()
+	}
+	mutation.Unlock()
 	if !res.Won {
 		if res.Lost != nil {
 			// Cross-origin loss: the local dot was minted and installed, so
@@ -304,9 +315,6 @@ func (s *Service) register(name string, p pid.PID, opts ...RegisterOption) (pid.
 		return res.Winner.PID, ErrNameAlreadyRegistered
 	}
 	s.queue.Push(res.Entry)
-	s.ownedMu.Lock()
-	s.owned[name] = ownedReg{pid: p, priority: o.priority}
-	s.ownedMu.Unlock()
 	s.tel.recordRegister("ok")
 	s.tel.setEntries(s.state.LiveCount(), s.state.TombstoneCount())
 	s.tel.setQueueDepth(s.queue.Depth())
@@ -345,19 +353,22 @@ func (s *Service) RevokeForStrong(name string, keep pid.PID) bool {
 	if s.stopped.Load() {
 		return false
 	}
-	cur, ok := s.state.Lookup(name)
-	if !ok || cur.Equal(keep) {
-		return false
+	mutation := &s.ownedMutations[ShardFor(name)]
+	mutation.Lock()
+	e, revoked := s.state.unregisterLocal(name, time.Now().UnixMilli(), &keep)
+	// Even if the dot has already been tombstoned, its owner must not be
+	// reasserted after this Strong claim replaces it.
+	s.ownedMu.Lock()
+	if owned, ok := s.owned[name]; ok && !owned.pid.Equal(keep) {
+		delete(s.owned, name)
 	}
-	e := s.state.Unregister(name, time.Now().UnixMilli())
+	s.ownedMu.Unlock()
+	mutation.Unlock()
 	if e == nil {
 		return false
 	}
-	s.ownedMu.Lock()
-	delete(s.owned, name)
-	s.ownedMu.Unlock()
 	s.queue.Push(e)
-	s.emitRevoke(&LostBinding{Name: name, PID: cur})
+	s.emitRevoke(&LostBinding{Name: name, PID: revoked})
 	s.tel.setEntries(s.state.LiveCount(), s.state.TombstoneCount())
 	s.tel.setQueueDepth(s.queue.Depth())
 	return true
@@ -368,14 +379,17 @@ func (s *Service) Unregister(name string) bool {
 	if s.stopped.Load() {
 		return false
 	}
+	mutation := &s.ownedMutations[ShardFor(name)]
+	mutation.Lock()
 	e := s.state.Unregister(name, time.Now().UnixMilli())
+	s.ownedMu.Lock()
+	delete(s.owned, name)
+	s.ownedMu.Unlock()
+	mutation.Unlock()
 	if e == nil {
 		s.tel.recordUnregister("not_found")
 		return false
 	}
-	s.ownedMu.Lock()
-	delete(s.owned, name)
-	s.ownedMu.Unlock()
 	s.queue.Push(e)
 	s.tel.recordUnregister("ok")
 	s.tel.setEntries(s.state.LiveCount(), s.state.TombstoneCount())
@@ -769,16 +783,21 @@ func (s *Service) applyIncoming(e *Entry, originStr string) {
 // name is not owned or already resolves to our pid, so it fires at most once per
 // stale override and cannot loop.
 func (s *Service) reassertOwned(name string) {
+	mutation := &s.ownedMutations[ShardFor(name)]
+	mutation.Lock()
 	s.ownedMu.Lock()
 	reg, ok := s.owned[name]
 	s.ownedMu.Unlock()
-	if !ok {
+	if !ok || s.stopped.Load() {
+		mutation.Unlock()
 		return
 	}
 	if cur, found := s.state.Lookup(name); found && cur.Equal(reg.pid) {
+		mutation.Unlock()
 		return
 	}
 	res := s.state.Register(name, reg.pid, time.Now().UnixMilli(), reg.priority)
+	mutation.Unlock()
 	s.queue.Push(res.Entry)
 	s.tel.recordReregistration()
 	s.tel.setEntries(s.state.LiveCount(), s.state.TombstoneCount())
