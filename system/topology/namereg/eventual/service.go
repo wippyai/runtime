@@ -42,12 +42,12 @@ type PeerInventory interface {
 }
 
 // CrossScopeChecker abstracts the CONSISTENT/LOCAL registries so EVENTUAL
-// registrations can refuse to shadow them. Returning a non-empty PID with
-// `found=true` means the name is held in another scope.
+// registrations can refuse to shadow them.
 type CrossScopeChecker interface {
-	// LookupOther returns (PID, true) if the name is held in any non-Eventual
-	// scope (Consistent via Raft, or Local via PIDRegistry).
-	LookupOther(name string) (pid.PID, bool)
+	// LookupOther reports a different owner's claim first, or a matching
+	// claim if no other scope conflicts. Lookup failures must be returned,
+	// since absence cannot be inferred from a failed authoritative read.
+	LookupOther(name string, proposed pid.PID) (pid.PID, bool, error)
 	// NameReady reports whether the node's join-epoch barrier has completed. A
 	// fresh EVENTUAL register is refused (ErrNameServiceNotReady) until it is true
 	// so the node cannot shadow a cluster-wide Strong name it has not yet learned.
@@ -268,7 +268,11 @@ func (s *Service) register(name string, p pid.PID, opts ...RegisterOption) (pid.
 
 	// Cross-scope check first — refuse to shadow CONSISTENT or LOCAL.
 	if s.cfg.CrossScope != nil {
-		if existing, found := s.cfg.CrossScope.LookupOther(name); found {
+		existing, found, err := s.cfg.CrossScope.LookupOther(name, p)
+		if err != nil {
+			return pid.PID{}, err
+		}
+		if found {
 			if existing.Equal(p) {
 				return p, nil
 			}
