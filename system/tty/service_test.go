@@ -516,6 +516,220 @@ func TestLifecycleClosesResolvedProducerPort(t *testing.T) {
 	require.ErrorIs(t, err, ttyapi.ErrViewportClosed)
 }
 
+func TestViewportRenewalReplacesOnlyProducer(t *testing.T) {
+	service := NewService()
+	defer service.Close()
+	creatorCtx, creatorFrame, _ := processContextFor(t, service, "creator")
+	defer creatorFrame.Close()
+	producerCtx, producerFrame, producerInbox := processContextFor(t, service, "producer-v1")
+	defer producerFrame.Close()
+	observerCtx, observerFrame, _ := processContextFor(t, service, "observer")
+	defer observerFrame.Close()
+
+	creator, err := service.Create(creatorCtx, 40, 12)
+	require.NoError(t, err)
+	handle := creator.Handle()
+	controller, err := service.Attach(creatorCtx, handle)
+	require.NoError(t, err)
+	target, ok := runtime.GetFramePID(observerCtx)
+	require.True(t, ok)
+	ref, err := creator.(ttyapi.MountableViewport).Mount(creatorCtx, target, ttyapi.MountRights{Observe: true})
+	require.NoError(t, err)
+	observer, err := service.Attach(observerCtx, ref)
+	require.NoError(t, err)
+
+	first, err := service.Binding(creator.Grant())
+	require.NoError(t, err)
+	firstPort, err := first.Resolve(producerCtx)
+	require.NoError(t, err)
+	firstInput := firstPort.InputController()
+	require.NoError(t, firstInput.Start())
+	firstSurface, err := firstPort.OpenSurface(ttyapi.SurfaceOptions{})
+	require.NoError(t, err)
+	_, err = firstSurface.Present(ttyapi.Frame{Rows: []string{"v1"}})
+	require.NoError(t, err)
+	require.NoError(t, controller.Resize(91, 31))
+	resize := <-producerInbox.packages
+	require.Equal(t, ttyapi.Event{Type: "resize", Width: 91, Height: 31}, *resize.Messages[0].Payloads[0].Data().(*ttyapi.Event))
+	require.Equal(t, 91, observer.Snapshot().Width)
+	require.Equal(t, 31, observer.Snapshot().Height)
+
+	require.NoError(t, firstPort.Close())
+	renewable := creator.(ttyapi.RenewableViewport)
+	grant, generation, err := renewable.Renew(creatorCtx, 1)
+	require.NoError(t, err)
+	require.Equal(t, uint64(2), generation)
+	require.NotEmpty(t, grant)
+	require.Equal(t, handle, creator.Handle())
+	require.ErrorIs(t, firstInput.Start(), ttyapi.ErrViewportClosed)
+	_, err = firstSurface.Present(ttyapi.Frame{Rows: []string{"stale"}})
+	require.ErrorIs(t, err, ttyapi.ErrViewportClosed)
+
+	second, err := service.Binding(grant)
+	require.NoError(t, err)
+	require.ErrorIs(t, renewable.CancelRenewal(creatorCtx, grant), ttyapi.ErrInvalidGrant, "admission owns a redeemed grant")
+	secondPort, err := second.Resolve(producerCtx)
+	require.NoError(t, err)
+	require.NoError(t, secondPort.InputController().Start())
+	// A stale producer cannot disable input for the replacement generation.
+	require.NoError(t, firstInput.Stop())
+	require.NoError(t, controller.Send(ttyapi.Event{Type: "key", Key: "x"}))
+	input := <-producerInbox.packages
+	require.Equal(t, ttyapi.Event{Type: "key", Key: "x"}, *input.Messages[0].Payloads[0].Data().(*ttyapi.Event))
+	secondSurface, err := secondPort.OpenSurface(ttyapi.SurfaceOptions{})
+	require.NoError(t, err)
+	_, err = secondSurface.Present(ttyapi.Frame{Rows: []string{"v2"}})
+	require.NoError(t, err)
+
+	require.Equal(t, handle, controller.Handle())
+	require.Equal(t, []string{"v2"}, controller.Snapshot().Rows)
+	require.Equal(t, []string{"v2"}, observer.Snapshot().Rows)
+	require.Equal(t, 91, controller.Snapshot().Width)
+	require.Equal(t, 31, observer.Snapshot().Height)
+	_, err = service.Binding(creator.Grant())
+	require.ErrorIs(t, err, ttyapi.ErrInvalidGrant, "the initial generation cannot be revived")
+}
+
+func TestViewportRenewalFencesConcurrentAndCancelledGrants(t *testing.T) {
+	service := NewService()
+	defer service.Close()
+	creatorCtx, creatorFrame, _ := processContextFor(t, service, "creator")
+	defer creatorFrame.Close()
+	producerCtx, producerFrame, _ := processContextFor(t, service, "producer")
+	defer producerFrame.Close()
+	otherCtx, otherFrame, _ := processContextFor(t, service, "other")
+	defer otherFrame.Close()
+
+	creator, err := service.Create(creatorCtx, 40, 12)
+	require.NoError(t, err)
+	renewable := creator.(ttyapi.RenewableViewport)
+	_, _, err = renewable.Renew(creatorCtx, 1)
+	require.ErrorIs(t, err, ttyapi.ErrInvalidGrant, "a producer must retire before renewal")
+	first, err := service.Binding(creator.Grant())
+	require.NoError(t, err)
+	firstPort, err := first.Resolve(producerCtx)
+	require.NoError(t, err)
+	_, _, err = renewable.Renew(creatorCtx, 1)
+	require.ErrorIs(t, err, ttyapi.ErrInvalidGrant, "an active producer cannot be replaced")
+	require.NoError(t, firstPort.Close())
+
+	delegated, err := service.Attach(otherCtx, creator.Handle())
+	require.NoError(t, err)
+	_, _, err = delegated.(ttyapi.RenewableViewport).Renew(otherCtx, 1)
+	require.ErrorIs(t, err, ttyapi.ErrPermissionDenied, "only the creator may renew")
+
+	type result struct {
+		err   error
+		grant string
+		gen   uint64
+	}
+	results := make(chan result, 2)
+	var wait sync.WaitGroup
+	for range 2 {
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			grant, gen, renewErr := renewable.Renew(creatorCtx, 1)
+			results <- result{grant: grant, gen: gen, err: renewErr}
+		}()
+	}
+	wait.Wait()
+	close(results)
+	var grant string
+	for outcome := range results {
+		if outcome.err == nil {
+			require.Empty(t, grant, "only one concurrent renewal may win")
+			grant = outcome.grant
+			require.Equal(t, uint64(2), outcome.gen)
+			continue
+		}
+		require.ErrorIs(t, outcome.err, ttyapi.ErrInvalidGrant)
+	}
+	require.NotEmpty(t, grant)
+	_, _, err = renewable.Renew(creatorCtx, 1)
+	require.ErrorIs(t, err, ttyapi.ErrInvalidGrant, "the issued replacement grant fences stale callers")
+	require.ErrorIs(t, renewable.CancelRenewal(otherCtx, grant), ttyapi.ErrPermissionDenied)
+	require.NoError(t, renewable.CancelRenewal(creatorCtx, grant))
+	_, err = service.Binding(grant)
+	require.ErrorIs(t, err, ttyapi.ErrInvalidGrant, "cancelled grants are permanently fenced")
+
+	retry, generation, err := renewable.Renew(creatorCtx, 1)
+	require.NoError(t, err, "canceling an unconsumed grant must not strand the viewport")
+	require.Equal(t, uint64(3), generation)
+	require.NoError(t, renewable.CancelRenewal(creatorCtx, retry))
+}
+
+func TestViewportRenewalCancelAndRedeemRace(t *testing.T) {
+	service := NewService()
+	defer service.Close()
+	creatorCtx, creatorFrame, _ := processContextFor(t, service, "creator")
+	defer creatorFrame.Close()
+	producerCtx, producerFrame, _ := processContextFor(t, service, "producer")
+	defer producerFrame.Close()
+
+	creator, err := service.Create(creatorCtx, 40, 12)
+	require.NoError(t, err)
+	renewable := creator.(ttyapi.RenewableViewport)
+	first, err := service.Binding(creator.Grant())
+	require.NoError(t, err)
+	firstPort, err := first.Resolve(producerCtx)
+	require.NoError(t, err)
+	require.NoError(t, firstPort.Close())
+	grant, generation, err := renewable.Renew(creatorCtx, 1)
+	require.NoError(t, err)
+	require.Equal(t, uint64(2), generation)
+	losingGrant := grant
+
+	type redemption struct {
+		binding ttyapi.Binding
+		err     error
+	}
+	redeemed := make(chan redemption, 1)
+	cancelled := make(chan error, 1)
+	var wait sync.WaitGroup
+	wait.Add(2)
+	go func() {
+		defer wait.Done()
+		binding, bindErr := service.Binding(grant)
+		redeemed <- redemption{binding: binding, err: bindErr}
+	}()
+	go func() {
+		defer wait.Done()
+		cancelled <- renewable.CancelRenewal(creatorCtx, grant)
+	}()
+	wait.Wait()
+	bind := <-redeemed
+	cancelErr := <-cancelled
+
+	if bind.err == nil {
+		require.ErrorIs(t, cancelErr, ttyapi.ErrInvalidGrant, "redeeming a grant fences cancellation")
+		secondPort, resolveErr := bind.binding.Resolve(producerCtx)
+		require.NoError(t, resolveErr)
+		service.mu.Lock()
+		ss := service.sessions[creator.Handle()]
+		service.mu.Unlock()
+		ss.mu.RLock()
+		active, activeGeneration := ss.producer, ss.producerGeneration
+		ss.mu.RUnlock()
+		require.True(t, active)
+		require.Equal(t, uint64(2), activeGeneration)
+		require.NoError(t, secondPort.Close())
+		grant, generation, err = renewable.Renew(creatorCtx, 2)
+		require.NoError(t, err, "the redeemed producer must retire before another renewal")
+	} else {
+		require.ErrorIs(t, bind.err, ttyapi.ErrInvalidGrant, "cancellation fences redemption")
+		require.NoError(t, cancelErr)
+		grant, generation, err = renewable.Renew(creatorCtx, 1)
+		require.NoError(t, err, "cancellation leaves the last retired producer eligible")
+	}
+	require.Equal(t, uint64(3), generation)
+	require.ErrorIs(t, renewable.CancelRenewal(creatorCtx, losingGrant), ttyapi.ErrInvalidGrant)
+	// The losing generation cannot bind or cancel the successor.
+	_, err = service.Binding(losingGrant)
+	require.ErrorIs(t, err, ttyapi.ErrInvalidGrant)
+	require.NoError(t, renewable.CancelRenewal(creatorCtx, grant))
+}
+
 func BenchmarkVirtualSurfacePresentUnchanged(b *testing.B) {
 	service := NewService()
 	defer service.Close()

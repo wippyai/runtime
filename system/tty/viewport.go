@@ -42,6 +42,60 @@ func (v *viewport) Grant() string                 { return v.producerGrant }
 func (v *viewport) Handle() string                { return v.session.handle }
 func (v *viewport) Updates() <-chan ttyapi.Update { return v.updates }
 
+// Renew gives the creator one fresh producer generation after the exact
+// expected producer has retired. The service and session locks make the fence
+// and grant publication one operation: only one caller can advance it.
+func (v *viewport) Renew(ctx context.Context, expected uint64) (string, uint64, error) {
+	owner, ok := runtime.GetFramePID(ctx)
+	if !ok || !samePID(owner, v.owner) || !samePID(owner, v.session.creator) || v.closed.Load() {
+		return "", 0, ttyapi.ErrPermissionDenied
+	}
+	grant, err := token("vpt1_")
+	if err != nil {
+		return "", 0, err
+	}
+	ss, service := v.session, v.session.service
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	ss.mu.Lock()
+	defer ss.mu.Unlock()
+	if service.closed {
+		return "", 0, ttyapi.ErrServiceUnavailable
+	}
+	if ss.closed || ss.producer || ss.bindings != 0 || ss.renewalGrant != "" || expected == 0 || expected != ss.retiredGeneration || ss.generation == ^uint64(0) {
+		return "", 0, ttyapi.ErrInvalidGrant
+	}
+	ss.generation++
+	ss.renewalGrant = grant
+	service.grants[grant] = grantRecord{session: ss, generation: ss.generation, renewal: true}
+	return grant, ss.generation, nil
+}
+
+// CancelRenewal revokes only the one outstanding, unconsumed renewal grant.
+// It intentionally leaves the generation advanced: a retry receives another
+// unique generation, so a cancelled grant can never become valid again.
+func (v *viewport) CancelRenewal(ctx context.Context, grant string) error {
+	owner, ok := runtime.GetFramePID(ctx)
+	if !ok || !samePID(owner, v.owner) || !samePID(owner, v.session.creator) || v.closed.Load() {
+		return ttyapi.ErrPermissionDenied
+	}
+	ss, service := v.session, v.session.service
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	ss.mu.Lock()
+	defer ss.mu.Unlock()
+	if service.closed {
+		return ttyapi.ErrServiceUnavailable
+	}
+	record, ok := service.grants[grant]
+	if !ok || !record.renewal || record.session != ss || record.generation != ss.generation || ss.renewalGrant != grant || ss.producer || ss.bindings != 0 {
+		return ttyapi.ErrInvalidGrant
+	}
+	delete(service.grants, grant)
+	ss.renewalGrant = ""
+	return nil
+}
+
 func (v *viewport) Snapshot() ttyapi.Snapshot {
 	if v.closed.Load() || !v.rights.Observe {
 		return ttyapi.Snapshot{}
@@ -175,3 +229,5 @@ func (v *viewport) Capture(ctx context.Context) (*ttyapi.Capture, error) {
 	}
 	return ttyapi.NewCapture(ttyapi.Snapshot{Rows: ss.rows, Cursor: ss.cursor, Revision: ss.revision, Width: ss.width, Height: ss.height}, ss.images)
 }
+
+var _ ttyapi.RenewableViewport = (*viewport)(nil)

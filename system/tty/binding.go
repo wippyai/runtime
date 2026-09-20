@@ -12,11 +12,14 @@ import (
 )
 
 type binding struct {
-	session  *session
-	port     *port
-	mu       sync.Mutex
-	closed   bool
-	resolved bool
+	session    *session
+	port       *port
+	grant      string
+	generation uint64
+	renewal    bool
+	mu         sync.Mutex
+	closed     bool
+	resolved   bool
 }
 
 func (b *binding) Resolve(ctx context.Context) (ttyapi.Port, error) {
@@ -38,16 +41,20 @@ func (b *binding) Resolve(ctx context.Context) (ttyapi.Port, error) {
 	}
 	ss := b.session
 	ss.mu.Lock()
-	if ss.closed || ss.producer {
+	if ss.closed || ss.producer || b.generation != ss.generation {
 		ss.mu.Unlock()
 		return nil, ttyapi.ErrInvalidGrant
 	}
-	ss.producer, ss.target, ss.router = true, target, router
+	ss.producer, ss.producerGeneration, ss.target, ss.router = true, b.generation, target, router
+	if b.renewal && ss.renewalGrant == b.grant {
+		ss.renewalGrant = ""
+	}
 	if ss.bindings > 0 {
 		ss.bindings--
 	}
 	ss.mu.Unlock()
-	b.port = &port{session: ss, input: &input{session: ss}}
+	b.port = &port{session: ss, generation: b.generation}
+	b.port.input = &input{port: b.port}
 	b.resolved = true
 	return b.port, nil
 }
@@ -70,7 +77,7 @@ func (b *binding) Close() error {
 		ss.bindings--
 	}
 	if !resolved && !ss.service.closed && !ss.closed {
-		ss.service.grants[ss.grant] = ss
+		ss.service.grants[b.grant] = grantRecord{session: ss, generation: b.generation, renewal: b.renewal}
 	}
 	ss.mu.Unlock()
 	ss.service.mu.Unlock()
