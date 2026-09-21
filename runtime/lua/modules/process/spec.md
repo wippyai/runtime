@@ -72,6 +72,12 @@ or `process.registry.debug.validate_fence` to send safely.
 
 **Returns:** `true` on success, or `nil, error` on failure
 
+For a remote PID, success means local transport admission, not receipt or
+processing by the destination. A destination already known to be unmanaged
+returns an `unavailable` error with its node ID. A peer can disconnect or leave
+after admission; use application acknowledgements and bounded reply waits when
+confirmed processing is required. Retried requests should be idempotent.
+
 **Errors (strings):**
 - `"send requires at least destination and topic arguments"`
 - `"cannot send to @ topics"` - reserved topic prefix
