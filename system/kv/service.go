@@ -199,6 +199,9 @@ func (s *Service) flush() {
 	// the watcher registration gate only for its pointer publication and
 	// notifications, so subscriptions do not wait on snapshot construction.
 	published := s.state.snapshot()
+	for i := range s.outbox {
+		s.outbox[i].revision = published.version
+	}
 	s.watch.publishRecords(s.outbox, func() { s.snap.Store(published) })
 	if len(s.outbox) > defaultWatchLimits.MaxEvents {
 		// A rare huge transaction should not pin its staging array for the

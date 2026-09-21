@@ -145,8 +145,12 @@ const (
 	WatchExpired
 )
 
-// WatchEvent represents a single key change. Its entries and value slices are
-// read-only to subscribers: matching watchers can share one detached event.
+// WatchEvent represents one committed key operation. A successful transaction
+// emits its mutations in operation order, including intermediate values that
+// were replaced or removed later in that same transaction. A read triggered by
+// the event sees the complete published transaction, not necessarily the
+// intermediate value carried by Current or Previous. Entries and value slices
+// are read-only to subscribers: matching watchers can share one detached event.
 // A subscriber that needs mutable values must copy them before changing them.
 type WatchEvent struct {
 	Current  *Entry // after the change (nil on delete/expire)
@@ -155,7 +159,11 @@ type WatchEvent struct {
 	// non-raft backends). It is the monotonic dot for delete tombstones, which
 	// carry no Current entry.
 	Index uint64
-	Type  WatchEventType
+	// Revision identifies the complete published snapshot that contains this
+	// operation. All mutations of one transaction share its revision. It is
+	// comparable with LocalSnapshotReader's revision for the same engine.
+	Revision uint64
+	Type     WatchEventType
 }
 
 // Watcher delivers changes for one uninterrupted observation of a prefix.
