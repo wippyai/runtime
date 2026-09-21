@@ -222,6 +222,45 @@ func TestStrongStartRejectsUnsupportedSnapshotBeforeWatch(t *testing.T) {
 	}
 }
 
+func TestNonMemberSnapshotCapability(t *testing.T) {
+	t.Run("strong_requires_replica", func(t *testing.T) {
+		r := newStrongReg(t, []pid.NodeID{"node-1"}, time.Second, nil)
+		r.SetNonMember(func() bool { return true })
+		wrapped := &unsupportedSnapshotEngine{Engine: r.engine}
+		r.engine = wrapped
+		if err := r.StartReconciler(t.Context()); err == nil || !strings.Contains(err.Error(), "without a local replica") {
+			t.Fatalf("non-member Strong startup: %v", err)
+		}
+		if wrapped.watchCalls.Load() != 0 || r.NameReady() {
+			t.Fatal("unsupported Strong participant started reconciliation")
+		}
+		if _, err := r.RegisterScope(t.Context(), "claim", mkPID("node-1", "owner"), globalapi.Strong); err == nil {
+			t.Fatal("unsupported Strong participant accepted registration")
+		}
+		if _, err := wrapped.Get(pendingKey("claim")); !errors.Is(err, kvapi.ErrKeyNotFound) {
+			t.Fatalf("rejected registration created a pending claim: %v", err)
+		}
+	})
+	t.Run("dissemination_does_not_require_snapshot", func(t *testing.T) {
+		r, _ := newDissemReg(t, "client")
+		r.SetNonMember(func() bool { return true })
+		wrapped := &unsupportedSnapshotEngine{Engine: r.engine}
+		r.engine = wrapped
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		if err := r.StartReconciler(ctx); err != nil {
+			t.Fatalf("non-member dissemination startup: %v", err)
+		}
+		if wrapped.watchCalls.Load() != 1 || !r.ready.Load() || !r.NameReady() {
+			t.Fatal("dissemination-only client did not become ready")
+		}
+		cancel()
+		if !eventually(t, time.Second, func() bool { return !r.ready.Load() }) {
+			t.Fatal("canceled client did not stop reconciliation")
+		}
+	})
+}
+
 func TestStrongInvalidSnapshotRecordPreservesObligations(t *testing.T) {
 	owner := mkPID("node-1", "owner")
 	badNameActive, err := encode(activeValue{Name: "wrong", PID: owner.String(), Strong: true})
