@@ -16,6 +16,14 @@ type beforePromotionEngine struct {
 	before func()
 }
 
+func (e *beforePromotionEngine) ReadLocalSnapshot(keys []string) (map[string]kvapi.Entry, uint64, error) {
+	reader, ok := e.Engine.(kvapi.LocalSnapshotReader)
+	if !ok {
+		return nil, 0, kvapi.ErrKVClosed
+	}
+	return reader.ReadLocalSnapshot(keys)
+}
+
 func (e *beforePromotionEngine) Txn(ops []kvapi.TxnOp) (bool, error) {
 	for _, op := range ops {
 		if op.Kind == kvapi.TxnPut && op.Key == activeKey("claim") && e.before != nil {

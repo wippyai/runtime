@@ -116,7 +116,7 @@ func (st *strongState) dropNodeFromPending(name string, node pid.NodeID) {
 	if terr != nil || !committed {
 		return
 	}
-	st.reconcile(name)
+	_ = st.reconcile(name)
 }
 
 var _ relay.Receiver = (*Service)(nil)

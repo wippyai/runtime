@@ -19,6 +19,14 @@ type countedReconcilerEngine struct {
 	calls atomic.Int32
 }
 
+func (e *countedReconcilerEngine) ReadLocalSnapshot(keys []string) (map[string]kvapi.Entry, uint64, error) {
+	reader, ok := e.Engine.(kvapi.LocalSnapshotReader)
+	if !ok {
+		return nil, 0, kvapi.ErrKVClosed
+	}
+	return reader.ReadLocalSnapshot(keys)
+}
+
 func (e *countedReconcilerEngine) Watch(context.Context, string) (kvapi.Watcher, error) {
 	e.calls.Add(1)
 	return &readinessWatcher{events: make(chan kvapi.WatchEvent), closed: make(chan struct{})}, nil
@@ -59,6 +67,14 @@ func (w *blockedEventsWatcher) Events() <-chan kvapi.WatchEvent {
 type blockedEventsEngine struct {
 	kvapi.Engine
 	watcher *blockedEventsWatcher
+}
+
+func (e *blockedEventsEngine) ReadLocalSnapshot(keys []string) (map[string]kvapi.Entry, uint64, error) {
+	reader, ok := e.Engine.(kvapi.LocalSnapshotReader)
+	if !ok {
+		return nil, 0, kvapi.ErrKVClosed
+	}
+	return reader.ReadLocalSnapshot(keys)
 }
 
 func (e *blockedEventsEngine) Watch(context.Context, string) (kvapi.Watcher, error) {
