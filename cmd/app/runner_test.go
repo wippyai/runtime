@@ -16,8 +16,10 @@ import (
 
 // plannedHost answers every launch with one plan and records what it saw.
 type plannedHost struct {
-	plan     Plan
-	err      error
+	plan   Plan
+	err    error
+	before func()
+
 	observed Launch
 	calls    int
 }
@@ -25,6 +27,9 @@ type plannedHost struct {
 func (h *plannedHost) Plan(_ context.Context, l Launch) (Plan, error) {
 	h.calls++
 	h.observed = l
+	if h.before != nil {
+		h.before()
+	}
 	return h.plan, h.err
 }
 
@@ -74,17 +79,87 @@ func TestPlannedRunLeavesStateUntouched(t *testing.T) {
 }
 
 func TestPlanOverridesSelectStateCommandAndArguments(t *testing.T) {
-	planned := t.TempDir()
+	planned := filepath.Join(t.TempDir(), "planned")
+	explicit := filepath.Join(t.TempDir(), "explicit")
 	record := captureExecution(t)
 	executable := runnableExecutable(t)
-	executable.Host = &plannedHost{plan: Plan{State: planned, Command: "console", Args: []string{"replaced"}}}
+	executable.Host = &plannedHost{plan: Plan{DefaultState: planned, Command: "console", Args: []string{"replaced"}}}
 
-	require.NoError(t, Run(t.Context(), executable, []string{"--state", t.TempDir(), "run", "original"}))
+	require.NoError(t, Run(t.Context(), executable, []string{"--state", explicit, "run", "original"}))
 	require.Equal(t, 1, record.calls)
 	require.Equal(t, []string{"run", "--silent", "--", "console", "replaced"}, record.options.Args)
-	require.Equal(t, filepath.Join(planned, deploymentsDir, executable.Bundle.ID(), "wippy.lock"), record.options.LockFile)
-	require.Equal(t, historyPath(planned), record.options.Overrides.GetString("registry.history_path", ""))
-	require.Equal(t, cachePath(planned), record.options.Overrides.GetString("registry.dependency_vendor_dir", ""))
+	require.Equal(t, filepath.Join(explicit, deploymentsDir, executable.Bundle.ID(), "wippy.lock"), record.options.LockFile)
+	require.Equal(t, historyPath(explicit), record.options.Overrides.GetString("registry.history_path", ""))
+	require.Equal(t, cachePath(explicit), record.options.Overrides.GetString("registry.dependency_vendor_dir", ""))
+	require.NoDirExists(t, planned)
+}
+
+func TestPlanDefaultStateSelectsStateWhenInvocationHasNoExplicitState(t *testing.T) {
+	work := t.TempDir()
+	other := t.TempDir()
+	original, err := os.Getwd()
+	require.NoError(t, err)
+	require.NoError(t, os.Chdir(work))
+	t.Cleanup(func() { _ = os.Chdir(original) })
+
+	selected := filepath.Join(work, "selected")
+	record := captureExecution(t)
+	executable := runnableExecutable(t)
+	executable.Host = &plannedHost{
+		plan:   Plan{DefaultState: "selected"},
+		before: func() { require.NoError(t, os.Chdir(other)) },
+	}
+
+	require.NoError(t, Run(t.Context(), executable, nil))
+	require.Equal(t, filepath.Join(selected, deploymentsDir, executable.Bundle.ID(), "wippy.lock"), record.options.LockFile)
+	require.DirExists(t, selected)
+	require.NoDirExists(t, filepath.Join(other, "selected"))
+}
+
+func TestEmptyPlanDefaultStateKeepsExecutableState(t *testing.T) {
+	called := 0
+	executable := runnableExecutable(t)
+	host := &plannedHost{
+		plan: Plan{Run: func(context.Context) error {
+			called++
+			return nil
+		}},
+	}
+	executable.Host = host
+
+	require.NoError(t, Run(t.Context(), executable, nil))
+	config, err := os.UserConfigDir()
+	require.NoError(t, err)
+	require.Equal(t, filepath.Join(config, executable.Name), host.observed.State)
+	require.Equal(t, 1, called)
+}
+
+func TestPlanDefaultStateErrorDoesNotOpenSelectedState(t *testing.T) {
+	state := filepath.Join(t.TempDir(), "absent")
+	planErr := errors.New("plan unavailable")
+	executable := runnableExecutable(t)
+	executable.Host = &plannedHost{err: planErr}
+
+	err := Run(t.Context(), executable, []string{"--state", state, "run"})
+	require.ErrorIs(t, err, planErr)
+	require.NoDirExists(t, state)
+}
+
+func TestInvalidPlanDefaultStateRefusesBeforeOpeningState(t *testing.T) {
+	work := t.TempDir()
+	original, err := os.Getwd()
+	require.NoError(t, err)
+	require.NoError(t, os.Chdir(work))
+	t.Cleanup(func() { _ = os.Chdir(original) })
+
+	executable := runnableExecutable(t)
+	executable.Host = &plannedHost{plan: Plan{DefaultState: "invalid\x00state"}}
+
+	err = Run(t.Context(), executable, nil)
+	require.ErrorContains(t, err, "state directory contains NUL")
+	entries, readErr := os.ReadDir(work)
+	require.NoError(t, readErr)
+	require.Empty(t, entries)
 }
 
 func TestPreparedConfigCannotRedirectHistoryOrCache(t *testing.T) {

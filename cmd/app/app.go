@@ -86,10 +86,10 @@ func Run(ctx context.Context, e Executable, args []string) error {
 		if err != nil {
 			return err
 		}
-		if plan.State != "" {
-			state, err := filepath.Abs(plan.State)
+		if !launch.Explicit && plan.DefaultState != "" {
+			state, err := resolveDefaultState(launch.Dir, plan.DefaultState)
 			if err != nil {
-				return NewApplicationStateError("resolve planned state", plan.State, err)
+				return NewApplicationStateError("resolve planned state", plan.DefaultState, err)
 			}
 			launch.State = state
 		}

@@ -48,16 +48,18 @@ type Launch struct {
 	Explicit bool
 }
 
-// Plan is the host's decision for one launch. A non-empty State, Command or
-// Args replaces the value the grammar selected. Run hands the whole launch to
-// the host. Prepare opens host resources under the state lock and returns the
-// configuration they need together with the close that releases them.
+// Plan is the host's decision for one launch. A non-empty DefaultState replaces
+// the executable's default state when the invocation did not explicitly name
+// one with --state. Command or Args replace the values the grammar selected.
+// Run hands the whole launch to the host. Prepare opens host resources under
+// the state lock and returns the configuration they need together with the
+// close that releases them.
 type Plan struct {
-	Run     func(context.Context) error
-	Prepare func(context.Context) (boot.Config, func() error, error)
-	State   string
-	Command string
-	Args    []string
+	Run          func(context.Context) error
+	Prepare      func(context.Context) (boot.Config, func() error, error)
+	DefaultState string
+	Command      string
+	Args         []string
 }
 
 // Host decides what an invocation does before the runner opens the state.
@@ -119,6 +121,20 @@ func parseState(args []string) (string, []string, error) {
 		return args[1], args[2:], nil
 	}
 	return "", args, nil
+}
+
+// resolveDefaultState normalizes a host-selected default against the working
+// directory captured before planning. A host may change the process working
+// directory while it prepares its plan; that must not change where a relative
+// default points.
+func resolveDefaultState(dir, state string) (string, error) {
+	if strings.ContainsRune(state, 0) {
+		return "", errors.New("state directory contains NUL")
+	}
+	if !filepath.IsAbs(state) {
+		state = filepath.Join(dir, state)
+	}
+	return filepath.Abs(state)
 }
 
 func verb(word string) Op {
