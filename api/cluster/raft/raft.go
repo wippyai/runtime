@@ -38,6 +38,18 @@ func (s State) String() string {
 }
 
 type (
+	// Leadership is a level-triggered observation of local Raft leadership.
+	// Changed closes when any later observation replaces it. Re-read through
+	// ObserveLeadership after it closes; concurrent consumers never steal events.
+	// It is a sampled status, not authority for an unguarded Raft write.
+	Leadership struct {
+		Changed  <-chan struct{}
+		LeaderID ServerID
+		State    State
+		Term     uint64
+		Revision uint64
+	}
+
 	// ServerID is a unique identifier for a Raft server.
 	ServerID = string
 
@@ -67,9 +79,9 @@ type (
 		// IsLeader returns true if this node is the current leader.
 		IsLeader() bool
 
-		// LeaderCh returns a channel that emits true when this node becomes
-		// leader and false when it loses leadership.
-		LeaderCh() <-chan bool
+		// ObserveLeadership returns one published state, term, known leader,
+		// and its change notification atomically. It is valid before Start.
+		ObserveLeadership() Leadership
 
 		// State returns the current Raft state of this node.
 		State() State

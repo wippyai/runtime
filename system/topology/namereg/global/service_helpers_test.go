@@ -21,14 +21,13 @@ import (
 // don't exercise Raft replication itself but need a real Apply pipeline.
 type directApplyRaft struct {
 	fsm         *FSM
-	leaderCh    chan bool
 	knownLeader raftapi.ServerID
 	idx         atomic.Uint64
 	leader      atomic.Bool
 }
 
 func newDirectApplyRaft(fsm *FSM, leader bool) *directApplyRaft {
-	r := &directApplyRaft{fsm: fsm, leaderCh: make(chan bool, 1)}
+	r := &directApplyRaft{fsm: fsm}
 	r.leader.Store(leader)
 	return r
 }
@@ -52,9 +51,15 @@ func (r *directApplyRaft) Leader() (raftapi.ServerID, raftapi.ServerAddress, err
 	return "", "", nil
 }
 
-func (r *directApplyRaft) IsLeader() bool        { return r.leader.Load() }
-func (r *directApplyRaft) LeaderCh() <-chan bool { return r.leaderCh }
-func (r *directApplyRaft) State() raftapi.State  { return raftapi.Leader }
+func (r *directApplyRaft) IsLeader() bool { return r.leader.Load() }
+func (r *directApplyRaft) ObserveLeadership() raftapi.Leadership {
+	state := raftapi.Follower
+	if r.leader.Load() {
+		state = raftapi.Leader
+	}
+	return raftapi.Leadership{State: state, Changed: make(chan struct{})}
+}
+func (r *directApplyRaft) State() raftapi.State { return raftapi.Leader }
 func (r *directApplyRaft) Barrier(_ time.Duration) error {
 	return nil
 }

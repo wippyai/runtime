@@ -133,12 +133,14 @@ func (f *fakeRaft) Apply(_ []byte, _ time.Duration) (*raftapi.ApplyResponse, err
 	return nil, nil
 }
 func (f *fakeRaft) Leader() (raftapi.ServerID, raftapi.ServerAddress, error) { return "", "", nil }
-func (f *fakeRaft) LeaderCh() <-chan bool                                    { return nil }
-func (f *fakeRaft) State() raftapi.State                                     { return raftapi.Follower }
-func (f *fakeRaft) Barrier(_ time.Duration) error                            { return nil }
-func (f *fakeRaft) CommitIndex() uint64                                      { return 0 }
-func (f *fakeRaft) Stats() map[string]string                                 { return nil }
-func (f *fakeRaft) LastContact() time.Time                                   { return time.Time{} }
+func (f *fakeRaft) ObserveLeadership() raftapi.Leadership {
+	return raftapi.Leadership{Changed: make(chan struct{})}
+}
+func (f *fakeRaft) State() raftapi.State          { return raftapi.Follower }
+func (f *fakeRaft) Barrier(_ time.Duration) error { return nil }
+func (f *fakeRaft) CommitIndex() uint64           { return 0 }
+func (f *fakeRaft) Stats() map[string]string      { return nil }
+func (f *fakeRaft) LastContact() time.Time        { return time.Time{} }
 
 func (f *fakeRaft) upsertLocked(s raftapi.Server) {
 	for i, existing := range f.servers {

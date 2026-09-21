@@ -544,13 +544,28 @@ func Raft() boot.Component {
 			// Wait for leader election before proceeding. For a single-node
 			// bootstrap this is near-instant; for multi-node it may take
 			// longer while the watcher waits for peers in gossip.
-			leaderCh := raftNode.LeaderCh()
-			select {
-			case <-leaderCh:
-				logger.Info("raft leader election completed")
-			case <-time.After(10 * time.Second):
-				logger.Warn("raft leader election timed out (continuing anyway)")
+			leaderWait := time.NewTimer(10 * time.Second)
+			waitForLeader := true
+			for waitForLeader {
+				// Subscribe before checking, so an election racing the check
+				// cannot be missed. A term change without a known leader is
+				// not a completed election.
+				leadership := raftNode.ObserveLeadership()
+				if leadership.LeaderID != "" {
+					logger.Info("raft leader election completed")
+					break
+				}
+				select {
+				case <-leadership.Changed:
+				case <-ctx.Done():
+					leaderWait.Stop()
+					return ctx.Err()
+				case <-leaderWait.C:
+					logger.Warn("raft leader election timed out (continuing anyway)")
+					waitForLeader = false
+				}
 			}
+			leaderWait.Stop()
 
 			// Start membership handler to sync Raft voters with cluster membership.
 			if bus != nil {
