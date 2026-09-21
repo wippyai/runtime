@@ -208,7 +208,8 @@ func (s *Service) Scan(prefix string, fn func(kvapi.Entry) bool) error {
 // trivially linearizable. Present so Service satisfies LinearizableEngine.
 func (s *Service) GetLinearizable(key string) (kvapi.Entry, error) { return s.Get(key) }
 
-// ScanAtIndex scans and returns the current global version as the as-of index.
+// ScanAtIndex scans and returns the publication revision as the as-of index.
+// This revision can advance on a deletion without changing Entry.Version.
 func (s *Service) ScanAtIndex(prefix string, fn func(kvapi.Entry) bool) (uint64, error) {
 	snap := s.snap.Load()
 	if snap == nil {
