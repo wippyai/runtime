@@ -200,6 +200,9 @@ func Cluster() boot.Component {
 			if node == nil {
 				return ctx, ErrRelayNotAvailableForCluster
 			}
+			if node.ID() != nodeName {
+				return ctx, fmt.Errorf("cluster.name %q must match relay.node_name %q", nodeName, node.ID())
+			}
 
 			joinAddrs := clusterSeedAddrs(clusterCfg)
 
