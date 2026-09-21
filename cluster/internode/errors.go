@@ -15,6 +15,13 @@ var (
 	ErrFailedToAppendCACerts = apierror.New(apierror.Invalid, "failed to append ca certs").WithRetryable(apierror.False)
 )
 
+func newNodeAdmissionError(nodeID string, cause error) apierror.Error {
+	return apierror.New(apierror.Unavailable, "node is not available for message admission: "+nodeID).
+		WithRetryable(apierror.True).
+		WithDetails(attrs.Bag{"node_id": nodeID}).
+		WithCause(cause)
+}
+
 func NewSetDeadlineError(err error) apierror.Error {
 	return apierror.New(apierror.Internal, "failed to set deadline").WithCause(err).WithRetryable(apierror.False)
 }
