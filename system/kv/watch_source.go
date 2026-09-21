@@ -54,6 +54,7 @@ type watchRecord struct {
 	current  *entry
 	previous *entry
 	index    uint64
+	revision uint64
 	typ      kvapi.WatchEventType
 }
 
@@ -185,7 +186,7 @@ func (s *watchSource) publishRecords(records []watchRecord, commit func()) {
 		if !observed {
 			continue
 		}
-		event := kvapi.WatchEvent{Type: record.typ, Index: record.index}
+		event := kvapi.WatchEvent{Type: record.typ, Index: record.index, Revision: record.revision}
 		event.Current = entryToWatchEvent(record.current)
 		event.Previous = entryToWatchEvent(record.previous)
 		s.publishEventLocked(event)

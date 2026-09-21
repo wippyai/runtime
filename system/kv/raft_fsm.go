@@ -81,6 +81,9 @@ func (f *RaftFSM) flush() {
 	// f.mu serializes writers. Construct before taking the registration gate;
 	// only the pointer swap and notification ordering require that gate.
 	published := f.state.snapshot()
+	for i := range f.outbox {
+		f.outbox[i].revision = published.index
+	}
 	f.watch.publishRecords(f.outbox, func() { f.snap.Store(published) })
 	if len(f.outbox) > defaultWatchLimits.MaxEvents {
 		f.outbox = nil
