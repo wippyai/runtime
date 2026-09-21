@@ -37,9 +37,9 @@ func (r *truncatedReadRouter) Send(pkg *relay.Package) error {
 }
 
 func TestForwardReadRejectsTruncatedFoundResponse(t *testing.T) {
-	fsm := NewRaftFSM(nil)
+	fsm := NewRaftFSM()
 	router := &truncatedReadRouter{}
-	eng := NewRaftEngine(&fakeRaft{fsm: fsm, leaderID: "leader"}, fsm, nil, "client", router, nil)
+	eng := NewRaftEngine(&fakeRaft{fsm: fsm, leaderID: "leader"}, fsm, "client", router, nil)
 	router.receiver = eng
 	if err := eng.Start(context.Background()); err != nil {
 		t.Fatal(err)

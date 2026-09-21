@@ -13,7 +13,7 @@ import (
 )
 
 func TestDeleteAdvancesPublishedRevision(t *testing.T) {
-	s := NewService("revision", nil, nil)
+	s := NewService("revision", nil)
 	if _, err := s.Start(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +55,7 @@ func TestDeleteAdvancesPublishedRevision(t *testing.T) {
 }
 
 func TestConditionalDeleteAdvancesOnlyCommittedPublication(t *testing.T) {
-	s := NewService("conditional-revision", nil, nil)
+	s := NewService("conditional-revision", nil)
 	if _, err := s.Start(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -112,7 +112,7 @@ func TestDeleteDoesNotRenumberPreviouslyCommittedWrites(t *testing.T) {
 func TestRaftReplayDeleteKeepsCommittedCASVersion(t *testing.T) {
 	for _, restore := range []bool{false, true} {
 		t.Run(map[bool]string{false: "full-log", true: "snapshot-and-tail"}[restore], func(t *testing.T) {
-			fsm := NewRaftFSM(nil)
+			fsm := NewRaftFSM()
 			apply := func(index uint64, c command) applyResult {
 				t.Helper()
 				return fsm.Apply(&hraft.Log{Index: index, Data: encodeCommand(c)}).(applyResult)
@@ -129,7 +129,7 @@ func TestRaftReplayDeleteKeepsCommittedCASVersion(t *testing.T) {
 				if err := snapshot.Persist(&sink); err != nil {
 					t.Fatal(err)
 				}
-				fsm = NewRaftFSM(nil)
+				fsm = NewRaftFSM()
 				if err := fsm.Restore(io.NopCloser(&sink)); err != nil {
 					t.Fatal(err)
 				}

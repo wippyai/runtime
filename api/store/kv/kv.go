@@ -145,7 +145,9 @@ const (
 	WatchExpired
 )
 
-// WatchEvent represents a single key change.
+// WatchEvent represents a single key change. Its entries and value slices are
+// read-only to subscribers: matching watchers can share one detached event.
+// A subscriber that needs mutable values must copy them before changing them.
 type WatchEvent struct {
 	Current  *Entry // after the change (nil on delete/expire)
 	Previous *Entry // before the change (nil on create)
@@ -156,11 +158,22 @@ type WatchEvent struct {
 	Type  WatchEventType
 }
 
-// Watcher delivers change events for keys matching a prefix.
+// Watcher delivers changes for one uninterrupted observation of a prefix.
+// A consumer must discard remaining Events after Done closes and reseed from
+// the store before relying on a new watcher.
 type Watcher interface {
 	// Events returns the channel delivering watch events.
 	Events() <-chan WatchEvent
 
-	// Close stops the watcher and releases resources.
+	// Done closes as soon as this observation is invalid (including overflow,
+	// restore, engine shutdown, context cancellation, and Close). The Events
+	// channel closes after delivery stops and need not drain queued events.
+	Done() <-chan struct{}
+
+	// Err is stable after Done closes and explains the invalidation.
+	Err() error
+
+	// Close invalidates the watcher and joins its delivery worker. It is
+	// idempotent and does not wait for the consumer to receive an event.
 	Close() error
 }

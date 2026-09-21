@@ -13,7 +13,7 @@ import (
 )
 
 func TestLocalSnapshotPreservesAtomicKeyTransfer(t *testing.T) {
-	s := NewService("snapshot", nil, nil)
+	s := NewService("snapshot", nil)
 	if _, err := s.Start(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -52,7 +52,7 @@ func TestLocalSnapshotPreservesAtomicKeyTransfer(t *testing.T) {
 }
 
 func TestLocalSnapshotIndexAndCopy(t *testing.T) {
-	f := NewRaftFSM(nil)
+	f := NewRaftFSM()
 	f.state.applyIndex = 42
 	f.state.set("key", []byte("value"), "")
 	f.snap.Store(f.state.snapshot())
@@ -70,11 +70,11 @@ func TestLocalSnapshotIndexAndCopy(t *testing.T) {
 }
 
 func TestLocalSnapshotClosedEngineFails(t *testing.T) {
-	s := NewService("snapshot", nil, nil)
+	s := NewService("snapshot", nil)
 	if _, _, err := s.ReadLocalSnapshot([]string{"key"}); !errors.Is(err, kvapi.ErrKVClosed) {
 		t.Fatalf("closed in-memory engine error=%v", err)
 	}
-	f := NewRaftFSM(nil)
+	f := NewRaftFSM()
 	if _, _, err := (&RaftEngine{fsm: f}).ReadLocalSnapshot([]string{"key"}); err != nil {
 		t.Fatalf("initialized raft FSM should publish an empty snapshot: %v", err)
 	}
@@ -84,7 +84,7 @@ func TestLocalSnapshotClosedEngineFails(t *testing.T) {
 }
 
 func TestLocalSnapshotDeletionRevisionAndStop(t *testing.T) {
-	s := NewService("snapshot-deletion", nil, nil)
+	s := NewService("snapshot-deletion", nil)
 	if _, err := s.Start(t.Context()); err != nil {
 		t.Fatal(err)
 	}

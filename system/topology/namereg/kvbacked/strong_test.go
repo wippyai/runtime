@@ -11,13 +11,12 @@ import (
 
 	"github.com/wippyai/runtime/api/pid"
 	globalapi "github.com/wippyai/runtime/api/topology/namereg/global"
-	"github.com/wippyai/runtime/system/eventbus"
 	systemkv "github.com/wippyai/runtime/system/kv"
 )
 
 func newStrongReg(t *testing.T, members []pid.NodeID, deadline time.Duration, lc func(string, pid.PID) (pid.PID, bool)) *Service {
 	t.Helper()
-	eng := systemkv.NewService("reg", eventbus.NewBus(), nil)
+	eng := systemkv.NewService("reg", nil)
 	if _, err := eng.Start(context.Background()); err != nil {
 		t.Fatalf("engine start: %v", err)
 	}
@@ -133,7 +132,7 @@ func TestStrong_UnregisterClearsPending(t *testing.T) {
 // exclusion for an already-active Strong name during seed(), so IsStrongReserved
 // stays correct after recovery (cross-scope guard not bypassed).
 func TestStrong_RecoversActiveExclusionOnSeed(t *testing.T) {
-	eng := systemkv.NewService("reg", eventbus.NewBus(), nil)
+	eng := systemkv.NewService("reg", nil)
 	if _, err := eng.Start(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -190,7 +189,7 @@ func TestCrossScope_ConsistentBlockedByStrongPending(t *testing.T) {
 // register cannot take over a name already held by a STRONG owner, even with a
 // custom resolver that would award the name to the incoming claimant.
 func TestCrossScope_ConsistentCannotDisplaceStrongActive(t *testing.T) {
-	eng := systemkv.NewService("reg", eventbus.NewBus(), nil)
+	eng := systemkv.NewService("reg", nil)
 	if _, err := eng.Start(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -224,7 +223,7 @@ func TestCrossScope_ConsistentCannotDisplaceStrongActive(t *testing.T) {
 // Pre-fix this times out (stays pending until the long deadline); post-fix it
 // promotes within a sweep tick of the membership drop.
 func TestStrong_PromotesOnSurvivorsWhenRequiredNodeDeparts(t *testing.T) {
-	eng := systemkv.NewService("reg", eventbus.NewBus(), nil)
+	eng := systemkv.NewService("reg", nil)
 	if _, err := eng.Start(context.Background()); err != nil {
 		t.Fatal(err)
 	}

@@ -11,7 +11,7 @@ import (
 )
 
 func TestShutdownWaitsForActiveActionResult(t *testing.T) {
-	s := NewService("shutdown", nil, nil)
+	s := NewService("shutdown", nil)
 	_, err := s.Start(context.Background())
 	require.NoError(t, err)
 	entered, release := make(chan struct{}), make(chan struct{})

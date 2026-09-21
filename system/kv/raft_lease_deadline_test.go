@@ -43,7 +43,7 @@ func TestRaftEngine_LeaseDeadlineHonoredAcrossReArm(t *testing.T) {
 // TestRaftFSM_LeaseDeadlineSurvivesSnapshot proves the absolute deadline is
 // persisted, so a node restoring from a snapshot re-arms to the original expiry.
 func TestRaftFSM_LeaseDeadlineSurvivesSnapshot(t *testing.T) {
-	fsm := NewRaftFSM(nil)
+	fsm := NewRaftFSM()
 	exp := time.Now().Add(42 * time.Second).UnixMilli()
 	fsm.Apply(&hraft.Log{Index: 1, Data: encodeCommand(command{Op: opLeaseGrant, LeaseID: "L", TTLms: 42_000, ExpiresAtMs: exp})})
 
@@ -56,7 +56,7 @@ func TestRaftFSM_LeaseDeadlineSurvivesSnapshot(t *testing.T) {
 		t.Fatalf("persist: %v", err)
 	}
 
-	restored := NewRaftFSM(nil)
+	restored := NewRaftFSM()
 	if err := restored.Restore(io.NopCloser(&sink)); err != nil {
 		t.Fatalf("restore: %v", err)
 	}

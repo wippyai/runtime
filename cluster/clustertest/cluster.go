@@ -76,7 +76,7 @@ func NewCluster(tb testing.TB, n int) *Cluster {
 
 func (c *Cluster) buildNode(id, dataDir string) *Node {
 	bus := eventbus.NewBus()
-	kvFSM := systemkv.NewRaftFSM(bus)
+	kvFSM := systemkv.NewRaftFSM()
 	primary := &recordingFSM{}
 	root := multiplex.New(primary, kvFSM)
 
@@ -89,7 +89,7 @@ func (c *Cluster) buildNode(id, dataDir string) *Node {
 	rn := sysraft.NewNode(id, root, cfg, bus, zap.NewNop(), nil, nil, nil)
 	rn.SetConnectionManager(c.mesh.connect(id))
 
-	kvEng := systemkv.NewRaftEngine(rn, kvFSM, bus, id, c.router, zap.NewNop())
+	kvEng := systemkv.NewRaftEngine(rn, kvFSM, id, c.router, zap.NewNop())
 	c.router.register(id, systemkv.KVRaftHostID, kvEng)
 
 	statusCh, err := rn.Start(context.Background())

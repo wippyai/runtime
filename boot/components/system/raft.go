@@ -121,11 +121,14 @@ func loadClientRegistry(ctx context.Context, raftCfg boot.Config, logger *zap.Lo
 	}
 
 	selfID := node.ID()
-	kvFSM := systemkv.NewRaftFSM(bus)
+	kvFSM := systemkv.NewRaftFSM()
+	if err := kvFSM.SetWatchLimits(watchLimits(raftCfg)); err != nil {
+		return ctx, fmt.Errorf("raft(client): configure kv watches: %w", err)
+	}
 	submitter := systemkv.ClientSubmitter{Resolve: func() (raftapi.ServerID, bool) {
 		return sysraft.PickForwardTarget(memSvc.Nodes(), selfID)
 	}}
-	kvEngine := systemkv.NewRaftEngine(submitter, kvFSM, bus, selfID, router, logger.Named("kv"))
+	kvEngine := systemkv.NewRaftEngine(submitter, kvFSM, selfID, router, logger.Named("kv"))
 	if err := node.RegisterHost(systemkv.KVRaftHostID, kvEngine); err != nil {
 		return ctx, fmt.Errorf("raft(client): register kv relay host: %w", err)
 	}
@@ -291,7 +294,10 @@ func Raft() boot.Component {
 			// state machine (store.kv.raft) rides the same node alongside the
 			// global registry. Untagged commands go to the registry; kv-tagged
 			// commands go to the kv FSM.
-			kvFSM := systemkv.NewRaftFSM(bus)
+			kvFSM := systemkv.NewRaftFSM()
+			if err := kvFSM.SetWatchLimits(watchLimits(raftCfg)); err != nil {
+				return ctx, fmt.Errorf("raft: configure kv watches: %w", err)
+			}
 			rootFSM := multiplex.New(wrapFSM(fsm), kvFSM)
 			raftNode = sysraft.NewNode(node.ID(), rootFSM, rc, bus, logger.Named("node"), coll, mp, tp)
 			raftNode.SetConnectionManager(connMgr)
@@ -304,7 +310,7 @@ func Raft() boot.Component {
 
 			// kv engine forwards follower writes to the leader over the relay;
 			// register it as a relay host so forwarded requests/responses land.
-			kvEngine = systemkv.NewRaftEngine(raftNode, kvFSM, bus, node.ID(), router, logger.Named("kv"))
+			kvEngine = systemkv.NewRaftEngine(raftNode, kvFSM, node.ID(), router, logger.Named("kv"))
 			if err := node.RegisterHost(systemkv.KVRaftHostID, kvEngine); err != nil {
 				return ctx, fmt.Errorf("raft: register kv relay host: %w", err)
 			}

@@ -15,7 +15,6 @@ import (
 	"github.com/wippyai/runtime/api/pid"
 	kvapi "github.com/wippyai/runtime/api/store/kv"
 	globalapi "github.com/wippyai/runtime/api/topology/namereg/global"
-	"github.com/wippyai/runtime/system/eventbus"
 	systemkv "github.com/wippyai/runtime/system/kv"
 )
 
@@ -156,7 +155,7 @@ func (e *promotionBetweenReadsEngine) Get(key string) (kvapi.Entry, error) {
 }
 
 func TestReconcileUsesOneSnapshotAcrossPromotion(t *testing.T) {
-	engine := systemkv.NewService("snapshot-race", nil, nil)
+	engine := systemkv.NewService("snapshot-race", nil)
 	if _, err := engine.Start(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -205,7 +204,7 @@ func TestReconcileUsesOneSnapshotAcrossPromotion(t *testing.T) {
 }
 
 func TestStrongStartRejectsUnsupportedSnapshotBeforeWatch(t *testing.T) {
-	engine := systemkv.NewService("unsupported-snapshot", nil, nil)
+	engine := systemkv.NewService("unsupported-snapshot", nil)
 	if _, err := engine.Start(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -352,6 +351,7 @@ func TestOldSnapshotAndFailureCannotChangeReplacementOwner(t *testing.T) {
 	newCtx, cancelNew := context.WithCancel(t.Context())
 	defer cancelNew()
 	replacement := &reconcilerLifecycle{ctx: newCtx, cancel: cancelNew}
+	replacement.watch.Store(&reconcilerWatch{Watcher: &readinessWatcher{events: make(chan kvapi.WatchEvent), closed: make(chan struct{})}})
 	r.reconcilerMu.Lock()
 	r.reconciler.Store(replacement)
 	r.ready.Store(true)
@@ -380,7 +380,7 @@ func TestOldSnapshotAndFailureCannotChangeReplacementOwner(t *testing.T) {
 }
 
 func TestStrongSnapshotErrorDirectPreservesExclusion(t *testing.T) {
-	engine := systemkv.NewService("direct-snapshot-error", nil, nil)
+	engine := systemkv.NewService("direct-snapshot-error", nil)
 	if _, err := engine.Start(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -400,7 +400,7 @@ func TestStrongSnapshotErrorDirectPreservesExclusion(t *testing.T) {
 }
 
 func TestStrongStartupSnapshotErrorPreservesExclusion(t *testing.T) {
-	engine := systemkv.NewService("startup-snapshot-error", eventbus.NewBus(), nil)
+	engine := systemkv.NewService("startup-snapshot-error", nil)
 	if _, err := engine.Start(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -422,7 +422,7 @@ func TestStrongStartupSnapshotErrorPreservesExclusion(t *testing.T) {
 }
 
 func TestStrongWatchSnapshotErrorStopsAdmission(t *testing.T) {
-	engine := systemkv.NewService("watch-snapshot-error", eventbus.NewBus(), nil)
+	engine := systemkv.NewService("watch-snapshot-error", nil)
 	if _, err := engine.Start(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -480,7 +480,7 @@ func TestStrongWatchSnapshotErrorStopsAdmission(t *testing.T) {
 }
 
 func TestStrongSweepSnapshotErrorStopsAdmission(t *testing.T) {
-	engine := systemkv.NewService("sweep-snapshot-error", eventbus.NewBus(), nil)
+	engine := systemkv.NewService("sweep-snapshot-error", nil)
 	if _, err := engine.Start(context.Background()); err != nil {
 		t.Fatal(err)
 	}

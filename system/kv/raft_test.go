@@ -15,7 +15,6 @@ import (
 	"github.com/wippyai/runtime/api/relay"
 	kvapi "github.com/wippyai/runtime/api/store/kv"
 	"github.com/wippyai/runtime/cluster/raft/multiplex"
-	"github.com/wippyai/runtime/system/eventbus"
 )
 
 func TestEncodeDecodeCommand(t *testing.T) {
@@ -80,8 +79,8 @@ func (f *fakeRaft) Apply(cmd []byte, _ time.Duration) (*raftapi.ApplyResponse, e
 
 func newEngine(t *testing.T) (*RaftEngine, *RaftFSM) {
 	t.Helper()
-	fsm := NewRaftFSM(eventbus.NewBus())
-	eng := NewRaftEngine(&fakeRaft{fsm: fsm, leader: true}, fsm, eventbus.NewBus(), "node-1", nil, nil)
+	fsm := NewRaftFSM()
+	eng := NewRaftEngine(&fakeRaft{fsm: fsm, leader: true}, fsm, "node-1", nil, nil)
 	if err := eng.Start(context.Background()); err != nil {
 		t.Fatalf("start: %v", err)
 	}
@@ -147,8 +146,8 @@ func TestRaftEngine_Scan(t *testing.T) {
 }
 
 func TestRaftEngine_FollowerWriteRejected(t *testing.T) {
-	fsm := NewRaftFSM(nil)
-	eng := NewRaftEngine(&fakeRaft{fsm: fsm, leader: false}, fsm, nil, "node-1", nil, nil)
+	fsm := NewRaftFSM()
+	eng := NewRaftEngine(&fakeRaft{fsm: fsm, leader: false}, fsm, "node-1", nil, nil)
 	if _, err := eng.Set("k", []byte("v")); !errors.Is(err, raftapi.ErrNotLeader) {
 		t.Fatalf("follower set = %v, want ErrNotLeader", err)
 	}
@@ -171,10 +170,10 @@ func (r *routerTo) Send(pkg *relay.Package) error {
 // the relay to the leader, applied there, and the result returned.
 func TestRaftEngine_ForwardToLeader(t *testing.T) {
 	router := &routerTo{}
-	aFSM := NewRaftFSM(nil)
-	bFSM := NewRaftFSM(nil)
-	a := NewRaftEngine(&fakeRaft{fsm: aFSM, leader: true, leaderID: "A"}, aFSM, nil, "A", router, nil)
-	b := NewRaftEngine(&fakeRaft{fsm: bFSM, leader: false, leaderID: "A"}, bFSM, nil, "B", router, nil)
+	aFSM := NewRaftFSM()
+	bFSM := NewRaftFSM()
+	a := NewRaftEngine(&fakeRaft{fsm: aFSM, leader: true, leaderID: "A"}, aFSM, "A", router, nil)
+	b := NewRaftEngine(&fakeRaft{fsm: bFSM, leader: false, leaderID: "A"}, bFSM, "B", router, nil)
 	router.engines = map[string]*RaftEngine{"A": a, "B": b}
 	if err := a.Start(context.Background()); err != nil {
 		t.Fatal(err)
@@ -228,7 +227,7 @@ func TestRaftEngine_LeaseAutoExpiry(t *testing.T) {
 }
 
 func TestRaftFSM_SnapshotRestore(t *testing.T) {
-	fsm := NewRaftFSM(nil)
+	fsm := NewRaftFSM()
 	apply := func(c command) { fsm.Apply(&hraft.Log{Data: encodeCommand(c)}) }
 	apply(command{Op: opSet, Key: "a", Value: []byte("1")})
 	apply(command{Op: opSet, Key: "b", Value: []byte("2")})
@@ -244,7 +243,7 @@ func TestRaftFSM_SnapshotRestore(t *testing.T) {
 		t.Fatalf("persist: %v", err)
 	}
 
-	restored := NewRaftFSM(nil)
+	restored := NewRaftFSM()
 	if err := restored.Restore(io.NopCloser(&sink)); err != nil {
 		t.Fatalf("restore: %v", err)
 	}

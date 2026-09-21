@@ -4,6 +4,7 @@ package kvbacked
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync/atomic"
@@ -18,8 +19,11 @@ import (
 type reconcilerLifecycle struct {
 	ctx    context.Context
 	cancel context.CancelFunc
+	watch  atomic.Pointer[reconcilerWatch]
 	failed atomic.Bool
 }
+
+type reconcilerWatch struct{ kvapi.Watcher }
 
 // StartReconciler drives the registry off the kv watch stream: active-binding
 // changes feed the dissem cache (so non-members resolve names), and Strong
@@ -64,6 +68,23 @@ func (s *Service) StartReconciler(ctx context.Context) (err error) {
 		cancel()
 		return err
 	}
+	run.watch.Store(&reconcilerWatch{Watcher: w})
+	// The delivery worker may be blocked in a snapshot read. Watch validity
+	// must close admission independently of that worker's next receive.
+	go func() {
+		select {
+		case <-w.Done():
+			watchErr := w.Err()
+			if watchErr == nil {
+				watchErr = kvapi.ErrWatchClosed
+			}
+			s.failReconciler(run, watchErr)
+		case <-ctx.Done():
+		}
+		if watchErr := w.Err(); errors.Is(watchErr, kvapi.ErrWatchOverflow) || errors.Is(watchErr, kvapi.ErrWatchReset) {
+			s.logger.Error("registry watch invalidated; naming reconciliation stopped; restart required", zap.Error(watchErr))
+		}
+	}()
 	if err := s.seed(); err != nil {
 		cancel()
 		_ = w.Close()
@@ -73,6 +94,13 @@ func (s *Service) StartReconciler(ctx context.Context) (err error) {
 		cancel()
 		_ = w.Close()
 		return err
+	}
+	select {
+	case <-w.Done():
+		cancel()
+		_ = w.Close()
+		return fmt.Errorf("registry watch invalid during seed: %w", w.Err())
+	default:
 	}
 	// The node has now learned and latched the cluster's in-flight/active Strong
 	// reservations; name-readiness can flip so cross-scope guards see them.
@@ -98,9 +126,16 @@ func (s *Service) StartReconciler(ctx context.Context) (err error) {
 			select {
 			case <-ctx.Done():
 				return
+			case <-w.Done():
+				return
 			case ev, ok := <-w.Events():
 				if !ok {
 					return
+				}
+				select {
+				case <-w.Done():
+					return
+				default:
 				}
 				if ctx.Err() != nil {
 					return

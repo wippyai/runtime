@@ -77,7 +77,7 @@ func newStoreHarness(
 		require.NoError(t, reg.Stop())
 	})
 
-	mgr, current := build(systemkv.NewCRDTEngine("test-node", bus, zap.NewNop()), bus, transcoder)
+	mgr, current := build(systemkv.NewCRDTEngine("test-node", zap.NewNop()), bus, transcoder)
 
 	return &storeHarness{ctx: ctx, bus: bus, reg: reg, sup: sup, mgr: mgr, current: current}
 }
@@ -273,7 +273,7 @@ func TestManagers_UpdateEmitResourceEntryShape(t *testing.T) {
 
 			ctx := ackCtx()
 			bus := &recordingBus{}
-			mgr, current := tc.build(systemkv.NewCRDTEngine("test-node", bus, zap.NewNop()), bus, transcoder)
+			mgr, current := tc.build(systemkv.NewCRDTEngine("test-node", zap.NewNop()), bus, transcoder)
 
 			storeID := registry.NewID("test", "kvstore")
 			meta := attrs.NewBagFrom(map[string]any{"module_version": "1.1.0"})
@@ -316,7 +316,7 @@ func TestManagers_UpdateFailWhenHandoverIsNotConfirmed(t *testing.T) {
 			json.Register(transcoder)
 
 			bus := &recordingBus{}
-			mgr, current := tc.build(systemkv.NewCRDTEngine("test-node", bus, zap.NewNop()), bus, transcoder)
+			mgr, current := tc.build(systemkv.NewCRDTEngine("test-node", zap.NewNop()), bus, transcoder)
 
 			storeID := registry.NewID("test", "kvstore")
 			require.NoError(t, mgr.Add(ackCtx(), makeKVEntry(storeID, tc.kind, "before", nil)))
@@ -349,7 +349,7 @@ func TestManagers_UpdateFailWithoutCoordination(t *testing.T) {
 			json.Register(transcoder)
 
 			bus := &recordingBus{}
-			mgr, current := tc.build(systemkv.NewCRDTEngine("test-node", bus, zap.NewNop()), bus, transcoder)
+			mgr, current := tc.build(systemkv.NewCRDTEngine("test-node", zap.NewNop()), bus, transcoder)
 
 			storeID := registry.NewID("test", "kvstore")
 			require.NoError(t, mgr.Add(ackCtx(), makeKVEntry(storeID, tc.kind, "before", nil)))

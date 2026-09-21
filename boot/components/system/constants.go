@@ -66,6 +66,12 @@ const (
 	// old AP state is externally retired before rejoin; leave it false when
 	// stale durable replicas may reappear under the same node ID.
 	ClusterKVCRDTTombstoneGCAlivePeers boot.Name = "kv_crdt_tombstone_gc_alive_peers"
+	// ClusterKVWatch* bound total subscriptions, undelivered events per
+	// subscription, and retained bytes for each node-wide KV watch feed.
+	// Overflow invalidates a watcher so consumers can reseed safely.
+	ClusterKVWatchMaxSubscriptions boot.Name = "kv_watch.max_subscriptions"
+	ClusterKVWatchMaxEvents        boot.Name = "kv_watch.max_events"
+	ClusterKVWatchMaxBytes         boot.Name = "kv_watch.max_bytes"
 
 	// Raft lives under cluster.raft.*. Enabling cluster auto-enables raft
 	// with sensible defaults.

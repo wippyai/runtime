@@ -159,7 +159,7 @@ func (s *Service) registerStrong(ctx context.Context, name string, p pid.PID) (g
 	if _, ok := s.engine.(kvapi.LocalSnapshotReader); !ok {
 		return globalapi.RegisterOutcome{}, fmt.Errorf("registry reconciliation requires atomic local snapshot reads")
 	}
-	if run := s.reconciler.Load(); run != nil && (!s.ready.Load() || run.ctx.Err() != nil) {
+	if run := s.reconciler.Load(); run != nil && !s.nameReady() {
 		return globalapi.RegisterOutcome{}, globalapi.ErrNotReady
 	}
 	return s.strong.register(ctx, name, p)
@@ -183,12 +183,26 @@ func (s *Service) nameReady() bool {
 	// No Strong plane -> no join barrier needed. Otherwise the node is ready
 	// only once the reconciler has seeded (learned and latched the cluster's
 	// in-flight/active Strong reservations), so it cannot shadow one.
-	if s.strong != nil {
-		if run := s.reconciler.Load(); run != nil && run.ctx.Err() != nil {
-			return false
-		}
+	if s.strong == nil {
+		return true
 	}
-	return s.strong == nil || s.ready.Load()
+	run := s.reconciler.Load()
+	if run == nil {
+		return s.ready.Load()
+	}
+	if !s.ready.Load() || run.ctx.Err() != nil {
+		return false
+	}
+	watch := run.watch.Load()
+	if watch == nil {
+		return false
+	}
+	select {
+	case <-watch.Done():
+		return false
+	default:
+		return true
+	}
 }
 
 func (st *strongState) register(ctx context.Context, name string, p pid.PID) (globalapi.RegisterOutcome, error) {

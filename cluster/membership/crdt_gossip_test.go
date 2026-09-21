@@ -21,7 +21,7 @@ type crdtNode struct {
 func newCRDTGossipNode(ctx context.Context, t *testing.T, name string, join ...string) *crdtNode {
 	t.Helper()
 	bus := eventbus.NewBus()
-	eng := systemkv.NewCRDTEngine(name, bus, zap.NewNop())
+	eng := systemkv.NewCRDTEngine(name, zap.NewNop())
 	if err := eng.Start(ctx); err != nil {
 		t.Fatalf("%s engine start: %v", name, err)
 	}

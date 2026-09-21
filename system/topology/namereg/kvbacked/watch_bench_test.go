@@ -16,7 +16,6 @@ import (
 
 	"github.com/wippyai/runtime/api/pid"
 	kvapi "github.com/wippyai/runtime/api/store/kv"
-	"github.com/wippyai/runtime/system/eventbus"
 	systemkv "github.com/wippyai/runtime/system/kv"
 )
 
@@ -92,7 +91,7 @@ func BenchmarkStrongWatchVoteBurstUnrelated(b *testing.B) {
 
 func runStrongWatchVoteBurst(b *testing.B, participants, pending, unrelated int) {
 	b.Helper()
-	base := systemkv.NewService("watch-bench", eventbus.NewBus(), nil)
+	base := systemkv.NewService("watch-bench", nil)
 	if _, err := base.Start(context.Background()); err != nil {
 		b.Fatal(err)
 	}

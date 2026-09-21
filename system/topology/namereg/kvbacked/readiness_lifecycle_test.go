@@ -20,6 +20,8 @@ type readinessWatcher struct {
 }
 
 func (w *readinessWatcher) Events() <-chan kvapi.WatchEvent { return w.events }
+func (w *readinessWatcher) Done() <-chan struct{}           { return w.closed }
+func (w *readinessWatcher) Err() error                      { return kvapi.ErrWatchClosed }
 func (w *readinessWatcher) Close() error                    { close(w.closed); return nil }
 
 type readinessEngine struct {

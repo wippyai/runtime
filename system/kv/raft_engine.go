@@ -11,7 +11,6 @@ import (
 	"time"
 
 	raftapi "github.com/wippyai/runtime/api/cluster/raft"
-	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/relay"
 	kvapi "github.com/wippyai/runtime/api/store/kv"
 	"github.com/wippyai/runtime/cluster/raft/multiplex"
@@ -50,7 +49,7 @@ const leaseSweepInterval = time.Second
 // key namespace.
 type RaftEngine struct {
 	raft         raftSubmitter
-	bus          event.Bus
+	watchOwner   *watchOwner
 	ctx          context.Context
 	fsm          *RaftFSM
 	logger       *zap.Logger
@@ -70,14 +69,14 @@ type RaftEngine struct {
 // NewRaftEngine builds the shared engine. localNode scopes generated lease ids.
 // router carries leader-forwarded writes; nil disables forwarding (writes then
 // only succeed on the leader).
-func NewRaftEngine(raft raftSubmitter, fsm *RaftFSM, bus event.Bus, localNode string, router relay.Receiver, logger *zap.Logger) *RaftEngine {
+func NewRaftEngine(raft raftSubmitter, fsm *RaftFSM, localNode string, router relay.Receiver, logger *zap.Logger) *RaftEngine {
 	if logger == nil {
 		logger = zap.NewNop()
 	}
 	return &RaftEngine{
 		raft:         raft,
 		fsm:          fsm,
-		bus:          bus,
+		watchOwner:   &watchOwner{},
 		logger:       logger.Named("kv-raft"),
 		router:       router,
 		localNode:    localNode,
@@ -92,12 +91,19 @@ func NewRaftEngine(raft raftSubmitter, fsm *RaftFSM, bus event.Bus, localNode st
 func (e *RaftEngine) Start(ctx context.Context) error {
 	e.ctx, e.cancel = context.WithCancel(ctx)
 	e.wg.Add(1)
+	go func() {
+		defer e.wg.Done()
+		<-e.ctx.Done()
+		e.fsm.watch.stopOwner(e.watchOwner)
+	}()
+	e.wg.Add(1)
 	go e.leaseSweeper()
 	return nil
 }
 
 // Stop halts the sweeper.
 func (e *RaftEngine) Stop() error {
+	e.fsm.watch.stopOwner(e.watchOwner)
 	if e.cancel != nil {
 		e.cancel()
 	}
@@ -179,10 +185,7 @@ func (e *RaftEngine) ScanAtIndex(prefix string, fn func(kvapi.Entry) bool) (uint
 }
 
 func (e *RaftEngine) Watch(ctx context.Context, prefix string) (kvapi.Watcher, error) {
-	if e.bus == nil {
-		return nil, fmt.Errorf("kv: event bus not available")
-	}
-	return newWatcher(ctx, e.bus, e.fsm.EventSystem(), prefix)
+	return e.fsm.watch.watch(ctx, prefix, e.watchOwner)
 }
 
 // --- kvapi.Engine writes (proposed) ---
