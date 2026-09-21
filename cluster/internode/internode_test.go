@@ -129,9 +129,10 @@ func (m *mockConnectionManager) RegisterClassReceiver(_ Class, _ func(cluster.No
 }
 
 type mockCodec struct {
-	encodeError error
-	decodeError error
-	encoded     []byte
+	encodeError   error
+	decodeError   error
+	decodedSource *pid.PID
+	encoded       []byte
 }
 
 func (m *mockCodec) Encode(_ *relay.Package) ([]byte, error) {
@@ -150,6 +151,9 @@ func (m *mockCodec) Decode(_ []byte) (*relay.Package, error) {
 	}
 	pkg := relay.AcquirePackage()
 	pkg.Source = pid.PID{Node: "remote-node", Host: "remote-host", UniqID: "123"}
+	if m.decodedSource != nil {
+		pkg.Source = *m.decodedSource
+	}
 	return pkg, nil
 }
 
@@ -580,6 +584,45 @@ func TestService_OnMessage_Success(t *testing.T) {
 
 	assert.True(t, deliveryCalled)
 	assert.NotNil(t, deliveredPkg)
+}
+
+func TestService_OnMessage_RecordsConnectionPeerSeparateFromLogicalSource(t *testing.T) {
+	logger := zap.NewNop()
+	connMan := newMockConnectionManager()
+	codec := &mockCodec{}
+	bus := eventbus.NewBus()
+	membership := &mockMembership{localNode: cluster.NodeInfo{ID: "local"}}
+	delivered := 0
+	var ingress []pid.NodeID
+	var logical []pid.NodeID
+	service := NewService(logger, connMan, codec, func(pkg *relay.Package) error {
+		delivered++
+		ingress = append(ingress, pkg.IngressNode)
+		logical = append(logical, pkg.Source.Node)
+		relay.ReleasePackage(pkg)
+		return nil
+	}, bus, membership)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	require.NoError(t, service.Start(ctx))
+	defer func() { _ = service.Stop() }()
+
+	// A logical source may refer to a virtual peer or even claim another
+	// node; the consumer must use the physical ingress for peer authorization.
+	connMan.onMessage("intruder", []byte("source-is-remote-node"))
+	if delivered != 1 || ingress[0] != "intruder" || logical[0] != "remote-node" {
+		t.Fatalf("untrusted logical source obscured ingress: ingress=%v logical=%v", ingress, logical)
+	}
+	connMan.onMessage("remote-node", []byte("source-is-remote-node"))
+	if delivered != 2 || ingress[1] != "remote-node" {
+		t.Fatalf("matching peer lost ingress: ingress=%v", ingress)
+	}
+	// Anonymous system envelopes still carry transport provenance.
+	codec.decodedSource = &pid.PID{}
+	connMan.onMessage("remote-node", []byte("anonymous"))
+	if delivered != 3 || ingress[2] != "remote-node" || logical[2] != "" {
+		t.Fatalf("anonymous envelope lost ingress: ingress=%v logical=%v", ingress, logical)
+	}
 }
 
 func TestService_OnMessage_DecodeError(t *testing.T) {

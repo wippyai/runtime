@@ -86,6 +86,10 @@ func (s *Service) Start(ctx context.Context) error {
 			s.connMan.RecordDropReason("decode_failed")
 			return
 		}
+		// Preserve the logical source, which may represent a virtual peer or
+		// be anonymous. Record the connection peer separately from the wire
+		// envelope so services need not trust a claimed Source.Node.
+		pkg.IngressNode = nodeID
 		s.logger.Debug("Decoded message, delivering",
 			zap.String("from_node", nodeID),
 			zap.String("target_host", pkg.Target.Host))
