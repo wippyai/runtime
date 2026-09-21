@@ -3,6 +3,8 @@
 // Package processproof exercises the production cluster boot components from
 // separate OS processes. It deliberately has no production surface: the Unix
 // control socket exists only in the test helper process.
+// Run with go test -race ./cluster/processproof -count=1 -timeout=150s.
+// The three-node proof is skipped with -short and on Windows.
 package processproof
 
 import (
