@@ -31,23 +31,27 @@ import (
 // Node wraps a hashicorp/raft instance and integrates it with the wippy
 // event bus and cluster membership system.
 type Node struct {
-	fsm         hraft.FSM
-	bus         event.Bus
-	logStore    hraft.LogStore
-	stableStore hraft.StableStore
-	snapStore   hraft.SnapshotStore
-	closeStores func() error
-	transport   hraft.Transport
-	connMgr     internode.ConnectionManager
-	logger      *zap.Logger
-	raft        *hraft.Raft
-	stopCh      chan struct{}
-	tel         *telemetry
-	localID     string
-	config      raftapi.Config
-	voterCap    int
-	mu          sync.Mutex
-	started     bool
+	fsm               hraft.FSM
+	bus               event.Bus
+	logStore          hraft.LogStore
+	stableStore       hraft.StableStore
+	snapStore         hraft.SnapshotStore
+	closeStores       func() error
+	transport         hraft.Transport
+	connMgr           internode.ConnectionManager
+	logger            *zap.Logger
+	raft              *hraft.Raft
+	stopCh            chan struct{}
+	tel               *telemetry
+	localID           string
+	leadershipChanged chan struct{}
+	leadership        raftapi.Leadership
+	config            raftapi.Config
+	voterCap          int
+	mu                sync.Mutex
+	leadershipMu      sync.Mutex
+	started           bool
+	leadershipStopped bool
 }
 
 // NewNode creates a new Raft node. The FSM must be provided by the caller
@@ -55,15 +59,18 @@ type Node struct {
 func NewNode(localID string, fsm hraft.FSM, cfg raftapi.Config, bus event.Bus, logger *zap.Logger,
 	coll metrics.Collector, mp otelmetric.MeterProvider, tp trace.TracerProvider) *Node {
 	cfg.InitDefaults()
-	return &Node{
-		fsm:     fsm,
-		config:  cfg,
-		localID: localID,
-		bus:     bus,
-		logger:  logger,
-		stopCh:  make(chan struct{}),
-		tel:     newTelemetry(coll, mp, tp),
+	n := &Node{
+		fsm:               fsm,
+		config:            cfg,
+		localID:           localID,
+		bus:               bus,
+		logger:            logger,
+		stopCh:            make(chan struct{}),
+		leadershipChanged: make(chan struct{}),
+		tel:               newTelemetry(coll, mp, tp),
 	}
+	n.leadership = raftapi.Leadership{State: raftapi.Shutdown, Changed: n.leadershipChanged}
+	return n
 }
 
 // LocalID returns the NodeID this raft instance was constructed with.
@@ -218,6 +225,7 @@ func (n *Node) Start(_ context.Context) (<-chan any, error) {
 		return nil, fmt.Errorf("create raft instance: %w", err)
 	}
 	n.raft = r
+	n.publishLeadership()
 
 	// Cluster formation is deferred to the gossip-driven bootstrap watcher
 	// (see bootstrap.go). The watcher observes the converged gossip view
@@ -249,6 +257,7 @@ func (n *Node) Stop(_ context.Context) error {
 	}
 	n.started = false
 	n.mu.Unlock()
+	n.stopLeadership()
 
 	close(n.stopCh)
 
@@ -313,7 +322,12 @@ func (n *Node) monitorLeadership(statusCh chan<- any) {
 	// leader-change counter, log line, bus event) when observed leadership
 	// diverges from wasLeader, and updates the tracking vars. reason tags
 	// the log line to distinguish the seed / LeaderCh / reconcile paths.
-	applyTransition := func(nowLeader bool, reason string) {
+	applyTransition := func(reason string) {
+		// Raw signals are wakeups, not authoritative values: a buffered
+		// earlier value may arrive after a later leadership transition.
+		state := n.State()
+		n.setLeadership(state, n.leadershipTerm())
+		nowLeader := state == raftapi.Leader
 		switch {
 		case nowLeader && !wasLeader:
 			if !electionStart.IsZero() {
@@ -339,12 +353,10 @@ func (n *Node) monitorLeadership(statusCh chan<- any) {
 		}
 	}
 
-	// Seed the initial state: hashicorp/raft's LeaderCh is non-buffered with
-	// non-blocking writes, so the initial `true` fired during BootstrapCluster
-	// (before this goroutine reads) is dropped. Without seeding from the
-	// current state, raft_leader_changes_total stays 0 for a node that became
-	// leader at startup.
-	applyTransition(n.raft.State() == hraft.Leader, " (initial state)")
+	// Seed the initial state: hashicorp/raft's LeaderCh retains only the
+	// latest signal, so transitions before this monitor starts can be lost.
+	// The current state catches an election that happened at startup.
+	applyTransition(" (initial state)")
 
 	// Initial sample so dashboards see state immediately.
 	n.sampleStateAndTerm()
@@ -352,20 +364,18 @@ func (n *Node) monitorLeadership(statusCh chan<- any) {
 
 	for {
 		select {
-		case isLeader, ok := <-leaderCh:
+		case _, ok := <-leaderCh:
 			if !ok {
 				return
 			}
-			applyTransition(isLeader, "")
+			applyTransition("")
 			n.sampleStateAndTerm()
 			n.sampleVoterLadder()
 		case <-sampleTicker.C:
-			// Defense-in-depth reconciliation: LeaderCh transitions that fire
-			// while the goroutine is between selects are dropped silently, so
-			// compare actual state vs wasLeader each tick and fire any missed
-			// transition. Without this the first leader-elected after
-			// BootstrapCluster is frequently lost.
-			applyTransition(n.raft.State() == hraft.Leader, " (reconciled)")
+			// The buffered channel keeps only the latest transition. Sample
+			// state and term as well, so a lost-and-regained leader wakes every
+			// observer even if its boolean leadership value is unchanged.
+			applyTransition(" (reconciled)")
 			n.sampleStateAndTerm()
 			n.sampleVoterLadder()
 		case <-n.stopCh:
@@ -441,14 +451,57 @@ func (n *Node) IsLeader() bool {
 	return n.raft.State() == hraft.Leader
 }
 
-// LeaderCh returns the leadership notification channel.
-func (n *Node) LeaderCh() <-chan bool {
+// ObserveLeadership returns one published state and notification. The channel
+// closes even if a consumer is busy; consumers never compete for Raft's raw,
+// lossy LeaderCh. A sampled state is not a fence for subsequent Raft writes.
+func (n *Node) ObserveLeadership() raftapi.Leadership {
+	n.leadershipMu.Lock()
+	defer n.leadershipMu.Unlock()
+	return n.leadership
+}
+
+func (n *Node) leadershipTerm() uint64 {
 	if n.raft == nil {
-		ch := make(chan bool)
-		close(ch)
-		return ch
+		return 0
 	}
-	return n.raft.LeaderCh()
+	return n.raft.CurrentTerm()
+}
+
+func (n *Node) publishLeadership() {
+	n.setLeadership(n.State(), n.leadershipTerm())
+}
+
+func (n *Node) setLeadership(state raftapi.State, term uint64) {
+	var leaderID raftapi.ServerID
+	if n.raft != nil && state != raftapi.Shutdown {
+		if addr, id := n.raft.LeaderWithID(); addr != "" {
+			leaderID = string(id)
+		}
+	}
+	n.leadershipMu.Lock()
+	defer n.leadershipMu.Unlock()
+	if n.leadershipStopped {
+		return
+	}
+	n.updateLeadershipLocked(state, term, leaderID)
+}
+
+func (n *Node) stopLeadership() {
+	n.leadershipMu.Lock()
+	defer n.leadershipMu.Unlock()
+	n.leadershipStopped = true
+	n.updateLeadershipLocked(raftapi.Shutdown, n.leadership.Term, "")
+}
+
+func (n *Node) updateLeadershipLocked(state raftapi.State, term uint64, leaderID raftapi.ServerID) {
+	if n.leadership.State == state && n.leadership.Term == term && n.leadership.LeaderID == leaderID {
+		return
+	}
+	previous := n.leadershipChanged
+	n.leadershipChanged = make(chan struct{})
+	n.leadership = raftapi.Leadership{State: state, Term: term, LeaderID: leaderID,
+		Revision: n.leadership.Revision + 1, Changed: n.leadershipChanged}
+	close(previous)
 }
 
 // State returns the current Raft state.

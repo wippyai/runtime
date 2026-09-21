@@ -24,14 +24,13 @@ import (
 // fails; reachable=true points it at a leader the cross-router can reach.
 type togglingRaft struct {
 	fsm       *FSM
-	leaderCh  chan bool
 	leaderID  raftapi.ServerID
 	idx       atomic.Uint64
 	reachable atomic.Bool
 }
 
 func newTogglingRaft(fsm *FSM, leaderID raftapi.ServerID) *togglingRaft {
-	r := &togglingRaft{fsm: fsm, leaderID: leaderID, leaderCh: make(chan bool, 1)}
+	r := &togglingRaft{fsm: fsm, leaderID: leaderID}
 	r.reachable.Store(true)
 	return r
 }
@@ -45,8 +44,10 @@ func (r *togglingRaft) Leader() (raftapi.ServerID, raftapi.ServerAddress, error)
 	}
 	return r.leaderID, r.leaderID + ":0", nil
 }
-func (r *togglingRaft) IsLeader() bool                { return false }
-func (r *togglingRaft) LeaderCh() <-chan bool         { return r.leaderCh }
+func (r *togglingRaft) IsLeader() bool { return false }
+func (r *togglingRaft) ObserveLeadership() raftapi.Leadership {
+	return raftapi.Leadership{State: raftapi.Follower, Changed: make(chan struct{})}
+}
 func (r *togglingRaft) State() raftapi.State          { return raftapi.Follower }
 func (r *togglingRaft) Barrier(_ time.Duration) error { return nil }
 func (r *togglingRaft) CommitIndex() uint64           { return r.idx.Load() }

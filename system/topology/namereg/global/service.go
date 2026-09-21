@@ -773,16 +773,21 @@ func (s *Service) HandleProcessExit(p pid.PID) {
 // a leader failover, the new leader monitors all registered local PIDs
 // for auto-cleanup on process exit.
 func (s *Service) monitorLeadership() {
-	leaderCh := s.raftSvc.LeaderCh()
+	seen := s.raftSvc.ObserveLeadership()
+	if seen.State == raftapi.Leader && s.raftSvc.IsLeader() {
+		s.reestablishMonitors()
+	}
 	for {
 		select {
-		case isLeader, ok := <-leaderCh:
-			if !ok {
-				return
-			}
-			if isLeader {
+		case <-seen.Changed:
+			next := s.raftSvc.ObserveLeadership()
+			// Raft's underlying state/term/leader reads are not one atomic
+			// tuple. Reconcile whenever this notification finds us leader:
+			// even a changed leader ID may correct an earlier mixed sample.
+			if next.State == raftapi.Leader && s.raftSvc.IsLeader() {
 				s.reestablishMonitors()
 			}
+			seen = next
 		case <-s.stopCh:
 			return
 		}
