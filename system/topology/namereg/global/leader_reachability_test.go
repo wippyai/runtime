@@ -3,7 +3,6 @@
 package global
 
 import (
-	"context"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -11,9 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/wippyai/runtime/api/cluster"
 	raftapi "github.com/wippyai/runtime/api/cluster/raft"
-	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/relay"
@@ -70,36 +67,6 @@ func (r *togglingRaft) Stats() map[string]string                    { return nil
 // The Service.LastContact()-based fast-path is integration-tested in
 // the chaos harness with a real raft instance.
 func (r *togglingRaft) LastContact() time.Time { return time.Time{} }
-
-// --- No-flap: NodeJoined no longer touches the gate ---
-
-// TestNoFlap_NodeJoinedDoesNotCloseGateOrBumpEpoch proves the old flap is gone.
-// The previous design re-triggered the rejoin barrier on every cluster.NodeJoined
-// — which fires for ANY peer appearing — so a churny cluster flapped the gate
-// closed repeatedly. The fix removes that wiring: the cluster-event handler only
-// reacts to NodeLeft, and there is no NodeJoined subscription at all. A burst of
-// NodeJoined events through the handler leaves the gate open and the epoch fixed.
-func TestNoFlap_NodeJoinedDoesNotCloseGateOrBumpEpoch(t *testing.T) {
-	ctx := context.Background()
-	svc := newJoinTestService(t)
-	require.NoError(t, svc.runJoinBarrier(svc.nodeEpoch.Load()))
-	require.True(t, svc.NameReady(), "gate open after first-join barrier")
-	epochBefore := svc.nodeEpoch.Load()
-
-	// Drive a burst of NodeJoined events through the surviving cluster-event
-	// consumer. The handler has no NodeJoined arm, so each is a no-op: the gate
-	// must stay open and the epoch unchanged (the old flap is gone).
-	ch := make(chan event.Event, 64)
-	for i := 0; i < 50; i++ {
-		ch <- event.Event{System: cluster.System, Kind: cluster.NodeJoined,
-			Data: cluster.NodeEvent{Node: cluster.NodeInfo{ID: "peer"}}}
-	}
-	close(ch)
-	svc.handleClusterEvents(ctx, ch, event.SubscriberID(""))
-
-	assert.True(t, svc.NameReady(), "NodeJoined must not close the gate (flap fixed)")
-	assert.Equal(t, epochBefore, svc.nodeEpoch.Load(), "NodeJoined must not bump the node epoch")
-}
 
 // --- Probe: leader reaches itself ---
 

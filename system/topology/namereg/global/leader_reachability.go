@@ -47,9 +47,8 @@ type leaderPongEnvelope struct {
 //
 //   - reachable -> unreachable (after probeGrace consecutive failures): close
 //     the name-ready gate. A partitioned node can no longer be sure it isn't
-//     missing strong updates the leader committed (a CmdDropRequired drop and
-//     promote can land without its ack), so it must stop serving LOCAL/EVENTUAL
-//     names until it re-barriers.
+//     missing Strong updates the leader committed, so it must stop serving
+//     LOCAL/EVENTUAL names until it re-barriers.
 //   - unreachable -> reachable (first success after a loss): run the rejoin
 //     barrier (epoch bump + snapshot fetch + conflict revoke); the gate reopens
 //     only when the barrier completes.

@@ -581,8 +581,10 @@ func Raft() boot.Component {
 				}
 			}
 
-			// Clear a departed node's raft peer failure state on NodeLeft so
-			// a rejoin is not stuck behind backoff from the old incarnation.
+			// NodeLeft is a discovery hint, not proof that a running node has
+			// stopped using its locks or names. Only clear connection backoff.
+			// The KV name registry intentionally has no NodeLeft mutation here:
+			// discovery hints do not authorize ownership or Strong-vote changes.
 			if bus != nil {
 				sub, err := eventbus.NewSubscriber(ctx, bus, clusterapi.System, clusterapi.NodeLeft,
 					func(e event.Event) {
@@ -591,12 +593,6 @@ func Raft() boot.Component {
 							return
 						}
 						raftNode.OnNodeLeft(ne.Node.ID)
-						if lockSvc != nil {
-							lockSvc.ReapNode(ne.Node.ID)
-						}
-						if kvReg != nil {
-							kvReg.DropNode(ne.Node.ID)
-						}
 					})
 				if err != nil {
 					return fmt.Errorf("subscribe raft node-left: %w", err)

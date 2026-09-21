@@ -401,7 +401,8 @@ func (s *Service) Remove(_ context.Context, p pid.PID) error {
 	return nil
 }
 
-// RemoveNode removes all names owned by processes on nodeID.
+// RemoveNode removes all names owned by processes on nodeID. Its caller must
+// first prove those processes cannot still execute; discovery is not a fence.
 func (s *Service) RemoveNode(_ context.Context, nodeID pid.NodeID) error {
 	s.reap(nodeIndexBase(nodeID))
 	return nil

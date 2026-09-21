@@ -36,10 +36,9 @@ const (
 	// explicit caller request (Service.UnregisterScope).
 	CmdRegisterUnreserve CommandType = 8
 
-	// CmdDropRequired removes a departed node from an in-flight pending
-	// reservation's RequiredNodes set. If the remaining ack set then covers
-	// the reduced required set the FSM promotes the entry to active in the
-	// same Apply. The leader issues one per affected pending on NodeLeft.
+	// CmdDropRequired is retained to replay older Raft logs. It reduced an
+	// in-flight reservation's RequiredNodes set and could promote it in the
+	// same Apply. A discovery NodeLeft must no longer issue this command.
 	CmdDropRequired CommandType = 9
 	// CmdRegisterReject terminally fails a pending reservation when a
 	// required node rejects it (cross-scope conflict). NACK dominates: a

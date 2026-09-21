@@ -215,14 +215,86 @@ func TestCrossScope_ConsistentCannotDisplaceStrongActive(t *testing.T) {
 	}
 }
 
-// TestStrong_PromotesOnSurvivorsWhenRequiredNodeDeparts proves the P0 reconcile
-// fix: a pending Strong reservation whose required node leaves the membership
-// (e.g. it died coincident with a leader change, so no NodeLeft pruned it) is
-// pruned on the leader's reconcile/sweep and PROMOTES on the surviving acks,
-// instead of waiting on the departed node's ack until the deadline and expiring.
-// Pre-fix this times out (stays pending until the long deadline); post-fix it
-// promotes within a sweep tick of the membership drop.
-func TestStrong_PromotesOnSurvivorsWhenRequiredNodeDeparts(t *testing.T) {
+// TestStrong_FalseNodeLeftDoesNotDeleteActiveOwner proves that a false
+// NodeLeft hint cannot remove an already-promoted Strong binding or rewrite a
+// pending claim's RequiredNodes. Node-2 remains in the live membership, so the
+// pending claim must remain blocked on node-2's acknowledgement.
+func TestStrong_FalseNodeLeftDoesNotDeleteActiveOwner(t *testing.T) {
+	var mu sync.Mutex
+	members := []pid.NodeID{"node-1"}
+	eng := systemkv.NewService("reg", nil)
+	if _, err := eng.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = eng.Stop(context.Background()) })
+	r := NewService(eng, "node-1", nil, nil)
+	r.ConfigureStrong(StrongDeps{
+		Membership: func() []pid.NodeID {
+			mu.Lock()
+			defer mu.Unlock()
+			return append([]pid.NodeID(nil), members...)
+		},
+		IsLeader: func() bool { return true },
+		Deadline: time.Second,
+	})
+	p := mkPID("node-1", "owner")
+	if out, err := r.RegisterScope(context.Background(), "svc", p, globalapi.Strong); err != nil || out.State != globalapi.RegisterStateActive {
+		t.Fatalf("strong register: out=%+v err=%v", out, err)
+	}
+
+	// Node-2 is alive when the next reservation is opened, and therefore belongs
+	// to its committed RequiredNodes set. A false NodeLeft hint has no registry
+	// consumer; reconciling the pending state must not prune node-2.
+	mu.Lock()
+	members = []pid.NodeID{"node-1", "node-2"}
+	mu.Unlock()
+	claim := mkPID("node-1", "claim")
+	done := make(chan error, 1)
+	go func() {
+		_, err := r.RegisterScope(context.Background(), "pending", claim, globalapi.Strong)
+		done <- err
+	}()
+	if !eventually(t, 2*time.Second, func() bool { _, ok := r.IsStrongReserved("pending"); return ok }) {
+		t.Fatal("pending reservation expected")
+	}
+	mu.Lock()
+	members = []pid.NodeID{"node-1"} // false NodeLeft: node-2 still executes
+	mu.Unlock()
+	r.strong.reconcile("pending")
+	pe, err := r.engine.Get(pendingKey("pending"))
+	if err != nil {
+		t.Fatalf("pending claim disappeared after false NodeLeft: %v", err)
+	}
+	hdr, err := decodePending(pe.Value)
+	if err != nil || !contains(hdr.RequiredNodes, "node-2") {
+		t.Fatalf("RequiredNodes changed after false NodeLeft: header=%+v err=%v", hdr, err)
+	}
+	if res, err := r.Lookup(context.Background(), "pending"); err != nil {
+		t.Fatalf("pending lookup: %v", err)
+	} else if res.Found {
+		t.Fatalf("pending claim promoted without node-2 acknowledgement: %+v", res)
+	}
+
+	// The active Strong owner remains available while the pending claim waits.
+	res, err := r.Lookup(context.Background(), "svc")
+	if err != nil {
+		t.Fatalf("lookup after false leave: %v", err)
+	}
+	if !res.Found || res.PID.String() != p.String() {
+		t.Fatalf("active Strong owner was removed by discovery state: %+v", res)
+	}
+	err = <-done
+	var te *globalapi.StrongRegistrationTimeoutError
+	if !errors.As(err, &te) {
+		t.Fatalf("pending claim did not fail closed: %v", err)
+	}
+}
+
+// TestStrong_FailsClosedWhenRequiredNodeDeparts proves that a membership
+// snapshot cannot rewrite a committed reservation's RequiredNodes. A pending
+// reservation that needs node B still waits for B's acknowledgement after B
+// leaves, and expires instead of promoting on the remaining acknowledgements.
+func TestStrong_FailsClosedWhenRequiredNodeDeparts(t *testing.T) {
 	eng := systemkv.NewService("reg", nil)
 	if _, err := eng.Start(context.Background()); err != nil {
 		t.Fatal(err)
@@ -239,7 +311,7 @@ func TestStrong_PromotesOnSurvivorsWhenRequiredNodeDeparts(t *testing.T) {
 			return append([]pid.NodeID(nil), members...)
 		},
 		IsLeader: func() bool { return true },
-		Deadline: 10 * time.Second, // long: must promote via prune, not via expiry
+		Deadline: 300 * time.Millisecond,
 	})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -264,24 +336,22 @@ func TestStrong_PromotesOnSurvivorsWhenRequiredNodeDeparts(t *testing.T) {
 		t.Fatalf("pending reservation expected")
 	}
 
-	// "ghost" leaves the membership (gossip drop). The leader must prune it from
-	// RequiredNodes and promote on the surviving ack (node-1).
+	// "ghost" leaves the membership (gossip drop). The leader must retain it in
+	// RequiredNodes and fail closed when its acknowledgement never arrives.
 	mu.Lock()
 	members = []pid.NodeID{"node-1"}
 	mu.Unlock()
 
 	select {
 	case out := <-done:
-		if out.State != globalapi.RegisterStateActive || out.PID.String() != p.String() {
-			t.Fatalf("want Active on survivors after required node departs, got %+v", out)
-		}
-		if rp, ok := r.IsStrongReserved("svc"); !ok || rp.String() != p.String() {
-			t.Fatalf("promoted name must stay reserved: %v,%v", rp, ok)
-		}
+		t.Fatalf("reservation promoted without node-2 acknowledgement: %+v", out)
 	case err := <-errc:
-		t.Fatalf("reservation did not promote on survivors; got error %v (pre-fix expires)", err)
-	case <-time.After(5 * time.Second):
-		t.Fatalf("reservation neither promoted nor failed within 5s after the required node departed (pre-fix: stays pending until deadline)")
+		var te *globalapi.StrongRegistrationTimeoutError
+		if !errors.As(err, &te) {
+			t.Fatalf("want StrongRegistrationTimeoutError, got %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("reservation neither failed closed nor timed out")
 	}
 }
 
