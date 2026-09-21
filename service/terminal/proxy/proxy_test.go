@@ -715,7 +715,9 @@ func TestProxyRunsNativeInteractiveEditingKeys(t *testing.T) {
 	require.NoError(t, err)
 	events := make(chan ttyapi.Event, 32)
 	done := make(chan error, 1)
-	go func() { done <- proxy.Run(context.Background(), events) }()
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	go func() { done <- proxy.Run(ctx, events) }()
 
 	sendText := func(value string) {
 		events <- ttyapi.Event{Type: "key", KeyType: "runes", Key: value, Action: "press"}
@@ -723,23 +725,29 @@ func TestProxyRunsNativeInteractiveEditingKeys(t *testing.T) {
 	sendKey := func(name string) {
 		events <- ttyapi.Event{Type: "key", KeyType: name, Key: name, Action: "press"}
 	}
-	require.Eventually(t, func() bool {
-		surface.mu.Lock()
-		defer surface.mu.Unlock()
-		return strings.Contains(strings.Join(surface.rows, "\n"), "bash-")
-	}, 3*time.Second, 10*time.Millisecond)
+	waitPrompt := func(count int) {
+		t.Helper()
+		require.Eventually(t, func() bool {
+			surface.mu.Lock()
+			defer surface.mu.Unlock()
+			return strings.Count(strings.Join(surface.rows, "\n"), "bash-") >= count
+		}, 3*time.Second, 10*time.Millisecond)
+	}
+	waitPrompt(1)
 
 	// Left inserts in the middle instead of echoing its escape sequence.
 	sendText("printf ac")
 	sendKey("left")
 	sendText("b")
 	sendKey("enter")
+	waitPrompt(2)
 
 	// Backspace edits the line according to the PTY's configured erase byte.
 	sendText("printf backX")
 	sendKey("backspace")
 	sendText("-ok")
 	sendKey("enter")
+	waitPrompt(3)
 
 	// Home followed by Ctrl+K replaces the whole current input line.
 	sendText("printf discarded")
@@ -747,6 +755,7 @@ func TestProxyRunsNativeInteractiveEditingKeys(t *testing.T) {
 	events <- ttyapi.Event{Type: "key", KeyType: "runes", Key: "k", Ctrl: true, Action: "press"}
 	sendText("printf home-ok")
 	sendKey("enter")
+	waitPrompt(4)
 	sendText("exit")
 	sendKey("enter")
 
