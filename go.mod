@@ -2,7 +2,7 @@ module github.com/wippyai/runtime
 
 // SPDX-License-Identifier: MPL-2.0
 
-go 1.27
+go 1.27.0
 
 require (
 	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.12-20260825204119-511051f7f437.2
@@ -43,7 +43,7 @@ require (
 	github.com/hashicorp/raft-wal v0.4.2
 	github.com/jackc/pglogrepl v0.0.0-20260401131349-e37c41485510
 	github.com/jackc/pgx/v5 v5.11.0
-	github.com/kaptinlin/jsonschema v0.9.9
+	github.com/kaptinlin/jsonschema v0.9.10
 	github.com/klauspost/compress v1.20.0
 	github.com/lib/pq v1.12.3
 	github.com/mattn/go-sqlite3 v1.14.50
@@ -218,6 +218,7 @@ require (
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	github.com/xuri/efp v0.0.1 // indirect
 	github.com/xuri/nfp v0.0.2-0.20250530014748-2ddeb826f9a9 // indirect
+	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	gitlab.com/golang-commonmark/html v0.0.0-20191124015941-a22733972181 // indirect
 	gitlab.com/golang-commonmark/linkify v0.0.0-20191026162114-a0c2df6c8f82 // indirect
 	gitlab.com/golang-commonmark/markdown v0.0.0-20211110145824-bf3e522c626a // indirect
