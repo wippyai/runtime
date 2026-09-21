@@ -17,9 +17,6 @@ func (s *Service) ReadLocalSnapshot(keys []string) (map[string]kvapi.Entry, uint
 	if err != nil {
 		return nil, 0, err
 	}
-	if snapshot == nil {
-		return nil, 0, kvapi.ErrKVClosed
-	}
 	return entries, snapshot.version, nil
 }
 
@@ -33,9 +30,6 @@ func (e *RaftEngine) ReadLocalSnapshot(keys []string) (map[string]kvapi.Entry, u
 	entries, err := snapshot.getMany(keys)
 	if err != nil {
 		return nil, 0, err
-	}
-	if snapshot == nil {
-		return nil, 0, kvapi.ErrKVClosed
 	}
 	return entries, snapshot.index, nil
 }

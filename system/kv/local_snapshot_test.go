@@ -82,3 +82,39 @@ func TestLocalSnapshotClosedEngineFails(t *testing.T) {
 		t.Fatalf("nil raft FSM error=%v", err)
 	}
 }
+
+func TestLocalSnapshotDeletionRevisionAndStop(t *testing.T) {
+	s := NewService("snapshot-deletion", nil, nil)
+	if _, err := s.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Stop(context.Background()) })
+	version, err := s.Set("key", []byte("value"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, revision, err := s.ReadLocalSnapshot([]string{"key"})
+	if err != nil || len(before) != 1 {
+		t.Fatalf("initial snapshot: entries=%v err=%v", before, err)
+	}
+	if err := s.Delete("key"); err != nil {
+		t.Fatal(err)
+	}
+	after, deletedRevision, err := s.ReadLocalSnapshot([]string{"key"})
+	if err != nil || len(after) != 0 || deletedRevision <= revision {
+		t.Fatalf("delete snapshot: entries=%v revision=%d previous=%d err=%v", after, deletedRevision, revision, err)
+	}
+	if string(before["key"].Value) != "value" {
+		t.Fatal("deletion changed the caller-owned snapshot")
+	}
+	next, err := s.Set("key", []byte("replacement"))
+	if err != nil || next != version+1 {
+		t.Fatalf("entry version changed by deletion: version=%d want=%d err=%v", next, version+1, err)
+	}
+	if err := s.Stop(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.ReadLocalSnapshot(nil); !errors.Is(err, kvapi.ErrKVClosed) {
+		t.Fatalf("stopped snapshot read: %v", err)
+	}
+}

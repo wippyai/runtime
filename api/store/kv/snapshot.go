@@ -2,12 +2,12 @@
 
 package kv
 
-// LocalSnapshotReader reads a bounded set of keys from one immutable local
+// LocalSnapshotReader reads the requested keys from one immutable local
 // revision. Missing keys are absent from the returned map, duplicate keys are
 // returned once, and values in the result are owned by the caller. The
 // revision describes the same snapshot as the entries; callers must not
 // emulate this capability with separate Get calls. The revision is a backend
-// snapshot token: an in-memory Service returns its local state version, while
+// snapshot token: an in-memory Service returns its publication revision, while
 // the raft engine returns its applied log index. It is independent of an
 // individual Entry.Epoch.
 //
