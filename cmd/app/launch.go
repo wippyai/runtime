@@ -53,13 +53,32 @@ type Launch struct {
 // one with --state. Command or Args replace the values the grammar selected.
 // Run hands the whole launch to the host. Prepare opens host resources under
 // the state lock and returns the configuration they need together with the
-// close that releases them.
+// close that releases them. Transient runs an ordinary application command in
+// a private temporary state. It cannot accompany Run, and it is valid only for
+// OpRun.
 type Plan struct {
 	Run          func(context.Context) error
 	Prepare      func(context.Context) (boot.Config, func() error, error)
 	DefaultState string
 	Command      string
 	Args         []string
+	Transient    bool
+}
+
+// validate checks combinations a host can express that have no operation
+// meaning. It runs before the runner opens either the selected or a temporary
+// state directory.
+func (p Plan) validate(l Launch) error {
+	if !p.Transient {
+		return nil
+	}
+	if l.Op != OpRun {
+		return NewInvalidPlanError("transient execution is valid only for run")
+	}
+	if p.Run != nil {
+		return NewInvalidPlanError("transient execution cannot accompany Run")
+	}
+	return nil
 }
 
 // Host decides what an invocation does before the runner opens the state.
