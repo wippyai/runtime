@@ -13,11 +13,21 @@ import (
 	"github.com/wippyai/runtime/api/pid"
 	kvapi "github.com/wippyai/runtime/api/store/kv"
 	systemkv "github.com/wippyai/runtime/system/kv"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest/observer"
 )
 
 type countedReconcilerEngine struct {
 	kvapi.Engine
 	calls atomic.Int32
+}
+
+func (e *countedReconcilerEngine) ReadLocalSnapshot(keys []string) (map[string]kvapi.Entry, uint64, error) {
+	reader, ok := e.Engine.(kvapi.LocalSnapshotReader)
+	if !ok {
+		return nil, 0, kvapi.ErrKVClosed
+	}
+	return reader.ReadLocalSnapshot(keys)
 }
 
 func (e *countedReconcilerEngine) Watch(context.Context, string) (kvapi.Watcher, error) {
@@ -54,10 +64,13 @@ type blockedEventsWatcher struct {
 
 type invalidatingWatcher struct {
 	*blockedEventsWatcher
-	done chan struct{}
+	done   chan struct{}
+	reason error
 }
 
 func (w *invalidatingWatcher) Done() <-chan struct{} { return w.done }
+
+func (w *invalidatingWatcher) Err() error { return w.reason }
 
 type invalidatingEngine struct {
 	kvapi.Engine
@@ -68,15 +81,22 @@ func (e *invalidatingEngine) Watch(context.Context, string) (kvapi.Watcher, erro
 	return e.watcher, nil
 }
 
+func (e *invalidatingEngine) ReadLocalSnapshot(keys []string) (map[string]kvapi.Entry, uint64, error) {
+	return e.Engine.(kvapi.LocalSnapshotReader).ReadLocalSnapshot(keys)
+}
+
 func TestReconcilerWatchInvalidationClosesAdmissionWhileWorkerBlocked(t *testing.T) {
 	r := newStrongReg(t, []pid.NodeID{"node-1"}, time.Second, nil)
+	core, logs := observer.New(zap.ErrorLevel)
+	r.logger = zap.New(core)
 	w := &invalidatingWatcher{
 		blockedEventsWatcher: &blockedEventsWatcher{
 			readinessWatcher: &readinessWatcher{events: make(chan kvapi.WatchEvent), closed: make(chan struct{})},
 			entered:          make(chan struct{}),
 			release:          make(chan struct{}),
 		},
-		done: make(chan struct{}),
+		done:   make(chan struct{}),
+		reason: kvapi.ErrWatchReset,
 	}
 	r.engine = &invalidatingEngine{Engine: r.engine, watcher: w}
 	ctx, cancel := context.WithCancel(t.Context())
@@ -90,6 +110,8 @@ func TestReconcilerWatchInvalidationClosesAdmissionWhileWorkerBlocked(t *testing
 	}
 	close(w.done)
 	require.False(t, r.NameReady(), "invalidated watch must close admission before worker runs")
+	require.Eventually(t, func() bool { return logs.Len() == 1 }, time.Second, time.Millisecond)
+	require.Equal(t, kvapi.ErrWatchReset.Error(), logs.All()[0].ContextMap()["error"])
 }
 
 type blockedOwnedWatch struct {
@@ -107,6 +129,10 @@ type blockedOwnedEngine struct {
 	kvapi.Engine
 	watcher          *blockedOwnedWatch
 	entered, release chan struct{}
+}
+
+func (e *blockedOwnedEngine) ReadLocalSnapshot(keys []string) (map[string]kvapi.Entry, uint64, error) {
+	return e.Engine.(kvapi.LocalSnapshotReader).ReadLocalSnapshot(keys)
 }
 
 func (e *blockedOwnedEngine) Watch(ctx context.Context, prefix string) (kvapi.Watcher, error) {
@@ -152,6 +178,14 @@ func (w *blockedEventsWatcher) Events() <-chan kvapi.WatchEvent {
 type blockedEventsEngine struct {
 	kvapi.Engine
 	watcher *blockedEventsWatcher
+}
+
+func (e *blockedEventsEngine) ReadLocalSnapshot(keys []string) (map[string]kvapi.Entry, uint64, error) {
+	reader, ok := e.Engine.(kvapi.LocalSnapshotReader)
+	if !ok {
+		return nil, 0, kvapi.ErrKVClosed
+	}
+	return reader.ReadLocalSnapshot(keys)
 }
 
 func (e *blockedEventsEngine) Watch(context.Context, string) (kvapi.Watcher, error) {

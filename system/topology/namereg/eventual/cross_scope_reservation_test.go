@@ -21,11 +21,11 @@ type reservationCrossScope struct {
 	pid  pid.PID
 }
 
-func (c *reservationCrossScope) LookupOther(name string) (pid.PID, bool) {
+func (c *reservationCrossScope) LookupOther(name string, _ pid.PID) (pid.PID, bool, error) {
 	if name == c.name {
-		return c.pid, true
+		return c.pid, true, nil
 	}
-	return pid.PID{}, false
+	return pid.PID{}, false, nil
 }
 
 func (c *reservationCrossScope) NameReady() bool { return true }
@@ -65,8 +65,10 @@ type gatedCrossScope struct {
 	ready bool
 }
 
-func (c *gatedCrossScope) LookupOther(string) (pid.PID, bool) { return pid.PID{}, false }
-func (c *gatedCrossScope) NameReady() bool                    { return c.ready }
+func (c *gatedCrossScope) LookupOther(string, pid.PID) (pid.PID, bool, error) {
+	return pid.PID{}, false, nil
+}
+func (c *gatedCrossScope) NameReady() bool { return c.ready }
 
 // TestEventualRegister_JoinBarrierGate proves a fresh EVENTUAL register is refused
 // with ErrNameServiceNotReady while the join-epoch barrier is in progress, and

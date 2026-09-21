@@ -13,6 +13,7 @@ import (
 	"github.com/wippyai/runtime/api/relay"
 	pgapi "github.com/wippyai/runtime/api/service/pg"
 	"github.com/wippyai/runtime/api/topology"
+	"github.com/wippyai/runtime/cluster/internode"
 	"go.uber.org/zap"
 )
 
@@ -118,6 +119,9 @@ func (s *Service) sendDiscover(targetNodeID pid.NodeID) {
 		}),
 	)
 	if err := s.router.Send(pkg); err != nil {
+		if errors.Is(err, internode.ErrNodeNotManaged) {
+			return
+		}
 		s.logger.Warn("failed to send discover",
 			logNodeID(targetNodeID),
 			logError(err),
@@ -169,6 +173,9 @@ func (s *Service) sendSync(targetNodeID pid.NodeID) {
 		}),
 	)
 	if err := s.router.Send(pkg); err != nil {
+		if errors.Is(err, internode.ErrNodeNotManaged) {
+			return
+		}
 		s.logger.Warn("failed to send sync",
 			logNodeID(targetNodeID),
 			logError(err),
@@ -242,6 +249,9 @@ func (s *Service) broadcastJoin(joins map[string][]pid.PID) {
 
 		pkg := relay.NewServicePackage(s.localNodeID, s.hostID, nodeID, s.hostID, pgapi.TopicJoin, body)
 		if err := s.router.Send(pkg); err != nil {
+			if errors.Is(err, internode.ErrNodeNotManaged) {
+				continue
+			}
 			s.logger.Warn("failed to broadcast join",
 				logNodeID(nodeID),
 				logError(err),
@@ -297,6 +307,9 @@ func (s *Service) broadcastLeave(leaves map[string][]pid.PID) {
 
 		pkg := relay.NewServicePackage(s.localNodeID, s.hostID, nodeID, s.hostID, pgapi.TopicLeave, body)
 		if err := s.router.Send(pkg); err != nil {
+			if errors.Is(err, internode.ErrNodeNotManaged) {
+				continue
+			}
 			s.logger.Warn("failed to broadcast leave",
 				logNodeID(nodeID),
 				logError(err),

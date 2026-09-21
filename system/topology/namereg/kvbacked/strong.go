@@ -5,6 +5,7 @@ package kvbacked
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strconv"
 	"sync"
 	"time"
@@ -152,6 +153,15 @@ func (s *Service) registerStrong(ctx context.Context, name string, p pid.PID) (g
 	if s.strong == nil || s.strong.membership == nil {
 		return globalapi.RegisterOutcome{}, globalapi.ErrNotAvailable
 	}
+	if s.nonMember != nil && s.nonMember() {
+		return globalapi.RegisterOutcome{}, fmt.Errorf("naming participant without a local replica requires an authority feed")
+	}
+	if _, ok := s.engine.(kvapi.LocalSnapshotReader); !ok {
+		return globalapi.RegisterOutcome{}, fmt.Errorf("registry reconciliation requires atomic local snapshot reads")
+	}
+	if run := s.reconciler.Load(); run != nil && !s.nameReady() {
+		return globalapi.RegisterOutcome{}, globalapi.ErrNotReady
+	}
 	return s.strong.register(ctx, name, p)
 }
 
@@ -177,7 +187,10 @@ func (s *Service) nameReady() bool {
 		return true
 	}
 	run := s.reconciler.Load()
-	if run == nil || !run.ready.Load() || run.ctx.Err() != nil {
+	if run == nil {
+		return s.ready.Load()
+	}
+	if !s.ready.Load() || run.ctx.Err() != nil {
 		return false
 	}
 	watch := run.watch.Load()
@@ -202,10 +215,20 @@ func (st *strongState) register(ctx context.Context, name string, p pid.PID) (gl
 		deadline = dl
 	}
 	// Bound result waiting even when the caller supplies a distant deadline.
-	// An earlier caller deadline is preserved by context.WithDeadline. The
-	// grace lets the normal expiry transaction win before reporting uncertainty.
-	ctx, cancel := context.WithDeadline(ctx, deadline.Add(2*time.Second))
-	defer cancel()
+	// The owner context is joined so a synchronization failure cancels this
+	// waiter without deleting or reaping the claim it did not create.
+	ownerCtx := st.svc.reconcileContext()
+	ctx, cancel := context.WithCancel(ctx)
+	stopOwner := context.AfterFunc(ownerCtx, cancel)
+	defer func() {
+		stopOwner()
+		cancel()
+	}()
+	ctx, deadlineCancel := context.WithDeadline(ctx, deadline.Add(2*time.Second))
+	defer deadlineCancel()
+	if err := ctx.Err(); err != nil {
+		return globalapi.RegisterOutcome{}, err
+	}
 
 	hdr, err := encode(pendingHeader{
 		PID:              p.String(),
@@ -229,9 +252,15 @@ func (st *strongState) register(ctx context.Context, name string, p pid.PID) (gl
 	if !committed {
 		return st.conflictOutcome(name, p)
 	}
+	if err := ctx.Err(); err != nil {
+		return globalapi.RegisterOutcome{}, err
+	}
 
 	pe, err := st.svc.get(pendingKey(name))
 	if err != nil {
+		return globalapi.RegisterOutcome{}, err
+	}
+	if err := ctx.Err(); err != nil {
 		return globalapi.RegisterOutcome{}, err
 	}
 	epoch := pe.Epoch
@@ -249,12 +278,18 @@ func (st *strongState) register(ctx context.Context, name string, p pid.PID) (gl
 	waiter := &strongWaiter{ch: make(chan globalapi.RegisterOutcome, 1)}
 	st.addWaiter(name, waiter)
 	defer st.removeWaiter(name, waiter)
+	if err := ctx.Err(); err != nil {
+		return globalapi.RegisterOutcome{Epoch: epoch}, err
+	}
 
 	// Drive the just-opened pending directly: the caller goroutine knows it
 	// exists (read via the leader), so it must not go through reconcile, whose
 	// local read may not see the freshly-forwarded write yet and would
 	// mis-fire onTerminal. The watch reconciler advances it from here on.
 	st.attest(name, epoch, pendingPID, phdr.RequiredNodes)
+	if err := ctx.Err(); err != nil {
+		return globalapi.RegisterOutcome{Epoch: epoch}, err
+	}
 	if st.isLeader() {
 		st.leaderDrive(name, epoch, pe.Version, phdr)
 	}
@@ -353,39 +388,74 @@ func (st *strongState) requiredNodes() []pid.NodeID {
 
 // reconcile advances the Strong state machine for name. Safe to call on any node
 // on any observed change and on the leader deadline tick; idempotent.
-func (st *strongState) reconcile(name string) {
+func (st *strongState) reconcile(name string) error {
+	return st.reconcileForRun(name, st.svc.reconciler.Load())
+}
+
+func (st *strongState) reconcileForRun(name string, run *reconcilerLifecycle) (err error) {
+	defer func() {
+		if err != nil {
+			st.svc.failReconciler(run, err)
+		}
+	}()
+	if run != nil && (st.svc.reconciler.Load() != run || run.ctx.Err() != nil) {
+		return globalapi.ErrNotReady
+	}
 	// Reads are local (no forwarding): reconcile runs on the watch goroutine and
-	// must not block on a leader round-trip. The leader linearizes its
-	// promote/expire decision with a barrier in leaderDrive; promote/expire txns
-	// are version-guarded so a stale read never causes a wrong mutation.
-	//
-	// Active wins: deliver success, convert the exclusion to Active, stop timing.
-	if e, err := st.svc.engine.Get(activeKey(name)); err == nil {
-		if av, derr := decodeActive(e.Value); derr == nil && av.Strong {
+	// must not block on a leader round-trip. Read active and pending together so
+	// a promotion cannot be observed as two different states. The write path
+	// still uses versions and transactions; this snapshot only makes the local
+	// observation coherent.
+	reader, ok := st.svc.engine.(kvapi.LocalSnapshotReader)
+	if !ok {
+		return fmt.Errorf("registry reconciliation requires atomic local snapshot reads")
+	}
+	entries, _, err := reader.ReadLocalSnapshot([]string{activeKey(name), pendingKey(name)})
+	if err != nil {
+		return fmt.Errorf("read registry snapshot for %q: %w", name, err)
+	}
+	if run != nil && (st.svc.reconciler.Load() != run || run.ctx.Err() != nil) {
+		return globalapi.ErrNotReady
+	}
+
+	// Active Strong wins: deliver success, convert the exclusion to Active, stop
+	// timing. A malformed active record is an error, not absence: clearing a
+	// held exclusion on an invalid record would open a cross-scope admission hole.
+	if e, found := entries[activeKey(name)]; found {
+		av, derr := decodeActive(e.Value)
+		if derr != nil {
+			return fmt.Errorf("registry record %q: %w", e.Key, derr)
+		}
+		if err := validateNamingRecord(e.Key, activePrefix, av.Name, av.PID); err != nil {
+			return err
+		}
+		if av.Strong {
 			ap, perr := pid.ParsePID(av.PID)
 			if perr != nil {
-				st.logger.Debug("strong: invalid active pid", zap.String("name", name), zap.Error(perr))
-				return
+				return fmt.Errorf("registry record %q: invalid owner: %w", e.Key, perr)
 			}
 			st.onActive(name, e.Epoch, ap)
-			return
+			return nil
 		}
 	}
 
-	pe, err := st.svc.engine.Get(pendingKey(name))
-	if errors.Is(err, kvapi.ErrKeyNotFound) {
+	pe, found := entries[pendingKey(name)]
+	if !found {
 		st.onTerminal(name)
-		return
-	}
-	if err != nil {
-		return
+		return nil
 	}
 	hdr, derr := decodePending(pe.Value)
 	if derr != nil {
-		return
+		return fmt.Errorf("registry record %q: %w", pe.Key, derr)
+	}
+	if err := validateNamingRecord(pe.Key, pendingPrefix, hdr.Name, hdr.PID); err != nil {
+		return err
 	}
 	epoch := pe.Epoch
-	pendingPID, _ := pid.ParsePID(hdr.PID)
+	pendingPID, perr := pid.ParsePID(hdr.PID)
+	if perr != nil {
+		return fmt.Errorf("registry record %q: invalid owner: %w", pe.Key, perr)
+	}
 
 	st.attest(name, epoch, pendingPID, hdr.RequiredNodes)
 
@@ -397,10 +467,11 @@ func (st *strongState) reconcile(name string) {
 		// promote on the survivors. dropNodeFromPending re-drives reconcile with
 		// the fresh header, so return after a prune to act on up-to-date state.
 		if st.pruneDepartedRequired(name, hdr) {
-			return
+			return nil
 		}
 		st.leaderDrive(name, epoch, pe.Version, hdr)
 	}
+	return nil
 }
 
 // pruneDepartedRequired drops from name's pending RequiredNodes any node no
@@ -539,7 +610,7 @@ func (st *strongState) leaderPromote(name string, epoch, headerVer uint64, hdr p
 	}
 	st.takeTerminal(name)
 	st.stopTimer(name)
-	st.reconcile(name)
+	_ = st.reconcile(name)
 }
 
 func (st *strongState) leaderExpire(name string, epoch, headerVer uint64, hdr pendingHeader, reason string) {
@@ -586,7 +657,7 @@ func (st *strongState) leaderExpire(name string, epoch, headerVer uint64, hdr pe
 	}
 	st.setTerminal(name, reason, missing, epoch)
 	st.stopTimer(name)
-	st.reconcile(name)
+	_ = st.reconcile(name)
 }
 
 func (st *strongState) unreserve(name string) (bool, error) {
@@ -684,12 +755,19 @@ func (st *strongState) armTimer(name string, deadlineUnixNano int64) {
 	if d < 0 {
 		d = 0
 	}
-	st.timers[name] = time.AfterFunc(d, func() {
+	run := st.svc.reconciler.Load()
+	var timer *time.Timer
+	timer = time.AfterFunc(d, func() {
 		st.mu.Lock()
+		if st.timers[name] != timer {
+			st.mu.Unlock()
+			return
+		}
 		delete(st.timers, name)
 		st.mu.Unlock()
-		st.reconcile(name)
+		_ = st.reconcileForRun(name, run)
 	})
+	st.timers[name] = timer
 }
 
 func (st *strongState) stopTimer(name string) {

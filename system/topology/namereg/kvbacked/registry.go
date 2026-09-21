@@ -117,6 +117,10 @@ type Service struct {
 	self       pid.PID
 	monitored  sync.Map
 	selfNode   pid.NodeID
+	ready      atomic.Bool
+	// Serializes owner replacement with terminal failure so an old observation
+	// cannot close readiness belonging to a later startup attempt.
+	reconcilerMu sync.Mutex
 }
 
 // ConfigureDissem attaches the active-binding dissemination plane so non-member

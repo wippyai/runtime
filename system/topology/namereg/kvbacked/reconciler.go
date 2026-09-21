@@ -4,6 +4,7 @@ package kvbacked
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync/atomic"
@@ -16,9 +17,10 @@ import (
 )
 
 type reconcilerLifecycle struct {
-	ctx   context.Context
-	watch atomic.Pointer[reconcilerWatch]
-	ready atomic.Bool
+	ctx    context.Context
+	cancel context.CancelFunc
+	watch  atomic.Pointer[reconcilerWatch]
+	failed atomic.Bool
 }
 
 type reconcilerWatch struct{ kvapi.Watcher }
@@ -36,16 +38,29 @@ func (s *Service) StartReconciler(ctx context.Context) (err error) {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if s.strong != nil && s.nonMember != nil && s.nonMember() {
+		return fmt.Errorf("naming participant without a local replica requires an authority feed")
+	}
+	if s.strong != nil {
+		if _, ok := s.engine.(kvapi.LocalSnapshotReader); !ok {
+			return fmt.Errorf("registry reconciliation requires atomic local snapshot reads")
+		}
+	}
 	ctx, cancel := context.WithCancel(ctx)
-	run := &reconcilerLifecycle{ctx: ctx}
-	if !s.reconciler.CompareAndSwap(nil, run) {
+	run := &reconcilerLifecycle{ctx: ctx, cancel: cancel}
+	s.reconcilerMu.Lock()
+	installed := s.reconciler.CompareAndSwap(nil, run)
+	s.reconcilerMu.Unlock()
+	if !installed {
 		cancel()
 		return fmt.Errorf("registry reconciler already started; use a new service after shutdown")
 	}
 	defer func() {
 		if err != nil {
+			s.reconcilerMu.Lock()
 			cancel()
 			s.reconciler.CompareAndSwap(run, nil)
+			s.reconcilerMu.Unlock()
 		}
 	}()
 	w, err := s.engine.Watch(ctx, registryPrefix)
@@ -59,11 +74,15 @@ func (s *Service) StartReconciler(ctx context.Context) (err error) {
 	go func() {
 		select {
 		case <-w.Done():
-			if s.reconciler.Load() == run {
-				run.ready.Store(false)
-				cancel()
+			watchErr := w.Err()
+			if watchErr == nil {
+				watchErr = kvapi.ErrWatchClosed
 			}
+			s.failReconciler(run, watchErr)
 		case <-ctx.Done():
+		}
+		if watchErr := w.Err(); errors.Is(watchErr, kvapi.ErrWatchOverflow) || errors.Is(watchErr, kvapi.ErrWatchReset) {
+			s.logger.Error("registry watch invalidated; naming reconciliation stopped; restart required", zap.Error(watchErr))
 		}
 	}()
 	if err := s.seed(); err != nil {
@@ -85,18 +104,18 @@ func (s *Service) StartReconciler(ctx context.Context) (err error) {
 	}
 	// The node has now learned and latched the cluster's in-flight/active Strong
 	// reservations; name-readiness can flip so cross-scope guards see them.
-	run.ready.Store(true)
+	s.ready.Store(true)
 	if s.dissem != nil {
 		go s.dissem.RunGC()
 	}
 	if s.strong != nil {
-		go s.leaderSweep(ctx)
+		go s.leaderSweep(run)
 	}
 	go func() {
 		defer func() {
 			// A stopped update stream cannot justify further cross-scope
 			// admission. Stop the associated sweep even if the parent lives.
-			run.ready.Store(false)
+			s.ready.Store(false)
 			cancel()
 			_ = w.Close()
 		}()
@@ -118,28 +137,57 @@ func (s *Service) StartReconciler(ctx context.Context) (err error) {
 					return
 				default:
 				}
-				s.handleWatchEvent(ev)
+				if ctx.Err() != nil {
+					return
+				}
+				if err := s.handleWatchEvent(ev); err != nil {
+					s.failReconciler(run, err)
+					s.logger.Error("registry synchronization failed", zap.Error(err))
+					return
+				}
 			}
 		}
 	}()
 	return nil
 }
 
+// failReconciler closes admission when a required local observation fails.
+// The owner context also releases in-flight Strong waiters and stops both the
+// watch and sweep workers. A service without an active reconciler remains
+// usable in direct/unit-test mode.
+func (s *Service) failReconciler(run *reconcilerLifecycle, err error) {
+	if err == nil || run == nil {
+		return
+	}
+	s.reconcilerMu.Lock()
+	defer s.reconcilerMu.Unlock()
+	if s.reconciler.Load() != run || run.ctx.Err() != nil || !run.failed.CompareAndSwap(false, true) {
+		return
+	}
+	s.ready.Store(false)
+	run.cancel()
+}
+
 // leaderSweep periodically re-drives every in-flight pending while this node is
 // the leader. It re-arms deadline timers and resumes promotion/expiry after a
 // leadership change (a new leader has no timers for pendings opened under the
 // old one) and backstops any missed watch event.
-func (s *Service) leaderSweep(ctx context.Context) {
+func (s *Service) leaderSweep(run *reconcilerLifecycle) {
 	t := time.NewTicker(time.Second)
 	defer t.Stop()
 	for {
 		select {
-		case <-ctx.Done():
+		case <-run.ctx.Done():
 			return
 		case <-t.C:
+			if run.ctx.Err() != nil {
+				return
+			}
 			if s.leaderFn() {
 				if err := s.strong.reconcileAllPending(); err != nil {
-					s.logger.Debug("registry pending scan failed", zap.Error(err))
+					s.failReconciler(run, err)
+					s.logger.Error("registry pending scan failed", zap.Error(err))
+					return
 				}
 			}
 		}
@@ -171,7 +219,10 @@ func (s *Service) seed() error {
 			s.translateActive(name, e.Value, e.Epoch, false)
 		}
 		if s.strong != nil && active.Strong {
-			s.strong.reconcile(name)
+			if err := s.strong.reconcile(name); err != nil {
+				recordErr = err
+				return false
+			}
 		}
 		return true
 	})
@@ -179,6 +230,13 @@ func (s *Service) seed() error {
 		return err
 	}
 	return recordErr
+}
+
+func (s *Service) reconcileContext() context.Context {
+	if run := s.reconciler.Load(); run != nil {
+		return run.ctx
+	}
+	return context.Background()
 }
 
 func validateNamingRecord(key, prefix, name, owner string) error {
@@ -191,7 +249,7 @@ func validateNamingRecord(key, prefix, name, owner string) error {
 	return nil
 }
 
-func (s *Service) handleWatchEvent(ev kvapi.WatchEvent) {
+func (s *Service) handleWatchEvent(ev kvapi.WatchEvent) error {
 	key := ""
 	switch {
 	case ev.Current != nil:
@@ -215,19 +273,20 @@ func (s *Service) handleWatchEvent(ev kvapi.WatchEvent) {
 			s.translateActive(name, nil, ev.Index, true)
 		}
 		if s.strong != nil {
-			s.strong.reconcile(name)
+			return s.strong.reconcile(name)
 		}
 	case strings.HasPrefix(key, pendingPrefix):
 		if s.strong != nil {
-			s.strong.reconcile(strings.TrimPrefix(key, pendingPrefix))
+			return s.strong.reconcile(strings.TrimPrefix(key, pendingPrefix))
 		}
 	case strings.HasPrefix(key, ackPrefix), strings.HasPrefix(key, rejectPrefix):
 		if s.strong != nil {
 			if err := s.strong.reconcileAllPending(); err != nil {
-				s.logger.Debug("registry pending scan failed", zap.Error(err))
+				return err
 			}
 		}
 	}
+	return nil
 }
 
 // translateActive feeds one active-binding change into the dissem plane: the
@@ -278,7 +337,9 @@ func (st *strongState) reconcileAllPending() error {
 		return recordErr
 	}
 	for _, n := range names {
-		st.reconcile(n)
+		if err := st.reconcile(n); err != nil {
+			return err
+		}
 	}
 	return nil
 }
