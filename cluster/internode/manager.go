@@ -325,8 +325,7 @@ func (m *manager) SendToNodeContext(ctx context.Context, nodeID cluster.NodeID, 
 		defer cancel()
 		ctx = admissionCtx
 	}
-	// Unlike legacy best-effort SendToNode, never report success for an
-	// unmanaged destination. The caller must know admission did not occur.
+	// Cancellation bounds admission, not delivery of an accepted message.
 	return m.nodeStates.QueueMessageClassContext(ctx, nodeID, data, class)
 }
 
@@ -334,12 +333,8 @@ func (m *manager) SendToNode(nodeID cluster.NodeID, data []byte, class Class) er
 	err := m.nodeStates.QueueMessageClass(nodeID, data, class)
 	if err != nil {
 		if errors.Is(err, ErrNodeNotManaged) {
-			// Hot path under partition: gossip can mark a peer dead before
-			// the PG layer stops targeting it. Counted as a drop with no
-			// log to avoid the kind of flood we saw during chaos (thousands
-			// per second per pod). The metric is the source of truth.
 			m.nodeStates.tel.recordDrop(class, "node_not_managed")
-			return nil
+			return newNodeAdmissionError(nodeID, err)
 		}
 		// ErrQueueFull surfaces to the caller (broadcast path will count it).
 		return err

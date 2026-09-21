@@ -142,27 +142,50 @@ func newCrossScopeChecker(ctx context.Context) *crossScopeChecker {
 	return &crossScopeChecker{ctx: ctx}
 }
 
-// LookupOther returns (PID, true) if `name` is held in any non-Eventual scope.
-func (c *crossScopeChecker) LookupOther(name string) (pid.PID, bool) {
+// LookupOther returns a conflicting claim from any non-Eventual scope before
+// returning a same-owner claim. The composed PIDRegistry.Lookup also sees
+// EVENTUAL's own winner, so only its dedicated LOCAL table is used here.
+func (c *crossScopeChecker) LookupOther(name string, proposed pid.PID) (pid.PID, bool, error) {
 	if c == nil {
-		return pid.PID{}, false
+		return pid.PID{}, false, nil
 	}
+	var matching bool
 	if gr := topology.GetGlobalRegistry(c.ctx); gr != nil {
-		if res, err := gr.Lookup(c.ctx, name); err == nil && res.Found {
-			return res.PID, true
+		res, err := gr.Lookup(c.ctx, name)
+		if err != nil {
+			return pid.PID{}, false, err
+		}
+		if res.Found {
+			if !res.PID.Equal(proposed) {
+				return res.PID, true, nil
+			}
+			matching = true
 		}
 		// A held Strong reservation blocks an EVENTUAL bind to a different pid
 		// for the duration of the promotion window.
 		if reserved, ok := gr.IsStrongReserved(name); ok {
-			return reserved, true
+			if !reserved.Equal(proposed) {
+				return reserved, true, nil
+			}
+			matching = true
 		}
 	}
 	if lr := topology.GetRegistry(c.ctx); lr != nil {
-		if p, ok := lr.Lookup(name); ok {
-			return p, true
+		local, ok := lr.(interface{ LookupLocal(string) (pid.PID, bool) })
+		if !ok {
+			return pid.PID{}, false, fmt.Errorf("eventualreg: LOCAL registry %T lacks LookupLocal", lr)
+		}
+		if p, found := local.LookupLocal(name); found {
+			if !p.Equal(proposed) {
+				return p, true, nil
+			}
+			matching = true
 		}
 	}
-	return pid.PID{}, false
+	if matching {
+		return proposed, true, nil
+	}
+	return pid.PID{}, false, nil
 }
 
 // NameReady reports the join-epoch barrier status from the global registry.

@@ -381,15 +381,9 @@ func Raft() boot.Component {
 						return out
 					},
 					IsLeader: raftNode.IsLeader,
-					LocalConflict: func(name string, _ pid.PID) (pid.PID, bool) {
+					LocalConflict: func(name string, proposed pid.PID) (pid.PID, bool) {
 						lp := &localPresenceChecker{ctx: ctx}
-						if cp, ok := lp.LookupLocal(name); ok {
-							return cp, true
-						}
-						if cp, ok := lp.LookupEventual(name); ok {
-							return cp, true
-						}
-						return pid.PID{}, false
+						return localConflictForStrong(lp, name, proposed)
 					},
 				})
 				if err := node.RegisterHost(kvbacked.RegistryHostID, kvReg); err != nil {
@@ -653,4 +647,16 @@ func Raft() boot.Component {
 			return nil
 		},
 	})
+}
+
+// localConflictForStrong checks both weaker scopes; a matching LOCAL claim
+// cannot conceal a different EVENTUAL owner during Strong admission.
+func localConflictForStrong(lp *localPresenceChecker, name string, proposed pid.PID) (pid.PID, bool) {
+	if cp, ok := lp.LookupLocal(name); ok && !cp.Equal(proposed) {
+		return cp, true
+	}
+	if cp, ok := lp.LookupEventual(name); ok && !cp.Equal(proposed) {
+		return cp, true
+	}
+	return pid.PID{}, false
 }
