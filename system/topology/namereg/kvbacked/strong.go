@@ -577,6 +577,7 @@ func (st *strongState) attest(name string, epoch, pendingVersion uint64, attempt
 	ack := ackKey(name, attemptID, st.svc.selfNode)
 	reject := rejectKey(name, attemptID, st.svc.selfNode)
 	if _, err := st.svc.engine.Get(ack); err == nil {
+		st.latch(name, pendingPID, attemptID, epoch)
 		return // already acked for this attempt
 	}
 	if _, err := st.svc.engine.Get(reject); err == nil {

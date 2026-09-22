@@ -14,7 +14,6 @@ import (
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/topology/namereg/global"
 	"github.com/wippyai/runtime/cluster/raft/multiplex"
-	"github.com/wippyai/runtime/system/eventbus"
 	systemkv "github.com/wippyai/runtime/system/kv"
 )
 
@@ -78,7 +77,6 @@ func TestStrongPromotesAcrossThreeRealRaftNodes(t *testing.T) {
 	rafts := make(map[string]*hraft.Raft, len(ids))
 	transports := make(map[string]*hraft.InmemTransport, len(ids))
 	fsms := make(map[string]*systemkv.RaftFSM, len(ids))
-	buses := make(map[string]*eventbus.Bus, len(ids))
 	engines := make(map[string]*systemkv.RaftEngine, len(ids))
 	registries := make(map[string]*Service, len(ids))
 
@@ -90,10 +88,8 @@ func TestStrongPromotesAcrossThreeRealRaftNodes(t *testing.T) {
 		cfg.LeaderLeaseTimeout = 75 * time.Millisecond
 		cfg.CommitTimeout = 15 * time.Millisecond
 		cfg.Logger = hclog.NewNullLogger()
-		bus := eventbus.NewBus()
-		fsm := systemkv.NewRaftFSM(bus)
+		fsm := systemkv.NewRaftFSM()
 		fsms[id] = fsm
-		buses[id] = bus
 		root := multiplex.New(realRaftNoopFSM{}, fsm)
 		store := hraft.NewInmemStore()
 		snaps := hraft.NewInmemSnapshotStore()
@@ -146,7 +142,7 @@ func TestStrongPromotesAcrossThreeRealRaftNodes(t *testing.T) {
 			peers[peerID] = peer
 		}
 		submitter := &realRaftSubmitter{local: rafts[id], peers: peers}
-		engine := systemkv.NewRaftEngine(submitter, fsms[id], buses[id], id, nil, nil)
+		engine := systemkv.NewRaftEngine(submitter, fsms[id], id, nil, nil)
 		if err := engine.Start(context.Background()); err != nil {
 			t.Fatalf("start engine %s: %v", id, err)
 		}

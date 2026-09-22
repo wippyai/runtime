@@ -3,6 +3,7 @@
 package kvbacked
 
 import (
+	"context"
 	"errors"
 	"sync"
 	"sync/atomic"
@@ -15,6 +16,25 @@ import (
 )
 
 var errVoteReplyLost = errors.New("vote reply lost after commit")
+
+func TestStrongRestartRestoresAcknowledgedExclusion(t *testing.T) {
+	r := newStrongReg(t, []pid.NodeID{"node-1", "peer"}, time.Second, nil)
+	owner := mkPID("node-1", "owner")
+	putPendingAttempt(t, r.engine, "restart", owner, []pid.NodeID{"node-1", "peer"})
+	if _, err := r.engine.Set(ackKey("claim", "restart", "node-1"), []byte("node-1")); err != nil {
+		t.Fatal(err)
+	}
+	fresh := NewService(r.engine, "node-1", nil, nil)
+	fresh.ConfigureStrong(StrongDeps{IsLeader: func() bool { return false }})
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	if err := fresh.StartReconciler(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got, held := fresh.IsStrongReserved("claim"); !held || !got.Equal(owner) {
+		t.Fatalf("acknowledged reservation missing after restart: owner=%v held=%v", got, held)
+	}
+}
 
 // voteGateEngine pauses the exact vote transaction, rather than a preceding
 // read. This makes replacement and terminal races land at the transaction
@@ -533,7 +553,22 @@ func TestStrongMembershipRewriteKeepsAttemptEvidence(t *testing.T) {
 	if _, err := base.Set(ackKey("claim", "stable", "node-1"), []byte("node-1")); err != nil {
 		t.Fatal(err)
 	}
-	r.strong.dropNodeFromPending("claim", "peer")
+	entry, err := base.Get(pendingKey("claim"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rewritten, err := decodePending(entry.Value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rewritten.RequiredNodes = []pid.NodeID{"node-1"}
+	value, err := encode(rewritten)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := base.CompareAndSwap(entry.Key, entry.Version, value); err != nil || !ok {
+		t.Fatalf("explicit rewrite: updated=%v err=%v", ok, err)
+	}
 	updated, err := base.Get(pendingKey("claim"))
 	if err != nil {
 		t.Fatal(err)
