@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -349,7 +350,11 @@ func TestTransientPlanUsesAnOwnerOnlyStateAndRemovesItAfterSuccess(t *testing.T)
 		require.DirExists(t, transient)
 		info, err := os.Stat(transient)
 		require.NoError(t, err)
-		require.Zero(t, info.Mode().Perm()&0o077)
+		// Windows has no POSIX permission bits; the per-user temp directory ACL
+		// confines the state there.
+		if runtime.GOOS != "windows" {
+			require.Zero(t, info.Mode().Perm()&0o077)
+		}
 		unlock, err := lockState(transient)
 		require.ErrorIs(t, err, ErrOwned)
 		require.Nil(t, unlock)
