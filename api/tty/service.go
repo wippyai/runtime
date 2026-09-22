@@ -58,6 +58,9 @@ type Update struct {
 }
 
 type Viewport interface {
+	// Grant returns the creator's one-shot producer grant, or "" while a
+	// producer is attached or being admitted and for non-creator views. A
+	// retired producer re-arms a fresh grant on the same viewport.
 	Grant() string
 	Handle() string
 	Snapshot() Snapshot

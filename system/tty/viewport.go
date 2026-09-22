@@ -15,30 +15,45 @@ import (
 )
 
 type viewport struct {
-	updates       <-chan ttyapi.Update
-	session       *session
-	owner         pid.PID
-	producerGrant string
-	watchID       uint64
-	once          sync.Once
-	closed        atomic.Bool
-	rights        ttyapi.MountRights
+	updates <-chan ttyapi.Update
+	session *session
+	owner   pid.PID
+	watchID uint64
+	once    sync.Once
+	closed  atomic.Bool
+	rights  ttyapi.MountRights
+	creator bool
 }
 
-func (s *session) newViewport(owner pid.PID, grant string) *viewport {
+func (s *session) newViewport(owner pid.PID, creator bool) *viewport {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.newViewportLocked(owner, grant)
+	return s.newViewportLocked(owner, creator)
 }
 
-func (s *session) newViewportLocked(owner pid.PID, grant string) *viewport {
+func (s *session) newViewportLocked(owner pid.PID, creator bool) *viewport {
 	s.nextWatch++
 	ch := make(chan ttyapi.Update, 1)
 	s.watches[s.nextWatch] = watch{owner: owner, ch: ch}
-	return &viewport{rights: ttyapi.MountRights{Observe: true, Input: true, Resize: true}, session: s, owner: owner, producerGrant: grant, watchID: s.nextWatch, updates: ch}
+	return &viewport{rights: ttyapi.MountRights{Observe: true, Input: true, Resize: true}, session: s, owner: owner, creator: creator, watchID: s.nextWatch, updates: ch}
 }
 
-func (v *viewport) Grant() string                 { return v.producerGrant }
+// Grant returns the armed producer grant of the creator viewport. It is empty
+// while admission holds the grant or a producer is attached; retiring the
+// producer arms a fresh one.
+func (v *viewport) Grant() string {
+	if !v.creator || v.closed.Load() {
+		return ""
+	}
+	ss, service := v.session, v.session.service
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	if service.closed || service.grants[ss.grant] != ss {
+		return ""
+	}
+	return ss.grant
+}
+
 func (v *viewport) Handle() string                { return v.session.handle }
 func (v *viewport) Updates() <-chan ttyapi.Update { return v.updates }
 

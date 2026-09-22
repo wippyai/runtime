@@ -71,7 +71,7 @@ func mountNode(ref string) (string, error) {
 
 func (v *viewport) Mount(ctx context.Context, recipient pid.PID, rights ttyapi.MountRights) (string, error) {
 	owner, ok := runtime.GetFramePID(ctx)
-	if !ok || !samePID(owner, v.owner) || !samePID(owner, v.session.creator) || v.producerGrant == "" ||
+	if !ok || !samePID(owner, v.owner) || !samePID(owner, v.session.creator) || !v.creator ||
 		!security.IsAllowed(ctx, "tty.mount", v.Handle(), nil) {
 		return "", ttyapi.ErrPermissionDenied
 	}
@@ -104,7 +104,7 @@ func (v *viewport) Mount(ctx context.Context, recipient pid.PID, rights ttyapi.M
 		return "", ttyapi.ErrViewportClosed
 	}
 	ss.viewers[recipient]++
-	child := ss.newViewportLocked(recipient, "")
+	child := ss.newViewportLocked(recipient, false)
 	child.rights = rights
 	m := &mountRecord{service: s, issuer: v, view: child, recipient: recipient, rights: rights, ref: ref, done: make(chan struct{}), ack: make(chan struct{}, 1)}
 	// Timer setup is serialized with close by the service lock: the callback

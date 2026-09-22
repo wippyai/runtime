@@ -104,7 +104,7 @@ func (s *Service) Create(ctx context.Context, width, height int) (ttyapi.Viewpor
 	}
 	s.sessions[handle] = ss
 	s.grants[grant] = ss
-	return ss.newViewport(owner, grant), nil
+	return ss.newViewport(owner, true), nil
 }
 
 func (s *Service) Attach(ctx context.Context, handle string) (ttyapi.Viewport, error) {
@@ -133,7 +133,7 @@ func (s *Service) Attach(ctx context.Context, handle string) (ttyapi.Viewport, e
 		return nil, ttyapi.ErrViewportClosed
 	}
 	ss.viewers[owner]++
-	view := ss.newViewportLocked(owner, "")
+	view := ss.newViewportLocked(owner, false)
 	view.rights = ttyapi.MountRights{Observe: true, Input: samePID(owner, ss.creator) || security.IsAllowed(ctx, ttyapi.RightInput, handle, nil), Resize: samePID(owner, ss.creator) || security.IsAllowed(ctx, ttyapi.RightResize, handle, nil)}
 	ss.mu.Unlock()
 	return view, nil

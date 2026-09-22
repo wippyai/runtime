@@ -132,6 +132,20 @@ transactionally: a rejected process start restores an unresolved grant, while
 a process that has resolved the port consumes it permanently. Unsupported
 hosts reject terminal attachments rather than dropping them.
 
+When the producer exits, the viewport keeps its handle, viewers, mounts,
+geometry, page, and last frame, and `grant()` returns a fresh grant for a
+replacement producer. The exit is delivered to linked and monitoring processes
+only after the producer's port has retired, so an exit handler can spawn the
+replacement directly:
+
+```lua
+local child = assert(process.with_options({terminal = assert(view:grant())})
+    :spawn("app:child-v2", "app:workers"))
+```
+
+While a producer is attached or its spawn is being admitted, `grant()` returns
+an error. A retired producer's port cannot present frames or change input.
+
 `handle()` returns a local viewport identifier. `tty.attach(handle)` adds a local
 viewer; a non-owner requires `tty.observe`, with input and resize granted only
 when permitted by its scope. Handles do not grant authority by themselves and
@@ -139,7 +153,7 @@ do not cross nodes; use recipient-bound mounts for delegation.
 
 | Method | Purpose |
 |---|---|
-| `grant()` | Return the creator's one-shot producer grant |
+| `grant()` | Return the creator's producer grant; a fresh one after each producer retires |
 | `handle()` | Return the local viewer handle |
 | `snapshot(after_revision?)` | Read current dimensions, rows, cursor, and revision; return `nil` when unchanged |
 | `updates()` | Return a channel of coalesced revision watermarks |
