@@ -1300,13 +1300,15 @@ func TestPIDRegistration(t *testing.T) {
 		t.Fatal("PID should not exist before submit")
 	}
 
-	// Submit process
-	proc, err := sched.Submit(context.Background(), pid, &CounterProcess{}, "", testInput(1))
+	// The gate keeps the process live while its registration is observed.
+	gate := &resizeGateProcess{entered: make(chan struct{}), release: make(chan struct{})}
+	proc, err := sched.Submit(context.Background(), pid, gate, "", nil)
 	if err != nil {
 		t.Fatalf("submit error: %v", err)
 	}
+	defer close(gate.release)
+	<-gate.entered
 
-	// After submit - PID should be in map
 	v, found := sched.byPID.Load(pid.String())
 	if !found {
 		t.Fatal("PID should exist after submit")
