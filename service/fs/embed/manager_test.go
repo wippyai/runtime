@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"io/fs"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -19,8 +20,7 @@ import (
 )
 
 func TestManager_Add(t *testing.T) {
-	ctx := context.Background()
-	bus := eventbus.NewBus()
+	ctx, bus, _ := newFSRegistryHarness(t)
 	embedReg := &mockEmbedRegistry{
 		filesystems: map[string]fs.ReadDirFS{
 			"test:fs": &mockReadDirFS{},
@@ -49,8 +49,7 @@ func TestManager_Add(t *testing.T) {
 }
 
 func TestManager_Add_DuplicateID(t *testing.T) {
-	ctx := context.Background()
-	bus := eventbus.NewBus()
+	ctx, bus, _ := newFSRegistryHarness(t)
 	embedReg := &mockEmbedRegistry{
 		filesystems: map[string]fs.ReadDirFS{
 			"test:fs": &mockReadDirFS{},
@@ -78,8 +77,7 @@ func TestManager_Add_DuplicateID(t *testing.T) {
 }
 
 func TestManager_Add_InvalidKind(t *testing.T) {
-	ctx := context.Background()
-	bus := eventbus.NewBus()
+	ctx, bus, _ := newFSRegistryHarness(t)
 	embedReg := NewRegistry()
 	dtt := &mockDTT{}
 
@@ -97,8 +95,7 @@ func TestManager_Add_InvalidKind(t *testing.T) {
 }
 
 func TestManager_Add_DecodeFailure(t *testing.T) {
-	ctx := context.Background()
-	bus := eventbus.NewBus()
+	ctx, bus, _ := newFSRegistryHarness(t)
 	embedReg := NewRegistry()
 	dtt := &mockDTT{unmarshalErr: assert.AnError}
 
@@ -116,8 +113,7 @@ func TestManager_Add_DecodeFailure(t *testing.T) {
 }
 
 func TestManager_Add_FSNotFound(t *testing.T) {
-	ctx := context.Background()
-	bus := eventbus.NewBus()
+	ctx, bus, _ := newFSRegistryHarness(t)
 	embedReg := NewRegistry()
 	dtt := &mockDTT{}
 
@@ -136,8 +132,7 @@ func TestManager_Add_FSNotFound(t *testing.T) {
 }
 
 func TestManager_Update(t *testing.T) {
-	ctx := context.Background()
-	bus := eventbus.NewBus()
+	ctx, bus, _ := newFSRegistryHarness(t)
 	embedReg := &mockEmbedRegistry{
 		filesystems: map[string]fs.ReadDirFS{
 			"test:fs": &mockReadDirFS{},
@@ -171,8 +166,7 @@ func TestManager_Update(t *testing.T) {
 }
 
 func TestManager_Update_NotFound(t *testing.T) {
-	ctx := context.Background()
-	bus := eventbus.NewBus()
+	ctx, bus, _ := newFSRegistryHarness(t)
 	embedReg := NewRegistry()
 	dtt := &mockDTT{}
 
@@ -190,8 +184,8 @@ func TestManager_Update_NotFound(t *testing.T) {
 }
 
 func TestManager_Update_ResolutionFailureKeepsExistingFS(t *testing.T) {
-	ctx := context.Background()
-	bus := &recordingBus{}
+	ctx, inner, _ := newFSRegistryHarness(t)
+	bus := &recordingBus{Bus: inner}
 	embedReg := &mockEmbedRegistry{filesystems: map[string]fs.ReadDirFS{"test:fs": &mockReadDirFS{}}}
 	dtt := &mockDTT{}
 
@@ -213,12 +207,11 @@ func TestManager_Update_ResolutionFailureKeepsExistingFS(t *testing.T) {
 	_, ok := manager.filesystems[entry.ID]
 	manager.mu.RUnlock()
 	assert.True(t, ok, "failed update must keep the current live filesystem")
-	assert.Empty(t, bus.events, "failed update must not send fs delete/register events")
+	assert.Empty(t, bus.sent(), "failed update must not send fs delete/register events")
 }
 
 func TestManager_Delete(t *testing.T) {
-	ctx := context.Background()
-	bus := eventbus.NewBus()
+	ctx, bus, _ := newFSRegistryHarness(t)
 	embedReg := &mockEmbedRegistry{
 		filesystems: map[string]fs.ReadDirFS{
 			"test:fs": &mockReadDirFS{},
@@ -251,8 +244,7 @@ func TestManager_Delete(t *testing.T) {
 }
 
 func TestManager_Delete_NotFound(t *testing.T) {
-	ctx := context.Background()
-	bus := eventbus.NewBus()
+	ctx, bus, _ := newFSRegistryHarness(t)
 	embedReg := NewRegistry()
 	dtt := &mockDTT{}
 
@@ -271,33 +263,31 @@ func TestManager_Delete_NotFound(t *testing.T) {
 
 // Mock implementations
 
+// recordingBus records the events the Manager sends and delivers them on the
+// wrapped bus, where the filesystem registry answers them.
 type recordingBus struct {
+	*eventbus.Bus
 	events []eventapi.Event
+	mu     sync.Mutex
 }
 
-func (b *recordingBus) Subscribe(context.Context, eventapi.System, chan<- eventapi.Event) (eventapi.SubscriberID, error) {
-	return "", nil
-}
-
-func (b *recordingBus) SubscribeP(
-	context.Context,
-	eventapi.System,
-	eventapi.Kind,
-	chan<- eventapi.Event,
-) (eventapi.SubscriberID, error) {
-	return "", nil
-}
-
-func (*recordingBus) HasSubscribers(eventapi.System, eventapi.Kind) bool { return true }
-
-func (b *recordingBus) Unsubscribe(context.Context, eventapi.SubscriberID) {}
-
-func (b *recordingBus) Send(_ context.Context, evt eventapi.Event) {
+func (b *recordingBus) Send(ctx context.Context, evt eventapi.Event) {
+	b.mu.Lock()
 	b.events = append(b.events, evt)
+	b.mu.Unlock()
+	b.Bus.Send(ctx, evt)
+}
+
+func (b *recordingBus) sent() []eventapi.Event {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return append([]eventapi.Event(nil), b.events...)
 }
 
 func (b *recordingBus) reset() {
+	b.mu.Lock()
 	b.events = nil
+	b.mu.Unlock()
 }
 
 type mockEmbedRegistry struct {

@@ -142,3 +142,17 @@ func NewPermissionDeniedError(required, ownerMode any, cause error) apierror.Err
 		WithDetails(attrs.NewBagFrom(map[string]any{"required": required, "ownerMode": ownerMode, "cause": cause.Error()})).
 		WithCause(cause)
 }
+
+// ErrRegistrationCoordinationUnavailable reports that the context carries no
+// AwaitService, so a filesystem registry request cannot be confirmed.
+var ErrRegistrationCoordinationUnavailable = apierror.New(apierror.Unavailable,
+	"filesystem registration coordination unavailable").WithRetryable(apierror.True)
+
+// NewFilesystemRegistrationError reports that the filesystem registry did not
+// confirm a register or delete request for id.
+func NewFilesystemRegistrationError(id, request string, err error) apierror.Error {
+	return apierror.New(apierror.Internal, "filesystem registry did not confirm "+request+" for "+id).
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"filesystem_id": id, "request": request, "cause": err.Error()})).
+		WithCause(err)
+}
