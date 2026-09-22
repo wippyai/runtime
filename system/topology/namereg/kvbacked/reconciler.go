@@ -294,12 +294,62 @@ func (s *Service) handleWatchEvent(ev kvapi.WatchEvent) error {
 		}
 	case strings.HasPrefix(key, ackPrefix), strings.HasPrefix(key, rejectPrefix):
 		if s.strong != nil {
-			if err := s.strong.reconcileAllPending(); err != nil {
+			prefix := ackPrefix
+			if strings.HasPrefix(key, rejectPrefix) {
+				prefix = rejectPrefix
+			}
+			name, found, err := s.strongVoteName(key, prefix)
+			if err != nil {
 				return err
+			}
+			if found {
+				return s.strong.reconcile(name)
 			}
 		}
 	}
 	return nil
+}
+
+var voteComponentUnescaper = strings.NewReplacer("%3A", ":", "%25", "%")
+
+// strongVoteName routes only votes for a current required participant. Storage
+// and current-record failures remain errors so reconciliation closes admission.
+func (s *Service) strongVoteName(key, prefix string) (string, bool, error) {
+	rest, ok := strings.CutPrefix(key, prefix)
+	if !ok {
+		return "", false, nil
+	}
+	encodedName, rest, ok := strings.Cut(rest, ":")
+	if !ok {
+		return "", false, nil
+	}
+	attempt, encodedNode, ok := strings.Cut(rest, ":")
+	if !ok || attempt == "" || encodedNode == "" {
+		return "", false, nil
+	}
+	name := voteComponentUnescaper.Replace(encodedName)
+	node := voteComponentUnescaper.Replace(encodedNode)
+	if voteComponent(name) != encodedName || voteComponent(node) != encodedNode {
+		return "", false, nil
+	}
+	pending, err := s.engine.Get(pendingKey(name))
+	if errors.Is(err, kvapi.ErrKeyNotFound) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("read vote pending %q: %w", name, err)
+	}
+	hdr, err := decodePending(pending.Value)
+	if err != nil {
+		return "", false, fmt.Errorf("registry record %q: %w", pending.Key, err)
+	}
+	if err := validateNamingRecord(pending.Key, pendingPrefix, hdr.Name, hdr.PID); err != nil {
+		return "", false, err
+	}
+	if hdr.AttemptID != attempt || !contains(hdr.RequiredNodes, node) {
+		return "", false, nil
+	}
+	return name, true, nil
 }
 
 // translateActive feeds one active-binding change into the dissem plane: the
