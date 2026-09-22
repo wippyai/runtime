@@ -8,7 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -36,18 +36,32 @@ const strongRejectConflict = "cross_scope_conflict"
 
 func pendingKey(name string) string { return pendingPrefix + name }
 
-func ackBase(name string, epoch uint64) string {
-	return ackPrefix + name + ":" + strconv.FormatUint(epoch, 10) + ":"
+// Vote keys are scoped to the opaque registration attempt. Entry.Epoch is zero
+// for local engines and can repeat across replacement observations, while the
+// AttemptID remains stable when the pending header is rewritten for membership.
+// The name and node components escape '%' and ':' so a colon-bearing component
+// cannot absorb the fixed attempt segment and alias another vote key. Simple
+// components retain the requested ack:<name>:<attemptID>:<node> form.
+var voteComponentEscaper = strings.NewReplacer("%", "%25", ":", "%3A")
+
+func voteComponent(s string) string {
+	return voteComponentEscaper.Replace(s)
 }
 
-func ackKey(name string, epoch uint64, node pid.NodeID) string { return ackBase(name, epoch) + node }
-
-func rejectBase(name string, epoch uint64) string {
-	return rejectPrefix + name + ":" + strconv.FormatUint(epoch, 10) + ":"
+func ackBase(name, attemptID string) string {
+	return ackPrefix + voteComponent(name) + ":" + attemptID + ":"
 }
 
-func rejectKey(name string, epoch uint64, node pid.NodeID) string {
-	return rejectBase(name, epoch) + node
+func ackKey(name, attemptID string, node pid.NodeID) string {
+	return ackBase(name, attemptID) + voteComponent(node)
+}
+
+func rejectBase(name, attemptID string) string {
+	return rejectPrefix + voteComponent(name) + ":" + attemptID + ":"
+}
+
+func rejectKey(name, attemptID string, node pid.NodeID) string {
+	return rejectBase(name, attemptID) + voteComponent(node)
 }
 
 // pendingHeader is the stored payload of a Strong reservation. Epoch is not
@@ -332,7 +346,7 @@ func (st *strongState) register(ctx context.Context, name string, p pid.PID) (gl
 	// exists (read via the leader), so it must not go through reconcile, whose
 	// local read may not see the freshly-forwarded write yet and would
 	// mis-fire onTerminal. The watch reconciler advances it from here on.
-	st.attest(name, epoch, attemptID, pendingPID, phdr.RequiredNodes)
+	st.attest(name, epoch, pe.Version, attemptID, pendingPID, phdr.RequiredNodes)
 	if err := ctx.Err(); err != nil {
 		return globalapi.RegisterOutcome{Epoch: epoch}, err
 	}
@@ -546,7 +560,7 @@ func (st *strongState) reconcileForRun(name string, run *reconcilerLifecycle) (e
 		return fmt.Errorf("registry record %q: invalid owner: %w", pe.Key, perr)
 	}
 
-	st.attest(name, epoch, hdr.AttemptID, pendingPID, hdr.RequiredNodes)
+	st.attest(name, epoch, pe.Version, hdr.AttemptID, pendingPID, hdr.RequiredNodes)
 
 	if st.isLeader() {
 		st.leaderDrive(name, epoch, pe.Version, hdr)
@@ -556,26 +570,52 @@ func (st *strongState) reconcileForRun(name string, run *reconcilerLifecycle) (e
 
 // attest makes this node ack (and latch an exclusion) or reject the pending,
 // once, based on a cross-scope local conflict check.
-func (st *strongState) attest(name string, epoch uint64, attemptID string, pendingPID pid.PID, required []pid.NodeID) {
+func (st *strongState) attest(name string, epoch, pendingVersion uint64, attemptID string, pendingPID pid.PID, required []pid.NodeID) {
 	if !contains(required, st.svc.selfNode) {
 		return
 	}
-	if _, err := st.svc.engine.Get(ackKey(name, epoch, st.svc.selfNode)); err == nil {
-		return // already acked
+	ack := ackKey(name, attemptID, st.svc.selfNode)
+	reject := rejectKey(name, attemptID, st.svc.selfNode)
+	if _, err := st.svc.engine.Get(ack); err == nil {
+		st.latch(name, pendingPID, attemptID, epoch)
+		return // already acked for this attempt
 	}
-	if _, err := st.svc.engine.Get(rejectKey(name, epoch, st.svc.selfNode)); err == nil {
-		return // already rejected
+	if _, err := st.svc.engine.Get(reject); err == nil {
+		st.setTerminal(name, attemptID, strongRejectConflict, nil, epoch)
+		return // already rejected for this attempt
 	}
 	if cp, conflict := st.localConflict(name, pendingPID); conflict && cp.String() != pendingPID.String() {
-		st.setTerminal(name, attemptID, strongRejectConflict, nil, epoch)
-		if _, _, err := st.svc.engine.SetIfAbsent(rejectKey(name, epoch, st.svc.selfNode), []byte(strongRejectConflict)); err != nil {
+		committed, err := st.svc.engine.Txn([]kvapi.TxnOp{
+			{Kind: kvapi.TxnCheck, Cond: kvapi.CondVersion, Key: pendingKey(name), Expect: pendingVersion},
+			{Kind: kvapi.TxnCheck, Cond: kvapi.CondAbsent, Key: ack},
+			{Kind: kvapi.TxnPut, Cond: kvapi.CondAbsent, Key: reject, Value: []byte(strongRejectConflict)},
+		})
+		if err != nil {
 			st.logger.Debug("strong reject write failed", zap.String("name", name), zap.Error(err))
+		} else if !committed {
+			return
 		}
+		st.setTerminal(name, attemptID, strongRejectConflict, nil, epoch)
 		return
 	}
+	// Keep the local exclusion latched across an uncertain or failed vote
+	// submission. A durable vote with a lost response must not leave a window
+	// for a competing LOCAL/EVENTUAL registration. A later authoritative
+	// pending/active/terminal observation replaces or releases this latch.
 	st.latch(name, pendingPID, attemptID, epoch)
-	if _, _, err := st.svc.engine.SetIfAbsent(ackKey(name, epoch, st.svc.selfNode), []byte(st.svc.selfNode)); err != nil {
+	committed, err := st.svc.engine.Txn([]kvapi.TxnOp{
+		{Kind: kvapi.TxnCheck, Cond: kvapi.CondVersion, Key: pendingKey(name), Expect: pendingVersion},
+		{Kind: kvapi.TxnCheck, Cond: kvapi.CondAbsent, Key: reject},
+		{Kind: kvapi.TxnPut, Cond: kvapi.CondAbsent, Key: ack, Value: []byte(st.svc.selfNode)},
+	})
+	if err != nil {
 		st.logger.Debug("strong ack write failed", zap.String("name", name), zap.Error(err))
+		return
+	}
+	if !committed {
+		// Keep the latch until a later pending/active/terminal observation
+		// explains the failed conditional write.
+		return
 	}
 }
 
@@ -586,12 +626,12 @@ func (st *strongState) leaderDrive(name string, epoch, headerVer uint64, hdr pen
 	// reject event that triggered this drive implies all prior acks/rejects are
 	// already applied locally. A reject wins; a complete ack set promotes.
 	for _, n := range hdr.RequiredNodes {
-		if _, err := st.svc.engine.Get(rejectKey(name, epoch, n)); err == nil {
+		if _, err := st.svc.engine.Get(rejectKey(name, hdr.AttemptID, n)); err == nil {
 			st.leaderExpire(name, epoch, headerVer, hdr, strongRejectConflict)
 			return
 		}
 	}
-	if st.complete(name, epoch, hdr.RequiredNodes) {
+	if st.complete(name, hdr.AttemptID, hdr.RequiredNodes) {
 		st.leaderPromote(name, epoch, headerVer, hdr)
 		return
 	}
@@ -610,16 +650,16 @@ func (st *strongState) leaderDrive(name string, epoch, headerVer uint64, hdr pen
 			return
 		}
 	}
-	if st.complete(name, epoch, hdr.RequiredNodes) {
+	if st.complete(name, hdr.AttemptID, hdr.RequiredNodes) {
 		st.leaderPromote(name, epoch, headerVer, hdr)
 		return
 	}
 	st.leaderExpire(name, epoch, headerVer, hdr, "deadline")
 }
 
-func (st *strongState) complete(name string, epoch uint64, required []pid.NodeID) bool {
+func (st *strongState) complete(name, attemptID string, required []pid.NodeID) bool {
 	for _, n := range required {
-		if _, err := st.svc.engine.Get(ackKey(name, epoch, n)); err != nil {
+		if _, err := st.svc.engine.Get(ackKey(name, attemptID, n)); err != nil {
 			return false
 		}
 	}
@@ -648,9 +688,9 @@ func (st *strongState) leaderPromote(name string, epoch, headerVer uint64, hdr p
 		// admission decision in the committed transaction so a rejection that
 		// precedes promotion in Raft order cannot be ignored.
 		ops = append(ops,
-			kvapi.TxnOp{Kind: kvapi.TxnCheck, Cond: kvapi.CondExists, Key: ackKey(name, epoch, n)},
-			kvapi.TxnOp{Kind: kvapi.TxnCheck, Cond: kvapi.CondAbsent, Key: rejectKey(name, epoch, n)},
-			kvapi.TxnOp{Kind: kvapi.TxnDelete, Cond: kvapi.CondAny, Key: ackKey(name, epoch, n)},
+			kvapi.TxnOp{Kind: kvapi.TxnCheck, Cond: kvapi.CondExists, Key: ackKey(name, hdr.AttemptID, n)},
+			kvapi.TxnOp{Kind: kvapi.TxnCheck, Cond: kvapi.CondAbsent, Key: rejectKey(name, hdr.AttemptID, n)},
+			kvapi.TxnOp{Kind: kvapi.TxnDelete, Cond: kvapi.CondAny, Key: ackKey(name, hdr.AttemptID, n)},
 		)
 	}
 	committed, terr := st.svc.engine.Txn(ops)
@@ -685,7 +725,7 @@ func (st *strongState) leaderExpire(name string, epoch, headerVer uint64, hdr pe
 		{Kind: kvapi.TxnDelete, Cond: kvapi.CondAny, Key: pendingKey(name)},
 	}
 	for _, n := range hdr.RequiredNodes {
-		ack := ackKey(name, epoch, n)
+		ack := ackKey(name, hdr.AttemptID, n)
 		_, err := st.svc.engine.Get(ack)
 		if err != nil && !errors.Is(err, kvapi.ErrKeyNotFound) {
 			return
@@ -703,12 +743,12 @@ func (st *strongState) leaderExpire(name string, epoch, headerVer uint64, hdr pe
 			}
 			ops = append(ops,
 				kvapi.TxnOp{Kind: kvapi.TxnCheck, Cond: condition, Key: ack},
-				kvapi.TxnOp{Kind: kvapi.TxnCheck, Cond: kvapi.CondAbsent, Key: rejectKey(name, epoch, n)},
+				kvapi.TxnOp{Kind: kvapi.TxnCheck, Cond: kvapi.CondAbsent, Key: rejectKey(name, hdr.AttemptID, n)},
 			)
 		}
 		ops = append(ops,
 			kvapi.TxnOp{Kind: kvapi.TxnDelete, Cond: kvapi.CondAny, Key: ack},
-			kvapi.TxnOp{Kind: kvapi.TxnDelete, Cond: kvapi.CondAny, Key: rejectKey(name, epoch, n)},
+			kvapi.TxnOp{Kind: kvapi.TxnDelete, Cond: kvapi.CondAny, Key: rejectKey(name, hdr.AttemptID, n)},
 		)
 	}
 	if reason == "deadline" && len(missing) == 0 {

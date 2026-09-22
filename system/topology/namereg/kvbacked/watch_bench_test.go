@@ -136,22 +136,18 @@ func runStrongWatchVoteBurst(b *testing.B, participants, pending, unrelated int)
 		if _, err := base.Set(pendingKey(claim), hdr); err != nil {
 			b.Fatal(err)
 		}
-		entry, err := base.Get(pendingKey(claim))
-		if err != nil {
-			b.Fatal(err)
-		}
 		for j, node := range required {
 			// Keep one required node absent so the pending claim remains
 			// in-flight while every event checks the full required set.
 			if j == len(required)-1 {
 				continue
 			}
-			if _, err := base.Set(ackKey(claim, entry.Epoch, node), []byte(node)); err != nil {
+			if _, err := base.Set(ackKey(claim, claim, node), []byte(node)); err != nil {
 				b.Fatal(err)
 			}
 		}
 		for _, node := range required {
-			events = append(events, kvapi.WatchEvent{Current: &kvapi.Entry{Key: ackKey(claim, entry.Epoch, node)}})
+			events = append(events, kvapi.WatchEvent{Current: &kvapi.Entry{Key: ackKey(claim, claim, node)}})
 		}
 	}
 
