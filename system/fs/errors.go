@@ -143,8 +143,9 @@ func NewPermissionDeniedError(required, ownerMode any, cause error) apierror.Err
 		WithCause(cause)
 }
 
-// ErrRegistrationCoordinationUnavailable reports that the context carries no
-// AwaitService, so a filesystem registry request cannot be confirmed.
+// ErrRegistrationCoordinationUnavailable reports that a filesystem registry
+// request cannot be confirmed: the context carries no AwaitService, or no
+// filesystem registry is subscribed to answer it.
 var ErrRegistrationCoordinationUnavailable = apierror.New(apierror.Unavailable,
 	"filesystem registration coordination unavailable").WithRetryable(apierror.True)
 

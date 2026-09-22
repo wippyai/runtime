@@ -168,13 +168,15 @@ func (m *Manager) removeFS(ctx context.Context, id registry.ID) error {
 // awaitFS sends a filesystem registry request and waits for its accept or
 // reject. Replies are correlated by filesystem path; the Manager serializes
 // its operations under mu and awaits each reply, so no earlier request for
-// the same path is outstanding when a waiter is prepared.
+// the same path is outstanding when a waiter is prepared. The wait has no
+// fixed budget: it ends with the reply or with ctx. A request nothing is
+// subscribed to can never be answered, so it fails at once.
 func (m *Manager) awaitFS(ctx context.Context, request event.Event) error {
 	awaitSvc := event.GetAwaitService(ctx)
-	if awaitSvc == nil {
+	if awaitSvc == nil || !m.bus.HasSubscribers(fsapi.System, request.Kind) {
 		return systemfs.NewFilesystemRegistrationError(request.Path, request.Kind, systemfs.ErrRegistrationCoordinationUnavailable)
 	}
-	waiter, err := awaitSvc.Prepare(ctx, fsapi.System, fsReplyKinds, request.Path, 0)
+	waiter, err := awaitSvc.Prepare(ctx, fsapi.System, fsReplyKinds, request.Path, event.ContextBoundAwait)
 	if err != nil {
 		return systemfs.NewFilesystemRegistrationError(request.Path, request.Kind, err)
 	}

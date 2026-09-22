@@ -230,3 +230,79 @@ func readRegistryFile(t *testing.T, fsReg *systemfs.Registry, id registry.ID, na
 	require.NoError(t, err)
 	return string(data)
 }
+
+// recordingAwaitService records the timeout each wait is prepared with and
+// delegates to a real AwaitService.
+type recordingAwaitService struct {
+	event.AwaitService
+	timeouts []time.Duration
+}
+
+func (s *recordingAwaitService) Prepare(ctx context.Context, system event.System, kind event.Kind, path event.Path, timeout time.Duration) (event.AwaitWaiter, error) {
+	s.timeouts = append(s.timeouts, timeout)
+	return s.AwaitService.Prepare(ctx, system, kind, path, timeout)
+}
+
+// A registration must complete however long the filesystem registry takes to
+// answer: the wait is bounded by the operation context alone, never by a
+// fixed budget such as event.DefaultAwaitTimeout.
+func TestManager_RegistrationWaitIsBoundOnlyByContext(t *testing.T) {
+	bus := eventbus.NewBus()
+	t.Cleanup(bus.Stop)
+	ctx, cancel := context.WithCancel(ctxapi.NewRootContext())
+	t.Cleanup(cancel)
+	inner := eventbus.NewAwaitService(bus)
+	require.NoError(t, inner.Start(ctx))
+	t.Cleanup(func() { _ = inner.Stop() })
+	recorder := &recordingAwaitService{AwaitService: inner}
+	ctx = event.WithAwaitService(ctx, recorder)
+	gate := newGatedFSRegistry(t, ctx, bus)
+
+	reg := NewRegistry()
+	require.NoError(t, reg.RegisterPack("org/mod-v1.0.0.wapp", "org/mod", "1.0.0",
+		createReaderWithResource(t, "ui", "app", map[string]string{"v.txt": "1"}), nil))
+	manager := NewManager(bus, &mockDTT{}, reg, zap.NewNop())
+	entry := embedEntry("ui", "app")
+	require.NoError(t, assertBlockedUntilAccepted(t, gate, fsapi.FsAccept, func() error { return manager.Add(ctx, entry) }))
+	require.Equal(t, []time.Duration{event.ContextBoundAwait}, recorder.timeouts)
+
+	// Canceling the operation context is what ends a pending wait.
+	opCtx, opCancel := context.WithCancel(ctx)
+	done := make(chan error, 1)
+	go func() { done <- manager.Update(opCtx, entry) }()
+	gate.awaitRegistration(t)
+	select {
+	case err := <-done:
+		t.Fatalf("Update returned before the registry answered or the context ended: %v", err)
+	case <-time.After(200 * time.Millisecond):
+	}
+	opCancel()
+	select {
+	case err := <-done:
+		require.ErrorIs(t, err, context.Canceled)
+	case <-time.After(5 * time.Second):
+		t.Fatal("Update did not return after its context was canceled")
+	}
+}
+
+// Without a filesystem registry subscribed, nothing can ever answer, so the
+// operation fails immediately instead of waiting.
+func TestManager_FailsImmediatelyWithoutFilesystemRegistry(t *testing.T) {
+	bus := eventbus.NewBus()
+	t.Cleanup(bus.Stop)
+	ctx := newAwaitContext(t, bus)
+
+	reg := NewRegistry()
+	require.NoError(t, reg.RegisterPack("org/mod-v1.0.0.wapp", "org/mod", "1.0.0",
+		createReaderWithResource(t, "ui", "app", map[string]string{"v.txt": "1"}), nil))
+	manager := NewManager(bus, &mockDTT{}, reg, zap.NewNop())
+
+	done := make(chan error, 1)
+	go func() { done <- manager.Add(ctx, embedEntry("ui", "app")) }()
+	select {
+	case err := <-done:
+		require.ErrorIs(t, err, systemfs.ErrRegistrationCoordinationUnavailable)
+	case <-time.After(5 * time.Second):
+		t.Fatal("Add blocked with no filesystem registry subscribed")
+	}
+}
