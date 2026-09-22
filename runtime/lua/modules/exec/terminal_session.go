@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 
 	lua "github.com/wippyai/go-lua"
+	execapi "github.com/wippyai/runtime/api/service/exec"
 	ttyapi "github.com/wippyai/runtime/api/tty"
 	luatty "github.com/wippyai/runtime/runtime/lua/modules/tty"
 	"github.com/wippyai/runtime/service/terminal/proxy"
@@ -18,6 +19,7 @@ var terminalSessionMethods = map[string]lua.LGoFunc{
 	"send":   terminalSessionSend,
 	"close":  terminalSessionClose,
 	"done":   terminalSessionDone,
+	"pid":    terminalSessionPID,
 	"status": terminalSessionStatus,
 }
 
@@ -26,14 +28,16 @@ type terminalSession struct {
 	events     chan ttyapi.Event
 	completion *terminalCompletion
 	bridge     *proxy.Proxy
+	identity   execapi.ProcessIdentity
 	errMu      sync.RWMutex
 	once       sync.Once
 	done       atomic.Bool
 }
 
-func newTerminalSession(bridge *proxy.Proxy, completion *terminalCompletion) *terminalSession {
+func newTerminalSession(bridge *proxy.Proxy, completion *terminalCompletion, identity execapi.ProcessIdentity) *terminalSession {
 	return &terminalSession{
 		events: make(chan ttyapi.Event, 256), bridge: bridge, completion: completion,
+		identity: identity,
 	}
 }
 
@@ -92,6 +96,40 @@ func terminalSessionClose(l *lua.LState) int {
 func terminalSessionDone(l *lua.LState) int {
 	l.Push(checkTerminalSession(l).completion.value)
 	return 1
+}
+
+func terminalSessionPID(l *lua.LState) int {
+	session := checkTerminalSession(l)
+	if session.identity == nil {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "process has no host process id").WithKind(lua.Unavailable).WithRetryable(false))
+		return 2
+	}
+	if session.bridge != nil && !session.bridge.Started() {
+		l.Push(lua.LNil)
+		if session.done.Load() {
+			session.errMu.RLock()
+			err := session.err
+			session.errMu.RUnlock()
+			if err != nil {
+				l.Push(wrapExecError(l, err, "PTY process", lua.Internal))
+				return 2
+			}
+			l.Push(lua.NewLuaError(l, "terminal process has not started").WithKind(lua.Unavailable).WithRetryable(false))
+			return 2
+		}
+		l.Push(lua.NewLuaError(l, "terminal process has not started").WithKind(lua.Unavailable).WithRetryable(true))
+		return 2
+	}
+	pid, err := session.identity.Pid()
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(wrapExecError(l, err, "read process id", lua.Internal))
+		return 2
+	}
+	l.Push(lua.LInteger(pid))
+	l.Push(lua.LNil)
+	return 2
 }
 
 func terminalSessionStatus(l *lua.LState) int {
