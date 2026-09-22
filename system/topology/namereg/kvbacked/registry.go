@@ -11,6 +11,7 @@ package kvbacked
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"sync/atomic"
 
@@ -82,6 +83,9 @@ func decodeInto(data []byte, v any) error {
 func decodeActive(data []byte) (activeValue, error) {
 	var v activeValue
 	err := decodeInto(data, &v)
+	if err == nil && v.Strong && v.AttemptID == "" {
+		err = fmt.Errorf("missing Strong attempt identity")
+	}
 	return v, err
 }
 

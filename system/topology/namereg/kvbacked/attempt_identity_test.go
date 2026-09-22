@@ -4,12 +4,37 @@ package kvbacked
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/wippyai/runtime/api/pid"
 	globalapi "github.com/wippyai/runtime/api/topology/namereg/global"
 )
+
+func TestStrongStartupRejectsMissingAttemptIdentity(t *testing.T) {
+	for _, prefix := range []string{pendingPrefix, activePrefix} {
+		t.Run(prefix, func(t *testing.T) {
+			r := newStrongReg(t, []pid.NodeID{"node-1"}, time.Second, nil)
+			owner := mkPID("node-1", "owner")
+			value, err := encode(map[string]any{"p": owner.String(), "n": "claim", "s": true, "r": []string{"node-1"}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			key := prefix + "claim"
+			if _, err := r.engine.Set(key, value); err != nil {
+				t.Fatal(err)
+			}
+			err = r.StartReconciler(t.Context())
+			if err == nil || !strings.Contains(err.Error(), key) || !strings.Contains(err.Error(), "missing Strong attempt identity") {
+				t.Fatalf("expected record-specific format error, got %v", err)
+			}
+			if r.ready.Load() {
+				t.Fatal("unsupported record opened admission")
+			}
+		})
+	}
+}
 
 func TestStrongPendingDeleteAfterPromotionRetainsActiveExclusion(t *testing.T) {
 	r := newStrongReg(t, []pid.NodeID{"node-1"}, time.Second, nil)
@@ -30,39 +55,6 @@ func TestStrongPendingDeleteAfterPromotionRetainsActiveExclusion(t *testing.T) {
 	}
 	if got, ok := r.IsStrongReserved("claim"); !ok || !got.Equal(owner) {
 		t.Fatalf("pending delete released promoted claim: %v, %v", got, ok)
-	}
-}
-
-func TestStrongExistingActiveWithoutAttemptReleasesOnDelete(t *testing.T) {
-	r := newStrongReg(t, []pid.NodeID{"node-1"}, time.Second, nil)
-	owner := mkPID("node-1", "owner")
-	value, err := encode(activeValue{PID: owner.String(), Name: "claim", Strong: true})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := r.engine.Set(activeKey("claim"), value); err != nil {
-		t.Fatal(err)
-	}
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
-	if err := r.StartReconciler(ctx); err != nil {
-		t.Fatal(err)
-	}
-	if got, ok := r.IsStrongReserved("claim"); !ok || !got.Equal(owner) {
-		t.Fatalf("existing active was not restored at startup: %v, %v", got, ok)
-	}
-	e, err := r.engine.Get(activeKey("claim"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := r.engine.CompareAndDelete(activeKey("claim"), e.Version); err != nil {
-		t.Fatal(err)
-	}
-	if err := r.strong.reconcile("claim"); err != nil {
-		t.Fatal(err)
-	}
-	if got, ok := r.IsStrongReserved("claim"); ok {
-		t.Fatalf("existing active exclusion was retained after deletion: %v", got)
 	}
 }
 

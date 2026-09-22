@@ -137,7 +137,7 @@ func TestReadinessRejectsMalformedNamingSeed(t *testing.T) {
 					}
 					var err error
 					if prefix == activePrefix {
-						value, err = encode(activeValue{Name: name, PID: owner, Strong: true})
+						value, err = encode(activeValue{Name: name, PID: owner, AttemptID: "attempt-readiness", Strong: true})
 					} else {
 						value, err = encode(pendingHeader{Name: name, PID: owner, AttemptID: "attempt-readiness", RequiredNodes: []pid.NodeID{"node-1"}})
 					}

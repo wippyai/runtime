@@ -262,19 +262,19 @@ func TestNonMemberSnapshotCapability(t *testing.T) {
 
 func TestStrongInvalidSnapshotRecordPreservesObligations(t *testing.T) {
 	owner := mkPID("node-1", "owner")
-	badNameActive, err := encode(activeValue{Name: "wrong", PID: owner.String(), Strong: true})
+	badNameActive, err := encode(activeValue{Name: "wrong", PID: owner.String(), AttemptID: "attempt-invalid", Strong: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	badOwnerActive, err := encode(activeValue{Name: "claim", PID: "invalid", Strong: true})
+	badOwnerActive, err := encode(activeValue{Name: "claim", PID: "invalid", AttemptID: "attempt-invalid", Strong: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	badNamePending, err := encode(pendingHeader{Name: "wrong", PID: owner.String()})
+	badNamePending, err := encode(pendingHeader{Name: "wrong", PID: owner.String(), AttemptID: "attempt-invalid"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	badOwnerPending, err := encode(pendingHeader{Name: "claim", PID: "invalid"})
+	badOwnerPending, err := encode(pendingHeader{Name: "claim", PID: "invalid", AttemptID: "attempt-invalid"})
 	if err != nil {
 		t.Fatal(err)
 	}

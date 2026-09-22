@@ -5,7 +5,6 @@ package kvbacked
 import (
 	"context"
 	cryptorand "crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -69,27 +68,10 @@ type pendingHeader struct {
 func decodePending(data []byte) (pendingHeader, error) {
 	var v pendingHeader
 	err := decodeInto(data, &v)
+	if err == nil && v.AttemptID == "" {
+		err = fmt.Errorf("missing Strong attempt identity")
+	}
 	return v, err
-}
-
-// pendingFromEntry preserves legacy vote epochs: reading an old reservation
-// must not rewrite it. Its committed entry identifies the legacy attempt;
-// promotion carries that identity into active, and delete events use Previous.
-func pendingFromEntry(e kvapi.Entry) (pendingHeader, error) {
-	hdr, err := decodePending(e.Value)
-	if err != nil {
-		return hdr, err
-	}
-	if err := validateNamingRecord(e.Key, pendingPrefix, hdr.Name, hdr.PID); err != nil {
-		return hdr, err
-	}
-	if hdr.AttemptID == "" {
-		if e.Version == 0 {
-			return hdr, fmt.Errorf("legacy Strong pending record has no committed version")
-		}
-		hdr.AttemptID = fmt.Sprintf("legacy:%x:%d:%d", sha256.Sum256([]byte(e.Key)), e.Epoch, e.Version)
-	}
-	return hdr, nil
 }
 
 type exclusionState uint8
@@ -538,9 +520,15 @@ func (st *strongState) reconcileForRun(name string, run *reconcilerLifecycle) (e
 		st.onTerminal(name, "")
 		return nil
 	}
-	hdr, derr := pendingFromEntry(pe)
+	hdr, derr := decodePending(pe.Value)
 	if derr != nil {
 		return fmt.Errorf("registry record %q: %w", pe.Key, derr)
+	}
+	if hdr.AttemptID == "" {
+		return fmt.Errorf("registry record %q: missing Strong attempt identity", pe.Key)
+	}
+	if err := validateNamingRecord(pe.Key, pendingPrefix, hdr.Name, hdr.PID); err != nil {
+		return err
 	}
 	epoch := pe.Epoch
 	pendingPID, perr := pid.ParsePID(hdr.PID)
@@ -563,7 +551,6 @@ func (st *strongState) attest(name string, epoch uint64, attemptID string, pendi
 		return
 	}
 	if _, err := st.svc.engine.Get(ackKey(name, epoch, st.svc.selfNode)); err == nil {
-		st.latch(name, pendingPID, attemptID, epoch)
 		return // already acked
 	}
 	if _, err := st.svc.engine.Get(rejectKey(name, epoch, st.svc.selfNode)); err == nil {
@@ -729,7 +716,7 @@ func (st *strongState) leaderExpire(name string, epoch, headerVer uint64, hdr pe
 func (st *strongState) unreserve(name string) (bool, error) {
 	pe, err := st.svc.get(pendingKey(name))
 	if err == nil {
-		hdr, derr := pendingFromEntry(pe)
+		hdr, derr := decodePending(pe.Value)
 		if derr == nil {
 			st.leaderExpire(name, pe.Epoch, pe.Version, hdr, "unreserve")
 		}
@@ -765,14 +752,6 @@ func (st *strongState) onTerminal(name, attemptID string) {
 	st.mu.Lock()
 	ex, ok := st.exclusions[name]
 	if attemptID == "" && ok {
-		if ex.attemptID == "" && ex.state == exclusionActive {
-			// Already-active records written before attempt identity existed have
-			// no waiter to complete. Keep their original exclusion-release path.
-			delete(st.exclusions, name)
-			st.mu.Unlock()
-			st.stopTimer(name)
-			return
-		}
 		attemptID = ex.attemptID
 	}
 	if attemptID == "" {
