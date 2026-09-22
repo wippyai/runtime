@@ -166,11 +166,15 @@ func (m *Manager) removeFS(ctx context.Context, id registry.ID) error {
 }
 
 // awaitFS sends a filesystem registry request and waits for its accept or
-// reject. Replies are correlated by filesystem path; the Manager serializes
-// its operations under mu and awaits each reply, so no earlier request for
-// the same path is outstanding when a waiter is prepared. The wait has no
-// fixed budget: it ends with the reply or with ctx. A request nothing is
-// subscribed to can never be answered, so it fails at once.
+// reject. The fs protocol correlates replies by filesystem path only. The
+// Manager serializes its operations under mu and awaits each reply, so none
+// of its own earlier requests for the path is outstanding when a waiter is
+// prepared. Requests other managers send for the same path are not
+// distinguished: a reply to one of them, such as the directory Manager's
+// unawaited fs.delete during a directory to embed kind change, satisfies the
+// waiter as well. The wait has no fixed budget: it ends with the reply or
+// with ctx. A request nothing is subscribed to can never be answered, so it
+// fails at once.
 func (m *Manager) awaitFS(ctx context.Context, request event.Event) error {
 	awaitSvc := event.GetAwaitService(ctx)
 	if awaitSvc == nil || !m.bus.HasSubscribers(fsapi.System, request.Kind) {
