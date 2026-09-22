@@ -4,9 +4,13 @@ package stages
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 
 	"github.com/wippyai/runtime/api/boot"
@@ -69,14 +73,14 @@ func (s *embedFSStage) Execute(ctx context.Context, entries *[]registry.Entry) e
 		}
 	}
 
-	res, err := collectResources(ctx, s.moduleRoot, filteredEntries, log)
+	res, digests, err := collectResources(ctx, s.moduleRoot, filteredEntries, log)
 	if err != nil {
 		return err
 	}
 
 	setResources(res)
 
-	transformed := transformEntries(*entries, embeddableIDs)
+	transformed := transformEntries(*entries, embeddableIDs, digests)
 	*entries = transformed
 
 	log.Info("transformed entries for embedding",
@@ -127,8 +131,9 @@ func filterEmbeddableEntries(entries []registry.Entry, embedPatterns []string) [
 	return embeddable
 }
 
-func collectResources(ctx context.Context, moduleRoot string, entries []registry.Entry, logger *zap.Logger) ([]wapp.ResourceSpec, error) {
+func collectResources(ctx context.Context, moduleRoot string, entries []registry.Entry, logger *zap.Logger) ([]wapp.ResourceSpec, map[string]string, error) {
 	specs := make([]wapp.ResourceSpec, 0, len(entries))
+	digests := make(map[string]string, len(entries))
 	for _, entry := range entries {
 		if entry.Kind != dirapi.Kind {
 			continue
@@ -136,22 +141,29 @@ func collectResources(ctx context.Context, moduleRoot string, entries []registry
 
 		cfg := directoryConfig(entry)
 		if cfg.Directory == "" {
-			return nil, fmt.Errorf("embed %s: directory path missing", entry.ID.String())
+			return nil, nil, fmt.Errorf("embed %s: directory path missing", entry.ID.String())
 		}
 
 		dir := resolveEmbedDirectory(ctx, moduleRoot, entry, cfg)
 
 		info, err := os.Stat(dir)
 		if err != nil {
-			return nil, fmt.Errorf("embed %s: directory %q not found: %w", entry.ID.String(), dir, err)
+			return nil, nil, fmt.Errorf("embed %s: directory %q not found: %w", entry.ID.String(), dir, err)
 		}
 		if !info.IsDir() {
-			return nil, fmt.Errorf("embed %s: path %q is not a directory", entry.ID.String(), dir)
+			return nil, nil, fmt.Errorf("embed %s: path %q is not a directory", entry.ID.String(), dir)
 		}
+
+		dirFS := os.DirFS(dir)
+		digest, err := digestResourceFS(dirFS)
+		if err != nil {
+			return nil, nil, fmt.Errorf("embed %s: digest %q: %w", entry.ID.String(), dir, err)
+		}
+		digests[entry.ID.String()] = digest
 
 		specs = append(specs, wapp.ResourceSpec{
 			ID:   wapp.NewID(entry.ID.NS, entry.ID.Name),
-			FS:   os.DirFS(dir),
+			FS:   dirFS,
 			Meta: wapp.Metadata(entry.Meta),
 		})
 
@@ -159,7 +171,38 @@ func collectResources(ctx context.Context, moduleRoot string, entries []registry
 			zap.String("id", entry.ID.String()),
 			zap.String("directory", dir))
 	}
-	return specs, nil
+	return specs, digests, nil
+}
+
+// digestResourceFS computes a deterministic aggregate content digest for a
+// resource's files: every file path and its bytes, in sorted path order.
+// It changes exactly when the served content changes, independent of
+// mtimes or how the pack writer later chunks or compresses the data.
+func digestResourceFS(fsys fs.FS) (string, error) {
+	var paths []string
+	if err := fs.WalkDir(fsys, ".", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() {
+			paths = append(paths, path)
+		}
+		return nil
+	}); err != nil {
+		return "", err
+	}
+	sort.Strings(paths)
+
+	hash := sha256.New()
+	for _, path := range paths {
+		data, err := fs.ReadFile(fsys, path)
+		if err != nil {
+			return "", err
+		}
+		fmt.Fprintf(hash, "%d:%s:%d:", len(path), path, len(data))
+		hash.Write(data)
+	}
+	return "sha256-content-v1:" + hex.EncodeToString(hash.Sum(nil)), nil
 }
 
 func directoryConfig(entry registry.Entry) *dirapi.Config {
@@ -188,7 +231,7 @@ func resolveEmbedDirectory(ctx context.Context, moduleRoot string, entry registr
 	return dir
 }
 
-func transformEntries(entries []registry.Entry, embeddableIDs []registry.ID) []registry.Entry {
+func transformEntries(entries []registry.Entry, embeddableIDs []registry.ID, digests map[string]string) []registry.Entry {
 	embeddableMap := make(map[string]bool)
 	for _, id := range embeddableIDs {
 		embeddableMap[id.String()] = true
@@ -197,12 +240,16 @@ func transformEntries(entries []registry.Entry, embeddableIDs []registry.ID) []r
 	transformed := make([]registry.Entry, len(entries))
 	for i, entry := range entries {
 		if embeddableMap[entry.ID.String()] && entry.Kind == dirapi.Kind {
+			data := map[string]any{}
+			if digest := digests[entry.ID.String()]; digest != "" {
+				data["digest"] = digest
+			}
 			transformed[i] = registry.Entry{
 				ID:       entry.ID,
 				Kind:     embedapi.Kind,
 				Meta:     entry.Meta,
 				Registry: entry.Registry,
-				Data:     payload.New(map[string]any{}),
+				Data:     payload.New(data),
 			}
 		} else {
 			transformed[i] = entry
