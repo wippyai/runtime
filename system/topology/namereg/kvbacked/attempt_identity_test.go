@@ -131,7 +131,16 @@ func TestStrongAttemptSurvivesPendingMembershipRewrite(t *testing.T) {
 	if _, err := r.engine.Set(pendingKey("claim"), data); err != nil {
 		t.Fatal(err)
 	}
-	r.strong.dropNodeFromPending("claim", "peer")
+	// Discovery loss no longer rewrites participant sets. An explicit rewrite
+	// still preserves the stored identity.
+	hdr.RequiredNodes = []pid.NodeID{"node-1"}
+	data, err = encode(hdr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.engine.Set(pendingKey("claim"), data); err != nil {
+		t.Fatal(err)
+	}
 	e, err := r.engine.Get(pendingKey("claim"))
 	if err != nil {
 		t.Fatal(err)

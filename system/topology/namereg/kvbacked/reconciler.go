@@ -286,7 +286,7 @@ func (s *Service) handleWatchEvent(ev kvapi.WatchEvent) error {
 			name := strings.TrimPrefix(key, pendingPrefix)
 			attemptID := ""
 			if ev.Current == nil && ev.Previous != nil {
-				if previous, err := decodePending(ev.Previous.Value); err == nil {
+				if previous, err := pendingFromEntry(*ev.Previous); err == nil {
 					attemptID = previous.AttemptID
 				}
 			}
@@ -333,7 +333,7 @@ func (st *strongState) reconcileAllPending() error {
 	var names []string
 	var recordErr error
 	if err := st.svc.engine.Scan(pendingPrefix, func(e kvapi.Entry) bool {
-		header, err := decodePending(e.Value)
+		header, err := pendingFromEntry(e)
 		if err != nil {
 			recordErr = fmt.Errorf("registry record %q: %w", e.Key, err)
 			return false
