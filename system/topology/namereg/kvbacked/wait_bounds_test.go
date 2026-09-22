@@ -61,7 +61,7 @@ func TestExpiredStrongBarrierFailureDoesNotSpin(t *testing.T) {
 	r.strong.isLeader = leader.Load
 	var probes atomic.Int32
 	r.barrier = func() error { probes.Add(1); return errors.New("barrier temporarily unavailable") }
-	t.Cleanup(func() { leader.Store(false); r.strong.stopTimer("claim") })
+	t.Cleanup(func() { leader.Store(false); r.strong.stopTimer("claim", "attempt-wait") })
 	owner := mkPID("node-1", "owner")
 	hdr := pendingHeader{PID: owner.String(), Name: "claim", AttemptID: "attempt-wait", RequiredNodes: []pid.NodeID{"node-1", "ghost"}, DeadlineUnixNano: time.Now().Add(-time.Second).UnixNano()}
 	value, err := encode(hdr)

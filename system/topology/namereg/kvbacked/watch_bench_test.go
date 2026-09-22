@@ -103,7 +103,7 @@ func runStrongWatchVoteBurst(b *testing.B, participants, pending, unrelated int)
 		reg.strong.mu.Lock()
 		for claim, timer := range reg.strong.timers {
 			delete(reg.strong.timers, claim)
-			timer.Stop()
+			timer.timer.Stop()
 		}
 		reg.strong.mu.Unlock()
 	})
