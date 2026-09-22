@@ -214,8 +214,15 @@ func runWithUseCase(cmd *cobra.Command, args []string, useCase string) (result e
 
 	// A Hub deployment is restarted from wippy.lock, without resolving the Hub
 	// reference again. Its selected root pack is therefore the same authority
-	// for published runtime defaults as it was on the first run.
-	runtimeDefaults, err := loadLockRootRuntimeDefaults(defaultLockFile, logger)
+	// for published runtime defaults as it was on the first run. The root is
+	// located through the local workspace replacements first: a root replaced
+	// by a source directory is not a pack and publishes no defaults.
+	workspaceCfg, err := loadWorkspaceConfig(cmd, logger)
+	if err != nil {
+		logger.Error("failed to resolve workspace config", zap.Error(err))
+		return err
+	}
+	runtimeDefaults, err := loadLockRootRuntimeDefaults(defaultLockFile, workspaceCfg, logger)
 	if err != nil {
 		logger.Error("failed to load deployment runtime defaults", zap.Error(err))
 		return err
@@ -355,6 +362,49 @@ func loadRuntimeConfig(cmd *cobra.Command, logger *zap.Logger) (boot.Config, err
 // loadRuntimeConfig, but first seeds it with optional runtime defaults.
 // Defaults are applied with lower precedence than file and CLI settings.
 func loadRuntimeConfigWithDefaults(cmd *cobra.Command, logger *zap.Logger, runtimeDefaults boot.Config) (boot.Config, error) {
+	return composeRuntimeConfig(cmd, logger, runtimeDefaults, fullConfigResolution)
+}
+
+// loadWorkspaceConfig resolves the local runtime config layers — config files,
+// native defaults and overrides, locally defined profiles, --set — without any
+// pack defaults. It exists to locate the deployment root before the root pack
+// is read. Its workspace section equals the workspace section of the full
+// config: packs never carry machine-local sections (runtimeConfigFromPackMetadata
+// rejects them), so profiles defined only by the pack contribute no workspace
+// keys and are left for the full resolution to apply and validate. Only the
+// workspace section is variable-resolved; other sections may reference
+// variables that the pack defines.
+func loadWorkspaceConfig(cmd *cobra.Command, logger *zap.Logger) (boot.Config, error) {
+	return composeRuntimeConfig(cmd, logger, nil, workspaceConfigResolution)
+}
+
+// configResolution selects how composeRuntimeConfig applies the selected
+// profiles and which sections it resolves variables in.
+type configResolution struct {
+	applyProfiles    func(boot.Config, []string) (boot.Config, error)
+	resolveVariables func(boot.Config) (boot.Config, error)
+}
+
+var fullConfigResolution = configResolution{
+	applyProfiles:    bootconfig.ApplyProfiles,
+	resolveVariables: bootconfig.ResolveVariables,
+}
+
+var workspaceConfigResolution = configResolution{
+	applyProfiles: func(cfg boot.Config, names []string) (boot.Config, error) {
+		applied, _, err := bootconfig.ApplyDefinedProfiles(cfg, names)
+		return applied, err
+	},
+	resolveVariables: func(cfg boot.Config) (boot.Config, error) {
+		return bootconfig.ResolveVariablesIn(cfg, "workspace")
+	},
+}
+
+// composeRuntimeConfig is the one layering order of runtime configuration:
+// runtime defaults < config files < native defaults, then selected profiles,
+// CLI logging flags, --set, -o overrides, native deployment overrides, and
+// variable resolution.
+func composeRuntimeConfig(cmd *cobra.Command, logger *zap.Logger, runtimeDefaults boot.Config, resolution configResolution) (boot.Config, error) {
 	cfg, err := loadBootConfig()
 	if err != nil {
 		return nil, err
@@ -369,35 +419,30 @@ func loadRuntimeConfigWithDefaults(cmd *cobra.Command, logger *zap.Logger, runti
 	}
 
 	cfg = bootconfig.Merge(nativeBootDefaults(), cfg)
-	cfg, err = bootconfig.ApplyProfiles(cfg, selectedProfiles(cmd))
+	cfg, err = resolution.applyProfiles(cfg, selectedProfiles(cmd))
 	if err != nil {
 		return nil, err
 	}
 
 	cfg = applyCLIOverrides(cfg)
 
-	if cmd == nil {
-		return bootconfig.ResolveVariables(applyNativeDeploymentConfig(cfg))
-	}
-
-	if sets, _ := cmd.Flags().GetStringArray("set"); len(sets) > 0 {
-		merged, err := applySetOverrides(cfg, sets)
-		if err != nil {
-			return nil, err
+	if cmd != nil {
+		if sets, _ := cmd.Flags().GetStringArray("set"); len(sets) > 0 {
+			cfg, err = applySetOverrides(cfg, sets)
+			if err != nil {
+				return nil, err
+			}
 		}
-		cfg = merged
+
+		if overrides, _ := cmd.Flags().GetStringSlice("override"); len(overrides) > 0 {
+			cfg, err = applyOverrideFlags(cfg, overrides, logger)
+			if err != nil {
+				return nil, err
+			}
+		}
 	}
 
-	overrides, _ := cmd.Flags().GetStringSlice("override")
-	if len(overrides) == 0 {
-		return bootconfig.ResolveVariables(applyNativeDeploymentConfig(cfg))
-	}
-
-	cfg, err = applyOverrideFlags(cfg, overrides, logger)
-	if err != nil {
-		return nil, err
-	}
-	return bootconfig.ResolveVariables(applyNativeDeploymentConfig(cfg))
+	return resolution.resolveVariables(applyNativeDeploymentConfig(cfg))
 }
 
 func selectedProfiles(cmd *cobra.Command) []string {
