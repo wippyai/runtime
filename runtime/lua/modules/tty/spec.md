@@ -132,29 +132,19 @@ transactionally: a rejected process start restores an unresolved grant, while
 a process that has resolved the port consumes it permanently. Unsupported
 hosts reject terminal attachments rather than dropping them.
 
-After a producer has exited, the original creator can retain the same viewport
-and replace only its producer:
+When the producer exits, the viewport keeps its handle, viewers, mounts,
+geometry, page, and last frame, and `grant()` returns a fresh grant for a
+replacement producer. The exit is delivered to linked and monitoring processes
+only after the producer's port has retired, so an exit handler can spawn the
+replacement directly:
 
 ```lua
-local replacement, generation, renew_err = view:renew(1)
-assert(replacement, renew_err)
-local child = assert(process.with_options({terminal = replacement})
+local child = assert(process.with_options({terminal = assert(view:grant())})
     :spawn("app:child-v2", "app:workers"))
 ```
 
-`renew(expected_generation)` succeeds only after that exact producer generation
-has retired. It atomically fences it and returns a fresh one-shot grant plus a
-strictly newer generation. Stale, concurrent, premature, delegated, and
-unauthorized renewal attempts fail. If process spawning fails before admission
-consumes the grant, call `cancel_grant(replacement)`; that revokes the grant and
-allows the creator to renew the retired generation again. A retry gets a new
-generation, so the cancelled grant never becomes valid again.
-`expected_generation` is the last retired producer generation, never merely
-the newest issued grant generation. Cancellation leaves that retired generation
-eligible; issued generations still strictly increase. Renewal refuses while an
-unconsumed replacement grant exists, and cancelling an old grant cannot affect
-a successor. The initial `grant()` is generation `1`. A retired or cancelled
-producer port cannot present frames or change input for a later generation.
+While a producer is attached or its spawn is being admitted, `grant()` returns
+an error. A retired producer's port cannot present frames or change input.
 
 `handle()` returns a local viewport identifier. `tty.attach(handle)` adds a local
 viewer; a non-owner requires `tty.observe`, with input and resize granted only
@@ -163,9 +153,7 @@ do not cross nodes; use recipient-bound mounts for delegation.
 
 | Method | Purpose |
 |---|---|
-| `grant()` | Return the creator's one-shot producer grant |
-| `renew(expected_generation)` | Fence a retired producer and return `grant, generation` for its replacement |
-| `cancel_grant(grant)` | Revoke an unconsumed replacement grant after failed spawn |
+| `grant()` | Return the creator's producer grant; a fresh one after each producer retires |
 | `handle()` | Return the local viewer handle |
 | `snapshot(after_revision?)` | Read current dimensions, rows, cursor, and revision; return `nil` when unchanged |
 | `updates()` | Return a channel of coalesced revision watermarks |

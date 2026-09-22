@@ -12,13 +12,12 @@ import (
 )
 
 type port struct {
-	session    *session
-	input      *input
-	surface    *surface
-	generation uint64
-	once       sync.Once
-	surfaceMu  sync.Mutex
-	closed     atomic.Bool
+	session   *session
+	input     *input
+	surface   *surface
+	once      sync.Once
+	surfaceMu sync.Mutex
+	closed    atomic.Bool
 }
 
 func (p *port) InputController() ttyapi.InputController { return p.input }
@@ -35,7 +34,12 @@ func (p *port) OpenSurface(ttyapi.SurfaceOptions) (ttyapi.Surface, error) {
 	p.surface = s
 	return s, nil
 }
+
+// Close retires the producer and arms a fresh creator grant for its
+// replacement. The retired port stays closed, so it cannot present or change
+// input once a successor resolves.
 func (p *port) Close() error {
+	var err error
 	p.once.Do(func() {
 		p.surfaceMu.Lock()
 		p.closed.Store(true)
@@ -44,18 +48,22 @@ func (p *port) Close() error {
 		if surface != nil {
 			_ = surface.Close()
 		}
-		ss := p.session
+		var next string
+		next, err = token("vpt1_")
+		ss, service := p.session, p.session.service
+		service.mu.Lock()
 		ss.mu.Lock()
-		if ss.producer && ss.producerGeneration == p.generation {
-			ss.inputOpen, ss.producer = false, false
-			ss.target, ss.router = pid.PID{}, nil
-			ss.producerGeneration = 0
-			ss.retiredGeneration = p.generation
+		ss.inputOpen, ss.producer = false, false
+		ss.target, ss.router = pid.PID{}, nil
+		if err == nil && !service.closed && !ss.closed && service.sessions[ss.handle] == ss {
+			ss.grant = next
+			service.grants[next] = ss
 		}
 		ss.mu.Unlock()
-		ss.service.collect(ss)
+		service.mu.Unlock()
+		service.collect(ss)
 	})
-	return nil
+	return err
 }
 
 type surface struct {
@@ -68,7 +76,7 @@ type surface struct {
 func (s *surface) Present(frame ttyapi.Frame) (ttyapi.PresentStats, error) {
 	ss := s.session
 	ss.mu.Lock()
-	if s.closed.Load() || s.owner.closed.Load() || ss.closed || !ss.producer || ss.producerGeneration != s.owner.generation {
+	if s.closed.Load() || ss.closed || !ss.producer {
 		ss.mu.Unlock()
 		return ttyapi.PresentStats{}, ttyapi.ErrViewportClosed
 	}
@@ -145,9 +153,7 @@ func (s *surface) Invalidate() {
 		return
 	}
 	s.session.mu.Lock()
-	if s.session.producer && s.session.producerGeneration == s.owner.generation {
-		s.session.invalid = true
-	}
+	s.session.invalid = true
 	s.session.mu.Unlock()
 	s.owner.surfaceMu.Unlock()
 }
@@ -184,29 +190,29 @@ type input struct {
 }
 
 func (i *input) Start() error {
-	p, ss := i.port, i.port.session
+	ss := i.port.session
 	ss.mu.Lock()
 	defer ss.mu.Unlock()
-	if p.closed.Load() || ss.closed || !ss.producer || ss.producerGeneration != p.generation {
+	if i.port.closed.Load() || ss.closed || !ss.producer {
 		return ttyapi.ErrViewportClosed
 	}
 	ss.inputOpen = true
 	return nil
 }
 func (i *input) Stop() error {
-	p, ss := i.port, i.port.session
+	ss := i.port.session
 	ss.mu.Lock()
-	if ss.producer && ss.producerGeneration == p.generation {
+	if !i.port.closed.Load() {
 		ss.inputOpen = false
 	}
 	ss.mu.Unlock()
 	return nil
 }
 func (i *input) ScreenSize() (int, int, error) {
-	p, ss := i.port, i.port.session
+	ss := i.port.session
 	ss.mu.RLock()
 	defer ss.mu.RUnlock()
-	if p.closed.Load() || ss.closed || !ss.producer || ss.producerGeneration != p.generation {
+	if i.port.closed.Load() {
 		return 0, 0, ttyapi.ErrViewportClosed
 	}
 	return ss.width, ss.height, nil

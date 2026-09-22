@@ -32,15 +32,12 @@ func (*viewportTestService) Binding(string) (ttyapi.Binding, error) { return nil
 func (*viewportTestService) Close() error                           { return nil }
 
 type viewportTestView struct {
-	sent       []ttyapi.Event
-	closeErr   error
-	grant      string
-	handle     string
-	renewGrant string
-	cancelled  string
-	snapshot   ttyapi.Snapshot
-	generation uint64
-	closed     bool
+	grant    string
+	handle   string
+	sent     []ttyapi.Event
+	closeErr error
+	snapshot ttyapi.Snapshot
+	closed   bool
 }
 
 func (v *viewportTestView) Grant() string               { return v.grant }
@@ -53,20 +50,6 @@ func (v *viewportTestView) Send(event ttyapi.Event) error {
 }
 func (*viewportTestView) Resize(int, int) error { return nil }
 func (v *viewportTestView) Close() error        { v.closed = true; return v.closeErr }
-func (v *viewportTestView) Renew(_ context.Context, expected uint64) (string, uint64, error) {
-	if expected != v.generation {
-		return "", 0, ttyapi.ErrInvalidGrant
-	}
-	v.generation++
-	return v.renewGrant, v.generation, nil
-}
-func (v *viewportTestView) CancelRenewal(_ context.Context, grant string) error {
-	if grant != v.renewGrant {
-		return ttyapi.ErrInvalidGrant
-	}
-	v.cancelled = grant
-	return nil
-}
 
 func TestLuaViewportAttachHandleAndRevisionPolling(t *testing.T) {
 	created := &viewportTestView{
@@ -209,21 +192,4 @@ func TestLuaViewportClosePreservesFailure(t *testing.T) {
 		end
 	`))
 	require.True(t, created.closed)
-}
-
-func TestLuaViewportRenewAndCancelGrant(t *testing.T) {
-	created := &viewportTestView{renewGrant: "replacement", generation: 1}
-	l := lua.NewState()
-	defer l.Close()
-	bindTTY(l)
-	l.SetContext(ttyapi.WithService(ctxapi.NewRootContext(), &viewportTestService{created: created}))
-	require.NoError(t, l.DoString(`
-		local view = assert(tty.viewport())
-		local grant, generation, renew_err = view:renew(1)
-		assert(grant == "replacement" and generation == 2 and renew_err == nil)
-		assert(view:cancel_grant(grant))
-		local invalid, invalid_generation, invalid_err = view:renew(0)
-		assert(invalid == nil and invalid_generation == nil and invalid_err)
-	`))
-	require.Equal(t, "replacement", created.cancelled)
 }

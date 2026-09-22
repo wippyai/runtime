@@ -28,7 +28,6 @@ func init() {
 		map[string]lua.LGoFunc{"__gc": viewportGC, "__tostring": viewportToString},
 		map[string]lua.LGoFunc{
 			"grant": viewportGrant, "handle": viewportHandle,
-			"renew": viewportRenew, "cancel_grant": viewportCancelGrant,
 			"snapshot": viewportSnapshot, "updates": viewportUpdates, "send": viewportSend,
 			"resize": viewportResize, "close": viewportClose,
 			"mount": viewportMount, "revoke": viewportRevoke,
@@ -159,52 +158,6 @@ func viewportGrant(l *lua.LState) int {
 		return invalidArgument(l, "viewport has no producer grant")
 	}
 	l.Push(lua.LString(grant))
-	l.Push(lua.LNil)
-	return 2
-}
-
-func viewportRenew(l *lua.LState) int {
-	v := checkViewport(l)
-	expected, ok := integerValue(l.Get(2))
-	if !ok || expected < 1 {
-		return viewportRenewError(l, lua.NewLuaError(l, "viewport producer generation must be a positive integer").WithKind(lua.Invalid).WithRetryable(false))
-	}
-	renewable, ok := v.view.(ttyapi.RenewableViewport)
-	if !ok {
-		return viewportRenewError(l, lua.NewLuaError(l, "viewport cannot renew its producer").WithKind(lua.Invalid).WithRetryable(false))
-	}
-	grant, generation, err := renewable.Renew(l.Context(), uint64(expected))
-	if err != nil {
-		return viewportRenewError(l, lua.WrapErrorWithLua(l, err, "renew viewport producer"))
-	}
-	l.Push(lua.LString(grant))
-	l.Push(lua.LInteger(generation))
-	l.Push(lua.LNil)
-	return 3
-}
-
-func viewportRenewError(l *lua.LState, err *lua.Error) int {
-	l.Push(lua.LNil)
-	l.Push(lua.LNil)
-	l.Push(err)
-	return 3
-}
-
-func viewportCancelGrant(l *lua.LState) int {
-	v := checkViewport(l)
-	if !checkViewportRight(l, v.view, "") {
-		return 2
-	}
-	renewable, ok := v.view.(ttyapi.RenewableViewport)
-	if !ok {
-		return invalidArgument(l, "viewport cannot cancel a producer grant")
-	}
-	if err := renewable.CancelRenewal(l.Context(), l.CheckString(2)); err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.WrapErrorWithLua(l, err, "cancel viewport producer grant"))
-		return 2
-	}
-	l.Push(lua.LTrue)
 	l.Push(lua.LNil)
 	return 2
 }

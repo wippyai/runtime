@@ -15,86 +15,47 @@ import (
 )
 
 type viewport struct {
-	updates       <-chan ttyapi.Update
-	session       *session
-	owner         pid.PID
-	producerGrant string
-	watchID       uint64
-	once          sync.Once
-	closed        atomic.Bool
-	rights        ttyapi.MountRights
+	updates <-chan ttyapi.Update
+	session *session
+	owner   pid.PID
+	watchID uint64
+	once    sync.Once
+	closed  atomic.Bool
+	rights  ttyapi.MountRights
+	creator bool
 }
 
-func (s *session) newViewport(owner pid.PID, grant string) *viewport {
+func (s *session) newViewport(owner pid.PID, creator bool) *viewport {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.newViewportLocked(owner, grant)
+	return s.newViewportLocked(owner, creator)
 }
 
-func (s *session) newViewportLocked(owner pid.PID, grant string) *viewport {
+func (s *session) newViewportLocked(owner pid.PID, creator bool) *viewport {
 	s.nextWatch++
 	ch := make(chan ttyapi.Update, 1)
 	s.watches[s.nextWatch] = watch{owner: owner, ch: ch}
-	return &viewport{rights: ttyapi.MountRights{Observe: true, Input: true, Resize: true}, session: s, owner: owner, producerGrant: grant, watchID: s.nextWatch, updates: ch}
+	return &viewport{rights: ttyapi.MountRights{Observe: true, Input: true, Resize: true}, session: s, owner: owner, creator: creator, watchID: s.nextWatch, updates: ch}
 }
 
-func (v *viewport) Grant() string                 { return v.producerGrant }
+// Grant returns the armed producer grant of the creator viewport. It is empty
+// while admission holds the grant or a producer is attached; retiring the
+// producer arms a fresh one.
+func (v *viewport) Grant() string {
+	if !v.creator || v.closed.Load() {
+		return ""
+	}
+	ss, service := v.session, v.session.service
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	if service.closed || service.grants[ss.grant] != ss {
+		return ""
+	}
+	return ss.grant
+}
+
 func (v *viewport) Handle() string                { return v.session.handle }
 func (v *viewport) Updates() <-chan ttyapi.Update { return v.updates }
-
-// Renew gives the creator one fresh producer generation after the exact
-// expected producer has retired. The service and session locks make the fence
-// and grant publication one operation: only one caller can advance it.
-func (v *viewport) Renew(ctx context.Context, expected uint64) (string, uint64, error) {
-	owner, ok := runtime.GetFramePID(ctx)
-	if !ok || !samePID(owner, v.owner) || !samePID(owner, v.session.creator) || v.closed.Load() {
-		return "", 0, ttyapi.ErrPermissionDenied
-	}
-	grant, err := token("vpt1_")
-	if err != nil {
-		return "", 0, err
-	}
-	ss, service := v.session, v.session.service
-	service.mu.Lock()
-	defer service.mu.Unlock()
-	ss.mu.Lock()
-	defer ss.mu.Unlock()
-	if service.closed {
-		return "", 0, ttyapi.ErrServiceUnavailable
-	}
-	if ss.closed || ss.producer || ss.bindings != 0 || ss.renewalGrant != "" || expected == 0 || expected != ss.retiredGeneration || ss.generation == ^uint64(0) {
-		return "", 0, ttyapi.ErrInvalidGrant
-	}
-	ss.generation++
-	ss.renewalGrant = grant
-	service.grants[grant] = grantRecord{session: ss, generation: ss.generation, renewal: true}
-	return grant, ss.generation, nil
-}
-
-// CancelRenewal revokes only the one outstanding, unconsumed renewal grant.
-// It intentionally leaves the generation advanced: a retry receives another
-// unique generation, so a cancelled grant can never become valid again.
-func (v *viewport) CancelRenewal(ctx context.Context, grant string) error {
-	owner, ok := runtime.GetFramePID(ctx)
-	if !ok || !samePID(owner, v.owner) || !samePID(owner, v.session.creator) || v.closed.Load() {
-		return ttyapi.ErrPermissionDenied
-	}
-	ss, service := v.session, v.session.service
-	service.mu.Lock()
-	defer service.mu.Unlock()
-	ss.mu.Lock()
-	defer ss.mu.Unlock()
-	if service.closed {
-		return ttyapi.ErrServiceUnavailable
-	}
-	record, ok := service.grants[grant]
-	if !ok || !record.renewal || record.session != ss || record.generation != ss.generation || ss.renewalGrant != grant || ss.producer || ss.bindings != 0 {
-		return ttyapi.ErrInvalidGrant
-	}
-	delete(service.grants, grant)
-	ss.renewalGrant = ""
-	return nil
-}
 
 func (v *viewport) Snapshot() ttyapi.Snapshot {
 	if v.closed.Load() || !v.rights.Observe {
@@ -229,5 +190,3 @@ func (v *viewport) Capture(ctx context.Context) (*ttyapi.Capture, error) {
 	}
 	return ttyapi.NewCapture(ttyapi.Snapshot{Rows: ss.rows, Cursor: ss.cursor, Revision: ss.revision, Width: ss.width, Height: ss.height}, ss.images)
 }
-
-var _ ttyapi.RenewableViewport = (*viewport)(nil)

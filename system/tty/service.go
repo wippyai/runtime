@@ -25,50 +25,37 @@ type Service struct {
 	mounts   map[string]*mountRecord
 	mesh     *meshService
 	sessions map[string]*session
-	grants   map[string]grantRecord
+	grants   map[string]*session
 	mu       sync.Mutex
 	closed   bool
 }
 
 type session struct {
-	images             []ttyapi.PlacedImage
-	placements         []ttyapi.Placement
-	page               *ttyapi.Page
-	pageRenderer       *terminal.PageRenderer
-	sourceRows         []string
-	router             relay.Receiver
-	watches            map[uint64]watch
-	service            *Service
-	cursor             *ttyapi.Cursor
-	viewers            map[pid.PID]int
-	creator            pid.PID
-	target             pid.PID
-	grant              string
-	renewalGrant       string
-	handle             string
-	rows               []string
-	nextWatch          uint64
-	revision           uint64
-	width              int
-	height             int
-	bindings           int
-	generation         uint64
-	producerGeneration uint64
-	retiredGeneration  uint64
-	mu                 sync.RWMutex
-	inputOpen          bool
-	producer           bool
-	invalid            bool
-	closed             bool
-}
-
-// grantRecord keeps a one-shot producer grant bound to the exact generation
-// that issued it. A renewal record is cancellable only before Binding removes
-// it for admission.
-type grantRecord struct {
-	session    *session
-	generation uint64
-	renewal    bool
+	images       []ttyapi.PlacedImage
+	placements   []ttyapi.Placement
+	page         *ttyapi.Page
+	pageRenderer *terminal.PageRenderer
+	sourceRows   []string
+	router       relay.Receiver
+	watches      map[uint64]watch
+	service      *Service
+	cursor       *ttyapi.Cursor
+	viewers      map[pid.PID]int
+	creator      pid.PID
+	target       pid.PID
+	grant        string
+	handle       string
+	rows         []string
+	nextWatch    uint64
+	revision     uint64
+	width        int
+	height       int
+	bindings     int
+	mu           sync.RWMutex
+	inputOpen    bool
+	producer     bool
+	invalid      bool
+	closed       bool
 }
 
 type watch struct {
@@ -77,7 +64,7 @@ type watch struct {
 }
 
 func NewService() *Service {
-	return &Service{images: ttyapi.NewImageStore(ttyapi.DefaultImageBudget), mounts: make(map[string]*mountRecord), sessions: make(map[string]*session), grants: make(map[string]grantRecord)}
+	return &Service{images: ttyapi.NewImageStore(ttyapi.DefaultImageBudget), mounts: make(map[string]*mountRecord), sessions: make(map[string]*session), grants: make(map[string]*session)}
 }
 
 func (s *Service) ImageStore() *ttyapi.ImageStore { return s.images }
@@ -107,7 +94,7 @@ func (s *Service) Create(ctx context.Context, width, height int) (ttyapi.Viewpor
 		return nil, ttyapi.ErrInvalidGrant
 	}
 	ss := &session{
-		service: s, creator: owner, grant: grant, handle: handle, width: width, height: height, generation: 1,
+		service: s, creator: owner, grant: grant, handle: handle, width: width, height: height,
 		viewers: map[pid.PID]int{owner: 1}, watches: make(map[uint64]watch),
 	}
 	s.mu.Lock()
@@ -116,8 +103,8 @@ func (s *Service) Create(ctx context.Context, width, height int) (ttyapi.Viewpor
 		return nil, ttyapi.ErrServiceUnavailable
 	}
 	s.sessions[handle] = ss
-	s.grants[grant] = grantRecord{session: ss, generation: ss.generation}
-	return ss.newViewport(owner, grant), nil
+	s.grants[grant] = ss
+	return ss.newViewport(owner, true), nil
 }
 
 func (s *Service) Attach(ctx context.Context, handle string) (ttyapi.Viewport, error) {
@@ -146,7 +133,7 @@ func (s *Service) Attach(ctx context.Context, handle string) (ttyapi.Viewport, e
 		return nil, ttyapi.ErrViewportClosed
 	}
 	ss.viewers[owner]++
-	view := ss.newViewportLocked(owner, "")
+	view := ss.newViewportLocked(owner, false)
 	view.rights = ttyapi.MountRights{Observe: true, Input: samePID(owner, ss.creator) || security.IsAllowed(ctx, ttyapi.RightInput, handle, nil), Resize: samePID(owner, ss.creator) || security.IsAllowed(ctx, ttyapi.RightResize, handle, nil)}
 	ss.mu.Unlock()
 	return view, nil
@@ -158,16 +145,15 @@ func (s *Service) Binding(grant string) (ttyapi.Binding, error) {
 	if s.closed {
 		return nil, ttyapi.ErrServiceUnavailable
 	}
-	record, ok := s.grants[grant]
-	if !ok {
+	ss := s.grants[grant]
+	if ss == nil {
 		return nil, ttyapi.ErrInvalidGrant
 	}
 	delete(s.grants, grant) // one-shot handoff
-	ss := record.session
 	ss.mu.Lock()
 	ss.bindings++
 	ss.mu.Unlock()
-	return &binding{session: ss, grant: grant, generation: record.generation, renewal: record.renewal}, nil
+	return &binding{session: ss}, nil
 }
 
 func (s *Service) Close() error {
@@ -238,11 +224,7 @@ func (s *Service) collect(ss *session) {
 	}
 	if s.sessions[ss.handle] == ss {
 		delete(s.sessions, ss.handle)
-		for grant, record := range s.grants {
-			if record.session == ss {
-				delete(s.grants, grant)
-			}
-		}
+		delete(s.grants, ss.grant)
 		ttyapi.ClosePlacements(ss.images)
 		ss.images, ss.placements = nil, nil
 	}

@@ -248,8 +248,6 @@ var viewportType = typ.NewInterface("tty.Viewport", []typ.Method{
 	{Name: "mount", Type: typ.Func().Param("self", typ.Self).Param("recipient", typ.String).Param("rights", mountRightsType).Returns(typ.String, typ.NewOptional(typ.LuaError)).Build()},
 	{Name: "revoke", Type: typ.Func().Param("self", typ.Self).Param("reference", typ.String).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
 	{Name: "grant", Type: typ.Func().Param("self", typ.Self).Returns(typ.String, typ.NewOptional(typ.LuaError)).Build()},
-	{Name: "renew", Type: typ.Func().Param("self", typ.Self).Param("expected_generation", typ.Integer).Returns(typ.String, typ.Integer, typ.NewOptional(typ.LuaError)).Build()},
-	{Name: "cancel_grant", Type: typ.Func().Param("self", typ.Self).Param("grant", typ.String).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
 	{Name: "handle", Type: typ.Func().Param("self", typ.Self).Returns(typ.String, typ.NewOptional(typ.LuaError)).Build()},
 	{Name: "snapshot", Type: typ.Func().Param("self", typ.Self).OptParam("after_revision", typ.Integer).Returns(typ.NewOptional(viewportSnapshotType), typ.NewOptional(typ.LuaError)).Build()},
 	{Name: "updates", Type: typ.Func().Param("self", typ.Self).Returns(viewportUpdateChannelType, typ.NewOptional(typ.LuaError)).Build()},

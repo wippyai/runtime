@@ -58,6 +58,9 @@ type Update struct {
 }
 
 type Viewport interface {
+	// Grant returns the creator's one-shot producer grant, or "" while a
+	// producer is attached or being admitted and for non-creator views. A
+	// retired producer re-arms a fresh grant on the same viewport.
 	Grant() string
 	Handle() string
 	Snapshot() Snapshot
@@ -69,19 +72,6 @@ type Viewport interface {
 	Resize(width, height int) error
 	// Close detaches this consumer. It never terminates the producer process.
 	Close() error
-}
-
-// RenewableViewport is the creator-only handoff used when a producer has
-// exited but its viewport must remain attached. Renew fences the retired
-// producer generation and returns one new, one-shot producer grant together
-// with its generation. CancelRenewal revokes an unconsumed renewal grant so a
-// failed spawn does not leave the viewport unable to try again.
-//
-// It is deliberately optional: a delegated or remote viewport cannot renew a
-// producer, and existing viewport implementations remain source-compatible.
-type RenewableViewport interface {
-	Renew(ctx context.Context, expectedGeneration uint64) (grant string, generation uint64, err error)
-	CancelRenewal(ctx context.Context, grant string) error
 }
 
 type Service interface {
