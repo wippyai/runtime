@@ -4,13 +4,9 @@ package stages
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
-	"sort"
 	"sync"
 
 	"github.com/wippyai/runtime/api/boot"
@@ -155,7 +151,7 @@ func collectResources(ctx context.Context, moduleRoot string, entries []registry
 		}
 
 		dirFS := os.DirFS(dir)
-		digest, err := digestResourceFS(dirFS)
+		digest, err := embedapi.ContentDigest(dirFS)
 		if err != nil {
 			return nil, nil, fmt.Errorf("embed %s: digest %q: %w", entry.ID.String(), dir, err)
 		}
@@ -172,37 +168,6 @@ func collectResources(ctx context.Context, moduleRoot string, entries []registry
 			zap.String("directory", dir))
 	}
 	return specs, digests, nil
-}
-
-// digestResourceFS computes a deterministic aggregate content digest for a
-// resource's files: every file path and its bytes, in sorted path order.
-// It changes exactly when the served content changes, independent of
-// mtimes or how the pack writer later chunks or compresses the data.
-func digestResourceFS(fsys fs.FS) (string, error) {
-	var paths []string
-	if err := fs.WalkDir(fsys, ".", func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if !d.IsDir() {
-			paths = append(paths, path)
-		}
-		return nil
-	}); err != nil {
-		return "", err
-	}
-	sort.Strings(paths)
-
-	hash := sha256.New()
-	for _, path := range paths {
-		data, err := fs.ReadFile(fsys, path)
-		if err != nil {
-			return "", err
-		}
-		fmt.Fprintf(hash, "%d:%s:%d:", len(path), path, len(data))
-		hash.Write(data)
-	}
-	return "sha256-content-v1:" + hex.EncodeToString(hash.Sum(nil)), nil
 }
 
 func directoryConfig(entry registry.Entry) *dirapi.Config {
