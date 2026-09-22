@@ -33,7 +33,7 @@ func TestRunYieldHandlerKeepsFrameUntilHandlerAndCompletionFinish(t *testing.T) 
 		})
 
 		collector := newYieldCollector(1)
-		runYieldHandler(handler, ctx, yieldFrameTestCommand{}, 1, frame, collector)
+		runYieldHandler(ctx, handler, yieldFrameTestCommand{}, 1, frame, collector)
 		<-started
 		mustRemainLive(t, released)
 
@@ -54,7 +54,7 @@ func TestRunYieldHandlerKeepsFrameUntilHandlerAndCompletionFinish(t *testing.T) 
 		})
 
 		collector := newYieldCollector(1)
-		runYieldHandler(handler, ctx, yieldFrameTestCommand{}, 1, frame, collector)
+		runYieldHandler(ctx, handler, yieldFrameTestCommand{}, 1, frame, collector)
 		waitForYield(t, collector)
 		mustRelease(t, released)
 	})
@@ -67,7 +67,7 @@ func TestRunYieldHandlerKeepsFrameUntilHandlerAndCompletionFinish(t *testing.T) 
 		})
 
 		collector := newYieldCollector(1)
-		runYieldHandler(handler, ctx, yieldFrameTestCommand{}, 1, frame, collector)
+		runYieldHandler(ctx, handler, yieldFrameTestCommand{}, 1, frame, collector)
 		waitForYield(t, collector)
 		mustRelease(t, released)
 

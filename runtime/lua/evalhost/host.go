@@ -107,7 +107,7 @@ func (r *yieldFrameReceiver) deliveredResult() {
 	}
 }
 
-func runYieldHandler(handler dispatcher.Handler, ctx context.Context, command dispatcher.Command, tag uint64, frame ctxapi.FrameContext, receiver dispatcher.ResultReceiver) {
+func runYieldHandler(ctx context.Context, handler dispatcher.Handler, command dispatcher.Command, tag uint64, frame ctxapi.FrameContext, receiver dispatcher.ResultReceiver) {
 	frameReceiver := &yieldFrameReceiver{receiver: receiver, frame: frame}
 	defer frameReceiver.handlerReturned()
 	if err := handler.Handle(ctx, command, tag, frameReceiver); err != nil {
@@ -417,7 +417,7 @@ func (h *Host) Run(ctx context.Context, cmd RunCmd) (any, error) {
 			for _, y := range validYields {
 				handler := disp.Dispatch(y.Cmd)
 				yieldCtx, yieldFC := ctxapi.ForkFrameContext(evalCtx)
-				go runYieldHandler(handler, yieldCtx, y.Cmd, y.Tag, yieldFC, collector)
+				go runYieldHandler(yieldCtx, handler, y.Cmd, y.Tag, yieldFC, collector)
 			}
 
 			// Wait for all yields to complete
