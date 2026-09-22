@@ -76,14 +76,21 @@ type MockRunner struct {
 	lastChangeSet registry.ChangeSet
 }
 
-func (m *MockRunner) Transition(_ context.Context, state registry.State, changes registry.ChangeSet) (registry.State, error) {
+func (m *MockRunner) Transition(ctx context.Context, state registry.State, changes registry.ChangeSet, abort func(context.Context)) (registry.State, error) {
 	m.callStack = append(m.callStack, "Transition")
 	m.lastState = state
 	m.lastChangeSet = changes
 	if m.RunFunc != nil {
-		return m.RunFunc(state, changes)
+		next, err := m.RunFunc(state, changes)
+		if err != nil && abort != nil {
+			abort(ctx)
+		}
+		return next, err
 	}
 	if m.err != nil {
+		if abort != nil {
+			abort(ctx)
+		}
 		return state, m.err
 	}
 	return m.newState, nil
@@ -514,11 +521,16 @@ type CustomizableMockRunner struct {
 	RunFunc func(state registry.State, changes registry.ChangeSet) (registry.State, error)
 }
 
-func (m *CustomizableMockRunner) Transition(_ context.Context, state registry.State, changes registry.ChangeSet) (registry.State, error) {
+func (m *CustomizableMockRunner) Transition(ctx context.Context, state registry.State, changes registry.ChangeSet, abort func(context.Context)) (registry.State, error) {
+	var next registry.State
+	err := errors.New("RunFunc not set")
 	if m.RunFunc != nil {
-		return m.RunFunc(state, changes)
+		next, err = m.RunFunc(state, changes)
 	}
-	return nil, errors.New("RunFunc not set")
+	if err != nil && abort != nil {
+		abort(ctx)
+	}
+	return next, err
 }
 
 func TestInMemoryRegistry_ConcurrentApply_Serializes(t *testing.T) {
@@ -991,7 +1003,7 @@ func TestInMemoryRegistry_TransitionState(t *testing.T) {
 		return toState, nil
 	}
 
-	newState, err := reg.transitionState(context.Background(), fromState, toState)
+	newState, err := reg.transitionState(context.Background(), fromState, toState, nil)
 	if err != nil {
 		t.Errorf("Unexpected error during transition: %v", err)
 	}
@@ -1004,7 +1016,7 @@ func TestInMemoryRegistry_TransitionState(t *testing.T) {
 		return fromState, nil
 	}
 
-	newState, err = reg.transitionState(context.Background(), fromState, fromState)
+	newState, err = reg.transitionState(context.Background(), fromState, fromState, nil)
 	if err != nil {
 		t.Errorf("Unexpected error during transition with no changes: %v", err)
 	}
@@ -1017,7 +1029,7 @@ func TestInMemoryRegistry_TransitionState(t *testing.T) {
 		return nil, errors.New("transition failed")
 	}
 
-	_, err = reg.transitionState(context.Background(), fromState, toState)
+	_, err = reg.transitionState(context.Background(), fromState, toState, nil)
 	if err == nil {
 		t.Fatal("Expected error during failed transition")
 	}
@@ -1619,7 +1631,7 @@ type depRecordingRunner struct {
 	callOrder []string // recorded IDs in the order Transition received ops
 }
 
-func (r *depRecordingRunner) Transition(_ context.Context, state registry.State, changes registry.ChangeSet) (registry.State, error) {
+func (r *depRecordingRunner) Transition(ctx context.Context, state registry.State, changes registry.ChangeSet, abort func(context.Context)) (registry.State, error) {
 	r.callOrder = r.callOrder[:0]
 
 	present := make(map[string]bool, len(state))
@@ -1663,6 +1675,9 @@ func (r *depRecordingRunner) Transition(_ context.Context, state registry.State,
 				}
 				if !present[child] {
 					continue
+				}
+				if abort != nil {
+					abort(ctx)
 				}
 				return state, fmt.Errorf(
 					"cannot remove node %s: incoming dependency from %s", id, child)

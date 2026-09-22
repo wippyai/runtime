@@ -77,9 +77,12 @@ type hardeningRunner struct {
 	failTransitionAt int
 }
 
-func (r *hardeningRunner) Transition(_ context.Context, state regapi.State, changes regapi.ChangeSet) (regapi.State, error) {
+func (r *hardeningRunner) Transition(ctx context.Context, state regapi.State, changes regapi.ChangeSet, abort func(context.Context)) (regapi.State, error) {
 	r.transitions++
 	if r.failTransitionAt == r.transitions {
+		if abort != nil {
+			abort(ctx)
+		}
 		return state, errors.New("injected transition failure")
 	}
 	stateMap := topology.NewStateMap(state)

@@ -24,7 +24,7 @@ type readerRunner struct {
 	during func()
 }
 
-func (r *readerRunner) Transition(_ context.Context, state registry.State, changes registry.ChangeSet) (registry.State, error) {
+func (r *readerRunner) Transition(_ context.Context, state registry.State, changes registry.ChangeSet, _ func(context.Context)) (registry.State, error) {
 	next := append(registry.State(nil), state...)
 	for _, change := range changes {
 		if change.Kind == registry.EntryCreate {

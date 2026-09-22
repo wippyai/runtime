@@ -24,7 +24,7 @@ import (
 
 type testRunner struct{}
 
-func (r *testRunner) Transition(_ context.Context, from registry.State, cs registry.ChangeSet) (registry.State, error) {
+func (r *testRunner) Transition(_ context.Context, from registry.State, cs registry.ChangeSet, _ func(context.Context)) (registry.State, error) {
 	stateMap := make(map[registry.ID]registry.Entry, len(from))
 	for _, entry := range from {
 		stateMap[entry.ID] = entry
