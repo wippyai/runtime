@@ -4,6 +4,8 @@ package kvbacked
 
 import (
 	"context"
+	cryptorand "crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strconv"
@@ -52,8 +54,11 @@ func rejectKey(name string, epoch uint64, node pid.NodeID) string {
 // stored here: the authoritative epoch is the kv entry's raft index (Entry.Epoch)
 // of the pending key, derived on read so every node agrees on the instance id.
 type pendingHeader struct {
-	PID              string       `codec:"p"`
-	Name             string       `codec:"n"`
+	PID  string `codec:"p"`
+	Name string `codec:"n"`
+	// AttemptID is stable across pending-header rewrites and promotion. It is
+	// intentionally independent of the pending and active entry epochs.
+	AttemptID        string       `codec:"a"`
 	NodeID           pid.NodeID   `codec:"d"`
 	RequiredNodes    []pid.NodeID `codec:"r"`
 	DeadlineUnixNano int64        `codec:"dl"`
@@ -63,6 +68,9 @@ type pendingHeader struct {
 func decodePending(data []byte) (pendingHeader, error) {
 	var v pendingHeader
 	err := decodeInto(data, &v)
+	if err == nil && v.AttemptID == "" {
+		err = fmt.Errorf("missing Strong attempt identity")
+	}
 	return v, err
 }
 
@@ -74,13 +82,16 @@ const (
 )
 
 type strongExclusion struct {
-	pid   pid.PID
-	epoch uint64
-	state exclusionState
+	pid       pid.PID
+	attemptID string
+	epoch     uint64
+	state     exclusionState
 }
 
 type strongWaiter struct {
-	ch chan globalapi.RegisterOutcome
+	ch        chan globalapi.RegisterOutcome
+	attemptID string
+	pid       pid.PID
 }
 
 // StrongDeps are the cluster hooks the Strong plane needs. membership returns the
@@ -110,6 +121,19 @@ type strongState struct {
 	terminalEpoch   map[string]uint64
 	deadline        time.Duration
 	mu              sync.Mutex
+}
+
+const strongAttemptBytes = 16
+
+// newStrongAttempt creates the opaque identity for one Strong registration.
+// It is generated before the pending transaction so all later record versions
+// carry the same identity.
+func newStrongAttempt() (string, error) {
+	var raw [strongAttemptBytes]byte
+	if _, err := cryptorand.Read(raw[:]); err != nil {
+		return "", fmt.Errorf("generate Strong attempt identity: %w", err)
+	}
+	return hex.EncodeToString(raw[:]), nil
 }
 
 // ConfigureStrong enables the Strong-scope plane with cluster hooks. Until it is
@@ -229,10 +253,15 @@ func (st *strongState) register(ctx context.Context, name string, p pid.PID) (gl
 	if err := ctx.Err(); err != nil {
 		return globalapi.RegisterOutcome{}, err
 	}
+	attemptID, err := newStrongAttempt()
+	if err != nil {
+		return globalapi.RegisterOutcome{}, err
+	}
 
 	hdr, err := encode(pendingHeader{
 		PID:              p.String(),
 		Name:             name,
+		AttemptID:        attemptID,
 		NodeID:           nodeID,
 		RequiredNodes:    st.requiredNodes(),
 		DeadlineUnixNano: deadline.UnixNano(),
@@ -273,9 +302,16 @@ func (st *strongState) register(ctx context.Context, name string, p pid.PID) (gl
 		_, _ = st.svc.engine.CompareAndDelete(pendingKey(name), pe.Version)
 		return globalapi.RegisterOutcome{}, derr
 	}
+	if phdr.AttemptID == "" {
+		_, _ = st.svc.engine.CompareAndDelete(pendingKey(name), pe.Version)
+		return globalapi.RegisterOutcome{}, fmt.Errorf("registry record %q: missing Strong attempt identity", pendingKey(name))
+	}
+	if phdr.AttemptID != attemptID {
+		return globalapi.RegisterOutcome{}, fmt.Errorf("registry record %q: Strong attempt identity changed", pendingKey(name))
+	}
 	pendingPID, _ := pid.ParsePID(phdr.PID)
 
-	waiter := &strongWaiter{ch: make(chan globalapi.RegisterOutcome, 1)}
+	waiter := &strongWaiter{ch: make(chan globalapi.RegisterOutcome, 1), attemptID: attemptID, pid: p}
 	st.addWaiter(name, waiter)
 	defer st.removeWaiter(name, waiter)
 	if err := ctx.Err(); err != nil {
@@ -286,7 +322,7 @@ func (st *strongState) register(ctx context.Context, name string, p pid.PID) (gl
 	// exists (read via the leader), so it must not go through reconcile, whose
 	// local read may not see the freshly-forwarded write yet and would
 	// mis-fire onTerminal. The watch reconciler advances it from here on.
-	st.attest(name, epoch, pendingPID, phdr.RequiredNodes)
+	st.attest(name, epoch, attemptID, pendingPID, phdr.RequiredNodes)
 	if err := ctx.Err(); err != nil {
 		return globalapi.RegisterOutcome{Epoch: epoch}, err
 	}
@@ -298,11 +334,11 @@ func (st *strongState) register(ctx context.Context, name string, p pid.PID) (gl
 	case <-ctx.Done():
 		return globalapi.RegisterOutcome{Epoch: epoch}, ctx.Err()
 	case out := <-waiter.ch:
-		return st.finalize(name, p, out)
+		return st.finalize(name, p, attemptID, out)
 	}
 }
 
-func (st *strongState) finalize(name string, p pid.PID, out globalapi.RegisterOutcome) (globalapi.RegisterOutcome, error) {
+func (st *strongState) finalize(name string, p pid.PID, attemptID string, out globalapi.RegisterOutcome) (globalapi.RegisterOutcome, error) {
 	switch out.State {
 	case globalapi.RegisterStateActive:
 		if out.PID.String() != p.String() {
@@ -310,7 +346,7 @@ func (st *strongState) finalize(name string, p pid.PID, out globalapi.RegisterOu
 		}
 		return globalapi.RegisterOutcome{PID: p, Epoch: out.Epoch, State: globalapi.RegisterStateActive}, nil
 	case globalapi.RegisterStateExpired:
-		reason, missing, epoch := st.takeTerminal(name)
+		reason, missing, epoch := st.takeTerminal(attemptID)
 		if reason == strongRejectConflict {
 			return out, &globalapi.StrongConflictError{Name: name, Epoch: epoch, Reason: strongRejectConflict}
 		}
@@ -320,28 +356,40 @@ func (st *strongState) finalize(name string, p pid.PID, out globalapi.RegisterOu
 	}
 }
 
-func (st *strongState) setTerminal(name, reason string, missing []pid.NodeID, epoch uint64) {
-	st.mu.Lock()
-	st.terminalReason[name] = reason
-	st.terminalEpoch[name] = epoch
-	if len(missing) > 0 {
-		st.terminalMissing[name] = missing
-	}
-	st.mu.Unlock()
-}
-
-// takeTerminal returns and clears the terminal reason, missing-ack node set, and
-// epoch for a name — the authoritative outcome detail, independent of which
-// concurrent onTerminal delivered the (epoch-less) Expired signal.
-func (st *strongState) takeTerminal(name string) (string, []string, uint64) {
+func (st *strongState) setTerminal(name, attemptID, reason string, missing []pid.NodeID, epoch uint64) {
 	st.mu.Lock()
 	defer st.mu.Unlock()
-	r := st.terminalReason[name]
-	delete(st.terminalReason, name)
-	ep := st.terminalEpoch[name]
-	delete(st.terminalEpoch, name)
-	m := st.terminalMissing[name]
-	delete(st.terminalMissing, name)
+	// Only a waiting caller consumes terminal details. Remote attempts and
+	// callers that already canceled must not accumulate retained outcomes.
+	waiting := false
+	for _, waiter := range st.waiters[name] {
+		if waiter.attemptID == attemptID {
+			waiting = true
+			break
+		}
+	}
+	if !waiting {
+		return
+	}
+	st.terminalReason[attemptID] = reason
+	st.terminalEpoch[attemptID] = epoch
+	if len(missing) > 0 {
+		st.terminalMissing[attemptID] = missing
+	}
+}
+
+// takeTerminal returns and clears the terminal reason, missing-ack node set,
+// and epoch for an attempt. The attempt key prevents an old terminal event
+// from supplying details to a later registration of the same name and PID.
+func (st *strongState) takeTerminal(attemptID string) (string, []string, uint64) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	r := st.terminalReason[attemptID]
+	delete(st.terminalReason, attemptID)
+	ep := st.terminalEpoch[attemptID]
+	delete(st.terminalEpoch, attemptID)
+	m := st.terminalMissing[attemptID]
+	delete(st.terminalMissing, attemptID)
 	out := make([]string, len(m))
 	copy(out, m)
 	return r, out, ep
@@ -392,6 +440,31 @@ func (st *strongState) reconcile(name string) error {
 	return st.reconcileForRun(name, st.svc.reconciler.Load())
 }
 
+// reconcileDeleted uses a watch deletion's previous record to identify the
+// affected waiter. Direct empty-snapshot reconciliation still releases its
+// current local exclusion; ordering/freshness of that observation is a
+// separate admission concern.
+func (st *strongState) reconcileDeleted(name, attemptID string, pendingDeleted bool) error {
+	if err := st.reconcile(name); err != nil {
+		return err
+	}
+	if attemptID != "" {
+		// Promotion deletes pending and publishes active in the same transaction.
+		// The pending delete is not a terminal event for that attempt.
+		if pendingDeleted {
+			st.mu.Lock()
+			ex, exists := st.exclusions[name]
+			promoted := exists && ex.attemptID == attemptID && ex.state == exclusionActive
+			st.mu.Unlock()
+			if promoted {
+				return nil
+			}
+		}
+		st.onTerminal(name, attemptID)
+	}
+	return nil
+}
+
 func (st *strongState) reconcileForRun(name string, run *reconcilerLifecycle) (err error) {
 	defer func() {
 		if err != nil {
@@ -434,19 +507,25 @@ func (st *strongState) reconcileForRun(name string, run *reconcilerLifecycle) (e
 			if perr != nil {
 				return fmt.Errorf("registry record %q: invalid owner: %w", e.Key, perr)
 			}
-			st.onActive(name, e.Epoch, ap)
+			st.onActive(name, e.Epoch, av.AttemptID, ap)
 			return nil
 		}
 	}
 
 	pe, found := entries[pendingKey(name)]
 	if !found {
-		st.onTerminal(name)
+		// Preserve direct reconciliation of absent reservations. Watch deletes
+		// additionally carry their prior attempt identity for waiter delivery
+		// when this node rejected before latching a local exclusion.
+		st.onTerminal(name, "")
 		return nil
 	}
 	hdr, derr := decodePending(pe.Value)
 	if derr != nil {
 		return fmt.Errorf("registry record %q: %w", pe.Key, derr)
+	}
+	if hdr.AttemptID == "" {
+		return fmt.Errorf("registry record %q: missing Strong attempt identity", pe.Key)
 	}
 	if err := validateNamingRecord(pe.Key, pendingPrefix, hdr.Name, hdr.PID); err != nil {
 		return err
@@ -457,7 +536,7 @@ func (st *strongState) reconcileForRun(name string, run *reconcilerLifecycle) (e
 		return fmt.Errorf("registry record %q: invalid owner: %w", pe.Key, perr)
 	}
 
-	st.attest(name, epoch, pendingPID, hdr.RequiredNodes)
+	st.attest(name, epoch, hdr.AttemptID, pendingPID, hdr.RequiredNodes)
 
 	if st.isLeader() {
 		st.leaderDrive(name, epoch, pe.Version, hdr)
@@ -467,7 +546,7 @@ func (st *strongState) reconcileForRun(name string, run *reconcilerLifecycle) (e
 
 // attest makes this node ack (and latch an exclusion) or reject the pending,
 // once, based on a cross-scope local conflict check.
-func (st *strongState) attest(name string, epoch uint64, pendingPID pid.PID, required []pid.NodeID) {
+func (st *strongState) attest(name string, epoch uint64, attemptID string, pendingPID pid.PID, required []pid.NodeID) {
 	if !contains(required, st.svc.selfNode) {
 		return
 	}
@@ -478,13 +557,13 @@ func (st *strongState) attest(name string, epoch uint64, pendingPID pid.PID, req
 		return // already rejected
 	}
 	if cp, conflict := st.localConflict(name, pendingPID); conflict && cp.String() != pendingPID.String() {
-		st.setTerminal(name, strongRejectConflict, nil, epoch)
+		st.setTerminal(name, attemptID, strongRejectConflict, nil, epoch)
 		if _, _, err := st.svc.engine.SetIfAbsent(rejectKey(name, epoch, st.svc.selfNode), []byte(strongRejectConflict)); err != nil {
 			st.logger.Debug("strong reject write failed", zap.String("name", name), zap.Error(err))
 		}
 		return
 	}
-	st.latch(name, pendingPID, epoch)
+	st.latch(name, pendingPID, attemptID, epoch)
 	if _, _, err := st.svc.engine.SetIfAbsent(ackKey(name, epoch, st.svc.selfNode), []byte(st.svc.selfNode)); err != nil {
 		st.logger.Debug("strong ack write failed", zap.String("name", name), zap.Error(err))
 	}
@@ -538,7 +617,7 @@ func (st *strongState) complete(name string, epoch uint64, required []pid.NodeID
 }
 
 func (st *strongState) leaderPromote(name string, epoch, headerVer uint64, hdr pendingHeader) {
-	av, err := encode(activeValue{PID: hdr.PID, Name: name, RequiredNodes: hdr.RequiredNodes, Strong: true})
+	av, err := encode(activeValue{PID: hdr.PID, Name: name, AttemptID: hdr.AttemptID, RequiredNodes: hdr.RequiredNodes, Strong: true})
 	if err != nil {
 		return
 	}
@@ -579,7 +658,7 @@ func (st *strongState) leaderPromote(name string, epoch, headerVer uint64, hdr p
 		}
 		return
 	}
-	st.takeTerminal(name)
+	st.takeTerminal(hdr.AttemptID)
 	st.stopTimer(name)
 	_ = st.reconcile(name)
 }
@@ -626,9 +705,12 @@ func (st *strongState) leaderExpire(name string, epoch, headerVer uint64, hdr pe
 	if committed, terr := st.svc.engine.Txn(ops); terr != nil || !committed {
 		return
 	}
-	st.setTerminal(name, reason, missing, epoch)
+	st.setTerminal(name, hdr.AttemptID, reason, missing, epoch)
 	st.stopTimer(name)
-	_ = st.reconcile(name)
+	// The delete is this attempt's terminal event. Deliver it with the stable
+	// identity immediately; a later watch/sweep for the same name must not be
+	// able to complete a replacement attempt.
+	st.onTerminal(name, hdr.AttemptID)
 }
 
 func (st *strongState) unreserve(name string) (bool, error) {
@@ -644,34 +726,60 @@ func (st *strongState) unreserve(name string) (bool, error) {
 
 // --- exclusions + waiters + timers ---
 
-func (st *strongState) latch(name string, p pid.PID, epoch uint64) {
+func (st *strongState) latch(name string, p pid.PID, attemptID string, epoch uint64) {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	if ex, ok := st.exclusions[name]; ok && ex.epoch >= epoch {
 		return
 	}
-	st.exclusions[name] = strongExclusion{pid: p, epoch: epoch, state: exclusionPending}
+	st.exclusions[name] = strongExclusion{pid: p, attemptID: attemptID, epoch: epoch, state: exclusionPending}
 }
 
-func (st *strongState) onActive(name string, epoch uint64, ap pid.PID) {
+func (st *strongState) onActive(name string, epoch uint64, attemptID string, ap pid.PID) {
 	st.mu.Lock()
-	st.exclusions[name] = strongExclusion{pid: ap, epoch: epoch, state: exclusionActive}
+	if ex, ok := st.exclusions[name]; ok && ex.epoch > epoch {
+		st.mu.Unlock()
+		return
+	}
+	st.exclusions[name] = strongExclusion{pid: ap, attemptID: attemptID, epoch: epoch, state: exclusionActive}
 	st.mu.Unlock()
 	st.stopTimer(name)
 	st.svc.monitor(ap)
-	st.deliver(name, globalapi.RegisterOutcome{PID: ap, Epoch: epoch, State: globalapi.RegisterStateActive})
+	st.deliver(name, attemptID, ap, globalapi.RegisterOutcome{PID: ap, Epoch: epoch, State: globalapi.RegisterStateActive})
 }
 
-func (st *strongState) onTerminal(name string) {
+func (st *strongState) onTerminal(name, attemptID string) {
 	st.mu.Lock()
-	delete(st.exclusions, name)
+	ex, ok := st.exclusions[name]
+	if attemptID == "" && ok {
+		attemptID = ex.attemptID
+	}
+	if attemptID == "" {
+		st.mu.Unlock()
+		return
+	}
+	if ok && ex.attemptID != attemptID {
+		st.mu.Unlock()
+		// A replacement holds the name now; finish only the older caller.
+		st.deliverAttempt(name, attemptID, globalapi.RegisterOutcome{State: globalapi.RegisterStateExpired})
+		return
+	}
+	if ok {
+		delete(st.exclusions, name)
+	}
 	st.mu.Unlock()
-	st.stopTimer(name)
-	// Deterministic, idempotent: deliver an epoch-less Expired signal. finalize
-	// reads the authoritative epoch/reason/missing from the terminal tracking, so
-	// concurrent onTerminal calls (watch + recursive reconcile + timer) cannot
-	// produce a non-deterministic outcome, and the reject path still delivers.
-	st.deliver(name, globalapi.RegisterOutcome{State: globalapi.RegisterStateExpired})
+	if ok {
+		st.stopTimer(name)
+	}
+	// finalize reads terminal detail by attempt, so a delayed terminal event for
+	// an older registration cannot complete a replacement waiter.
+	if ok {
+		st.deliver(name, attemptID, ex.pid, globalapi.RegisterOutcome{State: globalapi.RegisterStateExpired})
+		return
+	}
+	// A rejection can delete pending before this node ever latched an
+	// exclusion. The watch's previous record still identifies the right waiter.
+	st.deliverAttempt(name, attemptID, globalapi.RegisterOutcome{State: globalapi.RegisterStateExpired})
 }
 
 func (st *strongState) reserved(name string) (pid.PID, bool) {
@@ -702,13 +810,43 @@ func (st *strongState) removeWaiter(name string, w *strongWaiter) {
 	if len(st.waiters[name]) == 0 {
 		delete(st.waiters, name)
 	}
+	remaining := false
+	for _, other := range st.waiters[name] {
+		if other.attemptID == w.attemptID {
+			remaining = true
+			break
+		}
+	}
+	if !remaining {
+		delete(st.terminalReason, w.attemptID)
+		delete(st.terminalEpoch, w.attemptID)
+		delete(st.terminalMissing, w.attemptID)
+	}
 }
 
-func (st *strongState) deliver(name string, out globalapi.RegisterOutcome) {
+func (st *strongState) deliver(name, attemptID string, owner pid.PID, out globalapi.RegisterOutcome) {
 	st.mu.Lock()
 	ws := append([]*strongWaiter(nil), st.waiters[name]...)
 	st.mu.Unlock()
 	for _, w := range ws {
+		if w.attemptID != attemptID || !w.pid.Equal(owner) {
+			continue
+		}
+		select {
+		case w.ch <- out:
+		default:
+		}
+	}
+}
+
+func (st *strongState) deliverAttempt(name, attemptID string, out globalapi.RegisterOutcome) {
+	st.mu.Lock()
+	ws := append([]*strongWaiter(nil), st.waiters[name]...)
+	st.mu.Unlock()
+	for _, w := range ws {
+		if w.attemptID != attemptID {
+			continue
+		}
 		select {
 		case w.ch <- out:
 		default:

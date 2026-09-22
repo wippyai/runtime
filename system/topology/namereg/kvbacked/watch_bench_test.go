@@ -127,7 +127,7 @@ func runStrongWatchVoteBurst(b *testing.B, participants, pending, unrelated int)
 		claim := fmt.Sprintf("watch-bench-%d", i)
 		owner := pid.PID{Node: "owner", Host: "h", UniqID: fmt.Sprintf("owner-%d", i)}
 		hdr, err := encode(pendingHeader{
-			PID: owner.String(), Name: claim,
+			PID: owner.String(), Name: claim, AttemptID: claim,
 			RequiredNodes: required, DeadlineUnixNano: time.Now().Add(time.Hour).UnixNano(),
 		})
 		if err != nil {

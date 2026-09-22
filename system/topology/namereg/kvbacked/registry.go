@@ -11,6 +11,7 @@ package kvbacked
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"sync/atomic"
 
@@ -51,8 +52,11 @@ func nodeIndexKey(p pid.PID, name string) string {
 
 // activeValue is the stored payload of an active name binding.
 type activeValue struct {
-	PID           string       `codec:"p"`
-	Name          string       `codec:"n"`
+	PID  string `codec:"p"`
+	Name string `codec:"n"`
+	// AttemptID identifies the Strong registration that produced this active
+	// record. It is separate from Entry.Epoch, which is the active Raft fence.
+	AttemptID     string       `codec:"a,omitempty"`
 	RequiredNodes []pid.NodeID `codec:"r,omitempty"`
 	Strong        bool         `codec:"s,omitempty"`
 }
@@ -79,6 +83,9 @@ func decodeInto(data []byte, v any) error {
 func decodeActive(data []byte) (activeValue, error) {
 	var v activeValue
 	err := decodeInto(data, &v)
+	if err == nil && v.Strong && v.AttemptID == "" {
+		err = fmt.Errorf("missing Strong attempt identity")
+	}
 	return v, err
 }
 
