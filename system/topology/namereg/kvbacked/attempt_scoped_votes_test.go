@@ -57,33 +57,6 @@ func (e *uncertainVoteEngine) Txn(ops []kvapi.TxnOp) (bool, error) {
 	return committed, err
 }
 
-type pauseAfterCommitEngine struct {
-	kvapi.Engine
-	match   func([]kvapi.TxnOp) bool
-	entered chan struct{}
-	release chan struct{}
-	mu      sync.Mutex
-	paused  bool
-}
-
-func (e *pauseAfterCommitEngine) Txn(ops []kvapi.TxnOp) (bool, error) {
-	if !e.match(ops) {
-		return e.Engine.Txn(ops)
-	}
-	e.mu.Lock()
-	first := !e.paused
-	if first {
-		e.paused = true
-	}
-	e.mu.Unlock()
-	committed, err := e.Engine.Txn(ops)
-	if first {
-		close(e.entered)
-		<-e.release
-	}
-	return committed, err
-}
-
 func (e *voteGateEngine) Txn(ops []kvapi.TxnOp) (bool, error) {
 	if e.match(ops) {
 		e.gateMu.Lock()

@@ -197,15 +197,6 @@ func TestStrongFailedFollowerVoteRetriesThroughOwner(t *testing.T) {
 	}
 }
 
-func mustEncodeActive(t *testing.T, active activeValue) []byte {
-	t.Helper()
-	value, err := encode(active)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return value
-}
-
 func TestStrongSameNameEventsCoalesceBehindBlockedAction(t *testing.T) {
 	r := newStrongReg(t, []pid.NodeID{"node-1", "ghost"}, time.Minute, nil)
 	r.strong.isLeader = func() bool { return false }

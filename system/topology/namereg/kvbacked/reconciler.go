@@ -362,7 +362,7 @@ func (s *Service) StartReconciler(ctx context.Context) (err error) {
 		return nil
 	}
 	if s.strong != nil && s.nonMember != nil && s.nonMember() {
-		return fmt.Errorf("Strong observer requires a local Raft replica")
+		return fmt.Errorf("strong observer requires a local Raft replica")
 	}
 	if s.strong != nil && (s.localRead == nil || s.localScan == nil) {
 		return fmt.Errorf("strong registry requires coherent local KV snapshots")

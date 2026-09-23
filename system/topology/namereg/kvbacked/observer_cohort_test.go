@@ -114,8 +114,8 @@ func TestStrongDepartedObserverDoesNotPoisonNextAttempt(t *testing.T) {
 
 func TestStrongObserverConfigurationFailuresDoNotAssumeSingleton(t *testing.T) {
 	for _, tc := range []struct {
-		name    string
 		members func() ([]pid.NodeID, error)
+		name    string
 	}{
 		{name: "unconfigured"},
 		{name: "empty", members: func() ([]pid.NodeID, error) { return nil, nil }},

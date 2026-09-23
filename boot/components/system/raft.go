@@ -382,7 +382,7 @@ func Raft() boot.Component {
 						}
 						members := make([]pid.NodeID, 0, len(servers))
 						for _, server := range servers {
-							members = append(members, pid.NodeID(server.ID))
+							members = append(members, server.ID)
 						}
 						return members, nil
 					},

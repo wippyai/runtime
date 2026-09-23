@@ -491,7 +491,7 @@ func (st *strongState) assignObservers(name string, version uint64, hdr pendingH
 		return false, nil
 	}
 	if st.members == nil {
-		return false, fmt.Errorf("Strong observation requires a Raft membership snapshot")
+		return false, fmt.Errorf("strong observation requires a Raft membership snapshot")
 	}
 	nodes, err := st.members()
 	if err != nil {
@@ -512,7 +512,7 @@ func (st *strongState) assignObservers(name string, version uint64, hdr pendingH
 		}
 	}
 	if !seen[st.svc.selfNode] {
-		return false, fmt.Errorf("Strong observer cohort omits its leader")
+		return false, fmt.Errorf("strong observer cohort omits its leader")
 	}
 	sort.Strings(hdr.RequiredNodes)
 	value, err := encode(hdr)
@@ -534,7 +534,7 @@ func (st *strongState) assignObservers(name string, version uint64, hdr pendingH
 
 // attest records only observation of this exact pending record. It never
 // inspects, revokes, or excludes a LOCAL/EVENTUAL binding.
-func (st *strongState) attest(name string, epoch, version uint64, attemptID string, pendingPID pid.PID, required []pid.NodeID) (bool, error) {
+func (st *strongState) attest(name string, _ uint64, version uint64, attemptID string, _ pid.PID, required []pid.NodeID) (bool, error) {
 	if !contains(required, st.svc.selfNode) {
 		return true, nil
 	}
@@ -822,7 +822,7 @@ func (st *strongState) onActive(name, attemptID string, epoch, observed uint64, 
 	st.notifyActive(name, attemptID, epoch, ap)
 }
 
-func (st *strongState) recordActive(name, attemptID string, epoch, observed uint64, ap pid.PID) {
+func (st *strongState) recordActive(name, attemptID string, _, _ uint64, _ pid.PID) {
 	st.retire(name, attemptID)
 	st.stopTimerAttempt(name, attemptID)
 }
@@ -834,7 +834,7 @@ func (st *strongState) notifyActive(name, attemptID string, epoch uint64, ap pid
 	}})
 }
 
-func (st *strongState) onTerminal(name, attemptID string, observed uint64) {
+func (st *strongState) onTerminal(name, attemptID string, _ uint64) {
 	st.retire(name, attemptID)
 	st.stopTimerAttempt(name, attemptID)
 	// Absence is not a terminal outcome: promotion also deletes pending.
