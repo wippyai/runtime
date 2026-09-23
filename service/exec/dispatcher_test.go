@@ -152,6 +152,62 @@ func TestDispatcher_RegisterAll(t *testing.T) {
 
 	d.RegisterAll(register)
 
-	assert.Len(t, registered, 1)
+	assert.Len(t, registered, 2)
 	assert.Contains(t, registered, execapi.ProcessWait)
+	assert.Contains(t, registered, execapi.TerminalReady)
+}
+
+type readyReceiver struct {
+	result chan error
+}
+
+func (r *readyReceiver) CompleteYield(_ uint64, _ any, err error) {
+	r.result <- err
+}
+
+func TestTerminalReadyHandler(t *testing.T) {
+	d := NewDispatcher()
+	var handler dispatcher.Handler
+	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
+		if id == execapi.TerminalReady {
+			handler = h
+		}
+	})
+	require.NotNil(t, handler)
+	ready := make(chan error, 1)
+	receiver := &readyReceiver{result: make(chan error, 1)}
+	require.NoError(t, handler.Handle(context.Background(), &execapi.TerminalReadyCmd{Ready: ready}, 1, receiver))
+	select {
+	case <-receiver.result:
+		t.Fatal("returned before terminal startup")
+	default:
+	}
+	ready <- nil
+	select {
+	case err := <-receiver.result:
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("terminal startup did not resume caller")
+	}
+}
+
+func TestTerminalReadyHandlerPropagatesFailure(t *testing.T) {
+	d := NewDispatcher()
+	var handler dispatcher.Handler
+	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
+		if id == execapi.TerminalReady {
+			handler = h
+		}
+	})
+	ready := make(chan error, 1)
+	receiver := &readyReceiver{result: make(chan error, 1)}
+	require.NoError(t, handler.Handle(context.Background(), &execapi.TerminalReadyCmd{Ready: ready}, 1, receiver))
+	failure := errors.New("start failed")
+	ready <- failure
+	select {
+	case err := <-receiver.result:
+		require.ErrorIs(t, err, failure)
+	case <-time.After(time.Second):
+		t.Fatal("startup failure did not resume caller")
+	}
 }

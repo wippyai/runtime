@@ -34,8 +34,9 @@ func NewExecutor(_ context.Context, res resource.Resource[any], factory apiexec.
 }
 
 var executorMethods = map[string]lua.LGoFunc{
-	"exec":    executorExec,
-	"release": executorRelease,
+	"exec":     executorExec,
+	"terminal": executorTerminal,
+	"release":  executorRelease,
 }
 
 func checkExecutor(l *lua.LState, idx int) *Executor {
@@ -103,14 +104,27 @@ func executorExec(l *lua.LState) int {
 	if e == nil {
 		return 0
 	}
-	ctx := l.Context()
+	proc, ok := createAuthorizedProcess(l, e, false, 0, 0)
+	if !ok {
+		return 2
+	}
+	p := NewProcess(l.Context(), proc)
+	value.PushTypedUserData(l, p, processTypeName)
+	l.Push(lua.LNil)
+	return 2
+}
 
+// createAuthorizedProcess is shared by ordinary exec and the terminal
+// constructor, so terminal launch cannot bypass command or mount policy.
+// On failure it pushes the normal nil,error pair for the Lua caller.
+func createAuthorizedProcess(l *lua.LState, e *Executor, terminal bool, width, height int) (apiexec.Process, bool) {
+	ctx := l.Context()
 	e.mu.Lock()
 	if e.released {
 		e.mu.Unlock()
 		l.Push(lua.LNil)
 		l.Push(lua.NewLuaError(l, "executor is released").WithKind(lua.Invalid).WithRetryable(false))
-		return 2
+		return nil, false
 	}
 	factory := e.factory
 	e.mu.Unlock()
@@ -119,19 +133,31 @@ func executorExec(l *lua.LState) int {
 	if cmd == "" {
 		l.Push(lua.LNil)
 		l.Push(lua.NewLuaError(l, "command is required").WithKind(lua.Invalid).WithRetryable(false))
-		return 2
+		return nil, false
 	}
 
 	opts, err := parseProcessOptions(l.Get(3))
 	if err != nil {
 		pushInvalidOption(l, err.Error())
-		return 2
+		return nil, false
+	}
+	if terminal {
+		if opts.PTY == nil {
+			opts.PTY = &apiexec.PTYOptions{Width: width, Height: height}
+		} else {
+			if opts.PTY.Width == 0 {
+				opts.PTY.Width = width
+			}
+			if opts.PTY.Height == 0 {
+				opts.PTY.Height = height
+			}
+		}
 	}
 
 	if !security.IsAllowed(ctx, "exec.run", cmd, processSecurityMeta(opts)) {
 		l.Push(lua.LNil)
 		l.Push(lua.NewLuaError(l, "permission denied: execute command").WithKind(lua.PermissionDenied).WithRetryable(false))
-		return 2
+		return nil, false
 	}
 	for _, mount := range opts.Mounts {
 		if !security.IsAllowed(ctx, "exec.mount", mount.Source, attrs.Bag{
@@ -143,7 +169,7 @@ func executorExec(l *lua.LState) int {
 				WithKind(lua.PermissionDenied).
 				WithRetryable(false).
 				WithDetails(map[string]any{"source": mount.Source, "target": mount.Target, "read_only": mount.ReadOnly}))
-			return 2
+			return nil, false
 		}
 	}
 
@@ -151,14 +177,9 @@ func executorExec(l *lua.LState) int {
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(wrapExecError(l, err, "create process", lua.Internal))
-		return 2
+		return nil, false
 	}
-
-	p := NewProcess(ctx, proc)
-
-	value.PushTypedUserData(l, p, processTypeName)
-	l.Push(lua.LNil)
-	return 2
+	return proc, true
 }
 
 func processSecurityMeta(options apiexec.ProcessOptions) attrs.Bag {

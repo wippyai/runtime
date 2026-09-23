@@ -11,7 +11,7 @@ import (
 	"github.com/wippyai/runtime/runtime/lua/engine"
 )
 
-func TestTerminalCompletionPreservesSelectValueType(t *testing.T) {
+func TestTerminalProcessResultPreservesSelectValueType(t *testing.T) {
 	config := code.DefaultTypeCheckConfig()
 	config.Enabled = true
 	config.SkipUntyped = false
@@ -20,20 +20,20 @@ func TestTerminalCompletionPreservesSelectValueType(t *testing.T) {
 local channel = require("channel")
 local exec = require("exec")
 
-local function completion_value(session: exec.TerminalSession): boolean
-    local done = session:done()
+local function completion_value(terminal: exec.TerminalProcess): integer
+    local done = terminal:done()
     local selected = channel.select({done:case_receive()})
     if selected.channel == done then
-        local completed: boolean = selected.value
-        return completed
+        local result: exec.TerminalResult = selected.value
+        if result.exit then return result.exit.code end
     end
-    return false
+    return 0
 end
 
 return completion_value
-`, "terminal_completion_select_types.lua", nil)
+`, "terminal_result_select_types.lua", nil)
 	require.NoError(t, err)
-	require.False(t, code.HasErrors(diagnostics), "terminal completion select type was lost: %v", diagnostics)
+	require.False(t, code.HasErrors(diagnostics), "terminal result select type was lost: %v", diagnostics)
 }
 
 func TestProcessMountOptionsAreTyped(t *testing.T) {
