@@ -99,8 +99,10 @@ on, output drained, and the terminal finalized. `result.exit` has the child's
 `code`, optional `signal`, and optional `error` if its exit could not be
 observed. It is absent if the proxy could not reap the child. A non-zero code
 is a child exit, not a terminal error. `result.terminal_error` separately
-reports a proxy, I/O, or shutdown failure. `close()` requests graceful
-shutdown and reaping; await `done()` to observe completion. Neither the PID
+reports a proxy, I/O, or shutdown failure. `close()` hangs up the terminal:
+the child is sent `SIGHUP`, which interactive shells honor and forward to their
+jobs, then `SIGKILL` if it is still running after a grace period, and is
+reaped; await `done()` to observe completion. Neither the PID
 nor an exit result is an authorization grant or proof that a process group
 exited.
 

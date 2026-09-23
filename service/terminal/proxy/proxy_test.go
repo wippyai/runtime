@@ -403,7 +403,7 @@ func TestProxyRunWithReadyWaitsForStartup(t *testing.T) {
 		t.Fatal("startup did not report ready")
 	}
 	bridge.RequestClose()
-	require.Equal(t, int(syscall.SIGTERM), <-process.signals)
+	require.Equal(t, int(syscall.SIGHUP), <-process.signals)
 	process.wait <- nil
 	require.NoError(t, writer.Close())
 	result := <-done
@@ -550,7 +550,7 @@ func TestProxyCloseWaitsForProcessAndOutput(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- proxy.Run(context.Background(), events) }()
 	events <- ttyapi.Event{Type: "close"}
-	require.Equal(t, int(syscall.SIGTERM), <-process.signals)
+	require.Equal(t, int(syscall.SIGHUP), <-process.signals)
 
 	select {
 	case err := <-done:
@@ -594,7 +594,7 @@ func TestProxyCloseDuringStartIsDeliveredAfterStartup(t *testing.T) {
 		t.Fatal("close request blocked behind process startup")
 	}
 	close(process.startRelease)
-	require.Equal(t, int(syscall.SIGTERM), <-process.signals)
+	require.Equal(t, int(syscall.SIGHUP), <-process.signals)
 	process.wait <- errors.New("signal: terminated")
 	require.NoError(t, writer.Close())
 	require.NoError(t, <-done)
@@ -619,7 +619,7 @@ func TestRequestCloseInterruptsBlockedInput(t *testing.T) {
 	events <- ttyapi.Event{Type: "key", KeyType: "runes", Key: "x", Action: "press"}
 	<-process.writeEntered
 	proxy.RequestClose()
-	require.Equal(t, int(syscall.SIGTERM), <-process.signals)
+	require.Equal(t, int(syscall.SIGHUP), <-process.signals)
 	process.wait <- errors.New("signal: terminated")
 	require.NoError(t, writer.Close())
 	require.NoError(t, <-done)
@@ -643,7 +643,7 @@ func TestRequestCloseArmsShutdownEscalation(t *testing.T) {
 	go func() { done <- proxy.Run(context.Background(), make(chan ttyapi.Event)) }()
 
 	proxy.RequestClose()
-	require.Equal(t, int(syscall.SIGTERM), <-process.signals)
+	require.Equal(t, int(syscall.SIGHUP), <-process.signals)
 	require.Equal(t, int(syscall.SIGKILL), <-process.signals)
 	select {
 	case err := <-done:
@@ -675,7 +675,7 @@ func TestProxyPresentFailureTerminatesAndReapsProcess(t *testing.T) {
 	require.NoError(t, <-ready)
 	_, err = writer.Write([]byte("output"))
 	require.NoError(t, err)
-	require.Equal(t, int(syscall.SIGTERM), <-process.signals)
+	require.Equal(t, int(syscall.SIGHUP), <-process.signals)
 	process.wait <- nil
 	require.NoError(t, writer.Close())
 	select {
@@ -708,7 +708,7 @@ func TestProxyCancelsAbandonedRemoteWait(t *testing.T) {
 	go func() { done <- proxy.Run(context.Background(), events) }()
 
 	events <- ttyapi.Event{Type: "close"}
-	require.Equal(t, int(syscall.SIGTERM), <-process.signals)
+	require.Equal(t, int(syscall.SIGHUP), <-process.signals)
 	require.Equal(t, int(syscall.SIGKILL), <-process.signals)
 	select {
 	case <-process.canceled:
@@ -763,6 +763,44 @@ func TestProxyRunsNativeTerminal(t *testing.T) {
 	rendered := strings.Join(surface.rows, "\n")
 	surface.mu.Unlock()
 	require.Contains(t, rendered, "30 100")
+}
+
+// Interactive shells ignore SIGTERM by design. Closing their terminal ends
+// them the way a terminal hangup does, well inside the SIGKILL grace.
+func TestProxyCloseHangsUpNativeInteractiveShell(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("native PTY integration requires Unix")
+	}
+	executor := native.NewNativeExecutor(zap.NewNop(), &execapi.NativeExecutorConfig{})
+	process, err := executor.NewProcess(
+		"sh -i",
+		execapi.ProcessOptions{PTY: &execapi.PTYOptions{Width: 80, Height: 20, Term: "xterm-256color"}},
+	)
+	require.NoError(t, err)
+	ptyProcess, ok := process.(execapi.PTYProcess)
+	require.True(t, ok)
+	surface := &testSurface{}
+	proxy, err := New(ptyProcess, surface, 80, 20)
+	require.NoError(t, err)
+	done := make(chan Result, 1)
+	go func() { done <- proxy.RunWithReady(context.Background(), make(chan ttyapi.Event), nil) }()
+
+	// The prompt is printed after the shell has installed its interactive
+	// signal dispositions.
+	require.Eventually(t, func() bool {
+		surface.mu.Lock()
+		defer surface.mu.Unlock()
+		return strings.TrimSpace(strings.Join(surface.rows, "")) != ""
+	}, 3*time.Second, 10*time.Millisecond)
+	proxy.RequestClose()
+
+	select {
+	case result := <-done:
+		require.NotNil(t, result.Exit)
+		require.Equal(t, int(syscall.SIGHUP), result.Exit.Signal)
+	case <-time.After(defaultShutdownGrace / 2):
+		t.Fatal("closing an interactive shell waited for the SIGKILL escalation")
+	}
 }
 
 func TestProxyRunsNativeInteractiveEditingKeys(t *testing.T) {
