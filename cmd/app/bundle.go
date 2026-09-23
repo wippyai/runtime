@@ -8,7 +8,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 
@@ -44,31 +43,31 @@ func (bundle Bundle) validate() error {
 			return err
 		}
 		if _, err := semver.ParseVersion(pack.Version); err != nil {
-			return fmt.Errorf("pack %s version: %w", pack.Module, err)
+			return NewBundledPackError(pack.Module, "version", err)
 		}
 		if seen[pack.Module] {
-			return fmt.Errorf("duplicate bundled module %s", pack.Module)
+			return NewDuplicateBundledModuleError(pack.Module)
 		}
 		seen[pack.Module] = true
 		digest := sha256.Sum256(pack.Data)
 		if pack.Digest != "sha256:"+hex.EncodeToString(digest[:]) {
-			return fmt.Errorf("pack %s digest mismatch", pack.Module)
+			return NewBundledPackError(pack.Module, "digest mismatch", nil)
 		}
 		reader, err := wapp.NewReader(bytes.NewReader(pack.Data))
 		if err != nil {
-			return fmt.Errorf("pack %s: %w", pack.Module, err)
+			return NewBundledPackError(pack.Module, "", err)
 		}
 		metadata, err := reader.GetMetadata()
 		if err != nil {
-			return fmt.Errorf("pack %s metadata: %w", pack.Module, err)
+			return NewBundledPackError(pack.Module, "metadata", err)
 		}
 		name, _ := graph.ParseName(pack.Module)
 		if metadata["namespace"] != name.Organization+"."+name.Module || metadata["name"] != name.Module || metadata["version"] != pack.Version {
-			return fmt.Errorf("pack %s metadata does not match bundled identity", pack.Module)
+			return NewBundledPackError(pack.Module, "metadata does not match bundled identity", nil)
 		}
 	}
 	if !seen[bundle.Root] {
-		return fmt.Errorf("bundled application %s is missing", bundle.Root)
+		return NewMissingBundledApplicationError(bundle.Root)
 	}
 	return nil
 }
@@ -131,7 +130,7 @@ func (bundle Bundle) Seed(directory string) (string, error) {
 
 func (bundle Bundle) existing(path string) (string, error) {
 	if _, err := os.Stat(path); err != nil {
-		return "", fmt.Errorf("existing deployment lock: %w", err)
+		return "", NewExistingDeploymentLockError(err)
 	}
 	locked, err := lock.New(path)
 	if err != nil {
@@ -142,7 +141,7 @@ func (bundle Bundle) existing(path string) (string, error) {
 	}
 	roots := locked.GetRootModules()
 	if len(roots) != 1 || roots[0] != bundle.Root {
-		return "", fmt.Errorf("deployment does not select %s", bundle.Root)
+		return "", NewDeploymentApplicationError(bundle.Root)
 	}
 	return path, nil
 }

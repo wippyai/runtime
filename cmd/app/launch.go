@@ -5,87 +5,159 @@ package app
 import (
 	"context"
 	"errors"
-	"sync"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/wippyai/runtime/api/boot"
-	"github.com/wippyai/runtime/cmd/internal/bootconfig"
 )
 
-// Launch runs an application-specific invocation before owner state is opened.
-// It may run a client without calling runOwner. The callback owns discovery,
-// authentication and admission; the runner never attaches or retries for it.
-// Update, runtime tooling and --base bypass this callback.
-// runOwner is single-use, synchronous, and invalid after Launch returns.
-type Launch func(ctx context.Context, request LaunchRequest, runOwner func(OwnerOptions) error) error
+// Op is the operation an invocation selects.
+type Op int
 
-// LaunchRequest identifies the ordinary invocation. StateDir is already resolved
-// from --state-dir or the executable's default and cannot be redirected by runOwner.
-type LaunchRequest struct {
-	Name      string
-	Module    string
-	StateDir  string
-	Command   string
-	Arguments []string
+const (
+	OpRun Op = iota
+	OpUpdate
+	OpRecover
+	OpWippy
+)
+
+// String returns the verb that selects the operation.
+func (op Op) String() string {
+	switch op {
+	case OpUpdate:
+		return "update"
+	case OpRecover:
+		return "recover"
+	case OpWippy:
+		return "wippy"
+	default:
+		return "run"
+	}
 }
 
-// OwnerOptions selects the application command and preparation for one owner run.
-// Empty Command and nil Arguments retain the invocation values. Prepare runs
-// under exclusive state ownership, before deployment or application stores open.
-type OwnerOptions struct {
-	Prepare   func(context.Context) (OwnerResources, error)
-	Command   string
-	Arguments []string
+// Launch describes one invocation to the host. State is already resolved and
+// absolute, and Explicit reports that --state selected it. Owned answers
+// whether a state has an owner, including a state the host selects itself.
+type Launch struct {
+	Command  string
+	State    string
+	Dir      string
+	Args     []string
+	Op       Op
+	Explicit bool
 }
 
-// OwnerResources lives inside the owner's exclusive lifetime. Close runs after
-// runtime shutdown and before unlocking, even when preparation or startup fails.
-// Config cannot redirect registry history.
-type OwnerResources struct {
-	Config boot.Config
-	Close  func() error
+// Plan is the host's decision for one launch. A non-empty State, Command or
+// Args replaces the value the grammar selected. Run hands the whole launch to
+// the host. Prepare opens host resources under the state lock and returns the
+// configuration they need together with the close that releases them.
+type Plan struct {
+	Run     func(context.Context) error
+	Prepare func(context.Context) (boot.Config, func() error, error)
+	State   string
+	Command string
+	Args    []string
 }
 
-func launch(ctx context.Context, callback Launch, request LaunchRequest, run func(context.Context, OwnerOptions) error) (result error) {
-	ctx, cancel := context.WithCancel(ctx)
-	var mu sync.Mutex
-	var running sync.WaitGroup
-	var started, closed, active bool
-	defer func() {
-		mu.Lock()
-		closed = true
-		if active {
-			result = errors.Join(result, NewLaunchIncompleteError())
+// Host decides what an invocation does before the runner opens the state.
+type Host interface {
+	Plan(ctx context.Context, l Launch) (Plan, error)
+}
+
+// parseLaunch reads the argument grammar. A leading --state is the only
+// argument the runner consumes, so every other argument, including one shaped
+// like a flag, reaches the verb and the application exactly as it was typed.
+func parseLaunch(e Executable, args []string) (Launch, error) {
+	state, remaining, err := parseState(args)
+	if err != nil {
+		return Launch{}, err
+	}
+	launch := Launch{Command: e.Command, Explicit: state != ""}
+	if state == "" {
+		config, err := os.UserConfigDir()
+		if err != nil {
+			return Launch{}, NewApplicationStateError("resolve default state directory", e.Name, err)
 		}
-		mu.Unlock()
-		cancel()
-		running.Wait()
-	}()
-	return callback(ctx, request, func(options OwnerOptions) error {
-		mu.Lock()
-		if closed || started {
-			mu.Unlock()
-			return NewOwnerRunnerReusedError()
+		state = filepath.Join(config, e.Name)
+	}
+	absolute, err := filepath.Abs(state)
+	if err != nil {
+		return Launch{}, NewApplicationStateError("resolve state directory", state, err)
+	}
+	launch.State = absolute
+	if launch.Dir, err = os.Getwd(); err != nil {
+		return Launch{}, NewApplicationStateError("resolve working directory", "", err)
+	}
+	launch.Op, launch.Args = OpRun, remaining
+	if len(remaining) > 0 {
+		switch remaining[0] {
+		case OpRun.String(), OpUpdate.String(), OpRecover.String(), OpWippy.String():
+			launch.Op, launch.Args = verb(remaining[0]), remaining[1:]
 		}
-		started = true
-		active = true
-		running.Add(1)
-		mu.Unlock()
-		defer func() {
-			mu.Lock()
-			active = false
-			mu.Unlock()
-			running.Done()
-		}()
-		return run(ctx, options)
-	})
+	}
+	launch.Args = append([]string{}, launch.Args...)
+	return launch, nil
 }
 
-// launchOverrides layers the owner's settings under the registry history the
-// runner pins to the selected state, so no owner key can redirect history.
-func launchOverrides(config boot.Config, historyPath string) boot.Config {
-	return bootconfig.Merge(config, boot.NewConfig(boot.WithSection("registry", map[string]any{
-		"enable_history": true,
-		"history_type":   "sqlite",
-		"history_path":   historyPath,
-	})))
+// parseState takes a leading --state DIR or --state=DIR off the arguments and
+// returns the directory it names with the arguments that follow it.
+func parseState(args []string) (string, []string, error) {
+	if len(args) == 0 {
+		return "", args, nil
+	}
+	if value, joined := strings.CutPrefix(args[0], "--state="); joined {
+		if value == "" {
+			return "", nil, NewMissingStateDirectoryError()
+		}
+		return value, args[1:], nil
+	}
+	if args[0] == "--state" {
+		if len(args) == 1 {
+			return "", nil, NewMissingStateDirectoryError()
+		}
+		return args[1], args[2:], nil
+	}
+	return "", args, nil
+}
+
+func verb(word string) Op {
+	switch word {
+	case OpUpdate.String():
+		return OpUpdate
+	case OpRecover.String():
+		return OpRecover
+	case OpWippy.String():
+		return OpWippy
+	default:
+		return OpRun
+	}
+}
+
+// Owned reports whether an invocation holds the state lock at the moment of
+// the call. It is a snapshot: it opens the lock file only when that file
+// already exists, releases the lock immediately and creates nothing, so it
+// leaves an absent state absent. A host uses it to describe the state it is
+// about to select; ErrOwned from Run is the authoritative answer.
+func Owned(state string) (bool, error) {
+	path := filepath.Join(state, lockFilename)
+	file, err := os.OpenFile(path, os.O_RDWR, 0o600)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, NewApplicationStateError("probe application state lock", path, err)
+	}
+	defer func() { _ = file.Close() }()
+	unlock, err := tryLockFile(file)
+	if errors.Is(err, errLockBusy) {
+		return true, nil
+	}
+	if err != nil {
+		return false, NewApplicationStateError("probe application state lock", path, err)
+	}
+	if err := unlock(); err != nil {
+		return false, NewApplicationStateError("release application state lock probe", path, err)
+	}
+	return false, nil
 }

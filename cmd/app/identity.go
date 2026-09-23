@@ -8,7 +8,10 @@ import (
 	"sort"
 )
 
-func bundleID(bundle Bundle) string {
+// ID is the identity of the exact content an executable ships. It names the
+// deployment directory the bundle seeds, so two executables carrying different
+// packs seed and keep separate deployments in one state directory.
+func (bundle Bundle) ID() string {
 	keys := make([]string, 0, len(bundle.Packs))
 	for _, pack := range bundle.Packs {
 		keys = append(keys, pack.Module+"@"+pack.Version+"="+pack.Digest)

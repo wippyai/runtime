@@ -3,19 +3,39 @@
 package hub
 
 import (
+	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/wippyai/runtime/boot/deps/graph"
 )
 
-func immutableWappRelativePath(name graph.Name, version, digest string) (string, error) {
+// The immutable artifact layout. A cache entry is addressed by the module it
+// carries, the version it was published at and the digest of its content, so a
+// republished build at the same version occupies its own path.
+const (
+	immutableWappDigestMarker = ".sha256-"
+	immutableWappSuffix       = ".wapp"
+)
+
+// immutableArtifactPublishMu serializes verification and replacement of cache
+// entries in this process. A repair replaces a bad entry, while verification
+// opens that entry to hash it. Windows cannot replace a path while another
+// goroutine has it open, so the whole decision and replacement form one
+// critical section. Publication happens during boot/update and is infrequent;
+// one lock also avoids retaining a mutex for every cache path.
+var immutableArtifactPublishMu sync.Mutex
+
+// ImmutableWappRelativePath returns the cache-relative path naming the exact
+// content that digest identifies, under the organization that owns the module.
+func ImmutableWappRelativePath(name graph.Name, version, digest string) (string, error) {
 	algorithm, value, err := parseExpectedDigest(digest)
-	if err != nil || algorithm != "sha256" || len(value) != 64 {
+	if err != nil || algorithm != "sha256" || len(value) != sha256.Size*2 {
 		return "", NewArtifactContentError("immutable artifact path requires a sha256 digest", map[string]any{"digest": digest})
 	}
 	if _, err := hex.DecodeString(value); err != nil {
@@ -23,8 +43,84 @@ func immutableWappRelativePath(name graph.Name, version, digest string) (string,
 	}
 	return filepath.Join(
 		name.Organization,
-		name.Module+"-"+version+".sha256-"+strings.ToLower(value)+".wapp",
+		name.Module+"-"+version+immutableWappDigestMarker+strings.ToLower(value)+immutableWappSuffix,
 	), nil
+}
+
+// ImmutableWappDigest reports the digest an immutable artifact filename carries,
+// in the prefixed form the cache verifies against. It reads back what
+// ImmutableWappRelativePath writes, and reports false for any other filename.
+func ImmutableWappDigest(filename string) (string, bool) {
+	if !strings.HasSuffix(filename, immutableWappSuffix) {
+		return "", false
+	}
+	base := strings.TrimSuffix(filename, immutableWappSuffix)
+	marker := strings.LastIndex(base, immutableWappDigestMarker)
+	if marker <= 0 {
+		return "", false
+	}
+	value := strings.ToLower(base[marker+len(immutableWappDigestMarker):])
+	if len(value) != sha256.Size*2 {
+		return "", false
+	}
+	if _, err := hex.DecodeString(value); err != nil {
+		return "", false
+	}
+	return "sha256:" + value, true
+}
+
+// PublishImmutableArtifact publishes content at relative inside the artifact
+// cache rooted at cacheDir. Relative names the identity content must satisfy,
+// so an entry that already carries it is kept and content is never read.
+// Otherwise content is staged in a private file, verified against digest and
+// size, and only then placed at the cache path.
+func PublishImmutableArtifact(cacheDir, relative string, content io.Reader, digest string, size uint64) error {
+	immutableArtifactPublishMu.Lock()
+	defer immutableArtifactPublishMu.Unlock()
+
+	destination, err := containedPath(cacheDir, relative)
+	if err != nil {
+		return err
+	}
+	existing := verifyExistingImmutableArtifact(destination, digest, size)
+	if existing == nil {
+		return nil
+	}
+	directory := filepath.Dir(destination)
+	if err := os.MkdirAll(directory, 0o755); err != nil {
+		return NewArtifactIOError("create artifact cache directory", directory, err)
+	}
+	staged, err := stageArtifact(content, directory, ".artifact-stage-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(staged)
+	if errors.Is(existing, os.ErrNotExist) {
+		return publishVerifiedArtifact(staged, destination, digest, size)
+	}
+	return repairImmutableArtifact(staged, destination, digest, size)
+}
+
+// repairImmutableArtifact replaces a cache entry that does not carry the content
+// its name pins. The cache is derived data, so an entry nothing can read is
+// rebuilt from verified content. publishVerifiedArtifact keeps such an entry
+// instead, because the Hub download path treats a published immutable path as
+// settled; replacement is this seeding entry point's decision.
+//
+// Rename leaves no moment in which the cache path is absent, and every
+// publisher renames content of the same digest, so the entry verifies under any
+// ordering of concurrent repairs. The result is read back before it is accepted.
+func repairImmutableArtifact(staged, destination, digest string, size uint64) error {
+	if err := verifyDownloadedArtifact(staged, digest, size); err != nil {
+		return NewArtifactIOError("verify private artifact", staged, err)
+	}
+	if err := os.Rename(staged, destination); err != nil {
+		return NewArtifactIOError("repair immutable artifact cache entry", destination, err)
+	}
+	if err := syncDirectory(filepath.Dir(destination)); err != nil {
+		return err
+	}
+	return verifyExistingImmutableArtifact(destination, digest, size)
 }
 
 // publishVerifiedArtifact publishes an already-downloaded private candidate at
@@ -87,9 +183,9 @@ func publishVerifiedArtifact(candidate, destination, digest string, size uint64)
 	return syncDirectory(filepath.Dir(destination))
 }
 
-// copyArtifactToPrivateFile creates a fully written, synced private candidate.
-// No partially copied bytes are ever exposed at the eventual cache path.
-func copyArtifactToPrivateFile(sourcePath, destinationDir, pattern string) (path string, err error) {
+// stageArtifact creates a fully written, synced private candidate from content.
+// No partially written bytes are ever exposed at the eventual cache path.
+func stageArtifact(content io.Reader, destinationDir, pattern string) (path string, err error) {
 	destination, err := os.CreateTemp(destinationDir, pattern)
 	if err != nil {
 		return "", NewArtifactIOError("create private artifact file", destinationDir, err)
@@ -103,19 +199,29 @@ func copyArtifactToPrivateFile(sourcePath, destinationDir, pattern string) (path
 		}
 	}()
 
-	source, err := os.Open(sourcePath)
-	if err != nil {
-		return "", NewArtifactIOError("open artifact source", sourcePath, err)
-	}
-	_, copyErr := io.Copy(destination, source)
-	sourceCloseErr := source.Close()
+	_, copyErr := io.Copy(destination, content)
 	syncErr := destination.Sync()
 	destinationCloseErr := destination.Close()
-	if err := errors.Join(copyErr, sourceCloseErr, syncErr, destinationCloseErr); err != nil {
+	if err := errors.Join(copyErr, syncErr, destinationCloseErr); err != nil {
 		return "", NewArtifactIOError("copy private artifact", path, err)
 	}
 	committed = true
 	return path, nil
+}
+
+// copyArtifactToPrivateFile stages a private candidate from a file the cache
+// does not own, so publication never links an entry to a mutable inode.
+func copyArtifactToPrivateFile(sourcePath, destinationDir, pattern string) (string, error) {
+	source, err := os.Open(sourcePath)
+	if err != nil {
+		return "", NewArtifactIOError("open artifact source", sourcePath, err)
+	}
+	path, stageErr := stageArtifact(source, destinationDir, pattern)
+	if closeErr := source.Close(); closeErr != nil && stageErr == nil {
+		_ = os.Remove(path)
+		return "", NewArtifactIOError("copy private artifact", sourcePath, closeErr)
+	}
+	return path, stageErr
 }
 
 func verifyExistingImmutableArtifact(path, digest string, size uint64) error {
