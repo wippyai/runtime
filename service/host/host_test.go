@@ -1163,6 +1163,9 @@ func TestHostStopDeliversToDrainingProcess(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("process did not receive CANCEL")
 	}
+	// An overlapping, idempotent Stop must not close delivery while the first
+	// call is still waiting for this process to finish cleanup.
+	require.NoError(t, th.host.Stop(stopCtx))
 	pkg := relay.NewPackage(pid.PID{}, processID, "cleanup", payload.New("tick"))
 	require.NoError(t, th.host.Send(pkg), "a draining process must keep receiving deliveries")
 

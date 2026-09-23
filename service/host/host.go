@@ -267,14 +267,18 @@ func (h *Host) Start(ctx context.Context) (<-chan any, error) {
 func (h *Host) Stop(ctx context.Context) error {
 	h.lifecycleMu.Lock()
 	wasRunning := h.running.Swap(false)
-	h.shutdown.Store(true)
+	alreadyShutdown := h.shutdown.Swap(true)
 	h.lifecycleMu.Unlock()
 
 	// Publish the terminal host state before draining the scheduler. Draining
 	// may wait for a process step or invoke lifecycle callbacks; Start and live
 	// Update must reject during that wait instead of blocking behind it.
 	if !wasRunning {
-		h.drained.Store(true)
+		// A second Stop can arrive while the first is still draining. Only a
+		// first Stop of a never-started host may close delivery here.
+		if !alreadyShutdown {
+			h.drained.Store(true)
+		}
 		return nil
 	}
 

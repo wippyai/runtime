@@ -238,7 +238,7 @@ func (p *Proxy) run(ctx context.Context, events <-chan ttyapi.Event, ready chan<
 }
 
 // watchShutdown owns escalation independently of synchronous terminal writes.
-// A child may ignore TERM while leaving its PTY input blocked. Run still owns
+// A child may ignore HUP while leaving its PTY input blocked. Run still owns
 // normal completion and reaping; finished retires the watcher on every return.
 func (p *Proxy) watchShutdown(ctx context.Context, output io.Closer, finished <-chan struct{}, shutdownErrors chan<- error) {
 	var cause error

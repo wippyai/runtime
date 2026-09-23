@@ -283,11 +283,12 @@ func (h *Host) SendContext(ctx context.Context, pkg *relay.Package) error {
 
 // Start implements supervisor.Service.
 func (h *Host) Start(ctx context.Context) (<-chan any, error) {
-	if h.running.Swap(true) {
+	h.lifecycleMu.Lock()
+	defer h.lifecycleMu.Unlock()
+	if h.running.Load() {
 		return nil, ErrHostAlreadyRunning
 	}
 
-	h.lifecycleMu.Lock()
 	h.ctx = ctx
 	h.shutdown.Store(false)
 	h.drained.Store(false)
@@ -298,8 +299,8 @@ func (h *Host) Start(ctx context.Context) (<-chan any, error) {
 	h.statusClosed = false
 	h.doneClosed = false
 	statusCh := h.statusCh
-	h.lifecycleMu.Unlock()
 	h.scheduler.Start()
+	h.running.Store(true)
 
 	h.log.Info("terminal host started", zap.String("id", h.id.String()))
 	return statusCh, nil
@@ -308,7 +309,13 @@ func (h *Host) Start(ctx context.Context) (<-chan any, error) {
 // Stop implements supervisor.Service.
 func (h *Host) Stop(ctx context.Context) error {
 	stopAttempt := h.stopCalls.Add(1)
-	if !h.running.Swap(false) {
+	h.lifecycleMu.Lock()
+	wasRunning := h.running.Swap(false)
+	if wasRunning {
+		h.shutdown.Store(true)
+	}
+	h.lifecycleMu.Unlock()
+	if !wasRunning {
 		h.log.Warn("terminal host stop requested while already stopped",
 			zap.String("id", h.id.String()),
 			zap.Uint64("attempt", stopAttempt),
@@ -316,7 +323,6 @@ func (h *Host) Stop(ctx context.Context) error {
 		return nil
 	}
 
-	h.shutdown.Store(true)
 	h.log.Info("terminal host stopping",
 		zap.String("id", h.id.String()),
 		zap.Uint64("attempt", stopAttempt))
