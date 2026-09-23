@@ -172,19 +172,38 @@ func TestOwnedStateRejectsTheLockedOperations(t *testing.T) {
 	}
 }
 
-func TestReadOnlyWippyCommandRunsWhileTheStateIsOwned(t *testing.T) {
+func TestStateFreeWippyCommandRunsWhileTheStateIsOwned(t *testing.T) {
 	state := t.TempDir()
 	record := captureExecution(t)
 	executable := runnableExecutable(t)
-	_, err := executable.Bundle.Seed(filepath.Join(deploymentsPath(state), executable.Bundle.ID()))
-	require.NoError(t, err)
 	unlock, err := lockState(state)
 	require.NoError(t, err)
 	defer func() { _ = unlock() }()
 
-	require.NoError(t, Run(t.Context(), executable, []string{"--state", state, "wippy", "lint", "--json"}))
-	require.Equal(t, []string{"lint", "--json"}, record.options.Args)
+	require.NoError(t, Run(t.Context(), executable, []string{"--state", state, "wippy", "version"}))
+	require.Equal(t, []string{"version"}, record.options.Args)
 	require.Equal(t, filepath.Join(deploymentsPath(state), executable.Bundle.ID(), "wippy.lock"), record.options.LockFile)
+	require.NoDirExists(t, deploymentsPath(state))
+	require.NoDirExists(t, cachePath(state))
+}
+
+func TestStateFreeWippyCommandLeavesAbsentStateAbsent(t *testing.T) {
+	state := filepath.Join(t.TempDir(), "absent")
+	record := captureExecution(t)
+	require.NoError(t, Run(t.Context(), runnableExecutable(t), []string{"--state", state, "wippy", "version"}))
+	require.Equal(t, []string{"version"}, record.options.Args)
+	require.NoDirExists(t, state)
+}
+
+func TestWippyLintNeedsTheStateLock(t *testing.T) {
+	state := t.TempDir()
+	captureExecution(t)
+	unlock, err := lockState(state)
+	require.NoError(t, err)
+	defer func() { _ = unlock() }()
+
+	err = Run(t.Context(), runnableExecutable(t), []string{"--state", state, "wippy", "lint"})
+	require.ErrorIs(t, err, ErrOwned)
 }
 
 func TestDataEnvironmentBindsInsideStateAndKeepsUserValues(t *testing.T) {

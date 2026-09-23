@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/wippyai/runtime/internal/toolchain"
@@ -21,15 +22,25 @@ type receipt struct {
 	Executable string `json:"executable_sha256"`
 }
 
-// recordRecovery announces the recovery on stderr and writes its receipt. The
-// receipt shares the directory the fresh history lives in, so writing it opens
-// that directory for the history the runtime starts next.
-func recordRecovery(e Executable, l Launch, deployment string) error {
-	history := recoveryHistoryPath(l.State)
-	fmt.Fprintf(os.Stderr, "recover: deployment %s bundle %s history %s\n", deployment, e.Bundle.ID(), history)
+// recordRecovery gives every recovery a new history and points the latest
+// receipt at it. Earlier recovery histories remain available for inspection.
+func recordRecovery(e Executable, l Launch, deployment string) (history string, result error) {
+	if err := os.MkdirAll(recoveryPath(l.State), 0o700); err != nil {
+		return "", NewApplicationStateError("create recovery directory", recoveryPath(l.State), err)
+	}
+	run, err := os.MkdirTemp(recoveryPath(l.State), "run-")
+	if err != nil {
+		return "", NewApplicationStateError("create recovery history directory", recoveryPath(l.State), err)
+	}
+	defer func() {
+		if result != nil {
+			_ = os.Remove(run)
+		}
+	}()
+	history = filepath.Join(run, historyFilename)
 	digest, err := toolchain.ExecutableSHA256()
 	if err != nil {
-		return err
+		return "", err
 	}
 	data, err := json.Marshal(receipt{
 		Time:       time.Now().UTC().Format(time.RFC3339),
@@ -39,7 +50,11 @@ func recordRecovery(e Executable, l Launch, deployment string) error {
 		Executable: digest,
 	})
 	if err != nil {
-		return NewApplicationStateError("encode recovery receipt", receiptPath(l.State), err)
+		return "", NewApplicationStateError("encode recovery receipt", receiptPath(l.State), err)
 	}
-	return writeRecord(receiptPath(l.State), data)
+	if err := writeRecord(receiptPath(l.State), data); err != nil {
+		return "", err
+	}
+	fmt.Fprintf(os.Stderr, "recover: deployment %s bundle %s history %s\n", deployment, e.Bundle.ID(), history)
+	return history, nil
 }

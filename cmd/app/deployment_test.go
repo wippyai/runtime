@@ -95,7 +95,7 @@ func TestDeploymentSelectionRejectsAnUnreadableCurrent(t *testing.T) {
 	}
 }
 
-func TestRecoveryIgnoresCurrentAndSelectsItsOwnHistory(t *testing.T) {
+func TestRecoveryIgnoresCurrent(t *testing.T) {
 	state := t.TempDir()
 	executable := runnableExecutable(t)
 	writeCurrent(t, state, current{Directory: deploymentsDir + "/update-3", Base: executable.Bundle.ID()})
@@ -104,6 +104,4 @@ func TestRecoveryIgnoresCurrentAndSelectsItsOwnHistory(t *testing.T) {
 	selected, err := selectDeployment(executable, launch)
 	require.NoError(t, err)
 	require.Equal(t, filepath.Join(deploymentsPath(state), executable.Bundle.ID()), selected)
-	require.Equal(t, recoveryHistoryPath(state), historyFor(launch))
-	require.Equal(t, historyPath(state), historyFor(Launch{State: state, Op: OpRun}))
 }
