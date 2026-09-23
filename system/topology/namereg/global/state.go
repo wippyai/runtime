@@ -20,9 +20,9 @@ type shard struct {
 }
 
 // nameEntry records the owner of a global name. RequiredNodes/Epoch are
-// populated only for a promoted Strong name: RequiredNodes is the exclusion
-// holder set (so a terminal removal of the active name can deliver an exclusion
-// release) and Epoch is the reservation epoch the exclusion was latched at (so
+// populated only for a promoted Strong name: RequiredNodes is the observation
+// holder set (so a terminal removal of the active name can deliver an observation
+// release) and Epoch is the reservation epoch the observation was latched at (so
 // the release is indexed to the held instance). Both are empty/zero for
 // Consistent-scope entries.
 type nameEntry struct {
@@ -474,7 +474,7 @@ func (s *shardedState) pendingByName(name string) *PendingView {
 // Strong entry is distinguished from a plain Consistent register by carrying a
 // non-empty RequiredNodes set and a non-zero Epoch (set at promotePending);
 // Consistent entries leave both empty/zero. The join-epoch snapshot enumerates
-// these so a joining node installs an Active exclusion for each.
+// these so a joining node installs an Active observation for each.
 type strongActiveView struct {
 	PID   pid.PID
 	Name  string
@@ -493,7 +493,7 @@ type activeBinding struct {
 
 // listActiveConsistent returns every active CONSISTENT name across all shards.
 // CONSISTENT and STRONG entries are distinguished by RequiredNodes: STRONG
-// carries the exclusion-holder set, CONSISTENT leaves it empty.
+// carries the observation-holder set, CONSISTENT leaves it empty.
 func (s *shardedState) listActiveConsistent() []activeBinding {
 	for i := range s.shards {
 		s.shards[i].mu.RLock()
@@ -537,7 +537,7 @@ func (s *shardedState) allActiveNames() []string {
 // listActiveStrong returns every promoted Strong name across all shards. It
 // holds all shard read-locks for a point-in-time consistent view, matching
 // snapshot(). The discriminator is len(RequiredNodes) > 0 — only a promoted
-// Strong entry carries the exclusion-holder set.
+// Strong entry carries the observation-holder set.
 func (s *shardedState) listActiveStrong() []strongActiveView {
 	for i := range s.shards {
 		s.shards[i].mu.RLock()
@@ -610,7 +610,7 @@ func (s *shardedState) unregister(name string) bool {
 }
 
 // unregisterEntry removes a single name and returns a copy of the removed entry.
-// The copy lets callers deliver an exclusion release to a promoted Strong name's
+// The copy lets callers deliver an observation release to a promoted Strong name's
 // holders (RequiredNodes/Epoch) on terminal removal.
 func (s *shardedState) unregisterEntry(name string) (nameEntry, bool) {
 	sh := &s.shards[shardFor(name)]
@@ -646,7 +646,7 @@ func (s *shardedState) lookupPendingByPID(p pid.PID) []string {
 }
 
 // strongTerminal identifies a promoted Strong name removed by a terminal so the
-// caller can deliver an exclusion release to its holders.
+// caller can deliver an observation release to its holders.
 type strongTerminal struct {
 	Name          string
 	PID           pid.PID
@@ -853,7 +853,7 @@ func (s *shardedState) addToNodeIndex(nodeID pid.NodeID, pidKey string) {
 
 // snapshotEntry is the serialisable form of a single name registration.
 // RequiredNodes/Epoch are present only for a promoted Strong name so a terminal
-// removal after a snapshot restore can still deliver an exclusion release.
+// removal after a snapshot restore can still deliver an observation release.
 type snapshotEntry struct {
 	PID           pid.PID      `codec:"p"`
 	Name          string       `codec:"n"`

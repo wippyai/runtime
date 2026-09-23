@@ -216,25 +216,35 @@ func TestResolveDestination_GlobalShadowsEventualAndLocal(t *testing.T) {
 	assert.Equal(t, globalPID, resolved.PID, "global registration must win")
 }
 
-func TestResolveDestinationDoesNotRouteAroundRegistryFailure(t *testing.T) {
+func TestResolveDestinationUsesAvailableLowerScopeAfterRegistryFailure(t *testing.T) {
 	for _, layer := range []string{"global", "eventual"} {
 		t.Run(layer, func(t *testing.T) {
 			gr, er, lr := newFakeGlobalReg(), newFakeEventualReg(), newFakeLocalReg()
 			failure := errors.New("registry unavailable")
-			shadow := pidapi.PID{Host: "h", UniqID: "shadow"}
-			_, err := lr.Register("svc", shadow)
+			lower := pidapi.PID{Host: "h", UniqID: "lower"}
+			_, err := lr.Register("svc", lower)
 			require.NoError(t, err)
 			if layer == "global" {
 				gr.lookupErr = failure
-				er.put("svc", shadow)
+				er.put("svc", lower)
 			} else {
 				er.lookupErr = failure
 			}
 			result, err := ResolveDestination(buildCtx(gr, er, lr), "svc")
-			require.ErrorIs(t, err, failure)
-			require.Empty(t, result.PID.Host, "failed authoritative lookup must not select a weaker-scope process")
+			require.NoError(t, err)
+			require.Equal(t, lower, result.PID)
 		})
 	}
+}
+
+func TestResolveDestinationReportsFirstFailureWhenNoScopeResolves(t *testing.T) {
+	gr, er, lr := newFakeGlobalReg(), newFakeEventualReg(), newFakeLocalReg()
+	failure := errors.New("global unavailable")
+	gr.lookupErr = failure
+	er.lookupErr = errors.New("eventual unavailable")
+	result, err := ResolveDestination(buildCtx(gr, er, lr), "svc")
+	require.ErrorIs(t, err, failure)
+	require.Empty(t, result.PID.Host)
 }
 
 func TestResolveDestinationCanceledNameDoesNotSelectLocal(t *testing.T) {

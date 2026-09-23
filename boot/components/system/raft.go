@@ -373,23 +373,18 @@ func Raft() boot.Component {
 				kvReg = kvbacked.NewService(kvEngine, node.ID(), nil, logger.Named("kvreg"))
 				kvReg.SetTopology(topo)
 				kvReg.ConfigureStrong(kvbacked.StrongDeps{
-					Membership: func() []pid.NodeID {
-						ms, ok := clusterapi.GetMembership(ctx).(*membership.Service)
-						if !ok || ms == nil {
-							return nil
+					IsLeader:          raftNode.IsLeader,
+					ObserveLeadership: raftNode.ObserveLeadership,
+					Members: func() ([]pid.NodeID, error) {
+						servers, err := raftNode.GetConfiguration()
+						if err != nil {
+							return nil, err
 						}
-						var out []pid.NodeID
-						for _, n := range ms.Nodes() {
-							if n.ID != "" {
-								out = append(out, n.ID)
-							}
+						members := make([]pid.NodeID, 0, len(servers))
+						for _, server := range servers {
+							members = append(members, server.ID)
 						}
-						return out
-					},
-					IsLeader: raftNode.IsLeader,
-					LocalConflict: func(name string, proposed pid.PID) (pid.PID, bool) {
-						lp := &localPresenceChecker{ctx: ctx}
-						return localConflictForStrong(lp, name, proposed)
+						return members, nil
 					},
 				})
 				if err := node.RegisterHost(kvbacked.RegistryHostID, kvReg); err != nil {
@@ -412,17 +407,6 @@ func Raft() boot.Component {
 			// - global.Registry for direct Lua module access
 			ctx = topology.WithGlobalRegistry(ctx, liveReg)
 			ctx = globalapi.WithRegistry(ctx, liveReg)
-
-			// Wire the LOCAL/EVENTUAL presence reader used by the Strong-scope
-			// conditional ack. Resolution is lazy because the eventual registry
-			// lands in context after a separate component loads; a call-time
-			// lookup catches whichever registries are wired by then.
-			globalRegSvc.SetLocalPresence(&localPresenceChecker{ctx: ctx})
-
-			// Wire the LOCAL/EVENTUAL revoker the join-epoch barrier uses to drop
-			// conflicting names before flipping ready. Lazy resolution mirrors the
-			// presence checker.
-			globalRegSvc.SetLocalNameRevoker(&localNameRevoker{ctx: ctx})
 
 			// Wire the active-binding dissemination plane. The Dissem is a
 			// UserDelegate on the membership multiplex (kind 0xC1) that gossips
@@ -511,11 +495,9 @@ func Raft() boot.Component {
 				return nil
 			})
 
-			// Resolve cluster membership once for both the raft membership
-			// handler and the globalreg Strong-scope path. Without membership
-			// the reconciler cannot read node metadata for candidate selection
-			// and Strong scope cannot snapshot the live-node set, so we log
-			// per-feature.
+			// Resolve gossip membership for the Raft membership handler and
+			// the legacy global-registry path. KV Strong naming captures its
+			// observers from the Raft configuration for each attempt.
 			membership := clusterapi.GetMembership(ctx)
 			bus := event.GetBus(ctx)
 
@@ -664,16 +646,4 @@ func Raft() boot.Component {
 			return nil
 		},
 	})
-}
-
-// localConflictForStrong checks both weaker scopes; a matching LOCAL claim
-// cannot conceal a different EVENTUAL owner during Strong admission.
-func localConflictForStrong(lp *localPresenceChecker, name string, proposed pid.PID) (pid.PID, bool) {
-	if cp, ok := lp.LookupLocal(name); ok && !cp.Equal(proposed) {
-		return cp, true
-	}
-	if cp, ok := lp.LookupEventual(name); ok && !cp.Equal(proposed) {
-		return cp, true
-	}
-	return pid.PID{}, false
 }

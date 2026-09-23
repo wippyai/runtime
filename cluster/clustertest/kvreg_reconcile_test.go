@@ -5,38 +5,26 @@ package clustertest
 import (
 	"context"
 	"errors"
-	"sync"
+	"slices"
 	"testing"
 	"time"
 
+	"github.com/hashicorp/go-msgpack/v2/codec"
 	"github.com/wippyai/runtime/api/pid"
 	globalapi "github.com/wippyai/runtime/api/topology/namereg/global"
 	"github.com/wippyai/runtime/system/topology/namereg/kvbacked"
 )
 
 // TestE2E_KVRegistry_StrongFailsClosedAfterLeaderKill is the failure-reconcile
-// capstone for Strong scope: a reservation is opened requiring every member
+// capstone for Strong scope: a reservation is opened requiring every participant
 // plus a phantom node that never acks, then the raft LEADER is killed. A new
 // leader inherits the committed RequiredNodes and times out when the phantom
-// acknowledgement never arrives. A gossip leave cannot authorize promotion.
+// acknowledgement never arrives. Node departure cannot authorize promotion.
 func TestE2E_KVRegistry_StrongFailsClosedAfterLeaderKill(t *testing.T) {
 	if testing.Short() {
 		t.Skip("real multi-node strong failover reconcile test")
 	}
 	c := NewCluster(t, 3)
-
-	// Dynamic membership: every real node plus a phantom that never acks. Guarded
-	// because the strong plane reads it from reconcile/sweep goroutines.
-	var mu sync.Mutex
-	members := []pid.NodeID{"ghost"}
-	for _, n := range c.Nodes() {
-		members = append(members, n.ID)
-	}
-	membership := func() []pid.NodeID {
-		mu.Lock()
-		defer mu.Unlock()
-		return append([]pid.NodeID(nil), members...)
-	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -45,16 +33,18 @@ func TestE2E_KVRegistry_StrongFailsClosedAfterLeaderKill(t *testing.T) {
 		node := n
 		reg := kvbacked.NewService(node.KV, node.ID, nil, nil)
 		reg.ConfigureStrong(kvbacked.StrongDeps{
-			Membership: membership,
-			IsLeader:   func() bool { return node.Raft.IsLeader() },
-			Deadline:   2 * time.Second,
+			Members: func() ([]pid.NodeID, error) {
+				members, err := strongObserverMembers(node)
+				return append(members, "ghost"), err
+			},
+			IsLeader: func() bool { return node.Raft.IsLeader() },
+			Deadline: 2 * time.Second,
 		})
 		if err := reg.StartReconciler(ctx); err != nil {
 			t.Fatalf("start reconciler on %s: %v", node.ID, err)
 		}
 		regs[node.ID] = reg
 	}
-
 	leader := c.Leader()
 	f := c.Follower() // registrant survives the leader kill
 	p := pid.PID{Node: f.ID, Host: "proc", UniqID: "s1"}
@@ -70,8 +60,8 @@ func TestE2E_KVRegistry_StrongFailsClosedAfterLeaderKill(t *testing.T) {
 	}()
 
 	// Reservation must reach the pending window (real nodes ack; phantom never does).
-	if !waitReserved(t, regs[f.ID], "strongsvc", 8*time.Second) {
-		t.Fatalf("strong reservation never became pending")
+	if !waitCapturedObserver(t, f, "strongsvc", "ghost", 8*time.Second) {
+		t.Fatalf("Strong pending never captured its observer cohort")
 	}
 
 	// Kill the leader. A survivor wins election and inherits the pending.
@@ -86,17 +76,8 @@ func TestE2E_KVRegistry_StrongFailsClosedAfterLeaderKill(t *testing.T) {
 		t.Fatalf("leader did not change after kill")
 	}
 
-	// Gossip drops the phantom and the dead leader from the live membership. The
-	// new leader must retain both in RequiredNodes and fail closed.
-	mu.Lock()
-	var survivors []pid.NodeID
-	for _, n := range c.Nodes() {
-		if n != leader {
-			survivors = append(survivors, n.ID)
-		}
-	}
-	members = survivors
-	mu.Unlock()
+	// The captured cohort is immutable for this attempt. The new leader must
+	// retain the phantom observer even if its own configuration view changes.
 
 	select {
 	case out := <-done:
@@ -154,15 +135,22 @@ func TestE2E_KVRegistry_ConsistentReapedOnNodeDrop(t *testing.T) {
 	}
 }
 
-func waitReserved(t *testing.T, r *kvbacked.Service, name string, timeout time.Duration) bool {
+func waitCapturedObserver(t *testing.T, node *Node, name, observer string, timeout time.Duration) bool {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		if _, ok := r.IsStrongReserved(name); ok {
-			return true
+		if entry, err := node.KV.Get("_sys:registry:pending:" + name); err == nil {
+			var header struct {
+				Required []pid.NodeID `codec:"r"`
+			}
+			if err := codec.NewDecoderBytes(entry.Value, &codec.MsgpackHandle{}).Decode(&header); err != nil {
+				t.Fatalf("decode pending cohort: %v", err)
+			}
+			if slices.Contains(header.Required, observer) {
+				return true
+			}
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	_, ok := r.IsStrongReserved(name)
-	return ok
+	return false
 }

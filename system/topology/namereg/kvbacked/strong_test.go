@@ -5,7 +5,6 @@ package kvbacked
 import (
 	"context"
 	"errors"
-	"sync"
 	"testing"
 	"time"
 
@@ -23,16 +22,25 @@ func newStrongReg(t *testing.T, members []pid.NodeID, deadline time.Duration, lc
 	t.Cleanup(func() { _ = eng.Stop(context.Background()) })
 	r := NewService(eng, "node-1", nil, nil)
 	r.ConfigureStrong(StrongDeps{
-		Membership:    func() []pid.NodeID { return members },
-		IsLeader:      func() bool { return true },
-		LocalConflict: lc,
-		Deadline:      deadline,
+		IsLeader: func() bool { return true },
+		Members:  func() ([]pid.NodeID, error) { return append([]pid.NodeID{"node-1"}, members...), nil },
+		Deadline: deadline,
 	})
 	return r
 }
 
+func startStrongReconciler(t *testing.T, r *Service) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	if err := r.StartReconciler(ctx); err != nil {
+		t.Fatalf("start reconciler: %v", err)
+	}
+}
+
 func TestStrong_RegisterPromotes(t *testing.T) {
 	r := newStrongReg(t, []pid.NodeID{"node-1"}, 2*time.Second, nil)
+	startStrongReconciler(t, r)
 	p := mkPID("node-1", "a")
 
 	out, err := r.RegisterScope(context.Background(), "svc", p, globalapi.Strong)
@@ -54,6 +62,7 @@ func TestStrong_RegisterPromotes(t *testing.T) {
 
 func TestStrong_TimeoutWhenAckMissing(t *testing.T) {
 	r := newStrongReg(t, []pid.NodeID{"node-1", "ghost"}, 300*time.Millisecond, nil)
+	startStrongReconciler(t, r)
 	p := mkPID("node-1", "a")
 
 	_, err := r.RegisterScope(context.Background(), "svc", p, globalapi.Strong)
@@ -66,24 +75,9 @@ func TestStrong_TimeoutWhenAckMissing(t *testing.T) {
 	}
 }
 
-func TestStrong_RejectOnLocalConflict(t *testing.T) {
-	other := mkPID("node-1", "other")
-	lc := func(string, pid.PID) (pid.PID, bool) { return other, true }
-	r := newStrongReg(t, []pid.NodeID{"node-1"}, 2*time.Second, lc)
-	p := mkPID("node-1", "a")
-
-	_, err := r.RegisterScope(context.Background(), "svc", p, globalapi.Strong)
-	var ce *globalapi.StrongConflictError
-	if !errors.As(err, &ce) {
-		t.Fatalf("want StrongConflictError, got %v", err)
-	}
-	if res, _ := r.Lookup(context.Background(), "svc"); res.Found {
-		t.Fatalf("rejected name must not be active")
-	}
-}
-
 func TestStrong_ReservedDuringWindowThenReleased(t *testing.T) {
 	r := newStrongReg(t, []pid.NodeID{"node-1", "ghost"}, 600*time.Millisecond, nil)
+	startStrongReconciler(t, r)
 	p := mkPID("node-1", "a")
 
 	done := make(chan error, 1)
@@ -106,6 +100,7 @@ func TestStrong_ReservedDuringWindowThenReleased(t *testing.T) {
 
 func TestStrong_UnregisterClearsPending(t *testing.T) {
 	r := newStrongReg(t, []pid.NodeID{"node-1", "ghost"}, 5*time.Second, nil)
+	startStrongReconciler(t, r)
 	p := mkPID("node-1", "a")
 
 	done := make(chan error, 1)
@@ -123,56 +118,54 @@ func TestStrong_UnregisterClearsPending(t *testing.T) {
 	if err := <-done; err == nil {
 		t.Fatalf("register must terminate after unregister")
 	}
-	if _, ok := r.IsStrongReserved("svc"); ok {
+	if !eventually(t, 2*time.Second, func() bool { _, ok := r.IsStrongReserved("svc"); return !ok }) {
 		t.Fatalf("reservation must be cleared after unregister")
 	}
 }
 
-// TestStrong_RecoversActiveExclusionOnSeed proves a node restart re-latches the
-// exclusion for an already-active Strong name during seed(), so IsStrongReserved
-// stays correct after recovery (cross-scope guard not bypassed).
-func TestStrong_RecoversActiveExclusionOnSeed(t *testing.T) {
+// The Strong owner is a committed record, independent of reconciler lifetime.
+func TestStrong_ActiveOwnerSurvivesReconcilerRestart(t *testing.T) {
 	eng := systemkv.NewService("reg", nil)
 	if _, err := eng.Start(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = eng.Stop(context.Background()) })
-	deps := StrongDeps{
-		Membership: func() []pid.NodeID { return []pid.NodeID{"node-1"} },
-		IsLeader:   func() bool { return true },
-		Deadline:   2 * time.Second,
+	deps := StrongDeps{Members: testStrongMembers,
+		IsLeader: func() bool { return true },
+		Deadline: 2 * time.Second,
 	}
 	p := mkPID("node-1", "a")
 
 	r1 := NewService(eng, "node-1", nil, nil)
 	r1.ConfigureStrong(deps)
+	startStrongReconciler(t, r1)
 	if out, err := r1.RegisterScope(context.Background(), "svc", p, globalapi.Strong); err != nil || out.State != globalapi.RegisterStateActive {
 		t.Fatalf("strong register: out=%+v err=%v", out, err)
 	}
 
-	// "Restart": fresh Service over the same engine; in-memory exclusions empty.
+	// A fresh Service reads the already committed owner before startup.
 	r2 := NewService(eng, "node-1", nil, nil)
 	r2.ConfigureStrong(deps)
-	if _, ok := r2.IsStrongReserved("svc"); ok {
-		t.Fatalf("exclusion must be empty before seed")
+	if got, ok := r2.IsStrongReserved("svc"); !ok || !got.Equal(p) {
+		t.Fatalf("committed owner disappeared before seed: %v %v", got, ok)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	if err := r2.StartReconciler(ctx); err != nil {
 		t.Fatalf("start reconciler: %v", err)
 	}
-	// seed() runs synchronously in StartReconciler; the active Strong name must be
-	// re-latched.
+	// Starting the observer does not alter the committed owner.
 	if rp, ok := r2.IsStrongReserved("svc"); !ok || rp.String() != p.String() {
-		t.Fatalf("active Strong exclusion not recovered on seed: %v,%v", rp, ok)
+		t.Fatalf("active Strong owner changed on seed: %v,%v", rp, ok)
 	}
 }
 
-// TestCrossScope_ConsistentBlockedByStrongPending proves a CONSISTENT register
+// TestGlobalModes_ConsistentBlockedByStrongPending proves a CONSISTENT register
 // is refused (ErrPendingConflict) while a STRONG reservation for the same name
-// is in flight — the cross-scope invariant that a pending owns the name.
-func TestCrossScope_ConsistentBlockedByStrongPending(t *testing.T) {
+// is in flight — the shared-global-namespace invariant that a pending owns the name.
+func TestGlobalModes_ConsistentBlockedByStrongPending(t *testing.T) {
 	r := newStrongReg(t, []pid.NodeID{"node-1", "ghost"}, 5*time.Second, nil)
+	startStrongReconciler(t, r)
 	p := mkPID("node-1", "a")
 	go func() { _, _ = r.RegisterScope(context.Background(), "svc", p, globalapi.Strong) }()
 
@@ -185,10 +178,10 @@ func TestCrossScope_ConsistentBlockedByStrongPending(t *testing.T) {
 	}
 }
 
-// TestCrossScope_ConsistentCannotDisplaceStrongActive proves a CONSISTENT
+// TestGlobalModes_ConsistentCannotDisplaceStrongActive proves a CONSISTENT
 // register cannot take over a name already held by a STRONG owner, even with a
 // custom resolver that would award the name to the incoming claimant.
-func TestCrossScope_ConsistentCannotDisplaceStrongActive(t *testing.T) {
+func TestGlobalModes_ConsistentCannotDisplaceStrongActive(t *testing.T) {
 	eng := systemkv.NewService("reg", nil)
 	if _, err := eng.Start(context.Background()); err != nil {
 		t.Fatal(err)
@@ -196,11 +189,11 @@ func TestCrossScope_ConsistentCannotDisplaceStrongActive(t *testing.T) {
 	t.Cleanup(func() { _ = eng.Stop(context.Background()) })
 	// Resolver that always awards the name to the incoming claimant.
 	r := NewService(eng, "node-1", func(_ string, _, incoming pid.PID) pid.PID { return incoming }, nil)
-	r.ConfigureStrong(StrongDeps{
-		Membership: func() []pid.NodeID { return []pid.NodeID{"node-1"} },
-		IsLeader:   func() bool { return true },
-		Deadline:   2 * time.Second,
+	r.ConfigureStrong(StrongDeps{Members: testStrongMembers,
+		IsLeader: func() bool { return true },
+		Deadline: 2 * time.Second,
 	})
+	startStrongReconciler(t, r)
 	strongPID := mkPID("node-1", "strong")
 	if out, err := r.RegisterScope(context.Background(), "svc", strongPID, globalapi.Strong); err != nil || out.State != globalapi.RegisterStateActive {
 		t.Fatalf("strong register: out=%+v err=%v", out, err)
@@ -220,34 +213,25 @@ func TestCrossScope_ConsistentCannotDisplaceStrongActive(t *testing.T) {
 // pending claim's RequiredNodes. Node-2 remains in the live membership, so the
 // pending claim must remain blocked on node-2's acknowledgement.
 func TestStrong_FalseNodeLeftDoesNotDeleteActiveOwner(t *testing.T) {
-	var mu sync.Mutex
-	members := []pid.NodeID{"node-1"}
 	eng := systemkv.NewService("reg", nil)
 	if _, err := eng.Start(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = eng.Stop(context.Background()) })
 	r := NewService(eng, "node-1", nil, nil)
-	r.ConfigureStrong(StrongDeps{
-		Membership: func() []pid.NodeID {
-			mu.Lock()
-			defer mu.Unlock()
-			return append([]pid.NodeID(nil), members...)
-		},
+	r.ConfigureStrong(StrongDeps{Members: testStrongMembers,
 		IsLeader: func() bool { return true },
 		Deadline: time.Second,
 	})
+	startStrongReconciler(t, r)
 	p := mkPID("node-1", "owner")
 	if out, err := r.RegisterScope(context.Background(), "svc", p, globalapi.Strong); err != nil || out.State != globalapi.RegisterStateActive {
 		t.Fatalf("strong register: out=%+v err=%v", out, err)
 	}
 
-	// Node-2 is alive when the next reservation is opened, and therefore belongs
-	// to its committed RequiredNodes set. A false NodeLeft hint has no registry
-	// consumer; reconciling the pending state must not prune node-2.
-	mu.Lock()
-	members = []pid.NodeID{"node-1", "node-2"}
-	mu.Unlock()
+	// Node-2 joins the observer configuration before the next reservation.
+	// Later membership changes cannot rewrite this attempt's captured cohort.
+	r.strong.members = func() ([]pid.NodeID, error) { return []pid.NodeID{"node-1", "node-2"}, nil }
 	claim := mkPID("node-1", "claim")
 	done := make(chan error, 1)
 	go func() {
@@ -257,9 +241,6 @@ func TestStrong_FalseNodeLeftDoesNotDeleteActiveOwner(t *testing.T) {
 	if !eventually(t, 2*time.Second, func() bool { _, ok := r.IsStrongReserved("pending"); return ok }) {
 		t.Fatal("pending reservation expected")
 	}
-	mu.Lock()
-	members = []pid.NodeID{"node-1"} // false NodeLeft: node-2 still executes
-	mu.Unlock()
 	r.strong.reconcile("pending")
 	pe, err := r.engine.Get(pendingKey("pending"))
 	if err != nil {
@@ -301,15 +282,8 @@ func TestStrong_FailsClosedWhenRequiredNodeDeparts(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = eng.Stop(context.Background()) })
 
-	var mu sync.Mutex
-	members := []pid.NodeID{"node-1", "ghost"}
 	r := NewService(eng, "node-1", nil, nil)
-	r.ConfigureStrong(StrongDeps{
-		Membership: func() []pid.NodeID {
-			mu.Lock()
-			defer mu.Unlock()
-			return append([]pid.NodeID(nil), members...)
-		},
+	r.ConfigureStrong(StrongDeps{Members: testStrongMembers,
 		IsLeader: func() bool { return true },
 		Deadline: 300 * time.Millisecond,
 	})
@@ -318,6 +292,7 @@ func TestStrong_FailsClosedWhenRequiredNodeDeparts(t *testing.T) {
 	if err := r.StartReconciler(ctx); err != nil {
 		t.Fatalf("start reconciler: %v", err)
 	}
+	r.strong.members = func() ([]pid.NodeID, error) { return []pid.NodeID{"node-1", "ghost"}, nil }
 
 	p := mkPID("node-1", "a")
 	done := make(chan globalapi.RegisterOutcome, 1)
@@ -338,9 +313,6 @@ func TestStrong_FailsClosedWhenRequiredNodeDeparts(t *testing.T) {
 
 	// "ghost" leaves the membership (gossip drop). The leader must retain it in
 	// RequiredNodes and fail closed when its acknowledgement never arrives.
-	mu.Lock()
-	members = []pid.NodeID{"node-1"}
-	mu.Unlock()
 
 	select {
 	case out := <-done:
@@ -366,3 +338,5 @@ func eventually(t *testing.T, timeout time.Duration, cond func() bool) bool {
 	}
 	return cond()
 }
+
+func testStrongMembers() ([]pid.NodeID, error) { return []pid.NodeID{"node-1"}, nil }

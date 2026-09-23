@@ -111,10 +111,9 @@ func runStrongWatchVoteBurst(b *testing.B, participants, pending, unrelated int)
 	for i := range required {
 		required[i] = fmt.Sprintf("node-%d", i)
 	}
-	reg.ConfigureStrong(StrongDeps{
-		Membership: func() []pid.NodeID { return required },
-		IsLeader:   func() bool { return true },
-		Deadline:   time.Hour,
+	reg.ConfigureStrong(StrongDeps{Members: testStrongMembers,
+		IsLeader: func() bool { return true },
+		Deadline: time.Hour,
 	})
 
 	for i := 0; i < unrelated; i++ {

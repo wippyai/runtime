@@ -233,6 +233,25 @@ func (s *State) Lookup(name string) (pid.PID, bool) {
 	return w.PID, true
 }
 
+// ConflictingLiveClaim reports any live dot with a different owner, including
+// one hidden behind the visible winner. Removal of a winner can expose a
+// retained losing dot; this helper inspects that underlying CRDT state.
+func (s *State) ConflictingLiveClaim(name string, proposed pid.PID) (pid.PID, bool) {
+	sh := &s.shards[ShardFor(name)]
+	sh.mu.RLock()
+	defer sh.mu.RUnlock()
+	rec, ok := sh.entries[name]
+	if !ok {
+		return pid.PID{}, false
+	}
+	for _, e := range rec.dots {
+		if !e.Deleted && !e.PID.Equal(proposed) {
+			return e.PID, true
+		}
+	}
+	return pid.PID{}, false
+}
+
 // winnerOf derives the visible entry for a name record. The winner is the
 // highest-ranked LIVE dot across origins; if no origin is live, it is the
 // highest-ranked tombstone (so the name reports as absent but a tombstone
@@ -345,25 +364,17 @@ func (s *State) Register(name string, p pid.PID, wallMs int64, priority uint32) 
 // Unregister tombstones a local registration. Returns the tombstone entry
 // that callers should broadcast, or nil if the name wasn't held live locally.
 func (s *State) Unregister(name string, wallMs int64) *Entry {
-	e, _ := s.unregisterLocal(name, wallMs, nil)
-	return e
-}
-
-// unregisterLocal tests the local-origin dot and tombstones it under the same
-// shard lock. The visible winner may belong to a different origin. A Strong
-// reservation for keep may preserve the exact same local owner.
-func (s *State) unregisterLocal(name string, wallMs int64, keep *pid.PID) (*Entry, pid.PID) {
 	sh := &s.shards[ShardFor(name)]
 	sh.mu.Lock()
 	defer sh.mu.Unlock()
 
 	rec, ok := sh.entries[name]
 	if !ok {
-		return nil, pid.PID{}
+		return nil
 	}
 	cur, ok := rec.dots[s.localNode]
-	if !ok || cur.Deleted || (keep != nil && cur.PID.Equal(*keep)) {
-		return nil, pid.PID{}
+	if !ok || cur.Deleted {
+		return nil
 	}
 	prevWinner := s.winnerOf(rec)
 	counter := s.nextCounter()
@@ -378,7 +389,7 @@ func (s *State) unregisterLocal(name string, wallMs int64, keep *pid.PID) (*Entr
 	rec.dots[s.localNode] = e
 	s.bumpCV(s.localNode, counter)
 	s.adjustCounts(sh, name, prevWinner, s.winnerOf(rec))
-	return e, cur.PID
+	return e
 }
 
 // Apply merges a remote dot into the per-origin record. Returns the outcome,

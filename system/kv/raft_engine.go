@@ -78,6 +78,9 @@ type RaftEngine struct { //nolint:govet // field order follows lock and lifecycl
 	authorityMu      sync.Mutex
 	authoritySem     chan struct{}
 	authorityStop    bool
+	forwardMu        sync.Mutex
+	forwardSem       chan struct{}
+	forwardStop      bool
 }
 
 type authorityWaiter struct {
@@ -114,6 +117,7 @@ func NewRaftEngine(raft raftSubmitter, fsm *RaftFSM, localNode string, router re
 		pendingReads:     make(map[uint64]chan readResult),
 		pendingAuthority: make(map[uint64]authorityWaiter),
 		authoritySem:     make(chan struct{}, maxAuthorityConcurrent),
+		forwardSem:       make(chan struct{}, maxForwardConcurrent),
 	}
 }
 
@@ -134,6 +138,9 @@ func (e *RaftEngine) Start(ctx context.Context) error {
 // Stop halts the sweeper.
 func (e *RaftEngine) Stop() error {
 	e.fsm.watch.stopOwner(e.watchOwner)
+	e.forwardMu.Lock()
+	e.forwardStop = true
+	e.forwardMu.Unlock()
 	e.authorityMu.Lock()
 	e.authorityStop = true
 	e.authorityMu.Unlock()

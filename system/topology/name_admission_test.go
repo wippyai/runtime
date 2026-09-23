@@ -10,25 +10,12 @@ import (
 
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/system/topology"
-	"github.com/wippyai/runtime/system/topology/namereg/admission"
 	"github.com/wippyai/runtime/system/topology/namereg/eventual"
 )
 
-type localClaimChecker struct{ local *topology.PIDRegistry }
-
-func (c localClaimChecker) LookupOther(name string, _ pid.PID) (pid.PID, bool, error) {
-	p, ok := c.local.LookupLocal(name)
-	return p, ok, nil
-}
-
-func (localClaimChecker) NameReady() bool { return true }
-
-func TestLocalAndEventualCannotBothAdmitSameName(t *testing.T) {
-	gate := &admission.Coordinator{}
-	local := topology.NewPIDRegistry(topology.WithAdmissionCoordinator(gate))
-	eventualReg := eventual.NewService(eventual.Config{
-		LocalNodeID: "node-a", Admission: gate, CrossScope: localClaimChecker{local: local},
-	})
+func TestLocalAndEventualAdmitSameNameIndependently(t *testing.T) {
+	local := topology.NewPIDRegistry()
+	eventualReg := eventual.NewService(eventual.Config{LocalNodeID: "node-a"})
 	local.SetEventualRegistry(eventualReg)
 	localPID := pid.PID{Node: "node-a", Host: "host", UniqID: "local"}
 	eventualPID := pid.PID{Node: "node-a", Host: "host", UniqID: "eventual"}
@@ -51,14 +38,18 @@ func TestLocalAndEventualCannotBothAdmitSameName(t *testing.T) {
 		}()
 		close(start)
 		wg.Wait()
-		if (localErr == nil) == (eventualErr == nil) {
-			t.Fatalf("%s: local=%v eventual=%v; want exactly one owner", name, localErr, eventualErr)
+		if localErr != nil || eventualErr != nil {
+			t.Fatalf("%s: independent registrations failed: local=%v eventual=%v", name, localErr, eventualErr)
 		}
-		if p, ok := local.LookupLocal(name); ok && p.Equal(localPID) {
-			res, err := eventualReg.Lookup(context.Background(), name)
-			if err != nil || res.Found {
-				t.Fatalf("%s: EVENTUAL shadowed LOCAL: result=%+v err=%v", name, res, err)
-			}
+		if p, ok := local.LookupLocal(name); !ok || !p.Equal(localPID) {
+			t.Fatalf("%s: LOCAL binding lost: %v, %v", name, p, ok)
+		}
+		res, err := eventualReg.Lookup(context.Background(), name)
+		if err != nil || !res.Found || !res.PID.Equal(eventualPID) {
+			t.Fatalf("%s: EVENTUAL binding lost: result=%+v err=%v", name, res, err)
+		}
+		if p, ok := local.Lookup(name); !ok || !p.Equal(eventualPID) {
+			t.Fatalf("%s: composed lookup did not prefer EVENTUAL: %v, %v", name, p, ok)
 		}
 	}
 }

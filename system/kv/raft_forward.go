@@ -50,6 +50,11 @@ const maxForwardRetries = 3
 // op is rejected as not-leader rather than chained further.
 const maxForwardHops byte = 2
 
+// Bound outstanding inbound writes, including non-cancelable Raft futures.
+const maxForwardConcurrent = 32
+
+var errForwardOverloaded = staticErr("kv: forwarded write admission overloaded")
+
 var kvCorrIDCounter atomic.Uint64
 
 // forwardReplyGrace is added to raftApplyTimeout to size the follower's wait for
@@ -411,8 +416,56 @@ func (e *RaftEngine) handleForwardReq(source pid.PID, msg *relay.Message) {
 	}
 	corr := binary.BigEndian.Uint64(env[:8])
 	hop := env[8]
-	data := env[9:]
+	// Admission must never wait on the shared internode receive pump: Raft
+	// replies needed to commit this write arrive through that same pump.
+	e.forwardMu.Lock()
+	if e.forwardStop || e.ctx == nil || e.ctx.Err() != nil {
+		e.forwardMu.Unlock()
+		e.replyForward(source.Node, corr, applyResult{Err: kvapi.ErrKVClosed})
+		return
+	}
+	select {
+	case e.forwardSem <- struct{}{}:
+	default:
+		e.forwardMu.Unlock()
+		e.replyForward(source.Node, corr, applyResult{Err: errForwardOverloaded})
+		return
+	}
+	// Send releases the package immediately after this handler returns.
+	data := append([]byte(nil), env[9:]...)
+	e.wg.Add(1)
+	e.forwardMu.Unlock()
+	go e.serveForward(source.Node, corr, hop, data)
+}
 
+func (e *RaftEngine) serveForward(node pid.NodeID, corr uint64, hop byte, data []byte) {
+	defer e.wg.Done()
+	result := make(chan applyResult, 1)
+	responseDone := make(chan struct{})
+	defer close(responseDone)
+	go func() {
+		// Cancellation stops logical response handling, but a Raft Apply cannot
+		// be canceled. Keep its permit until it actually completes so shutdown
+		// or a stalled future cannot bypass the concurrency bound.
+		defer func() { <-e.forwardSem }()
+		result <- e.applyForward(hop, data)
+		// Keep response delivery within the same budget as the future.
+		<-responseDone
+	}()
+	select {
+	case <-e.ctx.Done():
+		return
+	case res := <-result:
+		if e.ctx.Err() == nil {
+			e.replyForward(node, corr, res)
+		}
+	}
+}
+
+func (e *RaftEngine) applyForward(hop byte, data []byte) applyResult {
+	if e.ctx.Err() != nil {
+		return applyResult{Err: kvapi.ErrKVClosed}
+	}
 	if e.raft.IsLeader() {
 		var res applyResult
 		resp, err := e.raft.Apply(data, raftApplyTimeout)
@@ -424,21 +477,16 @@ func (e *RaftEngine) handleForwardReq(source pid.PID, msg *relay.Message) {
 				res = r
 			}
 		}
-		e.replyForward(source.Node, corr, res)
-		return
+		return res
 	}
 	if hop >= maxForwardHops {
-		e.replyForward(source.Node, corr, applyResult{Err: raftapi.ErrNotLeader})
-		return
+		return applyResult{Err: raftapi.ErrNotLeader}
 	}
-	relayed := append([]byte(nil), data...)
-	go func() {
-		res, err := e.forwardToLeaderHop(relayed, hop+1)
-		if err != nil {
-			res = applyResult{Err: err}
-		}
-		e.replyForward(source.Node, corr, res)
-	}()
+	res, err := e.forwardToLeaderHop(data, hop+1)
+	if err != nil {
+		return applyResult{Err: err}
+	}
+	return res
 }
 
 func (e *RaftEngine) replyForward(node pid.NodeID, corr uint64, res applyResult) {

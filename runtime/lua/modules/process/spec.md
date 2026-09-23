@@ -59,10 +59,11 @@ Returns the process ID (PID) for the current process.
 
 Sends message(s) to a process. The destination may be a raw PID string,
 a globally-registered name, an eventually-registered name, or a locally
-registered name — resolution and (for global names) ownership-fence
-attachment + validation happen transparently inside the runtime. App
-code does not need to call `process.registry.debug.lookup_with_fence`
-or `process.registry.debug.validate_fence` to send safely.
+registered name. Names resolve global, then EVENTUAL, then LOCAL; if a higher
+scope cannot be read, an available lower-scope binding can still be used.
+The send then targets the resolved PID, so a later name change does not
+redirect that in-flight send. App code does not need the registry debug APIs
+for ordinary sending.
 
 | Param | Type | Required | Default | Notes |
 |-------|------|----------|---------|-------|
@@ -84,7 +85,6 @@ confirmed processing is required. Retried requests should be idempotent.
 - `"no router found"`
 - `"could not resolve: <name>"` - name not registered
 - `"not allowed to send to: <pid>"` - permission denied
-- `"stale fence"` - the receiving node observed a re-registration between resolution and delivery; safe to retry
 
 ### spawn(id: string, host: string, ...) -> string, error
 
@@ -375,9 +375,15 @@ Subtable for process name registration.
 | Constant                       | Wire | Backing store              | Semantics                                                                                                   |
 |--------------------------------|------|----------------------------|-------------------------------------------------------------------------------------------------------------|
 | `process.registry.LOCAL`       | 0    | per-node PID registry      | Visible only on the registering node. Default.                                                              |
-| `process.registry.EVENTUAL`    | 2    | gossip / CRDT (eventualreg) | Cluster-wide, eventually consistent. No fence; converges after partition heal. Sized for ~1M presence names. |
-| `process.registry.CONSISTENT`  | 1    | Raft (globalreg)            | Cluster-wide linearizable owner with fence token. Late ok. Scales to ~1M user-facing names.                 |
-| `process.registry.STRONG`      | 3    | Raft + all-live-node ack    | Cluster-wide linearizable owner; activation requires every live node in the membership snapshot to ack the committed epoch within a deadline. No late compensation: a missing ack expires the registration. Reserved for the small set of root/control-plane names (<10k).        |
+| `process.registry.EVENTUAL`    | 1    | gossip / CRDT (eventualreg) | Cluster-wide, eventually consistent. Available during a partition; converges after heal. Sized for ~1M presence names. |
+| `process.registry.CONSISTENT`  | 2    | Raft (globalreg)            | Cluster-wide Raft-committed owner. Local-replica reads can lag. Scales to ~1M user-facing names. |
+| `process.registry.STRONG`      | 3    | Raft + observer acknowledgments | Raft-committed owner; activation waits for every registry observer in the leader's captured Raft configuration to acknowledge the pending attempt. A missing acknowledgment expires that attempt. Reserved for control-plane names (<10k). |
+
+LOCAL and EVENTUAL registration do not consult Raft. The same text may have
+independent bindings at those scopes and in the global registry. Composed
+lookup checks global, then EVENTUAL, then LOCAL; registering at one scope does
+not revoke or prevent a binding at another. CONSISTENT and STRONG share the
+global ownership record, so they still conflict with each other.
 
 ### process.registry.register(name: string, pid?: string, scope?: number) -> boolean, error
 
@@ -403,22 +409,28 @@ process.registry.register("svc", foreign_pid, process.registry.STRONG) -- STRONG
 - **Per-scope name capability** — `process.registry.register.{local|eventual|consistent|strong}` on the *name* being registered.
 - **Foreign-PID capability** — when `pid != self`, also requires `process.registry.foreign` on the *target PID*. Owner registering own PID does not need this. Default policy should deny foreign; operators grant it for supervisors, hot-upgrade flows, etc.
 
-`STRONG` registration blocks the calling process until every live node in
-the membership snapshot has acked the committed epoch, or until the
+`STRONG` registration blocks the calling process until every registry observer
+in the leader's captured Raft configuration has acknowledged the pending
+attempt, or until the
 deadline elapses (default 10 s). On timeout, the runtime releases the
 reservation and the call returns an error whose `MissingAcks` list names
-the offending nodes.
+the missing observers. A later attempt captures the then-current configuration,
+so a removed observer does not block Strong names forever.
 
 **Errors (kinds):**
 - `PermissionDenied` — capability gate failed (scope or foreign-pid axis).
 - `AlreadyExists` — name taken by another process.
 - `Invalid` — `scope` was not a number, or `pid` was not a parseable PID string.
 - `Internal` — registry not available, raft not ready, or transport error.
-- `StrongRegistrationTimeoutError` / `StrongConflictError` — `STRONG` specifically (timeout or terminal NACK).
+- `StrongRegistrationTimeoutError` / `StrongConflictError` — `STRONG` specifically (observer timeout or an existing global owner).
 
 ### process.registry.lookup(name: string) -> string, error
 
-Looks up PID by registered name.
+Looks up a PID by registered name. The global binding takes precedence, then
+EVENTUAL, then LOCAL. If a higher scope cannot be read, lookup can still return
+an available lower-scope binding. If no scope resolves the name, it reports the
+first lookup failure rather than claiming the name is absent. Cancellation of
+the caller's context always stops lookup.
 
 | Param | Type | Required | Default | Notes |
 |-------|------|----------|---------|-------|

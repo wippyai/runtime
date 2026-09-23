@@ -194,12 +194,9 @@ func TestReachabilityMonitor_RebarrierOnRecover(t *testing.T) {
 
 // --- Partition-without-restart conflict coverage ---
 
-// TestReachabilityMonitor_PartitionWithoutRestartRevokesConflict proves the case
-// Start-only misses: a node stays UP through a partition, the leader drops it
-// from a strong reservation and promotes the name without its ack, and on
-// reconnect the recovered-reachability rejoin barrier installs the exclusion and
-// revokes the now-conflicting LOCAL name the node still holds.
-func TestReachabilityMonitor_PartitionWithoutRestartRevokesConflict(t *testing.T) {
+// TestReachabilityMonitor_PartitionWithoutRestartPreservesLocal verifies global
+// snapshot recovery leaves the independently owned LOCAL name intact.
+func TestReachabilityMonitor_PartitionWithoutRestartPreservesLocal(t *testing.T) {
 	xport := &reachableCrossRouter{}
 
 	leaderFSM := NewFSM()
@@ -216,9 +213,7 @@ func TestReachabilityMonitor_PartitionWithoutRestartRevokesConflict(t *testing.T
 	followerSvc.nodeEpoch.Store(1)
 
 	// The follower stays UP and still holds the name bound LOCAL to its own pid.
-	rev := newRecordingRevoker()
-	rev.local["system.partition"] = makePID("node-2", "host", "stale-local")
-	followerSvc.SetLocalNameRevoker(rev)
+	local, _, localPID, _ := newIndependentBindings(t, "system.partition")
 
 	xport.leader = leaderSvc
 	xport.follower = followerSvc
@@ -235,16 +230,18 @@ func TestReachabilityMonitor_PartitionWithoutRestartRevokesConflict(t *testing.T
 	strongOwner := makePID("node-3", "host", "strong-owner")
 	seedActiveStrong(t, leaderFSM, "system.partition", strongOwner, []pid.NodeID{"node-1"}, 1500)
 
-	// Reconnect: the rejoin barrier must install the exclusion AND revoke the
-	// conflicting local name before reopening the gate.
+	// Reconnect: the rejoin barrier learns global ownership while preserving
+	// the independent LOCAL binding.
 	followerRaft.reachable.Store(true)
 	require.Eventually(t, func() bool { return followerSvc.NameReady() }, 2*time.Second, 5*time.Millisecond,
 		"rejoin barrier reopens the gate after reconnect")
 
 	reserved, ok := followerSvc.IsStrongReserved("system.partition")
-	require.True(t, ok, "reconnect barrier installs the strong exclusion missed during the partition")
-	assert.Equal(t, strongOwner, reserved, "exclusion surfaces the strong owner as taken")
-	assert.Contains(t, rev.revokedLoc, "system.partition", "conflicting local name revoked on reconnect")
+	require.True(t, ok, "reconnect barrier installs the strong observation missed during the partition")
+	assert.Equal(t, strongOwner, reserved, "observation surfaces the strong owner as taken")
+	got, found := local.LookupLocal("system.partition")
+	require.True(t, found)
+	assert.True(t, got.Equal(localPID), "reconnect must preserve the LOCAL binding")
 }
 
 // reachableCrossRouter routes ping AND join traffic both ways between a leader

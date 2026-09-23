@@ -22,7 +22,7 @@ func TestA27StrongTimeoutMetadata(t *testing.T) {
 	assert.Equal(t, "orders/primary", err.Name)
 	assert.Equal(t, []string{"node-east", "node-west"}, err.MissingAcks)
 	assert.Equal(t, uint64(4097), err.Epoch)
-	assert.Equal(t, "strong registration timed out before all live nodes acked (name=orders/primary)", err.Error())
+	assert.Equal(t, "strong registration timed out before all observers acked (name=orders/primary)", err.Error())
 	var typed *StrongRegistrationTimeoutError
 	require.ErrorAs(t, err, &typed)
 	assert.Same(t, err, typed)

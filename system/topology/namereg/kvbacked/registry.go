@@ -3,7 +3,7 @@
 // Package kvbacked implements the cluster-wide name registry on top of the
 // shared kv engine (under the reserved _sys:registry namespace) instead of a
 // dedicated raft FSM. It satisfies both the globalapi.Registry (write) and
-// topology.GlobalRegistry (cross-scope read) facades so it is a drop-in for the
+// topology.GlobalRegistry (composed lookup) facades so it is a drop-in for the
 // FSM-backed global.Service. Consistent-scope ownership uses linearizable kv
 // txns; Strong-scope orchestration is layered on the same keyspace.
 package kvbacked
@@ -112,6 +112,10 @@ type barrierEngine interface {
 type Service struct {
 	reconciler atomic.Pointer[reconcilerLifecycle]
 	engine     kvapi.Engine
+	// Both capabilities observe the same immutable local KV publication as
+	// the naming watch; individual Get calls cannot replace them.
+	localRead  kvapi.LocalSnapshotReader
+	localScan  kvapi.LocalSnapshotScanner
 	leaderRead leaderReadEngine
 	topo       topology.Topology
 	leaderFn   func() bool
@@ -180,6 +184,8 @@ func NewService(engine kvapi.Engine, selfNode pid.NodeID, resolve globalapi.Reso
 	if lr, ok := engine.(leaderReadEngine); ok {
 		s.leaderRead = lr
 	}
+	s.localRead, _ = engine.(kvapi.LocalSnapshotReader)
+	s.localScan, _ = engine.(kvapi.LocalSnapshotScanner)
 	if be, ok := engine.(barrierEngine); ok {
 		s.barrier = be.BarrierLeader
 	}
@@ -219,7 +225,8 @@ func (s *Service) registerConsistent(name string, p pid.PID) (globalapi.Register
 
 	committed, err := s.engine.Txn([]kvapi.TxnOp{
 		// A STRONG reservation in flight for this name blocks a CONSISTENT bind
-		// (cross-scope: the pending owns the name until it promotes or expires).
+		// Strong and Consistent share the global owner record: a pending Strong
+		// attempt owns this global name until it promotes or expires.
 		{Kind: kvapi.TxnCheck, Cond: kvapi.CondAbsent, Key: pendingKey(name)},
 		{Kind: kvapi.TxnPut, Cond: kvapi.CondAbsent, Key: activeKey(name), Value: val},
 		{Kind: kvapi.TxnPut, Cond: kvapi.CondAny, Key: pidIndexKey(p, name), Value: idx},
@@ -366,14 +373,26 @@ func (s *Service) Lookup(_ context.Context, name string, opts ...globalapi.Looku
 		}
 		// Non-member cold-miss: forward-resolve through the leader so a client
 		// that joined before gossip converged still resolves an active name.
-		if s.nonMember != nil && s.nonMember() && s.leaderRead != nil {
-			if fe, ferr := s.leaderRead.GetViaLeader(activeKey(name)); ferr == nil {
-				if av, derr := decodeActive(fe.Value); derr == nil {
-					if p, perr := pid.ParsePID(av.PID); perr == nil {
-						return globalapi.LookupResult{PID: p, Found: true}, nil
-					}
-				}
+		if s.nonMember != nil && s.nonMember() {
+			if s.leaderRead == nil {
+				return globalapi.LookupResult{}, globalapi.ErrNotAvailable
 			}
+			fe, ferr := s.leaderRead.GetViaLeader(activeKey(name))
+			if errors.Is(ferr, kvapi.ErrKeyNotFound) {
+				return globalapi.LookupResult{Found: false}, nil
+			}
+			if ferr != nil {
+				return globalapi.LookupResult{}, fmt.Errorf("resolve non-member name %q: %w", name, ferr)
+			}
+			av, derr := decodeActive(fe.Value)
+			if derr != nil {
+				return globalapi.LookupResult{}, derr
+			}
+			p, perr := pid.ParsePID(av.PID)
+			if perr != nil {
+				return globalapi.LookupResult{}, perr
+			}
+			return globalapi.LookupResult{PID: p, Found: true}, nil
 		}
 		return globalapi.LookupResult{Found: false}, nil
 	}

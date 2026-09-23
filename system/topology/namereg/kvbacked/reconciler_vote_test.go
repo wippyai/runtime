@@ -70,18 +70,18 @@ func TestVoteRoutingTargetsOnlyCurrentClaim(t *testing.T) {
 		t.Fatal("late vote delete scanned pending records")
 	}
 	r.strong.isLeader = func() bool { return true }
-	key := rejectKey("other", "other", "peer")
-	if _, err := base.Set(key, []byte(strongRejectConflict)); err != nil {
+	key := ackKey("other", "other", "peer")
+	if _, err := base.Set(key, []byte("peer")); err != nil {
 		t.Fatal(err)
 	}
 	if err := r.handleWatchEvent(kvapi.WatchEvent{Current: &kvapi.Entry{Key: key}}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := base.Get(pendingKey("other")); !errors.Is(err, kvapi.ErrKeyNotFound) {
-		t.Fatalf("NACK did not expire its claim: %v", err)
+		t.Fatalf("complete ACK set did not promote its claim: %v", err)
 	}
 	if wrapped.scans != 0 {
-		t.Fatal("NACK scanned pending records")
+		t.Fatal("ACK scanned pending records")
 	}
 }
 
@@ -97,14 +97,14 @@ func TestVoteRoutingUsesCanonicalComponents(t *testing.T) {
 		if _, err := r.engine.Set(pendingKey(name), value); err != nil {
 			t.Fatal(err)
 		}
-		for _, prefix := range []string{ackPrefix, rejectPrefix} {
+		for _, prefix := range []string{ackPrefix} {
 			key := prefix + voteComponent(name) + ":attempt:" + voteComponent(node)
-			got, ok, err := r.strongVoteName(key, prefix)
-			if err != nil || !ok || got != name {
-				t.Fatalf("route %q: %q %v %v", key, got, ok, err)
+			got, attempt, ok, err := r.strongVoteName(key, prefix)
+			if err != nil || !ok || got != name || attempt != "attempt" {
+				t.Fatalf("route %q: %q %q %v %v", key, got, attempt, ok, err)
 			}
 			for _, bad := range []string{key + ":extra", prefix + "%3a:attempt:peer", prefix + "%XX:attempt:peer", prefix + voteComponent(name) + ":stale:" + voteComponent(node), prefix + voteComponent(name) + ":attempt:unknown", prefix + ":", "wrong"} {
-				if got, ok, err := r.strongVoteName(bad, prefix); err != nil || ok {
+				if got, _, ok, err := r.strongVoteName(bad, prefix); err != nil || ok {
 					t.Fatalf("invalid vote %q routed as %q %v %v", bad, got, ok, err)
 				}
 			}

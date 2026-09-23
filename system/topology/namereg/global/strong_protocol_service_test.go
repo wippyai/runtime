@@ -4,7 +4,6 @@ package global
 
 import (
 	"context"
-	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -172,11 +171,9 @@ func TestCheckPendingReAcksIdempotently(t *testing.T) {
 	require.NotEmpty(t, acks, "nudged follower re-acks via relay")
 }
 
-// --- A-hook end to end: caller surfaces conflict distinct from timeout ---
-
-// TestRegisterStrong_RejectSurfacesConflict drives the caller waiting path to a
-// reject outcome and asserts the error is a conflict, not a timeout.
-func TestRegisterStrong_RejectSurfacesConflict(t *testing.T) {
+// TestRegisterStrong_ExpiredAttemptSurfacesTimeout verifies the terminal result
+// for a Strong attempt that could not collect its required acknowledgements.
+func TestRegisterStrong_ExpiredAttemptSurfacesTimeout(t *testing.T) {
 	fsm := NewFSM()
 	mem := &fakeMembership{local: "node-1", ids: []string{"node-1", "node-2"}}
 	svc := NewService(newDirectApplyRaft(fsm, true), fsm, &nopBus{}, nil, &nopRouter{}, mem, "node-1", noopLogger(), nil, nil, nil)
@@ -194,28 +191,26 @@ func TestRegisterStrong_RejectSurfacesConflict(t *testing.T) {
 		errCh <- err
 	}()
 
-	// Wait until the pending entry exists, then reject from a required node.
+	// Wait until the pending entry exists, then expire the incomplete attempt.
 	require.Eventually(t, func() bool {
 		return fsm.State().pendingByName("root.confl") != nil
 	}, time.Second, 5*time.Millisecond)
 	pv := fsm.State().pendingByName("root.confl")
 	_, err := svc.applyCommand(&Command{
-		Type:      CmdRegisterReject,
-		Name:      "root.confl",
-		Epoch:     pv.Epoch,
-		AckerNode: "node-2",
-		Reason:    strongRejectConflict,
+		Type:   CmdRegisterExpired,
+		Name:   "root.confl",
+		Epoch:  pv.Epoch,
+		Reason: "missing_ack",
 	})
 	require.NoError(t, err)
 
 	select {
 	case err := <-errCh:
 		require.Error(t, err)
-		var cErr *global.StrongConflictError
-		require.ErrorAs(t, err, &cErr, "expected StrongConflictError, got %T: %v", err, err)
-		var tErr *global.StrongRegistrationTimeoutError
-		assert.False(t, errors.As(err, &tErr), "conflict must be distinct from timeout")
+		var timeoutErr *global.StrongRegistrationTimeoutError
+		require.ErrorAs(t, err, &timeoutErr)
+		require.Contains(t, timeoutErr.MissingAcks, "node-2")
 	case <-time.After(2 * time.Second):
-		t.Fatal("caller did not observe the reject outcome")
+		t.Fatal("caller did not observe the expired outcome")
 	}
 }

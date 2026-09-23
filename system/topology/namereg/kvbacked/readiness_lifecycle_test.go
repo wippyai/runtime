@@ -93,13 +93,19 @@ func (e *failedSeedEngine) Scan(prefix string, fn func(kvapi.Entry) bool) error 
 	return e.Engine.Scan(prefix, fn)
 }
 
+func (e *failedSeedEngine) ScanLocalSnapshot(string, func(kvapi.Entry, uint64) bool) error {
+	return e.failure
+}
+
 func TestReadinessRequiresSuccessfulSeed(t *testing.T) {
 	for _, prefix := range []string{pendingPrefix, activePrefix} {
 		t.Run(prefix, func(t *testing.T) {
 			r := newStrongReg(t, []pid.NodeID{"node-1"}, time.Second, nil)
 			watcher := &readinessWatcher{events: make(chan kvapi.WatchEvent), closed: make(chan struct{})}
 			failure := errors.New("snapshot unavailable")
-			r.engine = &failedSeedEngine{readinessEngine: &readinessEngine{Engine: r.engine, watcher: watcher}, failure: failure, prefix: prefix}
+			wrapped := &failedSeedEngine{readinessEngine: &readinessEngine{Engine: r.engine, watcher: watcher}, failure: failure, prefix: prefix}
+			r.engine = wrapped
+			r.localScan = wrapped
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			err := r.StartReconciler(ctx)

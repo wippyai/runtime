@@ -36,8 +36,9 @@ func TestStrongStartupRejectsMissingAttemptIdentity(t *testing.T) {
 	}
 }
 
-func TestStrongPendingDeleteAfterPromotionRetainsActiveExclusion(t *testing.T) {
+func TestStrongPendingDeleteAfterPromotionRetainsActiveRecord(t *testing.T) {
 	r := newStrongReg(t, []pid.NodeID{"node-1"}, time.Second, nil)
+	startStrongReconciler(t, r)
 	owner := mkPID("node-1", "owner")
 	if _, err := r.RegisterScope(context.Background(), "claim", owner, globalapi.Strong); err != nil {
 		t.Fatal(err)
@@ -50,7 +51,7 @@ func TestStrongPendingDeleteAfterPromotionRetainsActiveExclusion(t *testing.T) {
 	if err != nil || active.AttemptID == "" {
 		t.Fatalf("promoted attempt missing: %+v, %v", active, err)
 	}
-	if err := r.strong.reconcileDeleted("claim", active.AttemptID, true); err != nil {
+	if err := r.transitionPendingDelete("claim", active.AttemptID, e.Epoch); err != nil {
 		t.Fatal(err)
 	}
 	if got, ok := r.IsStrongReserved("claim"); !ok || !got.Equal(owner) {
@@ -61,16 +62,15 @@ func TestStrongPendingDeleteAfterPromotionRetainsActiveExclusion(t *testing.T) {
 func TestStrongSameOwnerOldAttemptCannotCompleteReplacement(t *testing.T) {
 	r := newStrongReg(t, []pid.NodeID{"node-1"}, time.Second, nil)
 	owner := mkPID("node-1", "owner")
-	old := &strongWaiter{ch: make(chan globalapi.RegisterOutcome, 1), attemptID: "old", pid: owner}
-	next := &strongWaiter{ch: make(chan globalapi.RegisterOutcome, 1), attemptID: "next", pid: owner}
+	old := &strongWaiter{ch: make(chan strongCompletion, 1), attemptID: "old"}
+	next := &strongWaiter{ch: make(chan strongCompletion, 1), attemptID: "next"}
 	r.strong.addWaiter("claim", old)
 	r.strong.addWaiter("claim", next)
-	r.strong.latch("claim", owner, "next", 2)
-	r.strong.onActive("claim", 1, "old", owner)
-	r.strong.onTerminal("claim", "old")
+	r.strong.onActive("claim", "old", 1, 1, owner)
+	r.strong.onTerminal("claim", "old", 1)
 	select {
 	case out := <-old.ch:
-		if out.State != globalapi.RegisterStateExpired {
+		if out.out.State != globalapi.RegisterStateActive {
 			t.Fatalf("old attempt terminal outcome: %+v", out)
 		}
 	default:
@@ -81,10 +81,10 @@ func TestStrongSameOwnerOldAttemptCannotCompleteReplacement(t *testing.T) {
 		t.Fatalf("old attempt completed replacement: %+v", out)
 	default:
 	}
-	r.strong.onActive("claim", 3, "next", owner)
+	r.strong.onActive("claim", "next", 3, 3, owner)
 	select {
 	case out := <-next.ch:
-		if out.State != globalapi.RegisterStateActive || out.Epoch != 3 {
+		if out.out.State != globalapi.RegisterStateActive || out.out.Epoch != 3 {
 			t.Fatalf("replacement outcome: %+v", out)
 		}
 	default:
@@ -97,17 +97,16 @@ func TestStrongSameOwnerOldAttemptCannotCompleteReplacement(t *testing.T) {
 	}
 }
 
-func TestStrongAttemptDetailsAreReleasedWhenWaiterLeaves(t *testing.T) {
+func TestStrongAttemptWaiterRemovalStopsDelivery(t *testing.T) {
 	r := newStrongReg(t, []pid.NodeID{"node-1"}, time.Second, nil)
-	w := &strongWaiter{ch: make(chan globalapi.RegisterOutcome, 1), attemptID: "canceled", pid: mkPID("node-1", "owner")}
+	w := &strongWaiter{ch: make(chan strongCompletion, 1), attemptID: "canceled"}
 	r.strong.addWaiter("claim", w)
-	r.strong.setTerminal("claim", "canceled", "deadline", nil, 5)
 	r.strong.removeWaiter("claim", w)
-	r.strong.setTerminal("claim", "canceled", "deadline", nil, 5)
-	r.strong.mu.Lock()
-	defer r.strong.mu.Unlock()
-	if len(r.strong.terminalReason) != 0 || len(r.strong.terminalEpoch) != 0 || len(r.strong.terminalMissing) != 0 {
-		t.Fatal("terminal details retained after canceled attempt")
+	r.strong.deliver("claim", "canceled", strongCompletion{out: globalapi.RegisterOutcome{State: globalapi.RegisterStateExpired}})
+	select {
+	case <-w.ch:
+		t.Fatal("canceled attempt received a terminal result")
+	default:
 	}
 }
 

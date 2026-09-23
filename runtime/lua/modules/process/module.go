@@ -784,12 +784,19 @@ func registryLookup(l *lua.LState) int {
 
 	name := l.CheckString(1)
 	checked := false
+	var firstErr error
 
 	if globalReg := global.GetRegistry(ctx); globalReg != nil {
 		checked = true
 		if res, err := globalReg.Lookup(ctx, name); err != nil {
-			return pushProcessError(l, lua.LNil, wrapProcessError(l, err, "", lua.Internal))
+			if ctx.Err() != nil {
+				return pushProcessError(l, lua.LNil, wrapProcessError(l, ctx.Err(), "", lua.Internal))
+			}
+			firstErr = err
 		} else if res.Found {
+			if ctx.Err() != nil {
+				return pushProcessError(l, lua.LNil, wrapProcessError(l, ctx.Err(), "", lua.Internal))
+			}
 			l.Push(lua.LString(res.PID.String()))
 			return 1
 		}
@@ -798,8 +805,16 @@ func registryLookup(l *lua.LState) int {
 	if eventualReg := topology.GetEventualRegistry(ctx); eventualReg != nil {
 		checked = true
 		if res, err := eventualReg.Lookup(ctx, name); err != nil {
-			return pushProcessError(l, lua.LNil, wrapProcessError(l, err, "", lua.Internal))
+			if ctx.Err() != nil {
+				return pushProcessError(l, lua.LNil, wrapProcessError(l, ctx.Err(), "", lua.Internal))
+			}
+			if firstErr == nil {
+				firstErr = err
+			}
 		} else if res.Found {
+			if ctx.Err() != nil {
+				return pushProcessError(l, lua.LNil, wrapProcessError(l, ctx.Err(), "", lua.Internal))
+			}
 			l.Push(lua.LString(res.PID.String()))
 			return 1
 		}
@@ -809,16 +824,30 @@ func registryLookup(l *lua.LState) int {
 		checked = true
 		p, found, err := topology.LookupPID(ctx, reg, name)
 		if err != nil {
-			return pushProcessError(l, lua.LNil, wrapProcessError(l, err, "", lua.Internal))
+			if ctx.Err() != nil {
+				return pushProcessError(l, lua.LNil, wrapProcessError(l, ctx.Err(), "", lua.Internal))
+			}
+			if firstErr == nil {
+				firstErr = err
+			}
 		}
 		if found {
+			if ctx.Err() != nil {
+				return pushProcessError(l, lua.LNil, wrapProcessError(l, ctx.Err(), "", lua.Internal))
+			}
 			l.Push(lua.LString(p.String()))
 			return 1
 		}
 	}
+	if ctx.Err() != nil {
+		return pushProcessError(l, lua.LNil, wrapProcessError(l, ctx.Err(), "", lua.Internal))
+	}
 
 	if !checked {
 		return pushProcessError(l, lua.LNil, newProcessError(l, lua.Internal, "no registry found in context"))
+	}
+	if firstErr != nil {
+		return pushProcessError(l, lua.LNil, wrapProcessError(l, firstErr, "", lua.Internal))
 	}
 
 	return pushProcessError(l, lua.LNil, newProcessError(l, lua.NotFound, "name not registered"))

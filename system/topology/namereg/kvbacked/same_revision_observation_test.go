@@ -70,25 +70,24 @@ func TestReconcileSamePublicationDoesNotRetireAnotherName(t *testing.T) {
 
 			engine := &sameRevisionSnapshotEngine{Engine: base, entries: entries, revision: revision}
 			r := NewService(engine, "node-1", nil, nil)
-			r.ConfigureStrong(StrongDeps{
-				Membership: func() []pid.NodeID { return []pid.NodeID{"node-1"} },
-				IsLeader:   func() bool { return false },
-				Deadline:   time.Minute,
+			r.ConfigureStrong(StrongDeps{Members: testStrongMembers,
+				IsLeader: func() bool { return false },
+				Deadline: time.Minute,
 			})
 
 			if first == "absent" {
-				if err := r.strong.reconcile("absent"); err != nil {
-					t.Fatal(err)
+				if report := r.strong.reconcile("absent"); report.err != nil {
+					t.Fatal(report.err)
 				}
-				if err := r.strong.reconcile("pending"); err != nil {
-					t.Fatal(err)
+				if report := r.strong.reconcile("pending"); report.err != nil {
+					t.Fatal(report.err)
 				}
 			} else {
-				if err := r.strong.reconcile("pending"); err != nil {
-					t.Fatal(err)
+				if report := r.strong.reconcile("pending"); report.err != nil {
+					t.Fatal(report.err)
 				}
-				if err := r.strong.reconcile("absent"); err != nil {
-					t.Fatal(err)
+				if report := r.strong.reconcile("absent"); report.err != nil {
+					t.Fatal(report.err)
 				}
 			}
 

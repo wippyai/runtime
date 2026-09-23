@@ -43,8 +43,8 @@ type ActiveEvent struct {
 // without remaining active — either because the deadline elapsed, the leader /
 // caller dropped the reservation explicitly, a required node rejected it, or an
 // already-active name was unregistered. RejectedBy is set only on a reject
-// (NACK) terminal outcome. RequiredNodes carries the exclusion-holder set so the
-// leader can deliver a targeted release to the nodes that latched the exclusion.
+// (NACK) terminal outcome. RequiredNodes carries the observation-holder set so the
+// leader can deliver a targeted release to the nodes that latched the observation.
 type ExpiredEvent struct {
 	ExpiredAt     time.Time
 	PID           pid.PID
@@ -56,10 +56,9 @@ type ExpiredEvent struct {
 	Epoch         uint64
 }
 
-// strongRejectConflict is the ExpiredEvent/ExpiredRecord reason carried when a
-// required node rejects a Strong reservation (cross-scope conflict). Distinct
-// from the timeout reason so callers can surface a conflict error.
-const strongRejectConflict = "conflict"
+// strongRejectReason is the default reason for an explicitly rejected attempt.
+// Rejection commands are retained for FSM replay; runtime voters only ACK.
+const strongRejectReason = "rejected"
 
 // FSM implements the hashicorp/raft.FSM interface.
 // It is the replicated state machine for the global name registry.
@@ -228,7 +227,7 @@ func (f *FSM) applyUnregister(cmd *Command, index uint64) any {
 	if existed {
 		f.tel.recordGlobalregSize(f.state.Len())
 		// A promoted Strong name removed via a Consistent unregister is still a
-		// terminal for any held exclusion: deliver a release to its holders.
+		// terminal for any held observation: deliver a release to its holders.
 		if f.onExpired != nil && len(removed.RequiredNodes) > 0 {
 			f.tel.recordStrongRelease("unregister_active")
 			f.onExpired(ExpiredEvent{
@@ -268,7 +267,7 @@ func (f *FSM) applyRemovePID(cmd *Command, index uint64) any {
 	removedNames, count, strongs := f.state.removePIDWithNames(cmd.PID)
 	for _, st := range strongs {
 		// A promoted Strong name removed on process exit is a terminal: release
-		// its exclusion on the holders.
+		// its observation on the holders.
 		f.tel.recordStrongRelease("pid_exit_active")
 		if f.onExpired != nil {
 			f.onExpired(ExpiredEvent{
@@ -297,7 +296,7 @@ func (f *FSM) applyRemoveNode(cmd *Command, index uint64) any {
 	removedNames, count, hasMore, strongs := f.state.removeNodeWithNames(cmd.NodeID, cmd.Limit)
 	for _, st := range strongs {
 		// A promoted Strong name on the departed node is a terminal: release its
-		// exclusion on the surviving holders.
+		// observation on the surviving holders.
 		f.tel.recordStrongRelease("node_removed_active")
 		if f.onExpired != nil {
 			f.onExpired(ExpiredEvent{
@@ -437,7 +436,7 @@ func (f *FSM) applyRegisterUnreserve(cmd *Command, index uint64) any {
 	e, ok := f.state.unreservePending(cmd.Name, cmd.PID)
 	if !ok {
 		// Not pending — the name may already be promoted to active. Removing the
-		// active entry is a terminal for any held exclusion, so deliver a release
+		// active entry is a terminal for any held observation, so deliver a release
 		// to its holders (RequiredNodes) keyed to the promotion epoch.
 		removed, existed := f.state.unregisterEntry(cmd.Name)
 		if existed {
@@ -514,11 +513,11 @@ func (f *FSM) applyDropRequired(cmd *Command, index uint64) any {
 // applyRegisterReject terminally fails a pending reservation rejected by a
 // required node. NACK dominates: once rejected the entry is removed and never
 // resurrects, so any later ack/drop is a no-op. The rejecter and reason are
-// carried into the ExpiredEvent so the caller surfaces a conflict.
+// retained in the ExpiredEvent and terminal history.
 func (f *FSM) applyRegisterReject(cmd *Command, index uint64) any {
 	reason := cmd.Reason
 	if reason == "" {
-		reason = strongRejectConflict
+		reason = strongRejectReason
 	}
 	expiredAt := time.Now().UnixNano()
 	e, ok := f.state.rejectPending(cmd.Name, cmd.Epoch, cmd.AckerNode, reason, expiredAt)

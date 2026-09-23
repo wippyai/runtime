@@ -80,6 +80,8 @@ func TestState_RestartedOriginWithdrawsUnclaimedPriorIncarnationDot(t *testing.T
 
 	_, ok := a.Lookup(name)
 	require.False(t, ok, "a dot this run did not mint must not resolve")
+	_, conflict := a.ConflictingLiveClaim(name, newPID)
+	require.False(t, conflict, "a superseded prior-incarnation dot must not remain live")
 	dot := localDot(a, name)
 	require.NotNil(t, dot)
 	require.True(t, dot.Deleted)
