@@ -25,12 +25,9 @@ var (
 func init() {
 	value.RegisterTypeMethods(nil, executorTypeName, nil, executorMethods)
 	value.RegisterTypeMethods(nil, processTypeName, nil, processMethods)
-	value.RegisterTypeMethods(nil, terminalSessionTypeName,
-		map[string]lua.LGoFunc{"__gc": terminalSessionGC},
-		terminalSessionMethods)
 	value.RegisterTypeMethods(nil, terminalProcessTypeName,
-		map[string]lua.LGoFunc{"__gc": terminalSessionGC},
-		terminalSessionMethods)
+		map[string]lua.LGoFunc{"__gc": terminalProcessGC},
+		terminalProcessMethods)
 }
 
 func initModuleTable() {
@@ -43,7 +40,7 @@ func initModuleTable() {
 // Module is the exec module definition.
 var Module = &luaapi.ModuleDef{
 	Name:        "exec",
-	Description: "Command execution, terminal attachment, and process management",
+	Description: "Command execution and terminal process management",
 	Class:       []string{luaapi.ClassIO, luaapi.ClassProcess, luaapi.ClassNondeterministic},
 	Build: func() (*lua.LTable, []luaapi.YieldType) {
 		initOnce.Do(initModuleTable)

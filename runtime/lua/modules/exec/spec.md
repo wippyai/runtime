@@ -210,37 +210,13 @@ Returned by `executor:exec()`. Represents a process instance.
 | stdout_stream | () | Stream, error | Returns stdout stream |
 | stderr_stream | () | Stream, error | Returns stderr stream |
 | resize | (width: integer, height: integer) | boolean, error | Resizes a PTY-backed process |
-| attach_terminal | () | TerminalSession, error | Legacy ownership transfer for an unstarted PTY process |
 | close | (force?: boolean) | boolean, error | Signals the process, reaps it, releases the handle |
-
-#### process:attach_terminal() → TerminalSession, error
-
-The older, lower-level path consumes an unstarted PTY-backed process and
-attaches it to the current process terminal. The returned session becomes the
-exclusive lifecycle owner; the original process handle cannot be used
-afterward. New callers should use `executor:terminal()` instead.
-
-```lua
-local child = assert(executor:exec("bash", {
-    pty = {width = 80, height = 24, term = "xterm-256color"},
-}))
-local session = assert(child:attach_terminal())
-```
-
-The session exposes `send(event)`, `done()`, `pid()`, `status()`, and `close()`.
-`pid()` returns the host process identifier when the attached process exposes
-that capability. The call may return a not-started error while the asynchronous
-attachment is starting; once the session has completed with a startup error,
-it returns that terminal error instead of a retryable pending result.
-The completion channel's `receive()` and `case_receive()` values are booleans, so a
-`channel.select` result from `done():case_receive()` carries a boolean value.
-Resize, keyboard, mouse, focus, and paste events use the canonical `tty`
-event records.
 
 #### process:resize(width: integer, height: integer) → boolean, error
 
-Resizes an allocated PTY before it is transferred to a terminal session.
-Ordinary pipe-backed processes return an error.
+Resizes an allocated PTY on a regular `Process`. Ordinary pipe-backed
+processes return an error. A `TerminalProcess` follows its terminal geometry
+automatically.
 
 #### process:close(force?: boolean) → boolean, error
 

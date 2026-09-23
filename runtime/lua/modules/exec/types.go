@@ -13,10 +13,8 @@ var executorType typ.Type
 var processType typ.Type
 var processExitType typ.Type
 var processExitChannelType typ.Type
-var terminalCompletionType typ.Type
 var terminalResultType typ.Type
 var terminalResultChannelType typ.Type
-var terminalSessionType typ.Type
 var terminalProcessType typ.Type
 var ptyOptionsType typ.Type
 var mountType typ.Type
@@ -51,12 +49,6 @@ func init() {
 		{Name: "case_receive", Type: typ.Func().Param("self", typ.Self).
 			Returns(engine.ChannelSelectCaseType(typ.Self, processExitType)).Build()},
 	})
-	terminalCompletionType = typ.NewInterface("exec.TerminalCompletionChannel", []typ.Method{
-		{Name: "receive", Type: typ.Func().Param("self", typ.Self).
-			Returns(typ.Boolean, typ.Boolean).Build()},
-		{Name: "case_receive", Type: typ.Func().Param("self", typ.Self).
-			Returns(engine.ChannelSelectCaseType(typ.Self, typ.Boolean)).Build()},
-	})
 	terminalResultType = typ.NewRecord().
 		OptField("exit", processExitType).
 		OptField("terminal_error", typ.LuaError).
@@ -67,24 +59,19 @@ func init() {
 		{Name: "case_receive", Type: typ.Func().Param("self", typ.Self).
 			Returns(engine.ChannelSelectCaseType(typ.Self, terminalResultType)).Build()},
 	})
-	terminalMethods := []typ.Method{
+	terminalProcessType = typ.NewInterface("exec.TerminalProcess", []typ.Method{
 		{Name: "send", Type: typ.Func().Param("self", typ.Self).
 			Param("event", luatty.InputEventType()).
 			Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "close", Type: typ.Func().Param("self", typ.Self).
 			Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "done", Type: typ.Func().Param("self", typ.Self).
-			Returns(terminalCompletionType).Build()},
+			Returns(terminalResultChannelType).Build()},
 		{Name: "pid", Type: typ.Func().Param("self", typ.Self).
 			Returns(typ.NewOptional(typ.Integer), typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "status", Type: typ.Func().Param("self", typ.Self).
 			Returns(typ.NewUnion(typ.LiteralString("running"), typ.LiteralString("done")), typ.NewOptional(typ.LuaError)).Build()},
-	}
-	terminalSessionType = typ.NewInterface("exec.TerminalSession", terminalMethods)
-	terminalProcessMethods := append([]typ.Method(nil), terminalMethods...)
-	terminalProcessMethods[2] = typ.Method{Name: "done", Type: typ.Func().Param("self", typ.Self).
-		Returns(terminalResultChannelType).Build()}
-	terminalProcessType = typ.NewInterface("exec.TerminalProcess", terminalProcessMethods)
+	})
 	processType = typ.NewInterface("exec.Process", []typ.Method{
 		{Name: "start", Type: typ.Func().Param("self", typ.Self).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "wait", Type: typ.Func().Param("self", typ.Self).Returns(typ.Any, typ.NewOptional(typ.LuaError)).Build()},
@@ -97,8 +84,6 @@ func init() {
 		{Name: "stderr_stream", Type: typ.Func().Param("self", typ.Self).Returns(typ.Any, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "close", Type: typ.Func().Param("self", typ.Self).OptParam("force", typ.Boolean).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "resize", Type: typ.Func().Param("self", typ.Self).Param("width", typ.Integer).Param("height", typ.Integer).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
-		{Name: "attach_terminal", Type: typ.Func().Param("self", typ.Self).
-			Returns(terminalSessionType, typ.NewOptional(typ.LuaError)).Build()},
 	})
 
 	executorType = typ.NewInterface("exec.Executor", []typ.Method{
@@ -121,10 +106,8 @@ func ModuleTypes() *io.Manifest {
 	m.DefineType("Process", processType)
 	m.DefineType("ProcessExit", processExitType)
 	m.DefineType("ProcessExitChannel", processExitChannelType)
-	m.DefineType("TerminalCompletionChannel", terminalCompletionType)
 	m.DefineType("TerminalResult", terminalResultType)
 	m.DefineType("TerminalResultChannel", terminalResultChannelType)
-	m.DefineType("TerminalSession", terminalSessionType)
 	m.DefineType("TerminalProcess", terminalProcessType)
 	m.DefineType("PTYOptions", ptyOptionsType)
 	m.DefineType("Mount", mountType)

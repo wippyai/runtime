@@ -18,15 +18,14 @@ import (
 
 var terminalCompletionID atomic.Uint64
 
-// terminalResult is delivered only for the new one-call TerminalProcess API.
-// The legacy TerminalSession continues to receive its boolean completion.
+// terminalResult is delivered when the terminal process is finalized.
 type terminalResult struct {
 	Exit          *execapi.ExitStatus
 	TerminalError error
 }
 
 // terminalCompletion owns the one-shot scheduler subscription that wakes Lua
-// when an attached PTY process finishes.
+// when a terminal process finishes.
 type terminalCompletion struct {
 	ctx    context.Context
 	router relay.Receiver
@@ -65,14 +64,10 @@ func newTerminalCompletion(
 }
 
 func (c *terminalCompletion) notify(result *terminalResult) {
-	deliverTerminalCompletionResult(c.ctx, c.router, c.target, c.topic, result)
+	deliverTerminalCompletion(c.ctx, c.router, c.target, c.topic, result)
 }
 
-func deliverTerminalCompletion(ctx context.Context, router relay.Receiver, target pid.PID, topic string) {
-	deliverTerminalCompletionResult(ctx, router, target, topic, nil)
-}
-
-func deliverTerminalCompletionResult(ctx context.Context, router relay.Receiver, target pid.PID, topic string, result *terminalResult) {
+func deliverTerminalCompletion(ctx context.Context, router relay.Receiver, target pid.PID, topic string, result *terminalResult) {
 	select {
 	case <-ctx.Done():
 		return
@@ -80,11 +75,7 @@ func deliverTerminalCompletionResult(ctx context.Context, router relay.Receiver,
 	}
 	pkg := relay.AcquirePackage()
 	pkg.Target = target
-	if result == nil {
-		pkg.AddMessage(topic, payload.New(true), payload.NewTerminal())
-	} else {
-		pkg.AddMessage(topic, payload.New(result), payload.NewTerminal())
-	}
+	pkg.AddMessage(topic, payload.New(result), payload.NewTerminal())
 	if err := router.Send(pkg); err != nil {
 		relay.ReleasePackage(pkg)
 	}
@@ -101,25 +92,27 @@ func terminalCompletionHandler(
 	_ string,
 	payloads []payload.Payload,
 ) lua.LValue {
-	if len(payloads) > 0 {
-		if result, ok := payloads[0].Data().(*terminalResult); ok {
-			out := l.CreateTable(0, 2)
-			if result.Exit != nil {
-				exit := l.CreateTable(0, 3)
-				exit.RawSetString("code", lua.LInteger(result.Exit.Code))
-				if result.Exit.Signal != 0 {
-					exit.RawSetString("signal", lua.LInteger(result.Exit.Signal))
-				}
-				if result.Exit.Err != nil {
-					exit.RawSetString("error", wrapExecError(l, result.Exit.Err, "process exit", lua.Internal))
-				}
-				out.RawSetString("exit", exit)
-			}
-			if result.TerminalError != nil {
-				out.RawSetString("terminal_error", wrapExecError(l, result.TerminalError, "terminal", lua.Internal))
-			}
-			return out
-		}
+	if len(payloads) == 0 {
+		return lua.LNil
 	}
-	return lua.LTrue
+	result, ok := payloads[0].Data().(*terminalResult)
+	if !ok || result == nil {
+		return lua.LNil
+	}
+	out := l.CreateTable(0, 2)
+	if result.Exit != nil {
+		exit := l.CreateTable(0, 3)
+		exit.RawSetString("code", lua.LInteger(result.Exit.Code))
+		if result.Exit.Signal != 0 {
+			exit.RawSetString("signal", lua.LInteger(result.Exit.Signal))
+		}
+		if result.Exit.Err != nil {
+			exit.RawSetString("error", wrapExecError(l, result.Exit.Err, "process exit", lua.Internal))
+		}
+		out.RawSetString("exit", exit)
+	}
+	if result.TerminalError != nil {
+		out.RawSetString("terminal_error", wrapExecError(l, result.TerminalError, "terminal", lua.Internal))
+	}
+	return out
 }

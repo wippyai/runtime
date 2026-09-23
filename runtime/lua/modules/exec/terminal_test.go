@@ -5,11 +5,9 @@ package exec
 import (
 	"context"
 	"errors"
-	"io"
 	"strings"
 	"sync/atomic"
 	"testing"
-	"time"
 
 	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/payload"
@@ -19,8 +17,6 @@ import (
 	ttyapi "github.com/wippyai/runtime/api/tty"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	luatty "github.com/wippyai/runtime/runtime/lua/modules/tty"
-	"github.com/wippyai/runtime/service/exec/native"
-	"github.com/wippyai/runtime/service/terminal/proxy"
 )
 
 type terminalCompletionReceiver struct {
@@ -51,6 +47,7 @@ func TestTerminalCompletionIsOneShot(t *testing.T) {
 		receiver,
 		pid.PID{Host: "test", UniqID: "1"},
 		"done",
+		&terminalResult{},
 	)
 	if !receiver.terminal.Load() {
 		t.Fatal("completion did not carry terminal subscription marker")
@@ -115,38 +112,41 @@ func TestEnqueueTerminalEventBackpressure(t *testing.T) {
 	}
 }
 
-func TestProcessExportsTerminalAttachment(t *testing.T) {
-	if processMethods["attach_terminal"] == nil {
-		t.Fatal("exec.Process attach_terminal method is missing")
+func TestOnlyExecutorExportsTerminalConstructor(t *testing.T) {
+	if executorMethods["terminal"] == nil {
+		t.Fatal("exec.Executor terminal method is missing")
+	}
+	if processMethods["attach_terminal"] != nil {
+		t.Fatal("exec.Process still exports attach_terminal")
 	}
 }
 
-func TestTerminalSessionExportsPID(t *testing.T) {
-	if terminalSessionMethods["pid"] == nil {
-		t.Fatal("exec.TerminalSession pid method is missing")
+func TestTerminalProcessExportsPID(t *testing.T) {
+	if terminalProcessMethods["pid"] == nil {
+		t.Fatal("exec.TerminalProcess pid method is missing")
 	}
 }
 
-type terminalSessionIdentity struct {
+type terminalProcessIdentity struct {
 	err error
 	pid int
 }
 
-func (i terminalSessionIdentity) Pid() (int, error) { return i.pid, i.err }
+func (i terminalProcessIdentity) Pid() (int, error) { return i.pid, i.err }
 
-func callTerminalSessionPID(t *testing.T, identity interface{ Pid() (int, error) }) (lua.LValue, lua.LValue) {
+func callTerminalProcessPID(t *testing.T, identity interface{ Pid() (int, error) }) (lua.LValue, lua.LValue) {
 	t.Helper()
 	l := lua.NewState()
 	defer l.Close()
-	value.PushTypedUserData(l, newTerminalSession(nil, nil, identity), terminalSessionTypeName)
-	if returns := terminalSessionPID(l); returns != 2 {
-		t.Fatalf("terminalSessionPID returned %d values, want 2", returns)
+	value.PushTypedUserData(l, newTerminalProcess(nil, nil, identity), terminalProcessTypeName)
+	if returns := terminalProcessPID(l); returns != 2 {
+		t.Fatalf("terminalProcessPID returned %d values, want 2", returns)
 	}
 	return l.Get(-2), l.Get(-1)
 }
 
-func TestTerminalSessionPID(t *testing.T) {
-	pid, err := callTerminalSessionPID(t, terminalSessionIdentity{pid: 42})
+func TestTerminalProcessPID(t *testing.T) {
+	pid, err := callTerminalProcessPID(t, terminalProcessIdentity{pid: 42})
 	if got, ok := pid.(lua.LInteger); !ok || int(got) != 42 {
 		t.Fatalf("pid = %v, want 42", pid)
 	}
@@ -155,13 +155,13 @@ func TestTerminalSessionPID(t *testing.T) {
 	}
 }
 
-func TestTerminalSessionPIDUnavailable(t *testing.T) {
+func TestTerminalProcessPIDUnavailable(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	value.PushTypedUserData(l, newTerminalSession(nil, nil, nil), terminalSessionTypeName)
+	value.PushTypedUserData(l, newTerminalProcess(nil, nil, nil), terminalProcessTypeName)
 
-	if returns := terminalSessionPID(l); returns != 2 {
-		t.Fatalf("terminalSessionPID returned %d values, want 2", returns)
+	if returns := terminalProcessPID(l); returns != 2 {
+		t.Fatalf("terminalProcessPID returned %d values, want 2", returns)
 	}
 	if l.Get(-2) != lua.LNil {
 		t.Fatalf("pid = %v, want nil", l.Get(-2))
@@ -175,9 +175,9 @@ func TestTerminalSessionPIDUnavailable(t *testing.T) {
 	}
 }
 
-func TestTerminalSessionPIDPreservesIdentityErrors(t *testing.T) {
+func TestTerminalProcessPIDPreservesIdentityErrors(t *testing.T) {
 	failure := errors.New("pid lookup failed")
-	pid, err := callTerminalSessionPID(t, terminalSessionIdentity{err: failure})
+	pid, err := callTerminalProcessPID(t, terminalProcessIdentity{err: failure})
 	if pid != lua.LNil {
 		t.Fatalf("pid = %v, want nil", pid)
 	}
@@ -190,125 +190,6 @@ func TestTerminalSessionPIDPreservesIdentityErrors(t *testing.T) {
 	}
 }
 
-func TestTerminalSessionPIDBeforeStart(t *testing.T) {
-	pid, err := callTerminalSessionPID(t, terminalSessionIdentity{err: native.ErrProcessNotStarted})
-	if pid != lua.LNil {
-		t.Fatalf("pid = %v, want nil", pid)
-	}
-	luaErr, ok := err.(*lua.Error)
-	if !ok {
-		t.Fatalf("error = %v, want Lua error", err)
-	}
-	if luaErr.Kind() != lua.Internal || !strings.Contains(luaErr.Error(), "process not started") {
-		t.Fatalf("error = %v (kind %v), want wrapped not-started error", luaErr, luaErr.Kind())
-	}
-}
-
-type delayedTerminalProcess struct {
-	startEntered chan struct{}
-	startRelease chan struct{}
-}
-
-func (p *delayedTerminalProcess) Start() error {
-	close(p.startEntered)
-	<-p.startRelease
-	return nil
-}
-func (*delayedTerminalProcess) Signal(int) error        { return nil }
-func (*delayedTerminalProcess) WriteStdin([]byte) error { return nil }
-func (*delayedTerminalProcess) Stdout() io.ReadCloser   { return io.NopCloser(strings.NewReader("")) }
-func (*delayedTerminalProcess) Stderr() io.ReadCloser   { return nil }
-func (*delayedTerminalProcess) Wait() error             { return nil }
-func (*delayedTerminalProcess) Resize(int, int) error   { return nil }
-func (*delayedTerminalProcess) Pid() (int, error)       { return 42, nil }
-
-type terminalSessionSurface struct{}
-
-func (*terminalSessionSurface) Present(ttyapi.Frame) (ttyapi.PresentStats, error) {
-	return ttyapi.PresentStats{}, nil
-}
-func (*terminalSessionSurface) Invalidate()  {}
-func (*terminalSessionSurface) Close() error { return nil }
-
-func TestTerminalSessionPIDDoesNotBlockDuringAsyncStart(t *testing.T) {
-	process := &delayedTerminalProcess{
-		startEntered: make(chan struct{}),
-		startRelease: make(chan struct{}),
-	}
-	bridge, err := proxy.New(process, &terminalSessionSurface{}, 1, 1)
-	if err != nil {
-		t.Fatalf("create terminal proxy: %v", err)
-	}
-	runDone := make(chan error, 1)
-	go func() { runDone <- bridge.Run(context.Background(), make(chan ttyapi.Event)) }()
-	<-process.startEntered
-
-	l := lua.NewState()
-	defer l.Close()
-	value.PushTypedUserData(l, newTerminalSession(bridge, nil, process), terminalSessionTypeName)
-	result := make(chan struct{})
-	go func() {
-		if returns := terminalSessionPID(l); returns != 2 {
-			t.Errorf("terminalSessionPID returned %d values, want 2", returns)
-		}
-		close(result)
-	}()
-	select {
-	case <-result:
-	case <-time.After(time.Second):
-		t.Fatal("pid blocked while asynchronous process startup was in progress")
-	}
-	if l.Get(-2) != lua.LNil {
-		t.Fatalf("pid = %v, want nil before startup completes", l.Get(-2))
-	}
-	if got, ok := l.Get(-1).(*lua.Error); !ok || got.Kind() != lua.Unavailable || got.Retryable() != lua.TernaryTrue {
-		t.Fatalf("error = %v, want retryable unavailable not-started error", l.Get(-1))
-	}
-
-	close(process.startRelease)
-	select {
-	case <-runDone:
-	case <-time.After(time.Second):
-		t.Fatal("proxy did not finish after startup release")
-	}
-	l.SetTop(1)
-	if returns := terminalSessionPID(l); returns != 2 {
-		t.Fatalf("terminalSessionPID returned %d values, want 2", returns)
-	}
-	if l.Get(-2) != lua.LInteger(42) || l.Get(-1) != lua.LNil {
-		t.Fatalf("pid after startup = (%v, %v), want (42, nil)", l.Get(-2), l.Get(-1))
-	}
-}
-
-func TestTerminalSessionPIDReportsCompletedStartupFailure(t *testing.T) {
-	process := &delayedTerminalProcess{
-		startEntered: make(chan struct{}),
-		startRelease: make(chan struct{}),
-	}
-	bridge, err := proxy.New(process, &terminalSessionSurface{}, 1, 1)
-	if err != nil {
-		t.Fatalf("create terminal proxy: %v", err)
-	}
-	failure := errors.New("terminal startup failed")
-	session := newTerminalSession(bridge, nil, process)
-	session.err = failure
-	session.done.Store(true)
-
-	l := lua.NewState()
-	defer l.Close()
-	value.PushTypedUserData(l, session, terminalSessionTypeName)
-	if returns := terminalSessionPID(l); returns != 2 {
-		t.Fatalf("terminalSessionPID returned %d values, want 2", returns)
-	}
-	if l.Get(-2) != lua.LNil {
-		t.Fatalf("pid = %v, want nil after startup failure", l.Get(-2))
-	}
-	luaErr, ok := l.Get(-1).(*lua.Error)
-	if !ok || !errors.Is(luaErr, failure) || luaErr.Retryable() != lua.TernaryFalse {
-		t.Fatalf("error = %v, want non-retryable startup failure", l.Get(-1))
-	}
-}
-
 func TestTerminalCompletionDoesNotRetryRelayFailure(t *testing.T) {
 	receiver := &terminalCompletionReceiver{failures: 1}
 	deliverTerminalCompletion(
@@ -316,6 +197,7 @@ func TestTerminalCompletionDoesNotRetryRelayFailure(t *testing.T) {
 		receiver,
 		pid.PID{Host: "test", UniqID: "1"},
 		"done",
+		&terminalResult{},
 	)
 	if calls := receiver.calls.Load(); calls != 1 {
 		t.Fatalf("expected one relay attempt, got %d", calls)
@@ -326,7 +208,7 @@ func TestTerminalCompletionSkipsEndedProcess(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	receiver := &terminalCompletionReceiver{}
-	deliverTerminalCompletion(ctx, receiver, pid.PID{Host: "test", UniqID: "1"}, "done")
+	deliverTerminalCompletion(ctx, receiver, pid.PID{Host: "test", UniqID: "1"}, "done", &terminalResult{})
 	if calls := receiver.calls.Load(); calls != 0 {
 		t.Fatalf("completion sent after process end: %d calls", calls)
 	}

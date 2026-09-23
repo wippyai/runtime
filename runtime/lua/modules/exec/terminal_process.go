@@ -13,58 +13,51 @@ import (
 	"github.com/wippyai/runtime/service/terminal/proxy"
 )
 
-const terminalSessionTypeName = "exec.TerminalSession"
-
-var terminalSessionMethods = map[string]lua.LGoFunc{
-	"send":   terminalSessionSend,
-	"close":  terminalSessionClose,
-	"done":   terminalSessionDone,
-	"pid":    terminalSessionPID,
-	"status": terminalSessionStatus,
+var terminalProcessMethods = map[string]lua.LGoFunc{
+	"send":   terminalProcessSend,
+	"close":  terminalProcessClose,
+	"done":   terminalProcessDone,
+	"pid":    terminalProcessPID,
+	"status": terminalProcessStatus,
 }
 
-type terminalSession struct {
+type terminalProcess struct {
 	err        error
 	events     chan ttyapi.Event
 	completion *terminalCompletion
 	bridge     *proxy.Proxy
 	identity   execapi.ProcessIdentity
-	structured bool
 	errMu      sync.RWMutex
 	once       sync.Once
 	done       atomic.Bool
 }
 
-func newTerminalSession(bridge *proxy.Proxy, completion *terminalCompletion, identity execapi.ProcessIdentity) *terminalSession {
-	return &terminalSession{
+func newTerminalProcess(bridge *proxy.Proxy, completion *terminalCompletion, identity execapi.ProcessIdentity) *terminalProcess {
+	return &terminalProcess{
 		events: make(chan ttyapi.Event, 256), bridge: bridge, completion: completion,
 		identity: identity,
 	}
 }
 
-func (s *terminalSession) complete(result proxy.Result) {
+func (s *terminalProcess) complete(result proxy.Result) {
 	s.errMu.Lock()
 	s.err = result.Err
 	s.errMu.Unlock()
 	s.done.Store(true)
-	if s.structured {
-		s.completion.notify(&terminalResult{Exit: result.Exit, TerminalError: result.TerminalError})
-	} else {
-		s.completion.notify(nil)
-	}
+	s.completion.notify(&terminalResult{Exit: result.Exit, TerminalError: result.TerminalError})
 }
 
-func checkTerminalSession(l *lua.LState) *terminalSession {
+func checkTerminalProcess(l *lua.LState) *terminalProcess {
 	ud := l.CheckUserData(1)
-	if session, ok := ud.Value.(*terminalSession); ok {
+	if session, ok := ud.Value.(*terminalProcess); ok {
 		return session
 	}
-	l.ArgError(1, "exec.TerminalSession expected")
+	l.ArgError(1, "exec.TerminalProcess expected")
 	return nil
 }
 
-func terminalSessionSend(l *lua.LState) int {
-	session := checkTerminalSession(l)
+func terminalProcessSend(l *lua.LState) int {
+	session := checkTerminalProcess(l)
 	if session.done.Load() {
 		pushTerminalError(l, nil, "PTY process is not running")
 		return 2
@@ -86,8 +79,8 @@ func terminalSessionSend(l *lua.LState) int {
 	return 2
 }
 
-func terminalSessionClose(l *lua.LState) int {
-	session := checkTerminalSession(l)
+func terminalProcessClose(l *lua.LState) int {
+	session := checkTerminalProcess(l)
 	session.once.Do(func() {
 		if !session.done.Load() {
 			session.bridge.RequestClose()
@@ -98,32 +91,16 @@ func terminalSessionClose(l *lua.LState) int {
 	return 2
 }
 
-func terminalSessionDone(l *lua.LState) int {
-	l.Push(checkTerminalSession(l).completion.value)
+func terminalProcessDone(l *lua.LState) int {
+	l.Push(checkTerminalProcess(l).completion.value)
 	return 1
 }
 
-func terminalSessionPID(l *lua.LState) int {
-	session := checkTerminalSession(l)
+func terminalProcessPID(l *lua.LState) int {
+	session := checkTerminalProcess(l)
 	if session.identity == nil {
 		l.Push(lua.LNil)
 		l.Push(lua.NewLuaError(l, "process has no host process id").WithKind(lua.Unavailable).WithRetryable(false))
-		return 2
-	}
-	if session.bridge != nil && !session.bridge.Started() {
-		l.Push(lua.LNil)
-		if session.done.Load() {
-			session.errMu.RLock()
-			err := session.err
-			session.errMu.RUnlock()
-			if err != nil {
-				l.Push(wrapExecError(l, err, "PTY process", lua.Internal))
-				return 2
-			}
-			l.Push(lua.NewLuaError(l, "terminal process has not started").WithKind(lua.Unavailable).WithRetryable(false))
-			return 2
-		}
-		l.Push(lua.NewLuaError(l, "terminal process has not started").WithKind(lua.Unavailable).WithRetryable(true))
 		return 2
 	}
 	pid, err := session.identity.Pid()
@@ -137,8 +114,8 @@ func terminalSessionPID(l *lua.LState) int {
 	return 2
 }
 
-func terminalSessionStatus(l *lua.LState) int {
-	session := checkTerminalSession(l)
+func terminalProcessStatus(l *lua.LState) int {
+	session := checkTerminalProcess(l)
 	if !session.done.Load() {
 		l.Push(lua.LString("running"))
 		l.Push(lua.LNil)
@@ -156,8 +133,8 @@ func terminalSessionStatus(l *lua.LState) int {
 	return 2
 }
 
-func terminalSessionGC(l *lua.LState) int {
-	_ = terminalSessionClose(l)
+func terminalProcessGC(l *lua.LState) int {
+	_ = terminalProcessClose(l)
 	l.Pop(2)
 	return 0
 }

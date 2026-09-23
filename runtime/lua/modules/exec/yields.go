@@ -57,7 +57,7 @@ func (y *ProcessWaitYield) HandleResult(l *lua.LState, data any, err error) []lu
 // started PTY process. The proxy remains responsible for completion and reap.
 type TerminalReadyYield struct {
 	Ready      <-chan error
-	Session    *terminalSession
+	Terminal   *terminalProcess
 	Completion *terminalCompletion
 }
 
@@ -76,7 +76,7 @@ func (y *TerminalReadyYield) HandleResult(l *lua.LState, _ any, err error) []lua
 		}
 		return []lua.LValue{lua.LNil, wrapExecError(l, err, "start terminal process", lua.Internal)}
 	}
-	ud := value.PushTypedUserData(l, y.Session, terminalProcessTypeName)
+	ud := value.PushTypedUserData(l, y.Terminal, terminalProcessTypeName)
 	l.Pop(1)
 	return []lua.LValue{ud, lua.LNil}
 }

@@ -664,57 +664,6 @@ type mockProcess struct {
 	signalCalled  int
 }
 
-type mockPTYProcess struct{ mockProcess }
-
-func (*mockPTYProcess) Resize(int, int) error { return nil }
-
-type mockPTYIdentityProcess struct {
-	*mockPTYProcess
-	pid int
-}
-
-func (p *mockPTYIdentityProcess) Pid() (int, error) { return p.pid, nil }
-
-func TestTakePTYProcessTransfersExclusiveOwnership(t *testing.T) {
-	l := lua.NewState()
-	defer l.Close()
-	handle := &mockPTYProcess{}
-	p := NewProcess(context.Background(), handle)
-	ud := value.PushTypedUserData(l, p, processTypeName)
-
-	got, err := takePTYProcess(ud)
-	if err != nil {
-		t.Fatalf("take PTY process: %v", err)
-	}
-	if got != handle {
-		t.Fatal("PTY ownership transferred to wrong handle")
-	}
-	if _, err := takePTYProcess(ud); !errors.Is(err, errPTYOwnership) {
-		t.Fatalf("second transfer error = %v, want %v", err, errPTYOwnership)
-	}
-}
-
-func TestTakePTYProcessRetainsOptionalIdentity(t *testing.T) {
-	l := lua.NewState()
-	defer l.Close()
-	handle := &mockPTYIdentityProcess{mockPTYProcess: &mockPTYProcess{}, pid: 42}
-	p := NewProcess(context.Background(), handle)
-	ud := value.PushTypedUserData(l, p, processTypeName)
-
-	got, err := takePTYProcess(ud)
-	if err != nil {
-		t.Fatalf("take PTY process: %v", err)
-	}
-	identity, ok := got.(execapi.ProcessIdentity)
-	if !ok {
-		t.Fatal("transferred PTY process lost its optional process identity")
-	}
-	pid, err := identity.Pid()
-	if err != nil || pid != 42 {
-		t.Fatalf("transferred process identity = (%d, %v), want (42, nil)", pid, err)
-	}
-}
-
 func TestExecutorExecParsesPTYOptions(t *testing.T) {
 	l := setupState()
 	defer l.Close()
@@ -783,16 +732,16 @@ func TestExecutorTerminalCreatesPTYByDefault(t *testing.T) {
 func TestTerminalReadyYieldReturnsTerminalProcess(t *testing.T) {
 	l := setupState()
 	defer l.Close()
-	session := &terminalSession{}
+	terminal := &terminalProcess{}
 	ready := make(chan error, 1)
-	y := &TerminalReadyYield{Ready: ready, Session: session}
+	y := &TerminalReadyYield{Ready: ready, Terminal: terminal}
 	require.Equal(t, execapi.TerminalReady, y.CmdID())
 	require.Equal(t, (<-chan error)(ready), y.ToCommand().(*execapi.TerminalReadyCmd).Ready)
 	result := y.HandleResult(l, nil, nil)
 	require.Len(t, result, 2)
 	ud, ok := result[0].(*lua.LUserData)
 	require.True(t, ok)
-	require.Same(t, session, ud.Value)
+	require.Same(t, terminal, ud.Value)
 	require.Equal(t, lua.LNil, result[1])
 }
 
