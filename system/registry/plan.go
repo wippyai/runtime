@@ -323,19 +323,13 @@ func (r *Reg) applyLocked(ctx context.Context, changes registry.ChangeSet, expec
 	}
 
 	r.log.Debug("calling runner.Transition")
-	newState, err := r.runner.Transition(ctx, r.state, allOps)
+	newState, err := r.runner.Transition(ctx, r.state, allOps, effectAbort(planner, preparedEff))
 	if err != nil {
 		r.log.Error("failed to apply changes", zap.Error(err))
 		if newState != nil && ctx.Err() == nil {
 			if rerr := r.rollback(ctx, newState, r.state); rerr != nil {
-				if planner != nil {
-					planner.RollbackEffects(ctx, preparedEff)
-				}
 				return nil, NewApplyChangesError(err, rerr)
 			}
-		}
-		if planner != nil {
-			planner.RollbackEffects(ctx, preparedEff)
 		}
 		return nil, NewApplyChangesError(err, nil)
 	}
@@ -343,12 +337,7 @@ func (r *Reg) applyLocked(ctx context.Context, changes registry.ChangeSet, expec
 	if planner != nil {
 		if err := planner.CommitEffects(ctx, preparedEff); err != nil {
 			r.log.Error("failed to commit effects", zap.Error(err))
-			if rerr := r.rollback(ctx, newState, r.state); rerr != nil {
-				planner.RollbackEffects(ctx, preparedEff)
-				return nil, NewCommitEffectsError(err, rerr)
-			}
-			planner.RollbackEffects(ctx, preparedEff)
-			return nil, NewCommitEffectsError(err, nil)
+			return nil, NewCommitEffectsError(err, r.abortTransition(ctx, planner, preparedEff, newState))
 		}
 	}
 
@@ -369,16 +358,7 @@ func (r *Reg) applyLocked(ctx context.Context, changes registry.ChangeSet, expec
 		}
 		if saveErr != nil {
 			r.log.Error("failed to save new version", zap.Error(saveErr))
-			if rerr := r.rollback(ctx, newState, r.state); rerr != nil {
-				if planner != nil {
-					planner.RollbackEffects(ctx, preparedEff)
-				}
-				return nil, NewSaveVersionError(saveErr, rerr)
-			}
-			if planner != nil {
-				planner.RollbackEffects(ctx, preparedEff)
-			}
-			return nil, NewSaveVersionError(saveErr, nil)
+			return nil, NewSaveVersionError(saveErr, r.abortTransition(ctx, planner, preparedEff, newState))
 		}
 		if planner != nil {
 			if finalizeErr := planner.FinalizeEffects(ctx, preparedEff); finalizeErr != nil {

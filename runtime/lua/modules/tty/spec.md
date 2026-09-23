@@ -224,8 +224,8 @@ assert(child:close())
 assert(tty.stop())
 ```
 
-For a byte-oriented PTY such as a shell, Codex, or Claude Code, allocate it with
-`exec` and call `process:attach_terminal()`. That adapter owns PTY emulation,
+For a byte-oriented PTY such as a shell, Codex, or Claude Code, use
+`executor:terminal()` from the `exec` module. That adapter owns PTY emulation,
 resize, input encoding, graceful termination, forced termination, and reaping;
 the enclosing surface/viewport model stays the same for native and Docker
 executors.
@@ -298,7 +298,7 @@ older code that shared handles without assigning any observation permission.
 Remote `tty.attach`, `send`, and `resize` yield through the dispatcher. Snapshot
 reads use a local cache; update subscriptions retain the existing channel API.
 Remote ports are not synthesized from OS file descriptors: producers keep
-using their node-local terminal grant, `tty.surface`, or `exec:attach_terminal`.
+using their node-local terminal grant, `tty.surface`, or `executor:terminal()`.
 This also preserves the existing VT interpretation of PTY output and cursor
 state. Arbitrary process spawning across nodes remains the responsibility of
 application orchestration; a surface mount does not grant process or exec

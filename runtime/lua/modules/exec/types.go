@@ -13,8 +13,9 @@ var executorType typ.Type
 var processType typ.Type
 var processExitType typ.Type
 var processExitChannelType typ.Type
-var terminalCompletionType typ.Type
-var terminalSessionType typ.Type
+var terminalResultType typ.Type
+var terminalResultChannelType typ.Type
+var terminalProcessType typ.Type
 var ptyOptionsType typ.Type
 var mountType typ.Type
 var processOptionsType typ.Type
@@ -48,20 +49,26 @@ func init() {
 		{Name: "case_receive", Type: typ.Func().Param("self", typ.Self).
 			Returns(engine.ChannelSelectCaseType(typ.Self, processExitType)).Build()},
 	})
-	terminalCompletionType = typ.NewInterface("exec.TerminalCompletionChannel", []typ.Method{
+	terminalResultType = typ.NewRecord().
+		OptField("exit", processExitType).
+		OptField("terminal_error", typ.LuaError).
+		Build()
+	terminalResultChannelType = typ.NewInterface("exec.TerminalResultChannel", []typ.Method{
 		{Name: "receive", Type: typ.Func().Param("self", typ.Self).
-			Returns(typ.Boolean, typ.Boolean).Build()},
+			Returns(typ.NewOptional(terminalResultType), typ.Boolean).Build()},
 		{Name: "case_receive", Type: typ.Func().Param("self", typ.Self).
-			Returns(engine.ChannelSelectCaseType(typ.Self, typ.Boolean)).Build()},
+			Returns(engine.ChannelSelectCaseType(typ.Self, terminalResultType)).Build()},
 	})
-	terminalSessionType = typ.NewInterface("exec.TerminalSession", []typ.Method{
+	terminalProcessType = typ.NewInterface("exec.TerminalProcess", []typ.Method{
 		{Name: "send", Type: typ.Func().Param("self", typ.Self).
 			Param("event", luatty.InputEventType()).
 			Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "close", Type: typ.Func().Param("self", typ.Self).
 			Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "done", Type: typ.Func().Param("self", typ.Self).
-			Returns(terminalCompletionType).Build()},
+			Returns(terminalResultChannelType).Build()},
+		{Name: "pid", Type: typ.Func().Param("self", typ.Self).
+			Returns(typ.NewOptional(typ.Integer), typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "status", Type: typ.Func().Param("self", typ.Self).
 			Returns(typ.NewUnion(typ.LiteralString("running"), typ.LiteralString("done")), typ.NewOptional(typ.LuaError)).Build()},
 	})
@@ -77,8 +84,6 @@ func init() {
 		{Name: "stderr_stream", Type: typ.Func().Param("self", typ.Self).Returns(typ.Any, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "close", Type: typ.Func().Param("self", typ.Self).OptParam("force", typ.Boolean).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "resize", Type: typ.Func().Param("self", typ.Self).Param("width", typ.Integer).Param("height", typ.Integer).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
-		{Name: "attach_terminal", Type: typ.Func().Param("self", typ.Self).
-			Returns(terminalSessionType, typ.NewOptional(typ.LuaError)).Build()},
 	})
 
 	executorType = typ.NewInterface("exec.Executor", []typ.Method{
@@ -86,6 +91,10 @@ func init() {
 			Param("cmd", typ.String).
 			OptParam("opts", processOptionsType).
 			Returns(processType, typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "terminal", Type: typ.Func().Param("self", typ.Self).
+			Param("cmd", typ.String).
+			OptParam("opts", processOptionsType).
+			Returns(terminalProcessType, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "release", Type: typ.Func().Param("self", typ.Self).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
 	})
 }
@@ -97,8 +106,9 @@ func ModuleTypes() *io.Manifest {
 	m.DefineType("Process", processType)
 	m.DefineType("ProcessExit", processExitType)
 	m.DefineType("ProcessExitChannel", processExitChannelType)
-	m.DefineType("TerminalCompletionChannel", terminalCompletionType)
-	m.DefineType("TerminalSession", terminalSessionType)
+	m.DefineType("TerminalResult", terminalResultType)
+	m.DefineType("TerminalResultChannel", terminalResultChannelType)
+	m.DefineType("TerminalProcess", terminalProcessType)
 	m.DefineType("PTYOptions", ptyOptionsType)
 	m.DefineType("Mount", mountType)
 	m.DefineType("ProcessOptions", processOptionsType)

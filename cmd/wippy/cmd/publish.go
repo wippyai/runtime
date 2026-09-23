@@ -18,7 +18,6 @@ import (
 	"github.com/Masterminds/semver/v3"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
-	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/boot"
 	"github.com/wippyai/runtime/api/version"
 	"github.com/wippyai/runtime/boot/build"
@@ -493,48 +492,14 @@ func packModule(ctx context.Context, app *appinit.Context, cfg *config.ModuleCon
 		return nil, NewPackWithResourcesError(fmt.Errorf("validate artifacts: %w", err))
 	}
 
-	metadata := attrs.Bag{
-		"name":          cfg.ModuleName,
-		"namespace":     cfg.Namespace(),
-		"version":       cfg.Version,
-		"wippy_version": version.Version,
-		"wippy_commit":  version.Commit,
-		"packed_at":     time.Now().UTC().Format(time.RFC3339),
-		"entry_count":   len(srcEntries),
-	}
-
-	if cfg.Description != "" {
-		metadata["description"] = cfg.ResolveDescription(srcDir)
-	}
-	if cfg.License != "" {
-		metadata["license"] = cfg.License
-	}
-	if cfg.Repository != "" {
-		metadata["repository"] = cfg.Repository
-	}
-	if cfg.Homepage != "" {
-		metadata["homepage"] = cfg.Homepage
-	}
-	if len(cfg.Keywords) > 0 {
-		metadata["keywords"] = cfg.Keywords
-	}
-	if len(cfg.Authors) > 0 {
-		metadata["authors"] = cfg.Authors
-	}
-	for key, value := range cfg.Metadata {
-		trimmed := strings.TrimSpace(key)
-		if trimmed == "" {
-			continue
-		}
-		// Preserve canonical publish metadata fields.
-		if _, exists := metadata[trimmed]; exists {
-			continue
-		}
-		metadata[trimmed] = value
-	}
-	if err := addPublishedRuntimeMetadata(metadata, srcDir, cfg.Publish); err != nil {
+	metadata, err := modulePackMetadataFromConfig(cfg, srcDir, cfg.FullName(), "")
+	if err != nil {
 		return nil, NewPublishConfigError(err)
 	}
+	metadata["wippy_version"] = version.Version
+	metadata["wippy_commit"] = version.Commit
+	metadata["packed_at"] = time.Now().UTC().Format(time.RFC3339)
+	metadata["entry_count"] = len(srcEntries)
 
 	packWriter := wapp.NewWriter()
 

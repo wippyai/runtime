@@ -101,7 +101,7 @@ func TestHubBinaryUpdate(t *testing.T) {
 	invoke := func(args ...string) (string, error) {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		command := exec.CommandContext(ctx, binary, append([]string{"--state-dir", state}, args...)...)
+		command := exec.CommandContext(ctx, binary, append([]string{"--state", state}, args...)...)
 		command.Dir = cwd
 		command.Env = append(os.Environ(), "HOME="+root, "XDG_CONFIG_HOME="+filepath.Join(root, "config"), "PATH=/nonexistent")
 		output, err := command.CombinedOutput()
@@ -116,16 +116,24 @@ func TestHubBinaryUpdate(t *testing.T) {
 	output, err = invoke("run", "After")
 	require.NoError(t, err, output)
 	require.Contains(t, output, "Updated, After!")
-	active, err := os.ReadFile(filepath.Join(state, "active.json"))
+	active, err := os.ReadFile(currentPath(state))
 	require.NoError(t, err)
-	output, err = invoke("--base", "run", "Recovery")
+	// Recovery boots the shipped packs, so the greeting is the one the
+	// executable carries rather than the one the update installed.
+	output, err = invoke("recover")
 	require.NoError(t, err, output)
-	require.Contains(t, output, "Hello, Recovery!")
+	require.Contains(t, output, "recover: deployment ")
+	require.Contains(t, output, "Hello,")
+	require.NotContains(t, output, "Updated,")
+	require.FileExists(t, receiptPath(state))
+	kept, err := os.ReadFile(currentPath(state))
+	require.NoError(t, err)
+	require.Equal(t, active, kept)
 	// A failed Hub resolution must preserve the installed selection on restart.
 	reject.Store(true)
 	output, err = invoke("update", "example/hello", "--registry", server.URL)
 	require.Error(t, err, output)
-	after, err := os.ReadFile(filepath.Join(state, "active.json"))
+	after, err := os.ReadFile(currentPath(state))
 	require.NoError(t, err)
 	require.Equal(t, active, after)
 	output, err = invoke("run", "Restart")

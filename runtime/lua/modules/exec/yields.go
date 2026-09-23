@@ -8,6 +8,7 @@ import (
 	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/dispatcher"
 	execapi "github.com/wippyai/runtime/api/service/exec"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
 )
 
 // ProcessWaitYield wraps ProcessWaitCmd for Lua.
@@ -50,4 +51,32 @@ func (y *ProcessWaitYield) HandleResult(l *lua.LState, data any, err error) []lu
 		return []lua.LValue{lua.LNil, wrapExecError(l, resp.Error, "process exit", lua.Internal)}
 	}
 	return []lua.LValue{lua.LNumber(resp.ExitCode), lua.LNil}
+}
+
+// TerminalReadyYield resumes the Lua caller only after the proxy owns a
+// started PTY process. The proxy remains responsible for completion and reap.
+type TerminalReadyYield struct {
+	Ready      <-chan error
+	Terminal   *terminalProcess
+	Completion *terminalCompletion
+}
+
+func (y *TerminalReadyYield) String() string              { return "<terminal_ready_yield>" }
+func (y *TerminalReadyYield) Type() lua.LValueType        { return lua.LTUserData }
+func (y *TerminalReadyYield) CmdID() dispatcher.CommandID { return execapi.TerminalReady }
+func (y *TerminalReadyYield) ToCommand() dispatcher.Command {
+	return &execapi.TerminalReadyCmd{Ready: y.Ready}
+}
+func (y *TerminalReadyYield) Release() {}
+
+func (y *TerminalReadyYield) HandleResult(l *lua.LState, _ any, err error) []lua.LValue {
+	if err != nil {
+		if y.Completion != nil {
+			y.Completion.close()
+		}
+		return []lua.LValue{lua.LNil, wrapExecError(l, err, "start terminal process", lua.Internal)}
+	}
+	ud := value.PushTypedUserData(l, y.Terminal, terminalProcessTypeName)
+	l.Pop(1)
+	return []lua.LValue{ud, lua.LNil}
 }

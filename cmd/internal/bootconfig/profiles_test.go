@@ -116,3 +116,70 @@ func valueAsStringSlice(t *testing.T, cfg boot.Config, key string) []string {
 	require.True(t, ok, "value %s is %T", key, value)
 	return out
 }
+
+func TestApplyDefinedProfiles_AppliesDefinedAndReportsUndefinedInOrder(t *testing.T) {
+	cfg := boot.NewConfig(
+		boot.WithSection("logger", map[string]any{"level": "info"}),
+		boot.WithSection("profiles", map[string]any{
+			"local.workspace.replacements.acme/app": ".",
+			"debug.logger.level":                    "debug",
+		}),
+	)
+
+	resolved, undefined, err := ApplyDefinedProfiles(cfg, []string{"pg", "local", "cloud", "debug"})
+	require.NoError(t, err)
+	require.Equal(t, []string{"pg", "cloud"}, undefined)
+	require.Equal(t, ".", resolved.GetString("workspace.replacements.acme/app", ""))
+	require.Equal(t, "debug", resolved.GetString("logger.level", ""))
+	require.Empty(t, resolved.Sub("profiles").Keys())
+}
+
+func TestApplyDefinedProfiles_PreservesSelectionOrder(t *testing.T) {
+	cfg := boot.NewConfig(boot.WithSection("profiles", map[string]any{
+		"a.workspace.replacements.acme/app": "./a",
+		"b.workspace.replacements.acme/app": "./b",
+	}))
+
+	resolved, undefined, err := ApplyDefinedProfiles(cfg, []string{"b", "a"})
+	require.NoError(t, err)
+	require.Empty(t, undefined)
+	require.Equal(t, "./a", resolved.GetString("workspace.replacements.acme/app", ""))
+}
+
+func TestApplyProfiles_RejectsUndefinedNameAfterDefinedOnes(t *testing.T) {
+	cfg := boot.NewConfig(boot.WithSection("profiles", map[string]any{
+		"dev.vars.port": 8085,
+	}))
+
+	_, err := ApplyProfiles(cfg, []string{"dev", "prod"})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), `profile "prod" not found`)
+}
+
+func TestResolveVariablesIn_ResolvesOnlyNamedSections(t *testing.T) {
+	cfg := boot.NewConfig(
+		boot.WithSection("vars", map[string]any{"module_root": "../modules"}),
+		boot.WithSection("workspace", map[string]any{
+			"replacements.acme/app": "${module_root}/app",
+		}),
+		boot.WithSection("override", map[string]any{
+			"app:gateway:addr": ":${port}",
+		}),
+	)
+
+	resolved, err := ResolveVariablesIn(cfg, "workspace")
+	require.NoError(t, err)
+	require.Equal(t, "../modules/app", resolved.GetString("workspace.replacements.acme/app", ""))
+	require.Equal(t, ":${port}", resolved.GetString("override.app:gateway:addr", ""))
+}
+
+func TestResolveVariablesIn_ReportsMissingVariableInNamedSection(t *testing.T) {
+	cfg := boot.NewConfig(boot.WithSection("workspace", map[string]any{
+		"replacements.acme/app": "${missing}/app",
+	}))
+
+	_, err := ResolveVariablesIn(cfg, "workspace")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), `resolve workspace.replacements.acme/app`)
+	require.Contains(t, err.Error(), `variable "missing" not found`)
+}
