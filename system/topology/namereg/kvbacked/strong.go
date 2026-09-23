@@ -156,13 +156,11 @@ type strongTimer struct {
 	wakeAt    int64
 }
 
-// StrongDeps are the cluster hooks the Strong plane needs. membership returns the
-// current required-node set (including self); isLeader gates
-// leader-only promotion/expiry; localConflict reports a conflicting LOCAL/EVENTUAL
-// binding so this node NACKs instead of acking.
+// StrongDeps are the cluster hooks the Strong plane needs. The committed KV
+// participant roster, not gossip, determines the required voters. IsLeader
+// gates promotion/expiry; LocalConflict checks weaker scopes before a vote.
 type StrongDeps struct {
 	Admission         *admission.Coordinator
-	Membership        func() []pid.NodeID
 	IsLeader          func() bool
 	ObserveLeadership func() raftapi.Leadership
 	LocalConflict     func(name string, p pid.PID) (pid.PID, bool, error)
@@ -173,7 +171,7 @@ type StrongDeps struct {
 type strongState struct {
 	admission         *admission.Coordinator
 	svc               *Service
-	membership        func() []pid.NodeID
+	activation        string
 	isLeader          func() bool
 	observeLeadership func() raftapi.Leadership
 	localConflict     func(name string, p pid.PID) (pid.PID, bool, error)
@@ -210,7 +208,6 @@ func (s *Service) ConfigureStrong(deps StrongDeps) {
 	s.strong = &strongState{
 		admission:         deps.Admission,
 		svc:               s,
-		membership:        deps.Membership,
 		isLeader:          isLeader,
 		observeLeadership: deps.ObserveLeadership,
 		localConflict:     localConflict,
@@ -224,7 +221,7 @@ func (s *Service) ConfigureStrong(deps StrongDeps) {
 }
 
 func (s *Service) registerStrong(ctx context.Context, name string, p pid.PID) (globalapi.RegisterOutcome, error) {
-	if s.strong == nil || s.strong.membership == nil {
+	if s.strong == nil {
 		return globalapi.RegisterOutcome{}, globalapi.ErrNotAvailable
 	}
 	// Strong admission depends on the KV reconciler's seeded snapshot and a
@@ -307,33 +304,61 @@ func (st *strongState) register(ctx context.Context, name string, p pid.PID) (gl
 	ctx, cancel := context.WithDeadline(ctx, deadline.Add(2*time.Second))
 	defer cancel()
 
-	hdr, err := encode(pendingHeader{
-		PID:              p.String(),
-		Name:             name,
-		AttemptID:        attemptID,
-		NodeID:           nodeID,
-		RequiredNodes:    st.requiredNodes(),
-		DeadlineUnixNano: deadline.UnixNano(),
-		CreatedAt:        st.clock().UnixNano(),
-	})
-	if err != nil {
-		return globalapi.RegisterOutcome{}, err
-	}
 	// Enroll before publishing pending. The watcher may observe and promote a
 	// committed attempt before the submitting Txn call returns on this node.
 	waiter := &strongWaiter{attemptID: attemptID, ch: make(chan strongCompletion, 1)}
 	st.addWaiter(name, waiter)
 	defer st.removeWaiter(name, waiter)
 
-	committed, err := st.svc.engine.Txn([]kvapi.TxnOp{
-		{Kind: kvapi.TxnCheck, Cond: kvapi.CondAbsent, Key: activeKey(name)},
-		{Kind: kvapi.TxnPut, Cond: kvapi.CondAbsent, Key: pendingKey(name), Value: hdr},
-	})
-	if err != nil {
-		return globalapi.RegisterOutcome{}, err
-	}
-	if !committed {
-		return st.conflictOutcome(name, p)
+	for {
+		if err := ctx.Err(); err != nil {
+			return globalapi.RegisterOutcome{}, err
+		}
+		if !st.svc.nameReady() {
+			return globalapi.RegisterOutcome{}, globalapi.ErrNotReady
+		}
+		roster, version, exists, err := st.readParticipants()
+		if err != nil {
+			return globalapi.RegisterOutcome{}, err
+		}
+		if !exists || !contains(roster.requiredNodes(), st.svc.selfNode) {
+			return globalapi.RegisterOutcome{}, globalapi.ErrNotReady
+		}
+		hdr, err := encode(pendingHeader{
+			PID:              p.String(),
+			Name:             name,
+			AttemptID:        attemptID,
+			NodeID:           nodeID,
+			RequiredNodes:    roster.requiredNodes(),
+			DeadlineUnixNano: deadline.UnixNano(),
+			CreatedAt:        st.clock().UnixNano(),
+		})
+		if err != nil {
+			return globalapi.RegisterOutcome{}, err
+		}
+		committed, err := st.svc.engine.Txn([]kvapi.TxnOp{
+			{Kind: kvapi.TxnCheck, Cond: kvapi.CondVersion, Key: participantsKey, Expect: version},
+			{Kind: kvapi.TxnCheck, Cond: kvapi.CondAbsent, Key: activeKey(name)},
+			{Kind: kvapi.TxnPut, Cond: kvapi.CondAbsent, Key: pendingKey(name), Value: hdr},
+		})
+		if err != nil {
+			return globalapi.RegisterOutcome{}, err
+		}
+		if committed {
+			break
+		}
+		// A roster change and a name conflict both abort the transaction. A
+		// missing name after the abort means the roster raced; re-read it.
+		if out, err := st.conflictOutcome(name, p); !errors.Is(err, globalapi.ErrNotAvailable) {
+			return out, err
+		}
+		select {
+		case <-ctx.Done():
+			return globalapi.RegisterOutcome{}, ctx.Err()
+		case <-watch.Done():
+			return globalapi.RegisterOutcome{}, globalapi.ErrNotReady
+		case <-time.After(10 * time.Millisecond):
+		}
 	}
 
 	select {
@@ -381,6 +406,8 @@ func (st *strongState) conflictOutcome(name string, p pid.PID) (globalapi.Regist
 			}
 			return globalapi.RegisterOutcome{ExistingPID: existing}, globalapi.ErrNameAlreadyRegistered
 		}
+	} else if !errors.Is(err, kvapi.ErrKeyNotFound) {
+		return globalapi.RegisterOutcome{}, err
 	}
 	if e, err := st.svc.get(pendingKey(name)); err == nil {
 		if hdr, derr := decodePending(e.Value); derr == nil {
@@ -390,25 +417,10 @@ func (st *strongState) conflictOutcome(name string, p pid.PID) (globalapi.Regist
 			}
 			return globalapi.RegisterOutcome{ExistingPID: existing}, globalapi.ErrPendingConflict
 		}
+	} else if !errors.Is(err, kvapi.ErrKeyNotFound) {
+		return globalapi.RegisterOutcome{}, err
 	}
-	return globalapi.RegisterOutcome{}, globalapi.ErrNameAlreadyRegistered
-}
-
-func (st *strongState) requiredNodes() []pid.NodeID {
-	nodes := st.membership()
-	if len(nodes) == 0 {
-		return []pid.NodeID{st.svc.selfNode}
-	}
-	seen := make(map[pid.NodeID]struct{}, len(nodes)+1)
-	out := make([]pid.NodeID, 0, len(nodes)+1)
-	for _, n := range append(nodes, st.svc.selfNode) {
-		if _, dup := seen[n]; dup || n == "" {
-			continue
-		}
-		seen[n] = struct{}{}
-		out = append(out, n)
-	}
-	return out
+	return globalapi.RegisterOutcome{}, globalapi.ErrNotAvailable
 }
 
 // reconcile advances the Strong state machine for name. Safe to call on any node

@@ -374,20 +374,7 @@ func Raft() boot.Component {
 				kvReg = kvbacked.NewService(kvEngine, node.ID(), nil, logger.Named("kvreg"))
 				kvReg.SetTopology(topo)
 				kvReg.ConfigureStrong(kvbacked.StrongDeps{
-					Admission: admission.FromContext(ctx),
-					Membership: func() []pid.NodeID {
-						ms, ok := clusterapi.GetMembership(ctx).(*membership.Service)
-						if !ok || ms == nil {
-							return nil
-						}
-						var out []pid.NodeID
-						for _, n := range ms.Nodes() {
-							if n.ID != "" {
-								out = append(out, n.ID)
-							}
-						}
-						return out
-					},
+					Admission:         admission.FromContext(ctx),
 					IsLeader:          raftNode.IsLeader,
 					ObserveLeadership: raftNode.ObserveLeadership,
 					LocalConflict:     (&localPresenceChecker{ctx: ctx}).conflictingClaim,
@@ -511,11 +498,9 @@ func Raft() boot.Component {
 				return nil
 			})
 
-			// Resolve cluster membership once for both the raft membership
-			// handler and the globalreg Strong-scope path. Without membership
-			// the reconciler cannot read node metadata for candidate selection
-			// and Strong scope cannot snapshot the live-node set, so we log
-			// per-feature.
+			// Resolve gossip membership for the Raft membership handler and
+			// the legacy global-registry path. KV Strong naming gets its required
+			// voters from the committed naming-participant roster instead.
 			membership := clusterapi.GetMembership(ctx)
 			bus := event.GetBus(ctx)
 

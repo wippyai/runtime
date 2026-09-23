@@ -53,7 +53,6 @@ func TestStrongPendingVoteExcludesLocalAndEventualBeforeAckCommits(t *testing.T)
 		CrossScope: otherScopeChecker{strong: r, local: local}})
 	r.ConfigureStrong(StrongDeps{
 		Admission:  gate,
-		Membership: func() []pid.NodeID { return []pid.NodeID{"node-1", "ghost"} },
 		IsLeader:   func() bool { return false },
 		Deadline:   time.Minute,
 		LocalConflict: func(name string, _ pid.PID) (pid.PID, bool, error) {
@@ -119,7 +118,6 @@ func TestStrongVoteSeesLocalAdmissionThatStartedFirst(t *testing.T) {
 	})
 	local := topology.NewPIDRegistry(topology.WithGlobalRegistry(lookup), topology.WithAdmissionCoordinator(gate))
 	r.ConfigureStrong(StrongDeps{Admission: gate,
-		Membership: func() []pid.NodeID { return []pid.NodeID{"node-1", "ghost"} },
 		IsLeader:   func() bool { return false },
 		Deadline:   time.Minute,
 		LocalConflict: func(name string, _ pid.PID) (pid.PID, bool, error) {

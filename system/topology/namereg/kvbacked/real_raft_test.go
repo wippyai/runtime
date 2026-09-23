@@ -150,7 +150,6 @@ func TestStrongPromotesAcrossThreeRealRaftNodes(t *testing.T) {
 		t.Cleanup(func() { _ = engine.Stop() })
 		registry := NewService(engine, id, nil, nil)
 		registry.ConfigureStrong(StrongDeps{
-			Membership: func() []pid.NodeID { return []pid.NodeID{"n1", "n2", "n3"} },
 			IsLeader:   func() bool { return rafts[id].State() == hraft.Leader },
 			Deadline:   5 * time.Second,
 		})

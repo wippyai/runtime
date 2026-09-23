@@ -183,7 +183,6 @@ func TestReconcileUsesOneSnapshotAcrossPromotion(t *testing.T) {
 
 	r := NewService(engine, "node-1", nil, nil)
 	r.ConfigureStrong(StrongDeps{
-		Membership: func() []pid.NodeID { return []pid.NodeID{"node-1"} },
 		IsLeader:   func() bool { return false },
 		Deadline:   time.Second,
 	})
@@ -224,7 +223,7 @@ func TestStrongStartRejectsUnsupportedSnapshotBeforeWatch(t *testing.T) {
 
 	wrapped := &unsupportedSnapshotEngine{Engine: engine}
 	r := NewService(wrapped, "node-1", nil, nil)
-	r.ConfigureStrong(StrongDeps{Membership: func() []pid.NodeID { return []pid.NodeID{"node-1"} }})
+	r.ConfigureStrong(StrongDeps{})
 	if err := r.StartReconciler(context.Background()); err == nil || !strings.Contains(err.Error(), "coherent local KV snapshots") {
 		t.Fatalf("unsupported engine startup error=%v", err)
 	}
@@ -402,7 +401,7 @@ func TestStrongSnapshotErrorDirectPreservesExclusion(t *testing.T) {
 	owner := mkPID("node-1", "owner")
 	pending := putPendingSnapshotRecord(t, engine, "claim", owner, []pid.NodeID{"node-1"})
 	r := NewService(&failingSnapshotEngine{Engine: engine, err: errors.New("snapshot unavailable")}, "node-1", nil, nil)
-	r.ConfigureStrong(StrongDeps{Membership: func() []pid.NodeID { return []pid.NodeID{"node-1"} }})
+	r.ConfigureStrong(StrongDeps{})
 	r.strong.latch("claim", "attempt-snapshot", owner, pending.Epoch)
 	if report := r.strong.reconcile("claim"); report.err == nil || !strings.Contains(report.err.Error(), "snapshot unavailable") {
 		t.Fatalf("direct snapshot failure error=%v", report.err)
@@ -421,7 +420,7 @@ func TestStrongStartupSnapshotErrorPreservesExclusion(t *testing.T) {
 	owner := mkPID("node-1", "owner")
 	pending := putPendingSnapshotRecord(t, engine, "claim", owner, []pid.NodeID{"node-1"})
 	r := NewService(&failingSnapshotEngine{Engine: engine, err: errors.New("snapshot unavailable")}, "node-1", nil, nil)
-	r.ConfigureStrong(StrongDeps{Membership: func() []pid.NodeID { return []pid.NodeID{"node-1"} }})
+	r.ConfigureStrong(StrongDeps{})
 	r.strong.latch("claim", "attempt-snapshot", owner, pending.Epoch)
 	if err := r.StartReconciler(context.Background()); err == nil || !strings.Contains(err.Error(), "snapshot unavailable") {
 		t.Fatalf("startup snapshot failure error=%v", err)
@@ -445,7 +444,6 @@ func TestStrongWatchSnapshotErrorStopsAdmission(t *testing.T) {
 	wrapped := &toggleSnapshotEngine{Engine: engine}
 	r := NewService(wrapped, "node-1", nil, nil)
 	r.ConfigureStrong(StrongDeps{
-		Membership: func() []pid.NodeID { return []pid.NodeID{"node-1", "ghost"} },
 		IsLeader:   func() bool { return false },
 		Deadline:   time.Second,
 	})
@@ -506,7 +504,6 @@ func TestStrongSweepSnapshotErrorStopsAdmission(t *testing.T) {
 	wrapped := &toggleSnapshotEngine{Engine: engine, watcher: watcher}
 	r := NewService(wrapped, "node-1", nil, nil)
 	r.ConfigureStrong(StrongDeps{
-		Membership: func() []pid.NodeID { return []pid.NodeID{"node-1", "ghost"} },
 		IsLeader:   func() bool { return true },
 		Deadline:   time.Second,
 	})

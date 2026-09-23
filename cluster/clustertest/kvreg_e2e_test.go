@@ -65,11 +65,6 @@ func TestE2E_KVRegistry_StrongPromotes(t *testing.T) {
 	}
 	c := NewCluster(t, 3)
 
-	var members []pid.NodeID
-	for _, n := range c.Nodes() {
-		members = append(members, n.ID)
-	}
-
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	regs := make(map[string]*kvbacked.Service, len(c.Nodes()))
@@ -77,9 +72,8 @@ func TestE2E_KVRegistry_StrongPromotes(t *testing.T) {
 		node := n
 		reg := kvbacked.NewService(node.KV, node.ID, nil, nil)
 		reg.ConfigureStrong(kvbacked.StrongDeps{
-			Membership: func() []pid.NodeID { return members },
-			IsLeader:   func() bool { return node.Raft.IsLeader() },
-			Deadline:   8 * time.Second,
+			IsLeader: func() bool { return node.Raft.IsLeader() },
+			Deadline: 8 * time.Second,
 		})
 		if err := reg.StartReconciler(ctx); err != nil {
 			t.Fatalf("start reconciler on %s: %v", node.ID, err)

@@ -391,6 +391,11 @@ func (s *Service) StartReconciler(ctx context.Context) (err error) {
 			s.reconcilerMu.Unlock()
 		}
 	}()
+	if s.strong != nil {
+		if err := s.strong.enroll(ctx); err != nil {
+			return err
+		}
+	}
 	w, err := s.engine.Watch(ctx, registryPrefix)
 	if err != nil {
 		cancel()
@@ -500,8 +505,20 @@ func (s *Service) failReconciler(run *reconcilerLifecycle, err error) {
 // bindings, and the Strong machine from in-flight pending reservations.
 func (s *Service) seed() error {
 	var recordErr error
+	participantSeen := false
 	consume := func(e kvapi.Entry, observed uint64) bool {
 		switch {
+		case e.Key == participantsKey && s.strong != nil:
+			roster, err := decodeParticipants(e.Value)
+			if err != nil {
+				recordErr = fmt.Errorf("registry record %q: %w", e.Key, err)
+				return false
+			}
+			if !roster.hasActivation(s.selfNode, s.strong.activation) {
+				recordErr = fmt.Errorf("naming activation changed before seed completed")
+				return false
+			}
+			participantSeen = true
 		case strings.HasPrefix(e.Key, pendingPrefix) && s.strong != nil:
 			header, err := decodePending(e.Value)
 			if err != nil {
@@ -551,6 +568,9 @@ func (s *Service) seed() error {
 	if err != nil {
 		return err
 	}
+	if s.strong != nil && recordErr == nil && !participantSeen {
+		return fmt.Errorf("naming participant activation missing from seed")
+	}
 	return recordErr
 }
 
@@ -578,6 +598,17 @@ func (s *Service) handleWatchEvent(ev kvapi.WatchEvent) error {
 		s.logger.Debug("registry key expired via lease (unexpected)", zap.String("key", key))
 	}
 	switch {
+	case key == participantsKey && s.strong != nil:
+		if ev.Current == nil {
+			return fmt.Errorf("naming participant roster was removed")
+		}
+		roster, err := decodeParticipants(ev.Current.Value)
+		if err != nil {
+			return fmt.Errorf("registry record %q: %w", key, err)
+		}
+		if !roster.hasActivation(s.selfNode, s.strong.activation) {
+			return fmt.Errorf("naming participant activation was superseded")
+		}
 	case strings.HasPrefix(key, activePrefix):
 		name := strings.TrimPrefix(key, activePrefix)
 		if ev.Current != nil {

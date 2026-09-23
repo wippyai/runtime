@@ -20,7 +20,6 @@ func TestOlderActiveEventsCannotReplaceNewerPendingExclusion(t *testing.T) {
 	r := newStrongReg(t, []pid.NodeID{"node-1", "ghost"}, time.Minute, nil)
 	r.ConfigureStrong(StrongDeps{
 		Admission:  gate,
-		Membership: func() []pid.NodeID { return []pid.NodeID{"node-1", "ghost"} },
 		IsLeader:   func() bool { return false },
 		Deadline:   time.Minute,
 	})

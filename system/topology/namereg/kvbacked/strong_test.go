@@ -5,7 +5,7 @@ package kvbacked
 import (
 	"context"
 	"errors"
-	"sync"
+	"sort"
 	"testing"
 	"time"
 
@@ -21,10 +21,23 @@ func newStrongReg(t *testing.T, members []pid.NodeID, deadline time.Duration, lc
 		t.Fatalf("engine start: %v", err)
 	}
 	t.Cleanup(func() { _ = eng.Stop(context.Background()) })
+	if len(members) > 0 {
+		roster := participantsValue{Nodes: make([]participantEntry, 0, len(members))}
+		for _, node := range members {
+			roster.Nodes = append(roster.Nodes, participantEntry{Node: node, Activation: "test-member"})
+		}
+		sort.Slice(roster.Nodes, func(i, j int) bool { return roster.Nodes[i].Node < roster.Nodes[j].Node })
+		value, err := encode(roster)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := eng.Set(participantsKey, value); err != nil {
+			t.Fatal(err)
+		}
+	}
 	r := NewService(eng, "node-1", nil, nil)
 	r.ConfigureStrong(StrongDeps{
-		Membership: func() []pid.NodeID { return members },
-		IsLeader:   func() bool { return true },
+		IsLeader: func() bool { return true },
 		LocalConflict: func(name string, p pid.PID) (pid.PID, bool, error) {
 			if lc == nil {
 				return pid.PID{}, false, nil
@@ -43,6 +56,27 @@ func startStrongReconciler(t *testing.T, r *Service) {
 	t.Cleanup(cancel)
 	if err := r.StartReconciler(ctx); err != nil {
 		t.Fatalf("start reconciler: %v", err)
+	}
+}
+
+func addTestParticipant(t *testing.T, engine *systemkv.Service, node pid.NodeID) {
+	t.Helper()
+	entry, err := engine.Get(participantsKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	roster, err := decodeParticipants(entry.Value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	roster.Nodes = append(roster.Nodes, participantEntry{Node: node, Activation: "test-member"})
+	sort.Slice(roster.Nodes, func(i, j int) bool { return roster.Nodes[i].Node < roster.Nodes[j].Node })
+	value, err := encode(roster)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := engine.Set(participantsKey, value); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -158,9 +192,8 @@ func TestStrong_RecoversActiveExclusionOnSeed(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = eng.Stop(context.Background()) })
 	deps := StrongDeps{
-		Membership: func() []pid.NodeID { return []pid.NodeID{"node-1"} },
-		IsLeader:   func() bool { return true },
-		Deadline:   2 * time.Second,
+		IsLeader: func() bool { return true },
+		Deadline: 2 * time.Second,
 	}
 	p := mkPID("node-1", "a")
 
@@ -219,9 +252,8 @@ func TestCrossScope_ConsistentCannotDisplaceStrongActive(t *testing.T) {
 	// Resolver that always awards the name to the incoming claimant.
 	r := NewService(eng, "node-1", func(_ string, _, incoming pid.PID) pid.PID { return incoming }, nil)
 	r.ConfigureStrong(StrongDeps{
-		Membership: func() []pid.NodeID { return []pid.NodeID{"node-1"} },
-		IsLeader:   func() bool { return true },
-		Deadline:   2 * time.Second,
+		IsLeader: func() bool { return true },
+		Deadline: 2 * time.Second,
 	})
 	startStrongReconciler(t, r)
 	strongPID := mkPID("node-1", "strong")
@@ -243,8 +275,6 @@ func TestCrossScope_ConsistentCannotDisplaceStrongActive(t *testing.T) {
 // pending claim's RequiredNodes. Node-2 remains in the live membership, so the
 // pending claim must remain blocked on node-2's acknowledgement.
 func TestStrong_FalseNodeLeftDoesNotDeleteActiveOwner(t *testing.T) {
-	var mu sync.Mutex
-	members := []pid.NodeID{"node-1"}
 	eng := systemkv.NewService("reg", nil)
 	if _, err := eng.Start(context.Background()); err != nil {
 		t.Fatal(err)
@@ -252,11 +282,6 @@ func TestStrong_FalseNodeLeftDoesNotDeleteActiveOwner(t *testing.T) {
 	t.Cleanup(func() { _ = eng.Stop(context.Background()) })
 	r := NewService(eng, "node-1", nil, nil)
 	r.ConfigureStrong(StrongDeps{
-		Membership: func() []pid.NodeID {
-			mu.Lock()
-			defer mu.Unlock()
-			return append([]pid.NodeID(nil), members...)
-		},
 		IsLeader: func() bool { return true },
 		Deadline: time.Second,
 	})
@@ -266,12 +291,9 @@ func TestStrong_FalseNodeLeftDoesNotDeleteActiveOwner(t *testing.T) {
 		t.Fatalf("strong register: out=%+v err=%v", out, err)
 	}
 
-	// Node-2 is alive when the next reservation is opened, and therefore belongs
-	// to its committed RequiredNodes set. A false NodeLeft hint has no registry
-	// consumer; reconciling the pending state must not prune node-2.
-	mu.Lock()
-	members = []pid.NodeID{"node-1", "node-2"}
-	mu.Unlock()
+	// Node-2 enrolls before the next reservation. Discovery changes cannot
+	// remove it from the committed naming roster or the claim's required set.
+	addTestParticipant(t, eng, "node-2")
 	claim := mkPID("node-1", "claim")
 	done := make(chan error, 1)
 	go func() {
@@ -281,9 +303,6 @@ func TestStrong_FalseNodeLeftDoesNotDeleteActiveOwner(t *testing.T) {
 	if !eventually(t, 2*time.Second, func() bool { _, ok := r.IsStrongReserved("pending"); return ok }) {
 		t.Fatal("pending reservation expected")
 	}
-	mu.Lock()
-	members = []pid.NodeID{"node-1"} // false NodeLeft: node-2 still executes
-	mu.Unlock()
 	r.strong.reconcile("pending")
 	pe, err := r.engine.Get(pendingKey("pending"))
 	if err != nil {
@@ -325,15 +344,8 @@ func TestStrong_FailsClosedWhenRequiredNodeDeparts(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = eng.Stop(context.Background()) })
 
-	var mu sync.Mutex
-	members := []pid.NodeID{"node-1", "ghost"}
 	r := NewService(eng, "node-1", nil, nil)
 	r.ConfigureStrong(StrongDeps{
-		Membership: func() []pid.NodeID {
-			mu.Lock()
-			defer mu.Unlock()
-			return append([]pid.NodeID(nil), members...)
-		},
 		IsLeader: func() bool { return true },
 		Deadline: 300 * time.Millisecond,
 	})
@@ -342,6 +354,7 @@ func TestStrong_FailsClosedWhenRequiredNodeDeparts(t *testing.T) {
 	if err := r.StartReconciler(ctx); err != nil {
 		t.Fatalf("start reconciler: %v", err)
 	}
+	addTestParticipant(t, eng, "ghost")
 
 	p := mkPID("node-1", "a")
 	done := make(chan globalapi.RegisterOutcome, 1)
@@ -362,9 +375,6 @@ func TestStrong_FailsClosedWhenRequiredNodeDeparts(t *testing.T) {
 
 	// "ghost" leaves the membership (gossip drop). The leader must retain it in
 	// RequiredNodes and fail closed when its acknowledgement never arrives.
-	mu.Lock()
-	members = []pid.NodeID{"node-1"}
-	mu.Unlock()
 
 	select {
 	case out := <-done:

@@ -5,7 +5,6 @@ package clustertest
 import (
 	"context"
 	"errors"
-	"sync"
 	"testing"
 	"time"
 
@@ -15,28 +14,15 @@ import (
 )
 
 // TestE2E_KVRegistry_StrongFailsClosedAfterLeaderKill is the failure-reconcile
-// capstone for Strong scope: a reservation is opened requiring every member
+// capstone for Strong scope: a reservation is opened requiring every participant
 // plus a phantom node that never acks, then the raft LEADER is killed. A new
 // leader inherits the committed RequiredNodes and times out when the phantom
-// acknowledgement never arrives. A gossip leave cannot authorize promotion.
+// acknowledgement never arrives. Node departure cannot authorize promotion.
 func TestE2E_KVRegistry_StrongFailsClosedAfterLeaderKill(t *testing.T) {
 	if testing.Short() {
 		t.Skip("real multi-node strong failover reconcile test")
 	}
 	c := NewCluster(t, 3)
-
-	// Dynamic membership: every real node plus a phantom that never acks. Guarded
-	// because the strong plane reads it from reconcile/sweep goroutines.
-	var mu sync.Mutex
-	members := []pid.NodeID{"ghost"}
-	for _, n := range c.Nodes() {
-		members = append(members, n.ID)
-	}
-	membership := func() []pid.NodeID {
-		mu.Lock()
-		defer mu.Unlock()
-		return append([]pid.NodeID(nil), members...)
-	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -45,15 +31,25 @@ func TestE2E_KVRegistry_StrongFailsClosedAfterLeaderKill(t *testing.T) {
 		node := n
 		reg := kvbacked.NewService(node.KV, node.ID, nil, nil)
 		reg.ConfigureStrong(kvbacked.StrongDeps{
-			Membership: membership,
-			IsLeader:   func() bool { return node.Raft.IsLeader() },
-			Deadline:   2 * time.Second,
+			IsLeader: func() bool { return node.Raft.IsLeader() },
+			Deadline: 2 * time.Second,
 		})
 		if err := reg.StartReconciler(ctx); err != nil {
 			t.Fatalf("start reconciler on %s: %v", node.ID, err)
 		}
 		regs[node.ID] = reg
 	}
+	// Enroll a phantom participant, then stop its reconciler before it can
+	// observe or acknowledge the pending claim. Its committed roster entry
+	// intentionally remains after departure.
+	ghostCtx, stopGhost := context.WithCancel(ctx)
+	ghost := kvbacked.NewService(c.Leader().KV, "ghost", nil, nil)
+	ghost.ConfigureStrong(kvbacked.StrongDeps{IsLeader: func() bool { return false }})
+	if err := ghost.StartReconciler(ghostCtx); err != nil {
+		stopGhost()
+		t.Fatalf("enroll phantom participant: %v", err)
+	}
+	stopGhost()
 
 	leader := c.Leader()
 	f := c.Follower() // registrant survives the leader kill
@@ -86,17 +82,8 @@ func TestE2E_KVRegistry_StrongFailsClosedAfterLeaderKill(t *testing.T) {
 		t.Fatalf("leader did not change after kill")
 	}
 
-	// Gossip drops the phantom and the dead leader from the live membership. The
-	// new leader must retain both in RequiredNodes and fail closed.
-	mu.Lock()
-	var survivors []pid.NodeID
-	for _, n := range c.Nodes() {
-		if n != leader {
-			survivors = append(survivors, n.ID)
-		}
-	}
-	members = survivors
-	mu.Unlock()
+	// The phantom and dead leader remain in the committed roster. The new
+	// leader must retain both in RequiredNodes and fail closed.
 
 	select {
 	case out := <-done:
