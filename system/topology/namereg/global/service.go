@@ -92,7 +92,6 @@ type Service struct {
 	fsm              *FSM
 	logger           *zap.Logger
 	stopCh           chan struct{}
-	eventCancel      context.CancelFunc
 	lookupPending    map[uint64]chan *lookupResponseEnvelope
 	ackerEpochs      map[pid.NodeID]uint64
 	strongExclusions map[string]strongExclusion
@@ -104,7 +103,6 @@ type Service struct {
 	monitorWatermark atomic.Uint64
 	nodeEpoch        atomic.Uint64
 	lookupMu         sync.Mutex
-	eventWG          sync.WaitGroup
 	mu               sync.Mutex
 	strongMu         sync.Mutex
 	reserveMu        sync.Mutex
@@ -286,26 +284,6 @@ func (s *Service) Start(ctx context.Context) (<-chan any, error) {
 	s.nodeEpoch.Add(1)
 	s.nameReady.Store(false)
 
-	// Stop can precede cancellation of the component context. Own the event
-	// subscription context so a full abandoned channel cannot pin the global
-	// event dispatcher behind our unsubscribe request.
-	eventCtx, eventCancel := context.WithCancel(ctx)
-	ch := make(chan event.Event, 32)
-	subID, err := s.bus.SubscribeP(eventCtx, cluster.System, cluster.NodeLeft, ch)
-	if err != nil {
-		eventCancel()
-		s.mu.Lock()
-		s.started = false
-		s.mu.Unlock()
-		return nil, fmt.Errorf("subscribe to cluster events: %w", err)
-	}
-	s.eventCancel = eventCancel
-	s.eventWG.Add(1)
-	go func() {
-		defer s.eventWG.Done()
-		s.handleClusterEvents(eventCtx, ch, subID)
-	}()
-
 	// Rejoin trigger (#31): tie name-readiness to LEADER reachability, not peer
 	// membership churn. A debounced probe closes the gate on a sustained leader
 	// loss and re-runs the join barrier when reachability recovers, so a node
@@ -376,11 +354,6 @@ func (s *Service) Stop(_ context.Context) error {
 	s.mu.Unlock()
 
 	close(s.stopCh)
-	if s.eventCancel != nil {
-		s.eventCancel()
-	}
-	s.eventWG.Wait()
-
 	// Stop the dissem plane's GC goroutine, which runs off its own stopCh
 	// (s.stopCh does not reach it).
 	if d := s.loadDissem(); d != nil {
@@ -389,85 +362,6 @@ func (s *Service) Stop(_ context.Context) error {
 
 	s.logger.Info("global registry service stopped", zap.String("node", s.localNode))
 	return nil
-}
-
-// handleClusterEvents processes node-left events for auto-cleanup.
-func (s *Service) handleClusterEvents(ctx context.Context, ch <-chan event.Event, subID event.SubscriberID) {
-	defer s.bus.Unsubscribe(ctx, subID)
-
-	for {
-		select {
-		case e, ok := <-ch:
-			if !ok {
-				return
-			}
-			if e.Kind == cluster.NodeLeft {
-				s.handleNodeLeft(ctx, e)
-			}
-		case <-s.stopCh:
-			return
-		case <-ctx.Done():
-			return
-		}
-	}
-}
-
-func (s *Service) handleNodeLeft(ctx context.Context, e event.Event) {
-	nodeEvt, ok := e.Data.(cluster.NodeEvent)
-	if !ok {
-		return
-	}
-
-	// Only the leader performs cleanup.
-	if !s.raftSvc.IsLeader() {
-		return
-	}
-
-	nodeID := nodeEvt.Node.ID
-	s.logger.Info("removing global names for departed node", zap.String("node", nodeID))
-
-	// Prune the departed node from every in-flight pending's RequiredNodes so
-	// reservations that only awaited this node can still promote (or already
-	// satisfied ones complete immediately in the drop Apply).
-	s.dropDepartedFromPending(nodeID)
-
-	// Drop the departed node's last-observed epoch so the map stays bounded
-	// by the live cluster, not by every identity ever seen (matters under
-	// ephemeral k8s pod hostnames + restart churn).
-	s.strongMu.Lock()
-	delete(s.ackerEpochs, nodeID)
-	s.strongMu.Unlock()
-
-	if err := s.RemoveNode(ctx, nodeID); err != nil {
-		s.logger.Error("failed to remove node names", zap.String("node", nodeID), zap.Error(err))
-	}
-}
-
-// dropDepartedFromPending issues a CmdDropRequired for every in-flight pending
-// that still requires the departed node. Leader-only; idempotent on the FSM
-// side so a duplicate event or a since-promoted entry is harmless.
-func (s *Service) dropDepartedFromPending(nodeID pid.NodeID) {
-	if s.fsm == nil {
-		return
-	}
-	for _, v := range s.fsm.State().listPending() {
-		requires := false
-		for _, n := range v.RequiredNodes {
-			if n == nodeID {
-				requires = true
-				break
-			}
-		}
-		if !requires {
-			continue
-		}
-		cmd := &Command{Type: CmdDropRequired, Name: v.Name, Epoch: v.Epoch, NodeID: nodeID}
-		if _, err := s.applyCommand(cmd); err != nil {
-			s.logger.Debug("globalreg: drop required failed",
-				zap.String("name", v.Name), zap.Uint64("epoch", v.Epoch),
-				zap.String("node", nodeID), zap.Error(err))
-		}
-	}
 }
 
 // --- global.Registry implementation ---
@@ -646,15 +540,14 @@ func (s *Service) Remove(_ context.Context, p pid.PID) error {
 }
 
 // removeNodeChunkSize bounds the work per Raft Apply when bulk-removing
-// a departed node's names. 256 names ≈ <5 ms per Apply; chunking lets other
+// a fenced node's names. 256 names ≈ <5 ms per Apply; chunking lets other
 // writes interleave during a large cleanup so the Raft pipeline doesn't
 // stall under chaos-driven node churn.
 const removeNodeChunkSize = 256
 
-// RemoveNode removes all global names for a node via Raft. The work is
-// chunked into bounded Applies so the FSM apply lock is released between
-// batches, keeping foreground writes responsive while a node's state
-// drains.
+// RemoveNode removes all global names for a node via Raft. The caller must
+// first prove its processes cannot still use those names; discovery is not a
+// fence. Work is chunked so foreground writes can interleave between Applies.
 func (s *Service) RemoveNode(_ context.Context, nodeID pid.NodeID) error {
 	for {
 		cmd := &Command{
@@ -731,7 +624,12 @@ func (s *Service) handleExitEvent(msg *relay.Message) {
 		if !ok {
 			continue
 		}
-		s.HandleProcessExit(exitEvent.From)
+		switch exitEvent.Kind {
+		case topology.Exit:
+			s.HandleProcessExit(exitEvent.From)
+		case topology.LinkDown:
+			s.monitoredPIDs.Delete(exitEvent.From.String())
+		}
 	}
 }
 
@@ -773,16 +671,21 @@ func (s *Service) HandleProcessExit(p pid.PID) {
 // a leader failover, the new leader monitors all registered local PIDs
 // for auto-cleanup on process exit.
 func (s *Service) monitorLeadership() {
-	leaderCh := s.raftSvc.LeaderCh()
+	seen := s.raftSvc.ObserveLeadership()
+	if seen.State == raftapi.Leader && s.raftSvc.IsLeader() {
+		s.reestablishMonitors()
+	}
 	for {
 		select {
-		case isLeader, ok := <-leaderCh:
-			if !ok {
-				return
-			}
-			if isLeader {
+		case <-seen.Changed:
+			next := s.raftSvc.ObserveLeadership()
+			// Raft's underlying state/term/leader reads are not one atomic
+			// tuple. Reconcile whenever this notification finds us leader:
+			// even a changed leader ID may correct an earlier mixed sample.
+			if next.State == raftapi.Leader && s.raftSvc.IsLeader() {
 				s.reestablishMonitors()
 			}
+			seen = next
 		case <-s.stopCh:
 			return
 		}

@@ -29,11 +29,9 @@ func currentPath(state string) string { return filepath.Join(state, currentFilen
 
 func historyPath(state string) string { return filepath.Join(state, historyFilename) }
 
-func recoveryHistoryPath(state string) string {
-	return filepath.Join(state, recoveryDir, historyFilename)
-}
+func recoveryPath(state string) string { return filepath.Join(state, recoveryDir) }
 
-func receiptPath(state string) string { return filepath.Join(state, recoveryDir, receiptFilename) }
+func receiptPath(state string) string { return filepath.Join(recoveryPath(state), receiptFilename) }
 
 func cachePath(state string) string { return filepath.Join(state, cacheDir) }
 

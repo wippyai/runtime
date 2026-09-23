@@ -4,7 +4,6 @@ package exec
 
 import (
 	"context"
-	"errors"
 	"sync"
 	"syscall"
 	"time"
@@ -15,8 +14,6 @@ import (
 	"github.com/wippyai/runtime/runtime/lua/modules/stream"
 	fsstream "github.com/wippyai/runtime/system/stream"
 )
-
-var errPTYOwnership = errors.New("PTY process is unavailable or already owned")
 
 type Process struct {
 	handle        apiexec.Process
@@ -145,37 +142,6 @@ func (p *Process) close(force bool) {
 	go p.reapReleased(handle, force)
 }
 
-// takePTYProcess transfers an unstarted PTY process out of its Lua exec
-// handle. The attached terminal session becomes its sole lifecycle owner.
-func takePTYProcess(value lua.LValue) (apiexec.PTYProcess, error) {
-	ud, ok := value.(*lua.LUserData)
-	if !ok {
-		return nil, errPTYOwnership
-	}
-	p, ok := ud.Value.(*Process)
-	if !ok {
-		return nil, errPTYOwnership
-	}
-	p.mu.Lock()
-	if p.closed || p.started || p.handle == nil {
-		p.mu.Unlock()
-		return nil, errPTYOwnership
-	}
-	ptyProcess, ok := p.handle.(apiexec.PTYProcess)
-	if !ok {
-		p.mu.Unlock()
-		return nil, apiexec.ErrPTYUnavailable
-	}
-	p.closed, p.handle = true, nil
-	cancel := p.cancelCleanup
-	p.cancelCleanup = nil
-	p.mu.Unlock()
-	if cancel != nil {
-		cancel()
-	}
-	return ptyProcess, nil
-}
-
 // reapGrace bounds how long a released process may take to exit before it is
 // killed. It only applies to a child that ignores SIGTERM; one that exits
 // normally is reaped as soon as it does.
@@ -227,18 +193,17 @@ func (p *Process) reapReleasedWithGrace(handle apiexec.Process, killed bool, gra
 }
 
 var processMethods = map[string]lua.LGoFunc{
-	"start":           procStart,
-	"wait":            procWait,
-	"done":            procDone,
-	"signal":          procSignal,
-	"write_stdin":     procWriteStdin,
-	"close_stdin":     procCloseStdin,
-	"stdout_stream":   procStdout,
-	"stderr_stream":   procStderr,
-	"pid":             procPid,
-	"close":           procClose,
-	"resize":          procResize,
-	"attach_terminal": procAttachTerminal,
+	"start":         procStart,
+	"wait":          procWait,
+	"done":          procDone,
+	"signal":        procSignal,
+	"write_stdin":   procWriteStdin,
+	"close_stdin":   procCloseStdin,
+	"stdout_stream": procStdout,
+	"stderr_stream": procStderr,
+	"pid":           procPid,
+	"close":         procClose,
+	"resize":        procResize,
 }
 
 func procResize(l *lua.LState) int {

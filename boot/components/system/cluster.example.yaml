@@ -90,3 +90,10 @@ cluster:
 #     # future compaction mode; do not treat a TTL as causal proof.
 #     global_dissem_tombstone_retention: 0
 #   kv_crdt_tombstone_retention: 0
+#   # Each store.kv.raft and store.kv.crdt engine bounds its own watch feed.
+#   # An observer that exceeds a limit is invalidated and must reseed; writes
+#   # never wait for a slow observer to consume its backlog.
+#   kv_watch:
+#     max_subscriptions: 128
+#     max_events: 256        # undelivered events per subscription
+#     max_bytes: 33554432    # retained event bytes across subscriptions

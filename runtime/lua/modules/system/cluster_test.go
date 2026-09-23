@@ -33,8 +33,10 @@ func (f *fakeRaftService) Apply(_ []byte, _ time.Duration) (*raftapi.ApplyRespon
 func (f *fakeRaftService) Leader() (raftapi.ServerID, raftapi.ServerAddress, error) {
 	return f.leaderID, f.leaderAddr, f.leaderErr
 }
-func (f *fakeRaftService) IsLeader() bool        { return f.isLeader }
-func (f *fakeRaftService) LeaderCh() <-chan bool { return nil }
+func (f *fakeRaftService) IsLeader() bool { return f.isLeader }
+func (f *fakeRaftService) ObserveLeadership() raftapi.Leadership {
+	return raftapi.Leadership{State: f.State(), Changed: make(chan struct{})}
+}
 func (f *fakeRaftService) State() raftapi.State {
 	if f.isLeader {
 		return raftapi.Leader

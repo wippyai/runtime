@@ -12,13 +12,20 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/relay"
+	execapi "github.com/wippyai/runtime/api/service/exec"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 )
 
 var terminalCompletionID atomic.Uint64
 
+// terminalResult is delivered when the terminal process is finalized.
+type terminalResult struct {
+	Exit          *execapi.ExitStatus
+	TerminalError error
+}
+
 // terminalCompletion owns the one-shot scheduler subscription that wakes Lua
-// when an attached PTY process finishes.
+// when a terminal process finishes.
 type terminalCompletion struct {
 	ctx    context.Context
 	router relay.Receiver
@@ -56,11 +63,11 @@ func newTerminalCompletion(
 	}, nil
 }
 
-func (c *terminalCompletion) notify() {
-	deliverTerminalCompletion(c.ctx, c.router, c.target, c.topic)
+func (c *terminalCompletion) notify(result *terminalResult) {
+	deliverTerminalCompletion(c.ctx, c.router, c.target, c.topic, result)
 }
 
-func deliverTerminalCompletion(ctx context.Context, router relay.Receiver, target pid.PID, topic string) {
+func deliverTerminalCompletion(ctx context.Context, router relay.Receiver, target pid.PID, topic string, result *terminalResult) {
 	select {
 	case <-ctx.Done():
 		return
@@ -68,7 +75,7 @@ func deliverTerminalCompletion(ctx context.Context, router relay.Receiver, targe
 	}
 	pkg := relay.AcquirePackage()
 	pkg.Target = target
-	pkg.AddMessage(topic, payload.New(true), payload.NewTerminal())
+	pkg.AddMessage(topic, payload.New(result), payload.NewTerminal())
 	if err := router.Send(pkg); err != nil {
 		relay.ReleasePackage(pkg)
 	}
@@ -80,10 +87,32 @@ func (c *terminalCompletion) close() {
 
 func terminalCompletionHandler(
 	_ context.Context,
-	_ *lua.LState,
+	l *lua.LState,
 	_ pid.PID,
 	_ string,
-	_ []payload.Payload,
+	payloads []payload.Payload,
 ) lua.LValue {
-	return lua.LTrue
+	if len(payloads) == 0 {
+		return lua.LNil
+	}
+	result, ok := payloads[0].Data().(*terminalResult)
+	if !ok || result == nil {
+		return lua.LNil
+	}
+	out := l.CreateTable(0, 2)
+	if result.Exit != nil {
+		exit := l.CreateTable(0, 3)
+		exit.RawSetString("code", lua.LInteger(result.Exit.Code))
+		if result.Exit.Signal != 0 {
+			exit.RawSetString("signal", lua.LInteger(result.Exit.Signal))
+		}
+		if result.Exit.Err != nil {
+			exit.RawSetString("error", wrapExecError(l, result.Exit.Err, "process exit", lua.Internal))
+		}
+		out.RawSetString("exit", exit)
+	}
+	if result.TerminalError != nil {
+		out.RawSetString("terminal_error", wrapExecError(l, result.TerminalError, "terminal", lua.Internal))
+	}
+	return out
 }

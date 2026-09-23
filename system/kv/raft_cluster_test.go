@@ -50,7 +50,7 @@ func TestRaftCluster_KVReplicates(t *testing.T) {
 	transports := make(map[string]*hraft.InmemTransport, 3)
 
 	for _, id := range ids {
-		kvFSM := NewRaftFSM(nil)
+		kvFSM := NewRaftFSM()
 		root := multiplex.New(noopFSM{}, kvFSM)
 		store := hraft.NewInmemStore()
 		snaps := hraft.NewInmemSnapshotStore()

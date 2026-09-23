@@ -47,7 +47,8 @@ func (b *binding) Resolve(ctx context.Context) (ttyapi.Port, error) {
 		ss.bindings--
 	}
 	ss.mu.Unlock()
-	b.port = &port{session: ss, input: &input{session: ss}}
+	b.port = &port{session: ss}
+	b.port.input = &input{port: b.port}
 	b.resolved = true
 	return b.port, nil
 }

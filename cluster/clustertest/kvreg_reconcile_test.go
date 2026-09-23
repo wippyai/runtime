@@ -4,6 +4,7 @@ package clustertest
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -13,14 +14,12 @@ import (
 	"github.com/wippyai/runtime/system/topology/namereg/kvbacked"
 )
 
-// TestE2E_KVRegistry_StrongPromotesOnSurvivorsAfterLeaderKill is the failure-
-// reconcile capstone for Strong scope: a reservation is opened requiring every
-// member plus a phantom node that never acks (so it stays pending), then the
-// raft LEADER is killed. A new leader takes over and, because the phantom (and
-// the dead leader) have left the membership, prunes them from RequiredNodes and
-// promotes on the surviving acks — instead of blocking until the deadline. This
-// exercises the leader-takeover reconcile (seed + leaderSweep -> pruneDeparted).
-func TestE2E_KVRegistry_StrongPromotesOnSurvivorsAfterLeaderKill(t *testing.T) {
+// TestE2E_KVRegistry_StrongFailsClosedAfterLeaderKill is the failure-reconcile
+// capstone for Strong scope: a reservation is opened requiring every member
+// plus a phantom node that never acks, then the raft LEADER is killed. A new
+// leader inherits the committed RequiredNodes and times out when the phantom
+// acknowledgement never arrives. A gossip leave cannot authorize promotion.
+func TestE2E_KVRegistry_StrongFailsClosedAfterLeaderKill(t *testing.T) {
 	if testing.Short() {
 		t.Skip("real multi-node strong failover reconcile test")
 	}
@@ -48,7 +47,7 @@ func TestE2E_KVRegistry_StrongPromotesOnSurvivorsAfterLeaderKill(t *testing.T) {
 		reg.ConfigureStrong(kvbacked.StrongDeps{
 			Membership: membership,
 			IsLeader:   func() bool { return node.Raft.IsLeader() },
-			Deadline:   20 * time.Second, // long: must promote via prune, not expiry
+			Deadline:   2 * time.Second,
 		})
 		if err := reg.StartReconciler(ctx); err != nil {
 			t.Fatalf("start reconciler on %s: %v", node.ID, err)
@@ -87,8 +86,8 @@ func TestE2E_KVRegistry_StrongPromotesOnSurvivorsAfterLeaderKill(t *testing.T) {
 		t.Fatalf("leader did not change after kill")
 	}
 
-	// Gossip drops the phantom and the dead leader from the live membership; the
-	// new leader must prune both from RequiredNodes and promote on the survivors.
+	// Gossip drops the phantom and the dead leader from the live membership. The
+	// new leader must retain both in RequiredNodes and fail closed.
 	mu.Lock()
 	var survivors []pid.NodeID
 	for _, n := range c.Nodes() {
@@ -101,28 +100,22 @@ func TestE2E_KVRegistry_StrongPromotesOnSurvivorsAfterLeaderKill(t *testing.T) {
 
 	select {
 	case out := <-done:
-		if out.State != globalapi.RegisterStateActive || out.PID.String() != p.String() {
-			t.Fatalf("want Active on survivors after leader kill, got %+v", out)
-		}
+		t.Fatalf("reservation promoted without all RequiredNodes acknowledgements: %+v", out)
 	case err := <-errc:
-		t.Fatalf("reservation did not promote on survivors after leader kill: %v", err)
-	case <-time.After(18 * time.Second):
-		t.Fatalf("reservation neither promoted nor failed after leader kill + membership drop")
-	}
-
-	for _, n := range c.Nodes() {
-		if n == leader {
-			continue
+		var te *globalapi.StrongRegistrationTimeoutError
+		if !errors.As(err, &te) && !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("want fail-closed Strong timeout, got %v", err)
 		}
-		waitLookup(t, regs[n.ID], "strongsvc", p, 8*time.Second)
+	case <-time.After(8 * time.Second):
+		t.Fatalf("reservation neither failed closed nor timed out after leader kill")
 	}
 }
 
 // TestE2E_KVRegistry_ConsistentReapedOnNodeDrop proves the node-failure reap path
 // for CONSISTENT names: a name owned by a node that leaves is removed cluster-wide
-// via DropNode -> RemoveNode -> reap. The harness delivers the departure manually
-// (the boot NodeLeft subscription that calls DropNode is not wired into the
-// test-constructed Service), mirroring locks_e2e's explicit ReapNode.
+// via an explicit, authorized RemoveNode call from the test harness. NodeLeft
+// discovery is not an authority to reap active names; process exit and explicit
+// unregister paths remain so.
 func TestE2E_KVRegistry_ConsistentReapedOnNodeDrop(t *testing.T) {
 	if testing.Short() {
 		t.Skip("real multi-node consistent reap test")
@@ -139,7 +132,7 @@ func TestE2E_KVRegistry_ConsistentReapedOnNodeDrop(t *testing.T) {
 		waitLookup(t, regOf(n), "svc", p, 5*time.Second)
 	}
 
-	// The owner node leaves; a survivor drives the reap (as NodeLeft -> DropNode would).
+	// The owner node leaves; an explicit RemoveNode call drives the reap.
 	var survivor *Node
 	for i, n := range c.Nodes() {
 		if n == owner {
@@ -149,7 +142,9 @@ func TestE2E_KVRegistry_ConsistentReapedOnNodeDrop(t *testing.T) {
 		}
 	}
 	c.WaitLeader(10 * time.Second)
-	regOf(survivor).DropNode(owner.ID)
+	if err := regOf(survivor).RemoveNode(context.Background(), owner.ID); err != nil {
+		t.Fatalf("remove node: %v", err)
+	}
 
 	for _, n := range c.Nodes() {
 		if n == owner {

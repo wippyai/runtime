@@ -43,10 +43,10 @@ func (r *dropFirstReplyRouter) Send(pkg *relay.Package) error {
 // yielding version 2.
 func TestRaftEngine_ForwardTimeoutDoesNotDoubleApply(t *testing.T) {
 	router := &dropFirstReplyRouter{}
-	aFSM := NewRaftFSM(nil)
-	bFSM := NewRaftFSM(nil)
-	a := NewRaftEngine(&fakeRaft{fsm: aFSM, leader: true, leaderID: "A"}, aFSM, nil, "A", router, nil)
-	b := NewRaftEngine(&fakeRaft{fsm: bFSM, leader: false, leaderID: "A"}, bFSM, nil, "B", router, nil)
+	aFSM := NewRaftFSM()
+	bFSM := NewRaftFSM()
+	a := NewRaftEngine(&fakeRaft{fsm: aFSM, leader: true, leaderID: "A"}, aFSM, "A", router, nil)
+	b := NewRaftEngine(&fakeRaft{fsm: bFSM, leader: false, leaderID: "A"}, bFSM, "B", router, nil)
 	b.forwardWait = 150 * time.Millisecond
 	router.engines = map[string]*RaftEngine{"A": a, "B": b}
 	if err := a.Start(context.Background()); err != nil {

@@ -4,7 +4,6 @@ package kv
 
 import (
 	"bytes"
-	"context"
 	"encoding/gob"
 	"fmt"
 	"io"
@@ -14,7 +13,6 @@ import (
 
 	hraft "github.com/hashicorp/raft"
 
-	"github.com/wippyai/runtime/api/event"
 	kvapi "github.com/wippyai/runtime/api/store/kv"
 )
 
@@ -25,30 +23,29 @@ func msToDuration(ms int64) time.Duration { return time.Duration(ms) * time.Mill
 // raft serializes Apply/Snapshot/Restore, so the mutable state needs no lock;
 // concurrent reads are served from an atomically-published snapshot.
 type RaftFSM struct {
-	bus    event.Bus
 	state  *state
 	leases *leaseManager
 	snap   atomic.Pointer[stateSnapshot]
-	system event.System
-	outbox []event.Event
+	watch  *watchSource
+	outbox []watchRecord
 	mu     sync.Mutex
 }
 
-// NewRaftFSM builds the kv FSM. bus may be nil (watch disabled).
-func NewRaftFSM(bus event.Bus) *RaftFSM {
+// NewRaftFSM builds the kv FSM and its bounded, owned watch feed.
+func NewRaftFSM() *RaftFSM {
 	f := &RaftFSM{
 		state:  newState(),
 		leases: newLeaseManager(),
-		bus:    bus,
-		system: "kv:raft",
+		watch:  defaultWatchSource(),
 	}
 	f.snap.Store(f.state.snapshot())
 	return f
 }
 
-// EventSystem returns the event.System watch events are published on, so the
-// engine can build watchers bound to the same bus stream.
-func (f *RaftFSM) EventSystem() event.System { return f.system }
+// SetWatchLimits configures bounded delivery while no watchers are active.
+func (f *RaftFSM) SetWatchLimits(limits WatchLimits) error {
+	return f.watch.setLimits(limits)
+}
 
 // Apply executes one committed command. The multiplex router has already
 // stripped the kv domain byte, so log.Data is a bare command.
@@ -64,7 +61,6 @@ func (f *RaftFSM) Apply(log *hraft.Log) any {
 			return applyResult{Err: err}
 		}
 		res := f.applyTxn(ops)
-		f.snap.Store(f.state.snapshot())
 		f.flush()
 		return res
 	}
@@ -75,21 +71,26 @@ func (f *RaftFSM) Apply(log *hraft.Log) any {
 	}
 
 	res := f.applyCommand(c)
-	f.snap.Store(f.state.snapshot())
 	f.flush()
 	return res
 }
 
-// flush delivers buffered watch events after the new snapshot is published, so a
-// watcher that reacts by reading the kv observes the change that triggered it.
+// flush commits the complete snapshot and its events under one registration
+// gate. A newly registered watch cannot miss a concurrent publication.
 func (f *RaftFSM) flush() {
-	if len(f.outbox) == 0 {
-		return
-	}
+	// f.mu serializes writers. Construct before taking the registration gate;
+	// only the pointer swap and notification ordering require that gate.
+	published := f.state.snapshot()
 	for i := range f.outbox {
-		f.bus.Send(context.Background(), f.outbox[i])
+		f.outbox[i].revision = published.index
 	}
-	f.outbox = f.outbox[:0]
+	f.watch.publishRecords(f.outbox, func() { f.snap.Store(published) })
+	if len(f.outbox) > defaultWatchLimits.MaxEvents {
+		f.outbox = nil
+	} else {
+		clear(f.outbox)
+		f.outbox = f.outbox[:0]
+	}
 }
 
 // applyTxn evaluates every precondition against current state, then applies all
@@ -292,6 +293,7 @@ func (f *RaftFSM) Restore(rc io.ReadCloser) error {
 
 	fresh := newState()
 	fresh.version = st.Version
+	fresh.revision = st.Version // Raft snapshot reads use applyIndex; entry versions preserve legacy replay.
 	fresh.applyIndex = st.ApplyIndex
 	freshLeases := newLeaseManager()
 	for _, l := range st.Leases {
@@ -311,9 +313,12 @@ func (f *RaftFSM) Restore(rc io.ReadCloser) error {
 			}
 		}
 	}
-	f.state = fresh
-	f.leases = freshLeases
-	f.snap.Store(fresh.snapshot())
+	published := fresh.snapshot()
+	f.watch.reset(func() {
+		f.state = fresh
+		f.leases = freshLeases
+		f.snap.Store(published)
+	})
 	return nil
 }
 
@@ -323,33 +328,14 @@ func (f *RaftFSM) emitPut(key string, prev *entry) {
 	if current == nil {
 		return
 	}
-	f.emitEvent(kvapi.WatchPut, entryToAPI(current), prev)
+	f.emitEvent(kvapi.WatchPut, current, prev)
 }
 
-// emitEvent publishes a watch event on the FSM's event system.
-func (f *RaftFSM) emitEvent(typ kvapi.WatchEventType, current *kvapi.Entry, prev *entry) {
-	if f.bus == nil {
-		return
-	}
-	evt := kvapi.WatchEvent{Type: typ, Current: current, Index: f.state.applyIndex}
-	key := ""
-	if current != nil {
-		key = current.Key
-	}
-	if prev != nil {
-		evt.Previous = entryToAPI(prev)
-		if key == "" {
-			key = prev.key
-		}
-	}
-	f.outbox = append(f.outbox, event.Event{System: f.system, Kind: key, Data: evt})
-}
-
-func entryToAPI(e *entry) *kvapi.Entry {
-	if e == nil {
-		return nil
-	}
-	return &kvapi.Entry{Key: e.key, Value: e.value, Version: e.version, LeaseID: e.leaseID, Epoch: e.epoch}
+// emitEvent records an event for the complete Apply publication.
+func (f *RaftFSM) emitEvent(typ kvapi.WatchEventType, current, prev *entry) {
+	f.outbox = append(f.outbox, watchRecord{
+		typ: typ, current: current, previous: prev, index: f.state.applyIndex,
+	})
 }
 
 // raftSnapshot is the persisted form of a kv FSM snapshot.

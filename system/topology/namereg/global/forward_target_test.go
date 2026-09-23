@@ -70,11 +70,10 @@ func TestDeriveMembers_Deterministic(t *testing.T) {
 // ErrNoLeader (a non-member never observes AppendEntries → never learns the
 // leader). The deriver supplies the forwarding candidates instead.
 type noLeaderRaft struct {
-	leaderCh chan bool
-	idx      atomic.Uint64
+	idx atomic.Uint64
 }
 
-func newNoLeaderRaft() *noLeaderRaft { return &noLeaderRaft{leaderCh: make(chan bool, 1)} }
+func newNoLeaderRaft() *noLeaderRaft { return &noLeaderRaft{} }
 
 func (r *noLeaderRaft) Apply(_ []byte, _ time.Duration) (*raftapi.ApplyResponse, error) {
 	return nil, raftapi.ErrNotLeader
@@ -82,8 +81,10 @@ func (r *noLeaderRaft) Apply(_ []byte, _ time.Duration) (*raftapi.ApplyResponse,
 func (r *noLeaderRaft) Leader() (raftapi.ServerID, raftapi.ServerAddress, error) {
 	return "", "", raftapi.ErrNoLeader
 }
-func (r *noLeaderRaft) IsLeader() bool                { return false }
-func (r *noLeaderRaft) LeaderCh() <-chan bool         { return r.leaderCh }
+func (r *noLeaderRaft) IsLeader() bool { return false }
+func (r *noLeaderRaft) ObserveLeadership() raftapi.Leadership {
+	return raftapi.Leadership{State: raftapi.Follower, Changed: make(chan struct{})}
+}
 func (r *noLeaderRaft) State() raftapi.State          { return raftapi.Follower }
 func (r *noLeaderRaft) Barrier(_ time.Duration) error { return nil }
 func (r *noLeaderRaft) CommitIndex() uint64           { return r.idx.Load() }
@@ -203,13 +204,12 @@ func (r *crossClusterRouter) Send(pkg *relay.Package) error {
 // Leader() reports the leader's ID. This is the second hop in the non-member
 // forward chain.
 type memberFollowerRaft struct {
-	leaderCh chan bool
 	leaderID raftapi.ServerID
 	idx      atomic.Uint64
 }
 
 func newMemberFollowerRaft(leaderID raftapi.ServerID) *memberFollowerRaft {
-	return &memberFollowerRaft{leaderID: leaderID, leaderCh: make(chan bool, 1)}
+	return &memberFollowerRaft{leaderID: leaderID}
 }
 
 func (r *memberFollowerRaft) Apply(_ []byte, _ time.Duration) (*raftapi.ApplyResponse, error) {
@@ -218,8 +218,10 @@ func (r *memberFollowerRaft) Apply(_ []byte, _ time.Duration) (*raftapi.ApplyRes
 func (r *memberFollowerRaft) Leader() (raftapi.ServerID, raftapi.ServerAddress, error) {
 	return r.leaderID, r.leaderID + ":0", nil
 }
-func (r *memberFollowerRaft) IsLeader() bool                { return false }
-func (r *memberFollowerRaft) LeaderCh() <-chan bool         { return r.leaderCh }
+func (r *memberFollowerRaft) IsLeader() bool { return false }
+func (r *memberFollowerRaft) ObserveLeadership() raftapi.Leadership {
+	return raftapi.Leadership{State: raftapi.Follower, Changed: make(chan struct{})}
+}
 func (r *memberFollowerRaft) State() raftapi.State          { return raftapi.Follower }
 func (r *memberFollowerRaft) Barrier(_ time.Duration) error { return nil }
 func (r *memberFollowerRaft) CommitIndex() uint64           { return r.idx.Load() }

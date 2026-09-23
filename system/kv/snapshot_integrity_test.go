@@ -54,7 +54,7 @@ func TestGetManyNeverTearsAtomicTransaction(t *testing.T) {
 }
 
 func TestRaftReadValuesCannotMutateReplica(t *testing.T) {
-	f := NewRaftFSM(nil)
+	f := NewRaftFSM()
 	f.state.set("key", []byte("original"), "")
 	f.snap.Store(f.state.snapshot())
 	e, _ := f.get("key")
@@ -124,7 +124,7 @@ func TestReadSnapshotRetainsEntriesAndAppliedIndex(t *testing.T) {
 func BenchmarkRaftApplyPopulated(b *testing.B) {
 	for _, size := range []int{1000, 10000, 100000} {
 		b.Run(fmt.Sprint(size), func(b *testing.B) {
-			f := NewRaftFSM(nil)
+			f := NewRaftFSM()
 			for i := 0; i < size; i++ {
 				f.state.set(fmt.Sprintf("key/%d", i), []byte("value"), "")
 			}

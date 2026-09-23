@@ -15,7 +15,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/wippyai/runtime/api/event"
 	kvapi "github.com/wippyai/runtime/api/store/kv"
 	"github.com/wippyai/runtime/system/crdt"
 	"go.uber.org/zap"
@@ -54,12 +53,12 @@ const wallScale = 1_000_000
 // SetIfAbsent are best-effort under eventual consistency — use store.kv.raft for
 // linearizable conditional writes.
 type CRDTEngine struct {
-	bus            event.Bus
 	ctx            context.Context
 	durableNS      map[string]struct{}
 	queue          *crdt.BroadcastQueue
 	logger         *zap.Logger
 	state          *crdt.State
+	watch          *watchSource
 	cancel         context.CancelFunc
 	peerTombAck    map[string]map[tombstoneDot]struct{}
 	aliveFn        func() map[string]struct{}
@@ -67,7 +66,6 @@ type CRDTEngine struct {
 	deadlines      map[kvapi.LeaseID]time.Time
 	keyLease       map[string]kvapi.LeaseID
 	localNode      string
-	system         event.System
 	dataDir        string
 	wg             sync.WaitGroup
 	snapInterval   time.Duration
@@ -79,7 +77,7 @@ type CRDTEngine struct {
 }
 
 // NewCRDTEngine builds the node-wide crdt engine.
-func NewCRDTEngine(localNode string, bus event.Bus, logger *zap.Logger) *CRDTEngine {
+func NewCRDTEngine(localNode string, logger *zap.Logger) *CRDTEngine {
 	if logger == nil {
 		logger = zap.NewNop()
 	}
@@ -88,9 +86,8 @@ func NewCRDTEngine(localNode string, bus event.Bus, logger *zap.Logger) *CRDTEng
 	return &CRDTEngine{
 		state:          crdt.NewState(localNode),
 		queue:          crdt.NewBroadcastQueue(localNode, 0),
-		bus:            bus,
+		watch:          defaultWatchSource(),
 		logger:         logger.Named("kv-crdt"),
-		system:         "kv:crdt",
 		localNode:      localNode,
 		tiebreak:       int64(h.Sum32() % wallScale),
 		peerTombAck:    make(map[string]map[tombstoneDot]struct{}),
@@ -102,6 +99,11 @@ func NewCRDTEngine(localNode string, bus event.Bus, logger *zap.Logger) *CRDTEng
 		deadlines:      make(map[kvapi.LeaseID]time.Time),
 		keyLease:       make(map[string]kvapi.LeaseID),
 	}
+}
+
+// SetWatchLimits configures bounded delivery while no watchers are active.
+func (e *CRDTEngine) SetWatchLimits(limits WatchLimits) error {
+	return e.watch.setLimits(limits)
 }
 
 // wall returns a totally-ordered logical write timestamp: real milliseconds in
@@ -210,6 +212,12 @@ func (e *CRDTEngine) loadDurable() error {
 // durability is configured) the periodic snapshotter.
 func (e *CRDTEngine) Start(ctx context.Context) error {
 	e.ctx, e.cancel = context.WithCancel(ctx)
+	e.wg.Add(1)
+	go func() {
+		defer e.wg.Done()
+		<-e.ctx.Done()
+		e.watch.close()
+	}()
 	if err := e.loadDurable(); err != nil {
 		e.logger.Warn("crdt: load snapshot failed", zap.Error(err))
 	}
@@ -245,15 +253,13 @@ func (e *CRDTEngine) snapshotter() {
 
 // Stop halts the reaper.
 func (e *CRDTEngine) Stop() error {
+	e.watch.close()
 	if e.cancel != nil {
 		e.cancel()
 	}
 	e.wg.Wait()
 	return nil
 }
-
-// EventSystem returns the watch event.System.
-func (e *CRDTEngine) EventSystem() event.System { return e.system }
 
 // --- kvapi.Engine reads ---
 
@@ -276,10 +282,11 @@ func (e *CRDTEngine) Scan(prefix string, fn func(kvapi.Entry) bool) error {
 }
 
 func (e *CRDTEngine) Watch(ctx context.Context, prefix string) (kvapi.Watcher, error) {
-	if e.bus == nil {
-		return nil, fmt.Errorf("kv: event bus not available")
-	}
-	return newWatcher(ctx, e.bus, e.system, prefix)
+	// The feed has bounded delivery and explicit lifecycle, but CRDT writers
+	// may mutate concurrently and remote deltas converge eventually. Its event
+	// order is publication order, not a linearizable snapshot history. A
+	// consumer needing a current state must read the converged store again.
+	return e.watch.watch(ctx, prefix, nil)
 }
 
 // --- kvapi.Engine writes ---
@@ -684,18 +691,15 @@ func (e *CRDTEngine) recordPeerTombstoneAck(peer string, ent crdt.Entry) {
 }
 
 func (e *CRDTEngine) emit(typ kvapi.WatchEventType, cur *kvapi.Entry) {
-	if e.bus == nil {
-		return
-	}
-	key := ""
-	if cur != nil {
-		key = cur.Key
-	}
 	evt := kvapi.WatchEvent{Type: typ}
-	if typ != kvapi.WatchDelete && typ != kvapi.WatchExpired {
+	if typ == kvapi.WatchDelete || typ == kvapi.WatchExpired {
+		// A deletion has no Current value, but retains the key so prefix
+		// watchers receive it without a second routing metadata channel.
+		evt.Previous = cur
+	} else {
 		evt.Current = cur
 	}
-	e.bus.Send(context.Background(), event.Event{System: e.system, Kind: key, Data: evt})
+	e.watch.publish([]kvapi.WatchEvent{evt}, nil)
 }
 
 var _ kvapi.Engine = (*CRDTEngine)(nil)

@@ -64,13 +64,3 @@ func selectDeployment(e Executable, l Launch) (string, error) {
 	}
 	return filepath.Join(l.State, record.Directory), nil
 }
-
-// historyFor returns the registry history an operation boots. Recovery boots a
-// history of its own, so the shipped packs start from the entries they carry
-// while the deployment history stays in place.
-func historyFor(l Launch) string {
-	if l.Op == OpRecover {
-		return recoveryHistoryPath(l.State)
-	}
-	return historyPath(l.State)
-}

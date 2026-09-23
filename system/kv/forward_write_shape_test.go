@@ -65,8 +65,8 @@ func TestMalformedWriteReplyNeverRetriesCommittedMutation(t *testing.T) {
 			}}
 			router.engines = make(map[string]*RaftEngine)
 			for _, node := range []string{"leader", "client"} {
-				fsm := NewRaftFSM(nil)
-				e := NewRaftEngine(&fakeRaft{fsm: fsm, leader: node == "leader", leaderID: "leader"}, fsm, nil, node, router, nil)
+				fsm := NewRaftFSM()
+				e := NewRaftEngine(&fakeRaft{fsm: fsm, leader: node == "leader", leaderID: "leader"}, fsm, node, router, nil)
 				e.forwardWait = 100 * time.Millisecond
 				router.engines[node] = e
 				require.NoError(t, e.Start(t.Context()))
@@ -109,8 +109,8 @@ func TestForwardWriteReplyCanonicalRoundTrip(t *testing.T) {
 	}
 	for _, result := range cases {
 		replies := make(chan []byte, 1)
-		fsm := NewRaftFSM(nil)
-		e := NewRaftEngine(&fakeRaft{fsm: fsm, leader: true}, fsm, nil, "leader", writeShapeCaptureReplies{replies: replies}, nil)
+		fsm := NewRaftFSM()
+		e := NewRaftEngine(&fakeRaft{fsm: fsm, leader: true}, fsm, "leader", writeShapeCaptureReplies{replies: replies}, nil)
 		require.NoError(t, e.Start(t.Context()))
 		e.replyForward("client", 42, result)
 		var out []byte
@@ -188,8 +188,8 @@ func (r *rejectFirstWriteRouter) SendContext(ctx context.Context, pkg *relay.Pac
 func TestExplicitWriteRejectionStillRetries(t *testing.T) {
 	router := &rejectFirstWriteRouter{routerTo: &routerTo{engines: make(map[string]*RaftEngine)}}
 	for _, node := range []string{"leader", "client"} {
-		fsm := NewRaftFSM(nil)
-		e := NewRaftEngine(&fakeRaft{fsm: fsm, leader: node == "leader", leaderID: "leader"}, fsm, nil, node, router, nil)
+		fsm := NewRaftFSM()
+		e := NewRaftEngine(&fakeRaft{fsm: fsm, leader: node == "leader", leaderID: "leader"}, fsm, node, router, nil)
 		router.engines[node] = e
 		require.NoError(t, e.Start(t.Context()))
 		t.Cleanup(func() { require.NoError(t, e.Stop()) })

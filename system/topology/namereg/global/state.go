@@ -238,10 +238,9 @@ const (
 // for a different PID (pendingConflictPending). Re-submitting the same name+PID
 // while pending is idempotent (pendingDedupe).
 //
-// requiredNodes is stamped by the leader at the pending commit and embedded in
-// the log entry so every replica sees the same set during replay. A node-leave
-// prunes the departed node from this set deterministically via CmdDropRequired
-// (state.dropRequired), never by re-reading membership inside Apply.
+// requiredNodes is stamped at the pending commit and embedded in the log entry
+// so every replica sees the same set during replay. Discovery changes cannot
+// shrink it; dropRequired exists only to replay older committed commands.
 func (s *shardedState) registerPending(name string, p pid.PID, nodeID pid.NodeID, epoch uint64, required []pid.NodeID, deadline int64, createdAt int64) (pid.PID, pendingOutcome) {
 	sh := &s.shards[shardFor(name)]
 	sh.mu.RLock()

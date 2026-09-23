@@ -12,7 +12,6 @@ import (
 	pidapi "github.com/wippyai/runtime/api/pid"
 	runtimeapi "github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/api/security"
-	"github.com/wippyai/runtime/system/eventbus"
 	systemkv "github.com/wippyai/runtime/system/kv"
 	"go.uber.org/zap"
 )
@@ -21,7 +20,7 @@ import (
 // monitor; auto-release-on-node-leave is proven separately in clustertest).
 func newTestLocks(t *testing.T) *systemkv.LockService {
 	t.Helper()
-	eng := systemkv.NewService("lock", eventbus.NewBus(), zap.NewNop())
+	eng := systemkv.NewService("lock", zap.NewNop())
 	if _, err := eng.Start(context.Background()); err != nil {
 		t.Fatalf("engine start: %v", err)
 	}

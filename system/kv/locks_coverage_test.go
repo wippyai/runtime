@@ -22,7 +22,17 @@ func TestLockService_SendReapsOnExitEvent(t *testing.T) {
 	mustAcquire(t, s, "L1", holder)
 	mustAcquire(t, s, "L2", other)
 
-	pkg := relay.NewPackage(holder, s.self, topology.TopicEvents, payload.New(&topology.ExitEvent{From: holder}))
+	// A connectivity loss does not prove that this process stopped using the
+	// lock. Topology emits LinkDown for an interrupted remote connection.
+	linkDown := relay.NewPackage(holder, s.self, topology.TopicEvents, payload.New(&topology.ExitEvent{From: holder, Kind: topology.LinkDown}))
+	if err := s.Send(linkDown); err != nil {
+		t.Fatalf("send link down: %v", err)
+	}
+	if _, ok, _ := s.Holder("L1"); !ok {
+		t.Fatal("LinkDown reaped a still-running holder")
+	}
+
+	pkg := relay.NewPackage(holder, s.self, topology.TopicEvents, payload.New(&topology.ExitEvent{From: holder, Kind: topology.Exit}))
 	if err := s.Send(pkg); err != nil {
 		t.Fatalf("send exit event: %v", err)
 	}

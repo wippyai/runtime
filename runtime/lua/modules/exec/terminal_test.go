@@ -5,6 +5,7 @@ package exec
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -12,7 +13,9 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/relay"
+	execapi "github.com/wippyai/runtime/api/service/exec"
 	ttyapi "github.com/wippyai/runtime/api/tty"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	luatty "github.com/wippyai/runtime/runtime/lua/modules/tty"
 )
 
@@ -44,9 +47,34 @@ func TestTerminalCompletionIsOneShot(t *testing.T) {
 		receiver,
 		pid.PID{Host: "test", UniqID: "1"},
 		"done",
+		&terminalResult{},
 	)
 	if !receiver.terminal.Load() {
 		t.Fatal("completion did not carry terminal subscription marker")
+	}
+}
+
+func TestTerminalResultKeepsExitAndTerminalErrorSeparate(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	failure := errors.New("terminal presentation failed")
+	result := terminalCompletionHandler(context.Background(), l, pid.PID{}, "done", []payload.Payload{
+		payload.New(&terminalResult{
+			Exit:          &execapi.ExitStatus{Code: 7},
+			TerminalError: failure,
+		}),
+	})
+	out, ok := result.(*lua.LTable)
+	if !ok {
+		t.Fatalf("result = %T, want table", result)
+	}
+	exit, ok := out.RawGetString("exit").(*lua.LTable)
+	if !ok || exit.RawGetString("code") != lua.LInteger(7) {
+		t.Fatalf("exit = %v, want code 7", out.RawGetString("exit"))
+	}
+	terminalErr, ok := out.RawGetString("terminal_error").(*lua.Error)
+	if !ok || !errors.Is(terminalErr, failure) {
+		t.Fatalf("terminal_error = %v, want presentation failure", out.RawGetString("terminal_error"))
 	}
 }
 
@@ -84,9 +112,81 @@ func TestEnqueueTerminalEventBackpressure(t *testing.T) {
 	}
 }
 
-func TestProcessExportsTerminalAttachment(t *testing.T) {
-	if processMethods["attach_terminal"] == nil {
-		t.Fatal("exec.Process attach_terminal method is missing")
+func TestOnlyExecutorExportsTerminalConstructor(t *testing.T) {
+	if executorMethods["terminal"] == nil {
+		t.Fatal("exec.Executor terminal method is missing")
+	}
+	if processMethods["attach_terminal"] != nil {
+		t.Fatal("exec.Process still exports attach_terminal")
+	}
+}
+
+func TestTerminalProcessExportsPID(t *testing.T) {
+	if terminalProcessMethods["pid"] == nil {
+		t.Fatal("exec.TerminalProcess pid method is missing")
+	}
+}
+
+type terminalProcessIdentity struct {
+	err error
+	pid int
+}
+
+func (i terminalProcessIdentity) Pid() (int, error) { return i.pid, i.err }
+
+func callTerminalProcessPID(t *testing.T, identity interface{ Pid() (int, error) }) (lua.LValue, lua.LValue) {
+	t.Helper()
+	l := lua.NewState()
+	defer l.Close()
+	value.PushTypedUserData(l, newTerminalProcess(nil, nil, identity), terminalProcessTypeName)
+	if returns := terminalProcessPID(l); returns != 2 {
+		t.Fatalf("terminalProcessPID returned %d values, want 2", returns)
+	}
+	return l.Get(-2), l.Get(-1)
+}
+
+func TestTerminalProcessPID(t *testing.T) {
+	pid, err := callTerminalProcessPID(t, terminalProcessIdentity{pid: 42})
+	if got, ok := pid.(lua.LInteger); !ok || int(got) != 42 {
+		t.Fatalf("pid = %v, want 42", pid)
+	}
+	if err != lua.LNil {
+		t.Fatalf("error = %v, want nil", err)
+	}
+}
+
+func TestTerminalProcessPIDUnavailable(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	value.PushTypedUserData(l, newTerminalProcess(nil, nil, nil), terminalProcessTypeName)
+
+	if returns := terminalProcessPID(l); returns != 2 {
+		t.Fatalf("terminalProcessPID returned %d values, want 2", returns)
+	}
+	if l.Get(-2) != lua.LNil {
+		t.Fatalf("pid = %v, want nil", l.Get(-2))
+	}
+	err, ok := l.Get(-1).(*lua.Error)
+	if !ok {
+		t.Fatalf("error = %v, want Lua error", l.Get(-1))
+	}
+	if err.Kind() != lua.Unavailable || err.Error() != "process has no host process id" {
+		t.Fatalf("error = %v (kind %v), want unavailable host process id", err, err.Kind())
+	}
+}
+
+func TestTerminalProcessPIDPreservesIdentityErrors(t *testing.T) {
+	failure := errors.New("pid lookup failed")
+	pid, err := callTerminalProcessPID(t, terminalProcessIdentity{err: failure})
+	if pid != lua.LNil {
+		t.Fatalf("pid = %v, want nil", pid)
+	}
+	luaErr, ok := err.(*lua.Error)
+	if !ok {
+		t.Fatalf("error = %v, want Lua error", err)
+	}
+	if !errors.Is(luaErr, failure) || !strings.Contains(luaErr.Error(), "read process id") {
+		t.Fatalf("error = %v, want wrapped PID failure", luaErr)
 	}
 }
 
@@ -97,6 +197,7 @@ func TestTerminalCompletionDoesNotRetryRelayFailure(t *testing.T) {
 		receiver,
 		pid.PID{Host: "test", UniqID: "1"},
 		"done",
+		&terminalResult{},
 	)
 	if calls := receiver.calls.Load(); calls != 1 {
 		t.Fatalf("expected one relay attempt, got %d", calls)
@@ -107,7 +208,7 @@ func TestTerminalCompletionSkipsEndedProcess(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	receiver := &terminalCompletionReceiver{}
-	deliverTerminalCompletion(ctx, receiver, pid.PID{Host: "test", UniqID: "1"}, "done")
+	deliverTerminalCompletion(ctx, receiver, pid.PID{Host: "test", UniqID: "1"}, "done", &terminalResult{})
 	if calls := receiver.calls.Load(); calls != 0 {
 		t.Fatalf("completion sent after process end: %d calls", calls)
 	}

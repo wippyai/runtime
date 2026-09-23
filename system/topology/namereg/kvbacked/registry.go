@@ -11,6 +11,7 @@ package kvbacked
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"sync/atomic"
 
@@ -51,8 +52,11 @@ func nodeIndexKey(p pid.PID, name string) string {
 
 // activeValue is the stored payload of an active name binding.
 type activeValue struct {
-	PID           string       `codec:"p"`
-	Name          string       `codec:"n"`
+	PID  string `codec:"p"`
+	Name string `codec:"n"`
+	// AttemptID identifies the Strong registration that produced this active
+	// record. It is separate from Entry.Epoch, which is the active Raft fence.
+	AttemptID     string       `codec:"a,omitempty"`
 	RequiredNodes []pid.NodeID `codec:"r,omitempty"`
 	Strong        bool         `codec:"s,omitempty"`
 }
@@ -79,6 +83,9 @@ func decodeInto(data []byte, v any) error {
 func decodeActive(data []byte) (activeValue, error) {
 	var v activeValue
 	err := decodeInto(data, &v)
+	if err == nil && v.Strong && v.AttemptID == "" {
+		err = fmt.Errorf("missing Strong attempt identity")
+	}
 	return v, err
 }
 
@@ -118,6 +125,9 @@ type Service struct {
 	monitored  sync.Map
 	selfNode   pid.NodeID
 	ready      atomic.Bool
+	// Serializes owner replacement with terminal failure so an old observation
+	// cannot close readiness belonging to a later startup attempt.
+	reconcilerMu sync.Mutex
 }
 
 // ConfigureDissem attaches the active-binding dissemination plane so non-member
@@ -398,7 +408,8 @@ func (s *Service) Remove(_ context.Context, p pid.PID) error {
 	return nil
 }
 
-// RemoveNode removes all names owned by processes on nodeID.
+// RemoveNode removes all names owned by processes on nodeID. Its caller must
+// first prove those processes cannot still execute; discovery is not a fence.
 func (s *Service) RemoveNode(_ context.Context, nodeID pid.NodeID) error {
 	s.reap(nodeIndexBase(nodeID))
 	return nil

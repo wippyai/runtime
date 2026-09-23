@@ -3,7 +3,6 @@
 package embed
 
 import (
-	"context"
 	"io"
 	"testing"
 
@@ -12,7 +11,6 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	embedapi "github.com/wippyai/runtime/api/service/fs/embed"
-	"github.com/wippyai/runtime/system/eventbus"
 	"go.uber.org/zap"
 )
 
@@ -21,13 +19,14 @@ func TestLiveInstall_RegisteredPackServesResource(t *testing.T) {
 	reader := createReaderWithResource(t, "ui", "app", map[string]string{"index.html": "<html>live</html>"})
 	require.NoError(t, reg.RegisterPack("org/mod-v1.0.0.wapp", "org/mod", "1.0.0", reader, nil))
 
-	manager := NewManager(eventbus.NewBus(), &mockDTT{}, reg, zap.NewNop())
+	ctx, bus, _ := newFSRegistryHarness(t)
+	manager := NewManager(bus, &mockDTT{}, reg, zap.NewNop())
 	entry := registry.Entry{
 		ID:   registry.NewID("ui", "app"),
 		Kind: embedapi.Kind,
 		Data: payload.New(&embedapi.Config{}),
 	}
-	require.NoError(t, manager.Add(context.Background(), entry))
+	require.NoError(t, manager.Add(ctx, entry))
 	assert.Equal(t, "<html>live</html>", readManagerFile(t, manager, entry.ID, "index.html"))
 }
 
@@ -36,14 +35,15 @@ func TestLiveInstall_StagedResourceBecomesReadableAtCommit(t *testing.T) {
 	reader := createReaderWithResource(t, "ui", "app", map[string]string{"index.html": "<html>live</html>"})
 	require.NoError(t, reg.StagePack("org/mod-v1.0.0.wapp", "org/mod", "1.0.0", reader, nil))
 
-	manager := NewManager(eventbus.NewBus(), &mockDTT{}, reg, zap.NewNop())
+	ctx, bus, _ := newFSRegistryHarness(t)
+	manager := NewManager(bus, &mockDTT{}, reg, zap.NewNop())
 	entry := registry.Entry{
 		ID:   registry.NewID("ui", "app"),
 		Kind: embedapi.Kind,
 		Data: payload.New(&embedapi.Config{}),
 	}
 	// A transition listener can install and use the newly staged filesystem.
-	require.NoError(t, manager.Add(context.Background(), entry))
+	require.NoError(t, manager.Add(ctx, entry))
 	manager.mu.RLock()
 	fsys := manager.filesystems[entry.ID]
 	manager.mu.RUnlock()
@@ -61,13 +61,14 @@ func TestLiveUpdate_ActiveResourceMovesAndRollsBack(t *testing.T) {
 	newReader := createReaderWithResource(t, "ui", "app", map[string]string{"v.txt": "2"})
 	require.NoError(t, reg.RegisterPack("org/mod-v1.0.0.wapp", "org/mod", "1.0.0", oldReader, nil))
 
-	manager := NewManager(eventbus.NewBus(), &mockDTT{}, reg, zap.NewNop())
+	ctx, bus, _ := newFSRegistryHarness(t)
+	manager := NewManager(bus, &mockDTT{}, reg, zap.NewNop())
 	entry := registry.Entry{
 		ID:   registry.NewID("ui", "app"),
 		Kind: embedapi.Kind,
 		Data: payload.New(&embedapi.Config{}),
 	}
-	require.NoError(t, manager.Add(context.Background(), entry))
+	require.NoError(t, manager.Add(ctx, entry))
 	assert.Equal(t, "1", readManagerFile(t, manager, entry.ID, "v.txt"))
 
 	// Existing service handles remain on the committed pack through Prepare.
@@ -104,13 +105,14 @@ func TestUninstall_RemovesActiveResource(t *testing.T) {
 	reader := createReaderWithResource(t, "ui", "app", map[string]string{"index.html": "x"})
 	require.NoError(t, reg.RegisterPack("org/mod-v1.0.0.wapp", "org/mod", "1.0.0", reader, nil))
 
-	manager := NewManager(eventbus.NewBus(), &mockDTT{}, reg, zap.NewNop())
+	ctx, bus, _ := newFSRegistryHarness(t)
+	manager := NewManager(bus, &mockDTT{}, reg, zap.NewNop())
 	entry := registry.Entry{
 		ID:   registry.NewID("ui", "app"),
 		Kind: embedapi.Kind,
 		Data: payload.New(&embedapi.Config{}),
 	}
-	require.NoError(t, manager.Add(context.Background(), entry))
+	require.NoError(t, manager.Add(ctx, entry))
 	require.NoError(t, reg.UnregisterModule("org/mod", "1.0.0"))
 
 	manager.mu.RLock()

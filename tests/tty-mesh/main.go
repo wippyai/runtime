@@ -217,16 +217,15 @@ const childScript = `
 local events = assert(tty.events())
 assert(tty.start())
 local executor = assert(exec.get("proof:exec"))
-local child = assert(executor:exec("/bin/bash --noprofile --norc", {pty={term="xterm-256color"},env={PS1="MESH_READY> "}}))
-local session = assert(child:attach_terminal())
-local done = session:done()
+local terminal = assert(executor:terminal("/bin/bash --noprofile --norc", {pty={term="xterm-256color"},env={PS1="MESH_READY> "}}))
+local done = terminal:done()
 while true do
  local selected=channel.select({events:case_receive(),done:case_receive()})
  if not selected.ok or selected.channel==done then break end
  if selected.value.type=="close" then break end
- assert(session:send(selected.value))
+ assert(terminal:send(selected.value))
 end
-assert(session:close())
+assert(terminal:close())
 assert(executor:release())
 `
 const agentScript = `

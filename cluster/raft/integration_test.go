@@ -187,6 +187,32 @@ func startNode(t *testing.T, fabric *raftRPCFabric, id string, bootstrap bool) *
 	return n
 }
 
+// A real Raft election must wake independent observers even when one starts
+// consuming its notifications later than the other.
+func TestIntegration_LeadershipObservationFollowsElection(t *testing.T) {
+	n := startNode(t, newRaftRPCFabric(), "one", true)
+	first := n.ObserveLeadership()
+	second := n.ObserveLeadership()
+	deadline := time.NewTimer(5 * time.Second)
+	defer deadline.Stop()
+	for first.State != raftapi.Leader {
+		select {
+		case <-first.Changed:
+		case <-deadline.C:
+			t.Fatal("leadership observation missed the real Raft election")
+		}
+		first = n.ObserveLeadership()
+	}
+	require.Positive(t, first.Term)
+	if second.Revision != first.Revision {
+		select {
+		case <-second.Changed:
+		default:
+			t.Fatal("second observer missed the same real election")
+		}
+	}
+}
+
 // waitForLeader blocks until the node becomes leader or timeout fires.
 func waitForLeader(t *testing.T, n *Node, timeout time.Duration) {
 	t.Helper()

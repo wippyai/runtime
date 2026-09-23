@@ -20,11 +20,21 @@ type readinessWatcher struct {
 }
 
 func (w *readinessWatcher) Events() <-chan kvapi.WatchEvent { return w.events }
+func (w *readinessWatcher) Done() <-chan struct{}           { return w.closed }
+func (w *readinessWatcher) Err() error                      { return kvapi.ErrWatchClosed }
 func (w *readinessWatcher) Close() error                    { close(w.closed); return nil }
 
 type readinessEngine struct {
 	kvapi.Engine
 	watcher *readinessWatcher
+}
+
+func (e *readinessEngine) ReadLocalSnapshot(keys []string) (map[string]kvapi.Entry, uint64, error) {
+	reader, ok := e.Engine.(kvapi.LocalSnapshotReader)
+	if !ok {
+		return nil, 0, kvapi.ErrKVClosed
+	}
+	return reader.ReadLocalSnapshot(keys)
 }
 
 func (e *readinessEngine) Watch(ctx context.Context, _ string) (kvapi.Watcher, error) {
@@ -127,9 +137,9 @@ func TestReadinessRejectsMalformedNamingSeed(t *testing.T) {
 					}
 					var err error
 					if prefix == activePrefix {
-						value, err = encode(activeValue{Name: name, PID: owner, Strong: true})
+						value, err = encode(activeValue{Name: name, PID: owner, AttemptID: "attempt-readiness", Strong: true})
 					} else {
-						value, err = encode(pendingHeader{Name: name, PID: owner, RequiredNodes: []pid.NodeID{"node-1"}})
+						value, err = encode(pendingHeader{Name: name, PID: owner, AttemptID: "attempt-readiness", RequiredNodes: []pid.NodeID{"node-1"}})
 					}
 					if err != nil {
 						t.Fatal(err)

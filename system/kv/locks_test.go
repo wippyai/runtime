@@ -7,13 +7,12 @@ import (
 	"testing"
 
 	"github.com/wippyai/runtime/api/pid"
-	"github.com/wippyai/runtime/system/eventbus"
 	"go.uber.org/zap"
 )
 
 func newLockSvc(t *testing.T) *LockService {
 	t.Helper()
-	eng := NewService("lock", eventbus.NewBus(), zap.NewNop())
+	eng := NewService("lock", zap.NewNop())
 	if _, err := eng.Start(context.Background()); err != nil {
 		t.Fatalf("engine start: %v", err)
 	}

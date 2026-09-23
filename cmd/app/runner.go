@@ -7,8 +7,10 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/wippyai/runtime/api/boot"
+	"github.com/wippyai/runtime/boot/deps/lock"
 	"github.com/wippyai/runtime/cmd/internal/bootconfig"
 	"github.com/wippyai/runtime/cmd/wippy/cmd"
 )
@@ -18,14 +20,10 @@ import (
 // options an operation selects.
 var execute = cmd.ExecuteWithOptions
 
-// readOnlyCommands are the Wippy CLI commands that write nothing under the
-// deployment or the state directory, so they run while another invocation owns
-// the state: version and help print, search and readme read Hub metadata
-// through the machine-wide credential store, and lint loads the deployment
-// from its lock without installing modules and keeps compiled code in the
-// machine-wide, toolchain-keyed store under internal/cachedir.
-var readOnlyCommands = map[string]bool{
-	"lint":    true,
+// stateFreeCommands do not require a deployment. They can run while another
+// invocation owns the state, without seeding a bundle or its artifact cache.
+// Lint needs a deployment and therefore takes the state lock.
+var stateFreeCommands = map[string]bool{
 	"version": true,
 	"help":    true,
 	"search":  true,
@@ -63,13 +61,28 @@ func operateTransient(ctx context.Context, e Executable, l Launch, prepare func(
 	return operate(ctx, e, l, prepare)
 }
 
-// readOnlyWippy reports whether a Wippy CLI invocation leaves the deployment
-// and the state untouched. The bare CLI prints its usage.
-func readOnlyWippy(args []string) bool {
+// stateFreeWippy reports whether a CLI invocation can run without a deployment.
+// The bare CLI prints its usage.
+func stateFreeWippy(args []string) bool {
 	if len(args) == 0 {
 		return true
 	}
-	return readOnlyCommands[args[0]]
+	return stateFreeCommands[args[0]]
+}
+
+// operateStateFree never creates the state or seeds the bundle. ExecuteWithOptions
+// requires a lock path, but these commands never open it.
+func operateStateFree(ctx context.Context, e Executable, l Launch) error {
+	files, err := configFiles(l.State)
+	if err != nil {
+		return err
+	}
+	return execute(ctx, cmd.ExecuteOptions{
+		Args:        l.Args,
+		LockFile:    filepath.Join(deploymentsPath(l.State), e.Bundle.ID(), lock.DefaultFilename),
+		ConfigFiles: files,
+		Components:  e.Components,
+	})
 }
 
 // operate carries out one launch. Everything below this point works inside the
@@ -78,16 +91,17 @@ func operate(ctx context.Context, e Executable, l Launch, prepare func(context.C
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if l.Op == OpWippy && stateFreeWippy(l.Args) && prepare == nil {
+		return operateStateFree(ctx, e, l)
+	}
 	if err := os.MkdirAll(l.State, 0o700); err != nil {
 		return NewApplicationStateError("create application state", l.State, err)
 	}
-	if l.Op != OpWippy || !readOnlyWippy(l.Args) {
-		unlock, err := lockState(l.State)
-		if err != nil {
-			return err
-		}
-		defer func() { result = errors.Join(result, unlock()) }()
+	unlock, err := lockState(l.State)
+	if err != nil {
+		return err
 	}
+	defer func() { result = errors.Join(result, unlock()) }()
 	if err := applyData(l.State, e.Data); err != nil {
 		return err
 	}
@@ -128,8 +142,10 @@ func operate(ctx context.Context, e Executable, l Launch, prepare func(context.C
 		// named so the state directory can be repaired.
 		fmt.Fprintf(os.Stderr, "%s: retained deployment skipped while seeding the artifact cache: %v\n", e.Name, failure)
 	}
+	history := historyPath(l.State)
 	if l.Op == OpRecover {
-		if err := recordRecovery(e, l, deployment); err != nil {
+		history, err = recordRecovery(e, l, deployment)
+		if err != nil {
 			return err
 		}
 	}
@@ -142,7 +158,7 @@ func operate(ctx context.Context, e Executable, l Launch, prepare func(context.C
 		LockFile:    lockPath,
 		ConfigFiles: files,
 		Components:  e.Components,
-		Overrides:   pin(hosted, historyFor(l), cachePath(l.State)),
+		Overrides:   pin(hosted, history, cachePath(l.State)),
 	})
 }
 

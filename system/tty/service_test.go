@@ -10,9 +10,11 @@ import (
 	"github.com/stretchr/testify/require"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/pid"
+	processapi "github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
 	ttyapi "github.com/wippyai/runtime/api/tty"
+	processsys "github.com/wippyai/runtime/system/process"
 	relaysys "github.com/wippyai/runtime/system/relay"
 )
 
@@ -514,6 +516,152 @@ func TestLifecycleClosesResolvedProducerPort(t *testing.T) {
 	service.OnComplete(ctx, pid.PID{Node: "node", Host: "workers", UniqID: "producer"}, nil)
 	_, err = surface.Present(ttyapi.Frame{Rows: []string{"after exit"}})
 	require.ErrorIs(t, err, ttyapi.ErrViewportClosed)
+}
+
+func TestViewportGrantRearmsAfterProducerRetires(t *testing.T) {
+	service := NewService()
+	defer service.Close()
+	creatorCtx, creatorFrame, _ := processContextFor(t, service, "creator")
+	defer creatorFrame.Close()
+	producerCtx, producerFrame, producerInbox := processContextFor(t, service, "producer")
+	defer producerFrame.Close()
+	observerCtx, observerFrame, _ := processContextFor(t, service, "observer")
+	defer observerFrame.Close()
+
+	creator, err := service.Create(creatorCtx, 40, 12)
+	require.NoError(t, err)
+	handle := creator.Handle()
+	controller, err := service.Attach(creatorCtx, handle)
+	require.NoError(t, err)
+	target, ok := runtime.GetFramePID(observerCtx)
+	require.True(t, ok)
+	ref, err := creator.(ttyapi.MountableViewport).Mount(creatorCtx, target, ttyapi.MountRights{Observe: true})
+	require.NoError(t, err)
+	observer, err := service.Attach(observerCtx, ref)
+	require.NoError(t, err)
+
+	initial := creator.Grant()
+	first, err := service.Binding(initial)
+	require.NoError(t, err)
+	require.Empty(t, creator.Grant(), "admission owns the grant while the binding is pending")
+	firstPort, err := first.Resolve(producerCtx)
+	require.NoError(t, err)
+	require.Empty(t, creator.Grant(), "a live producer holds the viewport")
+	firstInput := firstPort.InputController()
+	require.NoError(t, firstInput.Start())
+	firstSurface, err := firstPort.OpenSurface(ttyapi.SurfaceOptions{})
+	require.NoError(t, err)
+	_, err = firstSurface.Present(ttyapi.Frame{Rows: []string{"v1"}})
+	require.NoError(t, err)
+	require.NoError(t, controller.Resize(91, 31))
+	<-producerInbox.packages
+
+	require.NoError(t, firstPort.Close())
+	replacement := creator.Grant()
+	require.NotEmpty(t, replacement, "a retired producer re-arms the creator grant")
+	require.NotEqual(t, initial, replacement, "each producer receives a fresh grant")
+	require.Equal(t, replacement, creator.Grant(), "the armed grant is stable until admission takes it")
+	_, err = service.Binding(initial)
+	require.ErrorIs(t, err, ttyapi.ErrInvalidGrant)
+	require.ErrorIs(t, firstInput.Start(), ttyapi.ErrViewportClosed)
+	_, err = firstSurface.Present(ttyapi.Frame{Rows: []string{"stale"}})
+	require.ErrorIs(t, err, ttyapi.ErrViewportClosed)
+
+	second, err := service.Binding(replacement)
+	require.NoError(t, err)
+	secondPort, err := second.Resolve(producerCtx)
+	require.NoError(t, err)
+	require.NoError(t, secondPort.InputController().Start())
+	require.NoError(t, firstInput.Stop())
+	firstSurface.Invalidate()
+	require.NoError(t, controller.Send(ttyapi.Event{Type: "key", Key: "x"}), "a retired port cannot stop the successor's input")
+	input := <-producerInbox.packages
+	require.Equal(t, ttyapi.Event{Type: "key", Key: "x"}, *input.Messages[0].Payloads[0].Data().(*ttyapi.Event))
+	secondSurface, err := secondPort.OpenSurface(ttyapi.SurfaceOptions{})
+	require.NoError(t, err)
+	_, err = secondSurface.Present(ttyapi.Frame{Rows: []string{"v2"}})
+	require.NoError(t, err)
+
+	require.Equal(t, handle, creator.Handle())
+	require.Equal(t, []string{"v2"}, observer.Snapshot().Rows)
+	require.Equal(t, 91, observer.Snapshot().Width)
+	require.Equal(t, 31, controller.Snapshot().Height)
+	require.Empty(t, controller.Grant(), "only the creator viewport carries producer authority")
+	require.Empty(t, observer.Grant())
+}
+
+func TestViewportGrantSurvivesRejectedAdmission(t *testing.T) {
+	service := NewService()
+	defer service.Close()
+	ctx, frame, _ := processContext(t, service)
+	defer frame.Close()
+
+	view, err := service.Create(ctx, 40, 12)
+	require.NoError(t, err)
+	grant := view.Grant()
+	binding, err := service.Binding(grant)
+	require.NoError(t, err)
+	require.NoError(t, binding.Close())
+	require.Equal(t, grant, view.Grant(), "a rejected spawn leaves the same grant for a retry")
+}
+
+func TestViewportGrantDoesNotRearmAfterViewportCloses(t *testing.T) {
+	service := NewService()
+	defer service.Close()
+	creatorCtx, creatorFrame, _ := processContextFor(t, service, "creator")
+	defer creatorFrame.Close()
+	producerCtx, producerFrame, _ := processContextFor(t, service, "producer")
+	defer producerFrame.Close()
+
+	view, err := service.Create(creatorCtx, 40, 12)
+	require.NoError(t, err)
+	binding, err := service.Binding(view.Grant())
+	require.NoError(t, err)
+	port, err := binding.Resolve(producerCtx)
+	require.NoError(t, err)
+	require.NoError(t, view.Close())
+	require.NoError(t, port.Close())
+	require.Empty(t, view.Grant())
+	service.mu.Lock()
+	grants, sessions := len(service.grants), len(service.sessions)
+	service.mu.Unlock()
+	require.Zero(t, grants)
+	require.Zero(t, sessions)
+}
+
+// exitAnnouncer stands in for topology: registered before tty, it delivers
+// the exit to the viewport creator, which immediately spawns a replacement.
+type exitAnnouncer struct {
+	onExit func()
+}
+
+func (exitAnnouncer) OnStart(context.Context, pid.PID, processapi.Process) error { return nil }
+func (a exitAnnouncer) OnComplete(context.Context, pid.PID, *runtime.Result)     { a.onExit() }
+
+func TestProducerExitIsAnnouncedAfterItsPortRetires(t *testing.T) {
+	service := NewService()
+	defer service.Close()
+	creatorCtx, creatorFrame, _ := processContextFor(t, service, "creator")
+	defer creatorFrame.Close()
+	producerCtx, producerFrame, _ := processContextFor(t, service, "producer")
+	defer producerFrame.Close()
+
+	view, err := service.Create(creatorCtx, 40, 12)
+	require.NoError(t, err)
+	binding, err := service.Binding(view.Grant())
+	require.NoError(t, err)
+	require.NoError(t, producerFrame.Set(ttyapi.PortKey(), binding))
+	_, err = ttyapi.GetPort(producerCtx)
+	require.NoError(t, err)
+
+	var replacement string
+	registry := processsys.NewLifecycleRegistry()
+	registry.Register("topology", exitAnnouncer{onExit: func() { replacement = view.Grant() }})
+	registry.Register("tty", service)
+	registry.OnComplete(producerCtx, pid.PID{Node: "node", Host: "workers", UniqID: "producer"}, nil)
+	next, err := service.Binding(replacement)
+	require.NoError(t, err, "the exit observer must be able to start a replacement producer")
+	require.NoError(t, next.Close())
 }
 
 func BenchmarkVirtualSurfacePresentUnchanged(b *testing.B) {

@@ -19,6 +19,7 @@ import (
 	runtimeapi "github.com/wippyai/runtime/api/runtime"
 	securityapi "github.com/wippyai/runtime/api/security"
 	execapi "github.com/wippyai/runtime/api/service/exec"
+	ttyapi "github.com/wippyai/runtime/api/tty"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	svcexec "github.com/wippyai/runtime/service/exec"
@@ -37,6 +38,10 @@ const doneTestHost = "exec.done:test"
 // stream dispatcher for stdout reads, and a relay node that routes the exit
 // package back into the running process.
 func runExecScript(t *testing.T, script string) *lua.LTable {
+	return runExecScriptWithPort(t, script, nil)
+}
+
+func runExecScriptWithPort(t *testing.T, script string, port ttyapi.Port) *lua.LTable {
 	t.Helper()
 	if _, err := osexec.LookPath("sh"); err != nil {
 		t.Skip("sh not available")
@@ -83,6 +88,9 @@ func runExecScript(t *testing.T, script string) *lua.LTable {
 	target := rawPID.Precomputed()
 	require.NoError(t, runtimeapi.SetFramePID(frameCtx, target))
 	frameCtx = relayapi.WithNode(frameCtx, node)
+	if port != nil {
+		require.NoError(t, ttyapi.WithPort(frameCtx, port))
+	}
 
 	result, err := pool.Call(frameCtx, "main", nil)
 	require.NoError(t, err)

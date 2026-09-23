@@ -436,7 +436,7 @@ func TestBusRunner_Operations(t *testing.T) {
 			defer cleanup()
 
 			initialState := registry.State{}
-			finalState, err := busRunner.Transition(ctx, initialState, tc.changeSet)
+			finalState, err := busRunner.Transition(ctx, initialState, tc.changeSet, nil)
 
 			if tc.expectError {
 				require.Error(t, err)
@@ -489,7 +489,7 @@ func TestBusRunner_RollbackOnSecondOperationFailure(t *testing.T) {
 		},
 	}
 
-	finalState, err := busRunner.Transition(ctx, initialState, changeSet)
+	finalState, err := busRunner.Transition(ctx, initialState, changeSet, nil)
 
 	// 1. Expect an error because the second operation is rejected
 	require.Error(t, err)
@@ -538,7 +538,7 @@ func TestBusRunner_BeginAndCommitEvents(t *testing.T) {
 	// Expect 2 events: Begin and Commit
 	wg.Add(2)
 
-	_, err := busRunner.Transition(ctx, initialState, changeSet)
+	_, err := busRunner.Transition(ctx, initialState, changeSet, nil)
 	require.NoError(t, err)
 
 	receivedEvents := waitForEvents(&wg, eventChan)
@@ -599,7 +599,7 @@ func TestBusRunner_WaitsForTransactionAcknowledgements(t *testing.T) {
 	go func() {
 		_, err := busRunner.Transition(ctx, nil, registry.ChangeSet{
 			{Kind: registry.EntryCreate, Entry: entry},
-		})
+		}, nil)
 		done <- err
 	}()
 
@@ -668,7 +668,7 @@ func TestBusRunner_RollbackOrder(t *testing.T) {
 		},
 	}
 
-	finalState, err := busRunner.Transition(ctx, initialState, changeSet)
+	finalState, err := busRunner.Transition(ctx, initialState, changeSet, nil)
 	require.Error(t, err)
 
 	// Check that lib1 remains but app1 is gone after rollback
@@ -746,7 +746,7 @@ func TestBusRunner_ErrorPropagation(t *testing.T) {
 	}
 
 	// Run the transition
-	_, err = busRunner.Transition(ctx, initialState, changeSet)
+	_, err = busRunner.Transition(ctx, initialState, changeSet, nil)
 
 	// Verify error propagation
 	require.Error(t, err)
@@ -794,7 +794,7 @@ func TestBusRunner_BeginAndDiscardEvents(t *testing.T) {
 	// Expect 2 events: Begin and Discard
 	wg.Add(2)
 
-	_, err := busRunner.Transition(ctx, initialState, changeSet)
+	_, err := busRunner.Transition(ctx, initialState, changeSet, nil)
 	require.Error(t, err) // We expect an error because the operation is rejected
 
 	receivedEvents := waitForEvents(&wg, eventChan)
@@ -840,7 +840,7 @@ func TestBusRunner_CustomEventWaitTimeout(t *testing.T) {
 	}
 
 	start := time.Now()
-	_, err = busRunner.Transition(ctx, initialState, changeSet)
+	_, err = busRunner.Transition(ctx, initialState, changeSet, nil)
 	elapsed := time.Since(start)
 
 	require.Error(t, err)
@@ -966,7 +966,7 @@ func TestBusRunner_RollbackOrderWithResolver(t *testing.T) {
 		},
 	}
 
-	_, err = busRunner.Transition(ctx, registry.State{}, changeSet)
+	_, err = busRunner.Transition(ctx, registry.State{}, changeSet, nil)
 	require.Error(t, err, "Should fail because handler is rejected")
 
 	// Verify deletion order: dependents must be deleted before dependencies

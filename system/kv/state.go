@@ -16,7 +16,8 @@ type state struct {
 	dirty      map[string]struct{}
 	entries    map[string]*entry
 	leases     map[kvapi.LeaseID]*leaseState
-	version    kvapi.Version // global monotonic revision counter
+	version    kvapi.Version // persisted entry-version allocator; preserve across Raft replay
+	revision   uint64        // standalone snapshot publication revision; deletes advance it without changing entry versions
 	applyIndex uint64        // raft log index of the command currently applying
 }
 
@@ -44,9 +45,10 @@ func newState() *state {
 	}
 }
 
-// nextVersion increments and returns the global version.
+// nextVersion increments and returns the persisted entry version.
 func (s *state) nextVersion() kvapi.Version {
 	s.version++
+	s.revision++
 	return s.version
 }
 
@@ -96,6 +98,9 @@ func (s *state) del(key string) *entry {
 	}
 
 	delete(s.entries, key)
+	// Keep entry versions stable for replay of previously committed Raft logs.
+	// Standalone snapshot readers still need to order this empty publication.
+	s.revision++
 	s.markDirty(key)
 
 	// Detach from lease
@@ -212,7 +217,7 @@ func (s *state) markDirty(key string) {
 }
 
 func (s *state) snapshot() *stateSnapshot {
-	snap := &stateSnapshot{index: s.applyIndex, version: s.version}
+	snap := &stateSnapshot{index: s.applyIndex, version: s.revision}
 	if s.published != nil {
 		snap.shards = s.published.shards
 	} else {

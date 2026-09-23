@@ -12,11 +12,22 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/pid"
 	kvapi "github.com/wippyai/runtime/api/store/kv"
+	systemkv "github.com/wippyai/runtime/system/kv"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest/observer"
 )
 
 type countedReconcilerEngine struct {
 	kvapi.Engine
 	calls atomic.Int32
+}
+
+func (e *countedReconcilerEngine) ReadLocalSnapshot(keys []string) (map[string]kvapi.Entry, uint64, error) {
+	reader, ok := e.Engine.(kvapi.LocalSnapshotReader)
+	if !ok {
+		return nil, 0, kvapi.ErrKVClosed
+	}
+	return reader.ReadLocalSnapshot(keys)
 }
 
 func (e *countedReconcilerEngine) Watch(context.Context, string) (kvapi.Watcher, error) {
@@ -51,6 +62,114 @@ type blockedEventsWatcher struct {
 	once             sync.Once
 }
 
+type invalidatingWatcher struct {
+	*blockedEventsWatcher
+	done   chan struct{}
+	reason error
+}
+
+func (w *invalidatingWatcher) Done() <-chan struct{} { return w.done }
+
+func (w *invalidatingWatcher) Err() error { return w.reason }
+
+type invalidatingEngine struct {
+	kvapi.Engine
+	watcher *invalidatingWatcher
+}
+
+func (e *invalidatingEngine) Watch(context.Context, string) (kvapi.Watcher, error) {
+	return e.watcher, nil
+}
+
+func (e *invalidatingEngine) ReadLocalSnapshot(keys []string) (map[string]kvapi.Entry, uint64, error) {
+	return e.Engine.(kvapi.LocalSnapshotReader).ReadLocalSnapshot(keys)
+}
+
+func TestReconcilerWatchInvalidationClosesAdmissionWhileWorkerBlocked(t *testing.T) {
+	r := newStrongReg(t, []pid.NodeID{"node-1"}, time.Second, nil)
+	core, logs := observer.New(zap.ErrorLevel)
+	r.logger = zap.New(core)
+	w := &invalidatingWatcher{
+		blockedEventsWatcher: &blockedEventsWatcher{
+			readinessWatcher: &readinessWatcher{events: make(chan kvapi.WatchEvent), closed: make(chan struct{})},
+			entered:          make(chan struct{}),
+			release:          make(chan struct{}),
+		},
+		done:   make(chan struct{}),
+		reason: kvapi.ErrWatchReset,
+	}
+	r.engine = &invalidatingEngine{Engine: r.engine, watcher: w}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	defer close(w.release)
+	require.NoError(t, r.StartReconciler(ctx))
+	select {
+	case <-w.entered:
+	case <-time.After(time.Second):
+		t.Fatal("reconciler worker did not enter blocked watch read")
+	}
+	close(w.done)
+	require.False(t, r.NameReady(), "invalidated watch must close admission before worker runs")
+	require.Eventually(t, func() bool { return logs.Len() == 1 }, time.Second, time.Millisecond)
+	require.Equal(t, kvapi.ErrWatchReset.Error(), logs.All()[0].ContextMap()["error"])
+}
+
+type blockedOwnedWatch struct {
+	kvapi.Watcher
+	entered, release chan struct{}
+	once             sync.Once
+}
+
+func (w *blockedOwnedWatch) Events() <-chan kvapi.WatchEvent {
+	w.once.Do(func() { close(w.entered); <-w.release })
+	return w.Watcher.Events()
+}
+
+type blockedOwnedEngine struct {
+	kvapi.Engine
+	watcher          *blockedOwnedWatch
+	entered, release chan struct{}
+}
+
+func (e *blockedOwnedEngine) ReadLocalSnapshot(keys []string) (map[string]kvapi.Entry, uint64, error) {
+	return e.Engine.(kvapi.LocalSnapshotReader).ReadLocalSnapshot(keys)
+}
+
+func (e *blockedOwnedEngine) Watch(ctx context.Context, prefix string) (kvapi.Watcher, error) {
+	w, err := e.Engine.Watch(ctx, prefix)
+	if err != nil {
+		return nil, err
+	}
+	e.watcher = &blockedOwnedWatch{Watcher: w, entered: e.entered, release: e.release}
+	return e.watcher, nil
+}
+
+func TestReconcilerRealKVOverflowClosesAdmissionBeforeWorkerRuns(t *testing.T) {
+	r := newStrongReg(t, []pid.NodeID{"node-1"}, time.Second, nil)
+	eng := r.engine.(*systemkv.Service)
+	require.NoError(t, eng.SetWatchLimits(systemkv.WatchLimits{
+		MaxSubscriptions: 1, MaxEvents: 1, MaxBytes: 4096,
+	}))
+	wrapper := &blockedOwnedEngine{Engine: eng, entered: make(chan struct{}), release: make(chan struct{})}
+	r.engine = wrapper
+	defer close(wrapper.release)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	require.NoError(t, r.StartReconciler(ctx))
+	select {
+	case <-wrapper.entered:
+	case <-time.After(time.Second):
+		t.Fatal("reconciler did not reach the blocked delivery worker")
+	}
+	require.True(t, r.NameReady())
+	for _, name := range []string{"first", "second"} {
+		_, err := eng.Set(activeKey(name), []byte(name))
+		require.NoError(t, err)
+	}
+	require.ErrorIs(t, wrapper.watcher.Err(), kvapi.ErrWatchOverflow)
+	require.False(t, r.NameReady(), "overflow must close admission without waiting for the observer")
+}
+
 func (w *blockedEventsWatcher) Events() <-chan kvapi.WatchEvent {
 	w.once.Do(func() { close(w.entered); <-w.release })
 	return w.events
@@ -59,6 +178,14 @@ func (w *blockedEventsWatcher) Events() <-chan kvapi.WatchEvent {
 type blockedEventsEngine struct {
 	kvapi.Engine
 	watcher *blockedEventsWatcher
+}
+
+func (e *blockedEventsEngine) ReadLocalSnapshot(keys []string) (map[string]kvapi.Entry, uint64, error) {
+	reader, ok := e.Engine.(kvapi.LocalSnapshotReader)
+	if !ok {
+		return nil, 0, kvapi.ErrKVClosed
+	}
+	return reader.ReadLocalSnapshot(keys)
 }
 
 func (e *blockedEventsEngine) Watch(context.Context, string) (kvapi.Watcher, error) {

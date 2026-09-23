@@ -11,7 +11,6 @@ import (
 	"testing/quick"
 
 	kvapi "github.com/wippyai/runtime/api/store/kv"
-	"github.com/wippyai/runtime/system/eventbus"
 	"go.uber.org/zap"
 )
 
@@ -62,7 +61,7 @@ func TestProp_CRDTConverges(t *testing.T) {
 	for trial := 0; trial < 40; trial++ {
 		engs := make([]*CRDTEngine, replicas)
 		for i := range engs {
-			e := NewCRDTEngine(fmt.Sprintf("n%d", i), eventbus.NewBus(), zap.NewNop())
+			e := NewCRDTEngine(fmt.Sprintf("n%d", i), zap.NewNop())
 			if err := e.Start(context.Background()); err != nil {
 				t.Fatal(err)
 			}

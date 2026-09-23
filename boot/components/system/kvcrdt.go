@@ -10,7 +10,6 @@ import (
 	"github.com/wippyai/runtime/api/boot"
 	clusterapi "github.com/wippyai/runtime/api/cluster"
 	ctxapi "github.com/wippyai/runtime/api/context"
-	eventapi "github.com/wippyai/runtime/api/event"
 	logapi "github.com/wippyai/runtime/api/logs"
 	relayapi "github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/cluster/membership"
@@ -62,10 +61,16 @@ func KVCRDT() boot.Component {
 				return ctx, nil
 			}
 
-			engine = systemkv.NewCRDTEngine(node.ID(), eventapi.GetBus(ctx), logger)
-
+			engine = systemkv.NewCRDTEngine(node.ID(), logger)
+			var clusterCfg boot.Config
 			if cfg := boot.GetConfig(ctx); cfg != nil {
-				clusterCfg := cfg.Sub(ClusterName)
+				clusterCfg = cfg.Sub(ClusterName)
+			}
+			if err := engine.SetWatchLimits(watchLimits(clusterCfg)); err != nil {
+				return ctx, err
+			}
+
+			if clusterCfg != nil {
 				engine.SetTombstoneRetention(clusterCfg.GetDuration(
 					ClusterKVCRDTTombstoneRetention,
 					systemkv.DefaultTombstoneRetention,

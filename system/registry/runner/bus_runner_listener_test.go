@@ -112,7 +112,7 @@ func TestBusRunnerRejectsDispatchWithoutSubscriber(t *testing.T) {
 	entry := listenerEntry("component/listener/orphan", "listener")
 
 	start := time.Now()
-	state, err := br.Transition(ctx, nil, registry.ChangeSet{{Kind: registry.EntryCreate, Entry: entry}})
+	state, err := br.Transition(ctx, nil, registry.ChangeSet{{Kind: registry.EntryCreate, Entry: entry}}, nil)
 	elapsed := time.Since(start)
 
 	require.Error(t, err)
@@ -148,7 +148,7 @@ func TestBusRunnerWaitsForSubscriberBeyondLegacyDefault(t *testing.T) {
 	br := NewBusRunner(bus, zap.NewNop(), newTestBuilder(nil), WithDispatchPolicy(internalDispatchPolicy()))
 	entry := listenerEntry("component/listener/slow", "listener")
 
-	state, err := br.Transition(ctx, nil, registry.ChangeSet{{Kind: registry.EntryCreate, Entry: entry}})
+	state, err := br.Transition(ctx, nil, registry.ChangeSet{{Kind: registry.EntryCreate, Entry: entry}}, nil)
 
 	require.NoError(t, err)
 	require.Len(t, state, 1)
@@ -167,7 +167,7 @@ func TestBusRunnerUnboundedWaitDefersToContext(t *testing.T) {
 	br := NewBusRunner(bus, zap.NewNop(), newTestBuilder(nil), WithDispatchPolicy(internalDispatchPolicy()))
 	entry := listenerEntry("component/listener/unbounded", "listener")
 
-	_, err := br.Transition(ctx, nil, registry.ChangeSet{{Kind: registry.EntryCreate, Entry: entry}})
+	_, err := br.Transition(ctx, nil, registry.ChangeSet{{Kind: registry.EntryCreate, Entry: entry}}, nil)
 
 	require.NoError(t, err)
 	require.NotEmpty(t, timeouts)
@@ -195,7 +195,7 @@ func TestBusRunnerCanceledContextEndsWait(t *testing.T) {
 	entry := listenerEntry("component/listener/canceled", "listener")
 
 	start := time.Now()
-	_, err := br.Transition(opCtx, nil, registry.ChangeSet{{Kind: registry.EntryCreate, Entry: entry}})
+	_, err := br.Transition(opCtx, nil, registry.ChangeSet{{Kind: registry.EntryCreate, Entry: entry}}, nil)
 	elapsed := time.Since(start)
 
 	require.ErrorIs(t, err, context.Canceled)
@@ -217,7 +217,7 @@ func TestBusRunnerConfiguredCapEndsWait(t *testing.T) {
 	)
 	entry := listenerEntry("component/listener/capped", "listener")
 
-	_, err := br.Transition(ctx, nil, registry.ChangeSet{{Kind: registry.EntryCreate, Entry: entry}})
+	_, err := br.Transition(ctx, nil, registry.ChangeSet{{Kind: registry.EntryCreate, Entry: entry}}, nil)
 
 	require.Error(t, err)
 	var apiErr apierror.Error
@@ -238,7 +238,7 @@ func TestBusRunnerInternalKindSkipsSubscriberProbe(t *testing.T) {
 	)
 	entry := listenerEntry("component/config/internal", registry.EntryKind)
 
-	state, err := br.Transition(ctx, nil, registry.ChangeSet{{Kind: registry.EntryCreate, Entry: entry}})
+	state, err := br.Transition(ctx, nil, registry.ChangeSet{{Kind: registry.EntryCreate, Entry: entry}}, nil)
 
 	require.NoError(t, err)
 	require.Len(t, state, 1)
@@ -293,7 +293,7 @@ func TestBusRunnerRefusesKindNoHandlerReplies(t *testing.T) {
 			entry := listenerEntry("component/listener/kinded", fixture.kind)
 
 			start := time.Now()
-			state, err := br.Transition(ctx, nil, registry.ChangeSet{{Kind: registry.EntryCreate, Entry: entry}})
+			state, err := br.Transition(ctx, nil, registry.ChangeSet{{Kind: registry.EntryCreate, Entry: entry}}, nil)
 			elapsed := time.Since(start)
 
 			if fixture.accepted {
@@ -332,7 +332,7 @@ func TestBusRunnerRefusesWhenOnlyObserversWatchKind(t *testing.T) {
 	entry := listenerEntry("component/listener/observed", "listener")
 
 	start := time.Now()
-	_, err := br.Transition(ctx, nil, registry.ChangeSet{{Kind: registry.EntryCreate, Entry: entry}})
+	_, err := br.Transition(ctx, nil, registry.ChangeSet{{Kind: registry.EntryCreate, Entry: entry}}, nil)
 	elapsed := time.Since(start)
 
 	require.Error(t, err)
@@ -361,7 +361,7 @@ func TestBusRunnerAcceptsKindWhenHandlerDeclaresNoMatcher(t *testing.T) {
 	)
 	entry := listenerEntry("component/listener/undeclared", "listener")
 
-	state, err := br.Transition(ctx, nil, registry.ChangeSet{{Kind: registry.EntryCreate, Entry: entry}})
+	state, err := br.Transition(ctx, nil, registry.ChangeSet{{Kind: registry.EntryCreate, Entry: entry}}, nil)
 
 	require.NoError(t, err)
 	require.Len(t, state, 1)

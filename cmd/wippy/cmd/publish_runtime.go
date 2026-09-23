@@ -25,12 +25,6 @@ const (
 var publishEnvReference = regexp.MustCompile(`\$\{env:[A-Za-z_][A-Za-z0-9_]*\}`)
 var publishVarReference = regexp.MustCompile(`\$\{([^}]+)\}`)
 
-var nonPublishableRuntimeSections = map[string]struct{}{
-	"boot":       {}, // derived by the runtime for the destination workspace
-	"extensions": {}, // native extension paths belong to the build machine
-	"workspace":  {}, // replacements and source roots belong to the workspace
-}
-
 type publishedRuntimeConfig struct {
 	sections     map[string]map[string]any
 	profiles     map[string]any
@@ -47,6 +41,11 @@ type publishedRuntimeVar struct {
 func addPublishedRuntimeMetadata(metadata attrs.Bag, configDir string, publishCfg config.PublishConfig) error {
 	if hasNestedRuntimeMetadata(metadata, publishRuntimeProfilesMetadataKey) {
 		return fmt.Errorf("wippy.yaml metadata.runtime.profiles is not supported; declare publishable profiles in .wippy.yaml or publish.profiles.source")
+	}
+	for section := range machineLocalRuntimeSections {
+		if hasNestedRuntimeMetadata(metadata, section) {
+			return fmt.Errorf("wippy.yaml metadata.runtime.%s is machine-local and cannot be published", section)
+		}
 	}
 
 	collected := publishedRuntimeConfig{
@@ -126,7 +125,7 @@ func collectPublishedRuntimeSections(dst *publishedRuntimeConfig, configDir stri
 		if section == "" || strings.Contains(section, ".") {
 			return fmt.Errorf("publish.runtime.sections contains invalid top-level section %q", rawSection)
 		}
-		if _, reserved := nonPublishableRuntimeSections[section]; reserved {
+		if _, reserved := machineLocalRuntimeSections[section]; reserved {
 			return fmt.Errorf("runtime section %q is machine-local and cannot be published", section)
 		}
 		if section == publishRuntimeProfilesMetadataKey || section == publishRuntimeVarsMetadataKey || section == "version" {

@@ -19,7 +19,7 @@ import (
 func startTestService(t *testing.T) *Service {
 	t.Helper()
 	bus := eventbus.NewBus()
-	svc := NewService("test", bus, zap.NewNop())
+	svc := NewService("test", zap.NewNop())
 	_, err := svc.Start(context.Background())
 	require.NoError(t, err)
 	t.Cleanup(func() {
