@@ -91,37 +91,11 @@ type TypeChecker struct {
 // Built-in modules are added as globals so they're always available.
 // The Enabled flag controls whether checking runs at compile time, not initialization.
 func NewTypeChecker(cfg TypeCheckConfig, builtinMods []*api.ModuleDef) *TypeChecker {
-	builtins := make(map[string]typ.Type)
-	manifests := make(map[string]*io.Manifest)
-
-	for _, mod := range builtinMods {
-		if mod.Types == nil {
-			continue
-		}
-		manifest := mod.Types()
-		if manifest == nil {
-			continue
-		}
-		manifests[mod.Name] = manifest
-		if manifest.Export != nil {
-			builtins[mod.Name] = manifest.Export
-		}
-		for name, t := range manifest.AllGlobals() {
-			builtins[name] = t
-		}
-	}
-
-	// Build base scope for type namespace (type aliases)
-	base := scope.NewWithBuiltins()
-
-	// Build global types map for value namespace (stdlib + builtins)
-	globalTypes := make(map[string]typ.Type)
-	for name, t := range stdlib.Library() {
-		globalTypes[name] = t
-	}
-	for name, t := range builtins {
-		globalTypes[name] = t
-	}
+	env := NewBuiltinEnvironment(builtinMods)
+	builtins := env.Modules
+	manifests := env.Manifests
+	base := env.TypeScope
+	globalTypes := env.GlobalTypes
 
 	database := db.New()
 

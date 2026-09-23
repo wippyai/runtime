@@ -13,7 +13,6 @@ import (
 	"github.com/wippyai/go-lua/compiler/check"
 	"github.com/wippyai/go-lua/compiler/check/api"
 	"github.com/wippyai/go-lua/compiler/check/hooks"
-	"github.com/wippyai/go-lua/compiler/check/scope"
 	"github.com/wippyai/go-lua/compiler/parse"
 	"github.com/wippyai/go-lua/compiler/stdlib"
 	lspindex "github.com/wippyai/go-lua/lsp/index"
@@ -23,6 +22,7 @@ import (
 	"github.com/wippyai/go-lua/types/query/core"
 	"github.com/wippyai/go-lua/types/typ"
 	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/runtime/lua/code"
 	"github.com/wippyai/runtime/runtime/lua/lsp/indexing"
 )
 
@@ -259,34 +259,10 @@ func newExprChecker(provider indexing.Provider, deps map[string]*io.Manifest, de
 		return nil
 	}
 
-	builtins := make(map[string]typ.Type)
-	manifests := make(map[string]*io.Manifest)
-
-	for _, mod := range provider.ModuleDefs() {
-		if mod == nil || mod.Types == nil || mod.Name == "" {
-			continue
-		}
-		manifest := mod.Types()
-		if manifest == nil {
-			continue
-		}
-		manifests[mod.Name] = manifest
-		if manifest.Export != nil {
-			builtins[mod.Name] = manifest.Export
-		}
-		for name, t := range manifest.AllGlobals() {
-			builtins[name] = t
-		}
-	}
-
-	base := scope.NewWithBuiltins()
-	globalTypes := make(map[string]typ.Type)
-	for name, t := range stdlib.Library() {
-		globalTypes[name] = t
-	}
-	for name, t := range builtins {
-		globalTypes[name] = t
-	}
+	env := code.NewBuiltinEnvironment(provider.ModuleDefs())
+	manifests := env.Manifests
+	base := env.TypeScope
+	globalTypes := env.GlobalTypes
 
 	database := db.New()
 	for path, manifest := range manifests {

@@ -9,7 +9,6 @@ import (
 	"github.com/wippyai/go-lua/compiler/ast"
 	"github.com/wippyai/go-lua/compiler/check"
 	"github.com/wippyai/go-lua/compiler/check/hooks"
-	"github.com/wippyai/go-lua/compiler/check/scope"
 	"github.com/wippyai/go-lua/compiler/parse"
 	"github.com/wippyai/go-lua/compiler/stdlib"
 	golualsp "github.com/wippyai/go-lua/lsp"
@@ -18,9 +17,9 @@ import (
 	"github.com/wippyai/go-lua/types/diag"
 	"github.com/wippyai/go-lua/types/io"
 	"github.com/wippyai/go-lua/types/query/core"
-	"github.com/wippyai/go-lua/types/typ"
 	"github.com/wippyai/runtime/api/registry"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
+	"github.com/wippyai/runtime/runtime/lua/code"
 	"go.uber.org/zap"
 )
 
@@ -335,34 +334,10 @@ type lspChecker struct {
 }
 
 func newLSPChecker(mods []*luaapi.ModuleDef, symbols *index.SymbolIndex, callGraph *index.CallGraph, builtinHash string) *lspChecker {
-	builtins := make(map[string]typ.Type)
-	manifests := make(map[string]*io.Manifest)
-
-	for _, mod := range mods {
-		if mod == nil || mod.Types == nil || mod.Name == "" {
-			continue
-		}
-		manifest := mod.Types()
-		if manifest == nil {
-			continue
-		}
-		manifests[mod.Name] = manifest
-		if manifest.Export != nil {
-			builtins[mod.Name] = manifest.Export
-		}
-		for name, t := range manifest.AllGlobals() {
-			builtins[name] = t
-		}
-	}
-
-	base := scope.NewWithBuiltins()
-	globalTypes := make(map[string]typ.Type)
-	for name, t := range stdlib.Library() {
-		globalTypes[name] = t
-	}
-	for name, t := range builtins {
-		globalTypes[name] = t
-	}
+	env := code.NewBuiltinEnvironment(mods)
+	manifests := env.Manifests
+	base := env.TypeScope
+	globalTypes := env.GlobalTypes
 
 	database := db.New()
 	for path, manifest := range manifests {
