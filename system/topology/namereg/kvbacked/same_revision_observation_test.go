@@ -77,18 +77,18 @@ func TestReconcileSamePublicationDoesNotRetireAnotherName(t *testing.T) {
 			})
 
 			if first == "absent" {
-				if err := r.strong.reconcile("absent"); err != nil {
-					t.Fatal(err)
+				if report := r.strong.reconcile("absent"); report.err != nil {
+					t.Fatal(report.err)
 				}
-				if err := r.strong.reconcile("pending"); err != nil {
-					t.Fatal(err)
+				if report := r.strong.reconcile("pending"); report.err != nil {
+					t.Fatal(report.err)
 				}
 			} else {
-				if err := r.strong.reconcile("pending"); err != nil {
-					t.Fatal(err)
+				if report := r.strong.reconcile("pending"); report.err != nil {
+					t.Fatal(report.err)
 				}
-				if err := r.strong.reconcile("absent"); err != nil {
-					t.Fatal(err)
+				if report := r.strong.reconcile("absent"); report.err != nil {
+					t.Fatal(report.err)
 				}
 			}
 

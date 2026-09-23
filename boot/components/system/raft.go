@@ -27,6 +27,7 @@ import (
 	"github.com/wippyai/runtime/system/eventbus"
 	"github.com/wippyai/runtime/system/health"
 	systemkv "github.com/wippyai/runtime/system/kv"
+	"github.com/wippyai/runtime/system/topology/namereg/admission"
 	"github.com/wippyai/runtime/system/topology/namereg/global"
 	"github.com/wippyai/runtime/system/topology/namereg/kvbacked"
 	"go.opentelemetry.io/otel"
@@ -373,6 +374,7 @@ func Raft() boot.Component {
 				kvReg = kvbacked.NewService(kvEngine, node.ID(), nil, logger.Named("kvreg"))
 				kvReg.SetTopology(topo)
 				kvReg.ConfigureStrong(kvbacked.StrongDeps{
+					Admission: admission.FromContext(ctx),
 					Membership: func() []pid.NodeID {
 						ms, ok := clusterapi.GetMembership(ctx).(*membership.Service)
 						if !ok || ms == nil {
@@ -386,11 +388,9 @@ func Raft() boot.Component {
 						}
 						return out
 					},
-					IsLeader: raftNode.IsLeader,
-					LocalConflict: func(name string, proposed pid.PID) (pid.PID, bool) {
-						lp := &localPresenceChecker{ctx: ctx}
-						return localConflictForStrong(lp, name, proposed)
-					},
+					IsLeader:          raftNode.IsLeader,
+					ObserveLeadership: raftNode.ObserveLeadership,
+					LocalConflict:     (&localPresenceChecker{ctx: ctx}).conflictingClaim,
 				})
 				if err := node.RegisterHost(kvbacked.RegistryHostID, kvReg); err != nil {
 					return ctx, fmt.Errorf("raft: register kv registry relay host: %w", err)

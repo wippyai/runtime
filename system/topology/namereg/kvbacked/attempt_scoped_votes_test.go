@@ -356,7 +356,7 @@ func TestStrongDurableNackFastPathPreservesConflictOutcome(t *testing.T) {
 	base := r.engine
 	owner := mkPID("node-1", "pending")
 	pending := putPendingAttempt(t, base, "nack-race", owner, []pid.NodeID{"node-1"})
-	waiter := &strongWaiter{ch: make(chan globalapi.RegisterOutcome, 1), attemptID: "nack-race", pid: owner}
+	waiter := &strongWaiter{ch: make(chan strongCompletion, 1), attemptID: "nack-race"}
 	r.strong.addWaiter("claim", waiter)
 	t.Cleanup(func() { r.strong.removeWaiter("claim", waiter) })
 	entered := make(chan struct{})
@@ -380,17 +380,21 @@ func TestStrongDurableNackFastPathPreservesConflictOutcome(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("first NACK did not pause after its durable commit")
 	}
-	// The second production attestation observes the durable NACK while the
-	// original transaction response is still paused. It must restore the typed
-	// conflict detail before terminal delivery.
+	// The second attestation observes the durable NACK while the first response
+	// is paused. A committed result, not local attestation state, supplies the
+	// typed conflict detail to the waiting caller.
 	r.strong.attest("claim", pending.Epoch, pending.Version, "nack-race", owner, []pid.NodeID{"node-1"})
 	if err := base.Delete(pendingKey("claim")); err != nil {
 		t.Fatal(err)
 	}
-	r.strong.onTerminal("claim", "nack-race")
+	result := terminalResult{Name: "claim", AttemptID: "nack-race", Reason: strongRejectConflict, Epoch: pending.Epoch}
+	r.strong.deliver("claim", "nack-race", strongCompletion{
+		out: globalapi.RegisterOutcome{Epoch: pending.Epoch, State: globalapi.RegisterStateExpired}, terminal: &result,
+	})
+	r.strong.onTerminal("claim", "nack-race", 0)
 	select {
 	case out := <-waiter.ch:
-		_, err := r.strong.finalize("claim", owner, "nack-race", out)
+		_, err := r.strong.finalize("claim", owner, out)
 		var conflict *globalapi.StrongConflictError
 		if !errors.As(err, &conflict) {
 			t.Fatalf("terminal outcome lost StrongConflictError: out=%+v err=%v", out, err)
@@ -428,7 +432,7 @@ func TestStrongOldAttemptNackCannotCrossTerminalAtTxn(t *testing.T) {
 	base := r.engine
 	owner := mkPID("node-1", "old")
 	old := putPendingAttempt(t, base, "old", owner, []pid.NodeID{"node-1"})
-	waiter := &strongWaiter{ch: make(chan globalapi.RegisterOutcome, 1), attemptID: "old", pid: owner}
+	waiter := &strongWaiter{ch: make(chan strongCompletion, 1), attemptID: "old"}
 	r.strong.addWaiter("claim", waiter)
 	t.Cleanup(func() { r.strong.removeWaiter("claim", waiter) })
 	entered := make(chan struct{})
@@ -465,10 +469,8 @@ func TestStrongOldAttemptNackCannotCrossTerminalAtTxn(t *testing.T) {
 	if _, err := base.Get(rejectKey("claim", "old", "node-1")); err == nil {
 		t.Fatal("old attempt NACK crossed terminal pending deletion")
 	}
-	r.strong.mu.Lock()
-	defer r.strong.mu.Unlock()
-	if len(r.strong.terminalReason) != 0 {
-		t.Fatal("failed old NACK left terminal evidence behind")
+	if _, ok := r.IsStrongReserved("claim"); ok {
+		t.Fatal("failed old NACK left an exclusion behind")
 	}
 }
 
@@ -594,8 +596,8 @@ func TestStrongDelayedPendingLatchCannotOverwriteActiveEpochZero(t *testing.T) {
 	r := newStrongReg(t, []pid.NodeID{"node-1"}, time.Second, nil)
 	activeOwner := mkPID("node-1", "active")
 	staleOwner := mkPID("node-1", "stale")
-	r.strong.onActive("claim", 0, "active", activeOwner)
-	r.strong.latch("claim", staleOwner, "stale", 0)
+	r.strong.onActive("claim", "active", 0, 1, activeOwner)
+	r.strong.latchAt("claim", "stale", staleOwner, 0, 0)
 	if got, ok := r.IsStrongReserved("claim"); !ok || !got.Equal(activeOwner) {
 		t.Fatalf("delayed Epoch-0 pending latch replaced active owner: got=%v reserved=%v", got, ok)
 	}

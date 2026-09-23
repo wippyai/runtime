@@ -16,6 +16,7 @@ import (
 func TestStrongDistantCallerDeadlineStillHasRuntimeWaitBound(t *testing.T) {
 	r := newStrongReg(t, []pid.NodeID{"node-1", "ghost"}, 20*time.Millisecond, nil)
 	r.strong.isLeader = func() bool { return false }
+	startStrongReconciler(t, r)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Hour)
 	defer cancel()
 	started := time.Now()
@@ -42,6 +43,7 @@ func TestStrongDistantCallerDeadlineStillHasRuntimeWaitBound(t *testing.T) {
 func TestStrongEarlierCallerDeadlineStillWins(t *testing.T) {
 	r := newStrongReg(t, []pid.NodeID{"node-1", "ghost"}, 5*time.Second, nil)
 	r.strong.isLeader = func() bool { return false }
+	startStrongReconciler(t, r)
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 	started := time.Now()
@@ -61,7 +63,7 @@ func TestExpiredStrongBarrierFailureDoesNotSpin(t *testing.T) {
 	r.strong.isLeader = leader.Load
 	var probes atomic.Int32
 	r.barrier = func() error { probes.Add(1); return errors.New("barrier temporarily unavailable") }
-	t.Cleanup(func() { leader.Store(false); r.strong.stopTimer("claim", "attempt-wait") })
+	t.Cleanup(func() { leader.Store(false); r.strong.stopTimerAttempt("claim", "attempt-wait") })
 	owner := mkPID("node-1", "owner")
 	hdr := pendingHeader{PID: owner.String(), Name: "claim", AttemptID: "attempt-wait", RequiredNodes: []pid.NodeID{"node-1", "ghost"}, DeadlineUnixNano: time.Now().Add(-time.Second).UnixNano()}
 	value, err := encode(hdr)

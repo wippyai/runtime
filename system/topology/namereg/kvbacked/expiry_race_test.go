@@ -8,7 +8,6 @@ import (
 
 	"github.com/wippyai/runtime/api/pid"
 	kvapi "github.com/wippyai/runtime/api/store/kv"
-	globalapi "github.com/wippyai/runtime/api/topology/namereg/global"
 )
 
 type beforeExpiryEngine struct {
@@ -64,8 +63,7 @@ func TestExpiryValidatesVotesAtCommit(t *testing.T) {
 				t.Fatal(err)
 			}
 			epoch := pe.Epoch
-			t.Cleanup(func() { r.strong.stopTimer("claim", hdr.AttemptID) })
-			r.strong.addWaiter("claim", &strongWaiter{ch: make(chan globalapi.RegisterOutcome, 1), attemptID: hdr.AttemptID, pid: owner})
+			t.Cleanup(func() { r.strong.stopTimerAttempt("claim", hdr.AttemptID) })
 			if _, err := r.engine.Set(ackKey("claim", "attempt-expiry", "node-1"), []byte("node-1")); err != nil {
 				t.Fatal(err)
 			}
@@ -84,11 +82,15 @@ func TestExpiryValidatesVotesAtCommit(t *testing.T) {
 				t.Fatalf("stale timeout decision removed claim: %v", err)
 			}
 
-			r.strong.reconcile("claim")
+			if report := r.strong.reconcile("claim"); report.err != nil {
+				t.Fatal(report.err)
+			}
 			if reject {
-				reason, _, _ := r.strong.takeTerminal("attempt-expiry")
-				if reason != strongRejectConflict {
-					t.Fatalf("committed rejection became timeout: %q", reason)
+				if _, err := base.Get(pendingKey("claim")); err == nil {
+					t.Fatal("committed rejection did not expire pending claim")
+				}
+				if _, err := base.Get(activeKey("claim")); err == nil {
+					t.Fatal("rejected claim was promoted")
 				}
 			} else if _, err := base.Get(activeKey("claim")); err != nil {
 				t.Fatalf("committed ACK set did not promote: %v", err)

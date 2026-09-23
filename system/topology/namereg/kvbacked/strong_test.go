@@ -23,16 +23,32 @@ func newStrongReg(t *testing.T, members []pid.NodeID, deadline time.Duration, lc
 	t.Cleanup(func() { _ = eng.Stop(context.Background()) })
 	r := NewService(eng, "node-1", nil, nil)
 	r.ConfigureStrong(StrongDeps{
-		Membership:    func() []pid.NodeID { return members },
-		IsLeader:      func() bool { return true },
-		LocalConflict: lc,
-		Deadline:      deadline,
+		Membership: func() []pid.NodeID { return members },
+		IsLeader:   func() bool { return true },
+		LocalConflict: func(name string, p pid.PID) (pid.PID, bool, error) {
+			if lc == nil {
+				return pid.PID{}, false, nil
+			}
+			cp, ok := lc(name, p)
+			return cp, ok, nil
+		},
+		Deadline: deadline,
 	})
 	return r
 }
 
+func startStrongReconciler(t *testing.T, r *Service) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	if err := r.StartReconciler(ctx); err != nil {
+		t.Fatalf("start reconciler: %v", err)
+	}
+}
+
 func TestStrong_RegisterPromotes(t *testing.T) {
 	r := newStrongReg(t, []pid.NodeID{"node-1"}, 2*time.Second, nil)
+	startStrongReconciler(t, r)
 	p := mkPID("node-1", "a")
 
 	out, err := r.RegisterScope(context.Background(), "svc", p, globalapi.Strong)
@@ -54,6 +70,7 @@ func TestStrong_RegisterPromotes(t *testing.T) {
 
 func TestStrong_TimeoutWhenAckMissing(t *testing.T) {
 	r := newStrongReg(t, []pid.NodeID{"node-1", "ghost"}, 300*time.Millisecond, nil)
+	startStrongReconciler(t, r)
 	p := mkPID("node-1", "a")
 
 	_, err := r.RegisterScope(context.Background(), "svc", p, globalapi.Strong)
@@ -70,6 +87,7 @@ func TestStrong_RejectOnLocalConflict(t *testing.T) {
 	other := mkPID("node-1", "other")
 	lc := func(string, pid.PID) (pid.PID, bool) { return other, true }
 	r := newStrongReg(t, []pid.NodeID{"node-1"}, 2*time.Second, lc)
+	startStrongReconciler(t, r)
 	p := mkPID("node-1", "a")
 
 	_, err := r.RegisterScope(context.Background(), "svc", p, globalapi.Strong)
@@ -84,6 +102,7 @@ func TestStrong_RejectOnLocalConflict(t *testing.T) {
 
 func TestStrong_ReservedDuringWindowThenReleased(t *testing.T) {
 	r := newStrongReg(t, []pid.NodeID{"node-1", "ghost"}, 600*time.Millisecond, nil)
+	startStrongReconciler(t, r)
 	p := mkPID("node-1", "a")
 
 	done := make(chan error, 1)
@@ -106,6 +125,7 @@ func TestStrong_ReservedDuringWindowThenReleased(t *testing.T) {
 
 func TestStrong_UnregisterClearsPending(t *testing.T) {
 	r := newStrongReg(t, []pid.NodeID{"node-1", "ghost"}, 5*time.Second, nil)
+	startStrongReconciler(t, r)
 	p := mkPID("node-1", "a")
 
 	done := make(chan error, 1)
@@ -123,7 +143,7 @@ func TestStrong_UnregisterClearsPending(t *testing.T) {
 	if err := <-done; err == nil {
 		t.Fatalf("register must terminate after unregister")
 	}
-	if _, ok := r.IsStrongReserved("svc"); ok {
+	if !eventually(t, 2*time.Second, func() bool { _, ok := r.IsStrongReserved("svc"); return !ok }) {
 		t.Fatalf("reservation must be cleared after unregister")
 	}
 }
@@ -146,6 +166,7 @@ func TestStrong_RecoversActiveExclusionOnSeed(t *testing.T) {
 
 	r1 := NewService(eng, "node-1", nil, nil)
 	r1.ConfigureStrong(deps)
+	startStrongReconciler(t, r1)
 	if out, err := r1.RegisterScope(context.Background(), "svc", p, globalapi.Strong); err != nil || out.State != globalapi.RegisterStateActive {
 		t.Fatalf("strong register: out=%+v err=%v", out, err)
 	}
@@ -173,6 +194,7 @@ func TestStrong_RecoversActiveExclusionOnSeed(t *testing.T) {
 // is in flight — the cross-scope invariant that a pending owns the name.
 func TestCrossScope_ConsistentBlockedByStrongPending(t *testing.T) {
 	r := newStrongReg(t, []pid.NodeID{"node-1", "ghost"}, 5*time.Second, nil)
+	startStrongReconciler(t, r)
 	p := mkPID("node-1", "a")
 	go func() { _, _ = r.RegisterScope(context.Background(), "svc", p, globalapi.Strong) }()
 
@@ -201,6 +223,7 @@ func TestCrossScope_ConsistentCannotDisplaceStrongActive(t *testing.T) {
 		IsLeader:   func() bool { return true },
 		Deadline:   2 * time.Second,
 	})
+	startStrongReconciler(t, r)
 	strongPID := mkPID("node-1", "strong")
 	if out, err := r.RegisterScope(context.Background(), "svc", strongPID, globalapi.Strong); err != nil || out.State != globalapi.RegisterStateActive {
 		t.Fatalf("strong register: out=%+v err=%v", out, err)
@@ -237,6 +260,7 @@ func TestStrong_FalseNodeLeftDoesNotDeleteActiveOwner(t *testing.T) {
 		IsLeader: func() bool { return true },
 		Deadline: time.Second,
 	})
+	startStrongReconciler(t, r)
 	p := mkPID("node-1", "owner")
 	if out, err := r.RegisterScope(context.Background(), "svc", p, globalapi.Strong); err != nil || out.State != globalapi.RegisterStateActive {
 		t.Fatalf("strong register: out=%+v err=%v", out, err)

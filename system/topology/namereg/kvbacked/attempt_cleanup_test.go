@@ -9,7 +9,6 @@ import (
 
 	"github.com/wippyai/runtime/api/pid"
 	kvapi "github.com/wippyai/runtime/api/store/kv"
-	globalapi "github.com/wippyai/runtime/api/topology/namereg/global"
 )
 
 // pausedTxnEngine makes the transaction continuation race deterministic. The
@@ -71,7 +70,7 @@ func installReplacementTimer(t *testing.T, r *Service, base kvapi.Engine, attemp
 		RequiredNodes:    required,
 		DeadlineUnixNano: time.Now().Add(time.Minute).UnixNano(),
 	})
-	r.strong.armTimer("claim", attempt, replacement.Epoch, replacement.Version, time.Now().Add(time.Minute).UnixNano())
+	r.strong.armTimerAttempt("claim", attempt, time.Now().Add(time.Minute).UnixNano())
 	return replacement
 }
 
@@ -110,10 +109,6 @@ func TestStrongPromotionContinuationCannotStopReplacementTimer(t *testing.T) {
 				t.Fatal(err)
 			}
 			installReplacementTimer(t, r, base, "replacement", []pid.NodeID{"node-1", "peer"})
-			r.strong.addWaiter("claim", &strongWaiter{
-				ch: make(chan globalapi.RegisterOutcome, 1), attemptID: "replacement", pid: mkPID("node-1", "replacement"),
-			})
-			r.strong.setTerminal("claim", "replacement", "deadline", nil, 99)
 		},
 		entered: entered,
 		release: release,
@@ -142,10 +137,7 @@ func TestStrongPromotionContinuationCannotStopReplacementTimer(t *testing.T) {
 		r.strong.mu.Unlock()
 		t.Fatalf("old promotion stopped the replacement timer: %+v", got)
 	}
-	if reason, _, epoch := r.strong.takeTerminal("replacement"); reason != "deadline" || epoch != 99 {
-		t.Fatalf("old promotion removed replacement terminal details: reason=%q epoch=%d", reason, epoch)
-	}
-	r.strong.stopTimer("claim", "replacement")
+	r.strong.stopTimerAttempt("claim", "replacement")
 }
 
 func TestStrongExpiryContinuationCannotStopReplacementTimer(t *testing.T) {
@@ -157,7 +149,7 @@ func TestStrongExpiryContinuationCannotStopReplacementTimer(t *testing.T) {
 		DeadlineUnixNano: time.Now().Add(-time.Minute).UnixNano(),
 	}
 	old := putStrongPending(t, base, hdr)
-	r.strong.latch("claim", owner, hdr.AttemptID, old.Epoch)
+	r.strong.latch("claim", hdr.AttemptID, owner, old.Epoch)
 	entered := make(chan struct{})
 	release := make(chan struct{})
 	r.engine = &pausedTxnEngine{
@@ -172,10 +164,6 @@ func TestStrongExpiryContinuationCannotStopReplacementTimer(t *testing.T) {
 		},
 		after: func() {
 			installReplacementTimer(t, r, base, "replacement", []pid.NodeID{"node-1", "peer"})
-			r.strong.addWaiter("claim", &strongWaiter{
-				ch: make(chan globalapi.RegisterOutcome, 1), attemptID: "replacement", pid: mkPID("node-1", "replacement"),
-			})
-			r.strong.setTerminal("claim", "replacement", "deadline", nil, 99)
 		},
 		entered: entered,
 		release: release,
@@ -199,16 +187,13 @@ func TestStrongExpiryContinuationCannotStopReplacementTimer(t *testing.T) {
 	if !hasTimer(r, "claim", "replacement") {
 		t.Fatal("old expiry stopped the replacement timer")
 	}
-	if reason, _, epoch := r.strong.takeTerminal("replacement"); reason != "deadline" || epoch != 99 {
-		t.Fatalf("old expiry removed replacement terminal details: reason=%q epoch=%d", reason, epoch)
-	}
-	r.strong.stopTimer("claim", "replacement")
+	r.strong.stopTimerAttempt("claim", "replacement")
 }
 
 func TestStrongActivePromotionStopsPendingTimerByAttempt(t *testing.T) {
 	r := newStrongReg(t, []pid.NodeID{"node-1"}, time.Second, nil)
-	r.strong.armTimer("claim", "attempt", 10, 10, time.Now().Add(time.Minute).UnixNano())
-	r.strong.onActive("claim", 11, "attempt", mkPID("node-1", "owner"))
+	r.strong.armTimerAttempt("claim", "attempt", time.Now().Add(time.Minute).UnixNano())
+	r.strong.onActive("claim", "attempt", 11, 11, mkPID("node-1", "owner"))
 	if hasTimer(r, "claim", "attempt") {
 		t.Fatal("active promotion left the pending timer armed")
 	}
@@ -216,7 +201,7 @@ func TestStrongActivePromotionStopsPendingTimerByAttempt(t *testing.T) {
 
 func TestStrongOldDriverCannotReplaceNewerTimer(t *testing.T) {
 	r := newStrongReg(t, []pid.NodeID{"node-1"}, time.Second, nil)
-	r.strong.armTimer("claim", "new", 2, 2, time.Now().Add(time.Minute).UnixNano())
+	r.strong.armTimerVersion("claim", "new", 2, time.Now().Add(time.Minute).UnixNano())
 	p := mkPID("node-1", "old")
 	r.strong.leaderDrive("claim", 1, 1, pendingHeader{
 		PID: p.String(), Name: "claim", AttemptID: "old",
@@ -225,16 +210,16 @@ func TestStrongOldDriverCannotReplaceNewerTimer(t *testing.T) {
 	if !hasTimer(r, "claim", "new") {
 		t.Fatal("old driver replaced the newer timer")
 	}
-	r.strong.stopTimer("claim", "new")
+	r.strong.stopTimerAttempt("claim", "new")
 }
 
 func TestStrongLocalKVVersionOrdersTimersWithoutRaftEpoch(t *testing.T) {
 	r := newStrongReg(t, []pid.NodeID{"node-1"}, time.Second, nil)
 	deadline := time.Now().Add(time.Minute).UnixNano()
-	r.strong.armTimer("claim", "new", 0, 12, deadline)
-	r.strong.armTimer("claim", "old", 0, 11, deadline)
+	r.strong.armTimerVersion("claim", "new", 12, deadline)
+	r.strong.armTimerVersion("claim", "old", 11, deadline)
 	if !hasTimer(r, "claim", "new") {
 		t.Fatal("older local-KV observation replaced the newer deadline timer")
 	}
-	r.strong.stopTimer("claim", "new")
+	r.strong.stopTimerAttempt("claim", "new")
 }

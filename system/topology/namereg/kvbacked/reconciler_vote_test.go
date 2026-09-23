@@ -99,12 +99,12 @@ func TestVoteRoutingUsesCanonicalComponents(t *testing.T) {
 		}
 		for _, prefix := range []string{ackPrefix, rejectPrefix} {
 			key := prefix + voteComponent(name) + ":attempt:" + voteComponent(node)
-			got, ok, err := r.strongVoteName(key, prefix)
-			if err != nil || !ok || got != name {
-				t.Fatalf("route %q: %q %v %v", key, got, ok, err)
+			got, attempt, ok, err := r.strongVoteName(key, prefix)
+			if err != nil || !ok || got != name || attempt != "attempt" {
+				t.Fatalf("route %q: %q %q %v %v", key, got, attempt, ok, err)
 			}
 			for _, bad := range []string{key + ":extra", prefix + "%3a:attempt:peer", prefix + "%XX:attempt:peer", prefix + voteComponent(name) + ":stale:" + voteComponent(node), prefix + voteComponent(name) + ":attempt:unknown", prefix + ":", "wrong"} {
-				if got, ok, err := r.strongVoteName(bad, prefix); err != nil || ok {
+				if got, _, ok, err := r.strongVoteName(bad, prefix); err != nil || ok {
 					t.Fatalf("invalid vote %q routed as %q %v %v", bad, got, ok, err)
 				}
 			}

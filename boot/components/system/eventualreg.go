@@ -232,17 +232,37 @@ func (c *localPresenceChecker) LookupLocal(name string) (pid.PID, bool) {
 }
 
 func (c *localPresenceChecker) LookupEventual(name string) (pid.PID, bool) {
+	p, found, _ := c.lookupEventualChecked(name)
+	return p, found
+}
+
+func (c *localPresenceChecker) lookupEventualChecked(name string) (pid.PID, bool, error) {
 	if c == nil {
-		return pid.PID{}, false
+		return pid.PID{}, false, nil
 	}
 	er := topology.GetEventualRegistry(c.ctx)
 	if er == nil {
-		return pid.PID{}, false
+		return pid.PID{}, false, nil
 	}
-	if res, err := er.Lookup(c.ctx, name); err == nil && res.Found {
-		return res.PID, true
+	res, err := er.Lookup(c.ctx, name)
+	if err != nil {
+		return pid.PID{}, false, err
 	}
-	return pid.PID{}, false
+	return res.PID, res.Found, nil
+}
+
+func (c *localPresenceChecker) conflictingClaim(name string, proposed pid.PID) (pid.PID, bool, error) {
+	if cp, ok := c.LookupLocal(name); ok && !cp.Equal(proposed) {
+		return cp, true, nil
+	}
+	cp, found, err := c.lookupEventualChecked(name)
+	if err != nil {
+		return pid.PID{}, false, err
+	}
+	if found && !cp.Equal(proposed) {
+		return cp, true, nil
+	}
+	return pid.PID{}, false, nil
 }
 
 // localNameRevoker satisfies global.LocalNameRevoker. The join-epoch barrier
