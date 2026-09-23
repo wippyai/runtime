@@ -170,7 +170,7 @@ func (e *RaftEngine) forwardAuthority(ctx context.Context, keys []string, hop by
 		}
 		return res.snapshot, res.err
 	}
-	return kvapi.AuthoritySnapshot{}, errNoForwardLeader
+	return kvapi.AuthoritySnapshot{}, kvapi.ErrSnapshotUnavailable
 }
 
 func (e *RaftEngine) sendAuthority(ctx context.Context, leaderNode string, keys []string, hop byte) (authorityResult, error) {
@@ -365,14 +365,17 @@ func decodeAuthorityRequest(data []byte) (uint64, byte, []string, error) {
 			return 0, 0, nil, kvapi.ErrSnapshotInvalid
 		}
 		n := int(n64)
-		keys = append(keys, string(data[off:off+n]))
+		key := string(data[off : off+n])
+		if i > 0 && keys[i-1] >= key {
+			return 0, 0, nil, kvapi.ErrSnapshotInvalid
+		}
+		keys = append(keys, key)
 		off += n
 	}
 	if off != len(data) {
 		return 0, 0, nil, kvapi.ErrSnapshotInvalid
 	}
-	keys, err := normalizeAuthorityKeys(keys)
-	return corr, hop, keys, err
+	return corr, hop, keys, nil
 }
 
 func encodeAuthorityResponse(corr uint64, result authorityResult) ([]byte, error) {
@@ -448,7 +451,7 @@ func decodeAuthorityResponse(data []byte, requested []string) (authorityResult, 
 		return authorityResult{}, kvapi.ErrSnapshotInvalid
 	}
 	if status != authorityStatusOK {
-		if len(data) != authorityRespHeader || binary.BigEndian.Uint16(data[18:20]) != 0 {
+		if len(data) != authorityRespHeader || binary.BigEndian.Uint64(data[10:18]) != 0 || binary.BigEndian.Uint16(data[18:20]) != 0 {
 			return authorityResult{}, kvapi.ErrSnapshotInvalid
 		}
 		if status == authorityStatusNotLeader {
@@ -462,6 +465,7 @@ func decodeAuthorityResponse(data []byte, requested []string) (authorityResult, 
 	}
 	off := authorityRespHeader
 	entries := make(map[string]kvapi.Entry, count)
+	previousKey := ""
 	for i := 0; i < count; i++ {
 		if len(data)-off < authorityRecordHeader {
 			return authorityResult{}, kvapi.ErrSnapshotInvalid
@@ -491,9 +495,10 @@ func decodeAuthorityResponse(data []byte, requested []string) (authorityResult, 
 		}
 		lease := string(data[off : off+leaseLen])
 		off += leaseLen
-		if _, exists := entries[key]; exists {
+		if i > 0 && previousKey >= key {
 			return authorityResult{}, kvapi.ErrSnapshotInvalid
 		}
+		previousKey = key
 		if _, found := sortKey(requested, key); !found {
 			return authorityResult{}, kvapi.ErrSnapshotInvalid
 		}

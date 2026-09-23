@@ -56,6 +56,15 @@ func TestReadAuthoritySnapshotFollowerForwardsToLeader(t *testing.T) {
 	}
 }
 
+func TestReadAuthoritySnapshotNoLeaderIsRetryableUnavailable(t *testing.T) {
+	fsm := NewRaftFSM()
+	eng := NewRaftEngine(&noAuthorityLeaderRaft{fakeRaft: fakeRaft{fsm: fsm}}, fsm, "client", &blockedReplyRouter{entered: make(chan struct{}, 1)}, nil)
+	_, err := eng.ReadAuthoritySnapshot(context.Background(), []string{"k"})
+	if !errors.Is(err, kvapi.ErrSnapshotUnavailable) {
+		t.Fatalf("no-leader snapshot = %v, want retryable unavailable", err)
+	}
+}
+
 func TestReadAuthoritySnapshotRejectsBoundsAndDuplicates(t *testing.T) {
 	eng, _ := newEngine(t)
 	tooMany := make([]string, maxAuthoritySnapshotKeys+1)
@@ -334,6 +343,43 @@ func TestAuthorityResponseClassifiesOperationalFailures(t *testing.T) {
 	}
 }
 
+func TestAuthorityWireRejectsNoncanonicalOrderingAndStatus(t *testing.T) {
+	request, err := encodeAuthorityRequest(1, 0, []string{"a", "b"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstRequestRecord := 4 + len("a")
+	unsortedRequest := append([]byte(nil), request[:authorityReqHeader]...)
+	unsortedRequest = append(unsortedRequest, request[authorityReqHeader+firstRequestRecord:]...)
+	unsortedRequest = append(unsortedRequest, request[authorityReqHeader:authorityReqHeader+firstRequestRecord]...)
+	if _, _, _, err := decodeAuthorityRequest(unsortedRequest); !errors.Is(err, kvapi.ErrSnapshotInvalid) {
+		t.Fatalf("unsorted request = %v, want invalid", err)
+	}
+
+	response, err := encodeAuthorityResponse(1, authorityResult{snapshot: kvapi.AuthoritySnapshot{
+		Entries: map[string]kvapi.Entry{"a": {Key: "a"}, "b": {Key: "b"}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstResponseRecord := authorityRecordHeader + len("a")
+	unsortedResponse := append([]byte(nil), response[:authorityRespHeader]...)
+	unsortedResponse = append(unsortedResponse, response[authorityRespHeader+firstResponseRecord:]...)
+	unsortedResponse = append(unsortedResponse, response[authorityRespHeader:authorityRespHeader+firstResponseRecord]...)
+	if _, err := decodeAuthorityResponse(unsortedResponse, []string{"a", "b"}); !errors.Is(err, kvapi.ErrSnapshotInvalid) {
+		t.Fatalf("unsorted response = %v, want invalid", err)
+	}
+
+	status, err := encodeAuthorityResponse(1, authorityResult{err: kvapi.ErrSnapshotBusy})
+	if err != nil {
+		t.Fatal(err)
+	}
+	status[10] = 1 // A non-success status has no publication revision.
+	if _, err := decodeAuthorityResponse(status, nil); !errors.Is(err, kvapi.ErrSnapshotInvalid) {
+		t.Fatalf("noncanonical status = %v, want invalid", err)
+	}
+}
+
 type expiredDeadlineContext struct{}
 
 func (expiredDeadlineContext) Deadline() (time.Time, bool) { return time.Now().Add(-time.Second), true }
@@ -345,6 +391,12 @@ type hangingBarrierRaft struct { //nolint:govet // embedded test raft mirrors th
 	fakeRaft
 	release chan struct{}
 	entered chan struct{}
+}
+
+type noAuthorityLeaderRaft struct{ fakeRaft }
+
+func (*noAuthorityLeaderRaft) Leader() (raftapi.ServerID, raftapi.ServerAddress, error) {
+	return "", "", raftapi.ErrNoLeader
 }
 
 type recordingBarrierRaft struct {
