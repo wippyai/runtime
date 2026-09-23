@@ -87,6 +87,23 @@ func TestPlanOverridesSelectStateCommandAndArguments(t *testing.T) {
 	require.Equal(t, cachePath(planned), record.options.Overrides.GetString("registry.dependency_vendor_dir", ""))
 }
 
+func TestApplicationOwnedCommandsReachTheApplication(t *testing.T) {
+	state := t.TempDir()
+	record := captureExecution(t)
+	executable := runnableExecutable(t)
+	for _, testCase := range []struct {
+		args []string
+		want []string
+	}{
+		{args: []string{"doctor", "--verbose"}, want: []string{"run", "--silent", "--", "desktop", "doctor", "--verbose"}},
+		{args: []string{"run", "update"}, want: []string{"run", "--silent", "--", "desktop", "update"}},
+	} {
+		args := append([]string{"--state", state}, testCase.args...)
+		require.NoError(t, Run(t.Context(), executable, args))
+		require.Equal(t, testCase.want, record.options.Args)
+	}
+}
+
 func TestPreparedConfigCannotRedirectHistoryOrCache(t *testing.T) {
 	state := t.TempDir()
 	record := captureExecution(t)
