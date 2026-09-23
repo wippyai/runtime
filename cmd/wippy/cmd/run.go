@@ -227,7 +227,7 @@ func runWithUseCase(cmd *cobra.Command, args []string, useCase string) (result e
 		logger.Error("failed to load deployment runtime defaults", zap.Error(err))
 		return err
 	}
-	cfg, err := loadRuntimeConfigWithDefaults(cmd, logger, runtimeDefaults)
+	cfg, err := loadRuntimeConfigWithPinnedWorkspace(cmd, logger, runtimeDefaults, workspaceCfg)
 	if err != nil {
 		logger.Error("failed to resolve runtime config", zap.Error(err))
 		return err
@@ -365,15 +365,38 @@ func loadRuntimeConfigWithDefaults(cmd *cobra.Command, logger *zap.Logger, runti
 	return composeRuntimeConfig(cmd, logger, runtimeDefaults, fullConfigResolution)
 }
 
+// loadRuntimeConfigWithPinnedWorkspace keeps local workspace paths selected by
+// the first pass. A packed profile may change vars used elsewhere, but it must
+// not indirectly redirect a workspace replacement after that replacement has
+// already selected the pack providing the profile.
+func loadRuntimeConfigWithPinnedWorkspace(cmd *cobra.Command, logger *zap.Logger, runtimeDefaults, workspaceCfg boot.Config) (boot.Config, error) {
+	resolution := fullConfigResolution
+	resolution.resolveVariables = func(cfg boot.Config) (boot.Config, error) {
+		if workspaceCfg != nil {
+			workspace := workspaceCfg.Sub("workspace")
+			values := make(map[string]any)
+			for _, key := range workspace.Keys() {
+				if value, ok := workspace.Get(key); ok {
+					values[key] = value
+				}
+			}
+			if len(values) > 0 {
+				cfg = bootconfig.Merge(cfg, boot.NewConfig(boot.WithSection("workspace", values)))
+			}
+		}
+		return bootconfig.ResolveVariables(cfg)
+	}
+	return composeRuntimeConfig(cmd, logger, runtimeDefaults, resolution)
+}
+
 // loadWorkspaceConfig resolves the local runtime config layers — config files,
 // native defaults and overrides, locally defined profiles, --set — without any
 // pack defaults. It exists to locate the deployment root before the root pack
-// is read. Its workspace section equals the workspace section of the full
-// config: packs never carry machine-local sections (runtimeConfigFromPackMetadata
-// rejects them), so profiles defined only by the pack contribute no workspace
-// keys and are left for the full resolution to apply and validate. Only the
-// workspace section is variable-resolved; other sections may reference
-// variables that the pack defines.
+// is read. Its resolved workspace section is pinned in the full config: packs
+// cannot directly publish machine-local sections, and packed profile variables
+// must not indirectly redirect a locally selected source. Only the workspace
+// section is variable-resolved; other sections may reference variables that
+// the pack defines.
 func loadWorkspaceConfig(cmd *cobra.Command, logger *zap.Logger) (boot.Config, error) {
 	return composeRuntimeConfig(cmd, logger, nil, workspaceConfigResolution)
 }

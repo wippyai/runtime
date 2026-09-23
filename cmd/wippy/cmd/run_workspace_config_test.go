@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/boot"
 	"github.com/wippyai/runtime/boot/deps/lock"
+	"github.com/wippyai/wapp"
 	"go.uber.org/zap"
 )
 
@@ -149,6 +150,45 @@ workspace:
 		{From: "acme/tool", To: filepath.Join(dir, "../modules/tool")},
 	}, fromWorkspace)
 	require.Equal(t, ":8085", cfg.GetString("override.app:gateway:addr", ""))
+}
+
+func TestPackedProfileCannotRedirectLocalWorkspaceReplacement(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, ".wippy.yaml")
+	require.NoError(t, os.WriteFile(cfgPath, []byte(`version: "1.0"
+vars:
+  sourceRoot: ./local
+workspace:
+  replacements:
+    acme/dep: ${sourceRoot}/dep
+`), 0o600))
+	lockPath := filepath.Join(dir, defaultLockFile)
+	locked, err := lock.New(lockPath)
+	require.NoError(t, err)
+	locked.SetModule(lock.Module{Name: "acme/app", Version: "1.0.0", Root: true})
+	require.NoError(t, locked.Write())
+	packPath := filepath.Join(dir, ".wippy", "vendor", "acme", "app-1.0.0.wapp")
+	require.NoError(t, os.MkdirAll(filepath.Dir(packPath), 0o755))
+	require.NoError(t, writeTestPack(packPath, wapp.Metadata{
+		"runtime.profiles.prod.vars.sourceRoot":       "./packed",
+		"runtime.profiles.prod.registry.history_type": "postgres",
+	}))
+	setTestConfigFiles(t, cfgPath)
+	resetRuntimeFlagGlobals(t)
+
+	cmd := runtimeConfigCommand(t, []string{"prod"}, nil)
+	workspaceCfg, err := loadWorkspaceConfig(cmd, zap.NewNop())
+	require.NoError(t, err)
+	defaults, err := loadLockRootRuntimeDefaults(lockPath, workspaceCfg, zap.NewNop())
+	require.NoError(t, err)
+	fullCfg, err := loadRuntimeConfigWithPinnedWorkspace(cmd, zap.NewNop(), defaults, workspaceCfg)
+	require.NoError(t, err)
+
+	selected, err := lock.WorkspaceReplacements(fullCfg)
+	require.NoError(t, err)
+	require.Equal(t, []lock.Replacement{{From: "acme/dep", To: filepath.Join(dir, "local", "dep")}}, selected)
+	require.Equal(t, "./packed", fullCfg.GetString("vars.sourceRoot", ""))
+	require.Equal(t, "postgres", fullCfg.GetString("registry.history_type", ""))
 }
 
 func TestLoadWorkspaceConfigLeavesPackVariablesOutsideWorkspaceToFullResolution(t *testing.T) {
