@@ -738,24 +738,25 @@ func (s *Service) applyIncoming(e *Entry, originStr string) {
 	internedOrigin := s.state.internNode(originStr)
 	e.Node = internedOrigin
 
-	outcome, _, lost := s.state.Apply(e)
+	outcome, fwd, lost := s.state.Apply(e)
 
 	// Epidemic forwarding: a frame that changed local state is new information,
 	// so re-broadcast it. The origin emits each delta one-shot to only
 	// GossipNodes peers; without forwarding the rest of the cluster converges
 	// solely via slow anti-entropy. Loop-free because a re-applied entry is a
-	// MergeNoop and is not re-queued. The queued entry is a copy: State retains
-	// `e` and may mutate it on later merges.
-	if outcome == MergeApplied || outcome == MergeConflictResolved || outcome == MergeDeleteWins {
-		cp := *e
+	// MergeNoop and is not re-queued. A superseded prior-incarnation dot forwards
+	// the re-minted local dot instead. The queued entry is a copy: State retains
+	// the forwarded dot and may mutate it on later merges.
+	if fwd != nil {
+		cp := *fwd
 		s.queue.Push(&cp)
 		s.tel.setQueueDepth(s.queue.Depth())
 	}
 
-	// A state-changing dot for our own origin can only be a peer echoing our state
-	// back — including a prior incarnation's dot or a node-left reap tombstone that
-	// overwrote a name we still own. Re-assert it so it is re-minted above the
-	// stale counter and converges the cluster back to live.
+	// A state-changing dot this replica accepts for its own origin is a
+	// tombstone, such as a peer's node-left reap of a binding this node still
+	// owns. Re-assert the owned name so it is re-minted above the tombstone and
+	// the cluster converges back to live.
 	if e.Node == s.state.LocalNode() &&
 		(outcome == MergeApplied || outcome == MergeDeleteWins || outcome == MergeConflictResolved) {
 		s.reassertOwned(e.Name)
@@ -774,6 +775,8 @@ func (s *Service) applyIncoming(e *Entry, originStr string) {
 		}
 	case MergeDeleteWins:
 		s.tel.recordMergeConflict("delete_wins")
+	case MergeSuperseded:
+		s.tel.recordMergeConflict("prior_incarnation")
 	case MergeNoop:
 		if e.Deleted {
 			// Late-arriving tombstone for an entry we no longer have.
