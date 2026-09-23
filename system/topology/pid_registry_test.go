@@ -4,6 +4,7 @@ package topology
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -11,6 +12,7 @@ import (
 	pidapi "github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/topology"
 	globalapi "github.com/wippyai/runtime/api/topology/namereg/global"
+	"github.com/wippyai/runtime/system/topology/namereg/admission"
 	"go.uber.org/zap"
 )
 
@@ -18,12 +20,18 @@ import (
 // via Lookup; reserved names surface via IsStrongReserved (the promotion-window
 // guard) but NOT via Lookup, mirroring the real service.
 type fakeGlobalRegistry struct {
-	active   map[string]pidapi.PID
-	reserved map[string]pidapi.PID
-	notReady bool
+	active            map[string]pidapi.PID
+	reserved          map[string]pidapi.PID
+	lookupCalls       int
+	notReady          bool
+	dropReadyOnLookup bool
 }
 
 func (f *fakeGlobalRegistry) Lookup(_ context.Context, name string, _ ...globalapi.LookupOption) (globalapi.LookupResult, error) {
+	f.lookupCalls++
+	if f.dropReadyOnLookup {
+		f.notReady = true
+	}
 	if p, ok := f.active[name]; ok {
 		return globalapi.LookupResult{PID: p, Found: true}, nil
 	}
@@ -108,12 +116,30 @@ func TestPIDRegistry_JoinBarrierGatesLocalRegister(t *testing.T) {
 	p := pidapi.PID{Node: "node-1", Host: "host", UniqID: "p1"}
 	_, err := reg.Register("local.gated", p)
 	assert.ErrorIs(t, err, topology.ErrNameServiceNotReady, "fresh local register refused while barrier in progress")
+	assert.Equal(t, 0, gr.lookupCalls, "unready admission must not forward a lookup")
 
 	// Barrier completes — the same register now succeeds.
 	gr.notReady = false
 	got, err := reg.Register("local.gated", p)
 	assert.NoError(t, err)
 	assert.Equal(t, p, got)
+}
+
+func TestPIDRegistry_ReadinessLostDuringLookupDoesNotPublish(t *testing.T) {
+	gr := &fakeGlobalRegistry{dropReadyOnLookup: true}
+	reg := NewPIDRegistry(WithGlobalRegistry(gr), WithAdmissionCoordinator(&admission.Coordinator{}))
+	p := pidapi.PID{Node: "node-1", Host: "host", UniqID: "owner"}
+	if _, err := reg.Register("lost-readiness", p); !errors.Is(err, topology.ErrNameServiceNotReady) {
+		t.Fatalf("register after readiness loss: %v", err)
+	}
+	if _, ok := reg.LookupLocal("lost-readiness"); ok {
+		t.Fatal("LOCAL binding published after readiness loss")
+	}
+	gr.dropReadyOnLookup = false
+	gr.notReady = false
+	if _, err := reg.Register("lost-readiness", p); err != nil {
+		t.Fatalf("name gate was not released: %v", err)
+	}
 }
 
 // TestPIDRegistry_JoinBarrierAllowsReRegister proves a re-register of an

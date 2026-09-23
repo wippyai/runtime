@@ -17,6 +17,7 @@ import (
 	"github.com/wippyai/runtime/api/topology"
 	"github.com/wippyai/runtime/api/topology/namereg/global"
 	"github.com/wippyai/runtime/system/eventbus"
+	"github.com/wippyai/runtime/system/topology/namereg/admission"
 	"go.uber.org/zap"
 )
 
@@ -69,6 +70,8 @@ type MessageSender interface {
 
 // Config configures a Service.
 type Config struct {
+	// Admission serializes this node's decisions for one name across scopes.
+	Admission *admission.Coordinator
 	// Peers supplies the current alive peer set.
 	Peers PeerInventory
 	// CrossScope optionally cross-checks CONSISTENT/LOCAL on Register.
@@ -268,34 +271,51 @@ func (s *Service) register(name string, p pid.PID, opts ...RegisterOption) (pid.
 	for _, opt := range opts {
 		opt(&o)
 	}
+	release := s.cfg.Admission.Acquire(name)
 
 	// Cross-scope check first — refuse to shadow CONSISTENT or LOCAL.
 	if s.cfg.CrossScope != nil {
+		// A client cold miss can forward to a leader; do not hold the local
+		// admission gate over that request without a pending-state feed.
+		if !s.cfg.CrossScope.NameReady() {
+			if cur, ok := s.state.Lookup(name); ok && cur.Equal(p) {
+				release()
+				return p, nil
+			}
+			s.tel.recordRegister("not_ready")
+			release()
+			return p, ErrNameServiceNotReady
+		}
 		existing, found, err := s.cfg.CrossScope.LookupOther(name, p)
 		if err != nil {
+			s.tel.recordRegister("check_failed")
+			release()
 			return pid.PID{}, err
 		}
 		if found {
 			if existing.Equal(p) {
+				release()
 				return p, nil
 			}
 			s.tel.recordRegister("conflict_other_scope")
+			release()
 			return existing, ErrNameAlreadyRegistered
-		}
-		// Join-epoch gate: refuse a fresh claim while the barrier is in progress,
-		// unless this node already holds the name to the same pid (re-register is
-		// safe — no shadowing risk).
-		if !s.cfg.CrossScope.NameReady() {
-			if cur, ok := s.state.Lookup(name); ok && cur.Equal(p) {
-				return p, nil
-			}
-			s.tel.recordRegister("not_ready")
-			return p, ErrNameServiceNotReady
 		}
 	}
 
 	mutation := &s.ownedMutations[ShardFor(name)]
 	mutation.Lock()
+	if s.cfg.CrossScope != nil && !s.cfg.CrossScope.NameReady() {
+		if cur, ok := s.state.Lookup(name); ok && cur.Equal(p) {
+			mutation.Unlock()
+			release()
+			return p, nil
+		}
+		mutation.Unlock()
+		s.tel.recordRegister("not_ready")
+		release()
+		return p, ErrNameServiceNotReady
+	}
 	res := s.state.Register(name, p, time.Now().UnixMilli(), o.priority)
 	if res.Won {
 		s.ownedMu.Lock()
@@ -303,6 +323,7 @@ func (s *Service) register(name string, p pid.PID, opts ...RegisterOption) (pid.
 		s.ownedMu.Unlock()
 	}
 	mutation.Unlock()
+	release()
 	if !res.Won {
 		if res.Lost != nil {
 			// Cross-origin loss: the local dot was minted and installed, so
@@ -357,6 +378,7 @@ func (s *Service) RevokeForStrong(name string, keep pid.PID) bool {
 	if s.stopped.Load() {
 		return false
 	}
+	release := s.cfg.Admission.Acquire(name)
 	mutation := &s.ownedMutations[ShardFor(name)]
 	mutation.Lock()
 	e, revoked := s.state.unregisterLocal(name, time.Now().UnixMilli(), &keep)
@@ -368,6 +390,7 @@ func (s *Service) RevokeForStrong(name string, keep pid.PID) bool {
 	}
 	s.ownedMu.Unlock()
 	mutation.Unlock()
+	release()
 	if e == nil {
 		return false
 	}
@@ -383,6 +406,7 @@ func (s *Service) Unregister(name string) bool {
 	if s.stopped.Load() {
 		return false
 	}
+	release := s.cfg.Admission.Acquire(name)
 	mutation := &s.ownedMutations[ShardFor(name)]
 	mutation.Lock()
 	e := s.state.Unregister(name, time.Now().UnixMilli())
@@ -390,6 +414,7 @@ func (s *Service) Unregister(name string) bool {
 	delete(s.owned, name)
 	s.ownedMu.Unlock()
 	mutation.Unlock()
+	release()
 	if e == nil {
 		s.tel.recordUnregister("not_found")
 		return false
@@ -787,21 +812,40 @@ func (s *Service) applyIncoming(e *Entry, originStr string) {
 // name is not owned or already resolves to our pid, so it fires at most once per
 // stale override and cannot loop.
 func (s *Service) reassertOwned(name string) {
+	release := s.cfg.Admission.Acquire(name)
 	mutation := &s.ownedMutations[ShardFor(name)]
 	mutation.Lock()
+	unlock := func() {
+		mutation.Unlock()
+		release()
+	}
 	s.ownedMu.Lock()
 	reg, ok := s.owned[name]
 	s.ownedMu.Unlock()
 	if !ok || s.stopped.Load() {
-		mutation.Unlock()
+		unlock()
 		return
 	}
+	if s.cfg.CrossScope != nil {
+		if !s.cfg.CrossScope.NameReady() {
+			unlock()
+			return
+		}
+		other, found, err := s.cfg.CrossScope.LookupOther(name, reg.pid)
+		if err != nil || (found && !other.Equal(reg.pid)) || !s.cfg.CrossScope.NameReady() {
+			unlock()
+			return
+		}
+	}
 	if cur, found := s.state.Lookup(name); found && cur.Equal(reg.pid) {
-		mutation.Unlock()
+		unlock()
 		return
 	}
 	res := s.state.Register(name, reg.pid, time.Now().UnixMilli(), reg.priority)
-	mutation.Unlock()
+	unlock()
+	if !res.Won || res.Entry == nil {
+		return
+	}
 	s.queue.Push(res.Entry)
 	s.tel.recordReregistration()
 	s.tel.setEntries(s.state.LiveCount(), s.state.TombstoneCount())
