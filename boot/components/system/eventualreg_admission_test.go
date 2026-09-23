@@ -18,8 +18,8 @@ type unavailableGlobalRegistry struct{ topology.GlobalRegistry }
 
 type eventualLookupStub struct {
 	topology.EventualRegistry
-	owner pid.PID
 	err   error
+	owner pid.PID
 }
 
 func (s eventualLookupStub) Lookup(context.Context, string, ...global.LookupOption) (global.LookupResult, error) {

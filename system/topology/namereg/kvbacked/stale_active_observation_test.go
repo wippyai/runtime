@@ -19,9 +19,9 @@ func TestOlderActiveEventsCannotReplaceNewerPendingExclusion(t *testing.T) {
 	gate := &admission.Coordinator{}
 	r := newStrongReg(t, []pid.NodeID{"node-1", "ghost"}, time.Minute, nil)
 	r.ConfigureStrong(StrongDeps{
-		Admission:  gate,
-		IsLeader:   func() bool { return false },
-		Deadline:   time.Minute,
+		Admission: gate,
+		IsLeader:  func() bool { return false },
+		Deadline:  time.Minute,
 	})
 	local := topology.NewPIDRegistry(topology.WithGlobalRegistry(r), topology.WithAdmissionCoordinator(gate))
 	// Drive the ordered observer explicitly so no background worker repairs a

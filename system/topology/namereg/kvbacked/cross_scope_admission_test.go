@@ -52,9 +52,9 @@ func TestStrongPendingVoteExcludesLocalAndEventualBeforeAckCommits(t *testing.T)
 	eventualReg := eventual.NewService(eventual.Config{LocalNodeID: "node-1", Admission: gate,
 		CrossScope: otherScopeChecker{strong: r, local: local}})
 	r.ConfigureStrong(StrongDeps{
-		Admission:  gate,
-		IsLeader:   func() bool { return false },
-		Deadline:   time.Minute,
+		Admission: gate,
+		IsLeader:  func() bool { return false },
+		Deadline:  time.Minute,
 		LocalConflict: func(name string, _ pid.PID) (pid.PID, bool, error) {
 			if p, ok := local.LookupLocal(name); ok {
 				return p, true, nil
@@ -75,7 +75,7 @@ func TestStrongPendingVoteExcludesLocalAndEventualBeforeAckCommits(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := held.Engine.Set(pendingKey("held"), value); err != nil {
+	if _, err := held.Set(pendingKey("held"), value); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -83,7 +83,7 @@ func TestStrongPendingVoteExcludesLocalAndEventualBeforeAckCommits(t *testing.T)
 	case <-time.After(2 * time.Second):
 		t.Fatal("Strong worker did not reach paused vote")
 	}
-	if _, err := held.Engine.Get(ackKey("held", attempt, "node-1")); err == nil {
+	if _, err := held.Get(ackKey("held", attempt, "node-1")); err == nil {
 		t.Fatal("vote already committed while held")
 	}
 	competitor := mkPID("node-1", "competitor")
@@ -98,7 +98,7 @@ func TestStrongPendingVoteExcludesLocalAndEventualBeforeAckCommits(t *testing.T)
 	}
 	held.Release()
 	if !eventually(t, 2*time.Second, func() bool {
-		_, err := held.Engine.Get(ackKey("held", attempt, "node-1"))
+		_, err := held.Get(ackKey("held", attempt, "node-1"))
 		return err == nil
 	}) {
 		t.Fatal("admitted Strong vote did not complete")
@@ -118,8 +118,8 @@ func TestStrongVoteSeesLocalAdmissionThatStartedFirst(t *testing.T) {
 	})
 	local := topology.NewPIDRegistry(topology.WithGlobalRegistry(lookup), topology.WithAdmissionCoordinator(gate))
 	r.ConfigureStrong(StrongDeps{Admission: gate,
-		IsLeader:   func() bool { return false },
-		Deadline:   time.Minute,
+		IsLeader: func() bool { return false },
+		Deadline: time.Minute,
 		LocalConflict: func(name string, _ pid.PID) (pid.PID, bool, error) {
 			p, ok := local.LookupLocal(name)
 			return p, ok, nil

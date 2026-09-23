@@ -183,8 +183,8 @@ func TestReconcileUsesOneSnapshotAcrossPromotion(t *testing.T) {
 
 	r := NewService(engine, "node-1", nil, nil)
 	r.ConfigureStrong(StrongDeps{
-		IsLeader:   func() bool { return false },
-		Deadline:   time.Second,
+		IsLeader: func() bool { return false },
+		Deadline: time.Second,
 	})
 	pending, err := engine.Get(pendingKey("claim"))
 	if err != nil {
@@ -444,8 +444,8 @@ func TestStrongWatchSnapshotErrorStopsAdmission(t *testing.T) {
 	wrapped := &toggleSnapshotEngine{Engine: engine}
 	r := NewService(wrapped, "node-1", nil, nil)
 	r.ConfigureStrong(StrongDeps{
-		IsLeader:   func() bool { return false },
-		Deadline:   time.Second,
+		IsLeader: func() bool { return false },
+		Deadline: time.Second,
 	})
 	if err := r.StartReconciler(context.Background()); err != nil {
 		t.Fatal(err)
@@ -504,8 +504,8 @@ func TestStrongSweepSnapshotErrorStopsAdmission(t *testing.T) {
 	wrapped := &toggleSnapshotEngine{Engine: engine, watcher: watcher}
 	r := NewService(wrapped, "node-1", nil, nil)
 	r.ConfigureStrong(StrongDeps{
-		IsLeader:   func() bool { return true },
-		Deadline:   time.Second,
+		IsLeader: func() bool { return true },
+		Deadline: time.Second,
 	})
 	if err := r.StartReconciler(context.Background()); err != nil {
 		t.Fatal(err)

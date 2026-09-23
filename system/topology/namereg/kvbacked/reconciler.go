@@ -34,25 +34,25 @@ type reconcilerWatch struct{ kvapi.Watcher }
 const strongReconcileWorkers = 4
 
 type reconcileSlot struct {
-	dirty     bool
-	inFlight  bool
 	queueElem *list.Element
 	attemptID string
+	dirty     bool
+	inFlight  bool
 }
 
 type reconcileWork struct {
-	name string
 	slot *reconcileSlot
+	name string
 	scan bool
 }
 
 type reconcileReport struct {
-	name      string
-	attemptID string
-	retryAt   int64
 	slot      *reconcileSlot
 	scanErr   error
 	err       error
+	name      string
+	attemptID string
+	retryAt   int64
 }
 
 // reconcilerOwner is the sole owner of ordered watch events and the
@@ -65,12 +65,12 @@ type reconcilerOwner struct {
 	actions       chan reconcileWork
 	done          chan reconcileReport
 	wake          chan struct{}
-	mu            sync.Mutex
 	slots         map[string]*reconcileSlot
+	started       chan struct{}
 	ready         list.List
+	mu            sync.Mutex
 	scanRequested bool
 	scanInFlight  bool
-	started       chan struct{}
 }
 
 func newReconcilerOwner(s *Service, run *reconcilerLifecycle) *reconcilerOwner {
@@ -365,7 +365,7 @@ func (s *Service) StartReconciler(ctx context.Context) (err error) {
 		return fmt.Errorf("naming participant without a local replica requires an authority feed")
 	}
 	if s.strong != nil && (s.localRead == nil || s.localScan == nil) {
-		return fmt.Errorf("Strong registry requires coherent local KV snapshots")
+		return fmt.Errorf("strong registry requires coherent local KV snapshots")
 	}
 	if err := ctx.Err(); err != nil {
 		return err
@@ -672,18 +672,16 @@ func (s *Service) handleWatchEvent(ev kvapi.WatchEvent) error {
 				} else {
 					s.strong.mark(name)
 				}
-			} else {
-				if ev.Previous != nil {
-					header, err := decodePending(ev.Previous.Value)
-					if err != nil {
-						return fmt.Errorf("registry record %q: %w", key, err)
-					}
-					if err := validateNamingRecord(key, pendingPrefix, header.Name, header.PID); err != nil {
-						return err
-					}
-					if err := s.transitionPendingDelete(name, header.AttemptID, ev.Revision); err != nil {
-						return err
-					}
+			} else if ev.Previous != nil {
+				header, err := decodePending(ev.Previous.Value)
+				if err != nil {
+					return fmt.Errorf("registry record %q: %w", key, err)
+				}
+				if err := validateNamingRecord(key, pendingPrefix, header.Name, header.PID); err != nil {
+					return err
+				}
+				if err := s.transitionPendingDelete(name, header.AttemptID, ev.Revision); err != nil {
+					return err
 				}
 			}
 		}

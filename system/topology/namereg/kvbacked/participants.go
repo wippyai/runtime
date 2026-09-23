@@ -97,7 +97,7 @@ func (st *strongState) enroll(ctx context.Context) error {
 	contextErr := func() error {
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			if submitErr != nil {
-				return fmt.Errorf("naming participant activation timed out after submission error %v: %w", submitErr, ctx.Err())
+				return fmt.Errorf("naming participant activation timed out (last submission: %w): %w", submitErr, ctx.Err())
 			}
 			return fmt.Errorf("naming participant activation timed out: %w", ctx.Err())
 		}
@@ -141,13 +141,13 @@ func (st *strongState) enroll(ctx context.Context) error {
 		// outside the engine call so startup can close admission on deadline.
 		// Never issue a second submission while the first is unresolved.
 		type txnResult struct {
-			committed bool
 			err       error
+			committed bool
 		}
 		result := make(chan txnResult, 1)
 		go func() {
 			committed, err := st.svc.engine.Txn(ops)
-			result <- txnResult{committed, err}
+			result <- txnResult{err: err, committed: committed}
 		}()
 		var committed bool
 		select {

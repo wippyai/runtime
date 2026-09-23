@@ -140,13 +140,13 @@ type strongExclusion struct {
 }
 
 type strongWaiter struct {
-	attemptID string
 	ch        chan strongCompletion
+	attemptID string
 }
 
 type strongCompletion struct {
-	out      globalapi.RegisterOutcome
 	terminal *terminalResult
+	out      globalapi.RegisterOutcome
 }
 
 type strongTimer struct {
@@ -171,7 +171,6 @@ type StrongDeps struct {
 type strongState struct {
 	admission         *admission.Coordinator
 	svc               *Service
-	activation        string
 	isLeader          func() bool
 	observeLeadership func() raftapi.Leadership
 	localConflict     func(name string, p pid.PID) (pid.PID, bool, error)
@@ -180,8 +179,9 @@ type strongState struct {
 	exclusions        map[string]strongExclusion
 	timers            map[string]*strongTimer
 	waiters           map[string][]*strongWaiter
-	deadline          time.Duration
 	owner             atomic.Pointer[reconcilerOwner]
+	activation        string
+	deadline          time.Duration
 	mu                sync.Mutex
 }
 
@@ -866,7 +866,9 @@ func (st *strongState) unreserve(name string) (bool, error) {
 	if err == nil {
 		hdr, derr := decodePending(pe.Value)
 		if derr == nil {
-			st.leaderExpire(name, pe.Epoch, pe.Version, hdr, "unreserve")
+			if _, err := st.leaderExpire(name, pe.Epoch, pe.Version, hdr, "unreserve"); err != nil {
+				return false, err
+			}
 		}
 	}
 	return st.svc.UnregisterScope(context.Background(), name, globalapi.Consistent)
@@ -986,10 +988,6 @@ func (st *strongState) deliver(name, attemptID string, completion strongCompleti
 		default:
 		}
 	}
-}
-
-func (st *strongState) armTimer(name string, deadlineUnixNano int64) {
-	st.armTimerAttempt(name, "", deadlineUnixNano)
 }
 
 func (st *strongState) armTimerAttempt(name, attemptID string, deadlineUnixNano int64) {
