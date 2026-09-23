@@ -50,6 +50,7 @@ type Host struct {
 	lifecycleMu     sync.Mutex
 	running         atomic.Bool
 	shutdown        atomic.Bool
+	drained         atomic.Bool
 }
 
 // NewHost creates a new host with actor scheduler.
@@ -225,7 +226,9 @@ func (h *Host) Send(pkg *relay.Package) error {
 
 // SendContext implements relay.ContextSender. The actor scheduler admits
 // messages without a blocking goroutine, so cancellation can stop a relay
-// directly at the host boundary.
+// directly at the host boundary. Deliveries stay open while Stop drains the
+// scheduler: a cancelled process still receives the timers, child exits and
+// replies its cleanup waits on.
 func (h *Host) SendContext(ctx context.Context, pkg *relay.Package) error {
 	if ctx == nil {
 		ctx = context.Background()
@@ -233,7 +236,7 @@ func (h *Host) SendContext(ctx context.Context, pkg *relay.Package) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if h.shutdown.Load() {
+	if h.drained.Load() {
 		return ErrHostShuttingDown
 	}
 	return h.scheduler.SendContext(ctx, pkg)
@@ -246,12 +249,15 @@ func (h *Host) Start(ctx context.Context) (<-chan any, error) {
 	if h.shutdown.Load() {
 		return nil, ErrHostShuttingDown
 	}
-	if h.running.Swap(true) {
+	if h.running.Load() {
 		return nil, ErrHostAlreadyRunning
 	}
 
+	// Run reads ctx and submits to the scheduler once running is observed,
+	// so running is published only after both are ready.
 	h.ctx = ctx
 	h.scheduler.Start()
+	h.running.Store(true)
 
 	h.log.Info("host started", zap.String("id", h.id.String()))
 	return nil, nil //nolint:nilnil // nil channel is valid - no result stream
@@ -268,12 +274,14 @@ func (h *Host) Stop(ctx context.Context) error {
 	// may wait for a process step or invoke lifecycle callbacks; Start and live
 	// Update must reject during that wait instead of blocking behind it.
 	if !wasRunning {
+		h.drained.Store(true)
 		return nil
 	}
 
 	h.log.Info("host stopping", zap.String("id", h.id.String()))
 
 	h.scheduler.Stop(ctx)
+	h.drained.Store(true)
 
 	h.log.Info("host stopped", zap.String("id", h.id.String()))
 	return nil

@@ -45,6 +45,7 @@ type Host struct {
 	shutdown     atomic.Bool
 	stopCalls    atomic.Uint64
 	lifecycleMu  sync.RWMutex
+	drained      atomic.Bool
 	statusClosed bool
 	doneClosed   bool
 }
@@ -264,7 +265,9 @@ func (h *Host) Send(pkg *relay.Package) error {
 
 // SendContext implements relay.ContextSender through the actor scheduler.
 // Admission is non-blocking, so cancellation never requires a detached
-// delivery goroutine.
+// delivery goroutine. Deliveries stay open while Stop drains the scheduler:
+// a cancelled process still receives the timers, child exits and replies its
+// cleanup waits on.
 func (h *Host) SendContext(ctx context.Context, pkg *relay.Package) error {
 	if ctx == nil {
 		ctx = context.Background()
@@ -272,7 +275,7 @@ func (h *Host) SendContext(ctx context.Context, pkg *relay.Package) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if h.shutdown.Load() {
+	if h.drained.Load() {
 		return ErrHostShuttingDown
 	}
 	return h.scheduler.SendContext(ctx, pkg)
@@ -287,6 +290,7 @@ func (h *Host) Start(ctx context.Context) (<-chan any, error) {
 	h.lifecycleMu.Lock()
 	h.ctx = ctx
 	h.shutdown.Store(false)
+	h.drained.Store(false)
 	// Recreate lifecycle channels on each start so stop/restart cycles
 	// don't reuse closed channels from a previous run.
 	h.statusCh = make(chan any, 1)
@@ -318,6 +322,7 @@ func (h *Host) Stop(ctx context.Context) error {
 		zap.Uint64("attempt", stopAttempt))
 
 	h.scheduler.Stop(ctx)
+	h.drained.Store(true)
 	h.closeStatus()
 
 	if h.raw != nil {

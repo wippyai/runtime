@@ -608,7 +608,8 @@ func TestHost_Send(t *testing.T) {
 
 func TestHost_SendShuttingDown(t *testing.T) {
 	th := newTestHost()
-	th.host.shutdown.Store(true)
+	th.start(t)
+	th.stop()
 
 	err := th.host.Send(&relay.Package{})
 	assert.ErrorIs(t, err, ErrHostShuttingDown)
@@ -1108,3 +1109,96 @@ func TestHost_Run_WorkerClassPlacement(t *testing.T) {
 var _ process.Host = (*Host)(nil)
 var _ topology.PIDRegistry = (*mockPIDRegistry)(nil)
 var _ process.Lifecycle = (*mockLifecycle)(nil)
+
+// drainingProcess waits after CANCEL for one more relay delivery, as a
+// process does when its cleanup waits on a timer or a child exit.
+type drainingProcess struct {
+	cancelled chan struct{}
+	once      sync.Once
+}
+
+func (p *drainingProcess) Init(context.Context, string, payload.Payloads) error { return nil }
+
+func (p *drainingProcess) Step(events []process.Event, out *process.StepOutput) error {
+	for _, event := range events {
+		pkg, ok := event.Data.(*relay.Package)
+		if event.Type != process.EventMessage || !ok {
+			continue
+		}
+		for _, message := range pkg.Messages {
+			switch message.Topic {
+			case topology.TopicEvents:
+				p.once.Do(func() { close(p.cancelled) })
+			case "cleanup":
+				relay.ReleasePackage(pkg)
+				out.Done(nil)
+				return nil
+			}
+		}
+		relay.ReleasePackage(pkg)
+	}
+	out.Idle()
+	return nil
+}
+
+func (p *drainingProcess) Close() {}
+
+func TestHostStopDeliversToDrainingProcess(t *testing.T) {
+	th := newTestHost()
+	th.start(t)
+
+	processID := pid.PID{Node: "test-node", Host: "test:host", UniqID: "draining"}
+	processID = processID.Precomputed()
+	proc := &drainingProcess{cancelled: make(chan struct{})}
+	_, err := th.scheduler.Submit(context.Background(), processID, proc, "", nil)
+	require.NoError(t, err)
+
+	stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	stopped := make(chan error, 1)
+	go func() { stopped <- th.host.Stop(stopCtx) }()
+
+	select {
+	case <-proc.cancelled:
+	case <-time.After(time.Second):
+		t.Fatal("process did not receive CANCEL")
+	}
+	pkg := relay.NewPackage(pid.PID{}, processID, "cleanup", payload.New("tick"))
+	require.NoError(t, th.host.Send(pkg), "a draining process must keep receiving deliveries")
+
+	select {
+	case err := <-stopped:
+		require.NoError(t, err)
+		require.NoError(t, stopCtx.Err(), "drain ran into the stop deadline")
+	case <-time.After(6 * time.Second):
+		t.Fatal("host drain did not complete")
+	}
+
+	late := relay.NewPackage(pid.PID{}, processID, "cleanup", payload.New("late"))
+	require.ErrorIs(t, th.host.Send(late), ErrHostShuttingDown)
+	relay.ReleasePackage(late)
+}
+
+func TestHost_RunRacingStartUsesStartedHost(t *testing.T) {
+	th := newTestHost()
+	defer th.stop()
+
+	ran := make(chan error, 1)
+	go func() {
+		for {
+			_, err := th.host.Run(ctxWithAppContext(), &process.Start{Source: registry.NewID("test", "proc")})
+			if !errors.Is(err, ErrHostNotRunning) {
+				ran <- err
+				return
+			}
+		}
+	}()
+	th.start(t)
+
+	select {
+	case err := <-ran:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run never observed the started host")
+	}
+}
