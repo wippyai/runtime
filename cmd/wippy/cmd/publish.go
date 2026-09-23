@@ -18,6 +18,7 @@ import (
 	"github.com/Masterminds/semver/v3"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/boot"
 	"github.com/wippyai/runtime/api/version"
 	"github.com/wippyai/runtime/boot/build"
@@ -36,7 +37,9 @@ var publishCmd = &cobra.Command{
 	Long: `Publish a module to the wippy hub.
 
 Reads configuration from wippy.yaml in the current directory,
-packs the module, and uploads it to the hub.
+packs the module, and uploads it to the hub. With --wapp it uploads an
+existing pack byte for byte, so the Hub records the digest a lock file
+already pins for that pack.
 
 Version can be provided via --version flag, wippy.yaml, or
 selected interactively by bumping the latest published version.
@@ -45,6 +48,7 @@ Examples:
   wippy publish                       # Auto-bump from latest version
   wippy publish --version 1.2.0       # Publish specific version
   wippy publish --dry-run             # Pack only, don't upload
+  wippy publish --wapp tools.wapp     # Upload an existing pack unchanged
   wippy publish --label latest        # Publish as mutable label`,
 	RunE: runPublish,
 }
@@ -64,6 +68,7 @@ func init() {
 	publishCmd.Flags().String("module-visibility", "private", "visibility for newly created modules (--create only): public or private")
 	publishCmd.Flags().String("module-type", "", "module type: library, application, agent or plugin (overrides `type:` in wippy.yaml)")
 	publishCmd.Flags().String("module-display-name", "", "display name for newly created modules (--create only)")
+	publishCmd.Flags().String("wapp", "", "upload this existing .wapp byte for byte instead of packing the source; its metadata supplies the version")
 }
 
 func runPublish(cmd *cobra.Command, _ []string) error {
@@ -82,6 +87,14 @@ func runPublish(cmd *cobra.Command, _ []string) error {
 	moduleVisibility, _ := cmd.Flags().GetString("module-visibility")
 	moduleType, _ := cmd.Flags().GetString("module-type")
 	moduleDisplayName, _ := cmd.Flags().GetString("module-display-name")
+	wappPath, _ := cmd.Flags().GetString("wapp")
+
+	if wappPath != "" && label != "" {
+		return NewPublishConfigError(fmt.Errorf("--wapp publishes an exact version and cannot be combined with --label"))
+	}
+	if wappPath != "" && embedChanged {
+		return NewPublishConfigError(fmt.Errorf("--wapp publishes the pack as built and cannot be combined with --embed"))
+	}
 
 	cfg, err := config.Load(configDir)
 	if err != nil {
@@ -110,6 +123,26 @@ func runPublish(cmd *cobra.Command, _ []string) error {
 		if err := cfg.Validate(); err != nil {
 			return NewPublishConfigError(err)
 		}
+	}
+
+	// Keep validation, the displayed digest, and every upload attempt bound to
+	// one immutable copy. A release build may replace the source path while a
+	// publish is waiting for module registration or a Hub retry.
+	var sealedPath string
+	if wappPath != "" {
+		sealedPath, err = snapshotPublishPack(wappPath)
+		if err != nil {
+			return NewPublishConfigError(err)
+		}
+		defer os.Remove(sealedPath)
+		packVersion, err := readPublishablePack(sealedPath, wappPath, cfg.FullName())
+		if err != nil {
+			return NewPublishConfigError(err)
+		}
+		if cfg.Version != "" && cfg.Version != packVersion {
+			return NewPublishConfigError(fmt.Errorf("pack version %q does not match publish version %q", packVersion, cfg.Version))
+		}
+		cfg.Version = packVersion
 	}
 
 	projectDir, _ := os.Getwd()
@@ -155,26 +188,39 @@ func runPublish(cmd *cobra.Command, _ []string) error {
 	fmt.Println()
 	printPublishInfo(cfg, label, registryURL)
 
-	app, err := appinit.Init(cmd.Context(), verbose, veryVerbose, console, silentLogs, appStartTime)
-	if err != nil {
-		return NewInitAppError(err)
+	var outputFile, digest string
+	if wappPath != "" {
+		outputFile = sealedPath
+		var size int64
+		digest, size, err = digestAndSizeFromFile(sealedPath)
+		if err != nil {
+			return NewPublishDigestError(err)
+		}
+		printSuccess(fmt.Sprintf("Pack selected: %s (%s)", wappPath, formatFileSize(size)))
+	} else {
+		app, err := appinit.Init(cmd.Context(), verbose, veryVerbose, console, silentLogs, appStartTime)
+		if err != nil {
+			return NewInitAppError(err)
+		}
+
+		outputFile = filepath.Join(os.TempDir(), cfg.OutputFileName())
+		defer os.Remove(outputFile)
+
+		printStatus("Packing module...")
+
+		embedPatterns := cfg.Embed
+		if embedChanged {
+			embedPatterns = embedFlag
+		}
+		packResult, err := packModule(app.Ctx, app, cfg, configDir, outputFile, embedPatterns)
+		if err != nil {
+			return err
+		}
+		digest = packResult.Digest
+
+		printSuccess(fmt.Sprintf("Pack created: %s (%s)", packResult.Path, formatFileSize(packResult.Size)))
 	}
-
-	outputFile := filepath.Join(os.TempDir(), cfg.OutputFileName())
-	defer os.Remove(outputFile)
-
-	printStatus("Packing module...")
-
-	embedPatterns := cfg.Embed
-	if embedChanged {
-		embedPatterns = embedFlag
-	}
-	packResult, err := packModule(app.Ctx, app, cfg, configDir, outputFile, embedPatterns)
-	if err != nil {
-		return err
-	}
-
-	printSuccess(fmt.Sprintf("Pack created: %s (%s)", packResult.Path, formatFileSize(packResult.Size)))
+	printStatus("Digest: sha256:" + digest)
 
 	if dryRun {
 		printSuccess("Dry run complete")
@@ -545,6 +591,89 @@ func packModule(ctx context.Context, app *appinit.Context, cfg *config.ModuleCon
 		Size:   stat.Size(),
 		Digest: digest,
 	}, nil
+}
+
+// snapshotPublishPack captures one private copy for validation and upload.
+// It prevents a concurrent rebuild from changing the bytes after validation.
+// The caller owns and removes the returned path.
+func snapshotPublishPack(path string) (string, error) {
+	source, err := os.Open(path)
+	if err != nil {
+		return "", fmt.Errorf("open pack %s: %w", path, err)
+	}
+	defer source.Close()
+
+	snapshot, err := os.CreateTemp("", "wippy-publish-*.wapp")
+	if err != nil {
+		return "", fmt.Errorf("create pack snapshot: %w", err)
+	}
+	snapshotPath := snapshot.Name()
+	if _, err := io.Copy(snapshot, source); err != nil {
+		_ = snapshot.Close()
+		_ = os.Remove(snapshotPath)
+		return "", fmt.Errorf("snapshot pack %s: %w", path, err)
+	}
+	if err := snapshot.Close(); err != nil {
+		_ = os.Remove(snapshotPath)
+		return "", fmt.Errorf("close pack snapshot: %w", err)
+	}
+	return snapshotPath, nil
+}
+
+// readPublishablePack validates an existing pack for publication as module and
+// returns the exact version its metadata declares. The pack must identify
+// module by name and namespace and hold exactly one ns.definition entry.
+func readPublishablePack(path, displayPath, module string) (string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return "", fmt.Errorf("open pack %s: %w", displayPath, err)
+	}
+	defer file.Close()
+
+	reader, err := wapp.NewReader(file)
+	if err != nil {
+		return "", fmt.Errorf("read pack %s: %w", displayPath, err)
+	}
+	packMetadata, err := reader.GetMetadata()
+	if err != nil {
+		return "", fmt.Errorf("read pack metadata %s: %w", displayPath, err)
+	}
+	metadata := attrs.NewBagFrom(packMetadata)
+	for _, key := range []string{"name", "namespace", "version"} {
+		if _, ok := metadata[key]; !ok {
+			return "", fmt.Errorf("pack metadata has no %q", key)
+		}
+	}
+	if err := validateModulePackIdentity(metadata, module); err != nil {
+		return "", err
+	}
+	version := metadata.GetString("version", "")
+	if err := config.ValidateVersion(version); err != nil {
+		return "", err
+	}
+
+	packEntries, err := reader.GetEntries()
+	if err != nil {
+		return "", fmt.Errorf("read pack entries %s: %w", displayPath, err)
+	}
+	definitionCount := 0
+	for _, entry := range packEntries {
+		if entry.Kind == "ns.definition" {
+			definitionCount++
+		}
+	}
+	if definitionCount == 0 {
+		return "", NewPublishNoDefinitionError()
+	}
+	if definitionCount > 1 {
+		return "", NewPublishMultipleDefinitionsError(definitionCount)
+	}
+	for _, resource := range reader.ListResources() {
+		if _, err := reader.GetFS(resource.ID); err != nil {
+			return "", fmt.Errorf("read pack resource %s in %s: %w", resource.ID.String(), displayPath, err)
+		}
+	}
+	return version, nil
 }
 
 func computeFileDigest(path string) (string, error) {

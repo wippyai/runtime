@@ -43,6 +43,10 @@ const (
 	MergeConflictResolved
 	// MergeDeleteWins means a same-origin tombstone won on equal dot.
 	MergeDeleteWins
+	// MergeSuperseded means the incoming dot carries the local origin but was
+	// minted by a prior incarnation of this node. It was refused and the local
+	// dot for the name was re-minted above it.
+	MergeSuperseded
 )
 
 // Entry is a single registration record. Tombstones set Deleted=true and
@@ -397,14 +401,20 @@ func (s *State) unregisterLocal(name string, wallMs int64, keep *pid.PID) (*Entr
 }
 
 // Apply merges a remote dot into the per-origin record. Returns the outcome,
-// the authoritative winner after the merge, and a LostBinding when the merge
-// changed the winner away from a LOCAL-origin live dot to a different origin
-// (the home node signals name_revoked off this). lost is nil otherwise.
+// the dot to forward by gossip (nil on MergeNoop), and a LostBinding when the
+// merge changed the winner away from a LOCAL-origin live dot to a different
+// origin (the home node signals name_revoked off this). lost is nil otherwise.
 //
 // The join is commutative, associative, idempotent:
 //
 //   - Per origin: the dot with the highest Counter is kept (causal). On equal
 //     counter (same dot) a delete wins over a live entry. Wall is never used.
+//   - The local origin is authoritative for its own dots: every dot this
+//     replica mints is recorded in rec.dots[localNode] at mint time, so an
+//     incoming local-origin dot that this replica does not hold was minted by a
+//     prior incarnation of this node (a restart its peers did not observe as
+//     NodeLeft). Such a dot is refused and superseded (see supersedeLocked);
+//     the forwarded dot is the re-minted local one.
 //   - The visible winner is then derived across origins by winnerOf: highest
 //     winnerKey among LIVE origins (observed-remove — a tombstone from origin
 //     X cannot suppress origin Y's live dot because Y's dot is kept
@@ -416,14 +426,16 @@ func (s *State) Apply(in *Entry) (MergeOutcome, *Entry, *LostBinding) {
 	defer sh.mu.Unlock()
 
 	rec, existed := sh.entries[in.Name]
+	if in.Node == s.localNode && s.priorIncarnationLocked(rec, in) {
+		return MergeSuperseded, s.supersedeLocked(sh, rec, in), nil
+	}
 	if !existed {
 		rec = &nameRecord{dots: map[uint32]*Entry{in.Node: in}}
 		sh.entries[in.Name] = rec
 		s.retain(in.Node)
 		s.bumpCV(in.Node, in.Counter)
-		w := s.winnerOf(rec)
-		s.adjustCounts(sh, in.Name, nil, w)
-		return MergeApplied, w, nil
+		s.adjustCounts(sh, in.Name, nil, s.winnerOf(rec))
+		return MergeApplied, in, nil
 	}
 
 	prevWinner := s.winnerOf(rec)
@@ -449,7 +461,7 @@ func (s *State) Apply(in *Entry) (MergeOutcome, *Entry, *LostBinding) {
 		}
 	}
 	if outcome == MergeNoop {
-		return MergeNoop, prevWinner, nil
+		return MergeNoop, nil, nil
 	}
 
 	s.bumpCV(in.Node, in.Counter)
@@ -472,7 +484,61 @@ func (s *State) Apply(in *Entry) (MergeOutcome, *Entry, *LostBinding) {
 			outcome = MergeConflictResolved
 		}
 	}
-	return outcome, newWinner, lost
+	return outcome, in, lost
+}
+
+// priorIncarnationLocked reports whether a local-origin dot was minted by a
+// prior incarnation of this node. The local replica holds the latest dot it
+// minted for every name, so a local-origin dot is foreign to this run when it
+// out-counts that dot, or when it matches its counter as a live dot for a
+// different pid. A live dot for a name this run never claimed is foreign too.
+// A higher tombstone over a local tombstone, or over no local dot, changes no
+// binding and is accepted as an ordinary merge. Caller holds the shard lock.
+func (s *State) priorIncarnationLocked(rec *nameRecord, in *Entry) bool {
+	var cur *Entry
+	if rec != nil {
+		cur = rec.dots[s.localNode]
+	}
+	switch {
+	case cur == nil:
+		return !in.Deleted
+	case in.Counter > cur.Counter:
+		return !in.Deleted || !cur.Deleted
+	case in.Counter == cur.Counter:
+		return !in.Deleted && !cur.Deleted && !in.PID.Equal(cur.PID)
+	}
+	return false
+}
+
+// supersedeLocked refuses a prior incarnation's local-origin dot by minting a
+// local dot above its counter: the current local dot re-minted, or a tombstone
+// when this run holds no dot for the name. The new dot wins by same-origin
+// causality on every replica, so the current incarnation's value replicates.
+// Returns the minted dot for gossip. Caller holds the shard lock.
+func (s *State) supersedeLocked(sh *shard, rec *nameRecord, in *Entry) *Entry {
+	if rec == nil {
+		rec = &nameRecord{dots: make(map[uint32]*Entry, 1)}
+		sh.entries[in.Name] = rec
+	}
+	prevWinner := s.winnerOf(rec)
+	s.bumpCV(s.localNode, in.Counter)
+
+	cur, had := rec.dots[s.localNode]
+	var e *Entry
+	if had {
+		cp := *cur
+		e = &cp
+	} else {
+		e = &Entry{Name: in.Name, Node: s.localNode, Wall: in.Wall, Priority: in.Priority, Deleted: true}
+	}
+	e.Counter = s.nextCounter()
+	rec.dots[s.localNode] = e
+	if !had {
+		s.retain(s.localNode)
+	}
+	s.bumpCV(s.localNode, e.Counter)
+	s.adjustCounts(sh, in.Name, prevWinner, s.winnerOf(rec))
+	return e
 }
 
 // ReapNode tombstones every LIVE dot whose resolved PID lives on `departed`,
