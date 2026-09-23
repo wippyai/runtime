@@ -91,7 +91,7 @@ func TestProxyCancellationEscalatesDuringBlockedInput(t *testing.T) {
 			} else {
 				cancel()
 			}
-			for _, want := range []int{int(syscall.SIGTERM), int(syscall.SIGKILL)} {
+			for _, want := range []int{int(syscall.SIGHUP), int(syscall.SIGKILL)} {
 				select {
 				case got := <-process.signals:
 					require.Equal(t, want, got)

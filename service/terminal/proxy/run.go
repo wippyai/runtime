@@ -15,6 +15,10 @@ import (
 )
 
 const (
+	// closeSignal hangs up the terminal, as closing a terminal emulator does.
+	// Interactive shells ignore SIGTERM and exit on SIGHUP, forwarding it to
+	// their jobs.
+	closeSignal          = syscall.SIGHUP
 	defaultShutdownGrace = 3 * time.Second
 	// PTY reads are transport chunks, not presentation boundaries. A short,
 	// demand-driven frame interval lets cursor moves and the cells they follow
@@ -234,7 +238,7 @@ func (p *Proxy) run(ctx context.Context, events <-chan ttyapi.Event, ready chan<
 }
 
 // watchShutdown owns escalation independently of synchronous terminal writes.
-// A child may ignore TERM while leaving its PTY input blocked. Run still owns
+// A child may ignore HUP while leaving its PTY input blocked. Run still owns
 // normal completion and reaping; finished retires the watcher on every return.
 func (p *Proxy) watchShutdown(ctx context.Context, output io.Closer, finished <-chan struct{}, shutdownErrors chan<- error) {
 	var cause error
@@ -282,7 +286,7 @@ func (p *Proxy) watchShutdown(ctx context.Context, output io.Closer, finished <-
 // stopStartedProcess closes the ownership gap between Start and the proxy event
 // loop. It always reaps the child, escalating when graceful termination stalls.
 func stopStartedProcess(process execapi.Process, cause error, grace time.Duration) error {
-	if err := process.Signal(int(syscall.SIGTERM)); err != nil && !errors.Is(err, os.ErrProcessDone) {
+	if err := process.Signal(int(closeSignal)); err != nil && !errors.Is(err, os.ErrProcessDone) {
 		cause = errors.Join(cause, err)
 	}
 	done := make(chan error, 1)

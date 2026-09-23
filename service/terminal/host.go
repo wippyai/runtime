@@ -45,6 +45,7 @@ type Host struct {
 	shutdown     atomic.Bool
 	stopCalls    atomic.Uint64
 	lifecycleMu  sync.RWMutex
+	drained      atomic.Bool
 	statusClosed bool
 	doneClosed   bool
 }
@@ -264,7 +265,9 @@ func (h *Host) Send(pkg *relay.Package) error {
 
 // SendContext implements relay.ContextSender through the actor scheduler.
 // Admission is non-blocking, so cancellation never requires a detached
-// delivery goroutine.
+// delivery goroutine. Deliveries stay open while Stop drains the scheduler:
+// a cancelled process still receives the timers, child exits and replies its
+// cleanup waits on.
 func (h *Host) SendContext(ctx context.Context, pkg *relay.Package) error {
 	if ctx == nil {
 		ctx = context.Background()
@@ -272,7 +275,7 @@ func (h *Host) SendContext(ctx context.Context, pkg *relay.Package) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if h.shutdown.Load() {
+	if h.drained.Load() {
 		return ErrHostShuttingDown
 	}
 	return h.scheduler.SendContext(ctx, pkg)
@@ -280,13 +283,18 @@ func (h *Host) SendContext(ctx context.Context, pkg *relay.Package) error {
 
 // Start implements supervisor.Service.
 func (h *Host) Start(ctx context.Context) (<-chan any, error) {
-	if h.running.Swap(true) {
+	h.lifecycleMu.Lock()
+	defer h.lifecycleMu.Unlock()
+	if h.shutdown.Load() && !h.drained.Load() {
+		return nil, ErrHostShuttingDown
+	}
+	if h.running.Load() {
 		return nil, ErrHostAlreadyRunning
 	}
 
-	h.lifecycleMu.Lock()
 	h.ctx = ctx
 	h.shutdown.Store(false)
+	h.drained.Store(false)
 	// Recreate lifecycle channels on each start so stop/restart cycles
 	// don't reuse closed channels from a previous run.
 	h.statusCh = make(chan any, 1)
@@ -294,8 +302,8 @@ func (h *Host) Start(ctx context.Context) (<-chan any, error) {
 	h.statusClosed = false
 	h.doneClosed = false
 	statusCh := h.statusCh
-	h.lifecycleMu.Unlock()
 	h.scheduler.Start()
+	h.running.Store(true)
 
 	h.log.Info("terminal host started", zap.String("id", h.id.String()))
 	return statusCh, nil
@@ -304,7 +312,13 @@ func (h *Host) Start(ctx context.Context) (<-chan any, error) {
 // Stop implements supervisor.Service.
 func (h *Host) Stop(ctx context.Context) error {
 	stopAttempt := h.stopCalls.Add(1)
-	if !h.running.Swap(false) {
+	h.lifecycleMu.Lock()
+	wasRunning := h.running.Swap(false)
+	if wasRunning {
+		h.shutdown.Store(true)
+	}
+	h.lifecycleMu.Unlock()
+	if !wasRunning {
 		h.log.Warn("terminal host stop requested while already stopped",
 			zap.String("id", h.id.String()),
 			zap.Uint64("attempt", stopAttempt),
@@ -312,7 +326,6 @@ func (h *Host) Stop(ctx context.Context) error {
 		return nil
 	}
 
-	h.shutdown.Store(true)
 	h.log.Info("terminal host stopping",
 		zap.String("id", h.id.String()),
 		zap.Uint64("attempt", stopAttempt))
@@ -325,6 +338,7 @@ func (h *Host) Stop(ctx context.Context) error {
 	}
 	// Restore logging on shutdown
 	h.logCtrl.RestoreBaseConfig(ctx)
+	h.drained.Store(true)
 
 	h.log.Info("terminal host stopped", zap.String("id", h.id.String()))
 	return nil

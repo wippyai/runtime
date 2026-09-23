@@ -320,11 +320,14 @@ func TestHost_Send_ShuttingDown(t *testing.T) {
 	logCtrl := logs.NewConfigurator(nil, zap.NewNop())
 	log := zap.NewNop()
 
-	h := NewHost(id, cfg, nil, factory, logCtrl, log)
-	h.shutdown.Store(true)
+	scheduler := actor.NewScheduler(&mockCommandRegistry{}, actor.WithWorkers(1))
+	h := NewHost(id, cfg, scheduler, factory, logCtrl, log)
+	_, err := h.Start(context.Background())
+	require.NoError(t, err)
+	require.NoError(t, h.Stop(context.Background()))
 
-	err := h.Send(&relay.Package{})
-	require.Error(t, err)
+	err = h.Send(&relay.Package{})
+	require.ErrorIs(t, err, ErrHostShuttingDown)
 }
 
 func TestHost_Terminate(t *testing.T) {

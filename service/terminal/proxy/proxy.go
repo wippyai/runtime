@@ -9,7 +9,6 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
-	"syscall"
 	"time"
 
 	uv "github.com/charmbracelet/ultraviolet"
@@ -119,7 +118,7 @@ func (p *Proxy) start() error {
 
 func (p *Proxy) signalCloseLocked() error {
 	p.closeSignalOnce.Do(func() {
-		p.closeErr = p.process.Signal(int(syscall.SIGTERM))
+		p.closeErr = p.process.Signal(int(closeSignal))
 	})
 	return p.closeErr
 }
