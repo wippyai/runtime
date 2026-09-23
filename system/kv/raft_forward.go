@@ -21,10 +21,12 @@ import (
 const KVRaftHostID pid.HostID = "storekv"
 
 const (
-	topicKVForwardReq  relay.Topic = "kv.forward.req"
-	topicKVForwardResp relay.Topic = "kv.forward.resp"
-	topicKVReadReq     relay.Topic = "kv.read.req"
-	topicKVReadResp    relay.Topic = "kv.read.resp"
+	topicKVForwardReq    relay.Topic = "kv.forward.req"
+	topicKVForwardResp   relay.Topic = "kv.forward.resp"
+	topicKVReadReq       relay.Topic = "kv.read.req"
+	topicKVReadResp      relay.Topic = "kv.read.resp"
+	topicKVAuthorityReq  relay.Topic = "kv.authority.req"
+	topicKVAuthorityResp relay.Topic = "kv.authority.resp"
 )
 
 // readResult is a forwarded leader-read reply. err carries errForwardNotLeader
@@ -294,6 +296,10 @@ func (e *RaftEngine) Send(pkg *relay.Package) error {
 			e.handleReadReq(pkg.Source, msg)
 		case topicKVReadResp:
 			e.handleReadResp(msg)
+		case topicKVAuthorityReq:
+			e.handleAuthorityReq(pkg.IngressNode, pkg.Source, msg)
+		case topicKVAuthorityResp:
+			e.handleAuthorityResp(pkg.IngressNode, pkg.Source, msg)
 		}
 	}
 	return nil

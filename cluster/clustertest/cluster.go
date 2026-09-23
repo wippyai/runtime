@@ -251,23 +251,68 @@ func (r *relayRouter) unregister(node cluster.NodeID) {
 func (r *relayRouter) Send(pkg *relay.Package) error {
 	src := pkg.Source.Node
 	dst := pkg.Target.Node
+	pkg.IngressNode = src
 	if r.mesh != nil && !r.mesh.reachable(src, dst) {
 		relay.ReleasePackage(pkg)
 		return errBlocked
 	}
 	r.mu.Lock()
 	hosts := r.hosts[dst]
+	var recv relay.Receiver
+	if hosts != nil {
+		recv = hosts[pkg.Target.Host]
+	}
 	r.mu.Unlock()
 	if hosts == nil {
 		relay.ReleasePackage(pkg)
 		return fmt.Errorf("clustertest: no node %q", dst)
 	}
-	recv := hosts[pkg.Target.Host]
 	if recv == nil {
 		relay.ReleasePackage(pkg)
 		return fmt.Errorf("clustertest: no host %q on %q", pkg.Target.Host, dst)
 	}
 	return recv.Send(pkg)
+}
+
+func (r *relayRouter) SendContext(ctx context.Context, pkg *relay.Package) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	src, dst := pkg.Source.Node, pkg.Target.Node
+	if r.mesh != nil && !r.mesh.reachable(src, dst) {
+		return errBlocked // caller still owns pkg
+	}
+	r.mu.Lock()
+	hosts := r.hosts[dst]
+	var recv relay.Receiver
+	if hosts != nil {
+		recv = hosts[pkg.Target.Host]
+	}
+	r.mu.Unlock()
+	if hosts == nil {
+		return fmt.Errorf("clustertest: no node %q", dst)
+	}
+	if recv == nil {
+		return fmt.Errorf("clustertest: no host %q on %q", pkg.Target.Host, dst)
+	}
+	// The legacy receiver consumes its package even if it returns an error.
+	// Deliver a separate package so a failed ContextSender call leaves the
+	// original with its caller, as the production relay contract requires.
+	delivered := relay.AcquirePackage()
+	delivered.Source, delivered.Target, delivered.IngressNode = pkg.Source, pkg.Target, src
+	for _, msg := range pkg.Messages {
+		copyMsg := relay.AcquireMessage()
+		copyMsg.Topic = msg.Topic
+		copyMsg.Payloads = append(copyMsg.Payloads, msg.Payloads...)
+		copyMsg.PayloadBytes = msg.PayloadBytes
+		copyMsg.MaxBytes, copyMsg.MaxItems = msg.MaxBytes, msg.MaxItems
+		delivered.Messages = append(delivered.Messages, copyMsg)
+	}
+	if err := recv.Send(delivered); err != nil {
+		return err
+	}
+	relay.ReleasePackage(pkg)
+	return nil
 }
 
 var _ relay.Receiver = (*relayRouter)(nil)
