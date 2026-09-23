@@ -9,11 +9,10 @@ local function main(command)
     assert(tty.start())
 
     local executor = assert(exec.get("tty_proof:exec"))
-    local process = assert(executor:exec(command or "/bin/bash --noprofile --norc", {
+    local terminal = assert(executor:terminal(command or "/bin/bash --noprofile --norc", {
         pty = {term = "xterm-256color"},
     }))
-    local session = assert(process:attach_terminal())
-    local done = session:done()
+    local done = terminal:done()
 
     while true do
         local selected = channel.select({
@@ -23,10 +22,10 @@ local function main(command)
         if not selected.ok or selected.channel == done then break end
         local event = selected.value
         if event.type == "close" then break end
-        assert(session:send(event))
+        assert(terminal:send(event))
     end
 
-    assert(session:close())
+    assert(terminal:close())
     assert(executor:release())
     assert(tty.stop())
 end

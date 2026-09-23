@@ -8,12 +8,12 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/boot"
 	"github.com/wippyai/runtime/api/payload"
 	regapi "github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/boot/build/stages"
 	depconfig "github.com/wippyai/runtime/boot/deps/config"
+	"github.com/wippyai/runtime/boot/deps/packentries"
 	"github.com/wippyai/runtime/boot/loader"
 	"github.com/wippyai/runtime/boot/loader/interpolate"
 	"github.com/wippyai/wapp"
@@ -225,31 +225,5 @@ func loadEntriesFromWapp(path string) ([]regapi.Entry, error) {
 		return nil, err
 	}
 
-	wappEntries, err := reader.GetEntries()
-	if err != nil {
-		return nil, err
-	}
-
-	entries := make([]regapi.Entry, len(wappEntries))
-	for i, we := range wappEntries {
-		entries[i] = regapi.Entry{
-			ID:   regapi.NewID(we.ID.Namespace, we.ID.Name),
-			Kind: we.Kind,
-			Meta: attrs.NewBagFrom(we.Meta),
-			Data: payload.New(unwrapPayloadData(we.Data)),
-		}
-	}
-	return entries, nil
-}
-func unwrapPayloadData(data any) any {
-	m, ok := data.(map[string]any)
-	if !ok {
-		return data
-	}
-	innerData, hasData := m["Data"]
-	_, hasFormat := m["Format"]
-	if hasData && hasFormat && len(m) == 2 {
-		return innerData
-	}
-	return data
+	return packentries.Decode(reader)
 }

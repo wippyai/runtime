@@ -8,10 +8,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/boot/deps/lock"
 	"github.com/wippyai/wapp"
 )
@@ -89,4 +91,38 @@ func TestBundleConcurrentFirstLaunch(t *testing.T) {
 	for err := range failures {
 		require.NoError(t, err)
 	}
+}
+
+func TestBundleIdentityNamesExactContent(t *testing.T) {
+	bundle := testBundle(t)
+	require.Equal(t, bundle.ID(), testBundle(t).ID())
+
+	root := testBundle(t)
+	root.Root = "acme/other"
+	require.NotEqual(t, bundle.ID(), root.ID())
+
+	release := testBundle(t)
+	release.Packs[0].Version = "2.0.0"
+	require.NotEqual(t, bundle.ID(), release.ID())
+
+	content := testBundle(t)
+	content.Packs[0].Digest = "sha256:" + strings.Repeat("0", 64)
+	require.NotEqual(t, bundle.ID(), content.ID())
+}
+
+func TestBundleRejectionsCarryTheErrorContract(t *testing.T) {
+	bundle := testBundle(t)
+	bundle.Packs[0].Data = append(bundle.Packs[0].Data, 0)
+
+	_, err := bundle.Seed(filepath.Join(t.TempDir(), "deployment"))
+	var reported apierror.Error
+	require.ErrorAs(t, err, &reported)
+	require.Equal(t, apierror.Invalid, reported.Kind())
+	require.Equal(t, "pack acme/app digest mismatch", err.Error())
+
+	missing := testBundle(t)
+	missing.Root = "acme/other"
+	_, err = missing.Seed(filepath.Join(t.TempDir(), "deployment"))
+	require.ErrorAs(t, err, &reported)
+	require.Equal(t, "bundled application acme/other is missing", err.Error())
 }

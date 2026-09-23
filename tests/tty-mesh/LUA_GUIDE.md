@@ -33,7 +33,7 @@ one agent needs them all, or use separate observation and control mounts.
    existing `process.send(remote_controller_pid, topic, payload)` can reach it.
 2. That controller creates the viewport and starts a producer **on node B** with
    its producer grant. The producer signals readiness after `tty.start()` and,
-   for a native command, after attaching the PTY session.
+   for a native command, after `executor:terminal()` has started the child.
 3. The controller creates a mount bound to the agent's actual PID on node A and
    sends the reference back with ordinary process messaging.
 4. The agent calls `tty.attach(ref)`, subscribes to updates, and reads snapshots.

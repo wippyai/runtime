@@ -366,6 +366,71 @@ type gatedProcess struct {
 	startRelease chan struct{}
 }
 
+type failedStartProcess struct {
+	*testProcess
+	err error
+}
+
+func (p *failedStartProcess) Start() error { return p.err }
+
+func TestProxyRunWithReadyWaitsForStartup(t *testing.T) {
+	reader, writer := io.Pipe()
+	process := &gatedProcess{
+		shutdownProcess: &shutdownProcess{
+			testProcess: &testProcess{stdout: reader, input: make(chan []byte, 1)},
+			wait:        make(chan error, 1),
+			signals:     make(chan int, 1),
+		},
+		startEntered: make(chan struct{}),
+		startRelease: make(chan struct{}),
+	}
+	bridge, err := New(process, &testSurface{}, 10, 2)
+	require.NoError(t, err)
+	ready := make(chan error, 1)
+	done := make(chan Result, 1)
+	go func() { done <- bridge.RunWithReady(context.Background(), make(chan ttyapi.Event), ready) }()
+	<-process.startEntered
+	select {
+	case <-ready:
+		t.Fatal("reported ready before process startup completed")
+	default:
+	}
+	close(process.startRelease)
+	select {
+	case err := <-ready:
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("startup did not report ready")
+	}
+	bridge.RequestClose()
+	require.Equal(t, int(syscall.SIGTERM), <-process.signals)
+	process.wait <- nil
+	require.NoError(t, writer.Close())
+	result := <-done
+	require.NoError(t, result.Err)
+	require.NoError(t, result.TerminalError)
+	require.NotNil(t, result.Exit)
+	require.Equal(t, 0, result.Exit.Code)
+}
+
+func TestProxyRunWithReadyReportsStartupFailure(t *testing.T) {
+	failure := errors.New("startup failed")
+	process := &failedStartProcess{testProcess: &testProcess{}, err: failure}
+	bridge, err := New(process, &testSurface{}, 10, 2)
+	require.NoError(t, err)
+	ready := make(chan error, 1)
+	require.ErrorIs(t, bridge.RunWithReady(context.Background(), make(chan ttyapi.Event), ready).Err, failure)
+	require.ErrorIs(t, <-ready, failure)
+}
+
+func TestProxyRunWithReadyReportsMissingPTYOutput(t *testing.T) {
+	bridge, err := New(&testProcess{}, &testSurface{}, 10, 2)
+	require.NoError(t, err)
+	ready := make(chan error, 1)
+	require.ErrorIs(t, bridge.RunWithReady(context.Background(), make(chan ttyapi.Event), ready).Err, execapi.ErrPTYUnavailable)
+	require.ErrorIs(t, <-ready, execapi.ErrPTYUnavailable)
+}
+
 func (p *gatedProcess) Start() error {
 	close(p.startEntered)
 	<-p.startRelease
@@ -604,16 +669,21 @@ func TestProxyPresentFailureTerminatesAndReapsProcess(t *testing.T) {
 	renderErr := errors.New("render failed")
 	proxy, err := New(process, &failingSurface{err: renderErr}, 10, 2)
 	require.NoError(t, err)
-	done := make(chan error, 1)
-	go func() { done <- proxy.Run(context.Background(), make(chan ttyapi.Event)) }()
+	ready := make(chan error, 1)
+	done := make(chan Result, 1)
+	go func() { done <- proxy.RunWithReady(context.Background(), make(chan ttyapi.Event), ready) }()
+	require.NoError(t, <-ready)
 	_, err = writer.Write([]byte("output"))
 	require.NoError(t, err)
 	require.Equal(t, int(syscall.SIGTERM), <-process.signals)
-	process.wait <- errors.New("signal: terminated")
+	process.wait <- nil
 	require.NoError(t, writer.Close())
 	select {
-	case err := <-done:
-		require.ErrorIs(t, err, renderErr)
+	case result := <-done:
+		require.ErrorIs(t, result.Err, renderErr)
+		require.ErrorIs(t, result.TerminalError, renderErr)
+		require.NotNil(t, result.Exit)
+		require.Equal(t, 0, result.Exit.Code)
 	case <-time.After(time.Second):
 		t.Fatal("proxy did not reap the process after a presentation failure")
 	}

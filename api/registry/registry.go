@@ -277,8 +277,14 @@ type (
 
 	// Runner defines how ChangeSets are applied to a State to produce a new State
 	Runner interface {
-		// Transition applies a given ChangeSet to a State and returns the resulting modified State
-		Transition(context.Context, State, ChangeSet) (State, error)
+		// Transition applies a given ChangeSet to a State and returns the
+		// resulting modified State. When the transition fails, Transition
+		// calls abort, if non-nil, exactly once: before it reverses any
+		// accepted operation and before it returns. abort withdraws the
+		// external state prepared for the transition (dependency effects), so
+		// the reverse operations observe the world the restored entries were
+		// built against.
+		Transition(ctx context.Context, from State, cs ChangeSet, abort func(context.Context)) (State, error)
 	}
 
 	// Finder defines methods for searching registry entries based on metadata

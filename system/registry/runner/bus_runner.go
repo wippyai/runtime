@@ -119,12 +119,14 @@ func NewBusRunner(bus event.Bus, log *zap.Logger, builder runnerBuilder, opts ..
 // stable across runs.
 //
 // If any operation fails non-deferrably, or no pass makes progress while
-// rejections remain, every accepted operation is rolled back to the initial
-// state and the transaction is discarded.
+// rejections remain, abort runs first, then every accepted operation is rolled
+// back to the initial state and the transaction is discarded. Every failed
+// return runs abort exactly once.
 func (br *BusRunner) Transition(
 	ctx context.Context,
 	initialState registry.State,
 	cs registry.ChangeSet,
+	abort func(context.Context),
 ) (registry.State, error) {
 	currentState := newStateMap(initialState)
 	originalState := newStateMap(initialState) // Keep a copy of the original state for rollbacks
@@ -132,9 +134,11 @@ func (br *BusRunner) Transition(
 	txPath := br.nextTransactionPath()
 	txParticipants, err := br.registryTransactionParticipants()
 	if err != nil {
+		runAbort(ctx, abort)
 		return stateMapToSlice(currentState), err
 	}
 	if err := br.dispatchTransaction(ctx, txParticipants, registry.TxBegin, txPath, nil); err != nil {
+		runAbort(ctx, abort)
 		return stateMapToSlice(currentState), err
 	}
 
@@ -158,7 +162,7 @@ func (br *BusRunner) Transition(
 			if opErr == nil {
 				currentState = newState
 				if ctxErr := ctx.Err(); ctxErr != nil {
-					rolled := br.cancelTransition(ctx, txParticipants, txPath, originalState, currentState, ctxErr)
+					rolled := br.cancelTransition(ctx, txParticipants, txPath, originalState, currentState, abort, ctxErr)
 					return stateMapToSlice(rolled), ctxErr
 				}
 				progressed = true
@@ -172,7 +176,7 @@ func (br *BusRunner) Transition(
 				continue
 			}
 			if ctx.Err() != nil {
-				rolled := br.cancelTransition(ctx, txParticipants, txPath, originalState, currentState, opErr)
+				rolled := br.cancelTransition(ctx, txParticipants, txPath, originalState, currentState, abort, opErr)
 				return stateMapToSlice(rolled), opErr
 			}
 			if isDeferrable(opErr) {
@@ -192,6 +196,7 @@ func (br *BusRunner) Transition(
 
 		if fatalErr != nil {
 			br.log.Error("operation failed, initiating rollback", zap.Error(fatalErr))
+			runAbort(ctx, abort)
 			rolled := br.rollback(ctx, originalState, fatalState)
 			if discardErr := br.dispatchTransaction(ctx, txParticipants, registry.TxDiscard, txPath, fatalErr); discardErr != nil {
 				br.log.Error("failed to discard transaction", zap.Error(discardErr))
@@ -218,6 +223,7 @@ func (br *BusRunner) Transition(
 				zap.Int("passes", pass),
 				zap.Strings("unresolved", idStrings(unresolved)),
 				zap.Error(finalErr))
+			runAbort(ctx, abort)
 			rolled := br.rollback(ctx, originalState, currentState)
 			if discardErr := br.dispatchTransaction(ctx, txParticipants, registry.TxDiscard, txPath, finalErr); discardErr != nil {
 				br.log.Error("failed to discard transaction", zap.Error(discardErr))
@@ -229,15 +235,16 @@ func (br *BusRunner) Transition(
 	}
 
 	if ctxErr := ctx.Err(); ctxErr != nil {
-		rolled := br.cancelTransition(ctx, txParticipants, txPath, originalState, currentState, ctxErr)
+		rolled := br.cancelTransition(ctx, txParticipants, txPath, originalState, currentState, abort, ctxErr)
 		return stateMapToSlice(rolled), ctxErr
 	}
 	if err := br.dispatchTransaction(ctx, txParticipants, registry.TxCommit, txPath, nil); err != nil {
 		br.log.Error("transaction commit failed, initiating rollback", zap.Error(err))
 		if ctx.Err() != nil {
-			newState := br.cancelTransition(ctx, txParticipants, txPath, originalState, currentState, err)
+			newState := br.cancelTransition(ctx, txParticipants, txPath, originalState, currentState, abort, err)
 			return stateMapToSlice(newState), err
 		}
+		runAbort(ctx, abort)
 		newState := br.rollback(ctx, originalState, currentState)
 		if discardErr := br.dispatchTransaction(ctx, txParticipants, registry.TxDiscard, txPath, err); discardErr != nil {
 			br.log.Error("failed to discard transaction after commit failure", zap.Error(discardErr))
@@ -253,16 +260,26 @@ func (br *BusRunner) cancelTransition(
 	participants []string,
 	txPath event.Path,
 	originalState, currentState registry.StateMap,
+	abort func(context.Context),
 	cause error,
 ) registry.StateMap {
 	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), br.cleanupTimeout())
 	defer cancel()
 
+	runAbort(cleanupCtx, abort)
 	rolled := br.rollback(cleanupCtx, originalState, currentState)
 	if err := br.dispatchTransaction(cleanupCtx, participants, registry.TxDiscard, txPath, cause); err != nil {
 		br.log.Error("failed to discard canceled transaction", zap.Error(err))
 	}
 	return rolled
+}
+
+// runAbort withdraws the external state prepared for a failed transition
+// before any accepted operation is reversed.
+func runAbort(ctx context.Context, abort func(context.Context)) {
+	if abort != nil {
+		abort(ctx)
+	}
 }
 
 // isDeferrable reports whether a failed operation can be retried after the

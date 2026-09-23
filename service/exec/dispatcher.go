@@ -5,6 +5,7 @@ package exec
 
 import (
 	"context"
+	"errors"
 
 	"github.com/wippyai/runtime/api/dispatcher"
 	execapi "github.com/wippyai/runtime/api/service/exec"
@@ -31,6 +32,24 @@ func (d *Dispatcher) Stop(_ context.Context) error {
 // RegisterAll registers all exec handlers.
 func (d *Dispatcher) RegisterAll(register func(id dispatcher.CommandID, h dispatcher.Handler)) {
 	register(execapi.ProcessWait, dispatcher.HandlerFunc(d.handleProcessWait))
+	register(execapi.TerminalReady, dispatcher.HandlerFunc(d.handleTerminalReady))
+}
+
+func (d *Dispatcher) handleTerminalReady(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
+	ready := cmd.(*execapi.TerminalReadyCmd).Ready
+	go func() {
+		select {
+		case err, ok := <-ready:
+			if !ok {
+				err = errors.New("terminal startup result unavailable")
+			}
+			if ctx.Err() == nil {
+				receiver.CompleteYield(tag, nil, err)
+			}
+		case <-ctx.Done():
+		}
+	}()
+	return nil
 }
 
 func (d *Dispatcher) handleProcessWait(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {

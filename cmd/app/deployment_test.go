@@ -3,8 +3,7 @@
 package app
 
 import (
-	"context"
-	"errors"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -12,73 +11,97 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestFailedUpdateNeverChangesActiveDeployment(t *testing.T) {
-	for _, failing := range []string{"update", "lint"} {
-		t.Run(failing, func(t *testing.T) {
-			state := t.TempDir()
-			bundle := testBundle(t)
-			current := filepath.Join(state, "deployment")
-			path, err := bundle.Seed(current)
-			require.NoError(t, err)
-			before, err := os.ReadFile(path)
-			require.NoError(t, err)
-			run := func(_ context.Context, candidate string, args ...string) error {
-				require.NotEqual(t, state, candidate)
-				if args[0] == failing {
-					require.NoError(t, os.WriteFile(filepath.Join(candidate, "deployment", "wippy.lock"), []byte("broken lock"), 0600))
-					return errors.New("injected failure")
-				}
-				return nil
+// captureStderr collects what the runner reports while fn runs.
+func captureStderr(t *testing.T, fn func()) string {
+	t.Helper()
+	reader, writer, err := os.Pipe()
+	require.NoError(t, err)
+	previous := os.Stderr
+	os.Stderr = writer
+	done := make(chan []byte, 1)
+	go func() {
+		var collected []byte
+		buffer := make([]byte, 4096)
+		for {
+			read, err := reader.Read(buffer)
+			collected = append(collected, buffer[:read]...)
+			if err != nil {
+				break
 			}
-			err = updateDeployment(context.Background(), Options{Bundle: bundle}, state, current, nil, run)
-			require.Error(t, err)
-			after, err := os.ReadFile(path)
-			require.NoError(t, err)
-			require.Equal(t, before, after)
-			selected, err := selectedDeployment(state)
-			require.NoError(t, err)
-			require.Equal(t, current, selected)
-		})
+		}
+		done <- collected
+	}()
+	fn()
+	os.Stderr = previous
+	require.NoError(t, writer.Close())
+	collected := <-done
+	require.NoError(t, reader.Close())
+	return string(collected)
+}
+
+func writeCurrent(t *testing.T, state string, record current) {
+	t.Helper()
+	data, err := json.Marshal(record)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(currentPath(state), data, 0o600))
+}
+
+func TestDeploymentSelectionFallsBackToTheShippedBundle(t *testing.T) {
+	state := t.TempDir()
+	executable := runnableExecutable(t)
+	launch := Launch{State: state, Op: OpRun}
+
+	selected, err := selectDeployment(executable, launch)
+	require.NoError(t, err)
+	require.Equal(t, filepath.Join(deploymentsPath(state), executable.Bundle.ID()), selected)
+}
+
+func TestDeploymentSelectionFollowsACurrentOfThisExecutable(t *testing.T) {
+	state := t.TempDir()
+	executable := runnableExecutable(t)
+	writeCurrent(t, state, current{Directory: deploymentsDir + "/update-3", Base: executable.Bundle.ID()})
+
+	selected, err := selectDeployment(executable, Launch{State: state, Op: OpRun})
+	require.NoError(t, err)
+	require.Equal(t, filepath.Join(deploymentsPath(state), "update-3"), selected)
+}
+
+func TestDeploymentSelectionKeepsAForeignCurrentAsHistory(t *testing.T) {
+	state := t.TempDir()
+	executable := runnableExecutable(t)
+	writeCurrent(t, state, current{Directory: deploymentsDir + "/update-3", Base: "another-executable"})
+
+	var selected string
+	var err error
+	reported := captureStderr(t, func() { selected, err = selectDeployment(executable, Launch{State: state, Op: OpRun}) })
+	require.NoError(t, err)
+	require.Equal(t, filepath.Join(deploymentsPath(state), executable.Bundle.ID()), selected)
+	require.Contains(t, reported, "update-3")
+	require.Contains(t, reported, "superseded")
+
+	record, found, err := readCurrent(state)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, "another-executable", record.Base, "the foreign record stays in place as history")
+}
+
+func TestDeploymentSelectionRejectsAnUnreadableCurrent(t *testing.T) {
+	for _, content := range []string{"{", `{"directory":"../outside","base":"x"}`, `{"directory":"elsewhere/one","base":"x"}`} {
+		state := t.TempDir()
+		require.NoError(t, os.WriteFile(currentPath(state), []byte(content), 0o600))
+
+		_, err := selectDeployment(runnableExecutable(t), Launch{State: state, Op: OpRun})
+		require.ErrorContains(t, err, "current deployment record is not usable")
 	}
 }
 
-func TestSuccessfulUpdateSelectsVerifiedCandidate(t *testing.T) {
+func TestRecoveryIgnoresCurrent(t *testing.T) {
 	state := t.TempDir()
-	bundle := testBundle(t)
-	current := filepath.Join(state, "deployment")
-	_, err := bundle.Seed(current)
-	require.NoError(t, err)
-	var commands []string
-	run := func(_ context.Context, _ string, args ...string) error {
-		commands = append(commands, args[0])
-		return nil
-	}
-	require.NoError(t, updateDeployment(context.Background(), Options{Bundle: bundle}, state, current, nil, run))
-	require.Equal(t, []string{"update", "lint"}, commands)
-	selected, err := selectedDeployment(state)
-	require.NoError(t, err)
-	require.NotEqual(t, current, selected)
-	_, err = bundle.existing(filepath.Join(selected, "wippy.lock"))
-	require.NoError(t, err)
-	_, err = os.Stat(filepath.Join(current, "wippy.lock"))
-	require.NoError(t, err)
-}
+	executable := runnableExecutable(t)
+	writeCurrent(t, state, current{Directory: deploymentsDir + "/update-3", Base: executable.Bundle.ID()})
+	launch := Launch{State: state, Op: OpRecover}
 
-func TestApplicationLockIsReleasedAndRejectsConcurrentRun(t *testing.T) {
-	state := t.TempDir()
-	unlock, err := lockApplication(state)
+	selected, err := selectDeployment(executable, launch)
 	require.NoError(t, err)
-	_, err = lockApplication(state)
-	require.Error(t, err)
-	unlock()
-	unlock, err = lockApplication(state)
-	require.NoError(t, err)
-	unlock()
-}
-
-func TestActivationCannotEscapeStateDirectory(t *testing.T) {
-	state := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(state, "active.json"), []byte(`{"directory":"../outside"}`), 0600))
-	_, err := selectedDeployment(state)
-	require.Error(t, err)
+	require.Equal(t, filepath.Join(deploymentsPath(state), executable.Bundle.ID()), selected)
 }

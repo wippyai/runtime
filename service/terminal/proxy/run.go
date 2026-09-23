@@ -22,20 +22,51 @@ const (
 	frameInterval = 8 * time.Millisecond
 )
 
+// Result separates the child's exit from a terminal/proxy failure. Exit is nil
+// when the child could not be reaped (for example after shutdown timeout).
+type Result struct {
+	Exit          *execapi.ExitStatus
+	TerminalError error
+	Err           error // Legacy Run error, including an ordinary non-zero exit.
+}
+
 // Run starts the external terminal and owns its I/O until completion,
 // cancellation, or a close event. The caller owns the events channel.
 func (p *Proxy) Run(ctx context.Context, events <-chan ttyapi.Event) (result error) {
+	return p.run(ctx, events, nil).Err
+}
+
+// RunWithReady has the same ownership as Run, and reports whether startup and
+// initial PTY setup succeeded. ready must be buffered so cancellation of a
+// caller waiting for startup cannot strand the process owner.
+func (p *Proxy) RunWithReady(ctx context.Context, events <-chan ttyapi.Event, ready chan<- error) Result {
+	return p.run(ctx, events, ready)
+}
+
+func (p *Proxy) run(ctx context.Context, events <-chan ttyapi.Event, ready chan<- error) (result Result) {
+	reportReady := func(err error) {
+		if ready != nil {
+			ready <- err
+			ready = nil
+		}
+	}
 	if err := p.start(); err != nil {
-		return err
+		reportReady(err)
+		return Result{Err: err, TerminalError: err}
 	}
 	if err := p.process.Resize(p.screen.Width(), p.screen.Height()); err != nil {
-		return stopStartedProcess(p.process, err, p.shutdownTimeout())
+		failure := stopStartedProcess(p.process, err, p.shutdownTimeout())
+		reportReady(failure)
+		return Result{Err: failure, TerminalError: failure}
 	}
 	output := p.process.Stdout()
 	if output == nil {
-		return stopStartedProcess(p.process, execapi.ErrPTYUnavailable, p.shutdownTimeout())
+		failure := stopStartedProcess(p.process, execapi.ErrPTYUnavailable, p.shutdownTimeout())
+		reportReady(failure)
+		return Result{Err: failure, TerminalError: failure}
 	}
 	defer func() { _ = output.Close() }()
+	reportReady(nil)
 	finished := make(chan struct{})
 	watcherDone := make(chan struct{})
 	shutdownErrors := make(chan error, 2)
@@ -45,7 +76,8 @@ func (p *Proxy) Run(ctx context.Context, events <-chan ttyapi.Event) (result err
 		for {
 			select {
 			case err := <-shutdownErrors:
-				result = errors.Join(result, err)
+				result.Err = errors.Join(result.Err, err)
+				result.TerminalError = errors.Join(result.TerminalError, err)
 			default:
 				return
 			}
@@ -130,21 +162,23 @@ func (p *Proxy) Run(ctx context.Context, events <-chan ttyapi.Event) (result err
 		case err := <-shutdownErrors:
 			shutdownCause = errors.Join(shutdownCause, err)
 			if errors.Is(err, ErrShutdownTimeout) {
-				return shutdownCause
+				return Result{Exit: result.Exit, Err: shutdownCause, TerminalError: shutdownCause}
 			}
 		case err := <-waitDone:
 			waitErr, processDone, waitDone = err, true, nil
+			status := execapi.ClassifyExit(err)
+			result.Exit = &status
 			if outputClosed {
 				if err := p.present(); err != nil {
-					return err
+					return Result{Exit: result.Exit, Err: err, TerminalError: err}
 				}
 				if closing && (shutdownCause != nil || suppressExitError) {
-					return shutdownCause
+					return Result{Exit: result.Exit, Err: shutdownCause, TerminalError: shutdownCause}
 				}
 				if !closing && p.closeRequested.Load() {
-					return nil
+					return result
 				}
-				return waitErr
+				return Result{Exit: result.Exit, Err: waitErr}
 			}
 		case err := <-outputDone:
 			outputClosed, outputDone = true, nil
@@ -153,15 +187,15 @@ func (p *Proxy) Run(ctx context.Context, events <-chan ttyapi.Event) (result err
 			}
 			if processDone {
 				if err := p.present(); err != nil {
-					return err
+					return Result{Exit: result.Exit, Err: err, TerminalError: err}
 				}
 				if closing && (shutdownCause != nil || suppressExitError) {
-					return shutdownCause
+					return Result{Exit: result.Exit, Err: shutdownCause, TerminalError: shutdownCause}
 				}
 				if !closing && p.closeRequested.Load() {
-					return nil
+					return result
 				}
-				return waitErr
+				return Result{Exit: result.Exit, Err: waitErr}
 			}
 		case err := <-responseDone:
 			responseDone = nil

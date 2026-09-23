@@ -433,19 +433,13 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 		return NewConcurrentApplyError(baseVersion.ID(), r.currentVersion.ID())
 	}
 
-	newState, err := r.runner.Transition(ctx, r.state, allOps)
+	newState, err := r.runner.Transition(ctx, r.state, allOps, effectAbort(planner, preparedEff))
 	if err != nil {
 		r.log.Error("failed to apply squashed changeset", zap.Error(err))
 		if newState != nil && ctx.Err() == nil {
 			if rerr := r.rollback(ctx, newState, r.state); rerr != nil {
-				if planner != nil {
-					planner.RollbackEffects(ctx, preparedEff)
-				}
 				return NewApplyVersionChangesError(err, rerr)
 			}
-		}
-		if planner != nil {
-			planner.RollbackEffects(ctx, preparedEff)
 		}
 		return NewApplyVersionChangesError(err, nil)
 	}
@@ -453,12 +447,7 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 	if planner != nil {
 		if err := planner.CommitEffects(ctx, preparedEff); err != nil {
 			r.log.Error("failed to commit effects", zap.Error(err))
-			if rerr := r.rollback(ctx, newState, r.state); rerr != nil {
-				planner.RollbackEffects(ctx, preparedEff)
-				return NewCommitEffectsError(err, rerr)
-			}
-			planner.RollbackEffects(ctx, preparedEff)
-			return NewCommitEffectsError(err, nil)
+			return NewCommitEffectsError(err, r.abortTransition(ctx, planner, preparedEff, newState))
 		}
 	}
 
@@ -470,14 +459,7 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 	}
 	if headUpdateErr != nil {
 		headErr := NewSetHeadError(targetVersion.ID(), headUpdateErr)
-		var compensationErr error
-		if rollbackErr := r.rollback(ctx, newState, r.state); rollbackErr != nil {
-			compensationErr = errors.Join(compensationErr, rollbackErr)
-		}
-		if planner != nil {
-			planner.RollbackEffects(ctx, preparedEff)
-		}
-		if compensationErr != nil {
+		if compensationErr := r.abortTransition(ctx, planner, preparedEff, newState); compensationErr != nil {
 			return NewApplyVersionChangesError(headErr, compensationErr)
 		}
 		return headErr
@@ -798,19 +780,13 @@ func (r *Reg) LoadState(ctx context.Context, baseline registry.State, targetVers
 	}
 
 	finalState := topology.StateMapToSlice(stateMap)
-	newState, err := r.transitionState(ctx, r.state, finalState)
+	newState, err := r.transitionState(ctx, r.state, finalState, effectAbort(planner, preparedEff))
 	if err != nil {
 		r.log.Error("failed to load state", zap.String("version", targetVersion.String()), zap.Error(err))
 		if newState != nil && ctx.Err() == nil {
 			if rerr := r.rollback(ctx, newState, r.state); rerr != nil {
-				if planner != nil {
-					planner.RollbackEffects(ctx, preparedEff)
-				}
 				return NewLoadStateError(err, rerr)
 			}
-		}
-		if planner != nil {
-			planner.RollbackEffects(ctx, preparedEff)
 		}
 		return NewLoadStateError(err, nil)
 	}
@@ -818,12 +794,7 @@ func (r *Reg) LoadState(ctx context.Context, baseline registry.State, targetVers
 	if planner != nil {
 		if err := planner.CommitEffects(ctx, preparedEff); err != nil {
 			r.log.Error("failed to commit load-state effects", zap.Error(err))
-			if rerr := r.rollback(ctx, newState, r.state); rerr != nil {
-				planner.RollbackEffects(ctx, preparedEff)
-				return NewCommitEffectsError(err, rerr)
-			}
-			planner.RollbackEffects(ctx, preparedEff)
-			return NewCommitEffectsError(err, nil)
+			return NewCommitEffectsError(err, r.abortTransition(ctx, planner, preparedEff, newState))
 		}
 	}
 
@@ -835,14 +806,7 @@ func (r *Reg) LoadState(ctx context.Context, baseline registry.State, targetVers
 		headCheckErr = cas.CompareAndSetHead(targetVersion, targetVersion)
 	}
 	if headCheckErr != nil {
-		var rollbackErr error
-		if transitionErr := r.rollback(ctx, newState, r.state); transitionErr != nil {
-			rollbackErr = transitionErr
-		}
-		if planner != nil {
-			planner.RollbackEffects(ctx, preparedEff)
-		}
-		return NewSaveVersionError(headCheckErr, rollbackErr)
+		return NewSaveVersionError(headCheckErr, r.abortTransition(ctx, planner, preparedEff, newState))
 	}
 	if planner != nil {
 		if finalizeErr := planner.FinalizeEffects(ctx, preparedEff); finalizeErr != nil {
@@ -922,11 +886,35 @@ func canonicalEntryID(id registry.ID) registry.ID {
 	return id.Canonical()
 }
 
+// effectAbort returns the abort a runner calls when a transition fails: it
+// rolls back the prepared effects before any listener operation is reversed.
+// Effects stage the external state the transition's entries are built against
+// (embedded packs, module sources, unpacked module trees); withdrawing them
+// first makes every reverse operation observe the pre-transition world.
+func effectAbort(planner *regexp.Planner, effects []registry.Effect) func(context.Context) {
+	if planner == nil || len(effects) == 0 {
+		return nil
+	}
+	return func(ctx context.Context) {
+		planner.RollbackEffects(ctx, effects)
+	}
+}
+
+// abortTransition undoes a transition whose listener operations were accepted
+// but which cannot be kept: effects roll back first, for the same reason as
+// effectAbort, then listener state returns to the committed state.
+func (r *Reg) abortTransition(ctx context.Context, planner *regexp.Planner, effects []registry.Effect, newState registry.State) error {
+	if planner != nil {
+		planner.RollbackEffects(ctx, effects)
+	}
+	return r.rollback(ctx, newState, r.state)
+}
+
 // rollback state desync between actual state in system and state in history
 func (r *Reg) rollback(ctx context.Context, from, to registry.State) error {
 	r.log.Debug("attempting to rollback")
 
-	partial, err := r.transitionState(ctx, from, to)
+	partial, err := r.transitionState(ctx, from, to, nil)
 	if err == nil {
 		return nil // success
 	}
@@ -940,11 +928,14 @@ func (r *Reg) rollback(ctx context.Context, from, to registry.State) error {
 	return err
 }
 
-func (r *Reg) transitionState(ctx context.Context, from, to registry.State) (registry.State, error) {
+func (r *Reg) transitionState(ctx context.Context, from, to registry.State, abort func(context.Context)) (registry.State, error) {
 	r.log.Debug("transitioning state")
 
 	cs, terr := r.builder.BuildDelta(from, to)
 	if terr != nil {
+		if abort != nil {
+			abort(ctx)
+		}
 		return nil, NewComputeTransitionError(terr)
 	}
 
@@ -952,7 +943,7 @@ func (r *Reg) transitionState(ctx context.Context, from, to registry.State) (reg
 		return from, nil
 	}
 
-	return r.runner.Transition(ctx, from, cs)
+	return r.runner.Transition(ctx, from, cs, abort)
 }
 
 func (r *Reg) Current() (registry.Version, error) {

@@ -3,7 +3,10 @@
 package hub
 
 import (
+	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -11,6 +14,9 @@ import (
 	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/payload"
 	regapi "github.com/wippyai/runtime/api/registry"
+	dirapi "github.com/wippyai/runtime/api/service/fs/directory"
+	embedapi "github.com/wippyai/runtime/api/service/fs/embed"
+	"github.com/wippyai/runtime/boot/build/stages"
 	regtop "github.com/wippyai/runtime/system/registry/topology"
 	"go.uber.org/zap"
 )
@@ -368,4 +374,83 @@ func assertPlannerStatesEqual(t *testing.T, want []regapi.Entry, got regapi.Stat
 		require.True(t, ok, "missing entry %s", entry.ID)
 		assert.Equal(t, entry, actual, "entry %s differs", entry.ID)
 	}
+}
+
+func embedPlannerEntry(digest string) regapi.Entry {
+	data := map[string]any{}
+	if digest != "" {
+		data["digest"] = digest
+	}
+	return regapi.Entry{
+		ID:       regapi.NewID("acme.ui", "assets"),
+		Kind:     embedapi.Kind,
+		Registry: regapi.EntryMetadata{Owner: "acme/ui"},
+		Meta:     attrs.NewBag(),
+		Data:     payload.New(data),
+	}
+}
+
+// An fs.embed entry that differs only in its content digest is an update; an
+// identical digest is no change.
+func TestOperationPlanner_EmbedDigestDecidesUpdate(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		current  string
+		desired  string
+		wantKind []string
+	}{
+		{name: "digest changed", current: "sha256-content-v1:aa", desired: "sha256-content-v1:bb", wantKind: []string{regapi.EntryUpdate}},
+		{name: "digest added to a digest-less entry", current: "", desired: "sha256-content-v1:bb", wantKind: []string{regapi.EntryUpdate}},
+		{name: "digest unchanged", current: "sha256-content-v1:aa", desired: "sha256-content-v1:aa"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			ops, err := (operationPlanner{}).plan(regapi.State{embedPlannerEntry(test.current)}, []regapi.Entry{embedPlannerEntry(test.desired)}, operationPlanOptions{})
+			require.NoError(t, err)
+			kinds := make([]string, 0, len(ops))
+			for _, op := range ops {
+				kinds = append(kinds, op.Kind)
+			}
+			if test.wantKind == nil {
+				assert.Empty(t, kinds)
+				return
+			}
+			assert.Equal(t, test.wantKind, kinds)
+		})
+	}
+}
+
+// Two releases of a module whose embedded directory content differs, packed
+// by the build pipeline, plan an fs.embed update; the same content plans none.
+func TestOperationPlanner_PackedEmbedContentChangePlansUpdate(t *testing.T) {
+	moduleRoot := t.TempDir()
+	assets := filepath.Join(moduleRoot, "assets")
+	require.NoError(t, os.MkdirAll(assets, 0o755))
+
+	pack := func(content string) regapi.Entry {
+		t.Helper()
+		require.NoError(t, os.WriteFile(filepath.Join(assets, "component.wasm"), []byte(content), 0o644))
+		entries := []regapi.Entry{{
+			ID:       regapi.NewID("acme.ui", "assets"),
+			Kind:     dirapi.Kind,
+			Registry: regapi.EntryMetadata{Owner: "acme/ui"},
+			Data:     payload.New(map[string]any{"directory": "./assets"}),
+		}}
+		require.NoError(t, stages.EmbedFS(moduleRoot, "acme.ui:assets").Execute(context.Background(), &entries))
+		require.Len(t, entries, 1)
+		require.Equal(t, embedapi.Kind, entries[0].Kind)
+		return entries[0]
+	}
+
+	v1 := pack("wasm release 1")
+	v1Again := pack("wasm release 1")
+	v2 := pack("wasm release 2")
+
+	ops, err := (operationPlanner{}).plan(regapi.State{v1}, []regapi.Entry{v2}, operationPlanOptions{})
+	require.NoError(t, err)
+	require.Len(t, ops, 1)
+	assert.Equal(t, regapi.EntryUpdate, ops[0].Kind)
+
+	ops, err = (operationPlanner{}).plan(regapi.State{v1}, []regapi.Entry{v1Again}, operationPlanOptions{})
+	require.NoError(t, err)
+	assert.Empty(t, ops)
 }

@@ -3,157 +3,64 @@
 package app
 
 import (
-	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
-
-	"github.com/wippyai/runtime/boot/deps/hub"
-	"github.com/wippyai/runtime/boot/deps/lock"
 )
 
-type activation struct {
+// current names the deployment the state runs. Base is the bundle identity of
+// the executable that produced the directory, so an executable recognizes the
+// deployments it may continue from the ones another executable left behind.
+type current struct {
 	Directory string `json:"directory"`
+	Base      string `json:"base"`
 	Previous  string `json:"previous,omitempty"`
 }
 
-func selectedDeployment(state string) (string, error) {
-	data, err := os.ReadFile(filepath.Join(state, "active.json"))
-	if os.IsNotExist(err) {
-		return filepath.Join(state, "deployment"), nil
+// readCurrent returns the current record, or false when the state holds none.
+func readCurrent(state string) (current, bool, error) {
+	path := currentPath(state)
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return current{}, false, nil
 	}
+	if err != nil {
+		return current{}, false, NewApplicationStateError("read current deployment record", path, err)
+	}
+	var record current
+	if err := json.Unmarshal(data, &record); err != nil {
+		return current{}, false, NewCurrentDeploymentError("record is not readable", path, err)
+	}
+	if !filepath.IsLocal(record.Directory) || !strings.HasPrefix(filepath.ToSlash(record.Directory), deploymentsDir+"/") {
+		return current{}, false, NewCurrentDeploymentError("directory is not a deployment of this state", record.Directory, nil)
+	}
+	return record, true, nil
+}
+
+// selectDeployment resolves the deployment an operation runs. Recovery always
+// starts the shipped packs; every other operation continues the current
+// deployment when this executable produced it, and otherwise starts from its
+// own bundle. A current deployment another executable produced stays where it
+// is: it is the history that executable can return to.
+func selectDeployment(e Executable, l Launch) (string, error) {
+	bundle := filepath.Join(deploymentsPath(l.State), e.Bundle.ID())
+	if l.Op == OpRecover {
+		return bundle, nil
+	}
+	record, found, err := readCurrent(l.State)
 	if err != nil {
 		return "", err
 	}
-	var current activation
-	if err := json.Unmarshal(data, &current); err != nil {
-		return "", fmt.Errorf("read application activation: %w", err)
+	if !found {
+		return bundle, nil
 	}
-	if !filepath.IsLocal(current.Directory) || !strings.HasPrefix(filepath.ToSlash(current.Directory), "revisions/") {
-		return "", fmt.Errorf("invalid application activation path")
+	if record.Base != e.Bundle.ID() {
+		fmt.Fprintf(os.Stderr, "%s: deployment %s is superseded by this executable, which runs bundle %s\n",
+			e.Name, record.Directory, e.Bundle.ID())
+		return bundle, nil
 	}
-	return filepath.Join(state, current.Directory), nil
-}
-
-func lockApplication(state string) (func(), error) {
-	file, err := os.OpenFile(filepath.Join(state, ".application.lock"), os.O_CREATE|os.O_RDWR, 0o600)
-	if err != nil {
-		return nil, err
-	}
-	unlock, err := tryLockFile(file)
-	if err != nil {
-		_ = file.Close()
-		return nil, fmt.Errorf("application is already running or being updated: %w", err)
-	}
-	return func() { _ = unlock(); _ = file.Close() }, nil
-}
-
-type commandRunner func(context.Context, string, ...string) error
-
-func runChild(ctx context.Context, state string, args ...string) error {
-	executable, err := os.Executable()
-	if err != nil {
-		return err
-	}
-	// Reexecute the running binary with the supplied argument slice.
-	command := exec.CommandContext(ctx, executable, append([]string{"--state-dir", state, "runtime"}, args...)...) //nolint:gosec // executable comes only from os.Executable
-	command.Stdin, command.Stdout, command.Stderr = os.Stdin, os.Stdout, os.Stderr
-	return command.Run()
-}
-
-// updateDeployment runs Wippy update and lint in a disposable deployment.
-// Activation changes only after both commands and artifact verification succeed.
-func updateDeployment(ctx context.Context, options Options, state, current string, args []string, run commandRunner) error {
-	revisions := filepath.Join(state, "revisions")
-	if err := os.MkdirAll(revisions, 0o700); err != nil {
-		return err
-	}
-	candidate, err := os.MkdirTemp(revisions, "revision-")
-	if err != nil {
-		return err
-	}
-	committed := false
-	defer func() {
-		if !committed {
-			_ = os.RemoveAll(candidate)
-		}
-	}()
-	deployment := filepath.Join(candidate, "deployment")
-	if err := os.CopyFS(deployment, os.DirFS(current)); err != nil {
-		return fmt.Errorf("stage application update: %w", err)
-	}
-	// Keep the original config path so relative replacements retain their base.
-	prefix := []string{}
-	config := filepath.Join(state, ".wippy.yaml")
-	if _, err := os.Stat(config); err == nil {
-		prefix = []string{"--config", config}
-	} else if !os.IsNotExist(err) {
-		return err
-	}
-	updateArgs := append(append([]string{}, prefix...), "update")
-	if err := run(ctx, candidate, append(updateArgs, args...)...); err != nil {
-		return fmt.Errorf("update failed; active deployment unchanged: %w", err)
-	}
-	if err := run(ctx, candidate, append(append([]string{}, prefix...), "lint")...); err != nil {
-		return fmt.Errorf("updated application is incompatible with this executable: %w", err)
-	}
-	path, err := options.Bundle.existing(filepath.Join(deployment, lock.DefaultFilename))
-	if err != nil {
-		return err
-	}
-	locked, err := lock.New(path)
-	if err != nil {
-		return err
-	}
-	for _, pack := range locked.GetModuleLoadPaths() {
-		if pack.Module == "" {
-			continue
-		}
-		if info, err := os.Stat(pack.Path); err != nil || !info.Mode().IsRegular() {
-			return fmt.Errorf("updated module %s must be a verified pack", pack.Module)
-		}
-		if pack.Digest == "" {
-			return fmt.Errorf("updated module %s has no digest", pack.Module)
-		}
-		if err := hub.VerifyDownloadedArtifact(pack.Path, pack.Digest, 0); err != nil {
-			return err
-		}
-	}
-	relative, err := filepath.Rel(state, deployment)
-	if err != nil {
-		return err
-	}
-	previous, err := filepath.Rel(state, current)
-	if err != nil {
-		return err
-	}
-	data, err := json.Marshal(activation{Directory: relative, Previous: previous})
-	if err != nil {
-		return err
-	}
-	pending, err := os.CreateTemp(state, ".activation-")
-	if err != nil {
-		return err
-	}
-	pendingPath := pending.Name()
-	defer os.Remove(pendingPath)
-	if _, err := pending.Write(data); err != nil {
-		_ = pending.Close()
-		return err
-	}
-	if err := pending.Sync(); err != nil {
-		_ = pending.Close()
-		return err
-	}
-	if err := pending.Close(); err != nil {
-		return err
-	}
-	if err := os.Rename(pendingPath, filepath.Join(state, "active.json")); err != nil {
-		return err
-	}
-	committed = true
-	return nil
+	return filepath.Join(l.State, record.Directory), nil
 }
