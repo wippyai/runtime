@@ -46,10 +46,16 @@ func EventualReg() boot.Component {
 			}
 
 			cfg := eventual.Config{
-				Admission:        admission.FromContext(ctx),
-				LocalNodeID:      memSvc.LocalNode().ID,
-				Peers:            &membershipPeerInventory{m: memSvc},
-				CrossScope:       newCrossScopeChecker(ctx),
+				Admission:   admission.FromContext(ctx),
+				LocalNodeID: memSvc.LocalNode().ID,
+				Peers:       &membershipPeerInventory{m: memSvc},
+				CrossScope:  newCrossScopeChecker(ctx),
+				StrongReservation: func(name string) (pid.PID, bool) {
+					if gr := topology.GetGlobalRegistry(ctx); gr != nil {
+						return gr.IsStrongReserved(name)
+					}
+					return pid.PID{}, false
+				},
 				MetricsCollector: metricsapi.GetCollector(ctx),
 				Logger:           logger,
 				Bus:              eventapi.GetBus(ctx),
@@ -232,35 +238,41 @@ func (c *localPresenceChecker) LookupLocal(name string) (pid.PID, bool) {
 }
 
 func (c *localPresenceChecker) LookupEventual(name string) (pid.PID, bool) {
-	p, found, _ := c.lookupEventualChecked(name)
-	return p, found
-}
-
-func (c *localPresenceChecker) lookupEventualChecked(name string) (pid.PID, bool, error) {
 	if c == nil {
-		return pid.PID{}, false, nil
+		return pid.PID{}, false
 	}
 	er := topology.GetEventualRegistry(c.ctx)
 	if er == nil {
-		return pid.PID{}, false, nil
+		return pid.PID{}, false
+	}
+	if raw, ok := er.(interface {
+		LookupUnfiltered(string) (pid.PID, bool)
+	}); ok {
+		return raw.LookupUnfiltered(name)
 	}
 	res, err := er.Lookup(c.ctx, name)
 	if err != nil {
-		return pid.PID{}, false, err
+		return pid.PID{}, false
 	}
-	return res.PID, res.Found, nil
+	return res.PID, res.Found
 }
 
 func (c *localPresenceChecker) conflictingClaim(name string, proposed pid.PID) (pid.PID, bool, error) {
 	if cp, ok := c.LookupLocal(name); ok && !cp.Equal(proposed) {
 		return cp, true, nil
 	}
-	cp, found, err := c.lookupEventualChecked(name)
-	if err != nil {
-		return pid.PID{}, false, err
-	}
-	if found && !cp.Equal(proposed) {
-		return cp, true, nil
+	// EVENTUAL's visible winner is insufficient: an old or concurrent live
+	// dot may hide underneath it and reappear when the winner unregisters.
+	// Inspect raw per-origin state under the shared admission gate. Public
+	// EVENTUAL Lookup filters Strong reservations and cannot be vote evidence.
+	if er := topology.GetEventualRegistry(c.ctx); er != nil {
+		raw, ok := er.(interface {
+			ConflictingLiveClaim(string, pid.PID) (pid.PID, bool, error)
+		})
+		if !ok {
+			return pid.PID{}, false, fmt.Errorf("strong naming: EVENTUAL registry %T lacks ConflictingLiveClaim", er)
+		}
+		return raw.ConflictingLiveClaim(name, proposed)
 	}
 	return pid.PID{}, false, nil
 }

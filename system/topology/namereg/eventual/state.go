@@ -229,6 +229,25 @@ func (s *State) Lookup(name string) (pid.PID, bool) {
 	return w.PID, true
 }
 
+// ConflictingLiveClaim reports any live dot with a different owner, including
+// one hidden behind the visible winner. Strong voting must inspect the raw
+// per-origin set: removal of a winner can expose a retained losing dot.
+func (s *State) ConflictingLiveClaim(name string, proposed pid.PID) (pid.PID, bool) {
+	sh := &s.shards[ShardFor(name)]
+	sh.mu.RLock()
+	defer sh.mu.RUnlock()
+	rec, ok := sh.entries[name]
+	if !ok {
+		return pid.PID{}, false
+	}
+	for _, e := range rec.dots {
+		if !e.Deleted && !e.PID.Equal(proposed) {
+			return e.PID, true
+		}
+	}
+	return pid.PID{}, false
+}
+
 // winnerOf derives the visible entry for a name record. The winner is the
 // highest-ranked LIVE dot across origins; if no origin is live, it is the
 // highest-ranked tombstone (so the name reports as absent but a tombstone

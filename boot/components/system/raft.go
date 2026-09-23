@@ -16,7 +16,6 @@ import (
 	"github.com/wippyai/runtime/api/event"
 	logapi "github.com/wippyai/runtime/api/logs"
 	metricsapi "github.com/wippyai/runtime/api/metrics"
-	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/topology"
 	globalapi "github.com/wippyai/runtime/api/topology/namereg/global"
@@ -649,16 +648,4 @@ func Raft() boot.Component {
 			return nil
 		},
 	})
-}
-
-// localConflictForStrong checks both weaker scopes; a matching LOCAL claim
-// cannot conceal a different EVENTUAL owner during Strong admission.
-func localConflictForStrong(lp *localPresenceChecker, name string, proposed pid.PID) (pid.PID, bool) {
-	if cp, ok := lp.LookupLocal(name); ok && !cp.Equal(proposed) {
-		return cp, true
-	}
-	if cp, ok := lp.LookupEventual(name); ok && !cp.Equal(proposed) {
-		return cp, true
-	}
-	return pid.PID{}, false
 }

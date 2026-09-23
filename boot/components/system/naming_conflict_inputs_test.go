@@ -189,7 +189,8 @@ func TestStrongPresenceChecksBothWeakerScopes(t *testing.T) {
 				require.NoError(t, err)
 				topology.WithEventualRegistry(ctx, svc)
 			}
-			got, conflict := localConflictForStrong(&localPresenceChecker{ctx: ctx}, "shared", owner.Precomputed())
+			got, conflict, err := (&localPresenceChecker{ctx: ctx}).conflictingClaim("shared", owner.Precomputed())
+			require.NoError(t, err)
 			require.Equal(t, tc.want != (pid.PID{}), conflict)
 			if conflict {
 				require.True(t, got.Equal(tc.want))

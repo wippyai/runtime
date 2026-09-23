@@ -76,6 +76,10 @@ type Config struct {
 	Peers PeerInventory
 	// CrossScope optionally cross-checks CONSISTENT/LOCAL on Register.
 	CrossScope CrossScopeChecker
+	// StrongReservation reads this node's locally latched Strong exclusion.
+	// A conflicting EVENTUAL dot must not be served after the node ACKs Strong,
+	// even if delayed gossip installs that dot before the active KV record lands.
+	StrongReservation func(name string) (pid.PID, bool)
 	// MetricsCollector may be nil.
 	MetricsCollector metrics.Collector
 	// Logger may be nil.
@@ -440,11 +444,35 @@ func (s *Service) Lookup(_ context.Context, name string, opts ...global.LookupOp
 		return global.LookupResult{PID: *o.ByPID}, nil
 	}
 
+	// Sample the raw winner before the exclusion, so a lookup begun after a
+	// Strong ACK cannot expose a conflicting dot. Do not take the admission
+	// gate here: LOCAL registration already holds it when consulting Lookup.
+	// Gossip still updates the raw CRDT for normal repair and convergence.
 	p, found := s.state.Lookup(name)
+	if found && s.cfg.StrongReservation != nil {
+		if reserved, ok := s.cfg.StrongReservation(name); ok && !reserved.Equal(p) {
+			return global.LookupResult{}, nil
+		}
+	}
 	return global.LookupResult{
 		PID:   p,
 		Found: found,
 	}, nil
+}
+
+// ConflictingLiveClaim inspects unfiltered per-origin state for Strong voting.
+// The voter already holds the shared per-name admission gate; public Lookup
+// filters Strong reservations and could hide voting evidence.
+func (s *Service) ConflictingLiveClaim(name string, proposed pid.PID) (pid.PID, bool, error) {
+	p, found := s.state.ConflictingLiveClaim(name, proposed)
+	return p, found, nil
+}
+
+// LookupUnfiltered supplies the legacy Strong voter with the raw EVENTUAL
+// winner. That voter holds its own reservation lock, so it must not call the
+// fenced public Lookup, which consults that same reservation.
+func (s *Service) LookupUnfiltered(name string) (pid.PID, bool) {
+	return s.state.Lookup(name)
 }
 
 // --- Transport hooks (called by delegate.go) ---

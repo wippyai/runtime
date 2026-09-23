@@ -55,12 +55,11 @@ func TestStrongPendingVoteExcludesLocalAndEventualBeforeAckCommits(t *testing.T)
 		Admission: gate,
 		IsLeader:  func() bool { return false },
 		Deadline:  time.Minute,
-		LocalConflict: func(name string, _ pid.PID) (pid.PID, bool, error) {
+		LocalConflict: func(name string, proposed pid.PID) (pid.PID, bool, error) {
 			if p, ok := local.LookupLocal(name); ok {
 				return p, true, nil
 			}
-			res, err := eventualReg.Lookup(context.Background(), name)
-			return res.PID, res.Found, err
+			return eventualReg.ConflictingLiveClaim(name, proposed)
 		},
 	})
 	const attempt = "00000000000000000000000000000088"
@@ -102,6 +101,54 @@ func TestStrongPendingVoteExcludesLocalAndEventualBeforeAckCommits(t *testing.T)
 		return err == nil
 	}) {
 		t.Fatal("admitted Strong vote did not complete")
+	}
+}
+
+func TestStrongVoteRejectsHiddenEventualDot(t *testing.T) {
+	gate := &admission.Coordinator{}
+	r := newStrongReg(t, []pid.NodeID{"node-1", "ghost"}, time.Minute, nil)
+	a := eventual.NewService(eventual.Config{LocalNodeID: "node-1", Admission: gate})
+	b := eventual.NewService(eventual.Config{LocalNodeID: "node-2"})
+	hidden := mkPID("node-1", "hidden")
+	claimant := mkPID("node-2", "winner")
+	if _, err := a.Register("hidden", hidden); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.RegisterWithOptions("hidden", claimant, eventual.WithPriority(1)); err != nil {
+		t.Fatal(err)
+	}
+	for _, frame := range b.DrainBroadcasts(0, 1<<20) {
+		a.OnFrame(frame)
+	}
+	if got, err := a.Lookup(context.Background(), "hidden"); err != nil || !got.Found || !got.PID.Equal(claimant) {
+		t.Fatalf("fixture requires visible matching winner: %+v, err=%v", got, err)
+	}
+	r.ConfigureStrong(StrongDeps{
+		Admission: gate,
+		IsLeader:  func() bool { return false },
+		Deadline:  time.Minute,
+		LocalConflict: func(name string, proposed pid.PID) (pid.PID, bool, error) {
+			return a.ConflictingLiveClaim(name, proposed)
+		},
+	})
+	startStrongReconciler(t, r)
+	const attempt = "00000000000000000000000000000090"
+	value, err := encode(pendingHeader{PID: claimant.String(), Name: "hidden", AttemptID: attempt,
+		RequiredNodes: []pid.NodeID{"node-1", "ghost"}, DeadlineUnixNano: time.Now().Add(time.Minute).UnixNano()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.engine.Set(pendingKey("hidden"), value); err != nil {
+		t.Fatal(err)
+	}
+	if !eventually(t, 2*time.Second, func() bool {
+		_, err := r.engine.Get(rejectKey("hidden", attempt, "node-1"))
+		return err == nil
+	}) {
+		t.Fatal("Strong voter ACKed while hidden EVENTUAL dot remained live")
+	}
+	if _, err := r.engine.Get(ackKey("hidden", attempt, "node-1")); err == nil {
+		t.Fatal("Strong voter wrote both ACK and rejection")
 	}
 }
 
