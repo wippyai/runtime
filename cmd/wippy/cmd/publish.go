@@ -125,8 +125,17 @@ func runPublish(cmd *cobra.Command, _ []string) error {
 		}
 	}
 
+	// Keep validation, the displayed digest, and every upload attempt bound to
+	// one immutable copy. A release build may replace the source path while a
+	// publish is waiting for module registration or a Hub retry.
+	var sealedPath string
 	if wappPath != "" {
-		packVersion, err := readPublishablePack(wappPath, cfg.FullName())
+		sealedPath, err = snapshotPublishPack(wappPath)
+		if err != nil {
+			return NewPublishConfigError(err)
+		}
+		defer os.Remove(sealedPath)
+		packVersion, err := readPublishablePack(sealedPath, wappPath, cfg.FullName())
 		if err != nil {
 			return NewPublishConfigError(err)
 		}
@@ -181,9 +190,9 @@ func runPublish(cmd *cobra.Command, _ []string) error {
 
 	var outputFile, digest string
 	if wappPath != "" {
-		outputFile = wappPath
+		outputFile = sealedPath
 		var size int64
-		digest, size, err = digestAndSizeFromFile(wappPath)
+		digest, size, err = digestAndSizeFromFile(sealedPath)
 		if err != nil {
 			return NewPublishDigestError(err)
 		}
@@ -584,23 +593,50 @@ func packModule(ctx context.Context, app *appinit.Context, cfg *config.ModuleCon
 	}, nil
 }
 
+// snapshotPublishPack captures one private copy for validation and upload.
+// It prevents a concurrent rebuild from changing the bytes after validation.
+// The caller owns and removes the returned path.
+func snapshotPublishPack(path string) (string, error) {
+	source, err := os.Open(path)
+	if err != nil {
+		return "", fmt.Errorf("open pack %s: %w", path, err)
+	}
+	defer source.Close()
+
+	snapshot, err := os.CreateTemp("", "wippy-publish-*.wapp")
+	if err != nil {
+		return "", fmt.Errorf("create pack snapshot: %w", err)
+	}
+	snapshotPath := snapshot.Name()
+	if _, err := io.Copy(snapshot, source); err != nil {
+		_ = snapshot.Close()
+		_ = os.Remove(snapshotPath)
+		return "", fmt.Errorf("snapshot pack %s: %w", path, err)
+	}
+	if err := snapshot.Close(); err != nil {
+		_ = os.Remove(snapshotPath)
+		return "", fmt.Errorf("close pack snapshot: %w", err)
+	}
+	return snapshotPath, nil
+}
+
 // readPublishablePack validates an existing pack for publication as module and
 // returns the exact version its metadata declares. The pack must identify
 // module by name and namespace and hold exactly one ns.definition entry.
-func readPublishablePack(path, module string) (string, error) {
+func readPublishablePack(path, displayPath, module string) (string, error) {
 	file, err := os.Open(path)
 	if err != nil {
-		return "", fmt.Errorf("open pack %s: %w", path, err)
+		return "", fmt.Errorf("open pack %s: %w", displayPath, err)
 	}
 	defer file.Close()
 
 	reader, err := wapp.NewReader(file)
 	if err != nil {
-		return "", fmt.Errorf("read pack %s: %w", path, err)
+		return "", fmt.Errorf("read pack %s: %w", displayPath, err)
 	}
 	packMetadata, err := reader.GetMetadata()
 	if err != nil {
-		return "", fmt.Errorf("read pack metadata %s: %w", path, err)
+		return "", fmt.Errorf("read pack metadata %s: %w", displayPath, err)
 	}
 	metadata := attrs.NewBagFrom(packMetadata)
 	for _, key := range []string{"name", "namespace", "version"} {
@@ -618,7 +654,7 @@ func readPublishablePack(path, module string) (string, error) {
 
 	packEntries, err := reader.GetEntries()
 	if err != nil {
-		return "", fmt.Errorf("read pack entries %s: %w", path, err)
+		return "", fmt.Errorf("read pack entries %s: %w", displayPath, err)
 	}
 	definitionCount := 0
 	for _, entry := range packEntries {
@@ -634,7 +670,7 @@ func readPublishablePack(path, module string) (string, error) {
 	}
 	for _, resource := range reader.ListResources() {
 		if _, err := reader.GetFS(resource.ID); err != nil {
-			return "", fmt.Errorf("read pack resource %s in %s: %w", resource.ID.String(), path, err)
+			return "", fmt.Errorf("read pack resource %s in %s: %w", resource.ID.String(), displayPath, err)
 		}
 	}
 	return version, nil

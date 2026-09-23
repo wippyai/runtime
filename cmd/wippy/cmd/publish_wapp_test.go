@@ -48,10 +48,19 @@ type sealedHub struct {
 	mu      sync.Mutex
 }
 
-func newSealedHub(t *testing.T) (*sealedHub, *httptest.Server) {
+func newSealedHub(t *testing.T, onRegister ...func() error) (*sealedHub, *httptest.Server) {
 	t.Helper()
 	recorded := &sealedHub{}
 	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/account/modules", func(w http.ResponseWriter, _ *http.Request) {
+		if len(onRegister) > 0 {
+			if err := onRegister[0](); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+		}
+		w.WriteHeader(http.StatusConflict) // already registered
+	})
 	mux.HandleFunc("/api/v1/publish/upload", func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
@@ -122,6 +131,7 @@ type sealedPublishArgs struct {
 	label    string
 	registry string
 	dryRun   bool
+	create   bool
 }
 
 func runSealedPublish(t *testing.T, dir, manifest string, args sealedPublishArgs) (string, error) {
@@ -142,6 +152,7 @@ func runSealedPublish(t *testing.T, dir, manifest string, args sealedPublishArgs
 	command.Flags().String("label", args.label, "")
 	command.Flags().String("registry", args.registry, "")
 	command.Flags().String("wapp", args.wappPath, "")
+	command.Flags().Bool("create", args.create, "")
 	previousSilent := silentLogs
 	t.Cleanup(func() { silentLogs = previousSilent })
 
@@ -207,6 +218,49 @@ func TestPublishSealedWappUploadsExactBytesThatResolveAgainstLock(t *testing.T) 
 	}
 	if err := hub.VerifyDownloadedArtifact(packPath, recorded.digest, uint64(len(recorded.body))); err != nil {
 		t.Fatalf("sealed pack does not verify against the Hub digest: %v", err)
+	}
+}
+
+func TestPublishSealedWappKeepsValidatedBytesWhenSourceChanges(t *testing.T) {
+	dir := t.TempDir()
+	packPath := filepath.Join(dir, "tools.wapp")
+	sealed := writeSealedPack(t, packPath, sealedPackMetadata("1.2.3"))
+	replacementMetadata := sealedPackMetadata("1.2.3")
+	replacementMetadata["packed_at"] = "2026-09-24T02:51:07Z"
+	replacement := writeSealedPack(t, filepath.Join(dir, "replacement.wapp"), replacementMetadata)
+	if bytes.Equal(sealed, replacement) {
+		t.Fatal("replacement pack must have different bytes")
+	}
+	replaced := make(chan struct{}, 1)
+	recorded, server := newSealedHub(t, func() error {
+		if err := os.WriteFile(packPath, replacement, 0o600); err != nil {
+			return err
+		}
+		replaced <- struct{}{}
+		return nil
+	})
+	output, err := runSealedPublish(t, dir, "organization: bee\nmodule: tools\ntype: library\n", sealedPublishArgs{
+		wappPath: packPath,
+		registry: server.URL,
+		create:   true,
+	})
+	if err != nil {
+		t.Fatalf("publish after source replacement: %v", err)
+	}
+	select {
+	case <-replaced:
+	default:
+		t.Fatal("source was not replaced during registration")
+	}
+	sum := sha256.Sum256(sealed)
+	wantDigest := "sha256:" + hex.EncodeToString(sum[:])
+	if !strings.Contains(output, wantDigest) {
+		t.Fatalf("displayed digest differs from validated bytes: %s", output)
+	}
+	recorded.mu.Lock()
+	defer recorded.mu.Unlock()
+	if !bytes.Equal(recorded.body, sealed) || recorded.digest != wantDigest {
+		t.Fatalf("uploaded replacement rather than validated pack: digest=%s want=%s", recorded.digest, wantDigest)
 	}
 }
 
