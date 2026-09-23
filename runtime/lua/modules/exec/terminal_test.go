@@ -15,6 +15,7 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/relay"
+	execapi "github.com/wippyai/runtime/api/service/exec"
 	ttyapi "github.com/wippyai/runtime/api/tty"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	luatty "github.com/wippyai/runtime/runtime/lua/modules/tty"
@@ -53,6 +54,30 @@ func TestTerminalCompletionIsOneShot(t *testing.T) {
 	)
 	if !receiver.terminal.Load() {
 		t.Fatal("completion did not carry terminal subscription marker")
+	}
+}
+
+func TestTerminalResultKeepsExitAndTerminalErrorSeparate(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	failure := errors.New("terminal presentation failed")
+	result := terminalCompletionHandler(context.Background(), l, pid.PID{}, "done", []payload.Payload{
+		payload.New(&terminalResult{
+			Exit:          &execapi.ExitStatus{Code: 7},
+			TerminalError: failure,
+		}),
+	})
+	out, ok := result.(*lua.LTable)
+	if !ok {
+		t.Fatalf("result = %T, want table", result)
+	}
+	exit, ok := out.RawGetString("exit").(*lua.LTable)
+	if !ok || exit.RawGetString("code") != lua.LInteger(7) {
+		t.Fatalf("exit = %v, want code 7", out.RawGetString("exit"))
+	}
+	terminalErr, ok := out.RawGetString("terminal_error").(*lua.Error)
+	if !ok || !errors.Is(terminalErr, failure) {
+		t.Fatalf("terminal_error = %v, want presentation failure", out.RawGetString("terminal_error"))
 	}
 }
 

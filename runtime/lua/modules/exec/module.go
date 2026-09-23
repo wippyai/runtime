@@ -12,8 +12,9 @@ import (
 )
 
 const (
-	executorTypeName = "exec.Executor"
-	processTypeName  = "exec.Process"
+	executorTypeName        = "exec.Executor"
+	processTypeName         = "exec.Process"
+	terminalProcessTypeName = "exec.TerminalProcess"
 )
 
 var (
@@ -25,6 +26,9 @@ func init() {
 	value.RegisterTypeMethods(nil, executorTypeName, nil, executorMethods)
 	value.RegisterTypeMethods(nil, processTypeName, nil, processMethods)
 	value.RegisterTypeMethods(nil, terminalSessionTypeName,
+		map[string]lua.LGoFunc{"__gc": terminalSessionGC},
+		terminalSessionMethods)
+	value.RegisterTypeMethods(nil, terminalProcessTypeName,
 		map[string]lua.LGoFunc{"__gc": terminalSessionGC},
 		terminalSessionMethods)
 }
@@ -45,6 +49,7 @@ var Module = &luaapi.ModuleDef{
 		initOnce.Do(initModuleTable)
 		return moduleTable, []luaapi.YieldType{
 			{Sample: &ProcessWaitYield{}, CmdID: execapi.ProcessWait},
+			{Sample: &TerminalReadyYield{}, CmdID: execapi.TerminalReady},
 		}
 	},
 	Types: ModuleTypes,

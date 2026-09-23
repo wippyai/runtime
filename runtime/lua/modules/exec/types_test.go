@@ -36,6 +36,31 @@ return completion_value
 	require.False(t, code.HasErrors(diagnostics), "terminal completion select type was lost: %v", diagnostics)
 }
 
+func TestTerminalProcessResultPreservesSelectValueType(t *testing.T) {
+	config := code.DefaultTypeCheckConfig()
+	config.Enabled = true
+	config.SkipUntyped = false
+	checker := code.NewTypeChecker(config, []*luaapi.ModuleDef{engine.ChannelModule, Module})
+	_, diagnostics, err := checker.Check(`
+local channel = require("channel")
+local exec = require("exec")
+
+local function completion_value(terminal: exec.TerminalProcess): integer
+    local done = terminal:done()
+    local selected = channel.select({done:case_receive()})
+    if selected.channel == done then
+        local result: exec.TerminalResult = selected.value
+        if result.exit then return result.exit.code end
+    end
+    return 0
+end
+
+return completion_value
+`, "terminal_result_select_types.lua", nil)
+	require.NoError(t, err)
+	require.False(t, code.HasErrors(diagnostics), "terminal result select type was lost: %v", diagnostics)
+}
+
 func TestProcessMountOptionsAreTyped(t *testing.T) {
 	config := code.DefaultTypeCheckConfig()
 	config.Enabled = true

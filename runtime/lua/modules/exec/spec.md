@@ -63,7 +63,46 @@ Returned by `exec.get()`. Creates and manages processes.
 | Method | Signature | Returns | Notes |
 |--------|-----------|---------|-------|
 | exec | (cmd: string, options?: ProcessOptions) | Process, error | Creates a new process |
+| terminal | (cmd: string, options?: ProcessOptions) | TerminalProcess, error | Starts a PTY process in the caller's terminal |
 | release | () | boolean, error | Releases the executor resource |
+
+#### executor:terminal(cmd: string, options?: ProcessOptions) → TerminalProcess, error
+
+Creates and starts a host process whose PTY is rendered in the caller's current
+terminal port. The call yields until the child has started, its initial size is
+set, and PTY output is available. Startup or setup failures return `nil, error`
+after cleanup; no partially started handle is returned. The returned
+`TerminalProcess` is the sole lifecycle owner.
+
+The same `exec.run` and `exec.mount` permissions and process options apply as
+to `executor:exec`. A PTY is allocated automatically; `options.pty.term` may
+select the child's `TERM`. The current terminal geometry supplies omitted PTY
+dimensions and the process is resized to that geometry after startup.
+
+```lua
+local terminal = assert(executor:terminal("bash", {
+    pty = {term = "xterm-256color"},
+}))
+local host_pid, pid_err = terminal:pid() -- optional host OS identity
+-- Forward tty events with terminal:send(event).
+local done = terminal:done()             -- terminal-finalization channel
+local result = done:receive()
+if result.exit then print(result.exit.code) end
+if result.terminal_error then error(result.terminal_error) end
+```
+
+`TerminalProcess` exposes `send(event)`, `done()`, `pid()`, `status()`, and
+`close()`. `pid()` has no startup-pending state on a returned object, but
+returns a non-retryable unavailable error for executors without host PID
+identity. `done()` carries one `TerminalResult` after the child has been waited
+on, output drained, and the terminal finalized. `result.exit` has the child's
+`code`, optional `signal`, and optional `error` if its exit could not be
+observed. It is absent if the proxy could not reap the child. A non-zero code
+is a child exit, not a terminal error. `result.terminal_error` separately
+reports a proxy, I/O, or shutdown failure. `close()` requests graceful
+shutdown and reaping; await `done()` to observe completion. Neither the PID
+nor an exit result is an authorization grant or proof that a process group
+exited.
 
 #### executor:exec(cmd: string, options?: ProcessOptions) → Process, error
 
@@ -171,14 +210,15 @@ Returned by `executor:exec()`. Represents a process instance.
 | stdout_stream | () | Stream, error | Returns stdout stream |
 | stderr_stream | () | Stream, error | Returns stderr stream |
 | resize | (width: integer, height: integer) | boolean, error | Resizes a PTY-backed process |
-| attach_terminal | () | TerminalSession, error | Attaches an unstarted PTY process to the current TTY |
+| attach_terminal | () | TerminalSession, error | Legacy ownership transfer for an unstarted PTY process |
 | close | (force?: boolean) | boolean, error | Signals the process, reaps it, releases the handle |
 
 #### process:attach_terminal() → TerminalSession, error
 
-Consumes an unstarted PTY-backed process and attaches it to the current
-process terminal. The returned session becomes the exclusive lifecycle owner;
-the original process handle cannot be used afterward.
+The older, lower-level path consumes an unstarted PTY-backed process and
+attaches it to the current process terminal. The returned session becomes the
+exclusive lifecycle owner; the original process handle cannot be used
+afterward. New callers should use `executor:terminal()` instead.
 
 ```lua
 local child = assert(executor:exec("bash", {

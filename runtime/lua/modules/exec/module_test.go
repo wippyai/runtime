@@ -556,14 +556,20 @@ func TestModuleBuild(t *testing.T) {
 	}
 
 	found := false
+	foundTerminal := false
 	for _, y := range yields {
 		if y.CmdID == execapi.ProcessWait {
 			found = true
-			break
+		}
+		if y.CmdID == execapi.TerminalReady {
+			foundTerminal = true
 		}
 	}
 	if !found {
 		t.Error("module should register ProcessWait yield type")
+	}
+	if !foundTerminal {
+		t.Error("module should register TerminalReady yield type")
 	}
 }
 
@@ -757,6 +763,37 @@ func TestExecutorExecParsesPTYOptions(t *testing.T) {
 	if len(factory.lastOptions.Mounts) != 1 || factory.lastOptions.Mounts[0] != (execapi.Mount{Source: "/host/project", Target: "/workspace", ReadOnly: true}) {
 		t.Fatalf("mount options = %+v", factory.lastOptions.Mounts)
 	}
+}
+
+func TestExecutorTerminalCreatesPTYByDefault(t *testing.T) {
+	l := setupState()
+	defer l.Close()
+	ctx := securityapi.SetStrictMode(ctxapi.NewRootContext(), false)
+	l.SetContext(ctx)
+	factory := &mockProcessExecutor{}
+	value.PushTypedUserData(l, NewExecutor(ctx, nil, factory), executorTypeName)
+	l.Push(lua.LString("bash"))
+	l.Push(lua.LNil)
+	process, ok := createAuthorizedProcess(l, checkExecutor(l, 1), true, 100, 30)
+	require.True(t, ok)
+	require.NotNil(t, process)
+	require.Equal(t, &execapi.PTYOptions{Width: 100, Height: 30}, factory.lastOptions.PTY)
+}
+
+func TestTerminalReadyYieldReturnsTerminalProcess(t *testing.T) {
+	l := setupState()
+	defer l.Close()
+	session := &terminalSession{}
+	ready := make(chan error, 1)
+	y := &TerminalReadyYield{Ready: ready, Session: session}
+	require.Equal(t, execapi.TerminalReady, y.CmdID())
+	require.Equal(t, (<-chan error)(ready), y.ToCommand().(*execapi.TerminalReadyCmd).Ready)
+	result := y.HandleResult(l, nil, nil)
+	require.Len(t, result, 2)
+	ud, ok := result[0].(*lua.LUserData)
+	require.True(t, ok)
+	require.Same(t, session, ud.Value)
+	require.Equal(t, lua.LNil, result[1])
 }
 
 func TestExecutorExecRequiresSeparateMountPermission(t *testing.T) {

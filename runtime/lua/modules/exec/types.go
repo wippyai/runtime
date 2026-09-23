@@ -14,7 +14,10 @@ var processType typ.Type
 var processExitType typ.Type
 var processExitChannelType typ.Type
 var terminalCompletionType typ.Type
+var terminalResultType typ.Type
+var terminalResultChannelType typ.Type
 var terminalSessionType typ.Type
+var terminalProcessType typ.Type
 var ptyOptionsType typ.Type
 var mountType typ.Type
 var processOptionsType typ.Type
@@ -54,7 +57,17 @@ func init() {
 		{Name: "case_receive", Type: typ.Func().Param("self", typ.Self).
 			Returns(engine.ChannelSelectCaseType(typ.Self, typ.Boolean)).Build()},
 	})
-	terminalSessionType = typ.NewInterface("exec.TerminalSession", []typ.Method{
+	terminalResultType = typ.NewRecord().
+		OptField("exit", processExitType).
+		OptField("terminal_error", typ.LuaError).
+		Build()
+	terminalResultChannelType = typ.NewInterface("exec.TerminalResultChannel", []typ.Method{
+		{Name: "receive", Type: typ.Func().Param("self", typ.Self).
+			Returns(typ.NewOptional(terminalResultType), typ.Boolean).Build()},
+		{Name: "case_receive", Type: typ.Func().Param("self", typ.Self).
+			Returns(engine.ChannelSelectCaseType(typ.Self, terminalResultType)).Build()},
+	})
+	terminalMethods := []typ.Method{
 		{Name: "send", Type: typ.Func().Param("self", typ.Self).
 			Param("event", luatty.InputEventType()).
 			Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
@@ -66,7 +79,12 @@ func init() {
 			Returns(typ.NewOptional(typ.Integer), typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "status", Type: typ.Func().Param("self", typ.Self).
 			Returns(typ.NewUnion(typ.LiteralString("running"), typ.LiteralString("done")), typ.NewOptional(typ.LuaError)).Build()},
-	})
+	}
+	terminalSessionType = typ.NewInterface("exec.TerminalSession", terminalMethods)
+	terminalProcessMethods := append([]typ.Method(nil), terminalMethods...)
+	terminalProcessMethods[2] = typ.Method{Name: "done", Type: typ.Func().Param("self", typ.Self).
+		Returns(terminalResultChannelType).Build()}
+	terminalProcessType = typ.NewInterface("exec.TerminalProcess", terminalProcessMethods)
 	processType = typ.NewInterface("exec.Process", []typ.Method{
 		{Name: "start", Type: typ.Func().Param("self", typ.Self).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "wait", Type: typ.Func().Param("self", typ.Self).Returns(typ.Any, typ.NewOptional(typ.LuaError)).Build()},
@@ -88,6 +106,10 @@ func init() {
 			Param("cmd", typ.String).
 			OptParam("opts", processOptionsType).
 			Returns(processType, typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "terminal", Type: typ.Func().Param("self", typ.Self).
+			Param("cmd", typ.String).
+			OptParam("opts", processOptionsType).
+			Returns(terminalProcessType, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "release", Type: typ.Func().Param("self", typ.Self).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
 	})
 }
@@ -100,7 +122,10 @@ func ModuleTypes() *io.Manifest {
 	m.DefineType("ProcessExit", processExitType)
 	m.DefineType("ProcessExitChannel", processExitChannelType)
 	m.DefineType("TerminalCompletionChannel", terminalCompletionType)
+	m.DefineType("TerminalResult", terminalResultType)
+	m.DefineType("TerminalResultChannel", terminalResultChannelType)
 	m.DefineType("TerminalSession", terminalSessionType)
+	m.DefineType("TerminalProcess", terminalProcessType)
 	m.DefineType("PTYOptions", ptyOptionsType)
 	m.DefineType("Mount", mountType)
 	m.DefineType("ProcessOptions", processOptionsType)

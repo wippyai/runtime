@@ -29,6 +29,7 @@ type terminalSession struct {
 	completion *terminalCompletion
 	bridge     *proxy.Proxy
 	identity   execapi.ProcessIdentity
+	structured bool
 	errMu      sync.RWMutex
 	once       sync.Once
 	done       atomic.Bool
@@ -41,12 +42,16 @@ func newTerminalSession(bridge *proxy.Proxy, completion *terminalCompletion, ide
 	}
 }
 
-func (s *terminalSession) complete(err error) {
+func (s *terminalSession) complete(result proxy.Result) {
 	s.errMu.Lock()
-	s.err = err
+	s.err = result.Err
 	s.errMu.Unlock()
 	s.done.Store(true)
-	s.completion.notify()
+	if s.structured {
+		s.completion.notify(&terminalResult{Exit: result.Exit, TerminalError: result.TerminalError})
+	} else {
+		s.completion.notify(nil)
+	}
 }
 
 func checkTerminalSession(l *lua.LState) *terminalSession {

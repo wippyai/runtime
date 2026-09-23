@@ -9,13 +9,22 @@ import (
 )
 
 func init() {
-	dispatcher.MustRegisterCommands("exec", ProcessWait)
+	dispatcher.MustRegisterCommands("exec", ProcessWait, TerminalReady)
 }
 
 // ProcessWait is a command ID for exec operations.
 const (
-	ProcessWait dispatcher.CommandID = 150 // Wait for process to complete
+	ProcessWait   dispatcher.CommandID = 150 // Wait for process to complete
+	TerminalReady dispatcher.CommandID = 151 // Wait for terminal process startup
 )
+
+// TerminalReadyCmd waits without blocking the Lua scheduler until a terminal
+// proxy has started its child and validated the initial PTY setup.
+type TerminalReadyCmd struct {
+	Ready <-chan error
+}
+
+func (c *TerminalReadyCmd) CmdID() dispatcher.CommandID { return TerminalReady }
 
 // ProcessWaitCmd waits for a process to complete.
 type ProcessWaitCmd struct {
