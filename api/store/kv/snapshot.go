@@ -20,6 +20,14 @@ type LocalSnapshotReader interface {
 	ReadLocalSnapshot(keys []string) (map[string]Entry, uint64, error)
 }
 
+// LocalSnapshotScanner iterates a prefix from one immutable local publication.
+// Every callback receives that publication's revision and owns its detached
+// Entry.Value. Returning false stops iteration. This is a local observation,
+// not a leader-freshness or quorum guarantee.
+type LocalSnapshotScanner interface {
+	ScanLocalSnapshot(prefix string, fn func(Entry, uint64) bool) error
+}
+
 // AuthoritySnapshot is a detached, immutable-at-publication view of selected
 // keys. Revision is the applied revision of the KV domain that published all
 // entries in the view. A key absent from Entries was absent at that revision.

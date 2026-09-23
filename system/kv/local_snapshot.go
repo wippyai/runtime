@@ -6,6 +6,29 @@ import kvapi "github.com/wippyai/runtime/api/store/kv"
 
 var _ kvapi.LocalSnapshotReader = (*Service)(nil)
 var _ kvapi.LocalSnapshotReader = (*RaftEngine)(nil)
+var _ kvapi.LocalSnapshotScanner = (*Service)(nil)
+var _ kvapi.LocalSnapshotScanner = (*RaftEngine)(nil)
+
+func (s *Service) ScanLocalSnapshot(prefix string, fn func(kvapi.Entry, uint64) bool) error {
+	snapshot := s.snap.Load()
+	if snapshot == nil {
+		return kvapi.ErrKVClosed
+	}
+	snapshot.scan(prefix, func(e kvapi.Entry) bool { return fn(e, snapshot.version) })
+	return nil
+}
+
+func (e *RaftEngine) ScanLocalSnapshot(prefix string, fn func(kvapi.Entry, uint64) bool) error {
+	if e.fsm == nil {
+		return kvapi.ErrKVClosed
+	}
+	snapshot := e.fsm.snap.Load()
+	if snapshot == nil {
+		return kvapi.ErrKVClosed
+	}
+	snapshot.scan(prefix, func(item kvapi.Entry) bool { return fn(item, snapshot.index) })
+	return nil
+}
 
 // ReadLocalSnapshot returns entries from one immutable in-memory publication.
 // It deliberately does not barrier or forward: naming reconciliation needs a

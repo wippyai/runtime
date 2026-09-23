@@ -69,6 +69,88 @@ func TestLocalSnapshotIndexAndCopy(t *testing.T) {
 	}
 }
 
+func TestLocalSnapshotScannerCoherentPublication(t *testing.T) {
+	s := NewService("scanner", nil)
+	if _, err := s.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	defer s.Stop(context.Background())
+	if _, err := s.Set("names/pending", []byte("owner")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Set("other", []byte("ignored")); err != nil {
+		t.Fatal(err)
+	}
+
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		for i := range 200 {
+			from, to := "names/pending", "names/active"
+			if i%2 != 0 {
+				from, to = to, from
+			}
+			if ok, err := s.Txn([]kvapi.TxnOp{
+				{Kind: kvapi.TxnDelete, Key: from},
+				{Kind: kvapi.TxnPut, Key: to, Value: []byte(fmt.Sprint(i))},
+			}); !ok || err != nil {
+				t.Errorf("transfer: committed=%v err=%v", ok, err)
+				return
+			}
+		}
+	})
+	defer wg.Wait()
+
+	for range 200 {
+		count := 0
+		var revision uint64
+		err := s.ScanLocalSnapshot("names/", func(e kvapi.Entry, rev uint64) bool {
+			if count > 0 && revision != rev {
+				t.Errorf("mixed revisions: %d and %d", revision, rev)
+			}
+			revision = rev
+			count++
+			e.Value[0] = 'X' // callbacks own the value, not the publication
+			return true
+		})
+		if err != nil || count != 1 || revision == 0 {
+			t.Fatalf("torn scan: count=%d revision=%d err=%v", count, revision, err)
+		}
+	}
+
+	if err := s.ScanLocalSnapshot("names/", func(e kvapi.Entry, _ uint64) bool {
+		if len(e.Value) > 0 && e.Value[0] == 'X' {
+			t.Fatal("callback mutated a published value")
+		}
+		return false
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestLocalSnapshotScannerRaftIndexAndClosed(t *testing.T) {
+	f := NewRaftFSM()
+	f.state.applyIndex = 42
+	f.state.set("names/key", []byte("value"), "")
+	f.snap.Store(f.state.snapshot())
+	engine := &RaftEngine{fsm: f}
+	count := 0
+	if err := engine.ScanLocalSnapshot("names/", func(e kvapi.Entry, revision uint64) bool {
+		count++
+		if e.Key != "names/key" || revision != 42 {
+			t.Errorf("entry=%v revision=%d", e, revision)
+		}
+		return true
+	}); err != nil || count != 1 {
+		t.Fatalf("raft scan: count=%d err=%v", count, err)
+	}
+	if err := (&RaftEngine{}).ScanLocalSnapshot("", func(kvapi.Entry, uint64) bool { return true }); !errors.Is(err, kvapi.ErrKVClosed) {
+		t.Fatalf("nil raft FSM: %v", err)
+	}
+	if err := NewService("closed", nil).ScanLocalSnapshot("", func(kvapi.Entry, uint64) bool { return true }); !errors.Is(err, kvapi.ErrKVClosed) {
+		t.Fatalf("closed service: %v", err)
+	}
+}
+
 func TestLocalSnapshotClosedEngineFails(t *testing.T) {
 	s := NewService("snapshot", nil)
 	if _, _, err := s.ReadLocalSnapshot([]string{"key"}); !errors.Is(err, kvapi.ErrKVClosed) {
