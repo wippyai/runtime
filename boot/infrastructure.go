@@ -253,7 +253,8 @@ func wrapLogger(logger *zap.Logger, bus event.Bus, cfg boot.Config) (*zap.Logger
 // StartRuntimeServices starts infrastructure services (log manager, node manager, peer manager, await service)
 func StartRuntimeServices(ctx context.Context) error {
 	if logManager := logapi.GetManager(ctx); logManager != nil {
-		if err := logManager.Start(ctx); err != nil {
+		// The log manager serves components during shutdown, after the run context is canceled.
+		if err := logManager.Start(context.WithoutCancel(ctx)); err != nil {
 			return err
 		}
 	}
