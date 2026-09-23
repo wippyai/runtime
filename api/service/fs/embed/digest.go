@@ -40,8 +40,8 @@ func ContentDigest(fsys fs.FS) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		fmt.Fprintf(hash, "%d:%s:%d:", len(path), path, len(data))
-		hash.Write(data)
+		_, _ = fmt.Fprintf(hash, "%d:%s:%d:", len(path), path, len(data))
+		_, _ = hash.Write(data)
 	}
 	return ContentDigestPrefix + hex.EncodeToString(hash.Sum(nil)), nil
 }

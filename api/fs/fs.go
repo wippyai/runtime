@@ -23,6 +23,14 @@ const (
 	FsReject   event.Kind = "fs.reject"
 )
 
+// Request carries an optional operation ID so a caller can distinguish its
+// acknowledgement from another request for the same filesystem path. Legacy
+// fs.register events may still carry FS directly, and fs.delete may omit Data.
+type Request struct {
+	FS   FS
+	OpID string
+}
+
 type (
 	// ReadFS uses the standard fs.FS family of interfaces to provide read-only
 	// filesystem operations.

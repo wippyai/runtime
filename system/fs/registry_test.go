@@ -295,6 +295,43 @@ func TestFSRegistry_DeleteFS(t *testing.T) {
 	})
 }
 
+func TestFSRegistry_RequestRepliesUseOperationID(t *testing.T) {
+	ctx := context.Background()
+	fsRegistry, bus := newTestFSRegistry(t)
+	require.NoError(t, fsRegistry.Start(ctx))
+	defer func() { assert.NoError(t, fsRegistry.Stop()) }()
+
+	responses := make(chan event.Event, 1)
+	sub, err := eventbus.NewSubscriber(ctx, bus, fsapi.System, "fs.(accept|reject)", func(evt event.Event) {
+		responses <- evt
+	})
+	require.NoError(t, err)
+	defer sub.Close()
+
+	for _, test := range []struct {
+		name string
+		kind event.Kind
+		data fsapi.Request
+		want event.Kind
+	}{
+		{name: "register accepted", kind: fsapi.FsRegister, data: fsapi.Request{FS: &mockFS{}, OpID: "op/register"}, want: fsapi.FsAccept},
+		{name: "register rejected", kind: fsapi.FsRegister, data: fsapi.Request{OpID: "op/invalid"}, want: fsapi.FsReject},
+		{name: "delete accepted", kind: fsapi.FsDelete, data: fsapi.Request{OpID: "op/delete"}, want: fsapi.FsAccept},
+		{name: "delete rejected", kind: fsapi.FsDelete, data: fsapi.Request{OpID: "op/missing"}, want: fsapi.FsReject},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			bus.Send(ctx, event.Event{System: fsapi.System, Kind: test.kind, Path: "test:mock-fs", Data: test.data})
+			select {
+			case response := <-responses:
+				assert.Equal(t, test.want, response.Kind)
+				assert.Equal(t, test.data.OpID, response.Path)
+			case <-time.After(time.Second):
+				t.Fatal("timeout waiting for filesystem reply")
+			}
+		})
+	}
+}
+
 func TestFSRegistry_GetFS(t *testing.T) {
 	ctx := context.Background()
 	fsRegistry, bus := newTestFSRegistry(t)

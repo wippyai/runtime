@@ -56,8 +56,8 @@ var (
 type wasmVerifier struct {
 	fsReg    fsapi.Registry
 	current  map[regapi.ID]string
-	failures []error
 	during   func()
+	failures []error
 	mu       sync.Mutex
 }
 
@@ -150,6 +150,7 @@ type transitionHarness struct {
 
 func newTransitionHarness(t *testing.T, directive releaseDirective) *transitionHarness {
 	t.Helper()
+	dir := t.TempDir()
 	log := zap.NewNop()
 	ctx, cancel := context.WithCancel(newTestContext())
 	t.Cleanup(cancel)
@@ -194,7 +195,7 @@ func newTransitionHarness(t *testing.T, directive releaseDirective) *transitionH
 		fsReg:    fsReg,
 		embedReg: embedReg,
 		verifier: verifier,
-		dir:      t.TempDir(),
+		dir:      dir,
 	}
 }
 
@@ -309,8 +310,8 @@ func TestEmbedTransition_FailedUpgradeReverifiesPreviousWasm(t *testing.T) {
 func TestEmbedTransition_OutsideHandleReadsActivePackUntilCommit(t *testing.T) {
 	for _, test := range []struct {
 		name      string
-		failLater bool
 		after     string
+		failLater bool
 	}{
 		{name: "commit", failLater: false, after: "2"},
 		{name: "rollback", failLater: true, after: "1"},

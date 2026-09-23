@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/google/uuid"
 	"github.com/wippyai/runtime/api/event"
 	fsapi "github.com/wippyai/runtime/api/fs"
 	"github.com/wippyai/runtime/api/payload"
@@ -147,7 +148,7 @@ func (m *Manager) storeFS(ctx context.Context, id registry.ID, fs fsapi.FS) erro
 		System: fsapi.System,
 		Kind:   fsapi.FsRegister,
 		Path:   id.String(),
-		Data:   fs,
+		Data:   fsapi.Request{FS: fs},
 	}); err != nil {
 		return err
 	}
@@ -162,25 +163,25 @@ func (m *Manager) removeFS(ctx context.Context, id registry.ID) error {
 		System: fsapi.System,
 		Kind:   fsapi.FsDelete,
 		Path:   id.String(),
+		Data:   fsapi.Request{},
 	})
 }
 
 // awaitFS sends a filesystem registry request and waits for its accept or
-// reject. The fs protocol correlates replies by filesystem path only. The
-// Manager serializes its operations under mu and awaits each reply, so none
-// of its own earlier requests for the path is outstanding when a waiter is
-// prepared. Requests other managers send for the same path are not
-// distinguished: a reply to one of them, such as the directory Manager's
-// unawaited fs.delete during a directory to embed kind change, satisfies the
-// waiter as well. The wait has no fixed budget: it ends with the reply or
-// with ctx. A request nothing is subscribed to can never be answered, so it
-// fails at once.
+// reject. Each operation has a unique reply path, so a delayed response to a
+// different request on the same filesystem cannot complete this wait. The
+// wait has no fixed budget: it ends with the reply or with ctx. A request
+// nothing is subscribed to can never be answered, so it fails at once.
 func (m *Manager) awaitFS(ctx context.Context, request event.Event) error {
 	awaitSvc := event.GetAwaitService(ctx)
 	if awaitSvc == nil || !m.bus.HasSubscribers(fsapi.System, request.Kind) {
 		return systemfs.NewFilesystemRegistrationError(request.Path, request.Kind, systemfs.ErrRegistrationCoordinationUnavailable)
 	}
-	waiter, err := awaitSvc.Prepare(ctx, fsapi.System, fsReplyKinds, request.Path, event.ContextBoundAwait)
+	opID := "fs.op/" + uuid.NewString()
+	data := request.Data.(fsapi.Request)
+	data.OpID = opID
+	request.Data = data
+	waiter, err := awaitSvc.Prepare(ctx, fsapi.System, fsReplyKinds, opID, event.ContextBoundAwait)
 	if err != nil {
 		return systemfs.NewFilesystemRegistrationError(request.Path, request.Kind, err)
 	}

@@ -59,7 +59,7 @@ type gatedFSRegistry struct {
 	release    chan event.Kind
 }
 
-func newGatedFSRegistry(t *testing.T, ctx context.Context, bus *eventbus.Bus) *gatedFSRegistry {
+func newGatedFSRegistry(ctx context.Context, t *testing.T, bus *eventbus.Bus) *gatedFSRegistry {
 	t.Helper()
 	g := &gatedFSRegistry{
 		registered: make(chan event.Event, 1),
@@ -74,7 +74,11 @@ func newGatedFSRegistry(t *testing.T, ctx context.Context, bus *eventbus.Bus) *g
 		}
 		select {
 		case reply := <-g.release:
-			bus.Send(ctx, event.Event{System: fsapi.System, Kind: reply, Path: e.Path, Data: "gated reply"})
+			replyPath := e.Path
+			if request, ok := e.Data.(fsapi.Request); ok && request.OpID != "" {
+				replyPath = request.OpID
+			}
+			bus.Send(ctx, event.Event{System: fsapi.System, Kind: reply, Path: replyPath, Data: "gated reply"})
 		case <-stopped:
 		}
 	})
@@ -128,11 +132,93 @@ func assertBlockedUntilAccepted(t *testing.T, gate *gatedFSRegistry, reply event
 	}
 }
 
+func TestManager_StaleFilesystemRepliesDoNotCompleteRegistration(t *testing.T) {
+	for _, staleKind := range []event.Kind{fsapi.FsAccept, fsapi.FsReject} {
+		t.Run(staleKind, func(t *testing.T) {
+			bus := eventbus.NewBus()
+			t.Cleanup(bus.Stop)
+			ctx := newAwaitContext(t, bus)
+			gate := newGatedFSRegistry(ctx, t, bus)
+
+			reg := NewRegistry()
+			require.NoError(t, reg.RegisterPack("org/mod-v1.0.0.wapp", "org/mod", "1.0.0",
+				createReaderWithResource(t, "ui", "app", map[string]string{"v.txt": "1"}), nil))
+			manager := NewManager(bus, &mockDTT{}, reg, zap.NewNop())
+			entry := embedEntry("ui", "app")
+
+			done := make(chan error, 1)
+			go func() { done <- manager.Add(ctx, entry) }()
+			requestEvent := gate.awaitRegistration(t)
+			request, ok := requestEvent.Data.(fsapi.Request)
+			require.True(t, ok)
+			require.NotEmpty(t, request.OpID)
+
+			// A legacy directory operation for the same filesystem can answer late.
+			// Neither its accept nor its reject may settle this embed request.
+			bus.Send(ctx, event.Event{System: fsapi.System, Kind: staleKind, Path: requestEvent.Path})
+			select {
+			case err := <-done:
+				t.Fatalf("stale %s completed registration: %v", staleKind, err)
+			case <-time.After(200 * time.Millisecond):
+			}
+
+			gate.release <- fsapi.FsAccept
+			select {
+			case err := <-done:
+				require.NoError(t, err)
+			case <-time.After(5 * time.Second):
+				t.Fatal("registration did not complete after its own reply")
+			}
+		})
+	}
+}
+
+func TestManager_OldOperationReplyCannotCompleteNextRequest(t *testing.T) {
+	bus := eventbus.NewBus()
+	t.Cleanup(bus.Stop)
+	ctx := newAwaitContext(t, bus)
+	gate := newGatedFSRegistry(ctx, t, bus)
+
+	reg := NewRegistry()
+	require.NoError(t, reg.RegisterPack("org/mod-v1.0.0.wapp", "org/mod", "1.0.0",
+		createReaderWithResource(t, "ui", "app", map[string]string{"v.txt": "1"}), nil))
+	manager := NewManager(bus, &mockDTT{}, reg, zap.NewNop())
+	entry := embedEntry("ui", "app")
+
+	firstDone := make(chan error, 1)
+	go func() { firstDone <- manager.Add(ctx, entry) }()
+	first := gate.awaitRegistration(t)
+	firstRequest, ok := first.Data.(fsapi.Request)
+	require.True(t, ok)
+	gate.release <- fsapi.FsAccept
+	require.NoError(t, <-firstDone)
+
+	secondDone := make(chan error, 1)
+	go func() { secondDone <- manager.Update(ctx, entry) }()
+	second := gate.awaitRegistration(t)
+	secondRequest, ok := second.Data.(fsapi.Request)
+	require.True(t, ok)
+	require.NotEqual(t, firstRequest.OpID, secondRequest.OpID)
+	bus.Send(ctx, event.Event{System: fsapi.System, Kind: fsapi.FsAccept, Path: firstRequest.OpID})
+	select {
+	case err := <-secondDone:
+		t.Fatalf("reply to first request completed second: %v", err)
+	case <-time.After(200 * time.Millisecond):
+	}
+	gate.release <- fsapi.FsAccept
+	select {
+	case err := <-secondDone:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("second request did not complete after its own reply")
+	}
+}
+
 func TestManager_AddReturnsOnlyAfterFilesystemRegistryAccepts(t *testing.T) {
 	bus := eventbus.NewBus()
 	t.Cleanup(bus.Stop)
 	ctx := newAwaitContext(t, bus)
-	gate := newGatedFSRegistry(t, ctx, bus)
+	gate := newGatedFSRegistry(ctx, t, bus)
 
 	reg := NewRegistry()
 	require.NoError(t, reg.RegisterPack("org/mod-v1.0.0.wapp", "org/mod", "1.0.0",
@@ -149,7 +235,7 @@ func TestManager_UpdateReturnsOnlyAfterFilesystemRegistryAccepts(t *testing.T) {
 	bus := eventbus.NewBus()
 	t.Cleanup(bus.Stop)
 	ctx := newAwaitContext(t, bus)
-	gate := newGatedFSRegistry(t, ctx, bus)
+	gate := newGatedFSRegistry(ctx, t, bus)
 
 	reg := NewRegistry()
 	require.NoError(t, reg.RegisterPack("org/mod-v1.0.0.wapp", "org/mod", "1.0.0",
@@ -169,7 +255,7 @@ func TestManager_RejectedRegistrationFailsAndKeepsCurrentFilesystem(t *testing.T
 	bus := eventbus.NewBus()
 	t.Cleanup(bus.Stop)
 	ctx := newAwaitContext(t, bus)
-	gate := newGatedFSRegistry(t, ctx, bus)
+	gate := newGatedFSRegistry(ctx, t, bus)
 
 	reg := NewRegistry()
 	require.NoError(t, reg.RegisterPack("org/mod-v1.0.0.wapp", "org/mod", "1.0.0",
@@ -256,7 +342,7 @@ func TestManager_RegistrationWaitIsBoundOnlyByContext(t *testing.T) {
 	t.Cleanup(func() { _ = inner.Stop() })
 	recorder := &recordingAwaitService{AwaitService: inner}
 	ctx = event.WithAwaitService(ctx, recorder)
-	gate := newGatedFSRegistry(t, ctx, bus)
+	gate := newGatedFSRegistry(ctx, t, bus)
 
 	reg := NewRegistry()
 	require.NoError(t, reg.RegisterPack("org/mod-v1.0.0.wapp", "org/mod", "1.0.0",
