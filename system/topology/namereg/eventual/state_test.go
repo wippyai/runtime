@@ -75,11 +75,11 @@ func TestState_UnregisterTombstones(t *testing.T) {
 // (Priority, FNV64(name,origin)) key regardless of which entry has the higher
 // wall. A later same-origin counter does not flip the cross-origin rank.
 func TestState_ConcurrentResolutionIgnoresWall(t *testing.T) {
-	s := NewState("node-A")
+	s := NewState("node-C")
 	pA := makePID("node-A", "h1", "p1")
 	pB := makePID("node-B", "h1", "p2")
 
-	originA := s.LocalNode()
+	originA := s.internNode("node-A")
 	originB := s.internNode("node-B")
 
 	// Determine the deterministic winner up front from the key.

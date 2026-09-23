@@ -112,3 +112,57 @@ func TestRestart_ReclaimsOwnNameAfterReapTombstone(t *testing.T) {
 	assert.True(t, rc.Found && rc.PID == pid2, "restarted node resolves its own name to the new pid")
 	assert.True(t, rp.Found && rp.PID == pid2, "peer converges to the restarted node's new pid")
 }
+
+// A node killed without its peers observing NodeLeft restarts and registers its
+// name again. Anti-entropy then carries the prior incarnation's live dot, at a
+// higher counter, back to the restarted node. The restarted node keeps its fresh
+// registration and gossips it above the stale counter so the peer converges.
+func TestRestart_SupersedesPriorIncarnationWithoutNodeLeft(t *testing.T) {
+	const name = "app.control:rpc"
+	ctx := context.Background()
+
+	peer := eventual.NewService(eventual.Config{LocalNodeID: "peer"})
+	require.NoError(t, peer.Start(ctx))
+	defer peer.Stop()
+
+	ctrl1 := eventual.NewService(eventual.Config{LocalNodeID: "ctrl"})
+	require.NoError(t, ctrl1.Start(ctx))
+	warm := pid.PID{Node: "ctrl", Host: "h", UniqID: "w"}
+	_, err := ctrl1.Register("app.control:warm-a", warm)
+	require.NoError(t, err)
+	_, err = ctrl1.Register("app.control:warm-b", warm)
+	require.NoError(t, err)
+	pid1 := pid.PID{Node: "ctrl", Host: "h", UniqID: "rpc-1"}
+	_, err = ctrl1.Register(name, pid1)
+	require.NoError(t, err)
+	for _, f := range ctrl1.DrainBroadcasts(0, 0) {
+		peer.OnFrame(f)
+	}
+	require.NoError(t, ctrl1.Stop())
+
+	ctrl2 := eventual.NewService(eventual.Config{LocalNodeID: "ctrl"})
+	require.NoError(t, ctrl2.Start(ctx))
+	defer ctrl2.Stop()
+	pid2 := pid.PID{Node: "ctrl", Host: "h", UniqID: "rpc-2"}
+	_, err = ctrl2.Register(name, pid2)
+	require.NoError(t, err)
+	for _, f := range ctrl2.DrainBroadcasts(0, 0) {
+		peer.OnFrame(f)
+	}
+
+	shard := uint16(eventual.ShardFor(name))
+	payload, err := peer.LocalShardPayload(shard)
+	require.NoError(t, err)
+	require.NoError(t, ctrl2.MergeShardPayload("peer", payload, time.Now()))
+
+	rc, _ := ctrl2.Lookup(ctx, name)
+	require.True(t, rc.Found)
+	require.Equal(t, pid2, rc.PID, "restarted node must keep its fresh registration")
+
+	for _, f := range ctrl2.DrainBroadcasts(0, 0) {
+		peer.OnFrame(f)
+	}
+	rp, _ := peer.Lookup(ctx, name)
+	require.True(t, rp.Found)
+	assert.Equal(t, pid2, rp.PID, "peer must converge to the restarted node's pid")
+}
