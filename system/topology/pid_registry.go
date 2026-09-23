@@ -9,6 +9,7 @@ import (
 
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/topology"
+	"github.com/wippyai/runtime/system/topology/namereg/admission"
 	"go.uber.org/zap"
 )
 
@@ -19,6 +20,7 @@ type PIDRegistry struct {
 	globalReg   atomic.Value // stores topology.GlobalRegistry
 	eventualReg atomic.Value // stores topology.EventualRegistry
 	logger      *zap.Logger
+	admission   *admission.Coordinator
 	nameToID    sync.Map
 	idToName    sync.Map
 }
@@ -31,6 +33,10 @@ type pidNames struct {
 
 // Option configures a PIDRegistry.
 type Option func(*PIDRegistry)
+
+func WithAdmissionCoordinator(c *admission.Coordinator) Option {
+	return func(r *PIDRegistry) { r.admission = c }
+}
 
 // WithParent sets a parent registry for fallback lookups.
 func WithParent(parent topology.PIDRegistry) Option {
@@ -113,11 +119,23 @@ func NewPIDRegistry(opts ...Option) *PIDRegistry {
 // If a global registry is configured, local registration is rejected when
 // the name already exists globally (prevents local shadowing of global names).
 func (r *PIDRegistry) Register(name string, p pid.PID) (pid.PID, error) {
+	release := r.admission.Acquire(name)
+	defer release()
 	// Check global registry first to prevent local shadowing of global names.
 	// A held Strong reservation (a pending the node acked, awaiting promotion)
 	// also blocks a conflicting local bind so the name cannot be granted to a
 	// different pid during the promotion window.
 	if gr := r.loadGlobalReg(); gr != nil {
+		// A nonmember client may forward a missing-key lookup. Do not do that
+		// while holding this node's admission gate without a pending-state feed.
+		if !gr.NameReady() {
+			if existing, ok := r.nameToID.Load(name); ok {
+				if ep, ok := existing.(pid.PID); ok && ep.Equal(p) {
+					return p, nil
+				}
+			}
+			return p, topology.ErrNameServiceNotReady
+		}
 		res, err := gr.Lookup(context.Background(), name)
 		if err != nil {
 			return pid.PID{}, err
@@ -134,19 +152,6 @@ func (r *PIDRegistry) Register(name string, p pid.PID) (pid.PID, error) {
 			}
 			return reserved, topology.ErrNameAlreadyRegistered
 		}
-		// Join-epoch gate: refuse a fresh LOCAL bind while the barrier is in
-		// progress. The node has not yet learned the cluster's Strong names and a
-		// new bind could shadow one. A re-register of a name this node already
-		// holds is allowed below (no shadowing risk) so the gate sits after the
-		// existing-binding fast paths.
-		if !gr.NameReady() {
-			if existing, ok := r.nameToID.Load(name); ok {
-				if ep, ok2 := existing.(pid.PID); ok2 && ep.Equal(p) {
-					return p, nil
-				}
-			}
-			return p, topology.ErrNameServiceNotReady
-		}
 	}
 
 	// Check eventual registry second to prevent local shadowing of eventual names.
@@ -161,6 +166,16 @@ func (r *PIDRegistry) Register(name string, p pid.PID) (pid.PID, error) {
 			}
 			return res.PID, topology.ErrNameAlreadyRegistered
 		}
+	}
+	// The watch can lose authority while either cross-scope lookup runs.
+	// Retain the post-lookup gate for every fresh LOCAL publication.
+	if gr := r.loadGlobalReg(); gr != nil && !gr.NameReady() {
+		if existing, ok := r.nameToID.Load(name); ok {
+			if ep, ok := existing.(pid.PID); ok && ep.Equal(p) {
+				return p, nil
+			}
+		}
+		return p, topology.ErrNameServiceNotReady
 	}
 
 	actual, loaded := r.nameToID.LoadOrStore(name, p)

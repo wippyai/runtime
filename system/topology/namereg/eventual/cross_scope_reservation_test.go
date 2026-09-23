@@ -62,10 +62,12 @@ func TestEventualRegister_RefusedByStrongReservation(t *testing.T) {
 
 // gatedCrossScope reports no cross-scope conflict but a toggleable barrier state.
 type gatedCrossScope struct {
-	ready bool
+	ready       bool
+	lookupCalls int
 }
 
 func (c *gatedCrossScope) LookupOther(string, pid.PID) (pid.PID, bool, error) {
+	c.lookupCalls++
 	return pid.PID{}, false, nil
 }
 func (c *gatedCrossScope) NameReady() bool { return c.ready }
@@ -86,6 +88,7 @@ func TestEventualRegister_JoinBarrierGate(t *testing.T) {
 	p := pid.PID{Node: "node-A", Host: "h", UniqID: "p1"}
 	_, err := svc.Register("evt.gated", p)
 	require.ErrorIs(t, err, eventual.ErrNameServiceNotReady, "fresh eventual register refused while barrier in progress")
+	assert.Equal(t, 0, gate.lookupCalls, "unready admission must not forward a lookup")
 
 	gate.ready = true
 	got, err := svc.Register("evt.gated", p)

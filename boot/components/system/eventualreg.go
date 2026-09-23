@@ -15,6 +15,7 @@ import (
 	relayapi "github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/topology"
 	"github.com/wippyai/runtime/cluster/membership"
+	"github.com/wippyai/runtime/system/topology/namereg/admission"
 	"github.com/wippyai/runtime/system/topology/namereg/eventual"
 	"go.uber.org/zap"
 )
@@ -45,6 +46,7 @@ func EventualReg() boot.Component {
 			}
 
 			cfg := eventual.Config{
+				Admission:        admission.FromContext(ctx),
 				LocalNodeID:      memSvc.LocalNode().ID,
 				Peers:            &membershipPeerInventory{m: memSvc},
 				CrossScope:       newCrossScopeChecker(ctx),
