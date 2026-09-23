@@ -39,6 +39,7 @@ The pack file contains fully linked entries ready for loading without additional
 Examples:
   wippy pack snapshot.wapp
   wippy pack release-v1.2.3.wapp
+  wippy pack --module acme/ui ui.wapp
   wippy pack --embed app:assets snapshot.wapp
   wippy pack --embed-all snapshot.wapp`,
 	Args: cobra.ExactArgs(1),
@@ -49,6 +50,7 @@ func init() {
 	rootCmd.AddCommand(packCmd)
 
 	packCmd.Flags().StringP("lock-file", "l", defaultLockFile, "path to lock file")
+	packCmd.Flags().String("module", "", "pack only the selected lock module (org/name)")
 	packCmd.Flags().StringP("description", "d", "", "pack description")
 	packCmd.Flags().StringSliceP("tags", "t", nil, "pack tags")
 	packCmd.Flags().StringArray("meta", nil, "custom metadata (key=value, supports dotted notation)")
@@ -269,6 +271,7 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *cli
 	excludeNS, _ := cmd.Flags().GetStringSlice("exclude-ns")
 	excludeEntries, _ := cmd.Flags().GetStringSlice("exclude")
 	bytecodePatterns, _ := cmd.Flags().GetStringSlice("bytecode")
+	moduleName, _ := cmd.Flags().GetString("module")
 
 	p.Send(progressMsg{stage: stageLoadLock, percent: 0.1, status: "Loading lock file..."})
 	p.Send(logMsg{level: "info", message: "Starting pack process"})
@@ -289,6 +292,20 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *cli
 	}
 
 	modulePaths := lockObj.GetModuleLoadPaths()
+	var moduleSource lock.ModuleLoadPath
+	rootModulePack := false
+	if moduleName != "" {
+		moduleSource, err = resolvePackModule(moduleName, modulePaths, lockObj.GetRootModules())
+		if err != nil {
+			return NewPackConfigError(err)
+		}
+		rootModulePack = isRootModulePackSource(moduleSource, modulePaths)
+		if rootModulePack {
+			// The root manifest lives beside the lock file, while its source
+			// entries may load from directories.src.
+			moduleSource.SourceRoot = folderPath
+		}
+	}
 	paths := lockObj.GetLoadPaths()
 
 	p.Send(progressMsg{stage: stageLoadEntries, percent: 0.2, status: fmt.Sprintf("Loading entries from %d paths...", len(paths))})
@@ -297,6 +314,9 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *cli
 	loadedEntries, err := loadEntriesFromLockPaths(app.Ctx, lockObj, logger)
 	if err != nil {
 		return NewLoadEntriesError(fmt.Sprintf("lock paths (%s)", lockPath), err)
+	}
+	if rootModulePack {
+		assignRootModulePackOwner(loadedEntries, moduleName)
 	}
 	p.Send(progressMsg{
 		stage:   stageLoadEntries,
@@ -309,25 +329,40 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *cli
 
 	p.Send(progressMsg{stage: stagePipeline, percent: 0.5, status: "Executing pipeline stages..."})
 
-	// Apply entry overrides from the same effective profile that selected
-	// workspace replacements.
+	// Keep the effective profile available for whole-graph packing. Module
+	// packing uses it for workspace selection, but does not bake its entry
+	// overrides or disable rules into a reusable artifact.
 	if bootCfg != nil {
 		boot.WithConfig(app.Ctx, bootCfg)
 	}
 
-	// Build pipeline with exclude stage if patterns provided
-	var pipelineStages []boot.Stage
-	pipelineStages = append(pipelineStages, stages.Override())
-
+	// Build the normalization pipeline with exclude stage if patterns provided.
+	// Module packing still loads the resolved graph to validate namespaces and
+	// apply requirement defaults. Dependency parameters from any consumer are
+	// deployment composition and must not be baked into a reusable artifact.
 	if len(excludeNS) > 0 || len(excludeEntries) > 0 {
 		p.Send(logMsg{level: "info", message: "Adding exclude filters", fields: map[string]any{
 			"ns_patterns":    len(excludeNS),
 			"entry_patterns": len(excludeEntries),
 		}})
-		pipelineStages = append(pipelineStages, stages.Disable(excludeNS, excludeEntries))
+	}
+	pipeline := build.New(packNormalizationStages(moduleName, excludeNS, excludeEntries)...)
+
+	if err := pipeline.Execute(app.Ctx, &loadedEntries); err != nil {
+		return NewExecutePipelineError(err)
 	}
 
-	pipelineStages = append(pipelineStages, stages.Disable(), stages.Link(), stages.Override())
+	if moduleName != "" {
+		loadedEntries, err = selectModulePackEntries(loadedEntries, moduleName)
+		if err != nil {
+			return NewPackConfigError(err)
+		}
+	}
+
+	// Module-specific stages run after owner selection. This keeps embedded
+	// directories and optional bytecode scoped to the selected module while the
+	// normalization stages above still saw the complete lock graph.
+	var postPipelineStages []boot.Stage
 
 	// Bytecode compilation (before EmbedFS so bytecode FS can be collected)
 	if len(bytecodePatterns) > 0 {
@@ -342,12 +377,12 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *cli
 
 		if compileAll {
 			p.Send(logMsg{level: "info", message: "Adding bytecode compilation (all entries)"})
-			pipelineStages = append(pipelineStages, stages.Bytecode())
+			postPipelineStages = append(postPipelineStages, stages.Bytecode())
 		} else {
 			p.Send(logMsg{level: "info", message: "Adding bytecode compilation", fields: map[string]any{
 				"patterns": bytecodePatterns,
 			}})
-			pipelineStages = append(pipelineStages, stages.Bytecode(bytecodePatterns...))
+			postPipelineStages = append(postPipelineStages, stages.Bytecode(bytecodePatterns...))
 		}
 	}
 
@@ -361,28 +396,39 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *cli
 			percent: 0.55,
 			status:  status,
 		})
-		pipelineStages = append(pipelineStages, stages.EmbedFS("", embedConfig.stagePatterns()...))
+		postPipelineStages = append(postPipelineStages, stages.EmbedFS("", embedConfig.stagePatterns()...))
 	}
 
-	pipeline := build.New(pipelineStages...)
-
-	if err := pipeline.Execute(app.Ctx, &loadedEntries); err != nil {
-		return NewExecutePipelineError(err)
+	if len(postPipelineStages) > 0 {
+		postPipeline := build.New(postPipelineStages...)
+		if err := postPipeline.Execute(app.Ctx, &loadedEntries); err != nil {
+			return NewExecutePipelineError(err)
+		}
 	}
 
 	resources := stages.GetResources(app.Ctx)
-
-	// Add bytecode resource if compiled
-	if bcRes := stages.GetBytecodeResource(); bcRes != nil {
-		resources = append(resources, *bcRes)
+	if moduleName != "" {
+		resources = filterModulePackResources(resources, loadedEntries)
 	}
 
-	carriedResources, carriedHandles, err := collectEmbeddedPackResources(modulePaths, resources)
+	// Add the synthetic bytecode filesystem after module resource filtering.
+	// Its registry ID is internal to the runtime and therefore has no module
+	// owner, but selected bytecode entries refer to it at load time.
+	if len(bytecodePatterns) > 0 {
+		if bcRes := stages.GetBytecodeResource(); bcRes != nil {
+			resources = append(resources, *bcRes)
+		}
+	}
+
+	carriedResources, carriedHandles, err := collectEmbeddedPackResourcesForModule(modulePaths, resources, moduleName)
 	if err != nil {
 		return NewPackWithResourcesError(err)
 	}
 	defer func() { _ = closeEmbeddedPackResourceHandles(carriedHandles) }()
 	if len(carriedResources) > 0 {
+		if moduleName != "" {
+			carriedResources = filterModulePackResources(carriedResources, loadedEntries)
+		}
 		resources = append(resources, carriedResources...)
 		p.Send(logMsg{level: "info", message: "Carried embedded resources from dependency packs", fields: map[string]any{
 			"count": len(carriedResources),
@@ -454,6 +500,24 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *cli
 		"packed_at":     time.Now().UTC().Format(time.RFC3339),
 		"entry_count":   len(loadedEntries),
 	}
+	var moduleMetadata attrs.Bag
+	if moduleName != "" {
+		var metadataErr error
+		moduleMetadata, metadataErr = modulePackMetadata(moduleSource, moduleName)
+		if metadataErr != nil {
+			return NewPackConfigError(metadataErr)
+		}
+		for key, value := range moduleMetadata {
+			metadata[key] = value
+		}
+		// These fields describe the artifact emitted by this invocation. The
+		// selected module's identity and publication metadata above remain intact.
+		metadata["wippy_version"] = version.Version
+		metadata["wippy_commit"] = version.Commit
+		metadata["wippy_date"] = version.Date
+		metadata["packed_at"] = time.Now().UTC().Format(time.RFC3339)
+		metadata["entry_count"] = len(loadedEntries)
+	}
 
 	if description != "" {
 		metadata["description"] = description
@@ -468,8 +532,15 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *cli
 	if err := parseMetadataFlags(metaFlags, metadata, logger); err != nil {
 		return NewParseMetadataError(err)
 	}
-	if err := addPackRuntimeMetadata(metadata, folderPath); err != nil {
-		return NewPackConfigError(err)
+	if moduleName != "" {
+		if err := validateModulePackIdentityOverride(metadata, moduleMetadata); err != nil {
+			return NewPackConfigError(err)
+		}
+	}
+	if moduleName == "" {
+		if err := addPackRuntimeMetadata(metadata, folderPath); err != nil {
+			return NewPackConfigError(err)
+		}
 	}
 	metadata[packRegistryMetadataKey] = packRegistryMetadata(loadedEntries)
 
