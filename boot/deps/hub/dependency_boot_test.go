@@ -687,7 +687,7 @@ func (f bootDirectiveFunc) Expand(ctx context.Context, op regapi.Operation, stat
 	return f(ctx, op, state)
 }
 
-func (r *bootRecordingRunner) Transition(_ context.Context, state regapi.State, changes regapi.ChangeSet) (regapi.State, error) {
+func (r *bootRecordingRunner) Transition(_ context.Context, state regapi.State, changes regapi.ChangeSet, _ func(context.Context)) (regapi.State, error) {
 	r.transitions = append(r.transitions, append(regapi.ChangeSet(nil), changes...))
 	stateMap := topology.NewStateMap(state)
 	for _, op := range changes {

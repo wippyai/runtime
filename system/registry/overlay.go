@@ -206,7 +206,7 @@ func (r *Reg) applyOverlayLocked(ctx context.Context, owner string, expectedGene
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	newState, err := r.runner.Transition(ctx, r.state, sorted)
+	newState, err := r.runner.Transition(ctx, r.state, sorted, nil)
 	if err != nil {
 		if newState != nil && ctx.Err() == nil {
 			if rollbackErr := r.rollback(ctx, newState, r.state); rollbackErr != nil {

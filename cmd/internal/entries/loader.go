@@ -12,7 +12,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/boot"
 	moduleapi "github.com/wippyai/runtime/api/modules"
 	"github.com/wippyai/runtime/api/payload"
@@ -24,6 +23,7 @@ import (
 	"github.com/wippyai/runtime/boot/deps/graph"
 	"github.com/wippyai/runtime/boot/deps/hub"
 	"github.com/wippyai/runtime/boot/deps/lock"
+	"github.com/wippyai/runtime/boot/deps/packentries"
 	"github.com/wippyai/runtime/boot/deps/wappextract"
 	"github.com/wippyai/runtime/cmd/internal/hubclient"
 	embedpkg "github.com/wippyai/runtime/service/fs/embed"
@@ -820,39 +820,7 @@ func (pr *PackReader) Reader() *wapp.Reader {
 
 // GetEntries returns the entries from the pack file.
 func (pr *PackReader) GetEntries() ([]regapi.Entry, error) {
-	wappEntries, err := pr.reader.GetEntries()
-	if err != nil {
-		return nil, err
-	}
-
-	entries := make([]regapi.Entry, len(wappEntries))
-	for i, we := range wappEntries {
-		entries[i] = regapi.Entry{
-			ID:   regapi.NewID(we.ID.Namespace, we.ID.Name),
-			Kind: we.Kind,
-			Meta: attrs.NewBagFrom(we.Meta),
-			Data: payload.New(unwrapPayloadData(we.Data)),
-		}
-	}
-	return entries, nil
-}
-
-// unwrapPayloadData extracts the inner data if the value is a serialized payload structure.
-// This handles backward compatibility with wapp files that stored the full payload wrapper.
-func unwrapPayloadData(data any) any {
-	m, ok := data.(map[string]any)
-	if !ok {
-		return data
-	}
-
-	innerData, hasData := m["Data"]
-	_, hasFormat := m["Format"]
-
-	if hasData && hasFormat && len(m) == 2 {
-		return innerData
-	}
-
-	return data
+	return packentries.Decode(pr.reader)
 }
 
 // ApplyToRegistry applies entries to the registry using topology-sorted change set.
