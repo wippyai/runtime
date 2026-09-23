@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -36,6 +37,7 @@ func (h *plannedHost) Plan(_ context.Context, l Launch) (Plan, error) {
 // execution records the options an operation hands the Wippy CLI.
 type execution struct {
 	err     error
+	during  func(cmd.ExecuteOptions) error
 	options cmd.ExecuteOptions
 	calls   int
 }
@@ -47,10 +49,26 @@ func captureExecution(t *testing.T) *execution {
 	execute = func(_ context.Context, options cmd.ExecuteOptions) error {
 		record.calls++
 		record.options = options
+		if record.during != nil {
+			return record.during(options)
+		}
 		return record.err
 	}
 	t.Cleanup(func() { execute = previous })
 	return record
+}
+
+func unsetEnvironment(t *testing.T, name string) {
+	t.Helper()
+	previous, found := os.LookupEnv(name)
+	require.NoError(t, os.Unsetenv(name))
+	t.Cleanup(func() {
+		if found {
+			_ = os.Setenv(name, previous)
+			return
+		}
+		_ = os.Unsetenv(name)
+	})
 }
 
 func runnableExecutable(t *testing.T) Executable {
@@ -335,4 +353,139 @@ func TestConfigurationFileOfTheStateReachesTheRuntime(t *testing.T) {
 
 	require.NoError(t, Run(t.Context(), runnableExecutable(t), []string{"--state", state, "run"}))
 	require.Equal(t, []string{path}, record.options.ConfigFiles)
+}
+
+func TestTransientPlanRunsWhileTheSelectedStateIsOwnedAndLeavesItUntouched(t *testing.T) {
+	target := t.TempDir()
+	unlock, err := lockState(target)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, unlock()) }()
+	before, err := os.ReadDir(target)
+	require.NoError(t, err)
+
+	record := captureExecution(t)
+	executable := runnableExecutable(t)
+	executable.Host = &plannedHost{plan: Plan{Transient: true}}
+
+	require.NoError(t, Run(t.Context(), executable, []string{"--state", target, "run", "transient"}))
+	require.Equal(t, 1, record.calls)
+	require.Equal(t, []string{"run", "--silent", "--", "desktop", "transient"}, record.options.Args)
+	after, err := os.ReadDir(target)
+	require.NoError(t, err)
+	require.Equal(t, before, after)
+	require.NotEqual(t, historyPath(target), record.options.Overrides.GetString("registry.history_path", ""))
+}
+
+func TestTransientPlanUsesAnOwnerOnlyStateAndRemovesItAfterSuccess(t *testing.T) {
+	const binding = "WIPPY_APP_TRANSIENT_SUCCESS"
+	target := filepath.Join(t.TempDir(), "selected")
+	record := captureExecution(t)
+	var transient string
+	record.during = func(options cmd.ExecuteOptions) error {
+		transient = filepath.Dir(options.Overrides.GetString("registry.history_path", ""))
+		require.DirExists(t, transient)
+		info, err := os.Stat(transient)
+		require.NoError(t, err)
+		// Windows has no POSIX permission bits; the per-user temp directory ACL
+		// confines the state there.
+		if runtime.GOOS != "windows" {
+			require.Zero(t, info.Mode().Perm()&0o077)
+		}
+		unlock, err := lockState(transient)
+		require.ErrorIs(t, err, ErrOwned)
+		require.Nil(t, unlock)
+		require.Equal(t, filepath.Join(transient, "capture"), os.Getenv(binding))
+		return nil
+	}
+	executable := runnableExecutable(t)
+	executable.Data = map[string]string{binding: "capture"}
+	executable.Host = &plannedHost{plan: Plan{Transient: true}}
+	unsetEnvironment(t, binding)
+
+	require.NoError(t, Run(t.Context(), executable, []string{"--state", target, "run"}))
+	require.NotEmpty(t, transient)
+	require.NoDirExists(t, transient)
+	require.NoDirExists(t, target)
+	_, bound := os.LookupEnv(binding)
+	require.False(t, bound)
+}
+
+func TestTransientPlanRemovesItsStateWhenPreparationFails(t *testing.T) {
+	const binding = "WIPPY_APP_TRANSIENT_PREPARE_FAILURE"
+	target := filepath.Join(t.TempDir(), "selected")
+	failure := errors.New("prepare failed")
+	var transient string
+	executable := runnableExecutable(t)
+	executable.Data = map[string]string{binding: "capture"}
+	executable.Host = &plannedHost{plan: Plan{
+		Transient: true,
+		Prepare: func(context.Context) (boot.Config, func() error, error) {
+			transient = filepath.Dir(os.Getenv(binding))
+			return nil, nil, failure
+		},
+	}}
+	unsetEnvironment(t, binding)
+
+	err := Run(t.Context(), executable, []string{"--state", target, "run"})
+	require.ErrorIs(t, err, failure)
+	require.NotEmpty(t, transient)
+	require.NoDirExists(t, transient)
+	require.NoDirExists(t, target)
+}
+
+func TestTransientPlanRemovesItsStateWhenTheInvocationIsCanceled(t *testing.T) {
+	const binding = "WIPPY_APP_TRANSIENT_CANCELED"
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	target := filepath.Join(t.TempDir(), "selected")
+	var transient string
+	executable := runnableExecutable(t)
+	executable.Data = map[string]string{binding: "capture"}
+	executable.Host = &plannedHost{plan: Plan{
+		Transient: true,
+		Prepare: func(context.Context) (boot.Config, func() error, error) {
+			transient = filepath.Dir(os.Getenv(binding))
+			cancel()
+			return nil, nil, nil
+		},
+	}}
+	unsetEnvironment(t, binding)
+
+	err := Run(ctx, executable, []string{"--state", target, "run"})
+	require.ErrorIs(t, err, context.Canceled)
+	require.NotEmpty(t, transient)
+	require.NoDirExists(t, transient)
+	require.NoDirExists(t, target)
+}
+
+func TestPlanWithoutTransientContinuesToUseTheSelectedState(t *testing.T) {
+	target := filepath.Join(t.TempDir(), "selected")
+	record := captureExecution(t)
+	executable := runnableExecutable(t)
+	executable.Host = &plannedHost{plan: Plan{}}
+
+	require.NoError(t, Run(t.Context(), executable, []string{"--state", target, "run"}))
+	require.DirExists(t, target)
+	require.Equal(t, historyPath(target), record.options.Overrides.GetString("registry.history_path", ""))
+}
+
+func TestInvalidTransientPlansRefuseBeforeOpeningTheSelectedState(t *testing.T) {
+	for _, testCase := range []struct {
+		name string
+		args []string
+		plan Plan
+	}{
+		{name: "update", args: []string{"update"}, plan: Plan{Transient: true}},
+		{name: "host run", args: []string{"run"}, plan: Plan{Transient: true, Run: func(context.Context) error { return nil }}},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			target := filepath.Join(t.TempDir(), "selected")
+			executable := runnableExecutable(t)
+			executable.Host = &plannedHost{plan: testCase.plan}
+
+			err := Run(t.Context(), executable, append([]string{"--state", target}, testCase.args...))
+			require.ErrorContains(t, err, "invalid application plan")
+			require.NoDirExists(t, target)
+		})
+	}
 }

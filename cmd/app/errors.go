@@ -43,6 +43,14 @@ func NewMissingStateDirectoryError() apierror.Error {
 		WithRetryable(apierror.False)
 }
 
+// NewInvalidPlanError reports a host decision whose fields cannot describe one
+// invocation.
+func NewInvalidPlanError(detail string) apierror.Error {
+	return apierror.New(apierror.Invalid, "invalid application plan: "+detail).
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"detail": detail}))
+}
+
 // NewDataEnvironmentBindingError reports a data environment entry whose name
 // or relative path cannot bind to a path inside the state directory.
 func NewDataEnvironmentBindingError(name, path string) apierror.Error {

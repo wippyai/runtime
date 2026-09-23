@@ -30,6 +30,37 @@ var stateFreeCommands = map[string]bool{
 	"readme":  true,
 }
 
+// operateTransient runs an ordinary launch in a state that exists only for
+// this invocation. MkdirTemp creates the directory owner-only. operate owns
+// and releases its state lock before this function removes the directory.
+func operateTransient(ctx context.Context, e Executable, l Launch, prepare func(context.Context) (boot.Config, func() error, error)) (result error) {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	state, err := os.MkdirTemp("", e.Name+"-")
+	if err != nil {
+		return NewApplicationStateError("create transient application state", "", err)
+	}
+	defer func() {
+		if err := os.RemoveAll(state); err != nil {
+			result = errors.Join(result, NewApplicationStateError("remove transient application state", state, err))
+		}
+	}()
+	var bound []string
+	for name := range e.Data {
+		if _, exists := os.LookupEnv(name); !exists {
+			bound = append(bound, name)
+		}
+	}
+	defer func() {
+		for _, name := range bound {
+			_ = os.Unsetenv(name)
+		}
+	}()
+	l.State = state
+	return operate(ctx, e, l, prepare)
+}
+
 // stateFreeWippy reports whether a CLI invocation can run without a deployment.
 // The bare CLI prints its usage.
 func stateFreeWippy(args []string) bool {

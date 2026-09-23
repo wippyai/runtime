@@ -86,6 +86,9 @@ func Run(ctx context.Context, e Executable, args []string) error {
 		if err != nil {
 			return err
 		}
+		if err := plan.validate(launch); err != nil {
+			return err
+		}
 		if !launch.Explicit && plan.DefaultState != "" {
 			state, err := resolveDefaultState(launch.Dir, plan.DefaultState)
 			if err != nil {
@@ -103,6 +106,9 @@ func Run(ctx context.Context, e Executable, args []string) error {
 			return plan.Run(ctx)
 		}
 		prepare = plan.Prepare
+		if plan.Transient {
+			return operateTransient(ctx, e, launch, prepare)
+		}
 	}
 	return operate(ctx, e, launch, prepare)
 }
