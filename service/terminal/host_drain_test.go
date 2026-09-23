@@ -77,6 +77,8 @@ func TestHostStopDeliversToDrainingProcess(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("process did not receive CANCEL")
 	}
+	_, err = h.Start(context.Background())
+	require.ErrorIs(t, err, ErrHostShuttingDown, "a draining terminal host must not restart")
 	pkg := relay.NewPackage(pid.PID{}, processID, "exit", payload.New(0))
 	require.NoError(t, h.Send(pkg), "a draining terminal process must keep receiving deliveries")
 

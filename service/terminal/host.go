@@ -285,6 +285,9 @@ func (h *Host) SendContext(ctx context.Context, pkg *relay.Package) error {
 func (h *Host) Start(ctx context.Context) (<-chan any, error) {
 	h.lifecycleMu.Lock()
 	defer h.lifecycleMu.Unlock()
+	if h.shutdown.Load() && !h.drained.Load() {
+		return nil, ErrHostShuttingDown
+	}
 	if h.running.Load() {
 		return nil, ErrHostAlreadyRunning
 	}
@@ -328,7 +331,6 @@ func (h *Host) Stop(ctx context.Context) error {
 		zap.Uint64("attempt", stopAttempt))
 
 	h.scheduler.Stop(ctx)
-	h.drained.Store(true)
 	h.closeStatus()
 
 	if h.raw != nil {
@@ -336,6 +338,7 @@ func (h *Host) Stop(ctx context.Context) error {
 	}
 	// Restore logging on shutdown
 	h.logCtrl.RestoreBaseConfig(ctx)
+	h.drained.Store(true)
 
 	h.log.Info("terminal host stopped", zap.String("id", h.id.String()))
 	return nil
