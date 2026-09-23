@@ -70,18 +70,18 @@ func TestVoteRoutingTargetsOnlyCurrentClaim(t *testing.T) {
 		t.Fatal("late vote delete scanned pending records")
 	}
 	r.strong.isLeader = func() bool { return true }
-	key := rejectKey("other", "other", "peer")
-	if _, err := base.Set(key, []byte(strongRejectConflict)); err != nil {
+	key := ackKey("other", "other", "peer")
+	if _, err := base.Set(key, []byte("peer")); err != nil {
 		t.Fatal(err)
 	}
 	if err := r.handleWatchEvent(kvapi.WatchEvent{Current: &kvapi.Entry{Key: key}}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := base.Get(pendingKey("other")); !errors.Is(err, kvapi.ErrKeyNotFound) {
-		t.Fatalf("NACK did not expire its claim: %v", err)
+		t.Fatalf("complete ACK set did not promote its claim: %v", err)
 	}
 	if wrapped.scans != 0 {
-		t.Fatal("NACK scanned pending records")
+		t.Fatal("ACK scanned pending records")
 	}
 }
 
@@ -97,7 +97,7 @@ func TestVoteRoutingUsesCanonicalComponents(t *testing.T) {
 		if _, err := r.engine.Set(pendingKey(name), value); err != nil {
 			t.Fatal(err)
 		}
-		for _, prefix := range []string{ackPrefix, rejectPrefix} {
+		for _, prefix := range []string{ackPrefix} {
 			key := prefix + voteComponent(name) + ":attempt:" + voteComponent(node)
 			got, attempt, ok, err := r.strongVoteName(key, prefix)
 			if err != nil || !ok || got != name || attempt != "attempt" {

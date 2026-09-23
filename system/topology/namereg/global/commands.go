@@ -41,7 +41,7 @@ const (
 	// same Apply. A discovery NodeLeft must no longer issue this command.
 	CmdDropRequired CommandType = 9
 	// CmdRegisterReject terminally fails a pending reservation when a
-	// required node rejects it (cross-scope conflict). NACK dominates: a
+	// required node rejects it. Retained for FSM replay; a
 	// valid reject fails the registration even if other acks are arriving.
 	CmdRegisterReject CommandType = 10
 )

@@ -30,20 +30,6 @@ func TestStateSameOwnerIgnoresStringCache(t *testing.T) {
 	require.True(t, removed)
 }
 
-func TestServiceSameOwnerIgnoresStringCache(t *testing.T) {
-	p := pid.PID{Node: "node", Host: "process", UniqID: "owner"}
-	presence := newFakeLocalPresence()
-	presence.setLocal("local", p.Precomputed())
-	presence.setEventual("eventual", p.Precomputed())
-
-	svc := &Service{}
-	svc.SetLocalPresence(presence)
-	for _, name := range []string{"local", "eventual"} {
-		_, conflict := svc.localConflict(name, p)
-		require.False(t, conflict)
-	}
-}
-
 func TestFSMIncomingWinnerIgnoresStringCache(t *testing.T) {
 	existing := pid.PID{Node: "node", Host: "process", UniqID: "existing"}
 	incoming := pid.PID{Node: "node", Host: "process", UniqID: "incoming"}

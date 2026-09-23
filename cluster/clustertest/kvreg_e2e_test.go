@@ -72,6 +72,7 @@ func TestE2E_KVRegistry_StrongPromotes(t *testing.T) {
 		node := n
 		reg := kvbacked.NewService(node.KV, node.ID, nil, nil)
 		reg.ConfigureStrong(kvbacked.StrongDeps{
+			Members:  func() ([]pid.NodeID, error) { return strongObserverMembers(node) },
 			IsLeader: func() bool { return node.Raft.IsLeader() },
 			Deadline: 8 * time.Second,
 		})
@@ -98,6 +99,18 @@ func TestE2E_KVRegistry_StrongPromotes(t *testing.T) {
 	for _, n := range c.Nodes() {
 		waitLookup(t, regs[n.ID], "strongsvc", p, 5*time.Second)
 	}
+}
+
+func strongObserverMembers(node *Node) ([]pid.NodeID, error) {
+	servers, err := node.Raft.GetConfiguration()
+	if err != nil {
+		return nil, err
+	}
+	members := make([]pid.NodeID, 0, len(servers))
+	for _, server := range servers {
+		members = append(members, server.ID)
+	}
+	return members, nil
 }
 
 // TestE2E_KVRegistry_SurvivesLeaderKill is the resilience capstone: a CONSISTENT

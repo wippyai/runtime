@@ -14,7 +14,6 @@ import (
 	relayapi "github.com/wippyai/runtime/api/relay"
 	topapi "github.com/wippyai/runtime/api/topology"
 	"github.com/wippyai/runtime/system/topology"
-	"github.com/wippyai/runtime/system/topology/namereg/admission"
 	"go.uber.org/zap"
 )
 
@@ -42,8 +41,7 @@ func Topology() boot.Component {
 			}
 
 			topo := topology.NewTopology(router, node.ID())
-			nameAdmission := &admission.Coordinator{}
-			pidReg := topology.NewPIDRegistry(topology.WithLogger(logger.Named("pid")), topology.WithAdmissionCoordinator(nameAdmission))
+			pidReg := topology.NewPIDRegistry(topology.WithLogger(logger.Named("pid")))
 
 			bus := event.GetBus(ctx)
 			if bus != nil {
@@ -55,7 +53,6 @@ func Topology() boot.Component {
 
 			ctx = topapi.WithTopology(ctx, topo)
 			ctx = topapi.WithRegistry(ctx, pidReg)
-			ctx = admission.WithContext(ctx, nameAdmission)
 
 			logger.Info("topology and pid registry initialized")
 			return ctx, nil

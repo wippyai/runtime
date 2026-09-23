@@ -9,7 +9,8 @@ import (
 )
 
 // ContextPIDRegistry preserves lookup cancellation and errors across name scopes.
-// An error must stop resolution rather than select an owner in a weaker scope.
+// A composed implementation may resolve an available weaker scope after a
+// stronger scope fails, but must return the failure if no scope resolves.
 // PIDRegistry remains supported for existing local registry implementations.
 type ContextPIDRegistry interface {
 	PIDRegistry

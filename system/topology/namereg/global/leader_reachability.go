@@ -46,11 +46,10 @@ type leaderPongEnvelope struct {
 // cadence and runs a debounced state machine:
 //
 //   - reachable -> unreachable (after probeGrace consecutive failures): close
-//     the name-ready gate. A partitioned node can no longer be sure it isn't
-//     missing Strong updates the leader committed, so it must stop serving
-//     LOCAL/EVENTUAL names until it re-barriers.
+//     the global name-ready gate because the replica may be missing committed
+//     Strong updates. Independent LOCAL/EVENTUAL names remain available.
 //   - unreachable -> reachable (first success after a loss): run the rejoin
-//     barrier (epoch bump + snapshot fetch + conflict revoke); the gate reopens
+//     barrier (epoch bump + snapshot fetch); the gate reopens
 //     only when the barrier completes.
 //
 // A node that is itself the leader reaches itself trivially. A raft MEMBER

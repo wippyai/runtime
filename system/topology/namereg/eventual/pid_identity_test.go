@@ -30,7 +30,6 @@ func TestServiceSameOwnerIgnoresStringCache(t *testing.T) {
 
 	svc.reassertOwned("name")
 	require.Equal(t, before, svc.state.CVSnapshot())
-	require.False(t, svc.RevokeForStrong("name", p))
 	resolved, found := svc.state.Lookup("name")
 	require.True(t, found)
 	require.True(t, resolved.Equal(p))

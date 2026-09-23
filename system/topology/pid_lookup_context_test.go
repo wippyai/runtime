@@ -22,14 +22,15 @@ func (r *unavailableGlobalLookup) Lookup(context.Context, string, ...globalapi.L
 	return globalapi.LookupResult{}, r.failure
 }
 
-func TestPIDRegistryLegacyLookupDoesNotShadowUnavailableGlobal(t *testing.T) {
+func TestPIDRegistryLegacyLookupUsesLocalWhenGlobalUnavailable(t *testing.T) {
 	reg := NewPIDRegistry()
 	shadow := pid.PID{Host: "h", UniqID: "shadow"}
 	_, err := reg.Register("svc", shadow)
 	require.NoError(t, err)
 	reg.SetGlobalRegistry(&unavailableGlobalLookup{fakeGlobalRegistry: &fakeGlobalRegistry{}, failure: errors.New("unavailable")})
-	_, found := reg.Lookup("svc")
-	require.False(t, found, "legacy facade cannot expose an error but must not choose a weaker-scope owner")
+	got, found := reg.Lookup("svc")
+	require.True(t, found)
+	require.True(t, got.Equal(shadow), "independent LOCAL binding stays resolvable")
 }
 
 type waitingGlobalLookup struct {
@@ -83,7 +84,7 @@ func (r *unavailableEventualLookup) Lookup(context.Context, string, ...globalapi
 	return globalapi.LookupResult{}, r.failure
 }
 
-func TestPIDRegistryRegistrationRejectsUnknownCrossScopeOwnership(t *testing.T) {
+func TestPIDRegistryLocalAdmissionSurvivesOtherScopeFailure(t *testing.T) {
 	for _, scope := range []string{"global", "eventual"} {
 		t.Run(scope, func(t *testing.T) {
 			reg := NewPIDRegistry()
@@ -97,14 +98,22 @@ func TestPIDRegistryRegistrationRejectsUnknownCrossScopeOwnership(t *testing.T) 
 				reg.SetEventualRegistry(&unavailableEventualLookup{fakeEventualRegistry: &fakeEventualRegistry{}, failure: failure})
 			}
 			_, err = reg.Register("svc", owner)
-			require.ErrorIs(t, err, failure)
-			_, found := reg.LookupLocal("svc")
-			require.False(t, found, "failed ownership check must not create a local binding")
-			_, err = reg.Register("existing", owner)
-			require.ErrorIs(t, err, failure)
-			current, found := reg.LookupLocal("existing")
+			require.NoError(t, err)
+			current, found := reg.LookupLocal("svc")
 			require.True(t, found)
-			require.True(t, current.Equal(owner), "lookup failure must preserve existing bindings")
+			require.True(t, current.Equal(owner))
+			_, err = reg.Register("existing", owner)
+			require.NoError(t, err)
+			current, found = reg.LookupLocal("existing")
+			require.True(t, found)
+			require.True(t, current.Equal(owner))
+			got, found, err := reg.LookupContext(context.Background(), "svc")
+			require.NoError(t, err)
+			require.True(t, found)
+			require.True(t, got.Equal(owner), "available LOCAL binding survives a higher-scope failure")
+			_, found, err = reg.LookupContext(context.Background(), "missing")
+			require.ErrorIs(t, err, failure, "unresolved lookup preserves the higher-scope failure")
+			require.False(t, found)
 		})
 	}
 }

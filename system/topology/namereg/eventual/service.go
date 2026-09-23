@@ -17,7 +17,6 @@ import (
 	"github.com/wippyai/runtime/api/topology"
 	"github.com/wippyai/runtime/api/topology/namereg/global"
 	"github.com/wippyai/runtime/system/eventbus"
-	"github.com/wippyai/runtime/system/topology/namereg/admission"
 	"go.uber.org/zap"
 )
 
@@ -28,10 +27,6 @@ var (
 	// different PID held locally (the cluster-wide check is best-effort
 	// because EVENTUAL is — by design — eventually consistent).
 	ErrNameAlreadyRegistered = errors.New("eventualreg: name already registered")
-	// ErrNameServiceNotReady is returned by a fresh EVENTUAL register while the
-	// node's join-epoch barrier is still in progress. Retryable: the barrier
-	// completes shortly after join/rejoin.
-	ErrNameServiceNotReady = errors.New("eventualreg: name service not ready: join-epoch barrier in progress")
 )
 
 // PeerInventory abstracts the source of "alive peer" node strings. The
@@ -40,19 +35,6 @@ type PeerInventory interface {
 	// AlivePeers returns the node strings of all currently-alive peers,
 	// excluding the local node.
 	AlivePeers() []string
-}
-
-// CrossScopeChecker abstracts the CONSISTENT/LOCAL registries so EVENTUAL
-// registrations can refuse to shadow them.
-type CrossScopeChecker interface {
-	// LookupOther reports a different owner's claim first, or a matching
-	// claim if no other scope conflicts. Lookup failures must be returned,
-	// since absence cannot be inferred from a failed authoritative read.
-	LookupOther(name string, proposed pid.PID) (pid.PID, bool, error)
-	// NameReady reports whether the node's join-epoch barrier has completed. A
-	// fresh EVENTUAL register is refused (ErrNameServiceNotReady) until it is true
-	// so the node cannot shadow a cluster-wide Strong name it has not yet learned.
-	NameReady() bool
 }
 
 // MessageSender ships a targeted reliable frame to a specific peer.
@@ -70,16 +52,8 @@ type MessageSender interface {
 
 // Config configures a Service.
 type Config struct {
-	// Admission serializes this node's decisions for one name across scopes.
-	Admission *admission.Coordinator
 	// Peers supplies the current alive peer set.
 	Peers PeerInventory
-	// CrossScope optionally cross-checks CONSISTENT/LOCAL on Register.
-	CrossScope CrossScopeChecker
-	// StrongReservation reads this node's locally latched Strong exclusion.
-	// A conflicting EVENTUAL dot must not be served after the node ACKs Strong,
-	// even if delayed gossip installs that dot before the active KV record lands.
-	StrongReservation func(name string) (pid.PID, bool)
 	// MetricsCollector may be nil.
 	MetricsCollector metrics.Collector
 	// Logger may be nil.
@@ -255,8 +229,8 @@ func WithPriority(p uint32) RegisterOption {
 // Returns the registered PID and nil on success. Returns the existing PID and
 // ErrNameAlreadyRegistered when the name is held locally by a different PID, or
 // when a different-origin entry out-ranks this fresh claim (the caller lost the
-// concurrent conflict — a name_revoked is also signaled to `p`). Cross-scope
-// conflicts (CONSISTENT/LOCAL) are rejected.
+// concurrent conflict — a name_revoked is also signaled to `p`). Other naming
+// scopes store independent bindings; precedence belongs to composed resolution.
 func (s *Service) Register(name string, p pid.PID) (pid.PID, error) {
 	return s.register(name, p)
 }
@@ -275,51 +249,8 @@ func (s *Service) register(name string, p pid.PID, opts ...RegisterOption) (pid.
 	for _, opt := range opts {
 		opt(&o)
 	}
-	release := s.cfg.Admission.Acquire(name)
-
-	// Cross-scope check first — refuse to shadow CONSISTENT or LOCAL.
-	if s.cfg.CrossScope != nil {
-		// A client cold miss can forward to a leader; do not hold the local
-		// admission gate over that request without a pending-state feed.
-		if !s.cfg.CrossScope.NameReady() {
-			if cur, ok := s.state.Lookup(name); ok && cur.Equal(p) {
-				release()
-				return p, nil
-			}
-			s.tel.recordRegister("not_ready")
-			release()
-			return p, ErrNameServiceNotReady
-		}
-		existing, found, err := s.cfg.CrossScope.LookupOther(name, p)
-		if err != nil {
-			s.tel.recordRegister("check_failed")
-			release()
-			return pid.PID{}, err
-		}
-		if found {
-			if existing.Equal(p) {
-				release()
-				return p, nil
-			}
-			s.tel.recordRegister("conflict_other_scope")
-			release()
-			return existing, ErrNameAlreadyRegistered
-		}
-	}
-
 	mutation := &s.ownedMutations[ShardFor(name)]
 	mutation.Lock()
-	if s.cfg.CrossScope != nil && !s.cfg.CrossScope.NameReady() {
-		if cur, ok := s.state.Lookup(name); ok && cur.Equal(p) {
-			mutation.Unlock()
-			release()
-			return p, nil
-		}
-		mutation.Unlock()
-		s.tel.recordRegister("not_ready")
-		release()
-		return p, ErrNameServiceNotReady
-	}
 	res := s.state.Register(name, p, time.Now().UnixMilli(), o.priority)
 	if res.Won {
 		s.ownedMu.Lock()
@@ -327,7 +258,6 @@ func (s *Service) register(name string, p pid.PID, opts ...RegisterOption) (pid.
 		s.ownedMu.Unlock()
 	}
 	mutation.Unlock()
-	release()
 	if !res.Won {
 		if res.Lost != nil {
 			// Cross-origin loss: the local dot was minted and installed, so
@@ -372,45 +302,11 @@ func (s *Service) emitRevoke(lost *LostBinding) {
 	}
 }
 
-// RevokeForStrong tombstones a locally-held EVENTUAL binding of name whose pid
-// differs from keep, signaling the losing process. The join-epoch barrier calls
-// it after learning name belongs to a Strong reservation owned by keep. Returns
-// true when a binding was revoked. A name not held locally, or held to keep, is
-// a no-op. The tombstone broadcasts so the cluster converges away from the
-// loser.
-func (s *Service) RevokeForStrong(name string, keep pid.PID) bool {
-	if s.stopped.Load() {
-		return false
-	}
-	release := s.cfg.Admission.Acquire(name)
-	mutation := &s.ownedMutations[ShardFor(name)]
-	mutation.Lock()
-	e, revoked := s.state.unregisterLocal(name, time.Now().UnixMilli(), &keep)
-	// Even if the dot has already been tombstoned, its owner must not be
-	// reasserted after this Strong claim replaces it.
-	s.ownedMu.Lock()
-	if owned, ok := s.owned[name]; ok && !owned.pid.Equal(keep) {
-		delete(s.owned, name)
-	}
-	s.ownedMu.Unlock()
-	mutation.Unlock()
-	release()
-	if e == nil {
-		return false
-	}
-	s.queue.Push(e)
-	s.emitRevoke(&LostBinding{Name: name, PID: revoked})
-	s.tel.setEntries(s.state.LiveCount(), s.state.TombstoneCount())
-	s.tel.setQueueDepth(s.queue.Depth())
-	return true
-}
-
 // Unregister tombstones a name. Returns true if the name was held by us.
 func (s *Service) Unregister(name string) bool {
 	if s.stopped.Load() {
 		return false
 	}
-	release := s.cfg.Admission.Acquire(name)
 	mutation := &s.ownedMutations[ShardFor(name)]
 	mutation.Lock()
 	e := s.state.Unregister(name, time.Now().UnixMilli())
@@ -418,7 +314,6 @@ func (s *Service) Unregister(name string) bool {
 	delete(s.owned, name)
 	s.ownedMu.Unlock()
 	mutation.Unlock()
-	release()
 	if e == nil {
 		s.tel.recordUnregister("not_found")
 		return false
@@ -444,35 +339,11 @@ func (s *Service) Lookup(_ context.Context, name string, opts ...global.LookupOp
 		return global.LookupResult{PID: *o.ByPID}, nil
 	}
 
-	// Sample the raw winner before the exclusion, so a lookup begun after a
-	// Strong ACK cannot expose a conflicting dot. Do not take the admission
-	// gate here: LOCAL registration already holds it when consulting Lookup.
-	// Gossip still updates the raw CRDT for normal repair and convergence.
 	p, found := s.state.Lookup(name)
-	if found && s.cfg.StrongReservation != nil {
-		if reserved, ok := s.cfg.StrongReservation(name); ok && !reserved.Equal(p) {
-			return global.LookupResult{}, nil
-		}
-	}
 	return global.LookupResult{
 		PID:   p,
 		Found: found,
 	}, nil
-}
-
-// ConflictingLiveClaim inspects unfiltered per-origin state for Strong voting.
-// The voter already holds the shared per-name admission gate; public Lookup
-// filters Strong reservations and could hide voting evidence.
-func (s *Service) ConflictingLiveClaim(name string, proposed pid.PID) (pid.PID, bool, error) {
-	p, found := s.state.ConflictingLiveClaim(name, proposed)
-	return p, found, nil
-}
-
-// LookupUnfiltered supplies the legacy Strong voter with the raw EVENTUAL
-// winner. That voter holds its own reservation lock, so it must not call the
-// fenced public Lookup, which consults that same reservation.
-func (s *Service) LookupUnfiltered(name string) (pid.PID, bool) {
-	return s.state.Lookup(name)
 }
 
 // --- Transport hooks (called by delegate.go) ---
@@ -843,37 +714,21 @@ func (s *Service) applyIncoming(e *Entry, originStr string) {
 // name is not owned or already resolves to our pid, so it fires at most once per
 // stale override and cannot loop.
 func (s *Service) reassertOwned(name string) {
-	release := s.cfg.Admission.Acquire(name)
 	mutation := &s.ownedMutations[ShardFor(name)]
 	mutation.Lock()
-	unlock := func() {
-		mutation.Unlock()
-		release()
-	}
 	s.ownedMu.Lock()
 	reg, ok := s.owned[name]
 	s.ownedMu.Unlock()
 	if !ok || s.stopped.Load() {
-		unlock()
+		mutation.Unlock()
 		return
 	}
-	if s.cfg.CrossScope != nil {
-		if !s.cfg.CrossScope.NameReady() {
-			unlock()
-			return
-		}
-		other, found, err := s.cfg.CrossScope.LookupOther(name, reg.pid)
-		if err != nil || (found && !other.Equal(reg.pid)) || !s.cfg.CrossScope.NameReady() {
-			unlock()
-			return
-		}
-	}
 	if cur, found := s.state.Lookup(name); found && cur.Equal(reg.pid) {
-		unlock()
+		mutation.Unlock()
 		return
 	}
 	res := s.state.Register(name, reg.pid, time.Now().UnixMilli(), reg.priority)
-	unlock()
+	mutation.Unlock()
 	if !res.Won || res.Entry == nil {
 		return
 	}

@@ -116,8 +116,9 @@ func (r *fakePIDRegistry) Remove(p pid.PID) {
 }
 
 type fakeEventualRegistry struct {
-	entries map[string]pid.PID
-	mu      sync.Mutex
+	entries   map[string]pid.PID
+	lookupErr error
+	mu        sync.Mutex
 }
 
 func (r *fakeEventualRegistry) Register(name string, p pid.PID) (pid.PID, error) {
@@ -147,6 +148,9 @@ func (r *fakeEventualRegistry) Unregister(name string) bool {
 }
 
 func (r *fakeEventualRegistry) Lookup(_ context.Context, name string, opts ...globalapi.LookupOption) (globalapi.LookupResult, error) {
+	if r.lookupErr != nil {
+		return globalapi.LookupResult{}, r.lookupErr
+	}
 	var o globalapi.LookupOptions
 	for _, opt := range opts {
 		opt(&o)
@@ -782,9 +786,10 @@ func TestRegistryUnregister_NotFound(t *testing.T) {
 // global.Registry interface so we can exercise the STRONG/CONSISTENT
 // unregister authority check without standing up a real Raft cluster.
 type fakeScopedRegistry struct {
-	fsm      *global.FSM
-	mu       sync.Mutex
-	logIndex uint64
+	fsm       *global.FSM
+	lookupErr error
+	mu        sync.Mutex
+	logIndex  uint64
 }
 
 func newFakeScopedRegistry() *fakeScopedRegistry {
@@ -840,6 +845,9 @@ func (f *fakeScopedRegistry) UnregisterScope(_ context.Context, name string, _ g
 }
 
 func (f *fakeScopedRegistry) Lookup(_ context.Context, name string, opts ...globalapi.LookupOption) (globalapi.LookupResult, error) {
+	if f.lookupErr != nil {
+		return globalapi.LookupResult{}, f.lookupErr
+	}
 	var o globalapi.LookupOptions
 	for _, opt := range opts {
 		opt(&o)
@@ -980,6 +988,46 @@ func TestRegistryLookup_EventualScopeWithoutLocalRegistry(t *testing.T) {
 		if p ~= %q then error("expected eventual pid without local registry, got " .. tostring(p) .. " err=" .. tostring(err)) end
 	`, holder.String()))
 	require.NoError(t, err)
+}
+
+func TestRegistryLookup_IndependentScopeFallback(t *testing.T) {
+	caller := pid.PID{Host: "h1", UniqID: "caller", Node: "node-1"}
+	holder := pid.PID{Host: "h1", UniqID: "holder", Node: "node-1"}
+
+	t.Run("global unavailable does not hide eventual", func(t *testing.T) {
+		globalReg := newFakeScopedRegistry()
+		globalReg.lookupErr = errors.New("global unavailable")
+		eventualReg := &fakeEventualRegistry{}
+		_, err := eventualReg.Register("service", holder)
+		require.NoError(t, err)
+		l := newLuaWithScopedRegistries(t, caller, nil, globalReg, eventualReg)
+		require.NoError(t, l.DoString(fmt.Sprintf(`
+			local p, err = process.registry.lookup("service")
+			if p ~= %q then error("expected eventual PID, got " .. tostring(p) .. " err=" .. tostring(err)) end
+		`, holder.String())))
+	})
+
+	t.Run("eventual unavailable does not hide local", func(t *testing.T) {
+		eventualReg := &fakeEventualRegistry{lookupErr: errors.New("eventual unavailable")}
+		localReg := &fakePIDRegistry{entries: map[string]pid.PID{"service": holder}}
+		l := newLuaWithScopedRegistries(t, caller, localReg, nil, eventualReg)
+		require.NoError(t, l.DoString(fmt.Sprintf(`
+			local p, err = process.registry.lookup("service")
+			if p ~= %q then error("expected local PID, got " .. tostring(p) .. " err=" .. tostring(err)) end
+		`, holder.String())))
+	})
+
+	t.Run("unresolved lookup reports higher-scope failure", func(t *testing.T) {
+		globalReg := newFakeScopedRegistry()
+		globalReg.lookupErr = errors.New("global unavailable")
+		eventualReg := &fakeEventualRegistry{lookupErr: errors.New("eventual unavailable")}
+		l := newLuaWithScopedRegistries(t, caller, &fakePIDRegistry{}, globalReg, eventualReg)
+		require.NoError(t, l.DoString(`
+			local p, err = process.registry.lookup("service")
+			if p ~= nil then error("expected no PID") end
+			if tostring(err) ~= "global unavailable" then error("expected global failure, got " .. tostring(err)) end
+		`))
+	})
 }
 
 // TestRegistryUnregister_Strong_ByHolder verifies the holder can drop its

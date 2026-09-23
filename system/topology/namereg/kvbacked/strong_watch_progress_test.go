@@ -92,7 +92,7 @@ func TestStrongSlowVoteDoesNotBlockUnrelatedCommittedResult(t *testing.T) {
 		t.Fatal("slow vote did not enter blocked Raft operation")
 	}
 	result, err := encode(terminalResult{
-		Name: "fast", AttemptID: fastAttempt, Reason: strongRejectConflict,
+		Name: "fast", AttemptID: fastAttempt, Reason: strongOwnerConflict,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -146,28 +146,6 @@ func TestStrongSlowVoteDoesNotBlockSeed(t *testing.T) {
 	case <-held.entered:
 	case <-time.After(2 * time.Second):
 		t.Fatal("seeded pending did not reach the bounded action worker")
-	}
-}
-
-func TestStrongActiveDeleteReleasesMatchingExclusion(t *testing.T) {
-	r := newStrongReg(t, []pid.NodeID{"node-1"}, time.Minute, nil)
-	p := mkPID("node-1", "active-owner")
-	r.strong.onActive("gone", "attempt-a", 1, 0, p)
-	r.handleWatchEvent(kvapi.WatchEvent{Type: kvapi.WatchDelete, Previous: &kvapi.Entry{
-		Key: activeKey("gone"), Value: mustEncodeActive(t, activeValue{PID: p.String(), Name: "gone", AttemptID: "attempt-a", Strong: true}),
-	}})
-	if _, ok := r.IsStrongReserved("gone"); ok {
-		t.Fatal("active delete left a stale Strong exclusion")
-	}
-}
-
-func TestStrongOldPendingDeleteCannotClearReplacement(t *testing.T) {
-	r := newStrongReg(t, []pid.NodeID{"node-1"}, time.Minute, nil)
-	p := mkPID("node-1", "replacement")
-	r.strong.latch("replace", "attempt-b", p, 2)
-	r.strong.onTerminal("replace", "attempt-a", 0)
-	if got, ok := r.IsStrongReserved("replace"); !ok || got.String() != p.String() {
-		t.Fatalf("old attempt delete cleared replacement exclusion: %v,%v", got, ok)
 	}
 }
 

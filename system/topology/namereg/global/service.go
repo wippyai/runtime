@@ -39,12 +39,12 @@ const (
 	// and re-emit its ack. Body is a msgpack-encoded checkPendingEnvelope.
 	// The nudge never mutates Raft state — only ACK/REJECT/DROP/EXPIRED do.
 	topicCheckPending relay.Topic = "global.root.check"
-	// topicReleaseExclusion is a targeted relay message the leader sends to a
-	// node holding a Strong exclusion when the name reaches a terminal state
+	// topicReleaseObservation is a targeted relay message the leader sends to a
+	// node holding a Strong observation when the name reaches a terminal state
 	// (expire/reject/unregister, including an active name being unregistered).
 	// Body is a msgpack-encoded releaseEnvelope; the recipient releases its
-	// exclusion for the carried (name, epoch) idempotently. Never mutates Raft.
-	topicReleaseExclusion relay.Topic = "global.root.release"
+	// observation for the carried (name, epoch) idempotently. Never mutates Raft.
+	topicReleaseObservation relay.Topic = "global.root.release"
 	// topicJoinRequest carries a node's JoinNameEpoch request to the leader. Body
 	// is a msgpack-encoded joinRequestEnvelope. The leader replies on
 	// topicJoinResponse with a snapshot of PENDING∪ACTIVE Strong names as of the
@@ -74,72 +74,41 @@ const (
 // It wraps a Raft-backed FSM and provides leader forwarding for writes
 // and topology-based auto-cleanup.
 type Service struct {
-	localPresence    atomic.Value
-	router           relay.Receiver
-	raftSvc          raftapi.Service
-	bus              event.Bus
-	topo             topology.Topology
-	membership       cluster.Membership
-	dissem           atomic.Value
-	localRevoker     atomic.Value
-	pingPending      map[uint64]chan struct{}
-	joinPending      map[uint64]chan *joinResponseEnvelope
-	memberDeriver    MemberDeriver
-	pending          map[uint64]chan *forwardResponse
-	forwardProxies   map[uint64]pid.NodeID
-	strongWatchers   map[string]map[uint64]chan strongOutcome
-	strongTimers     map[string]*strongTimer
-	fsm              *FSM
-	logger           *zap.Logger
-	stopCh           chan struct{}
-	lookupPending    map[uint64]chan *lookupResponseEnvelope
-	ackerEpochs      map[pid.NodeID]uint64
-	strongExclusions map[string]strongExclusion
-	tel              *telemetry
-	monitoredPIDs    sync.Map
-	localNode        pid.NodeID
-	probeInterval    time.Duration
-	probeGrace       int
-	monitorWatermark atomic.Uint64
-	nodeEpoch        atomic.Uint64
-	lookupMu         sync.Mutex
-	mu               sync.Mutex
-	strongMu         sync.Mutex
-	reserveMu        sync.Mutex
-	joinMu           sync.Mutex
-	nameReady        atomic.Bool
-	started          bool
-	ready            bool
-	degraded         bool
-}
-
-// LocalPresence reads non-presence of a name in the LOCAL and EVENTUAL
-// registries on the local node, bypassing the composed Lookup so it never
-// re-enters globalreg (which would self-reference a held reservation). Wired at
-// boot from topology.GetRegistry / topology.GetEventualRegistry; nil-safe (an
-// unwired presence reports nothing bound, so the conditional ack degrades to an
-// unconditional ack on a node with no local registries).
-type LocalPresence interface {
-	// LookupLocal reports a LOCAL-scope binding for name, if any.
-	LookupLocal(name string) (pid.PID, bool)
-	// LookupEventual reports an EVENTUAL-scope binding for name, if any.
-	LookupEventual(name string) (pid.PID, bool)
-}
-
-// LocalNameRevoker revokes a conflicting LOCAL or EVENTUAL binding the join-epoch
-// barrier discovered for a name a Strong reservation owns cluster-wide. The
-// barrier calls it for each snapshot name this node holds bound to a different
-// pid, before flipping name_ready. Wired at boot from the topology PIDRegistry
-// (LOCAL) and the eventual registry (EVENTUAL); nil-safe (an unwired revoker is
-// a no-op, so a node with no local registries still completes the barrier).
-type LocalNameRevoker interface {
-	// RevokeLocal removes a LOCAL-scope binding of name to a pid different from
-	// keep, signaling the losing process. Returns true if a binding was revoked.
-	RevokeLocal(name string, keep pid.PID) bool
-	// RevokeEventual removes an EVENTUAL-scope binding of name to a pid different
-	// from keep, signaling the losing process. Returns true if a binding was
-	// revoked.
-	RevokeEventual(name string, keep pid.PID) bool
+	router             relay.Receiver
+	raftSvc            raftapi.Service
+	bus                event.Bus
+	topo               topology.Topology
+	membership         cluster.Membership
+	dissem             atomic.Value
+	pingPending        map[uint64]chan struct{}
+	joinPending        map[uint64]chan *joinResponseEnvelope
+	memberDeriver      MemberDeriver
+	pending            map[uint64]chan *forwardResponse
+	forwardProxies     map[uint64]pid.NodeID
+	strongWatchers     map[string]map[uint64]chan strongOutcome
+	strongTimers       map[string]*strongTimer
+	fsm                *FSM
+	logger             *zap.Logger
+	stopCh             chan struct{}
+	lookupPending      map[uint64]chan *lookupResponseEnvelope
+	ackerEpochs        map[pid.NodeID]uint64
+	strongObservations map[string]strongObservation
+	tel                *telemetry
+	monitoredPIDs      sync.Map
+	localNode          pid.NodeID
+	probeInterval      time.Duration
+	probeGrace         int
+	monitorWatermark   atomic.Uint64
+	nodeEpoch          atomic.Uint64
+	lookupMu           sync.Mutex
+	mu                 sync.Mutex
+	strongMu           sync.Mutex
+	reserveMu          sync.Mutex
+	joinMu             sync.Mutex
+	nameReady          atomic.Bool
+	started            bool
+	ready              bool
+	degraded           bool
 }
 
 // NewService creates a new global registry service.
@@ -168,24 +137,24 @@ func NewService(
 	}
 
 	s := &Service{
-		raftSvc:          raftSvc,
-		fsm:              fsm,
-		tel:              tel,
-		bus:              bus,
-		topo:             topo,
-		router:           router,
-		membership:       membership,
-		localNode:        localNode,
-		logger:           logger,
-		stopCh:           make(chan struct{}),
-		pending:          make(map[uint64]chan *forwardResponse),
-		forwardProxies:   make(map[uint64]pid.NodeID),
-		strongWatchers:   make(map[string]map[uint64]chan strongOutcome),
-		strongTimers:     make(map[string]*strongTimer),
-		strongExclusions: make(map[string]strongExclusion),
-		joinPending:      make(map[uint64]chan *joinResponseEnvelope),
-		pingPending:      make(map[uint64]chan struct{}),
-		ackerEpochs:      make(map[pid.NodeID]uint64),
+		raftSvc:            raftSvc,
+		fsm:                fsm,
+		tel:                tel,
+		bus:                bus,
+		topo:               topo,
+		router:             router,
+		membership:         membership,
+		localNode:          localNode,
+		logger:             logger,
+		stopCh:             make(chan struct{}),
+		pending:            make(map[uint64]chan *forwardResponse),
+		forwardProxies:     make(map[uint64]pid.NodeID),
+		strongWatchers:     make(map[string]map[uint64]chan strongOutcome),
+		strongTimers:       make(map[string]*strongTimer),
+		strongObservations: make(map[string]strongObservation),
+		joinPending:        make(map[uint64]chan *joinResponseEnvelope),
+		pingPending:        make(map[uint64]chan struct{}),
+		ackerEpochs:        make(map[pid.NodeID]uint64),
 	}
 	if fsm != nil {
 		fsm.SetOnRestore(s.resetMonitorWatermark)
@@ -210,28 +179,6 @@ func (s *Service) SetMembership(m cluster.Membership) {
 	s.mu.Unlock()
 }
 
-// SetLocalPresence wires the LOCAL/EVENTUAL presence reader used by the
-// conditional ack. Boot installs it after the topology registries land in
-// context. Safe for concurrent use.
-func (s *Service) SetLocalPresence(lp LocalPresence) {
-	if s == nil {
-		return
-	}
-	s.localPresence.Store(lp)
-}
-
-func (s *Service) loadLocalPresence() LocalPresence {
-	v := s.localPresence.Load()
-	if v == nil {
-		return nil
-	}
-	lp, ok := v.(LocalPresence)
-	if !ok {
-		return nil
-	}
-	return lp
-}
-
 // SetLeaderProbeConfig tunes the leader-reachability monitor. Zero values keep
 // the defaults. Must be called before Start (the monitor reads these once at
 // launch).
@@ -247,27 +194,6 @@ func (s *Service) SetLeaderProbeConfig(interval time.Duration, grace int) {
 	}
 }
 
-// SetLocalNameRevoker wires the LOCAL/EVENTUAL revoker the join-epoch barrier
-// uses to drop conflicting names before flipping ready. Safe for concurrent use.
-func (s *Service) SetLocalNameRevoker(r LocalNameRevoker) {
-	if s == nil {
-		return
-	}
-	s.localRevoker.Store(r)
-}
-
-func (s *Service) loadLocalRevoker() LocalNameRevoker {
-	v := s.localRevoker.Load()
-	if v == nil {
-		return nil
-	}
-	r, ok := v.(LocalNameRevoker)
-	if !ok {
-		return nil
-	}
-	return r
-}
-
 // Start begins the service: subscribes to cluster events for auto-cleanup.
 func (s *Service) Start(ctx context.Context) (<-chan any, error) {
 	s.mu.Lock()
@@ -279,8 +205,7 @@ func (s *Service) Start(ctx context.Context) (<-chan any, error) {
 	s.mu.Unlock()
 
 	// Open the join-epoch barrier: fresh node epoch, name service not ready
-	// until the barrier installs the leader's Strong snapshot and revokes
-	// conflicting local names.
+	// until the barrier installs the leader's Strong snapshot.
 	s.nodeEpoch.Add(1)
 	s.nameReady.Store(false)
 
@@ -471,9 +396,8 @@ func (s *Service) UnregisterScope(_ context.Context, name string, mode global.Re
 }
 
 // NameReady reports whether the join-epoch barrier has completed for the current
-// node epoch. Participating LOCAL/EVENTUAL register seams consult it; until it is
-// true a register is refused with ErrNameServiceNotReady. A nil service reports
-// ready so an unwired test path does not wedge.
+// node epoch. This is readiness of the global registry only; independent LOCAL
+// and EVENTUAL names do not depend on it. A nil service reports ready.
 func (s *Service) NameReady() bool {
 	if s == nil {
 		return true
@@ -590,8 +514,8 @@ func (s *Service) Send(pkg *relay.Package) error {
 			s.handleRegisterAck(msg)
 		case topicCheckPending:
 			s.handleCheckPending(msg)
-		case topicReleaseExclusion:
-			s.handleReleaseExclusion(msg)
+		case topicReleaseObservation:
+			s.handleReleaseObservation(msg)
 		case topicJoinRequest:
 			s.handleJoinRequest(msg)
 		case topicJoinResponse:

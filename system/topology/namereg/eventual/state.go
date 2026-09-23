@@ -234,8 +234,8 @@ func (s *State) Lookup(name string) (pid.PID, bool) {
 }
 
 // ConflictingLiveClaim reports any live dot with a different owner, including
-// one hidden behind the visible winner. Strong voting must inspect the raw
-// per-origin set: removal of a winner can expose a retained losing dot.
+// one hidden behind the visible winner. Removal of a winner can expose a
+// retained losing dot; this helper inspects that underlying CRDT state.
 func (s *State) ConflictingLiveClaim(name string, proposed pid.PID) (pid.PID, bool) {
 	sh := &s.shards[ShardFor(name)]
 	sh.mu.RLock()
@@ -364,25 +364,17 @@ func (s *State) Register(name string, p pid.PID, wallMs int64, priority uint32) 
 // Unregister tombstones a local registration. Returns the tombstone entry
 // that callers should broadcast, or nil if the name wasn't held live locally.
 func (s *State) Unregister(name string, wallMs int64) *Entry {
-	e, _ := s.unregisterLocal(name, wallMs, nil)
-	return e
-}
-
-// unregisterLocal tests the local-origin dot and tombstones it under the same
-// shard lock. The visible winner may belong to a different origin. A Strong
-// reservation for keep may preserve the exact same local owner.
-func (s *State) unregisterLocal(name string, wallMs int64, keep *pid.PID) (*Entry, pid.PID) {
 	sh := &s.shards[ShardFor(name)]
 	sh.mu.Lock()
 	defer sh.mu.Unlock()
 
 	rec, ok := sh.entries[name]
 	if !ok {
-		return nil, pid.PID{}
+		return nil
 	}
 	cur, ok := rec.dots[s.localNode]
-	if !ok || cur.Deleted || (keep != nil && cur.PID.Equal(*keep)) {
-		return nil, pid.PID{}
+	if !ok || cur.Deleted {
+		return nil
 	}
 	prevWinner := s.winnerOf(rec)
 	counter := s.nextCounter()
@@ -397,7 +389,7 @@ func (s *State) unregisterLocal(name string, wallMs int64, keep *pid.PID) (*Entr
 	rec.dots[s.localNode] = e
 	s.bumpCV(s.localNode, counter)
 	s.adjustCounts(sh, name, prevWinner, s.winnerOf(rec))
-	return e, cur.PID
+	return e
 }
 
 // Apply merges a remote dot into the per-origin record. Returns the outcome,

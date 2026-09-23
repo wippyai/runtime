@@ -5,64 +5,69 @@ package eventual_test
 import (
 	"context"
 	"testing"
+	"time"
 
+	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/pid"
-	"github.com/wippyai/runtime/system/topology/namereg/admission"
+	globalapi "github.com/wippyai/runtime/api/topology/namereg/global"
+	systemkv "github.com/wippyai/runtime/system/kv"
 	"github.com/wippyai/runtime/system/topology/namereg/eventual"
+	"github.com/wippyai/runtime/system/topology/namereg/kvbacked"
 )
 
-func TestLookupDoesNotExposeConflictingDotUnderStrongReservation(t *testing.T) {
-	ctx := context.Background()
-	strong := pid.PID{Node: "node-B", Host: "host", UniqID: "strong"}
-	stale := pid.PID{Node: "node-A", Host: "host", UniqID: "stale"}
-	var reserved bool
-	svc := eventual.NewService(eventual.Config{
-		LocalNodeID: "node-B",
-		Admission:   &admission.Coordinator{},
-		StrongReservation: func(string) (pid.PID, bool) {
-			return strong, reserved
-		},
-	})
+func TestStrongAndEventualKeepIndependentBindings(t *testing.T) {
+	for _, strongFirst := range []bool{false, true} {
+		name := "eventual-first"
+		if strongFirst {
+			name = "strong-first"
+		}
+		t.Run(name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			defer cancel()
+			engine := systemkv.NewService("registry", nil)
+			_, err := engine.Start(ctx)
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = engine.Stop(context.Background()) })
+			strong := kvbacked.NewService(engine, "node-A", nil, nil)
+			strong.ConfigureStrong(kvbacked.StrongDeps{
+				IsLeader: func() bool { return true },
+				Members:  func() ([]pid.NodeID, error) { return []pid.NodeID{"node-A"}, nil },
+			})
+			require.NoError(t, strong.StartReconciler(ctx))
+			eventualReg := eventual.NewService(eventual.Config{LocalNodeID: "node-A"})
+			strongPID := pid.PID{Node: "node-A", Host: "process", UniqID: "strong"}
+			eventualPID := pid.PID{Node: "node-A", Host: "process", UniqID: "eventual"}
+			registerStrong := func() {
+				_, err := strong.RegisterScope(ctx, "shared", strongPID, globalapi.Strong)
+				require.NoError(t, err)
+			}
+			if strongFirst {
+				registerStrong()
+			}
+			_, err = eventualReg.Register("shared", eventualPID)
+			require.NoError(t, err)
+			if !strongFirst {
+				registerStrong()
+			}
+			strongResult, err := strong.Lookup(ctx, "shared")
+			require.NoError(t, err)
+			require.True(t, strongResult.Found)
+			require.True(t, strongPID.Equal(strongResult.PID))
+			eventualResult, err := eventualReg.Lookup(ctx, "shared")
+			require.NoError(t, err)
+			require.True(t, eventualResult.Found)
+			require.Equal(t, eventualPID, eventualResult.PID)
 
-	reserved = true
-	if got, err := svc.Lookup(ctx, "claim"); err != nil || got.Found {
-		t.Fatalf("reservation fabricated pending owner: %+v, err=%v", got, err)
-	}
-	frame, err := remoteDelta("claim", stale, "node-A", 1, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	svc.OnFrame(frameOf(t, frame)) // delayed pre-Strong gossip after ACK
-	if got, found := svc.State().Lookup("claim"); !found || !got.Equal(stale) {
-		t.Fatalf("raw CRDT dot was unexpectedly discarded: %v, found=%v", got, found)
-	}
-	if got, err := svc.Lookup(ctx, "claim"); err != nil || got.Found {
-		t.Fatalf("conflicting delayed dot escaped reservation: %+v, err=%v", got, err)
-	}
-	if got, found, err := svc.ConflictingLiveClaim("claim", strong); err != nil || !found || !got.Equal(stale) {
-		t.Fatalf("reservation hid raw voting conflict: owner=%v found=%v err=%v", got, found, err)
-	}
-
-	reserved = false
-	if got, err := svc.Lookup(ctx, "claim"); err != nil || !got.Found || !got.PID.Equal(stale) {
-		t.Fatalf("released reservation did not restore EVENTUAL view: %+v, err=%v", got, err)
-	}
-}
-
-func TestLookupKeepsMatchingEventualClaimUnderStrongReservation(t *testing.T) {
-	ctx := context.Background()
-	owner := pid.PID{Node: "node-A", Host: "host", UniqID: "owner"}
-	svc := eventual.NewService(eventual.Config{
-		LocalNodeID: "node-A",
-		Admission:   &admission.Coordinator{},
-		StrongReservation: func(string) (pid.PID, bool) {
-			return owner, true
-		},
-	})
-	if _, err := svc.Register("claim", owner); err != nil {
-		t.Fatal(err)
-	}
-	if got, err := svc.Lookup(ctx, "claim"); err != nil || !got.Found || !got.PID.Equal(owner) {
-		t.Fatalf("matching EVENTUAL claim was hidden: %+v, err=%v", got, err)
+			// EVENTUAL keeps admitting and resolving names after the CP service
+			// stops; neither readiness nor authority reads belong to its path.
+			cancel()
+			require.NoError(t, engine.Stop(context.Background()))
+			_, err = eventualReg.Register("available", eventualPID)
+			require.NoError(t, err)
+			eventualResult, err = eventualReg.Lookup(context.Background(), "shared")
+			require.NoError(t, err)
+			require.True(t, eventualResult.Found)
+			require.Equal(t, eventualPID, eventualResult.PID)
+		})
 	}
 }

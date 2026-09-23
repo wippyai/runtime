@@ -16,43 +16,37 @@ import (
 )
 
 // STRONG-scope reservation plane: leader-quorum name reservations with
-// per-node exclusions, ack collection, expiry timers, and the pending
+// per-node observations, ack collection, expiry timers, and the pending
 // rebroadcast/nudge machinery. Split out of service.go; same package.
 
 // strongOutcome is the value the Register caller blocks on while waiting for
-// the FSM to commit Active or Expired. Reason/RejectedBy are set on a terminal
-// reject so the caller surfaces a conflict distinct from a timeout.
+// the FSM to commit Active or Expired.
 type strongOutcome struct {
-	Reason      string
-	RejectedBy  pid.NodeID
 	MissingAcks []pid.NodeID
 	Epoch       uint64
 	State       global.RegisterState
 }
 
-// exclusionState tracks where a held Strong exclusion sits in its lifecycle.
-type exclusionState uint8
+// observationState tracks where a held Strong observation sits in its lifecycle.
+type observationState uint8
 
 const (
-	// exclusionPending is latched when this node acks a Strong pending and holds
-	// no conflicting binding. It blocks LOCAL/EVENTUAL registers of the name to a
-	// different pid during the promotion window.
-	exclusionPending exclusionState = iota
-	// exclusionActive is the converted state after the name promotes to active.
-	// The exclusion persists through promotion so a conflicting LOCAL/EVENTUAL
-	// bind to a different pid is still refused while the name is authoritative.
-	exclusionActive
+	// observationPending records a Strong attempt acknowledged by this node.
+	observationPending observationState = iota
+	// observationActive is the converted state after the name promotes to active.
+	// The observation persists until the matching global binding is removed.
+	observationActive
 )
 
-// strongExclusion is a node-local attestation that this node acked a Strong
-// reservation for a name at a given epoch and holds no conflicting binding. The
-// epoch is the pending's Raft epoch — the instance id. The exclusion is installed
+// strongObservation is a node-local attestation that this node acked a Strong
+// reservation for a name at a given epoch. The
+// epoch is the pending's Raft epoch — the instance id. The observation is installed
 // Pending on ack, converted Pending->Active on promotion, and released only on a
 // committed terminal FSM event matching the held epoch (indexed release).
-type strongExclusion struct {
+type strongObservation struct {
 	pid   pid.PID
 	epoch uint64
-	state exclusionState
+	state observationState
 }
 
 // strongTimer is the leader-side deadline goroutine for a pending Strong entry.
@@ -91,10 +85,10 @@ type checkPendingEnvelope struct {
 	NodeEpoch uint64 `codec:"ne"`
 }
 
-// releaseEnvelope is the wire form of a leader → exclusion-holder release
-// (topicReleaseExclusion). The recipient releases its Strong exclusion for the
+// releaseEnvelope is the wire form of a leader → observation-holder release
+// (topicReleaseObservation). The recipient releases its Strong observation for the
 // carried (name, epoch) idempotently. The epoch makes the release indexed: a
-// stale release for an older instance never clears a newer same-name exclusion.
+// stale release for an older instance never clears a newer same-name observation.
 type releaseEnvelope struct {
 	Name  string `codec:"n"`
 	Epoch uint64 `codec:"e"`
@@ -166,23 +160,10 @@ func (s *Service) registerStrong(ctx context.Context, name string, p pid.PID) (g
 					State: global.RegisterStateActive,
 				}, nil
 			case global.RegisterStateExpired:
-				if outcome.Reason == strongRejectConflict {
-					return global.RegisterOutcome{
-						Epoch: outcome.Epoch,
-						State: global.RegisterStateExpired,
-					}, &global.StrongConflictError{
-						Name:       name,
-						Epoch:      outcome.Epoch,
-						Reason:     outcome.Reason,
-						RejectedBy: outcome.RejectedBy,
-					}
-				}
 				missing := make([]string, len(outcome.MissingAcks))
 				copy(missing, outcome.MissingAcks)
-				return global.RegisterOutcome{
-					Epoch: outcome.Epoch,
-					State: global.RegisterStateExpired,
-				}, &global.StrongRegistrationTimeoutError{
+				result := global.RegisterOutcome{Epoch: outcome.Epoch, State: global.RegisterStateExpired}
+				return result, &global.StrongRegistrationTimeoutError{
 					Name:        name,
 					Epoch:       outcome.Epoch,
 					MissingAcks: missing,
@@ -296,10 +277,8 @@ func (s *Service) deliverStrongOutcome(name string, epoch uint64, outcome strong
 }
 
 // handlePendingEvent runs on every replica from FSM.Apply.
-// A required node attests it holds no conflicting LOCAL or EVENTUAL binding
-// before acking, latching a reservation so it cannot create one during the
-// promotion window. A conflict sends a terminal NACK instead of an ack. The
-// leader applies its ack/reject directly (asynchronously, since Apply is
+// A required node acknowledges its observation of this Strong attempt. The
+// leader applies its ack directly (asynchronously, since Apply is
 // single-threaded and re-entering would deadlock); a follower forwards it over
 // the relay.
 func (s *Service) handlePendingEvent(ev PendingEvent) {
@@ -324,23 +303,10 @@ func (s *Service) handlePendingEvent(ev PendingEvent) {
 	go s.evaluatePending(ev.Name, ev.Epoch, ev.PID)
 }
 
-// evaluatePending performs the conditional ack: check local non-presence and
-// latch a reservation, then ack; or, on conflict, send a terminal NACK and ack
-// nothing. The check+latch run under reserveMu so a competing latch cannot slip
-// between "checked absent" and "reserved". The latch and the cross-scope
-// IsStrongReserved guard (LOCAL PIDRegistry, EVENTUAL register) form a two-sided
-// check: each side reads the other before committing. They run under separate
-// locks, so a register racing the latch is resolved by whichever observes the
-// other first — a single residual window inherent to the AP/CP boundary, not a
-// shared critical section.
+// evaluatePending records this replica's observation before acknowledging the
+// Strong attempt. LOCAL and EVENTUAL names are independent of this namespace.
 func (s *Service) evaluatePending(name string, epoch uint64, pendingPID pid.PID) {
-	reserved := s.reserveCheckAndLatch(name, pendingPID, epoch, func() (pid.PID, bool) {
-		return s.localConflict(name, pendingPID)
-	})
-	if !reserved {
-		s.sendReject(name, epoch, strongRejectConflict)
-		return
-	}
+	s.latchReservation(name, pendingPID, epoch)
 	if s.raftSvc != nil && s.raftSvc.IsLeader() {
 		s.applySelfAck(name, epoch)
 		return
@@ -351,122 +317,59 @@ func (s *Service) evaluatePending(name string, epoch uint64, pendingPID pid.PID)
 	}
 }
 
-// localConflict reports a conflicting LOCAL or EVENTUAL binding: a binding of
-// name to a pid DIFFERENT from pendingPID. A binding to the same pid is not a
-// conflict. Returns the conflicting pid and true when a conflict exists.
-func (s *Service) localConflict(name string, pendingPID pid.PID) (pid.PID, bool) {
-	lp := s.loadLocalPresence()
-	if lp == nil {
-		return pid.PID{}, false
-	}
-	if p, ok := lp.LookupLocal(name); ok && !p.Equal(pendingPID) {
-		return p, true
-	}
-	if p, ok := lp.LookupEventual(name); ok && !p.Equal(pendingPID) {
-		return p, true
-	}
-	return pid.PID{}, false
-}
-
-// reserveCheckAndLatch closes the window between checking local non-presence
-// and latching an exclusion. conflict is invoked under reserveMu; if it
-// reports a conflict no exclusion is latched and false is returned (the caller
-// must NACK). Otherwise a Pending exclusion for (name, epoch) -> pendingPID is
-// installed idempotently and true is returned. An existing exclusion for the
-// same name+epoch is treated as already satisfied regardless of its state.
-func (s *Service) reserveCheckAndLatch(name string, pendingPID pid.PID, epoch uint64, conflict func() (pid.PID, bool)) bool {
+// latchReservation remembers the observed Strong attempt for snapshot and
+// terminal-event reconciliation. It does not reserve names in other scopes.
+func (s *Service) latchReservation(name string, pendingPID pid.PID, epoch uint64) {
 	s.reserveMu.Lock()
 	defer s.reserveMu.Unlock()
-	if existing, ok := s.strongExclusions[name]; ok && existing.epoch == epoch {
-		return true
+	if existing, ok := s.strongObservations[name]; ok && existing.epoch == epoch {
+		return
 	}
-	if _, bad := conflict(); bad {
-		return false
-	}
-	s.strongExclusions[name] = strongExclusion{pid: pendingPID, epoch: epoch, state: exclusionPending}
-	return true
+	s.strongObservations[name] = strongObservation{pid: pendingPID, epoch: epoch, state: observationPending}
 }
 
-// promoteExclusion converts a held exclusion from Pending to Active for the
-// matching (name, epoch) and keeps it. Promotion (PENDING->ACTIVE) must not drop
-// the exclusion: a conflicting LOCAL/EVENTUAL bind to a different pid stays
-// refused while the name is authoritative. A mismatched epoch is a no-op so a
+// promoteObservation converts the observed reservation from Pending to Active for
+// the matching (name, epoch). A mismatched epoch is a no-op so a
 // stale activation never disturbs a newer instance.
-func (s *Service) promoteExclusion(name string, epoch uint64) {
+func (s *Service) promoteObservation(name string, epoch uint64) {
 	s.reserveMu.Lock()
-	if e, ok := s.strongExclusions[name]; ok && e.epoch == epoch {
-		e.state = exclusionActive
-		s.strongExclusions[name] = e
+	if e, ok := s.strongObservations[name]; ok && e.epoch == epoch {
+		e.state = observationActive
+		s.strongObservations[name] = e
 	}
 	s.reserveMu.Unlock()
 }
 
-// releaseExclusion drops a held exclusion for name only when its epoch matches
-// the terminal event's. A mismatched epoch leaves a newer exclusion intact
+// releaseObservation drops a held observation for name only when its epoch matches
+// the terminal event's. A mismatched epoch leaves a newer observation intact
 // (indexed release). Released on a committed terminal FSM event or a leader
 // release delivery — never on a local timeout.
-func (s *Service) releaseExclusion(name string, epoch uint64) {
+func (s *Service) releaseObservation(name string, epoch uint64) {
 	s.reserveMu.Lock()
-	if e, ok := s.strongExclusions[name]; ok && e.epoch == epoch {
-		delete(s.strongExclusions, name)
+	if e, ok := s.strongObservations[name]; ok && e.epoch == epoch {
+		delete(s.strongObservations, name)
 	}
 	s.reserveMu.Unlock()
 }
 
-// isStrongReserved reports a held exclusion for name in EITHER state
+// isStrongReserved reports a held observation for name in EITHER state
 // (test/internal read).
 func (s *Service) isStrongReserved(name string) (pid.PID, bool) {
 	s.reserveMu.Lock()
 	defer s.reserveMu.Unlock()
-	e, ok := s.strongExclusions[name]
+	e, ok := s.strongObservations[name]
 	return e.pid, ok
 }
 
-// IsStrongReserved reports whether this node holds a Strong exclusion for name
+// IsStrongReserved reports whether this node observed a Strong reservation for name
 // in either the Pending (acked, awaiting promotion) or Active (promoted)
-// state, surfacing the owning pid as taken. Cross-scope register guards (LOCAL
-// PIDRegistry, EVENTUAL crossScopeChecker) consult it through the existing
-// topology.GlobalRegistry handle so a name held by a Strong reservation cannot
-// be granted to a different pid — through promotion and until a true terminal.
+// state. The result describes global ownership only; other naming scopes keep
+// independent bindings and do not use this observation as an admission veto.
 func (s *Service) IsStrongReserved(name string) (pid.PID, bool) {
 	if s == nil {
 		return pid.PID{}, false
 	}
 	return s.isStrongReserved(name)
-}
-
-// sendReject emits a terminal NACK for a pending reservation. The leader
-// applies CmdRegisterReject directly; a follower forwards it via the relay,
-// mirroring sendAck. Reject dominates acks in the FSM.
-func (s *Service) sendReject(name string, epoch uint64, reason string) {
-	cmd := &Command{
-		Type:      CmdRegisterReject,
-		Name:      name,
-		Epoch:     epoch,
-		AckerNode: s.localNode,
-		Reason:    reason,
-	}
-	if s.raftSvc != nil && s.raftSvc.IsLeader() {
-		if _, err := s.applyCommand(cmd); err != nil {
-			s.logger.Debug("globalreg: self-reject failed",
-				zap.String("name", name), zap.Uint64("epoch", epoch), zap.Error(err))
-		}
-		return
-	}
-	if err := s.forwardReject(cmd); err != nil {
-		s.logger.Debug("globalreg: forward strong reject failed",
-			zap.String("name", name), zap.Uint64("epoch", epoch), zap.Error(err))
-	}
-}
-
-// forwardReject sends a CmdRegisterReject to the leader-directed write plane.
-// Rides the same forwardToLeader candidate-list path acks and registers use,
-// so a non-member's NACK still reaches the FSM through a member relay.
-func (s *Service) forwardReject(cmd *Command) error {
-	if _, err := s.forwardToLeader(cmd); err != nil {
-		return err
-	}
-	return nil
 }
 
 // applySelfAck records the leader's own ack via Raft. Callers invoke it off the
@@ -487,12 +390,12 @@ func (s *Service) applySelfAck(name string, epoch uint64) {
 }
 
 // handleActiveEvent wakes any local Register caller waiting on this entry and
-// converts the held exclusion Pending->Active so it persists through promotion.
+// converts the held observation Pending->Active so it persists through promotion.
 // The outcome carries the activation Raft index (ev.ActivationIdx) as the
-// registration epoch. Promotion is NOT a terminal — the exclusion is kept.
+// registration epoch. Promotion is NOT a terminal — the observation is kept.
 func (s *Service) handleActiveEvent(ev ActiveEvent) {
 	s.stopStrongTimer(ev.Name, ev.Epoch)
-	s.promoteExclusion(ev.Name, ev.Epoch)
+	s.promoteObservation(ev.Name, ev.Epoch)
 	s.deliverStrongOutcome(ev.Name, ev.Epoch, strongOutcome{
 		State: global.RegisterStateActive,
 		Epoch: ev.ActivationIdx,
@@ -500,29 +403,24 @@ func (s *Service) handleActiveEvent(ev ActiveEvent) {
 }
 
 // handleExpiredEvent wakes any local Register caller waiting on this entry and
-// releases the held exclusion (indexed to ev.Epoch). This is the single terminal
+// releases the held observation (indexed to ev.Epoch). This is the single terminal
 // path for expire, reject, unreserve, pid-exit, and an active name being
-// unregistered. A reject (RejectedBy set, reason "conflict") and a timeout both
-// arrive as RegisterStateExpired; the caller distinguishes them via
-// outcome.Reason. The leader also delivers a release to the exclusion holders
-// (RequiredNodes) so a non-member that latched via the nudge clears its
-// exclusion instead of blocking the name forever.
+// unregistered. The leader also delivers a release to RequiredNodes so each
+// replica drops the matching observation.
 func (s *Service) handleExpiredEvent(ev ExpiredEvent) {
 	s.stopStrongTimer(ev.Name, ev.Epoch)
-	s.releaseExclusion(ev.Name, ev.Epoch)
+	s.releaseObservation(ev.Name, ev.Epoch)
 	s.deliverReleaseToHolders(ev.Name, ev.Epoch, ev.RequiredNodes)
 	s.deliverStrongOutcome(ev.Name, ev.Epoch, strongOutcome{
 		State:       global.RegisterStateExpired,
 		Epoch:       ev.Epoch,
 		MissingAcks: ev.MissingAcks,
-		Reason:      ev.Reason,
-		RejectedBy:  ev.RejectedBy,
 	})
 }
 
-// deliverReleaseToHolders sends a targeted exclusion release to every holder of
+// deliverReleaseToHolders sends a targeted observation release to every holder of
 // the named Strong reservation. The leader knows the holders (RequiredNodes);
-// the local node releases via handleExpiredEvent's own releaseExclusion, so a
+// the local node releases via handleExpiredEvent's own releaseObservation, so a
 // send to self is skipped. Idempotent and non-leader-safe (only the leader has
 // authoritative RequiredNodes and emits the terminal event).
 func (s *Service) deliverReleaseToHolders(name string, epoch uint64, holders []pid.NodeID) {
@@ -533,8 +431,8 @@ func (s *Service) deliverReleaseToHolders(name string, epoch uint64, holders []p
 		if h == s.localNode || h == "" {
 			continue
 		}
-		if err := s.sendReleaseExclusion(h, name, epoch); err != nil {
-			s.logger.Debug("globalreg: release exclusion send failed",
+		if err := s.sendReleaseObservation(h, name, epoch); err != nil {
+			s.logger.Debug("globalreg: release observation send failed",
 				zap.String("name", name), zap.Uint64("epoch", epoch),
 				zap.String("target", h), zap.Error(err))
 		}
@@ -739,7 +637,7 @@ func (s *Service) handleCheckPending(msg *relay.Message) {
 	}
 	// Drop a nudge addressed to a prior incarnation: it carries a node epoch the
 	// leader observed before this node rejoined. The join-epoch barrier re-learns
-	// the pending via the snapshot and installs the exclusion instead.
+	// the pending via the snapshot and installs the observation instead.
 	if env.NodeEpoch != 0 && env.NodeEpoch != s.nodeEpoch.Load() {
 		return
 	}
@@ -751,10 +649,10 @@ func (s *Service) handleCheckPending(msg *relay.Message) {
 	s.evaluatePending(env.Name, env.Epoch, pv.PID)
 }
 
-// sendReleaseExclusion sends a targeted release to a node holding a Strong
-// exclusion for (name, epoch). The recipient releases its exclusion idempotently.
+// sendReleaseObservation sends a targeted release to a node holding a Strong
+// observation for (name, epoch). The recipient releases its observation idempotently.
 // Does not touch Raft.
-func (s *Service) sendReleaseExclusion(targetNode pid.NodeID, name string, epoch uint64) error {
+func (s *Service) sendReleaseObservation(targetNode pid.NodeID, name string, epoch uint64) error {
 	body, err := marshalMsgpack(releaseEnvelope{Name: name, Epoch: epoch})
 	if err != nil {
 		return err
@@ -762,7 +660,7 @@ func (s *Service) sendReleaseExclusion(targetNode pid.NodeID, name string, epoch
 	pkg := relay.NewServicePackage(
 		s.localNode, HostID,
 		targetNode, HostID,
-		topicReleaseExclusion,
+		topicReleaseObservation,
 		payload.New(body),
 	)
 	if err := s.router.Send(pkg); err != nil {
@@ -772,12 +670,12 @@ func (s *Service) sendReleaseExclusion(targetNode pid.NodeID, name string, epoch
 	return nil
 }
 
-// handleReleaseExclusion processes a leader release delivery. The node releases
-// its held Strong exclusion for the carried (name, epoch). The release is
+// handleReleaseObservation processes a leader release delivery. The node releases
+// its held Strong observation for the carried (name, epoch). The release is
 // indexed: a stale release for an older instance leaves a newer same-name
-// exclusion intact. Idempotent — releasing a name this node never held is a
+// observation intact. Idempotent — releasing a name this node never held is a
 // no-op.
-func (s *Service) handleReleaseExclusion(msg *relay.Message) {
+func (s *Service) handleReleaseObservation(msg *relay.Message) {
 	if len(msg.Payloads) == 0 {
 		return
 	}
@@ -787,10 +685,10 @@ func (s *Service) handleReleaseExclusion(msg *relay.Message) {
 	}
 	var env releaseEnvelope
 	if err := unmarshalMsgpack(body, &env); err != nil {
-		s.logger.Warn("globalreg: malformed exclusion release", zap.Error(err))
+		s.logger.Warn("globalreg: malformed observation release", zap.Error(err))
 		return
 	}
-	s.releaseExclusion(env.Name, env.Epoch)
+	s.releaseObservation(env.Name, env.Epoch)
 }
 
 // handleRegisterAck routes an ack arriving over the relay. The leader applies

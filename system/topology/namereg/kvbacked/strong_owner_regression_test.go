@@ -42,7 +42,7 @@ func (e *promoteBeforeTxnReply) Txn(ops []kvapi.TxnOp) (bool, error) {
 		if op.Key == activeKey("claim") {
 			e.once.Do(func() { close(e.active) })
 		}
-		if op.Key == pendingKey("claim") {
+		if op.Key == pendingKey("claim") && op.Cond == kvapi.CondAbsent {
 			// Give the real KV watcher and Strong reconciler time to promote the
 			// committed pending before the writer receives its transaction reply.
 			select {

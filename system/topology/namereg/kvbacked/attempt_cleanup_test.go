@@ -149,7 +149,6 @@ func TestStrongExpiryContinuationCannotStopReplacementTimer(t *testing.T) {
 		DeadlineUnixNano: time.Now().Add(-time.Minute).UnixNano(),
 	}
 	old := putStrongPending(t, base, hdr)
-	r.strong.latch("claim", hdr.AttemptID, owner, old.Epoch)
 	entered := make(chan struct{})
 	release := make(chan struct{})
 	r.engine = &pausedTxnEngine{

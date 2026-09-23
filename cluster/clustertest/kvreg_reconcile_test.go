@@ -5,9 +5,11 @@ package clustertest
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
+	"github.com/hashicorp/go-msgpack/v2/codec"
 	"github.com/wippyai/runtime/api/pid"
 	globalapi "github.com/wippyai/runtime/api/topology/namereg/global"
 	"github.com/wippyai/runtime/system/topology/namereg/kvbacked"
@@ -31,6 +33,10 @@ func TestE2E_KVRegistry_StrongFailsClosedAfterLeaderKill(t *testing.T) {
 		node := n
 		reg := kvbacked.NewService(node.KV, node.ID, nil, nil)
 		reg.ConfigureStrong(kvbacked.StrongDeps{
+			Members: func() ([]pid.NodeID, error) {
+				members, err := strongObserverMembers(node)
+				return append(members, "ghost"), err
+			},
 			IsLeader: func() bool { return node.Raft.IsLeader() },
 			Deadline: 2 * time.Second,
 		})
@@ -39,18 +45,6 @@ func TestE2E_KVRegistry_StrongFailsClosedAfterLeaderKill(t *testing.T) {
 		}
 		regs[node.ID] = reg
 	}
-	// Enroll a phantom participant, then stop its reconciler before it can
-	// observe or acknowledge the pending claim. Its committed roster entry
-	// intentionally remains after departure.
-	ghostCtx, stopGhost := context.WithCancel(ctx)
-	ghost := kvbacked.NewService(c.Leader().KV, "ghost", nil, nil)
-	ghost.ConfigureStrong(kvbacked.StrongDeps{IsLeader: func() bool { return false }})
-	if err := ghost.StartReconciler(ghostCtx); err != nil {
-		stopGhost()
-		t.Fatalf("enroll phantom participant: %v", err)
-	}
-	stopGhost()
-
 	leader := c.Leader()
 	f := c.Follower() // registrant survives the leader kill
 	p := pid.PID{Node: f.ID, Host: "proc", UniqID: "s1"}
@@ -66,8 +60,8 @@ func TestE2E_KVRegistry_StrongFailsClosedAfterLeaderKill(t *testing.T) {
 	}()
 
 	// Reservation must reach the pending window (real nodes ack; phantom never does).
-	if !waitReserved(t, regs[f.ID], "strongsvc", 8*time.Second) {
-		t.Fatalf("strong reservation never became pending")
+	if !waitCapturedObserver(t, f, "strongsvc", "ghost", 8*time.Second) {
+		t.Fatalf("Strong pending never captured its observer cohort")
 	}
 
 	// Kill the leader. A survivor wins election and inherits the pending.
@@ -82,8 +76,8 @@ func TestE2E_KVRegistry_StrongFailsClosedAfterLeaderKill(t *testing.T) {
 		t.Fatalf("leader did not change after kill")
 	}
 
-	// The phantom and dead leader remain in the committed roster. The new
-	// leader must retain both in RequiredNodes and fail closed.
+	// The captured cohort is immutable for this attempt. The new leader must
+	// retain the phantom observer even if its own configuration view changes.
 
 	select {
 	case out := <-done:
@@ -141,15 +135,22 @@ func TestE2E_KVRegistry_ConsistentReapedOnNodeDrop(t *testing.T) {
 	}
 }
 
-func waitReserved(t *testing.T, r *kvbacked.Service, name string, timeout time.Duration) bool {
+func waitCapturedObserver(t *testing.T, node *Node, name, observer string, timeout time.Duration) bool {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		if _, ok := r.IsStrongReserved(name); ok {
-			return true
+		if entry, err := node.KV.Get("_sys:registry:pending:" + name); err == nil {
+			var header struct {
+				Required []pid.NodeID `codec:"r"`
+			}
+			if err := codec.NewDecoderBytes(entry.Value, &codec.MsgpackHandle{}).Decode(&header); err != nil {
+				t.Fatalf("decode pending cohort: %v", err)
+			}
+			if slices.Contains(header.Required, observer) {
+				return true
+			}
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	_, ok := r.IsStrongReserved(name)
-	return ok
+	return false
 }

@@ -353,7 +353,7 @@ func (o *reconcilerOwner) run(w kvapi.Watcher, run *reconcilerLifecycle) {
 
 // StartReconciler drives the registry off the kv watch stream: active-binding
 // changes feed the dissem cache (so non-members resolve names), and Strong
-// pending/ack/reject changes advance the Strong state machine. No-op when
+// pending/ack changes advance the Strong state machine. No-op when
 // neither dissem nor Strong is configured. The watcher stops when ctx ends.
 // Successful startup owns this Service for its lifetime: restarting requires a
 // new Service (including fresh dissemination state). Failed startup may retry.
@@ -362,7 +362,7 @@ func (s *Service) StartReconciler(ctx context.Context) (err error) {
 		return nil
 	}
 	if s.strong != nil && s.nonMember != nil && s.nonMember() {
-		return fmt.Errorf("naming participant without a local replica requires an authority feed")
+		return fmt.Errorf("Strong observer requires a local Raft replica")
 	}
 	if s.strong != nil && (s.localRead == nil || s.localScan == nil) {
 		return fmt.Errorf("strong registry requires coherent local KV snapshots")
@@ -391,11 +391,6 @@ func (s *Service) StartReconciler(ctx context.Context) (err error) {
 			s.reconcilerMu.Unlock()
 		}
 	}()
-	if s.strong != nil {
-		if err := s.strong.enroll(ctx); err != nil {
-			return err
-		}
-	}
 	w, err := s.engine.Watch(ctx, registryPrefix)
 	if err != nil {
 		cancel()
@@ -505,20 +500,8 @@ func (s *Service) failReconciler(run *reconcilerLifecycle, err error) {
 // bindings, and the Strong machine from in-flight pending reservations.
 func (s *Service) seed() error {
 	var recordErr error
-	participantSeen := false
 	consume := func(e kvapi.Entry, observed uint64) bool {
 		switch {
-		case e.Key == participantsKey && s.strong != nil:
-			roster, err := decodeParticipants(e.Value)
-			if err != nil {
-				recordErr = fmt.Errorf("registry record %q: %w", e.Key, err)
-				return false
-			}
-			if !roster.hasActivation(s.selfNode, s.strong.activation) {
-				recordErr = fmt.Errorf("naming activation changed before seed completed")
-				return false
-			}
-			participantSeen = true
 		case strings.HasPrefix(e.Key, pendingPrefix) && s.strong != nil:
 			header, err := decodePending(e.Value)
 			if err != nil {
@@ -528,12 +511,6 @@ func (s *Service) seed() error {
 			if recordErr = validateNamingRecord(e.Key, pendingPrefix, header.Name, header.PID); recordErr != nil {
 				return false
 			}
-			pendingPID, err := pid.ParsePID(header.PID)
-			if err != nil {
-				recordErr = err
-				return false
-			}
-			s.strong.latchAt(header.Name, header.AttemptID, pendingPID, e.Epoch, observed)
 			if owner := s.strong.owner.Load(); owner != nil {
 				owner.markAttempt(header.Name, header.AttemptID)
 			}
@@ -568,9 +545,6 @@ func (s *Service) seed() error {
 	if err != nil {
 		return err
 	}
-	if s.strong != nil && recordErr == nil && !participantSeen {
-		return fmt.Errorf("naming participant activation missing from seed")
-	}
 	return recordErr
 }
 
@@ -598,17 +572,6 @@ func (s *Service) handleWatchEvent(ev kvapi.WatchEvent) error {
 		s.logger.Debug("registry key expired via lease (unexpected)", zap.String("key", key))
 	}
 	switch {
-	case key == participantsKey && s.strong != nil:
-		if ev.Current == nil {
-			return fmt.Errorf("naming participant roster was removed")
-		}
-		roster, err := decodeParticipants(ev.Current.Value)
-		if err != nil {
-			return fmt.Errorf("registry record %q: %w", key, err)
-		}
-		if !roster.hasActivation(s.selfNode, s.strong.activation) {
-			return fmt.Errorf("naming participant activation was superseded")
-		}
 	case strings.HasPrefix(key, activePrefix):
 		name := strings.TrimPrefix(key, activePrefix)
 		if ev.Current != nil {
@@ -628,9 +591,7 @@ func (s *Service) handleWatchEvent(ev kvapi.WatchEvent) error {
 					if err != nil {
 						return fmt.Errorf("registry record %q: %w", key, err)
 					}
-					release := s.strong.admission.Acquire(name)
 					s.strong.recordActive(name, av.AttemptID, ev.Index, ev.Revision, owner)
-					release()
 					s.strong.notifyActive(name, av.AttemptID, ev.Index, owner)
 				}
 			}
@@ -648,9 +609,7 @@ func (s *Service) handleWatchEvent(ev kvapi.WatchEvent) error {
 					return err
 				}
 				if av.Strong {
-					release := s.strong.admission.Acquire(name)
 					s.strong.onTerminal(name, av.AttemptID, ev.Revision)
-					release()
 				}
 			}
 		}
@@ -701,12 +660,9 @@ func (s *Service) handleWatchEvent(ev kvapi.WatchEvent) error {
 				terminal: &result,
 			})
 		}
-	case strings.HasPrefix(key, ackPrefix), strings.HasPrefix(key, rejectPrefix):
+	case strings.HasPrefix(key, ackPrefix):
 		if s.strong != nil {
 			prefix := ackPrefix
-			if strings.HasPrefix(key, rejectPrefix) {
-				prefix = rejectPrefix
-			}
 			name, attemptID, ok, err := s.strongVoteName(key, prefix)
 			if err != nil {
 				return err
@@ -724,43 +680,10 @@ func (s *Service) handleWatchEvent(ev kvapi.WatchEvent) error {
 }
 
 func (s *Service) transitionPendingDelete(name, deletedAttempt string, deletedRevision uint64) error {
-	release := s.strong.admission.Acquire(name)
-	// Publication of the full promotion transaction precedes its per-key
-	// events. Observe the current active binding before retiring the pending
-	// exclusion, while admission for this name is serialized.
-	entries, observed, err := s.localRead.ReadLocalSnapshot([]string{pendingKey(name), activeKey(name)})
-	if err != nil {
-		release()
-		return fmt.Errorf("observe pending deletion %q: %w", name, err)
-	}
-	active, exists := entries[activeKey(name)]
-	if !exists {
-		s.strong.onTerminal(name, deletedAttempt, deletedRevision)
-		release()
-		return nil
-	}
-	av, err := decodeActive(active.Value)
-	if err != nil {
-		release()
-		return fmt.Errorf("registry record %q: %w", activeKey(name), err)
-	}
-	if err := validateNamingRecord(active.Key, activePrefix, av.Name, av.PID); err != nil {
-		release()
-		return err
-	}
-	if !av.Strong {
-		s.strong.onTerminal(name, deletedAttempt, deletedRevision)
-		release()
-		return nil
-	}
-	ap, err := pid.ParsePID(av.PID)
-	if err != nil {
-		release()
-		return fmt.Errorf("registry record %q: %w", activeKey(name), err)
-	}
-	s.strong.recordActive(name, av.AttemptID, active.Epoch, observed, ap)
-	release()
-	s.strong.notifyActive(name, av.AttemptID, active.Epoch, ap)
+	// Pending deletion only retires this attempt's work. The ordered active
+	// event reports promotion and the ordered result event reports expiry.
+	// Neither event changes LOCAL/EVENTUAL records.
+	s.strong.onTerminal(name, deletedAttempt, deletedRevision)
 	return nil
 }
 

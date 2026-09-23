@@ -157,7 +157,7 @@ func TestDropRequired_WrongEpoch(t *testing.T) {
 
 // promoteToActive opens a single-required pending and acks it to active,
 // returning the activation index. The promoted active entry carries
-// RequiredNodes so a terminal removal can deliver an exclusion release.
+// RequiredNodes so a terminal removal can deliver an observation release.
 func promoteToActive(t *testing.T, fsm *FSM, name string, p pid.PID, required []pid.NodeID, openIdx uint64) {
 	t.Helper()
 	epoch := openPending(t, fsm, name, p, p.Node, required, openIdx)
@@ -170,7 +170,7 @@ func promoteToActive(t *testing.T, fsm *FSM, name string, p pid.PID, required []
 
 // TestActiveTerminal_PidExitFiresRelease proves that a process exit removing a
 // promoted Strong name fires an ExpiredEvent carrying RequiredNodes so the
-// exclusion can be released on the holders.
+// observation can be released on the holders.
 func TestActiveTerminal_PidExitFiresRelease(t *testing.T) {
 	fsm := NewFSM()
 	var got []ExpiredEvent
@@ -188,7 +188,7 @@ func TestActiveTerminal_PidExitFiresRelease(t *testing.T) {
 }
 
 // TestActiveTerminal_ConsistentUnregisterFiresRelease proves a Consistent
-// unregister of a promoted Strong name still releases the exclusion holders.
+// unregister of a promoted Strong name still releases the observation holders.
 func TestActiveTerminal_ConsistentUnregisterFiresRelease(t *testing.T) {
 	fsm := NewFSM()
 	var got []ExpiredEvent
@@ -205,7 +205,7 @@ func TestActiveTerminal_ConsistentUnregisterFiresRelease(t *testing.T) {
 }
 
 // TestActiveTerminal_NodeRemovedFiresRelease proves removing a departed node's
-// promoted Strong name releases the exclusion on the surviving holders.
+// promoted Strong name releases the observation on the surviving holders.
 func TestActiveTerminal_NodeRemovedFiresRelease(t *testing.T) {
 	fsm := NewFSM()
 	var got []ExpiredEvent
@@ -240,7 +240,7 @@ func TestRegisterReject_TerminalConflict(t *testing.T) {
 		Name:      "root.reject",
 		Epoch:     epoch,
 		AckerNode: "node-2",
-		Reason:    strongRejectConflict,
+		Reason:    strongRejectReason,
 	}, 71)
 	rr := resp.(*RejectResult)
 	assert.True(t, rr.Rejected)
@@ -249,12 +249,12 @@ func TestRegisterReject_TerminalConflict(t *testing.T) {
 	_, found := fsm.State().Lookup("root.reject")
 	assert.False(t, found, "rejected reservation never becomes authoritative")
 
-	assert.Equal(t, strongRejectConflict, got.Reason)
+	assert.Equal(t, strongRejectReason, got.Reason)
 	assert.Equal(t, pid.NodeID("node-2"), got.RejectedBy)
 
 	hist := fsm.State().expiredSnapshot()
 	require.Len(t, hist, 1)
-	assert.Equal(t, strongRejectConflict, hist[0].Reason)
+	assert.Equal(t, strongRejectReason, hist[0].Reason)
 }
 
 // TestRegisterReject_DominatesAcks verifies NACK dominates: a later ack on a
@@ -268,7 +268,7 @@ func TestRegisterReject_DominatesAcks(t *testing.T) {
 	// node-1 acks first.
 	applyAt(t, fsm, &Command{Type: CmdRegisterAck, Name: "root.dom", Epoch: epoch, AckerNode: "node-1"}, 81)
 	// node-2 rejects -> terminal.
-	applyAt(t, fsm, &Command{Type: CmdRegisterReject, Name: "root.dom", Epoch: epoch, AckerNode: "node-2", Reason: strongRejectConflict}, 82)
+	applyAt(t, fsm, &Command{Type: CmdRegisterReject, Name: "root.dom", Epoch: epoch, AckerNode: "node-2", Reason: strongRejectReason}, 82)
 
 	// Late acks from node-1 and node-3 must be no-ops.
 	a3 := applyAt(t, fsm, &Command{Type: CmdRegisterAck, Name: "root.dom", Epoch: epoch, AckerNode: "node-3"}, 83).(*AckResult)
@@ -286,7 +286,7 @@ func TestRegisterReject_WrongEpoch(t *testing.T) {
 	epoch := openPending(t, fsm, "root.rej-epoch", p, "node-1",
 		[]pid.NodeID{"node-1", "node-2"}, 90)
 
-	resp := applyAt(t, fsm, &Command{Type: CmdRegisterReject, Name: "root.rej-epoch", Epoch: epoch + 1, AckerNode: "node-2", Reason: strongRejectConflict}, 91)
+	resp := applyAt(t, fsm, &Command{Type: CmdRegisterReject, Name: "root.rej-epoch", Epoch: epoch + 1, AckerNode: "node-2", Reason: strongRejectReason}, 91)
 	rr := resp.(*RejectResult)
 	assert.False(t, rr.Rejected)
 	require.NotNil(t, fsm.State().pendingByName("root.rej-epoch"), "stale reject leaves the entry pending")

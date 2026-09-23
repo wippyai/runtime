@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -18,31 +19,29 @@ import (
 	"github.com/wippyai/runtime/api/pid"
 	kvapi "github.com/wippyai/runtime/api/store/kv"
 	globalapi "github.com/wippyai/runtime/api/topology/namereg/global"
-	"github.com/wippyai/runtime/system/topology/namereg/admission"
 	"go.uber.org/zap"
 )
 
 // Strong-scope on kv. A reservation is a pending header key; each required node
 // attests by writing its own ack key (replicated by raft — no ack relay); the
-// leader promotes when every required ack is present, or expires on deadline or
-// reject. Per-node exclusions block LOCAL/EVENTUAL shadowing during the window.
+// leader promotes when every required observation is present, or expires on
+// deadline. LOCAL/EVENTUAL bindings are independent and never veto a vote.
 // reconcile(name) is the single state-machine step run on every kv change and on
 // the leader deadline timer; it is idempotent and safe to call redundantly.
 
 const (
 	pendingPrefix = registryPrefix + "pending:"
 	ackPrefix     = registryPrefix + "ack:"
-	rejectPrefix  = registryPrefix + "reject:"
 	resultPrefix  = registryPrefix + "result:"
 )
 
-// strongRejectConflict mirrors the global service reason for a cross-scope NACK.
-const strongRejectConflict = "cross_scope_conflict"
+// strongOwnerConflict reports a competing owner in the shared global namespace.
+const strongOwnerConflict = "global_owner_conflict"
 
 func pendingKey(name string) string { return pendingPrefix + name }
 
 // Escape name and node components so a colon-bearing value cannot alias the
-// fixed attempt segment. Keep main's wire grammar for mixed-version voters.
+// fixed attempt segment.
 var voteComponentEscaper = strings.NewReplacer("%", "%25", ":", "%3A")
 
 func voteComponent(s string) string { return voteComponentEscaper.Replace(s) }
@@ -53,14 +52,6 @@ func ackBase(name, attemptID string) string {
 
 func ackKey(name, attemptID string, node pid.NodeID) string {
 	return ackBase(name, attemptID) + voteComponent(node)
-}
-
-func rejectBase(name, attemptID string) string {
-	return rejectPrefix + voteComponent(name) + ":" + attemptID + ":"
-}
-
-func rejectKey(name, attemptID string, node pid.NodeID) string {
-	return rejectBase(name, attemptID) + voteComponent(node)
 }
 
 // terminalResult is committed as an intermediate watch event when a pending
@@ -124,21 +115,6 @@ func decodePending(data []byte) (pendingHeader, error) {
 	return v, nil
 }
 
-type exclusionState uint8
-
-const (
-	exclusionPending exclusionState = iota
-	exclusionActive
-)
-
-type strongExclusion struct {
-	pid       pid.PID
-	attemptID string
-	epoch     uint64
-	observed  uint64
-	state     exclusionState
-}
-
 type strongWaiter struct {
 	ch        chan strongCompletion
 	attemptID string
@@ -156,31 +132,27 @@ type strongTimer struct {
 	wakeAt    int64
 }
 
-// StrongDeps are the cluster hooks the Strong plane needs. The committed KV
-// participant roster, not gossip, determines the required voters. IsLeader
-// gates promotion/expiry; LocalConflict checks weaker scopes before a vote.
+// StrongDeps are the cluster hooks the Strong plane needs. Only the leader
+// samples Members when it stamps a new pending attempt. The captured cohort is
+// immutable for that attempt; future attempts take a fresh live-member view.
 type StrongDeps struct {
-	Admission         *admission.Coordinator
+	Members           func() ([]pid.NodeID, error)
 	IsLeader          func() bool
 	ObserveLeadership func() raftapi.Leadership
-	LocalConflict     func(name string, p pid.PID) (pid.PID, bool, error)
 	Clock             func() time.Time
 	Deadline          time.Duration
 }
 
 type strongState struct {
-	admission         *admission.Coordinator
+	members           func() ([]pid.NodeID, error)
 	svc               *Service
 	isLeader          func() bool
 	observeLeadership func() raftapi.Leadership
-	localConflict     func(name string, p pid.PID) (pid.PID, bool, error)
 	clock             func() time.Time
 	logger            *zap.Logger
-	exclusions        map[string]strongExclusion
 	timers            map[string]*strongTimer
 	waiters           map[string][]*strongWaiter
 	owner             atomic.Pointer[reconcilerOwner]
-	activation        string
 	deadline          time.Duration
 	mu                sync.Mutex
 }
@@ -196,25 +168,19 @@ func (s *Service) ConfigureStrong(deps StrongDeps) {
 	if deadline <= 0 {
 		deadline = globalapi.StrongDeadline
 	}
-	localConflict := deps.LocalConflict
-	if localConflict == nil {
-		localConflict = func(string, pid.PID) (pid.PID, bool, error) { return pid.PID{}, false, nil }
-	}
 	isLeader := deps.IsLeader
 	if isLeader == nil {
 		isLeader = func() bool { return true }
 	}
 	s.SetLeaderFunc(isLeader)
 	s.strong = &strongState{
-		admission:         deps.Admission,
+		members:           deps.Members,
 		svc:               s,
 		isLeader:          isLeader,
 		observeLeadership: deps.ObserveLeadership,
-		localConflict:     localConflict,
 		clock:             clock,
 		deadline:          deadline,
 		logger:            s.logger.Named("strong"),
-		exclusions:        make(map[string]strongExclusion),
 		timers:            make(map[string]*strongTimer),
 		waiters:           make(map[string][]*strongWaiter),
 	}
@@ -224,9 +190,8 @@ func (s *Service) registerStrong(ctx context.Context, name string, p pid.PID) (g
 	if s.strong == nil {
 		return globalapi.RegisterOutcome{}, globalapi.ErrNotAvailable
 	}
-	// Strong admission depends on the KV reconciler's seeded snapshot and a
-	// still-valid watch. Without both, this node cannot know whether an
-	// in-flight or active reservation already owns the name.
+	// Strong callers need an ordered watch to observe their committed outcome.
+	// This readiness condition does not apply to LOCAL/EVENTUAL registries.
 	if !s.nameReady() {
 		return globalapi.RegisterOutcome{}, globalapi.ErrNotReady
 	}
@@ -248,14 +213,13 @@ func (s *Service) strongReserved(name string) (pid.PID, bool) {
 }
 
 func (s *Service) nameReady() bool {
-	// Clients do not replicate pending Strong claims. An active-key miss from
-	// the leader is useful for resolution, not authority to admit a new name.
+	// Clients do not replicate pending Strong claims and cannot observe their
+	// own Strong result through this reconciler. Weak scopes are independent.
 	if s.strong != nil && s.nonMember != nil && s.nonMember() {
 		return false
 	}
-	// No Strong plane -> no join barrier needed. Otherwise the node is ready
-	// only once the reconciler has seeded (learned and latched the cluster's
-	// in-flight/active Strong reservations), so it cannot shadow one.
+	// No Strong plane -> no observer barrier needed. Otherwise callers wait
+	// until the reconciler has seeded and begun ordered outcome delivery.
 	if s.strong == nil {
 		return true
 	}
@@ -317,19 +281,12 @@ func (st *strongState) register(ctx context.Context, name string, p pid.PID) (gl
 		if !st.svc.nameReady() {
 			return globalapi.RegisterOutcome{}, globalapi.ErrNotReady
 		}
-		roster, version, exists, err := st.readParticipants()
-		if err != nil {
-			return globalapi.RegisterOutcome{}, err
-		}
-		if !exists || !contains(roster.requiredNodes(), st.svc.selfNode) {
-			return globalapi.RegisterOutcome{}, globalapi.ErrNotReady
-		}
 		hdr, err := encode(pendingHeader{
-			PID:              p.String(),
-			Name:             name,
-			AttemptID:        attemptID,
-			NodeID:           nodeID,
-			RequiredNodes:    roster.requiredNodes(),
+			PID:       p.String(),
+			Name:      name,
+			AttemptID: attemptID,
+			NodeID:    nodeID,
+			// The current leader stamps RequiredNodes after publication.
 			DeadlineUnixNano: deadline.UnixNano(),
 			CreatedAt:        st.clock().UnixNano(),
 		})
@@ -337,7 +294,6 @@ func (st *strongState) register(ctx context.Context, name string, p pid.PID) (gl
 			return globalapi.RegisterOutcome{}, err
 		}
 		committed, err := st.svc.engine.Txn([]kvapi.TxnOp{
-			{Kind: kvapi.TxnCheck, Cond: kvapi.CondVersion, Key: participantsKey, Expect: version},
 			{Kind: kvapi.TxnCheck, Cond: kvapi.CondAbsent, Key: activeKey(name)},
 			{Kind: kvapi.TxnPut, Cond: kvapi.CondAbsent, Key: pendingKey(name), Value: hdr},
 		})
@@ -347,8 +303,8 @@ func (st *strongState) register(ctx context.Context, name string, p pid.PID) (gl
 		if committed {
 			break
 		}
-		// A roster change and a name conflict both abort the transaction. A
-		// missing name after the abort means the roster raced; re-read it.
+		// A concurrent owner or pending attempt won. If it disappeared before
+		// the conflict read, retry publication under the original deadline.
 		if out, err := st.conflictOutcome(name, p); !errors.Is(err, globalapi.ErrNotAvailable) {
 			return out, err
 		}
@@ -386,8 +342,8 @@ func (st *strongState) finalize(name string, p pid.PID, completion strongComplet
 			return out, globalapi.ErrNotAvailable
 		}
 		result := completion.terminal
-		if result.Reason == strongRejectConflict {
-			return out, &globalapi.StrongConflictError{Name: name, Epoch: result.Epoch, Reason: strongRejectConflict}
+		if result.Reason == strongOwnerConflict {
+			return out, &globalapi.StrongConflictError{Name: name, Epoch: result.Epoch, Reason: strongOwnerConflict}
 		}
 		missing := make([]string, len(result.Missing))
 		copy(missing, result.Missing)
@@ -480,6 +436,16 @@ func (st *strongState) reconcileForRun(name string, run *reconcilerLifecycle) re
 		return report
 	}
 	report.attemptID = hdr.AttemptID
+	if len(hdr.RequiredNodes) == 0 {
+		if st.isLeader() {
+			if ok, err := st.assignObservers(name, pe.Version, hdr); err != nil {
+				report.err = err
+			} else if !ok {
+				report.retryAt = st.clock().Add(time.Second).UnixNano()
+			}
+		}
+		return report
+	}
 	voteOK, err := st.attest(name, pe.Epoch, pe.Version, hdr.AttemptID, pendingPID, hdr.RequiredNodes)
 	if err != nil {
 		report.err = err
@@ -516,100 +482,94 @@ func (st *strongState) retire(name, attemptID string) {
 	}
 }
 
-// attest makes this node ack (and latch an exclusion) or reject the pending,
-// once, based on a cross-scope local conflict check.
+// assignObservers runs only on the current leader. The submitting node cannot
+// omit observers using its own stale membership view. The version check binds
+// the snapshot to this pending attempt; later membership changes affect only
+// future attempts, never weaken an in-flight acknowledgement requirement.
+func (st *strongState) assignObservers(name string, version uint64, hdr pendingHeader) (bool, error) {
+	if !st.isLeader() || len(hdr.RequiredNodes) != 0 {
+		return false, nil
+	}
+	if st.members == nil {
+		return false, fmt.Errorf("Strong observation requires a Raft membership snapshot")
+	}
+	nodes, err := st.members()
+	if err != nil {
+		return false, fmt.Errorf("read Strong observer cohort: %w", err)
+	}
+	if len(nodes) == 0 {
+		return false, fmt.Errorf("empty Strong observer cohort")
+	}
+	seen := make(map[pid.NodeID]bool, len(nodes))
+	hdr.RequiredNodes = make([]pid.NodeID, 0, len(nodes))
+	for _, node := range nodes {
+		if node == "" {
+			return false, fmt.Errorf("empty Strong observer identity")
+		}
+		if !seen[node] {
+			seen[node] = true
+			hdr.RequiredNodes = append(hdr.RequiredNodes, node)
+		}
+	}
+	if !seen[st.svc.selfNode] {
+		return false, fmt.Errorf("Strong observer cohort omits its leader")
+	}
+	sort.Strings(hdr.RequiredNodes)
+	value, err := encode(hdr)
+	if err != nil {
+		return false, err
+	}
+	committed, err := st.svc.engine.Txn([]kvapi.TxnOp{
+		{Kind: kvapi.TxnPut, Cond: kvapi.CondVersion, Key: pendingKey(name), Expect: version, Value: value},
+	})
+	if err != nil {
+		// A leadership change or lost reply can interrupt this write. The
+		// conditional retry observes the same attempt rather than stopping its
+		// ordered watcher on a transient submission failure.
+		st.logger.Debug("Strong cohort submission failed", zap.String("name", name), zap.Error(err))
+		return false, nil
+	}
+	return committed, nil
+}
+
+// attest records only observation of this exact pending record. It never
+// inspects, revokes, or excludes a LOCAL/EVENTUAL binding.
 func (st *strongState) attest(name string, epoch, version uint64, attemptID string, pendingPID pid.PID, required []pid.NodeID) (bool, error) {
 	if !contains(required, st.svc.selfNode) {
 		return true, nil
 	}
-	release := st.admission.Acquire(name)
 	if st.svc.localRead == nil {
-		release()
 		return false, fmt.Errorf("registry reconciliation requires atomic local snapshot reads")
 	}
-	entries, observed, err := st.svc.localRead.ReadLocalSnapshot([]string{pendingKey(name), activeKey(name)})
+	entries, _, err := st.svc.localRead.ReadLocalSnapshot([]string{pendingKey(name)})
 	if err != nil {
-		release()
 		return false, fmt.Errorf("read registry snapshot for %q: %w", name, err)
 	}
 	current, exists := entries[pendingKey(name)]
 	if !exists || current.Version != version {
-		release()
 		return false, nil
 	}
 	header, err := decodePending(current.Value)
 	if err != nil {
-		release()
 		return false, fmt.Errorf("registry record %q: %w", current.Key, err)
 	}
 	if header.AttemptID != attemptID || header.Name != name {
-		release()
 		return false, fmt.Errorf("registry record %q: pending identity changed without version change", current.Key)
 	}
-	ack := ackKey(name, attemptID, st.svc.selfNode)
-	reject := rejectKey(name, attemptID, st.svc.selfNode)
-	if _, err := st.svc.engine.Get(reject); err == nil {
-		release()
-		return true, nil // a durable rejection must not acquire an exclusion
-	} else if !errors.Is(err, kvapi.ErrKeyNotFound) {
-		release()
-		return false, fmt.Errorf("read Strong reject vote for %q: %w", name, err)
-	}
-	if _, err := st.svc.engine.Get(ack); err == nil {
-		st.latchAt(name, attemptID, pendingPID, epoch, observed)
-		release()
+	if !contains(header.RequiredNodes, st.svc.selfNode) {
 		return true, nil
-	} else if !errors.Is(err, kvapi.ErrKeyNotFound) {
-		release()
-		return false, fmt.Errorf("read Strong acknowledgement for %q: %w", name, err)
 	}
-	// Checking cross-scope claims and installing the local exclusion are one
-	// decision shared with LOCAL/EVENTUAL publication. A slow Raft vote runs
-	// after release; uncertainty must retain this attempt's exclusion.
-	cp, conflict, checkErr := st.localConflict(name, pendingPID)
-	if checkErr != nil {
-		release()
-		return false, fmt.Errorf("check local naming conflict for %q: %w", name, checkErr)
-	}
-	if conflict && cp.String() != pendingPID.String() {
-		release()
-		return st.writeVote(name, version, attemptID, reject, ack, []byte(strongRejectConflict))
-	}
-	// The vote cannot commit before this node has excluded the same name.
-	// Observe both keys in one publication: a later active binding cannot be
-	// mistaken for a missing key from an earlier pending read.
-	if active, ok := entries[activeKey(name)]; ok {
-		av, derr := decodeActive(active.Value)
-		if derr != nil {
-			release()
-			return false, fmt.Errorf("registry record %q: %w", active.Key, derr)
-		}
-		if av.AttemptID != attemptID {
-			release()
-			return false, nil
-		}
-	}
-	st.latchAt(name, attemptID, pendingPID, epoch, observed)
-	st.mu.Lock()
-	ex := st.exclusions[name]
-	ours := ex.attemptID == attemptID && ex.pid.Equal(pendingPID)
-	st.mu.Unlock()
-	release()
-	if !ours {
-		return false, nil
-	}
-	return st.writeVote(name, version, attemptID, ack, reject, []byte(st.svc.selfNode))
+	return st.writeVote(name, version, attemptID, ackKey(name, attemptID, st.svc.selfNode), []byte(st.svc.selfNode))
 }
 
-func (st *strongState) writeVote(name string, version uint64, attemptID, key, opposite string, value []byte) (bool, error) {
+func (st *strongState) writeVote(name string, version uint64, attemptID, key string, value []byte) (bool, error) {
 	ok, err := st.svc.engine.Txn([]kvapi.TxnOp{
 		{Kind: kvapi.TxnCheck, Cond: kvapi.CondVersion, Key: pendingKey(name), Expect: version},
-		{Kind: kvapi.TxnCheck, Cond: kvapi.CondAbsent, Key: opposite},
 		{Kind: kvapi.TxnPut, Cond: kvapi.CondAbsent, Key: key, Value: value},
 	})
 	if err != nil {
 		st.logger.Debug("strong vote write failed", zap.String("name", name), zap.Error(err))
-		return false, nil // submission may be uncertain; retain an ACK exclusion
+		return false, nil // submission may be uncertain; retry the same vote
 	}
 	if ok {
 		return true, nil
@@ -641,28 +601,10 @@ func (st *strongState) writeVote(name string, version uint64, attemptID, key, op
 	return false, nil
 }
 
-// leaderDrive promotes when the ack set is complete, or expires on reject or
+// leaderDrive promotes when the observation set is complete, or expires on
 // deadline. Runs only on the leader.
 func (st *strongState) leaderDrive(name string, epoch, headerVer uint64, hdr pendingHeader) (int64, error) {
-	// Watch-driven path needs no barrier: raft applies in order, so the ack/
-	// reject event that triggered this drive implies all prior acks/rejects are
-	// already applied locally. A reject wins; a complete ack set promotes.
-	for _, n := range hdr.RequiredNodes {
-		rejected, err := st.voteExists(rejectKey(name, hdr.AttemptID, n))
-		if err != nil {
-			return 0, fmt.Errorf("read Strong rejection for %q: %w", name, err)
-		}
-		if rejected {
-			committed, err := st.leaderExpire(name, epoch, headerVer, hdr, strongRejectConflict)
-			if err != nil {
-				return 0, err
-			}
-			if !committed {
-				return st.clock().Add(time.Second).UnixNano(), nil
-			}
-			return 0, nil
-		}
-	}
+	// Watch-driven ACK events imply preceding votes are applied locally.
 	complete, err := st.complete(name, hdr.AttemptID, hdr.RequiredNodes)
 	if err != nil {
 		return 0, fmt.Errorf("read Strong acknowledgements for %q: %w", name, err)
@@ -745,6 +687,9 @@ func (st *strongState) complete(name, attemptID string, required []pid.NodeID) (
 }
 
 func (st *strongState) leaderPromote(name string, epoch, headerVer uint64, hdr pendingHeader) (bool, error) {
+	if len(hdr.RequiredNodes) == 0 {
+		return false, fmt.Errorf("cannot promote an unstamped Strong attempt")
+	}
 	av, err := encode(activeValue{PID: hdr.PID, Name: name, AttemptID: hdr.AttemptID, RequiredNodes: hdr.RequiredNodes, Strong: true})
 	if err != nil {
 		return false, err
@@ -765,12 +710,10 @@ func (st *strongState) leaderPromote(name string, epoch, headerVer uint64, hdr p
 		{Kind: kvapi.TxnPut, Cond: kvapi.CondAny, Key: nodeIndexKey(p, name), Value: idx},
 	}
 	for _, n := range hdr.RequiredNodes {
-		// The leader's preceding scan is only a hint. Validate the entire
-		// admission decision in the committed transaction so a rejection that
-		// precedes promotion in Raft order cannot be ignored.
+		// The leader's preceding scan is only a hint. Validate every required
+		// observation again in the committed promotion transaction.
 		ops = append(ops,
 			kvapi.TxnOp{Kind: kvapi.TxnCheck, Cond: kvapi.CondExists, Key: ackKey(name, hdr.AttemptID, n)},
-			kvapi.TxnOp{Kind: kvapi.TxnCheck, Cond: kvapi.CondAbsent, Key: rejectKey(name, hdr.AttemptID, n)},
 			kvapi.TxnOp{Kind: kvapi.TxnDelete, Cond: kvapi.CondAny, Key: ackKey(name, hdr.AttemptID, n)},
 		)
 	}
@@ -789,7 +732,7 @@ func (st *strongState) leaderPromote(name string, epoch, headerVer uint64, hdr p
 			return false, fmt.Errorf("read active naming binding for %q: %w", name, gerr)
 		}
 		if active {
-			return st.leaderExpire(name, epoch, headerVer, hdr, strongRejectConflict)
+			return st.leaderExpire(name, epoch, headerVer, hdr, strongOwnerConflict)
 		}
 		return false, nil
 	}
@@ -814,20 +757,18 @@ func (st *strongState) leaderExpire(name string, epoch, headerVer uint64, hdr pe
 			missing = append(missing, n)
 		}
 		if reason == "deadline" {
-			// Keep the reported missing set and rejection precedence true at
-			// commit, not merely at the leader's earlier read.
+			// Keep the reported missing set true at commit, not merely at
+			// the leader's earlier read.
 			condition := kvapi.CondExists
 			if absent {
 				condition = kvapi.CondAbsent
 			}
 			ops = append(ops,
 				kvapi.TxnOp{Kind: kvapi.TxnCheck, Cond: condition, Key: ack},
-				kvapi.TxnOp{Kind: kvapi.TxnCheck, Cond: kvapi.CondAbsent, Key: rejectKey(name, hdr.AttemptID, n)},
 			)
 		}
 		ops = append(ops,
 			kvapi.TxnOp{Kind: kvapi.TxnDelete, Cond: kvapi.CondAny, Key: ack},
-			kvapi.TxnOp{Kind: kvapi.TxnDelete, Cond: kvapi.CondAny, Key: rejectKey(name, hdr.AttemptID, n)},
 		)
 	}
 	if reason == "deadline" && len(missing) == 0 {
@@ -874,26 +815,7 @@ func (st *strongState) unreserve(name string) (bool, error) {
 	return st.svc.UnregisterScope(context.Background(), name, globalapi.Consistent)
 }
 
-// --- exclusions + waiters + timers ---
-
-func (st *strongState) latch(name, attemptID string, p pid.PID, epoch uint64) {
-	st.latchAt(name, attemptID, p, epoch, 0)
-}
-
-func (st *strongState) latchAt(name, attemptID string, p pid.PID, epoch, observed uint64) {
-	st.mu.Lock()
-	defer st.mu.Unlock()
-	if ex, ok := st.exclusions[name]; ok {
-		if observed != 0 && ex.observed != 0 {
-			if ex.observed > observed || (ex.observed == observed && (ex.attemptID != attemptID || ex.state == exclusionActive)) {
-				return
-			}
-		} else if ex.epoch >= epoch {
-			return
-		}
-	}
-	st.exclusions[name] = strongExclusion{pid: p, attemptID: attemptID, epoch: epoch, observed: observed, state: exclusionPending}
-}
+// --- committed outcomes + waiters + timers ---
 
 func (st *strongState) onActive(name, attemptID string, epoch, observed uint64, ap pid.PID) {
 	st.recordActive(name, attemptID, epoch, observed, ap)
@@ -902,20 +824,6 @@ func (st *strongState) onActive(name, attemptID string, epoch, observed uint64, 
 
 func (st *strongState) recordActive(name, attemptID string, epoch, observed uint64, ap pid.PID) {
 	st.retire(name, attemptID)
-	st.mu.Lock()
-	if ex, ok := st.exclusions[name]; ok {
-		if observed != 0 && ex.observed != 0 {
-			if ex.observed > observed || (ex.observed == observed && ex.attemptID != attemptID) {
-				st.mu.Unlock()
-				return
-			}
-		} else if ex.epoch > epoch {
-			st.mu.Unlock()
-			return
-		}
-	}
-	st.exclusions[name] = strongExclusion{pid: ap, attemptID: attemptID, epoch: epoch, observed: observed, state: exclusionActive}
-	st.mu.Unlock()
 	st.stopTimerAttempt(name, attemptID)
 }
 
@@ -928,25 +836,25 @@ func (st *strongState) notifyActive(name, attemptID string, epoch uint64, ap pid
 
 func (st *strongState) onTerminal(name, attemptID string, observed uint64) {
 	st.retire(name, attemptID)
-	st.mu.Lock()
-	if ex, ok := st.exclusions[name]; !ok || ex.attemptID != attemptID ||
-		(observed != 0 && ex.observed != 0 && ex.observed > observed) {
-		st.mu.Unlock()
-		return
-	}
-	delete(st.exclusions, name)
-	st.mu.Unlock()
 	st.stopTimerAttempt(name, attemptID)
-	// Absence is not a terminal outcome: promotion also deletes pending, and
-	// a later attempt may already own this name. A matching committed result
-	// event resolves a caller; losing the watch yields uncertainty.
+	// Absence is not a terminal outcome: promotion also deletes pending.
+	// Only a matching committed result resolves the caller's failure.
 }
 
+// reserved is introspection of the global namespace only. Weak registries
+// never use it as an admission condition.
 func (st *strongState) reserved(name string) (pid.PID, bool) {
-	st.mu.Lock()
-	defer st.mu.Unlock()
-	if ex, ok := st.exclusions[name]; ok {
-		return ex.pid, true
+	if entry, err := st.svc.engine.Get(activeKey(name)); err == nil {
+		if active, err := decodeActive(entry.Value); err == nil && active.Strong {
+			p, err := pid.ParsePID(active.PID)
+			return p, err == nil
+		}
+	}
+	if entry, err := st.svc.engine.Get(pendingKey(name)); err == nil {
+		if pending, err := decodePending(entry.Value); err == nil {
+			p, err := pid.ParsePID(pending.PID)
+			return p, err == nil
+		}
 	}
 	return pid.PID{}, false
 }

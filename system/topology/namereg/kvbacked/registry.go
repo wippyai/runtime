@@ -3,7 +3,7 @@
 // Package kvbacked implements the cluster-wide name registry on top of the
 // shared kv engine (under the reserved _sys:registry namespace) instead of a
 // dedicated raft FSM. It satisfies both the globalapi.Registry (write) and
-// topology.GlobalRegistry (cross-scope read) facades so it is a drop-in for the
+// topology.GlobalRegistry (composed lookup) facades so it is a drop-in for the
 // FSM-backed global.Service. Consistent-scope ownership uses linearizable kv
 // txns; Strong-scope orchestration is layered on the same keyspace.
 package kvbacked
@@ -225,7 +225,8 @@ func (s *Service) registerConsistent(name string, p pid.PID) (globalapi.Register
 
 	committed, err := s.engine.Txn([]kvapi.TxnOp{
 		// A STRONG reservation in flight for this name blocks a CONSISTENT bind
-		// (cross-scope: the pending owns the name until it promotes or expires).
+		// Strong and Consistent share the global owner record: a pending Strong
+		// attempt owns this global name until it promotes or expires.
 		{Kind: kvapi.TxnCheck, Cond: kvapi.CondAbsent, Key: pendingKey(name)},
 		{Kind: kvapi.TxnPut, Cond: kvapi.CondAbsent, Key: activeKey(name), Value: val},
 		{Kind: kvapi.TxnPut, Cond: kvapi.CondAny, Key: pidIndexKey(p, name), Value: idx},

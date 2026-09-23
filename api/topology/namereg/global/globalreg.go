@@ -25,8 +25,8 @@ const (
 	// Consistent registers the name cluster-wide via Raft as a linearizable
 	// singleton.
 	Consistent RegistrationMode = 2
-	// Strong registers the name cluster-wide via Raft plus an all-live-node
-	// ack on the committed epoch within a deadline. Strictest scope.
+	// Strong registers the name cluster-wide via Raft plus acknowledgments
+	// from every registry observer captured for this attempt.
 	Strong RegistrationMode = 3
 )
 
@@ -37,7 +37,7 @@ const (
 	// RegisterStateUnknown is the zero value; never returned by a successful call.
 	RegisterStateUnknown RegisterState = 0
 	// RegisterStateActive means the registration is authoritative — every
-	// live node in the snapshot acked the committed epoch.
+	// required observer acknowledged the pending attempt before promotion.
 	RegisterStateActive RegisterState = 1
 	// RegisterStateExpired means the deadline elapsed before the ack set
 	// was complete and the reservation was released.
@@ -131,8 +131,8 @@ type (
 		// RegisterScope is the scope-aware Register. Behavior depends on mode:
 		//
 		//   Consistent — Raft linearizable singleton.
-		//   Strong     — Raft singleton plus all-live-node ack on the
-		//                committed epoch. Blocks until the FSM commits
+		//   Strong     — Raft singleton plus captured-observer ack on the
+		//                pending attempt. Blocks until the FSM commits
 		//                Active or Expired (or ctx is canceled).
 		//   Eventual   — gossip/CRDT (routed by callers to eventualreg).
 		//   Local      — caller error at this layer (use PIDRegistry).

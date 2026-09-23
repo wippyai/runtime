@@ -36,16 +36,7 @@ func (e *beforePromotionEngine) Txn(ops []kvapi.TxnOp) (bool, error) {
 	return e.Engine.Txn(ops)
 }
 
-func TestStrongRejectCommittedBeforePromotionWins(t *testing.T) {
-	testStrongChangedAdmission(t, true)
-}
-
 func TestStrongMissingAckPreventsPromotion(t *testing.T) {
-	testStrongChangedAdmission(t, false)
-}
-
-func testStrongChangedAdmission(t *testing.T, reject bool) {
-	t.Helper()
 	r := newStrongReg(t, []pid.NodeID{"node-1"}, time.Second, nil)
 	p := mkPID("node-1", "owner")
 	hdr := pendingHeader{PID: p.String(), Name: "claim", AttemptID: "attempt-promotion", RequiredNodes: []pid.NodeID{"node-1"}}
@@ -65,21 +56,15 @@ func testStrongChangedAdmission(t *testing.T, reject bool) {
 	}
 	base := r.engine
 	r.engine = &beforePromotionEngine{Engine: base, before: func() {
-		// A rejection wins the Raft order after the leader's ACK scan but
-		// before its promotion transaction. Header version remains unchanged.
-		if reject {
-			if _, err := base.Set(rejectKey("claim", "attempt-promotion", "node-1"), []byte(strongRejectConflict)); err != nil {
-				t.Fatal(err)
-			}
-		} else {
-			if err := base.Delete(ackKey("claim", "attempt-promotion", "node-1")); err != nil {
-				t.Fatal(err)
-			}
+		// Remove an ACK after the leader scanned completion but before the
+		// promotion transaction. Its condition must reject the stale decision.
+		if err := base.Delete(ackKey("claim", "attempt-promotion", "node-1")); err != nil {
+			t.Fatal(err)
 		}
 	}}
 	r.strong.leaderPromote("claim", pe.Epoch, pe.Version, hdr)
 	got, err := r.Lookup(context.Background(), "claim")
 	if err != nil || got.Found {
-		t.Fatalf("rejected claim promoted: %+v err=%v", got, err)
+		t.Fatalf("incomplete claim promoted: %+v err=%v", got, err)
 	}
 }

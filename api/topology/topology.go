@@ -29,8 +29,9 @@ const (
 // SystemPID is the sender PID for topology system messages.
 var SystemPID = pid.PID{UniqID: "topology"}
 
-// Registration mode constants. The four scopes form a strict ordering on
-// the consistency / cost axis: Local < Eventual < Consistent < Strong.
+// Registration mode constants. The four scopes offer different visibility and
+// consistency guarantees; they do not exclude the same textual name from
+// other scopes. Composed lookup checks global, then eventual, then local.
 //
 //	Local      — per-node only; visible solely on the registering node.
 //	Eventual   — cluster-wide gossip/CRDT; available (AP); conflicts resolve
@@ -39,10 +40,11 @@ var SystemPID = pid.PID{UniqID: "topology"}
 //	Consistent — Raft quorum, linearizable ownership. A minority partition
 //	             is blocked; lagging nodes may briefly stale-read. Scales to
 //	             ~1M user-facing names.
-//	Strong     — Raft quorum plus an ack from every live node before the
-//	             name is authoritative; no stale window. A minority partition
-//	             or any required node being down stalls it. The strictest
-//	             scope, for the small set of control-plane names (<10k).
+//	Strong     — Raft quorum plus an ack from every registry observer in the
+//	             leader's captured configuration before promotion. A missing
+//	             observer makes that attempt time out; a later attempt uses
+//	             the then-current configuration. Local-replica reads may lag.
+//	             Intended for control-plane names (<10k).
 const (
 	// Local is the default; the name is visible only on the registering node.
 	Local RegistrationMode = 0
@@ -52,8 +54,8 @@ const (
 	// Consistent registers the name cluster-wide via Raft consensus as a
 	// linearizable singleton.
 	Consistent RegistrationMode = 2
-	// Strong is the strictest scope: Raft singleton plus all-live-node ack
-	// on the committed epoch within a deadline. No stale window.
+	// Strong is a Raft singleton plus acknowledgments from every registry
+	// observer in the captured configuration before promotion.
 	Strong RegistrationMode = 3
 )
 
@@ -113,25 +115,9 @@ type (
 	GlobalRegistry interface {
 		// Lookup reads from the local Raft FSM replica. See
 		// global.Registry.Lookup for option semantics. Lookup surfaces only
-		// authoritative (active) names — a Strong reservation still in its
-		// promotion window is not yet resolvable, so cross-scope register guards
-		// consult IsStrongReserved instead.
+		// authoritative (active) names. A Strong reservation still in its
+		// promotion window is not yet resolvable.
 		Lookup(ctx context.Context, name string, opts ...global.LookupOption) (global.LookupResult, error)
-
-		// IsStrongReserved reports whether the local node holds a Strong
-		// reservation for name (a pending it has acked, awaiting promotion),
-		// returning the reserved pid as taken. Register-time guards on the LOCAL
-		// and EVENTUAL scopes consult this so a name in the promotion window is
-		// never granted to a different pid.
-		IsStrongReserved(name string) (pid.PID, bool)
-
-		// NameReady reports whether the node's join-epoch barrier has completed.
-		// Until it returns true a participating LOCAL or EVENTUAL register is
-		// refused (ErrNameServiceNotReady): the node has not yet learned the
-		// cluster's PENDING∪ACTIVE Strong names and could shadow one. A node with
-		// no Raft membership (empty FSM) still completes the barrier via the
-		// leader snapshot, so this gates correctly on every node.
-		NameReady() bool
 	}
 
 	// EventualRegistry provides cluster-wide name registration via gossip/CRDT.

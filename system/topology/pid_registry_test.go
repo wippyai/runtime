@@ -4,7 +4,6 @@ package topology
 
 import (
 	"context"
-	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -12,38 +11,22 @@ import (
 	pidapi "github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/topology"
 	globalapi "github.com/wippyai/runtime/api/topology/namereg/global"
-	"github.com/wippyai/runtime/system/topology/namereg/admission"
 	"go.uber.org/zap"
 )
 
-// fakeGlobalRegistry satisfies topology.GlobalRegistry. active names resolve
-// via Lookup; reserved names surface via IsStrongReserved (the promotion-window
-// guard) but NOT via Lookup, mirroring the real service.
+// fakeGlobalRegistry satisfies topology.GlobalRegistry for composed lookup.
 type fakeGlobalRegistry struct {
-	active            map[string]pidapi.PID
-	reserved          map[string]pidapi.PID
-	lookupCalls       int
-	notReady          bool
-	dropReadyOnLookup bool
+	active      map[string]pidapi.PID
+	lookupCalls int
 }
 
 func (f *fakeGlobalRegistry) Lookup(_ context.Context, name string, _ ...globalapi.LookupOption) (globalapi.LookupResult, error) {
 	f.lookupCalls++
-	if f.dropReadyOnLookup {
-		f.notReady = true
-	}
 	if p, ok := f.active[name]; ok {
 		return globalapi.LookupResult{PID: p, Found: true}, nil
 	}
 	return globalapi.LookupResult{}, nil
 }
-
-func (f *fakeGlobalRegistry) IsStrongReserved(name string) (pidapi.PID, bool) {
-	p, ok := f.reserved[name]
-	return p, ok
-}
-
-func (f *fakeGlobalRegistry) NameReady() bool { return !f.notReady }
 
 type fakeEventualRegistry struct {
 	active map[string]pidapi.PID
@@ -72,91 +55,21 @@ func (f *fakeEventualRegistry) Lookup(_ context.Context, name string, _ ...globa
 	return globalapi.LookupResult{}, nil
 }
 
-// TestPIDRegistry_StrongReservationBlocksLocalBind proves a held Strong
-// reservation refuses a LOCAL bind of the same name to a different pid, and
-// allows the same pid, through the existing global-reg shadow-check seam.
-func TestPIDRegistry_StrongReservationBlocksLocalBind(t *testing.T) {
-	reserved := pidapi.PID{Node: "node-1", Host: "host", UniqID: "owner"}
-	gr := &fakeGlobalRegistry{
-		active:   map[string]pidapi.PID{},
-		reserved: map[string]pidapi.PID{"system.root": reserved},
-	}
-	reg := NewPIDRegistry(WithLogger(zap.NewNop()), WithGlobalRegistry(gr))
-
-	// A different pid is refused while the reservation is held.
-	other := pidapi.PID{Node: "node-1", Host: "host", UniqID: "other"}
-	existing, err := reg.Register("system.root", other)
-	assert.ErrorIs(t, err, topology.ErrNameAlreadyRegistered)
-	assert.Equal(t, reserved, existing, "the reserved pid is surfaced as taken")
-
-	// The same (reserved) pid is allowed.
-	got, err := reg.Register("system.root", reserved)
-	assert.NoError(t, err)
-	assert.Equal(t, reserved, got)
-
-	// Once the reservation clears, a fresh LOCAL bind succeeds.
-	delete(gr.reserved, "system.root")
-	got, err = reg.Register("system.free", other)
-	assert.NoError(t, err)
-	assert.Equal(t, other, got)
-}
-
-// TestPIDRegistry_JoinBarrierGatesLocalRegister proves a fresh LOCAL register is
-// refused with ErrNameServiceNotReady while the join-epoch barrier is in
-// progress, and allowed once it completes. A re-register of a name this node
-// already holds is allowed even while not ready (no shadowing risk).
-func TestPIDRegistry_JoinBarrierGatesLocalRegister(t *testing.T) {
-	gr := &fakeGlobalRegistry{
-		active:   map[string]pidapi.PID{},
-		reserved: map[string]pidapi.PID{},
-		notReady: true,
-	}
-	reg := NewPIDRegistry(WithLogger(zap.NewNop()), WithGlobalRegistry(gr))
-
-	p := pidapi.PID{Node: "node-1", Host: "host", UniqID: "p1"}
-	_, err := reg.Register("local.gated", p)
-	assert.ErrorIs(t, err, topology.ErrNameServiceNotReady, "fresh local register refused while barrier in progress")
-	assert.Equal(t, 0, gr.lookupCalls, "unready admission must not forward a lookup")
-
-	// Barrier completes — the same register now succeeds.
-	gr.notReady = false
-	got, err := reg.Register("local.gated", p)
-	assert.NoError(t, err)
-	assert.Equal(t, p, got)
-}
-
-func TestPIDRegistry_ReadinessLostDuringLookupDoesNotPublish(t *testing.T) {
-	gr := &fakeGlobalRegistry{dropReadyOnLookup: true}
-	reg := NewPIDRegistry(WithGlobalRegistry(gr), WithAdmissionCoordinator(&admission.Coordinator{}))
-	p := pidapi.PID{Node: "node-1", Host: "host", UniqID: "owner"}
-	if _, err := reg.Register("lost-readiness", p); !errors.Is(err, topology.ErrNameServiceNotReady) {
-		t.Fatalf("register after readiness loss: %v", err)
-	}
-	if _, ok := reg.LookupLocal("lost-readiness"); ok {
-		t.Fatal("LOCAL binding published after readiness loss")
-	}
-	gr.dropReadyOnLookup = false
-	gr.notReady = false
-	if _, err := reg.Register("lost-readiness", p); err != nil {
-		t.Fatalf("name gate was not released: %v", err)
-	}
-}
-
-// TestPIDRegistry_JoinBarrierAllowsReRegister proves a re-register of an
-// already-held name to the same pid is allowed even while the barrier runs.
-func TestPIDRegistry_JoinBarrierAllowsReRegister(t *testing.T) {
-	gr := &fakeGlobalRegistry{active: map[string]pidapi.PID{}, reserved: map[string]pidapi.PID{}}
-	reg := NewPIDRegistry(WithLogger(zap.NewNop()), WithGlobalRegistry(gr))
-
-	p := pidapi.PID{Node: "node-1", Host: "host", UniqID: "p1"}
-	_, err := reg.Register("local.held", p)
+func TestPIDRegistry_LocalRegistrationIndependentOfGlobal(t *testing.T) {
+	globalPID := pidapi.PID{Node: "node-2", Host: "host", UniqID: "global"}
+	localPID := pidapi.PID{Node: "node-1", Host: "host", UniqID: "local"}
+	gr := &fakeGlobalRegistry{active: map[string]pidapi.PID{"svc.shared": globalPID}}
+	reg := NewPIDRegistry(WithGlobalRegistry(gr))
+	got, err := reg.Register("svc.shared", localPID)
 	require.NoError(t, err)
-
-	// Barrier (re)opens — a re-register of the held name to the same pid is safe.
-	gr.notReady = true
-	got, err := reg.Register("local.held", p)
-	assert.NoError(t, err)
-	assert.Equal(t, p, got)
+	assert.Equal(t, localPID, got)
+	assert.Equal(t, 0, gr.lookupCalls, "LOCAL admission never contacts the global registry")
+	got, found := reg.LookupLocal("svc.shared")
+	require.True(t, found)
+	assert.Equal(t, localPID, got)
+	got, found = reg.Lookup("svc.shared")
+	require.True(t, found)
+	assert.Equal(t, globalPID, got, "composed lookup still prefers global")
 }
 
 // TestPIDRegistry_LookupIncludesEventualRegistry is the regression for Lua
@@ -185,8 +98,7 @@ func TestPIDRegistry_LookupScopePrecedence(t *testing.T) {
 	require.NoError(t, err)
 
 	gr := &fakeGlobalRegistry{
-		active:   map[string]pidapi.PID{"svc.shared": globalPID},
-		reserved: map[string]pidapi.PID{},
+		active: map[string]pidapi.PID{"svc.shared": globalPID},
 	}
 	er := &fakeEventualRegistry{active: map[string]pidapi.PID{"svc.shared": eventualPID}}
 	reg.SetGlobalRegistry(gr)
@@ -207,16 +119,22 @@ func TestPIDRegistry_LookupScopePrecedence(t *testing.T) {
 	assert.Equal(t, localPID, got)
 }
 
-func TestPIDRegistry_RegisterRejectsLocalShadowingEventualName(t *testing.T) {
+func TestPIDRegistry_LocalRegistrationIndependentOfEventual(t *testing.T) {
 	eventualPID := pidapi.PID{Node: "node-2", Host: "host", UniqID: "eventual"}
 	localPID := pidapi.PID{Node: "node-1", Host: "host", UniqID: "local"}
 	reg := NewPIDRegistry(WithLogger(zap.NewNop()), WithEventualRegistry(&fakeEventualRegistry{
 		active: map[string]pidapi.PID{"svc.shared": eventualPID},
 	}))
 
-	existing, err := reg.Register("svc.shared", localPID)
-	assert.ErrorIs(t, err, topology.ErrNameAlreadyRegistered)
-	assert.Equal(t, eventualPID, existing)
+	got, err := reg.Register("svc.shared", localPID)
+	require.NoError(t, err)
+	assert.Equal(t, localPID, got)
+	got, found := reg.LookupLocal("svc.shared")
+	require.True(t, found)
+	assert.Equal(t, localPID, got)
+	got, found = reg.Lookup("svc.shared")
+	require.True(t, found)
+	assert.Equal(t, eventualPID, got)
 }
 
 func TestPIDRegistry_Register(t *testing.T) {

@@ -70,7 +70,7 @@ func TestReconcileSamePublicationDoesNotRetireAnotherName(t *testing.T) {
 
 			engine := &sameRevisionSnapshotEngine{Engine: base, entries: entries, revision: revision}
 			r := NewService(engine, "node-1", nil, nil)
-			r.ConfigureStrong(StrongDeps{
+			r.ConfigureStrong(StrongDeps{Members: testStrongMembers,
 				IsLeader: func() bool { return false },
 				Deadline: time.Minute,
 			})

@@ -5,7 +5,6 @@ package kvbacked
 import (
 	"context"
 	"errors"
-	"sort"
 	"testing"
 	"time"
 
@@ -21,30 +20,10 @@ func newStrongReg(t *testing.T, members []pid.NodeID, deadline time.Duration, lc
 		t.Fatalf("engine start: %v", err)
 	}
 	t.Cleanup(func() { _ = eng.Stop(context.Background()) })
-	if len(members) > 0 {
-		roster := participantsValue{Nodes: make([]participantEntry, 0, len(members))}
-		for _, node := range members {
-			roster.Nodes = append(roster.Nodes, participantEntry{Node: node, Activation: "test-member"})
-		}
-		sort.Slice(roster.Nodes, func(i, j int) bool { return roster.Nodes[i].Node < roster.Nodes[j].Node })
-		value, err := encode(roster)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err := eng.Set(participantsKey, value); err != nil {
-			t.Fatal(err)
-		}
-	}
 	r := NewService(eng, "node-1", nil, nil)
 	r.ConfigureStrong(StrongDeps{
 		IsLeader: func() bool { return true },
-		LocalConflict: func(name string, p pid.PID) (pid.PID, bool, error) {
-			if lc == nil {
-				return pid.PID{}, false, nil
-			}
-			cp, ok := lc(name, p)
-			return cp, ok, nil
-		},
+		Members:  func() ([]pid.NodeID, error) { return append([]pid.NodeID{"node-1"}, members...), nil },
 		Deadline: deadline,
 	})
 	return r
@@ -56,27 +35,6 @@ func startStrongReconciler(t *testing.T, r *Service) {
 	t.Cleanup(cancel)
 	if err := r.StartReconciler(ctx); err != nil {
 		t.Fatalf("start reconciler: %v", err)
-	}
-}
-
-func addTestParticipant(t *testing.T, engine *systemkv.Service, node pid.NodeID) {
-	t.Helper()
-	entry, err := engine.Get(participantsKey)
-	if err != nil {
-		t.Fatal(err)
-	}
-	roster, err := decodeParticipants(entry.Value)
-	if err != nil {
-		t.Fatal(err)
-	}
-	roster.Nodes = append(roster.Nodes, participantEntry{Node: node, Activation: "test-member"})
-	sort.Slice(roster.Nodes, func(i, j int) bool { return roster.Nodes[i].Node < roster.Nodes[j].Node })
-	value, err := encode(roster)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := engine.Set(participantsKey, value); err != nil {
-		t.Fatal(err)
 	}
 }
 
@@ -114,23 +72,6 @@ func TestStrong_TimeoutWhenAckMissing(t *testing.T) {
 	}
 	if res, _ := r.Lookup(context.Background(), "svc"); res.Found {
 		t.Fatalf("name must not be active after timeout")
-	}
-}
-
-func TestStrong_RejectOnLocalConflict(t *testing.T) {
-	other := mkPID("node-1", "other")
-	lc := func(string, pid.PID) (pid.PID, bool) { return other, true }
-	r := newStrongReg(t, []pid.NodeID{"node-1"}, 2*time.Second, lc)
-	startStrongReconciler(t, r)
-	p := mkPID("node-1", "a")
-
-	_, err := r.RegisterScope(context.Background(), "svc", p, globalapi.Strong)
-	var ce *globalapi.StrongConflictError
-	if !errors.As(err, &ce) {
-		t.Fatalf("want StrongConflictError, got %v", err)
-	}
-	if res, _ := r.Lookup(context.Background(), "svc"); res.Found {
-		t.Fatalf("rejected name must not be active")
 	}
 }
 
@@ -182,16 +123,14 @@ func TestStrong_UnregisterClearsPending(t *testing.T) {
 	}
 }
 
-// TestStrong_RecoversActiveExclusionOnSeed proves a node restart re-latches the
-// exclusion for an already-active Strong name during seed(), so IsStrongReserved
-// stays correct after recovery (cross-scope guard not bypassed).
-func TestStrong_RecoversActiveExclusionOnSeed(t *testing.T) {
+// The Strong owner is a committed record, independent of reconciler lifetime.
+func TestStrong_ActiveOwnerSurvivesReconcilerRestart(t *testing.T) {
 	eng := systemkv.NewService("reg", nil)
 	if _, err := eng.Start(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = eng.Stop(context.Background()) })
-	deps := StrongDeps{
+	deps := StrongDeps{Members: testStrongMembers,
 		IsLeader: func() bool { return true },
 		Deadline: 2 * time.Second,
 	}
@@ -204,28 +143,27 @@ func TestStrong_RecoversActiveExclusionOnSeed(t *testing.T) {
 		t.Fatalf("strong register: out=%+v err=%v", out, err)
 	}
 
-	// "Restart": fresh Service over the same engine; in-memory exclusions empty.
+	// A fresh Service reads the already committed owner before startup.
 	r2 := NewService(eng, "node-1", nil, nil)
 	r2.ConfigureStrong(deps)
-	if _, ok := r2.IsStrongReserved("svc"); ok {
-		t.Fatalf("exclusion must be empty before seed")
+	if got, ok := r2.IsStrongReserved("svc"); !ok || !got.Equal(p) {
+		t.Fatalf("committed owner disappeared before seed: %v %v", got, ok)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	if err := r2.StartReconciler(ctx); err != nil {
 		t.Fatalf("start reconciler: %v", err)
 	}
-	// seed() runs synchronously in StartReconciler; the active Strong name must be
-	// re-latched.
+	// Starting the observer does not alter the committed owner.
 	if rp, ok := r2.IsStrongReserved("svc"); !ok || rp.String() != p.String() {
-		t.Fatalf("active Strong exclusion not recovered on seed: %v,%v", rp, ok)
+		t.Fatalf("active Strong owner changed on seed: %v,%v", rp, ok)
 	}
 }
 
-// TestCrossScope_ConsistentBlockedByStrongPending proves a CONSISTENT register
+// TestGlobalModes_ConsistentBlockedByStrongPending proves a CONSISTENT register
 // is refused (ErrPendingConflict) while a STRONG reservation for the same name
-// is in flight — the cross-scope invariant that a pending owns the name.
-func TestCrossScope_ConsistentBlockedByStrongPending(t *testing.T) {
+// is in flight — the shared-global-namespace invariant that a pending owns the name.
+func TestGlobalModes_ConsistentBlockedByStrongPending(t *testing.T) {
 	r := newStrongReg(t, []pid.NodeID{"node-1", "ghost"}, 5*time.Second, nil)
 	startStrongReconciler(t, r)
 	p := mkPID("node-1", "a")
@@ -240,10 +178,10 @@ func TestCrossScope_ConsistentBlockedByStrongPending(t *testing.T) {
 	}
 }
 
-// TestCrossScope_ConsistentCannotDisplaceStrongActive proves a CONSISTENT
+// TestGlobalModes_ConsistentCannotDisplaceStrongActive proves a CONSISTENT
 // register cannot take over a name already held by a STRONG owner, even with a
 // custom resolver that would award the name to the incoming claimant.
-func TestCrossScope_ConsistentCannotDisplaceStrongActive(t *testing.T) {
+func TestGlobalModes_ConsistentCannotDisplaceStrongActive(t *testing.T) {
 	eng := systemkv.NewService("reg", nil)
 	if _, err := eng.Start(context.Background()); err != nil {
 		t.Fatal(err)
@@ -251,7 +189,7 @@ func TestCrossScope_ConsistentCannotDisplaceStrongActive(t *testing.T) {
 	t.Cleanup(func() { _ = eng.Stop(context.Background()) })
 	// Resolver that always awards the name to the incoming claimant.
 	r := NewService(eng, "node-1", func(_ string, _, incoming pid.PID) pid.PID { return incoming }, nil)
-	r.ConfigureStrong(StrongDeps{
+	r.ConfigureStrong(StrongDeps{Members: testStrongMembers,
 		IsLeader: func() bool { return true },
 		Deadline: 2 * time.Second,
 	})
@@ -281,7 +219,7 @@ func TestStrong_FalseNodeLeftDoesNotDeleteActiveOwner(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = eng.Stop(context.Background()) })
 	r := NewService(eng, "node-1", nil, nil)
-	r.ConfigureStrong(StrongDeps{
+	r.ConfigureStrong(StrongDeps{Members: testStrongMembers,
 		IsLeader: func() bool { return true },
 		Deadline: time.Second,
 	})
@@ -291,9 +229,9 @@ func TestStrong_FalseNodeLeftDoesNotDeleteActiveOwner(t *testing.T) {
 		t.Fatalf("strong register: out=%+v err=%v", out, err)
 	}
 
-	// Node-2 enrolls before the next reservation. Discovery changes cannot
-	// remove it from the committed naming roster or the claim's required set.
-	addTestParticipant(t, eng, "node-2")
+	// Node-2 joins the observer configuration before the next reservation.
+	// Later membership changes cannot rewrite this attempt's captured cohort.
+	r.strong.members = func() ([]pid.NodeID, error) { return []pid.NodeID{"node-1", "node-2"}, nil }
 	claim := mkPID("node-1", "claim")
 	done := make(chan error, 1)
 	go func() {
@@ -345,7 +283,7 @@ func TestStrong_FailsClosedWhenRequiredNodeDeparts(t *testing.T) {
 	t.Cleanup(func() { _ = eng.Stop(context.Background()) })
 
 	r := NewService(eng, "node-1", nil, nil)
-	r.ConfigureStrong(StrongDeps{
+	r.ConfigureStrong(StrongDeps{Members: testStrongMembers,
 		IsLeader: func() bool { return true },
 		Deadline: 300 * time.Millisecond,
 	})
@@ -354,7 +292,7 @@ func TestStrong_FailsClosedWhenRequiredNodeDeparts(t *testing.T) {
 	if err := r.StartReconciler(ctx); err != nil {
 		t.Fatalf("start reconciler: %v", err)
 	}
-	addTestParticipant(t, eng, "ghost")
+	r.strong.members = func() ([]pid.NodeID, error) { return []pid.NodeID{"node-1", "ghost"}, nil }
 
 	p := mkPID("node-1", "a")
 	done := make(chan globalapi.RegisterOutcome, 1)
@@ -400,3 +338,5 @@ func eventually(t *testing.T, timeout time.Duration, cond func() bool) bool {
 	}
 	return cond()
 }
+
+func testStrongMembers() ([]pid.NodeID, error) { return []pid.NodeID{"node-1"}, nil }

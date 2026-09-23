@@ -36,7 +36,7 @@ func TestStrongStartupRejectsMissingAttemptIdentity(t *testing.T) {
 	}
 }
 
-func TestStrongPendingDeleteAfterPromotionRetainsActiveExclusion(t *testing.T) {
+func TestStrongPendingDeleteAfterPromotionRetainsActiveRecord(t *testing.T) {
 	r := newStrongReg(t, []pid.NodeID{"node-1"}, time.Second, nil)
 	startStrongReconciler(t, r)
 	owner := mkPID("node-1", "owner")
@@ -66,7 +66,6 @@ func TestStrongSameOwnerOldAttemptCannotCompleteReplacement(t *testing.T) {
 	next := &strongWaiter{ch: make(chan strongCompletion, 1), attemptID: "next"}
 	r.strong.addWaiter("claim", old)
 	r.strong.addWaiter("claim", next)
-	r.strong.latch("claim", "next", owner, 2)
 	r.strong.onActive("claim", "old", 1, 1, owner)
 	r.strong.onTerminal("claim", "old", 1)
 	select {
