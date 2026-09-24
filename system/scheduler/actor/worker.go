@@ -29,6 +29,7 @@ type Worker struct {
 	executed            atomic.Uint64
 	stolen              atomic.Uint64
 	notified            atomic.Bool
+	executing           atomic.Bool
 	retiring            atomic.Bool
 	dispatchesSinceFair uint8
 	fairSource          uint8
@@ -287,6 +288,10 @@ func (w *Worker) steal() *Processor {
 }
 
 func (w *Worker) executeOne(proc *Processor) {
+	// Affinity wakeups must not wait behind an unbounded process step.
+	w.executing.Store(true)
+	defer w.executing.Store(false)
+
 	// Set worker affinity before any yields can complete.
 	// This ensures async completions route back to this worker.
 	proc.lastWorker.Store(int32(w.id))
