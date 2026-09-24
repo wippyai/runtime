@@ -5,6 +5,7 @@ package boot
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -15,8 +16,36 @@ import (
 	moduleapi "github.com/wippyai/runtime/api/modules"
 	"github.com/wippyai/runtime/api/payload"
 	relayapi "github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/system/logs"
 	"go.uber.org/zap"
 )
+
+func TestLogConfigAfterRunContextCanceled(t *testing.T) {
+	runCtx, cancelRun := context.WithCancel(context.Background())
+	ctx, err := NewBootstrapContextWithParent(runCtx, zap.NewNop(), nil)
+	require.NoError(t, err)
+	require.NoError(t, StartRuntimeServices(ctx))
+	t.Cleanup(func() { require.NoError(t, StopRuntimeServices(context.WithoutCancel(ctx))) })
+
+	configurator := logs.NewConfigurator(event.GetBus(ctx), zap.NewNop())
+	cfg := logapi.GetManager(ctx).GetConfig()
+	cfg.StreamToEvents = !cfg.StreamToEvents
+	cancelRun()
+
+	shutdownCtx, cancelShutdown := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
+	defer cancelShutdown()
+	result := make(chan error, 1)
+	go func() { result <- configurator.SetConfig(shutdownCtx, cfg) }()
+	select {
+	case err := <-result:
+		require.NoError(t, err)
+		require.Equal(t, cfg, logapi.GetManager(ctx).GetConfig())
+	case <-time.After(500 * time.Millisecond):
+		cancelShutdown()
+		<-result
+		t.Fatal("log configuration waited for a confirmation after run context cancellation")
+	}
+}
 
 func TestNewBootstrapContext(t *testing.T) {
 	t.Run("creates bootstrap context with all infrastructure", func(t *testing.T) {
