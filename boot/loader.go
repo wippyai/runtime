@@ -99,10 +99,17 @@ func (l *Loader) Load(ctx context.Context) (context.Context, error) {
 }
 
 // Start activates runtime services and all components with Start() method in dependency order.
-func (l *Loader) Start(ctx context.Context) error {
+func (l *Loader) Start(ctx context.Context) (startErr error) {
 	if err := StartRuntimeServices(ctx); err != nil {
 		return NewRuntimeServicesStartError(err)
 	}
+	defer func() {
+		if startErr != nil {
+			// Component start failures return before normal shutdown. Release
+			// runtime services while their event bus is still available.
+			_ = StopRuntimeServices(context.WithoutCancel(ctx))
+		}
+	}()
 
 	// Freeze dispatcher registry for lock-free lookups
 	// All handlers were registered during Load() phase

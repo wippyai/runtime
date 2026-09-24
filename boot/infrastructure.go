@@ -4,6 +4,7 @@ package boot
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -251,30 +252,43 @@ func wrapLogger(logger *zap.Logger, bus event.Bus, cfg boot.Config) (*zap.Logger
 }
 
 // StartRuntimeServices starts infrastructure services (log manager, node manager, peer manager, await service)
-func StartRuntimeServices(ctx context.Context) error {
+func StartRuntimeServices(ctx context.Context) (startErr error) {
+	var started []func() error
+	defer func() {
+		if startErr != nil {
+			for i := len(started) - 1; i >= 0; i-- {
+				_ = started[i]()
+			}
+		}
+	}()
+
 	if logManager := logapi.GetManager(ctx); logManager != nil {
 		// The log manager serves components during shutdown, after the run context is canceled.
 		if err := logManager.Start(context.WithoutCancel(ctx)); err != nil {
 			return err
 		}
+		started = append(started, logManager.Stop)
 	}
 
 	if nodeManager := relayapi.GetNodeManager(ctx); nodeManager != nil {
 		if err := nodeManager.Start(ctx); err != nil {
 			return err
 		}
+		started = append(started, nodeManager.Stop)
 	}
 
 	if peerManager := getPeerManager(ctx); peerManager != nil {
 		if err := peerManager.Start(ctx); err != nil {
 			return err
 		}
+		started = append(started, peerManager.Stop)
 	}
 
 	if awaitSvc := event.GetAwaitService(ctx); awaitSvc != nil {
 		if err := awaitSvc.Start(ctx); err != nil {
 			return err
 		}
+		started = append(started, awaitSvc.Stop)
 	}
 
 	return nil
@@ -282,27 +296,30 @@ func StartRuntimeServices(ctx context.Context) error {
 
 // StopRuntimeServices stops infrastructure services (await service, peer manager, node manager, log manager)
 func StopRuntimeServices(ctx context.Context) error {
+	var stopErrors []error
 	if awaitSvc := event.GetAwaitService(ctx); awaitSvc != nil {
 		if err := awaitSvc.Stop(); err != nil {
-			return err
+			stopErrors = append(stopErrors, err)
 		}
 	}
 
 	if peerManager := getPeerManager(ctx); peerManager != nil {
 		if err := peerManager.Stop(); err != nil {
-			return err
+			stopErrors = append(stopErrors, err)
 		}
 	}
 
 	if nodeManager := relayapi.GetNodeManager(ctx); nodeManager != nil {
 		if err := nodeManager.Stop(); err != nil {
-			return err
+			stopErrors = append(stopErrors, err)
 		}
 	}
 
 	if logManager := logapi.GetManager(ctx); logManager != nil {
-		return logManager.Stop()
+		if err := logManager.Stop(); err != nil {
+			stopErrors = append(stopErrors, err)
+		}
 	}
 
-	return nil
+	return errors.Join(stopErrors...)
 }
