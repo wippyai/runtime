@@ -538,6 +538,8 @@ func TestTopology_HandleNodeExit(t *testing.T) {
 		require.NotNil(t, exitEvent)
 		assert.Equal(t, topology.LinkDown, exitEvent.Kind)
 		assert.Equal(t, remotePID1, exitEvent.From)
+		require.NotNil(t, exitEvent.Result)
+		assert.EqualError(t, exitEvent.Result.Error, "node disconnected")
 	})
 
 	t.Run("HandleNodeExit notifies processes linked to remote PIDs", func(t *testing.T) {

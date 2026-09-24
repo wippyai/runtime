@@ -22,6 +22,7 @@ import (
 	metricsapi "github.com/wippyai/runtime/api/metrics"
 	"github.com/wippyai/runtime/api/payload"
 	relayapi "github.com/wippyai/runtime/api/relay"
+	topapi "github.com/wippyai/runtime/api/topology"
 	metricsboot "github.com/wippyai/runtime/boot/components/metrics"
 	"github.com/wippyai/runtime/cluster/internode"
 	"github.com/wippyai/runtime/cluster/membership"
@@ -357,7 +358,7 @@ func Cluster() boot.Component {
 				if len(pkg.Messages) > 0 {
 					topic = pkg.Messages[0].Topic
 				}
-				err := node.Send(pkg)
+				err := deliverInternodePackage(node, topapi.GetTopology(ctx), pkg)
 				if err != nil {
 					// Hot path under partition: targets in-flight when peer
 					// torn down. The Service-side onMessage already counts
@@ -517,4 +518,20 @@ func Cluster() boot.Component {
 			return nil
 		},
 	})
+}
+
+// deliverInternodePackage applies process relationship requests to the local
+// topology. Other events, including EXIT, continue to their process inbox.
+func deliverInternodePackage(node relayapi.Node, topo topapi.Topology, pkg *relayapi.Package) error {
+	if handler, ok := topo.(interface {
+		HandleRemotePackage(*relayapi.Package) (bool, error)
+	}); ok {
+		if handled, err := handler.HandleRemotePackage(pkg); handled {
+			if err == nil {
+				relayapi.ReleasePackage(pkg)
+			}
+			return err
+		}
+	}
+	return node.Send(pkg)
 }

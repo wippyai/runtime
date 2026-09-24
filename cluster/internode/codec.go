@@ -8,11 +8,14 @@ import (
 	"io"
 	"reflect"
 	"sync"
+	"time"
 
 	"github.com/hashicorp/go-msgpack/v2/codec"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/api/runtime"
+	"github.com/wippyai/runtime/api/topology"
 )
 
 type encodedPayload struct {
@@ -112,6 +115,28 @@ func (c *MessageCodec) Encode(pkg *relay.Package) ([]byte, error) {
 		}
 
 		for j, p := range msg.Payloads {
+			if event, ok := p.Data().(*topology.ExitEvent); ok && msg.Topic == topology.TopicEvents {
+				wire := map[string]any{
+					"topology_exit": true, "at": event.At, "from": event.From, "kind": event.Kind,
+				}
+				if event.Result != nil {
+					result := map[string]any{}
+					if event.Result.Error != nil {
+						result["error"] = event.Result.Error.Error()
+					}
+					if event.Result.Value != nil {
+						value, err := c.normalizePayload(event.Result.Value)
+						if err != nil {
+							return nil, NewEncodePayloadError(j, err)
+						}
+						result["value_format"] = value.Format()
+						result["value"] = encodeData(value)
+					}
+					wire["result"] = result
+				}
+				encMsg.Payloads[j] = encodedPayload{Format: payload.Golang, Data: wire}
+				continue
+			}
 			normalizedPayload, err := c.normalizePayload(p)
 			if err != nil {
 				return nil, NewEncodePayloadError(j, err)
@@ -171,12 +196,42 @@ func (c *MessageCodec) Decode(data []byte) (*relay.Package, error) {
 		finalMsg.Payloads = make(payload.Payloads, len(encMsg.Payloads))
 
 		for j, encP := range encMsg.Payloads {
+			if encMsg.Topic == topology.TopicEvents {
+				if event, ok := decodeExitEvent(encP.Data); ok {
+					finalMsg.Payloads[j] = payload.New(event)
+					continue
+				}
+			}
 			finalMsg.Payloads[j] = payload.NewPayload(encP.Data, encP.Format)
 		}
 		finalPkg.Messages[i] = finalMsg
 	}
 
 	return finalPkg, nil
+}
+
+// decodeExitEvent restores the process event type after MsgPack decodes an
+// interface payload to a map. Its wire representation carries error text
+// explicitly because Go error interfaces do not survive generic MsgPack.
+func decodeExitEvent(data any) (*topology.ExitEvent, bool) {
+	wire, ok := data.(map[string]any)
+	if !ok || wire["topology_exit"] != true {
+		return nil, false
+	}
+	event := &topology.ExitEvent{}
+	event.At, _ = wire["at"].(time.Time)
+	event.From, _ = wire["from"].(pid.PID)
+	event.Kind, _ = wire["kind"].(string)
+	if result, ok := wire["result"].(map[string]any); ok {
+		event.Result = &runtime.Result{}
+		if reason, ok := result["error"].(string); ok && reason != "" {
+			event.Result.Error = errors.New(reason)
+		}
+		if format, ok := result["value_format"].(string); ok {
+			event.Result.Value = payload.NewPayload(result["value"], format)
+		}
+	}
+	return event, true
 }
 
 // normalizePayload converts payloads to formats that msgpack can encode directly.
