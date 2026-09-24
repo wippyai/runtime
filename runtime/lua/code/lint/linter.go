@@ -3,6 +3,8 @@
 package lint
 
 import (
+	"fmt"
+
 	"github.com/wippyai/go-lua/compiler/ast"
 	"github.com/wippyai/go-lua/compiler/cfg"
 	"github.com/wippyai/go-lua/compiler/parse"
@@ -61,7 +63,7 @@ func (l *Linter) CheckParsedWithTypecheck(stmts []ast.Stmt, entryID string, impo
 			result.Diagnostics = append(result.Diagnostics, diag.Diagnostic{
 				Code:     9999,
 				Severity: diag.SeverityError,
-				Message:  "type checker internal error (skipped)",
+				Message:  fmt.Sprintf("type checker internal error (skipped): %v", r),
 				Position: diag.Position{Line: 1, Column: 1},
 			})
 		}
