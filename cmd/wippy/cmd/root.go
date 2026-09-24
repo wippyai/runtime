@@ -27,7 +27,7 @@ var (
 )
 
 const (
-	defaultMemoryLimit = 1 << 30 // 1GB
+	defaultMemoryLimit = 2 << 30 // 2GB
 	defaultConfigFile  = ".wippy.yaml"
 )
 
@@ -69,11 +69,11 @@ func init() {
 	rootCmd.PersistentFlags().BoolVarP(&silentLogs, "silent", "s", false, "disable console logging entirely")
 	rootCmd.PersistentFlags().BoolVarP(&eventStreams, "event-streams", "e", false, "stream logs to event bus instead of console")
 	rootCmd.PersistentFlags().BoolVarP(&profiler, "profiler", "p", false, "enable pprof profiler on localhost:6060")
-	rootCmd.PersistentFlags().StringVarP(&memoryLimit, "memory-limit", "m", "", "set memory limit (e.g., 1G, 512M, 2048M). Default: 1G if GOMEMLIMIT not set")
+	rootCmd.PersistentFlags().StringVarP(&memoryLimit, "memory-limit", "m", "", "set memory limit (e.g., 1G, 512M, 2048M). Default: 2G if GOMEMLIMIT not set")
 }
 
 // initMemoryLimit sets the Go runtime memory limit.
-// Priority: --memory-limit flag > GOMEMLIMIT env > default 1GB
+// Priority: --memory-limit flag > GOMEMLIMIT env > default 2GB
 func initMemoryLimit() int64 {
 	if memoryLimit != "" {
 		limit, err := parseMemorySize(memoryLimit)
@@ -83,11 +83,10 @@ func initMemoryLimit() int64 {
 		}
 	}
 
-	if envLimit := os.Getenv("GOMEMLIMIT"); envLimit != "" {
-		limit, err := parseMemorySize(envLimit)
-		if err == nil && limit > 0 {
-			return limit
-		}
+	if os.Getenv("GOMEMLIMIT") != "" {
+		// The Go runtime has already parsed and applied this setting. Its
+		// supported IEC suffixes (for example, GiB) differ from the CLI flag's.
+		return debug.SetMemoryLimit(-1)
 	}
 
 	debug.SetMemoryLimit(defaultMemoryLimit)
