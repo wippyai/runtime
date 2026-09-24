@@ -83,11 +83,10 @@ func initMemoryLimit() int64 {
 		}
 	}
 
-	if envLimit := os.Getenv("GOMEMLIMIT"); envLimit != "" {
-		limit, err := parseMemorySize(envLimit)
-		if err == nil && limit > 0 {
-			return limit
-		}
+	if os.Getenv("GOMEMLIMIT") != "" {
+		// The Go runtime has already parsed and applied this setting. Its
+		// supported IEC suffixes (for example, GiB) differ from the CLI flag's.
+		return debug.SetMemoryLimit(-1)
 	}
 
 	debug.SetMemoryLimit(defaultMemoryLimit)
