@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/wippyai/go-lua/compiler/check"
+
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/go-lua/types/io"
 	"github.com/wippyai/go-lua/types/typ"
@@ -43,6 +45,10 @@ func (p *testProvider) ModuleDefs() []*luaapi.ModuleDef {
 
 func (p *testProvider) BuiltinManifestHash() string {
 	return p.builtinHash
+}
+
+func (p *testProvider) CheckOptions() check.Options {
+	return check.Options{}
 }
 
 func cursorPosition(t *testing.T, src string) (string, int, int) {

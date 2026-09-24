@@ -3,6 +3,7 @@
 package indexing
 
 import (
+	"github.com/wippyai/go-lua/compiler/check"
 	"github.com/wippyai/go-lua/types/io"
 	"github.com/wippyai/runtime/api/registry"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
@@ -23,6 +24,8 @@ type Provider interface {
 	DependencyManifests(id registry.ID) map[string]*io.Manifest
 	ModuleDefs() []*luaapi.ModuleDef
 	BuiltinManifestHash() string
+	// CheckOptions is the type-checking semantics the runtime is configured with.
+	CheckOptions() check.Options
 }
 
 type ManagerProvider struct {
@@ -110,4 +113,11 @@ func (p *ManagerProvider) BuiltinManifestHash() string {
 		return ""
 	}
 	return p.cm.BuiltinManifestHash()
+}
+
+func (p *ManagerProvider) CheckOptions() check.Options {
+	if p == nil || p.cm == nil {
+		return check.Options{}
+	}
+	return p.cm.TypeCheckConfig().Check
 }

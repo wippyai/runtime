@@ -10,11 +10,9 @@ import (
 	"github.com/wippyai/go-lua/compiler/check/hooks"
 	"github.com/wippyai/go-lua/compiler/check/scope"
 	"github.com/wippyai/go-lua/compiler/parse"
-	"github.com/wippyai/go-lua/compiler/stdlib"
 	"github.com/wippyai/go-lua/types/db"
 	"github.com/wippyai/go-lua/types/diag"
 	"github.com/wippyai/go-lua/types/io"
-	"github.com/wippyai/go-lua/types/query/core"
 	"github.com/wippyai/go-lua/types/typ"
 	api "github.com/wippyai/runtime/api/runtime/lua"
 )
@@ -38,6 +36,10 @@ type TypeCheckConfig struct {
 
 	// Rules controls which type checking rules are enabled
 	Rules TypeCheckRules
+
+	// Check is the type-checking semantics (lua.type_system.strict_any and
+	// the options that follow it).
+	Check check.Options
 }
 
 // TypeCheckRules configures individual type checking rules
@@ -74,65 +76,46 @@ func DefaultTypeCheckConfig() TypeCheckConfig {
 
 // TypeChecker wraps the go-lua type checker with wippy configuration
 type TypeChecker struct {
-	builtins         map[string]typ.Type
-	builtinManifests map[string]*io.Manifest
-	base             *scope.State
-	globalTypes      map[string]typ.Type
-	db               *db.DB
-	checker          *check.Checker
-	invalidateHook   func(string)
-	baseHookOptions  []check.Option
-	hookOptions      []check.Option
-	config           TypeCheckConfig
-	checkMu          sync.Mutex
+	env             *BuiltinEnvironment
+	db              *db.DB
+	checker         *check.Checker
+	invalidateHook  func(string)
+	baseHookOptions []check.Option
+	hookOptions     []check.Option
+	config          TypeCheckConfig
+	checkMu         sync.Mutex
+}
+
+// defaultHookOptions are the diagnostic passes every runtime checker runs.
+func defaultHookOptions() []check.Option {
+	return []check.Option{
+		hooks.WithAssign(),
+		hooks.WithReturn(),
+		hooks.WithCall(),
+		hooks.WithField(),
+	}
 }
 
 // NewTypeChecker creates a configured type checker.
 // Built-in modules are added as globals so they're always available.
 // The Enabled flag controls whether checking runs at compile time, not initialization.
 func NewTypeChecker(cfg TypeCheckConfig, builtinMods []*api.ModuleDef) *TypeChecker {
-	env := NewBuiltinEnvironment(builtinMods)
-	builtins := env.Modules
-	manifests := env.Manifests
-	base := env.TypeScope
-	globalTypes := env.GlobalTypes
-
-	database := db.New()
-
-	// Connect builtin manifests to database
-	for path, manifest := range manifests {
-		database.Connect(path, manifest)
+	env := NewBuiltinEnvironment(builtinMods, cfg.Check)
+	tc := &TypeChecker{
+		env:             env,
+		config:          cfg,
+		db:              env.NewDatabase(),
+		baseHookOptions: defaultHookOptions(),
 	}
+	tc.checker = tc.newChecker(tc.db)
+	return tc
+}
 
-	types := core.NewEngineWithStdlib(stdlib.EngineConfig())
-
-	// Create checker with hooks
-	baseHookOptions := []check.Option{
-		hooks.WithAssign(),
-		hooks.WithReturn(),
-		hooks.WithCall(),
-		hooks.WithField(),
-	}
-	checker := check.NewChecker(database, check.Deps{
-		Types:       types,
-		Stdlib:      base,
-		GlobalTypes: globalTypes,
-		Resolver: &core.FuncResolver{
-			FieldFunc: core.Field,
-			IndexFunc: core.Index,
-		},
-	}, baseHookOptions...)
-
-	return &TypeChecker{
-		config:           cfg,
-		builtins:         builtins,
-		builtinManifests: manifests,
-		base:             base,
-		globalTypes:      globalTypes,
-		db:               database,
-		checker:          checker,
-		baseHookOptions:  baseHookOptions,
-	}
+// newChecker builds a checker over database with the checker's environment
+// and hooks.
+func (tc *TypeChecker) newChecker(database *db.DB) *check.Checker {
+	hooks := append(append([]check.Option{}, tc.baseHookOptions...), tc.hookOptions...)
+	return tc.env.NewChecker(database, hooks...)
 }
 
 // CheckParsed performs type checking on a parsed AST with provided imports
@@ -193,150 +176,71 @@ func (tc *TypeChecker) IsStrict() bool {
 
 // BuiltinManifest returns the manifest for a builtin module by name.
 func (tc *TypeChecker) BuiltinManifest(name string) *io.Manifest {
-	if tc.builtinManifests == nil {
+	if tc.env == nil {
 		return nil
 	}
-	return tc.builtinManifests[name]
+	return tc.env.Manifests[name]
 }
 
 // AddBuiltin adds a module to the type checker's built-in environment
 func (tc *TypeChecker) AddBuiltin(mod *api.ModuleDef) {
-	if tc.builtins == nil || mod == nil || mod.Types == nil {
+	if tc.env == nil || mod == nil || mod.Types == nil {
 		return
 	}
-	manifest := mod.Types()
-	if manifest != nil {
-		tc.builtinManifests[mod.Name] = manifest
-		tc.db.Connect(mod.Name, manifest)
-		if manifest.Export != nil {
-			tc.builtins[mod.Name] = manifest.Export
-			tc.globalTypes[mod.Name] = manifest.Export
-		}
-		for name, t := range manifest.AllGlobals() {
-			tc.builtins[name] = t
-			tc.globalTypes[name] = t
-		}
+	if manifest := mod.Types(); manifest != nil {
+		tc.AddBuiltinManifest(mod.Name, manifest)
 	}
 }
 
 // AddBuiltinManifest adds a module manifest to the type checker's built-in environment.
 func (tc *TypeChecker) AddBuiltinManifest(name string, manifest *io.Manifest) {
-	if tc.builtins == nil || name == "" || manifest == nil {
+	if tc.env == nil || name == "" || manifest == nil {
 		return
 	}
-	tc.builtinManifests[name] = manifest
+	tc.env.Manifests[name] = manifest
 	tc.db.Connect(name, manifest)
 	if manifest.Export != nil {
-		tc.builtins[name] = manifest.Export
-		tc.globalTypes[name] = manifest.Export
+		tc.env.Modules[name] = manifest.Export
+		tc.env.GlobalTypes[name] = manifest.Export
 	}
 	for gname, t := range manifest.AllGlobals() {
-		tc.builtins[gname] = t
-		tc.globalTypes[gname] = t
+		tc.env.Modules[gname] = t
+		tc.env.GlobalTypes[gname] = t
 	}
 }
 
 // BuildEnv creates an environment with all builtin modules
 func (tc *TypeChecker) BuildEnv() *scope.State {
-	return tc.base
+	return tc.env.TypeScope
 }
 
 // GlobalTypes returns the map of global symbol names to their types.
 // This includes stdlib functions and builtin module exports.
 func (tc *TypeChecker) GlobalTypes() map[string]typ.Type {
-	return tc.globalTypes
+	return tc.env.GlobalTypes
 }
 
 // Clone creates a copy of the TypeChecker for parallel use.
 // Each clone has its own db.DB for concurrent type checking.
 func (tc *TypeChecker) Clone() *TypeChecker {
-	database := db.New()
-	types := core.NewEngineWithStdlib(stdlib.EngineConfig())
-
-	// Connect builtin manifests to new database
-	for path, manifest := range tc.builtinManifests {
-		database.Connect(path, manifest)
-	}
-
-	// Create checker with hooks
-	baseHookOptions := tc.baseHookOptions
-	if len(baseHookOptions) == 0 {
-		baseHookOptions = []check.Option{
-			hooks.WithAssign(),
-			hooks.WithReturn(),
-			hooks.WithCall(),
-			hooks.WithField(),
-		}
-	}
-	allHookOptions := append(append([]check.Option{}, baseHookOptions...), tc.hookOptions...)
-	checker := check.NewChecker(database, check.Deps{
-		Types:       types,
-		Stdlib:      tc.base,
-		GlobalTypes: tc.globalTypes,
-		Resolver: &core.FuncResolver{
-			FieldFunc: core.Field,
-			IndexFunc: core.Index,
-		},
-	}, allHookOptions...)
-
-	return &TypeChecker{
-		config:           tc.config,
-		builtins:         tc.builtins,
-		builtinManifests: tc.builtinManifests,
-		base:             tc.base,
-		globalTypes:      tc.globalTypes,
-		db:               database,
-		checker:          checker,
-		baseHookOptions:  baseHookOptions,
-		hookOptions:      append([]check.Option{}, tc.hookOptions...),
-		invalidateHook:   tc.invalidateHook,
-	}
+	return tc.WithConfig(tc.config)
 }
 
-// WithConfig creates a copy with a different configuration.
-// Used by the linter to enable checking with custom settings.
+// WithConfig creates a copy with a different configuration and its own
+// db.DB. Used by the linter to enable checking with custom settings.
 func (tc *TypeChecker) WithConfig(cfg TypeCheckConfig) *TypeChecker {
-	database := db.New()
-	types := core.NewEngineWithStdlib(stdlib.EngineConfig())
-
-	// Connect builtin manifests to new database
-	for path, manifest := range tc.builtinManifests {
-		database.Connect(path, manifest)
+	env := *tc.env
+	env.Options = cfg.Check
+	clone := &TypeChecker{
+		env:             &env,
+		config:          cfg,
+		db:              env.NewDatabase(),
+		baseHookOptions: tc.baseHookOptions,
+		hookOptions:     append([]check.Option{}, tc.hookOptions...),
+		invalidateHook:  tc.invalidateHook,
 	}
-
-	// Create checker with hooks
-	baseHookOptions := tc.baseHookOptions
-	if len(baseHookOptions) == 0 {
-		baseHookOptions = []check.Option{
-			hooks.WithAssign(),
-			hooks.WithReturn(),
-			hooks.WithCall(),
-			hooks.WithField(),
-		}
-	}
-	allHookOptions := append(append([]check.Option{}, baseHookOptions...), tc.hookOptions...)
-	checker := check.NewChecker(database, check.Deps{
-		Types:       types,
-		Stdlib:      tc.base,
-		GlobalTypes: tc.globalTypes,
-		Resolver: &core.FuncResolver{
-			FieldFunc: core.Field,
-			IndexFunc: core.Index,
-		},
-	}, allHookOptions...)
-
-	return &TypeChecker{
-		config:           cfg,
-		builtins:         tc.builtins,
-		builtinManifests: tc.builtinManifests,
-		base:             tc.base,
-		globalTypes:      tc.globalTypes,
-		db:               database,
-		checker:          checker,
-		baseHookOptions:  baseHookOptions,
-		hookOptions:      append([]check.Option{}, tc.hookOptions...),
-		invalidateHook:   tc.invalidateHook,
-	}
+	clone.checker = clone.newChecker(clone.db)
+	return clone
 }
 
 // ClearCache removes memoized results from the type checker.
@@ -381,27 +285,7 @@ func (tc *TypeChecker) rebuildChecker() {
 	if tc == nil || tc.db == nil {
 		return
 	}
-	types := core.NewEngineWithStdlib(stdlib.EngineConfig())
-	baseHookOptions := tc.baseHookOptions
-	if len(baseHookOptions) == 0 {
-		baseHookOptions = []check.Option{
-			hooks.WithAssign(),
-			hooks.WithReturn(),
-			hooks.WithCall(),
-			hooks.WithField(),
-		}
-		tc.baseHookOptions = baseHookOptions
-	}
-	allHookOptions := append(append([]check.Option{}, baseHookOptions...), tc.hookOptions...)
-	tc.checker = check.NewChecker(tc.db, check.Deps{
-		Types:       types,
-		Stdlib:      tc.base,
-		GlobalTypes: tc.globalTypes,
-		Resolver: &core.FuncResolver{
-			FieldFunc: core.Field,
-			IndexFunc: core.Index,
-		},
-	}, allHookOptions...)
+	tc.checker = tc.newChecker(tc.db)
 }
 
 // HasErrors checks if any diagnostic is an error

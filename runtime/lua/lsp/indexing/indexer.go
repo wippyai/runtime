@@ -10,13 +10,11 @@ import (
 	"github.com/wippyai/go-lua/compiler/check"
 	"github.com/wippyai/go-lua/compiler/check/hooks"
 	"github.com/wippyai/go-lua/compiler/parse"
-	"github.com/wippyai/go-lua/compiler/stdlib"
 	golualsp "github.com/wippyai/go-lua/lsp"
 	"github.com/wippyai/go-lua/lsp/index"
 	"github.com/wippyai/go-lua/types/db"
 	"github.com/wippyai/go-lua/types/diag"
 	"github.com/wippyai/go-lua/types/io"
-	"github.com/wippyai/go-lua/types/query/core"
 	"github.com/wippyai/runtime/api/registry"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/code"
@@ -298,7 +296,7 @@ func (idx *Indexer) newChecker() *lspChecker {
 	}
 	modules := idx.provider.ModuleDefs()
 	builtinHash := idx.provider.BuiltinManifestHash()
-	return newLSPChecker(modules, idx.symbols, idx.callGraph, builtinHash)
+	return newLSPChecker(modules, idx.provider.CheckOptions(), idx.symbols, idx.callGraph, builtinHash)
 }
 
 func (idx *Indexer) overlaySource(id registry.ID) (string, bool) {
@@ -333,18 +331,10 @@ type lspChecker struct {
 	builtinHash string
 }
 
-func newLSPChecker(mods []*luaapi.ModuleDef, symbols *index.SymbolIndex, callGraph *index.CallGraph, builtinHash string) *lspChecker {
-	env := code.NewBuiltinEnvironment(mods)
-	manifests := env.Manifests
-	base := env.TypeScope
-	globalTypes := env.GlobalTypes
+func newLSPChecker(mods []*luaapi.ModuleDef, options check.Options, symbols *index.SymbolIndex, callGraph *index.CallGraph, builtinHash string) *lspChecker {
+	env := code.NewBuiltinEnvironment(mods, options)
+	database := env.NewDatabase()
 
-	database := db.New()
-	for path, manifest := range manifests {
-		database.Connect(path, manifest)
-	}
-
-	types := core.NewEngineWithStdlib(stdlib.EngineConfig())
 	opts := []check.Option{
 		hooks.WithAssign(),
 		hooks.WithReturn(),
@@ -356,19 +346,9 @@ func newLSPChecker(mods []*luaapi.ModuleDef, symbols *index.SymbolIndex, callGra
 		opts = append(opts, hooks.WithLSPIndex(lspIndexer))
 	}
 
-	checker := check.NewChecker(database, check.Deps{
-		Types:       types,
-		Stdlib:      base,
-		GlobalTypes: globalTypes,
-		Resolver: &core.FuncResolver{
-			FieldFunc: core.Field,
-			IndexFunc: core.Index,
-		},
-	}, opts...)
-
 	return &lspChecker{
 		db:          database,
-		checker:     checker,
+		checker:     env.NewChecker(database, opts...),
 		builtinHash: builtinHash,
 	}
 }

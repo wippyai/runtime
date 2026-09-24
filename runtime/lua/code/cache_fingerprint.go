@@ -51,6 +51,7 @@ func TypecheckConfigHash(cfg TypeCheckConfig) string {
 		strconv.FormatBool(cfg.Rules.Readonly),
 		strconv.FormatBool(cfg.Rules.Undefined),
 		strconv.FormatBool(cfg.Rules.MissingReturn),
+		strconv.FormatBool(cfg.Check.StrictAny),
 	)
 }
 

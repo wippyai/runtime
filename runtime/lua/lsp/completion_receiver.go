@@ -14,12 +14,10 @@ import (
 	"github.com/wippyai/go-lua/compiler/check/api"
 	"github.com/wippyai/go-lua/compiler/check/hooks"
 	"github.com/wippyai/go-lua/compiler/parse"
-	"github.com/wippyai/go-lua/compiler/stdlib"
 	lspindex "github.com/wippyai/go-lua/lsp/index"
 	"github.com/wippyai/go-lua/types/db"
 	"github.com/wippyai/go-lua/types/diag"
 	"github.com/wippyai/go-lua/types/io"
-	"github.com/wippyai/go-lua/types/query/core"
 	"github.com/wippyai/go-lua/types/typ"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/runtime/lua/code"
@@ -259,38 +257,20 @@ func newExprChecker(provider indexing.Provider, deps map[string]*io.Manifest, de
 		return nil
 	}
 
-	env := code.NewBuiltinEnvironment(provider.ModuleDefs())
-	manifests := env.Manifests
-	base := env.TypeScope
-	globalTypes := env.GlobalTypes
-
-	database := db.New()
-	for path, manifest := range manifests {
-		database.Connect(path, manifest)
-	}
+	env := code.NewBuiltinEnvironment(provider.ModuleDefs(), provider.CheckOptions())
+	database := env.NewDatabase()
 	for alias, manifest := range deps {
 		if manifest != nil {
 			database.Connect(alias, manifest)
 		}
 	}
 
-	types := core.NewEngineWithStdlib(stdlib.EngineConfig())
-	opts := []check.Option{
+	checker := env.NewChecker(database,
 		hooks.WithAssign(),
 		hooks.WithReturn(),
 		hooks.WithCall(),
 		hooks.WithField(),
-	}
-
-	checker := check.NewChecker(database, check.Deps{
-		Types:       types,
-		Stdlib:      base,
-		GlobalTypes: globalTypes,
-		Resolver: &core.FuncResolver{
-			FieldFunc: core.Field,
-			IndexFunc: core.Index,
-		},
-	}, opts...)
+	)
 
 	return &exprChecker{
 		db:          database,

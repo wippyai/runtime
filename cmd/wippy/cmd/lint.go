@@ -27,6 +27,7 @@ import (
 	luaboot "github.com/wippyai/runtime/boot/components/runtime/lua"
 	bootextensions "github.com/wippyai/runtime/boot/extensions"
 	appinit "github.com/wippyai/runtime/cmd/internal/app"
+	"github.com/wippyai/runtime/cmd/internal/bootconfig"
 	clilogger "github.com/wippyai/runtime/cmd/internal/logger"
 	"github.com/wippyai/runtime/runtime/lua/code"
 	"github.com/wippyai/runtime/runtime/lua/code/cache"
@@ -76,6 +77,7 @@ func init() {
 	lintCmd.Flags().Int("limit", 0, "limit number of diagnostics shown (0 = unlimited)")
 	lintCmd.Flags().Bool("rules", false, "enable lint rules (style and quality warnings)")
 	lintCmd.Flags().Bool("cache-reset", false, "clear lua cache before linting")
+	lintCmd.Flags().Bool("strict-any", false, "treat any as unknown: an any value must be narrowed before use (overrides lua.type_system.strict_any)")
 	lintCmd.Flags().StringArray("profile", nil, "apply a workspace profile from the merged runtime config (repeatable, applied in order)")
 	lintCmd.Flags().StringArray("set", nil, "override a merged runtime config value (format: section.path=value, repeatable)")
 }
@@ -247,6 +249,7 @@ func runLint(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
+	runtimeCfg = applyTypeSystemFlags(cmd, runtimeCfg)
 
 	ctx, loader, err := bootstrapLintContext(runtimeCfg)
 	if err != nil {
@@ -293,6 +296,19 @@ func runLint(cmd *cobra.Command, _ []string) error {
 		}
 	}
 	return outputResults(result, opts)
+}
+
+// applyTypeSystemFlags writes the type-system flags given on the command line
+// into the lua.type_system config section, the one place every checker reads
+// its semantics from.
+func applyTypeSystemFlags(cmd *cobra.Command, cfg boot.Config) boot.Config {
+	if !cmd.Flags().Changed("strict-any") {
+		return cfg
+	}
+	strictAny, _ := cmd.Flags().GetBool("strict-any")
+	return bootconfig.Merge(cfg, boot.NewConfig(boot.WithSection("lua", map[string]any{
+		"type_system.strict_any": strictAny,
+	})))
 }
 
 // lintOptions holds parsed command flags.
@@ -419,9 +435,11 @@ func createLinter(ctx context.Context, enableRules bool) (*lint.Linter, lintCach
 		Strict:  true,
 	}
 	if cm != nil {
-		if runtimeTypeCfg := cm.TypeCheckConfig(); runtimeTypeCfg.Enabled {
+		runtimeTypeCfg := cm.TypeCheckConfig()
+		if runtimeTypeCfg.Enabled {
 			typeCfg = runtimeTypeCfg
 		}
+		typeCfg.Check = runtimeTypeCfg.Check
 	}
 	typeChecker := code.NewTypeChecker(typeCfg, mods)
 
