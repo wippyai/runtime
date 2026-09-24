@@ -100,6 +100,7 @@ func HashNodeWithProto(node *Node, proto *glua.FunctionProto) string {
 type MemoryGraph struct {
 	graph                 *graph.Graph[registry.ID, Edge]
 	nodes                 map[registry.ID]*Node
+	nodeLevels            map[registry.ID]int
 	dependentsCache       map[registry.ID][]*Node
 	dependencyLevelsCache [][]*Node
 	mu                    sync.RWMutex
@@ -111,6 +112,7 @@ func NewMemoryGraph() *MemoryGraph {
 	return &MemoryGraph{
 		graph:           graph.New[registry.ID, Edge](),
 		nodes:           make(map[registry.ID]*Node),
+		nodeLevels:      make(map[registry.ID]int),
 		dependentsCache: make(map[registry.ID][]*Node),
 		cacheValid:      true,
 	}
@@ -121,14 +123,112 @@ func (m *MemoryGraph) Snapshot() *MemoryGraph {
 	defer m.mu.RUnlock()
 
 	nodes := make(map[registry.ID]*Node, len(m.nodes))
+	levels := make(map[registry.ID]int, len(m.nodeLevels))
 	for id, node := range m.nodes {
 		nodes[id] = cloneNode(node)
+		levels[id] = m.nodeLevels[id]
 	}
 	return &MemoryGraph{
 		graph:           m.graph.Clone(),
 		nodes:           nodes,
+		nodeLevels:      levels,
 		dependentsCache: make(map[registry.ID][]*Node),
 		cacheValid:      true,
+	}
+}
+
+// SnapshotReachable copies only the entrypoint closure. Extra nodes are included
+// for preloads, which need their definitions but do not compile their imports.
+// Global levels are retained so the dependency order matches a full snapshot.
+func (m *MemoryGraph) SnapshotReachable(entrypoint registry.ID, extras ...registry.ID) *MemoryGraph {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	ids := make(map[registry.ID]bool)
+	if _, ok := m.nodes[entrypoint]; ok {
+		ids = m.reachableFromLocked(entrypoint)
+	}
+	for _, id := range extras {
+		if _, ok := m.nodes[id]; ok {
+			ids[id] = true
+		}
+	}
+
+	snapshot := NewMemoryGraph()
+	for id := range ids {
+		snapshot.graph.AddNode(id)
+		snapshot.nodes[id] = cloneNode(m.nodes[id])
+		snapshot.nodeLevels[id] = m.nodeLevels[id]
+	}
+	for id := range ids {
+		neighbors, _ := m.graph.GetNeighbors(id)
+		for _, neighbor := range neighbors {
+			if !ids[neighbor] {
+				continue
+			}
+			edge, _ := m.graph.GetEdge(id, neighbor)
+			snapshot.graph.AddEdge(id, neighbor, edge.Weight, edge.Data)
+		}
+	}
+	return snapshot
+}
+
+// increaseLevelsLocked updates the descendants of a newly added edge. The
+// graph is acyclic, and adding an edge can only increase their longest paths.
+func (m *MemoryGraph) increaseLevelsLocked(id registry.ID, level int) {
+	type pending struct {
+		id    registry.ID
+		level int
+	}
+	queue := []pending{{id, level}}
+	for len(queue) > 0 {
+		item := queue[len(queue)-1]
+		queue = queue[:len(queue)-1]
+		if item.level <= m.nodeLevels[item.id] {
+			continue
+		}
+		m.nodeLevels[item.id] = item.level
+		neighbors, _ := m.graph.GetNeighbors(item.id)
+		for _, neighbor := range neighbors {
+			queue = append(queue, pending{neighbor, item.level + 1})
+		}
+	}
+}
+
+// recomputeLevelsLocked handles removals and replacements, which can shorten
+// longest paths. It visits each node and edge once and does no sorting.
+func (m *MemoryGraph) recomputeLevelsLocked() {
+	ids := m.graph.GetNodes()
+	degree := make(map[registry.ID]int, len(ids))
+	for _, id := range ids {
+		degree[id] = 0
+		m.nodeLevels[id] = 0
+	}
+	for _, id := range ids {
+		neighbors, _ := m.graph.GetNeighbors(id)
+		for _, neighbor := range neighbors {
+			degree[neighbor]++
+		}
+	}
+	queue := make([]registry.ID, 0, len(ids))
+	for _, id := range ids {
+		if degree[id] == 0 {
+			queue = append(queue, id)
+		}
+	}
+	for len(queue) > 0 {
+		id := queue[len(queue)-1]
+		queue = queue[:len(queue)-1]
+		neighbors, _ := m.graph.GetNeighbors(id)
+		for _, neighbor := range neighbors {
+			if next := m.nodeLevels[id] + 1; next > m.nodeLevels[neighbor] {
+				m.nodeLevels[neighbor] = next
+			}
+			degree[neighbor]--
+			if degree[neighbor] == 0 {
+				queue = append(queue, neighbor)
+			}
+		}
 	}
 }
 
@@ -208,6 +308,7 @@ func (m *MemoryGraph) AddNode(n *Node) error {
 
 	m.graph.AddNode(n.ID)
 	m.nodes[n.ID] = n
+	m.nodeLevels[n.ID] = 0
 	m.invalidateCacheLocked()
 	return nil
 }
@@ -265,6 +366,7 @@ func (m *MemoryGraph) UpdateNode(n *Node, deps []Import) error {
 
 	m.graph = nextGraph
 	m.nodes[n.ID] = n
+	m.recomputeLevelsLocked()
 	m.invalidateCacheLocked()
 	return nil
 }
@@ -291,6 +393,8 @@ func (m *MemoryGraph) RemoveNode(id registry.ID) error {
 	}
 
 	delete(m.nodes, id)
+	delete(m.nodeLevels, id)
+	m.recomputeLevelsLocked()
 	m.invalidateCacheLocked()
 	return nil
 }
@@ -333,6 +437,7 @@ func (m *MemoryGraph) AddDependency(from, to registry.ID, alias string) error {
 	}
 
 	m.graph.AddEdge(from, to, 1, Edge{As: alias})
+	m.increaseLevelsLocked(to, m.nodeLevels[from]+1)
 	m.invalidateCacheLocked()
 	return nil
 }
@@ -345,8 +450,12 @@ func (m *MemoryGraph) RemoveDependency(from, to registry.ID) error {
 	if !m.graph.HasEdge(from, to) {
 		return NewDependencyNotFoundError(from, to)
 	}
+	if err := m.graph.RemoveEdge(from, to); err != nil {
+		return err
+	}
+	m.recomputeLevelsLocked()
 	m.invalidateCacheLocked()
-	return m.graph.RemoveEdge(from, to)
+	return nil
 }
 
 // GetNode retrieves the node with the specified Process.
@@ -531,40 +640,9 @@ func (m *MemoryGraph) DependencyLevels() ([][]*Node, error) {
 	return levels, nil
 }
 
-// dependencyLevelsLocked is the internal version without locking.
-func (m *MemoryGraph) dependencyLevelsLocked() ([][]*Node, error) {
-	gl, err := m.graph.DependencyLevels()
-	if err != nil {
-		return nil, err
-	}
-
-	levels := make([][]*Node, 0, gl.LevelCount())
-	for i := 0; i < gl.LevelCount(); i++ {
-		levelIDs, err := gl.GetLevel(i)
-		if err != nil {
-			return nil, err
-		}
-
-		level := make([]*Node, 0, len(levelIDs))
-		for _, id := range levelIDs {
-			if node, ok := m.nodes[id]; ok {
-				level = append(level, node)
-			}
-		}
-
-		sort.Slice(level, func(i, j int) bool {
-			return level[i].ID.String() < level[j].ID.String()
-		})
-
-		levels = append(levels, level)
-	}
-
-	return levels, nil
-}
-
 // reachableFromLocked performs a DFS starting from the given entrypoint and returns a map of reachable node IDs.
 func (m *MemoryGraph) reachableFromLocked(entrypoint registry.ID) map[registry.ID]bool {
-	visited := make(map[registry.ID]bool, len(m.nodes))
+	visited := make(map[registry.ID]bool)
 	queue := []registry.ID{entrypoint}
 
 	for len(queue) > 0 {
@@ -604,23 +682,26 @@ func (m *MemoryGraph) Build(entrypoint registry.ID) (*Main, error) {
 		return nil, NewNodeNotFoundError(entrypoint)
 	}
 
-	levels, err := m.dependencyLevelsLocked()
-	if err != nil {
-		return nil, err
+	reachable := m.reachableFromLocked(entrypoint)
+	levels := make(map[int][]*Node)
+	levelKeys := make([]int, 0)
+	for id := range reachable {
+		level := m.nodeLevels[id]
+		if _, exists := levels[level]; !exists {
+			levelKeys = append(levelKeys, level)
+		}
+		levels[level] = append(levels[level], m.nodes[id])
 	}
 
-	// Determine reachable nodes from the entrypoint
-	reachable := m.reachableFromLocked(entrypoint)
-
-	// Process levels in reverse order (deepest dependencies first)
+	// Preserve the full graph's levels and ID order, deepest first.
 	ordered := make([]*Node, 0, len(reachable))
-	for i := len(levels) - 1; i >= 0; i-- {
-		level := levels[i]
-		for _, node := range level {
-			if reachable[node.ID] {
-				ordered = append(ordered, node)
-			}
-		}
+	sort.Sort(sort.Reverse(sort.IntSlice(levelKeys)))
+	for _, key := range levelKeys {
+		level := levels[key]
+		sort.Slice(level, func(a, b int) bool {
+			return level[a].ID.String() < level[b].ID.String()
+		})
+		ordered = append(ordered, level...)
 	}
 
 	// Assemble the runtime

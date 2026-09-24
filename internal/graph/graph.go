@@ -235,6 +235,12 @@ func (g *Graph[T, E]) findCycle() ([]T, bool) {
 func (g *Graph[T, E]) DependencyLevels() (*DependencyLevels[T], error) {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
+	// Keep the generic graph's historical %v ordering while formatting each
+	// node once, rather than allocating strings inside every sort comparison.
+	keys := make(map[T]string, len(g.nodes))
+	for node := range g.nodes {
+		keys[node] = fmt.Sprintf("%v", node)
+	}
 
 	inDegree := make(map[T]int)
 	for node := range g.nodes {
@@ -273,7 +279,7 @@ func (g *Graph[T, E]) DependencyLevels() (*DependencyLevels[T], error) {
 				stuckNodes = append(stuckNodes, node)
 			}
 			sort.Slice(stuckNodes, func(i, j int) bool {
-				return fmt.Sprintf("%v", stuckNodes[i]) < fmt.Sprintf("%v", stuckNodes[j])
+				return keys[stuckNodes[i]] < keys[stuckNodes[j]]
 			})
 
 			var depsInfo []string
@@ -285,7 +291,7 @@ func (g *Graph[T, E]) DependencyLevels() (*DependencyLevels[T], error) {
 					}
 				}
 				sort.Slice(deps, func(i, j int) bool {
-					return fmt.Sprintf("%v", deps[i]) < fmt.Sprintf("%v", deps[j])
+					return keys[deps[i]] < keys[deps[j]]
 				})
 				depsInfo = append(depsInfo, fmt.Sprintf("%v (degree=%d, depends on: %v)", node, inDegree[node], deps))
 			}
@@ -303,7 +309,7 @@ func (g *Graph[T, E]) DependencyLevels() (*DependencyLevels[T], error) {
 		}
 
 		sort.Slice(currentLevel, func(i, j int) bool {
-			return fmt.Sprintf("%v", currentLevel[i]) < fmt.Sprintf("%v", currentLevel[j])
+			return keys[currentLevel[i]] < keys[currentLevel[j]]
 		})
 
 		if len(currentLevel) > 0 {
