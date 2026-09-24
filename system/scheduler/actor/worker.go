@@ -29,6 +29,7 @@ type Worker struct {
 	executed            atomic.Uint64
 	stolen              atomic.Uint64
 	notified            atomic.Bool
+	executing           bool // guarded by routeMu
 	retiring            atomic.Bool
 	dispatchesSinceFair uint8
 	fairSource          uint8
@@ -104,12 +105,39 @@ func (w *Worker) retire() {
 func (w *Worker) injectProcessor(proc *Processor) bool {
 	w.routeMu.Lock()
 	defer w.routeMu.Unlock()
-	if w.retiring.Load() {
+	if w.retiring.Load() || w.executing {
 		return false
 	}
 	w.inject.Push(proc)
 	w.signal()
 	return true
+}
+
+// beginExecution closes the gap between selecting work and entering its step.
+// A wakeup admitted to inject during that gap must be handed to the global
+// queue before this worker can block in a different process's step.
+func (w *Worker) beginExecution() {
+	w.routeMu.Lock()
+	w.executing = true
+	handedOff := false
+	for {
+		proc := w.inject.Pop()
+		if proc == nil {
+			break
+		}
+		w.handoff(proc)
+		handedOff = true
+	}
+	w.routeMu.Unlock()
+	if handedOff {
+		w.scheduler.wakeAll()
+	}
+}
+
+func (w *Worker) endExecution() {
+	w.routeMu.Lock()
+	w.executing = false
+	w.routeMu.Unlock()
 }
 
 func (w *Worker) handoffQueuedWork() {
@@ -287,6 +315,10 @@ func (w *Worker) steal() *Processor {
 }
 
 func (w *Worker) executeOne(proc *Processor) {
+	// Affinity wakeups must not wait behind an unbounded process step.
+	w.beginExecution()
+	defer w.endExecution()
+
 	// Set worker affinity before any yields can complete.
 	// This ensures async completions route back to this worker.
 	proc.lastWorker.Store(int32(w.id))

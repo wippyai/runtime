@@ -239,6 +239,13 @@ func (s *Scheduler) injectOrGlobal(proc *Processor) {
 		if worker.injectProcessor(proc) {
 			return
 		}
+		// The affine worker may be executing or retiring. The global
+		// queue lets another worker run this processor, and waking all workers
+		// ensures an idle one is notified even if the affine worker is busy.
+		proc.lastWorker.Store(noWorkerAffinity)
+		s.global.Push(proc)
+		s.wakeAll()
+		return
 	}
 	proc.lastWorker.Store(noWorkerAffinity)
 	s.global.Push(proc)
