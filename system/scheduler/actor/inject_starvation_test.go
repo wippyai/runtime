@@ -60,6 +60,36 @@ func (p *affinityBusyProcess) Step(_ []process.Event, out *process.StepOutput) e
 func (*affinityBusyProcess) Send(*relay.Package) error { return nil }
 func (*affinityBusyProcess) Close()                    {}
 
+func TestAffinityWakeupAdmittedBeforeStepIsHandedOff(t *testing.T) {
+	sched := newTestScheduler(2)
+	worker := sched.workerSnapshot()[0]
+	first := &Processor{}
+	second := &Processor{}
+	first.lastWorker.Store(int32(worker.id))
+	second.lastWorker.Store(int32(worker.id))
+
+	// The worker has selected another process but has not entered executeOne.
+	// Both wakeups can still enter its private queue in this window.
+	if !worker.injectProcessor(first) || !worker.injectProcessor(second) {
+		t.Fatal("wakeups were not admitted before step start")
+	}
+	worker.beginExecution()
+	defer worker.endExecution()
+
+	if got := worker.inject.Pop(); got != nil {
+		t.Fatalf("private inject queue retained a wakeup: %p", got)
+	}
+	if got := sched.global.Pop(); got != first {
+		t.Fatalf("first handoff = %p, want %p", got, first)
+	}
+	if got := sched.global.Pop(); got != second {
+		t.Fatalf("second handoff = %p, want %p", got, second)
+	}
+	if first.lastWorker.Load() != noWorkerAffinity || second.lastWorker.Load() != noWorkerAffinity {
+		t.Fatal("handed-off wakeups retained stale worker affinity")
+	}
+}
+
 func TestAffinityWakeupRunsWhilePreviousWorkerIsBusy(t *testing.T) {
 	sched := newTestScheduler(2)
 	sched.Start()

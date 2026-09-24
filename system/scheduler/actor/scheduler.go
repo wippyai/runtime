@@ -236,10 +236,10 @@ func (s *Scheduler) injectOrGlobal(proc *Processor) {
 	workers := s.workerSnapshot()
 	if workerID >= 0 && int(workerID) < len(workers) {
 		worker := workers[workerID]
-		if !worker.executing.Load() && worker.injectProcessor(proc) {
+		if worker.injectProcessor(proc) {
 			return
 		}
-		// The affine worker can be inside a non-yielding step. The global
+		// The affine worker may be executing or retiring. The global
 		// queue lets another worker run this processor, and waking all workers
 		// ensures an idle one is notified even if the affine worker is busy.
 		proc.lastWorker.Store(noWorkerAffinity)
