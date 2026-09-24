@@ -112,7 +112,7 @@ Each process is sandboxed to the capabilities you grant it, your data stays on i
 ```
 git clone https://github.com/wippyai/runtime.git
 cd runtime
-go build -o wippy ./cmd/runner/
+go build -o wippy ./cmd/wippy/
 ```
 
 ## Usage
