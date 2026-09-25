@@ -76,9 +76,15 @@ func (engine) BuildDSN(ec config.EngineConfig) (string, error) {
 	}
 
 	if cfg.File == ":memory:" {
+		if cfg.ForeignKeys {
+			return "file::memory:?mode=memory&_foreign_keys=1", nil
+		}
 		return ":memory:", nil
 	}
 
+	if cfg.ForeignKeys {
+		return "file:" + cfg.File + "?mode=rwc&_foreign_keys=1", nil
+	}
 	return "file:" + cfg.File + "?mode=rwc", nil
 }
 
