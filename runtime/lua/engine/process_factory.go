@@ -260,7 +260,7 @@ func (f *ProcessFactory) isolationBinder(
 				fn.Env = env
 				l.Push(fn)
 				if err := l.PCall(0, 1, nil); err != nil {
-					return fmt.Errorf("failed to load dependency %s: %w", dep.Name, err)
+					return fmt.Errorf("failed to load dependency %s: %w", dep.Name, toAPIError(err))
 				}
 				valueByNode[id] = l.Get(-1)
 				l.Pop(1)

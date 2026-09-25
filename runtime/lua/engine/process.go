@@ -659,6 +659,10 @@ func (p *Process) extractMethod(method string) error {
 		NRet:    1,
 		Protect: true,
 	}); err != nil {
+		var raised *lua.Error
+		if errors.As(err, &raised) {
+			return toAPIError(raised)
+		}
 		return runtimelua.NewExecuteScriptError(err)
 	}
 
@@ -1944,7 +1948,7 @@ func (p *Process) SyncExecute(ctx context.Context, args ...lua.LValue) (lua.LVal
 		NRet:    1,
 		Protect: true,
 	}, args...); err != nil {
-		return lua.LNil, err
+		return lua.LNil, toAPIError(err)
 	}
 
 	// Get result
@@ -2096,7 +2100,8 @@ func extractReturnError(val lua.LValue) error {
 
 // wrapError wraps an error with Lua stack trace and metadata.
 // If the error is already a lua.Error, extracts and returns it.
-// Otherwise creates a new lua.Error with the current Lua stack.
+// Otherwise creates a new lua.Error with the current Lua stack; an error that
+// declares no kind is an internal, non-retryable failure.
 func (p *Process) wrapError(thread *lua.LState, err error) error {
 	if err == nil {
 		return nil
@@ -2114,11 +2119,17 @@ func (p *Process) wrapError(thread *lua.LState, err error) error {
 		l = p.state
 	}
 
-	return lua.WrapErrorWithLua(l, err, "")
+	wrapped := lua.WrapErrorWithLua(l, err, "")
+	if wrapped.Kind() == lua.Unknown {
+		return wrapped.WithKind(lua.Internal).WithRetryable(false)
+	}
+	return wrapped
 }
 
 // toAPIError converts a lua.Error to apierror.Error for crossing the runtime boundary.
 // This ensures errors returned from Step() implement the standard error interface.
+// A wrapped lua.Error cause converts the same way, so the chain keeps each
+// error's metadata.
 func toAPIError(err error) error {
 	if err == nil {
 		return nil
@@ -2148,14 +2159,24 @@ func toAPIError(err error) error {
 		kind = apierror.Internal
 	}
 
+	// A wrapping lua.Error repeats its cause's text in Message and adds only
+	// Context, so a wrapped lua.Error cause becomes the apierror cause and
+	// Context the message.
+	var inner *lua.Error
+	wraps := luaErr.Context != "" && errors.As(luaErr.Unwrap(), &inner)
 	msg := luaErr.Message
-	if msg == "" {
+	if wraps {
+		msg = luaErr.Context
+	} else if msg == "" {
 		msg = luaErr.Error()
 	}
 
 	builder := apierror.New(kind, msg).WithRetryable(retryable)
 	if details := luaErr.Details(); len(details) > 0 {
 		builder = builder.WithDetails(attrs.NewBagFrom(details))
+	}
+	if wraps {
+		return builder.WithCause(toAPIError(inner))
 	}
 	return builder
 }
