@@ -13,6 +13,7 @@ import (
 	moduleapi "github.com/wippyai/runtime/api/modules"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/api/supervisor"
+	apiversion "github.com/wippyai/runtime/api/version"
 	registrylua "github.com/wippyai/runtime/runtime/lua/modules/registry"
 	"github.com/wippyai/runtime/runtime/security"
 )
@@ -24,7 +25,7 @@ var (
 )
 
 func initModuleTable() {
-	mod := lua.CreateTable(0, 13)
+	mod := lua.CreateTable(0, 14)
 
 	mod.RawSetString("memory", createMemoryTable())
 	mod.RawSetString("gc", createGCTable())
@@ -39,9 +40,15 @@ func initModuleTable() {
 	mod.RawSetString("source", createSourceTable())
 	mod.RawSetString("exit", lua.LGoFunc(exit))
 	mod.RawSetString("modules", lua.LGoFunc(modules))
+	mod.RawSetString("version", lua.LGoFunc(systemVersion))
 
 	mod.Immutable = true
 	moduleTable = mod
+}
+
+func systemVersion(l *lua.LState) int {
+	l.Push(lua.LString(apiversion.Short()))
+	return 1
 }
 
 func createSourceTable() *lua.LTable {

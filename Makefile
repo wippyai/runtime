@@ -100,7 +100,7 @@ otel-e2e:
 	go test -tags integration -run TestOTLP_TracesReachJaeger ./tests/ -timeout 120s
 
 # Wippy CLI build targets
-WIPPY_VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
+WIPPY_VERSION ?= $(shell if wippy_description=$$(git describe --tags --always --dirty 2>/dev/null); then printf 'dev-%s' "$$wippy_description"; else printf 'dev'; fi)
 WIPPY_COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 WIPPY_DATE ?= $(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
 WIPPY_BUILDER ?= $(shell whoami)@$(shell hostname)
