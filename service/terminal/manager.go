@@ -16,6 +16,7 @@ import (
 	"github.com/wippyai/runtime/api/runtime"
 	terminalapi "github.com/wippyai/runtime/api/service/terminal"
 	"github.com/wippyai/runtime/api/supervisor"
+	"github.com/wippyai/runtime/api/topology"
 	entryutil "github.com/wippyai/runtime/system/entry"
 	"github.com/wippyai/runtime/system/logs"
 	"github.com/wippyai/runtime/system/scheduler/actor"
@@ -74,6 +75,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	scheduler := actor.NewScheduler(m.commandRegistry,
 		actor.WithWorkers(1),
 		actor.WithLifecycle(lifecycle),
+		actor.WithTopology(topology.GetTopology(ctx)),
 	)
 	h.scheduler = scheduler
 

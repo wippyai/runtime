@@ -63,8 +63,8 @@ func TestBuildChain_ApiErrorWithCause(t *testing.T) {
 	require.NotNil(t, chain)
 	require.Len(t, chain.Errors, 2)
 
-	// err.Error() includes cause: "service down: connection refused"
-	assert.Equal(t, "service down: connection refused", chain.Errors[0].Message)
+	// Each chain entry carries its own message; the cause is the next entry.
+	assert.Equal(t, "service down", chain.Errors[0].Message)
 	assert.Equal(t, "Unavailable", chain.Errors[0].Kind)
 	require.NotNil(t, chain.Errors[0].Retryable)
 	assert.True(t, *chain.Errors[0].Retryable)
@@ -268,8 +268,8 @@ func TestChain_Roundtrip_ApiError(t *testing.T) {
 	restored := FromChain(chain)
 	require.NotNil(t, restored)
 
-	// The err type uses Error() (includes cause) for the chain message
-	assert.Equal(t, "access denied: missing token", restored.Msg())
+	assert.Equal(t, "access denied", restored.Msg())
+	assert.Equal(t, original.Error(), restored.Error())
 	assert.Equal(t, Kind("PermissionDenied"), restored.Kind())
 	assert.Equal(t, False, restored.Retryable())
 	assert.Equal(t, "/admin", restored.Details()["resource"])
