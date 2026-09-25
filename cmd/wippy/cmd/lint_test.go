@@ -5,11 +5,14 @@ package cmd
 import (
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
 	"github.com/wippyai/runtime/api/boot"
+	"github.com/wippyai/runtime/boot/deps/lock"
 
 	"github.com/wippyai/go-lua/compiler/ast"
 	"github.com/wippyai/go-lua/compiler/parse"
@@ -24,6 +27,7 @@ import (
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	transcoder "github.com/wippyai/runtime/system/payload"
 	payloadjson "github.com/wippyai/runtime/system/payload/json"
+	"go.uber.org/zap"
 )
 
 // ambientRequireBuiltins assembles the require allowlist the same way
@@ -110,6 +114,101 @@ func TestExpandLuaEntriesByImports_IncludesDeps(t *testing.T) {
 	if !seen[rootID] || !seen[depID] {
 		t.Fatalf("expected expanded entries to include root and dep; got %v", seen)
 	}
+}
+
+func TestLintLoadsDeclaredReplacementComponentManifest(t *testing.T) {
+	ctx := setupLoaderContext(t)
+	root := t.TempDir()
+	appDir := filepath.Join(root, "app")
+	componentDir := filepath.Join(root, "component")
+	for _, dir := range []string{appDir, filepath.Join(componentDir, "src")} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	appYAML := `version: "1.0"
+namespace: app
+entries:
+  - name: dependency
+    kind: ns.dependency
+    component: acme/types
+    version: "*"
+  - name: consumer
+    kind: library.lua
+    imports:
+      types: acme.types:types
+    source: |
+      local types = require("types")
+      local id: string = types.db_id()
+      return id
+`
+	componentYAML := `version: "1.0"
+namespace: acme.types
+entries:
+  - name: types
+    kind: library.lua
+    source: |
+      local M = {}
+      function M.db_id(): string
+        return "db-1"
+      end
+      return M
+`
+	for path, source := range map[string]string{
+		filepath.Join(appDir, "_index.yaml"):              appYAML,
+		filepath.Join(componentDir, "src", "_index.yaml"): componentYAML,
+	} {
+		if err := os.WriteFile(path, []byte(source), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	lockPath := filepath.Join(root, lock.DefaultFilename)
+	lockObj, err := lock.New(lockPath, lock.WithWorkspaceReplacements([]lock.Replacement{{From: "acme/types", To: "component"}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lockObj.SetDirectories(lock.Directories{Src: "app", Modules: ".wippy"})
+	if err := lockObj.Write(); err != nil {
+		t.Fatal(err)
+	}
+
+	locked, err := loadEntriesFromLockPaths(ctx, lockObj, zap.NewNop())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := len(filterLuaEntries(locked, nil)); got != 1 {
+		t.Fatalf("lock paths alone load %d Lua entries, want only the consumer", got)
+	}
+	loaded, err := loadLintEntriesFromLock(ctx, lockPath, lockObj, zap.NewNop())
+	if err != nil {
+		t.Fatal(err)
+	}
+	allLua := filterLuaEntries(loaded, nil)
+	selected := filterLuaEntries(loaded, []string{"app"})
+	expanded, reportSet := expandLuaEntriesByImports(allLua, selected)
+	if len(expanded) != 2 || !reportSet[registry.NewID("app", "consumer")] {
+		t.Fatalf("expanded imports = %d, report set = %v", len(expanded), reportSet)
+	}
+	linter, lcache := createLinter(ctx, false)
+	result := lintEntries(expanded, reportSet, linter, lcache, lintConfig{minSeverity: severityError, workers: 1}, nil)
+	if result.ErrorCount != 0 {
+		t.Fatalf("consumer should use component manifest, got diagnostics: %+v", result.Diagnostics)
+	}
+}
+
+func TestLintReportsUnresolvedDeclaredImport(t *testing.T) {
+	entry := makeLuaSourceEntry(registry.NewID("app", "consumer"),
+		map[string]registry.ID{"missing": registry.NewID("acme.types", "missing")},
+		`local missing = require("missing"); return missing.db_id()`)
+	linter, lcache := createLinter(setupLoaderContext(t), false)
+	result := lintEntries([]registry.Entry{entry}, nil, linter, lcache,
+		lintConfig{minSeverity: severityError, workers: 1}, nil)
+	for _, diagnostic := range result.Diagnostics {
+		if strings.Contains(diagnostic.Message, `declared import "missing" cannot resolve acme.types:missing`) {
+			return
+		}
+	}
+	t.Fatalf("missing import was silently dropped: %+v", result.Diagnostics)
 }
 
 func runRequireDeclarations(t *testing.T, source string, imports map[string]registry.ID, builtins []string) []string {

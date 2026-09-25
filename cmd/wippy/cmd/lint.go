@@ -8,7 +8,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -21,13 +23,16 @@ import (
 	"github.com/wippyai/go-lua/types/diag"
 	"github.com/wippyai/go-lua/types/io"
 	"github.com/wippyai/runtime/api/boot"
+	"github.com/wippyai/runtime/api/payload"
 	regapi "github.com/wippyai/runtime/api/registry"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	bootpkg "github.com/wippyai/runtime/boot"
 	luaboot "github.com/wippyai/runtime/boot/components/runtime/lua"
+	"github.com/wippyai/runtime/boot/deps/lock"
 	bootextensions "github.com/wippyai/runtime/boot/extensions"
 	appinit "github.com/wippyai/runtime/cmd/internal/app"
 	"github.com/wippyai/runtime/cmd/internal/bootconfig"
+	"github.com/wippyai/runtime/cmd/internal/entries"
 	clilogger "github.com/wippyai/runtime/cmd/internal/logger"
 	"github.com/wippyai/runtime/runtime/lua/code"
 	"github.com/wippyai/runtime/runtime/lua/code/cache"
@@ -411,7 +416,7 @@ func loadLuaEntries(cmd *cobra.Command, runtimeCfg boot.Config, lockFile string,
 		return nil, nil, err
 	}
 
-	allEntries, err := ensureModulesAndLoadEntries(app.Ctx, lockPath, lockObj, logger, false)
+	allEntries, err := loadLintEntriesFromLock(app.Ctx, lockPath, lockObj, logger)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -421,6 +426,52 @@ func loadLuaEntries(cmd *cobra.Command, runtimeCfg boot.Config, lockFile string,
 	expanded, reportSet := expandLuaEntriesByImports(allLua, selected)
 
 	return expanded, reportSet, nil
+}
+
+// loadLintEntriesFromLock includes declared workspace replacement components
+// even when the lock has not selected them yet. Runtime dependency preparation
+// selects these sources before loading entries; lint must see the same source
+// entries to infer manifests for imports from those components.
+func loadLintEntriesFromLock(ctx context.Context, lockPath string, lockObj *lock.Lock, logger *zap.Logger) ([]regapi.Entry, error) {
+	paths := lockObj.GetModuleLoadPaths()
+	seen := make(map[string]bool, len(paths))
+	for _, path := range paths {
+		if path.Module != "" {
+			seen[path.Module] = true
+		}
+	}
+
+	for {
+		loaded, err := entries.LoadEntriesFromModuleLoadPaths(ctx, paths, logger)
+		if err != nil {
+			return nil, NewLoadEntriesError(fmt.Sprintf("lock paths (%s)", lockPath), err)
+		}
+
+		added := false
+		for _, dep := range extractRootDependencies(loaded, payload.GetTranscoder(ctx)) {
+			module := dep.Org + "/" + dep.Module
+			if seen[module] {
+				continue
+			}
+			replacement, ok := lockObj.GetReplacement(module)
+			if !ok || replacement.To == "" {
+				continue
+			}
+			root := lock.ResolveLockPath(filepath.Dir(lockPath), replacement.To)
+			paths = append(paths, lock.ModuleLoadPath{
+				Path:        lock.ModuleEntryLoadPath(root),
+				Module:      module,
+				SourceRoot:  root,
+				Root:        lockObj.IsRootModule(module),
+				Replacement: true,
+			})
+			seen[module] = true
+			added = true
+		}
+		if !added {
+			return loaded, nil
+		}
+	}
 }
 
 func createLinter(ctx context.Context, enableRules bool) (*lint.Linter, lintCache) {
@@ -675,15 +726,26 @@ func lintOneEntry(entry regapi.Entry, data entryData, linter *lint.Linter, manif
 	}
 
 	imports := make(map[string]*io.Manifest)
-	for alias, importID := range data.Imports {
+	var importDiags []diag.Diagnostic
+	aliases := make([]string, 0, len(data.Imports))
+	for alias := range data.Imports {
+		aliases = append(aliases, alias)
+	}
+	sort.Strings(aliases)
+	for _, alias := range aliases {
+		importID := data.Imports[alias]
 		if importID.NS == "" {
 			if manifest := linter.BuiltinManifest(importID.Name); manifest != nil {
 				imports[alias] = manifest
+			} else if !slices.Contains(lcache.builtinModules, importID.Name) {
+				importDiags = append(importDiags, unresolvedImportDiagnostic(entryID, alias, importID))
 			}
 			continue
 		}
-		if manifest, ok := manifestMap[importID]; ok {
+		if manifest, ok := manifestMap[importID]; ok && manifest != nil {
 			imports[alias] = manifest
+		} else {
+			importDiags = append(importDiags, unresolvedImportDiagnostic(entryID, alias, importID))
 		}
 	}
 
@@ -713,6 +775,7 @@ func lintOneEntry(entry regapi.Entry, data entryData, linter *lint.Linter, manif
 	if len(requireDiags) > 0 {
 		lintResult.Diagnostics = append(requireDiags, lintResult.Diagnostics...)
 	}
+	lintResult.Diagnostics = append(importDiags, lintResult.Diagnostics...)
 
 	if lintResult.Manifest != nil && !typecheckCacheHit {
 		lintSaveTypecheckCache(lcache, entry, data, fps.typecheck[entry.ID], fps.typeDeps[entry.ID], lintResult.Manifest, typeDiags)
@@ -760,6 +823,15 @@ func lintOneEntry(entry regapi.Entry, data entryData, linter *lint.Linter, manif
 	}
 
 	return er
+}
+
+func unresolvedImportDiagnostic(entryID, alias string, importID regapi.ID) diag.Diagnostic {
+	return diag.Diagnostic{
+		Position: diag.Position{File: entryID, Line: 1, Column: 1},
+		Code:     diag.ErrNoHandler,
+		Severity: diag.SeverityError,
+		Message:  fmt.Sprintf("declared import %q cannot resolve %s to a type manifest", alias, importID.String()),
+	}
 }
 
 // parseErrorResult reports a syntax error the same way a type error is
