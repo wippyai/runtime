@@ -20,6 +20,7 @@ import (
 	"github.com/wippyai/runtime/api/cluster"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/metrics"
+	"github.com/wippyai/runtime/cluster/internode"
 	"go.opentelemetry.io/otel/attribute"
 	otelmetric "go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
@@ -124,24 +125,25 @@ func (s *Service) SendUserMessage(targetNodeID string, kind byte, payload []byte
 
 // Config holds membership service configuration
 type Config struct {
-	Transport           memberlist.Transport
-	Meta                cluster.NodeMeta
-	SecretKey           []byte
-	SecretString        string
-	NodeName            string
-	BindAddr            string
-	SecretFile          string
-	AdvertiseIP         string
-	JoinAddrs           []string
-	GossipInterval      time.Duration
-	PushPullInterval    time.Duration
-	DeadNodeReclaimTime time.Duration
-	ProbeInterval       time.Duration
-	ProbeTimeout        time.Duration
-	TCPTimeout          time.Duration
-	BindPort            int
-	SuspicionMult       int
-	VeryVerbose         bool
+	Transport              memberlist.Transport
+	Meta                   cluster.NodeMeta
+	SecretKey              []byte
+	SecretString           string
+	NodeName               string
+	BindAddr               string
+	SecretFile             string
+	AdvertiseIP            string
+	AdvertiseCandidateList string
+	JoinAddrs              []string
+	GossipInterval         time.Duration
+	PushPullInterval       time.Duration
+	DeadNodeReclaimTime    time.Duration
+	ProbeInterval          time.Duration
+	ProbeTimeout           time.Duration
+	TCPTimeout             time.Duration
+	BindPort               int
+	SuspicionMult          int
+	VeryVerbose            bool
 }
 
 const (
@@ -309,11 +311,19 @@ func (s *Service) Start(ctx context.Context) error {
 	}
 
 	// Create memberlist
-	ml, err := createMemberlist(s.ctx, mlConfig, memberlist.NewNetTransport)
+	if _, err := internode.ParseCandidateList(s.config.AdvertiseCandidateList, 1); err != nil {
+		return fmt.Errorf("membership advertise candidates: %w", err)
+	}
+	ml, err := createMemberlistWithRoutes(s.ctx, mlConfig, memberlist.NewNetTransport, s.resolveGossipCandidates)
 	if err != nil {
 		return NewCreateMemberlistError(err)
 	}
 	s.memberlist.Store(ml)
+	if err := s.publishGossipCandidates(); err != nil {
+		_ = ml.Shutdown()
+		s.memberlist.Store(nil)
+		return err
+	}
 
 	// Join cluster if addresses are configured. Seed availability is not a
 	// readiness condition: the local memberlist is already active and can serve
@@ -561,6 +571,53 @@ func (s *Service) Nodes() []cluster.NodeInfo {
 		nodes = append(nodes, node)
 	}
 	return nodes
+}
+
+func (s *Service) resolveGossipCandidates(nodeID string) []string {
+	s.mu.RLock()
+	info, ok := s.nodes[nodeID]
+	s.mu.RUnlock()
+	if !ok {
+		return nil
+	}
+	candidates, err := internode.DecodeCandidates(info.Meta[internode.MetadataGossipCandidatesV3])
+	if err != nil {
+		return nil
+	}
+	out := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		out = append(out, candidate.Address())
+	}
+	return out
+}
+
+func (s *Service) publishGossipCandidates() error {
+	ml := s.memberlist.Load()
+	if ml == nil {
+		return nil
+	}
+	port := int(ml.LocalNode().Port)
+	configured, err := internode.ParseCandidateList(s.config.AdvertiseCandidateList, port)
+	if err != nil {
+		return fmt.Errorf("membership advertise candidates: %w", err)
+	}
+	if s.config.AdvertiseIP != "" {
+		configured = append([]internode.Candidate{{Host: s.config.AdvertiseIP, Port: port}}, configured...)
+	}
+	candidates := internode.DiscoverCandidates(configured, s.config.BindAddr, port)
+	if len(candidates) == 0 {
+		return nil
+	}
+	encoded, err := internode.EncodeCandidatesForMetaKey(s.LocalNode().Meta, internode.MetadataGossipCandidatesV3, candidates)
+	if err != nil {
+		return err
+	}
+	if encoded == "" {
+		s.logger.Warn("no room for gossip candidate metadata")
+		return nil
+	}
+	s.UpdateMeta(map[string]string{internode.MetadataGossipCandidatesV3: encoded})
+	return nil
 }
 
 // LocalNode returns information about the local node.

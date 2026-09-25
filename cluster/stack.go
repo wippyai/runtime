@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"net"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -43,11 +44,13 @@ import (
 // visible to peers via the gossip layer. Stop tears the stack down in the
 // reverse order. Stack is not safe for concurrent Start/Stop.
 type Stack struct {
-	Node       *relay.Node
-	Router     *relay.Router
-	Membership *membership.Service
-	ConnMgr    internode.ConnectionManager
-	Internode  *internode.Service
+	Node                *relay.Node
+	Router              *relay.Router
+	Membership          *membership.Service
+	ConnMgr             internode.ConnectionManager
+	Internode           *internode.Service
+	advertiseCandidates []internode.Candidate
+	internodeBindAddr   string
 
 	mu      sync.Mutex
 	started bool
@@ -69,16 +72,20 @@ type StackConfig struct {
 	// the harness to avoid disturbing the runtime's raft quorum.
 	Meta clusterapi.NodeMeta
 
-	NodeName                 string
-	MembershipBindAddr       string
-	MembershipAdvertise      string
-	SecretKey                string
-	SecretFile               string
-	InternodeIdentityKey     string
-	InternodeIdentityKeyFile string
-	InternodeTrustedPeerKeys map[string]string
-	InternodePeerKeySource   clusterapi.PeerKeySource
-	InternodeBindAddr        string
+	NodeName                      string
+	MembershipBindAddr            string
+	MembershipAdvertise           string
+	MembershipAdvertiseCandidates []string
+	SecretKey                     string
+	SecretFile                    string
+	InternodeIdentityKey          string
+	InternodeIdentityKeyFile      string
+	InternodeTrustedPeerKeys      map[string]string
+	InternodePeerKeySource        clusterapi.PeerKeySource
+	InternodeBindAddr             string
+	// InternodeAdvertiseCandidates are explicit listener or forwarded endpoints.
+	// Active non-loopback interfaces are added automatically at Start.
+	InternodeAdvertiseCandidates []internode.Candidate
 	// InternodeTLS selects the existing native mutual-TLS transport. Certificate
 	// loading happens during Start. The zero value preserves plaintext transport.
 	InternodeTLS                  internode.ManagerTLSConfig
@@ -173,20 +180,21 @@ func AssembleStack(cfg StackConfig) (*Stack, error) {
 	meta[internode.MetadataPublicKey] = base64.RawStdEncoding.EncodeToString(publicKey)
 
 	memCfg := membership.Config{
-		NodeName:            cfg.NodeName,
-		BindAddr:            stringOr(cfg.MembershipBindAddr, "0.0.0.0"),
-		BindPort:            cfg.MembershipBindPort,
-		JoinAddrs:           cfg.JoinAddrs,
-		SecretKey:           secretKey,
-		AdvertiseIP:         cfg.MembershipAdvertise,
-		GossipInterval:      cfg.MembershipGossipInterval,
-		PushPullInterval:    cfg.MembershipPushPullInterval,
-		DeadNodeReclaimTime: cfg.MembershipDeadNodeReclaimTime,
-		ProbeInterval:       cfg.MembershipProbeInterval,
-		ProbeTimeout:        cfg.MembershipProbeTimeout,
-		TCPTimeout:          cfg.MembershipTCPTimeout,
-		SuspicionMult:       cfg.MembershipSuspicionMult,
-		Meta:                meta,
+		NodeName:               cfg.NodeName,
+		BindAddr:               stringOr(cfg.MembershipBindAddr, "0.0.0.0"),
+		BindPort:               cfg.MembershipBindPort,
+		JoinAddrs:              cfg.JoinAddrs,
+		SecretKey:              secretKey,
+		AdvertiseIP:            cfg.MembershipAdvertise,
+		AdvertiseCandidateList: strings.Join(cfg.MembershipAdvertiseCandidates, ","),
+		GossipInterval:         cfg.MembershipGossipInterval,
+		PushPullInterval:       cfg.MembershipPushPullInterval,
+		DeadNodeReclaimTime:    cfg.MembershipDeadNodeReclaimTime,
+		ProbeInterval:          cfg.MembershipProbeInterval,
+		ProbeTimeout:           cfg.MembershipProbeTimeout,
+		TCPTimeout:             cfg.MembershipTCPTimeout,
+		SuspicionMult:          cfg.MembershipSuspicionMult,
+		Meta:                   meta,
 	}
 
 	memSvc = membership.NewService(
@@ -220,11 +228,13 @@ func AssembleStack(cfg StackConfig) (*Stack, error) {
 	router := relay.NewRouter(node, intSvc)
 
 	return &Stack{
-		Node:       node,
-		Router:     router,
-		Membership: memSvc,
-		ConnMgr:    connMgr,
-		Internode:  intSvc,
+		Node:                node,
+		Router:              router,
+		Membership:          memSvc,
+		ConnMgr:             connMgr,
+		Internode:           intSvc,
+		advertiseCandidates: append([]internode.Candidate(nil), cfg.InternodeAdvertiseCandidates...),
+		internodeBindAddr:   mgrCfg.BindAddr,
 	}, nil
 }
 
@@ -239,9 +249,43 @@ func (s *Stack) Start(ctx context.Context) error {
 	if err := s.Internode.Start(ctx); err != nil {
 		return fmt.Errorf("cluster: start internode: %w", err)
 	}
-	s.Membership.UpdateMeta(map[string]string{
-		internode.MetadataPort: strconv.Itoa(s.ConnMgr.GetListenPort()),
-	})
+	port := s.ConnMgr.GetListenPort()
+	meta := map[string]string{internode.MetadataPort: strconv.Itoa(port)}
+	base := map[string]string{}
+	for k, v := range s.Membership.LocalNode().Meta {
+		base[k] = v
+	}
+	base[internode.MetadataPort] = meta[internode.MetadataPort]
+	if len(s.advertiseCandidates) > 0 {
+		first := s.advertiseCandidates[0]
+		if first.Port == 0 {
+			first.Port = port
+		}
+		if !internode.ValidEndpointHost(first.Host) || first.Port < 1 || first.Port > 65535 {
+			_ = s.Internode.Stop()
+			return fmt.Errorf("cluster: invalid internode advertised candidate")
+		}
+		meta[internode.MetadataAdvertiseAddr] = first.Host
+		meta[internode.MetadataAdvertisePort] = strconv.Itoa(first.Port)
+		base[internode.MetadataAdvertiseAddr] = first.Host
+		base[internode.MetadataAdvertisePort] = meta[internode.MetadataAdvertisePort]
+	}
+	configured := append([]internode.Candidate(nil), s.advertiseCandidates...)
+	for i := range configured {
+		if configured[i].Port == 0 {
+			configured[i].Port = port
+		}
+	}
+	candidates := internode.DiscoverCandidates(configured, s.internodeBindAddr, port)
+	encoded, err := internode.EncodeCandidatesForMeta(base, candidates)
+	if err != nil {
+		_ = s.Internode.Stop()
+		return fmt.Errorf("cluster: advertise candidates: %w", err)
+	}
+	if encoded != "" {
+		meta[internode.MetadataCandidatesV3] = encoded
+	}
+	s.Membership.UpdateMeta(meta)
 	if err := s.Membership.Start(ctx); err != nil {
 		// memberlist.Create binds the gossip port BEFORE attempting Join,
 		// so a Join failure leaks the port even though Start returned an

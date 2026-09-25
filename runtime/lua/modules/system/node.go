@@ -18,6 +18,7 @@ type nodeInfo struct {
 	id      string
 	addr    string
 	isLocal bool
+	mesh    *cluster.MeshPeerStatus
 }
 
 // collectNodes assembles a deduplicated, sorted snapshot of the cluster
@@ -81,6 +82,16 @@ func collectNodes(ctx context.Context) []nodeInfo {
 	if len(nodes) == 0 {
 		return nil
 	}
+	if source := cluster.GetMeshPeerStatusSource(ctx); source != nil {
+		for i := range nodes {
+			if nodes[i].isLocal {
+				continue
+			}
+			if status, ok := source.MeshPeerStatus(nodes[i].id); ok {
+				nodes[i].mesh = &status
+			}
+		}
+	}
 
 	sort.SliceStable(nodes, func(i, j int) bool {
 		if nodes[i].isLocal != nodes[j].isLocal {
@@ -107,6 +118,21 @@ func pushNodes(l *lua.LState, nodes []nodeInfo) *lua.LTable {
 				meta.RawSetString(key, lua.LString(val))
 			}
 			t.RawSetString("meta", meta)
+		}
+		if node.mesh != nil {
+			mesh := l.CreateTable(0, 7)
+			mesh.RawSetString("state", lua.LString(node.mesh.State))
+			mesh.RawSetString("direction", lua.LString(node.mesh.Direction))
+			mesh.RawSetString("path", lua.LString(node.mesh.Path))
+			mesh.RawSetString("local_address", lua.LString(node.mesh.LocalAddress))
+			mesh.RawSetString("remote_address", lua.LString(node.mesh.RemoteAddress))
+			mesh.RawSetString("observed", lua.LString(node.mesh.Observed))
+			candidates := l.CreateTable(len(node.mesh.Candidates), 0)
+			for j, candidate := range node.mesh.Candidates {
+				candidates.RawSetInt(j+1, lua.LString(candidate))
+			}
+			mesh.RawSetString("candidates", candidates)
+			t.RawSetString("mesh", mesh)
 		}
 		result.RawSetInt(i+1, t)
 	}

@@ -31,25 +31,26 @@ import (
 )
 
 func TestClusterBootPublishesOnlyRetainedListener(t *testing.T) {
-	t.Run("normal_shutdown", func(t *testing.T) { checkClusterBootListener(t, false, nil, false) })
-	t.Run("offline_seed_shutdown", func(t *testing.T) { checkClusterBootListener(t, true, nil, false) })
+	t.Run("normal_shutdown", func(t *testing.T) { checkClusterBootListener(t, false, nil, false, false) })
+	t.Run("offline_seed_shutdown", func(t *testing.T) { checkClusterBootListener(t, true, nil, false, false) })
+	t.Run("candidate_publication", func(t *testing.T) { checkClusterBootListener(t, false, nil, false, true) })
 }
 
 func TestClusterBootRequiresNativePeerKeySource(t *testing.T) {
 	t.Run("native", func(t *testing.T) {
 		checkClusterBootListener(t, false, clusterapi.PeerKeySource(func(string) (ed25519.PublicKey, bool) {
 			return nil, false
-		}), false)
+		}), false, false)
 	})
 	t.Run("yaml_value", func(t *testing.T) {
-		checkClusterBootListener(t, false, "allow-all", true)
+		checkClusterBootListener(t, false, "allow-all", true, false)
 	})
 	t.Run("nil_function", func(t *testing.T) {
-		checkClusterBootListener(t, false, clusterapi.PeerKeySource(nil), true)
+		checkClusterBootListener(t, false, clusterapi.PeerKeySource(nil), true, false)
 	})
 }
 
-func checkClusterBootListener(t *testing.T, offlineSeed bool, source any, wantLoadError bool) {
+func checkClusterBootListener(t *testing.T, offlineSeed bool, source any, wantLoadError, advertiseCandidates bool) {
 	t.Helper()
 	pub, key, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
@@ -67,6 +68,10 @@ func checkClusterBootListener(t *testing.T, offlineSeed bool, source any, wantLo
 	}
 	if source != nil {
 		settings[ClusterInternodePeerKeySource] = source
+	}
+	if advertiseCandidates {
+		settings[ClusterInternodeAdvertiseCandidates] = "100.70.0.69"
+		settings[ClusterMembershipAdvertiseCandidates] = "100.70.0.69"
 	}
 	if offlineSeed {
 		settings[ClusterMembershipJoin] = "127.0.0.1:1"
@@ -103,6 +108,10 @@ func checkClusterBootListener(t *testing.T, offlineSeed bool, source any, wantLo
 	port, err := strconv.Atoi(node.Meta[internode.MetadataPort])
 	require.NoError(t, err)
 	require.Positive(t, port)
+	if advertiseCandidates {
+		require.NotEmpty(t, node.Meta[internode.MetadataCandidatesV3])
+		require.NotEmpty(t, node.Meta[internode.MetadataGossipCandidatesV3])
+	}
 	endpoint := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
 	probe, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", endpoint)
 	if probe != nil {

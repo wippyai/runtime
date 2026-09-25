@@ -102,6 +102,35 @@ func TestClusterMembers_WithMembership(t *testing.T) {
 	require.NoError(t, err)
 }
 
+type stubMeshPaths map[string]cluster.MeshPeerStatus
+
+func (s stubMeshPaths) MeshPeerStatus(id cluster.NodeID) (cluster.MeshPeerStatus, bool) {
+	status, ok := s[id]
+	return status, ok
+}
+
+func TestClusterMembers_ReportsAuthenticatedMeshPath(t *testing.T) {
+	l, ctx := newClusterTestState(t)
+	ctx = cluster.WithMembership(ctx, &stubMembership{
+		local: cluster.NodeInfo{ID: "self"},
+		peers: []cluster.NodeInfo{{ID: "peer", Addr: "192.0.2.1:7946"}},
+	})
+	ctx = cluster.WithMeshPeerStatusSource(ctx, stubMeshPaths{"peer": {
+		State: "CONNECTED", Direction: "outbound", Path: "100.70.0.69:9000",
+		LocalAddress: "100.70.10.28:55555", RemoteAddress: "100.70.0.69:9000",
+		Candidates: []string{"192.0.2.1:9000", "100.70.0.69:9000"},
+	}})
+	l.SetContext(ctx)
+	require.NoError(t, l.DoString(`
+		local members, err = system.cluster.members()
+		assert(err == nil)
+		assert(members[2].mesh.state == "CONNECTED")
+		assert(members[2].mesh.path == "100.70.0.69:9000")
+		assert(members[2].mesh.direction == "outbound")
+		assert(#members[2].mesh.candidates == 2)
+	`))
+}
+
 func TestClusterMembers_Unavailable(t *testing.T) {
 	l, _ := newClusterTestState(t)
 

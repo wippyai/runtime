@@ -127,11 +127,22 @@ var supervisorType = typ.NewInterface("system.supervisor", []typ.Method{
 })
 
 // NodeInfo type describing a cluster member.
+var meshPeerStatusType = typ.NewRecord().
+	Field("state", typ.String).
+	Field("direction", typ.String).
+	Field("path", typ.String).
+	Field("local_address", typ.String).
+	Field("remote_address", typ.String).
+	Field("observed", typ.String).
+	Field("candidates", typ.NewArray(typ.String)).
+	Build()
+
 var nodeInfoType = typ.NewRecord().
 	Field("id", typ.String).
 	Field("is_local", typ.Boolean).
 	Field("addr", typ.NewOptional(typ.String)).
 	Field("meta", typ.NewOptional(typ.NewMap(typ.String, typ.String))).
+	Field("mesh", typ.NewOptional(meshPeerStatusType)).
 	Build()
 
 // node submodule type

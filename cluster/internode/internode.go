@@ -5,6 +5,7 @@ package internode
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"strconv"
 	"strings"
@@ -174,6 +175,26 @@ func (s *Service) Stop() error {
 	return s.connMan.Stop()
 }
 
+// PeerStatus returns the current internode route for a managed peer.
+func (s *Service) PeerStatus(nodeID cluster.NodeID) (PeerPathStatus, bool) {
+	multi, ok := s.connMan.(MultipathManager)
+	if !ok {
+		return PeerPathStatus{}, false
+	}
+	return multi.PeerStatus(nodeID)
+}
+
+// RequestReverseConnect accepts candidates delivered by a trusted rendezvous
+// after it has authenticated nodeID. The internode handshake verifies the
+// peer's pinned key before adoption.
+func (s *Service) RequestReverseConnect(nodeID cluster.NodeID, candidates []Candidate) error {
+	multi, ok := s.connMan.(MultipathManager)
+	if !ok {
+		return fmt.Errorf("internode multipath unavailable")
+	}
+	return multi.RequestReverseConnect(nodeID, candidates)
+}
+
 var ErrContextQueueUnsupported = errors.New("internode: connection manager does not support cancellable queue admission")
 
 // SendContext transfers package ownership only on successful queue admission.
@@ -336,7 +357,31 @@ func (s *Service) connectToNode(nodeInfo cluster.NodeInfo) {
 		}
 		addr, port = advertiseAddr, advertisePortNumber
 	}
-
+	if raw := nodeInfo.Meta[MetadataCandidatesV3]; raw != "" {
+		candidates, err := DecodeCandidates(raw)
+		if err != nil {
+			s.logger.Warn("Invalid v3 internode candidates", zap.String("node_id", nodeInfo.ID), zap.Error(err))
+		} else if multi, ok := s.connMan.(MultipathManager); ok {
+			// Keep the v2 and v1 addresses in the pool for rolling upgrades and
+			// for peers whose discovered interface path is not reachable here.
+			legacy := Candidate{Host: addr, Port: port}
+			found := false
+			for _, c := range candidates {
+				if c.Address() == legacy.Address() {
+					found = true
+					break
+				}
+			}
+			if !found {
+				if len(candidates) == MaxCandidates {
+					candidates = candidates[:MaxCandidates-1]
+				}
+				candidates = append(candidates, legacy)
+			}
+			multi.EnsureCandidates(nodeInfo.ID, candidates)
+			return
+		}
+	}
 	s.connMan.EnsureConnection(nodeInfo.ID, addr, port)
 }
 

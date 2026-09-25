@@ -72,6 +72,8 @@ type ManagerConfig struct {
 	AuthenticationKey []byte
 	SigningKey        ed25519.PrivateKey
 	TLS               ManagerTLSConfig
+	// MaxRetryAttempts caps the exponential phase. Managed peers continue
+	// retrying at MaxRetryDelay so a later path can recover without a new event.
 	MaxRetryAttempts  int
 	BindPort          int
 	CommandQueueSize  int
@@ -136,34 +138,59 @@ const (
 )
 
 type connectData struct {
-	Addr string
-	Port int
+	Addr  string
+	Port  int
+	Force bool
 }
 
 type connectedData struct {
 	Connection *NodeConnection
+	Candidate  Candidate
+	Direction  string
 }
 
 type disconnectedData struct {
 	Error       error
 	ShouldRetry bool
+	Connection  *NodeConnection
 }
 
 type nodeControlLoop struct {
-	ctx        context.Context
-	manager    *manager
-	commands   chan nodeCommand
-	connection *NodeConnection
-	logger     *zap.Logger
-	cancel     context.CancelFunc
-	nodeID     cluster.NodeID
-	nodeState  *NodeState
-	addr       string
-	state      ConnectionState
-	retryDelay time.Duration
-	retryCount int
-	port       int
-	isOutbound bool
+	ctx           context.Context
+	manager       *manager
+	commands      chan nodeCommand
+	connection    *NodeConnection
+	logger        *zap.Logger
+	cancel        context.CancelFunc
+	nodeID        cluster.NodeID
+	nodeState     *NodeState
+	addr          string
+	state         ConnectionState
+	retryDelay    time.Duration
+	retryCount    int
+	port          int
+	isOutbound    bool
+	forceOutbound bool
+}
+
+// PeerPathStatus is a snapshot of the authenticated internode connection.
+// Socket addresses report the live route, including proxy and NAT endpoints.
+type PeerPathStatus struct {
+	State         string      `json:"state"`
+	Direction     string      `json:"direction,omitempty"`
+	Path          Candidate   `json:"path"`
+	LocalAddress  string      `json:"local_address,omitempty"`
+	RemoteAddress string      `json:"remote_address,omitempty"`
+	Observed      Candidate   `json:"observed"`
+	Candidates    []Candidate `json:"candidates"`
+}
+
+// MultipathManager extends the legacy manager contract without forcing hosts
+// with custom ConnectionManager implementations to change during upgrades.
+type MultipathManager interface {
+	EnsureCandidates(cluster.NodeID, []Candidate)
+	RequestReverseConnect(cluster.NodeID, []Candidate) error
+	PeerStatus(cluster.NodeID) (PeerPathStatus, bool)
 }
 
 type ConnectionManager interface {
@@ -362,6 +389,75 @@ func (m *manager) EnsureConnection(nodeID cluster.NodeID, addr string, port int)
 		Type: cmdConnect,
 		Data: connectData{Addr: addr, Port: port},
 	})
+}
+
+// EnsureCandidates refreshes the full pool even while connected. Reconnects
+// race the current pool, starting with the last identity-verified winner.
+func (m *manager) EnsureCandidates(nodeID cluster.NodeID, candidates []Candidate) {
+	if !m.IsManaged(nodeID) {
+		return
+	}
+	clean := normalizeCandidates(candidates, false)
+	if len(clean) == 0 {
+		return
+	}
+	m.nodeStates.updateCandidates(nodeID, clean)
+	_, state := m.nodeStates.GetNodeConnection(nodeID)
+	if state == StateConnected || !m.shouldInitiateConnection(nodeID) {
+		return
+	}
+	m.sendCommand(nodeID, nodeCommand{Type: cmdConnect, Data: connectData{Addr: clean[0].Host, Port: clean[0].Port}})
+}
+
+// RequestReverseConnect is called by a trusted rendezvous or an authenticated
+// session handler after validating the requester's node ID. The listener still
+// proves the pinned Ed25519 identity during the ordinary handshake.
+func (m *manager) RequestReverseConnect(nodeID cluster.NodeID, candidates []Candidate) error {
+	if !m.IsManaged(nodeID) {
+		return ErrNodeNotManaged
+	}
+	clean := normalizeCandidates(candidates, false)
+	if len(clean) == 0 {
+		return fmt.Errorf("reverse connect needs a candidate")
+	}
+	m.nodeStates.updateCandidates(nodeID, clean)
+	m.sendCommand(nodeID, nodeCommand{Type: cmdConnect, Data: connectData{Addr: clean[0].Host, Port: clean[0].Port, Force: true}})
+	return nil
+}
+
+func (m *manager) PeerStatus(nodeID cluster.NodeID) (PeerPathStatus, bool) {
+	state := m.nodeStates.GetNodeState(nodeID)
+	if state == nil {
+		return PeerPathStatus{}, false
+	}
+	state.stateMu.RLock()
+	defer state.stateMu.RUnlock()
+	status := PeerPathStatus{State: state.state.String(), Observed: state.observed,
+		Candidates: append([]Candidate(nil), state.candidates...)}
+	if state.state == StateConnected {
+		status.Direction, status.Path = state.direction, state.path
+		status.LocalAddress, status.RemoteAddress = state.localPath, state.remotePath
+	}
+	return status, true
+}
+
+func (m *manager) MeshPeerStatus(nodeID cluster.NodeID) (cluster.MeshPeerStatus, bool) {
+	status, ok := m.PeerStatus(nodeID)
+	if !ok {
+		return cluster.MeshPeerStatus{}, false
+	}
+	path := cluster.MeshPeerStatus{State: status.State, Direction: status.Direction,
+		LocalAddress: status.LocalAddress, RemoteAddress: status.RemoteAddress}
+	if status.Path.Host != "" && status.State == StateConnected.String() {
+		path.Path = status.Path.Address()
+	}
+	if status.Observed.Host != "" {
+		path.Observed = status.Observed.Address()
+	}
+	for _, candidate := range status.Candidates {
+		path.Candidates = append(path.Candidates, candidate.Address())
+	}
+	return path, true
 }
 
 func (m *manager) DisconnectFromNode(nodeID cluster.NodeID) {
@@ -616,6 +712,7 @@ func (loop *nodeControlLoop) handleCommand(cmd nodeCommand) bool {
 func (loop *nodeControlLoop) handleConnect(data connectData) {
 	loop.addr = data.Addr
 	loop.port = data.Port
+	loop.forceOutbound = loop.forceOutbound || data.Force
 	loop.logger.Debug("handleConnect called",
 		zap.String("addr", data.Addr),
 		zap.Int("port", data.Port),
@@ -629,11 +726,10 @@ func (loop *nodeControlLoop) handleConnect(data connectData) {
 		return
 	}
 
-	addr, port := loop.addr, loop.port
 	loop.manager.wg.Add(1)
 	go func() {
 		defer loop.manager.wg.Done()
-		loop.attemptConnection(addr, port)
+		loop.attemptConnection()
 	}()
 }
 
@@ -667,6 +763,10 @@ func (loop *nodeControlLoop) handleConnected(data connectedData) {
 		loop.state = StateNone
 		return
 	}
+	loop.manager.nodeStates.recordPath(loop.nodeID, loop.nodeState, loop.connection, data.Candidate, data.Direction)
+	loop.nodeState.stateMu.Lock()
+	loop.nodeState.allowReverse = false
+	loop.nodeState.stateMu.Unlock()
 	loop.logger.Info("Connection established successfully", zap.Bool("is_outbound", loop.isOutbound))
 
 	// Wire the connection's writeLoop to drain this node's per-class queues
@@ -705,6 +805,14 @@ func (loop *nodeControlLoop) bindConnectionDrain() {
 }
 
 func (loop *nodeControlLoop) handleDisconnected(data disconnectedData) {
+	// A failed race must never tear down an inbound winner; likewise a late
+	// monitor from an older socket cannot close its replacement.
+	if data.Connection == nil && loop.state == StateConnected {
+		return
+	}
+	if data.Connection != nil && data.Connection != loop.connection {
+		return
+	}
 	loop.logger.Debug("handleDisconnected called",
 		zap.String("state", loop.state.String()),
 		zap.Bool("should_retry", data.ShouldRetry),
@@ -723,19 +831,30 @@ func (loop *nodeControlLoop) handleDisconnected(data disconnectedData) {
 	}
 	loop.manager.nodeStates.setNodeConnectionForState(loop.nodeID, loop.nodeState, nil, StateNone)
 
-	if data.ShouldRetry && loop.isOutbound && loop.retryCount < loop.manager.config.MaxRetryAttempts {
+	if data.ShouldRetry && loop.isOutbound {
 		loop.state = StateRetrying
-		loop.retryCount++
-		if loop.retryDelay < loop.manager.config.MaxRetryDelay {
-			loop.retryDelay *= 2
+		loop.nodeState.stateMu.Lock()
+		loop.nodeState.allowReverse = true
+		loop.nodeState.stateMu.Unlock()
+		if loop.retryCount < loop.manager.config.MaxRetryAttempts {
+			loop.retryCount++
+			if loop.retryDelay < loop.manager.config.MaxRetryDelay {
+				loop.retryDelay *= 2
+			}
+		} else {
+			loop.retryDelay = loop.manager.config.MaxRetryDelay
+		}
+		if loop.retryDelay > loop.manager.config.MaxRetryDelay {
+			loop.retryDelay = loop.manager.config.MaxRetryDelay
 		}
 		fallbackAddr, fallbackPort := loop.addr, loop.port
+		forceOutbound := loop.forceOutbound
 		time.AfterFunc(loop.retryDelay, func() {
 			addr, port, hasAddr := loop.manager.nodeStates.getNodeAddressForState(loop.nodeID, loop.nodeState)
 			if !hasAddr {
 				addr, port = fallbackAddr, fallbackPort
 			}
-			loop.sendCommandToSelf(nodeCommand{Type: cmdConnect, Data: connectData{Addr: addr, Port: port}})
+			loop.sendCommandToSelf(nodeCommand{Type: cmdConnect, Data: connectData{Addr: addr, Port: port, Force: forceOutbound}})
 		})
 	} else {
 		loop.state = StateNone
@@ -761,11 +880,69 @@ func (loop *nodeControlLoop) sendCommandToSelf(cmd nodeCommand) {
 	}
 }
 
-func (loop *nodeControlLoop) attemptConnection(addr string, port int) {
+func (loop *nodeControlLoop) attemptConnection() {
 	if loop.ctx.Err() != nil {
 		return
 	}
-	targetAddr := net.JoinHostPort(addr, fmt.Sprintf("%d", port))
+	candidates := loop.manager.nodeStates.candidatesForState(loop.nodeID, loop.nodeState)
+	if len(candidates) == 0 {
+		candidates = normalizeCandidates([]Candidate{{Host: loop.addr, Port: loop.port}}, false)
+	}
+	if len(candidates) == 0 {
+		loop.sendDisconnected(fmt.Errorf("no valid peer candidate"), true)
+		return
+	}
+	type result struct {
+		conn      *NodeConnection
+		candidate Candidate
+		err       error
+	}
+	ctx, cancel := context.WithCancel(loop.ctx)
+	results := make(chan result, len(candidates))
+	for i, candidate := range candidates {
+		loop.manager.wg.Add(1)
+		go func(i int, c Candidate) {
+			defer loop.manager.wg.Done()
+			if i > 0 {
+				t := time.NewTimer(time.Duration(i) * 25 * time.Millisecond)
+				defer t.Stop()
+				select {
+				case <-ctx.Done():
+					results <- result{err: ctx.Err()}
+					return
+				case <-t.C:
+				}
+			}
+			conn, err := loop.dialCandidate(ctx, c)
+			results <- result{conn: conn, candidate: c, err: err}
+		}(i, candidate)
+	}
+	var lastErr error
+	for remaining := len(candidates); remaining > 0; remaining-- {
+		r := <-results
+		if r.err != nil {
+			lastErr = r.err
+			continue
+		}
+		cancel()
+		// The remaining attempts may finish after this control-loop command.
+		// Drain and close their authenticated sockets without publishing them.
+		go func(n int) {
+			for i := 0; i < n; i++ {
+				if late := <-results; late.conn != nil {
+					late.conn.Close()
+				}
+			}
+		}(remaining - 1)
+		loop.sendCommandToSelf(nodeCommand{Type: cmdConnected, Data: connectedData{Connection: r.conn, Candidate: r.candidate, Direction: "outbound"}})
+		return
+	}
+	cancel()
+	loop.sendDisconnected(lastErr, true)
+}
+
+func (loop *nodeControlLoop) dialCandidate(ctx context.Context, candidate Candidate) (*NodeConnection, error) {
+	targetAddr := candidate.Address()
 	loop.logger.Debug("Attempting outbound connection", zap.String("target_addr", targetAddr))
 	var conn net.Conn
 	var err error
@@ -774,21 +951,25 @@ func (loop *nodeControlLoop) attemptConnection(addr string, port int) {
 			NetDialer: &net.Dialer{Timeout: loop.manager.config.HandshakeTimeout},
 			Config:    loop.manager.tlsConfig,
 		}
-		conn, err = dialer.DialContext(loop.ctx, "tcp", targetAddr)
+		conn, err = dialer.DialContext(ctx, "tcp", targetAddr)
 	} else {
 		dialer := &net.Dialer{Timeout: loop.manager.config.HandshakeTimeout}
-		conn, err = dialer.DialContext(loop.ctx, "tcp", targetAddr)
+		conn, err = dialer.DialContext(ctx, "tcp", targetAddr)
 	}
 	if err != nil {
-		loop.sendDisconnected(err, true)
-		return
+		return nil, err
 	}
+	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
 	nodeConn, err := PerformClientHandshake(conn, loop.manager.config.NodeConnectionConfig(), loop.logger, loop.manager.config.LocalNodeID, loop.nodeID)
+	stop()
 	if err != nil {
-		loop.sendDisconnected(err, true)
-		return
+		return nil, err
 	}
-	loop.sendCommandToSelf(nodeCommand{Type: cmdConnected, Data: connectedData{Connection: nodeConn}})
+	if ctx.Err() != nil {
+		nodeConn.Close()
+		return nil, ctx.Err()
+	}
+	return nodeConn, nil
 }
 
 func (loop *nodeControlLoop) monitorConnection(conn *NodeConnection) {
@@ -809,7 +990,7 @@ func (loop *nodeControlLoop) monitorConnection(conn *NodeConnection) {
 			shouldRetry = connErr.ShouldRetry()
 		}
 	}
-	loop.sendDisconnected(err, shouldRetry)
+	loop.sendCommandToSelf(nodeCommand{Type: cmdDisconnected, Data: disconnectedData{Error: err, ShouldRetry: shouldRetry, Connection: conn}})
 }
 
 func (loop *nodeControlLoop) sendDisconnected(err error, shouldRetry bool) {
@@ -925,7 +1106,7 @@ func (m *manager) handleInboundConnection(conn net.Conn) {
 	m.logger.Debug("Accepting inbound connection, sending cmdConnected", zap.String("remote_node", remoteNodeID))
 	m.sendCommand(remoteNodeID, nodeCommand{
 		Type: cmdConnected,
-		Data: connectedData{Connection: nodeConn},
+		Data: connectedData{Connection: nodeConn, Direction: "inbound"},
 	})
 }
 
@@ -934,7 +1115,16 @@ func (m *manager) shouldInitiateConnection(remoteNodeID cluster.NodeID) bool {
 }
 
 func (m *manager) shouldDropInbound(remoteNodeID cluster.NodeID) bool {
-	return m.shouldInitiateConnection(remoteNodeID)
+	if !m.shouldInitiateConnection(remoteNodeID) {
+		return false
+	}
+	state := m.nodeStates.GetNodeState(remoteNodeID)
+	if state == nil {
+		return true
+	}
+	state.stateMu.RLock()
+	defer state.stateMu.RUnlock()
+	return !state.allowReverse
 }
 
 func loadTLSConfig(cfg ManagerTLSConfig) (*tls.Config, error) {

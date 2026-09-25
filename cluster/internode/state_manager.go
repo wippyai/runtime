@@ -5,6 +5,8 @@ package internode
 import (
 	"context"
 	"errors"
+	"net"
+	"strconv"
 	"sync"
 	"time"
 
@@ -34,6 +36,15 @@ type NodeState struct {
 	connection    *NodeConnection
 	queueMu       queueMutex
 	address       nodeAddress
+	candidates    []Candidate // guarded by stateMu; retained across reconnects
+	pinned        Candidate
+	observed      Candidate
+	learned       Candidate // observed host with an advertised listener port
+	path          Candidate
+	localPath     string
+	remotePath    string
+	direction     string
+	allowReverse  bool
 	lastDepth     [numClasses]int // last queue depth emitted to telemetry; guarded by queueMu
 	surfaceTurn   bool            // guarded by queueMu; fair turns between application classes
 	state         ConnectionState
@@ -184,6 +195,13 @@ func (nsm *NodeStateManager) CreateNodeState(nodeID cluster.NodeID) {
 		}
 		oldState.state = StateNone
 		oldState.address = nodeAddress{}
+		oldState.candidates = nil
+		oldState.pinned = Candidate{}
+		oldState.observed = Candidate{}
+		oldState.learned = Candidate{}
+		oldState.path = Candidate{}
+		oldState.localPath, oldState.remotePath, oldState.direction = "", "", ""
+		oldState.allowReverse = false
 		oldState.stateMu.Unlock()
 
 		// Reset all queues
@@ -385,7 +403,73 @@ func (nsm *NodeStateManager) UpdateNodeAddress(nodeID cluster.NodeID, addr strin
 
 	state.stateMu.Lock()
 	state.address = nodeAddress{addr: addr, port: port}
+	state.candidates = normalizeCandidates([]Candidate{{Host: addr, Port: port}}, false)
+	if state.observed.Host != "" {
+		state.learned, _ = classifyCandidate(Candidate{Host: state.observed.Host, Port: port}, false)
+		state.candidates = normalizeCandidates(append([]Candidate{state.learned}, state.candidates...), false)
+	}
 	state.stateMu.Unlock()
+}
+
+func (nsm *NodeStateManager) updateCandidates(nodeID cluster.NodeID, candidates []Candidate) {
+	state := nsm.GetNodeState(nodeID)
+	if state == nil {
+		return
+	}
+	clean := normalizeCandidates(candidates, false)
+	if len(clean) == 0 {
+		return
+	}
+	state.stateMu.Lock()
+	if state.observed.Host != "" {
+		state.learned, _ = classifyCandidate(Candidate{Host: state.observed.Host, Port: clean[0].Port}, false)
+	}
+	if state.learned.Host != "" {
+		clean = normalizeCandidates(append([]Candidate{state.learned}, clean...), false)
+	}
+	state.candidates = clean
+	state.address = nodeAddress{addr: clean[0].Host, port: clean[0].Port}
+	state.stateMu.Unlock()
+}
+
+func (nsm *NodeStateManager) candidatesForState(nodeID cluster.NodeID, state *NodeState) []Candidate {
+	if state == nil || nsm.GetNodeState(nodeID) != state {
+		return nil
+	}
+	state.stateMu.RLock()
+	defer state.stateMu.RUnlock()
+	return OrderCandidates(state.candidates, state.pinned)
+}
+
+func (nsm *NodeStateManager) recordPath(nodeID cluster.NodeID, state *NodeState, conn *NodeConnection, selected Candidate, direction string) {
+	if conn == nil || state == nil || nsm.GetNodeState(nodeID) != state {
+		return
+	}
+	state.stateMu.Lock()
+	defer state.stateMu.Unlock()
+	state.direction = direction
+	state.localPath = conn.conn.LocalAddr().String()
+	state.remotePath = conn.conn.RemoteAddr().String()
+	if direction == "outbound" {
+		state.path, state.pinned = selected, selected
+	} else if host, portText, err := net.SplitHostPort(state.remotePath); err == nil {
+		port, _ := strconv.Atoi(portText)
+		state.path, _ = classifyCandidate(Candidate{Host: host, Port: port}, false)
+	}
+	if host, sourcePortText, err := net.SplitHostPort(state.remotePath); err == nil {
+		sourcePort, _ := strconv.Atoi(sourcePortText)
+		state.observed, _ = classifyCandidate(Candidate{Host: host, Port: sourcePort}, false)
+		port := selected.Port
+		if port == 0 && len(state.candidates) > 0 {
+			port = state.candidates[0].Port
+		}
+		if learned, ok := classifyCandidate(Candidate{Host: host, Port: port}, false); ok {
+			state.learned = learned
+			if len(state.candidates) > 0 {
+				state.candidates = normalizeCandidates(append([]Candidate{learned}, state.candidates...), false)
+			}
+		}
+	}
 }
 
 func (nsm *NodeStateManager) GetNodeAddress(nodeID cluster.NodeID) (string, int, bool) {

@@ -16,6 +16,108 @@ import (
 	"github.com/hashicorp/memberlist"
 )
 
+// candidateTransport leaves memberlist's wire protocol unchanged. For a known
+// node, UDP gossip reaches every bounded advertised path and TCP probes race
+// those paths. Memberlist still authenticates/decrypts received messages.
+type candidateTransport struct {
+	memberlist.NodeAwareTransport
+	resolve func(string) []string
+}
+
+func newCandidateTransport(inner memberlist.NodeAwareTransport, resolve func(string) []string) memberlist.NodeAwareTransport {
+	return &candidateTransport{NodeAwareTransport: inner, resolve: resolve}
+}
+
+func (t *candidateTransport) addresses(a memberlist.Address) []memberlist.Address {
+	if a.Name == "" || t.resolve == nil {
+		return []memberlist.Address{a}
+	}
+	seen := make(map[string]bool)
+	var out []memberlist.Address
+	for _, addr := range t.resolve(a.Name) {
+		if addr == "" || seen[addr] {
+			continue
+		}
+		seen[addr] = true
+		out = append(out, memberlist.Address{Name: a.Name, Addr: addr})
+		if len(out) >= 7 {
+			break
+		}
+	}
+	if a.Addr != "" && !seen[a.Addr] {
+		out = append(out, a)
+	}
+	return out
+}
+
+func (t *candidateTransport) WriteTo(b []byte, addr string) (time.Time, error) {
+	return t.WriteToAddress(b, memberlist.Address{Addr: addr})
+}
+
+func (t *candidateTransport) WriteToAddress(b []byte, addr memberlist.Address) (time.Time, error) {
+	var sent time.Time
+	var lastErr error
+	succeeded := false
+	for _, candidate := range t.addresses(addr) {
+		when, err := t.NodeAwareTransport.WriteToAddress(b, candidate)
+		if err == nil {
+			sent = when
+			succeeded = true
+		} else {
+			lastErr = err
+		}
+	}
+	if succeeded {
+		return sent, nil
+	}
+	return sent, lastErr
+}
+
+func (t *candidateTransport) DialTimeout(addr string, timeout time.Duration) (net.Conn, error) {
+	return t.DialAddressTimeout(memberlist.Address{Addr: addr}, timeout)
+}
+
+func (t *candidateTransport) DialAddressTimeout(addr memberlist.Address, timeout time.Duration) (net.Conn, error) {
+	candidates := t.addresses(addr)
+	if len(candidates) == 0 {
+		return nil, fmt.Errorf("no memberlist address")
+	}
+	if len(candidates) == 1 {
+		return t.NodeAwareTransport.DialAddressTimeout(candidates[0], timeout)
+	}
+	type result struct {
+		conn net.Conn
+		err  error
+	}
+	results := make(chan result, len(candidates))
+	for i, candidate := range candidates {
+		go func(i int, a memberlist.Address) {
+			if i > 0 {
+				time.Sleep(time.Duration(i) * 20 * time.Millisecond)
+			}
+			conn, err := t.NodeAwareTransport.DialAddressTimeout(a, timeout)
+			results <- result{conn, err}
+		}(i, candidate)
+	}
+	var lastErr error
+	for remaining := len(candidates); remaining > 0; remaining-- {
+		r := <-results
+		if r.err != nil {
+			lastErr = r.err
+			continue
+		}
+		go func(n int) {
+			for i := 0; i < n; i++ {
+				if late := <-results; late.conn != nil {
+					_ = late.conn.Close()
+				}
+			}
+		}(remaining - 1)
+		return r.conn, nil
+	}
+	return nil, lastErr
+}
+
 // cancelableTransport binds a memberlist transport to a context so shutdown
 // reaches sockets that are already in flight. memberlist bounds a dial and the
 // push/pull exchange that follows it with Config.TCPTimeout alone, so one
@@ -116,8 +218,19 @@ func (c *cancelableConn) Close() error {
 }
 
 func createMemberlist(ctx context.Context, cfg *memberlist.Config, open func(*memberlist.NetTransportConfig) (*memberlist.NetTransport, error)) (*memberlist.Memberlist, error) {
+	return createMemberlistWithRoutes(ctx, cfg, open, nil)
+}
+
+func createMemberlistWithRoutes(ctx context.Context, cfg *memberlist.Config, open func(*memberlist.NetTransportConfig) (*memberlist.NetTransport, error), resolve func(string) []string) (*memberlist.Memberlist, error) {
 	if cfg.Transport != nil {
-		cfg.Transport = newCancelableTransport(ctx, cfg.Transport)
+		aware, ok := cfg.Transport.(memberlist.NodeAwareTransport)
+		if !ok {
+			aware = &addressAwareTransport{Transport: cfg.Transport}
+		}
+		if resolve != nil {
+			aware = newCandidateTransport(aware, resolve)
+		}
+		cfg.Transport = newCancelableTransport(ctx, aware)
 		return memberlist.Create(cfg)
 	}
 	logger := cfg.Logger
@@ -139,7 +252,7 @@ func createMemberlist(ctx context.Context, cfg *memberlist.Config, open func(*me
 		if err != nil {
 			return nil, err
 		}
-		return createWithTransport(ctx, cfg, transport)
+		return createWithTransportRoutes(ctx, cfg, transport, resolve)
 	}
 	var lastErr error
 	for attempt := 0; attempt < 32; attempt++ {
@@ -166,13 +279,21 @@ func createMemberlist(ctx context.Context, cfg *memberlist.Config, open func(*me
 		}
 		cfg.BindPort = transport.GetAutoBindPort()
 		cfg.AdvertisePort = cfg.BindPort
-		return createWithTransport(ctx, cfg, transport)
+		return createWithTransportRoutes(ctx, cfg, transport, resolve)
 	}
 	return nil, fmt.Errorf("could not allocate membership TCP/UDP listeners after 32 attempts: %w", lastErr)
 }
 
 func createWithTransport(ctx context.Context, cfg *memberlist.Config, transport *memberlist.NetTransport) (*memberlist.Memberlist, error) {
-	cfg.Transport = newCancelableTransport(ctx, transport)
+	return createWithTransportRoutes(ctx, cfg, transport, nil)
+}
+
+func createWithTransportRoutes(ctx context.Context, cfg *memberlist.Config, transport *memberlist.NetTransport, resolve func(string) []string) (*memberlist.Memberlist, error) {
+	var aware memberlist.NodeAwareTransport = transport
+	if resolve != nil {
+		aware = newCandidateTransport(aware, resolve)
+	}
+	cfg.Transport = newCancelableTransport(ctx, aware)
 	ml, err := memberlist.Create(cfg)
 	if err != nil {
 		_ = transport.Shutdown()

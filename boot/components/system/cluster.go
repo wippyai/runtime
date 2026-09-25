@@ -107,6 +107,17 @@ func WithInternodeService(ctx context.Context, svc *internode.Service) context.C
 	return ctx
 }
 
+// GetInternodeService exposes peer paths and trusted reverse-dial requests to
+// native hosts with an authenticated rendezvous channel.
+func GetInternodeService(ctx context.Context) *internode.Service {
+	ac := ctxapi.AppFromContext(ctx)
+	if ac == nil {
+		return nil
+	}
+	svc, _ := ac.Get(internodeServiceKey).(*internode.Service)
+	return svc
+}
+
 // clusterSeedAddrs reads membership.join_addrs as the comma-separated seed
 // list it is. Entries are trimmed and blanks dropped, so a value that carries
 // no address at all means "no seeds" to every reader of the key: the
@@ -277,6 +288,9 @@ func Cluster() boot.Component {
 			if err != nil {
 				return ctx, err
 			}
+			if _, err = internode.ParseCandidateList(clusterCfg.GetString(ClusterInternodeAdvertiseCandidates, ""), 1); err != nil {
+				return ctx, fmt.Errorf("cluster.internode.advertise_candidates: %w", err)
+			}
 
 			// Create node metadata with the externally reachable internode endpoint
 			// and raft-eligibility hints. raft_eligible / raft_priority / failure_domain are advertised so the
@@ -303,12 +317,13 @@ func Cluster() boot.Component {
 
 			// Create membership service config
 			memberCfg := membership.Config{
-				NodeName:    nodeName,
-				BindAddr:    clusterCfg.GetString(ClusterMembershipBindAddr, "0.0.0.0"),
-				BindPort:    clusterCfg.GetInt(ClusterMembershipBindPort, 7946),
-				JoinAddrs:   joinAddrs,
-				SecretKey:   secretKey,
-				AdvertiseIP: clusterCfg.GetString(ClusterMembershipAdvertise, ""),
+				NodeName:               nodeName,
+				BindAddr:               clusterCfg.GetString(ClusterMembershipBindAddr, "0.0.0.0"),
+				BindPort:               clusterCfg.GetInt(ClusterMembershipBindPort, 7946),
+				JoinAddrs:              joinAddrs,
+				SecretKey:              secretKey,
+				AdvertiseIP:            clusterCfg.GetString(ClusterMembershipAdvertise, ""),
+				AdvertiseCandidateList: clusterCfg.GetString(ClusterMembershipAdvertiseCandidates, ""),
 				GossipInterval: clusterCfg.GetDuration(
 					ClusterMembershipGossipInterval,
 					membership.DefaultGossipInterval,
@@ -400,6 +415,9 @@ func Cluster() boot.Component {
 
 			// Store cluster components in context
 			ctx = clusterapi.WithMembership(ctx, membershipSvc)
+			if source, ok := connMgr.(clusterapi.MeshPeerStatusSource); ok {
+				ctx = clusterapi.WithMeshPeerStatusSource(ctx, source)
+			}
 			ctx = WithInternodeService(ctx, internodeSvc)
 
 			// Expose the connection manager so the mesh-backed Raft
@@ -442,6 +460,30 @@ func Cluster() boot.Component {
 				if addr != "" {
 					meta[internode.MetadataAdvertiseAddr] = addr
 					meta[internode.MetadataAdvertisePort] = strconv.Itoa(port)
+				}
+				configured, err := internode.ParseCandidateList(advertiseConfig.GetString(ClusterInternodeAdvertiseCandidates, ""), actualPort)
+				if err != nil {
+					stopServices()
+					return err
+				}
+				if addr != "" {
+					configured = append([]internode.Candidate{{Host: addr, Port: port}}, configured...)
+				}
+				candidates := internode.DiscoverCandidates(configured, advertiseConfig.GetString(ClusterInternodeBindAddr, "0.0.0.0"), actualPort)
+				base := map[string]string{}
+				for k, v := range membershipSvc.LocalNode().Meta {
+					base[k] = v
+				}
+				for k, v := range meta {
+					base[k] = v
+				}
+				encoded, err := internode.EncodeCandidatesForMeta(base, candidates)
+				if err != nil {
+					stopServices()
+					return err
+				}
+				if encoded != "" {
+					meta[internode.MetadataCandidatesV3] = encoded
 				}
 				membershipSvc.UpdateMeta(meta)
 			}

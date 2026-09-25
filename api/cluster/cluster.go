@@ -19,6 +19,22 @@ type (
 		Addr string
 	}
 
+	// MeshPeerStatus describes the live authenticated internode socket and the
+	// bounded addresses retained for reconnect. Addresses are transport hints.
+	MeshPeerStatus struct {
+		State         string
+		Direction     string
+		Path          string
+		LocalAddress  string
+		RemoteAddress string
+		Observed      string
+		Candidates    []string
+	}
+
+	MeshPeerStatusSource interface {
+		MeshPeerStatus(NodeID) (MeshPeerStatus, bool)
+	}
+
 	// Membership provides synchronous inspection of the node set and a
 	// hook to advertise the local node's gossip metadata to peers.
 	Membership interface {
