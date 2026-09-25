@@ -212,6 +212,30 @@ const parseErrorCode = "P0001"
 type lintConfig struct {
 	minSeverity severity
 	workers     int
+	imports     importResolution
+}
+
+// importResolution records runtime entries separately from type manifests. A
+// valid runtime target can be untyped, and a lock can name modules whose source
+// has not been installed locally yet.
+type importResolution struct {
+	entries    map[regapi.ID]bool
+	incomplete bool
+}
+
+func newImportResolution(entries []regapi.Entry, incomplete bool) importResolution {
+	r := importResolution{
+		entries:    make(map[regapi.ID]bool, len(entries)),
+		incomplete: incomplete,
+	}
+	for _, entry := range entries {
+		r.entries[entry.ID] = true
+	}
+	return r
+}
+
+func (r importResolution) definitelyMissing(id regapi.ID) bool {
+	return !r.incomplete && !r.entries[id]
 }
 
 const maxLintWorkers = 8
@@ -268,7 +292,7 @@ func runLint(cmd *cobra.Command, _ []string) error {
 		defer func() { _ = loader.Shutdown(ctx) }()
 	}
 
-	luaEntries, reportSet, err := loadLuaEntries(cmd, runtimeCfg, opts.lockFile, opts.nsFilters)
+	luaEntries, reportSet, resolution, err := loadLuaEntries(cmd, runtimeCfg, opts.lockFile, opts.nsFilters)
 	if err != nil {
 		return err
 	}
@@ -282,6 +306,7 @@ func runLint(cmd *cobra.Command, _ []string) error {
 	cfg := lintConfig{
 		minSeverity: opts.minSeverity,
 		workers:     defaultLintWorkers(),
+		imports:     resolution,
 	}
 
 	var result *LintResult
@@ -402,30 +427,103 @@ func bootstrapLintContext(cfg boot.Config) (ctx context.Context, loader *bootpkg
 	return bctx, loader, nil
 }
 
-func loadLuaEntries(cmd *cobra.Command, runtimeCfg boot.Config, lockFile string, nsFilters []string) ([]regapi.Entry, map[regapi.ID]bool, error) {
+func loadLuaEntries(cmd *cobra.Command, runtimeCfg boot.Config, lockFile string, nsFilters []string) ([]regapi.Entry, map[regapi.ID]bool, importResolution, error) {
 	logger := zap.NewNop()
 
 	app, err := appinit.Init(cmd.Context(), verbose, veryVerbose, console, silentLogs, appStartTime)
 	if err != nil {
-		return nil, nil, NewInitAppError(err)
+		return nil, nil, importResolution{}, NewInitAppError(err)
 	}
 	boot.WithConfig(app.Ctx, runtimeCfg)
 
 	lockPath, lockObj, err := loadValidatedLock(".", lockFile, runtimeCfg, logger)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, importResolution{}, err
 	}
 
 	allEntries, err := loadLintEntriesFromLock(app.Ctx, lockPath, lockObj, logger)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, importResolution{}, err
 	}
 
-	allLua := filterLuaEntries(allEntries, nil)
 	selected := filterLuaEntries(allEntries, nsFilters)
+	supplemental, err := loadSupplementalAppImports(app.Ctx, lockPath, allEntries, logger)
+	if err != nil {
+		return nil, nil, importResolution{}, err
+	}
+	allEntries = append(allEntries, supplemental...)
+	allLua := filterLuaEntries(allEntries, nil)
 	expanded, reportSet := expandLuaEntriesByImports(allLua, selected)
 
-	return expanded, reportSet, nil
+	return expanded, reportSet, newImportResolution(allEntries, lintLockSourcesIncomplete(lockObj)), nil
+}
+
+// A module's source tree may declare tests that import an app entry provided by
+// a sibling harness lock (for example, test/wippy.lock). Include only missing
+// app targets from that harness; its other entries and module selection do not
+// replace the current lint workspace.
+func loadSupplementalAppImports(ctx context.Context, lockPath string, loaded []regapi.Entry, logger *zap.Logger) ([]regapi.Entry, error) {
+	present := make(map[regapi.ID]bool, len(loaded))
+	for _, entry := range loaded {
+		present[entry.ID] = true
+	}
+	needed := make(map[regapi.ID]bool)
+	for _, entry := range filterLuaEntries(loaded, nil) {
+		for _, id := range extractEntryData(entry).Imports {
+			if id.NS == "app" && !present[id] {
+				needed[id] = true
+			}
+		}
+	}
+	if len(needed) == 0 {
+		return nil, nil
+	}
+	children, err := os.ReadDir(filepath.Dir(lockPath))
+	if err != nil {
+		return nil, err
+	}
+	var supplemental []regapi.Entry
+	for _, child := range children {
+		if !child.IsDir() || strings.HasPrefix(child.Name(), ".") {
+			continue
+		}
+		childLockPath := filepath.Join(filepath.Dir(lockPath), child.Name(), filepath.Base(lockPath))
+		if _, err := os.Stat(childLockPath); err != nil {
+			continue
+		}
+		childLock, err := lock.New(childLockPath)
+		if err != nil || childLock.GetDirectories().Src == "" {
+			continue
+		}
+		sourcePath := lock.ResolveLockPath(filepath.Dir(childLockPath), childLock.GetDirectories().Src)
+		appEntries, err := entries.LoadEntriesFromModuleLoadPaths(ctx, []lock.ModuleLoadPath{{Path: sourcePath, Root: true}}, logger)
+		if err != nil {
+			logger.Debug("skipping supplemental app source", zap.String("lock_path", childLockPath), zap.Error(err))
+			continue
+		}
+		for _, entry := range appEntries {
+			if needed[entry.ID] {
+				supplemental = append(supplemental, entry)
+				delete(needed, entry.ID)
+			}
+		}
+		if len(needed) == 0 {
+			break
+		}
+	}
+	return supplemental, nil
+}
+
+func lintLockSourcesIncomplete(lockObj *lock.Lock) bool {
+	for _, path := range lockObj.GetModuleLoadPaths() {
+		if path.Module == "" {
+			continue
+		}
+		if _, err := os.Stat(path.Path); err != nil {
+			return true
+		}
+	}
+	return false
 }
 
 // loadLintEntriesFromLock includes declared workspace replacement components
@@ -606,6 +704,9 @@ func runLintSimple(luaEntries []regapi.Entry, reportSet map[regapi.ID]bool, lint
 // lintEntries is the core linting loop. If prog is non-nil, sends UI updates.
 func lintEntries(luaEntries []regapi.Entry, reportSet map[regapi.ID]bool, linter *lint.Linter, lcache lintCache, cfg lintConfig, prog *cliProgressReporter) *LintResult {
 	result := &LintResult{TotalEntries: len(luaEntries)}
+	if cfg.imports.entries == nil {
+		cfg.imports = newImportResolution(luaEntries, false)
+	}
 	workers := cfg.workers
 	if workers < 1 {
 		workers = defaultLintWorkers()
@@ -654,7 +755,7 @@ func lintEntries(luaEntries []regapi.Entry, reportSet map[regapi.ID]bool, linter
 
 		if len(levelEntries) == 1 {
 			entry := levelEntries[0]
-			er := lintOneEntry(entry, entryDataMap[entry.ID], linter, manifestMap, cfg.minSeverity, lcache, fps)
+			er := lintOneEntry(entry, entryDataMap[entry.ID], linter, manifestMap, cfg.imports, cfg.minSeverity, lcache, fps)
 			checked.Add(1)
 
 			entryIssues := 0
@@ -683,7 +784,7 @@ func lintEntries(luaEntries []regapi.Entry, reportSet map[regapi.ID]bool, linter
 				defer func() { <-sem }()
 
 				clone := linter.Clone()
-				er := lintOneEntry(e, entryDataMap[e.ID], clone, manifestMap, cfg.minSeverity, lcache, fps)
+				er := lintOneEntry(e, entryDataMap[e.ID], clone, manifestMap, cfg.imports, cfg.minSeverity, lcache, fps)
 				checked.Add(1)
 
 				entryIssues := 0
@@ -712,7 +813,7 @@ func lintEntries(luaEntries []regapi.Entry, reportSet map[regapi.ID]bool, linter
 	return result
 }
 
-func lintOneEntry(entry regapi.Entry, data entryData, linter *lint.Linter, manifestMap map[regapi.ID]*io.Manifest, minSev severity, lcache lintCache, fps lintFingerprints) *entryResult {
+func lintOneEntry(entry regapi.Entry, data entryData, linter *lint.Linter, manifestMap map[regapi.ID]*io.Manifest, resolution importResolution, minSev severity, lcache lintCache, fps lintFingerprints) *entryResult {
 	if data.Source == "" {
 		return nil
 	}
@@ -744,7 +845,7 @@ func lintOneEntry(entry regapi.Entry, data entryData, linter *lint.Linter, manif
 		}
 		if manifest, ok := manifestMap[importID]; ok && manifest != nil {
 			imports[alias] = manifest
-		} else {
+		} else if resolution.definitelyMissing(importID) {
 			importDiags = append(importDiags, unresolvedImportDiagnostic(entryID, alias, importID))
 		}
 	}
@@ -829,8 +930,8 @@ func unresolvedImportDiagnostic(entryID, alias string, importID regapi.ID) diag.
 	return diag.Diagnostic{
 		Position: diag.Position{File: entryID, Line: 1, Column: 1},
 		Code:     diag.ErrNoHandler,
-		Severity: diag.SeverityError,
-		Message:  fmt.Sprintf("declared import %q cannot resolve %s to a type manifest", alias, importID.String()),
+		Severity: diag.SeverityWarning,
+		Message:  fmt.Sprintf("declared import %q cannot resolve %s at runtime", alias, importID.String()),
 	}
 }
 

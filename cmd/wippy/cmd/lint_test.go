@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/wippyai/runtime/api/boot"
 	"github.com/wippyai/runtime/boot/deps/lock"
+	"github.com/wippyai/runtime/cmd/internal/entries"
 
 	"github.com/wippyai/go-lua/compiler/ast"
 	"github.com/wippyai/go-lua/compiler/parse"
@@ -202,13 +203,110 @@ func TestLintReportsUnresolvedDeclaredImport(t *testing.T) {
 		`local missing = require("missing"); return missing.db_id()`)
 	linter, lcache := createLinter(setupLoaderContext(t), false)
 	result := lintEntries([]registry.Entry{entry}, nil, linter, lcache,
-		lintConfig{minSeverity: severityError, workers: 1}, nil)
+		lintConfig{minSeverity: severityWarning, workers: 1}, nil)
 	for _, diagnostic := range result.Diagnostics {
-		if strings.Contains(diagnostic.Message, `declared import "missing" cannot resolve acme.types:missing`) {
+		if strings.Contains(diagnostic.Message, `declared import "missing" cannot resolve acme.types:missing at runtime`) {
+			if diagnostic.Severity != "warning" || result.ErrorCount != 0 {
+				t.Fatalf("unresolved import should be a warning: %+v", result.Diagnostics)
+			}
 			return
 		}
 	}
 	t.Fatalf("missing import was silently dropped: %+v", result.Diagnostics)
+}
+
+func TestLintDoesNotRequireTypeManifestForRuntimeEntry(t *testing.T) {
+	ctx := setupLoaderContext(t)
+	root := makeLuaSourceEntry(registry.NewID("app", "consumer"),
+		map[string]registry.ID{
+			"untyped":  registry.NewID("app", "untyped"),
+			"resource": registry.NewID("app", "resource"),
+		}, `local u = require("untyped"); local r = require("resource"); return {u, r}`)
+	untyped := makeLuaSourceEntry(registry.NewID("app", "untyped"), nil, "")
+	resource := registry.Entry{ID: registry.NewID("app", "resource"), Kind: registry.Kind("db.sql.sqlite")}
+	linter, lcache := createLinter(ctx, false)
+	result := lintEntries([]registry.Entry{root, untyped}, nil, linter, lcache,
+		lintConfig{minSeverity: severityWarning, workers: 1, imports: newImportResolution([]registry.Entry{root, untyped, resource}, false)}, nil)
+	for _, diagnostic := range result.Diagnostics {
+		if strings.Contains(diagnostic.Message, "declared import") {
+			t.Fatalf("present runtime entries need no type manifest: %+v", result.Diagnostics)
+		}
+	}
+}
+
+func TestLintDefersMissingImportWhenLockSourceIsUnavailable(t *testing.T) {
+	root := makeLuaSourceEntry(registry.NewID("app", "consumer"),
+		map[string]registry.ID{
+			"client":  registry.NewID("userspace.dataflow", "client"),
+			"sibling": registry.NewID("app", "sibling"),
+		}, `return {require("client"), require("sibling")}`)
+	linter, lcache := createLinter(setupLoaderContext(t), false)
+	result := lintEntries([]registry.Entry{root}, nil, linter, lcache,
+		lintConfig{minSeverity: severityWarning, workers: 1, imports: newImportResolution([]registry.Entry{root}, true)}, nil)
+	for _, diagnostic := range result.Diagnostics {
+		if strings.Contains(diagnostic.Message, "declared import") {
+			t.Fatalf("unavailable lock source does not prove an import is missing: %+v", result.Diagnostics)
+		}
+	}
+}
+
+func TestLintLoadsAppImportFromSiblingHarnessLock(t *testing.T) {
+	ctx := setupLoaderContext(t)
+	root := t.TempDir()
+	appDir := filepath.Join(root, "src")
+	testDir := filepath.Join(root, "test")
+	for _, dir := range []string{appDir, testDir} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for path, source := range map[string]string{
+		filepath.Join(appDir, "_index.yaml"): `version: "1.0"
+namespace: acme
+entries:
+  - name: consumer
+    kind: library.lua
+    imports:
+      wait_for_boot: app:wait_for_boot
+    source: |
+      local wait_for_boot = require("wait_for_boot")
+      return wait_for_boot
+`,
+		filepath.Join(testDir, "_index.yaml"): `version: "1.0"
+namespace: app
+entries:
+  - name: wait_for_boot
+    kind: library.lua
+    source: |
+      return { run = function() return true end }
+`,
+		filepath.Join(testDir, lock.DefaultFilename): "directories:\n  src: .\n  modules: .wippy\n",
+	} {
+		if err := os.WriteFile(path, []byte(source), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rootEntries, err := entries.LoadEntriesFromModuleLoadPaths(ctx,
+		[]lock.ModuleLoadPath{{Path: appDir, Root: true}}, zap.NewNop())
+	if err != nil {
+		t.Fatal(err)
+	}
+	supplemental, err := loadSupplementalAppImports(ctx, filepath.Join(root, lock.DefaultFilename), rootEntries, zap.NewNop())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(supplemental) != 1 || supplemental[0].ID != registry.NewID("app", "wait_for_boot") {
+		t.Fatalf("supplemental app entries = %+v", supplemental)
+	}
+	expanded, reportSet := expandLuaEntriesByImports(filterLuaEntries(append(rootEntries, supplemental...), nil), filterLuaEntries(rootEntries, nil))
+	linter, lcache := createLinter(ctx, false)
+	result := lintEntries(expanded, reportSet, linter, lcache,
+		lintConfig{minSeverity: severityWarning, workers: 1, imports: newImportResolution(append(rootEntries, supplemental...), false)}, nil)
+	for _, diagnostic := range result.Diagnostics {
+		if strings.Contains(diagnostic.Message, "declared import") {
+			t.Fatalf("sibling harness import did not resolve: %+v", result.Diagnostics)
+		}
+	}
 }
 
 func runRequireDeclarations(t *testing.T, source string, imports map[string]registry.ID, builtins []string) []string {
@@ -321,7 +419,7 @@ func TestLintOneEntryRendersParseErrors(t *testing.T) {
 	linter := lint.New(typeChecker, lint.NewRegistry())
 	entry := registry.Entry{ID: registry.NewID("app", "broken"), Kind: luaapi.Library}
 	data := entryData{Source: "local M = {}\nlocal interface = 1\nreturn M\n"}
-	result := lintOneEntry(entry, data, linter, map[registry.ID]*io.Manifest{}, severityWarning, lintCache{}, lintFingerprints{})
+	result := lintOneEntry(entry, data, linter, map[registry.ID]*io.Manifest{}, importResolution{}, severityWarning, lintCache{}, lintFingerprints{})
 	if result == nil || result.errors != 1 || len(result.diagnostics) != 1 {
 		t.Fatalf("parse failure must produce exactly one error, got %+v", result)
 	}
