@@ -325,7 +325,7 @@ func (s *Scheduler) Submit(ctx context.Context, pid pid.PID, p process.Process, 
 		proc.queue.SetAdmission(admission.EventAdmission())
 	}
 	proc.gen.Store(proc.queue.Generation())
-	proc.publishSignalRef()
+	proc.publishSignalRef(cancel)
 	proc.publishInspectorRef()
 
 	s.processorCount.Add(1)
@@ -368,24 +368,15 @@ func (s *Scheduler) Terminate(pid pid.PID) error {
 	if !ok {
 		return process.ErrProcessNotFound
 	}
-	proc := v.(*Processor)
-
-	// Cancel context - worker checks ctx.Err() and evicts
-	if proc.cancel != nil {
-		proc.cancel()
+	// The slot can complete and be reused after the lookup, so act only through
+	// the incarnation's immutable identity. Canceling its context wakes it
+	// through the generation-checked wake registered at submit; the worker
+	// then evicts it.
+	ref := v.(*Processor).sig.Load()
+	if ref == nil || !ref.pid.Equal(pid) {
+		return process.ErrProcessNotFound
 	}
-
-	// Push termination event via PushDirect (bypasses generation check).
-	// This ensures process wakes even if yields never complete.
-	// Don't close queue yet - let the event be processed first.
-	proc.queue.PushDirect(process.Event{Type: process.EventMessage})
-
-	// Try to transition to Ready and re-queue so worker can evict.
-	if proc.casState(StateIdle, StateReady) || proc.casState(StateBlocked, StateReady) {
-		s.global.Push(proc)
-		s.wakeAny()
-	}
-
+	ref.terminate()
 	return nil
 }
 
@@ -466,7 +457,7 @@ func (s *Scheduler) CreateProcessor(ctx context.Context, pid pid.PID, p process.
 	// Reset queue for this execution and cache generation
 	proc.queue.Reset()
 	proc.gen.Store(proc.queue.Generation())
-	proc.publishSignalRef()
+	proc.publishSignalRef(cancel)
 	proc.publishInspectorRef()
 
 	s.processorCount.Add(1)

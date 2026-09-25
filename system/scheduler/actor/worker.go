@@ -531,7 +531,7 @@ func (w *Worker) executeOne(proc *Processor) {
 		// Re-publish the out-of-band snapshot so future invalidations classify
 		// the process by its (possibly new) upgraded source. The queue
 		// generation is unchanged by upgrade, so in-flight deliveries stay valid.
-		proc.publishSignalRef()
+		proc.publishSignalRef(proc.sig.Load().terminate)
 		proc.publishInspectorRef()
 
 		// Success - re-queue to local
