@@ -12,7 +12,6 @@ import (
 	"net"
 	"os"
 	"strconv"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -144,8 +143,11 @@ type connectedData struct {
 	Connection *NodeConnection
 }
 
+// disconnectedData reports the end of a connection or of a failed dial. A
+// failed dial carries no Connection.
 type disconnectedData struct {
 	Error       error
+	Connection  *NodeConnection
 	ShouldRetry bool
 }
 
@@ -154,6 +156,9 @@ type nodeControlLoop struct {
 	manager    *manager
 	commands   chan nodeCommand
 	connection *NodeConnection
+	// successor is the preferred connection waiting for connection's run to
+	// end before it takes over the node's queues.
+	successor  *NodeConnection
 	logger     *zap.Logger
 	cancel     context.CancelFunc
 	nodeID     cluster.NodeID
@@ -163,7 +168,6 @@ type nodeControlLoop struct {
 	retryDelay time.Duration
 	retryCount int
 	port       int
-	isOutbound bool
 }
 
 type ConnectionManager interface {
@@ -342,6 +346,9 @@ func (m *manager) SendToNode(nodeID cluster.NodeID, data []byte, class Class) er
 	return nil
 }
 
+// EnsureConnection records the peer's address and dials it unless a
+// connection already exists. Both sides of a pair dial; the control loop keeps
+// one connection when both succeed.
 func (m *manager) EnsureConnection(nodeID cluster.NodeID, addr string, port int) {
 	if m.nodeStates.GetNodeState(nodeID) == nil {
 		m.logger.Error("EnsureConnection called for an unmanaged node. This is a logic error.", zap.String("node", nodeID))
@@ -351,10 +358,6 @@ func (m *manager) EnsureConnection(nodeID cluster.NodeID, addr string, port int)
 	m.nodeStates.UpdateNodeAddress(nodeID, addr, port)
 	_, currentState := m.nodeStates.GetNodeConnection(nodeID)
 	if currentState == StateConnected {
-		return
-	}
-
-	if !m.shouldInitiateConnection(nodeID) {
 		return
 	}
 
@@ -624,7 +627,6 @@ func (loop *nodeControlLoop) handleConnect(data connectData) {
 		return
 	}
 	loop.state = StateConnecting
-	loop.isOutbound = true
 	if !loop.manager.nodeStates.setNodeStateForState(loop.nodeID, loop.nodeState, loop.state) {
 		return
 	}
@@ -637,47 +639,61 @@ func (loop *nodeControlLoop) handleConnect(data connectData) {
 	}()
 }
 
+// handleConnected keeps one connection per peer. A second connection
+// replaces the current one only when it is preferred and the current one is
+// not; both ends apply the same rule, so they settle on the same socket
+// without exchanging messages.
 func (loop *nodeControlLoop) handleConnected(data connectedData) {
+	candidate := data.Connection
 	loop.logger.Debug("handleConnected called",
 		zap.String("state", loop.state.String()),
-		zap.Bool("has_connection", data.Connection != nil))
-	if loop.state == StateConnected {
-		if data.Connection != nil {
-			data.Connection.Close()
-		}
+		zap.Bool("dialed", candidate.dialed))
+	if loop.state == StateDead {
+		candidate.Close()
 		return
 	}
-
-	if loop.state != StateConnecting && loop.state != StateNone && loop.state != StateRetrying {
-		if data.Connection != nil {
-			data.Connection.Close()
-		}
+	if loop.connection == nil {
+		loop.adopt(candidate)
 		return
 	}
+	current := loop.connection
+	if loop.successor != nil {
+		current = loop.successor
+	}
+	if !loop.preferred(candidate) || loop.preferred(current) {
+		candidate.Close()
+		return
+	}
+	// The successor takes over once the current connection's run has ended,
+	// so a single writer drains the queues at any time.
+	loop.successor = candidate
+	loop.connection.Close()
+}
 
-	loop.connection = data.Connection
+// preferred reports whether conn was dialed by the lower node ID of the pair.
+func (loop *nodeControlLoop) preferred(conn *NodeConnection) bool {
+	return conn.dialed == (loop.manager.config.LocalNodeID < loop.nodeID)
+}
+
+// adopt makes conn the node's connection and starts serving it.
+func (loop *nodeControlLoop) adopt(conn *NodeConnection) {
+	loop.connection = conn
 	loop.state = StateConnected
 	loop.retryCount = 0
 	loop.retryDelay = loop.manager.config.InitialRetryDelay
-	if !loop.manager.nodeStates.setNodeConnectionForState(loop.nodeID, loop.nodeState, loop.connection, loop.state) {
-		if loop.connection != nil {
-			loop.connection.Close()
-		}
+	if !loop.manager.nodeStates.setNodeConnectionForState(loop.nodeID, loop.nodeState, conn, loop.state) {
+		conn.Close()
 		loop.connection = nil
 		loop.state = StateNone
 		return
 	}
-	loop.logger.Info("Connection established successfully", zap.Bool("is_outbound", loop.isOutbound))
+	loop.logger.Info("Connection established successfully", zap.Bool("dialed", conn.dialed))
 
 	// Wire the connection's writeLoop to drain this node's per-class queues
 	// directly. It self-drains anything buffered while the node was
 	// disconnected, so no explicit drain call is needed here.
 	loop.bindConnectionDrain()
 
-	// Capture the connection now and hand it to the monitor goroutine.
-	// Reading loop.connection inside the goroutine races with cleanup
-	// paths that set loop.connection = nil on disconnect/kill.
-	conn := loop.connection
 	loop.manager.wg.Add(1)
 	go func() {
 		defer loop.manager.wg.Done()
@@ -713,6 +729,12 @@ func (loop *nodeControlLoop) handleDisconnected(data disconnectedData) {
 	if loop.state == StateDead {
 		return
 	}
+	// Only the end of the serving connection, or a failed dial while none is
+	// serving, changes state. Reports from a replaced socket, or from a dial
+	// that ended after another connection was adopted, change nothing.
+	if data.Connection != loop.connection {
+		return
+	}
 	// Un-drained messages remain in the per-class queues — a subsequent
 	// connection's writeLoop delivers them. Only the writeLoop's own
 	// in-flight batch needs requeue, and it handles that itself on a
@@ -721,21 +743,31 @@ func (loop *nodeControlLoop) handleDisconnected(data disconnectedData) {
 		loop.connection.Close()
 		loop.connection = nil
 	}
+	if loop.successor != nil {
+		next := loop.successor
+		loop.successor = nil
+		loop.adopt(next)
+		return
+	}
 	loop.manager.nodeStates.setNodeConnectionForState(loop.nodeID, loop.nodeState, nil, StateNone)
 
-	if data.ShouldRetry && loop.isOutbound && loop.retryCount < loop.manager.config.MaxRetryAttempts {
+	addr, port, hasAddr := loop.manager.nodeStates.getNodeAddressForState(loop.nodeID, loop.nodeState)
+	if !hasAddr {
+		addr, port = loop.addr, loop.port
+		hasAddr = addr != "" && port != 0
+	}
+	if data.ShouldRetry && hasAddr && loop.retryCount < loop.manager.config.MaxRetryAttempts {
 		loop.state = StateRetrying
 		loop.retryCount++
 		if loop.retryDelay < loop.manager.config.MaxRetryDelay {
 			loop.retryDelay *= 2
 		}
-		fallbackAddr, fallbackPort := loop.addr, loop.port
 		time.AfterFunc(loop.retryDelay, func() {
-			addr, port, hasAddr := loop.manager.nodeStates.getNodeAddressForState(loop.nodeID, loop.nodeState)
-			if !hasAddr {
-				addr, port = fallbackAddr, fallbackPort
+			current, currentPort, ok := loop.manager.nodeStates.getNodeAddressForState(loop.nodeID, loop.nodeState)
+			if !ok {
+				current, currentPort = addr, port
 			}
-			loop.sendCommandToSelf(nodeCommand{Type: cmdConnect, Data: connectData{Addr: addr, Port: port}})
+			loop.sendCommandToSelf(nodeCommand{Type: cmdConnect, Data: connectData{Addr: current, Port: currentPort}})
 		})
 	} else {
 		loop.state = StateNone
@@ -747,6 +779,10 @@ func (loop *nodeControlLoop) handleKill() {
 }
 
 func (loop *nodeControlLoop) cleanup() {
+	if loop.successor != nil {
+		loop.successor.Close()
+		loop.successor = nil
+	}
 	if loop.connection != nil {
 		loop.connection.Close()
 		loop.connection = nil
@@ -780,12 +816,12 @@ func (loop *nodeControlLoop) attemptConnection(addr string, port int) {
 		conn, err = dialer.DialContext(loop.ctx, "tcp", targetAddr)
 	}
 	if err != nil {
-		loop.sendDisconnected(err, true)
+		loop.sendDisconnected(nil, err, true)
 		return
 	}
 	nodeConn, err := PerformClientHandshake(conn, loop.manager.config.NodeConnectionConfig(), loop.logger, loop.manager.config.LocalNodeID, loop.nodeID)
 	if err != nil {
-		loop.sendDisconnected(err, true)
+		loop.sendDisconnected(nil, err, true)
 		return
 	}
 	loop.sendCommandToSelf(nodeCommand{Type: cmdConnected, Data: connectedData{Connection: nodeConn}})
@@ -809,11 +845,11 @@ func (loop *nodeControlLoop) monitorConnection(conn *NodeConnection) {
 			shouldRetry = connErr.ShouldRetry()
 		}
 	}
-	loop.sendDisconnected(err, shouldRetry)
+	loop.sendDisconnected(conn, err, shouldRetry)
 }
 
-func (loop *nodeControlLoop) sendDisconnected(err error, shouldRetry bool) {
-	loop.sendCommandToSelf(nodeCommand{Type: cmdDisconnected, Data: disconnectedData{Error: err, ShouldRetry: shouldRetry}})
+func (loop *nodeControlLoop) sendDisconnected(conn *NodeConnection, err error, shouldRetry bool) {
+	loop.sendCommandToSelf(nodeCommand{Type: cmdDisconnected, Data: disconnectedData{Error: err, Connection: conn, ShouldRetry: shouldRetry}})
 }
 
 func (m *manager) startListener() (net.Listener, int, error) {
@@ -909,32 +945,11 @@ func (m *manager) handleInboundConnection(conn net.Conn) {
 		m.AddManagedNode(remoteNodeID)
 	}
 
-	_, currentState := m.nodeStates.GetNodeConnection(remoteNodeID)
-	if currentState == StateConnected {
-		m.logger.Debug("Already connected, dropping new inbound connection", zap.String("node", remoteNodeID))
-		nodeConn.Close()
-		return
-	}
-
-	if m.shouldDropInbound(remoteNodeID) {
-		m.logger.Debug("Dropping inbound connection due to tie-breaking", zap.String("node", remoteNodeID))
-		nodeConn.Close()
-		return
-	}
-
 	m.logger.Debug("Accepting inbound connection, sending cmdConnected", zap.String("remote_node", remoteNodeID))
 	m.sendCommand(remoteNodeID, nodeCommand{
 		Type: cmdConnected,
 		Data: connectedData{Connection: nodeConn},
 	})
-}
-
-func (m *manager) shouldInitiateConnection(remoteNodeID cluster.NodeID) bool {
-	return strings.Compare(m.config.LocalNodeID, remoteNodeID) < 0
-}
-
-func (m *manager) shouldDropInbound(remoteNodeID cluster.NodeID) bool {
-	return m.shouldInitiateConnection(remoteNodeID)
 }
 
 func loadTLSConfig(cfg ManagerTLSConfig) (*tls.Config, error) {

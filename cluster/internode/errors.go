@@ -40,6 +40,14 @@ func NewNodeIDMismatchError(expected, actual string) apierror.Error {
 		WithDetails(attrs.Bag{"expected": expected, "actual": actual})
 }
 
+// NewPeerNotAuthorizedError reports a peer that proved its identity but is
+// not admitted to this node's mesh.
+func NewPeerNotAuthorizedError(nodeID string) apierror.Error {
+	return apierror.New(apierror.PermissionDenied, "internode peer is not authorized").
+		WithRetryable(apierror.False).
+		WithDetails(attrs.Bag{"node_id": nodeID})
+}
+
 func NewEncodePayloadError(index int, err error) apierror.Error {
 	return apierror.New(apierror.Internal, "failed to encode payload").
 		WithRetryable(apierror.False).
