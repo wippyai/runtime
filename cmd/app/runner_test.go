@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/application"
 	"github.com/wippyai/runtime/api/boot"
 	"github.com/wippyai/runtime/cmd/wippy/cmd"
 )
@@ -23,6 +24,32 @@ type plannedHost struct {
 
 	observed Launch
 	calls    int
+}
+
+type hostFunc func(context.Context, Launch) (Plan, error)
+
+func (fn hostFunc) Plan(ctx context.Context, launch Launch) (Plan, error) {
+	return fn(ctx, launch)
+}
+
+func TestRunExposesBundledIdentityBeforeStateAccess(t *testing.T) {
+	state := filepath.Join(t.TempDir(), "absent")
+	executable := runnableExecutable(t)
+	want := application.Identity{Module: "acme/app", Version: "1.0.0"}
+	executable.Host = hostFunc(func(ctx context.Context, launch Launch) (Plan, error) {
+		got, ok := application.FromContext(ctx)
+		require.True(t, ok)
+		require.Equal(t, want, got)
+		require.Equal(t, want, launch.Application)
+		return Plan{Run: func(runCtx context.Context) error {
+			got, ok := application.FromContext(runCtx)
+			require.True(t, ok)
+			require.Equal(t, want, got)
+			return nil
+		}}, nil
+	})
+	require.NoError(t, Run(t.Context(), executable, []string{"--state", state, "--version"}))
+	require.NoDirExists(t, state)
 }
 
 func (h *plannedHost) Plan(_ context.Context, l Launch) (Plan, error) {

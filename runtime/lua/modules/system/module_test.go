@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	lua "github.com/wippyai/go-lua"
+	"github.com/wippyai/runtime/api/application"
 	"github.com/wippyai/runtime/api/attrs"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	moduleapi "github.com/wippyai/runtime/api/modules"
@@ -51,6 +52,41 @@ func TestLoad(t *testing.T) {
 	// Check functions exist
 	checkFunction(t, l, "system", "exit")
 	checkFunction(t, l, "system", "modules")
+}
+
+func TestRuntimeApplicationIdentityIsReadOnly(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	l.SetContext(application.WithIdentity(ctxapi.NewRootContext(), application.Identity{Module: "acme/app", Version: "1.2.3"}))
+	tbl, _ := Module.Build()
+	l.SetGlobal("system", tbl)
+	if err := l.DoString(`
+		local identity, err = system.runtime.application()
+		assert(err == nil)
+		assert(identity.module == "acme/app")
+		assert(identity.version == "1.2.3")
+		local ok = pcall(function() identity.version = "changed" end)
+		assert(not ok)
+		local again = system.runtime.application()
+		assert(again.version == "1.2.3")
+	`); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRuntimeApplicationIdentityAbsentForGenericRuntime(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	l.SetContext(ctxapi.NewRootContext())
+	tbl, _ := Module.Build()
+	l.SetGlobal("system", tbl)
+	if err := l.DoString(`
+		local identity, err = system.runtime.application()
+		assert(identity == nil)
+		assert(err == nil)
+	`); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestSourceLoadReturnsAtomicOwnersAndEntriesWithoutPaths(t *testing.T) {

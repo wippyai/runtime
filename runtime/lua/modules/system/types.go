@@ -65,8 +65,14 @@ var gcType = typ.NewInterface("system.gc", []typ.Method{
 	{Name: "get_percent", Type: typ.Func().Returns(typ.Number, typ.NewOptional(typ.LuaError)).Build()},
 })
 
+var applicationIdentityType = typ.NewRecord().
+	Field("module", typ.String).
+	Field("version", typ.String).
+	Build()
+
 // runtime submodule type
 var runtimeType = typ.NewInterface("system.runtime", []typ.Method{
+	{Name: "application", Type: typ.Func().Returns(typ.NewOptional(applicationIdentityType), typ.NewOptional(typ.LuaError)).Build()},
 	{Name: "goroutines", Type: typ.Func().Returns(typ.Number, typ.NewOptional(typ.LuaError)).Build()},
 	{Name: "max_procs", Type: typ.Func().OptParam("procs", typ.Number).Returns(typ.Number, typ.NewOptional(typ.LuaError)).Build()},
 	{Name: "cpu_count", Type: typ.Func().Returns(typ.Number, typ.NewOptional(typ.LuaError)).Build()},

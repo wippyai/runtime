@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/wippyai/runtime/api/application"
 	"github.com/wippyai/runtime/api/boot"
 )
 
@@ -36,16 +37,19 @@ func (op Op) String() string {
 	}
 }
 
-// Launch describes one invocation to the host. State is already resolved and
-// absolute, and Explicit reports that --state selected it. Owned answers
-// whether a state has an owner, including a state the host selects itself.
+// Launch describes one invocation to the host. Application identifies the
+// root pack shipped in this executable, independent of the deployed version.
+// State is already resolved and absolute, and Explicit reports that --state
+// selected it. Owned answers whether a state has an owner, including a state
+// the host selects itself.
 type Launch struct {
-	Command  string
-	State    string
-	Dir      string
-	Args     []string
-	Op       Op
-	Explicit bool
+	Application application.Identity
+	Command     string
+	State       string
+	Dir         string
+	Args        []string
+	Op          Op
+	Explicit    bool
 }
 
 // Plan is the host's decision for one launch. A non-empty DefaultState replaces
@@ -94,7 +98,7 @@ func parseLaunch(e Executable, args []string) (Launch, error) {
 	if err != nil {
 		return Launch{}, err
 	}
-	launch := Launch{Command: e.Command, Explicit: state != ""}
+	launch := Launch{Application: e.Bundle.Identity(), Command: e.Command, Explicit: state != ""}
 	if state == "" {
 		config, err := os.UserConfigDir()
 		if err != nil {

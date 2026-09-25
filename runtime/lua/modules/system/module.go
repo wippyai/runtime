@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	lua "github.com/wippyai/go-lua"
+	"github.com/wippyai/runtime/api/application"
 	moduleapi "github.com/wippyai/runtime/api/modules"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/api/supervisor"
@@ -84,12 +85,29 @@ func createGCTable() *lua.LTable {
 }
 
 func createRuntimeTable() *lua.LTable {
-	t := lua.CreateTable(0, 3)
+	t := lua.CreateTable(0, 4)
+	t.RawSetString("application", lua.LGoFunc(applicationIdentity))
 	t.RawSetString("goroutines", lua.LGoFunc(numGoroutines))
 	t.RawSetString("max_procs", lua.LGoFunc(goMaxProcs))
 	t.RawSetString("cpu_count", lua.LGoFunc(numCPU))
 	t.Immutable = true
 	return t
+}
+
+func applicationIdentity(l *lua.LState) int {
+	identity, ok := application.FromContext(l.Context())
+	if !ok {
+		l.Push(lua.LNil)
+		l.Push(lua.LNil)
+		return 2
+	}
+	t := l.CreateTable(0, 2)
+	t.RawSetString("module", lua.LString(identity.Module))
+	t.RawSetString("version", lua.LString(identity.Version))
+	t.Immutable = true
+	l.Push(t)
+	l.Push(lua.LNil)
+	return 2
 }
 
 func createProcessTable() *lua.LTable {

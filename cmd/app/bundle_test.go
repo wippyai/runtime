@@ -42,6 +42,7 @@ func TestBundleSeedsOfflineAndPreservesUpdatedVersion(t *testing.T) {
 	require.Equal(t, bundle.Packs[0].Data, data)
 	locked.SetModule(lock.Module{Name: "acme/app", Version: "2.0.0", Root: true})
 	require.NoError(t, locked.Write())
+	require.Equal(t, "1.0.0", bundle.Identity().Version, "bundled version is independent of the updated deployment")
 	before, err := os.ReadFile(path)
 	require.NoError(t, err)
 	_, err = bundle.Seed(dir)

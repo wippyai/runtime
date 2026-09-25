@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/wippyai/runtime/api/application"
 	"github.com/wippyai/runtime/api/semver"
 	"github.com/wippyai/runtime/boot/deps/graph"
 	"github.com/wippyai/runtime/boot/deps/lock"
@@ -31,6 +32,17 @@ type Pack struct {
 type Bundle struct {
 	Root  string
 	Packs []Pack
+}
+
+// Identity returns the root application stamped into the bundled packs by the
+// builder. It does not inspect a mutable deployment or a dependency pack.
+func (bundle Bundle) Identity() application.Identity {
+	for _, pack := range bundle.Packs {
+		if pack.Module == bundle.Root {
+			return application.Identity{Module: bundle.Root, Version: pack.Version}
+		}
+	}
+	return application.Identity{}
 }
 
 func (bundle Bundle) validate() error {

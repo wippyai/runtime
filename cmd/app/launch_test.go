@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/application"
 )
 
 func testExecutable() Executable {
@@ -46,6 +47,18 @@ func TestLaunchGrammar(t *testing.T) {
 			require.Equal(t, "desktop", launch.Command)
 		})
 	}
+}
+
+func TestLaunchCarriesBundledRootIdentity(t *testing.T) {
+	executable := testExecutable()
+	executable.Bundle = Bundle{Root: "acme/app", Packs: []Pack{
+		{Module: "acme/dependency", Version: "9.9.9"},
+		{Module: "acme/app", Version: "1.2.3-beta.1"},
+	}}
+	launch, err := parseLaunch(executable, []string{"--version"})
+	require.NoError(t, err)
+	require.Equal(t, application.Identity{Module: "acme/app", Version: "1.2.3-beta.1"}, launch.Application)
+	require.Equal(t, []string{"--version"}, launch.Args)
 }
 
 func TestLaunchStateSelection(t *testing.T) {

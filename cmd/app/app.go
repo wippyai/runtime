@@ -30,6 +30,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/wippyai/runtime/api/application"
 	"github.com/wippyai/runtime/api/boot"
 )
 
@@ -79,6 +80,9 @@ func Run(ctx context.Context, e Executable, args []string) error {
 	launch, err := parseLaunch(e, args)
 	if err != nil {
 		return err
+	}
+	if launch.Application.Module != "" && launch.Application.Version != "" {
+		ctx = application.WithIdentity(ctx, launch.Application)
 	}
 	var prepare func(context.Context) (boot.Config, func() error, error)
 	if e.Host != nil {
