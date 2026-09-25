@@ -16,6 +16,7 @@ import (
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/supervisor"
+	"github.com/wippyai/runtime/system/eventbus"
 )
 
 // registerInstance commits a registration for serviceID carrying svc, the way a
@@ -71,6 +72,54 @@ func TestSupervisor_RegisterAdoptsReplacementInstance(t *testing.T) {
 	require.Same(t, replacement, ctrl.Service(), "controller must supervise the replacement")
 }
 
+func TestSupervisor_RegisterReplacementPreservesRunningGenerationWithAutoStartDisabled(t *testing.T) {
+	h := newTestHarness(t)
+	h.start(context.Background())
+	defer h.stop()
+
+	const serviceID = "test:running-without-autostart"
+	original := newTestService()
+	registerInstanceWithDeps(h, serviceID, original, true, nil)
+	original.WaitForStart(t)
+
+	replacement := newTestService()
+	registerInstanceWithDeps(h, serviceID, replacement, false, nil)
+	replacement.WaitForStart(t)
+	original.WaitForStop(t)
+	h.assertServiceState(serviceID, supervisor.StatusRunning)
+}
+
+func TestSupervisor_RegisterReplacementKeepsInactiveServiceStopped(t *testing.T) {
+	h := newTestHarness(t)
+	h.start(context.Background())
+	defer h.stop()
+
+	const serviceID = "test:inactive"
+	original := newTestService()
+	registerInstanceWithDeps(h, serviceID, original, false, nil)
+	awaitCondition(t, "initial controller", func() bool {
+		h.sup.mu.RLock()
+		defer h.sup.mu.RUnlock()
+		return h.sup.controllers[serviceID] != nil
+	})
+	require.False(t, original.IsStarted())
+
+	replacement := newTestService()
+	registerInstanceWithDeps(h, serviceID, replacement, false, nil)
+	awaitCondition(t, "replacement controller", func() bool {
+		h.sup.mu.RLock()
+		defer h.sup.mu.RUnlock()
+		ctrl := h.sup.controllers[serviceID]
+		return ctrl != nil && ctrl.Service() == replacement
+	})
+	// A later commit acts as a barrier for the replacement's start decision.
+	barrier := newTestService()
+	registerInstanceWithDeps(h, "test:barrier", barrier, true, nil)
+	barrier.WaitForStart(t)
+	require.False(t, original.IsStarted())
+	require.False(t, replacement.IsStarted())
+}
+
 // TestSupervisor_ReplacementStartFailureKeepsReplacementOwned pins the point of
 // no return in a handover. Once retirement succeeds, the replacement remains
 // supervisor-owned and follows the ordinary failed/retry lifecycle; restoring
@@ -82,6 +131,22 @@ func TestSupervisor_ReplacementStartFailureKeepsReplacementOwned(t *testing.T) {
 	defer h.stop()
 
 	const serviceID = "test:replacement-start-fails"
+	failedEvents := make(chan State, 1)
+	sub, err := eventbus.NewSubscriber(context.Background(), h.sup.bus, supervisor.System, supervisor.ServiceUpdate, func(evt event.Event) {
+		if evt.Path != serviceID {
+			return
+		}
+		state, ok := evt.Data.(State)
+		if ok && state.Status == supervisor.StatusFailed {
+			select {
+			case failedEvents <- state:
+			default:
+			}
+		}
+	})
+	require.NoError(t, err)
+	defer sub.Close()
+
 	original := newCountingService()
 	registerInstance(h, serviceID, original)
 	awaitCondition(t, "original to start", original.isRunning)
@@ -102,6 +167,12 @@ func TestSupervisor_ReplacementStartFailureKeepsReplacementOwned(t *testing.T) {
 	h.sup.mu.RUnlock()
 	require.NotNil(t, ctrl)
 	require.Same(t, replacement, ctrl.Service(), "the replacement must retain lifecycle ownership")
+	select {
+	case failed := <-failedEvents:
+		require.ErrorContains(t, failed.Details.(error), "replacement cannot start")
+	case <-time.After(time.Second):
+		t.Fatal("replacement failure was not published as a supervisor update")
+	}
 }
 
 // TestSupervisor_RegisterKeepsIdenticalInstanceRunning guards the handover
