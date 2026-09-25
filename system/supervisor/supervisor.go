@@ -656,6 +656,16 @@ func (s *Supervisor) execute(ctx context.Context, tx *regTx) (err error) {
 	if err != nil {
 		return err
 	}
+	// A same-ID registration can replace a running instance without a remove
+	// event. Capture its state before retirement so AutoStart=false on the new
+	// definition does not turn an active service off.
+	if plan != nil {
+		for _, id := range plan.retire {
+			if _, recorded := oldStates[id]; !recorded {
+				oldStates[id] = oldControllers[id].State()
+			}
+		}
+	}
 	if err := s.applyReplacements(ctx, retiring, plan); err != nil {
 		return err
 	}
