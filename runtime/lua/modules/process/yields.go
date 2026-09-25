@@ -3,10 +3,12 @@
 package process
 
 import (
+	"errors"
 	"sync"
 
 	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/dispatcher"
+	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/process"
 )
@@ -363,9 +365,13 @@ func (y *ExecYield) Release()                      { ReleaseExecYield(y) }
 
 func (y *ExecYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
 	if err != nil {
-		luaErr := lua.WrapErrorWithLua(l, err, "exec failed").
-			WithKind(lua.Internal).
-			WithRetryable(false)
+		var apiErr apierror.Error
+		var richErr apierror.Rich
+		var luaErrSource *lua.Error
+		if errors.As(err, &apiErr) || errors.As(err, &richErr) || errors.As(err, &luaErrSource) {
+			return []lua.LValue{lua.LNil, lua.WrapErrorWithLua(l, err, "")}
+		}
+		luaErr := lua.WrapErrorWithLua(l, err, "exec failed").WithKind(lua.Internal).WithRetryable(false)
 		return []lua.LValue{lua.LNil, luaErr}
 	}
 

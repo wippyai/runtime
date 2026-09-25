@@ -9,6 +9,7 @@ import (
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/registry"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
+	runtimelua "github.com/wippyai/runtime/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/code"
 )
 
@@ -260,7 +261,7 @@ func (f *ProcessFactory) isolationBinder(
 				fn.Env = env
 				l.Push(fn)
 				if err := l.PCall(0, 1, nil); err != nil {
-					return fmt.Errorf("failed to load dependency %s: %w", dep.Name, err)
+					return fmt.Errorf("failed to load dependency %s: %w", dep.Name, runtimelua.ConvertExecutionError(l, err))
 				}
 				valueByNode[id] = l.Get(-1)
 				l.Pop(1)

@@ -52,52 +52,41 @@ func BuildChain(err error) *Chain {
 			ce.Message = mp.Msg()
 		}
 
-		var richErr Rich
-		if errors.As(e, &richErr) {
-			kind := richErr.Kind()
+		selected := nearestMetadata(e)
+		if baseErr, ok := selected.(Error); ok {
+			kind := baseErr.Kind()
 			if kind != "" && kind != Unknown {
 				ce.Kind = kind.String()
 			}
 
-			retryable := richErr.Retryable()
+			retryable := baseErr.Retryable()
 			if retryable != Unspecified {
 				b := retryable.Bool()
 				ce.Retryable = &b
 			}
 
-			if d := richErr.Details(); len(d) > 0 {
-				ce.Details = d
-			}
-
-			if s := richErr.StackFrames(); len(s) > 0 {
-				ce.Stack = s
-			}
-		} else {
-			var baseErr Error
-			if errors.As(e, &baseErr) {
-				kind := baseErr.Kind()
-				if kind != "" && kind != Unknown {
-					ce.Kind = kind.String()
-				}
-
-				retryable := baseErr.Retryable()
-				if retryable != Unspecified {
-					b := retryable.Bool()
-					ce.Retryable = &b
-				}
-
-				if d := baseErr.Details(); d != nil {
-					if bag, ok := d.(attrs.Bag); ok && len(bag) > 0 {
-						ce.Details = map[string]any(bag)
-					}
-				}
-			} else {
-				if se, ok := e.(StackProvider); ok {
-					if s := se.StackFrames(); len(s) > 0 {
-						ce.Stack = s
-					}
+			if d := baseErr.Details(); d != nil {
+				if bag, ok := d.(attrs.Bag); ok && len(bag) > 0 {
+					ce.Details = map[string]any(bag)
 				}
 			}
+		} else if richErr, ok := selected.(Rich); ok {
+			kind := richErr.Kind()
+			if kind != "" && kind != Unknown {
+				ce.Kind = kind.String()
+			}
+			if retryable := richErr.Retryable(); retryable != Unspecified {
+				b := retryable.Bool()
+				ce.Retryable = &b
+			}
+			if details := richErr.Details(); len(details) > 0 {
+				ce.Details = details
+			}
+		}
+		if stack, ok := selected.(StackProvider); ok {
+			ce.Stack = stack.StackFrames()
+		} else if stack, ok := e.(StackProvider); ok {
+			ce.Stack = stack.StackFrames()
 		}
 
 		chain.Errors = append(chain.Errors, ce)
@@ -107,6 +96,30 @@ func BuildChain(err error) *Chain {
 	}
 
 	return chain
+}
+
+func nearestMetadata(err error) any {
+	if err == nil {
+		return nil
+	}
+	var node any = err
+	if typed, ok := node.(Error); ok {
+		return typed
+	}
+	if typed, ok := node.(Rich); ok {
+		return typed
+	}
+	if next, ok := err.(interface{ Unwrap() error }); ok {
+		return nearestMetadata(next.Unwrap())
+	}
+	if joined, ok := err.(interface{ Unwrap() []error }); ok {
+		for _, branch := range joined.Unwrap() {
+			if selected := nearestMetadata(branch); selected != nil {
+				return selected
+			}
+		}
+	}
+	return nil
 }
 
 // Root returns the first (outermost) error in the chain, or nil if empty.

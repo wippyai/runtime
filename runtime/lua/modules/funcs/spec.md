@@ -25,6 +25,8 @@ Calls a registered function synchronously.
 - Success: `result, nil` - the function's return value
 - Error: `nil, error` - structured error
 
+An error raised inside the function body or while its entry chunk initializes follows the same error return convention as `return nil, err`. The caller receives the outer kind, message, retryability (including nil when unspecified), and details. This also applies to `Executor:call` and async error responses. A received native error can be raised or returned again. Plain strings and VM faults become Internal execution errors with retryable false; classification never depends on message text.
+
 **Errors (structured):**
 
 | Condition | Kind | Retryable |

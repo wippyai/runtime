@@ -4,6 +4,8 @@
 
 Process management, spawning, messaging, and lifecycle events. Process, nondeterministic.
 
+Unhandled native errors raised in a process body or entry chunk end that process. `process.exec` returns `nil, err`; monitored callers receive the error in `event.result.error`. Both paths retain the outer kind, message, explicit or unspecified retryability, and details. A startup failure follows the same contract. Plain strings and VM faults are Internal execution errors with retryable false. Retry policy is not inferred from kind or message text.
+
 Global. No require needed.
 
 ```lua

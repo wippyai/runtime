@@ -3659,10 +3659,12 @@ func TestProcessWrapErrorNilThread(t *testing.T) {
 		t.Fatal("expected wrapped error")
 	}
 
-	// Should be wrapped as lua.Error
-	luaErr := lua.GetError(result)
-	if luaErr == nil {
-		t.Fatal("expected lua.Error wrapper")
+	var apiErr apierror.Error
+	if !errors.As(result, &apiErr) || apiErr.Kind() != apierror.Internal || apiErr.Retryable() != apierror.False {
+		t.Fatalf("expected Internal/False API error, got %v", result)
+	}
+	if !errors.Is(result, plainErr) {
+		t.Fatal("original error was lost")
 	}
 }
 

@@ -13,7 +13,6 @@ import (
 	"github.com/wippyai/runtime/api/attrs"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/dispatcher"
-	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/process"
@@ -1944,7 +1943,7 @@ func (p *Process) SyncExecute(ctx context.Context, args ...lua.LValue) (lua.LVal
 		NRet:    1,
 		Protect: true,
 	}, args...); err != nil {
-		return lua.LNil, err
+		return lua.LNil, runtimelua.ConvertExecutionError(p.state, err)
 	}
 
 	// Get result
@@ -2094,68 +2093,26 @@ func extractReturnError(val lua.LValue) error {
 	return nil
 }
 
-// wrapError wraps an error with Lua stack trace and metadata.
-// If the error is already a lua.Error, extracts and returns it.
-// Otherwise creates a new lua.Error with the current Lua stack.
 func (p *Process) wrapError(thread *lua.LState, err error) error {
 	if err == nil {
 		return nil
 	}
 
-	// Check if already a lua.Error anywhere in the error chain
-	var luaErr *lua.Error
-	if errors.As(err, &luaErr) {
-		return luaErr
-	}
-
-	// Wrap with stack trace from the provided thread (or main state)
 	l := thread
 	if l == nil {
 		l = p.state
 	}
-
-	return lua.WrapErrorWithLua(l, err, "")
+	return runtimelua.ConvertExecutionError(l, err)
 }
 
-// toAPIError converts a lua.Error to apierror.Error for crossing the runtime boundary.
-// This ensures errors returned from Step() implement the standard error interface.
 func toAPIError(err error) error {
 	if err == nil {
 		return nil
 	}
 
-	var luaErr *lua.Error
-	if !errors.As(err, &luaErr) {
-		return err
+	var node any = err
+	if _, ok := node.(*lua.Error); ok {
+		return runtimelua.ConvertExecutionError(nil, err)
 	}
-
-	// Convert lua.Ternary to apierror.Ternary
-	var retryable apierror.Ternary
-	switch luaErr.Retryable() {
-	case lua.TernaryTrue:
-		retryable = apierror.True
-	case lua.TernaryFalse:
-		retryable = apierror.False
-	case lua.TernaryUnknown:
-		retryable = apierror.Unspecified
-	default:
-		retryable = apierror.Unspecified
-	}
-
-	// Convert lua.Kind to apierror.Kind
-	kind := apierror.Kind(luaErr.Kind())
-	if kind == "" {
-		kind = apierror.Internal
-	}
-
-	msg := luaErr.Message
-	if msg == "" {
-		msg = luaErr.Error()
-	}
-
-	builder := apierror.New(kind, msg).WithRetryable(retryable)
-	if details := luaErr.Details(); len(details) > 0 {
-		builder = builder.WithDetails(attrs.NewBagFrom(details))
-	}
-	return builder
+	return err
 }

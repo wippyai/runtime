@@ -16,6 +16,7 @@ import (
 	runtimeapi "github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/api/topology"
 	"github.com/wippyai/runtime/cluster/internode"
+	runtimelua "github.com/wippyai/runtime/runtime/lua"
 	"go.uber.org/zap"
 )
 
@@ -23,19 +24,14 @@ func configureAPIErrorMetadataExtractor(t *testing.T) {
 	t.Helper()
 
 	lua.SetErrorMetadataExtractor(func(err error) *lua.ErrorMetadata {
-		var apiErr apierror.Error
-		if !errors.As(err, &apiErr) {
+		chain := apierror.BuildChain(err)
+		if chain == nil || chain.Root() == nil {
 			return nil
 		}
-
-		meta := &lua.ErrorMetadata{Kind: lua.Kind(apiErr.Kind())}
-		switch apiErr.Retryable() {
-		case apierror.True:
-			retryable := true
-			meta.Retryable = &retryable
-		case apierror.False:
-			retryable := false
-			meta.Retryable = &retryable
+		root := chain.Root()
+		meta := &lua.ErrorMetadata{Kind: lua.Kind(root.Kind), Retryable: root.Retryable, Details: root.Details}
+		if meta.Kind == "" && meta.Retryable == nil && meta.Details == nil {
+			return nil
 		}
 		return meta
 	})
@@ -304,15 +300,17 @@ func TestUnlinkYield_HandleResult_Success(t *testing.T) {
 }
 
 func TestExecYield_HandleResult_PreservesLuaErrorMetadata(t *testing.T) {
+	configureAPIErrorMetadataExtractor(t)
 	l := lua.NewState()
 	defer l.Close()
 
 	yield := AcquireExecYield()
 	defer yield.Release()
 
-	original := lua.NewError("child failed").WithKind(lua.NotFound).WithRetryable(false)
+	original := lua.NewError("child failed").WithKind(lua.NotFound).WithRetryable(false).WithDetails(map[string]any{"field": "target"})
+	converted := runtimelua.ConvertExecutionError(l, &lua.ApiError{Type: lua.ApiErrorRun, Object: original})
 	result := yield.HandleResult(l, process.ExecResult{
-		Result: &runtimeapi.Result{Error: original},
+		Result: &runtimeapi.Result{Error: converted},
 	}, nil)
 	assert.Len(t, result, 2)
 
@@ -320,6 +318,30 @@ func TestExecYield_HandleResult_PreservesLuaErrorMetadata(t *testing.T) {
 	assert.True(t, ok, "expected lua error userdata")
 	assert.Equal(t, lua.NotFound, luaErr.Kind())
 	assert.Equal(t, lua.TernaryFalse, luaErr.Retryable())
+	assert.Equal(t, "target", luaErr.Details()["field"])
+
+	cleanup := errors.New("cleanup failed")
+	result = yield.HandleResult(l, nil, errors.Join(converted, cleanup))
+	luaErr, ok = lua.AsError(result[1])
+	require.True(t, ok)
+	assert.Equal(t, lua.NotFound, luaErr.Kind())
+	assert.Equal(t, lua.TernaryFalse, luaErr.Retryable())
+	assert.True(t, errors.Is(luaErr, cleanup))
+	assert.True(t, errors.Is(luaErr, original))
+
+	internal := runtimelua.ConvertExecutionError(l, &lua.ApiError{Type: lua.ApiErrorRun, Object: lua.NewError("retry").WithKind(lua.Internal).WithRetryable(true)})
+	result = yield.HandleResult(l, nil, internal)
+	luaErr, ok = lua.AsError(result[1])
+	require.True(t, ok)
+	assert.Equal(t, lua.Internal, luaErr.Kind())
+	assert.Equal(t, lua.TernaryTrue, luaErr.Retryable())
+
+	result = yield.HandleResult(l, nil, errors.New("dispatcher down"))
+	luaErr, ok = lua.AsError(result[1])
+	require.True(t, ok)
+	assert.Equal(t, lua.Internal, luaErr.Kind())
+	assert.Equal(t, lua.TernaryFalse, luaErr.Retryable())
+	assert.Contains(t, luaErr.Error(), "exec failed")
 }
 
 func TestYieldPooling(t *testing.T) {

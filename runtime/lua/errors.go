@@ -94,7 +94,10 @@ func NewLoadScriptError(cause error) apierror.Error {
 }
 
 func NewExecuteScriptError(cause error) apierror.Error {
-	return apierror.New(apierror.Internal, "failed to execute script").WithCause(cause).WithRetryable(apierror.False)
+	if cause == nil {
+		return apierror.New(apierror.Internal, "failed to execute script").WithRetryable(apierror.False)
+	}
+	return ConvertExecutionError(nil, cause)
 }
 
 func NewOperationError(operation string, cause error) apierror.Error {

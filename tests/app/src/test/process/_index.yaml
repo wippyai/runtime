@@ -4,6 +4,31 @@ version: "1.0"
 namespace: app.test.process
 
 entries:
+  - name: raised_error_worker
+    kind: process.lua
+    source: file://raised_error_worker.lua
+    method: main
+    modules:
+      - time
+
+  - name: raise_on_load_worker
+    kind: process.lua
+    source: file://raise_on_load_worker.lua
+    method: main
+
+  - name: error_propagation
+    kind: function.lua
+    meta:
+      type: test
+      suite: process
+      description: Raised error metadata through process results
+    source: file://error_propagation.lua
+    method: main
+    modules:
+      - time
+    imports:
+      assert2: app.lib:assert
+
   # Helper processes
   - name: echo_worker
     kind: process.lua

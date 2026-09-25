@@ -10,10 +10,12 @@ import (
 	"time"
 
 	lua "github.com/wippyai/go-lua"
+	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pid"
 	runtimeapi "github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/api/topology"
+	runtimelua "github.com/wippyai/runtime/runtime/lua"
 	systempayload "github.com/wippyai/runtime/system/payload"
 )
 
@@ -538,5 +540,32 @@ func TestFromGolang_TemporalExitEvent_NestedPayloads(t *testing.T) {
 	}
 	if len([]byte(bytesVal.String())) != 16 {
 		t.Fatalf("expected 16 byte Lua string, got %d", len([]byte(bytesVal.String())))
+	}
+}
+
+func TestFromGolangRaisedErrorInExitEvent(t *testing.T) {
+	lua.SetErrorMetadataExtractor(func(err error) *lua.ErrorMetadata {
+		chain := apierror.BuildChain(err)
+		if chain == nil || chain.Root() == nil {
+			return nil
+		}
+		root := chain.Root()
+		return &lua.ErrorMetadata{Kind: lua.Kind(root.Kind), Retryable: root.Retryable, Details: root.Details}
+	})
+	t.Cleanup(func() { lua.SetErrorMetadataExtractor(nil) })
+	source := lua.NewError("bad declaration").WithKind(lua.Invalid).WithRetryable(false).WithDetails(map[string]any{"field": "target"})
+	converted := runtimelua.ConvertExecutionError(nil, &lua.ApiError{Type: lua.ApiErrorRun, Object: source})
+	event := &topology.ExitEvent{Result: &runtimeapi.Result{Error: converted}}
+	value, err := GoToLua(event)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := value.(*lua.LTable).RawGetString("result").(*lua.LTable)
+	wrapped, ok := lua.AsError(result.RawGetString("error"))
+	if !ok || wrapped.Kind() != lua.Invalid || wrapped.Retryable() != lua.TernaryFalse || wrapped.Message != "bad declaration" || wrapped.Details()["field"] != "target" {
+		t.Fatalf("nested error = %v", result.RawGetString("error"))
+	}
+	if !errors.Is(wrapped, source) {
+		t.Fatal("local delivery lost cause")
 	}
 }

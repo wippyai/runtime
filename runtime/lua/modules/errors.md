@@ -2,7 +2,7 @@
 
 # Errors Specification
 
-Structured error handling for Lua modules using gopher-lua's `lua.Error` type.
+Structured error handling for Lua modules using `github.com/wippyai/go-lua` errors.
 
 ## Error Kind Constants
 
@@ -29,7 +29,7 @@ All errors returned by modules have these methods:
 | Method | Returns | Description |
 |--------|---------|-------------|
 | `err:kind()` | `string` | Error category (use constants for comparison) |
-| `err:retryable()` | `boolean` | Whether operation can be retried |
+| `err:retryable()` | `boolean\|nil` | Explicit retry setting, or nil when unspecified |
 | `err:message()` | `string` | Error message |
 | `err:details()` | `table\|nil` | Additional structured data |
 | `err:stack()` | `string` | Lua stack trace |
@@ -38,11 +38,12 @@ All errors returned by modules have these methods:
 ## Creating Errors in Lua
 
 ```lua
--- Create new error
-local err = errors.new("something failed")
-    :kind(errors.INVALID)
-    :retryable(false)
-    :details({ field = "name", reason = "too short" })
+local err = errors.new({
+    message = "something failed",
+    kind = errors.INVALID,
+    retryable = false,
+    details = { field = "name", reason = "too short" },
+})
 
 -- Wrap existing error with context
 local wrapped = errors.wrap(err, "validation failed")
@@ -52,6 +53,10 @@ if errors.is(err, errors.INVALID) then
     -- handle invalid input
 end
 ```
+
+`message` is required when using the table constructor. `retryable` may be omitted; then `err:retryable()` returns nil. A string constructor, `errors.new("message")`, has no explicit kind or retry setting.
+
+Returning `nil, err` and raising `error(err)` preserve a native error's outer kind, message, retry setting, and details across function and process calls. Raising ends the current execution. A caller can return or raise the received error again. `pcall` catches the original native value locally. Plain strings, forged tables, and VM faults are execution errors with Internal kind and retryable false at a runtime boundary.
 
 ## Creating Errors in Go Modules
 
@@ -131,16 +136,7 @@ if err and err:retryable() then
 end
 ```
 
-Typically retryable:
-- `errors.TIMEOUT`
-- `errors.UNAVAILABLE`
-- `errors.RATE_LIMITED`
-
-Typically not retryable:
-- `errors.INVALID`
-- `errors.NOT_FOUND`
-- `errors.PERMISSION_DENIED`
-- `errors.ALREADY_EXISTS`
+Kind and retryability are separate metadata. No retry decision is inferred from message text or kind. An omitted retry setting stays nil across runtime calls.
 
 ## Error Details
 
@@ -161,7 +157,7 @@ end
 
 Required imports:
 ```go
-import lua "github.com/yuin/gopher-lua"
+import lua "github.com/wippyai/go-lua"
 ```
 
 Available Go constants:
