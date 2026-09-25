@@ -436,7 +436,14 @@ func (cm *Manager) Compile(
 ) (*CompiledMain, error) {
 	cm.mutMu.RLock()
 	defer cm.mutMu.RUnlock()
-	return cm.compiler.Compile(cm.memGraph.Snapshot(), entrypoint, options)
+	var preloads []registry.ID
+	if options != nil {
+		preloads = make([]registry.ID, 0, len(options.Preloaded))
+		for _, pre := range options.Preloaded {
+			preloads = append(preloads, pre.ModuleID)
+		}
+	}
+	return cm.compiler.Compile(cm.memGraph.snapshotReachable(entrypoint, preloads), entrypoint, options)
 }
 
 // AddNode adds a new node with dependencies to the graph
