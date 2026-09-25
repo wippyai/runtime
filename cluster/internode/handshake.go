@@ -150,6 +150,9 @@ func performAuthenticatedClientHandshake(conn net.Conn, config NodeConnectionCon
 		!ed25519.Verify(peerKey, serverTranscript, serverSignature) {
 		return "", fmt.Errorf("internode server authentication failed")
 	}
+	if config.AuthorizePeer == nil || !config.AuthorizePeer(remoteNodeID, conn.RemoteAddr()) {
+		return "", newPeerNotAuthorizedError(remoteNodeID)
+	}
 	clientTranscript := handshakeTranscript("client", selfID, remoteNodeID, clientNonce, serverNonce)
 	clientTag := handshakeTag(config.AuthenticationKey, clientTranscript)
 	if err := writeHandshakeBytes(conn, clientTag); err != nil {
@@ -218,7 +221,7 @@ func performAuthenticatedServerHandshake(conn net.Conn, config NodeConnectionCon
 		return "", fmt.Errorf("internode client authentication failed")
 	}
 	if config.AuthorizePeer == nil || !config.AuthorizePeer(remoteNodeID, conn.RemoteAddr()) {
-		return "", fmt.Errorf("internode peer %q is not authorized", remoteNodeID)
+		return "", newPeerNotAuthorizedError(remoteNodeID)
 	}
 	return remoteNodeID, nil
 }
@@ -252,7 +255,9 @@ func PerformClientHandshake(conn net.Conn, config NodeConnectionConfig, logger *
 	}
 
 	_ = conn.SetDeadline(time.Time{})
-	return newNodeConnection(conn, remoteNodeID, config, logger), nil
+	nodeConn := newNodeConnection(conn, remoteNodeID, config, logger)
+	nodeConn.dialed = true
+	return nodeConn, nil
 }
 
 // PerformServerHandshake executes the server side of the handshake protocol.
