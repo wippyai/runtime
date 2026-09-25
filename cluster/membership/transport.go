@@ -17,8 +17,10 @@ import (
 	"github.com/wippyai/runtime/cluster/internode"
 )
 
-// GossipLink carries memberlist packets over connected internode links, so a
-// node that can be reached in only one direction still receives probes.
+// GossipLink carries a copy of memberlist packets over connected internode
+// links, so a node that can be reached in only one direction still receives
+// probes. The memberlist transport carries every packet as well, so a busy or
+// reconnecting link never delays a peer that the transport reaches.
 type GossipLink interface {
 	// SendConnected queues data for node on its connected link and reports
 	// whether it did.
@@ -33,8 +35,10 @@ type GossipLink interface {
 // instead of stalling the link's reader, which also carries reliable classes.
 const linkPacketBuffer = 256
 
-// linkTransport sends packets for a node with a connected link over that
-// link and merges packets that arrive on links into the packet stream.
+// linkTransport sends packets over the inner transport and, for a node with a
+// connected link, over that link too. Packets that arrive on links join the
+// packet stream. memberlist tolerates the duplicates: an ack completes a probe
+// once, and broadcasts are idempotent.
 type linkTransport struct {
 	memberlist.NodeAwareTransport
 	link    GossipLink
@@ -72,13 +76,16 @@ func (t *linkTransport) WriteTo(b []byte, addr string) (time.Time, error) {
 	return t.WriteToAddress(b, memberlist.Address{Addr: addr})
 }
 
-// WriteToAddress copies b because memberlist reuses it once the call returns
-// and the link sends asynchronously.
+// WriteToAddress copies b for the link because memberlist reuses it once the
+// call returns and the link sends asynchronously. A packet the link accepted is
+// sent even when the inner transport fails.
 func (t *linkTransport) WriteToAddress(b []byte, addr memberlist.Address) (time.Time, error) {
-	if addr.Name != "" && t.link.SendConnected(addr.Name, append([]byte(nil), b...), internode.ClassGossip) {
+	linked := addr.Name != "" && t.link.SendConnected(addr.Name, append([]byte(nil), b...), internode.ClassGossip)
+	sent, err := t.NodeAwareTransport.WriteToAddress(b, addr)
+	if err != nil && linked {
 		return time.Now(), nil
 	}
-	return t.NodeAwareTransport.WriteToAddress(b, addr)
+	return sent, err
 }
 
 func (t *linkTransport) PacketCh() <-chan *memberlist.Packet {

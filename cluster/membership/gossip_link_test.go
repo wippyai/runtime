@@ -8,6 +8,7 @@ import (
 	"net"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -161,4 +162,54 @@ func TestOneWayReachableNodeFailsWithoutGossipLink(t *testing.T) {
 	defer cancel()
 	a, _ := startOneWayPair(ctx, t, nil)
 	require.Eventually(t, func() bool { return !hasNode(a, "node-b") }, 5*time.Second, 10*time.Millisecond)
+}
+
+// blackholeLink accepts every packet and delivers none, as a link stalled
+// behind large frames does.
+type blackholeLink struct{}
+
+func (blackholeLink) SendConnected(string, []byte, internode.Class) bool { return true }
+
+func (blackholeLink) RegisterClassReceiver(internode.Class, func(string, []byte)) bool { return true }
+
+// dialCountingTransport counts stream dials, which memberlist opens for its
+// TCP fallback ping when a probe goes unanswered.
+type dialCountingTransport struct {
+	*memberlist.MockTransport
+	dials atomic.Int32
+}
+
+func (t *dialCountingTransport) DialTimeout(addr string, timeout time.Duration) (net.Conn, error) {
+	return t.DialAddressTimeout(memberlist.Address{Addr: addr}, timeout)
+}
+
+func (t *dialCountingTransport) DialAddressTimeout(addr memberlist.Address, timeout time.Duration) (net.Conn, error) {
+	t.dials.Add(1)
+	return t.MockTransport.DialAddressTimeout(addr, timeout)
+}
+
+// A link that delivers nothing does not delay probes to a peer the transport
+// reaches: probes are answered directly, with no fallback dials, and the peer
+// stays a member.
+func TestStalledGossipLinkKeepsReachableNodeAlive(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	network := &memberlist.MockNetwork{}
+	transportA := &dialCountingTransport{MockTransport: network.NewTransport("node-a")}
+	transportB := network.NewTransport("node-b")
+	addrA, portA, err := transportA.FinalAdvertiseAddr("", 0)
+	require.NoError(t, err)
+
+	a := NewService(fastProbeConfig("node-a", transportA, blackholeLink{}, nil), eventbus.NewBus(), zap.NewNop(), nil, nil, nil)
+	require.NoError(t, a.Start(ctx))
+	t.Cleanup(func() { _ = a.Stop() })
+	b := NewService(fastProbeConfig("node-b", transportB, blackholeLink{}, []string{net.JoinHostPort(addrA.String(), strconv.Itoa(portA))}),
+		eventbus.NewBus(), zap.NewNop(), nil, nil, nil)
+	require.NoError(t, b.Start(ctx))
+	t.Cleanup(func() { _ = b.Stop() })
+
+	require.Eventually(t, func() bool { return hasNode(a, "node-b") && hasNode(b, "node-a") }, 5*time.Second, 5*time.Millisecond)
+	before := transportA.dials.Load()
+	require.Never(t, func() bool { return !hasNode(a, "node-b") || !hasNode(b, "node-a") }, time.Second, 10*time.Millisecond)
+	require.Zero(t, transportA.dials.Load()-before, "probes to a reachable peer fell back to TCP")
 }
