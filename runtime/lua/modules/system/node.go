@@ -15,6 +15,7 @@ import (
 
 type nodeInfo struct {
 	meta    cluster.NodeMeta
+	link    *cluster.Link
 	id      string
 	addr    string
 	isLocal bool
@@ -81,6 +82,13 @@ func collectNodes(ctx context.Context) []nodeInfo {
 	if len(nodes) == 0 {
 		return nil
 	}
+	if links := cluster.GetLinks(ctx); links != nil {
+		for i := range nodes {
+			if link, ok := links.Link(nodes[i].id); ok && !nodes[i].isLocal {
+				nodes[i].link = &link
+			}
+		}
+	}
 
 	sort.SliceStable(nodes, func(i, j int) bool {
 		if nodes[i].isLocal != nodes[j].isLocal {
@@ -95,7 +103,7 @@ func collectNodes(ctx context.Context) []nodeInfo {
 func pushNodes(l *lua.LState, nodes []nodeInfo) *lua.LTable {
 	result := l.CreateTable(len(nodes), 0)
 	for i, node := range nodes {
-		t := l.CreateTable(0, 4)
+		t := l.CreateTable(0, 5)
 		t.RawSetString("id", lua.LString(node.id))
 		t.RawSetString("is_local", lua.LBool(node.isLocal))
 		if node.addr != "" {
@@ -107,6 +115,12 @@ func pushNodes(l *lua.LState, nodes []nodeInfo) *lua.LTable {
 				meta.RawSetString(key, lua.LString(val))
 			}
 			t.RawSetString("meta", meta)
+		}
+		if node.link != nil {
+			link := l.CreateTable(0, 2)
+			link.RawSetString("remote", lua.LString(node.link.Remote))
+			link.RawSetString("dialed", lua.LBool(node.link.Dialed))
+			t.RawSetString("link", link)
 		}
 		result.RawSetInt(i+1, t)
 	}

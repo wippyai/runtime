@@ -14,7 +14,106 @@ import (
 	"time"
 
 	"github.com/hashicorp/memberlist"
+	"github.com/wippyai/runtime/cluster/internode"
 )
+
+// GossipLink carries memberlist packets over connected internode links, so a
+// node that can be reached in only one direction still receives probes.
+type GossipLink interface {
+	// SendConnected queues data for node on its connected link and reports
+	// whether it did.
+	SendConnected(node string, data []byte, class internode.Class) bool
+	// RegisterClassReceiver routes inbound frames of class to recv; nil
+	// clears the route.
+	RegisterClassReceiver(class internode.Class, recv func(node string, data []byte)) bool
+}
+
+// linkPacketBuffer bounds packets that arrived on links and wait for
+// memberlist. Gossip is lossy, so a full buffer drops the newest packet
+// instead of stalling the link's reader, which also carries reliable classes.
+const linkPacketBuffer = 256
+
+// linkTransport sends packets for a node with a connected link over that
+// link and merges packets that arrive on links into the packet stream.
+type linkTransport struct {
+	memberlist.NodeAwareTransport
+	link    GossipLink
+	packets chan *memberlist.Packet
+	done    chan struct{}
+	stop    sync.Once
+}
+
+func newLinkTransport(inner memberlist.NodeAwareTransport, link GossipLink) *linkTransport {
+	t := &linkTransport{
+		NodeAwareTransport: inner,
+		link:               link,
+		packets:            make(chan *memberlist.Packet, linkPacketBuffer),
+		done:               make(chan struct{}),
+	}
+	go t.forward(inner.PacketCh())
+	return t
+}
+
+// Shutdown keeps forwarding while the inner transport shuts down, because its
+// listeners can be blocked handing over a packet, as memberlist's own reader
+// keeps reading until the transport is down.
+func (t *linkTransport) Shutdown() error {
+	err := t.NodeAwareTransport.Shutdown()
+	t.release()
+	return err
+}
+
+// release stops forwarding without shutting the inner transport down.
+func (t *linkTransport) release() {
+	t.stop.Do(func() { close(t.done) })
+}
+
+func (t *linkTransport) WriteTo(b []byte, addr string) (time.Time, error) {
+	return t.WriteToAddress(b, memberlist.Address{Addr: addr})
+}
+
+// WriteToAddress copies b because memberlist reuses it once the call returns
+// and the link sends asynchronously.
+func (t *linkTransport) WriteToAddress(b []byte, addr memberlist.Address) (time.Time, error) {
+	if addr.Name != "" && t.link.SendConnected(addr.Name, append([]byte(nil), b...), internode.ClassGossip) {
+		return time.Now(), nil
+	}
+	return t.NodeAwareTransport.WriteToAddress(b, addr)
+}
+
+func (t *linkTransport) PacketCh() <-chan *memberlist.Packet {
+	return t.packets
+}
+
+func (t *linkTransport) forward(in <-chan *memberlist.Packet) {
+	for {
+		select {
+		case <-t.done:
+			return
+		case packet := <-in:
+			select {
+			case t.packets <- packet:
+			case <-t.done:
+				return
+			}
+		}
+	}
+}
+
+// deliver hands memberlist a packet node sent over its link.
+func (t *linkTransport) deliver(node string, data []byte) {
+	select {
+	case t.packets <- &memberlist.Packet{Buf: data, From: linkAddr(node), Timestamp: time.Now()}:
+	default:
+	}
+}
+
+// linkAddr identifies the node whose link delivered a packet. Replies to it
+// are addressed by node name, which routes them back over the link.
+type linkAddr string
+
+func (a linkAddr) Network() string { return "internode" }
+func (a linkAddr) String() string  { return string(a) }
 
 // cancelableTransport binds a memberlist transport to a context so shutdown
 // reaches sockets that are already in flight. memberlist bounds a dial and the
@@ -115,10 +214,28 @@ func (c *cancelableConn) Close() error {
 	return c.Conn.Close()
 }
 
-func createMemberlist(ctx context.Context, cfg *memberlist.Config, open func(*memberlist.NetTransportConfig) (*memberlist.NetTransport, error)) (*memberlist.Memberlist, error) {
+// newTransport binds inner to ctx and, when a link is present, routes packets
+// over connected links. It returns the link transport so the caller can
+// register its receiver.
+func newTransport(ctx context.Context, inner memberlist.Transport, link GossipLink) (memberlist.NodeAwareTransport, *linkTransport) {
+	cancelable := newCancelableTransport(ctx, inner)
+	if link == nil {
+		return cancelable, nil
+	}
+	linked := newLinkTransport(cancelable, link)
+	return linked, linked
+}
+
+func createMemberlist(ctx context.Context, cfg *memberlist.Config, link GossipLink, open func(*memberlist.NetTransportConfig) (*memberlist.NetTransport, error)) (*memberlist.Memberlist, *linkTransport, error) {
 	if cfg.Transport != nil {
-		cfg.Transport = newCancelableTransport(ctx, cfg.Transport)
-		return memberlist.Create(cfg)
+		var linked *linkTransport
+		cfg.Transport, linked = newTransport(ctx, cfg.Transport, link)
+		ml, err := memberlist.Create(cfg)
+		if err != nil && linked != nil {
+			// The caller owns a supplied transport; only forwarding stops.
+			linked.release()
+		}
+		return ml, linked, err
 	}
 	logger := cfg.Logger
 	if logger == nil {
@@ -137,21 +254,21 @@ func createMemberlist(ctx context.Context, cfg *memberlist.Config, open func(*me
 	if cfg.BindPort != 0 {
 		transport, err := open(&transportConfig)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		return createWithTransport(ctx, cfg, transport)
+		return createWithTransport(ctx, cfg, link, transport)
 	}
 	var lastErr error
 	for attempt := 0; attempt < 32; attempt++ {
 		if err := ctx.Err(); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if attempt != 0 {
 			// TCP's ephemeral allocator can walk a range unavailable to UDP
 			// on Windows. Bind both protocols on a fresh candidate instead.
 			candidate, err := rand.Int(rand.Reader, big.NewInt(16384))
 			if err != nil {
-				return nil, fmt.Errorf("choose membership port: %w", err)
+				return nil, nil, fmt.Errorf("choose membership port: %w", err)
 			}
 			transportConfig.BindPort = 49152 + int(candidate.Int64())
 		}
@@ -162,20 +279,21 @@ func createMemberlist(ctx context.Context, cfg *memberlist.Config, open func(*me
 		}
 		if err := ctx.Err(); err != nil {
 			_ = transport.Shutdown()
-			return nil, err
+			return nil, nil, err
 		}
 		cfg.BindPort = transport.GetAutoBindPort()
 		cfg.AdvertisePort = cfg.BindPort
-		return createWithTransport(ctx, cfg, transport)
+		return createWithTransport(ctx, cfg, link, transport)
 	}
-	return nil, fmt.Errorf("could not allocate membership TCP/UDP listeners after 32 attempts: %w", lastErr)
+	return nil, nil, fmt.Errorf("could not allocate membership TCP/UDP listeners after 32 attempts: %w", lastErr)
 }
 
-func createWithTransport(ctx context.Context, cfg *memberlist.Config, transport *memberlist.NetTransport) (*memberlist.Memberlist, error) {
-	cfg.Transport = newCancelableTransport(ctx, transport)
+func createWithTransport(ctx context.Context, cfg *memberlist.Config, link GossipLink, transport *memberlist.NetTransport) (*memberlist.Memberlist, *linkTransport, error) {
+	var linked *linkTransport
+	cfg.Transport, linked = newTransport(ctx, transport, link)
 	ml, err := memberlist.Create(cfg)
 	if err != nil {
-		_ = transport.Shutdown()
+		_ = cfg.Transport.Shutdown()
 	}
-	return ml, err
+	return ml, linked, err
 }

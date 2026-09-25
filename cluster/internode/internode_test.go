@@ -74,6 +74,14 @@ func (m *mockConnectionManager) SendToNode(_ cluster.NodeID, _ []byte, _ Class) 
 	return nil
 }
 
+func (m *mockConnectionManager) SendConnected(nodeID cluster.NodeID, data []byte, class Class) bool {
+	return m.SendToNode(nodeID, data, class) == nil
+}
+
+func (m *mockConnectionManager) Link(cluster.NodeID) (cluster.Link, bool) {
+	return cluster.Link{}, false
+}
+
 func (m *mockConnectionManager) EnsureConnection(nodeID cluster.NodeID, addr string, port int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

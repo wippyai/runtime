@@ -303,6 +303,7 @@ func Cluster() boot.Component {
 
 			// Create membership service config
 			memberCfg := membership.Config{
+				Link:        connMgr,
 				NodeName:    nodeName,
 				BindAddr:    clusterCfg.GetString(ClusterMembershipBindAddr, "0.0.0.0"),
 				BindPort:    clusterCfg.GetInt(ClusterMembershipBindPort, 7946),
@@ -400,6 +401,7 @@ func Cluster() boot.Component {
 
 			// Store cluster components in context
 			ctx = clusterapi.WithMembership(ctx, membershipSvc)
+			ctx = clusterapi.WithLinks(ctx, connMgr)
 			ctx = WithInternodeService(ctx, internodeSvc)
 
 			// Expose the connection manager so the mesh-backed Raft

@@ -28,7 +28,7 @@ func automaticTransportConfig() *memberlist.Config {
 func TestAutomaticTransportRetriesAndRetainsBothListeners(t *testing.T) {
 	cfg := automaticTransportConfig()
 	attempts := 0
-	ml, err := createMemberlist(t.Context(), cfg, func(nc *memberlist.NetTransportConfig) (*memberlist.NetTransport, error) {
+	ml, _, err := createMemberlist(t.Context(), cfg, nil, func(nc *memberlist.NetTransportConfig) (*memberlist.NetTransport, error) {
 		attempts++
 		if attempts == 1 {
 			require.Zero(t, nc.BindPort)
@@ -62,7 +62,7 @@ func TestAutomaticTransportFailureIsBounded(t *testing.T) {
 	cfg := automaticTransportConfig()
 	want := errors.New("bind denied")
 	attempts := 0
-	_, err := createMemberlist(t.Context(), cfg, func(*memberlist.NetTransportConfig) (*memberlist.NetTransport, error) {
+	_, _, err := createMemberlist(t.Context(), cfg, nil, func(*memberlist.NetTransportConfig) (*memberlist.NetTransport, error) {
 		attempts++
 		return nil, want
 	})
@@ -76,7 +76,7 @@ func TestAutomaticTransportCancellationStopsRetries(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	attempts := 0
-	_, err := createMemberlist(ctx, automaticTransportConfig(), func(*memberlist.NetTransportConfig) (*memberlist.NetTransport, error) {
+	_, _, err := createMemberlist(ctx, automaticTransportConfig(), nil, func(*memberlist.NetTransportConfig) (*memberlist.NetTransport, error) {
 		attempts++
 		cancel()
 		return nil, errors.New("bind denied")
@@ -88,7 +88,7 @@ func TestAutomaticTransportCancellationStopsRetries(t *testing.T) {
 func TestAutomaticTransportClosesOnMemberlistFailure(t *testing.T) {
 	cfg := automaticTransportConfig()
 	cfg.AdvertiseAddr = "invalid-ip"
-	_, err := createMemberlist(t.Context(), cfg, memberlist.NewNetTransport)
+	_, _, err := createMemberlist(t.Context(), cfg, nil, memberlist.NewNetTransport)
 	require.ErrorContains(t, err, "advertise address")
 	require.Positive(t, cfg.BindPort)
 	assertTransportPortReleased(t, net.JoinHostPort(cfg.BindAddr, strconv.Itoa(cfg.BindPort)))
@@ -98,7 +98,7 @@ func TestAutomaticTransportClosesWhenCanceledAfterBind(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	var address string
-	_, err := createMemberlist(ctx, automaticTransportConfig(), func(nc *memberlist.NetTransportConfig) (*memberlist.NetTransport, error) {
+	_, _, err := createMemberlist(ctx, automaticTransportConfig(), nil, func(nc *memberlist.NetTransportConfig) (*memberlist.NetTransport, error) {
 		transport, err := memberlist.NewNetTransport(nc)
 		if err == nil {
 			address = net.JoinHostPort(nc.BindAddrs[0], strconv.Itoa(transport.GetAutoBindPort()))
@@ -115,7 +115,7 @@ func TestFixedTransportDoesNotUseAutomaticAllocator(t *testing.T) {
 	cfg := automaticTransportConfig()
 	cfg.BindPort = -1
 	attempts := 0
-	_, err := createMemberlist(t.Context(), cfg, func(nc *memberlist.NetTransportConfig) (*memberlist.NetTransport, error) {
+	_, _, err := createMemberlist(t.Context(), cfg, nil, func(nc *memberlist.NetTransportConfig) (*memberlist.NetTransport, error) {
 		attempts++
 		require.Equal(t, -1, nc.BindPort, "explicit port must not use automatic allocator")
 		return memberlist.NewNetTransport(nc)
@@ -132,7 +132,7 @@ func TestFixedTransportIsCancelable(t *testing.T) {
 	port, err := freeLoopbackPort(t)
 	require.NoError(t, err)
 	cfg.BindPort = port
-	ml, err := createMemberlist(ctx, cfg, memberlist.NewNetTransport)
+	ml, _, err := createMemberlist(ctx, cfg, nil, memberlist.NewNetTransport)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = ml.Shutdown() })
 	require.IsType(t, &cancelableTransport{}, cfg.Transport)

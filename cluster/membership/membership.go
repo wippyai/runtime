@@ -20,6 +20,7 @@ import (
 	"github.com/wippyai/runtime/api/cluster"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/metrics"
+	"github.com/wippyai/runtime/cluster/internode"
 	"go.opentelemetry.io/otel/attribute"
 	otelmetric "go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
@@ -56,6 +57,7 @@ type Service struct {
 	transport      memberlist.Transport
 	logger         *zap.Logger
 	memberlist     atomic.Pointer[memberlist.Memberlist]
+	linked         *linkTransport // receives gossip that arrives on internode links
 	nodes          map[string]cluster.NodeInfo
 	nodeStates     map[string]memberlist.NodeStateType
 	tel            *telemetry
@@ -125,6 +127,7 @@ func (s *Service) SendUserMessage(targetNodeID string, kind byte, payload []byte
 // Config holds membership service configuration
 type Config struct {
 	Transport           memberlist.Transport
+	Link                GossipLink // carries gossip to connected nodes; nil leaves gossip on Transport alone
 	Meta                cluster.NodeMeta
 	SecretKey           []byte
 	SecretString        string
@@ -309,11 +312,17 @@ func (s *Service) Start(ctx context.Context) error {
 	}
 
 	// Create memberlist
-	ml, err := createMemberlist(s.ctx, mlConfig, memberlist.NewNetTransport)
+	ml, linked, err := createMemberlist(s.ctx, mlConfig, s.config.Link, memberlist.NewNetTransport)
 	if err != nil {
 		return NewCreateMemberlistError(err)
 	}
 	s.memberlist.Store(ml)
+	if linked != nil {
+		if !s.config.Link.RegisterClassReceiver(internode.ClassGossip, linked.deliver) {
+			return NewCreateMemberlistError(ErrGossipReceiverTaken)
+		}
+		s.linked = linked
+	}
 
 	// Join cluster if addresses are configured. Seed availability is not a
 	// readiness condition: the local memberlist is already active and can serve
@@ -545,6 +554,10 @@ func (s *Service) Stop() error {
 		if err := ml.Shutdown(); err != nil {
 			s.logger.Warn("failed to shutdown memberlist cleanly", zap.Error(err))
 		}
+	}
+	if s.linked != nil {
+		s.config.Link.RegisterClassReceiver(internode.ClassGossip, nil)
+		s.linked = nil
 	}
 
 	s.logger.Info("membership service stopped")

@@ -9,6 +9,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"strconv"
 	"testing"
 	"time"
 
@@ -121,6 +122,32 @@ func TestUnreachablePeerConnectsThroughItsOwnDial(t *testing.T) {
 	require.NoError(t, high.manager.SendToNode(low.id, []byte("high-to-low"), ClassRaftControl))
 	requireDelivered(t, high, "low-to-high")
 	requireDelivered(t, low, "high-to-low")
+
+	lowLink, ok := low.manager.Link(high.id)
+	require.True(t, ok)
+	require.False(t, lowLink.Dialed)
+	highLink, ok := high.manager.Link(low.id)
+	require.True(t, ok)
+	require.True(t, highLink.Dialed)
+	require.Equal(t, net.JoinHostPort("127.0.0.1", strconv.Itoa(low.manager.GetListenPort())), highLink.Remote)
+	_, ok = low.manager.Link("node-3")
+	require.False(t, ok)
+}
+
+// A link carries gossip only while it is connected.
+func TestSendConnectedRequiresConnectedLink(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	low, high := startAuthenticatedPair(ctx, t)
+	require.False(t, low.manager.SendConnected(high.id, []byte("early"), ClassGossip))
+
+	low.manager.EnsureConnection(high.id, "127.0.0.1", high.manager.GetListenPort())
+	require.Eventually(t, func() bool {
+		_, state := connectionOf(low, high.id)
+		return state == StateConnected
+	}, 3*time.Second, 5*time.Millisecond)
+	require.True(t, low.manager.SendConnected(high.id, []byte("gossip"), ClassGossip))
+	requireDelivered(t, high, "gossip")
 }
 
 // When both sides dial at once, both ends settle on the connection the lower

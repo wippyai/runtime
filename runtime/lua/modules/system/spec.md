@@ -392,6 +392,7 @@ Full cluster membership snapshot. Local node sorts first; remaining nodes by ID.
 | is_local | boolean | True if this entry is the local node |
 | addr | string | Optional advertised address |
 | meta | table | Optional string-keyed metadata |
+| link | table | Present when this node holds a connected link to the member: `remote` (string, the member's socket address as seen here) and `dialed` (boolean, true when this node opened the link) |
 
 **Returns:** `table[], error` - array of node info tables or nil + structured error
 
