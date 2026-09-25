@@ -728,16 +728,12 @@ func runPackEntriesWithShutdown(
 	}
 
 	if entryID != "" {
-		execCtx, stopExecSignals := newExecSignalContext(appCtx)
-		execErr := launchExecProcess(execCtx, logger, entryID, hostID, args)
-		interrupted := execWasInterrupted(execCtx, appCtx, execErr)
-		stopExecSignals()
-		if execErr != nil && !interrupted {
-			logger.Error("exec launch failed", zap.Error(execErr))
-			return execErr
+		shutdown, err := launchExecUntilShutdown(appCtx, sigChan, logger, entryID, hostID, args)
+		if err != nil {
+			return err
 		}
-		if interrupted {
-			logger.Info("exec interrupted", zap.String("signal", "SIGINT"))
+		if shutdown {
+			return nil
 		}
 	}
 
