@@ -168,6 +168,7 @@ var lockType = typ.NewInterface("system.lock", []typ.Method{
 var systemMethodsType = typ.NewInterface("system", []typ.Method{
 	{Name: "exit", Type: typ.Func().OptParam("code", typ.Number).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
 	{Name: "modules", Type: typ.Func().Returns(typ.NewArray(moduleInfoType), typ.NewOptional(typ.LuaError)).Build()},
+	{Name: "version", Type: typ.Func().Returns(typ.String).Build()},
 })
 
 // ModuleTypes returns the type manifest for the system module.

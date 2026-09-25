@@ -97,6 +97,8 @@ jobs:
         with:
           go-version: '1.27.0'
           cache: true
+      - name: Check version stamping
+        run: bash .github/scripts/test-version-stamp.sh
       - name: Run native application suite
         env:
           SKIP_NETWORK_TESTS: "1"

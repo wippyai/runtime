@@ -12,6 +12,24 @@ local system = require("system")
 
 ## Functions
 
+### version() → string
+
+Returns the exact build identity from `api/version.Short()`. The value is not
+parsed, normalized, or interpreted as an ordered version. It can be `dev`, a
+`dev-*` description for a local Makefile build, a `nightly-*` identity, or an
+explicit release stamp.
+
+The identity describes the local OS process executing Lua. It does not report
+the minimum version across a cluster or a remote worker.
+
+**Permissions:** Public when the caller can load the `system` module. This
+function does not require `system.read`, an actor, or a scope.
+
+```lua
+local system = require("system")
+local running: string = system.version()
+```
+
 ### exit(code?: integer) → boolean, error
 
 Triggers system shutdown with exit code.
