@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	lua "github.com/wippyai/go-lua"
+	"github.com/wippyai/go-lua/types/typ"
 )
 
 func TestModuleLoads(t *testing.T) {
@@ -151,6 +152,44 @@ func TestModuleHasBuilder(t *testing.T) {
 		if table.RawGetString(name) == lua.LNil {
 			t.Errorf("expected builder table to have '%s' placeholder", name)
 		}
+	}
+}
+
+func TestBuilderExpressionDeclaredSignatures(t *testing.T) {
+	methods := make(map[string]*typ.Function)
+	for _, method := range builderType.(*typ.Interface).Methods {
+		methods[method.Name] = method.Type
+	}
+
+	conditionMap := typ.NewMap(typ.String, typ.Any)
+	conditionList := typ.NewArray(typ.NewUnion(sqlizerType, conditionMap))
+	for _, tc := range []struct {
+		name string
+		arg  typ.Type
+	}{
+		{"eq", conditionMap},
+		{"not_eq", conditionMap},
+		{"lt", conditionMap},
+		{"lte", conditionMap},
+		{"gt", conditionMap},
+		{"gte", conditionMap},
+		{"like", conditionMap},
+		{"not_like", conditionMap},
+		{"and_", conditionList},
+		{"or_", conditionList},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fn := methods[tc.name]
+			if fn == nil {
+				t.Fatal("builder expression declaration is missing")
+			}
+			if len(fn.Params) != 1 || fn.Params[0].Name != "conditions" || fn.Params[0].Optional || !typ.TypeEquals(fn.Params[0].Type, tc.arg) || fn.Variadic != nil {
+				t.Errorf("signature = %s, want one required conditions parameter of type %s with no variadic arguments", fn, tc.arg)
+			}
+			if len(fn.Returns) != 1 || !typ.TypeEquals(fn.Returns[0], sqlizerType) {
+				t.Errorf("returns = %v, want sql.Sqlizer", fn.Returns)
+			}
+		})
 	}
 }
 
