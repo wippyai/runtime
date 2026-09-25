@@ -137,10 +137,10 @@ func (m *MemoryGraph) Snapshot() *MemoryGraph {
 	}
 }
 
-// SnapshotReachable copies only the entrypoint closure. Extra nodes are included
-// for preloads, which need their definitions but do not compile their imports.
-// Global levels are retained so the dependency order matches a full snapshot.
-func (m *MemoryGraph) SnapshotReachable(entrypoint registry.ID, extras ...registry.ID) *MemoryGraph {
+// snapshotReachable copies only the entrypoint closure. Preloaded nodes are
+// included for their definitions; their imports are not compiled. Global
+// levels are retained so the dependency order matches a full snapshot.
+func (m *MemoryGraph) snapshotReachable(entrypoint registry.ID, preloads []registry.ID) *MemoryGraph {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -148,7 +148,7 @@ func (m *MemoryGraph) SnapshotReachable(entrypoint registry.ID, extras ...regist
 	if _, ok := m.nodes[entrypoint]; ok {
 		ids = m.reachableFromLocked(entrypoint)
 	}
-	for _, id := range extras {
+	for _, id := range preloads {
 		if _, ok := m.nodes[id]; ok {
 			ids[id] = true
 		}

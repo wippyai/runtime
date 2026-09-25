@@ -443,7 +443,7 @@ func (cm *Manager) Compile(
 			preloads = append(preloads, pre.ModuleID)
 		}
 	}
-	return cm.compiler.Compile(cm.memGraph.SnapshotReachable(entrypoint, preloads...), entrypoint, options)
+	return cm.compiler.Compile(cm.memGraph.snapshotReachable(entrypoint, preloads), entrypoint, options)
 }
 
 // AddNode adds a new node with dependencies to the graph

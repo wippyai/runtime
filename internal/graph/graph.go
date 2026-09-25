@@ -235,8 +235,8 @@ func (g *Graph[T, E]) findCycle() ([]T, bool) {
 func (g *Graph[T, E]) DependencyLevels() (*DependencyLevels[T], error) {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
-	// Keep the generic graph's historical %v ordering while formatting each
-	// node once, rather than allocating strings inside every sort comparison.
+	// Nodes sort by their %v form, formatted once per node rather than inside
+	// every comparison.
 	keys := make(map[T]string, len(g.nodes))
 	for node := range g.nodes {
 		keys[node] = fmt.Sprintf("%v", node)
