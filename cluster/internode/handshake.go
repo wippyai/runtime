@@ -151,7 +151,7 @@ func performAuthenticatedClientHandshake(conn net.Conn, config NodeConnectionCon
 		return "", fmt.Errorf("internode server authentication failed")
 	}
 	if config.AuthorizePeer == nil || !config.AuthorizePeer(remoteNodeID, conn.RemoteAddr()) {
-		return "", NewPeerNotAuthorizedError(remoteNodeID)
+		return "", newPeerNotAuthorizedError(remoteNodeID)
 	}
 	clientTranscript := handshakeTranscript("client", selfID, remoteNodeID, clientNonce, serverNonce)
 	clientTag := handshakeTag(config.AuthenticationKey, clientTranscript)
@@ -221,7 +221,7 @@ func performAuthenticatedServerHandshake(conn net.Conn, config NodeConnectionCon
 		return "", fmt.Errorf("internode client authentication failed")
 	}
 	if config.AuthorizePeer == nil || !config.AuthorizePeer(remoteNodeID, conn.RemoteAddr()) {
-		return "", NewPeerNotAuthorizedError(remoteNodeID)
+		return "", newPeerNotAuthorizedError(remoteNodeID)
 	}
 	return remoteNodeID, nil
 }
