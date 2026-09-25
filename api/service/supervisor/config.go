@@ -4,6 +4,8 @@
 package supervisor
 
 import (
+	"reflect"
+
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/supervisor"
@@ -36,4 +38,12 @@ func (c *ServiceConfig) Validate() error {
 	}
 
 	return nil
+}
+
+// Equal reports whether c and o represent equivalent service configurations.
+func (c ServiceConfig) Equal(o ServiceConfig) bool {
+	return c.Process.Equal(o.Process) &&
+		c.HostID == o.HostID &&
+		reflect.DeepEqual(c.Input, o.Input) &&
+		reflect.DeepEqual(c.Lifecycle, o.Lifecycle)
 }

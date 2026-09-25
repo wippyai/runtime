@@ -4,7 +4,6 @@ package supervisor
 
 import (
 	"context"
-	"reflect"
 	"sync"
 
 	"github.com/wippyai/runtime/api/event"
@@ -102,7 +101,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 
 	cfg.Process = cfg.Process.WithDefaultNS(entry.ID.NS)
 
-	if sameServiceConfig(current.(*Service).config, *cfg) {
+	if current.(*Service).config.Equal(*cfg) {
 		return nil
 	}
 
@@ -124,13 +123,6 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 
 	m.log.Debug("process service updated", zap.String("id", entry.ID.String()))
 	return nil
-}
-
-func sameServiceConfig(a, b supervisorapi.ServiceConfig) bool {
-	return a.Process.Equal(b.Process) &&
-		a.HostID == b.HostID &&
-		reflect.DeepEqual(a.Input, b.Input) &&
-		reflect.DeepEqual(a.Lifecycle, b.Lifecycle)
 }
 
 // Delete implements registry.EntryListener.

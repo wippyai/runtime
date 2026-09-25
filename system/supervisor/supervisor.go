@@ -637,14 +637,7 @@ func (s *Supervisor) resolveServiceDependencyRefs(
 // services whose listener depends on resources that should have started first.
 func (s *Supervisor) execute(ctx context.Context, tx *regTx) (err error) {
 	registerIDs := sortedRegisterIDs(tx.register)
-	removeIDs := sortedRemoveIDs(tx.remove)
 	oldControllers := s.snapshotControllers()
-	oldStates := make(map[string]State, len(removeIDs))
-	for _, id := range removeIDs {
-		if ctrl := oldControllers[id]; ctrl != nil {
-			oldStates[id] = ctrl.State()
-		}
-	}
 
 	// A registration for an ID that already has a controller carries a
 	// replacement instance whenever its manager rebuilt the service. Retiring
@@ -656,14 +649,13 @@ func (s *Supervisor) execute(ctx context.Context, tx *regTx) (err error) {
 	if err != nil {
 		return err
 	}
-	// A same-ID registration can replace a running instance without a remove
-	// event. Capture its state before retirement so AutoStart=false on the new
+	// Capture the state of retiring controllers so AutoStart=false on a new
 	// definition does not turn an active service off.
+	var oldStates map[string]State
 	if plan != nil {
+		oldStates = make(map[string]State, len(plan.retire))
 		for _, id := range plan.retire {
-			if _, recorded := oldStates[id]; !recorded {
-				oldStates[id] = oldControllers[id].State()
-			}
+			oldStates[id] = oldControllers[id].State()
 		}
 	}
 	if err := s.applyReplacements(ctx, retiring, plan); err != nil {
