@@ -20,7 +20,7 @@ func TestZeroPortReportsRetainedEndpoint(t *testing.T) {
 			cfg.Logger = zap.NewNop()
 			cfg.BindAddr, cfg.BindPort, cfg.AutoPort = "127.0.0.1", 0, automatic
 			manager := NewConnectionManager(cfg, nil)
-			require.NoError(t, manager.Start(context.Background(), func(cluster.NodeID, []byte) {}))
+			require.NoError(t, manager.Start(context.Background(), func(cluster.NodeID, []byte) {}, ignoreSessionEnd))
 			defer manager.Stop()
 			port := manager.GetListenPort()
 			require.Positive(t, port)

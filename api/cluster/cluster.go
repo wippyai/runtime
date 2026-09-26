@@ -5,6 +5,11 @@ package cluster
 
 import "github.com/wippyai/runtime/api/relay"
 
+// MetaIncarnation is the node metadata key carrying the process incarnation
+// of a node's internode transport. A changed value for a known node means the
+// node restarted under the same ID.
+const MetaIncarnation = "internode_incarnation"
+
 type (
 	// NodeID is the stable identifier each node advertises to its peers.
 	NodeID = string

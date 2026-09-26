@@ -33,6 +33,7 @@ func TestIntegration_TwoNodeCommunication(t *testing.T) {
 	config1.LocalNodeID = "node-1"
 	config1.BindAddr = "127.0.0.1"
 	config1.AutoPort = true
+	config1.BindPort = 0
 	config1.Logger = logger
 	config1.InitialRetryDelay = 10 * time.Millisecond
 	config1.MaxRetryDelay = 100 * time.Millisecond
@@ -41,6 +42,7 @@ func TestIntegration_TwoNodeCommunication(t *testing.T) {
 	config2.LocalNodeID = "node-2"
 	config2.BindAddr = "127.0.0.1"
 	config2.AutoPort = true
+	config2.BindPort = 0
 	config2.Logger = logger
 	config2.InitialRetryDelay = 10 * time.Millisecond
 	config2.MaxRetryDelay = 100 * time.Millisecond
@@ -51,13 +53,13 @@ func TestIntegration_TwoNodeCommunication(t *testing.T) {
 	// Start both managers
 	err := cm1.Start(ctx, func(_ cluster.NodeID, _ []byte) {
 		node1Received.Add(1)
-	})
+	}, ignoreSessionEnd)
 	require.NoError(t, err)
 	defer func() { _ = cm1.Stop() }()
 
 	err = cm2.Start(ctx, func(_ cluster.NodeID, _ []byte) {
 		node2Received.Add(1)
-	})
+	}, ignoreSessionEnd)
 	require.NoError(t, err)
 	defer func() { _ = cm2.Stop() }()
 
@@ -128,20 +130,20 @@ func TestIntegration_ConnectionRetryOnFailure(t *testing.T) {
 	config1.LocalNodeID = "node-1"
 	config1.BindAddr = "127.0.0.1"
 	config1.AutoPort = true
+	config1.BindPort = 0
 	config1.Logger = logger
 	config1.InitialRetryDelay = 50 * time.Millisecond
 	config1.MaxRetryDelay = 200 * time.Millisecond
-	config1.MaxRetryAttempts = 20
 
 	cm1 := NewConnectionManager(config1, nil)
 
-	err := cm1.Start(ctx, func(_ cluster.NodeID, _ []byte) {})
+	err := cm1.Start(ctx, func(_ cluster.NodeID, _ []byte) {}, ignoreSessionEnd)
 	require.NoError(t, err)
 	defer func() { _ = cm1.Stop() }()
 
 	// Register node-2 and try to connect BEFORE node-2 exists
 	cm1.AddManagedNode("node-2")
-	cm1.EnsureConnection("node-2", "127.0.0.1", 19999) // Non-existent port
+	cm1.EnsureConnection("node-2", "127.0.0.1", closedLocalPort(t)) // nothing listens there
 
 	// Wait a bit to ensure retry starts
 	time.Sleep(200 * time.Millisecond)
@@ -150,22 +152,21 @@ func TestIntegration_ConnectionRetryOnFailure(t *testing.T) {
 	config2 := insecureManagerConfig()
 	config2.LocalNodeID = "node-2"
 	config2.BindAddr = "127.0.0.1"
-	config2.BindPort = 19998
-	config2.AutoPort = false
+	config2.BindPort = 0
 	config2.Logger = logger
 
 	cm2 := NewConnectionManager(config2, nil)
 
 	err = cm2.Start(ctx, func(_ cluster.NodeID, _ []byte) {
 		node2Received.Add(1)
-	})
+	}, ignoreSessionEnd)
 	require.NoError(t, err)
 	defer func() { _ = cm2.Stop() }()
 
 	cm2.AddManagedNode("node-1")
 
 	// Update node-1 with correct port for node-2
-	cm1.EnsureConnection("node-2", "127.0.0.1", 19998)
+	cm1.EnsureConnection("node-2", "127.0.0.1", cm2.GetListenPort())
 
 	// Wait for connection establishment
 	deadline := time.Now().Add(3 * time.Second)
@@ -201,22 +202,27 @@ func TestIntegration_EnsureConnectionUpdatesDoNotRaceWithDial(t *testing.T) {
 	config.LocalNodeID = "node-1"
 	config.BindAddr = "127.0.0.1"
 	config.AutoPort = true
+	config.BindPort = 0
 	config.Logger = zap.NewNop()
 	config.HandshakeTimeout = 5 * time.Millisecond
 	config.InitialRetryDelay = time.Millisecond
 	config.MaxRetryDelay = 2 * time.Millisecond
-	config.MaxRetryAttempts = 100
 
 	cm := NewConnectionManager(config, nil)
-	require.NoError(t, cm.Start(ctx, func(cluster.NodeID, []byte) {}))
+	require.NoError(t, cm.Start(ctx, func(cluster.NodeID, []byte) {}, ignoreSessionEnd))
 	defer func() { _ = cm.Stop() }()
 
+	// Endpoints nothing listens on.
+	dead := make([]int, 8)
+	for i := range dead {
+		dead[i] = closedLocalPort(t)
+	}
 	cm.AddManagedNode("node-2")
-	cm.EnsureConnection("node-2", "127.0.0.1", 19990)
+	cm.EnsureConnection("node-2", "127.0.0.1", dead[0])
 	time.Sleep(20 * time.Millisecond)
 
 	for i := 0; i < 100; i++ {
-		cm.EnsureConnection("node-2", "127.0.0.1", 19990+i%8)
+		cm.EnsureConnection("node-2", "127.0.0.1", dead[i%8])
 		time.Sleep(time.Millisecond)
 	}
 }
@@ -233,22 +239,24 @@ func TestIntegration_GracefulDisconnect(t *testing.T) {
 	config1.LocalNodeID = "node-1"
 	config1.BindAddr = "127.0.0.1"
 	config1.AutoPort = true
+	config1.BindPort = 0
 	config1.Logger = logger
 
 	config2 := insecureManagerConfig()
 	config2.LocalNodeID = "node-2"
 	config2.BindAddr = "127.0.0.1"
 	config2.AutoPort = true
+	config2.BindPort = 0
 	config2.Logger = logger
 
 	cm1 := NewConnectionManager(config1, nil)
 	cm2 := NewConnectionManager(config2, nil)
 
-	err := cm1.Start(ctx, func(_ cluster.NodeID, _ []byte) {})
+	err := cm1.Start(ctx, func(_ cluster.NodeID, _ []byte) {}, ignoreSessionEnd)
 	require.NoError(t, err)
 	defer func() { _ = cm1.Stop() }()
 
-	err = cm2.Start(ctx, func(_ cluster.NodeID, _ []byte) {})
+	err = cm2.Start(ctx, func(_ cluster.NodeID, _ []byte) {}, ignoreSessionEnd)
 	require.NoError(t, err)
 
 	port1 := cm1.GetListenPort()
@@ -283,7 +291,7 @@ func TestIntegration_GracefulDisconnect(t *testing.T) {
 	}
 
 	// Since node-2 is removed from managed nodes, we don't retry
-	cm1.RemoveManagedNode("node-2")
+	cm1.RemoveManagedNode("node-2", 0)
 
 	assert.Empty(t, cm1.ConnectedNodes(), "node-1 should detect disconnection")
 }
@@ -307,6 +315,7 @@ func TestIntegration_ThreeNodeCluster(t *testing.T) {
 		configs[i].LocalNodeID = "node-" + string(rune('A'+i))
 		configs[i].BindAddr = "127.0.0.1"
 		configs[i].AutoPort = true
+		configs[i].BindPort = 0
 		configs[i].Logger = logger
 		configs[i].InitialRetryDelay = 10 * time.Millisecond
 		configs[i].MaxRetryDelay = 100 * time.Millisecond
@@ -315,7 +324,7 @@ func TestIntegration_ThreeNodeCluster(t *testing.T) {
 		managers[i] = NewConnectionManager(configs[i], nil)
 		err := managers[i].Start(ctx, func(_ cluster.NodeID, _ []byte) {
 			received[idx].Add(1)
-		})
+		}, ignoreSessionEnd)
 		require.NoError(t, err)
 	}
 
@@ -402,6 +411,7 @@ func TestIntegration_LargeMessages(t *testing.T) {
 	config1.LocalNodeID = "node-1"
 	config1.BindAddr = "127.0.0.1"
 	config1.AutoPort = true
+	config1.BindPort = 0
 	config1.Logger = logger
 	config1.MaxMessageSize = 10 * 1024 * 1024 // 10MB
 
@@ -409,13 +419,14 @@ func TestIntegration_LargeMessages(t *testing.T) {
 	config2.LocalNodeID = "node-2"
 	config2.BindAddr = "127.0.0.1"
 	config2.AutoPort = true
+	config2.BindPort = 0
 	config2.Logger = logger
 	config2.MaxMessageSize = 10 * 1024 * 1024
 
 	cm1 := NewConnectionManager(config1, nil)
 	cm2 := NewConnectionManager(config2, nil)
 
-	err := cm1.Start(ctx, func(_ cluster.NodeID, _ []byte) {})
+	err := cm1.Start(ctx, func(_ cluster.NodeID, _ []byte) {}, ignoreSessionEnd)
 	require.NoError(t, err)
 	defer func() { _ = cm1.Stop() }()
 
@@ -423,7 +434,7 @@ func TestIntegration_LargeMessages(t *testing.T) {
 		mu.Lock()
 		receivedSizes = append(receivedSizes, len(data))
 		mu.Unlock()
-	})
+	}, ignoreSessionEnd)
 	require.NoError(t, err)
 	defer func() { _ = cm2.Stop() }()
 
@@ -489,6 +500,7 @@ func TestIntegration_HighThroughput(t *testing.T) {
 	config1.LocalNodeID = "sender"
 	config1.BindAddr = "127.0.0.1"
 	config1.AutoPort = true
+	config1.BindPort = 0
 	config1.Logger = logger
 	config1.DrainBatchSize = 256 // Larger batch for high throughput
 
@@ -496,19 +508,20 @@ func TestIntegration_HighThroughput(t *testing.T) {
 	config2.LocalNodeID = "receiver"
 	config2.BindAddr = "127.0.0.1"
 	config2.AutoPort = true
+	config2.BindPort = 0
 	config2.Logger = logger
 	config2.DrainBatchSize = 256
 
 	cm1 := NewConnectionManager(config1, nil)
 	cm2 := NewConnectionManager(config2, nil)
 
-	err := cm1.Start(ctx, func(_ cluster.NodeID, _ []byte) {})
+	err := cm1.Start(ctx, func(_ cluster.NodeID, _ []byte) {}, ignoreSessionEnd)
 	require.NoError(t, err)
 	defer func() { _ = cm1.Stop() }()
 
 	err = cm2.Start(ctx, func(_ cluster.NodeID, _ []byte) {
 		received.Add(1)
-	})
+	}, ignoreSessionEnd)
 	require.NoError(t, err)
 	defer func() { _ = cm2.Stop() }()
 
@@ -569,29 +582,30 @@ func TestIntegration_ShortNetworkDisruption(t *testing.T) {
 	config1.LocalNodeID = "node-1"
 	config1.BindAddr = "127.0.0.1"
 	config1.AutoPort = true
+	config1.BindPort = 0
 	config1.Logger = logger
 	config1.InitialRetryDelay = 50 * time.Millisecond
 	config1.MaxRetryDelay = 200 * time.Millisecond
-	config1.MaxRetryAttempts = 30
 	config1.DrainBatchSize = 128
 
 	config2 := insecureManagerConfig()
 	config2.LocalNodeID = "node-2"
 	config2.BindAddr = "127.0.0.1"
 	config2.AutoPort = true
+	config2.BindPort = 0
 	config2.Logger = logger
 	config2.DrainBatchSize = 128
 
 	cm1 := NewConnectionManager(config1, nil)
 	cm2 := NewConnectionManager(config2, nil)
 
-	err := cm1.Start(ctx, func(_ cluster.NodeID, _ []byte) {})
+	err := cm1.Start(ctx, func(_ cluster.NodeID, _ []byte) {}, ignoreSessionEnd)
 	require.NoError(t, err)
 	defer func() { _ = cm1.Stop() }()
 
 	err = cm2.Start(ctx, func(_ cluster.NodeID, _ []byte) {
 		received.Add(1)
-	})
+	}, ignoreSessionEnd)
 	require.NoError(t, err)
 
 	port1 := cm1.GetListenPort()
@@ -644,7 +658,7 @@ func TestIntegration_ShortNetworkDisruption(t *testing.T) {
 	cm2 = NewConnectionManager(config2, nil)
 	err = cm2.Start(ctx, func(_ cluster.NodeID, _ []byte) {
 		received.Add(1)
-	})
+	}, ignoreSessionEnd)
 	require.NoError(t, err)
 	defer func() { _ = cm2.Stop() }()
 
@@ -698,21 +712,22 @@ func TestIntegration_MultipleReconnections(t *testing.T) {
 	config1.LocalNodeID = "node-1"
 	config1.BindAddr = "127.0.0.1"
 	config1.AutoPort = true
+	config1.BindPort = 0
 	config1.Logger = logger
 	config1.InitialRetryDelay = 20 * time.Millisecond
 	config1.MaxRetryDelay = 100 * time.Millisecond
-	config1.MaxRetryAttempts = 50
 	config1.DrainBatchSize = 128
 
 	config2 := insecureManagerConfig()
 	config2.LocalNodeID = "node-2"
 	config2.BindAddr = "127.0.0.1"
 	config2.AutoPort = true
+	config2.BindPort = 0
 	config2.Logger = logger
 	config2.DrainBatchSize = 128
 
 	cm1 := NewConnectionManager(config1, nil)
-	err := cm1.Start(ctx, func(_ cluster.NodeID, _ []byte) {})
+	err := cm1.Start(ctx, func(_ cluster.NodeID, _ []byte) {}, ignoreSessionEnd)
 	require.NoError(t, err)
 	defer func() { _ = cm1.Stop() }()
 
@@ -726,7 +741,7 @@ func TestIntegration_MultipleReconnections(t *testing.T) {
 		cm2 := NewConnectionManager(config2, nil)
 		err = cm2.Start(ctx, func(_ cluster.NodeID, _ []byte) {
 			received.Add(1)
-		})
+		}, ignoreSessionEnd)
 		require.NoError(t, err)
 
 		port2 := cm2.GetListenPort()
@@ -786,6 +801,7 @@ func TestIntegration_BidirectionalCommunication(t *testing.T) {
 	config1.LocalNodeID = "node-1"
 	config1.BindAddr = "127.0.0.1"
 	config1.AutoPort = true
+	config1.BindPort = 0
 	config1.Logger = logger
 	config1.DrainBatchSize = 128
 
@@ -793,6 +809,7 @@ func TestIntegration_BidirectionalCommunication(t *testing.T) {
 	config2.LocalNodeID = "node-2"
 	config2.BindAddr = "127.0.0.1"
 	config2.AutoPort = true
+	config2.BindPort = 0
 	config2.Logger = logger
 	config2.DrainBatchSize = 128
 
@@ -801,13 +818,13 @@ func TestIntegration_BidirectionalCommunication(t *testing.T) {
 
 	err := cm1.Start(ctx, func(_ cluster.NodeID, _ []byte) {
 		node1Received.Add(1)
-	})
+	}, ignoreSessionEnd)
 	require.NoError(t, err)
 	defer func() { _ = cm1.Stop() }()
 
 	err = cm2.Start(ctx, func(_ cluster.NodeID, _ []byte) {
 		node2Received.Add(1)
-	})
+	}, ignoreSessionEnd)
 	require.NoError(t, err)
 	defer func() { _ = cm2.Stop() }()
 

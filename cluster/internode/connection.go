@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/wippyai/runtime/api/cluster"
@@ -23,7 +24,6 @@ import (
 
 var (
 	ErrConnectionClosed = errors.New("internode: connection is closed")
-	ErrMessageTooLarge  = errors.New("internode: message exceeds max size")
 	ErrCleanShutdown    = errors.New("internode: clean shutdown")
 )
 
@@ -79,7 +79,11 @@ func (ce *ConnectionError) ShouldRetry() bool {
 	switch ce.Reason {
 	case ExitNetworkError, ExitPeerClosed:
 		return true
-	case ExitCleanShutdown, ExitProtocolError:
+	case ExitProtocolError:
+		// A violation fails the session, not the peer: a fresh session is
+		// dialed while the peer is a member.
+		return true
+	case ExitCleanShutdown:
 		return false
 	case ExitUnknown:
 		return false
@@ -89,29 +93,25 @@ func (ce *ConnectionError) ShouldRetry() bool {
 }
 
 const (
-	// protocolVersion v2 added the per-frame Class byte so the wire is
-	// self-describing for sub-protocol dispatch. v1 (header [version, len])
-	// is no longer accepted; all nodes in a cluster upgrade together.
-	protocolVersion        = 0x02
-	frameHeaderSize        = 6 // 1 byte version, 1 byte class, 4 bytes length
+	// protocolVersion v3 sequences frames on a per-peer session and carries
+	// the sender's cumulative ack in every frame. Earlier versions are not
+	// accepted; all nodes in a cluster upgrade together.
+	protocolVersion = 0x03
+	// frameHeaderSize: version u8, class u8, length u32, seq u64, ack u64.
+	frameHeaderSize        = 22
 	defaultWriteBufferSize = 64 * 1024
-	readPoolBufferSize     = 32 * 1024
+	// ackEvery bounds how many frames the reader delivers before it wakes the
+	// writer to acknowledge them while more input is buffered.
+	ackEvery = 32
 )
 
-var bufferPool = sync.Pool{
-	New: func() any {
-		b := make([]byte, readPoolBufferSize)
-		return &b
-	},
-}
-
-// Outbound is one queued message waiting to be sent on the wire. The Class
-// is preserved end-to-end so the receiver can dispatch by sub-protocol
-// without inspecting the payload, and so requeue-on-disconnect honors the
-// original QoS class.
+// Outbound is one frame handed to a writer. The Class is preserved
+// end-to-end so the receiver can dispatch by sub-protocol without inspecting
+// the payload; seq is the frame's session sequence number, zero for gossip.
 type Outbound struct {
 	Data  []byte
 	Class Class
+	seq   uint64
 }
 
 // NodeConnectionConfig holds configuration parameters for a NodeConnection.
@@ -134,71 +134,93 @@ func DefaultNodeConnectionConfig() NodeConnectionConfig {
 	}
 }
 
-// NodeConnection represents a single, framed TCP connection to another node.
-// Its writeLoop drains the peer's per-class outbound queues directly (wired
-// via bindDrain) so there is a single queue and a single goroutine wakeup
-// per frame on the send path.
+// NodeConnection is one framed socket carrying a peer session. Its writeLoop
+// drains the session (wired via bindSession) and its readLoop delivers the
+// peer's frames exactly once, in order. The session outlives the socket: a
+// replacement connection resumes it.
 type NodeConnection struct {
-	conn          net.Conn
-	logger        *zap.Logger
-	cancel        context.CancelFunc
-	messageNotify <-chan struct{}
-	drainFn       func(int) []Outbound
-	requeueFn     func([]Outbound)
-	remoteNode    cluster.NodeID
-	config        NodeConnectionConfig
-	drainBatch    int
-	lifecycleMu   sync.Mutex
-	closed        atomic.Bool
+	conn       net.Conn
+	logger     *zap.Logger
+	cancel     context.CancelFunc
+	link       *sessionLink
+	runDone    chan struct{}
+	remoteNode cluster.NodeID
+	config     NodeConnectionConfig
+	// peerIncarnation is the peer process incarnation proven by the handshake.
+	peerIncarnation uint64
+	lifecycleMu     sync.Mutex
+	closed          atomic.Bool
 	// dialed reports that this node opened the connection as the handshake
 	// client.
 	dialed bool
 }
 
-// newNodeConnection creates a new, un-started NodeConnection. bindDrain must
-// be called before Run to wire the outbound queue source.
-func newNodeConnection(conn net.Conn, remoteNode cluster.NodeID, config NodeConnectionConfig, logger *zap.Logger) *NodeConnection {
+// newNodeConnection creates a new, un-started NodeConnection. bindSession
+// must be called before Run.
+func newNodeConnection(conn net.Conn, remoteNode cluster.NodeID, peerIncarnation uint64, config NodeConnectionConfig, logger *zap.Logger) *NodeConnection {
 	return &NodeConnection{
-		conn:       conn,
-		logger:     logger.With(zap.String("remote_node", remoteNode)),
-		config:     config,
-		remoteNode: remoteNode,
+		conn:            conn,
+		logger:          logger.With(zap.String("remote_node", remoteNode)),
+		config:          config,
+		remoteNode:      remoteNode,
+		peerIncarnation: peerIncarnation,
+		runDone:         make(chan struct{}),
 	}
 }
 
-// bindDrain wires the per-class outbound queues that writeLoop drains. It
-// MUST be called before Run. notify is the peer's message notifier (signaled
-// when a message is queued); drain pulls up to batch messages in QoS order;
-// requeue returns an un-flushed batch to the per-class queues after a write
-// failure so a subsequent connection can deliver them.
-func (c *NodeConnection) bindDrain(notify <-chan struct{}, drain func(int) []Outbound, requeue func([]Outbound), batch int) {
-	c.messageNotify = notify
-	c.drainFn = drain
-	c.requeueFn = requeue
-	c.drainBatch = batch
+// sessionLink binds a connection to the peer session it carries.
+type sessionLink struct {
+	nsm   *NodeStateManager
+	state *NodeState
+	sess  *session
+	// resumed is closed once the peer's RESUME is reconciled; the writer
+	// holds sequenced frames until then.
+	resumed chan struct{}
+	nodeID  cluster.NodeID
+	batch   int
+}
+
+// wakeWriter nudges the writer to drain or acknowledge.
+func (l *sessionLink) wakeWriter() {
+	select {
+	case l.state.messageNotify <- struct{}{}:
+	default:
+	}
+}
+
+// bindSession wires the connection to state's current session. It MUST be
+// called before Run.
+func (c *NodeConnection) bindSession(nsm *NodeStateManager, nodeID cluster.NodeID, state *NodeState, batch int) {
+	state.queueMu.Lock()
+	sess := state.session
+	state.queueMu.Unlock()
+	c.link = &sessionLink{
+		nsm:     nsm,
+		state:   state,
+		sess:    sess,
+		resumed: make(chan struct{}),
+		nodeID:  nodeID,
+		batch:   batch,
+	}
 }
 
 // Run starts the connection's read/write loops and blocks until termination.
 // It returns a ConnectionError indicating the reason for termination. The
-// handler receives every decoded inbound frame tagged with its sub-protocol
+// handler receives every delivered inbound frame tagged with its sub-protocol
 // Class so callers can dispatch by class without re-parsing payload.
-// Run drives the connection's full-duplex I/O until either direction fails
-// or Close is called, then returns the first non-clean error observed.
 //
 // The read pump runs INLINE on the caller's goroutine; only the write pump
-// is spawned. This keeps full duplex (separate read/write goroutines) with
-// no dedicated join/wait goroutine — the caller's goroutine IS the read
-// pump. Steady state is 3 long-lived goroutines per connected peer: the
+// is spawned. Steady state is 3 long-lived goroutines per connected peer: the
 // control loop, this read pump, and the write pump.
 //
 // First-error-wins teardown: whichever pump fails first records its error and
 // Close()s the connection (cancel ctx + close net.Conn), which unblocks the
-// other pump (context cancellation alone does not interrupt a blocking
-// net.Conn.Read — only closing the conn does). The writer records its error
-// BEFORE calling Close so a writer-originated failure is captured before the
-// socket close wakes the inline reader; the reader then observes
-// ExitCleanShutdown and Run returns the writer's error.
+// other pump. The writer records its error BEFORE calling Close so a
+// writer-originated failure is captured before the socket close wakes the
+// inline reader; the reader then observes ExitCleanShutdown and Run returns
+// the writer's error. When Run returns, no further frame is delivered.
 func (c *NodeConnection) Run(handler func(class Class, msg []byte)) *ConnectionError {
+	defer close(c.runDone)
 	c.lifecycleMu.Lock()
 	// Close may win before the monitor goroutine starts. Do not publish a
 	// fresh writer context after the one-shot Close has already completed.
@@ -212,12 +234,15 @@ func (c *NodeConnection) Run(handler func(class Class, msg []byte)) *ConnectionE
 
 	defer c.Close()
 
+	if c.link == nil {
+		c.logger.Error("connection started without a bound session")
+		return &ConnectionError{Reason: ExitProtocolError, Err: ErrConnectionClosed}
+	}
+
 	errCh := make(chan *ConnectionError, 1)
 	writeDone := make(chan struct{})
 
-	// record keeps only the first non-clean error. The one-slot buffered
-	// channel + non-blocking send means the loser of the race silently
-	// drops its (necessarily clean-shutdown-shaped) error.
+	// record keeps only the first non-clean error.
 	record := func(err *ConnectionError) {
 		if err == nil || err.Reason == ExitCleanShutdown {
 			return
@@ -236,14 +261,28 @@ func (c *NodeConnection) Run(handler func(class Class, msg []byte)) *ConnectionE
 		}
 	}()
 
-	// Inline read pump on the caller's goroutine.
-	readErr := c.readLoop(ctx, handler)
+	// Inline read pump on the caller's goroutine. The session learns of the
+	// live reader so an end signal waits until no frame can be delivered.
+	// Nothing of this session is delivered before the end of the session it
+	// replaced has been signaled. A protocol violation on the stream fails
+	// the session; the reader's stop then signals it.
+	var readErr *ConnectionError
+	switch {
+	case !c.link.awaitPredecessor(ctx.Done()):
+		readErr = &ConnectionError{Reason: ExitCleanShutdown, Err: ErrCleanShutdown}
+	case c.link.beginRead():
+		readErr = c.readLoop(ctx, handler)
+		if readErr != nil && readErr.Reason == ExitProtocolError {
+			c.link.failSession()
+		}
+		c.link.endRead()
+	default:
+		readErr = &ConnectionError{Reason: ExitCleanShutdown, Err: errSessionEnded}
+	}
 	// Attribute the reader's error only if the reader is the FIRST cause:
-	// if the connection is already closed when the reader exits, the
-	// socket error is a consequence of an external Close() or a
-	// writer-triggered teardown (which already recorded its own cause),
-	// not an independent failure. This is what makes an external Close
-	// yield ExitCleanShutdown rather than a spurious read error.
+	// if the connection is already closed when the reader exits, the socket
+	// error is a consequence of an external Close() or a writer-triggered
+	// teardown, not an independent failure.
 	if !c.closed.Load() {
 		record(readErr)
 	}
@@ -259,8 +298,8 @@ func (c *NodeConnection) Run(handler func(class Class, msg []byte)) *ConnectionE
 	}
 }
 
-// Close aborts the session transport and cancels all ongoing operations.
-// It does not drain queued frames or wait for a TLS close notification.
+// Close aborts the socket and cancels all ongoing operations. The session's
+// unacknowledged frames stay in its resend ring for the next connection.
 func (c *NodeConnection) Close() {
 	if c.closed.CompareAndSwap(false, true) {
 		c.lifecycleMu.Lock()
@@ -277,101 +316,193 @@ func (c *NodeConnection) RemoteNodeID() cluster.NodeID {
 	return c.remoteNode
 }
 
-// writeLoop drains this peer's per-class outbound queues (wired by bindDrain)
-// and flushes frames to the socket. It first drains everything currently
-// queued — including messages buffered while the connection was down — then
-// blocks on messageNotify for the next batch. On a write failure the
-// un-flushed batch is requeued so a subsequent connection can deliver it.
+// writeLoop announces the session with RESUME, holds sequenced frames until
+// the peer's RESUME is reconciled, then drains the session: frames awaiting
+// retransmission first, then queued frames. Every frame carries the current
+// cumulative ack; a standalone ack goes out only when no frame carried it.
 func (c *NodeConnection) writeLoop(ctx context.Context) *ConnectionError {
-	if c.drainFn == nil || c.messageNotify == nil {
-		// bindDrain was not called — a programmer error. Park on ctx so the
-		// connection still tears down cleanly rather than panicking.
-		c.logger.Error("writeLoop started without a bound drain source")
-		<-ctx.Done()
+	l := c.link
+	writer := bufio.NewWriterSize(c.conn, defaultWriteBufferSize)
+
+	id, view, lastAck := resumeState(l.state, l.sess)
+	var viewBuf [8]byte
+	binary.LittleEndian.PutUint64(viewBuf[:], view)
+	if err := writeFrame(writer, classResume, id, lastAck, viewBuf[:]); err != nil {
+		return c.writeFailure(ctx, err)
+	}
+	if err := writer.Flush(); err != nil {
+		return c.writeFailure(ctx, err)
+	}
+	select {
+	case <-l.resumed:
+	case <-ctx.Done():
 		return &ConnectionError{Reason: ExitCleanShutdown, Err: ErrCleanShutdown}
 	}
 
-	writer := bufio.NewWriterSize(c.conn, defaultWriteBufferSize)
-
 	for {
 		for ctx.Err() == nil {
-			batch := c.drainFn(c.drainBatch)
+			batch := l.nsm.drainSession(l.nodeID, l.state, l.sess, l.batch)
 			if len(batch) == 0 {
 				break
 			}
-			if err := c.flushBatch(writer, batch); err != nil {
-				c.requeueFn(batch)
-				// A flush error caused by an intentional local close (read
-				// pump failed first, or external Close) must not be reported
-				// as a writer-originated network error — that would override
-				// the real first cause in Run's first-error-wins contract.
-				if ctx.Err() != nil || c.closed.Load() {
-					return &ConnectionError{Reason: ExitCleanShutdown, Err: ErrCleanShutdown}
-				}
-				return &ConnectionError{Reason: ExitNetworkError, Err: err}
+			ack := l.sess.recvNext.Load()
+			if err := c.flushBatch(writer, batch, ack); err != nil {
+				return c.writeFailure(ctx, err)
 			}
-			if len(batch) < c.drainBatch {
+			lastAck = ack
+			if len(batch) < l.batch {
 				break
 			}
 		}
+		if ack := l.sess.recvNext.Load(); ack != lastAck && ctx.Err() == nil {
+			if err := writeFrame(writer, classAck, 0, ack, nil); err != nil {
+				return c.writeFailure(ctx, err)
+			}
+			if err := writer.Flush(); err != nil {
+				return c.writeFailure(ctx, err)
+			}
+			lastAck = ack
+		}
 
 		select {
-		case <-c.messageNotify:
+		case <-l.state.messageNotify:
 		case <-ctx.Done():
 			return &ConnectionError{Reason: ExitCleanShutdown, Err: ErrCleanShutdown}
 		}
 	}
 }
 
-// flushBatch writes every frame in batch to the buffered writer and flushes.
-// On any error it returns immediately; the caller requeues the whole batch
-// (no frame in a failed batch is guaranteed delivered).
-func (c *NodeConnection) flushBatch(writer *bufio.Writer, batch []Outbound) error {
+// writeFailure classifies a write error. A failure caused by an intentional
+// local close must not be reported as a writer-originated network error.
+func (c *NodeConnection) writeFailure(ctx context.Context, err error) *ConnectionError {
+	if ctx.Err() != nil || c.closed.Load() {
+		return &ConnectionError{Reason: ExitCleanShutdown, Err: ErrCleanShutdown}
+	}
+	// The connection opens with a write, so a peer that closes can surface to
+	// the writer before the reader sees end of stream.
+	if errors.Is(err, io.ErrClosedPipe) || errors.Is(err, syscall.EPIPE) || errors.Is(err, syscall.ECONNRESET) {
+		return &ConnectionError{Reason: ExitPeerClosed, Err: err}
+	}
+	return &ConnectionError{Reason: ExitNetworkError, Err: err}
+}
+
+// flushBatch writes every frame in batch with the given ack and flushes. A
+// failed batch stays in the session's resend ring.
+func (c *NodeConnection) flushBatch(writer *bufio.Writer, batch []Outbound, ack uint64) error {
 	for _, msg := range batch {
-		if err := writeFrame(writer, msg.Class, msg.Data); err != nil {
+		if err := writeFrame(writer, msg.Class, msg.seq, ack, msg.Data); err != nil {
 			return err
 		}
 	}
 	return writer.Flush()
 }
 
+// readLoop reconciles the peer's RESUME, then delivers the peer's frames:
+// sequenced frames exactly once in order, duplicates of replayed frames
+// dropped, gossip as it arrives. Every frame's ack trims this side's ring.
 func (c *NodeConnection) readLoop(ctx context.Context, handler func(class Class, msg []byte)) *ConnectionError {
+	l := c.link
 	reader := bufio.NewReader(c.conn)
-	for {
-		// Check for context cancellation before blocking on read.
-		select {
-		case <-ctx.Done():
-			return &ConnectionError{Reason: ExitCleanShutdown, Err: ctx.Err()}
-		default:
-		}
 
-		class, msg, err := readFrame(reader, c.config.MaxMessageSize)
-
-		if err != nil {
-			if errors.Is(err, io.EOF) || strings.Contains(err.Error(), "use of closed network connection") {
-				// The connection was closed. Check if it was because of our own context.
-				select {
-				case <-ctx.Done():
-					return &ConnectionError{Reason: ExitCleanShutdown, Err: ErrCleanShutdown}
-				default:
-					return &ConnectionError{Reason: ExitPeerClosed, Err: err}
-				}
-			}
-
-			if errors.Is(err, ErrMessageTooLarge) {
-				return &ConnectionError{Reason: ExitProtocolError, Err: err}
-			}
-
-			var perr protocolError
-			if errors.As(err, &perr) {
-				return &ConnectionError{Reason: ExitProtocolError, Err: perr}
-			}
-			return &ConnectionError{Reason: ExitNetworkError, Err: err}
-		}
-
-		// Call handler without logging - this is hot path
-		handler(class, msg)
+	// Session agreement is bounded like the handshake: a peer that never
+	// sends RESUME is a failed connection, and the node is dialed again.
+	if err := c.conn.SetReadDeadline(time.Now().Add(c.config.HandshakeTimeout)); err != nil {
+		return &ConnectionError{Reason: ExitNetworkError, Err: NewSetDeadlineError(err)}
 	}
+	f, err := readFrame(reader, c.config.MaxMessageSize)
+	if err != nil {
+		return c.readFailure(ctx, err)
+	}
+	if err := c.conn.SetReadDeadline(time.Time{}); err != nil {
+		return &ConnectionError{Reason: ExitNetworkError, Err: NewSetDeadlineError(err)}
+	}
+	if f.class != classResume {
+		return &ConnectionError{Reason: ExitProtocolError, Err: newFrameError("connection must open with RESUME", f.class)}
+	}
+	outcome, err := l.nsm.resume(l.nodeID, l.state, l.sess, f.seq, binary.LittleEndian.Uint64(f.data), f.ack)
+	if err != nil {
+		if errors.Is(err, errSessionEnded) {
+			return &ConnectionError{Reason: ExitCleanShutdown, Err: err}
+		}
+		return &ConnectionError{Reason: ExitProtocolError, Err: err}
+	}
+	switch outcome {
+	case resumePeerReset:
+		return &ConnectionError{Reason: ExitPeerClosed, Err: errPeerSessionReset}
+	case resumeAwaitPeerReset:
+		// The peer ends its session on this side's RESUME and closes; no
+		// frame may follow, and the close is awaited as long as RESUME was.
+		if err := c.conn.SetReadDeadline(time.Now().Add(c.config.HandshakeTimeout)); err != nil {
+			return &ConnectionError{Reason: ExitNetworkError, Err: NewSetDeadlineError(err)}
+		}
+		f, err := readFrame(reader, c.config.MaxMessageSize)
+		if err != nil {
+			return c.readFailure(ctx, err)
+		}
+		return &ConnectionError{Reason: ExitProtocolError, Err: newFrameError("frame before session agreement", f.class)}
+	case resumeReady:
+	}
+	close(l.resumed)
+
+	delivered := 0
+	for {
+		if ctx.Err() != nil {
+			return &ConnectionError{Reason: ExitCleanShutdown, Err: ctx.Err()}
+		}
+		f, err := readFrame(reader, c.config.MaxMessageSize)
+		if err != nil {
+			return c.readFailure(ctx, err)
+		}
+		freed, err := applyAck(l.state, l.sess, f.ack)
+		if err != nil {
+			return &ConnectionError{Reason: ExitProtocolError, Err: err}
+		}
+		if freed {
+			l.wakeWriter()
+		}
+		switch {
+		case f.class == classAck:
+			continue
+		case f.class == classResume:
+			return &ConnectionError{Reason: ExitProtocolError, Err: newFrameError("RESUME after session agreement", f.class)}
+		case f.class.sequenced():
+			next := l.sess.recvNext.Load()
+			if f.seq < next {
+				// A replayed frame the previous connection already delivered.
+				continue
+			}
+			if f.seq > next {
+				return &ConnectionError{Reason: ExitProtocolError, Err: newSequenceGapError(next, f.seq)}
+			}
+		}
+		if l.sess.ended.Load() {
+			return &ConnectionError{Reason: ExitCleanShutdown, Err: errSessionEnded}
+		}
+		// Hot path: no logging.
+		handler(f.class, f.data)
+		if f.class.sequenced() {
+			l.sess.recvNext.Store(f.seq + 1)
+			delivered++
+			if reader.Buffered() == 0 || delivered%ackEvery == 0 {
+				l.wakeWriter()
+			}
+		}
+	}
+}
+
+// readFailure classifies a read error.
+func (c *NodeConnection) readFailure(ctx context.Context, err error) *ConnectionError {
+	if errors.Is(err, io.EOF) || strings.Contains(err.Error(), "use of closed network connection") {
+		if ctx.Err() != nil {
+			return &ConnectionError{Reason: ExitCleanShutdown, Err: ErrCleanShutdown}
+		}
+		return &ConnectionError{Reason: ExitPeerClosed, Err: err}
+	}
+	var perr protocolError
+	if errors.As(err, &perr) {
+		return &ConnectionError{Reason: ExitProtocolError, Err: perr}
+	}
+	return &ConnectionError{Reason: ExitNetworkError, Err: err}
 }
 
 // protocolError represents an error in the internode communication protocol.
@@ -380,24 +511,31 @@ type protocolError string
 // Error implements the error interface for protocolError.
 func (e protocolError) Error() string { return "protocol error: " + string(e) }
 
-// writeFrame writes a framed message to the writer with protocol version,
-// sub-protocol class, and length prefix.
-func writeFrame(w io.Writer, class Class, data []byte) error {
-	var header [frameHeaderSize]byte
-	header[0] = protocolVersion
-	header[1] = byte(class)
+// frame is one decoded wire frame.
+type frame struct {
+	data  []byte
+	seq   uint64
+	ack   uint64
+	class Class
+}
 
-	// Check for potential integer overflow before casting to uint32
+// writeFrame writes one frame: header [version][class][length][seq][ack]
+// followed by the payload.
+func writeFrame(w io.Writer, class Class, seq, ack uint64, data []byte) error {
 	dataLen := len(data)
 	if dataLen > math.MaxUint32 {
 		return NewMessageTooLargeError(dataLen)
 	}
-
+	var header [frameHeaderSize]byte
+	header[0] = protocolVersion
+	header[1] = byte(class)
 	binary.LittleEndian.PutUint32(header[2:], uint32(dataLen))
+	binary.LittleEndian.PutUint64(header[6:], seq)
+	binary.LittleEndian.PutUint64(header[14:], ack)
 	if _, err := w.Write(header[:]); err != nil {
 		return err
 	}
-	if len(data) > 0 {
+	if dataLen > 0 {
 		if _, err := w.Write(data); err != nil {
 			return err
 		}
@@ -405,61 +543,51 @@ func writeFrame(w io.Writer, class Class, data []byte) error {
 	return nil
 }
 
-// readFrame reads a framed message from the reader, validating protocol
-// version, sub-protocol class, and message size.
-func readFrame(r io.Reader, maxMessageSize uint32) (Class, []byte, error) {
+// readFrame reads one frame, validating the protocol version, the class and
+// its sequencing rule, and the payload size.
+func readFrame(r io.Reader, maxMessageSize uint32) (frame, error) {
 	var header [frameHeaderSize]byte
 	if _, err := io.ReadFull(r, header[:]); err != nil {
-		return 0, nil, err
+		return frame{}, err
 	}
 	if header[0] != protocolVersion {
-		return 0, nil, protocolError(fmt.Sprintf("unexpected protocol version %d", header[0]))
+		return frame{}, protocolError(fmt.Sprintf("unexpected protocol version %d", header[0]))
 	}
-	class := Class(header[1])
-	if int(class) >= numClasses {
-		return 0, nil, protocolError(fmt.Sprintf("unknown sub-protocol class %d", header[1]))
+	f := frame{
+		class: Class(header[1]),
+		seq:   binary.LittleEndian.Uint64(header[6:]),
+		ack:   binary.LittleEndian.Uint64(header[14:]),
 	}
 	size := binary.LittleEndian.Uint32(header[2:])
-	if class == ClassSurface && size > MaxSurfaceFrameSize {
-		return 0, nil, NewMessageSizeExceedsMaxError(int(size), MaxSurfaceFrameSize)
+	switch {
+	case f.class == classAck:
+		if size != 0 || f.seq != 0 {
+			return frame{}, protocolError("ack frame carries a payload or sequence")
+		}
+	case f.class == classResume:
+		if size != 8 || f.seq == 0 {
+			return frame{}, protocolError("malformed resume frame")
+		}
+	case int(f.class) >= numClasses:
+		return frame{}, protocolError(fmt.Sprintf("unknown sub-protocol class %d", header[1]))
+	case f.class.sequenced() != (f.seq != 0):
+		return frame{}, protocolError(fmt.Sprintf("class %s frame with sequence %d", f.class, f.seq))
+	}
+	if f.class == ClassSurface && size > MaxSurfaceFrameSize {
+		return frame{}, protocolError(fmt.Sprintf("surface frame of %d bytes exceeds %d", size, MaxSurfaceFrameSize))
 	}
 	if size > maxMessageSize {
-		return 0, nil, NewMessageSizeExceedsMaxError(int(size), int(maxMessageSize))
+		return frame{}, protocolError(fmt.Sprintf("frame of %d bytes exceeds %d", size, maxMessageSize))
 	}
 
 	if size == 0 {
-		return class, []byte{}, nil
+		f.data = []byte{}
+		return f, nil
 	}
 
-	var msg []byte
-	bp := bufferPool.Get().(*[]byte)
-
-	// Check for potential integer overflow before casting to uint32
-	bufCap := cap(*bp)
-	if bufCap < 0 || bufCap > math.MaxUint32 {
-		// This shouldn't happen in practice, but handle it safely
-		bufCap = math.MaxUint32
+	f.data = make([]byte, size)
+	if _, err := io.ReadFull(r, f.data); err != nil {
+		return frame{}, err
 	}
-
-	if int(size) > bufCap {
-		msg = make([]byte, size)
-	} else {
-		msg = (*bp)[:size]
-	}
-
-	if _, err := io.ReadFull(r, msg); err != nil {
-		bufferPool.Put(bp)
-		return 0, nil, err
-	}
-
-	// If it's from the pool, we must copy it.
-	if &msg[0] == &(*bp)[0] {
-		data := make([]byte, size)
-		copy(data, msg)
-		bufferPool.Put(bp)
-		return class, data, nil
-	}
-
-	// It was a large message allocated on its own.
-	return class, msg, nil
+	return f, nil
 }

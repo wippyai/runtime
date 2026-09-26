@@ -739,14 +739,18 @@ func (ed *eventDelegate) NotifyJoin(node *memberlist.Node) {
 		Meta: ed.parseNodeMeta(node.Meta),
 	}
 
-	convergedFrom := ed.service.recordChange(node.Name, nodeInfo, node.State)
+	convergedFrom, prev, known := ed.service.recordChange(node.Name, nodeInfo, node.State)
 
 	ed.service.logger.Info("node joined",
 		zap.String("node_id", node.Name),
 		zap.String("address", nodeInfo.Addr),
 		zap.Any("metadata", nodeInfo.Meta))
 
-	ed.service.publishEvent(cluster.NodeJoined, nodeInfo)
+	if known && incarnationChanged(prev, nodeInfo) {
+		ed.service.publishRestart(prev, nodeInfo)
+	} else {
+		ed.service.publishEvent(cluster.NodeJoined, nodeInfo)
+	}
 	ed.service.refreshMemberStateGauges()
 	ed.service.emitConvergence(convergedFrom)
 	ed.service.tel.recordMessage("join", "rx", len(node.Meta))
@@ -797,25 +801,50 @@ func (ed *eventDelegate) NotifyUpdate(node *memberlist.Node) {
 
 	// recordChange handles suspicion->alive resolution metrics; suspicion->dead
 	// is recorded from NotifyLeave (memberlist routes that transition there).
-	convergedFrom := ed.service.recordChange(node.Name, nodeInfo, node.State)
+	convergedFrom, prev, known := ed.service.recordChange(node.Name, nodeInfo, node.State)
 
 	ed.service.logger.Info("node updated",
 		zap.String("node_id", node.Name),
 		zap.String("address", nodeInfo.Addr),
 		zap.Any("metadata", nodeInfo.Meta))
 
-	ed.service.publishEvent(cluster.NodeUpdated, nodeInfo)
+	if known && incarnationChanged(prev, nodeInfo) {
+		ed.service.publishRestart(prev, nodeInfo)
+	} else {
+		ed.service.publishEvent(cluster.NodeUpdated, nodeInfo)
+	}
 	ed.service.refreshMemberStateGauges()
 	ed.service.emitConvergence(convergedFrom)
 	ed.service.tel.recordMessage("update", "rx", len(node.Meta))
 }
 
+// incarnationChanged reports that next announces a different process
+// incarnation than prev for the same node ID: the node restarted.
+func incarnationChanged(prev, next cluster.NodeInfo) bool {
+	before, after := prev.Meta[cluster.MetaIncarnation], next.Meta[cluster.MetaIncarnation]
+	return before != "" && after != "" && before != after
+}
+
+// publishRestart reports a restarted node as the departure of its previous
+// incarnation followed by the arrival of the new one, so every consumer
+// reacts through its ordinary leave and join paths.
+func (s *Service) publishRestart(prev, next cluster.NodeInfo) {
+	s.logger.Info("node restarted",
+		zap.String("node_id", next.ID),
+		zap.String("previous_incarnation", prev.Meta[cluster.MetaIncarnation]),
+		zap.String("incarnation", next.Meta[cluster.MetaIncarnation]))
+	s.publishEvent(cluster.NodeLeft, prev)
+	s.publishEvent(cluster.NodeJoined, next)
+}
+
 // recordChange updates the cached node info and state for `name`, emitting a
 // suspicion-resolution metric when transitioning suspect->alive. It returns
-// the previous lastChangeAt timestamp so the caller can record convergence.
-func (s *Service) recordChange(name string, info cluster.NodeInfo, newState memberlist.NodeStateType) time.Time {
+// the previous lastChangeAt timestamp so the caller can record convergence,
+// and the node's previously recorded info when it was known.
+func (s *Service) recordChange(name string, info cluster.NodeInfo, newState memberlist.NodeStateType) (time.Time, cluster.NodeInfo, bool) {
 	s.mu.Lock()
 	prevState, hadPrev := s.nodeStates[name]
+	prevInfo, known := s.nodes[name]
 	s.nodes[name] = info
 	s.nodeStates[name] = newState
 	prevChange := s.lastChangeAt
@@ -826,7 +855,7 @@ func (s *Service) recordChange(name string, info cluster.NodeInfo, newState memb
 		s.tel.recordSuspicionOutcome("alive")
 	}
 
-	return prevChange
+	return prevChange, prevInfo, known
 }
 
 // removeNode drops cached state for `name` and returns the previous

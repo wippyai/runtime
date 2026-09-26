@@ -70,6 +70,10 @@ func (m *mockTopology) Remove(p pid.PID) {
 	m.Called(p)
 }
 
+func (m *mockTopology) HandleNodeExit(nodeID pid.NodeID, exitErr error) {
+	m.Called(nodeID, exitErr)
+}
+
 func (m *mockTopology) Monitor(caller, target pid.PID) error {
 	args := m.Called(caller, target)
 	return args.Error(0)

@@ -18,6 +18,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"net"
 	"strconv"
@@ -32,10 +33,15 @@ import (
 	"github.com/wippyai/runtime/cluster/internode"
 	"github.com/wippyai/runtime/cluster/membership"
 	"github.com/wippyai/runtime/system/relay"
+	"github.com/wippyai/runtime/system/topology"
 	otelmetric "go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 )
+
+// errNodeDisconnected is the exit reason local processes observe for links
+// and monitors of a node whose session ended.
+var errNodeDisconnected = errors.New("node disconnected")
 
 // Stack bundles the cluster networking primitives.
 //
@@ -48,9 +54,16 @@ type Stack struct {
 	Membership *membership.Service
 	ConnMgr    internode.ConnectionManager
 	Internode  *internode.Service
+	// Topology tracks links and monitors of the stack's processes. An ended
+	// internode session breaks those of the node's processes before any frame
+	// of a later session is delivered.
+	Topology *topology.Topology
 
 	mu      sync.Mutex
 	started bool
+	// used marks the stack's single use: its connection manager cannot
+	// restart, so a new execution assembles a new stack.
+	used bool
 }
 
 // StackConfig is the input to AssembleStack.
@@ -161,6 +174,9 @@ func AssembleStack(cfg StackConfig) (*Stack, error) {
 		_, ok := mgrCfg.ResolvePeerKey(id)
 		return ok
 	}
+	mgrCfg.AuthorizeIncarnation = func(id clusterapi.NodeID, incarnation uint64) bool {
+		return internode.MemberIncarnationAdvertised(memSvc, id, incarnation)
+	}
 
 	connMgr := internode.NewConnectionManager(mgrCfg, cfg.Collector)
 
@@ -209,16 +225,25 @@ func AssembleStack(cfg StackConfig) (*Stack, error) {
 		return err
 	}
 
+	// The topology sends through the router, which in turn routes through
+	// the internode service; the session-end hook reaches the topology once
+	// all three exist, before the service starts.
+	var topo *topology.Topology
+	sessionEnded := func(id clusterapi.NodeID) {
+		topo.HandleNodeExit(id, errNodeDisconnected)
+	}
 	intSvc := internode.NewService(
 		logger.Named("internode"),
 		connMgr,
 		codec,
 		pkgCallback,
+		sessionEnded,
 		cfg.Bus,
 		memSvc,
 	)
 
 	router := relay.NewRouter(node, intSvc)
+	topo = topology.NewTopology(router, cfg.NodeName)
 
 	return &Stack{
 		Node:       node,
@@ -226,27 +251,33 @@ func AssembleStack(cfg StackConfig) (*Stack, error) {
 		Membership: memSvc,
 		ConnMgr:    connMgr,
 		Internode:  intSvc,
+		Topology:   topo,
 	}, nil
 }
 
-// Start retains the internode listener before advertising it through membership.
+// Start retains the internode listener before advertising it through
+// membership. A stack starts once; after a failed Start or a Stop, a new
+// execution assembles a new stack.
 func (s *Stack) Start(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.started {
-		return fmt.Errorf("cluster: stack already started")
+	if s.used {
+		return fmt.Errorf("cluster: stack is single-use; assemble a new stack to start again")
 	}
+	s.used = true
 
 	if err := s.Internode.Start(ctx); err != nil {
 		return fmt.Errorf("cluster: start internode: %w", err)
 	}
 	s.Membership.UpdateMeta(map[string]string{
-		internode.MetadataPort: strconv.Itoa(s.ConnMgr.GetListenPort()),
+		internode.MetadataPort:     strconv.Itoa(s.ConnMgr.GetListenPort()),
+		clusterapi.MetaIncarnation: strconv.FormatUint(s.ConnMgr.Incarnation(), 10),
 	})
 	if err := s.Membership.Start(ctx); err != nil {
 		// memberlist.Create binds the gossip port BEFORE attempting Join,
 		// so a Join failure leaks the port even though Start returned an
-		// error. Tear membership down so a caller-side retry can re-bind.
+		// error. Tear membership down so a newly assembled stack can bind
+		// the same ports.
 		_ = s.Membership.Stop()
 		_ = s.Internode.Stop()
 		return fmt.Errorf("cluster: start membership: %w", err)
@@ -256,7 +287,7 @@ func (s *Stack) Start(ctx context.Context) error {
 }
 
 // Stop shuts internode down, then membership. Safe to call exactly once
-// after Start.
+// after Start. A stopped stack cannot start again.
 func (s *Stack) Stop() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

@@ -17,7 +17,7 @@ func TestConnectedPeerRetainsUpdatedEndpointForRetry(t *testing.T) {
 	cfg.Logger = zap.NewNop()
 	m := NewConnectionManager(cfg, nil).(*manager)
 	m.AddManagedNode("peer")
-	defer m.RemoveManagedNode("peer")
+	defer m.RemoveManagedNode("peer", 0)
 	m.nodeStates.UpdateNodeAddress("peer", "127.0.0.1", 9100)
 	m.nodeStates.SetNodeConnection("peer", nil, StateConnected)
 	m.EnsureConnection("peer", "127.0.0.2", 9200)
@@ -60,7 +60,7 @@ func TestServiceMembershipUpdateDoesNotReadmitDepartedPeer(t *testing.T) {
 	require.NoError(t, service.Start(ctx))
 	defer service.Stop()
 	manager.AddManagedNode("departed")
-	manager.RemoveManagedNode("departed")
+	manager.RemoveManagedNode("departed", 0)
 	service.handleMembershipEvent(event.Event{
 		Kind: cluster.NodeUpdated,
 		Data: cluster.NodeEvent{Node: cluster.NodeInfo{

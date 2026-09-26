@@ -1,0 +1,577 @@
+// SPDX-License-Identifier: MPL-2.0
+
+package internode
+
+import (
+	"context"
+	"errors"
+	"io"
+	"net"
+	"strconv"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/cluster"
+	"go.uber.org/zap"
+)
+
+// endRecorder records session-end signals in order.
+type endRecorder struct {
+	ends []cluster.NodeID
+	mu   sync.Mutex
+}
+
+func (r *endRecorder) record(id cluster.NodeID) {
+	r.mu.Lock()
+	r.ends = append(r.ends, id)
+	r.mu.Unlock()
+}
+
+func (r *endRecorder) count() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.ends)
+}
+
+// liveReader binds a connection to state's current session and registers it
+// as that session's live reader, as a Run blocked inside a handler would.
+func liveReader(nsm *NodeStateManager, nodeID cluster.NodeID, state *NodeState) *NodeConnection {
+	conn := &NodeConnection{}
+	conn.bindSession(nsm, nodeID, state, 32)
+	if !conn.link.beginRead() {
+		panic("session already ended")
+	}
+	return conn
+}
+
+func requireOpen(t *testing.T, ch <-chan struct{}, msg string) {
+	t.Helper()
+	select {
+	case <-ch:
+		t.Fatal(msg)
+	default:
+	}
+}
+
+// A session whose reader is still inside a handler has not been signaled
+// ended. Every later end for the node — a restart of the readmitted node, a
+// departure with no state — waits for it: no end signal runs and no later
+// session is released before the earlier end is signaled.
+func TestSessionEndSignalsAreChained(t *testing.T) {
+	cfg := insecureManagerConfig()
+	cfg.Logger = zap.NewNop()
+	m := NewConnectionManager(cfg, nil).(*manager)
+	rec := &endRecorder{}
+	m.nodeStates.sessionEnded = rec.record
+
+	m.AddManagedNode("peer")
+	first := m.nodeStates.GetNodeState("peer")
+	require.Equal(t, incarnationBound, m.nodeStates.bindPeerIncarnation("peer", first, 1))
+	stuck := liveReader(m.nodeStates, "peer", first)
+
+	// The node departs while the first session's reader is inside a handler.
+	m.RemoveManagedNode("peer", 0)
+	require.Zero(t, rec.count())
+
+	// The node is readmitted and restarts: the readmitted state's session
+	// ends with no live reader.
+	m.AddManagedNode("peer")
+	second := m.nodeStates.GetNodeState("peer")
+	require.Equal(t, incarnationBound, m.nodeStates.bindPeerIncarnation("peer", second, 1))
+	require.Equal(t, incarnationRestarted, m.nodeStates.bindPeerIncarnation("peer", second, 2))
+	second.queueMu.Lock()
+	restarted := second.session
+	second.queueMu.Unlock()
+	require.Zero(t, rec.count(), "a later end was signaled before the pending one")
+	requireOpen(t, restarted.predecessor, "the restarted session was released before the pending end")
+
+	// The readmitted node departs, then departs again with no state behind
+	// it; both wait.
+	m.RemoveManagedNode("peer", 0)
+	m.RemoveManagedNode("peer", 0)
+	m.AddManagedNode("peer")
+	third := m.nodeStates.GetNodeState("peer")
+	third.queueMu.Lock()
+	readmitted := third.session
+	third.queueMu.Unlock()
+	require.NotNil(t, readmitted.predecessor)
+	requireOpen(t, readmitted.predecessor, "the readmitted session was released before the pending end")
+	require.Zero(t, rec.count())
+
+	// The stuck reader leaves its handler: every end is signaled in order and
+	// the latest session is released.
+	stuck.link.endRead()
+	require.Eventually(t, func() bool {
+		select {
+		case <-readmitted.predecessor:
+			return true
+		default:
+			return false
+		}
+	}, 2*time.Second, time.Millisecond)
+	// The first departure, the restart, the readmitted node's departure, and
+	// the departure with no state.
+	require.Equal(t, 4, rec.count())
+}
+
+// A handshaken connection that cannot be handed to a live control loop is
+// closed.
+func TestConnectionForUnmanagedNodeIsClosed(t *testing.T) {
+	cfg := insecureManagerConfig()
+	cfg.LocalNodeID = "a-local"
+	cfg.BindAddr = "127.0.0.1"
+	cfg.BindPort = 0
+	cfg.Logger = zap.NewNop()
+	m := NewConnectionManager(cfg, nil).(*manager)
+	require.NoError(t, m.Start(context.Background(), func(cluster.NodeID, []byte) {}, ignoreSessionEnd))
+	defer func() { require.NoError(t, m.Stop()) }()
+
+	local, remote := net.Pipe()
+	defer remote.Close()
+	conn := newNodeConnection(local, "z-peer", testIncarnation, cfg.NodeConnectionConfig(), zap.NewNop())
+	m.sendCommand("z-peer", nodeCommand{Type: cmdConnected, Data: connectedData{Connection: conn}})
+	require.True(t, conn.closed.Load(), "a connection for an unmanaged node leaked")
+}
+
+// fakeDialPeer accepts the manager's dials and plays the plain handshake as
+// the peer. hold, when set, delays the peer's half of the handshake; resume
+// controls whether the peer answers RESUME.
+type fakeDialPeer struct {
+	listener net.Listener
+	conns    chan net.Conn
+	hold     chan struct{}
+	id       cluster.NodeID
+}
+
+func startFakeDialPeer(t *testing.T, id cluster.NodeID, hold chan struct{}) *fakeDialPeer {
+	t.Helper()
+	listener, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	p := &fakeDialPeer{listener: listener, conns: make(chan net.Conn, 16), hold: hold, id: id}
+	t.Cleanup(func() { _ = listener.Close() })
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			t.Cleanup(func() { _ = conn.Close() })
+			go func() {
+				if _, err := readPlainEndpoint(conn); err != nil {
+					return
+				}
+				if p.hold != nil {
+					<-p.hold
+				}
+				if err := writePlainEndpoint(conn, handshakeEndpoint{id: id, incarnation: testIncarnation}); err != nil {
+					return
+				}
+				p.conns <- conn
+			}()
+		}
+	}()
+	return p
+}
+
+func (p *fakeDialPeer) port() int { return p.listener.Addr().(*net.TCPAddr).Port }
+
+// requireClosedByManager waits until the manager closes its end of conn.
+func requireClosedByManager(t *testing.T, conn net.Conn, within time.Duration) {
+	t.Helper()
+	require.NoError(t, conn.SetReadDeadline(time.Now().Add(within)))
+	buf := make([]byte, 4096)
+	for {
+		_, err := conn.Read(buf)
+		if err == nil {
+			continue
+		}
+		var netErr net.Error
+		if errors.As(err, &netErr) && netErr.Timeout() {
+			t.Fatal("the manager kept the connection open")
+		}
+		require.True(t, errors.Is(err, io.EOF) || errors.Is(err, net.ErrClosed) || isConnReset(err), "unexpected read error: %v", err)
+		return
+	}
+}
+
+func isConnReset(err error) bool {
+	var opErr *net.OpError
+	return errors.As(err, &opErr) && opErr.Op == "read"
+}
+
+// A dial whose handshake completes after the node's control loop ended does
+// not leak its connection.
+func TestDialCompletingAfterLoopEndsIsClosed(t *testing.T) {
+	for range 10 {
+		func() {
+			cfg := insecureManagerConfig()
+			cfg.LocalNodeID = "a-local"
+			cfg.BindAddr = "127.0.0.1"
+			cfg.BindPort = 0
+			cfg.Logger = zap.NewNop()
+			m := NewConnectionManager(cfg, nil).(*manager)
+			require.NoError(t, m.Start(context.Background(), func(cluster.NodeID, []byte) {}, ignoreSessionEnd))
+			defer func() { require.NoError(t, m.Stop()) }()
+
+			hold := make(chan struct{})
+			peer := startFakeDialPeer(t, "z-peer", hold)
+			m.AddManagedNode("z-peer")
+			m.EnsureConnection("z-peer", "127.0.0.1", peer.port())
+			// Wait until the dial reached the held handshake, then end the
+			// loop before the handshake completes.
+			time.Sleep(20 * time.Millisecond)
+			m.RemoveManagedNode("z-peer", 0)
+			close(hold)
+			conn := <-peer.conns
+			requireClosedByManager(t, conn, 2*time.Second)
+		}()
+	}
+}
+
+// A peer that completes the handshake but never sends RESUME does not hold
+// the link: the connection times out and the manager dials again.
+func TestMissingResumeTimesOutAndRedials(t *testing.T) {
+	cfg := insecureManagerConfig()
+	cfg.LocalNodeID = "a-local"
+	cfg.BindAddr = "127.0.0.1"
+	cfg.BindPort = 0
+	cfg.Logger = zap.NewNop()
+	cfg.HandshakeTimeout = 200 * time.Millisecond
+	cfg.InitialRetryDelay = time.Millisecond
+	cfg.MaxRetryDelay = 10 * time.Millisecond
+	m := NewConnectionManager(cfg, nil).(*manager)
+	require.NoError(t, m.Start(context.Background(), func(cluster.NodeID, []byte) {}, ignoreSessionEnd))
+	defer func() { require.NoError(t, m.Stop()) }()
+
+	peer := startFakeDialPeer(t, "z-peer", nil)
+	m.AddManagedNode("z-peer")
+	m.EnsureConnection("z-peer", "127.0.0.1", peer.port())
+	first := <-peer.conns
+	requireClosedByManager(t, first, 3*time.Second)
+	select {
+	case <-peer.conns:
+	case <-time.After(3 * time.Second):
+		t.Fatal("the manager did not dial again")
+	}
+}
+
+// acceptFromIncarnation feeds m an inbound connection from peer claiming the
+// given incarnation and returns the peer's end.
+func acceptFromIncarnation(t *testing.T, m *manager, peer cluster.NodeID, incarnation uint64) *NodeConnection {
+	t.Helper()
+	server, client := net.Pipe()
+	go m.handleInboundConnection(server)
+	remote, err := PerformClientHandshake(client, m.config.NodeConnectionConfig(), zap.NewNop(), peer, incarnation, m.config.LocalNodeID)
+	require.NoError(t, err)
+	t.Cleanup(remote.Close)
+	return remote
+}
+
+// A late connection from a node's previous process cannot displace the
+// session of its current process: membership names the current incarnation.
+func TestStaleIncarnationCannotDisplaceNewer(t *testing.T) {
+	const peer, oldInc, newInc = "z-peer", uint64(11), uint64(22)
+	cfg := insecureManagerConfig()
+	cfg.LocalNodeID = "a-local"
+	cfg.BindAddr = "127.0.0.1"
+	cfg.BindPort = 0
+	cfg.Logger = zap.NewNop()
+	advertised := map[cluster.NodeID]uint64{peer: newInc}
+	authorizeAdvertisedIncarnation(&cfg, advertised)
+	m := NewConnectionManager(cfg, nil).(*manager)
+	rec := &endRecorder{}
+	require.NoError(t, m.Start(context.Background(), func(cluster.NodeID, []byte) {}, rec.record))
+	defer func() { require.NoError(t, m.Stop()) }()
+	m.AddManagedNode(peer)
+
+	acceptFromIncarnation(t, m, peer, newInc)
+	require.Eventually(t, func() bool {
+		_, state := m.nodeStates.GetNodeConnection(peer)
+		return state == StateConnected
+	}, 2*time.Second, time.Millisecond)
+	current, _ := m.nodeStates.GetNodeConnection(peer)
+
+	stale := acceptFromIncarnation(t, m, peer, oldInc)
+	requireClosedByPeer(t, stale)
+	state := m.nodeStates.GetNodeState(peer)
+	state.queueMu.Lock()
+	bound := state.session.peerIncarnation
+	state.queueMu.Unlock()
+	require.Equal(t, newInc, bound)
+	conn, connState := m.nodeStates.GetNodeConnection(peer)
+	require.Same(t, current, conn)
+	require.Equal(t, StateConnected, connState)
+	require.Zero(t, rec.count(), "a stale connection signaled the current session down")
+}
+
+// A successor replaced by a preferred connection is closed.
+func TestReplacedSuccessorIsClosed(t *testing.T) {
+	cfg := insecureManagerConfig()
+	cfg.LocalNodeID = "a-local"
+	cfg.Logger = zap.NewNop()
+	m := NewConnectionManager(cfg, nil).(*manager)
+	m.nodeStates.sessionEnded = ignoreSessionEnd
+	m.AddManagedNode("z-peer")
+	state := m.nodeStates.GetNodeState("z-peer")
+	pipeConn := func(dialed bool, incarnation uint64) *NodeConnection {
+		a, b := net.Pipe()
+		t.Cleanup(func() { _ = a.Close(); _ = b.Close() })
+		c := newNodeConnection(a, "z-peer", incarnation, cfg.NodeConnectionConfig(), zap.NewNop())
+		c.dialed = dialed
+		return c
+	}
+	current := pipeConn(true, 1)
+	require.Equal(t, incarnationBound, m.nodeStates.bindPeerIncarnation("z-peer", state, 1))
+	loop := &nodeControlLoop{manager: m, nodeID: "z-peer", nodeState: state, connection: current, state: StateConnected, logger: zap.NewNop()}
+
+	// The peer restarted: its connection becomes the successor whatever its
+	// direction.
+	restarted := pipeConn(false, 2)
+	loop.handleConnected(connectedData{Connection: restarted})
+	require.Same(t, restarted, loop.successor)
+
+	// A preferred connection of the same process replaces it.
+	preferred := pipeConn(true, 2)
+	loop.handleConnected(connectedData{Connection: preferred})
+	require.Same(t, preferred, loop.successor)
+	require.True(t, restarted.closed.Load(), "the replaced successor leaked")
+}
+
+// Creating state for a node that already has it keeps the existing state.
+func TestCreateNodeStateKeepsExistingState(t *testing.T) {
+	nsm := setupStateManager()
+	nsm.CreateNodeState("peer")
+	state := nsm.GetNodeState("peer")
+	require.NoError(t, nsm.QueueMessageClass("peer", []byte("queued"), ClassRaftControl))
+	state.queueMu.Lock()
+	sess := state.session
+	state.queueMu.Unlock()
+
+	nsm.CreateNodeState("peer")
+	require.Same(t, state, nsm.GetNodeState("peer"))
+	state.queueMu.Lock()
+	require.Same(t, sess, state.session)
+	state.queueMu.Unlock()
+	require.Equal(t, [][]byte{[]byte("queued")}, drainAllData(nsm, "peer"))
+}
+
+// authorizeAdvertisedIncarnation makes cfg accept only the incarnation
+// membership advertises for each node.
+func authorizeAdvertisedIncarnation(cfg *ManagerConfig, advertised map[cluster.NodeID]uint64) {
+	membership := &mockMembership{}
+	for id, incarnation := range advertised {
+		membership.nodes = append(membership.nodes, cluster.NodeInfo{ID: id, Meta: cluster.NodeMeta{
+			cluster.MetaIncarnation: strconv.FormatUint(incarnation, 10),
+		}})
+	}
+	cfg.AuthorizeIncarnation = func(id cluster.NodeID, incarnation uint64) bool {
+		return MemberIncarnationAdvertised(membership, id, incarnation)
+	}
+}
+
+// A connection authorized when membership advertised the node's previous
+// process, but handed to the loop only after the current process was bound,
+// does not displace it: authorization is checked again at binding.
+func TestIncarnationAuthorizedBeforeRestartIsRecheckedAtBinding(t *testing.T) {
+	const peer, oldInc, newInc = "z-peer", uint64(11), uint64(22)
+	cfg := insecureManagerConfig()
+	cfg.LocalNodeID = "a-local"
+	cfg.BindAddr = "127.0.0.1"
+	cfg.BindPort = 0
+	cfg.Logger = zap.NewNop()
+	authorizeAdvertisedIncarnation(&cfg, map[cluster.NodeID]uint64{peer: newInc})
+	m := NewConnectionManager(cfg, nil).(*manager)
+	rec := &endRecorder{}
+	require.NoError(t, m.Start(context.Background(), func(cluster.NodeID, []byte) {}, rec.record))
+	defer func() { require.NoError(t, m.Stop()) }()
+	m.AddManagedNode(peer)
+
+	acceptFromIncarnation(t, m, peer, newInc)
+	require.Eventually(t, func() bool {
+		_, state := m.nodeStates.GetNodeConnection(peer)
+		return state == StateConnected
+	}, 2*time.Second, time.Millisecond)
+	current, _ := m.nodeStates.GetNodeConnection(peer)
+
+	// The stalled connection of the previous process reaches the loop now.
+	local, remote := net.Pipe()
+	defer remote.Close()
+	stalled := newNodeConnection(local, peer, oldInc, cfg.NodeConnectionConfig(), zap.NewNop())
+	m.sendCommand(peer, nodeCommand{Type: cmdConnected, Data: connectedData{Connection: stalled}})
+	require.Eventually(t, stalled.closed.Load, 2*time.Second, time.Millisecond)
+
+	state := m.nodeStates.GetNodeState(peer)
+	state.queueMu.Lock()
+	bound := state.session.peerIncarnation
+	state.queueMu.Unlock()
+	require.Equal(t, newInc, bound)
+	conn, connState := m.nodeStates.GetNodeConnection(peer)
+	require.Same(t, current, conn)
+	require.Equal(t, StateConnected, connState)
+	require.Zero(t, rec.count())
+}
+
+// A loop ending on a kill with senders blocked on its full command queue
+// neither deadlocks nor leaks what they carry.
+func TestKilledLoopReleasesBlockedSenders(t *testing.T) {
+	cfg := insecureManagerConfig()
+	cfg.Logger = zap.NewNop()
+	m := NewConnectionManager(cfg, nil).(*manager)
+	m.nodeStates.sessionEnded = ignoreSessionEnd
+	m.AddManagedNode("peer")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	loop := &nodeControlLoop{
+		ctx: ctx, cancel: cancel, manager: m, nodeID: "peer",
+		nodeState: m.nodeStates.GetNodeState("peer"),
+		commands:  make(chan nodeCommand, 1),
+		logger:    zap.NewNop(),
+	}
+	loop.commands <- nodeCommand{Type: cmdKill}
+	carried := make([]*NodeConnection, 2)
+	var senders sync.WaitGroup
+	for i := range carried {
+		local, remote := net.Pipe()
+		t.Cleanup(func() { _ = local.Close(); _ = remote.Close() })
+		carried[i] = newNodeConnection(local, "peer", testIncarnation, cfg.NodeConnectionConfig(), zap.NewNop())
+		senders.Add(1)
+		go func() {
+			defer senders.Done()
+			loop.deliver(nodeCommand{Type: cmdConnected, Data: connectedData{Connection: carried[i]}})
+		}()
+	}
+	// Both senders are blocked on the full queue.
+	time.Sleep(20 * time.Millisecond)
+
+	ran := make(chan struct{})
+	go func() { loop.run(); close(ran) }()
+	select {
+	case <-ran:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the killed loop deadlocked with its blocked senders")
+	}
+	senders.Wait()
+	for _, c := range carried {
+		require.True(t, c.closed.Load(), "a connection handed to the killed loop leaked")
+	}
+}
+
+// No session-end hook runs after Stop returns, including ends that were
+// still waiting for an earlier session of the node.
+func TestNoSessionEndAfterStop(t *testing.T) {
+	cfg := insecureManagerConfig()
+	cfg.BindAddr = "127.0.0.1"
+	cfg.BindPort = 0
+	cfg.Logger = zap.NewNop()
+	m := NewConnectionManager(cfg, nil).(*manager)
+	rec := &endRecorder{}
+	require.NoError(t, m.Start(context.Background(), func(cluster.NodeID, []byte) {}, rec.record))
+
+	m.AddManagedNode("peer")
+	first := m.nodeStates.GetNodeState("peer")
+	stuck := liveReader(m.nodeStates, "peer", first)
+	m.RemoveManagedNode("peer", 0)
+	m.RemoveManagedNode("peer", 0) // waits for the stuck session
+	require.Zero(t, rec.count())
+
+	require.NoError(t, m.Stop())
+	stuck.link.endRead()
+	time.Sleep(20 * time.Millisecond)
+	require.Zero(t, rec.count(), "a session end was signaled after Stop returned")
+}
+
+// A connection manager is single-use: Start after Stop fails, so no restart
+// can inherit sessions whose ends were abandoned at Stop.
+func TestManagerIsSingleUse(t *testing.T) {
+	cfg := insecureManagerConfig()
+	cfg.BindAddr = "127.0.0.1"
+	cfg.BindPort = 0
+	cfg.Logger = zap.NewNop()
+	m := NewConnectionManager(cfg, nil).(*manager)
+	require.NoError(t, m.Start(context.Background(), func(cluster.NodeID, []byte) {}, ignoreSessionEnd))
+
+	// A node whose latest session is still unsettled at Stop.
+	m.AddManagedNode("peer")
+	stuck := liveReader(m.nodeStates, "peer", m.nodeStates.GetNodeState("peer"))
+	m.RemoveManagedNode("peer", 0)
+	require.NoError(t, m.Stop())
+	stuck.link.endRead()
+
+	require.ErrorContains(t, m.Start(context.Background(), func(cluster.NodeID, []byte) {}, ignoreSessionEnd), "single-use")
+}
+
+// A connect request while a redial is pending replaces the pending redial
+// instead of starting a second dial chain, so Stop has no orphaned timer to
+// wait for.
+func TestConnectDuringPendingRetryKeepsOneDialChain(t *testing.T) {
+	listener, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer listener.Close()
+	var dials atomic.Int32
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			dials.Add(1)
+			_ = conn.Close() // every handshake fails
+		}
+	}()
+	port := listener.Addr().(*net.TCPAddr).Port
+
+	cfg := insecureManagerConfig()
+	cfg.LocalNodeID = "a-local"
+	cfg.BindAddr = "127.0.0.1"
+	cfg.BindPort = 0
+	cfg.Logger = zap.NewNop()
+	cfg.InitialRetryDelay = time.Second
+	cfg.MaxRetryDelay = 4 * time.Second
+	m := NewConnectionManager(cfg, nil).(*manager)
+	require.NoError(t, m.Start(context.Background(), func(cluster.NodeID, []byte) {}, ignoreSessionEnd))
+	stopped := false
+	defer func() {
+		if !stopped {
+			_ = m.Stop()
+		}
+	}()
+	retrying := func() bool {
+		_, state := m.nodeStates.GetNodeConnection("z-peer")
+		return state == StateRetrying
+	}
+
+	m.AddManagedNode("z-peer")
+	m.EnsureConnection("z-peer", "127.0.0.1", port)
+	require.Eventually(t, func() bool { return dials.Load() == 1 && retrying() }, 2*time.Second, time.Millisecond)
+	// A membership update while the redial is pending dials once more and
+	// leaves a single redial pending.
+	m.EnsureConnection("z-peer", "127.0.0.1", port)
+	require.Eventually(t, func() bool { return dials.Load() == 2 && retrying() }, time.Second, time.Millisecond)
+
+	begin := time.Now()
+	require.NoError(t, m.Stop())
+	stopped = true
+	require.Less(t, time.Since(begin), 500*time.Millisecond, "Stop waited for an orphaned redial timer")
+}
+
+// An inbound connection from a process membership does not advertise does
+// not make its node managed.
+func TestRefusedInboundIncarnationCreatesNoState(t *testing.T) {
+	cfg := insecureManagerConfig()
+	cfg.LocalNodeID = "a-local"
+	cfg.BindAddr = "127.0.0.1"
+	cfg.BindPort = 0
+	cfg.Logger = zap.NewNop()
+	cfg.AuthorizePeer = func(cluster.NodeID, net.Addr) bool { return true }
+	authorizeAdvertisedIncarnation(&cfg, map[cluster.NodeID]uint64{"z-peer": 22})
+	m := NewConnectionManager(cfg, nil).(*manager)
+	require.NoError(t, m.Start(context.Background(), func(cluster.NodeID, []byte) {}, ignoreSessionEnd))
+	defer func() { require.NoError(t, m.Stop()) }()
+
+	stale := acceptFromIncarnation(t, m, "z-peer", 11)
+	requireClosedByPeer(t, stale)
+	require.False(t, m.IsManaged("z-peer"))
+}

@@ -19,8 +19,13 @@ import (
 func insecureManagerConfig() ManagerConfig {
 	config := DefaultManagerConfig()
 	config.RequireAuthentication = false
+	config.AuthorizeIncarnation = acceptAnyIncarnation
 	return config
 }
+
+// acceptAnyIncarnation stands in for membership in tests whose peers never
+// restart.
+func acceptAnyIncarnation(cluster.NodeID, uint64) bool { return true }
 
 func TestConnectionState_String(t *testing.T) {
 	tests := []struct {
@@ -55,8 +60,8 @@ func TestDefaultManagerConfig(t *testing.T) {
 	assert.Equal(t, DefaultPortRangeStart, config.BindPort)
 	assert.Equal(t, 32, config.DrainBatchSize)
 	assert.Equal(t, 256, config.CommandQueueSize)
-	assert.Equal(t, 10, config.MaxRetryAttempts)
 	assert.Equal(t, 1024, config.GossipQueueCap)
+	assert.Equal(t, 16<<20, config.LinkWindowBytes)
 	assert.True(t, config.RequireAuthentication)
 }
 
@@ -85,14 +90,22 @@ func TestManager_RequiresAuthenticationConfiguration(t *testing.T) {
 		config.SigningKey = signingKey
 		config.ResolvePeerKey = func(cluster.NodeID) (ed25519.PublicKey, bool) { return publicKey, true }
 		config.AuthorizePeer = func(cluster.NodeID, net.Addr) bool { return true }
+		config.AuthorizeIncarnation = acceptAnyIncarnation
 		return config
 	}
+
+	t.Run("missing incarnation authorizer", func(t *testing.T) {
+		config := baseConfig()
+		config.AuthorizeIncarnation = nil
+		manager := NewConnectionManager(config, nil)
+		require.ErrorContains(t, manager.Start(context.Background(), func(cluster.NodeID, []byte) {}, ignoreSessionEnd), "incarnation authorizer")
+	})
 
 	t.Run("missing key", func(t *testing.T) {
 		config := baseConfig()
 		config.AuthenticationKey = nil
 		manager := NewConnectionManager(config, nil)
-		require.Error(t, manager.Start(context.Background(), func(cluster.NodeID, []byte) {}))
+		require.Error(t, manager.Start(context.Background(), func(cluster.NodeID, []byte) {}, ignoreSessionEnd))
 		require.NoError(t, manager.Stop())
 	})
 
@@ -100,21 +113,21 @@ func TestManager_RequiresAuthenticationConfiguration(t *testing.T) {
 		config := baseConfig()
 		config.SigningKey = nil
 		manager := NewConnectionManager(config, nil)
-		require.Error(t, manager.Start(context.Background(), func(cluster.NodeID, []byte) {}))
+		require.Error(t, manager.Start(context.Background(), func(cluster.NodeID, []byte) {}, ignoreSessionEnd))
 	})
 
 	t.Run("missing peer key resolver", func(t *testing.T) {
 		config := baseConfig()
 		config.ResolvePeerKey = nil
 		manager := NewConnectionManager(config, nil)
-		require.Error(t, manager.Start(context.Background(), func(cluster.NodeID, []byte) {}))
+		require.Error(t, manager.Start(context.Background(), func(cluster.NodeID, []byte) {}, ignoreSessionEnd))
 	})
 
 	t.Run("missing authorizer", func(t *testing.T) {
 		config := baseConfig()
 		config.AuthorizePeer = nil
 		manager := NewConnectionManager(config, nil)
-		require.Error(t, manager.Start(context.Background(), func(cluster.NodeID, []byte) {}))
+		require.Error(t, manager.Start(context.Background(), func(cluster.NodeID, []byte) {}, ignoreSessionEnd))
 	})
 }
 
@@ -128,6 +141,7 @@ func TestManager_AuthenticatedCommunication(t *testing.T) {
 	config1 := DefaultManagerConfig()
 	config1.LocalNodeID = "node-1"
 	config1.BindAddr = "127.0.0.1"
+	config1.BindPort = 0
 	config1.Logger = zap.NewNop()
 	config1.AuthenticationKey = sharedKey
 	config1.SigningKey = privateKey1
@@ -135,10 +149,12 @@ func TestManager_AuthenticatedCommunication(t *testing.T) {
 		return publicKey2, nodeID == "node-2"
 	}
 	config1.AuthorizePeer = func(nodeID cluster.NodeID, _ net.Addr) bool { return nodeID == "node-2" }
+	config1.AuthorizeIncarnation = acceptAnyIncarnation
 
 	config2 := DefaultManagerConfig()
 	config2.LocalNodeID = "node-2"
 	config2.BindAddr = "127.0.0.1"
+	config2.BindPort = 0
 	config2.Logger = zap.NewNop()
 	config2.AuthenticationKey = sharedKey
 	config2.SigningKey = privateKey2
@@ -146,19 +162,20 @@ func TestManager_AuthenticatedCommunication(t *testing.T) {
 		return publicKey1, nodeID == "node-1"
 	}
 	config2.AuthorizePeer = func(nodeID cluster.NodeID, _ net.Addr) bool { return nodeID == "node-1" }
+	config2.AuthorizeIncarnation = acceptAnyIncarnation
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	received := make(chan []byte, 1)
 	manager1 := NewConnectionManager(config1, nil)
 	manager2 := NewConnectionManager(config2, nil)
-	require.NoError(t, manager1.Start(ctx, func(cluster.NodeID, []byte) {}))
+	require.NoError(t, manager1.Start(ctx, func(cluster.NodeID, []byte) {}, ignoreSessionEnd))
 	defer func() { require.NoError(t, manager1.Stop()) }()
 	require.NoError(t, manager2.Start(ctx, func(nodeID cluster.NodeID, data []byte) {
 		if nodeID == "node-1" {
 			received <- append([]byte(nil), data...)
 		}
-	}))
+	}, ignoreSessionEnd))
 	defer func() { require.NoError(t, manager2.Stop()) }()
 
 	manager1.AddManagedNode("node-2")
@@ -229,7 +246,7 @@ func TestManager_RemoveManagedNode(_ *testing.T) {
 	manager := NewConnectionManager(config, nil).(*manager)
 
 	nodeID := "remote-node"
-	manager.RemoveManagedNode(nodeID)
+	manager.RemoveManagedNode(nodeID, 0)
 }
 
 func TestManager_ConnectedNodes(t *testing.T) {
@@ -270,3 +287,10 @@ func TestManager_GossipOverflow_ReturnsQueueFull(t *testing.T) {
 	require.NoError(t, manager.SendToNode(nodeID, []byte{0}, ClassGossip))
 	require.ErrorIs(t, manager.SendToNode(nodeID, []byte{1}, ClassGossip), ErrQueueFull)
 }
+
+// ignoreSessionEnd is the session-end handler for tests that do not observe
+// session ends.
+func ignoreSessionEnd(cluster.NodeID) {}
+
+// testIncarnation is the process incarnation a test endpoint claims.
+const testIncarnation uint64 = 0x1D

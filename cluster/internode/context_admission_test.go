@@ -115,7 +115,7 @@ func TestInternodeContextFailureLeavesPackageWithCaller(t *testing.T) {
 			if failure == "encode" {
 				codec.encodeError = errors.New("encode failed")
 			}
-			service := NewService(zap.NewNop(), m, codec, nil, nil, nil)
+			service := NewService(zap.NewNop(), m, codec, nil, ignoreSessionEnd, nil, nil)
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			if failure == "canceled" {
@@ -137,7 +137,7 @@ func TestInternodeContextFailureLeavesPackageWithCaller(t *testing.T) {
 func TestInternodeContextSuccessQueuesBeforeTransferringOwnership(t *testing.T) {
 	states := setupStateManager()
 	states.CreateNodeState("peer")
-	service := NewService(zap.NewNop(), &manager{nodeStates: states}, &mockCodec{encoded: []byte("encoded-request")}, nil, nil, nil)
+	service := NewService(zap.NewNop(), &manager{nodeStates: states}, &mockCodec{encoded: []byte("encoded-request")}, nil, ignoreSessionEnd, nil, nil)
 	router := systemrelay.NewRouter(systemrelay.NewNode("local"), service)
 	pkg := relay.NewServicePackage("local", "host", "peer", "remote", "request")
 	if err := router.SendContext(context.Background(), pkg); err != nil {
