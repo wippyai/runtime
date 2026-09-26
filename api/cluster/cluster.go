@@ -38,6 +38,20 @@ type (
 		UpdateMeta(updates map[string]string)
 	}
 
+	// Link describes the connection this node holds to a peer.
+	Link struct {
+		// Remote is the peer's socket address as this node sees it.
+		Remote string
+		// Dialed reports that this node opened the connection.
+		Dialed bool
+	}
+
+	// Links reports the connected link to each peer.
+	Links interface {
+		// Link returns the connected link to node, if one exists.
+		Link(node NodeID) (Link, bool)
+	}
+
 	// MessageCodec handles encoding and decoding of relay packages for
 	// transmission over the network between cluster nodes.
 	MessageCodec interface {

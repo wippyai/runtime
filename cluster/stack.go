@@ -173,6 +173,7 @@ func AssembleStack(cfg StackConfig) (*Stack, error) {
 	meta[internode.MetadataPublicKey] = base64.RawStdEncoding.EncodeToString(publicKey)
 
 	memCfg := membership.Config{
+		Link:                connMgr,
 		NodeName:            cfg.NodeName,
 		BindAddr:            stringOr(cfg.MembershipBindAddr, "0.0.0.0"),
 		BindPort:            cfg.MembershipBindPort,

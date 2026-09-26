@@ -174,6 +174,12 @@ type ConnectionManager interface {
 	Start(ctx context.Context, onMessage func(nodeID cluster.NodeID, data []byte)) error
 	Stop() error
 	SendToNode(nodeID cluster.NodeID, data []byte, class Class) error
+	// SendConnected queues data for a node whose link is connected and
+	// reports whether it did, so a lossy class can take another path when no
+	// link is up.
+	SendConnected(nodeID cluster.NodeID, data []byte, class Class) bool
+	// Link reports the connected link to a node.
+	Link(nodeID cluster.NodeID) (cluster.Link, bool)
 	EnsureConnection(nodeID cluster.NodeID, addr string, port int)
 	DisconnectFromNode(nodeID cluster.NodeID)
 	ConnectedNodes() []cluster.NodeID
@@ -344,6 +350,21 @@ func (m *manager) SendToNode(nodeID cluster.NodeID, data []byte, class Class) er
 		return err
 	}
 	return nil
+}
+
+func (m *manager) SendConnected(nodeID cluster.NodeID, data []byte, class Class) bool {
+	if _, state := m.nodeStates.GetNodeConnection(nodeID); state != StateConnected {
+		return false
+	}
+	return m.nodeStates.QueueMessageClass(nodeID, data, class) == nil
+}
+
+func (m *manager) Link(nodeID cluster.NodeID) (cluster.Link, bool) {
+	conn, state := m.nodeStates.GetNodeConnection(nodeID)
+	if state != StateConnected || conn == nil {
+		return cluster.Link{}, false
+	}
+	return cluster.Link{Remote: conn.conn.RemoteAddr().String(), Dialed: conn.dialed}, true
 }
 
 // EnsureConnection records the peer's address and dials it unless a
