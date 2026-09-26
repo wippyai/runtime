@@ -617,6 +617,6 @@ When `lifecycle.boot_gate` is `true`:
 - The service is counted as a pending boot gate upon registration, before the service starts.
 - Use-case commands (`wippy test`, `wippy run <command>`) wait for boot readiness before executing entrypoints.
 - The gate completes successfully when the process returns ok (`event.Result.Error == nil`).
-- The gate fails with a typed error (`*boot.BootGateError`) if the process errors, crashes, or is stopped before completion.
+- The gate fails with a typed error (`*boot.GateError`) if the process errors, crashes, or is stopped before completion.
 - Restart policies never re-open or pass a failed gate: once a gate fails, commands abort immediately with exit code 1.
 
