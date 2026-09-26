@@ -33,17 +33,12 @@ type NodeState struct {
 	messageNotify chan struct{}
 	connection    *NodeConnection
 	session       *session // guarded by queueMu; replaced when the session ends
-	// departure is closed once the removal of this state has been signaled.
-	departure chan struct{}
-	// retired lists peer incarnations whose sessions ended because the peer
-	// restarted; a late connection from one is rejected. Guarded by queueMu.
-	retired     []uint64
-	queueMu     queueMutex
-	address     nodeAddress
-	lastDepth   [numClasses]int // last queue depth emitted to telemetry; guarded by queueMu
-	surfaceTurn bool            // guarded by queueMu; fair turns between application classes
-	state       ConnectionState
-	stateMu     sync.RWMutex
+	queueMu       queueMutex
+	address       nodeAddress
+	lastDepth     [numClasses]int // last queue depth emitted to telemetry; guarded by queueMu
+	surfaceTurn   bool            // guarded by queueMu; fair turns between application classes
+	state         ConnectionState
+	stateMu       sync.RWMutex
 }
 
 // classQueue is a FIFO of pending messages for one Class.
@@ -137,16 +132,21 @@ type nodeAddress struct {
 }
 
 type NodeStateManager struct {
-	nodeStates sync.Map // cluster.NodeID -> *NodeState
-	logger     *zap.Logger
-	tel        *telemetry
+	logger *zap.Logger
+	tel    *telemetry
 	// sessionEnded receives every ended session once its last frame was
 	// delivered. Set by the manager before it serves peers.
 	sessionEnded func(cluster.NodeID)
-	// departed maps a removed node to its state's departure channel; a later
-	// state for the node delivers nothing before it closes.
-	departed sync.Map // cluster.NodeID -> <-chan struct{}
-	config   ManagerConfig
+	// tails holds, per node, the most recently created session that has not
+	// settled; the next session for the node follows it. Guarded by chainMu,
+	// which nests inside NodeState.queueMu.
+	tails map[cluster.NodeID]*session
+	// stop abandons end signals still waiting for a predecessor at shutdown.
+	stop       chan struct{}
+	nodeStates sync.Map // cluster.NodeID -> *NodeState
+	config     ManagerConfig
+	chainMu    sync.Mutex
+	stopOnce   sync.Once
 }
 
 func NewNodeStateManager(config ManagerConfig, tel *telemetry, logger *zap.Logger) *NodeStateManager {
@@ -154,46 +154,23 @@ func NewNodeStateManager(config ManagerConfig, tel *telemetry, logger *zap.Logge
 		logger: logger.Named("state"),
 		tel:    tel,
 		config: config,
+		tails:  make(map[cluster.NodeID]*session),
+		stop:   make(chan struct{}),
 	}
 }
 
-// CreateNodeState initializes the in-memory state for a new node.
-// This should only be called by the manager when a node joins the cluster.
-// If state already exists (e.g. stale entry from a previous incarnation),
-// the existing struct is reused: connection is closed and replaced, queue and
-// state are reset, but the messageNotify channel is kept so any existing
-// control loop continues to receive notifications without holding a stale
-// channel reference.
-//
-// Auto-managed nodes (created from inbound connections before the formal
-// NodeJoined event) are cleaned up when their connection closes; no separate
-// reaper goroutine is needed.
+// stopSettling abandons end signals still waiting for a predecessor.
+func (nsm *NodeStateManager) stopSettling() {
+	nsm.stopOnce.Do(func() { close(nsm.stop) })
+}
+
+// CreateNodeState ensures in-memory state exists for a node. State that
+// already exists is kept unchanged: its queues and session belong to the
+// node's live session. The manager calls it when a node joins the cluster.
 func (nsm *NodeStateManager) CreateNodeState(nodeID cluster.NodeID) {
-	if existing, ok := nsm.nodeStates.Load(nodeID); ok {
-		oldState := existing.(*NodeState)
-
-		// Reset connection
-		oldState.stateMu.Lock()
-		if oldState.connection != nil {
-			oldState.connection.Close()
-			oldState.connection = nil
-		}
-		oldState.state = StateNone
-		oldState.address = nodeAddress{}
-		oldState.stateMu.Unlock()
-
-		// Reset all queues and the session.
-		oldState.queueMu.Lock()
-		for i := range oldState.queues {
-			oldState.queues[i].reset()
-		}
-		end := endSessionLocked(oldState, sessionEndRemoved, 0, true)
-		oldState.retired = nil
-		oldState.queueMu.Unlock()
-		nsm.finishSessionEnd(nodeID, end)
-
-		// Do NOT replace messageNotify — existing control loops hold a reference.
-		nsm.logger.Debug("Reset existing state for rejoining node", zap.String("node_id", nodeID))
+	nsm.chainMu.Lock()
+	defer nsm.chainMu.Unlock()
+	if _, ok := nsm.nodeStates.Load(nodeID); ok {
 		return
 	}
 
@@ -210,22 +187,12 @@ func (nsm *NodeStateManager) CreateNodeState(nodeID cluster.NodeID) {
 	}
 	newState := &NodeState{
 		queues:        queues,
-		session:       newSession(0, nsm.predecessorOf(nodeID)),
-		departure:     make(chan struct{}),
+		session:       nsm.chainSessionLocked(nodeID, 0),
 		messageNotify: make(chan struct{}, 1),
 		state:         StateNone,
 		createdAt:     time.Now(),
 	}
 	nsm.nodeStates.Store(nodeID, newState)
-}
-
-// predecessorOf returns the settle channel of the removed node's last
-// session while its end is still being signaled.
-func (nsm *NodeStateManager) predecessorOf(nodeID cluster.NodeID) <-chan struct{} {
-	if settled, ok := nsm.departed.Load(nodeID); ok {
-		return settled.(<-chan struct{})
-	}
-	return nil
 }
 
 func (nsm *NodeStateManager) GetNodeState(nodeID cluster.NodeID) *NodeState {
@@ -531,25 +498,11 @@ func (nsm *NodeStateManager) RemoveNodeState(nodeID cluster.NodeID) {
 // Separate identity removal from resource cleanup so a manager can serialize
 // join/leave decisions without holding its lifecycle lock during Close.
 func (nsm *NodeStateManager) detachNodeState(nodeID cluster.NodeID) *NodeState {
-	loaded, ok := nsm.nodeStates.Load(nodeID)
+	state, ok := nsm.nodeStates.LoadAndDelete(nodeID)
 	if !ok {
 		return nil
 	}
-	state := loaded.(*NodeState)
-	if !nsm.detach(nodeID, state) {
-		return nil
-	}
-	return state
-}
-
-// detach removes state from the node map and makes its departure the
-// predecessor of any later state for the node.
-func (nsm *NodeStateManager) detach(nodeID cluster.NodeID, state *NodeState) bool {
-	if !nsm.nodeStates.CompareAndDelete(nodeID, state) {
-		return false
-	}
-	nsm.departed.Store(nodeID, (<-chan struct{})(state.departure))
-	return true
+	return state.(*NodeState)
 }
 
 func (nsm *NodeStateManager) closeDetachedNodeState(nodeID cluster.NodeID, nodeState *NodeState) {
@@ -565,9 +518,7 @@ func (nsm *NodeStateManager) closeDetachedNodeState(nodeID cluster.NodeID, nodeS
 	nodeState.stateMu.Unlock()
 
 	nodeState.queueMu.Lock()
-	// The removed state's last session carries the state's departure.
-	nodeState.session.alsoSettles = nodeState.departure
-	end := endSessionLocked(nodeState, sessionEndRemoved, nodeState.session.peerIncarnation, true)
+	end := nsm.endSessionLocked(nodeID, nodeState, sessionEndRemoved, nodeState.session.peerIncarnation, true, false)
 	nodeState.queueMu.Unlock()
 	nsm.finishSessionEnd(nodeID, end)
 }

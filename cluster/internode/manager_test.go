@@ -19,8 +19,13 @@ import (
 func insecureManagerConfig() ManagerConfig {
 	config := DefaultManagerConfig()
 	config.RequireAuthentication = false
+	config.AuthorizeIncarnation = acceptAnyIncarnation
 	return config
 }
+
+// acceptAnyIncarnation stands in for membership in tests whose peers never
+// restart.
+func acceptAnyIncarnation(cluster.NodeID, uint64) bool { return true }
 
 func TestConnectionState_String(t *testing.T) {
 	tests := []struct {
@@ -85,8 +90,16 @@ func TestManager_RequiresAuthenticationConfiguration(t *testing.T) {
 		config.SigningKey = signingKey
 		config.ResolvePeerKey = func(cluster.NodeID) (ed25519.PublicKey, bool) { return publicKey, true }
 		config.AuthorizePeer = func(cluster.NodeID, net.Addr) bool { return true }
+		config.AuthorizeIncarnation = acceptAnyIncarnation
 		return config
 	}
+
+	t.Run("missing incarnation authorizer", func(t *testing.T) {
+		config := baseConfig()
+		config.AuthorizeIncarnation = nil
+		manager := NewConnectionManager(config, nil)
+		require.ErrorContains(t, manager.Start(context.Background(), func(cluster.NodeID, []byte) {}, ignoreSessionEnd), "incarnation authorizer")
+	})
 
 	t.Run("missing key", func(t *testing.T) {
 		config := baseConfig()
@@ -135,6 +148,7 @@ func TestManager_AuthenticatedCommunication(t *testing.T) {
 		return publicKey2, nodeID == "node-2"
 	}
 	config1.AuthorizePeer = func(nodeID cluster.NodeID, _ net.Addr) bool { return nodeID == "node-2" }
+	config1.AuthorizeIncarnation = acceptAnyIncarnation
 
 	config2 := DefaultManagerConfig()
 	config2.LocalNodeID = "node-2"
@@ -146,6 +160,7 @@ func TestManager_AuthenticatedCommunication(t *testing.T) {
 		return publicKey1, nodeID == "node-1"
 	}
 	config2.AuthorizePeer = func(nodeID cluster.NodeID, _ net.Addr) bool { return nodeID == "node-1" }
+	config2.AuthorizeIncarnation = acceptAnyIncarnation
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

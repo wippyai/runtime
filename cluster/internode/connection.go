@@ -404,9 +404,17 @@ func (c *NodeConnection) readLoop(ctx context.Context, handler func(class Class,
 	l := c.link
 	reader := bufio.NewReader(c.conn)
 
+	// Session agreement is bounded like the handshake: a peer that never
+	// sends RESUME is a failed connection, and the node is dialed again.
+	if err := c.conn.SetReadDeadline(time.Now().Add(c.config.HandshakeTimeout)); err != nil {
+		return &ConnectionError{Reason: ExitNetworkError, Err: NewSetDeadlineError(err)}
+	}
 	f, err := readFrame(reader, c.config.MaxMessageSize)
 	if err != nil {
 		return c.readFailure(ctx, err)
+	}
+	if err := c.conn.SetReadDeadline(time.Time{}); err != nil {
+		return &ConnectionError{Reason: ExitNetworkError, Err: NewSetDeadlineError(err)}
 	}
 	if f.class != classResume {
 		return &ConnectionError{Reason: ExitProtocolError, Err: newFrameError("connection must open with RESUME", f.class)}
@@ -423,7 +431,10 @@ func (c *NodeConnection) readLoop(ctx context.Context, handler func(class Class,
 		return &ConnectionError{Reason: ExitPeerClosed, Err: errPeerSessionReset}
 	case resumeAwaitPeerReset:
 		// The peer ends its session on this side's RESUME and closes; no
-		// frame may follow.
+		// frame may follow, and the close is awaited as long as RESUME was.
+		if err := c.conn.SetReadDeadline(time.Now().Add(c.config.HandshakeTimeout)); err != nil {
+			return &ConnectionError{Reason: ExitNetworkError, Err: NewSetDeadlineError(err)}
+		}
 		f, err := readFrame(reader, c.config.MaxMessageSize)
 		if err != nil {
 			return c.readFailure(ctx, err)

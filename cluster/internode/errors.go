@@ -172,3 +172,11 @@ func newFrameError(reason string, class Class) apierror.Error {
 		WithRetryable(apierror.False).
 		WithDetails(attrs.Bag{"class": uint8(class)})
 }
+
+// newIncarnationNotAdvertisedError reports a peer process that membership
+// does not advertise as the node's current incarnation.
+func newIncarnationNotAdvertisedError(nodeID string, incarnation uint64) apierror.Error {
+	return apierror.New(apierror.Unavailable, "internode peer incarnation is not the one membership advertises").
+		WithRetryable(apierror.True).
+		WithDetails(attrs.Bag{"node_id": nodeID, "incarnation": incarnation})
+}

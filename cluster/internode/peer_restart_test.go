@@ -104,24 +104,11 @@ func TestPeerRestartEndsSessionAndDiscardsItsFrames(t *testing.T) {
 	require.Equal(t, []cluster.NodeID{"node-b"}, ended)
 
 	// The handshake recognized the restart: the session carries the new
-	// incarnation and the old one is retired.
+	// incarnation.
 	state := a.manager.nodeStates.GetNodeState("node-b")
 	state.queueMu.Lock()
 	defer state.queueMu.Unlock()
 	require.Equal(t, b2.manager.Incarnation(), state.session.peerIncarnation)
-	require.Equal(t, []uint64{b1.manager.Incarnation()}, state.retired)
-}
-
-// A superseded incarnation cannot rebind the session.
-func TestRetiredIncarnationIsRejected(t *testing.T) {
-	nsm := setupStateManager()
-	nsm.CreateNodeState("peer")
-	state := nsm.GetNodeState("peer")
-	require.Equal(t, incarnationBound, nsm.bindPeerIncarnation("peer", state, 1))
-	require.Equal(t, incarnationBound, nsm.bindPeerIncarnation("peer", state, 1))
-	require.Equal(t, incarnationRestarted, nsm.bindPeerIncarnation("peer", state, 2))
-	require.Equal(t, incarnationRejected, nsm.bindPeerIncarnation("peer", state, 1))
-	require.Equal(t, incarnationBound, nsm.bindPeerIncarnation("peer", state, 2))
 }
 
 // A delayed departure of a node's previous incarnation keeps the session its

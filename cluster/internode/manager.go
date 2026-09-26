@@ -63,18 +63,23 @@ type ManagerTLSConfig struct {
 }
 
 type ManagerConfig struct {
-	Logger            *zap.Logger
-	AuthorizePeer     func(cluster.NodeID, net.Addr) bool
-	ResolvePeerKey    func(cluster.NodeID) (ed25519.PublicKey, bool)
-	BindAddr          string
-	LocalNodeID       cluster.NodeID
-	AuthenticationKey []byte
-	SigningKey        ed25519.PrivateKey
-	TLS               ManagerTLSConfig
-	BindPort          int
-	CommandQueueSize  int
-	HandshakeTimeout  time.Duration
-	OutboundQueueSize int
+	Logger        *zap.Logger
+	AuthorizePeer func(cluster.NodeID, net.Addr) bool
+	// AuthorizeIncarnation admits a handshaken peer process only when it is
+	// the incarnation membership currently advertises for the node. A
+	// refused connection is closed and the node is dialed again, so a
+	// straggler of a replaced process never displaces its successor.
+	AuthorizeIncarnation func(cluster.NodeID, uint64) bool
+	ResolvePeerKey       func(cluster.NodeID) (ed25519.PublicKey, bool)
+	BindAddr             string
+	LocalNodeID          cluster.NodeID
+	AuthenticationKey    []byte
+	SigningKey           ed25519.PrivateKey
+	TLS                  ManagerTLSConfig
+	BindPort             int
+	CommandQueueSize     int
+	HandshakeTimeout     time.Duration
+	OutboundQueueSize    int
 	// GossipQueueCap bounds SWIM/memberlist-style gossip. Gossip is the only
 	// intentionally lossy internode class; reliable actor and raft classes
 	// queue while the peer remains managed and are discarded only on node
@@ -164,15 +169,20 @@ type nodeControlLoop struct {
 	connection *NodeConnection
 	// successor is the preferred connection waiting for connection's run to
 	// end before it takes over the node's queues.
-	successor  *NodeConnection
-	logger     *zap.Logger
-	cancel     context.CancelFunc
-	nodeID     cluster.NodeID
-	nodeState  *NodeState
-	addr       string
+	successor *NodeConnection
+	logger    *zap.Logger
+	cancel    context.CancelFunc
+	nodeState *NodeState
+	nodeID    cluster.NodeID
+	addr      string
+	// sendMu fences command delivery against the loop's exit: senders hold
+	// it shared, the exiting loop exclusively while it marks itself exited
+	// and closes connections still queued.
+	sendMu     sync.RWMutex
 	state      ConnectionState
 	retryDelay time.Duration
 	port       int
+	exited     bool
 }
 
 type ConnectionManager interface {
@@ -274,6 +284,9 @@ func (m *manager) Start(ctx context.Context, onMessage func(nodeID cluster.NodeI
 	if onMessage == nil || onSessionEnd == nil {
 		return fmt.Errorf("internode message and session-end handlers are required")
 	}
+	if m.config.AuthorizeIncarnation == nil {
+		return fmt.Errorf("internode incarnation authorizer is required")
+	}
 	if m.config.LinkWindowBytes <= 0 {
 		return fmt.Errorf("internode link window must be positive, got %d", m.config.LinkWindowBytes)
 	}
@@ -338,6 +351,7 @@ func (m *manager) Stop() error {
 	m.controlLoopsMu.Unlock()
 
 	m.wg.Wait()
+	m.nodeStates.stopSettling()
 	m.logger.Info("Connection manager stopped")
 	return nil
 }
@@ -477,7 +491,7 @@ func (m *manager) RemoveManagedNode(nodeID cluster.NodeID, incarnation uint64) {
 				zap.String("node", nodeID))
 			return
 		}
-		m.nodeStates.detach(nodeID, state)
+		m.nodeStates.nodeStates.CompareAndDelete(nodeID, state)
 		state.queueMu.Unlock()
 	}
 	m.logger.Info("Removing managed node", zap.String("node", nodeID))
@@ -486,19 +500,20 @@ func (m *manager) RemoveManagedNode(nodeID cluster.NodeID, incarnation uint64) {
 		delete(m.controlLoops, nodeID)
 	}
 
-	var settled chan struct{}
+	var departed *session
 	if state == nil {
-		// No session exists; the departure is still signaled, and a state
-		// admitted meanwhile delivers nothing before it is.
-		settled = make(chan struct{})
-		m.nodeStates.departed.Store(nodeID, (<-chan struct{})(settled))
+		// No session exists; the departure is still signaled, in order with
+		// the node's other sessions, and a state admitted meanwhile follows it.
+		departed = m.nodeStates.chainSession(nodeID, 0)
+		departed.ended.Store(true)
+		departed.settling = true
 	}
 	m.controlLoopsMu.Unlock()
 
 	// Close connections and discard the session without holding the
 	// lifecycle lock.
 	if state == nil {
-		m.nodeStates.signalSessionEnd(nodeID, nil, settled)
+		m.nodeStates.signalDeparture(nodeID, departed)
 		return
 	}
 	m.nodeStates.closeDetachedNodeState(nodeID, state)
@@ -610,7 +625,8 @@ func (m *manager) sendCommand(nodeID cluster.NodeID, cmd nodeCommand) {
 		state := m.nodeStates.GetNodeState(nodeID)
 		if state == nil {
 			m.controlLoopsMu.Unlock()
-			m.logger.Error("Attempted to create control loop for unmanaged node", zap.String("node", nodeID))
+			m.logger.Debug("Dropping command for unmanaged node", zap.String("node", nodeID))
+			cmd.release()
 			return
 		}
 
@@ -637,9 +653,44 @@ func (m *manager) sendCommand(nodeID cluster.NodeID, cmd nodeCommand) {
 	}
 	m.controlLoopsMu.Unlock()
 
+	loop.deliver(cmd)
+}
+
+// release closes a connection carried by a command that no loop will handle.
+func (cmd nodeCommand) release() {
+	if data, ok := cmd.Data.(connectedData); ok && data.Connection != nil {
+		data.Connection.Close()
+	}
+}
+
+// deliver hands cmd to the loop, or releases it when the loop has ended.
+func (loop *nodeControlLoop) deliver(cmd nodeCommand) {
+	loop.sendMu.RLock()
+	defer loop.sendMu.RUnlock()
+	if loop.exited {
+		cmd.release()
+		return
+	}
 	select {
 	case loop.commands <- cmd:
 	case <-loop.ctx.Done():
+		cmd.release()
+	}
+}
+
+// exit marks the loop ended and releases every command still queued; no
+// command is accepted afterwards.
+func (loop *nodeControlLoop) exit() {
+	loop.sendMu.Lock()
+	defer loop.sendMu.Unlock()
+	loop.exited = true
+	for {
+		select {
+		case cmd := <-loop.commands:
+			cmd.release()
+		default:
+			return
+		}
 	}
 }
 
@@ -659,6 +710,7 @@ func (loop *nodeControlLoop) run() {
 	loop.logger.Debug("Control loop started")
 	defer loop.logger.Debug("Control loop stopped")
 
+	defer loop.exit()
 	for {
 		select {
 		case <-loop.ctx.Done():
@@ -762,6 +814,9 @@ func (loop *nodeControlLoop) handleConnected(data connectedData) {
 	}
 	// The successor takes over once the current connection's run has ended,
 	// so a single reader and writer serve the session at any time.
+	if loop.successor != nil {
+		loop.successor.Close()
+	}
 	loop.successor = candidate
 	loop.connection.Close()
 }
@@ -860,10 +915,7 @@ func (loop *nodeControlLoop) cleanup() {
 }
 
 func (loop *nodeControlLoop) sendCommandToSelf(cmd nodeCommand) {
-	select {
-	case loop.commands <- cmd:
-	case <-loop.ctx.Done():
-	}
+	loop.deliver(cmd)
 }
 
 func (loop *nodeControlLoop) attemptConnection(addr string, port int) {
@@ -891,6 +943,11 @@ func (loop *nodeControlLoop) attemptConnection(addr string, port int) {
 	nodeConn, err := PerformClientHandshake(conn, loop.manager.config.NodeConnectionConfig(), loop.logger, loop.manager.config.LocalNodeID, loop.manager.incarnation, loop.nodeID)
 	if err != nil {
 		loop.sendDisconnected(nil, err, true)
+		return
+	}
+	if !loop.manager.config.AuthorizeIncarnation(loop.nodeID, nodeConn.peerIncarnation) {
+		nodeConn.Close()
+		loop.sendDisconnected(nil, newIncarnationNotAdvertisedError(loop.nodeID, nodeConn.peerIncarnation), true)
 		return
 	}
 	loop.sendCommandToSelf(nodeCommand{Type: cmdConnected, Data: connectedData{Connection: nodeConn}})
@@ -1003,6 +1060,12 @@ func (m *manager) handleInboundConnection(conn net.Conn) {
 	}
 	remoteNodeID := nodeConn.RemoteNodeID()
 	m.logger.Debug("Inbound handshake succeeded", zap.String("remote_node", remoteNodeID))
+	if !m.config.AuthorizeIncarnation(remoteNodeID, nodeConn.peerIncarnation) {
+		m.logger.Debug("Rejecting inbound connection from an incarnation membership does not advertise",
+			zap.String("node", remoteNodeID))
+		nodeConn.Close()
+		return
+	}
 
 	if m.nodeStates.GetNodeState(remoteNodeID) == nil {
 		if m.config.AuthorizePeer == nil || !m.config.AuthorizePeer(remoteNodeID, conn.RemoteAddr()) {

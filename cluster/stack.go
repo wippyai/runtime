@@ -171,6 +171,9 @@ func AssembleStack(cfg StackConfig) (*Stack, error) {
 		_, ok := mgrCfg.ResolvePeerKey(id)
 		return ok
 	}
+	mgrCfg.AuthorizeIncarnation = func(id clusterapi.NodeID, incarnation uint64) bool {
+		return internode.MemberIncarnationAdvertised(memSvc, id, incarnation)
+	}
 
 	connMgr := internode.NewConnectionManager(mgrCfg, cfg.Collector)
 

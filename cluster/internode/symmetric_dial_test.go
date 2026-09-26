@@ -44,6 +44,7 @@ func startAuthenticatedPair(ctx context.Context, t *testing.T) (low, high dialTe
 		cfg.SigningKey = signing
 		cfg.ResolvePeerKey = func(id cluster.NodeID) (ed25519.PublicKey, bool) { return peerKey, id == peer }
 		cfg.AuthorizePeer = func(id cluster.NodeID, _ net.Addr) bool { return id == peer }
+		cfg.AuthorizeIncarnation = acceptAnyIncarnation
 		cfg.InitialRetryDelay = 5 * time.Millisecond
 		cfg.MaxRetryDelay = 20 * time.Millisecond
 		cfg.HandshakeTimeout = time.Second

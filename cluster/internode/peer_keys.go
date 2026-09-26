@@ -5,6 +5,7 @@ package internode
 import (
 	"bytes"
 	"crypto/ed25519"
+	"strconv"
 
 	"github.com/wippyai/runtime/api/cluster"
 )
@@ -34,4 +35,21 @@ func ResolveMemberKey(local, remote cluster.NodeID, pins map[cluster.NodeID]ed25
 		return bytes.Clone(key), true
 	}
 	return nil, false
+}
+
+// MemberIncarnationAdvertised reports whether membership currently advertises
+// incarnation as the running process of node. Membership orders a node's
+// processes, so the transport defers to it: a process membership does not
+// advertise is refused until it does.
+func MemberIncarnationAdvertised(membership cluster.Membership, node cluster.NodeID, incarnation uint64) bool {
+	if membership == nil {
+		return false
+	}
+	advertised := strconv.FormatUint(incarnation, 10)
+	for _, member := range membership.Nodes() {
+		if member.ID == node {
+			return member.Meta[cluster.MetaIncarnation] == advertised
+		}
+	}
+	return false
 }

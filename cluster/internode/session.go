@@ -5,7 +5,6 @@ package internode
 import (
 	"crypto/rand"
 	"encoding/binary"
-	"slices"
 	"sync/atomic"
 
 	"github.com/wippyai/runtime/api/cluster"
@@ -23,16 +22,14 @@ import (
 // under the same incarnation). An ended session's frames are discarded and
 // never delivered; the manager signals its end.
 type session struct {
-	// predecessor is closed once the session this one replaced has been
-	// signaled ended; nothing of this session is delivered before that. Nil
-	// when there is no predecessor.
+	// predecessor is closed once the session created before this one for the
+	// same node has been signaled ended; nothing of this session is delivered
+	// before that. Nil when no earlier session is still unsettled.
 	predecessor <-chan struct{}
-	// settled is closed once this session's end has been signaled.
+	// settled is closed once this session's end has been signaled, which in
+	// turn waits for its predecessor: ends are signaled in creation order.
 	settled chan struct{}
-	// alsoSettles, when set, is closed with settled: the departure of a
-	// removed state ends with its last session. Guarded by NodeState.queueMu.
-	alsoSettles chan struct{}
-	ring        resendRing // guarded by NodeState.queueMu
+	ring    resendRing // guarded by NodeState.queueMu
 	// id identifies this node's side of the session.
 	id uint64
 	// peerIncarnation is the peer's process incarnation, zero until the first
@@ -51,13 +48,20 @@ type session struct {
 	// only by the session's single live reader.
 	recvNext atomic.Uint64
 	ended    atomic.Bool
-	// reading marks a live reader; endPending defers the end signal until
-	// that reader stops. Guarded by NodeState.queueMu.
-	reading    bool
-	endPending bool
+	// reading marks a live reader; settling marks that the end signal was
+	// scheduled. The end is signaled once the session ended and no reader is
+	// live. Guarded by NodeState.queueMu.
+	reading  bool
+	settling bool
 }
 
-func newSession(peerIncarnation uint64, predecessor <-chan struct{}) *session {
+// chainSession opens a session for nodeID after every session created for it
+// before. The caller holds nsm.chainMu.
+func (nsm *NodeStateManager) chainSessionLocked(nodeID cluster.NodeID, peerIncarnation uint64) *session {
+	var predecessor <-chan struct{}
+	if tail := nsm.tails[nodeID]; tail != nil {
+		predecessor = tail.settled
+	}
 	s := &session{
 		id:              randomNonZero(),
 		peerIncarnation: peerIncarnation,
@@ -67,7 +71,16 @@ func newSession(peerIncarnation uint64, predecessor <-chan struct{}) *session {
 	}
 	s.acked.Store(1)
 	s.recvNext.Store(1)
+	nsm.tails[nodeID] = s
 	return s
+}
+
+// chainSession opens a session for nodeID after every session created for it
+// before.
+func (nsm *NodeStateManager) chainSession(nodeID cluster.NodeID, peerIncarnation uint64) *session {
+	nsm.chainMu.Lock()
+	defer nsm.chainMu.Unlock()
+	return nsm.chainSessionLocked(nodeID, peerIncarnation)
 }
 
 // randomNonZero draws a uniformly random nonzero identifier.
@@ -169,26 +182,28 @@ const (
 
 // sessionEnd describes an ended session for reporting outside the queue lock.
 type sessionEnd struct {
-	ended       *session
-	alsoSettles chan struct{}
-	reason      string
-	discarded   int
-	changed     [numClasses]bool
-	// signalNow reports that no reader was live; otherwise the reader
-	// signals when it stops.
-	signalNow bool
+	ended     *session
+	reason    string
+	discarded int
+	changed   [numClasses]bool
+	// settleNow reports that no reader was live; otherwise the reader
+	// settles the session when it stops.
+	settleNow bool
 }
 
-// endSessionLocked ends state's session and opens a fresh one bound to
-// peerIncarnation. The ended session's resend ring and queued sequenced
-// frames are discarded; allQueues also discards queued gossip. The caller
-// holds state.queueMu and passes the result to finishSessionEnd after
-// unlocking.
-func endSessionLocked(state *NodeState, reason string, peerIncarnation uint64, allQueues bool) sessionEnd {
+// endSessionLocked ends state's session. The ended session's resend ring and
+// queued sequenced frames are discarded; allQueues also discards queued
+// gossip. With replace, a fresh session bound to peerIncarnation follows it;
+// a removed state keeps its ended session. The caller holds state.queueMu and
+// passes the result to finishSessionEnd after unlocking.
+func (nsm *NodeStateManager) endSessionLocked(nodeID cluster.NodeID, state *NodeState, reason string, peerIncarnation uint64, allQueues, replace bool) sessionEnd {
 	old := state.session
+	if old.ended.Load() {
+		return sessionEnd{ended: old, reason: reason}
+	}
 	old.ended.Store(true)
-	end := sessionEnd{ended: old, alsoSettles: old.alsoSettles, reason: reason, signalNow: !old.reading}
-	old.endPending = old.reading
+	end := sessionEnd{ended: old, reason: reason, settleNow: !old.reading}
+	old.settling = !old.reading
 	end.discarded = old.ring.len()
 	old.ring.reset()
 	for class, q := range state.queues {
@@ -200,7 +215,9 @@ func endSessionLocked(state *NodeState, reason string, peerIncarnation uint64, a
 		end.changed[class] = state.lastDepth[class] != 0
 		state.lastDepth[class] = 0
 	}
-	state.session = newSession(peerIncarnation, old.settled)
+	if replace {
+		state.session = nsm.chainSession(nodeID, peerIncarnation)
+	}
 	return end
 }
 
@@ -217,26 +234,52 @@ func (nsm *NodeStateManager) finishSessionEnd(nodeID cluster.NodeID, end session
 		zap.String("node", nodeID),
 		zap.String("reason", end.reason),
 		zap.Int("discarded_messages", end.discarded))
-	if end.signalNow {
-		nsm.signalSessionEnd(nodeID, end.ended.settled, end.alsoSettles)
+	if end.settleNow {
+		nsm.settle(nodeID, end.ended)
 	}
 }
 
-// signalSessionEnd reports an ended session once none of its frames can be
-// delivered any more, then releases what follows it: the hook returns before
-// any frame of a later session is delivered. departure, when set, is the
-// removed state's departure.
-func (nsm *NodeStateManager) signalSessionEnd(nodeID cluster.NodeID, settled, departure chan struct{}) {
-	if nsm.sessionEnded != nil {
-		nsm.sessionEnded(nodeID)
+// settle signals the end of s once its predecessor has settled, then
+// releases what follows it. Ends of one node are signaled in the order their
+// sessions were created, and the hook returns before any frame of a later
+// session is delivered. When the predecessor is still pending, a goroutine
+// waits for it; manager shutdown abandons the wait.
+func (nsm *NodeStateManager) settle(nodeID cluster.NodeID, s *session) {
+	signal := func() {
+		if nsm.sessionEnded != nil {
+			nsm.sessionEnded(nodeID)
+		}
+		close(s.settled)
+		nsm.chainMu.Lock()
+		if nsm.tails[nodeID] == s {
+			delete(nsm.tails, nodeID)
+		}
+		nsm.chainMu.Unlock()
 	}
-	if settled != nil {
-		close(settled)
+	if s.predecessor == nil {
+		signal()
+		return
 	}
-	if departure != nil {
-		close(departure)
-		nsm.departed.CompareAndDelete(nodeID, (<-chan struct{})(departure))
+	select {
+	case <-s.predecessor:
+		signal()
+		return
+	default:
 	}
+	go func() {
+		select {
+		case <-s.predecessor:
+			signal()
+		case <-nsm.stop:
+		}
+	}()
+}
+
+// signalDeparture signals the departure of a node without state: it follows
+// every earlier session of the node and precedes every later one.
+func (nsm *NodeStateManager) signalDeparture(nodeID cluster.NodeID, departed *session) {
+	nsm.tel.recordSessionEnd(sessionEndRemoved)
+	nsm.settle(nodeID, departed)
 }
 
 // awaitPredecessor blocks until the session this one replaced has been
@@ -262,7 +305,7 @@ func (l *sessionLink) failSession() {
 		l.state.queueMu.Unlock()
 		return
 	}
-	end := endSessionLocked(l.state, sessionEndProtocol, l.sess.peerIncarnation, false)
+	end := l.nsm.endSessionLocked(l.nodeID, l.state, sessionEndProtocol, l.sess.peerIncarnation, false, true)
 	l.state.queueMu.Unlock()
 	l.nsm.finishSessionEnd(l.nodeID, end)
 }
@@ -279,17 +322,16 @@ func (l *sessionLink) beginRead() bool {
 	return true
 }
 
-// endRead unregisters the reader and signals a session that ended while it
+// endRead unregisters the reader and settles a session that ended while it
 // was live: no frame of that session is delivered after this point.
 func (l *sessionLink) endRead() {
 	l.state.queueMu.Lock()
 	l.sess.reading = false
-	pending := l.sess.endPending
-	l.sess.endPending = false
-	departure := l.sess.alsoSettles
+	settle := l.sess.ended.Load() && !l.sess.settling
+	l.sess.settling = l.sess.settling || settle
 	l.state.queueMu.Unlock()
-	if pending {
-		l.nsm.signalSessionEnd(l.nodeID, l.sess.settled, departure)
+	if settle {
+		l.nsm.settle(l.nodeID, l.sess)
 	}
 }
 
@@ -303,18 +345,18 @@ const (
 	// incarnationRestarted: the peer restarted; the previous session ended
 	// and a fresh one carries the new incarnation.
 	incarnationRestarted
-	// incarnationRejected: the incarnation was superseded by a restart, or
-	// the state no longer belongs to the node.
+	// incarnationRejected: the state no longer belongs to the node.
 	incarnationRejected
 )
 
 // bindPeerIncarnation binds a handshaken peer incarnation to state's session.
-// A different incarnation than the bound one means the peer restarted: the
-// old session ends and its incarnation is retired.
+// Membership admitted the incarnation as the node's current one, so a
+// different incarnation than the bound one means the peer restarted: the old
+// session ends.
 func (nsm *NodeStateManager) bindPeerIncarnation(nodeID cluster.NodeID, state *NodeState, incarnation uint64) incarnationBinding {
 	state.queueMu.Lock()
 	// Removal detaches the state under this lock.
-	if nsm.GetNodeState(nodeID) != state || slices.Contains(state.retired, incarnation) {
+	if nsm.GetNodeState(nodeID) != state {
 		state.queueMu.Unlock()
 		return incarnationRejected
 	}
@@ -324,8 +366,7 @@ func (nsm *NodeStateManager) bindPeerIncarnation(nodeID cluster.NodeID, state *N
 		state.queueMu.Unlock()
 		return incarnationBound
 	}
-	state.retired = append(state.retired, sess.peerIncarnation)
-	end := endSessionLocked(state, sessionEndPeerRestart, incarnation, true)
+	end := nsm.endSessionLocked(nodeID, state, sessionEndPeerRestart, incarnation, true, true)
 	state.queueMu.Unlock()
 	nsm.finishSessionEnd(nodeID, end)
 	return incarnationRestarted
@@ -356,7 +397,7 @@ func (nsm *NodeStateManager) resume(nodeID cluster.NodeID, state *NodeState, ses
 		return 0, errSessionEnded
 	}
 	if sess.peerSession != 0 && theirSession != sess.peerSession {
-		end := endSessionLocked(state, sessionEndPeerReset, sess.peerIncarnation, false)
+		end := nsm.endSessionLocked(nodeID, state, sessionEndPeerReset, sess.peerIncarnation, false, true)
 		state.queueMu.Unlock()
 		nsm.finishSessionEnd(nodeID, end)
 		return resumePeerReset, nil

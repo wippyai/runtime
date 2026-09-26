@@ -251,6 +251,9 @@ func Cluster() boot.Component {
 				_, ok := connManagerCfg.ResolvePeerKey(id)
 				return ok
 			}
+			connManagerCfg.AuthorizeIncarnation = func(id clusterapi.NodeID, incarnation uint64) bool {
+				return internode.MemberIncarnationAdvertised(membershipSvc, id, incarnation)
+			}
 
 			connMgr = internode.NewConnectionManager(connManagerCfg, metricsapi.GetCollector(ctx))
 
