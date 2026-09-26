@@ -167,14 +167,12 @@ type (
 
 		// Remove completely removes a pid and all its watchers, destroying all links.
 		Remove(p pid.PID)
-	}
 
-	// NodeExitHandler breaks every local link and monitor of a node's
-	// processes. The internode transport calls it synchronously when its
-	// session with the node ends, before any frame of a later session is
-	// delivered.
-	NodeExitHandler interface {
-		HandleNodeExit(node pid.NodeID, exitErr error)
+		// HandleNodeExit breaks every local link and monitor of the node's
+		// processes, delivering exitErr to the local side. The internode
+		// transport calls it synchronously when its session with the node
+		// ends, before any frame of a later session is delivered.
+		HandleNodeExit(nodeID pid.NodeID, exitErr error)
 	}
 
 	// ExitEvent represents a process exit notification

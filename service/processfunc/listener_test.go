@@ -500,6 +500,7 @@ func (m *mockTopology) Register(_ pid.PID) error {
 	return m.registerErr
 }
 func (m *mockTopology) Remove(_ pid.PID)                      {}
+func (m *mockTopology) HandleNodeExit(pid.NodeID, error)      {}
 func (m *mockTopology) Complete(_ pid.PID, _ *runtime.Result) {}
 func (m *mockTopology) Monitor(_, _ pid.PID) error            { return nil }
 func (m *mockTopology) Demonitor(_, _ pid.PID) error          { return nil }

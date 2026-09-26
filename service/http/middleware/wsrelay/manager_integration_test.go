@@ -378,6 +378,12 @@ func (t *wsRecordingTopology) Remove(_ pid.PID) {
 	t.mu.Unlock()
 }
 
+func (t *wsRecordingTopology) HandleNodeExit(pid.NodeID, error) {
+	t.mu.Lock()
+	t.operations++
+	t.mu.Unlock()
+}
+
 func (t *wsRecordingTopology) Monitor(_, _ pid.PID) error {
 	t.mu.Lock()
 	t.operations++

@@ -19,7 +19,7 @@ func TestProcessSendReportsRemoteAdmissionFailure(t *testing.T) {
 	cfg := internode.DefaultManagerConfig()
 	cfg.Logger = zap.NewNop()
 	manager := internode.NewConnectionManager(cfg, nil)
-	transport := internode.NewService(zap.NewNop(), manager, internode.NewMessageCodec(payload.NewTranscoder()), nil, nil, nil)
+	transport := internode.NewService(zap.NewNop(), manager, internode.NewMessageCodec(payload.NewTranscoder()), nil, nil, nil, nil)
 	router := relay.NewRouter(relay.NewNode("local"), transport)
 	d := NewDispatcher(nil, router, nil, nil)
 	cmd := &api.SendCmd{From: pid.PID{Node: "local", Host: "process", UniqID: "sender"},

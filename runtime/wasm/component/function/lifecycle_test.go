@@ -118,7 +118,8 @@ func (t *lifecycleTestTopology) Complete(p pid.PID, result *runtimeapi.Result) {
 	t.lastPID = p
 	t.lastResult = result
 }
-func (t *lifecycleTestTopology) Remove(pid.PID) {}
+func (t *lifecycleTestTopology) Remove(pid.PID)                   {}
+func (t *lifecycleTestTopology) HandleNodeExit(pid.NodeID, error) {}
 
 type lifecycleTestPIDRegistry struct {
 	removed []pid.PID

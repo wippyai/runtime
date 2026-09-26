@@ -182,8 +182,8 @@ func Cluster() boot.Component {
 				return ctx, fmt.Errorf("cluster.name %q must match relay.node_name %q", nodeName, node.ID())
 			}
 
-			nodeExits, ok := topapi.GetTopology(ctx).(topapi.NodeExitHandler)
-			if !ok {
+			topo := topapi.GetTopology(ctx)
+			if topo == nil {
 				return ctx, ErrTopologyNotAvailable
 			}
 
@@ -355,7 +355,7 @@ func Cluster() boot.Component {
 			// An ended session breaks local links and monitors of the node's
 			// processes before any frame of a later session is delivered.
 			sessionEnded := func(id clusterapi.NodeID) {
-				nodeExits.HandleNodeExit(id, errNodeDisconnected)
+				topo.HandleNodeExit(id, errNodeDisconnected)
 			}
 			internodeSvc = internode.NewService(
 				logger.Named("internode"),

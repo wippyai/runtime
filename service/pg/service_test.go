@@ -75,6 +75,7 @@ func newMockTopology() *mockTopology {
 func (m *mockTopology) Register(pid.PID) error            { return nil }
 func (m *mockTopology) Complete(pid.PID, *runtime.Result) {}
 func (m *mockTopology) Remove(pid.PID)                    {}
+func (m *mockTopology) HandleNodeExit(pid.NodeID, error)  {}
 func (m *mockTopology) Link(_, _ pid.PID) error           { return nil }
 func (m *mockTopology) Unlink(_, _ pid.PID) error         { return nil }
 func (m *mockTopology) GetLinks(pid.PID) []pid.PID        { return nil }

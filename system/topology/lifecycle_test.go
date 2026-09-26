@@ -97,6 +97,7 @@ func (m *mockTopology) Remove(p pid.PID) {
 	m.removed = append(m.removed, p.String())
 	delete(m.registered, p.String())
 }
+func (m *mockTopology) HandleNodeExit(pid.NodeID, error) {}
 
 type mockPIDRegistry struct {
 	removed []string

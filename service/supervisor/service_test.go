@@ -72,6 +72,7 @@ func (m *mockTopology) Register(p pid.PID) error {
 func (m *mockTopology) Remove(p pid.PID) {
 	m.removed = append(m.removed, p)
 }
+func (m *mockTopology) HandleNodeExit(pid.NodeID, error) {}
 
 func (m *mockTopology) Monitor(_, _ pid.PID) error        { return nil }
 func (m *mockTopology) Demonitor(_, _ pid.PID) error      { return nil }
