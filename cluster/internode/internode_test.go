@@ -650,3 +650,51 @@ func TestClassForTopic(t *testing.T) {
 		}
 	}
 }
+
+// A departure names the incarnation that left, so the transport keeps a
+// session its restarted successor already bound.
+func TestService_NodeLeftNamesDepartingIncarnation(t *testing.T) {
+	service, connMan, _, bus, ctx, cancel := setupService(t)
+	defer cancel()
+	require.NoError(t, service.Start(ctx))
+	defer func() { _ = service.Stop() }()
+
+	leave := func(meta cluster.NodeMeta) {
+		bus.Send(ctx, event.Event{System: cluster.System, Kind: cluster.NodeLeft, Path: "peer",
+			Data: cluster.NodeEvent{Node: cluster.NodeInfo{ID: "peer", Meta: meta}}})
+	}
+	leave(cluster.NodeMeta{cluster.MetaIncarnation: "42"})
+	leave(cluster.NodeMeta{})
+	require.Eventually(t, func() bool {
+		connMan.mu.Lock()
+		defer connMan.mu.Unlock()
+		return len(connMan.removed) == 2
+	}, 2*time.Second, time.Millisecond)
+	connMan.mu.Lock()
+	defer connMan.mu.Unlock()
+	require.Equal(t, []removeCall{{nodeID: "peer", incarnation: 42}, {nodeID: "peer", incarnation: 0}}, connMan.removed)
+}
+
+// An ended session is announced on the bus for topology.
+func TestService_PublishesSessionEnded(t *testing.T) {
+	service, connMan, _, bus, ctx, cancel := setupService(t)
+	defer cancel()
+	ended := make(chan event.Event, 1)
+	sub, err := eventbus.NewSubscriber(ctx, bus, cluster.System, cluster.NodeSessionEnded, func(e event.Event) { ended <- e })
+	require.NoError(t, err)
+	defer sub.Close()
+	require.NoError(t, service.Start(ctx))
+	defer func() { _ = service.Stop() }()
+
+	connMan.mu.Lock()
+	onSessionEnd := connMan.onSessionEnd
+	connMan.mu.Unlock()
+	onSessionEnd("peer")
+	select {
+	case e := <-ended:
+		require.Equal(t, "peer", e.Path)
+		require.Equal(t, "peer", e.Data.(cluster.NodeEvent).Node.ID)
+	case <-time.After(2 * time.Second):
+		t.Fatal("session end not published")
+	}
+}
