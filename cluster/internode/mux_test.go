@@ -172,6 +172,7 @@ func TestMux_RegisterClassReceiverRoutesPerClass(t *testing.T) {
 	cfg.Logger = zap.NewNop()
 	cfg.LocalNodeID = "node-A"
 	cfg.AutoPort = true
+	cfg.BindPort = 0
 	cfg.BindAddr = "127.0.0.1"
 
 	mgrA := NewConnectionManager(cfg, nil)
@@ -200,6 +201,7 @@ func TestMux_RegisterClassReceiverRoutesPerClass(t *testing.T) {
 	cfgB.LocalNodeID = "node-B"
 	cfgB.BindAddr = "127.0.0.1"
 	cfgB.AutoPort = true
+	cfgB.BindPort = 0
 
 	mgrB := NewConnectionManager(cfgB, nil)
 	defer func() { _ = mgrB.Stop() }()

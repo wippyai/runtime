@@ -195,12 +195,12 @@ type sessionEnd struct {
 // queued sequenced frames are discarded; allQueues also discards queued
 // gossip. With replace, a fresh session bound to peerIncarnation follows it;
 // a removed state keeps its ended session. The caller holds state.queueMu and
-// passes the result to finishSessionEnd after unlocking.
+// passes the result to finishSessionEnd after unlocking. The session is live:
+// an attached state always holds a live session, since every end of one
+// replaces it, and a removed state is ended once, by the removal that
+// detached it.
 func (nsm *NodeStateManager) endSessionLocked(nodeID cluster.NodeID, state *NodeState, reason string, peerIncarnation uint64, allQueues, replace bool) sessionEnd {
 	old := state.session
-	if old.ended.Load() {
-		return sessionEnd{ended: old, reason: reason}
-	}
 	old.ended.Store(true)
 	end := sessionEnd{ended: old, reason: reason, settleNow: !old.reading}
 	old.settling = !old.reading
@@ -243,9 +243,15 @@ func (nsm *NodeStateManager) finishSessionEnd(nodeID cluster.NodeID, end session
 // releases what follows it. Ends of one node are signaled in the order their
 // sessions were created, and the hook returns before any frame of a later
 // session is delivered. When the predecessor is still pending, a goroutine
-// waits for it; manager shutdown abandons the wait.
+// waits for it; manager shutdown abandons the wait, and no end is signaled
+// after shutdown.
 func (nsm *NodeStateManager) settle(nodeID cluster.NodeID, s *session) {
 	signal := func() {
+		nsm.settleMu.RLock()
+		defer nsm.settleMu.RUnlock()
+		if nsm.stopped {
+			return
+		}
 		if nsm.sessionEnded != nil {
 			nsm.sessionEnded(nodeID)
 		}
@@ -266,7 +272,15 @@ func (nsm *NodeStateManager) settle(nodeID cluster.NodeID, s *session) {
 		return
 	default:
 	}
+	nsm.settleMu.RLock()
+	if nsm.stopped {
+		nsm.settleMu.RUnlock()
+		return
+	}
+	nsm.settles.Add(1)
+	nsm.settleMu.RUnlock()
 	go func() {
+		defer nsm.settles.Done()
 		select {
 		case <-s.predecessor:
 			signal()

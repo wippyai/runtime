@@ -173,8 +173,11 @@ type nodeControlLoop struct {
 	logger    *zap.Logger
 	cancel    context.CancelFunc
 	nodeState *NodeState
-	nodeID    cluster.NodeID
-	addr      string
+	// retry is the pending redial timer; its callback is tracked by the
+	// manager's wait group.
+	retry  *time.Timer
+	nodeID cluster.NodeID
+	addr   string
 	// sendMu fences command delivery against the loop's exit: senders hold
 	// it shared, the exiting loop exclusively while it marks itself exited
 	// and closes connections still queued.
@@ -190,6 +193,13 @@ type ConnectionManager interface {
 	// the default classes. onSessionEnd reports that the session with a node
 	// ended — the node was removed, restarted, or ended its own session for
 	// this node — after the last frame of that session was delivered.
+	//
+	// onMessage and class receivers run on the session's reader and must
+	// return: delivery is ordered, so a handler that blocks holds back every
+	// later frame of the node, and a session that ends while its handler is
+	// blocked is signaled only when the handler returns. Until then no later
+	// session of that node delivers anything, although the link reports
+	// connected.
 	Start(ctx context.Context, onMessage func(nodeID cluster.NodeID, data []byte), onSessionEnd func(nodeID cluster.NodeID)) error
 	Stop() error
 	// Incarnation identifies this process to peers; a peer that observes a
@@ -351,6 +361,8 @@ func (m *manager) Stop() error {
 	m.controlLoopsMu.Unlock()
 
 	m.wg.Wait()
+	// Readers and retries have ended; ends still waiting for an earlier
+	// session are abandoned, and Stop returns after any running end signal.
 	m.nodeStates.stopSettling()
 	m.logger.Info("Connection manager stopped")
 	return nil
@@ -710,7 +722,12 @@ func (loop *nodeControlLoop) run() {
 	loop.logger.Debug("Control loop started")
 	defer loop.logger.Debug("Control loop stopped")
 
-	defer loop.exit()
+	// Every exit cancels the loop first, so a sender blocked on the full
+	// command queue is released before exit fences further delivery.
+	defer func() {
+		loop.cancel()
+		loop.exit()
+	}()
 	for {
 		select {
 		case <-loop.ctx.Done():
@@ -780,6 +797,20 @@ func (loop *nodeControlLoop) handleConnected(data connectedData) {
 		zap.Bool("dialed", candidate.dialed))
 	if loop.state == StateDead {
 		candidate.Close()
+		return
+	}
+	// Membership is consulted when the connection is bound, not when it was
+	// handshaken: a connection that waited to reach the loop may belong to a
+	// process membership has since replaced.
+	if !loop.manager.config.AuthorizeIncarnation(loop.nodeID, candidate.peerIncarnation) {
+		loop.logger.Debug("Refusing a process membership does not advertise")
+		candidate.Close()
+		if candidate.dialed && loop.connection == nil {
+			loop.handleDisconnected(disconnectedData{
+				Error:       newIncarnationNotAdvertisedError(loop.nodeID, candidate.peerIncarnation),
+				ShouldRetry: true,
+			})
+		}
 		return
 	}
 	switch loop.manager.nodeStates.bindPeerIncarnation(loop.nodeID, loop.nodeState, candidate.peerIncarnation) {
@@ -886,7 +917,9 @@ func (loop *nodeControlLoop) handleDisconnected(data disconnectedData) {
 	if data.ShouldRetry && hasAddr {
 		loop.state = StateRetrying
 		loop.retryDelay = min(loop.retryDelay*2, loop.manager.config.MaxRetryDelay)
-		time.AfterFunc(loop.retryDelay, func() {
+		loop.manager.wg.Add(1)
+		loop.retry = time.AfterFunc(loop.retryDelay, func() {
+			defer loop.manager.wg.Done()
 			current, currentPort, ok := loop.manager.nodeStates.getNodeAddressForState(loop.nodeID, loop.nodeState)
 			if !ok {
 				current, currentPort = addr, port
@@ -903,6 +936,9 @@ func (loop *nodeControlLoop) handleKill() {
 }
 
 func (loop *nodeControlLoop) cleanup() {
+	if loop.retry != nil && loop.retry.Stop() {
+		loop.manager.wg.Done()
+	}
 	if loop.successor != nil {
 		loop.successor.Close()
 		loop.successor = nil
@@ -945,11 +981,7 @@ func (loop *nodeControlLoop) attemptConnection(addr string, port int) {
 		loop.sendDisconnected(nil, err, true)
 		return
 	}
-	if !loop.manager.config.AuthorizeIncarnation(loop.nodeID, nodeConn.peerIncarnation) {
-		nodeConn.Close()
-		loop.sendDisconnected(nil, newIncarnationNotAdvertisedError(loop.nodeID, nodeConn.peerIncarnation), true)
-		return
-	}
+
 	loop.sendCommandToSelf(nodeCommand{Type: cmdConnected, Data: connectedData{Connection: nodeConn}})
 }
 
@@ -1060,12 +1092,6 @@ func (m *manager) handleInboundConnection(conn net.Conn) {
 	}
 	remoteNodeID := nodeConn.RemoteNodeID()
 	m.logger.Debug("Inbound handshake succeeded", zap.String("remote_node", remoteNodeID))
-	if !m.config.AuthorizeIncarnation(remoteNodeID, nodeConn.peerIncarnation) {
-		m.logger.Debug("Rejecting inbound connection from an incarnation membership does not advertise",
-			zap.String("node", remoteNodeID))
-		nodeConn.Close()
-		return
-	}
 
 	if m.nodeStates.GetNodeState(remoteNodeID) == nil {
 		if m.config.AuthorizePeer == nil || !m.config.AuthorizePeer(remoteNodeID, conn.RemoteAddr()) {

@@ -141,6 +141,7 @@ func TestManager_AuthenticatedCommunication(t *testing.T) {
 	config1 := DefaultManagerConfig()
 	config1.LocalNodeID = "node-1"
 	config1.BindAddr = "127.0.0.1"
+	config1.BindPort = 0
 	config1.Logger = zap.NewNop()
 	config1.AuthenticationKey = sharedKey
 	config1.SigningKey = privateKey1
@@ -153,6 +154,7 @@ func TestManager_AuthenticatedCommunication(t *testing.T) {
 	config2 := DefaultManagerConfig()
 	config2.LocalNodeID = "node-2"
 	config2.BindAddr = "127.0.0.1"
+	config2.BindPort = 0
 	config2.Logger = zap.NewNop()
 	config2.AuthenticationKey = sharedKey
 	config2.SigningKey = privateKey2

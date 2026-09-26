@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -223,4 +224,67 @@ func TestReliableLinkSimultaneousDialUnderTraffic(t *testing.T) {
 // startManager isolates the Start signature for the traffic tests.
 func startManager(m *manager, onMessage func(cluster.NodeID, []byte)) error {
 	return m.Start(context.Background(), onMessage, ignoreSessionEnd)
+}
+
+// Frames of increasing size sent right after a one-way dial connects arrive
+// exactly once and in order, and nothing ends the session, including when
+// session agreement is bounded far below the time the frames take.
+func TestIncreasingFramesAfterConnectEndNoSession(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		sizes   []int
+		timeout time.Duration
+	}{
+		{"default agreement bound", []int{1 << 10, 64 << 10, 256 << 10, 1 << 20}, 5 * time.Second},
+		{"agreement bound below transfer time", []int{1 << 10, 8 << 20, 8 << 20, 8 << 20}, 20 * time.Millisecond},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var ends atomic.Int32
+			var mu sync.Mutex
+			var got [][]byte
+			start := func(self cluster.NodeID, onMessage func(cluster.NodeID, []byte)) *manager {
+				cfg := insecureManagerConfig()
+				cfg.LocalNodeID = self
+				cfg.BindAddr = "127.0.0.1"
+				cfg.BindPort = 0
+				cfg.Logger = zap.NewNop()
+				cfg.MaxMessageSize = 32 << 20
+				cfg.HandshakeTimeout = tc.timeout
+				m := NewConnectionManager(cfg, nil).(*manager)
+				require.NoError(t, m.Start(context.Background(), onMessage, func(cluster.NodeID) { ends.Add(1) }))
+				t.Cleanup(func() { require.NoError(t, m.Stop()) })
+				return m
+			}
+			sender := start("node-1", func(cluster.NodeID, []byte) {})
+			receiver := start("node-2", func(_ cluster.NodeID, data []byte) {
+				mu.Lock()
+				got = append(got, data)
+				mu.Unlock()
+			})
+			sender.AddManagedNode("node-2")
+			receiver.AddManagedNode("node-1")
+			sender.EnsureConnection("node-2", "127.0.0.1", receiver.GetListenPort())
+			require.Eventually(t, func() bool { return len(sender.ConnectedNodes()) > 0 }, 5*time.Second, time.Millisecond)
+
+			for i, size := range tc.sizes {
+				msg := make([]byte, size)
+				msg[0] = byte(i)
+				require.NoError(t, sender.SendToNode("node-2", msg, ClassRaftControl))
+			}
+			require.Eventually(t, func() bool {
+				mu.Lock()
+				defer mu.Unlock()
+				return len(got) >= len(tc.sizes)
+			}, 20*time.Second, time.Millisecond)
+			time.Sleep(50 * time.Millisecond)
+			mu.Lock()
+			defer mu.Unlock()
+			require.Len(t, got, len(tc.sizes))
+			for i, data := range got {
+				require.Len(t, data, tc.sizes[i])
+				require.Equal(t, byte(i), data[0])
+			}
+			require.Zero(t, ends.Load(), "a session ended in a plain two-node send")
+		})
+	}
 }

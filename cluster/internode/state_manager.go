@@ -145,8 +145,13 @@ type NodeStateManager struct {
 	stop       chan struct{}
 	nodeStates sync.Map // cluster.NodeID -> *NodeState
 	config     ManagerConfig
-	chainMu    sync.Mutex
-	stopOnce   sync.Once
+	// settles tracks end signals waiting for a predecessor; settleMu fences
+	// every end signal against shutdown.
+	settles  sync.WaitGroup
+	settleMu sync.RWMutex
+	stopOnce sync.Once
+	chainMu  sync.Mutex
+	stopped  bool
 }
 
 func NewNodeStateManager(config ManagerConfig, tel *telemetry, logger *zap.Logger) *NodeStateManager {
@@ -159,9 +164,16 @@ func NewNodeStateManager(config ManagerConfig, tel *telemetry, logger *zap.Logge
 	}
 }
 
-// stopSettling abandons end signals still waiting for a predecessor.
+// stopSettling abandons end signals still waiting for a predecessor and
+// returns once no end signal runs; none runs afterwards.
 func (nsm *NodeStateManager) stopSettling() {
-	nsm.stopOnce.Do(func() { close(nsm.stop) })
+	nsm.stopOnce.Do(func() {
+		nsm.settleMu.Lock()
+		nsm.stopped = true
+		close(nsm.stop)
+		nsm.settleMu.Unlock()
+	})
+	nsm.settles.Wait()
 }
 
 // CreateNodeState ensures in-memory state exists for a node. State that

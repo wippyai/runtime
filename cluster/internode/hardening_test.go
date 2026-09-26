@@ -370,3 +370,114 @@ func authorizeAdvertisedIncarnation(cfg *ManagerConfig, advertised map[cluster.N
 		return MemberIncarnationAdvertised(membership, id, incarnation)
 	}
 }
+
+// A connection authorized when membership advertised the node's previous
+// process, but handed to the loop only after the current process was bound,
+// does not displace it: authorization is checked again at binding.
+func TestIncarnationAuthorizedBeforeRestartIsRecheckedAtBinding(t *testing.T) {
+	const peer, oldInc, newInc = "z-peer", uint64(11), uint64(22)
+	cfg := insecureManagerConfig()
+	cfg.LocalNodeID = "a-local"
+	cfg.BindAddr = "127.0.0.1"
+	cfg.BindPort = 0
+	cfg.Logger = zap.NewNop()
+	authorizeAdvertisedIncarnation(&cfg, map[cluster.NodeID]uint64{peer: newInc})
+	m := NewConnectionManager(cfg, nil).(*manager)
+	rec := &endRecorder{}
+	require.NoError(t, m.Start(context.Background(), func(cluster.NodeID, []byte) {}, rec.record))
+	defer func() { require.NoError(t, m.Stop()) }()
+	m.AddManagedNode(peer)
+
+	acceptFromIncarnation(t, m, peer, newInc)
+	require.Eventually(t, func() bool {
+		_, state := m.nodeStates.GetNodeConnection(peer)
+		return state == StateConnected
+	}, 2*time.Second, time.Millisecond)
+	current, _ := m.nodeStates.GetNodeConnection(peer)
+
+	// The stalled connection of the previous process reaches the loop now.
+	local, remote := net.Pipe()
+	defer remote.Close()
+	stalled := newNodeConnection(local, peer, oldInc, cfg.NodeConnectionConfig(), zap.NewNop())
+	m.sendCommand(peer, nodeCommand{Type: cmdConnected, Data: connectedData{Connection: stalled}})
+	require.Eventually(t, stalled.closed.Load, 2*time.Second, time.Millisecond)
+
+	state := m.nodeStates.GetNodeState(peer)
+	state.queueMu.Lock()
+	bound := state.session.peerIncarnation
+	state.queueMu.Unlock()
+	require.Equal(t, newInc, bound)
+	conn, connState := m.nodeStates.GetNodeConnection(peer)
+	require.Same(t, current, conn)
+	require.Equal(t, StateConnected, connState)
+	require.Zero(t, rec.count())
+}
+
+// A loop ending on a kill with senders blocked on its full command queue
+// neither deadlocks nor leaks what they carry.
+func TestKilledLoopReleasesBlockedSenders(t *testing.T) {
+	cfg := insecureManagerConfig()
+	cfg.Logger = zap.NewNop()
+	m := NewConnectionManager(cfg, nil).(*manager)
+	m.nodeStates.sessionEnded = ignoreSessionEnd
+	m.AddManagedNode("peer")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	loop := &nodeControlLoop{
+		ctx: ctx, cancel: cancel, manager: m, nodeID: "peer",
+		nodeState: m.nodeStates.GetNodeState("peer"),
+		commands:  make(chan nodeCommand, 1),
+		logger:    zap.NewNop(),
+	}
+	loop.commands <- nodeCommand{Type: cmdKill}
+	carried := make([]*NodeConnection, 2)
+	var senders sync.WaitGroup
+	for i := range carried {
+		local, remote := net.Pipe()
+		t.Cleanup(func() { _ = local.Close(); _ = remote.Close() })
+		carried[i] = newNodeConnection(local, "peer", testIncarnation, cfg.NodeConnectionConfig(), zap.NewNop())
+		senders.Add(1)
+		go func() {
+			defer senders.Done()
+			loop.deliver(nodeCommand{Type: cmdConnected, Data: connectedData{Connection: carried[i]}})
+		}()
+	}
+	// Both senders are blocked on the full queue.
+	time.Sleep(20 * time.Millisecond)
+
+	ran := make(chan struct{})
+	go func() { loop.run(); close(ran) }()
+	select {
+	case <-ran:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the killed loop deadlocked with its blocked senders")
+	}
+	senders.Wait()
+	for _, c := range carried {
+		require.True(t, c.closed.Load(), "a connection handed to the killed loop leaked")
+	}
+}
+
+// No session-end hook runs after Stop returns, including ends that were
+// still waiting for an earlier session of the node.
+func TestNoSessionEndAfterStop(t *testing.T) {
+	cfg := insecureManagerConfig()
+	cfg.BindAddr = "127.0.0.1"
+	cfg.BindPort = 0
+	cfg.Logger = zap.NewNop()
+	m := NewConnectionManager(cfg, nil).(*manager)
+	rec := &endRecorder{}
+	require.NoError(t, m.Start(context.Background(), func(cluster.NodeID, []byte) {}, rec.record))
+
+	m.AddManagedNode("peer")
+	first := m.nodeStates.GetNodeState("peer")
+	stuck := liveReader(m.nodeStates, "peer", first)
+	m.RemoveManagedNode("peer", 0)
+	m.RemoveManagedNode("peer", 0) // waits for the stuck session
+	require.Zero(t, rec.count())
+
+	require.NoError(t, m.Stop())
+	stuck.link.endRead()
+	time.Sleep(20 * time.Millisecond)
+	require.Zero(t, rec.count(), "a session end was signaled after Stop returned")
+}
