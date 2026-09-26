@@ -5,20 +5,34 @@ package confinement
 import (
 	"errors"
 	"reflect"
+	"runtime"
+	"strings"
 	"testing"
 )
 
-func paths(values ...string) *[]string { return &values }
+func nativePath(value string) string {
+	if runtime.GOOS != "windows" || !strings.HasPrefix(value, "/") {
+		return value
+	}
+	return `C:` + strings.ReplaceAll(value, "/", `\`)
+}
+
+func paths(values ...string) *[]string {
+	for i, value := range values {
+		values[i] = nativePath(value)
+	}
+	return &values
+}
 
 func number(value int64) *int64 { return &value }
 
 func basePolicy() Policy {
 	return Policy{
-		WorkDirRoots: []string{"/srv/ws/demo"},
+		WorkDirRoots: []string{nativePath("/srv/ws/demo")},
 		FS: &Filesystem{
-			Read:  Access{Paths: []string{"/srv/ws/demo", "/usr"}},
-			Write: Access{Paths: []string{"/srv/ws/demo"}},
-			Exec:  Access{Paths: []string{"/usr/bin"}},
+			Read:  Access{Paths: *paths("/srv/ws/demo", "/usr")},
+			Write: Access{Paths: *paths("/srv/ws/demo")},
+			Exec:  Access{Paths: *paths("/usr/bin")},
 		},
 		Env: &Environment{
 			Allow: []string{"LANG", "TERM"},
@@ -37,7 +51,7 @@ func TestValidateEntry(t *testing.T) {
 	for _, change := range []func(*Policy){
 		func(p *Policy) { p.WorkDirRoots = nil },
 		func(p *Policy) {
-			p.WorkDirRoots = []string{"/"}
+			p.WorkDirRoots = []string{nativePath("/")}
 			p.FS = nil
 			p.Env = nil
 			p.HomePrivate = false
@@ -45,7 +59,7 @@ func TestValidateEntry(t *testing.T) {
 			p.Limits = Limits{}
 			p.KillOnOwnerExit = false
 		},
-		func(p *Policy) { p.WorkDirRoots = []string{"/srv/ws/../other"} },
+		func(p *Policy) { p.WorkDirRoots = []string{nativePath("/srv/ws/../other")} },
 		func(p *Policy) { p.FS.Exec = Access{Paths: []string{"relative"}} },
 		func(p *Policy) { p.FS.Exec.Unrestricted = true },
 		func(p *Policy) { p.Limits.PIDs = -1 },
@@ -60,7 +74,7 @@ func TestValidateEntry(t *testing.T) {
 
 func TestWriteGrantImpliesRead(t *testing.T) {
 	base := basePolicy()
-	base.FS.Write.Paths = []string{"/srv/ws/demo", "/tmp/private"}
+	base.FS.Write.Paths = *paths("/srv/ws/demo", "/tmp/private")
 	if err := ValidateEntry(base); err != nil {
 		t.Fatalf("rejected a write grant that implicitly permits reading: %v", err)
 	}
@@ -95,19 +109,19 @@ func TestNarrowIdentityAndNoMutation(t *testing.T) {
 func TestBoundWorkDirMustStayInEntryRootAndReadGrant(t *testing.T) {
 	policy := basePolicy()
 	for _, path := range []string{
-		"/", "/srv/ws/other", "/srv/ws/demo-other", "/srv/ws/demo/../other",
+		nativePath("/"), nativePath("/srv/ws/other"), nativePath("/srv/ws/demo-other"), nativePath("/srv/ws/demo/../other"),
 		"relative",
 	} {
 		if policy.AllowsBoundWorkDir(path) {
 			t.Fatalf("accepted working directory %q", path)
 		}
 	}
-	if !policy.AllowsBoundWorkDir("/srv/ws/demo/pkg") {
+	if !policy.AllowsBoundWorkDir(nativePath("/srv/ws/demo/pkg")) {
 		t.Fatal("rejected a directory inside the approved root and read grant")
 	}
-	policy.FS.Read.Paths = []string{"/usr"}
+	policy.FS.Read.Paths = *paths("/usr")
 	policy.FS.Write.Paths = nil
-	if policy.AllowsBoundWorkDir("/srv/ws/demo/pkg") {
+	if policy.AllowsBoundWorkDir(nativePath("/srv/ws/demo/pkg")) {
 		t.Fatal("accepted a working directory excluded by fs.read")
 	}
 }
@@ -121,7 +135,7 @@ func TestNarrowFilesystem(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(got.FS.Write.Paths, []string{"/srv/ws/demo/pkg"}) {
+	if !reflect.DeepEqual(got.FS.Write.Paths, *paths("/srv/ws/demo/pkg")) {
 		t.Fatalf("wrong write grants: %#v", got.FS.Write.Paths)
 	}
 	for _, patch := range []Patch{
