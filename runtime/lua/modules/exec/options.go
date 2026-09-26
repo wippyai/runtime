@@ -115,10 +115,16 @@ func parseProcessOptions(value lua.LValue) (apiexec.ProcessOptions, error) {
 			return apiexec.ProcessOptions{}, err
 		}
 	}
-	if table.RawGetString("confine") != lua.LNil {
-		// Never ignore a caller's requested restriction. The option is only
-		// decoded once the native enforcement path is installed.
-		return apiexec.ProcessOptions{}, apiexec.ErrConfineUnsupported
+	if value := table.RawGetString("confine"); value != lua.LNil {
+		confine, ok := value.(*lua.LTable)
+		if !ok {
+			return apiexec.ProcessOptions{}, fmt.Errorf("confine must be a table")
+		}
+		var err error
+		options.Confine, err = parseConfinementPatch(confine)
+		if err != nil {
+			return apiexec.ProcessOptions{}, err
+		}
 	}
 	return options, nil
 }

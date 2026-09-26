@@ -200,14 +200,14 @@ func TestParseProcessOptionsProcessGroup(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, options.ProcessGroup)
 	assert.True(t, *options.ProcessGroup)
-	assert.Equal(t, true, processSecurityMeta(options)["process_group"])
+	assert.Equal(t, true, processSecurityMeta(options, "app:runner")["process_group"])
 
 	table.RawSetString("process_group", lua.LFalse)
 	options, err = parseProcessOptions(table)
 	require.NoError(t, err)
 	require.NotNil(t, options.ProcessGroup)
 	assert.False(t, *options.ProcessGroup)
-	assert.Equal(t, false, processSecurityMeta(options)["process_group"])
+	assert.Equal(t, false, processSecurityMeta(options, "app:runner")["process_group"])
 
 	table.RawSetString("process_group", lua.LString("yes"))
 	_, err = parseProcessOptions(table)
@@ -218,5 +218,5 @@ func TestParseProcessOptionsProcessGroup(t *testing.T) {
 	empty, err := parseProcessOptions(l.NewTable())
 	require.NoError(t, err)
 	assert.Nil(t, empty.ProcessGroup)
-	assert.Nil(t, processSecurityMeta(empty)["process_group"])
+	assert.Nil(t, processSecurityMeta(empty, "app:runner")["process_group"])
 }

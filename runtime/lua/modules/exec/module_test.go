@@ -780,7 +780,8 @@ func TestProcessSecurityMetaExposesShapeWithoutEnvironmentValues(t *testing.T) {
 		WorkDir: "/workspace",
 		Env:     map[string]string{"TOKEN": "secret", "LANG": "C"},
 		PTY:     &execapi.PTYOptions{Width: 100, Height: 30, Term: "xterm-256color"},
-	})
+	}, "app:runner")
+	require.Equal(t, "app:runner", meta["executor"])
 	require.Equal(t, "/workspace", meta["work_dir"])
 	require.Equal(t, []string{"LANG", "TOKEN"}, meta["env_names"])
 	require.NotContains(t, meta, "TOKEN")
