@@ -402,3 +402,13 @@ func TestEngineSettings_UnresolvableIdentityFallback(t *testing.T) {
 	assert.Contains(t, warnings[0].Message, "toolchain identity unavailable")
 	assert.NotEmpty(t, warnings[0].ContextMap()["error"])
 }
+
+func TestL10EngineTypeSystemStrictAny(t *testing.T) {
+	if resolveEngineSettings(boot.NewConfig(), zap.NewNop()).TypeCheck.Check.StrictAny {
+		t.Fatal("any is gradual by default")
+	}
+	cfg := boot.NewConfig(boot.WithSection("lua", map[string]any{"type_system.strict_any": true}))
+	if !resolveEngineSettings(cfg, zap.NewNop()).TypeCheck.Check.StrictAny {
+		t.Fatal("lua.type_system.strict_any selects strict any")
+	}
+}

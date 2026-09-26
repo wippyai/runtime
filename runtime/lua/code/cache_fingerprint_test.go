@@ -5,6 +5,8 @@ package code
 import (
 	"testing"
 
+	"github.com/wippyai/go-lua/compiler/check"
+
 	"github.com/stretchr/testify/assert"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/code/cache"
@@ -132,4 +134,12 @@ func TestFingerprints_ToolchainIdentity(t *testing.T) {
 
 	runtimeB := RuntimeFingerprint(idB, "app.main", "function.lua", "hash1", "handler", 1, nil)
 	assert.NotEqual(t, runtimeA1, runtimeB)
+}
+
+func TestTypecheckConfigHash_CheckOptions(t *testing.T) {
+	gradual := TypeCheckConfig{Enabled: true}
+	strict := TypeCheckConfig{Enabled: true, Check: check.Options{StrictAny: true}}
+
+	assert.NotEqual(t, TypecheckConfigHash(gradual), TypecheckConfigHash(strict),
+		"results checked under different semantics must not share cache entries")
 }

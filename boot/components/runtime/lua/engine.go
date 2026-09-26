@@ -6,6 +6,8 @@ import (
 	"context"
 	"path/filepath"
 
+	"github.com/wippyai/go-lua/compiler/check"
+
 	glua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/boot"
 	dispatcherapi "github.com/wippyai/runtime/api/dispatcher"
@@ -114,6 +116,14 @@ func Engine() boot.Component {
 	})
 }
 
+// typeSystemOptions reads the type-checking semantics from the lua.type_system
+// section. Lint, compile-time checks and the LSP all check with these options.
+func typeSystemOptions(cfg boot.Config) check.Options {
+	return check.Options{
+		StrictAny: cfg.GetBool("strict_any", false),
+	}
+}
+
 func resolveEngineSettings(cfg boot.Config, logger *zap.Logger) code.Config {
 	defaultDir := filepath.Join(cachedir.Dir(), "lua")
 	settings := code.Config{
@@ -142,6 +152,7 @@ func resolveEngineSettings(cfg boot.Config, logger *zap.Logger) code.Config {
 		typeSystemCfg := luaCfg.Sub("type_system")
 		settings.TypeCheck.Enabled = typeSystemCfg.GetBool("enabled", false)
 		settings.TypeCheck.Strict = typeSystemCfg.GetBool("strict", false)
+		settings.TypeCheck.Check = typeSystemOptions(typeSystemCfg)
 
 		if _, ok := luaCfg.Get("cache.enabled"); ok {
 			settings.Cache.Enabled = luaCfg.GetBool("cache.enabled", settings.Cache.Enabled)

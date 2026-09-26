@@ -196,6 +196,7 @@ lua:
   type_system:
     enabled: true
     strict: false
+    strict_any: false # true: any must be narrowed like unknown (wippy lint --strict-any)
   cache:
     enabled: true
     dir: .wippy/cache/lua
