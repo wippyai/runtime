@@ -11,6 +11,7 @@ import (
 	"os"
 	osexec "os/exec"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -123,7 +124,16 @@ func TestPTYWaitLeavesAcquiredOutputForCallerToDrain(t *testing.T) {
 	require.NoError(t, process.Start())
 	output := process.Stdout()
 	require.NotNil(t, output)
-	require.NoError(t, process.Wait())
+	waited := make(chan error, 1)
+	go func() { waited <- process.Wait() }()
+	select {
+	case waitErr := <-waited:
+		require.NoError(t, waitErr)
+	case <-time.After(5 * time.Second):
+		state, _ := osexec.Command("ps", "-p", strconv.Itoa(process.pid), "-o", "pid,ppid,stat,command").CombinedOutput()
+		process.Stop()
+		t.Fatalf("PTY child did not exit: %s", state)
+	}
 	payload, _ := io.ReadAll(output)
 	require.Contains(t, string(payload), "final-frame")
 	require.NoError(t, output.Close())
