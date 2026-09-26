@@ -138,7 +138,6 @@ type lifecycleConfigJSON struct {
 	RetryPolicy     RetryPolicy      `json:"restart"`
 	AutoStart       bool             `json:"auto_start"`
 	BootGate        bool             `json:"boot_gate,omitempty"`
-	BootReadiness   bool             `json:"boot_readiness,omitempty"`
 }
 
 // UnmarshalJSON implements json.Unmarshaler to handle duration strings
@@ -149,7 +148,7 @@ func (cfg *LifecycleConfig) UnmarshalJSON(data []byte) error {
 	}
 
 	cfg.AutoStart = raw.AutoStart
-	cfg.BootGate = raw.BootGate || raw.BootReadiness
+	cfg.BootGate = raw.BootGate
 	cfg.RetryPolicy = raw.RetryPolicy
 	cfg.Requires = raw.Requires
 	cfg.DependsOn = raw.DependsOn

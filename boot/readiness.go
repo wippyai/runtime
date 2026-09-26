@@ -29,23 +29,19 @@ func (e *GateError) Unwrap() error {
 	return e.Err
 }
 
-// GateState represents the lifecycle state of a boot gate.
-type GateState int
+type gateState int
 
 const (
-	// GateStatePending indicates the gate is registered and waiting for completion.
-	GateStatePending GateState = iota
-	// GateStateReady indicates the service completed successfully and the gate passed.
-	GateStateReady
-	// GateStateFailed indicates the service failed, crashed, or was stopped.
-	GateStateFailed
+	gateStatePending gateState = iota
+	gateStateReady
+	gateStateFailed
 )
 
 // Gate represents a boot readiness gate declared by a service.
 type Gate struct {
 	readiness *Readiness
 	id        string
-	state     GateState
+	state     gateState
 	mu        sync.Mutex
 }
 
@@ -57,10 +53,10 @@ func (g *Gate) Ready() {
 	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	if g.state != GateStatePending {
+	if g.state != gateStatePending {
 		return
 	}
-	g.state = GateStateReady
+	g.state = gateStateReady
 	if g.readiness != nil {
 		g.readiness.Done()
 	}
@@ -74,26 +70,16 @@ func (g *Gate) Fail(err error) {
 	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	if g.state != GateStatePending {
+	if g.state != gateStatePending {
 		return
 	}
-	g.state = GateStateFailed
+	g.state = gateStateFailed
 	if g.readiness != nil {
 		g.readiness.Fail(&GateError{
 			Service: g.id,
 			Err:     err,
 		})
 	}
-}
-
-// State returns the current gate state.
-func (g *Gate) State() GateState {
-	if g == nil {
-		return GateStateReady
-	}
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	return g.state
 }
 
 // Readiness coordinates boot-time readiness across services.
@@ -159,7 +145,7 @@ func (r *Readiness) RegisterGate(id string) *Gate {
 	gate := &Gate{
 		readiness: r,
 		id:        id,
-		state:     GateStatePending,
+		state:     gateStatePending,
 	}
 	if r != nil {
 		r.Add(1)

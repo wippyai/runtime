@@ -46,11 +46,6 @@ func (svc *Service) SetGate(gate *bootpkg.Gate) {
 	svc.gate = gate
 }
 
-// Gate returns the boot readiness gate attached to the service, if any.
-func (svc *Service) Gate() *bootpkg.Gate {
-	return svc.gate
-}
-
 // Start initiates the supervised process and begins monitoring.
 // The flow is TOCTOU-safe:
 // 1. Register supervisor PID in topology

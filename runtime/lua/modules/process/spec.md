@@ -613,7 +613,7 @@ lifecycle:
 
 ### Boot Readiness Gating (`boot_gate`)
 
-When `lifecycle.boot_gate` (or `boot_readiness`) is `true`:
+When `lifecycle.boot_gate` is `true`:
 - The service is counted as a pending boot gate upon registration, before the service starts.
 - Use-case commands (`wippy test`, `wippy run <command>`) wait for boot readiness before executing entrypoints.
 - The gate completes successfully when the process returns ok (`event.Result.Error == nil`).

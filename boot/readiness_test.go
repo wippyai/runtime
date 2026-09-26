@@ -83,7 +83,6 @@ func TestReadiness_GateReady(t *testing.T) {
 	gate := r.RegisterGate("app:bootloader")
 	require.NotNil(t, gate)
 	assert.Equal(t, int64(1), r.Pending())
-	assert.Equal(t, GateStatePending, gate.State())
 
 	doneCh := make(chan error, 1)
 	go func() {
@@ -98,7 +97,6 @@ func TestReadiness_GateReady(t *testing.T) {
 
 	gate.Ready()
 	assert.Equal(t, int64(0), r.Pending())
-	assert.Equal(t, GateStateReady, gate.State())
 
 	select {
 	case err := <-doneCh:
@@ -110,7 +108,6 @@ func TestReadiness_GateReady(t *testing.T) {
 	// Repeated Ready calls must be no-op and not double-decrement
 	gate.Ready()
 	assert.Equal(t, int64(0), r.Pending())
-	assert.Equal(t, GateStateReady, gate.State())
 }
 
 func TestReadiness_GateFail(t *testing.T) {
@@ -127,7 +124,6 @@ func TestReadiness_GateFail(t *testing.T) {
 	underlyingErr := assert.AnError
 	gate.Fail(underlyingErr)
 	assert.Equal(t, int64(0), r.Pending())
-	assert.Equal(t, GateStateFailed, gate.State())
 
 	select {
 	case err := <-doneCh:
@@ -143,7 +139,6 @@ func TestReadiness_GateFail(t *testing.T) {
 	// Repeated Fail calls must be no-op and not double-decrement
 	gate.Fail(underlyingErr)
 	assert.Equal(t, int64(0), r.Pending())
-	assert.Equal(t, GateStateFailed, gate.State())
 }
 
 func TestReadiness_RestartNeverPassesFailedGate(t *testing.T) {
@@ -153,7 +148,6 @@ func TestReadiness_RestartNeverPassesFailedGate(t *testing.T) {
 
 	// Initial run fails
 	gate.Fail(assert.AnError)
-	assert.Equal(t, GateStateFailed, gate.State())
 	assert.Equal(t, int64(0), r.Pending())
 
 	err := r.Wait(context.Background())
@@ -162,7 +156,6 @@ func TestReadiness_RestartNeverPassesFailedGate(t *testing.T) {
 	// Supervisor restarts the service and the retried run succeeds:
 	// Gate state MUST remain Failed; Ready() must be a no-op!
 	gate.Ready()
-	assert.Equal(t, GateStateFailed, gate.State())
 	assert.Equal(t, int64(0), r.Pending())
 
 	// Wait still returns the original failure

@@ -470,7 +470,6 @@ func TestService_BootGate_ReturnOk(t *testing.T) {
 
 	time.Sleep(50 * time.Millisecond)
 
-	assert.Equal(t, bootpkg.GateStateReady, gate.State())
 	assert.Equal(t, int64(0), r.Pending())
 	require.NoError(t, r.Wait(context.Background()))
 }
@@ -499,7 +498,6 @@ func TestService_BootGate_ReturnError(t *testing.T) {
 
 	time.Sleep(50 * time.Millisecond)
 
-	assert.Equal(t, bootpkg.GateStateFailed, gate.State())
 	assert.Equal(t, int64(0), r.Pending())
 
 	err := r.Wait(context.Background())
@@ -529,10 +527,12 @@ func TestService_BootGate_StopFailsGate(t *testing.T) {
 	err := svc.Stop(ctx)
 	require.NoError(t, err)
 
-	assert.Equal(t, bootpkg.GateStateFailed, gate.State())
 	assert.Equal(t, int64(0), r.Pending())
 	waitErr := r.Wait(context.Background())
 	require.Error(t, waitErr)
+	var gateErr *bootpkg.GateError
+	require.True(t, errors.As(waitErr, &gateErr))
+	assert.Equal(t, "test:boot_service", gateErr.Service)
 }
 
 func BenchmarkService_Start(b *testing.B) {

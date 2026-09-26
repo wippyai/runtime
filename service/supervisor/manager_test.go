@@ -4,6 +4,7 @@ package supervisor
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -127,18 +128,19 @@ func TestManager_Add_WithBootGate(t *testing.T) {
 	// Readiness must be pending immediately before the service even starts
 	assert.Equal(t, int64(1), readiness.Pending())
 
-	svcVal, exists := m.services.Load(entry.ID)
+	_, exists := m.services.Load(entry.ID)
 	require.True(t, exists)
-	svc := svcVal.(*Service)
-	require.NotNil(t, svc.Gate())
-	assert.Equal(t, bootpkg.GateStatePending, svc.Gate().State())
 
 	// If entry is deleted before completion, gate should fail
 	err = m.Delete(ctx, entry)
 	require.NoError(t, err)
 
-	assert.Equal(t, bootpkg.GateStateFailed, svc.Gate().State())
 	assert.Equal(t, int64(0), readiness.Pending())
+	waitErr := readiness.Wait(ctx)
+	require.Error(t, waitErr)
+	var gateErr *bootpkg.GateError
+	require.True(t, errors.As(waitErr, &gateErr))
+	assert.Equal(t, entry.ID.String(), gateErr.Service)
 }
 
 func TestManager_Add_InvalidKind(t *testing.T) {
