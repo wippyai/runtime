@@ -325,7 +325,7 @@ func setupInlinePoolTest(t *testing.T, hostID string, script string, needTime bo
 		dispReg.Register(id, h)
 	})
 
-	clockSvc := clock.NewDispatcher()
+	clockSvc := clock.NewDispatcher(zap.NewNop(), nil)
 	t.Cleanup(func() { _ = clockSvc.Stop(ctx) })
 	clockSvc.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
 		dispReg.Register(id, h)
@@ -1808,7 +1808,7 @@ func TestIntegration_RemoteLeaveNoSpuriousEvents(t *testing.T) {
 		dispReg.Register(id, h)
 	})
 
-	clockSvc := clock.NewDispatcher()
+	clockSvc := clock.NewDispatcher(zap.NewNop(), nil)
 	defer func() { _ = clockSvc.Stop(ctx) }()
 	clockSvc.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
 		dispReg.Register(id, h)

@@ -168,16 +168,10 @@ func (r *timerRegistry) fire(shard *timerShard, id uint64, entry *timerEntry) {
 		entry.mu.Lock()
 		entry.routerKey = nil
 		entry.mu.Unlock()
-		defer func() {
-			_ = recover()
-			if cleanup != nil {
-				func() {
-					defer func() { _ = recover() }()
-					cleanup()
-				}()
-			}
-		}()
 		callback(gen)
+		if cleanup != nil {
+			cleanup()
+		}
 	}
 
 	select {

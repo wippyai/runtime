@@ -10,9 +10,11 @@ import (
 
 	clockapi "github.com/wippyai/runtime/api/clock"
 	"github.com/wippyai/runtime/api/dispatcher"
+	"github.com/wippyai/runtime/api/metrics"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/relay"
+	"go.uber.org/zap"
 )
 
 // pendingStopTTL is how long an "early stop" tombstone is held after a
@@ -51,6 +53,7 @@ func makeChIDKey(p pid.PID, epoch, chID uint64) chIDKey {
 // pendingStops; the late start consumes the tombstone and refuses to
 // schedule, completing its yield with ErrStoppedBeforeStart.
 type Dispatcher struct {
+	report         *fireReporter
 	timers         *timerRegistry
 	tickers        *tickerRegistry
 	timerReverse   map[chIDKey]uint64
@@ -66,9 +69,12 @@ func shouldIgnoreDuration(d time.Duration) bool {
 	return d <= 0
 }
 
-// NewDispatcher creates a clock dispatcher.
-func NewDispatcher() *Dispatcher {
+// NewDispatcher creates a clock dispatcher. Fires that do not reach their
+// process are logged to logger and counted on coll.
+func NewDispatcher(logger *zap.Logger, coll metrics.Collector) *Dispatcher {
+	report := &fireReporter{log: logger, coll: coll}
 	return &Dispatcher{
+		report:         report,
 		timers:         newTimerRegistry(),
 		tickers:        newTickerRegistry(),
 		timerReverse:   make(map[chIDKey]uint64),
@@ -160,7 +166,7 @@ func (d *Dispatcher) handleTickerStart(ctx context.Context, cmd dispatcher.Comma
 		d.tickerReverse[*routerKey] = id
 		d.mu.Unlock()
 	}
-	d.tickers.arm(id, c.Duration, node)
+	d.tickers.arm(id, c.Duration)
 
 	receiver.CompleteYield(tag, clockapi.TickerStartResult{
 		ID: id,
@@ -389,55 +395,50 @@ func (d *Dispatcher) tryConsumeTickerTombstone(c clockapi.TickerStartCmd) (*chID
 	return &key, true
 }
 
-// timerFireFn returns the callback the timer registry invokes when the
-// timer expires. When Build is set, the registry supplies the arm
-// generation captured at start/reset and the returned payload is followed
-// by a terminal payload. Otherwise the legacy int64-nanos payload is sent
-// with the same terminal marker.
+// timerFireFn returns the callback the timer registry invokes when the timer
+// fires. Delivery failures and panics are reported, never dropped silently.
 func (d *Dispatcher) timerFireFn(c clockapi.TimerStartCmd, node relay.Node) timerCallback {
-	if c.Build != nil {
-		build := c.Build
-		target := c.PID
-		topic := c.Topic
-		return func(gen uint64) {
-			now := time.Now()
-			p := build(now, gen)
-			if p == nil {
-				pkg := relay.NewPackage(pid.PID{}, target, topic, payload.NewTerminal())
-				_ = node.Send(pkg)
-				return
-			}
-			pkg := relay.NewPackage(pid.PID{}, target, topic, p, payload.NewTerminal())
-			_ = node.Send(pkg)
-		}
-	}
+	build := c.Build
 	target := c.PID
 	topic := c.Topic
-	return func(uint64) {
-		sendTimerFire(node, target, topic, time.Now())
+	return func(gen uint64) {
+		d.report.run(target, func() {
+			now := time.Now()
+			if build == nil {
+				d.report.send(node, relay.NewPackage(pid.PID{}, target, topic, payload.NewPayload(now.UnixNano(), payload.Golang), payload.NewTerminal()))
+				return
+			}
+			if p := build(now, gen); p != nil {
+				d.report.send(node, relay.NewPackage(pid.PID{}, target, topic, p, payload.NewTerminal()))
+				return
+			}
+			d.report.send(node, relay.NewPackage(pid.PID{}, target, topic, payload.NewTerminal()))
+		})
 	}
 }
 
+// tickerFireFn returns the function the ticker registry invokes on each tick.
+// Delivery failures and panics are reported, never dropped silently.
 func (d *Dispatcher) tickerFireFn(c clockapi.TickerStartCmd, node relay.Node) func(at time.Time) {
-	if c.Build != nil {
-		build := c.Build
-		genRef := c.GenRef
-		target := c.PID
-		topic := c.Topic
-		return func(at time.Time) {
+	build := c.Build
+	genRef := c.GenRef
+	target := c.PID
+	topic := c.Topic
+	return func(at time.Time) {
+		d.report.run(target, func() {
+			if build == nil {
+				d.report.send(node, relay.NewPackage(pid.PID{}, target, topic, payload.NewPayload(at.UnixNano(), payload.Golang)))
+				return
+			}
 			var gen uint64
 			if genRef != nil {
 				gen = genRef.Load()
 			}
-			p := build(at, gen)
-			if p == nil {
-				return
+			if p := build(at, gen); p != nil {
+				d.report.send(node, relay.NewPackage(pid.PID{}, target, topic, p))
 			}
-			pkg := relay.NewPackage(pid.PID{}, target, topic, p)
-			_ = node.Send(pkg)
-		}
+		})
 	}
-	return nil // ticker registry falls back to legacy sendTick when fire is nil
 }
 
 // runPendingStopsSweeper periodically expires tombstones that haven't been
@@ -468,18 +469,6 @@ func (d *Dispatcher) runPendingStopsSweeper(ctx context.Context) {
 			d.mu.Unlock()
 		}
 	}
-}
-
-func sendTick(node relay.Node, target pid.PID, topic string, at time.Time) {
-	p := payload.NewPayload(at.UnixNano(), payload.Golang)
-	pkg := relay.NewPackage(pid.PID{}, target, topic, p)
-	_ = node.Send(pkg)
-}
-
-func sendTimerFire(node relay.Node, target pid.PID, topic string, at time.Time) {
-	p := payload.NewPayload(at.UnixNano(), payload.Golang)
-	pkg := relay.NewPackage(pid.PID{}, target, topic, p, payload.NewTerminal())
-	_ = node.Send(pkg)
 }
 
 // TickerCount returns the number of active tickers.
