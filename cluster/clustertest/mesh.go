@@ -25,7 +25,10 @@ type mesh struct {
 	conns   map[cluster.NodeID]*meshConn
 	down    map[cluster.NodeID]bool
 	blocked map[string]bool
-	mu      sync.Mutex
+	// incarnations counts connected endpoints; each connect is a new
+	// process incarnation.
+	incarnations uint64
+	mu           sync.Mutex
 }
 
 func newMesh() *mesh {
@@ -50,6 +53,8 @@ func (m *mesh) connect(id cluster.NodeID) *meshConn {
 	if old := m.conns[id]; old != nil {
 		close(old.done)
 	}
+	m.incarnations++
+	c.incarnation = m.incarnations
 	m.conns[id] = c
 	m.mu.Unlock()
 	go c.deliverLoop()
@@ -124,11 +129,16 @@ type meshConn struct {
 	inbox     chan inboundMsg
 	done      chan struct{}
 	self      cluster.NodeID
-	mu        sync.Mutex
+	// incarnation identifies this endpoint's simulated process.
+	incarnation uint64
+	mu          sync.Mutex
 }
 
-func (c *meshConn) Start(_ context.Context, _ func(cluster.NodeID, []byte)) error { return nil }
-func (c *meshConn) Stop() error                                                   { return nil }
+func (c *meshConn) Start(_ context.Context, _ func(cluster.NodeID, []byte), _ func(cluster.NodeID)) error {
+	return nil
+}
+func (c *meshConn) Stop() error         { return nil }
+func (c *meshConn) Incarnation() uint64 { return c.incarnation }
 
 // deliverLoop drains the inbox FIFO so all inbound frames to this node are
 // processed in order on a single dedicated goroutine.
@@ -189,7 +199,7 @@ func (c *meshConn) DisconnectFromNode(_ cluster.NodeID)                {}
 func (c *meshConn) ConnectedNodes() []cluster.NodeID                   { return nil }
 func (c *meshConn) GetListenPort() int                                 { return 0 }
 func (c *meshConn) AddManagedNode(_ cluster.NodeID)                    {}
-func (c *meshConn) RemoveManagedNode(_ cluster.NodeID)                 {}
+func (c *meshConn) RemoveManagedNode(_ cluster.NodeID, _ uint64)       {}
 func (c *meshConn) IsManaged(_ cluster.NodeID) bool                    { return true }
 func (c *meshConn) EvictOrphanNodes(_ map[cluster.NodeID]struct{}) int { return 0 }
 func (c *meshConn) RecordDropReason(_ string)                          {}

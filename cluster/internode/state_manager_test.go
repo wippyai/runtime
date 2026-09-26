@@ -47,7 +47,7 @@ func createMockConnection(nodeID cluster.NodeID) *NodeConnection {
 
 	config := DefaultNodeConnectionConfig()
 	logger := zap.NewNop()
-	return newNodeConnection(client, nodeID, config, logger)
+	return newNodeConnection(client, nodeID, testIncarnation, config, logger)
 }
 
 func TestNodeStateManager_CreateNodeState(t *testing.T) {
@@ -248,43 +248,34 @@ func TestNodeStateManager_DrainMessages_ZeroMaxCount(t *testing.T) {
 	assert.Nil(t, messages)
 }
 
-func TestNodeStateManager_RequeueMessages(t *testing.T) {
+// rewindSession schedules every unacknowledged frame for retransmission, as
+// a resumed connection does.
+func rewindSession(nsm *NodeStateManager, nodeID cluster.NodeID) {
+	state := nsm.GetNodeState(nodeID)
+	state.queueMu.Lock()
+	state.session.ring.rewind()
+	state.queueMu.Unlock()
+}
+
+// After a resume, unacknowledged frames are handed out again, in sequence
+// order and ahead of queued frames, keeping their sequence numbers.
+func TestNodeStateManager_ResumeReplaysUnackedBeforeQueued(t *testing.T) {
 	nsm := setupStateManager()
 	nodeID := "test-node-1"
-
 	nsm.CreateNodeState(nodeID)
 
-	// Queue initial message
-	_ = nsm.QueueMessageClass(nodeID, []byte{1}, ClassRaftControl)
+	require.NoError(t, nsm.QueueMessageClass(nodeID, []byte{1}, ClassRaftControl))
+	first := nsm.DrainMessages(nodeID, 10)
+	require.Len(t, first, 1)
+	require.Equal(t, uint64(1), first[0].seq)
+	require.NoError(t, nsm.QueueMessageClass(nodeID, []byte{2}, ClassPGBroadcast))
 
-	// Requeue messages (should be inserted at front)
-	toRequeue := [][]byte{{2}, {3}}
-	nsm.RequeueMessagesClass(nodeID, toRequeue, ClassRaftControl)
-
-	// Drain should return requeued messages first, then original
+	rewindSession(nsm, nodeID)
 	messages := nsm.DrainMessages(nodeID, 10)
-	require.Len(t, messages, 3)
-	assert.Equal(t, []byte{2}, messages[0].Data) // First requeued
-	assert.Equal(t, []byte{3}, messages[1].Data) // Second requeued
-	assert.Equal(t, []byte{1}, messages[2].Data) // Original message last
-}
-
-func TestNodeStateManager_RequeueMessages_Empty(_ *testing.T) {
-	nsm := setupStateManager()
-	nodeID := "test-node-1"
-
-	nsm.CreateNodeState(nodeID)
-
-	// Should be no-op
-	nsm.RequeueMessagesClass(nodeID, [][]byte{}, ClassRaftControl)
-}
-
-func TestNodeStateManager_RequeueMessages_UnmanagedNode(_ *testing.T) {
-	nsm := setupStateManager()
-	nodeID := "unmanaged"
-
-	// Should not panic, messages dropped
-	nsm.RequeueMessagesClass(nodeID, [][]byte{{1}, {2}}, ClassRaftControl)
+	require.Len(t, messages, 2)
+	assert.Equal(t, Outbound{Data: []byte{1}, Class: ClassRaftControl, seq: 1}, messages[0])
+	assert.Equal(t, Outbound{Data: []byte{2}, Class: ClassPGBroadcast, seq: 2}, messages[1])
+	require.Empty(t, nsm.DrainMessages(nodeID, 10))
 }
 
 func TestNodeStateManager_SetGetNodeConnection(t *testing.T) {
@@ -669,31 +660,34 @@ func TestNodeStateManager_Concurrent_AddressUpdates(t *testing.T) {
 	wg.Wait()
 }
 
-func TestSurfaceRequeuePreservesAcceptedFramesAtCapacity(t *testing.T) {
+// In-flight surface frames wait in the resend ring, outside the admission
+// bound; a resume replays them ahead of newly admitted frames.
+func TestSurfaceFramesInFlightReplayAheadOfAdmitted(t *testing.T) {
 	nsm := setupStateManager()
 	nsm.CreateNodeState("peer")
-	for i := range 32 {
+	for i := range surfaceQueueCap {
 		require.NoError(t, nsm.QueueMessageClass("peer", []byte{byte(i)}, ClassSurface))
 	}
 	batch := nsm.DrainMessages("peer", 128)
-	require.Len(t, batch, 32)
-	for i := range 32 {
-		require.NoError(t, nsm.QueueMessageClass("peer", []byte{byte(i + 32)}, ClassSurface))
+	require.Len(t, batch, surfaceQueueCap)
+	for i := range surfaceQueueCap {
+		require.NoError(t, nsm.QueueMessageClass("peer", []byte{byte(i + surfaceQueueCap)}, ClassSurface))
 	}
-	nsm.RequeueMessages("peer", batch)
-	// Repeated failed writes neither lose accepted frames nor reopen admission
-	// while the reserved retry batch occupies the queue.
+	require.ErrorIs(t, nsm.QueueMessageClass("peer", []byte("overflow"), ClassSurface), ErrQueueFull)
+	// Repeated resumes neither lose accepted frames nor reopen admission.
 	for range 10 {
-		batch = nsm.DrainMessages("peer", 128)
-		require.Len(t, batch, 32)
+		rewindSession(nsm, "peer")
+		batch = nsm.DrainMessages("peer", surfaceQueueCap)
+		require.Len(t, batch, surfaceQueueCap)
 		require.ErrorIs(t, nsm.QueueMessageClass("peer", []byte("overflow"), ClassSurface), ErrQueueFull)
-		nsm.RequeueMessages("peer", batch)
+		rewindSession(nsm, "peer")
 	}
 	got := nsm.DrainMessages("peer", 128)
 	got = append(got, nsm.DrainMessages("peer", 128)...)
-	require.Len(t, got, 64)
+	require.Len(t, got, 2*surfaceQueueCap)
 	for i, frame := range got {
 		require.Equal(t, []byte{byte(i)}, frame.Data)
+		require.Equal(t, uint64(i+1), frame.seq)
 	}
 	require.Empty(t, nsm.DrainMessages("peer", 128))
 }

@@ -137,3 +137,49 @@ func newWireTypeError(position string, value any) apierror.Error {
 func newEmptyErrorChainError() apierror.Error {
 	return apierror.New(apierror.Invalid, "error chain has no entries").WithRetryable(apierror.False)
 }
+
+var (
+	// errSessionEnded stops a connection whose session ended while it ran.
+	errSessionEnded = apierror.New(apierror.Unavailable, "internode peer session ended").WithRetryable(apierror.True)
+
+	// errPeerSessionReset reports that the peer ended its session for this
+	// node; the connection closes and the session starts afresh.
+	errPeerSessionReset = apierror.New(apierror.Unavailable, "internode peer ended its session").WithRetryable(apierror.True)
+
+	errZeroIncarnation = apierror.New(apierror.Invalid, "internode incarnation must be nonzero").WithRetryable(apierror.False)
+)
+
+func newSequenceGapError(expected, got uint64) apierror.Error {
+	return apierror.New(apierror.Invalid, "internode frame sequence gap").
+		WithRetryable(apierror.False).
+		WithDetails(attrs.Bag{"expected": expected, "got": got})
+}
+
+func newAckRangeError(ack, acked, sendNext uint64) apierror.Error {
+	return apierror.New(apierror.Invalid, "internode ack outside the sent range").
+		WithRetryable(apierror.False).
+		WithDetails(attrs.Bag{"ack": ack, "acked": acked, "send_next": sendNext})
+}
+
+func newResumeViewError(view, id uint64) apierror.Error {
+	return apierror.New(apierror.Invalid, "internode peer resumed an unknown session of this node").
+		WithRetryable(apierror.False).
+		WithDetails(attrs.Bag{"peer_view": view, "session": id})
+}
+
+func newFrameError(reason string, class Class) apierror.Error {
+	return apierror.New(apierror.Invalid, "internode frame violates the session protocol: "+reason).
+		WithRetryable(apierror.False).
+		WithDetails(attrs.Bag{"class": uint8(class)})
+}
+
+// newIncarnationNotAdvertisedError reports a peer process that membership
+// does not advertise as the node's current incarnation.
+func newIncarnationNotAdvertisedError(nodeID string, incarnation uint64) apierror.Error {
+	return apierror.New(apierror.Unavailable, "internode peer incarnation is not the one membership advertises").
+		WithRetryable(apierror.True).
+		WithDetails(attrs.Bag{"node_id": nodeID, "incarnation": incarnation})
+}
+
+// errManagerSingleUse rejects a second Start of a connection manager.
+var errManagerSingleUse = apierror.New(apierror.Invalid, "internode connection manager is single-use and cannot start again").WithRetryable(apierror.False)

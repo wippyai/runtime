@@ -51,6 +51,7 @@ type noopTopology struct{}
 func (n *noopTopology) Register(_ pid.PID) error              { return nil }
 func (n *noopTopology) Complete(_ pid.PID, _ *runtime.Result) {}
 func (n *noopTopology) Remove(_ pid.PID)                      {}
+func (n *noopTopology) HandleNodeExit(pid.NodeID, error)      {}
 func (n *noopTopology) Monitor(_, _ pid.PID) error            { return nil }
 func (n *noopTopology) Demonitor(_, _ pid.PID) error          { return nil }
 func (n *noopTopology) Link(_, _ pid.PID) error               { return nil }

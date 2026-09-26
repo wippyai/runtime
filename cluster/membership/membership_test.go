@@ -1093,3 +1093,65 @@ func TestService_ReadersAreSafeDuringStart(t *testing.T) {
 	require.GreaterOrEqual(t, service.HealthScore(), 0)
 	require.Equal(t, "readers-during-start", service.LocalNode().ID)
 }
+
+// A known node announcing a new incarnation restarted under the same ID:
+// membership reports the departure of the old incarnation, then the arrival
+// of the new one. Metadata changes under the same incarnation stay updates.
+func TestEventDelegate_IncarnationChangeIsLeaveThenJoin(t *testing.T) {
+	for _, notify := range []string{"join", "update"} {
+		t.Run(notify, func(t *testing.T) {
+			service, bus, ctx, cancel := setupService(t)
+			defer cancel()
+			startMembershipServiceForTest(ctx, t, "", service)
+			defer func() { _ = service.Stop() }()
+
+			events := make(chan event.Event, 16)
+			subscriber, err := eventbus.NewSubscriber(ctx, bus, cluster.System, "node.(joined|left|updated)",
+				func(evt event.Event) { events <- evt })
+			require.NoError(t, err)
+			defer subscriber.Close()
+			next := func() event.Event {
+				select {
+				case evt := <-events:
+					return evt
+				case <-time.After(2 * time.Second):
+					t.Fatal("no membership event")
+					return event.Event{}
+				}
+			}
+			incarnationOf := func(evt event.Event) string {
+				return evt.Data.(cluster.NodeEvent).Node.Meta[cluster.MetaIncarnation]
+			}
+
+			ed := &eventDelegate{service: service}
+			node := func(incarnation, version string) *memberlist.Node {
+				return &memberlist.Node{
+					Name: "remote-node",
+					Addr: []byte{192, 168, 1, 100},
+					Meta: []byte(`{"` + cluster.MetaIncarnation + `":"` + incarnation + `","version":"` + version + `"}`),
+				}
+			}
+			ed.NotifyJoin(node("11", "1"))
+			first := next()
+			require.Equal(t, cluster.NodeJoined, first.Kind)
+
+			ed.NotifyUpdate(node("11", "2"))
+			updated := next()
+			require.Equal(t, cluster.NodeUpdated, updated.Kind)
+			require.Equal(t, "11", incarnationOf(updated))
+
+			if notify == "join" {
+				ed.NotifyJoin(node("22", "2"))
+			} else {
+				ed.NotifyUpdate(node("22", "2"))
+			}
+			left := next()
+			require.Equal(t, cluster.NodeLeft, left.Kind)
+			require.Equal(t, "remote-node", left.Path)
+			require.Equal(t, "11", incarnationOf(left))
+			joined := next()
+			require.Equal(t, cluster.NodeJoined, joined.Kind)
+			require.Equal(t, "22", incarnationOf(joined))
+		})
+	}
+}

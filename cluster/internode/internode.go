@@ -42,17 +42,23 @@ type Service struct {
 	connMan          ConnectionManager
 	codec            cluster.MessageCodec
 	deliveryCallback PackageCallback
+	sessionEnded     func(cluster.NodeID)
 	bus              event.Bus
 	membership       cluster.Membership
 	subscriber       *eventbus.Subscriber
 	localNodeID      cluster.NodeID
 }
 
+// NewService wires the transport to local delivery. sessionEnded runs
+// synchronously when a session with a node ends, after the last frame of that
+// session was delivered and before any frame of a later session is; it must
+// break local links and monitors of the node's processes.
 func NewService(
 	logger *zap.Logger,
 	connMan ConnectionManager,
 	codec cluster.MessageCodec,
 	pkgCallback PackageCallback,
+	sessionEnded func(cluster.NodeID),
 	bus event.Bus,
 	membership cluster.Membership,
 ) *Service {
@@ -61,11 +67,14 @@ func NewService(
 		connMan:          connMan,
 		codec:            codec,
 		deliveryCallback: pkgCallback,
+		sessionEnded:     sessionEnded,
 		bus:              bus,
 		membership:       membership,
 	}
 }
 
+// Start serves the connection manager and follows membership. A service
+// starts once: its connection manager is single-use.
 func (s *Service) Start(ctx context.Context) error {
 	ctx, s.cancel = context.WithCancel(ctx)
 	s.ctx = ctx
@@ -103,7 +112,7 @@ func (s *Service) Start(ctx context.Context) error {
 		}
 	}
 
-	if err := s.connMan.Start(ctx, onMessage); err != nil {
+	if err := s.connMan.Start(ctx, onMessage, s.sessionEnded); err != nil {
 		s.cancel()
 		return NewStartConnectionManagerError(err)
 	}
@@ -293,8 +302,24 @@ func (s *Service) handleMembershipEvent(e event.Event) {
 	case cluster.NodeLeft:
 		s.logger.Info("Node left cluster, cleaning up state and connection",
 			zap.String("node_id", nodeInfo.ID))
-		s.connMan.RemoveManagedNode(nodeInfo.ID)
+		s.connMan.RemoveManagedNode(nodeInfo.ID, s.departingIncarnation(nodeInfo))
 	}
+}
+
+// departingIncarnation reads the incarnation a departing node advertised.
+// Zero means the departure names no incarnation and removes any session.
+func (s *Service) departingIncarnation(nodeInfo cluster.NodeInfo) uint64 {
+	raw, ok := nodeInfo.Meta[cluster.MetaIncarnation]
+	if !ok {
+		return 0
+	}
+	incarnation, err := strconv.ParseUint(raw, 10, 64)
+	if err != nil {
+		s.logger.Error("Invalid incarnation metadata on departing node; removing its session",
+			zap.String("node_id", nodeInfo.ID), zap.String("incarnation", raw), zap.Error(err))
+		return 0
+	}
+	return incarnation
 }
 
 func (s *Service) connectToNode(nodeInfo cluster.NodeInfo) {

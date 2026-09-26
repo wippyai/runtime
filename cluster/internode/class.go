@@ -4,16 +4,16 @@ package internode
 
 // Class is the QoS class of a queued internode message AND the wire-level
 // sub-protocol tag carried in the frame header. Each managed peer has one
-// FIFO queue per class. Delivery policy is class-specific:
+// FIFO queue per class. Every class except gossip is sequenced on the peer
+// session: an accepted frame is delivered exactly once and in order while
+// the session lives. Admission policy is class-specific:
 //
-//   - ClassRaftControl: reliable while the peer remains managed.
-//   - ClassGossip: drop-newest (memberlist/SWIM — gossip is lossy by
-//     design; the next round will correct it).
-//   - ClassPGBroadcast: reliable while the peer remains managed.
-//   - ClassRaftRPC: raft RPC request/reply frames over internode. The name
-//     is kept for wire compatibility with the prior raft class byte; it no
-//     longer carries a byte stream.
-//   - ClassSurface: bounded admission; accepted frames survive write retries.
+//   - ClassRaftControl: unbounded while the peer remains managed.
+//   - ClassGossip: drop-newest and unsequenced (memberlist/SWIM — gossip is
+//     lossy by design; the next round will correct it).
+//   - ClassPGBroadcast: unbounded while the peer remains managed.
+//   - ClassRaftRPC: raft RPC request/reply frames over internode.
+//   - ClassSurface: bounded admission of surfaceQueueCap frames.
 type Class uint8
 
 const (
@@ -27,16 +27,33 @@ const (
 )
 
 // numClasses is the count of Class values. If a new Class is added, this
-// MUST be updated; the per-state ring slice is sized from it.
+// MUST be updated; the per-state queue array is sized from it.
 const numClasses = 5
+
+// Session control frames share the class byte of the frame header but are
+// never queued or dispatched to handlers.
+const (
+	// classResume opens every connection of a session: seq carries the
+	// sender's session ID, ack its receive cursor, and the 8-byte payload the
+	// sender's view of the receiver's session ID.
+	classResume Class = 0xFE
+	// classAck carries only the cumulative ack.
+	classAck Class = 0xFF
+)
+
+// surfaceQueueCap bounds queued surface frames per managed peer.
+const surfaceQueueCap = 32
+
+// sequenced reports whether frames of class are sequenced on the session.
+func (c Class) sequenced() bool { return c != ClassGossip }
 
 // MetadataSurfaceProtocol advertises support before a peer emits the new
 // surface class on an existing connection to a potentially older node.
 const MetadataSurfaceProtocol = "tty_surface_protocol"
 
-// MaxSurfaceFrameSize bounds queued and in-flight surface payloads to 32 MiB
-// per managed peer (32 admission slots plus a reserved retry batch of 32),
-// independent of the larger Raft snapshot frame limit.
+// MaxSurfaceFrameSize bounds one surface payload, independent of the larger
+// Raft snapshot frame limit. Queued surface payloads per managed peer are
+// bounded by surfaceQueueCap slots; in-flight ones share the link window.
 const MaxSurfaceFrameSize = 512 << 10
 
 // String renders Class for log/metric labels.
