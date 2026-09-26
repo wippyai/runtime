@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	lua "github.com/wippyai/go-lua"
+	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/registry"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/code"
@@ -255,6 +256,26 @@ func TestNewFactoryFromProto_WithBinder(t *testing.T) {
 func TestNewProcessFactory(t *testing.T) {
 	pf := NewProcessFactory(nil)
 	require.NotNil(t, pf)
+}
+
+func TestDependencyRaisePreservesKind(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	lua.OpenErrors(l)
+	id := registry.NewID("test", "dependency")
+	compiled := &code.CompiledMain{
+		Dependencies: []code.CompiledProto{{
+			Name:  "dependency",
+			Node:  &code.Node{ID: id},
+			Proto: compileTestProto(t, `error(errors.new({message="bad dependency", kind=errors.INVALID, retryable=false}))`),
+		}},
+	}
+	pf := NewProcessFactory(nil)
+	binder := pf.isolationBinder(compiled, newProcessConfig(), nil, nil, nil, nil)
+	err := binder(l)
+	if err == nil || apierror.BuildChain(err).Root().Kind != string(apierror.Invalid) {
+		t.Fatalf("dependency error = %v", err)
+	}
 }
 
 // --- helpers ---
