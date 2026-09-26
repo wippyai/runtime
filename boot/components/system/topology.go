@@ -8,7 +8,6 @@ import (
 	"sync"
 
 	"github.com/wippyai/runtime/api/boot"
-	"github.com/wippyai/runtime/api/cluster"
 	"github.com/wippyai/runtime/api/event"
 	logapi "github.com/wippyai/runtime/api/logs"
 	relayapi "github.com/wippyai/runtime/api/relay"
@@ -18,6 +17,10 @@ import (
 )
 
 const TopologyName = "system.topology"
+
+// errNodeDisconnected is the exit reason local processes observe for links
+// and monitors of a node that is no longer reachable.
+var errNodeDisconnected = errors.New("node disconnected")
 
 func Topology() boot.Component {
 	var listener *topologyEventListener
@@ -66,7 +69,9 @@ func Topology() boot.Component {
 	})
 }
 
-// topologyEventListener handles node exit events from multiple sources.
+// topologyEventListener breaks links and monitors of deleted relay peers.
+// Cluster nodes are handled synchronously by the internode transport, which
+// calls HandleNodeExit when a session ends.
 type topologyEventListener struct {
 	bus    event.Bus
 	ctx    context.Context
@@ -96,18 +101,6 @@ func (l *topologyEventListener) Start(ctx context.Context) error {
 		return err
 	}
 	l.subIDs = append(l.subIDs, subID1)
-
-	// Subscribe to ended internode sessions. The transport publishes one only
-	// after the last frame of the session was delivered, so no message from
-	// the node's processes follows the exit signals. Every membership
-	// departure ends the session, as do a peer restart and a peer ending its
-	// own session for this node.
-	subID2, err := l.bus.SubscribeP(l.ctx, cluster.System, cluster.NodeSessionEnded, l.events)
-	if err != nil {
-		l.bus.Unsubscribe(l.ctx, subID1)
-		return err
-	}
-	l.subIDs = append(l.subIDs, subID2)
 
 	l.wg.Add(1)
 	go l.eventLoop()
@@ -150,7 +143,7 @@ func (l *topologyEventListener) eventLoop() {
 			if !ok {
 				return
 			}
-			if evt.Kind != relayapi.PeerDelete && evt.Kind != cluster.NodeSessionEnded {
+			if evt.Kind != relayapi.PeerDelete {
 				continue
 			}
 
@@ -160,7 +153,7 @@ func (l *topologyEventListener) eventLoop() {
 				zap.String("system", evt.System),
 				zap.String("kind", evt.Kind))
 
-			l.topo.HandleNodeExit(nodeID, errors.New("node disconnected"))
+			l.topo.HandleNodeExit(nodeID, errNodeDisconnected)
 		}
 	}
 }

@@ -42,17 +42,23 @@ type Service struct {
 	connMan          ConnectionManager
 	codec            cluster.MessageCodec
 	deliveryCallback PackageCallback
+	sessionEnded     func(cluster.NodeID)
 	bus              event.Bus
 	membership       cluster.Membership
 	subscriber       *eventbus.Subscriber
 	localNodeID      cluster.NodeID
 }
 
+// NewService wires the transport to local delivery. sessionEnded runs
+// synchronously when a session with a node ends, after the last frame of that
+// session was delivered and before any frame of a later session is; it must
+// break local links and monitors of the node's processes.
 func NewService(
 	logger *zap.Logger,
 	connMan ConnectionManager,
 	codec cluster.MessageCodec,
 	pkgCallback PackageCallback,
+	sessionEnded func(cluster.NodeID),
 	bus event.Bus,
 	membership cluster.Membership,
 ) *Service {
@@ -61,6 +67,7 @@ func NewService(
 		connMan:          connMan,
 		codec:            codec,
 		deliveryCallback: pkgCallback,
+		sessionEnded:     sessionEnded,
 		bus:              bus,
 		membership:       membership,
 	}
@@ -103,7 +110,7 @@ func (s *Service) Start(ctx context.Context) error {
 		}
 	}
 
-	if err := s.connMan.Start(ctx, onMessage, s.publishSessionEnded); err != nil {
+	if err := s.connMan.Start(ctx, onMessage, s.sessionEnded); err != nil {
 		s.cancel()
 		return NewStartConnectionManagerError(err)
 	}
@@ -311,17 +318,6 @@ func (s *Service) departingIncarnation(nodeInfo cluster.NodeInfo) uint64 {
 		return 0
 	}
 	return incarnation
-}
-
-// publishSessionEnded announces that no further frame of a node's session is
-// delivered, so local links and monitors of that node's processes break.
-func (s *Service) publishSessionEnded(nodeID cluster.NodeID) {
-	s.bus.Send(s.ctx, event.Event{
-		System: cluster.System,
-		Kind:   cluster.NodeSessionEnded,
-		Path:   nodeID,
-		Data:   cluster.NodeEvent{Node: cluster.NodeInfo{ID: nodeID}},
-	})
 }
 
 func (s *Service) connectToNode(nodeInfo cluster.NodeInfo) {

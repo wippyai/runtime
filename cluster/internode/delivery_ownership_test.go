@@ -51,7 +51,7 @@ func TestServiceIncomingPackageOwnership(t *testing.T) {
 				}
 				accepted = pkg
 				return nil
-			}, eventbus.NewBus(), &mockMembership{localNode: cluster.NodeInfo{ID: "local"}})
+			}, ignoreSessionEnd, eventbus.NewBus(), &mockMembership{localNode: cluster.NodeInfo{ID: "local"}})
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			require.NoError(t, service.Start(ctx))

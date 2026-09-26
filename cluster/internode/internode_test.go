@@ -214,7 +214,7 @@ func setupService(_ *testing.T) (*Service, *mockConnectionManager, *mockCodec, *
 		return nil
 	}
 
-	service := NewService(logger, connMan, codec, deliveryCallback, bus, membership)
+	service := NewService(logger, connMan, codec, deliveryCallback, ignoreSessionEnd, bus, membership)
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return service, connMan, codec, bus, ctx, cancel
@@ -228,7 +228,7 @@ func TestService_NewService(t *testing.T) {
 	membership := &mockMembership{}
 	callback := func(_ *relay.Package) error { return nil }
 
-	service := NewService(logger, connMan, codec, callback, bus, membership)
+	service := NewService(logger, connMan, codec, callback, ignoreSessionEnd, bus, membership)
 
 	assert.NotNil(t, service)
 	assert.NotNil(t, service.codec)
@@ -273,7 +273,7 @@ func TestService_Start_WithPreExistingNodes(t *testing.T) {
 		nodes:     []cluster.NodeInfo{localNode, remoteNode},
 	}
 
-	service := NewService(logger, connMan, codec, func(_ *relay.Package) error { return nil }, bus, membership)
+	service := NewService(logger, connMan, codec, func(_ *relay.Package) error { return nil }, ignoreSessionEnd, bus, membership)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -539,7 +539,7 @@ func TestService_OnMessage_Success(t *testing.T) {
 		return nil
 	}
 
-	service := NewService(logger, connMan, codec, deliveryCallback, bus, membership)
+	service := NewService(logger, connMan, codec, deliveryCallback, ignoreSessionEnd, bus, membership)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -568,7 +568,7 @@ func TestService_OnMessage_RecordsConnectionPeerSeparateFromLogicalSource(t *tes
 		logical = append(logical, pkg.Source.Node)
 		relay.ReleasePackage(pkg)
 		return nil
-	}, bus, membership)
+	}, ignoreSessionEnd, bus, membership)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	require.NoError(t, service.Start(ctx))
@@ -599,7 +599,7 @@ func TestService_OnMessage_DecodeError(t *testing.T) {
 	bus := eventbus.NewBus()
 	membership := &mockMembership{localNode: cluster.NodeInfo{ID: "local"}}
 
-	service := NewService(logger, connMan, codec, func(_ *relay.Package) error { return nil }, bus, membership)
+	service := NewService(logger, connMan, codec, func(_ *relay.Package) error { return nil }, ignoreSessionEnd, bus, membership)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -621,7 +621,7 @@ func TestService_OnMessage_DeliveryError(t *testing.T) {
 		return errors.New("delivery failed")
 	}
 
-	service := NewService(logger, connMan, codec, deliveryCallback, bus, membership)
+	service := NewService(logger, connMan, codec, deliveryCallback, ignoreSessionEnd, bus, membership)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -675,26 +675,18 @@ func TestService_NodeLeftNamesDepartingIncarnation(t *testing.T) {
 	require.Equal(t, []removeCall{{nodeID: "peer", incarnation: 42}, {nodeID: "peer", incarnation: 0}}, connMan.removed)
 }
 
-// An ended session is announced on the bus for topology.
-func TestService_PublishesSessionEnded(t *testing.T) {
-	service, connMan, _, bus, ctx, cancel := setupService(t)
-	defer cancel()
-	ended := make(chan event.Event, 1)
-	sub, err := eventbus.NewSubscriber(ctx, bus, cluster.System, cluster.NodeSessionEnded, func(e event.Event) { ended <- e })
-	require.NoError(t, err)
-	defer sub.Close()
-	require.NoError(t, service.Start(ctx))
+// The session-end hook given to the service is the one the transport runs.
+func TestService_PassesSessionEndHookToTransport(t *testing.T) {
+	var ended []cluster.NodeID
+	connMan := newMockConnectionManager()
+	service := NewService(zap.NewNop(), connMan, &mockCodec{}, func(*relay.Package) error { return nil },
+		func(id cluster.NodeID) { ended = append(ended, id) }, eventbus.NewBus(),
+		&mockMembership{localNode: cluster.NodeInfo{ID: "local-node"}})
+	require.NoError(t, service.Start(context.Background()))
 	defer func() { _ = service.Stop() }()
-
 	connMan.mu.Lock()
 	onSessionEnd := connMan.onSessionEnd
 	connMan.mu.Unlock()
 	onSessionEnd("peer")
-	select {
-	case e := <-ended:
-		require.Equal(t, "peer", e.Path)
-		require.Equal(t, "peer", e.Data.(cluster.NodeEvent).Node.ID)
-	case <-time.After(2 * time.Second):
-		t.Fatal("session end not published")
-	}
+	require.Equal(t, []cluster.NodeID{"peer"}, ended)
 }

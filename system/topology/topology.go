@@ -950,4 +950,7 @@ func (t *Topology) HandleNodeExit(nodeID pid.NodeID, exitErr error) {
 	}
 }
 
-var _ topology.Topology = (*Topology)(nil)
+var (
+	_ topology.Topology        = (*Topology)(nil)
+	_ topology.NodeExitHandler = (*Topology)(nil)
+)

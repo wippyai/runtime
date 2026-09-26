@@ -27,7 +27,8 @@ import (
 // timelineEntry is one observation on a node: a delivered frame or a down
 // signal reaching a local watcher.
 type timelineEntry struct {
-	session uint64 // sender's session ID when the frame was admitted
+	watcher pid.PID // local process a down signal reached
+	session uint64  // sender's session ID when the frame was admitted
 	counter uint64
 	down    bool
 }
@@ -86,7 +87,7 @@ func (r downRouter) Send(pkg *relay.Package) error {
 		}
 		for _, p := range msg.Payloads {
 			if exit, ok := p.Data().(*topoapi.ExitEvent); ok && exit.Kind == topoapi.LinkDown {
-				r.tl.add(timelineEntry{down: true})
+				r.tl.add(timelineEntry{down: true, watcher: pkg.Target})
 			}
 		}
 	}
@@ -104,10 +105,31 @@ type resetNode struct {
 	bus        *eventbus.Bus
 	membership *mockMembership
 	tl         *timeline
-	id         cluster.NodeID
+	topo       *topology.Topology
+	// onFrame, when set, runs for every delivered frame on the delivery path.
+	onFrame func(timelineEntry)
+	id      cluster.NodeID
+	// downDelay stretches applying a down signal, widening any window in
+	// which it could race the delivery of later frames.
+	downDelay time.Duration
 }
 
-func startResetNode(ctx context.Context, t *testing.T, self, peer cluster.NodeID) *resetNode {
+// resetNodeOption adjusts a resetNode before it starts.
+type resetNodeOption func(*resetNode)
+
+func withDownDelay(d time.Duration) resetNodeOption { return func(n *resetNode) { n.downDelay = d } }
+
+func withOnFrame(fn func(*resetNode, timelineEntry)) resetNodeOption {
+	return func(n *resetNode) { n.onFrame = func(e timelineEntry) { fn(n, e) } }
+}
+
+// applyDown applies the down signal of an ended session to topology.
+func (n *resetNode) applyDown(node cluster.NodeID) {
+	time.Sleep(n.downDelay)
+	n.topo.HandleNodeExit(node, errors.New("node disconnected"))
+}
+
+func startResetNode(ctx context.Context, t *testing.T, self, peer cluster.NodeID, opts ...resetNodeOption) *resetNode {
 	t.Helper()
 	cfg := insecureManagerConfig()
 	cfg.LocalNodeID = self
@@ -123,25 +145,26 @@ func startResetNode(ctx context.Context, t *testing.T, self, peer cluster.NodeID
 		membership: &mockMembership{localNode: cluster.NodeInfo{ID: self, Addr: "127.0.0.1"}},
 		tl:         &timeline{},
 	}
+	for _, opt := range opts {
+		opt(n)
+	}
 	deliver := func(pkg *relay.Package) error {
 		data := pkg.Messages[0].Payloads[0].Data().([]byte)
-		n.tl.add(timelineEntry{session: binary.BigEndian.Uint64(data), counter: binary.BigEndian.Uint64(data[8:])})
+		e := timelineEntry{session: binary.BigEndian.Uint64(data), counter: binary.BigEndian.Uint64(data[8:])}
+		n.tl.add(e)
+		if n.onFrame != nil {
+			n.onFrame(e)
+		}
 		relay.ReleasePackage(pkg)
 		return nil
 	}
-	n.service = NewService(zap.NewNop(), n.manager, rawFrameCodec{}, deliver, n.bus, n.membership)
+	n.service = NewService(zap.NewNop(), n.manager, rawFrameCodec{}, deliver, n.applyDown, n.bus, n.membership)
 
-	// The topology listener: an ended session breaks local monitors of the
-	// peer's processes.
-	topo := topology.NewTopology(downRouter{tl: n.tl}, self)
+	// An ended session breaks local monitors of the peer's processes.
+	n.topo = topology.NewTopology(downRouter{tl: n.tl}, self)
 	watcher := pid.PID{Node: self, Host: "host", UniqID: "watcher"}
-	require.NoError(t, topo.Register(watcher))
-	require.NoError(t, topo.Monitor(watcher, pid.PID{Node: peer, Host: "host", UniqID: "watched"}))
-	sub, err := eventbus.NewSubscriber(ctx, n.bus, cluster.System, cluster.NodeSessionEnded, func(e event.Event) {
-		topo.HandleNodeExit(e.Path, errors.New("node disconnected"))
-	})
-	require.NoError(t, err)
-	t.Cleanup(sub.Close)
+	require.NoError(t, n.topo.Register(watcher))
+	require.NoError(t, n.topo.Monitor(watcher, pid.PID{Node: peer, Host: "host", UniqID: "watched"}))
 
 	require.NoError(t, n.service.Start(ctx))
 	t.Cleanup(func() { require.NoError(t, n.service.Stop()) })
@@ -304,4 +327,174 @@ func requireFreshTraffic(t *testing.T, from, to *resetNode) {
 	for i, c := range got {
 		require.Equal(t, base+uint64(i), c)
 	}
+}
+
+// A session ends while the peer immediately sends fresh-session traffic that
+// makes a local process monitor one of the peer's processes. The down signal
+// of the ended session is applied before any fresh frame is delivered: the
+// new monitor is never hit by it, and every down precedes the first fresh
+// message.
+func TestSessionEndDownPrecedesFreshSessionDelivery(t *testing.T) {
+	for range 3 {
+		func() {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			var oldSessions sync.Map // node -> the peer's session ID before the reset
+			freshWatcher := func(n *resetNode) pid.PID {
+				return pid.PID{Node: n.id, Host: "host", UniqID: "fresh-watcher"}
+			}
+			var freshSeen sync.Map // node -> true once the first fresh frame arrived
+			// A's reader parks inside one delivery while A's session ends, so
+			// the end is signaled by that reader when it stops, concurrently
+			// with the replacement session connecting.
+			parked, release := make(chan struct{}), make(chan struct{})
+			var park atomic.Bool
+			onFrame := func(n *resetNode, e timelineEntry) {
+				if n.id == "node-a" && park.CompareAndSwap(true, false) {
+					close(parked)
+					<-release
+				}
+				old, ok := oldSessions.Load(n.id)
+				if !ok || e.session == old.(uint64) {
+					return
+				}
+				if _, loaded := freshSeen.LoadOrStore(n.id, true); loaded {
+					return
+				}
+				// The first fresh message makes a local process monitor a
+				// peer process.
+				peer := cluster.NodeID("node-a")
+				if n.id == "node-a" {
+					peer = "node-b"
+				}
+				require.NoError(t, n.topo.Register(freshWatcher(n)))
+				require.NoError(t, n.topo.Monitor(freshWatcher(n), pid.PID{Node: peer, Host: "host", UniqID: "fresh-target"}))
+				n.tl.add(timelineEntry{watcher: freshWatcher(n)})
+			}
+			opts := []resetNodeOption{withDownDelay(30 * time.Millisecond), withOnFrame(onFrame)}
+			a := startResetNode(ctx, t, "node-a", "node-b", opts...)
+			b := startResetNode(ctx, t, "node-b", "node-a", opts...)
+			a.publish(cluster.NodeJoined, b.info())
+			b.publish(cluster.NodeJoined, a.info())
+			requireLinked(t, &trafficNode{manager: a.manager, id: a.id}, &trafficNode{manager: b.manager, id: b.id})
+			oldSessions.Store(a.id, b.sessionID(a.id))
+			oldSessions.Store(b.id, a.sessionID(b.id))
+
+			stop := make(chan struct{})
+			var senders sync.WaitGroup
+			for _, pair := range [][2]*resetNode{{a, b}, {b, a}} {
+				from, to := pair[0], pair[1]
+				senders.Add(1)
+				go func() {
+					defer senders.Done()
+					var counter uint64
+					for {
+						select {
+						case <-stop:
+							return
+						default:
+						}
+						counter++
+						// Admission is refused while the departed node is
+						// not yet readmitted.
+						if err := from.send(to.id, counter, ClassPGBroadcast); err != nil && !errors.Is(err, ErrNodeNotManaged) {
+							t.Errorf("send: %v", err)
+							return
+						}
+						time.Sleep(50 * time.Microsecond)
+					}
+				}()
+			}
+			require.Eventually(t, func() bool { return len(a.tl.snapshot()) > 50 && len(b.tl.snapshot()) > 50 }, 5*time.Second, time.Millisecond)
+			park.Store(true)
+			<-parked
+			a.publish(cluster.NodeLeft, b.info())
+			a.publish(cluster.NodeJoined, b.info())
+			require.Eventually(t, func() bool {
+				_, s := a.manager.nodeStates.GetNodeConnection(b.id)
+				return s == StateConnected && a.sessionID(b.id) != 0
+			}, 5*time.Second, time.Millisecond)
+			time.Sleep(20 * time.Millisecond)
+			close(release)
+			require.Eventually(t, func() bool {
+				_, fa := freshSeen.Load(a.id)
+				_, fb := freshSeen.Load(b.id)
+				return fa && fb
+			}, 10*time.Second, time.Millisecond)
+			time.Sleep(100 * time.Millisecond)
+			close(stop)
+			senders.Wait()
+
+			for _, n := range []*resetNode{a, b} {
+				entries := n.tl.snapshot()
+
+				freshAt, downs := -1, 0
+				for i, e := range entries {
+					if e.down && e.watcher == freshWatcher(n) {
+						t.Fatalf("%s: the ended session's down hit a monitor made by fresh traffic", n.id)
+					}
+					if !e.down && e.watcher == freshWatcher(n) {
+						freshAt = i
+					}
+					if e.down {
+						downs++
+						require.Equal(t, -1, freshAt, "%s: a down of the ended session followed a fresh message", n.id)
+					}
+				}
+				require.GreaterOrEqual(t, freshAt, 0)
+				require.Equal(t, 1, downs, "%s: the old monitor receives exactly one down", n.id)
+			}
+		}()
+	}
+}
+
+// A sequence gap is a session failure, not a dead link: the receiving side
+// ends the session and signals the peer down, the peer ends its session too,
+// and fresh traffic flows again in both directions.
+func TestSequenceGapEndsSessionAndRecovers(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	a := startResetNode(ctx, t, "node-a", "node-b")
+	b := startResetNode(ctx, t, "node-b", "node-a")
+	a.publish(cluster.NodeJoined, b.info())
+	b.publish(cluster.NodeJoined, a.info())
+	requireLinked(t, &trafficNode{manager: a.manager, id: a.id}, &trafficNode{manager: b.manager, id: b.id})
+	require.NoError(t, b.send(a.id, 1, ClassRaftControl))
+	require.Eventually(t, func() bool { return len(a.tl.snapshot()) == 1 }, 5*time.Second, time.Millisecond)
+
+	// B skips a sequence number: the next frame arrives with a gap.
+	state := b.manager.nodeStates.GetNodeState(a.id)
+	state.queueMu.Lock()
+	state.session.sendNext++
+	state.queueMu.Unlock()
+	require.NoError(t, b.send(a.id, 2, ClassRaftControl))
+
+	require.Eventually(t, func() bool { return a.tl.downs() == 1 && b.tl.downs() == 1 }, 10*time.Second, time.Millisecond)
+	requireFreshTraffic(t, b, a)
+	requireFreshTraffic(t, a, b)
+	require.Equal(t, 1, a.tl.downs())
+	require.Equal(t, 1, b.tl.downs())
+}
+
+// A departure breaks local monitors of the node's processes whether or not a
+// session with the node ever connected.
+func TestDepartureWithoutConnectedSessionBreaksMonitors(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Managed, dialed, never connected.
+	a := startResetNode(ctx, t, "node-a", "node-b")
+	unreachable := cluster.NodeInfo{ID: "node-b", Addr: "127.0.0.1", Meta: cluster.NodeMeta{
+		MetadataPort:            strconv.Itoa(closedLocalPort(t)),
+		cluster.MetaIncarnation: "5",
+	}}
+	a.publish(cluster.NodeJoined, unreachable)
+	require.Eventually(t, func() bool { return a.manager.IsManaged("node-b") }, 2*time.Second, time.Millisecond)
+	a.publish(cluster.NodeLeft, unreachable)
+	require.Eventually(t, func() bool { return a.tl.downs() == 1 }, 5*time.Second, time.Millisecond)
+
+	// Never managed at all.
+	c := startResetNode(ctx, t, "node-c", "node-d")
+	c.publish(cluster.NodeLeft, cluster.NodeInfo{ID: "node-d"})
+	require.Eventually(t, func() bool { return c.tl.downs() == 1 }, 5*time.Second, time.Millisecond)
 }

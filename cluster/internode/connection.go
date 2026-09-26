@@ -23,7 +23,6 @@ import (
 
 var (
 	ErrConnectionClosed = errors.New("internode: connection is closed")
-	ErrMessageTooLarge  = errors.New("internode: message exceeds max size")
 	ErrCleanShutdown    = errors.New("internode: clean shutdown")
 )
 
@@ -79,7 +78,11 @@ func (ce *ConnectionError) ShouldRetry() bool {
 	switch ce.Reason {
 	case ExitNetworkError, ExitPeerClosed:
 		return true
-	case ExitCleanShutdown, ExitProtocolError:
+	case ExitProtocolError:
+		// A violation fails the session, not the peer: a fresh session is
+		// dialed while the peer is a member.
+		return true
+	case ExitCleanShutdown:
 		return false
 	case ExitUnknown:
 		return false
@@ -259,11 +262,20 @@ func (c *NodeConnection) Run(handler func(class Class, msg []byte)) *ConnectionE
 
 	// Inline read pump on the caller's goroutine. The session learns of the
 	// live reader so an end signal waits until no frame can be delivered.
+	// Nothing of this session is delivered before the end of the session it
+	// replaced has been signaled. A protocol violation on the stream fails
+	// the session; the reader's stop then signals it.
 	var readErr *ConnectionError
-	if c.link.beginRead() {
+	switch {
+	case !c.link.awaitPredecessor(ctx.Done()):
+		readErr = &ConnectionError{Reason: ExitCleanShutdown, Err: ErrCleanShutdown}
+	case c.link.beginRead():
 		readErr = c.readLoop(ctx, handler)
+		if readErr != nil && readErr.Reason == ExitProtocolError {
+			c.link.failSession()
+		}
 		c.link.endRead()
-	} else {
+	default:
 		readErr = &ConnectionError{Reason: ExitCleanShutdown, Err: errSessionEnded}
 	}
 	// Attribute the reader's error only if the reader is the FIRST cause:
@@ -469,9 +481,6 @@ func (c *NodeConnection) readFailure(ctx context.Context, err error) *Connection
 		}
 		return &ConnectionError{Reason: ExitPeerClosed, Err: err}
 	}
-	if errors.Is(err, ErrMessageTooLarge) {
-		return &ConnectionError{Reason: ExitProtocolError, Err: err}
-	}
 	var perr protocolError
 	if errors.As(err, &perr) {
 		return &ConnectionError{Reason: ExitProtocolError, Err: perr}
@@ -548,10 +557,10 @@ func readFrame(r io.Reader, maxMessageSize uint32) (frame, error) {
 		return frame{}, protocolError(fmt.Sprintf("class %s frame with sequence %d", f.class, f.seq))
 	}
 	if f.class == ClassSurface && size > MaxSurfaceFrameSize {
-		return frame{}, NewMessageSizeExceedsMaxError(int(size), MaxSurfaceFrameSize)
+		return frame{}, protocolError(fmt.Sprintf("surface frame of %d bytes exceeds %d", size, MaxSurfaceFrameSize))
 	}
 	if size > maxMessageSize {
-		return frame{}, NewMessageSizeExceedsMaxError(int(size), int(maxMessageSize))
+		return frame{}, protocolError(fmt.Sprintf("frame of %d bytes exceeds %d", size, maxMessageSize))
 	}
 
 	if size == 0 {

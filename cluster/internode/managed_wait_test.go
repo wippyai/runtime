@@ -19,7 +19,7 @@ func TestContextSendWaitsForDiscoveredPeerRegistration(t *testing.T) {
 	cfg.Logger = zap.NewNop()
 	m := NewConnectionManager(cfg, nil).(*manager)
 	membership := &mockMembership{nodes: []cluster.NodeInfo{{ID: "peer"}}}
-	service := NewService(zap.NewNop(), m, &mockCodec{encoded: []byte("once")}, nil, nil, membership)
+	service := NewService(zap.NewNop(), m, &mockCodec{encoded: []byte("once")}, nil, ignoreSessionEnd, nil, membership)
 	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 	defer cancel()
 	pkg := relay.NewServicePackage("local", "host", "peer", "remote", "request")
@@ -45,7 +45,7 @@ func TestContextSendDiscoveryWaitPreservesCallerOwnership(t *testing.T) {
 			m := NewConnectionManager(cfg, nil).(*manager)
 			m.ctx, m.cancel = context.WithCancel(t.Context())
 			defer m.cancel()
-			service := NewService(zap.NewNop(), m, &mockCodec{}, nil, nil, &mockMembership{nodes: []cluster.NodeInfo{{ID: "peer"}}})
+			service := NewService(zap.NewNop(), m, &mockCodec{}, nil, ignoreSessionEnd, nil, &mockMembership{nodes: []cluster.NodeInfo{{ID: "peer"}}})
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
 			pkg := relay.NewServicePackage("local", "host", "peer", "remote", "request")
@@ -78,7 +78,7 @@ func TestContextSendUnknownPeerDoesNotWaitOrCreateState(t *testing.T) {
 	cfg := insecureManagerConfig()
 	cfg.Logger = zap.NewNop()
 	m := NewConnectionManager(cfg, nil).(*manager)
-	service := NewService(zap.NewNop(), m, &mockCodec{}, nil, nil, &mockMembership{})
+	service := NewService(zap.NewNop(), m, &mockCodec{}, nil, ignoreSessionEnd, nil, &mockMembership{})
 	pkg := relay.NewServicePackage("local", "host", "unknown", "remote", "request")
 	defer relay.ReleasePackage(pkg)
 	require.ErrorIs(t, service.SendContext(t.Context(), pkg), ErrNodeNotManaged)
@@ -93,7 +93,7 @@ func TestManagedWaitCannotResurrectDepartedPeer(t *testing.T) {
 	m.RemoveManagedNode("departed", 0)
 	// Membership can still contain the departed peer; only its subscriber may
 	// restore transport state. The send must expire without creating it.
-	service := NewService(zap.NewNop(), m, &mockCodec{}, nil, nil, &mockMembership{nodes: []cluster.NodeInfo{{ID: "departed"}}})
+	service := NewService(zap.NewNop(), m, &mockCodec{}, nil, ignoreSessionEnd, nil, &mockMembership{nodes: []cluster.NodeInfo{{ID: "departed"}}})
 	pkg := relay.NewServicePackage("local", "host", "departed", "remote", "request")
 	defer relay.ReleasePackage(pkg)
 	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Millisecond)

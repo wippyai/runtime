@@ -22,11 +22,13 @@ import (
 	payloadapi "github.com/wippyai/runtime/api/payload"
 	relayapi "github.com/wippyai/runtime/api/relay"
 	metricscfg "github.com/wippyai/runtime/api/service/metrics"
+	topapi "github.com/wippyai/runtime/api/topology"
 	"github.com/wippyai/runtime/cluster/internode"
 	"github.com/wippyai/runtime/service/metrics"
 	"github.com/wippyai/runtime/system/eventbus"
 	"github.com/wippyai/runtime/system/payload"
 	"github.com/wippyai/runtime/system/relay"
+	"github.com/wippyai/runtime/system/topology"
 	"go.uber.org/zap"
 )
 
@@ -81,7 +83,9 @@ func checkClusterBootListener(t *testing.T, offlineSeed bool, source any, wantLo
 	ctx = payloadapi.WithTranscoder(ctx, payload.NewTranscoder())
 	relayNode := relay.NewNode("listener-proof")
 	ctx = relayapi.WithNode(ctx, relayNode)
-	ctx = relayapi.WithRouter(ctx, relay.NewRouter(relayNode, nil))
+	router := relay.NewRouter(relayNode, nil)
+	ctx = relayapi.WithRouter(ctx, router)
+	ctx = topapi.WithTopology(ctx, topology.NewTopology(router, relayNode.ID()))
 	collector := metrics.NewCollector(metricscfg.Config{})
 	defer collector.Close()
 	ctx = metricsapi.WithCollector(ctx, collector)

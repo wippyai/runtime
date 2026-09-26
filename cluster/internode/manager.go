@@ -477,7 +477,7 @@ func (m *manager) RemoveManagedNode(nodeID cluster.NodeID, incarnation uint64) {
 				zap.String("node", nodeID))
 			return
 		}
-		m.nodeStates.nodeStates.CompareAndDelete(nodeID, state)
+		m.nodeStates.detach(nodeID, state)
 		state.queueMu.Unlock()
 	}
 	m.logger.Info("Removing managed node", zap.String("node", nodeID))
@@ -485,12 +485,20 @@ func (m *manager) RemoveManagedNode(nodeID cluster.NodeID, incarnation uint64) {
 		loop.cancel()
 		delete(m.controlLoops, nodeID)
 	}
+
+	var settled chan struct{}
+	if state == nil {
+		// No session exists; the departure is still signaled, and a state
+		// admitted meanwhile delivers nothing before it is.
+		settled = make(chan struct{})
+		m.nodeStates.departed.Store(nodeID, (<-chan struct{})(settled))
+	}
 	m.controlLoopsMu.Unlock()
 
 	// Close connections and discard the session without holding the
 	// lifecycle lock.
 	if state == nil {
-		m.nodeStates.signalSessionEnd(nodeID)
+		m.nodeStates.signalSessionEnd(nodeID, nil, settled)
 		return
 	}
 	m.nodeStates.closeDetachedNodeState(nodeID, state)

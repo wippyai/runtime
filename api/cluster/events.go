@@ -18,12 +18,6 @@ const (
 	// NodeUpdated indicates that a node's metadata has changed.
 	NodeUpdated event.Kind = "node.updated"
 
-	// NodeSessionEnded is published by the internode transport after its
-	// session with a node has ended and no further frame from that session
-	// is delivered. Local links and monitors of the node's processes are
-	// broken on this signal. It is not a membership decision.
-	NodeSessionEnded event.Kind = "node.session.ended"
-
 	// KVPut accompanies a successful key creation or update.
 	KVPut event.Kind = "kv.put"
 

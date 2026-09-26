@@ -283,7 +283,7 @@ func TestConnectionError_ShouldRetry(t *testing.T) {
 		{"NetworkError should retry", ExitNetworkError, true},
 		{"PeerClosed should retry", ExitPeerClosed, true},
 		{"CleanShutdown should not retry", ExitCleanShutdown, false},
-		{"ProtocolError should not retry", ExitProtocolError, false},
+		{"ProtocolError fails the session and retries", ExitProtocolError, true},
 		{"Unknown should not retry", ExitUnknown, false},
 	}
 

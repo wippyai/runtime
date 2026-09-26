@@ -33,11 +33,10 @@ func (c *linkDownCounter) Send(pkg *relayapi.Package) error {
 	return nil
 }
 
-// Local monitors of a node's processes break when the transport reports the
-// node's session ended. A membership departure alone does not break them:
-// the transport ends the session and reports it once no further frame of
-// that session can be delivered.
-func TestTopologyListenerBreaksMonitorsOnSessionEnd(t *testing.T) {
+// The listener breaks monitors of a deleted relay peer. Cluster nodes are
+// left to the internode transport, which breaks them synchronously when a
+// session ends; a membership departure alone does not break them here.
+func TestTopologyListenerBreaksMonitorsOfDeletedPeers(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	bus := eventbus.NewBus()
@@ -51,12 +50,9 @@ func TestTopologyListenerBreaksMonitorsOnSessionEnd(t *testing.T) {
 	require.NoError(t, listener.Start(ctx))
 	defer func() { require.NoError(t, listener.Stop(ctx)) }()
 
-	publish := func(kind event.Kind) {
-		bus.Send(ctx, event.Event{System: cluster.System, Kind: kind, Path: "peer",
-			Data: cluster.NodeEvent{Node: cluster.NodeInfo{ID: "peer"}}})
-	}
-	publish(cluster.NodeLeft)
+	bus.Send(ctx, event.Event{System: cluster.System, Kind: cluster.NodeLeft, Path: "peer",
+		Data: cluster.NodeEvent{Node: cluster.NodeInfo{ID: "peer"}}})
 	require.Never(t, func() bool { return downs.n.Load() > 0 }, 100*time.Millisecond, time.Millisecond)
-	publish(cluster.NodeSessionEnded)
+	bus.Send(ctx, event.Event{System: relayapi.System, Kind: relayapi.PeerDelete, Path: "peer"})
 	require.Eventually(t, func() bool { return downs.n.Load() == 1 }, 2*time.Second, time.Millisecond)
 }

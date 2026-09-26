@@ -22,6 +22,7 @@ import (
 	metricsapi "github.com/wippyai/runtime/api/metrics"
 	"github.com/wippyai/runtime/api/payload"
 	relayapi "github.com/wippyai/runtime/api/relay"
+	topapi "github.com/wippyai/runtime/api/topology"
 	metricsboot "github.com/wippyai/runtime/boot/components/metrics"
 	"github.com/wippyai/runtime/cluster/internode"
 	"github.com/wippyai/runtime/cluster/membership"
@@ -129,8 +130,10 @@ func Cluster() boot.Component {
 	}
 
 	return boot.New(boot.P{
-		Name:      ClusterName,
-		DependsOn: []boot.Name{metricsboot.Name},
+		Name: ClusterName,
+		// Topology breaks links and monitors when an internode session ends,
+		// synchronously with delivery, so it must exist first.
+		DependsOn: []boot.Name{metricsboot.Name, TopologyName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			lifecycle.Lock()
 			defer lifecycle.Unlock()
@@ -177,6 +180,11 @@ func Cluster() boot.Component {
 			}
 			if node.ID() != nodeName {
 				return ctx, fmt.Errorf("cluster.name %q must match relay.node_name %q", nodeName, node.ID())
+			}
+
+			nodeExits, ok := topapi.GetTopology(ctx).(topapi.NodeExitHandler)
+			if !ok {
+				return ctx, ErrTopologyNotAvailable
 			}
 
 			joinAddrs := clusterSeedAddrs(clusterCfg)
@@ -344,11 +352,17 @@ func Cluster() boot.Component {
 			}
 
 			// Create internode service
+			// An ended session breaks local links and monitors of the node's
+			// processes before any frame of a later session is delivered.
+			sessionEnded := func(id clusterapi.NodeID) {
+				nodeExits.HandleNodeExit(id, errNodeDisconnected)
+			}
 			internodeSvc = internode.NewService(
 				logger.Named("internode"),
 				connMgr,
 				messageCodec,
 				pkgCallback,
+				sessionEnded,
 				bus,
 				membershipSvc,
 			)

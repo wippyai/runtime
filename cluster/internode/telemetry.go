@@ -38,7 +38,7 @@ func newTelemetry(coll metrics.Collector) *telemetry {
 	coll.CounterAdd("internode_state_evicted_total", 0, metrics.Labels{
 		"reason": "orphan",
 	})
-	for _, reason := range []string{sessionEndRemoved, sessionEndPeerRestart, sessionEndPeerReset} {
+	for _, reason := range []string{sessionEndRemoved, sessionEndPeerRestart, sessionEndPeerReset, sessionEndProtocol} {
 		coll.CounterAdd("internode_session_ended_total", 0, metrics.Labels{"reason": reason})
 	}
 	return t
