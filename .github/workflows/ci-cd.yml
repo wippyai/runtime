@@ -118,14 +118,14 @@ jobs:
         if: matrix.os != 'windows-latest'
         env:
           GORACE: halt_on_error=1
-        run: go test -race -count=1 ./service/exec/native/...
+        run: go test -race -count=1 ./api/service/exec/... ./service/exec/native/...
 
       - name: Run native exec tests (Windows)
         if: matrix.os == 'windows-latest'
         shell: msys2 {0}
         env:
           GORACE: halt_on_error=1
-        run: go test -race -count=1 ./service/exec/native/...
+        run: go test -race -count=1 ./api/service/exec/... ./service/exec/native/...
 
   test-native-app:
     name: Test native Wippy Lua application

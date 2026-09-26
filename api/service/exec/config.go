@@ -4,11 +4,14 @@ package exec
 
 // NativeExecutorConfig defines configuration for native process execution
 type NativeExecutorConfig struct {
-	// Default working directory for processes
-	DefaultWorkDir string `json:"default_work_dir"`
-
 	// Default environment variables (always extended, never replaced)
 	DefaultEnv map[string]string `json:"default_env"`
+
+	// Confine is the entry-owned authority ceiling for every launched process.
+	Confine *Confinement `json:"confine,omitempty"`
+
+	// Default working directory for processes
+	DefaultWorkDir string `json:"default_work_dir"`
 
 	// Command whitelist - if set, only commands in this list will be allowed
 	CommandWhitelist []string `json:"command_whitelist"`

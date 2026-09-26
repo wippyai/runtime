@@ -26,6 +26,12 @@ var ErrDuplicateMountTarget = apierror.New(apierror.Invalid, "duplicate process 
 
 var ErrMountsUnsupported = apierror.New(apierror.Unavailable, "process mounts are not supported by this executor").WithRetryable(apierror.False)
 
+// ErrConfineUnsupported is returned before target execution whenever a
+// requested confinement guarantee has no verified enforcement path.
+var ErrConfineUnsupported = apierror.New(apierror.Unavailable, "requested process confinement is unavailable").
+	WithRetryable(apierror.False).
+	WithDetails(attrs.NewBagFrom(map[string]any{"code": "CONFINE_UNSUPPORTED", "field": "confine"}))
+
 // NewInvalidMountError reports a mount that cannot be bound, keeping
 // ErrInvalidMount as the cause so callers match the condition.
 func NewInvalidMountError(detail string) apierror.Error {

@@ -21,6 +21,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/service/exec"
 	serviceexec "github.com/wippyai/runtime/service/exec"
 	mocklogger "github.com/wippyai/runtime/tests/mock"
@@ -97,6 +98,21 @@ func TestNativeExecutorRejectsProcessMounts(t *testing.T) {
 	assert.ErrorIs(t, err, exec.ErrMountsUnsupported)
 }
 
+func TestNativeConfinementFailsClosedUntilEnforcementIsInstalled(t *testing.T) {
+	baseline := &exec.Confinement{WorkDirRoots: []string{"/tmp"}, Network: "none"}
+	factory := NewExecutorFactory(zap.NewNop())
+	_, err := factory.CreateExecutor(registry.ID{}, &exec.NativeExecutorConfig{Confine: baseline})
+	require.ErrorIs(t, err, exec.ErrConfineUnsupported)
+
+	executor := NewNativeExecutor(zap.NewNop(), &exec.NativeExecutorConfig{Confine: baseline})
+	_, err = executor.NewProcess("true", exec.ProcessOptions{})
+	require.ErrorIs(t, err, exec.ErrConfineUnsupported)
+
+	executor = NewNativeExecutor(zap.NewNop(), &exec.NativeExecutorConfig{})
+	_, err = executor.NewProcess("true", exec.ProcessOptions{Confine: &exec.ConfinementPatch{}})
+	require.ErrorIs(t, err, exec.ErrConfineUnsupported)
+}
+
 func TestPTYWaitReleasesMasterFile(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("PTY test requires Unix")
@@ -137,7 +153,7 @@ func TestPTYWaitLeavesAcquiredOutputForCallerToDrain(t *testing.T) {
 	case waitErr := <-waited:
 		require.NoError(t, waitErr)
 	case <-time.After(5 * time.Second):
-		state, _ := osexec.Command("ps", "-p", strconv.Itoa(process.pid), "-o", "pid,ppid,stat,command").CombinedOutput()
+		state, _ := osexec.CommandContext(t.Context(), "ps", "-p", strconv.Itoa(process.pid), "-o", "pid,ppid,stat,command").CombinedOutput()
 		process.Stop()
 		t.Fatalf("PTY child did not exit: %s", state)
 	}

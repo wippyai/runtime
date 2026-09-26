@@ -38,6 +38,7 @@ const (
 type Executor struct {
 	log              *zap.Logger
 	defaultEnv       map[string]string
+	confine          *execapi.Confinement
 	defaultWD        string
 	commandWhitelist []string
 	processGroup     bool
@@ -51,6 +52,7 @@ func NewNativeExecutor(log *zap.Logger, config *execapi.NativeExecutorConfig) *E
 		defaultWD:        config.DefaultWorkDir,
 		commandWhitelist: config.CommandWhitelist,
 		processGroup:     config.ProcessGroup,
+		confine:          config.Confine,
 	}
 }
 
@@ -59,6 +61,9 @@ func (e *Executor) NewProcess(cmd string, options execapi.ProcessOptions) (execa
 	options, err := options.Clone()
 	if err != nil {
 		return nil, err
+	}
+	if e.confine != nil || options.Confine != nil {
+		return nil, execapi.ErrConfineUnsupported
 	}
 	if len(options.Mounts) > 0 {
 		return nil, execapi.ErrMountsUnsupported
