@@ -530,7 +530,7 @@ func (c *linuxConfinementLaunch) Start(process *ProcessExecutor) error {
 			_ = c.group.Remove()
 		}
 		c.removeRoot()
-		if errors.Is(err, syscall.EPERM) || errors.Is(err, syscall.ENOSYS) {
+		if errors.Is(err, syscall.EPERM) || errors.Is(err, syscall.EACCES) || errors.Is(err, syscall.ENOSYS) {
 			return execapi.ErrConfineUnsupported.WithCause(err)
 		}
 		return execapi.ErrConfineSetup.WithCause(err)

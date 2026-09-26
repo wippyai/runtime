@@ -34,6 +34,12 @@ func skipConfinementUnavailable(t *testing.T, message string, err error) {
 	t.Skipf("%s: %v", message, err)
 }
 
+func confinementUnavailable(err error) bool {
+	return errors.Is(err, syscall.EPERM) ||
+		errors.Is(err, syscall.EACCES) ||
+		errors.Is(err, execapi.ErrConfineUnsupported)
+}
+
 func TestConfinedEnvironmentRejectsUnlistedAndPinnedInputs(t *testing.T) {
 	policy := &confinement.Environment{
 		Allow: []string{"LANG"},
@@ -132,7 +138,7 @@ func TestConfinedPrivateHomeAndTemp(t *testing.T) {
 	executor, err := NewExecutorFactory(zap.NewNop()).CreateExecutor(registry.ID{},
 		&execapi.NativeExecutorConfig{Confine: baseline})
 	if err != nil {
-		if errors.Is(err, syscall.EPERM) {
+		if confinementUnavailable(err) {
 			skipConfinementUnavailable(t, "confinement prerequisites unavailable", err)
 		}
 		t.Fatal(err)
@@ -143,7 +149,7 @@ func TestConfinedPrivateHomeAndTemp(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := process.Start(); err != nil {
-		if errors.Is(err, syscall.EPERM) {
+		if confinementUnavailable(err) {
 			skipConfinementUnavailable(t, "confinement namespace unavailable", err)
 		}
 		t.Fatal(err)
@@ -199,7 +205,7 @@ func TestNativeConfinedLaunchUsesEntryCeiling(t *testing.T) {
 	factory := NewExecutorFactory(zap.NewNop())
 	executor, err := factory.CreateExecutor(registry.ID{}, &execapi.NativeExecutorConfig{Confine: baseline})
 	if err != nil {
-		if errors.Is(err, syscall.EPERM) {
+		if confinementUnavailable(err) {
 			skipConfinementUnavailable(t, "confinement prerequisites unavailable", err)
 		}
 		t.Fatal(err)
@@ -215,7 +221,7 @@ func TestNativeConfinedLaunchUsesEntryCeiling(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := process.Start(); err != nil {
-		if errors.Is(err, syscall.EPERM) {
+		if confinementUnavailable(err) {
 			skipConfinementUnavailable(t, "confinement namespace unavailable", err)
 		}
 		t.Fatal(err)
@@ -274,7 +280,7 @@ func TestNativeConfinedNetworkOnlyKeepsFilesystemUnrestricted(t *testing.T) {
 			WorkDirRoots: []string{workspace}, Network: "none",
 		}})
 	if err != nil {
-		if errors.Is(err, syscall.EPERM) {
+		if confinementUnavailable(err) {
 			skipConfinementUnavailable(t, "confinement prerequisites unavailable", err)
 		}
 		t.Fatal(err)
@@ -286,7 +292,7 @@ func TestNativeConfinedNetworkOnlyKeepsFilesystemUnrestricted(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := process.Start(); err != nil {
-		if errors.Is(err, syscall.EPERM) {
+		if confinementUnavailable(err) {
 			skipConfinementUnavailable(t, "confinement namespace unavailable", err)
 		}
 		t.Fatal(err)
@@ -336,7 +342,7 @@ func TestNativeConfinedLaunchCanFullyNarrowUnrestrictedFilesystem(t *testing.T) 
 			WorkDirRoots: []string{allowed}, Network: "none",
 		}})
 	if err != nil {
-		if errors.Is(err, syscall.EPERM) {
+		if confinementUnavailable(err) {
 			skipConfinementUnavailable(t, "confinement prerequisites unavailable", err)
 		}
 		t.Fatal(err)
@@ -356,7 +362,7 @@ func TestNativeConfinedLaunchCanFullyNarrowUnrestrictedFilesystem(t *testing.T) 
 		t.Fatal(err)
 	}
 	if err := process.Start(); err != nil {
-		if errors.Is(err, syscall.EPERM) {
+		if confinementUnavailable(err) {
 			skipConfinementUnavailable(t, "confinement namespace unavailable", err)
 		}
 		t.Fatal(err)
@@ -399,7 +405,7 @@ func TestNativeConfinedPrivateHomeWithoutFilesystemPolicy(t *testing.T) {
 			WorkDirRoots: []string{workspace}, Home: "private",
 		}})
 	if err != nil {
-		if errors.Is(err, syscall.EPERM) {
+		if confinementUnavailable(err) {
 			skipConfinementUnavailable(t, "confinement prerequisites unavailable", err)
 		}
 		t.Fatal(err)
@@ -409,7 +415,7 @@ func TestNativeConfinedPrivateHomeWithoutFilesystemPolicy(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := process.Start(); err != nil {
-		if errors.Is(err, syscall.EPERM) {
+		if confinementUnavailable(err) {
 			skipConfinementUnavailable(t, "confinement namespace unavailable", err)
 		}
 		t.Fatal(err)
@@ -511,7 +517,7 @@ func TestNativeConfinedDynamicShellThroughMergedUsrAliases(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := process.Start(); err != nil {
-		if errors.Is(err, syscall.EPERM) {
+		if confinementUnavailable(err) {
 			skipConfinementUnavailable(t, "required namespace unavailable", err)
 		}
 		if strings.Contains(err.Error(), "bind pinned directory") && strings.Contains(err.Error(), "invalid argument") {
@@ -581,7 +587,7 @@ func TestNativeConfinedTreeDiesWithRoot(t *testing.T) {
 				t.Fatal(err)
 			}
 			if err := process.Start(); err != nil {
-				if errors.Is(err, syscall.EPERM) {
+				if confinementUnavailable(err) {
 					skipConfinementUnavailable(t, "required namespace unavailable", err)
 				}
 				t.Fatal(err)
@@ -682,7 +688,7 @@ func TestNativeConfinedIdentityAndDefaultSignalSemantics(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := process.Start(); err != nil {
-		if errors.Is(err, syscall.EPERM) {
+		if confinementUnavailable(err) {
 			skipConfinementUnavailable(t, "required namespace unavailable", err)
 		}
 		t.Fatal(err)
@@ -760,7 +766,7 @@ func TestNativeConfinedPTYResize(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := process.Start(); err != nil {
-		if errors.Is(err, syscall.EPERM) {
+		if confinementUnavailable(err) {
 			skipConfinementUnavailable(t, "required namespace unavailable", err)
 		}
 		t.Fatal(err)

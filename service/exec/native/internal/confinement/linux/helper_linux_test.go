@@ -6,11 +6,9 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"syscall"
 	"testing"
 )
 
@@ -70,18 +68,15 @@ func TestSeparateHelperExecsOnlyAfterConfinement(t *testing.T) {
 	}
 	launch, err := PrepareLaunch(helperFile, policy, []*os.File{grant}, workdir, true)
 	if err != nil {
+		skipHostConfinementUnavailable(t, "required confinement setup unavailable", err)
 		t.Fatal(err)
 	}
 	defer launch.Close()
 	var output bytes.Buffer
 	launch.Command.Stdout = &output
 	launch.Command.Stderr = &output
-	if err := launch.Start(func(command *exec.Cmd) error { return command.Start() }, nil); errors.Is(err, syscall.EPERM) {
-		if os.Getenv("WIPPY_REQUIRE_CONFINEMENT") == "1" {
-			t.Fatalf("required namespaces unavailable: %v", err)
-		}
-		t.Skipf("required namespaces unavailable: %v", err)
-	} else if err != nil {
+	if err := launch.Start(func(command *exec.Cmd) error { return command.Start() }, nil); err != nil {
+		skipHostConfinementUnavailable(t, "required namespaces unavailable", err)
 		t.Fatal(err)
 	}
 	err = launch.Command.Wait()

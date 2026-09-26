@@ -3,7 +3,6 @@
 package linux
 
 import (
-	"errors"
 	"net"
 	"os"
 	"os/exec"
@@ -46,10 +45,8 @@ func TestPrivateMountAndNetworkView(t *testing.T) {
 		GidMappingsEnableSetgroups: false,
 	}
 	output, err := command.CombinedOutput()
-	if errors.Is(err, syscall.EPERM) {
-		t.Skipf("user/mount/network namespaces unavailable: %v", err)
-	}
 	if err != nil {
+		skipHostConfinementUnavailable(t, "user/mount/network namespaces unavailable", err)
 		t.Fatalf("private mount child failed: %v\n%s", err, output)
 	}
 }
