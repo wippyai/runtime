@@ -23,6 +23,7 @@ import (
 // under the same incarnation). An ended session's frames are discarded and
 // never delivered; the manager signals its end.
 type session struct {
+	ring resendRing // guarded by NodeState.queueMu
 	// id identifies this node's side of the session.
 	id uint64
 	// peerIncarnation is the peer's process incarnation, zero until the first
@@ -34,7 +35,6 @@ type session struct {
 	// sendNext is the sequence number of the next drained frame. Guarded by
 	// NodeState.queueMu.
 	sendNext uint64
-	ring     resendRing // guarded by NodeState.queueMu
 	// acked is the peer's cumulative ack: every seq below it was delivered.
 	// Written under NodeState.queueMu; read lock-free on the ack fast path.
 	acked atomic.Uint64
@@ -256,11 +256,9 @@ const (
 // A different incarnation than the bound one means the peer restarted: the
 // old session ends and its incarnation is retired.
 func (nsm *NodeStateManager) bindPeerIncarnation(nodeID cluster.NodeID, state *NodeState, incarnation uint64) incarnationBinding {
-	if nsm.GetNodeState(nodeID) != state {
-		return incarnationRejected
-	}
 	state.queueMu.Lock()
-	if slices.Contains(state.retired, incarnation) {
+	// Removal detaches the state under this lock.
+	if nsm.GetNodeState(nodeID) != state || slices.Contains(state.retired, incarnation) {
 		state.queueMu.Unlock()
 		return incarnationRejected
 	}
@@ -275,13 +273,6 @@ func (nsm *NodeStateManager) bindPeerIncarnation(nodeID cluster.NodeID, state *N
 	state.queueMu.Unlock()
 	nsm.finishSessionEnd(nodeID, end)
 	return incarnationRestarted
-}
-
-// boundPeerIncarnation reports the peer incarnation state's session carries.
-func boundPeerIncarnation(state *NodeState) uint64 {
-	state.queueMu.Lock()
-	defer state.queueMu.Unlock()
-	return state.session.peerIncarnation
 }
 
 // resumeOutcome is the result of processing the peer's RESUME.

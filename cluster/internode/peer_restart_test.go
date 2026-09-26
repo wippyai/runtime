@@ -56,7 +56,7 @@ func (n *restartNode) snapshot() (received []string, ended []cluster.NodeID) {
 }
 
 // A peer restarting under the same node ID with a new incarnation ends the
-// session: frames queued for the old process are discarded and signalled,
+// session: frames queued for the old process are discarded and signaled,
 // and the new process receives only frames sent after the restart.
 func TestPeerRestartEndsSessionAndDiscardsItsFrames(t *testing.T) {
 	a := startRestartNode(t, "node-a", "node-b")

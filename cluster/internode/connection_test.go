@@ -21,11 +21,10 @@ import (
 // --- MOCK CONNECTION FOR DETERMINISTIC FAILURE INJECTION ---
 
 type mockConn struct {
-	writeErr error
-	reader   *io.PipeReader
-	writer   *io.PipeWriter
-	mu       sync.Mutex
-	closed   bool
+	reader *io.PipeReader
+	writer *io.PipeWriter
+	mu     sync.Mutex
+	closed bool
 }
 
 func newMockConnPair() (*mockConn, *mockConn) {
@@ -47,16 +46,14 @@ func (c *mockConn) SetDeadline(_ time.Time) error      { return nil }
 func (c *mockConn) SetReadDeadline(_ time.Time) error  { return nil }
 func (c *mockConn) SetWriteDeadline(_ time.Time) error { return nil }
 
+// Write does not hold the lock while blocked in the pipe, so Close can
+// always interrupt it.
 func (c *mockConn) Write(b []byte) (n int, err error) {
 	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.closed {
+	closed := c.closed
+	c.mu.Unlock()
+	if closed {
 		return 0, io.ErrClosedPipe
-	}
-	if c.writeErr != nil {
-		err := c.writeErr
-		c.writeErr = nil
-		return 0, err
 	}
 	return c.writer.Write(b)
 }
@@ -70,12 +67,6 @@ func (c *mockConn) Close() error {
 	_ = c.reader.Close()
 	_ = c.writer.Close()
 	return nil
-}
-
-func (c *mockConn) setWriteError(err error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.writeErr = err
 }
 
 // --- TEST SESSION SIDES ---

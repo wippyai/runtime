@@ -107,7 +107,7 @@ type resetNode struct {
 	id         cluster.NodeID
 }
 
-func startResetNode(t *testing.T, ctx context.Context, self, peer cluster.NodeID) *resetNode {
+func startResetNode(ctx context.Context, t *testing.T, self, peer cluster.NodeID) *resetNode {
 	t.Helper()
 	cfg := insecureManagerConfig()
 	cfg.LocalNodeID = self
@@ -195,8 +195,8 @@ func (n *resetNode) send(peer cluster.NodeID, counter uint64, class Class) error
 func TestOneSidedDepartureEndsSessionOnBothSides(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	a := startResetNode(t, ctx, "node-a", "node-b")
-	b := startResetNode(t, ctx, "node-b", "node-a")
+	a := startResetNode(ctx, t, "node-a", "node-b")
+	b := startResetNode(ctx, t, "node-b", "node-a")
 	a.publish(cluster.NodeJoined, b.info())
 	b.publish(cluster.NodeJoined, a.info())
 	requireLinked(t, &trafficNode{manager: a.manager, id: a.id}, &trafficNode{manager: b.manager, id: b.id})

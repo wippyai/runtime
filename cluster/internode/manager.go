@@ -461,27 +461,34 @@ func (m *manager) RemoveManagedNode(nodeID cluster.NodeID, incarnation uint64) {
 	// Cancel the control loop directly and remove it from the map.
 	// This is synchronous with respect to the map entry, preventing
 	// races where a new node with the same ID starts before the old
-	// loop has processed cmdKill. Handshake rebinding runs on the control
-	// loop, which cannot act on the state while this lock is held.
+	// loop has processed cmdKill.
 	m.controlLoopsMu.Lock()
 	state := m.nodeStates.GetNodeState(nodeID)
-	if state != nil && incarnation != 0 {
-		if bound := boundPeerIncarnation(state); bound != 0 && bound != incarnation {
+	if state != nil {
+		// The incarnation check and the detach hold the queue lock, which a
+		// handshake also holds while it rebinds the session to a restarted
+		// peer: either the rebinding is seen here, or the rebinding sees the
+		// state detached.
+		state.queueMu.Lock()
+		if bound := state.session.peerIncarnation; incarnation != 0 && bound != 0 && bound != incarnation {
+			state.queueMu.Unlock()
 			m.controlLoopsMu.Unlock()
 			m.logger.Info("Keeping session of restarted node on departure of its previous incarnation",
 				zap.String("node", nodeID))
 			return
 		}
+		m.nodeStates.nodeStates.CompareAndDelete(nodeID, state)
+		state.queueMu.Unlock()
 	}
 	m.logger.Info("Removing managed node", zap.String("node", nodeID))
 	if loop, exists := m.controlLoops[nodeID]; exists {
 		loop.cancel()
 		delete(m.controlLoops, nodeID)
 	}
-	state = m.nodeStates.detachNodeState(nodeID)
 	m.controlLoopsMu.Unlock()
 
-	// Close connections and drain old queues without holding the lifecycle lock.
+	// Close connections and discard the session without holding the
+	// lifecycle lock.
 	if state == nil {
 		m.nodeStates.signalSessionEnd(nodeID)
 		return
