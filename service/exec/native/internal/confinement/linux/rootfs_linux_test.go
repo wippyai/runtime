@@ -3,6 +3,8 @@
 package linux
 
 import (
+	"errors"
+	"fmt"
 	"net"
 	"os"
 	"os/exec"
@@ -14,6 +16,8 @@ import (
 
 	"golang.org/x/sys/unix"
 )
+
+const confinementUnavailableExitCode = 125
 
 func TestPrivateMountAndNetworkView(t *testing.T) {
 	allowed := t.TempDir()
@@ -46,6 +50,10 @@ func TestPrivateMountAndNetworkView(t *testing.T) {
 	}
 	output, err := command.CombinedOutput()
 	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == confinementUnavailableExitCode {
+			skipHostConfinementUnavailable(t, "user/mount/network namespaces unavailable", syscall.EPERM)
+		}
 		skipHostConfinementUnavailable(t, "user/mount/network namespaces unavailable", err)
 		t.Fatalf("private mount child failed: %v\n%s", err, output)
 	}
@@ -67,6 +75,10 @@ func TestPrivateMountViewChild(t *testing.T) {
 	if err := InstallMountView(root, []PinnedMount{{
 		Target: "/grant", FD: fd, ReadOnly: true, NoExec: true,
 	}}); err != nil {
+		if errors.Is(err, syscall.EPERM) || errors.Is(err, syscall.EACCES) {
+			_, _ = fmt.Fprintln(os.Stderr, "WIPPY_CONFINEMENT_UNAVAILABLE")
+			os.Exit(confinementUnavailableExitCode)
+		}
 		t.Fatal(err)
 	}
 	if data, err := os.ReadFile("/grant/visible"); err != nil || string(data) != "ok" {

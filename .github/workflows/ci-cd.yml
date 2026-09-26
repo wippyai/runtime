@@ -165,8 +165,8 @@ jobs:
           delegated="/sys/fs/cgroup/wippy-confine-ci"
           sudo mkdir -p "$delegated/runtime"
           sudo chown -R "$(id -u):$(id -g)" "$delegated"
-          printf '+memory +pids' > "$delegated/cgroup.subtree_control"
-          printf '%s' "$$" > "$delegated/runtime/cgroup.procs"
+          printf '+memory +pids' | sudo tee "$delegated/cgroup.subtree_control" >/dev/null
+          printf '%s' "$$" | sudo tee "$delegated/runtime/cgroup.procs" >/dev/null
           WIPPY_REQUIRE_CONFINEMENT=1 \
             WIPPY_REQUIRE_CONFINEMENT_CGROUP=1 \
             go test -race -count=1 ./service/exec/native/...
