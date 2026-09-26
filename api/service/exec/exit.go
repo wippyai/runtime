@@ -29,6 +29,13 @@ type ExitCoder interface {
 	ExitCode() int
 }
 
+// ExitSignaler is implemented by executors that observe Unix-style signal
+// termination without exposing an os/exec.ProcessState (for example, through
+// a namespace supervisor or a remote transport).
+type ExitSignaler interface {
+	ExitSignal() int
+}
+
 // ExitReporter is a Process that owns the reap of its child and can therefore
 // report the outcome more than once. Wait can only be performed once, so a
 // caller that has an ExitReporter must use it instead: several parts of a

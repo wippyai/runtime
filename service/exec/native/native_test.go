@@ -110,7 +110,7 @@ func TestNativeConfinementFailsClosedUntilEnforcementIsInstalled(t *testing.T) {
 
 	executor = NewNativeExecutor(zap.NewNop(), &exec.NativeExecutorConfig{})
 	_, err = executor.NewProcess("true", exec.ProcessOptions{Confine: &exec.ConfinementPatch{}})
-	require.ErrorIs(t, err, exec.ErrConfineUnsupported)
+	require.ErrorIs(t, err, exec.ErrConfineWiden)
 }
 
 func TestPTYWaitReleasesMasterFile(t *testing.T) {

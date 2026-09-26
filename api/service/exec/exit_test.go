@@ -16,6 +16,15 @@ type codedExit struct{ code int }
 func (e *codedExit) Error() string { return "exited" }
 func (e *codedExit) ExitCode() int { return e.code }
 
+type signaledExit struct {
+	code   int
+	signal int
+}
+
+func (e *signaledExit) Error() string   { return "signaled" }
+func (e *signaledExit) ExitCode() int   { return e.code }
+func (e *signaledExit) ExitSignal() int { return e.signal }
+
 func TestClassifyExitReportsCleanExit(t *testing.T) {
 	require.Equal(t, ExitStatus{}, ClassifyExit(nil))
 }
@@ -25,6 +34,14 @@ func TestClassifyExitReportsCodeFromExecutorError(t *testing.T) {
 
 	require.Equal(t, 137, status.Code)
 	require.Zero(t, status.Signal)
+	require.NoError(t, status.Err)
+}
+
+func TestClassifyExitReportsExecutorSignal(t *testing.T) {
+	status := ClassifyExit(&signaledExit{code: 143, signal: 15})
+
+	require.Equal(t, 143, status.Code)
+	require.Equal(t, 15, status.Signal)
 	require.NoError(t, status.Err)
 }
 

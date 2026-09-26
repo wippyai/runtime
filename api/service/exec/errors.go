@@ -32,6 +32,18 @@ var ErrConfineUnsupported = apierror.New(apierror.Unavailable, "requested proces
 	WithRetryable(apierror.False).
 	WithDetails(attrs.NewBagFrom(map[string]any{"code": "CONFINE_UNSUPPORTED", "field": "confine"}))
 
+var ErrConfineSetup = apierror.New(apierror.Unavailable, "process confinement setup failed").
+	WithRetryable(apierror.False).
+	WithDetails(attrs.NewBagFrom(map[string]any{"code": "CONFINE_SETUP", "field": "confine"}))
+
+var ErrConfineWiden = apierror.New(apierror.Invalid, "process confinement exceeds the executor entry").
+	WithRetryable(apierror.False).
+	WithDetails(attrs.NewBagFrom(map[string]any{"code": "CONFINE_WIDEN", "field": "confine"}))
+
+var ErrConfineDenied = apierror.New(apierror.PermissionDenied, "working directory is outside the executor entry").
+	WithRetryable(apierror.False).
+	WithDetails(attrs.NewBagFrom(map[string]any{"code": "CONFINE_DENIED", "field": "work_dir"}))
+
 var ErrInvalidConfinement = apierror.New(apierror.Invalid, "invalid process confinement").
 	WithRetryable(apierror.False).
 	WithDetails(attrs.NewBagFrom(map[string]any{"code": "CONFINE_INVALID"}))

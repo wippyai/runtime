@@ -145,6 +145,34 @@ jobs:
           SKIP_SQS_TESTS: "1"
         run: bash tests/app/test.sh
 
+  test-linux-confinement:
+    name: Linux confinement (required positive suite)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.27.0'
+          cache: true
+      - name: Create empty delegated parent and runtime leaf
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+          current="$(awk -F: '$1 == "0" { print $3 }' /proc/self/cgroup)"
+          test -n "$current"
+          delegated="/sys/fs/cgroup${current}/wippy-confine-ci"
+          sudo mkdir -p "$delegated/runtime"
+          sudo chown -R "$(id -u):$(id -g)" "$delegated"
+          printf '+memory +pids' > "$delegated/cgroup.subtree_control"
+          printf '%s' "$$" > "$delegated/runtime/cgroup.procs"
+          WIPPY_REQUIRE_CONFINEMENT=1 \
+            WIPPY_REQUIRE_CONFINEMENT_CGROUP=1 \
+            go test -race -count=1 ./service/exec/native/...
+
   postgres-registry:
     name: Test (PostgreSQL registry)
     runs-on: ubuntu-latest

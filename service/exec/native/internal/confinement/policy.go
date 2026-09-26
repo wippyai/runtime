@@ -18,6 +18,57 @@ var (
 	ErrWiden   = errors.New("confinement patch widens entry policy")
 )
 
+// These directories exist only in a launch's private mount namespace. The
+// prefix is reserved so a host bind grant can never alias either one.
+const (
+	PrivateRootPath = "/.wippy-confine-private"
+	PrivateHomePath = PrivateRootPath + "/home"
+	PrivateTempPath = PrivateRootPath + "/tmp"
+)
+
+// ExpandPrivatePaths gives placeholders stable, per-launch private-view names
+// before path algebra runs. The platform backend must create these objects
+// inside its private root; it must never bind matching host paths.
+func ExpandPrivatePaths(paths []string) []string {
+	out := make([]string, len(paths))
+	for i, path := range paths {
+		switch path {
+		case "{home}":
+			out[i] = PrivateHomePath
+		case "{tmp}":
+			out[i] = PrivateTempPath
+		default:
+			out[i] = path
+		}
+	}
+	return out
+}
+
+func ExpandPrivatePolicy(policy Policy) Policy {
+	policy = clonePolicy(policy)
+	if policy.FS != nil {
+		policy.FS.Read.Paths = ExpandPrivatePaths(policy.FS.Read.Paths)
+		policy.FS.Write.Paths = ExpandPrivatePaths(policy.FS.Write.Paths)
+		policy.FS.Exec.Paths = ExpandPrivatePaths(policy.FS.Exec.Paths)
+	}
+	return policy
+}
+
+func ExpandPrivatePatch(patch Patch) Patch {
+	if patch.FS == nil {
+		return patch
+	}
+	fs := *patch.FS
+	for _, access := range []**[]string{&fs.Read, &fs.Write, &fs.Exec} {
+		if *access != nil {
+			paths := ExpandPrivatePaths(**access)
+			*access = &paths
+		}
+	}
+	patch.FS = &fs
+	return patch
+}
+
 // Access is either unrestricted or limited to the listed canonical subtrees.
 // An empty restricted list denies the operation everywhere.
 type Access struct {
@@ -281,6 +332,16 @@ func effectiveFS(p Policy) Filesystem {
 		Write: Access{Unrestricted: true},
 		Exec:  Access{Unrestricted: true},
 	}
+}
+
+// EffectiveFilesystem returns a copied, normalized filesystem policy. The
+// platform backend uses it after Narrow to compile mount and Landlock grants.
+func (p Policy) EffectiveFilesystem() Filesystem {
+	fs := effectiveFS(p)
+	fs.Read.Paths = slices.Clone(fs.Read.Paths)
+	fs.Write.Paths = slices.Clone(fs.Write.Paths)
+	fs.Exec.Paths = slices.Clone(fs.Exec.Paths)
+	return fs
 }
 
 func union(a, b Access) Access {
