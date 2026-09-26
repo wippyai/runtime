@@ -102,6 +102,19 @@ func TestServiceConfig_Validate(t *testing.T) {
 			wantErr: true,
 			errMsg:  "invalid host: node:control",
 		},
+		{
+			name: "boot gate requires auto start",
+			config: ServiceConfig{
+				Process: registry.NewID("proc", "worker"),
+				HostID:  "node:worker1",
+				Lifecycle: supervisor.LifecycleConfig{
+					BootGate:  true,
+					AutoStart: false,
+				},
+			},
+			wantErr: true,
+			errMsg:  "boot_gate requires auto_start",
+		},
 	}
 
 	for _, tt := range tests {
@@ -115,6 +128,20 @@ func TestServiceConfig_Validate(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestServiceConfig_Validate_BootGateRequiresAutoStart(t *testing.T) {
+	cfg := ServiceConfig{
+		Process: registry.NewID("proc", "worker"),
+		HostID:  "node:worker1",
+		Lifecycle: supervisor.LifecycleConfig{
+			BootGate:  true,
+			AutoStart: false,
+		},
+	}
+	err := cfg.Validate()
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrBootGateRequiresAutoStart)
 }
 
 func TestServiceConfig_Equal(t *testing.T) {

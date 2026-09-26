@@ -5,6 +5,7 @@ package supervisor
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/wippyai/runtime/api/attrs"
@@ -203,21 +204,34 @@ func (svc *Service) monitorLoop(ctx context.Context, ch <-chan *relay.Package) {
 						continue
 					}
 
-					if event.Result != nil && event.Result.Error != nil {
-						if svc.gate != nil {
-							svc.gate.Fail(event.Result.Error)
-						}
-						select {
-						case svc.statusCh <- fmt.Errorf("process failed: %w", event.Result.Error):
-						default:
-						}
-					} else {
+					if event.Kind == topologyapi.Exit && event.Result != nil && event.Result.Error == nil {
 						if svc.gate != nil {
 							svc.gate.Ready()
 						}
 						select {
 						case svc.statusCh <- supervisor.ErrExit:
 						default:
+						}
+					} else {
+						if svc.gate != nil {
+							var gateErr error
+							if event.Result != nil && event.Result.Error != nil {
+								gateErr = event.Result.Error
+							} else {
+								gateErr = errors.New("process exited without return result")
+							}
+							svc.gate.Fail(gateErr)
+						}
+						if event.Result != nil && event.Result.Error != nil {
+							select {
+							case svc.statusCh <- fmt.Errorf("process failed: %w", event.Result.Error):
+							default:
+							}
+						} else {
+							select {
+							case svc.statusCh <- supervisor.ErrExit:
+							default:
+							}
 						}
 					}
 					return

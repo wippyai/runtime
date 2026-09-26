@@ -37,6 +37,10 @@ func (c *ServiceConfig) Validate() error {
 		return NewInvalidHostError(c.HostID)
 	}
 
+	if c.Lifecycle.BootGate && !c.Lifecycle.AutoStart {
+		return ErrBootGateRequiresAutoStart
+	}
+
 	return nil
 }
 

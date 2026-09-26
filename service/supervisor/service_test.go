@@ -462,8 +462,9 @@ func TestService_BootGate_ReturnOk(t *testing.T) {
 	go svc.monitorLoop(ctx, monitorCh)
 
 	exitEvent := &topologyapi.ExitEvent{
-		Kind: topologyapi.Exit,
-		From: pid.PID{UniqID: "child"},
+		Kind:   topologyapi.Exit,
+		From:   pid.PID{UniqID: "child"},
+		Result: &runtime.Result{},
 	}
 	pkg := relay.NewPackage(pid.PID{}, pid.PID{}, topologyapi.TopicEvents, payload.New(exitEvent))
 	monitorCh <- pkg
@@ -472,6 +473,38 @@ func TestService_BootGate_ReturnOk(t *testing.T) {
 
 	assert.Equal(t, int64(0), r.Pending())
 	require.NoError(t, r.Wait(context.Background()))
+}
+
+func TestService_BootGate_ExternalCancelOrKillFailsGate(t *testing.T) {
+	r := bootpkg.NewReadiness()
+	gate := r.RegisterGate("test:boot_service")
+
+	svc := newTestService()
+	svc.SetGate(gate)
+	svc.statusCh = make(chan any, 1)
+	svc.detachFn = func() {}
+	monitorCh := make(chan *relay.Package, 1)
+	ctx := context.Background()
+
+	go svc.monitorLoop(ctx, monitorCh)
+
+	// An external cancel or kill exit carries no Result (Result is nil).
+	exitEvent := &topologyapi.ExitEvent{
+		Kind:   topologyapi.Exit,
+		From:   pid.PID{UniqID: "child"},
+		Result: nil,
+	}
+	pkg := relay.NewPackage(pid.PID{}, pid.PID{}, topologyapi.TopicEvents, payload.New(exitEvent))
+	monitorCh <- pkg
+
+	time.Sleep(50 * time.Millisecond)
+
+	assert.Equal(t, int64(0), r.Pending())
+	waitErr := r.Wait(context.Background())
+	require.Error(t, waitErr)
+	var gateErr *bootpkg.GateError
+	require.True(t, errors.As(waitErr, &gateErr))
+	assert.Equal(t, "test:boot_service", gateErr.Service)
 }
 
 func TestService_BootGate_ReturnError(t *testing.T) {
