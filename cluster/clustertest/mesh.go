@@ -169,6 +169,21 @@ func (c *meshConn) SendToNode(target cluster.NodeID, data []byte, class internod
 	}
 }
 
+// SendConnected sends over the simulated link, which is connected exactly
+// when a send succeeds.
+func (c *meshConn) SendConnected(target cluster.NodeID, data []byte, class internode.Class) bool {
+	return c.SendToNode(target, data, class) == nil
+}
+
+// Link reports a simulated link to a reachable peer. The lower node ID dials,
+// as it does on real links.
+func (c *meshConn) Link(target cluster.NodeID) (cluster.Link, bool) {
+	if !c.mesh.reachable(c.self, target) {
+		return cluster.Link{}, false
+	}
+	return cluster.Link{Remote: target, Dialed: c.self < target}, true
+}
+
 func (c *meshConn) EnsureConnection(_ cluster.NodeID, _ string, _ int) {}
 func (c *meshConn) DisconnectFromNode(_ cluster.NodeID)                {}
 func (c *meshConn) ConnectedNodes() []cluster.NodeID                   { return nil }

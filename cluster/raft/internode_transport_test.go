@@ -54,6 +54,14 @@ func (c *raftTransportConn) SendToNode(nodeID cluster.NodeID, data []byte, class
 	recv(c.id, cp)
 	return nil
 }
+
+func (c *raftTransportConn) SendConnected(nodeID cluster.NodeID, data []byte, class internode.Class) bool {
+	return c.SendToNode(nodeID, data, class) == nil
+}
+
+func (c *raftTransportConn) Link(cluster.NodeID) (cluster.Link, bool) {
+	return cluster.Link{}, false
+}
 func (c *raftTransportConn) EnsureConnection(cluster.NodeID, string, int)     {}
 func (c *raftTransportConn) DisconnectFromNode(cluster.NodeID)                {}
 func (c *raftTransportConn) ConnectedNodes() []cluster.NodeID                 { return nil }

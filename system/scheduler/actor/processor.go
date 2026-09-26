@@ -23,9 +23,12 @@ import (
 // slot (whose Reset bumped the generation) rejects the push and a recycled pid
 // never mis-delivers to a different process.
 type signalRef struct {
-	pid    pid.PID
-	source registry.ID
-	gen    uint64
+	// terminate cancels this incarnation's context. It stays bound to the
+	// incarnation after its pooled slot is reused.
+	terminate context.CancelFunc
+	pid       pid.PID
+	source    registry.ID
+	gen       uint64
 }
 
 type inspectorRef struct {
@@ -93,10 +96,11 @@ type Processor struct {
 	pooled     bool
 }
 
-// publishSignalRef publishes immutable identity and generation for message
-// delivery and lifecycle scans. Source is optional; PID identity is not.
-func (p *Processor) publishSignalRef() {
-	ref := &signalRef{pid: p.pid, gen: p.gen.Load()}
+// publishSignalRef publishes immutable identity, generation and the
+// incarnation's context cancel for message delivery, termination and
+// lifecycle scans. Source is optional; PID identity is not.
+func (p *Processor) publishSignalRef(terminate context.CancelFunc) {
+	ref := &signalRef{pid: p.pid, gen: p.gen.Load(), terminate: terminate}
 	if p.ctx != nil {
 		ref.source, _ = runtime.GetFrameID(p.ctx)
 	}

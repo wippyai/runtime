@@ -16,6 +16,7 @@ import (
 	"github.com/wippyai/runtime/api/runtime"
 	hostapi "github.com/wippyai/runtime/api/service/host"
 	"github.com/wippyai/runtime/api/supervisor"
+	"github.com/wippyai/runtime/api/topology"
 	entryutil "github.com/wippyai/runtime/system/entry"
 	"github.com/wippyai/runtime/system/scheduler/actor"
 	"github.com/wippyai/runtime/system/scheduler/affinity"
@@ -96,6 +97,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 		actor.WithQueueSize(cfg.HostConfig.QueueSize),
 		actor.WithLocalQueueSize(cfg.HostConfig.LocalQueueSize),
 		actor.WithLifecycle(lifecycle),
+		actor.WithTopology(topology.GetTopology(ctx)),
 	}
 	if cfg.HostConfig.WorkerClass == hostapi.WorkerClassWASM {
 		opts = append(opts, actor.WithDedicatedThreads())

@@ -36,6 +36,9 @@ type Option func(*Scheduler)
 
 var errNilPackage = apierror.New(apierror.Invalid, "cannot send nil package").WithRetryable(apierror.False)
 
+var errTopologyUnavailable = apierror.New(apierror.Unavailable, "scheduler has no topology for relationship requests").
+	WithRetryable(apierror.False)
+
 func WithWorkers(n int) Option {
 	return func(s *Scheduler) {
 		if n > 0 {
@@ -59,6 +62,12 @@ func WithDedicatedThreads() Option {
 
 func WithLifecycle(l process.Lifecycle) Option {
 	return func(s *Scheduler) { s.lifecycle = l }
+}
+
+// WithTopology sets the topology that owns relationships of hosted processes.
+// Monitor and link requests from peer nodes are applied to it on delivery.
+func WithTopology(t topology.Topology) Option {
+	return func(s *Scheduler) { s.topology = t }
 }
 
 func WithQueueSize(size int) Option {
@@ -87,6 +96,7 @@ func WithMaxProcesses(maxProcs int64) Option {
 
 type Scheduler struct {
 	lifecycle        process.Lifecycle
+	topology         topology.Topology
 	registry         dispatcher.Registry
 	global           *Queue
 	drainCh          chan struct{}
@@ -325,7 +335,7 @@ func (s *Scheduler) Submit(ctx context.Context, pid pid.PID, p process.Process, 
 		proc.queue.SetAdmission(admission.EventAdmission())
 	}
 	proc.gen.Store(proc.queue.Generation())
-	proc.publishSignalRef()
+	proc.publishSignalRef(cancel)
 	proc.publishInspectorRef()
 
 	s.processorCount.Add(1)
@@ -368,24 +378,15 @@ func (s *Scheduler) Terminate(pid pid.PID) error {
 	if !ok {
 		return process.ErrProcessNotFound
 	}
-	proc := v.(*Processor)
-
-	// Cancel context - worker checks ctx.Err() and evicts
-	if proc.cancel != nil {
-		proc.cancel()
+	// The slot can complete and be reused after the lookup, so act only through
+	// the incarnation's immutable identity. Canceling its context wakes it
+	// through the generation-checked wake registered at submit; the worker
+	// then evicts it.
+	ref := v.(*Processor).sig.Load()
+	if ref == nil || !ref.pid.Equal(pid) {
+		return process.ErrProcessNotFound
 	}
-
-	// Push termination event via PushDirect (bypasses generation check).
-	// This ensures process wakes even if yields never complete.
-	// Don't close queue yet - let the event be processed first.
-	proc.queue.PushDirect(process.Event{Type: process.EventMessage})
-
-	// Try to transition to Ready and re-queue so worker can evict.
-	if proc.casState(StateIdle, StateReady) || proc.casState(StateBlocked, StateReady) {
-		s.global.Push(proc)
-		s.wakeAny()
-	}
-
+	ref.terminate()
 	return nil
 }
 
@@ -466,7 +467,7 @@ func (s *Scheduler) CreateProcessor(ctx context.Context, pid pid.PID, p process.
 	// Reset queue for this execution and cache generation
 	proc.queue.Reset()
 	proc.gen.Store(proc.queue.Generation())
-	proc.publishSignalRef()
+	proc.publishSignalRef(cancel)
 	proc.publishInspectorRef()
 
 	s.processorCount.Add(1)
@@ -511,6 +512,14 @@ func (s *Scheduler) SendContext(ctx context.Context, pkg *relay.Package) error {
 		return err
 	}
 
+	if applied, err := s.applyRelationship(pkg); applied {
+		if err != nil {
+			return err
+		}
+		relay.ReleasePackage(pkg)
+		return nil
+	}
+
 	target := pkg.Target // copy before push - pkg may be released after queue receives it
 
 	v, ok := s.byPID.Load(target.String())
@@ -520,6 +529,33 @@ func (s *Scheduler) SendContext(ctx context.Context, pkg *relay.Package) error {
 	proc := v.(*Processor)
 
 	return s.deliverToTarget(proc, target, pkg)
+}
+
+// applyRelationship applies a peer node's monitor or link request for a hosted
+// process to the topology. Such a request is relationship state owned by the
+// host and never a message for the process. It reports whether pkg is a
+// relationship request.
+func (s *Scheduler) applyRelationship(pkg *relay.Package) (bool, error) {
+	if len(pkg.Messages) != 1 || pkg.Messages[0].Topic != topology.TopicEvents || len(pkg.Messages[0].Payloads) != 1 {
+		return false, nil
+	}
+	var apply func(topology.Topology) error
+	switch event := pkg.Messages[0].Payloads[0].Data().(type) {
+	case *topology.MonitorRequestEvent:
+		apply = func(t topology.Topology) error { return t.Monitor(event.Caller, event.Target) }
+	case *topology.MonitorReleaseEvent:
+		apply = func(t topology.Topology) error { return t.Demonitor(event.Caller, event.Target) }
+	case *topology.LinkRequestEvent:
+		apply = func(t topology.Topology) error { return t.Link(event.From, event.To) }
+	case *topology.UnlinkRequestEvent:
+		apply = func(t topology.Topology) error { return t.Unlink(event.From, event.To) }
+	default:
+		return false, nil
+	}
+	if s.topology == nil {
+		return true, errTopologyUnavailable
+	}
+	return true, apply(s.topology)
 }
 
 // deliverToTarget rejects a processor slot that was reused after byPID.Load.

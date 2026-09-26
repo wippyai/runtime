@@ -292,8 +292,8 @@ func TestTopology_WatcherDeathSendsMonitorRelease(t *testing.T) {
 	})
 }
 
-func TestTopology_handleMonitorRequest(t *testing.T) {
-	t.Run("handleMonitorRequest adds caller to watchers", func(t *testing.T) {
+func TestTopology_PeerCallerMonitor(t *testing.T) {
+	t.Run("Monitor from peer caller adds caller to watchers", func(t *testing.T) {
 		upstream := newMockUpstream()
 		topo := NewTopology(upstream, "local")
 
@@ -305,7 +305,7 @@ func TestTopology_handleMonitorRequest(t *testing.T) {
 		err := topo.Register(localPID)
 		require.NoError(t, err)
 
-		err = topo.handleMonitorRequest(remotePID, localPID)
+		err = topo.Monitor(remotePID, localPID)
 		require.NoError(t, err)
 
 		// Verify watcher was added by checking notification on Complete
@@ -313,7 +313,7 @@ func TestTopology_handleMonitorRequest(t *testing.T) {
 		assert.Len(t, upstream.getSends(remotePID), 1, "remotePID should receive notification")
 	})
 
-	t.Run("handleMonitorRequest on unregistered PID fails", func(t *testing.T) {
+	t.Run("Monitor from peer caller on unregistered PID sends noproc EXIT", func(t *testing.T) {
 		upstream := newMockUpstream()
 		topo := NewTopology(upstream, "local")
 
@@ -322,12 +322,18 @@ func TestTopology_handleMonitorRequest(t *testing.T) {
 		unregisteredPID := pid.PID{Node: "local", Host: "host3", UniqID: "3"}
 		unregisteredPID.Precomputed()
 
-		err := topo.handleMonitorRequest(remotePID, unregisteredPID)
-		require.Error(t, err)
-		assert.True(t, errors.Is(err, topology.ErrPIDNotRegistered), "expected ErrPIDNotRegistered")
+		require.NoError(t, topo.Monitor(remotePID, unregisteredPID))
+
+		sends := upstream.getSends(remotePID)
+		require.Len(t, sends, 1, "peer caller should receive a noproc EXIT")
+		exit, ok := sends[0].Messages[0].Payloads[0].Data().(*topology.ExitEvent)
+		require.True(t, ok)
+		assert.Equal(t, topology.Exit, exit.Kind)
+		assert.Equal(t, unregisteredPID, exit.From)
+		assert.True(t, errors.Is(exit.Result.Error, topology.ErrPIDNotRegistered), "expected ErrPIDNotRegistered")
 	})
 
-	t.Run("handleMonitorRequest is idempotent", func(t *testing.T) {
+	t.Run("Monitor from peer caller is idempotent", func(t *testing.T) {
 		upstream := newMockUpstream()
 		topo := NewTopology(upstream, "local")
 
@@ -337,8 +343,8 @@ func TestTopology_handleMonitorRequest(t *testing.T) {
 		remotePID.Precomputed()
 
 		require.NoError(t, topo.Register(localPID))
-		require.NoError(t, topo.handleMonitorRequest(remotePID, localPID))
-		require.NoError(t, topo.handleMonitorRequest(remotePID, localPID)) // add again
+		require.NoError(t, topo.Monitor(remotePID, localPID))
+		require.NoError(t, topo.Monitor(remotePID, localPID)) // add again
 
 		// Verify only one notification is sent (not duplicated)
 		topo.Complete(localPID, &runtime.Result{})
@@ -346,8 +352,8 @@ func TestTopology_handleMonitorRequest(t *testing.T) {
 	})
 }
 
-func TestTopology_handleMonitorRelease(t *testing.T) {
-	t.Run("handleMonitorRelease removes caller from watchers", func(t *testing.T) {
+func TestTopology_PeerCallerDemonitor(t *testing.T) {
+	t.Run("Demonitor from peer caller removes caller from watchers", func(t *testing.T) {
 		upstream := newMockUpstream()
 		topo := NewTopology(upstream, "local")
 
@@ -357,9 +363,9 @@ func TestTopology_handleMonitorRelease(t *testing.T) {
 		remotePID.Precomputed()
 
 		require.NoError(t, topo.Register(localPID))
-		require.NoError(t, topo.handleMonitorRequest(remotePID, localPID))
+		require.NoError(t, topo.Monitor(remotePID, localPID))
 
-		err := topo.handleMonitorRelease(remotePID, localPID)
+		err := topo.Demonitor(remotePID, localPID)
 		require.NoError(t, err)
 
 		// Verify watcher was removed - no notification on Complete
@@ -367,7 +373,7 @@ func TestTopology_handleMonitorRelease(t *testing.T) {
 		assert.Len(t, upstream.getSends(remotePID), 0, "should have no watchers after release")
 	})
 
-	t.Run("handleMonitorRelease on non-monitored PID is safe", func(t *testing.T) {
+	t.Run("Demonitor from peer caller on non-monitored PID is safe", func(t *testing.T) {
 		upstream := newMockUpstream()
 		topo := NewTopology(upstream, "local")
 
@@ -376,12 +382,12 @@ func TestTopology_handleMonitorRelease(t *testing.T) {
 		unmonitoredPID := pid.PID{Node: "local", Host: "host3", UniqID: "3"}
 		unmonitoredPID.Precomputed()
 
-		err := topo.handleMonitorRelease(remotePID, unmonitoredPID)
+		err := topo.Demonitor(remotePID, unmonitoredPID)
 		require.NoError(t, err)
 	})
 }
 
-func TestTopology_handleLinkRequest(t *testing.T) {
+func TestTopology_PeerCallerLink(t *testing.T) {
 	upstream := newMockUpstream()
 	topo := NewTopology(upstream, "local")
 
@@ -393,8 +399,8 @@ func TestTopology_handleLinkRequest(t *testing.T) {
 	err := topo.Register(localPID)
 	require.NoError(t, err)
 
-	t.Run("handleLinkRequest establishes remote side of link", func(t *testing.T) {
-		err := topo.handleLinkRequest(remotePID, localPID)
+	t.Run("Link from peer caller establishes remote side of link", func(t *testing.T) {
+		err := topo.Link(remotePID, localPID)
 		require.NoError(t, err)
 
 		links := topo.GetLinks(localPID)
@@ -402,17 +408,24 @@ func TestTopology_handleLinkRequest(t *testing.T) {
 		assert.Equal(t, remotePID, links[0])
 	})
 
-	t.Run("handleLinkRequest on unregistered to PID fails", func(t *testing.T) {
+	t.Run("Link from peer caller on unregistered to PID sends LINK_DOWN", func(t *testing.T) {
 		unregisteredPID := pid.PID{Node: "local", Host: "host3", UniqID: "3"}
 		unregisteredPID.Precomputed()
 
-		err := topo.handleLinkRequest(remotePID, unregisteredPID)
-		require.Error(t, err)
-		assert.True(t, errors.Is(err, topology.ErrPIDNotRegistered), "expected ErrPIDNotRegistered")
+		upstream.reset()
+		require.NoError(t, topo.Link(remotePID, unregisteredPID))
+
+		sends := upstream.getSends(remotePID)
+		require.Len(t, sends, 1, "peer linker should receive a LINK_DOWN")
+		down, ok := sends[0].Messages[0].Payloads[0].Data().(*topology.ExitEvent)
+		require.True(t, ok)
+		assert.Equal(t, topology.LinkDown, down.Kind)
+		assert.Equal(t, unregisteredPID, down.From)
+		assert.True(t, errors.Is(down.Result.Error, topology.ErrPIDNotRegistered), "expected ErrPIDNotRegistered")
 	})
 
-	t.Run("handleLinkRequest is idempotent", func(t *testing.T) {
-		err := topo.handleLinkRequest(remotePID, localPID)
+	t.Run("Link from peer caller is idempotent", func(t *testing.T) {
+		err := topo.Link(remotePID, localPID)
 		require.NoError(t, err)
 
 		links := topo.GetLinks(localPID)
@@ -420,7 +433,7 @@ func TestTopology_handleLinkRequest(t *testing.T) {
 	})
 }
 
-func TestTopology_handleUnlinkRequest(t *testing.T) {
+func TestTopology_PeerCallerUnlink(t *testing.T) {
 	upstream := newMockUpstream()
 	topo := NewTopology(upstream, "local")
 
@@ -432,19 +445,19 @@ func TestTopology_handleUnlinkRequest(t *testing.T) {
 	err := topo.Register(localPID)
 	require.NoError(t, err)
 
-	err = topo.handleLinkRequest(remotePID, localPID)
+	err = topo.Link(remotePID, localPID)
 	require.NoError(t, err)
 
-	t.Run("handleUnlinkRequest removes link", func(t *testing.T) {
-		err := topo.handleUnlinkRequest(remotePID, localPID)
+	t.Run("Unlink from peer caller removes link", func(t *testing.T) {
+		err := topo.Unlink(remotePID, localPID)
 		require.NoError(t, err)
 
 		links := topo.GetLinks(localPID)
 		assert.Len(t, links, 0, "should remove link")
 	})
 
-	t.Run("handleUnlinkRequest on non-linked PID is safe", func(t *testing.T) {
-		err := topo.handleUnlinkRequest(remotePID, localPID)
+	t.Run("Unlink from peer caller on non-linked PID is safe", func(t *testing.T) {
+		err := topo.Unlink(remotePID, localPID)
 		require.NoError(t, err)
 	})
 }
@@ -462,7 +475,7 @@ func TestTopology_RemoteMonitoringWithNotification(t *testing.T) {
 		err := topo.Register(localPID)
 		require.NoError(t, err)
 
-		err = topo.handleMonitorRequest(remotePID, localPID)
+		err = topo.Monitor(remotePID, localPID)
 		require.NoError(t, err)
 
 		upstream.reset()
@@ -602,7 +615,7 @@ func TestTopology_HandleNodeExit(t *testing.T) {
 		router.reset()
 		topo2 := NewTopology(router, "local")
 
-		// Register a "remote" PID (simulating a remote process registered via handleMonitorRequest)
+		// Register a "remote" PID (simulating a remote process registered via a peer-caller Monitor)
 		remotePID := pid.PID{Node: "dying-node", Host: "h", UniqID: "r1"}
 		remotePID.Precomputed()
 		err := topo2.Register(remotePID)
@@ -677,8 +690,8 @@ func TestTopology_HandleNodeExit(t *testing.T) {
 		err := topo2.Register(localPID)
 		require.NoError(t, err)
 
-		// Remote is watching local (via handleMonitorRequest)
-		err = topo2.handleMonitorRequest(remotePID, localPID)
+		// Remote is watching local (via a peer-caller Monitor)
+		err = topo2.Monitor(remotePID, localPID)
 		require.NoError(t, err)
 
 		router.reset()

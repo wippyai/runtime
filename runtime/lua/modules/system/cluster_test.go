@@ -102,6 +102,37 @@ func TestClusterMembers_WithMembership(t *testing.T) {
 	require.NoError(t, err)
 }
 
+type stubLinks map[cluster.NodeID]cluster.Link
+
+func (s stubLinks) Link(node cluster.NodeID) (cluster.Link, bool) {
+	link, ok := s[node]
+	return link, ok
+}
+
+func TestClusterMembers_ReportConnectedLinks(t *testing.T) {
+	l, ctx := newClusterTestState(t)
+	ctx = relay.WithNode(ctx, &stubRelayNode{id: "node-1"})
+	ctx = cluster.WithMembership(ctx, &stubMembership{
+		local: cluster.NodeInfo{ID: "node-1"},
+		peers: []cluster.NodeInfo{{ID: "node-2"}, {ID: "node-3"}},
+	})
+	ctx = cluster.WithLinks(ctx, stubLinks{
+		"node-1": {Remote: "127.0.0.1:1", Dialed: true},
+		"node-2": {Remote: "10.0.0.2:51000", Dialed: false},
+	})
+	l.SetContext(ctx)
+
+	err := l.DoString(`
+		local members, err = system.cluster.members()
+		assert(err == nil, "unexpected error: " .. tostring(err))
+		assert(members[1].link == nil, "local node has no link")
+		assert(members[2].link.remote == "10.0.0.2:51000", "remote mismatch")
+		assert(members[2].link.dialed == false, "dialed mismatch")
+		assert(members[3].link == nil, "unconnected member has no link")
+	`)
+	require.NoError(t, err)
+}
+
 func TestClusterMembers_Unavailable(t *testing.T) {
 	l, _ := newClusterTestState(t)
 
