@@ -9,6 +9,7 @@ import (
 	"net"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -480,4 +481,97 @@ func TestNoSessionEndAfterStop(t *testing.T) {
 	stuck.link.endRead()
 	time.Sleep(20 * time.Millisecond)
 	require.Zero(t, rec.count(), "a session end was signaled after Stop returned")
+}
+
+// A connection manager is single-use: Start after Stop fails, so no restart
+// can inherit sessions whose ends were abandoned at Stop.
+func TestManagerIsSingleUse(t *testing.T) {
+	cfg := insecureManagerConfig()
+	cfg.BindAddr = "127.0.0.1"
+	cfg.BindPort = 0
+	cfg.Logger = zap.NewNop()
+	m := NewConnectionManager(cfg, nil).(*manager)
+	require.NoError(t, m.Start(context.Background(), func(cluster.NodeID, []byte) {}, ignoreSessionEnd))
+
+	// A node whose latest session is still unsettled at Stop.
+	m.AddManagedNode("peer")
+	stuck := liveReader(m.nodeStates, "peer", m.nodeStates.GetNodeState("peer"))
+	m.RemoveManagedNode("peer", 0)
+	require.NoError(t, m.Stop())
+	stuck.link.endRead()
+
+	require.ErrorContains(t, m.Start(context.Background(), func(cluster.NodeID, []byte) {}, ignoreSessionEnd), "single-use")
+}
+
+// A connect request while a redial is pending replaces the pending redial
+// instead of starting a second dial chain, so Stop has no orphaned timer to
+// wait for.
+func TestConnectDuringPendingRetryKeepsOneDialChain(t *testing.T) {
+	listener, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer listener.Close()
+	var dials atomic.Int32
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			dials.Add(1)
+			_ = conn.Close() // every handshake fails
+		}
+	}()
+	port := listener.Addr().(*net.TCPAddr).Port
+
+	cfg := insecureManagerConfig()
+	cfg.LocalNodeID = "a-local"
+	cfg.BindAddr = "127.0.0.1"
+	cfg.BindPort = 0
+	cfg.Logger = zap.NewNop()
+	cfg.InitialRetryDelay = time.Second
+	cfg.MaxRetryDelay = 4 * time.Second
+	m := NewConnectionManager(cfg, nil).(*manager)
+	require.NoError(t, m.Start(context.Background(), func(cluster.NodeID, []byte) {}, ignoreSessionEnd))
+	stopped := false
+	defer func() {
+		if !stopped {
+			_ = m.Stop()
+		}
+	}()
+	retrying := func() bool {
+		_, state := m.nodeStates.GetNodeConnection("z-peer")
+		return state == StateRetrying
+	}
+
+	m.AddManagedNode("z-peer")
+	m.EnsureConnection("z-peer", "127.0.0.1", port)
+	require.Eventually(t, func() bool { return dials.Load() == 1 && retrying() }, 2*time.Second, time.Millisecond)
+	// A membership update while the redial is pending dials once more and
+	// leaves a single redial pending.
+	m.EnsureConnection("z-peer", "127.0.0.1", port)
+	require.Eventually(t, func() bool { return dials.Load() == 2 && retrying() }, time.Second, time.Millisecond)
+
+	begin := time.Now()
+	require.NoError(t, m.Stop())
+	stopped = true
+	require.Less(t, time.Since(begin), 500*time.Millisecond, "Stop waited for an orphaned redial timer")
+}
+
+// An inbound connection from a process membership does not advertise does
+// not make its node managed.
+func TestRefusedInboundIncarnationCreatesNoState(t *testing.T) {
+	cfg := insecureManagerConfig()
+	cfg.LocalNodeID = "a-local"
+	cfg.BindAddr = "127.0.0.1"
+	cfg.BindPort = 0
+	cfg.Logger = zap.NewNop()
+	cfg.AuthorizePeer = func(cluster.NodeID, net.Addr) bool { return true }
+	authorizeAdvertisedIncarnation(&cfg, map[cluster.NodeID]uint64{"z-peer": 22})
+	m := NewConnectionManager(cfg, nil).(*manager)
+	require.NoError(t, m.Start(context.Background(), func(cluster.NodeID, []byte) {}, ignoreSessionEnd))
+	defer func() { require.NoError(t, m.Stop()) }()
+
+	stale := acceptFromIncarnation(t, m, "z-peer", 11)
+	requireClosedByPeer(t, stale)
+	require.False(t, m.IsManaged("z-peer"))
 }

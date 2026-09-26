@@ -180,3 +180,6 @@ func newIncarnationNotAdvertisedError(nodeID string, incarnation uint64) apierro
 		WithRetryable(apierror.True).
 		WithDetails(attrs.Bag{"node_id": nodeID, "incarnation": incarnation})
 }
+
+// errManagerSingleUse rejects a second Start of a connection manager.
+var errManagerSingleUse = apierror.New(apierror.Invalid, "internode connection manager is single-use and cannot start again").WithRetryable(apierror.False)

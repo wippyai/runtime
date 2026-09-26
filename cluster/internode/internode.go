@@ -73,6 +73,8 @@ func NewService(
 	}
 }
 
+// Start serves the connection manager and follows membership. A service
+// starts once: its connection manager is single-use.
 func (s *Service) Start(ctx context.Context) error {
 	ctx, s.cancel = context.WithCancel(ctx)
 	s.ctx = ctx

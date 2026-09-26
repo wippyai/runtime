@@ -148,6 +148,8 @@ const (
 type connectData struct {
 	Addr string
 	Port int
+	// redial marks the connect issued by the loop's own redial timer.
+	redial bool
 }
 
 type connectedData struct {
@@ -200,6 +202,16 @@ type ConnectionManager interface {
 	// blocked is signaled only when the handler returns. Until then no later
 	// session of that node delivers anything, although the link reports
 	// connected.
+	//
+	// onSessionEnd runs while end signals are fenced against Stop; it must
+	// not call Stop, RemoveManagedNode or EvictOrphanNodes, and it must
+	// return. Topology's HandleNodeExit, which only sends through the local
+	// router, meets this.
+	//
+	// A manager is single-use: Start after Stop, or a second Start, fails.
+	// Stop abandons session ends still waiting for an earlier session, so a
+	// restarted manager could not keep the ordering; a new execution builds
+	// a new manager.
 	Start(ctx context.Context, onMessage func(nodeID cluster.NodeID, data []byte), onSessionEnd func(nodeID cluster.NodeID)) error
 	Stop() error
 	// Incarnation identifies this process to peers; a peer that observes a
@@ -272,6 +284,8 @@ type manager struct {
 	controlLoopsMu sync.Mutex
 	registerMu     sync.Mutex
 	managedMu      sync.Mutex
+	// started marks the manager's single use.
+	started atomic.Bool
 }
 
 func NewConnectionManager(config ManagerConfig, coll metrics.Collector) ConnectionManager {
@@ -291,6 +305,9 @@ func NewConnectionManager(config ManagerConfig, coll metrics.Collector) Connecti
 func (m *manager) Incarnation() uint64 { return m.incarnation }
 
 func (m *manager) Start(ctx context.Context, onMessage func(nodeID cluster.NodeID, data []byte), onSessionEnd func(nodeID cluster.NodeID)) error {
+	if !m.started.CompareAndSwap(false, true) {
+		return errManagerSingleUse
+	}
 	if onMessage == nil || onSessionEnd == nil {
 		return fmt.Errorf("internode message and session-end handlers are required")
 	}
@@ -771,6 +788,16 @@ func (loop *nodeControlLoop) handleConnect(data connectData) {
 	if loop.state == StateConnecting || loop.state == StateConnected || loop.state == StateDead {
 		return
 	}
+	// One dial chain per loop: a request while a redial is pending replaces
+	// the pending redial. When the timer already fired, its own connect is
+	// on the way and dials instead.
+	if loop.state == StateRetrying && !data.redial {
+		if !loop.retry.Stop() {
+			return
+		}
+		loop.manager.wg.Done()
+	}
+	loop.retry = nil
 	loop.state = StateConnecting
 	if !loop.manager.nodeStates.setNodeStateForState(loop.nodeID, loop.nodeState, loop.state) {
 		return
@@ -907,8 +934,6 @@ func (loop *nodeControlLoop) handleDisconnected(data disconnectedData) {
 		loop.adopt(next)
 		return
 	}
-	loop.manager.nodeStates.setNodeConnectionForState(loop.nodeID, loop.nodeState, nil, StateNone)
-
 	addr, port, hasAddr := loop.manager.nodeStates.getNodeAddressForState(loop.nodeID, loop.nodeState)
 	if !hasAddr {
 		addr, port = loop.addr, loop.port
@@ -924,11 +949,12 @@ func (loop *nodeControlLoop) handleDisconnected(data disconnectedData) {
 			if !ok {
 				current, currentPort = addr, port
 			}
-			loop.sendCommandToSelf(nodeCommand{Type: cmdConnect, Data: connectData{Addr: current, Port: currentPort}})
+			loop.sendCommandToSelf(nodeCommand{Type: cmdConnect, Data: connectData{Addr: current, Port: currentPort, redial: true}})
 		})
 	} else {
 		loop.state = StateNone
 	}
+	loop.manager.nodeStates.setNodeConnectionForState(loop.nodeID, loop.nodeState, nil, loop.state)
 }
 
 func (loop *nodeControlLoop) handleKill() {
@@ -1094,7 +1120,10 @@ func (m *manager) handleInboundConnection(conn net.Conn) {
 	m.logger.Debug("Inbound handshake succeeded", zap.String("remote_node", remoteNodeID))
 
 	if m.nodeStates.GetNodeState(remoteNodeID) == nil {
-		if m.config.AuthorizePeer == nil || !m.config.AuthorizePeer(remoteNodeID, conn.RemoteAddr()) {
+		// Auto-management admits only the process membership advertises;
+		// binding in the loop checks again, against the membership of then.
+		if m.config.AuthorizePeer == nil || !m.config.AuthorizePeer(remoteNodeID, conn.RemoteAddr()) ||
+			!m.config.AuthorizeIncarnation(remoteNodeID, nodeConn.peerIncarnation) {
 			m.logger.Warn("Rejecting unmanaged inbound node", zap.String("node", remoteNodeID))
 			nodeConn.Close()
 			return

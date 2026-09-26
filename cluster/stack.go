@@ -61,6 +61,9 @@ type Stack struct {
 
 	mu      sync.Mutex
 	started bool
+	// used marks the stack's single use: its connection manager cannot
+	// restart, so a new execution assembles a new stack.
+	used bool
 }
 
 // StackConfig is the input to AssembleStack.
@@ -252,13 +255,16 @@ func AssembleStack(cfg StackConfig) (*Stack, error) {
 	}, nil
 }
 
-// Start retains the internode listener before advertising it through membership.
+// Start retains the internode listener before advertising it through
+// membership. A stack starts once; after a failed Start or a Stop, a new
+// execution assembles a new stack.
 func (s *Stack) Start(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.started {
-		return fmt.Errorf("cluster: stack already started")
+	if s.used {
+		return fmt.Errorf("cluster: stack is single-use; assemble a new stack to start again")
 	}
+	s.used = true
 
 	if err := s.Internode.Start(ctx); err != nil {
 		return fmt.Errorf("cluster: start internode: %w", err)
@@ -270,7 +276,8 @@ func (s *Stack) Start(ctx context.Context) error {
 	if err := s.Membership.Start(ctx); err != nil {
 		// memberlist.Create binds the gossip port BEFORE attempting Join,
 		// so a Join failure leaks the port even though Start returned an
-		// error. Tear membership down so a caller-side retry can re-bind.
+		// error. Tear membership down so a newly assembled stack can bind
+		// the same ports.
 		_ = s.Membership.Stop()
 		_ = s.Internode.Stop()
 		return fmt.Errorf("cluster: start membership: %w", err)
@@ -280,7 +287,7 @@ func (s *Stack) Start(ctx context.Context) error {
 }
 
 // Stop shuts internode down, then membership. Safe to call exactly once
-// after Start.
+// after Start. A stopped stack cannot start again.
 func (s *Stack) Stop() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
