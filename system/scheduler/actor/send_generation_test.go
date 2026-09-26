@@ -16,7 +16,7 @@ func TestSendRejectsReusedProcessorIdentity(t *testing.T) {
 	next := pid.PID{Node: "local", Host: "actors", UniqID: "next"}
 	p := &Processor{pid: next, ctx: context.Background(), queue: process.NewEventQueue()}
 	p.gen.Store(p.queue.Generation())
-	p.publishSignalRef() // no frame source: identity must still be published
+	p.publishSignalRef(func() {}) // no frame source: identity must still be published
 	s := &Scheduler{}
 	pkg := relay.NewPackage(old, old, "data")
 	defer relay.ReleasePackage(pkg)
@@ -40,7 +40,7 @@ func TestSendAcceptsEquivalentProcessorIdentity(t *testing.T) {
 
 	p := &Processor{pid: cached, ctx: context.Background(), queue: process.NewEventQueue()}
 	p.gen.Store(p.queue.Generation())
-	p.publishSignalRef()
+	p.publishSignalRef(func() {})
 	pkg := relay.NewPackage(target, target, "data")
 
 	if err := (&Scheduler{}).deliverToTarget(p, target, pkg); err != nil {
