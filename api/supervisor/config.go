@@ -27,6 +27,8 @@ type (
 		StopTimeout     time.Duration `json:"stop_timeout,omitzero" yaml:"stop_timeout" default:"10s"`
 		StableThreshold time.Duration `json:"stable_threshold,omitzero" yaml:"stable_threshold" default:"5s"`
 		AutoStart       bool          `json:"auto_start" yaml:"auto_start" default:"false"`
+		// BootGate indicates this service gates application boot readiness.
+		BootGate bool `json:"boot_gate,omitempty" yaml:"boot_gate,omitempty" default:"false"`
 	}
 
 	// RetryPolicy defines the parameters for retrying a service after a failure.
@@ -135,6 +137,8 @@ type lifecycleConfigJSON struct {
 	DependsOn       []string         `json:"depends_on,omitempty"`
 	RetryPolicy     RetryPolicy      `json:"restart"`
 	AutoStart       bool             `json:"auto_start"`
+	BootGate        bool             `json:"boot_gate,omitempty"`
+	BootReadiness   bool             `json:"boot_readiness,omitempty"`
 }
 
 // UnmarshalJSON implements json.Unmarshaler to handle duration strings
@@ -145,6 +149,7 @@ func (cfg *LifecycleConfig) UnmarshalJSON(data []byte) error {
 	}
 
 	cfg.AutoStart = raw.AutoStart
+	cfg.BootGate = raw.BootGate || raw.BootReadiness
 	cfg.RetryPolicy = raw.RetryPolicy
 	cfg.Requires = raw.Requires
 	cfg.DependsOn = raw.DependsOn
@@ -185,6 +190,7 @@ func (cfg LifecycleConfig) MarshalJSON() ([]byte, error) {
 
 	raw := lifecycleConfigJSON{
 		AutoStart:   cfg.AutoStart,
+		BootGate:    cfg.BootGate,
 		RetryPolicy: cfg.RetryPolicy,
 		Startup:     startup,
 		Requires:    cfg.RequiredServices(),

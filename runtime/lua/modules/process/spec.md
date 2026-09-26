@@ -589,3 +589,34 @@ if event.kind == process.event.LINK_DOWN then
     print("Partner died:", event.from)
 end
 ```
+
+## Service Lifecycle (`process.service`)
+
+Supervised process services declare lifecycle configuration under `lifecycle`:
+
+```yaml
+kind: process.service
+name: my_service
+process: my_process
+host: app:processes
+lifecycle:
+  auto_start: true         # Start automatically when runtime starts
+  boot_gate: true          # Gate application boot readiness until process exits ok
+  start_timeout: 10s       # Timeout for start transition
+  stop_timeout: 10s        # Timeout for stop transition
+  stable_threshold: 5s     # Time running before resetting retry count
+  restart:                 # Retry policy
+    initial_delay: 1s
+    max_delay: 90s
+    max_attempts: 3
+```
+
+### Boot Readiness Gating (`boot_gate`)
+
+When `lifecycle.boot_gate` (or `boot_readiness`) is `true`:
+- The service is counted as a pending boot gate upon registration, before the service starts.
+- Use-case commands (`wippy test`, `wippy run <command>`) wait for boot readiness before executing entrypoints.
+- The gate completes successfully when the process returns ok (`event.Result.Error == nil`).
+- The gate fails with a typed error (`*boot.BootGateError`) if the process errors, crashes, or is stopped before completion.
+- Restart policies never re-open or pass a failed gate: once a gate fails, commands abort immediately with exit code 1.
+

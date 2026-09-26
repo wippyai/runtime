@@ -20,6 +20,7 @@ import (
 	supervisorapi "github.com/wippyai/runtime/api/service/supervisor"
 	"github.com/wippyai/runtime/api/supervisor"
 	topologyapi "github.com/wippyai/runtime/api/topology"
+	bootpkg "github.com/wippyai/runtime/boot"
 	"github.com/wippyai/runtime/internal/uniqid"
 )
 
@@ -445,6 +446,93 @@ func TestService_MonitorLoop_IgnoresNonEventsTopic(t *testing.T) {
 	}
 
 	cancel()
+}
+
+func TestService_BootGate_ReturnOk(t *testing.T) {
+	r := bootpkg.NewReadiness()
+	gate := r.RegisterGate("test:boot_service")
+
+	svc := newTestService()
+	svc.SetGate(gate)
+	svc.statusCh = make(chan any, 1)
+	svc.detachFn = func() {}
+	monitorCh := make(chan *relay.Package, 1)
+	ctx := context.Background()
+
+	go svc.monitorLoop(ctx, monitorCh)
+
+	exitEvent := &topologyapi.ExitEvent{
+		Kind: topologyapi.Exit,
+		From: pid.PID{UniqID: "child"},
+	}
+	pkg := relay.NewPackage(pid.PID{}, pid.PID{}, topologyapi.TopicEvents, payload.New(exitEvent))
+	monitorCh <- pkg
+
+	time.Sleep(50 * time.Millisecond)
+
+	assert.Equal(t, bootpkg.GateStateReady, gate.State())
+	assert.Equal(t, int64(0), r.Pending())
+	require.NoError(t, r.Wait(context.Background()))
+}
+
+func TestService_BootGate_ReturnError(t *testing.T) {
+	r := bootpkg.NewReadiness()
+	gate := r.RegisterGate("test:boot_service")
+
+	svc := newTestService()
+	svc.SetGate(gate)
+	svc.statusCh = make(chan any, 1)
+	svc.detachFn = func() {}
+	monitorCh := make(chan *relay.Package, 1)
+	ctx := context.Background()
+
+	go svc.monitorLoop(ctx, monitorCh)
+
+	expectedErr := errors.New("migration failed")
+	exitEvent := &topologyapi.ExitEvent{
+		Kind:   topologyapi.Exit,
+		From:   pid.PID{UniqID: "child"},
+		Result: &runtime.Result{Error: expectedErr},
+	}
+	pkg := relay.NewPackage(pid.PID{}, pid.PID{}, topologyapi.TopicEvents, payload.New(exitEvent))
+	monitorCh <- pkg
+
+	time.Sleep(50 * time.Millisecond)
+
+	assert.Equal(t, bootpkg.GateStateFailed, gate.State())
+	assert.Equal(t, int64(0), r.Pending())
+
+	err := r.Wait(context.Background())
+	require.Error(t, err)
+	var gateErr *bootpkg.GateError
+	require.True(t, errors.As(err, &gateErr))
+	assert.Equal(t, "test:boot_service", gateErr.Service)
+	assert.ErrorIs(t, err, expectedErr)
+}
+
+func TestService_BootGate_StopFailsGate(t *testing.T) {
+	r := bootpkg.NewReadiness()
+	gate := r.RegisterGate("test:boot_service")
+
+	svc := newTestService()
+	svc.SetGate(gate)
+	svc.statusCh = make(chan any, 1)
+	svc.childPID = pid.PID{UniqID: "child-123"}
+	node := &mockNode{}
+	ctx := setupTestContext(node, nil, nil)
+
+	go func() {
+		time.Sleep(10 * time.Millisecond)
+		close(svc.statusCh)
+	}()
+
+	err := svc.Stop(ctx)
+	require.NoError(t, err)
+
+	assert.Equal(t, bootpkg.GateStateFailed, gate.State())
+	assert.Equal(t, int64(0), r.Pending())
+	waitErr := r.Wait(context.Background())
+	require.Error(t, waitErr)
 }
 
 func BenchmarkService_Start(b *testing.B) {

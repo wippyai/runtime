@@ -16,6 +16,7 @@ import (
 	supervisorapi "github.com/wippyai/runtime/api/service/supervisor"
 	"github.com/wippyai/runtime/api/supervisor"
 	topologyapi "github.com/wippyai/runtime/api/topology"
+	bootpkg "github.com/wippyai/runtime/boot"
 )
 
 // Service represents a running process service instance managed by supervisor.
@@ -24,6 +25,7 @@ type Service struct {
 	pidGen        processapi.PIDGenerator
 	statusCh      chan any
 	detachFn      context.CancelFunc
+	gate          *bootpkg.Gate
 	supervisorPID pid.PID
 	childPID      pid.PID
 	id            registry.ID
@@ -37,6 +39,16 @@ func NewService(id registry.ID, config supervisorapi.ServiceConfig, pidGen proce
 		config: config,
 		pidGen: pidGen,
 	}
+}
+
+// SetGate attaches a boot readiness gate to the service.
+func (svc *Service) SetGate(gate *bootpkg.Gate) {
+	svc.gate = gate
+}
+
+// Gate returns the boot readiness gate attached to the service, if any.
+func (svc *Service) Gate() *bootpkg.Gate {
+	return svc.gate
 }
 
 // Start initiates the supervised process and begins monitoring.
@@ -102,6 +114,9 @@ func (svc *Service) Start(ctx context.Context) (<-chan any, error) {
 	if err != nil {
 		detach()
 		topo.Remove(svc.supervisorPID)
+		if svc.gate != nil {
+			svc.gate.Fail(err)
+		}
 		return nil, newStartProcessError(err)
 	}
 
@@ -129,6 +144,10 @@ func (svc *Service) Stop(ctx context.Context) error {
 	case <-svc.statusCh:
 		return nil
 	default:
+	}
+
+	if svc.gate != nil {
+		svc.gate.Fail(fmt.Errorf("service stopped before completion"))
 	}
 
 	node := relay.GetNode(ctx)
@@ -162,10 +181,16 @@ func (svc *Service) monitorLoop(ctx context.Context, ch <-chan *relay.Package) {
 	for {
 		select {
 		case <-ctx.Done():
+			if svc.gate != nil {
+				svc.gate.Fail(ctx.Err())
+			}
 			return
 
 		case pkg, ok := <-ch:
 			if !ok {
+				if svc.gate != nil {
+					svc.gate.Fail(fmt.Errorf("relay monitor channel closed"))
+				}
 				select {
 				case svc.statusCh <- supervisor.ErrExit:
 				default:
@@ -184,11 +209,17 @@ func (svc *Service) monitorLoop(ctx context.Context, ch <-chan *relay.Package) {
 					}
 
 					if event.Result != nil && event.Result.Error != nil {
+						if svc.gate != nil {
+							svc.gate.Fail(event.Result.Error)
+						}
 						select {
 						case svc.statusCh <- fmt.Errorf("process failed: %w", event.Result.Error):
 						default:
 						}
 					} else {
+						if svc.gate != nil {
+							svc.gate.Ready()
+						}
 						select {
 						case svc.statusCh <- supervisor.ErrExit:
 						default:

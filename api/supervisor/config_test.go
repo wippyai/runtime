@@ -462,4 +462,21 @@ func TestLifecycleConfig_InitDefaults(t *testing.T) {
 		assert.Equal(t, 2.0, config.RetryPolicy.BackoffFactor)
 		assert.Equal(t, 0.1, config.RetryPolicy.Jitter)
 	})
+
+	t.Run("boot gate json unmarshal and alias", func(t *testing.T) {
+		jsonGate := `{"auto_start": true, "boot_gate": true}`
+		var cfg1 LifecycleConfig
+		require.NoError(t, json.Unmarshal([]byte(jsonGate), &cfg1))
+		assert.True(t, cfg1.BootGate)
+		assert.True(t, cfg1.AutoStart)
+
+		jsonReadiness := `{"auto_start": true, "boot_readiness": true}`
+		var cfg2 LifecycleConfig
+		require.NoError(t, json.Unmarshal([]byte(jsonReadiness), &cfg2))
+		assert.True(t, cfg2.BootGate)
+
+		data, err := json.Marshal(cfg1)
+		require.NoError(t, err)
+		assert.Contains(t, string(data), `"boot_gate":true`)
+	})
 }
