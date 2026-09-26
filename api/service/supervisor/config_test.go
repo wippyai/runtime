@@ -102,6 +102,42 @@ func TestServiceConfig_Validate(t *testing.T) {
 			wantErr: true,
 			errMsg:  "invalid host: node:control",
 		},
+		{
+			name: "complete startup requires auto start",
+			config: ServiceConfig{
+				Process: registry.NewID("proc", "worker"),
+				HostID:  "node:worker1",
+				Lifecycle: supervisor.LifecycleConfig{
+					Startup:   supervisor.StartupComplete,
+					AutoStart: false,
+				},
+			},
+			wantErr: true,
+			errMsg:  "startup: complete requires auto_start",
+		},
+		{
+			name: "complete startup with auto start is valid",
+			config: ServiceConfig{
+				Process: registry.NewID("proc", "worker"),
+				HostID:  "node:worker1",
+				Lifecycle: supervisor.LifecycleConfig{
+					Startup:   supervisor.StartupComplete,
+					AutoStart: true,
+				},
+			},
+		},
+		{
+			name: "unknown startup mode is invalid",
+			config: ServiceConfig{
+				Process: registry.NewID("proc", "worker"),
+				HostID:  "node:worker1",
+				Lifecycle: supervisor.LifecycleConfig{
+					Startup: "degraded",
+				},
+			},
+			wantErr: true,
+			errMsg:  "invalid startup mode: degraded",
+		},
 	}
 
 	for _, tt := range tests {
@@ -115,6 +151,20 @@ func TestServiceConfig_Validate(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestServiceConfig_Validate_StartupCompleteRequiresAutoStart(t *testing.T) {
+	cfg := ServiceConfig{
+		Process: registry.NewID("proc", "worker"),
+		HostID:  "node:worker1",
+		Lifecycle: supervisor.LifecycleConfig{
+			Startup:   supervisor.StartupComplete,
+			AutoStart: false,
+		},
+	}
+	err := cfg.Validate()
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrStartupCompleteRequiresAutoStart)
 }
 
 func TestServiceConfig_Equal(t *testing.T) {

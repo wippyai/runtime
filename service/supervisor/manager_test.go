@@ -4,17 +4,20 @@ package supervisor
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/attrs"
+	ctxapi "github.com/wippyai/runtime/api/context"
 	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	supervisorapi "github.com/wippyai/runtime/api/service/supervisor"
 	"github.com/wippyai/runtime/api/supervisor"
+	bootpkg "github.com/wippyai/runtime/boot"
 	"github.com/wippyai/runtime/internal/uniqid"
 	"go.uber.org/zap"
 )
@@ -90,6 +93,54 @@ func TestManager_Add(t *testing.T) {
 
 	_, exists := m.services.Load(entry.ID)
 	assert.True(t, exists)
+}
+
+func TestManager_Add_WithStartupComplete(t *testing.T) {
+	bus := &mockBus{}
+	dtt := &configTranscoder{}
+	pidGen := newTestPIDGen()
+	log := zap.NewNop()
+
+	m := NewManager(bus, dtt, pidGen, log)
+
+	appCtx := ctxapi.NewAppContext()
+	ctx := ctxapi.WithAppContext(context.Background(), appCtx)
+	readiness := bootpkg.NewReadiness()
+	ctx = bootpkg.WithReadiness(ctx, readiness)
+
+	entry := registry.Entry{
+		ID:   registry.ID{NS: "test", Name: "boot_svc"},
+		Kind: supervisorapi.ProcessService,
+		Meta: attrs.NewBag(),
+		Data: payload.New(supervisorapi.ServiceConfig{
+			Process: registry.ID{NS: "test", Name: "boot_proc"},
+			HostID:  "test-host",
+			Lifecycle: supervisor.LifecycleConfig{
+				AutoStart: true,
+				Startup:   supervisor.StartupComplete,
+			},
+		}),
+	}
+
+	err := m.Add(ctx, entry)
+	require.NoError(t, err)
+
+	// Readiness must be pending immediately before the service even starts
+	assert.Equal(t, int64(1), readiness.Pending())
+
+	_, exists := m.services.Load(entry.ID)
+	require.True(t, exists)
+
+	// If entry is deleted before completion, gate should fail
+	err = m.Delete(ctx, entry)
+	require.NoError(t, err)
+
+	assert.Equal(t, int64(0), readiness.Pending())
+	waitErr := readiness.Wait(ctx)
+	require.Error(t, waitErr)
+	var gateErr *bootpkg.GateError
+	require.True(t, errors.As(waitErr, &gateErr))
+	assert.Equal(t, entry.ID.String(), gateErr.Service)
 }
 
 func TestManager_Add_InvalidKind(t *testing.T) {

@@ -37,6 +37,13 @@ func (c *ServiceConfig) Validate() error {
 		return NewInvalidHostError(c.HostID)
 	}
 
+	if err := c.Lifecycle.ValidateStartupMode(); err != nil {
+		return err
+	}
+	if c.Lifecycle.Startup == supervisor.StartupComplete && !c.Lifecycle.AutoStart {
+		return ErrStartupCompleteRequiresAutoStart
+	}
+
 	return nil
 }
 
