@@ -16,6 +16,7 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/relay"
+	"go.uber.org/zap"
 )
 
 // Tests covering the router-aware additions to the clock dispatcher:
@@ -108,7 +109,7 @@ func (n *capturingNode) snapshot() []*relay.Package {
 
 func newDispatcherWithCtx(t *testing.T) (*Dispatcher, *capturingNode, context.Context, context.CancelFunc) {
 	t.Helper()
-	d := NewDispatcher()
+	d := NewDispatcher(zap.NewNop(), nil)
 	node := newCapturingNode()
 	appCtx := ctxapi.NewAppContext()
 	ctx, cancel := context.WithCancel(ctxapi.WithAppContext(context.Background(), appCtx))

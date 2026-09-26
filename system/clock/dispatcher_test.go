@@ -13,6 +13,7 @@ import (
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/relay"
+	"go.uber.org/zap"
 )
 
 type testReceiver struct {
@@ -42,7 +43,7 @@ func (r *testReceiver) CompleteYield(_ uint64, data any, err error) {
 }
 
 func TestSleepHandler(t *testing.T) {
-	d := NewDispatcher()
+	d := NewDispatcher(zap.NewNop(), nil)
 	defer func() { _ = d.Stop(context.Background()) }()
 
 	var handlers = make(map[dispatcher.CommandID]dispatcher.Handler)
@@ -71,7 +72,7 @@ func TestSleepHandler(t *testing.T) {
 }
 
 func TestSleepHandlerZeroDuration(t *testing.T) {
-	d := NewDispatcher()
+	d := NewDispatcher(zap.NewNop(), nil)
 	defer func() { _ = d.Stop(context.Background()) }()
 
 	var handlers = make(map[dispatcher.CommandID]dispatcher.Handler)
@@ -96,7 +97,7 @@ func TestSleepHandlerZeroDuration(t *testing.T) {
 }
 
 func TestTimerStartHandler(t *testing.T) {
-	d := NewDispatcher()
+	d := NewDispatcher(zap.NewNop(), nil)
 	defer func() { _ = d.Stop(context.Background()) }()
 
 	var handlers = make(map[dispatcher.CommandID]dispatcher.Handler)
@@ -126,7 +127,7 @@ func TestTimerStartHandler(t *testing.T) {
 }
 
 func TestTimerStartHandlerZeroDuration(t *testing.T) {
-	d := NewDispatcher()
+	d := NewDispatcher(zap.NewNop(), nil)
 	defer func() { _ = d.Stop(context.Background()) }()
 
 	var handlers = make(map[dispatcher.CommandID]dispatcher.Handler)
@@ -152,7 +153,7 @@ func TestTimerStartHandlerZeroDuration(t *testing.T) {
 func TestTimerWaitHandler(t *testing.T) {
 	const timerDuration = 10 * time.Millisecond
 
-	d := NewDispatcher()
+	d := NewDispatcher(zap.NewNop(), nil)
 	defer func() { _ = d.Stop(context.Background()) }()
 
 	var handlers = make(map[dispatcher.CommandID]dispatcher.Handler)
@@ -196,7 +197,7 @@ func TestTimerWaitHandler(t *testing.T) {
 }
 
 func TestTimerStopHandler(t *testing.T) {
-	d := NewDispatcher()
+	d := NewDispatcher(zap.NewNop(), nil)
 	defer func() { _ = d.Stop(context.Background()) }()
 
 	var handlers = make(map[dispatcher.CommandID]dispatcher.Handler)
@@ -232,7 +233,7 @@ func TestTimerStopHandler(t *testing.T) {
 }
 
 func TestTimerResetHandler(t *testing.T) {
-	d := NewDispatcher()
+	d := NewDispatcher(zap.NewNop(), nil)
 	defer func() { _ = d.Stop(context.Background()) }()
 
 	var handlers = make(map[dispatcher.CommandID]dispatcher.Handler)
@@ -268,7 +269,7 @@ func TestTimerResetHandler(t *testing.T) {
 }
 
 func TestTimerResetHandlerZeroDuration(t *testing.T) {
-	d := NewDispatcher()
+	d := NewDispatcher(zap.NewNop(), nil)
 	defer func() { _ = d.Stop(context.Background()) }()
 
 	var handlers = make(map[dispatcher.CommandID]dispatcher.Handler)
@@ -299,7 +300,7 @@ func TestTimerResetHandlerZeroDuration(t *testing.T) {
 }
 
 func TestTimerResetHandlerNotFound(t *testing.T) {
-	d := NewDispatcher()
+	d := NewDispatcher(zap.NewNop(), nil)
 	defer func() { _ = d.Stop(context.Background()) }()
 
 	var handlers = make(map[dispatcher.CommandID]dispatcher.Handler)
@@ -323,7 +324,7 @@ func TestTimerResetHandlerNotFound(t *testing.T) {
 }
 
 func TestDispatcher_RegisterAll(t *testing.T) {
-	d := NewDispatcher()
+	d := NewDispatcher(zap.NewNop(), nil)
 	handlers := make(map[dispatcher.CommandID]bool)
 
 	d.RegisterAll(func(id dispatcher.CommandID, _ dispatcher.Handler) {
@@ -348,7 +349,7 @@ func TestDispatcher_RegisterAll(t *testing.T) {
 }
 
 func TestDispatcher_Start(t *testing.T) {
-	d := NewDispatcher()
+	d := NewDispatcher(zap.NewNop(), nil)
 	err := d.Start(context.Background())
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
@@ -357,7 +358,7 @@ func TestDispatcher_Start(t *testing.T) {
 }
 
 func TestDispatcher_CountMethods(t *testing.T) {
-	d := NewDispatcher()
+	d := NewDispatcher(zap.NewNop(), nil)
 	defer func() { _ = d.Stop(context.Background()) }()
 
 	if d.TickerCount() != 0 {
@@ -369,7 +370,7 @@ func TestDispatcher_CountMethods(t *testing.T) {
 }
 
 func TestTickerStartHandler(t *testing.T) {
-	d := NewDispatcher()
+	d := NewDispatcher(zap.NewNop(), nil)
 	defer func() { _ = d.Stop(context.Background()) }()
 
 	var handlers = make(map[dispatcher.CommandID]dispatcher.Handler)
@@ -400,7 +401,7 @@ func TestTickerStartHandler(t *testing.T) {
 }
 
 func TestTickerStartHandlerZeroDuration(t *testing.T) {
-	d := NewDispatcher()
+	d := NewDispatcher(zap.NewNop(), nil)
 	defer func() { _ = d.Stop(context.Background()) }()
 
 	var handlers = make(map[dispatcher.CommandID]dispatcher.Handler)
@@ -425,7 +426,7 @@ func TestTickerStartHandlerZeroDuration(t *testing.T) {
 }
 
 func TestTickerStartHandlerNoNode(t *testing.T) {
-	d := NewDispatcher()
+	d := NewDispatcher(zap.NewNop(), nil)
 	defer func() { _ = d.Stop(context.Background()) }()
 
 	var handlers = make(map[dispatcher.CommandID]dispatcher.Handler)
@@ -450,7 +451,7 @@ func TestTickerStartHandlerNoNode(t *testing.T) {
 }
 
 func TestTickerStopHandler(t *testing.T) {
-	d := NewDispatcher()
+	d := NewDispatcher(zap.NewNop(), nil)
 	defer func() { _ = d.Stop(context.Background()) }()
 
 	var handlers = make(map[dispatcher.CommandID]dispatcher.Handler)
@@ -481,7 +482,7 @@ func TestTickerStopHandler(t *testing.T) {
 }
 
 func TestTickerStopHandlerNotFound(t *testing.T) {
-	d := NewDispatcher()
+	d := NewDispatcher(zap.NewNop(), nil)
 	defer func() { _ = d.Stop(context.Background()) }()
 
 	var handlers = make(map[dispatcher.CommandID]dispatcher.Handler)
@@ -505,7 +506,7 @@ func TestTickerStopHandlerNotFound(t *testing.T) {
 }
 
 func TestTimerStartHandlerNoNode(t *testing.T) {
-	d := NewDispatcher()
+	d := NewDispatcher(zap.NewNop(), nil)
 	defer func() { _ = d.Stop(context.Background()) }()
 
 	var handlers = make(map[dispatcher.CommandID]dispatcher.Handler)
@@ -530,7 +531,7 @@ func TestTimerStartHandlerNoNode(t *testing.T) {
 }
 
 func TestTimerWaitHandlerNotFound(t *testing.T) {
-	d := NewDispatcher()
+	d := NewDispatcher(zap.NewNop(), nil)
 	defer func() { _ = d.Stop(context.Background()) }()
 
 	var handlers = make(map[dispatcher.CommandID]dispatcher.Handler)
@@ -560,7 +561,7 @@ func TestTimerWaitHandlerNotFound(t *testing.T) {
 }
 
 func TestTimerStopHandlerNotFound(t *testing.T) {
-	d := NewDispatcher()
+	d := NewDispatcher(zap.NewNop(), nil)
 	defer func() { _ = d.Stop(context.Background()) }()
 
 	var handlers = make(map[dispatcher.CommandID]dispatcher.Handler)
@@ -584,7 +585,7 @@ func TestTimerStopHandlerNotFound(t *testing.T) {
 }
 
 func TestTimerWaitHandlerContextCanceled(t *testing.T) {
-	d := NewDispatcher()
+	d := NewDispatcher(zap.NewNop(), nil)
 	defer func() { _ = d.Stop(context.Background()) }()
 
 	var handlers = make(map[dispatcher.CommandID]dispatcher.Handler)

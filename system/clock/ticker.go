@@ -10,7 +10,6 @@ import (
 
 	clockapi "github.com/wippyai/runtime/api/clock"
 	"github.com/wippyai/runtime/api/pid"
-	"github.com/wippyai/runtime/api/relay"
 )
 
 const tickerShardCount = 64
@@ -19,9 +18,7 @@ type tickerEntry struct {
 	ctx    context.Context
 	ticker *time.Ticker
 	cancel context.CancelFunc
-	// fire, when non-nil, replaces the default sendTick payload with
-	// caller-supplied payload construction. Used by routed callers so each
-	// fire carries a subscription frame tagged with (epoch, chID, gen).
+	// fire builds and delivers one tick.
 	fire      func(at time.Time)
 	routerKey *chIDKey // non-nil when registered via TickerStartCmd with ChID != 0
 	topic     string
@@ -61,16 +58,16 @@ func (r *tickerRegistry) deleteEntry(shard *tickerShard, id uint64) (*tickerEntr
 	return entry, ok
 }
 
-func (r *tickerRegistry) start(ctx context.Context, d time.Duration, p pid.PID, topic string, node relay.Node) uint64 {
-	return r.startWithFire(ctx, d, p, topic, nil, nil, node)
+func (r *tickerRegistry) start(ctx context.Context, d time.Duration, p pid.PID, topic string, fire func(at time.Time)) uint64 {
+	return r.startWithFire(ctx, d, p, topic, fire, nil)
 }
 
 // startWithFire reserves and arms in one step. Callers that must install
 // reverse-map state before the ticker can fire use reserve and arm
 // separately.
-func (r *tickerRegistry) startWithFire(ctx context.Context, d time.Duration, p pid.PID, topic string, fire func(at time.Time), routerKey *chIDKey, node relay.Node) uint64 {
+func (r *tickerRegistry) startWithFire(ctx context.Context, d time.Duration, p pid.PID, topic string, fire func(at time.Time), routerKey *chIDKey) uint64 {
 	id := r.reserve(ctx, p, topic, fire, routerKey)
-	r.arm(id, d, node)
+	r.arm(id, d)
 	return id
 }
 
@@ -79,8 +76,7 @@ func (r *tickerRegistry) startWithFire(ctx context.Context, d time.Duration, p p
 // (and discoverable by stop and drain) but cannot fire until arm runs.
 // routerKey, when non-nil, is removed from the dispatcher's reverseMap
 // when the ticker stops. The payload construction is controlled by the
-// supplied fire closure; if fire is nil the default legacy sendTick
-// (int64 nanos) is used.
+// supplied fire closure.
 func (r *tickerRegistry) reserve(ctx context.Context, p pid.PID, topic string, fire func(at time.Time), routerKey *chIDKey) uint64 {
 	id := r.nextID.Add(1)
 	shard := r.getShard(id)
@@ -107,7 +103,7 @@ func (r *tickerRegistry) reserve(ctx context.Context, p pid.PID, topic string, f
 // id. It is a no-op if the entry was stopped before arming. Arming is the
 // last step so the reverse-map entry the dispatcher installs between
 // reserve and arm is guaranteed present before the ticker can fire.
-func (r *tickerRegistry) arm(id uint64, d time.Duration, node relay.Node) {
+func (r *tickerRegistry) arm(id uint64, d time.Duration) {
 	shard := r.getShard(id)
 	shard.mu.Lock()
 	entry, ok := shard.tickers[id]
@@ -125,10 +121,10 @@ func (r *tickerRegistry) arm(id uint64, d time.Duration, node relay.Node) {
 	// forwardTicks owns the time.Ticker lifecycle from here: its deferred
 	// Stop releases the ticker even if stop/close cancelled the entry
 	// between the unlock above and this launch.
-	go r.forwardTicks(entry, node)
+	go r.forwardTicks(entry)
 }
 
-func (r *tickerRegistry) forwardTicks(entry *tickerEntry, node relay.Node) {
+func (r *tickerRegistry) forwardTicks(entry *tickerEntry) {
 	ticker := entry.ticker
 	defer ticker.Stop()
 
@@ -147,11 +143,7 @@ func (r *tickerRegistry) forwardTicks(entry *tickerEntry, node relay.Node) {
 			default:
 			}
 
-			if entry.fire != nil {
-				entry.fire(t)
-			} else {
-				sendTick(node, entry.pid, entry.topic, t)
-			}
+			entry.fire(t)
 		}
 	}
 }

@@ -22,6 +22,7 @@ import (
 	sysrelay "github.com/wippyai/runtime/system/relay"
 	"github.com/wippyai/runtime/system/scheduler"
 	"github.com/wippyai/runtime/system/scheduler/actor"
+	"go.uber.org/zap"
 )
 
 // testHostID is the relay host the actor scheduler registers under. The
@@ -91,7 +92,7 @@ func newTestScheduler() *testScheduler {
 		pending: make(map[string]chan *runtime.Result),
 	}
 	reg := scheduler.NewRegistry()
-	clockSvc := clock.NewDispatcher()
+	clockSvc := clock.NewDispatcher(zap.NewNop(), nil)
 	clockSvc.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
 		reg.Register(id, h)
 	})
