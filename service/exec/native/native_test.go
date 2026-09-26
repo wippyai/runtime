@@ -124,6 +124,13 @@ func TestPTYWaitLeavesAcquiredOutputForCallerToDrain(t *testing.T) {
 	require.NoError(t, process.Start())
 	output := process.Stdout()
 	require.NotNil(t, output)
+	// A PTY child may wait for its output to be drained before it exits (as
+	// macOS does). The reader owns the master, so drain it while waiting.
+	drained := make(chan []byte, 1)
+	go func() {
+		payload, _ := io.ReadAll(output)
+		drained <- payload
+	}()
 	waited := make(chan error, 1)
 	go func() { waited <- process.Wait() }()
 	select {
@@ -134,8 +141,16 @@ func TestPTYWaitLeavesAcquiredOutputForCallerToDrain(t *testing.T) {
 		process.Stop()
 		t.Fatalf("PTY child did not exit: %s", state)
 	}
-	payload, _ := io.ReadAll(output)
+	var payload []byte
+	select {
+	case payload = <-drained:
+	case <-time.After(5 * time.Second):
+		_ = output.Close()
+		t.Fatal("PTY output did not finish draining")
+	}
 	require.Contains(t, string(payload), "final-frame")
+	_, err = process.ptyMaster.Stat()
+	require.NoError(t, err, "Wait must not close an acquired PTY master")
 	require.NoError(t, output.Close())
 }
 
