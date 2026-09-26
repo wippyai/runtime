@@ -46,7 +46,6 @@ func TestValidateEntry(t *testing.T) {
 			p.KillOnOwnerExit = false
 		},
 		func(p *Policy) { p.WorkDirRoots = []string{"/srv/ws/../other"} },
-		func(p *Policy) { p.FS.Read = Access{Paths: []string{"/usr"}} },
 		func(p *Policy) { p.FS.Exec = Access{Paths: []string{"relative"}} },
 		func(p *Policy) { p.FS.Exec.Unrestricted = true },
 		func(p *Policy) { p.Limits.PIDs = -1 },
@@ -56,6 +55,20 @@ func TestValidateEntry(t *testing.T) {
 		if err := ValidateEntry(policy); !errors.Is(err, ErrInvalid) {
 			t.Fatalf("accepted malformed entry %#v: %v", policy, err)
 		}
+	}
+}
+
+func TestWriteGrantImpliesRead(t *testing.T) {
+	base := basePolicy()
+	base.FS.Write.Paths = []string{"/srv/ws/demo", "/tmp/private"}
+	if err := ValidateEntry(base); err != nil {
+		t.Fatalf("rejected a write grant that implicitly permits reading: %v", err)
+	}
+	if _, err := Narrow(base, Patch{}); err != nil {
+		t.Fatalf("identity patch rejected implicit read: %v", err)
+	}
+	if _, err := Narrow(base, Patch{FS: &PathsPatch{Read: paths("/srv/ws/demo")}}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("explicit read patch excluded an inherited write grant: %v", err)
 	}
 }
 

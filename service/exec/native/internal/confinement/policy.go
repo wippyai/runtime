@@ -89,6 +89,11 @@ func ValidateEntry(p Policy) error {
 		}
 	}
 	fs := effectiveFS(p)
+	if p.FS != nil {
+		// Validate the declared grants before normalizing write ⇒ read. The
+		// union must not hide a malformed unrestricted grant with listed paths.
+		fs = *p.FS
+	}
 	for _, class := range []struct {
 		name   string
 		access Access
@@ -105,9 +110,6 @@ func ValidateEntry(p Policy) error {
 				return fmt.Errorf("%w: %s path %q", ErrInvalid, class.name, grant)
 			}
 		}
-	}
-	if !subset(fs.Write, fs.Read) {
-		return fmt.Errorf("%w: fs.read excludes fs.write", ErrInvalid)
 	}
 	for _, limit := range []struct {
 		name  string
@@ -270,7 +272,9 @@ func clonePolicy(p Policy) Policy {
 
 func effectiveFS(p Policy) Filesystem {
 	if p.FS != nil {
-		return *p.FS
+		fs := *p.FS
+		fs.Read = union(fs.Read, fs.Write)
+		return fs
 	}
 	return Filesystem{
 		Read:  Access{Unrestricted: true},
