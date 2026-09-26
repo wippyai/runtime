@@ -1003,7 +1003,7 @@ func lintRequireDeclarations(stmts []ast.Stmt, entryID string, data entryData, b
 	}
 
 	collector := diag.NewCollector(entryID)
-	walkRequireStmts(stmts, func(call *ast.FuncCallExpr, moduleName string) {
+	checkRequire := func(call *ast.FuncCallExpr, moduleName string) {
 		if _, ok := declared[moduleName]; ok {
 			return
 		}
@@ -1012,115 +1012,319 @@ func lintRequireDeclarations(stmts []ast.Stmt, entryID string, data entryData, b
 		}
 		collector.Add(call, diag.ErrNoHandler,
 			"require(%q) is not declared in _index.yaml imports or modules", moduleName)
-	})
+	}
+
+	if data.Method == "" {
+		walkRequireStmts(stmts, checkRequire)
+		return collector.All()
+	}
+
+	// Index definitions without entering their bodies. A field is identified by its
+	// name, regardless of the receiver spelling: aliases are ordinary references.
+	defs := map[string][]*ast.FunctionExpr{}
+	tables := map[string]bool{}
+	add := func(key string, fn *ast.FunctionExpr) {
+		if key != "" && fn != nil {
+			defs[key] = append(defs[key], fn)
+		}
+	}
+	var index func([]ast.Stmt)
+	index = func(body []ast.Stmt) {
+		walkRequireNodes(body, nil, func(stmt ast.Stmt) {
+			switch v := stmt.(type) {
+			case *ast.FuncDefStmt:
+				if v.Name == nil {
+					return
+				}
+				if v.Name.Method != "" {
+					if id, ok := v.Name.Receiver.(*ast.IdentExpr); ok {
+						tables[id.Value] = true
+					}
+					add("field:"+v.Name.Method, v.Func)
+					return
+				}
+				if attr, ok := v.Name.Func.(*ast.AttrGetExpr); ok {
+					if id, ok := attr.Object.(*ast.IdentExpr); ok {
+						tables[id.Value] = true
+					}
+					add("field:"+ast.KeyName(attr.Key), v.Func)
+				} else if id, ok := v.Name.Func.(*ast.IdentExpr); ok {
+					add("local:"+id.Value, v.Func)
+				}
+			case *ast.LocalAssignStmt:
+				for i, name := range v.Names {
+					if i < len(v.Exprs) {
+						if _, ok := v.Exprs[i].(*ast.TableExpr); ok {
+							tables[name] = true
+						}
+						indexBinding(name, v.Exprs[i], add)
+					}
+				}
+			case *ast.AssignStmt:
+				for i, lhs := range v.Lhs {
+					if i >= len(v.Rhs) {
+						break
+					}
+					switch name := lhs.(type) {
+					case *ast.IdentExpr:
+						if _, ok := v.Rhs[i].(*ast.TableExpr); ok {
+							tables[name.Value] = true
+						}
+						indexBinding(name.Value, v.Rhs[i], add)
+					case *ast.AttrGetExpr:
+						add("field:"+ast.KeyName(name.Key), functionValue(v.Rhs[i]))
+					}
+				}
+			}
+		}, nil)
+	}
+	index(stmts)
+	indexed := map[*ast.FunctionExpr]bool{}
+	for {
+		var pending []*ast.FunctionExpr
+		for _, functions := range defs {
+			for _, fn := range functions {
+				if !indexed[fn] {
+					indexed[fn] = true
+					pending = append(pending, fn)
+				}
+			}
+		}
+		if len(pending) == 0 {
+			break
+		}
+		for _, fn := range pending {
+			index(fn.Stmts)
+		}
+	}
+
+	roots := defs["field:"+data.Method]
+	roots = append(append([]*ast.FunctionExpr(nil), roots...), defs["local:"+data.Method]...)
+	if len(roots) == 0 {
+		walkRequireStmts(stmts, checkRequire)
+		return collector.All()
+	}
+
+	seen := map[*ast.FunctionExpr]bool{}
+	queue := append([]*ast.FunctionExpr(nil), roots...)
+	enqueueFields := func() {
+		for name, fns := range defs {
+			if strings.HasPrefix(name, "field:") {
+				queue = append(queue, fns...)
+			}
+		}
+	}
+	// The chunk executes for every entry. Definition targets are not references;
+	// only the code around them can enqueue another function.
+	scan := func(body []ast.Stmt, top bool) {
+		walkRequireNodes(body, checkRequire, func(stmt ast.Stmt) {
+			if ret, ok := stmt.(*ast.ReturnStmt); ok && !top {
+				for _, value := range ret.Exprs {
+					if id, ok := value.(*ast.IdentExpr); ok && tables[id.Value] {
+						enqueueFields()
+					}
+				}
+			}
+			if assign, ok := stmt.(*ast.LocalAssignStmt); ok {
+				for i, name := range assign.Names {
+					if i < len(assign.Exprs) {
+						if source, ok := assign.Exprs[i].(*ast.IdentExpr); ok && tables[source.Value] {
+							tables[name] = true
+						}
+					}
+				}
+			}
+		}, func(expr ast.Expr) {
+			var key string
+			switch e := expr.(type) {
+			case *ast.IdentExpr:
+				key = "local:" + e.Value
+			case *ast.AttrGetExpr:
+				if _, constant := e.Key.(*ast.StringExpr); !constant {
+					key = "field:*"
+				} else if name := ast.KeyName(e.Key); name != "" {
+					key = "field:" + name
+				} else {
+					key = "field:*"
+				}
+			case *ast.FuncCallExpr:
+				if e.Method != "" {
+					key = "field:" + e.Method
+				}
+				// A function table passed to unknown code can expose any member.
+				for _, arg := range e.Args {
+					if id, ok := arg.(*ast.IdentExpr); ok && tables[id.Value] {
+						key = "field:*"
+					}
+				}
+			case *ast.FunctionExpr:
+				if !top {
+					queue = append(queue, e)
+				}
+			}
+			if key == "field:*" {
+				enqueueFields()
+			} else {
+				queue = append(queue, defs[key]...)
+			}
+		})
+	}
+	scan(stmts, true)
+	for len(queue) != 0 {
+		fn := queue[0]
+		queue = queue[1:]
+		if seen[fn] || fn == nil {
+			continue
+		}
+		seen[fn] = true
+		scan(fn.Stmts, false)
+	}
 	return collector.All()
 }
 
-func walkRequireStmts(stmts []ast.Stmt, visit func(*ast.FuncCallExpr, string)) {
-	for _, stmt := range stmts {
-		walkRequireStmt(stmt, visit)
+func functionValue(expr ast.Expr) *ast.FunctionExpr {
+	if fn, ok := expr.(*ast.FunctionExpr); ok {
+		return fn
+	}
+	switch expr.(type) {
+	case nil, *ast.NumberExpr, *ast.StringExpr, *ast.TrueExpr, *ast.FalseExpr, *ast.NilExpr, *ast.TableExpr:
+		return nil
+	}
+	// An expression can produce a function (for example, M.run = factory()).
+	// Keep its evaluation as a root without guessing the returned function.
+	return &ast.FunctionExpr{Stmts: []ast.Stmt{&ast.ReturnStmt{Exprs: []ast.Expr{expr}}}}
+}
+
+func indexBinding(name string, expr ast.Expr, add func(string, *ast.FunctionExpr)) {
+	add("local:"+name, functionValue(expr))
+	if table, ok := expr.(*ast.TableExpr); ok {
+		for _, field := range table.Fields {
+			add("field:"+ast.KeyName(field.Key), functionValue(field.Value))
+		}
 	}
 }
 
-func walkRequireStmt(stmt ast.Stmt, visit func(*ast.FuncCallExpr, string)) {
+func walkRequireStmts(stmts []ast.Stmt, visit func(*ast.FuncCallExpr, string)) {
+	walkRequireNodes(stmts, visit, nil, nil)
+}
+
+func walkRequireNodes(stmts []ast.Stmt, visit func(*ast.FuncCallExpr, string), onStmt func(ast.Stmt), onExpr func(ast.Expr)) {
+	for _, stmt := range stmts {
+		walkRequireStmt(stmt, visit, onStmt, onExpr)
+	}
+}
+
+func walkRequireStmt(stmt ast.Stmt, visit func(*ast.FuncCallExpr, string), onStmt func(ast.Stmt), onExpr func(ast.Expr)) {
 	if stmt == nil {
 		return
 	}
 
+	if onStmt != nil {
+		onStmt(stmt)
+	}
 	switch s := stmt.(type) {
 	case *ast.AssignStmt:
-		for _, expr := range s.Lhs {
-			walkRequireExpr(expr, visit)
+		if onExpr == nil {
+			for _, expr := range s.Lhs {
+				walkRequireExpr(expr, visit, onStmt, onExpr)
+			}
 		}
 		for _, expr := range s.Rhs {
-			walkRequireExpr(expr, visit)
+			walkRequireExpr(expr, visit, onStmt, onExpr)
 		}
 	case *ast.LocalAssignStmt:
 		for _, expr := range s.Exprs {
-			walkRequireExpr(expr, visit)
+			walkRequireExpr(expr, visit, onStmt, onExpr)
 		}
 	case *ast.FuncCallStmt:
-		walkRequireExpr(s.Expr, visit)
+		walkRequireExpr(s.Expr, visit, onStmt, onExpr)
 	case *ast.DoBlockStmt:
-		walkRequireStmts(s.Stmts, visit)
+		walkRequireNodes(s.Stmts, visit, onStmt, onExpr)
 	case *ast.WhileStmt:
-		walkRequireExpr(s.Condition, visit)
-		walkRequireStmts(s.Stmts, visit)
+		walkRequireExpr(s.Condition, visit, onStmt, onExpr)
+		walkRequireNodes(s.Stmts, visit, onStmt, onExpr)
 	case *ast.RepeatStmt:
-		walkRequireStmts(s.Stmts, visit)
-		walkRequireExpr(s.Condition, visit)
+		walkRequireNodes(s.Stmts, visit, onStmt, onExpr)
+		walkRequireExpr(s.Condition, visit, onStmt, onExpr)
 	case *ast.IfStmt:
-		walkRequireExpr(s.Condition, visit)
-		walkRequireStmts(s.Then, visit)
-		walkRequireStmts(s.Else, visit)
+		walkRequireExpr(s.Condition, visit, onStmt, onExpr)
+		walkRequireNodes(s.Then, visit, onStmt, onExpr)
+		walkRequireNodes(s.Else, visit, onStmt, onExpr)
 	case *ast.NumberForStmt:
-		walkRequireExpr(s.Init, visit)
-		walkRequireExpr(s.Limit, visit)
-		walkRequireExpr(s.Step, visit)
-		walkRequireStmts(s.Stmts, visit)
+		walkRequireExpr(s.Init, visit, onStmt, onExpr)
+		walkRequireExpr(s.Limit, visit, onStmt, onExpr)
+		walkRequireExpr(s.Step, visit, onStmt, onExpr)
+		walkRequireNodes(s.Stmts, visit, onStmt, onExpr)
 	case *ast.GenericForStmt:
 		for _, expr := range s.Exprs {
-			walkRequireExpr(expr, visit)
+			walkRequireExpr(expr, visit, onStmt, onExpr)
 		}
-		walkRequireStmts(s.Stmts, visit)
+		walkRequireNodes(s.Stmts, visit, onStmt, onExpr)
 	case *ast.FuncDefStmt:
-		if s.Func != nil {
-			walkRequireStmts(s.Func.Stmts, visit)
+		if s.Func != nil && onStmt == nil && onExpr == nil {
+			walkRequireNodes(s.Func.Stmts, visit, onStmt, onExpr)
 		}
 	case *ast.ReturnStmt:
 		for _, expr := range s.Exprs {
-			walkRequireExpr(expr, visit)
+			walkRequireExpr(expr, visit, onStmt, onExpr)
 		}
 	}
 }
 
-func walkRequireExpr(expr ast.Expr, visit func(*ast.FuncCallExpr, string)) {
+func walkRequireExpr(expr ast.Expr, visit func(*ast.FuncCallExpr, string), onStmt func(ast.Stmt), onExpr func(ast.Expr)) {
 	if expr == nil {
 		return
 	}
 
+	if onExpr != nil {
+		onExpr(expr)
+	}
 	switch e := expr.(type) {
 	case *ast.FuncCallExpr:
 		if ident, ok := e.Func.(*ast.IdentExpr); ok && ident.Value == "require" && e.Receiver == nil && e.Method == "" && len(e.Args) > 0 {
 			if mod, ok := e.Args[0].(*ast.StringExpr); ok && mod.Value != "" {
-				visit(e, mod.Value)
+				if visit != nil {
+					visit(e, mod.Value)
+				}
 			}
 		}
-		walkRequireExpr(e.Func, visit)
-		walkRequireExpr(e.Receiver, visit)
+		walkRequireExpr(e.Func, visit, onStmt, onExpr)
+		walkRequireExpr(e.Receiver, visit, onStmt, onExpr)
 		for _, arg := range e.Args {
-			walkRequireExpr(arg, visit)
+			walkRequireExpr(arg, visit, onStmt, onExpr)
 		}
 	case *ast.AttrGetExpr:
-		walkRequireExpr(e.Object, visit)
-		walkRequireExpr(e.Key, visit)
+		walkRequireExpr(e.Object, visit, onStmt, onExpr)
+		walkRequireExpr(e.Key, visit, onStmt, onExpr)
 	case *ast.TableExpr:
 		for _, field := range e.Fields {
-			walkRequireExpr(field.Key, visit)
-			walkRequireExpr(field.Value, visit)
+			walkRequireExpr(field.Key, visit, onStmt, onExpr)
+			walkRequireExpr(field.Value, visit, onStmt, onExpr)
 		}
 	case *ast.FunctionExpr:
-		walkRequireStmts(e.Stmts, visit)
+		if onStmt == nil && onExpr == nil {
+			walkRequireNodes(e.Stmts, visit, onStmt, onExpr)
+		}
 	case *ast.LogicalOpExpr:
-		walkRequireExpr(e.Lhs, visit)
-		walkRequireExpr(e.Rhs, visit)
+		walkRequireExpr(e.Lhs, visit, onStmt, onExpr)
+		walkRequireExpr(e.Rhs, visit, onStmt, onExpr)
 	case *ast.RelationalOpExpr:
-		walkRequireExpr(e.Lhs, visit)
-		walkRequireExpr(e.Rhs, visit)
+		walkRequireExpr(e.Lhs, visit, onStmt, onExpr)
+		walkRequireExpr(e.Rhs, visit, onStmt, onExpr)
 	case *ast.ArithmeticOpExpr:
-		walkRequireExpr(e.Lhs, visit)
-		walkRequireExpr(e.Rhs, visit)
+		walkRequireExpr(e.Lhs, visit, onStmt, onExpr)
+		walkRequireExpr(e.Rhs, visit, onStmt, onExpr)
 	case *ast.StringConcatOpExpr:
-		walkRequireExpr(e.Lhs, visit)
-		walkRequireExpr(e.Rhs, visit)
+		walkRequireExpr(e.Lhs, visit, onStmt, onExpr)
+		walkRequireExpr(e.Rhs, visit, onStmt, onExpr)
 	case *ast.UnaryMinusOpExpr:
-		walkRequireExpr(e.Expr, visit)
+		walkRequireExpr(e.Expr, visit, onStmt, onExpr)
 	case *ast.UnaryNotOpExpr:
-		walkRequireExpr(e.Expr, visit)
+		walkRequireExpr(e.Expr, visit, onStmt, onExpr)
 	case *ast.UnaryLenOpExpr:
-		walkRequireExpr(e.Expr, visit)
+		walkRequireExpr(e.Expr, visit, onStmt, onExpr)
 	case *ast.UnaryBNotOpExpr:
-		walkRequireExpr(e.Expr, visit)
+		walkRequireExpr(e.Expr, visit, onStmt, onExpr)
 	}
 }
 

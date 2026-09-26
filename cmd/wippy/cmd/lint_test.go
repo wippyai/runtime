@@ -310,6 +310,10 @@ entries:
 }
 
 func runRequireDeclarations(t *testing.T, source string, imports map[string]registry.ID, builtins []string) []string {
+	return runRequireDeclarationsWithMethod(t, source, "", imports, builtins)
+}
+
+func runRequireDeclarationsWithMethod(t *testing.T, source string, method string, imports map[string]registry.ID, builtins []string) []string {
 	t.Helper()
 	stmts, err := parse.ParseString(source, "ns.test:entry")
 	if err != nil {
@@ -322,7 +326,7 @@ func runRequireDeclarations(t *testing.T, source string, imports map[string]regi
 	for _, b := range builtins {
 		builtinSet[b] = struct{}{}
 	}
-	diags := lintRequireDeclarations(stmts, "ns.test:entry", entryData{Imports: imports}, builtinSet)
+	diags := lintRequireDeclarations(stmts, "ns.test:entry", entryData{Imports: imports, Method: method}, builtinSet)
 	msgs := make([]string, 0, len(diags))
 	for _, d := range diags {
 		msgs = append(msgs, d.Message)
@@ -411,6 +415,160 @@ func TestLintRequireDeclarations_NonAmbientRegisteredModuleMustBeDeclared(t *tes
 		map[string]registry.ID{"json": registry.NewID("wippy.json", "json")}, builtins)
 	if len(clean) != 0 {
 		t.Fatalf("declared json import must clear the diagnostic, got %v", clean)
+	}
+}
+
+func TestLintRequireDeclarations_SharedSourceDifferentMethods(t *testing.T) {
+	source := `
+local M = {}
+
+function M.first()
+    return "clean"
+end
+
+function M.second()
+    local dep = require("only_in_second")
+    return dep.run()
+end
+
+return M
+`
+	// Entry 1 selects method "first" and does not declare "only_in_second".
+	// The require is only inside M.second, so it must not be reported for "first".
+	firstMsgs := runRequireDeclarationsWithMethod(t, source, "first", nil, nil)
+	if len(firstMsgs) != 0 {
+		t.Fatalf("expected no diagnostics for method 'first', got %v", firstMsgs)
+	}
+
+	// Entry 2 selects method "second" and declares "only_in_second".
+	secondMsgs := runRequireDeclarationsWithMethod(t, source, "second",
+		map[string]registry.ID{"only_in_second": registry.NewID("ns.pkg", "only_in_second")}, nil)
+	if len(secondMsgs) != 0 {
+		t.Fatalf("expected no diagnostics for method 'second' with declared import, got %v", secondMsgs)
+	}
+
+	// Entry 2 without declaring "only_in_second" must report it.
+	secondUndeclared := runRequireDeclarationsWithMethod(t, source, "second", nil, nil)
+	if len(secondUndeclared) != 1 || !strings.Contains(secondUndeclared[0], `require("only_in_second")`) {
+		t.Fatalf("expected diagnostic for undeclared require in method 'second', got %v", secondUndeclared)
+	}
+}
+
+func TestLintRequireDeclarations_ReachableHelperUndeclaredReported(t *testing.T) {
+	source := `
+local M = {}
+
+local function helper()
+    return require("undeclared_helper")
+end
+
+function M.first()
+    return helper()
+end
+
+function M.second()
+    return "clean"
+end
+
+return M
+`
+	// Method "first" calls helper(), so require("undeclared_helper") is reachable and must be reported.
+	firstMsgs := runRequireDeclarationsWithMethod(t, source, "first", nil, nil)
+	if len(firstMsgs) != 1 || !strings.Contains(firstMsgs[0], `require("undeclared_helper")`) {
+		t.Fatalf("expected undeclared require in helper to be reported for method 'first', got %v", firstMsgs)
+	}
+
+	// Method "second" does not reach helper(), so it must remain clean.
+	secondMsgs := runRequireDeclarationsWithMethod(t, source, "second", nil, nil)
+	if len(secondMsgs) != 0 {
+		t.Fatalf("expected no diagnostics for method 'second', got %v", secondMsgs)
+	}
+}
+
+func TestLintRequireDeclarations_ReachableModuleHelperUndeclaredReported(t *testing.T) {
+	source := `
+local M = {}
+
+function M.helper()
+    return require("undeclared_m_helper")
+end
+
+function M.first()
+    return M.helper()
+end
+
+function M.second()
+    return "clean"
+end
+
+return M
+`
+	firstMsgs := runRequireDeclarationsWithMethod(t, source, "first", nil, nil)
+	if len(firstMsgs) != 1 || !strings.Contains(firstMsgs[0], `require("undeclared_m_helper")`) {
+		t.Fatalf("expected undeclared require in M.helper to be reported for method 'first', got %v", firstMsgs)
+	}
+
+	secondMsgs := runRequireDeclarationsWithMethod(t, source, "second", nil, nil)
+	if len(secondMsgs) != 0 {
+		t.Fatalf("expected no diagnostics for method 'second', got %v", secondMsgs)
+	}
+}
+
+func TestLintRequireDeclarations_TopLevelRequireAppliesToMethod(t *testing.T) {
+	source := `
+local top = require("undeclared_top")
+local M = {}
+function M.first() return "clean" end
+return M
+`
+	firstMsgs := runRequireDeclarationsWithMethod(t, source, "first", nil, nil)
+	if len(firstMsgs) != 1 || !strings.Contains(firstMsgs[0], `require("undeclared_top")`) {
+		t.Fatalf("expected top-level require to be reported for method 'first', got %v", firstMsgs)
+	}
+}
+
+func TestLintRequireDeclarations_ReferencesReachHelpers(t *testing.T) {
+	tests := []struct{ name, source, want string }{
+		{"callback", `local M = {}
+function M.helper() return require("callback_dep") end
+function M.first() return pcall(M.helper) end
+return M`, "callback_dep"},
+		{"local callback", `local M = {}
+local function helper() return require("local_callback_dep") end
+function M.first() return run(helper) end
+return M`, "local_callback_dep"},
+		{"dynamic table", `local M = {}
+local t = {helper = function() return require("table_dep") end}
+function M.first(name) return t[name]() end
+return M`, "table_dep"},
+		{"returned function", `local M = {}
+local function helper() return require("returned_dep") end
+function M.first() return helper end
+return M`, "returned_dep"},
+		{"table alias", `local M = {}
+function M.helper() return require("alias_dep") end
+function M.first() local alias = M; return alias.helper() end
+return M`, "alias_dep"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			msgs := runRequireDeclarationsWithMethod(t, tt.source, "first", nil, nil)
+			if len(msgs) != 1 || !strings.Contains(msgs[0], tt.want) {
+				t.Fatalf("expected undeclared %s, got %v", tt.want, msgs)
+			}
+		})
+	}
+}
+
+func TestLintRequireDeclarations_FactoryBoundMethod(t *testing.T) {
+	source := `local api = {}
+local function factory() return function() return "ok" end end
+api.first = factory()
+function api.second() return require("second_only") end
+return api`
+	msgs := runRequireDeclarationsWithMethod(t, source, "first", nil, nil)
+	if len(msgs) != 0 {
+		t.Fatalf("unselected method reached from factory binding: %v", msgs)
 	}
 }
 
