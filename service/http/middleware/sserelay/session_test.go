@@ -121,57 +121,84 @@ func TestSessionServeDetachedReadyAndForward(t *testing.T) {
 	assert.False(t, host.hasStream(s.StreamPID()))
 }
 
+// An observed exit ends the join, so the session sends no leave to a process
+// that no longer exists. A link-down event or a client disconnect leaves the
+// target alive from the session's view, so the session still leaves.
 func TestSessionServeManagedTargetExit(t *testing.T) {
-	host := newMockHost()
-	node := newMockNode()
-	topo := newMockTopology()
-	tc := &mockTranscoder{}
-	pg := &testPIDGen{}
 	target := mustPID("{n1@app:llm|target-1}")
-
-	s, err := NewSession(
-		context.Background(),
-		RelayCommand{
-			TargetPID: target.String(),
+	for _, test := range []struct {
+		event     payload.Payload
+		name      string
+		reason    string
+		wantLeave bool
+	}{
+		{
+			name:   "pointer exit",
+			event:  payload.New(&topology.ExitEvent{From: target, Kind: topology.Exit}),
+			reason: `"reason":"target process exited"`,
 		},
-		registry.NewID("app", "server"),
-		host,
-		node,
-		topo,
-		tc,
-		pg,
-		zap.NewNop(),
-	)
-	require.NoError(t, err)
+		{
+			name:   "value exit",
+			event:  payload.New(topology.ExitEvent{From: target, Kind: topology.Exit}),
+			reason: `"reason":"target process exited"`,
+		},
+		{
+			name:      "link down",
+			event:     payload.New(&topology.ExitEvent{From: target, Kind: topology.LinkDown}),
+			reason:    `"reason":"target process exited"`,
+			wantLeave: true,
+		},
+		{
+			name:      "client disconnect",
+			wantLeave: true,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			host := newMockHost()
+			node := newMockNode()
+			topo := newMockTopology()
 
-	writer := newTestSSEWriter()
-	reqCtx, cancelReq := context.WithCancel(context.Background())
-	defer cancelReq()
+			s, err := NewSession(
+				context.Background(),
+				RelayCommand{TargetPID: target.String()},
+				registry.NewID("app", "server"),
+				host,
+				node,
+				topo,
+				&mockTranscoder{},
+				&testPIDGen{},
+				zap.NewNop(),
+			)
+			require.NoError(t, err)
 
-	done := make(chan error, 1)
-	go func() {
-		done <- s.Serve(reqCtx, writer)
-	}()
+			writer := newTestSSEWriter()
+			reqCtx, cancelReq := context.WithCancel(context.Background())
+			defer cancelReq()
 
-	require.Eventually(t, func() bool {
-		return node.hasTopic(JoinTopic)
-	}, time.Second, 10*time.Millisecond)
+			done := make(chan error, 1)
+			go func() {
+				done <- s.Serve(reqCtx, writer)
+			}()
 
-	exitEvt := &topology.ExitEvent{From: target, Kind: topology.Exit}
-	err = host.Send(relay.NewPackage(
-		pid.Zero(),
-		s.StreamPID(),
-		topology.TopicEvents,
-		payload.New(exitEvt),
-	))
-	require.NoError(t, err)
+			require.Eventually(t, func() bool {
+				return node.hasTopic(JoinTopic)
+			}, time.Second, 10*time.Millisecond)
 
-	require.NoError(t, <-done)
+			if test.event != nil {
+				require.NoError(t, host.Send(relay.NewPackage(pid.Zero(), s.StreamPID(), topology.TopicEvents, test.event)))
+			} else {
+				cancelReq()
+			}
+			require.NoError(t, <-done)
 
-	assert.True(t, node.hasTopic(LeaveTopic))
-	assert.True(t, topo.monitoredBy(s.StreamPID(), target))
-	assert.True(t, topo.demonitorCalled(s.StreamPID(), target))
-	assert.Contains(t, writer.String(), `"reason":"target process exited"`)
+			assert.Equal(t, test.wantLeave, node.hasTopic(LeaveTopic))
+			assert.True(t, topo.monitoredBy(s.StreamPID(), target))
+			assert.True(t, topo.demonitorCalled(s.StreamPID(), target))
+			if test.reason != "" {
+				assert.Contains(t, writer.String(), test.reason)
+			}
+		})
+	}
 }
 
 func TestSessionControlAttachDetachAndTopicSwitch(t *testing.T) {

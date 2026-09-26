@@ -65,19 +65,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 
 	cfg.Process = cfg.Process.WithDefaultNS(entry.ID.NS)
 
-	svc := NewService(entry.ID, *cfg, m.pidGen)
-	m.services.Store(entry.ID, svc)
-
-	// Register with supervisor system
-	m.bus.Send(ctx, event.Event{
-		System: supervisor.System,
-		Kind:   supervisor.ServiceRegister,
-		Path:   entry.ID.String(),
-		Data: &supervisor.Entry{
-			Service: svc,
-			Config:  cfg.Lifecycle,
-		},
-	})
+	m.registerService(ctx, entry.ID, *cfg)
 
 	m.log.Debug("process service added", zap.String("id", entry.ID.String()))
 	return nil
@@ -89,7 +77,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 		return err
 	}
 
-	svc, exists := m.services.Load(entry.ID)
+	current, exists := m.services.Load(entry.ID)
 	if !exists {
 		return newServiceNotFoundError(entry.ID.String())
 	}
@@ -101,20 +89,32 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 
 	cfg.Process = cfg.Process.WithDefaultNS(entry.ID.NS)
 
-	// Update stored service config
-	svc.(*Service).config = *cfg
+	if current.(*Service).config.Equal(*cfg) {
+		return nil
+	}
 
-	m.bus.Send(ctx, event.Event{
-		System: supervisor.System,
-		Kind:   supervisor.ServiceUpdate,
-		Path:   entry.ID.String(),
-		Data: &supervisor.Entry{
-			Config: cfg.Lifecycle,
-		},
-	})
+	// A running controller owns the old instance until its normal shutdown
+	// finishes. Registering a new instance makes the supervisor retire it and
+	// start a child from the new definition.
+	m.registerService(ctx, entry.ID, *cfg)
 
 	m.log.Debug("process service updated", zap.String("id", entry.ID.String()))
 	return nil
+}
+
+func (m *Manager) registerService(ctx context.Context, id registry.ID, cfg supervisorapi.ServiceConfig) {
+	svc := NewService(id, cfg, m.pidGen)
+	m.services.Store(id, svc)
+
+	m.bus.Send(ctx, event.Event{
+		System: supervisor.System,
+		Kind:   supervisor.ServiceRegister,
+		Path:   id.String(),
+		Data: &supervisor.Entry{
+			Service: svc,
+			Config:  cfg.Lifecycle,
+		},
+	})
 }
 
 // Delete implements registry.EntryListener.

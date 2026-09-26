@@ -50,30 +50,6 @@ func clusterRaftEnabled(clusterCfg boot.Config) bool {
 	return !strings.EqualFold(clusterCfg.GetString(ClusterRaftRole, raftRoleServer), raftRoleClient)
 }
 
-// internodeAdvertiseEndpoint returns an optional v2 endpoint for upgraded
-// peers. It leaves v1 internode_port metadata unchanged, so old peers continue
-// to use the membership IP and bound port during a rolling upgrade.
-func internodeAdvertiseEndpoint(clusterCfg boot.Config, bindPort int) (string, int, error) {
-	addr := strings.TrimSpace(clusterCfg.GetString(ClusterInternodeAdvertiseAddr, ""))
-	configuredPort := clusterCfg.GetInt(ClusterInternodeAdvertisePort, 0)
-	if addr == "" {
-		if configuredPort != 0 {
-			return "", 0, fmt.Errorf("cluster.internode.advertise_port requires advertise_addr")
-		}
-		return "", bindPort, nil
-	}
-	if !internode.ValidEndpointHost(addr) {
-		return "", 0, fmt.Errorf("cluster.internode.advertise_addr must be an IP address or DNS hostname, got %q", addr)
-	}
-	if configuredPort == 0 {
-		configuredPort = bindPort
-	}
-	if configuredPort < 1 || configuredPort > 65535 {
-		return "", 0, fmt.Errorf("cluster.internode.advertise_port must be between 1 and 65535, got %d", configuredPort)
-	}
-	return addr, configuredPort, nil
-}
-
 // clusterHealthScoreCeiling is the maximum memberlist health score
 // (where 0 = healthy) at which the activity-based liveness check still
 // reports healthy. Memberlist scores 1 or 2 commonly during chaos
@@ -127,7 +103,6 @@ func Cluster() boot.Component {
 	var internodeSvc *internode.Service
 	var connMgr internode.ConnectionManager
 	var logger *zap.Logger
-	var advertiseConfig boot.Config
 	var internodeActive, membershipActive bool
 	var lifecycle sync.Mutex
 	type execution struct {
@@ -270,13 +245,6 @@ func Cluster() boot.Component {
 			}
 
 			connMgr = internode.NewConnectionManager(connManagerCfg, metricsapi.GetCollector(ctx))
-			advertiseConfig = clusterCfg
-			// Validate overrides now; resolve an automatic port from the live
-			// listener during Start, before membership can advertise it.
-			_, _, err = internodeAdvertiseEndpoint(clusterCfg, 1)
-			if err != nil {
-				return ctx, err
-			}
 
 			// Create node metadata with the externally reachable internode endpoint
 			// and raft-eligibility hints. raft_eligible / raft_priority / failure_domain are advertised so the
@@ -303,6 +271,7 @@ func Cluster() boot.Component {
 
 			// Create membership service config
 			memberCfg := membership.Config{
+				Link:        connMgr,
 				NodeName:    nodeName,
 				BindAddr:    clusterCfg.GetString(ClusterMembershipBindAddr, "0.0.0.0"),
 				BindPort:    clusterCfg.GetInt(ClusterMembershipBindPort, 7946),
@@ -400,6 +369,7 @@ func Cluster() boot.Component {
 
 			// Store cluster components in context
 			ctx = clusterapi.WithMembership(ctx, membershipSvc)
+			ctx = clusterapi.WithLinks(ctx, connMgr)
 			ctx = WithInternodeService(ctx, internodeSvc)
 
 			// Expose the connection manager so the mesh-backed Raft
@@ -432,18 +402,9 @@ func Cluster() boot.Component {
 					return NewInternodeStartError(err)
 				}
 				internodeActive = true
-				actualPort := connMgr.GetListenPort()
-				addr, port, err := internodeAdvertiseEndpoint(advertiseConfig, actualPort)
-				if err != nil {
-					stopServices()
-					return err
-				}
-				meta := map[string]string{internode.MetadataPort: strconv.Itoa(actualPort)}
-				if addr != "" {
-					meta[internode.MetadataAdvertiseAddr] = addr
-					meta[internode.MetadataAdvertisePort] = strconv.Itoa(port)
-				}
-				membershipSvc.UpdateMeta(meta)
+				membershipSvc.UpdateMeta(map[string]string{
+					internode.MetadataPort: strconv.Itoa(connMgr.GetListenPort()),
+				})
 			}
 			if membershipSvc != nil {
 				logger.Info("starting cluster membership service")

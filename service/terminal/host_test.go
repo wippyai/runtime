@@ -15,6 +15,8 @@ import (
 	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/attrs"
 	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/event"
+	logapi "github.com/wippyai/runtime/api/logs"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/process"
@@ -23,6 +25,7 @@ import (
 	"github.com/wippyai/runtime/api/runtime"
 	secapi "github.com/wippyai/runtime/api/security"
 	terminalapi "github.com/wippyai/runtime/api/service/terminal"
+	"github.com/wippyai/runtime/boot"
 	"github.com/wippyai/runtime/internal/uniqid"
 	"github.com/wippyai/runtime/system/logs"
 	"github.com/wippyai/runtime/system/scheduler/actor"
@@ -89,6 +92,35 @@ func TestHost_StartStop(t *testing.T) {
 	err = h.Stop(context.Background())
 	require.NoError(t, err)
 	assert.False(t, h.running.Load())
+}
+
+func TestHost_HideLogsStopsAfterRunContextCanceled(t *testing.T) {
+	runCtx, cancelRun := context.WithCancel(context.Background())
+	ctx, err := boot.NewBootstrapContextWithParent(runCtx, zap.NewNop(), nil)
+	require.NoError(t, err)
+	require.NoError(t, boot.StartRuntimeServices(ctx))
+	t.Cleanup(func() { require.NoError(t, boot.StopRuntimeServices(context.WithoutCancel(ctx))) })
+
+	logCtrl := logs.NewConfigurator(event.GetBus(ctx), zap.NewNop())
+	require.NoError(t, logCtrl.EnableTemporaryConfig(ctx, logapi.Config{StreamToEvents: true}))
+	h := NewHost(registry.ID{NS: "test", Name: "host"}, &terminalapi.HostConfig{HideLogs: true},
+		actor.NewScheduler(&mockCommandRegistry{}, actor.WithWorkers(1)), &mockFactory{}, logCtrl, zap.NewNop())
+	_, err = h.Start(ctx)
+	require.NoError(t, err)
+	cancelRun()
+
+	shutdownCtx, cancelShutdown := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
+	defer cancelShutdown()
+	result := make(chan error, 1)
+	go func() { result <- h.Stop(shutdownCtx) }()
+	select {
+	case err := <-result:
+		require.NoError(t, err)
+	case <-time.After(500 * time.Millisecond):
+		cancelShutdown()
+		<-result
+		t.Fatal("terminal host waited for log configuration during shutdown")
+	}
 }
 
 func TestHost_StartTwice(t *testing.T) {

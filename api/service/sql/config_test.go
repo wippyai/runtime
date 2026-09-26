@@ -239,6 +239,15 @@ func TestSQLiteConfig_Validate(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name: "foreign keys enabled",
+			config: SQLiteConfig{
+				File:        ":memory:",
+				ForeignKeys: true,
+				Pool:        PoolConfig{MaxLifetime: time.Hour},
+			},
+			wantErr: false,
+		},
+		{
 			name:    "missing file",
 			config:  SQLiteConfig{},
 			wantErr: true,
@@ -266,6 +275,29 @@ func TestSQLiteConfig_Validate(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestSQLiteConfig_ForeignKeysJSON(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		input   string
+		enabled bool
+	}{
+		{"enabled", `{"file":":memory:","foreign_keys":true}`, true},
+		{"disabled", `{"file":":memory:","foreign_keys":false}`, false},
+		{"omitted", `{"file":":memory:"}`, false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var cfg SQLiteConfig
+			require.NoError(t, json.Unmarshal([]byte(tt.input), &cfg))
+			cfg.InitDefaults()
+			require.NoError(t, cfg.Validate())
+			assert.Equal(t, tt.enabled, cfg.ForeignKeys)
+		})
+	}
+
+	var cfg SQLiteConfig
+	require.Error(t, json.Unmarshal([]byte(`{"file":":memory:","foreign_keys":"true"}`), &cfg))
 }
 
 func TestDBConfig_InitDefaults(t *testing.T) {

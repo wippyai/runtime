@@ -150,6 +150,9 @@ type NodeConnection struct {
 	drainBatch    int
 	lifecycleMu   sync.Mutex
 	closed        atomic.Bool
+	// dialed reports that this node opened the connection as the handshake
+	// client.
+	dialed bool
 }
 
 // newNodeConnection creates a new, un-started NodeConnection. bindDrain must

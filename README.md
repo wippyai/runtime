@@ -112,8 +112,19 @@ Each process is sandboxed to the capabilities you grant it, your data stays on i
 ```
 git clone https://github.com/wippyai/runtime.git
 cd runtime
-go build -o wippy ./cmd/runner/
+go build -o wippy ./cmd/wippy/
 ```
+
+A plain Go build reports `dev`. Makefile builds prefix the automatic Git
+description with `dev-`, including builds from a tagged checkout. Release
+builders set the release identity explicitly, for example:
+
+```
+make build-wippy-local WIPPY_VERSION=v0.3.43a
+```
+
+`wippy version --short` and Lua `system.version()` report the same build
+identity. Development and nightly identities do not promise release ordering.
 
 ## Usage
 

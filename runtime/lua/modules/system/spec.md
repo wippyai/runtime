@@ -12,6 +12,24 @@ local system = require("system")
 
 ## Functions
 
+### version() → string
+
+Returns the exact build identity from `api/version.Short()`. The value is not
+parsed, normalized, or interpreted as an ordered version. It can be `dev`, a
+`dev-*` description for a local Makefile build, a `nightly-*` identity, or an
+explicit release stamp.
+
+The identity describes the local OS process executing Lua. It does not report
+the minimum version across a cluster or a remote worker.
+
+**Permissions:** Public when the caller can load the `system` module. This
+function does not require `system.read`, an actor, or a scope.
+
+```lua
+local system = require("system")
+local running: string = system.version()
+```
+
 ### exit(code?: integer) → boolean, error
 
 Triggers system shutdown with exit code.
@@ -374,6 +392,7 @@ Full cluster membership snapshot. Local node sorts first; remaining nodes by ID.
 | is_local | boolean | True if this entry is the local node |
 | addr | string | Optional advertised address |
 | meta | table | Optional string-keyed metadata |
+| link | table | Present when this node holds a connected link to the member: `remote` (string, the member's socket address as seen here) and `dialed` (boolean, true when this node opened the link) |
 
 **Returns:** `table[], error` - array of node info tables or nil + structured error
 

@@ -287,3 +287,26 @@ entries:
       - http_client
       - json
       - time
+
+  - name: service_tag_worker
+    kind: process.lua
+    meta:
+      comment: Supervised worker that answers pings with its service input tag
+    source: file://service_tag_worker.lua
+    method: main
+
+  - name: service_definition_update
+    kind: function.lua
+    meta:
+      type: test
+      suite: registry
+      order: 125
+      description: updated process.service definition replaces the running process
+    source: file://service_definition_update.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - registry
+      - system
+      - time

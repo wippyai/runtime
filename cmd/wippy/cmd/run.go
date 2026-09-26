@@ -332,16 +332,12 @@ func runWithUseCase(cmd *cobra.Command, args []string, useCase string) (result e
 
 	// Handle exec: launch process and wait for completion
 	if execSpec != "" {
-		execCtx, stopExecSignals := newExecSignalContext(ctx)
-		execErr := launchExecProcess(execCtx, logger, execSpec, execHost, args)
-		interrupted := execWasInterrupted(execCtx, ctx, execErr)
-		stopExecSignals()
-		if execErr != nil && !interrupted {
-			logger.Error("exec launch failed", zap.Error(execErr))
-			return execErr
+		shutdown, err := launchExecUntilShutdown(ctx, sigChan, logger, execSpec, execHost, args)
+		if err != nil {
+			return err
 		}
-		if interrupted {
-			logger.Info("exec interrupted", zap.String("signal", "SIGINT"))
+		if shutdown {
+			return nil
 		}
 	}
 
@@ -1040,12 +1036,15 @@ func launchExecProcess(ctx context.Context, logger *zap.Logger, execSpec, hostID
 	if err != nil {
 		return fmt.Errorf("execute %s: %w", source.String(), err)
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 
 	// The terminal host also performs this transition from its lifecycle hook,
 	// but the CLI owns the awaited ExecResult and must bridge it to the shell
 	// even if a host implementation does not emit its own shutdown signal.
 	exitCode := terminalservice.ExitCode(result)
-	supervisorapi.TriggerShutdown(ctx, exitCode)
+	supervisorapi.TriggerShutdownIfIdle(ctx, exitCode)
 	logger.Debug("exec process completed",
 		zap.String("host", hostID),
 		zap.String("source", source.String()),
@@ -1053,6 +1052,35 @@ func launchExecProcess(ctx context.Context, logger *zap.Logger, execSpec, hostID
 		zap.Int("exit_code", exitCode))
 
 	return nil
+}
+
+// launchExecUntilShutdown keeps the runtime's shutdown signal observable while
+// a command process is running. Cancellation is followed by normal loader
+// shutdown, which drains the command host and stops services in order.
+func launchExecUntilShutdown(ctx context.Context, sigChan chan os.Signal, logger *zap.Logger, execSpec, hostID string, args []string) (bool, error) {
+	execCtx, stopExecSignals := newExecSignalContext(ctx)
+	defer stopExecSignals()
+
+	done := make(chan error, 1)
+	go func() { done <- launchExecProcess(execCtx, logger, execSpec, hostID, args) }()
+
+	select {
+	case execErr := <-done:
+		interrupted := execWasInterrupted(execCtx, ctx, execErr)
+		if execErr != nil && !interrupted {
+			logger.Error("exec launch failed", zap.Error(execErr))
+			return false, execErr
+		}
+		if interrupted {
+			logger.Info("exec interrupted", zap.String("signal", "SIGINT"))
+		}
+		return false, nil
+	case sig := <-sigChan:
+		stopExecSignals()
+		<-done
+		handleShutdownSignal(ctx, sigChan, logger, sig, nil)
+		return true, nil
+	}
 }
 
 // loadCommandMeta decodes meta.command from the command entry. Host and
@@ -1174,6 +1202,10 @@ func waitForShutdownSignal(ctx context.Context, sigChan chan os.Signal, logger *
 		return
 	case sig = <-sigChan:
 	}
+	handleShutdownSignal(ctx, sigChan, logger, sig, onFirstSignal)
+}
+
+func handleShutdownSignal(ctx context.Context, sigChan chan os.Signal, logger *zap.Logger, sig os.Signal, onFirstSignal func()) {
 	logger.Info("received shutdown signal", zap.String("signal", sig.String()))
 	if onFirstSignal != nil {
 		onFirstSignal()

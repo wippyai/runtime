@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/supervisor"
 	"github.com/wippyai/runtime/api/topology"
 )
 
@@ -112,6 +113,112 @@ func TestServiceConfig_Validate(t *testing.T) {
 			} else {
 				assert.NoError(t, err)
 			}
+		})
+	}
+}
+
+func TestServiceConfig_Equal(t *testing.T) {
+	base := ServiceConfig{
+		Process: registry.NewID("proc", "worker"),
+		HostID:  "node:worker1",
+		Input:   []any{"arg1", 42},
+		Lifecycle: supervisor.LifecycleConfig{
+			AutoStart: true,
+		},
+	}
+	managerApplied := (&registry.ID{Name: "worker"}).WithDefaultNS("proc")
+
+	tests := []struct {
+		name     string
+		c        ServiceConfig
+		o        ServiceConfig
+		expected bool
+	}{
+		{
+			name:     "equal configs",
+			c:        base,
+			o:        base,
+			expected: true,
+		},
+		{
+			name: "different process",
+			c:    base,
+			o: ServiceConfig{
+				Process:   registry.NewID("proc", "other"),
+				HostID:    base.HostID,
+				Input:     base.Input,
+				Lifecycle: base.Lifecycle,
+			},
+			expected: false,
+		},
+		{
+			name: "different host ID",
+			c:    base,
+			o: ServiceConfig{
+				Process:   base.Process,
+				HostID:    "node:worker2",
+				Input:     base.Input,
+				Lifecycle: base.Lifecycle,
+			},
+			expected: false,
+		},
+		{
+			name: "different input",
+			c:    base,
+			o: ServiceConfig{
+				Process:   base.Process,
+				HostID:    base.HostID,
+				Input:     []any{"arg2"},
+				Lifecycle: base.Lifecycle,
+			},
+			expected: false,
+		},
+		{
+			name: "different lifecycle",
+			c:    base,
+			o: ServiceConfig{
+				Process: base.Process,
+				HostID:  base.HostID,
+				Input:   base.Input,
+				Lifecycle: supervisor.LifecycleConfig{
+					AutoStart: false,
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "namespace-equivalent process IDs as manager applies them",
+			c: ServiceConfig{
+				Process:   managerApplied,
+				HostID:    base.HostID,
+				Input:     base.Input,
+				Lifecycle: base.Lifecycle,
+			},
+			o:        base,
+			expected: true,
+		},
+		{
+			name: "namespace-equivalent process IDs with qualified name",
+			c: ServiceConfig{
+				Process:   managerApplied,
+				HostID:    base.HostID,
+				Input:     base.Input,
+				Lifecycle: base.Lifecycle,
+			},
+			o: ServiceConfig{
+				Process:   registry.ID{Name: "proc:worker"},
+				HostID:    base.HostID,
+				Input:     base.Input,
+				Lifecycle: base.Lifecycle,
+			},
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, tt.c.Equal(tt.o))
+			assert.Equal(t, tt.expected, tt.o.Equal(tt.c))
 		})
 	}
 }

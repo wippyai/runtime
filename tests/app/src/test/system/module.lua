@@ -27,6 +27,7 @@ local function main()
 	-- Check top-level functions
 	assert.eq(type(system.exit), "function", "exit is function")
 	assert.eq(type(system.modules), "function", "modules is function")
+	assert.eq(type(system.version), "function", "version is function")
 
 	-- Check memory functions
 	assert.eq(type(system.memory.stats), "function", "memory.stats is function")

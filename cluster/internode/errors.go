@@ -3,6 +3,8 @@
 package internode
 
 import (
+	"fmt"
+
 	"github.com/wippyai/runtime/api/attrs"
 	apierror "github.com/wippyai/runtime/api/error"
 )
@@ -38,6 +40,14 @@ func NewNodeIDMismatchError(expected, actual string) apierror.Error {
 	return apierror.New(apierror.Invalid, "node ID mismatch").
 		WithRetryable(apierror.False).
 		WithDetails(attrs.Bag{"expected": expected, "actual": actual})
+}
+
+// newPeerNotAuthorizedError reports a peer that proved its identity but is
+// not admitted to this node's mesh.
+func newPeerNotAuthorizedError(nodeID string) apierror.Error {
+	return apierror.New(apierror.PermissionDenied, "internode peer is not authorized").
+		WithRetryable(apierror.False).
+		WithDetails(attrs.Bag{"node_id": nodeID})
 }
 
 func NewEncodePayloadError(index int, err error) apierror.Error {
@@ -102,6 +112,28 @@ func NewMessageSizeExceedsMaxError(size, maxSize int) apierror.Error {
 		WithDetails(attrs.Bag{"size": size, "max_size": maxSize})
 }
 
-func NewRegisterPIDExtensionError(cause error) apierror.Error {
-	return apierror.New(apierror.Internal, "failed to register pid.PID extension").WithCause(cause).WithRetryable(apierror.False)
+func newDecodePayloadError(index int, cause error) apierror.Error {
+	return apierror.New(apierror.Invalid, "failed to decode payload").
+		WithRetryable(apierror.False).
+		WithDetails(attrs.Bag{"payload_index": index}).
+		WithCause(cause)
+}
+
+func newRegisterExtensionError(tag uint64, goType string, cause error) apierror.Error {
+	return apierror.New(apierror.Internal, "failed to register msgpack extension").
+		WithRetryable(apierror.False).
+		WithDetails(attrs.Bag{"tag": tag, "type": goType}).
+		WithCause(cause)
+}
+
+// newWireTypeError reports a value whose Go type has no wire form in the
+// position it occupies.
+func newWireTypeError(position string, value any) apierror.Error {
+	return apierror.New(apierror.Invalid, "unexpected wire value type").
+		WithRetryable(apierror.False).
+		WithDetails(attrs.Bag{"position": position, "type": fmt.Sprintf("%T", value)})
+}
+
+func newEmptyErrorChainError() apierror.Error {
+	return apierror.New(apierror.Invalid, "error chain has no entries").WithRetryable(apierror.False)
 }

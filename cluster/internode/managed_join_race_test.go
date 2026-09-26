@@ -16,7 +16,8 @@ import (
 
 // Pause inbound authorization after its initial missing-state check. A formal
 // membership join then creates the state and admits a message before inbound
-// auto-management resumes. The duplicate join must not reset that queue.
+// auto-management resumes. The duplicate join must not reset that queue, so
+// the adopted inbound connection delivers the admitted message.
 func TestInboundAutoManagementPreservesConcurrentMembershipJoin(t *testing.T) {
 	observed := make(chan struct{})
 	release := make(chan struct{})
@@ -24,10 +25,14 @@ func TestInboundAutoManagementPreservesConcurrentMembershipJoin(t *testing.T) {
 	resume := func() { once.Do(func() { close(release) }) }
 	defer resume()
 	cfg := insecureManagerConfig()
-	cfg.LocalNodeID = "a-local" // Tie-break drops the inbound connection after admission.
+	cfg.LocalNodeID = "a-local"
+	cfg.BindAddr = "127.0.0.1"
+	cfg.BindPort = 0
 	cfg.Logger = zap.NewNop()
 	cfg.AuthorizePeer = func(cluster.NodeID, net.Addr) bool { close(observed); <-release; return true }
 	m := NewConnectionManager(cfg, nil).(*manager)
+	require.NoError(t, m.Start(context.Background(), func(cluster.NodeID, []byte) {}))
+	defer func() { require.NoError(t, m.Stop()) }()
 	server, client := net.Pipe()
 	defer server.Close()
 	defer client.Close()
@@ -52,7 +57,11 @@ func TestInboundAutoManagementPreservesConcurrentMembershipJoin(t *testing.T) {
 		t.Fatal("inbound handler did not finish")
 	}
 	require.Same(t, original, m.nodeStates.GetNodeState("z-peer"))
-	require.Equal(t, [][]byte{[]byte("already-admitted")}, drainAllData(m.nodeStates, "z-peer"))
+	require.NoError(t, peer.conn.SetReadDeadline(time.Now().Add(2*time.Second)))
+	class, data, err := readFrame(peer.conn, cfg.MaxMessageSize)
+	require.NoError(t, err)
+	require.Equal(t, ClassRaftRPC, class)
+	require.Equal(t, []byte("already-admitted"), data)
 	m.RemoveManagedNode("z-peer")
 }
 
