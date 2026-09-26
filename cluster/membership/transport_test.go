@@ -129,15 +129,24 @@ func TestFixedTransportIsCancelable(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	cfg := automaticTransportConfig()
-	port, err := freeLoopbackPort(t)
-	require.NoError(t, err)
-	cfg.BindPort = port
-	ml, _, err := createMemberlist(ctx, cfg, nil, memberlist.NewNetTransport)
+	// An explicit port selects the fixed-port path. The opener binds an
+	// ephemeral port so the test holds no reservation another test can take.
+	cfg.BindPort = 7946
+	var bound int
+	ml, _, err := createMemberlist(ctx, cfg, nil, func(nc *memberlist.NetTransportConfig) (*memberlist.NetTransport, error) {
+		require.Equal(t, 7946, nc.BindPort, "fixed-port path passes the configured port")
+		nc.BindPort = 0
+		transport, err := memberlist.NewNetTransport(nc)
+		if err == nil {
+			bound = transport.GetAutoBindPort()
+		}
+		return transport, err
+	})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = ml.Shutdown() })
 	require.IsType(t, &cancelableTransport{}, cfg.Transport)
 	cancel()
-	_, err = cfg.Transport.DialTimeout(net.JoinHostPort(cfg.BindAddr, strconv.Itoa(port)), time.Minute)
+	_, err = cfg.Transport.DialTimeout(net.JoinHostPort(cfg.BindAddr, strconv.Itoa(bound)), time.Minute)
 	require.ErrorIs(t, err, context.Canceled)
 }
 

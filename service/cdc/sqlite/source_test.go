@@ -724,8 +724,13 @@ func TestSourceClosesOnlyOverflowedSubscriber(t *testing.T) {
 	}}
 	observer.currentStream(t).push(batch)
 
+	// The laggard is never read, so its one-change backlog is full when the
+	// second change arrives. Reading it would drain the backlog and race the
+	// overflow.
+	require.Eventually(t, func() bool {
+		return errors.Is(laggard.Err(), errSubscriberOverflow)
+	}, time.Second, time.Millisecond)
 	assert.Equal(t, "insert", receiveChange(t, reader).Op)
-	assert.ErrorIs(t, waitStreamClosed(t, laggard), errSubscriberOverflow)
 	assert.Equal(t, "insert", receiveChange(t, reader).Op)
 }
 
