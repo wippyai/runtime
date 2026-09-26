@@ -332,6 +332,12 @@ func runWithUseCase(cmd *cobra.Command, args []string, useCase string) (result e
 
 	// Handle exec: launch process and wait for completion
 	if execSpec != "" {
+		if readiness := bootpkg.GetReadiness(ctx); readiness != nil {
+			if err := readiness.Wait(ctx); err != nil {
+				return fmt.Errorf("boot readiness failed: %w", err)
+			}
+		}
+
 		shutdown, err := launchExecUntilShutdown(ctx, sigChan, logger, execSpec, execHost, args)
 		if err != nil {
 			return err

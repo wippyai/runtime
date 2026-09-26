@@ -728,6 +728,12 @@ func runPackEntriesWithShutdown(
 	}
 
 	if entryID != "" {
+		if readiness := bootpkg.GetReadiness(appCtx); readiness != nil {
+			if err := readiness.Wait(appCtx); err != nil {
+				return fmt.Errorf("boot readiness failed: %w", err)
+			}
+		}
+
 		shutdown, err := launchExecUntilShutdown(appCtx, sigChan, logger, entryID, hostID, args)
 		if err != nil {
 			return err
