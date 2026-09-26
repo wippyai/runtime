@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/wippyai/runtime/api/cluster"
@@ -376,6 +377,11 @@ func (c *NodeConnection) writeLoop(ctx context.Context) *ConnectionError {
 func (c *NodeConnection) writeFailure(ctx context.Context, err error) *ConnectionError {
 	if ctx.Err() != nil || c.closed.Load() {
 		return &ConnectionError{Reason: ExitCleanShutdown, Err: ErrCleanShutdown}
+	}
+	// The connection opens with a write, so a peer that closes can surface to
+	// the writer before the reader sees end of stream.
+	if errors.Is(err, io.ErrClosedPipe) || errors.Is(err, syscall.EPIPE) || errors.Is(err, syscall.ECONNRESET) {
+		return &ConnectionError{Reason: ExitPeerClosed, Err: err}
 	}
 	return &ConnectionError{Reason: ExitNetworkError, Err: err}
 }
