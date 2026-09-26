@@ -402,7 +402,8 @@ func run() error {
 	cm := internode.NewConnectionManager(cfg, nil)
 	ctx, cancel := context.WithTimeout(ctxapi.NewRootContext(), 90*time.Second)
 	defer cancel()
-	if err = cm.Start(ctx, func(string, []byte) {}); err != nil {
+	sessionEnded := func(id string) { fmt.Fprintf(os.Stderr, "internode session with %s ended\n", id) }
+	if err = cm.Start(ctx, func(string, []byte) {}, sessionEnded); err != nil {
 		return err
 	}
 	defer func() { _ = cm.Stop() }()

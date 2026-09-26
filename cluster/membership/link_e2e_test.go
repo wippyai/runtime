@@ -39,7 +39,7 @@ func startLinkedNode(ctx context.Context, t *testing.T, name string, transport m
 	cfg.MaxRetryDelay = 50 * time.Millisecond
 	links := internode.NewConnectionManager(cfg, nil)
 	received := &atomic.Int64{}
-	require.NoError(t, links.Start(ctx, func(_ cluster.NodeID, data []byte) { received.Add(int64(len(data))) }))
+	require.NoError(t, links.Start(ctx, func(_ cluster.NodeID, data []byte) { received.Add(int64(len(data))) }, func(cluster.NodeID) {}))
 	t.Cleanup(func() { _ = links.Stop() })
 
 	bus := eventbus.NewBus()

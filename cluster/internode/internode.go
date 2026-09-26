@@ -103,7 +103,7 @@ func (s *Service) Start(ctx context.Context) error {
 		}
 	}
 
-	if err := s.connMan.Start(ctx, onMessage); err != nil {
+	if err := s.connMan.Start(ctx, onMessage, s.publishSessionEnded); err != nil {
 		s.cancel()
 		return NewStartConnectionManagerError(err)
 	}
@@ -293,8 +293,35 @@ func (s *Service) handleMembershipEvent(e event.Event) {
 	case cluster.NodeLeft:
 		s.logger.Info("Node left cluster, cleaning up state and connection",
 			zap.String("node_id", nodeInfo.ID))
-		s.connMan.RemoveManagedNode(nodeInfo.ID)
+		s.connMan.RemoveManagedNode(nodeInfo.ID, s.departingIncarnation(nodeInfo))
 	}
+}
+
+// departingIncarnation reads the incarnation a departing node advertised.
+// Zero means the departure names no incarnation and removes any session.
+func (s *Service) departingIncarnation(nodeInfo cluster.NodeInfo) uint64 {
+	raw, ok := nodeInfo.Meta[cluster.MetaIncarnation]
+	if !ok {
+		return 0
+	}
+	incarnation, err := strconv.ParseUint(raw, 10, 64)
+	if err != nil {
+		s.logger.Error("Invalid incarnation metadata on departing node; removing its session",
+			zap.String("node_id", nodeInfo.ID), zap.String("incarnation", raw), zap.Error(err))
+		return 0
+	}
+	return incarnation
+}
+
+// publishSessionEnded announces that no further frame of a node's session is
+// delivered, so local links and monitors of that node's processes break.
+func (s *Service) publishSessionEnded(nodeID cluster.NodeID) {
+	s.bus.Send(s.ctx, event.Event{
+		System: cluster.System,
+		Kind:   cluster.NodeSessionEnded,
+		Path:   nodeID,
+		Data:   cluster.NodeEvent{Node: cluster.NodeInfo{ID: nodeID}},
+	})
 }
 
 func (s *Service) connectToNode(nodeInfo cluster.NodeInfo) {

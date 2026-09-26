@@ -241,7 +241,8 @@ func (s *Stack) Start(ctx context.Context) error {
 		return fmt.Errorf("cluster: start internode: %w", err)
 	}
 	s.Membership.UpdateMeta(map[string]string{
-		internode.MetadataPort: strconv.Itoa(s.ConnMgr.GetListenPort()),
+		internode.MetadataPort:     strconv.Itoa(s.ConnMgr.GetListenPort()),
+		clusterapi.MetaIncarnation: strconv.FormatUint(s.ConnMgr.Incarnation(), 10),
 	})
 	if err := s.Membership.Start(ctx); err != nil {
 		// memberlist.Create binds the gossip port BEFORE attempting Join,

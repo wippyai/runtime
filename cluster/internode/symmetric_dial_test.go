@@ -57,7 +57,7 @@ func startAuthenticatedPair(ctx context.Context, t *testing.T) (low, high dialTe
 			if from == peer {
 				node.received <- append([]byte(nil), data...)
 			}
-		}))
+		}, ignoreSessionEnd))
 		t.Cleanup(func() { require.NoError(t, node.manager.Stop()) })
 		node.manager.AddManagedNode(peer)
 		return node
@@ -111,12 +111,13 @@ func TestUnreachablePeerConnectsThroughItsOwnDial(t *testing.T) {
 	established, _ := connectionOf(low, high.id)
 	require.False(t, established.dialed, "low node holds the connection its peer dialed")
 
-	// Outlast the low node's retry chain against the unreachable address.
+	// Outlast many redial periods of the low node against the unreachable
+	// address.
 	cfg := low.manager.config
 	require.Never(t, func() bool {
 		conn, state := connectionOf(low, high.id)
 		return conn != established || state != StateConnected
-	}, time.Duration(cfg.MaxRetryAttempts+2)*cfg.MaxRetryDelay, 5*time.Millisecond)
+	}, 12*cfg.MaxRetryDelay, 5*time.Millisecond)
 
 	require.NoError(t, low.manager.SendToNode(high.id, []byte("low-to-high"), ClassRaftControl))
 	require.NoError(t, high.manager.SendToNode(low.id, []byte("high-to-low"), ClassRaftControl))
@@ -191,7 +192,7 @@ func acceptFrom(t *testing.T, m *manager, peer cluster.NodeID) *NodeConnection {
 	t.Helper()
 	server, client := net.Pipe()
 	go m.handleInboundConnection(server)
-	remote, err := PerformClientHandshake(client, m.config.NodeConnectionConfig(), zap.NewNop(), peer, m.config.LocalNodeID)
+	remote, err := PerformClientHandshake(client, m.config.NodeConnectionConfig(), zap.NewNop(), peer, testIncarnation, m.config.LocalNodeID)
 	require.NoError(t, err)
 	t.Cleanup(remote.Close)
 	return remote
@@ -203,14 +204,14 @@ func dialTo(t *testing.T, m *manager, peer cluster.NodeID) (*NodeConnection, *No
 	server, client := net.Pipe()
 	accepted := make(chan *NodeConnection, 1)
 	go func() {
-		remote, err := PerformServerHandshake(server, m.config.NodeConnectionConfig(), zap.NewNop(), peer)
+		remote, err := PerformServerHandshake(server, m.config.NodeConnectionConfig(), zap.NewNop(), peer, testIncarnation)
 		if err != nil {
 			accepted <- nil
 			return
 		}
 		accepted <- remote
 	}()
-	local, err := PerformClientHandshake(client, m.config.NodeConnectionConfig(), zap.NewNop(), m.config.LocalNodeID, peer)
+	local, err := PerformClientHandshake(client, m.config.NodeConnectionConfig(), zap.NewNop(), m.config.LocalNodeID, m.incarnation, peer)
 	require.NoError(t, err)
 	remote := <-accepted
 	require.NotNil(t, remote)
@@ -234,7 +235,7 @@ func TestPreferredConnectionReplacesCurrentWithoutDisconnect(t *testing.T) {
 	cfg.BindPort = 0
 	cfg.Logger = zap.NewNop()
 	m := NewConnectionManager(cfg, nil).(*manager)
-	require.NoError(t, m.Start(context.Background(), func(cluster.NodeID, []byte) {}))
+	require.NoError(t, m.Start(context.Background(), func(cluster.NodeID, []byte) {}, ignoreSessionEnd))
 	defer func() { require.NoError(t, m.Stop()) }()
 	const peer = "z-peer"
 	m.AddManagedNode(peer)
@@ -284,9 +285,10 @@ func TestPreferredConnectionReplacesCurrentWithoutDisconnect(t *testing.T) {
 
 	require.NoError(t, m.SendToNode(peer, []byte("after-swap"), ClassRaftControl))
 	require.NoError(t, outboundRemote.conn.SetReadDeadline(time.Now().Add(2*time.Second)))
-	_, data, err := readFrame(outboundRemote.conn, cfg.MaxMessageSize)
+	answerResume(t, outboundRemote, cfg.MaxMessageSize)
+	f, err := readFrame(outboundRemote.conn, cfg.MaxMessageSize)
 	require.NoError(t, err)
-	require.Equal(t, []byte("after-swap"), data)
+	require.Equal(t, []byte("after-swap"), f.data)
 
 	// A further non-preferred connection is closed and changes nothing.
 	lateRemote := acceptFrom(t, m, peer)

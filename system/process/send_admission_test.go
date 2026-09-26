@@ -28,7 +28,7 @@ func TestProcessSendReportsRemoteAdmissionFailure(t *testing.T) {
 		if managed {
 			manager.AddManagedNode("remote")
 		} else {
-			manager.RemoveManagedNode("remote")
+			manager.RemoveManagedNode("remote", 0)
 		}
 		receiver := &mockResultReceiver{}
 		require.NoError(t, d.handleSend(t.Context(), cmd, 1, receiver))
@@ -45,5 +45,5 @@ func TestProcessSendReportsRemoteAdmissionFailure(t *testing.T) {
 			require.ErrorContains(t, result.Error, "remote")
 		}
 	}
-	manager.RemoveManagedNode("remote")
+	manager.RemoveManagedNode("remote", 0)
 }

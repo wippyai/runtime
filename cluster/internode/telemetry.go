@@ -38,6 +38,9 @@ func newTelemetry(coll metrics.Collector) *telemetry {
 	coll.CounterAdd("internode_state_evicted_total", 0, metrics.Labels{
 		"reason": "orphan",
 	})
+	for _, reason := range []string{sessionEndRemoved, sessionEndPeerRestart, sessionEndPeerReset} {
+		coll.CounterAdd("internode_session_ended_total", 0, metrics.Labels{"reason": reason})
+	}
 	return t
 }
 
@@ -83,4 +86,13 @@ func (t *telemetry) recordQueueDepth(class Class, peer string, depth int) {
 	t.coll.GaugeSet("internode_queue_depth", float64(depth), metrics.Labels{
 		"class": class.String(), "peer": peer,
 	})
+}
+
+// recordSessionEnd counts ended peer sessions by reason. A session end
+// discards the session's unacknowledged and queued frames.
+func (t *telemetry) recordSessionEnd(reason string) {
+	if t == nil || t.coll == nil {
+		return
+	}
+	t.coll.CounterInc("internode_session_ended_total", metrics.Labels{"reason": reason})
 }

@@ -97,8 +97,12 @@ func (l *topologyEventListener) Start(ctx context.Context) error {
 	}
 	l.subIDs = append(l.subIDs, subID1)
 
-	// Subscribe to cluster node left events
-	subID2, err := l.bus.SubscribeP(l.ctx, cluster.System, cluster.NodeLeft, l.events)
+	// Subscribe to ended internode sessions. The transport publishes one only
+	// after the last frame of the session was delivered, so no message from
+	// the node's processes follows the exit signals. Every membership
+	// departure ends the session, as do a peer restart and a peer ending its
+	// own session for this node.
+	subID2, err := l.bus.SubscribeP(l.ctx, cluster.System, cluster.NodeSessionEnded, l.events)
 	if err != nil {
 		l.bus.Unsubscribe(l.ctx, subID1)
 		return err
@@ -146,7 +150,7 @@ func (l *topologyEventListener) eventLoop() {
 			if !ok {
 				return
 			}
-			if evt.Kind != relayapi.PeerDelete && evt.Kind != cluster.NodeLeft {
+			if evt.Kind != relayapi.PeerDelete && evt.Kind != cluster.NodeSessionEnded {
 				continue
 			}
 

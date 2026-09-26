@@ -403,7 +403,8 @@ func Cluster() boot.Component {
 				}
 				internodeActive = true
 				membershipSvc.UpdateMeta(map[string]string{
-					internode.MetadataPort: strconv.Itoa(connMgr.GetListenPort()),
+					internode.MetadataPort:     strconv.Itoa(connMgr.GetListenPort()),
+					clusterapi.MetaIncarnation: strconv.FormatUint(connMgr.Incarnation(), 10),
 				})
 			}
 			if membershipSvc != nil {

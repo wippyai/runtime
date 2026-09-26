@@ -34,7 +34,7 @@ func TestContextSendWaitsForDiscoveredPeerRegistration(t *testing.T) {
 	m.AddManagedNode("peer")
 	require.NoError(t, <-done)
 	require.Equal(t, [][]byte{[]byte("once")}, drainAllData(m.nodeStates, "peer"))
-	m.RemoveManagedNode("peer")
+	m.RemoveManagedNode("peer", 0)
 }
 
 func TestContextSendDiscoveryWaitPreservesCallerOwnership(t *testing.T) {
@@ -90,7 +90,7 @@ func TestManagedWaitCannotResurrectDepartedPeer(t *testing.T) {
 	cfg.Logger = zap.NewNop()
 	m := NewConnectionManager(cfg, nil).(*manager)
 	m.AddManagedNode("departed")
-	m.RemoveManagedNode("departed")
+	m.RemoveManagedNode("departed", 0)
 	// Membership can still contain the departed peer; only its subscriber may
 	// restore transport state. The send must expire without creating it.
 	service := NewService(zap.NewNop(), m, &mockCodec{}, nil, nil, &mockMembership{nodes: []cluster.NodeInfo{{ID: "departed"}}})
@@ -123,6 +123,6 @@ func TestManagedWaitConcurrentRegistrationDoesNotLoseWakeups(t *testing.T) {
 		require.NoError(t, <-done)
 	}
 	for i := range peers {
-		m.RemoveManagedNode(fmt.Sprintf("peer-%d", i))
+		m.RemoveManagedNode(fmt.Sprintf("peer-%d", i), 0)
 	}
 }

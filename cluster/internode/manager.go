@@ -71,7 +71,6 @@ type ManagerConfig struct {
 	AuthenticationKey []byte
 	SigningKey        ed25519.PrivateKey
 	TLS               ManagerTLSConfig
-	MaxRetryAttempts  int
 	BindPort          int
 	CommandQueueSize  int
 	HandshakeTimeout  time.Duration
@@ -81,7 +80,14 @@ type ManagerConfig struct {
 	// queue while the peer remains managed and are discarded only on node
 	// removal.
 	GossipQueueCap int
+	// LinkWindowBytes bounds the unacknowledged sequenced bytes in flight to
+	// one peer. A full window pauses draining of sequenced classes until the
+	// peer acknowledges; a single larger frame passes when nothing is in
+	// flight.
+	LinkWindowBytes int
 
+	// InitialRetryDelay and MaxRetryDelay bound the redial backoff. A managed
+	// peer is redialed until it is removed.
 	InitialRetryDelay     time.Duration
 	MaxRetryDelay         time.Duration
 	DrainBatchSize        int
@@ -102,8 +108,8 @@ func DefaultManagerConfig() ManagerConfig {
 		BindPort:              DefaultPortRangeStart,
 		DrainBatchSize:        32,
 		CommandQueueSize:      256,
-		MaxRetryAttempts:      10,
 		GossipQueueCap:        1024,
+		LinkWindowBytes:       16 << 20,
 		RequireAuthentication: true,
 	}
 }
@@ -166,13 +172,19 @@ type nodeControlLoop struct {
 	addr       string
 	state      ConnectionState
 	retryDelay time.Duration
-	retryCount int
 	port       int
 }
 
 type ConnectionManager interface {
-	Start(ctx context.Context, onMessage func(nodeID cluster.NodeID, data []byte)) error
+	// Start begins serving peers. onMessage receives every delivered frame of
+	// the default classes. onSessionEnd reports that the session with a node
+	// ended — the node was removed, restarted, or ended its own session for
+	// this node — after the last frame of that session was delivered.
+	Start(ctx context.Context, onMessage func(nodeID cluster.NodeID, data []byte), onSessionEnd func(nodeID cluster.NodeID)) error
 	Stop() error
+	// Incarnation identifies this process to peers; a peer that observes a
+	// new incarnation for a node ID knows the node restarted.
+	Incarnation() uint64
 	SendToNode(nodeID cluster.NodeID, data []byte, class Class) error
 	// SendConnected queues data for a node whose link is connected and
 	// reports whether it did, so a lossy class can take another path when no
@@ -187,7 +199,11 @@ type ConnectionManager interface {
 
 	// AddManagedNode adds a node to be managed by lifecycle events
 	AddManagedNode(nodeID cluster.NodeID)
-	RemoveManagedNode(nodeID cluster.NodeID)
+	// RemoveManagedNode ends the node's session and discards its frames. A
+	// nonzero incarnation names the departing process: a session already
+	// bound to a different peer incarnation belongs to its successor and is
+	// kept. Zero removes whatever is bound.
+	RemoveManagedNode(nodeID cluster.NodeID, incarnation uint64)
 	IsManaged(nodeID cluster.NodeID) bool
 
 	// EvictOrphanNodes removes managed nodes that are not present in the
@@ -231,6 +247,7 @@ type manager struct {
 	classReceivers atomic.Pointer[[numClasses]func(cluster.NodeID, []byte)]
 	config         ManagerConfig
 	wg             sync.WaitGroup
+	incarnation    uint64
 	actualPort     int
 	controlLoopsMu sync.Mutex
 	registerMu     sync.Mutex
@@ -247,10 +264,19 @@ func NewConnectionManager(config ManagerConfig, coll metrics.Collector) Connecti
 		logger:       logger,
 		nodeStates:   NewNodeStateManager(config, tel, logger),
 		controlLoops: make(map[cluster.NodeID]*nodeControlLoop),
+		incarnation:  randomNonZero(),
 	}
 }
 
-func (m *manager) Start(ctx context.Context, onMessage func(nodeID cluster.NodeID, data []byte)) error {
+func (m *manager) Incarnation() uint64 { return m.incarnation }
+
+func (m *manager) Start(ctx context.Context, onMessage func(nodeID cluster.NodeID, data []byte), onSessionEnd func(nodeID cluster.NodeID)) error {
+	if onMessage == nil || onSessionEnd == nil {
+		return fmt.Errorf("internode message and session-end handlers are required")
+	}
+	if m.config.LinkWindowBytes <= 0 {
+		return fmt.Errorf("internode link window must be positive, got %d", m.config.LinkWindowBytes)
+	}
 	if m.config.RequireAuthentication {
 		if len(m.config.AuthenticationKey) == 0 {
 			return fmt.Errorf("internode authentication key is required")
@@ -267,6 +293,7 @@ func (m *manager) Start(ctx context.Context, onMessage func(nodeID cluster.NodeI
 	}
 	m.ctx, m.cancel = context.WithCancel(ctx)
 	m.onMessage = onMessage
+	m.nodeStates.sessionEnded = onSessionEnd
 
 	if m.config.TLS.Enabled {
 		tlsConfig, err := loadTLSConfig(m.config.TLS)
@@ -430,22 +457,35 @@ func (m *manager) AddManagedNode(nodeID cluster.NodeID) {
 	m.nodeStates.CreateNodeState(nodeID)
 }
 
-func (m *manager) RemoveManagedNode(nodeID cluster.NodeID) {
-	m.logger.Info("Removing managed node", zap.String("node", nodeID))
-
+func (m *manager) RemoveManagedNode(nodeID cluster.NodeID, incarnation uint64) {
 	// Cancel the control loop directly and remove it from the map.
 	// This is synchronous with respect to the map entry, preventing
 	// races where a new node with the same ID starts before the old
-	// loop has processed cmdKill.
+	// loop has processed cmdKill. Handshake rebinding runs on the control
+	// loop, which cannot act on the state while this lock is held.
 	m.controlLoopsMu.Lock()
+	state := m.nodeStates.GetNodeState(nodeID)
+	if state != nil && incarnation != 0 {
+		if bound := boundPeerIncarnation(state); bound != 0 && bound != incarnation {
+			m.controlLoopsMu.Unlock()
+			m.logger.Info("Keeping session of restarted node on departure of its previous incarnation",
+				zap.String("node", nodeID))
+			return
+		}
+	}
+	m.logger.Info("Removing managed node", zap.String("node", nodeID))
 	if loop, exists := m.controlLoops[nodeID]; exists {
 		loop.cancel()
 		delete(m.controlLoops, nodeID)
 	}
-	state := m.nodeStates.detachNodeState(nodeID)
+	state = m.nodeStates.detachNodeState(nodeID)
 	m.controlLoopsMu.Unlock()
 
 	// Close connections and drain old queues without holding the lifecycle lock.
+	if state == nil {
+		m.nodeStates.signalSessionEnd(nodeID)
+		return
+	}
 	m.nodeStates.closeDetachedNodeState(nodeID, state)
 }
 
@@ -541,7 +581,7 @@ func (m *manager) EvictOrphanNodes(known map[cluster.NodeID]struct{}) int {
 	})
 
 	for _, nodeID := range orphans {
-		m.RemoveManagedNode(nodeID)
+		m.RemoveManagedNode(nodeID, 0)
 		m.nodeStates.tel.recordEviction("orphan")
 	}
 	return len(orphans)
@@ -660,10 +700,12 @@ func (loop *nodeControlLoop) handleConnect(data connectData) {
 	}()
 }
 
-// handleConnected keeps one connection per peer. A second connection
-// replaces the current one only when it is preferred and the current one is
-// not; both ends apply the same rule, so they settle on the same socket
-// without exchanging messages.
+// handleConnected keeps one connection per peer. A connection from a
+// restarted peer (new incarnation) ends the old session and replaces the
+// current connection regardless of dial direction. Otherwise a second
+// connection replaces the current one only when it is preferred and the
+// current one is not; both ends apply the same rule, so they settle on the
+// same socket without exchanging messages.
 func (loop *nodeControlLoop) handleConnected(data connectedData) {
 	candidate := data.Connection
 	loop.logger.Debug("handleConnected called",
@@ -672,6 +714,24 @@ func (loop *nodeControlLoop) handleConnected(data connectedData) {
 	if loop.state == StateDead {
 		candidate.Close()
 		return
+	}
+	switch loop.manager.nodeStates.bindPeerIncarnation(loop.nodeID, loop.nodeState, candidate.peerIncarnation) {
+	case incarnationRejected:
+		candidate.Close()
+		return
+	case incarnationRestarted:
+		loop.logger.Info("Peer restarted; replacing its session")
+		if loop.connection == nil {
+			loop.adopt(candidate)
+			return
+		}
+		if loop.successor != nil {
+			loop.successor.Close()
+		}
+		loop.successor = candidate
+		loop.connection.Close()
+		return
+	case incarnationBound:
 	}
 	if loop.connection == nil {
 		loop.adopt(candidate)
@@ -686,7 +746,7 @@ func (loop *nodeControlLoop) handleConnected(data connectedData) {
 		return
 	}
 	// The successor takes over once the current connection's run has ended,
-	// so a single writer drains the queues at any time.
+	// so a single reader and writer serve the session at any time.
 	loop.successor = candidate
 	loop.connection.Close()
 }
@@ -700,7 +760,6 @@ func (loop *nodeControlLoop) preferred(conn *NodeConnection) bool {
 func (loop *nodeControlLoop) adopt(conn *NodeConnection) {
 	loop.connection = conn
 	loop.state = StateConnected
-	loop.retryCount = 0
 	loop.retryDelay = loop.manager.config.InitialRetryDelay
 	if !loop.manager.nodeStates.setNodeConnectionForState(loop.nodeID, loop.nodeState, conn, loop.state) {
 		conn.Close()
@@ -710,10 +769,9 @@ func (loop *nodeControlLoop) adopt(conn *NodeConnection) {
 	}
 	loop.logger.Info("Connection established successfully", zap.Bool("dialed", conn.dialed))
 
-	// Wire the connection's writeLoop to drain this node's per-class queues
-	// directly. It self-drains anything buffered while the node was
-	// disconnected, so no explicit drain call is needed here.
-	loop.bindConnectionDrain()
+	// Bind the connection to the node's session. Its writer resumes the
+	// session, replays unacknowledged frames, then drains the queues.
+	conn.bindSession(loop.manager.nodeStates, loop.nodeID, loop.nodeState, loop.manager.config.DrainBatchSize)
 
 	loop.manager.wg.Add(1)
 	go func() {
@@ -722,31 +780,11 @@ func (loop *nodeControlLoop) adopt(conn *NodeConnection) {
 	}()
 }
 
-// bindConnectionDrain wires loop.connection's writeLoop to this node's
-// per-class outbound queues. Must be called before the connection's Run.
-func (loop *nodeControlLoop) bindConnectionDrain() {
-	nodeID := loop.nodeID
-	nsm := loop.manager.nodeStates
-	state := loop.nodeState
-	notify := state.messageNotify
-	if notify == nil {
-		loop.logger.Error("no message notifier for managed node", zap.String("node", nodeID))
-		notify = make(chan struct{})
-	}
-	loop.connection.bindDrain(
-		notify,
-		func(n int) []Outbound { return nsm.drainMessagesForState(nodeID, state, n) },
-		func(b []Outbound) { nsm.requeueMessagesForState(nodeID, state, b) },
-		loop.manager.config.DrainBatchSize,
-	)
-}
-
 func (loop *nodeControlLoop) handleDisconnected(data disconnectedData) {
 	loop.logger.Debug("handleDisconnected called",
 		zap.String("state", loop.state.String()),
 		zap.Bool("should_retry", data.ShouldRetry),
-		zap.Error(data.Error),
-		zap.Int("retry_count", loop.retryCount))
+		zap.Error(data.Error))
 	if loop.state == StateDead {
 		return
 	}
@@ -756,10 +794,8 @@ func (loop *nodeControlLoop) handleDisconnected(data disconnectedData) {
 	if data.Connection != loop.connection {
 		return
 	}
-	// Un-drained messages remain in the per-class queues — a subsequent
-	// connection's writeLoop delivers them. Only the writeLoop's own
-	// in-flight batch needs requeue, and it handles that itself on a
-	// write failure before returning.
+	// Queued and unacknowledged frames stay with the session; the next
+	// connection resumes it.
 	if loop.connection != nil {
 		loop.connection.Close()
 		loop.connection = nil
@@ -777,12 +813,9 @@ func (loop *nodeControlLoop) handleDisconnected(data disconnectedData) {
 		addr, port = loop.addr, loop.port
 		hasAddr = addr != "" && port != 0
 	}
-	if data.ShouldRetry && hasAddr && loop.retryCount < loop.manager.config.MaxRetryAttempts {
+	if data.ShouldRetry && hasAddr {
 		loop.state = StateRetrying
-		loop.retryCount++
-		if loop.retryDelay < loop.manager.config.MaxRetryDelay {
-			loop.retryDelay *= 2
-		}
+		loop.retryDelay = min(loop.retryDelay*2, loop.manager.config.MaxRetryDelay)
 		time.AfterFunc(loop.retryDelay, func() {
 			current, currentPort, ok := loop.manager.nodeStates.getNodeAddressForState(loop.nodeID, loop.nodeState)
 			if !ok {
@@ -840,7 +873,7 @@ func (loop *nodeControlLoop) attemptConnection(addr string, port int) {
 		loop.sendDisconnected(nil, err, true)
 		return
 	}
-	nodeConn, err := PerformClientHandshake(conn, loop.manager.config.NodeConnectionConfig(), loop.logger, loop.manager.config.LocalNodeID, loop.nodeID)
+	nodeConn, err := PerformClientHandshake(conn, loop.manager.config.NodeConnectionConfig(), loop.logger, loop.manager.config.LocalNodeID, loop.manager.incarnation, loop.nodeID)
 	if err != nil {
 		loop.sendDisconnected(nil, err, true)
 		return
@@ -948,7 +981,7 @@ func (m *manager) handleInboundConnection(conn net.Conn) {
 		zap.String("remote_addr", conn.RemoteAddr().String()),
 		zap.String("local_node", m.config.LocalNodeID))
 
-	nodeConn, err := PerformServerHandshake(conn, m.config.NodeConnectionConfig(), m.logger, m.config.LocalNodeID)
+	nodeConn, err := PerformServerHandshake(conn, m.config.NodeConnectionConfig(), m.logger, m.config.LocalNodeID, m.incarnation)
 	if err != nil {
 		m.logger.Warn("Inbound handshake failed", zap.Error(err), zap.String("remote_addr", conn.RemoteAddr().String()))
 		return

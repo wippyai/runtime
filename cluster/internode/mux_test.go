@@ -42,7 +42,7 @@ func TestMux_ClassRoundTripPerClass(t *testing.T) {
 	classes := []Class{ClassRaftControl, ClassGossip, ClassPGBroadcast, ClassRaftRPC, ClassSurface}
 	for _, c := range classes {
 		payload := []byte("payload-" + c.String())
-		srcA.push(payload, c)
+		srcA.push(t, payload, c)
 	}
 
 	seenByClass := map[Class][]byte{}
@@ -115,7 +115,7 @@ func TestMux_ConcurrentSendersDoNotInterleave(t *testing.T) {
 				// copying, so reusing one buffer would race with the
 				// writeLoop's bufio flush of an earlier frame.
 				payload := []byte{byte(class), byte(i), byte(i >> 8), 0, 0}
-				srcA.push(payload, class)
+				srcA.pushWhenAdmitted(t, payload, class)
 			}
 		}(c)
 	}
@@ -142,19 +142,17 @@ func TestMux_UnknownClassOnWireSurfaceProtocolError(t *testing.T) {
 	mockA, mockB := newMockConnPair()
 	cfg := DefaultNodeConnectionConfig()
 
-	nodeB := newNodeConnection(mockB, "node-A", cfg, zap.NewNop())
+	nodeB := newNodeConnection(mockB, "node-A", testIncarnation, cfg, zap.NewNop())
+	newTestSessionSide("node-A").bind(nodeB)
 	t.Cleanup(func() { nodeB.Close() })
 
 	runErr := make(chan *ConnectionError, 1)
 	go func() { runErr <- nodeB.Run(func(_ Class, _ []byte) {}) }()
 
 	// Hand-craft a frame with a class byte outside the legal range.
-	frame := []byte{
-		protocolVersion,
-		0x7f, // invalid class
-		0x00, 0x00, 0x00, 0x00,
-	}
-	_, _ = mockA.Write(frame)
+	var frame [frameHeaderSize]byte
+	frame[0], frame[1] = protocolVersion, 0x7f
+	go func() { _, _ = mockA.Write(frame[:]) }()
 
 	select {
 	case err := <-runErr:
@@ -184,7 +182,7 @@ func TestMux_RegisterClassReceiverRoutesPerClass(t *testing.T) {
 		cp := make([]byte, len(data))
 		copy(cp, data)
 		defaultDelivered <- cp
-	}))
+	}, ignoreSessionEnd))
 
 	raftDelivered := make(chan []byte, 4)
 	ok := mgrA.RegisterClassReceiver(ClassRaftRPC, func(_ string, data []byte) {
@@ -205,7 +203,7 @@ func TestMux_RegisterClassReceiverRoutesPerClass(t *testing.T) {
 
 	mgrB := NewConnectionManager(cfgB, nil)
 	defer func() { _ = mgrB.Stop() }()
-	require.NoError(t, mgrB.Start(t.Context(), func(_ string, _ []byte) {}))
+	require.NoError(t, mgrB.Start(t.Context(), func(_ string, _ []byte) {}, ignoreSessionEnd))
 
 	mgrA.AddManagedNode("node-B")
 	mgrB.AddManagedNode("node-A")
@@ -256,7 +254,8 @@ func TestSurfaceRejectsOversizedHeaderBeforeReadingBody(t *testing.T) {
 	var header [frameHeaderSize]byte
 	header[0], header[1] = protocolVersion, byte(ClassSurface)
 	binary.LittleEndian.PutUint32(header[2:], MaxSurfaceFrameSize+1)
-	_, _, err := readFrame(bytes.NewReader(header[:]), 512<<20)
+	binary.LittleEndian.PutUint64(header[6:], 1)
+	_, err := readFrame(bytes.NewReader(header[:]), 512<<20)
 	require.Error(t, err)
 	require.NotErrorIs(t, err, io.EOF)
 }

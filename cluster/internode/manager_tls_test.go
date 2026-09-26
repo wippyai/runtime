@@ -61,7 +61,7 @@ func TestManagerTLSSetupFailureDoesNotFallBackToPlaintext(t *testing.T) {
 	config.Logger = zap.NewNop()
 	config.TLS = ManagerTLSConfig{Enabled: true, CertFile: filepath.Join(t.TempDir(), "missing.pem")}
 	m := NewConnectionManager(config, nil).(*manager)
-	require.Error(t, m.Start(t.Context(), func(cluster.NodeID, []byte) { t.Error("unexpected delivery") }))
+	require.Error(t, m.Start(t.Context(), func(cluster.NodeID, []byte) { t.Error("unexpected delivery") }, ignoreSessionEnd))
 	require.Nil(t, m.listener)
 	require.NoError(t, m.Stop())
 }

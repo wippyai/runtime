@@ -27,11 +27,18 @@ type mockConnectionManager struct {
 	managedNodes      map[cluster.NodeID]bool
 	connectedNodes    map[cluster.NodeID]bool
 	onMessage         func(nodeID cluster.NodeID, data []byte)
+	onSessionEnd      func(nodeID cluster.NodeID)
+	removed           []removeCall
 	ensuredConns      []ensureConnCall
 	disconnectedNodes []cluster.NodeID
 	mu                sync.Mutex
 	started           bool
 	stopped           bool
+}
+
+type removeCall struct {
+	nodeID      cluster.NodeID
+	incarnation uint64
 }
 
 type ensureConnCall struct {
@@ -47,7 +54,7 @@ func newMockConnectionManager() *mockConnectionManager {
 	}
 }
 
-func (m *mockConnectionManager) Start(_ context.Context, onMessage func(nodeID cluster.NodeID, data []byte)) error {
+func (m *mockConnectionManager) Start(_ context.Context, onMessage func(nodeID cluster.NodeID, data []byte), onSessionEnd func(nodeID cluster.NodeID)) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.startError != nil {
@@ -55,8 +62,11 @@ func (m *mockConnectionManager) Start(_ context.Context, onMessage func(nodeID c
 	}
 	m.started = true
 	m.onMessage = onMessage
+	m.onSessionEnd = onSessionEnd
 	return nil
 }
+
+func (m *mockConnectionManager) Incarnation() uint64 { return testIncarnation }
 
 func (m *mockConnectionManager) Stop() error {
 	m.mu.Lock()
@@ -116,9 +126,10 @@ func (m *mockConnectionManager) AddManagedNode(nodeID cluster.NodeID) {
 	m.managedNodes[nodeID] = true
 }
 
-func (m *mockConnectionManager) RemoveManagedNode(nodeID cluster.NodeID) {
+func (m *mockConnectionManager) RemoveManagedNode(nodeID cluster.NodeID, incarnation uint64) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.removed = append(m.removed, removeCall{nodeID: nodeID, incarnation: incarnation})
 	delete(m.managedNodes, nodeID)
 }
 

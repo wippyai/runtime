@@ -42,7 +42,7 @@ func TestNodeConnectionTLSCloseWithoutPeerRead(t *testing.T) {
 
 	// The authenticated peer deliberately performs no more reads. Closing the
 	// runtime session must release its transport without waiting for close_notify.
-	node := newNodeConnection(client, "peer", DefaultNodeConnectionConfig(), zap.NewNop())
+	node := newNodeConnection(client, "peer", testIncarnation, DefaultNodeConnectionConfig(), zap.NewNop())
 	done := make(chan struct{})
 	go func() { node.Close(); close(done) }()
 	select {
@@ -60,16 +60,16 @@ func TestClientHandshakeRejectionDoesNotWaitForTLSCloseNotify(t *testing.T) {
 	client, server := idleTLSPair(t)
 	peerDone := make(chan error, 1)
 	go func() {
-		_, err := readPrefixedBytes(server, maxNodeIDLength)
+		_, err := readPlainEndpoint(server)
 		if err == nil {
-			err = writePrefixedBytes(server, []byte("unexpected-peer"))
+			err = writePlainEndpoint(server, handshakeEndpoint{id: "unexpected-peer", incarnation: testIncarnation})
 		}
 		peerDone <- err
 		// No further read: the peer has supplied an invalid identity.
 	}()
 	done := make(chan error, 1)
 	go func() {
-		_, err := PerformClientHandshake(client, DefaultNodeConnectionConfig(), zap.NewNop(), "self", "expected-peer")
+		_, err := PerformClientHandshake(client, DefaultNodeConnectionConfig(), zap.NewNop(), "self", testIncarnation, "expected-peer")
 		done <- err
 	}()
 	require.NoError(t, <-peerDone)

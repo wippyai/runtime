@@ -13,7 +13,7 @@ import (
 func TestConnectionRunAfterCloseReturns(t *testing.T) {
 	a, b := newMockConnPair()
 	defer b.Close()
-	connection := newNodeConnection(a, "peer", DefaultNodeConnectionConfig(), zap.NewNop())
+	connection := newNodeConnection(a, "peer", testIncarnation, DefaultNodeConnectionConfig(), zap.NewNop())
 	connection.Close()
 	done := make(chan *ConnectionError, 1)
 	go func() { done <- connection.Run(func(Class, []byte) {}) }()
