@@ -44,6 +44,20 @@ type DockerExecutorConfig struct {
 
 // Validate validates the NativeExecutorConfig
 func (c *NativeExecutorConfig) Validate() error {
+	if c.Confine != nil {
+		if err := c.Confine.Validate(); err != nil {
+			return err
+		}
+		if c.Confine.Env != nil {
+			for name, value := range c.DefaultEnv {
+				if !validConfinementEnvName(name) || containsNUL(value) ||
+					!allowedConfinementEnvName(c.Confine.Env.Allow, name) ||
+					pinnedConfinementEnvName(c.Confine.Env.Set, name) {
+					return NewInvalidConfinementError("default_env")
+				}
+			}
+		}
+	}
 	return nil
 }
 

@@ -32,6 +32,17 @@ var ErrConfineUnsupported = apierror.New(apierror.Unavailable, "requested proces
 	WithRetryable(apierror.False).
 	WithDetails(attrs.NewBagFrom(map[string]any{"code": "CONFINE_UNSUPPORTED", "field": "confine"}))
 
+var ErrInvalidConfinement = apierror.New(apierror.Invalid, "invalid process confinement").
+	WithRetryable(apierror.False).
+	WithDetails(attrs.NewBagFrom(map[string]any{"code": "CONFINE_INVALID"}))
+
+func NewInvalidConfinementError(field string) apierror.Error {
+	return apierror.New(apierror.Invalid, "invalid process confinement: "+field).
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"code": "CONFINE_INVALID", "field": field})).
+		WithCause(ErrInvalidConfinement)
+}
+
 // NewInvalidMountError reports a mount that cannot be bound, keeping
 // ErrInvalidMount as the cause so callers match the condition.
 func NewInvalidMountError(detail string) apierror.Error {

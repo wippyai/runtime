@@ -121,6 +121,11 @@ func (o ProcessOptions) Clone() (ProcessOptions, error) {
 
 // Validate checks process options without retaining or mutating them.
 func (o ProcessOptions) Validate() error {
+	if o.Confine != nil {
+		if err := o.Confine.Validate(); err != nil {
+			return err
+		}
+	}
 	if err := ValidateMounts(o.Mounts); err != nil {
 		return err
 	}

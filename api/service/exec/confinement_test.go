@@ -4,6 +4,8 @@ package exec
 
 import (
 	"encoding/json"
+	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -49,4 +51,68 @@ func TestConfinementEntryShape(t *testing.T) {
 	require.Equal(t, "none", cfg.Confine.Network)
 	require.EqualValues(t, 4096, cfg.Confine.Limits.MemoryMiB)
 	require.True(t, cfg.Confine.Tree.KillOnOwnerExit)
+	cfg.Confine.WorkDirRoots[0] = confineTestPath("/srv/ws/demo")
+	cfg.Confine.FS.Read[0] = confineTestPath("/srv/ws/demo")
+	require.NoError(t, cfg.Validate())
+}
+
+func TestConfinementRejectsMalformedEntry(t *testing.T) {
+	tests := []struct {
+		name    string
+		confine Confinement
+	}{
+		{"missing roots", Confinement{Network: "none"}},
+		{"caller-selected grant", Confinement{WorkDirRoots: []string{confineTestPath("/srv/ws")}, FS: &ConfinementFS{Read: []string{"{workdir}"}}}},
+		{"relative root", Confinement{WorkDirRoots: []string{"relative"}, Network: "none"}},
+		{"unknown network", Confinement{WorkDirRoots: []string{confineTestPath("/srv/ws")}, Network: "loopback"}},
+		{"negative limit", Confinement{WorkDirRoots: []string{confineTestPath("/srv/ws")}, Limits: &ConfinementLimits{PIDs: -1}}},
+		{"no-op", Confinement{WorkDirRoots: []string{confineTestPath("/srv/ws")}}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			cfg := NativeExecutorConfig{Confine: &test.confine}
+			require.ErrorIs(t, cfg.Validate(), ErrInvalidConfinement)
+		})
+	}
+}
+
+func TestConfinementPatchRejectsMalformedValues(t *testing.T) {
+	zero := int64(0)
+	unknown := "loopback"
+	for _, patch := range []*ConfinementPatch{
+		{Limits: &ConfinementLimitsPatch{WallSec: &zero}},
+		{Network: &unknown},
+		{FS: &ConfinementFSPatch{Exec: pointerToStrings("relative")}},
+	} {
+		_, err := (ProcessOptions{Confine: patch}).Clone()
+		require.ErrorIs(t, err, ErrInvalidConfinement)
+	}
+}
+
+func TestConfinementRejectsDisallowedDefaultEnvironment(t *testing.T) {
+	baseline := &Confinement{
+		WorkDirRoots: []string{confineTestPath("/srv/ws")},
+		Env: &ConfinementEnvironment{
+			Allow: []string{"LANG"},
+			Set:   map[string]string{"PATH": "/usr/bin"},
+		},
+	}
+	for _, env := range []map[string]string{
+		{"TOKEN": "secret"},
+		{"PATH": "/attacker"},
+	} {
+		cfg := NativeExecutorConfig{Confine: baseline, DefaultEnv: env}
+		require.ErrorIs(t, cfg.Validate(), ErrInvalidConfinement)
+	}
+	cfg := NativeExecutorConfig{Confine: baseline, DefaultEnv: map[string]string{"LANG": "C"}}
+	require.NoError(t, cfg.Validate())
+}
+
+func pointerToStrings(values ...string) *[]string { return &values }
+
+func confineTestPath(value string) string {
+	if runtime.GOOS == "windows" {
+		return `C:` + strings.ReplaceAll(value, "/", `\`)
+	}
+	return value
 }
