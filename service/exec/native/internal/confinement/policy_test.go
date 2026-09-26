@@ -15,7 +15,7 @@ func number(value int64) *int64 { return &value }
 func basePolicy() Policy {
 	return Policy{
 		WorkDirRoots: []string{"/srv/ws/demo"},
-		FS: Filesystem{
+		FS: &Filesystem{
 			Read:  Access{Paths: []string{"/srv/ws/demo", "/usr"}},
 			Write: Access{Paths: []string{"/srv/ws/demo"}},
 			Exec:  Access{Paths: []string{"/usr/bin"}},
@@ -38,10 +38,7 @@ func TestValidateEntry(t *testing.T) {
 		func(p *Policy) { p.WorkDirRoots = nil },
 		func(p *Policy) {
 			p.WorkDirRoots = []string{"/"}
-			p.FS = Filesystem{
-				Read: Access{Unrestricted: true}, Write: Access{Unrestricted: true},
-				Exec: Access{Unrestricted: true},
-			}
+			p.FS = nil
 			p.Env = nil
 			p.HomePrivate = false
 			p.NetworkNone = false
@@ -165,10 +162,7 @@ func TestNarrowLimitsAndNetwork(t *testing.T) {
 			t.Fatalf("accepted widening or invalid patch: %#v", patch)
 		}
 	}
-	unrestricted := Policy{FS: Filesystem{
-		Read: Access{Unrestricted: true}, Write: Access{Unrestricted: true},
-		Exec: Access{Unrestricted: true},
-	}}
+	unrestricted := Policy{}
 	narrowed, err := Narrow(unrestricted, Patch{NetworkNone: boolPtr(true)})
 	if err != nil || !narrowed.NetworkNone {
 		t.Fatalf("could not narrow unrestricted network: %#v, %v", narrowed, err)

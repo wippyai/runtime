@@ -32,8 +32,8 @@ type Filesystem struct {
 }
 
 type Environment struct {
-	Allow []string
 	Set   map[string]string
+	Allow []string
 }
 
 type Limits struct {
@@ -45,12 +45,12 @@ type Limits struct {
 // Policy is the normalized authority of an entry or launch. All Paths must
 // already refer to bound, canonical objects before a caller relies on Narrow.
 type Policy struct {
-	WorkDirRoots    []string
-	FS              Filesystem
+	FS              *Filesystem
 	Env             *Environment
+	WorkDirRoots    []string
+	Limits          Limits
 	HomePrivate     bool
 	NetworkNone     bool
-	Limits          Limits
 	KillOnOwnerExit bool
 }
 
@@ -88,13 +88,14 @@ func ValidateEntry(p Policy) error {
 			return fmt.Errorf("%w: work_dir_root %q", ErrInvalid, root)
 		}
 	}
+	fs := effectiveFS(p)
 	for _, class := range []struct {
 		name   string
 		access Access
 	}{
-		{"fs.read", p.FS.Read},
-		{"fs.write", p.FS.Write},
-		{"fs.exec", p.FS.Exec},
+		{"fs.read", fs.Read},
+		{"fs.write", fs.Write},
+		{"fs.exec", fs.Exec},
 	} {
 		if class.access.Unrestricted && len(class.access.Paths) > 0 {
 			return fmt.Errorf("%w: %s has unrestricted and listed grants", ErrInvalid, class.name)
@@ -105,7 +106,7 @@ func ValidateEntry(p Policy) error {
 			}
 		}
 	}
-	if !subset(p.FS.Write, p.FS.Read) {
+	if !subset(fs.Write, fs.Read) {
 		return fmt.Errorf("%w: fs.read excludes fs.write", ErrInvalid)
 	}
 	for _, limit := range []struct {
@@ -120,7 +121,7 @@ func ValidateEntry(p Policy) error {
 			return fmt.Errorf("%w: %s must not be negative", ErrInvalid, limit.name)
 		}
 	}
-	if p.FS.Read.Unrestricted && p.FS.Write.Unrestricted && p.FS.Exec.Unrestricted &&
+	if fs.Read.Unrestricted && fs.Write.Unrestricted && fs.Exec.Unrestricted &&
 		p.Env == nil && !p.HomePrivate && !p.NetworkNone &&
 		p.Limits == (Limits{}) && !p.KillOnOwnerExit {
 		return fmt.Errorf("%w: no-op baseline", ErrInvalid)
@@ -146,7 +147,8 @@ func (p Policy) AllowsBoundWorkDir(bound string) bool {
 	if !inRoot {
 		return false
 	}
-	read := union(p.FS.Read, p.FS.Write)
+	fs := effectiveFS(p)
+	read := union(fs.Read, fs.Write)
 	if read.Unrestricted {
 		return true
 	}
@@ -162,15 +164,17 @@ func (p Policy) AllowsBoundWorkDir(bound string) bool {
 // filesystem authorization: the caller must bind and verify every path first.
 func Narrow(base Policy, patch Patch) (Policy, error) {
 	out := clonePolicy(base)
+	baseFS := effectiveFS(base)
+	outFS := effectiveFS(out)
 	if patch.FS != nil {
 		applyPaths := func(dst *Access, requested *[]string) {
 			if requested != nil {
 				*dst = Access{Paths: slices.Clone(*requested)}
 			}
 		}
-		applyPaths(&out.FS.Read, patch.FS.Read)
-		applyPaths(&out.FS.Write, patch.FS.Write)
-		applyPaths(&out.FS.Exec, patch.FS.Exec)
+		applyPaths(&outFS.Read, patch.FS.Read)
+		applyPaths(&outFS.Write, patch.FS.Write)
+		applyPaths(&outFS.Exec, patch.FS.Exec)
 	}
 
 	if patch.EnvAllow != nil {
@@ -197,49 +201,61 @@ func Narrow(base Policy, patch Patch) (Policy, error) {
 		}
 		out.KillOnOwnerExit = *patch.KillOnOwnerExit
 	}
-	for _, limit := range []struct {
-		name      string
-		base      int64
-		requested *int64
-		set       func(int64)
-	}{
-		{"limits.mem_mb", base.Limits.MemoryMiB, patch.Limits.MemoryMiB, func(v int64) { out.Limits.MemoryMiB = v }},
-		{"limits.pids", base.Limits.PIDs, patch.Limits.PIDs, func(v int64) { out.Limits.PIDs = v }},
-		{"limits.wall_s", base.Limits.WallSec, patch.Limits.WallSec, func(v int64) { out.Limits.WallSec = v }},
-	} {
-		if limit.requested == nil {
-			continue
-		}
-		if *limit.requested <= 0 {
-			return Policy{}, fmt.Errorf("%w: %s must be positive", ErrInvalid, limit.name)
-		}
-		if limit.base > 0 && *limit.requested > limit.base {
-			return Policy{}, fmt.Errorf("%w: %s", ErrWiden, limit.name)
-		}
-		limit.set(*limit.requested)
+	var err error
+	out.Limits.MemoryMiB, err = narrowLimit(base.Limits.MemoryMiB, patch.Limits.MemoryMiB, "limits.mem_mb")
+	if err != nil {
+		return Policy{}, err
+	}
+	out.Limits.PIDs, err = narrowLimit(base.Limits.PIDs, patch.Limits.PIDs, "limits.pids")
+	if err != nil {
+		return Policy{}, err
+	}
+	out.Limits.WallSec, err = narrowLimit(base.Limits.WallSec, patch.Limits.WallSec, "limits.wall_s")
+	if err != nil {
+		return Policy{}, err
 	}
 
 	// A write grant also permits reads. If a patch narrows read but leaves a
 	// broader write grant, rejecting it is safer than silently restoring read.
 	if patch.FS != nil && patch.FS.Read != nil &&
-		!subset(out.FS.Write, out.FS.Read) {
+		!subset(outFS.Write, outFS.Read) {
 		return Policy{}, fmt.Errorf("%w: fs.read excludes effective fs.write", ErrInvalid)
 	}
-	out.FS.Read = union(out.FS.Read, out.FS.Write)
-	baseRead := union(base.FS.Read, base.FS.Write)
-	if !subset(out.FS.Read, baseRead) ||
-		!subset(out.FS.Write, base.FS.Write) ||
-		!subset(out.FS.Exec, base.FS.Exec) {
+	outFS.Read = union(outFS.Read, outFS.Write)
+	baseRead := union(baseFS.Read, baseFS.Write)
+	if !subset(outFS.Read, baseRead) ||
+		!subset(outFS.Write, baseFS.Write) ||
+		!subset(outFS.Exec, baseFS.Exec) {
 		return Policy{}, fmt.Errorf("%w: fs", ErrWiden)
+	}
+	if out.FS != nil || patch.FS != nil {
+		out.FS = &outFS
 	}
 	return out, nil
 }
 
+func narrowLimit(base int64, requested *int64, name string) (int64, error) {
+	if requested == nil {
+		return base, nil
+	}
+	if *requested <= 0 {
+		return 0, fmt.Errorf("%w: %s must be positive", ErrInvalid, name)
+	}
+	if base > 0 && *requested > base {
+		return 0, fmt.Errorf("%w: %s", ErrWiden, name)
+	}
+	return *requested, nil
+}
+
 func clonePolicy(p Policy) Policy {
 	p.WorkDirRoots = slices.Clone(p.WorkDirRoots)
-	p.FS.Read.Paths = slices.Clone(p.FS.Read.Paths)
-	p.FS.Write.Paths = slices.Clone(p.FS.Write.Paths)
-	p.FS.Exec.Paths = slices.Clone(p.FS.Exec.Paths)
+	if p.FS != nil {
+		fs := *p.FS
+		fs.Read.Paths = slices.Clone(fs.Read.Paths)
+		fs.Write.Paths = slices.Clone(fs.Write.Paths)
+		fs.Exec.Paths = slices.Clone(fs.Exec.Paths)
+		p.FS = &fs
+	}
 	if p.Env != nil {
 		env := *p.Env
 		env.Allow = slices.Clone(env.Allow)
@@ -250,6 +266,17 @@ func clonePolicy(p Policy) Policy {
 		p.Env = &env
 	}
 	return p
+}
+
+func effectiveFS(p Policy) Filesystem {
+	if p.FS != nil {
+		return *p.FS
+	}
+	return Filesystem{
+		Read:  Access{Unrestricted: true},
+		Write: Access{Unrestricted: true},
+		Exec:  Access{Unrestricted: true},
+	}
 }
 
 func union(a, b Access) Access {

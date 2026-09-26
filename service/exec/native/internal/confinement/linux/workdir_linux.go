@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
 
-package confinement
+package linux
 
 import (
 	"errors"
@@ -10,25 +10,26 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/wippyai/runtime/service/exec/native/internal/confinement"
 	"golang.org/x/sys/unix"
 )
 
 var ErrOutsideRoot = errors.New("working directory is outside approved root")
 
-// WorkDirRoot pins an entry-owned directory object. Holding its descriptor
+// WorkDirRoot pins an entry-owned Linux directory object. Holding its descriptor
 // prevents a later replacement of the configured path from changing the
 // authority of an executor that has already admitted the entry.
 type WorkDirRoot struct {
-	mu   sync.RWMutex
 	path string
 	fd   int
+	mu   sync.RWMutex
 }
 
 // BindWorkDirRoot rejects symlinks in every component of an entry-owned root.
 // This conservative rule keeps the reviewed path tied to the opened object.
 func BindWorkDirRoot(path string) (*WorkDirRoot, error) {
 	if !cleanAbsolute(path) {
-		return nil, fmt.Errorf("%w: work_dir_root must be clean and absolute", ErrInvalid)
+		return nil, fmt.Errorf("%w: work_dir_root must be clean and absolute", confinement.ErrInvalid)
 	}
 	fd, err := unix.Openat2(unix.AT_FDCWD, path, &unix.OpenHow{
 		Flags:   unix.O_PATH | unix.O_DIRECTORY | unix.O_CLOEXEC,
@@ -45,7 +46,7 @@ func BindWorkDirRoot(path string) (*WorkDirRoot, error) {
 // must be used by the child for fchdir. Callers retain it until child setup.
 func (r *WorkDirRoot) OpenBoundWorkDir(requested string) (*os.File, error) {
 	if !cleanAbsolute(requested) {
-		return nil, fmt.Errorf("%w: work_dir must be clean and absolute", ErrInvalid)
+		return nil, fmt.Errorf("%w: work_dir must be clean and absolute", confinement.ErrInvalid)
 	}
 	rel, err := filepath.Rel(r.path, requested)
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
