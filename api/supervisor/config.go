@@ -15,7 +15,7 @@ type (
 
 	// LifecycleConfig defines the configuration for a service managed by the supervisor.
 	LifecycleConfig struct {
-		// Startup controls whether an auto-start root is strict or may degrade independently.
+		// Startup controls whether an auto-start root is strict, optional, or waits for completion.
 		Startup  StartupMode      `json:"startup,omitempty" yaml:"startup" default:"required"`
 		Security *security.Config `json:"security,omitempty" yaml:"security,omitempty"`
 		// Requires lists other supervisor services that must be running before this one starts.
@@ -27,8 +27,6 @@ type (
 		StopTimeout     time.Duration `json:"stop_timeout,omitzero" yaml:"stop_timeout" default:"10s"`
 		StableThreshold time.Duration `json:"stable_threshold,omitzero" yaml:"stable_threshold" default:"5s"`
 		AutoStart       bool          `json:"auto_start" yaml:"auto_start" default:"false"`
-		// BootGate indicates this service gates application boot readiness.
-		BootGate bool `json:"boot_gate,omitempty" yaml:"boot_gate,omitempty" default:"false"`
 	}
 
 	// RetryPolicy defines the parameters for retrying a service after a failure.
@@ -49,6 +47,7 @@ type (
 const (
 	StartupRequired StartupMode = "required"
 	StartupOptional StartupMode = "optional"
+	StartupComplete StartupMode = "complete"
 )
 
 func (cfg LifecycleConfig) RequiredServices() []string {
@@ -80,14 +79,21 @@ func (cfg LifecycleConfig) StartupMode() StartupMode {
 	if cfg.Startup == "" {
 		return StartupRequired
 	}
-	if cfg.Startup == StartupOptional {
-		return StartupOptional
-	}
-	return StartupRequired
+	return cfg.Startup
 }
 
 func (cfg LifecycleConfig) StartupRequired() bool {
-	return cfg.StartupMode() == StartupRequired
+	return cfg.StartupMode() != StartupOptional
+}
+
+// ValidateStartupMode checks that Startup is a supported mode.
+func (cfg LifecycleConfig) ValidateStartupMode() error {
+	switch cfg.Startup {
+	case "", StartupRequired, StartupOptional, StartupComplete:
+		return nil
+	default:
+		return NewInvalidStartupModeError(cfg.Startup)
+	}
 }
 
 // InitDefaults initializes the LifecycleConfig with default values if they are not set.
@@ -137,7 +143,6 @@ type lifecycleConfigJSON struct {
 	DependsOn       []string         `json:"depends_on,omitempty"`
 	RetryPolicy     RetryPolicy      `json:"restart"`
 	AutoStart       bool             `json:"auto_start"`
-	BootGate        bool             `json:"boot_gate,omitempty"`
 }
 
 // UnmarshalJSON implements json.Unmarshaler to handle duration strings
@@ -146,9 +151,11 @@ func (cfg *LifecycleConfig) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
 	}
+	if err := (LifecycleConfig{Startup: raw.Startup}).ValidateStartupMode(); err != nil {
+		return err
+	}
 
 	cfg.AutoStart = raw.AutoStart
-	cfg.BootGate = raw.BootGate
 	cfg.RetryPolicy = raw.RetryPolicy
 	cfg.Requires = raw.Requires
 	cfg.DependsOn = raw.DependsOn
@@ -182,6 +189,9 @@ func (cfg *LifecycleConfig) UnmarshalJSON(data []byte) error {
 
 // MarshalJSON implements json.Marshaler to output durations as strings
 func (cfg LifecycleConfig) MarshalJSON() ([]byte, error) {
+	if err := cfg.ValidateStartupMode(); err != nil {
+		return nil, err
+	}
 	startup := cfg.Startup
 	if startup != "" {
 		startup = cfg.StartupMode()
@@ -189,7 +199,6 @@ func (cfg LifecycleConfig) MarshalJSON() ([]byte, error) {
 
 	raw := lifecycleConfigJSON{
 		AutoStart:   cfg.AutoStart,
-		BootGate:    cfg.BootGate,
 		RetryPolicy: cfg.RetryPolicy,
 		Startup:     startup,
 		Requires:    cfg.RequiredServices(),

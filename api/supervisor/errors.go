@@ -16,3 +16,8 @@ var (
 	ErrExit               = apierror.New(Exited, "service exited").WithRetryable(apierror.False)
 	ErrOutsideTransaction = apierror.New(apierror.Invalid, "action received outside of transaction").WithRetryable(apierror.False)
 )
+
+// NewInvalidStartupModeError reports an unsupported startup mode.
+func NewInvalidStartupModeError(mode StartupMode) apierror.Error {
+	return apierror.New(apierror.Invalid, "invalid startup mode: "+string(mode)).WithRetryable(apierror.False)
+}

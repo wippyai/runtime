@@ -95,7 +95,7 @@ func TestManager_Add(t *testing.T) {
 	assert.True(t, exists)
 }
 
-func TestManager_Add_WithBootGate(t *testing.T) {
+func TestManager_Add_WithStartupComplete(t *testing.T) {
 	bus := &mockBus{}
 	dtt := &configTranscoder{}
 	pidGen := newTestPIDGen()
@@ -117,7 +117,7 @@ func TestManager_Add_WithBootGate(t *testing.T) {
 			HostID:  "test-host",
 			Lifecycle: supervisor.LifecycleConfig{
 				AutoStart: true,
-				BootGate:  true,
+				Startup:   supervisor.StartupComplete,
 			},
 		}),
 	}

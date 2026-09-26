@@ -106,7 +106,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 
 func (m *Manager) registerService(ctx context.Context, id registry.ID, cfg supervisorapi.ServiceConfig) {
 	svc := NewService(id, cfg, m.pidGen)
-	if cfg.Lifecycle.BootGate {
+	if cfg.Lifecycle.Startup == supervisor.StartupComplete {
 		var gate *bootpkg.Gate
 		if current, exists := m.services.Load(id); exists {
 			if oldSvc, ok := current.(*Service); ok {

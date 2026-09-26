@@ -177,6 +177,11 @@ func TestLifecycleConfig_UnmarshalJSON(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name:    "invalid startup mode",
+			json:    `{"startup":"degraded"}`,
+			wantErr: true,
+		},
+		{
 			name: "invalid stop timeout",
 			json: `{
 				"start_timeout": "30s",
@@ -238,18 +243,18 @@ func TestLifecycleConfig_RequiredServicesAndStartupPolicy(t *testing.T) {
 		assert.True(t, LifecycleConfig{}.StartupRequired())
 	})
 
-	t.Run("unknown startup value stays strict", func(t *testing.T) {
-		cfg := LifecycleConfig{Startup: StartupMode("degraded")}
-
-		assert.Equal(t, StartupRequired, cfg.StartupMode())
-		assert.True(t, cfg.StartupRequired())
-	})
-
 	t.Run("optional startup is explicit", func(t *testing.T) {
 		cfg := LifecycleConfig{Startup: StartupOptional}
 
 		assert.Equal(t, StartupOptional, cfg.StartupMode())
 		assert.False(t, cfg.StartupRequired())
+	})
+
+	t.Run("complete startup is strict", func(t *testing.T) {
+		cfg := LifecycleConfig{Startup: StartupComplete, AutoStart: true}
+
+		assert.Equal(t, StartupComplete, cfg.StartupMode())
+		assert.True(t, cfg.StartupRequired())
 	})
 }
 
@@ -462,16 +467,17 @@ func TestLifecycleConfig_InitDefaults(t *testing.T) {
 		assert.Equal(t, 2.0, config.RetryPolicy.BackoffFactor)
 		assert.Equal(t, 0.1, config.RetryPolicy.Jitter)
 	})
+}
 
-	t.Run("boot gate json unmarshal", func(t *testing.T) {
-		jsonGate := `{"auto_start": true, "boot_gate": true}`
-		var cfg1 LifecycleConfig
-		require.NoError(t, json.Unmarshal([]byte(jsonGate), &cfg1))
-		assert.True(t, cfg1.BootGate)
-		assert.True(t, cfg1.AutoStart)
+func TestLifecycleConfig_StartupCompleteJSON(t *testing.T) {
+	configJSON := `{"auto_start": true, "startup": "complete"}`
+	var cfg LifecycleConfig
+	require.NoError(t, json.Unmarshal([]byte(configJSON), &cfg))
+	assert.Equal(t, StartupComplete, cfg.StartupMode())
+	assert.True(t, cfg.StartupRequired())
+	assert.True(t, cfg.AutoStart)
 
-		data, err := json.Marshal(cfg1)
-		require.NoError(t, err)
-		assert.Contains(t, string(data), `"boot_gate":true`)
-	})
+	data, err := json.Marshal(cfg)
+	require.NoError(t, err)
+	assert.Contains(t, string(data), `"startup":"complete"`)
 }

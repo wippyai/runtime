@@ -8,9 +8,9 @@ import (
 )
 
 var (
-	ErrProcessRequired           = apierror.New(apierror.Invalid, "process is required").WithRetryable(apierror.False)
-	ErrHostRequired              = apierror.New(apierror.Invalid, "host is required").WithRetryable(apierror.False)
-	ErrBootGateRequiresAutoStart = apierror.New(apierror.Invalid, "boot_gate requires auto_start").WithRetryable(apierror.False)
+	ErrProcessRequired                  = apierror.New(apierror.Invalid, "process is required").WithRetryable(apierror.False)
+	ErrHostRequired                     = apierror.New(apierror.Invalid, "host is required").WithRetryable(apierror.False)
+	ErrStartupCompleteRequiresAutoStart = apierror.New(apierror.Invalid, "startup: complete requires auto_start").WithRetryable(apierror.False)
 )
 
 // NewInvalidHostError reports a reserved or invalid host ID.

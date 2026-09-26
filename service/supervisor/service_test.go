@@ -448,7 +448,7 @@ func TestService_MonitorLoop_IgnoresNonEventsTopic(t *testing.T) {
 	cancel()
 }
 
-func TestService_BootGate_ReturnOk(t *testing.T) {
+func TestService_StartupComplete_ReturnOk(t *testing.T) {
 	r := bootpkg.NewReadiness()
 	gate := r.RegisterGate("test:boot_service")
 
@@ -475,7 +475,7 @@ func TestService_BootGate_ReturnOk(t *testing.T) {
 	require.NoError(t, r.Wait(context.Background()))
 }
 
-func TestService_BootGate_ExternalCancelOrKillFailsGate(t *testing.T) {
+func TestService_StartupComplete_ExternalCancelOrKillFailsGate(t *testing.T) {
 	r := bootpkg.NewReadiness()
 	gate := r.RegisterGate("test:boot_service")
 
@@ -507,7 +507,7 @@ func TestService_BootGate_ExternalCancelOrKillFailsGate(t *testing.T) {
 	assert.Equal(t, "test:boot_service", gateErr.Service)
 }
 
-func TestService_BootGate_ReturnError(t *testing.T) {
+func TestService_StartupComplete_ReturnError(t *testing.T) {
 	r := bootpkg.NewReadiness()
 	gate := r.RegisterGate("test:boot_service")
 
@@ -541,7 +541,7 @@ func TestService_BootGate_ReturnError(t *testing.T) {
 	assert.ErrorIs(t, err, expectedErr)
 }
 
-func TestService_BootGate_StopFailsGate(t *testing.T) {
+func TestService_StartupComplete_StopFailsGate(t *testing.T) {
 	r := bootpkg.NewReadiness()
 	gate := r.RegisterGate("test:boot_service")
 

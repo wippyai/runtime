@@ -124,7 +124,7 @@ entries:
     host: app:workers
     lifecycle:
       auto_start: true
-      boot_gate: true
+      startup: complete
   - name: command
     kind: process.lua
     method: main
@@ -182,7 +182,7 @@ entries:
     host: app:workers
     lifecycle:
       auto_start: true
-      boot_gate: true
+      startup: complete
       restart:
         initial_delay: 50ms
   - name: command
@@ -286,7 +286,7 @@ end}`,
 				"host":    "app:workers",
 				"lifecycle": map[string]any{
 					"auto_start": true,
-					"boot_gate":  true,
+					"startup":    "complete",
 				},
 			},
 		},
@@ -368,7 +368,7 @@ end}`,
 				"host":    "app:workers",
 				"lifecycle": map[string]any{
 					"auto_start": true,
-					"boot_gate":  true,
+					"startup":    "complete",
 					"restart": map[string]any{
 						"initial_delay": "50ms",
 					},
