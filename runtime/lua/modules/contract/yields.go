@@ -3,6 +3,7 @@
 package contract
 
 import (
+	"errors"
 	"sync"
 
 	lua "github.com/wippyai/go-lua"
@@ -115,28 +116,65 @@ func (y *CallYield) Release()                      { ReleaseCallYield(y) }
 
 // HandleResult converts call response to Lua values.
 func (y *CallYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
-	if err != nil {
-		luaErr := lua.WrapErrorWithLua(l, err, "call failed").
+	count := 1
+	if y.CallCmd != nil && y.Instance != nil {
+		if arity, ok := y.Instance.(interface{ OutputArity(string) int }); ok {
+			count = arity.OutputArity(y.Method)
+		} else {
+			for _, definition := range y.Instance.Implements() {
+				if method, methodErr := definition.Method(y.Method); methodErr == nil && method != nil {
+					if len(method.OutputSchemas) > 0 {
+						count = len(method.OutputSchemas)
+					}
+					break
+				}
+			}
+		}
+	}
+	failure := func(cause error, message string) []lua.LValue {
+		luaErr := lua.WrapErrorWithLua(l, cause, message).
 			WithKind(lua.Internal).
 			WithRetryable(false)
-		return []lua.LValue{lua.LNil, luaErr}
+		values := make([]lua.LValue, count+1)
+		for index := 0; index < count; index++ {
+			values[index] = lua.LNil
+		}
+		values[count] = luaErr
+		return values
+	}
+	if err != nil {
+		return failure(err, "call failed")
 	}
 	if data == nil {
-		luaErr := lua.NewLuaError(l, "no response received").
-			WithKind(lua.Internal).
-			WithRetryable(false)
-		return []lua.LValue{lua.LNil, luaErr}
+		return failure(errors.New("no response received"), "call failed")
 	}
 	resp, ok := data.(contract.CallResult)
 	if !ok {
-		luaErr := lua.NewLuaError(l, "invalid response type").
-			WithKind(lua.Internal).
-			WithRetryable(false)
-		return []lua.LValue{lua.LNil, luaErr}
+		return failure(errors.New("invalid response type"), "call failed")
 	}
 	if resp.Error != nil {
 		luaErr := lua.WrapErrorWithLua(l, resp.Error, "")
-		return []lua.LValue{lua.LNil, luaErr}
+		values := make([]lua.LValue, count+1)
+		for index := 0; index < count; index++ {
+			values[index] = lua.LNil
+		}
+		values[count] = luaErr
+		return values
+	}
+	if count > 1 {
+		values := make([]lua.LValue, count+1)
+		for index := 0; index < count; index++ {
+			values[index] = lua.LNil
+			if index < len(resp.Values) {
+				converted, convErr := luaconv.GoToLua(resp.Values[index])
+				if convErr != nil {
+					return failure(convErr, "result conversion failed")
+				}
+				values[index] = converted
+			}
+		}
+		values[count] = lua.LNil
+		return values
 	}
 	lv, convErr := luaconv.GoToLua(resp.Value)
 	if convErr != nil {

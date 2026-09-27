@@ -115,19 +115,24 @@ func typedInstance(id string, def *api.Definition, resources map[string]any, m *
 					}
 				}
 			}
-			output := typ.Type(typ.Unknown)
-			switch len(method.OutputSchemas) {
-			case 0:
+			outputs := make([]typ.Type, 0, len(method.OutputSchemas)+1)
+			if len(method.OutputSchemas) == 0 {
+				outputs = append(outputs, typ.Unknown)
 				*diagnostics = append(*diagnostics, ManifestDiagnostic{id, method.Name, "output_schemas", "output schema unspecified; result conformance cannot be verified"})
-			case 1:
-				projection := TranslateSchema(method.OutputSchemas[0], resources)
-				output = projection.Type
-				m.DefineType(prefix+"Output", output)
-				appendProjectionDiagnostics(diagnostics, id, method.Name, "output_schemas[0]", projection)
-			default:
-				*diagnostics = append(*diagnostics, ManifestDiagnostic{id, method.Name, "output_schemas", "multiple output schemas are ambiguous; result widened to unknown"})
+			} else {
+				for index, schema := range method.OutputSchemas {
+					projection := TranslateSchema(schema, resources)
+					outputs = append(outputs, projection.Type)
+					name := prefix + "Output"
+					if len(method.OutputSchemas) > 1 {
+						name += strconv.Itoa(index + 1)
+					}
+					m.DefineType(name, projection.Type)
+					appendProjectionDiagnostics(diagnostics, id, method.Name, "output_schemas["+strconv.Itoa(index)+"]", projection)
+				}
 			}
-			methods.Field(method.Name, fn.Returns(output, typ.NewOptional(typ.LuaError)).Build())
+			outputs = append(outputs, typ.NewOptional(typ.LuaError))
+			methods.Field(method.Name, fn.Returns(outputs...).Build())
 		}
 		return methods.Build()
 	})

@@ -77,13 +77,23 @@ i:query({ id = 42 })
 	}
 }
 
-func TestManifestAmbiguousOutputAndUnspecifiedInputs(t *testing.T) {
+func TestManifestMultipleOutputsAndUnspecifiedInputs(t *testing.T) {
 	def := &api.Definition{Methods: []api.MethodDef{{Name: "run", OutputSchemas: []api.SchemaDefinition{
 		{Format: "application/schema+json", Definition: `{"type":"string"}`},
 		{Format: "application/schema+json", Definition: `{"type":"number"}`},
 	}}}}
-	_, gaps := BuildTypedManifest(map[string]*api.Definition{"sample:ambiguous": def}, nil)
-	if len(gaps) != 2 || !strings.Contains(gaps[0].Message, "unspecified") || !strings.Contains(gaps[1].Message, "multiple output") {
+	manifest, gaps := BuildTypedManifest(map[string]*api.Definition{"sample:ambiguous": def}, nil)
+	if len(gaps) != 1 || !strings.Contains(gaps[0].Message, "unspecified") {
 		t.Fatalf("gaps = %+v", gaps)
+	}
+	if diagnostics := checkContractSource(t, manifest, `
+local contract = require("contract")
+local def = contract.get("sample:ambiguous")
+local instance = def:open()
+local first, second, err = instance:run()
+local value: string = first
+local count: number = second
+`); diagnostics != "" {
+		t.Fatalf("multi-output contract result: %s", diagnostics)
 	}
 }

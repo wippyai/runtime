@@ -125,7 +125,7 @@ func (d *Dispatcher) handleCall(ctx context.Context, cmd dispatcher.Command, tag
 			return
 		}
 		if result != nil {
-			receiver.CompleteYield(tag, contract.CallResult{Value: result.Value}, nil)
+			receiver.CompleteYield(tag, contract.CallResult{Value: result.Value, Values: result.Values}, nil)
 		} else {
 			receiver.CompleteYield(tag, contract.CallResult{}, nil)
 		}
@@ -203,6 +203,9 @@ func resultToPayload(result *runtime.Result, err error) payload.Payload {
 		return payload.NewError(result.Error)
 	}
 	if result != nil {
+		if len(result.Values) > 1 {
+			return payload.New(result.Values)
+		}
 		return result.Value
 	}
 	return nil

@@ -88,6 +88,26 @@ func (i *instanceImpl) ID() registry.ID {
 	return i.id
 }
 
+// OutputArity follows the same first bound-method selection as Call.
+func (i *instanceImpl) OutputArity(method string) int {
+	for _, bound := range i.binding.Contracts {
+		if _, mapped := bound.Methods[method]; !mapped {
+			continue
+		}
+		for _, definition := range i.contracts {
+			if definition.ID() != bound.Contract {
+				continue
+			}
+			if declared, err := definition.Method(method); err == nil && declared != nil && len(declared.OutputSchemas) > 0 {
+				return len(declared.OutputSchemas)
+			}
+			return 1
+		}
+		return 1
+	}
+	return 1
+}
+
 func (i *instanceImpl) Call(ctx context.Context, method string, args payload.Payloads, options runtime.Options) (*runtime.Result, error) {
 	// Find the bound contract and method
 	var funcID registry.ID
@@ -106,6 +126,9 @@ func (i *instanceImpl) Call(ctx context.Context, method string, args payload.Pay
 	if !found {
 		return nil, NewMethodNotBoundError(method)
 	}
+	// The bound definition determines where the outer error follows the
+	// positional successful values. Unspecified output keeps the legacy slot.
+	ctx = runtime.WithResultArity(ctx, i.OutputArity(method))
 
 	// Validate required context keys in scope or Go context.
 	if err := i.validateContext(ctx, boundContract.ContextRequired); err != nil {
@@ -155,7 +178,13 @@ func (i *instanceImpl) Call(ctx context.Context, method string, args payload.Pay
 	}
 
 	// Call the function with context
-	return i.funcReg.Call(ctx, task)
+	result, err := i.funcReg.Call(ctx, task)
+	if err == nil && result != nil && runtime.ResultArity(ctx) > 1 && result.Value != nil {
+		if values, ok := result.Value.Data().(payload.Payloads); ok {
+			result.Values = values
+		}
+	}
+	return result, err
 }
 
 // validateContext checks that all required context keys are present in scope or Go context.

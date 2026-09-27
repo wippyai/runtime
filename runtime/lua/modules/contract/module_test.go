@@ -27,6 +27,15 @@ type mockInstanceForTest struct {
 
 type contractDefinitionForOpenTest struct{ id registry.ID }
 
+type multipleOutputDefinition struct{ contractDefinitionForOpenTest }
+
+func (multipleOutputDefinition) Method(name string) (*contract.MethodDef, error) {
+	if name != "run" {
+		return nil, nil
+	}
+	return &contract.MethodDef{Name: name, OutputSchemas: make([]contract.SchemaDefinition, 2)}, nil
+}
+
 func (d contractDefinitionForOpenTest) ID() registry.ID                            { return d.id }
 func (d contractDefinitionForOpenTest) Meta() attrs.Bag                            { return nil }
 func (d contractDefinitionForOpenTest) Methods() []contract.MethodDef              { return nil }
@@ -473,6 +482,25 @@ func TestCallYield_HandleResult(t *testing.T) {
 			assert.Equal(t, lua.LNil, results[1])
 		})
 	}
+}
+
+func TestCallYieldMultipleOutputs(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	y := AcquireCallYield()
+	defer ReleaseCallYield(y)
+	y.Instance = &mockInstanceForTest{contracts: []contract.Contract{multipleOutputDefinition{contractDefinitionForOpenTest{id: registry.NewID("sample", "definition")}}}}
+	y.Method = "run"
+	got := y.HandleResult(l, contract.CallResult{Values: payload.Payloads{payload.New("first"), payload.New(42)}}, nil)
+	require.Len(t, got, 3)
+	assert.Equal(t, lua.LString("first"), got[0])
+	assert.Equal(t, lua.LInteger(42), got[1])
+	assert.Equal(t, lua.LNil, got[2])
+	failed := y.HandleResult(l, contract.CallResult{Error: assert.AnError}, nil)
+	require.Len(t, failed, 3)
+	assert.Equal(t, lua.LNil, failed[0])
+	assert.Equal(t, lua.LNil, failed[1])
+	assert.NotEqual(t, lua.LNil, failed[2])
 }
 
 func TestAsyncCancelYield_HandleResult(t *testing.T) {

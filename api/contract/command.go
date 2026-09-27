@@ -84,8 +84,9 @@ func (c *CallCmd) Release() {
 
 // CallResult is returned by CallCmd.
 type CallResult struct {
-	Value any
-	Error error
+	Value  any
+	Values payload.Payloads
+	Error  error
 }
 
 // AsyncCallCmd calls a method asynchronously.

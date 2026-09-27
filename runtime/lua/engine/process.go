@@ -19,6 +19,7 @@ import (
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
+	runtimeapi "github.com/wippyai/runtime/api/runtime"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/api/runtime/resource"
 	"github.com/wippyai/runtime/api/topology"
@@ -1738,10 +1739,11 @@ func (p *Process) vmStep(tasks ...*Task) ([]*Task, error) {
 		case lua.ResumeOK:
 			// Capture mainTask's return value before removing
 			if task == p.mainTask {
+				resultArity := runtimeapi.ResultArity(p.ctx)
 				if len(values) > 0 {
-					// Check for error in second return value (Go's value, error pattern)
-					if len(values) >= 2 {
-						if err := extractReturnError(values[1]); err != nil {
+					// A contract's outer error follows its declared output values.
+					if len(values) > resultArity {
+						if err := extractReturnError(values[resultArity]); err != nil {
 							p.result = nil
 							p.execErr = err
 							p.removeTask(task)
@@ -1749,7 +1751,20 @@ func (p *Process) vmStep(tasks ...*Task) ([]*Task, error) {
 							return nil, nil
 						}
 					}
-					p.result = luaconv.ExportPayload(values[0])
+					if resultArity == 1 {
+						p.result = luaconv.ExportPayload(values[0])
+					}
+				}
+				if resultArity > 1 {
+					outputs := make(payload.Payloads, resultArity)
+					for index := range outputs {
+						value := lua.LValue(lua.LNil)
+						if index < len(values) {
+							value = values[index]
+						}
+						outputs[index] = luaconv.ExportPayload(value)
+					}
+					p.result = payload.New(outputs)
 				}
 				p.removeTask(task)
 				p.killAllThreads()

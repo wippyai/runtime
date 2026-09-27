@@ -17,6 +17,7 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/process"
+	runtimeapi "github.com/wippyai/runtime/api/runtime"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/api/runtime/resource"
 	"github.com/wippyai/runtime/system/clock"
@@ -105,6 +106,43 @@ func TestProcessBasicExecution(t *testing.T) {
 
 	if output.Status() != process.StepDone {
 		t.Errorf("Expected StepDone, got %v", output.Status())
+	}
+}
+
+func TestContractResultArity(t *testing.T) {
+	for _, tc := range []struct {
+		name, source string
+		wantError    bool
+	}{
+		{"success", `return "first", 42, nil`, false},
+		{"outer error", `return nil, nil, "failed"`, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			proc := mustNewProcess(t, WithScript(tc.source, "contract-results.lua"))
+			ctx, _ := ctxapi.OpenFrameContext(runtimeapi.WithResultArity(context.Background(), 2))
+			if err := proc.Init(ctx, "", nil); err != nil {
+				t.Fatal(err)
+			}
+			defer proc.Close()
+			var output process.StepOutput
+			err := proc.Step(nil, &output)
+			if tc.wantError {
+				if err == nil {
+					t.Fatal("third return must be the outer error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			values, ok := output.Result().Data().(payload.Payloads)
+			if !ok || len(values) != 2 {
+				t.Fatalf("result = %#v", output.Result())
+			}
+			if values[0].Data().(lua.LValue).String() != "first" || values[1].Data().(lua.LValue).String() != "42" {
+				t.Fatalf("values = %#v", values)
+			}
+		})
 	}
 }
 
