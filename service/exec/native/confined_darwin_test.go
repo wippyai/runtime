@@ -7,7 +7,6 @@ package native
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -22,48 +21,6 @@ import (
 	execapi "github.com/wippyai/runtime/api/service/exec"
 	"go.uber.org/zap"
 )
-
-func TestDarwinConfinedPayload(t *testing.T) {
-	separator := -1
-	for index, arg := range os.Args {
-		if arg == "--" {
-			separator = index
-			break
-		}
-	}
-	if separator < 0 || separator+1 >= len(os.Args) {
-		return
-	}
-	switch os.Args[separator+1] {
-	case "filesystem":
-		if separator+4 >= len(os.Args) {
-			os.Exit(90)
-		}
-		allowed, denied, output := os.Args[separator+2], os.Args[separator+3], os.Args[separator+4]
-		payload, err := os.ReadFile(allowed)
-		if err != nil {
-			os.Exit(91)
-		}
-		if _, err := os.ReadFile(denied); err == nil {
-			os.Exit(92)
-		}
-		if err := os.WriteFile(output, []byte("written"), 0o600); err != nil {
-			os.Exit(93)
-		}
-		fmt.Printf("%s:%s", os.Getenv("WIPPY_PINNED"), payload)
-	case "spawn-denied":
-		child := exec.Command(os.Args[0], "-test.run=^TestDarwinConfinedPayload$", "--", "sleep")
-		if err := child.Start(); err == nil {
-			_ = child.Process.Kill()
-			os.Exit(94)
-		}
-		time.Sleep(time.Hour)
-	case "sleep":
-		time.Sleep(time.Hour)
-	default:
-		os.Exit(95)
-	}
-}
 
 func installDarwinConfinementHelper(t *testing.T) {
 	t.Helper()
@@ -85,11 +42,21 @@ func installDarwinConfinementHelper(t *testing.T) {
 	})
 }
 
-func darwinPayloadCommand(t *testing.T, arguments ...string) string {
+func buildDarwinConfinementTarget(t *testing.T) string {
 	t.Helper()
-	executable, err := os.Executable()
+	repoRoot, err := filepath.Abs(filepath.Join("..", "..", ".."))
 	require.NoError(t, err)
-	parts := []string{strconv.Quote(executable), "-test.run=^TestDarwinConfinedPayload$", "--"}
+	target := filepath.Join(t.TempDir(), "confine-target")
+	command := exec.Command("go", "build", "-trimpath", "-o", target,
+		"./service/exec/native/internal/confinement/darwin/testdata/target")
+	command.Dir = repoRoot
+	output, err := command.CombinedOutput()
+	require.NoErrorf(t, err, "build Darwin confinement target: %s", output)
+	return target
+}
+
+func darwinPayloadCommand(target string, arguments ...string) string {
+	parts := []string{strconv.Quote(target)}
 	for _, argument := range arguments {
 		parts = append(parts, strconv.Quote(argument))
 	}
@@ -105,9 +72,8 @@ func TestNativeDarwinConfinementEnforcesFilesystem(t *testing.T) {
 	output := filepath.Join(workspace, "output")
 	require.NoError(t, os.WriteFile(allowed, []byte("allowed"), 0o600))
 	require.NoError(t, os.WriteFile(denied, []byte("denied"), 0o600))
-	executable, err := os.Executable()
-	require.NoError(t, err)
-	executableRoot := filepath.Dir(executable)
+	target := buildDarwinConfinementTarget(t)
+	executableRoot := filepath.Dir(target)
 
 	factory := NewExecutorFactory(zap.NewNop())
 	handle, err := factory.CreateExecutor(registry.ID{}, &execapi.NativeExecutorConfig{
@@ -123,7 +89,7 @@ func TestNativeDarwinConfinementEnforcesFilesystem(t *testing.T) {
 	require.NoError(t, err)
 	executor := handle.(*Executor)
 	t.Cleanup(func() { require.NoError(t, executor.Close()) })
-	process, err := executor.NewProcess(darwinPayloadCommand(t, "filesystem", allowed, denied, output), execapi.ProcessOptions{})
+	process, err := executor.NewProcess(darwinPayloadCommand(target, "filesystem", allowed, denied, output), execapi.ProcessOptions{})
 	require.NoError(t, err)
 	stdout := process.Stdout()
 	stderr := process.Stderr()
@@ -142,6 +108,7 @@ func TestNativeDarwinConfinementEnforcesFilesystem(t *testing.T) {
 func TestNativeDarwinConfinementWallUsesSingleProcessDomain(t *testing.T) {
 	installDarwinConfinementHelper(t)
 	workspace := t.TempDir()
+	target := buildDarwinConfinementTarget(t)
 	factory := NewExecutorFactory(zap.NewNop())
 	handle, err := factory.CreateExecutor(registry.ID{}, &execapi.NativeExecutorConfig{
 		DefaultWorkDir: workspace,
@@ -153,7 +120,7 @@ func TestNativeDarwinConfinementWallUsesSingleProcessDomain(t *testing.T) {
 	require.NoError(t, err)
 	executor := handle.(*Executor)
 	t.Cleanup(func() { require.NoError(t, executor.Close()) })
-	process, err := executor.NewProcess(darwinPayloadCommand(t, "spawn-denied"), execapi.ProcessOptions{})
+	process, err := executor.NewProcess(darwinPayloadCommand(target, "spawn-denied"), execapi.ProcessOptions{})
 	require.NoError(t, err)
 	started := time.Now()
 	require.NoError(t, process.Start())
