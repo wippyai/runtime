@@ -14,6 +14,40 @@ import (
 	"github.com/wippyai/runtime/service/exec/native/internal/confinement"
 )
 
+// exitFinalizationError keeps an observed process exit distinct from a later
+// operational failure. It deliberately unwraps only the operational error:
+// generic errors.As(ExitCoder) callers must not mistake partial finalization
+// for an ordinary nonzero exit. The shared exec classifier can still report
+// both through ExitStatus.
+type exitFinalizationError struct {
+	cause   error
+	exitErr error
+	exit    execapi.ExitStatus
+}
+
+var _ execapi.ExitStatusError = (*exitFinalizationError)(nil)
+
+func (e *exitFinalizationError) Error() string {
+	return fmt.Sprintf("finalize process after %v: %v", e.exitErr, e.cause)
+}
+
+func (e *exitFinalizationError) Unwrap() error { return e.cause }
+
+func (e *exitFinalizationError) ExitStatus() execapi.ExitStatus {
+	return execapi.ExitStatus{Code: e.exit.Code, Signal: e.exit.Signal, Err: e.cause}
+}
+
+func joinExitFinalization(waitErr, finalizationErr error) error {
+	if finalizationErr == nil {
+		return waitErr
+	}
+	status := execapi.ClassifyExit(waitErr)
+	if waitErr != nil && status.Err == nil {
+		return &exitFinalizationError{exit: status, cause: finalizationErr, exitErr: waitErr}
+	}
+	return errors.Join(waitErr, finalizationErr)
+}
+
 // validateConfinementPolicy performs platform-independent admission before a
 // backend probes or binds host mechanisms.
 func validateConfinementPolicy(entry *execapi.Confinement) (confinement.Policy, error) {

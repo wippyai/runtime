@@ -25,6 +25,11 @@ func (e *signaledExit) Error() string   { return "signaled" }
 func (e *signaledExit) ExitCode() int   { return e.code }
 func (e *signaledExit) ExitSignal() int { return e.signal }
 
+type reportedExitError struct{ status ExitStatus }
+
+func (e *reportedExitError) Error() string          { return "exit finalization failed" }
+func (e *reportedExitError) ExitStatus() ExitStatus { return e.status }
+
 func TestClassifyExitReportsCleanExit(t *testing.T) {
 	require.Equal(t, ExitStatus{}, ClassifyExit(nil))
 }
@@ -54,6 +59,31 @@ func TestClassifyExitKeepsAnErrorThatIsNotAnExit(t *testing.T) {
 	require.Zero(t, status.Code)
 }
 
+func TestClassifyExitPreservesObservedExitAndOperationalFailure(t *testing.T) {
+	cleanupErr := errors.New("cleanup failed")
+	status := ClassifyExit(&reportedExitError{status: ExitStatus{
+		Code: 137,
+		Err:  cleanupErr,
+	}})
+
+	require.Equal(t, 137, status.Code)
+	require.ErrorIs(t, status.Err, cleanupErr)
+}
+
+func TestClassifyExitPreservesFailuresOutsideStatusError(t *testing.T) {
+	cleanupA := errors.New("cleanup A failed")
+	cleanupB := errors.New("cleanup B failed")
+	err := errors.Join(
+		&reportedExitError{status: ExitStatus{Code: 137, Err: cleanupA}},
+		cleanupB,
+	)
+
+	status := ClassifyExit(err)
+	require.Equal(t, 137, status.Code)
+	require.ErrorIs(t, status.Err, cleanupA)
+	require.ErrorIs(t, status.Err, cleanupB)
+}
+
 func TestClassifyExitReportsOrdinaryExitCode(t *testing.T) {
 	if _, err := osexec.LookPath("sh"); err != nil {
 		t.Skip("sh not available")
@@ -80,6 +110,15 @@ func (p *reportingProcess) Stderr() io.ReadCloser   { return nil }
 func (p *reportingProcess) AwaitExit() ExitStatus   { return p.status }
 func (p *reportingProcess) Wait() error             { p.waitCalls++; return nil }
 
+type waitingProcess struct{ waitErr error }
+
+func (p *waitingProcess) Start() error            { return nil }
+func (p *waitingProcess) Signal(int) error        { return nil }
+func (p *waitingProcess) WriteStdin([]byte) error { return nil }
+func (p *waitingProcess) Stdout() io.ReadCloser   { return nil }
+func (p *waitingProcess) Stderr() io.ReadCloser   { return nil }
+func (p *waitingProcess) Wait() error             { return p.waitErr }
+
 // A process that owns its own reap can report the exit repeatedly; waiting on
 // it a second time is what fails.
 func TestWaitForPrefersTheProcessOwnReap(t *testing.T) {
@@ -87,4 +126,18 @@ func TestWaitForPrefersTheProcessOwnReap(t *testing.T) {
 
 	require.Equal(t, process.status, WaitFor(process))
 	require.Zero(t, process.waitCalls)
+}
+
+func TestWaitForPreservesObservedExitAndAllOperationalFailures(t *testing.T) {
+	cleanupA := errors.New("cleanup A failed")
+	cleanupB := errors.New("cleanup B failed")
+	process := &waitingProcess{waitErr: errors.Join(
+		&reportedExitError{status: ExitStatus{Code: 137, Err: cleanupA}},
+		cleanupB,
+	)}
+
+	status := WaitFor(process)
+	require.Equal(t, 137, status.Code)
+	require.ErrorIs(t, status.Err, cleanupA)
+	require.ErrorIs(t, status.Err, cleanupB)
 }

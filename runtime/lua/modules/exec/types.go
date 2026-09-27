@@ -18,6 +18,11 @@ var terminalResultChannelType typ.Type
 var terminalProcessType typ.Type
 var ptyOptionsType typ.Type
 var mountType typ.Type
+var confinementFSPatchType typ.Type
+var confinementEnvironmentPatchType typ.Type
+var confinementLimitsPatchType typ.Type
+var confinementTreePatchType typ.Type
+var confinementPatchType typ.Type
 var processOptionsType typ.Type
 
 func init() {
@@ -31,12 +36,36 @@ func init() {
 		Field("target", typ.String).
 		OptField("read_only", typ.Boolean).
 		Build()
+	confinementFSPatchType = typ.NewRecord().
+		OptField("read", typ.NewArray(typ.String)).
+		OptField("write", typ.NewArray(typ.String)).
+		OptField("exec", typ.NewArray(typ.String)).
+		Build()
+	confinementEnvironmentPatchType = typ.NewRecord().
+		OptField("allow", typ.NewArray(typ.String)).
+		Build()
+	confinementLimitsPatchType = typ.NewRecord().
+		OptField("mem_mb", typ.Integer).
+		OptField("pids", typ.Integer).
+		OptField("wall_s", typ.Integer).
+		Build()
+	confinementTreePatchType = typ.NewRecord().
+		OptField("kill_on_owner_exit", typ.Boolean).
+		Build()
+	confinementPatchType = typ.NewRecord().
+		OptField("fs", confinementFSPatchType).
+		OptField("env", confinementEnvironmentPatchType).
+		OptField("network", typ.LiteralString("none")).
+		OptField("limits", confinementLimitsPatchType).
+		OptField("tree", confinementTreePatchType).
+		Build()
 	processOptionsType = typ.NewRecord().
 		OptField("work_dir", typ.String).
 		OptField("env", typ.NewMap(typ.String, typ.String)).
 		OptField("pty", ptyOptionsType).
 		OptField("process_group", typ.Boolean).
 		OptField("mounts", typ.NewArray(mountType)).
+		OptField("confine", confinementPatchType).
 		Build()
 	processExitType = typ.NewRecord().
 		Field("code", typ.Integer).
@@ -111,6 +140,11 @@ func ModuleTypes() *io.Manifest {
 	m.DefineType("TerminalProcess", terminalProcessType)
 	m.DefineType("PTYOptions", ptyOptionsType)
 	m.DefineType("Mount", mountType)
+	m.DefineType("ConfinementFSPatch", confinementFSPatchType)
+	m.DefineType("ConfinementEnvironmentPatch", confinementEnvironmentPatchType)
+	m.DefineType("ConfinementLimitsPatch", confinementLimitsPatchType)
+	m.DefineType("ConfinementTreePatch", confinementTreePatchType)
+	m.DefineType("ConfinementPatch", confinementPatchType)
 	m.DefineType("ProcessOptions", processOptionsType)
 
 	moduleType := typ.NewInterface("exec", []typ.Method{

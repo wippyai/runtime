@@ -1169,6 +1169,21 @@ func TestExitError(t *testing.T) {
 	assert.Equal(t, apierror.Canceled, sigtermErr.Kind())
 }
 
+func TestExitFinalizationFailureSurvivesSharedClassification(t *testing.T) {
+	cleanupA := errors.New("remove confinement ACL")
+	cleanupB := errors.New("remove confinement profile")
+	waitErr := joinExitFinalization(&ExitError{Code: 137}, cleanupA)
+	waitErr = joinExitFinalization(waitErr, cleanupB)
+
+	status := exec.ClassifyExit(waitErr)
+	require.Equal(t, 137, status.Code)
+	require.ErrorIs(t, status.Err, cleanupA)
+	require.ErrorIs(t, status.Err, cleanupB)
+
+	var exit *ExitError
+	require.False(t, errors.As(waitErr, &exit), "operational failure must not look like an ordinary exit")
+}
+
 func TestAPIErrors(t *testing.T) {
 	t.Run("NewUnsupportedEntryKindError", func(t *testing.T) {
 		err := serviceexec.NewUnsupportedEntryKindError("unknown.kind")

@@ -305,7 +305,7 @@ func (c *windowsConfinementLaunch) Stop() {
 
 func (c *windowsConfinementLaunch) Wait(waitErr error) error {
 	c.stopWall()
-	return errors.Join(waitErr, c.release())
+	return joinExitFinalization(waitErr, c.release())
 }
 
 func (c *windowsConfinementLaunch) WaitProcess() error {
