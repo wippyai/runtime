@@ -52,8 +52,9 @@ type securityCapabilities struct {
 // confined processes cannot address each other's private objects by package
 // identity.
 type Sandbox struct {
-	name string
-	sid  *windows.SID
+	name       string
+	sid        *windows.SID
+	capability *windows.SID
 }
 
 type PathGrant struct {
@@ -94,7 +95,12 @@ func NewSandbox() (*Sandbox, error) {
 		_ = deleteProfile(name)
 		return nil, err
 	}
-	return &Sandbox{name: name, sid: sid}, nil
+	capability, err := windows.CreateWellKnownSid(windows.WinCapabilityInternetClientSid)
+	if err != nil {
+		_ = deleteProfile(name)
+		return nil, fmt.Errorf("create internet-client capability SID: %w", err)
+	}
+	return &Sandbox{name: name, sid: sid, capability: capability}, nil
 }
 
 func (s *Sandbox) Close() error {
@@ -104,6 +110,7 @@ func (s *Sandbox) Close() error {
 	name := s.name
 	s.name = ""
 	s.sid = nil
+	s.capability = nil
 	return deleteProfile(name)
 }
 
@@ -283,13 +290,13 @@ type SpawnedProcess struct {
 }
 
 func (s *Sandbox) VerifySpawned(p *SpawnedProcess, job *Job) error {
-	if s == nil || s.sid == nil {
+	if s == nil || s.sid == nil || s.capability == nil {
 		return errors.New("sandbox identity is closed")
 	}
-	return p.verify(job, s.sid)
+	return p.verify(job, s.sid, s.capability)
 }
 
-func (p *SpawnedProcess) verify(job *Job, expectedSID *windows.SID) error {
+func (p *SpawnedProcess) verify(job *Job, expectedSID, expectedCapability *windows.SID) error {
 	if p == nil || p.Process == 0 || job == nil || job.handle == 0 {
 		return errors.New("invalid suspended LPAC process")
 	}
@@ -327,12 +334,8 @@ func (p *SpawnedProcess) verify(job *Job, expectedSID *windows.SID) error {
 	if expectedSID == nil || packageSID == nil || !packageSID.Equals(expectedSID) {
 		return errors.New("suspended target has the wrong AppContainer package SID")
 	}
-	capabilityCount, err := tokenGroupCount(token, 30)
-	if err != nil {
+	if err := verifyTokenCapability(token, expectedCapability); err != nil {
 		return fmt.Errorf("verify AppContainer capabilities: %w", err)
-	}
-	if capabilityCount != 0 {
-		return errors.New("suspended target unexpectedly has AppContainer capabilities")
 	}
 	integrity, err := tokenIntegrity(token)
 	if err != nil {
@@ -454,15 +457,32 @@ func tokenSID(token windows.Token, class uint32) (*windows.SID, error) {
 	return value, nil
 }
 
-func tokenGroupCount(token windows.Token, class uint32) (uint32, error) {
-	buffer, err := tokenInfo(token, class)
+func verifyTokenCapability(token windows.Token, expected *windows.SID) error {
+	if expected == nil || !expected.IsValid() {
+		return errors.New("expected capability SID is invalid")
+	}
+	buffer, err := tokenInfo(token, 30) // TokenCapabilities
 	if err != nil {
-		return 0, err
+		return err
 	}
-	if len(buffer) < 4 {
-		return 0, errors.New("token returned an invalid group list")
+	groupsOffset := int(unsafe.Offsetof(windows.Tokengroups{}.Groups))
+	if len(buffer) < groupsOffset+int(unsafe.Sizeof(windows.SIDAndAttributes{})) {
+		return errors.New("token returned an invalid capability list")
 	}
-	return binary.LittleEndian.Uint32(buffer[:4]), nil
+	groups := (*windows.Tokengroups)(unsafe.Pointer(&buffer[0]))
+	if groups.GroupCount != 1 {
+		return fmt.Errorf("suspended target has %d capabilities, want 1", groups.GroupCount)
+	}
+	capability := groups.Groups[0]
+	if capability.Sid == nil || !capability.Sid.IsValid() || !capability.Sid.Equals(expected) {
+		return errors.New("suspended target has the wrong capability SID")
+	}
+	if capability.Attributes != windows.SE_GROUP_ENABLED {
+		return fmt.Errorf("suspended target capability attributes %#x, want %#x",
+			capability.Attributes, uint32(windows.SE_GROUP_ENABLED))
+	}
+	runtime.KeepAlive(buffer)
+	return nil
 }
 
 func tokenIntegrity(token windows.Token) (uint32, error) {
@@ -588,7 +608,12 @@ func (s *Sandbox) spawnSuspended(request SpawnRequest, allApplicationPackagesOpt
 		return nil, fmt.Errorf("create launch attribute list: %w", err)
 	}
 	defer attributes.Delete()
-	security := securityCapabilities{AppContainerSID: s.sid}
+	capabilities := []windows.SIDAndAttributes{{Sid: s.capability, Attributes: windows.SE_GROUP_ENABLED}}
+	security := securityCapabilities{
+		AppContainerSID: s.sid,
+		Capabilities:    &capabilities[0],
+		CapabilityCount: uint32(len(capabilities)),
+	}
 	if err := attributes.Update(procThreadAttributeSecurityCapabilities,
 		unsafe.Pointer(&security), unsafe.Sizeof(security)); err != nil {
 		return nil, fmt.Errorf("set LPAC security capabilities: %w", err)
@@ -633,6 +658,7 @@ func (s *Sandbox) spawnSuspended(request SpawnRequest, allApplicationPackagesOpt
 		return nil, fmt.Errorf("create suspended LPAC process: %w", err)
 	}
 	runtime.KeepAlive(security)
+	runtime.KeepAlive(capabilities)
 	runtime.KeepAlive(jobs)
 	runtime.KeepAlive(handles)
 	return &SpawnedProcess{Process: process.Process, Thread: process.Thread, PID: process.ProcessId}, nil

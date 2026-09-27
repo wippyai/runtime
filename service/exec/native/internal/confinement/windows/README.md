@@ -3,9 +3,15 @@
 Windows confined launches use a fresh Less Privileged AppContainer identity
 and a Job Object. The target is created suspended, placed in the Job atomically,
 and resumed only after the runtime verifies the exact package SID, LPAC token,
-empty capability set, low integrity level, and Job membership. Only stdin,
-stdout, and stderr are inherited. The Job supplies aggregate committed-memory
-limits, wall-time termination, and whole-tree cleanup.
+single `internetClient` capability, low integrity level, and Job membership.
+Only stdin, stdout, and stderr are inherited. The Job supplies aggregate
+committed-memory limits, wall-time termination, and whole-tree cleanup.
+
+Windows currently rejects `network: none`, so every supported launch does not
+request network denial. It receives exactly the outbound
+`internetClient` capability required by AppContainer Winsock initialization;
+the runtime checks the target token's capability SID, count, and attributes
+before resume. No shared filesystem or user-data capability is granted.
 
 LPAC status is verified by an in-memory `AccessCheck` that must grant the
 `ALL RESTRICTED APPLICATION PACKAGES` bit while withholding the ordinary

@@ -50,8 +50,8 @@ func TestWindowsConfinedPayload(t *testing.T) {
 			fmt.Fprintf(os.Stderr, "verify current LPAC: is_lpac=%t: %v\n", isContainer, err)
 			os.Exit(95)
 		}
-		if err := os.WriteFile(filepath.Join(os.Getenv("USERPROFILE"), "private-home-write"),
-			[]byte("ok"), 0o600); err != nil {
+		if err := rawWindowsWriteFile(filepath.Join(os.Getenv("USERPROFILE"), "private-home-write"),
+			[]byte("ok")); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(86)
 		}
@@ -124,6 +124,33 @@ func TestWindowsConfinedPayload(t *testing.T) {
 	default:
 		os.Exit(92)
 	}
+}
+
+// rawWindowsWriteFile keeps the private-home conformance check below the Go
+// runtime. Go 1.27 caches a failed AppContainer WSAStartup in internal/poll;
+// ordinary files opened afterwards can then be misclassified as sockets and
+// sent through WSASend. CreateFile/WriteFile proves the Windows ACL and
+// mandatory-label contract independently of that runtime defect.
+func rawWindowsWriteFile(path string, payload []byte) error {
+	name, err := windows.UTF16PtrFromString(path)
+	if err != nil {
+		return err
+	}
+	handle, err := windows.CreateFile(name, windows.GENERIC_WRITE, 0, nil, windows.CREATE_ALWAYS,
+		windows.FILE_ATTRIBUTE_NORMAL, 0)
+	if err != nil {
+		return err
+	}
+	var written uint32
+	writeErr := windows.WriteFile(handle, payload, &written, nil)
+	closeErr := windows.CloseHandle(handle)
+	if writeErr != nil {
+		return errors.Join(writeErr, closeErr)
+	}
+	if written != uint32(len(payload)) {
+		return errors.Join(fmt.Errorf("short WriteFile: wrote %d of %d bytes", written, len(payload)), closeErr)
+	}
+	return closeErr
 }
 
 func newWindowsConfinedExecutor(t *testing.T, workDir string) *Executor {
