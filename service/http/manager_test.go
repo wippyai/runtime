@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -16,10 +18,12 @@ import (
 	"github.com/stretchr/testify/require"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	apierror "github.com/wippyai/runtime/api/error"
+	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/payload"
 	apiregistry "github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
 	config "github.com/wippyai/runtime/api/service/http"
+	"github.com/wippyai/runtime/api/supervisor"
 	"github.com/wippyai/runtime/system/eventbus"
 	"go.uber.org/zap"
 )
@@ -65,6 +69,96 @@ func (t *SimpleTranscoder) Unmarshal(p payload.Payload, v any) error {
 
 type failingServer struct {
 	rebuildErr error
+}
+
+type startupRequestResult struct {
+	err    error
+	status int
+}
+
+type startupRequestBus struct {
+	ctx     context.Context
+	results chan startupRequestResult
+	path    string
+}
+
+type doneObservedContext struct {
+	context.Context
+	observed chan struct{}
+	once     sync.Once
+}
+
+func (c *doneObservedContext) Done() <-chan struct{} {
+	c.once.Do(func() { close(c.observed) })
+	return c.Context.Done()
+}
+
+func (b *startupRequestBus) Send(_ context.Context, evt event.Event) {
+	if evt.System != supervisor.System || evt.Kind != supervisor.ServiceRegister {
+		return
+	}
+	entry, ok := evt.Data.(*supervisor.Entry)
+	if !ok {
+		return
+	}
+
+	go func() {
+		status, err := entry.Service.Start(b.ctx)
+		if err != nil {
+			b.results <- startupRequestResult{err: err}
+			return
+		}
+
+		details := <-status
+		address, ok := details.(string)
+		if !ok {
+			b.results <- startupRequestResult{err: fmt.Errorf("unexpected startup status %T", details)}
+			return
+		}
+		address = strings.TrimPrefix(address, "service listening on ")
+		request, err := http.NewRequestWithContext(b.ctx, http.MethodGet, "http://"+address+b.path, nil)
+		if err != nil {
+			b.results <- startupRequestResult{err: err}
+			return
+		}
+		response, err := (&http.Client{Timeout: time.Second}).Do(request)
+		if err != nil {
+			b.results <- startupRequestResult{err: err}
+			return
+		}
+		defer response.Body.Close()
+		b.results <- startupRequestResult{status: response.StatusCode}
+	}()
+}
+
+func (*startupRequestBus) Subscribe(context.Context, event.System, chan<- event.Event) (event.SubscriberID, error) {
+	return "", nil
+}
+
+func (*startupRequestBus) SubscribeP(context.Context, event.System, event.Kind, chan<- event.Event) (event.SubscriberID, error) {
+	return "", nil
+}
+
+func (*startupRequestBus) Unsubscribe(context.Context, event.SubscriberID) {}
+func (*startupRequestBus) HasSubscribers(event.System, event.Kind) bool    { return true }
+
+type blockingEndpointFactory struct {
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (f *blockingEndpointFactory) CreateHandler(context.Context, *config.EndpointConfig) (http.Handler, error) {
+	close(f.entered)
+	<-f.release
+	return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}), nil
+}
+
+type unusedStaticFactory struct{}
+
+func (*unusedStaticFactory) CreateHandler(context.Context, *config.StaticConfig) (http.Handler, error) {
+	return nil, errors.New("unused")
 }
 
 func (s *failingServer) Start(_ context.Context) (<-chan any, error) {
@@ -636,6 +730,94 @@ func TestManager_TransactionOperations(t *testing.T) {
 	// Test Commit - should trigger rebuild and clear pending
 	manager.Commit(ctx)
 	assert.Empty(t, manager.pending)
+}
+
+func TestManager_NewServiceDoesNotServeBeforeInitialRoutesCommit(t *testing.T) {
+	ctx, cancel := context.WithCancel(ctxapi.NewRootContext())
+	defer cancel()
+
+	requestResults := make(chan startupRequestResult, 1)
+	startWaitObserved := make(chan struct{})
+	startCtx := &doneObservedContext{Context: ctx, observed: startWaitObserved}
+	bus := &startupRequestBus{ctx: startCtx, results: requestResults, path: "/ready"}
+	endpointFactory := &blockingEndpointFactory{
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	manager, err := NewManager(
+		NewSimpleTranscoder(),
+		bus,
+		NewServerFactory(NewMiddlewareRegistry(zap.NewNop())),
+		endpointFactory,
+		&unusedStaticFactory{},
+		zap.NewNop(),
+	)
+	require.NoError(t, err)
+	require.NoError(t, manager.Begin(ctx))
+
+	serverID := apiregistry.NewID("test", "commit-gated-server")
+	routerID := apiregistry.NewID("test", "commit-gated-router")
+	require.NoError(t, manager.Add(ctx, apiregistry.Entry{
+		ID:   serverID,
+		Kind: config.Server,
+		Data: payload.New(&config.ServerConfig{Addr: "127.0.0.1:0"}),
+	}))
+	require.NoError(t, manager.Add(ctx, apiregistry.Entry{
+		ID:   routerID,
+		Kind: config.Router,
+		Data: payload.New(&config.RouterConfig{
+			Prefix: "/",
+			Meta:   map[string]any{config.ServerID: serverID.String()},
+		}),
+	}))
+
+	endpointAdded := make(chan error, 1)
+	go func() {
+		endpointAdded <- manager.Add(ctx, apiregistry.Entry{
+			ID:   apiregistry.NewID("test", "ready-endpoint"),
+			Kind: config.Endpoint,
+			Data: payload.New(&config.EndpointConfig{
+				Path:   "/ready",
+				Method: http.MethodGet,
+				Func:   apiregistry.NewID("test", "ready-handler"),
+				Meta:   map[string]any{config.RouterID: routerID.String()},
+			}),
+		})
+	}()
+
+	select {
+	case <-endpointFactory.entered:
+	case <-time.After(time.Second):
+		t.Fatal("endpoint creation did not block")
+	}
+
+	select {
+	case <-startWaitObserved:
+	case <-time.After(time.Second):
+		t.Fatal("service start did not reach the initial-routes gate")
+	}
+	select {
+	case result := <-requestResults:
+		t.Fatalf("service start returned before routes committed: status=%d err=%v", result.status, result.err)
+	default:
+	}
+
+	close(endpointFactory.release)
+	require.NoError(t, <-endpointAdded)
+	require.NoError(t, manager.Commit(ctx))
+
+	var result startupRequestResult
+	select {
+	case result = <-requestResults:
+	case <-time.After(2 * time.Second):
+		t.Fatal("service did not start after its routes committed")
+	}
+	require.NoError(t, result.err)
+	require.NotEqual(t, http.StatusNotFound, result.status,
+		"the listener served before the composition's initial routes were committed")
+	require.Equal(t, http.StatusNoContent, result.status)
+
+	require.NoError(t, manager.servers[serverID].Stop(context.Background()))
 }
 
 func TestManager_CommitKeepsPendingOnRebuildError(t *testing.T) {
