@@ -198,17 +198,57 @@ them. Other caller values must be named by the final `env.allow`. `HOME` and
 temporary-directory variables are runtime-owned when private directories are
 active and cannot be supplied by the caller.
 
-Confinement currently has a verified implementation only for native Linux
-execution. macOS, Windows, Docker, unsupported kernel facilities, missing
-Landlock ABI 5 when `fs` is restricted, or unavailable delegated cgroup-v2 controllers fail closed
-with `CONFINE_UNSUPPORTED`; the process never runs without the requested
-guarantees. Directory grants are supported, but individual-file grants are
-not. Restricted views contain selected `/dev` nodes and no `/proc`, and may
-need explicit read/execute grants for dynamic loaders and libraries. Writable
-grants permit data changes but intentionally deny chmod, chown, xattrs,
-timestamp mutation, and most ioctls; they are not full POSIX filesystem
-authority. There is no network allowlist/proxy, CPU or I/O quota, persistent
-private home, launch-time widening, or runtime-crash cleanup guarantee.
+Native confinement uses the same entry and Lua surface on every platform, but
+each host must be able to enforce every requested guarantee. Unsupported
+combinations fail with `CONFINE_UNSUPPORTED` before the target runs; they never
+silently degrade.
+
+| Guarantee | Linux | macOS | Windows |
+|---|---|---|---|
+| environment ceiling and entry-owned values | yes | yes | yes; Windows bootstrap/profile variables are platform-owned |
+| private home | yes | yes | yes |
+| filesystem policy | directory grants | fail closed | fail closed |
+| `network: none` | total socket denial, including `socketpair` | fail closed | fail closed |
+| aggregate memory limit | delegated cgroup v2 | fail closed | Job Object committed-memory limit |
+| aggregate task limit | delegated cgroup v2 | fail closed | fail closed |
+| wall timeout | whole process tree | singleton process domain | Job Object process tree |
+| owner-exit cleanup | PID-namespace process tree | singleton process domain | Job Object process tree |
+| confined PTY/process group | PTY only | fail closed | fail closed |
+
+Linux filesystem grants are existing directories; individual-file grants are
+not supported. Restricted views contain selected `/dev` nodes and no `/proc`,
+and may need explicit read/execute grants for dynamic loaders and libraries.
+Writable grants permit data changes but intentionally deny chmod, chown,
+xattrs, timestamp mutation, and most ioctls; they are not full POSIX
+filesystem authority. Filesystem restrictions require Landlock ABI 5, and
+memory/task limits require delegated cgroup-v2 controllers.
+
+macOS launches go through a separately signed Seatbelt trampoline which is
+started suspended and verified before it can execute. Working directories are
+selected through entry-owned descriptors, so replacing a configured root
+cannot redirect a prepared launch. Seatbelt pathname rules cannot provide the
+object-bound filesystem policy promised by Linux, and an unprivileged process
+cannot provide aggregate memory/task controls or prove total socket denial.
+Those requests therefore fail closed. Wall and owner-exit controls deny child
+creation and operate on a singleton process domain.
+
+Windows launches use a fresh less-privileged AppContainer identity and a Job
+Object. The runtime atomically assigns the suspended target to the Job and
+verifies its exact package SID, empty capability set, low integrity, and Job
+membership before resuming it. Access for the unique launch SID is temporarily
+granted only to runtime-controlled launch objects and is removed after the Job
+is empty. Configured work roots must consequently be dedicated trees whose ACL
+management and descendant placement remain under Wippy's control for the
+launch; unrelated ACL writers are outside this host contract. Filesystem
+policy blocks, total network denial, and task-count limits fail closed. The
+runtime supplies trusted `SYSTEMROOT` and `LOCALAPPDATA` bootstrap values;
+Windows rewrites `LOCALAPPDATA`, `TEMP`, and `TMP` into the package-private
+profile. These platform-managed names cannot be set or admitted by the entry
+environment policy, and no other host environment is inherited implicitly.
+
+Docker confinement is not implemented. There is no network allowlist/proxy,
+CPU or I/O quota, persistent private home, launch-time widening, or
+runtime-crash cleanup guarantee.
 
 On Linux the current backend always destroys remaining descendants when the
 root exits or is stopped. Therefore `kill_on_owner_exit = false` means that

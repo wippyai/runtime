@@ -95,6 +95,14 @@ func TestWindowsConfinedPayload(t *testing.T) {
 		for {
 			time.Sleep(time.Hour)
 		}
+	case "environment":
+		isContainer, err := confinewindows.CurrentProcessIsLPAC()
+		if err != nil || !isContainer {
+			os.Exit(83)
+		}
+		fmt.Printf("lpac\n%s\n%s\n%s\n%s\nsentinel=%s\n", os.Getenv("WIPPY_PINNED"),
+			os.Getenv("LOCALAPPDATA"), os.Getenv("TEMP"), os.Getenv("TMP"),
+			os.Getenv("WIPPY_HOST_SENTINEL"))
 	case "tree":
 		command := exec.Command(os.Args[0], "-test.run=^TestWindowsConfinedPayload$", "--", "grandchild")
 		command.Env = os.Environ()
@@ -134,6 +142,23 @@ func newWindowsConfinedExecutor(t *testing.T, workDir string) *Executor {
 	return executor
 }
 
+func TestNativeWindowsConfinementRejectsPlatformManagedEnvironment(t *testing.T) {
+	workDir := t.TempDir()
+	for _, environment := range []*execapi.ConfinementEnvironment{
+		{Set: map[string]string{"LocalAppData": workDir}},
+		{Allow: []string{"temp"}},
+	} {
+		factory := NewExecutorFactory(zap.NewNop())
+		_, err := factory.CreateExecutor(registry.ID{}, &execapi.NativeExecutorConfig{
+			DefaultWorkDir: workDir,
+			Confine: &execapi.Confinement{
+				WorkDirRoots: []string{workDir}, Env: environment,
+			},
+		})
+		require.ErrorIs(t, err, execapi.ErrInvalidConfinement)
+	}
+}
+
 func windowsPayloadCommand(t *testing.T, mode string, arguments ...string) string {
 	t.Helper()
 	executable, err := os.Executable()
@@ -167,6 +192,38 @@ func TestNativeWindowsConfinementRunsInsideJob(t *testing.T) {
 	require.Equal(t, "handle_denied", lines[4])
 	_, err = os.Stat(lines[1])
 	require.ErrorIs(t, err, os.ErrNotExist, "private home is removed after the job is empty")
+}
+
+func TestNativeWindowsConfinementBootstrapsAppContainerEnvironment(t *testing.T) {
+	t.Setenv("WIPPY_HOST_SENTINEL", "must-not-leak")
+	workDir := t.TempDir()
+	factory := NewExecutorFactory(zap.NewNop())
+	handle, err := factory.CreateExecutor(registry.ID{}, &execapi.NativeExecutorConfig{
+		DefaultWorkDir: workDir,
+		Confine: &execapi.Confinement{
+			WorkDirRoots: []string{workDir},
+			Env:          &execapi.ConfinementEnvironment{Set: map[string]string{"WIPPY_PINNED": "yes"}},
+		},
+	})
+	require.NoError(t, err)
+	executor := handle.(*Executor)
+	t.Cleanup(func() { require.NoError(t, executor.Close()) })
+	process, err := executor.NewProcess(windowsPayloadCommand(t, "environment"), execapi.ProcessOptions{})
+	require.NoError(t, err)
+	stdout := process.Stdout()
+	require.NoError(t, process.Start())
+	payload, err := io.ReadAll(stdout)
+	require.NoError(t, err)
+	require.NoError(t, process.Wait())
+	lines := strings.Split(strings.TrimSpace(string(payload)), "\n")
+	require.Len(t, lines, 6)
+	require.Equal(t, "lpac", lines[0])
+	require.Equal(t, "yes", lines[1])
+	require.NotEmpty(t, lines[2], "Windows must rewrite LOCALAPPDATA for the AppContainer")
+	require.NotEqual(t, os.Getenv("LOCALAPPDATA"), lines[2])
+	require.NotEmpty(t, lines[3], "Windows must provide an AppContainer TEMP")
+	require.NotEmpty(t, lines[4], "Windows must provide an AppContainer TMP")
+	require.Equal(t, "sentinel=", lines[5], "unlisted host environment must not leak")
 }
 
 func TestNativeWindowsConfinementIsolatesPeerLPACs(t *testing.T) {

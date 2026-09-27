@@ -9,7 +9,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"os"
 	"runtime"
 	"sort"
 	"strings"
@@ -519,19 +518,59 @@ func (s *Sandbox) SpawnSuspended(request SpawnRequest) (*SpawnedProcess, error) 
 }
 
 func environmentBlock(values []string) ([]uint16, error) {
-	environment := append([]string(nil), values...)
-	hasSystemRoot := false
+	systemRoot, err := windows.GetSystemWindowsDirectory()
+	if err != nil {
+		return nil, fmt.Errorf("resolve SYSTEMROOT: %w", err)
+	}
+	localAppData, err := windows.KnownFolderPath(windows.FOLDERID_LocalAppData, windows.KF_FLAG_DEFAULT)
+	if err != nil {
+		return nil, fmt.Errorf("resolve LOCALAPPDATA: %w", err)
+	}
+	return buildEnvironmentBlock(values, []requiredEnvironmentVariable{
+		{name: "SYSTEMROOT", value: systemRoot},
+		{name: "LOCALAPPDATA", value: localAppData},
+	})
+}
+
+type requiredEnvironmentVariable struct {
+	name  string
+	value string
+}
+
+func buildEnvironmentBlock(values []string, required []requiredEnvironmentVariable) ([]uint16, error) {
+	requiredByName := make(map[string]requiredEnvironmentVariable, len(required))
+	for _, variable := range required {
+		if variable.name == "" || strings.ContainsAny(variable.name, "=\x00") ||
+			variable.value == "" || strings.ContainsRune(variable.value, 0) {
+			return nil, fmt.Errorf("required Windows environment variable %s is unavailable", variable.name)
+		}
+		requiredByName[strings.ToUpper(variable.name)] = variable
+	}
+	environment := make([]string, 0, len(values)+len(required))
+	seen := make(map[string]struct{}, len(values)+len(required))
 	for _, value := range values {
 		if strings.ContainsRune(value, 0) {
 			return nil, errors.New("environment value contains NUL")
 		}
 		name, _, found := strings.Cut(value, "=")
-		if found && strings.EqualFold(name, "SYSTEMROOT") {
-			hasSystemRoot = true
+		if !found || name == "" {
+			return nil, errors.New("environment entry has no name")
 		}
+		key := strings.ToUpper(name)
+		if _, duplicate := seen[key]; duplicate {
+			return nil, fmt.Errorf("duplicate Windows environment variable %s", name)
+		}
+		seen[key] = struct{}{}
+		if reserved, ok := requiredByName[key]; ok {
+			return nil, fmt.Errorf("environment overrides required Windows variable %s", reserved.name)
+		}
+		if key == "TEMP" || key == "TMP" {
+			return nil, fmt.Errorf("environment overrides AppContainer-managed Windows variable %s", name)
+		}
+		environment = append(environment, value)
 	}
-	if !hasSystemRoot {
-		environment = append(environment, "SYSTEMROOT="+os.Getenv("SYSTEMROOT"))
+	for _, variable := range required {
+		environment = append(environment, variable.name+"="+variable.value)
 	}
 	sort.Slice(environment, func(i, j int) bool {
 		return strings.ToUpper(environment[i]) < strings.ToUpper(environment[j])

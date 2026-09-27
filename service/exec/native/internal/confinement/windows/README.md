@@ -28,6 +28,10 @@ changes cannot be applied or reverted.
 The backend currently supports environment ceilings, private home, aggregate
 Job memory, wall time, and tree cleanup. Filesystem policy blocks, total socket
 denial, portable task-count limits, confined PTYs, and confined process groups
-return `CONFINE_UNSUPPORTED`; they are not silently weakened. `SYSTEMROOT` is
-the sole implicit environment value, matching Go's required Windows process
-launch behavior.
+return `CONFINE_UNSUPPORTED`; they are not silently weakened.
+
+The runtime resolves and supplies trusted `SYSTEMROOT` and `LOCALAPPDATA`
+bootstrap values required by Windows process and AppContainer creation. Windows
+then rewrites `LOCALAPPDATA`, `TEMP`, and `TMP` into the package-private profile.
+Those four names are platform-managed and cannot be set or admitted by an entry
+environment policy. No other host environment is implicitly inherited.

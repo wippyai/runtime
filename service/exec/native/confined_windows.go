@@ -63,6 +63,38 @@ func validateConfinementHost(entry *execapi.Confinement) error {
 	if policy.Limits.PIDs > 0 {
 		return execapi.ErrConfineUnsupported.WithCause(errors.New("Windows Job Objects limit processes, not policy tasks"))
 	}
+	if err := validateWindowsConfinementEnvironment(policy, nil); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateWindowsConfinementEnvironment(policy confinement.Policy, values map[string]string) error {
+	isManaged := func(name string) bool {
+		switch strings.ToUpper(name) {
+		case "SYSTEMROOT", "LOCALAPPDATA", "TEMP", "TMP":
+			return true
+		default:
+			return false
+		}
+	}
+	if policy.Env != nil {
+		for _, name := range policy.Env.Allow {
+			if isManaged(name) {
+				return execapi.NewInvalidConfinementError("confine.env.allow")
+			}
+		}
+		for name := range policy.Env.Set {
+			if isManaged(name) {
+				return execapi.NewInvalidConfinementError("confine.env.set")
+			}
+		}
+	}
+	for name := range values {
+		if isManaged(name) {
+			return execapi.NewInvalidConfinementError("confine.env")
+		}
+	}
 	return nil
 }
 
@@ -129,6 +161,9 @@ func (e *Executor) prepareConfinement(process *ProcessExecutor, options execapi.
 	}
 	policy, err := narrowConfinement(process, e.confine, options)
 	if err != nil {
+		return err
+	}
+	if err := validateWindowsConfinementEnvironment(policy, process.envs); err != nil {
 		return err
 	}
 	if policy.FS != nil {
