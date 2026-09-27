@@ -15,7 +15,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-	"unsafe"
 
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/registry"
@@ -24,8 +23,6 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/sys/windows"
 )
-
-var getHandleInformation = windows.NewLazySystemDLL("kernel32.dll").NewProc("GetHandleInformation")
 
 func TestWindowsConfinedPayload(t *testing.T) {
 	separator := -1
@@ -62,9 +59,7 @@ func TestWindowsConfinedPayload(t *testing.T) {
 			windows.PROCESS_CREATE_PROCESS,
 			windows.PROCESS_CREATE_THREAD,
 		} {
-			fmt.Fprintf(os.Stderr, "open-process-%d-start\n", index)
 			handle, openErr := windows.OpenProcess(access, false, uint32(targetPID))
-			fmt.Fprintf(os.Stderr, "open-process-%d-done:%v\n", index, openErr)
 			if openErr == nil {
 				_ = windows.CloseHandle(handle)
 				os.Exit(80 + index)
@@ -73,11 +68,8 @@ func TestWindowsConfinedPayload(t *testing.T) {
 				os.Exit(70 + index)
 			}
 		}
-		var flags uint32
-		fmt.Fprintln(os.Stderr, "handle-check-start")
-		result, _, handleErr := getHandleInformation.Call(uintptr(sentinel), uintptr(unsafe.Pointer(&flags)))
-		fmt.Fprintf(os.Stderr, "handle-check-done:%v\n", handleErr)
-		if result != 0 {
+		status, handleErr := windows.WaitForSingleObject(windows.Handle(sentinel), 0)
+		if status != windows.WAIT_FAILED {
 			os.Exit(88)
 		} else if !errors.Is(handleErr, windows.ERROR_INVALID_HANDLE) {
 			os.Exit(87)
@@ -111,6 +103,7 @@ func TestWindowsConfinedPayload(t *testing.T) {
 		command := exec.Command(os.Args[0], "-test.run=^TestWindowsConfinedPayload$", "--", "grandchild")
 		command.Env = os.Environ()
 		if err := command.Start(); err != nil {
+			fmt.Fprintln(os.Stderr, err)
 			os.Exit(91)
 		}
 		fmt.Println(command.Process.Pid)
@@ -285,9 +278,17 @@ func TestNativeWindowsConfinementStopKillsDescendants(t *testing.T) {
 	process, err := executor.NewProcess(windowsPayloadCommand(t, "tree"), execapi.ProcessOptions{})
 	require.NoError(t, err)
 	stdout := process.Stdout()
+	stderr := process.Stderr()
 	require.NoError(t, process.Start())
+	stderrRead := make(chan []byte, 1)
+	go func() {
+		data, _ := io.ReadAll(stderr)
+		stderrRead <- data
+	}()
 	line, err := bufio.NewReader(stdout).ReadString('\n')
-	require.NoError(t, err)
+	if err != nil {
+		require.NoError(t, err, string(<-stderrRead))
+	}
 	pid, err := strconv.Atoi(strings.TrimSpace(line))
 	require.NoError(t, err)
 
