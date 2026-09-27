@@ -48,20 +48,26 @@ func futureCancel(l *lua.LState) int {
 
 // Future represents an async operation that can be awaited.
 type Future struct {
-	result    lua.LValue
-	err       error
-	Channel   *engine.Channel
-	Topic     string
-	mu        sync.Mutex
-	completed bool
-	canceled  bool
+	result      lua.LValue
+	err         error
+	outputArity int
+	Channel     *engine.Channel
+	Topic       string
+	mu          sync.Mutex
+	completed   bool
+	canceled    bool
 }
 
 // New creates a new Future with the given topic and channel.
-func New(topic string, ch *engine.Channel) *Future {
+func New(topic string, ch *engine.Channel, arity ...int) *Future {
+	count := 1
+	if len(arity) > 0 && arity[0] > 0 {
+		count = arity[0]
+	}
 	return &Future{
-		Topic:   topic,
-		Channel: ch,
+		Topic:       topic,
+		Channel:     ch,
+		outputArity: count,
 	}
 }
 
@@ -193,7 +199,7 @@ func futureIsCanceled(l *lua.LState) int {
 	return 1
 }
 
-// futureResult returns (value, error) - value on success, error if failed/canceled.
+// futureResult returns one value per output schema followed by the error.
 func futureResult(l *lua.LState) int {
 	ud := l.CheckUserData(1)
 	f, ok := ud.Value.(*Future)
@@ -207,30 +213,59 @@ func futureResult(l *lua.LState) int {
 		luaErr := lua.NewLuaError(l, "canceled").
 			WithKind(lua.Canceled).
 			WithRetryable(false)
-		l.Push(lua.LNil)
-		l.Push(luaErr)
-		return 2
+		return pushFutureResult(l, f, nil, luaErr)
 	}
 
 	// Check if completed with error
 	if hasErr, err := f.Error(); hasErr {
 		luaErr := lua.WrapErrorWithLua(l, err, "")
-		l.Push(lua.LNil)
-		l.Push(luaErr)
-		return 2
+		return pushFutureResult(l, f, nil, luaErr)
 	}
 
 	// Check if completed successfully
 	if result, ok := f.Result(); ok {
-		l.Push(result)
-		l.Push(lua.LNil)
-		return 2
+		return pushFutureResult(l, f, result, nil)
 	}
 
 	// Not completed yet
-	l.Push(lua.LNil)
-	l.Push(lua.LNil)
-	return 2
+	return pushFutureResult(l, f, nil, nil)
+}
+
+func pushFutureResult(l *lua.LState, f *Future, result lua.LValue, callErr *lua.Error) int {
+	outputs := make([]lua.LValue, f.outputArity)
+	for i := 0; i < f.outputArity; i++ {
+		if callErr == nil && result != nil {
+			if f.outputArity == 1 {
+				outputs[i] = result
+			} else if table, ok := result.(*lua.LTable); ok {
+				outputs[i] = table.RawGetInt(i + 1)
+			}
+		}
+	}
+	values := ResultValues(f.outputArity, outputs, callErr)
+	for _, result := range values {
+		l.Push(result)
+	}
+	return len(values)
+}
+
+// ResultValues constructs the positional outputs and trailing Lua error for a method.
+func ResultValues(count int, outputs []lua.LValue, callErr *lua.Error) []lua.LValue {
+	if count < 1 {
+		count = 1
+	}
+	values := make([]lua.LValue, count+1)
+	for index := 0; index < count; index++ {
+		values[index] = lua.LNil
+		if callErr == nil && index < len(outputs) && outputs[index] != nil {
+			values[index] = outputs[index]
+		}
+	}
+	values[count] = lua.LNil
+	if callErr != nil {
+		values[count] = callErr
+	}
+	return values
 }
 
 // futureError returns (error, true) if completed with error, (nil, false) otherwise.

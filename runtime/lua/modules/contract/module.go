@@ -747,9 +747,7 @@ func callMethod(l *lua.LState, wrapper *InstanceWrapper, method string, isAsync 
 		luaErr := lua.NewLuaError(l, "not allowed to call method: "+method).
 			WithKind(lua.PermissionDenied).
 			WithRetryable(false)
-		l.Push(lua.LNil)
-		l.Push(luaErr)
-		return 2
+		return pushMethodFailure(l, wrapper.instance, method, luaErr)
 	}
 
 	// Collect arguments (skip self at position 1)
@@ -762,6 +760,14 @@ func callMethod(l *lua.LState, wrapper *InstanceWrapper, method string, isAsync 
 		return callMethodAsync(l, wrapper, method, args)
 	}
 	return callMethodSync(l, wrapper, method, args)
+}
+
+func pushMethodFailure(l *lua.LState, instance contract.Instance, method string, err *lua.Error) int {
+	results := future.ResultValues(outputArity(instance, method), nil, err)
+	for _, result := range results {
+		l.Push(result)
+	}
+	return len(results)
 }
 
 func callMethodSync(l *lua.LState, wrapper *InstanceWrapper, method string, args payload.Payloads) int {
@@ -783,9 +789,7 @@ func callMethodAsync(l *lua.LState, wrapper *InstanceWrapper, method string, arg
 		luaErr := lua.NewLuaError(l, "no process context").
 			WithKind(lua.Internal).
 			WithRetryable(false)
-		l.Push(lua.LNil)
-		l.Push(luaErr)
-		return 2
+		return pushMethodFailure(l, wrapper.instance, method, luaErr)
 	}
 
 	topic := "@future:" + uuid.New().String()
@@ -794,12 +798,10 @@ func callMethodAsync(l *lua.LState, wrapper *InstanceWrapper, method string, arg
 		luaErr := lua.WrapErrorWithLua(l, subErr, "subscribe failed").
 			WithKind(lua.Internal).
 			WithRetryable(false)
-		l.Push(lua.LNil)
-		l.Push(luaErr)
-		return 2
+		return pushMethodFailure(l, wrapper.instance, method, luaErr)
 	}
 
-	f := future.New(topic, ch)
+	f := future.New(topic, ch, outputArity(wrapper.instance, method))
 	proc.SetTopicHandler(topic, f.CreateHandler())
 
 	yield := AcquireAsyncCallYield()

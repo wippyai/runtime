@@ -181,8 +181,8 @@ func (d *Dispatcher) handleAsyncCall(ctx context.Context, cmd dispatcher.Command
 			return
 		}
 
-		resultPayload := resultToPayload(result, err)
-		if err := sendAsyncResult(node, framePID, topic, resultPayload); err != nil {
+		resultPayloads := resultToPayloads(result, err)
+		if err := sendAsyncResult(node, framePID, topic, resultPayloads); err != nil {
 			logger.Warn("failed to send async result",
 				zap.String("topic", topic),
 				zap.String("target", framePID.String()),
@@ -194,21 +194,21 @@ func (d *Dispatcher) handleAsyncCall(ctx context.Context, cmd dispatcher.Command
 	return nil
 }
 
-// resultToPayload converts result/error to payload.
-func resultToPayload(result *runtime.Result, err error) payload.Payload {
+// resultToPayloads preserves each positional output as a separate payload.
+func resultToPayloads(result *runtime.Result, err error) payload.Payloads {
 	if err != nil {
-		return payload.NewError(err)
+		return payload.Payloads{payload.NewError(err)}
 	}
 	if result != nil && result.Error != nil {
-		return payload.NewError(result.Error)
+		return payload.Payloads{payload.NewError(result.Error)}
 	}
 	if result != nil {
-		if len(result.Values) > 1 {
-			return payload.New(result.Values)
+		if len(result.Values) > 0 {
+			return result.Values
 		}
-		return result.Value
+		return payload.Payloads{result.Value}
 	}
-	return nil
+	return payload.Payloads{nil}
 }
 
 func (d *Dispatcher) handleAsyncCancel(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
@@ -242,8 +242,11 @@ func (d *Dispatcher) handleAsyncCancel(ctx context.Context, cmd dispatcher.Comma
 	return nil
 }
 
-func sendAsyncResult(node relay.Node, target pid.PID, topic string, result payload.Payload) error {
-	pkg := relay.NewPackage(pid.PID{}, target, topic, result, payload.NewTerminal())
+func sendAsyncResult(node relay.Node, target pid.PID, topic string, results payload.Payloads) error {
+	contents := make(payload.Payloads, 0, len(results)+1)
+	contents = append(contents, results...)
+	contents = append(contents, payload.NewTerminal())
+	pkg := relay.NewPackage(pid.PID{}, target, topic, contents...)
 	return node.Send(pkg)
 }
 

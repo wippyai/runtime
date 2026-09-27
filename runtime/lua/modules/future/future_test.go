@@ -7,11 +7,13 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
+	payloadmod "github.com/wippyai/runtime/runtime/lua/modules/payload"
 )
 
 func TestNew(t *testing.T) {
@@ -253,6 +255,57 @@ func TestFutureResult_Lua(t *testing.T) {
 	`)
 	if err != nil {
 		t.Errorf("test failed: %v", err)
+	}
+}
+
+func TestFutureResultPositionalContractOutputs(t *testing.T) {
+	for _, arity := range []int{1, 2} {
+		for _, fail := range []bool{false, true} {
+			name := "success"
+			if fail {
+				name = "failure"
+			}
+			t.Run(string(rune('0'+arity))+"_"+name, func(t *testing.T) {
+				l := lua.NewState()
+				defer l.Close()
+				f := New("contract", engine.NewChannel(1), arity)
+				var values []payload.Payload
+				if fail {
+					values = []payload.Payload{payload.NewError(errors.New("failed"))}
+				} else {
+					values = []payload.Payload{payload.New("first")}
+					if arity == 2 {
+						values = append(values, payload.New("second"))
+					}
+				}
+				f.CreateHandler()(context.Background(), l, pid.PID{}, "", values)
+				l.SetGlobal("future", value.NewTypedUserData(l, f, TypeName))
+				l.SetGlobal("expected_arity", lua.LInteger(arity))
+				l.SetGlobal("expect_failure", lua.LBool(fail))
+				err := l.DoString(`assert(select("#", future:result()) == expected_arity + 1)
+					local results = {future:result()}
+					if expect_failure then
+						for i = 1, expected_arity do assert(results[i] == nil) end
+						assert(type(results[expected_arity + 1]) == "userdata")
+					else
+						for i = 1, expected_arity do assert(type(results[i]) == "userdata") end
+						assert(results[expected_arity + 1] == nil)
+					end
+					output_1, output_2, output_error = results[1], results[2], results[expected_arity + 1]`)
+				require.NoError(t, err)
+				if fail {
+					_, ok := l.GetGlobal("output_error").(*lua.Error)
+					require.True(t, ok)
+				} else {
+					first := l.GetGlobal("output_1").(*lua.LUserData).Value.(*payloadmod.Wrapper)
+					require.Equal(t, "first", first.Payload.Data())
+					if arity == 2 {
+						second := l.GetGlobal("output_2").(*lua.LUserData).Value.(*payloadmod.Wrapper)
+						require.Equal(t, "second", second.Payload.Data())
+					}
+				}
+			})
+		}
 	}
 }
 

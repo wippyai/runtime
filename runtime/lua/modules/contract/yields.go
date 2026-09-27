@@ -115,32 +115,35 @@ func (y *CallYield) CmdID() dispatcher.CommandID   { return contract.Call }
 func (y *CallYield) Release()                      { ReleaseCallYield(y) }
 
 // HandleResult converts call response to Lua values.
-func (y *CallYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
+func outputArity(instance contract.Instance, method string) int {
 	count := 1
-	if y.CallCmd != nil && y.Instance != nil {
-		if arity, ok := y.Instance.(interface{ OutputArity(string) int }); ok {
-			count = arity.OutputArity(y.Method)
+	if instance != nil {
+		if arity, ok := instance.(interface{ OutputArity(string) int }); ok {
+			count = arity.OutputArity(method)
 		} else {
-			for _, definition := range y.Instance.Implements() {
-				if method, methodErr := definition.Method(y.Method); methodErr == nil && method != nil {
-					if len(method.OutputSchemas) > 0 {
-						count = len(method.OutputSchemas)
+			for _, definition := range instance.Implements() {
+				if declared, methodErr := definition.Method(method); methodErr == nil && declared != nil {
+					if len(declared.OutputSchemas) > 0 {
+						count = len(declared.OutputSchemas)
 					}
 					break
 				}
 			}
 		}
 	}
+	if count < 1 {
+		return 1
+	}
+	return count
+}
+
+func (y *CallYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
+	count := outputArity(y.Instance, y.Method)
 	failure := func(cause error, message string) []lua.LValue {
 		luaErr := lua.WrapErrorWithLua(l, cause, message).
 			WithKind(lua.Internal).
 			WithRetryable(false)
-		values := make([]lua.LValue, count+1)
-		for index := 0; index < count; index++ {
-			values[index] = lua.LNil
-		}
-		values[count] = luaErr
-		return values
+		return future.ResultValues(count, nil, luaErr)
 	}
 	if err != nil {
 		return failure(err, "call failed")
@@ -154,17 +157,11 @@ func (y *CallYield) HandleResult(l *lua.LState, data any, err error) []lua.LValu
 	}
 	if resp.Error != nil {
 		luaErr := lua.WrapErrorWithLua(l, resp.Error, "")
-		values := make([]lua.LValue, count+1)
-		for index := 0; index < count; index++ {
-			values[index] = lua.LNil
-		}
-		values[count] = luaErr
-		return values
+		return future.ResultValues(count, nil, luaErr)
 	}
 	if count > 1 {
-		values := make([]lua.LValue, count+1)
+		values := make([]lua.LValue, count)
 		for index := 0; index < count; index++ {
-			values[index] = lua.LNil
 			if index < len(resp.Values) {
 				converted, convErr := luaconv.GoToLua(resp.Values[index])
 				if convErr != nil {
@@ -173,17 +170,13 @@ func (y *CallYield) HandleResult(l *lua.LState, data any, err error) []lua.LValu
 				values[index] = converted
 			}
 		}
-		values[count] = lua.LNil
-		return values
+		return future.ResultValues(count, values, nil)
 	}
 	lv, convErr := luaconv.GoToLua(resp.Value)
 	if convErr != nil {
-		luaErr := lua.WrapErrorWithLua(l, convErr, "result conversion failed").
-			WithKind(lua.Internal).
-			WithRetryable(false)
-		return []lua.LValue{lua.LNil, luaErr}
+		return failure(convErr, "result conversion failed")
 	}
-	return []lua.LValue{lv, lua.LNil}
+	return future.ResultValues(count, []lua.LValue{lv}, nil)
 }
 
 // AsyncCallYield wraps AsyncCallCmd for Lua.
@@ -221,22 +214,22 @@ func (y *AsyncCallYield) HandleResult(l *lua.LState, data any, err error) []lua.
 		luaErr := lua.WrapErrorWithLua(l, err, "async call failed").
 			WithKind(lua.Internal).
 			WithRetryable(false)
-		return []lua.LValue{lua.LNil, luaErr}
+		return future.ResultValues(1, nil, luaErr)
 	}
 	resp, ok := data.(contract.AsyncCallResult)
 	if !ok {
 		luaErr := lua.NewLuaError(l, "invalid response type").
 			WithKind(lua.Internal).
 			WithRetryable(false)
-		return []lua.LValue{lua.LNil, luaErr}
+		return future.ResultValues(1, nil, luaErr)
 	}
 	if resp.Error != nil {
 		luaErr := lua.WrapErrorWithLua(l, resp.Error, "async call error").
 			WithKind(lua.Internal).
 			WithRetryable(false)
-		return []lua.LValue{lua.LNil, luaErr}
+		return future.ResultValues(1, nil, luaErr)
 	}
-	return []lua.LValue{value.NewTypedUserData(l, y.Future, future.TypeName), lua.LNil}
+	return future.ResultValues(1, []lua.LValue{value.NewTypedUserData(l, y.Future, future.TypeName)}, nil)
 }
 
 // AsyncCancelYield wraps AsyncCancelCmd for Lua.

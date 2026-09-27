@@ -503,6 +503,24 @@ func TestCallYieldMultipleOutputs(t *testing.T) {
 	assert.NotEqual(t, lua.LNil, failed[2])
 }
 
+func TestCallMethodDirectFailureOutputArity(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	l.SetContext(context.Background()) // No security actor or scope: permission denied before yielding.
+	wrapper := &InstanceWrapper{instance: &mockInstanceForTest{contracts: []contract.Contract{
+		multipleOutputDefinition{contractDefinitionForOpenTest{id: registry.NewID("sample", "definition")}},
+	}}}
+	for _, async := range []bool{false, true} {
+		l.SetTop(0)
+		got := callMethod(l, wrapper, "run", async)
+		require.Equal(t, 3, got)
+		assert.Equal(t, lua.LNil, l.Get(-3))
+		assert.Equal(t, lua.LNil, l.Get(-2))
+		_, ok := l.Get(-1).(*lua.Error)
+		assert.True(t, ok, "trailing result must be a LuaError")
+	}
+}
+
 func TestAsyncCancelYield_HandleResult(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
