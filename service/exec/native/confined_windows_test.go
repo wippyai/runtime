@@ -62,7 +62,9 @@ func TestWindowsConfinedPayload(t *testing.T) {
 			windows.PROCESS_CREATE_PROCESS,
 			windows.PROCESS_CREATE_THREAD,
 		} {
+			fmt.Fprintf(os.Stderr, "open-process-%d-start\n", index)
 			handle, openErr := windows.OpenProcess(access, false, uint32(targetPID))
+			fmt.Fprintf(os.Stderr, "open-process-%d-done:%v\n", index, openErr)
 			if openErr == nil {
 				_ = windows.CloseHandle(handle)
 				os.Exit(80 + index)
@@ -72,7 +74,9 @@ func TestWindowsConfinedPayload(t *testing.T) {
 			}
 		}
 		var flags uint32
+		fmt.Fprintln(os.Stderr, "handle-check-start")
 		result, _, handleErr := getHandleInformation.Call(uintptr(sentinel), uintptr(unsafe.Pointer(&flags)))
+		fmt.Fprintf(os.Stderr, "handle-check-done:%v\n", handleErr)
 		if result != 0 {
 			os.Exit(88)
 		} else if !errors.Is(handleErr, windows.ERROR_INVALID_HANDLE) {
@@ -178,10 +182,16 @@ func TestNativeWindowsConfinementRunsInsideJob(t *testing.T) {
 		strconv.FormatUint(uint64(sentinel), 10)), execapi.ProcessOptions{})
 	require.NoError(t, err)
 	stdout := process.Stdout()
+	stderr := process.Stderr()
 	require.NoError(t, process.Start())
+	stderrRead := make(chan []byte, 1)
+	go func() {
+		data, _ := io.ReadAll(stderr)
+		stderrRead <- data
+	}()
 	payload, err := io.ReadAll(stdout)
 	require.NoError(t, err)
-	require.NoError(t, process.Wait())
+	require.NoError(t, process.Wait(), string(<-stderrRead))
 	lines := strings.Split(strings.TrimSpace(string(payload)), "\n")
 	require.GreaterOrEqual(t, len(lines), 5)
 	require.Equal(t, "yes", lines[0])
@@ -216,7 +226,7 @@ func TestNativeWindowsConfinementBootstrapsAppContainerEnvironment(t *testing.T)
 	require.NoError(t, err)
 	require.NoError(t, process.Wait())
 	lines := strings.Split(strings.TrimSpace(string(payload)), "\n")
-	require.Len(t, lines, 6)
+	require.Len(t, lines, 7)
 	require.Equal(t, "lpac", lines[0])
 	require.Equal(t, "yes", lines[1])
 	require.NotEmpty(t, lines[2], "Windows must rewrite LOCALAPPDATA for the AppContainer")
@@ -224,6 +234,7 @@ func TestNativeWindowsConfinementBootstrapsAppContainerEnvironment(t *testing.T)
 	require.NotEmpty(t, lines[3], "Windows must provide an AppContainer TEMP")
 	require.NotEmpty(t, lines[4], "Windows must provide an AppContainer TMP")
 	require.Equal(t, "sentinel=", lines[5], "unlisted host environment must not leak")
+	require.Equal(t, "PASS", lines[6])
 }
 
 func TestNativeWindowsConfinementIsolatesPeerLPACs(t *testing.T) {
