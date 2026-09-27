@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -213,6 +214,8 @@ type lintConfig struct {
 	minSeverity severity
 	workers     int
 	imports     importResolution
+	catalog     *contractCatalog
+	nsFilters   []string
 }
 
 // importResolution records runtime entries separately from type manifests. A
@@ -292,12 +295,12 @@ func runLint(cmd *cobra.Command, _ []string) error {
 		defer func() { _ = loader.Shutdown(ctx) }()
 	}
 
-	luaEntries, reportSet, resolution, err := loadLuaEntries(cmd, runtimeCfg, opts.lockFile, opts.nsFilters)
+	luaEntries, reportSet, resolution, catalog, err := loadLuaEntries(cmd, runtimeCfg, opts.lockFile, opts.nsFilters)
 	if err != nil {
 		return err
 	}
 
-	linter, lcache := createLinter(ctx, opts.enableRules)
+	linter, lcache := createLinter(ctx, opts.enableRules, catalog)
 	if opts.cacheReset {
 		if err := resetLintCache(lcache); err != nil {
 			return err
@@ -307,6 +310,8 @@ func runLint(cmd *cobra.Command, _ []string) error {
 		minSeverity: opts.minSeverity,
 		workers:     defaultLintWorkers(),
 		imports:     resolution,
+		catalog:     catalog,
+		nsFilters:   opts.nsFilters,
 	}
 
 	var result *LintResult
@@ -318,6 +323,7 @@ func runLint(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
+	appendCatalogCoverage(result, catalog, lcache.catalogStrict, opts.nsFilters, opts.minSeverity)
 
 	result = applyFilters(result, opts.codeFilters, opts.limit)
 	if pruner, ok := lcache.store.(cache.Pruner); ok && lintCacheAllowsWrite(lcache) {
@@ -427,35 +433,51 @@ func bootstrapLintContext(cfg boot.Config) (ctx context.Context, loader *bootpkg
 	return bctx, loader, nil
 }
 
-func loadLuaEntries(cmd *cobra.Command, runtimeCfg boot.Config, lockFile string, nsFilters []string) ([]regapi.Entry, map[regapi.ID]bool, importResolution, error) {
+func loadLuaEntries(cmd *cobra.Command, runtimeCfg boot.Config, lockFile string, nsFilters []string) ([]regapi.Entry, map[regapi.ID]bool, importResolution, *contractCatalog, error) {
 	logger := zap.NewNop()
 
 	app, err := appinit.Init(cmd.Context(), verbose, veryVerbose, console, silentLogs, appStartTime)
 	if err != nil {
-		return nil, nil, importResolution{}, NewInitAppError(err)
+		return nil, nil, importResolution{}, nil, NewInitAppError(err)
 	}
 	boot.WithConfig(app.Ctx, runtimeCfg)
 
 	lockPath, lockObj, err := loadValidatedLock(".", lockFile, runtimeCfg, logger)
 	if err != nil {
-		return nil, nil, importResolution{}, err
+		return nil, nil, importResolution{}, nil, err
 	}
 
 	allEntries, err := loadLintEntriesFromLock(app.Ctx, lockPath, lockObj, logger)
 	if err != nil {
-		return nil, nil, importResolution{}, err
+		return nil, nil, importResolution{}, nil, err
 	}
 
 	selected := filterLuaEntries(allEntries, nsFilters)
 	supplemental, err := loadSupplementalAppImports(app.Ctx, lockPath, allEntries, logger)
 	if err != nil {
-		return nil, nil, importResolution{}, err
+		return nil, nil, importResolution{}, nil, err
 	}
 	allEntries = append(allEntries, supplemental...)
+	catalog := collectContractCatalog(allEntries)
 	allLua := filterLuaEntries(allEntries, nil)
-	expanded, reportSet := expandLuaEntriesByImports(allLua, selected)
+	expanded, reportSet := expandLuaEntriesForCatalog(allLua, selected, catalog, nsFilters)
 
-	return expanded, reportSet, newImportResolution(allEntries, lintLockSourcesIncomplete(lockObj)), nil
+	return expanded, reportSet, newImportResolution(allEntries, lintLockSourcesIncomplete(lockObj)), catalog, nil
+}
+
+func expandLuaEntriesForCatalog(allLua, selected []regapi.Entry, catalog *contractCatalog, filters []string) ([]regapi.Entry, map[regapi.ID]bool) {
+	selectedForExpansion := append([]regapi.Entry(nil), selected...)
+	for _, entry := range allLua {
+		if catalog.selectedBoundFunction(entry.ID, filters) {
+			selectedForExpansion = append(selectedForExpansion, entry)
+		}
+	}
+	expanded, _ := expandLuaEntriesByImports(allLua, selectedForExpansion)
+	reportSet := make(map[regapi.ID]bool, len(selected))
+	for _, entry := range selected {
+		reportSet[entry.ID] = true
+	}
+	return expanded, reportSet
 }
 
 // A module's source tree may declare tests that import an app entry provided by
@@ -572,7 +594,7 @@ func loadLintEntriesFromLock(ctx context.Context, lockPath string, lockObj *lock
 	}
 }
 
-func createLinter(ctx context.Context, enableRules bool) (*lint.Linter, lintCache) {
+func createLinter(ctx context.Context, enableRules bool, catalogs ...*contractCatalog) (*lint.Linter, lintCache) {
 	cm := luaboot.GetCodeManager(ctx)
 	var mods []*luaapi.ModuleDef
 	if cm != nil {
@@ -590,7 +612,15 @@ func createLinter(ctx context.Context, enableRules bool) (*lint.Linter, lintCach
 		}
 		typeCfg.Check = runtimeTypeCfg.Check
 	}
-	typeChecker := code.NewTypeChecker(typeCfg, mods)
+	var catalog *contractCatalog
+	if len(catalogs) > 0 {
+		catalog = catalogs[0]
+	}
+	var overrides map[string]*io.Manifest
+	if catalog != nil && catalog.manifest != nil {
+		overrides = map[string]*io.Manifest{"contract": catalog.manifest}
+	}
+	typeChecker := code.NewTypeCheckerWithManifests(typeCfg, mods, overrides)
 
 	var registry *lint.Registry
 	if enableRules {
@@ -605,9 +635,16 @@ func createLinter(ctx context.Context, enableRules bool) (*lint.Linter, lintCach
 		lcache.cfg = cm.CacheConfig()
 	}
 	lcache.typecheckHash = code.TypecheckConfigHash(typeCfg)
+	lcache.catalogStrict = typeCfg.Check.Strict
 	var builtinManifests map[string]*io.Manifest
 	lcache.builtinModules, builtinManifests = lintBuiltinInventory(mods)
+	if overrides != nil {
+		builtinManifests["contract"] = catalog.manifest
+	}
 	lcache.builtinHash = code.BuiltinManifestHash(builtinManifests)
+	if catalog != nil {
+		lcache.catalogHash = cache.HashStrings(catalog.fingerprint, strconv.FormatBool(typeCfg.Check.Strict))
+	}
 
 	// requireBuiltins is the set of modules a scoped require resolves without an
 	// explicit import/module declaration. It mirrors the runtime ambient base

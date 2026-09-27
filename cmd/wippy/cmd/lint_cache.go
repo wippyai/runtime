@@ -21,6 +21,8 @@ type lintCache struct {
 	store           cache.Store
 	requireBuiltins map[string]struct{}
 	builtinHash     string
+	catalogHash     string
+	catalogStrict   bool
 	typecheckHash   string
 	builtinModules  []string
 	cfg             cache.Config
@@ -42,12 +44,16 @@ func computeLintFingerprints(levels [][]regapi.Entry, dataMap map[regapi.ID]entr
 	}
 
 	toolchainID := lcache.cfg.ToolchainIdentity
+	builtinHash := lcache.builtinHash
+	if lcache.catalogHash != "" {
+		builtinHash = cache.HashStrings(builtinHash, lcache.catalogHash)
+	}
 
 	for _, name := range lcache.builtinModules {
 		id := regapi.NewID("", name)
 		sourceHash := cache.SourceHash("", "")
 		fp.compile[id] = code.CompileFingerprint(toolchainID, id.String(), luaapi.ModuleKind, sourceHash, "", nil)
-		fp.typecheck[id] = code.TypecheckFingerprint(toolchainID, id.String(), luaapi.ModuleKind, sourceHash, "", lcache.typecheckHash, lcache.builtinHash, nil)
+		fp.typecheck[id] = code.TypecheckFingerprint(toolchainID, id.String(), luaapi.ModuleKind, sourceHash, "", lcache.typecheckHash, builtinHash, nil)
 	}
 
 	for _, levelEntries := range levels {
@@ -89,7 +95,7 @@ func computeLintFingerprints(levels [][]regapi.Entry, dataMap map[regapi.ID]entr
 
 			fp.compile[entry.ID] = code.CompileFingerprint(toolchainID, entry.ID.String(), entry.Kind, sourceHash, data.Method, compileDeps)
 			fp.compileDeps[entry.ID] = compileMeta
-			fp.typecheck[entry.ID] = code.TypecheckFingerprint(toolchainID, entry.ID.String(), entry.Kind, sourceHash, data.Method, lcache.typecheckHash, lcache.builtinHash, typeDeps)
+			fp.typecheck[entry.ID] = code.TypecheckFingerprint(toolchainID, entry.ID.String(), entry.Kind, sourceHash, data.Method, lcache.typecheckHash, builtinHash, typeDeps)
 			fp.typeDeps[entry.ID] = typeMeta
 		}
 	}

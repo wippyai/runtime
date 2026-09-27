@@ -100,7 +100,13 @@ func defaultHookOptions() []check.Option {
 // Built-in modules are added as globals so they're always available.
 // The Enabled flag controls whether checking runs at compile time, not initialization.
 func NewTypeChecker(cfg TypeCheckConfig, builtinMods []*api.ModuleDef) *TypeChecker {
-	env := NewBuiltinEnvironment(builtinMods, cfg.Check)
+	return NewTypeCheckerWithManifests(cfg, builtinMods, nil)
+}
+
+// NewTypeCheckerWithManifests installs specialized host declarations before
+// checker construction. Worker clones share the immutable environment.
+func NewTypeCheckerWithManifests(cfg TypeCheckConfig, builtinMods []*api.ModuleDef, overrides map[string]*io.Manifest) *TypeChecker {
+	env := NewBuiltinEnvironmentWithOverrides(builtinMods, cfg.Check, overrides)
 	tc := &TypeChecker{
 		env:             env,
 		config:          cfg,

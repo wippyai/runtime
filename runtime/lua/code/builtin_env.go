@@ -11,6 +11,7 @@ import (
 	"github.com/wippyai/go-lua/types/query/core"
 	"github.com/wippyai/go-lua/types/typ"
 	api "github.com/wippyai/runtime/api/runtime/lua"
+	"sort"
 )
 
 // BuiltinEnvironment is what the type checker sees of the builtin modules:
@@ -36,28 +37,50 @@ type BuiltinEnvironment struct {
 // NewBuiltinEnvironment builds the checker environment for builtin modules
 // under the given type-checking semantics.
 func NewBuiltinEnvironment(mods []*api.ModuleDef, options check.Options) *BuiltinEnvironment {
+	return NewBuiltinEnvironmentWithOverrides(mods, options, nil)
+}
+
+// NewBuiltinEnvironmentWithOverrides installs catalog-generated host manifests
+// before constructing the module values and type scope.
+func NewBuiltinEnvironmentWithOverrides(mods []*api.ModuleDef, options check.Options, overrides map[string]*io.Manifest) *BuiltinEnvironment {
 	env := &BuiltinEnvironment{
 		Manifests:   make(map[string]*io.Manifest),
 		Modules:     make(map[string]typ.Type),
 		GlobalTypes: make(map[string]typ.Type),
 		Options:     options,
 	}
-	manifests := make([]*io.Manifest, 0, len(mods))
 	for _, mod := range mods {
 		if mod == nil || mod.Types == nil || mod.Name == "" {
 			continue
 		}
 		manifest := mod.Types()
+		if override := overrides[mod.Name]; override != nil {
+			manifest = override
+		}
 		if manifest == nil {
 			continue
 		}
 		env.Manifests[mod.Name] = manifest
+	}
+	for name, manifest := range overrides {
+		if name != "" && manifest != nil {
+			env.Manifests[name] = manifest
+		}
+	}
+	manifests := make([]*io.Manifest, 0, len(env.Manifests))
+	names := make([]string, 0, len(env.Manifests))
+	for name := range env.Manifests {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		manifest := env.Manifests[name]
 		manifests = append(manifests, manifest)
 		if manifest.Export != nil {
-			env.Modules[mod.Name] = manifest.Export
+			env.Modules[name] = manifest.Export
 		}
-		for name, t := range manifest.AllGlobals() {
-			env.Modules[name] = t
+		for globalName, t := range manifest.AllGlobals() {
+			env.Modules[globalName] = t
 		}
 	}
 
