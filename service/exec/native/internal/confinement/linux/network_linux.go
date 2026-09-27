@@ -73,6 +73,8 @@ func InstallIsolationSeccomp(networkNone, filesystemRestricted bool) error {
 		unix.SYS_PIDFD_OPEN, unix.SYS_PIDFD_GETFD, unix.SYS_PIDFD_SEND_SIGNAL,
 		unix.SYS_KCMP, unix.SYS_USERFAULTFD,
 		unix.SYS_MOUNT, unix.SYS_UMOUNT2, unix.SYS_PIVOT_ROOT,
+		unix.SYS_FSOPEN, unix.SYS_FSCONFIG, unix.SYS_FSMOUNT,
+		unix.SYS_FSPICK, unix.SYS_OPEN_TREE, unix.SYS_MOVE_MOUNT, unix.SYS_MOUNT_SETATTR,
 		unix.SYS_SETNS, unix.SYS_UNSHARE,
 		unix.SYS_IO_URING_SETUP, unix.SYS_IO_URING_ENTER, unix.SYS_IO_URING_REGISTER,
 		unix.SYS_CLOCK_SETTIME, unix.SYS_SETTIMEOFDAY, unix.SYS_ADJTIMEX,

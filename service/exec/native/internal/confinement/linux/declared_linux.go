@@ -86,6 +86,13 @@ func rejectSpecialHostSource(canonical string, fd int) error {
 	return nil
 }
 
+// RejectSpecialDirectoryFD prevents a directory pinned before mount masking
+// from retaining access to a covered kernel filesystem through fchdir and
+// relative opens.
+func RejectSpecialDirectoryFD(fd int) error {
+	return rejectSpecialHostSource("", fd)
+}
+
 func (b *BoundDirectory) OpenDescendant(requested string) (*os.File, string, error) {
 	if !cleanAbsolute(requested) {
 		return nil, "", fmt.Errorf("%w: descendant must be clean and absolute", confinement.ErrInvalid)

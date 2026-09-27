@@ -40,6 +40,36 @@ func confinementUnavailable(err error) bool {
 		errors.Is(err, execapi.ErrConfineUnsupported)
 }
 
+func TestConfinementRejectsUnsafeProcessGroupSignaling(t *testing.T) {
+	process := NewProcessExecutor(zap.NewNop(), WithCmd("/bin/true"), WithProcessGroup(true))
+	defer process.releaseFailedStart()
+	err := (&Executor{}).prepareConfinement(process, execapi.ProcessOptions{})
+	if !errors.Is(err, execapi.ErrConfineUnsupported) {
+		t.Fatalf("process_group confinement error = %v, want CONFINE_UNSUPPORTED", err)
+	}
+}
+
+func TestUnrestrictedFilesystemWorkDirCannotRetainMaskedKernelMount(t *testing.T) {
+	root, err := confinelinux.BindDeclaredDirectory("/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	binding := &linuxEntryBinding{roots: map[string]*confinelinux.BoundDirectory{"/": root}}
+	for _, path := range []string{"/proc", "/sys/fs/cgroup"} {
+		if _, err := os.Stat(path); err != nil {
+			continue
+		}
+		workdir, err := binding.openWorkDir(path)
+		if workdir != nil {
+			_ = workdir.Close()
+		}
+		if err == nil {
+			t.Fatalf("special working directory %q retained a covered mount", path)
+		}
+	}
+}
+
 func TestConfinedEnvironmentRejectsUnlistedAndPinnedInputs(t *testing.T) {
 	policy := &confinement.Environment{
 		Allow: []string{"LANG"},
@@ -275,37 +305,48 @@ func TestNativeConfinedNetworkOnlyKeepsFilesystemUnrestricted(t *testing.T) {
 	oldPath, oldDigest := linuxHelperPath, linuxHelperSHA256
 	linuxHelperPath, linuxHelperSHA256 = helper, hex.EncodeToString(digest[:])
 	t.Cleanup(func() { linuxHelperPath, linuxHelperSHA256 = oldPath, oldDigest })
-	executor, err := NewExecutorFactory(zap.NewNop()).CreateExecutor(registry.ID{},
-		&execapi.NativeExecutorConfig{Confine: &execapi.Confinement{
-			WorkDirRoots: []string{workspace}, Network: "none",
-		}})
-	if err != nil {
-		if confinementUnavailable(err) {
-			skipConfinementUnavailable(t, "confinement prerequisites unavailable", err)
-		}
-		t.Fatal(err)
-	}
-	process, err := executor.NewProcess(target, execapi.ProcessOptions{
-		WorkDir: workspace, Env: map[string]string{"OUTSIDE": outside},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := process.Start(); err != nil {
-		if confinementUnavailable(err) {
-			skipConfinementUnavailable(t, "confinement namespace unavailable", err)
-		}
-		t.Fatal(err)
-	}
-	output, readErr := io.ReadAll(process.Stdout())
-	if readErr != nil {
-		t.Fatal(readErr)
-	}
-	if err := process.Wait(); err != nil {
-		t.Fatalf("network-only target failed: %v, stdout %q", err, output)
-	}
-	if !strings.Contains(string(output), "network-only-ok") {
-		t.Fatalf("unexpected network-only output %q", output)
+	for _, test := range []struct {
+		name   string
+		limits *execapi.ConfinementLimits
+	}{
+		{name: "without resource limits"},
+		{name: "with delegated resource limits", limits: &execapi.ConfinementLimits{MemoryMiB: 128, PIDs: 64}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			executor, err := NewExecutorFactory(zap.NewNop()).CreateExecutor(registry.ID{},
+				&execapi.NativeExecutorConfig{Confine: &execapi.Confinement{
+					WorkDirRoots: []string{workspace}, Network: "none", Limits: test.limits,
+				}})
+			if err != nil {
+				if confinementUnavailable(err) {
+					skipConfinementUnavailable(t, "confinement prerequisites unavailable", err)
+				}
+				t.Fatal(err)
+			}
+			defer executor.(interface{ Close() error }).Close()
+			process, err := executor.NewProcess(target, execapi.ProcessOptions{
+				WorkDir: workspace, Env: map[string]string{"OUTSIDE": outside},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := process.Start(); err != nil {
+				if confinementUnavailable(err) {
+					skipConfinementUnavailable(t, "confinement namespace unavailable", err)
+				}
+				t.Fatal(err)
+			}
+			output, readErr := io.ReadAll(process.Stdout())
+			if readErr != nil {
+				t.Fatal(readErr)
+			}
+			if err := process.Wait(); err != nil {
+				t.Fatalf("network-only target failed: %v, stdout %q", err, output)
+			}
+			if !strings.Contains(string(output), "network-only-ok") {
+				t.Fatalf("unexpected network-only output %q", output)
+			}
+		})
 	}
 }
 
@@ -503,7 +544,7 @@ func TestNativeConfinedDynamicShellThroughMergedUsrAliases(t *testing.T) {
 		WorkDirRoots: []string{workspace},
 		FS: &execapi.ConfinementFS{
 			Read: []string{workspace, "/bin", "/lib", "/lib64"},
-			Exec: []string{"/bin"},
+			Exec: []string{"/bin", "/lib", "/lib64"},
 		},
 		Network: "none",
 	}

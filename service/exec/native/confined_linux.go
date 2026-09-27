@@ -179,6 +179,12 @@ func (b *linuxEntryBinding) openGrant(path string, read, write, execute bool) (*
 
 func (b *linuxEntryBinding) openWorkDir(path string) (*os.File, error) {
 	file, _, err := openBoundDescendant(b.roots, path)
+	if err == nil {
+		if specialErr := confinelinux.RejectSpecialDirectoryFD(int(file.Fd())); specialErr != nil {
+			_ = file.Close()
+			return nil, specialErr
+		}
+	}
 	return file, err
 }
 
@@ -269,6 +275,9 @@ func validateConfinementHost(entry *execapi.Confinement) error {
 }
 
 func (e *Executor) prepareConfinement(process *ProcessExecutor, options execapi.ProcessOptions) error {
+	if process.processGroup {
+		return execapi.ErrConfineUnsupported.WithCause(errors.New("process_group with confinement is not yet supported"))
+	}
 	if err := e.bindConfinementEntry(); err != nil {
 		return err
 	}

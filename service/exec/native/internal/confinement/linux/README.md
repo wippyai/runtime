@@ -8,6 +8,14 @@ newer. Hosts must permit unprivileged user namespaces. A missing prerequisite
 rejects the entry or launch; it never runs the target without the requested
 policy.
 
+When `fs` is omitted, the ordinary host filesystem remains visible except for
+kernel-control surfaces. The target receives a PID-namespace procfs with no
+host sysctls, and `/sys/fs/cgroup` is masked so it cannot change a delegated
+limit or migrate into the runtime cgroup. The supervisor is non-dumpable, and
+the target enters exec with locked securebits and empty effective, permitted,
+inheritable, ambient and bounding capability sets. Unexpected procfs or
+cgroupfs mounts outside their standard trees reject the launch.
+
 The current filesystem backend accepts existing directory grants. Individual
 file grants are valid policy but return `CONFINE_UNSUPPORTED` until a pinned
 file-mount path is implemented. An omitted `fs` block is unrestricted. A
@@ -43,6 +51,11 @@ setting `Delegate=yes` while Wippy remains directly in the populated service
 cgroup is insufficient: cgroup v2 cannot enable domain controllers below a
 populated parent. The runtime does not move itself into an arbitrary cgroup or
 fall back to per-process `rlimit` for a stated whole-tree limit.
+
+`process_group` is currently rejected for confined launches. The target still
+runs below a PID-namespace supervisor and PTY launches still receive their
+foreground process group, but arbitrary group signaling needs a supervisor
+control channel before it can be implemented without a recycled numeric PGID.
 
 The `WIPPY_REQUIRE_CONFINEMENT_CGROUP=1` test setting turns an unavailable
 delegation into a test failure; CI claiming positive cgroup coverage must set

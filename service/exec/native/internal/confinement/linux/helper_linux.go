@@ -174,6 +174,12 @@ func authenticateTargetToParent(fd int) error {
 }
 
 func runSupervisorHelper() error {
+	// The target shares this user/PID namespace and UID. Make procfs ptrace
+	// access to the trusted supervisor fail even before the target installs its
+	// own proc view and drops capabilities.
+	if err := unix.Prctl(unix.PR_SET_DUMPABLE, 0, 0, 0, 0); err != nil {
+		return fmt.Errorf("protect confinement supervisor: %w", err)
+	}
 	status := os.NewFile(statusFD, "confine-status")
 	if status == nil {
 		return errors.New("missing status descriptor")
@@ -319,6 +325,15 @@ func installHelperPolicy(policy HelperPolicy) error {
 	if err := unix.Prctl(unix.PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0); err != nil {
 		return fmt.Errorf("set no_new_privs: %w", err)
 	}
+	lastCapability, err := KernelLastCapability()
+	if err != nil {
+		return err
+	}
+	if policy.Root == "" {
+		if err := InstallUnrestrictedKernelView(); err != nil {
+			return err
+		}
+	}
 	if policy.PrivateHome != "" {
 		if policy.Root != "" {
 			return errors.New("conflicting private home roots")
@@ -438,7 +453,25 @@ func installHelperPolicy(policy HelperPolicy) error {
 		if policy.WorkDirFD < 0 {
 			return errors.New("missing pinned work directory")
 		}
-		if err := unix.Fchdir(policy.WorkDirFD); err != nil {
+		if err := RejectSpecialDirectoryFD(policy.WorkDirFD); err != nil {
+			return fmt.Errorf("reject special working directory: %w", err)
+		}
+		viewFD, err := unix.Openat2(unix.AT_FDCWD, policy.WorkDir, &unix.OpenHow{
+			Flags:   unix.O_PATH | unix.O_DIRECTORY | unix.O_CLOEXEC,
+			Resolve: unix.RESOLVE_NO_SYMLINKS | unix.RESOLVE_NO_MAGICLINKS,
+		})
+		if err != nil {
+			return fmt.Errorf("reopen masked working directory: %w", err)
+		}
+		defer unix.Close(viewFD)
+		same, err := SameOpenDirectoryFDs(policy.WorkDirFD, viewFD)
+		if err != nil || !same {
+			if err != nil {
+				return fmt.Errorf("compare masked working directory identity: %w", err)
+			}
+			return errors.New("masked working directory identity changed")
+		}
+		if err := unix.Fchdir(viewFD); err != nil {
 			return fmt.Errorf("enter pinned working directory: %w", err)
 		}
 	}
@@ -447,6 +480,9 @@ func installHelperPolicy(policy HelperPolicy) error {
 	}
 	if policy.WorkDirFD >= 0 {
 		_ = unix.Close(policy.WorkDirFD)
+	}
+	if err := DropTargetCapabilities(lastCapability); err != nil {
+		return err
 	}
 	if err := InstallIsolationSeccomp(policy.NetworkNone, policy.Root != ""); err != nil {
 		return err
