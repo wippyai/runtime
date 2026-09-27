@@ -37,16 +37,12 @@ func TestWindowsConfinedPayload(t *testing.T) {
 	}
 	switch os.Args[separator+1] {
 	case "basic":
-		if separator+3 >= len(os.Args) {
+		if separator+2 >= len(os.Args) {
 			os.Exit(93)
 		}
 		targetPID, err := strconv.Atoi(os.Args[separator+2])
 		if err != nil {
 			os.Exit(94)
-		}
-		sentinel, err := strconv.ParseUint(os.Args[separator+3], 10, 64)
-		if err != nil {
-			os.Exit(89)
 		}
 		isContainer, err := confinewindows.CurrentProcessIsLPAC()
 		if err != nil || !isContainer {
@@ -68,13 +64,10 @@ func TestWindowsConfinedPayload(t *testing.T) {
 				os.Exit(70 + index)
 			}
 		}
-		status, handleErr := windows.WaitForSingleObject(windows.Handle(sentinel), 0)
-		if status != windows.WAIT_FAILED {
-			os.Exit(88)
-		} else if !errors.Is(handleErr, windows.ERROR_INVALID_HANDLE) {
-			os.Exit(87)
+		fmt.Printf("%s\n%s\nlpac\ntarget_denied\n", os.Getenv("WIPPY_PINNED"), os.Getenv("USERPROFILE"))
+		if _, err := bufio.NewReader(os.Stdin).ReadString('\n'); err != nil {
+			os.Exit(89)
 		}
-		fmt.Printf("%s\n%s\nlpac\ntarget_denied\nhandle_denied\n", os.Getenv("WIPPY_PINNED"), os.Getenv("USERPROFILE"))
 	case "hold":
 		isContainer, err := confinewindows.CurrentProcessIsLPAC()
 		if err != nil || !isContainer {
@@ -102,6 +95,9 @@ func TestWindowsConfinedPayload(t *testing.T) {
 	case "tree":
 		command := exec.Command(os.Args[0], "-test.run=^TestWindowsConfinedPayload$", "--", "grandchild")
 		command.Env = os.Environ()
+		command.Stdin = os.Stdin
+		command.Stdout = os.Stdout
+		command.Stderr = os.Stderr
 		if err := command.Start(); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(91)
@@ -170,9 +166,9 @@ func windowsPayloadCommand(t *testing.T, mode string, arguments ...string) strin
 func TestNativeWindowsConfinementRunsInsideJob(t *testing.T) {
 	workDir := t.TempDir()
 	executor := newWindowsConfinedExecutor(t, workDir)
-	sentinel := newInheritableWindowsSentinel(t)
-	process, err := executor.NewProcess(windowsPayloadCommand(t, "basic", strconv.Itoa(os.Getpid()),
-		strconv.FormatUint(uint64(sentinel), 10)), execapi.ProcessOptions{})
+	sentinelReader, sentinelWriter := newInheritableWindowsSentinelPipe(t)
+	process, err := executor.NewProcess(windowsPayloadCommand(t, "basic", strconv.Itoa(os.Getpid())),
+		execapi.ProcessOptions{})
 	require.NoError(t, err)
 	stdout := process.Stdout()
 	stderr := process.Stderr()
@@ -182,17 +178,15 @@ func TestNativeWindowsConfinementRunsInsideJob(t *testing.T) {
 		data, _ := io.ReadAll(stderr)
 		stderrRead <- data
 	}()
-	payload, err := io.ReadAll(stdout)
-	require.NoError(t, err)
+	lines := readWindowsBasicPayload(t, stdout)
+	requireSentinelNotInherited(t, sentinelReader, sentinelWriter)
+	require.NoError(t, process.WriteStdin([]byte("exit\n")))
 	require.NoError(t, process.Wait(), string(<-stderrRead))
-	lines := strings.Split(strings.TrimSpace(string(payload)), "\n")
-	require.GreaterOrEqual(t, len(lines), 5)
 	require.Equal(t, "yes", lines[0])
 	require.NotEmpty(t, lines[1])
 	require.NotEqual(t, os.Getenv("USERPROFILE"), lines[1])
 	require.Equal(t, "lpac", lines[2])
 	require.Equal(t, "target_denied", lines[3])
-	require.Equal(t, "handle_denied", lines[4])
 	_, err = os.Stat(lines[1])
 	require.ErrorIs(t, err, os.ErrNotExist, "private home is removed after the job is empty")
 }
@@ -243,16 +237,23 @@ func TestNativeWindowsConfinementIsolatesPeerLPACs(t *testing.T) {
 	holderPID, err := strconv.Atoi(strings.TrimSpace(line))
 	require.NoError(t, err)
 
-	sentinel := newInheritableWindowsSentinel(t)
-	probe, err := executor.NewProcess(windowsPayloadCommand(t, "basic", strconv.Itoa(holderPID),
-		strconv.FormatUint(uint64(sentinel), 10)), execapi.ProcessOptions{})
+	sentinelReader, sentinelWriter := newInheritableWindowsSentinelPipe(t)
+	probe, err := executor.NewProcess(windowsPayloadCommand(t, "basic", strconv.Itoa(holderPID)),
+		execapi.ProcessOptions{})
 	require.NoError(t, err)
 	probeOutput := probe.Stdout()
+	probeError := probe.Stderr()
 	require.NoError(t, probe.Start())
-	payload, err := io.ReadAll(probeOutput)
-	require.NoError(t, err)
-	require.NoError(t, probe.Wait(), string(payload))
-	require.Contains(t, string(payload), "target_denied")
+	probeErrors := make(chan []byte, 1)
+	go func() {
+		data, _ := io.ReadAll(probeError)
+		probeErrors <- data
+	}()
+	probeLines := readWindowsBasicPayload(t, probeOutput)
+	requireSentinelNotInherited(t, sentinelReader, sentinelWriter)
+	require.NoError(t, probe.WriteStdin([]byte("exit\n")))
+	require.NoError(t, probe.Wait(), string(<-probeErrors))
+	require.Equal(t, "target_denied", probeLines[3])
 	require.NoError(t, holder.WriteStdin([]byte("write\n")))
 	line, err = holderReader.ReadString('\n')
 	require.NoError(t, err)
@@ -263,13 +264,50 @@ func TestNativeWindowsConfinementIsolatesPeerLPACs(t *testing.T) {
 	requireWindowsProcessGone(t, uint32(holderPID))
 }
 
-func newInheritableWindowsSentinel(t *testing.T) windows.Handle {
+func readWindowsBasicPayload(t *testing.T, output io.Reader) []string {
 	t.Helper()
-	handle, err := windows.CreateEvent(nil, 0, 0, nil)
+	reader := bufio.NewReader(output)
+	lines := make([]string, 4)
+	for index := range lines {
+		line, err := reader.ReadString('\n')
+		require.NoError(t, err)
+		lines[index] = strings.TrimSpace(line)
+	}
+	return lines
+}
+
+func newInheritableWindowsSentinelPipe(t *testing.T) (*os.File, *os.File) {
+	t.Helper()
+	reader, writer, err := os.Pipe()
 	require.NoError(t, err)
-	require.NoError(t, windows.SetHandleInformation(handle, windows.HANDLE_FLAG_INHERIT, windows.HANDLE_FLAG_INHERIT))
-	t.Cleanup(func() { require.NoError(t, windows.CloseHandle(handle)) })
-	return handle
+	require.NoError(t, windows.SetHandleInformation(windows.Handle(writer.Fd()), windows.HANDLE_FLAG_INHERIT,
+		windows.HANDLE_FLAG_INHERIT))
+	t.Cleanup(func() {
+		_ = reader.Close()
+		_ = writer.Close()
+	})
+	return reader, writer
+}
+
+func requireSentinelNotInherited(t *testing.T, reader, writer *os.File) {
+	t.Helper()
+	require.NoError(t, writer.Close())
+	read := make(chan error, 1)
+	go func() {
+		var value [1]byte
+		count, err := reader.Read(value[:])
+		if count != 0 {
+			read <- fmt.Errorf("sentinel pipe returned %d unexpected bytes", count)
+			return
+		}
+		read <- err
+	}()
+	select {
+	case err := <-read:
+		require.ErrorIs(t, err, io.EOF, "confined child inherited an unlisted host handle")
+	case <-time.After(2 * time.Second):
+		t.Fatal("confined child retained an unlisted inheritable host handle")
+	}
 }
 
 func TestNativeWindowsConfinementStopKillsDescendants(t *testing.T) {
