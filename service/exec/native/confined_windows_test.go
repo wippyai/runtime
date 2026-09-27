@@ -47,6 +47,7 @@ func TestWindowsConfinedPayload(t *testing.T) {
 		}
 		isContainer, err := confinewindows.CurrentProcessIsLPAC()
 		if err != nil || !isContainer {
+			fmt.Fprintf(os.Stderr, "verify current LPAC: is_lpac=%t: %v\n", isContainer, err)
 			os.Exit(95)
 		}
 		if err := os.WriteFile(filepath.Join(os.Getenv("USERPROFILE"), "private-home-write"),
@@ -64,9 +65,11 @@ func TestWindowsConfinedPayload(t *testing.T) {
 			handle, openErr := windows.OpenProcess(access, false, uint32(targetPID))
 			if openErr == nil {
 				_ = windows.CloseHandle(handle)
+				fmt.Fprintf(os.Stderr, "unexpected parent process access %#x\n", access)
 				os.Exit(80 + index)
 			}
 			if !errors.Is(openErr, windows.ERROR_ACCESS_DENIED) {
+				fmt.Fprintf(os.Stderr, "parent process access %#x: %v\n", access, openErr)
 				os.Exit(70 + index)
 			}
 		}
@@ -191,7 +194,7 @@ func TestNativeWindowsConfinementRunsInsideJob(t *testing.T) {
 		data, _ := io.ReadAll(stderr)
 		stderrRead <- data
 	}()
-	lines := readWindowsBasicPayload(t, stdout)
+	lines := readWindowsBasicPayload(t, stdout, stderrRead)
 	requireSentinelNotInherited(t, sentinelReader, sentinelWriter)
 	require.NoError(t, process.WriteStdin([]byte("exit\n")))
 	require.NoError(t, process.Wait(), string(<-stderrRead))
@@ -269,7 +272,7 @@ func TestNativeWindowsConfinementIsolatesPeerLPACs(t *testing.T) {
 		data, _ := io.ReadAll(probeError)
 		probeErrors <- data
 	}()
-	probeLines := readWindowsBasicPayload(t, probeOutput)
+	probeLines := readWindowsBasicPayload(t, probeOutput, probeErrors)
 	requireSentinelNotInherited(t, sentinelReader, sentinelWriter)
 	require.NoError(t, probe.WriteStdin([]byte("exit\n")))
 	require.NoError(t, probe.Wait(), string(<-probeErrors))
@@ -286,13 +289,15 @@ func TestNativeWindowsConfinementIsolatesPeerLPACs(t *testing.T) {
 	requireWindowsProcessGone(t, uint32(holderPID))
 }
 
-func readWindowsBasicPayload(t *testing.T, output io.Reader) []string {
+func readWindowsBasicPayload(t *testing.T, output io.Reader, payloadErrors <-chan []byte) []string {
 	t.Helper()
 	reader := bufio.NewReader(output)
 	lines := make([]string, 4)
 	for index := range lines {
 		line, err := reader.ReadString('\n')
-		require.NoError(t, err)
+		if err != nil {
+			t.Fatalf("read confined payload line %d: %v\nstderr: %s", index+1, err, <-payloadErrors)
+		}
 		lines[index] = strings.TrimSpace(line)
 	}
 	return lines
