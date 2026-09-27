@@ -220,5 +220,7 @@ func TestNativeDarwinConfinementUsesBoundWorkDirAfterRootReplacement(t *testing.
 	payload, err := io.ReadAll(stdout)
 	require.NoError(t, err)
 	require.NoError(t, process.Wait())
-	require.Equal(t, filepath.Join(movedRoot, "work"), strings.TrimSpace(string(payload)))
+	expectedWorkDir, err := filepath.EvalSymlinks(filepath.Join(movedRoot, "work"))
+	require.NoError(t, err)
+	require.Equal(t, expectedWorkDir, strings.TrimSpace(string(payload)))
 }
