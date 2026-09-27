@@ -217,20 +217,28 @@ func decodeOwnership(id registry.ID, field string, raw map[string]any) (*release
 		upper string
 		to    *string
 	}{{"module", "Module", &record.Module}, {"version", "Version", &record.Version}, {"digest", "Digest", &record.Digest}} {
-		for _, key := range []string{names.lower, names.upper} {
-			value, exists := raw[key]
-			if !exists {
-				continue
-			}
-			known = true
-			stringValue, ok := value.(string)
+		lower, hasLower := raw[names.lower]
+		upper, hasUpper := raw[names.upper]
+		if !hasLower && !hasUpper {
+			continue
+		}
+		known = true
+		if hasLower {
+			value, ok := lower.(string)
 			if !ok {
-				return nil, &OwnershipDecodeError{ID: id, Field: field, Reason: key + " must be a string"}
+				return nil, &OwnershipDecodeError{ID: id, Field: field, Reason: names.lower + " must be a string"}
 			}
-			if *names.to != "" && *names.to != stringValue {
+			*names.to = value
+		}
+		if hasUpper {
+			value, ok := upper.(string)
+			if !ok {
+				return nil, &OwnershipDecodeError{ID: id, Field: field, Reason: names.upper + " must be a string"}
+			}
+			if hasLower && *names.to != value {
 				return nil, &OwnershipDecodeError{ID: id, Field: field, Reason: "conflicting " + names.lower + " keys"}
 			}
-			*names.to = stringValue
+			*names.to = value
 		}
 	}
 	for _, key := range []string{"root", "Root"} {
@@ -327,28 +335,30 @@ func rewriteChangeSet(data []byte, handle *codec.MsgpackHandle, baseline map[reg
 }
 
 func validateOperationOwners(operation *encodedOperation, current, previous *releasedOwnership) error {
-	if err := validateEntryOwner(&operation.Entry, current); err != nil {
+	if err := validateEntryOwner(&operation.Entry, current, "prov"); err != nil {
 		return err
 	}
 	if operation.OriginalEntry == nil {
 		return nil
 	}
-	if err := validateEntryOwner(operation.OriginalEntry, previous); err != nil {
+	if err := validateEntryOwner(operation.OriginalEntry, previous, "oprov"); err != nil {
 		return err
 	}
 	currentOwner := storedOwner(&operation.Entry, current)
 	previousOwner := storedOwner(operation.OriginalEntry, previous)
 	if currentOwner != "" && previousOwner != "" && currentOwner != previousOwner {
-		return fmt.Errorf("%s has conflicting owners %q and %q", operation.Entry.ID.Canonical(), previousOwner, currentOwner)
+		return &OwnershipDecodeError{ID: operation.Entry.ID.Canonical(), Field: "prov/oprov",
+			Reason: fmt.Sprintf("conflicting owners %q and %q", previousOwner, currentOwner)}
 	}
 	return nil
 }
 
-func validateEntryOwner(entry *encodedEntry, record *releasedOwnership) error {
+func validateEntryOwner(entry *encodedEntry, record *releasedOwnership, field string) error {
 	if record == nil || record.Module == "" || entry.Registry.Owner == "" || record.Module == entry.Registry.Owner {
 		return nil
 	}
-	return fmt.Errorf("%s has conflicting owners %q and %q", entry.ID.Canonical(), entry.Registry.Owner, record.Module)
+	return &OwnershipDecodeError{ID: entry.ID.Canonical(), Field: field,
+		Reason: fmt.Sprintf("conflicting owners %q and %q", entry.Registry.Owner, record.Module)}
 }
 
 func rewriteEntry(entry *encodedEntry, record *releasedOwnership, pairedOwner string, baseline map[registry.ID]registry.EntryMetadata) (bool, error) {
@@ -368,7 +378,8 @@ func rewriteEntry(entry *encodedEntry, record *releasedOwnership, pairedOwner st
 	}
 	if hasBaseline && base.Owner != "" {
 		if owner != "" && owner != base.Owner {
-			return false, fmt.Errorf("%s has conflicting owners %q and %q", id, owner, base.Owner)
+			return false, &OwnershipDecodeError{ID: id, Field: "baseline",
+				Reason: fmt.Sprintf("conflicting owners %q and %q", owner, base.Owner)}
 		}
 		owner = base.Owner
 	}

@@ -134,6 +134,94 @@ func TestMigrateEntryMetadata_RejectsNullOwnership(t *testing.T) {
 	require.True(t, errors.As(err, &decodeErr), "expected typed ownership error: %v", err)
 }
 
+func TestMigrateEntryMetadata_RejectsContradictoryOwnershipSpellings(t *testing.T) {
+	cases := []struct {
+		name  string
+		field string
+		raw   map[string]any
+	}{
+		{"module_lower_empty", "prov", map[string]any{"module": "", "Module": "org/mod"}},
+		{"module_upper_empty", "prov", map[string]any{"module": "org/mod", "Module": ""}},
+		{"version_lower_empty", "prov", map[string]any{"version": "", "Version": "1.0.0"}},
+		{"version_upper_empty", "prov", map[string]any{"version": "1.0.0", "Version": ""}},
+		{"digest_lower_empty", "prov", map[string]any{"digest": "", "Digest": "sha256:abc"}},
+		{"digest_upper_empty", "prov", map[string]any{"digest": "sha256:abc", "Digest": ""}},
+		{"root_disagrees", "prov", map[string]any{"root": false, "Root": true}},
+		{"previous_module_disagrees", "oprov", map[string]any{"module": "", "Module": "org/mod"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			history, err := NewSQLite(filepath.Join(t.TempDir(), "registry.db"), zap.NewNop())
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, history.Close()) })
+			id := registry.NewID("app.deps", "keeper")
+			op := map[string]any{"Kind": registry.EntryCreate,
+				"Entry": encodedEntry{ID: id, Kind: registry.NamespaceDependency}}
+			op[tc.field] = tc.raw
+			seedAnyChangeset(t, history, 1, 0, []map[string]any{op})
+			before := changesetBytes(t, history, 1)
+			err = MigrateEntryMetadata(t.Context(), history, nil)
+			var decodeErr *migrationstorage.OwnershipDecodeError
+			require.True(t, errors.As(err, &decodeErr), "expected typed error: %v", err)
+			require.Equal(t, tc.field, decodeErr.Field)
+			require.Equal(t, before, changesetBytes(t, history, 1))
+			var ledgerCount int
+			require.NoError(t, history.db.QueryRowContext(t.Context(),
+				`SELECT COUNT(*) FROM schema_version WHERE name = 'registry_history.entry_metadata'`).Scan(&ledgerCount))
+			require.Zero(t, ledgerCount)
+		})
+	}
+}
+
+func TestMigrateEntryMetadata_OwnerConflictsAreTyped(t *testing.T) {
+	id := registry.NewID("app.deps", "keeper")
+	cases := []struct {
+		name     string
+		entry    encodedEntry
+		original *encodedEntry
+		current  map[string]any
+		previous map[string]any
+		baseline registry.State
+	}{
+		{name: "current_record_vs_entry", entry: encodedEntry{ID: id,
+			Registry: registry.EntryMetadata{Owner: "org/entry"}}, current: map[string]any{"module": "org/record"}},
+		{name: "previous_record_vs_original", entry: encodedEntry{ID: id},
+			original: &encodedEntry{ID: id, Registry: registry.EntryMetadata{Owner: "org/original"}},
+			previous: map[string]any{"module": "org/record"}},
+		{name: "current_vs_previous", entry: encodedEntry{ID: id},
+			original: &encodedEntry{ID: id}, current: map[string]any{"module": "org/current"},
+			previous: map[string]any{"module": "org/previous"}},
+		{name: "record_vs_baseline", entry: encodedEntry{ID: id},
+			current:  map[string]any{"module": "org/record"},
+			baseline: registry.State{{ID: id, Registry: registry.EntryMetadata{Owner: "org/baseline"}}}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			history, err := NewSQLite(filepath.Join(t.TempDir(), "registry.db"), zap.NewNop())
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, history.Close()) })
+			op := map[string]any{"Kind": registry.EntryCreate, "Entry": tc.entry}
+			if tc.original != nil {
+				op["OriginalEntry"] = tc.original
+			}
+			if tc.current != nil {
+				op["prov"] = tc.current
+			}
+			if tc.previous != nil {
+				op["oprov"] = tc.previous
+			}
+			seedAnyChangeset(t, history, 1, 0, []map[string]any{op})
+			before := changesetBytes(t, history, 1)
+			err = MigrateEntryMetadata(t.Context(), history, tc.baseline)
+			var decodeErr *migrationstorage.OwnershipDecodeError
+			require.True(t, errors.As(err, &decodeErr), "expected typed error: %v", err)
+			require.Equal(t, id.String(), decodeErr.ID.String())
+			require.ErrorContains(t, err, "conflicting owners")
+			require.Equal(t, before, changesetBytes(t, history, 1))
+		})
+	}
+}
+
 func TestMigrateEntryMetadata_AlreadyMigratedFalseRootIsAmbiguous(t *testing.T) {
 	history, err := NewSQLite(filepath.Join(t.TempDir(), "registry.db"), zap.NewNop())
 	require.NoError(t, err)
