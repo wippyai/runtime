@@ -99,7 +99,11 @@ func TestNativeDarwinConfinementEnforcesFilesystem(t *testing.T) {
 	require.NoError(t, err)
 	stdout := process.Stdout()
 	stderr := process.Stderr()
-	require.NoError(t, process.Start())
+	startErr := process.Start()
+	if startErr != nil {
+		diagnostics, _ := io.ReadAll(stderr)
+		require.NoErrorf(t, startErr, "confined target stderr: %s", diagnostics)
+	}
 	payload, err := io.ReadAll(stdout)
 	require.NoError(t, err)
 	waitErr := process.Wait()
@@ -138,8 +142,13 @@ func TestNativeDarwinConfinementWallUsesSingleProcessDomain(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, executor.Close()) })
 	process, err := executor.NewProcess(darwinPayloadCommand(target, "spawn-denied"), execapi.ProcessOptions{})
 	require.NoError(t, err)
+	stderr := process.Stderr()
 	started := time.Now()
-	require.NoError(t, process.Start())
+	startErr := process.Start()
+	if startErr != nil {
+		diagnostics, _ := io.ReadAll(stderr)
+		require.NoErrorf(t, startErr, "confined target stderr: %s", diagnostics)
+	}
 	err = process.Wait()
 	require.Error(t, err)
 	require.Less(t, time.Since(started), 10*time.Second)
