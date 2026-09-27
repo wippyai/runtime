@@ -14,8 +14,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"slices"
-	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -39,9 +37,6 @@ const darwinSetupTimeout = 10 * time.Second
 
 type darwinEntryBinding struct {
 	roots map[string]*confinedarwin.BoundDirectory
-	read  map[string]*confinedarwin.BoundDirectory
-	write map[string]*confinedarwin.BoundDirectory
-	exec  map[string]*confinedarwin.BoundDirectory
 }
 
 type darwinConfinementLaunch struct {
@@ -62,13 +57,20 @@ type darwinConfinementLaunch struct {
 }
 
 func validateConfinementHost(entry *execapi.Confinement) error {
-	if err := entry.Validate(); err != nil {
+	policy, err := validateConfinementPolicy(entry)
+	if err != nil {
 		return err
 	}
-	policy := confinement.FromEntry(entry)
-	if err := confinement.ValidateEntry(policy); err != nil {
-		return execapi.NewInvalidConfinementError("confine")
+	if err := validateDarwinConfinementPolicy(policy); err != nil {
+		return err
 	}
+	if _, err := verifiedDarwinHelper(); err != nil {
+		return execapi.ErrConfineUnsupported.WithCause(err)
+	}
+	return nil
+}
+
+func validateDarwinConfinementPolicy(policy confinement.Policy) error {
 	if policy.NetworkNone {
 		return execapi.ErrConfineUnsupported.WithCause(errors.New("macOS cannot yet prove total socket denial including socketpair"))
 	}
@@ -77,30 +79,6 @@ func validateConfinementHost(entry *execapi.Confinement) error {
 	}
 	if policy.Limits.MemoryMiB > 0 || policy.Limits.PIDs > 0 {
 		return execapi.ErrConfineUnsupported.WithCause(errors.New("macOS has no unprivileged aggregate job memory/task domain"))
-	}
-	if _, err := verifiedDarwinHelper(); err != nil {
-		return execapi.ErrConfineUnsupported.WithCause(err)
-	}
-	return validateDarwinPaths(policy)
-}
-
-func validateDarwinPaths(policy confinement.Policy) error {
-	if policy.FS == nil {
-		return nil
-	}
-	for _, class := range []confinement.Access{policy.FS.Read, policy.FS.Write, policy.FS.Exec} {
-		for _, path := range class.Paths {
-			if path == "{home}" || path == "{tmp}" {
-				continue
-			}
-			info, err := os.Stat(path)
-			if err != nil {
-				return fmt.Errorf("%w: %w", execapi.NewInvalidConfinementError("confine.fs"), err)
-			}
-			if !info.IsDir() {
-				return execapi.ErrConfineUnsupported.WithCause(errors.New("macOS file-granular grants are unsupported"))
-			}
-		}
 	}
 	return nil
 }
@@ -200,11 +178,11 @@ func (e *Executor) bindConfinementEntry() error {
 	}
 	binding := &darwinEntryBinding{
 		roots: make(map[string]*confinedarwin.BoundDirectory),
-		read:  make(map[string]*confinedarwin.BoundDirectory),
-		write: make(map[string]*confinedarwin.BoundDirectory),
-		exec:  make(map[string]*confinedarwin.BoundDirectory),
 	}
 	for _, root := range e.confine.WorkDirRoots {
+		if _, exists := binding.roots[root]; exists {
+			continue
+		}
 		bound, err := confinedarwin.BindDeclaredDirectory(root)
 		if err != nil {
 			_ = binding.Close()
@@ -212,64 +190,21 @@ func (e *Executor) bindConfinementEntry() error {
 		}
 		binding.roots[root] = bound
 	}
-	if e.confine.FS != nil {
-		fs := confinement.FromEntry(e.confine).EffectiveFilesystem()
-		for _, class := range []struct {
-			paths []string
-			into  map[string]*confinedarwin.BoundDirectory
-		}{{fs.Read.Paths, binding.read}, {fs.Write.Paths, binding.write}, {fs.Exec.Paths, binding.exec}} {
-			for _, path := range class.paths {
-				if path == "{home}" || path == "{tmp}" || class.into[path] != nil {
-					continue
-				}
-				bound, err := confinedarwin.BindDeclaredDirectory(path)
-				if err != nil {
-					_ = binding.Close()
-					return fmt.Errorf("%w: %w", execapi.NewInvalidConfinementError("confine.fs"), err)
-				}
-				class.into[path] = bound
-			}
-		}
-	}
 	e.confineEntry = binding
 	return nil
 }
 
 func (b *darwinEntryBinding) Close() error {
 	var result error
-	for _, class := range []map[string]*confinedarwin.BoundDirectory{b.roots, b.read, b.write, b.exec} {
-		for _, root := range class {
-			result = errors.Join(result, root.Close())
-		}
+	for _, root := range b.roots {
+		result = errors.Join(result, root.Close())
 	}
 	return result
 }
 
-func (b *darwinEntryBinding) canonical(path string, class map[string]*confinedarwin.BoundDirectory) (string, error) {
-	var selected *confinedarwin.BoundDirectory
-	selectedLength := -1
-	for base, root := range class {
-		rel, err := filepath.Rel(base, path)
-		if err == nil && rel != ".." && !strings.HasPrefix(rel, "../") && len(base) > selectedLength {
-			selected, selectedLength = root, len(base)
-		}
-	}
-	if selected == nil {
-		return "", confinedarwin.ErrOutsideRoot
-	}
-	return selected.CanonicalDescendant(path)
-}
-
 func (b *darwinEntryBinding) openWorkDir(path string) (*confinedarwin.BoundPath, error) {
-	var selected *confinedarwin.BoundDirectory
-	selectedLength := -1
-	for base, root := range b.roots {
-		rel, err := filepath.Rel(base, path)
-		if err == nil && rel != ".." && !strings.HasPrefix(rel, "../") && len(base) > selectedLength {
-			selected, selectedLength = root, len(base)
-		}
-	}
-	if selected == nil {
+	selected, ok := selectConfinementRoot(b.roots, path)
+	if !ok {
 		return nil, confinedarwin.ErrOutsideRoot
 	}
 	return selected.OpenDescendant(path)
@@ -289,16 +224,7 @@ func (e *Executor) prepareConfinement(process *ProcessExecutor, options execapi.
 	if err != nil {
 		return err
 	}
-	if policy.NetworkNone {
-		return execapi.ErrConfineUnsupported.WithCause(errors.New("macOS cannot yet prove total socket denial including socketpair"))
-	}
-	if policy.FS != nil {
-		return execapi.ErrConfineUnsupported.WithCause(errors.New("macOS Seatbelt cannot pin filesystem grants across host path replacement"))
-	}
-	if policy.Limits.MemoryMiB > 0 || policy.Limits.PIDs > 0 {
-		return execapi.ErrConfineUnsupported.WithCause(errors.New("macOS has no unprivileged aggregate job memory/task domain"))
-	}
-	if err := validateDarwinPaths(policy); err != nil {
+	if err := validateDarwinConfinementPolicy(policy); err != nil {
 		return err
 	}
 	process.confinement = &darwinConfinementLaunch{entry: e, policy: policy, workDir: process.wd}
@@ -324,13 +250,8 @@ func (c *darwinConfinementLaunch) Start(process *ProcessExecutor) error {
 		c.entry.confineMu.RUnlock()
 		return fmt.Errorf("%w: %w", execapi.NewInvalidConfinementError("work_dir"), err)
 	}
-	grants, err := c.compileGrants(binding)
 	c.entry.confineMu.RUnlock()
-	if err != nil {
-		c.release()
-		return execapi.ErrConfineUnsupported.WithCause(err)
-	}
-	if c.policy.HomePrivate || hasDarwinPrivateGrant(c.policy, "{home}") || hasDarwinPrivateGrant(c.policy, "{tmp}") {
+	if c.policy.HomePrivate {
 		c.private, err = os.MkdirTemp("", "wippy-confine-private-")
 		if err != nil {
 			c.release()
@@ -342,7 +263,6 @@ func (c *darwinConfinementLaunch) Start(process *ProcessExecutor) error {
 				return execapi.ErrConfineUnsupported.WithCause(err)
 			}
 		}
-		grants = replaceDarwinPrivateGrants(grants, c.private)
 		if process.envs["HOME"] == confinement.PrivateHomePath {
 			process.envs["HOME"] = filepath.Join(c.private, "home")
 		}
@@ -351,15 +271,9 @@ func (c *darwinConfinementLaunch) Start(process *ProcessExecutor) error {
 		}
 		rebuildProcessEnvironment(process)
 	}
-	profile, err := confinedarwin.CompileProfile(confinedarwin.Profile{
-		Grants: grants, FilesystemUnrestricted: c.policy.FS == nil,
-		NetworkUnrestricted: !c.policy.NetworkNone,
-		AllowFork:           c.policy.Limits.WallSec == 0 && !c.policy.KillOnOwnerExit,
+	profile := confinedarwin.CompileProfile(confinedarwin.Profile{
+		AllowFork: c.policy.Limits.WallSec == 0 && !c.policy.KillOnOwnerExit,
 	})
-	if err != nil {
-		c.release()
-		return execapi.ErrConfineSetup.WithCause(err)
-	}
 	policyReader, policyWriter, err := os.Pipe()
 	if err != nil {
 		c.release()
@@ -510,66 +424,6 @@ func (c *darwinConfinementLaunch) WaitProcess() error {
 		<-c.waitDone
 	}
 	return c.waitErr
-}
-
-func (c *darwinConfinementLaunch) compileGrants(binding *darwinEntryBinding) ([]confinedarwin.Grant, error) {
-	if c.policy.FS == nil {
-		return nil, nil
-	}
-	fs := c.policy.EffectiveFilesystem()
-	merged := make(map[string]confinedarwin.Grant)
-	for _, class := range []struct {
-		paths []string
-		roots map[string]*confinedarwin.BoundDirectory
-		kind  byte
-	}{{fs.Read.Paths, binding.read, 'r'}, {fs.Write.Paths, binding.write, 'w'}, {fs.Exec.Paths, binding.exec, 'x'}} {
-		for _, path := range class.paths {
-			canonical := path
-			if path != "{home}" && path != "{tmp}" {
-				var err error
-				canonical, err = binding.canonical(path, class.roots)
-				if err != nil {
-					return nil, err
-				}
-			}
-			grant := merged[canonical]
-			grant.Path = canonical
-			switch class.kind {
-			case 'r':
-				grant.Read = true
-			case 'w':
-				grant.Write, grant.Read = true, true
-			case 'x':
-				grant.Exec = true
-			}
-			merged[canonical] = grant
-		}
-	}
-	result := make([]confinedarwin.Grant, 0, len(merged))
-	for _, grant := range merged {
-		result = append(result, grant)
-	}
-	return result, nil
-}
-
-func hasDarwinPrivateGrant(policy confinement.Policy, placeholder string) bool {
-	if policy.FS == nil {
-		return false
-	}
-	fs := policy.EffectiveFilesystem()
-	return slices.Contains(fs.Read.Paths, placeholder) || slices.Contains(fs.Write.Paths, placeholder) || slices.Contains(fs.Exec.Paths, placeholder)
-}
-
-func replaceDarwinPrivateGrants(grants []confinedarwin.Grant, root string) []confinedarwin.Grant {
-	for i := range grants {
-		switch grants[i].Path {
-		case "{home}":
-			grants[i].Path = filepath.Join(root, "home")
-		case "{tmp}":
-			grants[i].Path = filepath.Join(root, "tmp")
-		}
-	}
-	return grants
 }
 
 func (c *darwinConfinementLaunch) Signal(signal syscall.Signal) error {

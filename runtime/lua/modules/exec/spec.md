@@ -175,6 +175,11 @@ paths. `env` contains an `allow` array. `limits` contains positive integer
 `mem_mb`, `pids`, and `wall_s` values. `tree` contains the boolean
 `kill_on_owner_exit`.
 
+`pids` is a task ceiling, matching Linux cgroup-v2 `pids.max`: every process
+and every thread consumes one unit. A platform that can only limit processes
+does not satisfy this guarantee, even when it otherwise confines the launch to
+a single process.
+
 Confinement is entry-owned. The `confine` block on an `exec.native` registry
 entry defines the maximum authority available to all of its processes. A Lua
 launch can only narrow that baseline; it cannot select new roots, restore
@@ -213,6 +218,7 @@ silently degrade.
 | aggregate task limit | delegated cgroup v2 | fail closed | fail closed |
 | wall timeout | whole process tree | singleton process domain | singleton Job domain |
 | owner-exit cleanup | PID-namespace process tree | singleton process domain | singleton Job domain |
+| runtime-crash cleanup | not promised | not promised | Job kill-on-close |
 | confined PTY/process group | PTY only | fail closed | fail closed |
 
 Linux filesystem grants are existing directories; individual-file grants are
@@ -230,7 +236,10 @@ cannot redirect a prepared launch. Seatbelt pathname rules cannot provide the
 object-bound filesystem policy promised by Linux, and an unprivileged process
 cannot provide aggregate memory/task controls or prove total socket denial.
 Those requests therefore fail closed. Wall and owner-exit controls deny child
-creation and operate on a singleton process domain.
+creation and operate on a singleton process domain. The dynamic Seatbelt
+entry point used for arbitrary executables is deprecated by Apple; native CI
+therefore validates the signed trampoline on every supported macOS release,
+but the backend cannot claim a stable Apple SDK compatibility contract.
 
 Windows launches use a fresh less-privileged AppContainer identity and a Job
 Object. The runtime atomically assigns the suspended target to the Job and
@@ -251,10 +260,17 @@ runtime supplies trusted `SYSTEMROOT` and `LOCALAPPDATA` bootstrap values;
 Windows rewrites `LOCALAPPDATA`, `TEMP`, and `TMP` into the package-private
 profile. These platform-managed names cannot be set or admitted by the entry
 environment policy, and no other host environment is inherited implicitly.
+Closing the runtime's non-inheritable Job handle kills the sandbox, including
+when the runtime process terminates unexpectedly. Go 1.27 also has a Windows
+runtime compatibility defect in which a failed AppContainer `WSAStartup` can
+poison later `internal/poll` file operations. Native Win32 conformance tests
+prove the ACL and integrity contract independently, but arbitrary Go payloads
+that mix failed networking with later file I/O may remain affected by that Go
+runtime defect.
 
 Docker confinement is not implemented. There is no network allowlist/proxy,
 CPU or I/O quota, persistent private home, launch-time widening, or
-runtime-crash cleanup guarantee.
+portable runtime-crash cleanup guarantee.
 
 On Linux the current backend always destroys remaining descendants when the
 root exits or is stopped. Therefore `kill_on_owner_exit = false` means that

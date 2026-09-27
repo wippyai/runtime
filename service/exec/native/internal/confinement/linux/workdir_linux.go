@@ -16,35 +16,19 @@ import (
 
 var ErrOutsideRoot = errors.New("working directory is outside approved root")
 
-// WorkDirRoot pins an entry-owned Linux directory object. Holding its descriptor
+// workDirRoot pins an entry-owned Linux directory object. Holding its descriptor
 // prevents a later replacement of the configured path from changing the
 // authority of an executor that has already admitted the entry.
-type WorkDirRoot struct {
+type workDirRoot struct {
 	path string
 	fd   int
 	mu   sync.RWMutex
 }
 
-// BindWorkDirRoot rejects symlinks in every component of an entry-owned root.
-// This conservative rule keeps the reviewed path tied to the opened object.
-func BindWorkDirRoot(path string) (*WorkDirRoot, error) {
-	if !cleanAbsolute(path) {
-		return nil, fmt.Errorf("%w: work_dir_root must be clean and absolute", confinement.ErrInvalid)
-	}
-	fd, err := unix.Openat2(unix.AT_FDCWD, path, &unix.OpenHow{
-		Flags:   unix.O_PATH | unix.O_DIRECTORY | unix.O_CLOEXEC,
-		Resolve: unix.RESOLVE_NO_SYMLINKS | unix.RESOLVE_NO_MAGICLINKS,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("bind work_dir_root: %w", err)
-	}
-	return &WorkDirRoot{path: path, fd: fd}, nil
-}
-
-// OpenBoundWorkDir opens a caller's requested directory relative to the
+// openBoundWorkDir opens a caller's requested directory relative to the
 // already pinned root. The returned descriptor, not requested's spelling,
 // must be used by the child for fchdir. Callers retain it until child setup.
-func (r *WorkDirRoot) OpenBoundWorkDir(requested string) (*os.File, error) {
+func (r *workDirRoot) openBoundWorkDir(requested string) (*os.File, error) {
 	if !cleanAbsolute(requested) {
 		return nil, fmt.Errorf("%w: work_dir must be clean and absolute", confinement.ErrInvalid)
 	}
@@ -68,7 +52,7 @@ func (r *WorkDirRoot) OpenBoundWorkDir(requested string) (*os.File, error) {
 	return os.NewFile(uintptr(fd), requested), nil
 }
 
-func (r *WorkDirRoot) Close() error {
+func (r *workDirRoot) close() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.fd < 0 {

@@ -15,13 +15,8 @@ func (c *Confinement) Validate() error {
 	if c == nil {
 		return nil
 	}
-	if len(c.WorkDirRoots) == 0 {
-		return NewInvalidConfinementError("confine.work_dir_roots")
-	}
-	for _, root := range c.WorkDirRoots {
-		if !validConfinementPath(root, false) {
-			return NewInvalidConfinementError("confine.work_dir_roots")
-		}
+	if err := validateConfinementRoots(c.WorkDirRoots); err != nil {
+		return err
 	}
 	if c.FS != nil {
 		if err := validateConfinementPaths(c.FS.Read, "confine.fs.read"); err != nil {
@@ -37,32 +32,13 @@ func (c *Confinement) Validate() error {
 	if c.Home != "" && c.Home != "private" {
 		return NewInvalidConfinementError("confine.home")
 	}
-	if c.Env != nil {
-		if err := validateConfinementEnvNames(c.Env.Allow, "confine.env.allow"); err != nil {
-			return err
-		}
-		seen := make(map[string]struct{}, len(c.Env.Set))
-		for name, value := range c.Env.Set {
-			key := name
-			if runtime.GOOS == "windows" {
-				key = strings.ToUpper(name)
-			}
-			if !validConfinementEnvName(name) || containsNUL(value) ||
-				reservedConfinementEnvName(name) {
-				return NewInvalidConfinementError("confine.env.set")
-			}
-			if _, exists := seen[key]; exists {
-				return NewInvalidConfinementError("confine.env.set")
-			}
-			seen[key] = struct{}{}
-		}
+	if err := validateConfinementEnvironment(c.Env); err != nil {
+		return err
 	}
 	if c.Network != "" && c.Network != "none" {
 		return NewInvalidConfinementError("confine.network")
 	}
-	if c.Limits != nil &&
-		(c.Limits.MemoryMiB < 0 || c.Limits.MemoryMiB > math.MaxInt64/(1<<20) ||
-			c.Limits.PIDs < 0 || c.Limits.WallSec < 0 || c.Limits.WallSec > math.MaxInt64/int64(1e9)) {
+	if !validConfinementLimits(c.Limits) {
 		return NewInvalidConfinementError("confine.limits")
 	}
 	if c.FS == nil && c.Home == "" && c.Env == nil && c.Network == "" &&
@@ -71,6 +47,57 @@ func (c *Confinement) Validate() error {
 		return NewInvalidConfinementError("confine")
 	}
 	return nil
+}
+
+func validateConfinementRoots(roots []string) error {
+	if len(roots) == 0 {
+		return NewInvalidConfinementError("confine.work_dir_roots")
+	}
+	seen := make(map[string]struct{}, len(roots))
+	for _, root := range roots {
+		if !validConfinementPath(root, false) {
+			return NewInvalidConfinementError("confine.work_dir_roots")
+		}
+		key := root
+		if runtime.GOOS == "windows" {
+			key = strings.ToUpper(root)
+		}
+		if _, exists := seen[key]; exists {
+			return NewInvalidConfinementError("confine.work_dir_roots")
+		}
+		seen[key] = struct{}{}
+	}
+	return nil
+}
+
+func validateConfinementEnvironment(env *ConfinementEnvironment) error {
+	if env == nil {
+		return nil
+	}
+	if err := validateConfinementEnvNames(env.Allow, "confine.env.allow"); err != nil {
+		return err
+	}
+	seen := make(map[string]struct{}, len(env.Set))
+	for name, value := range env.Set {
+		key := name
+		if runtime.GOOS == "windows" {
+			key = strings.ToUpper(name)
+		}
+		if !validConfinementEnvName(name) || containsNUL(value) || reservedConfinementEnvName(name) {
+			return NewInvalidConfinementError("confine.env.set")
+		}
+		if _, exists := seen[key]; exists {
+			return NewInvalidConfinementError("confine.env.set")
+		}
+		seen[key] = struct{}{}
+	}
+	return nil
+}
+
+func validConfinementLimits(limits *ConfinementLimits) bool {
+	return limits == nil ||
+		(limits.MemoryMiB >= 0 && limits.MemoryMiB <= math.MaxInt64/(1<<20) &&
+			limits.PIDs >= 0 && limits.WallSec >= 0 && limits.WallSec <= math.MaxInt64/int64(1e9))
 }
 
 // Validate checks a narrowing patch's shape. This does not compare the patch

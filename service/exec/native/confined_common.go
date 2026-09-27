@@ -5,6 +5,7 @@ package native
 import (
 	"errors"
 	"fmt"
+	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
@@ -12,6 +13,34 @@ import (
 	execapi "github.com/wippyai/runtime/api/service/exec"
 	"github.com/wippyai/runtime/service/exec/native/internal/confinement"
 )
+
+// validateConfinementPolicy performs platform-independent admission before a
+// backend probes or binds host mechanisms.
+func validateConfinementPolicy(entry *execapi.Confinement) (confinement.Policy, error) {
+	if err := entry.Validate(); err != nil {
+		return confinement.Policy{}, err
+	}
+	policy := confinement.FromEntry(entry)
+	if err := confinement.ValidateEntry(policy); err != nil {
+		return confinement.Policy{}, execapi.NewInvalidConfinementError("confine")
+	}
+	return policy, nil
+}
+
+// selectConfinementRoot chooses the narrowest declared root containing path.
+// Object identity remains owned by the platform-specific bound value.
+func selectConfinementRoot[T any](roots map[string]T, path string) (T, bool) {
+	var selected T
+	selectedLength := -1
+	for base, root := range roots {
+		rel, err := filepath.Rel(base, path)
+		if err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) &&
+			!filepath.IsAbs(rel) && len(base) > selectedLength {
+			selected, selectedLength = root, len(base)
+		}
+	}
+	return selected, selectedLength >= 0
+}
 
 // narrowConfinement applies the launch-owned patch to the entry ceiling and
 // installs the resulting environment. Platform backends still have to bind
@@ -104,12 +133,6 @@ func applyConfinementEnvironment(process *ProcessExecutor, policy *confinement.E
 	}
 	if policy != nil {
 		for name, value := range policy.Set {
-			key := normalizeEnvironmentName(name)
-			for existing := range process.envs {
-				if normalizeEnvironmentName(existing) == key {
-					delete(process.envs, existing)
-				}
-			}
 			process.envs[name] = value
 		}
 	}

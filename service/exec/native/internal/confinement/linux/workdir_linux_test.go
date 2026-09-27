@@ -11,7 +11,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func TestWorkDirRootPinsAndBoundsDirectory(t *testing.T) {
+func TestBoundDirectoryPinsAndBoundsWorkDir(t *testing.T) {
 	parent := t.TempDir()
 	rootPath := filepath.Join(parent, "approved")
 	subPath := filepath.Join(rootPath, "pkg")
@@ -22,7 +22,7 @@ func TestWorkDirRootPinsAndBoundsDirectory(t *testing.T) {
 	if err := os.Mkdir(otherPath, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	root, err := BindWorkDirRoot(rootPath)
+	root, err := BindDeclaredDirectory(rootPath)
 	if errors.Is(err, unix.ENOSYS) {
 		t.Skip("openat2 is unavailable")
 	}
@@ -31,7 +31,7 @@ func TestWorkDirRootPinsAndBoundsDirectory(t *testing.T) {
 	}
 	defer root.Close()
 
-	bound, err := root.OpenBoundWorkDir(subPath)
+	bound, _, err := root.OpenDescendant(subPath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,7 +44,7 @@ func TestWorkDirRootPinsAndBoundsDirectory(t *testing.T) {
 		parent, otherPath, filepath.Join(parent, "approved-other"),
 		filepath.Join(rootPath, "..", "other"),
 	} {
-		dir, err := root.OpenBoundWorkDir(requested)
+		dir, _, err := root.OpenDescendant(requested)
 		if dir != nil {
 			dir.Close()
 		}
@@ -69,7 +69,7 @@ func TestWorkDirRootPinsAndBoundsDirectory(t *testing.T) {
 	if original.Ino != after.Ino || original.Dev != after.Dev {
 		t.Fatal("bound directory changed after pathname replacement")
 	}
-	newBinding, err := root.OpenBoundWorkDir(subPath)
+	newBinding, _, err := root.OpenDescendant(subPath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +82,7 @@ func TestWorkDirRootPinsAndBoundsDirectory(t *testing.T) {
 	}
 }
 
-func TestWorkDirRootRejectsSymlinkEscape(t *testing.T) {
+func TestBoundDirectoryRejectsSymlinkEscape(t *testing.T) {
 	parent := t.TempDir()
 	rootPath := filepath.Join(parent, "approved")
 	otherPath := filepath.Join(parent, "other")
@@ -95,7 +95,7 @@ func TestWorkDirRootRejectsSymlinkEscape(t *testing.T) {
 	if err := os.Symlink(otherPath, filepath.Join(rootPath, "escape")); err != nil {
 		t.Fatal(err)
 	}
-	root, err := BindWorkDirRoot(rootPath)
+	root, err := BindDeclaredDirectory(rootPath)
 	if errors.Is(err, unix.ENOSYS) {
 		t.Skip("openat2 is unavailable")
 	}
@@ -103,19 +103,8 @@ func TestWorkDirRootRejectsSymlinkEscape(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer root.Close()
-	if dir, err := root.OpenBoundWorkDir(filepath.Join(rootPath, "escape")); err == nil {
+	if dir, _, err := root.OpenDescendant(filepath.Join(rootPath, "escape")); err == nil {
 		dir.Close()
 		t.Fatal("followed a symlink outside the approved root")
-	}
-	if symlinkRoot, err := BindWorkDirRoot(filepath.Join(parent, "root-link")); err == nil {
-		symlinkRoot.Close()
-		t.Fatal("bound a missing root")
-	}
-	if err := os.Symlink(rootPath, filepath.Join(parent, "root-link")); err != nil {
-		t.Fatal(err)
-	}
-	if symlinkRoot, err := BindWorkDirRoot(filepath.Join(parent, "root-link")); err == nil {
-		symlinkRoot.Close()
-		t.Fatal("followed a symlink in entry-owned root")
 	}
 }

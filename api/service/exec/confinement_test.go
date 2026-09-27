@@ -99,6 +99,7 @@ func TestConfinementRejectsMalformedEntry(t *testing.T) {
 		confine Confinement
 	}{
 		{"missing roots", Confinement{Network: "none"}},
+		{"duplicate roots", Confinement{WorkDirRoots: []string{confineTestPath("/srv/ws"), confineTestPath("/srv/ws")}, Network: "none"}},
 		{"caller-selected grant", Confinement{WorkDirRoots: []string{confineTestPath("/srv/ws")}, FS: &ConfinementFS{Read: []string{"{workdir}"}}}},
 		{"relative root", Confinement{WorkDirRoots: []string{"relative"}, Network: "none"}},
 		{"unknown network", Confinement{WorkDirRoots: []string{confineTestPath("/srv/ws")}, Network: "loopback"}},

@@ -47,15 +47,16 @@ type windowsConfinementLaunch struct {
 }
 
 func validateConfinementHost(entry *execapi.Confinement) error {
-	if err := entry.Validate(); err != nil {
+	policy, err := validateConfinementPolicy(entry)
+	if err != nil {
 		return err
 	}
-	policy := confinement.FromEntry(entry)
-	if err := confinement.ValidateEntry(policy); err != nil {
-		return execapi.NewInvalidConfinementError("confine")
-	}
+	return validateWindowsConfinementPolicy(policy, nil)
+}
+
+func validateWindowsConfinementPolicy(policy confinement.Policy, values map[string]string) error {
 	if policy.FS != nil {
-		return execapi.ErrConfineUnsupported.WithCause(errors.New("Windows filesystem grants require the LPAC backend"))
+		return execapi.ErrConfineUnsupported.WithCause(errors.New("Windows LPAC cannot enforce object-bound filesystem grants"))
 	}
 	if policy.NetworkNone {
 		return execapi.ErrConfineUnsupported.WithCause(errors.New("Windows cannot yet prove total socket denial"))
@@ -63,7 +64,7 @@ func validateConfinementHost(entry *execapi.Confinement) error {
 	if policy.Limits.PIDs > 0 {
 		return execapi.ErrConfineUnsupported.WithCause(errors.New("Windows Job Objects limit processes, not policy tasks"))
 	}
-	if err := validateWindowsConfinementEnvironment(policy, nil); err != nil {
+	if err := validateWindowsConfinementEnvironment(policy, values); err != nil {
 		return err
 	}
 	return nil
@@ -135,15 +136,8 @@ func (b *windowsEntryBinding) Close() error {
 }
 
 func (b *windowsEntryBinding) openWorkDir(path string) (*confinewindows.BoundPath, error) {
-	var selected *confinewindows.BoundDirectory
-	selectedLength := -1
-	for base, root := range b.roots {
-		rel, err := filepath.Rel(base, path)
-		if err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && len(base) > selectedLength {
-			selected, selectedLength = root, len(base)
-		}
-	}
-	if selected == nil {
+	selected, ok := selectConfinementRoot(b.roots, path)
+	if !ok {
 		return nil, confinewindows.ErrOutsideRoot
 	}
 	return selected.OpenDescendant(path)
@@ -163,17 +157,8 @@ func (e *Executor) prepareConfinement(process *ProcessExecutor, options execapi.
 	if err != nil {
 		return err
 	}
-	if err := validateWindowsConfinementEnvironment(policy, process.envs); err != nil {
+	if err := validateWindowsConfinementPolicy(policy, process.envs); err != nil {
 		return err
-	}
-	if policy.FS != nil {
-		return execapi.ErrConfineUnsupported.WithCause(errors.New("Windows filesystem grants require the LPAC backend"))
-	}
-	if policy.NetworkNone {
-		return execapi.ErrConfineUnsupported.WithCause(errors.New("Windows cannot yet prove total socket denial"))
-	}
-	if policy.Limits.PIDs > 0 {
-		return execapi.ErrConfineUnsupported.WithCause(errors.New("Windows Job Objects limit processes, not policy tasks"))
 	}
 	e.confineMu.RLock()
 	binding, ok := e.confineEntry.(*windowsEntryBinding)

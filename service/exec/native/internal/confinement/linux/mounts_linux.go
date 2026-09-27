@@ -5,7 +5,6 @@ package linux
 import (
 	"errors"
 	"fmt"
-	"path/filepath"
 	"slices"
 	"strings"
 
@@ -56,19 +55,9 @@ func PlanBindMounts(fs confinement.Filesystem) ([]BindMount, error) {
 	for _, path := range ordered {
 		mounts = append(mounts, BindMount{
 			Source:   path,
-			ReadOnly: !coveredByGrant(path, fs.Write.Paths),
-			NoExec:   !coveredByGrant(path, fs.Exec.Paths),
+			ReadOnly: !fs.Write.Covers(path),
+			NoExec:   !fs.Exec.Covers(path),
 		})
 	}
 	return mounts, nil
-}
-
-func coveredByGrant(path string, grants []string) bool {
-	for _, grant := range grants {
-		rel, err := filepath.Rel(grant, path)
-		if err == nil && rel != ".." && !strings.HasPrefix(rel, "../") {
-			return true
-		}
-	}
-	return false
 }

@@ -7,7 +7,9 @@ single `internetClient` capability, low integrity level, and Job membership.
 Only stdin, stdout, and stderr are inherited. A token-level child-process
 restriction and a Job active-process limit make the sandbox an explicit
 singleton. The Job supplies committed-memory limits, wall-time termination,
-and owner-exit cleanup.
+and owner-exit cleanup. Its non-inheritable handle uses
+`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`, so Windows also destroys the singleton
+when the runtime process terminates unexpectedly.
 
 Windows currently rejects `network: none`, so every supported launch does not
 request network denial. It receives exactly the outbound-public-Internet
@@ -56,10 +58,19 @@ The backend currently supports environment ceilings, private home, Job memory,
 wall time, and owner-exit cleanup in its singleton process domain. Filesystem
 policy blocks, total socket denial, portable task-count limits, confined PTYs,
 and confined process groups return `CONFINE_UNSUPPORTED`; they are not silently
-weakened.
+weakened. The portable `pids` field counts processes and threads, as Linux
+`pids.max` does; a Job active-process limit alone cannot satisfy it.
 
 The runtime resolves and supplies trusted `SYSTEMROOT` and `LOCALAPPDATA`
 bootstrap values required by Windows process and AppContainer creation. Windows
 then rewrites `LOCALAPPDATA`, `TEMP`, and `TMP` into the package-private profile.
 Those four names are platform-managed and cannot be set or admitted by an entry
 environment policy. No other host environment is implicitly inherited.
+
+Go 1.27 has a Windows runtime compatibility defect under AppContainer: a
+failed Winsock initialization can be cached by `internal/poll`, after which an
+ordinary file handle may be sent through a socket write path. The conformance
+suite uses raw `CreateFile`/`WriteFile` calls to prove filesystem authorization
+independently. This does not weaken LPAC, Job, ACL, or integrity enforcement,
+but Go payloads that first trigger the failed networking path may encounter the
+upstream runtime defect.

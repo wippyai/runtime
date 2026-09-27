@@ -50,6 +50,26 @@ type linuxEntryBinding struct {
 	exec  map[string]*confinelinux.BoundDirectory
 }
 
+type linuxLaunchFiles struct {
+	workdir       *os.File
+	workDirSource string
+	sources       []*os.File
+	grants        []confinelinux.HelperGrant
+	private       []confinelinux.PrivateGrant
+}
+
+func (f *linuxLaunchFiles) Close() {
+	if f == nil {
+		return
+	}
+	if f.workdir != nil {
+		_ = f.workdir.Close()
+	}
+	for _, source := range f.sources {
+		_ = source.Close()
+	}
+}
+
 func bindLinuxFilesystem(fs confinement.Filesystem) (*linuxEntryBinding, error) {
 	binding := &linuxEntryBinding{
 		roots: make(map[string]*confinelinux.BoundDirectory),
@@ -188,18 +208,11 @@ func (b *linuxEntryBinding) openWorkDir(path string) (*os.File, string, error) {
 }
 
 func openBoundDescendant(roots map[string]*confinelinux.BoundDirectory, path string) (*os.File, string, error) {
-	var selected *confinelinux.BoundDirectory
-	selectedLength := -1
-	for base, root := range roots {
-		rel, err := filepath.Rel(base, path)
-		if err == nil && rel != ".." && !strings.HasPrefix(rel, "../") && len(base) > selectedLength {
-			selected, selectedLength = root, len(base)
-		}
+	selected, ok := selectConfinementRoot(roots, path)
+	if !ok {
+		return nil, "", confinelinux.ErrOutsideRoot
 	}
-	if selected != nil {
-		return selected.OpenDescendant(path)
-	}
-	return nil, "", confinelinux.ErrOutsideRoot
+	return selected.OpenDescendant(path)
 }
 
 func openVerifiedConfinementHelper() (*os.File, error) {
@@ -214,9 +227,36 @@ func openVerifiedConfinementHelper() (*os.File, error) {
 }
 
 func validateConfinementHost(entry *execapi.Confinement) error {
-	if err := entry.Validate(); err != nil {
+	policy, err := validateConfinementPolicy(entry)
+	if err != nil {
 		return err
 	}
+	if err := validateLinuxConfinementPaths(entry); err != nil {
+		return err
+	}
+	if entry.FS != nil {
+		if abi, err := confinelinux.LandlockABI(); err != nil {
+			return execapi.ErrConfineUnsupported.WithCause(err)
+		} else if abi < 5 {
+			return execapi.ErrConfineUnsupported.WithCause(fmt.Errorf("landlock ABI %d is below 5", abi))
+		}
+	}
+	if entry.Limits != nil && (entry.Limits.MemoryMiB > 0 || entry.Limits.PIDs > 0) {
+		if err := confinelinux.ProbeCgroupDelegation(policy.Limits); err != nil {
+			return execapi.ErrConfineUnsupported.WithCause(err)
+		}
+	}
+	if linuxHelperSHA256 == "" {
+		return execapi.ErrConfineUnsupported
+	}
+	helper, err := openVerifiedConfinementHelper()
+	if err != nil {
+		return execapi.ErrConfineUnsupported.WithCause(err)
+	}
+	return helper.Close()
+}
+
+func validateLinuxConfinementPaths(entry *execapi.Confinement) error {
 	var classes [][]string
 	if entry.FS != nil {
 		classes = [][]string{entry.FS.Read, entry.FS.Write, entry.FS.Exec}
@@ -247,30 +287,7 @@ func validateConfinementHost(entry *execapi.Confinement) error {
 			}
 		}
 	}
-	policy := confinement.FromEntry(entry)
-	if err := confinement.ValidateEntry(policy); err != nil {
-		return execapi.NewInvalidConfinementError("confine")
-	}
-	if entry.FS != nil {
-		if abi, err := confinelinux.LandlockABI(); err != nil {
-			return execapi.ErrConfineUnsupported.WithCause(err)
-		} else if abi < 5 {
-			return execapi.ErrConfineUnsupported.WithCause(fmt.Errorf("landlock ABI %d is below 5", abi))
-		}
-	}
-	if entry.Limits != nil && (entry.Limits.MemoryMiB > 0 || entry.Limits.PIDs > 0) {
-		if err := confinelinux.ProbeCgroupDelegation(policy.Limits); err != nil {
-			return execapi.ErrConfineUnsupported.WithCause(err)
-		}
-	}
-	if linuxHelperSHA256 == "" {
-		return execapi.ErrConfineUnsupported
-	}
-	helper, err := openVerifiedConfinementHelper()
-	if err != nil {
-		return execapi.ErrConfineUnsupported.WithCause(err)
-	}
-	return helper.Close()
+	return nil
 }
 
 func (e *Executor) prepareConfinement(process *ProcessExecutor, options execapi.ProcessOptions) error {
@@ -342,6 +359,99 @@ func splitPrivateFilesystem(fs confinement.Filesystem) (confinement.Filesystem, 
 	return host, private
 }
 
+func (c *linuxConfinementLaunch) bindLaunchFiles() (_ *linuxLaunchFiles, resultErr error) {
+	var hostFS confinement.Filesystem
+	var mounts []confinelinux.BindMount
+	files := &linuxLaunchFiles{}
+	if c.policy.FS != nil {
+		hostFS, files.private = splitPrivateFilesystem(c.policy.EffectiveFilesystem())
+		var err error
+		mounts, err = confinelinux.PlanBindMounts(hostFS)
+		if err != nil {
+			return nil, execapi.ErrConfineUnsupported.WithCause(err)
+		}
+	}
+	defer func() {
+		if resultErr != nil {
+			files.Close()
+		}
+	}()
+
+	c.entry.confineMu.RLock()
+	defer c.entry.confineMu.RUnlock()
+	binding, ok := c.entry.confineEntry.(*linuxEntryBinding)
+	if !ok {
+		return nil, execapi.ErrConfineUnsupported
+	}
+	grantBinding := binding
+	var transient *linuxEntryBinding
+	if c.entry.confine.FS == nil && c.policy.FS != nil {
+		var err error
+		transient, err = bindLinuxFilesystem(hostFS)
+		if err != nil {
+			return nil, execapi.ErrConfineUnsupported.WithCause(err)
+		}
+		defer transient.Close()
+		grantBinding = transient
+	}
+	for _, mount := range mounts {
+		read := hostFS.Read.Covers(mount.Source)
+		write := hostFS.Write.Covers(mount.Source)
+		execute := hostFS.Exec.Covers(mount.Source)
+		source, canonical, err := grantBinding.openGrant(mount.Source, read, write, execute)
+		if err != nil {
+			return nil, execapi.ErrConfineUnsupported.WithCause(err)
+		}
+		files.sources = append(files.sources, source)
+		files.grants = append(files.grants, confinelinux.HelperGrant{
+			Source: canonical, Target: mount.Source,
+			Read:     read,
+			Write:    write,
+			Exec:     execute,
+			ReadOnly: mount.ReadOnly, NoExec: mount.NoExec,
+		})
+	}
+	var err error
+	files.workdir, files.workDirSource, err = binding.openWorkDir(c.workDir)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", execapi.NewInvalidConfinementError("work_dir"), err)
+	}
+	return files, nil
+}
+
+func startLinuxCommand(process *ProcessExecutor, launch *confinelinux.Launch) error {
+	if process.pty == nil {
+		return launch.Command.Start()
+	}
+	width, height, _ := process.pty.Dimensions()
+	master, err := pty.StartWithSize(launch.Command, &pty.Winsize{Cols: uint16(width), Rows: uint16(height)})
+	if err != nil {
+		return err
+	}
+	process.ptyMaster = master
+	process.stdinPipe, process.stdoutp = master, master
+	process.stderrp = io.NopCloser(strings.NewReader(""))
+	return nil
+}
+
+func (c *linuxConfinementLaunch) armWallDeadline(process *ProcessExecutor) {
+	if c.policy.Limits.WallSec <= 0 {
+		return
+	}
+	c.wallDone = make(chan struct{})
+	c.wall = time.AfterFunc(time.Duration(c.policy.Limits.WallSec)*time.Second, func() {
+		defer c.wallOnce.Do(func() { close(c.wallDone) })
+		// Ask namespace PID 1 to kill the task domain while it survives to
+		// reap and report the target. Direct target-only kill leaks descendants.
+		if c.supervisor == nil || c.supervisor.Signal(confinelinux.TreeKillSignal) != nil {
+			if c.group != nil {
+				_ = c.group.Kill()
+			}
+			_ = process.cmd.Process.Kill()
+		}
+	})
+}
+
 func (c *linuxConfinementLaunch) Start(process *ProcessExecutor) error {
 	started := false
 	defer func() {
@@ -361,64 +471,11 @@ func (c *linuxConfinementLaunch) Start(process *ProcessExecutor) error {
 		return execapi.ErrConfineUnsupported.WithCause(err)
 	}
 	defer helper.Close()
-	var hostFS confinement.Filesystem
-	var private []confinelinux.PrivateGrant
-	var mounts []confinelinux.BindMount
-	if c.policy.FS != nil {
-		hostFS, private = splitPrivateFilesystem(c.policy.EffectiveFilesystem())
-		mounts, err = confinelinux.PlanBindMounts(hostFS)
-		if err != nil {
-			return execapi.ErrConfineUnsupported.WithCause(err)
-		}
-	}
-	sources := make([]*os.File, 0, len(mounts))
-	defer func() {
-		for _, source := range sources {
-			_ = source.Close()
-		}
-	}()
-	grants := make([]confinelinux.HelperGrant, 0, len(mounts))
-	c.entry.confineMu.RLock()
-	binding, ok := c.entry.confineEntry.(*linuxEntryBinding)
-	if !ok {
-		c.entry.confineMu.RUnlock()
-		return execapi.ErrConfineUnsupported
-	}
-	grantBinding := binding
-	var transient *linuxEntryBinding
-	if c.entry.confine.FS == nil && c.policy.FS != nil {
-		transient, err = bindLinuxFilesystem(hostFS)
-		if err != nil {
-			c.entry.confineMu.RUnlock()
-			return execapi.ErrConfineUnsupported.WithCause(err)
-		}
-		defer transient.Close()
-		grantBinding = transient
-	}
-	for _, mount := range mounts {
-		read := coveredByPolicy(mount.Source, hostFS.Read.Paths)
-		write := coveredByPolicy(mount.Source, hostFS.Write.Paths)
-		execute := coveredByPolicy(mount.Source, hostFS.Exec.Paths)
-		source, canonical, bindErr := grantBinding.openGrant(mount.Source, read, write, execute)
-		if bindErr != nil {
-			c.entry.confineMu.RUnlock()
-			return execapi.ErrConfineUnsupported.WithCause(bindErr)
-		}
-		sources = append(sources, source)
-		grants = append(grants, confinelinux.HelperGrant{
-			Source: canonical, Target: mount.Source,
-			Read:     read,
-			Write:    write,
-			Exec:     execute,
-			ReadOnly: mount.ReadOnly, NoExec: mount.NoExec,
-		})
-	}
-	workdir, workDirSource, err := binding.openWorkDir(c.workDir)
-	c.entry.confineMu.RUnlock()
+	files, err := c.bindLaunchFiles()
 	if err != nil {
-		return fmt.Errorf("%w: %w", execapi.NewInvalidConfinementError("work_dir"), err)
+		return err
 	}
-	defer workdir.Close()
+	defer files.Close()
 	if c.policy.FS != nil {
 		c.root, err = os.MkdirTemp("", "wippy-confine-root-")
 		if err != nil {
@@ -440,11 +497,11 @@ func (c *linuxConfinementLaunch) Start(process *ProcessExecutor) error {
 	}
 	target := process.cmd.Path
 	policy := confinelinux.HelperPolicy{
-		Root: c.root, PrivateHome: c.hostPrivate, Grants: grants, Private: private, WorkDir: c.workDir,
-		WorkDirSource: workDirSource, Path: target, Argv: process.cmd.Args, Env: process.cmd.Env,
+		Root: c.root, PrivateHome: c.hostPrivate, Grants: files.grants, Private: files.private, WorkDir: c.workDir,
+		WorkDirSource: files.workDirSource, Path: target, Argv: process.cmd.Args, Env: process.cmd.Env,
 		ProcessGroup: process.processGroup, PTY: process.pty != nil,
 	}
-	launch, err := confinelinux.PrepareLaunch(helper, policy, sources, workdir, c.policy.NetworkNone)
+	launch, err := confinelinux.PrepareLaunch(helper, policy, files.sources, files.workdir, c.policy.NetworkNone)
 	if err != nil {
 		if c.group != nil {
 			_ = c.group.Remove()
@@ -464,20 +521,7 @@ func (c *linuxConfinementLaunch) Start(process *ProcessExecutor) error {
 	if c.group != nil {
 		beforePolicy = c.group.Add
 	}
-	err = launch.Start(func(_ *exec.Cmd) error {
-		if process.pty == nil {
-			return launch.Command.Start()
-		}
-		width, height, _ := process.pty.Dimensions()
-		master, startErr := pty.StartWithSize(launch.Command,
-			&pty.Winsize{Cols: uint16(width), Rows: uint16(height)})
-		if startErr == nil {
-			process.ptyMaster = master
-			process.stdinPipe, process.stdoutp = master, master
-			process.stderrp = io.NopCloser(strings.NewReader(""))
-		}
-		return startErr
-	}, beforePolicy)
+	err = launch.Start(func(_ *exec.Cmd) error { return startLinuxCommand(process, launch) }, beforePolicy)
 	if err != nil {
 		if c.group != nil {
 			_ = c.group.Kill()
@@ -509,22 +553,7 @@ func (c *linuxConfinementLaunch) Start(process *ProcessExecutor) error {
 	c.identity.Unlock()
 	launch.TargetPIDFD = -1
 	process.pid = launch.TargetPID
-	if c.policy.Limits.WallSec > 0 {
-		c.wallDone = make(chan struct{})
-		c.wall = time.AfterFunc(time.Duration(c.policy.Limits.WallSec)*time.Second, func() {
-			defer c.wallOnce.Do(func() { close(c.wallDone) })
-			// Ask namespace PID 1 to SIGKILL the complete task domain while it
-			// survives to reap and report the target. A direct target-only kill
-			// would let descendants outlive the wall deadline while the root is
-			// stuck in uninterruptible I/O.
-			if c.supervisor == nil || c.supervisor.Signal(confinelinux.TreeKillSignal) != nil {
-				if c.group != nil {
-					_ = c.group.Kill()
-				}
-				_ = process.cmd.Process.Kill()
-			}
-		})
-	}
+	c.armWallDeadline(process)
 	started = true
 	return nil
 }
@@ -536,16 +565,6 @@ func (c *linuxConfinementLaunch) Signal(signal syscall.Signal) error {
 		return ErrProcessNotRunning
 	}
 	return confinelinux.SignalPIDFD(c.targetPIDFD, signal)
-}
-
-func coveredByPolicy(path string, grants []string) bool {
-	for _, grant := range grants {
-		rel, err := filepath.Rel(grant, path)
-		if err == nil && rel != ".." && !strings.HasPrefix(rel, "../") {
-			return true
-		}
-	}
-	return false
 }
 
 func (c *linuxConfinementLaunch) Stop() {

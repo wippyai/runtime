@@ -20,3 +20,10 @@ profile cannot prove Linux's total socket denial including `socketpair`.
 Accordingly filesystem policies, `network: none`, memory/task limits, confined
 PTYs, and confined process groups return `CONFINE_UNSUPPORTED`; no requested
 guarantee silently degrades.
+
+The helper currently installs its dynamic profile through Apple's deprecated
+`sandbox_init` entry point. This is the native mechanism available to an
+unprivileged command runner that must execute arbitrary binaries, but it is not
+a stable Apple SDK compatibility promise. The signed-helper tests must pass on
+every supported macOS release; a release where the entry point or profile
+language no longer works is unsupported rather than silently unconfined.

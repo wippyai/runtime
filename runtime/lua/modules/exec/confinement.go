@@ -15,100 +15,140 @@ func parseConfinementPatch(table *lua.LTable) (*execapi.ConfinementPatch, error)
 		return nil, err
 	}
 	patch := &execapi.ConfinementPatch{}
+	var err error
 	if value := table.RawGetString("fs"); value != lua.LNil {
-		fs, ok := value.(*lua.LTable)
-		if !ok {
-			return nil, fmt.Errorf("confine.fs must be a table")
-		}
-		if err := requireConfineFields(fs, "confine.fs", "read", "write", "exec"); err != nil {
+		patch.FS, err = parseConfinementFS(value)
+		if err != nil {
 			return nil, err
-		}
-		patch.FS = &execapi.ConfinementFSPatch{}
-		for _, field := range []struct {
-			dest **[]string
-			name string
-		}{
-			{&patch.FS.Read, "read"},
-			{&patch.FS.Write, "write"},
-			{&patch.FS.Exec, "exec"},
-		} {
-			if value := fs.RawGetString(field.name); value != lua.LNil {
-				paths, err := parseConfinementStrings(value, "confine.fs."+field.name)
-				if err != nil {
-					return nil, err
-				}
-				*field.dest = &paths
-			}
 		}
 	}
 	if value := table.RawGetString("env"); value != lua.LNil {
-		env, ok := value.(*lua.LTable)
-		if !ok {
-			return nil, fmt.Errorf("confine.env must be a table")
-		}
-		if err := requireConfineFields(env, "confine.env", "allow"); err != nil {
+		patch.Env, err = parseConfinementEnv(value)
+		if err != nil {
 			return nil, err
-		}
-		patch.Env = &execapi.ConfinementEnvironmentPatch{}
-		if value := env.RawGetString("allow"); value != lua.LNil {
-			allow, err := parseConfinementStrings(value, "confine.env.allow")
-			if err != nil {
-				return nil, err
-			}
-			patch.Env.Allow = &allow
 		}
 	}
 	if value := table.RawGetString("network"); value != lua.LNil {
-		network, ok := value.(lua.LString)
-		if !ok || string(network) != "none" {
-			return nil, fmt.Errorf("confine.network must be none")
-		}
-		mode := string(network)
-		patch.Network = &mode
-	}
-	if value := table.RawGetString("limits"); value != lua.LNil {
-		limits, ok := value.(*lua.LTable)
-		if !ok {
-			return nil, fmt.Errorf("confine.limits must be a table")
-		}
-		if err := requireConfineFields(limits, "confine.limits", "mem_mb", "pids", "wall_s"); err != nil {
+		patch.Network, err = parseConfinementNetwork(value)
+		if err != nil {
 			return nil, err
 		}
-		patch.Limits = &execapi.ConfinementLimitsPatch{}
-		for _, field := range []struct {
-			dest **int64
-			name string
-		}{
-			{&patch.Limits.MemoryMiB, "mem_mb"},
-			{&patch.Limits.PIDs, "pids"},
-			{&patch.Limits.WallSec, "wall_s"},
-		} {
-			if value := limits.RawGetString(field.name); value != lua.LNil {
-				limit, err := parsePositiveConfinementInt(value, "confine.limits."+field.name)
-				if err != nil {
-					return nil, err
-				}
-				*field.dest = &limit
-			}
+	}
+	if value := table.RawGetString("limits"); value != lua.LNil {
+		patch.Limits, err = parseConfinementLimits(value)
+		if err != nil {
+			return nil, err
 		}
 	}
 	if value := table.RawGetString("tree"); value != lua.LNil {
-		tree, ok := value.(*lua.LTable)
-		if !ok {
-			return nil, fmt.Errorf("confine.tree must be a table")
-		}
-		if err := requireConfineFields(tree, "confine.tree", "kill_on_owner_exit"); err != nil {
+		patch.Tree, err = parseConfinementTree(value)
+		if err != nil {
 			return nil, err
 		}
-		patch.Tree = &execapi.ConfinementTreePatch{}
-		if value := tree.RawGetString("kill_on_owner_exit"); value != lua.LNil {
-			enabled, ok := value.(lua.LBool)
-			if !ok {
-				return nil, fmt.Errorf("confine.tree.kill_on_owner_exit must be a boolean")
+	}
+	return patch, nil
+}
+
+func parseConfinementFS(value lua.LValue) (*execapi.ConfinementFSPatch, error) {
+	table, ok := value.(*lua.LTable)
+	if !ok {
+		return nil, fmt.Errorf("confine.fs must be a table")
+	}
+	if err := requireConfineFields(table, "confine.fs", "read", "write", "exec"); err != nil {
+		return nil, err
+	}
+	patch := &execapi.ConfinementFSPatch{}
+	for _, field := range []struct {
+		dest **[]string
+		name string
+	}{
+		{&patch.Read, "read"},
+		{&patch.Write, "write"},
+		{&patch.Exec, "exec"},
+	} {
+		if value := table.RawGetString(field.name); value != lua.LNil {
+			paths, err := parseConfinementStrings(value, "confine.fs."+field.name)
+			if err != nil {
+				return nil, err
 			}
-			requested := bool(enabled)
-			patch.Tree.KillOnOwnerExit = &requested
+			*field.dest = &paths
 		}
+	}
+	return patch, nil
+}
+
+func parseConfinementEnv(value lua.LValue) (*execapi.ConfinementEnvironmentPatch, error) {
+	table, ok := value.(*lua.LTable)
+	if !ok {
+		return nil, fmt.Errorf("confine.env must be a table")
+	}
+	if err := requireConfineFields(table, "confine.env", "allow"); err != nil {
+		return nil, err
+	}
+	patch := &execapi.ConfinementEnvironmentPatch{}
+	if value := table.RawGetString("allow"); value != lua.LNil {
+		allow, err := parseConfinementStrings(value, "confine.env.allow")
+		if err != nil {
+			return nil, err
+		}
+		patch.Allow = &allow
+	}
+	return patch, nil
+}
+
+func parseConfinementNetwork(value lua.LValue) (*string, error) {
+	network, ok := value.(lua.LString)
+	if !ok || string(network) != "none" {
+		return nil, fmt.Errorf("confine.network must be none")
+	}
+	mode := string(network)
+	return &mode, nil
+}
+
+func parseConfinementLimits(value lua.LValue) (*execapi.ConfinementLimitsPatch, error) {
+	table, ok := value.(*lua.LTable)
+	if !ok {
+		return nil, fmt.Errorf("confine.limits must be a table")
+	}
+	if err := requireConfineFields(table, "confine.limits", "mem_mb", "pids", "wall_s"); err != nil {
+		return nil, err
+	}
+	patch := &execapi.ConfinementLimitsPatch{}
+	for _, field := range []struct {
+		dest **int64
+		name string
+	}{
+		{&patch.MemoryMiB, "mem_mb"},
+		{&patch.PIDs, "pids"},
+		{&patch.WallSec, "wall_s"},
+	} {
+		if value := table.RawGetString(field.name); value != lua.LNil {
+			limit, err := parsePositiveConfinementInt(value, "confine.limits."+field.name)
+			if err != nil {
+				return nil, err
+			}
+			*field.dest = &limit
+		}
+	}
+	return patch, nil
+}
+
+func parseConfinementTree(value lua.LValue) (*execapi.ConfinementTreePatch, error) {
+	table, ok := value.(*lua.LTable)
+	if !ok {
+		return nil, fmt.Errorf("confine.tree must be a table")
+	}
+	if err := requireConfineFields(table, "confine.tree", "kill_on_owner_exit"); err != nil {
+		return nil, err
+	}
+	patch := &execapi.ConfinementTreePatch{}
+	if value := table.RawGetString("kill_on_owner_exit"); value != lua.LNil {
+		enabled, ok := value.(lua.LBool)
+		if !ok {
+			return nil, fmt.Errorf("confine.tree.kill_on_owner_exit must be a boolean")
+		}
+		requested := bool(enabled)
+		patch.KillOnOwnerExit = &requested
 	}
 	return patch, nil
 }

@@ -89,15 +89,6 @@ func (b *BoundDirectory) OpenDescendant(path string) (*BoundPath, error) {
 	return &BoundPath{Path: filepath.Clean(actual), file: current}, nil
 }
 
-func (b *BoundDirectory) CanonicalDescendant(path string) (string, error) {
-	bound, err := b.OpenDescendant(path)
-	if err != nil {
-		return "", err
-	}
-	defer bound.Close()
-	return bound.Path, nil
-}
-
 func (b *BoundDirectory) Close() error {
 	if b == nil || b.file == nil {
 		return nil
@@ -144,9 +135,4 @@ func pathFromFD(fd int) (string, error) {
 		return "", errors.New("empty descriptor path")
 	}
 	return string(buffer), nil
-}
-
-func within(path, root string) bool {
-	rel, err := filepath.Rel(root, path)
-	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }

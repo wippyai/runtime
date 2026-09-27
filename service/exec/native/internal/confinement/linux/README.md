@@ -44,8 +44,10 @@ is present in the filesystem policy.
 layout with an empty parent and a `runtime` leaf containing the Wippy process.
 The launcher creates per-process cgroups as siblings of that leaf, enables only
 the requested controllers, and checks actual write access and membership
-before releasing the helper. On systemd versions that support it, the service
-configuration is:
+before releasing the helper. The `pids` value is written to `pids.max` and
+therefore counts every process and thread in the confined tree, not only
+process leaders. On systemd versions that support it, the service configuration
+is:
 
 ```ini
 [Service]

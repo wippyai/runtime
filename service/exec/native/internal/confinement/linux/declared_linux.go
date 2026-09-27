@@ -17,7 +17,7 @@ import (
 // /usr/lib64); the canonical source is pinned and passed to the child while
 // the declared spelling remains the target path in its private view.
 type BoundDirectory struct {
-	root      *WorkDirRoot
+	root      *workDirRoot
 	Declared  string
 	Canonical string
 }
@@ -64,7 +64,7 @@ func BindDeclaredDirectory(path string) (*BoundDirectory, error) {
 	}
 	return &BoundDirectory{
 		Declared: path, Canonical: canonical,
-		root: &WorkDirRoot{path: canonical, fd: fd},
+		root: &workDirRoot{path: canonical, fd: fd},
 	}, nil
 }
 
@@ -93,6 +93,19 @@ func RejectSpecialDirectoryFD(fd int) error {
 	return rejectSpecialHostSource("", fd)
 }
 
+// SameOpenDirectoryFDs compares two retained directory objects without
+// resolving either pathname again.
+func SameOpenDirectoryFDs(pinnedFD, candidateFD int) (bool, error) {
+	var pinned, candidate unix.Stat_t
+	if err := unix.Fstat(pinnedFD, &pinned); err != nil {
+		return false, err
+	}
+	if err := unix.Fstat(candidateFD, &candidate); err != nil {
+		return false, err
+	}
+	return pinned.Dev == candidate.Dev && pinned.Ino == candidate.Ino, nil
+}
+
 func (b *BoundDirectory) OpenDescendant(requested string) (*os.File, string, error) {
 	if !cleanAbsolute(requested) {
 		return nil, "", fmt.Errorf("%w: descendant must be clean and absolute", confinement.ErrInvalid)
@@ -102,7 +115,7 @@ func (b *BoundDirectory) OpenDescendant(requested string) (*os.File, string, err
 		return nil, "", ErrOutsideRoot
 	}
 	canonical := filepath.Join(b.Canonical, rel)
-	file, err := b.root.OpenBoundWorkDir(canonical)
+	file, err := b.root.openBoundWorkDir(canonical)
 	if err != nil {
 		return nil, "", err
 	}
@@ -113,4 +126,4 @@ func (b *BoundDirectory) OpenDescendant(requested string) (*os.File, string, err
 	return file, canonical, nil
 }
 
-func (b *BoundDirectory) Close() error { return b.root.Close() }
+func (b *BoundDirectory) Close() error { return b.root.close() }

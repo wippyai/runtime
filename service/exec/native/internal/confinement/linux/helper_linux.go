@@ -363,6 +363,28 @@ func installHelperPolicy(policy HelperPolicy) error {
 	if err != nil {
 		return err
 	}
+	if err := installHelperFilesystem(policy); err != nil {
+		return err
+	}
+	if err := enterHelperWorkDir(policy); err != nil {
+		return err
+	}
+	for _, grant := range policy.Grants {
+		_ = unix.Close(grant.FD)
+	}
+	if policy.WorkDirFD >= 0 {
+		_ = unix.Close(policy.WorkDirFD)
+	}
+	if err := DropTargetCapabilities(lastCapability); err != nil {
+		return err
+	}
+	if err := InstallIsolationSeccomp(policy.NetworkNone, policy.Root != ""); err != nil {
+		return err
+	}
+	return nil
+}
+
+func installHelperFilesystem(policy HelperPolicy) error {
 	if policy.Root == "" {
 		if err := InstallUnrestrictedKernelView(); err != nil {
 			return err
@@ -376,168 +398,173 @@ func installHelperPolicy(policy HelperPolicy) error {
 			return err
 		}
 	}
-	if policy.Root != "" {
-		mounts := make([]PinnedMount, 0, len(policy.Grants))
-		for _, grant := range policy.Grants {
-			if err := RejectSpecialDirectoryFD(grant.FD); err != nil {
-				return fmt.Errorf("reject special grant: %w", err)
-			}
-			// Linux forbids bind-mounting a mount inherited from a more
-			// privileged user namespace. Reopen the source in this namespace,
-			// then compare it with the parent's pinned directory before use.
-			if !cleanAbsolute(grant.Source) {
-				return errors.New("invalid grant source")
-			}
-			sourceFD, err := unix.Openat2(unix.AT_FDCWD, grant.Source, &unix.OpenHow{
-				Flags:   unix.O_PATH | unix.O_DIRECTORY | unix.O_CLOEXEC,
-				Resolve: unix.RESOLVE_NO_SYMLINKS | unix.RESOLVE_NO_MAGICLINKS,
-			})
+	if policy.Root == "" {
+		return nil
+	}
+
+	mounts, err := reopenPinnedMounts(policy.Grants)
+	if err != nil {
+		return err
+	}
+	defer closePinnedMounts(mounts)
+	privateExec := false
+	for _, grant := range policy.Private {
+		privateExec = privateExec || grant.Exec
+	}
+	if err := InstallMountViewWithPrivateExec(policy.Root, mounts, privateExec); err != nil {
+		return err
+	}
+
+	landlock, err := openLandlockGrants(policy)
+	if err != nil {
+		return err
+	}
+	defer closeLandlockGrants(landlock)
+	return InstallLandlock(landlock)
+}
+
+func reopenPinnedMounts(grants []HelperGrant) ([]PinnedMount, error) {
+	mounts := make([]PinnedMount, 0, len(grants))
+	failed := true
+	defer func() {
+		if failed {
+			closePinnedMounts(mounts)
+		}
+	}()
+	for _, grant := range grants {
+		if err := RejectSpecialDirectoryFD(grant.FD); err != nil {
+			return nil, fmt.Errorf("reject special grant: %w", err)
+		}
+		if !cleanAbsolute(grant.Source) {
+			return nil, errors.New("invalid grant source")
+		}
+		// Reopen inside the new user namespace, then prove it is still the
+		// object pinned by the parent before it becomes a mount authority.
+		sourceFD, err := unix.Openat2(unix.AT_FDCWD, grant.Source, &unix.OpenHow{
+			Flags:   unix.O_PATH | unix.O_DIRECTORY | unix.O_CLOEXEC,
+			Resolve: unix.RESOLVE_NO_SYMLINKS | unix.RESOLVE_NO_MAGICLINKS,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("reopen grant: %w", err)
+		}
+		if err := RejectSpecialDirectoryFD(sourceFD); err != nil {
+			_ = unix.Close(sourceFD)
+			return nil, fmt.Errorf("reject reopened special grant: %w", err)
+		}
+		same, err := SameOpenDirectoryFDs(grant.FD, sourceFD)
+		if err != nil || !same {
+			_ = unix.Close(sourceFD)
 			if err != nil {
-				return fmt.Errorf("reopen grant: %w", err)
+				return nil, fmt.Errorf("compare grant identity: %w", err)
 			}
-			if err := RejectSpecialDirectoryFD(sourceFD); err != nil {
-				_ = unix.Close(sourceFD)
-				return fmt.Errorf("reject reopened special grant: %w", err)
-			}
-			same, err := SameOpenDirectoryFDs(grant.FD, sourceFD)
-			if err != nil || !same {
-				_ = unix.Close(sourceFD)
-				if err != nil {
-					return fmt.Errorf("compare grant identity: %w", err)
-				}
-				return errors.New("grant identity changed")
-			}
-			mounts = append(mounts, PinnedMount{
-				Target: grant.Target, FD: sourceFD,
-				ReadOnly: grant.ReadOnly, NoExec: grant.NoExec,
-			})
+			return nil, errors.New("grant identity changed")
 		}
-		privateExec := false
-		for _, grant := range policy.Private {
-			if grant.Exec {
-				privateExec = true
-			}
+		mounts = append(mounts, PinnedMount{
+			Target: grant.Target, FD: sourceFD,
+			ReadOnly: grant.ReadOnly, NoExec: grant.NoExec,
+		})
+	}
+	failed = false
+	return mounts, nil
+}
+
+func closePinnedMounts(mounts []PinnedMount) {
+	for _, mount := range mounts {
+		_ = unix.Close(mount.FD)
+	}
+}
+
+func openLandlockGrants(policy HelperPolicy) ([]LandlockGrant, error) {
+	grants := make([]LandlockGrant, 0, len(policy.Grants)+len(policy.Private)+5)
+	failed := true
+	defer func() {
+		if failed {
+			closeLandlockGrants(grants)
 		}
-		if err := InstallMountViewWithPrivateExec(policy.Root, mounts, privateExec); err != nil {
-			return err
+	}()
+	for _, grant := range policy.Grants {
+		fd, err := openPolicyPath(grant.Target)
+		if err != nil {
+			return nil, fmt.Errorf("open mounted Landlock grant: %w", err)
 		}
-		for _, mount := range mounts {
-			_ = unix.Close(mount.FD)
+		grants = append(grants, LandlockGrant{
+			FD: fd, Read: grant.Read, Write: grant.Write, Exec: grant.Exec,
+		})
+	}
+	for _, grant := range policy.Private {
+		if grant.Target != confinement.PrivateHomePath && grant.Target != confinement.PrivateTempPath {
+			return nil, errors.New("invalid private grant target")
 		}
-		landlock := make([]LandlockGrant, 0, len(policy.Grants))
-		for _, grant := range policy.Grants {
-			fd, err := unix.Openat2(unix.AT_FDCWD, grant.Target, &unix.OpenHow{
-				Flags:   unix.O_PATH | unix.O_DIRECTORY | unix.O_CLOEXEC,
-				Resolve: unix.RESOLVE_NO_SYMLINKS | unix.RESOLVE_NO_MAGICLINKS,
-			})
-			if err != nil {
-				return fmt.Errorf("open mounted Landlock grant: %w", err)
-			}
-			landlock = append(landlock, LandlockGrant{
-				FD: fd, Read: grant.Read, Write: grant.Write, Exec: grant.Exec,
-			})
+		fd, err := openPolicyPath(grant.Target)
+		if err != nil {
+			return nil, fmt.Errorf("open private Landlock grant: %w", err)
 		}
-		for _, grant := range policy.Private {
-			if grant.Target != confinement.PrivateHomePath && grant.Target != confinement.PrivateTempPath {
-				return errors.New("invalid private grant target")
-			}
-			fd, err := unix.Openat2(unix.AT_FDCWD, grant.Target, &unix.OpenHow{
-				Flags:   unix.O_PATH | unix.O_DIRECTORY | unix.O_CLOEXEC,
-				Resolve: unix.RESOLVE_NO_SYMLINKS | unix.RESOLVE_NO_MAGICLINKS,
-			})
-			if err != nil {
-				return fmt.Errorf("open private Landlock grant: %w", err)
-			}
-			landlock = append(landlock, LandlockGrant{
-				FD: fd, Read: grant.Read, Write: grant.Write, Exec: grant.Exec,
-			})
+		grants = append(grants, LandlockGrant{
+			FD: fd, Read: grant.Read, Write: grant.Write, Exec: grant.Exec,
+		})
+	}
+	for _, device := range []string{"/dev/null", "/dev/zero", "/dev/random", "/dev/urandom", "/dev/tty"} {
+		fd, err := unix.Open(device, unix.O_PATH|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
+		if err != nil {
+			return nil, fmt.Errorf("open private device: %w", err)
 		}
-		for _, device := range []string{"/dev/null", "/dev/zero", "/dev/random", "/dev/urandom", "/dev/tty"} {
-			fd, err := unix.Open(device, unix.O_PATH|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
-			if err != nil {
-				return fmt.Errorf("open private device: %w", err)
-			}
-			landlock = append(landlock, LandlockGrant{
-				FD: fd, Read: true, Write: true, FileOnly: true, IOCTLDev: true,
-			})
-		}
-		if err := InstallLandlock(landlock); err != nil {
-			return err
-		}
-		for _, grant := range landlock {
-			_ = unix.Close(grant.FD)
-		}
-		if policy.WorkDir != "" {
-			if policy.WorkDirFD < 0 {
-				return errors.New("missing pinned work directory")
-			}
-			viewFD, err := unix.Openat2(unix.AT_FDCWD, policy.WorkDir, &unix.OpenHow{
-				Flags:   unix.O_PATH | unix.O_DIRECTORY | unix.O_CLOEXEC,
-				Resolve: unix.RESOLVE_NO_SYMLINKS | unix.RESOLVE_NO_MAGICLINKS,
-			})
-			if err != nil {
-				return fmt.Errorf("open mounted working directory: %w", err)
-			}
-			defer unix.Close(viewFD)
-			same, err := SameOpenDirectoryFDs(policy.WorkDirFD, viewFD)
-			if err != nil || !same {
-				if err != nil {
-					return fmt.Errorf("compare working directory identity: %w", err)
-				}
-				return errors.New("working directory identity changed")
-			}
-			if err := unix.Fchdir(viewFD); err != nil {
-				return fmt.Errorf("enter working directory: %w", err)
-			}
-		}
-	} else if policy.WorkDir != "" {
-		if policy.WorkDirFD < 0 {
-			return errors.New("missing pinned work directory")
-		}
+		grants = append(grants, LandlockGrant{
+			FD: fd, Read: true, Write: true, FileOnly: true, IOCTLDev: true,
+		})
+	}
+	failed = false
+	return grants, nil
+}
+
+func openPolicyPath(path string) (int, error) {
+	return unix.Openat2(unix.AT_FDCWD, path, &unix.OpenHow{
+		Flags:   unix.O_PATH | unix.O_DIRECTORY | unix.O_CLOEXEC,
+		Resolve: unix.RESOLVE_NO_SYMLINKS | unix.RESOLVE_NO_MAGICLINKS,
+	})
+}
+
+func closeLandlockGrants(grants []LandlockGrant) {
+	for _, grant := range grants {
+		_ = unix.Close(grant.FD)
+	}
+}
+
+func enterHelperWorkDir(policy HelperPolicy) error {
+	if policy.WorkDir == "" {
+		return nil
+	}
+	if policy.WorkDirFD < 0 {
+		return errors.New("missing pinned work directory")
+	}
+	viewPath := policy.WorkDir
+	label := "mounted"
+	if policy.Root == "" {
 		if err := RejectSpecialDirectoryFD(policy.WorkDirFD); err != nil {
 			return fmt.Errorf("reject special working directory: %w", err)
 		}
-		// The declared work_dir may contain an ordinary symlink. Its canonical
-		// source was pinned and identity-checked by the parent; reopen that
-		// spelling after installing the final mount view, then compare it with
-		// the inherited descriptor before entering it.
-		viewPath := policy.WorkDirSource
+		viewPath = policy.WorkDirSource
 		if viewPath == "" {
 			viewPath = policy.WorkDir
 		}
 		if !cleanAbsolute(viewPath) {
 			return errors.New("invalid canonical working directory")
 		}
-		viewFD, err := unix.Openat2(unix.AT_FDCWD, viewPath, &unix.OpenHow{
-			Flags:   unix.O_PATH | unix.O_DIRECTORY | unix.O_CLOEXEC,
-			Resolve: unix.RESOLVE_NO_SYMLINKS | unix.RESOLVE_NO_MAGICLINKS,
-		})
-		if err != nil {
-			return fmt.Errorf("reopen masked working directory: %w", err)
-		}
-		defer unix.Close(viewFD)
-		same, err := SameOpenDirectoryFDs(policy.WorkDirFD, viewFD)
-		if err != nil || !same {
-			if err != nil {
-				return fmt.Errorf("compare masked working directory identity: %w", err)
-			}
-			return errors.New("masked working directory identity changed")
-		}
-		if err := unix.Fchdir(viewFD); err != nil {
-			return fmt.Errorf("enter pinned working directory: %w", err)
-		}
+		label = "unrestricted"
 	}
-	for _, grant := range policy.Grants {
-		_ = unix.Close(grant.FD)
+	viewFD, err := openPolicyPath(viewPath)
+	if err != nil {
+		return fmt.Errorf("open %s working directory: %w", label, err)
 	}
-	if policy.WorkDirFD >= 0 {
-		_ = unix.Close(policy.WorkDirFD)
+	defer unix.Close(viewFD)
+	same, err := SameOpenDirectoryFDs(policy.WorkDirFD, viewFD)
+	if err != nil {
+		return fmt.Errorf("compare %s working directory identity: %w", label, err)
 	}
-	if err := DropTargetCapabilities(lastCapability); err != nil {
-		return err
+	if !same {
+		return fmt.Errorf("%s working directory identity changed", label)
 	}
-	if err := InstallIsolationSeccomp(policy.NetworkNone, policy.Root != ""); err != nil {
-		return err
+	if err := unix.Fchdir(viewFD); err != nil {
+		return fmt.Errorf("enter %s working directory: %w", label, err)
 	}
 	return nil
 }

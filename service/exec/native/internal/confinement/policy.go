@@ -26,10 +26,10 @@ const (
 	PrivateTempPath = PrivateRootPath + "/tmp"
 )
 
-// ExpandPrivatePaths gives placeholders stable, per-launch private-view names
+// expandPrivatePaths gives placeholders stable, per-launch private-view names
 // before path algebra runs. The platform backend must create these objects
 // inside its private root; it must never bind matching host paths.
-func ExpandPrivatePaths(paths []string) []string {
+func expandPrivatePaths(paths []string) []string {
 	out := make([]string, len(paths))
 	for i, path := range paths {
 		switch path {
@@ -47,26 +47,11 @@ func ExpandPrivatePaths(paths []string) []string {
 func ExpandPrivatePolicy(policy Policy) Policy {
 	policy = clonePolicy(policy)
 	if policy.FS != nil {
-		policy.FS.Read.Paths = ExpandPrivatePaths(policy.FS.Read.Paths)
-		policy.FS.Write.Paths = ExpandPrivatePaths(policy.FS.Write.Paths)
-		policy.FS.Exec.Paths = ExpandPrivatePaths(policy.FS.Exec.Paths)
+		policy.FS.Read.Paths = expandPrivatePaths(policy.FS.Read.Paths)
+		policy.FS.Write.Paths = expandPrivatePaths(policy.FS.Write.Paths)
+		policy.FS.Exec.Paths = expandPrivatePaths(policy.FS.Exec.Paths)
 	}
 	return policy
-}
-
-func ExpandPrivatePatch(patch Patch) Patch {
-	if patch.FS == nil {
-		return patch
-	}
-	fs := *patch.FS
-	for _, access := range []**[]string{&fs.Read, &fs.Write, &fs.Exec} {
-		if *access != nil {
-			paths := ExpandPrivatePaths(**access)
-			*access = &paths
-		}
-	}
-	patch.FS = &fs
-	return patch
 }
 
 // Access is either unrestricted or limited to declared clean absolute
@@ -76,6 +61,21 @@ func ExpandPrivatePatch(patch Patch) Patch {
 type Access struct {
 	Paths        []string
 	Unrestricted bool
+}
+
+// Covers reports whether this access class lexically contains path. It does
+// not resolve or authorize the path; platform binders must still pin its
+// filesystem identity before launch.
+func (a Access) Covers(path string) bool {
+	if a.Unrestricted {
+		return true
+	}
+	for _, grant := range a.Paths {
+		if pathWithin(path, grant) {
+			return true
+		}
+	}
+	return false
 }
 
 type Filesystem struct {
@@ -205,15 +205,7 @@ func (p Policy) AllowsDeclaredWorkDir(declared string) bool {
 	}
 	fs := effectiveFS(p)
 	read := union(fs.Read, fs.Write)
-	if read.Unrestricted {
-		return true
-	}
-	for _, grant := range read.Paths {
-		if pathWithin(declared, grant) {
-			return true
-		}
-	}
-	return false
+	return read.Covers(declared)
 }
 
 // Narrow applies a launch patch. Path checks here are lexical policy

@@ -58,12 +58,17 @@ func TestSeparateHelperExecsOnlyAfterConfinement(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(outside, "hidden"), []byte("hidden"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	grant, err := BindDirectory(allowed)
+	boundRoot, err := BindDeclaredDirectory(allowed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer boundRoot.Close()
+	grant, _, err := boundRoot.OpenDescendant(allowed)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer grant.Close()
-	workdir, err := BindDirectory(allowed)
+	workdir, _, err := boundRoot.OpenDescendant(allowed)
 	if err != nil {
 		t.Fatal(err)
 	}

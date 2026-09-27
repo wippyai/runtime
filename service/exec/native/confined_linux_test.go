@@ -463,17 +463,18 @@ func TestPrivatePathsNeverBecomeHostMounts(t *testing.T) {
 			Exec:  []string{"/workspace"},
 		},
 	}
-	policy := confinement.ExpandPrivatePolicy(confinement.FromEntry(entry))
+	policy := confinement.FromEntry(entry)
 	if err := confinement.ValidateEntry(policy); err != nil {
 		t.Fatal(err)
 	}
-	patch := confinement.ExpandPrivatePatch(confinement.FromPatch(&execapi.ConfinementPatch{
+	patch := confinement.FromPatch(&execapi.ConfinementPatch{
 		FS: &execapi.ConfinementFSPatch{Write: &[]string{"{tmp}"}},
-	}))
+	})
 	narrowed, err := confinement.Narrow(policy, patch)
 	if err != nil {
 		t.Fatal(err)
 	}
+	narrowed = confinement.ExpandPrivatePolicy(narrowed)
 	host, private := splitPrivateFilesystem(narrowed.EffectiveFilesystem())
 	mounts, err := confinelinux.PlanBindMounts(host)
 	if err != nil {
