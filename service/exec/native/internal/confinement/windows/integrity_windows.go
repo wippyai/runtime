@@ -66,11 +66,11 @@ func RequireLowIntegrityDirectory(path string) error {
 // intentionally separate from launch: labels are object-wide and must never be
 // lowered temporarily behind another runtime's back.
 func SetLowIntegrityDirectory(path string) error {
-	handle, err := openIntegrityPath(path, windows.WRITE_OWNER)
+	handle, err := openIntegrityPath(path, windows.READ_CONTROL)
 	if err != nil {
 		return err
 	}
-	defer windows.CloseHandle(handle)
+	_ = windows.CloseHandle(handle)
 	descriptor, err := windows.SecurityDescriptorFromString("S:(ML;OICI;NW;;;LW)")
 	if err != nil {
 		return err
@@ -79,7 +79,7 @@ func SetLowIntegrityDirectory(path string) error {
 	if err != nil || sacl == nil {
 		return errors.New("build low-integrity mandatory label")
 	}
-	err = windows.SetSecurityInfo(handle, windows.SE_FILE_OBJECT, windows.LABEL_SECURITY_INFORMATION,
+	err = windows.SetNamedSecurityInfo(path, windows.SE_FILE_OBJECT, windows.LABEL_SECURITY_INFORMATION,
 		nil, nil, nil, sacl)
 	runtime.KeepAlive(descriptor)
 	return err
