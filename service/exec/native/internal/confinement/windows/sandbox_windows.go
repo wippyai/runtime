@@ -31,6 +31,7 @@ var (
 	createAppContainerProfile = userenv.NewProc("CreateAppContainerProfile")
 	deleteAppContainerProfile = userenv.NewProc("DeleteAppContainerProfile")
 	advapi32                  = windows.NewLazySystemDLL("advapi32.dll")
+	accessCheck               = advapi32.NewProc("AccessCheck")
 	getTokenInformation       = advapi32.NewProc("GetTokenInformation")
 	kernel32                  = windows.NewLazySystemDLL("kernel32.dll")
 	isProcessInJob            = kernel32.NewProc("IsProcessInJob")
@@ -277,7 +278,7 @@ func (p *SpawnedProcess) verify(job *Job, expectedSID *windows.SID) error {
 		return errors.New("suspended target is not in confinement Job")
 	}
 	var token windows.Token
-	if err := windows.OpenProcessToken(p.Process, windows.TOKEN_QUERY, &token); err != nil {
+	if err := windows.OpenProcessToken(p.Process, windows.TOKEN_QUERY|windows.TOKEN_DUPLICATE, &token); err != nil {
 		return err
 	}
 	defer token.Close()
@@ -288,7 +289,7 @@ func (p *SpawnedProcess) verify(job *Job, expectedSID *windows.SID) error {
 	if !isContainer {
 		return errors.New("suspended target does not have an AppContainer token")
 	}
-	isLPAC, err := tokenBool(token, 46)
+	isLPAC, err := tokenHasLPACAccess(token)
 	if err != nil {
 		return fmt.Errorf("verify LPAC token: %w", err)
 	}
@@ -321,7 +322,7 @@ func (p *SpawnedProcess) verify(job *Job, expectedSID *windows.SID) error {
 
 func CurrentProcessIsLPAC() (bool, error) {
 	var token windows.Token
-	if err := windows.OpenProcessToken(windows.CurrentProcess(), windows.TOKEN_QUERY, &token); err != nil {
+	if err := windows.OpenProcessToken(windows.CurrentProcess(), windows.TOKEN_QUERY|windows.TOKEN_DUPLICATE, &token); err != nil {
 		return false, err
 	}
 	defer token.Close()
@@ -329,7 +330,68 @@ func CurrentProcessIsLPAC() (bool, error) {
 	if err != nil || !isContainer {
 		return false, err
 	}
-	return tokenBool(token, 46)
+	return tokenHasLPACAccess(token)
+}
+
+const (
+	lpacAccess        = windows.ACCESS_MASK(0x2)
+	maximumAllowed    = windows.ACCESS_MASK(0x02000000)
+	maxPrivilegeBytes = 64 * 1024
+)
+
+type genericMapping struct {
+	read    windows.ACCESS_MASK
+	write   windows.ACCESS_MASK
+	execute windows.ACCESS_MASK
+	all     windows.ACCESS_MASK
+}
+
+// tokenHasLPACAccess proves the access-check semantics that distinguish an
+// LPAC from an ordinary AppContainer. TokenIsLessPrivilegedAppContainer is
+// present in the SDK but returns ERROR_INVALID_PARAMETER on supported Windows
+// builds, so it cannot be used as a fail-closed verifier.
+//
+// The descriptor deliberately grants one bit to ALL APPLICATION PACKAGES and
+// a different bit to ALL RESTRICTED APPLICATION PACKAGES. A verified LPAC must
+// receive only the restricted-package bit. This is the same public-API proof
+// used by Chromium's Windows sandbox tests.
+func tokenHasLPACAccess(token windows.Token) (bool, error) {
+	var client windows.Token
+	if err := windows.DuplicateTokenEx(token, windows.TOKEN_QUERY, nil, windows.SecurityIdentification,
+		windows.TokenImpersonation, &client); err != nil {
+		return false, fmt.Errorf("duplicate token for LPAC access check: %w", err)
+	}
+	defer client.Close()
+	descriptor, err := windows.SecurityDescriptorFromString(
+		"O:SYG:SYD:(A;;0x3;;;WD)(A;;0x1;;;S-1-15-2-1)(A;;0x2;;;S-1-15-2-2)")
+	if err != nil {
+		return false, fmt.Errorf("build LPAC access-check descriptor: %w", err)
+	}
+	mapping := genericMapping{}
+	privilegeBytes := uint32(1024)
+	privileges := make([]uintptr, (privilegeBytes+uint32(unsafe.Sizeof(uintptr(0)))-1)/uint32(unsafe.Sizeof(uintptr(0))))
+	for {
+		var granted windows.ACCESS_MASK
+		var allowed int32
+		result, _, callErr := accessCheck.Call(
+			uintptr(unsafe.Pointer(descriptor)),
+			uintptr(client),
+			uintptr(maximumAllowed),
+			uintptr(unsafe.Pointer(&mapping)),
+			uintptr(unsafe.Pointer(&privileges[0])),
+			uintptr(unsafe.Pointer(&privilegeBytes)),
+			uintptr(unsafe.Pointer(&granted)),
+			uintptr(unsafe.Pointer(&allowed)),
+		)
+		runtime.KeepAlive(descriptor)
+		if result != 0 {
+			return allowed != 0 && granted == lpacAccess, nil
+		}
+		if !errors.Is(callErr, windows.ERROR_INSUFFICIENT_BUFFER) || privilegeBytes == 0 || privilegeBytes > maxPrivilegeBytes {
+			return false, fmt.Errorf("check LPAC package access: %w", callErr)
+		}
+		privileges = make([]uintptr, (privilegeBytes+uint32(unsafe.Sizeof(uintptr(0)))-1)/uint32(unsafe.Sizeof(uintptr(0))))
+	}
 }
 
 func tokenBool(token windows.Token, class uintptr) (bool, error) {
@@ -442,6 +504,10 @@ func (p *SpawnedProcess) Close() error {
 }
 
 func (s *Sandbox) SpawnSuspended(request SpawnRequest) (*SpawnedProcess, error) {
+	return s.spawnSuspended(request, true)
+}
+
+func (s *Sandbox) spawnSuspended(request SpawnRequest, allApplicationPackagesOptOut bool) (*SpawnedProcess, error) {
 	if s == nil || s.sid == nil {
 		return nil, errors.New("sandbox identity is closed")
 	}
@@ -475,9 +541,11 @@ func (s *Sandbox) SpawnSuspended(request SpawnRequest) (*SpawnedProcess, error) 
 		return nil, fmt.Errorf("set LPAC security capabilities: %w", err)
 	}
 	optOut := uint32(processCreationAllApplicationPackagesOptOut)
-	if err := attributes.Update(procThreadAttributeAllApplicationPackages,
-		unsafe.Pointer(&optOut), unsafe.Sizeof(optOut)); err != nil {
-		return nil, fmt.Errorf("set all-application-packages opt-out: %w", err)
+	if allApplicationPackagesOptOut {
+		if err := attributes.Update(procThreadAttributeAllApplicationPackages,
+			unsafe.Pointer(&optOut), unsafe.Sizeof(optOut)); err != nil {
+			return nil, fmt.Errorf("set all-application-packages opt-out: %w", err)
+		}
 	}
 	jobs := []windows.Handle{request.Job.handle}
 	if err := attributes.Update(procThreadAttributeJobList, unsafe.Pointer(&jobs[0]), unsafe.Sizeof(jobs[0])); err != nil {

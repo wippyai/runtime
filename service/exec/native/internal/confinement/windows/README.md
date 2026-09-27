@@ -7,6 +7,11 @@ empty capability set, low integrity level, and Job membership. Only stdin,
 stdout, and stderr are inherited. The Job supplies aggregate committed-memory
 limits, wall-time termination, and whole-tree cleanup.
 
+LPAC status is verified by an in-memory `AccessCheck` that must grant the
+`ALL RESTRICTED APPLICATION PACKAGES` bit while withholding the ordinary
+`ALL APPLICATION PACKAGES` bit. This proves the effective access semantics
+without relying on the inconsistently supported LPAC token-information class.
+
 LPAC identities do not inherit ordinary user filesystem access. The runtime
 therefore adds the launch's unique package SID to the bound working directory,
 private home, and executable DACLs for the launch, then removes that SID after
