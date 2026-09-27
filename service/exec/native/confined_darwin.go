@@ -31,6 +31,7 @@ import (
 
 var darwinHelperPath string
 var darwinHelperSHA256 string
+var darwinHelperCDHash string
 var darwinEmbeddedHelper struct {
 	sync.Once
 	path string
@@ -58,6 +59,9 @@ type darwinConfinementLaunch struct {
 	wallOnce  sync.Once
 	cleanup   sync.Once
 	processMu sync.Mutex
+	waitOnce  sync.Once
+	waitDone  chan struct{}
+	waitErr   error
 }
 
 func validateConfinementHost(entry *execapi.Confinement) error {
@@ -115,7 +119,7 @@ func verifiedDarwinHelper() (string, error) {
 			return "", darwinEmbeddedHelper.err
 		}
 	}
-	if path == "" || darwinHelperSHA256 == "" {
+	if path == "" || darwinHelperSHA256 == "" || darwinHelperCDHash == "" {
 		return "", errors.New("runtime has no verified Darwin confinement helper")
 	}
 	payload, err := os.ReadFile(path)
@@ -125,6 +129,13 @@ func verifiedDarwinHelper() (string, error) {
 	digest := sha256.Sum256(payload)
 	if hex.EncodeToString(digest[:]) != darwinHelperSHA256 {
 		return "", errors.New("Darwin confinement helper digest mismatch")
+	}
+	codeHash, err := confinedarwin.StaticCDHash(path)
+	if err != nil {
+		return "", err
+	}
+	if codeHash != darwinHelperCDHash {
+		return "", errors.New("Darwin confinement helper code identity mismatch")
 	}
 	return path, nil
 }
@@ -271,6 +282,9 @@ func (e *Executor) prepareConfinement(process *ProcessExecutor, options execapi.
 	if process.processGroup {
 		return execapi.ErrConfineUnsupported.WithCause(errors.New("process_group with macOS confinement has no safe post-reap signal identity"))
 	}
+	if process.pty != nil {
+		return execapi.ErrConfineUnsupported.WithCause(errors.New("PTY with macOS confinement is not yet supported by the verified launcher"))
+	}
 	if err := e.bindConfinementEntry(); err != nil {
 		return err
 	}
@@ -362,33 +376,39 @@ func (c *darwinConfinementLaunch) Start(process *ProcessExecutor) error {
 		return err
 	}
 	target := process.cmd
-	command := exec.CommandContext(context.Background(), helper)
-	command.Env = []string{}
-	command.ExtraFiles = []*os.File{policyReader, statusWriter, c.boundWork.File()}
-	command.Stdin, command.Stdout, command.Stderr = target.Stdin, target.Stdout, target.Stderr
-	process.cmd = command
-	start := func() error {
-		if process.pty == nil {
-			return command.Start()
-		}
-		width, height, _ := process.pty.Dimensions()
-		master, startErr := pty.StartWithSize(command, &pty.Winsize{Cols: uint16(width), Rows: uint16(height)})
-		if startErr == nil {
-			process.ptyMaster = master
-			process.stdinPipe, process.stdoutp = master, master
-			process.stderrp = io.NopCloser(strings.NewReader(""))
-		}
-		return startErr
-	}
-	if err := start(); err != nil {
+	stdin, stdinOK := target.Stdin.(*os.File)
+	stdout, stdoutOK := target.Stdout.(*os.File)
+	stderr, stderrOK := target.Stderr.(*os.File)
+	if !stdinOK || !stdoutOK || !stderrOK {
 		_ = policyReader.Close()
 		_ = policyWriter.Close()
 		_ = statusReader.Close()
 		_ = statusWriter.Close()
 		c.release()
-		return err
+		return execapi.ErrConfineSetup.WithCause(errors.New("verified Darwin launcher requires file-backed standard streams"))
 	}
-	c.process = command.Process
+	pid, err := confinedarwin.SpawnVerified(helper, darwinHelperCDHash,
+		[6]*os.File{stdin, stdout, stderr, policyReader, statusWriter, c.boundWork.File()})
+	if err != nil {
+		_ = policyReader.Close()
+		_ = policyWriter.Close()
+		_ = statusReader.Close()
+		_ = statusWriter.Close()
+		c.release()
+		return execapi.ErrConfineSetup.WithCause(err)
+	}
+	c.process, err = os.FindProcess(pid)
+	if err != nil {
+		_ = syscall.Kill(pid, syscall.SIGKILL)
+		_, _ = syscall.Wait4(pid, nil, 0, nil)
+		_ = policyReader.Close()
+		_ = policyWriter.Close()
+		_ = statusReader.Close()
+		_ = statusWriter.Close()
+		c.release()
+		return execapi.ErrConfineSetup.WithCause(err)
+	}
+	process.pid = pid
 	_ = policyReader.Close()
 	_ = statusWriter.Close()
 	encodeErr := json.NewEncoder(policyWriter).Encode(confinedarwin.HelperPolicy{
@@ -396,8 +416,8 @@ func (c *darwinConfinementLaunch) Start(process *ProcessExecutor) error {
 	})
 	_ = policyWriter.Close()
 	if encodeErr != nil {
-		_ = command.Process.Kill()
-		_ = command.Wait()
+		_ = c.process.Kill()
+		_ = c.WaitProcess()
 		_ = statusReader.Close()
 		c.release()
 		return execapi.ErrConfineSetup.WithCause(encodeErr)
@@ -421,21 +441,19 @@ func (c *darwinConfinementLaunch) Start(process *ProcessExecutor) error {
 	case err := <-ready:
 		_ = statusReader.Close()
 		if err != nil {
-			_ = command.Process.Kill()
-			_ = command.Wait()
+			_ = c.process.Kill()
+			_ = c.WaitProcess()
 			c.release()
 			return execapi.ErrConfineSetup.WithCause(err)
 		}
 	case <-time.After(darwinSetupTimeout):
-		_ = command.Process.Kill()
+		_ = c.process.Kill()
 		_ = statusReader.Close()
-		_ = command.Wait()
+		_ = c.WaitProcess()
 		c.release()
 		return execapi.ErrConfineSetup.WithCause(errors.New("Seatbelt setup timed out"))
 	}
-	if process.pty == nil {
-		process.releaseOutputWriters()
-	}
+	process.releaseOutputWriters()
 	if c.policy.Limits.WallSec > 0 {
 		c.wallDone = make(chan struct{})
 		c.wall = time.AfterFunc(time.Duration(c.policy.Limits.WallSec)*time.Second, func() {
@@ -444,6 +462,47 @@ func (c *darwinConfinementLaunch) Start(process *ProcessExecutor) error {
 		})
 	}
 	return nil
+}
+
+func (c *darwinConfinementLaunch) WaitProcess() error {
+	c.waitOnce.Do(func() {
+		c.waitDone = make(chan struct{})
+		defer close(c.waitDone)
+		c.processMu.Lock()
+		process := c.process
+		c.processMu.Unlock()
+		if process == nil {
+			c.waitErr = ErrProcessNotRunning
+			return
+		}
+		var status syscall.WaitStatus
+		for {
+			_, err := syscall.Wait4(process.Pid, &status, 0, nil)
+			if err == syscall.EINTR {
+				continue
+			}
+			if err != nil {
+				c.waitErr = err
+				return
+			}
+			break
+		}
+		c.processMu.Lock()
+		if c.process == process {
+			c.process = nil
+		}
+		c.processMu.Unlock()
+		if status.Signaled() {
+			signal := int(status.Signal())
+			c.waitErr = &ExitError{Code: 128 + signal, Signal: signal}
+		} else if code := status.ExitStatus(); code != 0 {
+			c.waitErr = &ExitError{Code: code}
+		}
+	})
+	if c.waitDone != nil {
+		<-c.waitDone
+	}
+	return c.waitErr
 }
 
 func (c *darwinConfinementLaunch) compileGrants(binding *darwinEntryBinding) ([]confinedarwin.Grant, error) {
@@ -518,7 +577,6 @@ func (c *darwinConfinementLaunch) Signal(signal syscall.Signal) error {
 func (c *darwinConfinementLaunch) Stop() { c.stopWall(); c.kill(); c.release() }
 func (c *darwinConfinementLaunch) Wait(waitErr error) error {
 	c.stopWall()
-	c.kill()
 	c.release()
 	return waitErr
 }

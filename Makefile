@@ -126,8 +126,11 @@ build-wippy-local:
 	elif [ "$$(go env GOOS)" = darwin ]; then \
 		helper="./dist/confine-darwin-$$(go env GOARCH)"; \
 		CGO_ENABLED=1 go build -trimpath -o "$$helper" ./service/exec/native/cmd/confine-darwin/ || exit; \
+		codesign --force --sign - --options hard,kill,runtime "$$helper" || exit; \
 		digest="$$(shasum -a 256 "$$helper" | cut -d ' ' -f 1)"; \
-		ldflags="$$ldflags -X github.com/wippyai/runtime/service/exec/native.darwinHelperSHA256=$$digest"; \
+		cdhash="$$(codesign -d --verbose=4 "$$helper" 2>&1 | sed -n 's/^CDHash=//p')"; \
+		test -n "$$cdhash" || exit 1; \
+		ldflags="$$ldflags -X github.com/wippyai/runtime/service/exec/native.darwinHelperSHA256=$$digest -X github.com/wippyai/runtime/service/exec/native.darwinHelperCDHash=$$cdhash"; \
 	fi; \
 	CGO_ENABLED=1 go build --tags "fts5 sqlite_vec treesitter sqlite_preupdate_hook" \
 		-ldflags="$$ldflags" \
@@ -170,9 +173,12 @@ build-wippy-linux-arm64:
 build-wippy-darwin-amd64:
 	mkdir -p ./dist
 	CGO_ENABLED=1 GOOS=darwin GOARCH=amd64 go build -trimpath -o ./dist/confine-darwin-amd64 ./service/exec/native/cmd/confine-darwin/
+	codesign --force --sign - --options hard,kill,runtime ./dist/confine-darwin-amd64
 	@digest="$$(shasum -a 256 ./dist/confine-darwin-amd64 | cut -d ' ' -f 1)"; \
+	cdhash="$$(codesign -d --verbose=4 ./dist/confine-darwin-amd64 2>&1 | sed -n 's/^CDHash=//p')"; \
+	test -n "$$cdhash" && \
 	CGO_ENABLED=1 GOOS=darwin GOARCH=amd64 go build --tags "fts5 sqlite_vec treesitter sqlite_preupdate_hook" \
-		-ldflags="$(WIPPY_LDFLAGS) -X github.com/wippyai/runtime/service/exec/native.darwinHelperSHA256=$$digest" \
+		-ldflags="$(WIPPY_LDFLAGS) -X github.com/wippyai/runtime/service/exec/native.darwinHelperSHA256=$$digest -X github.com/wippyai/runtime/service/exec/native.darwinHelperCDHash=$$cdhash" \
 		-trimpath \
 		-o ./dist/wippy-darwin-amd64 \
 		./cmd/wippy/ && \
@@ -182,9 +188,12 @@ build-wippy-darwin-amd64:
 build-wippy-darwin-arm64:
 	mkdir -p ./dist
 	CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 go build -trimpath -o ./dist/confine-darwin-arm64 ./service/exec/native/cmd/confine-darwin/
+	codesign --force --sign - --options hard,kill,runtime ./dist/confine-darwin-arm64
 	@digest="$$(shasum -a 256 ./dist/confine-darwin-arm64 | cut -d ' ' -f 1)"; \
+	cdhash="$$(codesign -d --verbose=4 ./dist/confine-darwin-arm64 2>&1 | sed -n 's/^CDHash=//p')"; \
+	test -n "$$cdhash" && \
 	CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 go build --tags "fts5 sqlite_vec treesitter sqlite_preupdate_hook" \
-		-ldflags="$(WIPPY_LDFLAGS) -X github.com/wippyai/runtime/service/exec/native.darwinHelperSHA256=$$digest" \
+		-ldflags="$(WIPPY_LDFLAGS) -X github.com/wippyai/runtime/service/exec/native.darwinHelperSHA256=$$digest -X github.com/wippyai/runtime/service/exec/native.darwinHelperCDHash=$$cdhash" \
 		-trimpath \
 		-o ./dist/wippy-darwin-arm64 \
 		./cmd/wippy/ && \

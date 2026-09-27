@@ -69,6 +69,12 @@ type confinementLaunch interface {
 	Wait(error) error
 }
 
+// confinementWaitOwner is implemented by a backend which creates the target
+// without os/exec and therefore owns the native process handle and reap.
+type confinementWaitOwner interface {
+	WaitProcess() error
+}
+
 // NewNativeExecutor creates a new native process executor
 func NewNativeExecutor(log *zap.Logger, config *execapi.NativeExecutorConfig) *Executor {
 	return &Executor{
@@ -643,7 +649,12 @@ func (e *ProcessExecutor) Wait() error {
 }
 
 func (e *ProcessExecutor) waitStartedProcess() error {
-	err := e.cmd.Wait()
+	var err error
+	if owner, ok := e.confinement.(confinementWaitOwner); ok {
+		err = owner.WaitProcess()
+	} else {
+		err = e.cmd.Wait()
+	}
 	if e.confinement != nil {
 		err = e.confinement.Wait(err)
 	}

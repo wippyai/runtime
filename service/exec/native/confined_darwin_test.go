@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/registry"
 	execapi "github.com/wippyai/runtime/api/service/exec"
+	confinedarwin "github.com/wippyai/runtime/service/exec/native/internal/confinement/darwin"
 	"go.uber.org/zap"
 )
 
@@ -33,14 +34,21 @@ func installDarwinConfinementHelper(t *testing.T) {
 	command.Dir = repoRoot
 	output, err := command.CombinedOutput()
 	require.NoErrorf(t, err, "build Darwin confinement helper: %s", output)
+	command = exec.Command("codesign", "--force", "--sign", "-", "--options", "hard,kill,runtime", helper)
+	output, err = command.CombinedOutput()
+	require.NoErrorf(t, err, "sign Darwin confinement helper: %s", output)
 	payload, err := os.ReadFile(helper)
 	require.NoError(t, err)
 	digest := sha256.Sum256(payload)
+	codeHash, err := confinedarwin.StaticCDHash(helper)
+	require.NoError(t, err)
 	darwinHelperPath = helper
 	darwinHelperSHA256 = hex.EncodeToString(digest[:])
+	darwinHelperCDHash = codeHash
 	t.Cleanup(func() {
 		darwinHelperPath = ""
 		darwinHelperSHA256 = ""
+		darwinHelperCDHash = ""
 	})
 }
 
