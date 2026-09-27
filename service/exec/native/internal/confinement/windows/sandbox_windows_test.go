@@ -5,8 +5,10 @@
 package windows
 
 import (
+	"encoding/binary"
 	"os"
 	"testing"
+	"unsafe"
 
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/windows"
@@ -16,6 +18,34 @@ func TestCurrentProcessIsNotLPAC(t *testing.T) {
 	isLPAC, err := CurrentProcessIsLPAC()
 	require.NoError(t, err)
 	require.False(t, isLPAC)
+}
+
+func TestIntegrityRIDParsesBoundedMandatoryLabel(t *testing.T) {
+	pointerSize := int(unsafe.Sizeof(uintptr(0)))
+	buffer := make([]byte, pointerSize+4+12)
+	sidOffset := pointerSize + 4
+	address := uintptr(unsafe.Pointer(&buffer[0])) + uintptr(sidOffset)
+	if pointerSize == 8 {
+		binary.LittleEndian.PutUint64(buffer[:8], uint64(address))
+	} else {
+		binary.LittleEndian.PutUint32(buffer[:4], uint32(address))
+	}
+	binary.LittleEndian.PutUint32(buffer[pointerSize:pointerSize+4], windows.SE_GROUP_INTEGRITY)
+	sid := buffer[sidOffset:]
+	sid[0], sid[1], sid[7] = 1, 1, 16
+	binary.LittleEndian.PutUint32(sid[8:], 0x1000)
+
+	rid, err := integrityRID(buffer)
+	require.NoError(t, err)
+	require.Equal(t, uint32(0x1000), rid)
+
+	if pointerSize == 8 {
+		binary.LittleEndian.PutUint64(buffer[:8], uint64(address+uintptr(len(sid))))
+	} else {
+		binary.LittleEndian.PutUint32(buffer[:4], uint32(address+uintptr(len(sid))))
+	}
+	_, err = integrityRID(buffer)
+	require.Error(t, err)
 }
 
 func TestTokenHasLPACAccessDistinguishesAppContainers(t *testing.T) {

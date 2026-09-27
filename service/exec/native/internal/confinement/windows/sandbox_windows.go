@@ -447,11 +447,37 @@ func tokenIntegrity(token windows.Token) (uint32, error) {
 	if err != nil {
 		return 0, err
 	}
-	label := (*windows.Tokenmandatorylabel)(unsafe.Pointer(&buffer[0]))
-	if label.Label.Sid == nil || !label.Label.Sid.IsValid() || label.Label.Sid.SubAuthorityCount() == 0 {
+	return integrityRID(buffer)
+}
+
+func integrityRID(buffer []byte) (uint32, error) {
+	pointerSize := int(unsafe.Sizeof(uintptr(0)))
+	if len(buffer) < pointerSize+4 {
 		return 0, errors.New("token returned an invalid integrity SID")
 	}
-	return label.Label.Sid.SubAuthority(uint32(label.Label.Sid.SubAuthorityCount() - 1)), nil
+	var sidAddress uintptr
+	if pointerSize == 8 {
+		sidAddress = uintptr(binary.LittleEndian.Uint64(buffer[:8]))
+	} else {
+		sidAddress = uintptr(binary.LittleEndian.Uint32(buffer[:4]))
+	}
+	attributes := binary.LittleEndian.Uint32(buffer[pointerSize : pointerSize+4])
+	base := uintptr(unsafe.Pointer(&buffer[0]))
+	if sidAddress < base || sidAddress-base > uintptr(len(buffer)) ||
+		attributes&windows.SE_GROUP_INTEGRITY == 0 {
+		return 0, errors.New("token returned an invalid integrity SID")
+	}
+	sid := buffer[int(sidAddress-base):]
+	if len(sid) < 8 || sid[0] != 1 || sid[1] == 0 ||
+		sid[2] != 0 || sid[3] != 0 || sid[4] != 0 || sid[5] != 0 || sid[6] != 0 || sid[7] != 16 {
+		return 0, errors.New("token returned an invalid integrity SID")
+	}
+	count := int(sid[1])
+	required := 8 + count*4
+	if required > len(sid) {
+		return 0, errors.New("token returned an invalid integrity SID")
+	}
+	return binary.LittleEndian.Uint32(sid[8+(count-1)*4 : required]), nil
 }
 
 func (p *SpawnedProcess) Resume() error {
