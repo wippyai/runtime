@@ -33,10 +33,15 @@ type windowsConfinementLaunch struct {
 	job       *confinewindows.Job
 	wall      *time.Timer
 	private   string
-	process   *os.Process
+	sandbox   *confinewindows.Sandbox
+	spawned   *confinewindows.SpawnedProcess
+	revokers  []func() error
 	cleanup   sync.Once
 	wallDone  chan struct{}
 	wallOnce  sync.Once
+	waitOnce  sync.Once
+	waitDone  chan struct{}
+	waitErr   error
 	stateLock sync.Mutex
 }
 
@@ -167,32 +172,70 @@ func (c *windowsConfinementLaunch) Start(process *ProcessExecutor) error {
 		}
 		rebuildProcessEnvironment(process)
 	}
+	sandbox, err := confinewindows.NewSandbox()
+	if err != nil {
+		c.release()
+		return execapi.ErrConfineUnsupported.WithCause(err)
+	}
+	c.sandbox = sandbox
+	grant := func(path string, permissions windows.ACCESS_MASK) error {
+		revoke, grantErr := sandbox.GrantPath(path, permissions)
+		if grantErr == nil {
+			c.revokers = append(c.revokers, revoke)
+		}
+		return grantErr
+	}
+	workspaceAccess := windows.ACCESS_MASK(windows.FILE_GENERIC_READ | windows.FILE_GENERIC_WRITE |
+		windows.FILE_GENERIC_EXECUTE | windows.DELETE)
+	if err := grant(c.workDir.Path, workspaceAccess); err != nil {
+		c.release()
+		return execapi.ErrConfineUnsupported.WithCause(fmt.Errorf("grant LPAC work directory: %w", err))
+	}
+	if err := grant(process.cmd.Path, windows.FILE_GENERIC_READ|windows.FILE_GENERIC_EXECUTE); err != nil {
+		c.release()
+		return execapi.ErrConfineUnsupported.WithCause(fmt.Errorf("grant LPAC executable: %w", err))
+	}
+	if c.private != "" {
+		if err := grant(c.private, workspaceAccess); err != nil {
+			c.release()
+			return execapi.ErrConfineUnsupported.WithCause(fmt.Errorf("grant LPAC private home: %w", err))
+		}
+	}
 	job, err := confinewindows.NewJob(c.policy.Limits.MemoryMiB)
 	if err != nil {
 		c.release()
 		return execapi.ErrConfineUnsupported.WithCause(err)
 	}
 	c.job = job
-	if process.cmd.SysProcAttr == nil {
-		process.cmd.SysProcAttr = &syscall.SysProcAttr{}
-	}
-	process.cmd.SysProcAttr.CreationFlags |= windows.CREATE_SUSPENDED
-	if err := process.cmd.Start(); err != nil {
+	stdin, stdinOK := process.cmd.Stdin.(*os.File)
+	stdout, stdoutOK := process.cmd.Stdout.(*os.File)
+	stderr, stderrOK := process.cmd.Stderr.(*os.File)
+	if !stdinOK || !stdoutOK || !stderrOK {
 		c.release()
-		return err
+		return execapi.ErrConfineSetup.WithCause(errors.New("Windows LPAC launch requires file-backed standard streams"))
 	}
-	c.process = process.cmd.Process
+	spawned, err := sandbox.SpawnSuspended(confinewindows.SpawnRequest{
+		Path: process.cmd.Path, Args: process.cmd.Args, Env: process.cmd.Env, WorkDir: c.workDir.Path,
+		Stdin: windows.Handle(stdin.Fd()), Stdout: windows.Handle(stdout.Fd()), Stderr: windows.Handle(stderr.Fd()),
+		Job: job,
+	})
+	if err != nil {
+		c.release()
+		return execapi.ErrConfineSetup.WithCause(err)
+	}
+	c.spawned = spawned
+	process.pid = int(spawned.PID)
 	fail := func(cause error) error {
 		_ = c.job.Kill(windowsConfinedKillCode)
-		_ = process.cmd.Process.Kill()
-		_ = process.cmd.Wait()
+		_ = c.spawned.Kill(windowsConfinedKillCode)
+		_, _ = c.spawned.Wait()
 		c.release()
 		return execapi.ErrConfineSetup.WithCause(cause)
 	}
-	if err := c.job.AddSuspended(process.cmd.Process.Pid); err != nil {
-		return fail(fmt.Errorf("assign target to job: %w", err))
+	if err := spawned.Verify(job); err != nil {
+		return fail(err)
 	}
-	if err := confinewindows.ResumeMainThread(process.cmd.Process.Pid); err != nil {
+	if err := spawned.Resume(); err != nil {
 		return fail(fmt.Errorf("resume confined target: %w", err))
 	}
 	process.releaseOutputWriters()
@@ -214,13 +257,13 @@ func (c *windowsConfinementLaunch) Start(process *ProcessExecutor) error {
 func (c *windowsConfinementLaunch) Signal(signal syscall.Signal) error {
 	c.stateLock.Lock()
 	defer c.stateLock.Unlock()
-	if c.process == nil {
+	if c.spawned == nil {
 		return ErrProcessNotRunning
 	}
 	if signal == syscall.SIGKILL {
 		return c.job.Kill(windowsConfinedKillCode)
 	}
-	return c.process.Signal(signal)
+	return c.spawned.Kill(uint32(signal))
 }
 
 func (c *windowsConfinementLaunch) Stop() {
@@ -239,6 +282,32 @@ func (c *windowsConfinementLaunch) Wait(waitErr error) error {
 	return waitErr
 }
 
+func (c *windowsConfinementLaunch) WaitProcess() error {
+	c.waitOnce.Do(func() {
+		c.waitDone = make(chan struct{})
+		defer close(c.waitDone)
+		c.stateLock.Lock()
+		spawned := c.spawned
+		c.stateLock.Unlock()
+		if spawned == nil {
+			c.waitErr = ErrProcessNotRunning
+			return
+		}
+		code, err := spawned.Wait()
+		if err != nil {
+			c.waitErr = err
+			return
+		}
+		if code != 0 {
+			c.waitErr = &ExitError{Code: int(code)}
+		}
+	})
+	if c.waitDone != nil {
+		<-c.waitDone
+	}
+	return c.waitErr
+}
+
 func (c *windowsConfinementLaunch) stopWall() {
 	if c.wall != nil {
 		if c.wall.Stop() {
@@ -253,13 +322,17 @@ func (c *windowsConfinementLaunch) release() {
 		c.stateLock.Lock()
 		job := c.job
 		c.job = nil
-		c.process = nil
+		spawned := c.spawned
+		c.spawned = nil
 		c.stateLock.Unlock()
 		jobEmpty := true
 		if job != nil {
 			_ = job.Kill(windowsConfinedKillCode)
 			jobEmpty = job.WaitEmpty(5*time.Second) == nil
 			_ = job.Close()
+		}
+		if spawned != nil {
+			_ = spawned.Close()
 		}
 		if c.workDir != nil {
 			_ = c.workDir.Close()
@@ -268,6 +341,14 @@ func (c *windowsConfinementLaunch) release() {
 		if c.private != "" && jobEmpty {
 			_ = os.RemoveAll(c.private)
 			c.private = ""
+		}
+		for index := len(c.revokers) - 1; index >= 0; index-- {
+			_ = c.revokers[index]()
+		}
+		c.revokers = nil
+		if c.sandbox != nil {
+			_ = c.sandbox.Close()
+			c.sandbox = nil
 		}
 	})
 }
