@@ -57,7 +57,7 @@ func (b *BoundDirectory) OpenDescendant(path string) (*BoundPath, error) {
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
 		return nil, ErrOutsideRoot
 	}
-	fd, err := unix.Dup(int(b.file.Fd()))
+	fd, err := unix.FcntlInt(b.file.Fd(), unix.F_DUPFD_CLOEXEC, 0)
 	if err != nil {
 		return nil, err
 	}

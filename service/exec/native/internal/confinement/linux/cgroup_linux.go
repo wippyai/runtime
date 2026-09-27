@@ -204,7 +204,7 @@ func (g *Cgroup) Remove() error {
 		return nil
 	}
 	var result error
-	for attempt := 0; attempt < 20; attempt++ {
+	for attempt := 0; attempt < 100; attempt++ {
 		result = os.Remove(g.path)
 		if result == nil || errors.Is(result, os.ErrNotExist) {
 			g.removed = true

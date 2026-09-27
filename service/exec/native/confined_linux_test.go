@@ -34,6 +34,39 @@ func skipConfinementUnavailable(t *testing.T, message string, err error) {
 	t.Skipf("%s: %v", message, err)
 }
 
+func TestLinuxWaitReportsPrivateHomeCleanupFailure(t *testing.T) {
+	private := t.TempDir()
+	if err := os.WriteFile(filepath.Join(private, "retained"), []byte("data"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	launch := &linuxConfinementLaunch{hostPrivate: private, targetPIDFD: -1}
+
+	err := launch.Wait(nil)
+	if err == nil || !strings.Contains(err.Error(), "remove confinement private home") {
+		t.Fatalf("Wait() error = %v, want private-home cleanup failure", err)
+	}
+	if launch.hostPrivate != private {
+		t.Fatalf("failed cleanup forgot retained path: got %q, want %q", launch.hostPrivate, private)
+	}
+}
+
+func TestLinuxStartReportsRootCleanupFailure(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "retained"), []byte("data"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	process := &ProcessExecutor{cmd: exec.Command("wippy-test-command-that-does-not-exist")}
+	launch := &linuxConfinementLaunch{root: root, targetPIDFD: -1}
+
+	err := launch.Start(process)
+	if err == nil || !strings.Contains(err.Error(), "remove confinement root") {
+		t.Fatalf("Start() error = %v, want root cleanup failure", err)
+	}
+	if launch.root != root {
+		t.Fatalf("failed cleanup forgot retained path: got %q, want %q", launch.root, root)
+	}
+}
+
 func confinementUnavailable(err error) bool {
 	return errors.Is(err, syscall.EPERM) ||
 		errors.Is(err, syscall.EACCES) ||

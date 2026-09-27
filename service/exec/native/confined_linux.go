@@ -452,12 +452,16 @@ func (c *linuxConfinementLaunch) armWallDeadline(process *ProcessExecutor) {
 	})
 }
 
-func (c *linuxConfinementLaunch) Start(process *ProcessExecutor) error {
+func (c *linuxConfinementLaunch) Start(process *ProcessExecutor) (resultErr error) {
 	started := false
 	defer func() {
 		if !started {
-			c.removeRoot()
-			c.removeHostPrivate()
+			var cleanupErr error
+			if c.group != nil {
+				cleanupErr = errors.Join(c.group.Kill(), c.group.Remove())
+			}
+			cleanupErr = errors.Join(cleanupErr, c.removeRoot(), c.removeHostPrivate())
+			resultErr = errors.Join(resultErr, cleanupErr)
 		}
 	}()
 	// exec.Command records lookup failures (including ErrDot) on Cmd.Err.
@@ -492,7 +496,6 @@ func (c *linuxConfinementLaunch) Start(process *ProcessExecutor) error {
 	}
 	c.group, err = confinelinux.NewCgroup(c.policy.Limits)
 	if err != nil {
-		c.removeRoot()
 		return execapi.ErrConfineUnsupported.WithCause(err)
 	}
 	target := process.cmd.Path
@@ -503,10 +506,6 @@ func (c *linuxConfinementLaunch) Start(process *ProcessExecutor) error {
 	}
 	launch, err := confinelinux.PrepareLaunch(helper, policy, files.sources, files.workdir, c.policy.NetworkNone)
 	if err != nil {
-		if c.group != nil {
-			_ = c.group.Remove()
-		}
-		c.removeRoot()
 		return execapi.ErrConfineUnsupported.WithCause(err)
 	}
 	defer launch.Close()
@@ -523,11 +522,6 @@ func (c *linuxConfinementLaunch) Start(process *ProcessExecutor) error {
 	}
 	err = launch.Start(func(_ *exec.Cmd) error { return startLinuxCommand(process, launch) }, beforePolicy)
 	if err != nil {
-		if c.group != nil {
-			_ = c.group.Kill()
-			_ = c.group.Remove()
-		}
-		c.removeRoot()
 		if errors.Is(err, syscall.EPERM) || errors.Is(err, syscall.EACCES) || errors.Is(err, syscall.ENOSYS) {
 			return execapi.ErrConfineUnsupported.WithCause(err)
 		}
@@ -539,11 +533,6 @@ func (c *linuxConfinementLaunch) Start(process *ProcessExecutor) error {
 	if launch.TargetPID <= 0 || launch.TargetPIDFD < 0 {
 		_ = launch.Command.Process.Kill()
 		_ = launch.Command.Wait()
-		if c.group != nil {
-			_ = c.group.Kill()
-			_ = c.group.Remove()
-		}
-		c.removeRoot()
 		return execapi.ErrConfineSetup.WithCause(errors.New("missing confined target identity"))
 	}
 	c.supervisor = launch.Command.Process
@@ -579,15 +568,15 @@ func (c *linuxConfinementLaunch) Stop() {
 	if c.supervisor != nil {
 		_ = c.supervisor.Kill()
 	}
-	c.removeRoot()
-	c.removeHostPrivate()
+	_ = c.removeRoot()
+	_ = c.removeHostPrivate()
 }
 
-func (c *linuxConfinementLaunch) Wait(waitErr error) error {
+func (c *linuxConfinementLaunch) Wait(waitErr error) (resultErr error) {
 	c.stopWall()
+	var finalizationErr error
 	if c.group != nil {
-		_ = c.group.Kill()
-		_ = c.group.Remove()
+		finalizationErr = errors.Join(c.group.Kill(), c.group.Remove())
 	}
 	c.identity.Lock()
 	if c.targetPIDFD >= 0 {
@@ -595,8 +584,10 @@ func (c *linuxConfinementLaunch) Wait(waitErr error) error {
 		c.targetPIDFD = -1
 	}
 	c.identity.Unlock()
-	c.removeRoot()
-	c.removeHostPrivate()
+	finalizationErr = errors.Join(finalizationErr, c.removeRoot(), c.removeHostPrivate())
+	defer func() {
+		resultErr = joinExitFinalization(resultErr, finalizationErr)
+	}()
 	if c.exitReport == nil {
 		if c.supervisor != nil && waitErr != nil {
 			return fmt.Errorf("missing confined target exit report (supervisor wait: %s)", waitErr.Error())
@@ -644,45 +635,49 @@ func (c *linuxConfinementLaunch) stopWall() {
 	}
 }
 
-func (c *linuxConfinementLaunch) removeRoot() {
+func (c *linuxConfinementLaunch) removeRoot() error {
 	c.cleanup.Lock()
 	defer c.cleanup.Unlock()
 	if c.root == "" {
-		return
+		return nil
 	}
 	// A Stop can race the namespace's final mount teardown. The directory is
 	// empty in the runtime's mount namespace, but remains EBUSY for a short
 	// interval after PID 1 is killed. Retry rather than leaking one root per
 	// stopped process; never recurse through a path that was visible to the
 	// confined target.
+	var result error
 	for attempt := 0; attempt < 100; attempt++ {
-		err := os.Remove(c.root)
-		if err == nil || errors.Is(err, os.ErrNotExist) {
+		result = os.Remove(c.root)
+		if result == nil || errors.Is(result, os.ErrNotExist) {
 			c.root = ""
-			return
+			return nil
 		}
-		if !errors.Is(err, syscall.EBUSY) && !errors.Is(err, syscall.ENOTEMPTY) {
-			return
+		if !errors.Is(result, syscall.EBUSY) && !errors.Is(result, syscall.ENOTEMPTY) {
+			return fmt.Errorf("remove confinement root: %w", result)
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
+	return fmt.Errorf("remove confinement root: %w", result)
 }
 
-func (c *linuxConfinementLaunch) removeHostPrivate() {
+func (c *linuxConfinementLaunch) removeHostPrivate() error {
 	c.cleanup.Lock()
 	defer c.cleanup.Unlock()
 	if c.hostPrivate == "" {
-		return
+		return nil
 	}
+	var result error
 	for attempt := 0; attempt < 100; attempt++ {
-		err := os.Remove(c.hostPrivate)
-		if err == nil || errors.Is(err, os.ErrNotExist) {
+		result = os.Remove(c.hostPrivate)
+		if result == nil || errors.Is(result, os.ErrNotExist) {
 			c.hostPrivate = ""
-			return
+			return nil
 		}
-		if !errors.Is(err, syscall.EBUSY) {
-			return
+		if !errors.Is(result, syscall.EBUSY) {
+			return fmt.Errorf("remove confinement private home: %w", result)
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
+	return fmt.Errorf("remove confinement private home: %w", result)
 }
