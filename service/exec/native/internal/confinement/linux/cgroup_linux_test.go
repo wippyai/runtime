@@ -51,3 +51,17 @@ func TestCgroupLimitsAndKill(t *testing.T) {
 		t.Fatal("cgroup.kill did not terminate the member")
 	}
 }
+
+func TestCgroupKillAfterRemoveIsNoop(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "removed")
+	if err := os.Mkdir(path, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	group := &Cgroup{path: path}
+	if err := group.Remove(); err != nil {
+		t.Fatal(err)
+	}
+	if err := group.Kill(); err != nil {
+		t.Fatalf("Kill() after successful Remove() = %v, want nil", err)
+	}
+}

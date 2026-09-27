@@ -191,7 +191,15 @@ func (g *Cgroup) Kill() error {
 	if g == nil {
 		return nil
 	}
-	return g.write("cgroup.kill", "1")
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	// Removal proves that the group no longer has members. Stop and Wait may
+	// race during finalization, so killing an already removed group is a
+	// successful no-op rather than a cleanup failure.
+	if g.removed {
+		return nil
+	}
+	return g.writeLocked("cgroup.kill", "1")
 }
 
 func (g *Cgroup) Remove() error {
@@ -221,6 +229,10 @@ func (g *Cgroup) write(name, value string) error {
 	if g.removed {
 		return os.ErrClosed
 	}
+	return g.writeLocked(name, value)
+}
+
+func (g *Cgroup) writeLocked(name, value string) error {
 	path := filepath.Join(g.path, name)
 	if err := os.WriteFile(path, []byte(value), 0); err != nil {
 		return fmt.Errorf("write cgroup %s: %w", name, err)
