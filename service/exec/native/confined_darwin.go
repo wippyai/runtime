@@ -86,7 +86,7 @@ func validateDarwinPaths(policy confinement.Policy) error {
 			}
 			info, err := os.Stat(path)
 			if err != nil {
-				return execapi.NewInvalidConfinementError("confine.fs").WithCause(err)
+				return fmt.Errorf("%w: %w", execapi.NewInvalidConfinementError("confine.fs"), err)
 			}
 			if !info.IsDir() {
 				return execapi.ErrConfineUnsupported.WithCause(errors.New("macOS file-granular grants are unsupported"))
