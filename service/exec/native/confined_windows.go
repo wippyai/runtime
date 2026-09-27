@@ -204,17 +204,6 @@ func (c *windowsConfinementLaunch) Start(process *ProcessExecutor) error {
 		return execapi.ErrConfineUnsupported.WithCause(c.cleanupCause(err))
 	}
 	c.sandbox = sandbox
-	if c.policy.HomePrivate {
-		private, err := sandbox.PrivateHome()
-		if err != nil {
-			return execapi.ErrConfineUnsupported.WithCause(c.cleanupCause(err))
-		}
-		c.private = private
-		for _, name := range []string{"HOME", "USERPROFILE"} {
-			process.envs[name] = private
-		}
-		rebuildProcessEnvironment(process)
-	}
 	grant := func(path string, permissions windows.ACCESS_MASK) (*confinewindows.PathGrant, error) {
 		pathGrant, grantErr := sandbox.GrantPath(path, permissions)
 		if grantErr == nil {
@@ -224,6 +213,25 @@ func (c *windowsConfinementLaunch) Start(process *ProcessExecutor) error {
 	}
 	workspaceAccess := windows.ACCESS_MASK(windows.FILE_GENERIC_READ | windows.FILE_GENERIC_WRITE |
 		windows.FILE_GENERIC_EXECUTE | windows.DELETE)
+	if c.policy.HomePrivate {
+		private, err := sandbox.PrivateHome()
+		if err != nil {
+			return execapi.ErrConfineUnsupported.WithCause(c.cleanupCause(err))
+		}
+		if err := confinewindows.SetLowIntegrityDirectory(private); err != nil {
+			cause := fmt.Errorf("provision LPAC private home integrity: %w", err)
+			return execapi.ErrConfineUnsupported.WithCause(c.cleanupCause(cause))
+		}
+		if _, err := grant(private, workspaceAccess); err != nil {
+			cause := fmt.Errorf("grant LPAC private home: %w", err)
+			return execapi.ErrConfineUnsupported.WithCause(c.cleanupCause(cause))
+		}
+		c.private = private
+		for _, name := range []string{"HOME", "USERPROFILE"} {
+			process.envs[name] = private
+		}
+		rebuildProcessEnvironment(process)
+	}
 	if _, err := grant(c.workDir.Path, workspaceAccess); err != nil {
 		cause := fmt.Errorf("grant LPAC work directory: %w", err)
 		return execapi.ErrConfineUnsupported.WithCause(c.cleanupCause(cause))

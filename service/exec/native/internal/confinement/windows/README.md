@@ -15,11 +15,14 @@ without relying on the inconsistently supported LPAC token-information class.
 LPAC identities do not inherit ordinary user filesystem access. The runtime
 therefore adds the launch's unique package SID to the bound working directory
 and executable DACLs for the launch, then removes that SID after the Job is
-empty. Private homes use the package-private, low-integrity profile directory
-created by Windows. Object handles are retained without delete sharing so path
-replacement cannot redirect creation or cleanup. A named mutex derived from
-the volume/file identity serializes DACL read-modify-write across Wippy runtime
-processes. NULL DACLs are rejected, and cleanup errors are returned by Wait.
+empty. Private homes use the package-private profile directory created by
+Windows; the runtime gives that launch-owned directory the same inheritable
+low-integrity label and unique package-SID access Chromium applies to its
+AppContainer profiles. Object handles are retained without delete sharing so
+path replacement cannot redirect creation or cleanup. A named mutex derived
+from the volume/file identity serializes DACL read-modify-write across Wippy
+runtime processes. NULL DACLs are rejected, and cleanup errors are returned by
+Wait.
 
 Writable work directories must be provisioned with an inheritable low
 mandatory-integrity `NO_WRITE_UP` label. The runtime validates this and fails

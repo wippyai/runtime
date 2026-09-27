@@ -103,7 +103,7 @@ func TestWindowsConfinedPayload(t *testing.T) {
 			os.Getenv("LOCALAPPDATA"), os.Getenv("TEMP"), os.Getenv("TMP"),
 			os.Getenv("WIPPY_HOST_SENTINEL"))
 	case "tree":
-		command := exec.Command(`.\`+filepath.Base(os.Args[0]),
+		command := exec.Command(os.Args[0],
 			"-test.run=^TestWindowsConfinedPayload$", "--", "grandchild")
 		command.Env = os.Environ()
 		command.Stdin = os.Stdin
@@ -168,10 +168,6 @@ func windowsPayloadCommand(t *testing.T, mode string, arguments ...string) strin
 	t.Helper()
 	executable, err := os.Executable()
 	require.NoError(t, err)
-	return windowsPayloadCommandForExecutable(executable, mode, arguments...)
-}
-
-func windowsPayloadCommandForExecutable(executable, mode string, arguments ...string) string {
 	parts := []string{strconv.Quote(executable), "-test.run=^TestWindowsConfinedPayload$", "--", mode}
 	for _, argument := range arguments {
 		parts = append(parts, strconv.Quote(argument))
@@ -340,8 +336,7 @@ func requireSentinelNotInherited(t *testing.T, reader, writer *os.File) {
 func TestNativeWindowsConfinementStopKillsDescendants(t *testing.T) {
 	workDir := t.TempDir()
 	executor := newWindowsConfinedExecutor(t, workDir)
-	executable := copyWindowsPayloadExecutable(t, workDir)
-	process, err := executor.NewProcess(windowsPayloadCommandForExecutable(executable, "tree"), execapi.ProcessOptions{})
+	process, err := executor.NewProcess(windowsPayloadCommand(t, "tree"), execapi.ProcessOptions{})
 	require.NoError(t, err)
 	stdout := process.Stdout()
 	stderr := process.Stderr()
@@ -361,22 +356,6 @@ func TestNativeWindowsConfinementStopKillsDescendants(t *testing.T) {
 	process.(*ProcessExecutor).Stop()
 	_ = process.Wait()
 	requireWindowsProcessGone(t, uint32(pid))
-}
-
-func copyWindowsPayloadExecutable(t *testing.T, workDir string) string {
-	t.Helper()
-	sourcePath, err := os.Executable()
-	require.NoError(t, err)
-	source, err := os.Open(sourcePath)
-	require.NoError(t, err)
-	defer source.Close()
-	destinationPath := filepath.Join(workDir, "confined-tree-test.exe")
-	destination, err := os.OpenFile(destinationPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o700)
-	require.NoError(t, err)
-	_, copyErr := io.Copy(destination, source)
-	closeErr := destination.Close()
-	require.NoError(t, errors.Join(copyErr, closeErr))
-	return destinationPath
 }
 
 func requireWindowsProcessGone(t *testing.T, pid uint32) {
