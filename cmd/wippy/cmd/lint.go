@@ -846,6 +846,7 @@ func lintEntries(luaEntries []regapi.Entry, reportSet map[regapi.ID]bool, linter
 		}
 	}
 
+	appendConformanceFindings(result, checkBindingConformance(cfg.catalog, manifestMap, entryDataMap, cfg.nsFilters), lcache.catalogStrict, cfg.minSeverity)
 	sortLintResults(result)
 	return result
 }
