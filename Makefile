@@ -117,20 +117,25 @@ build-wippy: build-wippy-local
 .PHONY: build-wippy-local
 build-wippy-local:
 	mkdir -p ./dist
-	@ldflags='$(WIPPY_LDFLAGS)'; \
+	@ldflags='$(WIPPY_LDFLAGS)'; helper=''; digest=''; \
 	if [ "$$(go env GOOS)" = linux ]; then \
 		helper="./dist/confine-linux-$$(go env GOARCH)"; \
 		CGO_ENABLED=0 go build -trimpath -o "$$helper" ./service/exec/native/cmd/confine-linux/ || exit; \
 		digest="$$(sha256sum "$$helper" | cut -d ' ' -f 1)"; \
 		ldflags="$$ldflags -X github.com/wippyai/runtime/service/exec/native.linuxHelperSHA256=$$digest"; \
+	elif [ "$$(go env GOOS)" = darwin ]; then \
+		helper="./dist/confine-darwin-$$(go env GOARCH)"; \
+		CGO_ENABLED=1 go build -trimpath -o "$$helper" ./service/exec/native/cmd/confine-darwin/ || exit; \
+		digest="$$(shasum -a 256 "$$helper" | cut -d ' ' -f 1)"; \
+		ldflags="$$ldflags -X github.com/wippyai/runtime/service/exec/native.darwinHelperSHA256=$$digest"; \
 	fi; \
 	CGO_ENABLED=1 go build --tags "fts5 sqlite_vec treesitter sqlite_preupdate_hook" \
 		-ldflags="$$ldflags" \
 		-trimpath \
 		-o ./dist/wippy-$(shell go env GOOS)-$(shell go env GOARCH) \
 		./cmd/wippy/ || exit; \
-	if [ "$$(go env GOOS)" = linux ]; then \
-		go run ./tools/packhelper ./dist/wippy-linux-$$(go env GOARCH) "$$helper" "$$digest"; \
+	if [ -n "$$helper" ]; then \
+		go run ./tools/packhelper ./dist/wippy-$$(go env GOOS)-$$(go env GOARCH) "$$helper" "$$digest"; \
 	fi
 
 .PHONY: build-wippy-all
@@ -164,20 +169,26 @@ build-wippy-linux-arm64:
 .PHONY: build-wippy-darwin-amd64
 build-wippy-darwin-amd64:
 	mkdir -p ./dist
+	CGO_ENABLED=1 GOOS=darwin GOARCH=amd64 go build -trimpath -o ./dist/confine-darwin-amd64 ./service/exec/native/cmd/confine-darwin/
+	@digest="$$(shasum -a 256 ./dist/confine-darwin-amd64 | cut -d ' ' -f 1)"; \
 	CGO_ENABLED=1 GOOS=darwin GOARCH=amd64 go build --tags "fts5 sqlite_vec treesitter sqlite_preupdate_hook" \
-		-ldflags="$(WIPPY_LDFLAGS)" \
+		-ldflags="$(WIPPY_LDFLAGS) -X github.com/wippyai/runtime/service/exec/native.darwinHelperSHA256=$$digest" \
 		-trimpath \
 		-o ./dist/wippy-darwin-amd64 \
-		./cmd/wippy/
+		./cmd/wippy/ && \
+	go run ./tools/packhelper ./dist/wippy-darwin-amd64 ./dist/confine-darwin-amd64 "$$digest"
 
 .PHONY: build-wippy-darwin-arm64
 build-wippy-darwin-arm64:
 	mkdir -p ./dist
+	CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 go build -trimpath -o ./dist/confine-darwin-arm64 ./service/exec/native/cmd/confine-darwin/
+	@digest="$$(shasum -a 256 ./dist/confine-darwin-arm64 | cut -d ' ' -f 1)"; \
 	CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 go build --tags "fts5 sqlite_vec treesitter sqlite_preupdate_hook" \
-		-ldflags="$(WIPPY_LDFLAGS)" \
+		-ldflags="$(WIPPY_LDFLAGS) -X github.com/wippyai/runtime/service/exec/native.darwinHelperSHA256=$$digest" \
 		-trimpath \
 		-o ./dist/wippy-darwin-arm64 \
-		./cmd/wippy/
+		./cmd/wippy/ && \
+	go run ./tools/packhelper ./dist/wippy-darwin-arm64 ./dist/confine-darwin-arm64 "$$digest"
 
 .PHONY: build-wippy-windows-amd64
 build-wippy-windows-amd64:

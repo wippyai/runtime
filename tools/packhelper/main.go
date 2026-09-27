@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MPL-2.0
 
-// Command packhelper appends the separately built confinement helper to a
-// Linux runtime executable. The runtime verifies its build-stamped SHA-256
-// before copying the image into a sealed memfd for each confined launch.
+// Command packhelper appends a separately built confinement helper to a
+// runtime executable. The runtime verifies its build-stamped SHA-256 before
+// materializing the platform's launch image.
 package main
 
 import (
@@ -28,9 +28,9 @@ func pack(runtimePath, helperPath, expectedSHA256 string) error {
 	if err != nil || !runtimeInfo.Mode().IsRegular() {
 		return errors.New("runtime must be a regular file")
 	}
-	var elf [4]byte
-	if _, err := runtimeFile.ReadAt(elf[:], 0); err != nil || elf != [4]byte{0x7f, 'E', 'L', 'F'} {
-		return errors.New("runtime must be a Linux ELF executable")
+	var header [4]byte
+	if _, err := runtimeFile.ReadAt(header[:], 0); err != nil || !supportedRuntimeHeader(header) {
+		return errors.New("runtime must be an ELF, Mach-O, or PE executable")
 	}
 	if _, err := helperimage.Locate(runtimeFile, runtimeInfo.Size()); err == nil {
 		return errors.New("runtime already has an embedded helper")
@@ -82,6 +82,19 @@ func pack(runtimePath, helperPath, expectedSHA256 string) error {
 		return err
 	}
 	return os.Rename(temporary.Name(), runtimePath)
+}
+
+func supportedRuntimeHeader(header [4]byte) bool {
+	if header == [4]byte{0x7f, 'E', 'L', 'F'} || header[0] == 'M' && header[1] == 'Z' {
+		return true
+	}
+	// 32/64-bit Mach-O and universal Mach-O, in either byte order.
+	switch binary.BigEndian.Uint32(header[:]) {
+	case 0xfeedface, 0xcefaedfe, 0xfeedfacf, 0xcffaedfe, 0xcafebabe, 0xbebafeca:
+		return true
+	default:
+		return false
+	}
 }
 
 func main() {

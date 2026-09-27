@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"os"
 	osexec "os/exec"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -178,7 +179,7 @@ func TestNativeExecutorRejectsProcessMounts(t *testing.T) {
 }
 
 func TestNativeConfinementFailsClosedUntilEnforcementIsInstalled(t *testing.T) {
-	baseline := &exec.Confinement{WorkDirRoots: []string{os.TempDir()}, Network: "none"}
+	baseline := &exec.Confinement{WorkDirRoots: []string{filepath.Clean(os.TempDir())}, Network: "none"}
 	factory := NewExecutorFactory(zap.NewNop())
 	_, err := factory.CreateExecutor(registry.ID{}, &exec.NativeExecutorConfig{Confine: baseline})
 	require.ErrorIs(t, err, exec.ErrConfineUnsupported)

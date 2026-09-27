@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
-// Package helperimage defines the trailer used to carry the separately built
-// Linux confinement helper in a single installed runtime executable.
+// Package helperimage defines the trailer used to carry a separately built
+// platform confinement helper in a single installed runtime executable.
 package helperimage
 
 import (

@@ -24,12 +24,18 @@ import (
 
 	"github.com/creack/pty"
 	execapi "github.com/wippyai/runtime/api/service/exec"
+	"github.com/wippyai/runtime/service/exec/native/helperimage"
 	"github.com/wippyai/runtime/service/exec/native/internal/confinement"
 	confinedarwin "github.com/wippyai/runtime/service/exec/native/internal/confinement/darwin"
 )
 
 var darwinHelperPath string
 var darwinHelperSHA256 string
+var darwinEmbeddedHelper struct {
+	sync.Once
+	path string
+	err  error
+}
 
 const darwinSetupTimeout = 10 * time.Second
 
@@ -97,10 +103,20 @@ func validateDarwinPaths(policy confinement.Policy) error {
 }
 
 func verifiedDarwinHelper() (string, error) {
-	if darwinHelperPath == "" || darwinHelperSHA256 == "" {
+	path := darwinHelperPath
+	if path == "" && darwinHelperSHA256 != "" {
+		darwinEmbeddedHelper.Do(func() {
+			darwinEmbeddedHelper.path, darwinEmbeddedHelper.err = materializeDarwinHelper()
+		})
+		path = darwinEmbeddedHelper.path
+		if darwinEmbeddedHelper.err != nil {
+			return "", darwinEmbeddedHelper.err
+		}
+	}
+	if path == "" || darwinHelperSHA256 == "" {
 		return "", errors.New("runtime has no verified Darwin confinement helper")
 	}
-	payload, err := os.ReadFile(darwinHelperPath)
+	payload, err := os.ReadFile(path)
 	if err != nil {
 		return "", err
 	}
@@ -108,7 +124,56 @@ func verifiedDarwinHelper() (string, error) {
 	if hex.EncodeToString(digest[:]) != darwinHelperSHA256 {
 		return "", errors.New("Darwin confinement helper digest mismatch")
 	}
-	return darwinHelperPath, nil
+	return path, nil
+}
+
+func materializeDarwinHelper() (string, error) {
+	runtimePath, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	runtimeFile, err := os.Open(runtimePath)
+	if err != nil {
+		return "", err
+	}
+	defer runtimeFile.Close()
+	info, err := runtimeFile.Stat()
+	if err != nil {
+		return "", err
+	}
+	image, err := helperimage.Locate(runtimeFile, info.Size())
+	if err != nil {
+		return "", err
+	}
+	directory, err := os.MkdirTemp("", "wippy-confine-helper-")
+	if err != nil {
+		return "", err
+	}
+	failed := true
+	defer func() {
+		if failed {
+			_ = os.RemoveAll(directory)
+		}
+	}()
+	path := filepath.Join(directory, "confine-darwin")
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o500)
+	if err != nil {
+		return "", err
+	}
+	digest := sha256.New()
+	_, copyErr := io.Copy(io.MultiWriter(file, digest), image)
+	closeErr := file.Close()
+	if copyErr != nil {
+		return "", copyErr
+	}
+	if closeErr != nil {
+		return "", closeErr
+	}
+	if hex.EncodeToString(digest.Sum(nil)) != darwinHelperSHA256 {
+		return "", errors.New("embedded Darwin confinement helper digest mismatch")
+	}
+	failed = false
+	return path, nil
 }
 
 func (e *Executor) bindConfinementEntry() error {
