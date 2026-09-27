@@ -25,6 +25,69 @@ type mockInstanceForTest struct {
 	contracts []contract.Contract
 }
 
+type contractDefinitionForOpenTest struct{ id registry.ID }
+
+func (d contractDefinitionForOpenTest) ID() registry.ID                            { return d.id }
+func (d contractDefinitionForOpenTest) Meta() attrs.Bag                            { return nil }
+func (d contractDefinitionForOpenTest) Methods() []contract.MethodDef              { return nil }
+func (d contractDefinitionForOpenTest) Method(string) (*contract.MethodDef, error) { return nil, nil }
+
+type registryForOpenTest struct{ binding *contract.Binding }
+
+func (r registryForOpenTest) GetContract(context.Context, registry.ID) (contract.Contract, error) {
+	return nil, nil
+}
+func (r registryForOpenTest) GetBinding(context.Context, registry.ID) (*contract.Binding, error) {
+	return r.binding, nil
+}
+func (r registryForOpenTest) GetBindingsForContract(context.Context, registry.ID) ([]registry.ID, error) {
+	return nil, nil
+}
+func (r registryForOpenTest) GetDefaultBinding(context.Context, registry.ID) (registry.ID, error) {
+	return registry.ID{}, nil
+}
+
+func TestContractOpenRejectsUnrelatedBinding(t *testing.T) {
+	definitionID := registry.NewID("ns", "definition")
+	bindingID := registry.NewID("ns", "binding")
+	for _, tt := range []struct {
+		name       string
+		implements bool
+	}{
+		{"unrelated", false}, {"compatible", true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			l := lua.NewState()
+			defer l.Close()
+			ctx, frame := ctxapi.OpenFrameContext(ctxapi.NewRootContext())
+			defer ctxapi.ReleaseFrameContext(frame)
+			require.NoError(t, secapi.SetActor(ctx, secapi.Actor{ID: "test"}))
+			require.NoError(t, secapi.SetScope(ctx, &mockSecurityScopeForContractTest{id: bindingID}))
+			l.SetContext(ctx)
+			boundID := registry.NewID("ns", "other")
+			if tt.implements {
+				boundID = definitionID
+			}
+			wrapper := &Wrapper{definition: contractDefinitionForOpenTest{definitionID}, registry: registryForOpenTest{binding: &contract.Binding{ID: bindingID, Contracts: []contract.BoundContract{{Contract: boundID}}}}}
+			ud := l.NewUserData()
+			ud.Value = wrapper
+			l.Push(ud)
+			l.Push(lua.LString(bindingID.String()))
+			got := contractOpen(l)
+			if tt.implements {
+				require.Equal(t, -1, got)
+				yield, ok := l.Get(-1).(*OpenYield)
+				require.True(t, ok)
+				ReleaseOpenYield(yield)
+			} else {
+				require.Equal(t, 2, got)
+				require.Equal(t, lua.LNil, l.Get(-2))
+				require.Contains(t, l.Get(-1).String(), "does not implement")
+			}
+		})
+	}
+}
+
 func (m *mockInstanceForTest) ID() registry.ID                 { return m.id }
 func (m *mockInstanceForTest) Implements() []contract.Contract { return m.contracts }
 func (m *mockInstanceForTest) Call(_ context.Context, _ string, _ payload.Payloads, _ runtime.Options) (*runtime.Result, error) {

@@ -432,6 +432,7 @@ func contractOpen(l *lua.LState) int {
 
 	var bindingID string
 	var queryArgs map[string]any
+	var explicitBinding bool
 
 	// Check if binding ID is provided
 	if l.GetTop() >= 2 && l.Get(2).Type() != lua.LTNil {
@@ -444,6 +445,7 @@ func contractOpen(l *lua.LState) int {
 		}
 		bindingID = baseID
 		queryArgs = args
+		explicitBinding = true
 	} else {
 		// Use default binding
 		defaultID, err := wrapper.registry.GetDefaultBinding(l.Context(), wrapper.definition.ID())
@@ -462,6 +464,31 @@ func contractOpen(l *lua.LState) int {
 		l.Push(lua.LNil)
 		l.Push(luaErr)
 		return 2
+	}
+	if explicitBinding {
+		binding, err := wrapper.registry.GetBinding(l.Context(), registry.ParseID(bindingID))
+		if err != nil || binding == nil {
+			l.Push(lua.LNil)
+			if err != nil {
+				l.Push(lua.WrapErrorWithLua(l, err, "binding unavailable"))
+			} else {
+				l.Push(lua.NewLuaError(l, "binding unavailable").WithKind(lua.NotFound))
+			}
+			return 2
+		}
+		implements := false
+		for _, bound := range binding.Contracts {
+			if bound.Contract == wrapper.definition.ID() {
+				implements = true
+				break
+			}
+		}
+		if !implements {
+			definitionID := wrapper.definition.ID()
+			l.Push(lua.LNil)
+			l.Push(lua.NewLuaError(l, "binding does not implement contract: "+definitionID.String()).WithKind(lua.Invalid))
+			return 2
+		}
 	}
 
 	// Build scope: query args -> wrapper context -> explicit table (highest priority)
