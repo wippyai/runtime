@@ -99,12 +99,18 @@ static int wippy_verify_dynamic_code(pid_t pid, const char *expected_cdhash) {
 		status = SecCodeCheckValidity(code, kSecCSStrictValidate, requirement);
 	}
 	if (status == errSecSuccess) {
-		SecCodeStatus dynamic_status = 0;
-		status = SecCodeGetStatus(code, kSecCSDefaultFlags, &dynamic_status);
-		if (status == errSecSuccess &&
-			(dynamic_status & (kSecCodeStatusHard | kSecCodeStatusKill)) !=
-				(kSecCodeStatusHard | kSecCodeStatusKill)) {
-			status = -20002;
+		CFDictionaryRef info = NULL;
+		status = SecCodeCopySigningInformation(code, kSecCSDynamicInformation, &info);
+		if (status == errSecSuccess) {
+			CFNumberRef status_value = (CFNumberRef)CFDictionaryGetValue(info, kSecCodeInfoStatus);
+			uint32_t dynamic_status = 0;
+			if (status_value == NULL || CFGetTypeID(status_value) != CFNumberGetTypeID() ||
+				!CFNumberGetValue(status_value, kCFNumberSInt32Type, &dynamic_status) ||
+				(dynamic_status & (kSecCodeStatusHard | kSecCodeStatusKill)) !=
+					(kSecCodeStatusHard | kSecCodeStatusKill)) {
+				status = -20002;
+			}
+			CFRelease(info);
 		}
 	}
 	if (requirement != NULL) CFRelease(requirement);
