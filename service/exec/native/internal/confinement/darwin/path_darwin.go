@@ -57,22 +57,36 @@ func (b *BoundDirectory) OpenDescendant(path string) (*BoundPath, error) {
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
 		return nil, ErrOutsideRoot
 	}
-	resolved, err := filepath.EvalSymlinks(filepath.Join(b.canonical, rel))
-	if err != nil || !within(resolved, b.canonical) {
-		if err != nil {
-			return nil, err
-		}
-		return nil, ErrOutsideRoot
-	}
-	file, actual, err := openDirectory(resolved)
+	fd, err := unix.Dup(int(b.file.Fd()))
 	if err != nil {
 		return nil, err
 	}
-	if !within(actual, b.canonical) {
-		_ = file.Close()
-		return nil, ErrOutsideRoot
+	current := os.NewFile(uintptr(fd), b.canonical)
+	parts := strings.Split(filepath.Clean(rel), string(filepath.Separator))
+	if rel == "." {
+		parts = nil
 	}
-	return &BoundPath{Path: actual, file: file}, nil
+	for _, part := range parts {
+		if part == "" || part == "." || part == ".." {
+			_ = current.Close()
+			return nil, ErrOutsideRoot
+		}
+		nextFD, openErr := unix.Openat(int(current.Fd()), part,
+			unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
+		if openErr != nil {
+			_ = current.Close()
+			return nil, openErr
+		}
+		next := os.NewFile(uintptr(nextFD), part)
+		_ = current.Close()
+		current = next
+	}
+	actual, err := pathFromFD(int(current.Fd()))
+	if err != nil {
+		_ = current.Close()
+		return nil, err
+	}
+	return &BoundPath{Path: filepath.Clean(actual), file: current}, nil
 }
 
 func (b *BoundDirectory) CanonicalDescendant(path string) (string, error) {

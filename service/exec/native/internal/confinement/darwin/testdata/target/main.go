@@ -16,6 +16,12 @@ func main() {
 	switch os.Args[1] {
 	case "environment":
 		fmt.Printf("%s\n%s\n%s\n", os.Getenv("WIPPY_PINNED"), os.Getenv("HOME"), os.Getenv("TMPDIR"))
+	case "cwd":
+		cwd, err := os.Getwd()
+		if err != nil {
+			os.Exit(97)
+		}
+		fmt.Println(cwd)
 	case "filesystem":
 		if len(os.Args) != 5 {
 			os.Exit(91)

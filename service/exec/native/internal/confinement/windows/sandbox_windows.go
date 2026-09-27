@@ -9,9 +9,10 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"os"
 	"runtime"
 	"strings"
+	"sync"
+	"unicode/utf16"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -32,6 +33,7 @@ var (
 	getTokenInformation       = advapi32.NewProc("GetTokenInformation")
 	kernel32                  = windows.NewLazySystemDLL("kernel32.dll")
 	isProcessInJob            = kernel32.NewProc("IsProcessInJob")
+	pathACLMutex              sync.Mutex
 )
 
 type securityCapabilities struct {
@@ -47,6 +49,14 @@ type securityCapabilities struct {
 type Sandbox struct {
 	name string
 	sid  *windows.SID
+}
+
+type PathGrant struct {
+	Path        string
+	handle      windows.Handle
+	sid         *windows.SID
+	inheritance uint32
+	closed      bool
 }
 
 func NewSandbox() (*Sandbox, error) {
@@ -73,7 +83,7 @@ func NewSandbox() (*Sandbox, error) {
 		return nil, errors.New("AppContainer profile returned no package SID")
 	}
 	sid, err := allocated.Copy()
-	_, _ = windows.LocalFree(windows.Handle(unsafe.Pointer(allocated)))
+	_ = windows.FreeSid(allocated)
 	if err != nil {
 		_ = deleteProfile(name)
 		return nil, err
@@ -105,34 +115,63 @@ func deleteProfile(name string) error {
 
 // GrantPath adds the launch package SID to a path DACL. The returned cleanup
 // removes only this unique SID, preserving unrelated ACL changes.
-func (s *Sandbox) GrantPath(path string, permissions windows.ACCESS_MASK) (func() error, error) {
+func (s *Sandbox) GrantPath(path string, permissions windows.ACCESS_MASK) (*PathGrant, error) {
 	if s == nil || s.sid == nil {
 		return nil, errors.New("sandbox identity is closed")
 	}
-	info, err := os.Stat(path)
+	handle, directory, actual, err := openACLPath(path)
 	if err != nil {
 		return nil, err
 	}
 	inheritance := uint32(windows.NO_INHERITANCE)
-	if info.IsDir() {
+	if directory {
 		inheritance = windows.SUB_CONTAINERS_AND_OBJECTS_INHERIT
 	}
-	if err := changePathAccess(path, windows.GRANT_ACCESS, permissions, inheritance, s.sid); err != nil {
+	pathACLMutex.Lock()
+	err = changeHandleAccess(handle, windows.GRANT_ACCESS, permissions, inheritance, s.sid)
+	pathACLMutex.Unlock()
+	if err != nil {
+		_ = windows.CloseHandle(handle)
 		return nil, err
 	}
-	return func() error {
-		return changePathAccess(path, windows.REVOKE_ACCESS, 0, inheritance, s.sid)
-	}, nil
+	return &PathGrant{Path: actual, handle: handle, sid: s.sid, inheritance: inheritance}, nil
 }
 
-func changePathAccess(path string, mode windows.ACCESS_MODE, permissions windows.ACCESS_MASK, inheritance uint32, sid *windows.SID) error {
-	descriptor, err := windows.GetNamedSecurityInfo(path, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION)
+func openACLPath(path string) (windows.Handle, bool, string, error) {
+	name, err := windows.UTF16PtrFromString(path)
+	if err != nil {
+		return 0, false, "", err
+	}
+	handle, err := windows.CreateFile(name, windows.READ_CONTROL|windows.WRITE_DAC|windows.FILE_READ_ATTRIBUTES,
+		windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE, nil, windows.OPEN_EXISTING,
+		windows.FILE_FLAG_BACKUP_SEMANTICS, 0)
+	if err != nil {
+		return 0, false, "", err
+	}
+	var info windows.ByHandleFileInformation
+	if err := windows.GetFileInformationByHandle(handle, &info); err != nil {
+		_ = windows.CloseHandle(handle)
+		return 0, false, "", err
+	}
+	actual, err := finalPath(handle)
+	if err != nil {
+		_ = windows.CloseHandle(handle)
+		return 0, false, "", err
+	}
+	return handle, info.FileAttributes&windows.FILE_ATTRIBUTE_DIRECTORY != 0, actual, nil
+}
+
+func changeHandleAccess(handle windows.Handle, mode windows.ACCESS_MODE, permissions windows.ACCESS_MASK, inheritance uint32, sid *windows.SID) error {
+	descriptor, err := windows.GetSecurityInfo(handle, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION)
 	if err != nil {
 		return err
 	}
 	dacl, _, err := descriptor.DACL()
 	if err != nil {
 		return err
+	}
+	if dacl == nil {
+		return errors.New("NULL DACL paths cannot be safely modified for LPAC")
 	}
 	var pinner runtime.Pinner
 	pinner.Pin(sid)
@@ -151,8 +190,22 @@ func changePathAccess(path string, mode windows.ACCESS_MODE, permissions windows
 	if err != nil {
 		return err
 	}
-	return windows.SetNamedSecurityInfo(path, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION,
+	return windows.SetSecurityInfo(handle, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION,
 		nil, nil, updated, nil)
+}
+
+func (g *PathGrant) Close() error {
+	if g == nil || g.closed {
+		return nil
+	}
+	g.closed = true
+	pathACLMutex.Lock()
+	err := changeHandleAccess(g.handle, windows.REVOKE_ACCESS, 0, g.inheritance, g.sid)
+	pathACLMutex.Unlock()
+	closeErr := windows.CloseHandle(g.handle)
+	g.handle = 0
+	g.sid = nil
+	return errors.Join(err, closeErr)
 }
 
 type SpawnRequest struct {
@@ -172,7 +225,14 @@ type SpawnedProcess struct {
 	PID     uint32
 }
 
-func (p *SpawnedProcess) Verify(job *Job) error {
+func (s *Sandbox) VerifySpawned(p *SpawnedProcess, job *Job) error {
+	if s == nil || s.sid == nil {
+		return errors.New("sandbox identity is closed")
+	}
+	return p.verify(job, s.sid)
+}
+
+func (p *SpawnedProcess) verify(job *Job, expectedSID *windows.SID) error {
 	if p == nil || p.Process == 0 || job == nil || job.handle == 0 {
 		return errors.New("invalid suspended LPAC process")
 	}
@@ -203,6 +263,27 @@ func (p *SpawnedProcess) Verify(job *Job) error {
 	if !isLPAC {
 		return errors.New("suspended target does not have a less-privileged AppContainer token")
 	}
+	packageSID, err := tokenSID(token, 31)
+	if err != nil {
+		return fmt.Errorf("verify AppContainer package SID: %w", err)
+	}
+	if expectedSID == nil || packageSID == nil || !packageSID.Equals(expectedSID) {
+		return errors.New("suspended target has the wrong AppContainer package SID")
+	}
+	capabilities, err := tokenGroups(token, 30)
+	if err != nil {
+		return fmt.Errorf("verify AppContainer capabilities: %w", err)
+	}
+	if capabilities.GroupCount != 0 {
+		return errors.New("suspended target unexpectedly has AppContainer capabilities")
+	}
+	integrity, err := tokenIntegrity(token)
+	if err != nil {
+		return fmt.Errorf("verify AppContainer integrity: %w", err)
+	}
+	if integrity > 0x1000 {
+		return fmt.Errorf("suspended target integrity RID %#x exceeds low integrity", integrity)
+	}
 	return nil
 }
 
@@ -228,6 +309,51 @@ func tokenBool(token windows.Token, class uintptr) (bool, error) {
 		return false, callErr
 	}
 	return value != 0, nil
+}
+
+func tokenInfo(token windows.Token, class uint32) ([]byte, error) {
+	var size uint32
+	err := windows.GetTokenInformation(token, class, nil, 0, &size)
+	if err != windows.ERROR_INSUFFICIENT_BUFFER || size == 0 {
+		return nil, err
+	}
+	buffer := make([]byte, size)
+	if err := windows.GetTokenInformation(token, class, &buffer[0], size, &size); err != nil {
+		return nil, err
+	}
+	return buffer, nil
+}
+
+func tokenSID(token windows.Token, class uint32) (*windows.SID, error) {
+	buffer, err := tokenInfo(token, class)
+	if err != nil {
+		return nil, err
+	}
+	value := *(**windows.SID)(unsafe.Pointer(&buffer[0]))
+	if value == nil || !value.IsValid() {
+		return nil, errors.New("token returned an invalid SID")
+	}
+	return value, nil
+}
+
+func tokenGroups(token windows.Token, class uint32) (*windows.Tokengroups, error) {
+	buffer, err := tokenInfo(token, class)
+	if err != nil {
+		return nil, err
+	}
+	return (*windows.Tokengroups)(unsafe.Pointer(&buffer[0])), nil
+}
+
+func tokenIntegrity(token windows.Token) (uint32, error) {
+	buffer, err := tokenInfo(token, windows.TokenIntegrityLevel)
+	if err != nil {
+		return 0, err
+	}
+	label := (*windows.Tokenmandatorylabel)(unsafe.Pointer(&buffer[0]))
+	if label.Label.Sid == nil || !label.Label.Sid.IsValid() || label.Label.Sid.SubAuthorityCount() == 0 {
+		return 0, errors.New("token returned an invalid integrity SID")
+	}
+	return label.Label.Sid.SubAuthority(uint32(label.Label.Sid.SubAuthorityCount() - 1)), nil
 }
 
 func (p *SpawnedProcess) Resume() error {
@@ -360,6 +486,11 @@ func (s *Sandbox) SpawnSuspended(request SpawnRequest) (*SpawnedProcess, error) 
 }
 
 func environmentBlock(values []string) ([]uint16, error) {
-	joined := strings.Join(values, "\x00") + "\x00\x00"
-	return windows.UTF16FromString(joined)
+	for _, value := range values {
+		if strings.ContainsRune(value, 0) {
+			return nil, errors.New("environment value contains NUL")
+		}
+	}
+	block := utf16.Encode([]rune(strings.Join(values, "\x00")))
+	return append(block, 0, 0), nil
 }

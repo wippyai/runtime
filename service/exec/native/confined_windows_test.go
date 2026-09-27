@@ -6,6 +6,7 @@ package native
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -14,6 +15,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unsafe"
 
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/registry"
@@ -22,6 +24,8 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/sys/windows"
 )
+
+var getHandleInformation = windows.NewLazySystemDLL("kernel32.dll").NewProc("GetHandleInformation")
 
 func TestWindowsConfinedPayload(t *testing.T) {
 	separator := -1
@@ -36,24 +40,54 @@ func TestWindowsConfinedPayload(t *testing.T) {
 	}
 	switch os.Args[separator+1] {
 	case "basic":
-		if separator+2 >= len(os.Args) {
+		if separator+3 >= len(os.Args) {
 			os.Exit(93)
 		}
-		parentPID, err := strconv.Atoi(os.Args[separator+2])
+		targetPID, err := strconv.Atoi(os.Args[separator+2])
 		if err != nil {
 			os.Exit(94)
+		}
+		sentinel, err := strconv.ParseUint(os.Args[separator+3], 10, 64)
+		if err != nil {
+			os.Exit(89)
 		}
 		isContainer, err := confinewindows.CurrentProcessIsLPAC()
 		if err != nil || !isContainer {
 			os.Exit(95)
 		}
-		parent, err := windows.OpenProcess(windows.PROCESS_DUP_HANDLE|windows.PROCESS_VM_WRITE|
-			windows.PROCESS_VM_OPERATION, false, uint32(parentPID))
-		if err == nil {
-			_ = windows.CloseHandle(parent)
-			os.Exit(96)
+		for index, access := range []uint32{
+			windows.PROCESS_DUP_HANDLE,
+			windows.PROCESS_VM_WRITE,
+			windows.PROCESS_VM_OPERATION,
+			windows.PROCESS_CREATE_PROCESS,
+			windows.PROCESS_CREATE_THREAD,
+		} {
+			handle, openErr := windows.OpenProcess(access, false, uint32(targetPID))
+			if openErr == nil {
+				_ = windows.CloseHandle(handle)
+				os.Exit(80 + index)
+			}
+			if !errors.Is(openErr, windows.ERROR_ACCESS_DENIED) {
+				os.Exit(70 + index)
+			}
 		}
-		fmt.Printf("%s\n%s\nlpac\nparent_denied\n", os.Getenv("WIPPY_PINNED"), os.Getenv("USERPROFILE"))
+		var flags uint32
+		result, _, handleErr := getHandleInformation.Call(uintptr(sentinel), uintptr(unsafe.Pointer(&flags)))
+		if result != 0 {
+			os.Exit(88)
+		} else if !errors.Is(handleErr, windows.ERROR_INVALID_HANDLE) {
+			os.Exit(87)
+		}
+		fmt.Printf("%s\n%s\nlpac\ntarget_denied\nhandle_denied\n", os.Getenv("WIPPY_PINNED"), os.Getenv("USERPROFILE"))
+	case "hold":
+		isContainer, err := confinewindows.CurrentProcessIsLPAC()
+		if err != nil || !isContainer {
+			os.Exit(86)
+		}
+		fmt.Println(os.Getpid())
+		for {
+			time.Sleep(time.Hour)
+		}
 	case "tree":
 		command := exec.Command(os.Args[0], "-test.run=^TestWindowsConfinedPayload$", "--", "grandchild")
 		command.Env = os.Environ()
@@ -107,7 +141,9 @@ func windowsPayloadCommand(t *testing.T, mode string, arguments ...string) strin
 func TestNativeWindowsConfinementRunsInsideJob(t *testing.T) {
 	workDir := t.TempDir()
 	executor := newWindowsConfinedExecutor(t, workDir)
-	process, err := executor.NewProcess(windowsPayloadCommand(t, "basic", strconv.Itoa(os.Getpid())), execapi.ProcessOptions{})
+	sentinel := newInheritableWindowsSentinel(t)
+	process, err := executor.NewProcess(windowsPayloadCommand(t, "basic", strconv.Itoa(os.Getpid()),
+		strconv.FormatUint(uint64(sentinel), 10)), execapi.ProcessOptions{})
 	require.NoError(t, err)
 	stdout := process.Stdout()
 	require.NoError(t, process.Start())
@@ -115,14 +151,52 @@ func TestNativeWindowsConfinementRunsInsideJob(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, process.Wait())
 	lines := strings.Split(strings.TrimSpace(string(payload)), "\n")
-	require.GreaterOrEqual(t, len(lines), 4)
+	require.GreaterOrEqual(t, len(lines), 5)
 	require.Equal(t, "yes", lines[0])
 	require.NotEmpty(t, lines[1])
 	require.NotEqual(t, os.Getenv("USERPROFILE"), lines[1])
 	require.Equal(t, "lpac", lines[2])
-	require.Equal(t, "parent_denied", lines[3])
+	require.Equal(t, "target_denied", lines[3])
+	require.Equal(t, "handle_denied", lines[4])
 	_, err = os.Stat(lines[1])
 	require.ErrorIs(t, err, os.ErrNotExist, "private home is removed after the job is empty")
+}
+
+func TestNativeWindowsConfinementIsolatesPeerLPACs(t *testing.T) {
+	workDir := t.TempDir()
+	executor := newWindowsConfinedExecutor(t, workDir)
+	holder, err := executor.NewProcess(windowsPayloadCommand(t, "hold"), execapi.ProcessOptions{})
+	require.NoError(t, err)
+	holderOutput := holder.Stdout()
+	require.NoError(t, holder.Start())
+	line, err := bufio.NewReader(holderOutput).ReadString('\n')
+	require.NoError(t, err)
+	holderPID, err := strconv.Atoi(strings.TrimSpace(line))
+	require.NoError(t, err)
+
+	sentinel := newInheritableWindowsSentinel(t)
+	probe, err := executor.NewProcess(windowsPayloadCommand(t, "basic", strconv.Itoa(holderPID),
+		strconv.FormatUint(uint64(sentinel), 10)), execapi.ProcessOptions{})
+	require.NoError(t, err)
+	probeOutput := probe.Stdout()
+	require.NoError(t, probe.Start())
+	payload, err := io.ReadAll(probeOutput)
+	require.NoError(t, err)
+	require.NoError(t, probe.Wait(), string(payload))
+	require.Contains(t, string(payload), "target_denied")
+
+	holder.(*ProcessExecutor).Stop()
+	_ = holder.Wait()
+	requireWindowsProcessGone(t, uint32(holderPID))
+}
+
+func newInheritableWindowsSentinel(t *testing.T) windows.Handle {
+	t.Helper()
+	handle, err := windows.CreateEvent(nil, 0, 0, nil)
+	require.NoError(t, err)
+	require.NoError(t, windows.SetHandleInformation(handle, windows.HANDLE_FLAG_INHERIT, windows.HANDLE_FLAG_INHERIT))
+	t.Cleanup(func() { require.NoError(t, windows.CloseHandle(handle)) })
+	return handle
 }
 
 func TestNativeWindowsConfinementStopKillsDescendants(t *testing.T) {

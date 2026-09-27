@@ -474,7 +474,19 @@ func (c *darwinConfinementLaunch) WaitProcess() error {
 		}
 		var status syscall.WaitStatus
 		for {
-			_, err := syscall.Wait4(process.Pid, &status, 0, nil)
+			c.processMu.Lock()
+			if c.process != process {
+				c.processMu.Unlock()
+				c.waitErr = ErrProcessNotRunning
+				return
+			}
+			pid, err := syscall.Wait4(process.Pid, &status, syscall.WNOHANG, nil)
+			if pid == process.Pid {
+				// Reap and identity invalidation are atomic with respect to Signal
+				// and the wall timer, so neither can hit a recycled numeric PID.
+				c.process = nil
+			}
+			c.processMu.Unlock()
 			if err == syscall.EINTR {
 				continue
 			}
@@ -482,13 +494,11 @@ func (c *darwinConfinementLaunch) WaitProcess() error {
 				c.waitErr = err
 				return
 			}
-			break
+			if pid == process.Pid {
+				break
+			}
+			time.Sleep(10 * time.Millisecond)
 		}
-		c.processMu.Lock()
-		if c.process == process {
-			c.process = nil
-		}
-		c.processMu.Unlock()
 		if status.Signaled() {
 			signal := int(status.Signal())
 			c.waitErr = &ExitError{Code: 128 + signal, Signal: signal}
@@ -571,7 +581,12 @@ func (c *darwinConfinementLaunch) Signal(signal syscall.Signal) error {
 	return c.process.Signal(signal)
 }
 
-func (c *darwinConfinementLaunch) Stop() { c.stopWall(); c.kill(); c.release() }
+func (c *darwinConfinementLaunch) Stop() {
+	c.stopWall()
+	c.kill()
+	_ = c.WaitProcess()
+	c.release()
+}
 func (c *darwinConfinementLaunch) Wait(waitErr error) error {
 	c.stopWall()
 	c.release()

@@ -28,21 +28,22 @@ type windowsEntryBinding struct {
 }
 
 type windowsConfinementLaunch struct {
-	policy    confinement.Policy
-	workDir   *confinewindows.BoundPath
-	job       *confinewindows.Job
-	wall      *time.Timer
-	private   string
-	sandbox   *confinewindows.Sandbox
-	spawned   *confinewindows.SpawnedProcess
-	revokers  []func() error
-	cleanup   sync.Once
-	wallDone  chan struct{}
-	wallOnce  sync.Once
-	waitOnce  sync.Once
-	waitDone  chan struct{}
-	waitErr   error
-	stateLock sync.Mutex
+	policy     confinement.Policy
+	workDir    *confinewindows.BoundPath
+	job        *confinewindows.Job
+	wall       *time.Timer
+	private    string
+	sandbox    *confinewindows.Sandbox
+	spawned    *confinewindows.SpawnedProcess
+	grants     []*confinewindows.PathGrant
+	cleanup    sync.Once
+	cleanupErr error
+	wallDone   chan struct{}
+	wallOnce   sync.Once
+	waitOnce   sync.Once
+	waitDone   chan struct{}
+	waitErr    error
+	stateLock  sync.Mutex
 }
 
 func validateConfinementHost(entry *execapi.Confinement) error {
@@ -157,14 +158,12 @@ func (e *Executor) prepareConfinement(process *ProcessExecutor, options execapi.
 
 func (c *windowsConfinementLaunch) Start(process *ProcessExecutor) error {
 	if process.cmd.Err != nil {
-		c.release()
-		return process.cmd.Err
+		return c.cleanupCause(process.cmd.Err)
 	}
 	if c.policy.HomePrivate {
 		private, err := os.MkdirTemp("", "wippy-confine-private-")
 		if err != nil {
-			c.release()
-			return execapi.ErrConfineUnsupported.WithCause(err)
+			return execapi.ErrConfineUnsupported.WithCause(c.cleanupCause(err))
 		}
 		c.private = private
 		for _, name := range []string{"HOME", "USERPROFILE"} {
@@ -174,54 +173,56 @@ func (c *windowsConfinementLaunch) Start(process *ProcessExecutor) error {
 	}
 	sandbox, err := confinewindows.NewSandbox()
 	if err != nil {
-		c.release()
-		return execapi.ErrConfineUnsupported.WithCause(err)
+		return execapi.ErrConfineUnsupported.WithCause(c.cleanupCause(err))
 	}
 	c.sandbox = sandbox
-	grant := func(path string, permissions windows.ACCESS_MASK) error {
-		revoke, grantErr := sandbox.GrantPath(path, permissions)
+	grant := func(path string, permissions windows.ACCESS_MASK) (*confinewindows.PathGrant, error) {
+		pathGrant, grantErr := sandbox.GrantPath(path, permissions)
 		if grantErr == nil {
-			c.revokers = append(c.revokers, revoke)
+			c.grants = append(c.grants, pathGrant)
 		}
-		return grantErr
+		return pathGrant, grantErr
 	}
 	workspaceAccess := windows.ACCESS_MASK(windows.FILE_GENERIC_READ | windows.FILE_GENERIC_WRITE |
 		windows.FILE_GENERIC_EXECUTE | windows.DELETE)
-	if err := grant(c.workDir.Path, workspaceAccess); err != nil {
-		c.release()
-		return execapi.ErrConfineUnsupported.WithCause(fmt.Errorf("grant LPAC work directory: %w", err))
+	if _, err := grant(c.workDir.Path, workspaceAccess); err != nil {
+		cause := fmt.Errorf("grant LPAC work directory: %w", err)
+		return execapi.ErrConfineUnsupported.WithCause(c.cleanupCause(cause))
 	}
-	if err := grant(process.cmd.Path, windows.FILE_GENERIC_READ|windows.FILE_GENERIC_EXECUTE); err != nil {
-		c.release()
-		return execapi.ErrConfineUnsupported.WithCause(fmt.Errorf("grant LPAC executable: %w", err))
+	executable, err := resolveWindowsExecutable(process.cmd.Path, c.workDir.Path)
+	if err != nil {
+		return execapi.ErrConfineSetup.WithCause(c.cleanupCause(err))
+	}
+	executableGrant, err := grant(executable, windows.FILE_GENERIC_READ|windows.FILE_GENERIC_EXECUTE)
+	if err != nil {
+		cause := fmt.Errorf("grant LPAC executable: %w", err)
+		return execapi.ErrConfineUnsupported.WithCause(c.cleanupCause(cause))
 	}
 	if c.private != "" {
-		if err := grant(c.private, workspaceAccess); err != nil {
-			c.release()
-			return execapi.ErrConfineUnsupported.WithCause(fmt.Errorf("grant LPAC private home: %w", err))
+		if _, err := grant(c.private, workspaceAccess); err != nil {
+			cause := fmt.Errorf("grant LPAC private home: %w", err)
+			return execapi.ErrConfineUnsupported.WithCause(c.cleanupCause(cause))
 		}
 	}
 	job, err := confinewindows.NewJob(c.policy.Limits.MemoryMiB)
 	if err != nil {
-		c.release()
-		return execapi.ErrConfineUnsupported.WithCause(err)
+		return execapi.ErrConfineUnsupported.WithCause(c.cleanupCause(err))
 	}
 	c.job = job
 	stdin, stdinOK := process.cmd.Stdin.(*os.File)
 	stdout, stdoutOK := process.cmd.Stdout.(*os.File)
 	stderr, stderrOK := process.cmd.Stderr.(*os.File)
 	if !stdinOK || !stdoutOK || !stderrOK {
-		c.release()
-		return execapi.ErrConfineSetup.WithCause(errors.New("Windows LPAC launch requires file-backed standard streams"))
+		cause := errors.New("Windows LPAC launch requires file-backed standard streams")
+		return execapi.ErrConfineSetup.WithCause(c.cleanupCause(cause))
 	}
 	spawned, err := sandbox.SpawnSuspended(confinewindows.SpawnRequest{
-		Path: process.cmd.Path, Args: process.cmd.Args, Env: process.cmd.Env, WorkDir: c.workDir.Path,
+		Path: executableGrant.Path, Args: process.cmd.Args, Env: process.cmd.Env, WorkDir: c.workDir.Path,
 		Stdin: windows.Handle(stdin.Fd()), Stdout: windows.Handle(stdout.Fd()), Stderr: windows.Handle(stderr.Fd()),
 		Job: job,
 	})
 	if err != nil {
-		c.release()
-		return execapi.ErrConfineSetup.WithCause(err)
+		return execapi.ErrConfineSetup.WithCause(c.cleanupCause(err))
 	}
 	c.spawned = spawned
 	process.pid = int(spawned.PID)
@@ -229,10 +230,9 @@ func (c *windowsConfinementLaunch) Start(process *ProcessExecutor) error {
 		_ = c.job.Kill(windowsConfinedKillCode)
 		_ = c.spawned.Kill(windowsConfinedKillCode)
 		_, _ = c.spawned.Wait()
-		c.release()
-		return execapi.ErrConfineSetup.WithCause(cause)
+		return execapi.ErrConfineSetup.WithCause(c.cleanupCause(cause))
 	}
-	if err := spawned.Verify(job); err != nil {
+	if err := sandbox.VerifySpawned(spawned, job); err != nil {
 		return fail(err)
 	}
 	if err := spawned.Resume(); err != nil {
@@ -263,7 +263,7 @@ func (c *windowsConfinementLaunch) Signal(signal syscall.Signal) error {
 	if signal == syscall.SIGKILL {
 		return c.job.Kill(windowsConfinedKillCode)
 	}
-	return c.spawned.Kill(uint32(signal))
+	return fmt.Errorf("signal %d is unsupported by Windows confined processes", signal)
 }
 
 func (c *windowsConfinementLaunch) Stop() {
@@ -273,13 +273,13 @@ func (c *windowsConfinementLaunch) Stop() {
 		_ = c.job.Kill(windowsConfinedKillCode)
 	}
 	c.stateLock.Unlock()
+	_ = c.WaitProcess()
 	c.release()
 }
 
 func (c *windowsConfinementLaunch) Wait(waitErr error) error {
 	c.stopWall()
-	c.release()
-	return waitErr
+	return errors.Join(waitErr, c.release())
 }
 
 func (c *windowsConfinementLaunch) WaitProcess() error {
@@ -317,7 +317,7 @@ func (c *windowsConfinementLaunch) stopWall() {
 	}
 }
 
-func (c *windowsConfinementLaunch) release() {
+func (c *windowsConfinementLaunch) release() error {
 	c.cleanup.Do(func() {
 		c.stateLock.Lock()
 		job := c.job
@@ -328,29 +328,97 @@ func (c *windowsConfinementLaunch) release() {
 		jobEmpty := true
 		if job != nil {
 			_ = job.Kill(windowsConfinedKillCode)
-			jobEmpty = job.WaitEmpty(5*time.Second) == nil
-			_ = job.Close()
+			if err := job.WaitEmpty(5 * time.Second); err != nil {
+				jobEmpty = false
+				c.cleanupErr = errors.Join(c.cleanupErr, fmt.Errorf("wait for confinement Job cleanup: %w", err))
+			}
+			c.cleanupErr = errors.Join(c.cleanupErr, job.Close())
 		}
 		if spawned != nil {
-			_ = spawned.Close()
+			c.cleanupErr = errors.Join(c.cleanupErr, spawned.Close())
 		}
-		if c.workDir != nil {
-			_ = c.workDir.Close()
-			c.workDir = nil
+		for index := len(c.grants) - 1; index >= 0; index-- {
+			c.cleanupErr = errors.Join(c.cleanupErr, c.grants[index].Close())
 		}
-		if c.private != "" && jobEmpty {
-			_ = os.RemoveAll(c.private)
-			c.private = ""
-		}
-		for index := len(c.revokers) - 1; index >= 0; index-- {
-			_ = c.revokers[index]()
-		}
-		c.revokers = nil
+		c.grants = nil
 		if c.sandbox != nil {
-			_ = c.sandbox.Close()
+			c.cleanupErr = errors.Join(c.cleanupErr, c.sandbox.Close())
 			c.sandbox = nil
 		}
+		if c.private != "" && jobEmpty {
+			c.cleanupErr = errors.Join(c.cleanupErr, os.RemoveAll(c.private))
+			c.private = ""
+		}
+		if c.workDir != nil {
+			c.cleanupErr = errors.Join(c.cleanupErr, c.workDir.Close())
+			c.workDir = nil
+		}
 	})
+	return c.cleanupErr
+}
+
+func (c *windowsConfinementLaunch) cleanupCause(cause error) error {
+	return errors.Join(cause, c.release())
+}
+
+func resolveWindowsExecutable(path, workDir string) (string, error) {
+	if path == "" || workDir == "" {
+		return "", errors.New("empty Windows executable or working directory")
+	}
+	upper := strings.ToUpper(path)
+	volume := filepath.VolumeName(path)
+	rest := strings.TrimPrefix(path, volume)
+	if strings.HasPrefix(upper, `\\?\`) || strings.HasPrefix(upper, `\\.\`) ||
+		strings.HasPrefix(upper, `\\`) || strings.Contains(rest, ":") {
+		return "", errors.New("device, UNC, and alternate-data-stream executable paths are unsupported")
+	}
+	if volume != "" && !filepath.IsAbs(path) {
+		return "", errors.New("drive-relative executable paths are unsupported")
+	}
+	if volume == "" && strings.HasPrefix(rest, `\`) {
+		return "", errors.New("current-drive-relative executable paths are unsupported")
+	}
+	candidate := path
+	if !filepath.IsAbs(candidate) {
+		candidate = filepath.Join(workDir, candidate)
+	}
+	candidate = filepath.Clean(candidate)
+	resolved, err := resolveWindowsExecutableExtension(candidate)
+	if err != nil {
+		return "", err
+	}
+	resolved, err = filepath.EvalSymlinks(resolved)
+	if err != nil {
+		return "", err
+	}
+	resolved, err = filepath.Abs(resolved)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Clean(resolved), nil
+}
+
+func resolveWindowsExecutableExtension(path string) (string, error) {
+	if info, err := os.Stat(path); err == nil && !info.IsDir() {
+		return path, nil
+	}
+	extensions := filepath.SplitList(os.Getenv("PATHEXT"))
+	if len(extensions) == 0 {
+		extensions = []string{".com", ".exe", ".bat", ".cmd"}
+	}
+	for _, extension := range extensions {
+		if extension == "" {
+			continue
+		}
+		if extension[0] != '.' {
+			extension = "." + extension
+		}
+		candidate := path + extension
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+			return candidate, nil
+		}
+	}
+	return "", fmt.Errorf("executable %q does not exist", path)
 }
 
 var _ io.Closer = (*windowsEntryBinding)(nil)

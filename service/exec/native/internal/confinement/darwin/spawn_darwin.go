@@ -27,7 +27,7 @@ static int wippy_copy_cdhash(SecStaticCodeRef code, char *output, size_t output_
 	OSStatus status = SecCodeCopySigningInformation(code, kSecCSSigningInformation, &info);
 	if (status != errSecSuccess) return (int)status;
 	CFDataRef unique = (CFDataRef)CFDictionaryGetValue(info, kSecCodeInfoUnique);
-	CFNumberRef status_value = (CFNumberRef)CFDictionaryGetValue(info, kSecCodeInfoStatus);
+	CFNumberRef status_value = (CFNumberRef)CFDictionaryGetValue(info, kSecCodeInfoFlags);
 	uint32_t status_flags = 0;
 	if (status_value == NULL || CFGetTypeID(status_value) != CFNumberGetTypeID() ||
 		!CFNumberGetValue(status_value, kCFNumberSInt32Type, &status_flags) ||
@@ -97,6 +97,15 @@ static int wippy_verify_dynamic_code(pid_t pid, const char *expected_cdhash) {
 	CFRelease(text);
 	if (status == errSecSuccess) {
 		status = SecCodeCheckValidity(code, kSecCSStrictValidate, requirement);
+	}
+	if (status == errSecSuccess) {
+		SecCodeStatus dynamic_status = 0;
+		status = SecCodeGetStatus(code, kSecCSDefaultFlags, &dynamic_status);
+		if (status == errSecSuccess &&
+			(dynamic_status & (kSecCodeStatusHard | kSecCodeStatusKill)) !=
+				(kSecCodeStatusHard | kSecCodeStatusKill)) {
+			status = -20002;
+		}
 	}
 	if (requirement != NULL) CFRelease(requirement);
 	CFRelease(code);

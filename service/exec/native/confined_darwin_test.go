@@ -151,3 +151,72 @@ func TestNativeDarwinConfinementWallUsesSingleProcessDomain(t *testing.T) {
 	require.GreaterOrEqual(t, elapsed, 800*time.Millisecond)
 	require.Less(t, elapsed, 10*time.Second)
 }
+
+func TestDarwinSpawnRejectsSubstitutedSignedHelperBeforeExecution(t *testing.T) {
+	installDarwinConfinementHelper(t)
+	repoRoot, err := filepath.Abs(filepath.Join("..", "..", ".."))
+	require.NoError(t, err)
+	marker := filepath.Join(t.TempDir(), "executed")
+	substitute := filepath.Join(t.TempDir(), "substitute")
+	command := exec.Command("go", "build", "-trimpath", "-ldflags", "-X main.marker="+marker,
+		"-o", substitute, "./service/exec/native/internal/confinement/darwin/testdata/substitute")
+	command.Dir = repoRoot
+	output, err := command.CombinedOutput()
+	require.NoErrorf(t, err, "build substitute Darwin helper: %s", output)
+	command = exec.Command("codesign", "--force", "--sign", "-", "--options", "hard,kill,runtime", substitute)
+	output, err = command.CombinedOutput()
+	require.NoErrorf(t, err, "sign substitute Darwin helper: %s", output)
+
+	input, err := os.Open(os.DevNull)
+	require.NoError(t, err)
+	defer input.Close()
+	outputFile, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
+	require.NoError(t, err)
+	defer outputFile.Close()
+	policyReader, policyWriter, err := os.Pipe()
+	require.NoError(t, err)
+	defer policyReader.Close()
+	defer policyWriter.Close()
+	statusReader, statusWriter, err := os.Pipe()
+	require.NoError(t, err)
+	defer statusReader.Close()
+	defer statusWriter.Close()
+	workDir, err := os.Open(t.TempDir())
+	require.NoError(t, err)
+	defer workDir.Close()
+
+	_, err = confinedarwin.SpawnVerified(substitute, darwinHelperCDHash,
+		[6]*os.File{input, outputFile, outputFile, policyReader, statusWriter, workDir})
+	require.Error(t, err)
+	_, err = os.Stat(marker)
+	require.ErrorIs(t, err, os.ErrNotExist)
+}
+
+func TestNativeDarwinConfinementUsesBoundWorkDirAfterRootReplacement(t *testing.T) {
+	installDarwinConfinementHelper(t)
+	parent := t.TempDir()
+	root := filepath.Join(parent, "root")
+	workDir := filepath.Join(root, "work")
+	require.NoError(t, os.MkdirAll(workDir, 0o700))
+	target := buildDarwinConfinementTarget(t)
+	factory := NewExecutorFactory(zap.NewNop())
+	handle, err := factory.CreateExecutor(registry.ID{}, &execapi.NativeExecutorConfig{
+		DefaultWorkDir: workDir,
+		Confine:        &execapi.Confinement{WorkDirRoots: []string{root}},
+	})
+	require.NoError(t, err)
+	executor := handle.(*Executor)
+	t.Cleanup(func() { require.NoError(t, executor.Close()) })
+	process, err := executor.NewProcess(darwinPayloadCommand(target, "cwd"), execapi.ProcessOptions{})
+	require.NoError(t, err)
+
+	movedRoot := filepath.Join(parent, "bound-root")
+	require.NoError(t, os.Rename(root, movedRoot))
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "work"), 0o700))
+	stdout := process.Stdout()
+	require.NoError(t, process.Start())
+	payload, err := io.ReadAll(stdout)
+	require.NoError(t, err)
+	require.NoError(t, process.Wait())
+	require.Equal(t, filepath.Join(movedRoot, "work"), strings.TrimSpace(string(payload)))
+}
