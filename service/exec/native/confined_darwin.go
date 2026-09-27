@@ -6,7 +6,6 @@ package native
 
 import (
 	"bufio"
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -14,7 +13,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -22,7 +20,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/creack/pty"
 	execapi "github.com/wippyai/runtime/api/service/exec"
 	"github.com/wippyai/runtime/service/exec/native/helperimage"
 	"github.com/wippyai/runtime/service/exec/native/internal/confinement"
