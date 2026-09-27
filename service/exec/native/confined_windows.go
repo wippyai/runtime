@@ -186,6 +186,10 @@ func (e *Executor) prepareConfinement(process *ProcessExecutor, options execapi.
 	if err != nil {
 		return fmt.Errorf("%w: %w", execapi.NewInvalidConfinementError("work_dir"), err)
 	}
+	if err := confinewindows.RequireLowIntegrityDirectory(workDir.Path); err != nil {
+		_ = workDir.Close()
+		return execapi.ErrConfineUnsupported.WithCause(fmt.Errorf("Windows writable work directory: %w", err))
+	}
 	process.cmd.Dir = workDir.Path
 	process.confinement = &windowsConfinementLaunch{policy: policy, workDir: workDir}
 	return nil
@@ -195,8 +199,13 @@ func (c *windowsConfinementLaunch) Start(process *ProcessExecutor) error {
 	if process.cmd.Err != nil {
 		return c.cleanupCause(process.cmd.Err)
 	}
+	sandbox, err := confinewindows.NewSandbox()
+	if err != nil {
+		return execapi.ErrConfineUnsupported.WithCause(c.cleanupCause(err))
+	}
+	c.sandbox = sandbox
 	if c.policy.HomePrivate {
-		private, err := os.MkdirTemp("", "wippy-confine-private-")
+		private, err := sandbox.PrivateHome()
 		if err != nil {
 			return execapi.ErrConfineUnsupported.WithCause(c.cleanupCause(err))
 		}
@@ -206,11 +215,6 @@ func (c *windowsConfinementLaunch) Start(process *ProcessExecutor) error {
 		}
 		rebuildProcessEnvironment(process)
 	}
-	sandbox, err := confinewindows.NewSandbox()
-	if err != nil {
-		return execapi.ErrConfineUnsupported.WithCause(c.cleanupCause(err))
-	}
-	c.sandbox = sandbox
 	grant := func(path string, permissions windows.ACCESS_MASK) (*confinewindows.PathGrant, error) {
 		pathGrant, grantErr := sandbox.GrantPath(path, permissions)
 		if grantErr == nil {
@@ -232,12 +236,6 @@ func (c *windowsConfinementLaunch) Start(process *ProcessExecutor) error {
 	if err != nil {
 		cause := fmt.Errorf("grant LPAC executable: %w", err)
 		return execapi.ErrConfineUnsupported.WithCause(c.cleanupCause(cause))
-	}
-	if c.private != "" {
-		if _, err := grant(c.private, workspaceAccess); err != nil {
-			cause := fmt.Errorf("grant LPAC private home: %w", err)
-			return execapi.ErrConfineUnsupported.WithCause(c.cleanupCause(cause))
-		}
 	}
 	job, err := confinewindows.NewJob(c.policy.Limits.MemoryMiB)
 	if err != nil {

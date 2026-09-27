@@ -237,10 +237,13 @@ Object. The runtime atomically assigns the suspended target to the Job and
 verifies its exact package SID, empty capability set, low integrity, and Job
 membership before resuming it. Access for the unique launch SID is temporarily
 granted only to runtime-controlled launch objects and is removed after the Job
-is empty. Configured work roots must consequently be dedicated trees whose ACL
-management and descendant placement remain under Wippy's control for the
-launch; unrelated ACL writers are outside this host contract. Filesystem
-policy blocks, total network denial, and task-count limits fail closed. The
+is empty. Writable work directories must be pre-provisioned with an inheritable
+low mandatory-integrity `NO_WRITE_UP` label; the runtime validates this and
+never silently relabels a host tree. Configured work roots must consequently be
+dedicated trees whose ACL management and descendant placement remain under
+Wippy's control for the launch; unrelated ACL writers are outside this host
+contract. Filesystem policy blocks, total network denial, and task-count limits
+fail closed. The
 runtime supplies trusted `SYSTEMROOT` and `LOCALAPPDATA` bootstrap values;
 Windows rewrites `LOCALAPPDATA`, `TEMP`, and `TMP` into the package-private
 profile. These platform-managed names cannot be set or admitted by the entry

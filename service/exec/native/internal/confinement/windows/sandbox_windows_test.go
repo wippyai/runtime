@@ -20,6 +20,13 @@ func TestCurrentProcessIsNotLPAC(t *testing.T) {
 	require.False(t, isLPAC)
 }
 
+func TestWritableDirectoryRequiresInheritedLowIntegrity(t *testing.T) {
+	path := t.TempDir()
+	require.Error(t, RequireLowIntegrityDirectory(path))
+	require.NoError(t, SetLowIntegrityDirectory(path))
+	require.NoError(t, RequireLowIntegrityDirectory(path))
+}
+
 func TestIntegrityRIDParsesBoundedMandatoryLabel(t *testing.T) {
 	pointerSize := int(unsafe.Sizeof(uintptr(0)))
 	buffer := make([]byte, pointerSize+4+12)

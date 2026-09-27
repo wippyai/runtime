@@ -13,12 +13,22 @@ LPAC status is verified by an in-memory `AccessCheck` that must grant the
 without relying on the inconsistently supported LPAC token-information class.
 
 LPAC identities do not inherit ordinary user filesystem access. The runtime
-therefore adds the launch's unique package SID to the bound working directory,
-private home, and executable DACLs for the launch, then removes that SID after
-the Job is empty. Object handles are retained without delete sharing so path
+therefore adds the launch's unique package SID to the bound working directory
+and executable DACLs for the launch, then removes that SID after the Job is
+empty. Private homes use the package-private, low-integrity profile directory
+created by Windows. Object handles are retained without delete sharing so path
 replacement cannot redirect creation or cleanup. A named mutex derived from
 the volume/file identity serializes DACL read-modify-write across Wippy runtime
 processes. NULL DACLs are rejected, and cleanup errors are returned by Wait.
+
+Writable work directories must be provisioned with an inheritable low
+mandatory-integrity `NO_WRITE_UP` label. The runtime validates this and fails
+closed; it does not temporarily lower an arbitrary host tree's object-wide
+label because doing so races other runtimes and changes access for unrelated
+low-integrity processes. The unique package-SID DACL remains the per-launch
+AppContainer restriction. Never grant `ALL RESTRICTED APPLICATION PACKAGES`.
+Provision a dedicated root from an administrative shell with, for example,
+`icacls C:\wippy-work /setintegritylevel "(OI)(CI)L"`.
 
 This mechanism assumes Wippy controls ACL management for configured working
 directory trees while launches are active. Windows does not provide a

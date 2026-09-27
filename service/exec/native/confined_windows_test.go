@@ -49,6 +49,11 @@ func TestWindowsConfinedPayload(t *testing.T) {
 		if err != nil || !isContainer {
 			os.Exit(95)
 		}
+		if err := os.WriteFile(filepath.Join(os.Getenv("USERPROFILE"), "private-home-write"),
+			[]byte("ok"), 0o600); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(86)
+		}
 		for index, access := range []uint32{
 			windows.PROCESS_DUP_HANDLE,
 			windows.PROCESS_VM_WRITE,
@@ -95,7 +100,8 @@ func TestWindowsConfinedPayload(t *testing.T) {
 			os.Getenv("LOCALAPPDATA"), os.Getenv("TEMP"), os.Getenv("TMP"),
 			os.Getenv("WIPPY_HOST_SENTINEL"))
 	case "tree":
-		command := exec.Command(os.Args[0], "-test.run=^TestWindowsConfinedPayload$", "--", "grandchild")
+		command := exec.Command(`.\`+filepath.Base(os.Args[0]),
+			"-test.run=^TestWindowsConfinedPayload$", "--", "grandchild")
 		command.Env = os.Environ()
 		command.Stdin = os.Stdin
 		command.Stdout = os.Stdout
@@ -119,6 +125,7 @@ func TestWindowsConfinedPayload(t *testing.T) {
 
 func newWindowsConfinedExecutor(t *testing.T, workDir string) *Executor {
 	t.Helper()
+	require.NoError(t, confinewindows.SetLowIntegrityDirectory(workDir))
 	factory := NewExecutorFactory(zap.NewNop())
 	handle, err := factory.CreateExecutor(registry.ID{}, &execapi.NativeExecutorConfig{
 		DefaultWorkDir: workDir,
@@ -200,6 +207,7 @@ func TestNativeWindowsConfinementRunsInsideJob(t *testing.T) {
 func TestNativeWindowsConfinementBootstrapsAppContainerEnvironment(t *testing.T) {
 	t.Setenv("WIPPY_HOST_SENTINEL", "must-not-leak")
 	workDir := t.TempDir()
+	require.NoError(t, confinewindows.SetLowIntegrityDirectory(workDir))
 	factory := NewExecutorFactory(zap.NewNop())
 	handle, err := factory.CreateExecutor(registry.ID{}, &execapi.NativeExecutorConfig{
 		DefaultWorkDir: workDir,

@@ -10,6 +10,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"runtime"
 	"sort"
 	"strings"
@@ -103,6 +105,27 @@ func (s *Sandbox) Close() error {
 	s.name = ""
 	s.sid = nil
 	return deleteProfile(name)
+}
+
+// PrivateHome returns the package-private, low-integrity directory Windows
+// creates for this AppContainer profile.
+func (s *Sandbox) PrivateHome() (string, error) {
+	if s == nil || s.name == "" {
+		return "", errors.New("sandbox identity is closed")
+	}
+	localAppData, err := windows.KnownFolderPath(windows.FOLDERID_LocalAppData, windows.KF_FLAG_DEFAULT)
+	if err != nil {
+		return "", err
+	}
+	path := filepath.Join(localAppData, "Packages", s.name, "AC")
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", err
+	}
+	if !info.IsDir() {
+		return "", errors.New("AppContainer private home is not a directory")
+	}
+	return path, nil
 }
 
 func deleteProfile(name string) error {
