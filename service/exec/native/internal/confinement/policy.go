@@ -393,6 +393,11 @@ func subset(candidate, ceiling Access) bool {
 // pathWithin compares clean absolute policy spellings. It is not a substitute
 // for openat2/handle-based resolution and grants no filesystem authority.
 func pathWithin(requested, grant string) bool {
+	requestedPrivate := requested == "{home}" || requested == "{tmp}"
+	grantPrivate := grant == "{home}" || grant == "{tmp}"
+	if requestedPrivate || grantPrivate {
+		return requestedPrivate && grantPrivate && requested == grant
+	}
 	if !filepath.IsAbs(requested) || !filepath.IsAbs(grant) ||
 		filepath.Clean(requested) != requested || filepath.Clean(grant) != grant {
 		return false

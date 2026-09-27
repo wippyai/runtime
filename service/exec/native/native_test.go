@@ -178,7 +178,7 @@ func TestNativeExecutorRejectsProcessMounts(t *testing.T) {
 }
 
 func TestNativeConfinementFailsClosedUntilEnforcementIsInstalled(t *testing.T) {
-	baseline := &exec.Confinement{WorkDirRoots: []string{"/tmp"}, Network: "none"}
+	baseline := &exec.Confinement{WorkDirRoots: []string{os.TempDir()}, Network: "none"}
 	factory := NewExecutorFactory(zap.NewNop())
 	_, err := factory.CreateExecutor(registry.ID{}, &exec.NativeExecutorConfig{Confine: baseline})
 	require.ErrorIs(t, err, exec.ErrConfineUnsupported)

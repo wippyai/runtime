@@ -10,7 +10,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
-	"sort"
 	"strings"
 	"sync"
 	"syscall"
@@ -248,7 +247,7 @@ func validateConfinementHost(entry *execapi.Confinement) error {
 			}
 		}
 	}
-	policy := confinement.ExpandPrivatePolicy(confinement.FromEntry(entry))
+	policy := confinement.FromEntry(entry)
 	if err := confinement.ValidateEntry(policy); err != nil {
 		return execapi.NewInvalidConfinementError("confine")
 	}
@@ -281,15 +280,11 @@ func (e *Executor) prepareConfinement(process *ProcessExecutor, options execapi.
 	if err := e.bindConfinementEntry(); err != nil {
 		return err
 	}
-	base := confinement.ExpandPrivatePolicy(confinement.FromEntry(e.confine))
-	patch := confinement.ExpandPrivatePatch(confinement.FromPatch(options.Confine))
-	policy, err := confinement.Narrow(base, patch)
+	policy, err := narrowConfinement(process, e.confine, options)
 	if err != nil {
-		if errors.Is(err, confinement.ErrWiden) {
-			return execapi.ErrConfineWiden.WithCause(err)
-		}
-		return fmt.Errorf("%w: %w", execapi.NewInvalidConfinementError("confine"), err)
+		return err
 	}
+	policy = confinement.ExpandPrivatePolicy(policy)
 	if policy.FS != nil {
 		for _, class := range []confinement.Access{policy.FS.Read, policy.FS.Write, policy.FS.Exec} {
 			for _, path := range class.Paths {
@@ -301,15 +296,6 @@ func (e *Executor) prepareConfinement(process *ProcessExecutor, options execapi.
 		}
 	}
 	fs := policy.EffectiveFilesystem()
-	privateTemp := slices.Contains(fs.Read.Paths, confinement.PrivateTempPath) ||
-		slices.Contains(fs.Write.Paths, confinement.PrivateTempPath) ||
-		slices.Contains(fs.Exec.Paths, confinement.PrivateTempPath)
-	if err := applyConfinementEnvironment(process, policy.Env, policy.HomePrivate, privateTemp); err != nil {
-		return err
-	}
-	if process.wd == "" || !policy.AllowsDeclaredWorkDir(process.wd) {
-		return execapi.ErrConfineDenied
-	}
 	if policy.FS != nil {
 		hostFS, _ := splitPrivateFilesystem(fs)
 		if _, err := confinelinux.PlanBindMounts(hostFS); err != nil {
@@ -324,57 +310,6 @@ func newLinuxConfinementLaunch(policy confinement.Policy, workDir string, entry 
 	return &linuxConfinementLaunch{
 		policy: policy, workDir: workDir, entry: entry,
 		targetPIDFD: -1,
-	}
-}
-
-// applyConfinementEnvironment validates the already-merged entry defaults and
-// caller values, then installs entry-owned values. In particular, an entry
-// default cannot quietly override a forced value: that would make a policy
-// appear enforced while running with a different environment.
-func applyConfinementEnvironment(process *ProcessExecutor, policy *confinement.Environment, homePrivate, tempPrivate bool) error {
-	for name, value := range process.envs {
-		if name == "" || strings.ContainsAny(name, "=\x00") || strings.ContainsRune(value, 0) {
-			return execapi.NewInvalidConfinementError("confine.env")
-		}
-		if (homePrivate && (strings.EqualFold(name, "HOME") || strings.EqualFold(name, "USERPROFILE"))) ||
-			(tempPrivate && (strings.EqualFold(name, "TMPDIR") || strings.EqualFold(name, "TMP") ||
-				strings.EqualFold(name, "TEMP"))) {
-			return execapi.NewInvalidConfinementError("confine.env")
-		}
-		if policy != nil {
-			_, pinned := policy.Set[name]
-			if pinned || !slices.Contains(policy.Allow, name) {
-				return execapi.NewInvalidConfinementError("confine.env")
-			}
-		}
-	}
-	if process.envs == nil {
-		process.envs = make(map[string]string)
-	}
-	if policy != nil {
-		for name, value := range policy.Set {
-			process.envs[name] = value
-		}
-	}
-	if tempPrivate {
-		process.envs["TMPDIR"] = confinement.PrivateTempPath
-	}
-	if homePrivate {
-		process.envs["HOME"] = confinement.PrivateHomePath
-	}
-	rebuildProcessEnvironment(process)
-	return nil
-}
-
-func rebuildProcessEnvironment(process *ProcessExecutor) {
-	names := make([]string, 0, len(process.envs))
-	for name := range process.envs {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	process.cmd.Env = make([]string, 0, len(names))
-	for _, name := range names {
-		process.cmd.Env = append(process.cmd.Env, name+"="+process.envs[name])
 	}
 }
 
