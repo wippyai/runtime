@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -71,14 +72,25 @@ type failingServer struct {
 }
 
 type startupRequestResult struct {
-	status int
 	err    error
+	status int
 }
 
 type startupRequestBus struct {
 	ctx     context.Context
-	path    string
 	results chan startupRequestResult
+	path    string
+}
+
+type doneObservedContext struct {
+	context.Context
+	observed chan struct{}
+	once     sync.Once
+}
+
+func (c *doneObservedContext) Done() <-chan struct{} {
+	c.once.Do(func() { close(c.observed) })
+	return c.Context.Done()
 }
 
 func (b *startupRequestBus) Send(_ context.Context, evt event.Event) {
@@ -104,7 +116,12 @@ func (b *startupRequestBus) Send(_ context.Context, evt event.Event) {
 			return
 		}
 		address = strings.TrimPrefix(address, "service listening on ")
-		response, err := (&http.Client{Timeout: time.Second}).Get("http://" + address + b.path)
+		request, err := http.NewRequestWithContext(b.ctx, http.MethodGet, "http://"+address+b.path, nil)
+		if err != nil {
+			b.results <- startupRequestResult{err: err}
+			return
+		}
+		response, err := (&http.Client{Timeout: time.Second}).Do(request)
 		if err != nil {
 			b.results <- startupRequestResult{err: err}
 			return
@@ -720,7 +737,9 @@ func TestManager_NewServiceDoesNotServeBeforeInitialRoutesCommit(t *testing.T) {
 	defer cancel()
 
 	requestResults := make(chan startupRequestResult, 1)
-	bus := &startupRequestBus{ctx: ctx, path: "/ready", results: requestResults}
+	startWaitObserved := make(chan struct{})
+	startCtx := &doneObservedContext{Context: ctx, observed: startWaitObserved}
+	bus := &startupRequestBus{ctx: startCtx, results: requestResults, path: "/ready"}
 	endpointFactory := &blockingEndpointFactory{
 		entered: make(chan struct{}),
 		release: make(chan struct{}),
@@ -772,24 +791,26 @@ func TestManager_NewServiceDoesNotServeBeforeInitialRoutesCommit(t *testing.T) {
 		t.Fatal("endpoint creation did not block")
 	}
 
-	var result startupRequestResult
-	requestFinishedBeforeCommit := false
 	select {
-	case result = <-requestResults:
-		requestFinishedBeforeCommit = true
-	case <-time.After(300 * time.Millisecond):
+	case <-startWaitObserved:
+	case <-time.After(time.Second):
+		t.Fatal("service start did not reach the initial-routes gate")
+	}
+	select {
+	case result := <-requestResults:
+		t.Fatalf("service start returned before routes committed: status=%d err=%v", result.status, result.err)
+	default:
 	}
 
 	close(endpointFactory.release)
 	require.NoError(t, <-endpointAdded)
 	require.NoError(t, manager.Commit(ctx))
 
-	if !requestFinishedBeforeCommit {
-		select {
-		case result = <-requestResults:
-		case <-time.After(2 * time.Second):
-			t.Fatal("service did not start after its routes committed")
-		}
+	var result startupRequestResult
+	select {
+	case result = <-requestResults:
+	case <-time.After(2 * time.Second):
+		t.Fatal("service did not start after its routes committed")
 	}
 	require.NoError(t, result.err)
 	require.NotEqual(t, http.StatusNotFound, result.status,
