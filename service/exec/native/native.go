@@ -77,7 +77,7 @@ func NewNativeExecutor(log *zap.Logger, config *execapi.NativeExecutorConfig) *E
 		defaultWD:        config.DefaultWorkDir,
 		commandWhitelist: config.CommandWhitelist,
 		processGroup:     config.ProcessGroup,
-		confine:          config.Confine,
+		confine:          config.Confine.Clone(),
 	}
 }
 
@@ -177,24 +177,28 @@ type ptyProcess struct{ *ProcessExecutor }
 type ProcessExecutor struct {
 	stderrp      io.ReadCloser
 	stdoutp      io.ReadCloser
-	stdoutw      *os.File
-	stderrw      *os.File
+	waitErr      error
+	confinement  confinementLaunch
 	stdinPipe    io.WriteCloser
-	stdinReader  *os.File
-	cmd          *exec.Cmd
 	log          *zap.Logger
+	stdoutw      *os.File
+	stdinReader  *os.File
 	envs         map[string]string
 	ptyMaster    *os.File
 	pty          *execapi.PTYOptions
-	confinement  confinementLaunch
-	wd           string
+	stderrw      *os.File
+	cmd          *exec.Cmd
+	waitDone     chan struct{}
 	state        string
 	command      string
+	wd           string
 	pid          int
 	pgid         int
 	mu           sync.RWMutex
 	ptyClose     sync.Once
+	waitMu       sync.Mutex
 	stopped      atomic.Bool
+	started      bool
 	stdoutOwned  bool
 	stdinClosed  bool
 	stderrOwned  bool
@@ -334,6 +338,7 @@ func (e *ProcessExecutor) Start() error {
 	if e.processGroup {
 		e.pgid = e.pid
 	}
+	e.started = true
 	e.state = running
 	return nil
 }
@@ -391,9 +396,6 @@ func (e *ProcessExecutor) Pid() (int, error) {
 		return 0, ErrProcessNotStarted
 	}
 	if e.pid <= 0 {
-		if e.confinement != nil {
-			e.confinement.Stop()
-		}
 		return 0, ErrInvalidPID
 	}
 	return e.pid, nil
@@ -608,6 +610,36 @@ func (e *ProcessExecutor) Stop() {
 
 // Wait implements exec.Process
 func (e *ProcessExecutor) Wait() error {
+	e.mu.RLock()
+	started := e.started
+	e.mu.RUnlock()
+	if !started {
+		return ErrProcessNotStarted
+	}
+
+	e.waitMu.Lock()
+	if e.waitDone != nil {
+		done := e.waitDone
+		e.waitMu.Unlock()
+		<-done
+		e.waitMu.Lock()
+		err := e.waitErr
+		e.waitMu.Unlock()
+		return err
+	}
+	e.waitDone = make(chan struct{})
+	done := e.waitDone
+	e.waitMu.Unlock()
+
+	err := e.waitStartedProcess()
+	e.waitMu.Lock()
+	e.waitErr = err
+	close(done)
+	e.waitMu.Unlock()
+	return err
+}
+
+func (e *ProcessExecutor) waitStartedProcess() error {
 	err := e.cmd.Wait()
 	if e.confinement != nil {
 		err = e.confinement.Wait(err)

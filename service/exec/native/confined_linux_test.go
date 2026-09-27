@@ -60,7 +60,7 @@ func TestUnrestrictedFilesystemWorkDirCannotRetainMaskedKernelMount(t *testing.T
 		if _, err := os.Stat(path); err != nil {
 			continue
 		}
-		workdir, err := binding.openWorkDir(path)
+		workdir, _, err := binding.openWorkDir(path)
 		if workdir != nil {
 			_ = workdir.Close()
 		}
@@ -68,6 +68,360 @@ func TestUnrestrictedFilesystemWorkDirCannotRetainMaskedKernelMount(t *testing.T
 			t.Fatalf("special working directory %q retained a covered mount", path)
 		}
 	}
+}
+
+func TestLinuxConfinementLaunchUsesInvalidPIDFDSentinel(t *testing.T) {
+	launch := newLinuxConfinementLaunch(confinement.Policy{}, "/workspace", &Executor{})
+	if launch.targetPIDFD != -1 {
+		t.Fatalf("target pidfd = %d, want -1 before start", launch.targetPIDFD)
+	}
+
+	want := errors.New("wait before start")
+	if got := launch.Wait(want); !errors.Is(got, want) {
+		t.Fatalf("Wait() = %v, want %v", got, want)
+	}
+}
+
+func TestLinuxConfinementStartPreservesCommandLookupError(t *testing.T) {
+	process := NewProcessExecutor(zap.NewNop(), WithCmd("wippy-command-that-does-not-exist"))
+	defer process.releaseFailedStart()
+	if process.cmd.Err == nil {
+		t.Fatal("test command unexpectedly resolved")
+	}
+	lookupErr := process.cmd.Err
+	launch := newLinuxConfinementLaunch(confinement.Policy{}, "/workspace", &Executor{})
+
+	if err := launch.Start(process); !errors.Is(err, lookupErr) {
+		t.Fatalf("Start() = %v, want original lookup error %v", err, lookupErr)
+	}
+}
+
+func TestLinuxConfinementMatchesGoCommandResolution(t *testing.T) {
+	workspace := t.TempDir()
+	bin := filepath.Join(workspace, "bin")
+	if err := os.Mkdir(bin, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(workspace, "executed")
+	tool := filepath.Join(bin, "tool")
+	if err := os.WriteFile(tool, []byte("#!/bin/sh\nprintf ran >"+marker+"\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, "tool"), []byte("#!/bin/sh\nprintf ran >"+marker+"\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(workspace)
+
+	for _, test := range []struct {
+		name    string
+		path    string
+		command string
+		errDot  bool
+		err     bool
+	}{
+		{name: "missing bare command", path: "", command: "missing-tool", err: true},
+		{name: "dot PATH", path: ".", command: "tool", errDot: true, err: true},
+		{name: "relative PATH", path: "bin", command: "tool", errDot: true, err: true},
+		{name: "explicit current path", path: "", command: "./bin/tool"},
+		{name: "explicit subdirectory", path: "", command: "bin/tool"},
+		{name: "absolute executable", path: "", command: tool},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv("PATH", test.path)
+			process := NewProcessExecutor(zap.NewNop(), WithCmd(test.command), WithWorkingDir(workspace))
+			defer process.releaseFailedStart()
+			if (process.cmd.Err != nil) != test.err {
+				t.Fatalf("exec.Command error = %v, want error=%v", process.cmd.Err, test.err)
+			}
+			if test.errDot && !errors.Is(process.cmd.Err, exec.ErrDot) {
+				t.Fatalf("exec.Command error = %v, want exec.ErrDot", process.cmd.Err)
+			}
+			if process.cmd.Err != nil {
+				launch := newLinuxConfinementLaunch(confinement.Policy{}, workspace, &Executor{})
+				if err := launch.Start(process); !errors.Is(err, process.cmd.Err) {
+					t.Fatalf("confined Start() = %v, want lookup error %v", err, process.cmd.Err)
+				}
+			}
+			if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("refused command ran, marker error = %v", err)
+			}
+		})
+	}
+}
+
+func TestLinuxConfinementWaitDoesNotClassifySupervisorWithoutTargetReport(t *testing.T) {
+	reportReader, reportWriter, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reportWriter.WriteString("not a target exit report\n"); err != nil {
+		t.Fatal(err)
+	}
+	if err := reportWriter.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	command := exec.CommandContext(t.Context(), "sh", "-c", "exit 42")
+	supervisorErr := command.Run()
+	var supervisorExit *exec.ExitError
+	if !errors.As(supervisorErr, &supervisorExit) {
+		t.Fatalf("supervisor error = %v, want exec.ExitError", supervisorErr)
+	}
+	launch := newLinuxConfinementLaunch(confinement.Policy{}, "/workspace", &Executor{})
+	launch.exitReport = reportReader
+
+	waitErr := launch.Wait(supervisorErr)
+	var leakedSupervisorExit *exec.ExitError
+	if errors.As(waitErr, &leakedSupervisorExit) {
+		t.Fatalf("Wait() exposed supervisor exit as target exit: %v", waitErr)
+	}
+	classified := execapi.ClassifyExit(waitErr)
+	if classified.Err == nil || classified.Code != 0 || classified.Signal != 0 {
+		t.Fatalf("ClassifyExit() = %+v, want unclassified observation error", classified)
+	}
+}
+
+func TestLinuxConfinementWaitRejectsContradictorySupervisorStatus(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		report     string
+		supervisor string
+	}{
+		{name: "clean target with failed supervisor", report: `{"code":0}` + "\n", supervisor: "exit 111"},
+		{name: "nonzero target with different supervisor", report: `{"code":7}` + "\n", supervisor: "exit 8"},
+		{name: "nonzero target with clean supervisor", report: `{"code":7}` + "\n", supervisor: "exit 0"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			reportReader, reportWriter, err := os.Pipe()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := reportWriter.WriteString(test.report); err != nil {
+				t.Fatal(err)
+			}
+			if err := reportWriter.Close(); err != nil {
+				t.Fatal(err)
+			}
+			supervisorErr := exec.CommandContext(t.Context(), "sh", "-c", test.supervisor).Run()
+			launch := newLinuxConfinementLaunch(confinement.Policy{}, "/workspace", &Executor{})
+			launch.exitReport = reportReader
+			waitErr := launch.Wait(supervisorErr)
+			if classified := execapi.ClassifyExit(waitErr); classified.Err == nil {
+				t.Fatalf("ClassifyExit(%v) = %+v, want observation error", waitErr, classified)
+			}
+		})
+	}
+}
+
+func TestLinuxConfinementWaitAcceptsMatchingTargetAndSupervisorStatus(t *testing.T) {
+	reportReader, reportWriter, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reportWriter.WriteString(`{"code":7}` + "\n"); err != nil {
+		t.Fatal(err)
+	}
+	if err := reportWriter.Close(); err != nil {
+		t.Fatal(err)
+	}
+	supervisorErr := exec.CommandContext(t.Context(), "sh", "-c", "exit 7").Run()
+	launch := newLinuxConfinementLaunch(confinement.Policy{}, "/workspace", &Executor{})
+	launch.exitReport = reportReader
+	waitErr := launch.Wait(supervisorErr)
+	classified := execapi.ClassifyExit(waitErr)
+	if classified.Err != nil || classified.Code != 7 || classified.Signal != 0 {
+		t.Fatalf("ClassifyExit(%v) = %+v, want target exit 7", waitErr, classified)
+	}
+}
+
+func TestUnrestrictedFilesystemWorkDirCarriesCanonicalSource(t *testing.T) {
+	parent := t.TempDir()
+	canonical := filepath.Join(parent, "canonical")
+	if err := os.Mkdir(canonical, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(parent, "alias")
+	if err := os.Symlink(canonical, alias); err != nil {
+		t.Fatal(err)
+	}
+	root, err := confinelinux.BindDeclaredDirectory(alias)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	binding := &linuxEntryBinding{roots: map[string]*confinelinux.BoundDirectory{alias: root}}
+	workdir, source, err := binding.openWorkDir(alias)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer workdir.Close()
+	if source != canonical {
+		t.Fatalf("canonical workdir source = %q, want %q", source, canonical)
+	}
+}
+
+func TestNativeConfinedUnrestrictedFilesystemAcceptsSymlinkedWorkDirRoot(t *testing.T) {
+	parent := t.TempDir()
+	canonical := filepath.Join(parent, "canonical")
+	if err := os.Mkdir(canonical, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(parent, "alias")
+	if err := os.Symlink(canonical, alias); err != nil {
+		t.Fatal(err)
+	}
+	helper := filepath.Join(t.TempDir(), "confine-linux")
+	build := exec.CommandContext(t.Context(), "go", "build", "-o", helper, "./cmd/confine-linux")
+	build.Env = append(os.Environ(), "CGO_ENABLED=0")
+	if output, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build confinement helper: %v\n%s", err, output)
+	}
+	contents, err := os.ReadFile(helper)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hash := sha256.Sum256(contents)
+	oldPath, oldDigest := linuxHelperPath, linuxHelperSHA256
+	linuxHelperPath, linuxHelperSHA256 = helper, hex.EncodeToString(hash[:])
+	t.Cleanup(func() { linuxHelperPath, linuxHelperSHA256 = oldPath, oldDigest })
+
+	executor, err := NewExecutorFactory(zap.NewNop()).CreateExecutor(registry.ID{},
+		&execapi.NativeExecutorConfig{Confine: &execapi.Confinement{
+			WorkDirRoots: []string{alias}, Network: "none",
+		}})
+	if err != nil {
+		if confinementUnavailable(err) {
+			skipConfinementUnavailable(t, "required confinement unavailable", err)
+		}
+		t.Fatal(err)
+	}
+	process, err := executor.NewProcess("/bin/true", execapi.ProcessOptions{WorkDir: alias})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := process.Start(); err != nil {
+		if confinementUnavailable(err) {
+			skipConfinementUnavailable(t, "required namespaces unavailable", err)
+		}
+		t.Fatal(err)
+	}
+	if err := process.Wait(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestNativeConfinedRelativeExecutablePreservesOSPathResolution(t *testing.T) {
+	helper := filepath.Join(t.TempDir(), "confine-linux")
+	build := exec.CommandContext(t.Context(), "go", "build", "-o", helper, "./cmd/confine-linux")
+	build.Env = append(os.Environ(), "CGO_ENABLED=0")
+	if output, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build confinement helper: %v\n%s", err, output)
+	}
+	contents, err := os.ReadFile(helper)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hash := sha256.Sum256(contents)
+	oldPath, oldDigest := linuxHelperPath, linuxHelperSHA256
+	linuxHelperPath, linuxHelperSHA256 = helper, hex.EncodeToString(hash[:])
+	t.Cleanup(func() { linuxHelperPath, linuxHelperSHA256 = oldPath, oldDigest })
+
+	writeTool := func(path, output string) {
+		t.Helper()
+		if err := os.WriteFile(path, []byte("#!/bin/sh\nprintf '"+output+"'\n"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	run := func(executor execapi.ProcessExecutor, command, workDir string, beforeStart func()) string {
+		t.Helper()
+		process, err := executor.NewProcess(command, execapi.ProcessOptions{WorkDir: workDir})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if beforeStart != nil {
+			beforeStart()
+		}
+		if err := process.Start(); err != nil {
+			if confinementUnavailable(err) {
+				skipConfinementUnavailable(t, "required namespaces unavailable", err)
+			}
+			t.Fatal(err)
+		}
+		output, readErr := io.ReadAll(process.Stdout())
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		if err := process.Wait(); err != nil {
+			t.Fatal(err)
+		}
+		return string(output)
+	}
+
+	t.Run("symlink dot-dot is not lexically cleaned", func(t *testing.T) {
+		workspace := t.TempDir()
+		other := filepath.Join(workspace, "other")
+		subdir := filepath.Join(other, "subdir")
+		if err := os.MkdirAll(subdir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		writeTool(filepath.Join(workspace, "tool"), "wrong")
+		writeTool(filepath.Join(other, "tool"), "right")
+		if err := os.Symlink(subdir, filepath.Join(workspace, "link")); err != nil {
+			t.Fatal(err)
+		}
+		executor, err := NewExecutorFactory(zap.NewNop()).CreateExecutor(registry.ID{},
+			&execapi.NativeExecutorConfig{Confine: &execapi.Confinement{
+				WorkDirRoots: []string{workspace}, Network: "none",
+			}})
+		if err != nil {
+			if confinementUnavailable(err) {
+				skipConfinementUnavailable(t, "required confinement unavailable", err)
+			}
+			t.Fatal(err)
+		}
+		if got := run(executor, "link/../tool", workspace, nil); got != "right" {
+			t.Fatalf("relative executable output = %q, want OS-resolved path output", got)
+		}
+	})
+
+	t.Run("relative executable uses pinned cwd after alias swap", func(t *testing.T) {
+		parent := t.TempDir()
+		original := filepath.Join(parent, "original")
+		replacement := filepath.Join(parent, "replacement")
+		if err := os.Mkdir(original, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Mkdir(replacement, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		writeTool(filepath.Join(original, "tool"), "original")
+		writeTool(filepath.Join(replacement, "tool"), "replacement")
+		alias := filepath.Join(parent, "alias")
+		if err := os.Symlink(original, alias); err != nil {
+			t.Fatal(err)
+		}
+		executor, err := NewExecutorFactory(zap.NewNop()).CreateExecutor(registry.ID{},
+			&execapi.NativeExecutorConfig{Confine: &execapi.Confinement{
+				WorkDirRoots: []string{alias}, Network: "none",
+			}})
+		if err != nil {
+			if confinementUnavailable(err) {
+				skipConfinementUnavailable(t, "required confinement unavailable", err)
+			}
+			t.Fatal(err)
+		}
+		got := run(executor, "./tool", alias, func() {
+			if err := os.Remove(alias); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(replacement, alias); err != nil {
+				t.Fatal(err)
+			}
+		})
+		if got != "original" {
+			t.Fatalf("relative executable output = %q, want pinned cwd output", got)
+		}
+	})
 }
 
 func TestConfinedEnvironmentRejectsUnlistedAndPinnedInputs(t *testing.T) {
@@ -672,23 +1026,28 @@ func TestNativeConfinedTreeDiesWithRoot(t *testing.T) {
 			if mode == "exit" && waitErr != nil {
 				t.Fatal(waitErr)
 			}
-			if mode == "wall" {
+			if mode == "wall" || mode == "wait" {
 				var exit *ExitError
-				if !errors.As(waitErr, &exit) || exit.Code != 137 {
-					t.Fatalf("wall timeout result = %v, want exit 137", waitErr)
+				if !errors.As(waitErr, &exit) || exit.Code != 137 || exit.Signal != int(syscall.SIGKILL) {
+					t.Fatalf("%s result = %v, want exit 137", mode, waitErr)
 				}
 			}
-			before, err := os.ReadFile(marker)
-			if err != nil {
-				t.Fatal(err)
+			before := make([][]byte, 3)
+			for index := range before {
+				before[index], err = os.ReadFile(marker + ".child." + strconv.Itoa(index))
+				if err != nil {
+					t.Fatal(err)
+				}
 			}
 			time.Sleep(160 * time.Millisecond)
-			after, err := os.ReadFile(marker)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if string(before) != string(after) {
-				t.Fatalf("daemonized child survived root %s: %q -> %q", mode, before, after)
+			for index := range before {
+				after, readErr := os.ReadFile(marker + ".child." + strconv.Itoa(index))
+				if readErr != nil {
+					t.Fatal(readErr)
+				}
+				if string(before[index]) != string(after) {
+					t.Fatalf("daemonized child %d survived root %s: %q -> %q", index, mode, before[index], after)
+				}
 			}
 		})
 	}

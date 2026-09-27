@@ -120,16 +120,16 @@ func TestBoundWorkDirMustStayInEntryRootAndReadGrant(t *testing.T) {
 		nativePath("/"), nativePath("/srv/ws/other"), nativePath("/srv/ws/demo-other"), nativePath("/srv/ws/demo/../other"),
 		"relative",
 	} {
-		if policy.AllowsBoundWorkDir(path) {
+		if policy.AllowsDeclaredWorkDir(path) {
 			t.Fatalf("accepted working directory %q", path)
 		}
 	}
-	if !policy.AllowsBoundWorkDir(nativePath("/srv/ws/demo/pkg")) {
+	if !policy.AllowsDeclaredWorkDir(nativePath("/srv/ws/demo/pkg")) {
 		t.Fatal("rejected a directory inside the approved root and read grant")
 	}
 	policy.FS.Read.Paths = *paths("/usr")
 	policy.FS.Write.Paths = nil
-	if policy.AllowsBoundWorkDir(nativePath("/srv/ws/demo/pkg")) {
+	if policy.AllowsDeclaredWorkDir(nativePath("/srv/ws/demo/pkg")) {
 		t.Fatal("accepted a working directory excluded by fs.read")
 	}
 }

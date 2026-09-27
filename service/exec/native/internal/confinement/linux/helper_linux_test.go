@@ -9,8 +9,32 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
+
+func TestDecodeTargetExitRejectsIncompleteOrTrailingReports(t *testing.T) {
+	for _, report := range []string{
+		``,
+		`{"code":`,
+		`{}`,
+		`{"signal":9}`,
+		`{"code":0}{"code":1}`,
+		`{"code":0} trailing`,
+		`{"code":137,"signal":9,"extra":true}`,
+	} {
+		t.Run(report, func(t *testing.T) {
+			if status, err := DecodeTargetExit(strings.NewReader(report)); err == nil {
+				t.Fatalf("DecodeTargetExit(%q) = %+v, want error", report, status)
+			}
+		})
+	}
+	for _, report := range []string{`{"code":0}`, `{"code":137,"signal":9}` + "\n\t"} {
+		if _, err := DecodeTargetExit(strings.NewReader(report)); err != nil {
+			t.Fatalf("DecodeTargetExit(%q): %v", report, err)
+		}
+	}
+}
 
 func TestSeparateHelperExecsOnlyAfterConfinement(t *testing.T) {
 	allowed := t.TempDir()

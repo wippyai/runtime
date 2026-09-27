@@ -13,6 +13,8 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -27,6 +29,83 @@ import (
 	mocklogger "github.com/wippyai/runtime/tests/mock"
 	"go.uber.org/zap"
 )
+
+type lifecycleConfinement struct {
+	startErr  error
+	stopCalls int
+	waitCalls int
+}
+
+func (c *lifecycleConfinement) Start(*ProcessExecutor) error { return c.startErr }
+func (c *lifecycleConfinement) Signal(syscall.Signal) error  { return nil }
+func (c *lifecycleConfinement) Stop()                        { c.stopCalls++ }
+func (c *lifecycleConfinement) Wait(err error) error {
+	c.waitCalls++
+	return err
+}
+
+func TestProcessExecutorWaitBeforeSuccessfulStartIsInert(t *testing.T) {
+	for _, test := range []struct {
+		setup func(*ProcessExecutor, *lifecycleConfinement)
+		name  string
+	}{
+		{name: "before start"},
+		{name: "after stop before start", setup: func(process *ProcessExecutor, _ *lifecycleConfinement) {
+			process.Stop()
+		}},
+		{name: "after failed start", setup: func(process *ProcessExecutor, confinement *lifecycleConfinement) {
+			confinement.startErr = errors.New("setup failed")
+			require.Error(t, process.Start())
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			process := NewProcessExecutor(zap.NewNop(), WithCmd("unused"))
+			confinement := &lifecycleConfinement{}
+			process.confinement = confinement
+			if test.setup != nil {
+				test.setup(process, confinement)
+			}
+			require.ErrorIs(t, process.Wait(), ErrProcessNotStarted)
+			require.Zero(t, confinement.waitCalls)
+		})
+	}
+}
+
+func TestProcessExecutorPidDoesNotMutateLifecycle(t *testing.T) {
+	confinement := &lifecycleConfinement{}
+	process := &ProcessExecutor{
+		state: running, started: true, log: zap.NewNop(), confinement: confinement,
+	}
+	_, err := process.Pid()
+	require.ErrorIs(t, err, ErrInvalidPID)
+	require.Zero(t, confinement.stopCalls)
+}
+
+func TestProcessExecutorConcurrentWaitReturnsOneObservedExit(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses a POSIX shell command")
+	}
+	process := NewProcessExecutor(zap.NewNop(), WithCmd("sh -c 'exit 7'"))
+	require.NoError(t, process.Start())
+
+	const waiters = 12
+	results := make(chan error, waiters)
+	var group sync.WaitGroup
+	for range waiters {
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			results <- process.Wait()
+		}()
+	}
+	group.Wait()
+	close(results)
+	for err := range results {
+		var exit *ExitError
+		require.ErrorAs(t, err, &exit)
+		require.Equal(t, 7, exit.Code)
+	}
+}
 
 func TestPTYProcessResize(t *testing.T) {
 	if runtime.GOOS == "windows" {
@@ -111,6 +190,21 @@ func TestNativeConfinementFailsClosedUntilEnforcementIsInstalled(t *testing.T) {
 	executor = NewNativeExecutor(zap.NewNop(), &exec.NativeExecutorConfig{})
 	_, err = executor.NewProcess("true", exec.ProcessOptions{Confine: &exec.ConfinementPatch{}})
 	require.ErrorIs(t, err, exec.ErrConfineWiden)
+}
+
+func TestNativeExecutorSnapshotsConfinementBaseline(t *testing.T) {
+	baseline := &exec.Confinement{
+		WorkDirRoots: []string{"/workspace"}, Network: "none",
+		Env: &exec.ConfinementEnvironment{Allow: []string{"LANG"}, Set: map[string]string{"PATH": "/usr/bin"}},
+	}
+	executor := NewNativeExecutor(zap.NewNop(), &exec.NativeExecutorConfig{Confine: baseline})
+	baseline.WorkDirRoots[0] = "/changed"
+	baseline.Env.Allow[0] = "TOKEN"
+	baseline.Env.Set["PATH"] = "/tmp"
+
+	require.Equal(t, []string{"/workspace"}, executor.confine.WorkDirRoots)
+	require.Equal(t, []string{"LANG"}, executor.confine.Env.Allow)
+	require.Equal(t, "/usr/bin", executor.confine.Env.Set["PATH"])
 }
 
 func TestPTYWaitReleasesMasterFile(t *testing.T) {

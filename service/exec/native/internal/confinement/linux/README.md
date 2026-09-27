@@ -26,6 +26,13 @@ partially unrestricted view. `{home}` and `{tmp}` denote the exact private
 directory roots; private descendants do not have a separate placeholder
 syntax in this slice.
 
+The restricted view is intentionally narrower than a general POSIX root. It
+contains only selected `/dev` nodes and no `/proc`. The target seccomp policy
+globally denies chmod, chown, xattr and timestamp mutation even within writable
+grants, and denies most ioctls. Tools such as compilers, Git and package managers may need
+more semantics than `fs.write` currently supplies. Dynamically linked programs
+also need read and execute grants for their loader and shared-library trees.
+
 `home: private` works with or without a restricted filesystem. Without `fs`,
 it overlays a runtime-created mountpoint with a launch-private mode-0700 tmpfs;
 the host sees no home contents, and the mount disappears with the namespace
@@ -56,6 +63,19 @@ fall back to per-process `rlimit` for a stated whole-tree limit.
 runs below a PID-namespace supervisor and PTY launches still receive their
 foreground process group, but arbitrary group signaling needs a supervisor
 control channel before it can be implemented without a recycled numeric PGID.
+
+`network: none` is total socket denial, including local `socketpair`; it does
+not provide loopback or a broker/proxy exception. Linux always tears down the
+remaining PID-namespace descendants after the target exits and on normal
+runtime Stop/owner cleanup. `tree.kill_on_owner_exit: false` means only that
+the portable minimum was not requested; it does not weaken this backend or
+request descendant survival. Runtime-crash cleanup is not guaranteed.
+
+The backend does not currently provide CPU or I/O quotas, persistent private
+home contents, launch-time policy widening, or a network egress proxy. Existing
+hardlinks inside an admitted directory are admitted objects. READY proves that
+the restrictions were installed, not that the target survived the following
+exec interval.
 
 The `WIPPY_REQUIRE_CONFINEMENT_CGROUP=1` test setting turns an unavailable
 delegation into a test failure; CI claiming positive cgroup coverage must set

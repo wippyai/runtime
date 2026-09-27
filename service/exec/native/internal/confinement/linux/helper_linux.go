@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"os/signal"
 	"runtime"
 	"syscall"
 
@@ -22,6 +23,11 @@ const (
 	policyFD = 4
 	statusFD = 5
 	exitFD   = 6
+
+	// TreeKillSignal is reserved for the parent runtime to ask PID 1 to kill
+	// every other task in the namespace while remaining alive to reap and
+	// report the root target's exact exit.
+	TreeKillSignal = syscall.SIGUSR1
 )
 
 // HelperGrant identifies a pinned source descriptor inherited from the
@@ -49,19 +55,20 @@ type PrivateGrant struct {
 // HelperPolicy is sent only on the inherited private policy descriptor. The
 // parent decides authority; this structure carries its already-bound plan.
 type HelperPolicy struct {
-	Root         string         `json:"root"`
-	PrivateHome  string         `json:"private_home,omitempty"`
-	Grants       []HelperGrant  `json:"grants"`
-	Private      []PrivateGrant `json:"private"`
-	WorkDir      string         `json:"work_dir"`
-	Path         string         `json:"path"`
-	Argv         []string       `json:"argv"`
-	Env          []string       `json:"env"`
-	WorkDirFD    int            `json:"work_dir_fd"`
-	CredentialFD int            `json:"credential_fd"`
-	NetworkNone  bool           `json:"network_none"`
-	ProcessGroup bool           `json:"process_group"`
-	PTY          bool           `json:"pty"`
+	Root          string         `json:"root"`
+	PrivateHome   string         `json:"private_home,omitempty"`
+	Grants        []HelperGrant  `json:"grants"`
+	Private       []PrivateGrant `json:"private"`
+	WorkDir       string         `json:"work_dir"`
+	WorkDirSource string         `json:"work_dir_source,omitempty"`
+	Path          string         `json:"path"`
+	Argv          []string       `json:"argv"`
+	Env           []string       `json:"env"`
+	WorkDirFD     int            `json:"work_dir_fd"`
+	CredentialFD  int            `json:"credential_fd"`
+	NetworkNone   bool           `json:"network_none"`
+	ProcessGroup  bool           `json:"process_group"`
+	PTY           bool           `json:"pty"`
 }
 
 // TargetExitError carries the root application's observable exit code through
@@ -79,11 +86,28 @@ type TargetExitStatus struct {
 }
 
 func DecodeTargetExit(reader io.Reader) (TargetExitStatus, error) {
-	var status TargetExitStatus
+	var wire struct {
+		Code   *int `json:"code"`
+		Signal *int `json:"signal,omitempty"`
+	}
 	decoder := json.NewDecoder(io.LimitReader(reader, 1<<12))
 	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&status); err != nil {
+	if err := decoder.Decode(&wire); err != nil {
 		return TargetExitStatus{}, err
+	}
+	if wire.Code == nil {
+		return TargetExitStatus{}, errors.New("missing target exit code")
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		if err == nil {
+			return TargetExitStatus{}, errors.New("trailing target exit value")
+		}
+		return TargetExitStatus{}, fmt.Errorf("trailing target exit data: %w", err)
+	}
+	status := TargetExitStatus{Code: *wire.Code}
+	if wire.Signal != nil {
+		status.Signal = *wire.Signal
 	}
 	if status.Code < 0 || status.Code > 255 || status.Signal < 0 || status.Signal > 127 {
 		return TargetExitStatus{}, errors.New("invalid target exit status")
@@ -180,6 +204,16 @@ func runSupervisorHelper() error {
 	if err := unix.Prctl(unix.PR_SET_DUMPABLE, 0, 0, 0, 0); err != nil {
 		return fmt.Errorf("protect confinement supervisor: %w", err)
 	}
+	treeKills := make(chan os.Signal, 1)
+	signal.Notify(treeKills, TreeKillSignal)
+	defer signal.Stop(treeKills)
+	go func() {
+		for range treeKills {
+			// PID 1 is excluded, so it survives to reap the target and publish
+			// its status after every other namespace task receives SIGKILL.
+			_ = unix.Kill(-1, unix.SIGKILL)
+		}
+	}()
 	status := os.NewFile(statusFD, "confine-status")
 	if status == nil {
 		return errors.New("missing status descriptor")
@@ -463,7 +497,18 @@ func installHelperPolicy(policy HelperPolicy) error {
 		if err := RejectSpecialDirectoryFD(policy.WorkDirFD); err != nil {
 			return fmt.Errorf("reject special working directory: %w", err)
 		}
-		viewFD, err := unix.Openat2(unix.AT_FDCWD, policy.WorkDir, &unix.OpenHow{
+		// The declared work_dir may contain an ordinary symlink. Its canonical
+		// source was pinned and identity-checked by the parent; reopen that
+		// spelling after installing the final mount view, then compare it with
+		// the inherited descriptor before entering it.
+		viewPath := policy.WorkDirSource
+		if viewPath == "" {
+			viewPath = policy.WorkDir
+		}
+		if !cleanAbsolute(viewPath) {
+			return errors.New("invalid canonical working directory")
+		}
+		viewFD, err := unix.Openat2(unix.AT_FDCWD, viewPath, &unix.OpenHow{
 			Flags:   unix.O_PATH | unix.O_DIRECTORY | unix.O_CLOEXEC,
 			Resolve: unix.RESOLVE_NO_SYMLINKS | unix.RESOLVE_NO_MAGICLINKS,
 		})

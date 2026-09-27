@@ -69,8 +69,10 @@ func ExpandPrivatePatch(patch Patch) Patch {
 	return patch
 }
 
-// Access is either unrestricted or limited to the listed canonical subtrees.
-// An empty restricted list denies the operation everywhere.
+// Access is either unrestricted or limited to declared clean absolute
+// subtrees. Platform enforcement must bind those declarations to filesystem
+// objects before launch. An empty restricted list denies the operation
+// everywhere.
 type Access struct {
 	Paths        []string
 	Unrestricted bool
@@ -93,8 +95,9 @@ type Limits struct {
 	WallSec   int64
 }
 
-// Policy is the normalized authority of an entry or launch. All Paths must
-// already refer to bound, canonical objects before a caller relies on Narrow.
+// Policy is the normalized lexical authority of an entry or launch. Narrow
+// compares declared path spellings; the platform binder must separately pin
+// and verify their filesystem identities before target execution.
 type Policy struct {
 	FS              *Filesystem
 	Env             *Environment
@@ -182,17 +185,17 @@ func ValidateEntry(p Policy) error {
 	return nil
 }
 
-// AllowsBoundWorkDir checks the effective working directory against both the
-// entry-owned roots and read grants. bound must be the canonical path of the
-// securely opened directory; this function must never be called with a raw
-// caller-supplied work_dir string as its only authorization check.
-func (p Policy) AllowsBoundWorkDir(bound string) bool {
-	if !pathWithin(bound, bound) {
+// AllowsDeclaredWorkDir performs the lexical admission check for a working
+// directory against entry-owned roots and read grants. A platform must still
+// open the directory beneath a pinned entry root and verify its identity in
+// the final filesystem view.
+func (p Policy) AllowsDeclaredWorkDir(declared string) bool {
+	if !pathWithin(declared, declared) {
 		return false
 	}
 	inRoot := false
 	for _, root := range p.WorkDirRoots {
-		if pathWithin(bound, root) {
+		if pathWithin(declared, root) {
 			inRoot = true
 			break
 		}
@@ -206,15 +209,16 @@ func (p Policy) AllowsBoundWorkDir(bound string) bool {
 		return true
 	}
 	for _, grant := range read.Paths {
-		if pathWithin(bound, grant) {
+		if pathWithin(declared, grant) {
 			return true
 		}
 	}
 	return false
 }
 
-// Narrow applies a launch patch. Path checks here are policy comparisons, not
-// filesystem authorization: the caller must bind and verify every path first.
+// Narrow applies a launch patch. Path checks here are lexical policy
+// comparisons, not filesystem authorization. The platform binds and verifies
+// the resulting paths before launch.
 func Narrow(base Policy, patch Patch) (Policy, error) {
 	out := clonePolicy(base)
 	baseFS := effectiveFS(base)
@@ -386,8 +390,8 @@ func subset(candidate, ceiling Access) bool {
 	return true
 }
 
-// pathWithin is only meaningful after both operands were securely bound and
-// canonicalized. It is not a substitute for openat2/handle-based resolution.
+// pathWithin compares clean absolute policy spellings. It is not a substitute
+// for openat2/handle-based resolution and grants no filesystem authority.
 func pathWithin(requested, grant string) bool {
 	if !filepath.IsAbs(requested) || !filepath.IsAbs(grant) ||
 		filepath.Clean(requested) != requested || filepath.Clean(grant) != grant {

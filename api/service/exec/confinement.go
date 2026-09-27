@@ -40,6 +40,41 @@ type ConfinementTree struct {
 	KillOnOwnerExit bool `json:"kill_on_owner_exit,omitempty"`
 }
 
+// Clone snapshots an entry-owned ceiling so later mutation of decoded
+// configuration cannot change the authority of an already-created executor.
+func (c *Confinement) Clone() *Confinement {
+	if c == nil {
+		return nil
+	}
+	out := *c
+	out.WorkDirRoots = slices.Clone(c.WorkDirRoots)
+	if c.FS != nil {
+		fs := *c.FS
+		fs.Read = slices.Clone(c.FS.Read)
+		fs.Write = slices.Clone(c.FS.Write)
+		fs.Exec = slices.Clone(c.FS.Exec)
+		out.FS = &fs
+	}
+	if c.Env != nil {
+		env := *c.Env
+		env.Allow = slices.Clone(c.Env.Allow)
+		env.Set = make(map[string]string, len(c.Env.Set))
+		for name, value := range c.Env.Set {
+			env.Set[name] = value
+		}
+		out.Env = &env
+	}
+	if c.Limits != nil {
+		limits := *c.Limits
+		out.Limits = &limits
+	}
+	if c.Tree != nil {
+		tree := *c.Tree
+		out.Tree = &tree
+	}
+	return &out
+}
+
 // ConfinementPatch can only narrow an entry-owned Confinement. Pointer fields
 // distinguish an omitted field (inherit) from a present empty list (deny all).
 // Entry-only authority such as work_dir_roots, home and env.set is absent.

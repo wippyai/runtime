@@ -177,15 +177,15 @@ func (b *linuxEntryBinding) openGrant(path string, read, write, execute bool) (*
 	return selected, source, nil
 }
 
-func (b *linuxEntryBinding) openWorkDir(path string) (*os.File, error) {
-	file, _, err := openBoundDescendant(b.roots, path)
+func (b *linuxEntryBinding) openWorkDir(path string) (*os.File, string, error) {
+	file, canonical, err := openBoundDescendant(b.roots, path)
 	if err == nil {
 		if specialErr := confinelinux.RejectSpecialDirectoryFD(int(file.Fd())); specialErr != nil {
 			_ = file.Close()
-			return nil, specialErr
+			return nil, "", specialErr
 		}
 	}
-	return file, err
+	return file, canonical, err
 }
 
 func openBoundDescendant(roots map[string]*confinelinux.BoundDirectory, path string) (*os.File, string, error) {
@@ -307,7 +307,7 @@ func (e *Executor) prepareConfinement(process *ProcessExecutor, options execapi.
 	if err := applyConfinementEnvironment(process, policy.Env, policy.HomePrivate, privateTemp); err != nil {
 		return err
 	}
-	if process.wd == "" || !policy.AllowsBoundWorkDir(process.wd) {
+	if process.wd == "" || !policy.AllowsDeclaredWorkDir(process.wd) {
 		return execapi.ErrConfineDenied
 	}
 	if policy.FS != nil {
@@ -316,8 +316,15 @@ func (e *Executor) prepareConfinement(process *ProcessExecutor, options execapi.
 			return execapi.ErrConfineUnsupported.WithCause(err)
 		}
 	}
-	process.confinement = &linuxConfinementLaunch{policy: policy, workDir: process.wd, entry: e}
+	process.confinement = newLinuxConfinementLaunch(policy, process.wd, e)
 	return nil
+}
+
+func newLinuxConfinementLaunch(policy confinement.Policy, workDir string, entry *Executor) *linuxConfinementLaunch {
+	return &linuxConfinementLaunch{
+		policy: policy, workDir: workDir, entry: entry,
+		targetPIDFD: -1,
+	}
 }
 
 // applyConfinementEnvironment validates the already-merged entry defaults and
@@ -408,6 +415,12 @@ func (c *linuxConfinementLaunch) Start(process *ProcessExecutor) error {
 			c.removeHostPrivate()
 		}
 	}()
+	// exec.Command records lookup failures (including ErrDot) on Cmd.Err.
+	// Replacing the command with the verified helper must not turn a command
+	// that Go refused to resolve into a different executable under workDir.
+	if process.cmd.Err != nil {
+		return process.cmd.Err
+	}
 	helper, err := openVerifiedConfinementHelper()
 	if err != nil {
 		return execapi.ErrConfineUnsupported.WithCause(err)
@@ -465,7 +478,7 @@ func (c *linuxConfinementLaunch) Start(process *ProcessExecutor) error {
 			ReadOnly: mount.ReadOnly, NoExec: mount.NoExec,
 		})
 	}
-	workdir, err := binding.openWorkDir(c.workDir)
+	workdir, workDirSource, err := binding.openWorkDir(c.workDir)
 	c.entry.confineMu.RUnlock()
 	if err != nil {
 		return fmt.Errorf("%w: %w", execapi.NewInvalidConfinementError("work_dir"), err)
@@ -491,12 +504,9 @@ func (c *linuxConfinementLaunch) Start(process *ProcessExecutor) error {
 		return execapi.ErrConfineUnsupported.WithCause(err)
 	}
 	target := process.cmd.Path
-	if !filepath.IsAbs(target) {
-		target = filepath.Join(c.workDir, target)
-	}
 	policy := confinelinux.HelperPolicy{
 		Root: c.root, PrivateHome: c.hostPrivate, Grants: grants, Private: private, WorkDir: c.workDir,
-		Path: target, Argv: process.cmd.Args, Env: process.cmd.Env,
+		WorkDirSource: workDirSource, Path: target, Argv: process.cmd.Args, Env: process.cmd.Env,
 		ProcessGroup: process.processGroup, PTY: process.pty != nil,
 	}
 	launch, err := confinelinux.PrepareLaunch(helper, policy, sources, workdir, c.policy.NetworkNone)
@@ -568,10 +578,16 @@ func (c *linuxConfinementLaunch) Start(process *ProcessExecutor) error {
 		c.wallDone = make(chan struct{})
 		c.wall = time.AfterFunc(time.Duration(c.policy.Limits.WallSec)*time.Second, func() {
 			defer c.wallOnce.Do(func() { close(c.wallDone) })
-			if c.group != nil {
-				_ = c.group.Kill()
+			// Ask namespace PID 1 to SIGKILL the complete task domain while it
+			// survives to reap and report the target. A direct target-only kill
+			// would let descendants outlive the wall deadline while the root is
+			// stuck in uninterruptible I/O.
+			if c.supervisor == nil || c.supervisor.Signal(confinelinux.TreeKillSignal) != nil {
+				if c.group != nil {
+					_ = c.group.Kill()
+				}
+				_ = process.cmd.Process.Kill()
 			}
-			_ = process.cmd.Process.Kill()
 		})
 	}
 	started = true
@@ -599,6 +615,9 @@ func coveredByPolicy(path string, grants []string) bool {
 
 func (c *linuxConfinementLaunch) Stop() {
 	c.stopWall()
+	if c.supervisor != nil && c.supervisor.Signal(confinelinux.TreeKillSignal) == nil {
+		return
+	}
 	if c.group != nil {
 		_ = c.group.Kill()
 		_ = c.group.Remove()
@@ -625,21 +644,41 @@ func (c *linuxConfinementLaunch) Wait(waitErr error) error {
 	c.removeRoot()
 	c.removeHostPrivate()
 	if c.exitReport == nil {
+		if c.supervisor != nil && waitErr != nil {
+			return fmt.Errorf("missing confined target exit report (supervisor wait: %s)", waitErr.Error())
+		}
 		return waitErr
 	}
 	status, err := confinelinux.DecodeTargetExit(c.exitReport)
 	_ = c.exitReport.Close()
 	c.exitReport = nil
 	if err != nil {
-		return errors.Join(waitErr, fmt.Errorf("read confined target exit: %w", err))
+		// The helper's own process status is not the application's status. Keep
+		// it diagnostic-only so the generic exit classifier cannot mistake the
+		// supervisor's ExitError for an observed target exit.
+		if waitErr != nil {
+			return fmt.Errorf("read confined target exit: %w (supervisor wait: %s)", err, waitErr.Error())
+		}
+		return fmt.Errorf("read confined target exit: %w", err)
 	}
 	if status.Code == 0 {
 		if waitErr != nil {
-			return errors.Join(waitErr, errors.New("confined supervisor failed after clean target exit"))
+			return fmt.Errorf("confined supervisor failed after clean target exit: %s", waitErr.Error())
 		}
 		return nil
 	}
+	var supervisorExit *exec.ExitError
+	if !errors.As(waitErr, &supervisorExit) || supervisorExit.ExitCode() != status.Code {
+		return fmt.Errorf("confined supervisor status contradicts target exit %d: %s", status.Code, diagnosticError(waitErr))
+	}
 	return &ExitError{Code: status.Code, Signal: status.Signal, cause: waitErr}
+}
+
+func diagnosticError(err error) string {
+	if err == nil {
+		return "<nil>"
+	}
+	return err.Error()
 }
 
 func (c *linuxConfinementLaunch) stopWall() {

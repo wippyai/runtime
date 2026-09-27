@@ -122,8 +122,9 @@ Creates a new process with the specified command.
 | work_dir | string | nil | Working directory for the process |
 | env | {[string]: string} | nil | Environment variables as key-value map |
 | pty | PTYOptions | nil | Allocate a pseudo-terminal for the child |
-| process_group | boolean | executor default | Start the child in its own process group so signals reach descendants; unsupported on Windows |
+| process_group | boolean | executor default | Start the child in its own process group so signals reach descendants; unsupported on Windows and on confined native launches |
 | mounts | Mount[] | nil | Bind host paths into the process; each mount requires `exec.mount` permission |
+| confine | ConfinementPatch | nil | Narrow the native executor entry's confinement ceiling for this launch |
 
 **Mount fields:**
 
@@ -141,6 +142,12 @@ confinement. The source refers to the Docker daemon's host. Duplicate targets
 within the request or against configured Unix container bind targets are refused.
 Process options are copied at creation so later caller changes cannot alter them.
 
+The `exec.run` permission uses `cmd` as its resource. Its metadata contains
+`executor` (the registry ID acquired with `exec.get`), `work_dir`, sorted
+`env_names`, `process_group`, and `pty` (`requested`, `width`, `height`, and
+`term`). The metadata describes the request; confinement is independently
+validated and enforced by the executor.
+
 ```lua
 local proc, err = exec.process("python worker.py", {
   work_dir = "/workspace",
@@ -151,6 +158,79 @@ local proc, err = exec.process("python worker.py", {
 })
 -- refused with errors.PERMISSION_DENIED when any mount's source is not
 -- allowed for exec.mount; details.source names the refused path
+```
+
+**ConfinementPatch fields:**
+
+| Field | Type | Default | Notes |
+|---|---|---|---|
+| fs | ConfinementFS | inherit | Restrict filesystem read, write, and execute directory grants |
+| env | ConfinementEnvironment | inherit | Restrict which caller-provided environment names are accepted |
+| network | `"none"` | inherit | Deny socket creation and use, including `socketpair` |
+| limits | ConfinementLimits | inherit | Narrow whole-tree memory, task, and wall-time ceilings |
+| tree | ConfinementTree | inherit | Request descendant cleanup when the owning process ends |
+
+`fs` contains `read`, `write`, and `exec` arrays of clean absolute directory
+paths. `env` contains an `allow` array. `limits` contains positive integer
+`mem_mb`, `pids`, and `wall_s` values. `tree` contains the boolean
+`kill_on_owner_exit`.
+
+Confinement is entry-owned. The `confine` block on an `exec.native` registry
+entry defines the maximum authority available to all of its processes. A Lua
+launch can only narrow that baseline; it cannot select new roots, restore
+environment names, raise limits, re-enable networking, or weaken a requested
+tree guarantee. `work_dir_roots`, `home`, and `env.set` are consequently
+entry-only and are rejected in Lua options.
+
+An omitted launch field inherits its entry value. Within `fs` and `env`, an
+omitted list also inherits, while a present empty list denies the entire class.
+Filesystem write permission implies read permission. If the entry filesystem
+is unrestricted, a launch-time filesystem restriction must provide all three
+classes because the current backend cannot express a partly unrestricted
+view. When both read and write are explicit, every write path must also be
+listed under read because write implies read. `{home}` and `{tmp}` refer only to the exact private roots declared by
+the entry; they do not accept suffixes. The selected `work_dir` must remain
+inside an entry-owned working-directory root and the final filesystem view.
+
+The environment starts from the executor defaults plus caller values. A
+confined entry may pin values with entry-only `env.set`; callers cannot replace
+them. Other caller values must be named by the final `env.allow`. `HOME` and
+temporary-directory variables are runtime-owned when private directories are
+active and cannot be supplied by the caller.
+
+Confinement currently has a verified implementation only for native Linux
+execution. macOS, Windows, Docker, unsupported kernel facilities, missing
+Landlock ABI 5 when `fs` is restricted, or unavailable delegated cgroup-v2 controllers fail closed
+with `CONFINE_UNSUPPORTED`; the process never runs without the requested
+guarantees. Directory grants are supported, but individual-file grants are
+not. Restricted views contain selected `/dev` nodes and no `/proc`, and may
+need explicit read/execute grants for dynamic loaders and libraries. Writable
+grants permit data changes but intentionally deny chmod, chown, xattrs,
+timestamp mutation, and most ioctls; they are not full POSIX filesystem
+authority. There is no network allowlist/proxy, CPU or I/O quota, persistent
+private home, launch-time widening, or runtime-crash cleanup guarantee.
+
+On Linux the current backend always destroys remaining descendants when the
+root exits or is stopped. Therefore `kill_on_owner_exit = false` means that
+this minimum guarantee was not requested; it does not request that descendants
+survive on a backend which enforces stronger cleanup.
+
+```lua
+local proc = assert(executor:exec("/workspace/bin/job", {
+  work_dir = "/workspace",
+  env = { LANG = "C" },
+  confine = {
+    fs = {
+      read = { "/workspace", "/usr/lib", "{tmp}" },
+      write = { "{tmp}" },
+      exec = { "/workspace", "/usr/lib" },
+    },
+    env = { allow = { "LANG" } },
+    network = "none",
+    limits = { mem_mb = 512, pids = 32, wall_s = 60 },
+    tree = { kill_on_owner_exit = true },
+  },
+}))
 ```
 
 **PTYOptions fields:**
@@ -174,6 +254,12 @@ local proc, err = exec.process("python worker.py", {
 | cmd contains an unclosed quote | errors.INVALID | no |
 | permission denied | errors.INVALID | no |
 | process creation failed | errors.INTERNAL | no |
+| malformed Lua confinement table | errors.INVALID | no |
+| semantically invalid confinement | errors.INVALID (`CONFINE_INVALID`) | no |
+| launch confinement would widen the entry ceiling | errors.INVALID (`CONFINE_WIDEN`) | no |
+| working directory lies outside the entry ceiling | errors.PERMISSION_DENIED (`CONFINE_DENIED`) | no |
+| platform or host cannot enforce the requested guarantee | errors.UNAVAILABLE (`CONFINE_UNSUPPORTED`) | no |
+| confinement helper cannot install the admitted policy | errors.UNAVAILABLE (`CONFINE_SETUP`) | no |
 
 **Example:**
 

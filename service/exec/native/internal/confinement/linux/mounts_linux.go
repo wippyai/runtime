@@ -25,8 +25,9 @@ type BindMount struct {
 
 // PlanBindMounts orders broad mounts before narrow overlays. A read-only,
 // no-exec parent can therefore contain a writable or executable child grant.
-// Every path must already be expanded and securely bound before this plan is
-// applied; this function never authorizes a raw caller-controlled path.
+// Every path must already be expanded and lexically validated. This function
+// only describes mount precedence and flags; the launch path separately binds
+// each declaration to a pinned object before applying the plan.
 func PlanBindMounts(fs confinement.Filesystem) ([]BindMount, error) {
 	if fs.Read.Unrestricted || fs.Write.Unrestricted || fs.Exec.Unrestricted {
 		return nil, ErrUnrestrictedMountClass

@@ -61,6 +61,38 @@ func TestConfinementEntryShape(t *testing.T) {
 	require.NoError(t, cfg.Validate())
 }
 
+func TestConfinementCloneSnapshotsEntryAuthority(t *testing.T) {
+	original := &Confinement{
+		WorkDirRoots: []string{confineTestPath("/workspace")},
+		FS: &ConfinementFS{
+			Read: []string{confineTestPath("/workspace")}, Write: []string{"{tmp}"},
+			Exec: []string{confineTestPath("/workspace/bin")},
+		},
+		Env:    &ConfinementEnvironment{Allow: []string{"LANG"}, Set: map[string]string{"PATH": "/usr/bin"}},
+		Limits: &ConfinementLimits{MemoryMiB: 64, PIDs: 4, WallSec: 3},
+		Tree:   &ConfinementTree{KillOnOwnerExit: true},
+		Home:   "private", Network: "none",
+	}
+	clone := original.Clone()
+	original.WorkDirRoots[0] = confineTestPath("/changed")
+	original.FS.Read[0] = confineTestPath("/changed")
+	original.FS.Write[0] = confineTestPath("/changed")
+	original.FS.Exec[0] = confineTestPath("/changed")
+	original.Env.Allow[0] = "TOKEN"
+	original.Env.Set["PATH"] = "/tmp"
+	original.Limits.MemoryMiB = 1
+	original.Tree.KillOnOwnerExit = false
+
+	require.Equal(t, confineTestPath("/workspace"), clone.WorkDirRoots[0])
+	require.Equal(t, confineTestPath("/workspace"), clone.FS.Read[0])
+	require.Equal(t, "{tmp}", clone.FS.Write[0])
+	require.Equal(t, confineTestPath("/workspace/bin"), clone.FS.Exec[0])
+	require.Equal(t, []string{"LANG"}, clone.Env.Allow)
+	require.Equal(t, "/usr/bin", clone.Env.Set["PATH"])
+	require.EqualValues(t, 64, clone.Limits.MemoryMiB)
+	require.True(t, clone.Tree.KillOnOwnerExit)
+}
+
 func TestConfinementRejectsMalformedEntry(t *testing.T) {
 	tests := []struct {
 		name    string

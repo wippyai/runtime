@@ -17,6 +17,10 @@ func main() {
 		os.Exit(50)
 	}
 	if len(os.Args) > 1 && os.Args[1] == "child" {
+		if len(os.Args) != 3 {
+			os.Exit(56)
+		}
+		marker += ".child." + os.Args[2]
 		deadline := time.Now().Add(2 * time.Second)
 		for count := 1; time.Now().Before(deadline); count++ {
 			if err := os.WriteFile(marker, []byte(strconv.Itoa(count)), 0600); err != nil {
@@ -34,15 +38,28 @@ func main() {
 		fmt.Fprintln(os.Stderr, "write root marker:", err)
 		os.Exit(55)
 	}
-	child := exec.Command(self, "child")
-	child.Env = os.Environ()
-	child.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-	if err := child.Start(); err != nil {
-		fmt.Fprintln(os.Stderr, "start descendant:", err)
-		os.Exit(53)
+	const childCount = 3
+	for index := 0; index < childCount; index++ {
+		child := exec.Command(self, "child", strconv.Itoa(index))
+		child.Env = os.Environ()
+		child.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+		if err := child.Start(); err != nil {
+			fmt.Fprintln(os.Stderr, "start descendant:", err)
+			os.Exit(53)
+		}
 	}
 	for i := 0; i < 100; i++ {
-		if _, err := os.Stat(marker); err == nil {
+		ready := true
+		for index := 0; index < childCount; index++ {
+			if _, err := os.Stat(marker + ".child." + strconv.Itoa(index)); err != nil {
+				ready = false
+				break
+			}
+		}
+		if ready {
+			if err := os.WriteFile(marker, []byte("ready"), 0600); err != nil {
+				os.Exit(57)
+			}
 			fmt.Println("child-ready")
 			if len(os.Args) > 1 && os.Args[1] == "wait" {
 				for {
