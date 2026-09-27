@@ -28,6 +28,7 @@ type ExitError struct {
 	details attrs.Attributes
 	cause   error
 	Code    int
+	Signal  int
 }
 
 func (e *ExitError) Error() string {
@@ -51,5 +52,7 @@ func (e *ExitError) Details() attrs.Attributes {
 }
 
 func (e *ExitError) ExitCode() int { return e.Code }
+
+func (e *ExitError) ExitSignal() int { return e.Signal }
 
 func (e *ExitError) Unwrap() error { return e.cause }

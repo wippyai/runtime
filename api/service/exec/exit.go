@@ -15,9 +15,11 @@ import (
 // Signal carries the signal that killed the child, or 0 when the child exited
 // on its own or the executor reports only a code, as a container exit does.
 //
-// Err is set only when the exit could not be observed at all: a wait that could
-// not be performed, a transport failure to a remote executor. A non-zero exit
-// is not an error, it is Code.
+// Err reports an operational failure while waiting for or finalizing the
+// process: a wait that could not be performed, a transport failure to a remote
+// executor, or mandatory cleanup that failed after the exit was observed. Code
+// and Signal remain populated when the exit was observed before Err occurred.
+// A non-zero exit by itself is not an error; it is Code.
 type ExitStatus struct {
 	Err    error
 	Code   int
@@ -29,6 +31,13 @@ type ExitCoder interface {
 	ExitCode() int
 }
 
+// ExitSignaler is implemented by executors that observe Unix-style signal
+// termination without exposing an os/exec.ProcessState (for example, through
+// a namespace supervisor or a remote transport).
+type ExitSignaler interface {
+	ExitSignal() int
+}
+
 // ExitReporter is a Process that owns the reap of its child and can therefore
 // report the outcome more than once. Wait can only be performed once, so a
 // caller that has an ExitReporter must use it instead: several parts of a
@@ -37,10 +46,34 @@ type ExitReporter interface {
 	AwaitExit() ExitStatus
 }
 
+// ExitStatusError is an operational wait error that also preserves an exit
+// which was observed before the operation failed. Executors use it when, for
+// example, the child exited but mandatory confinement cleanup did not finish.
+// ClassifyExit reports both facts instead of allowing the exit code to hide
+// the operational failure.
+type ExitStatusError interface {
+	error
+	ExitStatus() ExitStatus
+}
+
 // ClassifyExit turns the error Process.Wait returns into an exit status.
 func ClassifyExit(err error) ExitStatus {
 	if err == nil {
 		return ExitStatus{}
+	}
+
+	var statusErr ExitStatusError
+	if errors.As(err, &statusErr) {
+		status := statusErr.ExitStatus()
+		// Preserve the complete outer error tree. The status provider may be one
+		// branch of errors.Join; returning only its embedded cause would silently
+		// discard failures added by another lifecycle layer.
+		if status.Err != nil && !errors.Is(err, status.Err) {
+			status.Err = errors.Join(err, status.Err)
+		} else {
+			status.Err = err
+		}
+		return status
 	}
 
 	var coder ExitCoder
