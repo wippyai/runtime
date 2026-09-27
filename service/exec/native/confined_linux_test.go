@@ -306,8 +306,8 @@ func TestNativeConfinedNetworkOnlyKeepsFilesystemUnrestricted(t *testing.T) {
 	linuxHelperPath, linuxHelperSHA256 = helper, hex.EncodeToString(digest[:])
 	t.Cleanup(func() { linuxHelperPath, linuxHelperSHA256 = oldPath, oldDigest })
 	for _, test := range []struct {
-		name   string
 		limits *execapi.ConfinementLimits
+		name   string
 	}{
 		{name: "without resource limits"},
 		{name: "with delegated resource limits", limits: &execapi.ConfinementLimits{MemoryMiB: 128, PIDs: 64}},
