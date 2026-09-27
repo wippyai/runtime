@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -78,6 +79,7 @@ func TestWindowsConfinedPayload(t *testing.T) {
 			os.Exit(85)
 		}
 		if err := os.WriteFile("holder-still-authorized", []byte("ok"), 0o600); err != nil {
+			fmt.Fprintln(os.Stderr, err)
 			os.Exit(84)
 		}
 		fmt.Println("WROTE")
@@ -156,6 +158,10 @@ func windowsPayloadCommand(t *testing.T, mode string, arguments ...string) strin
 	t.Helper()
 	executable, err := os.Executable()
 	require.NoError(t, err)
+	return windowsPayloadCommandForExecutable(executable, mode, arguments...)
+}
+
+func windowsPayloadCommandForExecutable(executable, mode string, arguments ...string) string {
 	parts := []string{strconv.Quote(executable), "-test.run=^TestWindowsConfinedPayload$", "--", mode}
 	for _, argument := range arguments {
 		parts = append(parts, strconv.Quote(argument))
@@ -230,7 +236,13 @@ func TestNativeWindowsConfinementIsolatesPeerLPACs(t *testing.T) {
 	holder, err := executor.NewProcess(windowsPayloadCommand(t, "hold"), execapi.ProcessOptions{})
 	require.NoError(t, err)
 	holderOutput := holder.Stdout()
+	holderError := holder.Stderr()
 	require.NoError(t, holder.Start())
+	holderErrors := make(chan []byte, 1)
+	go func() {
+		data, _ := io.ReadAll(holderError)
+		holderErrors <- data
+	}()
 	holderReader := bufio.NewReader(holderOutput)
 	line, err := holderReader.ReadString('\n')
 	require.NoError(t, err)
@@ -256,7 +268,9 @@ func TestNativeWindowsConfinementIsolatesPeerLPACs(t *testing.T) {
 	require.Equal(t, "target_denied", probeLines[3])
 	require.NoError(t, holder.WriteStdin([]byte("write\n")))
 	line, err = holderReader.ReadString('\n')
-	require.NoError(t, err)
+	if err != nil {
+		require.NoError(t, err, string(<-holderErrors))
+	}
 	require.Equal(t, "WROTE", strings.TrimSpace(line), "first sandbox must retain its ACL after peer cleanup")
 
 	holder.(*ProcessExecutor).Stop()
@@ -313,7 +327,8 @@ func requireSentinelNotInherited(t *testing.T, reader, writer *os.File) {
 func TestNativeWindowsConfinementStopKillsDescendants(t *testing.T) {
 	workDir := t.TempDir()
 	executor := newWindowsConfinedExecutor(t, workDir)
-	process, err := executor.NewProcess(windowsPayloadCommand(t, "tree"), execapi.ProcessOptions{})
+	executable := copyWindowsPayloadExecutable(t, workDir)
+	process, err := executor.NewProcess(windowsPayloadCommandForExecutable(executable, "tree"), execapi.ProcessOptions{})
 	require.NoError(t, err)
 	stdout := process.Stdout()
 	stderr := process.Stderr()
@@ -333,6 +348,22 @@ func TestNativeWindowsConfinementStopKillsDescendants(t *testing.T) {
 	process.(*ProcessExecutor).Stop()
 	_ = process.Wait()
 	requireWindowsProcessGone(t, uint32(pid))
+}
+
+func copyWindowsPayloadExecutable(t *testing.T, workDir string) string {
+	t.Helper()
+	sourcePath, err := os.Executable()
+	require.NoError(t, err)
+	source, err := os.Open(sourcePath)
+	require.NoError(t, err)
+	defer source.Close()
+	destinationPath := filepath.Join(workDir, "confined-tree-test.exe")
+	destination, err := os.OpenFile(destinationPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o700)
+	require.NoError(t, err)
+	_, copyErr := io.Copy(destination, source)
+	closeErr := destination.Close()
+	require.NoError(t, errors.Join(copyErr, closeErr))
+	return destinationPath
 }
 
 func requireWindowsProcessGone(t *testing.T, pid uint32) {
