@@ -42,6 +42,8 @@ type Gate struct {
 	readiness *Readiness
 	id        string
 	state     gateState
+	done      chan struct{}
+	err       error
 	mu        sync.Mutex
 }
 
@@ -60,6 +62,7 @@ func (g *Gate) Ready() {
 	if g.readiness != nil {
 		g.readiness.Done()
 	}
+	close(g.done)
 }
 
 // Fail marks the gate as failed with the given error.
@@ -74,11 +77,25 @@ func (g *Gate) Fail(err error) {
 		return
 	}
 	g.state = gateStateFailed
+	g.err = &GateError{Service: g.id, Err: err}
 	if g.readiness != nil {
-		g.readiness.Fail(&GateError{
-			Service: g.id,
-			Err:     err,
-		})
+		g.readiness.Fail(g.err)
+	}
+	close(g.done)
+}
+
+// Wait observes this service's completion, independently of other boot gates.
+func (g *Gate) Wait(ctx context.Context) error {
+	if g == nil {
+		return nil
+	}
+	select {
+	case <-g.done:
+		g.mu.Lock()
+		defer g.mu.Unlock()
+		return g.err
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }
 
@@ -146,6 +163,7 @@ func (r *Readiness) RegisterGate(id string) *Gate {
 		readiness: r,
 		id:        id,
 		state:     gateStatePending,
+		done:      make(chan struct{}),
 	}
 	if r != nil {
 		r.Add(1)

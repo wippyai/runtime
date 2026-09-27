@@ -47,6 +47,14 @@ func (svc *Service) SetGate(gate *bootpkg.Gate) {
 	svc.gate = gate
 }
 
+// WaitCompletion makes a startup: complete service a real dependency barrier.
+func (svc *Service) WaitCompletion(ctx context.Context) error {
+	if svc.gate == nil {
+		return ErrNoCompletionGate
+	}
+	return svc.gate.Wait(ctx)
+}
+
 // Start initiates the supervised process and begins monitoring.
 // The flow is TOCTOU-safe:
 // 1. Register supervisor PID in topology

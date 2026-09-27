@@ -116,7 +116,17 @@ func (c *Controller) startContext(ctx context.Context) error {
 		c.updateState(supervisor.StatusExited, c.securityErr)
 		return c.securityErr
 	}
-	return c.runCommand(ctrlOp{kind: ctrlStart, ctx: ctx})
+	if err := c.runCommand(ctrlOp{kind: ctrlStart, ctx: ctx}); err != nil {
+		return err
+	}
+	if c.config.Startup == supervisor.StartupComplete {
+		waiter, ok := c.service.(interface{ WaitCompletion(context.Context) error })
+		if !ok {
+			return ErrStartupCompletionUnsupported
+		}
+		return waiter.WaitCompletion(ctx)
+	}
+	return nil
 }
 
 // Stop gracefully stops the service and transitions it to the stopped state.
