@@ -332,7 +332,7 @@ func TestNativeConfinedRelativeExecutablePreservesOSPathResolution(t *testing.T)
 			t.Fatal(err)
 		}
 	}
-	run := func(executor execapi.ProcessExecutor, command, workDir string, beforeStart func()) string {
+	run := func(t *testing.T, executor execapi.ProcessExecutor, command, workDir string, beforeStart func()) string {
 		t.Helper()
 		process, err := executor.NewProcess(command, execapi.ProcessOptions{WorkDir: workDir})
 		if err != nil {
@@ -379,7 +379,7 @@ func TestNativeConfinedRelativeExecutablePreservesOSPathResolution(t *testing.T)
 			}
 			t.Fatal(err)
 		}
-		if got := run(executor, "link/../tool", workspace, nil); got != "right" {
+		if got := run(t, executor, "link/../tool", workspace, nil); got != "right" {
 			t.Fatalf("relative executable output = %q, want OS-resolved path output", got)
 		}
 	})
@@ -410,7 +410,7 @@ func TestNativeConfinedRelativeExecutablePreservesOSPathResolution(t *testing.T)
 			}
 			t.Fatal(err)
 		}
-		got := run(executor, "./tool", alias, func() {
+		got := run(t, executor, "./tool", alias, func() {
 			if err := os.Remove(alias); err != nil {
 				t.Fatal(err)
 			}
