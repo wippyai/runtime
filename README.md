@@ -184,8 +184,7 @@ profiler:
 lua:
   type_system:
     enabled: true
-    strict: false
-    strict_any: false # true: any must be narrowed like unknown (wippy lint --strict-any)
+    strict: false # true: use strict type-checking semantics; any behaves as unknown (wippy lint --strict)
   cache:
     enabled: true
     dir: .wippy/cache/lua

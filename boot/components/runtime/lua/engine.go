@@ -120,7 +120,7 @@ func Engine() boot.Component {
 // section. Lint, compile-time checks and the LSP all check with these options.
 func typeSystemOptions(cfg boot.Config) check.Options {
 	return check.Options{
-		StrictAny: cfg.GetBool("strict_any", false),
+		Strict: cfg.GetBool("strict", false),
 	}
 }
 

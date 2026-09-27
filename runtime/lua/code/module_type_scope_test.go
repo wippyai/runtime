@@ -77,7 +77,7 @@ return name_of
 		wantError bool
 	}{
 		{"gradual", check.Options{}, false},
-		{"strict any", check.Options{StrictAny: true}, true},
+		{"strict mode", check.Options{Strict: true}, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			checker := code.NewTypeChecker(code.TypeCheckConfig{Enabled: true, Strict: true, Check: tc.options}, nil)

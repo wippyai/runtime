@@ -138,7 +138,7 @@ func TestFingerprints_ToolchainIdentity(t *testing.T) {
 
 func TestTypecheckConfigHash_CheckOptions(t *testing.T) {
 	gradual := TypeCheckConfig{Enabled: true}
-	strict := TypeCheckConfig{Enabled: true, Check: check.Options{StrictAny: true}}
+	strict := TypeCheckConfig{Enabled: true, Check: check.Options{Strict: true}}
 
 	assert.NotEqual(t, TypecheckConfigHash(gradual), TypecheckConfigHash(strict),
 		"results checked under different semantics must not share cache entries")

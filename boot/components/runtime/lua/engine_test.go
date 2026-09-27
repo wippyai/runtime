@@ -403,12 +403,12 @@ func TestEngineSettings_UnresolvableIdentityFallback(t *testing.T) {
 	assert.NotEmpty(t, warnings[0].ContextMap()["error"])
 }
 
-func TestL10EngineTypeSystemStrictAny(t *testing.T) {
-	if resolveEngineSettings(boot.NewConfig(), zap.NewNop()).TypeCheck.Check.StrictAny {
+func TestL10EngineTypeSystemStrict(t *testing.T) {
+	if resolveEngineSettings(boot.NewConfig(), zap.NewNop()).TypeCheck.Check.Strict {
 		t.Fatal("any is gradual by default")
 	}
-	cfg := boot.NewConfig(boot.WithSection("lua", map[string]any{"type_system.strict_any": true}))
-	if !resolveEngineSettings(cfg, zap.NewNop()).TypeCheck.Check.StrictAny {
-		t.Fatal("lua.type_system.strict_any selects strict any")
+	cfg := boot.NewConfig(boot.WithSection("lua", map[string]any{"type_system.strict": true}))
+	if !resolveEngineSettings(cfg, zap.NewNop()).TypeCheck.Check.Strict {
+		t.Fatal("lua.type_system.strict selects strict mode")
 	}
 }

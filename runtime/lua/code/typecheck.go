@@ -37,7 +37,7 @@ type TypeCheckConfig struct {
 	// Rules controls which type checking rules are enabled
 	Rules TypeCheckRules
 
-	// Check is the type-checking semantics (lua.type_system.strict_any and
+	// Check is the type-checking semantics (lua.type_system.strict and
 	// the options that follow it).
 	Check check.Options
 }

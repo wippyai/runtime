@@ -82,7 +82,7 @@ func init() {
 	lintCmd.Flags().Int("limit", 0, "limit number of diagnostics shown (0 = unlimited)")
 	lintCmd.Flags().Bool("rules", false, "enable lint rules (style and quality warnings)")
 	lintCmd.Flags().Bool("cache-reset", false, "clear lua cache before linting")
-	lintCmd.Flags().Bool("strict-any", false, "treat any as unknown: an any value must be narrowed before use (overrides lua.type_system.strict_any)")
+	lintCmd.Flags().Bool("strict", false, "enable strict type-checking semantics; any behaves as unknown and must be narrowed before acceptance where a specific type is expected (overrides lua.type_system.strict)")
 	lintCmd.Flags().StringArray("profile", nil, "apply a workspace profile from the merged runtime config (repeatable, applied in order)")
 	lintCmd.Flags().StringArray("set", nil, "override a merged runtime config value (format: section.path=value, repeatable)")
 }
@@ -332,12 +332,12 @@ func runLint(cmd *cobra.Command, _ []string) error {
 // into the lua.type_system config section, the one place every checker reads
 // its semantics from.
 func applyTypeSystemFlags(cmd *cobra.Command, cfg boot.Config) boot.Config {
-	if !cmd.Flags().Changed("strict-any") {
+	if !cmd.Flags().Changed("strict") {
 		return cfg
 	}
-	strictAny, _ := cmd.Flags().GetBool("strict-any")
+	strict, _ := cmd.Flags().GetBool("strict")
 	return bootconfig.Merge(cfg, boot.NewConfig(boot.WithSection("lua", map[string]any{
-		"type_system.strict_any": strictAny,
+		"type_system.strict": strict,
 	})))
 }
 

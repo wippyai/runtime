@@ -671,35 +671,35 @@ func TestParseErrorResultUsesSafeFallbackPositions(t *testing.T) {
 	}
 }
 
-// --strict-any is written into lua.type_system, where every checker reads it.
-func TestApplyTypeSystemFlags_StrictAnyOverridesConfig(t *testing.T) {
-	strictAny := func(cfg boot.Config) bool {
-		return cfg.Sub("lua").Sub("type_system").GetBool("strict_any", false)
+// --strict is written into lua.type_system, where every checker reads it.
+func TestApplyTypeSystemFlags_StrictOverridesConfig(t *testing.T) {
+	strict := func(cfg boot.Config) bool {
+		return cfg.Sub("lua").Sub("type_system").GetBool("strict", false)
 	}
 	newCmd := func() *cobra.Command {
 		cmd := &cobra.Command{}
-		cmd.Flags().Bool("strict-any", false, "")
+		cmd.Flags().Bool("strict", false, "")
 		return cmd
 	}
 
-	base := boot.NewConfig(boot.WithSection("lua", map[string]any{"type_system.strict_any": true}))
-	if !strictAny(applyTypeSystemFlags(newCmd(), base)) {
+	base := boot.NewConfig(boot.WithSection("lua", map[string]any{"type_system.strict": true}))
+	if !strict(applyTypeSystemFlags(newCmd(), base)) {
 		t.Fatal("without the flag the configured value stands")
 	}
 
 	cmd := newCmd()
-	if err := cmd.Flags().Set("strict-any", "false"); err != nil {
+	if err := cmd.Flags().Set("strict", "false"); err != nil {
 		t.Fatal(err)
 	}
-	if strictAny(applyTypeSystemFlags(cmd, base)) {
-		t.Fatal("--strict-any=false overrides the configured value")
+	if strict(applyTypeSystemFlags(cmd, base)) {
+		t.Fatal("--strict=false overrides the configured value")
 	}
 
 	cmd = newCmd()
-	if err := cmd.Flags().Set("strict-any", "true"); err != nil {
+	if err := cmd.Flags().Set("strict", "true"); err != nil {
 		t.Fatal(err)
 	}
-	if !strictAny(applyTypeSystemFlags(cmd, boot.NewConfig())) {
-		t.Fatal("--strict-any selects strict any")
+	if !strict(applyTypeSystemFlags(cmd, boot.NewConfig())) {
+		t.Fatal("--strict selects strict mode")
 	}
 }
