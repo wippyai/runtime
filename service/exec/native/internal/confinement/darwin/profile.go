@@ -28,8 +28,10 @@ func CompileProfile(policy Profile) (string, error) {
 	out.WriteString("(version 1)\n(deny default)\n")
 	out.WriteString("(allow signal (target self))\n")
 	out.WriteString("(allow process-info-pidinfo (target self))\n")
+	out.WriteString("(allow process-info-setcontrol (target self))\n")
 	out.WriteString("(allow sysctl-read)\n")
 	out.WriteString("(allow file-read-metadata (subpath \"/\"))\n")
+	out.WriteString("(allow file-read-data file-write-data file-ioctl (vnode-type PIPE))\n")
 	out.WriteString("(allow file-read-data (literal \"/dev/null\") (literal \"/dev/random\") (literal \"/dev/urandom\"))\n")
 	if policy.AllowFork {
 		out.WriteString("(allow process-fork)\n")

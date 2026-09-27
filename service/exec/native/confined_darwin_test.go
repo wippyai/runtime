@@ -74,6 +74,12 @@ func TestNativeDarwinConfinementEnforcesFilesystem(t *testing.T) {
 	require.NoError(t, os.WriteFile(denied, []byte("denied"), 0o600))
 	target := buildDarwinConfinementTarget(t)
 	executableRoot := filepath.Dir(target)
+	loaderRoots := existingDarwinDirectories(
+		"/usr/lib", "/System/Library/Frameworks", "/System/Library/PrivateFrameworks",
+		"/System/Cryptexes/App", "/System/Cryptexes/OS", "/Library/Apple/System/Library/Frameworks",
+	)
+	readRoots := append([]string{workspace, executableRoot}, loaderRoots...)
+	execRoots := append([]string{executableRoot}, loaderRoots...)
 
 	factory := NewExecutorFactory(zap.NewNop())
 	handle, err := factory.CreateExecutor(registry.ID{}, &execapi.NativeExecutorConfig{
@@ -81,7 +87,7 @@ func TestNativeDarwinConfinementEnforcesFilesystem(t *testing.T) {
 		Confine: &execapi.Confinement{
 			WorkDirRoots: []string{workspace},
 			FS: &execapi.ConfinementFS{
-				Read: []string{workspace, executableRoot}, Write: []string{workspace}, Exec: []string{executableRoot},
+				Read: readRoots, Write: []string{workspace}, Exec: execRoots,
 			},
 			Env: &execapi.ConfinementEnvironment{Set: map[string]string{"WIPPY_PINNED": "yes"}},
 		},
@@ -103,6 +109,16 @@ func TestNativeDarwinConfinementEnforcesFilesystem(t *testing.T) {
 	written, err := os.ReadFile(output)
 	require.NoError(t, err)
 	require.Equal(t, "written", string(written))
+}
+
+func existingDarwinDirectories(paths ...string) []string {
+	result := make([]string, 0, len(paths))
+	for _, path := range paths {
+		if info, err := os.Stat(path); err == nil && info.IsDir() {
+			result = append(result, path)
+		}
+	}
+	return result
 }
 
 func TestNativeDarwinConfinementWallUsesSingleProcessDomain(t *testing.T) {
