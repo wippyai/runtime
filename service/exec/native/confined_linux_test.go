@@ -55,7 +55,7 @@ func TestLinuxStartReportsRootCleanupFailure(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "retained"), []byte("data"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	process := &ProcessExecutor{cmd: exec.Command("wippy-test-command-that-does-not-exist")}
+	process := &ProcessExecutor{cmd: exec.CommandContext(t.Context(), "wippy-test-command-that-does-not-exist")}
 	launch := &linuxConfinementLaunch{root: root, targetPIDFD: -1}
 
 	err := launch.Start(process)
