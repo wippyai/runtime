@@ -5,6 +5,7 @@
 package native
 
 import (
+	"bufio"
 	"crypto/sha256"
 	"encoding/hex"
 	"io"
@@ -13,6 +14,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -63,39 +65,24 @@ func darwinPayloadCommand(target string, arguments ...string) string {
 	return strings.Join(parts, " ")
 }
 
-func TestNativeDarwinConfinementEnforcesFilesystem(t *testing.T) {
+func TestNativeDarwinConfinementEnforcesPrivateEnvironment(t *testing.T) {
 	installDarwinConfinementHelper(t)
 	workspace := t.TempDir()
-	deniedRoot := t.TempDir()
-	allowed := filepath.Join(workspace, "input")
-	denied := filepath.Join(deniedRoot, "secret")
-	output := filepath.Join(workspace, "output")
-	require.NoError(t, os.WriteFile(allowed, []byte("allowed"), 0o600))
-	require.NoError(t, os.WriteFile(denied, []byte("denied"), 0o600))
 	target := buildDarwinConfinementTarget(t)
-	executableRoot := filepath.Dir(target)
-	loaderRoots := existingDarwinDirectories(
-		"/usr/lib", "/System/Library/Frameworks", "/System/Library/PrivateFrameworks",
-		"/System/Cryptexes/App", "/System/Cryptexes/OS", "/Library/Apple/System/Library/Frameworks",
-	)
-	readRoots := append([]string{workspace, executableRoot}, loaderRoots...)
-	execRoots := append([]string{executableRoot}, loaderRoots...)
 
 	factory := NewExecutorFactory(zap.NewNop())
 	handle, err := factory.CreateExecutor(registry.ID{}, &execapi.NativeExecutorConfig{
 		DefaultWorkDir: workspace,
 		Confine: &execapi.Confinement{
 			WorkDirRoots: []string{workspace},
-			FS: &execapi.ConfinementFS{
-				Read: readRoots, Write: []string{workspace}, Exec: execRoots,
-			},
-			Env: &execapi.ConfinementEnvironment{Set: map[string]string{"WIPPY_PINNED": "yes"}},
+			Env:          &execapi.ConfinementEnvironment{Set: map[string]string{"WIPPY_PINNED": "yes"}},
+			Home:         "private",
 		},
 	})
 	require.NoError(t, err)
 	executor := handle.(*Executor)
 	t.Cleanup(func() { require.NoError(t, executor.Close()) })
-	process, err := executor.NewProcess(darwinPayloadCommand(target, "filesystem", allowed, denied, output), execapi.ProcessOptions{})
+	process, err := executor.NewProcess(darwinPayloadCommand(target, "environment"), execapi.ProcessOptions{})
 	require.NoError(t, err)
 	stdout := process.Stdout()
 	stderr := process.Stderr()
@@ -109,20 +96,14 @@ func TestNativeDarwinConfinementEnforcesFilesystem(t *testing.T) {
 	waitErr := process.Wait()
 	diagnostics, _ := io.ReadAll(stderr)
 	require.NoErrorf(t, waitErr, "confined target stderr: %s", diagnostics)
-	require.Equal(t, "yes:allowed", string(payload))
-	written, err := os.ReadFile(output)
-	require.NoError(t, err)
-	require.Equal(t, "written", string(written))
-}
-
-func existingDarwinDirectories(paths ...string) []string {
-	result := make([]string, 0, len(paths))
-	for _, path := range paths {
-		if info, err := os.Stat(path); err == nil && info.IsDir() {
-			result = append(result, path)
-		}
-	}
-	return result
+	lines := strings.Split(strings.TrimSpace(string(payload)), "\n")
+	require.Len(t, lines, 3)
+	require.Equal(t, "yes", lines[0])
+	require.NotEqual(t, os.Getenv("HOME"), lines[1])
+	require.NotEqual(t, os.Getenv("TMPDIR"), lines[2])
+	require.Equal(t, filepath.Dir(lines[1]), filepath.Dir(lines[2]))
+	_, err = os.Stat(filepath.Dir(lines[1]))
+	require.ErrorIs(t, err, os.ErrNotExist, "private environment is removed after target exit")
 }
 
 func TestNativeDarwinConfinementWallUsesSingleProcessDomain(t *testing.T) {
@@ -142,6 +123,7 @@ func TestNativeDarwinConfinementWallUsesSingleProcessDomain(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, executor.Close()) })
 	process, err := executor.NewProcess(darwinPayloadCommand(target, "spawn-denied"), execapi.ProcessOptions{})
 	require.NoError(t, err)
+	stdout := process.Stdout()
 	stderr := process.Stderr()
 	started := time.Now()
 	startErr := process.Start()
@@ -149,7 +131,15 @@ func TestNativeDarwinConfinementWallUsesSingleProcessDomain(t *testing.T) {
 		diagnostics, _ := io.ReadAll(stderr)
 		require.NoErrorf(t, startErr, "confined target stderr: %s", diagnostics)
 	}
+	marker, err := bufio.NewReader(stdout).ReadString('\n')
+	require.NoError(t, err)
+	require.Equal(t, "SPAWN_DENIED\n", marker)
 	err = process.Wait()
-	require.Error(t, err)
-	require.Less(t, time.Since(started), 10*time.Second)
+	status := execapi.ClassifyExit(err)
+	require.NoError(t, status.Err)
+	require.Equal(t, 137, status.Code)
+	require.Equal(t, int(syscall.SIGKILL), status.Signal)
+	elapsed := time.Since(started)
+	require.GreaterOrEqual(t, elapsed, 800*time.Millisecond)
+	require.Less(t, elapsed, 10*time.Second)
 }

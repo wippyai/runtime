@@ -31,6 +31,7 @@ func CompileProfile(policy Profile) (string, error) {
 	out.WriteString("(allow process-info-setcontrol (target self))\n")
 	out.WriteString("(allow sysctl-read)\n")
 	out.WriteString("(allow file-read-metadata (subpath \"/\"))\n")
+	out.WriteString("(allow file-read-data file-write-data file-ioctl (vnode-type FIFO))\n")
 	out.WriteString("(allow file-read-data (literal \"/dev/null\") (literal \"/dev/random\") (literal \"/dev/urandom\"))\n")
 	if policy.AllowFork {
 		out.WriteString("(allow process-fork)\n")

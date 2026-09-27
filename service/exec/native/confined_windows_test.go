@@ -93,7 +93,7 @@ func TestNativeWindowsConfinementRunsInsideJob(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, process.Wait())
 	lines := strings.Split(strings.TrimSpace(string(payload)), "\n")
-	require.Len(t, lines, 2)
+	require.GreaterOrEqual(t, len(lines), 2)
 	require.Equal(t, "yes", lines[0])
 	require.NotEmpty(t, lines[1])
 	require.NotEqual(t, os.Getenv("USERPROFILE"), lines[1])

@@ -564,6 +564,9 @@ func (e *ProcessExecutor) Stop() {
 	defer e.mu.Unlock()
 
 	if e.pid <= 0 {
+		if e.confinement != nil {
+			e.confinement.Stop()
+		}
 		e.releaseFailedStart()
 		e.closePTY()
 		e.stopped.Store(true)

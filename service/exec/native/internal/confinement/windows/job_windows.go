@@ -9,6 +9,7 @@ package windows
 import (
 	"errors"
 	"fmt"
+	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -20,6 +21,17 @@ const bytesPerMiB = 1024 * 1024
 // process still assigned to it; breakaway is never enabled.
 type Job struct {
 	handle windows.Handle
+}
+
+type basicAccountingInformation struct {
+	TotalUserTime             int64
+	TotalKernelTime           int64
+	ThisPeriodTotalUserTime   int64
+	ThisPeriodTotalKernelTime int64
+	TotalPageFaultCount       uint32
+	TotalProcesses            uint32
+	ActiveProcesses           uint32
+	TotalTerminatedProcesses  uint32
 }
 
 func NewJob(memoryMiB int64) (*Job, error) {
@@ -94,6 +106,30 @@ func (j *Job) Kill(exitCode uint32) error {
 		return nil
 	}
 	return windows.TerminateJobObject(j.handle, exitCode)
+}
+
+// WaitEmpty waits until Windows reports that every process assigned to the
+// job has terminated. A root-process wait alone is insufficient because job
+// termination is asynchronous and descendants may still be unwinding.
+func (j *Job) WaitEmpty(timeout time.Duration) error {
+	if j == nil || j.handle == 0 {
+		return nil
+	}
+	deadline := time.Now().Add(timeout)
+	for {
+		var info basicAccountingInformation
+		if err := windows.QueryInformationJobObject(j.handle, windows.JobObjectBasicAccountingInformation,
+			uintptr(unsafe.Pointer(&info)), uint32(unsafe.Sizeof(info)), nil); err != nil {
+			return err
+		}
+		if info.ActiveProcesses == 0 {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return errors.New("timed out waiting for confined job to become empty")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }
 
 func (j *Job) Close() error {

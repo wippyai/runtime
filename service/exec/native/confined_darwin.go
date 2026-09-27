@@ -58,7 +58,6 @@ type darwinConfinementLaunch struct {
 	wallOnce  sync.Once
 	cleanup   sync.Once
 	processMu sync.Mutex
-	group     bool
 }
 
 func validateConfinementHost(entry *execapi.Confinement) error {
@@ -71,6 +70,9 @@ func validateConfinementHost(entry *execapi.Confinement) error {
 	}
 	if policy.NetworkNone {
 		return execapi.ErrConfineUnsupported.WithCause(errors.New("macOS cannot yet prove total socket denial including socketpair"))
+	}
+	if policy.FS != nil {
+		return execapi.ErrConfineUnsupported.WithCause(errors.New("macOS Seatbelt cannot pin filesystem grants across host path replacement"))
 	}
 	if policy.Limits.MemoryMiB > 0 || policy.Limits.PIDs > 0 {
 		return execapi.ErrConfineUnsupported.WithCause(errors.New("macOS has no unprivileged aggregate job memory/task domain"))
@@ -266,6 +268,9 @@ func (b *darwinEntryBinding) openWorkDir(path string) (*confinedarwin.BoundPath,
 }
 
 func (e *Executor) prepareConfinement(process *ProcessExecutor, options execapi.ProcessOptions) error {
+	if process.processGroup {
+		return execapi.ErrConfineUnsupported.WithCause(errors.New("process_group with macOS confinement has no safe post-reap signal identity"))
+	}
 	if err := e.bindConfinementEntry(); err != nil {
 		return err
 	}
@@ -276,15 +281,16 @@ func (e *Executor) prepareConfinement(process *ProcessExecutor, options execapi.
 	if policy.NetworkNone {
 		return execapi.ErrConfineUnsupported.WithCause(errors.New("macOS cannot yet prove total socket denial including socketpair"))
 	}
+	if policy.FS != nil {
+		return execapi.ErrConfineUnsupported.WithCause(errors.New("macOS Seatbelt cannot pin filesystem grants across host path replacement"))
+	}
 	if policy.Limits.MemoryMiB > 0 || policy.Limits.PIDs > 0 {
 		return execapi.ErrConfineUnsupported.WithCause(errors.New("macOS has no unprivileged aggregate job memory/task domain"))
 	}
 	if err := validateDarwinPaths(policy); err != nil {
 		return err
 	}
-	process.confinement = &darwinConfinementLaunch{
-		entry: e, policy: policy, workDir: process.wd, group: process.processGroup,
-	}
+	process.confinement = &darwinConfinementLaunch{entry: e, policy: policy, workDir: process.wd}
 	return nil
 }
 
@@ -326,13 +332,11 @@ func (c *darwinConfinementLaunch) Start(process *ProcessExecutor) error {
 			}
 		}
 		grants = replaceDarwinPrivateGrants(grants, c.private)
-		for name, value := range process.envs {
-			switch value {
-			case confinement.PrivateHomePath:
-				process.envs[name] = filepath.Join(c.private, "home")
-			case confinement.PrivateTempPath:
-				process.envs[name] = filepath.Join(c.private, "tmp")
-			}
+		if process.envs["HOME"] == confinement.PrivateHomePath {
+			process.envs["HOME"] = filepath.Join(c.private, "home")
+		}
+		if process.envs["TMPDIR"] == confinement.PrivateTempPath {
+			process.envs["TMPDIR"] = filepath.Join(c.private, "tmp")
 		}
 		rebuildProcessEnvironment(process)
 	}
@@ -362,9 +366,6 @@ func (c *darwinConfinementLaunch) Start(process *ProcessExecutor) error {
 	command.Env = []string{}
 	command.ExtraFiles = []*os.File{policyReader, statusWriter, c.boundWork.File()}
 	command.Stdin, command.Stdout, command.Stderr = target.Stdin, target.Stdout, target.Stderr
-	if process.processGroup && process.pty == nil {
-		applyProcessGroup(command)
-	}
 	process.cmd = command
 	start := func() error {
 		if process.pty == nil {
@@ -511,9 +512,6 @@ func (c *darwinConfinementLaunch) Signal(signal syscall.Signal) error {
 	if c.process == nil {
 		return ErrProcessNotRunning
 	}
-	if c.group {
-		return signalProcessGroup(c.process.Pid, signal)
-	}
 	return c.process.Signal(signal)
 }
 
@@ -531,11 +529,7 @@ func (c *darwinConfinementLaunch) kill() {
 	if c.process == nil {
 		return
 	}
-	if c.group {
-		_ = signalProcessGroup(c.process.Pid, syscall.SIGKILL)
-	} else {
-		_ = c.process.Kill()
-	}
+	_ = c.process.Kill()
 }
 
 func (c *darwinConfinementLaunch) stopWall() {

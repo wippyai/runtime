@@ -184,6 +184,7 @@ func (c *windowsConfinementLaunch) Start(process *ProcessExecutor) error {
 	c.process = process.cmd.Process
 	fail := func(cause error) error {
 		_ = c.job.Kill(windowsConfinedKillCode)
+		_ = process.cmd.Process.Kill()
 		_ = process.cmd.Wait()
 		c.release()
 		return execapi.ErrConfineSetup.WithCause(cause)
@@ -250,17 +251,21 @@ func (c *windowsConfinementLaunch) stopWall() {
 func (c *windowsConfinementLaunch) release() {
 	c.cleanup.Do(func() {
 		c.stateLock.Lock()
-		if c.job != nil {
-			_ = c.job.Close()
-			c.job = nil
-		}
+		job := c.job
+		c.job = nil
 		c.process = nil
 		c.stateLock.Unlock()
+		jobEmpty := true
+		if job != nil {
+			_ = job.Kill(windowsConfinedKillCode)
+			jobEmpty = job.WaitEmpty(5*time.Second) == nil
+			_ = job.Close()
+		}
 		if c.workDir != nil {
 			_ = c.workDir.Close()
 			c.workDir = nil
 		}
-		if c.private != "" {
+		if c.private != "" && jobEmpty {
 			_ = os.RemoveAll(c.private)
 			c.private = ""
 		}

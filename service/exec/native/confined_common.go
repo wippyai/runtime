@@ -19,6 +19,7 @@ import (
 func narrowConfinement(process *ProcessExecutor, entry *execapi.Confinement, options execapi.ProcessOptions) (confinement.Policy, error) {
 	base := confinement.FromEntry(entry)
 	patch := confinement.FromPatch(options.Confine)
+	normalizeConfinementEnvironment(&base, &patch)
 	policy, err := confinement.Narrow(base, patch)
 	if err != nil {
 		if errors.Is(err, confinement.ErrWiden) {
@@ -37,6 +38,27 @@ func narrowConfinement(process *ProcessExecutor, entry *execapi.Confinement, opt
 		return confinement.Policy{}, execapi.ErrConfineDenied
 	}
 	return policy, nil
+}
+
+// normalizeConfinementEnvironment applies the host's environment-name
+// identity before comparing a launch patch with its entry ceiling. Windows
+// treats PATH and Path as the same variable, while Unix does not.
+func normalizeConfinementEnvironment(base *confinement.Policy, patch *confinement.Patch) {
+	if base.Env != nil {
+		for index, name := range base.Env.Allow {
+			base.Env.Allow[index] = normalizeEnvironmentName(name)
+		}
+		set := make(map[string]string, len(base.Env.Set))
+		for name, value := range base.Env.Set {
+			set[normalizeEnvironmentName(name)] = value
+		}
+		base.Env.Set = set
+	}
+	if patch.EnvAllow != nil {
+		for index, name := range *patch.EnvAllow {
+			(*patch.EnvAllow)[index] = normalizeEnvironmentName(name)
+		}
+	}
 }
 
 // applyConfinementEnvironment validates the already-merged entry defaults and

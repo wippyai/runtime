@@ -14,6 +14,8 @@ func main() {
 		os.Exit(90)
 	}
 	switch os.Args[1] {
+	case "environment":
+		fmt.Printf("%s\n%s\n%s\n", os.Getenv("WIPPY_PINNED"), os.Getenv("HOME"), os.Getenv("TMPDIR"))
 	case "filesystem":
 		if len(os.Args) != 5 {
 			os.Exit(91)
@@ -35,6 +37,7 @@ func main() {
 			_ = child.Process.Kill()
 			os.Exit(95)
 		}
+		fmt.Println("SPAWN_DENIED")
 		time.Sleep(time.Hour)
 	case "sleep":
 		time.Sleep(time.Hour)
