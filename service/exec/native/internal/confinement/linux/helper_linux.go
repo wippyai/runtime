@@ -345,6 +345,9 @@ func installHelperPolicy(policy HelperPolicy) error {
 	if policy.Root != "" {
 		mounts := make([]PinnedMount, 0, len(policy.Grants))
 		for _, grant := range policy.Grants {
+			if err := RejectSpecialDirectoryFD(grant.FD); err != nil {
+				return fmt.Errorf("reject special grant: %w", err)
+			}
 			// Linux forbids bind-mounting a mount inherited from a more
 			// privileged user namespace. Reopen the source in this namespace,
 			// then compare it with the parent's pinned directory before use.
@@ -357,6 +360,10 @@ func installHelperPolicy(policy HelperPolicy) error {
 			})
 			if err != nil {
 				return fmt.Errorf("reopen grant: %w", err)
+			}
+			if err := RejectSpecialDirectoryFD(sourceFD); err != nil {
+				_ = unix.Close(sourceFD)
+				return fmt.Errorf("reject reopened special grant: %w", err)
 			}
 			same, err := SameOpenDirectoryFDs(grant.FD, sourceFD)
 			if err != nil || !same {

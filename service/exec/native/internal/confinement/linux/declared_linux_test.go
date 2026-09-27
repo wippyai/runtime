@@ -54,3 +54,21 @@ func TestDeclaredAliasCannotImportHostControlFilesystem(t *testing.T) {
 		}
 	}
 }
+
+func TestDeclaredParentCannotImportNestedControlFilesystem(t *testing.T) {
+	bound, err := BindDeclaredDirectory("/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer bound.Close()
+
+	for _, source := range []string{"/proc", "/sys", "/sys/fs/cgroup"} {
+		file, _, err := bound.OpenDescendant(source)
+		if file != nil {
+			_ = file.Close()
+		}
+		if err == nil {
+			t.Fatalf("accepted nested special host source %s", source)
+		}
+	}
+}

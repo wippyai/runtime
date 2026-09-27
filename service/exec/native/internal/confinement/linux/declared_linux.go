@@ -103,7 +103,14 @@ func (b *BoundDirectory) OpenDescendant(requested string) (*os.File, string, err
 	}
 	canonical := filepath.Join(b.Canonical, rel)
 	file, err := b.root.OpenBoundWorkDir(canonical)
-	return file, canonical, err
+	if err != nil {
+		return nil, "", err
+	}
+	if err := RejectSpecialDirectoryFD(int(file.Fd())); err != nil {
+		_ = file.Close()
+		return nil, "", err
+	}
+	return file, canonical, nil
 }
 
 func (b *BoundDirectory) Close() error { return b.root.Close() }

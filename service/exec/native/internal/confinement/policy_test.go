@@ -104,6 +104,14 @@ func TestNarrowIdentityAndNoMutation(t *testing.T) {
 	if !reflect.DeepEqual(base, before) {
 		t.Fatal("returned policy aliases the registry baseline")
 	}
+
+	unrestricted, err := Narrow(Policy{}, Patch{FS: &PathsPatch{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unrestricted.FS != nil {
+		t.Fatalf("empty filesystem patch changed unrestricted baseline: %#v", unrestricted.FS)
+	}
 }
 
 func TestBoundWorkDirMustStayInEntryRootAndReadGrant(t *testing.T) {

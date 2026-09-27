@@ -219,7 +219,9 @@ func Narrow(base Policy, patch Patch) (Policy, error) {
 	out := clonePolicy(base)
 	baseFS := effectiveFS(base)
 	outFS := effectiveFS(out)
-	if patch.FS != nil {
+	fsChanged := patch.FS != nil &&
+		(patch.FS.Read != nil || patch.FS.Write != nil || patch.FS.Exec != nil)
+	if fsChanged {
 		applyPaths := func(dst *Access, requested *[]string) {
 			if requested != nil {
 				*dst = Access{Paths: slices.Clone(*requested)}
@@ -281,7 +283,7 @@ func Narrow(base Policy, patch Patch) (Policy, error) {
 		!subset(outFS.Exec, baseFS.Exec) {
 		return Policy{}, fmt.Errorf("%w: fs", ErrWiden)
 	}
-	if out.FS != nil || patch.FS != nil {
+	if out.FS != nil || fsChanged {
 		out.FS = &outFS
 	}
 	return out, nil
