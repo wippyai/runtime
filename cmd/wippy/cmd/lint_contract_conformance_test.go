@@ -63,6 +63,16 @@ func TestBindingConformanceMultipleOutputsAndOuterError(t *testing.T) {
 	}
 }
 
+func TestPrimitiveSuccessfulOutputMismatchIsViolation(t *testing.T) {
+	findings := conformanceFixture(`{"type":"string"}`, `{"type":"string"}`, typ.Func().Param("request", typ.String).Returns(typ.Number).Build())
+	for _, finding := range findings {
+		if finding.violation && finding.path == "output_schemas[0]" {
+			return
+		}
+	}
+	t.Fatalf("primitive result mismatch must be a violation: %+v", findings)
+}
+
 func TestBindingConformanceClassifiesViolationsAndGaps(t *testing.T) {
 	input := `{"type":"string"}`
 	output := `{"type":"object","properties":{"ok":{"type":"boolean"}},"required":["ok"]}`
@@ -130,5 +140,17 @@ func TestOuterFailureCorrelationRequiresProof(t *testing.T) {
 	bad := `local function handle(request) if request == "bad" then return nil, nil end return {ok=true} end return {handle=handle}`
 	if _, proved := correlatedSuccessType(actual, bad, "handle"); proved {
 		t.Fatal("nil second result cannot establish an outer failure")
+	}
+}
+
+func TestLiteralReturnProvesRequiredFieldAbsenceDespiteUnknownAggregate(t *testing.T) {
+	expected := typ.NewRecord().Field("success", typ.Boolean).Field("components", typ.NewArray(typ.Unknown)).Build()
+	source := `local function handle(filter) if filter == nil then return {success=false, error="invalid"} end return unknown_call(filter) end return {handle=handle}`
+	if missing := missingRequiredLiteralReturnField(source, "handle", expected); missing != "components" {
+		t.Fatalf("missing field = %q", missing)
+	}
+	nested := `local function handle(filter) local function helper() return {success=false} end return unknown_call(filter) end return {handle=handle}`
+	if missing := missingRequiredLiteralReturnField(nested, "handle", expected); missing != "" {
+		t.Fatalf("nested function is not the implementation return: %q", missing)
 	}
 }

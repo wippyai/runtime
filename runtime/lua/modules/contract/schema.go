@@ -83,6 +83,14 @@ func schemaDocument(raw any) (any, error) {
 	if err := json.Unmarshal(b, &value); err != nil {
 		return nil, fmt.Errorf("invalid JSON Schema: %w", err)
 	}
+	// YAML contract entries commonly quote the JSON document. After the
+	// entry is decoded through SchemaConfig's RawMessage, that document is a
+	// JSON string literal and needs one more decode before projection.
+	if encoded, ok := value.(string); ok {
+		if err := json.Unmarshal([]byte(encoded), &value); err != nil {
+			return nil, fmt.Errorf("invalid JSON Schema: %w", err)
+		}
+	}
 	return value, nil
 }
 

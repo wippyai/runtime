@@ -123,11 +123,18 @@ func checkBindingConformance(catalog *contractCatalog, manifests map[regapi.ID]*
 				for outputIndex, schema := range method.OutputSchemas {
 					projection := contractmod.TranslateSchema(schema, nil)
 					path := fmt.Sprintf("output_schemas[%d]", outputIndex)
+					schemaGap := projection.Coverage != contractmod.SchemaComplete || containsUnverifiable(projection.Type)
+					if schemaGap {
+						add(path, "cannot verify remaining output constraints from unshaped or incomplete schema evidence", false)
+					}
 					actual := typ.Type(typ.Nil)
 					if len(fn.Returns) > outputIndex {
 						actual = fn.Returns[outputIndex]
 					}
 					if containsUnverifiable(actual) {
+						if missing := missingRequiredLiteralReturnField(data[functionID].Source, functionMethod, projection.Type); missing != "" {
+							add(path+"/required", "successful result may omit required output field "+fmt.Sprintf("%q", missing), true)
+						}
 						add(path, "cannot verify successful output from unknown/any implementation evidence", false)
 						continue
 					}
@@ -143,15 +150,18 @@ func checkBindingConformance(catalog *contractCatalog, manifests map[regapi.ID]*
 					if missing != "" {
 						add(path+"/required", "successful result may omit required output field "+fmt.Sprintf("%q", missing), true)
 					}
-					if projection.Coverage != contractmod.SchemaComplete || containsUnverifiable(projection.Type) {
-						add(path, "cannot verify remaining output constraints from incomplete schema evidence", false)
+					if schemaGap {
 						continue
 					}
 					if missing != "" {
 						continue
 					}
 					if !subtype.IsSubtype(actual, projection.Type) {
-						add(path, "successful result does not satisfy output schema", true)
+						if provenOutputKindMismatch(actual, projection.Type) {
+							add(path, "successful result does not satisfy output schema", true)
+						} else {
+							add(path, "cannot verify structural output assignability from inferred evidence", false)
+						}
 					}
 				}
 				errorIndex := len(method.OutputSchemas)
@@ -170,6 +180,87 @@ func checkBindingConformance(catalog *contractCatalog, manifests map[regapi.ID]*
 		}
 	}
 	return findings
+}
+
+func provenOutputKindMismatch(actual, expected typ.Type) bool {
+	actual = typ.UnwrapAnnotated(actual)
+	expected = typ.UnwrapAnnotated(expected)
+	if _, record := expected.(*typ.Record); record {
+		return false
+	}
+	if _, union := expected.(*typ.Union); union {
+		return false
+	}
+	if _, optional := expected.(*typ.Optional); optional {
+		return false
+	}
+	return !subtype.IsSubtype(actual, expected)
+}
+
+// A literal table returned by the configured function is direct evidence for
+// required-field absence even when imported calls make the checked aggregate
+// return type unknown. Nested functions are not traversed.
+func missingRequiredLiteralReturnField(source, method string, expected typ.Type) string {
+	want, ok := typ.UnwrapAnnotated(expected).(*typ.Record)
+	if !ok || source == "" || method == "" {
+		return ""
+	}
+	statements, err := parse.ParseString(source, "contract-conformance")
+	if err != nil {
+		return ""
+	}
+	var body []ast.Stmt
+	for _, stmt := range statements {
+		switch s := stmt.(type) {
+		case *ast.FuncDefStmt:
+			if s.Name != nil && s.Func != nil {
+				if s.Name.Method == method {
+					body = s.Func.Stmts
+				}
+				if ident, ok := s.Name.Func.(*ast.IdentExpr); ok && ident.Value == method {
+					body = s.Func.Stmts
+				}
+			}
+		case *ast.LocalAssignStmt:
+			for i, name := range s.Names {
+				if name == method && i < len(s.Exprs) {
+					if fn, ok := s.Exprs[i].(*ast.FunctionExpr); ok {
+						body = fn.Stmts
+					}
+				}
+			}
+		}
+	}
+	var missing string
+	walkRequireNodes(body, nil, func(stmt ast.Stmt) {
+		if missing != "" {
+			return
+		}
+		ret, ok := stmt.(*ast.ReturnStmt)
+		if !ok || len(ret.Exprs) == 0 {
+			return
+		}
+		table, ok := ret.Exprs[0].(*ast.TableExpr)
+		if !ok {
+			return
+		}
+		fields := make(map[string]bool, len(table.Fields))
+		for _, field := range table.Fields {
+			name := ast.KeyName(field.Key)
+			if name == "" {
+				// A computed key may provide any required field.
+				return
+			}
+			fields[name] = true
+		}
+		for _, field := range want.Fields {
+			if !field.Optional && !fields[field.Name] {
+				missing = field.Name
+				return
+			}
+		}
+	}, nil)
+	return missing
 }
 
 // correlatedSuccessType removes nil only when every explicit nil return has

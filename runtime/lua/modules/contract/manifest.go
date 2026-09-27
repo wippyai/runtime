@@ -86,7 +86,10 @@ func BuildTypedCatalogManifest(definitions map[string]*api.Definition, bindings 
 
 func typedInstance(id string, def *api.Definition, resources map[string]any, m *io.Manifest, diagnostics *[]ManifestDiagnostic) typ.Type {
 	return typ.NewRecursive("Instance<"+id+">", func(self typ.Type) typ.Type {
-		methods := typ.NewRecord().SetDeclared(true)
+		// A dynamic method name remains a runtime lookup. Named fields retain
+		// their schema signatures; the map component preserves the preexisting
+		// dynamic call boundary for an arbitrary string key.
+		methods := typ.NewRecord().SetDeclared(true).SetComplete(true).MapComponent(typ.String, typ.Any)
 		for _, method := range def.Methods {
 			fn := typ.Func().Param("self", self)
 			prefix := manifestTypePrefix(id) + manifestTypePrefix(method.Name)

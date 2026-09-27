@@ -3,6 +3,7 @@
 package contract
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -95,5 +96,34 @@ local value: string = first
 local count: number = second
 `); diagnostics != "" {
 		t.Fatalf("multi-output contract result: %s", diagnostics)
+	}
+}
+
+func TestContractOpenClusterNamedMethodsAndDynamicBoundary(t *testing.T) {
+	names := []string{"append_event", "write", "pull", "upsert", "delete", "grant_subtree", "purge", "resolve"}
+	methods := make([]api.MethodDef, len(names))
+	for i, name := range names {
+		methods[i] = api.MethodDef{Name: name,
+			InputSchemas:  []api.SchemaDefinition{{Format: "application/schema+json", Definition: `{"type":"object","properties":{"id":{"type":"string"}},"required":["id"]}`}},
+			OutputSchemas: []api.SchemaDefinition{{Format: "application/schema+json", Definition: `{"type":"object","properties":{"success":{"type":"boolean"}},"required":["success"]}`}},
+		}
+	}
+	manifest, gaps := BuildTypedManifest(map[string]*api.Definition{"sample:cluster": {Methods: methods}}, nil)
+	if len(gaps) != 0 {
+		t.Fatalf("coverage gaps: %+v", gaps)
+	}
+	for _, name := range names {
+		t.Run(name, func(t *testing.T) {
+			prefix := `local contract = require("contract"); local def = contract.get("sample:cluster"); local inst = def:open(); `
+			if got := checkContractSource(t, manifest, prefix+fmt.Sprintf(`local result, err = inst:%s({id="x"}); local ok: boolean = result.success`, name)); got != "" {
+				t.Fatalf("named call rejected: %s", got)
+			}
+			if got := checkContractSource(t, manifest, prefix+fmt.Sprintf(`inst:%s({id=42})`, name)); got == "" {
+				t.Fatal("schema-invalid named call was accepted")
+			}
+		})
+	}
+	if got := checkContractSource(t, manifest, `local contract = require("contract"); local def = contract.get("sample:cluster"); local inst = def:open(); local function invoke(target: string) inst[target](inst, {id=42}) end`); got != "" {
+		t.Fatalf("computed method lookup must stay dynamic: %s", got)
 	}
 }

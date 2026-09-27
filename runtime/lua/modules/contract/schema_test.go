@@ -3,6 +3,7 @@
 package contract
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/wippyai/go-lua/types/typ"
@@ -89,5 +90,20 @@ func TestSchemaRejectsLegacyNullable(t *testing.T) {
 	legacy := projectJSON(`{"$schema":"http://json-schema.org/draft-07/schema#","type":"string"}`)
 	if legacy.Type != typ.Unknown || legacy.Coverage != SchemaIncomplete {
 		t.Fatalf("legacy dialect: %+v", legacy)
+	}
+}
+
+func TestSchemaProjectionFromQuotedRawDocument(t *testing.T) {
+	encoded, err := json.Marshal(`{"type":"object","properties":{"id":{"type":"string"}}}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := TranslateSchema(api.SchemaDefinition{Format: "application/schema+json", Definition: json.RawMessage(encoded)}, nil)
+	if got.Coverage != SchemaComplete {
+		t.Fatalf("quoted schema projection = %+v", got)
+	}
+	record, ok := got.Type.(*typ.Record)
+	if !ok || record.GetField("id") == nil || record.GetField("id").Type != typ.String {
+		t.Fatalf("quoted schema type = %s", got.Type)
 	}
 }
