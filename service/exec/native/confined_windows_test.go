@@ -43,7 +43,7 @@ func TestWindowsConfinedPayload(t *testing.T) {
 		if err != nil {
 			os.Exit(94)
 		}
-		isContainer, err := confinewindows.CurrentProcessIsAppContainer()
+		isContainer, err := confinewindows.CurrentProcessIsLPAC()
 		if err != nil || !isContainer {
 			os.Exit(95)
 		}
@@ -53,7 +53,7 @@ func TestWindowsConfinedPayload(t *testing.T) {
 			_ = windows.CloseHandle(parent)
 			os.Exit(96)
 		}
-		fmt.Printf("%s\n%s\nappcontainer\nparent_denied\n", os.Getenv("WIPPY_PINNED"), os.Getenv("USERPROFILE"))
+		fmt.Printf("%s\n%s\nlpac\nparent_denied\n", os.Getenv("WIPPY_PINNED"), os.Getenv("USERPROFILE"))
 	case "tree":
 		command := exec.Command(os.Args[0], "-test.run=^TestWindowsConfinedPayload$", "--", "grandchild")
 		command.Env = os.Environ()
@@ -119,7 +119,7 @@ func TestNativeWindowsConfinementRunsInsideJob(t *testing.T) {
 	require.Equal(t, "yes", lines[0])
 	require.NotEmpty(t, lines[1])
 	require.NotEqual(t, os.Getenv("USERPROFILE"), lines[1])
-	require.Equal(t, "appcontainer", lines[2])
+	require.Equal(t, "lpac", lines[2])
 	require.Equal(t, "parent_denied", lines[3])
 	_, err = os.Stat(lines[1])
 	require.ErrorIs(t, err, os.ErrNotExist, "private home is removed after the job is empty")

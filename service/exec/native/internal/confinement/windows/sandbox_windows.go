@@ -189,33 +189,45 @@ func (p *SpawnedProcess) Verify(job *Job) error {
 		return err
 	}
 	defer token.Close()
-	var isContainer uint32
-	var returned uint32
-	result, _, callErr = getTokenInformation.Call(uintptr(token), 29,
-		uintptr(unsafe.Pointer(&isContainer)), unsafe.Sizeof(isContainer), uintptr(unsafe.Pointer(&returned)))
-	if result == 0 {
-		return fmt.Errorf("verify AppContainer token: %w", callErr)
+	isContainer, err := tokenBool(token, 29)
+	if err != nil {
+		return fmt.Errorf("verify AppContainer token: %w", err)
 	}
-	if isContainer == 0 {
+	if !isContainer {
 		return errors.New("suspended target does not have an AppContainer token")
+	}
+	isLPAC, err := tokenBool(token, 46)
+	if err != nil {
+		return fmt.Errorf("verify LPAC token: %w", err)
+	}
+	if !isLPAC {
+		return errors.New("suspended target does not have a less-privileged AppContainer token")
 	}
 	return nil
 }
 
-func CurrentProcessIsAppContainer() (bool, error) {
+func CurrentProcessIsLPAC() (bool, error) {
 	var token windows.Token
 	if err := windows.OpenProcessToken(windows.CurrentProcess(), windows.TOKEN_QUERY, &token); err != nil {
 		return false, err
 	}
 	defer token.Close()
-	var isContainer uint32
+	isContainer, err := tokenBool(token, 29)
+	if err != nil || !isContainer {
+		return false, err
+	}
+	return tokenBool(token, 46)
+}
+
+func tokenBool(token windows.Token, class uintptr) (bool, error) {
+	var value uint32
 	var returned uint32
-	result, _, callErr := getTokenInformation.Call(uintptr(token), 29,
-		uintptr(unsafe.Pointer(&isContainer)), unsafe.Sizeof(isContainer), uintptr(unsafe.Pointer(&returned)))
+	result, _, callErr := getTokenInformation.Call(uintptr(token), class,
+		uintptr(unsafe.Pointer(&value)), unsafe.Sizeof(value), uintptr(unsafe.Pointer(&returned)))
 	if result == 0 {
 		return false, callErr
 	}
-	return isContainer != 0, nil
+	return value != 0, nil
 }
 
 func (p *SpawnedProcess) Resume() error {
