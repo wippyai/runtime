@@ -6,6 +6,7 @@ package windows
 
 import (
 	"crypto/rand"
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -303,11 +304,11 @@ func (p *SpawnedProcess) verify(job *Job, expectedSID *windows.SID) error {
 	if expectedSID == nil || packageSID == nil || !packageSID.Equals(expectedSID) {
 		return errors.New("suspended target has the wrong AppContainer package SID")
 	}
-	capabilities, err := tokenGroups(token, 30)
+	capabilityCount, err := tokenGroupCount(token, 30)
 	if err != nil {
 		return fmt.Errorf("verify AppContainer capabilities: %w", err)
 	}
-	if capabilities.GroupCount != 0 {
+	if capabilityCount != 0 {
 		return errors.New("suspended target unexpectedly has AppContainer capabilities")
 	}
 	integrity, err := tokenIntegrity(token)
@@ -430,12 +431,15 @@ func tokenSID(token windows.Token, class uint32) (*windows.SID, error) {
 	return value, nil
 }
 
-func tokenGroups(token windows.Token, class uint32) (*windows.Tokengroups, error) {
+func tokenGroupCount(token windows.Token, class uint32) (uint32, error) {
 	buffer, err := tokenInfo(token, class)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
-	return (*windows.Tokengroups)(unsafe.Pointer(&buffer[0])), nil
+	if len(buffer) < 4 {
+		return 0, errors.New("token returned an invalid group list")
+	}
+	return binary.LittleEndian.Uint32(buffer[:4]), nil
 }
 
 func tokenIntegrity(token windows.Token) (uint32, error) {
