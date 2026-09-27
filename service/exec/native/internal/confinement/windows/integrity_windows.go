@@ -16,7 +16,6 @@ import (
 const (
 	systemMandatoryLabelACEType = 0x11
 	mandatoryNoWriteUp          = windows.ACCESS_MASK(0x1)
-	mandatoryLowRID             = 0x1000
 )
 
 // RequireLowIntegrityDirectory verifies the host provisioning needed for an
@@ -38,6 +37,10 @@ func RequireLowIntegrityDirectory(path string) error {
 	if err != nil || sacl == nil {
 		return errors.New("writable confinement directory has no mandatory integrity label")
 	}
+	lowIntegritySID, err := windows.CreateWellKnownSid(windows.WinLowLabelSid)
+	if err != nil {
+		return fmt.Errorf("create low-integrity SID: %w", err)
+	}
 	for index := uint16(0); index < sacl.AceCount; index++ {
 		var ace *windows.ACCESS_ALLOWED_ACE
 		if err := windows.GetAce(sacl, uint32(index), &ace); err != nil {
@@ -48,13 +51,11 @@ func RequireLowIntegrityDirectory(path string) error {
 			continue
 		}
 		sid := (*windows.SID)(unsafe.Pointer(&ace.SidStart))
-		if !sid.IsValid() || sid.IdentifierAuthority() != windows.SECURITY_MANDATORY_LABEL_AUTHORITY ||
-			sid.SubAuthorityCount() == 0 {
+		if !sid.IsValid() || sid.Len() > int(ace.Header.AceSize)-int(unsafe.Offsetof(ace.SidStart)) {
 			continue
 		}
-		rid := sid.SubAuthority(uint32(sid.SubAuthorityCount() - 1))
 		inherit := uint8(windows.OBJECT_INHERIT_ACE | windows.CONTAINER_INHERIT_ACE)
-		if rid <= mandatoryLowRID && ace.Mask&mandatoryNoWriteUp != 0 &&
+		if sid.Equals(lowIntegritySID) && ace.Mask&mandatoryNoWriteUp != 0 &&
 			ace.Header.AceFlags&inherit == inherit && ace.Header.AceFlags&windows.INHERIT_ONLY_ACE == 0 {
 			return nil
 		}
