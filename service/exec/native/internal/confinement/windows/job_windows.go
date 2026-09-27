@@ -41,7 +41,9 @@ func NewJob(memoryMiB int64) (*Job, error) {
 	}
 	job := &Job{handle: handle}
 	var limits windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION
-	limits.BasicLimitInformation.LimitFlags = windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+	limits.BasicLimitInformation.LimitFlags = windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE |
+		windows.JOB_OBJECT_LIMIT_ACTIVE_PROCESS
+	limits.BasicLimitInformation.ActiveProcessLimit = 1
 	if memoryMiB > 0 {
 		if uint64(memoryMiB) > uint64(^uintptr(0))/bytesPerMiB {
 			_ = job.Close()
@@ -108,9 +110,31 @@ func (j *Job) Kill(exitCode uint32) error {
 	return windows.TerminateJobObject(j.handle, exitCode)
 }
 
-// WaitEmpty waits until Windows reports that every process assigned to the
-// job has terminated. A root-process wait alone is insufficient because job
-// termination is asynchronous and descendants may still be unwinding.
+func (j *Job) verifySingleton() error {
+	if j == nil || j.handle == 0 {
+		return errors.New("invalid confinement Job")
+	}
+	var limits windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION
+	if err := windows.QueryInformationJobObject(j.handle, windows.JobObjectExtendedLimitInformation,
+		uintptr(unsafe.Pointer(&limits)), uint32(unsafe.Sizeof(limits)), nil); err != nil {
+		return err
+	}
+	flags := limits.BasicLimitInformation.LimitFlags
+	required := uint32(windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | windows.JOB_OBJECT_LIMIT_ACTIVE_PROCESS)
+	if flags&required != required || limits.BasicLimitInformation.ActiveProcessLimit != 1 {
+		return fmt.Errorf("Job singleton limits are not active: flags=%#x processes=%d",
+			flags, limits.BasicLimitInformation.ActiveProcessLimit)
+	}
+	breakaway := uint32(windows.JOB_OBJECT_LIMIT_BREAKAWAY_OK | windows.JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK)
+	if flags&breakaway != 0 {
+		return fmt.Errorf("Job permits process breakaway: flags=%#x", flags)
+	}
+	return nil
+}
+
+// WaitEmpty waits until Windows reports that the singleton process assigned to
+// the job has terminated. A process-handle wait alone does not verify the Job's
+// accounting state after asynchronous termination.
 func (j *Job) WaitEmpty(timeout time.Duration) error {
 	if j == nil || j.handle == 0 {
 		return nil

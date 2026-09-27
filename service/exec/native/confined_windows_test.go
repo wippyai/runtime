@@ -82,18 +82,44 @@ func TestWindowsConfinedPayload(t *testing.T) {
 		if err != nil || !isContainer {
 			os.Exit(86)
 		}
-		fmt.Println(os.Getpid())
+		privatePath := filepath.Join(os.Getenv("USERPROFILE"), "peer-private")
+		if err := rawWindowsWriteFile(privatePath, []byte("private")); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(84)
+		}
+		fmt.Printf("%d\n%s\n", os.Getpid(), privatePath)
 		if _, err := bufio.NewReader(os.Stdin).ReadString('\n'); err != nil {
 			os.Exit(85)
 		}
-		if err := os.WriteFile("holder-still-authorized", []byte("ok"), 0o600); err != nil {
+		if err := rawWindowsWriteFile("holder-still-authorized", []byte("ok")); err != nil {
 			fmt.Fprintln(os.Stderr, err)
-			os.Exit(84)
+			os.Exit(82)
 		}
 		fmt.Println("WROTE")
 		for {
 			time.Sleep(time.Hour)
 		}
+	case "private-denied":
+		if separator+2 >= len(os.Args) {
+			os.Exit(81)
+		}
+		name, err := windows.UTF16PtrFromString(os.Args[separator+2])
+		if err != nil {
+			os.Exit(80)
+		}
+		handle, openErr := windows.CreateFile(name, windows.GENERIC_READ,
+			windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE|windows.FILE_SHARE_DELETE,
+			nil, windows.OPEN_EXISTING, windows.FILE_ATTRIBUTE_NORMAL, 0)
+		if openErr == nil {
+			_ = windows.CloseHandle(handle)
+			fmt.Fprintln(os.Stderr, "peer private file unexpectedly opened")
+			os.Exit(79)
+		}
+		if !errors.Is(openErr, windows.ERROR_ACCESS_DENIED) {
+			fmt.Fprintln(os.Stderr, openErr)
+			os.Exit(78)
+		}
+		fmt.Println("private-denied")
 	case "environment":
 		isContainer, err := confinewindows.CurrentProcessIsLPAC()
 		if err != nil || !isContainer {
@@ -109,14 +135,11 @@ func TestWindowsConfinedPayload(t *testing.T) {
 		command.Stdin = os.Stdin
 		command.Stdout = os.Stdout
 		command.Stderr = os.Stderr
-		if err := command.Start(); err != nil {
-			fmt.Fprintln(os.Stderr, err)
+		if err := command.Start(); !errors.Is(err, windows.ERROR_ACCESS_DENIED) {
+			fmt.Fprintf(os.Stderr, "child creation error = %v, want access denied\n", err)
 			os.Exit(91)
 		}
-		fmt.Println(command.Process.Pid)
-		for {
-			time.Sleep(time.Hour)
-		}
+		fmt.Println("child-denied")
 	case "grandchild":
 		for {
 			time.Sleep(time.Hour)
@@ -136,7 +159,7 @@ func rawWindowsWriteFile(path string, payload []byte) error {
 	if err != nil {
 		return err
 	}
-	handle, err := windows.CreateFile(name, windows.GENERIC_WRITE, 0, nil, windows.CREATE_ALWAYS,
+	handle, err := windows.CreateFile(name, windows.GENERIC_WRITE, 0, nil, windows.CREATE_NEW,
 		windows.FILE_ATTRIBUTE_NORMAL, 0)
 	if err != nil {
 		return err
@@ -219,13 +242,16 @@ func TestNativeWindowsConfinementRunsInsideJob(t *testing.T) {
 	}()
 	lines := readWindowsBasicPayload(t, stdout, stderrRead)
 	requireSentinelNotInherited(t, sentinelReader, sentinelWriter)
-	require.NoError(t, process.WriteStdin([]byte("exit\n")))
-	require.NoError(t, process.Wait(), string(<-stderrRead))
 	require.Equal(t, "yes", lines[0])
 	require.NotEmpty(t, lines[1])
 	require.NotEqual(t, os.Getenv("USERPROFILE"), lines[1])
 	require.Equal(t, "lpac", lines[2])
 	require.Equal(t, "target_denied", lines[3])
+	payload, err := os.ReadFile(filepath.Join(lines[1], "private-home-write"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("ok"), payload)
+	require.NoError(t, process.WriteStdin([]byte("exit\n")))
+	require.NoError(t, process.Wait(), string(<-stderrRead))
 	_, err = os.Stat(lines[1])
 	require.ErrorIs(t, err, os.ErrNotExist, "private home is removed after the job is empty")
 }
@@ -282,6 +308,23 @@ func TestNativeWindowsConfinementIsolatesPeerLPACs(t *testing.T) {
 	require.NoError(t, err)
 	holderPID, err := strconv.Atoi(strings.TrimSpace(line))
 	require.NoError(t, err)
+	privatePath, err := holderReader.ReadString('\n')
+	require.NoError(t, err)
+	privatePath = strings.TrimSpace(privatePath)
+	require.NotEmpty(t, privatePath)
+
+	privateProbe, err := executor.NewProcess(windowsPayloadCommand(t, "private-denied", privatePath),
+		execapi.ProcessOptions{})
+	require.NoError(t, err)
+	privateOutput := privateProbe.Stdout()
+	privateError := privateProbe.Stderr()
+	require.NoError(t, privateProbe.Start())
+	privatePayload, err := io.ReadAll(privateOutput)
+	require.NoError(t, err)
+	privateErrors, readErr := io.ReadAll(privateError)
+	require.NoError(t, readErr)
+	require.NoError(t, privateProbe.Wait(), string(privateErrors))
+	require.Contains(t, string(privatePayload), "private-denied")
 
 	sentinelReader, sentinelWriter := newInheritableWindowsSentinelPipe(t)
 	probe, err := executor.NewProcess(windowsPayloadCommand(t, "basic", strconv.Itoa(holderPID)),
@@ -360,7 +403,7 @@ func requireSentinelNotInherited(t *testing.T, reader, writer *os.File) {
 	}
 }
 
-func TestNativeWindowsConfinementStopKillsDescendants(t *testing.T) {
+func TestNativeWindowsConfinementRejectsDescendants(t *testing.T) {
 	workDir := t.TempDir()
 	executor := newWindowsConfinedExecutor(t, workDir)
 	process, err := executor.NewProcess(windowsPayloadCommand(t, "tree"), execapi.ProcessOptions{})
@@ -377,12 +420,8 @@ func TestNativeWindowsConfinementStopKillsDescendants(t *testing.T) {
 	if err != nil {
 		require.NoError(t, err, string(<-stderrRead))
 	}
-	pid, err := strconv.Atoi(strings.TrimSpace(line))
-	require.NoError(t, err)
-
-	process.(*ProcessExecutor).Stop()
-	_ = process.Wait()
-	requireWindowsProcessGone(t, uint32(pid))
+	require.Equal(t, "child-denied", strings.TrimSpace(line))
+	require.NoError(t, process.Wait(), string(<-stderrRead))
 }
 
 func requireWindowsProcessGone(t *testing.T, pid uint32) {

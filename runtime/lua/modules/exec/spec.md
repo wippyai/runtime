@@ -211,8 +211,8 @@ silently degrade.
 | `network: none` | total socket denial, including `socketpair` | fail closed | fail closed |
 | aggregate memory limit | delegated cgroup v2 | fail closed | Job Object committed-memory limit |
 | aggregate task limit | delegated cgroup v2 | fail closed | fail closed |
-| wall timeout | whole process tree | singleton process domain | Job Object process tree |
-| owner-exit cleanup | PID-namespace process tree | singleton process domain | Job Object process tree |
+| wall timeout | whole process tree | singleton process domain | singleton Job domain |
+| owner-exit cleanup | PID-namespace process tree | singleton process domain | singleton Job domain |
 | confined PTY/process group | PTY only | fail closed | fail closed |
 
 Linux filesystem grants are existing directories; individual-file grants are
@@ -234,10 +234,13 @@ creation and operate on a singleton process domain.
 
 Windows launches use a fresh less-privileged AppContainer identity and a Job
 Object. The runtime atomically assigns the suspended target to the Job and
-verifies its exact package SID, empty capability set, low integrity, and Job
+verifies its exact package SID, single outbound-public-Internet capability,
+low integrity, child-process restriction, singleton Job limits, and Job
 membership before resuming it. Access for the unique launch SID is temporarily
 granted only to runtime-controlled launch objects and is removed after the Job
-is empty. Writable work directories must be pre-provisioned with an inheritable
+is empty. The capability is not full inherited host networking: private,
+inbound, and loopback access are not promised. Writable work directories must
+be pre-provisioned with an inheritable
 low mandatory-integrity `NO_WRITE_UP` label; the runtime validates this and
 never silently relabels a host tree. Configured work roots must consequently be
 dedicated trees whose ACL management and descendant placement remain under

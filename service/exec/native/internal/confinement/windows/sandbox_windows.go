@@ -25,20 +25,24 @@ import (
 const (
 	procThreadAttributeSecurityCapabilities     = 0x00020009
 	procThreadAttributeJobList                  = 0x0002000d
+	procThreadAttributeChildProcessPolicy       = 0x0002000e
 	procThreadAttributeAllApplicationPackages   = 0x0002000f
 	processCreationAllApplicationPackagesOptOut = 0x00000001
+	processCreationChildProcessRestricted       = 0x00000001
+	processChildProcessPolicy                   = 13
 )
 
 var (
-	userenv                   = windows.NewLazySystemDLL("userenv.dll")
-	createAppContainerProfile = userenv.NewProc("CreateAppContainerProfile")
-	deleteAppContainerProfile = userenv.NewProc("DeleteAppContainerProfile")
-	advapi32                  = windows.NewLazySystemDLL("advapi32.dll")
-	accessCheck               = advapi32.NewProc("AccessCheck")
-	getTokenInformation       = advapi32.NewProc("GetTokenInformation")
-	kernel32                  = windows.NewLazySystemDLL("kernel32.dll")
-	isProcessInJob            = kernel32.NewProc("IsProcessInJob")
-	pathACLMutex              sync.Mutex
+	userenv                    = windows.NewLazySystemDLL("userenv.dll")
+	createAppContainerProfile  = userenv.NewProc("CreateAppContainerProfile")
+	deleteAppContainerProfile  = userenv.NewProc("DeleteAppContainerProfile")
+	advapi32                   = windows.NewLazySystemDLL("advapi32.dll")
+	accessCheck                = advapi32.NewProc("AccessCheck")
+	getTokenInformation        = advapi32.NewProc("GetTokenInformation")
+	kernel32                   = windows.NewLazySystemDLL("kernel32.dll")
+	isProcessInJob             = kernel32.NewProc("IsProcessInJob")
+	getProcessMitigationPolicy = kernel32.NewProc("GetProcessMitigationPolicy")
+	pathACLMutex               sync.Mutex
 )
 
 type securityCapabilities struct {
@@ -307,6 +311,19 @@ func (p *SpawnedProcess) verify(job *Job, expectedSID, expectedCapability *windo
 	}
 	if inJob == 0 {
 		return errors.New("suspended target is not in confinement Job")
+	}
+	if err := job.verifySingleton(); err != nil {
+		return fmt.Errorf("verify singleton Job: %w", err)
+	}
+	var childPolicy uint32
+	result, _, callErr = getProcessMitigationPolicy.Call(uintptr(p.Process), processChildProcessPolicy,
+		uintptr(unsafe.Pointer(&childPolicy)), unsafe.Sizeof(childPolicy))
+	if result == 0 {
+		return fmt.Errorf("verify child-process policy: %w", callErr)
+	}
+	if childPolicy != processCreationChildProcessRestricted {
+		return fmt.Errorf("suspended target child-process policy %#x, want %#x",
+			childPolicy, uint32(processCreationChildProcessRestricted))
 	}
 	var token windows.Token
 	if err := windows.OpenProcessToken(p.Process, windows.TOKEN_QUERY|windows.TOKEN_DUPLICATE, &token); err != nil {
@@ -603,7 +620,7 @@ func (s *Sandbox) spawnSuspended(request SpawnRequest, allApplicationPackagesOpt
 	if err != nil {
 		return nil, fmt.Errorf("encode environment: %w", err)
 	}
-	attributes, err := windows.NewProcThreadAttributeList(4)
+	attributes, err := windows.NewProcThreadAttributeList(5)
 	if err != nil {
 		return nil, fmt.Errorf("create launch attribute list: %w", err)
 	}
@@ -624,6 +641,11 @@ func (s *Sandbox) spawnSuspended(request SpawnRequest, allApplicationPackagesOpt
 			unsafe.Pointer(&optOut), unsafe.Sizeof(optOut)); err != nil {
 			return nil, fmt.Errorf("set all-application-packages opt-out: %w", err)
 		}
+	}
+	childPolicy := uint32(processCreationChildProcessRestricted)
+	if err := attributes.Update(procThreadAttributeChildProcessPolicy,
+		unsafe.Pointer(&childPolicy), unsafe.Sizeof(childPolicy)); err != nil {
+		return nil, fmt.Errorf("set child-process restriction: %w", err)
 	}
 	jobs := []windows.Handle{request.Job.handle}
 	if err := attributes.Update(procThreadAttributeJobList, unsafe.Pointer(&jobs[0]), unsafe.Sizeof(jobs[0])); err != nil {
@@ -659,6 +681,7 @@ func (s *Sandbox) spawnSuspended(request SpawnRequest, allApplicationPackagesOpt
 	}
 	runtime.KeepAlive(security)
 	runtime.KeepAlive(capabilities)
+	runtime.KeepAlive(childPolicy)
 	runtime.KeepAlive(jobs)
 	runtime.KeepAlive(handles)
 	return &SpawnedProcess{Process: process.Process, Thread: process.Thread, PID: process.ProcessId}, nil
