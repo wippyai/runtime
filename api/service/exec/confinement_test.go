@@ -12,8 +12,13 @@ import (
 )
 
 func TestConfinementPatchOmittedAndEmptyLists(t *testing.T) {
+	tempPath := confineTestPath("/tmp")
+	payload, err := json.Marshal(map[string]any{
+		"fs": map[string]any{"read": []string{}, "write": []string{tempPath}},
+	})
+	require.NoError(t, err)
 	var patch ConfinementPatch
-	require.NoError(t, json.Unmarshal([]byte(`{"fs":{"read":[],"write":["/tmp"]}}`), &patch))
+	require.NoError(t, json.Unmarshal(payload, &patch))
 	require.NotNil(t, patch.FS)
 	require.NotNil(t, patch.FS.Read, "present empty list must deny all")
 	require.Empty(t, *patch.FS.Read)
@@ -21,8 +26,8 @@ func TestConfinementPatchOmittedAndEmptyLists(t *testing.T) {
 
 	clone, err := (ProcessOptions{Confine: &patch}).Clone()
 	require.NoError(t, err)
-	*patch.FS.Write = append(*patch.FS.Write, "/etc")
-	require.Equal(t, []string{"/tmp"}, *clone.Confine.FS.Write)
+	*patch.FS.Write = append(*patch.FS.Write, confineTestPath("/etc"))
+	require.Equal(t, []string{tempPath}, *clone.Confine.FS.Write)
 	require.NotNil(t, clone.Confine.FS.Read)
 	require.Empty(t, *clone.Confine.FS.Read)
 	require.Nil(t, clone.Confine.FS.Exec)
