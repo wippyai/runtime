@@ -135,8 +135,8 @@ func TestWindowsConfinedPayload(t *testing.T) {
 		command.Stdin = os.Stdin
 		command.Stdout = os.Stdout
 		command.Stderr = os.Stderr
-		if err := command.Start(); !errors.Is(err, windows.ERROR_ACCESS_DENIED) {
-			fmt.Fprintf(os.Stderr, "child creation error = %v, want access denied\n", err)
+		if err := command.Start(); !errors.Is(err, windows.ERROR_CHILD_PROCESS_BLOCKED) {
+			fmt.Fprintf(os.Stderr, "child creation error = %v, want child-process blocked\n", err)
 			os.Exit(91)
 		}
 		fmt.Println("child-denied")
@@ -157,23 +157,26 @@ func TestWindowsConfinedPayload(t *testing.T) {
 func rawWindowsWriteFile(path string, payload []byte) error {
 	name, err := windows.UTF16PtrFromString(path)
 	if err != nil {
-		return err
+		return fmt.Errorf("encode raw file path: %w", err)
 	}
 	handle, err := windows.CreateFile(name, windows.GENERIC_WRITE, 0, nil, windows.CREATE_NEW,
 		windows.FILE_ATTRIBUTE_NORMAL, 0)
 	if err != nil {
-		return err
+		return fmt.Errorf("create raw file: %w", err)
 	}
 	var written uint32
 	writeErr := windows.WriteFile(handle, payload, &written, nil)
 	closeErr := windows.CloseHandle(handle)
 	if writeErr != nil {
-		return errors.Join(writeErr, closeErr)
+		return errors.Join(fmt.Errorf("write raw file: %w", writeErr), closeErr)
 	}
 	if written != uint32(len(payload)) {
 		return errors.Join(fmt.Errorf("short WriteFile: wrote %d of %d bytes", written, len(payload)), closeErr)
 	}
-	return closeErr
+	if closeErr != nil {
+		return fmt.Errorf("close raw file: %w", closeErr)
+	}
+	return nil
 }
 
 func newWindowsConfinedExecutor(t *testing.T, workDir string) *Executor {
