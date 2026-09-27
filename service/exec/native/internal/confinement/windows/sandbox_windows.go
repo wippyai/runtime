@@ -9,7 +9,9 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"os"
 	"runtime"
+	"sort"
 	"strings"
 	"sync"
 	"unicode/utf16"
@@ -56,6 +58,7 @@ type PathGrant struct {
 	handle      windows.Handle
 	sid         *windows.SID
 	inheritance uint32
+	mutexName   string
 	closed      bool
 }
 
@@ -119,7 +122,7 @@ func (s *Sandbox) GrantPath(path string, permissions windows.ACCESS_MASK) (*Path
 	if s == nil || s.sid == nil {
 		return nil, errors.New("sandbox identity is closed")
 	}
-	handle, directory, actual, err := openACLPath(path)
+	handle, directory, actual, mutexName, err := openACLPath(path)
 	if err != nil {
 		return nil, err
 	}
@@ -127,38 +130,68 @@ func (s *Sandbox) GrantPath(path string, permissions windows.ACCESS_MASK) (*Path
 	if directory {
 		inheritance = windows.SUB_CONTAINERS_AND_OBJECTS_INHERIT
 	}
-	pathACLMutex.Lock()
-	err = changeHandleAccess(handle, windows.GRANT_ACCESS, permissions, inheritance, s.sid)
-	pathACLMutex.Unlock()
+	err = withACLMutation(mutexName, func() error {
+		return changeHandleAccess(handle, windows.GRANT_ACCESS, permissions, inheritance, s.sid)
+	})
 	if err != nil {
 		_ = windows.CloseHandle(handle)
 		return nil, err
 	}
-	return &PathGrant{Path: actual, handle: handle, sid: s.sid, inheritance: inheritance}, nil
+	return &PathGrant{
+		Path: actual, handle: handle, sid: s.sid, inheritance: inheritance, mutexName: mutexName,
+	}, nil
 }
 
-func openACLPath(path string) (windows.Handle, bool, string, error) {
+func openACLPath(path string) (windows.Handle, bool, string, string, error) {
 	name, err := windows.UTF16PtrFromString(path)
 	if err != nil {
-		return 0, false, "", err
+		return 0, false, "", "", err
 	}
 	handle, err := windows.CreateFile(name, windows.READ_CONTROL|windows.WRITE_DAC|windows.FILE_READ_ATTRIBUTES,
 		windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE, nil, windows.OPEN_EXISTING,
 		windows.FILE_FLAG_BACKUP_SEMANTICS, 0)
 	if err != nil {
-		return 0, false, "", err
+		return 0, false, "", "", err
 	}
 	var info windows.ByHandleFileInformation
 	if err := windows.GetFileInformationByHandle(handle, &info); err != nil {
 		_ = windows.CloseHandle(handle)
-		return 0, false, "", err
+		return 0, false, "", "", err
 	}
 	actual, err := finalPath(handle)
 	if err != nil {
 		_ = windows.CloseHandle(handle)
-		return 0, false, "", err
+		return 0, false, "", "", err
 	}
-	return handle, info.FileAttributes&windows.FILE_ATTRIBUTE_DIRECTORY != 0, actual, nil
+	mutexName := fmt.Sprintf(`Global\WippyExecACL-%08x-%08x%08x`, info.VolumeSerialNumber,
+		info.FileIndexHigh, info.FileIndexLow)
+	return handle, info.FileAttributes&windows.FILE_ATTRIBUTE_DIRECTORY != 0, actual, mutexName, nil
+}
+
+func withACLMutation(mutexName string, mutate func() error) error {
+	pathACLMutex.Lock()
+	defer pathACLMutex.Unlock()
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	name, err := windows.UTF16PtrFromString(mutexName)
+	if err != nil {
+		return err
+	}
+	mutex, err := windows.CreateMutex(nil, false, name)
+	if err != nil {
+		return fmt.Errorf("create cross-runtime ACL mutex: %w", err)
+	}
+	status, err := windows.WaitForSingleObject(mutex, windows.INFINITE)
+	if err != nil {
+		return errors.Join(fmt.Errorf("wait for cross-runtime ACL mutex: %w", err), windows.CloseHandle(mutex))
+	}
+	if status != windows.WAIT_OBJECT_0 && status != windows.WAIT_ABANDONED {
+		return errors.Join(fmt.Errorf("unexpected ACL mutex wait status %d", status), windows.CloseHandle(mutex))
+	}
+	mutationErr := mutate()
+	releaseErr := windows.ReleaseMutex(mutex)
+	closeErr := windows.CloseHandle(mutex)
+	return errors.Join(mutationErr, releaseErr, closeErr)
 }
 
 func changeHandleAccess(handle windows.Handle, mode windows.ACCESS_MODE, permissions windows.ACCESS_MASK, inheritance uint32, sid *windows.SID) error {
@@ -199,9 +232,9 @@ func (g *PathGrant) Close() error {
 		return nil
 	}
 	g.closed = true
-	pathACLMutex.Lock()
-	err := changeHandleAccess(g.handle, windows.REVOKE_ACCESS, 0, g.inheritance, g.sid)
-	pathACLMutex.Unlock()
+	err := withACLMutation(g.mutexName, func() error {
+		return changeHandleAccess(g.handle, windows.REVOKE_ACCESS, 0, g.inheritance, g.sid)
+	})
 	closeErr := windows.CloseHandle(g.handle)
 	g.handle = 0
 	g.sid = nil
@@ -418,38 +451,38 @@ func (s *Sandbox) SpawnSuspended(request SpawnRequest) (*SpawnedProcess, error) 
 	}
 	application, err := windows.UTF16PtrFromString(request.Path)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("encode executable path: %w", err)
 	}
 	commandLine, err := windows.UTF16FromString(windows.ComposeCommandLine(request.Args))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("encode command line: %w", err)
 	}
 	workDir, err := windows.UTF16PtrFromString(request.WorkDir)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("encode working directory: %w", err)
 	}
 	environment, err := environmentBlock(request.Env)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("encode environment: %w", err)
 	}
 	attributes, err := windows.NewProcThreadAttributeList(4)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("create launch attribute list: %w", err)
 	}
 	defer attributes.Delete()
 	security := securityCapabilities{AppContainerSID: s.sid}
 	if err := attributes.Update(procThreadAttributeSecurityCapabilities,
 		unsafe.Pointer(&security), unsafe.Sizeof(security)); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("set LPAC security capabilities: %w", err)
 	}
 	optOut := uint32(processCreationAllApplicationPackagesOptOut)
 	if err := attributes.Update(procThreadAttributeAllApplicationPackages,
 		unsafe.Pointer(&optOut), unsafe.Sizeof(optOut)); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("set all-application-packages opt-out: %w", err)
 	}
 	jobs := []windows.Handle{request.Job.handle}
 	if err := attributes.Update(procThreadAttributeJobList, unsafe.Pointer(&jobs[0]), unsafe.Sizeof(jobs[0])); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("assign launch Job: %w", err)
 	}
 	handles := []windows.Handle{request.Stdin, request.Stdout, request.Stderr}
 	for _, handle := range handles {
@@ -457,13 +490,13 @@ func (s *Sandbox) SpawnSuspended(request SpawnRequest) (*SpawnedProcess, error) 
 			return nil, errors.New("LPAC launch requires all standard handles")
 		}
 		if err := windows.SetHandleInformation(handle, windows.HANDLE_FLAG_INHERIT, windows.HANDLE_FLAG_INHERIT); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("make standard handle inheritable: %w", err)
 		}
 		defer windows.SetHandleInformation(handle, windows.HANDLE_FLAG_INHERIT, 0) //nolint:errcheck
 	}
 	if err := attributes.Update(windows.PROC_THREAD_ATTRIBUTE_HANDLE_LIST,
 		unsafe.Pointer(&handles[0]), uintptr(len(handles))*unsafe.Sizeof(handles[0])); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("set inherited handle list: %w", err)
 	}
 	startup := windows.StartupInfoEx{
 		StartupInfo: windows.StartupInfo{
@@ -477,7 +510,7 @@ func (s *Sandbox) SpawnSuspended(request SpawnRequest) (*SpawnedProcess, error) 
 		windows.EXTENDED_STARTUPINFO_PRESENT | windows.CREATE_DEFAULT_ERROR_MODE)
 	if err := windows.CreateProcess(application, &commandLine[0], nil, nil, true, flags,
 		&environment[0], workDir, &startup.StartupInfo, &process); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("create suspended LPAC process: %w", err)
 	}
 	runtime.KeepAlive(security)
 	runtime.KeepAlive(jobs)
@@ -486,11 +519,23 @@ func (s *Sandbox) SpawnSuspended(request SpawnRequest) (*SpawnedProcess, error) 
 }
 
 func environmentBlock(values []string) ([]uint16, error) {
+	environment := append([]string(nil), values...)
+	hasSystemRoot := false
 	for _, value := range values {
 		if strings.ContainsRune(value, 0) {
 			return nil, errors.New("environment value contains NUL")
 		}
+		name, _, found := strings.Cut(value, "=")
+		if found && strings.EqualFold(name, "SYSTEMROOT") {
+			hasSystemRoot = true
+		}
 	}
-	block := utf16.Encode([]rune(strings.Join(values, "\x00")))
+	if !hasSystemRoot {
+		environment = append(environment, "SYSTEMROOT="+os.Getenv("SYSTEMROOT"))
+	}
+	sort.Slice(environment, func(i, j int) bool {
+		return strings.ToUpper(environment[i]) < strings.ToUpper(environment[j])
+	})
+	block := utf16.Encode([]rune(strings.Join(environment, "\x00")))
 	return append(block, 0, 0), nil
 }

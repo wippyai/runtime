@@ -85,6 +85,13 @@ func TestWindowsConfinedPayload(t *testing.T) {
 			os.Exit(86)
 		}
 		fmt.Println(os.Getpid())
+		if _, err := bufio.NewReader(os.Stdin).ReadString('\n'); err != nil {
+			os.Exit(85)
+		}
+		if err := os.WriteFile("holder-still-authorized", []byte("ok"), 0o600); err != nil {
+			os.Exit(84)
+		}
+		fmt.Println("WROTE")
 		for {
 			time.Sleep(time.Hour)
 		}
@@ -169,7 +176,8 @@ func TestNativeWindowsConfinementIsolatesPeerLPACs(t *testing.T) {
 	require.NoError(t, err)
 	holderOutput := holder.Stdout()
 	require.NoError(t, holder.Start())
-	line, err := bufio.NewReader(holderOutput).ReadString('\n')
+	holderReader := bufio.NewReader(holderOutput)
+	line, err := holderReader.ReadString('\n')
 	require.NoError(t, err)
 	holderPID, err := strconv.Atoi(strings.TrimSpace(line))
 	require.NoError(t, err)
@@ -184,6 +192,10 @@ func TestNativeWindowsConfinementIsolatesPeerLPACs(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, probe.Wait(), string(payload))
 	require.Contains(t, string(payload), "target_denied")
+	require.NoError(t, holder.WriteStdin([]byte("write\n")))
+	line, err = holderReader.ReadString('\n')
+	require.NoError(t, err)
+	require.Equal(t, "WROTE", strings.TrimSpace(line), "first sandbox must retain its ACL after peer cleanup")
 
 	holder.(*ProcessExecutor).Stop()
 	_ = holder.Wait()

@@ -104,12 +104,11 @@ func TestNativeDarwinConfinementEnforcesPrivateEnvironment(t *testing.T) {
 	waitErr := process.Wait()
 	diagnostics, _ := io.ReadAll(stderr)
 	require.NoErrorf(t, waitErr, "confined target stderr: %s", diagnostics)
-	lines := strings.Split(strings.TrimSpace(string(payload)), "\n")
+	lines := strings.Split(strings.TrimSuffix(string(payload), "\n"), "\n")
 	require.Len(t, lines, 3)
 	require.Equal(t, "yes", lines[0])
 	require.NotEqual(t, os.Getenv("HOME"), lines[1])
-	require.NotEqual(t, os.Getenv("TMPDIR"), lines[2])
-	require.Equal(t, filepath.Dir(lines[1]), filepath.Dir(lines[2]))
+	require.Empty(t, lines[2], "home: private does not imply the separate {tmp} policy")
 	_, err = os.Stat(filepath.Dir(lines[1]))
 	require.ErrorIs(t, err, os.ErrNotExist, "private environment is removed after target exit")
 }
@@ -202,7 +201,10 @@ func TestNativeDarwinConfinementUsesBoundWorkDirAfterRootReplacement(t *testing.
 	factory := NewExecutorFactory(zap.NewNop())
 	handle, err := factory.CreateExecutor(registry.ID{}, &execapi.NativeExecutorConfig{
 		DefaultWorkDir: workDir,
-		Confine:        &execapi.Confinement{WorkDirRoots: []string{root}},
+		Confine: &execapi.Confinement{
+			WorkDirRoots: []string{root},
+			Home:         "private",
+		},
 	})
 	require.NoError(t, err)
 	executor := handle.(*Executor)
