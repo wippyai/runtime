@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/registry"
 	execapi "github.com/wippyai/runtime/api/service/exec"
+	confinewindows "github.com/wippyai/runtime/service/exec/native/internal/confinement/windows"
 	"go.uber.org/zap"
 	"golang.org/x/sys/windows"
 )
@@ -35,7 +36,24 @@ func TestWindowsConfinedPayload(t *testing.T) {
 	}
 	switch os.Args[separator+1] {
 	case "basic":
-		fmt.Printf("%s\n%s\n", os.Getenv("WIPPY_PINNED"), os.Getenv("USERPROFILE"))
+		if separator+2 >= len(os.Args) {
+			os.Exit(93)
+		}
+		parentPID, err := strconv.Atoi(os.Args[separator+2])
+		if err != nil {
+			os.Exit(94)
+		}
+		isContainer, err := confinewindows.CurrentProcessIsAppContainer()
+		if err != nil || !isContainer {
+			os.Exit(95)
+		}
+		parent, err := windows.OpenProcess(windows.PROCESS_DUP_HANDLE|windows.PROCESS_VM_WRITE|
+			windows.PROCESS_VM_OPERATION, false, uint32(parentPID))
+		if err == nil {
+			_ = windows.CloseHandle(parent)
+			os.Exit(96)
+		}
+		fmt.Printf("%s\n%s\nappcontainer\nparent_denied\n", os.Getenv("WIPPY_PINNED"), os.Getenv("USERPROFILE"))
 	case "tree":
 		command := exec.Command(os.Args[0], "-test.run=^TestWindowsConfinedPayload$", "--", "grandchild")
 		command.Env = os.Environ()
@@ -75,17 +93,21 @@ func newWindowsConfinedExecutor(t *testing.T, workDir string) *Executor {
 	return executor
 }
 
-func windowsPayloadCommand(t *testing.T, mode string) string {
+func windowsPayloadCommand(t *testing.T, mode string, arguments ...string) string {
 	t.Helper()
 	executable, err := os.Executable()
 	require.NoError(t, err)
-	return strconv.Quote(executable) + " -test.run=^TestWindowsConfinedPayload$ -- " + mode
+	parts := []string{strconv.Quote(executable), "-test.run=^TestWindowsConfinedPayload$", "--", mode}
+	for _, argument := range arguments {
+		parts = append(parts, strconv.Quote(argument))
+	}
+	return strings.Join(parts, " ")
 }
 
 func TestNativeWindowsConfinementRunsInsideJob(t *testing.T) {
 	workDir := t.TempDir()
 	executor := newWindowsConfinedExecutor(t, workDir)
-	process, err := executor.NewProcess(windowsPayloadCommand(t, "basic"), execapi.ProcessOptions{})
+	process, err := executor.NewProcess(windowsPayloadCommand(t, "basic", strconv.Itoa(os.Getpid())), execapi.ProcessOptions{})
 	require.NoError(t, err)
 	stdout := process.Stdout()
 	require.NoError(t, process.Start())
@@ -93,10 +115,12 @@ func TestNativeWindowsConfinementRunsInsideJob(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, process.Wait())
 	lines := strings.Split(strings.TrimSpace(string(payload)), "\n")
-	require.GreaterOrEqual(t, len(lines), 2)
+	require.GreaterOrEqual(t, len(lines), 4)
 	require.Equal(t, "yes", lines[0])
 	require.NotEmpty(t, lines[1])
 	require.NotEqual(t, os.Getenv("USERPROFILE"), lines[1])
+	require.Equal(t, "appcontainer", lines[2])
+	require.Equal(t, "parent_denied", lines[3])
 	_, err = os.Stat(lines[1])
 	require.ErrorIs(t, err, os.ErrNotExist, "private home is removed after the job is empty")
 }

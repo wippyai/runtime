@@ -202,6 +202,22 @@ func (p *SpawnedProcess) Verify(job *Job) error {
 	return nil
 }
 
+func CurrentProcessIsAppContainer() (bool, error) {
+	var token windows.Token
+	if err := windows.OpenProcessToken(windows.CurrentProcess(), windows.TOKEN_QUERY, &token); err != nil {
+		return false, err
+	}
+	defer token.Close()
+	var isContainer uint32
+	var returned uint32
+	result, _, callErr := getTokenInformation.Call(uintptr(token), 29,
+		uintptr(unsafe.Pointer(&isContainer)), unsafe.Sizeof(isContainer), uintptr(unsafe.Pointer(&returned)))
+	if result == 0 {
+		return false, callErr
+	}
+	return isContainer != 0, nil
+}
+
 func (p *SpawnedProcess) Resume() error {
 	if p == nil || p.Thread == 0 {
 		return errors.New("invalid suspended LPAC thread")
