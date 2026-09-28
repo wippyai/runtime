@@ -91,6 +91,31 @@ func compareObjectEntries(a, b objectEntry) int {
 	return int(a.rank) - int(b.rank)
 }
 
+func objectEntryLess(a, b *objectEntry) bool {
+	return a.key < b.key || (a.key == b.key && a.rank < b.rank)
+}
+
+// maxInsertionSortEntries is the object width up to which entries are sorted
+// by insertion; typical objects are narrow and this avoids a comparator call
+// per comparison.
+const maxInsertionSortEntries = 12
+
+func sortObjectEntries(entries []objectEntry) {
+	if len(entries) > maxInsertionSortEntries {
+		slices.SortFunc(entries, compareObjectEntries)
+		return
+	}
+	for i := 1; i < len(entries); i++ {
+		entry := entries[i]
+		j := i
+		for j > 0 && objectEntryLess(&entry, &entries[j-1]) {
+			entries[j] = entries[j-1]
+			j--
+		}
+		entries[j] = entry
+	}
+}
+
 func getJSONValue(lv lua.LValue, state *encodeState, depth int, options *EncodeOptions) *jsonValue {
 	jv := jsonValuePool.Get().(*jsonValue)
 	*jv = jsonValue{lv, state, options, depth}
@@ -522,9 +547,7 @@ func (j *jsonValue) writeObjectDirect(buf *bytes.Buffer, table *lua.LTable, maxN
 
 	j.state.entries = entries
 	own := entries[start:]
-	if len(own) > 1 {
-		slices.SortFunc(own, compareObjectEntries)
-	}
+	sortObjectEntries(own)
 
 	for i := range own {
 		if err := writeKeyValue(own[i].key, own[i].value); err != nil {

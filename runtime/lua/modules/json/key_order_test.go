@@ -3,6 +3,10 @@
 package json
 
 import (
+	"fmt"
+	"slices"
+	"strconv"
+	"strings"
 	"testing"
 
 	lua "github.com/wippyai/go-lua"
@@ -89,6 +93,70 @@ func TestEncodeMixedKeysWriteNumericKeysFirstThenCanonical(t *testing.T) {
 		}
 		if string(got) != want {
 			t.Fatalf("run %d:\n got %s\nwant %s", i, got, want)
+		}
+	}
+}
+
+func TestEncodeWideObjectKeysAreCanonical(t *testing.T) {
+	for _, width := range []int{maxInsertionSortEntries, maxInsertionSortEntries + 1, 200} {
+		table := lua.CreateTable(0, width)
+		keys := make([]string, 0, width)
+		for i := width - 1; i >= 0; i-- {
+			key := fmt.Sprintf("key%04d", i)
+			keys = append(keys, key)
+			table.RawSetString(key, lua.LNumber(i))
+		}
+		slices.Sort(keys)
+
+		var want strings.Builder
+		want.WriteByte('{')
+		for i, key := range keys {
+			if i > 0 {
+				want.WriteByte(',')
+			}
+			n, _ := strconv.Atoi(strings.TrimPrefix(key, "key"))
+			fmt.Fprintf(&want, "%q:%d", key, n)
+		}
+		want.WriteByte('}')
+
+		for run := 0; run < 16; run++ {
+			got, err := Encode(table)
+			if err != nil {
+				t.Fatalf("width %d: %v", width, err)
+			}
+			if string(got) != want.String() {
+				t.Fatalf("width %d run %d:\n got %s\nwant %s", width, run, got, want.String())
+			}
+		}
+	}
+}
+
+func TestEncodeEqualWrittenKeysKeepFixedOrder(t *testing.T) {
+	// A string key and a boolean key both write "true"; the string key comes
+	// first. Padding keys push the same object onto the wide sort path.
+	for _, padding := range []int{0, maxInsertionSortEntries + 4} {
+		table := lua.CreateTable(0, padding+2)
+		for i := 0; i < padding; i++ {
+			table.RawSetString(fmt.Sprintf("p%02d", i), lua.LNumber(i))
+		}
+		table.RawSetString("true", lua.LString("string"))
+		table.RawSetH(lua.LTrue, lua.LString("bool"))
+
+		first, err := Encode(table)
+		if err != nil {
+			t.Fatalf("padding %d: %v", padding, err)
+		}
+		if !strings.HasSuffix(string(first), `"true":"string","true":"bool"}`) {
+			t.Fatalf("padding %d: got %s", padding, first)
+		}
+		for run := 0; run < 32; run++ {
+			got, err := Encode(table)
+			if err != nil {
+				t.Fatalf("padding %d: %v", padding, err)
+			}
+			if string(got) != string(first) {
+				t.Fatalf("padding %d run %d:\n got %s\nwant %s", padding, run, got, first)
+			}
 		}
 	}
 }
