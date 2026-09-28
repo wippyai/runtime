@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sync"
 	"time"
 
 	"github.com/wippyai/runtime/api/registry"
@@ -23,7 +24,7 @@ import (
 const MaxMessageBytes = 4 << 20
 
 const (
-	listPageSize = 1000
+	listPageSize = 10000
 	maxAttempts  = 3
 	retryDelay   = 100 * time.Millisecond
 )
@@ -37,9 +38,13 @@ type Config struct {
 // History is a registry.History backed by the History service. Each method
 // returns after the service commits or rejects the operation.
 type History struct {
-	client          historyv1.HistoryServiceClient
-	closer          io.Closer
-	key             *historyv1.RegistryKey
+	client   historyv1.HistoryServiceClient
+	closer   io.Closer
+	key      *historyv1.RegistryKey
+	versions map[uint]registry.Version
+	// versionsMu guards versions. Versions never change after the service
+	// stores them, so the driver reuses the objects that it built.
+	versionsMu      sync.RWMutex
 	timeout         time.Duration
 	maxMessageBytes int
 }
@@ -68,6 +73,7 @@ func New(connection grpc.ClientConnInterface, cfg Config) (*History, error) {
 	return &History{
 		client:          historyv1.NewHistoryServiceClient(connection),
 		key:             proto.Clone(cfg.Key).(*historyv1.RegistryKey),
+		versions:        map[uint]registry.Version{registry.RootVersion: version.New(registry.RootVersion)},
 		timeout:         cfg.Timeout,
 		maxMessageBytes: cfg.MaxMessageBytes,
 	}, nil
@@ -79,7 +85,6 @@ func (h *History) Key() *historyv1.RegistryKey {
 }
 
 func (h *History) Versions() ([]registry.Version, error) {
-	versions := make(map[uint]registry.Version)
 	list := make([]registry.Version, 0)
 	request := &historyv1.ListVersionsRequest{Key: h.key, Limit: listPageSize}
 	for {
@@ -89,26 +94,27 @@ func (h *History) Versions() ([]registry.Version, error) {
 		if err != nil {
 			return nil, fmt.Errorf("list history versions: %w", err)
 		}
+		h.versionsMu.Lock()
 		for _, node := range page.GetVersions() {
 			id := uint(node.GetId())
-			var stored registry.Version
-			if node.ParentId == nil {
-				if id != registry.RootVersion {
-					return nil, fmt.Errorf("history version %d has no parent", id)
-				}
-				stored = version.New(id)
-			} else {
-				parent, ok := versions[uint(node.GetParentId())]
+			if node.ParentId == nil && id != registry.RootVersion {
+				h.versionsMu.Unlock()
+				return nil, fmt.Errorf("history version %d has no parent", id)
+			}
+			stored := h.versions[registry.RootVersion]
+			if node.ParentId != nil {
+				parent, ok := h.versions[uint(node.GetParentId())]
 				if !ok {
+					h.versionsMu.Unlock()
 					return nil, fmt.Errorf("history version %d references missing parent %d", id, node.GetParentId())
 				}
-				stored = version.FromParent(parent, id)
+				stored = h.cachedChild(parent, id)
 			}
-			versions[id] = stored
 			list = append(list, stored)
 			last := node.GetId()
 			request.AfterId = &last
 		}
+		h.versionsMu.Unlock()
 		if !page.GetHasMore() {
 			return list, nil
 		}
@@ -132,7 +138,7 @@ func (h *History) GetVersion(id uint) (registry.Version, error) {
 	if err != nil {
 		return nil, versionError(id, err)
 	}
-	return fromLineage(id, lineage)
+	return h.fromLineage(id, lineage)
 }
 
 func (h *History) Head() (registry.Version, error) {
@@ -147,7 +153,7 @@ func (h *History) Head() (registry.Version, error) {
 	if len(ids) > 0 {
 		id = uint(ids[len(ids)-1])
 	}
-	return fromLineage(id, lineage)
+	return h.fromLineage(id, lineage)
 }
 
 func (h *History) Get(v registry.Version) (registry.ChangeSet, error) {
@@ -397,18 +403,50 @@ func mergeContext(callCtx, parent context.Context) context.Context {
 	return ctx
 }
 
-func fromLineage(id uint, lineage *historyv1.Lineage) (registry.Version, error) {
-	current := version.New(registry.RootVersion)
-	for _, next := range lineage.GetIds() {
+// fromLineage returns the version for a lineage from the service. It reuses a
+// cached version when its whole lineage matches.
+func (h *History) fromLineage(id uint, lineage *historyv1.Lineage) (registry.Version, error) {
+	ids := lineage.GetIds()
+	h.versionsMu.RLock()
+	cached, ok := h.versions[id]
+	h.versionsMu.RUnlock()
+	if ok && sameLineage(cached, ids) {
+		return cached, nil
+	}
+	h.versionsMu.Lock()
+	defer h.versionsMu.Unlock()
+	current := h.versions[registry.RootVersion]
+	for _, next := range ids {
 		if uint(next) <= current.ID() {
 			return nil, fmt.Errorf("history version %d has an invalid lineage", id)
 		}
-		current = version.FromParent(current, uint(next))
+		current = h.cachedChild(current, uint(next))
 	}
 	if current.ID() != id {
 		return nil, fmt.Errorf("history version %d has an invalid lineage", id)
 	}
 	return current, nil
+}
+
+func sameLineage(v registry.Version, ids []uint64) bool {
+	for i := len(ids) - 1; i >= 0; i-- {
+		if v == nil || v.ID() != uint(ids[i]) {
+			return false
+		}
+		v = v.Previous()
+	}
+	return v != nil && v.ID() == registry.RootVersion && v.Previous() == nil
+}
+
+// cachedChild returns the cached version id when its parent is parent, or
+// else builds and caches it. The caller holds versionsMu for writing.
+func (h *History) cachedChild(parent registry.Version, id uint) registry.Version {
+	if cached, ok := h.versions[id]; ok && cached.Previous() != nil && cached.Previous().ID() == parent.ID() {
+		return cached
+	}
+	child := version.FromParent(parent, id)
+	h.versions[id] = child
+	return child
 }
 
 func versionError(id uint, err error) error {

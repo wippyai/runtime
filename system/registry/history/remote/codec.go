@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"sync"
 
 	"github.com/hashicorp/go-msgpack/v2/codec"
 	"github.com/wippyai/runtime/api/attrs"
@@ -59,12 +60,44 @@ func decodeEntry(encoded encodedEntry) registry.Entry {
 	return entry
 }
 
+// maxPooledBuffer keeps a large encoding from staying in the pool.
+const maxPooledBuffer = 1 << 20
+
+type encoderState struct {
+	encoder *codec.Encoder
+	buffer  bytes.Buffer
+}
+
+var encoders = sync.Pool{New: func() any {
+	state := &encoderState{}
+	state.encoder = codec.NewEncoder(&state.buffer, msgpackHandle)
+	return state
+}}
+
+var decoders = sync.Pool{New: func() any { return codec.NewDecoderBytes(nil, msgpackHandle) }}
+
 func encode(value any) ([]byte, error) {
-	var buffer bytes.Buffer
-	if err := codec.NewEncoder(&buffer, msgpackHandle).Encode(value); err != nil {
+	state := encoders.Get().(*encoderState)
+	state.buffer.Reset()
+	state.encoder.Reset(&state.buffer)
+	err := state.encoder.Encode(value)
+	data := bytes.Clone(state.buffer.Bytes())
+	if state.buffer.Cap() <= maxPooledBuffer {
+		encoders.Put(state)
+	}
+	if err != nil {
 		return nil, err
 	}
-	return buffer.Bytes(), nil
+	return data, nil
+}
+
+func decode(data []byte, value any) error {
+	decoder := decoders.Get().(*codec.Decoder)
+	decoder.ResetBytes(data)
+	err := decoder.Decode(value)
+	decoder.ResetBytes(nil)
+	decoders.Put(decoder)
+	return err
 }
 
 func encodeChangeSet(changes registry.ChangeSet) ([]byte, error) {
@@ -81,7 +114,7 @@ func encodeChangeSet(changes registry.ChangeSet) ([]byte, error) {
 
 func decodeChangeSet(data []byte) (registry.ChangeSet, error) {
 	var operations []encodedOperation
-	if err := codec.NewDecoderBytes(data, msgpackHandle).Decode(&operations); err != nil {
+	if err := decode(data, &operations); err != nil {
 		return nil, err
 	}
 	changes := make(registry.ChangeSet, len(operations))
@@ -109,7 +142,7 @@ func encodeState(state registry.State) ([]byte, string, error) {
 
 func decodeState(data []byte) (registry.State, error) {
 	var entries []encodedEntry
-	if err := codec.NewDecoderBytes(data, msgpackHandle).Decode(&entries); err != nil {
+	if err := decode(data, &entries); err != nil {
 		return nil, err
 	}
 	state := make(registry.State, len(entries))

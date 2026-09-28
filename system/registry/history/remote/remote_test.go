@@ -241,3 +241,23 @@ func TestTransferEmptySource(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, baseline)
 }
+
+func TestVersionCacheFollowsLineage(t *testing.T) {
+	history, _ := open(t, "app")
+	first, err := history.fromLineage(2, &historyv1.Lineage{Ids: []uint64{1, 2}})
+	require.NoError(t, err)
+	again, err := history.fromLineage(2, &historyv1.Lineage{Ids: []uint64{1, 2}})
+	require.NoError(t, err)
+	require.Same(t, first, again)
+
+	changed, err := history.fromLineage(2, &historyv1.Lineage{Ids: []uint64{2}})
+	require.NoError(t, err)
+	require.NotSame(t, first, changed)
+	require.Equal(t, registry.RootVersion, changed.Previous().ID())
+
+	_, err = history.fromLineage(3, &historyv1.Lineage{Ids: []uint64{2}})
+	require.ErrorContains(t, err, "invalid lineage")
+	root, err := history.fromLineage(registry.RootVersion, &historyv1.Lineage{})
+	require.NoError(t, err)
+	require.Equal(t, registry.RootVersion, root.ID())
+}
