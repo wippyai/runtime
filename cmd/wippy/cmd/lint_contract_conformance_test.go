@@ -3,6 +3,7 @@
 package cmd
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/wippyai/go-lua/types/io"
@@ -13,6 +14,39 @@ import (
 
 func conformanceFixture(input, output string, fn *typ.Function) []conformanceFinding {
 	return conformanceFixtureOutputs(input, []string{output}, fn)
+}
+
+func TestOuterFailureReturnIsExcludedFromOutputConformance(t *testing.T) {
+	definitionID := regapi.NewID("sample", "service")
+	bindingID := regapi.NewID("sample", "binding")
+	functionID := regapi.NewID("sample", "handle")
+	definition := &api.Definition{Methods: []api.MethodDef{{Name: "query", OutputSchemas: []api.SchemaDefinition{{Format: "application/schema+json", Definition: `{"type":"object","properties":{"good":{"type":"boolean"}},"required":["good"]}`}}}}}
+	catalog := &contractCatalog{definitions: map[string]*api.Definition{definitionID.String(): definition}, bindings: map[string]*api.Binding{bindingID.String(): {Contracts: []api.BoundContract{{Contract: definitionID, Methods: map[string]regapi.ID{"query": functionID}}}}}}
+	bad := typ.NewRecord().Field("bad", typ.Boolean).Build()
+	good := typ.NewRecord().Field("good", typ.Boolean).Build()
+	manifest := io.NewManifest(functionID.String())
+	manifest.BodyBacked = true
+	manifest.SetExport(typ.NewRecord().Field("handle", typ.Func().Returns(typ.NewUnion(bad, good), typ.NewOptional(typ.String)).Build()).Build())
+	source := `local function handle() if broken then return {bad=true}, "failure" end return {good=true}, nil end return {handle=handle}`
+	findings := checkBindingConformance(catalog, map[regapi.ID]*io.Manifest{functionID: manifest}, map[regapi.ID]entryData{functionID: {Method: "handle", Source: source}}, nil)
+	for _, finding := range findings {
+		if finding.violation && strings.HasPrefix(finding.path, "output_schemas") {
+			t.Fatalf("failure return checked as success: %+v", findings)
+		}
+	}
+}
+
+func TestOuterErrorDiagnosticNamesSchemaAdjustedSlot(t *testing.T) {
+	findings := conformanceFixtureOutputs(`{"type":"string"}`, []string{`{"type":"string"}`, `{"type":"number"}`}, typ.Func().Param("request", typ.String).Returns(typ.String, typ.Number, typ.Boolean).Build())
+	for _, finding := range findings {
+		if finding.path == "outer_error" && finding.violation {
+			if !strings.Contains(finding.message, "third return") {
+				t.Fatalf("wrong slot: %s", finding.message)
+			}
+			return
+		}
+	}
+	t.Fatalf("missing outer error diagnostic: %+v", findings)
 }
 
 func conformanceFixtureOutputs(input string, outputs []string, fn *typ.Function) []conformanceFinding {

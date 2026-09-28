@@ -133,6 +133,9 @@ func checkBindingConformance(catalog *contractCatalog, manifests map[regapi.ID]*
 					if len(fn.Returns) > outputIndex {
 						actual = fn.Returns[outputIndex]
 					}
+					if success, proved := literalSuccessReturnType(data[functionID].Source, functionMethod, outputIndex, len(method.OutputSchemas)); proved {
+						actual = success
+					}
 					if containsUnverifiable(actual) {
 						if missing := missingRequiredLiteralReturnField(data[functionID].Source, functionMethod, projection.Type); missing != "" {
 							add(path+"/required", "successful result may omit required output field "+fmt.Sprintf("%q", missing), true)
@@ -172,7 +175,7 @@ func checkBindingConformance(catalog *contractCatalog, manifests map[regapi.ID]*
 					if containsUnverifiable(outer) {
 						add("outer_error", "cannot verify outer error from unknown/any implementation evidence", false)
 					} else if !subtype.IsSubtype(outer, typ.NewUnion(typ.String, typ.LuaError, typ.Nil)) {
-						add("outer_error", "second return is not an error: the runtime ignores it", true)
+						add("outer_error", fmt.Sprintf("%s return is not an error: the runtime ignores it", ordinalReturn(errorIndex+1)), true)
 					}
 				}
 			}
@@ -194,6 +197,131 @@ func provenOutputKindMismatch(actual, expected typ.Type) bool {
 		return false
 	}
 	return !subtype.IsSubtype(actual, expected)
+}
+
+func ordinalReturn(position int) string {
+	suffix := "th"
+	if position%100 < 11 || position%100 > 13 {
+		switch position % 10 {
+		case 1:
+			suffix = "st"
+		case 2:
+			suffix = "nd"
+		case 3:
+			suffix = "rd"
+		}
+	}
+	switch position {
+	case 1:
+		return "first"
+	case 2:
+		return "second"
+	case 3:
+		return "third"
+	default:
+		return fmt.Sprintf("%d%s", position, suffix)
+	}
+}
+
+// literalSuccessReturnType derives each explicit return independently. A
+// definite error in the trailing slot is a transport failure, regardless of
+// the values preceding it. Unknown expressions leave the checked aggregate
+// as the conservative fallback.
+func literalSuccessReturnType(source, method string, outputIndex, errorIndex int) (typ.Type, bool) {
+	if source == "" || method == "" {
+		return nil, false
+	}
+	statements, err := parse.ParseString(source, "contract-conformance")
+	if err != nil {
+		return nil, false
+	}
+	var body []ast.Stmt
+	for _, stmt := range statements {
+		switch s := stmt.(type) {
+		case *ast.FuncDefStmt:
+			if s.Name != nil && s.Func != nil {
+				if s.Name.Method == method {
+					body = s.Func.Stmts
+				}
+				if ident, ok := s.Name.Func.(*ast.IdentExpr); ok && ident.Value == method {
+					body = s.Func.Stmts
+				}
+			}
+		case *ast.LocalAssignStmt:
+			for i, name := range s.Names {
+				if name == method && i < len(s.Exprs) {
+					if fn, ok := s.Exprs[i].(*ast.FunctionExpr); ok {
+						body = fn.Stmts
+					}
+				}
+			}
+		}
+	}
+	if len(body) == 0 {
+		return nil, false
+	}
+	var members []typ.Type
+	seen, valid := false, true
+	walkRequireNodes(body, nil, func(stmt ast.Stmt) {
+		ret, ok := stmt.(*ast.ReturnStmt)
+		if !ok || !valid {
+			return
+		}
+		seen = true
+		if len(ret.Exprs) > errorIndex {
+			switch ret.Exprs[errorIndex].(type) {
+			case *ast.StringExpr:
+				return
+			case *ast.NilExpr:
+			default:
+				valid = false
+				return
+			}
+		}
+		if len(ret.Exprs) <= outputIndex {
+			members = append(members, typ.Nil)
+			return
+		}
+		value, ok := literalReturnType(ret.Exprs[outputIndex])
+		if !ok {
+			valid = false
+			return
+		}
+		members = append(members, value)
+	}, nil)
+	if !valid || !seen || len(members) == 0 {
+		return nil, false
+	}
+	return typ.NewUnion(members...), true
+}
+
+func literalReturnType(expr ast.Expr) (typ.Type, bool) {
+	switch value := expr.(type) {
+	case *ast.NilExpr:
+		return typ.Nil, true
+	case *ast.StringExpr:
+		return typ.String, true
+	case *ast.NumberExpr:
+		return typ.Number, true
+	case *ast.TrueExpr, *ast.FalseExpr:
+		return typ.Boolean, true
+	case *ast.TableExpr:
+		record := typ.NewRecord()
+		for _, field := range value.Fields {
+			name := ast.KeyName(field.Key)
+			if name == "" {
+				return nil, false
+			}
+			fieldType, ok := literalReturnType(field.Value)
+			if !ok {
+				return nil, false
+			}
+			record.Field(name, fieldType)
+		}
+		return record.Build(), true
+	default:
+		return nil, false
+	}
 }
 
 // A literal table returned by the configured function is direct evidence for
