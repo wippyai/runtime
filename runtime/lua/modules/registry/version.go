@@ -30,13 +30,7 @@ func versionPrevious(l *lua.LState) int {
 		return 0
 	}
 
-	linked, err := historyLinkedVersion(l, version)
-	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.WrapErrorWithLua(l, err, "read version links"))
-		return 2
-	}
-	prev := linked.Previous()
+	prev := version.Previous()
 	if prev == nil {
 		l.Push(lua.LNil)
 		return 1
@@ -68,13 +62,7 @@ func versionNext(l *lua.LState) int {
 		return 0
 	}
 
-	linked, err := historyLinkedVersion(l, version)
-	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.WrapErrorWithLua(l, err, "read version links"))
-		return 2
-	}
-	next := linked.Next()
+	next := version.Next()
 	if next == nil {
 		l.Push(lua.LNil)
 		return 1
@@ -82,21 +70,4 @@ func versionNext(l *lua.LState) int {
 
 	value.PushTypedUserData(l, next, typeVersion)
 	return 1
-}
-
-func historyLinkedVersion(l *lua.LState, stored registry.Version) (registry.Version, error) {
-	reg := registry.GetRegistry(l.Context())
-	if reg == nil {
-		return stored, nil
-	}
-	if _, ok := reg.History().(registry.PublishedHistory); !ok {
-		return stored, nil
-	}
-	if stored.Previous() != nil || stored.Next() != nil {
-		return stored, nil
-	}
-	if reader, ok := reg.History().(registry.ContextHistory); ok {
-		return reader.GetVersionContext(l.Context(), stored.ID())
-	}
-	return stored, nil
 }

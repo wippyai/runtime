@@ -275,6 +275,20 @@ type (
 		CompareAndSetHead(expected, target Version) error
 	}
 
+	// TransactionalHistory keeps all calls of one registry operation on the
+	// same storage. The registry calls BeginTransaction before the operation
+	// and the returned function after it.
+	TransactionalHistory interface {
+		BeginTransaction() (end func())
+	}
+
+	// BaselineHistory stores the deployment baseline with the history. A
+	// runtime without project sources uses it to recover the same state.
+	BaselineHistory interface {
+		Baseline() (State, error)
+		SaveBaseline(State) error
+	}
+
 	// Runner defines how ChangeSets are applied to a State to produce a new State
 	Runner interface {
 		// Transition applies a given ChangeSet to a State and returns the

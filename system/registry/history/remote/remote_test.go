@@ -1,499 +1,243 @@
+// SPDX-License-Identifier: MPL-2.0
+
 package remote
 
 import (
 	"context"
-	"fmt"
-	"net"
-	"sync"
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/registry"
 	historyv1 "github.com/wippyai/runtime/api/registry/history/v1"
 	"github.com/wippyai/runtime/internal/version"
-	"google.golang.org/grpc"
+	"github.com/wippyai/runtime/system/registry/history/historytest"
+	"github.com/wippyai/runtime/system/registry/history/memory"
+	"github.com/wippyai/runtime/system/registry/history/remote/remotetest"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
-	"google.golang.org/grpc/test/bufconn"
-	"google.golang.org/protobuf/proto"
 )
 
-type testServer struct {
-	historyv1.UnimplementedHistoryServiceServer
-	submits []*historyv1.SubmitRequest
-	mu      sync.Mutex
-	lost    bool
-}
-
-func (s *testServer) GetCandidate(context.Context, *historyv1.GetRequest) (*historyv1.Candidate, error) {
-	return nil, status.Error(codes.NotFound, "empty registry")
-}
-func (s *testServer) Submit(_ context.Context, req *historyv1.SubmitRequest) (*historyv1.SubmitResponse, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.submits = append(s.submits, req)
-	if s.lost {
-		s.lost = false
-		return nil, status.Error(codes.Unavailable, "response lost")
-	}
-	return &historyv1.SubmitResponse{Receipt: &historyv1.Receipt{RequestId: req.RequestId, Revision: 1, Status: "stored"}}, nil
-}
-func (s *testServer) GetReceipt(_ context.Context, req *historyv1.GetReceiptRequest) (*historyv1.Receipt, error) {
-	return &historyv1.Receipt{RequestId: req.RequestId, Revision: 1, PublishedRevision: 3, Status: "published"}, nil
-}
-func (s *testServer) GetVersion(context.Context, *historyv1.GetRequest) (*historyv1.Version, error) {
-	return &historyv1.Version{Revision: 3}, nil
-}
-func (s *testServer) ReportApplied(context.Context, *historyv1.AppliedRequest) (*historyv1.Empty, error) {
-	return &historyv1.Empty{}, nil
-}
-
-func newTestHistory(t testing.TB, server historyv1.HistoryServiceServer) *History {
+func open(t *testing.T, registryID string) (*History, *remotetest.Server) {
 	t.Helper()
-	return newTestHistoryWithReplica(t, server, "replica")
-}
-
-func newTestHistoryWithReplica(t testing.TB, server historyv1.HistoryServiceServer, replica string) *History {
-	t.Helper()
-	listener := bufconn.Listen(1024 * 1024)
-	grpcServer := grpc.NewServer()
-	historyv1.RegisterHistoryServiceServer(grpcServer, server)
-	go grpcServer.Serve(listener)
-	t.Cleanup(grpcServer.Stop)
-	connection, err := grpc.NewClient("passthrough:///history", grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return listener.Dial() }))
+	server, connection, stop := remotetest.Start()
+	t.Cleanup(stop)
+	history, err := New(connection, Config{Key: testKey(registryID), Timeout: 5 * time.Second})
 	require.NoError(t, err)
-	t.Cleanup(func() { connection.Close() })
-	history, err := New(connection, Config{Key: &historyv1.RegistryKey{TenantId: "tenant", EnvironmentId: "stage", RegistryId: "registry"}, ReplicaID: replica, Timeout: time.Second, PollInterval: time.Millisecond})
-	require.NoError(t, err)
-	return history
+	return history, server
 }
 
-type replicaReportServer struct {
-	replicas chan string
-	testServer
+func testKey(registryID string) *historyv1.RegistryKey {
+	return &historyv1.RegistryKey{TenantId: "tenant", EnvironmentId: "stage", RegistryId: registryID}
 }
 
-func (s *replicaReportServer) ReportApplied(_ context.Context, request *historyv1.AppliedRequest) (*historyv1.Empty, error) {
-	s.replicas <- request.ReplicaId
-	return &historyv1.Empty{}, nil
+func TestConformance(t *testing.T) {
+	historytest.Run(t, func(t *testing.T) historytest.History {
+		history, _ := open(t, "app")
+		return history
+	})
 }
 
-func TestAutomaticReplicaReportsRemainStableAndDistinct(t *testing.T) {
-	server := &replicaReportServer{replicas: make(chan string, 4)}
-	first := newTestHistoryWithReplica(t, server, "")
-	second := newTestHistoryWithReplica(t, server, "")
-	explicit := newTestHistoryWithReplica(t, server, "operator-replica")
-	for _, history := range []*History{first, second, explicit} {
-		require.NoError(t, history.ReportApplied(t.Context(), &registry.PublishedState{Version: version.New(1)}, nil))
+func failOnce(method string, after bool) func(string, bool) error {
+	failed := false
+	return func(called string, calledAfter bool) error {
+		if failed || called != method || calledAfter != after {
+			return nil
+		}
+		failed = true
+		return status.Error(codes.Unavailable, "connection lost")
 	}
-	require.NoError(t, first.ReportApplied(t.Context(), &registry.PublishedState{Version: version.New(2)}, nil))
-	firstID, secondID, explicitID, repeatedID := <-server.replicas, <-server.replicas, <-server.replicas, <-server.replicas
-	_, err := uuid.Parse(firstID)
+}
+
+func TestSaveRetriesAfterUnknownResult(t *testing.T) {
+	history, server := open(t, "app")
+	server.Fail = failOnce("Save", true)
+	v1 := version.FromParent(version.New(0), 1)
+	require.NoError(t, history.SaveWithDependencyResolution(v1, historytest.Changes("one", "first"), historytest.Resolution("first", ""), true))
+	head, err := history.Head()
 	require.NoError(t, err)
-	_, err = uuid.Parse(secondID)
+	require.Equal(t, uint(1), head.ID())
+	versions, err := history.Versions()
 	require.NoError(t, err)
-	require.NotEqual(t, firstID, secondID)
-	require.Equal(t, firstID, repeatedID)
-	require.Equal(t, "operator-replica", explicitID)
+	require.Len(t, versions, 2)
 }
 
-func TestLostResponseUsesOriginalReceipt(t *testing.T) {
-	server := &testServer{lost: true}
-	history := newTestHistory(t, server)
-	receipt, err := history.SubmitChanges(context.Background(), registry.ChangeSet{{Kind: registry.EntryDelete, Entry: registry.Entry{ID: registry.NewID("test", "entry")}}}, nil)
+func TestSaveRetryDoesNotHideConflict(t *testing.T) {
+	history, server := open(t, "app")
+	v1 := version.FromParent(version.New(0), 1)
+	require.NoError(t, history.Save(v1, historytest.Changes("one", "first"), true))
+	server.Fail = failOnce("Save", false)
+	require.Error(t, history.Save(v1, historytest.Changes("one", "other"), false))
+}
+
+func TestCompareAndSetHeadRetriesAfterUnknownResult(t *testing.T) {
+	history, server := open(t, "app")
+	v1 := version.FromParent(version.New(0), 1)
+	v2 := version.FromParent(v1, 2)
+	require.NoError(t, history.Save(v1, historytest.Changes("one", "first"), true))
+	require.NoError(t, history.Save(v2, historytest.Changes("two", "second"), true))
+	server.Fail = failOnce("CompareAndSetHead", true)
+	require.NoError(t, history.CompareAndSetHead(v2, v1))
+	head, err := history.Head()
 	require.NoError(t, err)
-	require.Equal(t, uint64(1), receipt.Revision)
-	published, err := history.AwaitPublished(context.Background(), receipt)
-	require.NoError(t, err)
-	require.Equal(t, uint(3), published.Version.ID())
-	server.mu.Lock()
-	defer server.mu.Unlock()
-	require.Len(t, server.submits, 1)
-	require.Equal(t, server.submits[0].RequestId, receipt.RequestID)
+	require.Equal(t, uint(1), head.ID())
 }
 
-func TestConfirmedWriteAdvancesExpectedRevision(t *testing.T) {
-	server := &testServer{}
-	history := newTestHistory(t, server)
-	changes := registry.ChangeSet{{Kind: registry.EntryDelete, Entry: registry.Entry{ID: registry.NewID("test", "entry")}}}
-	_, err := history.SubmitChanges(context.Background(), changes, nil)
-	require.NoError(t, err)
-	_, err = history.SubmitChanges(context.Background(), changes, nil)
-	require.NoError(t, err)
-	server.mu.Lock()
-	defer server.mu.Unlock()
-	require.Equal(t, uint64(0), server.submits[0].GetExpectedRevision())
-	require.NotNil(t, server.submits[0].ExpectedRevision)
-	require.Equal(t, uint64(1), server.submits[1].GetExpectedRevision())
-	require.NotNil(t, server.submits[1].ExpectedRevision)
-}
-
-func TestReadDoesNotAdvanceUntilVersionIsApplied(t *testing.T) {
-	server := &testServer{}
-	history := newTestHistory(t, server)
-	published, err := history.ReadPublished(context.Background(), 0)
-	require.NoError(t, err)
-	changes := registry.ChangeSet{{Kind: registry.EntryDelete, Entry: registry.Entry{ID: registry.NewID("test", "entry")}}}
-	_, err = history.SubmitChanges(context.Background(), changes, nil)
-	require.NoError(t, err)
-	require.NoError(t, history.ReportApplied(context.Background(), published, nil))
-	_, err = history.SubmitChanges(context.Background(), changes, nil)
-	require.NoError(t, err)
-	server.mu.Lock()
-	defer server.mu.Unlock()
-	require.Equal(t, uint64(0), server.submits[0].GetExpectedRevision())
-	require.Equal(t, uint64(3), server.submits[1].GetExpectedRevision())
-}
-
-func TestFailedApplicationDoesNotAdvanceExpectedRevision(t *testing.T) {
-	server := &testServer{}
-	history := newTestHistory(t, server)
-	published, err := history.ReadPublished(context.Background(), 0)
-	require.NoError(t, err)
-	require.NoError(t, history.ReportApplied(context.Background(), published, fmt.Errorf("apply failed")))
-	changes := registry.ChangeSet{{Kind: registry.EntryDelete, Entry: registry.Entry{ID: registry.NewID("test", "entry")}}}
-	_, err = history.SubmitChanges(context.Background(), changes, nil)
-	require.NoError(t, err)
-	server.mu.Lock()
-	defer server.mu.Unlock()
-	require.Equal(t, uint64(0), server.submits[0].GetExpectedRevision())
-}
-
-func TestLegacyWritesFailExplicitly(t *testing.T) {
-	history := newTestHistory(t, &testServer{})
-	require.ErrorIs(t, history.Save(nil, nil, true), registry.ErrHistoryOperationUnsupported)
-	require.ErrorIs(t, history.SetHead(nil), registry.ErrHistoryOperationUnsupported)
-}
-
-type unavailableReceiptServer struct {
-	*testServer
-}
-
-func (s *unavailableReceiptServer) GetReceipt(context.Context, *historyv1.GetReceiptRequest) (*historyv1.Receipt, error) {
-	return nil, status.Error(codes.Unavailable, "receipt unavailable")
-}
-
-func TestUnknownCommitRetainsRequestIdentity(t *testing.T) {
-	server := &unavailableReceiptServer{testServer: &testServer{lost: true}}
-	history := newTestHistory(t, server)
-	changes := registry.ChangeSet{{Kind: registry.EntryDelete, Entry: registry.Entry{ID: registry.NewID("test", "entry")}}}
-	_, err := history.SubmitChanges(context.Background(), changes, nil)
-	require.ErrorIs(t, err, ErrCommitUnknown)
-	server.mu.Lock()
-	pending := proto.Clone(server.submits[0]).(*historyv1.SubmitRequest)
-	server.mu.Unlock()
-	require.NoError(t, history.ReportApplied(context.Background(), &registry.PublishedState{Version: version.New(3)}, nil))
-	_, err = history.SubmitChanges(context.Background(), registry.ChangeSet{{Kind: registry.EntryDelete, Entry: registry.Entry{ID: registry.NewID("test", "different")}}}, nil)
-	require.ErrorIs(t, err, ErrCommitUnknown)
-	_, err = history.SubmitChanges(context.Background(), changes, nil)
-	require.NoError(t, err)
-	server.mu.Lock()
-	defer server.mu.Unlock()
-	require.Len(t, server.submits, 2)
-	require.Equal(t, pending, server.submits[1])
-	require.Equal(t, uint64(0), server.submits[1].GetExpectedRevision())
-	require.NotNil(t, server.submits[1].ExpectedRevision)
-}
-
-type recoveredReceiptServer struct {
-	*testServer
-	receiptReads int
-}
-
-func (s *recoveredReceiptServer) GetReceipt(_ context.Context, request *historyv1.GetReceiptRequest) (*historyv1.Receipt, error) {
-	s.receiptReads++
-	if s.receiptReads == 1 {
-		return nil, status.Error(codes.Unavailable, "receipt unavailable")
-	}
-	return &historyv1.Receipt{RequestId: request.RequestId, Revision: 1, PublishedRevision: 3, Status: "published"}, nil
-}
-
-func TestAppliedPublicationReconcilesUnknownCommit(t *testing.T) {
-	server := &recoveredReceiptServer{testServer: &testServer{lost: true}}
-	history := newTestHistory(t, server)
-	changes := registry.ChangeSet{{Kind: registry.EntryDelete, Entry: registry.Entry{ID: registry.NewID("test", "entry")}}}
-	_, err := history.SubmitChanges(t.Context(), changes, nil)
-	require.ErrorIs(t, err, ErrCommitUnknown)
-	server.mu.Lock()
-	pending := proto.Clone(server.submits[0]).(*historyv1.SubmitRequest)
-	server.mu.Unlock()
-	require.NoError(t, history.ReportApplied(t.Context(), &registry.PublishedState{Version: version.New(3)}, nil))
-	_, err = history.SubmitChanges(t.Context(), registry.ChangeSet{{Kind: registry.EntryDelete, Entry: registry.Entry{ID: registry.NewID("test", "next")}}}, nil)
-	require.NoError(t, err)
-	server.mu.Lock()
-	defer server.mu.Unlock()
-	require.Equal(t, 2, server.receiptReads)
-	require.Len(t, server.submits, 2)
-	require.Equal(t, pending, server.submits[0])
-	require.NotEqual(t, pending.RequestId, server.submits[1].RequestId)
-	require.Equal(t, uint64(3), server.submits[1].GetExpectedRevision())
-}
-
-func TestConfirmedStoredRevisionDoesNotProvePendingPublication(t *testing.T) {
-	server := &recoveredReceiptServer{testServer: &testServer{}, receiptReads: 1}
-	history := newTestHistory(t, server)
-	expectedRevision := uint64(0)
-	history.revision = 3
-	history.pending = &historyv1.SubmitRequest{Key: history.key, RequestId: "pending", ExpectedRevision: &expectedRevision, Mutations: []*historyv1.Mutation{{EntryId: "test:entry", Deleted: true}}}
-	pending := proto.Clone(history.pending).(*historyv1.SubmitRequest)
-	_, err := history.SubmitChanges(t.Context(), registry.ChangeSet{{Kind: registry.EntryDelete, Entry: registry.Entry{ID: registry.NewID("test", "different")}}}, nil)
-	require.ErrorIs(t, err, ErrCommitUnknown)
-	require.Equal(t, 1, server.receiptReads)
-	require.True(t, proto.Equal(pending, history.pending))
-}
-
-type staleServer struct {
-	*testServer
-	receiptReads int
-}
-
-func (s *staleServer) Submit(_ context.Context, request *historyv1.SubmitRequest) (*historyv1.SubmitResponse, error) {
-	s.submits = append(s.submits, request)
-	return nil, status.Error(codes.Aborted, "revision changed")
-}
-
-func (s *staleServer) GetReceipt(context.Context, *historyv1.GetReceiptRequest) (*historyv1.Receipt, error) {
-	s.receiptReads++
-	return nil, status.Error(codes.NotFound, "request not found")
-}
-
-func TestStaleSubmitReturnsConflictWithoutRetry(t *testing.T) {
-	server := &staleServer{testServer: &testServer{}}
-	history := newTestHistory(t, server)
-	changes := registry.ChangeSet{{Kind: registry.EntryDelete, Entry: registry.Entry{ID: registry.NewID("test", "entry")}}}
-	_, err := history.SubmitChanges(t.Context(), changes, nil)
-	require.ErrorIs(t, err, registry.ErrHistoryConflict)
-	require.Equal(t, codes.Aborted, status.Code(err))
-	require.Len(t, server.submits, 1)
-	require.Zero(t, server.receiptReads)
-}
-
-type watchServer struct {
-	historyv1.UnimplementedHistoryServiceServer
-	cursors []uint64
-	mu      sync.Mutex
-}
-
-func (s *watchServer) Watch(req *historyv1.ReadRequest, stream grpc.ServerStreamingServer[historyv1.Version]) error {
-	s.mu.Lock()
-	s.cursors = append(s.cursors, req.AfterRevision)
-	revision := uint64(3)
-	if len(s.cursors) > 1 {
-		revision = 4
-	}
-	s.mu.Unlock()
-	if err := stream.Send(&historyv1.Version{Revision: revision}); err != nil {
-		return err
-	}
-	return status.Error(codes.Unavailable, "stream lost")
-}
-
-func TestWatchResumesAfterAppliedCursor(t *testing.T) {
-	server := &watchServer{}
-	history := newTestHistory(t, server)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	var revisions []uint
-	err := history.FollowPublished(ctx, 0, func(published *registry.PublishedState) error {
-		revisions = append(revisions, published.Version.ID())
-		if published.Version.ID() == 4 {
-			cancel()
+func TestReadDoesNotRetryDeadline(t *testing.T) {
+	history, server := open(t, "app")
+	calls := 0
+	server.Fail = func(method string, after bool) error {
+		if method == "Head" && !after {
+			calls++
+			return status.Error(codes.DeadlineExceeded, "slow")
 		}
 		return nil
-	})
-	require.ErrorIs(t, err, context.Canceled)
-	require.Equal(t, []uint{3, 4}, revisions)
-	server.mu.Lock()
-	defer server.mu.Unlock()
-	require.Equal(t, []uint64{0, 3}, server.cursors)
-}
-
-func TestCanceledPublicationReturnsRequestIdentity(t *testing.T) {
-	history := newTestHistory(t, &testServer{})
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	_, err := history.AwaitPublished(ctx, &registry.HistoryReceipt{RequestID: "request", Status: "stored"})
-	require.ErrorIs(t, err, context.Canceled)
-	require.ErrorContains(t, err, "request")
-}
-
-type restoreServer struct {
-	*unavailableReceiptServer
-	requests []*historyv1.RestoreRequest
-}
-
-func (s *restoreServer) Restore(_ context.Context, req *historyv1.RestoreRequest) (*historyv1.SubmitResponse, error) {
-	s.requests = append(s.requests, req)
-	if len(s.requests) == 1 {
-		return nil, status.Error(codes.Unavailable, "restore response lost")
 	}
-	return &historyv1.SubmitResponse{Receipt: &historyv1.Receipt{RequestId: req.RequestId, Revision: 2, Status: "stored"}}, nil
-}
-func TestUnknownRestoreRetainsRequestIdentity(t *testing.T) {
-	server := &restoreServer{unavailableReceiptServer: &unavailableReceiptServer{testServer: &testServer{}}}
-	history := newTestHistory(t, server)
-	_, err := history.RestoreChanges(context.Background(), 1)
-	require.ErrorIs(t, err, ErrCommitUnknown)
-	pending := proto.Clone(server.requests[0]).(*historyv1.RestoreRequest)
-	require.NoError(t, history.ReportApplied(context.Background(), &registry.PublishedState{Version: version.New(3)}, nil))
-	_, err = history.RestoreChanges(context.Background(), 1)
-	require.NoError(t, err)
-	require.Len(t, server.requests, 2)
-	require.Equal(t, pending, server.requests[1])
-	require.Equal(t, uint64(0), server.requests[1].GetExpectedRevision())
-	require.NotNil(t, server.requests[1].ExpectedRevision)
+	_, err := history.Head()
+	require.Error(t, err)
+	require.Equal(t, 1, calls)
 }
 
-type confirmedRestoreServer struct {
-	*testServer
-	requests []*historyv1.RestoreRequest
-}
-
-func (s *confirmedRestoreServer) Restore(_ context.Context, request *historyv1.RestoreRequest) (*historyv1.SubmitResponse, error) {
-	s.requests = append(s.requests, request)
-	return &historyv1.SubmitResponse{Receipt: &historyv1.Receipt{RequestId: request.RequestId, Revision: 2, Status: "stored"}}, nil
-}
-
-func TestConfirmedRestoreAdvancesExpectedRevision(t *testing.T) {
-	server := &confirmedRestoreServer{testServer: &testServer{}}
-	history := newTestHistory(t, server)
-	_, err := history.RestoreChanges(t.Context(), 1)
-	require.NoError(t, err)
-	changes := registry.ChangeSet{{Kind: registry.EntryDelete, Entry: registry.Entry{ID: registry.NewID("test", "entry")}}}
-	_, err = history.SubmitChanges(t.Context(), changes, nil)
-	require.NoError(t, err)
-	require.Equal(t, uint64(0), server.requests[0].GetExpectedRevision())
-	server.mu.Lock()
-	defer server.mu.Unlock()
-	require.Equal(t, uint64(2), server.submits[0].GetExpectedRevision())
-}
-
-type staleRestoreServer struct {
-	*testServer
-	requests     []*historyv1.RestoreRequest
-	receiptReads int
-}
-
-func (s *staleRestoreServer) Restore(_ context.Context, request *historyv1.RestoreRequest) (*historyv1.SubmitResponse, error) {
-	s.requests = append(s.requests, request)
-	return nil, status.Error(codes.Aborted, "revision changed")
-}
-
-func (s *staleRestoreServer) GetReceipt(context.Context, *historyv1.GetReceiptRequest) (*historyv1.Receipt, error) {
-	s.receiptReads++
-	return nil, status.Error(codes.NotFound, "request not found")
-}
-
-func TestStaleRestoreReturnsConflictWithoutRetry(t *testing.T) {
-	server := &staleRestoreServer{testServer: &testServer{}}
-	history := newTestHistory(t, server)
-	_, err := history.RestoreChanges(t.Context(), 1)
-	require.ErrorIs(t, err, registry.ErrHistoryConflict)
-	require.Equal(t, codes.Aborted, status.Code(err))
-	require.Len(t, server.requests, 1)
-	require.Zero(t, server.receiptReads)
-}
-
-type reportRetryServer struct {
-	*testServer
-	reports int
-}
-
-func (s *reportRetryServer) ReportApplied(context.Context, *historyv1.AppliedRequest) (*historyv1.Empty, error) {
-	s.reports++
-	if s.reports == 1 {
-		return nil, status.Error(codes.Unavailable, "report response lost")
+func TestBaseline(t *testing.T) {
+	history, server := open(t, "app")
+	_, err := history.Baseline()
+	require.ErrorIs(t, err, registry.ErrBaselineNotFound)
+	baseline := registry.State{historytest.Entry("one", "first"), historytest.Entry("two", "second")}
+	require.NoError(t, history.SaveBaseline(baseline))
+	calls := 0
+	server.Fail = func(method string, after bool) error {
+		if method == "SetBaseline" && !after {
+			calls++
+		}
+		return nil
 	}
-	return &historyv1.Empty{}, nil
-}
-func TestFollowRetriesAppliedReportBeforeAdvancing(t *testing.T) {
-	server := &reportRetryServer{testServer: &testServer{}}
-	history := newTestHistory(t, server)
-	published, err := history.ReadPublished(context.Background(), 0)
+	require.NoError(t, history.SaveBaseline(baseline))
+	require.Zero(t, calls)
+	stored, err := history.Baseline()
 	require.NoError(t, err)
-	require.Error(t, history.ReportApplied(context.Background(), published, nil))
-	changes := registry.ChangeSet{{Kind: registry.EntryDelete, Entry: registry.Entry{ID: registry.NewID("test", "entry")}}}
-	_, err = history.SubmitChanges(t.Context(), changes, nil)
+	require.Len(t, stored, 2)
+	require.Equal(t, baseline[1].ID, stored[1].ID)
+}
+
+type sourceFixture struct {
+	history  *memory.Storage
+	baseline registry.State
+}
+
+func source(t *testing.T) sourceFixture {
+	t.Helper()
+	h := memory.New()
+	root := version.New(0)
+	v1 := version.FromParent(root, 1)
+	v2 := version.FromParent(v1, 2)
+	v3 := version.FromParent(v1, 3)
+	require.NoError(t, h.SaveWithDependencyResolution(v1, historytest.Changes("one", "first"), historytest.Resolution("first", "base"), true))
+	require.NoError(t, h.Save(v2, historytest.Changes("two", "second"), true))
+	require.NoError(t, h.SetHead(v1))
+	require.NoError(t, h.SaveWithDependencyResolution(v3, historytest.Changes("three", "third"), historytest.Resolution("third", "base"), true))
+	return sourceFixture{history: h, baseline: registry.State{historytest.Entry("base", "value")}}
+}
+
+func requireSameHistory(t *testing.T, expected *memory.Storage, actual *History) {
+	t.Helper()
+	expectedVersions, err := expected.Versions()
 	require.NoError(t, err)
-	server.mu.Lock()
-	require.Equal(t, uint64(3), server.submits[0].GetExpectedRevision())
-	server.mu.Unlock()
-	err = history.FollowPublished(context.Background(), 3, func(*registry.PublishedState) error { return nil })
-	require.Equal(t, codes.Unimplemented, status.Code(err))
-	require.Equal(t, 2, server.reports)
-}
-
-func TestSubmitRetainsFinalValueForEntryReplacement(t *testing.T) {
-	server := &testServer{}
-	history := newTestHistory(t, server)
-	id := registry.NewID("test", "entry")
-	_, err := history.SubmitChanges(t.Context(), registry.ChangeSet{{Kind: registry.EntryDelete, Entry: registry.Entry{ID: id, Kind: "old"}}, {Kind: registry.EntryCreate, Entry: registry.Entry{ID: id, Kind: "new"}}}, nil)
+	actualVersions, err := actual.Versions()
 	require.NoError(t, err)
-	server.mu.Lock()
-	defer server.mu.Unlock()
-	require.Len(t, server.submits, 1)
-	require.Len(t, server.submits[0].Mutations, 1)
-	require.Equal(t, id.String(), server.submits[0].Mutations[0].EntryId)
-	require.False(t, server.submits[0].Mutations[0].Deleted)
-	require.NotEmpty(t, server.submits[0].Mutations[0].Value)
-}
-
-type monotonicReportServer struct {
-	historyv1.UnimplementedHistoryServiceServer
-	revision uint64
-	lose     bool
-}
-
-func (s *monotonicReportServer) ReportApplied(_ context.Context, request *historyv1.AppliedRequest) (*historyv1.Empty, error) {
-	if request.Revision < s.revision {
-		return nil, status.Error(codes.Aborted, "causal state changed")
-	}
-	s.revision = request.Revision
-	if s.lose {
-		s.lose = false
-		return nil, status.Error(codes.Unavailable, "response lost")
-	}
-	return &historyv1.Empty{}, nil
-}
-
-func TestAppliedReportsDoNotMoveBackwards(t *testing.T) {
-	for _, lose := range []bool{false, true} {
-		t.Run(fmt.Sprint(lose), func(t *testing.T) {
-			server := &monotonicReportServer{lose: lose}
-			history := newTestHistory(t, server)
-			err := history.ReportApplied(t.Context(), &registry.PublishedState{Version: version.New(3)}, nil)
-			if lose {
-				require.Error(t, err)
-			} else {
-				require.NoError(t, err)
-			}
-			require.NoError(t, history.ReportApplied(t.Context(), &registry.PublishedState{Version: version.New(2)}, nil))
-			err = history.FollowPublished(t.Context(), 3, func(*registry.PublishedState) error { return nil })
-			require.Equal(t, codes.Unimplemented, status.Code(err))
-		})
-	}
-}
-
-func BenchmarkRemoteStoredVersion(b *testing.B) {
-	history := newTestHistory(b, &testServer{})
-	b.ReportAllocs()
-	for b.Loop() {
-		if _, err := history.readVersion(b.Context(), 3, true); err != nil {
-			b.Fatal(err)
+	require.Len(t, actualVersions, len(expectedVersions))
+	for i, v := range expectedVersions {
+		require.Equal(t, v.ID(), actualVersions[i].ID())
+		if v.ID() == registry.RootVersion {
+			continue
+		}
+		require.Equal(t, v.Previous().ID(), actualVersions[i].Previous().ID())
+		expectedChanges, err := expected.Get(v)
+		require.NoError(t, err)
+		actualChanges, err := actual.Get(v)
+		require.NoError(t, err)
+		require.Len(t, actualChanges, len(expectedChanges))
+		expectedResolution, expectedErr := expected.GetDependencyResolution(v)
+		actualResolution, actualErr := actual.GetDependencyResolution(v)
+		require.Equal(t, expectedErr, actualErr)
+		if expectedErr == nil {
+			require.Equal(t, expectedResolution.Digest, actualResolution.Digest)
 		}
 	}
+	expectedHead, err := expected.Head()
+	require.NoError(t, err)
+	actualHead, err := actual.Head()
+	require.NoError(t, err)
+	require.Equal(t, expectedHead.ID(), actualHead.ID())
 }
 
-func BenchmarkRemoteAppliedReport(b *testing.B) {
-	history := newTestHistory(b, &testServer{})
-	published := &registry.PublishedState{Version: version.New(3)}
-	b.ReportAllocs()
-	for b.Loop() {
-		if err := history.ReportApplied(b.Context(), published, nil); err != nil {
-			b.Fatal(err)
+func TestTransfer(t *testing.T) {
+	fixture := source(t)
+	history, _ := open(t, "app")
+	require.NoError(t, history.Transfer(context.Background(), "transfer-1", fixture.history, fixture.baseline))
+	requireSameHistory(t, fixture.history, history)
+	baseline, err := history.Baseline()
+	require.NoError(t, err)
+	require.Len(t, baseline, 1)
+	require.Equal(t, fixture.baseline[0].ID, baseline[0].ID)
+
+	require.NoError(t, history.Transfer(context.Background(), "transfer-1", fixture.history, fixture.baseline))
+	v4 := version.FromParent(version.FromParent(version.FromParent(version.New(0), 1), 3), 4)
+	require.NoError(t, history.Save(v4, historytest.Changes("four", "fourth"), true))
+	require.NoError(t, history.Transfer(context.Background(), "transfer-1", fixture.history, fixture.baseline))
+	head, err := history.Head()
+	require.NoError(t, err)
+	require.Equal(t, uint(4), head.ID())
+
+	changed := source(t)
+	require.NoError(t, changed.history.Save(version.FromParent(version.FromParent(version.FromParent(version.New(0), 1), 3), 5), historytest.Changes("five", "fifth"), true))
+	require.ErrorContains(t, history.Transfer(context.Background(), "transfer-1", changed.history, fixture.baseline), "differs")
+}
+
+func TestInterruptedTransferResumes(t *testing.T) {
+	fixture := source(t)
+	history, server := open(t, "app")
+	server.Fail = func(method string, after bool) error {
+		if method == "CompleteTransfer" && !after {
+			return status.Error(codes.Unavailable, "connection lost")
 		}
+		return nil
 	}
+	require.Error(t, history.Transfer(context.Background(), "transfer-1", fixture.history, fixture.baseline))
+	_, err := history.Head()
+	require.ErrorContains(t, err, "transfer is not complete")
+	require.Error(t, history.Transfer(context.Background(), "transfer-2", fixture.history, fixture.baseline))
+
+	server.Fail = nil
+	require.NoError(t, history.Transfer(context.Background(), "transfer-1", fixture.history, fixture.baseline))
+	requireSameHistory(t, fixture.history, history)
+
+	versions, err := fixture.history.Versions()
+	require.NoError(t, err)
+	require.Len(t, versions, 4)
+}
+
+func TestTransferRejectsUnrelatedHistory(t *testing.T) {
+	fixture := source(t)
+	history, _ := open(t, "app")
+	v1 := version.FromParent(version.New(0), 1)
+	require.NoError(t, history.Save(v1, historytest.Changes("other", "value"), true))
+	require.ErrorContains(t, history.Transfer(context.Background(), "transfer-1", fixture.history, fixture.baseline), "not empty")
+	changes, err := history.Get(v1)
+	require.NoError(t, err)
+	require.Equal(t, "other", changes[0].Entry.ID.Name)
+
+	completed, _ := open(t, "done")
+	require.NoError(t, completed.Transfer(context.Background(), "transfer-1", fixture.history, fixture.baseline))
+	require.ErrorContains(t, completed.Transfer(context.Background(), "transfer-2", fixture.history, fixture.baseline), "not empty")
+}
+
+func TestTransferEmptySource(t *testing.T) {
+	history, _ := open(t, "app")
+	require.NoError(t, history.Transfer(context.Background(), "transfer-1", memory.New(), nil))
+	head, err := history.Head()
+	require.NoError(t, err)
+	require.Equal(t, registry.RootVersion, head.ID())
+	baseline, err := history.Baseline()
+	require.NoError(t, err)
+	require.Empty(t, baseline)
 }

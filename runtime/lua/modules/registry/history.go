@@ -3,8 +3,6 @@
 package registry
 
 import (
-	"context"
-
 	lua "github.com/wippyai/go-lua"
 	regapi "github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
@@ -26,13 +24,7 @@ func historyVersions(l *lua.LState) int {
 		return 0
 	}
 
-	var versions []regapi.Version
-	var versErr error
-	if reader, ok := history.hist.(regapi.ContextHistory); ok {
-		versions, versErr = reader.VersionsContext(l.Context())
-	} else {
-		versions, versErr = history.hist.Versions()
-	}
+	versions, versErr := history.hist.Versions()
 	if versErr != nil {
 		err := lua.WrapErrorWithLua(l, versErr, "get versions").
 			WithKind(lua.Internal).
@@ -71,7 +63,7 @@ func historyGetVersion(l *lua.LState) int {
 		return 2
 	}
 
-	foundVersion, lookupErr := findHistoryVersionContext(l.Context(), history.hist, uint(vID))
+	foundVersion, lookupErr := findHistoryVersion(history.hist, uint(vID))
 	if lookupErr != nil {
 		err := lua.WrapErrorWithLua(l, lookupErr, "get version").
 			WithKind(lua.Internal).
@@ -96,13 +88,6 @@ func historyGetVersion(l *lua.LState) int {
 }
 
 func findHistoryVersion(history regapi.History, id uint) (regapi.Version, error) {
-	return findHistoryVersionContext(context.Background(), history, id)
-}
-
-func findHistoryVersionContext(ctx context.Context, history regapi.History, id uint) (regapi.Version, error) {
-	if reader, ok := history.(regapi.ContextHistory); ok {
-		return reader.GetVersionContext(ctx, id)
-	}
 	if lookup, ok := history.(regapi.VersionLookup); ok {
 		return lookup.GetVersion(id)
 	}
@@ -139,7 +124,7 @@ func historySnapshotAt(l *lua.LState) int {
 	resolver := regapi.GetResolver(l.Context())
 	stateBuilder := topology.NewStateBuilder(history.log, resolver)
 
-	state, buildErr := stateBuilder.BuildStateContext(l.Context(), history.hist, version)
+	state, buildErr := stateBuilder.BuildState(history.hist, version)
 	if buildErr != nil {
 		err := lua.WrapErrorWithLua(l, buildErr, "build snapshot state").
 			WithKind(lua.Internal).

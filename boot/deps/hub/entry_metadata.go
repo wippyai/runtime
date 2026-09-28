@@ -60,9 +60,6 @@ func (h *DependencyHandler) currentModuleIdentities(ctx context.Context) (map[st
 }
 
 func (h *DependencyHandler) currentResolution(ctx context.Context) *regapi.DependencyResolution {
-	if selected, ok := ctx.Value(recordedSelectionKey{}).(*recordedSelection); ok {
-		return selected.previous
-	}
 	if reg := regapi.GetRegistry(ctx); reg != nil {
 		return reg.Snapshot().Registry.Resolution
 	}

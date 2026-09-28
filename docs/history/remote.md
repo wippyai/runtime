@@ -1,10 +1,45 @@
 # Remote registry history
 
-Set `registry.history_registry_id` to use the remote service. Wippy selects gRPC automatically. No `history_type` setting is needed.
+The remote history is a registry history driver on the Wippy History service. It has the same semantics as the memory, SQLite, and PostgreSQL drivers. The registry plans, validates, applies, and rolls back changes in the same way for all drivers.
 
-History uses the default Wippy credential. Set `WIPPY_TOKEN` or use the credential saved by `wippy auth login`. The runtime uses the same credential selection order as Hub: runtime override, environment, local login, then global login. The History server must authorize that credential for the selected registry.
+Each call returns after the service commits or rejects the operation. A save with a head update succeeds only when the head is still the parent version. A conditional head move fails when the head changed. Each version keeps its exact dependency resolution. The history also stores the deployment baseline, so a runtime without project sources can recover the same state.
 
-Put these settings in `.wippy.yaml`:
+## Select remote history in a running application
+
+Use the Lua `registry` module:
+
+```lua
+local hub = require("hub")
+local registry = require("registry")
+
+hub.auth.authenticate(token)
+local binding, err = registry.use_remote_history({ name = "my-app" })
+```
+
+`use_remote_history` transfers the active local history to the remote history `my-app`, and then switches the registry to it. It copies all versions, branches, dependency resolutions, the head, and the baseline. No registry operation runs during the transfer. The call returns after the service confirms the same content that the runtime read.
+
+The remote history must be empty. The service rejects a history that has other content. If the transfer fails or stops, the local history stays active and unchanged. Call `use_remote_history` again with the same name. The runtime resumes the same transfer and does not duplicate versions. After the switch, all registry writes go to the remote history only. There are no dual writes and no fallback to local writes.
+
+`registry.history_backend()` returns the selected backend. The permissions are `registry.history.get` and `registry.history.select`.
+
+Options:
+
+| Option | Use |
+| --- | --- |
+| `name` | Required remote history name. |
+| `organization` | Organization name. Defaults to the project organization, or to the only organization of the credential. |
+| `environment` | Environment name. Defaults to the first domain label after `hub.` in the Hub URL. |
+| `endpoint` | Service address. Defaults to the Hub host with `history.` in place of `hub.`. |
+
+## Selection after restart
+
+The runtime stores the selection in `.wippy/history.yaml`. The file contains the Hub URL, the service address, the organization, the environment, the history name, and the transfer ID. It contains no credentials. At boot, the runtime opens the stored remote history with the credential for that Hub from the Wippy credential store. If the credential is missing, boot stops. It does not fall back to local history.
+
+The credential store is the same store that `wippy auth login` uses: runtime token, `WIPPY_TOKEN`, project login, then global login. If the switch used a token that exists only in the process, such as a token from `hub.auth.authenticate`, the runtime saves it in the project credential store.
+
+## Recover on another runtime
+
+A cloud runtime can open the same history with configuration. Set `WIPPY_TOKEN`, and put these settings in `.wippy.yaml`:
 
 ```yaml
 version: "1.0"
@@ -12,63 +47,27 @@ registry:
   history_registry_id: my-app
 ```
 
-Wippy uses `WIPPY_REGISTRY` or the default Hub from the saved login. It replaces `hub.` with `history.` and uses port 443 unless the Hub URL has an explicit port. The first domain label after `hub.` supplies the environment name. For example, `https://hub.preview.example.com` selects `history.preview.example.com:443` and environment `preview`. `https://hub.example.com` selects `history.example.com:443` and environment `example`. The Hub URL must use HTTPS. For a different address format, set `history_endpoint` and `history_environment_id` explicitly.
+When `history_registry_id` is set, the history type defaults to `remote`. Without project sources, the runtime loads the stored baseline and replays the history to its head. With project sources, the runtime uses the sources as the baseline and stores it when its digest changed.
 
-Then run `wippy run`. History uses the organization from the project's `wippy.yaml`. If the project has no organization and the token has access to one organization, History selects it automatically. For several organizations, set `registry.history_organization` to the organization name, such as `my-team`. No organization UUID is required.
-
-Organization selection uses the current Wippy registry and credential. The token needs permission to list organizations. The History service still checks access for every selected organization. An ambiguous or unavailable organization stops startup. It never selects the first organization from a list.
-
-A separate History token file and a replica ID are optional.
-
-| Option | Source |
+| Option | Use |
 | --- | --- |
-| `registry.history_endpoint` | Optional service address. Defaults to the History address derived from the selected Hub. |
-| `registry.history_organization` | Optional organization name. Overrides the organization in `wippy.yaml`. |
-| `registry.history_tenant_id` | Optional tenant identity for existing service configurations. Bypasses organization lookup. Cannot be combined with `history_organization`. |
-| `registry.history_environment_id` | Optional environment name. Defaults to the first domain label after `hub.`. |
-| `registry.history_registry_id` | Required history name. Reuse it to recover the same history. |
-| `registry.history_replica_id` | Optional replica identity. The runtime generates a unique ID for each History connection. |
-| `registry.history_token_file` | Optional credential override. An unreadable or empty file fails without falling back to the default credential. |
+| `registry.history_registry_id` | Remote history name. |
+| `registry.history_organization` | Organization name. |
+| `registry.history_tenant_id` | Organization ID. Bypasses organization lookup. Cannot be combined with `history_organization`. |
+| `registry.history_environment_id` | Environment name. |
+| `registry.history_endpoint` | Service address. |
+| `registry.history_token_file` | Credential file. An unreadable or empty file fails without falling back to the default credential. |
 | `registry.history_ca_file` | Service CA file. The system trust store applies when this option is empty. |
-| `registry.history_server_name` | TLS server name. The connection target supplies the name when this option is empty. |
-| `registry.history_cert_file` | Optional client certificate for mutual TLS. |
-| `registry.history_key_file` | Client key. Set this option with the client certificate. |
-| `registry.history_timeout` | Request timeout. The default is 15s. An explicit value must be positive. |
-| `registry.history_poll_interval` | Receipt poll interval. The default is 100ms. An explicit value must be positive. |
-| `registry.history_max_message_bytes` | Message limit. The default is the gRPC Go receive limit. Set it to the measured service limit. |
+| `registry.history_server_name` | TLS server name. |
+| `registry.history_cert_file` | Client certificate for mutual TLS. |
+| `registry.history_key_file` | Client key. Set it with the client certificate. |
+| `registry.history_timeout` | Request timeout. The default is 15s. |
+| `registry.history_max_message_bytes` | Message limit. The default is the gRPC Go receive limit of 4 MiB. Use the same limit as the service. |
 
-The gRPC Go receive default is 4 MiB. See the [gRPC Go source](https://github.com/grpc/grpc-go/blob/v1.83.2/clientconn.go). The entry codec uses the same upper limit. MessagePack supplies the decoder depth and initial allocation limits. See the [MessagePack decoder source](https://github.com/hashicorp/go-msgpack/blob/v2.1.5/codec/decode.go). Stream reconnection uses the [gRPC backoff configuration](https://github.com/grpc/grpc-go/blob/v1.83.2/backoff/backoff.go). These library defaults are protocol limits. They are not measured capacity targets.
+## Uncertain results
 
-A registry snapshot must fit in one response. Measure its protobuf size before migration. Configure the client and service to use the same tested limit. The service can store many separate registries. This protocol does not split one snapshot into message chunks.
+When a request fails with an unknown result, the driver sends it again with a retry flag. The service then accepts a save or head move that it already applied. It does not accept a different change. A read is sent again only when the service was unavailable.
 
-The generated replica ID stays fixed for the lifetime of the History connection. Set `registry.history_replica_id` when an operator requires the same identity across restarts, such as for an explicit replica acknowledgement list. The service uses this identity for apply reports. Each submission and restore request includes the revision of the applied state. The service rejects the request if the stored revision changed. The runtime returns this response as a conflict. It does not retry the planned change with a newer revision. If a commit result is unknown, retry the same operation. The runtime keeps the same request ID, expected revision, mutations, and resolution. A confirmed write or a successfully applied publication advances the expected revision.
+## Limits
 
-The runtime confirms local application only after the service publishes a version. A stored receipt can remain pending while Temporal is unavailable. A conflict or rejected graph leaves the last applied version active. The client resolves a lost commit response with the original request ID. It retains an unknown request for a retry with the same data.
-
-The first native publication stores the local baseline. Later startup uses only the published snapshot. A different local baseline does not change that snapshot. Submissions include expanded module entries and the exact dependency graph. Stored entry values and deletion records take precedence over artifact defaults.
-
-An imported snapshot must contain each entry required by its stored graph, or an explicit deletion record. The runtime rejects a snapshot if dependency reconciliation needs an entry that the snapshot does not contain. It reports the application error and retains the previous local version. Legacy histories that omit derived module entries require durable materialization before migration can complete.
-
-The runtime loads a full published snapshot after a restart. It does not require a local registry database. A missing lockfile does not prevent the remote read. A stored deployment graph lets the existing dependency loader retrieve the exact module artifacts. Local overlays remain process-local.
-
-`ApplyVersion` submits a restore change. It does not move the service head to an old version. Legacy reads support exact root versions, imported branches, and original entries. Imported versions retain the original operation order and updates that do not change a value. A cached baseline decoder restores released ownership metadata. Native versions return the effective changes between snapshots. Version enumeration reads metadata pages. It uses memory in proportion to the number of versions. Publication and startup do not enumerate version history.
-
-Export the immutable deployment baseline before migration:
-
-```sh
-wippy registry export-history-baseline --lock-file wippy.lock > baseline.json
-```
-
-Use the same `--profile` and `--set` options as the deployed runtime. The export uses the existing module entry loader. It preserves entry ownership and root metadata. If the baseline has authored dependency roots, supply `--resolution-file resolution.json`. This file must contain the exact `DependencyResolution` JSON for that baseline. The exporter checks the declarations and graph digest. It does not select new module versions. The output is a Version protobuf JSON document with revision zero. The importer must verify it against the source history and the configured size limit.
-
-Export a raw source bundle with the history service command. Then create complete snapshots with the runtime command:
-
-```sh
-wippy registry materialize-history --source source.jsonl --output snapshots.jsonl --max-record-bytes "$HISTORY_RECORD_LIMIT"
-```
-
-Set the record limit to the tested service import limit. The bundle contains the immutable baseline. The runtime replays each original transaction from its stored parent. It uses the exact stored graph and verified module artifacts. It preserves branches, authored operations, and deletion records. Root zero can use the baseline graph. A missing graph at a later version stops export when dependency operations or declarations need it. The command does not select a replacement graph.
-
-The reader keeps version identities in memory. The command stores complete branch snapshots and artifacts in a temporary directory beside the output. It removes this directory when export ends. The output replaces its destination only after all records pass validation. Import the completed bundle with the history service command. The service must fence the source and verify that its raw records have not changed. Root-zero snapshots have no legacy changeset. The separate raw root record remains unchanged.
-
-Run remote recovery checks with the `historyintegration` build tag. This check requires an actual service, PostgreSQL, and Temporal. Set the `WIPPY_HISTORY_RECOVERY_*` variables from the test service configuration. The check starts independent writer and reader processes in separate empty directories. Test fixture deadlines and poll intervals are not deployment defaults.
+One version change set, one baseline, and one transfer batch must fit the message limit. The transfer sends at most 500 versions or half of the message limit in one batch.

@@ -134,20 +134,10 @@ func (b *StateBuilder) GetInverseOperation(op registry.Operation) (registry.Oper
 
 // BuildState constructs a registry State by applying the version history up to targetVersion.
 func (b *StateBuilder) BuildState(history registry.History, targetVersion registry.Version) (registry.State, error) {
-	return b.BuildStateContext(context.Background(), history, targetVersion)
-}
-
-func (b *StateBuilder) BuildStateContext(ctx context.Context, history registry.History, targetVersion registry.Version) (registry.State, error) {
-	if snapshot, ok := history.(registry.StateSnapshotReader); ok {
-		return snapshot.SnapshotAt(ctx, targetVersion)
-	}
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
 	if replayer, ok := history.(registry.ChangeSetReplayer); ok {
 		state := make(StateMap)
 		var replayApplyErr error
-		err := replayer.ReplayChanges(ctx, targetVersion, func(changes registry.ChangeSet) error {
+		err := replayer.ReplayChanges(context.Background(), targetVersion, func(changes registry.ChangeSet) error {
 			for _, operation := range changes {
 				newState, applyErr := b.ApplyOperation(state, operation)
 				if applyErr != nil {
@@ -438,14 +428,6 @@ func firstDuplicateID(state registry.State) (registry.ID, bool) {
 
 // BuildDelta calculates the changes required to transition from one state to another.
 func (b *StateBuilder) BuildDelta(from, to registry.State) (registry.ChangeSet, error) {
-	return b.buildDelta(from, to, false)
-}
-
-func (b *StateBuilder) BuildPublishedDelta(from, to registry.State) (registry.ChangeSet, error) {
-	return b.buildDelta(from, to, true)
-}
-
-func (b *StateBuilder) buildDelta(from, to registry.State, replaceKinds bool) (registry.ChangeSet, error) {
 	// A state carrying two entries under one ID has no single target shape: the
 	// delta would emit duplicate operations that fail mid-apply with a rollback
 	// far from the real cause (typically the same source loaded through two
@@ -481,11 +463,6 @@ func (b *StateBuilder) buildDelta(from, to registry.State, replaceKinds bool) (r
 				Kind:  registry.EntryCreate,
 				Entry: toEntry,
 			})
-		} else if replaceKinds && fromEntry.Kind != toEntry.Kind {
-			operations = append(operations,
-				registry.Operation{Kind: registry.EntryDelete, Entry: fromEntry},
-				registry.Operation{Kind: registry.EntryCreate, Entry: toEntry},
-			)
 		} else if !b.compare(fromEntry, toEntry) {
 			// Update
 			operations = append(operations, registry.Operation{

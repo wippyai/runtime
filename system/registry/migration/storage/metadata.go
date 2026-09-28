@@ -105,7 +105,7 @@ func RewriteEntryMetadata(
 	// #nosec G202 -- table names are fixed by the backend constructor, not input.
 	updateQuery := "UPDATE " + tables.ChangeSets + " SET data = " + parameter(1) + " WHERE version_id = " + parameter(2)
 	for _, item := range stored {
-		data, changed, err := RewriteChangeSet(item.data, handle, baselineMetadata)
+		data, changed, err := rewriteChangeSet(item.data, handle, baselineMetadata)
 		if err != nil {
 			return fmt.Errorf("rewrite registry changeset %d: %w", item.versionID, err)
 		}
@@ -194,7 +194,7 @@ type encodedOperation struct {
 	Entry         encodedEntry       `codec:"Entry"`
 }
 
-func RewriteChangeSet(data []byte, handle *codec.MsgpackHandle, baseline map[registry.ID]registry.EntryMetadata) ([]byte, bool, error) {
+func rewriteChangeSet(data []byte, handle *codec.MsgpackHandle, baseline map[registry.ID]registry.EntryMetadata) ([]byte, bool, error) {
 	var operations []encodedOperation
 	decoder := codec.NewDecoder(bytes.NewReader(data), handle)
 	if err := decoder.Decode(&operations); err != nil {

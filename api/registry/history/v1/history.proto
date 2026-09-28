@@ -1,30 +1,140 @@
 syntax = "proto3";
 package wippy.registry.history.v1;
 option go_package = "github.com/wippyai/runtime/api/registry/history/v1;historyv1";
-message RegistryKey { string tenant_id = 1; string environment_id = 2; string registry_id = 3; }
-message Mutation { string entry_id = 1; bytes value = 2; bool deleted = 3; }
-message SubmitRequest { reserved 3, 4; RegistryKey key = 1; string request_id = 2; repeated Mutation mutations = 5; bytes resolution = 6; optional uint64 expected_revision = 7; }
-message Receipt { string request_id = 1; uint64 revision = 2; string status = 3; string message = 4; uint64 published_revision = 5; }
-message SubmitResponse { Receipt receipt = 1; }
-message GetReceiptRequest { RegistryKey key = 1; string request_id = 2; }
-message GetRequest { RegistryKey key = 1; uint64 revision = 2; bool exact = 3; }
-message ReadRequest { RegistryKey key = 1; uint64 after_revision = 2; uint32 limit = 3; }
-message Candidate { reserved 2, 3; uint64 revision = 1; bytes resolution = 4; string status = 5; repeated Mutation mutations = 6; }
-message Version { reserved 5; uint64 revision = 1; uint64 parent_revision = 2; repeated Mutation entries = 3; bytes resolution = 4; bytes legacy_changeset = 6; }
-message ListResponse { repeated Receipt receipts = 1; uint64 next_revision = 2; }
-message RestoreRequest { reserved 3, 4; RegistryKey key = 1; string request_id = 2; uint64 target_revision = 5; optional uint64 expected_revision = 6; }
-message AppliedRequest { RegistryKey key = 1; string replica_id = 2; uint64 revision = 3; string error = 4; }
-message VersionMeta { uint64 revision = 1; uint64 parent_revision = 2; }
-message VersionList { repeated VersionMeta versions = 1; uint64 next_revision = 2; bool has_more = 3; }
+
+message RegistryKey {
+  string tenant_id = 1;
+  string environment_id = 2;
+  string registry_id = 3;
+}
+
+message RegistryRequest { RegistryKey key = 1; }
+
+message VersionRequest {
+  RegistryKey key = 1;
+  uint64 version_id = 2;
+}
+
+// Lineage lists version IDs from the first child of the root to the target.
+// An empty list is the root version.
+message Lineage { repeated uint64 ids = 1; }
+
+message MaxVersionID { uint64 version_id = 1; }
+
+message ListVersionsRequest {
+  RegistryKey key = 1;
+  optional uint64 after_id = 2;
+  uint32 limit = 3;
+}
+
+message VersionNode {
+  uint64 id = 1;
+  optional uint64 parent_id = 2;
+}
+
+message VersionList {
+  repeated VersionNode versions = 1;
+  bool has_more = 2;
+}
+
+message ChangeSet {
+  uint64 version_id = 1;
+  bytes data = 2;
+}
+
+// Save and CompareAndSetHead set retry only when they resend a request whose
+// result is unknown. The service then accepts a request that is already applied.
+message SaveRequest {
+  RegistryKey key = 1;
+  uint64 version_id = 2;
+  uint64 parent_id = 3;
+  bytes changeset = 4;
+  bytes resolution = 5;
+  bool head = 6;
+  bool retry = 7;
+}
+
+message SetHeadRequest {
+  RegistryKey key = 1;
+  uint64 version_id = 2;
+}
+
+message CompareAndSetHeadRequest {
+  RegistryKey key = 1;
+  uint64 expected_id = 2;
+  uint64 target_id = 3;
+  bytes resolution = 4;
+  bool retry = 5;
+}
+
+message Resolution { bytes data = 1; }
+
+message CheckpointResolutionRequest {
+  RegistryKey key = 1;
+  uint64 version_id = 2;
+  bytes resolution = 3;
+}
+
+message Baseline {
+  bytes state = 1;
+  string digest = 2;
+}
+
+message SetBaselineRequest {
+  RegistryKey key = 1;
+  string expected_digest = 2;
+  Baseline baseline = 3;
+}
+
+message TransferVersion {
+  uint64 id = 1;
+  uint64 parent_id = 2;
+  bytes changeset = 3;
+  bytes resolution = 4;
+}
+
+message BeginTransferRequest {
+  RegistryKey key = 1;
+  string transfer_id = 2;
+}
+
+message TransferVersionsRequest {
+  RegistryKey key = 1;
+  string transfer_id = 2;
+  repeated TransferVersion versions = 3;
+}
+
+message CompleteTransferRequest {
+  RegistryKey key = 1;
+  string transfer_id = 2;
+  uint64 head_id = 3;
+  Baseline baseline = 4;
+}
+
+// TransferStatus reports a completed transfer and the digest of the content
+// that the transfer stored. Later writes do not change this digest.
+message TransferStatus {
+  bool completed = 1;
+  string digest = 2;
+}
+
 message Empty {}
+
 service HistoryService {
- rpc Submit(SubmitRequest) returns (SubmitResponse);
- rpc GetReceipt(GetReceiptRequest) returns (Receipt);
- rpc GetCandidate(GetRequest) returns (Candidate);
- rpc GetVersion(GetRequest) returns (Version);
- rpc List(ReadRequest) returns (ListResponse);
- rpc ListVersions(ReadRequest) returns (VersionList);
- rpc Watch(ReadRequest) returns (stream Version);
- rpc Restore(RestoreRequest) returns (SubmitResponse);
- rpc ReportApplied(AppliedRequest) returns (Empty);
+  rpc Head(RegistryRequest) returns (Lineage);
+  rpc GetVersion(VersionRequest) returns (Lineage);
+  rpc GetMaxVersionID(RegistryRequest) returns (MaxVersionID);
+  rpc ListVersions(ListVersionsRequest) returns (VersionList);
+  rpc GetChangeSet(VersionRequest) returns (ChangeSet);
+  rpc ReplayChanges(VersionRequest) returns (stream ChangeSet);
+  rpc Save(SaveRequest) returns (Empty);
+  rpc SetHead(SetHeadRequest) returns (Empty);
+  rpc CompareAndSetHead(CompareAndSetHeadRequest) returns (Empty);
+  rpc GetResolution(VersionRequest) returns (Resolution);
+  rpc CheckpointResolution(CheckpointResolutionRequest) returns (Empty);
+  rpc GetBaseline(RegistryRequest) returns (Baseline);
+  rpc SetBaseline(SetBaselineRequest) returns (Empty);
+  rpc BeginTransfer(BeginTransferRequest) returns (TransferStatus);
+  rpc TransferVersions(TransferVersionsRequest) returns (Empty);
+  rpc CompleteTransfer(CompleteTransferRequest) returns (TransferStatus);
 }

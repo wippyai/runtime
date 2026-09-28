@@ -1,67 +1,63 @@
+// SPDX-License-Identifier: MPL-2.0
+
+// Package remote implements registry history on the Wippy History service.
 package remote
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"sync"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/wippyai/runtime/api/registry"
-	entryencoding "github.com/wippyai/runtime/api/registry/history/encoding"
 	historyv1 "github.com/wippyai/runtime/api/registry/history/v1"
 	"github.com/wippyai/runtime/internal/version"
-	legacy "github.com/wippyai/runtime/system/registry/history/postgres"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/backoff"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 )
 
-const MaxMessageBytes = entryencoding.MaxEntryBytes
+// MaxMessageBytes is the gRPC Go default receive limit.
+const MaxMessageBytes = 4 << 20
 
-var ErrCommitUnknown = errors.New("history commit status is unknown; retry the same change")
+const (
+	listPageSize = 1000
+	maxAttempts  = 3
+	retryDelay   = 100 * time.Millisecond
+)
 
 type Config struct {
 	Key             *historyv1.RegistryKey
-	ReplicaID       string
 	Timeout         time.Duration
-	PollInterval    time.Duration
 	MaxMessageBytes int
 }
 
+// History is a registry.History backed by the History service. Each method
+// returns after the service commits or rejects the operation.
 type History struct {
-	key             *historyv1.RegistryKey
-	pending         *historyv1.SubmitRequest
-	pendingRestore  *historyv1.RestoreRequest
-	pendingReport   *historyv1.AppliedRequest
-	legacyDecoder   *legacy.LegacyDecoder
-	closer          io.Closer
 	client          historyv1.HistoryServiceClient
-	replicaID       string
+	closer          io.Closer
+	key             *historyv1.RegistryKey
 	timeout         time.Duration
-	pollInterval    time.Duration
 	maxMessageBytes int
-	revision        uint64
-	appliedRevision uint64
-	reported        uint64
-	mu              sync.Mutex
-	reportMu        sync.Mutex
-	legacyMu        sync.Mutex
 }
 
-var _ registry.PublishedHistory = (*History)(nil)
+var (
+	_ registry.ResolutionHeadCASHistory = (*History)(nil)
+	_ registry.ChangeSetReplayer        = (*History)(nil)
+	_ registry.VersionLookup            = (*History)(nil)
+	_ registry.VersionIDBounds          = (*History)(nil)
+	_ registry.BaselineHistory          = (*History)(nil)
+)
 
 func New(connection grpc.ClientConnInterface, cfg Config) (*History, error) {
 	if connection == nil || cfg.Key.GetTenantId() == "" || cfg.Key.GetEnvironmentId() == "" || cfg.Key.GetRegistryId() == "" {
 		return nil, errors.New("history connection and registry identity are required")
 	}
-	if cfg.Timeout <= 0 || cfg.PollInterval <= 0 {
-		return nil, errors.New("history timeout and poll interval must be positive")
+	if cfg.Timeout <= 0 {
+		return nil, errors.New("history timeout must be positive")
 	}
 	if cfg.MaxMessageBytes == 0 {
 		cfg.MaxMessageBytes = MaxMessageBytes
@@ -69,469 +65,358 @@ func New(connection grpc.ClientConnInterface, cfg Config) (*History, error) {
 	if cfg.MaxMessageBytes < 0 {
 		return nil, errors.New("history message size must be positive")
 	}
-	if cfg.ReplicaID == "" {
-		id, err := uuid.NewRandom()
-		if err != nil {
-			return nil, fmt.Errorf("create history replica identity: %w", err)
-		}
-		cfg.ReplicaID = id.String()
-	}
-	return &History{client: historyv1.NewHistoryServiceClient(connection), key: proto.Clone(cfg.Key).(*historyv1.RegistryKey), replicaID: cfg.ReplicaID, timeout: cfg.Timeout, pollInterval: cfg.PollInterval, maxMessageBytes: cfg.MaxMessageBytes}, nil
+	return &History{
+		client:          historyv1.NewHistoryServiceClient(connection),
+		key:             proto.Clone(cfg.Key).(*historyv1.RegistryKey),
+		timeout:         cfg.Timeout,
+		maxMessageBytes: cfg.MaxMessageBytes,
+	}, nil
 }
 
-func (h *History) SubmitChanges(ctx context.Context, changes registry.ChangeSet, resolution *registry.DependencyResolution) (*registry.HistoryReceipt, error) {
-	mutations := make([]*historyv1.Mutation, 0, len(changes))
-	positions := make(map[string]int, len(changes))
-	for _, op := range changes {
-		id := op.Entry.ID.Canonical()
-		if id.Name == "" {
-			return nil, errors.New("entry ID is required")
+// Key returns the remote registry identity.
+func (h *History) Key() *historyv1.RegistryKey {
+	return proto.Clone(h.key).(*historyv1.RegistryKey)
+}
+
+func (h *History) Versions() ([]registry.Version, error) {
+	versions := make(map[uint]registry.Version)
+	list := make([]registry.Version, 0)
+	request := &historyv1.ListVersionsRequest{Key: h.key, Limit: listPageSize}
+	for {
+		page, err := call(h, false, func(ctx context.Context, _ bool) (*historyv1.VersionList, error) {
+			return h.client.ListVersions(ctx, request)
+		})
+		if err != nil {
+			return nil, fmt.Errorf("list history versions: %w", err)
 		}
-		name := id.String()
-		mutation := &historyv1.Mutation{EntryId: name}
-		switch op.Kind {
-		case registry.EntryCreate, registry.EntryUpdate:
-			data, err := entryencoding.EncodeEntry(op.Entry)
+		for _, node := range page.GetVersions() {
+			id := uint(node.GetId())
+			var stored registry.Version
+			if node.ParentId == nil {
+				if id != registry.RootVersion {
+					return nil, fmt.Errorf("history version %d has no parent", id)
+				}
+				stored = version.New(id)
+			} else {
+				parent, ok := versions[uint(node.GetParentId())]
+				if !ok {
+					return nil, fmt.Errorf("history version %d references missing parent %d", id, node.GetParentId())
+				}
+				stored = version.FromParent(parent, id)
+			}
+			versions[id] = stored
+			list = append(list, stored)
+			last := node.GetId()
+			request.AfterId = &last
+		}
+		if !page.GetHasMore() {
+			return list, nil
+		}
+	}
+}
+
+func (h *History) MaxVersionID() (uint, error) {
+	response, err := call(h, false, func(ctx context.Context, _ bool) (*historyv1.MaxVersionID, error) {
+		return h.client.GetMaxVersionID(ctx, &historyv1.RegistryRequest{Key: h.key})
+	})
+	if err != nil {
+		return 0, fmt.Errorf("read maximum history version: %w", err)
+	}
+	return uint(response.GetVersionId()), nil
+}
+
+func (h *History) GetVersion(id uint) (registry.Version, error) {
+	lineage, err := call(h, false, func(ctx context.Context, _ bool) (*historyv1.Lineage, error) {
+		return h.client.GetVersion(ctx, &historyv1.VersionRequest{Key: h.key, VersionId: uint64(id)})
+	})
+	if err != nil {
+		return nil, versionError(id, err)
+	}
+	return fromLineage(id, lineage)
+}
+
+func (h *History) Head() (registry.Version, error) {
+	lineage, err := call(h, false, func(ctx context.Context, _ bool) (*historyv1.Lineage, error) {
+		return h.client.Head(ctx, &historyv1.RegistryRequest{Key: h.key})
+	})
+	if err != nil {
+		return nil, fmt.Errorf("read history head: %w", err)
+	}
+	ids := lineage.GetIds()
+	var id uint
+	if len(ids) > 0 {
+		id = uint(ids[len(ids)-1])
+	}
+	return fromLineage(id, lineage)
+}
+
+func (h *History) Get(v registry.Version) (registry.ChangeSet, error) {
+	changes, err := call(h, false, func(ctx context.Context, _ bool) (*historyv1.ChangeSet, error) {
+		return h.client.GetChangeSet(ctx, &historyv1.VersionRequest{Key: h.key, VersionId: uint64(v.ID())})
+	})
+	if err != nil {
+		return nil, versionError(v.ID(), err)
+	}
+	decoded, err := decodeChangeSet(changes.GetData())
+	if err != nil {
+		return nil, fmt.Errorf("decode history version %d: %w", v.ID(), err)
+	}
+	return decoded, nil
+}
+
+// ReplayChanges reads the whole lineage before it calls apply, so apply can
+// call back into the history.
+func (h *History) ReplayChanges(ctx context.Context, target registry.Version, apply func(registry.ChangeSet) error) error {
+	var encoded [][]byte
+	_, err := call(h, false, func(callCtx context.Context, _ bool) (struct{}, error) {
+		encoded = encoded[:0]
+		stream, err := h.client.ReplayChanges(mergeContext(callCtx, ctx), &historyv1.VersionRequest{Key: h.key, VersionId: uint64(target.ID())})
+		if err != nil {
+			return struct{}{}, err
+		}
+		for {
+			changes, err := stream.Recv()
+			if errors.Is(err, io.EOF) {
+				return struct{}{}, nil
+			}
 			if err != nil {
-				return nil, err
+				return struct{}{}, err
 			}
-			mutation.Value = data
-		case registry.EntryDelete:
-			mutation.Deleted = true
-		default:
-			return nil, errors.New("unsupported registry operation")
+			encoded = append(encoded, changes.GetData())
 		}
-		if index, exists := positions[name]; exists {
-			mutations[index] = mutation
-		} else {
-			positions[name] = len(mutations)
-			mutations = append(mutations, mutation)
-		}
-	}
-	var graph []byte
-	if resolution != nil {
-		if !resolution.Valid() {
-			return nil, registry.ErrInvalidDependencyResolution
-		}
-		var err error
-		graph, err = json.Marshal(resolution.Canonical())
-		if err != nil {
-			return nil, err
-		}
-	}
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	if h.pendingRestore != nil {
-		h.reconcilePendingLocked(ctx)
-		if h.pendingRestore != nil {
-			return nil, fmt.Errorf("%w: %s", ErrCommitUnknown, h.pendingRestore.RequestId)
-		}
-	}
-	req := &historyv1.SubmitRequest{Mutations: mutations, Resolution: graph}
-	if h.pending != nil {
-		previous := &historyv1.SubmitRequest{Mutations: h.pending.Mutations, Resolution: h.pending.Resolution}
-		matches := proto.Equal(previous, req)
-		if receipt := h.reconcilePendingLocked(ctx); receipt != nil && matches {
-			return convertReceipt(receipt), nil
-		}
-		if h.pending != nil && !matches {
-			return nil, fmt.Errorf("%w: %s", ErrCommitUnknown, h.pending.RequestId)
-		}
-		if h.pending != nil {
-			req = h.pending
-		}
-	}
-	if h.pending == nil {
-		expectedRevision := h.revision
-		req.Key = h.key
-		req.RequestId = uuid.NewString()
-		req.ExpectedRevision = &expectedRevision
-		if proto.Size(req) > h.maxMessageBytes {
-			return nil, errors.New("changes exceed the message size limit")
-		}
-		h.pending = req
-	}
-	callCtx, cancel := context.WithTimeout(ctx, h.timeout)
-	result, err := h.client.Submit(callCtx, req, grpc.MaxCallSendMsgSize(h.maxMessageBytes))
-	cancel()
+	})
 	if err != nil {
-		if status.Code(err) == codes.Aborted {
-			h.pending = nil
-			return nil, fmt.Errorf("%w: %s: %w", registry.ErrHistoryConflict, req.RequestId, err)
-		}
-		if !retryable(err) {
-			h.pending = nil
-			return nil, err
-		}
-		receiptCtx, receiptCancel := context.WithTimeout(context.WithoutCancel(ctx), h.timeout)
-		receipt, receiptErr := h.client.GetReceipt(receiptCtx, &historyv1.GetReceiptRequest{Key: h.key, RequestId: req.RequestId})
-		receiptCancel()
-		if receiptErr != nil {
-			return nil, fmt.Errorf("%w: %s: %w", ErrCommitUnknown, req.RequestId, errors.Join(err, receiptErr))
-		}
-		if receipt == nil {
-			return nil, fmt.Errorf("%w: %s: empty receipt", ErrCommitUnknown, req.RequestId)
-		}
-		h.revision = max(h.revision, receipt.Revision)
-		h.pending = nil
-		return convertReceipt(receipt), nil
+		return versionError(target.ID(), err)
 	}
-	if result.GetReceipt() == nil {
-		return nil, fmt.Errorf("%w: %s: empty receipt", ErrCommitUnknown, req.RequestId)
-	}
-	h.revision = max(h.revision, result.Receipt.Revision)
-	h.pending = nil
-	return convertReceipt(result.Receipt), nil
-}
-
-func (h *History) AwaitPublished(ctx context.Context, receipt *registry.HistoryReceipt) (*registry.PublishedState, error) {
-	if receipt == nil || receipt.RequestID == "" {
-		return nil, errors.New("history receipt is required")
-	}
-	current := *receipt
-	delay := h.pollInterval
-	for {
-		switch current.Status {
-		case "published":
-			if current.PublishedRevision == 0 {
-				return nil, errors.New("published receipt has no version")
-			}
-			return h.ReadPublished(ctx, current.PublishedRevision)
-		case "conflicted":
-			return nil, fmt.Errorf("%w: %s: %s", registry.ErrHistoryConflict, current.RequestID, current.Message)
-		case "rejected":
-			return nil, fmt.Errorf("%w: %s: %s", registry.ErrHistoryRejected, current.RequestID, current.Message)
-		case "stored", "superseded":
-		default:
-			return nil, fmt.Errorf("invalid history receipt status: %s", current.Status)
-		}
-		if err := wait(ctx, delay); err != nil {
-			return nil, fmt.Errorf("wait for history request %s: %w", current.RequestID, err)
-		}
-		callCtx, cancel := context.WithTimeout(ctx, h.timeout)
-		result, err := h.client.GetReceipt(callCtx, &historyv1.GetReceiptRequest{Key: h.key, RequestId: receipt.RequestID})
-		cancel()
-		if err != nil {
-			if !retryable(err) {
-				return nil, err
-			}
-		} else {
-			current = *convertReceipt(result)
-		}
-	}
-}
-
-func (h *History) ReadPublished(ctx context.Context, revision uint64) (*registry.PublishedState, error) {
-	raw, err := h.readVersion(ctx, revision, false)
-	if err != nil {
-		return nil, err
-	}
-	return decodeVersion(raw)
-}
-
-func (h *History) RestoreChanges(ctx context.Context, revision uint64) (*registry.HistoryReceipt, error) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	if h.pending != nil {
-		h.reconcilePendingLocked(ctx)
-		if h.pending != nil {
-			return nil, fmt.Errorf("%w: %s", ErrCommitUnknown, h.pending.RequestId)
-		}
-	}
-	request := h.pendingRestore
-	if request != nil {
-		matches := request.TargetRevision == revision
-		if receipt := h.reconcilePendingLocked(ctx); receipt != nil && matches {
-			return convertReceipt(receipt), nil
-		}
-		request = h.pendingRestore
-		if request != nil && !matches {
-			return nil, fmt.Errorf("%w: %s", ErrCommitUnknown, request.RequestId)
-		}
-	}
-	if request == nil {
-		expectedRevision := h.revision
-		request = &historyv1.RestoreRequest{Key: h.key, RequestId: uuid.NewString(), TargetRevision: revision, ExpectedRevision: &expectedRevision}
-		h.pendingRestore = request
-	}
-	callCtx, cancel := context.WithTimeout(ctx, h.timeout)
-	result, err := h.client.Restore(callCtx, request)
-	cancel()
-	if err != nil {
-		if status.Code(err) == codes.Aborted {
-			h.pendingRestore = nil
-			return nil, fmt.Errorf("%w: restore request %s: %w", registry.ErrHistoryConflict, request.RequestId, err)
-		}
-		if !retryable(err) {
-			h.pendingRestore = nil
-			return nil, err
-		}
-		receiptCtx, receiptCancel := context.WithTimeout(context.WithoutCancel(ctx), h.timeout)
-		receipt, receiptErr := h.client.GetReceipt(receiptCtx, &historyv1.GetReceiptRequest{Key: h.key, RequestId: request.RequestId})
-		receiptCancel()
-		if receiptErr != nil {
-			return nil, fmt.Errorf("%w: restore request %s: %w", ErrCommitUnknown, request.RequestId, errors.Join(err, receiptErr))
-		}
-		if receipt == nil {
-			return nil, fmt.Errorf("%w: restore request %s: empty receipt", ErrCommitUnknown, request.RequestId)
-		}
-		h.revision = max(h.revision, receipt.Revision)
-		h.pendingRestore = nil
-		return convertReceipt(receipt), nil
-	}
-	if result.GetReceipt() == nil {
-		return nil, fmt.Errorf("%w: %s: empty restore receipt", ErrCommitUnknown, request.RequestId)
-	}
-	h.revision = max(h.revision, result.GetReceipt().Revision)
-	h.pendingRestore = nil
-	return convertReceipt(result.GetReceipt()), nil
-}
-
-func (h *History) FollowPublished(ctx context.Context, after uint64, apply func(*registry.PublishedState) error) error {
-	if apply == nil {
-		return errors.New("publication callback is required")
-	}
-	delay := backoff.DefaultConfig.BaseDelay
-	for {
-		if err := h.flushApplied(ctx); err != nil {
-			if !retryable(err) {
-				return err
-			}
-			if err := wait(ctx, delay); err != nil {
-				return err
-			}
-			delay = min(time.Duration(float64(delay)*backoff.DefaultConfig.Multiplier), backoff.DefaultConfig.MaxDelay)
-			continue
-		}
-		stream, err := h.client.Watch(ctx, &historyv1.ReadRequest{Key: h.key, AfterRevision: after, Limit: 0}, grpc.MaxCallRecvMsgSize(h.maxMessageBytes))
-		if err == nil {
-			for {
-				next, receiveErr := stream.Recv()
-				if receiveErr != nil {
-					err = receiveErr
-					break
-				}
-				if next.Revision <= after {
-					continue
-				}
-				published, decodeErr := decodeVersion(next)
-				if decodeErr != nil {
-					return decodeErr
-				}
-				if applyErr := apply(published); applyErr != nil {
-					return applyErr
-				}
-				after = next.Revision
-				delay = backoff.DefaultConfig.BaseDelay
-			}
-		}
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		if !retryable(err) && !errors.Is(err, io.EOF) {
+	for _, data := range encoded {
+		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if err := wait(ctx, delay); err != nil {
+		changes, err := decodeChangeSet(data)
+		if err != nil {
+			return fmt.Errorf("decode history lineage of version %d: %w", target.ID(), err)
+		}
+		if err := apply(changes); err != nil {
 			return err
 		}
-		delay = min(time.Duration(float64(delay)*backoff.DefaultConfig.Multiplier), backoff.DefaultConfig.MaxDelay)
 	}
-}
-
-func (h *History) ReportApplied(ctx context.Context, published *registry.PublishedState, applicationErr error) error {
-	if published == nil || published.Version == nil {
-		return errors.New("published version is required")
-	}
-	revision := uint64(published.Version.ID())
-	if applicationErr == nil {
-		h.mu.Lock()
-		h.revision = max(h.revision, revision)
-		h.appliedRevision = max(h.appliedRevision, revision)
-		hasPending := h.pending != nil || h.pendingRestore != nil
-		h.mu.Unlock()
-		if hasPending {
-			h.reconcilePending(ctx)
-		}
-	}
-	request := &historyv1.AppliedRequest{Key: h.key, ReplicaId: h.replicaID, Revision: revision}
-	if applicationErr != nil {
-		request.Error = applicationErr.Error()
-	}
-	h.reportMu.Lock()
-	defer h.reportMu.Unlock()
-	if request.Revision < h.reported {
-		return h.flushAppliedLocked(ctx)
-	}
-	if h.pendingReport == nil || request.Revision >= h.pendingReport.Revision {
-		h.pendingReport = request
-	}
-	return h.flushAppliedLocked(ctx)
-}
-
-func (h *History) reconcilePending(ctx context.Context) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	h.reconcilePendingLocked(ctx)
-}
-
-func (h *History) reconcilePendingLocked(ctx context.Context) *historyv1.Receipt {
-	if h.appliedRevision == 0 {
-		return nil
-	}
-	var requestID string
-	if h.pending != nil {
-		requestID = h.pending.RequestId
-	} else if h.pendingRestore != nil {
-		requestID = h.pendingRestore.RequestId
-	} else {
-		return nil
-	}
-	callCtx, cancel := context.WithTimeout(ctx, h.timeout)
-	receipt, err := h.client.GetReceipt(callCtx, &historyv1.GetReceiptRequest{Key: h.key, RequestId: requestID})
-	cancel()
-	if err != nil || receipt == nil || receipt.RequestId != requestID || receipt.Status != "published" || receipt.PublishedRevision == 0 || receipt.PublishedRevision > h.appliedRevision {
-		return nil
-	}
-	h.revision = max(h.revision, receipt.Revision, receipt.PublishedRevision)
-	if h.pending != nil && h.pending.RequestId == requestID {
-		h.pending = nil
-	}
-	if h.pendingRestore != nil && h.pendingRestore.RequestId == requestID {
-		h.pendingRestore = nil
-	}
-	return receipt
-}
-
-func (h *History) flushApplied(ctx context.Context) error {
-	h.reportMu.Lock()
-	defer h.reportMu.Unlock()
-	return h.flushAppliedLocked(ctx)
-}
-
-func (h *History) flushAppliedLocked(ctx context.Context) error {
-	if h.pendingReport == nil {
-		return nil
-	}
-	callCtx, cancel := context.WithTimeout(ctx, h.timeout)
-	defer cancel()
-	if _, err := h.client.ReportApplied(callCtx, h.pendingReport); err != nil {
-		return err
-	}
-	h.reported = h.pendingReport.Revision
-	h.pendingReport = nil
 	return nil
 }
 
-func decodeVersion(value *historyv1.Version) (*registry.PublishedState, error) {
-	if value == nil || uint64(uint(value.Revision)) != value.Revision {
-		return nil, errors.New("invalid published version")
-	}
-	published := &registry.PublishedState{Version: version.New(uint(value.Revision)), Changes: make(registry.ChangeSet, len(value.Entries))}
-	seen := make(map[registry.ID]struct{}, len(value.Entries))
-	for i, mutation := range value.Entries {
-		if mutation == nil {
-			return nil, errors.New("nil published entry")
-		}
-		id := registry.ParseID(mutation.EntryId).Canonical()
-		if id.Name == "" || id.String() != mutation.EntryId {
-			return nil, errors.New("invalid published entry ID")
-		}
-		if _, ok := seen[id]; ok {
-			return nil, errors.New("duplicate published entry")
-		}
-		seen[id] = struct{}{}
-		if mutation.Deleted {
-			if len(mutation.Value) != 0 {
-				return nil, errors.New("deleted entry has a value")
-			}
-			published.Changes[i] = registry.Operation{Kind: registry.EntryDelete, Entry: registry.Entry{ID: id}}
-		} else {
-			entry, err := entryencoding.DecodeEntry(mutation.Value)
-			if err != nil {
-				return nil, err
-			}
-			if entry.ID != id {
-				return nil, errors.New("published entry ID does not match its value")
-			}
-			published.Changes[i] = registry.Operation{Kind: registry.EntryUpdate, Entry: entry}
-		}
-	}
-	if len(value.Resolution) > 0 {
-		if err := json.Unmarshal(value.Resolution, &published.Resolution); err != nil {
-			return nil, err
-		}
-		if !published.Resolution.Valid() {
-			return nil, registry.ErrInvalidDependencyResolution
-		}
-	}
-	return published, nil
+func (h *History) Save(v registry.Version, changes registry.ChangeSet, head bool) error {
+	return h.SaveWithDependencyResolution(v, changes, nil, head)
 }
 
-func convertReceipt(value *historyv1.Receipt) *registry.HistoryReceipt {
-	if value == nil {
-		return nil
+func (h *History) SaveWithDependencyResolution(v registry.Version, changes registry.ChangeSet, resolution *registry.DependencyResolution, head bool) error {
+	if v.ID() == registry.RootVersion {
+		if len(changes) == 0 && resolution == nil {
+			return nil
+		}
+		return fmt.Errorf("version %d already exists", v.ID())
 	}
-	return &registry.HistoryReceipt{RequestID: value.RequestId, Revision: value.Revision, PublishedRevision: value.PublishedRevision, Status: value.Status, Message: value.Message}
+	if v.Previous() == nil {
+		return fmt.Errorf("non-root version %d has no parent", v.ID())
+	}
+	graph, err := encodeResolution(resolution)
+	if err != nil {
+		return err
+	}
+	data, err := encodeChangeSet(changes)
+	if err != nil {
+		return fmt.Errorf("encode history version %d: %w", v.ID(), err)
+	}
+	request := &historyv1.SaveRequest{Key: h.key, VersionId: uint64(v.ID()), ParentId: uint64(v.Previous().ID()), Changeset: data, Resolution: graph, Head: head}
+	_, err = call(h, true, func(ctx context.Context, retry bool) (*historyv1.Empty, error) {
+		request.Retry = retry
+		return h.client.Save(ctx, request)
+	})
+	if err != nil {
+		return fmt.Errorf("save history version %d: %w", v.ID(), err)
+	}
+	return nil
 }
 
-func retryable(err error) bool {
-	switch status.Code(err) {
-	case codes.Unavailable, codes.DeadlineExceeded, codes.Canceled, codes.Unknown, codes.Aborted:
-		return true
-	default:
-		return false
+func (h *History) SetHead(v registry.Version) error {
+	_, err := call(h, true, func(ctx context.Context, _ bool) (*historyv1.Empty, error) {
+		return h.client.SetHead(ctx, &historyv1.SetHeadRequest{Key: h.key, VersionId: uint64(v.ID())})
+	})
+	if err != nil {
+		return versionError(v.ID(), err)
 	}
+	return nil
 }
 
-func wait(ctx context.Context, duration time.Duration) error {
-	timer := time.NewTimer(duration)
-	defer timer.Stop()
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-timer.C:
-		return nil
-	}
+func (h *History) CompareAndSetHead(expected, target registry.Version) error {
+	return h.compareAndSetHead(expected, target, nil)
 }
 
-func (h *History) Save(registry.Version, registry.ChangeSet, bool) error {
-	return registry.ErrHistoryOperationUnsupported
+func (h *History) CompareAndSetHeadWithDependencyResolution(expected, target registry.Version, resolution *registry.DependencyResolution) error {
+	if resolution == nil {
+		return registry.ErrDependencyResolutionNotFound
+	}
+	graph, err := encodeResolution(resolution)
+	if err != nil {
+		return err
+	}
+	return h.compareAndSetHead(expected, target, graph)
 }
-func (h *History) SetHead(registry.Version) error { return registry.ErrHistoryOperationUnsupported }
-func (h *History) Head() (registry.Version, error) {
-	published, err := h.ReadPublished(context.Background(), 0)
+
+func (h *History) compareAndSetHead(expected, target registry.Version, graph []byte) error {
+	request := &historyv1.CompareAndSetHeadRequest{Key: h.key, ExpectedId: uint64(expected.ID()), TargetId: uint64(target.ID()), Resolution: graph}
+	_, err := call(h, true, func(ctx context.Context, retry bool) (*historyv1.Empty, error) {
+		request.Retry = retry
+		return h.client.CompareAndSetHead(ctx, request)
+	})
 	if err != nil {
-		return nil, err
+		return versionError(target.ID(), err)
 	}
-	return published.Version, nil
+	return nil
 }
-func (h *History) MaxVersionID() (uint, error) {
-	head, err := h.Head()
-	if err != nil {
-		return 0, err
-	}
-	return head.ID(), nil
-}
-func (h *History) GetDependencyResolution(target registry.Version) (*registry.DependencyResolution, error) {
-	if target == nil {
-		return nil, errors.New("target version is required")
-	}
-	raw, err := h.readVersion(context.Background(), uint64(target.ID()), true)
-	if err != nil {
-		return nil, err
-	}
-	published, err := decodeVersion(raw)
-	if err != nil {
-		return nil, err
-	}
-	if published.Resolution == nil {
+
+func (h *History) GetDependencyResolution(v registry.Version) (*registry.DependencyResolution, error) {
+	response, err := call(h, false, func(ctx context.Context, _ bool) (*historyv1.Resolution, error) {
+		return h.client.GetResolution(ctx, &historyv1.VersionRequest{Key: h.key, VersionId: uint64(v.ID())})
+	})
+	if status.Code(err) == codes.NotFound {
 		return nil, registry.ErrDependencyResolutionNotFound
 	}
-	return published.Resolution, nil
+	if err != nil {
+		return nil, fmt.Errorf("read dependency resolution of version %d: %w", v.ID(), err)
+	}
+	return decodeResolution(response.GetData())
 }
-func (h *History) SaveWithDependencyResolution(registry.Version, registry.ChangeSet, *registry.DependencyResolution, bool) error {
-	return registry.ErrHistoryOperationUnsupported
+
+func (h *History) CheckpointDependencyResolution(v registry.Version, resolution *registry.DependencyResolution) error {
+	if resolution == nil {
+		return registry.ErrDependencyResolutionNotFound
+	}
+	graph, err := encodeResolution(resolution)
+	if err != nil {
+		return err
+	}
+	_, err = call(h, true, func(ctx context.Context, _ bool) (*historyv1.Empty, error) {
+		return h.client.CheckpointResolution(ctx, &historyv1.CheckpointResolutionRequest{Key: h.key, VersionId: uint64(v.ID()), Resolution: graph})
+	})
+	if err != nil {
+		return versionError(v.ID(), err)
+	}
+	return nil
 }
-func (h *History) CheckpointDependencyResolution(registry.Version, *registry.DependencyResolution) error {
-	return registry.ErrHistoryOperationUnsupported
+
+func (h *History) Baseline() (registry.State, error) {
+	baseline, err := h.baseline()
+	if err != nil {
+		return nil, err
+	}
+	state, err := decodeState(baseline.GetState())
+	if err != nil {
+		return nil, fmt.Errorf("decode history baseline: %w", err)
+	}
+	return state, nil
+}
+
+// SaveBaseline replaces the stored baseline when its digest changed.
+func (h *History) SaveBaseline(state registry.State) error {
+	data, sum, err := encodeState(state)
+	if err != nil {
+		return fmt.Errorf("encode history baseline: %w", err)
+	}
+	var expected string
+	current, err := h.baseline()
+	switch {
+	case err == nil:
+		expected = current.GetDigest()
+	case !errors.Is(err, registry.ErrBaselineNotFound):
+		return err
+	}
+	if expected == sum {
+		return nil
+	}
+	_, err = call(h, true, func(ctx context.Context, _ bool) (*historyv1.Empty, error) {
+		return h.client.SetBaseline(ctx, &historyv1.SetBaselineRequest{Key: h.key, ExpectedDigest: expected, Baseline: &historyv1.Baseline{State: data, Digest: sum}})
+	})
+	if err != nil {
+		return fmt.Errorf("save history baseline: %w", err)
+	}
+	return nil
+}
+
+func (h *History) baseline() (*historyv1.Baseline, error) {
+	baseline, err := call(h, false, func(ctx context.Context, _ bool) (*historyv1.Baseline, error) {
+		return h.client.GetBaseline(ctx, &historyv1.RegistryRequest{Key: h.key})
+	})
+	if status.Code(err) == codes.NotFound {
+		return nil, registry.ErrBaselineNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read history baseline: %w", err)
+	}
+	return baseline, nil
+}
+
+func (h *History) Close() error {
+	if h.closer != nil {
+		return h.closer.Close()
+	}
+	return nil
+}
+
+// call runs one request with the configured timeout. It resends the request
+// when the result is unknown. retry tells the request that it is a resend.
+func call[T any](h *History, write bool, run func(context.Context, bool) (T, error)) (T, error) {
+	var result T
+	var err error
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		if attempt > 0 {
+			time.Sleep(retryDelay << (attempt - 1))
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), h.timeout)
+		result, err = run(ctx, attempt > 0)
+		cancel()
+		if !unknownResult(err, write) {
+			return result, err
+		}
+	}
+	return result, err
+}
+
+func unknownResult(err error, write bool) bool {
+	switch status.Code(err) {
+	case codes.Unavailable:
+		return true
+	case codes.DeadlineExceeded, codes.Unknown:
+		return write
+	}
+	return false
+}
+
+func mergeContext(callCtx, parent context.Context) context.Context {
+	ctx, cancel := context.WithCancel(callCtx)
+	stop := context.AfterFunc(parent, cancel)
+	context.AfterFunc(ctx, func() { stop(); cancel() })
+	return ctx
+}
+
+func fromLineage(id uint, lineage *historyv1.Lineage) (registry.Version, error) {
+	current := version.New(registry.RootVersion)
+	for _, next := range lineage.GetIds() {
+		if uint(next) <= current.ID() {
+			return nil, fmt.Errorf("history version %d has an invalid lineage", id)
+		}
+		current = version.FromParent(current, uint(next))
+	}
+	if current.ID() != id {
+		return nil, fmt.Errorf("history version %d has an invalid lineage", id)
+	}
+	return current, nil
+}
+
+func versionError(id uint, err error) error {
+	switch status.Code(err) {
+	case codes.NotFound:
+		return fmt.Errorf("version %d not found: %s", id, status.Convert(err).Message())
+	case codes.Aborted, codes.FailedPrecondition, codes.AlreadyExists, codes.InvalidArgument:
+		return errors.New(status.Convert(err).Message())
+	}
+	return err
 }

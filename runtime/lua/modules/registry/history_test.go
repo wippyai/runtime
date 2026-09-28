@@ -3,8 +3,6 @@
 package registry
 
 import (
-	"context"
-	"errors"
 	"testing"
 
 	lua "github.com/wippyai/go-lua"
@@ -70,26 +68,5 @@ func TestFindHistoryVersionUsesDirectLookup(t *testing.T) {
 	}
 	if got == nil || got.ID() != v1.ID() {
 		t.Fatalf("direct lookup returned %#v", got)
-	}
-}
-
-type contextualHistory struct{ *historymem.Storage }
-
-func (h *contextualHistory) VersionsContext(ctx context.Context) ([]regapi.Version, error) {
-	return nil, ctx.Err()
-}
-func (h *contextualHistory) GetVersionContext(ctx context.Context, _ uint) (regapi.Version, error) {
-	return nil, ctx.Err()
-}
-func (h *contextualHistory) GetContext(ctx context.Context, _ regapi.Version) (regapi.ChangeSet, error) {
-	return nil, ctx.Err()
-}
-
-func TestFindHistoryVersionPassesCallerContext(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	_, err := findHistoryVersionContext(ctx, &contextualHistory{Storage: historymem.New()}, 2)
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("expected canceled lookup, got %v", err)
 	}
 }

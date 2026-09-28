@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"io"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -22,10 +21,6 @@ import (
 	"github.com/wippyai/runtime/boot/deps/lock"
 	"github.com/wippyai/runtime/system/registry"
 	regexp "github.com/wippyai/runtime/system/registry/expansion"
-	historymem "github.com/wippyai/runtime/system/registry/history/memory"
-	historynil "github.com/wippyai/runtime/system/registry/history/nil"
-	"github.com/wippyai/runtime/system/registry/history/postgres"
-	"github.com/wippyai/runtime/system/registry/history/sqlite"
 	"github.com/wippyai/runtime/system/registry/runner"
 	regtop "github.com/wippyai/runtime/system/registry/topology"
 )
@@ -53,58 +48,12 @@ func Registry() boot.Component {
 				}
 			}
 
-			// Determine history implementation based on config
-			var hist regapi.History
-			cfg := boot.GetConfig(ctx)
-			if cfg != nil {
-				registryCfg := cfg.Sub(RegistryName)
-				enableHistory := registryCfg.GetBool(RegistryEnableHistory, true)
-
-				if !enableHistory {
-					hist = historynil.New()
-				} else {
-					historyType := registryCfg.GetString(RegistryHistoryType, "memory")
-
-					switch historyType {
-					case "sqlite":
-						historyPath := registryCfg.GetString(RegistryHistoryPath, ".wippy/registry.db")
-						absPath, err := filepath.Abs(historyPath)
-						if err != nil {
-							return nil, NewHistoryPathError(err)
-						}
-
-						sqliteHist, err := sqlite.NewSQLite(absPath, logger.Named("history"))
-						if err != nil {
-							return nil, NewSQLiteHistoryError(err)
-						}
-						hist = sqliteHist
-						histCloser = sqliteHist
-
-					case "postgres":
-						historyDSN := registryCfg.GetString(RegistryHistoryDSN, "")
-						historySchema := registryCfg.GetString(RegistryHistorySchema, "")
-
-						postgresHist, err := postgres.NewPostgres(historyDSN, historySchema, logger.Named("history"))
-						if err != nil {
-							return nil, NewPostgresHistoryError(err)
-						}
-						hist = postgresHist
-						histCloser = postgresHist
-
-					case "nil":
-						hist = historynil.New()
-
-					case "memory":
-						hist = historymem.New()
-
-					default:
-						logger.Warn("unknown history type, defaulting to memory", zap.String("type", historyType))
-						hist = historymem.New()
-					}
-				}
-			} else {
-				hist = historymem.New()
+			hist, closer, err := openHistory(ctx, boot.GetConfig(ctx), logger)
+			if err != nil {
+				return nil, err
 			}
+			histCloser = closer
+			cfg := boot.GetConfig(ctx)
 
 			// Create state builder
 			stateBuilder := regtop.NewStateBuilder(logger, resolver)

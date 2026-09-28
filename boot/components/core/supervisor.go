@@ -5,8 +5,6 @@ package core
 import (
 	"context"
 
-	regtop "github.com/wippyai/runtime/system/registry/topology"
-
 	"github.com/wippyai/runtime/api/boot"
 	"github.com/wippyai/runtime/api/event"
 	logapi "github.com/wippyai/runtime/api/logs"
@@ -80,7 +78,10 @@ func Supervisor() boot.Component {
 }
 
 func getLifecycleDependencyPatterns() []regapi.DependencyPattern {
-	return regtop.LifecycleDependencyPatterns()
+	return []regapi.DependencyPattern{
+		{Path: "data.lifecycle.requires", Description: "Lifecycle requirements", AllowWildcard: true},
+		{Path: "data.lifecycle.depends_on", Description: "Legacy lifecycle dependencies", AllowWildcard: true},
+	}
 }
 
 // createDependencyResolver creates a supervisor dependency resolver that extracts

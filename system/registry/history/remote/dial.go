@@ -77,16 +77,13 @@ func Dial(ctx context.Context, cfg DialConfig) (*History, error) {
 		return nil, err
 	}
 	history.closer = connection
-	if _, err := history.ReadPublished(ctx, 0); err != nil {
+	if err := ctx.Err(); err != nil {
+		connection.Close()
+		return nil, err
+	}
+	if _, err := history.Head(); err != nil {
 		connection.Close()
 		return nil, fmt.Errorf("connect to history: %w", err)
 	}
 	return history, nil
-}
-
-func (h *History) Close() error {
-	if h.closer != nil {
-		return h.closer.Close()
-	}
-	return nil
 }

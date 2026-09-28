@@ -153,6 +153,8 @@ func ModuleTypes() *typio.Manifest {
 		{Name: "apply_version", Type: typ.Func().Param("version", versionType).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "build_delta", Type: typ.Func().Param("from", versionType).Param("to", versionType).Returns(typ.Any, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "overlay", Type: typ.Func().Param("id", typ.String).Returns(snapshotType, typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "history_backend", Type: typ.Func().Returns(typ.Any, typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "use_remote_history", Type: typ.Func().Param("options", typ.Any).Returns(typ.Any, typ.NewOptional(typ.LuaError)).Build()},
 	})
 
 	m.SetExport(moduleType)

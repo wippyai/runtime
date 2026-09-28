@@ -70,8 +70,7 @@ func (r *Reg) Plan(ctx context.Context, base registry.Version, changes registry.
 	if base == nil {
 		return nil, ErrPlanBaseRequired
 	}
-	r.applyMu.Lock()
-	defer r.applyMu.Unlock()
+	defer r.lockApply()()
 
 	// The plan is computed from the same copy it carries as Requested, so a
 	// later ApplyPlan measures exactly the payload forms measured here.
@@ -146,8 +145,7 @@ func (r *Reg) ApplyPlan(ctx context.Context, plan *registry.Plan) (registry.Vers
 	if plan == nil || plan.Base == nil {
 		return nil, ErrPlanBaseRequired
 	}
-	r.applyMu.Lock()
-	defer r.applyMu.Unlock()
+	defer r.lockApply()()
 	return r.applyLocked(ctx, plan.Requested, &planExpectation{base: plan.Base, digest: plan.Digest, measured: true})
 }
 
@@ -157,8 +155,7 @@ func (r *Reg) ApplyAt(ctx context.Context, base registry.Version, changes regist
 	if base == nil {
 		return nil, ErrPlanBaseRequired
 	}
-	r.applyMu.Lock()
-	defer r.applyMu.Unlock()
+	defer r.lockApply()()
 	return r.applyLocked(ctx, changes, &planExpectation{base: base})
 }
 
