@@ -28,6 +28,7 @@ Options:
 | --- | --- |
 | `name` | Required remote history name. |
 | `organization` | Organization name. Defaults to the project organization, or to the only organization of the credential. |
+| `organization_id` | Organization ID. Bypasses organization lookup. Cannot be combined with `organization`. |
 | `environment` | Environment name. Defaults to the first domain label after `hub.` in the Hub URL. |
 | `endpoint` | Service address. Defaults to the Hub host with `history.` in place of `hub.`. |
 

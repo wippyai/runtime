@@ -10,9 +10,10 @@ import (
 	"github.com/wippyai/runtime/boot/deps/historybinding"
 	"github.com/wippyai/runtime/runtime/security"
 	"github.com/wippyai/runtime/system/registry/history/composite"
+	"github.com/wippyai/runtime/system/registry/history/remote"
 )
 
-// registryHistoryBackend returns the history selected for this project.
+// registryHistoryBackend returns the active history backend.
 func registryHistoryBackend(l *lua.LState) int {
 	ctx := l.Context()
 	if ctx == nil {
@@ -21,18 +22,20 @@ func registryHistoryBackend(l *lua.LState) int {
 	if !security.IsAllowed(ctx, "registry.history.get", "", nil) {
 		return pushBackendError(l, lua.NewLuaError(l, "registry history read is not allowed").WithKind(lua.PermissionDenied))
 	}
-	projectDir, err := os.Getwd()
-	if err != nil {
-		return pushBackendError(l, lua.WrapErrorWithLua(l, err, "resolve project directory").WithKind(lua.Internal))
+	table := lua.CreateTable(0, 4)
+	table.RawSetString("backend", lua.LString(historybinding.BackendLocal))
+	if reg := regapi.GetRegistry(ctx); reg != nil {
+		if selected, ok := reg.History().(*composite.History); ok {
+			if active, ok := selected.Active().(*remote.History); ok {
+				key := active.Key()
+				table.RawSetString("backend", lua.LString(historybinding.BackendRemote))
+				table.RawSetString("name", lua.LString(key.GetRegistryId()))
+				table.RawSetString("organization_id", lua.LString(key.GetTenantId()))
+				table.RawSetString("environment", lua.LString(key.GetEnvironmentId()))
+			}
+		}
 	}
-	binding, err := historybinding.Load(projectDir)
-	if err != nil {
-		return pushBackendError(l, lua.WrapErrorWithLua(l, err, "read history binding").WithKind(lua.Internal))
-	}
-	if binding == nil || binding.Backend != historybinding.BackendRemote {
-		binding = &historybinding.Binding{Backend: historybinding.BackendLocal}
-	}
-	l.Push(bindingTable(binding))
+	l.Push(table)
 	l.Push(lua.LNil)
 	return 2
 }
@@ -48,6 +51,7 @@ func registryUseRemoteHistory(l *lua.LState) int {
 	settings := historybinding.Settings{
 		RegistryID:    optionString(options, "name"),
 		Organization:  optionString(options, "organization"),
+		TenantID:      optionString(options, "organization_id"),
 		EnvironmentID: optionString(options, "environment"),
 		Endpoint:      optionString(options, "endpoint"),
 		Timeout:       historybinding.DefaultTimeout,
@@ -74,21 +78,14 @@ func registryUseRemoteHistory(l *lua.LState) int {
 	if err != nil {
 		return pushBackendError(l, lua.WrapErrorWithLua(l, err, "use remote history").WithKind(lua.Internal))
 	}
-	l.Push(bindingTable(binding))
+	table := lua.CreateTable(0, 4)
+	table.RawSetString("backend", lua.LString(binding.Backend))
+	table.RawSetString("name", lua.LString(binding.RegistryID))
+	table.RawSetString("organization_id", lua.LString(binding.TenantID))
+	table.RawSetString("environment", lua.LString(binding.EnvironmentID))
+	l.Push(table)
 	l.Push(lua.LNil)
 	return 2
-}
-
-func bindingTable(binding *historybinding.Binding) *lua.LTable {
-	table := lua.CreateTable(0, 5)
-	table.RawSetString("backend", lua.LString(binding.Backend))
-	if binding.Backend == historybinding.BackendRemote {
-		table.RawSetString("name", lua.LString(binding.RegistryID))
-		table.RawSetString("organization_id", lua.LString(binding.TenantID))
-		table.RawSetString("environment", lua.LString(binding.EnvironmentID))
-		table.RawSetString("registry", lua.LString(binding.Registry))
-	}
-	return table
 }
 
 func optionString(options *lua.LTable, key string) string {

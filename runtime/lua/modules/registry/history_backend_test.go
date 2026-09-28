@@ -4,9 +4,16 @@ package registry
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
-	"github.com/wippyai/runtime/boot/deps/historybinding"
+	lua "github.com/wippyai/go-lua"
+	regapi "github.com/wippyai/runtime/api/registry"
+	historyv1 "github.com/wippyai/runtime/api/registry/history/v1"
+	"github.com/wippyai/runtime/system/registry/history/composite"
+	"github.com/wippyai/runtime/system/registry/history/remote"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
 func TestHistoryBackendRequiresPermission(t *testing.T) {
@@ -20,25 +27,38 @@ func TestHistoryBackendRequiresPermission(t *testing.T) {
 	`)
 }
 
-func TestHistoryBackendReadsBinding(t *testing.T) {
-	dir := t.TempDir()
-	t.Chdir(dir)
+type historyRegistry struct {
+	*mockRegistry
+	history regapi.History
+}
+
+func (r historyRegistry) History() regapi.History { return r.history }
+
+func TestHistoryBackendReportsActiveDriver(t *testing.T) {
 	ctx, release := strictOverlayContext(t, "registry.history.get\x00")
 	defer release()
 	runOverlayLua(ctx, t, overlayTestRegistry("owner", nil), `
 		local backend, err = registry.history_backend()
 		assert(err == nil and backend.backend == "local" and backend.name == nil)
 	`)
-	require.NoError(t, historybinding.Save(dir, &historybinding.Binding{
-		Backend: historybinding.BackendRemote, Registry: "https://hub.stage.example.com", Endpoint: "history.stage.example.com:443",
-		TenantID: "11111111-1111-4111-8111-111111111111", EnvironmentID: "stage", RegistryID: "app", TransferID: "transfer",
-	}))
-	runOverlayLua(ctx, t, overlayTestRegistry("owner", nil), `
+	connection, err := grpc.NewClient("passthrough:///history", grpc.WithTransportCredentials(insecure.NewCredentials()))
+	require.NoError(t, err)
+	defer connection.Close()
+	remoteHistory, err := remote.New(connection, remote.Config{Key: &historyv1.RegistryKey{TenantId: "11111111-1111-4111-8111-111111111111", EnvironmentId: "stage", RegistryId: "app"}, Timeout: time.Second})
+	require.NoError(t, err)
+	remoteCtx, releaseRemote := strictOverlayContext(t, "registry.history.get\x00")
+	defer releaseRemote()
+	reg := historyRegistry{mockRegistry: overlayTestRegistry("owner", nil), history: composite.New(remoteHistory)}
+	l := lua.NewState()
+	defer l.Close()
+	l.SetContext(regapi.WithRegistry(remoteCtx, reg))
+	lua.OpenErrors(l)
+	setupModule(l)
+	require.NoError(t, l.DoString(`
 		local backend, err = registry.history_backend()
 		assert(err == nil and backend.backend == "remote" and backend.name == "app")
 		assert(backend.organization_id == "11111111-1111-4111-8111-111111111111" and backend.environment == "stage")
-		assert(backend.transfer_id == nil)
-	`)
+	`))
 }
 
 func TestUseRemoteHistoryValidatesRequest(t *testing.T) {
