@@ -48,11 +48,11 @@ func TestContractLiteralOverloadsAreOrderIndependent(t *testing.T) {
 		"a:first": {Methods: []api.MethodDef{{Name: "first", InputSchemas: []api.SchemaDefinition{{Format: "application/schema+json", Definition: `{"type":"integer"}`}}}}},
 	}
 	manifest, _ := BuildTypedManifest(defs, nil)
-	valid := checkContractSource(t, manifest, `local c=require("contract"); local a=c.get("a:first"); local x=a:open(); x:first(1); local z=c.get("z:last"); local y=z:open(); y:last("ok")`)
+	valid := checkContractSource(t, manifest, `local c=require("contract"); local a=c.get("a:first"); local x, xe=a:open(); if xe then return end; x:first(1); local z=c.get("z:last"); local y, ye=z:open(); if ye then return end; y:last("ok")`)
 	if valid != "" {
 		t.Fatalf("overload selection: %s", valid)
 	}
-	invalid := checkContractSource(t, manifest, `local c=require("contract"); local z=c.get("z:last"); local y=z:open(); y:last(1)`)
+	invalid := checkContractSource(t, manifest, `local c=require("contract"); local z=c.get("z:last"); local y, ye=z:open(); if ye then return end; y:last(1)`)
 	if invalid == "" {
 		t.Fatal("literal overload must reject the other contract's input")
 	}

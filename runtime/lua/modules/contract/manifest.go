@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strconv"
 
+	"github.com/wippyai/go-lua/types/contract"
+	"github.com/wippyai/go-lua/types/effect"
 	"github.com/wippyai/go-lua/types/io"
 	"github.com/wippyai/go-lua/types/typ"
 	api "github.com/wippyai/runtime/api/contract"
@@ -146,7 +148,8 @@ func typedWrapper(id string, instance typ.Type, bindings map[string]*api.Binding
 		// A no-binding open uses the definition's promised surface. A broad
 		// explicit binding preserves only that surface after runtime membership
 		// checking. Literal bindings can expose their complete merged surface.
-		openMembers := []typ.Type{typ.Func().Param("self", self).Returns(instance, typ.NewOptional(typ.LuaError)).Build()}
+		openResultSpec := contract.NewSpec().WithEffects(effect.ErrorReturn{ValueIndex: 0, ErrorIndex: 1})
+		openMembers := []typ.Type{typ.Func().Param("self", typ.Self).Returns(instance, typ.NewOptional(typ.LuaError)).Spec(openResultSpec).Build()}
 		bindingIDs := make([]string, 0, len(bindingInstances))
 		for bindingID := range bindingInstances {
 			bindingIDs = append(bindingIDs, bindingID)
@@ -154,23 +157,23 @@ func typedWrapper(id string, instance typ.Type, bindings map[string]*api.Binding
 		sort.Strings(bindingIDs)
 		for _, bindingID := range bindingIDs {
 			if !bindingImplements(bindings[bindingID], id) {
-				openMembers = append(openMembers, typ.Func().Param("self", self).Param("name", typ.LiteralString(bindingID)).OptParam("scope", typ.Any).Returns(typ.Nil, typ.LuaError).Build())
+				openMembers = append(openMembers, typ.Func().Param("self", typ.Self).Param("name", typ.LiteralString(bindingID)).OptParam("scope", typ.Any).Returns(typ.Nil, typ.LuaError).Build())
 				continue
 			}
-			openMembers = append(openMembers, typ.Func().Param("self", self).Param("name", typ.LiteralString(bindingID)).OptParam("scope", typ.Any).Returns(bindingInstances[bindingID], typ.NewOptional(typ.LuaError)).Build())
+			openMembers = append(openMembers, typ.Func().Param("self", typ.Self).Param("name", typ.LiteralString(bindingID)).OptParam("scope", typ.Any).Returns(bindingInstances[bindingID], typ.NewOptional(typ.LuaError)).Spec(openResultSpec).Build())
 		}
-		openMembers = append(openMembers, typ.Func().Param("self", self).Param("name", typ.String).OptParam("scope", typ.Any).Returns(instance, typ.NewOptional(typ.LuaError)).Build())
+		openMembers = append(openMembers, typ.Func().Param("self", typ.Self).Param("name", typ.String).OptParam("scope", typ.Any).Returns(instance, typ.NewOptional(typ.LuaError)).Spec(openResultSpec).Build())
 		open := typ.NewIntersection(openMembers...)
 		return typ.NewRecord().SetDeclared(true).
-			Field("id", typ.Func().Param("self", self).Returns(typ.String).Build()).
-			Field("methods", typ.Func().Param("self", self).Returns(typ.NewArray(methodDefinitionType)).Build()).
-			Field("method", typ.Func().Param("self", self).Param("name", typ.String).Returns(methodDefinitionType, typ.NewOptional(typ.LuaError)).Build()).
-			Field("implementations", typ.Func().Param("self", self).Returns(typ.NewArray(typ.String), typ.NewOptional(typ.LuaError)).Build()).
+			Field("id", typ.Func().Param("self", typ.Self).Returns(typ.String).Build()).
+			Field("methods", typ.Func().Param("self", typ.Self).Returns(typ.NewArray(methodDefinitionType)).Build()).
+			Field("method", typ.Func().Param("self", typ.Self).Param("name", typ.String).Returns(methodDefinitionType, typ.NewOptional(typ.LuaError)).Build()).
+			Field("implementations", typ.Func().Param("self", typ.Self).Returns(typ.NewArray(typ.String), typ.NewOptional(typ.LuaError)).Build()).
 			Field("open", open).
-			Field("with_context", typ.Func().Param("self", self).Param("ctx", typ.Any).Returns(self).Build()).
-			Field("with_actor", typ.Func().Param("self", self).Param("actor", typ.Any).Returns(self).Build()).
-			Field("with_scope", typ.Func().Param("self", self).Param("scope", typ.Any).Returns(self).Build()).
-			Field("with_options", typ.Func().Param("self", self).Param("options", typ.Any).Returns(self).Build()).Build()
+			Field("with_context", typ.Func().Param("self", typ.Self).Param("ctx", typ.Any).Returns(self).Build()).
+			Field("with_actor", typ.Func().Param("self", typ.Self).Param("actor", typ.Any).Returns(self).Build()).
+			Field("with_scope", typ.Func().Param("self", typ.Self).Param("scope", typ.Any).Returns(self).Build()).
+			Field("with_options", typ.Func().Param("self", typ.Self).Param("options", typ.Any).Returns(self).Build()).Build()
 	})
 }
 

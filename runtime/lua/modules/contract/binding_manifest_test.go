@@ -32,11 +32,11 @@ func TestBindingSurfaces(t *testing.T) {
 		name, source string
 		valid        bool
 	}{
-		{"default definition", `local c=require("contract"); local d=c.get("s:a"); local i=d:open(); i:alpha("x")`, true},
-		{"default excludes incidental", `local c=require("contract"); local d=c.get("s:a"); local i=d:open(); i:beta(1)`, false},
-		{"literal merged binding", `local c=require("contract"); local d=c.get("s:a"); local i=d:open("s:both"); i:alpha("x"); i:beta(1)`, true},
+		{"default definition", `local c=require("contract"); local d=c.get("s:a"); local i, err=d:open(); if err then return end; i:alpha("x")`, true},
+		{"default excludes incidental", `local c=require("contract"); local d=c.get("s:a"); local i, err=d:open(); if err then return end; i:beta(1)`, false},
+		{"literal merged binding", `local c=require("contract"); local d=c.get("s:a"); local i, err=d:open("s:both"); if err then return end; i:alpha("x"); i:beta(1)`, true},
 		{"direct binding open", `local c=require("contract"); local i, err=c.open("s:both"); if err then return end; i:beta(1)`, true},
-		{"unknown binding excludes incidental", `local c=require("contract"); local d=c.get("s:a"); local name: string="s:both"; local i=d:open(name); i:beta(1)`, false},
+		{"unknown binding excludes incidental", `local c=require("contract"); local d=c.get("s:a"); local name: string="s:both"; local i, err=d:open(name); if err then return end; i:beta(1)`, false},
 		{"unrelated binding excludes incidental", `local c=require("contract"); local d=c.get("s:a"); local i=d:open("s:onlyb"); i:beta(1)`, false},
 	} {
 		t.Run(tt.name, func(t *testing.T) {

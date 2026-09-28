@@ -8,7 +8,9 @@ import (
 	"testing"
 
 	"github.com/wippyai/go-lua/types/io"
+	"github.com/wippyai/go-lua/types/typ"
 	api "github.com/wippyai/runtime/api/contract"
+	regapi "github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/runtime/lua/code"
 )
 
@@ -78,6 +80,99 @@ i:query({ id = 42 })
 	}
 }
 
+func TestOpenThroughHelperPreservesErrorCorrelation(t *testing.T) {
+	m, _ := sampleContractManifest()
+	got := checkContractSource(t, m, `
+local contract = require("contract")
+local function open_service()
+  local def, get_err = contract.get("sample:service")
+  if get_err or not def then return nil, get_err or "missing definition" end
+  return def:open()
+end
+local instance, err = open_service()
+if err then return end
+instance:query({id = "one"})
+`)
+	if got != "" {
+		t.Fatalf("successful helper open should have a present instance: %s", got)
+	}
+}
+
+func TestValidatedEnumIsAcceptedByTypedContractMethod(t *testing.T) {
+	def := &api.Definition{Methods: []api.MethodDef{{
+		Name:         "list",
+		InputSchemas: []api.SchemaDefinition{{Format: "application/schema+json", Definition: `{"type":"object","properties":{"filters":{"type":"object","properties":{"status":{"type":"string"},"enabled":{"type":"boolean"},"class":{"type":"string"},"task_implementation_id":{"type":"string"},"schedule_type":{"type":"string"}}},"pagination":{"type":"object","properties":{"limit":{"type":"integer"},"offset":{"type":"integer"}}},"ordering":{"type":"object","properties":{"field":{"type":"string","enum":["created_at","updated_at","next_run_at"]},"direction":{"type":"string","enum":["ASC","DESC"]}}}}}`}},
+	}}}
+	m, _ := BuildTypedManifest(map[string]*api.Definition{"sample:cron": def}, nil)
+	got := checkContractSource(t, m, `
+local contract = require("contract")
+local req = {query = function(self: any, key: string): string? return "created_at" end}
+local def = contract.get("sample:cron")
+local service, open_err = def:with_actor({}):with_scope({}):open()
+if open_err then return end
+local order_by = req:query("order_by") or "created_at"
+local fields = {"created_at", "updated_at", "next_run_at"}
+local valid = false
+for _, field in ipairs(fields) do
+  if order_by == field then valid = true; break end
+end
+if not valid then return end
+local request = {filters={status=nil, enabled=nil, class=nil, task_implementation_id=nil, schedule_type=nil}, pagination={limit=10,offset=0}, ordering = {field = order_by, direction="ASC"}}
+service:list(request)
+`)
+	if got != "" {
+		t.Fatalf("validated enum rejected by contract input: %s", got)
+	}
+}
+
+func TestTypedContractMethodReceiverAfterInterfaceAssignment(t *testing.T) {
+	m, _ := sampleContractManifest()
+	got := checkContractSource(t, m, `
+local contract = require("contract")
+local def = contract.get("sample:service")
+local opener: contract.Contract = def
+if true then opener = opener:with_actor({}):with_scope({}) end
+local instance = opener:open()
+instance:query({id = "one"})
+`)
+	if strings.Contains(got, "method receiver:") {
+		t.Fatalf("equivalent contract receiver rejected: %s", got)
+	}
+}
+
+func TestSameDefinitionProducesCompatibleReceiverTypes(t *testing.T) {
+	definition := &api.Definition{Methods: []api.MethodDef{{Name: "query"}}}
+	definitions := map[string]*api.Definition{"sample:service": definition}
+	a, _ := BuildTypedCatalogManifest(definitions, nil, nil)
+	b, _ := BuildTypedCatalogManifest(definitions, map[string]*api.Binding{
+		"sample:binding": {Contracts: []api.BoundContract{{Contract: regapi.ParseID("sample:service")}}},
+	}, nil)
+	name := manifestTypePrefix("sample:service") + "Contract"
+	first, _ := a.LookupType(name)
+	second, _ := b.LookupType(name)
+	joined := io.NewManifest("joined")
+	joined.SetExport(typ.NewRecord().Field("opener", typ.NewUnion(first, second)).Build())
+	tc := code.NewTypeChecker(code.TypeCheckConfig{Enabled: true, Strict: true}, nil)
+	_, diagnostics, err := tc.Check(`local joined = require("joined"); local instance = joined.opener:open()`, "receiver.lua", map[string]*io.Manifest{"joined": joined})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range diagnostics {
+		if strings.Contains(d.Message, "method receiver:") {
+			t.Fatalf("same-definition receiver rejected: %s", d.Message)
+		}
+	}
+}
+
+func TestOpenSchemaObjectAllowsDynamicNestedContextField(t *testing.T) {
+	def := &api.Definition{Methods: []api.MethodDef{{Name: "get_context", OutputSchemas: []api.SchemaDefinition{{Format: "application/schema+json", Definition: `{"type":"object","properties":{"context":{"type":"object"}},"required":["context"]}`}}}}}
+	m, _ := BuildTypedManifest(map[string]*api.Definition{"sample:context": def}, nil)
+	got := checkContractSource(t, m, `local c = require("contract"); local d = c.get("sample:context"); local i = d:open(); local result = i:get_context({}); local enabled = result.context.nested.enabled`)
+	if strings.Contains(got, "cannot index type nil") {
+		t.Fatalf("open context lost dynamic field: %s", got)
+	}
+}
+
 func TestManifestMultipleOutputsAndUnspecifiedInputs(t *testing.T) {
 	def := &api.Definition{Methods: []api.MethodDef{{Name: "run", OutputSchemas: []api.SchemaDefinition{
 		{Format: "application/schema+json", Definition: `{"type":"string"}`},
@@ -90,7 +185,8 @@ func TestManifestMultipleOutputsAndUnspecifiedInputs(t *testing.T) {
 	if diagnostics := checkContractSource(t, manifest, `
 local contract = require("contract")
 local def = contract.get("sample:ambiguous")
-local instance = def:open()
+local instance, open_err = def:open()
+if open_err then return end
 local first, second, err = instance:run()
 local value: string = first
 local count: number = second
@@ -114,7 +210,7 @@ func TestContractOpenClusterNamedMethodsAndDynamicBoundary(t *testing.T) {
 	}
 	for _, name := range names {
 		t.Run(name, func(t *testing.T) {
-			prefix := `local contract = require("contract"); local def = contract.get("sample:cluster"); local inst = def:open(); `
+			prefix := `local contract = require("contract"); local def = contract.get("sample:cluster"); local inst, open_err = def:open(); if open_err then return end; `
 			if got := checkContractSource(t, manifest, prefix+fmt.Sprintf(`local result, err = inst:%s({id="x"}); local ok: boolean = result.success`, name)); got != "" {
 				t.Fatalf("named call rejected: %s", got)
 			}
@@ -123,7 +219,7 @@ func TestContractOpenClusterNamedMethodsAndDynamicBoundary(t *testing.T) {
 			}
 		})
 	}
-	if got := checkContractSource(t, manifest, `local contract = require("contract"); local def = contract.get("sample:cluster"); local inst = def:open(); local function invoke(target: string) inst[target](inst, {id=42}) end`); got != "" {
+	if got := checkContractSource(t, manifest, `local contract = require("contract"); local def = contract.get("sample:cluster"); local inst, open_err = def:open(); if open_err then return end; local function invoke(target: string) inst[target](inst, {id=42}) end`); got != "" {
 		t.Fatalf("computed method lookup must stay dynamic: %s", got)
 	}
 }
