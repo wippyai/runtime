@@ -34,7 +34,7 @@ func checkTypedDifferential(t *testing.T, target *lua.LType, raw string) {
 	l := lua.NewState()
 	defer l.Close()
 	want, decodeErr := Decode([]byte(raw))
-	wantOK := decodeErr == nil && target.Validate(l, want)
+	wantOK := decodeErr == nil && want != lua.LNil && target.Validate(l, want)
 	got, err := DecodeTyped([]byte(raw), target, l)
 	if (err == nil) != wantOK {
 		t.Fatalf("target=%s JSON=%q: got (%v,%v), oracle (%v,%v)", target, raw, got, err, want, decodeErr)
@@ -69,6 +69,33 @@ func TestTypedDecodeOwnsStringsFromMutableInput(t *testing.T) {
 	if got := value.(*lua.LTable).RawGetString("id"); got != lua.LString("original") {
 		t.Fatalf("decoded string changed with input: %v", got)
 	}
+}
+
+func TestTypedDecodeRejectsTopLevelNull(t *testing.T) {
+	cases := []struct {
+		target *lua.LType
+		name   string
+	}{
+		{lua.NewLType(typ.Nil), "nil"},
+		{lua.NewLType(typ.NewOptional(typ.String)), "optional"},
+		{lua.NewLType(typ.NewUnion(typ.Nil, typ.String, typ.Boolean)), "nullable union"},
+		{lua.NewLType(typ.Any), "any fallback"},
+		{lua.NewLType(typ.NewOptional(typ.NewAnnotated(typ.String, []typ.Annotation{{Name: "min_len", Arg: float64(1)}}))), "annotated fallback"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			value, err := DecodeTyped([]byte(`null`), tc.target, nil)
+			if value != lua.LNil || err == nil || !strings.Contains(err.Error(), "top-level null") {
+				t.Fatalf("expected null error, got (%v, %v)", value, err)
+			}
+		})
+	}
+}
+
+func TestTypedDecodeAllowsNestedNull(t *testing.T) {
+	checkTypedDifferential(t, lua.NewLType(typ.NewRecord().Field("id", typ.NewOptional(typ.String)).Build()), `{"id":null}`)
+	checkTypedDifferential(t, lua.NewLType(typ.NewArray(typ.NewOptional(typ.String))), `[null,"ok"]`)
+	checkTypedDifferential(t, lua.NewLType(typ.NewMap(typ.String, typ.NewOptional(typ.String))), `{"id":null}`)
 }
 
 func TestTypedDecodeFallbackShapes(t *testing.T) {

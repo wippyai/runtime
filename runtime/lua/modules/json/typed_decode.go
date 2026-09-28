@@ -127,10 +127,14 @@ func (p *decodePlan) scalar() bool {
 	return p.kind != kind.Array && p.kind != kind.Map && p.kind != kind.Record
 }
 
-var errTypedFallback = errors.New("typed decode fallback")
+var (
+	errTypedFallback = errors.New("typed decode fallback")
+	errTypedNull     = errors.New("$: top-level null is not a typed decode result")
+)
 
-// DecodeTyped implements json.decode(data, target). Its fallback is exactly
-// Decode followed by the runtime validator used by T:is.
+// DecodeTyped implements json.decode(data, target). Its fallback uses Decode
+// and the runtime validator used by T:is. A top-level null is
+// rejected so a successful typed decode always returns a non-nil value.
 func DecodeTyped(data []byte, target *lua.LType, l *lua.LState) (lua.LValue, error) {
 	return decodeTyped(data, target, l, false)
 }
@@ -154,6 +158,9 @@ func decodeTyped(data []byte, target *lua.LType, l *lua.LState, immutable bool) 
 		if err == nil {
 			s.space()
 			if s.off == len(data) {
+				if v == lua.LNil {
+					return lua.LNil, errTypedNull
+				}
 				return v, nil
 			}
 		}
@@ -161,6 +168,9 @@ func decodeTyped(data []byte, target *lua.LType, l *lua.LState, immutable bool) 
 	v, err := Decode(data)
 	if err != nil {
 		return lua.LNil, fmt.Errorf("$: %w", err)
+	}
+	if v == lua.LNil {
+		return lua.LNil, errTypedNull
 	}
 	if !target.Validate(l, v) {
 		if fastErr != nil && !errors.Is(fastErr, errTypedFallback) {
