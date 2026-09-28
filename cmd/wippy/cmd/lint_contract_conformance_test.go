@@ -10,10 +10,11 @@ import (
 	"github.com/wippyai/go-lua/types/typ"
 	api "github.com/wippyai/runtime/api/contract"
 	regapi "github.com/wippyai/runtime/api/registry"
+	contractmod "github.com/wippyai/runtime/runtime/lua/modules/contract"
 )
 
-func conformanceFixture(input, output string, fn *typ.Function) []conformanceFinding {
-	return conformanceFixtureOutputs(input, []string{output}, fn)
+func conformanceFixture(input, output string, fn *typ.Function, source ...string) []conformanceFinding {
+	return conformanceFixtureOutputs(input, []string{output}, fn, source...)
 }
 
 func TestOuterFailureReturnIsExcludedFromOutputConformance(t *testing.T) {
@@ -57,7 +58,7 @@ func TestOuterErrorDiagnosticNamesSchemaAdjustedSlot(t *testing.T) {
 	t.Fatalf("missing outer error diagnostic: %+v", findings)
 }
 
-func conformanceFixtureOutputs(input string, outputs []string, fn *typ.Function) []conformanceFinding {
+func conformanceFixtureOutputs(input string, outputs []string, fn *typ.Function, source ...string) []conformanceFinding {
 	definitionID := regapi.NewID("sample", "service")
 	bindingID := regapi.NewID("sample", "binding")
 	functionID := regapi.NewID("sample", "handle")
@@ -71,7 +72,11 @@ func conformanceFixtureOutputs(input string, outputs []string, fn *typ.Function)
 	manifest := io.NewManifest(functionID.String())
 	manifest.BodyBacked = true
 	manifest.SetExport(typ.NewRecord().Field("handle", fn).Build())
-	return checkBindingConformance(catalog, map[regapi.ID]*io.Manifest{functionID: manifest}, map[regapi.ID]entryData{functionID: {Method: "handle"}}, nil)
+	body := ""
+	if len(source) != 0 {
+		body = source[0]
+	}
+	return checkBindingConformance(catalog, map[regapi.ID]*io.Manifest{functionID: manifest}, map[regapi.ID]entryData{functionID: {Method: "handle", Source: body}}, nil)
 }
 
 func TestBindingConformanceMultipleOutputsAndOuterError(t *testing.T) {
@@ -131,8 +136,14 @@ func TestIncompleteSchemaStillChecksSupportedType(t *testing.T) {
 }
 
 func TestBindingConformanceClassifiesViolationsAndGaps(t *testing.T) {
+	if got := missingOutputField(typ.NewRecord().SetComplete(true).Field("error", typ.String).Build(), typ.NewRecord().Field("ok", typ.Boolean).Build()); got != "ok" {
+		t.Fatalf("complete return must prove missing key: %q", got)
+	}
 	input := `{"type":"string"}`
 	output := `{"type":"object","properties":{"ok":{"type":"boolean"}},"required":["ok"]}`
+	if got := missingOutputField(typ.NewRecord().SetComplete(true).Field("error", typ.String).Build(), contractmod.TranslateSchema(api.SchemaDefinition{Format: "application/schema+json", Definition: output}, nil).Type); got != "ok" {
+		t.Fatalf("translated expected lost required key: %q", got)
+	}
 	goodResult := typ.NewRecord().Field("ok", typ.Boolean).Build()
 	for _, tt := range []struct {
 		name                   string
@@ -141,7 +152,7 @@ func TestBindingConformanceClassifiesViolationsAndGaps(t *testing.T) {
 	}{
 		{"wider input passes", typ.Func().Param("request", typ.NewUnion(typ.String, typ.Integer)).Returns(goodResult).Build(), false, false},
 		{"narrower input fails", typ.Func().Param("request", typ.LiteralString("fixed")).Returns(goodResult).Build(), true, false},
-		{"wrong success fails", typ.Func().Param("request", typ.String).Returns(typ.NewRecord().Field("error", typ.String).Build()).Build(), true, false},
+		{"partial wrong success needs evidence", typ.Func().Param("request", typ.String).Returns(typ.NewRecord().SetComplete(true).Field("error", typ.String).Build()).Build(), false, true},
 		{"outer error needs correlation proof", typ.Func().Param("request", typ.String).Returns(typ.NewOptional(goodResult), typ.NewOptional(typ.LuaError)).Build(), false, true},
 		{"unknown result gap", typ.Func().Param("request", typ.String).Returns(typ.Unknown).Build(), false, true},
 		{"any input gap", typ.Func().Param("request", typ.Any).Returns(goodResult).Build(), false, true},
@@ -164,6 +175,26 @@ func TestBindingConformanceClassifiesViolationsAndGaps(t *testing.T) {
 	}
 }
 
+func TestLuaOmittedParameterAcceptedByAnyDoesNotViolateArity(t *testing.T) {
+	fn := typ.Func().Param("request", typ.String).Param("context", typ.Any).Returns(typ.String).Build()
+	findings := conformanceFixture(`{"type":"string"}`, `{"type":"string"}`, fn)
+	for _, finding := range findings {
+		if finding.violation && finding.path == "input_schemas" {
+			t.Fatalf("nil is accepted by any trailing parameter: %+v", findings)
+		}
+	}
+}
+
+func TestPartialInferredResultCannotProveRequiredFieldMissing(t *testing.T) {
+	fn := typ.Func().Param("request", typ.String).Returns(typ.NewRecord().Field("success", typ.Boolean).Build()).Build()
+	findings := conformanceFixture(`{"type":"string"}`, `{"type":"object","properties":{"success":{"type":"boolean"},"status":{"type":"string"}},"required":["success","status"]}`, fn)
+	for _, finding := range findings {
+		if finding.violation && finding.path == "output_schemas[0]/required" {
+			t.Fatalf("partial record is not proof of absent runtime field: %+v", findings)
+		}
+	}
+}
+
 func TestApplicationFailureEnvelopeIsCheckedAsSuccessValue(t *testing.T) {
 	input := `{"type":"object"}`
 	output := `{"type":"object","properties":{"success":{"type":"boolean"},"components":{"type":"array"}},"required":["success","components"]}`
@@ -171,7 +202,7 @@ func TestApplicationFailureEnvelopeIsCheckedAsSuccessValue(t *testing.T) {
 		typ.NewRecord().Field("success", typ.False).Field("error", typ.String).Build(),
 		typ.NewRecord().Field("success", typ.True).Field("components", typ.NewArray(typ.String)).Build(),
 	)).Build()
-	findings := conformanceFixture(input, output, impl)
+	findings := conformanceFixture(input, output, impl, `local function handle(request) if broken then return {success=false,error="bad"} end return {success=true,components={}} end return {handle=handle}`)
 	var requiredViolation, arrayGap bool
 	for _, finding := range findings {
 		if finding.violation && finding.path == "output_schemas[0]/required" {
@@ -209,6 +240,14 @@ func TestLiteralReturnProvesRequiredFieldAbsenceDespiteUnknownAggregate(t *testi
 	nested := `local function handle(filter) local function helper() return {success=false} end return unknown_call(filter) end return {handle=handle}`
 	if missing := missingRequiredLiteralReturnField(nested, "handle", expected); missing != "" {
 		t.Fatalf("nested function is not the implementation return: %q", missing)
+	}
+}
+
+func TestDottedImplementationLiteralReturnProvesMissingField(t *testing.T) {
+	expected := typ.NewRecord().Field("groups", typ.NewArray(typ.String)).Build()
+	source := `local M = {} function M.resolve(args) if not args then return {error="missing"} end return {groups={"ok"}} end return M`
+	if missing := missingRequiredLiteralReturnField(source, "resolve", expected); missing != "groups" {
+		t.Fatalf("dotted implementation missing field = %q", missing)
 	}
 }
 

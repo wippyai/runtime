@@ -87,11 +87,15 @@ func checkBindingConformance(catalog *contractCatalog, manifests map[regapi.ID]*
 						}
 						minArity--
 					}
-					requiredParams := 0
-					for _, param := range fn.Params {
-						if !param.Optional {
-							requiredParams++
+					// Omitted Lua arguments arrive as nil. Only a trailing parameter
+					// that rejects nil actually increases the minimum arity.
+					requiredParams := len(fn.Params)
+					for requiredParams > 0 {
+						param := fn.Params[requiredParams-1]
+						if !param.Optional && param.Type != typ.Any && !nilableSchemaType(param.Type) {
+							break
 						}
+						requiredParams--
 					}
 					if requiredParams > minArity {
 						add("input_schemas", fmt.Sprintf("implementation requires %d arguments but schema permits %d", requiredParams, minArity), true)
@@ -139,10 +143,13 @@ func checkBindingConformance(catalog *contractCatalog, manifests map[regapi.ID]*
 					if success, proved := literalSuccessReturnType(data[functionID].Source, functionMethod, outputIndex, len(method.OutputSchemas)); proved {
 						actual = success
 					}
+					// A direct successful table return proves field absence even
+					// when the exported signature is a partial view or a union.
+					if missing := missingRequiredLiteralReturnField(data[functionID].Source, functionMethod, projection.Type, len(method.OutputSchemas)); missing != "" {
+						add(path+"/required", "successful result may omit required output field "+fmt.Sprintf("%q", missing), true)
+						continue
+					}
 					if containsUnverifiable(actual) {
-						if missing := missingRequiredLiteralReturnField(data[functionID].Source, functionMethod, projection.Type, len(method.OutputSchemas)); missing != "" {
-							add(path+"/required", "successful result may omit required output field "+fmt.Sprintf("%q", missing), true)
-						}
 						add(path, "cannot verify successful output from unknown/any implementation evidence", false)
 						continue
 					}
@@ -247,6 +254,9 @@ func literalSuccessReturnType(source, method string, outputIndex, errorIndex int
 					body = s.Func.Stmts
 				}
 				if ident, ok := s.Name.Func.(*ast.IdentExpr); ok && ident.Value == method {
+					body = s.Func.Stmts
+				}
+				if field, ok := s.Name.Func.(*ast.AttrGetExpr); ok && ast.KeyName(field.Key) == method {
 					body = s.Func.Stmts
 				}
 			}
@@ -354,6 +364,9 @@ func missingRequiredLiteralReturnField(source, method string, expected typ.Type,
 					body = s.Func.Stmts
 				}
 				if ident, ok := s.Name.Func.(*ast.IdentExpr); ok && ident.Value == method {
+					body = s.Func.Stmts
+				}
+				if field, ok := s.Name.Func.(*ast.AttrGetExpr); ok && ast.KeyName(field.Key) == method {
 					body = s.Func.Stmts
 				}
 			}
@@ -572,6 +585,12 @@ func missingOutputField(actual, expected typ.Type) string {
 	got, okGot := typ.UnwrapAnnotated(actual).(*typ.Record)
 	want, okWant := typ.UnwrapAnnotated(expected).(*typ.Record)
 	if !okGot || !okWant {
+		return ""
+	}
+	// An inferred partial record describes known fields, not the complete
+	// runtime table. Only a complete record proves a required key absent;
+	// literal return inspection separately supplies direct absence evidence.
+	if !got.Complete {
 		return ""
 	}
 	for _, field := range want.Fields {
