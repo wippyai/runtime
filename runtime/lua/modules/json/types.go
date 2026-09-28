@@ -3,6 +3,8 @@
 package json
 
 import (
+	"github.com/wippyai/go-lua/types/contract"
+	"github.com/wippyai/go-lua/types/effect"
 	"github.com/wippyai/go-lua/types/io"
 	"github.com/wippyai/go-lua/types/typ"
 )
@@ -13,6 +15,10 @@ func ModuleTypes() *io.Manifest {
 
 	// Schema accepts any table structure or string reference
 	schemaParam := typ.NewUnion(typ.Any, typ.String)
+	decodeEffects := effect.Row{Labels: []effect.Label{
+		effect.Return{ReturnIndex: 0, Transform: effect.TypeValueOf{Source: effect.ParamRef{Index: 1}}},
+		effect.ErrorReturn{ValueIndex: 0, ErrorIndex: 1},
+	}}
 
 	moduleType := typ.NewInterface("json", []typ.Method{
 		{
@@ -21,7 +27,9 @@ func ModuleTypes() *io.Manifest {
 		},
 		{
 			Name: "decode",
-			Type: typ.Func().Param("str", typ.String).Returns(typ.Any, typ.NewOptional(typ.LuaError)).Build(),
+			Type: typ.Func().Effects(decodeEffects).Spec(contract.NewSpec().WithEffectRow(decodeEffects)).
+				Param("str", typ.String).OptParam("target", typ.NewMeta(typ.Any)).
+				Returns(typ.Any, typ.NewOptional(typ.LuaError)).Build(),
 		},
 		{
 			Name: "validate",
