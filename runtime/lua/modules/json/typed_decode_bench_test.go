@@ -12,8 +12,8 @@ import (
 
 func typedBenchCases() []struct {
 	name   string
-	data   []byte
 	target *lua.LType
+	data   []byte
 } {
 	idName := typ.NewRecord().Field("id", typ.Integer).Field("name", typ.String).Field("email", typ.String).Build()
 	meta := typ.NewRecord().Field("total", typ.Integer).Field("page", typ.Integer).Field("hasMore", typ.Boolean).Build()
@@ -41,14 +41,14 @@ func typedBenchCases() []struct {
 	usage := typ.NewRecord().Field("prompt_tokens", typ.Integer).Field("completion_tokens", typ.Integer).Field("total_tokens", typ.Integer).Build()
 	return []struct {
 		name   string
-		data   []byte
 		target *lua.LType
+		data   []byte
 	}{
-		{"small_record", simpleJSON, lua.NewLType(typ.NewRecord().Field("name", typ.String).Field("age", typ.Integer).Field("active", typ.Boolean).Build())},
-		{"nested_arrays", complexJSON, lua.NewLType(typ.NewRecord().Field("users", typ.NewArray(idName)).Field("metadata", meta).Build())},
-		{"array_10k", large, lua.NewLType(typ.NewArray(typ.NewRecord().Field("id", typ.Integer).Field("name", typ.String).Build()))},
-		{"map_records", mapData, lua.NewLType(typ.NewMap(typ.String, typ.NewRecord().Field("id", typ.Integer).Field("name", typ.String).Build()))},
-		{"llm_response", benchValidJSON(llmResponseJSON), lua.NewLType(typ.NewRecord().Field("id", typ.String).Field("object", typ.String).Field("created", typ.Integer).Field("model", typ.String).Field("choices", typ.NewArray(choice)).Field("usage", usage).Field("system_fingerprint", typ.String).Build())},
+		{"small_record", lua.NewLType(typ.NewRecord().Field("name", typ.String).Field("age", typ.Integer).Field("active", typ.Boolean).Build()), simpleJSON},
+		{"nested_arrays", lua.NewLType(typ.NewRecord().Field("users", typ.NewArray(idName)).Field("metadata", meta).Build()), complexJSON},
+		{"array_10k", lua.NewLType(typ.NewArray(typ.NewRecord().Field("id", typ.Integer).Field("name", typ.String).Build())), large},
+		{"map_records", lua.NewLType(typ.NewMap(typ.String, typ.NewRecord().Field("id", typ.Integer).Field("name", typ.String).Build())), mapData},
+		{"llm_response", lua.NewLType(typ.NewRecord().Field("id", typ.String).Field("object", typ.String).Field("created", typ.Integer).Field("model", typ.String).Field("choices", typ.NewArray(choice)).Field("usage", usage).Field("system_fingerprint", typ.String).Build()), benchValidJSON(llmResponseJSON)},
 	}
 }
 

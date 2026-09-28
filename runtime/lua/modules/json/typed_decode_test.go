@@ -92,6 +92,41 @@ func TestTypedDecodeFallbackShapes(t *testing.T) {
 	}
 }
 
+func TestTypedDecodeAnnotatedDifferential(t *testing.T) {
+	boundedNumber := typ.NewAnnotated(typ.Number, []typ.Annotation{
+		{Name: "min", Arg: float64(0)},
+		{Name: "max", Arg: float64(100)},
+	})
+	boundedString := typ.NewAnnotated(typ.String, []typ.Annotation{
+		{Name: "min_len", Arg: float64(2)},
+		{Name: "pattern", Arg: "^[a-z]+$"},
+	})
+	cases := []struct {
+		typeValue typ.Type
+		name      string
+		inputs    []string
+	}{
+		{boundedNumber, "top-level number", []string{`-1`, `0`, `50`, `100`, `101`, `"50"`}},
+		{boundedString, "top-level string", []string{`"a"`, `"ab"`, `"AB"`, `"ab1"`, `null`}},
+		{typ.NewRecord().Field("age", boundedNumber).Build(), "record field", []string{`{"age":-1}`, `{"age":50}`, `{"age":101}`}},
+		{typ.NewArray(boundedNumber), "array element", []string{`[-1]`, `[0,50,100]`, `[50,101]`}},
+		{typ.NewMap(typ.String, boundedString), "map value", []string{`{"id":"a"}`, `{"id":"ab"}`, `{"id":"AB"}`}},
+		{typ.NewMap(boundedString, typ.String), "map key", []string{`{"ab":"value"}`, `{"AB":"value"}`}},
+		{typ.NewOptional(boundedNumber), "optional", []string{`null`, `-1`, `50`, `101`}},
+		{typ.NewUnion(boundedNumber, typ.Boolean), "union member", []string{`true`, `false`, `-1`, `50`, `101`}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, raw := range tc.inputs {
+				checkTypedDifferential(t, lua.NewLType(tc.typeValue), raw)
+			}
+			if compilePlan(tc.typeValue, 0) != nil {
+				t.Fatal("annotated types must use the runtime validator")
+			}
+		})
+	}
+}
+
 func largeFallbackRecord() typ.Type {
 	b := typ.NewRecord()
 	for i := 0; i < 65; i++ {

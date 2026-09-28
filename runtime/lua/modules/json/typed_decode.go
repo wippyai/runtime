@@ -18,24 +18,23 @@ import (
 // A plan only contains shapes whose validation is completely determined by
 // the same typ nodes used by LType.Validate. Everything else uses that oracle.
 type decodePlan struct {
-	kind     kind.Kind
 	t        typ.Type
 	elem     *decodePlan
-	fields   []fieldPlan
 	byName   map[string]int
+	fields   []fieldPlan
 	variants []*decodePlan
-	optional bool
+	kind     kind.Kind
 }
 type fieldPlan struct {
-	name     string
 	plan     *decodePlan
+	name     string
 	optional bool
 }
 
 var planCache = struct {
-	sync.Mutex
 	entries map[*lua.LType]*decodePlan
 	order   []*lua.LType
+	sync.Mutex
 }{entries: make(map[*lua.LType]*decodePlan)}
 
 const maxCachedPlans = 256
@@ -63,6 +62,10 @@ func compilePlan(t typ.Type, depth int) *decodePlan {
 	}
 	p := &decodePlan{kind: t.Kind(), t: t}
 	switch tt := t.(type) {
+	case *typ.Annotated:
+		// Kind reports the underlying shape, but only the runtime validator
+		// evaluates annotations such as min, max, and pattern.
+		return nil
 	case *typ.Record:
 		if tt.Open || tt.HasMapComponent() || tt.Metatable != nil || len(tt.Fields) > 64 {
 			return nil
@@ -74,7 +77,7 @@ func compilePlan(t typ.Type, depth int) *decodePlan {
 			if child == nil {
 				return nil
 			}
-			p.fields[i] = fieldPlan{f.Name, child, f.Optional}
+			p.fields[i] = fieldPlan{plan: child, name: f.Name, optional: f.Optional}
 			p.byName[f.Name] = i
 		}
 	case *typ.Array:
@@ -83,7 +86,8 @@ func compilePlan(t typ.Type, depth int) *decodePlan {
 			return nil
 		}
 	case *typ.Map:
-		if tt.Key == nil || tt.Key.Kind() != kind.String {
+		key := compilePlan(tt.Key, depth+1)
+		if key == nil || key.kind != kind.String {
 			return nil
 		}
 		p.elem = compilePlan(tt.Value, depth+1)
@@ -173,8 +177,8 @@ func decodeTypedString(raw string, target *lua.LType, l *lua.LState) (lua.LValue
 
 type typedScanner struct {
 	data    []byte
-	off     int
 	path    [128]pathPart
+	off     int
 	pathLen int
 }
 type pathPart struct {
