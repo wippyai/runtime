@@ -135,8 +135,8 @@ if true then opener = opener:with_actor({}):with_scope({}) end
 local instance = opener:open()
 instance:query({id = "one"})
 `)
-	if strings.Contains(got, "method receiver:") {
-		t.Fatalf("equivalent contract receiver rejected: %s", got)
+	if got != "" {
+		t.Fatalf("typed contract wrapper rejected by declared interface: %s", got)
 	}
 }
 
