@@ -66,6 +66,10 @@ type Server interface {
 	Rebuild(ctx context.Context) error
 }
 
+type initialRoutesCommitGate interface {
+	deferStartUntilRoutesCommit()
+}
+
 // Manager coordinates HTTP servers, routers, endpoints, and static file handlers
 type Manager struct {
 	dtt             payload.Transcoder
@@ -252,7 +256,13 @@ func (m *Manager) handleServerCreate(ctx context.Context, entry registry.Entry) 
 		return NewServerAlreadyExistsError(entry.ID.String())
 	}
 
+	if gate, ok := server.(initialRoutesCommitGate); ok {
+		gate.deferStartUntilRoutesCommit()
+	}
 	m.servers[entry.ID] = server
+	// A new server needs one successful rebuild even when its initial
+	// composition contains no routers. That rebuild opens its startup gate.
+	m.pending[entry.ID] = true
 
 	// Register with supervisor
 	m.bus.Send(ctx, event.Event{

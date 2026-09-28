@@ -10,14 +10,14 @@ require (
 	github.com/CloudyKit/jet/v6 v6.3.2
 	github.com/Masterminds/semver/v3 v3.5.0
 	github.com/Masterminds/squirrel v1.5.4
-	github.com/andybalholm/brotli v1.2.4
+	github.com/andybalholm/brotli v1.2.5
 	github.com/asg017/sqlite-vec-go-bindings v0.1.6
-	github.com/aws/aws-sdk-go-v2 v1.47.0
+	github.com/aws/aws-sdk-go-v2 v1.47.1
 	github.com/aws/aws-sdk-go-v2/config v1.33.5
 	github.com/aws/aws-sdk-go-v2/credentials v1.20.5
-	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.23.7
-	github.com/aws/aws-sdk-go-v2/service/s3 v1.113.1
-	github.com/aws/aws-sdk-go-v2/service/sqs v1.52.0
+	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.23.8
+	github.com/aws/aws-sdk-go-v2/service/s3 v1.113.4
+	github.com/aws/aws-sdk-go-v2/service/sqs v1.52.1
 	github.com/aws/smithy-go v1.28.2
 	github.com/cespare/xxhash/v2 v2.3.0
 	github.com/charmbracelet/lipgloss v1.1.0
@@ -69,7 +69,7 @@ require (
 	github.com/tree-sitter/tree-sitter-php v0.24.2
 	github.com/tree-sitter/tree-sitter-python v0.25.0
 	github.com/tree-sitter/tree-sitter-typescript v0.23.2
-	github.com/wippyai/go-lua v1.5.23
+	github.com/wippyai/go-lua v1.5.24
 	github.com/wippyai/module-registry-proto-go v0.0.2-0.20260908140534-f6e2910c835f
 	github.com/wippyai/tree-sitter-markdown v0.0.3
 	github.com/wippyai/tree-sitter-sql v0.0.4
@@ -111,13 +111,13 @@ require (
 	github.com/armon/go-metrics v0.4.1 // indirect
 	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.20 // indirect
 	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.20.0 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/configsources v1.5.3 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.8.3 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/v4a v1.5.3 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/configsources v1.5.4 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.8.4 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/v4a v1.5.4 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.19 // indirect
-	github.com/aws/aws-sdk-go-v2/service/internal/checksum v1.11.3 // indirect
-	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.14.3 // indirect
-	github.com/aws/aws-sdk-go-v2/service/internal/s3shared v1.20.3 // indirect
+	github.com/aws/aws-sdk-go-v2/service/internal/checksum v1.11.5 // indirect
+	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.14.4 // indirect
+	github.com/aws/aws-sdk-go-v2/service/internal/s3shared v1.20.4 // indirect
 	github.com/aws/aws-sdk-go-v2/service/signin v1.10.0 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sso v1.38.0 // indirect
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.43.0 // indirect

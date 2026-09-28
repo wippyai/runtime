@@ -383,18 +383,27 @@ func (s *Session) handleExitEvent(enc *sseEncoder, payloads []payload.Payload) b
 	}
 
 	for _, p := range payloads {
-		switch evt := p.Data().(type) {
+		var evt topology.ExitEvent
+		switch data := p.Data().(type) {
 		case *topology.ExitEvent:
-			if evt != nil && evt.From.String() == s.targetPID.String() {
-				s.writeDoneAndClose(enc, "target process exited")
-				return true
+			if data == nil {
+				continue
 			}
+			evt = *data
 		case topology.ExitEvent:
-			if evt.From.String() == s.targetPID.String() {
-				s.writeDoneAndClose(enc, "target process exited")
-				return true
-			}
+			evt = data
+		default:
+			continue
 		}
+		if evt.From.String() != s.targetPID.String() {
+			continue
+		}
+		if evt.Kind == topology.Exit {
+			// The target's lifetime ended; there is no attachment left to leave.
+			s.joined = false
+		}
+		s.writeDoneAndClose(enc, "target process exited")
+		return true
 	}
 	return false
 }

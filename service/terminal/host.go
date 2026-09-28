@@ -110,7 +110,7 @@ func (h *Host) OnComplete(ctx context.Context, _ pid.PID, result *runtime.Result
 	} else if output != "" {
 		_, _ = os.Stdout.WriteString(output + "\n")
 	}
-	supervisorapi.TriggerShutdown(ctx, exitCode)
+	supervisorapi.TriggerShutdownIfIdle(ctx, exitCode)
 }
 
 func completionExitCode(result *runtime.Result) (int, string) {

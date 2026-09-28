@@ -77,6 +77,7 @@ func (t *relationshipTopology) GetLinks(pid.PID) []pid.PID        { return nil }
 func (t *relationshipTopology) Register(pid.PID) error            { return nil }
 func (t *relationshipTopology) Complete(pid.PID, *runtime.Result) {}
 func (t *relationshipTopology) Remove(pid.PID)                    {}
+func (t *relationshipTopology) HandleNodeExit(pid.NodeID, error)  {}
 
 func relationshipStart(parent pid.PID) *apiprocess.Start {
 	options := attrs.NewBag()

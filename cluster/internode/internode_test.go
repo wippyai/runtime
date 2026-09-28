@@ -27,11 +27,18 @@ type mockConnectionManager struct {
 	managedNodes      map[cluster.NodeID]bool
 	connectedNodes    map[cluster.NodeID]bool
 	onMessage         func(nodeID cluster.NodeID, data []byte)
+	onSessionEnd      func(nodeID cluster.NodeID)
+	removed           []removeCall
 	ensuredConns      []ensureConnCall
 	disconnectedNodes []cluster.NodeID
 	mu                sync.Mutex
 	started           bool
 	stopped           bool
+}
+
+type removeCall struct {
+	nodeID      cluster.NodeID
+	incarnation uint64
 }
 
 type ensureConnCall struct {
@@ -47,7 +54,7 @@ func newMockConnectionManager() *mockConnectionManager {
 	}
 }
 
-func (m *mockConnectionManager) Start(_ context.Context, onMessage func(nodeID cluster.NodeID, data []byte)) error {
+func (m *mockConnectionManager) Start(_ context.Context, onMessage func(nodeID cluster.NodeID, data []byte), onSessionEnd func(nodeID cluster.NodeID)) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.startError != nil {
@@ -55,8 +62,11 @@ func (m *mockConnectionManager) Start(_ context.Context, onMessage func(nodeID c
 	}
 	m.started = true
 	m.onMessage = onMessage
+	m.onSessionEnd = onSessionEnd
 	return nil
 }
+
+func (m *mockConnectionManager) Incarnation() uint64 { return testIncarnation }
 
 func (m *mockConnectionManager) Stop() error {
 	m.mu.Lock()
@@ -72,6 +82,14 @@ func (m *mockConnectionManager) SendToNode(_ cluster.NodeID, _ []byte, _ Class) 
 		return m.sendError
 	}
 	return nil
+}
+
+func (m *mockConnectionManager) SendConnected(nodeID cluster.NodeID, data []byte, class Class) bool {
+	return m.SendToNode(nodeID, data, class) == nil
+}
+
+func (m *mockConnectionManager) Link(cluster.NodeID) (cluster.Link, bool) {
+	return cluster.Link{}, false
 }
 
 func (m *mockConnectionManager) EnsureConnection(nodeID cluster.NodeID, addr string, port int) {
@@ -108,9 +126,10 @@ func (m *mockConnectionManager) AddManagedNode(nodeID cluster.NodeID) {
 	m.managedNodes[nodeID] = true
 }
 
-func (m *mockConnectionManager) RemoveManagedNode(nodeID cluster.NodeID) {
+func (m *mockConnectionManager) RemoveManagedNode(nodeID cluster.NodeID, incarnation uint64) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.removed = append(m.removed, removeCall{nodeID: nodeID, incarnation: incarnation})
 	delete(m.managedNodes, nodeID)
 }
 
@@ -195,7 +214,7 @@ func setupService(_ *testing.T) (*Service, *mockConnectionManager, *mockCodec, *
 		return nil
 	}
 
-	service := NewService(logger, connMan, codec, deliveryCallback, bus, membership)
+	service := NewService(logger, connMan, codec, deliveryCallback, ignoreSessionEnd, bus, membership)
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return service, connMan, codec, bus, ctx, cancel
@@ -209,7 +228,7 @@ func TestService_NewService(t *testing.T) {
 	membership := &mockMembership{}
 	callback := func(_ *relay.Package) error { return nil }
 
-	service := NewService(logger, connMan, codec, callback, bus, membership)
+	service := NewService(logger, connMan, codec, callback, ignoreSessionEnd, bus, membership)
 
 	assert.NotNil(t, service)
 	assert.NotNil(t, service.codec)
@@ -254,7 +273,7 @@ func TestService_Start_WithPreExistingNodes(t *testing.T) {
 		nodes:     []cluster.NodeInfo{localNode, remoteNode},
 	}
 
-	service := NewService(logger, connMan, codec, func(_ *relay.Package) error { return nil }, bus, membership)
+	service := NewService(logger, connMan, codec, func(_ *relay.Package) error { return nil }, ignoreSessionEnd, bus, membership)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -270,58 +289,6 @@ func TestService_Start_WithPreExistingNodes(t *testing.T) {
 	connMan.mu.Unlock()
 
 	_ = service.Stop()
-}
-
-func TestService_Start_UsesAdvertisedInternodeEndpoint(t *testing.T) {
-	logger := zap.NewNop()
-	connMan := newMockConnectionManager()
-	codec := &mockCodec{}
-	bus := eventbus.NewBus()
-	localNode := cluster.NodeInfo{ID: "local-node", Addr: "127.0.0.1:7946", Meta: cluster.NodeMeta{"internode_port": "9000"}}
-	remoteNode := cluster.NodeInfo{
-		ID:   "remote-node",
-		Addr: "192.168.1.100:7946",
-		Meta: cluster.NodeMeta{
-			"internode_port":           "9001", // v1 endpoint retained for old peers
-			"internode_advertise_addr": "relay.internal",
-			"internode_advertise_port": "19001",
-		},
-	}
-	membership := &mockMembership{localNode: localNode, nodes: []cluster.NodeInfo{localNode, remoteNode}}
-	service := NewService(logger, connMan, codec, func(_ *relay.Package) error { return nil }, bus, membership)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	require.NoError(t, service.Start(ctx))
-	connMan.mu.Lock()
-	require.Len(t, connMan.ensuredConns, 1)
-	assert.Equal(t, "relay.internal", connMan.ensuredConns[0].addr)
-	assert.Equal(t, 19001, connMan.ensuredConns[0].port)
-	connMan.mu.Unlock()
-	_ = service.Stop()
-}
-
-func TestService_ConnectToNode_InvalidAdvertisedEndpointFailsClosed(t *testing.T) {
-	tests := map[string]cluster.NodeMeta{
-		"missing advertised port":    {"internode_port": "9001", "internode_advertise_addr": "relay.internal"},
-		"missing advertised address": {"internode_port": "9001", "internode_advertise_port": "19001"},
-		"invalid advertised address": {"internode_port": "9001", "internode_advertise_addr": "relay.internal:19001", "internode_advertise_port": "19001"},
-		"invalid advertised port":    {"internode_port": "9001", "internode_advertise_addr": "relay.internal", "internode_advertise_port": "not-a-port"},
-	}
-	for name, meta := range tests {
-		t.Run(name, func(t *testing.T) {
-			service, connMan, _, _, ctx, cancel := setupService(t)
-			defer cancel()
-			require.NoError(t, service.Start(ctx))
-			defer func() { _ = service.Stop() }()
-
-			service.connectToNode(cluster.NodeInfo{ID: "remote-node", Addr: "192.168.1.100:7946", Meta: meta})
-
-			connMan.mu.Lock()
-			assert.Empty(t, connMan.ensuredConns)
-			connMan.mu.Unlock()
-		})
-	}
 }
 
 func TestService_Start_ConnectionManagerError(t *testing.T) {
@@ -572,7 +539,7 @@ func TestService_OnMessage_Success(t *testing.T) {
 		return nil
 	}
 
-	service := NewService(logger, connMan, codec, deliveryCallback, bus, membership)
+	service := NewService(logger, connMan, codec, deliveryCallback, ignoreSessionEnd, bus, membership)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -601,7 +568,7 @@ func TestService_OnMessage_RecordsConnectionPeerSeparateFromLogicalSource(t *tes
 		logical = append(logical, pkg.Source.Node)
 		relay.ReleasePackage(pkg)
 		return nil
-	}, bus, membership)
+	}, ignoreSessionEnd, bus, membership)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	require.NoError(t, service.Start(ctx))
@@ -632,7 +599,7 @@ func TestService_OnMessage_DecodeError(t *testing.T) {
 	bus := eventbus.NewBus()
 	membership := &mockMembership{localNode: cluster.NodeInfo{ID: "local"}}
 
-	service := NewService(logger, connMan, codec, func(_ *relay.Package) error { return nil }, bus, membership)
+	service := NewService(logger, connMan, codec, func(_ *relay.Package) error { return nil }, ignoreSessionEnd, bus, membership)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -654,7 +621,7 @@ func TestService_OnMessage_DeliveryError(t *testing.T) {
 		return errors.New("delivery failed")
 	}
 
-	service := NewService(logger, connMan, codec, deliveryCallback, bus, membership)
+	service := NewService(logger, connMan, codec, deliveryCallback, ignoreSessionEnd, bus, membership)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -682,4 +649,44 @@ func TestClassForTopic(t *testing.T) {
 			t.Errorf("ClassForTopic(%q) = %v, want %v", c.topic, got, c.want)
 		}
 	}
+}
+
+// A departure names the incarnation that left, so the transport keeps a
+// session its restarted successor already bound.
+func TestService_NodeLeftNamesDepartingIncarnation(t *testing.T) {
+	service, connMan, _, bus, ctx, cancel := setupService(t)
+	defer cancel()
+	require.NoError(t, service.Start(ctx))
+	defer func() { _ = service.Stop() }()
+
+	leave := func(meta cluster.NodeMeta) {
+		bus.Send(ctx, event.Event{System: cluster.System, Kind: cluster.NodeLeft, Path: "peer",
+			Data: cluster.NodeEvent{Node: cluster.NodeInfo{ID: "peer", Meta: meta}}})
+	}
+	leave(cluster.NodeMeta{cluster.MetaIncarnation: "42"})
+	leave(cluster.NodeMeta{})
+	require.Eventually(t, func() bool {
+		connMan.mu.Lock()
+		defer connMan.mu.Unlock()
+		return len(connMan.removed) == 2
+	}, 2*time.Second, time.Millisecond)
+	connMan.mu.Lock()
+	defer connMan.mu.Unlock()
+	require.Equal(t, []removeCall{{nodeID: "peer", incarnation: 42}, {nodeID: "peer", incarnation: 0}}, connMan.removed)
+}
+
+// The session-end hook given to the service is the one the transport runs.
+func TestService_PassesSessionEndHookToTransport(t *testing.T) {
+	var ended []cluster.NodeID
+	connMan := newMockConnectionManager()
+	service := NewService(zap.NewNop(), connMan, &mockCodec{}, func(*relay.Package) error { return nil },
+		func(id cluster.NodeID) { ended = append(ended, id) }, eventbus.NewBus(),
+		&mockMembership{localNode: cluster.NodeInfo{ID: "local-node"}})
+	require.NoError(t, service.Start(context.Background()))
+	defer func() { _ = service.Stop() }()
+	connMan.mu.Lock()
+	onSessionEnd := connMan.onSessionEnd
+	connMan.mu.Unlock()
+	onSessionEnd("peer")
+	require.Equal(t, []cluster.NodeID{"peer"}, ended)
 }

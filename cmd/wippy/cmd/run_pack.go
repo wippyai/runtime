@@ -728,16 +728,18 @@ func runPackEntriesWithShutdown(
 	}
 
 	if entryID != "" {
-		execCtx, stopExecSignals := newExecSignalContext(appCtx)
-		execErr := launchExecProcess(execCtx, logger, entryID, hostID, args)
-		interrupted := execWasInterrupted(execCtx, appCtx, execErr)
-		stopExecSignals()
-		if execErr != nil && !interrupted {
-			logger.Error("exec launch failed", zap.Error(execErr))
-			return execErr
+		if readiness := bootpkg.GetReadiness(appCtx); readiness != nil {
+			if err := readiness.Wait(appCtx); err != nil {
+				return fmt.Errorf("boot readiness failed: %w", err)
+			}
 		}
-		if interrupted {
-			logger.Info("exec interrupted", zap.String("signal", "SIGINT"))
+
+		shutdown, err := launchExecUntilShutdown(appCtx, sigChan, logger, entryID, hostID, args)
+		if err != nil {
+			return err
+		}
+		if shutdown {
+			return nil
 		}
 	}
 

@@ -10,14 +10,16 @@ import (
 	"sync"
 
 	"github.com/hashicorp/go-msgpack/v2/codec"
+	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/relay"
 )
 
 type encodedPayload struct {
-	Data   any
-	Format payload.Format
+	_struct struct{} `codec:",toarray"` //nolint:unused // msgpack struct options
+	Data    any
+	Format  payload.Format
 }
 
 type encodedMessage struct {
@@ -37,6 +39,7 @@ type encodedPackage struct {
 type MessageCodec struct {
 	transcoder payload.Transcoder
 	handle     *codec.MsgpackHandle
+	refs       map[reflect.Type]extRef
 	bufferPool sync.Pool
 	encPkgPool sync.Pool
 }
@@ -55,12 +58,7 @@ func NewMessageCodec(transcoder payload.Transcoder) *MessageCodec {
 	mh.MapType = reflect.TypeOf(map[string]any(nil))
 	mh.SliceType = reflect.TypeOf([]any(nil))
 
-	if err := registerPIDExtension(mh); err != nil {
-		// Logical invariant: PID extension registration should always succeed.
-		panic(NewRegisterPIDExtensionError(err))
-	}
-
-	return &MessageCodec{
+	c := &MessageCodec{
 		transcoder: transcoder,
 		handle:     mh,
 		bufferPool: sync.Pool{
@@ -74,6 +72,12 @@ func NewMessageCodec(transcoder payload.Transcoder) *MessageCodec {
 			},
 		},
 	}
+	// Logical invariant: the extension table registers named struct types
+	// under distinct tags, which the handle always accepts.
+	if err := c.registerExtensions(); err != nil {
+		panic(err)
+	}
+	return c
 }
 
 func (c *MessageCodec) resetEncodedPackage(p *encodedPackage) {
@@ -112,14 +116,11 @@ func (c *MessageCodec) Encode(pkg *relay.Package) ([]byte, error) {
 		}
 
 		for j, p := range msg.Payloads {
-			normalizedPayload, err := c.normalizePayload(p)
+			encoded, err := c.encodePayload(p)
 			if err != nil {
 				return nil, NewEncodePayloadError(j, err)
 			}
-			encMsg.Payloads[j] = encodedPayload{
-				Format: normalizedPayload.Format(),
-				Data:   encodeData(normalizedPayload),
-			}
+			encMsg.Payloads[j] = encoded
 		}
 		encPkg.Messages[i] = encMsg
 	}
@@ -170,22 +171,65 @@ func (c *MessageCodec) Decode(data []byte) (*relay.Package, error) {
 		finalMsg.MaxItems = encMsg.MaxItems
 		finalMsg.Payloads = make(payload.Payloads, len(encMsg.Payloads))
 
-		for j, encP := range encMsg.Payloads {
-			finalMsg.Payloads[j] = payload.NewPayload(encP.Data, encP.Format)
-		}
 		finalPkg.Messages[i] = finalMsg
+		for j, encP := range encMsg.Payloads {
+			decoded, err := c.decodePayload(encP)
+			if err != nil {
+				// Slots past i still hold pooled pointers from an earlier use.
+				finalPkg.Messages = finalPkg.Messages[:i+1]
+				relay.ReleasePackage(finalPkg)
+				return nil, newDecodePayloadError(j, err)
+			}
+			finalMsg.Payloads[j] = decoded
+		}
 	}
 
 	return finalPkg, nil
 }
 
+// encodePayload converts a payload to its wire form.
+func (c *MessageCodec) encodePayload(p payload.Payload) (encodedPayload, error) {
+	normalized, err := c.normalizePayload(p)
+	if err != nil {
+		return encodedPayload{}, err
+	}
+	return encodedPayload{Format: normalized.Format(), Data: encodeData(normalized)}, nil
+}
+
+// decodePayload restores a payload from its wire form. Error payloads return
+// to Go errors; topology events return to the pointers their producers send.
+func (c *MessageCodec) decodePayload(w encodedPayload) (payload.Payload, error) {
+	switch w.Format {
+	case payload.GoError:
+		chain, ok := w.Data.(apierror.Chain)
+		if !ok {
+			return nil, newWireTypeError(w.Format, w.Data)
+		}
+		return payload.NewError(apierror.FromChain(&chain)), nil
+	case payload.Golang:
+		if w.Data != nil {
+			if ref, ok := c.refs[reflect.TypeOf(w.Data)]; ok {
+				return payload.NewPayload(ref.ref(w.Data), w.Format), nil
+			}
+		}
+	}
+	return payload.NewPayload(w.Data, w.Format), nil
+}
+
 // normalizePayload converts payloads to formats that msgpack can encode directly.
-// Pass-through: JSON (bytes), Bytes, String, Error, Golang, MsgPack
+// Pass-through: JSON (bytes), Bytes, String, Golang, MsgPack
+// Error: converted to its apierror.Chain
 // Transcode to Golang: Lua, YAML, and other formats
 func (c *MessageCodec) normalizePayload(p payload.Payload) (payload.Payload, error) {
 	switch p.Format() {
-	case payload.JSON, payload.Bytes, payload.String, payload.GoError, payload.Golang, payload.MsgPack:
+	case payload.JSON, payload.Bytes, payload.String, payload.Golang, payload.MsgPack:
 		return p, nil
+	case payload.GoError:
+		err, ok := p.Data().(error)
+		if !ok {
+			return nil, newWireTypeError(payload.GoError, p.Data())
+		}
+		return payload.NewPayload(apierror.BuildChain(err), payload.GoError), nil
 	default:
 		return c.transcoder.Transcode(payload.Snapshot(p), payload.Golang)
 	}
@@ -196,42 +240,4 @@ func encodeData(p payload.Payload) any {
 		return payload.SnapshotData(p.Data())
 	}
 	return p.Data()
-}
-
-type pidExtension struct{}
-
-func (pidExtension) WriteExt(v any) []byte {
-	p, ok := v.(*pid.PID)
-	if !ok {
-		pv, ok := v.(pid.PID)
-		if ok {
-			p = &pv
-		} else {
-			return nil
-		}
-	}
-	return []byte(p.String())
-}
-
-func (pidExtension) ReadExt(dst any, src []byte) {
-	// The msgpack ext API has no error return. A PID field that fails to
-	// parse (corrupt or version-mismatched wire bytes) leaves dst at the
-	// zero PID; downstream routing rejects an empty Source/Target rather
-	// than acting on a wrong address, so the failure surfaces as a dropped
-	// message, not silent misdelivery.
-	p, err := pid.ParsePID(string(src))
-	if err != nil {
-		return
-	}
-	if pidPtr, ok := dst.(*pid.PID); ok {
-		*pidPtr = p
-	}
-}
-
-func registerPIDExtension(mh *codec.MsgpackHandle) error {
-	return mh.SetBytesExt(
-		reflect.TypeOf(pid.PID{}),
-		1,
-		pidExtension{},
-	)
 }

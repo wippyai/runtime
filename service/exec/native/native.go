@@ -36,11 +36,43 @@ const (
 
 // Executor implements the exec.ProcessExecutor interface
 type Executor struct {
+	confineEntry     io.Closer
+	defaultWD        string
 	log              *zap.Logger
 	defaultEnv       map[string]string
-	defaultWD        string
+	confine          *execapi.Confinement
 	commandWhitelist []string
+	confineMu        sync.RWMutex
+	confineClosed    bool
 	processGroup     bool
+}
+
+// Close releases entry-bound confinement handles when the registry removes or
+// replaces this executor. A process that already pinned its launch handles can
+// still finish; a not-yet-started process fails closed if its entry disappeared.
+func (e *Executor) Close() error {
+	e.confineMu.Lock()
+	defer e.confineMu.Unlock()
+	e.confineClosed = true
+	if e.confineEntry == nil {
+		return nil
+	}
+	err := e.confineEntry.Close()
+	e.confineEntry = nil
+	return err
+}
+
+type confinementLaunch interface {
+	Start(*ProcessExecutor) error
+	Signal(syscall.Signal) error
+	Stop()
+	Wait(error) error
+}
+
+// confinementWaitOwner is implemented by a backend which creates the target
+// without os/exec and therefore owns the native process handle and reap.
+type confinementWaitOwner interface {
+	WaitProcess() error
 }
 
 // NewNativeExecutor creates a new native process executor
@@ -51,6 +83,7 @@ func NewNativeExecutor(log *zap.Logger, config *execapi.NativeExecutorConfig) *E
 		defaultWD:        config.DefaultWorkDir,
 		commandWhitelist: config.CommandWhitelist,
 		processGroup:     config.ProcessGroup,
+		confine:          config.Confine.Clone(),
 	}
 }
 
@@ -59,6 +92,9 @@ func (e *Executor) NewProcess(cmd string, options execapi.ProcessOptions) (execa
 	options, err := options.Clone()
 	if err != nil {
 		return nil, err
+	}
+	if e.confine == nil && options.Confine != nil {
+		return nil, execapi.ErrConfineWiden
 	}
 	if len(options.Mounts) > 0 {
 		return nil, execapi.ErrMountsUnsupported
@@ -105,6 +141,12 @@ func (e *Executor) NewProcess(cmd string, options execapi.ProcessOptions) (execa
 	if workDir == "" {
 		workDir = e.defaultWD
 	}
+	if workDir == "" && e.confine != nil {
+		workDir, err = os.Getwd()
+		if err != nil {
+			return nil, execapi.ErrConfineDenied.WithCause(err)
+		}
+	}
 
 	// Clean and validate working directory path
 	if workDir != "" {
@@ -120,6 +162,12 @@ func (e *Executor) NewProcess(cmd string, options execapi.ProcessOptions) (execa
 		WithPTY(ptyOptions),
 		WithProcessGroup(processGroup),
 	)
+	if e.confine != nil {
+		if err := e.prepareConfinement(process, options); err != nil {
+			process.releaseFailedStart()
+			return nil, err
+		}
+	}
 	if ptyOptions != nil {
 		return &ptyProcess{ProcessExecutor: process}, nil
 	}
@@ -135,22 +183,28 @@ type ptyProcess struct{ *ProcessExecutor }
 type ProcessExecutor struct {
 	stderrp      io.ReadCloser
 	stdoutp      io.ReadCloser
-	stdoutw      *os.File
-	stderrw      *os.File
+	waitErr      error
+	confinement  confinementLaunch
 	stdinPipe    io.WriteCloser
-	cmd          *exec.Cmd
 	log          *zap.Logger
+	stdoutw      *os.File
+	stdinReader  *os.File
 	envs         map[string]string
 	ptyMaster    *os.File
 	pty          *execapi.PTYOptions
-	wd           string
+	stderrw      *os.File
+	cmd          *exec.Cmd
+	waitDone     chan struct{}
 	state        string
 	command      string
+	wd           string
 	pid          int
 	pgid         int
 	mu           sync.RWMutex
 	ptyClose     sync.Once
+	waitMu       sync.Mutex
 	stopped      atomic.Bool
+	started      bool
 	stdoutOwned  bool
 	stdinClosed  bool
 	stderrOwned  bool
@@ -228,8 +282,12 @@ func NewProcessExecutor(log *zap.Logger, opts ...Option) *ProcessExecutor {
 			e.log.Error("error creating stdout pipe", zap.Error(err))
 		}
 
-		ip, _ := command.StdinPipe()
-		e.stdinPipe = ip
+		if reader, writer, err := os.Pipe(); err == nil {
+			e.stdinReader, e.stdinPipe = reader, writer
+			command.Stdin = reader
+		} else {
+			e.log.Error("error creating stdin pipe", zap.Error(err))
+		}
 	}
 	e.cmd = command
 
@@ -240,7 +298,16 @@ func NewProcessExecutor(log *zap.Logger, opts ...Option) *ProcessExecutor {
 func (e *ProcessExecutor) Start() error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if e.pty != nil {
+	if e.state != notStarted {
+		return ErrProcessNotRunning
+	}
+	if e.confinement != nil {
+		if err := e.confinement.Start(e); err != nil {
+			e.releaseFailedStart()
+			e.stopped.Store(true)
+			return err
+		}
+	} else if e.pty != nil {
 		width, height, _ := e.pty.Dimensions()
 		master, err := pty.StartWithSize(e.cmd, &pty.Winsize{Cols: uint16(width), Rows: uint16(height)})
 		if err != nil {
@@ -267,15 +334,29 @@ func (e *ProcessExecutor) Start() error {
 		e.releaseOutputWriters()
 	}
 
-	e.pid = e.cmd.Process.Pid
+	if e.pid <= 0 {
+		e.pid = e.cmd.Process.Pid
+	}
+	e.releaseInputReader()
 	// Both paths that give the child a group of its own make it the leader:
 	// setpgid with a zero target group, and the PTY path's setsid. The group
 	// identifier is therefore the child pid.
 	if e.processGroup {
 		e.pgid = e.pid
 	}
+	e.started = true
 	e.state = running
 	return nil
+}
+
+// releaseInputReader closes the parent's copy after the child inherited its
+// own fd. Retaining it would keep stdin's read endpoint alive after child
+// exit, suppressing EPIPE and leaking a descriptor.
+func (e *ProcessExecutor) releaseInputReader() {
+	if e.stdinReader != nil {
+		_ = e.stdinReader.Close()
+		e.stdinReader = nil
+	}
 }
 
 // releaseOutputWriters closes the executor's copies of the output pipe write
@@ -294,6 +375,7 @@ func (e *ProcessExecutor) releaseOutputWriters() {
 
 func (e *ProcessExecutor) releaseFailedStart() {
 	e.releaseOutputWriters()
+	e.releaseInputReader()
 	if e.stdinPipe != nil {
 		_ = e.stdinPipe.Close()
 		e.stdinPipe = nil
@@ -431,7 +513,9 @@ func (e *ProcessExecutor) Signal(sig int) error {
 		}
 		return nil
 	}
-
+	if e.confinement != nil {
+		return e.confinement.Signal(syscall.Signal(sig))
+	}
 	if e.state != running {
 		e.log.Debug("process already terminated")
 		return errors.Join(ErrProcessNotRunning, os.ErrProcessDone)
@@ -486,6 +570,9 @@ func (e *ProcessExecutor) Stop() {
 	defer e.mu.Unlock()
 
 	if e.pid <= 0 {
+		if e.confinement != nil {
+			e.confinement.Stop()
+		}
 		e.releaseFailedStart()
 		e.closePTY()
 		e.stopped.Store(true)
@@ -496,8 +583,9 @@ func (e *ProcessExecutor) Stop() {
 		e.log.Warn("process already stopped")
 		return
 	}
-
-	if e.processGroup {
+	if e.confinement != nil {
+		e.confinement.Stop()
+	} else if e.processGroup {
 		_ = signalProcessGroup(e.pgid, syscall.SIGKILL)
 	} else {
 		pp, err := os.FindProcess(e.pid)
@@ -508,6 +596,10 @@ func (e *ProcessExecutor) Stop() {
 
 		// kill the process
 		_ = pp.Kill()
+	}
+	if e.pty == nil && e.stdinPipe != nil && !e.stdinClosed {
+		_ = e.stdinPipe.Close()
+		e.stdinClosed = true
 	}
 	// to prevent multiple calls to close()
 	e.pid = 0
@@ -527,21 +619,68 @@ func (e *ProcessExecutor) Stop() {
 
 // Wait implements exec.Process
 func (e *ProcessExecutor) Wait() error {
-	err := e.cmd.Wait()
-	var nativeExit *exec.ExitError
-	if errors.As(err, &nativeExit) {
-		code := nativeExit.ExitCode()
-		if status, statusOK := nativeExit.Sys().(syscall.WaitStatus); statusOK && status.Signaled() {
-			code = 128 + int(status.Signal())
-		}
-		err = &ExitError{Code: code, cause: err}
+	e.mu.RLock()
+	started := e.started
+	e.mu.RUnlock()
+	if !started {
+		return ErrProcessNotStarted
+	}
+
+	e.waitMu.Lock()
+	if e.waitDone != nil {
+		done := e.waitDone
+		e.waitMu.Unlock()
+		<-done
+		e.waitMu.Lock()
+		err := e.waitErr
+		e.waitMu.Unlock()
+		return err
+	}
+	e.waitDone = make(chan struct{})
+	done := e.waitDone
+	e.waitMu.Unlock()
+
+	err := e.waitStartedProcess()
+	e.waitMu.Lock()
+	e.waitErr = err
+	close(done)
+	e.waitMu.Unlock()
+	return err
+}
+
+func (e *ProcessExecutor) waitStartedProcess() error {
+	var err error
+	if owner, ok := e.confinement.(confinementWaitOwner); ok {
+		err = owner.WaitProcess()
+	} else {
+		err = e.cmd.Wait()
+	}
+	if e.confinement != nil {
+		err = e.confinement.Wait(err)
 	}
 	var processExit *ExitError
+	if !errors.As(err, &processExit) {
+		var nativeExit *exec.ExitError
+		if errors.As(err, &nativeExit) {
+			code := nativeExit.ExitCode()
+			signal := 0
+			if status, statusOK := nativeExit.Sys().(syscall.WaitStatus); statusOK && status.Signaled() {
+				signal = int(status.Signal())
+				code = 128 + signal
+			}
+			processExit = &ExitError{Code: code, Signal: signal, cause: err}
+			err = processExit
+		}
+	}
 	if err != nil && !errors.As(err, &processExit) {
 		e.log.Error("command wait error", zap.Error(err))
 	}
 
 	e.mu.Lock()
+	if e.pty == nil && e.stdinPipe != nil && !e.stdinClosed {
+		_ = e.stdinPipe.Close()
+		e.stdinClosed = true
+	}
 	// Wait releases the output nobody asked for. Once Stdout or Stderr hands a
 	// reader to a caller, that reader owns the final drain and close, so the
 	// child's last bytes outlive the reap instead of being thrown away with it.

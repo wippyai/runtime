@@ -51,6 +51,7 @@ type noopTopology struct{}
 func (n *noopTopology) Register(_ pid.PID) error              { return nil }
 func (n *noopTopology) Complete(_ pid.PID, _ *runtime.Result) {}
 func (n *noopTopology) Remove(_ pid.PID)                      {}
+func (n *noopTopology) HandleNodeExit(pid.NodeID, error)      {}
 func (n *noopTopology) Monitor(_, _ pid.PID) error            { return nil }
 func (n *noopTopology) Demonitor(_, _ pid.PID) error          { return nil }
 func (n *noopTopology) Link(_, _ pid.PID) error               { return nil }
@@ -325,7 +326,7 @@ func setupInlinePoolTest(t *testing.T, hostID string, script string, needTime bo
 		dispReg.Register(id, h)
 	})
 
-	clockSvc := clock.NewDispatcher()
+	clockSvc := clock.NewDispatcher(zap.NewNop(), nil)
 	t.Cleanup(func() { _ = clockSvc.Stop(ctx) })
 	clockSvc.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
 		dispReg.Register(id, h)
@@ -1808,7 +1809,7 @@ func TestIntegration_RemoteLeaveNoSpuriousEvents(t *testing.T) {
 		dispReg.Register(id, h)
 	})
 
-	clockSvc := clock.NewDispatcher()
+	clockSvc := clock.NewDispatcher(zap.NewNop(), nil)
 	defer func() { _ = clockSvc.Stop(ctx) }()
 	clockSvc.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
 		dispReg.Register(id, h)

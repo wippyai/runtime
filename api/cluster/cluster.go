@@ -5,6 +5,11 @@ package cluster
 
 import "github.com/wippyai/runtime/api/relay"
 
+// MetaIncarnation is the node metadata key carrying the process incarnation
+// of a node's internode transport. A changed value for a known node means the
+// node restarted under the same ID.
+const MetaIncarnation = "internode_incarnation"
+
 type (
 	// NodeID is the stable identifier each node advertises to its peers.
 	NodeID = string
@@ -36,6 +41,20 @@ type (
 		// formation, role transitions). Empty-string values are kept;
 		// callers that want to clear a key should pass it explicitly.
 		UpdateMeta(updates map[string]string)
+	}
+
+	// Link describes the connection this node holds to a peer.
+	Link struct {
+		// Remote is the peer's socket address as this node sees it.
+		Remote string
+		// Dialed reports that this node opened the connection.
+		Dialed bool
+	}
+
+	// Links reports the connected link to each peer.
+	Links interface {
+		// Link returns the connected link to node, if one exists.
+		Link(node NodeID) (Link, bool)
 	}
 
 	// MessageCodec handles encoding and decoding of relay packages for

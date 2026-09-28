@@ -76,6 +76,11 @@ func NewTopology(router relay.Receiver, localNodeID pid.NodeID) *Topology {
 	return t
 }
 
+// isRemote reports whether p lives on another node.
+func (t *Topology) isRemote(p pid.PID) bool {
+	return p.Node != "" && p.Node != t.localNodeID
+}
+
 // shardIndex returns the shard index for a given key using inline FNV-1a.
 func shardIndex(key string) uint32 {
 	const offset32 = 2166136261
@@ -256,6 +261,10 @@ func (t *Topology) Monitor(caller, target pid.PID) error {
 		return nil
 	}
 
+	if t.isRemote(caller) {
+		return t.monitorFromPeer(caller, target)
+	}
+
 	// Local monitoring - lock shards in consistent order
 	callerIdx := shardIndex(callerKey)
 	targetIdx := shardIndex(targetKey)
@@ -264,6 +273,87 @@ func (t *Topology) Monitor(caller, target pid.PID) error {
 		return t.monitorSameShard(callerKey, targetKey, caller, target)
 	}
 	return t.monitorDifferentShards(callerKey, targetKey, caller, target, callerIdx, targetIdx)
+}
+
+// monitorFromPeer records a caller on a peer node as a watcher of a local
+// target. The caller's own state lives on its node. An unknown target answers
+// with an immediate EXIT carrying the not-registered error. Repeated requests
+// from the same caller are idempotent.
+func (t *Topology) monitorFromPeer(caller, target pid.PID) error {
+	key := target.String()
+	sh := t.getShard(key)
+
+	sh.mu.Lock()
+	state, exists := sh.processes[key]
+	if exists {
+		if state.watchers == nil {
+			state.watchers = make(map[string]pid.PID)
+		}
+		state.watchers[caller.String()] = caller
+	}
+	sh.mu.Unlock()
+
+	if exists {
+		return nil
+	}
+	return t.router.Send(relay.NewPackage(target, caller, topology.TopicEvents, payload.New(&topology.ExitEvent{
+		At:     time.Now(),
+		From:   target,
+		Kind:   topology.Exit,
+		Result: &runtime.Result{Error: newPeerTargetNotRegisteredError("monitor", target, caller)},
+	})))
+}
+
+// demonitorFromPeer removes a peer-node watcher from a local target.
+func (t *Topology) demonitorFromPeer(caller, target pid.PID) {
+	key := target.String()
+	sh := t.getShard(key)
+
+	sh.mu.Lock()
+	if state, exists := sh.processes[key]; exists {
+		delete(state.watchers, caller.String())
+	}
+	sh.mu.Unlock()
+}
+
+// linkFromPeer records the local side of a link requested by a process on a
+// peer node. An unknown target answers with an immediate LINK_DOWN carrying
+// the not-registered error.
+func (t *Topology) linkFromPeer(from, to pid.PID) error {
+	key := to.String()
+	sh := t.getShard(key)
+
+	sh.mu.Lock()
+	state, exists := sh.processes[key]
+	if exists {
+		if state.links == nil {
+			state.links = make(map[string]pid.PID)
+		}
+		state.links[from.String()] = from
+	}
+	sh.mu.Unlock()
+
+	if exists {
+		return nil
+	}
+	return t.router.Send(relay.NewPackage(topology.SystemPID, from, topology.TopicEvents, payload.New(&topology.ExitEvent{
+		At:     time.Now(),
+		From:   to,
+		Kind:   topology.LinkDown,
+		Result: &runtime.Result{Error: newPeerTargetNotRegisteredError("link", to, from)},
+	})))
+}
+
+// unlinkFromPeer removes the local side of a peer-node link.
+func (t *Topology) unlinkFromPeer(from, to pid.PID) {
+	key := to.String()
+	sh := t.getShard(key)
+
+	sh.mu.Lock()
+	if state, exists := sh.processes[key]; exists {
+		delete(state.links, from.String())
+	}
+	sh.mu.Unlock()
 }
 
 func (t *Topology) monitorSameShard(callerKey, targetKey string, caller, target pid.PID) error {
@@ -372,6 +462,11 @@ func (t *Topology) Demonitor(caller, target pid.PID) error {
 		return nil
 	}
 
+	if t.isRemote(caller) {
+		t.demonitorFromPeer(caller, target)
+		return nil
+	}
+
 	// Local demonitoring - lock shards in consistent order to prevent race conditions
 	callerIdx := shardIndex(callerKey)
 	targetIdx := shardIndex(targetKey)
@@ -453,6 +548,10 @@ func (t *Topology) Link(from, to pid.PID) error {
 		}
 		fromSh.mu.Unlock()
 		return nil
+	}
+
+	if t.isRemote(from) {
+		return t.linkFromPeer(from, to)
 	}
 
 	// Local linking - lock shards in consistent order
@@ -573,6 +672,11 @@ func (t *Topology) Unlink(from, to pid.PID) error {
 			delete(fromState.links, toKey)
 		}
 		fromSh.mu.Unlock()
+		return nil
+	}
+
+	if t.isRemote(from) {
+		t.unlinkFromPeer(from, to)
 		return nil
 	}
 

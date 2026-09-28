@@ -8,6 +8,8 @@ import (
 
 var (
 	ErrNoSecretKeyProvided = apierror.New(apierror.Invalid, "no secret key provided").WithRetryable(apierror.False)
+
+	ErrGossipReceiverTaken = apierror.New(apierror.Conflict, "internode gossip receiver is already registered").WithRetryable(apierror.False)
 )
 
 func NewLoadSecretKeyError(err error) apierror.Error {

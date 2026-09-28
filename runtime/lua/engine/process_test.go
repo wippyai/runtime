@@ -22,6 +22,7 @@ import (
 	"github.com/wippyai/runtime/api/runtime/resource"
 	"github.com/wippyai/runtime/system/clock"
 	"github.com/wippyai/runtime/system/scheduler/pool/static"
+	"go.uber.org/zap"
 )
 
 // testYieldCmdID is a test command ID for simulating external yields
@@ -896,7 +897,7 @@ type poolTestDispatcher struct {
 
 func newPoolTestDispatcher() *poolTestDispatcher {
 	d := &poolTestDispatcher{handlers: make(map[dispatcher.CommandID]dispatcher.Handler)}
-	d.clock = clock.NewDispatcher()
+	d.clock = clock.NewDispatcher(zap.NewNop(), nil)
 	d.clock.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
 		d.handlers[id] = h
 	})

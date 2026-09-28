@@ -105,6 +105,9 @@ func (e *Executor) NewProcess(cmd string, options execapi.ProcessOptions) (execa
 	if err != nil {
 		return nil, err
 	}
+	if options.Confine != nil {
+		return nil, execapi.ErrConfineUnsupported
+	}
 	if err := validateProcessMountTargets(e.volumes, options.Mounts); err != nil {
 		return nil, err
 	}

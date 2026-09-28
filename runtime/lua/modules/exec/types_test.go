@@ -51,3 +51,42 @@ return options
 	require.NoError(t, err)
 	require.False(t, code.HasErrors(diagnostics), "process mount options type was rejected: %v", diagnostics)
 }
+
+func TestProcessConfinementOptionsAreTyped(t *testing.T) {
+	config := code.DefaultTypeCheckConfig()
+	config.Enabled = true
+	config.SkipUntyped = false
+	checker := code.NewTypeChecker(config, []*luaapi.ModuleDef{Module})
+	_, diagnostics, err := checker.Check(`
+local exec = require("exec")
+local confine: exec.ConfinementPatch = {
+    fs = {read = {"/workspace", "{tmp}"}, write = {"{tmp}"}, exec = {}},
+    env = {allow = {"PATH"}},
+    network = "none",
+    limits = {mem_mb = 128, pids = 16, wall_s = 30},
+    tree = {kill_on_owner_exit = true},
+}
+local function options() : exec.ProcessOptions
+    return {confine = confine}
+end
+return options
+`, "process_confinement_options.lua", nil)
+	require.NoError(t, err)
+	require.False(t, code.HasErrors(diagnostics), "process confinement options type was rejected: %v", diagnostics)
+}
+
+func TestProcessConfinementTypesRejectInvalidNarrowingOption(t *testing.T) {
+	config := code.DefaultTypeCheckConfig()
+	config.Enabled = true
+	config.SkipUntyped = false
+	checker := code.NewTypeChecker(config, []*luaapi.ModuleDef{Module})
+	_, diagnostics, err := checker.Check(`
+local exec = require("exec")
+local options: exec.ProcessOptions = {
+    confine = {network = "host"}
+}
+return options
+`, "process_confinement_invalid_network.lua", nil)
+	require.NoError(t, err)
+	require.True(t, code.HasErrors(diagnostics), "invalid confinement option was accepted: %v", diagnostics)
+}

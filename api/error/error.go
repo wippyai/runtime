@@ -105,6 +105,9 @@ func (e *err) Error() string {
 	}
 	return e.message
 }
+
+// Msg returns the message of this error without its cause.
+func (e *err) Msg() string               { return e.message }
 func (e *err) Kind() Kind                { return e.kind }
 func (e *err) Retryable() Ternary        { return e.retryable }
 func (e *err) Details() attrs.Attributes { return e.details }

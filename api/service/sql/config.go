@@ -82,7 +82,8 @@ type (
 		MaxMutationChanges int                        `json:"max_mutation_changes,omitempty"`
 		// MaxMutationBytes is a conservative retained logical-byte bound. A
 		// native SQLite row is materialized before the observer can reject it.
-		MaxMutationBytes int `json:"max_mutation_bytes,omitempty"`
+		MaxMutationBytes int  `json:"max_mutation_bytes,omitempty"`
+		ForeignKeys      bool `json:"foreign_keys"` // Enforce foreign keys on every connection; defaults to false
 	}
 )
 

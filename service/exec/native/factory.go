@@ -22,5 +22,11 @@ func NewExecutorFactory(log *zap.Logger) *ExecutorFactory {
 
 // CreateExecutor implements ExecutorFactoryAPI
 func (f *ExecutorFactory) CreateExecutor(_ registry.ID, cfg *exec.NativeExecutorConfig) (exec.ProcessExecutor, error) {
-	return NewNativeExecutor(f.log, cfg), nil
+	executor := NewNativeExecutor(f.log, cfg)
+	if cfg.Confine != nil {
+		if err := executor.bindConfinementEntry(); err != nil {
+			return nil, err
+		}
+	}
+	return executor, nil
 }

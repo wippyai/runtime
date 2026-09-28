@@ -39,8 +39,11 @@ type raftTransportConn struct {
 	id        cluster.NodeID
 }
 
-func (c *raftTransportConn) Start(context.Context, func(cluster.NodeID, []byte)) error { return nil }
-func (c *raftTransportConn) Stop() error                                               { return nil }
+func (c *raftTransportConn) Start(context.Context, func(cluster.NodeID, []byte), func(cluster.NodeID)) error {
+	return nil
+}
+func (c *raftTransportConn) Incarnation() uint64 { return 1 }
+func (c *raftTransportConn) Stop() error         { return nil }
 func (c *raftTransportConn) SendToNode(nodeID cluster.NodeID, data []byte, class internode.Class) error {
 	peer := c.fabric.nodes[nodeID]
 	if peer == nil {
@@ -54,12 +57,20 @@ func (c *raftTransportConn) SendToNode(nodeID cluster.NodeID, data []byte, class
 	recv(c.id, cp)
 	return nil
 }
+
+func (c *raftTransportConn) SendConnected(nodeID cluster.NodeID, data []byte, class internode.Class) bool {
+	return c.SendToNode(nodeID, data, class) == nil
+}
+
+func (c *raftTransportConn) Link(cluster.NodeID) (cluster.Link, bool) {
+	return cluster.Link{}, false
+}
 func (c *raftTransportConn) EnsureConnection(cluster.NodeID, string, int)     {}
 func (c *raftTransportConn) DisconnectFromNode(cluster.NodeID)                {}
 func (c *raftTransportConn) ConnectedNodes() []cluster.NodeID                 { return nil }
 func (c *raftTransportConn) GetListenPort() int                               { return 0 }
 func (c *raftTransportConn) AddManagedNode(cluster.NodeID)                    {}
-func (c *raftTransportConn) RemoveManagedNode(cluster.NodeID)                 {}
+func (c *raftTransportConn) RemoveManagedNode(cluster.NodeID, uint64)         {}
 func (c *raftTransportConn) IsManaged(cluster.NodeID) bool                    { return true }
 func (c *raftTransportConn) EvictOrphanNodes(map[cluster.NodeID]struct{}) int { return 0 }
 func (c *raftTransportConn) RecordDropReason(string)                          {}

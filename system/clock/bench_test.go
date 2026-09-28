@@ -83,7 +83,7 @@ func BenchmarkTickerRegistry_StartStop(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		id := r.start(ctx, time.Hour, testPID, "topic", node)
+		id := r.start(ctx, time.Hour, testPID, "topic", tickTo(node, testPID, "topic"))
 		_ = r.stop(id)
 	}
 }
@@ -99,7 +99,7 @@ func BenchmarkTickerRegistry_StartStopParallel(b *testing.B) {
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			id := r.start(ctx, time.Hour, testPID, "topic", node)
+			id := r.start(ctx, time.Hour, testPID, "topic", tickTo(node, testPID, "topic"))
 			_ = r.stop(id)
 		}
 	})
@@ -147,7 +147,7 @@ func BenchmarkTickerRegistry_Count(b *testing.B) {
 
 	// Create 100 tickers
 	for i := 0; i < 100; i++ {
-		r.start(ctx, time.Hour, testPID, "topic", node)
+		r.start(ctx, time.Hour, testPID, "topic", tickTo(node, testPID, "topic"))
 	}
 
 	b.ResetTimer()
@@ -196,7 +196,7 @@ func BenchmarkTickerRegistry_Allocs(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		id := r.start(ctx, time.Hour, testPID, "topic", node)
+		id := r.start(ctx, time.Hour, testPID, "topic", tickTo(node, testPID, "topic"))
 		_ = r.stop(id)
 	}
 }

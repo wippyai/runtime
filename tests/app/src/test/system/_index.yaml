@@ -17,6 +17,19 @@ entries:
     imports:
       assert_primitives: app.lib:assert
 
+  - name: version
+    kind: function.lua
+    meta:
+      type: test
+      suite: system
+      description: system.version build identity
+    source: file://version.lua
+    method: main
+    modules:
+      - system
+    imports:
+      assert_primitives: app.lib:assert
+
   - name: memory
     kind: function.lua
     meta:

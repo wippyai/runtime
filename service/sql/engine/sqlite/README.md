@@ -5,6 +5,14 @@ Wippy pins `github.com/rqlite/go-sqlite3 v1.50.0` through a replacement of
 runtime and extensions share one driver registration and SQLite implementation.
 This is a SQLite driver dependency, not the rqlite server or Raft subsystem.
 
+## Foreign keys
+
+Set `foreign_keys: true` on a `db.sql.sqlite` entry to enforce foreign key
+constraints, including `ON DELETE CASCADE`, on every physical connection.
+The option defaults to `false` for compatibility with existing databases.
+It works with file databases and `file: ":memory:"`; enforcement is a SQLite
+connection setting and does not change other clients that open the same file.
+
 ## Value contract
 
 The fork preserves SQLite storage types in pre-update row images: TEXT is a

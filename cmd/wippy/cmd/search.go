@@ -5,6 +5,7 @@ package cmd
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 	bootauth "github.com/wippyai/runtime/boot/deps/auth"
+	"github.com/wippyai/runtime/boot/deps/graph"
 	"github.com/wippyai/runtime/boot/deps/hub"
 )
 
@@ -23,6 +25,7 @@ var searchCmd = &cobra.Command{
 
 Examples:
   wippy search http              # Search for http modules
+  wippy search wippy/migration   # Look up an exact module
   wippy search --json http       # Output as JSON
   wippy search --limit 10 http   # Limit results`,
 	Args: cobra.ExactArgs(1),
@@ -67,10 +70,7 @@ func runSearch(cmd *cobra.Command, args []string) error {
 	ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
 	defer cancel()
 
-	result, err := client.SearchModules(ctx, &hub.SearchParams{
-		Query:    query,
-		PageSize: limit,
-	})
+	result, err := searchModules(ctx, client, query, limit)
 	if err != nil {
 		return NewSearchError(query, registryURL, err)
 	}
@@ -80,6 +80,26 @@ func runSearch(cmd *cobra.Command, args []string) error {
 	}
 
 	return printSearchTable(result)
+}
+
+type moduleSearchClient interface {
+	SearchModules(context.Context, *hub.SearchParams) (*hub.SearchResult, error)
+	GetModule(context.Context, string, string) (*hub.ModuleInfo, error)
+}
+
+func searchModules(ctx context.Context, client moduleSearchClient, query string, limit int32) (*hub.SearchResult, error) {
+	if name, err := graph.ParseName(query); err == nil {
+		module, err := client.GetModule(ctx, name.Organization, name.Module)
+		if errors.Is(err, hub.ErrModuleNotFound) {
+			return &hub.SearchResult{}, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		return &hub.SearchResult{Modules: []*hub.ModuleInfo{module}, TotalCount: 1}, nil
+	}
+
+	return client.SearchModules(ctx, &hub.SearchParams{Query: query, PageSize: limit})
 }
 
 func printSearchJSON(result *hub.SearchResult) error {

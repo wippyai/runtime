@@ -7,7 +7,6 @@ import (
 	"errors"
 	"net"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/wippyai/runtime/api/cluster"
@@ -24,13 +23,12 @@ import (
 // zero evictions.
 const orphanSweepInterval = 60 * time.Second
 
-// Membership metadata keys form the rolling-upgrade wire contract between
-// nodes. Older peers consume MetadataPort and ignore the additive v2 fields.
+// Membership metadata keys a node publishes for internode connections: the
+// listener port, dialed at the member's membership address, and the identity
+// key the handshake pins.
 const (
-	MetadataPort          = "internode_port"
-	MetadataAdvertiseAddr = "internode_advertise_addr"
-	MetadataAdvertisePort = "internode_advertise_port"
-	MetadataPublicKey     = "internode_public_key"
+	MetadataPort      = "internode_port"
+	MetadataPublicKey = "internode_public_key"
 )
 
 // PackageCallback takes ownership only when it returns nil. On error it must
@@ -44,17 +42,23 @@ type Service struct {
 	connMan          ConnectionManager
 	codec            cluster.MessageCodec
 	deliveryCallback PackageCallback
+	sessionEnded     func(cluster.NodeID)
 	bus              event.Bus
 	membership       cluster.Membership
 	subscriber       *eventbus.Subscriber
 	localNodeID      cluster.NodeID
 }
 
+// NewService wires the transport to local delivery. sessionEnded runs
+// synchronously when a session with a node ends, after the last frame of that
+// session was delivered and before any frame of a later session is; it must
+// break local links and monitors of the node's processes.
 func NewService(
 	logger *zap.Logger,
 	connMan ConnectionManager,
 	codec cluster.MessageCodec,
 	pkgCallback PackageCallback,
+	sessionEnded func(cluster.NodeID),
 	bus event.Bus,
 	membership cluster.Membership,
 ) *Service {
@@ -63,11 +67,14 @@ func NewService(
 		connMan:          connMan,
 		codec:            codec,
 		deliveryCallback: pkgCallback,
+		sessionEnded:     sessionEnded,
 		bus:              bus,
 		membership:       membership,
 	}
 }
 
+// Start serves the connection manager and follows membership. A service
+// starts once: its connection manager is single-use.
 func (s *Service) Start(ctx context.Context) error {
 	ctx, s.cancel = context.WithCancel(ctx)
 	s.ctx = ctx
@@ -105,7 +112,7 @@ func (s *Service) Start(ctx context.Context) error {
 		}
 	}
 
-	if err := s.connMan.Start(ctx, onMessage); err != nil {
+	if err := s.connMan.Start(ctx, onMessage, s.sessionEnded); err != nil {
 		s.cancel()
 		return NewStartConnectionManagerError(err)
 	}
@@ -295,8 +302,24 @@ func (s *Service) handleMembershipEvent(e event.Event) {
 	case cluster.NodeLeft:
 		s.logger.Info("Node left cluster, cleaning up state and connection",
 			zap.String("node_id", nodeInfo.ID))
-		s.connMan.RemoveManagedNode(nodeInfo.ID)
+		s.connMan.RemoveManagedNode(nodeInfo.ID, s.departingIncarnation(nodeInfo))
 	}
+}
+
+// departingIncarnation reads the incarnation a departing node advertised.
+// Zero means the departure names no incarnation and removes any session.
+func (s *Service) departingIncarnation(nodeInfo cluster.NodeInfo) uint64 {
+	raw, ok := nodeInfo.Meta[cluster.MetaIncarnation]
+	if !ok {
+		return 0
+	}
+	incarnation, err := strconv.ParseUint(raw, 10, 64)
+	if err != nil {
+		s.logger.Error("Invalid incarnation metadata on departing node; removing its session",
+			zap.String("node_id", nodeInfo.ID), zap.String("incarnation", raw), zap.Error(err))
+		return 0
+	}
+	return incarnation
 }
 
 func (s *Service) connectToNode(nodeInfo cluster.NodeInfo) {
@@ -313,53 +336,11 @@ func (s *Service) connectToNode(nodeInfo cluster.NodeInfo) {
 		return
 	}
 
-	// The v1 endpoint remains memberlist IP + internode_port. v2 metadata is
-	// additive, so a new node can use a relay while an old node ignores it and
-	// continues dialing the preserved v1 endpoint.
+	// A member is dialed at its membership address. A member that cannot be
+	// dialed there reaches this node through its own dial.
 	addr := nodeInfo.Addr
 	if host, _, splitErr := net.SplitHostPort(addr); splitErr == nil {
 		addr = host
 	}
-	advertiseAddr, hasAddr := nodeInfo.Meta[MetadataAdvertiseAddr]
-	advertisePort, hasPort := nodeInfo.Meta[MetadataAdvertisePort]
-	if hasAddr != hasPort {
-		s.logger.Error("Incomplete v2 internode endpoint metadata for node",
-			zap.String("node_id", nodeInfo.ID))
-		return
-	} else if hasAddr {
-		advertiseAddr = strings.TrimSpace(advertiseAddr)
-		advertisePortNumber, parseErr := strconv.Atoi(advertisePort)
-		if !ValidEndpointHost(advertiseAddr) || parseErr != nil || advertisePortNumber < 1 || advertisePortNumber > 65535 {
-			s.logger.Error("Invalid v2 internode endpoint metadata for node",
-				zap.String("node_id", nodeInfo.ID), zap.String("addr", advertiseAddr), zap.String("port", advertisePort))
-			return
-		}
-		addr, port = advertiseAddr, advertisePortNumber
-	}
-
 	s.connMan.EnsureConnection(nodeInfo.ID, addr, port)
-}
-
-// ValidEndpointHost reports whether host is an IP literal or an ASCII DNS
-// hostname suitable for net.JoinHostPort. Endpoint ports are carried
-// separately and are therefore rejected here.
-func ValidEndpointHost(host string) bool {
-	if net.ParseIP(host) != nil {
-		return true
-	}
-	host = strings.TrimSuffix(host, ".")
-	if host == "" || len(host) > 253 {
-		return false
-	}
-	for _, label := range strings.Split(host, ".") {
-		if label == "" || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
-			return false
-		}
-		for _, ch := range label {
-			if (ch < 'a' || ch > 'z') && (ch < 'A' || ch > 'Z') && (ch < '0' || ch > '9') && ch != '-' {
-				return false
-			}
-		}
-	}
-	return true
 }

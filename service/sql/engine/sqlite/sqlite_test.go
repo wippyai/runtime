@@ -38,14 +38,108 @@ func TestBuildDSN(t *testing.T) {
 	mem, err := e.BuildDSN(&config.SQLiteConfig{File: ":memory:"})
 	require.NoError(t, err)
 	assert.Equal(t, ":memory:", mem)
-
-	file, err := e.BuildDSN(&config.SQLiteConfig{File: "/tmp/app.db"})
+	mem, err = e.BuildDSN(&config.SQLiteConfig{File: ":memory:", ForeignKeys: true})
 	require.NoError(t, err)
-	assert.Equal(t, "file:/tmp/app.db?mode=rwc", file)
+	assert.Equal(t, "file::memory:?mode=memory&_foreign_keys=1", mem)
+
+	filePath := filepath.Join(t.TempDir(), "app.db")
+	file, err := e.BuildDSN(&config.SQLiteConfig{File: filePath})
+	require.NoError(t, err)
+	assert.Equal(t, "file:"+filePath+"?mode=rwc", file)
+	file, err = e.BuildDSN(&config.SQLiteConfig{File: filePath, ForeignKeys: true})
+	require.NoError(t, err)
+	assert.Equal(t, "file:"+filePath+"?mode=rwc&_foreign_keys=1", file)
 
 	_, err = e.BuildDSN(&config.DBConfig{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid config type")
+}
+
+func TestForeignKeys(t *testing.T) {
+	for _, tt := range []struct {
+		name        string
+		memory      bool
+		foreignKeys bool
+	}{
+		{name: "file enabled", foreignKeys: true},
+		{name: "memory enabled", memory: true, foreignKeys: true},
+		{name: "file omitted"},
+		{name: "memory omitted", memory: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			file := filepath.Join(t.TempDir(), "foreign-keys.db")
+			if tt.memory {
+				file = ":memory:"
+			}
+			cfg := &config.SQLiteConfig{File: file, ForeignKeys: tt.foreignKeys, Pool: config.PoolConfig{MaxLifetime: time.Hour}}
+			opened, err := (engine{}).Open(ctx, cfg)
+			require.NoError(t, err)
+			defer func() { require.NoError(t, opened.DB.Close()) }()
+			if opened.Observer != nil {
+				defer func() { require.NoError(t, opened.Observer.Close()) }()
+			}
+			(engine{}).Tune(opened.DB, cfg)
+
+			var enabled int
+			require.NoError(t, opened.DB.QueryRowContext(ctx, "PRAGMA foreign_keys").Scan(&enabled))
+			if tt.foreignKeys {
+				assert.Equal(t, 1, enabled)
+			} else {
+				assert.Equal(t, 0, enabled)
+			}
+
+			_, err = opened.DB.ExecContext(ctx, `CREATE TABLE parent (id INTEGER PRIMARY KEY);
+				CREATE TABLE child (id INTEGER PRIMARY KEY, parent_id INTEGER REFERENCES parent(id) ON DELETE CASCADE);`)
+			require.NoError(t, err)
+			_, err = opened.DB.ExecContext(ctx, "INSERT INTO child (id, parent_id) VALUES (1, 999)")
+			if tt.foreignKeys {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+			_, err = opened.DB.ExecContext(ctx, "INSERT INTO parent (id) VALUES (1)")
+			require.NoError(t, err)
+			_, err = opened.DB.ExecContext(ctx, "INSERT INTO child (id, parent_id) VALUES (2, 1)")
+			require.NoError(t, err)
+			_, err = opened.DB.ExecContext(ctx, "DELETE FROM parent WHERE id = 1")
+			require.NoError(t, err)
+			var count int
+			require.NoError(t, opened.DB.QueryRowContext(ctx, "SELECT COUNT(*) FROM child WHERE id = 2").Scan(&count))
+			if tt.foreignKeys {
+				assert.Equal(t, 0, count)
+			} else {
+				assert.Equal(t, 1, count)
+			}
+		})
+	}
+}
+
+func TestForeignKeysSurviveConnectionRecycling(t *testing.T) {
+	ctx := context.Background()
+	cfg := &config.SQLiteConfig{
+		File:        filepath.Join(t.TempDir(), "recycled.db"),
+		ForeignKeys: true,
+		Pool:        config.PoolConfig{MaxLifetime: 5 * time.Millisecond},
+	}
+	opened, err := (engine{}).Open(ctx, cfg)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, opened.DB.Close()) }()
+	if opened.Observer != nil {
+		defer func() { require.NoError(t, opened.Observer.Close()) }()
+	}
+	(engine{}).Tune(opened.DB, cfg)
+
+	_, err = opened.DB.ExecContext(ctx, `CREATE TABLE parent (id INTEGER PRIMARY KEY);
+		CREATE TABLE child (parent_id INTEGER REFERENCES parent(id));`)
+	require.NoError(t, err)
+	time.Sleep(20 * time.Millisecond)
+	_, err = opened.DB.ExecContext(ctx, "INSERT INTO child (parent_id) VALUES (999)")
+	require.Error(t, err)
+	assert.Greater(t, opened.DB.Stats().MaxLifetimeClosed, int64(0))
+	var enabled int
+	require.NoError(t, opened.DB.QueryRowContext(ctx, "PRAGMA foreign_keys").Scan(&enabled))
+	assert.Equal(t, 1, enabled)
 }
 
 func TestPrepareEnablesWAL(t *testing.T) {

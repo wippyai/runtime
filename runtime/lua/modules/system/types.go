@@ -132,6 +132,13 @@ var nodeInfoType = typ.NewRecord().
 	Field("is_local", typ.Boolean).
 	Field("addr", typ.NewOptional(typ.String)).
 	Field("meta", typ.NewOptional(typ.NewMap(typ.String, typ.String))).
+	Field("link", typ.NewOptional(nodeLinkType)).
+	Build()
+
+// NodeLink type describing this node's connected link to a member.
+var nodeLinkType = typ.NewRecord().
+	Field("remote", typ.String).
+	Field("dialed", typ.Boolean).
 	Build()
 
 // node submodule type
@@ -168,6 +175,7 @@ var lockType = typ.NewInterface("system.lock", []typ.Method{
 var systemMethodsType = typ.NewInterface("system", []typ.Method{
 	{Name: "exit", Type: typ.Func().OptParam("code", typ.Number).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
 	{Name: "modules", Type: typ.Func().Returns(typ.NewArray(moduleInfoType), typ.NewOptional(typ.LuaError)).Build()},
+	{Name: "version", Type: typ.Func().Returns(typ.String).Build()},
 })
 
 // ModuleTypes returns the type manifest for the system module.
@@ -179,6 +187,7 @@ func ModuleTypes() *io.Manifest {
 	m.DefineType("HostStats", hostStatsType)
 	m.DefineType("ProcessStats", processStatsType)
 	m.DefineType("NodeInfo", nodeInfoType)
+	m.DefineType("NodeLink", nodeLinkType)
 	m.DefineType("SourceEntry", sourceEntryType)
 	m.DefineType("LoadedSources", loadedSourcesType)
 

@@ -50,6 +50,9 @@ func (p *executorProvider) Close() error {
 	}
 
 	p.closed = true
+	if closer, ok := p.executor.(interface{ Close() error }); ok {
+		return closer.Close()
+	}
 	return nil
 }
 

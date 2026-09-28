@@ -14,6 +14,10 @@ import (
 // Executors that report only an exit code carry no wait status and report no
 // signal.
 func exitSignal(err error) int {
+	var signaler ExitSignaler
+	if errors.As(err, &signaler) {
+		return signaler.ExitSignal()
+	}
 	var exitErr *osexec.ExitError
 	if !errors.As(err, &exitErr) || exitErr.ProcessState == nil {
 		return 0
