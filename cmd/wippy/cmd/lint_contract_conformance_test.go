@@ -73,6 +73,21 @@ func TestPrimitiveSuccessfulOutputMismatchIsViolation(t *testing.T) {
 	t.Fatalf("primitive result mismatch must be a violation: %+v", findings)
 }
 
+func TestIncompleteSchemaStillChecksSupportedType(t *testing.T) {
+	findings := conformanceFixture(`{"type":"string","minLength":2}`, `{"type":"string","minLength":2}`, typ.Func().Param("request", typ.Number).Returns(typ.Number).Build())
+	for _, path := range []string{"input_schemas[0]", "output_schemas[0]"} {
+		found := false
+		for _, finding := range findings {
+			if finding.path == path && finding.violation {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("missing supported-type violation at %s: %+v", path, findings)
+		}
+	}
+}
+
 func TestBindingConformanceClassifiesViolationsAndGaps(t *testing.T) {
 	input := `{"type":"string"}`
 	output := `{"type":"object","properties":{"ok":{"type":"boolean"}},"required":["ok"]}`

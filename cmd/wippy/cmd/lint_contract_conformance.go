@@ -108,8 +108,10 @@ func checkBindingConformance(catalog *contractCatalog, manifests map[regapi.ID]*
 						} // Lua discards surplus positional arguments.
 						projection := contractmod.TranslateSchema(schema, nil)
 						path := fmt.Sprintf("input_schemas[%d]", i)
-						if projection.Coverage != contractmod.SchemaComplete || containsUnverifiable(projection.Type) || containsUnverifiable(accepted) {
+						if projection.Coverage != contractmod.SchemaComplete {
 							add(path, "cannot verify input constraint from unknown/any or incomplete schema evidence", false)
+						}
+						if containsUnverifiable(projection.Type) || containsUnverifiable(accepted) {
 							continue
 						}
 						if !subtype.IsSubtype(projection.Type, accepted) {
@@ -149,9 +151,6 @@ func checkBindingConformance(catalog *contractCatalog, manifests map[regapi.ID]*
 					missing := missingOutputField(actual, projection.Type)
 					if missing != "" {
 						add(path+"/required", "successful result may omit required output field "+fmt.Sprintf("%q", missing), true)
-					}
-					if schemaGap {
-						continue
 					}
 					if missing != "" {
 						continue
