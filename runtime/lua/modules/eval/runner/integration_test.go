@@ -128,7 +128,7 @@ func newTestScheduler(evalOptions ...evalhost.HostOption) *testScheduler {
 	reg := scheduler.NewRegistry()
 
 	// Register clock handlers
-	clockSvc := clock.NewDispatcher()
+	clockSvc := clock.NewDispatcher(zap.NewNop(), nil)
 	clockSvc.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
 		reg.Register(id, h)
 	})

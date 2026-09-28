@@ -10,8 +10,12 @@ import (
 	"io/fs"
 	"os"
 	osexec "os/exec"
+	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
+	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -20,11 +24,89 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/service/exec"
 	serviceexec "github.com/wippyai/runtime/service/exec"
 	mocklogger "github.com/wippyai/runtime/tests/mock"
 	"go.uber.org/zap"
 )
+
+type lifecycleConfinement struct {
+	startErr  error
+	stopCalls int
+	waitCalls int
+}
+
+func (c *lifecycleConfinement) Start(*ProcessExecutor) error { return c.startErr }
+func (c *lifecycleConfinement) Signal(syscall.Signal) error  { return nil }
+func (c *lifecycleConfinement) Stop()                        { c.stopCalls++ }
+func (c *lifecycleConfinement) Wait(err error) error {
+	c.waitCalls++
+	return err
+}
+
+func TestProcessExecutorWaitBeforeSuccessfulStartIsInert(t *testing.T) {
+	for _, test := range []struct {
+		setup func(*ProcessExecutor, *lifecycleConfinement)
+		name  string
+	}{
+		{name: "before start"},
+		{name: "after stop before start", setup: func(process *ProcessExecutor, _ *lifecycleConfinement) {
+			process.Stop()
+		}},
+		{name: "after failed start", setup: func(process *ProcessExecutor, confinement *lifecycleConfinement) {
+			confinement.startErr = errors.New("setup failed")
+			require.Error(t, process.Start())
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			process := NewProcessExecutor(zap.NewNop(), WithCmd("unused"))
+			confinement := &lifecycleConfinement{}
+			process.confinement = confinement
+			if test.setup != nil {
+				test.setup(process, confinement)
+			}
+			require.ErrorIs(t, process.Wait(), ErrProcessNotStarted)
+			require.Zero(t, confinement.waitCalls)
+		})
+	}
+}
+
+func TestProcessExecutorPidDoesNotMutateLifecycle(t *testing.T) {
+	confinement := &lifecycleConfinement{}
+	process := &ProcessExecutor{
+		state: running, started: true, log: zap.NewNop(), confinement: confinement,
+	}
+	_, err := process.Pid()
+	require.ErrorIs(t, err, ErrInvalidPID)
+	require.Zero(t, confinement.stopCalls)
+}
+
+func TestProcessExecutorConcurrentWaitReturnsOneObservedExit(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses a POSIX shell command")
+	}
+	process := NewProcessExecutor(zap.NewNop(), WithCmd("sh -c 'exit 7'"))
+	require.NoError(t, process.Start())
+
+	const waiters = 12
+	results := make(chan error, waiters)
+	var group sync.WaitGroup
+	for range waiters {
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			results <- process.Wait()
+		}()
+	}
+	group.Wait()
+	close(results)
+	for err := range results {
+		var exit *ExitError
+		require.ErrorAs(t, err, &exit)
+		require.Equal(t, 7, exit.Code)
+	}
+}
 
 func TestPTYProcessResize(t *testing.T) {
 	if runtime.GOOS == "windows" {
@@ -96,6 +178,36 @@ func TestNativeExecutorRejectsProcessMounts(t *testing.T) {
 	assert.ErrorIs(t, err, exec.ErrMountsUnsupported)
 }
 
+func TestNativeConfinementFailsClosedUntilEnforcementIsInstalled(t *testing.T) {
+	baseline := &exec.Confinement{WorkDirRoots: []string{filepath.Clean(os.TempDir())}, Network: "none"}
+	factory := NewExecutorFactory(zap.NewNop())
+	_, err := factory.CreateExecutor(registry.ID{}, &exec.NativeExecutorConfig{Confine: baseline})
+	require.ErrorIs(t, err, exec.ErrConfineUnsupported)
+
+	executor := NewNativeExecutor(zap.NewNop(), &exec.NativeExecutorConfig{Confine: baseline})
+	_, err = executor.NewProcess("true", exec.ProcessOptions{})
+	require.ErrorIs(t, err, exec.ErrConfineUnsupported)
+
+	executor = NewNativeExecutor(zap.NewNop(), &exec.NativeExecutorConfig{})
+	_, err = executor.NewProcess("true", exec.ProcessOptions{Confine: &exec.ConfinementPatch{}})
+	require.ErrorIs(t, err, exec.ErrConfineWiden)
+}
+
+func TestNativeExecutorSnapshotsConfinementBaseline(t *testing.T) {
+	baseline := &exec.Confinement{
+		WorkDirRoots: []string{"/workspace"}, Network: "none",
+		Env: &exec.ConfinementEnvironment{Allow: []string{"LANG"}, Set: map[string]string{"PATH": "/usr/bin"}},
+	}
+	executor := NewNativeExecutor(zap.NewNop(), &exec.NativeExecutorConfig{Confine: baseline})
+	baseline.WorkDirRoots[0] = "/changed"
+	baseline.Env.Allow[0] = "TOKEN"
+	baseline.Env.Set["PATH"] = "/tmp"
+
+	require.Equal(t, []string{"/workspace"}, executor.confine.WorkDirRoots)
+	require.Equal(t, []string{"LANG"}, executor.confine.Env.Allow)
+	require.Equal(t, "/usr/bin", executor.confine.Env.Set["PATH"])
+}
+
 func TestPTYWaitReleasesMasterFile(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("PTY test requires Unix")
@@ -123,9 +235,33 @@ func TestPTYWaitLeavesAcquiredOutputForCallerToDrain(t *testing.T) {
 	require.NoError(t, process.Start())
 	output := process.Stdout()
 	require.NotNil(t, output)
-	require.NoError(t, process.Wait())
-	payload, _ := io.ReadAll(output)
+	// A PTY child may wait for its output to be drained before it exits (as
+	// macOS does). The reader owns the master, so drain it while waiting.
+	drained := make(chan []byte, 1)
+	go func() {
+		payload, _ := io.ReadAll(output)
+		drained <- payload
+	}()
+	waited := make(chan error, 1)
+	go func() { waited <- process.Wait() }()
+	select {
+	case waitErr := <-waited:
+		require.NoError(t, waitErr)
+	case <-time.After(5 * time.Second):
+		state, _ := osexec.CommandContext(t.Context(), "ps", "-p", strconv.Itoa(process.pid), "-o", "pid,ppid,stat,command").CombinedOutput()
+		process.Stop()
+		t.Fatalf("PTY child did not exit: %s", state)
+	}
+	var payload []byte
+	select {
+	case payload = <-drained:
+	case <-time.After(5 * time.Second):
+		_ = output.Close()
+		t.Fatal("PTY output did not finish draining")
+	}
 	require.Contains(t, string(payload), "final-frame")
+	_, err = process.ptyMaster.Stat()
+	require.NoError(t, err, "Wait must not close an acquired PTY master")
 	require.NoError(t, output.Close())
 }
 
@@ -1031,6 +1167,21 @@ func TestExitError(t *testing.T) {
 	// Test SIGTERM (143) returns Canceled
 	sigtermErr := &ExitError{Code: 143}
 	assert.Equal(t, apierror.Canceled, sigtermErr.Kind())
+}
+
+func TestExitFinalizationFailureSurvivesSharedClassification(t *testing.T) {
+	cleanupA := errors.New("remove confinement ACL")
+	cleanupB := errors.New("remove confinement profile")
+	waitErr := joinExitFinalization(&ExitError{Code: 137}, cleanupA)
+	waitErr = joinExitFinalization(waitErr, cleanupB)
+
+	status := exec.ClassifyExit(waitErr)
+	require.Equal(t, 137, status.Code)
+	require.ErrorIs(t, status.Err, cleanupA)
+	require.ErrorIs(t, status.Err, cleanupB)
+
+	var exit *ExitError
+	require.False(t, errors.As(waitErr, &exit), "operational failure must not look like an ordinary exit")
 }
 
 func TestAPIErrors(t *testing.T) {

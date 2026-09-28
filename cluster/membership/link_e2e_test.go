@@ -37,20 +37,27 @@ func startLinkedNode(ctx context.Context, t *testing.T, name string, transport m
 	cfg.Logger = zap.NewNop()
 	cfg.InitialRetryDelay = 5 * time.Millisecond
 	cfg.MaxRetryDelay = 50 * time.Millisecond
+	var service *Service
+	cfg.AuthorizeIncarnation = func(id cluster.NodeID, incarnation uint64) bool {
+		return internode.MemberIncarnationAdvertised(service, id, incarnation)
+	}
 	links := internode.NewConnectionManager(cfg, nil)
+	bus := eventbus.NewBus()
+	// Production probe timing: the load must not starve probes at the
+	// intervals a real cluster uses. The node advertises its link
+	// incarnation, which peers' links admit.
+	meta := cluster.NodeMeta{cluster.MetaIncarnation: strconv.FormatUint(links.Incarnation(), 10)}
+	service = NewService(Config{NodeName: name, Transport: transport, Link: links, JoinAddrs: join, Meta: meta}, bus, zap.NewNop(), nil, nil, nil)
+
 	received := &atomic.Int64{}
-	require.NoError(t, links.Start(ctx, func(_ cluster.NodeID, data []byte) { received.Add(int64(len(data))) }))
+	require.NoError(t, links.Start(ctx, func(_ cluster.NodeID, data []byte) { received.Add(int64(len(data))) }, func(cluster.NodeID) {}))
 	t.Cleanup(func() { _ = links.Stop() })
 
-	bus := eventbus.NewBus()
 	left := &atomic.Int32{}
 	sub, err := eventbus.NewSubscriber(ctx, bus, cluster.System, cluster.NodeLeft, func(event.Event) { left.Add(1) })
 	require.NoError(t, err)
 	t.Cleanup(sub.Close)
 
-	// Production probe timing: the load must not starve probes at the
-	// intervals a real cluster uses.
-	service := NewService(Config{NodeName: name, Transport: transport, Link: links, JoinAddrs: join}, bus, zap.NewNop(), nil, nil, nil)
 	require.NoError(t, service.Start(ctx))
 	t.Cleanup(func() { _ = service.Stop() })
 	return linkedNode{membership: service, links: links, received: received, left: left, name: name}

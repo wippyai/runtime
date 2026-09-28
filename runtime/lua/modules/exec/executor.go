@@ -21,6 +21,7 @@ import (
 type Executor struct {
 	resource resource.Resource[any]
 	factory  apiexec.ProcessExecutor
+	id       string
 	mu       sync.Mutex
 	released bool
 }
@@ -93,6 +94,7 @@ func execGet(l *lua.LState) int {
 	}
 
 	e := NewExecutor(ctx, res, factory)
+	e.id = resID.String()
 
 	value.PushTypedUserData(l, e, executorTypeName)
 	l.Push(lua.LNil)
@@ -154,7 +156,7 @@ func createAuthorizedProcess(l *lua.LState, e *Executor, terminal bool, width, h
 		}
 	}
 
-	if !security.IsAllowed(ctx, "exec.run", cmd, processSecurityMeta(opts)) {
+	if !security.IsAllowed(ctx, "exec.run", cmd, processSecurityMeta(opts, e.id)) {
 		l.Push(lua.LNil)
 		l.Push(lua.NewLuaError(l, "permission denied: execute command").WithKind(lua.PermissionDenied).WithRetryable(false))
 		return nil, false
@@ -182,7 +184,7 @@ func createAuthorizedProcess(l *lua.LState, e *Executor, terminal bool, width, h
 	return proc, true
 }
 
-func processSecurityMeta(options apiexec.ProcessOptions) attrs.Bag {
+func processSecurityMeta(options apiexec.ProcessOptions, executorID string) attrs.Bag {
 	envNames := make([]string, 0, len(options.Env))
 	for name := range options.Env {
 		envNames = append(envNames, name)
@@ -199,6 +201,7 @@ func processSecurityMeta(options apiexec.ProcessOptions) attrs.Bag {
 		processGroup = *options.ProcessGroup
 	}
 	return attrs.Bag{
+		"executor":      executorID,
 		"work_dir":      options.WorkDir,
 		"env_names":     envNames,
 		"pty":           terminal,

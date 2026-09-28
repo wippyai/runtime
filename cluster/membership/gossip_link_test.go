@@ -91,18 +91,20 @@ func (l testLink) RegisterClassReceiver(class internode.Class, recv func(string,
 	return true
 }
 
+// fastProbeConfig probes ten times faster than production while leaving room
+// for timer and scheduler jitter on slow CI runners.
 func fastProbeConfig(name string, transport memberlist.Transport, link GossipLink, join []string) Config {
 	return Config{
 		NodeName:         name,
 		Transport:        transport,
 		Link:             link,
 		JoinAddrs:        join,
-		GossipInterval:   10 * time.Millisecond,
-		ProbeInterval:    20 * time.Millisecond,
-		ProbeTimeout:     10 * time.Millisecond,
+		GossipInterval:   20 * time.Millisecond,
+		ProbeInterval:    100 * time.Millisecond,
+		ProbeTimeout:     50 * time.Millisecond,
 		PushPullInterval: time.Hour,
-		TCPTimeout:       50 * time.Millisecond,
-		SuspicionMult:    2,
+		TCPTimeout:       200 * time.Millisecond,
+		SuspicionMult:    4,
 	}
 }
 
@@ -152,7 +154,7 @@ func TestGossipLinkKeepsOneWayReachableNodeAlive(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	a, _ := startOneWayPair(ctx, t, &testLinks{receivers: map[string]func(string, []byte){}})
-	require.Never(t, func() bool { return !hasNode(a, "node-b") }, 2*time.Second, 10*time.Millisecond)
+	require.Never(t, func() bool { return !hasNode(a, "node-b") }, 4*time.Second, 20*time.Millisecond)
 }
 
 // The same pair without a link loses the unreachable node, which is the
@@ -161,7 +163,7 @@ func TestOneWayReachableNodeFailsWithoutGossipLink(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	a, _ := startOneWayPair(ctx, t, nil)
-	require.Eventually(t, func() bool { return !hasNode(a, "node-b") }, 5*time.Second, 10*time.Millisecond)
+	require.Eventually(t, func() bool { return !hasNode(a, "node-b") }, 10*time.Second, 20*time.Millisecond)
 }
 
 // blackholeLink accepts every packet and delivers none, as a link stalled
@@ -210,6 +212,6 @@ func TestStalledGossipLinkKeepsReachableNodeAlive(t *testing.T) {
 
 	require.Eventually(t, func() bool { return hasNode(a, "node-b") && hasNode(b, "node-a") }, 5*time.Second, 5*time.Millisecond)
 	before := transportA.dials.Load()
-	require.Never(t, func() bool { return !hasNode(a, "node-b") || !hasNode(b, "node-a") }, time.Second, 10*time.Millisecond)
+	require.Never(t, func() bool { return !hasNode(a, "node-b") || !hasNode(b, "node-a") }, 2*time.Second, 20*time.Millisecond)
 	require.Zero(t, transportA.dials.Load()-before, "probes to a reachable peer fell back to TCP")
 }

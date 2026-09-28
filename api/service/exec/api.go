@@ -29,6 +29,7 @@ type ProcessOptions struct {
 	// addressed to the process reach its descendants as well. Nil selects the
 	// executor default.
 	ProcessGroup *bool
+	Confine      *ConfinementPatch
 	WorkDir      string
 	Mounts       []Mount
 }
@@ -114,11 +115,17 @@ func (o ProcessOptions) Clone() (ProcessOptions, error) {
 	if o.Mounts != nil {
 		clone.Mounts = append([]Mount(nil), o.Mounts...)
 	}
+	clone.Confine = o.Confine.Clone()
 	return clone, nil
 }
 
 // Validate checks process options without retaining or mutating them.
 func (o ProcessOptions) Validate() error {
+	if o.Confine != nil {
+		if err := o.Confine.Validate(); err != nil {
+			return err
+		}
+	}
 	if err := ValidateMounts(o.Mounts); err != nil {
 		return err
 	}

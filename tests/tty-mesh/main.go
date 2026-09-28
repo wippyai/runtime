@@ -399,10 +399,14 @@ func run() error {
 	}
 	cfg.AuthorizePeer = func(id string, _ net.Addr) bool { return id != *local && len(keys.Nodes[id]) == ed25519.PrivateKeySize }
 	cfg.TLS = internode.ManagerTLSConfig{Enabled: true, CertFile: filepath.Join(*keysDir, "cert.pem"), CAFile: filepath.Join(*keysDir, "cert.pem"), KeyFile: filepath.Join(*keysDir, "key.pem")}
+	// The proof mesh has no membership and its peers never restart during a
+	// run, so every handshaken process is the node's current one.
+	cfg.AuthorizeIncarnation = func(string, uint64) bool { return true }
 	cm := internode.NewConnectionManager(cfg, nil)
 	ctx, cancel := context.WithTimeout(ctxapi.NewRootContext(), 90*time.Second)
 	defer cancel()
-	if err = cm.Start(ctx, func(string, []byte) {}); err != nil {
+	sessionEnded := func(id string) { fmt.Fprintf(os.Stderr, "internode session with %s ended\n", id) }
+	if err = cm.Start(ctx, func(string, []byte) {}, sessionEnded); err != nil {
 		return err
 	}
 	defer func() { _ = cm.Stop() }()

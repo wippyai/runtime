@@ -745,7 +745,8 @@ func (t *mockTopology) Complete(p pid.PID, _ *runtime.Result) {
 	t.completedSet[p.String()] = true
 }
 
-func (t *mockTopology) Remove(_ pid.PID) {}
+func (t *mockTopology) Remove(_ pid.PID)                 {}
+func (t *mockTopology) HandleNodeExit(pid.NodeID, error) {}
 
 func (t *mockTopology) Monitor(caller, target pid.PID) error {
 	t.mu.Lock()

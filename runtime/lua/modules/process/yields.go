@@ -363,9 +363,12 @@ func (y *ExecYield) Release()                      { ReleaseExecYield(y) }
 
 func (y *ExecYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
 	if err != nil {
-		luaErr := lua.WrapErrorWithLua(l, err, "exec failed").
-			WithKind(lua.Internal).
-			WithRetryable(false)
+		// The child's error keeps its own classification; one that declares no
+		// kind is an internal, non-retryable failure.
+		luaErr := lua.WrapErrorWithLua(l, err, "exec failed")
+		if luaErr.Kind() == lua.Unknown {
+			luaErr = luaErr.WithKind(lua.Internal).WithRetryable(false)
+		}
 		return []lua.LValue{lua.LNil, luaErr}
 	}
 

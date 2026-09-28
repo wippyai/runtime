@@ -30,12 +30,12 @@ func TestHandshake_Success(t *testing.T) {
 
 	go func() {
 		defer wg.Done()
-		clientNodeConn, clientErr = PerformClientHandshake(clientConn, cfg, logger, nodeAID, nodeBID)
+		clientNodeConn, clientErr = PerformClientHandshake(clientConn, cfg, logger, nodeAID, testIncarnation, nodeBID)
 	}()
 
 	go func() {
 		defer wg.Done()
-		serverNodeConn, serverErr = PerformServerHandshake(serverConn, cfg, logger, nodeBID)
+		serverNodeConn, serverErr = PerformServerHandshake(serverConn, cfg, logger, nodeBID, testIncarnation)
 	}()
 
 	wg.Wait()
@@ -104,14 +104,14 @@ func TestHandshake_Authenticated(t *testing.T) {
 			serverErrors := make(chan error, 1)
 
 			go func() {
-				nodeConn, err := PerformClientHandshake(clientConn, clientCfg, zap.NewNop(), "node-A", "node-B")
+				nodeConn, err := PerformClientHandshake(clientConn, clientCfg, zap.NewNop(), "node-A", testIncarnation, "node-B")
 				if nodeConn != nil {
 					_ = nodeConn.conn.Close()
 				}
 				clientErrors <- err
 			}()
 			go func() {
-				nodeConn, err := PerformServerHandshake(serverConn, serverCfg, zap.NewNop(), "node-B")
+				nodeConn, err := PerformServerHandshake(serverConn, serverCfg, zap.NewNop(), "node-B", testIncarnation)
 				if nodeConn != nil {
 					_ = nodeConn.conn.Close()
 				}
@@ -149,13 +149,13 @@ func TestHandshake_Client_UnexpectedRemoteID(t *testing.T) {
 
 	go func() {
 		defer wg.Done()
-		_, err := PerformClientHandshake(clientConn, cfg, logger, nodeAID, nodeBID)
+		_, err := PerformClientHandshake(clientConn, cfg, logger, nodeAID, testIncarnation, nodeBID)
 		clientErrChan <- err
 	}()
 
 	go func() {
 		defer wg.Done()
-		_, err := PerformServerHandshake(serverConn, cfg, logger, wrongNodeID)
+		_, err := PerformServerHandshake(serverConn, cfg, logger, wrongNodeID, testIncarnation)
 		serverErrChan <- err
 	}()
 

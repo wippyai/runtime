@@ -4,6 +4,7 @@ package supervisor
 
 import (
 	"context"
+	"fmt"
 	"sync"
 
 	"github.com/wippyai/runtime/api/event"
@@ -12,6 +13,7 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	supervisorapi "github.com/wippyai/runtime/api/service/supervisor"
 	"github.com/wippyai/runtime/api/supervisor"
+	bootpkg "github.com/wippyai/runtime/boot"
 	entryutil "github.com/wippyai/runtime/system/entry"
 	"go.uber.org/zap"
 )
@@ -104,6 +106,20 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 
 func (m *Manager) registerService(ctx context.Context, id registry.ID, cfg supervisorapi.ServiceConfig) {
 	svc := NewService(id, cfg, m.pidGen)
+	if cfg.Lifecycle.Startup == supervisor.StartupComplete {
+		var gate *bootpkg.Gate
+		if current, exists := m.services.Load(id); exists {
+			if oldSvc, ok := current.(*Service); ok {
+				gate = oldSvc.gate
+			}
+		}
+		if gate == nil {
+			if readiness := bootpkg.GetReadiness(ctx); readiness != nil {
+				gate = readiness.RegisterGate(id.String())
+			}
+		}
+		svc.SetGate(gate)
+	}
 	m.services.Store(id, svc)
 
 	m.bus.Send(ctx, event.Event{
@@ -121,6 +137,12 @@ func (m *Manager) registerService(ctx context.Context, id registry.ID, cfg super
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	if err := m.validateEntryKind(entry); err != nil {
 		return err
+	}
+
+	if current, exists := m.services.Load(entry.ID); exists {
+		if svc, ok := current.(*Service); ok && svc.gate != nil {
+			svc.gate.Fail(fmt.Errorf("service removed before completion"))
+		}
 	}
 
 	m.bus.Send(ctx, event.Event{

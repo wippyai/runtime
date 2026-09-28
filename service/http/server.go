@@ -56,8 +56,10 @@ type ServerService struct {
 	routeMgr      *RouteManager
 	config        *config.ServerConfig
 	stopWatch     chan struct{}
+	initialRoutes chan struct{}
 	id            registry.ID
 	mu            sync.RWMutex
+	routesPending bool
 	started       atomic.Bool
 }
 
@@ -77,6 +79,16 @@ func NewServerService(id registry.ID, cfg *config.ServerConfig, middleware Middl
 		mountHandlers: make(map[registry.ID]http.Handler),
 		middlewareFac: middleware,
 	}, nil
+}
+
+// deferStartUntilRoutesCommit arms the one-shot gate used by registry-managed
+// servers. Directly constructed servers retain their existing start behavior.
+func (s *ServerService) deferStartUntilRoutesCommit() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.initialRoutes = make(chan struct{})
+	s.routesPending = true
 }
 
 // SetHandlerFunc sets the server-level handler function
@@ -215,21 +227,34 @@ func (s *ServerService) Rebuild(_ context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// If handler function is set, don't rebuild router
-	if s.handlerFunc != nil {
-		return nil
+	// If handler function is set, don't rebuild router.
+	if s.handlerFunc == nil {
+		if err := s.routeMgr.Build(); err != nil {
+			return err
+		}
 	}
 
-	err := s.routeMgr.Build()
-	if err != nil {
-		return err
+	if s.routesPending {
+		close(s.initialRoutes)
+		s.initialRoutes = nil
+		s.routesPending = false
 	}
-
 	return nil
 }
 
 // Start implements the supervisor.Service interface to start the HTTP server
 func (s *ServerService) Start(ctx context.Context) (<-chan any, error) {
+	s.mu.RLock()
+	initialRoutes := s.initialRoutes
+	s.mu.RUnlock()
+	if initialRoutes != nil {
+		select {
+		case <-initialRoutes:
+		case <-ctx.Done():
+			return nil, NewStartupCanceledError(ctx.Err())
+		}
+	}
+
 	s.mu.Lock()
 
 	// Initialize mailbox with config

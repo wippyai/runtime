@@ -27,6 +27,7 @@ import (
 	sysrelay "github.com/wippyai/runtime/system/relay"
 	"github.com/wippyai/runtime/system/scheduler"
 	"github.com/wippyai/runtime/system/scheduler/pool/inline"
+	"go.uber.org/zap"
 )
 
 // DebugPool wraps pool to log Send
@@ -70,7 +71,7 @@ func TestEventsReceiveIntegration(t *testing.T) {
 	reg := scheduler.NewRegistry()
 
 	// Create clock dispatcher
-	clockSvc := clock.NewDispatcher()
+	clockSvc := clock.NewDispatcher(zap.NewNop(), nil)
 	defer func() { _ = clockSvc.Stop(ctx) }()
 	clockSvc.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
 		reg.Register(id, h)

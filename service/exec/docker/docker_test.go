@@ -24,6 +24,12 @@ import (
 	"go.uber.org/zap"
 )
 
+func TestDockerConfinementPatchFailsClosedUntilEnforcementIsInstalled(t *testing.T) {
+	executor := &Executor{log: zap.NewNop()}
+	_, err := executor.NewProcess("true", execapi.ProcessOptions{Confine: &execapi.ConfinementPatch{}})
+	require.ErrorIs(t, err, execapi.ErrConfineUnsupported)
+}
+
 func TestDockerSignalUsesBoundedDaemonContext(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, request *http.Request) {
 		<-request.Context().Done()

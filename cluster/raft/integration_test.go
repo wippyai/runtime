@@ -62,10 +62,11 @@ type raftRPCConn struct {
 	receivers map[internode.Class]func(cluster.NodeID, []byte)
 }
 
-func (c *raftRPCConn) Start(_ context.Context, _ func(cluster.NodeID, []byte)) error {
+func (c *raftRPCConn) Start(_ context.Context, _ func(cluster.NodeID, []byte), _ func(cluster.NodeID)) error {
 	return nil
 }
-func (c *raftRPCConn) Stop() error { return nil }
+func (c *raftRPCConn) Incarnation() uint64 { return 1 }
+func (c *raftRPCConn) Stop() error         { return nil }
 
 func (c *raftRPCConn) SendToNode(target cluster.NodeID, data []byte, class internode.Class) error {
 	c.fabric.mu.Lock()
@@ -91,7 +92,7 @@ func (c *raftRPCConn) DisconnectFromNode(_ cluster.NodeID)                {}
 func (c *raftRPCConn) ConnectedNodes() []cluster.NodeID                   { return nil }
 func (c *raftRPCConn) GetListenPort() int                                 { return 0 }
 func (c *raftRPCConn) AddManagedNode(_ cluster.NodeID)                    {}
-func (c *raftRPCConn) RemoveManagedNode(_ cluster.NodeID)                 {}
+func (c *raftRPCConn) RemoveManagedNode(_ cluster.NodeID, _ uint64)       {}
 func (c *raftRPCConn) IsManaged(_ cluster.NodeID) bool                    { return true }
 func (c *raftRPCConn) EvictOrphanNodes(_ map[cluster.NodeID]struct{}) int { return 0 }
 func (c *raftRPCConn) RecordDropReason(_ string)                          {}

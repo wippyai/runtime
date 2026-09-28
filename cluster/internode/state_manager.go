@@ -32,6 +32,7 @@ type NodeState struct {
 	queues        [numClasses]*classQueue
 	messageNotify chan struct{}
 	connection    *NodeConnection
+	session       *session // guarded by queueMu; replaced when the session ends
 	queueMu       queueMutex
 	address       nodeAddress
 	lastDepth     [numClasses]int // last queue depth emitted to telemetry; guarded by queueMu
@@ -73,30 +74,6 @@ func (q *classQueue) pushNewest(data []byte) (accepted bool) {
 	return true
 }
 
-// pushFront inserts at the front for requeue (callers must respect cap).
-// Returns false if full.
-func (q *classQueue) pushFront(data []byte) (accepted bool) {
-	if q.unbounded {
-		if q.head > 0 {
-			q.head--
-			q.buf[q.head] = data
-		} else {
-			q.buf = append(q.buf, nil)
-			copy(q.buf[1:], q.buf)
-			q.buf[0] = data
-		}
-		q.size++
-		return true
-	}
-	if q.size == len(q.buf) {
-		return false
-	}
-	q.head = (q.head - 1 + len(q.buf)) % len(q.buf)
-	q.buf[q.head] = data
-	q.size++
-	return true
-}
-
 // pop removes and returns the oldest entry; ok=false when empty.
 func (q *classQueue) pop() (data []byte, ok bool) {
 	if q.size == 0 {
@@ -127,6 +104,14 @@ func (q *classQueue) pop() (data []byte, ok bool) {
 	return data, true
 }
 
+// peekLen returns the size of the oldest entry; ok=false when empty.
+func (q *classQueue) peekLen() (size int, ok bool) {
+	if q.size == 0 {
+		return 0, false
+	}
+	return len(q.buf[q.head]), true
+}
+
 // reset drops all entries. Allocations remain.
 func (q *classQueue) reset() {
 	for i := range q.buf {
@@ -147,10 +132,26 @@ type nodeAddress struct {
 }
 
 type NodeStateManager struct {
+	logger *zap.Logger
+	tel    *telemetry
+	// sessionEnded receives every ended session once its last frame was
+	// delivered. Set by the manager before it serves peers.
+	sessionEnded func(cluster.NodeID)
+	// tails holds, per node, the most recently created session that has not
+	// settled; the next session for the node follows it. Guarded by chainMu,
+	// which nests inside NodeState.queueMu.
+	tails map[cluster.NodeID]*session
+	// stop abandons end signals still waiting for a predecessor at shutdown.
+	stop       chan struct{}
 	nodeStates sync.Map // cluster.NodeID -> *NodeState
-	logger     *zap.Logger
-	tel        *telemetry
 	config     ManagerConfig
+	// settles tracks end signals waiting for a predecessor; settleMu fences
+	// every end signal against shutdown.
+	settles  sync.WaitGroup
+	settleMu sync.RWMutex
+	stopOnce sync.Once
+	chainMu  sync.Mutex
+	stopped  bool
 }
 
 func NewNodeStateManager(config ManagerConfig, tel *telemetry, logger *zap.Logger) *NodeStateManager {
@@ -158,44 +159,30 @@ func NewNodeStateManager(config ManagerConfig, tel *telemetry, logger *zap.Logge
 		logger: logger.Named("state"),
 		tel:    tel,
 		config: config,
+		tails:  make(map[cluster.NodeID]*session),
+		stop:   make(chan struct{}),
 	}
 }
 
-// CreateNodeState initializes the in-memory state for a new node.
-// This should only be called by the manager when a node joins the cluster.
-// If state already exists (e.g. stale entry from a previous incarnation),
-// the existing struct is reused: connection is closed and replaced, queue and
-// state are reset, but the messageNotify channel is kept so any existing
-// control loop continues to receive notifications without holding a stale
-// channel reference.
-//
-// Auto-managed nodes (created from inbound connections before the formal
-// NodeJoined event) are cleaned up when their connection closes; no separate
-// reaper goroutine is needed.
+// stopSettling abandons end signals still waiting for a predecessor and
+// returns once no end signal runs; none runs afterwards.
+func (nsm *NodeStateManager) stopSettling() {
+	nsm.stopOnce.Do(func() {
+		nsm.settleMu.Lock()
+		nsm.stopped = true
+		close(nsm.stop)
+		nsm.settleMu.Unlock()
+	})
+	nsm.settles.Wait()
+}
+
+// CreateNodeState ensures in-memory state exists for a node. State that
+// already exists is kept unchanged: its queues and session belong to the
+// node's live session. The manager calls it when a node joins the cluster.
 func (nsm *NodeStateManager) CreateNodeState(nodeID cluster.NodeID) {
-	if existing, ok := nsm.nodeStates.Load(nodeID); ok {
-		oldState := existing.(*NodeState)
-
-		// Reset connection
-		oldState.stateMu.Lock()
-		if oldState.connection != nil {
-			oldState.connection.Close()
-			oldState.connection = nil
-		}
-		oldState.state = StateNone
-		oldState.address = nodeAddress{}
-		oldState.stateMu.Unlock()
-
-		// Reset all queues
-		oldState.queueMu.Lock()
-		for i := range oldState.queues {
-			oldState.queues[i].reset()
-		}
-		oldState.lastDepth = [numClasses]int{}
-		oldState.queueMu.Unlock()
-
-		// Do NOT replace messageNotify — existing control loops hold a reference.
-		nsm.logger.Debug("Reset existing state for rejoining node", zap.String("node_id", nodeID))
+	nsm.chainMu.Lock()
+	defer nsm.chainMu.Unlock()
+	if _, ok := nsm.nodeStates.Load(nodeID); ok {
 		return
 	}
 
@@ -204,9 +191,7 @@ func (nsm *NodeStateManager) CreateNodeState(nodeID cluster.NodeID) {
 		ClassGossip:      nsm.config.GossipQueueCap,
 		ClassPGBroadcast: 0,
 		ClassRaftRPC:     0,
-		// Admission and drain each allow 32 surface frames. Reserve another
-		// batch so a failed write can requeue every accepted frame.
-		ClassSurface: 64,
+		ClassSurface:     surfaceQueueCap,
 	}
 	queues := [numClasses]*classQueue{}
 	for i := range queues {
@@ -214,6 +199,7 @@ func (nsm *NodeStateManager) CreateNodeState(nodeID cluster.NodeID) {
 	}
 	newState := &NodeState{
 		queues:        queues,
+		session:       nsm.chainSessionLocked(nodeID, 0),
 		messageNotify: make(chan struct{}, 1),
 		state:         StateNone,
 		createdAt:     time.Now(),
@@ -230,10 +216,10 @@ func (nsm *NodeStateManager) GetNodeState(nodeID cluster.NodeID) *NodeState {
 }
 
 // QueueMessageClass enqueues data for nodeID under the given class.
-// Delivery policy is class-specific:
-//   - ClassRaftControl, ClassPGBroadcast, and ClassRaftRPC are reliable
+// Admission policy is class-specific:
+//   - ClassRaftControl, ClassPGBroadcast, and ClassRaftRPC are unbounded
 //     while the peer remains managed.
-//   - ClassGossip and ClassSurface reject the new entry and returns ErrQueueFull when full.
+//   - ClassGossip and ClassSurface reject the new entry and return ErrQueueFull when full.
 //
 // In all drop cases, internode_dropped_total{class,reason="queue_full"}
 // is incremented.
@@ -286,16 +272,8 @@ func (nsm *NodeStateManager) queueMessageClass(ctx context.Context, nodeID clust
 	switch class {
 	case ClassRaftControl, ClassPGBroadcast, ClassRaftRPC:
 		q.pushNewest(data)
-	case ClassSurface:
-		if q.len() >= 32 {
-			rejected = true
-		} else {
-			q.pushNewest(data)
-		}
-	case ClassGossip:
-		if !q.pushNewest(data) {
-			rejected = true
-		}
+	case ClassSurface, ClassGossip:
+		rejected = !q.pushNewest(data)
 	}
 	depth := q.len()
 	depthChanged := depth != state.lastDepth[class]
@@ -412,31 +390,66 @@ func (nsm *NodeStateManager) getNodeAddressForState(nodeID cluster.NodeID, state
 // starve ordinary process messages (including when maxCount is one).
 var drainClasses = [...]Class{ClassRaftControl, ClassRaftRPC, ClassGossip}
 
+// DrainMessages hands up to maxCount frames of nodeID's current session to a
+// writer, sequencing them in drain order.
 func (nsm *NodeStateManager) DrainMessages(nodeID cluster.NodeID, maxCount int) []Outbound {
 	state := nsm.GetNodeState(nodeID)
-	return nsm.drainMessagesForState(nodeID, state, maxCount)
+	if state == nil {
+		return nil
+	}
+	state.queueMu.Lock()
+	sess := state.session
+	state.queueMu.Unlock()
+	return nsm.drainSession(nodeID, state, sess, maxCount)
 }
 
-// drainMessagesForState drains only the supplied generation. Connection drain
-// callbacks retain their loop's state pointer, preventing a detached
-// connection from consuming a replacement's queue.
-func (nsm *NodeStateManager) drainMessagesForState(nodeID cluster.NodeID, state *NodeState, maxCount int) []Outbound {
+// drainSession hands frames of one session generation to its writer. Frames
+// awaiting retransmission go first, in sequence order; queued frames follow
+// in QoS order. Each sequenced frame takes the next sequence number and
+// enters the resend ring, so wire order equals sequence order. While the
+// ring holds a window of unacknowledged bytes, sequenced classes stay queued;
+// gossip is unsequenced and keeps flowing. A stale connection bound to an
+// ended session or a detached state drains nothing.
+func (nsm *NodeStateManager) drainSession(nodeID cluster.NodeID, state *NodeState, sess *session, maxCount int) []Outbound {
 	if state == nil || nsm.GetNodeState(nodeID) != state || maxCount <= 0 {
 		return nil
 	}
 
 	state.queueMu.Lock()
+	if state.session != sess {
+		state.queueMu.Unlock()
+		return nil
+	}
 	out := make([]Outbound, 0, maxCount)
-	for _, class := range drainClasses {
-		q := state.queues[class]
-		for q.len() > 0 && len(out) < maxCount {
-			d, _ := q.pop()
-			if d != nil {
-				out = append(out, Outbound{Data: d, Class: class})
-			}
-		}
-		if len(out) >= maxCount {
+	for len(out) < maxCount {
+		e, ok := sess.ring.next()
+		if !ok {
 			break
+		}
+		out = append(out, Outbound{Data: e.data, Class: e.class, seq: e.seq})
+	}
+	window := nsm.config.LinkWindowBytes
+	take := func(class Class) bool {
+		q := state.queues[class]
+		size, ok := q.peekLen()
+		if !ok || (class.sequenced() && !sess.ring.admits(size, window)) {
+			return false
+		}
+		data, _ := q.pop()
+		frame := Outbound{Data: data, Class: class}
+		if class.sequenced() {
+			frame.seq = sess.sendNext
+			sess.sendNext++
+			sess.ring.push(ringEntry{data: data, seq: frame.seq, class: class})
+		}
+		out = append(out, frame)
+		return true
+	}
+	for _, class := range drainClasses {
+		for len(out) < maxCount {
+			if !take(class) {
+				break
+			}
 		}
 	}
 	surfaceCount := 0
@@ -446,15 +459,11 @@ func (nsm *NodeStateManager) drainMessagesForState(nodeID cluster.NodeID, state 
 			first, second = second, first
 		}
 		class := first
-		if state.queues[class].len() == 0 || (class == ClassSurface && surfaceCount == 32) {
+		if (class == ClassSurface && surfaceCount == surfaceQueueCap) || !take(class) {
 			class = second
-		}
-		if state.queues[class].len() == 0 || (class == ClassSurface && surfaceCount == 32) {
-			break
-		}
-		data, _ := state.queues[class].pop()
-		if data != nil {
-			out = append(out, Outbound{Data: data, Class: class})
+			if (class == ClassSurface && surfaceCount == surfaceQueueCap) || !take(class) {
+				break
+			}
 		}
 		if class == ClassSurface {
 			surfaceCount++
@@ -492,112 +501,6 @@ func (nsm *NodeStateManager) GetMessageNotifier(nodeID cluster.NodeID) <-chan st
 	return state.messageNotify
 }
 
-// RequeueMessages returns previously-extracted Outbound entries to the
-// head of the per-class queue that originally produced them. Each entry's
-// class is honored individually so a mixed-class drain can be requeued
-// without losing QoS context. Internally splits the input by class and
-// delegates to RequeueMessagesClass for the per-class cap arithmetic.
-func (nsm *NodeStateManager) RequeueMessages(nodeID cluster.NodeID, messages []Outbound) {
-	state := nsm.GetNodeState(nodeID)
-	nsm.requeueMessagesForState(nodeID, state, messages)
-}
-
-// requeueMessagesForState returns frames only to the supplied generation.
-// A stale connection must never repopulate a newer peer incarnation's queue.
-func (nsm *NodeStateManager) requeueMessagesForState(nodeID cluster.NodeID, state *NodeState, messages []Outbound) {
-	if state == nil || nsm.GetNodeState(nodeID) != state {
-		return
-	}
-	if len(messages) == 0 {
-		return
-	}
-	var perClass [numClasses][][]byte
-	for _, m := range messages {
-		if m.Data == nil {
-			continue
-		}
-		if int(m.Class) >= numClasses {
-			continue
-		}
-		perClass[m.Class] = append(perClass[m.Class], m.Data)
-	}
-	for c := 0; c < numClasses; c++ {
-		if len(perClass[c]) == 0 {
-			continue
-		}
-		nsm.requeueMessagesClassForState(nodeID, state, perClass[c], Class(c))
-	}
-}
-
-// RequeueMessagesClass returns previously-extracted messages to the head
-// of the per-class queue. Reliable classes are preserved while the peer
-// remains managed. Gossip keeps its lossy cap.
-func (nsm *NodeStateManager) RequeueMessagesClass(nodeID cluster.NodeID, messages [][]byte, class Class) {
-	state := nsm.GetNodeState(nodeID)
-	nsm.requeueMessagesClassForState(nodeID, state, messages, class)
-}
-
-func (nsm *NodeStateManager) requeueMessagesClassForState(nodeID cluster.NodeID, state *NodeState, messages [][]byte, class Class) {
-	if len(messages) == 0 {
-		return
-	}
-	if state == nil || nsm.GetNodeState(nodeID) != state {
-		nsm.logger.Warn("Dropping messages to requeue for unmanaged node",
-			zap.String("node_id", nodeID),
-			zap.Int("message_count", len(messages)),
-			zap.String("class", class.String()))
-		return
-	}
-	if int(class) >= numClasses {
-		return
-	}
-
-	state.queueMu.Lock()
-	q := state.queues[class]
-	dropped := 0
-	switch class {
-	case ClassRaftControl, ClassPGBroadcast, ClassRaftRPC:
-		for i := len(messages) - 1; i >= 0; i-- {
-			if messages[i] == nil {
-				continue
-			}
-			q.pushFront(messages[i])
-		}
-	case ClassGossip, ClassSurface:
-		for i := len(messages) - 1; i >= 0; i-- {
-			if messages[i] == nil {
-				continue
-			}
-			if !q.pushFront(messages[i]) {
-				dropped++
-			}
-		}
-	}
-	depth := q.len()
-	depthChanged := depth != state.lastDepth[class]
-	state.lastDepth[class] = depth
-	state.queueMu.Unlock()
-
-	for i := 0; i < dropped; i++ {
-		nsm.tel.recordDrop(class, "requeue_overflow")
-	}
-	if depthChanged {
-		nsm.tel.recordQueueDepth(class, nodeID, depth)
-	}
-
-	if dropped > 0 {
-		nsm.logger.Warn("Dropped messages during requeue (queue full)",
-			zap.String("node_id", nodeID),
-			zap.String("class", class.String()),
-			zap.Int("dropped", dropped))
-	}
-
-	select {
-	case state.messageNotify <- struct{}{}:
-	default:
-	}
-}
-
 // RemoveNodeState completely removes a node's state from memory.
 // This should only be called by the manager when a node leaves the cluster.
 func (nsm *NodeStateManager) RemoveNodeState(nodeID cluster.NodeID) {
@@ -627,18 +530,9 @@ func (nsm *NodeStateManager) closeDetachedNodeState(nodeID cluster.NodeID, nodeS
 	nodeState.stateMu.Unlock()
 
 	nodeState.queueMu.Lock()
-	discarded := 0
-	for _, q := range nodeState.queues {
-		discarded += q.len()
-		q.reset()
-	}
+	end := nsm.endSessionLocked(nodeID, nodeState, sessionEndRemoved, nodeState.session.peerIncarnation, true, false)
 	nodeState.queueMu.Unlock()
-
-	if discarded > 0 {
-		nsm.logger.Warn("Discarded pending messages for removed node",
-			zap.String("node", nodeID),
-			zap.Int("discarded_messages", discarded))
-	}
+	nsm.finishSessionEnd(nodeID, end)
 }
 
 func (nsm *NodeStateManager) GetConnectedNodes() []cluster.NodeID {
