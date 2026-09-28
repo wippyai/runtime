@@ -128,13 +128,23 @@ var errTypedFallback = errors.New("typed decode fallback")
 // DecodeTyped implements json.decode(data, target). Its fallback is exactly
 // Decode followed by the runtime validator used by T:is.
 func DecodeTyped(data []byte, target *lua.LType, l *lua.LState) (lua.LValue, error) {
+	return decodeTyped(data, target, l, false)
+}
+
+func decodeTyped(data []byte, target *lua.LType, l *lua.LState, immutable bool) (lua.LValue, error) {
 	if target == nil {
 		return lua.LNil, errors.New("$: expected type value")
 	}
 	p := planFor(target)
 	var fastErr error
 	if p != nil {
-		s := typedScanner{data: data}
+		owned := data
+		if !immutable {
+			// Every escape-free string can then share this one stable backing
+			// allocation, even if the caller reuses its input buffer.
+			owned = append([]byte(nil), data...)
+		}
+		s := typedScanner{data: owned}
 		v, err := s.value(p, 0)
 		fastErr = err
 		if err == nil {
@@ -158,7 +168,7 @@ func DecodeTyped(data []byte, target *lua.LType, l *lua.LState) (lua.LValue, err
 }
 
 func decodeTypedString(raw string, target *lua.LType, l *lua.LState) (lua.LValue, error) {
-	return DecodeTyped(unsafe.Slice(unsafe.StringData(raw), len(raw)), target, l)
+	return decodeTyped(unsafe.Slice(unsafe.StringData(raw), len(raw)), target, l, true)
 }
 
 type typedScanner struct {
@@ -247,7 +257,23 @@ func (s *typedScanner) stringValue() (string, error) {
 	return "", errTypedFallback
 }
 func (s *typedScanner) escapedString(start int) (string, error) {
-	var out []byte
+	// Size the output once. LLM payloads often contain many escapes, and
+	// growing this buffer for each segment dominates their allocation cost.
+	end := s.off
+	for end < len(s.data) {
+		if s.data[end] == '\\' {
+			end += 2
+			continue
+		}
+		if s.data[end] == '"' {
+			break
+		}
+		end++
+	}
+	if end >= len(s.data) {
+		return "", errTypedFallback
+	}
+	out := make([]byte, 0, end-start)
 	segment := start
 	for s.off < len(s.data) {
 		c := s.data[s.off]

@@ -4,6 +4,7 @@ package json
 
 import (
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -56,6 +57,47 @@ func TestTypedDecodeDifferential(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "items[2].id") {
 		t.Fatalf("want path-qualified error, got %v", err)
 	}
+}
+
+func TestTypedDecodeOwnsStringsFromMutableInput(t *testing.T) {
+	data := []byte(`{"id":"original"}`)
+	value, err := DecodeTyped(data, lua.NewLType(typ.NewRecord().Field("id", typ.String).Build()), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	copy(data, []byte(`{"id":"modified"}`))
+	if got := value.(*lua.LTable).RawGetString("id"); got != lua.LString("original") {
+		t.Fatalf("decoded string changed with input: %v", got)
+	}
+}
+
+func TestTypedDecodeFallbackShapes(t *testing.T) {
+	cases := []struct {
+		name      string
+		typeValue typ.Type
+		raw       string
+	}{
+		{"open record", typ.NewRecord().Field("id", typ.String).SetOpen(true).Build(), `{"id":"ok","extra":1}`},
+		{"large record", largeFallbackRecord(), `{}`},
+		{"union of records", typ.NewUnion(typ.NewRecord().Field("a", typ.String).Build(), typ.NewRecord().Field("b", typ.Integer).Build()), `{"a":"ok"}`},
+		{"non-string map key", typ.NewMap(typ.Integer, typ.String), `{}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if compilePlan(tc.typeValue, 0) != nil {
+				t.Fatal("expected validator fallback")
+			}
+			checkTypedDifferential(t, lua.NewLType(tc.typeValue), tc.raw)
+		})
+	}
+}
+
+func largeFallbackRecord() typ.Type {
+	b := typ.NewRecord()
+	for i := 0; i < 65; i++ {
+		b.OptField(strconv.Itoa(i), typ.String)
+	}
+	return b.Build()
 }
 
 func FuzzTypedDecodeDifferential(f *testing.F) {
