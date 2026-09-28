@@ -24,7 +24,8 @@ type overlayShadow struct {
 // advancing registry history. The entries remain part of effective state until
 // explicitly cleared or the process exits.
 func (r *Reg) ApplyOverlay(ctx context.Context, owner string, expectedGeneration uint64, changes registry.ChangeSet) (uint64, error) {
-	defer r.lockApply()()
+	r.lockApply()
+	defer r.unlockApply()
 	return r.applyOverlayLocked(ctx, owner, expectedGeneration, changes)
 }
 

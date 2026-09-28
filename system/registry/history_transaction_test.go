@@ -20,11 +20,12 @@ type transactionHistory struct {
 	active  int
 }
 
-func (h *transactionHistory) BeginTransaction() func() {
+func (h *transactionHistory) BeginTransaction() {
 	h.begins++
 	h.active++
-	return func() { h.active-- }
 }
+
+func (h *transactionHistory) EndTransaction() { h.active-- }
 
 func (h *transactionHistory) Head() (registry.Version, error) {
 	h.check()

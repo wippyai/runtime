@@ -29,7 +29,7 @@ func TestSwitchConformance(t *testing.T) {
 func TestTransactionKeepsDriver(t *testing.T) {
 	first, second := memory.New(), memory.New()
 	h := New(first)
-	end := h.BeginTransaction()
+	h.BeginTransaction()
 
 	switched := make(chan error, 1)
 	go func() {
@@ -48,7 +48,7 @@ func TestTransactionKeepsDriver(t *testing.T) {
 	}
 	v2 := version.FromParent(v1, 2)
 	require.NoError(t, h.Save(v2, historytest.Changes("two", "second"), true))
-	end()
+	h.EndTransaction()
 
 	require.NoError(t, <-switched)
 	require.Same(t, second, h.Active())
@@ -64,8 +64,8 @@ func TestFailedSwitchKeepsDriver(t *testing.T) {
 	failed := errors.New("transfer failed")
 	require.ErrorIs(t, h.Switch(func(Driver, registry.State) (Driver, error) { return nil, failed }), failed)
 	require.Same(t, first, h.Active())
-	end := h.BeginTransaction()
-	end()
+	h.BeginTransaction()
+	h.EndTransaction()
 }
 
 type baselineDriver struct {

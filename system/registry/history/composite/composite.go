@@ -52,10 +52,9 @@ func New(driver Driver) *History {
 // Active returns the active driver.
 func (h *History) Active() Driver { return h.active.Load().driver }
 
-func (h *History) BeginTransaction() func() {
-	h.transition.RLock()
-	return h.transition.RUnlock
-}
+func (h *History) BeginTransaction() { h.transition.RLock() }
+
+func (h *History) EndTransaction() { h.transition.RUnlock() }
 
 // Switch runs prepare with the active driver and the current baseline while
 // no registry transaction runs. When prepare succeeds, its driver becomes

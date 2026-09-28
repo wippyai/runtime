@@ -277,9 +277,10 @@ type (
 
 	// TransactionalHistory keeps all calls of one registry operation on the
 	// same storage. The registry calls BeginTransaction before the operation
-	// and the returned function after it.
+	// and EndTransaction after it.
 	TransactionalHistory interface {
-		BeginTransaction() (end func())
+		BeginTransaction()
+		EndTransaction()
 	}
 
 	// BaselineHistory stores the deployment baseline with the history. A
