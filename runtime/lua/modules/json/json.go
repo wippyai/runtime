@@ -91,13 +91,9 @@ func compareObjectEntries(a, b objectEntry) int {
 	return int(a.rank) - int(b.rank)
 }
 
-func objectEntryLess(a, b *objectEntry) bool {
-	return a.key < b.key || (a.key == b.key && a.rank < b.rank)
-}
-
 // maxInsertionSortEntries is the object width up to which entries are sorted
-// by insertion; typical objects are narrow and this avoids a comparator call
-// per comparison.
+// by insertion; typical objects are narrow, and insertion sort is cheaper than
+// slices.SortFunc on short slices.
 const maxInsertionSortEntries = 12
 
 func sortObjectEntries(entries []objectEntry) {
@@ -108,7 +104,7 @@ func sortObjectEntries(entries []objectEntry) {
 	for i := 1; i < len(entries); i++ {
 		entry := entries[i]
 		j := i
-		for j > 0 && objectEntryLess(&entry, &entries[j-1]) {
+		for j > 0 && compareObjectEntries(entry, entries[j-1]) < 0 {
 			entries[j] = entries[j-1]
 			j--
 		}

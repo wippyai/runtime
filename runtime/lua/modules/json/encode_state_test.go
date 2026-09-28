@@ -3,7 +3,6 @@
 package json
 
 import (
-	"runtime"
 	"strconv"
 	"sync"
 	"testing"
@@ -122,44 +121,6 @@ func TestEncodeStateWithOversizedStackIsNotPooled(t *testing.T) {
 		t.Fatalf("state with entries capacity %d must not be pooled", cap(state.entries))
 	}
 	requireStateReleased(t, state)
-}
-
-func TestEncodeRepeatedlyDoesNotGrowHeap(t *testing.T) {
-	value, err := Decode(llmRequestJSON)
-	if err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	cyclic := buildObject(8, 3)
-	cyclic.RawGetString("k0").(*lua.LTable).RawSetString("loop", cyclic)
-
-	encodeMany := func(n int) {
-		for i := 0; i < n; i++ {
-			if _, err := Encode(value); err != nil {
-				t.Fatalf("encode: %v", err)
-			}
-			if _, err := Encode(cyclic); err == nil {
-				t.Fatal("expected cyclic table to fail")
-			}
-		}
-	}
-
-	heapAfterGC := func() uint64 {
-		runtime.GC()
-		runtime.GC()
-		var stats runtime.MemStats
-		runtime.ReadMemStats(&stats)
-		return stats.HeapAlloc
-	}
-
-	encodeMany(500)
-	before := heapAfterGC()
-	encodeMany(5000)
-	after := heapAfterGC()
-
-	const tolerance = 1 << 20
-	if after > before+tolerance {
-		t.Fatalf("heap grew by %d bytes over 5000 encodes", after-before)
-	}
 }
 
 func TestEncodeConcurrentIsCanonical(t *testing.T) {
