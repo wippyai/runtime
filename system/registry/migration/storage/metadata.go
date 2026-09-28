@@ -213,10 +213,10 @@ func decodeOwnership(id registry.ID, field string, raw map[string]any) (*release
 	record := &releasedOwnership{}
 	known := false
 	for _, names := range []struct {
+		to    *string
 		lower string
 		upper string
-		to    *string
-	}{{"module", "Module", &record.Module}, {"version", "Version", &record.Version}, {"digest", "Digest", &record.Digest}} {
+	}{{&record.Module, "module", "Module"}, {&record.Version, "version", "Version"}, {&record.Digest, "digest", "Digest"}} {
 		lower, hasLower := raw[names.lower]
 		upper, hasUpper := raw[names.upper]
 		if !hasLower && !hasUpper {
@@ -281,9 +281,9 @@ func rewriteChangeSet(data []byte, handle *codec.MsgpackHandle, baseline map[reg
 	for i := range operations {
 		op := &operations[i]
 		for _, field := range []struct {
-			name   string
 			record map[string]any
-		}{{"prov", op.Current}, {"oprov", op.Previous}} {
+			name   string
+		}{{op.Current, "prov"}, {op.Previous, "oprov"}} {
 			if _, present := wire[i][field.name]; present && field.record == nil {
 				return nil, false, &OwnershipDecodeError{ID: op.Entry.ID, Field: field.name, Reason: "record is null or not an ownership map"}
 			}

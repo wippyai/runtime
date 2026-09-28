@@ -33,11 +33,11 @@ type lowercaseOwnership struct {
 }
 
 type lowercaseOperation struct {
-	Kind          string              `codec:"Kind"`
-	Entry         releasedEntry       `codec:"Entry"`
 	OriginalEntry *releasedEntry      `codec:"OriginalEntry"`
 	Current       *lowercaseOwnership `codec:"prov,omitempty"`
 	Previous      *lowercaseOwnership `codec:"oprov,omitempty"`
+	Kind          string              `codec:"Kind"`
+	Entry         releasedEntry       `codec:"Entry"`
 }
 
 func TestMigrateEntryMetadata_LowercaseOwnershipPreservesRootAndParameters(t *testing.T) {
@@ -136,18 +136,18 @@ func TestMigrateEntryMetadata_RejectsNullOwnership(t *testing.T) {
 
 func TestMigrateEntryMetadata_RejectsContradictoryOwnershipSpellings(t *testing.T) {
 	cases := []struct {
+		raw   map[string]any
 		name  string
 		field string
-		raw   map[string]any
 	}{
-		{"module_lower_empty", "prov", map[string]any{"module": "", "Module": "org/mod"}},
-		{"module_upper_empty", "prov", map[string]any{"module": "org/mod", "Module": ""}},
-		{"version_lower_empty", "prov", map[string]any{"version": "", "Version": "1.0.0"}},
-		{"version_upper_empty", "prov", map[string]any{"version": "1.0.0", "Version": ""}},
-		{"digest_lower_empty", "prov", map[string]any{"digest": "", "Digest": "sha256:abc"}},
-		{"digest_upper_empty", "prov", map[string]any{"digest": "sha256:abc", "Digest": ""}},
-		{"root_disagrees", "prov", map[string]any{"root": false, "Root": true}},
-		{"previous_module_disagrees", "oprov", map[string]any{"module": "", "Module": "org/mod"}},
+		{map[string]any{"module": "", "Module": "org/mod"}, "module_lower_empty", "prov"},
+		{map[string]any{"module": "org/mod", "Module": ""}, "module_upper_empty", "prov"},
+		{map[string]any{"version": "", "Version": "1.0.0"}, "version_lower_empty", "prov"},
+		{map[string]any{"version": "1.0.0", "Version": ""}, "version_upper_empty", "prov"},
+		{map[string]any{"digest": "", "Digest": "sha256:abc"}, "digest_lower_empty", "prov"},
+		{map[string]any{"digest": "sha256:abc", "Digest": ""}, "digest_upper_empty", "prov"},
+		{map[string]any{"root": false, "Root": true}, "root_disagrees", "prov"},
+		{map[string]any{"module": "", "Module": "org/mod"}, "previous_module_disagrees", "oprov"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

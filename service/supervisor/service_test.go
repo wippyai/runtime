@@ -336,7 +336,7 @@ func TestService_MonitorLoop_ContextCanceled(t *testing.T) {
 	monitorCh := make(chan *relay.Package, 1)
 	ctx, cancel := context.WithCancel(context.Background())
 
-	go svc.monitorLoop(ctx, monitorCh)
+	go svc.monitorLoop(ctx, monitorCh, nil)
 
 	cancel()
 	time.Sleep(50 * time.Millisecond)
@@ -356,7 +356,7 @@ func TestService_MonitorLoop_ChannelClosed(t *testing.T) {
 	monitorCh := make(chan *relay.Package, 1)
 	ctx := context.Background()
 
-	go svc.monitorLoop(ctx, monitorCh)
+	go svc.monitorLoop(ctx, monitorCh, nil)
 
 	close(monitorCh)
 	time.Sleep(50 * time.Millisecond)
@@ -376,7 +376,7 @@ func TestService_MonitorLoop_ExitEventWithError(t *testing.T) {
 	monitorCh := make(chan *relay.Package, 1)
 	ctx := context.Background()
 
-	go svc.monitorLoop(ctx, monitorCh)
+	go svc.monitorLoop(ctx, monitorCh, nil)
 
 	exitEvent := &topologyapi.ExitEvent{
 		Kind:   topologyapi.Exit,
@@ -405,7 +405,7 @@ func TestService_MonitorLoop_ExitEventWithoutError(t *testing.T) {
 	monitorCh := make(chan *relay.Package, 1)
 	ctx := context.Background()
 
-	go svc.monitorLoop(ctx, monitorCh)
+	go svc.monitorLoop(ctx, monitorCh, nil)
 
 	exitEvent := &topologyapi.ExitEvent{
 		Kind: topologyapi.Exit,
@@ -431,7 +431,7 @@ func TestService_MonitorLoop_IgnoresNonEventsTopic(t *testing.T) {
 	monitorCh := make(chan *relay.Package, 1)
 	ctx, cancel := context.WithCancel(context.Background())
 
-	go svc.monitorLoop(ctx, monitorCh)
+	go svc.monitorLoop(ctx, monitorCh, nil)
 
 	pkg := relay.NewPackage(pid.PID{}, pid.PID{}, "other-topic", payload.New("data"))
 	monitorCh <- pkg
@@ -459,7 +459,7 @@ func TestService_StartupComplete_ReturnOk(t *testing.T) {
 	monitorCh := make(chan *relay.Package, 1)
 	ctx := context.Background()
 
-	go svc.monitorLoop(ctx, monitorCh)
+	go svc.monitorLoop(ctx, monitorCh, nil)
 
 	exitEvent := &topologyapi.ExitEvent{
 		Kind:   topologyapi.Exit,
@@ -475,6 +475,57 @@ func TestService_StartupComplete_ReturnOk(t *testing.T) {
 	require.NoError(t, r.Wait(context.Background()))
 }
 
+func TestService_StartupCompleteWaitsForEachRun(t *testing.T) {
+	for _, replacement := range []bool{false, true} {
+		name := "restart"
+		if replacement {
+			name = "replacement"
+		}
+		t.Run(name, func(t *testing.T) {
+			readiness := bootpkg.NewReadiness()
+			gate := readiness.RegisterGate("test:boot_service")
+			svc := newTestService()
+			svc.SetGate(gate)
+			node := &mockNode{}
+			ctx := setupTestContext(node, &mockTopology{}, &mockProcessManager{
+				startedPID: pid.PID{UniqID: "child"},
+			})
+			ctx, cancelRun := context.WithCancel(ctx)
+			t.Cleanup(cancelRun)
+			status, err := svc.Start(ctx)
+			require.NoError(t, err)
+			node.attachCh <- relay.NewPackage(pid.PID{}, pid.PID{}, topologyapi.TopicEvents,
+				payload.New(&topologyapi.ExitEvent{Kind: topologyapi.Exit, Result: &runtime.Result{}}))
+			require.ErrorIs(t, (<-status).(error), supervisor.ErrExit)
+			_, open := <-status
+			require.False(t, open)
+			require.NoError(t, svc.WaitCompletion(t.Context()))
+			require.NoError(t, readiness.Wait(t.Context()))
+
+			if replacement {
+				svc = newTestService()
+				svc.SetGate(gate)
+			}
+			status, err = svc.Start(ctx)
+			require.NoError(t, err)
+			waitCtx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+			defer cancel()
+			require.ErrorIs(t, svc.WaitCompletion(waitCtx), context.DeadlineExceeded,
+				"a previous success must not release the current run's dependencies")
+			require.Zero(t, readiness.Pending(), "application readiness remains one-shot")
+
+			failure := errors.New("new migration failed")
+			node.attachCh <- relay.NewPackage(pid.PID{}, pid.PID{}, topologyapi.TopicEvents,
+				payload.New(&topologyapi.ExitEvent{Kind: topologyapi.Exit, Result: &runtime.Result{Error: failure}}))
+			require.ErrorIs(t, (<-status).(error), failure)
+			_, open = <-status
+			require.False(t, open)
+			require.ErrorIs(t, svc.WaitCompletion(t.Context()), failure)
+			require.NoError(t, readiness.Wait(t.Context()), "a later run cannot rewrite boot readiness")
+		})
+	}
+}
+
 func TestService_StartupComplete_ExternalCancelOrKillFailsGate(t *testing.T) {
 	r := bootpkg.NewReadiness()
 	gate := r.RegisterGate("test:boot_service")
@@ -486,7 +537,7 @@ func TestService_StartupComplete_ExternalCancelOrKillFailsGate(t *testing.T) {
 	monitorCh := make(chan *relay.Package, 1)
 	ctx := context.Background()
 
-	go svc.monitorLoop(ctx, monitorCh)
+	go svc.monitorLoop(ctx, monitorCh, nil)
 
 	// An external cancel or kill exit carries no Result (Result is nil).
 	exitEvent := &topologyapi.ExitEvent{
@@ -518,7 +569,7 @@ func TestService_StartupComplete_ReturnError(t *testing.T) {
 	monitorCh := make(chan *relay.Package, 1)
 	ctx := context.Background()
 
-	go svc.monitorLoop(ctx, monitorCh)
+	go svc.monitorLoop(ctx, monitorCh, nil)
 
 	expectedErr := errors.New("migration failed")
 	exitEvent := &topologyapi.ExitEvent{

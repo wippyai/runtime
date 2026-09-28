@@ -40,19 +40,20 @@ type ctrlOp struct {
 
 // Controller manages the lifecycle of a service.
 type Controller struct {
-	runStart      time.Time
-	service       supervisor.Service
-	root          context.Context
-	ctx           context.Context
-	securityErr   error
-	stateChanged  chan struct{}
-	onStateChange func(supervisor.Status, any)
-	cancel        context.CancelFunc
-	ops           chan ctrlOp
-	startCancel   context.CancelFunc
-	state         *internalState
-	config        supervisor.LifecycleConfig
-	startMu       sync.Mutex
+	runStart         time.Time
+	service          supervisor.Service
+	root             context.Context
+	ctx              context.Context
+	securityErr      error
+	stateChanged     chan struct{}
+	onStateChange    func(supervisor.Status, any)
+	cancel           context.CancelFunc
+	ops              chan ctrlOp
+	startCancel      context.CancelFunc
+	completionCancel context.CancelFunc
+	state            *internalState
+	config           supervisor.LifecycleConfig
+	startMu          sync.Mutex
 }
 
 // NewController creates a new service lifecycle controller with the specified configuration.
@@ -116,6 +117,21 @@ func (c *Controller) startContext(ctx context.Context) error {
 		c.updateState(supervisor.StatusExited, c.securityErr)
 		return c.securityErr
 	}
+	if c.config.Startup == supervisor.StartupComplete {
+		waitCtx, cancel := context.WithCancel(ctx)
+		stopPropagation := context.AfterFunc(c.ctx, cancel)
+		c.startMu.Lock()
+		c.completionCancel = cancel
+		c.startMu.Unlock()
+		defer func() {
+			stopPropagation()
+			cancel()
+			c.startMu.Lock()
+			c.completionCancel = nil
+			c.startMu.Unlock()
+		}()
+		ctx = waitCtx
+	}
 	if err := c.runCommand(ctrlOp{kind: ctrlStart, ctx: ctx}); err != nil {
 		return err
 	}
@@ -156,9 +172,13 @@ func (c *Controller) StopContext(ctx context.Context) error {
 func (c *Controller) cancelStart() {
 	c.startMu.Lock()
 	cancel := c.startCancel
+	completionCancel := c.completionCancel
 	c.startMu.Unlock()
 	if cancel != nil {
 		cancel()
+	}
+	if completionCancel != nil {
+		completionCancel()
 	}
 }
 

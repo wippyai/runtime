@@ -40,10 +40,10 @@ const (
 // Gate represents a boot readiness gate declared by a service.
 type Gate struct {
 	readiness *Readiness
+	err       error
+	done      chan struct{}
 	id        string
 	state     gateState
-	done      chan struct{}
-	err       error
 	mu        sync.Mutex
 }
 
