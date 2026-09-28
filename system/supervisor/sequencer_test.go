@@ -43,9 +43,11 @@ func TestSequencerWaitsForCompleteDependencyBeforeStartingDependent(t *testing.T
 	boot := &completionService{
 		started: make(chan struct{}), complete: make(chan error, 1), status: make(chan any),
 	}
-	controller := NewController(t.Context(), boot, supervisorapi.LifecycleConfig{
+	config := supervisorapi.LifecycleConfig{
 		Startup: supervisorapi.StartupComplete,
-	}, nil)
+	}
+	config.InitDefaults()
+	controller := NewController(t.Context(), boot, config, nil)
 	events := make(chan operationEvent, 1)
 	dependent := newTestController("dependent", events)
 	done := make(chan error, 1)
@@ -81,9 +83,11 @@ func TestSequencerBlocksDependentWhenCompletionFails(t *testing.T) {
 	boot := &completionService{
 		started: make(chan struct{}), complete: make(chan error, 1), status: make(chan any),
 	}
-	controller := NewController(t.Context(), boot, supervisorapi.LifecycleConfig{
+	config := supervisorapi.LifecycleConfig{
 		Startup: supervisorapi.StartupComplete,
-	}, nil)
+	}
+	config.InitDefaults()
+	controller := NewController(t.Context(), boot, config, nil)
 	events := make(chan operationEvent, 1)
 	dependent := newTestController("dependent", events)
 	bootErr := errors.New("migration failed")
