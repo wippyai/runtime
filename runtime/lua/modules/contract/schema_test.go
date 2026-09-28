@@ -10,6 +10,19 @@ import (
 	api "github.com/wippyai/runtime/api/contract"
 )
 
+func TestSchemaTranslatorRegistryVersions(t *testing.T) {
+	if SchemaTranslatorVersion("application/schema+json") == "" {
+		t.Fatal("JSON Schema translator has no version")
+	}
+	if SchemaTranslatorVersion("missing/format") != "" {
+		t.Fatal("unknown format has a translator version")
+	}
+	projection := TranslateSchema(api.SchemaDefinition{Format: "missing/format", Definition: `{"type":"string"}`}, nil)
+	if projection.Type != typ.Unknown || projection.Coverage != SchemaIncomplete || len(projection.Diagnostics) == 0 {
+		t.Fatalf("unknown format projection: %+v", projection)
+	}
+}
+
 func projectJSON(document string) SchemaProjection {
 	return TranslateSchema(api.SchemaDefinition{Format: "application/schema+json", Definition: document}, nil)
 }

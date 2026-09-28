@@ -24,6 +24,7 @@ const contractCatalogVersion = "contract-catalog-v1"
 type contractCatalog struct {
 	definitions    map[string]*api.Definition
 	bindings       map[string]*api.Binding
+	resources      map[string]any
 	manifest       *io.Manifest
 	diagnostics    []contractmod.ManifestDiagnostic
 	fingerprint    string
@@ -34,6 +35,7 @@ func collectContractCatalog(entries []regapi.Entry) *contractCatalog {
 	c := &contractCatalog{
 		definitions:    make(map[string]*api.Definition),
 		bindings:       make(map[string]*api.Binding),
+		resources:      make(map[string]any),
 		boundFunctions: make(map[regapi.ID]bool),
 	}
 	sorted := append([]regapi.Entry(nil), entries...)
@@ -42,7 +44,7 @@ func collectContractCatalog(entries []regapi.Entry) *contractCatalog {
 	hash.Write([]byte(contractCatalogVersion))
 	hash.Write([]byte(contractmod.SchemaDialect))
 	for _, entry := range sorted {
-		if entry.Kind != di.Definition && entry.Kind != di.Binding {
+		if entry.Kind != di.Definition && entry.Kind != di.Binding && entry.Kind != regapi.Kind("contract.schema") {
 			continue
 		}
 		hash.Write([]byte(entry.ID.String()))
@@ -54,6 +56,8 @@ func collectContractCatalog(entries []regapi.Entry) *contractCatalog {
 			hash.Write(raw)
 		}
 		switch entry.Kind {
+		case regapi.Kind("contract.schema"):
+			c.resources[entry.ID.String()] = entry.Data.Data()
 		case di.Definition:
 			var config di.DefinitionConfig
 			if err := decodeContractEntry(entry.Data, &config); err != nil {
@@ -76,6 +80,20 @@ func collectContractCatalog(entries []regapi.Entry) *contractCatalog {
 				for _, functionID := range bound.Methods {
 					c.boundFunctions[functionID] = true
 				}
+			}
+		}
+	}
+	definitionIDs := make([]string, 0, len(c.definitions))
+	for id := range c.definitions {
+		definitionIDs = append(definitionIDs, id)
+	}
+	sort.Strings(definitionIDs)
+	for _, id := range definitionIDs {
+		definition := c.definitions[id]
+		for _, method := range definition.Methods {
+			for _, schema := range append(append([]api.SchemaDefinition(nil), method.InputSchemas...), method.OutputSchemas...) {
+				hash.Write([]byte(schema.Format))
+				hash.Write([]byte(contractmod.SchemaTranslatorVersion(schema.Format)))
 			}
 		}
 	}
@@ -116,7 +134,7 @@ func decodeContractEntry(data payload.Payload, target any) error {
 }
 
 func buildCatalogManifest(c *contractCatalog) (*io.Manifest, []contractmod.ManifestDiagnostic) {
-	manifest, diagnostics := contractmod.BuildTypedCatalogManifest(c.definitions, c.bindings, nil)
+	manifest, diagnostics := contractmod.BuildTypedCatalogManifest(c.definitions, c.bindings, c.resources)
 	return manifest, append(c.diagnostics, diagnostics...)
 }
 

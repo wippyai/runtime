@@ -79,6 +79,24 @@ func TestContractCatalogReadsAllKindsAndFingerprintsRawConstraints(t *testing.T)
 	}
 }
 
+func TestCatalogResourcesResolveReferencesAndInvalidateFingerprint(t *testing.T) {
+	definition := contractEntry("sample:svc", di.Definition, `{"methods":[{"name":"run","output_schemas":[{"format":"application/schema+json","definition":{"$ref":"sample:schema"}}]}]}`)
+	resource := contractEntry("sample:schema", "contract.schema", `{"type":"string"}`)
+	base := collectContractCatalog([]regapi.Entry{definition, resource})
+	if len(base.resources) != 1 {
+		t.Fatalf("missing catalog resource: %+v", base.resources)
+	}
+	for _, diagnostic := range base.diagnostics {
+		if strings.Contains(diagnostic.Message, "unresolved reference") {
+			t.Fatalf("resource was not supplied to translator: %+v", base.diagnostics)
+		}
+	}
+	changed := collectContractCatalog([]regapi.Entry{definition, contractEntry("sample:schema", "contract.schema", `{"type":"number"}`)})
+	if changed.fingerprint == base.fingerprint {
+		t.Fatal("resource change must invalidate catalog fingerprint")
+	}
+}
+
 func TestCatalogCoverageSeverity(t *testing.T) {
 	c := collectContractCatalog([]regapi.Entry{contractEntry("sample:svc", di.Definition, `{"methods":[{"name":"run"}]}`)})
 	warnings := &LintResult{}

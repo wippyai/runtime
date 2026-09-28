@@ -81,7 +81,7 @@ func checkBindingConformance(catalog *contractCatalog, manifests map[regapi.ID]*
 				} else {
 					minArity := len(method.InputSchemas)
 					for minArity > 0 {
-						projection := contractmod.TranslateSchema(method.InputSchemas[minArity-1], nil)
+						projection := contractmod.TranslateSchema(method.InputSchemas[minArity-1], catalog.resources)
 						if !nilableSchemaType(projection.Type) {
 							break
 						}
@@ -106,7 +106,7 @@ func checkBindingConformance(catalog *contractCatalog, manifests map[regapi.ID]*
 						if accepted == nil {
 							continue
 						} // Lua discards surplus positional arguments.
-						projection := contractmod.TranslateSchema(schema, nil)
+						projection := contractmod.TranslateSchema(schema, catalog.resources)
 						path := fmt.Sprintf("input_schemas[%d]", i)
 						if projection.Coverage != contractmod.SchemaComplete {
 							add(path, "cannot verify input constraint from unknown/any or incomplete schema evidence", false)
@@ -123,7 +123,7 @@ func checkBindingConformance(catalog *contractCatalog, manifests map[regapi.ID]*
 					add("output_schemas", "cannot verify output: schema unspecified", false)
 				}
 				for outputIndex, schema := range method.OutputSchemas {
-					projection := contractmod.TranslateSchema(schema, nil)
+					projection := contractmod.TranslateSchema(schema, catalog.resources)
 					path := fmt.Sprintf("output_schemas[%d]", outputIndex)
 					schemaGap := projection.Coverage != contractmod.SchemaComplete || containsUnverifiable(projection.Type)
 					if schemaGap {

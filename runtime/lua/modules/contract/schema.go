@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/wippyai/go-lua/types/typ"
 	api "github.com/wippyai/runtime/api/contract"
@@ -36,17 +37,54 @@ type SchemaProjection struct {
 	Diagnostics []SchemaDiagnostic
 }
 
+// SchemaFormatTranslator owns projection semantics and a cache version for one
+// schema format. Registrations are shared by manifests and conformance checks.
+type SchemaFormatTranslator interface {
+	Version() string
+	Translate(definition any, resources map[string]any) SchemaProjection
+}
+
+var schemaFormats = struct {
+	sync.RWMutex
+	translators map[string]SchemaFormatTranslator
+}{translators: map[string]SchemaFormatTranslator{"application/schema+json": jsonSchemaTranslator{}}}
+
+func RegisterSchemaTranslator(format string, translator SchemaFormatTranslator) {
+	schemaFormats.Lock()
+	defer schemaFormats.Unlock()
+	schemaFormats.translators[format] = translator
+}
+
+func SchemaTranslatorVersion(format string) string {
+	schemaFormats.RLock()
+	translator := schemaFormats.translators[format]
+	schemaFormats.RUnlock()
+	if translator == nil {
+		return ""
+	}
+	return translator.Version()
+}
+
+type jsonSchemaTranslator struct{}
+
+func (jsonSchemaTranslator) Version() string { return "json-schema-2020-12-v1" }
+
 // TranslateSchema projects the validation constraints that Lua's structural
 // checker can prove. resources are explicitly supplied JSON Schema documents,
 // indexed by URI. Resolution never fetches from the network.
 func TranslateSchema(schema api.SchemaDefinition, resources map[string]any) SchemaProjection {
-	result := SchemaProjection{Type: typ.Unknown, Coverage: SchemaUnconstrained}
-	if schema.Format != "application/schema+json" {
-		result.Coverage = SchemaIncomplete
-		result.Diagnostics = []SchemaDiagnostic{{"$", "unsupported schema format " + schema.Format}}
-		return result
+	schemaFormats.RLock()
+	translator := schemaFormats.translators[schema.Format]
+	schemaFormats.RUnlock()
+	if translator == nil {
+		return SchemaProjection{Type: typ.Unknown, Coverage: SchemaIncomplete, Diagnostics: []SchemaDiagnostic{{"$", "schema format " + schema.Format + " is not supported"}}}
 	}
-	root, err := schemaDocument(schema.Definition)
+	return translator.Translate(schema.Definition, resources)
+}
+
+func (jsonSchemaTranslator) Translate(definition any, resources map[string]any) SchemaProjection {
+	result := SchemaProjection{Type: typ.Unknown, Coverage: SchemaUnconstrained}
+	root, err := schemaDocument(definition)
 	if err != nil {
 		result.Coverage = SchemaIncomplete
 		result.Diagnostics = []SchemaDiagnostic{{"$", err.Error()}}
