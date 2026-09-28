@@ -1,0 +1,10 @@
+package wippy:udp-actor@0.1.0;
+
+world udp-actor {
+    import wasi:io/poll@0.2.8;
+    import wasi:sockets/instance-network@0.2.8;
+    import wasi:sockets/udp-create-socket@0.2.8;
+    import wasi:sockets/udp@0.2.8;
+
+    export run: func() -> result<string, string>;
+}

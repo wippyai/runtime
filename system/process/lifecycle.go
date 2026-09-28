@@ -12,8 +12,10 @@ import (
 	"github.com/wippyai/runtime/api/runtime"
 )
 
-// LifecycleRegistry manages multiple lifecycle handlers and calls them
-// in registration order during process lifecycle events.
+// LifecycleRegistry manages multiple lifecycle handlers. OnStart runs them in
+// registration order and OnComplete in reverse, so a handler registered later
+// releases its process resources before earlier handlers, such as topology,
+// announce the exit.
 // Uses copy-on-write for zero allocations on OnStart/OnComplete.
 type LifecycleRegistry struct {
 	handlers atomic.Pointer[[]process.Lifecycle]
@@ -35,7 +37,6 @@ func NewLifecycleRegistry() *LifecycleRegistry {
 }
 
 // Register adds a lifecycle handler with the given name.
-// Handlers are called in registration order.
 func (r *LifecycleRegistry) Register(name string, lc process.Lifecycle) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -87,11 +88,12 @@ func (r *LifecycleRegistry) OnStart(ctx context.Context, pid pid.PID, proc proce
 	return nil
 }
 
-// OnComplete calls all registered lifecycle handlers' OnComplete methods.
+// OnComplete calls all registered lifecycle handlers' OnComplete methods in
+// reverse registration order.
 func (r *LifecycleRegistry) OnComplete(ctx context.Context, pid pid.PID, result *runtime.Result) {
 	handlers := *r.handlers.Load()
-	for _, h := range handlers {
-		h.OnComplete(ctx, pid, result)
+	for i := len(handlers) - 1; i >= 0; i-- {
+		handlers[i].OnComplete(ctx, pid, result)
 	}
 }
 

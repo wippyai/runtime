@@ -11,6 +11,7 @@ import (
 
 const (
 	Postgres registry.Kind = "db.cdc.postgres"
+	SQLite   registry.Kind = "db.cdc.sqlite"
 )
 
 const (
@@ -18,26 +19,38 @@ const (
 	ProtocolVersion = 1
 
 	StreamingProtocolVersion = 2
+
+	// These defaults bound decoder memory when the corresponding entry fields
+	// are omitted. Zero in Config means "use this default", never unlimited.
+	DefaultPostgresMaxTransactionChanges = 1_000_000
+	DefaultPostgresMaxTransactionBytes   = 256 << 20
+	DefaultPostgresMaxInflightChanges    = 1_000_000
+	DefaultPostgresMaxInflightBytes      = 256 << 20
 )
 
 type Config struct {
-	Options           map[string]string          `json:"options"`
-	Database          string                     `json:"database"`
-	Password          string                     `json:"password"`
-	Host              string                     `json:"host"`
-	Username          string                     `json:"username"`
-	SlotName          string                     `json:"slot_name"`
-	Publication       string                     `json:"publication,omitempty"`
-	StandbyInterval   string                     `json:"standby_interval,omitempty"`
-	StatusInterval    string                     `json:"status_interval,omitempty"`
-	Tables            []string                   `json:"tables,omitempty"`
-	Lifecycle         supervisor.LifecycleConfig `json:"lifecycle"`
-	Port              int                        `json:"port"`
-	SnapshotFetchSize int                        `json:"snapshot_fetch_size,omitempty"`
-	Temporary         bool                       `json:"temporary,omitempty"`
-	Snapshot          bool                       `json:"snapshot,omitempty"`
-	Streaming         bool                       `json:"streaming,omitempty"`
-	Failover          bool                       `json:"failover,omitempty"`
+	Options               map[string]string          `json:"options"`
+	StatusInterval        string                     `json:"status_interval,omitempty"`
+	StandbyInterval       string                     `json:"standby_interval,omitempty"`
+	Publication           string                     `json:"publication,omitempty"`
+	SlotName              string                     `json:"slot_name"`
+	Username              string                     `json:"username"`
+	Host                  string                     `json:"host"`
+	Password              string                     `json:"password"`
+	Database              string                     `json:"database"`
+	Tables                []string                   `json:"tables,omitempty"`
+	Lifecycle             supervisor.LifecycleConfig `json:"lifecycle"`
+	Subscriptions         SubscriptionLimits         `json:"subscriptions,omitempty"`
+	Port                  int                        `json:"port"`
+	MaxInflightBytes      int64                      `json:"max_inflight_bytes,omitempty"`
+	MaxInflightChanges    int                        `json:"max_inflight_changes,omitempty"`
+	MaxTransactionBytes   int64                      `json:"max_transaction_bytes,omitempty"`
+	MaxTransactionChanges int                        `json:"max_transaction_changes,omitempty"`
+	SnapshotFetchSize     int                        `json:"snapshot_fetch_size,omitempty"`
+	Failover              bool                       `json:"failover,omitempty"`
+	Streaming             bool                       `json:"streaming,omitempty"`
+	Snapshot              bool                       `json:"snapshot,omitempty"`
+	Temporary             bool                       `json:"temporary,omitempty"`
 }
 
 func (c *Config) InitDefaults() {
@@ -48,6 +61,9 @@ func (c *Config) InitDefaults() {
 }
 
 func (c *Config) Validate() error {
+	if err := c.Subscriptions.Validate(); err != nil {
+		return err
+	}
 	if c.Host == "" {
 		return ErrHostRequired
 	}
@@ -75,6 +91,18 @@ func (c *Config) Validate() error {
 	if c.SnapshotFetchSize < 0 {
 		return ErrInvalidSnapshotFetchSize
 	}
+	if c.MaxTransactionChanges < 0 {
+		return ErrInvalidMaxTransactionChanges
+	}
+	if c.MaxTransactionBytes < 0 {
+		return ErrInvalidMaxTransactionBytes
+	}
+	if c.MaxInflightChanges < 0 {
+		return ErrInvalidMaxInflightChanges
+	}
+	if c.MaxInflightBytes < 0 {
+		return ErrInvalidMaxInflightBytes
+	}
 	if _, err := c.StandbyDuration(); err != nil {
 		return err
 	}
@@ -82,6 +110,34 @@ func (c *Config) Validate() error {
 		return err
 	}
 	return nil
+}
+
+func (c *Config) EffectiveMaxTransactionChanges() int {
+	if c.MaxTransactionChanges > 0 {
+		return c.MaxTransactionChanges
+	}
+	return DefaultPostgresMaxTransactionChanges
+}
+
+func (c *Config) EffectiveMaxTransactionBytes() int64 {
+	if c.MaxTransactionBytes > 0 {
+		return c.MaxTransactionBytes
+	}
+	return DefaultPostgresMaxTransactionBytes
+}
+
+func (c *Config) EffectiveMaxInflightChanges() int {
+	if c.MaxInflightChanges > 0 {
+		return c.MaxInflightChanges
+	}
+	return DefaultPostgresMaxInflightChanges
+}
+
+func (c *Config) EffectiveMaxInflightBytes() int64 {
+	if c.MaxInflightBytes > 0 {
+		return c.MaxInflightBytes
+	}
+	return DefaultPostgresMaxInflightBytes
 }
 
 func (c *Config) StandbyDuration() (time.Duration, error) {

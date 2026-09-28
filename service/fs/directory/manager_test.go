@@ -632,6 +632,35 @@ func TestManager_AddResolvesModuleRelativePathWhenBaseOmitted(t *testing.T) {
 	assert.Equal(t, filepath.Join(moduleRoot, "public"), factory.Configs[0].DirPath)
 }
 
+func TestManager_PropagatesReadOnlyAcrossAddAndUpdate(t *testing.T) {
+	ctx := ctxapi.NewRootContext()
+	factory := NewMockFactory(&MockFS{}, nil)
+	manager := NewDirectoryManager(eventbus.NewBus(), &MockTranscoder{}, factory, zap.NewNop())
+	entry := registry.Entry{
+		ID:   registry.NewID("app.fs", "data"),
+		Kind: dirapi.Kind,
+		Data: NewMockPayload(&dirapi.Config{
+			Directory: "/tmp/data",
+			Mode:      "0755",
+			ReadOnly:  true,
+		}),
+	}
+
+	require.NoError(t, manager.Add(ctx, entry))
+	require.Len(t, factory.Configs, 1)
+	assert.True(t, factory.Configs[0].ReadOnly)
+
+	entry.Data = NewMockPayload(&dirapi.Config{
+		Directory: "/tmp/data",
+		Mode:      "0755",
+		ReadOnly:  false,
+	})
+	require.NoError(t, manager.Update(ctx, entry))
+	require.Len(t, factory.Configs, 2)
+	assert.False(t, factory.Configs[1].ReadOnly)
+	require.NoError(t, manager.Delete(ctx, entry))
+}
+
 // Add test for factory error handling
 func TestManager_FactoryError(t *testing.T) {
 	ctx := ctxapi.NewRootContext()

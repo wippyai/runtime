@@ -27,6 +27,12 @@ var (
 	ErrProcessNotIdle = apierror.New(InvalidState, "process is not idle").WithRetryable(apierror.False)
 
 	ErrSchedulerStopping = apierror.New(InvalidState, "scheduler is stopping").WithRetryable(apierror.False)
+
+	// ErrMessageQueueOverflow is delivered as a terminal stream error when an
+	// explicitly bounded message subscription exhausts its retained backlog.
+	// It is intentionally an ordinary Go sentinel so consumers can use
+	// errors.Is on the error carried by the terminal payload.
+	ErrMessageQueueOverflow = errors.New("message queue limit exceeded")
 )
 
 // ErrProcessReplacementRequested is an internal scheduler sentinel. A process

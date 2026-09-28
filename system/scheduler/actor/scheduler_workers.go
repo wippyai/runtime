@@ -24,7 +24,7 @@ func (s *Scheduler) Start() {
 	s.controlMu.Lock()
 	defer s.controlMu.Unlock()
 
-	if s.started || s.stopping.Load() {
+	if s.started || s.isStopping() {
 		return
 	}
 	s.started = true
@@ -41,14 +41,14 @@ func (s *Scheduler) ResizeWorkers(target int) error {
 	if target <= 0 {
 		return ErrInvalidWorkerCount
 	}
-	if s.stopping.Load() {
+	if s.isStopping() {
 		return process.ErrSchedulerStopping
 	}
 
 	s.controlMu.Lock()
 	defer s.controlMu.Unlock()
 
-	if s.stopping.Load() {
+	if s.isStopping() {
 		return process.ErrSchedulerStopping
 	}
 
@@ -121,10 +121,12 @@ func (s *Scheduler) startWorker(w *Worker) {
 	go func() {
 		defer s.wg.Done()
 		defer close(w.done)
-		if len(s.pinSet) > 0 {
+		if s.dedicatedThreads || len(s.pinSet) > 0 {
 			goruntime.LockOSThread()
 			defer goruntime.UnlockOSThread()
-			_ = affinity.Apply(s.pinSet)
+			if len(s.pinSet) > 0 {
+				_ = affinity.Apply(s.pinSet)
+			}
 		}
 		w.run()
 	}()

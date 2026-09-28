@@ -8,38 +8,101 @@ import (
 	"io"
 	"os"
 	"sync"
+	"time"
 
-	"github.com/charmbracelet/x/input"
 	"github.com/charmbracelet/x/term"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/relay"
-	ttyapi "github.com/wippyai/runtime/api/tty"
+	tty "github.com/wippyai/runtime/api/tty"
 	"github.com/wippyai/runtime/system/scheduler/actor"
 )
 
-// InputReader reads terminal input and delivers parsed events via the scheduler.
+// InputReader reads terminal input and delivers parsed events to a sink.
 type InputReader struct {
-	stdin        *os.File
-	raw          *RawManager
-	scheduler    *actor.Scheduler
-	reader       *input.Reader
-	cancel       context.CancelFunc
-	targetPID    pid.PID
-	wg           sync.WaitGroup
-	mu           sync.Mutex
-	started      bool
-	mouseEnabled bool
+	graphicsProbeAt time.Time
+	output          io.Writer
+	emitter         *inputEmitter
+	raw             *RawManager
+	sink            func(tty.Event)
+	reader          terminalInputReader
+	cancel          context.CancelFunc
+	stopDone        chan struct{}
+	stopErr         error
+	done            chan struct{}
+	err             error
+	stdin           *os.File
+	graphicsMode    string
+	wg              sync.WaitGroup
+	mu              sync.Mutex
+	started         bool
+	stopping        bool
+	mouseEnabled    bool
+	pasteEnabled    bool
+	doneClosed      bool
 }
 
-// NewInputReader creates an InputReader that delivers events to the given process.
-func NewInputReader(stdin *os.File, raw *RawManager, scheduler *actor.Scheduler, targetPID pid.PID) *InputReader {
-	return &InputReader{
-		stdin:     stdin,
-		raw:       raw,
-		scheduler: scheduler,
-		targetPID: targetPID,
+// NewEventInputReader creates an InputReader that delivers events to the given sink
+// without requiring an actor scheduler or PID routing.
+//
+// Start acquires terminal resources. A nil raw manager is created from stdin;
+// nil output and sink discard their respective values.
+//
+// The sink is called serially and must return promptly. It must not call back
+// into the reader or wait for network acknowledgments. Network consumers should
+// enqueue events with bounded capacity and handle overflow outside the callback.
+func NewEventInputReader(stdin *os.File, output io.Writer, raw *RawManager, sink func(tty.Event)) *InputReader {
+	if output == nil {
+		output = io.Discard
 	}
+	if sink == nil {
+		sink = func(tty.Event) {}
+	}
+	if raw == nil && stdin != nil {
+		raw = NewRawManager(stdin)
+	}
+	return &InputReader{
+		stdin:  stdin,
+		output: output,
+		raw:    raw,
+		sink:   sink,
+		done:   make(chan struct{}),
+	}
+}
+
+// NewInputReader creates an InputReader that delivers events to the given process
+// via the actor scheduler. It is implemented as an adapter to NewEventInputReader.
+func NewInputReader(stdin *os.File, output io.Writer, raw *RawManager, scheduler *actor.Scheduler, targetPID pid.PID) *InputReader {
+	return NewEventInputReader(stdin, output, raw, func(ev tty.Event) {
+		if scheduler == nil {
+			return
+		}
+		pkg := relay.AcquirePackage()
+		pkg.Target = targetPID
+		evCopy := ev
+		pkg.AddMessage(relay.Topic(TopicTTYEvents), payload.New(&evCopy))
+		if err := scheduler.Send(pkg); err != nil {
+			relay.ReleasePackage(pkg)
+		}
+	})
+}
+
+// Done returns a completion channel that is closed when the reader terminates
+// (via Stop, EOF, or a read error) for the current active Start session.
+func (r *InputReader) Done() <-chan struct{} {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.done
+}
+
+// Err returns the error that caused the reader to terminate, if any.
+// It returns io.EOF if the input stream reached EOF, or a non-nil error if
+// a reader error occurred. If the reader was stopped cleanly or is still running,
+// Err returns nil.
+func (r *InputReader) Err() error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.err
 }
 
 // Start enables raw mode and spawns the read loop and SIGWINCH goroutine.
@@ -47,16 +110,33 @@ func (r *InputReader) Start() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if r.started {
+	if r.started || r.stopping {
 		return errors.New("input reader already started")
 	}
+	r.stopErr = nil
+	if r.doneClosed || r.done == nil {
+		r.done = make(chan struct{})
+		r.doneClosed = false
+	}
+	r.err = nil
 
+	if r.raw == nil {
+		if r.stdin != nil {
+			r.raw = NewRawManager(r.stdin)
+		} else {
+			return errors.New("terminal raw manager is required")
+		}
+	}
 	if err := r.raw.Enable(); err != nil {
 		return err
 	}
 
-	termType := os.Getenv("TERM")
-	reader, err := input.NewReader(r.stdin, termType, 0)
+	if r.stdin == nil {
+		_ = r.raw.Disable()
+		return errors.New("stdin is required")
+	}
+
+	reader, err := newTerminalInputReader(r.stdin, os.Getenv("TERM"))
 	if err != nil {
 		_ = r.raw.Disable()
 		return err
@@ -65,12 +145,31 @@ func (r *InputReader) Start() error {
 	ctx, cancel := context.WithCancel(context.Background())
 	r.cancel = cancel
 	r.reader = reader
+	r.emitter = newInputEmitter(r.deliverToSink)
 	r.started = true
+	pasteSequence := []byte("\033[?2004h")
+	if n, err := r.output.Write(pasteSequence); err != nil || n != len(pasteSequence) {
+		r.started = false
+		cancel()
+		r.cancel = nil
+		_ = reader.Close()
+		r.reader = nil
+		if r.emitter != nil {
+			r.emitter.stop()
+			r.emitter = nil
+		}
+		_ = r.raw.Disable()
+		if err == nil {
+			err = io.ErrShortWrite
+		}
+		return err
+	}
+	r.pasteEnabled = true
 
 	// Send initial start event with terminal size
 	cols, rows, sizeErr := r.screenSize()
 	if sizeErr == nil {
-		r.sendEvent(&TTYEvent{
+		r.emitter.emit(&TTYEvent{
 			Type:   "start",
 			Width:  cols,
 			Height: rows,
@@ -78,7 +177,7 @@ func (r *InputReader) Start() error {
 	}
 
 	r.wg.Add(2)
-	go r.readLoop(ctx, reader)
+	go r.readLoop(ctx, reader, r.done)
 	go r.sigwinchLoop(ctx)
 
 	return nil
@@ -86,21 +185,53 @@ func (r *InputReader) Start() error {
 
 // Stop cancels the read loop, waits for goroutines, and restores the terminal.
 func (r *InputReader) Stop() error {
+	return r.stopWithCause(nil, nil)
+}
+
+func (r *InputReader) stopWithCause(cause error, session <-chan struct{}) error {
 	r.mu.Lock()
-	if !r.started {
+	// A completed reader may finish after Stop and a subsequent Start.
+	if session != nil && session != r.done {
 		r.mu.Unlock()
 		return nil
 	}
+	if cause != nil && r.err == nil {
+		r.err = cause
+	}
+	if r.stopping {
+		done := r.stopDone
+		r.mu.Unlock()
+		<-done
+		r.mu.Lock()
+		err := r.stopErr
+		r.mu.Unlock()
+		return err
+	}
+	if !r.started {
+		err := r.stopErr
+		r.mu.Unlock()
+		return err
+	}
 
 	r.started = false
-	if r.cancel != nil {
-		r.cancel()
-		r.cancel = nil
-	}
-	if r.reader != nil {
-		r.reader.Cancel()
-	}
+	r.stopping = true
+	r.stopDone = make(chan struct{})
+
+	emitter := r.emitter
+	cancel := r.cancel
+	r.cancel = nil
+	reader := r.reader
 	r.mu.Unlock()
+
+	if emitter != nil {
+		emitter.stop()
+	}
+	if cancel != nil {
+		cancel()
+	}
+	if reader != nil {
+		reader.Cancel()
+	}
 
 	r.wg.Wait()
 
@@ -109,23 +240,55 @@ func (r *InputReader) Stop() error {
 		_ = r.reader.Close()
 		r.reader = nil
 	}
-	r.mu.Unlock()
+	r.emitter = nil
 
 	// Disable mouse tracking if it was enabled
 	if r.mouseEnabled {
-		_, _ = os.Stdout.Write([]byte("\033[?1006l\033[?1003l"))
+		_, _ = r.output.Write([]byte("\033[?1006l\033[?1003l"))
 		r.mouseEnabled = false
 	}
-
-	return r.raw.Disable()
+	var pasteErr error
+	if r.pasteEnabled {
+		sequence := []byte("\033[?2004l")
+		if n, err := r.output.Write(sequence); err != nil {
+			pasteErr = err
+		} else if n != len(sequence) {
+			pasteErr = io.ErrShortWrite
+		}
+		r.pasteEnabled = false
+	}
+	var rawErr error
+	if r.raw != nil {
+		rawErr = r.raw.Disable()
+	}
+	r.stopping = false
+	r.stopErr = errors.Join(pasteErr, rawErr)
+	if r.stopErr != nil {
+		if r.err == nil {
+			r.err = r.stopErr
+		} else {
+			r.err = errors.Join(r.err, r.stopErr)
+		}
+	}
+	if !r.doneClosed {
+		r.doneClosed = true
+		if r.done != nil {
+			close(r.done)
+		}
+	}
+	close(r.stopDone)
+	r.stopDone = nil
+	err := r.stopErr
+	r.mu.Unlock()
+	return err
 }
 
 // EnableMouse enables mouse event tracking (SGR mode).
 func (r *InputReader) EnableMouse() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if !r.mouseEnabled {
-		_, _ = os.Stdout.Write([]byte("\033[?1003h\033[?1006h"))
+	if r.started && !r.stopping && !r.mouseEnabled {
+		_, _ = r.output.Write([]byte("\033[?1003h\033[?1006h"))
 		r.mouseEnabled = true
 	}
 }
@@ -135,7 +298,7 @@ func (r *InputReader) DisableMouse() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.mouseEnabled {
-		_, _ = os.Stdout.Write([]byte("\033[?1006l\033[?1003l"))
+		_, _ = r.output.Write([]byte("\033[?1006l\033[?1003l"))
 		r.mouseEnabled = false
 	}
 }
@@ -146,39 +309,22 @@ func (r *InputReader) ScreenSize() (int, int, error) {
 }
 
 func (r *InputReader) screenSize() (int, int, error) {
+	if r.stdin == nil {
+		return 0, 0, errors.New("stdin is nil")
+	}
 	return term.GetSize(r.stdin.Fd())
 }
 
-func (r *InputReader) readLoop(ctx context.Context, reader *input.Reader) {
-	defer r.wg.Done()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		default:
+func (r *InputReader) readLoop(ctx context.Context, reader terminalInputReader, session <-chan struct{}) {
+	var readErr error
+	defer func() {
+		r.wg.Done()
+		if readErr != nil {
+			_ = r.stopWithCause(readErr, session)
 		}
+	}()
 
-		events, err := reader.ReadEvents()
-		if err != nil {
-			if errors.Is(err, io.EOF) || errors.Is(err, context.Canceled) {
-				return
-			}
-			select {
-			case <-ctx.Done():
-				return
-			default:
-				continue
-			}
-		}
-
-		for _, ev := range events {
-			ttyEv := ConvertInputEvent(ev)
-			if ttyEv != nil {
-				r.sendEvent(ttyEv)
-			}
-		}
-	}
+	readErr = streamTerminalInput(ctx, reader, r.sendEvent, r.graphicsReply)
 }
 
 func (r *InputReader) emitResize() {
@@ -193,11 +339,21 @@ func (r *InputReader) emitResize() {
 }
 
 func (r *InputReader) sendEvent(ev *TTYEvent) {
-	pkg := &relay.Package{
-		Target: r.targetPID,
+	r.mu.Lock()
+	emitter := r.emitter
+	r.mu.Unlock()
+	if emitter != nil {
+		emitter.emit(ev)
 	}
-	pkg.AddMessage(relay.Topic(TopicTTYEvents), payload.New(ev))
-	_ = r.scheduler.Send(pkg)
 }
 
-var _ ttyapi.InputController = (*InputReader)(nil)
+func (r *InputReader) deliverToSink(ev *TTYEvent) {
+	if ev == nil {
+		return
+	}
+	if r.sink != nil {
+		r.sink(*ev)
+	}
+}
+
+var _ tty.InputController = (*InputReader)(nil)

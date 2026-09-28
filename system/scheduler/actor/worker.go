@@ -17,19 +17,22 @@ import (
 )
 
 type Worker struct {
-	batchBuf  [32]*Processor
-	local     *Deque
-	inject    *InjectQueue
-	scheduler *Scheduler
-	parkCond  *sync.Cond
-	done      chan struct{}
-	parkMu    sync.Mutex
-	routeMu   sync.Mutex
-	id        int
-	executed  atomic.Uint64
-	stolen    atomic.Uint64
-	notified  atomic.Bool
-	retiring  atomic.Bool
+	batchBuf            [32]*Processor
+	local               *Deque
+	inject              *InjectQueue
+	scheduler           *Scheduler
+	parkCond            *sync.Cond
+	done                chan struct{}
+	parkMu              sync.Mutex
+	routeMu             sync.Mutex
+	id                  int
+	executed            atomic.Uint64
+	stolen              atomic.Uint64
+	notified            atomic.Bool
+	executing           bool // guarded by routeMu
+	retiring            atomic.Bool
+	dispatchesSinceFair uint8
+	fairSource          uint8
 }
 
 func newWorker(id int, s *Scheduler) *Worker {
@@ -65,7 +68,7 @@ func (w *Worker) run() {
 			continue
 		}
 
-		if s.stopping.Load() {
+		if s.phase.Load() == phaseStoppingWorkers {
 			w.drain()
 			return
 		}
@@ -85,7 +88,7 @@ func (w *Worker) run() {
 			w.handoffQueuedWork()
 			return
 		}
-		if s.stopping.Load() {
+		if s.phase.Load() == phaseStoppingWorkers {
 			w.drain()
 			return
 		}
@@ -102,12 +105,39 @@ func (w *Worker) retire() {
 func (w *Worker) injectProcessor(proc *Processor) bool {
 	w.routeMu.Lock()
 	defer w.routeMu.Unlock()
-	if w.retiring.Load() {
+	if w.retiring.Load() || w.executing {
 		return false
 	}
 	w.inject.Push(proc)
 	w.signal()
 	return true
+}
+
+// beginExecution closes the gap between selecting work and entering its step.
+// A wakeup admitted to inject during that gap must be handed to the global
+// queue before this worker can block in a different process's step.
+func (w *Worker) beginExecution() {
+	w.routeMu.Lock()
+	w.executing = true
+	handedOff := false
+	for {
+		proc := w.inject.Pop()
+		if proc == nil {
+			break
+		}
+		w.handoff(proc)
+		handedOff = true
+	}
+	w.routeMu.Unlock()
+	if handedOff {
+		w.scheduler.wakeAll()
+	}
+}
+
+func (w *Worker) endExecution() {
+	w.routeMu.Lock()
+	w.executing = false
+	w.routeMu.Unlock()
 }
 
 func (w *Worker) handoffQueuedWork() {
@@ -151,7 +181,7 @@ func (w *Worker) park() {
 			w.executed.Add(1)
 			return
 		}
-		if s.stopping.Load() {
+		if s.phase.Load() == phaseStoppingWorkers {
 			w.parkMu.Unlock()
 			return
 		}
@@ -188,7 +218,40 @@ func (w *Worker) signal() bool {
 	return true
 }
 
+// localDispatchQuantum bounds preference for the cache-hot local continuation.
+// Fair turns rotate through injected wakeups, global submissions and the oldest
+// local continuation. This is cooperative dispatch fairness, not guest preemption.
+const localDispatchQuantum = 32
+
+func (w *Worker) takeFairWork() *Processor {
+	for attempt := 0; attempt < 3; attempt++ {
+		source := w.fairSource
+		w.fairSource = (w.fairSource + 1) % 3
+		var p *Processor
+		switch source {
+		case 0:
+			p = w.inject.Pop()
+		case 1:
+			p = w.scheduler.global.Pop()
+		case 2:
+			p = w.local.Steal()
+		}
+		if p != nil {
+			return p
+		}
+	}
+	return nil
+}
+
 func (w *Worker) findWork() *Processor {
+	w.dispatchesSinceFair++
+	if w.dispatchesSinceFair == localDispatchQuantum {
+		w.dispatchesSinceFair = 0
+		if p := w.takeFairWork(); p != nil {
+			return p
+		}
+	}
+
 	// Check local deque first (LIFO, cache-hot)
 	if p := w.local.Pop(); p != nil {
 		return p
@@ -252,6 +315,10 @@ func (w *Worker) steal() *Processor {
 }
 
 func (w *Worker) executeOne(proc *Processor) {
+	// Affinity wakeups must not wait behind an unbounded process step.
+	w.beginExecution()
+	defer w.endExecution()
+
 	// Set worker affinity before any yields can complete.
 	// This ensures async completions route back to this worker.
 	proc.lastWorker.Store(int32(w.id))
@@ -464,7 +531,7 @@ func (w *Worker) executeOne(proc *Processor) {
 		// Re-publish the out-of-band snapshot so future invalidations classify
 		// the process by its (possibly new) upgraded source. The queue
 		// generation is unchanged by upgrade, so in-flight deliveries stay valid.
-		proc.publishSignalRef()
+		proc.publishSignalRef(proc.sig.Load().terminate)
 		proc.publishInspectorRef()
 
 		// Success - re-queue to local

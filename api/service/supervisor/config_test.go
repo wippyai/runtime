@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/supervisor"
 	"github.com/wippyai/runtime/api/topology"
 )
 
@@ -101,6 +102,42 @@ func TestServiceConfig_Validate(t *testing.T) {
 			wantErr: true,
 			errMsg:  "invalid host: node:control",
 		},
+		{
+			name: "complete startup requires auto start",
+			config: ServiceConfig{
+				Process: registry.NewID("proc", "worker"),
+				HostID:  "node:worker1",
+				Lifecycle: supervisor.LifecycleConfig{
+					Startup:   supervisor.StartupComplete,
+					AutoStart: false,
+				},
+			},
+			wantErr: true,
+			errMsg:  "startup: complete requires auto_start",
+		},
+		{
+			name: "complete startup with auto start is valid",
+			config: ServiceConfig{
+				Process: registry.NewID("proc", "worker"),
+				HostID:  "node:worker1",
+				Lifecycle: supervisor.LifecycleConfig{
+					Startup:   supervisor.StartupComplete,
+					AutoStart: true,
+				},
+			},
+		},
+		{
+			name: "unknown startup mode is invalid",
+			config: ServiceConfig{
+				Process: registry.NewID("proc", "worker"),
+				HostID:  "node:worker1",
+				Lifecycle: supervisor.LifecycleConfig{
+					Startup: "degraded",
+				},
+			},
+			wantErr: true,
+			errMsg:  "invalid startup mode: degraded",
+		},
 	}
 
 	for _, tt := range tests {
@@ -112,6 +149,126 @@ func TestServiceConfig_Validate(t *testing.T) {
 			} else {
 				assert.NoError(t, err)
 			}
+		})
+	}
+}
+
+func TestServiceConfig_Validate_StartupCompleteRequiresAutoStart(t *testing.T) {
+	cfg := ServiceConfig{
+		Process: registry.NewID("proc", "worker"),
+		HostID:  "node:worker1",
+		Lifecycle: supervisor.LifecycleConfig{
+			Startup:   supervisor.StartupComplete,
+			AutoStart: false,
+		},
+	}
+	err := cfg.Validate()
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrStartupCompleteRequiresAutoStart)
+}
+
+func TestServiceConfig_Equal(t *testing.T) {
+	base := ServiceConfig{
+		Process: registry.NewID("proc", "worker"),
+		HostID:  "node:worker1",
+		Input:   []any{"arg1", 42},
+		Lifecycle: supervisor.LifecycleConfig{
+			AutoStart: true,
+		},
+	}
+	managerApplied := (&registry.ID{Name: "worker"}).WithDefaultNS("proc")
+
+	tests := []struct {
+		name     string
+		c        ServiceConfig
+		o        ServiceConfig
+		expected bool
+	}{
+		{
+			name:     "equal configs",
+			c:        base,
+			o:        base,
+			expected: true,
+		},
+		{
+			name: "different process",
+			c:    base,
+			o: ServiceConfig{
+				Process:   registry.NewID("proc", "other"),
+				HostID:    base.HostID,
+				Input:     base.Input,
+				Lifecycle: base.Lifecycle,
+			},
+			expected: false,
+		},
+		{
+			name: "different host ID",
+			c:    base,
+			o: ServiceConfig{
+				Process:   base.Process,
+				HostID:    "node:worker2",
+				Input:     base.Input,
+				Lifecycle: base.Lifecycle,
+			},
+			expected: false,
+		},
+		{
+			name: "different input",
+			c:    base,
+			o: ServiceConfig{
+				Process:   base.Process,
+				HostID:    base.HostID,
+				Input:     []any{"arg2"},
+				Lifecycle: base.Lifecycle,
+			},
+			expected: false,
+		},
+		{
+			name: "different lifecycle",
+			c:    base,
+			o: ServiceConfig{
+				Process: base.Process,
+				HostID:  base.HostID,
+				Input:   base.Input,
+				Lifecycle: supervisor.LifecycleConfig{
+					AutoStart: false,
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "namespace-equivalent process IDs as manager applies them",
+			c: ServiceConfig{
+				Process:   managerApplied,
+				HostID:    base.HostID,
+				Input:     base.Input,
+				Lifecycle: base.Lifecycle,
+			},
+			o:        base,
+			expected: true,
+		},
+		{
+			name: "namespace-equivalent process IDs with qualified name",
+			c: ServiceConfig{
+				Process:   managerApplied,
+				HostID:    base.HostID,
+				Input:     base.Input,
+				Lifecycle: base.Lifecycle,
+			},
+			o: ServiceConfig{
+				Process:   registry.ID{Name: "proc:worker"},
+				HostID:    base.HostID,
+				Input:     base.Input,
+				Lifecycle: base.Lifecycle,
+			},
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, tt.c.Equal(tt.o))
+			assert.Equal(t, tt.expected, tt.o.Equal(tt.c))
 		})
 	}
 }

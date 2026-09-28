@@ -3154,6 +3154,12 @@ replacements:
 	assert.True(t, createdModuleEntry, "new dependency module entry should still be created")
 }
 
+// onlineContext grants a test the explicit network policy that download and
+// cache paths operate under in production.
+func onlineContext() context.Context {
+	return regapi.WithDependencyAccess(context.Background(), regapi.DependencyAccessOnline)
+}
+
 func newTestContext() context.Context {
 	ctx := ctxapi.NewRootContext()
 	ctx = regapi.WithDependencyAccess(ctx, regapi.DependencyAccessOnline)

@@ -6,13 +6,12 @@ import (
 	"context"
 	"sync"
 
+	envapi "github.com/wippyai/runtime/api/env"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/resource"
-	config "github.com/wippyai/runtime/api/service/sql"
 	"github.com/wippyai/runtime/api/supervisor"
-	entryutil "github.com/wippyai/runtime/system/entry"
 	"go.uber.org/zap"
 )
 
@@ -20,10 +19,31 @@ import (
 type Manager struct {
 	dtt      payload.Transcoder
 	bus      event.Bus
-	factory  PoolFactoryAPI
+	factory  Factory
+	env      envapi.Registry
 	log      *zap.Logger
 	services map[registry.ID]*ConnPool
 	mu       sync.RWMutex
+}
+
+// Option configures a SQL Manager. Drivers are injected at boot, matching the
+// service/net composition pattern; importing a driver package has no side
+// effects on other managers or pools.
+type Option func(*managerOptions)
+
+type managerOptions struct {
+	drivers []Driver
+}
+
+// WithDriver adds one or more concrete SQL drivers to the manager.
+func WithDriver(drivers ...Driver) Option {
+	return func(opts *managerOptions) {
+		for _, driver := range drivers {
+			if driver != nil {
+				opts.drivers = append(opts.drivers, driver)
+			}
+		}
+	}
 }
 
 // NewManager creates a new SQL service manager
@@ -31,8 +51,16 @@ func NewManager(
 	dtt payload.Transcoder,
 	bus event.Bus,
 	log *zap.Logger,
+	envRegistry envapi.Registry,
+	opts ...Option,
 ) (*Manager, error) {
-	return NewManagerWithFactory(dtt, bus, log, NewDefaultPoolFactory())
+	var options managerOptions
+	for _, opt := range opts {
+		if opt != nil {
+			opt(&options)
+		}
+	}
+	return NewManagerWithFactory(dtt, bus, log, envRegistry, NewDefaultPoolFactory(options.drivers...))
 }
 
 // NewManagerWithFactory creates a new SQL service manager with the specified pool factory
@@ -40,7 +68,8 @@ func NewManagerWithFactory(
 	dtt payload.Transcoder,
 	bus event.Bus,
 	log *zap.Logger,
-	factory PoolFactoryAPI,
+	envRegistry envapi.Registry,
+	factory Factory,
 ) (*Manager, error) {
 	if dtt == nil {
 		return nil, ErrTranscoderRequired
@@ -60,8 +89,14 @@ func NewManagerWithFactory(
 		dtt:      dtt,
 		bus:      bus,
 		factory:  factory,
+		env:      envRegistry,
 		services: make(map[registry.ID]*ConnPool),
 	}, nil
+}
+
+// deps bundles the manager's collaborators for the engine lifecycle.
+func (m *Manager) deps() EngineDeps {
+	return EngineDeps{Transcoder: m.dtt, Env: m.env, Log: m.log}
 }
 
 // Add implements registry.EntryListener
@@ -69,14 +104,16 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	switch entry.Kind {
-	case config.Postgres, config.MySQL:
-		return m.handleStandardDBAdd(ctx, entry)
-	case config.SQLite:
-		return m.handleSQLiteAdd(ctx, entry)
-	default:
-		return NewUnsupportedEntryKindError(entry.Kind)
+	if _, exists := m.services[entry.ID]; exists {
+		return NewServiceExistsError(entry.ID)
 	}
+
+	pool, cfg, err := m.factory.CreatePool(ctx, m.deps(), entry)
+	if err != nil {
+		return err
+	}
+
+	return m.registerService(ctx, entry, pool, cfg.LifecycleConfig())
 }
 
 // Update implements registry.EntryListener
@@ -84,14 +121,18 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	switch entry.Kind {
-	case config.Postgres, config.MySQL:
-		return m.handleStandardDBUpdate(ctx, entry)
-	case config.SQLite:
-		return m.handleSQLiteUpdate(ctx, entry)
-	default:
-		return NewUnsupportedEntryKindError(entry.Kind)
+	pool, exists := m.services[entry.ID]
+	if !exists {
+		return NewServiceNotFoundError(entry.ID)
 	}
+
+	cfg, err := m.factory.UpdatePool(ctx, m.deps(), pool, entry)
+	if err != nil {
+		return err
+	}
+
+	m.updateService(ctx, entry, cfg.LifecycleConfig())
+	return nil
 }
 
 // Delete implements registry.EntryListener
@@ -99,84 +140,6 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	return m.handleDBDelete(ctx, entry)
-}
-
-func (m *Manager) handleStandardDBAdd(ctx context.Context, entry registry.Entry) error {
-	if _, exists := m.services[entry.ID]; exists {
-		return NewServiceExistsError(entry.ID)
-	}
-
-	cfg, err := entryutil.DecodeEntryConfig[config.DBConfig](ctx, m.dtt, entry)
-	if err != nil {
-		return NewInvalidConfigError(err)
-	}
-
-	pool, err := m.factory.CreateStandardPool(ctx, entry.Kind, cfg)
-	if err != nil {
-		return NewConnectionPoolCreationError(err)
-	}
-
-	return m.registerService(ctx, entry, pool, cfg.Lifecycle)
-}
-
-func (m *Manager) handleSQLiteAdd(ctx context.Context, entry registry.Entry) error {
-	if _, exists := m.services[entry.ID]; exists {
-		return NewServiceExistsError(entry.ID)
-	}
-
-	cfg, err := entryutil.DecodeEntryConfig[config.SQLiteConfig](ctx, m.dtt, entry)
-	if err != nil {
-		return NewInvalidConfigError(err)
-	}
-
-	pool, err := m.factory.CreateSQLitePool(ctx, cfg)
-	if err != nil {
-		return NewSQLiteConnectionCreationError(err)
-	}
-
-	return m.registerService(ctx, entry, pool, cfg.Lifecycle)
-}
-
-func (m *Manager) handleStandardDBUpdate(ctx context.Context, entry registry.Entry) error {
-	pool, exists := m.services[entry.ID]
-	if !exists {
-		return NewServiceNotFoundError(entry.ID)
-	}
-
-	cfg, err := entryutil.DecodeEntryConfig[config.DBConfig](ctx, m.dtt, entry)
-	if err != nil {
-		return NewInvalidConfigError(err)
-	}
-
-	if err := pool.UpdateConfig(cfg); err != nil {
-		return NewPoolUpdateError(err)
-	}
-
-	m.updateService(ctx, entry, cfg.Lifecycle)
-	return nil
-}
-
-func (m *Manager) handleSQLiteUpdate(ctx context.Context, entry registry.Entry) error {
-	pool, exists := m.services[entry.ID]
-	if !exists {
-		return NewServiceNotFoundError(entry.ID)
-	}
-
-	cfg, err := entryutil.DecodeEntryConfig[config.SQLiteConfig](ctx, m.dtt, entry)
-	if err != nil {
-		return NewInvalidConfigError(err)
-	}
-
-	if err := pool.UpdateConfig(cfg); err != nil {
-		return NewSQLiteUpdateError(err)
-	}
-
-	m.updateService(ctx, entry, cfg.Lifecycle)
-	return nil
-}
-
-func (m *Manager) handleDBDelete(ctx context.Context, entry registry.Entry) error {
 	_, exists := m.services[entry.ID]
 	if !exists {
 		return NewServiceNotFoundError(entry.ID)

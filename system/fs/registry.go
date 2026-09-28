@@ -72,29 +72,39 @@ func (r *Registry) handleEvent(e event.Event) {
 
 func (r *Registry) registerFS(e event.Event) {
 	fs, ok := e.Data.(fsapi.FS)
+	if request, isRequest := e.Data.(fsapi.Request); isRequest {
+		fs, ok = request.FS, request.FS != nil
+	}
 	if !ok {
 		r.log.Error("invalid filesystem payload",
 			zap.String("fs", e.Path),
 			zap.Any("data", e.Data))
 
-		r.sendReject(e.Path, "invalid filesystem data type")
+		r.sendReject(replyPath(e), "invalid filesystem data type")
 		return
 	}
 
 	r.filesystems.Store(e.Path, fs)
 	r.log.Debug("filesystem registered successfully", zap.String("fs", e.Path))
-	r.sendAccept(e.Path)
+	r.sendAccept(replyPath(e))
 }
 
 func (r *Registry) deleteFS(e event.Event) {
 	if _, exists := r.filesystems.LoadAndDelete(e.Path); !exists {
 		r.log.Warn("filesystem not found", zap.String("fs", e.Path))
-		r.sendReject(e.Path, "filesystem not found")
+		r.sendReject(replyPath(e), "filesystem not found")
 		return
 	}
 
 	r.log.Debug("filesystem removed successfully", zap.String("fs", e.Path))
-	r.sendAccept(e.Path)
+	r.sendAccept(replyPath(e))
+}
+
+func replyPath(e event.Event) event.Path {
+	if request, ok := e.Data.(fsapi.Request); ok && request.OpID != "" {
+		return request.OpID
+	}
+	return e.Path
 }
 
 func (r *Registry) sendAccept(path event.Path) {

@@ -39,6 +39,7 @@ var requestOptionsType = typ.NewRecord().
 	OptField("body", typ.String).
 	OptField("timeout", typ.NewUnion(typ.Number, typ.String)).
 	OptField("unix_socket", typ.String).
+	OptField("overlay_network", typ.String).
 	OptField("query", typ.NewMap(typ.String, typ.String)).
 	OptField("cookies", typ.NewMap(typ.String, typ.String)).
 	OptField("form", typ.NewMap(typ.String, typ.String)).

@@ -9,10 +9,13 @@ import (
 	"testing"
 
 	lua "github.com/wippyai/go-lua"
+	"github.com/wippyai/runtime/api/attrs"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	moduleapi "github.com/wippyai/runtime/api/modules"
 	regapi "github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/security"
+	apiversion "github.com/wippyai/runtime/api/version"
+	secsystem "github.com/wippyai/runtime/system/security"
 )
 
 func TestLoad(t *testing.T) {
@@ -49,6 +52,125 @@ func TestLoad(t *testing.T) {
 	// Check functions exist
 	checkFunction(t, l, "system", "exit")
 	checkFunction(t, l, "system", "modules")
+	checkFunction(t, l, "system", "version")
+}
+
+func TestVersionReturnsBuildIdentity(t *testing.T) {
+	original := apiversion.Version
+	t.Cleanup(func() { apiversion.Version = original })
+
+	tbl, _ := Module.Build()
+	states := []*lua.LState{lua.NewState(), lua.NewState()}
+	for _, l := range states {
+		defer l.Close()
+		l.SetGlobal("system", tbl)
+	}
+
+	for _, test := range []struct {
+		name  string
+		stamp string
+	}{
+		{name: "v-prefixed release", stamp: "v0.3.43a"},
+		{name: "bare release", stamp: "0.3.43a"},
+		{name: "semver prerelease and build", stamp: "v1.2.3-rc.10+build.7"},
+		{name: "development", stamp: "dev"},
+		{name: "development description", stamp: "dev-v0.3.43a-5-gabcdef0-dirty"},
+		{name: "nightly", stamp: "nightly-20260925-3f84d88"},
+		{name: "empty", stamp: ""},
+		{name: "malformed", stamp: "not a version"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			previous := apiversion.Version
+			t.Cleanup(func() { apiversion.Version = previous })
+			apiversion.Version = test.stamp
+
+			for _, l := range states {
+				l.SetGlobal("expectedVersion", lua.LString(test.stamp))
+				if err := l.DoString(`
+					local count = select("#", system.version())
+					local value = system.version()
+					assert(count == 1, "version returns exactly one value")
+					assert(value ~= nil, "version is not nil")
+					assert(type(value) == "string", "version is a string")
+					assert(value == expectedVersion, "version matches the build identity")
+					local with_extra = system.version("ignored", 42)
+					assert(with_extra == expectedVersion, "extra arguments do not change the version")
+					local first, second = system.version()
+					assert(first == expectedVersion and second == nil, "version has no second result")
+				`); err != nil {
+					t.Fatalf("system.version() failed in a Lua state: %v", err)
+				}
+			}
+		})
+	}
+}
+
+func TestVersionLinkedStamp(t *testing.T) {
+	expected := os.Getenv("WIPPY_TEST_EXPECT_VERSION")
+	if expected == "" {
+		expected = apiversion.Short()
+	}
+
+	l := lua.NewState()
+	defer l.Close()
+	tbl, _ := Module.Build()
+	l.SetGlobal("system", tbl)
+	l.SetGlobal("expectedVersion", lua.LString(expected))
+	if err := l.DoString(`
+		local count = select("#", system.version())
+		local version = system.version()
+		assert(count == 1)
+		assert(type(version) == "string")
+		assert(version == expectedVersion)
+	`); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestVersionWithoutSystemRead(t *testing.T) {
+	contexts := []struct {
+		ctx  context.Context
+		name string
+	}{
+		{name: "strict without actor or scope", ctx: security.SetStrictMode(ctxapi.NewRootContext(), true)},
+		{name: "deny all policy", ctx: denyContext(t)},
+	}
+
+	for _, test := range contexts {
+		t.Run(test.name, func(t *testing.T) {
+			l := lua.NewState()
+			defer l.Close()
+			l.SetContext(test.ctx)
+
+			tbl, _ := Module.Build()
+			l.SetGlobal("system", tbl)
+			l.SetGlobal("expectedVersion", lua.LString(apiversion.Short()))
+			if err := l.DoString(`
+				local value = system.version()
+				assert(type(value) == "string")
+				assert(value == expectedVersion)
+			`); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestVersionModuleImmutable(t *testing.T) {
+	tbl, _ := Module.Build()
+	l1 := lua.NewState()
+	defer l1.Close()
+	l1.SetGlobal("system", tbl)
+	if err := l1.DoString(`system.version = nil`); err == nil {
+		t.Fatal("expected assigning to system.version to fail")
+	}
+
+	l2 := lua.NewState()
+	defer l2.Close()
+	l2.SetGlobal("system", tbl)
+	if err := l2.DoString(`assert(type(system.version) == "function")`); err != nil {
+		t.Fatalf("system.version was changed by another state: %v", err)
+	}
 }
 
 func TestSourceLoadReturnsAtomicOwnersAndEntriesWithoutPaths(t *testing.T) {
@@ -387,6 +509,7 @@ func TestProcessFunctions(t *testing.T) {
 func TestSupervisorFunctions(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
+	lua.OpenErrors(l)
 
 	tbl, _ := Module.Build()
 	l.SetGlobal("system", tbl)
@@ -396,6 +519,7 @@ func TestSupervisorFunctions(t *testing.T) {
 			local state, err = system.supervisor.state("test:service")
 			assert(state == nil, "expected nil state")
 			assert(err ~= nil, "expected error")
+			assert(err:kind() == errors.PERMISSION_DENIED, "expected PERMISSION_DENIED kind, got: " .. tostring(err:kind()))
 		`)
 		if err != nil {
 			t.Errorf("supervisor.state test failed: %v", err)
@@ -407,6 +531,7 @@ func TestSupervisorFunctions(t *testing.T) {
 			local states, err = system.supervisor.states()
 			assert(states == nil, "expected nil states")
 			assert(err ~= nil, "expected error")
+			assert(err:kind() == errors.PERMISSION_DENIED, "expected PERMISSION_DENIED kind, got: " .. tostring(err:kind()))
 		`)
 		if err != nil {
 			t.Errorf("supervisor.states test failed: %v", err)
@@ -454,6 +579,9 @@ func TestErrorKinds(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 	lua.OpenErrors(l)
+
+	ctx := security.SetStrictMode(ctxapi.NewRootContext(), false)
+	l.SetContext(ctx)
 
 	tbl, _ := Module.Build()
 	l.SetGlobal("system", tbl)
@@ -521,4 +649,79 @@ func checkFunction(t *testing.T, l *lua.LState, parent, name string) {
 		t.Errorf("%s.%s is not a function", parent, name)
 	}
 	l.Pop(1)
+}
+
+func TestSystemPermissionDenied(t *testing.T) {
+	calls := []string{
+		`system.memory.stats()`,
+		`system.memory.allocated()`,
+		`system.memory.heap_objects()`,
+		`system.memory.set_limit(1 << 30)`,
+		`system.memory.get_limit()`,
+		`system.gc.collect()`,
+		`system.gc.set_percent(100)`,
+		`system.gc.get_percent()`,
+		`system.runtime.goroutines()`,
+		`system.runtime.max_procs(2)`,
+		`system.runtime.max_procs()`,
+		`system.runtime.cpu_count()`,
+		`system.process.pid()`,
+		`system.process.cwd()`,
+		`system.process.hostname()`,
+		`system.exit()`,
+		`system.modules()`,
+		`system.source.load()`,
+		`system.supervisor.state("test:service")`,
+		`system.supervisor.states()`,
+		`system.hosts.list()`,
+		`system.hosts.processes("test:host")`,
+	}
+
+	for _, call := range calls {
+		t.Run(call, func(t *testing.T) {
+			l := lua.NewState()
+			defer l.Close()
+			lua.OpenErrors(l)
+
+			l.SetContext(denyContext(t))
+
+			tbl, _ := Module.Build()
+			l.SetGlobal("system", tbl)
+
+			if err := l.DoString(`
+				local v, err = ` + call + `
+				assert(v == nil, "expected nil result under a deny policy")
+				assert(err ~= nil, "expected error under a deny policy")
+				assert(err:kind() == errors.PERMISSION_DENIED, "expected PERMISSION_DENIED kind, got: " .. tostring(err:kind()))
+				assert(err:retryable() == false, "expected not retryable")
+			`); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+// denyContext builds a security context whose scope denies every action.
+func denyContext(t *testing.T) context.Context {
+	t.Helper()
+
+	ctx := security.SetStrictMode(ctxapi.NewRootContext(), false)
+	ctx, fc := ctxapi.OpenFrameContext(ctx)
+	t.Cleanup(func() { ctxapi.ReleaseFrameContext(fc) })
+
+	if err := security.SetActor(ctx, security.Actor{ID: "tester"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := security.SetScope(ctx, secsystem.NewScope([]security.Policy{denyAllPolicy{}})); err != nil {
+		t.Fatal(err)
+	}
+	return ctx
+}
+
+type denyAllPolicy struct{}
+
+func (denyAllPolicy) ID() regapi.ID { return regapi.NewID("test", "deny-all") }
+
+func (denyAllPolicy) Evaluate(_ security.Actor, _, _ string, _ attrs.Bag) security.Result {
+	return security.Deny
 }

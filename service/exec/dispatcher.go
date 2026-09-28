@@ -5,15 +5,11 @@ package exec
 
 import (
 	"context"
+	"errors"
 
 	"github.com/wippyai/runtime/api/dispatcher"
 	execapi "github.com/wippyai/runtime/api/service/exec"
 )
-
-// exitCoder is an interface for errors that have an exit code.
-type exitCoder interface {
-	ExitCode() int
-}
 
 // Dispatcher handles exec commands.
 type Dispatcher struct{}
@@ -36,24 +32,36 @@ func (d *Dispatcher) Stop(_ context.Context) error {
 // RegisterAll registers all exec handlers.
 func (d *Dispatcher) RegisterAll(register func(id dispatcher.CommandID, h dispatcher.Handler)) {
 	register(execapi.ProcessWait, dispatcher.HandlerFunc(d.handleProcessWait))
+	register(execapi.TerminalReady, dispatcher.HandlerFunc(d.handleTerminalReady))
+}
+
+func (d *Dispatcher) handleTerminalReady(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
+	ready := cmd.(*execapi.TerminalReadyCmd).Ready
+	go func() {
+		select {
+		case err, ok := <-ready:
+			if !ok {
+				err = errors.New("terminal startup result unavailable")
+			}
+			if ctx.Err() == nil {
+				receiver.CompleteYield(tag, nil, err)
+			}
+		case <-ctx.Done():
+		}
+	}()
+	return nil
 }
 
 func (d *Dispatcher) handleProcessWait(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	waitCmd := cmd.(*execapi.ProcessWaitCmd)
 
 	go func() {
-		err := waitCmd.Process.Wait()
-
-		var exitCode int
-		if err == nil {
-			exitCode = 0
-		} else if ec, ok := err.(exitCoder); ok {
-			exitCode = ec.ExitCode()
-			err = nil
-		}
+		// WaitFor defers to a process that owns its own reap, so a child
+		// already reaped through another path still reports its exit here.
+		status := execapi.WaitFor(waitCmd.Process)
 
 		if ctx.Err() == nil {
-			receiver.CompleteYield(tag, execapi.ProcessWaitResponse{ExitCode: exitCode, Error: err}, nil)
+			receiver.CompleteYield(tag, execapi.ProcessWaitResponse{ExitCode: status.Code, Error: status.Err}, nil)
 		}
 	}()
 

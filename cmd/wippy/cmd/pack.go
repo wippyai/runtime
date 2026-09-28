@@ -13,8 +13,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/bubbles/progress"
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 	"github.com/wippyai/runtime/api/attrs"
@@ -41,6 +39,7 @@ The pack file contains fully linked entries ready for loading without additional
 Examples:
   wippy pack snapshot.wapp
   wippy pack release-v1.2.3.wapp
+  wippy pack --module acme/ui ui.wapp
   wippy pack --embed app:assets snapshot.wapp
   wippy pack --embed-all snapshot.wapp`,
 	Args: cobra.ExactArgs(1),
@@ -51,6 +50,7 @@ func init() {
 	rootCmd.AddCommand(packCmd)
 
 	packCmd.Flags().StringP("lock-file", "l", defaultLockFile, "path to lock file")
+	packCmd.Flags().String("module", "", "pack only the selected lock module (org/name)")
 	packCmd.Flags().StringP("description", "d", "", "pack description")
 	packCmd.Flags().StringSliceP("tags", "t", nil, "pack tags")
 	packCmd.Flags().StringArray("meta", nil, "custom metadata (key=value, supports dotted notation)")
@@ -85,7 +85,6 @@ type packModel struct {
 	embedPatterns []string
 	logs          []string
 	resources     []resourceInfo
-	progress      progress.Model
 	fileSize      int64
 	percent       float64
 	entryCount    int
@@ -129,34 +128,22 @@ type logMsg struct {
 	message string
 }
 
-func (m *packModel) Init() tea.Cmd {
-	return nil
-}
-
-func (m *packModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m *packModel) apply(msg any) {
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		if msg.String() == "ctrl+c" || msg.String() == "q" {
-			return m, tea.Quit
-		}
-
 	case logMsg:
 		if m.verbose {
 			m.addLog(msg)
 		}
-		return m, nil
 
 	case progressMsg:
 		m.stage = msg.stage
 		m.percent = msg.percent
 		m.status = msg.status
-		return m, m.progress.SetPercent(msg.percent)
 
 	case statsMsg:
 		m.entryCount = msg.entryCount
 		m.resourceCount = msg.resourceCount
 		m.resources = msg.resources
-		return m, nil
 
 	case completedMsg:
 		m.stage = stageDone
@@ -164,170 +151,42 @@ func (m *packModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.metadata = msg.metadata
 		m.percent = 1.0
 		m.done = true
-		return m, tea.Sequence(m.progress.SetPercent(1.0), tea.Quit)
 
 	case errorMsg:
 		m.stage = stageError
 		m.err = msg.err
 		m.done = true
-		return m, tea.Quit
-
-	case progress.FrameMsg:
-		progressModel, cmd := m.progress.Update(msg)
-		m.progress = progressModel.(progress.Model)
-		return m, cmd
 	}
-
-	return m, nil
 }
 
 func (m *packModel) addLog(msg logMsg) {
-	levelColor := "8"
 	levelIcon := "•"
 
 	switch msg.level {
 	case "info":
-		levelColor = "14"
 		levelIcon = "●"
 	case "warn":
-		levelColor = "11"
 		levelIcon = "⚠"
 	case "error":
-		levelColor = "9"
 		levelIcon = "✗"
 	case "debug":
-		levelColor = "8"
 		levelIcon = "○"
 	}
 
-	levelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(levelColor)).Bold(true)
-	msgStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("15"))
-	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
-
-	logLine := fmt.Sprintf("%s %s", levelStyle.Render(levelIcon), msgStyle.Render(msg.message))
+	logLine := fmt.Sprintf("%s %s", levelIcon, msg.message)
 
 	if len(msg.fields) > 0 {
 		var fields []string
 		for k, v := range msg.fields {
 			fields = append(fields, fmt.Sprintf("%s=%v", k, v))
 		}
-		logLine += " " + dimStyle.Render(strings.Join(fields, " "))
+		logLine += " " + strings.Join(fields, " ")
 	}
 
 	m.logs = append(m.logs, logLine)
 	if len(m.logs) > m.maxLogs {
 		m.logs = m.logs[len(m.logs)-m.maxLogs:]
 	}
-}
-
-func (m *packModel) View() string {
-	if m.done && m.err != nil {
-		return lipgloss.NewStyle().
-			Foreground(lipgloss.Color("9")).
-			Bold(true).
-			Render(fmt.Sprintf("\n✗ Error: %v\n", m.err))
-	}
-
-	if m.done {
-		successStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("10")).
-			Bold(true)
-
-		dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
-		labelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("14"))
-
-		sizeKB := float64(m.fileSize) / 1024
-		var sizeStr string
-		if sizeKB > 1024 {
-			sizeStr = fmt.Sprintf("%.2f MB", sizeKB/1024)
-		} else {
-			sizeStr = fmt.Sprintf("%.2f KB", sizeKB)
-		}
-
-		info := fmt.Sprintf("\n  %s %s", labelStyle.Render("File:"), m.outputFile)
-		info += fmt.Sprintf("\n  %s %s", labelStyle.Render("Size:"), sizeStr)
-
-		if desc := m.metadata.GetString("description", ""); desc != "" {
-			info += fmt.Sprintf("\n  %s %s", labelStyle.Render("Description:"), desc)
-		}
-
-		if tags, ok := m.metadata["tags"].([]string); ok && len(tags) > 0 {
-			info += fmt.Sprintf("\n  %s %s", labelStyle.Render("Tags:"), strings.Join(tags, ", "))
-		}
-
-		if wippyVer := m.metadata.GetString("wippy_version", ""); wippyVer != "" {
-			commit := m.metadata.GetString("wippy_commit", "")
-			if len(commit) > 7 {
-				commit = commit[:7]
-			}
-			info += fmt.Sprintf("\n  %s %s (%s)", labelStyle.Render("Wippy:"), wippyVer, commit)
-		}
-
-		if packedAt := m.metadata.GetString("packed_at", ""); packedAt != "" {
-			info += fmt.Sprintf("\n  %s %s", labelStyle.Render("Packed:"), packedAt)
-		}
-
-		info += fmt.Sprintf("\n  %s %d", labelStyle.Render("Entries:"), m.entryCount)
-
-		if m.resourceCount > 0 {
-			info += fmt.Sprintf("\n\n  %s", labelStyle.Render("Embedded resources:"))
-			for _, res := range m.resources {
-				resSize := float64(res.size) / 1024
-				var resSizeStr string
-				if resSize > 1024 {
-					resSizeStr = fmt.Sprintf("%.2f MB", resSize/1024)
-				} else {
-					resSizeStr = fmt.Sprintf("%.2f KB", resSize)
-				}
-				info += fmt.Sprintf("\n    • %s (%d files, %s)",
-					dimStyle.Render(res.name),
-					res.fileCount,
-					resSizeStr)
-			}
-		}
-
-		return successStyle.Render("\n✓ Pack created successfully") +
-			dimStyle.Render(info) +
-			"\n\n"
-	}
-
-	titleStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("12")).
-		Bold(true)
-
-	statusStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("8"))
-
-	var embedInfo string
-	if m.embedAll {
-		embedInfo = statusStyle.Render("  Embed patterns: all fs.directory entries\n")
-	} else if len(m.embedPatterns) > 0 {
-		embedInfo = statusStyle.Render(fmt.Sprintf("  Embed patterns: %s\n", strings.Join(m.embedPatterns, ", ")))
-	}
-
-	var view strings.Builder
-	view.WriteString("\n")
-	view.WriteString(titleStyle.Render("Creating pack: " + m.outputFile))
-	view.WriteString("\n")
-	view.WriteString(embedInfo)
-	view.WriteString("\n")
-
-	if m.verbose && len(m.logs) > 0 {
-		logStyle := lipgloss.NewStyle().
-			MaxHeight(15).
-			PaddingLeft(1)
-
-		view.WriteString(logStyle.Render(strings.Join(m.logs, "\n")))
-		view.WriteString("\n\n")
-	}
-
-	view.WriteString("  ")
-	view.WriteString(m.progress.View())
-	view.WriteString("\n\n  ")
-	view.WriteString(statusStyle.Render(m.status))
-	view.WriteString("\n\n")
-
-	return view.String()
 }
 
 func runPack(cmd *cobra.Command, args []string) error {
@@ -375,10 +234,8 @@ func runPack(cmd *cobra.Command, args []string) error {
 	}
 	verboseMode := rootCmd.PersistentFlags().Lookup("verbose").Changed
 
-	prog := progress.New(progress.WithDefaultGradient())
 	m := &packModel{
 		stage:         stageInit,
-		progress:      prog,
 		status:        "Initializing...",
 		embedPatterns: embedConfig.patterns,
 		embedAll:      embedConfig.all,
@@ -387,27 +244,21 @@ func runPack(cmd *cobra.Command, args []string) error {
 		maxLogs:       20,
 	}
 
-	p := newCLIProgram(m)
+	reporter := newCLIProgressReporter(cmd.Context(), os.Stdout)
+	reporter.pack = m
+	defer reporter.Close()
 
-	go func() {
-		if err := performPack(cmd, args, app, p); err != nil {
-			p.Send(errorMsg{err: err})
-		}
-	}()
-
-	finalModel, err := p.Run()
-	if err != nil {
+	if err := performPack(cmd, args, app, reporter); err != nil {
+		reporter.Send(errorMsg{err: err})
 		return err
 	}
-
-	if packModel, ok := finalModel.(*packModel); ok && packModel.err != nil {
-		return packModel.err
+	if err := reporter.Err(); err != nil {
+		return err
 	}
-
 	return nil
 }
 
-func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *tea.Program) error {
+func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *cliProgressReporter) error {
 	logger := app.Logger.Named("pack")
 	outputFile := args[0]
 	lockFile, _ := cmd.Flags().GetString("lock-file")
@@ -420,6 +271,7 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *tea
 	excludeNS, _ := cmd.Flags().GetStringSlice("exclude-ns")
 	excludeEntries, _ := cmd.Flags().GetStringSlice("exclude")
 	bytecodePatterns, _ := cmd.Flags().GetStringSlice("bytecode")
+	moduleName, _ := cmd.Flags().GetString("module")
 
 	p.Send(progressMsg{stage: stageLoadLock, percent: 0.1, status: "Loading lock file..."})
 	p.Send(logMsg{level: "info", message: "Starting pack process"})
@@ -440,6 +292,20 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *tea
 	}
 
 	modulePaths := lockObj.GetModuleLoadPaths()
+	var moduleSource lock.ModuleLoadPath
+	rootModulePack := false
+	if moduleName != "" {
+		moduleSource, err = resolvePackModule(moduleName, modulePaths, lockObj.GetRootModules())
+		if err != nil {
+			return NewPackConfigError(err)
+		}
+		rootModulePack = isRootModulePackSource(moduleSource, modulePaths)
+		if rootModulePack {
+			// The root manifest lives beside the lock file, while its source
+			// entries may load from directories.src.
+			moduleSource.SourceRoot = folderPath
+		}
+	}
 	paths := lockObj.GetLoadPaths()
 
 	p.Send(progressMsg{stage: stageLoadEntries, percent: 0.2, status: fmt.Sprintf("Loading entries from %d paths...", len(paths))})
@@ -448,6 +314,9 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *tea
 	loadedEntries, err := loadEntriesFromLockPaths(app.Ctx, lockObj, logger)
 	if err != nil {
 		return NewLoadEntriesError(fmt.Sprintf("lock paths (%s)", lockPath), err)
+	}
+	if rootModulePack {
+		assignRootModulePackOwner(loadedEntries, moduleName)
 	}
 	p.Send(progressMsg{
 		stage:   stageLoadEntries,
@@ -460,25 +329,40 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *tea
 
 	p.Send(progressMsg{stage: stagePipeline, percent: 0.5, status: "Executing pipeline stages..."})
 
-	// Apply entry overrides from the same effective profile that selected
-	// workspace replacements.
+	// Keep the effective profile available for whole-graph packing. Module
+	// packing uses it for workspace selection, but does not bake its entry
+	// overrides or disable rules into a reusable artifact.
 	if bootCfg != nil {
 		boot.WithConfig(app.Ctx, bootCfg)
 	}
 
-	// Build pipeline with exclude stage if patterns provided
-	var pipelineStages []boot.Stage
-	pipelineStages = append(pipelineStages, stages.Override())
-
+	// Build the normalization pipeline with exclude stage if patterns provided.
+	// Module packing still loads the resolved graph to validate namespaces and
+	// apply requirement defaults. Dependency parameters from any consumer are
+	// deployment composition and must not be baked into a reusable artifact.
 	if len(excludeNS) > 0 || len(excludeEntries) > 0 {
 		p.Send(logMsg{level: "info", message: "Adding exclude filters", fields: map[string]any{
 			"ns_patterns":    len(excludeNS),
 			"entry_patterns": len(excludeEntries),
 		}})
-		pipelineStages = append(pipelineStages, stages.Disable(excludeNS, excludeEntries))
+	}
+	pipeline := build.New(packNormalizationStages(moduleName, excludeNS, excludeEntries)...)
+
+	if err := pipeline.Execute(app.Ctx, &loadedEntries); err != nil {
+		return NewExecutePipelineError(err)
 	}
 
-	pipelineStages = append(pipelineStages, stages.Disable(), stages.Link(), stages.Override())
+	if moduleName != "" {
+		loadedEntries, err = selectModulePackEntries(loadedEntries, moduleName)
+		if err != nil {
+			return NewPackConfigError(err)
+		}
+	}
+
+	// Module-specific stages run after owner selection. This keeps embedded
+	// directories and optional bytecode scoped to the selected module while the
+	// normalization stages above still saw the complete lock graph.
+	var postPipelineStages []boot.Stage
 
 	// Bytecode compilation (before EmbedFS so bytecode FS can be collected)
 	if len(bytecodePatterns) > 0 {
@@ -493,12 +377,12 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *tea
 
 		if compileAll {
 			p.Send(logMsg{level: "info", message: "Adding bytecode compilation (all entries)"})
-			pipelineStages = append(pipelineStages, stages.Bytecode())
+			postPipelineStages = append(postPipelineStages, stages.Bytecode())
 		} else {
 			p.Send(logMsg{level: "info", message: "Adding bytecode compilation", fields: map[string]any{
 				"patterns": bytecodePatterns,
 			}})
-			pipelineStages = append(pipelineStages, stages.Bytecode(bytecodePatterns...))
+			postPipelineStages = append(postPipelineStages, stages.Bytecode(bytecodePatterns...))
 		}
 	}
 
@@ -512,28 +396,39 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *tea
 			percent: 0.55,
 			status:  status,
 		})
-		pipelineStages = append(pipelineStages, stages.EmbedFS("", embedConfig.stagePatterns()...))
+		postPipelineStages = append(postPipelineStages, stages.EmbedFS("", embedConfig.stagePatterns()...))
 	}
 
-	pipeline := build.New(pipelineStages...)
-
-	if err := pipeline.Execute(app.Ctx, &loadedEntries); err != nil {
-		return NewExecutePipelineError(err)
+	if len(postPipelineStages) > 0 {
+		postPipeline := build.New(postPipelineStages...)
+		if err := postPipeline.Execute(app.Ctx, &loadedEntries); err != nil {
+			return NewExecutePipelineError(err)
+		}
 	}
 
 	resources := stages.GetResources(app.Ctx)
-
-	// Add bytecode resource if compiled
-	if bcRes := stages.GetBytecodeResource(); bcRes != nil {
-		resources = append(resources, *bcRes)
+	if moduleName != "" {
+		resources = filterModulePackResources(resources, loadedEntries)
 	}
 
-	carriedResources, carriedHandles, err := collectEmbeddedPackResources(modulePaths, resources)
+	// Add the synthetic bytecode filesystem after module resource filtering.
+	// Its registry ID is internal to the runtime and therefore has no module
+	// owner, but selected bytecode entries refer to it at load time.
+	if len(bytecodePatterns) > 0 {
+		if bcRes := stages.GetBytecodeResource(); bcRes != nil {
+			resources = append(resources, *bcRes)
+		}
+	}
+
+	carriedResources, carriedHandles, err := collectEmbeddedPackResourcesForModule(modulePaths, resources, moduleName)
 	if err != nil {
 		return NewPackWithResourcesError(err)
 	}
 	defer func() { _ = closeEmbeddedPackResourceHandles(carriedHandles) }()
 	if len(carriedResources) > 0 {
+		if moduleName != "" {
+			carriedResources = filterModulePackResources(carriedResources, loadedEntries)
+		}
 		resources = append(resources, carriedResources...)
 		p.Send(logMsg{level: "info", message: "Carried embedded resources from dependency packs", fields: map[string]any{
 			"count": len(carriedResources),
@@ -605,6 +500,24 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *tea
 		"packed_at":     time.Now().UTC().Format(time.RFC3339),
 		"entry_count":   len(loadedEntries),
 	}
+	var moduleMetadata attrs.Bag
+	if moduleName != "" {
+		var metadataErr error
+		moduleMetadata, metadataErr = modulePackMetadata(moduleSource, moduleName)
+		if metadataErr != nil {
+			return NewPackConfigError(metadataErr)
+		}
+		for key, value := range moduleMetadata {
+			metadata[key] = value
+		}
+		// These fields describe the artifact emitted by this invocation. The
+		// selected module's identity and publication metadata above remain intact.
+		metadata["wippy_version"] = version.Version
+		metadata["wippy_commit"] = version.Commit
+		metadata["wippy_date"] = version.Date
+		metadata["packed_at"] = time.Now().UTC().Format(time.RFC3339)
+		metadata["entry_count"] = len(loadedEntries)
+	}
 
 	if description != "" {
 		metadata["description"] = description
@@ -619,8 +532,15 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *tea
 	if err := parseMetadataFlags(metaFlags, metadata, logger); err != nil {
 		return NewParseMetadataError(err)
 	}
-	if err := addPackRuntimeMetadata(metadata, folderPath); err != nil {
-		return NewPackConfigError(err)
+	if moduleName != "" {
+		if err := validateModulePackIdentityOverride(metadata, moduleMetadata); err != nil {
+			return NewPackConfigError(err)
+		}
+	}
+	if moduleName == "" {
+		if err := addPackRuntimeMetadata(metadata, folderPath); err != nil {
+			return NewPackConfigError(err)
+		}
 	}
 	metadata[packRegistryMetadataKey] = packRegistryMetadata(loadedEntries)
 

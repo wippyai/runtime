@@ -13,6 +13,7 @@ import (
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/topology"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
+	jsonlua "github.com/wippyai/runtime/runtime/lua/modules/json"
 )
 
 func TestToGoAny(t *testing.T) {
@@ -289,8 +290,8 @@ func TestGoToLuaExtended(t *testing.T) {
 				"name":       "John Doe",
 				"age":        int64(30),
 				"created_at": float64(fixedTime.Unix()),
-				"tags":       map[string]any{}, // empty slice becomes an empty table
-				"Metadata":   map[string]any{}, // nil map becomes an empty table
+				"tags":       []any{},          // empty slice keeps its list shape
+				"Metadata":   map[string]any{}, // nil map becomes an empty object
 			},
 			wantErr: false,
 		},
@@ -337,4 +338,113 @@ func TestGoToLuaExtended(t *testing.T) {
 			assert.Equal(t, tt.want, gotMap)
 		})
 	}
+}
+
+// TestGoToLua_EmptyMapShape pins that an empty Go map reaches Lua with an
+// object allocation, so it stays an object through encoding and round trips.
+func TestGoToLua_EmptyMapShape(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+
+	t.Run("empty map is object shaped", func(t *testing.T) {
+		got, err := GoToLua(map[string]any{})
+		assert.NoError(t, err)
+		tbl, ok := got.(*lua.LTable)
+		assert.True(t, ok, "got %T", got)
+		assert.NotNil(t, tbl.Strdict, "empty map must keep a hash allocation")
+		assert.Equal(t, 0, tbl.MaxN())
+		assert.Equal(t, 0, tbl.Len())
+	})
+
+	t.Run("nil map is object shaped", func(t *testing.T) {
+		got, err := GoToLua(map[string]any(nil))
+		assert.NoError(t, err)
+		tbl, ok := got.(*lua.LTable)
+		assert.True(t, ok, "got %T", got)
+		assert.NotNil(t, tbl.Strdict, "nil map must keep a hash allocation")
+	})
+
+	t.Run("struct nil map field is object shaped", func(t *testing.T) {
+		type config struct {
+			Fields map[string]string
+		}
+		got, err := GoToLua(config{})
+		assert.NoError(t, err)
+		tbl, ok := got.(*lua.LTable)
+		assert.True(t, ok, "got %T", got)
+		field, ok := tbl.RawGetString("Fields").(*lua.LTable)
+		assert.True(t, ok, "Fields = %T", tbl.RawGetString("Fields"))
+		assert.NotNil(t, field.Strdict, "nil map field must keep a hash allocation")
+	})
+
+	t.Run("nested empty map stays object shaped", func(t *testing.T) {
+		got, err := GoToLua(map[string]any{"inner": map[string]any{}})
+		assert.NoError(t, err)
+		outer, ok := got.(*lua.LTable)
+		assert.True(t, ok, "got %T", got)
+		inner, ok := outer.RawGetString("inner").(*lua.LTable)
+		assert.True(t, ok, "inner = %T", outer.RawGetString("inner"))
+		assert.NotNil(t, inner.Strdict, "nested empty map must keep a hash allocation")
+	})
+
+	t.Run("empty slice stays array shaped", func(t *testing.T) {
+		got, err := GoToLua([]any{})
+		assert.NoError(t, err)
+		tbl, ok := got.(*lua.LTable)
+		assert.True(t, ok, "got %T", got)
+		assert.Nil(t, tbl.Strdict, "empty slice must not gain a hash allocation")
+	})
+}
+
+// TestEmptyTableShapeRoundTripThroughJSON proves both directions compose with
+// the json module's empty-table encoding: an object stays {}, a list stays [].
+func TestEmptyTableShapeRoundTripThroughJSON(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+
+	encodeLua := func(v lua.LValue) string {
+		encoded, err := jsonlua.Encode(v)
+		assert.NoError(t, err)
+		return string(encoded)
+	}
+
+	t.Run("lua to go to json keeps object", func(t *testing.T) {
+		table := l.CreateTable(0, 1)
+		converted, err := GoToLua(value.ToGoAny(table))
+		assert.NoError(t, err)
+		assert.Equal(t, "{}", encodeLua(converted))
+	})
+
+	t.Run("lua to go to json keeps array", func(t *testing.T) {
+		table := l.CreateTable(1, 0)
+		converted, err := GoToLua(value.ToGoAny(table))
+		assert.NoError(t, err)
+		assert.Equal(t, "[]", encodeLua(converted))
+	})
+
+	t.Run("go empty map to lua to json keeps object", func(t *testing.T) {
+		converted, err := GoToLua(map[string]any{})
+		assert.NoError(t, err)
+		assert.Equal(t, "{}", encodeLua(converted))
+	})
+
+	t.Run("go empty slice to lua to json keeps array", func(t *testing.T) {
+		converted, err := GoToLua([]any{})
+		assert.NoError(t, err)
+		assert.Equal(t, "[]", encodeLua(converted))
+	})
+
+	t.Run("go map decodes back to a map", func(t *testing.T) {
+		decoded, err := jsonlua.Decode([]byte("{}"))
+		assert.NoError(t, err)
+		_, ok := value.ToGoAny(decoded).(map[string]any)
+		assert.True(t, ok)
+	})
+
+	t.Run("go list decodes back to a slice", func(t *testing.T) {
+		decoded, err := jsonlua.Decode([]byte("[]"))
+		assert.NoError(t, err)
+		_, ok := value.ToGoAny(decoded).([]any)
+		assert.True(t, ok)
+	})
 }

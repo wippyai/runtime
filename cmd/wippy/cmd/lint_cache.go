@@ -20,9 +20,9 @@ import (
 type lintCache struct {
 	store           cache.Store
 	requireBuiltins map[string]struct{}
-	builtinModules  []string
 	builtinHash     string
 	typecheckHash   string
+	builtinModules  []string
 	cfg             cache.Config
 }
 
@@ -41,11 +41,13 @@ func computeLintFingerprints(levels [][]regapi.Entry, dataMap map[regapi.ID]entr
 		typeDeps:    make(map[regapi.ID][]cache.DepMeta),
 	}
 
+	toolchainID := lcache.cfg.ToolchainIdentity
+
 	for _, name := range lcache.builtinModules {
 		id := regapi.NewID("", name)
 		sourceHash := cache.SourceHash("", "")
-		fp.compile[id] = code.CompileFingerprint(id.String(), luaapi.ModuleKind, sourceHash, "", nil)
-		fp.typecheck[id] = code.TypecheckFingerprint(id.String(), luaapi.ModuleKind, sourceHash, "", lcache.typecheckHash, lcache.builtinHash, nil)
+		fp.compile[id] = code.CompileFingerprint(toolchainID, id.String(), luaapi.ModuleKind, sourceHash, "", nil)
+		fp.typecheck[id] = code.TypecheckFingerprint(toolchainID, id.String(), luaapi.ModuleKind, sourceHash, "", lcache.typecheckHash, lcache.builtinHash, nil)
 	}
 
 	for _, levelEntries := range levels {
@@ -85,9 +87,9 @@ func computeLintFingerprints(levels [][]regapi.Entry, dataMap map[regapi.ID]entr
 				}
 			}
 
-			fp.compile[entry.ID] = code.CompileFingerprint(entry.ID.String(), entry.Kind, sourceHash, data.Method, compileDeps)
+			fp.compile[entry.ID] = code.CompileFingerprint(toolchainID, entry.ID.String(), entry.Kind, sourceHash, data.Method, compileDeps)
 			fp.compileDeps[entry.ID] = compileMeta
-			fp.typecheck[entry.ID] = code.TypecheckFingerprint(entry.ID.String(), entry.Kind, sourceHash, data.Method, lcache.typecheckHash, lcache.builtinHash, typeDeps)
+			fp.typecheck[entry.ID] = code.TypecheckFingerprint(toolchainID, entry.ID.String(), entry.Kind, sourceHash, data.Method, lcache.typecheckHash, lcache.builtinHash, typeDeps)
 			fp.typeDeps[entry.ID] = typeMeta
 		}
 	}
@@ -112,9 +114,11 @@ func lintCacheConfig(lcache lintCache) cache.Config {
 	return lcache.cfg.Normalize()
 }
 
+// lintCacheEnabled reports whether the persistent lint cache is active.
+// Persistent caching requires an enabled configuration, an underlying store, and a non-empty toolchain identity.
 func lintCacheEnabled(lcache lintCache) bool {
 	cfg := lintCacheConfig(lcache)
-	return cfg.Enabled && lcache.store != nil
+	return cfg.Enabled && lcache.store != nil && cfg.ToolchainIdentity != ""
 }
 
 func lintCacheAllowsRead(lcache lintCache) bool {

@@ -22,14 +22,6 @@ var (
 	// Raft log and cannot serve consistent lookups.
 	ErrNotReady = apierror.New(apierror.Unavailable, "global registry not ready: node is catching up").WithRetryable(apierror.True)
 
-	// ErrNameServiceNotReady is returned to a participating LOCAL or EVENTUAL
-	// register while the node's join-epoch barrier has not completed. Until the
-	// barrier installs the leader's PENDING∪ACTIVE Strong snapshot and revokes
-	// any conflicting local names, the node cannot safely grant a name that a
-	// Strong reservation may own cluster-wide, so the register is refused
-	// (retryable — the barrier completes shortly after join/rejoin).
-	ErrNameServiceNotReady = apierror.New(apierror.Unavailable, "name service not ready: join-epoch barrier in progress").WithRetryable(apierror.True)
-
 	// ErrPendingConflict is returned when a Strong-scope register attempt
 	// targets a name that is already in the pending state for a different
 	// PID. The reservation must complete (active or expired) before the
@@ -37,14 +29,13 @@ var (
 	ErrPendingConflict = apierror.New(apierror.AlreadyExists, "strong name reservation pending for different PID").WithRetryable(apierror.False)
 
 	// ErrStrongRegistrationTimeout is returned when a Strong-scope register
-	// failed to collect an ack from every live node in the membership
-	// snapshot before its deadline. The error carries the list of missing
-	// node IDs via StrongRegistrationTimeoutError so callers can pinpoint
-	// the offender.
-	ErrStrongRegistrationTimeout = apierror.New(apierror.Timeout, "strong registration timed out before all live nodes acked").WithRetryable(apierror.True)
+	// failed to collect an ack from every observer captured for that attempt
+	// before its deadline. StrongRegistrationTimeoutError lists the missing
+	// observer IDs.
+	ErrStrongRegistrationTimeout = apierror.New(apierror.Timeout, "strong registration timed out before all observers acked").WithRetryable(apierror.True)
 
-	// ErrStrongRegistrationRejected is returned when a required node rejected
-	// a Strong-scope register (e.g. a cross-scope conflict). Distinct from a
+	// ErrStrongRegistrationRejected is returned when a required observer rejected
+	// a Strong-scope register. Distinct from a
 	// timeout: the registration failed terminally and is not retryable.
 	ErrStrongRegistrationRejected = apierror.New(apierror.AlreadyExists, "strong registration rejected by a required node").WithRetryable(apierror.False)
 )

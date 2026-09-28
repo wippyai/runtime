@@ -431,14 +431,22 @@ func TestReceiveHandlerBinary(t *testing.T) {
 }
 
 func TestReceiveHandlerEOFOnServerClose(t *testing.T) {
+	closeServer := make(chan struct{})
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, err := websocket.Accept(w, r, nil)
 		if err != nil {
 			return
 		}
+		defer conn.CloseNow()
+		select {
+		case <-closeServer:
+		case <-r.Context().Done():
+			return
+		}
 		_ = conn.Close(websocket.StatusNormalClosure, "closing")
 	}))
 	defer ts.Close()
+	defer close(closeServer)
 
 	wsURL := "ws" + ts.URL[4:]
 	ctx, store := setupTestContext()
@@ -459,6 +467,11 @@ func TestReceiveHandlerEOFOnServerClose(t *testing.T) {
 	msgCh, err := registry.GetMessageChan(connID)
 	if err != nil {
 		t.Fatalf("get message chan failed: %v", err)
+	}
+	select {
+	case closeServer <- struct{}{}:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout requesting server close")
 	}
 
 	select {

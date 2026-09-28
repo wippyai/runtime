@@ -5,7 +5,21 @@ package process
 import (
 	"sync"
 	"sync/atomic"
+
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/relay"
 )
+
+// EventAdmission optionally validates and takes ownership of messages at the
+// scheduler ingress boundary. On error the original event remains caller-owned.
+// On success the returned event is queue-owned, including any transformed data.
+// Implementations must not call back into the queue. Calls are serialized.
+type EventAdmission interface {
+	AdmitEvent(Event) (Event, error)
+}
+
+// EventDiscarder releases an admitted event that will never reach Process.Step.
+type EventDiscarder interface{ DiscardEvent() }
 
 // todo: move from api
 const defaultQueueCap = 16
@@ -17,13 +31,70 @@ const defaultQueueCap = 16
 // Generation counter ensures stale senders from previous executions
 // cannot push to a reused queue.
 type EventQueue struct {
-	signal     chan struct{}
-	events     []Event
-	drainBuf   []Event
-	generation atomic.Uint64
-	mu         sync.Mutex
-	closed     atomic.Bool
+	signal    chan struct{}
+	admission EventAdmission
+	// Message accounting is opt-in. Ordinary event traffic keeps the
+	// historical unbounded queue semantics; CDC messages carry MaxItems and/or
+	// MaxBytes and are admitted through PushMessage.
+	messageTopics map[string]*messageTopicState
+	events        []Event
+	drainBuf      []Event
+	generation    atomic.Uint64
+	mu            sync.Mutex
+	closed        atomic.Bool
 }
+
+// messageTopicState is the accounting identity for one bounded topic
+// incarnation. It must not be reused after a terminal is drained: a process
+// may hold a message reservation past that point while a new stream with the
+// same topic is admitted. Per-message leases retain this state until the
+// consumer releases the message, so old traffic cannot debit a replacement
+// stream's counters.
+type messageTopicState struct {
+	items      atomic.Int64
+	bytes      atomic.Int64
+	maxItems   int64
+	maxBytes   int64
+	overflowed bool
+}
+
+// messageRetentionLease transfers one EventQueue reservation to the process
+// mailbox. Release is idempotent because either the process or relay's pooled
+// package cleanup may be the first owner to finish the handoff.
+type messageRetentionLease struct {
+	state *messageTopicState
+	items int64
+	bytes int64
+	once  sync.Once
+}
+
+func (l *messageRetentionLease) Release() {
+	if l == nil || l.state == nil {
+		return
+	}
+	l.once.Do(func() {
+		if l.items > 0 {
+			l.state.items.Add(-l.items)
+		}
+		if l.bytes > 0 {
+			l.state.bytes.Add(-l.bytes)
+		}
+	})
+}
+
+// MessageAdmission describes ownership after PushMessage.
+//
+// Accepted means the queue owns the package. Dropped means the queue emitted
+// its overflow terminal but retained no part of the supplied package, so the
+// caller must release it. Rejected means the queue did not admit the package
+// (closed or stale generation), and the caller must release it as well.
+type MessageAdmission uint8
+
+const (
+	MessageRejected MessageAdmission = iota
+	MessageDropped
+	MessageAccepted
+)
 
 // NewEventQueue creates a queue with default capacity.
 func NewEventQueue() *EventQueue {
@@ -44,41 +115,308 @@ func (q *EventQueue) Generation() uint64 {
 // Push adds an event if queue is open and generation matches.
 // Returns false if queue is closed or generation mismatch (stale sender).
 func (q *EventQueue) Push(e Event, gen uint64) bool {
+	return q.PushWithError(e, gen) == nil
+}
+
+// PushWithError preserves admission errors such as a full bounded mailbox.
+func (q *EventQueue) PushWithError(e Event, gen uint64) error {
 	// Fast path: check generation and closed without lock
 	if q.generation.Load() != gen {
-		return false
+		return ErrProcessClosed
 	}
 	if q.closed.Load() {
-		return false
+		return ErrProcessClosed
 	}
 
 	q.mu.Lock()
 	// Recheck under lock
 	if q.generation.Load() != gen || q.closed.Load() {
 		q.mu.Unlock()
+		return ErrProcessClosed
+	}
+	var err error
+	e, err = q.admitEventLocked(e)
+	if err != nil {
+		q.mu.Unlock()
+		return err
+	}
+	q.events = append(q.events, e)
+	q.mu.Unlock()
+
+	q.signalPush()
+	return nil
+}
+
+// SetAdmission installs an execution's ingress policy before publishing its
+// queue to senders. Reset removes the old policy before a queue is reused.
+func (q *EventQueue) SetAdmission(admission EventAdmission) {
+	q.mu.Lock()
+	q.admission = admission
+	q.mu.Unlock()
+}
+
+// Caller holds mu. It must run after the generation and closed checks, so a
+// stale sender cannot consume an admission reservation from a newer process.
+func (q *EventQueue) admitEventLocked(e Event) (Event, error) {
+	if q.admission == nil || e.Type != EventMessage {
+		return e, nil
+	}
+	return q.admission.AdmitEvent(e)
+}
+
+func (q *EventQueue) signalPush() {
+	select {
+	case q.signal <- struct{}{}:
+	default:
+	}
+}
+
+// PushMessage admits a relay package while enforcing the per-topic limits
+// carried by its messages. A package can contain messages for more than one
+// topic; each message is admitted independently and the package is compacted
+// before ownership transfers to the queue. On the first overflow for a topic,
+// one synthetic error+terminal message is appended in its position. Later
+// traffic for that topic is discarded until Reset.
+//
+// The queue owns an accepted package and the scheduler releases it after
+// processing. The caller owns rejected or fully dropped packages.
+func (q *EventQueue) PushMessage(e Event, gen uint64) MessageAdmission {
+	admission, _ := q.PushMessageWithError(e, gen)
+	return admission
+}
+
+// PushMessageWithError combines an optional process admission policy with the
+// CDC retention admission. A policy runs first: it may reject a message or
+// replace its package with owned event data (as the WASM mailbox does). Only
+// a package which remains after that step is subject to topic accounting.
+//
+// A non-nil error means the caller still owns the original event data. A nil
+// error with MessageDropped means the queue emitted the overflow terminal but
+// did not retain the supplied package, so the caller must release it.
+func (q *EventQueue) PushMessageWithError(e Event, gen uint64) (MessageAdmission, error) {
+	if e.Type != EventMessage {
+		if err := q.PushWithError(e, gen); err != nil {
+			return MessageRejected, err
+		}
+		return MessageAccepted, nil
+	}
+
+	if q.generation.Load() != gen || q.closed.Load() {
+		return MessageRejected, ErrProcessClosed
+	}
+
+	q.mu.Lock()
+	if q.generation.Load() != gen || q.closed.Load() {
+		q.mu.Unlock()
+		return MessageRejected, ErrProcessClosed
+	}
+	var err error
+	e, err = q.admitEventLocked(e)
+	if err != nil {
+		q.mu.Unlock()
+		return MessageRejected, err
+	}
+	pkg, ok := e.Data.(*relay.Package)
+	if !ok || pkg == nil {
+		q.events = append(q.events, e)
+		q.mu.Unlock()
+		q.signalPush()
+		return MessageAccepted, nil
+	}
+	accepted := q.admitPackageLocked(pkg)
+	if !accepted {
+		q.mu.Unlock()
+		return MessageDropped, nil
+	}
+	q.events = append(q.events, e)
+	q.mu.Unlock()
+
+	q.signalPush()
+	return MessageAccepted, nil
+}
+
+func (q *EventQueue) admitPackageLocked(pkg *relay.Package) bool {
+	original := pkg.Messages
+	if len(original) == 0 {
+		return true
+	}
+
+	accepted := make([]*relay.Message, 0, len(original)+1)
+	for _, msg := range original {
+		if msg == nil {
+			accepted = append(accepted, nil)
+			continue
+		}
+
+		topic := msg.Topic
+		maxItems := msg.MaxItems
+		maxBytes := msg.MaxBytes
+		state := q.messageTopics[topic]
+		if state != nil {
+			if maxItems <= 0 {
+				maxItems = int(state.maxItems)
+			} else if state.maxItems > 0 && state.maxItems < int64(maxItems) {
+				maxItems = int(state.maxItems)
+			}
+			if maxBytes <= 0 {
+				maxBytes = state.maxBytes
+			} else if state.maxBytes > 0 && state.maxBytes < maxBytes {
+				maxBytes = state.maxBytes
+			}
+		}
+		if maxItems > 0 || maxBytes > 0 {
+			if state == nil {
+				if q.messageTopics == nil {
+					q.messageTopics = make(map[string]*messageTopicState)
+				}
+				state = &messageTopicState{}
+				q.messageTopics[topic] = state
+			}
+			if state.maxItems <= 0 || (maxItems > 0 && int64(maxItems) < state.maxItems) {
+				state.maxItems = int64(maxItems)
+			}
+			if state.maxBytes <= 0 || (maxBytes > 0 && maxBytes < state.maxBytes) {
+				state.maxBytes = maxBytes
+			}
+			maxItems = int(state.maxItems)
+			maxBytes = state.maxBytes
+		}
+
+		if state != nil && state.overflowed {
+			relay.ReleaseMessage(msg)
+			continue
+		}
+
+		// A terminal never consumes backlog capacity. This also makes the
+		// synthetic overflow terminal admissible after a full backlog.
+		if !messageHasData(msg) {
+			if maxItems > 0 {
+				msg.MaxItems = maxItems
+			}
+			if maxBytes > 0 {
+				msg.MaxBytes = maxBytes
+			}
+			accepted = append(accepted, msg)
+			continue
+		}
+
+		payloadBytes := msg.PayloadBytes
+		if maxBytes > 0 && payloadBytes <= 0 {
+			// Missing size metadata must not bypass a byte budget.
+			payloadBytes = maxBytes
+		}
+		var items, bytes int64
+		if state != nil {
+			items = state.items.Load()
+			bytes = state.bytes.Load()
+		}
+		if (maxItems > 0 && items >= int64(maxItems)) ||
+			(maxBytes > 0 && (payloadBytes > maxBytes || bytes > maxBytes-payloadBytes)) {
+			accepted = q.messageOverflowedLocked(state, topic, accepted, maxItems, maxBytes)
+			relay.ReleaseMessage(msg)
+			continue
+		}
+
+		msg.MaxItems = maxItems
+		msg.MaxBytes = maxBytes
+		msg.PayloadBytes = payloadBytes
+		if state != nil {
+			if maxItems > 0 {
+				state.items.Add(1)
+			}
+			if maxBytes > 0 && payloadBytes > 0 {
+				state.bytes.Add(payloadBytes)
+			}
+			reservationBytes := int64(0)
+			if maxBytes > 0 {
+				reservationBytes = payloadBytes
+			}
+			msg.SetRetentionLease(&messageRetentionLease{
+				state: state,
+				items: boolInt64(maxItems > 0),
+				bytes: reservationBytes,
+			})
+		}
+		accepted = append(accepted, msg)
+	}
+
+	pkg.Messages = accepted
+	return len(accepted) > 0
+}
+
+func boolInt64(v bool) int64 {
+	if v {
+		return 1
+	}
+	return 0
+}
+
+func (q *EventQueue) messageOverflowedLocked(state *messageTopicState, topic string, accepted []*relay.Message, maxItems int, maxBytes int64) []*relay.Message {
+	if state == nil {
+		if q.messageTopics == nil {
+			q.messageTopics = make(map[string]*messageTopicState)
+		}
+		state = &messageTopicState{maxItems: int64(maxItems), maxBytes: maxBytes}
+		q.messageTopics[topic] = state
+	}
+	if state.overflowed {
+		return accepted
+	}
+	state.overflowed = true
+	msg := relay.AcquireMessage()
+	msg.Topic = topic
+	msg.Payloads = payload.Payloads{payload.NewError(ErrMessageQueueOverflow), payload.NewTerminal()}
+	msg.MaxItems = maxItems
+	msg.MaxBytes = maxBytes
+	msg.PayloadBytes = 0
+	return append(accepted, msg)
+}
+
+func messageHasTerminal(msg *relay.Message) bool {
+	if msg == nil {
+		return false
+	}
+	for _, pl := range msg.Payloads {
+		if pl != nil && payload.IsTerminal(pl) {
+			return true
+		}
+	}
+	return false
+}
+
+func messageHasData(msg *relay.Message) bool {
+	if msg == nil {
+		return false
+	}
+	for _, pl := range msg.Payloads {
+		if pl == nil || payload.IsTerminal(pl) || pl.Format() == payload.GoError {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+// PushDirect adds an event without generation check (for scheduler's own use).
+// It returns false when the queue is closed. A rejected message package is
+// released here because PushDirect is an ownership-taking scheduler path; a
+// successful message remains owned by the queue/process as usual.
+func (q *EventQueue) PushDirect(e Event) bool {
+	q.mu.Lock()
+	if q.closed.Load() {
+		q.mu.Unlock()
+		if e.Type == EventMessage {
+			if pkg, ok := e.Data.(*relay.Package); ok {
+				relay.ReleasePackage(pkg)
+			}
+		}
 		return false
 	}
 	q.events = append(q.events, e)
 	q.mu.Unlock()
 
-	// Non-blocking signal
-	select {
-	case q.signal <- struct{}{}:
-	default:
-	}
+	q.signalPush()
 	return true
-}
-
-// PushDirect adds an event without generation check (for scheduler's own use).
-func (q *EventQueue) PushDirect(e Event) {
-	q.mu.Lock()
-	q.events = append(q.events, e)
-	q.mu.Unlock()
-
-	select {
-	case q.signal <- struct{}{}:
-	default:
-	}
 }
 
 // Drain returns all pending events and clears the queue.
@@ -86,12 +424,23 @@ func (q *EventQueue) PushDirect(e Event) {
 // Single consumer only (scheduler).
 func (q *EventQueue) Drain() []Event {
 	q.mu.Lock()
+	// The previous drain result is caller-owned. The single-consumer contract
+	// means the caller has finished with it before asking for the next batch;
+	// clear it now so the queue does not retain arbitrary Data values.
+	for i := range q.drainBuf {
+		q.drainBuf[i] = Event{}
+	}
+	q.drainBuf = q.drainBuf[:0]
 	if len(q.events) == 0 {
 		q.mu.Unlock()
 		return nil
 	}
+	for _, event := range q.events {
+		q.retireEventTopicsLocked(event)
+	}
 
 	// Swap buffers to avoid allocation
+	clear(q.drainBuf) // the prior drained batch has been consumed by Step
 	q.drainBuf, q.events = q.events, q.drainBuf[:0]
 	result := q.drainBuf
 	q.mu.Unlock()
@@ -116,7 +465,13 @@ func (q *EventQueue) Signal() <-chan struct{} {
 func (q *EventQueue) Close() {
 	q.mu.Lock()
 	q.closed.Store(true)
+	q.discardPending()
 	q.events = q.events[:0]
+	q.clearMessageAccountingLocked()
+	// A drained batch belongs to the scheduler. Drop the queue's reference
+	// without mutating the caller's slice, which may still be in flight while
+	// Close is called by a supervisor.
+	q.drainBuf = nil
 	q.mu.Unlock()
 
 	// Wake any waiters
@@ -130,9 +485,14 @@ func (q *EventQueue) Close() {
 func (q *EventQueue) Reset() {
 	q.mu.Lock()
 	q.generation.Add(1) // Invalidate all existing senders
+	q.discardPending()
+	q.admission = nil
 	q.closed.Store(false)
 	q.events = q.events[:0]
-	q.drainBuf = q.drainBuf[:0]
+	// See Close: the previous Drain result is consumer-owned. Detach it
+	// rather than touching a potentially concurrent scheduler slice.
+	q.drainBuf = nil
+	q.clearMessageAccountingLocked()
 	q.mu.Unlock()
 
 	// Drain signal channel
@@ -140,6 +500,43 @@ func (q *EventQueue) Reset() {
 	case <-q.signal:
 	default:
 	}
+}
+
+// Caller holds mu. Drained events are consumer-owned and must not be released
+// again; only pending, undelivered events are discarded here.
+func (q *EventQueue) discardPending() {
+	for i := range q.events {
+		e := &q.events[i]
+		q.retireEventTopicsLocked(*e)
+		if d, ok := e.Data.(EventDiscarder); ok {
+			d.DiscardEvent()
+		} else if e.Type == EventMessage {
+			if pkg, ok := e.Data.(*relay.Package); ok {
+				relay.ReleasePackage(pkg)
+			}
+		}
+		*e = Event{}
+	}
+}
+func (q *EventQueue) retireEventTopicsLocked(event Event) {
+	if event.Type != EventMessage {
+		return
+	}
+	pkg, ok := event.Data.(*relay.Package)
+	if !ok || pkg == nil {
+		return
+	}
+	for _, msg := range pkg.Messages {
+		if !messageHasTerminal(msg) {
+			continue
+		}
+		topic := msg.Topic
+		delete(q.messageTopics, topic)
+	}
+}
+
+func (q *EventQueue) clearMessageAccountingLocked() {
+	clear(q.messageTopics)
 }
 
 // YieldScheduler is the subset of Scheduler needed for waking.

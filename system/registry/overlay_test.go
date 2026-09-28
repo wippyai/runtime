@@ -97,7 +97,7 @@ func TestOverlaySurvivesVersionSelection(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestOverlayCannotShadowOrLeakIntoHistory(t *testing.T) {
+func TestOverlayCannotClaimDurableEntryOnCreateOrLeakIntoHistory(t *testing.T) {
 	ctx := context.Background()
 	reg, _ := newOverlayTestRegistry(t)
 	base := regapi.Entry{ID: regapi.NewID("app", "base"), Kind: regapi.EntryKind, Data: payload.New("base")}
@@ -539,15 +539,18 @@ type failedCompensationRunner struct {
 	calls int
 }
 
-func (r *failedCompensationRunner) Transition(ctx context.Context, from regapi.State, changes regapi.ChangeSet) (regapi.State, error) {
+func (r *failedCompensationRunner) Transition(ctx context.Context, from regapi.State, changes regapi.ChangeSet, abort func(context.Context)) (regapi.State, error) {
 	if !r.armed {
-		return r.base.Transition(ctx, from, changes)
+		return r.base.Transition(ctx, from, changes, abort)
 	}
 	r.calls++
+	if abort != nil {
+		abort(ctx)
+	}
 	if r.calls > 1 {
 		return from, errors.New("injected compensation failure")
 	}
-	partial, applyErr := r.base.Transition(ctx, from, changes)
+	partial, applyErr := r.base.Transition(ctx, from, changes, nil)
 	if applyErr != nil {
 		partial = from
 	}

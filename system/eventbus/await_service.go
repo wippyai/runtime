@@ -72,8 +72,10 @@ func (s *AwaitService) Stop() error {
 }
 
 // Prepare registers a waiter before the triggering request is sent.
+// A zero timeout uses event.DefaultAwaitTimeout; a negative timeout
+// (event.ContextBoundAwait) leaves the wait bounded by ctx alone.
 func (s *AwaitService) Prepare(ctx context.Context, system event.System, kind event.Kind, path event.Path, timeout time.Duration) (event.AwaitWaiter, error) {
-	if timeout <= 0 {
+	if timeout == 0 {
 		timeout = event.DefaultAwaitTimeout
 	}
 
@@ -108,8 +110,12 @@ func (s *AwaitService) Await(ctx context.Context, system event.System, kind even
 func (w *awaitWaiter) Wait() event.AwaitResult {
 	defer w.Close()
 
-	timeoutCtx, cancel := context.WithTimeout(w.ctx, w.timeout)
-	defer cancel()
+	waitCtx := w.ctx
+	if w.timeout > 0 {
+		timeoutCtx, cancel := context.WithTimeout(w.ctx, w.timeout)
+		defer cancel()
+		waitCtx = timeoutCtx
+	}
 
 	select {
 	case evt := <-w.ch:
@@ -122,7 +128,7 @@ func (w *awaitWaiter) Wait() event.AwaitResult {
 		}
 		return event.AwaitResult{Event: evt, Accepted: accepted, Error: resultErr}
 
-	case <-timeoutCtx.Done():
+	case <-waitCtx.Done():
 		if w.ctx.Err() != nil {
 			return event.AwaitResult{Error: w.ctx.Err()}
 		}

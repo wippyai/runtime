@@ -11,6 +11,7 @@ import (
 )
 
 var yieldTypes = []luaYieldType{
+	{Sample: &ViewportIOYield{}, CmdID: ttyapi.ViewportIO},
 	{Sample: &StartInputYield{}, CmdID: ttyapi.StartInput},
 	{Sample: &StopInputYield{}, CmdID: ttyapi.StopInput},
 	{Sample: &ScreenSizeYield{}, CmdID: ttyapi.ScreenSize},
@@ -95,7 +96,7 @@ func (y *ScreenSizeYield) HandleResult(l *lua.LState, data any, err error) []lua
 	switch v := data.(type) {
 	case []int:
 		if len(v) == 2 {
-			return []lua.LValue{lua.LNumber(v[0]), lua.LNumber(v[1]), lua.LNil}
+			return []lua.LValue{lua.LInteger(v[0]), lua.LInteger(v[1]), lua.LNil}
 		}
 		return []lua.LValue{lua.LNil, lua.LNil, lua.NewLuaError(l, "invalid screen size response").
 			WithKind(lua.Internal).WithRetryable(false)}
@@ -167,4 +168,37 @@ func handleBoolResult(l *lua.LState, data any, err error, op string) []lua.LValu
 		return []lua.LValue{lua.LNil, lua.NewLuaError(l, "invalid response type").
 			WithKind(lua.Internal).WithRetryable(false)}
 	}
+}
+
+// ViewportIOYield keeps network waits off the Lua scheduler.
+type ViewportIOYield struct{ Command ttyapi.ViewportIOCmd }
+
+func (*ViewportIOYield) String() string                  { return "<tty_viewport_io_yield>" }
+func (*ViewportIOYield) Type() lua.LValueType            { return lua.LTUserData }
+func (*ViewportIOYield) CmdID() dispatcher.CommandID     { return ttyapi.ViewportIO }
+func (y *ViewportIOYield) ToCommand() dispatcher.Command { return y.Command }
+func (y *ViewportIOYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
+	if err != nil {
+		return []lua.LValue{lua.LNil, lua.WrapErrorWithLua(l, err, "remote viewport")}
+	}
+
+	if result, ok := data.(ttyapi.ImageIOResult); ok {
+		if result.Image != nil {
+			pushImage(l, result.Image, result.Cancel)
+		} else if result.Capture != nil {
+			pushCapture(l, result.Capture, result.Cancel)
+		} else {
+			return handleBoolResult(l, nil, ttyapi.ErrImageInvalid, "image result")
+		}
+		out := []lua.LValue{l.Get(-2), l.Get(-1)}
+		l.Pop(2)
+		return out
+	}
+	if view, ok := data.(ttyapi.Viewport); ok {
+		pushViewport(l, view)
+		out := []lua.LValue{l.Get(-2), l.Get(-1)}
+		l.Pop(2)
+		return out
+	}
+	return handleBoolResult(l, data, nil, "remote viewport")
 }

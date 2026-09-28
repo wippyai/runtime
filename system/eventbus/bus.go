@@ -19,6 +19,7 @@ const (
 	actSubscribe actKind = iota
 	actUnsubscribe
 	actSend
+	actProbe
 	actStop
 )
 
@@ -37,6 +38,7 @@ type action struct {
 	ctx         context.Context
 	subscribe   *subscribeRequest
 	unsubscribe *unsubscribeRequest
+	probe       *probeRequest
 	event       event.Event
 	kind        actKind
 }
@@ -49,6 +51,15 @@ type subscribeRequest struct {
 type unsubscribeRequest struct {
 	doneCh chan struct{}
 	subID  event.SubscriberID
+}
+
+// probeRequest asks the dispatcher whether the subscription table currently
+// holds a subscription matching a system/kind pair. It travels the action
+// queue so the answer is read from the same goroutine that owns the table.
+type probeRequest struct {
+	doneCh chan bool
+	system event.System
+	kind   event.Kind
 }
 
 type sub struct {
@@ -185,21 +196,17 @@ func (b *Bus) SubscribeP(
 		return "", err
 	}
 
-	// Wait for response
-	select {
-	case err := <-req.doneCh:
-		return subID, err
-	case <-ctx.Done():
-		return "", ctx.Err()
+	// Once enqueued, wait for the dispatcher to decide ownership. Returning on
+	// cancellation before that decision could leave an installed subscription
+	// whose ID was never returned to the caller.
+	if err := <-req.doneCh; err != nil {
+		return "", err
 	}
+	return subID, nil
 }
 
 // Unsubscribe removes the subscription identified by the given subscriber ID.
-func (b *Bus) Unsubscribe(ctx context.Context, subID event.SubscriberID) {
-	if ctx.Err() != nil {
-		return
-	}
-
+func (b *Bus) Unsubscribe(_ context.Context, subID event.SubscriberID) {
 	req := &unsubscribeRequest{
 		subID:  subID,
 		doneCh: make(chan struct{}, 1),
@@ -211,15 +218,16 @@ func (b *Bus) Unsubscribe(ctx context.Context, subID event.SubscriberID) {
 		unsubscribe: req,
 	})
 
-	// Wait for response
-	select {
-	case <-req.doneCh:
-	case <-ctx.Done():
-	}
+	// Unsubscribe is an ownership barrier. Returning early on cancellation
+	// would let the caller release the channel while the dispatcher can still
+	// hold an in-flight send reference.
+	<-req.doneCh
 }
 
-// Send publishes an event to all matching subscribers.
-// This is guaranteed to never block and never lose messages.
+// Send publishes an event to all matching subscribers without blocking the
+// caller on delivery. Events are delivered in order while the publisher and
+// subscriber contexts remain active; cancellation may abort queued or
+// in-progress delivery. Calls made after Stop are ignored.
 func (b *Bus) Send(ctx context.Context, e event.Event) {
 	if ctx.Err() != nil {
 		return
@@ -233,13 +241,37 @@ func (b *Bus) Send(ctx context.Context, e event.Event) {
 	})
 }
 
+// HasSubscribers reports whether any live subscription matches the given
+// system and kind. The answer is produced by the dispatcher against the same
+// subscription table that Send filters on, so it reflects every subscribe and
+// unsubscribe already accepted by the bus. A closed bus has no subscribers.
+func (b *Bus) HasSubscribers(system event.System, kind event.Kind) bool {
+	req := &probeRequest{
+		system: system,
+		kind:   kind,
+		doneCh: make(chan bool, 1),
+	}
+
+	if err := b.enqueueAction(action{
+		kind:  actProbe,
+		probe: req,
+	}); err != nil {
+		return false
+	}
+
+	return <-req.doneCh
+}
+
 // Stop gracefully shuts down the event bus.
 func (b *Bus) Stop() {
 	// Atomically set closed and enqueue stop action
 	b.actionMu.Lock()
 	if b.closed.Swap(true) {
 		b.actionMu.Unlock()
-		return // Already closed
+		// A concurrent Stop may still be draining the dispatcher. Stop is a
+		// terminal barrier, not merely an idempotent state flip.
+		b.wg.Wait()
+		return
 	}
 	b.actionQueue = append(b.actionQueue, action{
 		kind: actStop,
@@ -262,14 +294,22 @@ func (b *Bus) enqueueAction(a action) error {
 
 	if b.closed.Load() {
 		b.actionMu.Unlock()
-		// Respond to control operations immediately
+		// Resolve control operations according to the terminal barrier.
 		switch a.kind {
 		case actSubscribe:
 			a.subscribe.doneCh <- ErrBusClosed
 		case actUnsubscribe:
+			// Stop may have marked the bus closed while the dispatcher is
+			// still delivering a previously drained send batch.  An
+			// unsubscribe acknowledgement is also permission for helpers to
+			// release their delivery channel, so do not acknowledge it until
+			// the sole sender has exited.
+			b.wg.Wait()
 			a.unsubscribe.doneCh <- struct{}{}
 		case actSend:
 			// Silently drop send operations when closed
+		case actProbe:
+			a.probe.doneCh <- false
 		case actStop:
 			// Should not happen, but handle gracefully
 		}
@@ -322,6 +362,12 @@ func (b *Bus) processActions() bool {
 
 		switch a.kind {
 		case actSubscribe:
+			// Cancellation before the serialized ownership decision means the
+			// bus never takes ownership of the caller's channel.
+			if err := a.subscribe.sub.ctx.Err(); err != nil {
+				a.subscribe.doneCh <- err
+				continue
+			}
 			if b.maxSubscribers > 0 && len(b.subscribers) >= b.maxSubscribers {
 				// Cap reached. The metric+counter let the soak gate
 				// catch a runaway leak; the typed error gives the
@@ -377,6 +423,9 @@ func (b *Bus) processActions() bool {
 				b.recordSubscribers()
 			}
 
+		case actProbe:
+			a.probe.doneCh <- b.matchesSubscriber(a.probe.system, a.probe.kind)
+
 		case actStop:
 			// Clean up all subscribers
 			b.subscribers = make(map[event.SubscriberID]sub)
@@ -421,10 +470,31 @@ func (b *Bus) drainQueue() {
 			a.unsubscribe.doneCh <- struct{}{}
 		case actSend:
 			// Drop send events during shutdown
+		case actProbe:
+			a.probe.doneCh <- false
 		case actStop:
 			// Ignore additional stop actions
 		}
 	}
+}
+
+// matchesSubscriber applies the same filters Send uses, so a positive answer
+// means the event would reach at least one subscriber. Subscriptions whose
+// context is already done are skipped: Send drops them on the next delivery.
+func (b *Bus) matchesSubscriber(system event.System, kind event.Kind) bool {
+	for _, s := range b.subscribers {
+		if s.ctx.Err() != nil {
+			continue
+		}
+		if s.system != nil && !s.system.Match(system) {
+			continue
+		}
+		if s.kind != nil && !s.kind.Match(kind) {
+			continue
+		}
+		return true
+	}
+	return false
 }
 
 func (b *Bus) generateSubscriberID() event.SubscriberID {

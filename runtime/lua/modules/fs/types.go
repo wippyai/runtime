@@ -171,18 +171,25 @@ func init() {
 			Param("self", typ.Self).
 			Param("path", typ.String).
 			Param("data", typ.NewUnion(typ.String, streamType)).
-			OptParam("mode", typ.String).
+			OptParam("options", typ.NewUnion(typ.String, writeOptionsType)).
 			Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).
 			Build()},
 		{Name: "writefile", Type: typ.Func().
 			Param("self", typ.Self).
 			Param("path", typ.String).
 			Param("data", typ.NewUnion(typ.String, streamType)).
-			OptParam("mode", typ.String).
+			OptParam("options", typ.NewUnion(typ.String, writeOptionsType)).
 			Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).
 			Build()},
 	})
 }
+
+// writeOptionsType is the table form of the writefile options argument; the
+// string form carries the mode alone.
+var writeOptionsType = typ.NewRecord().
+	OptField("mode", typ.String).
+	OptField("atomic", typ.Boolean).
+	Build()
 
 var seekType = typ.NewRecord().
 	Field("SET", typ.String).

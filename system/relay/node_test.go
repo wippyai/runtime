@@ -5,8 +5,10 @@ package relay
 import (
 	"context"
 	"errors"
+	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -35,6 +37,24 @@ func (d *dummyHost) Attach(_ pidapi.PID, _ chan *relay.Package) (context.CancelF
 func (d *dummyHost) Detach(_ pidapi.PID) {
 	// No-op for testing
 }
+
+type blockingHost struct {
+	entered chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (h *blockingHost) Send(_ *relay.Package) error {
+	h.once.Do(func() { close(h.entered) })
+	<-h.release
+	return nil
+}
+
+func (h *blockingHost) Attach(_ pidapi.PID, _ chan *relay.Package) (context.CancelFunc, error) {
+	return func() {}, nil
+}
+
+func (h *blockingHost) Detach(_ pidapi.PID) {}
 
 func TestNodeSendLocal(t *testing.T) {
 	// Create a dummy host and register it with the node.
@@ -69,6 +89,28 @@ func TestNodeSendLocal(t *testing.T) {
 	err = node.Send(pkg)
 	assert.NoError(t, err)
 	assert.Equal(t, int32(2), dhost.sendCalled)
+}
+
+func TestNodeSendContextRejectsBlockingLegacyReceiver(t *testing.T) {
+	host := &blockingHost{entered: make(chan struct{}), release: make(chan struct{})}
+	node := NewNode("node1")
+	require.NoError(t, node.RegisterHost("host1", host))
+	pkg := &relay.Package{Target: pidapi.PID{Host: "host1", UniqID: "process"}}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	result := make(chan error, 1)
+	go func() { result <- node.SendContext(ctx, pkg) }()
+	select {
+	case err := <-result:
+		require.ErrorIs(t, err, ErrContextUnsupported)
+	case <-host.entered:
+		close(host.release)
+		t.Fatal("SendContext called a blocking legacy receiver")
+	case <-time.After(time.Second):
+		close(host.release)
+		t.Fatal("SendContext did not fail fast for legacy receiver")
+	}
 }
 
 func TestNodeSendHostNotFound(t *testing.T) {

@@ -27,10 +27,15 @@ func TestLintWarmCacheIsReadOnly(t *testing.T) {
 func TestLintWarmCacheDoesNotDuplicateRequireDiagnostics(t *testing.T) {
 	dir := t.TempDir()
 	typeCfg := code.TypeCheckConfig{Enabled: true, Strict: true}
+	toolchainID, err := code.ToolchainIdentity()
+	require.NoError(t, err)
 	lcache := lintCache{
 		store: cache.NewDiskStore(dir),
 		cfg: cache.Config{
-			Enabled: true, CompileEnabled: true, TypecheckEnabled: true,
+			Enabled:           true,
+			CompileEnabled:    true,
+			TypecheckEnabled:  true,
+			ToolchainIdentity: toolchainID,
 		},
 		typecheckHash:   code.TypecheckConfigHash(typeCfg),
 		builtinHash:     code.BuiltinManifestHash(nil),
@@ -67,9 +72,16 @@ func runLintCacheHarness(t *testing.T, count int, chain bool) {
 	dir := t.TempDir()
 	store := cache.NewBoundedDiskStore(dir, 1<<30, count*3, 64)
 	typeCfg := code.TypeCheckConfig{Enabled: true, Strict: true}
+	toolchainID, err := code.ToolchainIdentity()
+	require.NoError(t, err)
 	lcache := lintCache{
-		store:           store,
-		cfg:             cache.Config{Enabled: true, CompileEnabled: true, TypecheckEnabled: true},
+		store: store,
+		cfg: cache.Config{
+			Enabled:           true,
+			CompileEnabled:    true,
+			TypecheckEnabled:  true,
+			ToolchainIdentity: toolchainID,
+		},
 		typecheckHash:   code.TypecheckConfigHash(typeCfg),
 		builtinHash:     code.BuiltinManifestHash(nil),
 		requireBuiltins: map[string]struct{}{},
@@ -113,6 +125,7 @@ func runLintCacheHarness(t *testing.T, count int, chain bool) {
 		Cache: cache.Config{
 			Dir: dir, Enabled: true, CompileEnabled: true, TypecheckEnabled: true,
 			MaxBytes: 1 << 30, MaxEntries: count * 3, PruneInterval: 64,
+			ToolchainIdentity: toolchainID,
 		},
 		TypeCheck: typeCfg,
 	})
@@ -153,6 +166,8 @@ func (lintCacheEventBus) Subscribe(context.Context, event.System, chan<- event.E
 func (lintCacheEventBus) SubscribeP(context.Context, event.System, event.Kind, chan<- event.Event) (event.SubscriberID, error) {
 	return "lint-cache-test", nil
 }
+
+func (lintCacheEventBus) HasSubscribers(event.System, event.Kind) bool { return true }
 
 func (lintCacheEventBus) Unsubscribe(context.Context, event.SubscriberID) {}
 

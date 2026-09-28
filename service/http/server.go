@@ -32,6 +32,10 @@ const (
 	// BootTimeout is the maximum time to wait for the server to start
 	BootTimeout = 30 * time.Second
 
+	// ShutdownTimeout bounds the graceful shutdown triggered by the
+	// cancellation of the context a start was launched with
+	ShutdownTimeout = 30 * time.Second
+
 	// CheckInterval is the interval between server availability checks during startup
 	CheckInterval = 100 * time.Millisecond
 
@@ -51,9 +55,11 @@ type ServerService struct {
 	mountHandlers map[registry.ID]http.Handler
 	routeMgr      *RouteManager
 	config        *config.ServerConfig
+	stopWatch     chan struct{}
+	initialRoutes chan struct{}
 	id            registry.ID
 	mu            sync.RWMutex
-	shutdownOnce  sync.Once
+	routesPending bool
 	started       atomic.Bool
 }
 
@@ -73,6 +79,16 @@ func NewServerService(id registry.ID, cfg *config.ServerConfig, middleware Middl
 		mountHandlers: make(map[registry.ID]http.Handler),
 		middlewareFac: middleware,
 	}, nil
+}
+
+// deferStartUntilRoutesCommit arms the one-shot gate used by registry-managed
+// servers. Directly constructed servers retain their existing start behavior.
+func (s *ServerService) deferStartUntilRoutesCommit() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.initialRoutes = make(chan struct{})
+	s.routesPending = true
 }
 
 // SetHandlerFunc sets the server-level handler function
@@ -211,21 +227,34 @@ func (s *ServerService) Rebuild(_ context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// If handler function is set, don't rebuild router
-	if s.handlerFunc != nil {
-		return nil
+	// If handler function is set, don't rebuild router.
+	if s.handlerFunc == nil {
+		if err := s.routeMgr.Build(); err != nil {
+			return err
+		}
 	}
 
-	err := s.routeMgr.Build()
-	if err != nil {
-		return err
+	if s.routesPending {
+		close(s.initialRoutes)
+		s.initialRoutes = nil
+		s.routesPending = false
 	}
-
 	return nil
 }
 
 // Start implements the supervisor.Service interface to start the HTTP server
 func (s *ServerService) Start(ctx context.Context) (<-chan any, error) {
+	s.mu.RLock()
+	initialRoutes := s.initialRoutes
+	s.mu.RUnlock()
+	if initialRoutes != nil {
+		select {
+		case <-initialRoutes:
+		case <-ctx.Done():
+			return nil, NewStartupCanceledError(ctx.Err())
+		}
+	}
+
 	s.mu.Lock()
 
 	// Initialize mailbox with config
@@ -255,6 +284,7 @@ func (s *ServerService) Start(ctx context.Context) (<-chan any, error) {
 	} else {
 		baseHandler = s.routeMgr
 	}
+	listenAddr := ""
 
 	// Wrap handler with per-request FrameContext creation
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -264,7 +294,7 @@ func (s *ServerService) Start(ctx context.Context) (<-chan any, error) {
 
 		// Set all HTTP-specific metadata in FrameContext in one place
 		_ = config.SetServerID(ctx, s.id.String())
-		_ = config.SetServerHost(ctx, s.config.Addr)
+		_ = config.SetServerHost(ctx, listenAddr)
 		_ = fc.Set(config.ServerKey(), s)
 
 		baseHandler.ServeHTTP(w, r.WithContext(ctx))
@@ -287,6 +317,10 @@ func (s *ServerService) Start(ctx context.Context) (<-chan any, error) {
 		s.mu.Unlock()
 		return nil, err
 	}
+	listenAddr = reportedListenAddr(s.config.Addr, ln)
+	s.retireWatchLocked()
+	watch := make(chan struct{})
+	s.stopWatch = watch
 	s.server = srv
 	s.started.Store(true)
 
@@ -303,40 +337,32 @@ func (s *ServerService) Start(ctx context.Context) (<-chan any, error) {
 			}
 		}
 
-		s.started.Store(false)
+		s.mu.Lock()
+		if s.server == srv {
+			s.started.Store(false)
+		}
+		s.mu.Unlock()
 	}()
 
-	if err := s.ensureRunning(ctx, probe); err != nil {
+	if err := s.ensureRunning(ctx, probe, listenAddr); err != nil {
 		_ = ln.Close()
 		_ = srv.Close()
 		s.mu.Lock()
 		if s.server == srv {
+			s.retireWatchLocked()
 			s.server = nil
 			s.host = nil
+			s.started.Store(false)
 		}
 		s.mu.Unlock()
-		s.started.Store(false)
 		return nil, NewStartupCheckError(err)
 	}
 
-	// Handle shutdown via context (only once)
-	s.shutdownOnce.Do(func() {
-		go func() {
-			<-ctx.Done()
-			shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			defer cancel()
-
-			if err := s.Stop(shutdownCtx); err != nil {
-				select {
-				case s.statusChan <- NewShutdownError(err):
-				default:
-				}
-			}
-		}()
-	})
+	// Shut down when the context this start was launched with is canceled
+	go s.watchStartContext(ctx, srv, watch)
 
 	select {
-	case s.statusChan <- fmt.Sprintf("service listening on %s", s.config.Addr):
+	case s.statusChan <- fmt.Sprintf("service listening on %s", listenAddr):
 	default:
 	}
 
@@ -347,6 +373,14 @@ func (s *ServerService) Start(ctx context.Context) (<-chan any, error) {
 func (s *ServerService) Stop(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	return s.stopLocked(ctx)
+}
+
+// stopLocked shuts the current server down and retires the watcher that
+// belongs to it. Callers hold s.mu.
+func (s *ServerService) stopLocked(ctx context.Context) error {
+	s.retireWatchLocked()
 
 	// Gracefully shutdown the server
 	if s.server != nil {
@@ -363,13 +397,58 @@ func (s *ServerService) Stop(ctx context.Context) error {
 	return nil
 }
 
+// retireWatchLocked releases the watcher of the start that is being replaced
+// or torn down. Callers hold s.mu.
+func (s *ServerService) retireWatchLocked() {
+	if s.stopWatch != nil {
+		close(s.stopWatch)
+		s.stopWatch = nil
+	}
+}
+
+// watchStartContext stops srv once the context that started it is canceled.
+// It exits as soon as that start is retired, so a context belonging to an
+// earlier start can never reach the server a later start installed.
+func (s *ServerService) watchStartContext(ctx context.Context, srv *http.Server, retired <-chan struct{}) {
+	select {
+	case <-retired:
+		return
+	case <-ctx.Done():
+	}
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), ShutdownTimeout)
+	defer cancel()
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.server != srv {
+		return
+	}
+
+	if err := s.stopLocked(shutdownCtx); err != nil {
+		select {
+		case s.statusChan <- NewShutdownError(err):
+		default:
+		}
+	}
+}
+
 // probeFunc dials the server's bind fabric — clearnet for addr-only
 // services, and the overlay driver when cfg.Network is set.
 type probeFunc func(ctx context.Context, addr string) (net.Conn, error)
 
+func reportedListenAddr(configured string, ln net.Listener) string {
+	_, port, err := net.SplitHostPort(configured)
+	if err == nil && port == "0" {
+		return ln.Addr().String()
+	}
+	return configured
+}
+
 // ensureRunning verifies that the server is listening by dialing itself on
 // the same fabric it bound on.
-func (s *ServerService) ensureRunning(ctx context.Context, probe probeFunc) error {
+func (s *ServerService) ensureRunning(ctx context.Context, probe probeFunc, listenAddr string) error {
 	timeout := time.After(BootTimeout)
 	ticker := time.NewTicker(CheckInterval)
 	defer ticker.Stop()
@@ -382,7 +461,7 @@ func (s *ServerService) ensureRunning(ctx context.Context, probe probeFunc) erro
 			return NewStartupCanceledError(ctx.Err())
 		case <-ticker.C:
 			dialCtx, cancel := context.WithTimeout(ctx, time.Second)
-			conn, err := probe(dialCtx, s.config.Addr)
+			conn, err := probe(dialCtx, listenAddr)
 			cancel()
 			if err == nil {
 				_ = conn.Close()

@@ -37,7 +37,9 @@ func (m *MemoryCheckpointer) Load(_ context.Context, slot string) (pglogrepl.LSN
 func (m *MemoryCheckpointer) Save(_ context.Context, slot string, lsn pglogrepl.LSN) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.pos[slot] = lsn
+	if current, ok := m.pos[slot]; !ok || lsn > current {
+		m.pos[slot] = lsn
+	}
 	return nil
 }
 
@@ -84,7 +86,9 @@ func (c *DBCheckpointer) Load(ctx context.Context, slot string) (pglogrepl.LSN, 
 func (c *DBCheckpointer) Save(ctx context.Context, slot string, lsn pglogrepl.LSN) error {
 	_, err := c.db.ExecContext(ctx,
 		`INSERT INTO wippy_cdc_offsets (slot, lsn, updated_at) VALUES ($1, $2, now())
-		 ON CONFLICT (slot) DO UPDATE SET lsn = EXCLUDED.lsn, updated_at = now()`,
+		 ON CONFLICT (slot) DO UPDATE
+		 SET lsn = EXCLUDED.lsn, updated_at = now()
+		 WHERE wippy_cdc_offsets.lsn::pg_lsn <= EXCLUDED.lsn::pg_lsn`,
 		slot, lsn.String())
 	if err != nil {
 		return fmt.Errorf("save offset: %w", err)

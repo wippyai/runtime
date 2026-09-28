@@ -11,6 +11,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/wippyai/runtime/api/boot"
@@ -21,6 +22,7 @@ import (
 	metricsapi "github.com/wippyai/runtime/api/metrics"
 	"github.com/wippyai/runtime/api/payload"
 	relayapi "github.com/wippyai/runtime/api/relay"
+	topapi "github.com/wippyai/runtime/api/topology"
 	metricsboot "github.com/wippyai/runtime/boot/components/metrics"
 	"github.com/wippyai/runtime/cluster/internode"
 	"github.com/wippyai/runtime/cluster/membership"
@@ -47,49 +49,6 @@ func clusterRaftEnabled(clusterCfg boot.Config) bool {
 		return false
 	}
 	return !strings.EqualFold(clusterCfg.GetString(ClusterRaftRole, raftRoleServer), raftRoleClient)
-}
-
-// internodeAdvertiseEndpoint returns an optional v2 endpoint for upgraded
-// peers. It leaves v1 internode_port metadata unchanged, so old peers continue
-// to use the membership IP and bound port during a rolling upgrade.
-func internodeAdvertiseEndpoint(clusterCfg boot.Config, bindPort int) (string, int, error) {
-	addr := strings.TrimSpace(clusterCfg.GetString(ClusterInternodeAdvertiseAddr, ""))
-	configuredPort := clusterCfg.GetInt(ClusterInternodeAdvertisePort, 0)
-	if addr == "" {
-		if configuredPort != 0 {
-			return "", 0, fmt.Errorf("cluster.internode.advertise_port requires advertise_addr")
-		}
-		return "", bindPort, nil
-	}
-	if !internode.ValidEndpointHost(addr) {
-		return "", 0, fmt.Errorf("cluster.internode.advertise_addr must be an IP address or DNS hostname, got %q", addr)
-	}
-	if configuredPort == 0 {
-		configuredPort = bindPort
-	}
-	if configuredPort < 1 || configuredPort > 65535 {
-		return "", 0, fmt.Errorf("cluster.internode.advertise_port must be between 1 and 65535, got %d", configuredPort)
-	}
-	return addr, configuredPort, nil
-}
-
-// discoverInternodePort starts a throwaway connection manager just long
-// enough to learn the actual listen port (AutoPort picks an ephemeral one),
-// then stops it. The discovered port is pinned on the real manager's config
-// so it binds the same port across restarts, and is advertised in node
-// metadata before the real manager starts.
-func discoverInternodePort(cfg internode.ManagerConfig, coll metricsapi.Collector) (int, error) {
-	tmp := internode.NewConnectionManager(cfg, coll)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	if err := tmp.Start(ctx, func(clusterapi.NodeID, []byte) {}); err != nil {
-		return 0, NewConnectionManagerPreStartError(err)
-	}
-	port := tmp.GetListenPort()
-	if err := tmp.Stop(); err != nil {
-		return 0, NewConnectionManagerStopError(err)
-	}
-	return port, nil
 }
 
 // clusterHealthScoreCeiling is the maximum memberlist health score
@@ -125,16 +84,62 @@ func WithInternodeService(ctx context.Context, svc *internode.Service) context.C
 	return ctx
 }
 
+// clusterSeedAddrs reads membership.join_addrs as the comma-separated seed
+// list it is. Entries are trimmed and blanks dropped, so a value that carries
+// no address at all means "no seeds" to every reader of the key: the
+// membership service that dials them and the raft bootstrap sizing that treats
+// a seeded node as one joining an existing cluster.
+func clusterSeedAddrs(cfg boot.Config) []string {
+	var addrs []string
+	for _, addr := range strings.Split(cfg.GetString(ClusterMembershipJoin, ""), ",") {
+		if trimmed := strings.TrimSpace(addr); trimmed != "" {
+			addrs = append(addrs, trimmed)
+		}
+	}
+	return addrs
+}
+
 func Cluster() boot.Component {
 	var membershipSvc *membership.Service
 	var internodeSvc *internode.Service
 	var connMgr internode.ConnectionManager
 	var logger *zap.Logger
+	var internodeActive, membershipActive bool
+	var lifecycle sync.Mutex
+	type execution struct {
+		cancelWatch func() bool
+		done        chan struct{}
+	}
+	var current *execution
+	// The lifecycle lock also serializes context cancellation with boot calls.
+	// Clear ownership before cleanup so a failed Start followed by shutdown
+	// cannot stop a service twice.
+	stopServices := func() {
+		if internodeActive {
+			internodeActive = false
+			if err := internodeSvc.Stop(); err != nil {
+				logger.Error("failed to stop internode service", zap.Error(err))
+			}
+		}
+		if membershipActive {
+			membershipActive = false
+			if err := membershipSvc.Stop(); err != nil {
+				logger.Error("failed to stop membership service", zap.Error(err))
+			}
+		}
+	}
 
 	return boot.New(boot.P{
-		Name:      ClusterName,
-		DependsOn: []boot.Name{metricsboot.Name},
+		Name: ClusterName,
+		// Topology breaks links and monitors when an internode session ends,
+		// synchronously with delivery, so it must exist first.
+		DependsOn: []boot.Name{metricsboot.Name, TopologyName},
 		Load: func(ctx context.Context) (context.Context, error) {
+			lifecycle.Lock()
+			defer lifecycle.Unlock()
+			if current != nil || internodeActive || membershipActive {
+				return ctx, fmt.Errorf("cluster component already started")
+			}
 			logger = logapi.GetLogger(ctx).Named("cluster")
 			cfg := boot.GetConfig(ctx)
 
@@ -173,15 +178,16 @@ func Cluster() boot.Component {
 			if node == nil {
 				return ctx, ErrRelayNotAvailableForCluster
 			}
-
-			// Parse join addresses
-			var joinAddrs []string
-			joinStr := clusterCfg.GetString(ClusterMembershipJoin, "")
-			if joinStr != "" {
-				for _, addr := range strings.Split(joinStr, ",") {
-					joinAddrs = append(joinAddrs, strings.TrimSpace(addr))
-				}
+			if node.ID() != nodeName {
+				return ctx, fmt.Errorf("cluster.name %q must match relay.node_name %q", nodeName, node.ID())
 			}
+
+			topo := topapi.GetTopology(ctx)
+			if topo == nil {
+				return ctx, ErrTopologyNotAvailable
+			}
+
+			joinAddrs := clusterSeedAddrs(clusterCfg)
 
 			secretKey, err := membership.ResolveSecretKey(
 				clusterCfg.GetString(ClusterMembershipSecret, ""),
@@ -212,11 +218,24 @@ func Cluster() boot.Component {
 				return ctx, fmt.Errorf("trusted internode key for local node %q is required and must match its identity", nodeName)
 			}
 
+			var peerKeySource clusterapi.PeerKeySource
+			if rawSource, present := clusterCfg.Get(ClusterInternodePeerKeySource); present {
+				var valid bool
+				peerKeySource, valid = rawSource.(clusterapi.PeerKeySource)
+				if !valid || peerKeySource == nil {
+					return ctx, fmt.Errorf("cluster.internode.peer_key_source requires a native PeerKeySource")
+				}
+			}
+
 			// Create message codec
 			messageCodec := internode.NewMessageCodec(dtt)
 
 			// Create connection manager config
 			connManagerCfg := internode.DefaultManagerConfig()
+			connManagerCfg.TLS, err = clusterTLSConfig(clusterCfg)
+			if err != nil {
+				return ctx, err
+			}
 			connManagerCfg.LocalNodeID = nodeName
 			connManagerCfg.BindAddr = clusterCfg.GetString(ClusterInternodeBindAddr, "0.0.0.0")
 			connManagerCfg.BindPort = clusterCfg.GetInt(ClusterInternodeBindPort, 0)
@@ -226,43 +245,17 @@ func Cluster() boot.Component {
 			connManagerCfg.SigningKey = signingKey
 			connManagerCfg.RequireAuthentication = true
 			connManagerCfg.ResolvePeerKey = func(id clusterapi.NodeID) (ed25519.PublicKey, bool) {
-				trustedKey, trusted := trustedPeerKeys[id]
-				if !trusted || id == "" || id == nodeName || membershipSvc == nil {
-					return nil, false
-				}
-				for _, nodeInfo := range membershipSvc.Nodes() {
-					if nodeInfo.ID != id {
-						continue
-					}
-					advertisedKey, err := internode.ParseIdentityPublicKey(nodeInfo.Meta[internode.MetadataPublicKey])
-					if err != nil || !advertisedKey.Equal(trustedKey) {
-						return nil, false
-					}
-					return trustedKey, true
-				}
-				return nil, false
+				return internode.ResolveMemberKey(nodeName, id, trustedPeerKeys, peerKeySource, membershipSvc)
 			}
 			connManagerCfg.AuthorizePeer = func(id clusterapi.NodeID, _ net.Addr) bool {
 				_, ok := connManagerCfg.ResolvePeerKey(id)
 				return ok
 			}
-
-			// Discover the actual internode port (AutoPort picks an
-			// ephemeral one) before the real start, since it's advertised in
-			// node metadata. Pin it so the real manager binds the same port
-			// across restarts.
-			actualPort, err := discoverInternodePort(connManagerCfg, metricsapi.GetCollector(ctx))
-			if err != nil {
-				return ctx, err
+			connManagerCfg.AuthorizeIncarnation = func(id clusterapi.NodeID, incarnation uint64) bool {
+				return internode.MemberIncarnationAdvertised(membershipSvc, id, incarnation)
 			}
-			connManagerCfg.BindPort = actualPort
-			connManagerCfg.AutoPort = false
+
 			connMgr = internode.NewConnectionManager(connManagerCfg, metricsapi.GetCollector(ctx))
-
-			advertiseAddr, advertisePort, err := internodeAdvertiseEndpoint(clusterCfg, actualPort)
-			if err != nil {
-				return ctx, err
-			}
 
 			// Create node metadata with the externally reachable internode endpoint
 			// and raft-eligibility hints. raft_eligible / raft_priority / failure_domain are advertised so the
@@ -277,23 +270,19 @@ func Cluster() boot.Component {
 			// leader thrashes on the failing operation.
 			raftEligible := clusterRaftEnabled(clusterCfg) && clusterCfg.GetBool(ClusterRaftEligible, true)
 			nodeMeta := clusterapi.NodeMeta{
-				"version":                   "1.0.0",
-				"role":                      "wippy",
-				internode.MetadataPort:      strconv.Itoa(actualPort),
-				internode.MetadataPublicKey: base64.RawStdEncoding.EncodeToString(publicKey),
-				"raft_eligible":             strconv.FormatBool(raftEligible),
-				"raft_priority":             strconv.Itoa(clusterCfg.GetInt(ClusterRaftPriority, 100)),
-				"failure_domain":            clusterCfg.GetString(ClusterFailureDomain, ""),
-			}
-			if advertiseAddr != "" {
-				// v2 metadata is additive: old peers ignore it and keep using
-				// internode_port plus the memberlist address.
-				nodeMeta[internode.MetadataAdvertiseAddr] = advertiseAddr
-				nodeMeta[internode.MetadataAdvertisePort] = strconv.Itoa(advertisePort)
+				"version":                         "1.0.0",
+				internode.MetadataSurfaceProtocol: "1",
+				internode.MetadataSurfaceGraphics: "1",
+				"role":                            "wippy",
+				internode.MetadataPublicKey:       base64.RawStdEncoding.EncodeToString(publicKey),
+				"raft_eligible":                   strconv.FormatBool(raftEligible),
+				"raft_priority":                   strconv.Itoa(clusterCfg.GetInt(ClusterRaftPriority, 100)),
+				"failure_domain":                  clusterCfg.GetString(ClusterFailureDomain, ""),
 			}
 
 			// Create membership service config
 			memberCfg := membership.Config{
+				Link:        connMgr,
 				NodeName:    nodeName,
 				BindAddr:    clusterCfg.GetString(ClusterMembershipBindAddr, "0.0.0.0"),
 				BindPort:    clusterCfg.GetInt(ClusterMembershipBindPort, 7946),
@@ -366,11 +355,17 @@ func Cluster() boot.Component {
 			}
 
 			// Create internode service
+			// An ended session breaks local links and monitors of the node's
+			// processes before any frame of a later session is delivered.
+			sessionEnded := func(id clusterapi.NodeID) {
+				topo.HandleNodeExit(id, errNodeDisconnected)
+			}
 			internodeSvc = internode.NewService(
 				logger.Named("internode"),
 				connMgr,
 				messageCodec,
 				pkgCallback,
+				sessionEnded,
 				bus,
 				membershipSvc,
 			)
@@ -391,6 +386,7 @@ func Cluster() boot.Component {
 
 			// Store cluster components in context
 			ctx = clusterapi.WithMembership(ctx, membershipSvc)
+			ctx = clusterapi.WithLinks(ctx, connMgr)
 			ctx = WithInternodeService(ctx, internodeSvc)
 
 			// Expose the connection manager so the mesh-backed Raft
@@ -403,7 +399,6 @@ func Cluster() boot.Component {
 
 			logger.Info("cluster initialized",
 				zap.String("node_name", nodeName),
-				zap.Int("internode_port", actualPort),
 				zap.Int("membership_port", memberCfg.BindPort),
 				zap.Strings("join_addrs", joinAddrs),
 			)
@@ -411,17 +406,31 @@ func Cluster() boot.Component {
 			return ctx, nil
 		},
 		Start: func(ctx context.Context) error {
-			if membershipSvc != nil {
-				logger.Info("starting cluster membership service")
-				if err := membershipSvc.Start(ctx); err != nil {
-					return NewMembershipStartError(err)
-				}
+			lifecycle.Lock()
+			defer lifecycle.Unlock()
+			if err := ctx.Err(); err != nil {
+				return err
 			}
-
+			if current != nil || internodeActive || membershipActive {
+				return fmt.Errorf("cluster component already started")
+			}
 			if internodeSvc != nil {
-				logger.Info("starting cluster internode service")
 				if err := internodeSvc.Start(ctx); err != nil {
 					return NewInternodeStartError(err)
+				}
+				internodeActive = true
+				membershipSvc.UpdateMeta(map[string]string{
+					internode.MetadataPort:     strconv.Itoa(connMgr.GetListenPort()),
+					clusterapi.MetaIncarnation: strconv.FormatUint(connMgr.Incarnation(), 10),
+				})
+			}
+			if membershipSvc != nil {
+				logger.Info("starting cluster membership service")
+				// Start can acquire sockets before a later initialization error.
+				membershipActive = true
+				if err := membershipSvc.Start(ctx); err != nil {
+					stopServices()
+					return NewMembershipStartError(err)
 				}
 			}
 
@@ -458,23 +467,32 @@ func Cluster() boot.Component {
 				})
 			}
 
+			// Network admission ends with this execution, independently of reverse
+			// loader shutdown order (a supervisor may still be draining actors).
+			run := &execution{done: make(chan struct{})}
+			current = run
+			run.cancelWatch = context.AfterFunc(ctx, func() {
+				defer close(run.done)
+				lifecycle.Lock()
+				defer lifecycle.Unlock()
+				if current == run {
+					stopServices()
+				}
+			})
 			return nil
 		},
 		Stop: func(_ context.Context) error {
-			if internodeSvc != nil {
-				logger.Info("stopping cluster internode service")
-				if err := internodeSvc.Stop(); err != nil {
-					logger.Error("failed to stop internode service", zap.Error(err))
-				}
+			lifecycle.Lock()
+			run := current
+			join := run != nil && !run.cancelWatch()
+			stopServices()
+			current = nil
+			lifecycle.Unlock()
+			// An already scheduled callback may be waiting for the lock. Join it
+			// without holding the lock; its identity cannot stop a later Start.
+			if join {
+				<-run.done
 			}
-
-			if membershipSvc != nil {
-				logger.Info("stopping cluster membership service")
-				if err := membershipSvc.Stop(); err != nil {
-					logger.Error("failed to stop membership service", zap.Error(err))
-				}
-			}
-
 			return nil
 		},
 	})

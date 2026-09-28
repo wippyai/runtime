@@ -29,7 +29,11 @@ func (h *UDPCreateSocketHost) CreateUDPSocket(_ context.Context, addressFamily u
 	}
 
 	socket := preview2.NewUDPSocketResource(addressFamily)
-	handle := h.resources.Add(socket)
+	handle, err := h.resources.TryAdd(socket)
+	if err != nil {
+		socket.Drop()
+		return 0, resourceLimitError(err)
+	}
 	return handle, nil
 }
 

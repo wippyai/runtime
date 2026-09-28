@@ -54,6 +54,16 @@ const raftLivenessLastContactCeiling = 30 * time.Second
 // (cluster.gossip), which has its own staleness window.
 const raftLivenessNonVoterCeiling = 5 * time.Minute
 
+func raftBootstrapExpect(cfg boot.Config) int {
+	if _, configured := cfg.Get(ClusterRaftBootstrapExpect); configured {
+		return cfg.GetInt(ClusterRaftBootstrapExpect, 1)
+	}
+	if len(clusterSeedAddrs(cfg)) > 0 {
+		return 0
+	}
+	return 1
+}
+
 // Context keys for raft and global registry components.
 var (
 	raftNodeKey     = &ctxapi.Key{Name: "raft.node"}
@@ -111,11 +121,14 @@ func loadClientRegistry(ctx context.Context, raftCfg boot.Config, logger *zap.Lo
 	}
 
 	selfID := node.ID()
-	kvFSM := systemkv.NewRaftFSM(bus)
+	kvFSM := systemkv.NewRaftFSM()
+	if err := kvFSM.SetWatchLimits(watchLimits(raftCfg)); err != nil {
+		return ctx, fmt.Errorf("raft(client): configure kv watches: %w", err)
+	}
 	submitter := systemkv.ClientSubmitter{Resolve: func() (raftapi.ServerID, bool) {
 		return sysraft.PickForwardTarget(memSvc.Nodes(), selfID)
 	}}
-	kvEngine := systemkv.NewRaftEngine(submitter, kvFSM, bus, selfID, router, logger.Named("kv"))
+	kvEngine := systemkv.NewRaftEngine(submitter, kvFSM, selfID, router, logger.Named("kv"))
 	if err := node.RegisterHost(systemkv.KVRaftHostID, kvEngine); err != nil {
 		return ctx, fmt.Errorf("raft(client): register kv relay host: %w", err)
 	}
@@ -219,7 +232,7 @@ func Raft() boot.Component {
 			// BootstrapCluster with it. Nodes joining a running cluster see
 			// existing peers with raft_status=in and skip bootstrap; the
 			// leader's reconciler adds them via AddVoter.
-			bootstrapExpect = raftCfg.GetInt(ClusterRaftBootstrapExpect, 1)
+			bootstrapExpect = raftBootstrapExpect(raftCfg)
 			rc := raftapi.Config{
 				BootstrapExpect:   bootstrapExpect,
 				SnapshotThreshold: uint64(raftCfg.GetInt(ClusterRaftSnapshotThreshold, 0)),
@@ -281,7 +294,10 @@ func Raft() boot.Component {
 			// state machine (store.kv.raft) rides the same node alongside the
 			// global registry. Untagged commands go to the registry; kv-tagged
 			// commands go to the kv FSM.
-			kvFSM := systemkv.NewRaftFSM(bus)
+			kvFSM := systemkv.NewRaftFSM()
+			if err := kvFSM.SetWatchLimits(watchLimits(raftCfg)); err != nil {
+				return ctx, fmt.Errorf("raft: configure kv watches: %w", err)
+			}
 			rootFSM := multiplex.New(wrapFSM(fsm), kvFSM)
 			raftNode = sysraft.NewNode(node.ID(), rootFSM, rc, bus, logger.Named("node"), coll, mp, tp)
 			raftNode.SetConnectionManager(connMgr)
@@ -294,7 +310,7 @@ func Raft() boot.Component {
 
 			// kv engine forwards follower writes to the leader over the relay;
 			// register it as a relay host so forwarded requests/responses land.
-			kvEngine = systemkv.NewRaftEngine(raftNode, kvFSM, bus, node.ID(), router, logger.Named("kv"))
+			kvEngine = systemkv.NewRaftEngine(raftNode, kvFSM, node.ID(), router, logger.Named("kv"))
 			if err := node.RegisterHost(systemkv.KVRaftHostID, kvEngine); err != nil {
 				return ctx, fmt.Errorf("raft: register kv relay host: %w", err)
 			}
@@ -357,29 +373,18 @@ func Raft() boot.Component {
 				kvReg = kvbacked.NewService(kvEngine, node.ID(), nil, logger.Named("kvreg"))
 				kvReg.SetTopology(topo)
 				kvReg.ConfigureStrong(kvbacked.StrongDeps{
-					Membership: func() []pid.NodeID {
-						ms, ok := clusterapi.GetMembership(ctx).(*membership.Service)
-						if !ok || ms == nil {
-							return nil
+					IsLeader:          raftNode.IsLeader,
+					ObserveLeadership: raftNode.ObserveLeadership,
+					Members: func() ([]pid.NodeID, error) {
+						servers, err := raftNode.GetConfiguration()
+						if err != nil {
+							return nil, err
 						}
-						var out []pid.NodeID
-						for _, n := range ms.Nodes() {
-							if n.ID != "" {
-								out = append(out, n.ID)
-							}
+						members := make([]pid.NodeID, 0, len(servers))
+						for _, server := range servers {
+							members = append(members, server.ID)
 						}
-						return out
-					},
-					IsLeader: raftNode.IsLeader,
-					LocalConflict: func(name string, _ pid.PID) (pid.PID, bool) {
-						lp := &localPresenceChecker{ctx: ctx}
-						if cp, ok := lp.LookupLocal(name); ok {
-							return cp, true
-						}
-						if cp, ok := lp.LookupEventual(name); ok {
-							return cp, true
-						}
-						return pid.PID{}, false
+						return members, nil
 					},
 				})
 				if err := node.RegisterHost(kvbacked.RegistryHostID, kvReg); err != nil {
@@ -402,17 +407,6 @@ func Raft() boot.Component {
 			// - global.Registry for direct Lua module access
 			ctx = topology.WithGlobalRegistry(ctx, liveReg)
 			ctx = globalapi.WithRegistry(ctx, liveReg)
-
-			// Wire the LOCAL/EVENTUAL presence reader used by the Strong-scope
-			// conditional ack. Resolution is lazy because the eventual registry
-			// lands in context after a separate component loads; a call-time
-			// lookup catches whichever registries are wired by then.
-			globalRegSvc.SetLocalPresence(&localPresenceChecker{ctx: ctx})
-
-			// Wire the LOCAL/EVENTUAL revoker the join-epoch barrier uses to drop
-			// conflicting names before flipping ready. Lazy resolution mirrors the
-			// presence checker.
-			globalRegSvc.SetLocalNameRevoker(&localNameRevoker{ctx: ctx})
 
 			// Wire the active-binding dissemination plane. The Dissem is a
 			// UserDelegate on the membership multiplex (kind 0xC1) that gossips
@@ -501,11 +495,9 @@ func Raft() boot.Component {
 				return nil
 			})
 
-			// Resolve cluster membership once for both the raft membership
-			// handler and the globalreg Strong-scope path. Without membership
-			// the reconciler cannot read node metadata for candidate selection
-			// and Strong scope cannot snapshot the live-node set, so we log
-			// per-feature.
+			// Resolve gossip membership for the Raft membership handler and
+			// the legacy global-registry path. KV Strong naming captures its
+			// observers from the Raft configuration for each attempt.
 			membership := clusterapi.GetMembership(ctx)
 			bus := event.GetBus(ctx)
 
@@ -534,13 +526,28 @@ func Raft() boot.Component {
 			// Wait for leader election before proceeding. For a single-node
 			// bootstrap this is near-instant; for multi-node it may take
 			// longer while the watcher waits for peers in gossip.
-			leaderCh := raftNode.LeaderCh()
-			select {
-			case <-leaderCh:
-				logger.Info("raft leader election completed")
-			case <-time.After(10 * time.Second):
-				logger.Warn("raft leader election timed out (continuing anyway)")
+			leaderWait := time.NewTimer(10 * time.Second)
+			waitForLeader := true
+			for waitForLeader {
+				// Subscribe before checking, so an election racing the check
+				// cannot be missed. A term change without a known leader is
+				// not a completed election.
+				leadership := raftNode.ObserveLeadership()
+				if leadership.LeaderID != "" {
+					logger.Info("raft leader election completed")
+					break
+				}
+				select {
+				case <-leadership.Changed:
+				case <-ctx.Done():
+					leaderWait.Stop()
+					return ctx.Err()
+				case <-leaderWait.C:
+					logger.Warn("raft leader election timed out (continuing anyway)")
+					waitForLeader = false
+				}
 			}
+			leaderWait.Stop()
 
 			// Start membership handler to sync Raft voters with cluster membership.
 			if bus != nil {
@@ -556,8 +563,10 @@ func Raft() boot.Component {
 				}
 			}
 
-			// Clear a departed node's raft peer failure state on NodeLeft so
-			// a rejoin is not stuck behind backoff from the old incarnation.
+			// NodeLeft is a discovery hint, not proof that a running node has
+			// stopped using its locks or names. Only clear connection backoff.
+			// The KV name registry intentionally has no NodeLeft mutation here:
+			// discovery hints do not authorize ownership or Strong-vote changes.
 			if bus != nil {
 				sub, err := eventbus.NewSubscriber(ctx, bus, clusterapi.System, clusterapi.NodeLeft,
 					func(e event.Event) {
@@ -566,12 +575,6 @@ func Raft() boot.Component {
 							return
 						}
 						raftNode.OnNodeLeft(ne.Node.ID)
-						if lockSvc != nil {
-							lockSvc.ReapNode(ne.Node.ID)
-						}
-						if kvReg != nil {
-							kvReg.DropNode(ne.Node.ID)
-						}
 					})
 				if err != nil {
 					return fmt.Errorf("subscribe raft node-left: %w", err)

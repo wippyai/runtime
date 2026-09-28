@@ -51,6 +51,70 @@ type yieldCollector struct {
 	mu      sync.Mutex
 }
 
+// yieldFrameReceiver owns a yield child frame until the handler has returned
+// and its one result has been delivered. A dispatcher handler may start work,
+// return, and complete the yield later, so tying the frame lifetime to Handle
+// alone invalidates that work's context.
+type yieldFrameReceiver struct {
+	receiver dispatcher.ResultReceiver
+	frame    ctxapi.FrameContext
+
+	mu        sync.Mutex
+	completed bool
+	returned  bool
+	delivered bool
+	released  bool
+}
+
+func (r *yieldFrameReceiver) CompleteYield(tag uint64, data any, err error) {
+	r.mu.Lock()
+	if r.completed {
+		r.mu.Unlock()
+		return
+	}
+	r.completed = true
+	r.mu.Unlock()
+
+	r.receiver.CompleteYield(tag, data, err)
+	r.deliveredResult()
+}
+
+func (r *yieldFrameReceiver) handlerReturned() {
+	r.mu.Lock()
+	r.returned = true
+	release := r.delivered && !r.released
+	if release {
+		r.released = true
+	}
+	frame := r.frame
+	r.mu.Unlock()
+	if release {
+		ctxapi.ReleaseFrameContext(frame)
+	}
+}
+
+func (r *yieldFrameReceiver) deliveredResult() {
+	r.mu.Lock()
+	r.delivered = true
+	release := r.returned && !r.released
+	if release {
+		r.released = true
+	}
+	frame := r.frame
+	r.mu.Unlock()
+	if release {
+		ctxapi.ReleaseFrameContext(frame)
+	}
+}
+
+func runYieldHandler(ctx context.Context, handler dispatcher.Handler, command dispatcher.Command, tag uint64, frame ctxapi.FrameContext, receiver dispatcher.ResultReceiver) {
+	frameReceiver := &yieldFrameReceiver{receiver: receiver, frame: frame}
+	defer frameReceiver.handlerReturned()
+	if err := handler.Handle(ctx, command, tag, frameReceiver); err != nil {
+		frameReceiver.CompleteYield(tag, nil, err)
+	}
+}
+
 func newYieldCollector(count int) *yieldCollector {
 	return &yieldCollector{
 		results: make([]yieldResult, 0, count),
@@ -353,13 +417,7 @@ func (h *Host) Run(ctx context.Context, cmd RunCmd) (any, error) {
 			for _, y := range validYields {
 				handler := disp.Dispatch(y.Cmd)
 				yieldCtx, yieldFC := ctxapi.ForkFrameContext(evalCtx)
-				go func(tag uint64, c dispatcher.Command, h dispatcher.Handler, callCtx context.Context, callFC ctxapi.FrameContext) {
-					defer ctxapi.ReleaseFrameContext(callFC)
-					err := h.Handle(callCtx, c, tag, collector)
-					if err != nil {
-						collector.CompleteYield(tag, nil, err)
-					}
-				}(y.Tag, y.Cmd, handler, yieldCtx, yieldFC)
+				go runYieldHandler(yieldCtx, handler, y.Cmd, y.Tag, yieldFC, collector)
 			}
 
 			// Wait for all yields to complete

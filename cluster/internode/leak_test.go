@@ -117,7 +117,8 @@ func TestDrainPriority_ControlBeforeBroadcast(t *testing.T) {
 	}
 }
 
-func TestGossipRequeueRespectsCap(t *testing.T) {
+// Gossip is unsequenced: a drained gossip frame is never retained for replay.
+func TestGossipIsNeverReplayed(t *testing.T) {
 	cfg := insecureManagerConfig()
 	cfg.Logger = zap.NewNop()
 	cfg.GossipQueueCap = 4
@@ -125,20 +126,29 @@ func TestGossipRequeueRespectsCap(t *testing.T) {
 	const node cluster.NodeID = "peer"
 	nsm.CreateNodeState(node)
 
-	// Fill the queue.
 	for i := 0; i < 4; i++ {
-		_ = nsm.QueueMessageClass(node, []byte{byte(i)}, ClassGossip)
+		if err := nsm.QueueMessageClass(node, []byte{byte(i)}, ClassGossip); err != nil {
+			t.Fatal(err)
+		}
 	}
-	// Try to requeue 100 stale messages from a stuck connection — must not
-	// grow past the cap (current bug duplicates them).
-	stale := make([][]byte, 100)
-	for i := range stale {
-		stale[i] = []byte{byte(200 + i)}
-	}
-	nsm.RequeueMessagesClass(node, stale, ClassGossip)
-
 	got := nsm.DrainMessages(node, 1000)
-	if len(got) > 4 {
-		t.Fatalf("queue exceeded cap after requeue: got %d, want <=4", len(got))
+	if len(got) != 4 {
+		t.Fatalf("drained %d gossip frames, want 4", len(got))
+	}
+	for _, frame := range got {
+		if frame.seq != 0 {
+			t.Fatalf("gossip frame carries sequence %d", frame.seq)
+		}
+	}
+	state := nsm.GetNodeState(node)
+	state.queueMu.Lock()
+	state.session.ring.rewind()
+	ringLen := state.session.ring.len()
+	state.queueMu.Unlock()
+	if ringLen != 0 {
+		t.Fatalf("gossip retained in the resend ring: %d", ringLen)
+	}
+	if replay := nsm.DrainMessages(node, 1000); len(replay) != 0 {
+		t.Fatalf("gossip replayed: %d frames", len(replay))
 	}
 }

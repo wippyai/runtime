@@ -11,13 +11,12 @@ import (
 	"github.com/wippyai/runtime/api/pid"
 	kvapi "github.com/wippyai/runtime/api/store/kv"
 	globalapi "github.com/wippyai/runtime/api/topology/namereg/global"
-	"github.com/wippyai/runtime/system/eventbus"
 	systemkv "github.com/wippyai/runtime/system/kv"
 )
 
 func newReg(t *testing.T) *Service {
 	t.Helper()
-	eng := systemkv.NewService("reg", eventbus.NewBus(), nil)
+	eng := systemkv.NewService("reg", nil)
 	if _, err := eng.Start(context.Background()); err != nil {
 		t.Fatalf("engine start: %v", err)
 	}
@@ -85,7 +84,7 @@ func TestConsistent_ConflictFirstWriteWins(t *testing.T) {
 }
 
 func TestConsistent_OverrideResolveSwaps(t *testing.T) {
-	eng := systemkv.NewService("reg", eventbus.NewBus(), nil)
+	eng := systemkv.NewService("reg", nil)
 	if _, err := eng.Start(context.Background()); err != nil {
 		t.Fatalf("start: %v", err)
 	}
@@ -162,7 +161,7 @@ func (f *fakeLeaderEngine) GetViaLeader(key string) (kvapi.Entry, error) { retur
 // replica and dissem cache both miss resolves an active name by forwarding the
 // read to the leader.
 func TestConsistent_NonMemberColdMissForward(t *testing.T) {
-	leaderEng := systemkv.NewService("leader", eventbus.NewBus(), nil)
+	leaderEng := systemkv.NewService("leader", nil)
 	if _, err := leaderEng.Start(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -173,7 +172,7 @@ func TestConsistent_NonMemberColdMissForward(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	localEng := systemkv.NewService("client", eventbus.NewBus(), nil)
+	localEng := systemkv.NewService("client", nil)
 	if _, err := localEng.Start(context.Background()); err != nil {
 		t.Fatal(err)
 	}

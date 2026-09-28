@@ -4,23 +4,28 @@ package socket
 
 import (
 	"net"
+	"time"
 
 	"github.com/wippyai/runtime/api/dispatcher"
 )
 
 func init() {
 	dispatcher.MustRegisterCommands("socket",
-		SocketConnect, SocketListen, SocketAccept, SocketBind, SocketResolve)
+		SocketConnect, SocketListen, SocketAccept, SocketBind, SocketResolve,
+		SocketStartConnect, SocketStartListen, SocketStartBind)
 }
 
 // Command IDs for socket operations.
 // Range 30-39 is reserved for socket commands.
 const (
-	SocketConnect dispatcher.CommandID = 30
-	SocketListen  dispatcher.CommandID = 31
-	SocketAccept  dispatcher.CommandID = 32
-	SocketBind    dispatcher.CommandID = 33
-	SocketResolve dispatcher.CommandID = 34
+	SocketConnect      dispatcher.CommandID = 30
+	SocketListen       dispatcher.CommandID = 31
+	SocketAccept       dispatcher.CommandID = 32
+	SocketBind         dispatcher.CommandID = 33
+	SocketResolve      dispatcher.CommandID = 34
+	SocketStartConnect dispatcher.CommandID = 37
+	SocketStartListen  dispatcher.CommandID = 38
+	SocketStartBind    dispatcher.CommandID = 39
 )
 
 // ConnectCmd requests a TCP connection to a remote address.
@@ -80,7 +85,9 @@ type BindResult struct {
 
 // ResolveCmd requests DNS resolution of a hostname.
 type ResolveCmd struct {
-	Host string
+	Operation *PendingOperation
+	Host      string
+	Timeout   time.Duration
 }
 
 func (c *ResolveCmd) CmdID() dispatcher.CommandID { return SocketResolve }
@@ -90,3 +97,41 @@ type ResolveResult struct {
 	Err       error
 	Addresses []string
 }
+
+// StartConnectCmd starts a connect job against a precreated future.
+type StartConnectCmd struct {
+	Operation *PendingOperation
+	Network   string
+	Address   string
+	// Timeout is the network-start deadline. Zero keeps the caller context.
+	Timeout time.Duration
+}
+
+func (c *StartConnectCmd) CmdID() dispatcher.CommandID { return SocketStartConnect }
+
+// StartListenCmd starts a listen job against a precreated future.
+type StartListenCmd struct {
+	Operation *PendingOperation
+	Network   string
+	Address   string
+	// Timeout is the network-start deadline. Zero keeps the caller context.
+	Timeout time.Duration
+}
+
+func (c *StartListenCmd) CmdID() dispatcher.CommandID { return SocketStartListen }
+
+// StartResult acknowledges that a start job was initiated.
+type StartResult struct {
+	Err error
+}
+
+// StartBindCmd begins a socket-owned UDP bind operation. The dispatcher
+// acknowledges startup; the resource owns completion, cancellation, and cleanup.
+type StartBindCmd struct {
+	Operation *PendingOperation
+	Network   string
+	Address   string
+	Timeout   time.Duration
+}
+
+func (*StartBindCmd) CmdID() dispatcher.CommandID { return SocketStartBind }

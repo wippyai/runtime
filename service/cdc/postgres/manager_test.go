@@ -190,9 +190,8 @@ func TestBuildDSNs(t *testing.T) {
 
 func newInspectorManager() *Manager {
 	return &Manager{
-		sources:    map[registry.ID]*Source{},
-		infos:      map[registry.ID]config.SourceInfo{},
-		infosByKey: map[string]registry.ID{},
+		sources: map[registry.ID]*Source{},
+		infos:   map[registry.ID]config.SourceInfo{},
 	}
 }
 
@@ -215,12 +214,12 @@ func TestManagerStoreAndListInfos(t *testing.T) {
 	sort.Strings(slots)
 	assert.Equal(t, []string{"slot_a", "slot_b"}, slots)
 
-	a, ok := m.Get("slot_a")
+	a, ok := m.Get("test:id-a")
 	require.True(t, ok)
 	assert.Equal(t, "pub_a", a.Publication)
 	assert.True(t, a.Streaming)
 
-	b, ok := m.Get("slot_b")
+	b, ok := m.Get("test:id-b")
 	require.True(t, ok)
 	assert.Equal(t, []string{"public.t"}, b.Tables)
 
@@ -232,20 +231,14 @@ func TestManagerStoreAndListInfos(t *testing.T) {
 	assert.Equal(t, infos[0].Slot, byID.Slot)
 }
 
-func TestManagerStreamBySlotAndID(t *testing.T) {
+func TestManagerStreamByID(t *testing.T) {
 	m := newInspectorManager()
 	id := registry.NewID("test", "id-stream")
 	src := NewSource(SourceOptions{Name: id.String(), Slot: "slot_stream"})
 	m.sources[id] = src
 	m.storeInfo(registry.Entry{ID: id, Kind: config.Postgres}, &config.Config{SlotName: "slot_stream", Tables: []string{"public.accounts"}})
 
-	stream, info, err := m.Stream(context.Background(), "slot_stream", config.StreamOptions{Buffer: 2})
-	require.NoError(t, err)
-	require.NotNil(t, stream)
-	assert.Equal(t, "slot_stream", info.Slot)
-	stream.Close()
-
-	stream, info, err = m.Stream(context.Background(), id.String(), config.StreamOptions{})
+	stream, info, err := m.Stream(context.Background(), id.String(), config.StreamOptions{Buffer: 2})
 	require.NoError(t, err)
 	require.NotNil(t, stream)
 	assert.Equal(t, id.String(), info.Name)
@@ -260,11 +253,11 @@ func TestManagerRemoveInfo(t *testing.T) {
 
 	m.removeInfo(idX)
 	assert.Empty(t, m.List())
-	_, ok := m.Get("slot_x")
+	_, ok := m.Get(idX.String())
 	assert.False(t, ok)
 }
 
-func TestManagerCollidingSlotsDoNotLeakIndex(t *testing.T) {
+func TestManagerCollidingSlotsRemainDistinctByID(t *testing.T) {
 	m := newInspectorManager()
 	id1 := registry.NewID("test", "id-1")
 	id2 := registry.NewID("test", "id-2")
@@ -273,14 +266,13 @@ func TestManagerCollidingSlotsDoNotLeakIndex(t *testing.T) {
 
 	require.Len(t, m.List(), 2)
 
-	m.removeInfo(id1)
-	got, ok := m.Get("shared")
+	got, ok := m.Get(id1.String())
+	require.True(t, ok)
+	assert.Equal(t, id1.String(), got.Name)
+
+	got, ok = m.Get(id2.String())
 	require.True(t, ok)
 	assert.Equal(t, id2.String(), got.Name)
-
-	m.removeInfo(id2)
-	_, ok = m.Get("shared")
-	assert.False(t, ok)
 }
 
 func TestBuildDSNsCarriesOptions(t *testing.T) {

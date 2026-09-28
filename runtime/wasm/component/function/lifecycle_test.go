@@ -20,6 +20,7 @@ import (
 	wasmapi "github.com/wippyai/runtime/api/runtime/wasm"
 	"github.com/wippyai/runtime/api/supervisor"
 	"github.com/wippyai/runtime/api/topology"
+	wasmcomponent "github.com/wippyai/runtime/runtime/wasm/component"
 	systemrelay "github.com/wippyai/runtime/system/relay"
 	funcpool "github.com/wippyai/runtime/system/scheduler/pool"
 	wasmrt "github.com/wippyai/wasm-runtime/runtime"
@@ -37,6 +38,8 @@ func (b *lifecycleTestBus) Subscribe(context.Context, event.System, chan<- event
 func (b *lifecycleTestBus) SubscribeP(context.Context, event.System, event.Kind, chan<- event.Event) (event.SubscriberID, error) {
 	return "", nil
 }
+func (*lifecycleTestBus) HasSubscribers(event.System, event.Kind) bool { return true }
+
 func (b *lifecycleTestBus) Unsubscribe(context.Context, event.SubscriberID) {}
 func (b *lifecycleTestBus) Send(_ context.Context, evt event.Event) {
 	if b.onSend != nil {
@@ -115,7 +118,8 @@ func (t *lifecycleTestTopology) Complete(p pid.PID, result *runtimeapi.Result) {
 	t.lastPID = p
 	t.lastResult = result
 }
-func (t *lifecycleTestTopology) Remove(pid.PID) {}
+func (t *lifecycleTestTopology) Remove(pid.PID)                   {}
+func (t *lifecycleTestTopology) HandleNodeExit(pid.NodeID, error) {}
 
 type lifecycleTestPIDRegistry struct {
 	removed []pid.PID
@@ -129,7 +133,7 @@ func (r *lifecycleTestPIDRegistry) Remove(p pid.PID) {
 }
 
 func TestLifecycleInvalidKind(t *testing.T) {
-	m := NewManager(zap.NewNop(), &lifecycleTestBus{}, nil, nil)
+	m := NewManager(zap.NewNop(), &lifecycleTestBus{}, nil, nil, wasmcomponent.InMemoryCaches())
 	entry := registry.Entry{
 		ID:   registry.NewID("app.test", "x"),
 		Kind: "function.other",
@@ -148,7 +152,7 @@ func TestLifecycleInvalidKind(t *testing.T) {
 
 func TestDeleteRemovesPoolAndConfig(t *testing.T) {
 	bus := &lifecycleTestBus{}
-	m := NewManager(zap.NewNop(), bus, nil, nil)
+	m := NewManager(zap.NewNop(), bus, nil, nil, wasmcomponent.InMemoryCaches())
 	id := registry.NewID("app.test", "wasm")
 
 	p := &lifecycleTestPool{}
@@ -177,7 +181,7 @@ func TestDeleteRemovesPoolAndConfig(t *testing.T) {
 }
 
 func TestStartRegistersPreexistingPoolHost(t *testing.T) {
-	m := NewManager(zap.NewNop(), &lifecycleTestBus{}, nil, nil)
+	m := NewManager(zap.NewNop(), &lifecycleTestBus{}, nil, nil, wasmcomponent.InMemoryCaches())
 	node := systemrelay.NewNode("test-node")
 	id := registry.NewID("app.test", "preexisting_wasm")
 	hostID := "app.test:preexisting_wasm#wasm.test"
@@ -207,7 +211,7 @@ func TestStartRegistersPreexistingPoolHost(t *testing.T) {
 }
 
 func TestExecuteUsesPoolGenerationHost(t *testing.T) {
-	m := NewManager(zap.NewNop(), &lifecycleTestBus{}, nil, nil)
+	m := NewManager(zap.NewNop(), &lifecycleTestBus{}, nil, nil, wasmcomponent.InMemoryCaches())
 	id := registry.NewID("app.test", "wasm")
 	hostID := "app.test:wasm#wasm.1"
 	p := &lifecycleTestPool{}
@@ -268,7 +272,7 @@ func TestPoolEntryRetireWaitsForActiveExecution(t *testing.T) {
 }
 
 func TestRetiredPoolHostDrainsBeforeUnregister(t *testing.T) {
-	m := NewManager(zap.NewNop(), &lifecycleTestBus{}, nil, nil)
+	m := NewManager(zap.NewNop(), &lifecycleTestBus{}, nil, nil, wasmcomponent.InMemoryCaches())
 	node := systemrelay.NewNode("test-node")
 	m.node = node
 	hostID := "app.test:wasm#wasm.retired"
@@ -303,7 +307,7 @@ func TestRetiredPoolHostDrainsBeforeUnregister(t *testing.T) {
 }
 
 func TestLoadModuleInvalidKind(t *testing.T) {
-	m := NewManager(zap.NewNop(), &lifecycleTestBus{}, nil, nil)
+	m := NewManager(zap.NewNop(), &lifecycleTestBus{}, nil, nil, wasmcomponent.InMemoryCaches())
 	_, err := m.loadModule(context.Background(), &configEntry{kind: "invalid.kind"})
 	if err == nil {
 		t.Fatal("loadModule() expected invalid kind error")
@@ -313,7 +317,7 @@ func TestLoadModuleInvalidKind(t *testing.T) {
 func TestRegisterCaller(t *testing.T) {
 	id := registry.NewID("app.test", "f")
 	bus := &lifecycleTestBus{}
-	m := NewManager(zap.NewNop(), bus, nil, nil)
+	m := NewManager(zap.NewNop(), bus, nil, nil, wasmcomponent.InMemoryCaches())
 
 	if err := m.registerCaller(ctxapi.NewRootContext(), id, nil); err == nil {
 		t.Fatal("registerCaller() expected error without await service")
@@ -344,7 +348,7 @@ func TestRegisterCaller(t *testing.T) {
 func TestRegisterCallerPreparesBeforeSend(t *testing.T) {
 	id := registry.NewID("app.test", "f")
 	bus := &lifecycleTestBus{}
-	m := NewManager(zap.NewNop(), bus, nil, nil)
+	m := NewManager(zap.NewNop(), bus, nil, nil, wasmcomponent.InMemoryCaches())
 	awaitSvc := &lifecycleTestAwaitService{
 		result: event.AwaitResult{Accepted: true},
 	}
@@ -366,7 +370,7 @@ func TestRegisterCallerPreparesBeforeSend(t *testing.T) {
 }
 
 func TestCreateExecutionHooks(t *testing.T) {
-	m := NewManager(zap.NewNop(), &lifecycleTestBus{}, nil, nil)
+	m := NewManager(zap.NewNop(), &lifecycleTestBus{}, nil, nil, wasmcomponent.InMemoryCaches())
 	emptyHooks := m.createExecutionHooks()
 	if emptyHooks.OnStart != nil || emptyHooks.OnComplete != nil {
 		t.Fatal("createExecutionHooks() should return empty hooks without topology and pid registry")
@@ -408,7 +412,7 @@ func TestCreateExecutionHooks(t *testing.T) {
 }
 
 func TestManagerConfigHelpers(t *testing.T) {
-	m := NewManager(zap.NewNop(), &lifecycleTestBus{}, nil, nil)
+	m := NewManager(zap.NewNop(), &lifecycleTestBus{}, nil, nil, wasmcomponent.InMemoryCaches())
 	id := registry.NewID("app.test", "cfg")
 	cfg := &configEntry{kind: wasmapi.FunctionWAT, method: "run"}
 
@@ -424,7 +428,7 @@ func TestManagerConfigHelpers(t *testing.T) {
 }
 
 func TestRuntimeInstanceSelectsCoreAndComponent(t *testing.T) {
-	m := NewManager(zap.NewNop(), &lifecycleTestBus{}, nil, nil)
+	m := NewManager(zap.NewNop(), &lifecycleTestBus{}, nil, nil, wasmcomponent.InMemoryCaches())
 	core := new(wasmrt.Runtime)
 	component := new(wasmrt.Runtime)
 	m.coreRT = core

@@ -704,3 +704,66 @@ func TestTableToSlice(t *testing.T) {
 	assert.Equal(t, true, result[2])
 	assert.Nil(t, result[3])
 }
+
+// TestToGoAny_EmptyTableShape pins the allocation-preserving conversion of an
+// empty table: an array hint (table.create(n, 0)) and an unhinted table convert
+// to an empty slice, a hash hint (table.create(0, n)) converts to an empty map.
+func TestToGoAny_EmptyTableShape(t *testing.T) {
+	L := lua.NewState()
+	defer L.Close()
+
+	t.Run("hinted array is an empty slice", func(t *testing.T) {
+		result := ToGoAny(L.CreateTable(1, 0))
+		arr, ok := result.([]any)
+		assert.True(t, ok, "got %T", result)
+		assert.Empty(t, arr)
+	})
+
+	t.Run("hinted object is an empty map", func(t *testing.T) {
+		result := ToGoAny(L.CreateTable(0, 1))
+		m, ok := result.(map[string]any)
+		assert.True(t, ok, "got %T", result)
+		assert.Empty(t, m)
+	})
+
+	t.Run("unhinted table stays a map", func(t *testing.T) {
+		// An empty {} literal compiles to newLTable(0, 0): neither half
+		// allocates. Lua writes {} for an empty object far more often than for
+		// an empty list, so the ambiguous allocation keeps its map conversion.
+		result := ToGoAny(L.CreateTable(0, 0))
+		m, ok := result.(map[string]any)
+		assert.True(t, ok, "got %T", result)
+		assert.Empty(t, m)
+	})
+
+	t.Run("empty lua literal stays a map", func(t *testing.T) {
+		assert.NoError(t, L.DoString(`empty = {}`))
+		result := ToGoAny(L.GetGlobal("empty"))
+		m, ok := result.(map[string]any)
+		assert.True(t, ok, "got %T", result)
+		assert.Empty(t, m)
+	})
+
+	t.Run("nested empty hints keep their shapes", func(t *testing.T) {
+		outer := L.CreateTable(0, 2)
+		outer.RawSetString("list", L.CreateTable(1, 0))
+		outer.RawSetString("object", L.CreateTable(0, 1))
+
+		result := ToGoAny(outer)
+		m, ok := result.(map[string]any)
+		assert.True(t, ok, "got %T", result)
+		_, listIsSlice := m["list"].([]any)
+		assert.True(t, listIsSlice, "list = %T", m["list"])
+		_, objectIsMap := m["object"].(map[string]any)
+		assert.True(t, objectIsMap, "object = %T", m["object"])
+	})
+
+	t.Run("authored string key is an object even without a hint", func(t *testing.T) {
+		tbl := L.NewTable()
+		tbl.RawSetString("key", lua.LString("value"))
+		result := ToGoAny(tbl)
+		m, ok := result.(map[string]any)
+		assert.True(t, ok, "got %T", result)
+		assert.Equal(t, "value", m["key"])
+	})
+}

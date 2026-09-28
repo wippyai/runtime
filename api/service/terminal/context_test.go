@@ -6,12 +6,25 @@ package terminal
 import (
 	"bytes"
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	contextapi "github.com/wippyai/runtime/api/context"
+	ttyapi "github.com/wippyai/runtime/api/tty"
 )
+
+type testSurface struct {
+	closeErr   error
+	closeCount int
+}
+
+func (*testSurface) Present(frame ttyapi.Frame) (ttyapi.PresentStats, error) {
+	return ttyapi.PresentStats{Rows: len(frame.Rows)}, nil
+}
+func (*testSurface) Invalidate()    {}
+func (s *testSurface) Close() error { s.closeCount++; return s.closeErr }
 
 func TestNewTerminalContext(t *testing.T) {
 	stdin := bytes.NewBufferString("input")
@@ -143,4 +156,69 @@ func TestPipeContext(t *testing.T) {
 		assert.Equal(t, len(errMsg), n)
 		assert.Equal(t, errMsg, stderr.String())
 	})
+}
+
+func TestPipeContextOwnsOnePresentationLease(t *testing.T) {
+	tc := NewTerminalContext(nil, &bytes.Buffer{}, &bytes.Buffer{})
+	tc.Surface = func(ttyapi.SurfaceOptions) (ttyapi.Surface, error) { return &testSurface{}, nil }
+
+	first, err := tc.OpenSurface(ttyapi.SurfaceOptions{})
+	require.NoError(t, err)
+	_, err = tc.OpenSurface(ttyapi.SurfaceOptions{})
+	require.ErrorIs(t, err, ttyapi.ErrSurfaceOpen)
+	require.NoError(t, first.Close())
+	second, err := tc.OpenSurface(ttyapi.SurfaceOptions{})
+	require.NoError(t, err)
+	require.NoError(t, second.Close())
+	require.NoError(t, tc.Close())
+	_, err = tc.OpenSurface(ttyapi.SurfaceOptions{})
+	require.ErrorIs(t, err, ttyapi.ErrInvalidPort)
+}
+
+func TestPipeContextReleasesPresentationLeaseWhenCloseFails(t *testing.T) {
+	closeErr := errors.New("close failed")
+	tc := NewTerminalContext(nil, &bytes.Buffer{}, &bytes.Buffer{})
+	var created []*testSurface
+	tc.Surface = func(ttyapi.SurfaceOptions) (ttyapi.Surface, error) {
+		backend := &testSurface{closeErr: closeErr}
+		created = append(created, backend)
+		return backend, nil
+	}
+
+	first, err := tc.OpenSurface(ttyapi.SurfaceOptions{})
+	require.NoError(t, err)
+	require.ErrorIs(t, first.Close(), closeErr)
+	require.ErrorIs(t, first.Close(), closeErr)
+	require.Equal(t, 1, created[0].closeCount)
+	second, err := tc.OpenSurface(ttyapi.SurfaceOptions{})
+	require.NoError(t, err)
+	require.Len(t, created, 2)
+	require.ErrorIs(t, second.Close(), closeErr)
+}
+
+func TestClipboardLeaseRejectsUnsupportedAndRetiredSurface(t *testing.T) {
+	tc := NewTerminalContext(nil, &bytes.Buffer{}, nil)
+	tc.Surface = func(ttyapi.SurfaceOptions) (ttyapi.Surface, error) { return &testSurface{}, nil }
+	surface, err := tc.OpenSurface(ttyapi.SurfaceOptions{})
+	require.NoError(t, err)
+	copy, ok := surface.(ttyapi.ClipboardSurface)
+	require.True(t, ok)
+	require.ErrorIs(t, copy.Clipboard("text"), ttyapi.ErrClipboardUnsupported)
+	require.NoError(t, surface.Close())
+	require.ErrorIs(t, copy.Clipboard("text"), ttyapi.ErrInvalidPort)
+}
+
+type capableTestSurface struct{ testSurface }
+
+func (*capableTestSurface) Capabilities() ttyapi.SurfaceCapabilities {
+	return ttyapi.SurfaceCapabilities{Images: "kitty"}
+}
+func TestSurfaceLeaseForwardsCapabilities(t *testing.T) {
+	tc := NewTerminalContext(nil, nil, nil)
+	tc.Surface = func(ttyapi.SurfaceOptions) (ttyapi.Surface, error) { return &capableTestSurface{}, nil }
+	s, err := tc.OpenSurface(ttyapi.SurfaceOptions{})
+	require.NoError(t, err)
+	require.Equal(t, "kitty", s.(ttyapi.CapableSurface).Capabilities().Images)
+	require.NoError(t, s.Close())
+	require.Equal(t, "none", s.(ttyapi.CapableSurface).Capabilities().Images)
 }

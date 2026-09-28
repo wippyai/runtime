@@ -13,12 +13,14 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/hashicorp/memberlist"
 	"github.com/wippyai/runtime/api/cluster"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/metrics"
+	"github.com/wippyai/runtime/cluster/internode"
 	"go.opentelemetry.io/otel/attribute"
 	otelmetric "go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
@@ -54,13 +56,15 @@ type Service struct {
 	bus            event.Bus
 	transport      memberlist.Transport
 	logger         *zap.Logger
-	memberlist     *memberlist.Memberlist
+	memberlist     atomic.Pointer[memberlist.Memberlist]
+	linked         *linkTransport // receives gossip that arrives on internode links
 	nodes          map[string]cluster.NodeInfo
 	nodeStates     map[string]memberlist.NodeStateType
 	tel            *telemetry
 	userDelegates  map[byte]UserDelegate
 	lastChangeAt   time.Time
 	config         Config
+	background     sync.WaitGroup
 	userDelegateMu sync.RWMutex
 	mu             sync.RWMutex
 }
@@ -103,7 +107,8 @@ func (s *Service) SendUserMessage(targetNodeID string, kind byte, payload []byte
 		return fmt.Errorf("membership: reliable payload too large: %d > %d",
 			len(payload), ReliableUserMessageMaxPayloadBytes)
 	}
-	if s.memberlist == nil {
+	ml := s.memberlist.Load()
+	if ml == nil {
 		return errors.New("membership: not started")
 	}
 	wrapped := make([]byte, 0, len(payload)+5)
@@ -111,9 +116,9 @@ func (s *Service) SendUserMessage(targetNodeID string, kind byte, payload []byte
 	n := uint32(len(payload))
 	wrapped = append(wrapped, byte(n), byte(n>>8), byte(n>>16), byte(n>>24))
 	wrapped = append(wrapped, payload...)
-	for _, m := range s.memberlist.Members() {
+	for _, m := range ml.Members() {
 		if m.Name == targetNodeID {
-			return s.memberlist.SendReliable(m, wrapped)
+			return ml.SendReliable(m, wrapped)
 		}
 	}
 	return fmt.Errorf("membership: target node %q not in member list", targetNodeID)
@@ -122,6 +127,7 @@ func (s *Service) SendUserMessage(targetNodeID string, kind byte, payload []byte
 // Config holds membership service configuration
 type Config struct {
 	Transport           memberlist.Transport
+	Link                GossipLink // carries gossip to connected nodes; nil leaves gossip on Transport alone
 	Meta                cluster.NodeMeta
 	SecretKey           []byte
 	SecretString        string
@@ -306,13 +312,21 @@ func (s *Service) Start(ctx context.Context) error {
 	}
 
 	// Create memberlist
-	ml, err := memberlist.Create(mlConfig)
+	ml, linked, err := createMemberlist(s.ctx, mlConfig, s.config.Link, memberlist.NewNetTransport)
 	if err != nil {
 		return NewCreateMemberlistError(err)
 	}
-	s.memberlist = ml
+	s.memberlist.Store(ml)
+	if linked != nil {
+		if !s.config.Link.RegisterClassReceiver(internode.ClassGossip, linked.deliver) {
+			return NewCreateMemberlistError(ErrGossipReceiverTaken)
+		}
+		s.linked = linked
+	}
 
-	// Join cluster if addresses provided.
+	// Join cluster if addresses are configured. Seed availability is not a
+	// readiness condition: the local memberlist is already active and can serve
+	// the rest of the runtime while this lifecycle-owned worker retries.
 	//
 	// Retry with exponential backoff up to s.ctx cancellation so a
 	// transient DNS outage at boot does not crash the pod: under DNSChaos
@@ -328,16 +342,10 @@ func (s *Service) Start(ctx context.Context) error {
 	if len(s.config.JoinAddrs) > 0 {
 		s.logger.Info("joining existing cluster",
 			zap.Strings("join_addresses", s.config.JoinAddrs))
-
-		if err := s.joinWithRetry(s.ctx, ml); err != nil {
-			s.tel.recordJoin(err)
-			return NewJoinClusterError(err)
-		}
 	} else {
 		s.logger.Info("starting as cluster bootstrap node")
+		s.tel.recordJoin(nil)
 	}
-
-	s.tel.recordJoin(nil)
 
 	// Log initial cluster state
 	members := ml.Members()
@@ -347,9 +355,22 @@ func (s *Service) Start(ctx context.Context) error {
 
 	s.refreshMemberStateGauges()
 
-	go s.emitHealthLoop(s.ctx)
+	s.background.Add(1)
+	go func() {
+		defer s.background.Done()
+		s.emitHealthLoop(s.ctx)
+	}()
 	if len(s.config.JoinAddrs) > 0 {
-		go s.rejoinLoop(s.ctx)
+		s.background.Add(1)
+		go func() {
+			defer s.background.Done()
+			if err := s.joinWithRetry(s.ctx, ml); err != nil {
+				return
+			}
+			s.tel.recordJoin(nil)
+			s.refreshMemberStateGauges()
+			s.rejoinLoop(s.ctx)
+		}()
 	}
 
 	return nil
@@ -374,8 +395,14 @@ func (s *Service) joinWithRetry(ctx context.Context, ml *memberlist.Memberlist) 
 	lastSummaryAt := time.Now()
 
 	for {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		attempt++
 		n, err := ml.Join(s.config.JoinAddrs)
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		if err == nil {
 			s.logger.Info("successfully joined cluster",
 				zap.Int("discovered_nodes", n),
@@ -400,10 +427,7 @@ func (s *Service) joinWithRetry(ctx context.Context, ml *memberlist.Memberlist) 
 
 		select {
 		case <-ctx.Done():
-			s.logger.Error("join cancelled by ctx",
-				zap.Int("attempts", attempt),
-				zap.Error(err))
-			return err
+			return ctx.Err()
 		case <-time.After(backoff):
 		}
 
@@ -436,16 +460,16 @@ func (s *Service) rejoinLoop(ctx context.Context) {
 			return
 		case <-t.C:
 		}
-		if s.memberlist == nil {
+		ml := s.memberlist.Load()
+		if ml == nil {
 			continue
 		}
-		members := s.memberlist.Members()
-		if len(members) > 1 {
+		if len(ml.Members()) > 1 {
 			continue
 		}
 		s.logger.Warn("memberlist isolated (only self), re-attempting Join",
 			zap.Strings("join_addresses", s.config.JoinAddrs))
-		n, err := s.memberlist.Join(s.config.JoinAddrs)
+		n, err := ml.Join(s.config.JoinAddrs)
 		if err != nil {
 			s.logger.Warn("rejoin attempt failed",
 				zap.Error(err),
@@ -473,10 +497,11 @@ func (s *Service) emitHealthLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			if s.memberlist == nil {
+			ml := s.memberlist.Load()
+			if ml == nil {
 				continue
 			}
-			score := s.memberlist.GetHealthScore()
+			score := ml.GetHealthScore()
 			if score > 0 {
 				s.tel.recordProbeFailure(s.config.NodeName)
 				s.tel.recordProbe(errProbeUnhealthy, 0)
@@ -496,10 +521,11 @@ var errProbeUnhealthy = errors.New("memberlist health score > 0")
 // 0 means healthy, larger values indicate failed probes / suspect peers.
 // Returns -1 if memberlist is not yet running.
 func (s *Service) HealthScore() int {
-	if s.memberlist == nil {
+	ml := s.memberlist.Load()
+	if ml == nil {
 		return -1
 	}
-	return s.memberlist.GetHealthScore()
+	return ml.GetHealthScore()
 }
 
 // Stop gracefully shuts down the membership service
@@ -511,22 +537,27 @@ func (s *Service) Stop() error {
 	if s.cancel != nil {
 		s.cancel()
 	}
+	s.background.Wait()
 
 	s.tel.recordLeave()
 
-	if s.memberlist != nil {
+	if ml := s.memberlist.Load(); ml != nil {
 		// Leave cluster gracefully
 		s.logger.Info("leaving cluster gracefully")
-		if err := s.memberlist.Leave(3 * time.Second); err != nil {
+		if err := ml.Leave(3 * time.Second); err != nil {
 			s.logger.Warn("failed to leave cluster gracefully", zap.Error(err))
 		} else {
 			s.logger.Info("left cluster successfully")
 		}
 
 		// Shutdown memberlist
-		if err := s.memberlist.Shutdown(); err != nil {
+		if err := ml.Shutdown(); err != nil {
 			s.logger.Warn("failed to shutdown memberlist cleanly", zap.Error(err))
 		}
+	}
+	if s.linked != nil {
+		s.config.Link.RegisterClassReceiver(internode.ClassGossip, nil)
+		s.linked = nil
 	}
 
 	s.logger.Info("membership service stopped")
@@ -551,7 +582,8 @@ func (s *Service) LocalNode() cluster.NodeInfo {
 	meta := cloneMeta(s.config.Meta)
 	s.mu.RUnlock()
 
-	if s.memberlist == nil {
+	ml := s.memberlist.Load()
+	if ml == nil {
 		// Return info from config if memberlist isn't up yet
 		return cluster.NodeInfo{
 			ID:   s.config.NodeName,
@@ -560,7 +592,7 @@ func (s *Service) LocalNode() cluster.NodeInfo {
 		}
 	}
 
-	local := s.memberlist.LocalNode()
+	local := ml.LocalNode()
 	return cluster.NodeInfo{
 		ID:   local.Name,
 		Addr: local.Address(),
@@ -586,7 +618,7 @@ func (s *Service) UpdateMeta(updates map[string]string) {
 	for k, v := range updates {
 		s.config.Meta[k] = v
 	}
-	ml := s.memberlist
+	ml := s.memberlist.Load()
 	s.mu.Unlock()
 
 	if ml == nil {
@@ -647,7 +679,7 @@ func (s *Service) loadSecretKey() ([]byte, error) {
 // hooks while holding its internal node lock, and Members() re-acquires the
 // same lock — calling it inline would deadlock.
 func (s *Service) refreshMemberStateGauges() {
-	if s.memberlist == nil {
+	if s.memberlist.Load() == nil {
 		return
 	}
 
@@ -655,12 +687,13 @@ func (s *Service) refreshMemberStateGauges() {
 }
 
 func (s *Service) computeMemberStateGauges() {
-	if s.memberlist == nil {
+	ml := s.memberlist.Load()
+	if ml == nil {
 		return
 	}
 
 	alive, suspect, dead, left := 0, 0, 0, 0
-	for _, m := range s.memberlist.Members() {
+	for _, m := range ml.Members() {
 		switch m.State {
 		case memberlist.StateAlive:
 			alive++
@@ -706,14 +739,18 @@ func (ed *eventDelegate) NotifyJoin(node *memberlist.Node) {
 		Meta: ed.parseNodeMeta(node.Meta),
 	}
 
-	convergedFrom := ed.service.recordChange(node.Name, nodeInfo, node.State)
+	convergedFrom, prev, known := ed.service.recordChange(node.Name, nodeInfo, node.State)
 
 	ed.service.logger.Info("node joined",
 		zap.String("node_id", node.Name),
 		zap.String("address", nodeInfo.Addr),
 		zap.Any("metadata", nodeInfo.Meta))
 
-	ed.service.publishEvent(cluster.NodeJoined, nodeInfo)
+	if known && incarnationChanged(prev, nodeInfo) {
+		ed.service.publishRestart(prev, nodeInfo)
+	} else {
+		ed.service.publishEvent(cluster.NodeJoined, nodeInfo)
+	}
 	ed.service.refreshMemberStateGauges()
 	ed.service.emitConvergence(convergedFrom)
 	ed.service.tel.recordMessage("join", "rx", len(node.Meta))
@@ -764,25 +801,50 @@ func (ed *eventDelegate) NotifyUpdate(node *memberlist.Node) {
 
 	// recordChange handles suspicion->alive resolution metrics; suspicion->dead
 	// is recorded from NotifyLeave (memberlist routes that transition there).
-	convergedFrom := ed.service.recordChange(node.Name, nodeInfo, node.State)
+	convergedFrom, prev, known := ed.service.recordChange(node.Name, nodeInfo, node.State)
 
 	ed.service.logger.Info("node updated",
 		zap.String("node_id", node.Name),
 		zap.String("address", nodeInfo.Addr),
 		zap.Any("metadata", nodeInfo.Meta))
 
-	ed.service.publishEvent(cluster.NodeUpdated, nodeInfo)
+	if known && incarnationChanged(prev, nodeInfo) {
+		ed.service.publishRestart(prev, nodeInfo)
+	} else {
+		ed.service.publishEvent(cluster.NodeUpdated, nodeInfo)
+	}
 	ed.service.refreshMemberStateGauges()
 	ed.service.emitConvergence(convergedFrom)
 	ed.service.tel.recordMessage("update", "rx", len(node.Meta))
 }
 
+// incarnationChanged reports that next announces a different process
+// incarnation than prev for the same node ID: the node restarted.
+func incarnationChanged(prev, next cluster.NodeInfo) bool {
+	before, after := prev.Meta[cluster.MetaIncarnation], next.Meta[cluster.MetaIncarnation]
+	return before != "" && after != "" && before != after
+}
+
+// publishRestart reports a restarted node as the departure of its previous
+// incarnation followed by the arrival of the new one, so every consumer
+// reacts through its ordinary leave and join paths.
+func (s *Service) publishRestart(prev, next cluster.NodeInfo) {
+	s.logger.Info("node restarted",
+		zap.String("node_id", next.ID),
+		zap.String("previous_incarnation", prev.Meta[cluster.MetaIncarnation]),
+		zap.String("incarnation", next.Meta[cluster.MetaIncarnation]))
+	s.publishEvent(cluster.NodeLeft, prev)
+	s.publishEvent(cluster.NodeJoined, next)
+}
+
 // recordChange updates the cached node info and state for `name`, emitting a
 // suspicion-resolution metric when transitioning suspect->alive. It returns
-// the previous lastChangeAt timestamp so the caller can record convergence.
-func (s *Service) recordChange(name string, info cluster.NodeInfo, newState memberlist.NodeStateType) time.Time {
+// the previous lastChangeAt timestamp so the caller can record convergence,
+// and the node's previously recorded info when it was known.
+func (s *Service) recordChange(name string, info cluster.NodeInfo, newState memberlist.NodeStateType) (time.Time, cluster.NodeInfo, bool) {
 	s.mu.Lock()
 	prevState, hadPrev := s.nodeStates[name]
+	prevInfo, known := s.nodes[name]
 	s.nodes[name] = info
 	s.nodeStates[name] = newState
 	prevChange := s.lastChangeAt
@@ -793,7 +855,7 @@ func (s *Service) recordChange(name string, info cluster.NodeInfo, newState memb
 		s.tel.recordSuspicionOutcome("alive")
 	}
 
-	return prevChange
+	return prevChange, prevInfo, known
 }
 
 // removeNode drops cached state for `name` and returns the previous
@@ -857,8 +919,8 @@ func newDelegate(service *Service, retransmitMult int) *delegate {
 }
 
 func (s *Service) broadcastNodeCount() int {
-	if s.memberlist != nil {
-		if n := len(s.memberlist.Members()); n > 0 {
+	if ml := s.memberlist.Load(); ml != nil {
+		if n := len(ml.Members()); n > 0 {
 			return n
 		}
 	}

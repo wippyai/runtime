@@ -3,6 +3,9 @@
 directories:
     modules: .wippy
     src: ./src
+modules:
+    - name: wippy/fsdir-fixture
+      version: 0.0.0
 replacements:
     - from: wippy/fsdir-fixture
       to: ./modules/fsdir-fixture

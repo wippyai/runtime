@@ -1,0 +1,21 @@
+package wippy:actor@0.1.0;
+
+interface process {
+    use wasi:io/poll@0.2.8.{pollable};
+
+    type pid = string;
+    record payload { format: string, data: list<u8> }
+    record message { %from: pid, topic: string, payloads: list<payload> }
+
+    self: func() -> pid;
+    send: func(target: pid, topic: string, payloads: list<payload>) -> result<bool, string>;
+    try-receive: func() -> result<option<message>, string>;
+    receive: func() -> result<message, string>;
+    subscribe: func() -> pollable;
+}
+
+world actor {
+    import process;
+    import wasi:io/poll@0.2.8;
+    export run: func() -> result<_, string>;
+}

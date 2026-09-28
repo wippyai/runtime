@@ -610,6 +610,8 @@ func TestResponse_Basic(t *testing.T) {
 			res:set_status(http.STATUS.CREATED)
 		`)
 		assert.NoError(t, err)
+		assert.Equal(t, http.StatusOK, recorder.Code, "status selection must not commit headers")
+		reqCtx.CommitResponseStatus()
 		assert.Equal(t, http.StatusCreated, recorder.Code)
 	})
 

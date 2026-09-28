@@ -1256,10 +1256,9 @@ func TestController_StartTimeout(t *testing.T) {
 		t.Errorf("Expected final status Failed, got: %v", state.Status)
 	}
 
-	// Cleanup
-	if err := ctr.Stop(); err == nil {
-		t.Fatal("Expected error from stop, got nil")
-	}
+	// Startup timeout does not cancel the independent cleanup budget.
+	require.NoError(t, ctr.Stop())
+	require.Equal(t, supervisor.StatusStopped, ctr.State().Status)
 }
 
 func TestController_ServiceExitError(t *testing.T) {

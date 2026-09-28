@@ -32,6 +32,9 @@ type Spawner struct {
 	hasActor bool
 	hasScope bool
 	hasOpts  bool
+	// Explicit overrides require authorization; inherited security does not.
+	customActor bool
+	customScope bool
 }
 
 func init() {
@@ -56,15 +59,17 @@ func cloneSpawner(spawner *Spawner) *Spawner {
 	}
 
 	return &Spawner{
-		values:   spawner.values,
-		options:  spawner.options,
-		actor:    spawner.actor,
-		hasActor: spawner.hasActor,
-		scope:    spawner.scope,
-		hasScope: spawner.hasScope,
-		hasOpts:  spawner.hasOpts,
-		name:     spawner.name,
-		messages: spawner.messages,
+		values:      spawner.values,
+		options:     spawner.options,
+		actor:       spawner.actor,
+		hasActor:    spawner.hasActor,
+		scope:       spawner.scope,
+		hasScope:    spawner.hasScope,
+		hasOpts:     spawner.hasOpts,
+		customActor: spawner.customActor,
+		customScope: spawner.customScope,
+		name:        spawner.name,
+		messages:    spawner.messages,
 	}
 }
 
@@ -286,7 +291,7 @@ func spawnerWithContext(l *lua.LState) int {
 
 	ctxTable := l.CheckTable(2)
 
-	if (spawner.hasScope || spawner.hasActor) && !security.IsAllowed(ctx, "process.security", "security", secAttrs) {
+	if (spawner.customScope || spawner.customActor) && !security.IsAllowed(ctx, "process.security", "security", secAttrs) {
 		l.RaiseError("not allowed to spawn processes with custom security context")
 		return 0
 	}
@@ -304,17 +309,8 @@ func spawnerWithContext(l *lua.LState) int {
 		}
 	})
 
-	newSpawner := &Spawner{
-		values:   newValues,
-		options:  spawner.options,
-		actor:    spawner.actor,
-		hasActor: spawner.hasActor,
-		scope:    spawner.scope,
-		hasScope: spawner.hasScope,
-		hasOpts:  spawner.hasOpts,
-		name:     spawner.name,
-		messages: spawner.messages,
-	}
+	newSpawner := cloneSpawner(spawner)
+	newSpawner.values = newValues
 
 	value.PushTypedUserData(l, newSpawner, spawnerTypeName)
 	return 1
@@ -398,6 +394,7 @@ func spawnerWithActor(l *lua.LState) int {
 	newSpawner := cloneSpawner(spawner)
 	newSpawner.actor = actor
 	newSpawner.hasActor = true
+	newSpawner.customActor = true
 
 	value.PushTypedUserData(l, newSpawner, spawnerTypeName)
 	return 1
@@ -442,6 +439,7 @@ func spawnerWithScope(l *lua.LState) int {
 	newSpawner := cloneSpawner(spawner)
 	newSpawner.scope = scope
 	newSpawner.hasScope = true
+	newSpawner.customScope = true
 
 	value.PushTypedUserData(l, newSpawner, spawnerTypeName)
 	return 1

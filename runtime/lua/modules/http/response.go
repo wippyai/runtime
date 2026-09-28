@@ -82,9 +82,11 @@ func responseSetStatus(l *lua.LState) int {
 		return 1
 	}
 	code := l.CheckInt(2)
-	res.writer.WriteHeader(code)
-	res.headersSent = true
-	res.rCtx.MarkHandled()
+	if code < 100 || code > 999 {
+		l.Push(lua.NewLuaError(l, "invalid HTTP status code").WithKind(lua.Invalid).WithRetryable(false))
+		return 1
+	}
+	res.rCtx.SetResponseStatus(code)
 	l.Push(lua.LNil)
 	return 1
 }
@@ -115,6 +117,8 @@ func responseWrite(l *lua.LState) int {
 		return 0
 	}
 	data := l.CheckString(2)
+	res.rCtx.CommitResponseStatus()
+	res.headersSent = true
 	_, err := res.writer.Write([]byte(data))
 	if err != nil {
 		luaErr := lua.WrapErrorWithLua(l, err, "write failed").
@@ -134,6 +138,7 @@ func responseFlush(l *lua.LState) int {
 	if res == nil {
 		return 0
 	}
+	res.rCtx.CommitResponseStatus()
 	if flusher, ok := res.writer.(interface{ Flush() }); ok {
 		flusher.Flush()
 	}
@@ -160,6 +165,8 @@ func responseWriteJSON(l *lua.LState) int {
 	if !res.headersSent {
 		res.writer.Header().Set("Content-Type", "application/json")
 	}
+	res.rCtx.CommitResponseStatus()
+	res.headersSent = true
 	_, err = res.writer.Write(data)
 	if err != nil {
 		luaErr := lua.WrapErrorWithLua(l, err, "write failed").
@@ -240,6 +247,8 @@ func responseWriteEvent(l *lua.LState) int {
 		return 1
 	}
 
+	res.rCtx.CommitResponseStatus()
+	res.headersSent = true
 	_, writeErr := fmt.Fprintf(res.writer, "event: %s\ndata: %s\n\n", name, data)
 	if writeErr != nil {
 		luaErr := lua.WrapErrorWithLua(l, writeErr, "write event failed").

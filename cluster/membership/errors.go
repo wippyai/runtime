@@ -8,6 +8,8 @@ import (
 
 var (
 	ErrNoSecretKeyProvided = apierror.New(apierror.Invalid, "no secret key provided").WithRetryable(apierror.False)
+
+	ErrGossipReceiverTaken = apierror.New(apierror.Conflict, "internode gossip receiver is already registered").WithRetryable(apierror.False)
 )
 
 func NewLoadSecretKeyError(err error) apierror.Error {
@@ -16,10 +18,6 @@ func NewLoadSecretKeyError(err error) apierror.Error {
 
 func NewCreateMemberlistError(err error) apierror.Error {
 	return apierror.New(apierror.Internal, "failed to create memberlist").WithCause(err).WithRetryable(apierror.False)
-}
-
-func NewJoinClusterError(err error) apierror.Error {
-	return apierror.New(apierror.Unavailable, "failed to join cluster").WithCause(err).WithRetryable(apierror.True)
 }
 
 func NewReadSecretFileError(err error) apierror.Error {

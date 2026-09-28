@@ -845,3 +845,51 @@ func TestHandler_OverlayHostnamePassesThrough(t *testing.T) {
 		t.Fatal("timeout")
 	}
 }
+
+// The HTTP dispatcher is constructed before the network boot component installs
+// its registry. Requests must observe that later installation.
+func TestHandler_LateNetworkRegistry(t *testing.T) {
+	for _, batch := range []bool{false, true} {
+		t.Run(fmt.Sprintf("batch=%t", batch), func(t *testing.T) {
+			ctx := overlayTestCtx()
+			d := NewDispatcher(WithNetworkRegistry(netapi.GetNetworkRegistry(ctx)))
+			defer d.pool.Close()
+			ts := httptest.NewServer(gohttp.HandlerFunc(func(w gohttp.ResponseWriter, _ *gohttp.Request) {
+				_, _ = w.Write([]byte("late-overlay"))
+			}))
+			defer ts.Close()
+			svc := &recordingService{}
+			reg := newMockNetworkRegistry()
+			reg.register("network:late", svc, netapi.KindSOCKS5)
+			netapi.WithNetworkRegistry(ctx, reg)
+			request := &httpapi.RequestCmd{Method: "GET", URL: ts.URL, OverlayNetwork: "network:late"}
+			done := make(chan httpapi.Response, 1)
+			if batch {
+				require.NoError(t, d.handleRequestBatch(ctx, &httpapi.RequestBatchCmd{Requests: []*httpapi.RequestCmd{request}}, 0, &testReceiver{fn: func(data any) {
+					done <- data.(httpapi.BatchResponse).Responses[0]
+				}}))
+			} else {
+				require.NoError(t, d.handleRequest(ctx, request, 0, &testReceiver{fn: func(data any) {
+					done <- data.(httpapi.Response)
+				}}))
+			}
+			select {
+			case response := <-done:
+				require.Empty(t, response.Error)
+				require.Equal(t, "late-overlay", string(response.Body))
+				require.Positive(t, svc.dialCount())
+			case <-time.After(5 * time.Second):
+				t.Fatal("timeout waiting for overlay response")
+			}
+		})
+	}
+}
+
+func TestHandler_ExplicitNetworkRegistryTakesPrecedence(t *testing.T) {
+	ctx := overlayTestCtx()
+	explicit := newMockNetworkRegistry()
+	netapi.WithNetworkRegistry(ctx, newMockNetworkRegistry())
+	d := NewDispatcher(WithNetworkRegistry(explicit))
+	defer d.pool.Close()
+	require.Same(t, explicit, d.requestNetworkRegistry(ctx))
+}

@@ -28,7 +28,8 @@ type (
 
 	// Stopper is implemented by components that need graceful shutdown.
 	Stopper interface {
-		// Stop gracefully shuts down the service.
+		// Stop releases resources acquired by Load and Start. Shutdown can run
+		// after a later component fails to load, before Start was ever called.
 		Stop(ctx context.Context) error
 	}
 )

@@ -45,6 +45,8 @@ func (m *mockEventBus) SubscribeP(_ context.Context, _ event.System, _ event.Kin
 	return "sub-1", nil
 }
 
+func (*mockEventBus) HasSubscribers(event.System, event.Kind) bool { return true }
+
 func (m *mockEventBus) Unsubscribe(_ context.Context, _ event.SubscriberID) {}
 
 func newWorkerTestTranscoder() payload.Transcoder {

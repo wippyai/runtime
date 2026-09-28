@@ -15,14 +15,14 @@ import (
 
 const (
 	// joinSnapshotStatePending marks a snapshot entry that is a PENDING Strong
-	// reservation; the joining node installs an exclusionPending for it.
+	// reservation; the joining node installs an observationPending for it.
 	joinSnapshotStatePending uint8 = 0
 	// joinSnapshotStateActive marks a snapshot entry that is a promoted (ACTIVE)
-	// Strong name; the joining node installs an exclusionActive for it.
+	// Strong name; the joining node installs an observationActive for it.
 	joinSnapshotStateActive uint8 = 1
 	// joinSnapshotStateConsistent marks an ACTIVE CONSISTENT-scope binding.
-	// The joining node seeds it into the dissem cache (no exclusion to install
-	// — CONSISTENT names do not participate in the strong exclusion table).
+	// The joining node seeds it into the dissem cache (no observation to install
+	// — CONSISTENT names do not participate in the strong observation table).
 	joinSnapshotStateConsistent uint8 = 2
 
 	// joinBarrierTimeout bounds a single JoinNameEpoch round-trip.
@@ -263,12 +263,11 @@ func (s *Service) handleJoinResponse(msg *relay.Message) {
 }
 
 // runJoinBarrier executes the join-epoch barrier for the given epoch: fetch the
-// leader's PENDING∪ACTIVE Strong snapshot, install an exclusion for each entry,
-// revoke any conflicting LOCAL/EVENTUAL name this node holds bound to a different
-// pid, then flip name_ready — but only if epoch is still the current node epoch
+// leader's PENDING∪ACTIVE Strong snapshot, record each reservation, then flip
+// name_ready — but only if epoch is still the current node epoch
 // (a newer rejoin trigger aborts this barrier so the old epoch never flips
-// ready). Idempotent: re-running installs the same exclusions (epoch-keyed) and
-// re-revokes already-absent names as no-ops.
+// ready). Re-running installs the same epoch-keyed observations idempotently;
+// LOCAL and EVENTUAL bindings are independent and remain untouched.
 func (s *Service) runJoinBarrier(epoch uint64) error {
 	snap, err := s.JoinNameEpoch(epoch)
 	if err != nil {
@@ -281,16 +280,15 @@ func (s *Service) runJoinBarrier(epoch uint64) error {
 	for _, e := range snap.Entries {
 		switch e.State {
 		case joinSnapshotStateConsistent:
-			// CONSISTENT entries do not participate in the strong exclusion
+			// CONSISTENT entries do not participate in the strong observation
 			// table; they seed the dissem cache only. The seed happens via
 			// seedDissemFromSnapshot below.
 			continue
 		case joinSnapshotStateActive:
-			s.installSnapshotExclusion(e.Name, e.Owner, e.Epoch, exclusionActive)
+			s.installSnapshotObservation(e.Name, e.Owner, e.Epoch, observationActive)
 		default:
-			s.installSnapshotExclusion(e.Name, e.Owner, e.Epoch, exclusionPending)
+			s.installSnapshotObservation(e.Name, e.Owner, e.Epoch, observationPending)
 		}
-		s.revokeLocalConflict(e.Name, e.Owner)
 	}
 
 	// Seed the dissem cache with ACTIVE entries (STRONG + CONSISTENT) from the
@@ -300,7 +298,7 @@ func (s *Service) runJoinBarrier(epoch uint64) error {
 
 	// Only flip ready if no newer rejoin started while the barrier ran and the
 	// leader is still reachable (the snapshot fetch above already proved a leader
-	// answered, but a leadership flip mid-barrier is benign — the exclusions are
+	// answered, but a leadership flip mid-barrier is benign — the observations are
 	// installed regardless and a follow-up rejoin barrier reconverges).
 	if s.nodeEpoch.Load() != epoch {
 		return nil
@@ -314,37 +312,18 @@ func (s *Service) runJoinBarrier(epoch uint64) error {
 	return nil
 }
 
-// installSnapshotExclusion latches an exclusion for a snapshot Strong name. It
-// installs only when no exclusion at a newer epoch already holds the name, so a
+// installSnapshotObservation latches an observation for a snapshot Strong name. It
+// installs only when no observation at a newer epoch already holds the name, so a
 // re-run or a concurrently-latched live pending is never clobbered by a stale
-// snapshot. Owner is the reserving pid; a same-name same-epoch exclusion is left
+// snapshot. Owner is the reserving pid; a same-name same-epoch observation is left
 // as-is.
-func (s *Service) installSnapshotExclusion(name string, owner pid.PID, epoch uint64, state exclusionState) {
+func (s *Service) installSnapshotObservation(name string, owner pid.PID, epoch uint64, state observationState) {
 	s.reserveMu.Lock()
 	defer s.reserveMu.Unlock()
-	if e, ok := s.strongExclusions[name]; ok && e.epoch >= epoch {
+	if e, ok := s.strongObservations[name]; ok && e.epoch >= epoch {
 		return
 	}
-	s.strongExclusions[name] = strongExclusion{pid: owner, epoch: epoch, state: state}
-}
-
-// revokeLocalConflict drops a LOCAL or EVENTUAL binding this node holds for a
-// snapshot Strong name to a pid different from the snapshot owner. The revoker
-// signals the losing process. A name not held locally, or held to the snapshot
-// owner, is a no-op.
-func (s *Service) revokeLocalConflict(name string, owner pid.PID) {
-	r := s.loadLocalRevoker()
-	if r == nil {
-		return
-	}
-	if r.RevokeLocal(name, owner) {
-		s.logger.Info("globalreg: revoked local name lost to strong reservation",
-			zap.String("name", name), zap.String("scope", "local"))
-	}
-	if r.RevokeEventual(name, owner) {
-		s.logger.Info("globalreg: revoked local name lost to strong reservation",
-			zap.String("name", name), zap.String("scope", "eventual"))
-	}
+	s.strongObservations[name] = strongObservation{pid: owner, epoch: epoch, state: state}
 }
 
 // joinBarrierOnStart runs the first-join barrier behind Raft readiness. It waits

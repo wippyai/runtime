@@ -18,12 +18,66 @@ import (
 type Process struct {
 	handle        apiexec.Process
 	cancelCleanup func()
+	exit          *apiexec.ExitStatus
+	waitErr       error
+	exited        chan struct{}
+	doneChannel   *lua.LUserData
 	stdoutID      uint64
 	stderrID      uint64
 	mu            sync.Mutex
 	started       bool
 	closed        bool
+	reaping       bool
 }
+
+// reap waits on the child exactly once and records how it exited. done(),
+// wait() and close() all funnel through here, so the child is waited on once
+// however many of them are in play, and every caller observes the same exit.
+func (p *Process) reap(handle apiexec.Process) apiexec.ExitStatus {
+	p.mu.Lock()
+	if p.exited == nil {
+		p.exited = make(chan struct{})
+	}
+	exited, owner := p.exited, !p.reaping
+	p.reaping = true
+	p.mu.Unlock()
+
+	if owner {
+		err := handle.Wait()
+		status := apiexec.ClassifyExit(err)
+		p.mu.Lock()
+		p.exit, p.waitErr = &status, err
+		p.mu.Unlock()
+		close(exited)
+	} else {
+		<-exited
+	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return *p.exit
+}
+
+// reapError reports the untouched error of the single wait, for callers that
+// classify it themselves.
+func (p *Process) reapError(handle apiexec.Process) error {
+	p.reap(handle)
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.waitErr
+}
+
+// processReaper routes the wait yield through the wrapper's single reap. A
+// child that done() or close() already reaped still reports its exit instead of
+// failing a second wait.
+type processReaper struct {
+	apiexec.Process
+	proc *Process
+}
+
+func (r *processReaper) AwaitExit() apiexec.ExitStatus { return r.proc.reap(r.Process) }
+
+func (r *processReaper) Wait() error { return r.proc.reapError(r.Process) }
 
 func NewProcess(ctx context.Context, handle apiexec.Process) *Process {
 	p := &Process{
@@ -33,18 +87,59 @@ func NewProcess(ctx context.Context, handle apiexec.Process) *Process {
 
 	store := resource.GetStore(ctx)
 	if store != nil {
-		p.cancelCleanup = store.AddCleanup(func() error {
-			p.mu.Lock()
-			defer p.mu.Unlock()
-			if !p.closed && p.handle != nil {
-				p.closed = true
-				return p.handle.Signal(int(syscall.SIGTERM))
-			}
+		cancel := store.AddCleanup(func() error {
+			p.close(false)
 			return nil
 		})
+		p.mu.Lock()
+		if p.closed {
+			p.mu.Unlock()
+			cancel()
+		} else {
+			p.cancelCleanup = cancel
+			p.mu.Unlock()
+		}
 	}
 
 	return p
+}
+
+// close atomically releases the Lua handle, then terminates and reaps any
+// started child without holding the wrapper lock across process I/O.
+func (p *Process) close(force bool) {
+	p.mu.Lock()
+	if p.closed {
+		p.mu.Unlock()
+		return
+	}
+	p.closed = true
+	handle, started := p.handle, p.started
+	p.handle = nil
+	cancel := p.cancelCleanup
+	p.cancelCleanup = nil
+	p.mu.Unlock()
+
+	if cancel != nil {
+		cancel()
+	}
+	if handle == nil {
+		return
+	}
+	if !started {
+		if stopper, ok := handle.(interface{ Stop() }); ok {
+			stopper.Stop()
+		}
+		return
+	}
+	signal := syscall.SIGTERM
+	if force {
+		signal = syscall.SIGKILL
+	}
+	// Explicit signal() reports delivery failures. close() is a release
+	// operation: the child may already have exited, but it must still be waited
+	// on so the OS can reclaim it.
+	_ = handle.Signal(int(signal))
+	go p.reapReleased(handle, force)
 }
 
 // reapGrace bounds how long a released process may take to exit before it is
@@ -68,35 +163,83 @@ const reapGrace = 10 * time.Second
 // Wait closes the stdout and stderr pipes it created. That is inherent to
 // reaping and is the documented consequence of close(): the process is finished
 // with, and its streams along with it.
-func reapReleased(handle apiexec.Process, killed bool) {
+func (p *Process) reapReleased(handle apiexec.Process, killed bool) {
+	p.reapReleasedWithGrace(handle, killed, reapGrace)
+}
+
+func (p *Process) reapReleasedWithGrace(handle apiexec.Process, killed bool, grace time.Duration) {
 	exited := make(chan struct{})
 	go func() {
 		defer close(exited)
-		_ = handle.Wait()
+		p.reap(handle)
 	}()
 
-	if killed {
-		// The caller already sent SIGKILL; there is nothing to escalate to.
-		<-exited
-		return
+	if !killed {
+		select {
+		case <-exited:
+			return
+		case <-time.After(grace):
+			_ = handle.Signal(int(syscall.SIGKILL))
+		}
 	}
 
 	select {
 	case <-exited:
-	case <-time.After(reapGrace):
-		_ = handle.Signal(int(syscall.SIGKILL))
-		<-exited
+	case <-time.After(grace):
+		if canceler, ok := handle.(apiexec.WaitCanceler); ok {
+			canceler.CancelWait()
+		}
 	}
 }
 
 var processMethods = map[string]lua.LGoFunc{
 	"start":         procStart,
 	"wait":          procWait,
+	"done":          procDone,
 	"signal":        procSignal,
 	"write_stdin":   procWriteStdin,
+	"close_stdin":   procCloseStdin,
 	"stdout_stream": procStdout,
 	"stderr_stream": procStderr,
+	"pid":           procPid,
 	"close":         procClose,
+	"resize":        procResize,
+}
+
+func procResize(l *lua.LState) int {
+	p := checkProcess(l, 1)
+	if p == nil {
+		return 0
+	}
+	p.mu.Lock()
+	handle := p.handle
+	closed := p.closed
+	p.mu.Unlock()
+	if closed || handle == nil {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "process is closed").WithKind(lua.Invalid).WithRetryable(false))
+		return 2
+	}
+	ptyProcess, ok := handle.(apiexec.PTYProcess)
+	if !ok {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "process has no PTY").WithKind(lua.Invalid).WithRetryable(false))
+		return 2
+	}
+	width, height := l.CheckInt(2), l.CheckInt(3)
+	if err := apiexec.ValidatePTYSize(width, height); err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.WrapErrorWithLua(l, err, "resize process PTY").WithKind(lua.Invalid).WithRetryable(false))
+		return 2
+	}
+	if err := ptyProcess.Resize(width, height); err != nil {
+		l.Push(lua.LNil)
+		l.Push(wrapExecError(l, err, "resize process PTY", lua.Internal))
+		return 2
+	}
+	l.Push(lua.LTrue)
+	l.Push(lua.LNil)
+	return 2
 }
 
 func checkProcess(l *lua.LState, _ int) *Process {
@@ -127,15 +270,22 @@ func procStart(l *lua.LState) int {
 		return 2
 	}
 	handle := p.handle
-	p.started = true
-	p.mu.Unlock()
-
 	err := handle.Start()
 	if err != nil {
+		p.closed = true
+		p.handle = nil
+		cancel := p.cancelCleanup
+		p.cancelCleanup = nil
+		p.mu.Unlock()
+		if cancel != nil {
+			cancel()
+		}
 		l.Push(lua.LNil)
-		l.Push(lua.WrapErrorWithLua(l, err, "start process").WithKind(lua.Internal).WithRetryable(false))
+		l.Push(wrapExecError(l, err, "start process", lua.Internal))
 		return 2
 	}
+	p.started = true
+	p.mu.Unlock()
 
 	l.Push(lua.LTrue)
 	l.Push(lua.LNil)
@@ -172,10 +322,49 @@ func procWait(l *lua.LState) int {
 	}
 
 	yield := AcquireProcessWaitYield()
-	yield.Process = handle
+	yield.Process = &processReaper{Process: handle, proc: p}
 
 	l.Push(yield)
 	return -1
+}
+
+func procPid(l *lua.LState) int {
+	p := checkProcess(l, 1)
+	if p == nil {
+		return 0
+	}
+	p.mu.Lock()
+	if p.closed {
+		p.mu.Unlock()
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "process is closed").WithKind(lua.Invalid).WithRetryable(false))
+		return 2
+	}
+	if !p.started {
+		p.mu.Unlock()
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "process not started: call start() first").WithKind(lua.Invalid).WithRetryable(false))
+		return 2
+	}
+	handle := p.handle
+	p.mu.Unlock()
+
+	identity, ok := handle.(apiexec.ProcessIdentity)
+	if !ok {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "process has no host process id").WithKind(lua.Unavailable).WithRetryable(false))
+		return 2
+	}
+	pid, err := identity.Pid()
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(wrapExecError(l, err, "read process id", lua.Internal))
+		return 2
+	}
+
+	l.Push(lua.LInteger(pid))
+	l.Push(lua.LNil)
+	return 2
 }
 
 func procSignal(l *lua.LState) int {
@@ -203,7 +392,48 @@ func procSignal(l *lua.LState) int {
 	err := handle.Signal(sig)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.WrapErrorWithLua(l, err, "send signal").WithKind(lua.Internal).WithRetryable(false))
+		l.Push(wrapExecError(l, err, "send signal", lua.Internal))
+		return 2
+	}
+
+	l.Push(lua.LTrue)
+	l.Push(lua.LNil)
+	return 2
+}
+
+// procCloseStdin ends the child's stdin after the caller wrote everything,
+// so a child that reads until end of file proceeds. Idempotent; a process
+// without the capability, such as a PTY-backed one, reports why.
+func procCloseStdin(l *lua.LState) int {
+	p := checkProcess(l, 1)
+	if p == nil {
+		return 0
+	}
+	p.mu.Lock()
+	if p.closed {
+		p.mu.Unlock()
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "process is closed").WithKind(lua.Invalid).WithRetryable(false))
+		return 2
+	}
+	if !p.started {
+		p.mu.Unlock()
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "process not started: call start() first").WithKind(lua.Invalid).WithRetryable(false))
+		return 2
+	}
+	handle := p.handle
+	p.mu.Unlock()
+
+	closer, ok := handle.(apiexec.StdinCloser)
+	if !ok {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "this process cannot close stdin").WithKind(lua.Unavailable).WithRetryable(false))
+		return 2
+	}
+	if err := closer.CloseStdin(); err != nil {
+		l.Push(lua.LNil)
+		l.Push(wrapExecError(l, err, "close stdin", lua.Internal))
 		return 2
 	}
 
@@ -237,7 +467,7 @@ func procWriteStdin(l *lua.LState) int {
 	err := handle.WriteStdin([]byte(data))
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.WrapErrorWithLua(l, err, "write stdin").WithKind(lua.Internal).WithRetryable(false))
+		l.Push(wrapExecError(l, err, "write stdin", lua.Internal))
 		return 2
 	}
 
@@ -270,17 +500,17 @@ func procStdout(l *lua.LState) int {
 		return 2
 	}
 
-	reader := handle.Stdout()
-	if reader == nil {
-		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "stdout not available").WithKind(lua.Internal).WithRetryable(false))
-		return 2
-	}
-
 	table := resource.GetTable(ctx)
 	if table == nil {
 		l.Push(lua.LNil)
 		l.Push(lua.NewLuaError(l, "resource table not available").WithKind(lua.Internal).WithRetryable(false))
+		return 2
+	}
+
+	reader := handle.Stdout()
+	if reader == nil {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "stdout not available").WithKind(lua.Internal).WithRetryable(false))
 		return 2
 	}
 
@@ -319,17 +549,17 @@ func procStderr(l *lua.LState) int {
 		return 2
 	}
 
-	reader := handle.Stderr()
-	if reader == nil {
-		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "stderr not available").WithKind(lua.Internal).WithRetryable(false))
-		return 2
-	}
-
 	table := resource.GetTable(ctx)
 	if table == nil {
 		l.Push(lua.LNil)
 		l.Push(lua.NewLuaError(l, "resource table not available").WithKind(lua.Internal).WithRetryable(false))
+		return 2
+	}
+
+	reader := handle.Stderr()
+	if reader == nil {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "stderr not available").WithKind(lua.Internal).WithRetryable(false))
 		return 2
 	}
 
@@ -354,39 +584,7 @@ func procClose(l *lua.LState) int {
 		forceStop = l.ToBool(2)
 	}
 
-	p.mu.Lock()
-	if p.closed {
-		p.mu.Unlock()
-		l.Push(lua.LTrue)
-		l.Push(lua.LNil)
-		return 2
-	}
-	p.closed = true
-	handle := p.handle
-	p.handle = nil
-	started := p.started
-	cancel := p.cancelCleanup
-	p.cancelCleanup = nil
-	p.mu.Unlock()
-
-	if cancel != nil {
-		cancel()
-	}
-
-	if handle != nil {
-		sig := syscall.SIGTERM
-		if forceStop {
-			sig = syscall.SIGKILL
-		}
-		_ = handle.Signal(int(sig))
-
-		// Only a started process has an OS child to reap; waiting on one that
-		// never ran would just report that. Signaling is left unconditional so
-		// close() behaves exactly as it did before.
-		if started {
-			go reapReleased(handle, forceStop)
-		}
-	}
+	p.close(forceStop)
 
 	l.Push(lua.LTrue)
 	l.Push(lua.LNil)

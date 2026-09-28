@@ -72,7 +72,7 @@ func digestDirectoryTreeFiltered(root string, excluded func(string) bool) (strin
 		}
 		mode := info.Mode()
 		if mode&os.ModeSymlink != 0 {
-			return fmt.Errorf("module tree contains symlink %q", rel)
+			return NewModuleTreeError(fmt.Sprintf("module tree contains symlink %q", rel), rel)
 		}
 		switch {
 		case mode.IsDir():
@@ -97,7 +97,7 @@ func digestDirectoryTreeFiltered(root string, excluded func(string) bool) (strin
 			total += uint64(info.Size())
 			return nil
 		default:
-			return fmt.Errorf("module tree contains unsupported file type %q (%s)", rel, mode.Type())
+			return NewModuleTreeError(fmt.Sprintf("module tree contains unsupported file type %q (%s)", rel, mode.Type()), rel)
 		}
 	})
 	if err != nil {

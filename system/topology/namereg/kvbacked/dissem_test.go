@@ -8,7 +8,6 @@ import (
 	"time"
 
 	globalapi "github.com/wippyai/runtime/api/topology/namereg/global"
-	"github.com/wippyai/runtime/system/eventbus"
 	systemkv "github.com/wippyai/runtime/system/kv"
 	"github.com/wippyai/runtime/system/topology/namereg/global"
 	"go.uber.org/zap"
@@ -16,7 +15,7 @@ import (
 
 func newDissemReg(t *testing.T, node string) (*Service, *global.Dissem) {
 	t.Helper()
-	eng := systemkv.NewService(node, eventbus.NewBus(), nil)
+	eng := systemkv.NewService(node, nil)
 	if _, err := eng.Start(context.Background()); err != nil {
 		t.Fatalf("engine start: %v", err)
 	}
@@ -91,7 +90,7 @@ func TestDissem_ReconcilerBroadcastsOnRegister(t *testing.T) {
 // changes. Without this, non-member/client lookups can miss stable names until
 // another write happens.
 func TestDissem_ReconcilerSeedsExistingActive(t *testing.T) {
-	eng := systemkv.NewService("A", eventbus.NewBus(), nil)
+	eng := systemkv.NewService("A", nil)
 	if _, err := eng.Start(context.Background()); err != nil {
 		t.Fatalf("engine start: %v", err)
 	}

@@ -92,7 +92,7 @@ func NewRegistryHandler(kinds registry.Kind, listener registry.EntryListener) ev
 			return nil
 		},
 	)
-	return &transactionAwareHandler{inner: inner, transactionParticipantID: txParticipantID}
+	return &transactionAwareHandler{inner: inner, replyKinds: w, transactionParticipantID: txParticipantID}
 }
 
 func accept(ctx context.Context, bus event.Bus, id registry.ID) {
@@ -156,8 +156,17 @@ func NewTransactionHandler(listener registry.TransactionListener) eventbus.Event
 }
 
 type transactionAwareHandler struct {
-	inner                    eventbus.EventHandler
+	inner eventbus.EventHandler
+	// replyKinds matches the entry kinds this handler answers. A
+	// transaction-only handler leaves it nil: it never replies to an entry
+	// operation.
+	replyKinds               *wildcard.Wildcard
 	transactionParticipantID string
+}
+
+// HandlesKind implements registry.KindHandler.
+func (h *transactionAwareHandler) HandlesKind(kind registry.Kind) bool {
+	return h.replyKinds != nil && h.replyKinds.Match(kind)
 }
 
 func (h *transactionAwareHandler) Pattern() eventbus.Pattern {

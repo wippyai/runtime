@@ -83,13 +83,17 @@ func TestLuaSeesRealRunningSourceAndItsChanges(t *testing.T) {
 	supCtx, supCancel := context.WithCancel(context.Background())
 	defer supCancel()
 	require.NoError(t, sup.Start(supCtx))
+	defer func() {
+		stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		require.NoError(t, sup.StopContext(stopCtx))
+	}()
 
 	manager := &Manager{
-		bus:        bus,
-		log:        zap.NewNop(),
-		sources:    map[registry.ID]*Source{},
-		infos:      map[registry.ID]cdcapi.SourceInfo{},
-		infosByKey: map[string]registry.ID{},
+		bus:     bus,
+		log:     zap.NewNop(),
+		sources: map[registry.ID]*Source{},
+		infos:   map[registry.ID]cdcapi.SourceInfo{},
 	}
 
 	entryID := registry.NewID("test", "cdc-lua-e2e")
@@ -100,7 +104,7 @@ func TestLuaSeesRealRunningSourceAndItsChanges(t *testing.T) {
 	}
 	src = NewSource(SourceOptions{
 		ReplDSN: repl, AdminDSN: admin, Slot: luaSlot, Publication: "wippy_cdc_pub",
-		Name: entryID.String(), StandbyInterval: 200 * time.Millisecond, StatusInterval: time.Hour,
+		Name: entryID.String(), Streaming: true, StandbyInterval: 200 * time.Millisecond, StatusInterval: time.Hour,
 	})
 	manager.sources[entryID] = src
 	manager.storeInfo(registry.Entry{ID: entryID, Kind: cdcapi.Postgres}, cfg)
@@ -162,11 +166,11 @@ local function main()
     if r.publication ~= "wippy_cdc_pub" then return nil, "wrong publication: " .. tostring(r.publication) end
     if r.streaming ~= true then return nil, "expected streaming=true" end
 
-    local by_slot, source_err = cdc.source("` + luaSlot + `")
+    local by_slot, source_err = cdc.source("` + entryID.String() + `")
     if source_err ~= nil then return nil, "source error: " .. tostring(source_err) end
-    if by_slot == nil then return nil, "lookup by slot returned nil" end
+    if by_slot == nil then return nil, "lookup by registry ID returned nil" end
 
-    local stream, stream_err = cdc.stream("` + luaSlot + `", {
+    local stream, stream_err = cdc.stream("` + entryID.String() + `", {
         tables = {"public.accounts"},
         ops = {"insert"},
         buffer = 8,
@@ -225,6 +229,8 @@ return { main = main }
 
 	select {
 	case <-streamer.ready:
+	case result := <-resultCh:
+		t.Fatalf("Lua exited before subscribing: error=%v value=%v", result.Error, result.Value)
 	case err := <-errCh:
 		require.NoError(t, err)
 	case <-runCtx.Done():

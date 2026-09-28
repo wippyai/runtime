@@ -54,6 +54,10 @@ func (d *Dispatcher) Start(ctx context.Context) error {
 
 // Stop shuts down the dispatcher and drains pending jobs.
 func (d *Dispatcher) Stop(_ context.Context) error {
+	// Load can succeed even when boot never reaches Start.
+	if d.cancel == nil {
+		return nil
+	}
 	d.stopOnce.Do(func() {
 		d.admitMu.Lock()
 		d.stopped = true

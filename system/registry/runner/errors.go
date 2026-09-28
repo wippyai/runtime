@@ -61,9 +61,21 @@ func NewOperationCanceledError(entryID registry.ID, kind registry.Kind, err erro
 		WithCause(err)
 }
 
-// NewEventHandlerTimeoutError creates an error when event handler times out
+// NewNoListenerError creates an error when an operation dispatches to an event
+// the bus has no subscriber for. Nothing can accept or reject it, so the runner
+// reports it at once instead of holding the operation open.
+func NewNoListenerError(entryID registry.ID, kind registry.Kind) apierror.Error {
+	return apierror.New(apierror.Unavailable, "no registry listener is subscribed for entry "+entryID.String()+" (kind: "+kind+")").
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"entry_id": entryID.String(), "kind": kind}))
+}
+
+// NewEventHandlerTimeoutError creates an error when an operation exceeds the
+// configured registry.event_wait_timeout cap. A missing listener is detected
+// separately and reports NewNoListenerError, so reaching this point means a
+// subscribed handler held the operation past the cap.
 func NewEventHandlerTimeoutError(timeout time.Duration, entryID registry.ID, kind registry.Kind) apierror.Error {
-	return apierror.New(apierror.Timeout, "event handler timeout after "+timeout.String()+" for entry "+entryID.String()+" (kind: "+kind+"): no listener responded - check if listener is registered for this kind").
+	return apierror.New(apierror.Timeout, "event handler timeout after "+timeout.String()+" for entry "+entryID.String()+" (kind: "+kind+"): the subscribed handler did not accept or reject within the configured registry.event_wait_timeout").
 		WithRetryable(apierror.True).
 		WithDetails(attrs.NewBagFrom(map[string]any{"timeout": timeout.String(), "entry_id": entryID.String(), "kind": kind}))
 }

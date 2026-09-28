@@ -67,7 +67,7 @@ func newEventualNode(ctx context.Context, t *testing.T, name string, join ...str
 }
 
 func (n *eNode) addr() string {
-	ln := n.m.memberlist.LocalNode()
+	ln := n.m.memberlist.Load().LocalNode()
 	return fmt.Sprintf("%s:%d", ln.Addr, ln.Port)
 }
 
@@ -82,7 +82,7 @@ func waitMembers(t *testing.T, d time.Duration, want int, nodes ...*eNode) {
 	for time.Now().Before(deadline) {
 		ok := true
 		for _, n := range nodes {
-			if n.m.memberlist.NumMembers() < want {
+			if n.m.memberlist.Load().NumMembers() < want {
 				ok = false
 				break
 			}
@@ -93,7 +93,7 @@ func waitMembers(t *testing.T, d time.Duration, want int, nodes ...*eNode) {
 		time.Sleep(50 * time.Millisecond)
 	}
 	for _, n := range nodes {
-		t.Logf("node %s sees %d members", n.m.config.NodeName, n.m.memberlist.NumMembers())
+		t.Logf("node %s sees %d members", n.m.config.NodeName, n.m.memberlist.Load().NumMembers())
 	}
 	t.Fatalf("membership did not converge to %d", want)
 }

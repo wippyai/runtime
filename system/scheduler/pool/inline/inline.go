@@ -98,11 +98,23 @@ func (i *Pool) replaceProcess() error {
 
 // Send implements relay.Receiver. Routes package to target execution.
 func (i *Pool) Send(pkg *relay.Package) error {
+	return i.SendContext(context.Background(), pkg)
+}
+
+// SendContext implements relay.ContextSender. Routes package to target
+// execution while honoring cancellation before queue admission.
+func (i *Pool) SendContext(ctx context.Context, pkg *relay.Package) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	v, ok := i.active.Load(pkg.Target.UniqID)
 	if !ok {
 		return process.ErrProcessNotFound
 	}
-	return v.(*pool.Executor).Send(pkg)
+	return v.(*pool.Executor).SendContext(ctx, pkg)
 }
 
 // Start is a no-op for inline execution.

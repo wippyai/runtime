@@ -2,17 +2,94 @@
 
 package cdc
 
-import "context"
+import (
+	"context"
+
+	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/registry"
+)
+
+// SourceState is the driver-neutral lifecycle state exposed by a CDC source.
+// Driver-specific health details remain in SourceInfo.Error and the legacy
+// compatibility fields below.
+type SourceState string
+
+const (
+	SourceStateUnknown  SourceState = "unknown"
+	SourceStateStarting SourceState = "starting"
+	SourceStateRunning  SourceState = "running"
+	SourceStateFaulted  SourceState = "faulted"
+	SourceStateStopped  SourceState = "stopped"
+)
+
+// Capabilities describes guarantees provided by a source. The common API does
+// not infer PostgreSQL or SQLite semantics from the source kind.
+type Capabilities struct {
+	Snapshot bool `json:"snapshot,omitempty"`
+	// CaptureResume describes source progress across reconnects, not durable
+	// delivery or replay for individual subscribers.
+	CaptureResume          bool `json:"capture_resume,omitempty"`
+	Replayable             bool `json:"replayable,omitempty"`
+	CapturesExternalWrites bool `json:"captures_external_writes,omitempty"`
+	BeforeImages           bool `json:"before_images,omitempty"`
+	Coalesced              bool `json:"coalesced,omitempty"`
+}
+
+// Stream is the driver-neutral event stream. Err reports the terminal cause
+// after Changes is closed; a normal caller-initiated Close has a nil error.
+// Keeping the terminal state on the stream avoids synthesizing an
+// error-valued change row and gives every registry-backed source the same
+// failure contract.
+type Stream interface {
+	Changes() <-chan Change
+	Close()
+	Err() error
+}
+
+// ErrStream is retained as a deprecated compatibility alias. Stream now
+// requires Err directly; ChangeStream below remains the legacy stream shape
+// used by pre-registry SourceStreamer implementations.
+type ErrStream = Stream
+
+// Source is the common source contract implemented by every CDC driver.
+// Subscribe receives a context so a source can bind snapshot work to the
+// caller's lifetime. A source that supports startup snapshot handoff may
+// accept subscriptions while it is idle or starting; sources that cannot
+// establish that handoff return ErrSourceNotReady until they are running.
+type Source interface {
+	Info() SourceInfo
+	Subscribe(context.Context, StreamOptions) (Stream, error)
+}
+
+// Registry is the read-only system-level CDC registry exposed to services and
+// runtimes. Registry IDs, rather than driver aliases such as PostgreSQL slots,
+// are the only global identity.
+type Registry interface {
+	List() []SourceInfo
+	Get(registry.ID) (Source, bool)
+}
 
 type SourceInfo struct {
-	Name        string   `json:"name"`
-	Slot        string   `json:"slot"`
-	Publication string   `json:"publication,omitempty"`
-	Tables      []string `json:"tables,omitempty"`
-	Streaming   bool     `json:"streaming,omitempty"`
-	Failover    bool     `json:"failover,omitempty"`
-	Temporary   bool     `json:"temporary,omitempty"`
-	Snapshot    bool     `json:"snapshot,omitempty"`
+	ID           registry.ID       `json:"id,omitempty"`
+	State        SourceState       `json:"state,omitempty"`
+	Kind         registry.Kind     `json:"kind,omitempty"`
+	DBResource   string            `json:"db_resource,omitempty"`
+	Generation   string            `json:"generation,omitempty"`
+	File         string            `json:"file,omitempty"`
+	Error        string            `json:"error,omitempty"`
+	Engine       string            `json:"engine,omitempty"`
+	Epoch        string            `json:"epoch,omitempty"`
+	Publication  string            `json:"publication,omitempty"`
+	Name         string            `json:"name"`
+	Slot         string            `json:"slot"`
+	Tables       []string          `json:"tables,omitempty"`
+	Admission    SubscriptionStats `json:"admission"`
+	Capabilities Capabilities      `json:"capabilities,omitempty"`
+	Faulted      bool              `json:"faulted,omitempty"`
+	Temporary    bool              `json:"temporary,omitempty"`
+	Failover     bool              `json:"failover,omitempty"`
+	Streaming    bool              `json:"streaming,omitempty"`
+	Snapshot     bool              `json:"snapshot,omitempty"`
 }
 
 type SourceInspector interface {
@@ -45,4 +122,33 @@ func WithSourceStreamer(ctx context.Context, streamer SourceStreamer) context.Co
 func GetSourceStreamer(ctx context.Context) SourceStreamer {
 	v, _ := ctx.Value(sourceStreamerKey{}).(SourceStreamer)
 	return v
+}
+
+var registryKey = &ctxapi.Key{Name: "cdc.registry"}
+
+// WithRegistry attaches the driver-neutral CDC registry to the application
+// context. Like the network and resource APIs, this is a write-once boot
+// dependency and is safe to read after the application context is sealed.
+func WithRegistry(ctx context.Context, registry Registry) context.Context {
+	if registry == nil {
+		return ctx
+	}
+	ac := ctxapi.AppFromContext(ctx)
+	if ac == nil {
+		return ctx
+	}
+	if ac.Get(registryKey) == nil {
+		ac.With(registryKey, registry)
+	}
+	return ctx
+}
+
+// GetRegistry retrieves the system CDC registry from the application context.
+func GetRegistry(ctx context.Context) Registry {
+	ac := ctxapi.AppFromContext(ctx)
+	if ac == nil {
+		return nil
+	}
+	registry, _ := ac.Get(registryKey).(Registry)
+	return registry
 }

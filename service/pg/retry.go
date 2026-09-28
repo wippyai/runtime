@@ -5,6 +5,7 @@ package pg
 import (
 	"container/heap"
 	"context"
+	"errors"
 	"sync"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/relay"
 	pgapi "github.com/wippyai/runtime/api/service/pg"
+	"github.com/wippyai/runtime/cluster/internode"
 	"go.uber.org/zap"
 )
 
@@ -294,6 +296,10 @@ func (rq *retryQueue) attemptRetry(entry *retryEntry) {
 			zap.Uint64("id", entry.id),
 			zap.Int("attempts", entry.attempts+1),
 		)
+		return
+	}
+
+	if errors.Is(err, internode.ErrNodeNotManaged) {
 		return
 	}
 

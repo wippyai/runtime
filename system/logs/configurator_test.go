@@ -60,6 +60,8 @@ func (t *testConfigBus) SubscribeP(ctx context.Context, system event.System, kin
 	return "test", nil
 }
 
+func (*testConfigBus) HasSubscribers(event.System, event.Kind) bool { return true }
+
 func (t *testConfigBus) Unsubscribe(_ context.Context, _ event.SubscriberID) {}
 
 func (t *testConfigBus) Send(_ context.Context, evt event.Event) {

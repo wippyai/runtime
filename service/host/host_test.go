@@ -24,6 +24,7 @@ import (
 	hostapi "github.com/wippyai/runtime/api/service/host"
 	"github.com/wippyai/runtime/api/topology"
 	"github.com/wippyai/runtime/internal/uniqid"
+	relaysys "github.com/wippyai/runtime/system/relay"
 	"github.com/wippyai/runtime/system/scheduler/actor"
 	securitysys "github.com/wippyai/runtime/system/security"
 	"go.uber.org/zap"
@@ -50,6 +51,7 @@ func namedOptions(name string) attrs.Bag {
 type mockProcess struct {
 	initErr  error
 	stepFunc func([]process.Event, *process.StepOutput) error
+	closed   atomic.Bool
 }
 
 func (m *mockProcess) Init(_ context.Context, _ string, _ payload.Payloads) error {
@@ -64,7 +66,9 @@ func (m *mockProcess) Step(events []process.Event, out *process.StepOutput) erro
 	return nil
 }
 
-func (m *mockProcess) Close() {}
+func (m *mockProcess) Close() {
+	m.closed.Store(true)
+}
 
 // mockFactory implements process.Factory for testing.
 type mockFactory struct {
@@ -378,6 +382,76 @@ func TestHost_RunShortcutExistingProcess(t *testing.T) {
 	assert.Equal(t, int32(0), th.factory.called.Load()) // factory not called
 }
 
+func TestHostRunShortcutReleasesUnconsumedFrameAttachments(t *testing.T) {
+	existingPID := pid.PID{Node: "test", Host: "test:host", UniqID: "existing-attachment"}
+	th := newTestHost()
+	th.pidReg.pids["my-service"] = existingPID
+	th.start(t)
+	defer th.stop()
+	closed := 0
+	attachment := &testHostAttachment{closed: &closed}
+
+	resultPID, err := th.host.Run(ctxWithAppContext(), &process.Start{
+		Source:  registry.NewID("test", "proc"),
+		Options: namedOptions("my-service"),
+		Context: []ctxapi.Pair{{Key: "attachment", Value: attachment}},
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, existingPID, resultPID)
+	require.Equal(t, 1, closed)
+}
+
+type testHostAttachment struct {
+	closed *int
+	err    error
+	once   sync.Once
+}
+
+func (a *testHostAttachment) release() error {
+	a.once.Do(func() { *a.closed++ })
+	return a.err
+}
+func (a *testHostAttachment) Close() error    { return a.release() }
+func (a *testHostAttachment) Rollback() error { return a.release() }
+
+func TestHostRunShortcutReportsAttachmentRollbackFailure(t *testing.T) {
+	existingPID := pid.PID{Node: "test", Host: "test:host", UniqID: "existing-attachment-error"}
+	th := newTestHost()
+	th.pidReg.pids["my-service"] = existingPID
+	th.start(t)
+	defer th.stop()
+	rollbackErr := errors.New("rollback failed")
+	closed := 0
+
+	resultPID, err := th.host.Run(ctxWithAppContext(), &process.Start{
+		Source:  registry.NewID("test", "proc"),
+		Options: namedOptions("my-service"),
+		Context: []ctxapi.Pair{{Key: "attachment", Value: &testHostAttachment{
+			closed: &closed, err: rollbackErr,
+		}}},
+	})
+
+	require.Equal(t, existingPID, resultPID)
+	require.ErrorIs(t, err, rollbackErr)
+	require.Equal(t, 1, closed)
+}
+
+func TestHostHandleNameTakenRollsBackUnconsumedAttachments(t *testing.T) {
+	th := newTestHost()
+	closed := 0
+	start := &process.Start{
+		Options: namedOptions("contended-service"),
+		Context: []ctxapi.Pair{{Key: "attachment", Value: &testHostAttachment{closed: &closed}}},
+	}
+	existingPID := pid.PID{Node: "test", Host: "test:host", UniqID: "winner"}
+
+	resultPID, err := th.host.handleNameTaken(existingPID, start)
+	require.NoError(t, err)
+	require.Equal(t, existingPID, resultPID)
+	require.Equal(t, 1, closed)
+}
+
 func TestHost_RunShortcutWithMessages(t *testing.T) {
 	existingPID := pid.PID{Node: "test", Host: "test:host", UniqID: "existing-456"}
 	th := newTestHost()
@@ -534,7 +608,8 @@ func TestHost_Send(t *testing.T) {
 
 func TestHost_SendShuttingDown(t *testing.T) {
 	th := newTestHost()
-	th.host.shutdown.Store(true)
+	th.start(t)
+	th.stop()
 
 	err := th.host.Send(&relay.Package{})
 	assert.ErrorIs(t, err, ErrHostShuttingDown)
@@ -692,6 +767,81 @@ func TestHost_SendMessagesEmpty(t *testing.T) {
 	th.host.sendMessages(target, nil)
 }
 
+type contextMessageProcess struct {
+	ready     chan struct{}
+	received  chan struct{}
+	readyOnce sync.Once
+	recvOnce  sync.Once
+}
+
+func (p *contextMessageProcess) Init(context.Context, string, payload.Payloads) error { return nil }
+
+func (p *contextMessageProcess) Step(events []process.Event, out *process.StepOutput) error {
+	p.readyOnce.Do(func() { close(p.ready) })
+	for _, event := range events {
+		if event.Type != process.EventMessage {
+			continue
+		}
+		pkg, ok := event.Data.(*relay.Package)
+		if !ok {
+			continue
+		}
+		relay.ReleasePackage(pkg)
+		p.recvOnce.Do(func() { close(p.received) })
+		out.Done(nil)
+		return nil
+	}
+	out.Idle()
+	return nil
+}
+
+func (p *contextMessageProcess) Close() {}
+
+func TestHostSendContextThroughLocalNode(t *testing.T) {
+	th := newTestHost()
+	th.start(t)
+	defer th.stop()
+
+	processID := pid.PID{Node: "test-node", Host: "test:host", UniqID: "context-send"}
+	processID = processID.Precomputed()
+	proc := &contextMessageProcess{ready: make(chan struct{}), received: make(chan struct{})}
+	_, err := th.scheduler.Submit(context.Background(), processID, proc, "", nil)
+	require.NoError(t, err)
+	select {
+	case <-proc.ready:
+	case <-time.After(time.Second):
+		t.Fatal("process did not reach idle state")
+	}
+
+	node := relaysys.NewNode("test-node")
+	require.NoError(t, node.RegisterHost("test:host", th.host))
+	pkg := relay.NewPackage(pid.PID{}, processID, "context", payload.New("value"))
+	require.NoError(t, node.SendContext(context.Background(), pkg))
+	select {
+	case <-proc.received:
+	case <-time.After(time.Second):
+		t.Fatal("local host did not receive cancellable delivery")
+	}
+}
+
+func TestHostSendContextRejectsUnknownAndCanceledDelivery(t *testing.T) {
+	h := newTestHost()
+	h.start(t)
+	defer h.stop()
+
+	unknown := relay.NewPackage(pid.PID{}, pid.PID{Host: "test:host", UniqID: "missing"}, "context", payload.New("value"))
+	err := h.host.SendContext(context.Background(), unknown)
+	require.ErrorIs(t, err, process.ErrProcessNotFound)
+	relay.ReleasePackage(unknown)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	canceled := relay.NewPackage(pid.PID{}, pid.PID{Host: "test:host", UniqID: "missing"}, "context", payload.New("value"))
+	err = h.host.SendContext(ctx, canceled)
+	require.ErrorIs(t, err, context.Canceled)
+	relay.ReleasePackage(canceled)
+}
+
 // --- Concurrent Operation Tests ---
 
 func TestHost_ConcurrentRun(t *testing.T) {
@@ -822,8 +972,236 @@ func TestHost_RunAppliesEntrySecurity(t *testing.T) {
 	assert.True(t, gotScope.Contains(launchPolicy.ID()), "launch policy must be preserved")
 }
 
+func TestHost_Run_WorkerClassPlacement(t *testing.T) {
+	t.Run("incompatible WASM spawn rejected and process closed", func(t *testing.T) {
+		proc := &mockProcess{}
+		factory := &mockFactory{
+			proc: proc,
+			meta: &process.Meta{WorkerClass: "wasm"},
+		}
+		th := newTestHost(func(h *testHost) {
+			h.factory = factory
+		})
+		th.host.cfg = &hostapi.EntryConfig{
+			HostConfig: hostapi.Config{WorkerClass: ""},
+		}
+		th.start(t)
+		defer th.stop()
+
+		runPID, err := th.host.Run(ctxWithAppContext(), &process.Start{
+			Source: registry.NewID("test", "wasm_actor"),
+		})
+		require.Error(t, err)
+		assert.Equal(t, pid.PID{}, runPID)
+		assert.True(t, proc.closed.Load(), "process must be closed on mismatch")
+		assert.Contains(t, err.Error(), "worker class mismatch")
+	})
+
+	t.Run("correctly classed spawn accepted", func(t *testing.T) {
+		// Stay alive until host shutdown: a mock that immediately completes
+		// may legitimately close before Run returns on a fast scheduler.
+		proc := &mockProcess{stepFunc: func(_ []process.Event, out *process.StepOutput) error {
+			out.Idle()
+			return nil
+		}}
+		factory := &mockFactory{
+			proc: proc,
+			meta: &process.Meta{WorkerClass: "wasm"},
+		}
+		th := newTestHost(func(h *testHost) {
+			h.factory = factory
+		})
+		th.host.cfg = &hostapi.EntryConfig{
+			HostConfig: hostapi.Config{WorkerClass: "wasm"},
+		}
+		th.start(t)
+		defer th.stop()
+
+		runPID, err := th.host.Run(ctxWithAppContext(), &process.Start{
+			Source: registry.NewID("test", "wasm_actor"),
+		})
+		require.NoError(t, err)
+		defer func() { require.NoError(t, th.host.Terminate(context.Background(), runPID)) }()
+		assert.NotEqual(t, pid.PID{}, runPID)
+		assert.False(t, proc.closed.Load(), "process must not be closed on success")
+	})
+
+	t.Run("normal Lua unaffected on default host", func(t *testing.T) {
+		// Stay alive until host shutdown: a mock that immediately completes
+		// may legitimately close before Run returns on a fast scheduler.
+		proc := &mockProcess{stepFunc: func(_ []process.Event, out *process.StepOutput) error {
+			out.Idle()
+			return nil
+		}}
+		factory := &mockFactory{
+			proc: proc,
+			meta: &process.Meta{WorkerClass: ""},
+		}
+		th := newTestHost(func(h *testHost) {
+			h.factory = factory
+		})
+		th.host.cfg = &hostapi.EntryConfig{
+			HostConfig: hostapi.Config{WorkerClass: ""},
+		}
+		th.start(t)
+		defer th.stop()
+
+		runPID, err := th.host.Run(ctxWithAppContext(), &process.Start{
+			Source: registry.NewID("test", "lua_actor"),
+		})
+		require.NoError(t, err)
+		defer func() { require.NoError(t, th.host.Terminate(context.Background(), runPID)) }()
+		assert.NotEqual(t, pid.PID{}, runPID)
+		assert.False(t, proc.closed.Load(), "process must not be closed on success")
+	})
+
+	t.Run("normal Lua rejected on WASM host and process closed", func(t *testing.T) {
+		proc := &mockProcess{}
+		factory := &mockFactory{
+			proc: proc,
+			meta: &process.Meta{WorkerClass: ""},
+		}
+		th := newTestHost(func(h *testHost) {
+			h.factory = factory
+		})
+		th.host.cfg = &hostapi.EntryConfig{
+			HostConfig: hostapi.Config{WorkerClass: "wasm"},
+		}
+		th.start(t)
+		defer th.stop()
+
+		runPID, err := th.host.Run(ctxWithAppContext(), &process.Start{
+			Source: registry.NewID("test", "lua_actor"),
+		})
+		require.Error(t, err)
+		assert.Equal(t, pid.PID{}, runPID)
+		assert.True(t, proc.closed.Load(), "process must be closed on mismatch")
+		assert.Contains(t, err.Error(), "worker class mismatch")
+	})
+
+	t.Run("malformed process class rejected and closed", func(t *testing.T) {
+		proc := &mockProcess{}
+		factory := &mockFactory{
+			proc: proc,
+			meta: &process.Meta{WorkerClass: "unsupported_class"},
+		}
+		th := newTestHost(func(h *testHost) {
+			h.factory = factory
+		})
+		th.host.cfg = &hostapi.EntryConfig{
+			HostConfig: hostapi.Config{WorkerClass: "wasm"},
+		}
+		th.start(t)
+		defer th.stop()
+
+		runPID, err := th.host.Run(ctxWithAppContext(), &process.Start{
+			Source: registry.NewID("test", "unknown_actor"),
+		})
+		require.Error(t, err)
+		assert.Equal(t, pid.PID{}, runPID)
+		assert.True(t, proc.closed.Load(), "process must be closed on mismatch")
+		assert.Contains(t, err.Error(), "worker class mismatch")
+	})
+}
+
 // --- Interface Compliance ---
 
 var _ process.Host = (*Host)(nil)
 var _ topology.PIDRegistry = (*mockPIDRegistry)(nil)
 var _ process.Lifecycle = (*mockLifecycle)(nil)
+
+// drainingProcess waits after CANCEL for one more relay delivery, as a
+// process does when its cleanup waits on a timer or a child exit.
+type drainingProcess struct {
+	cancelled chan struct{}
+	once      sync.Once
+}
+
+func (p *drainingProcess) Init(context.Context, string, payload.Payloads) error { return nil }
+
+func (p *drainingProcess) Step(events []process.Event, out *process.StepOutput) error {
+	for _, event := range events {
+		pkg, ok := event.Data.(*relay.Package)
+		if event.Type != process.EventMessage || !ok {
+			continue
+		}
+		for _, message := range pkg.Messages {
+			switch message.Topic {
+			case topology.TopicEvents:
+				p.once.Do(func() { close(p.cancelled) })
+			case "cleanup":
+				relay.ReleasePackage(pkg)
+				out.Done(nil)
+				return nil
+			}
+		}
+		relay.ReleasePackage(pkg)
+	}
+	out.Idle()
+	return nil
+}
+
+func (p *drainingProcess) Close() {}
+
+func TestHostStopDeliversToDrainingProcess(t *testing.T) {
+	th := newTestHost()
+	th.start(t)
+
+	processID := pid.PID{Node: "test-node", Host: "test:host", UniqID: "draining"}
+	processID = processID.Precomputed()
+	proc := &drainingProcess{cancelled: make(chan struct{})}
+	_, err := th.scheduler.Submit(context.Background(), processID, proc, "", nil)
+	require.NoError(t, err)
+
+	stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	stopped := make(chan error, 1)
+	go func() { stopped <- th.host.Stop(stopCtx) }()
+
+	select {
+	case <-proc.cancelled:
+	case <-time.After(time.Second):
+		t.Fatal("process did not receive CANCEL")
+	}
+	// An overlapping, idempotent Stop must not close delivery while the first
+	// call is still waiting for this process to finish cleanup.
+	require.NoError(t, th.host.Stop(stopCtx))
+	pkg := relay.NewPackage(pid.PID{}, processID, "cleanup", payload.New("tick"))
+	require.NoError(t, th.host.Send(pkg), "a draining process must keep receiving deliveries")
+
+	select {
+	case err := <-stopped:
+		require.NoError(t, err)
+		require.NoError(t, stopCtx.Err(), "drain ran into the stop deadline")
+	case <-time.After(6 * time.Second):
+		t.Fatal("host drain did not complete")
+	}
+
+	late := relay.NewPackage(pid.PID{}, processID, "cleanup", payload.New("late"))
+	require.ErrorIs(t, th.host.Send(late), ErrHostShuttingDown)
+	relay.ReleasePackage(late)
+}
+
+func TestHost_RunRacingStartUsesStartedHost(t *testing.T) {
+	th := newTestHost()
+	defer th.stop()
+
+	ran := make(chan error, 1)
+	go func() {
+		for {
+			_, err := th.host.Run(ctxWithAppContext(), &process.Start{Source: registry.NewID("test", "proc")})
+			if !errors.Is(err, ErrHostNotRunning) {
+				ran <- err
+				return
+			}
+		}
+	}()
+	th.start(t)
+
+	select {
+	case err := <-ran:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run never observed the started host")
+	}
+}

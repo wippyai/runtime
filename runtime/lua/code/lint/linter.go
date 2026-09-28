@@ -3,6 +3,8 @@
 package lint
 
 import (
+	"fmt"
+
 	"github.com/wippyai/go-lua/compiler/ast"
 	"github.com/wippyai/go-lua/compiler/cfg"
 	"github.com/wippyai/go-lua/compiler/parse"
@@ -10,6 +12,10 @@ import (
 	"github.com/wippyai/go-lua/types/io"
 	"github.com/wippyai/runtime/runtime/lua/code"
 )
+
+// internalErrorCode marks a diagnostic for a type checker or rule that
+// panicked; its message carries the panic value.
+const internalErrorCode diag.Code = 9999
 
 // Linter coordinates type checking and lint rule execution
 type Linter struct {
@@ -59,9 +65,9 @@ func (l *Linter) CheckParsedWithTypecheck(stmts []ast.Stmt, entryID string, impo
 	defer func() {
 		if r := recover(); r != nil {
 			result.Diagnostics = append(result.Diagnostics, diag.Diagnostic{
-				Code:     9999,
+				Code:     internalErrorCode,
 				Severity: diag.SeverityError,
-				Message:  "type checker internal error (skipped)",
+				Message:  fmt.Sprintf("type checker internal error (skipped): %v", r),
 				Position: diag.Position{Line: 1, Column: 1},
 			})
 		}
@@ -123,11 +129,12 @@ func (l *Linter) runRules(stmts []ast.Stmt, entryID string) []diag.Diagnostic {
 	return collector.All()
 }
 
-// runRule executes a single rule with error recovery
+// runRule executes a single rule. A rule that panics is reported as an internal
+// error, and the remaining rules still run.
 func (l *Linter) runRule(rule Rule, ctx *Context) {
 	defer func() {
 		if r := recover(); r != nil {
-			_ = r
+			ctx.Collector.Add(ctx.AST[0], internalErrorCode, "lint rule %s internal error (skipped): %v", rule.Meta().Name, r)
 		}
 	}()
 

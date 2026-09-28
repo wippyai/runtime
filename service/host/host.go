@@ -10,7 +10,9 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/wippyai/runtime/api/attrs"
 	ctxapi "github.com/wippyai/runtime/api/context"
+	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/registry"
@@ -48,6 +50,7 @@ type Host struct {
 	lifecycleMu     sync.Mutex
 	running         atomic.Bool
 	shutdown        atomic.Bool
+	drained         atomic.Bool
 }
 
 // NewHost creates a new host with actor scheduler.
@@ -83,6 +86,9 @@ func (h *Host) Run(ctx context.Context, start *process.Start) (pid.PID, error) {
 	// Shortcut: if name specified and already exists, route directly to existing process
 	if processName != "" && h.pidReg != nil {
 		if existingPID, ok := h.pidReg.Lookup(processName); ok {
+			if err := rollbackUnconsumedAttachments(start.Context); err != nil {
+				return existingPID, err
+			}
 			if len(start.Messages) > 0 {
 				h.sendMessages(existingPID, start.Messages)
 			}
@@ -96,6 +102,19 @@ func (h *Host) Run(ctx context.Context, start *process.Start) (pid.PID, error) {
 	proc, meta, err := h.factory.Create(start.Source)
 	if err != nil {
 		return pid.PID{}, err
+	}
+
+	var reqClass string
+	if meta != nil {
+		reqClass = meta.WorkerClass
+	}
+	var hostClass string
+	if h.cfg != nil {
+		hostClass = h.cfg.HostConfig.WorkerClass
+	}
+	if !matchWorkerClass(hostClass, reqClass) {
+		proc.Close()
+		return pid.PID{}, NewWorkerClassMismatchError(reqClass, hostClass)
 	}
 
 	processID := h.preparePID(ctx, start)
@@ -146,9 +165,22 @@ func (h *Host) Run(ctx context.Context, start *process.Start) (pid.PID, error) {
 	return processID, nil
 }
 
+func rollbackUnconsumedAttachments(pairs []ctxapi.Pair) error {
+	var result error
+	for index := len(pairs) - 1; index >= 0; index-- {
+		if attachment, ok := pairs[index].Value.(ctxapi.FrameAttachment); ok {
+			result = errors.Join(result, attachment.Rollback())
+		}
+	}
+	return result
+}
+
 // handleNameTaken routes messages to existing process when name is already taken.
 func (h *Host) handleNameTaken(existingPID pid.PID, start *process.Start) (pid.PID, error) {
 	name := processName(start)
+	if err := rollbackUnconsumedAttachments(start.Context); err != nil {
+		return existingPID, err
+	}
 
 	if len(start.Messages) > 0 {
 		h.sendMessages(existingPID, start.Messages)
@@ -172,6 +204,7 @@ func processName(start *process.Start) string {
 func (h *Host) sendMessages(target pid.PID, messages []*relay.Message) {
 	pkg := relay.NewMessagePackage(pid.PID{}, target, messages...)
 	if err := h.scheduler.Send(pkg); err != nil {
+		relay.ReleasePackage(pkg)
 		h.log.Warn("failed to send messages",
 			zap.String("target", target.String()),
 			zap.Error(err))
@@ -184,12 +217,29 @@ func (h *Host) Terminate(_ context.Context, processID pid.PID) error {
 	return h.scheduler.Terminate(processID)
 }
 
+func (h *Host) AcceptsFrameAttachments() bool { return true }
+
 // Send implements relay.Receiver.
 func (h *Host) Send(pkg *relay.Package) error {
-	if h.shutdown.Load() {
+	return h.SendContext(context.Background(), pkg)
+}
+
+// SendContext implements relay.ContextSender. The actor scheduler admits
+// messages without a blocking goroutine, so cancellation can stop a relay
+// directly at the host boundary. Deliveries stay open while Stop drains the
+// scheduler: a cancelled process still receives the timers, child exits and
+// replies its cleanup waits on.
+func (h *Host) SendContext(ctx context.Context, pkg *relay.Package) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if h.drained.Load() {
 		return ErrHostShuttingDown
 	}
-	return h.scheduler.Send(pkg)
+	return h.scheduler.SendContext(ctx, pkg)
 }
 
 // Start implements supervisor.Service.
@@ -199,12 +249,15 @@ func (h *Host) Start(ctx context.Context) (<-chan any, error) {
 	if h.shutdown.Load() {
 		return nil, ErrHostShuttingDown
 	}
-	if h.running.Swap(true) {
+	if h.running.Load() {
 		return nil, ErrHostAlreadyRunning
 	}
 
+	// Run reads ctx and submits to the scheduler once running is observed,
+	// so running is published only after both are ready.
 	h.ctx = ctx
 	h.scheduler.Start()
+	h.running.Store(true)
 
 	h.log.Info("host started", zap.String("id", h.id.String()))
 	return nil, nil //nolint:nilnil // nil channel is valid - no result stream
@@ -214,19 +267,25 @@ func (h *Host) Start(ctx context.Context) (<-chan any, error) {
 func (h *Host) Stop(ctx context.Context) error {
 	h.lifecycleMu.Lock()
 	wasRunning := h.running.Swap(false)
-	h.shutdown.Store(true)
+	alreadyShutdown := h.shutdown.Swap(true)
 	h.lifecycleMu.Unlock()
 
 	// Publish the terminal host state before draining the scheduler. Draining
 	// may wait for a process step or invoke lifecycle callbacks; Start and live
 	// Update must reject during that wait instead of blocking behind it.
 	if !wasRunning {
+		// A second Stop can arrive while the first is still draining. Only a
+		// first Stop of a never-started host may close delivery here.
+		if !alreadyShutdown {
+			h.drained.Store(true)
+		}
 		return nil
 	}
 
 	h.log.Info("host stopping", zap.String("id", h.id.String()))
 
 	h.scheduler.Stop(ctx)
+	h.drained.Store(true)
 
 	h.log.Info("host stopped", zap.String("id", h.id.String()))
 	return nil
@@ -265,6 +324,36 @@ func (h *Host) OnComplete(ctx context.Context, _ pid.PID, _ *runtime.Result) {
 	if fc := ctxapi.FrameFromContext(ctx); fc != nil {
 		ctxapi.ReleaseFrameContext(fc)
 	}
+}
+
+// Config returns the host configuration entry.
+func (h *Host) Config() *hostapi.EntryConfig { return h.cfg }
+
+// AffinityManaged reports whether the host scheduler workers are managed by CPU affinity.
+func (h *Host) AffinityManaged() bool { return h.affinityManaged }
+
+// Scheduler returns the host's underlying actor scheduler.
+func (h *Host) Scheduler() *actor.Scheduler { return h.scheduler }
+
+func matchWorkerClass(hostClass, procClass string) bool {
+	normHost := hostClass
+	if normHost == hostapi.WorkerClassDefault || normHost == hostapi.WorkerClassActor {
+		normHost = hostapi.WorkerClassActor
+	}
+	normProc := procClass
+	if normProc == hostapi.WorkerClassDefault || normProc == hostapi.WorkerClassActor {
+		normProc = hostapi.WorkerClassActor
+	}
+	return normHost == normProc
+}
+
+func NewWorkerClassMismatchError(required, actual string) apierror.Error {
+	return apierror.New(apierror.Invalid, fmt.Sprintf("worker class mismatch: process requires %q, host configured for %q", required, actual)).
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{
+			"required": required,
+			"actual":   actual,
+		}))
 }
 
 var _ process.Host = (*Host)(nil)

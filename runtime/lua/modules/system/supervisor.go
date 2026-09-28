@@ -14,7 +14,7 @@ import (
 func supervisorState(l *lua.LState) int {
 	if !security.IsAllowed(l.Context(), "system.read", "supervisor", nil) {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "permission denied: system.read on supervisor").WithKind(lua.Invalid).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "permission denied: system.read on supervisor").WithKind(lua.PermissionDenied).WithRetryable(false))
 		return 2
 	}
 
@@ -59,7 +59,7 @@ func supervisorState(l *lua.LState) int {
 func supervisorStates(l *lua.LState) int {
 	if !security.IsAllowed(l.Context(), "system.read", "supervisor", nil) {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "permission denied: system.read on supervisor").WithKind(lua.Invalid).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "permission denied: system.read on supervisor").WithKind(lua.PermissionDenied).WithRetryable(false))
 		return 2
 	}
 

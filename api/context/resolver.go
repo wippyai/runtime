@@ -51,12 +51,41 @@ type frameResolverEntry struct {
 // Resolve still fails closed when the options bag contains a globally claimed
 // frame option that no registered resolver covers.
 type FrameResolvers struct {
-	snapshot atomic.Pointer[[]frameResolverEntry]
-	mu       sync.Mutex // guards Register's copy-on-write
+	snapshot      atomic.Pointer[[]frameResolverEntry]
+	claimSnapshot atomic.Pointer[map[string]FrameResolverClaim]
+	mu            sync.Mutex // guards registration copy-on-write
 }
 
 // NewFrameResolvers returns an empty registry.
 func NewFrameResolvers() *FrameResolvers { return &FrameResolvers{} }
+
+// RegisterClaim reserves a frame option on this resolver registry. Claims are
+// installed by the boot composition root so subsystem packages do not need
+// import-time registration. A selected claim without a covering resolver makes
+// Resolve fail closed.
+func (r *FrameResolvers) RegisterClaim(name string, selected FrameResolverClaim) error {
+	if name == "" {
+		return errors.New("frame resolver claim name cannot be empty")
+	}
+	if selected == nil {
+		return fmt.Errorf("frame resolver claim %q: nil function", name)
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	next := map[string]FrameResolverClaim{name: selected}
+	if current := r.claimSnapshot.Load(); current != nil {
+		next = make(map[string]FrameResolverClaim, len(*current)+1)
+		for key, claim := range *current {
+			if key == name {
+				return fmt.Errorf("frame resolver claim %q already registered", name)
+			}
+			next[key] = claim
+		}
+		next[name] = selected
+	}
+	r.claimSnapshot.Store(&next)
+	return nil
+}
 
 // RegisterFrameResolverClaim claims a frame-context selection. If selected
 // returns true during dispatch but no resolver registered for this name, Resolve
@@ -139,27 +168,38 @@ func (r *FrameResolvers) Register(name string, order int, fn FrameResolver, clai
 // atomically.
 func (r *FrameResolvers) Resolve(ctx context.Context, options attrs.Attributes, pairs []Pair) ([]Pair, error) {
 	if r == nil {
-		return pairs, validateFrameResolverClaims(ctx, options, nil)
+		return pairs, validateFrameResolverClaims(ctx, options, nil, nil)
 	}
 	cur := r.snapshot.Load()
 	if cur == nil {
-		return pairs, validateFrameResolverClaims(ctx, options, nil)
+		return pairs, validateFrameResolverClaims(ctx, options, nil, r.claimSnapshot.Load())
 	}
-	if err := validateFrameResolverClaims(ctx, options, *cur); err != nil {
+	if err := validateFrameResolverClaims(ctx, options, *cur, r.claimSnapshot.Load()); err != nil {
 		return nil, err
 	}
+	base := len(pairs)
 	for _, e := range *cur {
 		got, err := e.fn(ctx, options)
 		if err != nil {
-			return nil, fmt.Errorf("frame resolver %q: %w", e.name, err)
+			rollbackErr := errors.Join(
+				rollbackFramePairs(got),
+				rollbackFramePairs(pairs[base:]),
+			)
+			return nil, fmt.Errorf("frame resolver %q: %w", e.name, errors.Join(err, rollbackErr))
 		}
 		pairs = append(pairs, got...)
 	}
 	return pairs, nil
 }
 
-func validateFrameResolverClaims(ctx context.Context, options attrs.Attributes, entries []frameResolverEntry) error {
-	claims := frameClaims.Load()
+func validateFrameResolverClaims(ctx context.Context, options attrs.Attributes, entries []frameResolverEntry, local *map[string]FrameResolverClaim) error {
+	if err := validateClaimSet(ctx, options, entries, local); err != nil {
+		return err
+	}
+	return validateClaimSet(ctx, options, entries, frameClaims.Load())
+}
+
+func validateClaimSet(ctx context.Context, options attrs.Attributes, entries []frameResolverEntry, claims *map[string]FrameResolverClaim) error {
 	if claims == nil {
 		return nil
 	}
@@ -173,6 +213,16 @@ func validateFrameResolverClaims(ctx context.Context, options attrs.Attributes, 
 		return fmt.Errorf("%w for %q", ErrFrameResolverNotRegistered, name)
 	}
 	return nil
+}
+
+func rollbackFramePairs(pairs []Pair) error {
+	var result error
+	for index := len(pairs) - 1; index >= 0; index-- {
+		if attachment, ok := pairs[index].Value.(FrameAttachment); ok {
+			result = errors.Join(result, attachment.Rollback())
+		}
+	}
+	return result
 }
 
 func frameResolverClaimCovered(entries []frameResolverEntry, name string) bool {

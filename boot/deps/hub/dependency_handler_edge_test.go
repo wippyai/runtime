@@ -269,37 +269,6 @@ func TestParseExpectedDigest_EmptyValue(t *testing.T) {
 	assert.Error(t, err)
 }
 
-// --- unwrapPayloadData ---
-
-func TestUnwrapPayloadData_NonMap(t *testing.T) {
-	assert.Equal(t, "hello", unwrapPayloadData("hello"))
-	assert.Equal(t, 42, unwrapPayloadData(42))
-	assert.Nil(t, unwrapPayloadData(nil))
-}
-
-func TestUnwrapPayloadData_MapWithoutDataFormat(t *testing.T) {
-	m := map[string]any{"key": "value"}
-	assert.Equal(t, m, unwrapPayloadData(m))
-}
-
-func TestUnwrapPayloadData_MapWithDataFormat(t *testing.T) {
-	m := map[string]any{
-		"Data":   "inner-data",
-		"Format": "json",
-	}
-	assert.Equal(t, "inner-data", unwrapPayloadData(m))
-}
-
-func TestUnwrapPayloadData_MapWithExtraKeys(t *testing.T) {
-	m := map[string]any{
-		"Data":   "inner-data",
-		"Format": "json",
-		"Extra":  "ignored",
-	}
-	// 3 keys, not exactly 2, so not unwrapped
-	assert.Equal(t, m, unwrapPayloadData(m))
-}
-
 // --- operationPlanner ---
 
 func planTestOperations(

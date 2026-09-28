@@ -174,6 +174,16 @@ func TestExtractCommandMeta_Security(t *testing.T) {
 	})
 }
 
+// resolveCommandSecurityFor mirrors the launcher: load the command metadata
+// once, then resolve its security block.
+func resolveCommandSecurityFor(ctx context.Context, source registry.ID) ([]ctxapi.Pair, error) {
+	command, err := loadCommandMeta(ctx, source)
+	if err != nil {
+		return nil, err
+	}
+	return resolveCommandSecurity(ctx, command)
+}
+
 func TestResolveCommandSecurity_ProducesTerminalFrameContext(t *testing.T) {
 	policyID := registry.NewID("app", "command")
 	rootCtx := ctxapi.NewRootContext()
@@ -199,7 +209,7 @@ func TestResolveCommandSecurity_ProducesTerminalFrameContext(t *testing.T) {
 	callerCtx, callerFrame := ctxapi.OpenFrameContext(rootCtx)
 	t.Cleanup(func() { ctxapi.ReleaseFrameContext(callerFrame) })
 
-	pairs, err := resolveCommandSecurity(callerCtx, registry.NewID("app", "runner"))
+	pairs, err := resolveCommandSecurityFor(callerCtx, registry.NewID("app", "runner"))
 	require.NoError(t, err)
 	require.Len(t, pairs, 2)
 
@@ -227,7 +237,7 @@ func TestResolveCommandSecurity_FailsClosed(t *testing.T) {
 			}},
 		}})
 
-		pairs, err := resolveCommandSecurity(rootCtx, registry.NewID("app", "runner"))
+		pairs, err := resolveCommandSecurityFor(rootCtx, registry.NewID("app", "runner"))
 		assert.Nil(t, pairs)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "decode command metadata")
@@ -243,7 +253,7 @@ func TestResolveCommandSecurity_FailsClosed(t *testing.T) {
 		}})
 		rootCtx = secapi.WithRegistry(rootCtx, &commandSecurityRegistry{policies: map[registry.ID]secapi.Policy{}})
 
-		pairs, err := resolveCommandSecurity(rootCtx, registry.NewID("app", "runner"))
+		pairs, err := resolveCommandSecurityFor(rootCtx, registry.NewID("app", "runner"))
 		assert.Nil(t, pairs)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), policyID.String())
@@ -259,7 +269,7 @@ func TestResolveCommandSecurity_FailsClosed(t *testing.T) {
 		}})
 		rootCtx = secapi.WithRegistry(rootCtx, &commandSecurityRegistry{groups: map[registry.ID]secapi.Scope{}})
 
-		pairs, err := resolveCommandSecurity(rootCtx, registry.NewID("app", "runner"))
+		pairs, err := resolveCommandSecurityFor(rootCtx, registry.NewID("app", "runner"))
 		assert.Nil(t, pairs)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), groupID.String())
@@ -280,7 +290,7 @@ func TestResolveCommandSecurity_FailsClosed(t *testing.T) {
 			policies: map[registry.ID]secapi.Policy{validID: commandPolicy{id: validID}},
 		})
 
-		pairs, err := resolveCommandSecurity(rootCtx, registry.NewID("app", "runner"))
+		pairs, err := resolveCommandSecurityFor(rootCtx, registry.NewID("app", "runner"))
 		assert.Nil(t, pairs)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), missingID.String())
@@ -288,7 +298,7 @@ func TestResolveCommandSecurity_FailsClosed(t *testing.T) {
 
 	t.Run("entry lookup failure", func(t *testing.T) {
 		rootCtx := registry.WithRegistry(ctxapi.NewRootContext(), &commandEntryRegistry{err: errors.New("not found")})
-		pairs, err := resolveCommandSecurity(rootCtx, registry.NewID("app", "runner"))
+		pairs, err := resolveCommandSecurityFor(rootCtx, registry.NewID("app", "runner"))
 		assert.Nil(t, pairs)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "get command entry")
@@ -305,6 +315,7 @@ func TestLaunchExecProcess_RejectsInvalidSecurityBeforeStarting(t *testing.T) {
 
 	err := launchExecProcess(rootCtx, zap.NewNop(), "app:runner", "terminal", nil)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "resolve command security for app:runner")
+	assert.Contains(t, err.Error(), "load command metadata for app:runner")
+	assert.Contains(t, err.Error(), "decode command metadata")
 	assert.NotContains(t, err.Error(), ErrProcessManagerNotAvailable.Error())
 }

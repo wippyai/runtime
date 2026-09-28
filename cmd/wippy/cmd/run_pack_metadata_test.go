@@ -26,7 +26,9 @@ func TestLoadLockRootRuntimeDefaults(t *testing.T) {
 	lockObj, err := lock.New(lockPath)
 	require.NoError(t, err)
 	lockObj.SetModule(lock.Module{Name: "acme/app", Version: "1.2.3", Root: true})
+	lockObj.SetModule(lock.Module{Name: "acme/dep", Version: "0.1.0"})
 	require.NoError(t, lockObj.Write())
+	require.NoError(t, os.MkdirAll(filepath.Join(projectDir, "dep"), 0o755))
 
 	packPath := filepath.Join(projectDir, ".wippy", "vendor", "acme", "app-1.2.3.wapp")
 	require.NoError(t, os.MkdirAll(filepath.Dir(packPath), 0o755))
@@ -35,7 +37,9 @@ func TestLoadLockRootRuntimeDefaults(t *testing.T) {
 		"runtime.profiles.postgres.registry.enabled":      true,
 	}))
 
-	defaults, err := loadLockRootRuntimeDefaults(lockPath, zap.NewNop())
+	defaults, err := loadLockRootRuntimeDefaults(lockPath, workspaceReplacementConfig(projectDir, map[string]any{
+		"replacements.acme/dep": "./dep",
+	}), zap.NewNop())
 	require.NoError(t, err)
 	require.NotNil(t, defaults)
 	resolved, err := configForProfile(defaults, "postgres")
@@ -51,8 +55,141 @@ func TestLoadLockRootRuntimeDefaultsRejectsMissingSelectedPack(t *testing.T) {
 	lockObj.SetModule(lock.Module{Name: "acme/app", Version: "1.2.3", Root: true})
 	require.NoError(t, lockObj.Write())
 
-	_, err = loadLockRootRuntimeDefaults(lockPath, zap.NewNop())
+	_, err = loadLockRootRuntimeDefaults(lockPath, nil, zap.NewNop())
 	require.ErrorContains(t, err, "selected deployment root acme/app is not installed")
+}
+
+// workspaceReplacementConfig builds the effective runtime config slice that
+// lock.WithWorkspaceConfig reads: workspace replacements resolved against the
+// config directory.
+func workspaceReplacementConfig(configDir string, workspace map[string]any) boot.Config {
+	return boot.NewConfig(
+		boot.WithSection("workspace", workspace),
+		boot.WithSection("boot", map[string]any{"config_dir": configDir}),
+	)
+}
+
+func writeRootLock(t *testing.T, dir string, replacements ...lock.Replacement) string {
+	t.Helper()
+	lockPath := filepath.Join(dir, defaultLockFile)
+	lockObj, err := lock.New(lockPath)
+	require.NoError(t, err)
+	lockObj.SetModule(lock.Module{Name: "acme/harness", Version: "0.1.0", Root: true})
+	for _, replacement := range replacements {
+		lockObj.SetReplacement(replacement)
+	}
+	require.NoError(t, lockObj.Write())
+	return lockPath
+}
+
+func TestLoadLockRootRuntimeDefaultsWorkspaceReplacedRootIsSource(t *testing.T) {
+	t.Run("replacement directory holds entries at its root", func(t *testing.T) {
+		harnessDir := t.TempDir()
+		lockPath := writeRootLock(t, harnessDir)
+
+		defaults, err := loadLockRootRuntimeDefaults(lockPath, workspaceReplacementConfig(harnessDir, map[string]any{
+			"replacements.acme/harness": ".",
+		}), zap.NewNop())
+		require.NoError(t, err)
+		require.Nil(t, defaults)
+	})
+
+	t.Run("replacement directory holds entries under src", func(t *testing.T) {
+		harnessDir := t.TempDir()
+		require.NoError(t, os.MkdirAll(filepath.Join(harnessDir, "src"), 0o755))
+		lockPath := writeRootLock(t, harnessDir)
+
+		defaults, err := loadLockRootRuntimeDefaults(lockPath, workspaceReplacementConfig(harnessDir, map[string]any{
+			"replacements.acme/harness": ".",
+		}), zap.NewNop())
+		require.NoError(t, err)
+		require.Nil(t, defaults)
+	})
+
+	t.Run("replacement path is relative to the config directory", func(t *testing.T) {
+		projectDir := t.TempDir()
+		lockDir := filepath.Join(projectDir, "deploy")
+		harnessDir := filepath.Join(projectDir, "harness")
+		require.NoError(t, os.MkdirAll(lockDir, 0o755))
+		require.NoError(t, os.MkdirAll(harnessDir, 0o755))
+		lockPath := writeRootLock(t, lockDir)
+
+		defaults, err := loadLockRootRuntimeDefaults(lockPath, workspaceReplacementConfig(projectDir, map[string]any{
+			"replacements.acme/harness": "./harness",
+		}), zap.NewNop())
+		require.NoError(t, err)
+		require.Nil(t, defaults)
+	})
+}
+
+func TestLoadLockRootRuntimeDefaultsWorkspaceReplacedRootMissingDirectory(t *testing.T) {
+	harnessDir := t.TempDir()
+	lockPath := writeRootLock(t, harnessDir)
+
+	_, err := loadLockRootRuntimeDefaults(lockPath, workspaceReplacementConfig(harnessDir, map[string]any{
+		"replacements.acme/harness": "./missing",
+	}), zap.NewNop())
+	require.ErrorContains(t, err, "selected deployment root acme/harness is replaced by workspace source")
+	require.ErrorContains(t, err, filepath.Join(harnessDir, "missing"))
+	require.NotContains(t, err.Error(), "run wippy install")
+}
+
+func TestLoadLockRootRuntimeDefaultsDisabledWorkspaceReplacementUsesVendoredRoot(t *testing.T) {
+	harnessDir := t.TempDir()
+	lockPath := writeRootLock(t, harnessDir)
+
+	_, err := loadLockRootRuntimeDefaults(lockPath, workspaceReplacementConfig(harnessDir, map[string]any{
+		"replacements.acme/harness": nil,
+	}), zap.NewNop())
+	require.ErrorContains(t, err, "selected deployment root acme/harness is not installed; run wippy install")
+}
+
+func TestLoadLockRootRuntimeDefaultsLockReplacementRoot(t *testing.T) {
+	harnessDir := t.TempDir()
+	lockPath := writeRootLock(t, harnessDir, lock.Replacement{From: "acme/harness", To: "."})
+
+	defaults, err := loadLockRootRuntimeDefaults(lockPath, nil, zap.NewNop())
+	require.NoError(t, err)
+	require.Nil(t, defaults)
+}
+
+func TestLoadLockRootRuntimeDefaultsWithoutRootReadsNoDefaults(t *testing.T) {
+	lockPath := filepath.Join(t.TempDir(), defaultLockFile)
+	lockObj, err := lock.New(lockPath)
+	require.NoError(t, err)
+	lockObj.SetModule(lock.Module{Name: "acme/dep", Version: "0.1.0"})
+	require.NoError(t, lockObj.Write())
+
+	defaults, err := loadLockRootRuntimeDefaults(lockPath, nil, zap.NewNop())
+	require.NoError(t, err)
+	require.Nil(t, defaults)
+}
+
+func TestRuntimeConfigFromPackMetadataRejectsMachineLocalSections(t *testing.T) {
+	for name, metadata := range map[string]wapp.Metadata{
+		"dotted workspace":         {"runtime.workspace.replacements.acme/app": "../app"},
+		"nested workspace":         {"runtime": map[string]any{"workspace": map[string]any{"replacements": map[string]any{"acme/app": "../app"}}}},
+		"dotted profile workspace": {"runtime.profiles.dev.workspace.replacements.acme/app": "../app"},
+		"nested profile workspace": {"runtime": map[string]any{"profiles": map[string]any{"dev": map[string]any{"workspace": map[string]any{"replacements": map[string]any{"acme/app": "../app"}}}}}},
+		"boot":                     {"runtime.boot.config_dir": "/build"},
+		"extensions":               {"runtime.extensions.paths": []any{"/build/ext"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := runtimeConfigFromPackMetadata(metadata, zap.NewNop())
+			require.ErrorContains(t, err, "machine-local")
+		})
+	}
+}
+
+func TestLoadPackRuntimeDefaultsRejectsMachineLocalSection(t *testing.T) {
+	packPath := filepath.Join(t.TempDir(), "app.wapp")
+	require.NoError(t, writeTestPack(packPath, wapp.Metadata{
+		"runtime.workspace.replacements.acme/app": "../app",
+	}))
+
+	_, err := loadPackRuntimeDefaults(packPath, zap.NewNop())
+	require.ErrorContains(t, err, packPath)
+	require.ErrorContains(t, err, `pack runtime metadata declares machine-local section "workspace"`)
 }
 
 func TestMaterializeHubRunPackInstallsExactLockArtifact(t *testing.T) {
@@ -122,12 +259,12 @@ func configForProfile(defaults boot.Config, profile string) (boot.Config, error)
 }
 
 func TestRuntimeConfigFromPackMetadata_DottedKeys(t *testing.T) {
-	cfg := runtimeConfigFromPackMetadata(wapp.Metadata{
+	cfg, err := runtimeConfigFromPackMetadata(wapp.Metadata{
 		"runtime.lsp.enabled":           true,
 		"runtime.lsp.max_message_bytes": "2048",
 		"runtime.logger.level":          "debug",
 	}, zap.NewNop())
-
+	require.NoError(t, err)
 	require.NotNil(t, cfg)
 	require.True(t, cfg.GetBool("lsp.enabled", false))
 	require.Equal(t, 2048, cfg.GetInt("lsp.max_message_bytes", 0))
@@ -135,7 +272,7 @@ func TestRuntimeConfigFromPackMetadata_DottedKeys(t *testing.T) {
 }
 
 func TestRuntimeConfigFromPackMetadata_NestedRuntimeMapPreservesScalarTypes(t *testing.T) {
-	cfg := runtimeConfigFromPackMetadata(wapp.Metadata{
+	cfg, err := runtimeConfigFromPackMetadata(wapp.Metadata{
 		"runtime": map[string]any{
 			"lsp": map[string]any{
 				"enabled": "true",
@@ -150,7 +287,7 @@ func TestRuntimeConfigFromPackMetadata_NestedRuntimeMapPreservesScalarTypes(t *t
 			},
 		},
 	}, zap.NewNop())
-
+	require.NoError(t, err)
 	require.NotNil(t, cfg)
 	require.Equal(t, "true", cfg.GetString("lsp.enabled", ""))
 	require.Equal(t, "console", cfg.GetString("logger.encoding", ""))
@@ -160,7 +297,7 @@ func TestRuntimeConfigFromPackMetadata_NestedRuntimeMapPreservesScalarTypes(t *t
 }
 
 func TestRuntimeConfigFromPackMetadata_PreservesProfiles(t *testing.T) {
-	cfg := runtimeConfigFromPackMetadata(wapp.Metadata{
+	cfg, err := runtimeConfigFromPackMetadata(wapp.Metadata{
 		"runtime": map[string]any{
 			"profiles": map[string]any{
 				"pg": map[string]any{
@@ -176,7 +313,7 @@ func TestRuntimeConfigFromPackMetadata_PreservesProfiles(t *testing.T) {
 			},
 		},
 	}, zap.NewNop())
-
+	require.NoError(t, err)
 	require.NotNil(t, cfg)
 	require.Equal(t, "db.sql.postgres", cfg.GetString("profiles.pg.override.app:db:kind", ""))
 

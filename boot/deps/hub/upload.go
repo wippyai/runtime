@@ -4,7 +4,6 @@ package hub
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -15,18 +14,18 @@ const maxResponseSize = 1 << 20
 func uploadFile(ctx context.Context, httpClient *http.Client, uploadURL, filePath string) error {
 	f, err := os.Open(filePath)
 	if err != nil {
-		return fmt.Errorf("open file: %w", err)
+		return NewArtifactIOError("open file", filePath, err)
 	}
 	defer f.Close()
 
 	stat, err := f.Stat()
 	if err != nil {
-		return fmt.Errorf("stat file: %w", err)
+		return NewArtifactIOError("stat file", filePath, err)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPut, uploadURL, f)
 	if err != nil {
-		return fmt.Errorf("create request: %w", err)
+		return NewHubRequestError("create upload request", err)
 	}
 
 	req.ContentLength = stat.Size()
@@ -34,13 +33,13 @@ func uploadFile(ctx context.Context, httpClient *http.Client, uploadURL, filePat
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("upload failed: %w", err)
+		return NewHubRequestError("upload file", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
-		return fmt.Errorf("upload failed with status %d: %s", resp.StatusCode, string(body))
+		return NewHubResponseError("upload file", resp.StatusCode, string(body))
 	}
 
 	return nil

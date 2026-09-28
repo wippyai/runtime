@@ -49,6 +49,10 @@ func (d *Dispatcher) Start(ctx context.Context) error {
 
 // Stop shuts down the dispatcher and drains pending jobs.
 func (d *Dispatcher) Stop(_ context.Context) error {
+	// A later component may fail to load before any worker pool starts.
+	if d.cancel == nil {
+		return nil
+	}
 	d.cancel()
 	close(d.jobs)
 	d.wg.Wait()

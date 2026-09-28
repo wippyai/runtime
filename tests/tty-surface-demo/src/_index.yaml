@@ -1,0 +1,57 @@
+# SPDX-License-Identifier: MPL-2.0
+
+version: "1.0"
+namespace: tty_proof
+
+entries:
+  - name: policy
+    kind: security.policy
+    policy:
+      actions:
+        - process.context
+        - process.spawn
+        - process.spawn.monitored
+        - process.host
+        - process.terminate
+        - exec.get
+        - exec.run
+      resources: "*"
+      effect: allow
+
+  - name: workers
+    kind: process.host
+    host:
+      max_processes: 4
+      workers: 2
+    lifecycle:
+      auto_start: true
+
+  - name: terminal
+    kind: terminal.host
+    hide_logs: true
+    lifecycle:
+      auto_start: true
+
+  - name: exec
+    kind: exec.native
+
+  - name: child
+    kind: process.lua
+    source: file://child.lua
+    method: main
+    modules: [channel, exec, tty]
+    security:
+      policies: [tty_proof:policy]
+
+  - name: shell
+    kind: process.lua
+    source: file://shell.lua
+    method: main
+    modules: [channel, process, time, tty]
+    meta:
+      command:
+        name: tty-proof
+        short: Run the virtual TTY and PTY integration proof
+        security:
+          actor: {id: tty_proof:shell}
+          policies: [tty_proof:policy]

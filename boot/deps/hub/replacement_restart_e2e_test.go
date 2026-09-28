@@ -93,7 +93,7 @@ replacements:
 	}
 	fresh := newRegistry(memory.New(), newHandler())
 	startupCtx := regapi.WithRegistry(
-		regapi.WithDependencyAccess(newTestContext(), regapi.DependencyAccessUnspecified),
+		regapi.WithDependencyAccess(newTestContext(), regapi.DependencyAccessOnline),
 		fresh,
 	)
 	require.NoError(t, fresh.LoadState(startupCtx, regapi.State{root}, version.New(0)))

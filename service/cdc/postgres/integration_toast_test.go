@@ -73,8 +73,8 @@ func TestUnchangedToastIsMarked(t *testing.T) {
 	}
 
 	assert.Equal(t, "b", upd.After["tag"], "changed column must carry the new value")
-	assert.Equal(t, unchangedTOAST, upd.After["big"],
-		"unchanged TOAST column must be marked, not re-sent")
+	assert.NotContains(t, upd.After, "big")
+	assert.Contains(t, upd.Unchanged, "big")
 
 	stopCtx, stopCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	require.NoError(t, src.Stop(stopCtx))

@@ -65,7 +65,7 @@ Retrieves a policy from the registry by its ID.
 | Condition | Kind | Retryable |
 |-----------|------|-----------|
 | no context | errors.INTERNAL | no |
-| permission denied | errors.INVALID | no |
+| permission denied | errors.PERMISSION_DENIED | no |
 | policy not found | errors.INTERNAL | no |
 
 ### named_scope(id: string) → Scope, error
@@ -85,7 +85,7 @@ Retrieves a policy group (named scope) from the registry by its ID.
 | Condition | Kind | Retryable |
 |-----------|------|-----------|
 | no context | errors.INTERNAL | no |
-| permission denied | errors.INVALID | no |
+| permission denied | errors.PERMISSION_DENIED | no |
 | policy group not found | errors.INTERNAL | no |
 
 ### new_scope(policies?: Policy[]) → Scope
@@ -150,7 +150,7 @@ Acquires a token store resource for managing authentication tokens.
 |-----------|------|-----------|
 | no context | errors.INTERNAL | no |
 | id required | errors.INVALID | no |
-| permission denied | errors.INVALID | no |
+| permission denied | errors.PERMISSION_DENIED | no |
 | resource registry not found | errors.INTERNAL | no |
 | acquire failed | errors.INTERNAL | no |
 | not a token store | errors.INTERNAL | no |
@@ -270,7 +270,7 @@ Validates a token and returns the associated actor and scope.
 | Condition | Kind | Retryable |
 |-----------|------|-----------|
 | store closed | errors.INTERNAL | no |
-| permission denied | errors.INVALID | no |
+| permission denied | errors.PERMISSION_DENIED | no |
 | validation failed | errors.INTERNAL | no |
 
 **Yields:** until token validation completes
@@ -301,7 +301,7 @@ Creates a new authentication token for the actor with the specified scope.
 | Condition | Kind | Retryable |
 |-----------|------|-----------|
 | store closed | errors.INTERNAL | no |
-| permission denied | errors.INVALID | no |
+| permission denied | errors.PERMISSION_DENIED | no |
 | invalid expiration | errors.INVALID | no |
 | creation failed | errors.INTERNAL | no |
 
@@ -333,7 +333,7 @@ Revokes a token, making it invalid for future validation.
 | Condition | Kind | Retryable |
 |-----------|------|-----------|
 | store closed | errors.INTERNAL | no |
-| permission denied | errors.INVALID | no |
+| permission denied | errors.PERMISSION_DENIED | no |
 | revocation failed | errors.INTERNAL | no |
 
 **Yields:** until token revocation completes
@@ -351,15 +351,17 @@ This module returns structured errors. Check kind with `errors.*` constants:
 ```lua
 local store, err = security.token_store("app:tokens")
 if err then
-    if err:kind() == errors.INVALID then
-        -- permission denied or bad input
+    if err:kind() == errors.PERMISSION_DENIED then
+        -- the security policy denies the call
+    elseif err:kind() == errors.INVALID then
+        -- bad input
     elseif err:kind() == errors.INTERNAL then
         -- internal error
     end
 end
 ```
 
-**Possible kinds:** `errors.INVALID`, `errors.INTERNAL`
+**Possible kinds:** `errors.INVALID`, `errors.PERMISSION_DENIED`, `errors.INTERNAL`
 
 ## Example
 

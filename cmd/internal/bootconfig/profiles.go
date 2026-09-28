@@ -29,6 +29,21 @@ var varRefPattern = regexp.MustCompile(`\$\{([^}]+)\}`)
 // list operations through namespaces.add/remove and entries.add/remove so small
 // profiles can compose without replacing the whole list.
 func ApplyProfiles(cfg boot.Config, profileNames []string) (boot.Config, error) {
+	resolved, undefined, err := ApplyDefinedProfiles(cfg, profileNames)
+	if err != nil {
+		return nil, err
+	}
+	if len(undefined) > 0 {
+		return nil, fmt.Errorf("profile %q not found", undefined[0])
+	}
+	return resolved, nil
+}
+
+// ApplyDefinedProfiles overlays, in selection order, the named profiles that
+// cfg's profiles catalog defines, and returns the selected names it does not
+// define. A caller holding only part of the catalog applies its share; a later
+// full resolution still rejects names that no layer defines.
+func ApplyDefinedProfiles(cfg boot.Config, profileNames []string) (boot.Config, []string, error) {
 	if cfg == nil {
 		cfg = boot.NewConfig()
 	}
@@ -36,10 +51,11 @@ func ApplyProfiles(cfg boot.Config, profileNames []string) (boot.Config, error) 
 	sections := sectionsFromConfig(cfg)
 	profiles, err := profileDefinitions(sections[sectionProfiles])
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	delete(sections, sectionProfiles)
 
+	var undefined []string
 	for _, profileName := range profileNames {
 		profileName = strings.TrimSpace(profileName)
 		if profileName == "" {
@@ -48,14 +64,15 @@ func ApplyProfiles(cfg boot.Config, profileNames []string) (boot.Config, error) 
 
 		profile, ok := profiles[profileName]
 		if !ok {
-			return nil, fmt.Errorf("profile %q not found", profileName)
+			undefined = append(undefined, profileName)
+			continue
 		}
 		if err := applyProfile(sections, profile); err != nil {
-			return nil, fmt.Errorf("apply profile %q: %w", profileName, err)
+			return nil, nil, fmt.Errorf("apply profile %q: %w", profileName, err)
 		}
 	}
 
-	return configFromSections(sections), nil
+	return configFromSections(sections), undefined, nil
 }
 
 // ResolveVariables expands ${name} references from the vars section across all
@@ -65,10 +82,33 @@ func ResolveVariables(cfg boot.Config) (boot.Config, error) {
 	if cfg == nil {
 		return nil, nil //nolint:nilnil // preserve existing nil-config behavior
 	}
+	return resolveSectionVariables(cfg, nil)
+}
 
+// ResolveVariablesIn expands ${name} references from the vars section in the
+// named sections only; every other section keeps its references as written.
+func ResolveVariablesIn(cfg boot.Config, sectionNames ...string) (boot.Config, error) {
+	if cfg == nil {
+		return nil, nil //nolint:nilnil // preserve existing nil-config behavior
+	}
+	selected := make(map[string]struct{}, len(sectionNames))
+	for _, name := range sectionNames {
+		selected[name] = struct{}{}
+	}
+	return resolveSectionVariables(cfg, selected)
+}
+
+// resolveSectionVariables resolves every section when selected is nil and only
+// the selected sections otherwise.
+func resolveSectionVariables(cfg boot.Config, selected map[string]struct{}) (boot.Config, error) {
 	sections := sectionsFromConfig(cfg)
 	vars := sections[sectionVars]
 	for section, values := range sections {
+		if selected != nil {
+			if _, ok := selected[section]; !ok {
+				continue
+			}
+		}
 		for key, value := range values {
 			resolved, err := resolveValue(value, vars)
 			if err != nil {

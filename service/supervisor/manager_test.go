@@ -4,17 +4,20 @@ package supervisor
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/attrs"
+	ctxapi "github.com/wippyai/runtime/api/context"
 	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	supervisorapi "github.com/wippyai/runtime/api/service/supervisor"
 	"github.com/wippyai/runtime/api/supervisor"
+	bootpkg "github.com/wippyai/runtime/boot"
 	"github.com/wippyai/runtime/internal/uniqid"
 	"go.uber.org/zap"
 )
@@ -35,6 +38,8 @@ func (m *mockBus) SubscribeP(context.Context, event.System, event.Kind, chan<- e
 	return "", nil
 }
 
+func (*mockBus) HasSubscribers(event.System, event.Kind) bool { return true }
+
 func (m *mockBus) Unsubscribe(context.Context, event.SubscriberID) {}
 
 type mockTranscoder struct{}
@@ -50,6 +55,13 @@ func (m *mockTranscoder) Unmarshal(_ payload.Payload, out any) error {
 
 func (m *mockTranscoder) Transcode(p payload.Payload, _ payload.Format) (payload.Payload, error) {
 	return p, nil
+}
+
+type configTranscoder struct{ mockTranscoder }
+
+func (*configTranscoder) Unmarshal(p payload.Payload, out any) error {
+	*out.(*supervisorapi.ServiceConfig) = p.Data().(supervisorapi.ServiceConfig)
+	return nil
 }
 
 func newTestPIDGen() *uniqid.PIDGenerator {
@@ -83,6 +95,54 @@ func TestManager_Add(t *testing.T) {
 	assert.True(t, exists)
 }
 
+func TestManager_Add_WithStartupComplete(t *testing.T) {
+	bus := &mockBus{}
+	dtt := &configTranscoder{}
+	pidGen := newTestPIDGen()
+	log := zap.NewNop()
+
+	m := NewManager(bus, dtt, pidGen, log)
+
+	appCtx := ctxapi.NewAppContext()
+	ctx := ctxapi.WithAppContext(context.Background(), appCtx)
+	readiness := bootpkg.NewReadiness()
+	ctx = bootpkg.WithReadiness(ctx, readiness)
+
+	entry := registry.Entry{
+		ID:   registry.ID{NS: "test", Name: "boot_svc"},
+		Kind: supervisorapi.ProcessService,
+		Meta: attrs.NewBag(),
+		Data: payload.New(supervisorapi.ServiceConfig{
+			Process: registry.ID{NS: "test", Name: "boot_proc"},
+			HostID:  "test-host",
+			Lifecycle: supervisor.LifecycleConfig{
+				AutoStart: true,
+				Startup:   supervisor.StartupComplete,
+			},
+		}),
+	}
+
+	err := m.Add(ctx, entry)
+	require.NoError(t, err)
+
+	// Readiness must be pending immediately before the service even starts
+	assert.Equal(t, int64(1), readiness.Pending())
+
+	_, exists := m.services.Load(entry.ID)
+	require.True(t, exists)
+
+	// If entry is deleted before completion, gate should fail
+	err = m.Delete(ctx, entry)
+	require.NoError(t, err)
+
+	assert.Equal(t, int64(0), readiness.Pending())
+	waitErr := readiness.Wait(ctx)
+	require.Error(t, waitErr)
+	var gateErr *bootpkg.GateError
+	require.True(t, errors.As(waitErr, &gateErr))
+	assert.Equal(t, entry.ID.String(), gateErr.Service)
+}
+
 func TestManager_Add_InvalidKind(t *testing.T) {
 	bus := &mockBus{}
 	dtt := &mockTranscoder{}
@@ -106,7 +166,7 @@ func TestManager_Add_InvalidKind(t *testing.T) {
 
 func TestManager_Update(t *testing.T) {
 	bus := &mockBus{}
-	dtt := &mockTranscoder{}
+	dtt := &configTranscoder{}
 	pidGen := newTestPIDGen()
 	log := zap.NewNop()
 
@@ -116,20 +176,50 @@ func TestManager_Update(t *testing.T) {
 		ID:   registry.ID{NS: "test", Name: "svc1"},
 		Kind: supervisorapi.ProcessService,
 		Meta: attrs.NewBag(),
-		Data: payload.New(nil),
+		Data: payload.New(supervisorapi.ServiceConfig{
+			Process:   registry.ID{Name: "old-process"},
+			HostID:    "test-host",
+			Lifecycle: supervisor.LifecycleConfig{AutoStart: true},
+		}),
 	}
 
 	err := m.Add(context.Background(), entry)
 	require.NoError(t, err)
+	original := bus.events[0].Data.(*supervisor.Entry).Service.(*Service)
 
 	bus.events = nil // reset
 
+	entry.Data = payload.New(supervisorapi.ServiceConfig{
+		Process:   registry.ID{Name: "new-process"},
+		HostID:    "test-host",
+		Lifecycle: supervisor.LifecycleConfig{AutoStart: false},
+	})
 	err = m.Update(context.Background(), entry)
 	require.NoError(t, err)
 
 	require.Len(t, bus.events, 1)
 	assert.Equal(t, supervisor.System, bus.events[0].System)
-	assert.Equal(t, supervisor.ServiceUpdate, bus.events[0].Kind)
+	require.Equal(t, supervisor.ServiceRegister, bus.events[0].Kind)
+	updated := bus.events[0].Data.(*supervisor.Entry)
+	require.NotNil(t, updated.Service)
+	require.NotSame(t, original, updated.Service)
+	assert.True(t, original.config.Process.Equal(registry.ID{NS: "test", Name: "old-process"}))
+	assert.True(t, updated.Service.(*Service).config.Process.Equal(registry.ID{NS: "test", Name: "new-process"}))
+	assert.False(t, updated.Config.AutoStart)
+	stored, ok := m.services.Load(entry.ID)
+	require.True(t, ok)
+	require.Same(t, updated.Service, stored)
+
+	bus.events = nil
+	entry.Data = payload.New(supervisorapi.ServiceConfig{
+		Process:   registry.ID{NS: "test", Name: "new-process"},
+		HostID:    "test-host",
+		Lifecycle: supervisor.LifecycleConfig{AutoStart: false},
+	})
+	require.NoError(t, m.Update(context.Background(), entry))
+	assert.Empty(t, bus.events, "unchanged definition, including equivalent process IDs, must not trigger a replacement")
+	stored, _ = m.services.Load(entry.ID)
+	require.Same(t, updated.Service, stored)
 }
 
 func TestManager_Update_NotFound(t *testing.T) {

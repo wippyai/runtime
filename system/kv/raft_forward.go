@@ -21,10 +21,12 @@ import (
 const KVRaftHostID pid.HostID = "storekv"
 
 const (
-	topicKVForwardReq  relay.Topic = "kv.forward.req"
-	topicKVForwardResp relay.Topic = "kv.forward.resp"
-	topicKVReadReq     relay.Topic = "kv.read.req"
-	topicKVReadResp    relay.Topic = "kv.read.resp"
+	topicKVForwardReq    relay.Topic = "kv.forward.req"
+	topicKVForwardResp   relay.Topic = "kv.forward.resp"
+	topicKVReadReq       relay.Topic = "kv.read.req"
+	topicKVReadResp      relay.Topic = "kv.read.resp"
+	topicKVAuthorityReq  relay.Topic = "kv.authority.req"
+	topicKVAuthorityResp relay.Topic = "kv.authority.resp"
 )
 
 // readResult is a forwarded leader-read reply. err carries errForwardNotLeader
@@ -48,6 +50,11 @@ const maxForwardRetries = 3
 // op is rejected as not-leader rather than chained further.
 const maxForwardHops byte = 2
 
+// Bound outstanding inbound writes, including non-cancelable Raft futures.
+const maxForwardConcurrent = 32
+
+var errForwardOverloaded = staticErr("kv: forwarded write admission overloaded")
+
 var kvCorrIDCounter atomic.Uint64
 
 // forwardReplyGrace is added to raftApplyTimeout to size the follower's wait for
@@ -60,8 +67,8 @@ const forwardReplyGrace = 2 * time.Second
 const forwardWaitTimeout = raftApplyTimeout + forwardReplyGrace
 
 // errForwardNotLeader marks a forwarded write that reached a non-leader. The op
-// was provably NOT applied (a leader that loses leadership mid-Apply does not
-// commit), so the caller may safely re-resolve the leader and retry.
+// was rejected before acceptance, so the caller may safely re-resolve and retry.
+// Losing leadership after acceptance is a different, uncertain outcome.
 var errForwardNotLeader = staticErr("kv: forwarded write reached a non-leader")
 
 // errForwardTimeout marks a forwarded write whose reply never arrived. Unlike a
@@ -118,7 +125,8 @@ func kindToErr(kind byte, msg string) error {
 	case errNotLeaderCode:
 		return errForwardNotLeader
 	default:
-		return staticErr(msg)
+		// Remote text must never recreate a local control-flow sentinel.
+		return errors.New(msg)
 	}
 }
 
@@ -234,7 +242,9 @@ func (e *RaftEngine) forwardReadHop(key string, hop byte) (readResult, error) {
 			time.Sleep(50 * time.Millisecond)
 			continue
 		}
-		return res, nil
+		// Decoder failures must survive both a direct read and a re-forwarding
+		// hop; a found flag alone does not make a malformed value valid.
+		return res, res.err
 	}
 	return readResult{}, errNoForwardLeader
 }
@@ -291,6 +301,10 @@ func (e *RaftEngine) Send(pkg *relay.Package) error {
 			e.handleReadReq(pkg.Source, msg)
 		case topicKVReadResp:
 			e.handleReadResp(msg)
+		case topicKVAuthorityReq:
+			e.handleAuthorityReq(pkg.IngressNode, pkg.Source, msg)
+		case topicKVAuthorityResp:
+			e.handleAuthorityResp(pkg.IngressNode, pkg.Source, msg)
 		}
 	}
 	return nil
@@ -402,8 +416,56 @@ func (e *RaftEngine) handleForwardReq(source pid.PID, msg *relay.Message) {
 	}
 	corr := binary.BigEndian.Uint64(env[:8])
 	hop := env[8]
-	data := env[9:]
+	// Admission must never wait on the shared internode receive pump: Raft
+	// replies needed to commit this write arrive through that same pump.
+	e.forwardMu.Lock()
+	if e.forwardStop || e.ctx == nil || e.ctx.Err() != nil {
+		e.forwardMu.Unlock()
+		e.replyForward(source.Node, corr, applyResult{Err: kvapi.ErrKVClosed})
+		return
+	}
+	select {
+	case e.forwardSem <- struct{}{}:
+	default:
+		e.forwardMu.Unlock()
+		e.replyForward(source.Node, corr, applyResult{Err: errForwardOverloaded})
+		return
+	}
+	// Send releases the package immediately after this handler returns.
+	data := append([]byte(nil), env[9:]...)
+	e.wg.Add(1)
+	e.forwardMu.Unlock()
+	go e.serveForward(source.Node, corr, hop, data)
+}
 
+func (e *RaftEngine) serveForward(node pid.NodeID, corr uint64, hop byte, data []byte) {
+	defer e.wg.Done()
+	result := make(chan applyResult, 1)
+	responseDone := make(chan struct{})
+	defer close(responseDone)
+	go func() {
+		// Cancellation stops logical response handling, but a Raft Apply cannot
+		// be canceled. Keep its permit until it actually completes so shutdown
+		// or a stalled future cannot bypass the concurrency bound.
+		defer func() { <-e.forwardSem }()
+		result <- e.applyForward(hop, data)
+		// Keep response delivery within the same budget as the future.
+		<-responseDone
+	}()
+	select {
+	case <-e.ctx.Done():
+		return
+	case res := <-result:
+		if e.ctx.Err() == nil {
+			e.replyForward(node, corr, res)
+		}
+	}
+}
+
+func (e *RaftEngine) applyForward(hop byte, data []byte) applyResult {
+	if e.ctx.Err() != nil {
+		return applyResult{Err: kvapi.ErrKVClosed}
+	}
 	if e.raft.IsLeader() {
 		var res applyResult
 		resp, err := e.raft.Apply(data, raftApplyTimeout)
@@ -415,21 +477,16 @@ func (e *RaftEngine) handleForwardReq(source pid.PID, msg *relay.Message) {
 				res = r
 			}
 		}
-		e.replyForward(source.Node, corr, res)
-		return
+		return res
 	}
 	if hop >= maxForwardHops {
-		e.replyForward(source.Node, corr, applyResult{Err: raftapi.ErrNotLeader})
-		return
+		return applyResult{Err: raftapi.ErrNotLeader}
 	}
-	relayed := append([]byte(nil), data...)
-	go func() {
-		res, err := e.forwardToLeaderHop(relayed, hop+1)
-		if err != nil {
-			res = applyResult{Err: err}
-		}
-		e.replyForward(source.Node, corr, res)
-	}()
+	res, err := e.forwardToLeaderHop(data, hop+1)
+	if err != nil {
+		return applyResult{Err: err}
+	}
+	return res
 }
 
 func (e *RaftEngine) replyForward(node pid.NodeID, corr uint64, res applyResult) {
@@ -456,23 +513,46 @@ func (e *RaftEngine) handleForwardResp(msg *relay.Message) {
 		return
 	}
 	out, ok := msg.Payloads[0].Data().([]byte)
-	if !ok || len(out) < 18 {
+	if !ok || len(out) < 8 {
 		return
 	}
 	corr := binary.BigEndian.Uint64(out[:8])
-	res := applyResult{
-		Version: binary.BigEndian.Uint64(out[8:16]),
-		OK:      out[16] == 1,
-		Err:     kindToErr(out[17], string(out[18:])),
-	}
+
 	e.fwdMu.Lock()
 	ch, found := e.pending[corr]
 	e.fwdMu.Unlock()
 	if !found {
 		return
 	}
+	res := decodeForwardWriteResponse(out)
 	select {
 	case ch <- res:
 	default:
 	}
+}
+
+// Only a canonical explicit not-leader rejection permits a retry. Malformed
+// replies are uncertain outcomes even if some bytes resemble a rejection.
+func decodeForwardWriteResponse(out []byte) applyResult {
+	if len(out) < 18 {
+		return applyResult{Err: staticErr("kv: write response header truncated")}
+	}
+	if out[16] > 1 {
+		return applyResult{Err: staticErr("kv: write response invalid success flag")}
+	}
+	kind := out[17]
+	if kind > errOther {
+		return applyResult{Err: staticErr("kv: write response unknown error kind")}
+	}
+	if kind != errOther && len(out) != 18 {
+		return applyResult{Err: staticErr("kv: write response trailing data")}
+	}
+	if kind != errNone && out[16] != 0 {
+		return applyResult{Err: staticErr("kv: write response contradictory result")}
+	}
+	version := binary.BigEndian.Uint64(out[8:16])
+	if kind == errNotLeaderCode && version != 0 {
+		return applyResult{Err: staticErr("kv: write response rejection has a version")}
+	}
+	return applyResult{Version: version, OK: out[16] == 1, Err: kindToErr(kind, string(out[18:]))}
 }

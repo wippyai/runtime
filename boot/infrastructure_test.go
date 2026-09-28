@@ -4,7 +4,9 @@ package boot
 
 import (
 	"context"
+	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -12,11 +14,103 @@ import (
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/event"
 	logapi "github.com/wippyai/runtime/api/logs"
+	"github.com/wippyai/runtime/api/metrics"
 	moduleapi "github.com/wippyai/runtime/api/modules"
 	"github.com/wippyai/runtime/api/payload"
 	relayapi "github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/system/logs"
 	"go.uber.org/zap"
 )
+
+type recordingLogManager struct {
+	started bool
+	stopped bool
+}
+
+func (m *recordingLogManager) Start(context.Context) error {
+	m.started = true
+	return nil
+}
+func (m *recordingLogManager) Stop() error {
+	m.stopped = true
+	return nil
+}
+func (*recordingLogManager) GetConfig() logapi.Config       { return logapi.Config{} }
+func (*recordingLogManager) SetCollector(metrics.Collector) {}
+
+type failingNodeManager struct {
+	err     error
+	stopErr error
+}
+
+func (*failingNodeManager) Node() relayapi.Node           { return nil }
+func (m *failingNodeManager) Start(context.Context) error { return m.err }
+func (m *failingNodeManager) Stop() error                 { return m.stopErr }
+
+func TestStartRuntimeServicesClosesLogManagerOnFailure(t *testing.T) {
+	ctx := testContext()
+	manager := &recordingLogManager{}
+	ctx = logapi.WithManager(ctx, manager)
+	want := errors.New("node start failed")
+	ctx = relayapi.WithNodeManager(ctx, &failingNodeManager{err: want})
+
+	require.ErrorIs(t, StartRuntimeServices(ctx), want)
+	require.True(t, manager.started)
+	require.True(t, manager.stopped)
+}
+
+func TestLoaderStartClosesLogManagerOnComponentFailure(t *testing.T) {
+	ctx := testContext()
+	manager := &recordingLogManager{}
+	ctx = logapi.WithManager(ctx, manager)
+	want := errors.New("component start failed")
+	loader, err := NewLoader(&mockComponent{name: "failing", startErr: want})
+	require.NoError(t, err)
+	ctx, err = loader.Load(ctx)
+	require.NoError(t, err)
+
+	require.ErrorIs(t, loader.Start(ctx), want)
+	require.True(t, manager.started)
+	require.True(t, manager.stopped)
+}
+
+func TestStopRuntimeServicesClosesLogManagerAfterEarlierStopError(t *testing.T) {
+	ctx := testContext()
+	manager := &recordingLogManager{}
+	ctx = logapi.WithManager(ctx, manager)
+	want := errors.New("node stop failed")
+	ctx = relayapi.WithNodeManager(ctx, &failingNodeManager{stopErr: want})
+
+	require.ErrorIs(t, StopRuntimeServices(ctx), want)
+	require.True(t, manager.stopped)
+}
+
+func TestLogConfigAfterRunContextCanceled(t *testing.T) {
+	runCtx, cancelRun := context.WithCancel(context.Background())
+	ctx, err := NewBootstrapContextWithParent(runCtx, zap.NewNop(), nil)
+	require.NoError(t, err)
+	require.NoError(t, StartRuntimeServices(ctx))
+	t.Cleanup(func() { require.NoError(t, StopRuntimeServices(context.WithoutCancel(ctx))) })
+
+	configurator := logs.NewConfigurator(event.GetBus(ctx), zap.NewNop())
+	cfg := logapi.GetManager(ctx).GetConfig()
+	cfg.StreamToEvents = !cfg.StreamToEvents
+	cancelRun()
+
+	shutdownCtx, cancelShutdown := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
+	defer cancelShutdown()
+	result := make(chan error, 1)
+	go func() { result <- configurator.SetConfig(shutdownCtx, cfg) }()
+	select {
+	case err := <-result:
+		require.NoError(t, err)
+		require.Equal(t, cfg, logapi.GetManager(ctx).GetConfig())
+	case <-time.After(500 * time.Millisecond):
+		cancelShutdown()
+		<-result
+		t.Fatal("log configuration waited for a confirmation after run context cancellation")
+	}
+}
 
 func TestNewBootstrapContext(t *testing.T) {
 	t.Run("creates bootstrap context with all infrastructure", func(t *testing.T) {

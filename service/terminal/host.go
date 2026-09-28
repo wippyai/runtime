@@ -22,6 +22,7 @@ import (
 	"github.com/wippyai/runtime/api/runtime"
 	terminalapi "github.com/wippyai/runtime/api/service/terminal"
 	supervisorapi "github.com/wippyai/runtime/api/supervisor"
+	ttyapi "github.com/wippyai/runtime/api/tty"
 	"github.com/wippyai/runtime/system/logs"
 	"github.com/wippyai/runtime/system/scheduler/actor"
 	securitysys "github.com/wippyai/runtime/system/security"
@@ -44,6 +45,7 @@ type Host struct {
 	shutdown     atomic.Bool
 	stopCalls    atomic.Uint64
 	lifecycleMu  sync.RWMutex
+	drained      atomic.Bool
 	statusClosed bool
 	doneClosed   bool
 }
@@ -108,7 +110,7 @@ func (h *Host) OnComplete(ctx context.Context, _ pid.PID, result *runtime.Result
 	} else if output != "" {
 		_, _ = os.Stdout.WriteString(output + "\n")
 	}
-	supervisorapi.TriggerShutdown(ctx, exitCode)
+	supervisorapi.TriggerShutdownIfIdle(ctx, exitCode)
 }
 
 func completionExitCode(result *runtime.Result) (int, string) {
@@ -254,23 +256,45 @@ func (h *Host) Terminate(_ context.Context, processID pid.PID) error {
 	return nil
 }
 
+func (h *Host) AcceptsFrameAttachments() bool { return true }
+
 // Send implements relay.Receiver.
 func (h *Host) Send(pkg *relay.Package) error {
-	if h.shutdown.Load() {
+	return h.SendContext(context.Background(), pkg)
+}
+
+// SendContext implements relay.ContextSender through the actor scheduler.
+// Admission is non-blocking, so cancellation never requires a detached
+// delivery goroutine. Deliveries stay open while Stop drains the scheduler:
+// a cancelled process still receives the timers, child exits and replies its
+// cleanup waits on.
+func (h *Host) SendContext(ctx context.Context, pkg *relay.Package) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if h.drained.Load() {
 		return ErrHostShuttingDown
 	}
-	return h.scheduler.Send(pkg)
+	return h.scheduler.SendContext(ctx, pkg)
 }
 
 // Start implements supervisor.Service.
 func (h *Host) Start(ctx context.Context) (<-chan any, error) {
-	if h.running.Swap(true) {
+	h.lifecycleMu.Lock()
+	defer h.lifecycleMu.Unlock()
+	if h.shutdown.Load() && !h.drained.Load() {
+		return nil, ErrHostShuttingDown
+	}
+	if h.running.Load() {
 		return nil, ErrHostAlreadyRunning
 	}
 
-	h.lifecycleMu.Lock()
 	h.ctx = ctx
 	h.shutdown.Store(false)
+	h.drained.Store(false)
 	// Recreate lifecycle channels on each start so stop/restart cycles
 	// don't reuse closed channels from a previous run.
 	h.statusCh = make(chan any, 1)
@@ -278,8 +302,8 @@ func (h *Host) Start(ctx context.Context) (<-chan any, error) {
 	h.statusClosed = false
 	h.doneClosed = false
 	statusCh := h.statusCh
-	h.lifecycleMu.Unlock()
 	h.scheduler.Start()
+	h.running.Store(true)
 
 	h.log.Info("terminal host started", zap.String("id", h.id.String()))
 	return statusCh, nil
@@ -288,7 +312,13 @@ func (h *Host) Start(ctx context.Context) (<-chan any, error) {
 // Stop implements supervisor.Service.
 func (h *Host) Stop(ctx context.Context) error {
 	stopAttempt := h.stopCalls.Add(1)
-	if !h.running.Swap(false) {
+	h.lifecycleMu.Lock()
+	wasRunning := h.running.Swap(false)
+	if wasRunning {
+		h.shutdown.Store(true)
+	}
+	h.lifecycleMu.Unlock()
+	if !wasRunning {
 		h.log.Warn("terminal host stop requested while already stopped",
 			zap.String("id", h.id.String()),
 			zap.Uint64("attempt", stopAttempt),
@@ -296,7 +326,6 @@ func (h *Host) Stop(ctx context.Context) error {
 		return nil
 	}
 
-	h.shutdown.Store(true)
 	h.log.Info("terminal host stopping",
 		zap.String("id", h.id.String()),
 		zap.Uint64("attempt", stopAttempt))
@@ -309,6 +338,7 @@ func (h *Host) Stop(ctx context.Context) error {
 	}
 	// Restore logging on shutdown
 	h.logCtrl.RestoreBaseConfig(ctx)
+	h.drained.Store(true)
 
 	h.log.Info("terminal host stopped", zap.String("id", h.id.String()))
 	return nil
@@ -340,7 +370,13 @@ func (h *Host) prepareContext(ctx context.Context, processID pid.PID, start *pro
 	pairs[2] = ctxapi.Pair{Key: runtime.FrameLifecycleOptionsKey, Value: start.Options}
 	tc := terminalapi.NewTerminalContextWithArgs(os.Stdin, os.Stdout, os.Stderr, args)
 	tc.Raw = h.raw
-	tc.Input = NewInputReader(os.Stdin, h.raw, h.scheduler, processID)
+	tc.Input = NewInputReader(os.Stdin, tc.Stdout, h.raw, h.scheduler, processID)
+	tc.Surface = func(options ttyapi.SurfaceOptions) (ttyapi.Surface, error) {
+		s := NewSurface(os.Stdout, options)
+		s.probe = tc.Input.(*InputReader).ProbeGraphics
+		s.size = tc.Input.ScreenSize
+		return s, nil
+	}
 	pairs[3] = ctxapi.Pair{Key: terminalapi.Key(), Value: tc}
 	copy(pairs[4:], start.Context)
 

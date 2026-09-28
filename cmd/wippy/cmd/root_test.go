@@ -2,7 +2,27 @@
 
 package cmd
 
-import "testing"
+import (
+	"runtime/debug"
+	"testing"
+)
+
+func TestInitMemoryLimitPreservesGOMEMLIMIT(t *testing.T) {
+	previous := debug.SetMemoryLimit(-1)
+	t.Cleanup(func() { debug.SetMemoryLimit(previous) })
+	previousFlag := memoryLimit
+	t.Cleanup(func() { memoryLimit = previousFlag })
+	memoryLimit = ""
+	t.Setenv("GOMEMLIMIT", "1GiB")
+	debug.SetMemoryLimit(1 << 30) // Simulate the runtime's startup env parsing.
+
+	if got := initMemoryLimit(); got != 1<<30 {
+		t.Fatalf("initMemoryLimit() = %d, want configured 1GiB", got)
+	}
+	if got := debug.SetMemoryLimit(-1); got != 1<<30 {
+		t.Fatalf("runtime memory limit = %d, want configured 1GiB", got)
+	}
+}
 
 func TestParseMemorySize(t *testing.T) {
 	tests := []struct {

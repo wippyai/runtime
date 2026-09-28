@@ -12,6 +12,7 @@ import (
 
 	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/dispatcher"
+	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/process"
@@ -22,7 +23,21 @@ import (
 	"github.com/wippyai/runtime/system/scheduler/affinity"
 )
 
+// The scheduler phase is monotonic. Draining closes admission but keeps workers
+// alive for asynchronous cancellation/cleanup yields. Worker exit is permitted
+// only after the process set drains or its shutdown deadline expires.
+const (
+	phaseRunning uint32 = iota
+	phaseDraining
+	phaseStoppingWorkers
+)
+
 type Option func(*Scheduler)
+
+var errNilPackage = apierror.New(apierror.Invalid, "cannot send nil package").WithRetryable(apierror.False)
+
+var errTopologyUnavailable = apierror.New(apierror.Unavailable, "scheduler has no topology for relationship requests").
+	WithRetryable(apierror.False)
 
 func WithWorkers(n int) Option {
 	return func(s *Scheduler) {
@@ -39,8 +54,20 @@ func WithThreadPin(set affinity.Set) Option {
 	return func(s *Scheduler) { s.pinSet = set }
 }
 
+// WithDedicatedThreads locks each scheduler worker goroutine to its own OS
+// thread even when CPU thread pinning is disabled.
+func WithDedicatedThreads() Option {
+	return func(s *Scheduler) { s.dedicatedThreads = true }
+}
+
 func WithLifecycle(l process.Lifecycle) Option {
 	return func(s *Scheduler) { s.lifecycle = l }
+}
+
+// WithTopology sets the topology that owns relationships of hosted processes.
+// Monitor and link requests from peer nodes are applied to it on delivery.
+func WithTopology(t topology.Topology) Option {
+	return func(s *Scheduler) { s.topology = t }
 }
 
 func WithQueueSize(size int) Option {
@@ -68,28 +95,32 @@ func WithMaxProcesses(maxProcs int64) Option {
 }
 
 type Scheduler struct {
-	lifecycle       process.Lifecycle
-	registry        dispatcher.Registry
-	global          *Queue
-	drainCh         chan struct{}
-	byQueue         sync.Map
-	byPID           sync.Map
-	workers         atomic.Pointer[workerSet]
-	pinSet          affinity.Set
-	wg              sync.WaitGroup
-	controlMu       sync.Mutex
-	initialWorkers  int
-	maxProcesses    int64
-	localQueueSize  int
-	processorCount  atomic.Int64
-	retiredExecuted atomic.Uint64
-	retiredStolen   atomic.Uint64
-	queueSize       int
-	nextID          atomic.Uint64
-	stopping        atomic.Bool
-	collectStats    atomic.Bool
-	started         bool
+	lifecycle        process.Lifecycle
+	topology         topology.Topology
+	registry         dispatcher.Registry
+	global           *Queue
+	drainCh          chan struct{}
+	byQueue          sync.Map
+	byPID            sync.Map
+	workers          atomic.Pointer[workerSet]
+	pinSet           affinity.Set
+	wg               sync.WaitGroup
+	controlMu        sync.Mutex
+	initialWorkers   int
+	maxProcesses     int64
+	localQueueSize   int
+	processorCount   atomic.Int64
+	retiredExecuted  atomic.Uint64
+	retiredStolen    atomic.Uint64
+	queueSize        int
+	nextID           atomic.Uint64
+	phase            atomic.Uint32
+	collectStats     atomic.Bool
+	started          bool
+	dedicatedThreads bool
 }
+
+func (s *Scheduler) isStopping() bool { return s.phase.Load() != phaseRunning }
 
 func NewScheduler(registry dispatcher.Registry, opts ...Option) *Scheduler {
 	s := &Scheduler{
@@ -121,17 +152,17 @@ func (s *Scheduler) getHandler(cmd dispatcher.Command) dispatcher.Handler {
 // Stop gracefully shuts down the scheduler.
 // Sends cancel events and waits for processes to complete or context deadline.
 func (s *Scheduler) Stop(ctx context.Context) {
-	// Publish the terminal state while serialized with Start and Resize, then
+	// Begin draining while serialized with Start and Resize, then
 	// release the control lock before lifecycle callbacks and worker waits.
 	s.controlMu.Lock()
-	if s.stopping.Swap(true) {
+	if !s.phase.CompareAndSwap(phaseRunning, phaseDraining) {
 		s.controlMu.Unlock()
 		return
 	}
 	s.controlMu.Unlock()
 
 	// Push cancel event directly to each processor's queue.
-	// Safe because stopping=true prevents pool release.
+	// Safe because draining prevents pool release.
 	// Wake idle/blocked processors so they process the cancel.
 	s.byPID.Range(func(_, value any) bool {
 		proc := value.(*Processor)
@@ -182,6 +213,9 @@ func (s *Scheduler) Stop(ctx context.Context) {
 	}
 
 	// Wake and wait for workers to exit
+	// Admission closes before cancellation, but workers must remain available
+	// for asynchronous cleanup until processes drain or the deadline expires.
+	s.phase.CompareAndSwap(phaseDraining, phaseStoppingWorkers)
 	s.wakeAll()
 	s.wg.Wait()
 
@@ -215,6 +249,13 @@ func (s *Scheduler) injectOrGlobal(proc *Processor) {
 		if worker.injectProcessor(proc) {
 			return
 		}
+		// The affine worker may be executing or retiring. The global
+		// queue lets another worker run this processor, and waking all workers
+		// ensures an idle one is notified even if the affine worker is busy.
+		proc.lastWorker.Store(noWorkerAffinity)
+		s.global.Push(proc)
+		s.wakeAll()
+		return
 	}
 	proc.lastWorker.Store(noWorkerAffinity)
 	s.global.Push(proc)
@@ -241,19 +282,37 @@ func (s *Scheduler) WakeProcessor(q *process.EventQueue, gen uint64) {
 		s.injectOrGlobal(proc)
 		return
 	}
+	if proc.casState(StateIdle, StateReady) {
+		s.injectOrGlobal(proc)
+		return
+	}
 	proc.setWakeup(StateRunning)
 }
 
 func (s *Scheduler) Submit(ctx context.Context, pid pid.PID, p process.Process, method string, input payload.Payloads) (*Processor, error) {
-	if s.stopping.Load() {
+	if s.isStopping() {
 		return nil, process.ErrSchedulerStopping
 	}
 	if s.maxProcesses > 0 && s.processorCount.Load() >= s.maxProcesses {
 		return nil, process.ErrMaxProcessesExceeded
 	}
 
-	// Create cancellable context first so Init receives the right context
-	procCtx, cancel := context.WithCancel(ctx)
+	var procCtx context.Context
+	var cancel context.CancelFunc
+
+	if tp, ok := p.(process.ExecutionTimeoutProvider); ok {
+		timeout := tp.ExecutionTimeout()
+		if timeout < 0 {
+			return nil, process.ErrInvalidExecutionTimeout
+		}
+		if timeout > 0 {
+			procCtx, cancel = context.WithTimeout(ctx, timeout)
+		} else {
+			procCtx, cancel = context.WithCancel(ctx)
+		}
+	} else {
+		procCtx, cancel = context.WithCancel(ctx)
+	}
 
 	if err := p.Init(procCtx, method, input); err != nil {
 		cancel()
@@ -272,8 +331,11 @@ func (s *Scheduler) Submit(ctx context.Context, pid pid.PID, p process.Process, 
 
 	// Reset queue for this execution and cache generation
 	proc.queue.Reset()
+	if admission, ok := p.(interface{ EventAdmission() process.EventAdmission }); ok {
+		proc.queue.SetAdmission(admission.EventAdmission())
+	}
 	proc.gen.Store(proc.queue.Generation())
-	proc.publishSignalRef()
+	proc.publishSignalRef(cancel)
 	proc.publishInspectorRef()
 
 	s.processorCount.Add(1)
@@ -293,6 +355,16 @@ func (s *Scheduler) Submit(ctx context.Context, pid pid.PID, p process.Process, 
 		}
 	}
 
+	// Cancellation must also wake an actor parked without incoming messages.
+	// Capture only queue identity/generation: Processor objects are pooled.
+	q, gen := proc.queue, proc.gen.Load()
+	stopWake := context.AfterFunc(procCtx, func() {
+		if q.Push(process.Event{Type: process.EventMessage}, gen) {
+			s.WakeProcessor(q, gen)
+		}
+	})
+	proc.cancel = func() { stopWake(); cancel() }
+
 	s.global.Push(proc)
 	s.wakeAny()
 
@@ -306,24 +378,15 @@ func (s *Scheduler) Terminate(pid pid.PID) error {
 	if !ok {
 		return process.ErrProcessNotFound
 	}
-	proc := v.(*Processor)
-
-	// Cancel context - worker checks ctx.Err() and evicts
-	if proc.cancel != nil {
-		proc.cancel()
+	// The slot can complete and be reused after the lookup, so act only through
+	// the incarnation's immutable identity. Canceling its context wakes it
+	// through the generation-checked wake registered at submit; the worker
+	// then evicts it.
+	ref := v.(*Processor).sig.Load()
+	if ref == nil || !ref.pid.Equal(pid) {
+		return process.ErrProcessNotFound
 	}
-
-	// Push termination event via PushDirect (bypasses generation check).
-	// This ensures process wakes even if yields never complete.
-	// Don't close queue yet - let the event be processed first.
-	proc.queue.PushDirect(process.Event{Type: process.EventMessage})
-
-	// Try to transition to Ready and re-queue so worker can evict.
-	if proc.casState(StateIdle, StateReady) || proc.casState(StateBlocked, StateReady) {
-		s.global.Push(proc)
-		s.wakeAny()
-	}
-
+	ref.terminate()
 	return nil
 }
 
@@ -344,7 +407,7 @@ func (s *Scheduler) finishProcessor(proc *Processor, result *process.StepOutput,
 	s.byPID.Delete(proc.pid.String())
 	s.byQueue.Delete(proc.queue)
 
-	stopping := s.stopping.Load()
+	stopping := s.isStopping()
 	if !proc.pooled {
 		if s.processorCount.Add(-1) == 0 && stopping {
 			select {
@@ -379,7 +442,7 @@ func (s *Scheduler) finishProcessor(proc *Processor, result *process.StepOutput,
 }
 
 func (s *Scheduler) CreateProcessor(ctx context.Context, pid pid.PID, p process.Process) (*Processor, error) {
-	if s.stopping.Load() {
+	if s.isStopping() {
 		return nil, process.ErrSchedulerStopping
 	}
 	if s.maxProcesses > 0 && s.processorCount.Load() >= s.maxProcesses {
@@ -404,7 +467,7 @@ func (s *Scheduler) CreateProcessor(ctx context.Context, pid pid.PID, p process.
 	// Reset queue for this execution and cache generation
 	proc.queue.Reset()
 	proc.gen.Store(proc.queue.Generation())
-	proc.publishSignalRef()
+	proc.publishSignalRef(cancel)
 	proc.publishInspectorRef()
 
 	s.processorCount.Add(1)
@@ -431,6 +494,32 @@ func (s *Scheduler) ReleaseProcessor(proc *Processor) {
 // Send implements relay.Receiver. Routes package to target process.
 // Wakes the process if it's idle or blocked waiting for messages.
 func (s *Scheduler) Send(pkg *relay.Package) error {
+	return s.SendContext(context.Background(), pkg)
+}
+
+// SendContext implements relay.ContextSender. Admission into a process queue
+// is non-blocking. Cancellation is checked before the target lookup; once
+// PushMessage accepts a package, ownership transfers
+// to the process queue and a later cancellation cannot undo that transfer.
+func (s *Scheduler) SendContext(ctx context.Context, pkg *relay.Package) error {
+	if pkg == nil {
+		return errNilPackage
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	if applied, err := s.applyRelationship(pkg); applied {
+		if err != nil {
+			return err
+		}
+		relay.ReleasePackage(pkg)
+		return nil
+	}
+
 	target := pkg.Target // copy before push - pkg may be released after queue receives it
 
 	v, ok := s.byPID.Load(target.String())
@@ -439,12 +528,43 @@ func (s *Scheduler) Send(pkg *relay.Package) error {
 	}
 	proc := v.(*Processor)
 
-	if !s.deliverToProc(proc, proc.gen.Load(), pkg) {
-		// Push failed - queue closed, process is terminating
+	return s.deliverToTarget(proc, target, pkg)
+}
+
+// applyRelationship applies a peer node's monitor or link request for a hosted
+// process to the topology. Such a request is relationship state owned by the
+// host and never a message for the process. It reports whether pkg is a
+// relationship request.
+func (s *Scheduler) applyRelationship(pkg *relay.Package) (bool, error) {
+	if len(pkg.Messages) != 1 || pkg.Messages[0].Topic != topology.TopicEvents || len(pkg.Messages[0].Payloads) != 1 {
+		return false, nil
+	}
+	var apply func(topology.Topology) error
+	switch event := pkg.Messages[0].Payloads[0].Data().(type) {
+	case *topology.MonitorRequestEvent:
+		apply = func(t topology.Topology) error { return t.Monitor(event.Caller, event.Target) }
+	case *topology.MonitorReleaseEvent:
+		apply = func(t topology.Topology) error { return t.Demonitor(event.Caller, event.Target) }
+	case *topology.LinkRequestEvent:
+		apply = func(t topology.Topology) error { return t.Link(event.From, event.To) }
+	case *topology.UnlinkRequestEvent:
+		apply = func(t topology.Topology) error { return t.Unlink(event.From, event.To) }
+	default:
+		return false, nil
+	}
+	if s.topology == nil {
+		return true, errTopologyUnavailable
+	}
+	return true, apply(s.topology)
+}
+
+// deliverToTarget rejects a processor slot that was reused after byPID.Load.
+func (s *Scheduler) deliverToTarget(proc *Processor, target pid.PID, pkg *relay.Package) error {
+	ref := proc.sig.Load()
+	if ref == nil || !ref.pid.Equal(target) {
 		return process.ErrProcessClosed
 	}
-
-	return nil
+	return s.deliverToProcError(proc, ref.gen, pkg)
 }
 
 // deliverToProc pushes pkg onto proc's queue under the expected generation and
@@ -453,11 +573,22 @@ func (s *Scheduler) Send(pkg *relay.Package) error {
 // callers holding an out-of-band snapshot never deliver to a different process
 // that has since inherited the slot. Returns whether the push succeeded.
 func (s *Scheduler) deliverToProc(proc *Processor, gen uint64, pkg *relay.Package) bool {
-	if !proc.queue.Push(process.Event{
+	return s.deliverToProcError(proc, gen, pkg) == nil
+}
+
+func (s *Scheduler) deliverToProcError(proc *Processor, gen uint64, pkg *relay.Package) error {
+	admission, err := proc.queue.PushMessageWithError(process.Event{
 		Type: process.EventMessage,
 		Data: pkg,
-	}, gen) {
-		return false
+	}, gen)
+	if err != nil {
+		return err
+	}
+	if admission == process.MessageRejected {
+		return process.ErrProcessClosed
+	}
+	if admission == process.MessageDropped {
+		relay.ReleasePackage(pkg)
 	}
 
 	// Wake process if waiting for messages.
@@ -469,7 +600,7 @@ func (s *Scheduler) deliverToProc(proc *Processor, gen uint64, pkg *relay.Packag
 		s.injectOrGlobal(proc)
 	}
 
-	return true
+	return nil
 }
 
 func (s *Scheduler) Stats() map[string]uint64 {
@@ -576,7 +707,7 @@ func (s *Scheduler) SendOutdated(affected map[registry.ID]bool) {
 		// fields: concurrent completion may be deleting the pid and the pool may
 		// be resetting/reusing this object.
 		ref := proc.sig.Load()
-		if ref == nil || !affected[ref.source] {
+		if ref == nil || ref.source.Name == "" || !affected[ref.source] {
 			return true
 		}
 		// Deliver straight to this processor under the snapshot's generation.

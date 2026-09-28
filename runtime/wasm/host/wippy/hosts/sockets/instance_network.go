@@ -29,14 +29,8 @@ func (h *InstanceNetworkHost) InstanceNetwork(_ context.Context) uint32 {
 	return h.resources.Add(network)
 }
 
-// ResourceDropNetwork releases a network resource handle.
-func (h *InstanceNetworkHost) ResourceDropNetwork(_ context.Context, self uint32) {
-	h.resources.Remove(self)
-}
-
 func (h *InstanceNetworkHost) Register() map[string]any {
 	return map[string]any{
-		"instance-network":       h.InstanceNetwork,
-		"[resource-drop]network": h.ResourceDropNetwork,
+		"instance-network": h.InstanceNetwork,
 	}
 }

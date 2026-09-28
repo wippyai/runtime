@@ -11,7 +11,6 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/store"
-	"github.com/wippyai/runtime/system/eventbus"
 	systemkv "github.com/wippyai/runtime/system/kv"
 	payloadSystem "github.com/wippyai/runtime/system/payload"
 	"go.uber.org/zap"
@@ -19,7 +18,7 @@ import (
 
 func newTestStore(t *testing.T, namespace string) *Store {
 	t.Helper()
-	eng := systemkv.NewService(namespace, eventbus.NewBus(), zap.NewNop())
+	eng := systemkv.NewService(namespace, zap.NewNop())
 	if _, err := eng.Start(context.Background()); err != nil {
 		t.Fatalf("engine start: %v", err)
 	}
@@ -29,7 +28,7 @@ func newTestStore(t *testing.T, namespace string) *Store {
 
 func newTestStoreWithInfo(t *testing.T, namespace string, info store.Info) *Store {
 	t.Helper()
-	eng := systemkv.NewService(namespace, eventbus.NewBus(), zap.NewNop())
+	eng := systemkv.NewService(namespace, zap.NewNop())
 	if _, err := eng.Start(context.Background()); err != nil {
 		t.Fatalf("engine start: %v", err)
 	}
@@ -72,7 +71,7 @@ func TestStore_SetGetDeleteHas(t *testing.T) {
 // different namespaces cannot see each other's keys.
 func TestStore_NamespaceIsolation(t *testing.T) {
 	ctx := context.Background()
-	eng := systemkv.NewService("shared", eventbus.NewBus(), zap.NewNop())
+	eng := systemkv.NewService("shared", zap.NewNop())
 	if _, err := eng.Start(ctx); err != nil {
 		t.Fatalf("engine start: %v", err)
 	}

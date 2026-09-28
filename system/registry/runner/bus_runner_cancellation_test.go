@@ -29,6 +29,7 @@ func (b *recordingBus) SubscribeP(context.Context, event.System, event.Kind, cha
 	return "", nil
 }
 func (b *recordingBus) Unsubscribe(context.Context, event.SubscriberID) {}
+func (b *recordingBus) HasSubscribers(event.System, event.Kind) bool    { return true }
 func (b *recordingBus) Send(_ context.Context, evt event.Event) {
 	b.mu.Lock()
 	b.events = append(b.events, evt)
@@ -104,7 +105,7 @@ func TestY01TransitionCancellationRollsBack(t *testing.T) {
 	)
 	entry := registry.Entry{ID: registry.ParseID("test:item"), Kind: "test", Data: payload.NewString("value")}
 
-	state, err := runner.Transition(ctx, nil, registry.ChangeSet{{Kind: registry.EntryCreate, Entry: entry}})
+	state, err := runner.Transition(ctx, nil, registry.ChangeSet{{Kind: registry.EntryCreate, Entry: entry}}, nil)
 
 	require.ErrorIs(t, err, context.Canceled)
 	require.Empty(t, state)

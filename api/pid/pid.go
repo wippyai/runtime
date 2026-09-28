@@ -146,3 +146,9 @@ func (p *PID) UnmarshalJSON(data []byte) error {
 	*p = parsed
 	return nil
 }
+
+// Equal reports whether both PIDs identify the same process. The optional
+// cached string representation is not part of process identity.
+func (p PID) Equal(other PID) bool {
+	return p.Node == other.Node && p.Host == other.Host && p.UniqID == other.UniqID
+}

@@ -10,8 +10,14 @@ import (
 )
 
 // DefaultAwaitTimeout is the default request/reply wait budget used when a
-// caller passes a non-positive timeout to an AwaitService.
+// caller passes a zero timeout to an AwaitService.
 const DefaultAwaitTimeout = 30 * time.Second
+
+// ContextBoundAwait asks an AwaitService to bound the wait by the caller
+// context alone. It suits replies whose handler work has no meaningful fixed
+// budget, where a fixed cap would abort legitimate work rather than report a
+// missing responder.
+const ContextBoundAwait = -1 * time.Nanosecond
 
 var awaitServiceKey = &ctxapi.Key{Name: "event.await"}
 
@@ -37,12 +43,14 @@ type AwaitWaiter interface {
 type AwaitService interface {
 	// Prepare registers a waiter before the triggering request is sent.
 	// This avoids reply races where response arrives before wait registration.
-	// A non-positive timeout uses DefaultAwaitTimeout.
+	// A zero timeout uses DefaultAwaitTimeout; ContextBoundAwait bounds the
+	// wait by ctx alone.
 	Prepare(ctx context.Context, system System, kind Kind, path Path, timeout time.Duration) (AwaitWaiter, error)
 
 	// Await waits for an event matching system, kind, and path.
 	// Returns when matching event arrives or timeout expires.
-	// A non-positive timeout uses DefaultAwaitTimeout.
+	// A zero timeout uses DefaultAwaitTimeout; ContextBoundAwait bounds the
+	// wait by ctx alone.
 	Await(ctx context.Context, system System, kind Kind, path Path, timeout time.Duration) AwaitResult
 
 	// Start initializes the service.

@@ -74,6 +74,12 @@ func NewContainerStartError(err error) apierror.Error {
 		WithCause(err)
 }
 
+func NewContainerResizeError(err error) apierror.Error {
+	return apierror.New(apierror.Unavailable, fmt.Sprintf("failed to resize container: %v", err)).
+		WithRetryable(apierror.True).
+		WithCause(err)
+}
+
 func NewSignalError(err error) apierror.Error {
 	return apierror.New(apierror.Unavailable, fmt.Sprintf("failed to send signal: %v", err)).
 		WithRetryable(apierror.False).

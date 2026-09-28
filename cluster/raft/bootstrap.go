@@ -89,16 +89,17 @@ type BootstrapWatcherConfig struct {
 // (State is Leader or Follower with a known leader), the watcher
 // transitions itself to raft_status=in and exits.
 type BootstrapWatcher struct {
-	node    bootstrapNode
-	member  bootstrapMembership
-	bus     event.Bus
-	logger  *zap.Logger
-	stopCh  chan struct{}
-	doneCh  chan struct{}
-	localID string
-	state   string // "pre" or "in"
-	cfg     BootstrapWatcherConfig
-	mu      sync.Mutex
+	node      bootstrapNode
+	member    bootstrapMembership
+	bus       event.Bus
+	logger    *zap.Logger
+	stopCh    chan struct{}
+	doneCh    chan struct{}
+	subCancel context.CancelFunc
+	localID   string
+	state     string // "pre" or "in"
+	cfg       BootstrapWatcherConfig
+	mu        sync.Mutex
 }
 
 // NewBootstrapWatcher wires the watcher. Start must be called separately
@@ -161,20 +162,29 @@ func (w *BootstrapWatcher) Start(ctx context.Context) error {
 		return nil
 	}
 
+	// Stop is allowed before the component context is canceled. Give the
+	// subscription an owned context so shutdown can release dispatcher
+	// backpressure before waiting for the unsubscribe barrier.
+	subCtx, subCancel := context.WithCancel(ctx)
 	ch := make(chan event.Event, bootstrapBusBufSize)
-	subID, err := w.bus.Subscribe(ctx, cluster.System, ch)
+	subID, err := w.bus.Subscribe(subCtx, cluster.System, ch)
 	if err != nil {
+		subCancel()
 		close(w.doneCh)
 		return err
 	}
+	w.subCancel = subCancel
 
-	go w.run(ctx, ch, subID)
+	go w.run(subCtx, ch, subID)
 	return nil
 }
 
 // Stop terminates the watcher. Idempotent. Blocks until the goroutine
 // exits.
 func (w *BootstrapWatcher) Stop() {
+	if w.subCancel != nil {
+		w.subCancel()
+	}
 	select {
 	case <-w.stopCh:
 	default:
@@ -188,6 +198,10 @@ func (w *BootstrapWatcher) Stop() {
 func (w *BootstrapWatcher) run(ctx context.Context, ch <-chan event.Event, subID event.SubscriberID) {
 	defer close(w.doneCh)
 	defer w.bus.Unsubscribe(ctx, subID)
+	// Natural completion (successful bootstrap or observing an existing Raft
+	// leader) also stops channel consumption, so release dispatcher
+	// backpressure before entering the unsubscribe barrier.
+	defer w.subCancel()
 
 	ticker := time.NewTicker(w.cfg.Poll)
 	defer ticker.Stop()

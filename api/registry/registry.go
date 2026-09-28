@@ -277,8 +277,14 @@ type (
 
 	// Runner defines how ChangeSets are applied to a State to produce a new State
 	Runner interface {
-		// Transition applies a given ChangeSet to a State and returns the resulting modified State
-		Transition(context.Context, State, ChangeSet) (State, error)
+		// Transition applies a given ChangeSet to a State and returns the
+		// resulting modified State. When the transition fails, Transition
+		// calls abort, if non-nil, exactly once: before it reverses any
+		// accepted operation and before it returns. abort withdraws the
+		// external state prepared for the transition (dependency effects), so
+		// the reverse operations observe the world the restored entries were
+		// built against.
+		Transition(ctx context.Context, from State, cs ChangeSet, abort func(context.Context)) (State, error)
 	}
 
 	// Finder defines methods for searching registry entries based on metadata
@@ -313,5 +319,15 @@ type (
 	TransactionParticipant interface {
 		// RegistryTransactionParticipantID returns the participant's stable in-process reply id.
 		RegistryTransactionParticipantID() string
+	}
+
+	// KindHandler marks event handlers that declare which entry kinds they
+	// reply to. Entry events reach every registry handler on the bus and each
+	// one filters by entry kind itself, so this is what lets a caller tell
+	// that an operation would reach a handler that answers it. Handlers that
+	// observe without replying implement it and answer false.
+	KindHandler interface {
+		// HandlesKind reports whether this handler replies for an entry kind.
+		HandlesKind(kind Kind) bool
 	}
 )

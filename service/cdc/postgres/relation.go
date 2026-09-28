@@ -4,8 +4,6 @@ package postgres
 
 import "github.com/jackc/pglogrepl"
 
-const unchangedTOAST = "<unchanged-toast>"
-
 type relationCache struct {
 	rels map[uint32]*pglogrepl.RelationMessage
 }
@@ -37,10 +35,27 @@ func tupleToMap(rel *pglogrepl.RelationMessage, t *pglogrepl.TupleData) map[stri
 		case pglogrepl.TupleDataTypeNull:
 			out[name] = nil
 		case pglogrepl.TupleDataTypeToast:
-			out[name] = unchangedTOAST
+			// Not a value. The change carries these names separately.
+			continue
 		default:
 			out[name] = string(col.Data)
 		}
 	}
 	return out
+}
+
+func unchangedColumns(rel *pglogrepl.RelationMessage, tuple *pglogrepl.TupleData) []string {
+	if rel == nil || tuple == nil {
+		return nil
+	}
+	var names []string
+	for i, column := range tuple.Columns {
+		if i >= len(rel.Columns) {
+			break
+		}
+		if column.DataType == pglogrepl.TupleDataTypeToast {
+			names = append(names, rel.Columns[i].Name)
+		}
+	}
+	return names
 }

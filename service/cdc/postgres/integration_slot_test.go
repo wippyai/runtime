@@ -27,6 +27,11 @@ func startBriefSource(t *testing.T, repl, admin string) *Source {
 	})
 	_, err := src.Start(context.Background())
 	require.NoError(t, err)
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		require.NoError(t, src.Stop(ctx))
+	})
 	return src
 }
 
@@ -59,6 +64,10 @@ func TestMarkForSlotDropRemovesSlot(t *testing.T) {
 
 	src := startBriefSource(t, repl, admin)
 	require.Equal(t, 1, slotCount(t, db, itSlot))
+	// An idle receive watermark is not a transaction-safe checkpoint. Commit
+	// real work before asserting that the source persists a consumed position.
+	_, err = db.Exec(`INSERT INTO accounts (email, balance) VALUES ('drop-slot@w.ai', 1)`)
+	require.NoError(t, err)
 	require.Eventually(t, func() bool {
 		var n int
 		_ = db.QueryRow(`SELECT count(*) FROM wippy_cdc_offsets WHERE slot=$1`, itSlot).Scan(&n)

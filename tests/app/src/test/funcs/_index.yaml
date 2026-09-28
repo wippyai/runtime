@@ -35,6 +35,25 @@ entries:
     source: file://error_with_kind.lua
     method: main
 
+  - name: raise_with_kind
+    kind: function.lua
+    source: file://raise_with_kind.lua
+    method: main
+    modules:
+      - time
+
+  - name: raise_on_load
+    kind: function.lua
+    source: file://raise_on_load.lua
+    method: main
+
+  - name: reraise_with_kind
+    kind: function.lua
+    source: file://reraise_with_kind.lua
+    method: main
+    modules:
+      - funcs
+
   # Test cases
   - name: call
     kind: function.lua
@@ -189,4 +208,3 @@ entries:
       assert2: app.lib:assert
     modules:
       - funcs
-

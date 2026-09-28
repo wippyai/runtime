@@ -4,9 +4,9 @@ package internode
 
 import (
 	"context"
+	"errors"
 	"net"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/wippyai/runtime/api/cluster"
@@ -23,33 +23,42 @@ import (
 // zero evictions.
 const orphanSweepInterval = 60 * time.Second
 
-// Membership metadata keys form the rolling-upgrade wire contract between
-// nodes. Older peers consume MetadataPort and ignore the additive v2 fields.
+// Membership metadata keys a node publishes for internode connections: the
+// listener port, dialed at the member's membership address, and the identity
+// key the handshake pins.
 const (
-	MetadataPort          = "internode_port"
-	MetadataAdvertiseAddr = "internode_advertise_addr"
-	MetadataAdvertisePort = "internode_advertise_port"
-	MetadataPublicKey     = "internode_public_key"
+	MetadataPort      = "internode_port"
+	MetadataPublicKey = "internode_public_key"
 )
 
+// PackageCallback takes ownership only when it returns nil. On error it must
+// leave the package owned by Service, which releases it after rejection.
 type PackageCallback func(*relay.Package) error
 
 type Service struct {
 	ctx              context.Context
+	cancel           context.CancelFunc
 	logger           *zap.Logger
 	connMan          ConnectionManager
 	codec            cluster.MessageCodec
 	deliveryCallback PackageCallback
+	sessionEnded     func(cluster.NodeID)
 	bus              event.Bus
 	membership       cluster.Membership
 	subscriber       *eventbus.Subscriber
+	localNodeID      cluster.NodeID
 }
 
+// NewService wires the transport to local delivery. sessionEnded runs
+// synchronously when a session with a node ends, after the last frame of that
+// session was delivered and before any frame of a later session is; it must
+// break local links and monitors of the node's processes.
 func NewService(
 	logger *zap.Logger,
 	connMan ConnectionManager,
 	codec cluster.MessageCodec,
 	pkgCallback PackageCallback,
+	sessionEnded func(cluster.NodeID),
 	bus event.Bus,
 	membership cluster.Membership,
 ) *Service {
@@ -58,13 +67,18 @@ func NewService(
 		connMan:          connMan,
 		codec:            codec,
 		deliveryCallback: pkgCallback,
+		sessionEnded:     sessionEnded,
 		bus:              bus,
 		membership:       membership,
 	}
 }
 
+// Start serves the connection manager and follows membership. A service
+// starts once: its connection manager is single-use.
 func (s *Service) Start(ctx context.Context) error {
+	ctx, s.cancel = context.WithCancel(ctx)
 	s.ctx = ctx
+	s.localNodeID = s.membership.LocalNode().ID
 	s.logger.Info("Starting inter-node service...")
 
 	onMessage := func(nodeID cluster.NodeID, data []byte) {
@@ -79,10 +93,15 @@ func (s *Service) Start(ctx context.Context) error {
 			s.connMan.RecordDropReason("decode_failed")
 			return
 		}
+		// Preserve the logical source, which may represent a virtual peer or
+		// be anonymous. Record the connection peer separately from the wire
+		// envelope so services need not trust a claimed Source.Node.
+		pkg.IngressNode = nodeID
 		s.logger.Debug("Decoded message, delivering",
 			zap.String("from_node", nodeID),
 			zap.String("target_host", pkg.Target.Host))
 		if err := s.deliveryCallback(pkg); err != nil {
+			relay.ReleasePackage(pkg)
 			// Hot path under partition: the local PG host may have torn down
 			// while a peer is still sending to it. Counted as a drop with
 			// no per-message log to avoid the chaos-time spam we observed.
@@ -93,12 +112,14 @@ func (s *Service) Start(ctx context.Context) error {
 		}
 	}
 
-	if err := s.connMan.Start(ctx, onMessage); err != nil {
+	if err := s.connMan.Start(ctx, onMessage, s.sessionEnded); err != nil {
+		s.cancel()
 		return NewStartConnectionManagerError(err)
 	}
 
-	sub, err := eventbus.NewSubscriber(ctx, s.bus, cluster.System, "node.(joined|left)", s.handleMembershipEvent)
+	sub, err := eventbus.NewSubscriber(ctx, s.bus, cluster.System, "node.(joined|left|updated)", s.handleMembershipEvent)
 	if err != nil {
+		s.cancel()
 		_ = s.connMan.Stop()
 		return NewSubscribeMembershipError(err)
 	}
@@ -106,7 +127,7 @@ func (s *Service) Start(ctx context.Context) error {
 
 	// Process nodes that are already in the cluster at startup.
 	for _, nodeInfo := range s.membership.Nodes() {
-		if nodeInfo.ID != s.membership.LocalNode().ID {
+		if nodeInfo.ID != s.localNodeID {
 			s.logger.Info("Processing pre-existing cluster member", zap.String("node_id", nodeInfo.ID))
 			s.connMan.AddManagedNode(nodeInfo.ID)
 			s.connectToNode(nodeInfo)
@@ -137,7 +158,7 @@ func (s *Service) orphanSweepLoop(ctx context.Context) {
 		case <-t.C:
 			members := s.membership.Nodes()
 			known := make(map[cluster.NodeID]struct{}, len(members)+1)
-			known[s.membership.LocalNode().ID] = struct{}{}
+			known[s.localNodeID] = struct{}{}
 			for _, n := range members {
 				known[n.ID] = struct{}{}
 			}
@@ -151,11 +172,67 @@ func (s *Service) orphanSweepLoop(ctx context.Context) {
 
 func (s *Service) Stop() error {
 	s.logger.Info("Stopping inter-node service...")
+	if s.cancel != nil {
+		s.cancel()
+	}
 	if s.subscriber != nil {
 		s.subscriber.Close()
 	}
 	return s.connMan.Stop()
 }
+
+var ErrContextQueueUnsupported = errors.New("internode: connection manager does not support cancellable queue admission")
+
+// SendContext transfers package ownership only on successful queue admission.
+// Cancellation stops waiting to admit; it cannot recall an accepted message.
+func (s *Service) SendContext(ctx context.Context, pkg *relay.Package) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if pkg == nil {
+		return errors.New("internode: nil package")
+	}
+	sender, ok := s.connMan.(ContextConnectionManager)
+	if !ok {
+		return ErrContextQueueUnsupported
+	}
+	data, err := s.codec.Encode(pkg)
+	if err != nil {
+		return NewEncodePackageError(pkg.Target.Node, err)
+	}
+	var topic string
+	if len(pkg.Messages) > 0 {
+		topic = pkg.Messages[0].Topic
+	}
+	// Discovery consumers may run before the transport subscriber. Wait for
+	// its registration without recreating state from a membership snapshot.
+	if !s.connMan.IsManaged(pkg.Target.Node) && s.membership != nil {
+		for _, member := range s.membership.Nodes() {
+			if member.ID != pkg.Target.Node {
+				continue
+			}
+			if waiter, ok := s.connMan.(interface {
+				WaitManaged(context.Context, cluster.NodeID) error
+			}); ok {
+				if err := waiter.WaitManaged(ctx, pkg.Target.Node); err != nil {
+					return err
+				}
+			}
+			break
+		}
+	}
+	// Queue admission still checks the state: a departure may race the wait.
+	if err := sender.SendToNodeContext(ctx, pkg.Target.Node, data, ClassForTopic(topic)); err != nil {
+		return err
+	}
+	relay.ReleasePackage(pkg)
+	return nil
+}
+
+var _ relay.ContextSender = (*Service)(nil)
 
 func (s *Service) Send(pkg *relay.Package) error {
 	data, err := s.codec.Encode(pkg)
@@ -208,7 +285,7 @@ func (s *Service) handleMembershipEvent(e event.Event) {
 		return
 	}
 	nodeInfo := nodeEvent.Node
-	if nodeInfo.ID == s.membership.LocalNode().ID {
+	if nodeInfo.ID == s.localNodeID {
 		return
 	}
 
@@ -218,11 +295,31 @@ func (s *Service) handleMembershipEvent(e event.Event) {
 			zap.String("node_id", nodeInfo.ID))
 		s.connMan.AddManagedNode(nodeInfo.ID)
 		s.connectToNode(nodeInfo)
+	case cluster.NodeUpdated:
+		if s.connMan.IsManaged(nodeInfo.ID) {
+			s.connectToNode(nodeInfo)
+		}
 	case cluster.NodeLeft:
 		s.logger.Info("Node left cluster, cleaning up state and connection",
 			zap.String("node_id", nodeInfo.ID))
-		s.connMan.RemoveManagedNode(nodeInfo.ID)
+		s.connMan.RemoveManagedNode(nodeInfo.ID, s.departingIncarnation(nodeInfo))
 	}
+}
+
+// departingIncarnation reads the incarnation a departing node advertised.
+// Zero means the departure names no incarnation and removes any session.
+func (s *Service) departingIncarnation(nodeInfo cluster.NodeInfo) uint64 {
+	raw, ok := nodeInfo.Meta[cluster.MetaIncarnation]
+	if !ok {
+		return 0
+	}
+	incarnation, err := strconv.ParseUint(raw, 10, 64)
+	if err != nil {
+		s.logger.Error("Invalid incarnation metadata on departing node; removing its session",
+			zap.String("node_id", nodeInfo.ID), zap.String("incarnation", raw), zap.Error(err))
+		return 0
+	}
+	return incarnation
 }
 
 func (s *Service) connectToNode(nodeInfo cluster.NodeInfo) {
@@ -239,53 +336,11 @@ func (s *Service) connectToNode(nodeInfo cluster.NodeInfo) {
 		return
 	}
 
-	// The v1 endpoint remains memberlist IP + internode_port. v2 metadata is
-	// additive, so a new node can use a relay while an old node ignores it and
-	// continues dialing the preserved v1 endpoint.
+	// A member is dialed at its membership address. A member that cannot be
+	// dialed there reaches this node through its own dial.
 	addr := nodeInfo.Addr
 	if host, _, splitErr := net.SplitHostPort(addr); splitErr == nil {
 		addr = host
 	}
-	advertiseAddr, hasAddr := nodeInfo.Meta[MetadataAdvertiseAddr]
-	advertisePort, hasPort := nodeInfo.Meta[MetadataAdvertisePort]
-	if hasAddr != hasPort {
-		s.logger.Error("Incomplete v2 internode endpoint metadata for node",
-			zap.String("node_id", nodeInfo.ID))
-		return
-	} else if hasAddr {
-		advertiseAddr = strings.TrimSpace(advertiseAddr)
-		advertisePortNumber, parseErr := strconv.Atoi(advertisePort)
-		if !ValidEndpointHost(advertiseAddr) || parseErr != nil || advertisePortNumber < 1 || advertisePortNumber > 65535 {
-			s.logger.Error("Invalid v2 internode endpoint metadata for node",
-				zap.String("node_id", nodeInfo.ID), zap.String("addr", advertiseAddr), zap.String("port", advertisePort))
-			return
-		}
-		addr, port = advertiseAddr, advertisePortNumber
-	}
-
 	s.connMan.EnsureConnection(nodeInfo.ID, addr, port)
-}
-
-// ValidEndpointHost reports whether host is an IP literal or an ASCII DNS
-// hostname suitable for net.JoinHostPort. Endpoint ports are carried
-// separately and are therefore rejected here.
-func ValidEndpointHost(host string) bool {
-	if net.ParseIP(host) != nil {
-		return true
-	}
-	host = strings.TrimSuffix(host, ".")
-	if host == "" || len(host) > 253 {
-		return false
-	}
-	for _, label := range strings.Split(host, ".") {
-		if label == "" || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
-			return false
-		}
-		for _, ch := range label {
-			if (ch < 'a' || ch > 'z') && (ch < 'A' || ch > 'Z') && (ch < '0' || ch > '9') && ch != '-' {
-				return false
-			}
-		}
-	}
-	return true
 }

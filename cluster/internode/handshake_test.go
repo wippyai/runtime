@@ -30,12 +30,12 @@ func TestHandshake_Success(t *testing.T) {
 
 	go func() {
 		defer wg.Done()
-		clientNodeConn, clientErr = PerformClientHandshake(clientConn, cfg, logger, nodeAID, nodeBID)
+		clientNodeConn, clientErr = PerformClientHandshake(clientConn, cfg, logger, nodeAID, testIncarnation, nodeBID)
 	}()
 
 	go func() {
 		defer wg.Done()
-		serverNodeConn, serverErr = PerformServerHandshake(serverConn, cfg, logger, nodeBID)
+		serverNodeConn, serverErr = PerformServerHandshake(serverConn, cfg, logger, nodeBID, testIncarnation)
 	}()
 
 	wg.Wait()
@@ -67,12 +67,14 @@ func TestHandshake_Authenticated(t *testing.T) {
 		serverKey        string
 		clientSigningKey ed25519.PrivateKey
 		authorizePeer    bool
+		rejectServer     bool
 		wantError        bool
 	}{
 		{name: "matching identity", clientKey: "shared-secret", serverKey: "shared-secret", clientSigningKey: clientSigningKey, authorizePeer: true},
 		{name: "wrong client key", clientKey: "attacker-secret", serverKey: "shared-secret", clientSigningKey: clientSigningKey, authorizePeer: true, wantError: true},
 		{name: "forged client identity", clientKey: "shared-secret", serverKey: "shared-secret", clientSigningKey: attackerSigningKey, authorizePeer: true, wantError: true},
 		{name: "unauthorized peer", clientKey: "shared-secret", serverKey: "shared-secret", clientSigningKey: clientSigningKey, wantError: true},
+		{name: "unauthorized server", clientKey: "shared-secret", serverKey: "shared-secret", clientSigningKey: clientSigningKey, authorizePeer: true, rejectServer: true, wantError: true},
 	}
 
 	for _, tt := range tests {
@@ -83,6 +85,9 @@ func TestHandshake_Authenticated(t *testing.T) {
 			clientCfg.SigningKey = tt.clientSigningKey
 			clientCfg.ResolvePeerKey = func(id cluster.NodeID) (ed25519.PublicKey, bool) {
 				return serverPublicKey, id == "node-B"
+			}
+			clientCfg.AuthorizePeer = func(id cluster.NodeID, _ net.Addr) bool {
+				return !tt.rejectServer && id == "node-B"
 			}
 			serverCfg := DefaultNodeConnectionConfig()
 			serverCfg.RequireAuthentication = true
@@ -99,14 +104,14 @@ func TestHandshake_Authenticated(t *testing.T) {
 			serverErrors := make(chan error, 1)
 
 			go func() {
-				nodeConn, err := PerformClientHandshake(clientConn, clientCfg, zap.NewNop(), "node-A", "node-B")
+				nodeConn, err := PerformClientHandshake(clientConn, clientCfg, zap.NewNop(), "node-A", testIncarnation, "node-B")
 				if nodeConn != nil {
 					_ = nodeConn.conn.Close()
 				}
 				clientErrors <- err
 			}()
 			go func() {
-				nodeConn, err := PerformServerHandshake(serverConn, serverCfg, zap.NewNop(), "node-B")
+				nodeConn, err := PerformServerHandshake(serverConn, serverCfg, zap.NewNop(), "node-B", testIncarnation)
 				if nodeConn != nil {
 					_ = nodeConn.conn.Close()
 				}
@@ -115,6 +120,9 @@ func TestHandshake_Authenticated(t *testing.T) {
 
 			clientErr := <-clientErrors
 			serverErr := <-serverErrors
+			if tt.rejectServer {
+				require.ErrorContains(t, clientErr, "internode peer is not authorized")
+			}
 			if tt.wantError {
 				require.Error(t, errors.Join(clientErr, serverErr))
 				return
@@ -141,13 +149,13 @@ func TestHandshake_Client_UnexpectedRemoteID(t *testing.T) {
 
 	go func() {
 		defer wg.Done()
-		_, err := PerformClientHandshake(clientConn, cfg, logger, nodeAID, nodeBID)
+		_, err := PerformClientHandshake(clientConn, cfg, logger, nodeAID, testIncarnation, nodeBID)
 		clientErrChan <- err
 	}()
 
 	go func() {
 		defer wg.Done()
-		_, err := PerformServerHandshake(serverConn, cfg, logger, wrongNodeID)
+		_, err := PerformServerHandshake(serverConn, cfg, logger, wrongNodeID, testIncarnation)
 		serverErrChan <- err
 	}()
 

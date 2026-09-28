@@ -3,103 +3,562 @@
 package kvbacked
 
 import (
+	"container/list"
 	"context"
+	"errors"
+	"fmt"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
+	raftapi "github.com/wippyai/runtime/api/cluster/raft"
 	"github.com/wippyai/runtime/api/pid"
 	kvapi "github.com/wippyai/runtime/api/store/kv"
+	globalapi "github.com/wippyai/runtime/api/topology/namereg/global"
 	"github.com/wippyai/runtime/system/topology/namereg/global"
 	"go.uber.org/zap"
 )
 
+type reconcilerLifecycle struct {
+	ctx    context.Context
+	cancel context.CancelFunc
+	watch  atomic.Pointer[reconcilerWatch]
+	failed atomic.Bool
+}
+
+type reconcilerWatch struct{ kvapi.Watcher }
+
+// strongReconcileWorkers bounds concurrent Raft-backed actions. The owner
+// retains one generation per live name independently of worker capacity.
+const strongReconcileWorkers = 4
+
+type reconcileSlot struct {
+	queueElem *list.Element
+	attemptID string
+	dirty     bool
+	inFlight  bool
+}
+
+type reconcileWork struct {
+	slot *reconcileSlot
+	name string
+	scan bool
+}
+
+type reconcileReport struct {
+	slot      *reconcileSlot
+	scanErr   error
+	err       error
+	name      string
+	attemptID string
+	retryAt   int64
+}
+
+// reconcilerOwner is the sole owner of ordered watch events and the
+// per-name coalescing state. Blocking Strong actions run in the fixed worker
+// pool and report completion back to this loop.
+type reconcilerOwner struct {
+	svc           *Service
+	lifecycle     *reconcilerLifecycle
+	ctx           context.Context
+	actions       chan reconcileWork
+	done          chan reconcileReport
+	wake          chan struct{}
+	slots         map[string]*reconcileSlot
+	started       chan struct{}
+	ready         list.List
+	mu            sync.Mutex
+	scanRequested bool
+	scanInFlight  bool
+}
+
+func newReconcilerOwner(s *Service, run *reconcilerLifecycle) *reconcilerOwner {
+	return &reconcilerOwner{
+		svc:       s,
+		lifecycle: run,
+		ctx:       run.ctx,
+		actions:   make(chan reconcileWork, strongReconcileWorkers),
+		done:      make(chan reconcileReport, strongReconcileWorkers),
+		wake:      make(chan struct{}, 1),
+		slots:     make(map[string]*reconcileSlot),
+		started:   make(chan struct{}),
+	}
+}
+
+// mark revisits a currently tracked name; an untagged notification cannot
+// create a new obligation or resurrect an already retired generation.
+func (o *reconcilerOwner) mark(name string) {
+	o.markAttempt(name, "")
+}
+
+func (o *reconcilerOwner) markAttempt(name, attemptID string) {
+	o.mu.Lock()
+	o.markAttemptLocked(name, attemptID)
+	o.mu.Unlock()
+	select {
+	case o.wake <- struct{}{}:
+	default:
+	}
+}
+
+func (o *reconcilerOwner) markAttemptLocked(name, attemptID string) {
+	slot := o.slots[name]
+	if slot == nil && attemptID == "" {
+		return
+	}
+	if slot == nil || (attemptID != "" && slot.attemptID != attemptID) {
+		// Replacement retires the previous generation. A report for it may
+		// still arrive, but pointer identity prevents it from mutating state.
+		if slot != nil && slot.queueElem != nil {
+			o.ready.Remove(slot.queueElem)
+		}
+		slot = &reconcileSlot{attemptID: attemptID}
+		o.slots[name] = slot
+		// A previous generation's timer must not suppress this attempt's
+		// deadline. Timer callbacks only enqueue their own live generation.
+		o.svc.strong.stopTimer(name)
+	}
+	slot.dirty = true
+	if slot.queueElem == nil && !slot.inFlight {
+		slot.queueElem = o.ready.PushBack(reconcileWork{name: name, slot: slot})
+	}
+}
+
+// Recovery scans run concurrently with ordered watch delivery. Validate the
+// scanned generation against the current KV snapshot while holding the owner
+// lock so a delayed scan cannot replace a newer generation observed by watch.
+func (o *reconcilerOwner) markScannedAttempt(name, attemptID string) error {
+	o.mu.Lock()
+	entry, err := o.svc.engine.Get(pendingKey(name))
+	if err == nil {
+		var header pendingHeader
+		header, err = decodePending(entry.Value)
+		if err == nil {
+			err = validateNamingRecord(entry.Key, pendingPrefix, header.Name, header.PID)
+		}
+		if err == nil && header.Name == name && header.AttemptID == attemptID {
+			o.markAttemptLocked(name, attemptID)
+		}
+	}
+	o.mu.Unlock()
+	if err != nil && !errors.Is(err, kvapi.ErrKeyNotFound) {
+		return err
+	}
+	select {
+	case o.wake <- struct{}{}:
+	default:
+	}
+	return nil
+}
+
+// retryAttempt is a hint from a timer for an already live generation. A timer
+// fired after DELETE or replacement cannot create a new owner obligation.
+func (o *reconcilerOwner) retryAttempt(name, attemptID string) {
+	o.mu.Lock()
+	slot := o.slots[name]
+	if slot == nil || slot.attemptID != attemptID {
+		o.mu.Unlock()
+		return
+	}
+	slot.dirty = true
+	if slot.queueElem == nil && !slot.inFlight {
+		slot.queueElem = o.ready.PushBack(reconcileWork{name: name, slot: slot})
+	}
+	o.mu.Unlock()
+	select {
+	case o.wake <- struct{}{}:
+	default:
+	}
+}
+
+func (o *reconcilerOwner) retire(name, attemptID string) {
+	o.mu.Lock()
+	if slot := o.slots[name]; slot != nil && (attemptID == "" || slot.attemptID == attemptID) {
+		if slot.queueElem != nil {
+			o.ready.Remove(slot.queueElem)
+		}
+		delete(o.slots, name)
+	}
+	o.mu.Unlock()
+}
+
+func (o *reconcilerOwner) requestScan() {
+	o.mu.Lock()
+	o.scanRequested = true
+	o.mu.Unlock()
+	select {
+	case o.wake <- struct{}{}:
+	default:
+	}
+}
+
+func (o *reconcilerOwner) dispatch() {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.scanRequested && !o.scanInFlight {
+		select {
+		case o.actions <- reconcileWork{scan: true}:
+			o.scanRequested = false
+			o.scanInFlight = true
+		default:
+		}
+	}
+	for front := o.ready.Front(); front != nil; front = o.ready.Front() {
+		work := front.Value.(reconcileWork)
+		slot := o.slots[work.name]
+		if slot != work.slot || !slot.dirty || slot.inFlight {
+			o.ready.Remove(front)
+			if slot == work.slot {
+				slot.queueElem = nil
+			}
+			continue
+		}
+		select {
+		case o.actions <- work:
+			o.ready.Remove(front)
+			slot.dirty = false
+			slot.inFlight = true
+			slot.queueElem = nil
+		default:
+			return
+		}
+	}
+}
+
+func (o *reconcilerOwner) worker() {
+	for {
+		select {
+		case <-o.ctx.Done():
+			return
+		case work := <-o.actions:
+			report := reconcileReport{name: work.name}
+			if work.scan {
+				report.scanErr = o.svc.strong.reconcileAllPending()
+			} else {
+				report = o.svc.strong.reconcileForRun(work.name, o.lifecycle)
+				report.slot = work.slot
+			}
+			select {
+			case o.done <- report:
+			case <-o.ctx.Done():
+				return
+			}
+		}
+	}
+}
+
+func (o *reconcilerOwner) actionDone(report reconcileReport) {
+	if o.svc.reconciler.Load() != o.lifecycle || o.ctx.Err() != nil {
+		return
+	}
+	if report.err != nil {
+		o.svc.failReconciler(o.lifecycle, report.err)
+		o.svc.logger.Error("strong reconciliation observation failed", zap.Error(report.err))
+		return
+	}
+	if report.slot == nil {
+		o.mu.Lock()
+		o.scanInFlight = false
+		o.mu.Unlock()
+		if report.scanErr != nil {
+			o.svc.logger.Error("strong recovery scan failed; closing naming admission", zap.Error(report.scanErr))
+			o.svc.failReconciler(o.lifecycle, report.scanErr)
+		}
+		return
+	}
+	name := report.name
+	o.mu.Lock()
+	slot := o.slots[name]
+	if slot == nil || slot != report.slot || !slot.inFlight {
+		o.mu.Unlock()
+		return
+	}
+	applyRetry := report.retryAt != 0 && (report.attemptID == "" || slot.attemptID == report.attemptID)
+	slot.inFlight = false
+	if !slot.dirty && report.attemptID == "" && report.retryAt == 0 {
+		delete(o.slots, name)
+	} else if slot.dirty {
+		slot.queueElem = o.ready.PushBack(reconcileWork{name: name, slot: slot})
+	}
+	if applyRetry {
+		o.svc.strong.armTimerAttempt(name, slot.attemptID, report.retryAt)
+	}
+	o.mu.Unlock()
+}
+
+func (o *reconcilerOwner) run(w kvapi.Watcher, run *reconcilerLifecycle) {
+	for i := 0; i < strongReconcileWorkers; i++ {
+		go o.worker()
+	}
+	close(o.started)
+	var leadership raftapi.Leadership
+	var fallback <-chan time.Time
+	lastLeader := o.svc.leaderFn()
+	if observe := o.svc.strong.observeLeadership; observe != nil {
+		leadership = observe()
+	} else {
+		// Standalone registry instances can supply only IsLeader. Production
+		// Raft supplies a revisioned observation instead of polling.
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
+		fallback = ticker.C
+	}
+	defer func() {
+		o.svc.ready.Store(false)
+		run.cancel()
+		_ = w.Close()
+		if o.svc.dissem != nil {
+			o.svc.dissem.Stop()
+		}
+	}()
+	for {
+		o.dispatch()
+		select {
+		case <-o.ctx.Done():
+			return
+		case <-w.Done():
+			return
+		case work := <-o.done:
+			o.actionDone(work)
+		case <-o.wake:
+		case <-leadership.Changed:
+			leadership = o.svc.strong.observeLeadership()
+			if leadership.State == raftapi.Leader && o.svc.leaderFn() {
+				o.requestScan()
+			}
+		case <-fallback:
+			leader := o.svc.leaderFn()
+			if leader && !lastLeader {
+				o.requestScan()
+			}
+			lastLeader = leader
+		case ev, ok := <-w.Events():
+			if !ok {
+				return
+			}
+			select {
+			case <-w.Done():
+				return
+			default:
+			}
+			if err := o.svc.handleWatchEvent(ev); err != nil {
+				o.svc.failReconciler(run, err)
+				o.svc.logger.Error("registry synchronization failed", zap.Error(err))
+				return
+			}
+		}
+	}
+}
+
 // StartReconciler drives the registry off the kv watch stream: active-binding
 // changes feed the dissem cache (so non-members resolve names), and Strong
-// pending/ack/reject changes advance the Strong state machine. No-op when
+// pending/ack changes advance the Strong state machine. No-op when
 // neither dissem nor Strong is configured. The watcher stops when ctx ends.
-func (s *Service) StartReconciler(ctx context.Context) error {
+// Successful startup owns this Service for its lifetime: restarting requires a
+// new Service (including fresh dissemination state). Failed startup may retry.
+func (s *Service) StartReconciler(ctx context.Context) (err error) {
 	if s.strong == nil && s.dissem == nil {
 		return nil
 	}
-	w, err := s.engine.Watch(ctx, registryPrefix)
-	if err != nil {
+	if s.strong != nil && s.nonMember != nil && s.nonMember() {
+		return fmt.Errorf("strong observer requires a local Raft replica")
+	}
+	if s.strong != nil && (s.localRead == nil || s.localScan == nil) {
+		return fmt.Errorf("strong registry requires coherent local KV snapshots")
+	}
+	if err := ctx.Err(); err != nil {
 		return err
 	}
-	s.seed()
-	// The node has now learned and latched the cluster's in-flight/active Strong
-	// reservations; name-readiness can flip so cross-scope guards see them.
-	s.ready.Store(true)
+	ctx, cancel := context.WithCancel(ctx)
+	run := &reconcilerLifecycle{ctx: ctx, cancel: cancel}
+	var owner *reconcilerOwner
+	s.reconcilerMu.Lock()
+	installed := s.reconciler.CompareAndSwap(nil, run)
+	s.reconcilerMu.Unlock()
+	if !installed {
+		cancel()
+		return fmt.Errorf("registry reconciler already started; use a new service after shutdown")
+	}
+	defer func() {
+		if err != nil {
+			if owner != nil && s.strong != nil {
+				s.strong.owner.CompareAndSwap(owner, nil)
+			}
+			s.reconcilerMu.Lock()
+			cancel()
+			s.reconciler.CompareAndSwap(run, nil)
+			s.reconcilerMu.Unlock()
+		}
+	}()
+	w, err := s.engine.Watch(ctx, registryPrefix)
+	if err != nil {
+		cancel()
+		return err
+	}
+	run.watch.Store(&reconcilerWatch{Watcher: w})
+	if s.strong != nil {
+		owner = newReconcilerOwner(s, run)
+		s.strong.owner.Store(owner)
+	}
+	// The delivery worker may be blocked in a snapshot read. Watch validity
+	// must close admission independently of that worker's next receive.
+	go func() {
+		select {
+		case <-w.Done():
+			watchErr := w.Err()
+			if watchErr == nil {
+				watchErr = kvapi.ErrWatchClosed
+			}
+			s.failReconciler(run, watchErr)
+		case <-ctx.Done():
+		}
+		if watchErr := w.Err(); errors.Is(watchErr, kvapi.ErrWatchOverflow) || errors.Is(watchErr, kvapi.ErrWatchReset) {
+			s.logger.Error("registry watch invalidated; naming reconciliation stopped; restart required", zap.Error(watchErr))
+		}
+	}()
+	if err := s.seed(); err != nil {
+		cancel()
+		_ = w.Close()
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		cancel()
+		_ = w.Close()
+		return err
+	}
+	select {
+	case <-w.Done():
+		cancel()
+		_ = w.Close()
+		return fmt.Errorf("registry watch invalid during seed: %w", w.Err())
+	default:
+	}
 	if s.dissem != nil {
 		go s.dissem.RunGC()
 	}
 	if s.strong != nil {
-		go s.leaderSweep(ctx)
-	}
-	go func() {
-		defer func() { _ = w.Close() }()
-		if s.dissem != nil {
-			defer s.dissem.Stop()
-		}
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case ev, ok := <-w.Events():
-				if !ok {
-					return
+		go owner.run(w, run)
+		<-owner.started
+		// The owner is consuming ordered events before admission opens; startup
+		// actions are already coalesced into its bounded work state.
+		s.ready.Store(true)
+	} else {
+		s.ready.Store(true)
+		go func() {
+			defer func() {
+				s.ready.Store(false)
+				cancel()
+				_ = w.Close()
+				if s.dissem != nil {
+					s.dissem.Stop()
 				}
-				s.handleWatchEvent(ev)
+			}()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-w.Done():
+					return
+				case ev, ok := <-w.Events():
+					if !ok {
+						return
+					}
+					select {
+					case <-w.Done():
+						return
+					default:
+					}
+					if err := s.handleWatchEvent(ev); err != nil {
+						s.failReconciler(run, err)
+						s.logger.Error("registry synchronization failed", zap.Error(err))
+						return
+					}
+				}
 			}
-		}
-	}()
+		}()
+	}
 	return nil
 }
 
-// leaderSweep periodically re-drives every in-flight pending while this node is
-// the leader. It re-arms deadline timers and resumes promotion/expiry after a
-// leadership change (a new leader has no timers for pendings opened under the
-// old one) and backstops any missed watch event.
-func (s *Service) leaderSweep(ctx context.Context) {
-	t := time.NewTicker(time.Second)
-	defer t.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-t.C:
-			if s.leaderFn() {
-				s.strong.reconcileAllPending()
-			}
-		}
+// failReconciler closes admission on a required observation failure. An old
+// lifecycle cannot close readiness belonging to a replacement startup.
+func (s *Service) failReconciler(run *reconcilerLifecycle, err error) {
+	if err == nil || run == nil {
+		return
 	}
+	s.reconcilerMu.Lock()
+	defer s.reconcilerMu.Unlock()
+	if s.reconciler.Load() != run || run.ctx.Err() != nil || !run.failed.CompareAndSwap(false, true) {
+		return
+	}
+	s.ready.Store(false)
+	run.cancel()
 }
 
 // seed primes local state from the current kv snapshot: dissem cache from active
 // bindings, and the Strong machine from in-flight pending reservations.
-func (s *Service) seed() {
-	if s.dissem != nil {
-		_ = s.engine.Scan(activePrefix, func(e kvapi.Entry) bool {
-			s.translateActive(strings.TrimPrefix(e.Key, activePrefix), e.Value, e.Epoch, false)
-			return true
-		})
-	}
-	if s.strong != nil {
-		s.strong.reconcileAllPending()
-		// Re-latch exclusions for ACTIVE Strong names recovered from the kv
-		// (snapshot restore / restart): in-memory strongState starts empty, and
-		// stable active names emit no watch event, so without this scan
-		// IsStrongReserved would wrongly report them free and a LOCAL/EVENTUAL
-		// register could shadow a live Strong name.
-		_ = s.engine.Scan(activePrefix, func(e kvapi.Entry) bool {
-			if av, derr := decodeActive(e.Value); derr == nil && av.Strong {
-				s.strong.reconcile(strings.TrimPrefix(e.Key, activePrefix))
+func (s *Service) seed() error {
+	var recordErr error
+	consume := func(e kvapi.Entry, observed uint64) bool {
+		switch {
+		case strings.HasPrefix(e.Key, pendingPrefix) && s.strong != nil:
+			header, err := decodePending(e.Value)
+			if err != nil {
+				recordErr = fmt.Errorf("registry record %q: %w", e.Key, err)
+				return false
 			}
-			return true
-		})
+			if recordErr = validateNamingRecord(e.Key, pendingPrefix, header.Name, header.PID); recordErr != nil {
+				return false
+			}
+			if owner := s.strong.owner.Load(); owner != nil {
+				owner.markAttempt(header.Name, header.AttemptID)
+			}
+		case strings.HasPrefix(e.Key, activePrefix):
+			active, err := decodeActive(e.Value)
+			if err != nil {
+				recordErr = fmt.Errorf("registry record %q: %w", e.Key, err)
+				return false
+			}
+			if recordErr = validateNamingRecord(e.Key, activePrefix, active.Name, active.PID); recordErr != nil {
+				return false
+			}
+			name := strings.TrimPrefix(e.Key, activePrefix)
+			if s.dissem != nil {
+				s.translateActive(name, e.Value, e.Epoch, false)
+			}
+			if s.strong != nil && active.Strong {
+				owner, err := pid.ParsePID(active.PID)
+				if err == nil {
+					s.strong.onActive(name, active.AttemptID, e.Epoch, observed, owner)
+				}
+			}
+		}
+		return recordErr == nil
 	}
+	var err error
+	if s.localScan != nil {
+		err = s.localScan.ScanLocalSnapshot(registryPrefix, consume)
+	} else {
+		err = s.engine.Scan(registryPrefix, func(e kvapi.Entry) bool { return consume(e, 0) })
+	}
+	if err != nil {
+		return err
+	}
+	return recordErr
 }
 
-func (s *Service) handleWatchEvent(ev kvapi.WatchEvent) {
+func validateNamingRecord(key, prefix, name, owner string) error {
+	if key != prefix+name {
+		return fmt.Errorf("registry record %q: name mismatch", key)
+	}
+	if _, err := pid.ParsePID(owner); err != nil {
+		return fmt.Errorf("registry record %q: invalid owner: %w", key, err)
+	}
+	return nil
+}
+
+func (s *Service) handleWatchEvent(ev kvapi.WatchEvent) error {
 	key := ""
 	switch {
 	case ev.Current != nil:
@@ -116,24 +575,158 @@ func (s *Service) handleWatchEvent(ev kvapi.WatchEvent) {
 	case strings.HasPrefix(key, activePrefix):
 		name := strings.TrimPrefix(key, activePrefix)
 		if ev.Current != nil {
+			av, err := decodeActive(ev.Current.Value)
+			if err != nil {
+				return fmt.Errorf("registry record %q: %w", key, err)
+			}
+			if err := validateNamingRecord(key, activePrefix, av.Name, av.PID); err != nil {
+				return err
+			}
+			// The complete snapshot may already contain a later binding (or no
+			// binding) by the time this event is handled. Deliver the committed
+			// attempt's success from the ordered operation payload itself.
+			if s.strong != nil {
+				if av.Strong {
+					owner, err := pid.ParsePID(av.PID)
+					if err != nil {
+						return fmt.Errorf("registry record %q: %w", key, err)
+					}
+					s.strong.recordActive(name, av.AttemptID, ev.Index, ev.Revision, owner)
+					s.strong.notifyActive(name, av.AttemptID, ev.Index, owner)
+				}
+			}
 			// Dot is the op's raft index (ev.Index), authoritative regardless of
 			// whether the snapshot Entry carries Epoch.
 			s.translateActive(name, ev.Current.Value, ev.Index, false)
 		} else {
 			s.translateActive(name, nil, ev.Index, true)
+			if s.strong != nil && ev.Previous != nil {
+				av, err := decodeActive(ev.Previous.Value)
+				if err != nil {
+					return fmt.Errorf("registry record %q: %w", key, err)
+				}
+				if err := validateNamingRecord(key, activePrefix, av.Name, av.PID); err != nil {
+					return err
+				}
+				if av.Strong {
+					s.strong.onTerminal(name, av.AttemptID, ev.Revision)
+				}
+			}
 		}
-		if s.strong != nil {
-			s.strong.reconcile(name)
-		}
+		// Active success and deletion evidence above are handled synchronously;
+		// there is no blocking action left for this event.
 	case strings.HasPrefix(key, pendingPrefix):
 		if s.strong != nil {
-			s.strong.reconcile(strings.TrimPrefix(key, pendingPrefix))
+			name := strings.TrimPrefix(key, pendingPrefix)
+			if ev.Current != nil {
+				header, err := decodePending(ev.Current.Value)
+				if err != nil {
+					return fmt.Errorf("registry record %q: %w", key, err)
+				}
+				if err := validateNamingRecord(key, pendingPrefix, header.Name, header.PID); err != nil {
+					return err
+				}
+				if owner := s.strong.owner.Load(); owner != nil {
+					owner.markAttempt(name, header.AttemptID)
+				} else {
+					s.strong.mark(name)
+				}
+			} else if ev.Previous != nil {
+				header, err := decodePending(ev.Previous.Value)
+				if err != nil {
+					return fmt.Errorf("registry record %q: %w", key, err)
+				}
+				if err := validateNamingRecord(key, pendingPrefix, header.Name, header.PID); err != nil {
+					return err
+				}
+				if err := s.transitionPendingDelete(name, header.AttemptID, ev.Revision); err != nil {
+					return err
+				}
+			}
 		}
-	case strings.HasPrefix(key, ackPrefix), strings.HasPrefix(key, rejectPrefix):
+	case strings.HasPrefix(key, resultPrefix):
+		// The result Put and Delete commit together. Only the Put carries
+		// historical terminal evidence; the final snapshot has no result key.
+		if s.strong != nil && ev.Type == kvapi.WatchPut && ev.Current != nil {
+			result, err := decodeTerminalResult(ev.Current.Value)
+			if err != nil {
+				return fmt.Errorf("registry record %q: %w", key, err)
+			}
+			if key != resultKey(result.Name, result.AttemptID) {
+				return fmt.Errorf("registry record %q: terminal result key mismatch", key)
+			}
+			s.strong.deliver(result.Name, result.AttemptID, strongCompletion{
+				out:      globalapi.RegisterOutcome{Epoch: result.Epoch, State: globalapi.RegisterStateExpired},
+				terminal: &result,
+			})
+		}
+	case strings.HasPrefix(key, ackPrefix):
 		if s.strong != nil {
-			s.strong.reconcileAllPending()
+			prefix := ackPrefix
+			name, attemptID, ok, err := s.strongVoteName(key, prefix)
+			if err != nil {
+				return err
+			}
+			if ok {
+				if owner := s.strong.owner.Load(); owner != nil {
+					owner.markAttempt(name, attemptID)
+				} else {
+					s.strong.mark(name)
+				}
+			}
 		}
 	}
+	return nil
+}
+
+func (s *Service) transitionPendingDelete(name, deletedAttempt string, deletedRevision uint64) error {
+	// Pending deletion only retires this attempt's work. The ordered active
+	// event reports promotion and the ordered result event reports expiry.
+	// Neither event changes LOCAL/EVENTUAL records.
+	s.strong.onTerminal(name, deletedAttempt, deletedRevision)
+	return nil
+}
+
+var voteComponentUnescaper = strings.NewReplacer("%3A", ":", "%25", "%")
+
+// strongVoteName routes only votes for a current required participant.
+// Storage and record failures remain errors so reconciliation closes admission.
+func (s *Service) strongVoteName(key, prefix string) (string, string, bool, error) {
+	rest, ok := strings.CutPrefix(key, prefix)
+	if !ok {
+		return "", "", false, nil
+	}
+	encodedName, rest, ok := strings.Cut(rest, ":")
+	if !ok {
+		return "", "", false, nil
+	}
+	attempt, encodedNode, ok := strings.Cut(rest, ":")
+	if !ok || attempt == "" || encodedNode == "" {
+		return "", "", false, nil
+	}
+	name := voteComponentUnescaper.Replace(encodedName)
+	node := voteComponentUnescaper.Replace(encodedNode)
+	if voteComponent(name) != encodedName || voteComponent(node) != encodedNode {
+		return "", "", false, nil
+	}
+	pending, err := s.engine.Get(pendingKey(name))
+	if errors.Is(err, kvapi.ErrKeyNotFound) {
+		return "", "", false, nil
+	}
+	if err != nil {
+		return "", "", false, fmt.Errorf("read vote pending %q: %w", name, err)
+	}
+	hdr, err := decodePending(pending.Value)
+	if err != nil {
+		return "", "", false, fmt.Errorf("registry record %q: %w", pending.Key, err)
+	}
+	if err := validateNamingRecord(pending.Key, pendingPrefix, hdr.Name, hdr.PID); err != nil {
+		return "", "", false, err
+	}
+	if hdr.AttemptID != attempt || !contains(hdr.RequiredNodes, node) {
+		return "", "", false, nil
+	}
+	return name, attempt, true, nil
 }
 
 // translateActive feeds one active-binding change into the dissem plane: the
@@ -163,13 +756,25 @@ func (s *Service) translateActive(name string, value []byte, raftIndex uint64, d
 	}
 }
 
-func (st *strongState) reconcileAllPending() {
-	var names []string
-	_ = st.svc.engine.Scan(pendingPrefix, func(e kvapi.Entry) bool {
-		names = append(names, strings.TrimPrefix(e.Key, pendingPrefix))
+func (st *strongState) reconcileAllPending() error {
+	var recordErr error
+	if err := st.svc.engine.Scan(pendingPrefix, func(e kvapi.Entry) bool {
+		header, err := decodePending(e.Value)
+		if err != nil {
+			recordErr = fmt.Errorf("registry record %q: %w", e.Key, err)
+			return false
+		}
+		if recordErr = validateNamingRecord(e.Key, pendingPrefix, header.Name, header.PID); recordErr != nil {
+			return false
+		}
+		if owner := st.owner.Load(); owner != nil {
+			if recordErr = owner.markScannedAttempt(header.Name, header.AttemptID); recordErr != nil {
+				return false
+			}
+		}
 		return true
-	})
-	for _, n := range names {
-		st.reconcile(n)
+	}); err != nil {
+		return err
 	}
+	return recordErr
 }

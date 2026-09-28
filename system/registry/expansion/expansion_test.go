@@ -540,6 +540,10 @@ type testEffect struct {
 	rollbackCall int
 }
 
+func (e *testEffect) Target() (registry.EffectTarget, error) {
+	return registry.EffectTarget{Kind: "test", Digest: "static"}, nil
+}
+
 func (e *testEffect) Prepare(context.Context) error {
 	e.prepareCall++
 	return e.prepareErr
@@ -560,6 +564,10 @@ type orderEffect struct {
 	id    int
 }
 
+func (e *orderEffect) Target() (registry.EffectTarget, error) {
+	return registry.EffectTarget{Kind: "order", Digest: "static"}, nil
+}
+
 func (e *orderEffect) Prepare(context.Context) error { return nil }
 func (e *orderEffect) Commit(context.Context) error  { return nil }
 func (e *orderEffect) Rollback(context.Context) error {
@@ -568,6 +576,10 @@ func (e *orderEffect) Rollback(context.Context) error {
 }
 
 type failingRollbackEffect struct{}
+
+func (failingRollbackEffect) Target() (registry.EffectTarget, error) {
+	return registry.EffectTarget{Kind: "failing", Digest: "static"}, nil
+}
 
 func (e *failingRollbackEffect) Prepare(context.Context) error { return nil }
 func (e *failingRollbackEffect) Commit(context.Context) error  { return nil }

@@ -2,7 +2,12 @@
 
 package registry
 
-import "context"
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+)
 
 // Scope indicates whether an operation should be persisted to history.
 type Scope int
@@ -59,13 +64,58 @@ type Directive interface {
 	Expand(ctx context.Context, op Operation, snapshot State) (DirectiveResult, error)
 }
 
+// EffectTarget identifies the external work an effect performs, independent of
+// any staging identity, so a plan can be compared with a later apply.
+type EffectTarget struct {
+	// Kind names the class of work, such as "hub.artifact".
+	Kind string
+	// Digest is a lowercase sha256 hex over every input that changes what
+	// Prepare or Commit does outside the registry.
+	Digest string
+}
+
+// Plan is what an apply would do, computed without doing it.
+type Plan struct {
+	// Requested holds the operations the caller submitted.
+	Requested ChangeSet
+	// Changes holds every operation after directive expansion, in apply order.
+	Changes ChangeSet
+	// History is the subset of Changes that enters durable history.
+	History ChangeSet
+	// Base is the registry version the plan was computed against.
+	Base Version
+	// Digest binds Changes, History, Resolution and Effects.
+	Digest string
+	// Resolution is the exact module graph the apply would record.
+	Resolution *DependencyResolution
+	// Effects describes the external work the apply would perform.
+	Effects []EffectTarget
+}
+
+// Planner computes a Plan through the same expansion Apply runs, then releases
+// every staged resource. It never prepares, commits or finalizes an effect.
+type Planner interface {
+	Plan(context.Context, Version, ChangeSet) (*Plan, error)
+}
+
+// PlanApplier applies changes that were decided against a known version.
+// ApplyAt refuses when the registry has moved past base. ApplyPlan also
+// re-expands the requested operations and refuses when the plan digest no
+// longer matches, so what was reviewed is what gets applied.
+type PlanApplier interface {
+	ApplyAt(context.Context, Version, ChangeSet) (Version, error)
+	ApplyPlan(context.Context, *Plan) (Version, error)
+}
+
 // Effect represents external work tied to an expanded operation.
 // Prepare should stage resources, Commit finalizes them, Rollback reverts them.
+// Target describes the work so a plan can be verified against a later apply.
 // Effects must not call Apply/ApplyVersion/LoadState (Apply is not re-entrant).
 type Effect interface {
 	Prepare(context.Context) error
 	Commit(context.Context) error
 	Rollback(context.Context) error
+	Target() (EffectTarget, error)
 }
 
 // FinalizingEffect performs irreversible cleanup only after the registry state
@@ -75,4 +125,18 @@ type Effect interface {
 type FinalizingEffect interface {
 	Effect
 	Finalize(context.Context) error
+}
+
+// NewEffectTarget measures external work from a JSON-encodable description of
+// its stable inputs. Callers exclude staging paths and other per-run identity.
+func NewEffectTarget(kind string, value any) (EffectTarget, error) {
+	encoded, err := json.Marshal(struct {
+		Value any    `json:"value"`
+		Kind  string `json:"kind"`
+	}{Kind: kind, Value: value})
+	if err != nil {
+		return EffectTarget{}, err
+	}
+	sum := sha256.Sum256(encoded)
+	return EffectTarget{Kind: kind, Digest: hex.EncodeToString(sum[:])}, nil
 }

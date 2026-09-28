@@ -3,21 +3,72 @@
 package tty
 
 import (
+	"strings"
+	"unicode"
+
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	lua "github.com/wippyai/go-lua"
 )
+
+// textPlain extracts display text without terminal instructions. Keep line
+// feeds and tabs; strip other control characters, including carriage returns.
+// Use textCut first when selecting a range of terminal cells.
+func textPlain(l *lua.LState) int {
+	plain := ansi.Strip(l.CheckString(1))
+	plain = strings.Map(func(r rune) rune {
+		if r != '\n' && r != '\t' && unicode.IsControl(r) {
+			return -1
+		}
+		return r
+	}, plain)
+	l.Push(lua.LString(plain))
+	return 1
+}
+
+// textTruncate truncates styled text to a printable width without splitting
+// ANSI control sequences or multi-byte characters.
+func textTruncate(l *lua.LState) int {
+	s := l.CheckString(1)
+	width := l.CheckInt(2)
+	tail := l.OptString(3, "")
+	if width <= 0 {
+		l.Push(lua.LString(""))
+		return 1
+	}
+	l.Push(lua.LString(ansi.Truncate(s, width, tail)))
+	return 1
+}
+
+// textCut returns the printable cell range [left, right), preserving ANSI
+// state and grapheme boundaries. It is the primitive Lua compositors need to
+// clip and splice independently rendered content safely.
+func textCut(l *lua.LState) int {
+	s := l.CheckString(1)
+	left := l.CheckInt(2)
+	right := l.CheckInt(3)
+	if left < 0 {
+		left = 0
+	}
+	if right <= left {
+		l.Push(lua.LString(""))
+		return 1
+	}
+	l.Push(lua.LString(ansi.Cut(s, left, right)))
+	return 1
+}
 
 // textWidth returns the printable width of a string (ANSI-aware).
 func textWidth(l *lua.LState) int {
 	s := l.CheckString(1)
-	l.Push(lua.LNumber(lipgloss.Width(s)))
+	l.Push(lua.LInteger(lipgloss.Width(s)))
 	return 1
 }
 
 // textHeight returns the number of lines in a string.
 func textHeight(l *lua.LState) int {
 	s := l.CheckString(1)
-	l.Push(lua.LNumber(lipgloss.Height(s)))
+	l.Push(lua.LInteger(lipgloss.Height(s)))
 	return 1
 }
 
@@ -25,8 +76,8 @@ func textHeight(l *lua.LState) int {
 func textSize(l *lua.LState) int {
 	s := l.CheckString(1)
 	w, h := lipgloss.Size(s)
-	l.Push(lua.LNumber(w))
-	l.Push(lua.LNumber(h))
+	l.Push(lua.LInteger(w))
+	l.Push(lua.LInteger(h))
 	return 2
 }
 
@@ -60,7 +111,7 @@ func textMaxWidth(l *lua.LState) int {
 			}
 		}
 	})
-	l.Push(lua.LNumber(max))
+	l.Push(lua.LInteger(max))
 	return 1
 }
 
@@ -76,7 +127,7 @@ func textMaxHeight(l *lua.LState) int {
 			}
 		}
 	})
-	l.Push(lua.LNumber(max))
+	l.Push(lua.LInteger(max))
 	return 1
 }
 

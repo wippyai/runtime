@@ -9,7 +9,6 @@ import (
 
 	"github.com/wippyai/runtime/api/pid"
 	kvapi "github.com/wippyai/runtime/api/store/kv"
-	"github.com/wippyai/runtime/system/eventbus"
 	"go.uber.org/zap"
 )
 
@@ -46,7 +45,7 @@ func (e *reapRaceEngine) CompareAndDelete(key string, expect kvapi.Version) (boo
 // time makes the stale delete a no-op; an unconditional delete would destroy the
 // live holder's lock and break mutual exclusion.
 func TestLock_ReapDoesNotClobberReacquiredLock(t *testing.T) {
-	eng := NewService("lock", eventbus.NewBus(), zap.NewNop())
+	eng := NewService("lock", zap.NewNop())
 	if _, err := eng.Start(context.Background()); err != nil {
 		t.Fatalf("engine start: %v", err)
 	}

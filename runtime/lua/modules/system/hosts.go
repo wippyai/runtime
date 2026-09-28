@@ -14,7 +14,7 @@ import (
 func hostsList(l *lua.LState) int {
 	if !security.IsAllowed(l.Context(), "system.read", "hosts", nil) {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "permission denied: system.read on hosts").WithKind(lua.Invalid).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "permission denied: system.read on hosts").WithKind(lua.PermissionDenied).WithRetryable(false))
 		return 2
 	}
 
@@ -47,7 +47,7 @@ func hostsList(l *lua.LState) int {
 func hostsProcesses(l *lua.LState) int {
 	if !security.IsAllowed(l.Context(), "system.read", "hosts", nil) {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "permission denied: system.read on hosts").WithKind(lua.Invalid).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "permission denied: system.read on hosts").WithKind(lua.PermissionDenied).WithRetryable(false))
 		return 2
 	}
 

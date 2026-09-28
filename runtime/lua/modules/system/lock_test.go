@@ -12,7 +12,6 @@ import (
 	pidapi "github.com/wippyai/runtime/api/pid"
 	runtimeapi "github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/api/security"
-	"github.com/wippyai/runtime/system/eventbus"
 	systemkv "github.com/wippyai/runtime/system/kv"
 	"go.uber.org/zap"
 )
@@ -21,7 +20,7 @@ import (
 // monitor; auto-release-on-node-leave is proven separately in clustertest).
 func newTestLocks(t *testing.T) *systemkv.LockService {
 	t.Helper()
-	eng := systemkv.NewService("lock", eventbus.NewBus(), zap.NewNop())
+	eng := systemkv.NewService("lock", zap.NewNop())
 	if _, err := eng.Start(context.Background()); err != nil {
 		t.Fatalf("engine start: %v", err)
 	}
@@ -33,6 +32,7 @@ func newLockTestState(t *testing.T, p pidapi.PID, ls *systemkv.LockService, stri
 	t.Helper()
 	l := lua.NewState()
 	t.Cleanup(func() { l.Close() })
+	lua.OpenErrors(l)
 
 	ctx := ctxapi.WithAppContext(context.Background(), ctxapi.NewAppContext())
 	ctx = security.SetStrictMode(ctx, strict)
@@ -133,6 +133,7 @@ func TestLockAcquire_PermissionDenied(t *testing.T) {
 		local ok, err = system.lock.acquire("x")
 		assert(ok == nil, "expected nil under strict security")
 		assert(err ~= nil, "expected permission-denied error")
+		assert(err:kind() == errors.PERMISSION_DENIED, "expected PERMISSION_DENIED kind, got: " .. tostring(err:kind()))
 	`))
 }
 
@@ -144,6 +145,7 @@ func TestLockRelease_PermissionDenied(t *testing.T) {
 		local ok, err = system.lock.release("x")
 		assert(ok == nil, "expected nil under strict security")
 		assert(err ~= nil, "expected permission-denied error")
+		assert(err:kind() == errors.PERMISSION_DENIED, "expected PERMISSION_DENIED kind, got: " .. tostring(err:kind()))
 	`))
 }
 

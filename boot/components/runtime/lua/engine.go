@@ -17,6 +17,7 @@ import (
 	bootpkg "github.com/wippyai/runtime/boot"
 	corecomponents "github.com/wippyai/runtime/boot/components/core"
 	"github.com/wippyai/runtime/boot/components/dispatchers"
+	"github.com/wippyai/runtime/internal/cachedir"
 	"github.com/wippyai/runtime/runtime/lua/code"
 	"github.com/wippyai/runtime/runtime/lua/code/cache"
 	"github.com/wippyai/runtime/runtime/lua/component"
@@ -28,7 +29,10 @@ import (
 	"github.com/wippyai/runtime/runtime/lua/modules/ostime"
 	processmod "github.com/wippyai/runtime/runtime/lua/modules/process"
 	reghandler "github.com/wippyai/runtime/system/registry/events"
+	"go.uber.org/zap"
 )
+
+var toolchainIdentityResolver = code.ToolchainIdentity
 
 func Engine() boot.Component {
 	var funcs *funclua.Manager
@@ -48,7 +52,7 @@ func Engine() boot.Component {
 			logger := logapi.GetLogger(ctx)
 			bus := event.GetBus(ctx)
 			handlers := bootpkg.GetHandlerRegistry(ctx)
-			settings := resolveEngineSettings(boot.GetConfig(ctx))
+			settings := resolveEngineSettings(boot.GetConfig(ctx), logger.Named("lua"))
 			settings.Modules = []*luaapi.ModuleDef{
 				ostime.Module,
 				processmod.Module,
@@ -110,11 +114,13 @@ func Engine() boot.Component {
 	})
 }
 
-func resolveEngineSettings(cfg boot.Config) code.Config {
+func resolveEngineSettings(cfg boot.Config, logger *zap.Logger) code.Config {
+	defaultDir := filepath.Join(cachedir.Dir(), "lua")
 	settings := code.Config{
 		Cache: cache.Config{
-			Dir:              cache.DefaultDir,
+			Dir:              defaultDir,
 			Mode:             cache.ModeReadWrite,
+			Enabled:          true,
 			CompileEnabled:   true,
 			TypecheckEnabled: true,
 			MaxBytes:         cache.DefaultMaxBytes,
@@ -123,38 +129,62 @@ func resolveEngineSettings(cfg boot.Config) code.Config {
 		},
 		InvalidationWaitTimeout: code.DefaultInvalidationWaitTimeout,
 	}
-	if cfg == nil {
+	if cfg != nil {
+		registryCfg := cfg.Sub(corecomponents.RegistryName)
+		settings.InvalidationWaitTimeout = registryCfg.GetDuration(
+			corecomponents.RegistryEventWaitTimeout,
+			settings.InvalidationWaitTimeout,
+		)
+
+		luaCfg := cfg.Sub("lua")
+		settings.InvalidationWaitTimeout = luaCfg.GetDuration("invalidation_wait_timeout", settings.InvalidationWaitTimeout)
+
+		typeSystemCfg := luaCfg.Sub("type_system")
+		settings.TypeCheck.Enabled = typeSystemCfg.GetBool("enabled", false)
+		settings.TypeCheck.Strict = typeSystemCfg.GetBool("strict", false)
+
+		if _, ok := luaCfg.Get("cache.enabled"); ok {
+			settings.Cache.Enabled = luaCfg.GetBool("cache.enabled", settings.Cache.Enabled)
+		}
+		if rawDir := luaCfg.GetString("cache.dir", ""); rawDir != "" {
+			settings.Cache.Dir = rawDir
+			if !filepath.IsAbs(settings.Cache.Dir) {
+				if baseDir := cfg.GetString("boot.config_dir", ""); baseDir != "" {
+					settings.Cache.Dir = filepath.Join(baseDir, settings.Cache.Dir)
+				}
+			}
+		}
+		settings.Cache.Mode = cache.ParseMode(luaCfg.GetString("cache.mode", string(settings.Cache.Mode)))
+		settings.Cache.CompileEnabled = luaCfg.GetBool("cache.compile.enabled", settings.Cache.CompileEnabled)
+		settings.Cache.TypecheckEnabled = luaCfg.GetBool("cache.typecheck.enabled", settings.Cache.TypecheckEnabled)
+		settings.Cache.MaxBytes = int64(luaCfg.GetInt("cache.max_bytes", int(settings.Cache.MaxBytes)))
+		settings.Cache.MaxEntries = luaCfg.GetInt("cache.max_entries", settings.Cache.MaxEntries)
+		settings.Cache.PruneInterval = luaCfg.GetInt("cache.prune_interval", settings.Cache.PruneInterval)
+	}
+
+	if !settings.Cache.Enabled {
 		return settings
 	}
 
-	registryCfg := cfg.Sub(corecomponents.RegistryName)
-	settings.InvalidationWaitTimeout = registryCfg.GetDuration(
-		corecomponents.RegistryEventWaitTimeout,
-		settings.InvalidationWaitTimeout,
-	)
-
-	luaCfg := cfg.Sub("lua")
-	settings.InvalidationWaitTimeout = luaCfg.GetDuration("invalidation_wait_timeout", settings.InvalidationWaitTimeout)
-
-	typeSystemCfg := luaCfg.Sub("type_system")
-	settings.TypeCheck.Enabled = typeSystemCfg.GetBool("enabled", false)
-	settings.TypeCheck.Strict = typeSystemCfg.GetBool("strict", false)
-	settings.Cache.Enabled = settings.TypeCheck.Enabled
-	if _, ok := luaCfg.Get("cache.enabled"); ok {
-		settings.Cache.Enabled = luaCfg.GetBool("cache.enabled", settings.Cache.Enabled)
+	toolchainID, err := toolchainIdentityResolver()
+	if err != nil {
+		logger.Warn("lua toolchain identity unavailable; persistent cache disabled",
+			zap.Error(err),
+		)
+		settings.Cache.Enabled = false
+		return settings
 	}
-	settings.Cache.Dir = luaCfg.GetString("cache.dir", settings.Cache.Dir)
-	if settings.Cache.Dir != "" && !filepath.IsAbs(settings.Cache.Dir) {
-		if baseDir := cfg.GetString("boot.config_dir", ""); baseDir != "" {
-			settings.Cache.Dir = filepath.Join(baseDir, settings.Cache.Dir)
-		}
+	settings.Cache.ToolchainIdentity = toolchainID
+
+	if err := cachedir.Probe(settings.Cache.Dir); err != nil {
+		logger.Warn("lua cache directory unusable; persistent cache disabled",
+			zap.String("dir", settings.Cache.Dir),
+			zap.Error(err),
+		)
+		settings.Cache.Enabled = false
+		return settings
 	}
-	settings.Cache.Mode = cache.ParseMode(luaCfg.GetString("cache.mode", string(settings.Cache.Mode)))
-	settings.Cache.CompileEnabled = luaCfg.GetBool("cache.compile.enabled", settings.Cache.CompileEnabled)
-	settings.Cache.TypecheckEnabled = luaCfg.GetBool("cache.typecheck.enabled", settings.Cache.TypecheckEnabled)
-	settings.Cache.MaxBytes = int64(luaCfg.GetInt("cache.max_bytes", int(settings.Cache.MaxBytes)))
-	settings.Cache.MaxEntries = luaCfg.GetInt("cache.max_entries", settings.Cache.MaxEntries)
-	settings.Cache.PruneInterval = luaCfg.GetInt("cache.prune_interval", settings.Cache.PruneInterval)
+
 	return settings
 }
 

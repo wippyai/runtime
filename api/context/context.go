@@ -41,6 +41,14 @@ type (
 		Close() error
 	}
 
+	// FrameAttachment is a frame-owned resource produced while resolving spawn
+	// options. Rollback releases a reservation when process admission does not
+	// transfer it to a frame. It must be safe after Close and on repeated calls.
+	FrameAttachment interface {
+		Closer
+		Rollback() error
+	}
+
 	// CloserFunc is a function that implements Closer interface.
 	CloserFunc func() error
 

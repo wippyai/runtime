@@ -3,7 +3,6 @@
 package global
 
 import (
-	"context"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -11,9 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/wippyai/runtime/api/cluster"
 	raftapi "github.com/wippyai/runtime/api/cluster/raft"
-	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/relay"
@@ -24,14 +21,13 @@ import (
 // fails; reachable=true points it at a leader the cross-router can reach.
 type togglingRaft struct {
 	fsm       *FSM
-	leaderCh  chan bool
 	leaderID  raftapi.ServerID
 	idx       atomic.Uint64
 	reachable atomic.Bool
 }
 
 func newTogglingRaft(fsm *FSM, leaderID raftapi.ServerID) *togglingRaft {
-	r := &togglingRaft{fsm: fsm, leaderID: leaderID, leaderCh: make(chan bool, 1)}
+	r := &togglingRaft{fsm: fsm, leaderID: leaderID}
 	r.reachable.Store(true)
 	return r
 }
@@ -45,8 +41,10 @@ func (r *togglingRaft) Leader() (raftapi.ServerID, raftapi.ServerAddress, error)
 	}
 	return r.leaderID, r.leaderID + ":0", nil
 }
-func (r *togglingRaft) IsLeader() bool                { return false }
-func (r *togglingRaft) LeaderCh() <-chan bool         { return r.leaderCh }
+func (r *togglingRaft) IsLeader() bool { return false }
+func (r *togglingRaft) ObserveLeadership() raftapi.Leadership {
+	return raftapi.Leadership{State: raftapi.Follower, Changed: make(chan struct{})}
+}
 func (r *togglingRaft) State() raftapi.State          { return raftapi.Follower }
 func (r *togglingRaft) Barrier(_ time.Duration) error { return nil }
 func (r *togglingRaft) CommitIndex() uint64           { return r.idx.Load() }
@@ -69,36 +67,6 @@ func (r *togglingRaft) Stats() map[string]string                    { return nil
 // The Service.LastContact()-based fast-path is integration-tested in
 // the chaos harness with a real raft instance.
 func (r *togglingRaft) LastContact() time.Time { return time.Time{} }
-
-// --- No-flap: NodeJoined no longer touches the gate ---
-
-// TestNoFlap_NodeJoinedDoesNotCloseGateOrBumpEpoch proves the old flap is gone.
-// The previous design re-triggered the rejoin barrier on every cluster.NodeJoined
-// — which fires for ANY peer appearing — so a churny cluster flapped the gate
-// closed repeatedly. The fix removes that wiring: the cluster-event handler only
-// reacts to NodeLeft, and there is no NodeJoined subscription at all. A burst of
-// NodeJoined events through the handler leaves the gate open and the epoch fixed.
-func TestNoFlap_NodeJoinedDoesNotCloseGateOrBumpEpoch(t *testing.T) {
-	ctx := context.Background()
-	svc := newJoinTestService(t)
-	require.NoError(t, svc.runJoinBarrier(svc.nodeEpoch.Load()))
-	require.True(t, svc.NameReady(), "gate open after first-join barrier")
-	epochBefore := svc.nodeEpoch.Load()
-
-	// Drive a burst of NodeJoined events through the surviving cluster-event
-	// consumer. The handler has no NodeJoined arm, so each is a no-op: the gate
-	// must stay open and the epoch unchanged (the old flap is gone).
-	ch := make(chan event.Event, 64)
-	for i := 0; i < 50; i++ {
-		ch <- event.Event{System: cluster.System, Kind: cluster.NodeJoined,
-			Data: cluster.NodeEvent{Node: cluster.NodeInfo{ID: "peer"}}}
-	}
-	close(ch)
-	svc.handleClusterEvents(ctx, ch, event.SubscriberID(""))
-
-	assert.True(t, svc.NameReady(), "NodeJoined must not close the gate (flap fixed)")
-	assert.Equal(t, epochBefore, svc.nodeEpoch.Load(), "NodeJoined must not bump the node epoch")
-}
 
 // --- Probe: leader reaches itself ---
 
@@ -226,12 +194,9 @@ func TestReachabilityMonitor_RebarrierOnRecover(t *testing.T) {
 
 // --- Partition-without-restart conflict coverage ---
 
-// TestReachabilityMonitor_PartitionWithoutRestartRevokesConflict proves the case
-// Start-only misses: a node stays UP through a partition, the leader drops it
-// from a strong reservation and promotes the name without its ack, and on
-// reconnect the recovered-reachability rejoin barrier installs the exclusion and
-// revokes the now-conflicting LOCAL name the node still holds.
-func TestReachabilityMonitor_PartitionWithoutRestartRevokesConflict(t *testing.T) {
+// TestReachabilityMonitor_PartitionWithoutRestartPreservesLocal verifies global
+// snapshot recovery leaves the independently owned LOCAL name intact.
+func TestReachabilityMonitor_PartitionWithoutRestartPreservesLocal(t *testing.T) {
 	xport := &reachableCrossRouter{}
 
 	leaderFSM := NewFSM()
@@ -248,9 +213,7 @@ func TestReachabilityMonitor_PartitionWithoutRestartRevokesConflict(t *testing.T
 	followerSvc.nodeEpoch.Store(1)
 
 	// The follower stays UP and still holds the name bound LOCAL to its own pid.
-	rev := newRecordingRevoker()
-	rev.local["system.partition"] = makePID("node-2", "host", "stale-local")
-	followerSvc.SetLocalNameRevoker(rev)
+	local, _, localPID, _ := newIndependentBindings(t, "system.partition")
 
 	xport.leader = leaderSvc
 	xport.follower = followerSvc
@@ -267,16 +230,18 @@ func TestReachabilityMonitor_PartitionWithoutRestartRevokesConflict(t *testing.T
 	strongOwner := makePID("node-3", "host", "strong-owner")
 	seedActiveStrong(t, leaderFSM, "system.partition", strongOwner, []pid.NodeID{"node-1"}, 1500)
 
-	// Reconnect: the rejoin barrier must install the exclusion AND revoke the
-	// conflicting local name before reopening the gate.
+	// Reconnect: the rejoin barrier learns global ownership while preserving
+	// the independent LOCAL binding.
 	followerRaft.reachable.Store(true)
 	require.Eventually(t, func() bool { return followerSvc.NameReady() }, 2*time.Second, 5*time.Millisecond,
 		"rejoin barrier reopens the gate after reconnect")
 
 	reserved, ok := followerSvc.IsStrongReserved("system.partition")
-	require.True(t, ok, "reconnect barrier installs the strong exclusion missed during the partition")
-	assert.Equal(t, strongOwner, reserved, "exclusion surfaces the strong owner as taken")
-	assert.Contains(t, rev.revokedLoc, "system.partition", "conflicting local name revoked on reconnect")
+	require.True(t, ok, "reconnect barrier installs the strong observation missed during the partition")
+	assert.Equal(t, strongOwner, reserved, "observation surfaces the strong owner as taken")
+	got, found := local.LookupLocal("system.partition")
+	require.True(t, found)
+	assert.True(t, got.Equal(localPID), "reconnect must preserve the LOCAL binding")
 }
 
 // reachableCrossRouter routes ping AND join traffic both ways between a leader

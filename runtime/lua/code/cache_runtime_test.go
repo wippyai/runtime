@@ -53,10 +53,11 @@ func TestContentAddressedCacheSurvivesGraphMutation(t *testing.T) {
 	cm, err := NewCodeManager(zap.NewNop(), &testEventBus{}, Config{
 		TypeCheck: typeCfg,
 		Cache: cache.Config{
-			Dir:              t.TempDir(),
-			Enabled:          true,
-			CompileEnabled:   true,
-			TypecheckEnabled: true,
+			Dir:               t.TempDir(),
+			Enabled:           true,
+			CompileEnabled:    true,
+			TypecheckEnabled:  true,
+			ToolchainIdentity: "test-toolchain-identity",
 		},
 	})
 	require.NoError(t, err)
@@ -99,6 +100,9 @@ func TestRuntimeFingerprintsMatchLintBuiltinSeeds(t *testing.T) {
 	cm, err := NewCodeManager(zap.NewNop(), &testEventBus{}, Config{
 		Modules:   []*api.ModuleDef{initial},
 		TypeCheck: typeCfg,
+		Cache: cache.Config{
+			ToolchainIdentity: "test-toolchain-identity",
+		},
 	})
 	require.NoError(t, err)
 
@@ -124,9 +128,9 @@ func TestRuntimeFingerprintsMatchLintBuiltinSeeds(t *testing.T) {
 
 	compileFP, _, err := cm.compileFingerprint(userID)
 	require.NoError(t, err)
-	initialCompileFP := CompileFingerprint(initialID.String(), api.ModuleKind, cache.SourceHash("", ""), "", nil)
-	lateCompileFP := CompileFingerprint(lateID.String(), api.ModuleKind, cache.SourceHash("", ""), "", nil)
-	wantCompileFP := CompileFingerprint(userID.String(), api.Function, cache.SourceHash("return initial + late", "main"), "main", []cache.DepFingerprint{
+	initialCompileFP := CompileFingerprint(cm.toolchainIdentity, initialID.String(), api.ModuleKind, cache.SourceHash("", ""), "", nil)
+	lateCompileFP := CompileFingerprint(cm.toolchainIdentity, lateID.String(), api.ModuleKind, cache.SourceHash("", ""), "", nil)
+	wantCompileFP := CompileFingerprint(cm.toolchainIdentity, userID.String(), api.Function, cache.SourceHash("return initial + late", "main"), "main", []cache.DepFingerprint{
 		{Alias: "initial", ID: initialID.String(), Fingerprint: initialCompileFP},
 		{Alias: "late", ID: lateID.String(), Fingerprint: lateCompileFP},
 	})
@@ -141,9 +145,9 @@ func TestRuntimeFingerprintsMatchLintBuiltinSeeds(t *testing.T) {
 	})
 	typeFP, _, err := cm.typecheckFingerprint(userID)
 	require.NoError(t, err)
-	initialTypeFP := TypecheckFingerprint(initialID.String(), api.ModuleKind, cache.SourceHash("", ""), "", typeHash, builtinHash, nil)
-	lateTypeFP := TypecheckFingerprint(lateID.String(), api.ModuleKind, cache.SourceHash("", ""), "", typeHash, builtinHash, nil)
-	wantTypeFP := TypecheckFingerprint(userID.String(), api.Function, cache.SourceHash("return initial + late", "main"), "main", typeHash, builtinHash, []cache.DepFingerprint{
+	initialTypeFP := TypecheckFingerprint(cm.toolchainIdentity, initialID.String(), api.ModuleKind, cache.SourceHash("", ""), "", typeHash, builtinHash, nil)
+	lateTypeFP := TypecheckFingerprint(cm.toolchainIdentity, lateID.String(), api.ModuleKind, cache.SourceHash("", ""), "", typeHash, builtinHash, nil)
+	wantTypeFP := TypecheckFingerprint(cm.toolchainIdentity, userID.String(), api.Function, cache.SourceHash("return initial + late", "main"), "main", typeHash, builtinHash, []cache.DepFingerprint{
 		{Alias: "initial", ID: initialID.String(), Fingerprint: initialTypeFP},
 		{Alias: "late", ID: lateID.String(), Fingerprint: lateTypeFP},
 	})

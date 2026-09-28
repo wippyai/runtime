@@ -9,7 +9,6 @@ import (
 	"time"
 
 	kvapi "github.com/wippyai/runtime/api/store/kv"
-	"github.com/wippyai/runtime/system/eventbus"
 	"go.uber.org/zap"
 )
 
@@ -19,7 +18,7 @@ import (
 func TestCRDTEngine_DurableNamespaceReloads(t *testing.T) {
 	dir := t.TempDir()
 
-	e1 := NewCRDTEngine("n1", eventbus.NewBus(), zap.NewNop())
+	e1 := NewCRDTEngine("n1", zap.NewNop())
 	e1.SetDurability(dir, 50*time.Millisecond)
 	if e1.snapInterval != 50*time.Millisecond {
 		t.Fatalf("SetDurability(interval>0) snapInterval = %v, want 50ms", e1.snapInterval)
@@ -39,7 +38,7 @@ func TestCRDTEngine_DurableNamespaceReloads(t *testing.T) {
 	}
 	_ = e1.Stop()
 
-	e2 := NewCRDTEngine("n1", eventbus.NewBus(), zap.NewNop())
+	e2 := NewCRDTEngine("n1", zap.NewNop())
 	e2.SetDurability(dir, 0)
 	if e2.snapInterval != 30*time.Second {
 		t.Fatalf("SetDurability(interval==0) must keep default, got %v", e2.snapInterval)

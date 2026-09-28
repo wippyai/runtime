@@ -5,24 +5,125 @@ package exec
 import (
 	"github.com/wippyai/go-lua/types/io"
 	"github.com/wippyai/go-lua/types/typ"
+	"github.com/wippyai/runtime/runtime/lua/engine"
+	luatty "github.com/wippyai/runtime/runtime/lua/modules/tty"
 )
 
 var executorType typ.Type
 var processType typ.Type
+var processExitType typ.Type
+var processExitChannelType typ.Type
+var terminalResultType typ.Type
+var terminalResultChannelType typ.Type
+var terminalProcessType typ.Type
+var ptyOptionsType typ.Type
+var mountType typ.Type
+var confinementFSPatchType typ.Type
+var confinementEnvironmentPatchType typ.Type
+var confinementLimitsPatchType typ.Type
+var confinementTreePatchType typ.Type
+var confinementPatchType typ.Type
+var processOptionsType typ.Type
 
 func init() {
+	ptyOptionsType = typ.NewRecord().
+		OptField("width", typ.Integer).
+		OptField("height", typ.Integer).
+		OptField("term", typ.String).
+		Build()
+	mountType = typ.NewRecord().
+		Field("source", typ.String).
+		Field("target", typ.String).
+		OptField("read_only", typ.Boolean).
+		Build()
+	confinementFSPatchType = typ.NewRecord().
+		OptField("read", typ.NewArray(typ.String)).
+		OptField("write", typ.NewArray(typ.String)).
+		OptField("exec", typ.NewArray(typ.String)).
+		Build()
+	confinementEnvironmentPatchType = typ.NewRecord().
+		OptField("allow", typ.NewArray(typ.String)).
+		Build()
+	confinementLimitsPatchType = typ.NewRecord().
+		OptField("mem_mb", typ.Integer).
+		OptField("pids", typ.Integer).
+		OptField("wall_s", typ.Integer).
+		Build()
+	confinementTreePatchType = typ.NewRecord().
+		OptField("kill_on_owner_exit", typ.Boolean).
+		Build()
+	confinementPatchType = typ.NewRecord().
+		OptField("fs", confinementFSPatchType).
+		OptField("env", confinementEnvironmentPatchType).
+		OptField("network", typ.LiteralString("none")).
+		OptField("limits", confinementLimitsPatchType).
+		OptField("tree", confinementTreePatchType).
+		Build()
+	processOptionsType = typ.NewRecord().
+		OptField("work_dir", typ.String).
+		OptField("env", typ.NewMap(typ.String, typ.String)).
+		OptField("pty", ptyOptionsType).
+		OptField("process_group", typ.Boolean).
+		OptField("mounts", typ.NewArray(mountType)).
+		OptField("confine", confinementPatchType).
+		Build()
+	processExitType = typ.NewRecord().
+		Field("code", typ.Integer).
+		OptField("signal", typ.Integer).
+		OptField("error", typ.LuaError).
+		Build()
+	processExitChannelType = typ.NewInterface("exec.ProcessExitChannel", []typ.Method{
+		{Name: "receive", Type: typ.Func().Param("self", typ.Self).
+			Returns(typ.NewOptional(processExitType), typ.Boolean).Build()},
+		{Name: "case_receive", Type: typ.Func().Param("self", typ.Self).
+			Returns(engine.ChannelSelectCaseType(typ.Self, processExitType)).Build()},
+	})
+	terminalResultType = typ.NewRecord().
+		OptField("exit", processExitType).
+		OptField("terminal_error", typ.LuaError).
+		Build()
+	terminalResultChannelType = typ.NewInterface("exec.TerminalResultChannel", []typ.Method{
+		{Name: "receive", Type: typ.Func().Param("self", typ.Self).
+			Returns(typ.NewOptional(terminalResultType), typ.Boolean).Build()},
+		{Name: "case_receive", Type: typ.Func().Param("self", typ.Self).
+			Returns(engine.ChannelSelectCaseType(typ.Self, terminalResultType)).Build()},
+	})
+	terminalProcessType = typ.NewInterface("exec.TerminalProcess", []typ.Method{
+		{Name: "send", Type: typ.Func().Param("self", typ.Self).
+			Param("event", luatty.InputEventType()).
+			Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "close", Type: typ.Func().Param("self", typ.Self).
+			Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "done", Type: typ.Func().Param("self", typ.Self).
+			Returns(terminalResultChannelType).Build()},
+		{Name: "pid", Type: typ.Func().Param("self", typ.Self).
+			Returns(typ.NewOptional(typ.Integer), typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "status", Type: typ.Func().Param("self", typ.Self).
+			Returns(typ.NewUnion(typ.LiteralString("running"), typ.LiteralString("done")), typ.NewOptional(typ.LuaError)).Build()},
+	})
 	processType = typ.NewInterface("exec.Process", []typ.Method{
 		{Name: "start", Type: typ.Func().Param("self", typ.Self).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "wait", Type: typ.Func().Param("self", typ.Self).Returns(typ.Any, typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "done", Type: typ.Func().Param("self", typ.Self).Returns(processExitChannelType, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "signal", Type: typ.Func().Param("self", typ.Self).Param("sig", typ.Number).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "pid", Type: typ.Func().Param("self", typ.Self).Returns(typ.Integer, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "write_stdin", Type: typ.Func().Param("self", typ.Self).Param("data", typ.String).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "close_stdin", Type: typ.Func().Param("self", typ.Self).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "stdout_stream", Type: typ.Func().Param("self", typ.Self).Returns(typ.Any, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "stderr_stream", Type: typ.Func().Param("self", typ.Self).Returns(typ.Any, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "close", Type: typ.Func().Param("self", typ.Self).OptParam("force", typ.Boolean).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "resize", Type: typ.Func().Param("self", typ.Self).Param("width", typ.Integer).Param("height", typ.Integer).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
 	})
 
 	executorType = typ.NewInterface("exec.Executor", []typ.Method{
-		{Name: "exec", Type: typ.Func().Param("self", typ.Self).Param("cmd", typ.String).OptParam("opts", typ.Any).Returns(processType, typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "exec", Type: typ.Func().Param("self", typ.Self).
+			Param("cmd", typ.String).
+			OptParam("opts", processOptionsType).
+			Returns(processType, typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "terminal", Type: typ.Func().Param("self", typ.Self).
+			Param("cmd", typ.String).
+			OptParam("opts", processOptionsType).
+			Returns(terminalProcessType, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "release", Type: typ.Func().Param("self", typ.Self).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
 	})
 }
@@ -32,9 +133,22 @@ func ModuleTypes() *io.Manifest {
 
 	m.DefineType("Executor", executorType)
 	m.DefineType("Process", processType)
+	m.DefineType("ProcessExit", processExitType)
+	m.DefineType("ProcessExitChannel", processExitChannelType)
+	m.DefineType("TerminalResult", terminalResultType)
+	m.DefineType("TerminalResultChannel", terminalResultChannelType)
+	m.DefineType("TerminalProcess", terminalProcessType)
+	m.DefineType("PTYOptions", ptyOptionsType)
+	m.DefineType("Mount", mountType)
+	m.DefineType("ConfinementFSPatch", confinementFSPatchType)
+	m.DefineType("ConfinementEnvironmentPatch", confinementEnvironmentPatchType)
+	m.DefineType("ConfinementLimitsPatch", confinementLimitsPatchType)
+	m.DefineType("ConfinementTreePatch", confinementTreePatchType)
+	m.DefineType("ConfinementPatch", confinementPatchType)
+	m.DefineType("ProcessOptions", processOptionsType)
 
 	moduleType := typ.NewInterface("exec", []typ.Method{
-		{Name: "get", Type: typ.Func().Param("cmd", typ.String).Returns(executorType, typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "get", Type: typ.Func().Param("id", typ.String).Returns(executorType, typ.NewOptional(typ.LuaError)).Build()},
 	})
 
 	m.SetExport(moduleType)

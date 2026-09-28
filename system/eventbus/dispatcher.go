@@ -65,6 +65,10 @@ func (d *Dispatcher) Start(ctx context.Context) error {
 
 // Stop unsubscribes and stops the routing loop.
 func (d *Dispatcher) Stop(ctx context.Context) error {
+	// Load can succeed even when boot never reaches Start.
+	if d.cancel == nil {
+		return nil
+	}
 	d.cancel()
 	d.bus.Unsubscribe(ctx, d.subID)
 	close(d.eventC)
@@ -166,6 +170,8 @@ func (d *Dispatcher) handleSend(ctx context.Context, cmd dispatcher.Command, tag
 }
 
 // Unsubscribe removes a subscription by topic.
+func (*Dispatcher) HasSubscribers(event.System, event.Kind) bool { return true }
+
 func (d *Dispatcher) Unsubscribe(topic string) {
 	d.mu.Lock()
 	delete(d.subs, topic)

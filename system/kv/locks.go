@@ -27,7 +27,7 @@ var lockServiceKey = &ctxapi.Key{Name: "kv.lock.service"}
 // LockService implements distributed locks over the shared kv: a lock is a
 // SetIfAbsent of the holder PID at _sys:lock:<name> (linearizable via raft +
 // leader-forwarding). It auto-releases a holder's locks when the holder process
-// exits (topology monitor) or its node leaves (cluster.NodeLeft -> ReapNode).
+// exits (topology monitor). Discovery departures do not prove a holder exited.
 type LockService struct {
 	engine    kvapi.Engine
 	topo      topology.Topology
@@ -120,7 +120,8 @@ func (s *LockService) ReapPID(p pid.PID) {
 	s.reap(func(h pid.PID) bool { return h.String() == want })
 }
 
-// ReapNode releases every lock held by a PID on the departed node.
+// ReapNode releases every lock held by a PID on the node. The caller must
+// establish that those holders cannot still execute; gossip loss is not proof.
 func (s *LockService) ReapNode(node pid.NodeID) {
 	s.reap(func(h pid.PID) bool { return h.Node == node })
 }
@@ -161,7 +162,12 @@ func (s *LockService) Send(pkg *relay.Package) error {
 		}
 		for _, p := range msg.Payloads {
 			if ev, ok := p.Data().(*topology.ExitEvent); ok {
-				s.ReapPID(ev.From)
+				switch ev.Kind {
+				case topology.Exit:
+					s.ReapPID(ev.From)
+				case topology.LinkDown:
+					s.monitored.Delete(ev.From.String())
+				}
 			}
 		}
 	}

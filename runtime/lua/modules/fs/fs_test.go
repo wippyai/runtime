@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
+	fsapi "github.com/wippyai/runtime/api/fs"
 	"github.com/wippyai/runtime/api/runtime/resource"
 	"github.com/wippyai/runtime/runtime/lua/modules/stream"
 	"github.com/wippyai/runtime/service/fs/directory"
@@ -255,6 +256,68 @@ func TestFSStructuredErrors(t *testing.T) {
 				luaErr := requireLuaError(t, l.Get(-1))
 				assert.Equal(t, tt.checkKind, string(luaErr.Kind()), "error kind should match")
 			}
+		})
+	}
+}
+
+func TestFSReadOnlyErrorsArePermissionDenied(t *testing.T) {
+	tmpDir := t.TempDir()
+	require.NoError(t, os.WriteFile(tmpDir+"/file.txt", []byte("data"), 0600))
+	base, err := directory.NewFS(tmpDir, 0755, false)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, base.Close()) }()
+	filesystem := NewFS(fsapi.NewReadOnlyFS(base), "")
+
+	tests := []struct {
+		fn    func(*lua.LState) int
+		setup func(*lua.LState)
+		name  string
+	}{
+		{
+			name: "open",
+			fn:   fsOpen,
+			setup: func(l *lua.LState) {
+				l.SetContext(t.Context())
+				l.Push(lua.LString("file.txt"))
+				l.Push(lua.LString("w"))
+			},
+		},
+		{
+			name: "mkdir",
+			fn:   fsMkdir,
+			setup: func(l *lua.LState) {
+				l.Push(lua.LString("newdir"))
+			},
+		},
+		{
+			name: "remove",
+			fn:   fsRemove,
+			setup: func(l *lua.LState) {
+				l.Push(lua.LString("file.txt"))
+			},
+		},
+		{
+			name: "writefile",
+			fn:   fsWritefile,
+			setup: func(l *lua.LState) {
+				l.Push(lua.LString("file.txt"))
+				l.Push(lua.LString("changed"))
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			l := lua.NewState()
+			defer l.Close()
+			ud := l.NewUserData()
+			ud.Value = filesystem
+			l.Push(ud)
+			tt.setup(l)
+			require.Equal(t, 2, tt.fn(l))
+			luaErr := requireLuaError(t, l.Get(-1))
+			assert.Equal(t, lua.PermissionDenied, luaErr.Kind())
+			assert.Contains(t, luaErr.Error(), fsapi.ErrReadOnly.Error())
 		})
 	}
 }

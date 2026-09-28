@@ -14,6 +14,7 @@ import (
 	queueapi "github.com/wippyai/runtime/api/queue"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/security"
+	secsystem "github.com/wippyai/runtime/system/security"
 )
 
 // mockManager implements queueapi.Manager for testing
@@ -227,8 +228,8 @@ func TestPublishNoContext(t *testing.T) {
 		if not err then
 			error("expected error")
 		end
-		if err:kind() ~= errors.INVALID then
-			error("expected INVALID error kind, got: " .. tostring(err:kind()))
+		if err:kind() ~= errors.PERMISSION_DENIED then
+			error("expected PERMISSION_DENIED error kind, got: " .. tostring(err:kind()))
 		end
 	`)
 	if err != nil {
@@ -246,6 +247,7 @@ func TestPublishNoManager(t *testing.T) {
 	ctx := context.Background()
 	appCtx := ctxapi.NewAppContext()
 	ctx = ctxapi.WithAppContext(ctx, appCtx)
+	ctx = security.SetStrictMode(ctx, false)
 	l.SetContext(ctx)
 
 	err := l.DoString(`
@@ -1012,5 +1014,75 @@ func TestMessageHeadersReturnsTwoValues(t *testing.T) {
 	`)
 	if err != nil {
 		t.Errorf("test failed: %v", err)
+	}
+}
+
+// denyPolicy denies a single action and abstains on everything else.
+type denyPolicy struct {
+	action string
+}
+
+func (p denyPolicy) ID() registry.ID { return registry.NewID("test", "deny-"+p.action) }
+
+func (p denyPolicy) Evaluate(_ security.Actor, action, _ string, _ attrs.Bag) security.Result {
+	if action == p.action {
+		return security.Deny
+	}
+	return security.Allow
+}
+
+// setupStateWithDenyPolicy builds a state whose scope denies one queue action.
+func setupStateWithDenyPolicy(t *testing.T, mgr *mockManager, deniedAction string) *lua.LState {
+	t.Helper()
+
+	l := lua.NewState()
+	t.Cleanup(func() { l.Close() })
+	lua.OpenErrors(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
+
+	ctx := security.SetStrictMode(ctxapi.NewRootContext(), false)
+	ctx = queueapi.WithManager(ctx, mgr)
+	ctx, fc := ctxapi.OpenFrameContext(ctx)
+	t.Cleanup(func() { ctxapi.ReleaseFrameContext(fc) })
+
+	if err := security.SetActor(ctx, security.Actor{ID: "tester"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := security.SetScope(ctx, secsystem.NewScope([]security.Policy{denyPolicy{action: deniedAction}})); err != nil {
+		t.Fatal(err)
+	}
+	l.SetContext(ctx)
+	return l
+}
+
+func TestPublishPermissionDenied(t *testing.T) {
+	cases := []struct {
+		name   string
+		action string
+	}{
+		{"publish", "queue.publish"},
+		{"publish_queue", "queue.publish.queue"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			mgr := newMockManager()
+			l := setupStateWithDenyPolicy(t, mgr, tc.action)
+
+			if err := l.DoString(`
+				local ok, err = queue.publish("test:myqueue", {data = "test"})
+				assert(ok == nil, "expected nil result under a deny policy")
+				assert(err ~= nil, "expected error under a deny policy")
+				assert(err:kind() == errors.PERMISSION_DENIED, "expected PERMISSION_DENIED kind, got: " .. tostring(err:kind()))
+				assert(err:retryable() == false, "expected not retryable")
+			`); err != nil {
+				t.Fatal(err)
+			}
+
+			if n := len(mgr.published); n != 0 {
+				t.Fatalf("expected no published messages, got %d", n)
+			}
+		})
 	}
 }

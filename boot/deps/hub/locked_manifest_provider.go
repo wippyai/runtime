@@ -4,7 +4,6 @@ package hub
 
 import (
 	"context"
-	"fmt"
 	"sort"
 	"strings"
 
@@ -76,7 +75,7 @@ func (p *lockedManifestProvider) GetManifest(ctx context.Context, org, module, c
 	}
 	deps, err := manifestDependenciesFromEntries(ctx, transcoder, entries)
 	if err != nil {
-		return nil, fmt.Errorf("read locked manifest %s@%s: %w", name, mod.Version, err)
+		return nil, NewDependencyLoadError(name+"@"+mod.Version, err)
 	}
 	return &ModuleManifest{
 		Org:          mod.Org,

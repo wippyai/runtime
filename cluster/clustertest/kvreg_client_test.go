@@ -10,7 +10,6 @@ import (
 	raftapi "github.com/wippyai/runtime/api/cluster/raft"
 	"github.com/wippyai/runtime/api/pid"
 	globalapi "github.com/wippyai/runtime/api/topology/namereg/global"
-	"github.com/wippyai/runtime/system/eventbus"
 	systemkv "github.com/wippyai/runtime/system/kv"
 	"github.com/wippyai/runtime/system/topology/namereg/kvbacked"
 	"go.uber.org/zap"
@@ -35,14 +34,13 @@ func (c *Cluster) newClientRegistry(t *testing.T, id string) *kvbacked.Service {
 // re-forwarding path a production client (which cannot call raft.Leader()) needs.
 func (c *Cluster) newClientRegistryTarget(t *testing.T, id string, target func() string) *kvbacked.Service {
 	t.Helper()
-	bus := eventbus.NewBus()
-	fsm := systemkv.NewRaftFSM(bus)
+	fsm := systemkv.NewRaftFSM()
 	eng := systemkv.NewRaftEngine(
 		systemkv.ClientSubmitter{Resolve: func() (raftapi.ServerID, bool) {
 			t := target()
 			return t, t != ""
 		}},
-		fsm, bus, id, c.router, zap.NewNop())
+		fsm, id, c.router, zap.NewNop())
 	c.router.register(id, systemkv.KVRaftHostID, eng)
 	if err := eng.Start(context.Background()); err != nil {
 		t.Fatalf("start client engine: %v", err)

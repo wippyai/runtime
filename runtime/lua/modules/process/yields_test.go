@@ -15,6 +15,8 @@ import (
 	"github.com/wippyai/runtime/api/process"
 	runtimeapi "github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/api/topology"
+	"github.com/wippyai/runtime/cluster/internode"
+	"go.uber.org/zap"
 )
 
 func configureAPIErrorMetadataExtractor(t *testing.T) {
@@ -53,6 +55,26 @@ func TestSendYield_HandleResult_Success(t *testing.T) {
 	assert.Len(t, result, 2)
 	assert.Equal(t, lua.LTrue, result[0])
 	assert.Equal(t, lua.LNil, result[1])
+}
+
+func TestSendYield_UnmanagedNodeIsUnavailable(t *testing.T) {
+	configureAPIErrorMetadataExtractor(t)
+	l := lua.NewState()
+	defer l.Close()
+	yield := AcquireSendYield()
+	defer yield.Release()
+	cfg := internode.DefaultManagerConfig()
+	cfg.Logger = zap.NewNop()
+	manager := internode.NewConnectionManager(cfg, nil)
+	err := manager.SendToNode("departed", []byte("request"), internode.ClassPGBroadcast)
+	require.ErrorIs(t, err, internode.ErrNodeNotManaged)
+	result := yield.HandleResult(l, process.SendResult{Error: err}, nil)
+	require.Len(t, result, 2)
+	require.Equal(t, lua.LNil, result[0])
+	luaErr, ok := lua.AsError(result[1])
+	require.True(t, ok)
+	require.Equal(t, lua.Unavailable, luaErr.Kind())
+	require.Contains(t, luaErr.Error(), "departed")
 }
 
 func TestSendYield_HandleResult_Error(t *testing.T) {

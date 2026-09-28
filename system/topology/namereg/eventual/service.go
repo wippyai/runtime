@@ -27,10 +27,6 @@ var (
 	// different PID held locally (the cluster-wide check is best-effort
 	// because EVENTUAL is — by design — eventually consistent).
 	ErrNameAlreadyRegistered = errors.New("eventualreg: name already registered")
-	// ErrNameServiceNotReady is returned by a fresh EVENTUAL register while the
-	// node's join-epoch barrier is still in progress. Retryable: the barrier
-	// completes shortly after join/rejoin.
-	ErrNameServiceNotReady = errors.New("eventualreg: name service not ready: join-epoch barrier in progress")
 )
 
 // PeerInventory abstracts the source of "alive peer" node strings. The
@@ -39,19 +35,6 @@ type PeerInventory interface {
 	// AlivePeers returns the node strings of all currently-alive peers,
 	// excluding the local node.
 	AlivePeers() []string
-}
-
-// CrossScopeChecker abstracts the CONSISTENT/LOCAL registries so EVENTUAL
-// registrations can refuse to shadow them. Returning a non-empty PID with
-// `found=true` means the name is held in another scope.
-type CrossScopeChecker interface {
-	// LookupOther returns (PID, true) if the name is held in any non-Eventual
-	// scope (Consistent via Raft, or Local via PIDRegistry).
-	LookupOther(name string) (pid.PID, bool)
-	// NameReady reports whether the node's join-epoch barrier has completed. A
-	// fresh EVENTUAL register is refused (ErrNameServiceNotReady) until it is true
-	// so the node cannot shadow a cluster-wide Strong name it has not yet learned.
-	NameReady() bool
 }
 
 // MessageSender ships a targeted reliable frame to a specific peer.
@@ -71,8 +54,6 @@ type MessageSender interface {
 type Config struct {
 	// Peers supplies the current alive peer set.
 	Peers PeerInventory
-	// CrossScope optionally cross-checks CONSISTENT/LOCAL on Register.
-	CrossScope CrossScopeChecker
 	// MetricsCollector may be nil.
 	MetricsCollector metrics.Collector
 	// Logger may be nil.
@@ -125,9 +106,12 @@ type Service struct {
 	queue            *BroadcastQueue
 	// owned holds names this node registered live and still intends to keep, with
 	// the pid/priority to re-assert them. Guarded by ownedMu.
-	owned              map[string]ownedReg
-	cfg                Config
-	stopOnce           sync.Once
+	owned    map[string]ownedReg
+	cfg      Config
+	stopOnce sync.Once
+	// Keep one name's State dot and owned intent in order. Distinct shards can
+	// mutate concurrently; ownedMu only protects the shared map itself.
+	ownedMutations     [ShardCount]sync.Mutex
 	ownedMu            sync.Mutex
 	lastShardRequestMu sync.Mutex
 	stopped            atomic.Bool
@@ -245,8 +229,8 @@ func WithPriority(p uint32) RegisterOption {
 // Returns the registered PID and nil on success. Returns the existing PID and
 // ErrNameAlreadyRegistered when the name is held locally by a different PID, or
 // when a different-origin entry out-ranks this fresh claim (the caller lost the
-// concurrent conflict — a name_revoked is also signaled to `p`). Cross-scope
-// conflicts (CONSISTENT/LOCAL) are rejected.
+// concurrent conflict — a name_revoked is also signaled to `p`). Other naming
+// scopes store independent bindings; precedence belongs to composed resolution.
 func (s *Service) Register(name string, p pid.PID) (pid.PID, error) {
 	return s.register(name, p)
 }
@@ -265,29 +249,15 @@ func (s *Service) register(name string, p pid.PID, opts ...RegisterOption) (pid.
 	for _, opt := range opts {
 		opt(&o)
 	}
-
-	// Cross-scope check first — refuse to shadow CONSISTENT or LOCAL.
-	if s.cfg.CrossScope != nil {
-		if existing, found := s.cfg.CrossScope.LookupOther(name); found {
-			if existing == p {
-				return p, nil
-			}
-			s.tel.recordRegister("conflict_other_scope")
-			return existing, ErrNameAlreadyRegistered
-		}
-		// Join-epoch gate: refuse a fresh claim while the barrier is in progress,
-		// unless this node already holds the name to the same pid (re-register is
-		// safe — no shadowing risk).
-		if !s.cfg.CrossScope.NameReady() {
-			if cur, ok := s.state.Lookup(name); ok && cur == p {
-				return p, nil
-			}
-			s.tel.recordRegister("not_ready")
-			return p, ErrNameServiceNotReady
-		}
-	}
-
+	mutation := &s.ownedMutations[ShardFor(name)]
+	mutation.Lock()
 	res := s.state.Register(name, p, time.Now().UnixMilli(), o.priority)
+	if res.Won {
+		s.ownedMu.Lock()
+		s.owned[name] = ownedReg{pid: p, priority: o.priority}
+		s.ownedMu.Unlock()
+	}
+	mutation.Unlock()
 	if !res.Won {
 		if res.Lost != nil {
 			// Cross-origin loss: the local dot was minted and installed, so
@@ -304,9 +274,6 @@ func (s *Service) register(name string, p pid.PID, opts ...RegisterOption) (pid.
 		return res.Winner.PID, ErrNameAlreadyRegistered
 	}
 	s.queue.Push(res.Entry)
-	s.ownedMu.Lock()
-	s.owned[name] = ownedReg{pid: p, priority: o.priority}
-	s.ownedMu.Unlock()
 	s.tel.recordRegister("ok")
 	s.tel.setEntries(s.state.LiveCount(), s.state.TombstoneCount())
 	s.tel.setQueueDepth(s.queue.Depth())
@@ -335,47 +302,22 @@ func (s *Service) emitRevoke(lost *LostBinding) {
 	}
 }
 
-// RevokeForStrong tombstones a locally-held EVENTUAL binding of name whose pid
-// differs from keep, signaling the losing process. The join-epoch barrier calls
-// it after learning name belongs to a Strong reservation owned by keep. Returns
-// true when a binding was revoked. A name not held locally, or held to keep, is
-// a no-op. The tombstone broadcasts so the cluster converges away from the
-// loser.
-func (s *Service) RevokeForStrong(name string, keep pid.PID) bool {
-	if s.stopped.Load() {
-		return false
-	}
-	cur, ok := s.state.Lookup(name)
-	if !ok || cur == keep {
-		return false
-	}
-	e := s.state.Unregister(name, time.Now().UnixMilli())
-	if e == nil {
-		return false
-	}
-	s.ownedMu.Lock()
-	delete(s.owned, name)
-	s.ownedMu.Unlock()
-	s.queue.Push(e)
-	s.emitRevoke(&LostBinding{Name: name, PID: cur})
-	s.tel.setEntries(s.state.LiveCount(), s.state.TombstoneCount())
-	s.tel.setQueueDepth(s.queue.Depth())
-	return true
-}
-
 // Unregister tombstones a name. Returns true if the name was held by us.
 func (s *Service) Unregister(name string) bool {
 	if s.stopped.Load() {
 		return false
 	}
+	mutation := &s.ownedMutations[ShardFor(name)]
+	mutation.Lock()
 	e := s.state.Unregister(name, time.Now().UnixMilli())
+	s.ownedMu.Lock()
+	delete(s.owned, name)
+	s.ownedMu.Unlock()
+	mutation.Unlock()
 	if e == nil {
 		s.tel.recordUnregister("not_found")
 		return false
 	}
-	s.ownedMu.Lock()
-	delete(s.owned, name)
-	s.ownedMu.Unlock()
 	s.queue.Push(e)
 	s.tel.recordUnregister("ok")
 	s.tel.setEntries(s.state.LiveCount(), s.state.TombstoneCount())
@@ -720,24 +662,25 @@ func (s *Service) applyIncoming(e *Entry, originStr string) {
 	internedOrigin := s.state.internNode(originStr)
 	e.Node = internedOrigin
 
-	outcome, _, lost := s.state.Apply(e)
+	outcome, fwd, lost := s.state.Apply(e)
 
 	// Epidemic forwarding: a frame that changed local state is new information,
 	// so re-broadcast it. The origin emits each delta one-shot to only
 	// GossipNodes peers; without forwarding the rest of the cluster converges
 	// solely via slow anti-entropy. Loop-free because a re-applied entry is a
-	// MergeNoop and is not re-queued. The queued entry is a copy: State retains
-	// `e` and may mutate it on later merges.
-	if outcome == MergeApplied || outcome == MergeConflictResolved || outcome == MergeDeleteWins {
-		cp := *e
+	// MergeNoop and is not re-queued. A superseded prior-incarnation dot forwards
+	// the re-minted local dot instead. The queued entry is a copy: State retains
+	// the forwarded dot and may mutate it on later merges.
+	if fwd != nil {
+		cp := *fwd
 		s.queue.Push(&cp)
 		s.tel.setQueueDepth(s.queue.Depth())
 	}
 
-	// A state-changing dot for our own origin can only be a peer echoing our state
-	// back — including a prior incarnation's dot or a node-left reap tombstone that
-	// overwrote a name we still own. Re-assert it so it is re-minted above the
-	// stale counter and converges the cluster back to live.
+	// A state-changing dot this replica accepts for its own origin is a
+	// tombstone, such as a peer's node-left reap of a binding this node still
+	// owns. Re-assert the owned name so it is re-minted above the tombstone and
+	// the cluster converges back to live.
 	if e.Node == s.state.LocalNode() &&
 		(outcome == MergeApplied || outcome == MergeDeleteWins || outcome == MergeConflictResolved) {
 		s.reassertOwned(e.Name)
@@ -756,6 +699,8 @@ func (s *Service) applyIncoming(e *Entry, originStr string) {
 		}
 	case MergeDeleteWins:
 		s.tel.recordMergeConflict("delete_wins")
+	case MergeSuperseded:
+		s.tel.recordMergeConflict("prior_incarnation")
 	case MergeNoop:
 		if e.Deleted {
 			// Late-arriving tombstone for an entry we no longer have.
@@ -769,16 +714,24 @@ func (s *Service) applyIncoming(e *Entry, originStr string) {
 // name is not owned or already resolves to our pid, so it fires at most once per
 // stale override and cannot loop.
 func (s *Service) reassertOwned(name string) {
+	mutation := &s.ownedMutations[ShardFor(name)]
+	mutation.Lock()
 	s.ownedMu.Lock()
 	reg, ok := s.owned[name]
 	s.ownedMu.Unlock()
-	if !ok {
+	if !ok || s.stopped.Load() {
+		mutation.Unlock()
 		return
 	}
-	if cur, found := s.state.Lookup(name); found && cur == reg.pid {
+	if cur, found := s.state.Lookup(name); found && cur.Equal(reg.pid) {
+		mutation.Unlock()
 		return
 	}
 	res := s.state.Register(name, reg.pid, time.Now().UnixMilli(), reg.priority)
+	mutation.Unlock()
+	if !res.Won || res.Entry == nil {
+		return
+	}
 	s.queue.Push(res.Entry)
 	s.tel.recordReregistration()
 	s.tel.setEntries(s.state.LiveCount(), s.state.TombstoneCount())

@@ -145,10 +145,10 @@ func (p operationPlanner) kindReplacementClosure(
 				continue
 			}
 			if !present {
-				return nil, fmt.Errorf("cannot replace registry entry kind for live dependent %s absent from desired state", current.ID.String())
+				return nil, NewDependencyEntryInvalidError(current.ID.String(), fmt.Sprintf("cannot replace registry entry kind for live dependent %s absent from desired state", current.ID.String()), "")
 			}
 			if key == opts.originalKey {
-				return nil, fmt.Errorf("cannot replace registry entry kind for original operation target %s", current.ID.String())
+				return nil, NewDependencyEntryInvalidError(current.ID.String(), fmt.Sprintf("cannot replace registry entry kind for original operation target %s", current.ID.String()), "")
 			}
 			recreate[key] = struct{}{}
 			changed = true

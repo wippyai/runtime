@@ -242,3 +242,27 @@ func TestTransactionHelper_RemoveService_NoTransaction(t *testing.T) {
 		t.Error("removeService should return error outside of transaction")
 	}
 }
+
+func TestTransactionHelper_SameIDRemoveThenRegisterIsReplacement(t *testing.T) {
+	th := newRegTx(noopLogger())
+	th.begin()
+
+	entry := &supervisor.Entry{}
+	assert.NoError(t, th.removeService("service1"))
+	assert.NoError(t, th.registerService("service1", entry))
+
+	var sequence []string
+	assert.NoError(t, th.commit(
+		func(id string) error {
+			sequence = append(sequence, "remove:"+id)
+			return nil
+		},
+		func(id string, got *supervisor.Entry) error {
+			assert.Same(t, entry, got)
+			sequence = append(sequence, "register:"+id)
+			return nil
+		},
+	))
+
+	assert.Equal(t, []string{"remove:service1", "register:service1"}, sequence)
+}

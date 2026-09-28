@@ -39,6 +39,8 @@ func (b *handlerTestBus) Subscribe(context.Context, event.System, chan<- event.E
 func (b *handlerTestBus) SubscribeP(context.Context, event.System, event.Kind, chan<- event.Event) (event.SubscriberID, error) {
 	return "", nil
 }
+func (*handlerTestBus) HasSubscribers(event.System, event.Kind) bool { return true }
+
 func (b *handlerTestBus) Unsubscribe(context.Context, event.SubscriberID) {}
 func (b *handlerTestBus) Send(_ context.Context, evt event.Event) {
 	b.events = append(b.events, evt)

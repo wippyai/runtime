@@ -36,6 +36,11 @@ func TestSupervisorStartsSourceAndDelivers(t *testing.T) {
 	supCtx, supCancel := context.WithCancel(context.Background())
 	defer supCancel()
 	require.NoError(t, sup.Start(supCtx))
+	defer func() {
+		stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		require.NoError(t, sup.StopContext(stopCtx))
+	}()
 
 	src := NewSource(SourceOptions{
 		ReplDSN: repl, AdminDSN: admin, Slot: superSlot, Publication: "wippy_cdc_pub",

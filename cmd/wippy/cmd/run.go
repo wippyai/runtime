@@ -26,6 +26,7 @@ import (
 	"github.com/wippyai/runtime/api/relay"
 	secapi "github.com/wippyai/runtime/api/security"
 	embedapi "github.com/wippyai/runtime/api/service/fs/embed"
+	terminalapi "github.com/wippyai/runtime/api/service/terminal"
 	supervisorapi "github.com/wippyai/runtime/api/supervisor"
 	bootpkg "github.com/wippyai/runtime/boot"
 	"github.com/wippyai/runtime/boot/deps/client"
@@ -34,7 +35,6 @@ import (
 	"github.com/wippyai/runtime/cmd/internal/banner"
 	"github.com/wippyai/runtime/cmd/internal/bootconfig"
 	"github.com/wippyai/runtime/cmd/internal/entries"
-	"github.com/wippyai/runtime/cmd/internal/shutdown"
 	embedpkg "github.com/wippyai/runtime/service/fs/embed"
 	terminalservice "github.com/wippyai/runtime/service/terminal"
 	securitysys "github.com/wippyai/runtime/system/security"
@@ -101,13 +101,13 @@ func init() {
 	listCmd.Flags().StringArray("set", nil, "override a merged runtime config value (format: section.path=value, repeatable)")
 	runCmd.Flags().StringSliceP("override", "o", nil, "Override entry values (format: namespace:entry:field=value)")
 	runCmd.Flags().StringP("exec", "x", "", "Execute process and exit (format: namespace:entry)")
-	runCmd.Flags().String("host", "", "Terminal host ID for exec (auto-detected if only one terminal.host exists)")
+	runCmd.Flags().String("host", "", "Terminal host ID for exec (defaults to command metadata, then a single terminal.host)")
 	runCmd.Flags().String("registry", "", "Registry URL for hub modules (default: from credentials)")
 	runCmd.Flags().StringArray("set", nil, "override a merged runtime config value (format: section.path=value, repeatable)")
 	runCmd.Flags().StringArray("profile", nil, "apply a profile from the merged runtime config or packed runtime metadata (repeatable, applied in order)")
 
 	testCmd.Flags().StringSliceP("override", "o", nil, "Override entry values (format: namespace:entry:field=value)")
-	testCmd.Flags().String("host", "", "Terminal host ID for exec (auto-detected if only one terminal.host exists)")
+	testCmd.Flags().String("host", "", "Terminal host ID for exec (defaults to command metadata, then a single terminal.host)")
 	testCmd.Flags().String("registry", "", "Registry URL for hub modules (default: from credentials)")
 	testCmd.Flags().StringArray("set", nil, "override a merged runtime config value (format: section.path=value, repeatable)")
 	testCmd.Flags().StringArray("profile", nil, "apply a profile from the merged runtime config or packed runtime metadata (repeatable, applied in order)")
@@ -115,6 +115,9 @@ func init() {
 
 // commandMeta represents the command metadata from entry.Meta
 type commandMeta struct {
+	// Host selects the terminal host for this command when --host is omitted.
+	// It does not change the command's security context.
+	Host string `json:"host,omitempty"`
 	// Security is the security context the command runs under when launched
 	// from the CLI. It lives inside meta.command on purpose: it applies only
 	// to the trusted terminal-launcher path, never to ordinary spawns of the
@@ -137,23 +140,32 @@ func runTest(cmd *cobra.Command, args []string) error {
 	return runWithUseCase(cmd, args, "test")
 }
 
-func runWithUseCase(cmd *cobra.Command, args []string, useCase string) error {
+// commandHost applies the operator's selection equally to source and pack launches.
+func commandHost(cmd *cobra.Command) string {
+	if cmd == nil {
+		return ""
+	}
+	host, _ := cmd.Flags().GetString("host")
+	return host
+}
+
+func runWithUseCase(cmd *cobra.Command, args []string, useCase string) (result error) {
 	memLimit := initMemoryLimit()
 
-	var commandName string
-	var commandArgs []string
-	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
-		commandName = args[0]
-		commandArgs = args[1:]
-	}
-
 	execSpec := ""
-	execHost := ""
+	execHost := commandHost(cmd)
 	registryURL := ""
 	if cmd != nil {
 		execSpec, _ = cmd.Flags().GetString("exec")
-		execHost, _ = cmd.Flags().GetString("host")
 		registryURL, _ = cmd.Flags().GetString("registry")
+	}
+
+	// With an explicit entry, every positional token belongs to that process.
+	var commandName string
+	var commandArgs []string
+	if execSpec == "" && len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+		commandName = args[0]
+		commandArgs = args[1:]
 	}
 
 	if commandName != "" {
@@ -202,19 +214,32 @@ func runWithUseCase(cmd *cobra.Command, args []string, useCase string) error {
 
 	// A Hub deployment is restarted from wippy.lock, without resolving the Hub
 	// reference again. Its selected root pack is therefore the same authority
-	// for published runtime defaults as it was on the first run.
-	runtimeDefaults, err := loadLockRootRuntimeDefaults(defaultLockFile, logger)
+	// for published runtime defaults as it was on the first run. The root is
+	// located through the local workspace replacements first: a root replaced
+	// by a source directory is not a pack and publishes no defaults.
+	workspaceCfg, err := loadWorkspaceConfig(cmd, logger)
+	if err != nil {
+		logger.Error("failed to resolve workspace config", zap.Error(err))
+		return err
+	}
+	runtimeDefaults, err := loadLockRootRuntimeDefaults(defaultLockFile, workspaceCfg, logger)
 	if err != nil {
 		logger.Error("failed to load deployment runtime defaults", zap.Error(err))
 		return err
 	}
-	cfg, err := loadRuntimeConfigWithDefaults(cmd, logger, runtimeDefaults)
+	cfg, err := loadRuntimeConfigWithPinnedWorkspace(cmd, logger, runtimeDefaults, workspaceCfg)
 	if err != nil {
 		logger.Error("failed to resolve runtime config", zap.Error(err))
 		return err
 	}
 
-	ctx, err := bootpkg.NewBootstrapContext(logger, cfg)
+	parent := context.Background()
+	if cmd != nil {
+		parent = cmd.Context()
+	}
+	parent, cancelRuntime := context.WithCancel(parent)
+	defer cancelRuntime()
+	ctx, err := bootpkg.NewBootstrapContextWithParent(parent, logger, cfg)
 	if err != nil {
 		logger.Error("failed to initialize bootstrap context", zap.Error(err))
 		return NewInitializeBootstrapContextError(err)
@@ -234,7 +259,7 @@ func runWithUseCase(cmd *cobra.Command, args []string, useCase string) error {
 	ctx = embedapi.WithRegistry(ctx, embedReg)
 	defer embedReg.Close()
 
-	components := StandardComponents()
+	components := selectedComponents()
 	ctx, extensionComponents, err := loadExtensionComponents(ctx, logger, components)
 	if err != nil {
 		logger.Error("failed to load extensions", zap.Error(err))
@@ -250,15 +275,27 @@ func runWithUseCase(cmd *cobra.Command, args []string, useCase string) error {
 		return NewCreateLoaderError(err)
 	}
 
-	ctx, err = loader.Load(ctx)
+	runtimeShutdown := &runShutdown{}
+	var sigChan chan os.Signal
+	defer func() {
+		runtimeShutdown.deferCleanup(ctx, &result, loader, logger, silentLogs)
+		if sigChan != nil {
+			signal.Stop(sigChan)
+		}
+	}()
+
+	loadedContext, loadError := loader.Load(ctx)
+	if loadedContext != nil {
+		ctx = loadedContext
+	}
+	err = loadError
 	if err != nil {
 		logger.Error("load failed", zap.Error(err))
 		return NewLoadComponentsError(err)
 	}
 	logger.Info("components loaded successfully")
 
-	sigChan := setupSupervisorSignalChannel(ctx)
-	defer signal.Stop(sigChan)
+	sigChan = setupSupervisorSignalChannel(ctx)
 
 	err = loader.Start(ctx)
 	if err != nil {
@@ -295,28 +332,23 @@ func runWithUseCase(cmd *cobra.Command, args []string, useCase string) error {
 
 	// Handle exec: launch process and wait for completion
 	if execSpec != "" {
-		execCtx, stopExecSignals := newExecSignalContext(ctx)
-		execErr := launchExecProcess(execCtx, logger, execSpec, execHost, args)
-		interrupted := execWasInterrupted(execCtx, ctx, execErr)
-		stopExecSignals()
-		if execErr != nil && !interrupted {
-			logger.Error("exec launch failed", zap.Error(execErr))
-			return execErr
+		if readiness := bootpkg.GetReadiness(ctx); readiness != nil {
+			if err := readiness.Wait(ctx); err != nil {
+				return fmt.Errorf("boot readiness failed: %w", err)
+			}
 		}
-		if interrupted {
-			logger.Info("exec interrupted", zap.String("signal", "SIGINT"))
+
+		shutdown, err := launchExecUntilShutdown(ctx, sigChan, logger, execSpec, execHost, args)
+		if err != nil {
+			return err
+		}
+		if shutdown {
+			return nil
 		}
 	}
 
-	waitForShutdownSignal(sigChan, logger, nil)
-
-	exitCode := shutdown.Perform(ctx, loader, logger, silentLogs)
-	if exitCode != 0 {
-		_ = logger.Sync()
-		os.Exit(exitCode)
-	}
-
-	return nil
+	waitForShutdownSignal(ctx, sigChan, logger, nil)
+	return ctx.Err()
 }
 
 // loadRuntimeConfig resolves the effective runtime configuration for run-like
@@ -332,6 +364,72 @@ func loadRuntimeConfig(cmd *cobra.Command, logger *zap.Logger) (boot.Config, err
 // loadRuntimeConfig, but first seeds it with optional runtime defaults.
 // Defaults are applied with lower precedence than file and CLI settings.
 func loadRuntimeConfigWithDefaults(cmd *cobra.Command, logger *zap.Logger, runtimeDefaults boot.Config) (boot.Config, error) {
+	return composeRuntimeConfig(cmd, logger, runtimeDefaults, fullConfigResolution)
+}
+
+// loadRuntimeConfigWithPinnedWorkspace keeps local workspace paths selected by
+// the first pass. A packed profile may change vars used elsewhere, but it must
+// not indirectly redirect a workspace replacement after that replacement has
+// already selected the pack providing the profile.
+func loadRuntimeConfigWithPinnedWorkspace(cmd *cobra.Command, logger *zap.Logger, runtimeDefaults, workspaceCfg boot.Config) (boot.Config, error) {
+	resolution := fullConfigResolution
+	resolution.resolveVariables = func(cfg boot.Config) (boot.Config, error) {
+		if workspaceCfg != nil {
+			workspace := workspaceCfg.Sub("workspace")
+			values := make(map[string]any)
+			for _, key := range workspace.Keys() {
+				if value, ok := workspace.Get(key); ok {
+					values[key] = value
+				}
+			}
+			if len(values) > 0 {
+				cfg = bootconfig.Merge(cfg, boot.NewConfig(boot.WithSection("workspace", values)))
+			}
+		}
+		return bootconfig.ResolveVariables(cfg)
+	}
+	return composeRuntimeConfig(cmd, logger, runtimeDefaults, resolution)
+}
+
+// loadWorkspaceConfig resolves the local runtime config layers — config files,
+// native defaults and overrides, locally defined profiles, --set — without any
+// pack defaults. It exists to locate the deployment root before the root pack
+// is read. Its resolved workspace section is pinned in the full config: packs
+// cannot directly publish machine-local sections, and packed profile variables
+// must not indirectly redirect a locally selected source. Only the workspace
+// section is variable-resolved; other sections may reference variables that
+// the pack defines.
+func loadWorkspaceConfig(cmd *cobra.Command, logger *zap.Logger) (boot.Config, error) {
+	return composeRuntimeConfig(cmd, logger, nil, workspaceConfigResolution)
+}
+
+// configResolution selects how composeRuntimeConfig applies the selected
+// profiles and which sections it resolves variables in.
+type configResolution struct {
+	applyProfiles    func(boot.Config, []string) (boot.Config, error)
+	resolveVariables func(boot.Config) (boot.Config, error)
+}
+
+var fullConfigResolution = configResolution{
+	applyProfiles:    bootconfig.ApplyProfiles,
+	resolveVariables: bootconfig.ResolveVariables,
+}
+
+var workspaceConfigResolution = configResolution{
+	applyProfiles: func(cfg boot.Config, names []string) (boot.Config, error) {
+		applied, _, err := bootconfig.ApplyDefinedProfiles(cfg, names)
+		return applied, err
+	},
+	resolveVariables: func(cfg boot.Config) (boot.Config, error) {
+		return bootconfig.ResolveVariablesIn(cfg, "workspace")
+	},
+}
+
+// composeRuntimeConfig is the one layering order of runtime configuration:
+// runtime defaults < config files < native defaults, then selected profiles,
+// CLI logging flags, --set, -o overrides, native deployment overrides, and
+// variable resolution.
+func composeRuntimeConfig(cmd *cobra.Command, logger *zap.Logger, runtimeDefaults boot.Config, resolution configResolution) (boot.Config, error) {
 	cfg, err := loadBootConfig()
 	if err != nil {
 		return nil, err
@@ -345,35 +443,31 @@ func loadRuntimeConfigWithDefaults(cmd *cobra.Command, logger *zap.Logger, runti
 		cfg = bootconfig.Merge(runtimeDefaults, cfg)
 	}
 
-	cfg, err = bootconfig.ApplyProfiles(cfg, selectedProfiles(cmd))
+	cfg = bootconfig.Merge(nativeBootDefaults(), cfg)
+	cfg, err = resolution.applyProfiles(cfg, selectedProfiles(cmd))
 	if err != nil {
 		return nil, err
 	}
 
 	cfg = applyCLIOverrides(cfg)
 
-	if cmd == nil {
-		return bootconfig.ResolveVariables(cfg)
-	}
-
-	if sets, _ := cmd.Flags().GetStringArray("set"); len(sets) > 0 {
-		merged, err := applySetOverrides(cfg, sets)
-		if err != nil {
-			return nil, err
+	if cmd != nil {
+		if sets, _ := cmd.Flags().GetStringArray("set"); len(sets) > 0 {
+			cfg, err = applySetOverrides(cfg, sets)
+			if err != nil {
+				return nil, err
+			}
 		}
-		cfg = merged
+
+		if overrides, _ := cmd.Flags().GetStringSlice("override"); len(overrides) > 0 {
+			cfg, err = applyOverrideFlags(cfg, overrides, logger)
+			if err != nil {
+				return nil, err
+			}
+		}
 	}
 
-	overrides, _ := cmd.Flags().GetStringSlice("override")
-	if len(overrides) == 0 {
-		return bootconfig.ResolveVariables(cfg)
-	}
-
-	cfg, err = applyOverrideFlags(cfg, overrides, logger)
-	if err != nil {
-		return nil, err
-	}
-	return bootconfig.ResolveVariables(cfg)
+	return resolution.resolveVariables(applyNativeDeploymentConfig(cfg))
 }
 
 func selectedProfiles(cmd *cobra.Command) []string {
@@ -423,6 +517,9 @@ func extractCommandMeta(meta map[string]any) (*commandMeta, error) {
 		return nil, fmt.Errorf("decode command metadata: %w", err)
 	}
 	if command.Name == "" {
+		if _, declared := commandFields["host"]; declared {
+			return nil, fmt.Errorf("decode command metadata: host requires a command name")
+		}
 		if _, declared := commandFields["security"]; declared {
 			return nil, fmt.Errorf("decode command metadata: security requires a command name")
 		}
@@ -430,6 +527,12 @@ func extractCommandMeta(meta map[string]any) (*commandMeta, error) {
 	}
 	if command.UseCase == "" {
 		command.UseCase = defaultUseCase
+	}
+	if _, declared := commandFields["host"]; declared {
+		namespace, name, err := parseExecSpec(command.Host)
+		if err != nil || command.Host != namespace+":"+name || strings.ContainsAny(command.Host, " \t\r\n") {
+			return nil, fmt.Errorf("decode command metadata: host must be a namespace:name identifier")
+		}
 	}
 
 	if securityData, declared := commandFields["security"]; declared {
@@ -596,6 +699,9 @@ func loadBootConfig() (boot.Config, error) {
 }
 
 func loadRuntimeConfigFiles() (boot.Config, error) {
+	if nativeOptions != nil && len(configFiles) == 0 {
+		return nil, nil
+	}
 	if len(configFiles) == 0 {
 		return bootconfig.Load(defaultConfigFile)
 	}
@@ -742,16 +848,7 @@ func coerceSetValue(s string) any {
 func applyOverrideFlags(cfg boot.Config, overrides []string, logger *zap.Logger) (boot.Config, error) {
 	overrideMap := make(map[string]any)
 
-	if cfg != nil {
-		sub := cfg.Sub("override")
-		if sub != nil {
-			for _, key := range sub.Keys() {
-				if val, ok := sub.Get(key); ok {
-					overrideMap[key] = val
-				}
-			}
-		}
-	}
+	// Keep CLI declarations separate so alias resolution retains layer precedence.
 
 	for _, override := range overrides {
 		namespace, entry, field, value, err := parseOverride(override)
@@ -873,26 +970,26 @@ func parseExecSpec(spec string) (namespace, entry string, err error) {
 func findTerminalHost(ctx context.Context) (string, error) {
 	reg := registry.GetRegistry(ctx)
 	if reg == nil {
-		return "", fmt.Errorf("registry not available")
+		return "", ErrRegistryNotFound
 	}
 
 	allEntries, err := reg.GetAllEntries()
 	if err != nil {
-		return "", fmt.Errorf("failed to query registry for terminal hosts: %w", err)
+		return "", NewQueryTerminalHostsError(err)
 	}
 
 	var hosts []string
 	for _, e := range allEntries {
-		if e.Kind == "terminal.host" {
+		if e.Kind == terminalapi.Host {
 			hosts = append(hosts, e.ID.String())
 		}
 	}
 
 	if len(hosts) == 0 {
-		return "", fmt.Errorf("no terminal.host found in registry")
+		return "", NewNoTerminalHostError()
 	}
 	if len(hosts) > 1 {
-		return "", fmt.Errorf("multiple terminal hosts found (%s), use --host to specify", strings.Join(hosts, ", "))
+		return "", NewMultipleTerminalHostsError(hosts)
 	}
 	return hosts[0], nil
 }
@@ -906,16 +1003,19 @@ func launchExecProcess(ctx context.Context, logger *zap.Logger, execSpec, hostID
 	}
 	source := registry.NewID(namespace, entry)
 
-	securityPairs, err := resolveCommandSecurity(ctx, source)
+	command, err := loadCommandMeta(ctx, source)
 	if err != nil {
-		return fmt.Errorf("resolve command security for %s: %w", source.String(), err)
+		return NewLoadCommandMetaError(source.String(), err)
 	}
 
-	if hostID == "" {
-		hostID, err = findTerminalHost(ctx)
-		if err != nil {
-			return err
-		}
+	securityPairs, err := resolveCommandSecurity(ctx, command)
+	if err != nil {
+		return NewResolveCommandSecurityError(source.String(), err)
+	}
+
+	hostID, err = resolveCommandHost(ctx, command, hostID)
+	if err != nil {
+		return err
 	}
 
 	if err := waitForHostRunning(ctx, hostID); err != nil {
@@ -942,12 +1042,15 @@ func launchExecProcess(ctx context.Context, logger *zap.Logger, execSpec, hostID
 	if err != nil {
 		return fmt.Errorf("execute %s: %w", source.String(), err)
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 
 	// The terminal host also performs this transition from its lifecycle hook,
 	// but the CLI owns the awaited ExecResult and must bridge it to the shell
 	// even if a host implementation does not emit its own shutdown signal.
 	exitCode := terminalservice.ExitCode(result)
-	supervisorapi.TriggerShutdown(ctx, exitCode)
+	supervisorapi.TriggerShutdownIfIdle(ctx, exitCode)
 	logger.Debug("exec process completed",
 		zap.String("host", hostID),
 		zap.String("source", source.String()),
@@ -957,29 +1060,87 @@ func launchExecProcess(ctx context.Context, logger *zap.Logger, execSpec, hostID
 	return nil
 }
 
-// resolveCommandSecurity reads meta.command.security from the command entry
-// and resolves it into context pairs for the process start. Entries without a
-// command security block resolve to no pairs, preserving the caller context.
-// A declared but invalid security block fails closed before the process starts.
-func resolveCommandSecurity(ctx context.Context, source registry.ID) ([]ctxapi.Pair, error) {
+// launchExecUntilShutdown keeps the runtime's shutdown signal observable while
+// a command process is running. Cancellation is followed by normal loader
+// shutdown, which drains the command host and stops services in order.
+func launchExecUntilShutdown(ctx context.Context, sigChan chan os.Signal, logger *zap.Logger, execSpec, hostID string, args []string) (bool, error) {
+	execCtx, stopExecSignals := newExecSignalContext(ctx)
+	defer stopExecSignals()
+
+	done := make(chan error, 1)
+	go func() { done <- launchExecProcess(execCtx, logger, execSpec, hostID, args) }()
+
+	select {
+	case execErr := <-done:
+		interrupted := execWasInterrupted(execCtx, ctx, execErr)
+		if execErr != nil && !interrupted {
+			logger.Error("exec launch failed", zap.Error(execErr))
+			return false, execErr
+		}
+		if interrupted {
+			logger.Info("exec interrupted", zap.String("signal", "SIGINT"))
+		}
+		return false, nil
+	case sig := <-sigChan:
+		stopExecSignals()
+		<-done
+		handleShutdownSignal(ctx, sigChan, logger, sig, nil)
+		return true, nil
+	}
+}
+
+// loadCommandMeta decodes meta.command from the command entry. Host and
+// security selection share this single decode.
+func loadCommandMeta(ctx context.Context, source registry.ID) (*commandMeta, error) {
 	reg := registry.GetRegistry(ctx)
 	if reg == nil {
-		return nil, fmt.Errorf("registry not available")
+		return nil, ErrRegistryNotFound
 	}
 	entry, err := reg.GetEntry(source)
 	if err != nil {
-		return nil, fmt.Errorf("get command entry: %w", err)
+		return nil, NewGetCommandEntryError(source.String(), err)
+	}
+	return extractCommandMeta(entry.Meta)
+}
+
+// resolveCommandHost orders host selection: an explicit --host, then the host
+// declared in meta.command, then automatic discovery. Host selection supplies
+// no actor or permission grants.
+func resolveCommandHost(ctx context.Context, command *commandMeta, hostID string) (string, error) {
+	if hostID != "" {
+		return hostID, nil
+	}
+	if command == nil || command.Host == "" {
+		return findTerminalHost(ctx)
 	}
 
-	cmdMeta, err := extractCommandMeta(entry.Meta)
-	if err != nil {
-		return nil, err
+	reg := registry.GetRegistry(ctx)
+	if reg == nil {
+		return "", ErrRegistryNotFound
 	}
-	if cmdMeta == nil || cmdMeta.Security == nil {
+	// extractCommandMeta accepts a declared host only when it round-trips as
+	// namespace:name, so the spec parses here.
+	namespace, name, _ := parseExecSpec(command.Host)
+	host, err := reg.GetEntry(registry.NewID(namespace, name))
+	if err != nil {
+		return "", NewGetDeclaredCommandHostError(command.Host, err)
+	}
+	if host.Kind != terminalapi.Host {
+		return "", NewDeclaredCommandHostKindError(command.Host)
+	}
+	return command.Host, nil
+}
+
+// resolveCommandSecurity resolves meta.command.security into context pairs for
+// the process start. Commands without a security block resolve to no pairs,
+// preserving the caller context. A declared but invalid security block fails
+// closed while the metadata decodes, before the process starts.
+func resolveCommandSecurity(ctx context.Context, command *commandMeta) ([]ctxapi.Pair, error) {
+	if command == nil || command.Security == nil {
 		return nil, nil
 	}
 
-	return securitysys.ResolveConfigPairs(ctx, cmdMeta.Security)
+	return securitysys.ResolveConfigPairs(ctx, command.Security)
 }
 
 // waitForHostRunning waits until host is both running in supervisor state and
@@ -1040,17 +1201,30 @@ func setupSupervisorSignalChannel(ctx context.Context) chan os.Signal {
 
 // waitForShutdownSignal handles first-signal graceful shutdown and second-signal
 // forced process termination.
-func waitForShutdownSignal(sigChan chan os.Signal, logger *zap.Logger, onFirstSignal func()) {
-	sig := <-sigChan
+func waitForShutdownSignal(ctx context.Context, sigChan chan os.Signal, logger *zap.Logger, onFirstSignal func()) {
+	var sig os.Signal
+	select {
+	case <-ctx.Done():
+		return
+	case sig = <-sigChan:
+	}
+	handleShutdownSignal(ctx, sigChan, logger, sig, onFirstSignal)
+}
+
+func handleShutdownSignal(ctx context.Context, sigChan chan os.Signal, logger *zap.Logger, sig os.Signal, onFirstSignal func()) {
 	logger.Info("received shutdown signal", zap.String("signal", sig.String()))
 	if onFirstSignal != nil {
 		onFirstSignal()
 	}
 
 	go func() {
-		<-sigChan
-		logger.Error("force exit")
-		os.Exit(1)
+		select {
+		case <-ctx.Done():
+			return
+		case <-sigChan:
+			logger.Error("force exit")
+			os.Exit(1)
+		}
 	}()
 
 	if !silentLogs {

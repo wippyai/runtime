@@ -401,7 +401,7 @@ func TestBuildEmbedPackEffect_StagesUnchangedPackWhenRegistryMissing(t *testing.
 	writeResourceWapp(t, packPath, "ui", "app", map[string]string{"v.txt": "1"})
 	digest, _, err := artifactIdentityFromPath(packPath)
 	require.NoError(t, err)
-	immutableRelative, err := immutableWappRelativePath(graph.MustParseName("org/mod"), "1.0.0", digest)
+	immutableRelative, err := ImmutableWappRelativePath(graph.MustParseName("org/mod"), "1.0.0", digest)
 	require.NoError(t, err)
 	immutablePackPath := filepath.Join(vendorDir, immutableRelative)
 
@@ -531,7 +531,7 @@ func TestBuildEmbedPackEffect_StagesOnlyChangedPacks(t *testing.T) {
 	writeResourceWapp(t, newPack, "ui", "app", map[string]string{"v.txt": "2"})
 	newDigest, _, err := artifactIdentityFromPath(newPack)
 	require.NoError(t, err)
-	newImmutableRelative, err := immutableWappRelativePath(graph.MustParseName("org/mod"), "2.0.0", newDigest)
+	newImmutableRelative, err := ImmutableWappRelativePath(graph.MustParseName("org/mod"), "2.0.0", newDigest)
 	require.NoError(t, err)
 	newImmutablePack := filepath.Join(vendorDir, newImmutableRelative)
 
@@ -682,7 +682,7 @@ func TestMaterializeModuleForLoad_StagesCachedWappUntilPrepare(t *testing.T) {
 	require.NoError(t, err)
 
 	gotPath, staged, err := handler.materializeModuleForLoad(
-		context.Background(),
+		onlineContext(),
 		ResolvedModule{Org: "org", Name: "mod", Version: "1.0.0", Digest: digest, SizeBytes: size},
 	)
 	require.NoError(t, err)
@@ -746,7 +746,7 @@ func TestMaterializeModuleForLoad_DownloadsPrivatelyUntilPrepare(t *testing.T) {
 	require.NoError(t, err)
 
 	gotPath, staged, err := handler.materializeModuleForLoad(
-		context.Background(),
+		onlineContext(),
 		ResolvedModule{Org: "org", Name: "mod", Version: "2.0.0", Digest: digest, SizeBytes: size},
 	)
 	require.NoError(t, err)

@@ -33,8 +33,10 @@ func (f *fakeRaftService) Apply(_ []byte, _ time.Duration) (*raftapi.ApplyRespon
 func (f *fakeRaftService) Leader() (raftapi.ServerID, raftapi.ServerAddress, error) {
 	return f.leaderID, f.leaderAddr, f.leaderErr
 }
-func (f *fakeRaftService) IsLeader() bool        { return f.isLeader }
-func (f *fakeRaftService) LeaderCh() <-chan bool { return nil }
+func (f *fakeRaftService) IsLeader() bool { return f.isLeader }
+func (f *fakeRaftService) ObserveLeadership() raftapi.Leadership {
+	return raftapi.Leadership{State: f.State(), Changed: make(chan struct{})}
+}
 func (f *fakeRaftService) State() raftapi.State {
 	if f.isLeader {
 		return raftapi.Leader
@@ -96,6 +98,37 @@ func TestClusterMembers_WithMembership(t *testing.T) {
 		assert(members[1].addr == "10.0.0.1:7946", "addr mismatch")
 		assert(members[2].id == "node-2", "second id mismatch")
 		assert(members[2].is_local == false, "second must not be local")
+	`)
+	require.NoError(t, err)
+}
+
+type stubLinks map[cluster.NodeID]cluster.Link
+
+func (s stubLinks) Link(node cluster.NodeID) (cluster.Link, bool) {
+	link, ok := s[node]
+	return link, ok
+}
+
+func TestClusterMembers_ReportConnectedLinks(t *testing.T) {
+	l, ctx := newClusterTestState(t)
+	ctx = relay.WithNode(ctx, &stubRelayNode{id: "node-1"})
+	ctx = cluster.WithMembership(ctx, &stubMembership{
+		local: cluster.NodeInfo{ID: "node-1"},
+		peers: []cluster.NodeInfo{{ID: "node-2"}, {ID: "node-3"}},
+	})
+	ctx = cluster.WithLinks(ctx, stubLinks{
+		"node-1": {Remote: "127.0.0.1:1", Dialed: true},
+		"node-2": {Remote: "10.0.0.2:51000", Dialed: false},
+	})
+	l.SetContext(ctx)
+
+	err := l.DoString(`
+		local members, err = system.cluster.members()
+		assert(err == nil, "unexpected error: " .. tostring(err))
+		assert(members[1].link == nil, "local node has no link")
+		assert(members[2].link.remote == "10.0.0.2:51000", "remote mismatch")
+		assert(members[2].link.dialed == false, "dialed mismatch")
+		assert(members[3].link == nil, "unconnected member has no link")
 	`)
 	require.NoError(t, err)
 }
@@ -191,6 +224,7 @@ func TestCluster_PermissionDenied(t *testing.T) {
 		t.Run(tc.call, func(t *testing.T) {
 			l := lua.NewState()
 			t.Cleanup(func() { l.Close() })
+			lua.OpenErrors(l)
 
 			ctx := ctxapi.WithAppContext(context.Background(), ctxapi.NewAppContext())
 			ctx = security.SetStrictMode(ctx, true)
@@ -203,6 +237,7 @@ func TestCluster_PermissionDenied(t *testing.T) {
 				local v, err = ` + tc.call + `
 				assert(v == nil, "expected nil under strict security")
 				assert(err ~= nil, "expected permission-denied error")
+				assert(err:kind() == errors.PERMISSION_DENIED, "expected PERMISSION_DENIED kind, got: " .. tostring(err:kind()))
 			`)
 			require.NoError(t, err)
 		})

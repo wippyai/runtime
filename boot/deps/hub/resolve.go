@@ -417,14 +417,14 @@ func (r *resolver) resolveIntersection(ctx context.Context, org, name string, co
 	for _, c := range constraints {
 		p, err := semver.ParseConstraint(c)
 		if err != nil {
-			return "", fmt.Errorf("%w: %q", errConstraintsIncompatible, c)
+			return "", NewVersionSelectionError(fmt.Sprintf("%s: %q", errConstraintsIncompatible.Error(), c), errConstraintsIncompatible, map[string]any{"constraint": c})
 		}
 		parsed = append(parsed, p)
 	}
 
 	versions, err := r.provider.ListAllVersions(ctx, org, name)
 	if err != nil {
-		return "", fmt.Errorf("list versions: %w", err)
+		return "", NewHubRequestError("list versions", err)
 	}
 
 	var best, bestStable *VersionInfo
@@ -622,19 +622,21 @@ func (r *resolver) fetchManifest(ctx context.Context, org, name, version string)
 		return nil, err
 	}
 	if manifest == nil {
-		return nil, fmt.Errorf("hub returned no manifest for %s/%s@%s", org, name, version)
+		return nil, NewArtifactContentError(fmt.Sprintf("hub returned no manifest for %s/%s@%s", org, name, version), map[string]any{"module": org + "/" + name, "version": version})
 	}
 	if manifest.Org != org || manifest.Name != name {
-		return nil, fmt.Errorf(
-			"manifest identity mismatch: requested %s/%s@%s, hub returned %s/%s@%s",
-			org, name, version, manifest.Org, manifest.Name, manifest.Version,
+		return nil, NewArtifactContentError(
+			fmt.Sprintf("manifest identity mismatch: requested %s/%s@%s, hub returned %s/%s@%s",
+				org, name, version, manifest.Org, manifest.Name, manifest.Version),
+			map[string]any{"requested": org + "/" + name + "@" + version, "returned": manifest.Org + "/" + manifest.Name + "@" + manifest.Version},
 		)
 	}
 	if version != "" && !strings.HasPrefix(version, "@") &&
 		strings.TrimPrefix(manifest.Version, "v") != strings.TrimPrefix(version, "v") {
-		return nil, fmt.Errorf(
-			"manifest version mismatch for %s/%s: requested %s, hub returned %s",
-			org, name, version, manifest.Version,
+		return nil, NewArtifactContentError(
+			fmt.Sprintf("manifest version mismatch for %s/%s: requested %s, hub returned %s",
+				org, name, version, manifest.Version),
+			map[string]any{"module": org + "/" + name, "requested": version, "returned": manifest.Version},
 		)
 	}
 
@@ -656,9 +658,10 @@ func (r *resolver) fetchManifest(ctx context.Context, org, name, version string)
 		}
 	}
 
-	return nil, fmt.Errorf(
-		"manifest digest mismatch for %s/%s@%s: lockfile pins %s, hub served %s",
-		org, name, version, expected, manifest.Digest,
+	return nil, NewArtifactContentError(
+		fmt.Sprintf("manifest digest mismatch for %s/%s@%s: lockfile pins %s, hub served %s",
+			org, name, version, expected, manifest.Digest),
+		map[string]any{"module": org + "/" + name, "version": version, "pinned": expected, "served": manifest.Digest},
 	)
 }
 
@@ -689,12 +692,12 @@ func (r *resolver) resolveConstraint(ctx context.Context, org, name, constraint 
 
 	parsed, err := semver.ParseConstraint(constraint)
 	if err != nil {
-		return "", fmt.Errorf("invalid constraint %q: %w", constraint, err)
+		return "", NewVersionSelectionError(fmt.Sprintf("invalid constraint %q", constraint), err, map[string]any{"constraint": constraint})
 	}
 
 	versions, err := r.provider.ListAllVersions(ctx, org, name)
 	if err != nil {
-		return "", fmt.Errorf("list versions: %w", err)
+		return "", NewHubRequestError("list versions", err)
 	}
 
 	type indexedVersion struct {
@@ -715,7 +718,7 @@ func (r *resolver) resolveConstraint(ctx context.Context, org, name, constraint 
 
 	best, err := parsed.FindBestMatch(semverVersions)
 	if err != nil {
-		return "", fmt.Errorf("%w: %s", errNoAvailableVersion, constraint)
+		return "", NewVersionSelectionError(fmt.Sprintf("%s: %s", errNoAvailableVersion.Error(), constraint), errNoAvailableVersion, map[string]any{"constraint": constraint})
 	}
 
 	for _, iv := range indexed {

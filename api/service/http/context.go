@@ -56,6 +56,7 @@ type RequestContext struct {
 	r               *http.Request
 	w               http.ResponseWriter
 	responseHandled bool
+	responseStatus  int
 }
 
 // GetRequestContext retrieves HTTP request context from FrameContext
@@ -154,6 +155,22 @@ func (h *RequestContext) ResponseWriter() http.ResponseWriter {
 	return h.w
 }
 
+// SetResponseStatus selects the final status without committing headers.
+// CommitResponseStatus must run before the body is written or the handler exits.
+func (h *RequestContext) SetResponseStatus(status int) {
+	h.responseStatus = status
+	h.MarkHandled()
+}
+
+// CommitResponseStatus writes a selected status once, preserving status-only
+// responses while allowing headers to be changed until the first write/flush.
+func (h *RequestContext) CommitResponseStatus() {
+	if h.responseStatus != 0 {
+		h.w.WriteHeader(h.responseStatus)
+		h.responseStatus = 0
+	}
+}
+
 // MarkHandled indicates that a response has been sent for this request.
 func (h *RequestContext) MarkHandled() {
 	h.responseHandled = true
@@ -177,6 +194,7 @@ func (h *RequestContext) SetResponseWriter(w http.ResponseWriter) {
 // ResetHandled resets the response handled flag (for pooling)
 func (h *RequestContext) ResetHandled() {
 	h.responseHandled = false
+	h.responseStatus = 0
 }
 
 // MiddlewareCreator is a function that creates a middleware handler from options

@@ -8,6 +8,7 @@ import (
 	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pid"
+	"github.com/wippyai/runtime/runtime/lua/engine"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	payloadmod "github.com/wippyai/runtime/runtime/lua/modules/payload"
 )
@@ -17,6 +18,7 @@ import (
 const messageTypeName = "process.Message"
 
 type Message struct {
+	data     lua.LValue
 	From     pid.PID
 	Topic    string
 	Payloads payload.Payloads
@@ -24,8 +26,23 @@ type Message struct {
 
 var messageMethods = map[string]lua.LGoFunc{
 	"topic":   messageTopic,
+	"data":    messageData,
 	"payload": messagePayload,
 	"from":    messageFrom,
+}
+
+// messageData returns the receiver-local decoded value. Typed listeners validate
+// this exact value before exposing the Message to the receiving process.
+func messageData(l *lua.LState) int {
+	msg := checkMessage(l)
+	if msg == nil {
+		return 0
+	}
+	if msg.data == nil {
+		msg.data = engine.PayloadsToLua(l.Context(), l, msg.Payloads)
+	}
+	l.Push(msg.data)
+	return 1
 }
 
 func messageTopic(l *lua.LState) int {

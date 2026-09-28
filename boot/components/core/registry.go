@@ -5,14 +5,12 @@ package core
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"go.uber.org/zap"
-	"google.golang.org/grpc/backoff"
 
 	"github.com/wippyai/runtime/api/boot"
 	"github.com/wippyai/runtime/api/event"
@@ -27,7 +25,6 @@ import (
 	historymem "github.com/wippyai/runtime/system/registry/history/memory"
 	historynil "github.com/wippyai/runtime/system/registry/history/nil"
 	"github.com/wippyai/runtime/system/registry/history/postgres"
-	"github.com/wippyai/runtime/system/registry/history/remote"
 	"github.com/wippyai/runtime/system/registry/history/sqlite"
 	"github.com/wippyai/runtime/system/registry/runner"
 	regtop "github.com/wippyai/runtime/system/registry/topology"
@@ -35,8 +32,6 @@ import (
 
 func Registry() boot.Component {
 	var histCloser io.Closer
-	var publicationCancel context.CancelFunc
-	var publicationDone chan struct{}
 
 	return boot.New(boot.P{
 		Name:      RegistryName,
@@ -68,13 +63,7 @@ func Registry() boot.Component {
 				if !enableHistory {
 					hist = historynil.New()
 				} else {
-					historyType := registryCfg.GetString(RegistryHistoryType, "")
-					if historyType == "" {
-						historyType = "memory"
-						if registryCfg.GetString("history_endpoint", "") != "" || registryCfg.GetString("history_registry_id", "") != "" {
-							historyType = "grpc"
-						}
-					}
+					historyType := registryCfg.GetString(RegistryHistoryType, "memory")
 
 					switch historyType {
 					case "sqlite":
@@ -90,18 +79,6 @@ func Registry() boot.Component {
 						}
 						hist = sqliteHist
 						histCloser = sqliteHist
-
-					case "grpc":
-						dialConfig, err := historyConnectionConfig(ctx, registryCfg)
-						if err != nil {
-							return nil, err
-						}
-						remoteHist, err := remote.Dial(ctx, dialConfig)
-						if err != nil {
-							return nil, err
-						}
-						hist = remoteHist
-						histCloser = remoteHist
 
 					case "postgres":
 						historyDSN := registryCfg.GetString(RegistryHistoryDSN, "")
@@ -133,7 +110,10 @@ func Registry() boot.Component {
 			stateBuilder := regtop.NewStateBuilder(logger, resolver)
 
 			internalKinds := defaultDispatchInternalKinds()
-			eventWaitTimeout := event.DefaultAwaitTimeout
+			// Unset means no fixed cap: an operation waits as long as its
+			// context allows, because a listener that compiles or analyzes an
+			// entry has no meaningful fixed budget. A configured value caps it.
+			eventWaitTimeout := time.Duration(0)
 			if cfg != nil {
 				registryCfg := cfg.Sub(RegistryName)
 				if kinds, ok := readKindSlice(registryCfg, RegistryDispatchInternalKinds); ok {
@@ -148,11 +128,16 @@ func Registry() boot.Component {
 			if err != nil {
 				logger.Warn("dependency handler disabled", zap.Error(err))
 			} else if depHandler != nil {
-				if err := depHandler.PrepareRestore(ctx, hist); err != nil {
+				// Startup restores installed artifacts locally. Downloads belong
+				// to explicit install/update operations, never implicit recovery.
+				restoreCtx := regapi.WithDependencyAccess(ctx, regapi.DependencyAccessVerifiedOffline)
+				if err := depHandler.PrepareRestore(restoreCtx, hist); err != nil {
+					// Startup stops here, so the shutdown hook that owns the history
+					// never runs; release it now or the store stays open.
 					if histCloser != nil {
-						_ = histCloser.Close()
+						err = errors.Join(err, histCloser.Close())
 					}
-					return nil, fmt.Errorf("prepare dependency restore: %w", err)
+					return nil, NewDependencyRestoreError(err)
 				}
 				registryOpts = append(registryOpts,
 					registry.WithKindDirective(regapi.NamespaceDependency, regexp.NewDependencyDirective(depHandler.Expand).WithResolutionTransition(depHandler.ReconcileResolution).WithChangesExpansion(depHandler.ExpandChanges)),
@@ -172,6 +157,13 @@ func Registry() boot.Component {
 						}
 						return handlerRegistry.TransactionParticipants()
 					}),
+					runner.WithKindHandlerCheck(func(kind regapi.Kind) bool {
+						handlerRegistry := bootpkg.GetHandlerRegistry(ctx)
+						if handlerRegistry == nil {
+							return true
+						}
+						return handlerRegistry.HandlesKind(kind)
+					}),
 				),
 				stateBuilder,
 				resolver,
@@ -184,50 +176,11 @@ func Registry() boot.Component {
 
 			return ctx, nil
 		},
-		Start: func(ctx context.Context) error {
-			reg, ok := regapi.GetRegistry(ctx).(*registry.Reg)
-			if !ok {
-				return nil
-			}
-			if _, ok := reg.History().(regapi.PublishedHistory); !ok {
-				return nil
-			}
-			publicationCtx, cancel := context.WithCancel(ctx)
-			publicationCancel = cancel
-			publicationDone = make(chan struct{})
-			go func() {
-				defer close(publicationDone)
-				for {
-					err := reg.FollowPublications(publicationCtx)
-					if publicationCtx.Err() != nil || errors.Is(err, context.Canceled) {
-						return
-					}
-					logapi.GetLogger(ctx).Error("history publication follow failed", zap.Error(err))
-					timer := time.NewTimer(backoff.DefaultConfig.BaseDelay)
-					select {
-					case <-publicationCtx.Done():
-						timer.Stop()
-						return
-					case <-timer.C:
-					}
-				}
-			}()
-			return nil
-		},
-		Stop: func(ctx context.Context) error {
-			var stopErr error
-			if publicationCancel != nil {
-				publicationCancel()
-				select {
-				case <-publicationDone:
-				case <-ctx.Done():
-					stopErr = ctx.Err()
-				}
-			}
+		Stop: func(_ context.Context) error {
 			if histCloser != nil {
-				return errors.Join(stopErr, histCloser.Close())
+				return histCloser.Close()
 			}
-			return stopErr
+			return nil
 		},
 	})
 }
@@ -235,7 +188,15 @@ func Registry() boot.Component {
 // getDefaultDependencyPatterns returns the core dependency patterns.
 // These are generic patterns that don't belong to any specific component.
 func getDefaultDependencyPatterns() []regapi.DependencyPattern {
-	return regtop.RegistryDependencyPatterns()
+	return []regapi.DependencyPattern{
+		{Path: "meta.parent", Description: "Reference to parent component in metadata"},
+		{Path: "meta.depends_on", Description: "Explicit dependencies in metadata", AllowWildcard: true},
+		{Path: "meta.groups", Description: "Group membership list in metadata", AllowWildcard: true},
+		{Path: "data.config", Description: "Reference to a configuration entry"},
+		{Path: "data.groups", Description: "Group membership list in data", AllowWildcard: true},
+		{Path: "data.imports.*", Description: "Imported components (values only)", AllowWildcard: true},
+		{Path: "data.*.depends_on", Description: "Explicit dependencies in nested structures", AllowWildcard: true},
+	}
 }
 
 func defaultDispatchInternalKinds() []regapi.Kind {
@@ -298,12 +259,12 @@ func newDependencyHandler(
 	}
 	artifactRegistry := artifact.GetRegistry(ctx)
 	if artifactRegistry == nil {
-		return nil, fmt.Errorf("artifact registry is not initialized")
+		return nil, ErrArtifactRegistryNotAvailable
 	}
 	opts.Artifacts = artifactRegistry
 	workspaceReplacements, err := lock.WorkspaceReplacements(cfg)
 	if err != nil {
-		return nil, fmt.Errorf("load workspace replacements: %w", err)
+		return nil, NewWorkspaceReplacementsError(err)
 	}
 	opts.WorkspaceReplacements = workspaceReplacements
 

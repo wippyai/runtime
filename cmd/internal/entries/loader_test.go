@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -1896,81 +1897,6 @@ func TestNormalizeEntries_PostLinkOverrideWinsFinalValue(t *testing.T) {
 	}
 }
 
-func TestUnwrapPayloadData(t *testing.T) {
-	t.Run("returns non-map data as-is", func(t *testing.T) {
-		result := unwrapPayloadData("string value")
-		if result != "string value" {
-			t.Errorf("expected string value, got %v", result)
-		}
-
-		result = unwrapPayloadData(42)
-		if result != 42 {
-			t.Errorf("expected 42, got %v", result)
-		}
-
-		result = unwrapPayloadData(nil)
-		if result != nil {
-			t.Errorf("expected nil, got %v", result)
-		}
-	})
-
-	t.Run("unwraps payload wrapper structure", func(t *testing.T) {
-		wrapped := map[string]any{
-			"Data":   "inner value",
-			"Format": "json",
-		}
-		result := unwrapPayloadData(wrapped)
-		if result != "inner value" {
-			t.Errorf("expected 'inner value', got %v", result)
-		}
-	})
-
-	t.Run("returns map as-is if not payload wrapper", func(t *testing.T) {
-		regularMap := map[string]any{
-			"key1": "value1",
-			"key2": "value2",
-		}
-		result := unwrapPayloadData(regularMap)
-		resultMap, ok := result.(map[string]any)
-		if !ok {
-			t.Fatalf("expected map, got %T", result)
-		}
-		if resultMap["key1"] != "value1" {
-			t.Errorf("expected key1=value1, got %v", resultMap["key1"])
-		}
-	})
-
-	t.Run("returns map with extra fields as-is", func(t *testing.T) {
-		mapWithExtra := map[string]any{
-			"Data":   "inner",
-			"Format": "json",
-			"Extra":  "field",
-		}
-		result := unwrapPayloadData(mapWithExtra)
-		resultMap, ok := result.(map[string]any)
-		if !ok {
-			t.Fatalf("expected map, got %T", result)
-		}
-		if resultMap["Extra"] != "field" {
-			t.Errorf("expected Extra=field in result")
-		}
-	})
-
-	t.Run("handles map with only Data field", func(t *testing.T) {
-		mapOnlyData := map[string]any{
-			"Data": "value",
-		}
-		result := unwrapPayloadData(mapOnlyData)
-		resultMap, ok := result.(map[string]any)
-		if !ok {
-			t.Fatalf("expected map, got %T", result)
-		}
-		if resultMap["Data"] != "value" {
-			t.Errorf("expected Data=value in result")
-		}
-	})
-}
-
 func TestPackReaderReader(t *testing.T) {
 	tmpDir := t.TempDir()
 	wappPath := filepath.Join(tmpDir, "test.wapp")
@@ -2057,5 +1983,36 @@ func TestWaitForListenerReadiness_ContextCancelled(t *testing.T) {
 	err := waitForListenerReadiness(cancelCtx, logger)
 	if err == nil {
 		t.Fatal("expected cancellation error, got nil")
+	}
+}
+
+// A pack whose fs.embed entry carries no content digest loads with the digest
+// derived from the pack's resource, the same value the packer stamps.
+func TestPackReaderGetEntriesDerivesEmbedDigest(t *testing.T) {
+	pack := func(content string) string {
+		t.Helper()
+		var buf bytes.Buffer
+		err := wapp.NewWriter().PackWithResources(wapp.Metadata{},
+			[]wapp.Entry{{ID: wapp.NewID("acme.ui", "assets"), Kind: "fs.embed", Data: map[string]any{}}},
+			[]wapp.ResourceSpec{{ID: wapp.NewID("acme.ui", "assets"), FS: fstest.MapFS{"component.wasm": &fstest.MapFile{Data: []byte(content)}}}},
+			&buf)
+		if err != nil {
+			t.Fatalf("pack: %v", err)
+		}
+		reader, err := NewPackReader(bytes.NewReader(buf.Bytes()), nil)
+		if err != nil {
+			t.Fatalf("NewPackReader: %v", err)
+		}
+		entries, err := reader.GetEntries()
+		if err != nil {
+			t.Fatalf("GetEntries: %v", err)
+		}
+		data, _ := entries[0].Data.Data().(map[string]any)
+		digest, _ := data["digest"].(string)
+		return digest
+	}
+	d1, d1Again, d2 := pack("release 1"), pack("release 1"), pack("release 2")
+	if d1 == "" || d1 != d1Again || d1 == d2 {
+		t.Fatalf("digest must be content-derived: v1=%q v1again=%q v2=%q", d1, d1Again, d2)
 	}
 }

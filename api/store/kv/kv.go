@@ -145,7 +145,13 @@ const (
 	WatchExpired
 )
 
-// WatchEvent represents a single key change.
+// WatchEvent represents one committed key operation. A successful transaction
+// emits its mutations in operation order, including intermediate values that
+// were replaced or removed later in that same transaction. A read triggered by
+// the event sees the complete published transaction, not necessarily the
+// intermediate value carried by Current or Previous. Entries and value slices
+// are read-only to subscribers: matching watchers can share one detached event.
+// A subscriber that needs mutable values must copy them before changing them.
 type WatchEvent struct {
 	Current  *Entry // after the change (nil on delete/expire)
 	Previous *Entry // before the change (nil on create)
@@ -153,14 +159,29 @@ type WatchEvent struct {
 	// non-raft backends). It is the monotonic dot for delete tombstones, which
 	// carry no Current entry.
 	Index uint64
-	Type  WatchEventType
+	// Revision identifies the complete published snapshot that contains this
+	// operation. All mutations of one transaction share its revision. It is
+	// comparable with LocalSnapshotReader's revision for the same engine.
+	Revision uint64
+	Type     WatchEventType
 }
 
-// Watcher delivers change events for keys matching a prefix.
+// Watcher delivers changes for one uninterrupted observation of a prefix.
+// A consumer must discard remaining Events after Done closes and reseed from
+// the store before relying on a new watcher.
 type Watcher interface {
 	// Events returns the channel delivering watch events.
 	Events() <-chan WatchEvent
 
-	// Close stops the watcher and releases resources.
+	// Done closes as soon as this observation is invalid (including overflow,
+	// restore, engine shutdown, context cancellation, and Close). The Events
+	// channel closes after delivery stops and need not drain queued events.
+	Done() <-chan struct{}
+
+	// Err is stable after Done closes and explains the invalidation.
+	Err() error
+
+	// Close invalidates the watcher and joins its delivery worker. It is
+	// idempotent and does not wait for the consumer to receive an event.
 	Close() error
 }

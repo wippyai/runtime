@@ -32,12 +32,20 @@ type BusRunner struct {
 	builder                 runnerBuilder
 	dispatch                registry.DispatchPolicy
 	transactionParticipants func() []string
+	kindHandled             func(registry.Kind) bool
 	log                     *zap.Logger
 	txSeq                   atomic.Uint64
-	waitTimeout             time.Duration
+	// waitTimeout caps how long a subscribed listener may hold an operation.
+	// Zero leaves the wait bounded by the operation context alone, which is
+	// what handlers that compile or analyze an entry need.
+	waitTimeout time.Duration
 }
 
-const defaultEventWaitTimeout = event.DefaultAwaitTimeout
+// cleanupBudget bounds rollback and discard after the operation context is
+// gone. The original context can no longer supply a deadline there, and no
+// configured cap is required, so cleanup gets its own fixed budget: it must
+// terminate, and it only replays operations whose listeners already answered.
+const cleanupBudget = 30 * time.Second
 
 // Option configures BusRunner behavior.
 type Option func(*BusRunner)
@@ -49,13 +57,26 @@ func WithDispatchPolicy(policy registry.DispatchPolicy) Option {
 	}
 }
 
-// WithEventWaitTimeout sets how long the runner waits for accept/reject callbacks
-// from registry listeners before timing out an operation.
+// WithEventWaitTimeout caps how long the runner waits for an accept or reject
+// from a subscribed listener. A non-positive timeout removes the cap, leaving
+// the wait bounded by the operation context.
 func WithEventWaitTimeout(timeout time.Duration) Option {
 	return func(br *BusRunner) {
-		if timeout > 0 {
-			br.waitTimeout = timeout
+		if timeout < 0 {
+			timeout = 0
 		}
+		br.waitTimeout = timeout
+	}
+}
+
+// WithKindHandlerCheck supplies the predicate that reports whether any
+// registered handler replies to entry events for an entry kind. Entry events
+// reach every registry handler on the bus and each filters by entry kind
+// itself, so the bus alone cannot answer this; without the predicate the
+// runner only knows whether anything is subscribed at all.
+func WithKindHandlerCheck(fn func(registry.Kind) bool) Option {
+	return func(br *BusRunner) {
+		br.kindHandled = fn
 	}
 }
 
@@ -70,10 +91,9 @@ func WithTransactionParticipants(fn func() []string) Option {
 // NewBusRunner creates a new BusRunner. This is a sequential bus, order of operations matter.
 func NewBusRunner(bus event.Bus, log *zap.Logger, builder runnerBuilder, opts ...Option) *BusRunner {
 	br := &BusRunner{
-		bus:         bus,
-		log:         log,
-		builder:     builder,
-		waitTimeout: defaultEventWaitTimeout,
+		bus:     bus,
+		log:     log,
+		builder: builder,
 	}
 	for _, opt := range opts {
 		if opt != nil {
@@ -99,12 +119,14 @@ func NewBusRunner(bus event.Bus, log *zap.Logger, builder runnerBuilder, opts ..
 // stable across runs.
 //
 // If any operation fails non-deferrably, or no pass makes progress while
-// rejections remain, every accepted operation is rolled back to the initial
-// state and the transaction is discarded.
+// rejections remain, abort runs first, then every accepted operation is rolled
+// back to the initial state and the transaction is discarded. Every failed
+// return runs abort exactly once.
 func (br *BusRunner) Transition(
 	ctx context.Context,
 	initialState registry.State,
 	cs registry.ChangeSet,
+	abort func(context.Context),
 ) (registry.State, error) {
 	currentState := newStateMap(initialState)
 	originalState := newStateMap(initialState) // Keep a copy of the original state for rollbacks
@@ -112,9 +134,11 @@ func (br *BusRunner) Transition(
 	txPath := br.nextTransactionPath()
 	txParticipants, err := br.registryTransactionParticipants()
 	if err != nil {
+		runAbort(ctx, abort)
 		return stateMapToSlice(currentState), err
 	}
 	if err := br.dispatchTransaction(ctx, txParticipants, registry.TxBegin, txPath, nil); err != nil {
+		runAbort(ctx, abort)
 		return stateMapToSlice(currentState), err
 	}
 
@@ -138,7 +162,7 @@ func (br *BusRunner) Transition(
 			if opErr == nil {
 				currentState = newState
 				if ctxErr := ctx.Err(); ctxErr != nil {
-					rolled := br.cancelTransition(ctx, txParticipants, txPath, originalState, currentState, ctxErr)
+					rolled := br.cancelTransition(ctx, txParticipants, txPath, originalState, currentState, abort, ctxErr)
 					return stateMapToSlice(rolled), ctxErr
 				}
 				progressed = true
@@ -152,7 +176,7 @@ func (br *BusRunner) Transition(
 				continue
 			}
 			if ctx.Err() != nil {
-				rolled := br.cancelTransition(ctx, txParticipants, txPath, originalState, currentState, opErr)
+				rolled := br.cancelTransition(ctx, txParticipants, txPath, originalState, currentState, abort, opErr)
 				return stateMapToSlice(rolled), opErr
 			}
 			if isDeferrable(opErr) {
@@ -172,6 +196,7 @@ func (br *BusRunner) Transition(
 
 		if fatalErr != nil {
 			br.log.Error("operation failed, initiating rollback", zap.Error(fatalErr))
+			runAbort(ctx, abort)
 			rolled := br.rollback(ctx, originalState, fatalState)
 			if discardErr := br.dispatchTransaction(ctx, txParticipants, registry.TxDiscard, txPath, fatalErr); discardErr != nil {
 				br.log.Error("failed to discard transaction", zap.Error(discardErr))
@@ -198,6 +223,7 @@ func (br *BusRunner) Transition(
 				zap.Int("passes", pass),
 				zap.Strings("unresolved", idStrings(unresolved)),
 				zap.Error(finalErr))
+			runAbort(ctx, abort)
 			rolled := br.rollback(ctx, originalState, currentState)
 			if discardErr := br.dispatchTransaction(ctx, txParticipants, registry.TxDiscard, txPath, finalErr); discardErr != nil {
 				br.log.Error("failed to discard transaction", zap.Error(discardErr))
@@ -209,15 +235,16 @@ func (br *BusRunner) Transition(
 	}
 
 	if ctxErr := ctx.Err(); ctxErr != nil {
-		rolled := br.cancelTransition(ctx, txParticipants, txPath, originalState, currentState, ctxErr)
+		rolled := br.cancelTransition(ctx, txParticipants, txPath, originalState, currentState, abort, ctxErr)
 		return stateMapToSlice(rolled), ctxErr
 	}
 	if err := br.dispatchTransaction(ctx, txParticipants, registry.TxCommit, txPath, nil); err != nil {
 		br.log.Error("transaction commit failed, initiating rollback", zap.Error(err))
 		if ctx.Err() != nil {
-			newState := br.cancelTransition(ctx, txParticipants, txPath, originalState, currentState, err)
+			newState := br.cancelTransition(ctx, txParticipants, txPath, originalState, currentState, abort, err)
 			return stateMapToSlice(newState), err
 		}
+		runAbort(ctx, abort)
 		newState := br.rollback(ctx, originalState, currentState)
 		if discardErr := br.dispatchTransaction(ctx, txParticipants, registry.TxDiscard, txPath, err); discardErr != nil {
 			br.log.Error("failed to discard transaction after commit failure", zap.Error(discardErr))
@@ -233,16 +260,26 @@ func (br *BusRunner) cancelTransition(
 	participants []string,
 	txPath event.Path,
 	originalState, currentState registry.StateMap,
+	abort func(context.Context),
 	cause error,
 ) registry.StateMap {
-	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), br.waitTimeout)
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), br.cleanupTimeout())
 	defer cancel()
 
+	runAbort(cleanupCtx, abort)
 	rolled := br.rollback(cleanupCtx, originalState, currentState)
 	if err := br.dispatchTransaction(cleanupCtx, participants, registry.TxDiscard, txPath, cause); err != nil {
 		br.log.Error("failed to discard canceled transaction", zap.Error(err))
 	}
 	return rolled
+}
+
+// runAbort withdraws the external state prepared for a failed transition
+// before any accepted operation is reversed.
+func runAbort(ctx context.Context, abort func(context.Context)) {
+	if abort != nil {
+		abort(ctx)
+	}
 }
 
 // isDeferrable reports whether a failed operation can be retried after the
@@ -387,7 +424,40 @@ func (br *BusRunner) prepareWaiter(ctx context.Context, kind event.Kind, path ev
 	if awaitSvc == nil {
 		return nil, NewAwaitServiceMissingError()
 	}
-	return awaitSvc.Prepare(ctx, registry.System, kind, path, br.waitTimeout)
+	return awaitSvc.Prepare(ctx, registry.System, kind, path, br.awaitTimeout())
+}
+
+// awaitTimeout translates the configured cap into an AwaitService budget.
+// Without a cap the wait follows the operation context, so a listener doing
+// real work is never cut off by a fixed guess.
+func (br *BusRunner) awaitTimeout() time.Duration {
+	if br.waitTimeout > 0 {
+		return br.waitTimeout
+	}
+	return event.ContextBoundAwait
+}
+
+// cleanupTimeout bounds the post-cancellation cleanup context.
+func (br *BusRunner) cleanupTimeout() time.Duration {
+	if br.waitTimeout > 0 {
+		return br.waitTimeout
+	}
+	return cleanupBudget
+}
+
+// hasListener reports whether an accept or reject can ever arrive for an
+// operation. The bus answers the coarse half: whether anything at all is
+// subscribed to registry operation events. The kind predicate answers the rest,
+// because every registry handler subscribes to the same operation events and
+// filters by entry kind inside its own handler.
+func (br *BusRunner) hasListener(op registry.Operation) bool {
+	if !br.bus.HasSubscribers(registry.System, op.Kind) {
+		return false
+	}
+	if br.kindHandled == nil {
+		return true
+	}
+	return br.kindHandled(op.Entry.Kind)
 }
 
 func (br *BusRunner) applyOperation(
@@ -436,6 +506,14 @@ func (br *BusRunner) applyOperation(
 		return newState, nil
 	}
 
+	if !br.hasListener(op) {
+		br.log.Error("no listener answers registry operations for this entry kind",
+			zap.String("id", op.Entry.ID.String()),
+			zap.String("kind", op.Entry.Kind),
+			zap.String("operation", op.Kind))
+		return state, NewNoListenerError(op.Entry.ID, op.Entry.Kind)
+	}
+
 	waiter, err := br.prepareWaiter(ctx, registry.EntryResult, op.Entry.ID.String())
 	if err != nil {
 		return state, err
@@ -473,12 +551,12 @@ func (br *BusRunner) applyOperation(
 	if ctx.Err() != nil {
 		return state, NewOperationCanceledError(op.Entry.ID, op.Entry.Kind, ctx.Err())
 	}
-	br.log.Error("event handler timeout - no listener responded",
+	br.log.Error("event handler timeout - subscribed listener did not accept or reject in time",
 		zap.String("id", op.Entry.ID.String()),
 		zap.String("kind", op.Entry.Kind),
 		zap.String("operation", op.Kind),
 		zap.Duration("timeout", br.waitTimeout),
-		zap.String("hint", "check if a listener is registered for this entry kind"))
+		zap.String("hint", "raise or clear registry.event_wait_timeout when the handler legitimately needs longer"))
 	return state, NewEventHandlerTimeoutError(br.waitTimeout, op.Entry.ID, op.Entry.Kind)
 }
 

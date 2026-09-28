@@ -3,7 +3,7 @@
 // Package kvbacked implements the cluster-wide name registry on top of the
 // shared kv engine (under the reserved _sys:registry namespace) instead of a
 // dedicated raft FSM. It satisfies both the globalapi.Registry (write) and
-// topology.GlobalRegistry (cross-scope read) facades so it is a drop-in for the
+// topology.GlobalRegistry (composed lookup) facades so it is a drop-in for the
 // FSM-backed global.Service. Consistent-scope ownership uses linearizable kv
 // txns; Strong-scope orchestration is layered on the same keyspace.
 package kvbacked
@@ -11,6 +11,7 @@ package kvbacked
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"sync/atomic"
 
@@ -51,8 +52,11 @@ func nodeIndexKey(p pid.PID, name string) string {
 
 // activeValue is the stored payload of an active name binding.
 type activeValue struct {
-	PID           string       `codec:"p"`
-	Name          string       `codec:"n"`
+	PID  string `codec:"p"`
+	Name string `codec:"n"`
+	// AttemptID identifies the Strong registration that produced this active
+	// record. It is separate from Entry.Epoch, which is the active Raft fence.
+	AttemptID     string       `codec:"a,omitempty"`
 	RequiredNodes []pid.NodeID `codec:"r,omitempty"`
 	Strong        bool         `codec:"s,omitempty"`
 }
@@ -79,6 +83,9 @@ func decodeInto(data []byte, v any) error {
 func decodeActive(data []byte) (activeValue, error) {
 	var v activeValue
 	err := decodeInto(data, &v)
+	if err == nil && v.Strong && v.AttemptID == "" {
+		err = fmt.Errorf("missing Strong attempt identity")
+	}
 	return v, err
 }
 
@@ -103,7 +110,12 @@ type barrierEngine interface {
 
 // Service is the kv-backed name registry.
 type Service struct {
+	reconciler atomic.Pointer[reconcilerLifecycle]
 	engine     kvapi.Engine
+	// Both capabilities observe the same immutable local KV publication as
+	// the naming watch; individual Get calls cannot replace them.
+	localRead  kvapi.LocalSnapshotReader
+	localScan  kvapi.LocalSnapshotScanner
 	leaderRead leaderReadEngine
 	topo       topology.Topology
 	leaderFn   func() bool
@@ -117,6 +129,9 @@ type Service struct {
 	monitored  sync.Map
 	selfNode   pid.NodeID
 	ready      atomic.Bool
+	// Serializes owner replacement with terminal failure so an old observation
+	// cannot close readiness belonging to a later startup attempt.
+	reconcilerMu sync.Mutex
 }
 
 // ConfigureDissem attaches the active-binding dissemination plane so non-member
@@ -169,6 +184,8 @@ func NewService(engine kvapi.Engine, selfNode pid.NodeID, resolve globalapi.Reso
 	if lr, ok := engine.(leaderReadEngine); ok {
 		s.leaderRead = lr
 	}
+	s.localRead, _ = engine.(kvapi.LocalSnapshotReader)
+	s.localScan, _ = engine.(kvapi.LocalSnapshotScanner)
 	if be, ok := engine.(barrierEngine); ok {
 		s.barrier = be.BarrierLeader
 	}
@@ -208,7 +225,8 @@ func (s *Service) registerConsistent(name string, p pid.PID) (globalapi.Register
 
 	committed, err := s.engine.Txn([]kvapi.TxnOp{
 		// A STRONG reservation in flight for this name blocks a CONSISTENT bind
-		// (cross-scope: the pending owns the name until it promotes or expires).
+		// Strong and Consistent share the global owner record: a pending Strong
+		// attempt owns this global name until it promotes or expires.
 		{Kind: kvapi.TxnCheck, Cond: kvapi.CondAbsent, Key: pendingKey(name)},
 		{Kind: kvapi.TxnPut, Cond: kvapi.CondAbsent, Key: activeKey(name), Value: val},
 		{Kind: kvapi.TxnPut, Cond: kvapi.CondAny, Key: pidIndexKey(p, name), Value: idx},
@@ -355,14 +373,26 @@ func (s *Service) Lookup(_ context.Context, name string, opts ...globalapi.Looku
 		}
 		// Non-member cold-miss: forward-resolve through the leader so a client
 		// that joined before gossip converged still resolves an active name.
-		if s.nonMember != nil && s.nonMember() && s.leaderRead != nil {
-			if fe, ferr := s.leaderRead.GetViaLeader(activeKey(name)); ferr == nil {
-				if av, derr := decodeActive(fe.Value); derr == nil {
-					if p, perr := pid.ParsePID(av.PID); perr == nil {
-						return globalapi.LookupResult{PID: p, Found: true}, nil
-					}
-				}
+		if s.nonMember != nil && s.nonMember() {
+			if s.leaderRead == nil {
+				return globalapi.LookupResult{}, globalapi.ErrNotAvailable
 			}
+			fe, ferr := s.leaderRead.GetViaLeader(activeKey(name))
+			if errors.Is(ferr, kvapi.ErrKeyNotFound) {
+				return globalapi.LookupResult{Found: false}, nil
+			}
+			if ferr != nil {
+				return globalapi.LookupResult{}, fmt.Errorf("resolve non-member name %q: %w", name, ferr)
+			}
+			av, derr := decodeActive(fe.Value)
+			if derr != nil {
+				return globalapi.LookupResult{}, derr
+			}
+			p, perr := pid.ParsePID(av.PID)
+			if perr != nil {
+				return globalapi.LookupResult{}, perr
+			}
+			return globalapi.LookupResult{PID: p, Found: true}, nil
 		}
 		return globalapi.LookupResult{Found: false}, nil
 	}
@@ -397,7 +427,8 @@ func (s *Service) Remove(_ context.Context, p pid.PID) error {
 	return nil
 }
 
-// RemoveNode removes all names owned by processes on nodeID.
+// RemoveNode removes all names owned by processes on nodeID. Its caller must
+// first prove those processes cannot still execute; discovery is not a fence.
 func (s *Service) RemoveNode(_ context.Context, nodeID pid.NodeID) error {
 	s.reap(nodeIndexBase(nodeID))
 	return nil

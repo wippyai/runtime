@@ -3,7 +3,6 @@
 package raft
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -464,16 +463,21 @@ func (t *raftMessageTransport) sendReply(peer cluster.NodeID, id uint64, typ uin
 	}
 }
 
+// MsgpackHandle caches type metadata and supports concurrent encoders/decoders
+// once configured. Never mutate it after first use. Each operation still owns
+// its codec and output; no pooled payload buffer can escape to the transport.
+var raftMsgpackHandle codec.MsgpackHandle
+
 func encodeMsgpack(v any) ([]byte, error) {
-	var buf bytes.Buffer
-	if err := codec.NewEncoder(&buf, &codec.MsgpackHandle{}).Encode(v); err != nil {
+	var data []byte
+	if err := codec.NewEncoderBytes(&data, &raftMsgpackHandle).Encode(v); err != nil {
 		return nil, err
 	}
-	return buf.Bytes(), nil
+	return data, nil
 }
 
 func decodeMsgpack(data []byte, v any) error {
-	return codec.NewDecoder(bytes.NewReader(data), &codec.MsgpackHandle{}).Decode(v)
+	return codec.NewDecoderBytes(data, &raftMsgpackHandle).Decode(v)
 }
 
 type raftMessagePipeline struct {

@@ -134,7 +134,7 @@ func tokenStoreValidate(l *lua.LState) int {
 	if !luasec.IsAllowed(l.Context(), "security.token.validate", storeID, meta) {
 		l.Push(lua.LNil)
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "not allowed to validate token").WithKind(lua.Invalid).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "not allowed to validate token").WithKind(lua.PermissionDenied).WithRetryable(false))
 		return 3
 	}
 
@@ -180,7 +180,7 @@ func tokenStoreCreate(l *lua.LState) int {
 	meta := attrs.Bag{"actor": actor.ID}
 	if !luasec.IsAllowed(l.Context(), "security.token.create", storeID, meta) {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "not allowed to create token").WithKind(lua.Invalid).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "not allowed to create token").WithKind(lua.PermissionDenied).WithRetryable(false))
 		return 2
 	}
 
@@ -248,7 +248,7 @@ func tokenStoreRevoke(l *lua.LState) int {
 	meta := attrs.Bag{"token": tokenStr}
 	if !luasec.IsAllowed(l.Context(), "security.token.revoke", storeID, meta) {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "not allowed to revoke token").WithKind(lua.Invalid).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "not allowed to revoke token").WithKind(lua.PermissionDenied).WithRetryable(false))
 		return 2
 	}
 

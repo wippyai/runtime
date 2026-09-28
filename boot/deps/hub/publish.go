@@ -4,7 +4,6 @@ package hub
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"connectrpc.com/connect"
@@ -122,7 +121,7 @@ func (c *Client) InitiatePublish(ctx context.Context, params *PublishParams) (*P
 			Label: params.Label,
 		}
 	} else {
-		return nil, fmt.Errorf("either version or label must be specified")
+		return nil, NewPublishError("either version or label must be specified", nil)
 	}
 
 	resp, err := c.Publish.InitiatePublish(ctx, connect.NewRequest(req))
@@ -202,9 +201,13 @@ func (c *Client) WaitForCompletion(ctx context.Context, publishID string, callba
 		case PublishStatusCompleted:
 			return status, true, nil
 		case PublishStatusFailed:
-			return status, true, fmt.Errorf("publish failed: %s", status.ErrorMessage)
+			return status, true, NewPublishError("publish failed", map[string]any{
+				"publish_id":    publishID,
+				"error_message": status.ErrorMessage,
+				"error_code":    status.ErrorCode,
+			})
 		case PublishStatusCancelled:
-			return status, true, fmt.Errorf("publish canceled")
+			return status, true, NewPublishError("publish canceled", map[string]any{"publish_id": publishID})
 		default:
 			return status, false, nil
 		}
@@ -221,7 +224,7 @@ func (c *Client) WaitForCompletion(ctx context.Context, publishID string, callba
 	for {
 		select {
 		case <-ctx.Done():
-			return nil, fmt.Errorf("timeout waiting for publish to complete: %w", ctx.Err())
+			return nil, NewHubRequestError("timeout waiting for publish to complete", ctx.Err())
 		case <-ticker.C:
 			if status, done, err := checkStatus(); done || err != nil {
 				return status, err

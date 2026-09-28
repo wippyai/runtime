@@ -81,11 +81,15 @@ func TestMessageCodec_PackagePIDs_SourceTarget(t *testing.T) {
 
 	// Create package with both Source and Target
 	originalPkg := &relay.Package{
-		Source: sourcePID,
-		Target: targetPID,
+		Source:      sourcePID,
+		Target:      targetPID,
+		IngressNode: "transport-peer",
 		Messages: []*relay.Message{
 			{
-				Topic: "test.topic",
+				Topic:        "test.topic",
+				PayloadBytes: 4096,
+				MaxBytes:     8192,
+				MaxItems:     7,
 				Payloads: []payload.Payload{
 					payload.NewString("test message"),
 				},
@@ -106,6 +110,9 @@ func TestMessageCodec_PackagePIDs_SourceTarget(t *testing.T) {
 	decoded, err := codec.Decode(encoded)
 	if err != nil {
 		t.Fatalf("Decode failed: %v", err)
+	}
+	if decoded.IngressNode != "" {
+		t.Fatal("local transport provenance was encoded on the wire")
 	}
 
 	t.Logf("Decoded Source: %s", decoded.Source.String())
@@ -139,6 +146,9 @@ func TestMessageCodec_PackagePIDs_SourceTarget(t *testing.T) {
 	}
 	if decoded.Messages[0].Topic != "test.topic" {
 		t.Errorf("Topic mismatch. Expected 'test.topic', got %q", decoded.Messages[0].Topic)
+	}
+	if decoded.Messages[0].PayloadBytes != 4096 || decoded.Messages[0].MaxBytes != 8192 || decoded.Messages[0].MaxItems != 7 {
+		t.Errorf("retention metadata mismatch: bytes=%d max_bytes=%d max_items=%d", decoded.Messages[0].PayloadBytes, decoded.Messages[0].MaxBytes, decoded.Messages[0].MaxItems)
 	}
 }
 

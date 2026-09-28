@@ -3,6 +3,7 @@
 package cmd
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -489,4 +490,23 @@ func assertPathMissing(t *testing.T, path string) {
 	} else if !os.IsNotExist(err) {
 		t.Fatalf("stat %s: %v", path, err)
 	}
+}
+
+func TestUpdateDeploymentUsesLockedRootWithoutSource(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "wippy.lock")
+	locked, err := lock.New(path)
+	require.NoError(t, err)
+	locked.SetModule(lock.Module{Name: "acme/desktop", Version: "1.0.0", Root: true})
+	locked.SetModule(lock.Module{Name: "acme/library", Version: "1.0.0"})
+	roots, err := loadUpdateRoots(context.Background(), nil, filepath.Join(t.TempDir(), "missing"), locked, nil, zap.NewNop())
+	require.NoError(t, err)
+	require.Equal(t, []dependencyRequest{{Org: "acme", Module: "desktop"}}, roots)
+}
+
+func TestUpdateSourceWorkspaceStillRequiresLoader(t *testing.T) {
+	locked, err := lock.New(filepath.Join(t.TempDir(), "wippy.lock"))
+	require.NoError(t, err)
+	locked.SetModule(lock.Module{Name: "acme/library", Version: "1.0.0"})
+	_, err = loadUpdateRoots(context.Background(), nil, "missing", locked, nil, zap.NewNop())
+	require.ErrorContains(t, err, "loader not available")
 }

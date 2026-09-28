@@ -46,6 +46,9 @@ type Meta struct {
 	SourceHash           string    `json:"source_hash"`
 	BuiltinHash          string    `json:"builtin_hash,omitempty"`
 	TypecheckConfigHash  string    `json:"typecheck_config_hash,omitempty"`
+	ManifestHash         string    `json:"manifest_hash,omitempty"`
+	DiagnosticsHash      string    `json:"diagnostics_hash,omitempty"`
+	ProtoHash            string    `json:"proto_hash,omitempty"`
 	Deps                 []DepMeta `json:"deps,omitempty"`
 	SchemaVersion        int       `json:"schema_version"`
 }

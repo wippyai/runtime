@@ -239,6 +239,15 @@ func TestSQLiteConfig_Validate(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name: "foreign keys enabled",
+			config: SQLiteConfig{
+				File:        ":memory:",
+				ForeignKeys: true,
+				Pool:        PoolConfig{MaxLifetime: time.Hour},
+			},
+			wantErr: false,
+		},
+		{
 			name:    "missing file",
 			config:  SQLiteConfig{},
 			wantErr: true,
@@ -268,6 +277,29 @@ func TestSQLiteConfig_Validate(t *testing.T) {
 	}
 }
 
+func TestSQLiteConfig_ForeignKeysJSON(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		input   string
+		enabled bool
+	}{
+		{"enabled", `{"file":":memory:","foreign_keys":true}`, true},
+		{"disabled", `{"file":":memory:","foreign_keys":false}`, false},
+		{"omitted", `{"file":":memory:"}`, false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var cfg SQLiteConfig
+			require.NoError(t, json.Unmarshal([]byte(tt.input), &cfg))
+			cfg.InitDefaults()
+			require.NoError(t, cfg.Validate())
+			assert.Equal(t, tt.enabled, cfg.ForeignKeys)
+		})
+	}
+
+	var cfg SQLiteConfig
+	require.Error(t, json.Unmarshal([]byte(`{"file":":memory:","foreign_keys":"true"}`), &cfg))
+}
+
 func TestDBConfig_InitDefaults(t *testing.T) {
 	config := DBConfig{}
 	config.InitDefaults()
@@ -285,7 +317,23 @@ func TestSQLiteConfig_InitDefaults(t *testing.T) {
 	assert.Equal(t, DefaultMaxOpen, config.Pool.MaxOpen)
 	assert.Equal(t, DefaultMaxIdle, config.Pool.MaxIdle)
 	assert.Equal(t, DefaultMaxLifetime, config.Pool.MaxLifetime)
+	assert.Equal(t, DefaultMaxMutationChanges, config.MaxMutationChanges)
+	assert.Equal(t, DefaultMaxMutationBytes, config.MaxMutationBytes)
 	assert.NotNil(t, config.Options)
+}
+
+func TestSQLiteConfig_RejectsNegativeMutationLimits(t *testing.T) {
+	base := SQLiteConfig{File: ":memory:", Pool: PoolConfig{MaxLifetime: time.Hour}}
+	base.MaxMutationChanges = -1
+	assert.ErrorIs(t, base.Validate(), ErrInvalidMaxMutationChanges)
+	base.MaxMutationChanges = 0
+	base.MaxMutationBytes = -1
+	assert.ErrorIs(t, base.Validate(), ErrInvalidMaxMutationBytes)
+
+	base.MaxMutationChanges = -1
+	base.MaxMutationBytes = 0
+	base.InitDefaults()
+	assert.Equal(t, -1, base.MaxMutationChanges, "negative limits must not be silently defaulted")
 }
 
 func TestPoolConfig_UnmarshalJSON_InvalidDuration(t *testing.T) {

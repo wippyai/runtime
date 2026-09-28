@@ -463,9 +463,17 @@ func jwtEncode(l *lua.LState) int {
 
 	token := jwt.New(getSigningMethod(alg))
 
-	payloadMap, ok := value.ToGoAny(payloadTable).(map[string]any)
+	// A claim set is an object. An empty payload table may reach here as an
+	// empty list (an unhinted {} encodes as []), which is the empty claim set,
+	// not a conversion failure.
+	payload := value.ToGoAny(payloadTable)
+	payloadMap, ok := payload.(map[string]any)
 	if !ok {
-		return invalidError(l, "failed to convert payload to map")
+		claims, isList := payload.([]any)
+		if !isList || len(claims) != 0 {
+			return invalidError(l, "failed to convert payload to map")
+		}
+		payloadMap = map[string]any{}
 	}
 
 	if headerValue, exists := payloadMap["_header"]; exists {

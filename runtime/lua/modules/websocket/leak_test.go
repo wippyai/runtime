@@ -211,7 +211,7 @@ type subSampler struct {
 	samples  int
 }
 
-func newSubSampler(proc *engine.Process) *subSampler {
+func newSubSampler(proc *engine.Process, observedLive chan<- struct{}) *subSampler {
 	s := &subSampler{
 		proc:    proc,
 		beginCh: make(chan struct{}),
@@ -233,6 +233,10 @@ func newSubSampler(proc *engine.Process) *subSampler {
 				return
 			case <-ticker.C:
 				live := s.proc.LiveSubscriptionCount()
+				if live > 0 && observedLive != nil {
+					close(observedLive)
+					observedLive = nil
+				}
 				s.samples++
 				s.lastLive = live
 				if live > s.maxLive {
@@ -355,8 +359,59 @@ func goroutinesSettle(baseline int, budget stdtime.Duration) int {
 
 // WS normal connect/use/close: the subscription returns to 0 and the read-loop
 // goroutine exits.
-func TestLeak_WsConnectUseCloseReclaims(t *testing.T) {
+func TestWsSendAndPingReturnDispatcherResults(t *testing.T) {
 	srv := echoServer(t)
+	defer srv.Close()
+	tc := setupWsTest(t, 2)
+	defer tc.Close()
+	script := fmt.Sprintf(`
+		local conn = assert(websocket.connect(%q))
+		local ch = assert(conn:channel())
+		local ok, err = conn:send("hello")
+		assert(ok == true and err == nil, "send must report success")
+		local msg = ch:receive()
+		assert(msg.data == "hello")
+		ok, err = conn:ping()
+		assert(ok == true and err == nil, "ping must report success")
+		conn:close()
+		ok, err = conn:send("closed")
+		assert(ok == false and err ~= nil, "send must preserve dispatcher error")
+		ok, err = conn:ping()
+		assert(ok == false and err ~= nil, "ping must preserve dispatcher error")
+		return "ok"
+	`, wsURLOf(srv))
+	frameCtx, runPID := tc.frameCtxPID(t)
+	result, err := tc.scheduler.Execute(frameCtx, runPID, newWsProcess(t, script), "", nil)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Nil(t, result.Error, "script error: %v", result.Error)
+	require.NotNil(t, result.Value)
+	require.Equal(t, "ok", resultString(result.Value.Data()))
+}
+
+func TestLeak_WsConnectUseCloseReclaims(t *testing.T) {
+	observedLive := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := coderws.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.CloseNow()
+		mt, data, err := conn.Read(r.Context())
+		if err != nil {
+			return
+		}
+		// Keep the subscription alive until the sampler has observed it.
+		select {
+		case <-observedLive:
+		case <-r.Context().Done():
+			return
+		case <-stdtime.After(5 * stdtime.Second):
+			return
+		}
+		_ = conn.Write(r.Context(), mt, data)
+		_, _, _ = conn.Read(r.Context())
+	}))
 	defer srv.Close()
 
 	tc := setupWsTest(t, 4)
@@ -380,7 +435,7 @@ func TestLeak_WsConnectUseCloseReclaims(t *testing.T) {
 	frameCtx, runPID := tc.frameCtxPID(t)
 	proc := newWsProcess(t, script)
 
-	sampler := newSubSampler(proc)
+	sampler := newSubSampler(proc, observedLive)
 	tc.scheduler.setLifecycleHooks(runPID, sampler.begin, sampler.end)
 	result, err := tc.scheduler.Execute(frameCtx, runPID, proc, "", nil)
 	maxSeen, lastSeen, samples := sampler.results()
@@ -393,6 +448,7 @@ func TestLeak_WsConnectUseCloseReclaims(t *testing.T) {
 
 	t.Logf("ws connect/use/close: %d samples, max live=%d, last=%d", samples, maxSeen, lastSeen)
 	require.GreaterOrEqual(t, samples, 1, "sampler never observed the process")
+	require.GreaterOrEqual(t, maxSeen, 1, "sampler must observe the live subscription")
 	assert.LessOrEqual(t, maxSeen, 2, "live subscriptions should stay near one for a single connection")
 	assert.LessOrEqual(t, lastSeen, 1, "subscription must not accumulate after conn:close()")
 
@@ -445,7 +501,7 @@ func TestLeak_WsRemoteDisconnectReclaims(t *testing.T) {
 	frameCtx, runPID := tc.frameCtxPID(t)
 	proc := newWsProcess(t, script)
 
-	sampler := newSubSampler(proc)
+	sampler := newSubSampler(proc, nil)
 	tc.scheduler.setLifecycleHooks(runPID, sampler.begin, sampler.end)
 
 	go func() {
@@ -656,7 +712,7 @@ func TestLeak_WsHundredsOfConnectionsNoAccumulation(t *testing.T) {
 	frameCtx, runPID := tc.frameCtxPID(t)
 	proc := newWsProcess(t, script)
 
-	sampler := newSubSampler(proc)
+	sampler := newSubSampler(proc, nil)
 	tc.scheduler.setLifecycleHooks(runPID, sampler.begin, sampler.end)
 	result, err := tc.scheduler.Execute(frameCtx, runPID, proc, "", nil)
 	maxSeen, lastSeen, samples := sampler.results()

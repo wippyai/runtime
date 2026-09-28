@@ -62,10 +62,11 @@ type raftRPCConn struct {
 	receivers map[internode.Class]func(cluster.NodeID, []byte)
 }
 
-func (c *raftRPCConn) Start(_ context.Context, _ func(cluster.NodeID, []byte)) error {
+func (c *raftRPCConn) Start(_ context.Context, _ func(cluster.NodeID, []byte), _ func(cluster.NodeID)) error {
 	return nil
 }
-func (c *raftRPCConn) Stop() error { return nil }
+func (c *raftRPCConn) Incarnation() uint64 { return 1 }
+func (c *raftRPCConn) Stop() error         { return nil }
 
 func (c *raftRPCConn) SendToNode(target cluster.NodeID, data []byte, class internode.Class) error {
 	c.fabric.mu.Lock()
@@ -91,7 +92,7 @@ func (c *raftRPCConn) DisconnectFromNode(_ cluster.NodeID)                {}
 func (c *raftRPCConn) ConnectedNodes() []cluster.NodeID                   { return nil }
 func (c *raftRPCConn) GetListenPort() int                                 { return 0 }
 func (c *raftRPCConn) AddManagedNode(_ cluster.NodeID)                    {}
-func (c *raftRPCConn) RemoveManagedNode(_ cluster.NodeID)                 {}
+func (c *raftRPCConn) RemoveManagedNode(_ cluster.NodeID, _ uint64)       {}
 func (c *raftRPCConn) IsManaged(_ cluster.NodeID) bool                    { return true }
 func (c *raftRPCConn) EvictOrphanNodes(_ map[cluster.NodeID]struct{}) int { return 0 }
 func (c *raftRPCConn) RecordDropReason(_ string)                          {}
@@ -185,6 +186,32 @@ func startNode(t *testing.T, fabric *raftRPCFabric, id string, bootstrap bool) *
 	}
 	t.Cleanup(func() { _ = n.Stop(context.Background()) })
 	return n
+}
+
+// A real Raft election must wake independent observers even when one starts
+// consuming its notifications later than the other.
+func TestIntegration_LeadershipObservationFollowsElection(t *testing.T) {
+	n := startNode(t, newRaftRPCFabric(), "one", true)
+	first := n.ObserveLeadership()
+	second := n.ObserveLeadership()
+	deadline := time.NewTimer(5 * time.Second)
+	defer deadline.Stop()
+	for first.State != raftapi.Leader {
+		select {
+		case <-first.Changed:
+		case <-deadline.C:
+			t.Fatal("leadership observation missed the real Raft election")
+		}
+		first = n.ObserveLeadership()
+	}
+	require.Positive(t, first.Term)
+	if second.Revision != first.Revision {
+		select {
+		case <-second.Changed:
+		default:
+			t.Fatal("second observer missed the same real election")
+		}
+	}
 }
 
 // waitForLeader blocks until the node becomes leader or timeout fires.

@@ -107,10 +107,10 @@ Returned by `websocket.connect()`.
 
 | Method | Signature | Returns | Notes |
 |--------|-----------|---------|-------|
-| send | (data: string, type?: integer) | - | Yields until sent. type: websocket.TEXT (1) or websocket.BINARY (2) |
+| send | (data: string, type?: integer) | boolean, error? | Yields until sent. type: websocket.TEXT (1) or websocket.BINARY (2) |
 | channel | () | channel | First call yields to subscribe, subsequent calls return same channel |
 | receive | () | channel | Alias for channel() |
-| ping | () | - | Yields until ping sent |
+| ping | () | boolean, error? | Yields until ping sent |
 | close | (code?: integer, reason?: string) | - | Yields until close sent. code default 1000 |
 
 #### client:send(data: string, type?: integer)
@@ -123,6 +123,8 @@ Sends a message to the server.
 | type | integer | no | 1 | websocket.TEXT (1) or websocket.BINARY (2) |
 
 **Yields:** until message sent
+
+**Returns:** `true, nil` on success; `false, error` if sending fails.
 
 ```lua
 client:send("Hello")
@@ -164,6 +166,8 @@ Alias for `client:channel()`. Provided for v1 API compatibility.
 Sends a ping to the server.
 
 **Yields:** until ping sent
+
+**Returns:** `true, nil` on success; `false, error` if the ping fails.
 
 ```lua
 client:ping()

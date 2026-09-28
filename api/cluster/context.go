@@ -35,3 +35,27 @@ func GetMembership(ctx context.Context) Membership {
 	}
 	return nil
 }
+
+var linksKey = &ctxapi.Key{Name: "cluster.links"}
+
+// WithLinks attaches the node's peer links to the app context.
+func WithLinks(ctx context.Context, links Links) context.Context {
+	ac := ctxapi.AppFromContext(ctx)
+	if ac == nil {
+		return ctx
+	}
+	if ac.Get(linksKey) == nil {
+		ac.With(linksKey, links)
+	}
+	return ctx
+}
+
+// GetLinks retrieves the node's peer links from the app context.
+func GetLinks(ctx context.Context) Links {
+	ac := ctxapi.AppFromContext(ctx)
+	if ac == nil {
+		return nil
+	}
+	links, _ := ac.Get(linksKey).(Links)
+	return links
+}

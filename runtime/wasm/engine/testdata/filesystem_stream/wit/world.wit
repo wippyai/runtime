@@ -1,0 +1,8 @@
+package test:filesystem-stream;
+world fixture {
+ import wasi:filesystem/preopens@0.2.8;
+ import wasi:filesystem/types@0.2.8;
+ import wasi:io/streams@0.2.8;
+ import wasi:io/poll@0.2.8;
+ export run: func() -> result<string, string>;
+}

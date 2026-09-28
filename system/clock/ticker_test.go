@@ -12,6 +12,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	clockapi "github.com/wippyai/runtime/api/clock"
+	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/relay"
 )
@@ -81,7 +82,7 @@ func TestTickerRegistry_Start(t *testing.T) {
 	node := &tickerMockNode{}
 	testPID := pid.PID{Node: "test-node", Host: "test-host", UniqID: "test-id"}
 
-	id := r.start(ctx, 10*time.Millisecond, testPID, "tick-topic", node)
+	id := r.start(ctx, 10*time.Millisecond, testPID, "tick-topic", tickTo(node, testPID, "tick-topic"))
 
 	if id == 0 {
 		t.Error("expected non-zero ticker ID")
@@ -104,7 +105,7 @@ func TestTickerRegistry_Stop(t *testing.T) {
 	node := &tickerMockNode{}
 	testPID := pid.PID{Node: "test-node", Host: "test-host", UniqID: "test-id"}
 
-	id := r.start(ctx, time.Hour, testPID, "tick-topic", node)
+	id := r.start(ctx, time.Hour, testPID, "tick-topic", tickTo(node, testPID, "tick-topic"))
 
 	err := r.stop(id)
 	if err != nil {
@@ -133,7 +134,7 @@ func TestTickerRegistry_StopTwice(t *testing.T) {
 	node := &tickerMockNode{}
 	testPID := pid.PID{Node: "test-node", Host: "test-host", UniqID: "test-id"}
 
-	id := r.start(ctx, time.Hour, testPID, "tick-topic", node)
+	id := r.start(ctx, time.Hour, testPID, "tick-topic", tickTo(node, testPID, "tick-topic"))
 
 	err := r.stop(id)
 	if err != nil {
@@ -154,7 +155,7 @@ func TestTickerRegistry_Close(t *testing.T) {
 	testPID := pid.PID{Node: "test-node", Host: "test-host", UniqID: "test-id"}
 
 	for i := 0; i < 10; i++ {
-		r.start(ctx, time.Hour, testPID, "tick-topic", node)
+		r.start(ctx, time.Hour, testPID, "tick-topic", tickTo(node, testPID, "tick-topic"))
 	}
 
 	if r.count() != 10 {
@@ -186,7 +187,7 @@ func TestTickerRegistry_Concurrent(t *testing.T) {
 			defer wg.Done()
 			node := &tickerMockNode{}
 			for j := 0; j < tickersPerGoroutine; j++ {
-				id := r.start(ctx, time.Hour, testPID, "tick-topic", node)
+				id := r.start(ctx, time.Hour, testPID, "tick-topic", tickTo(node, testPID, "tick-topic"))
 				_ = r.stop(id)
 			}
 		}()
@@ -221,7 +222,7 @@ func TestTickerRegistry_ContextCancel(t *testing.T) {
 	node := &tickerMockNode{}
 	testPID := pid.PID{Node: "test-node", Host: "test-host", UniqID: "test-id"}
 
-	id := r.start(ctx, 10*time.Millisecond, testPID, "tick-topic", node)
+	id := r.start(ctx, 10*time.Millisecond, testPID, "tick-topic", tickTo(node, testPID, "tick-topic"))
 
 	// Wait for first tick deterministically to avoid scheduler jitter flakiness.
 	beforeCancel := waitForPackages(t, node, 1, 200*time.Millisecond)
@@ -283,7 +284,7 @@ func TestTickerRegistry_MultipleTickers(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		node := &tickerMockNode{}
 		nodes = append(nodes, node)
-		id := r.start(ctx, 10*time.Millisecond, testPID, "tick-topic", node)
+		id := r.start(ctx, 10*time.Millisecond, testPID, "tick-topic", tickTo(node, testPID, "tick-topic"))
 		ids = append(ids, id)
 	}
 
@@ -320,7 +321,7 @@ func TestTickerRegistry_TickPackageContents(t *testing.T) {
 	testPID := pid.PID{Node: "test-node", Host: "test-host", UniqID: "test-id"}
 	topic := "test-tick-topic"
 
-	r.start(ctx, 10*time.Millisecond, testPID, topic, node)
+	r.start(ctx, 10*time.Millisecond, testPID, topic, tickTo(node, testPID, topic))
 
 	waitForPackages(t, node, 1, 100*time.Millisecond)
 
@@ -353,7 +354,7 @@ func TestTickerRegistry_ForwardTicksStopsOnClose(t *testing.T) {
 		counts: &tickCount,
 	}
 
-	r.start(ctx, 5*time.Millisecond, testPID, "tick-topic", wrappedNode)
+	r.start(ctx, 5*time.Millisecond, testPID, "tick-topic", tickTo(wrappedNode, testPID, "tick-topic"))
 
 	// Wait for some ticks
 	time.Sleep(20 * time.Millisecond)
@@ -390,3 +391,10 @@ func (c *tickerCountingNode) Attach(_ pid.PID, _ chan *relay.Package) (context.C
 	return func() {}, nil
 }
 func (c *tickerCountingNode) Detach(_ pid.PID) {}
+
+// tickTo delivers each tick to target on node, as the dispatcher does.
+func tickTo(node relay.Node, target pid.PID, topic string) func(at time.Time) {
+	return func(at time.Time) {
+		_ = node.Send(relay.NewPackage(pid.PID{}, target, topic, payload.NewPayload(at.UnixNano(), payload.Golang)))
+	}
+}

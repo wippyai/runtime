@@ -20,8 +20,13 @@ const runtimeMetadataPrefix = "runtime."
 // loadLockRootRuntimeDefaults reads published host configuration from the
 // selected deployment root. Hub bootstrap and offline lock restart therefore
 // share one configuration authority; dependency packs never configure the host.
-func loadLockRootRuntimeDefaults(lockPath string, logger *zap.Logger) (boot.Config, error) {
-	lockObj, err := lock.New(lockPath)
+//
+// workspaceCfg carries the workspace replacements of the local runtime config
+// layers. The root is located exactly as the entry loader locates it, so a
+// root replaced by a workspace source directory is source, not a pack, and
+// contributes no pack defaults.
+func loadLockRootRuntimeDefaults(lockPath string, workspaceCfg boot.Config, logger *zap.Logger) (boot.Config, error) {
+	lockObj, err := lock.New(lockPath, lock.WithWorkspaceConfig(workspaceCfg))
 	if err != nil {
 		return nil, fmt.Errorf("load deployment lock %s: %w", lockPath, err)
 	}
@@ -39,6 +44,9 @@ func loadLockRootRuntimeDefaults(lockPath string, logger *zap.Logger) (boot.Conf
 		}
 		info, statErr := os.Stat(loadPath.Path)
 		if statErr != nil {
+			if os.IsNotExist(statErr) && loadPath.Replacement {
+				return nil, fmt.Errorf("selected deployment root %s is replaced by workspace source %s, which does not exist", root, loadPath.SourceRoot)
+			}
 			if os.IsNotExist(statErr) {
 				return nil, fmt.Errorf("selected deployment root %s is not installed; run wippy install", root)
 			}
@@ -73,7 +81,11 @@ func loadPackRuntimeDefaults(packPath string, logger *zap.Logger) (boot.Config, 
 		return nil, fmt.Errorf("read pack metadata %s: %w", packPath, err)
 	}
 
-	return runtimeConfigFromPackMetadata(metadata, logger), nil
+	cfg, err := runtimeConfigFromPackMetadata(metadata, logger)
+	if err != nil {
+		return nil, fmt.Errorf("read pack metadata %s: %w", packPath, err)
+	}
+	return cfg, nil
 }
 
 // loadPackRuntimeDefaultsFromFiles reads runtime defaults from the application
@@ -98,9 +110,14 @@ func lastWappPackIndex(packFiles []string) int {
 
 // runtimeConfigFromPackMetadata extracts runtime.* metadata keys and builds a boot config.
 // Example supported keys: runtime.lsp.enabled=true
-func runtimeConfigFromPackMetadata(metadata wapp.Metadata, logger *zap.Logger) boot.Config {
+//
+// Machine-local sections (workspace, boot, extensions) describe the machine a
+// pack runs on, never the pack, so metadata that declares one is rejected,
+// including inside a packed profile. Workspace source selection therefore
+// never depends on the pack it selects.
+func runtimeConfigFromPackMetadata(metadata wapp.Metadata, logger *zap.Logger) (boot.Config, error) {
 	if len(metadata) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	flatRuntime := make(map[string]any)
@@ -118,7 +135,7 @@ func runtimeConfigFromPackMetadata(metadata wapp.Metadata, logger *zap.Logger) b
 	}
 
 	if len(flatRuntime) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	sections := make(map[string]map[string]any)
@@ -130,6 +147,9 @@ func runtimeConfigFromPackMetadata(metadata wapp.Metadata, logger *zap.Logger) b
 			}
 			continue
 		}
+		if err := rejectMachineLocalPackKey(section, subKey); err != nil {
+			return nil, err
+		}
 
 		if sections[section] == nil {
 			sections[section] = make(map[string]any)
@@ -138,7 +158,7 @@ func runtimeConfigFromPackMetadata(metadata wapp.Metadata, logger *zap.Logger) b
 	}
 
 	if len(sections) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	opts := make([]boot.ConfigOption, 0, len(sections))
@@ -146,7 +166,28 @@ func runtimeConfigFromPackMetadata(metadata wapp.Metadata, logger *zap.Logger) b
 		opts = append(opts, boot.WithSection(section, values))
 	}
 
-	return boot.NewConfig(opts...)
+	return boot.NewConfig(opts...), nil
+}
+
+// rejectMachineLocalPackKey refuses a machine-local section at the top level
+// of pack runtime metadata or inside a packed profile
+// (profiles.<name>.<section>...).
+func rejectMachineLocalPackKey(section, subKey string) error {
+	if _, local := machineLocalRuntimeSections[section]; local {
+		return fmt.Errorf("pack runtime metadata declares machine-local section %q", section)
+	}
+	if section != publishRuntimeProfilesMetadataKey {
+		return nil
+	}
+	profile, rest, ok := strings.Cut(subKey, ".")
+	if !ok {
+		return nil
+	}
+	profileSection, _, _ := strings.Cut(rest, ".")
+	if _, local := machineLocalRuntimeSections[profileSection]; local {
+		return fmt.Errorf("pack runtime metadata profile %q declares machine-local section %q", profile, profileSection)
+	}
+	return nil
 }
 
 func flattenRuntimeMetadata(dst map[string]any, prefix string, value any, normalize bool) {

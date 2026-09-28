@@ -75,11 +75,11 @@ func TestState_UnregisterTombstones(t *testing.T) {
 // (Priority, FNV64(name,origin)) key regardless of which entry has the higher
 // wall. A later same-origin counter does not flip the cross-origin rank.
 func TestState_ConcurrentResolutionIgnoresWall(t *testing.T) {
-	s := NewState("node-A")
+	s := NewState("node-C")
 	pA := makePID("node-A", "h1", "p1")
 	pB := makePID("node-B", "h1", "p2")
 
-	originA := s.LocalNode()
+	originA := s.internNode("node-A")
 	originB := s.internNode("node-B")
 
 	// Determine the deterministic winner up front from the key.
@@ -113,6 +113,45 @@ func TestState_ConcurrentResolutionIgnoresWall(t *testing.T) {
 	}
 	if !aWins && (got2.Node != "node-B") {
 		t.Errorf("expected B to remain winner with newer counter, got %v", got2)
+	}
+}
+
+func TestState_HiddenLiveClaimRemainsBehindRemoteWinner(t *testing.T) {
+	s := NewState("node-A")
+	pA := makePID("node-A", "h", "hidden")
+	pB := makePID("node-B", "h", "winner")
+	s.Register("shared", pA, 1, 0)
+	originB := s.internNode("node-B")
+	s.Apply(&Entry{Name: "shared", PID: pB, Node: originB, Counter: 1, Priority: 1})
+
+	if got, found := s.Lookup("shared"); !found || !got.Equal(pB) {
+		t.Fatalf("visible winner = %v, found=%v; want B", got, found)
+	}
+	if got, found := s.ConflictingLiveClaim("shared", pB); !found || !got.Equal(pA) {
+		t.Fatalf("conflicting claim = %v, found=%v; want hidden A", got, found)
+	}
+
+	s.Apply(&Entry{Name: "shared", Node: originB, Counter: 1, Deleted: true})
+	if got, found := s.Lookup("shared"); !found || !got.Equal(pA) {
+		t.Fatalf("revealed winner = %v, found=%v; want A", got, found)
+	}
+}
+
+func TestState_ConflictingClaimFindsHiddenRemoteDot(t *testing.T) {
+	// A has restarted with empty state, but this surviving replica still holds
+	// A's old dot beneath the matching B winner.
+	s := NewState("node-C")
+	pA := makePID("node-A", "h", "old")
+	pB := makePID("node-B", "h", "winner")
+	originA := s.internNode("node-A")
+	originB := s.internNode("node-B")
+	s.Apply(&Entry{Name: "shared", PID: pA, Node: originA, Counter: 1})
+	s.Apply(&Entry{Name: "shared", PID: pB, Node: originB, Counter: 1, Priority: 1})
+	if got, found := s.Lookup("shared"); !found || !got.Equal(pB) {
+		t.Fatalf("visible winner = %v, found=%v; want B", got, found)
+	}
+	if got, found := s.ConflictingLiveClaim("shared", pB); !found || !got.Equal(pA) {
+		t.Fatalf("hidden remote conflict = %v, found=%v; want A", got, found)
 	}
 }
 

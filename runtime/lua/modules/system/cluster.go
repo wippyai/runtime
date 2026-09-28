@@ -11,7 +11,7 @@ import (
 func clusterMembers(l *lua.LState) int {
 	if !security.IsAllowed(l.Context(), "system.read", "cluster", nil) {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "permission denied: system.read on cluster").WithKind(lua.Invalid).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "permission denied: system.read on cluster").WithKind(lua.PermissionDenied).WithRetryable(false))
 		return 2
 	}
 
@@ -30,7 +30,7 @@ func clusterMembers(l *lua.LState) int {
 func clusterLeader(l *lua.LState) int {
 	if !security.IsAllowed(l.Context(), "system.read", "cluster", nil) {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "permission denied: system.read on cluster").WithKind(lua.Invalid).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "permission denied: system.read on cluster").WithKind(lua.PermissionDenied).WithRetryable(false))
 		return 2
 	}
 
@@ -54,7 +54,7 @@ func clusterLeader(l *lua.LState) int {
 func clusterSize(l *lua.LState) int {
 	if !security.IsAllowed(l.Context(), "system.read", "cluster", nil) {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "permission denied: system.read on cluster").WithKind(lua.Invalid).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "permission denied: system.read on cluster").WithKind(lua.PermissionDenied).WithRetryable(false))
 		return 2
 	}
 

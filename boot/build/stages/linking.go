@@ -162,7 +162,7 @@ func (s *linkStage) Execute(ctx context.Context, entries *[]registry.Entry) erro
 	var unresolved []error
 	for _, id := range sortedKeys(requirements) {
 		req := requirements[id]
-		if err := s.processRequirement(req, bindings[id], entries, mutator); err != nil {
+		if err := s.processRequirement(req, bindings[id], entries, mutator, transcoder); err != nil {
 			log.Warn("unresolved requirement",
 				zap.String("requirement", req.entry.ID.String()),
 				zap.Error(err))
@@ -379,6 +379,7 @@ func (s *linkStage) processRequirement(
 	bindings []binding,
 	entries *[]registry.Entry,
 	mutator *entry.Mutator,
+	transcoder payload.Transcoder,
 ) error {
 	value, err := resolveValue(req, bindings)
 	if err != nil {
@@ -392,7 +393,7 @@ func (s *linkStage) processRequirement(
 
 	// Apply value to each target
 	for _, target := range req.definition.Targets {
-		if err := s.applyTarget(target, value, req.entry.ID.NS, entries, mutator); err != nil {
+		if err := s.applyTarget(target, value, req.entry.ID.NS, entries, mutator, transcoder); err != nil {
 			return NewRequirementTargetError(req.entry.ID.String(), target.Entry, target.Path, err)
 		}
 	}
@@ -469,6 +470,7 @@ func (s *linkStage) applyTarget(
 	requirementNS string,
 	entries *[]registry.Entry,
 	mutator *entry.Mutator,
+	transcoder payload.Transcoder,
 ) error {
 	// Find target entries
 	targetEntries := s.findTargetEntries(target.Entry, requirementNS, entries)
@@ -485,12 +487,16 @@ func (s *linkStage) applyTarget(
 
 	// Apply to each target entry
 	for _, targetEntry := range targetEntries {
+		if err := prepareOptionMutationTarget(targetEntry, transcoder); err != nil {
+			return NewSetValueInEntryError(targetEntry.ID.String(), err)
+		}
+		applicationPath := resolveWASMOverrideApplicationPath(targetEntry, path)
 		if isAppend {
-			if err := mutator.Append(targetEntry, path, value); err != nil {
+			if err := mutator.Append(targetEntry, applicationPath, cloneOptionValue(value)); err != nil {
 				return NewAppendToEntryError(targetEntry.ID.String(), err)
 			}
 		} else {
-			if err := mutator.Set(targetEntry, path, value); err != nil {
+			if err := setOptionValue(mutator, targetEntry, path, value); err != nil {
 				return NewSetValueInEntryError(targetEntry.ID.String(), err)
 			}
 		}

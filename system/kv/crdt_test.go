@@ -9,13 +9,12 @@ import (
 	"time"
 
 	kvapi "github.com/wippyai/runtime/api/store/kv"
-	"github.com/wippyai/runtime/system/eventbus"
 	"go.uber.org/zap"
 )
 
 func newCRDT(t *testing.T, node string) *CRDTEngine {
 	t.Helper()
-	e := NewCRDTEngine(node, eventbus.NewBus(), zap.NewNop())
+	e := NewCRDTEngine(node, zap.NewNop())
 	if err := e.Start(context.Background()); err != nil {
 		t.Fatalf("start: %v", err)
 	}
@@ -119,7 +118,7 @@ func TestCRDTEngine_DurablePersistsOnlyMarkedNamespaces(t *testing.T) {
 	dir := t.TempDir()
 	ctx := context.Background()
 
-	e1 := NewCRDTEngine("n1", eventbus.NewBus(), zap.NewNop())
+	e1 := NewCRDTEngine("n1", zap.NewNop())
 	e1.SetDurability(dir, time.Hour)
 	e1.MarkDurable("dur")
 	if err := e1.Start(ctx); err != nil {
@@ -132,7 +131,7 @@ func TestCRDTEngine_DurablePersistsOnlyMarkedNamespaces(t *testing.T) {
 	}
 	_ = e1.Stop()
 
-	e2 := NewCRDTEngine("n1", eventbus.NewBus(), zap.NewNop())
+	e2 := NewCRDTEngine("n1", zap.NewNop())
 	e2.SetDurability(dir, time.Hour)
 	e2.MarkDurable("dur")
 	if err := e2.Start(ctx); err != nil {
@@ -157,7 +156,7 @@ func TestCRDTEngine_DurableTombstoneSurvivesRestartNoResurrection(t *testing.T) 
 	dir := t.TempDir()
 	ctx := context.Background()
 
-	e1 := NewCRDTEngine("n1", eventbus.NewBus(), zap.NewNop())
+	e1 := NewCRDTEngine("n1", zap.NewNop())
 	e1.SetDurability(dir, time.Hour)
 	e1.MarkDurable("dur")
 	if err := e1.Start(ctx); err != nil {
@@ -185,7 +184,7 @@ func TestCRDTEngine_DurableTombstoneSurvivesRestartNoResurrection(t *testing.T) 
 	_ = e1.Stop()
 
 	// Restart from disk: the tombstone must be restored, not resurrected as live.
-	e2 := NewCRDTEngine("n1", eventbus.NewBus(), zap.NewNop())
+	e2 := NewCRDTEngine("n1", zap.NewNop())
 	e2.SetDurability(dir, time.Hour)
 	e2.MarkDurable("dur")
 	if err := e2.Start(ctx); err != nil {

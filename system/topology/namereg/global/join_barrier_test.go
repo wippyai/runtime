@@ -13,40 +13,6 @@ import (
 	"github.com/wippyai/runtime/api/relay"
 )
 
-// recordingRevoker captures the revoke calls the join barrier makes. RevokeLocal
-// reports a configured held LOCAL binding lost to a different owner; RevokeEventual
-// the EVENTUAL equivalent. Both record the names actually revoked.
-type recordingRevoker struct {
-	local      map[string]pid.PID
-	eventual   map[string]pid.PID
-	revokedLoc []string
-	revokedEvt []string
-}
-
-func newRecordingRevoker() *recordingRevoker {
-	return &recordingRevoker{local: map[string]pid.PID{}, eventual: map[string]pid.PID{}}
-}
-
-func (r *recordingRevoker) RevokeLocal(name string, keep pid.PID) bool {
-	held, ok := r.local[name]
-	if !ok || held == keep {
-		return false
-	}
-	delete(r.local, name)
-	r.revokedLoc = append(r.revokedLoc, name)
-	return true
-}
-
-func (r *recordingRevoker) RevokeEventual(name string, keep pid.PID) bool {
-	held, ok := r.eventual[name]
-	if !ok || held == keep {
-		return false
-	}
-	delete(r.eventual, name)
-	r.revokedEvt = append(r.revokedEvt, name)
-	return true
-}
-
 // newJoinTestService wires a leader-role service with a direct-apply raft and a
 // fake membership. nodeEpoch is seeded to 1 (as Start would) so barrier runs
 // behave like a real first-join.
@@ -74,7 +40,7 @@ func seedActiveStrong(t *testing.T, fsm *FSM, name string, owner pid.PID, requir
 // TestJoinSnapshot_ActiveStrongDistinctFromConsistent proves the snapshot lists
 // a promoted Strong name (carries RequiredNodes) AND a plain Consistent
 // register, distinguished by the State byte. Consistent entries seed the
-// dissem cache without installing a strong exclusion.
+// dissem cache without installing a strong observation.
 func TestJoinSnapshot_ActiveStrongDistinctFromConsistent(t *testing.T) {
 	svc := newJoinTestService(t)
 	fsm := svc.fsm
@@ -142,97 +108,6 @@ func TestJoinSnapshot_CarriesCommitIndex(t *testing.T) {
 
 // --- The joined-after-ACTIVE gap proof ---
 
-// TestBarrier_GapProof_JoinedAfterActiveRefusesLocal proves the core invariant:
-// a node that joins AFTER strong N is ACTIVE and holds N bound LOCAL to a
-// different pid revokes N during the barrier and refuses a fresh LOCAL register
-// of N (the exclusion is installed from the snapshot). It also proves the GAP:
-// WITHOUT the barrier, isStrongReserved(N) is false (the node would serve N).
-func TestBarrier_GapProof_JoinedAfterActiveRefusesLocal(t *testing.T) {
-	svc := newJoinTestService(t)
-	fsm := svc.fsm
-
-	// A strong name owned by a different node is ACTIVE in the cluster. Detach the
-	// self-ack hook during the seed so the local node does not latch the exclusion
-	// through the async conditional ack — the gap this test proves is that a late
-	// joiner holds NO exclusion until the barrier installs it from the snapshot.
-	fsm.SetOnPending(nil)
-	owner := makePID("node-2", "host", "owner")
-	seedActiveStrong(t, fsm, "system.gap", owner, []pid.NodeID{"node-1"}, 500)
-
-	// This node currently holds the same name bound LOCAL to a DIFFERENT pid —
-	// the conflicting state a late joiner can be in.
-	rev := newRecordingRevoker()
-	localHolder := makePID("node-1", "host", "local")
-	rev.local["system.gap"] = localHolder
-	svc.SetLocalNameRevoker(rev)
-
-	// GAP: before the barrier this node holds no exclusion for the name, so a
-	// cross-scope guard would grant it. Prove the gap exists.
-	_, reservedBefore := svc.IsStrongReserved("system.gap")
-	require.False(t, reservedBefore, "gap: no exclusion before the barrier")
-
-	// Run the barrier (first-join). It must install the exclusion AND revoke the
-	// conflicting local name.
-	require.NoError(t, svc.runJoinBarrier(svc.nodeEpoch.Load()))
-
-	reserved, ok := svc.IsStrongReserved("system.gap")
-	require.True(t, ok, "barrier installs the active exclusion from the snapshot")
-	assert.Equal(t, owner, reserved, "exclusion surfaces the strong owner as taken")
-	assert.Contains(t, rev.revokedLoc, "system.gap", "conflicting local name revoked")
-	assert.True(t, svc.NameReady(), "ready only after revocation")
-}
-
-// TestBarrier_RestartDuringPending proves the subtle restart hole: a node that
-// (re)joins while strong N is PENDING (not yet active) installs the PENDING
-// exclusion from the snapshot and refuses a conflicting local N.
-func TestBarrier_RestartDuringPending(t *testing.T) {
-	svc := newJoinTestService(t)
-	fsm := svc.fsm
-	fsm.SetOnPending(nil) // keep it pending
-
-	owner := makePID("node-2", "host", "pend")
-	openPending(t, fsm, "system.pend", owner, "node-2", []pid.NodeID{"node-1", "node-2"}, 600)
-
-	rev := newRecordingRevoker()
-	rev.local["system.pend"] = makePID("node-1", "host", "stale")
-	svc.SetLocalNameRevoker(rev)
-
-	require.NoError(t, svc.runJoinBarrier(svc.nodeEpoch.Load()))
-
-	reserved, ok := svc.IsStrongReserved("system.pend")
-	require.True(t, ok, "barrier installs the pending exclusion from the snapshot")
-	assert.Equal(t, owner, reserved)
-	assert.Contains(t, rev.revokedLoc, "system.pend", "conflicting local name revoked even for a pending strong")
-}
-
-// TestBarrier_RevokesEventualConflict proves an EVENTUAL conflict is revoked too.
-func TestBarrier_RevokesEventualConflict(t *testing.T) {
-	svc := newJoinTestService(t)
-	seedActiveStrong(t, svc.fsm, "system.evt", makePID("node-2", "host", "o"), []pid.NodeID{"node-1"}, 700)
-
-	rev := newRecordingRevoker()
-	rev.eventual["system.evt"] = makePID("node-1", "host", "evtloser")
-	svc.SetLocalNameRevoker(rev)
-
-	require.NoError(t, svc.runJoinBarrier(svc.nodeEpoch.Load()))
-	assert.Contains(t, rev.revokedEvt, "system.evt", "conflicting eventual name revoked")
-}
-
-// TestBarrier_NoRevokeForSameOwner proves a local binding to the SAME owner pid is
-// NOT revoked (no spurious revoke).
-func TestBarrier_NoRevokeForSameOwner(t *testing.T) {
-	svc := newJoinTestService(t)
-	owner := makePID("node-1", "host", "self")
-	seedActiveStrong(t, svc.fsm, "system.same", owner, []pid.NodeID{"node-1"}, 800)
-
-	rev := newRecordingRevoker()
-	rev.local["system.same"] = owner // same pid as the strong owner
-	svc.SetLocalNameRevoker(rev)
-
-	require.NoError(t, svc.runJoinBarrier(svc.nodeEpoch.Load()))
-	assert.Empty(t, rev.revokedLoc, "a binding to the strong owner is not a conflict")
-}
-
 // --- Gate ---
 
 // TestNameReady_FalseUntilBarrier proves NameReady starts false and flips only
@@ -266,38 +141,33 @@ func TestBarrier_EpochBumpAbortsStaleReady(t *testing.T) {
 // --- Idempotency ---
 
 // TestBarrier_RerunIdempotent proves running the barrier twice converges with no
-// duplicate revokes and no leaked/clobbered exclusions.
+// leaked or clobbered Strong observations.
 func TestBarrier_RerunIdempotent(t *testing.T) {
 	svc := newJoinTestService(t)
 	owner := makePID("node-2", "host", "o")
 	seedActiveStrong(t, svc.fsm, "system.idem", owner, []pid.NodeID{"node-1"}, 900)
 
-	rev := newRecordingRevoker()
-	rev.local["system.idem"] = makePID("node-1", "host", "loser")
-	svc.SetLocalNameRevoker(rev)
-
 	require.NoError(t, svc.runJoinBarrier(svc.nodeEpoch.Load()))
 	require.NoError(t, svc.runJoinBarrier(svc.nodeEpoch.Load()))
 
-	assert.Len(t, rev.revokedLoc, 1, "second run does not re-revoke (name already gone)")
 	reserved, ok := svc.IsStrongReserved("system.idem")
 	require.True(t, ok)
-	assert.Equal(t, owner, reserved, "exclusion intact after rerun")
+	assert.Equal(t, owner, reserved, "observation intact after rerun")
 }
 
-// TestInstallSnapshotExclusion_DoesNotClobberNewer proves a stale snapshot install
-// never overwrites a higher-epoch exclusion already held (a live pending latched
+// TestInstallSnapshotObservation_DoesNotClobberNewer proves a stale snapshot install
+// never overwrites a higher-epoch observation already held (a live pending latched
 // concurrently).
-func TestInstallSnapshotExclusion_DoesNotClobberNewer(t *testing.T) {
+func TestInstallSnapshotObservation_DoesNotClobberNewer(t *testing.T) {
 	svc := newJoinTestService(t)
 	newer := makePID("node-9", "host", "newer")
-	svc.strongExclusions["system.race"] = strongExclusion{pid: newer, epoch: 50, state: exclusionActive}
+	svc.strongObservations["system.race"] = strongObservation{pid: newer, epoch: 50, state: observationActive}
 
-	// A stale snapshot at epoch 10 must not clobber the epoch-50 exclusion.
-	svc.installSnapshotExclusion("system.race", makePID("node-2", "host", "old"), 10, exclusionPending)
+	// A stale snapshot at epoch 10 must not clobber the epoch-50 observation.
+	svc.installSnapshotObservation("system.race", makePID("node-2", "host", "old"), 10, observationPending)
 	reserved, ok := svc.IsStrongReserved("system.race")
 	require.True(t, ok)
-	assert.Equal(t, newer, reserved, "newer exclusion preserved against stale snapshot")
+	assert.Equal(t, newer, reserved, "newer observation preserved against stale snapshot")
 }
 
 // --- Non-leader forwarding ---

@@ -193,7 +193,7 @@ func TestTransition_AllCleanOnePass(t *testing.T) {
 		consumerEntry("mre", "zzz.client", idStr("mre", "aaa.driver")),
 	}
 
-	state, err := br.Transition(ctx, nil, cs)
+	state, err := br.Transition(ctx, nil, cs, nil)
 	require.NoError(t, err)
 	assert.Len(t, state, 2)
 	assert.Equal(t, 1, comp.attempts(idStr("mre", "aaa.driver")))
@@ -215,7 +215,7 @@ func TestTransition_ConsumerBeforeProviderRetries(t *testing.T) {
 		providerEntry("mre", "zzz.driver"),
 	}
 
-	state, err := br.Transition(ctx, nil, cs)
+	state, err := br.Transition(ctx, nil, cs, nil)
 	require.NoError(t, err)
 	assert.Len(t, state, 2)
 	assert.Equal(t, 1, comp.attempts(driver.String()))
@@ -237,7 +237,7 @@ func TestTransition_NonNotFoundRollsBackImmediately(t *testing.T) {
 		consumerEntry("mre", "aaa.client", driver.String()),
 	}
 
-	state, err := br.Transition(ctx, nil, cs)
+	state, err := br.Transition(ctx, nil, cs, nil)
 	require.Error(t, err)
 	assert.Empty(t, state, "rollback should leave no entries committed")
 	assert.Equal(t, 1, comp.attempts(driver.String()), "provider should fail once with non-deferrable error and not be retried")
@@ -256,7 +256,7 @@ func TestTransition_UnresolvableReturnsUnresolvedDependenciesError(t *testing.T)
 		consumerEntry("mre", "orphan.client", idStr("mre", "absent.driver")),
 	}
 
-	state, err := br.Transition(ctx, nil, cs)
+	state, err := br.Transition(ctx, nil, cs, nil)
 	require.Error(t, err)
 	var apiErr apierror.Error
 	require.True(t, errors.As(err, &apiErr), "expected an apierror.Error")
@@ -288,7 +288,7 @@ func TestTransition_DeeperChainConverges(t *testing.T) {
 		providerEntry("chain", "c"),
 	}
 
-	state, err := br.Transition(ctx, nil, cs)
+	state, err := br.Transition(ctx, nil, cs, nil)
 	require.NoError(t, err)
 	assert.Len(t, state, 6)
 	assert.Equal(t, 1, comp.attempts(pA.String()))
@@ -315,7 +315,7 @@ func TestTransition_TwoProvidersConsumerLast(t *testing.T) {
 		providerEntry("two", "c.driver"),
 	}
 
-	state, err := br.Transition(ctx, nil, cs)
+	state, err := br.Transition(ctx, nil, cs, nil)
 	require.NoError(t, err)
 	assert.Len(t, state, 3)
 	assert.Equal(t, 2, comp.attempts(idStr("two", "a.client")), "consumer is deferred then retried")

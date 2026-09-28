@@ -134,6 +134,20 @@ func TestLifecycleRegistry_OrderPreserved(t *testing.T) {
 	assert.Equal(t, []string{"first", "second", "third"}, order)
 }
 
+func TestLifecycleRegistry_OnCompleteRunsInReverseOrder(t *testing.T) {
+	reg := NewLifecycleRegistry()
+
+	var order []string
+	var mu sync.Mutex
+	for _, name := range []string{"first", "second", "third"} {
+		reg.Register(name, &orderTrackingLifecycle{name: name, order: &order, mu: &mu})
+	}
+
+	reg.OnComplete(context.Background(), pid.PID{UniqID: "test-pid"}, nil)
+
+	assert.Equal(t, []string{"third", "second", "first"}, order)
+}
+
 type orderTrackingLifecycle struct {
 	order *[]string
 	mu    *sync.Mutex
@@ -148,6 +162,9 @@ func (o *orderTrackingLifecycle) OnStart(_ context.Context, _ pid.PID, _ process
 }
 
 func (o *orderTrackingLifecycle) OnComplete(_ context.Context, _ pid.PID, _ *runtime.Result) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	*o.order = append(*o.order, o.name)
 }
 
 func TestLifecycleRegistry_OnStartError(t *testing.T) {

@@ -11,7 +11,6 @@ import (
 	"time"
 
 	raftapi "github.com/wippyai/runtime/api/cluster/raft"
-	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/relay"
 	kvapi "github.com/wippyai/runtime/api/store/kv"
 	"github.com/wippyai/runtime/cluster/raft/multiplex"
@@ -32,6 +31,16 @@ type raftSubmitter interface {
 	CommitIndex() uint64
 }
 
+// Authority snapshot envelopes deliberately stay below the relay's reliable
+// user-message ceiling. The request bound covers encoded keys; the reply bound
+// covers encoded keys and detached values.
+const (
+	maxAuthoritySnapshotKeys     = 256
+	maxAuthoritySnapshotBytes    = 64 * 1024
+	maxAuthoritySnapshotKeyBytes = 4 * 1024
+	maxAuthorityConcurrent       = 32
+)
+
 // LinearizableEngine is a kvapi.Engine that can also serve barriered reads and
 // scans stamped with the cluster commit index. Only the raft backend satisfies
 // it; the kv-backed name registry requires it.
@@ -48,43 +57,67 @@ const leaseSweepInterval = time.Second
 // local from the replicated FSM; writes are proposed through raft on the leader.
 // A single RaftEngine is shared node-wide; store.kv.raft entries scope it by
 // key namespace.
-type RaftEngine struct {
-	raft         raftSubmitter
-	bus          event.Bus
-	ctx          context.Context
-	fsm          *RaftFSM
-	logger       *zap.Logger
-	router       relay.Receiver
-	deadlines    map[kvapi.LeaseID]time.Time
-	pending      map[uint64]chan applyResult
-	pendingReads map[uint64]chan readResult
-	cancel       context.CancelFunc
-	localNode    string
-	forwardWait  time.Duration
-	wg           sync.WaitGroup
-	leaseSeq     atomic.Uint64
-	schedMu      sync.Mutex
-	fwdMu        sync.Mutex
+type RaftEngine struct { //nolint:govet // field order follows lock and lifecycle ownership
+	raft             raftSubmitter
+	watchOwner       *watchOwner
+	ctx              context.Context
+	fsm              *RaftFSM
+	logger           *zap.Logger
+	router           relay.Receiver
+	deadlines        map[kvapi.LeaseID]time.Time
+	pending          map[uint64]chan applyResult
+	pendingReads     map[uint64]chan readResult
+	pendingAuthority map[uint64]authorityWaiter
+	cancel           context.CancelFunc
+	localNode        string
+	forwardWait      time.Duration
+	wg               sync.WaitGroup
+	leaseSeq         atomic.Uint64
+	schedMu          sync.Mutex
+	fwdMu            sync.Mutex
+	authorityMu      sync.Mutex
+	authoritySem     chan struct{}
+	authorityStop    bool
+	forwardMu        sync.Mutex
+	forwardSem       chan struct{}
+	forwardStop      bool
+}
+
+type authorityWaiter struct {
+	peer string
+	ch   chan authorityResult
+	keys []string
+}
+
+type authorityResult struct { //nolint:govet // wire result keeps detached snapshot and status together
+	snapshot kvapi.AuthoritySnapshot
+	err      error
+	// notLeader is a protocol-level rejection that permits leader resolution
+	// and retry; all other relay failures are surfaced without replay.
+	notLeader bool
 }
 
 // NewRaftEngine builds the shared engine. localNode scopes generated lease ids.
 // router carries leader-forwarded writes; nil disables forwarding (writes then
 // only succeed on the leader).
-func NewRaftEngine(raft raftSubmitter, fsm *RaftFSM, bus event.Bus, localNode string, router relay.Receiver, logger *zap.Logger) *RaftEngine {
+func NewRaftEngine(raft raftSubmitter, fsm *RaftFSM, localNode string, router relay.Receiver, logger *zap.Logger) *RaftEngine {
 	if logger == nil {
 		logger = zap.NewNop()
 	}
 	return &RaftEngine{
-		raft:         raft,
-		fsm:          fsm,
-		bus:          bus,
-		logger:       logger.Named("kv-raft"),
-		router:       router,
-		localNode:    localNode,
-		forwardWait:  forwardWaitTimeout,
-		deadlines:    make(map[kvapi.LeaseID]time.Time),
-		pending:      make(map[uint64]chan applyResult),
-		pendingReads: make(map[uint64]chan readResult),
+		raft:             raft,
+		fsm:              fsm,
+		watchOwner:       &watchOwner{},
+		logger:           logger.Named("kv-raft"),
+		router:           router,
+		localNode:        localNode,
+		forwardWait:      forwardWaitTimeout,
+		deadlines:        make(map[kvapi.LeaseID]time.Time),
+		pending:          make(map[uint64]chan applyResult),
+		pendingReads:     make(map[uint64]chan readResult),
+		pendingAuthority: make(map[uint64]authorityWaiter),
+		authoritySem:     make(chan struct{}, maxAuthorityConcurrent),
+		forwardSem:       make(chan struct{}, maxForwardConcurrent),
 	}
 }
 
@@ -92,17 +125,102 @@ func NewRaftEngine(raft raftSubmitter, fsm *RaftFSM, bus event.Bus, localNode st
 func (e *RaftEngine) Start(ctx context.Context) error {
 	e.ctx, e.cancel = context.WithCancel(ctx)
 	e.wg.Add(1)
+	go func() {
+		defer e.wg.Done()
+		<-e.ctx.Done()
+		e.fsm.watch.stopOwner(e.watchOwner)
+	}()
+	e.wg.Add(1)
 	go e.leaseSweeper()
 	return nil
 }
 
 // Stop halts the sweeper.
 func (e *RaftEngine) Stop() error {
+	e.fsm.watch.stopOwner(e.watchOwner)
+	e.forwardMu.Lock()
+	e.forwardStop = true
+	e.forwardMu.Unlock()
+	e.authorityMu.Lock()
+	e.authorityStop = true
+	e.authorityMu.Unlock()
 	if e.cancel != nil {
 		e.cancel()
 	}
 	e.wg.Wait()
 	return nil
+}
+
+// acquireAuthority admits both local and forwarded reads through one bounded
+// budget. The wait is caller-cancellable. A canceled non-cancelable raft call
+// retains its permit until the underlying future resolves; Stop cancels the
+// logical operation and returns without waiting for that future.
+type authorityPermit struct {
+	e           *RaftEngine
+	completed   atomic.Bool
+	transferred atomic.Bool
+}
+
+func (p *authorityPermit) release() {
+	if p == nil || p.transferred.Load() {
+		return
+	}
+	if p.completed.CompareAndSwap(false, true) {
+		<-p.e.authoritySem
+	}
+}
+
+func (p *authorityPermit) transfer() {
+	if p != nil {
+		p.transferred.Store(true)
+	}
+}
+
+func (p *authorityPermit) complete() {
+	if p == nil {
+		return
+	}
+	if p.completed.CompareAndSwap(false, true) {
+		<-p.e.authoritySem
+	}
+}
+
+func (e *RaftEngine) acquireAuthority(ctx context.Context) (*authorityPermit, error) {
+	e.authorityMu.Lock()
+	if e.authorityStop {
+		e.authorityMu.Unlock()
+		return nil, kvapi.ErrKVClosed
+	}
+	e.authorityMu.Unlock()
+	select {
+	case e.authoritySem <- struct{}{}:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	e.authorityMu.Lock()
+	if e.authorityStop {
+		e.authorityMu.Unlock()
+		<-e.authoritySem
+		return nil, kvapi.ErrKVClosed
+	}
+	e.authorityMu.Unlock()
+	return &authorityPermit{e: e}, nil
+}
+
+// tryAcquireAuthority admits an inbound request without allowing unbounded
+// request goroutines to accumulate behind a stalled barrier.
+func (e *RaftEngine) tryAcquireAuthority() *authorityPermit {
+	e.authorityMu.Lock()
+	defer e.authorityMu.Unlock()
+	if e.authorityStop {
+		return nil
+	}
+	select {
+	case e.authoritySem <- struct{}{}:
+		return &authorityPermit{e: e}
+	default:
+		return nil
+	}
 }
 
 // propose submits a command through raft. On the leader it applies directly; on
@@ -167,22 +285,19 @@ func (e *RaftEngine) GetLinearizable(key string) (kvapi.Entry, error) {
 	return e.Get(key)
 }
 
-// ScanAtIndex captures the cluster commit index, then scans the published
-// snapshot under prefix, returning the index as the consistent "as-of" point.
+// ScanAtIndex barriers on the leader, then reads entries and their applied KV
+// index from one immutable snapshot. Other Raft domains may have newer indexes.
 func (e *RaftEngine) ScanAtIndex(prefix string, fn func(kvapi.Entry) bool) (uint64, error) {
 	if err := e.raft.Barrier(raftApplyTimeout); err != nil {
 		return 0, err
 	}
-	idx := e.raft.CommitIndex()
-	e.fsm.scan(prefix, fn)
-	return idx, nil
+	snap := e.fsm.snap.Load()
+	snap.scan(prefix, fn)
+	return snap.index, nil
 }
 
 func (e *RaftEngine) Watch(ctx context.Context, prefix string) (kvapi.Watcher, error) {
-	if e.bus == nil {
-		return nil, fmt.Errorf("kv: event bus not available")
-	}
-	return newWatcher(ctx, e.bus, e.fsm.EventSystem(), prefix)
+	return e.fsm.watch.watch(ctx, prefix, e.watchOwner)
 }
 
 // --- kvapi.Engine writes (proposed) ---

@@ -20,9 +20,9 @@ type shard struct {
 }
 
 // nameEntry records the owner of a global name. RequiredNodes/Epoch are
-// populated only for a promoted Strong name: RequiredNodes is the exclusion
-// holder set (so a terminal removal of the active name can deliver an exclusion
-// release) and Epoch is the reservation epoch the exclusion was latched at (so
+// populated only for a promoted Strong name: RequiredNodes is the observation
+// holder set (so a terminal removal of the active name can deliver an observation
+// release) and Epoch is the reservation epoch the observation was latched at (so
 // the release is indexed to the held instance). Both are empty/zero for
 // Consistent-scope entries.
 type nameEntry struct {
@@ -184,17 +184,20 @@ const (
 )
 
 // register attempts to insert or verify a name → PID mapping.
-// On success it returns the supplied PID and either registerInserted (fresh)
-// or registerDedupe (already mapped to the same PID — idempotent no-op).
-// On collision it returns the existing owner PID and registerConflict.
-func (s *shardedState) register(name string, p pid.PID, nodeID pid.NodeID, index uint64) (pid.PID, registerOutcome) {
+// It also returns the stored establishment token: the insertion index for an
+// active entry or the reservation epoch for a pending entry. On success it
+// returns the supplied PID and either registerInserted (fresh) or
+// registerDedupe (already mapped to the same PID — idempotent no-op). On
+// collision it returns the existing owner PID and registerConflict.
+func (s *shardedState) register(name string, p pid.PID, nodeID pid.NodeID, index uint64) (pid.PID, uint64, registerOutcome) {
 	s.pendingMu.RLock()
 	if e, ok := s.pending[name]; ok {
+		existingPID, epoch := e.PID, e.Epoch
 		s.pendingMu.RUnlock()
-		if e.PID == p {
-			return p, registerDedupe
+		if existingPID.Equal(p) {
+			return p, epoch, registerDedupe
 		}
-		return e.PID, registerConflict
+		return existingPID, epoch, registerConflict
 	}
 	s.pendingMu.RUnlock()
 
@@ -203,11 +206,11 @@ func (s *shardedState) register(name string, p pid.PID, nodeID pid.NodeID, index
 	defer sh.mu.Unlock()
 
 	if existing, ok := sh.names[name]; ok {
-		if existing.PID == p {
-			return p, registerDedupe
+		if existing.PID.Equal(p) {
+			return p, existing.AppliedAt, registerDedupe
 		}
 
-		return existing.PID, registerConflict
+		return existing.PID, existing.AppliedAt, registerConflict
 	}
 
 	sh.names[name] = &nameEntry{PID: p, NodeID: nodeID, AppliedAt: index}
@@ -217,7 +220,7 @@ func (s *shardedState) register(name string, p pid.PID, nodeID pid.NodeID, index
 
 	s.addToNodeIndex(nodeID, pidKey)
 
-	return p, registerInserted
+	return p, index, registerInserted
 }
 
 // pendingOutcome captures the disposition of a registerPending attempt.
@@ -235,17 +238,16 @@ const (
 // for a different PID (pendingConflictPending). Re-submitting the same name+PID
 // while pending is idempotent (pendingDedupe).
 //
-// requiredNodes is stamped by the leader at the pending commit and embedded in
-// the log entry so every replica sees the same set during replay. A node-leave
-// prunes the departed node from this set deterministically via CmdDropRequired
-// (state.dropRequired), never by re-reading membership inside Apply.
+// requiredNodes is stamped at the pending commit and embedded in the log entry
+// so every replica sees the same set during replay. Discovery changes cannot
+// shrink it; dropRequired exists only to replay older committed commands.
 func (s *shardedState) registerPending(name string, p pid.PID, nodeID pid.NodeID, epoch uint64, required []pid.NodeID, deadline int64, createdAt int64) (pid.PID, pendingOutcome) {
 	sh := &s.shards[shardFor(name)]
 	sh.mu.RLock()
 	existing, hasActive := sh.names[name]
 	sh.mu.RUnlock()
 	if hasActive {
-		if existing.PID == p {
+		if existing.PID.Equal(p) {
 			return p, pendingDedupe
 		}
 		return existing.PID, pendingConflictActive
@@ -254,7 +256,7 @@ func (s *shardedState) registerPending(name string, p pid.PID, nodeID pid.NodeID
 	s.pendingMu.Lock()
 	defer s.pendingMu.Unlock()
 	if e, ok := s.pending[name]; ok {
-		if e.PID == p && e.Epoch == epoch {
+		if e.PID.Equal(p) && e.Epoch == epoch {
 			return p, pendingDedupe
 		}
 		return e.PID, pendingConflictPending
@@ -449,7 +451,7 @@ func (s *shardedState) unreservePending(name string, p pid.PID) (*pendingEntry, 
 	if !ok {
 		return nil, false
 	}
-	if p != (pid.PID{}) && e.PID != p {
+	if !p.Equal(pid.PID{}) && !e.PID.Equal(p) {
 		return e, false
 	}
 	delete(s.pending, name)
@@ -472,7 +474,7 @@ func (s *shardedState) pendingByName(name string) *PendingView {
 // Strong entry is distinguished from a plain Consistent register by carrying a
 // non-empty RequiredNodes set and a non-zero Epoch (set at promotePending);
 // Consistent entries leave both empty/zero. The join-epoch snapshot enumerates
-// these so a joining node installs an Active exclusion for each.
+// these so a joining node installs an Active observation for each.
 type strongActiveView struct {
 	PID   pid.PID
 	Name  string
@@ -491,7 +493,7 @@ type activeBinding struct {
 
 // listActiveConsistent returns every active CONSISTENT name across all shards.
 // CONSISTENT and STRONG entries are distinguished by RequiredNodes: STRONG
-// carries the exclusion-holder set, CONSISTENT leaves it empty.
+// carries the observation-holder set, CONSISTENT leaves it empty.
 func (s *shardedState) listActiveConsistent() []activeBinding {
 	for i := range s.shards {
 		s.shards[i].mu.RLock()
@@ -535,7 +537,7 @@ func (s *shardedState) allActiveNames() []string {
 // listActiveStrong returns every promoted Strong name across all shards. It
 // holds all shard read-locks for a point-in-time consistent view, matching
 // snapshot(). The discriminator is len(RequiredNodes) > 0 — only a promoted
-// Strong entry carries the exclusion-holder set.
+// Strong entry carries the observation-holder set.
 func (s *shardedState) listActiveStrong() []strongActiveView {
 	for i := range s.shards {
 		s.shards[i].mu.RLock()
@@ -608,7 +610,7 @@ func (s *shardedState) unregister(name string) bool {
 }
 
 // unregisterEntry removes a single name and returns a copy of the removed entry.
-// The copy lets callers deliver an exclusion release to a promoted Strong name's
+// The copy lets callers deliver an observation release to a promoted Strong name's
 // holders (RequiredNodes/Epoch) on terminal removal.
 func (s *shardedState) unregisterEntry(name string) (nameEntry, bool) {
 	sh := &s.shards[shardFor(name)]
@@ -636,7 +638,7 @@ func (s *shardedState) lookupPendingByPID(p pid.PID) []string {
 	defer s.pendingMu.RUnlock()
 	out := make([]string, 0, 4)
 	for name, e := range s.pending {
-		if e.PID == p {
+		if e.PID.Equal(p) {
 			out = append(out, name)
 		}
 	}
@@ -644,7 +646,7 @@ func (s *shardedState) lookupPendingByPID(p pid.PID) []string {
 }
 
 // strongTerminal identifies a promoted Strong name removed by a terminal so the
-// caller can deliver an exclusion release to its holders.
+// caller can deliver an observation release to its holders.
 type strongTerminal struct {
 	Name          string
 	PID           pid.PID
@@ -851,7 +853,7 @@ func (s *shardedState) addToNodeIndex(nodeID pid.NodeID, pidKey string) {
 
 // snapshotEntry is the serialisable form of a single name registration.
 // RequiredNodes/Epoch are present only for a promoted Strong name so a terminal
-// removal after a snapshot restore can still deliver an exclusion release.
+// removal after a snapshot restore can still deliver an observation release.
 type snapshotEntry struct {
 	PID           pid.PID      `codec:"p"`
 	Name          string       `codec:"n"`

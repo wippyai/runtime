@@ -39,7 +39,7 @@ func TestEmbedFSCollectsModuleRelativeDirectory(t *testing.T) {
 		}),
 	}
 
-	resources, err := collectResources(context.Background(), "", []registry.Entry{entry}, zap.NewNop())
+	resources, digests, err := collectResources(context.Background(), "", []registry.Entry{entry}, zap.NewNop())
 	if err != nil {
 		t.Fatalf("collectResources failed: %v", err)
 	}
@@ -57,12 +57,69 @@ func TestEmbedFSCollectsModuleRelativeDirectory(t *testing.T) {
 		t.Fatalf("embedded app.js = %q", string(data))
 	}
 
-	transformed := transformEntries([]registry.Entry{entry}, []registry.ID{entry.ID})
+	transformed := transformEntries([]registry.Entry{entry}, []registry.ID{entry.ID}, digests)
 	if len(transformed) != 1 {
 		t.Fatalf("transformed count = %d, want 1", len(transformed))
 	}
 	if transformed[0].Kind != embedapi.Kind {
 		t.Fatalf("transformed kind = %q, want %q", transformed[0].Kind, embedapi.Kind)
+	}
+	cfg, ok := transformed[0].Data.Data().(map[string]any)
+	if !ok {
+		t.Fatalf("transformed data = %T, want map[string]any", transformed[0].Data.Data())
+	}
+	if digest, _ := cfg["digest"].(string); digest == "" {
+		t.Fatalf("transformed entry carries no digest")
+	}
+}
+
+// TestEmbedFSDigestChangesWithContentNotDirectoryOnly proves the fs.embed
+// entry stamped by transformEntries changes when the resource's file content
+// changes, even though the directory path and every other declared field on
+// the entry stay identical. Without this, a hot update that only changes an
+// unrelated resource sharing the same directory entry (or a content edit
+// with no declaration change) produces byte-identical fs.embed entries
+// across versions, and the dependency planner's entriesEqual then emits no
+// EntryUpdate for the resource at all.
+func TestEmbedFSDigestChangesWithContentNotDirectoryOnly(t *testing.T) {
+	moduleRoot := t.TempDir()
+	staticDir := filepath.Join(moduleRoot, "static")
+	if err := os.MkdirAll(staticDir, 0o755); err != nil {
+		t.Fatalf("mkdir static dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(staticDir, "app.js"), []byte("v1"), 0o644); err != nil {
+		t.Fatalf("write app.js: %v", err)
+	}
+	t.Chdir(moduleRoot)
+
+	entry := registry.Entry{
+		ID:   registry.NewID("acme.ui", "static_fs"),
+		Kind: dirapi.Kind,
+		Data: payload.New(map[string]any{"directory": "./static"}),
+	}
+
+	_, digestsV1, err := collectResources(context.Background(), "", []registry.Entry{entry}, zap.NewNop())
+	if err != nil {
+		t.Fatalf("collectResources v1 failed: %v", err)
+	}
+	transformedV1 := transformEntries([]registry.Entry{entry}, []registry.ID{entry.ID}, digestsV1)
+
+	if err := os.WriteFile(filepath.Join(staticDir, "app.js"), []byte("v2"), 0o644); err != nil {
+		t.Fatalf("rewrite app.js: %v", err)
+	}
+	_, digestsV2, err := collectResources(context.Background(), "", []registry.Entry{entry}, zap.NewNop())
+	if err != nil {
+		t.Fatalf("collectResources v2 failed: %v", err)
+	}
+	transformedV2 := transformEntries([]registry.Entry{entry}, []registry.ID{entry.ID}, digestsV2)
+
+	v1 := transformedV1[0].Data.Data().(map[string]any)["digest"]
+	v2 := transformedV2[0].Data.Data().(map[string]any)["digest"]
+	if v1 == "" || v2 == "" {
+		t.Fatalf("expected non-empty digests, got v1=%v v2=%v", v1, v2)
+	}
+	if v1 == v2 {
+		t.Fatalf("digest unchanged across a content edit: %v", v1)
 	}
 }
 
@@ -85,7 +142,7 @@ func TestEmbedFSResolvesModuleRootWithoutChdir(t *testing.T) {
 		Data:     payload.New(map[string]any{"directory": "./static"}),
 	}
 
-	resources, err := collectResources(context.Background(), moduleRoot, []registry.Entry{entry}, zap.NewNop())
+	resources, _, err := collectResources(context.Background(), moduleRoot, []registry.Entry{entry}, zap.NewNop())
 	if err != nil {
 		t.Fatalf("collectResources failed: %v", err)
 	}
@@ -129,7 +186,7 @@ func TestEmbedFSCollectsMultipleResources(t *testing.T) {
 		},
 	}
 
-	resources, err := collectResources(context.Background(), moduleRoot, entries, zap.NewNop())
+	resources, _, err := collectResources(context.Background(), moduleRoot, entries, zap.NewNop())
 	if err != nil {
 		t.Fatalf("collectResources failed: %v", err)
 	}
@@ -149,7 +206,7 @@ func TestEmbedFSErrorsOnMissingDirectory(t *testing.T) {
 		Data:     payload.New(map[string]any{"directory": "./does-not-exist"}),
 	}
 
-	_, err := collectResources(context.Background(), moduleRoot, []registry.Entry{entry}, zap.NewNop())
+	_, _, err := collectResources(context.Background(), moduleRoot, []registry.Entry{entry}, zap.NewNop())
 	if err == nil {
 		t.Fatal("expected error for missing directory, got nil")
 	}
@@ -158,7 +215,7 @@ func TestEmbedFSErrorsOnMissingDirectory(t *testing.T) {
 func TestEmbedFSErrorsOnNilEntryData(t *testing.T) {
 	entry := registry.Entry{ID: registry.NewID("acme.ui", "ui_fs"), Kind: dirapi.Kind}
 
-	_, err := collectResources(context.Background(), "", []registry.Entry{entry}, zap.NewNop())
+	_, _, err := collectResources(context.Background(), "", []registry.Entry{entry}, zap.NewNop())
 	if err == nil {
 		t.Fatal("expected error for entry with nil data, got nil")
 	}

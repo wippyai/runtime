@@ -7,6 +7,8 @@ import (
 
 	"github.com/wippyai/runtime/api/boot"
 	dispatcherapi "github.com/wippyai/runtime/api/dispatcher"
+	"github.com/wippyai/runtime/api/logs"
+	metricsapi "github.com/wippyai/runtime/api/metrics"
 	"github.com/wippyai/runtime/system/clock"
 )
 
@@ -21,7 +23,7 @@ func Clock() boot.Component {
 			if reg == nil {
 				return ctx, ErrDispatcherNotFound
 			}
-			svc = clock.NewDispatcher()
+			svc = clock.NewDispatcher(logs.GetLogger(ctx).Named("dispatcher.clock"), metricsapi.GetCollector(ctx))
 			svc.RegisterAll(reg.Register)
 			return ctx, nil
 		},

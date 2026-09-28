@@ -18,6 +18,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"net"
 	"strconv"
@@ -32,10 +33,15 @@ import (
 	"github.com/wippyai/runtime/cluster/internode"
 	"github.com/wippyai/runtime/cluster/membership"
 	"github.com/wippyai/runtime/system/relay"
+	"github.com/wippyai/runtime/system/topology"
 	otelmetric "go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 )
+
+// errNodeDisconnected is the exit reason local processes observe for links
+// and monitors of a node whose session ended.
+var errNodeDisconnected = errors.New("node disconnected")
 
 // Stack bundles the cluster networking primitives.
 //
@@ -48,9 +54,16 @@ type Stack struct {
 	Membership *membership.Service
 	ConnMgr    internode.ConnectionManager
 	Internode  *internode.Service
+	// Topology tracks links and monitors of the stack's processes. An ended
+	// internode session breaks those of the node's processes before any frame
+	// of a later session is delivered.
+	Topology *topology.Topology
 
 	mu      sync.Mutex
 	started bool
+	// used marks the stack's single use: its connection manager cannot
+	// restart, so a new execution assembles a new stack.
+	used bool
 }
 
 // StackConfig is the input to AssembleStack.
@@ -69,15 +82,19 @@ type StackConfig struct {
 	// the harness to avoid disturbing the runtime's raft quorum.
 	Meta clusterapi.NodeMeta
 
-	NodeName                      string
-	MembershipBindAddr            string
-	MembershipAdvertise           string
-	SecretKey                     string
-	SecretFile                    string
-	InternodeIdentityKey          string
-	InternodeIdentityKeyFile      string
-	InternodeTrustedPeerKeys      map[string]string
-	InternodeBindAddr             string
+	NodeName                 string
+	MembershipBindAddr       string
+	MembershipAdvertise      string
+	SecretKey                string
+	SecretFile               string
+	InternodeIdentityKey     string
+	InternodeIdentityKeyFile string
+	InternodeTrustedPeerKeys map[string]string
+	InternodePeerKeySource   clusterapi.PeerKeySource
+	InternodeBindAddr        string
+	// InternodeTLS selects the existing native mutual-TLS transport. Certificate
+	// loading happens during Start. The zero value preserves plaintext transport.
+	InternodeTLS                  internode.ManagerTLSConfig
 	JoinAddrs                     []string
 	MembershipGossipInterval      time.Duration
 	MembershipPushPullInterval    time.Duration
@@ -85,8 +102,8 @@ type StackConfig struct {
 	MembershipProbeInterval       time.Duration
 	MembershipProbeTimeout        time.Duration
 	MembershipTCPTimeout          time.Duration
-	MembershipBindPort            int
-	InternodeBindPort             int
+	MembershipBindPort            int // zero asks the OS for a TCP/UDP gossip port
+	InternodeBindPort             int // zero asks the OS for an internode TCP port
 	MembershipSuspicionMult       int
 	InternodeAutoPort             bool
 }
@@ -137,8 +154,8 @@ func AssembleStack(cfg StackConfig) (*Stack, error) {
 	node := relay.NewNode(cfg.NodeName)
 	codec := internode.NewMessageCodec(cfg.Transcoder)
 
-	// Pre-start a temporary connection manager to discover the actual
-	// internode port (especially under AutoPort). Mirrors the boot flow.
+	// Bind during Start and publish the retained listener's actual endpoint
+	// before joining membership. Construction must not reserve network ports.
 	mgrCfg := internode.DefaultManagerConfig()
 	mgrCfg.LocalNodeID = cfg.NodeName
 	mgrCfg.BindAddr = stringOr(cfg.InternodeBindAddr, "0.0.0.0")
@@ -148,59 +165,34 @@ func AssembleStack(cfg StackConfig) (*Stack, error) {
 	mgrCfg.AuthenticationKey = secretKey
 	mgrCfg.SigningKey = signingKey
 	mgrCfg.RequireAuthentication = true
+	mgrCfg.TLS = cfg.InternodeTLS
 	var memSvc *membership.Service
 	mgrCfg.ResolvePeerKey = func(id clusterapi.NodeID) (ed25519.PublicKey, bool) {
-		trustedKey, trusted := trustedPeerKeys[id]
-		if !trusted || id == "" || id == cfg.NodeName || memSvc == nil {
-			return nil, false
-		}
-		for _, nodeInfo := range memSvc.Nodes() {
-			if nodeInfo.ID != id {
-				continue
-			}
-			advertisedKey, err := internode.ParseIdentityPublicKey(nodeInfo.Meta[internode.MetadataPublicKey])
-			if err != nil || !advertisedKey.Equal(trustedKey) {
-				return nil, false
-			}
-			return trustedKey, true
-		}
-		return nil, false
+		return internode.ResolveMemberKey(cfg.NodeName, id, trustedPeerKeys, cfg.InternodePeerKeySource, memSvc)
 	}
 	mgrCfg.AuthorizePeer = func(id clusterapi.NodeID, _ net.Addr) bool {
 		_, ok := mgrCfg.ResolvePeerKey(id)
 		return ok
 	}
-
-	tempMgr := internode.NewConnectionManager(mgrCfg, cfg.Collector)
-	tempCtx, tempCancel := context.WithCancel(context.Background())
-	if err := tempMgr.Start(tempCtx, func(_ clusterapi.NodeID, _ []byte) {}); err != nil {
-		tempCancel()
-		return nil, fmt.Errorf("cluster: pre-start connection manager: %w", err)
+	mgrCfg.AuthorizeIncarnation = func(id clusterapi.NodeID, incarnation uint64) bool {
+		return internode.MemberIncarnationAdvertised(memSvc, id, incarnation)
 	}
-	actualPort := tempMgr.GetListenPort()
-	if err := tempMgr.Stop(); err != nil {
-		tempCancel()
-		return nil, fmt.Errorf("cluster: stop pre-start connection manager: %w", err)
-	}
-	tempCancel()
 
-	// Pin the discovered port for the real manager.
-	mgrCfg.BindPort = actualPort
-	mgrCfg.AutoPort = false
 	connMgr := internode.NewConnectionManager(mgrCfg, cfg.Collector)
 
-	// Augment meta with the discovered port.
+	// Copy caller metadata and publish the identity. Start adds the retained
+	// listener port before membership begins advertising.
 	meta := clusterapi.NodeMeta{}
 	for k, v := range cfg.Meta {
 		meta[k] = v
 	}
-	meta[internode.MetadataPort] = strconv.Itoa(actualPort)
 	meta[internode.MetadataPublicKey] = base64.RawStdEncoding.EncodeToString(publicKey)
 
 	memCfg := membership.Config{
+		Link:                connMgr,
 		NodeName:            cfg.NodeName,
 		BindAddr:            stringOr(cfg.MembershipBindAddr, "0.0.0.0"),
-		BindPort:            intOr(cfg.MembershipBindPort, 7946),
+		BindPort:            cfg.MembershipBindPort,
 		JoinAddrs:           cfg.JoinAddrs,
 		SecretKey:           secretKey,
 		AdvertiseIP:         cfg.MembershipAdvertise,
@@ -233,16 +225,25 @@ func AssembleStack(cfg StackConfig) (*Stack, error) {
 		return err
 	}
 
+	// The topology sends through the router, which in turn routes through
+	// the internode service; the session-end hook reaches the topology once
+	// all three exist, before the service starts.
+	var topo *topology.Topology
+	sessionEnded := func(id clusterapi.NodeID) {
+		topo.HandleNodeExit(id, errNodeDisconnected)
+	}
 	intSvc := internode.NewService(
 		logger.Named("internode"),
 		connMgr,
 		codec,
 		pkgCallback,
+		sessionEnded,
 		cfg.Bus,
 		memSvc,
 	)
 
 	router := relay.NewRouter(node, intSvc)
+	topo = topology.NewTopology(router, cfg.NodeName)
 
 	return &Stack{
 		Node:       node,
@@ -250,36 +251,43 @@ func AssembleStack(cfg StackConfig) (*Stack, error) {
 		Membership: memSvc,
 		ConnMgr:    connMgr,
 		Internode:  intSvc,
+		Topology:   topo,
 	}, nil
 }
 
-// Start brings up membership and internode. Order matches the boot path:
-// membership first (so internode has a peer set ready), then internode.
+// Start retains the internode listener before advertising it through
+// membership. A stack starts once; after a failed Start or a Stop, a new
+// execution assembles a new stack.
 func (s *Stack) Start(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.started {
-		return fmt.Errorf("cluster: stack already started")
+	if s.used {
+		return fmt.Errorf("cluster: stack is single-use; assemble a new stack to start again")
 	}
+	s.used = true
 
+	if err := s.Internode.Start(ctx); err != nil {
+		return fmt.Errorf("cluster: start internode: %w", err)
+	}
+	s.Membership.UpdateMeta(map[string]string{
+		internode.MetadataPort:     strconv.Itoa(s.ConnMgr.GetListenPort()),
+		clusterapi.MetaIncarnation: strconv.FormatUint(s.ConnMgr.Incarnation(), 10),
+	})
 	if err := s.Membership.Start(ctx); err != nil {
 		// memberlist.Create binds the gossip port BEFORE attempting Join,
 		// so a Join failure leaks the port even though Start returned an
-		// error. Tear membership down so a caller-side retry can re-bind.
+		// error. Tear membership down so a newly assembled stack can bind
+		// the same ports.
 		_ = s.Membership.Stop()
+		_ = s.Internode.Stop()
 		return fmt.Errorf("cluster: start membership: %w", err)
-	}
-	if err := s.Internode.Start(ctx); err != nil {
-		// Best effort: tear membership down so we don't leak a half-up stack.
-		_ = s.Membership.Stop()
-		return fmt.Errorf("cluster: start internode: %w", err)
 	}
 	s.started = true
 	return nil
 }
 
 // Stop shuts internode down, then membership. Safe to call exactly once
-// after Start.
+// after Start. A stopped stack cannot start again.
 func (s *Stack) Stop() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -301,13 +309,6 @@ func (s *Stack) Stop() error {
 
 func stringOr(v, def string) string {
 	if v == "" {
-		return def
-	}
-	return v
-}
-
-func intOr(v, def int) int {
-	if v == 0 {
 		return def
 	}
 	return v

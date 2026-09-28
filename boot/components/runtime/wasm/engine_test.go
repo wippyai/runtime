@@ -31,6 +31,8 @@ func (testBus) Subscribe(context.Context, event.System, chan<- event.Event) (eve
 func (testBus) SubscribeP(context.Context, event.System, event.Kind, chan<- event.Event) (event.SubscriberID, error) {
 	return "", nil
 }
+func (testBus) HasSubscribers(event.System, event.Kind) bool { return true }
+
 func (testBus) Unsubscribe(context.Context, event.SubscriberID) {}
 func (testBus) Send(context.Context, event.Event)               {}
 
@@ -53,7 +55,7 @@ func TestEngineAlias(t *testing.T) {
 func TestDefaultHostProfiles(t *testing.T) {
 	profiles := DefaultHostProfiles(nil, nil)
 	want := []string{
-		"funcs", "wasi1",
+		"wippy:actor", "funcs", "wasi1",
 		"wasi:io", "wasi:poll", "wasi:clocks", "wasi:cli",
 		"wasi:filesystem", "wasi:random", "wasi:sockets", "wasi:http",
 		"socket",

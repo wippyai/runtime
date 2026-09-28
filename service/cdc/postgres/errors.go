@@ -12,8 +12,14 @@ import (
 
 var (
 	ErrUnknownRelation    = errors.New("cdc: unknown relation id")
+	ErrInvalidTransaction = errors.New("cdc: invalid transaction message sequence")
+	ErrTransactionLimit   = errors.New("cdc: transaction buffer limit exceeded")
+	ErrUnsupportedMessage = errors.New("cdc: unsupported logical replication message")
 	ErrSourceClosed       = errors.New("cdc: source is closed")
+	ErrSourceRunning      = errors.New("cdc: source is already running")
+	ErrSourceStopping     = errors.New("cdc: source is stopping")
 	ErrNoPublication      = errors.New("cdc: no publication and no tables configured")
+	ErrInvalidIdentifier  = errors.New("cdc: invalid PostgreSQL identifier")
 	ErrTranscoderRequired = apierror.New(apierror.Invalid, "transcoder is required").WithRetryable(apierror.False)
 	ErrEventBusRequired   = apierror.New(apierror.Invalid, "event bus is required").WithRetryable(apierror.False)
 	ErrNoSourceStreamer   = apierror.New(apierror.Internal, "cdc source streamer not available").WithRetryable(apierror.False)

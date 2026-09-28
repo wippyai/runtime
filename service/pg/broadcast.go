@@ -62,6 +62,10 @@ func (s *Service) sendToMembers(from pid.PID, topic string, payloads payload.Pay
 		pkg := relay.NewMessagePackage(from, target, msg)
 
 		if err := s.router.Send(pkg); err != nil {
+			if errors.Is(err, internode.ErrNodeNotManaged) {
+				s.tel.recordBroadcastDropped(s.hostID, "node_not_managed")
+				continue
+			}
 			if errors.Is(err, internode.ErrQueueFull) {
 				// Erlang OTP `pg` semantics: fire-and-forget but observable.
 				// Caller already has a sent-count; we count drops separately.
@@ -120,6 +124,9 @@ func (s *Service) deliverMonitorEventWithCircuitBreaker(group string, kind strin
 
 			pkg := relay.NewPackage(pid.PID{}, entry.pid, entry.topic, payload.New(data))
 			if err := s.router.Send(pkg); err != nil {
+				if errors.Is(err, internode.ErrNodeNotManaged) {
+					continue
+				}
 				s.logger.Debug("failed to deliver monitor event",
 					zap.String("group", group),
 					logPID(entry.pid),

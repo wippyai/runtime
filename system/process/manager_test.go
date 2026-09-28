@@ -10,6 +10,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/attrs"
+	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/registry"
@@ -59,15 +61,18 @@ func (n *mockNode) Attach(_ pid.PID, _ chan *relay.Package) (context.CancelFunc,
 func (n *mockNode) Detach(_ pid.PID) {}
 
 type mockHost struct {
-	runErr          error
-	terminateErr    error
-	sendErr         error
-	returnPID       pid.PID
-	mu              sync.Mutex
-	runCalled       bool
-	terminateCalled bool
-	sendCalled      bool
+	runErr             error
+	terminateErr       error
+	sendErr            error
+	returnPID          pid.PID
+	mu                 sync.Mutex
+	runCalled          bool
+	terminateCalled    bool
+	sendCalled         bool
+	acceptsAttachments bool
 }
+
+func (h *mockHost) AcceptsFrameAttachments() bool { return h.acceptsAttachments }
 
 func (h *mockHost) Run(_ context.Context, start *process.Start) (pid.PID, error) {
 	h.mu.Lock()
@@ -120,6 +125,78 @@ func TestManager_Start(t *testing.T) {
 	assert.Equal(t, "proc-1", procID.UniqID)
 	assert.True(t, host.runCalled)
 }
+
+func TestManagerStartRollsBackResolverAttachmentsWhenHostRejectsStart(t *testing.T) {
+	node := newMockNode()
+	host := &mockHost{runErr: errors.New("host rejected start"), acceptsAttachments: true}
+	_ = node.RegisterHost("test-host", host)
+	closed := 0
+	attachment := &testManagerAttachment{closed: &closed}
+	resolver := ctxapi.NewFrameResolvers()
+	require.NoError(t, resolver.Register("attachment", 1, func(context.Context, attrs.Attributes) ([]ctxapi.Pair, error) {
+		return []ctxapi.Pair{{Key: &ctxapi.Key{Name: "attachment"}, Value: attachment}}, nil
+	}))
+	ctx := ctxapi.WithFrameResolvers(ctxapi.NewRootContext(), resolver)
+
+	_, err := NewManager(node, zap.NewNop()).Start(ctx, &process.Start{
+		HostID: "test-host", Source: registry.NewID("test", "source"),
+	})
+	require.Error(t, err)
+	require.Equal(t, 1, closed)
+}
+
+func TestManagerStartPreservesCallerContextWhenResolutionFails(t *testing.T) {
+	node := newMockNode()
+	host := &mockHost{acceptsAttachments: true}
+	_ = node.RegisterHost("test-host", host)
+	sentinel := errors.New("resolution failed")
+	resolver := ctxapi.NewFrameResolvers()
+	require.NoError(t, resolver.Register("failure", 1, func(context.Context, attrs.Attributes) ([]ctxapi.Pair, error) {
+		return nil, sentinel
+	}))
+	ctx := ctxapi.WithFrameResolvers(ctxapi.NewRootContext(), resolver)
+	original := ctxapi.Pair{Key: &ctxapi.Key{Name: "caller"}, Value: "preserved"}
+	start := &process.Start{
+		HostID: "test-host", Source: registry.NewID("test", "source"),
+		Context: []ctxapi.Pair{original},
+	}
+
+	_, err := NewManager(node, zap.NewNop()).Start(ctx, start)
+	require.ErrorIs(t, err, sentinel)
+	require.Equal(t, []ctxapi.Pair{original}, start.Context)
+	require.False(t, host.runCalled)
+}
+
+func TestManagerStartRejectsAttachmentsForNonFrameHost(t *testing.T) {
+	node := newMockNode()
+	host := &mockHost{}
+	_ = node.RegisterHost("remote-host", host)
+	closed := 0
+	resolver := ctxapi.NewFrameResolvers()
+	require.NoError(t, resolver.Register("attachment", 1, func(context.Context, attrs.Attributes) ([]ctxapi.Pair, error) {
+		return []ctxapi.Pair{{Key: "attachment", Value: &testManagerAttachment{closed: &closed}}}, nil
+	}))
+	ctx := ctxapi.WithFrameResolvers(ctxapi.NewRootContext(), resolver)
+
+	_, err := NewManager(node, zap.NewNop()).Start(ctx, &process.Start{
+		HostID: "remote-host", Source: registry.NewID("test", "source"),
+	})
+	require.ErrorIs(t, err, ErrFrameAttachmentsUnsupported)
+	require.Equal(t, 1, closed)
+	require.False(t, host.runCalled)
+}
+
+type testManagerAttachment struct {
+	closed *int
+	once   sync.Once
+}
+
+func (a *testManagerAttachment) release() error {
+	a.once.Do(func() { *a.closed++ })
+	return nil
+}
+func (a *testManagerAttachment) Close() error    { return a.release() }
+func (a *testManagerAttachment) Rollback() error { return a.release() }
 
 func TestManager_Start_HostNotFound(t *testing.T) {
 	node := newMockNode()

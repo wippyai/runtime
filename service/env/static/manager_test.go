@@ -33,6 +33,8 @@ func (m *mockBus) SubscribeP(context.Context, event.System, event.Kind, chan<- e
 	return "", nil
 }
 
+func (*mockBus) HasSubscribers(event.System, event.Kind) bool { return true }
+
 func (m *mockBus) Unsubscribe(context.Context, event.SubscriberID) {}
 
 type mockTranscoder struct {

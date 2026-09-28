@@ -10,6 +10,9 @@ import (
 // ErrEmptyDirectoryPath indicates a missing directory path.
 var ErrEmptyDirectoryPath = apierror.New(apierror.Invalid, "directory path is required").WithRetryable(apierror.False)
 
+// ErrReadOnlyAutoInit indicates a read-only volume asked to create its own root.
+var ErrReadOnlyAutoInit = apierror.New(apierror.Invalid, "a read-only directory cannot auto_init").WithRetryable(apierror.False)
+
 // NewInvalidModeFormatError reports invalid file mode formatting.
 func NewInvalidModeFormatError(cause error) apierror.Error {
 	return apierror.New(apierror.Invalid, "invalid file mode format").WithCause(cause).WithRetryable(apierror.False)

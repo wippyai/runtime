@@ -34,6 +34,8 @@ func (m *mockBus) SubscribeP(_ context.Context, _ event.System, _ event.Kind, _ 
 	return "", nil
 }
 
+func (*mockBus) HasSubscribers(event.System, event.Kind) bool { return true }
+
 func (m *mockBus) Unsubscribe(_ context.Context, _ event.SubscriberID) {}
 
 func (m *mockBus) Send(_ context.Context, e event.Event) {

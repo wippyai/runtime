@@ -23,9 +23,12 @@ import (
 // slot (whose Reset bumped the generation) rejects the push and a recycled pid
 // never mis-delivers to a different process.
 type signalRef struct {
-	pid    pid.PID
-	source registry.ID
-	gen    uint64
+	// terminate cancels this incarnation's context. It stays bound to the
+	// incarnation after its pooled slot is reused.
+	terminate context.CancelFunc
+	pid       pid.PID
+	source    registry.ID
+	gen       uint64
 }
 
 type inspectorRef struct {
@@ -93,19 +96,15 @@ type Processor struct {
 	pooled     bool
 }
 
-// publishSignalRef captures the processor's stable pid + source id into an
-// atomic snapshot for the out-of-band OUTDATED scan. Called after ctx and pid
-// are assigned; a processor with no frame source id publishes nil.
-func (p *Processor) publishSignalRef() {
-	if p.ctx == nil {
-		p.sig.Store(nil)
-		return
+// publishSignalRef publishes immutable identity, generation and the
+// incarnation's context cancel for message delivery, termination and
+// lifecycle scans. Source is optional; PID identity is not.
+func (p *Processor) publishSignalRef(terminate context.CancelFunc) {
+	ref := &signalRef{pid: p.pid, gen: p.gen.Load(), terminate: terminate}
+	if p.ctx != nil {
+		ref.source, _ = runtime.GetFrameID(p.ctx)
 	}
-	if src, ok := runtime.GetFrameID(p.ctx); ok {
-		p.sig.Store(&signalRef{pid: p.pid, source: src, gen: p.gen.Load()})
-		return
-	}
-	p.sig.Store(nil)
+	p.sig.Store(ref)
 }
 
 func (p *Processor) publishInspectorRef() {

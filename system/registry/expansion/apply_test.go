@@ -33,6 +33,10 @@ type testEffect struct {
 	rollbackCall int
 }
 
+func (t *testEffect) Target() (regapi.EffectTarget, error) {
+	return regapi.EffectTarget{Kind: "test", Digest: "static"}, nil
+}
+
 func (t *testEffect) Prepare(context.Context) error {
 	t.prepareCall++
 	return t.prepareErr
@@ -68,10 +72,13 @@ type applyRunner struct {
 	transitionCalls int
 }
 
-func (r *applyRunner) Transition(_ context.Context, state regapi.State, changes regapi.ChangeSet) (regapi.State, error) {
+func (r *applyRunner) Transition(ctx context.Context, state regapi.State, changes regapi.ChangeSet, abort func(context.Context)) (regapi.State, error) {
 	r.transitionCalls++
 	r.lastChangeSet = changes
 	if r.err != nil {
+		if abort != nil {
+			abort(ctx)
+		}
 		return state, r.err
 	}
 
@@ -80,6 +87,9 @@ func (r *applyRunner) Transition(_ context.Context, state regapi.State, changes 
 		var err error
 		stateMap, err = r.builder.ApplyOperation(stateMap, op)
 		if err != nil {
+			if abort != nil {
+				abort(ctx)
+			}
 			return state, err
 		}
 	}

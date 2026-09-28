@@ -65,11 +65,6 @@ func TestE2E_KVRegistry_StrongPromotes(t *testing.T) {
 	}
 	c := NewCluster(t, 3)
 
-	var members []pid.NodeID
-	for _, n := range c.Nodes() {
-		members = append(members, n.ID)
-	}
-
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	regs := make(map[string]*kvbacked.Service, len(c.Nodes()))
@@ -77,9 +72,9 @@ func TestE2E_KVRegistry_StrongPromotes(t *testing.T) {
 		node := n
 		reg := kvbacked.NewService(node.KV, node.ID, nil, nil)
 		reg.ConfigureStrong(kvbacked.StrongDeps{
-			Membership: func() []pid.NodeID { return members },
-			IsLeader:   func() bool { return node.Raft.IsLeader() },
-			Deadline:   8 * time.Second,
+			Members:  func() ([]pid.NodeID, error) { return strongObserverMembers(node) },
+			IsLeader: func() bool { return node.Raft.IsLeader() },
+			Deadline: 8 * time.Second,
 		})
 		if err := reg.StartReconciler(ctx); err != nil {
 			t.Fatalf("start reconciler on %s: %v", node.ID, err)
@@ -96,10 +91,26 @@ func TestE2E_KVRegistry_StrongPromotes(t *testing.T) {
 	if out.State != globalapi.RegisterStateActive || out.PID.String() != p.String() {
 		t.Fatalf("strong outcome: %+v", out)
 	}
+	active, err := c.Leader().KV.Get("_sys:registry:active:strongsvc")
+	if err != nil || active.Epoch == 0 || out.Epoch != active.Epoch {
+		t.Fatalf("active fence epoch=%d, returned epoch=%d, err=%v", active.Epoch, out.Epoch, err)
+	}
 
 	for _, n := range c.Nodes() {
 		waitLookup(t, regs[n.ID], "strongsvc", p, 5*time.Second)
 	}
+}
+
+func strongObserverMembers(node *Node) ([]pid.NodeID, error) {
+	servers, err := node.Raft.GetConfiguration()
+	if err != nil {
+		return nil, err
+	}
+	members := make([]pid.NodeID, 0, len(servers))
+	for _, server := range servers {
+		members = append(members, server.ID)
+	}
+	return members, nil
 }
 
 // TestE2E_KVRegistry_SurvivesLeaderKill is the resilience capstone: a CONSISTENT

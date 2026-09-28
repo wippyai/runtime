@@ -9,7 +9,7 @@ local function main()
 
 	local child_pid, spawn_err = process.spawn_monitored(
 		"app.test.wasm:compute_component_process",
-		"app:processes",
+		"app:wasm_processes",
 		6,
 		7
 	)

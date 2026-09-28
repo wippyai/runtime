@@ -358,3 +358,41 @@ func TestScopeEvaluate(t *testing.T) {
 		t.Errorf("test failed: %v", err)
 	}
 }
+
+func TestPolicyPermissionDenied(t *testing.T) {
+	actor := secapi.Actor{ID: "test-user"}
+	pol := newMockPolicy("test", "deny-all", secapi.Deny)
+	scope := secsystem.NewScope([]secapi.Policy{pol})
+	l := setupStateWithSecurityContext(actor, scope)
+	defer l.Close()
+
+	err := l.DoString(`
+		local p, err = security.policy("test:some-policy")
+		assert(p == nil, "expected nil policy under a deny policy")
+		assert(err ~= nil, "expected error under a deny policy")
+		assert(err:kind() == errors.PERMISSION_DENIED, "expected PERMISSION_DENIED kind, got: " .. tostring(err:kind()))
+		assert(err:retryable() == false, "expected not retryable")
+	`)
+	if err != nil {
+		t.Errorf("test failed: %v", err)
+	}
+}
+
+func TestNamedScopePermissionDenied(t *testing.T) {
+	actor := secapi.Actor{ID: "test-user"}
+	pol := newMockPolicy("test", "deny-all", secapi.Deny)
+	scope := secsystem.NewScope([]secapi.Policy{pol})
+	l := setupStateWithSecurityContext(actor, scope)
+	defer l.Close()
+
+	err := l.DoString(`
+		local s, err = security.named_scope("test:some-group")
+		assert(s == nil, "expected nil scope under a deny policy")
+		assert(err ~= nil, "expected error under a deny policy")
+		assert(err:kind() == errors.PERMISSION_DENIED, "expected PERMISSION_DENIED kind, got: " .. tostring(err:kind()))
+		assert(err:retryable() == false, "expected not retryable")
+	`)
+	if err != nil {
+		t.Errorf("test failed: %v", err)
+	}
+}

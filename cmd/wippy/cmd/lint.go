@@ -5,6 +5,7 @@ package cmd
 import (
 	"context"
 	stdjson "encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"runtime"
@@ -13,9 +14,6 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/charmbracelet/bubbles/progress"
-	"github.com/charmbracelet/bubbles/spinner"
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 	"github.com/wippyai/go-lua/compiler/ast"
@@ -93,9 +91,6 @@ var (
 	styleSuccess = lipgloss.NewStyle().Foreground(lipgloss.Color("10")).Bold(true)
 	styleCode    = lipgloss.NewStyle().Foreground(lipgloss.Color("12")).Bold(true)
 	styleNS      = lipgloss.NewStyle().Foreground(lipgloss.Color("13")).Bold(true)
-	styleEntry   = lipgloss.NewStyle().Foreground(lipgloss.Color("14"))
-	styleMuted   = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
-	styleFace    = lipgloss.NewStyle().Foreground(lipgloss.Color("208")).Bold(true)
 )
 
 // ----------------------------------------------------------------------------
@@ -170,9 +165,10 @@ type Diagnostic struct {
 
 // RichDiagnostic holds a diagnostic with source for rendering.
 type RichDiagnostic struct {
-	EntryID string
-	Diag    diag.Diagnostic
-	Source  diag.SourceLines
+	EntryID     string
+	displayCode string
+	Diag        diag.Diagnostic
+	Source      diag.SourceLines
 }
 
 // LintResult holds the complete lint results.
@@ -202,6 +198,8 @@ type entryData struct {
 	Source  string
 	Method  string
 }
+
+const parseErrorCode = "P0001"
 
 // lintConfig holds runtime configuration for a lint session.
 type lintConfig struct {
@@ -280,7 +278,7 @@ func runLint(cmd *cobra.Command, _ []string) error {
 
 	var result *LintResult
 	if console {
-		result, err = runLintWithUI(luaEntries, reportSet, linter, lcache, cfg)
+		result, err = runLintWithUI(cmd.Context(), luaEntries, reportSet, linter, lcache, cfg)
 	} else {
 		result = runLintSimple(luaEntries, reportSet, linter, lcache, cfg)
 	}
@@ -351,7 +349,7 @@ func bootstrapLintContext(cfg boot.Config) (ctx context.Context, loader *bootpkg
 		return nil, nil, NewInitializeBootstrapContextError(err)
 	}
 
-	components := StandardComponents()
+	components := selectedComponents()
 	reservedNames := make(map[string]struct{}, len(components))
 	for _, comp := range components {
 		if comp == nil {
@@ -511,46 +509,23 @@ func outputResults(result *LintResult, opts lintOptions) error {
 // Linting execution
 // ----------------------------------------------------------------------------
 
-func runLintWithUI(luaEntries []regapi.Entry, reportSet map[regapi.ID]bool, linter *lint.Linter, lcache lintCache, cfg lintConfig) (*LintResult, error) {
-	prog := progress.New(progress.WithDefaultGradient())
-	s := spinner.New()
-	s.Spinner = spinner.Dot
-	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("12"))
-
-	m := &lintModel{
-		progress:     prog,
-		spinner:      s,
-		totalEntries: len(luaEntries),
-	}
-
-	p := newCLIProgram(m)
-
-	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				p.Send(lintErrorMsg{err: fmt.Errorf("lint panic: %v", r)})
-			}
-		}()
-		result := lintEntries(luaEntries, reportSet, linter, lcache, cfg, p)
-		p.Send(lintCompleteMsg{result: result})
+func runLintWithUI(ctx context.Context, luaEntries []regapi.Entry, reportSet map[regapi.ID]bool, linter *lint.Linter, lcache lintCache, cfg lintConfig) (result *LintResult, err error) {
+	reporter := newCLIProgressReporter(ctx, os.Stdout)
+	reporter.lintTotal = len(luaEntries)
+	defer reporter.Close()
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			result = nil
+			err = fmt.Errorf("lint panic: %v", recovered)
+		}
 	}()
 
-	finalModel, err := p.Run()
-	if err != nil {
+	result = lintEntries(luaEntries, reportSet, linter, lcache, cfg, reporter)
+	if err := reporter.Err(); err != nil {
 		return nil, err
 	}
-
-	if lm, ok := finalModel.(*lintModel); ok {
-		if lm.err != nil {
-			return nil, lm.err
-		}
-		if lm.result == nil {
-			return nil, fmt.Errorf("lint operation was interrupted")
-		}
-		return lm.result, nil
-	}
-
-	return nil, fmt.Errorf("lint operation was interrupted")
+	reporter.Send(lintCompleteMsg{})
+	return result, nil
 }
 
 func runLintSimple(luaEntries []regapi.Entry, reportSet map[regapi.ID]bool, linter *lint.Linter, lcache lintCache, cfg lintConfig) *LintResult {
@@ -560,7 +535,7 @@ func runLintSimple(luaEntries []regapi.Entry, reportSet map[regapi.ID]bool, lint
 }
 
 // lintEntries is the core linting loop. If prog is non-nil, sends UI updates.
-func lintEntries(luaEntries []regapi.Entry, reportSet map[regapi.ID]bool, linter *lint.Linter, lcache lintCache, cfg lintConfig, prog *tea.Program) *LintResult {
+func lintEntries(luaEntries []regapi.Entry, reportSet map[regapi.ID]bool, linter *lint.Linter, lcache lintCache, cfg lintConfig, prog *cliProgressReporter) *LintResult {
 	result := &LintResult{TotalEntries: len(luaEntries)}
 	workers := cfg.workers
 	if workers < 1 {
@@ -601,16 +576,15 @@ func lintEntries(luaEntries []regapi.Entry, reportSet map[regapi.ID]bool, linter
 	}
 
 	for _, levelEntries := range levels {
+		if prog != nil && prog.Err() != nil {
+			return result
+		}
 		if len(levelEntries) == 0 {
 			continue
 		}
 
 		if len(levelEntries) == 1 {
 			entry := levelEntries[0]
-			if prog != nil {
-				prog.Send(lintEntryMsg{entry: entry.ID.String()})
-			}
-
 			er := lintOneEntry(entry, entryDataMap[entry.ID], linter, manifestMap, cfg.minSeverity, lcache, fps)
 			checked.Add(1)
 
@@ -639,10 +613,6 @@ func lintEntries(luaEntries []regapi.Entry, reportSet map[regapi.ID]bool, linter
 				defer wg.Done()
 				defer func() { <-sem }()
 
-				if prog != nil {
-					prog.Send(lintEntryMsg{entry: e.ID.String()})
-				}
-
 				clone := linter.Clone()
 				er := lintOneEntry(e, entryDataMap[e.ID], clone, manifestMap, cfg.minSeverity, lcache, fps)
 				checked.Add(1)
@@ -660,6 +630,9 @@ func lintEntries(luaEntries []regapi.Entry, reportSet map[regapi.ID]bool, linter
 			}(i, entry)
 		}
 		wg.Wait()
+		if prog != nil && prog.Err() != nil {
+			return result
+		}
 
 		for i := range results {
 			mergeEntryResult(result, &results[i], manifestMap, reportSet)
@@ -680,16 +653,7 @@ func lintOneEntry(entry regapi.Entry, data entryData, linter *lint.Linter, manif
 
 	stmts, parseErr := parse.ParseString(data.Source, entryID)
 	if parseErr != nil {
-		return &entryResult{
-			entryID: entry.ID,
-			diagnostics: []Diagnostic{{
-				EntryID:  entryID,
-				Code:     "P0001",
-				Severity: "error",
-				Message:  parseErr.Error(),
-			}},
-			errors: 1,
-		}
+		return parseErrorResult(entry.ID, parseErr, sourceLines)
 	}
 
 	imports := make(map[string]*io.Manifest)
@@ -778,6 +742,49 @@ func lintOneEntry(entry regapi.Entry, data entryData, linter *lint.Linter, manif
 	}
 
 	return er
+}
+
+// parseErrorResult reports a syntax error the same way a type error is
+// reported: counted, listed, and rendered with its line so it cannot pass
+// unnoticed in the terminal report.
+func parseErrorResult(id regapi.ID, parseErr error, sourceLines diag.SourceLines) *entryResult {
+	entryID := id.String()
+	message := parseErr.Error()
+	position := diag.Position{File: entryID, Line: 1, Column: 1}
+	var syntaxErr *parse.Error
+	if errors.As(parseErr, &syntaxErr) {
+		message = syntaxErr.Message
+		if syntaxErr.Pos.Line == parse.EOF {
+			position.Line = len(sourceLines)
+			if position.Line < 1 {
+				position.Line = 1
+			}
+		} else if syntaxErr.Pos.Line > 0 {
+			position.Line = syntaxErr.Pos.Line
+			if syntaxErr.Pos.Column > 0 {
+				position.Column = syntaxErr.Pos.Column
+			}
+		}
+	}
+	rendered := diag.Diagnostic{Severity: diag.SeverityError, Message: message, Position: position}
+	return &entryResult{
+		entryID: id,
+		diagnostics: []Diagnostic{{
+			EntryID:  entryID,
+			Code:     parseErrorCode,
+			Severity: severityError.String(),
+			Message:  message,
+			Line:     position.Line,
+			Column:   position.Column,
+		}},
+		rich: []RichDiagnostic{{
+			EntryID:     entryID,
+			Diag:        rendered,
+			Source:      sourceLines,
+			displayCode: parseErrorCode,
+		}},
+		errors: 1,
+	}
 }
 
 func mergeEntryResult(result *LintResult, er *entryResult, manifestMap map[regapi.ID]*io.Manifest, reportSet map[regapi.ID]bool) {
@@ -1156,10 +1163,17 @@ func renderRichDiag(rd RichDiagnostic, noColor bool) string {
 	} else {
 		rendered = rd.Diag.RenderColored(rd.Source)
 	}
-	if rd.Diag.Code >= lint.LintCodeBase {
-		rendered = strings.Replace(rendered, rd.Diag.Code.Name(), lint.FormatLintCode(rd.Diag.Code), 1)
+	if code := richDiagnosticCode(rd); code != rd.Diag.Code.Name() {
+		rendered = strings.Replace(rendered, rd.Diag.Code.Name(), code, 1)
 	}
 	return rendered
+}
+
+func richDiagnosticCode(rd RichDiagnostic) string {
+	if rd.displayCode != "" {
+		return rd.displayCode
+	}
+	return formatDiagCode(rd.Diag.Code)
 }
 
 func sortLintResults(result *LintResult) {
@@ -1197,8 +1211,9 @@ func sortLintResults(result *LintResult) {
 		if a.Diag.Position.Column != b.Diag.Position.Column {
 			return a.Diag.Position.Column < b.Diag.Position.Column
 		}
-		if a.Diag.Code != b.Diag.Code {
-			return a.Diag.Code < b.Diag.Code
+		aCode, bCode := richDiagnosticCode(a), richDiagnosticCode(b)
+		if aCode != bCode {
+			return aCode < bCode
 		}
 		return a.Diag.Message < b.Diag.Message
 	})
@@ -1227,7 +1242,7 @@ func filterByCode(result *LintResult, codes []string) *LintResult {
 	}
 
 	for _, rd := range result.RichDiagnostics {
-		if codeSet[strings.ToUpper(formatDiagCode(rd.Diag.Code))] {
+		if codeSet[strings.ToUpper(richDiagnosticCode(rd))] {
 			filtered.RichDiagnostics = append(filtered.RichDiagnostics, rd)
 		}
 	}
@@ -1446,26 +1461,6 @@ func groupDiagnostics(diagnostics []Diagnostic) ([]*codeStats, []*nsStats) {
 	return codes, namespaces
 }
 
-// ----------------------------------------------------------------------------
-// Bubbletea UI model
-// ----------------------------------------------------------------------------
-
-type lintModel struct {
-	err          error
-	result       *LintResult
-	currentEntry string
-	spinner      spinner.Model
-	progress     progress.Model
-	checked      int
-	totalEntries int
-	errors       int
-	warnings     int
-	entryIssues  int
-	percent      float64
-	eyeFrame     int
-	done         bool
-}
-
 type lintProgressMsg struct {
 	entry      string
 	percent    float64
@@ -1475,138 +1470,4 @@ type lintProgressMsg struct {
 	entryIssue int
 }
 
-type lintEntryMsg struct {
-	entry string
-}
-
-type lintCompleteMsg struct {
-	result *LintResult
-}
-
-type lintErrorMsg struct {
-	err error
-}
-
-func (m *lintModel) Init() tea.Cmd {
-	return m.spinner.Tick
-}
-
-func (m *lintModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		if msg.String() == "ctrl+c" || msg.String() == "q" {
-			return m, tea.Quit
-		}
-
-	case lintEntryMsg:
-		m.currentEntry = msg.entry
-		m.entryIssues = 0
-		return m, nil
-
-	case lintProgressMsg:
-		m.percent = msg.percent
-		m.currentEntry = msg.entry
-		m.checked = msg.checked
-		m.errors = msg.errors
-		m.warnings = msg.warnings
-		m.entryIssues = msg.entryIssue
-		return m, nil
-
-	case lintCompleteMsg:
-		m.result = msg.result
-		m.percent = 1.0
-		m.done = true
-		return m, tea.Quit
-
-	case lintErrorMsg:
-		m.err = msg.err
-		m.done = true
-		return m, tea.Quit
-
-	case spinner.TickMsg:
-		m.eyeFrame++
-		var cmd tea.Cmd
-		m.spinner, cmd = m.spinner.Update(msg)
-		return m, cmd
-	}
-
-	return m, nil
-}
-
-func (m *lintModel) View() string {
-	pad := "  "
-
-	if m.done && m.err != nil {
-		return styleError.Render(fmt.Sprintf("\n%sError: %v\n", pad, m.err))
-	}
-
-	if m.done && m.result != nil {
-		return ""
-	}
-
-	var view strings.Builder
-	view.WriteString("\n")
-	view.WriteString(pad)
-	view.WriteString(m.progress.ViewAs(m.percent))
-	view.WriteString("\n\n")
-
-	view.WriteString(pad)
-	if m.entryIssues == 0 {
-		view.WriteString(styleFace.Render(lintEyes(m.eyeFrame)))
-	} else {
-		view.WriteString(styleFace.Render(lintFace(m.entryIssues)))
-	}
-	view.WriteString(" ")
-	if m.currentEntry != "" {
-		view.WriteString(styleEntry.Render(m.currentEntry))
-	}
-	view.WriteString("\n")
-
-	view.WriteString(pad)
-	view.WriteString(styleMuted.Render(fmt.Sprintf("%d/%d entries", m.checked, m.totalEntries)))
-	if m.errors > 0 {
-		view.WriteString("  ")
-		view.WriteString(styleError.Render(fmt.Sprintf("%d errors", m.errors)))
-	}
-	if m.warnings > 0 {
-		view.WriteString("  ")
-		view.WriteString(styleWarning.Render(fmt.Sprintf("%d warnings", m.warnings)))
-	}
-	view.WriteString("\n\n")
-
-	return view.String()
-}
-
-func lintEyes(frame int) string {
-	eyes := [][2]string{
-		{"\u25d5", "\u25d5"},
-		{"\u25d4", "\u25d4"},
-		{"\u25d1", "\u25d0"},
-		{"\u25d4", "\u25d4"},
-		{"\u25d5", "\u25d5"},
-		{"\u25cf", "\u25cf"},
-		{"-", "-"},
-		{"\u25cf", "\u25cf"},
-	}
-	e := eyes[frame%len(eyes)]
-	return "( " + e[0] + "_" + e[1] + " )"
-}
-
-func lintFace(issues int) string {
-	switch {
-	case issues == 1:
-		return "( ._. )"
-	case issues <= 3:
-		return "( \u25d4_\u25d4 )"
-	case issues <= 10:
-		return "( \u25c9_\u25c9 )"
-	case issues <= 20:
-		return "( O_o )"
-	case issues <= 35:
-		return "( T_T )"
-	case issues <= 50:
-		return "( >_< )"
-	default:
-		return "( x_x )"
-	}
-}
+type lintCompleteMsg struct{}

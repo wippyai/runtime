@@ -5,11 +5,45 @@ package terminal
 import (
 	"testing"
 
+	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/input"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestConvertUVInputEventPreservesNavigationAndKittyModifiers(t *testing.T) {
+	navigation := convertUVInputEvent(uv.KeyPressEvent(uv.Key{Code: uv.KeyPgDown, Mod: uv.ModCtrl | uv.ModAlt}))
+	require.NotNil(t, navigation)
+	assert.Equal(t, "key", navigation.Type)
+	assert.Equal(t, "pgdown", navigation.Key)
+	assert.Equal(t, "pgdown", navigation.KeyType)
+	assert.True(t, navigation.Ctrl)
+	assert.True(t, navigation.Alt)
+
+	kittyControl := convertUVInputEvent(uv.KeyReleaseEvent(uv.Key{
+		Code:     'a',
+		BaseCode: 'a',
+		Mod:      uv.ModCtrl,
+	}))
+	require.NotNil(t, kittyControl)
+	assert.Equal(t, "release", kittyControl.Action)
+	assert.Equal(t, "a", kittyControl.Key)
+	assert.Equal(t, "runes", kittyControl.KeyType)
+	assert.True(t, kittyControl.Ctrl)
+
+	kittyText := convertUVInputEvent(uv.KeyPressEvent(uv.Key{
+		Code:        'é',
+		BaseCode:    'e',
+		ShiftedCode: 'É',
+		Text:        "é",
+		Mod:         uv.ModShift,
+	}))
+	require.NotNil(t, kittyText)
+	assert.Equal(t, "é", kittyText.Key)
+	assert.Equal(t, "runes", kittyText.KeyType)
+	assert.True(t, kittyText.Shift)
+}
 
 func TestConvertInputEvent_KeyPress_Runes(t *testing.T) {
 	ev := input.KeyPressEvent(input.Key{
@@ -87,8 +121,8 @@ func TestConvertInputEvent_MouseClick(t *testing.T) {
 	assert.Equal(t, "mouse", result.Type)
 	assert.Equal(t, "press", result.Action)
 	assert.Equal(t, "left", result.Button)
-	assert.Equal(t, 10, result.X)
-	assert.Equal(t, 20, result.Y)
+	assert.Equal(t, 11, result.X)
+	assert.Equal(t, 21, result.Y)
 }
 
 func TestConvertInputEvent_MouseRelease(t *testing.T) {
@@ -127,6 +161,8 @@ func TestConvertInputEvent_MouseMotion(t *testing.T) {
 	assert.Equal(t, "mouse", result.Type)
 	assert.Equal(t, "motion", result.Action)
 	assert.Equal(t, "left", result.Button)
+	assert.Equal(t, 2, result.X)
+	assert.Equal(t, 3, result.Y)
 	assert.True(t, result.Shift)
 }
 

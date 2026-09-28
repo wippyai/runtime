@@ -15,7 +15,7 @@ type (
 
 	// LifecycleConfig defines the configuration for a service managed by the supervisor.
 	LifecycleConfig struct {
-		// Startup controls whether an auto-start root is strict or may degrade independently.
+		// Startup controls whether an auto-start root is strict, optional, or waits for completion.
 		Startup  StartupMode      `json:"startup,omitempty" yaml:"startup" default:"required"`
 		Security *security.Config `json:"security,omitempty" yaml:"security,omitempty"`
 		// Requires lists other supervisor services that must be running before this one starts.
@@ -47,6 +47,7 @@ type (
 const (
 	StartupRequired StartupMode = "required"
 	StartupOptional StartupMode = "optional"
+	StartupComplete StartupMode = "complete"
 )
 
 func (cfg LifecycleConfig) RequiredServices() []string {
@@ -78,14 +79,21 @@ func (cfg LifecycleConfig) StartupMode() StartupMode {
 	if cfg.Startup == "" {
 		return StartupRequired
 	}
-	if cfg.Startup == StartupOptional {
-		return StartupOptional
-	}
-	return StartupRequired
+	return cfg.Startup
 }
 
 func (cfg LifecycleConfig) StartupRequired() bool {
-	return cfg.StartupMode() == StartupRequired
+	return cfg.StartupMode() != StartupOptional
+}
+
+// ValidateStartupMode checks that Startup is a supported mode.
+func (cfg LifecycleConfig) ValidateStartupMode() error {
+	switch cfg.Startup {
+	case "", StartupRequired, StartupOptional, StartupComplete:
+		return nil
+	default:
+		return NewInvalidStartupModeError(cfg.Startup)
+	}
 }
 
 // InitDefaults initializes the LifecycleConfig with default values if they are not set.
@@ -143,6 +151,9 @@ func (cfg *LifecycleConfig) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
 	}
+	if err := (LifecycleConfig{Startup: raw.Startup}).ValidateStartupMode(); err != nil {
+		return err
+	}
 
 	cfg.AutoStart = raw.AutoStart
 	cfg.RetryPolicy = raw.RetryPolicy
@@ -178,6 +189,9 @@ func (cfg *LifecycleConfig) UnmarshalJSON(data []byte) error {
 
 // MarshalJSON implements json.Marshaler to output durations as strings
 func (cfg LifecycleConfig) MarshalJSON() ([]byte, error) {
+	if err := cfg.ValidateStartupMode(); err != nil {
+		return nil, err
+	}
 	startup := cfg.Startup
 	if startup != "" {
 		startup = cfg.StartupMode()

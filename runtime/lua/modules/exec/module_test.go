@@ -9,11 +9,50 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	lua "github.com/wippyai/go-lua"
+	"github.com/wippyai/runtime/api/attrs"
+	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/registry"
+	securityapi "github.com/wippyai/runtime/api/security"
 	execapi "github.com/wippyai/runtime/api/service/exec"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
+	secsystem "github.com/wippyai/runtime/system/security"
 )
+
+type mountPermissionPolicy struct {
+	metadata attrs.Bag
+	// allowedSources scopes exec.mount to named host paths; nil means none.
+	allowedSources map[string]bool
+	// evaluated counts exec.mount evaluations, so a test can prove validation
+	// refused a mount before policy ever saw it.
+	evaluated int
+	// requireReadOnly grants exec.mount only when the read_only attribute is set.
+	requireReadOnly bool
+	allowMount      bool
+}
+
+func (mountPermissionPolicy) ID() registry.ID { return registry.ParseID("test:exec-mount") }
+
+func (p *mountPermissionPolicy) Evaluate(_ securityapi.Actor, action, resource string, metadata attrs.Bag) securityapi.Result {
+	if action == "exec.run" {
+		return securityapi.Allow
+	}
+	if action != "exec.mount" {
+		return securityapi.Deny
+	}
+	p.evaluated++
+	allowed := p.allowMount || p.allowedSources[resource]
+	if p.requireReadOnly {
+		readOnly, _ := metadata["read_only"].(bool)
+		allowed = allowed && readOnly
+	}
+	if !allowed {
+		return securityapi.Deny
+	}
+	p.metadata = attrs.Bag{"resource": resource, "target": metadata["target"], "read_only": metadata["read_only"]}
+	return securityapi.Allow
+}
 
 func setupState() *lua.LState {
 	l := lua.NewState()
@@ -73,7 +112,7 @@ func TestGetNoContext(t *testing.T) {
 	tbl, _ := Module.Build()
 	l.SetGlobal(Module.Name, tbl)
 
-	// Without context, security strict mode blocks access with INVALID (permission denied)
+	// Without context, security strict mode blocks access with PERMISSION_DENIED
 	err := l.DoString(`
 		local ok, err = exec.get("test:executor")
 		if ok ~= nil then
@@ -82,7 +121,7 @@ func TestGetNoContext(t *testing.T) {
 		if not err then
 			error("expected error")
 		end
-		if err:kind() ~= errors.INVALID then
+		if err:kind() ~= errors.PERMISSION_DENIED then
 			error("expected INVALID error kind (security denial), got: " .. tostring(err:kind()))
 		end
 	`)
@@ -146,7 +185,7 @@ func TestErrorMethods(t *testing.T) {
 }
 
 func TestProcessMethodsRegistered(t *testing.T) {
-	methods := []string{"start", "wait", "signal", "write_stdin", "stdout_stream", "stderr_stream", "close"}
+	methods := []string{"start", "wait", "done", "signal", "pid", "write_stdin", "close_stdin", "stdout_stream", "stderr_stream", "close"}
 
 	for _, m := range methods {
 		if _, ok := processMethods[m]; !ok {
@@ -339,8 +378,9 @@ func TestProcessDoubleClose(t *testing.T) {
 func TestProcessCloseWithForce(t *testing.T) {
 	mockHandle := &mockProcess{}
 	p := &Process{
-		handle: mockHandle,
-		closed: false,
+		handle:  mockHandle,
+		started: true,
+		closed:  false,
 	}
 
 	l := setupState()
@@ -516,14 +556,20 @@ func TestModuleBuild(t *testing.T) {
 	}
 
 	found := false
+	foundTerminal := false
 	for _, y := range yields {
 		if y.CmdID == execapi.ProcessWait {
 			found = true
-			break
+		}
+		if y.CmdID == execapi.TerminalReady {
+			foundTerminal = true
 		}
 	}
 	if !found {
 		t.Error("module should register ProcessWait yield type")
+	}
+	if !foundTerminal {
+		t.Error("module should register TerminalReady yield type")
 	}
 }
 
@@ -542,8 +588,9 @@ func TestModuleMetadata(t *testing.T) {
 func TestProcessCloseWithoutForce(t *testing.T) {
 	mockHandle := &mockProcess{}
 	p := &Process{
-		handle: mockHandle,
-		closed: false,
+		handle:  mockHandle,
+		started: true,
+		closed:  false,
 	}
 
 	l := setupState()
@@ -594,9 +641,15 @@ func (m *mockResource) Release() {
 
 type mockProcessExecutor struct {
 	newProcessErr error
+	lastCommand   string
+	lastOptions   execapi.ProcessOptions
+	newProcessN   int
 }
 
-func (m *mockProcessExecutor) NewProcess(_ string, _ execapi.ProcessOptions) (execapi.Process, error) {
+func (m *mockProcessExecutor) NewProcess(command string, options execapi.ProcessOptions) (execapi.Process, error) {
+	m.lastCommand = command
+	m.lastOptions = options
+	m.newProcessN++
 	if m.newProcessErr != nil {
 		return nil, m.newProcessErr
 	}
@@ -611,8 +664,278 @@ type mockProcess struct {
 	signalCalled  int
 }
 
+func TestExecutorExecParsesPTYOptions(t *testing.T) {
+	l := setupState()
+	defer l.Close()
+	ctx := securityapi.SetStrictMode(ctxapi.NewRootContext(), false)
+	l.SetContext(ctx)
+	factory := &mockProcessExecutor{}
+
+	value.PushTypedUserData(l, NewExecutor(ctx, nil, factory), executorTypeName)
+	l.Push(lua.LString("test-command"))
+	options := l.NewTable()
+	options.RawSetString("work_dir", lua.LString("/tmp"))
+	env := l.NewTable()
+	env.RawSetString("FOO", lua.LString("bar"))
+	options.RawSetString("env", env)
+	pty := l.NewTable()
+	pty.RawSetString("width", lua.LInteger(100))
+	pty.RawSetString("height", lua.LInteger(30))
+	pty.RawSetString("term", lua.LString("xterm-256color"))
+	options.RawSetString("pty", pty)
+	mounts := l.NewTable()
+	mount := l.NewTable()
+	mount.RawSetString("source", lua.LString("/host/project"))
+	mount.RawSetString("target", lua.LString("/workspace"))
+	mount.RawSetString("read_only", lua.LTrue)
+	mounts.RawSetInt(1, mount)
+	options.RawSetString("mounts", mounts)
+	l.Push(options)
+
+	if returns := executorExec(l); returns != 2 {
+		t.Fatalf("executorExec returned %d values, want 2", returns)
+	}
+	if factory.newProcessN != 1 {
+		t.Fatalf("NewProcess called %d times, want 1", factory.newProcessN)
+	}
+	if factory.lastCommand != "test-command" {
+		t.Fatalf("command = %q, want test-command", factory.lastCommand)
+	}
+	if factory.lastOptions.WorkDir != "/tmp" || factory.lastOptions.Env["FOO"] != "bar" {
+		t.Fatalf("ordinary options were not preserved: %+v", factory.lastOptions)
+	}
+	if factory.lastOptions.PTY == nil || *factory.lastOptions.PTY != (execapi.PTYOptions{
+		Width: 100, Height: 30, Term: "xterm-256color",
+	}) {
+		t.Fatalf("PTY options = %+v", factory.lastOptions.PTY)
+	}
+	if len(factory.lastOptions.Mounts) != 1 || factory.lastOptions.Mounts[0] != (execapi.Mount{Source: "/host/project", Target: "/workspace", ReadOnly: true}) {
+		t.Fatalf("mount options = %+v", factory.lastOptions.Mounts)
+	}
+}
+
+func TestExecutorTerminalCreatesPTYByDefault(t *testing.T) {
+	l := setupState()
+	defer l.Close()
+	ctx := securityapi.SetStrictMode(ctxapi.NewRootContext(), false)
+	l.SetContext(ctx)
+	factory := &mockProcessExecutor{}
+	value.PushTypedUserData(l, NewExecutor(ctx, nil, factory), executorTypeName)
+	l.Push(lua.LString("bash"))
+	l.Push(lua.LNil)
+	process, ok := createAuthorizedProcess(l, checkExecutor(l, 1), true, 100, 30)
+	require.True(t, ok)
+	require.NotNil(t, process)
+	require.Equal(t, &execapi.PTYOptions{Width: 100, Height: 30}, factory.lastOptions.PTY)
+}
+
+func TestTerminalReadyYieldReturnsTerminalProcess(t *testing.T) {
+	l := setupState()
+	defer l.Close()
+	terminal := &terminalProcess{}
+	ready := make(chan error, 1)
+	y := &TerminalReadyYield{Ready: ready, Terminal: terminal}
+	require.Equal(t, execapi.TerminalReady, y.CmdID())
+	require.Equal(t, (<-chan error)(ready), y.ToCommand().(*execapi.TerminalReadyCmd).Ready)
+	result := y.HandleResult(l, nil, nil)
+	require.Len(t, result, 2)
+	ud, ok := result[0].(*lua.LUserData)
+	require.True(t, ok)
+	require.Same(t, terminal, ud.Value)
+	require.Equal(t, lua.LNil, result[1])
+}
+
+func TestExecutorExecRequiresSeparateMountPermission(t *testing.T) {
+	l := setupState()
+	defer l.Close()
+	ctx := context.Background()
+	appCtx := ctxapi.NewAppContext()
+	ctx = ctxapi.WithAppContext(ctx, appCtx)
+	ctx, frame := ctxapi.OpenFrameContext(ctx)
+	defer frame.Close()
+	policy := &mountPermissionPolicy{}
+	require.NoError(t, securityapi.SetActor(ctx, securityapi.Actor{ID: "caller"}))
+	require.NoError(t, securityapi.SetScope(ctx, secsystem.NewScope([]securityapi.Policy{policy})))
+	l.SetContext(ctx)
+	factory := &mockProcessExecutor{}
+	value.PushTypedUserData(l, NewExecutor(ctx, nil, factory), executorTypeName)
+	l.Push(lua.LString("echo mounted"))
+	options := l.NewTable()
+	mounts := l.NewTable()
+	mount := l.NewTable()
+	mount.RawSetString("source", lua.LString("/host/project"))
+	mount.RawSetString("target", lua.LString("/workspace"))
+	mounts.RawSetInt(1, mount)
+	options.RawSetString("mounts", mounts)
+	l.Push(options)
+
+	require.Equal(t, 2, executorExec(l))
+	require.Equal(t, 0, factory.newProcessN, "mount denial must happen before NewProcess")
+	require.Equal(t, lua.LNil, l.Get(-2))
+	require.NotEqual(t, lua.LNil, l.Get(-1))
+}
+
+func TestProcessSecurityMetaExposesShapeWithoutEnvironmentValues(t *testing.T) {
+	meta := processSecurityMeta(execapi.ProcessOptions{
+		WorkDir: "/workspace",
+		Env:     map[string]string{"TOKEN": "secret", "LANG": "C"},
+		PTY:     &execapi.PTYOptions{Width: 100, Height: 30, Term: "xterm-256color"},
+	}, "app:runner")
+	require.Equal(t, "app:runner", meta["executor"])
+	require.Equal(t, "/workspace", meta["work_dir"])
+	require.Equal(t, []string{"LANG", "TOKEN"}, meta["env_names"])
+	require.NotContains(t, meta, "TOKEN")
+	terminal, ok := meta["pty"].(attrs.Bag)
+	require.True(t, ok)
+	require.Equal(t, true, terminal["requested"])
+	require.Equal(t, 100, terminal["width"])
+}
+
+func TestExecutorExecRejectsInvalidPTYOptions(t *testing.T) {
+	tests := []struct {
+		build func(*lua.LState) lua.LValue
+		name  string
+	}{
+		{name: "non-table", build: func(*lua.LState) lua.LValue { return lua.LString("terminal") }},
+		{name: "non-integer width", build: func(l *lua.LState) lua.LValue {
+			table := l.NewTable()
+			table.RawSetString("width", lua.LString("100"))
+			return table
+		}},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			l := setupState()
+			defer l.Close()
+			ctx := securityapi.SetStrictMode(ctxapi.NewRootContext(), false)
+			l.SetContext(ctx)
+			factory := &mockProcessExecutor{}
+
+			value.PushTypedUserData(l, NewExecutor(ctx, nil, factory), executorTypeName)
+			l.Push(lua.LString("test-command"))
+			options := l.NewTable()
+			options.RawSetString("pty", test.build(l))
+			l.Push(options)
+
+			if returns := executorExec(l); returns != 2 {
+				t.Fatalf("executorExec returned %d values, want 2", returns)
+			}
+			if factory.newProcessN != 0 {
+				t.Fatalf("NewProcess called %d times for invalid options", factory.newProcessN)
+			}
+			if l.Get(-2) != lua.LNil || l.Get(-1) == lua.LNil {
+				t.Fatalf("result = (%v, %v), want (nil, error)", l.Get(-2), l.Get(-1))
+			}
+		})
+	}
+}
+
+func TestExecutorExecRejectsMalformedProcessOptions(t *testing.T) {
+	tests := []struct {
+		build func(*lua.LState) lua.LValue
+		name  string
+	}{
+		{name: "options are not a table", build: func(*lua.LState) lua.LValue {
+			return lua.LString("options")
+		}},
+		{name: "work directory is not a string", build: func(l *lua.LState) lua.LValue {
+			table := l.NewTable()
+			table.RawSetString("work_dir", lua.LInteger(42))
+			return table
+		}},
+		{name: "environment is not a table", build: func(l *lua.LState) lua.LValue {
+			table := l.NewTable()
+			table.RawSetString("env", lua.LString("FOO=bar"))
+			return table
+		}},
+		{name: "environment value is not a string", build: func(l *lua.LState) lua.LValue {
+			table := l.NewTable()
+			env := l.NewTable()
+			env.RawSetString("PORT", lua.LInteger(8080))
+			table.RawSetString("env", env)
+			return table
+		}},
+		{name: "mounts are not a table", build: func(l *lua.LState) lua.LValue {
+			table := l.NewTable()
+			table.RawSetString("mounts", lua.LString("/host:/workspace"))
+			return table
+		}},
+		{name: "mount entry is not a table", build: func(l *lua.LState) lua.LValue {
+			table := l.NewTable()
+			mounts := l.NewTable()
+			mounts.RawSetInt(1, lua.LString("/host:/workspace"))
+			table.RawSetString("mounts", mounts)
+			return table
+		}},
+		{name: "mount target is relative", build: func(l *lua.LState) lua.LValue {
+			table := l.NewTable()
+			mounts := l.NewTable()
+			mount := l.NewTable()
+			mount.RawSetString("source", lua.LString("/host"))
+			mount.RawSetString("target", lua.LString("workspace"))
+			mounts.RawSetInt(1, mount)
+			table.RawSetString("mounts", mounts)
+			return table
+		}},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			l := setupState()
+			defer l.Close()
+			ctx := securityapi.SetStrictMode(ctxapi.NewRootContext(), false)
+			l.SetContext(ctx)
+			factory := &mockProcessExecutor{}
+
+			value.PushTypedUserData(l, NewExecutor(ctx, nil, factory), executorTypeName)
+			l.Push(lua.LString("test-command"))
+			l.Push(test.build(l))
+
+			if returns := executorExec(l); returns != 2 {
+				t.Fatalf("executorExec returned %d values, want 2", returns)
+			}
+			if factory.newProcessN != 0 {
+				t.Fatalf("NewProcess called %d times for invalid options", factory.newProcessN)
+			}
+			if l.Get(-2) != lua.LNil || l.Get(-1) == lua.LNil {
+				t.Fatalf("result = (%v, %v), want (nil, error)", l.Get(-2), l.Get(-1))
+			}
+		})
+	}
+}
+
 func (m *mockProcess) Start() error {
 	return m.startErr
+}
+
+func TestProcessStartFailureClosesHandle(t *testing.T) {
+	l := setupState()
+	defer l.Close()
+	startErr := errors.New("start failed")
+	process := NewProcess(context.Background(), &mockProcess{startErr: startErr})
+	value.PushTypedUserData(l, process, processTypeName)
+
+	require.Equal(t, 2, procStart(l))
+	require.Equal(t, lua.LNil, l.Get(-2))
+	process.mu.Lock()
+	defer process.mu.Unlock()
+	require.True(t, process.closed)
+	require.Nil(t, process.handle)
+}
+
+type stoppableProcess struct {
+	mockProcess
+	stopped bool
+}
+
+func (p *stoppableProcess) Stop() { p.stopped = true }
+
+func TestProcessCloseReleasesUnstartedNativeCapability(t *testing.T) {
+	handle := &stoppableProcess{}
+	process := NewProcess(context.Background(), handle)
+	process.close(false)
+	require.True(t, handle.stopped)
 }
 
 func (m *mockProcess) Signal(_ int) error {
@@ -634,4 +957,82 @@ func (m *mockProcess) Stdout() io.ReadCloser {
 
 func (m *mockProcess) Stderr() io.ReadCloser {
 	return io.NopCloser(strings.NewReader(""))
+}
+
+// mountExecState runs exec.process with the given mounts under policy and
+// returns the Lua state after the call, with the factory for assertions.
+func mountExecState(t *testing.T, policy *mountPermissionPolicy, mounts ...map[string]any) (*lua.LState, *mockProcessExecutor) {
+	t.Helper()
+	l := setupState()
+	t.Cleanup(l.Close)
+	ctx := ctxapi.WithAppContext(context.Background(), ctxapi.NewAppContext())
+	ctx, frame := ctxapi.OpenFrameContext(ctx)
+	t.Cleanup(func() { frame.Close() })
+	require.NoError(t, securityapi.SetActor(ctx, securityapi.Actor{ID: "caller"}))
+	require.NoError(t, securityapi.SetScope(ctx, secsystem.NewScope([]securityapi.Policy{policy})))
+	l.SetContext(ctx)
+	factory := &mockProcessExecutor{}
+	value.PushTypedUserData(l, NewExecutor(ctx, nil, factory), executorTypeName)
+	l.Push(lua.LString("echo mounted"))
+	options := l.NewTable()
+	list := l.NewTable()
+	for i, m := range mounts {
+		mount := l.NewTable()
+		for k, v := range m {
+			switch typed := v.(type) {
+			case string:
+				mount.RawSetString(k, lua.LString(typed))
+			case bool:
+				mount.RawSetString(k, lua.LBool(typed))
+			}
+		}
+		list.RawSetInt(i+1, mount)
+	}
+	options.RawSetString("mounts", list)
+	l.Push(options)
+	require.Equal(t, 2, executorExec(l))
+	return l, factory
+}
+
+func TestExecutorExecMountPolicyScopesEachSource(t *testing.T) {
+	policy := &mountPermissionPolicy{allowedSources: map[string]bool{"/srv/data": true}}
+	l, factory := mountExecState(t, policy,
+		map[string]any{"source": "/srv/data", "target": "/workspace/data"},
+		map[string]any{"source": "/srv/other", "target": "/workspace/other"},
+	)
+	require.Equal(t, lua.LNil, l.Get(-2))
+	luaErr, ok := l.Get(-1).(*lua.Error)
+	require.True(t, ok)
+	require.Equal(t, lua.PermissionDenied, luaErr.Kind())
+	require.Equal(t, "/srv/other", luaErr.Details()["source"], "the refused mount is named")
+	require.Equal(t, 0, factory.newProcessN, "one refused mount refuses the whole process")
+	require.Equal(t, 2, policy.evaluated, "every mount is evaluated against policy")
+}
+
+func TestExecutorExecMountPolicySeesAttributes(t *testing.T) {
+	t.Run("read-only mount allowed", func(t *testing.T) {
+		policy := &mountPermissionPolicy{allowMount: true, requireReadOnly: true}
+		l, factory := mountExecState(t, policy, map[string]any{"source": "/srv/data", "target": "/workspace/data", "read_only": true})
+		require.NotEqual(t, lua.LNil, l.Get(-2))
+		require.Equal(t, 1, factory.newProcessN)
+		require.Equal(t, "/workspace/data", policy.metadata["target"])
+		require.Equal(t, true, policy.metadata["read_only"])
+	})
+	t.Run("writable mount refused", func(t *testing.T) {
+		policy := &mountPermissionPolicy{allowMount: true, requireReadOnly: true}
+		l, factory := mountExecState(t, policy, map[string]any{"source": "/srv/data", "target": "/workspace/data"})
+		require.Equal(t, lua.LNil, l.Get(-2))
+		require.Equal(t, 0, factory.newProcessN)
+	})
+}
+
+func TestExecutorExecValidatesMountsBeforePolicy(t *testing.T) {
+	policy := &mountPermissionPolicy{allowMount: true}
+	l, factory := mountExecState(t, policy, map[string]any{"source": "/srv/data/../etc", "target": "/workspace/data"})
+	require.Equal(t, lua.LNil, l.Get(-2))
+	luaErr, ok := l.Get(-1).(*lua.Error)
+	require.True(t, ok)
+	require.Equal(t, lua.Invalid, luaErr.Kind(), "a malformed mount is invalid input, not a policy decision")
+	require.Equal(t, 0, policy.evaluated, "policy never sees a path that did not validate")
+	require.Equal(t, 0, factory.newProcessN)
 }

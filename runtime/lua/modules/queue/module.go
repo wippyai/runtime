@@ -77,6 +77,12 @@ func liveMessage(l *lua.LState) (*Message, int) {
 	return msg, -1
 }
 
+func permissionError(l *lua.LState, msg string) int {
+	l.Push(lua.LNil)
+	l.Push(lua.NewLuaError(l, msg).WithKind(lua.PermissionDenied).WithRetryable(false))
+	return 2
+}
+
 func invalidError(l *lua.LState, msg string) int {
 	err := lua.NewLuaError(l, msg).
 		WithKind(lua.Invalid).
@@ -103,7 +109,7 @@ func publish(l *lua.LState) int {
 
 	// General permission check
 	if !security.IsAllowed(ctx, "queue.publish", "", nil) {
-		return invalidError(l, "queue publishing not allowed")
+		return permissionError(l, "queue publishing not allowed")
 	}
 
 	queueMgr := queueapi.GetManager(ctx)
@@ -122,7 +128,7 @@ func publish(l *lua.LState) int {
 
 	// Queue-specific permission check
 	if !security.IsAllowed(ctx, "queue.publish.queue", queueIDStr, nil) {
-		return invalidError(l, "not allowed to publish to queue: "+queueIDStr)
+		return permissionError(l, "not allowed to publish to queue: "+queueIDStr)
 	}
 
 	queueID := registry.ParseID(queueIDStr)

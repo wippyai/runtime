@@ -14,6 +14,7 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	runtimeapi "github.com/wippyai/runtime/api/runtime"
 	wasmapi "github.com/wippyai/runtime/api/runtime/wasm"
+	wasmcomponent "github.com/wippyai/runtime/runtime/wasm/component"
 	"github.com/wippyai/runtime/system/scheduler/pool"
 	"github.com/wippyai/runtime/system/scheduler/pool/adaptive"
 	"github.com/wippyai/runtime/system/scheduler/pool/inline"
@@ -66,7 +67,7 @@ func poolTestFactory() process.FactoryFunc {
 }
 
 func TestProcessFactory_DefaultRetainedComponentUsesIsolatedModuleFactory(t *testing.T) {
-	m := NewManager(zap.NewNop(), nil, poolTestDispatcher{}, nil)
+	m := NewManager(zap.NewNop(), nil, poolTestDispatcher{}, nil, wasmcomponent.InMemoryCaches())
 	cfg := &configEntry{
 		component: true,
 		transport: wasmapi.TransportTypePayload,
@@ -81,7 +82,7 @@ func TestProcessFactory_DefaultRetainedComponentUsesIsolatedModuleFactory(t *tes
 }
 
 func TestProcessFactory_RetainedComponentUsesIsolatedModuleFactory(t *testing.T) {
-	m := NewManager(zap.NewNop(), nil, poolTestDispatcher{}, nil)
+	m := NewManager(zap.NewNop(), nil, poolTestDispatcher{}, nil, wasmcomponent.InMemoryCaches())
 	cfg := &configEntry{
 		component: true,
 		transport: wasmapi.TransportTypePayload,
@@ -99,7 +100,7 @@ func TestProcessFactory_RetainedComponentUsesIsolatedModuleFactory(t *testing.T)
 }
 
 func TestProcessFactory_ExplicitZeroRetainedLimitUsesSharedModule(t *testing.T) {
-	m := NewManager(zap.NewNop(), nil, poolTestDispatcher{}, nil)
+	m := NewManager(zap.NewNop(), nil, poolTestDispatcher{}, nil, wasmcomponent.InMemoryCaches())
 	limits := wasmapi.LimitsConfig{}
 	limits.SetMaxRetainedMemoryBytes(0)
 	cfg := &configEntry{
@@ -116,7 +117,7 @@ func TestProcessFactory_ExplicitZeroRetainedLimitUsesSharedModule(t *testing.T) 
 }
 
 func TestAutoSelectPool_SelectsExpectedImplementation(t *testing.T) {
-	m := NewManager(zap.NewNop(), nil, poolTestDispatcher{}, nil)
+	m := NewManager(zap.NewNop(), nil, poolTestDispatcher{}, nil, wasmcomponent.InMemoryCaches())
 
 	tests := []struct {
 		assert func(t *testing.T, p pool.Pool)
@@ -177,7 +178,7 @@ func TestAutoSelectPool_SelectsExpectedImplementation(t *testing.T) {
 }
 
 func TestCreatePoolByType_CoversAllPoolTypes(t *testing.T) {
-	m := NewManager(zap.NewNop(), nil, poolTestDispatcher{}, nil)
+	m := NewManager(zap.NewNop(), nil, poolTestDispatcher{}, nil, wasmcomponent.InMemoryCaches())
 
 	tests := []struct {
 		assert   func(t *testing.T, p pool.Pool)
@@ -252,7 +253,7 @@ func TestCreatePoolByType_CoversAllPoolTypes(t *testing.T) {
 }
 
 func TestCreatePoolByType_UnknownType(t *testing.T) {
-	m := NewManager(zap.NewNop(), nil, poolTestDispatcher{}, nil)
+	m := NewManager(zap.NewNop(), nil, poolTestDispatcher{}, nil, wasmcomponent.InMemoryCaches())
 
 	_, err := m.createPoolByType("burst", poolTestFactory(), wasmapi.PoolConfig{}, pool.ExecutionHooks{})
 	if err == nil {
@@ -284,7 +285,7 @@ func TestManagerCreatePoolAndExecute_AllPoolTypes(t *testing.T) {
 		t.Fatalf("Compile() error = %v", err)
 	}
 
-	m := NewManager(zap.NewNop(), nil, poolTestDispatcher{}, nil)
+	m := NewManager(zap.NewNop(), nil, poolTestDispatcher{}, nil, wasmcomponent.InMemoryCaches())
 	m.started = true
 	t.Cleanup(m.Stop)
 

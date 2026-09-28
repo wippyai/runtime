@@ -4,9 +4,11 @@ package system
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/wippyai/runtime/api/boot"
 	ctxapi "github.com/wippyai/runtime/api/context"
+	ttyapi "github.com/wippyai/runtime/api/tty"
 )
 
 // FrameResolverOrderNetwork is the apply order of the network overlay resolver.
@@ -23,7 +25,11 @@ func FrameResolvers() boot.Component {
 		Name:      FrameResolversName,
 		DependsOn: []boot.Name{},
 		Load: func(ctx context.Context) (context.Context, error) {
-			return ctxapi.WithFrameResolvers(ctx, ctxapi.NewFrameResolvers()), nil
+			resolvers := ctxapi.NewFrameResolvers()
+			if err := resolvers.RegisterClaim(ttyapi.FrameResolverClaimTTY, ttyapi.TerminalOptionSelected); err != nil {
+				return nil, fmt.Errorf("register terminal frame claim: %w", err)
+			}
+			return ctxapi.WithFrameResolvers(ctx, resolvers), nil
 		},
 	})
 }

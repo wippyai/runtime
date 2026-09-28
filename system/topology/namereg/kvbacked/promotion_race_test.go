@@ -1,0 +1,70 @@
+// SPDX-License-Identifier: MPL-2.0
+
+package kvbacked
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	"github.com/wippyai/runtime/api/pid"
+	kvapi "github.com/wippyai/runtime/api/store/kv"
+)
+
+type beforePromotionEngine struct {
+	kvapi.Engine
+	before func()
+}
+
+func (e *beforePromotionEngine) ReadLocalSnapshot(keys []string) (map[string]kvapi.Entry, uint64, error) {
+	reader, ok := e.Engine.(kvapi.LocalSnapshotReader)
+	if !ok {
+		return nil, 0, kvapi.ErrKVClosed
+	}
+	return reader.ReadLocalSnapshot(keys)
+}
+
+func (e *beforePromotionEngine) Txn(ops []kvapi.TxnOp) (bool, error) {
+	for _, op := range ops {
+		if op.Kind == kvapi.TxnPut && op.Key == activeKey("claim") && e.before != nil {
+			before := e.before
+			e.before = nil
+			before()
+			break
+		}
+	}
+	return e.Engine.Txn(ops)
+}
+
+func TestStrongMissingAckPreventsPromotion(t *testing.T) {
+	r := newStrongReg(t, []pid.NodeID{"node-1"}, time.Second, nil)
+	p := mkPID("node-1", "owner")
+	hdr := pendingHeader{PID: p.String(), Name: "claim", AttemptID: "attempt-promotion", RequiredNodes: []pid.NodeID{"node-1"}}
+	encoded, err := encode(hdr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.engine.Set(pendingKey("claim"), encoded); err != nil {
+		t.Fatal(err)
+	}
+	pe, err := r.engine.Get(pendingKey("claim"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.engine.Set(ackKey("claim", "attempt-promotion", "node-1"), []byte("node-1")); err != nil {
+		t.Fatal(err)
+	}
+	base := r.engine
+	r.engine = &beforePromotionEngine{Engine: base, before: func() {
+		// Remove an ACK after the leader scanned completion but before the
+		// promotion transaction. Its condition must reject the stale decision.
+		if err := base.Delete(ackKey("claim", "attempt-promotion", "node-1")); err != nil {
+			t.Fatal(err)
+		}
+	}}
+	r.strong.leaderPromote("claim", pe.Epoch, pe.Version, hdr)
+	got, err := r.Lookup(context.Background(), "claim")
+	if err != nil || got.Found {
+		t.Fatalf("incomplete claim promoted: %+v err=%v", got, err)
+	}
+}

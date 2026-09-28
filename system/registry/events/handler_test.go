@@ -370,3 +370,18 @@ func TestNewTransactionHandlerRejectsWhenListenerReturnsError(t *testing.T) {
 		t.Fatal("timed out waiting for transaction reject")
 	}
 }
+
+func TestRegistryHandlerDeclaresReplyKinds(t *testing.T) {
+	listener := &mockEntryListener{}
+
+	entryHandler, ok := NewRegistryHandler("function.(wasm|wat)", listener).(registry.KindHandler)
+	require.True(t, ok)
+	assert.True(t, entryHandler.HandlesKind("function.wasm"))
+	assert.True(t, entryHandler.HandlesKind("function.wat"))
+	assert.False(t, entryHandler.HandlesKind("process.wasm"))
+
+	txHandler, ok := NewTransactionHandler(listener).(registry.KindHandler)
+	require.True(t, ok)
+	assert.False(t, txHandler.HandlesKind("function.wasm"),
+		"a transaction-only handler never replies to an entry operation")
+}

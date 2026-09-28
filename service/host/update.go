@@ -47,6 +47,9 @@ func unsupportedHostUpdateFields(current, desired *hostapi.EntryConfig, affinity
 	if current.HostConfig.LocalQueueSize != desired.HostConfig.LocalQueueSize {
 		fields = append(fields, "host.local_queue_size")
 	}
+	if current.HostConfig.WorkerClass != desired.HostConfig.WorkerClass {
+		fields = append(fields, "host.worker_class")
+	}
 	if affinityManaged && current.HostConfig.Workers != desired.HostConfig.Workers {
 		fields = append(fields, "host.workers")
 	}

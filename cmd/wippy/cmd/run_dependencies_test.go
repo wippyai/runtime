@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	regapi "github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/boot/deps/hub"
 	"github.com/wippyai/runtime/boot/deps/lock"
 	"go.uber.org/zap"
@@ -98,7 +99,7 @@ func TestResolveRunDependenciesKeepsCompatibleLockAndCompletesIt(t *testing.T) {
 	lockObj.SetModule(lock.Module{Name: "acme/core", Version: "1.4.0", Hash: coreDigest})
 	require.NoError(t, lockObj.Write())
 
-	result, err := resolveRunDependencies(context.Background(), provider, lockObj, []dependencyRequest{
+	result, err := resolveRunDependencies(onlineDependencyContext(context.Background()), provider, lockObj, []dependencyRequest{
 		{Org: "acme", Module: "core", Constraint: "^1.0.0"},
 	})
 	require.NoError(t, err)
@@ -125,7 +126,7 @@ entries: []
 	provider := runManifestProvider{versions: map[string][]hub.VersionInfo{
 		"acme/local": {{Version: "1.2.0"}, {Version: "1.0.0"}},
 	}}
-	result, err := resolveRunDependencies(ctx, provider, lockObj, []dependencyRequest{
+	result, err := resolveRunDependencies(onlineDependencyContext(ctx), provider, lockObj, []dependencyRequest{
 		{Org: "acme", Module: "local", Constraint: ">=1.2.0"},
 	})
 	require.NoError(t, err)
@@ -198,4 +199,10 @@ func (p runManifestProvider) GetDownloadURL(context.Context, *hub.DownloadParams
 
 func (p runManifestProvider) DownloadToFile(context.Context, string, string) error {
 	return fmt.Errorf("download not expected")
+}
+
+// onlineDependencyContext mirrors the policy the run path grants when it
+// completes a workspace graph through the Hub.
+func onlineDependencyContext(ctx context.Context) context.Context {
+	return regapi.WithDependencyAccess(ctx, regapi.DependencyAccessOnline)
 }

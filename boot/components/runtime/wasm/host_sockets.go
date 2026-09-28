@@ -9,12 +9,14 @@ import (
 )
 
 var socketsAliases = []string{
+	wippysockets.NetworkNamespace,
 	wippysockets.InstanceNetworkNamespace,
 	wippysockets.TCPCreateSocketNamespace,
 	wippysockets.TCPNamespace,
 	wippysockets.UDPCreateSocketNamespace,
 	wippysockets.UDPNamespace,
 	wippysockets.IPNameLookupNamespace,
+	"wasi:sockets/network",
 	"wasi:sockets/instance-network",
 	"wasi:sockets/tcp-create-socket",
 	"wasi:sockets/tcp",
@@ -25,6 +27,7 @@ var socketsAliases = []string{
 
 func socketsHosts(resources *preview2.ResourceTable) []wasmrt.Host {
 	return []wasmrt.Host{
+		wippysockets.NewNetworkHost(resources),
 		wippysockets.NewInstanceNetworkHost(resources),
 		wippysockets.NewTCPCreateSocketHost(resources),
 		wippysockets.NewTCPHost(resources),

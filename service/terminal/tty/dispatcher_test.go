@@ -6,12 +6,17 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"image"
+	"image/png"
 	"testing"
+	"time"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/dispatcher"
+	"github.com/wippyai/runtime/api/runtime/resource"
 	"github.com/wippyai/runtime/api/service/terminal"
 	ttyapi "github.com/wippyai/runtime/api/tty"
+	systemtty "github.com/wippyai/runtime/system/tty"
 )
 
 type testReceiver struct {
@@ -19,9 +24,85 @@ type testReceiver struct {
 	err  error
 }
 
+type asyncResult struct {
+	data any
+	err  error
+}
+
+type asyncReceiver chan asyncResult
+
+func (r asyncReceiver) CompleteYield(_ uint64, data any, err error) {
+	r <- asyncResult{data: data, err: err}
+}
+
 func (r *testReceiver) CompleteYield(_ uint64, data any, err error) {
 	r.data = data
 	r.err = err
+}
+
+func TestDispatcherImageImportTransfersCleanupOwnership(t *testing.T) {
+	var encoded bytes.Buffer
+	if err := png.Encode(&encoded, image.NewNRGBA(image.Rect(0, 0, 2, 2))); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, cancelCleanup := range []bool{false, true} {
+		t.Run(map[bool]string{false: "frame_cleanup", true: "lua_ownership"}[cancelCleanup], func(t *testing.T) {
+			ctx := ctxapi.WithAppContext(context.Background(), ctxapi.NewAppContext())
+			ctx, frame := ctxapi.OpenFrameContext(ctx)
+			defer frame.Close()
+			resources := resource.NewStore()
+			if err := resource.SetStore(ctx, resources); err != nil {
+				t.Fatal(err)
+			}
+			service := systemtty.NewService()
+			defer service.Close()
+			ttyapi.WithService(ctx, service)
+
+			receiver := make(asyncReceiver, 1)
+			dispatcher := NewDispatcher()
+			if err := dispatcher.handleViewportIO(ctx, ttyapi.ViewportIOCmd{
+				Operation: "image_import",
+				ImageData: encoded.Bytes(),
+			}, 1, receiver); err != nil {
+				t.Fatal(err)
+			}
+
+			var completed asyncResult
+			select {
+			case completed = <-receiver:
+			case <-time.After(time.Second):
+				t.Fatal("image import did not complete")
+			}
+			if completed.err != nil {
+				t.Fatal(completed.err)
+			}
+			result, ok := completed.data.(ttyapi.ImageIOResult)
+			if !ok || result.Image == nil || result.Cancel == nil {
+				t.Fatalf("invalid image result: %#v", completed.data)
+			}
+			if cancelCleanup {
+				result.Cancel()
+			}
+			if err := resources.Close(); err != nil {
+				t.Fatal(err)
+			}
+			_, infoErr := result.Image.Info()
+			if cancelCleanup {
+				if infoErr != nil {
+					t.Fatalf("transferred image was closed: %v", infoErr)
+				}
+				if err := result.Image.Close(); err != nil {
+					t.Fatal(err)
+				}
+			} else if !errors.Is(infoErr, ttyapi.ErrImageClosed) {
+				t.Fatalf("frame cleanup left image open: %v", infoErr)
+			}
+			if used := service.ImageStore().Used(); used != 0 {
+				t.Fatalf("image budget leaked: %d", used)
+			}
+		})
+	}
 }
 
 type stubRawController struct {

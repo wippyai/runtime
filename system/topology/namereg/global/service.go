@@ -39,12 +39,12 @@ const (
 	// and re-emit its ack. Body is a msgpack-encoded checkPendingEnvelope.
 	// The nudge never mutates Raft state — only ACK/REJECT/DROP/EXPIRED do.
 	topicCheckPending relay.Topic = "global.root.check"
-	// topicReleaseExclusion is a targeted relay message the leader sends to a
-	// node holding a Strong exclusion when the name reaches a terminal state
+	// topicReleaseObservation is a targeted relay message the leader sends to a
+	// node holding a Strong observation when the name reaches a terminal state
 	// (expire/reject/unregister, including an active name being unregistered).
 	// Body is a msgpack-encoded releaseEnvelope; the recipient releases its
-	// exclusion for the carried (name, epoch) idempotently. Never mutates Raft.
-	topicReleaseExclusion relay.Topic = "global.root.release"
+	// observation for the carried (name, epoch) idempotently. Never mutates Raft.
+	topicReleaseObservation relay.Topic = "global.root.release"
 	// topicJoinRequest carries a node's JoinNameEpoch request to the leader. Body
 	// is a msgpack-encoded joinRequestEnvelope. The leader replies on
 	// topicJoinResponse with a snapshot of PENDING∪ACTIVE Strong names as of the
@@ -74,72 +74,41 @@ const (
 // It wraps a Raft-backed FSM and provides leader forwarding for writes
 // and topology-based auto-cleanup.
 type Service struct {
-	localPresence    atomic.Value
-	router           relay.Receiver
-	raftSvc          raftapi.Service
-	bus              event.Bus
-	topo             topology.Topology
-	membership       cluster.Membership
-	dissem           atomic.Value
-	localRevoker     atomic.Value
-	pingPending      map[uint64]chan struct{}
-	joinPending      map[uint64]chan *joinResponseEnvelope
-	memberDeriver    MemberDeriver
-	pending          map[uint64]chan *forwardResponse
-	forwardProxies   map[uint64]pid.NodeID
-	strongWatchers   map[string]map[uint64]chan strongOutcome
-	strongTimers     map[string]*strongTimer
-	fsm              *FSM
-	logger           *zap.Logger
-	stopCh           chan struct{}
-	lookupPending    map[uint64]chan *lookupResponseEnvelope
-	ackerEpochs      map[pid.NodeID]uint64
-	strongExclusions map[string]strongExclusion
-	tel              *telemetry
-	monitoredPIDs    sync.Map
-	localNode        pid.NodeID
-	probeInterval    time.Duration
-	probeGrace       int
-	monitorWatermark atomic.Uint64
-	nodeEpoch        atomic.Uint64
-	lookupMu         sync.Mutex
-	mu               sync.Mutex
-	strongMu         sync.Mutex
-	reserveMu        sync.Mutex
-	joinMu           sync.Mutex
-	nameReady        atomic.Bool
-	started          bool
-	ready            bool
-	degraded         bool
-}
-
-// LocalPresence reads non-presence of a name in the LOCAL and EVENTUAL
-// registries on the local node, bypassing the composed Lookup so it never
-// re-enters globalreg (which would self-reference a held reservation). Wired at
-// boot from topology.GetRegistry / topology.GetEventualRegistry; nil-safe (an
-// unwired presence reports nothing bound, so the conditional ack degrades to an
-// unconditional ack on a node with no local registries).
-type LocalPresence interface {
-	// LookupLocal reports a LOCAL-scope binding for name, if any.
-	LookupLocal(name string) (pid.PID, bool)
-	// LookupEventual reports an EVENTUAL-scope binding for name, if any.
-	LookupEventual(name string) (pid.PID, bool)
-}
-
-// LocalNameRevoker revokes a conflicting LOCAL or EVENTUAL binding the join-epoch
-// barrier discovered for a name a Strong reservation owns cluster-wide. The
-// barrier calls it for each snapshot name this node holds bound to a different
-// pid, before flipping name_ready. Wired at boot from the topology PIDRegistry
-// (LOCAL) and the eventual registry (EVENTUAL); nil-safe (an unwired revoker is
-// a no-op, so a node with no local registries still completes the barrier).
-type LocalNameRevoker interface {
-	// RevokeLocal removes a LOCAL-scope binding of name to a pid different from
-	// keep, signaling the losing process. Returns true if a binding was revoked.
-	RevokeLocal(name string, keep pid.PID) bool
-	// RevokeEventual removes an EVENTUAL-scope binding of name to a pid different
-	// from keep, signaling the losing process. Returns true if a binding was
-	// revoked.
-	RevokeEventual(name string, keep pid.PID) bool
+	router             relay.Receiver
+	raftSvc            raftapi.Service
+	bus                event.Bus
+	topo               topology.Topology
+	membership         cluster.Membership
+	dissem             atomic.Value
+	pingPending        map[uint64]chan struct{}
+	joinPending        map[uint64]chan *joinResponseEnvelope
+	memberDeriver      MemberDeriver
+	pending            map[uint64]chan *forwardResponse
+	forwardProxies     map[uint64]pid.NodeID
+	strongWatchers     map[string]map[uint64]chan strongOutcome
+	strongTimers       map[string]*strongTimer
+	fsm                *FSM
+	logger             *zap.Logger
+	stopCh             chan struct{}
+	lookupPending      map[uint64]chan *lookupResponseEnvelope
+	ackerEpochs        map[pid.NodeID]uint64
+	strongObservations map[string]strongObservation
+	tel                *telemetry
+	monitoredPIDs      sync.Map
+	localNode          pid.NodeID
+	probeInterval      time.Duration
+	probeGrace         int
+	monitorWatermark   atomic.Uint64
+	nodeEpoch          atomic.Uint64
+	lookupMu           sync.Mutex
+	mu                 sync.Mutex
+	strongMu           sync.Mutex
+	reserveMu          sync.Mutex
+	joinMu             sync.Mutex
+	nameReady          atomic.Bool
+	started            bool
+	ready              bool
+	degraded           bool
 }
 
 // NewService creates a new global registry service.
@@ -168,24 +137,24 @@ func NewService(
 	}
 
 	s := &Service{
-		raftSvc:          raftSvc,
-		fsm:              fsm,
-		tel:              tel,
-		bus:              bus,
-		topo:             topo,
-		router:           router,
-		membership:       membership,
-		localNode:        localNode,
-		logger:           logger,
-		stopCh:           make(chan struct{}),
-		pending:          make(map[uint64]chan *forwardResponse),
-		forwardProxies:   make(map[uint64]pid.NodeID),
-		strongWatchers:   make(map[string]map[uint64]chan strongOutcome),
-		strongTimers:     make(map[string]*strongTimer),
-		strongExclusions: make(map[string]strongExclusion),
-		joinPending:      make(map[uint64]chan *joinResponseEnvelope),
-		pingPending:      make(map[uint64]chan struct{}),
-		ackerEpochs:      make(map[pid.NodeID]uint64),
+		raftSvc:            raftSvc,
+		fsm:                fsm,
+		tel:                tel,
+		bus:                bus,
+		topo:               topo,
+		router:             router,
+		membership:         membership,
+		localNode:          localNode,
+		logger:             logger,
+		stopCh:             make(chan struct{}),
+		pending:            make(map[uint64]chan *forwardResponse),
+		forwardProxies:     make(map[uint64]pid.NodeID),
+		strongWatchers:     make(map[string]map[uint64]chan strongOutcome),
+		strongTimers:       make(map[string]*strongTimer),
+		strongObservations: make(map[string]strongObservation),
+		joinPending:        make(map[uint64]chan *joinResponseEnvelope),
+		pingPending:        make(map[uint64]chan struct{}),
+		ackerEpochs:        make(map[pid.NodeID]uint64),
 	}
 	if fsm != nil {
 		fsm.SetOnRestore(s.resetMonitorWatermark)
@@ -210,28 +179,6 @@ func (s *Service) SetMembership(m cluster.Membership) {
 	s.mu.Unlock()
 }
 
-// SetLocalPresence wires the LOCAL/EVENTUAL presence reader used by the
-// conditional ack. Boot installs it after the topology registries land in
-// context. Safe for concurrent use.
-func (s *Service) SetLocalPresence(lp LocalPresence) {
-	if s == nil {
-		return
-	}
-	s.localPresence.Store(lp)
-}
-
-func (s *Service) loadLocalPresence() LocalPresence {
-	v := s.localPresence.Load()
-	if v == nil {
-		return nil
-	}
-	lp, ok := v.(LocalPresence)
-	if !ok {
-		return nil
-	}
-	return lp
-}
-
 // SetLeaderProbeConfig tunes the leader-reachability monitor. Zero values keep
 // the defaults. Must be called before Start (the monitor reads these once at
 // launch).
@@ -247,27 +194,6 @@ func (s *Service) SetLeaderProbeConfig(interval time.Duration, grace int) {
 	}
 }
 
-// SetLocalNameRevoker wires the LOCAL/EVENTUAL revoker the join-epoch barrier
-// uses to drop conflicting names before flipping ready. Safe for concurrent use.
-func (s *Service) SetLocalNameRevoker(r LocalNameRevoker) {
-	if s == nil {
-		return
-	}
-	s.localRevoker.Store(r)
-}
-
-func (s *Service) loadLocalRevoker() LocalNameRevoker {
-	v := s.localRevoker.Load()
-	if v == nil {
-		return nil
-	}
-	r, ok := v.(LocalNameRevoker)
-	if !ok {
-		return nil
-	}
-	return r
-}
-
 // Start begins the service: subscribes to cluster events for auto-cleanup.
 func (s *Service) Start(ctx context.Context) (<-chan any, error) {
 	s.mu.Lock()
@@ -279,17 +205,9 @@ func (s *Service) Start(ctx context.Context) (<-chan any, error) {
 	s.mu.Unlock()
 
 	// Open the join-epoch barrier: fresh node epoch, name service not ready
-	// until the barrier installs the leader's Strong snapshot and revokes
-	// conflicting local names.
+	// until the barrier installs the leader's Strong snapshot.
 	s.nodeEpoch.Add(1)
 	s.nameReady.Store(false)
-
-	ch := make(chan event.Event, 32)
-	subID, err := s.bus.SubscribeP(ctx, cluster.System, cluster.NodeLeft, ch)
-	if err != nil {
-		return nil, fmt.Errorf("subscribe to cluster events: %w", err)
-	}
-	go s.handleClusterEvents(ctx, ch, subID)
 
 	// Rejoin trigger (#31): tie name-readiness to LEADER reachability, not peer
 	// membership churn. A debounced probe closes the gate on a sustained leader
@@ -361,7 +279,6 @@ func (s *Service) Stop(_ context.Context) error {
 	s.mu.Unlock()
 
 	close(s.stopCh)
-
 	// Stop the dissem plane's GC goroutine, which runs off its own stopCh
 	// (s.stopCh does not reach it).
 	if d := s.loadDissem(); d != nil {
@@ -370,85 +287,6 @@ func (s *Service) Stop(_ context.Context) error {
 
 	s.logger.Info("global registry service stopped", zap.String("node", s.localNode))
 	return nil
-}
-
-// handleClusterEvents processes node-left events for auto-cleanup.
-func (s *Service) handleClusterEvents(ctx context.Context, ch <-chan event.Event, subID event.SubscriberID) {
-	defer s.bus.Unsubscribe(ctx, subID)
-
-	for {
-		select {
-		case e, ok := <-ch:
-			if !ok {
-				return
-			}
-			if e.Kind == cluster.NodeLeft {
-				s.handleNodeLeft(ctx, e)
-			}
-		case <-s.stopCh:
-			return
-		case <-ctx.Done():
-			return
-		}
-	}
-}
-
-func (s *Service) handleNodeLeft(ctx context.Context, e event.Event) {
-	nodeEvt, ok := e.Data.(cluster.NodeEvent)
-	if !ok {
-		return
-	}
-
-	// Only the leader performs cleanup.
-	if !s.raftSvc.IsLeader() {
-		return
-	}
-
-	nodeID := nodeEvt.Node.ID
-	s.logger.Info("removing global names for departed node", zap.String("node", nodeID))
-
-	// Prune the departed node from every in-flight pending's RequiredNodes so
-	// reservations that only awaited this node can still promote (or already
-	// satisfied ones complete immediately in the drop Apply).
-	s.dropDepartedFromPending(nodeID)
-
-	// Drop the departed node's last-observed epoch so the map stays bounded
-	// by the live cluster, not by every identity ever seen (matters under
-	// ephemeral k8s pod hostnames + restart churn).
-	s.strongMu.Lock()
-	delete(s.ackerEpochs, nodeID)
-	s.strongMu.Unlock()
-
-	if err := s.RemoveNode(ctx, nodeID); err != nil {
-		s.logger.Error("failed to remove node names", zap.String("node", nodeID), zap.Error(err))
-	}
-}
-
-// dropDepartedFromPending issues a CmdDropRequired for every in-flight pending
-// that still requires the departed node. Leader-only; idempotent on the FSM
-// side so a duplicate event or a since-promoted entry is harmless.
-func (s *Service) dropDepartedFromPending(nodeID pid.NodeID) {
-	if s.fsm == nil {
-		return
-	}
-	for _, v := range s.fsm.State().listPending() {
-		requires := false
-		for _, n := range v.RequiredNodes {
-			if n == nodeID {
-				requires = true
-				break
-			}
-		}
-		if !requires {
-			continue
-		}
-		cmd := &Command{Type: CmdDropRequired, Name: v.Name, Epoch: v.Epoch, NodeID: nodeID}
-		if _, err := s.applyCommand(cmd); err != nil {
-			s.logger.Debug("globalreg: drop required failed",
-				zap.String("name", v.Name), zap.Uint64("epoch", v.Epoch),
-				zap.String("node", nodeID), zap.Error(err))
-		}
-	}
 }
 
 // --- global.Registry implementation ---
@@ -508,7 +346,7 @@ func (s *Service) registerConsistent(name string, p pid.PID) (global.RegisterOut
 		}, global.ErrNameAlreadyRegistered
 	}
 
-	if result.ResolvedPID != (pid.PID{}) {
+	if !result.ResolvedPID.Equal(pid.PID{}) {
 		s.tel.recordReregistration(s.localNode, "global")
 	}
 
@@ -558,9 +396,8 @@ func (s *Service) UnregisterScope(_ context.Context, name string, mode global.Re
 }
 
 // NameReady reports whether the join-epoch barrier has completed for the current
-// node epoch. Participating LOCAL/EVENTUAL register seams consult it; until it is
-// true a register is refused with ErrNameServiceNotReady. A nil service reports
-// ready so an unwired test path does not wedge.
+// node epoch. This is readiness of the global registry only; independent LOCAL
+// and EVENTUAL names do not depend on it. A nil service reports ready.
 func (s *Service) NameReady() bool {
 	if s == nil {
 		return true
@@ -627,15 +464,14 @@ func (s *Service) Remove(_ context.Context, p pid.PID) error {
 }
 
 // removeNodeChunkSize bounds the work per Raft Apply when bulk-removing
-// a departed node's names. 256 names ≈ <5 ms per Apply; chunking lets other
+// a fenced node's names. 256 names ≈ <5 ms per Apply; chunking lets other
 // writes interleave during a large cleanup so the Raft pipeline doesn't
 // stall under chaos-driven node churn.
 const removeNodeChunkSize = 256
 
-// RemoveNode removes all global names for a node via Raft. The work is
-// chunked into bounded Applies so the FSM apply lock is released between
-// batches, keeping foreground writes responsive while a node's state
-// drains.
+// RemoveNode removes all global names for a node via Raft. The caller must
+// first prove its processes cannot still use those names; discovery is not a
+// fence. Work is chunked so foreground writes can interleave between Applies.
 func (s *Service) RemoveNode(_ context.Context, nodeID pid.NodeID) error {
 	for {
 		cmd := &Command{
@@ -678,8 +514,8 @@ func (s *Service) Send(pkg *relay.Package) error {
 			s.handleRegisterAck(msg)
 		case topicCheckPending:
 			s.handleCheckPending(msg)
-		case topicReleaseExclusion:
-			s.handleReleaseExclusion(msg)
+		case topicReleaseObservation:
+			s.handleReleaseObservation(msg)
 		case topicJoinRequest:
 			s.handleJoinRequest(msg)
 		case topicJoinResponse:
@@ -712,7 +548,12 @@ func (s *Service) handleExitEvent(msg *relay.Message) {
 		if !ok {
 			continue
 		}
-		s.HandleProcessExit(exitEvent.From)
+		switch exitEvent.Kind {
+		case topology.Exit:
+			s.HandleProcessExit(exitEvent.From)
+		case topology.LinkDown:
+			s.monitoredPIDs.Delete(exitEvent.From.String())
+		}
 	}
 }
 
@@ -754,16 +595,21 @@ func (s *Service) HandleProcessExit(p pid.PID) {
 // a leader failover, the new leader monitors all registered local PIDs
 // for auto-cleanup on process exit.
 func (s *Service) monitorLeadership() {
-	leaderCh := s.raftSvc.LeaderCh()
+	seen := s.raftSvc.ObserveLeadership()
+	if seen.State == raftapi.Leader && s.raftSvc.IsLeader() {
+		s.reestablishMonitors()
+	}
 	for {
 		select {
-		case isLeader, ok := <-leaderCh:
-			if !ok {
-				return
-			}
-			if isLeader {
+		case <-seen.Changed:
+			next := s.raftSvc.ObserveLeadership()
+			// Raft's underlying state/term/leader reads are not one atomic
+			// tuple. Reconcile whenever this notification finds us leader:
+			// even a changed leader ID may correct an earlier mixed sample.
+			if next.State == raftapi.Leader && s.raftSvc.IsLeader() {
 				s.reestablishMonitors()
 			}
+			seen = next
 		case <-s.stopCh:
 			return
 		}

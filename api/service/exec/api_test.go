@@ -17,10 +17,24 @@ func TestKindConstants(t *testing.T) {
 	assert.Equal(t, "exec.native", NativeExecutor)
 }
 
+func TestPTYDimensionsDefaultAndValidation(t *testing.T) {
+	width, height, err := (&PTYOptions{}).Dimensions()
+	require.NoError(t, err)
+	assert.Equal(t, DefaultPTYWidth, width)
+	assert.Equal(t, DefaultPTYHeight, height)
+
+	_, _, err = (&PTYOptions{Width: -1}).Dimensions()
+	assert.ErrorIs(t, err, ErrInvalidPTYSize)
+	_, _, err = (&PTYOptions{Height: MaxPTYDimension + 1}).Dimensions()
+	assert.ErrorIs(t, err, ErrInvalidPTYSize)
+	_, _, err = (&PTYOptions{Width: MaxPTYCells, Height: 2}).Dimensions()
+	assert.ErrorIs(t, err, ErrInvalidPTYSize)
+}
+
 func TestProcessOptions_MarshalUnmarshal(t *testing.T) {
 	tests := []struct {
-		options ProcessOptions
 		name    string
+		options ProcessOptions
 		wantErr bool
 	}{
 		{
@@ -70,6 +84,48 @@ func TestProcessOptions_MarshalUnmarshal(t *testing.T) {
 			assert.Equal(t, tt.options, decoded)
 		})
 	}
+}
+
+func TestProcessOptionsCloneDeepCopiesAndValidatesMounts(t *testing.T) {
+	group := true
+	options := ProcessOptions{
+		Env:          map[string]string{"TOKEN": "secret"},
+		PTY:          &PTYOptions{Width: 100, Height: 30},
+		ProcessGroup: &group,
+		Mounts:       []Mount{{Source: "/host/project", Target: "/workspace", ReadOnly: true}},
+	}
+	clone, err := options.Clone()
+	require.NoError(t, err)
+	options.Env["TOKEN"] = "changed"
+	options.PTY.Width = 1
+	*options.ProcessGroup = false
+	options.Mounts[0].Source = "/other"
+	require.Equal(t, "secret", clone.Env["TOKEN"])
+	require.Equal(t, 100, clone.PTY.Width)
+	require.True(t, *clone.ProcessGroup)
+	require.Equal(t, "/host/project", clone.Mounts[0].Source)
+}
+
+func TestValidateMountsRejectsMalformedAndDuplicateTargets(t *testing.T) {
+	// A Windows client can submit Unix paths to a remote Linux Docker daemon.
+	require.NoError(t, (Mount{Source: "/host/project", Target: "/workspace"}).Validate())
+	require.NoError(t, (Mount{Source: t.TempDir(), Target: "/workspace"}).Validate())
+	tests := []Mount{
+		{Target: "/workspace"},
+		{Source: "relative", Target: "/workspace"},
+		{Source: "/host", Target: "workspace"},
+		{Source: "/host\x00path", Target: "/workspace"},
+		{Source: "/allowed/../private", Target: "/workspace"},
+		{Source: "/allowed/./private", Target: "/workspace"},
+	}
+	for _, mount := range tests {
+		assert.ErrorIs(t, mount.Validate(), ErrInvalidMount)
+	}
+	err := ValidateMounts([]Mount{
+		{Source: "/one", Target: "/workspace"},
+		{Source: "/two", Target: "/workspace/"},
+	})
+	assert.ErrorIs(t, err, ErrDuplicateMountTarget)
 }
 
 func TestNativeExecutorConfig_MarshalUnmarshal(t *testing.T) {

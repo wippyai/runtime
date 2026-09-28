@@ -3,6 +3,7 @@
 package fs
 
 import (
+	"syscall"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -15,6 +16,10 @@ func TestSentinelErrors(t *testing.T) {
 
 	t.Run("ErrPermissionDenied", func(t *testing.T) {
 		assert.Equal(t, "permission denied", ErrPermissionDenied.Error())
+	})
+
+	t.Run("ErrReadOnly", func(t *testing.T) {
+		assert.ErrorIs(t, ErrReadOnly, syscall.EROFS)
 	})
 
 	t.Run("ErrInvalidFileMode", func(t *testing.T) {

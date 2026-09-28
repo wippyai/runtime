@@ -28,6 +28,8 @@ func (b *testEventBus) Subscribe(_ context.Context, _ event.System, _ chan<- eve
 func (b *testEventBus) SubscribeP(_ context.Context, _ event.System, _ event.Kind, _ chan<- event.Event) (event.SubscriberID, error) {
 	return "test", nil
 }
+func (*testEventBus) HasSubscribers(event.System, event.Kind) bool { return true }
+
 func (b *testEventBus) Unsubscribe(_ context.Context, _ event.SubscriberID) {}
 
 type testDiagStore struct {

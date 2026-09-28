@@ -142,7 +142,7 @@ func TestSchedulerResizeRejectsWhileStopping(t *testing.T) {
 		sched.Stop(ctx)
 		close(stopDone)
 	}()
-	waitFor(t, func() bool { return sched.stopping.Load() })
+	waitFor(t, func() bool { return sched.isStopping() })
 
 	started := time.Now()
 	if err := sched.ResizeWorkers(2); !errors.Is(err, process.ErrSchedulerStopping) {
@@ -409,9 +409,9 @@ func TestSchedulerShrinkFinishesCurrentStepAndHandsOffContinuation(t *testing.T)
 		t.Fatal("injected processor was not in global queue")
 	}
 	queued.lastWorker.Store(1)
-	if !sched.workerSnapshot()[1].injectProcessor(queued) {
-		t.Fatal("could not queue processor on active worker")
-	}
+	// Model an already-admitted private wakeup to exercise retirement's queue
+	// handoff. New admissions bypass a worker while it is executing.
+	retiring.inject.Push(queued)
 
 	started := time.Now()
 	if err := sched.ResizeWorkers(1); err != nil {

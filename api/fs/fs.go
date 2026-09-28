@@ -23,6 +23,14 @@ const (
 	FsReject   event.Kind = "fs.reject"
 )
 
+// Request carries an optional operation ID so a caller can distinguish its
+// acknowledgement from another request for the same filesystem path. Legacy
+// fs.register events may still carry FS directly, and fs.delete may omit Data.
+type Request struct {
+	FS   FS
+	OpID string
+}
+
 type (
 	// ReadFS uses the standard fs.FS family of interfaces to provide read-only
 	// filesystem operations.
@@ -82,3 +90,13 @@ type (
 		GetFS(name string) (FS, bool)
 	}
 )
+
+// AtomicWriteFS is an optional whole-file publication capability. Implementations
+// must publish either all content or none, without following symbolic-link
+// parents. Existing nonregular targets are refused. It does not provide compare-
+// and-swap between writers. ErrPublishedSyncFailed means the new content is in
+// place but its survival across a crash is unknown; publishing the same content
+// again is safe. Unsupported platforms/providers return ErrAtomicWriteUnsupported.
+type AtomicWriteFS interface {
+	WriteFileAtomic(name string, data []byte, perm fs.FileMode) error
+}

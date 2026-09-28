@@ -10,8 +10,10 @@ const (
 	EnvironmentName    boot.Name = "env"
 	NetworkName        boot.Name = "network"
 	ResourcesName      boot.Name = "resources"
+	CDCRegistryName    boot.Name = "cdc.registry"
 	InterceptorName    boot.Name = "interceptor"
 	FrameResolversName boot.Name = "frame_resolvers"
+	TTYName            boot.Name = "tty"
 	FunctionsName      boot.Name = "functions"
 	ContractsName      boot.Name = "contracts"
 	ClusterName        boot.Name = "cluster"
@@ -22,19 +24,17 @@ const (
 	PGName             boot.Name = "pg"
 
 	// ClusterEnabled is a Cluster configuration key
-	ClusterEnabled           boot.Name = "enabled"
-	ClusterNodeName          boot.Name = "name"
-	ClusterInternodeBindAddr boot.Name = "internode.bind_addr"
-	ClusterInternodeBindPort boot.Name = "internode.bind_port"
-	// ClusterInternodeAdvertise* add a v2 endpoint for upgraded peers without
-	// changing the v1 internode_port metadata. Old peers ignore the v2 metadata
-	// and keep dialing the membership IP plus bind port during a rolling upgrade.
-	ClusterInternodeAdvertiseAddr        boot.Name = "internode.advertise_addr"
-	ClusterInternodeAdvertisePort        boot.Name = "internode.advertise_port"
-	ClusterInternodeAutoPort             boot.Name = "internode.auto_port"
-	ClusterInternodeIdentityKey          boot.Name = "internode.identity_key"
-	ClusterInternodeIdentityKeyFile      boot.Name = "internode.identity_key_file"
-	ClusterInternodeTrustedPeerKeys      boot.Name = "internode.trusted_peer_keys"
+	ClusterEnabled                  boot.Name = "enabled"
+	ClusterNodeName                 boot.Name = "name"
+	ClusterInternodeBindAddr        boot.Name = "internode.bind_addr"
+	ClusterInternodeBindPort        boot.Name = "internode.bind_port"
+	ClusterInternodeAutoPort        boot.Name = "internode.auto_port"
+	ClusterInternodeIdentityKey     boot.Name = "internode.identity_key"
+	ClusterInternodeIdentityKeyFile boot.Name = "internode.identity_key_file"
+	ClusterInternodeTrustedPeerKeys boot.Name = "internode.trusted_peer_keys"
+	// ClusterInternodePeerKeySource accepts only a compiled cluster.PeerKeySource,
+	// not a YAML/registry value. It supplements, never replaces, static pins.
+	ClusterInternodePeerKeySource        boot.Name = "internode.peer_key_source"
 	ClusterMembershipBindAddr            boot.Name = "membership.bind_addr"
 	ClusterMembershipBindPort            boot.Name = "membership.bind_port"
 	ClusterMembershipJoin                boot.Name = "membership.join_addrs"
@@ -61,6 +61,12 @@ const (
 	// old AP state is externally retired before rejoin; leave it false when
 	// stale durable replicas may reappear under the same node ID.
 	ClusterKVCRDTTombstoneGCAlivePeers boot.Name = "kv_crdt_tombstone_gc_alive_peers"
+	// ClusterKVWatch* bound total subscriptions, undelivered events per
+	// subscription, and retained bytes for each node-wide KV watch feed.
+	// Overflow invalidates a watcher so consumers can reseed safely.
+	ClusterKVWatchMaxSubscriptions boot.Name = "kv_watch.max_subscriptions"
+	ClusterKVWatchMaxEvents        boot.Name = "kv_watch.max_events"
+	ClusterKVWatchMaxBytes         boot.Name = "kv_watch.max_bytes"
 
 	// Raft lives under cluster.raft.*. Enabling cluster auto-enables raft
 	// with sensible defaults.

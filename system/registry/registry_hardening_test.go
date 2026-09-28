@@ -77,9 +77,12 @@ type hardeningRunner struct {
 	failTransitionAt int
 }
 
-func (r *hardeningRunner) Transition(_ context.Context, state regapi.State, changes regapi.ChangeSet) (regapi.State, error) {
+func (r *hardeningRunner) Transition(ctx context.Context, state regapi.State, changes regapi.ChangeSet, abort func(context.Context)) (regapi.State, error) {
 	r.transitions++
 	if r.failTransitionAt == r.transitions {
+		if abort != nil {
+			abort(ctx)
+		}
 		return state, errors.New("injected transition failure")
 	}
 	stateMap := topology.NewStateMap(state)
@@ -98,6 +101,10 @@ type hardeningEffect struct {
 	prepared   int
 	committed  int
 	rolledBack int
+}
+
+func (e *hardeningEffect) Target() (regapi.EffectTarget, error) {
+	return regapi.EffectTarget{Kind: "hardening", Digest: "static"}, nil
 }
 
 func (e *hardeningEffect) Prepare(context.Context) error {
@@ -162,7 +169,7 @@ func TestLoadStateDefaultsDependencyAccessToVerifiedOffline(t *testing.T) {
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			seen := regapi.DependencyAccessUnspecified
+			seen := regapi.DependencyAccessOnline
 			directive := hardeningDirective{expand: func(ctx context.Context, _ regapi.Operation, _ regapi.State) (regapi.DirectiveResult, error) {
 				seen = regapi.DependencyAccessFromContext(ctx)
 				return regapi.DirectiveResult{}, nil

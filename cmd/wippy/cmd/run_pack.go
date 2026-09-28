@@ -25,7 +25,7 @@ import (
 	"github.com/wippyai/runtime/boot/deps/lock"
 	"github.com/wippyai/runtime/cmd/internal/banner"
 	"github.com/wippyai/runtime/cmd/internal/entries"
-	"github.com/wippyai/runtime/cmd/internal/shutdown"
+	"github.com/wippyai/runtime/internal/cachedir"
 	"github.com/wippyai/wapp"
 	"go.uber.org/zap"
 )
@@ -360,7 +360,7 @@ func downloadHubModule(ctx context.Context, ref string, registryURL string) ([]s
 
 	fmt.Printf("%s Resolved %d module(s)\n", dimStyle.Render(""), len(resolved.Modules))
 
-	cacheDir := getCacheDir()
+	cacheDir := cachedir.Dir()
 	var packPaths []string
 	var mainPackPath string
 
@@ -540,21 +540,8 @@ func isVersionString(s string) bool {
 	return true
 }
 
-// getCacheDir returns the local cache directory used for downloaded packs.
-func getCacheDir() string {
-	if cacheDir := os.Getenv("WIPPY_CACHE_DIR"); cacheDir != "" {
-		return cacheDir
-	}
-
-	if homeDir, err := os.UserHomeDir(); err == nil {
-		return filepath.Join(homeDir, ".wippy", "cache")
-	}
-
-	return filepath.Join(os.TempDir(), "wippy-cache")
-}
-
 // runFromPackFile executes runtime from one .wapp file.
-func runFromPackFile(cmd *cobra.Command, packFile string, args []string, useCase string) error {
+func runFromPackFile(cmd *cobra.Command, packFile string, args []string, useCase string) (result error) {
 	memLimit := initMemoryLimit()
 
 	banner.Print(silentLogs)
@@ -580,6 +567,10 @@ func runFromPackFile(cmd *cobra.Command, packFile string, args []string, useCase
 		return err
 	}
 	defer embedReg.Close()
+	runtimeShutdown := &runShutdown{}
+	defer func() {
+		runtimeShutdown.deferCleanup(ctx, &result, loader, runLogger, silentLogs)
+	}()
 
 	mainModule, _, err := moduleIdentityFromPackFile(packFile)
 	if err != nil {
@@ -599,11 +590,11 @@ func runFromPackFile(cmd *cobra.Command, packFile string, args []string, useCase
 	}
 	entries.ConfigureSourceLoader(ctx, sourcePaths, runLogger)
 
-	return runPackEntries(ctx, loader, runLogger, packEntries, args, useCase, mainModule)
+	return runPackEntriesWithShutdown(ctx, loader, runLogger, packEntries, args, useCase, mainModule, commandHost(cmd), runtimeShutdown)
 }
 
 // runFromPackFiles executes runtime from multiple already resolved .wapp files.
-func runFromPackFiles(cmd *cobra.Command, packFiles []string, args []string, useCase string) error {
+func runFromPackFiles(cmd *cobra.Command, packFiles []string, args []string, useCase string) (result error) {
 	memLimit := initMemoryLimit()
 
 	banner.Print(silentLogs)
@@ -629,6 +620,10 @@ func runFromPackFiles(cmd *cobra.Command, packFiles []string, args []string, use
 		return err
 	}
 	defer embedReg.Close()
+	runtimeShutdown := &runShutdown{}
+	defer func() {
+		runtimeShutdown.deferCleanup(ctx, &result, loader, runLogger, silentLogs)
+	}()
 
 	mainModule := ""
 	if len(packFiles) > 0 {
@@ -652,7 +647,7 @@ func runFromPackFiles(cmd *cobra.Command, packFiles []string, args []string, use
 	}
 	entries.ConfigureSourceLoader(ctx, sourcePaths, runLogger)
 
-	return runPackEntries(ctx, loader, runLogger, packEntries, args, useCase, mainModule)
+	return runPackEntriesWithShutdown(ctx, loader, runLogger, packEntries, args, useCase, mainModule, commandHost(cmd), runtimeShutdown)
 }
 
 func packSourcePaths(packFiles []string, rootModule string) ([]lock.ModuleLoadPath, error) {
@@ -682,12 +677,30 @@ func runPackEntries(
 	args []string,
 	useCase string,
 	mainModule string,
+	hostID string,
 ) error {
+	return runPackEntriesWithShutdown(ctx, loader, logger, packEntries, args, useCase, mainModule, hostID, &runShutdown{})
+}
+
+func runPackEntriesWithShutdown(
+	ctx context.Context,
+	loader *bootpkg.Loader,
+	logger *zap.Logger,
+	packEntries []registry.Entry,
+	args []string,
+	useCase string,
+	mainModule string,
+	hostID string,
+	runtimeShutdown *runShutdown,
+) (result error) {
 	sigChan := setupSupervisorSignalChannel(ctx)
 	defer signal.Stop(sigChan)
 
 	appCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	defer func() {
+		runtimeShutdown.deferCleanup(ctx, &result, loader, logger, silentLogs)
+	}()
 
 	if err := loader.Start(appCtx); err != nil {
 		logger.Error("start failed", zap.Error(err))
@@ -715,28 +728,23 @@ func runPackEntries(
 	}
 
 	if entryID != "" {
-		execCtx, stopExecSignals := newExecSignalContext(appCtx)
-		execErr := launchExecProcess(execCtx, logger, entryID, "", args)
-		interrupted := execWasInterrupted(execCtx, appCtx, execErr)
-		stopExecSignals()
-		if execErr != nil && !interrupted {
-			logger.Error("exec launch failed", zap.Error(execErr))
-			return execErr
+		if readiness := bootpkg.GetReadiness(appCtx); readiness != nil {
+			if err := readiness.Wait(appCtx); err != nil {
+				return fmt.Errorf("boot readiness failed: %w", err)
+			}
 		}
-		if interrupted {
-			logger.Info("exec interrupted", zap.String("signal", "SIGINT"))
+
+		shutdown, err := launchExecUntilShutdown(appCtx, sigChan, logger, entryID, hostID, args)
+		if err != nil {
+			return err
+		}
+		if shutdown {
+			return nil
 		}
 	}
 
-	waitForShutdownSignal(sigChan, logger, nil)
-
-	exitCode := shutdown.Perform(ctx, loader, logger, silentLogs)
-	if exitCode != 0 {
-		_ = logger.Sync()
-		os.Exit(exitCode)
-	}
-
-	return nil
+	waitForShutdownSignal(appCtx, sigChan, logger, nil)
+	return appCtx.Err()
 }
 
 func moduleIdentityFromPackFile(packFile string) (moduleName string, moduleVersion string, err error) {

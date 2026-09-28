@@ -30,7 +30,7 @@ func NewTestRunner() *TestRunner {
 	}
 }
 
-func (m *TestRunner) Transition(_ context.Context, from registry.State, cs registry.ChangeSet) (registry.State, error) {
+func (m *TestRunner) Transition(_ context.Context, from registry.State, cs registry.ChangeSet, _ func(context.Context)) (registry.State, error) {
 	m.transitions = append(m.transitions, cs)
 
 	// Apply the changeset to state

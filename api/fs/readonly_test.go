@@ -5,12 +5,33 @@ package fs
 import (
 	"errors"
 	"io"
-	"io/fs"
+	iofs "io/fs"
 	"os"
+	"reflect"
 	"testing"
 	"testing/fstest"
 	"time"
 )
+
+type basicFile struct {
+	file iofs.File
+}
+
+func (f *basicFile) Read(p []byte) (int, error)   { return f.file.Read(p) }
+func (f *basicFile) Close() error                 { return f.file.Close() }
+func (f *basicFile) Stat() (iofs.FileInfo, error) { return f.file.Stat() }
+
+type basicFS struct {
+	iofs.ReadDirFS
+}
+
+func (f basicFS) Open(name string) (iofs.File, error) {
+	file, err := f.ReadDirFS.Open(name)
+	if err != nil {
+		return nil, err
+	}
+	return &basicFile{file: file}, nil
+}
 
 func TestReadOnlyFS_Open(t *testing.T) {
 	testFS := fstest.MapFS{
@@ -73,6 +94,16 @@ func TestReadOnlyFS_Open(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestReadOnlyFS_DoesNotExposeUnderlyingFilesystem(t *testing.T) {
+	typeOfReadOnlyFS := reflect.TypeOf(ReadOnlyFS{})
+	for index := 0; index < typeOfReadOnlyFS.NumField(); index++ {
+		field := typeOfReadOnlyFS.Field(index)
+		if field.IsExported() {
+			t.Fatalf("ReadOnlyFS exposes field %q", field.Name)
+		}
 	}
 }
 
@@ -206,8 +237,8 @@ func TestReadOnlyFS_OpenFile(t *testing.T) {
 		if err == nil {
 			t.Error("OpenFile() with O_WRONLY should fail")
 		}
-		if !errors.Is(err, fs.ErrPermission) {
-			t.Errorf("Expected fs.ErrPermission, got %v", err)
+		if !errors.Is(err, ErrReadOnly) {
+			t.Errorf("Expected ErrReadOnly, got %v", err)
 		}
 	})
 
@@ -253,18 +284,18 @@ func TestReadOnlyFS_FileOperations(t *testing.T) {
 		if err == nil {
 			t.Error("Write() should fail on read-only file")
 		}
-		if !errors.Is(err, fs.ErrPermission) {
-			t.Errorf("Expected fs.ErrPermission, got %v", err)
+		if !errors.Is(err, ErrReadOnly) {
+			t.Errorf("Expected ErrReadOnly, got %v", err)
 		}
 	})
 
-	t.Run("Seek fails", func(t *testing.T) {
-		_, err := file.Seek(0, 0)
-		if err == nil {
-			t.Error("Seek() should fail on read-only file")
+	t.Run("Seek succeeds", func(t *testing.T) {
+		position, err := file.Seek(3, io.SeekStart)
+		if err != nil {
+			t.Fatalf("Seek() error = %v", err)
 		}
-		if !errors.Is(err, fs.ErrPermission) {
-			t.Errorf("Expected fs.ErrPermission, got %v", err)
+		if position != 3 {
+			t.Fatalf("Seek() position = %d, want 3", position)
 		}
 	})
 
@@ -276,6 +307,28 @@ func TestReadOnlyFS_FileOperations(t *testing.T) {
 	})
 }
 
+func TestReadOnlyFS_UnsupportedOptionalFileOperations(t *testing.T) {
+	readOnlyFS := NewReadOnlyFS(basicFS{ReadDirFS: fstest.MapFS{
+		"file.txt": {Data: []byte("data")},
+	}})
+	file, err := readOnlyFS.OpenFile("file.txt", os.O_RDONLY, 0)
+	if err != nil {
+		t.Fatalf("OpenFile() error = %v", err)
+	}
+	defer func() { _ = file.Close() }()
+
+	if _, err := file.Seek(0, io.SeekStart); !errors.Is(err, iofs.ErrInvalid) {
+		t.Fatalf("Seek() error = %v, want fs.ErrInvalid", err)
+	}
+	directoryFile, ok := file.(iofs.ReadDirFile)
+	if !ok {
+		t.Fatal("OpenFile() result does not implement fs.ReadDirFile")
+	}
+	if _, err := directoryFile.ReadDir(-1); !errors.Is(err, iofs.ErrInvalid) {
+		t.Fatalf("ReadDir() error = %v, want fs.ErrInvalid", err)
+	}
+}
+
 func TestReadOnlyFS_UnsupportedOperations(t *testing.T) {
 	testFS := fstest.MapFS{}
 	readOnlyFS := NewReadOnlyFS(testFS)
@@ -285,8 +338,8 @@ func TestReadOnlyFS_UnsupportedOperations(t *testing.T) {
 		if err == nil {
 			t.Error("Remove() should fail")
 		}
-		if !errors.Is(err, fs.ErrPermission) {
-			t.Errorf("Expected fs.ErrPermission, got %v", err)
+		if !errors.Is(err, ErrReadOnly) {
+			t.Errorf("Expected ErrReadOnly, got %v", err)
 		}
 	})
 
@@ -295,8 +348,8 @@ func TestReadOnlyFS_UnsupportedOperations(t *testing.T) {
 		if err == nil {
 			t.Error("Mkdir() should fail")
 		}
-		if !errors.Is(err, fs.ErrPermission) {
-			t.Errorf("Expected fs.ErrPermission, got %v", err)
+		if !errors.Is(err, ErrReadOnly) {
+			t.Errorf("Expected ErrReadOnly, got %v", err)
 		}
 	})
 }

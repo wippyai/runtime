@@ -192,8 +192,8 @@ func (t *telemetry) setStrongPendingInFlight(n int) {
 	t.coll.GaugeSet("globalreg_root_pending_in_flight", float64(n), nil)
 }
 
-// recordStrongDropRequired counts departed-node prunes of in-flight pending
-// RequiredNodes sets (issued by the leader on NodeLeft).
+// recordStrongDropRequired counts historical committed RequiredNodes changes
+// when older Raft logs replay; discovery no longer issues these commands.
 func (t *telemetry) recordStrongDropRequired() {
 	if t == nil || t.coll == nil {
 		return
