@@ -62,6 +62,7 @@ func TestConstants(t *testing.T) {
 		err := l.DoString(`
 			assert(http.STATUS.OK == 200, "incorrect OK status")
 			assert(http.STATUS.CREATED == 201, "incorrect CREATED status")
+			assert(math.type(http.STATUS.OK) == "integer", "STATUS constants are integers")
 			assert(http.STATUS.ACCEPTED == 202, "incorrect ACCEPTED status")
 			assert(http.STATUS.NO_CONTENT == 204, "incorrect NO_CONTENT status")
 			assert(http.STATUS.PARTIAL_CONTENT == 206, "incorrect PARTIAL_CONTENT status")

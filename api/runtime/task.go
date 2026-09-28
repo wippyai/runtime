@@ -40,6 +40,8 @@ type (
 	Result struct {
 		// Value contains the successful execution result data
 		Value payload.Payload `json:"value"`
+		// Values carries positional results for a contract method with multiple outputs.
+		Values payload.Payloads `json:"values,omitempty"`
 
 		// Error contains any error that occurred during task execution
 		Error error `json:"error"`

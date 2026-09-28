@@ -6,6 +6,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/wippyai/go-lua/compiler/check"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/go-lua/types/diag"
@@ -157,6 +159,7 @@ func (p *stubProvider) DirectDependencies(id registry.ID) ([]registry.ID, error)
 func (p *stubProvider) DependencyManifests(id registry.ID) map[string]*io.Manifest { return nil }
 func (p *stubProvider) ModuleDefs() []*luaapi.ModuleDef                            { return nil }
 func (p *stubProvider) BuiltinManifestHash() string                                { return "" }
+func (p *stubProvider) CheckOptions() check.Options                                { return check.Options{} }
 
 func TestScheduler_EnqueueSync_EmptyIDs(t *testing.T) {
 	provider := &stubProvider{}

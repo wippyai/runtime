@@ -9,18 +9,15 @@ import (
 	"github.com/wippyai/go-lua/compiler/ast"
 	"github.com/wippyai/go-lua/compiler/check"
 	"github.com/wippyai/go-lua/compiler/check/hooks"
-	"github.com/wippyai/go-lua/compiler/check/scope"
 	"github.com/wippyai/go-lua/compiler/parse"
-	"github.com/wippyai/go-lua/compiler/stdlib"
 	golualsp "github.com/wippyai/go-lua/lsp"
 	"github.com/wippyai/go-lua/lsp/index"
 	"github.com/wippyai/go-lua/types/db"
 	"github.com/wippyai/go-lua/types/diag"
 	"github.com/wippyai/go-lua/types/io"
-	"github.com/wippyai/go-lua/types/query/core"
-	"github.com/wippyai/go-lua/types/typ"
 	"github.com/wippyai/runtime/api/registry"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
+	"github.com/wippyai/runtime/runtime/lua/code"
 	"go.uber.org/zap"
 )
 
@@ -299,7 +296,7 @@ func (idx *Indexer) newChecker() *lspChecker {
 	}
 	modules := idx.provider.ModuleDefs()
 	builtinHash := idx.provider.BuiltinManifestHash()
-	return newLSPChecker(modules, idx.symbols, idx.callGraph, builtinHash)
+	return newLSPChecker(modules, idx.provider.CheckOptions(), idx.symbols, idx.callGraph, builtinHash)
 }
 
 func (idx *Indexer) overlaySource(id registry.ID) (string, bool) {
@@ -334,42 +331,10 @@ type lspChecker struct {
 	builtinHash string
 }
 
-func newLSPChecker(mods []*luaapi.ModuleDef, symbols *index.SymbolIndex, callGraph *index.CallGraph, builtinHash string) *lspChecker {
-	builtins := make(map[string]typ.Type)
-	manifests := make(map[string]*io.Manifest)
+func newLSPChecker(mods []*luaapi.ModuleDef, options check.Options, symbols *index.SymbolIndex, callGraph *index.CallGraph, builtinHash string) *lspChecker {
+	env := code.NewBuiltinEnvironment(mods, options)
+	database := env.NewDatabase()
 
-	for _, mod := range mods {
-		if mod == nil || mod.Types == nil || mod.Name == "" {
-			continue
-		}
-		manifest := mod.Types()
-		if manifest == nil {
-			continue
-		}
-		manifests[mod.Name] = manifest
-		if manifest.Export != nil {
-			builtins[mod.Name] = manifest.Export
-		}
-		for name, t := range manifest.AllGlobals() {
-			builtins[name] = t
-		}
-	}
-
-	base := scope.NewWithBuiltins()
-	globalTypes := make(map[string]typ.Type)
-	for name, t := range stdlib.Library() {
-		globalTypes[name] = t
-	}
-	for name, t := range builtins {
-		globalTypes[name] = t
-	}
-
-	database := db.New()
-	for path, manifest := range manifests {
-		database.Connect(path, manifest)
-	}
-
-	types := core.NewEngineWithStdlib(stdlib.EngineConfig())
 	opts := []check.Option{
 		hooks.WithAssign(),
 		hooks.WithReturn(),
@@ -381,19 +346,9 @@ func newLSPChecker(mods []*luaapi.ModuleDef, symbols *index.SymbolIndex, callGra
 		opts = append(opts, hooks.WithLSPIndex(lspIndexer))
 	}
 
-	checker := check.NewChecker(database, check.Deps{
-		Types:       types,
-		Stdlib:      base,
-		GlobalTypes: globalTypes,
-		Resolver: &core.FuncResolver{
-			FieldFunc: core.Field,
-			IndexFunc: core.Index,
-		},
-	}, opts...)
-
 	return &lspChecker{
 		db:          database,
-		checker:     checker,
+		checker:     env.NewChecker(database, opts...),
 		builtinHash: builtinHash,
 	}
 }

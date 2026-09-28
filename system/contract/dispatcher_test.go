@@ -295,6 +295,32 @@ func TestAsyncCallHandler(t *testing.T) {
 	}
 }
 
+func TestAsyncMultipleOutputsAreSeparatePayloads(t *testing.T) {
+	node := &mockRelayNode{packages: make(chan *relay.Package, 1)}
+	d := NewDispatcher(node, nil)
+	ctx, frame := ctxapi.OpenFrameContext(ctxapi.NewRootContext())
+	defer ctxapi.ReleaseFrameContext(frame)
+	require.NoError(t, runtime.SetFramePID(ctx, pid.PID{Host: "test", UniqID: "multi"}))
+	cmd := contract.AcquireAsyncCallCmd()
+	defer cmd.Release()
+	cmd.Instance = &mockInstance{callFn: func(context.Context, string, payload.Payloads, runtime.Options) (*runtime.Result, error) {
+		return &runtime.Result{Values: payload.Payloads{payload.New("first"), payload.New(42)}}, nil
+	}}
+	cmd.Method = "run"
+	cmd.Topic = "@future:multi"
+	require.NoError(t, d.handleAsyncCall(ctx, cmd, 0, &testReceiver{}))
+	select {
+	case pkg := <-node.packages:
+		got := pkg.Messages[0].Payloads
+		require.Len(t, got, 3)
+		assert.Equal(t, "first", got[0].Data())
+		assert.Equal(t, 42, got[1].Data())
+		assert.True(t, payload.IsTerminal(got[2]))
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for async result")
+	}
+}
+
 func TestAsyncCallHandler_NilInstance(t *testing.T) {
 	d := NewDispatcher(&mockRelayNode{}, nil)
 	ctx := context.Background()

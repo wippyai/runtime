@@ -467,6 +467,8 @@ func init() {
 	})
 
 	// Builder submodule type (must be after builder types are initialized)
+	builderConditionMapType := typ.NewMap(typ.String, typ.Any)
+	builderConditionsType := typ.NewArray(typ.NewUnion(sqlizerType, builderConditionMapType))
 	builderType = typ.NewInterface("sql.builder", []typ.Method{
 		{Name: "select", Type: typ.Func().
 			Variadic(typ.String).
@@ -490,51 +492,43 @@ func init() {
 			Returns(sqlizerType).
 			Build()},
 		{Name: "eq", Type: typ.Func().
-			Param("column", typ.String).
-			Param("value", typ.Any).
+			Param("conditions", builderConditionMapType).
 			Returns(sqlizerType).
 			Build()},
 		{Name: "not_eq", Type: typ.Func().
-			Param("column", typ.String).
-			Param("value", typ.Any).
+			Param("conditions", builderConditionMapType).
 			Returns(sqlizerType).
 			Build()},
 		{Name: "lt", Type: typ.Func().
-			Param("column", typ.String).
-			Param("value", typ.Any).
+			Param("conditions", builderConditionMapType).
 			Returns(sqlizerType).
 			Build()},
 		{Name: "lte", Type: typ.Func().
-			Param("column", typ.String).
-			Param("value", typ.Any).
+			Param("conditions", builderConditionMapType).
 			Returns(sqlizerType).
 			Build()},
 		{Name: "gt", Type: typ.Func().
-			Param("column", typ.String).
-			Param("value", typ.Any).
+			Param("conditions", builderConditionMapType).
 			Returns(sqlizerType).
 			Build()},
 		{Name: "gte", Type: typ.Func().
-			Param("column", typ.String).
-			Param("value", typ.Any).
+			Param("conditions", builderConditionMapType).
 			Returns(sqlizerType).
 			Build()},
 		{Name: "like", Type: typ.Func().
-			Param("column", typ.String).
-			Param("value", typ.Any).
+			Param("conditions", builderConditionMapType).
 			Returns(sqlizerType).
 			Build()},
 		{Name: "not_like", Type: typ.Func().
-			Param("column", typ.String).
-			Param("value", typ.Any).
+			Param("conditions", builderConditionMapType).
 			Returns(sqlizerType).
 			Build()},
 		{Name: "and_", Type: typ.Func().
-			Variadic(sqlizerType).
+			Param("conditions", builderConditionsType).
 			Returns(sqlizerType).
 			Build()},
 		{Name: "or_", Type: typ.Func().
-			Variadic(sqlizerType).
+			Param("conditions", builderConditionsType).
 			Returns(sqlizerType).
 			Build()},
 	})

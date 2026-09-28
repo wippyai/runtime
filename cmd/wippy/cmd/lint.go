@@ -8,8 +8,11 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime"
+	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -21,12 +24,16 @@ import (
 	"github.com/wippyai/go-lua/types/diag"
 	"github.com/wippyai/go-lua/types/io"
 	"github.com/wippyai/runtime/api/boot"
+	"github.com/wippyai/runtime/api/payload"
 	regapi "github.com/wippyai/runtime/api/registry"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	bootpkg "github.com/wippyai/runtime/boot"
 	luaboot "github.com/wippyai/runtime/boot/components/runtime/lua"
+	"github.com/wippyai/runtime/boot/deps/lock"
 	bootextensions "github.com/wippyai/runtime/boot/extensions"
 	appinit "github.com/wippyai/runtime/cmd/internal/app"
+	"github.com/wippyai/runtime/cmd/internal/bootconfig"
+	"github.com/wippyai/runtime/cmd/internal/entries"
 	clilogger "github.com/wippyai/runtime/cmd/internal/logger"
 	"github.com/wippyai/runtime/runtime/lua/code"
 	"github.com/wippyai/runtime/runtime/lua/code/cache"
@@ -76,6 +83,7 @@ func init() {
 	lintCmd.Flags().Int("limit", 0, "limit number of diagnostics shown (0 = unlimited)")
 	lintCmd.Flags().Bool("rules", false, "enable lint rules (style and quality warnings)")
 	lintCmd.Flags().Bool("cache-reset", false, "clear lua cache before linting")
+	lintCmd.Flags().Bool("strict", false, "enable strict type-checking semantics; any behaves as unknown and must be narrowed before acceptance where a specific type is expected (overrides lua.type_system.strict)")
 	lintCmd.Flags().StringArray("profile", nil, "apply a workspace profile from the merged runtime config (repeatable, applied in order)")
 	lintCmd.Flags().StringArray("set", nil, "override a merged runtime config value (format: section.path=value, repeatable)")
 }
@@ -205,6 +213,32 @@ const parseErrorCode = "P0001"
 type lintConfig struct {
 	minSeverity severity
 	workers     int
+	imports     importResolution
+	catalog     *contractCatalog
+	nsFilters   []string
+}
+
+// importResolution records runtime entries separately from type manifests. A
+// valid runtime target can be untyped, and a lock can name modules whose source
+// has not been installed locally yet.
+type importResolution struct {
+	entries    map[regapi.ID]bool
+	incomplete bool
+}
+
+func newImportResolution(entries []regapi.Entry, incomplete bool) importResolution {
+	r := importResolution{
+		entries:    make(map[regapi.ID]bool, len(entries)),
+		incomplete: incomplete,
+	}
+	for _, entry := range entries {
+		r.entries[entry.ID] = true
+	}
+	return r
+}
+
+func (r importResolution) definitelyMissing(id regapi.ID) bool {
+	return !r.incomplete && !r.entries[id]
 }
 
 const maxLintWorkers = 8
@@ -247,6 +281,7 @@ func runLint(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
+	runtimeCfg = applyTypeSystemFlags(cmd, runtimeCfg)
 
 	ctx, loader, err := bootstrapLintContext(runtimeCfg)
 	if err != nil {
@@ -260,12 +295,12 @@ func runLint(cmd *cobra.Command, _ []string) error {
 		defer func() { _ = loader.Shutdown(ctx) }()
 	}
 
-	luaEntries, reportSet, err := loadLuaEntries(cmd, runtimeCfg, opts.lockFile, opts.nsFilters)
+	luaEntries, reportSet, resolution, catalog, err := loadLuaEntries(cmd, runtimeCfg, opts.lockFile, opts.nsFilters)
 	if err != nil {
 		return err
 	}
 
-	linter, lcache := createLinter(ctx, opts.enableRules)
+	linter, lcache := createLinter(ctx, opts.enableRules, catalog)
 	if opts.cacheReset {
 		if err := resetLintCache(lcache); err != nil {
 			return err
@@ -274,6 +309,9 @@ func runLint(cmd *cobra.Command, _ []string) error {
 	cfg := lintConfig{
 		minSeverity: opts.minSeverity,
 		workers:     defaultLintWorkers(),
+		imports:     resolution,
+		catalog:     catalog,
+		nsFilters:   opts.nsFilters,
 	}
 
 	var result *LintResult
@@ -285,6 +323,7 @@ func runLint(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
+	appendCatalogCoverage(result, catalog, lcache.catalogStrict, opts.nsFilters, opts.minSeverity)
 
 	result = applyFilters(result, opts.codeFilters, opts.limit)
 	if pruner, ok := lcache.store.(cache.Pruner); ok && lintCacheAllowsWrite(lcache) {
@@ -293,6 +332,19 @@ func runLint(cmd *cobra.Command, _ []string) error {
 		}
 	}
 	return outputResults(result, opts)
+}
+
+// applyTypeSystemFlags writes the type-system flags given on the command line
+// into the lua.type_system config section, the one place every checker reads
+// its semantics from.
+func applyTypeSystemFlags(cmd *cobra.Command, cfg boot.Config) boot.Config {
+	if !cmd.Flags().Changed("strict") {
+		return cfg
+	}
+	strict, _ := cmd.Flags().GetBool("strict")
+	return bootconfig.Merge(cfg, boot.NewConfig(boot.WithSection("lua", map[string]any{
+		"type_system.strict": strict,
+	})))
 }
 
 // lintOptions holds parsed command flags.
@@ -381,33 +433,168 @@ func bootstrapLintContext(cfg boot.Config) (ctx context.Context, loader *bootpkg
 	return bctx, loader, nil
 }
 
-func loadLuaEntries(cmd *cobra.Command, runtimeCfg boot.Config, lockFile string, nsFilters []string) ([]regapi.Entry, map[regapi.ID]bool, error) {
+func loadLuaEntries(cmd *cobra.Command, runtimeCfg boot.Config, lockFile string, nsFilters []string) ([]regapi.Entry, map[regapi.ID]bool, importResolution, *contractCatalog, error) {
 	logger := zap.NewNop()
 
 	app, err := appinit.Init(cmd.Context(), verbose, veryVerbose, console, silentLogs, appStartTime)
 	if err != nil {
-		return nil, nil, NewInitAppError(err)
+		return nil, nil, importResolution{}, nil, NewInitAppError(err)
 	}
 	boot.WithConfig(app.Ctx, runtimeCfg)
 
 	lockPath, lockObj, err := loadValidatedLock(".", lockFile, runtimeCfg, logger)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, importResolution{}, nil, err
 	}
 
-	allEntries, err := ensureModulesAndLoadEntries(app.Ctx, lockPath, lockObj, logger, false)
+	allEntries, err := loadLintEntriesFromLock(app.Ctx, lockPath, lockObj, logger)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, importResolution{}, nil, err
 	}
 
-	allLua := filterLuaEntries(allEntries, nil)
 	selected := filterLuaEntries(allEntries, nsFilters)
-	expanded, reportSet := expandLuaEntriesByImports(allLua, selected)
+	supplemental, err := loadSupplementalAppImports(app.Ctx, lockPath, allEntries, logger)
+	if err != nil {
+		return nil, nil, importResolution{}, nil, err
+	}
+	allEntries = append(allEntries, supplemental...)
+	catalog := collectContractCatalog(allEntries)
+	allLua := filterLuaEntries(allEntries, nil)
+	expanded, reportSet := expandLuaEntriesForCatalog(allLua, selected, catalog, nsFilters)
 
-	return expanded, reportSet, nil
+	return expanded, reportSet, newImportResolution(allEntries, lintLockSourcesIncomplete(lockObj)), catalog, nil
 }
 
-func createLinter(ctx context.Context, enableRules bool) (*lint.Linter, lintCache) {
+func expandLuaEntriesForCatalog(allLua, selected []regapi.Entry, catalog *contractCatalog, filters []string) ([]regapi.Entry, map[regapi.ID]bool) {
+	selectedForExpansion := append([]regapi.Entry(nil), selected...)
+	for _, entry := range allLua {
+		if catalog.selectedBoundFunction(entry.ID, filters) {
+			selectedForExpansion = append(selectedForExpansion, entry)
+		}
+	}
+	expanded, _ := expandLuaEntriesByImports(allLua, selectedForExpansion)
+	reportSet := make(map[regapi.ID]bool, len(selected))
+	for _, entry := range selected {
+		reportSet[entry.ID] = true
+	}
+	return expanded, reportSet
+}
+
+// A module's source tree may declare tests that import an app entry provided by
+// a sibling harness lock (for example, test/wippy.lock). Include only missing
+// app targets from that harness; its other entries and module selection do not
+// replace the current lint workspace.
+func loadSupplementalAppImports(ctx context.Context, lockPath string, loaded []regapi.Entry, logger *zap.Logger) ([]regapi.Entry, error) {
+	present := make(map[regapi.ID]bool, len(loaded))
+	for _, entry := range loaded {
+		present[entry.ID] = true
+	}
+	needed := make(map[regapi.ID]bool)
+	for _, entry := range filterLuaEntries(loaded, nil) {
+		for _, id := range extractEntryData(entry).Imports {
+			if id.NS == "app" && !present[id] {
+				needed[id] = true
+			}
+		}
+	}
+	if len(needed) == 0 {
+		return nil, nil
+	}
+	children, err := os.ReadDir(filepath.Dir(lockPath))
+	if err != nil {
+		return nil, err
+	}
+	var supplemental []regapi.Entry
+	for _, child := range children {
+		if !child.IsDir() || strings.HasPrefix(child.Name(), ".") {
+			continue
+		}
+		childLockPath := filepath.Join(filepath.Dir(lockPath), child.Name(), filepath.Base(lockPath))
+		if _, err := os.Stat(childLockPath); err != nil {
+			continue
+		}
+		childLock, err := lock.New(childLockPath)
+		if err != nil || childLock.GetDirectories().Src == "" {
+			continue
+		}
+		sourcePath := lock.ResolveLockPath(filepath.Dir(childLockPath), childLock.GetDirectories().Src)
+		appEntries, err := entries.LoadEntriesFromModuleLoadPaths(ctx, []lock.ModuleLoadPath{{Path: sourcePath, Root: true}}, logger)
+		if err != nil {
+			logger.Debug("skipping supplemental app source", zap.String("lock_path", childLockPath), zap.Error(err))
+			continue
+		}
+		for _, entry := range appEntries {
+			if needed[entry.ID] {
+				supplemental = append(supplemental, entry)
+				delete(needed, entry.ID)
+			}
+		}
+		if len(needed) == 0 {
+			break
+		}
+	}
+	return supplemental, nil
+}
+
+func lintLockSourcesIncomplete(lockObj *lock.Lock) bool {
+	for _, path := range lockObj.GetModuleLoadPaths() {
+		if path.Module == "" {
+			continue
+		}
+		if _, err := os.Stat(path.Path); err != nil {
+			return true
+		}
+	}
+	return false
+}
+
+// loadLintEntriesFromLock includes declared workspace replacement components
+// even when the lock has not selected them yet. Runtime dependency preparation
+// selects these sources before loading entries; lint must see the same source
+// entries to infer manifests for imports from those components.
+func loadLintEntriesFromLock(ctx context.Context, lockPath string, lockObj *lock.Lock, logger *zap.Logger) ([]regapi.Entry, error) {
+	paths := lockObj.GetModuleLoadPaths()
+	seen := make(map[string]bool, len(paths))
+	for _, path := range paths {
+		if path.Module != "" {
+			seen[path.Module] = true
+		}
+	}
+
+	for {
+		loaded, err := entries.LoadEntriesFromModuleLoadPaths(ctx, paths, logger)
+		if err != nil {
+			return nil, NewLoadEntriesError(fmt.Sprintf("lock paths (%s)", lockPath), err)
+		}
+
+		added := false
+		for _, dep := range extractRootDependencies(loaded, payload.GetTranscoder(ctx)) {
+			module := dep.Org + "/" + dep.Module
+			if seen[module] {
+				continue
+			}
+			replacement, ok := lockObj.GetReplacement(module)
+			if !ok || replacement.To == "" {
+				continue
+			}
+			root := lock.ResolveLockPath(filepath.Dir(lockPath), replacement.To)
+			paths = append(paths, lock.ModuleLoadPath{
+				Path:        lock.ModuleEntryLoadPath(root),
+				Module:      module,
+				SourceRoot:  root,
+				Root:        lockObj.IsRootModule(module),
+				Replacement: true,
+			})
+			seen[module] = true
+			added = true
+		}
+		if !added {
+			return loaded, nil
+		}
+	}
+}
+
+func createLinter(ctx context.Context, enableRules bool, catalogs ...*contractCatalog) (*lint.Linter, lintCache) {
 	cm := luaboot.GetCodeManager(ctx)
 	var mods []*luaapi.ModuleDef
 	if cm != nil {
@@ -419,11 +606,21 @@ func createLinter(ctx context.Context, enableRules bool) (*lint.Linter, lintCach
 		Strict:  true,
 	}
 	if cm != nil {
-		if runtimeTypeCfg := cm.TypeCheckConfig(); runtimeTypeCfg.Enabled {
+		runtimeTypeCfg := cm.TypeCheckConfig()
+		if runtimeTypeCfg.Enabled {
 			typeCfg = runtimeTypeCfg
 		}
+		typeCfg.Check = runtimeTypeCfg.Check
 	}
-	typeChecker := code.NewTypeChecker(typeCfg, mods)
+	var catalog *contractCatalog
+	if len(catalogs) > 0 {
+		catalog = catalogs[0]
+	}
+	var overrides map[string]*io.Manifest
+	if catalog != nil && catalog.manifest != nil {
+		overrides = map[string]*io.Manifest{"contract": catalog.manifest}
+	}
+	typeChecker := code.NewTypeCheckerWithManifests(typeCfg, mods, overrides)
 
 	var registry *lint.Registry
 	if enableRules {
@@ -438,9 +635,16 @@ func createLinter(ctx context.Context, enableRules bool) (*lint.Linter, lintCach
 		lcache.cfg = cm.CacheConfig()
 	}
 	lcache.typecheckHash = code.TypecheckConfigHash(typeCfg)
+	lcache.catalogStrict = typeCfg.Check.Strict
 	var builtinManifests map[string]*io.Manifest
 	lcache.builtinModules, builtinManifests = lintBuiltinInventory(mods)
+	if overrides != nil {
+		builtinManifests["contract"] = catalog.manifest
+	}
 	lcache.builtinHash = code.BuiltinManifestHash(builtinManifests)
+	if catalog != nil {
+		lcache.catalogHash = cache.HashStrings(catalog.fingerprint, strconv.FormatBool(typeCfg.Check.Strict))
+	}
 
 	// requireBuiltins is the set of modules a scoped require resolves without an
 	// explicit import/module declaration. It mirrors the runtime ambient base
@@ -537,6 +741,9 @@ func runLintSimple(luaEntries []regapi.Entry, reportSet map[regapi.ID]bool, lint
 // lintEntries is the core linting loop. If prog is non-nil, sends UI updates.
 func lintEntries(luaEntries []regapi.Entry, reportSet map[regapi.ID]bool, linter *lint.Linter, lcache lintCache, cfg lintConfig, prog *cliProgressReporter) *LintResult {
 	result := &LintResult{TotalEntries: len(luaEntries)}
+	if cfg.imports.entries == nil {
+		cfg.imports = newImportResolution(luaEntries, false)
+	}
 	workers := cfg.workers
 	if workers < 1 {
 		workers = defaultLintWorkers()
@@ -585,7 +792,7 @@ func lintEntries(luaEntries []regapi.Entry, reportSet map[regapi.ID]bool, linter
 
 		if len(levelEntries) == 1 {
 			entry := levelEntries[0]
-			er := lintOneEntry(entry, entryDataMap[entry.ID], linter, manifestMap, cfg.minSeverity, lcache, fps)
+			er := lintOneEntry(entry, entryDataMap[entry.ID], linter, manifestMap, cfg.imports, cfg.minSeverity, lcache, fps)
 			checked.Add(1)
 
 			entryIssues := 0
@@ -614,7 +821,7 @@ func lintEntries(luaEntries []regapi.Entry, reportSet map[regapi.ID]bool, linter
 				defer func() { <-sem }()
 
 				clone := linter.Clone()
-				er := lintOneEntry(e, entryDataMap[e.ID], clone, manifestMap, cfg.minSeverity, lcache, fps)
+				er := lintOneEntry(e, entryDataMap[e.ID], clone, manifestMap, cfg.imports, cfg.minSeverity, lcache, fps)
 				checked.Add(1)
 
 				entryIssues := 0
@@ -639,11 +846,13 @@ func lintEntries(luaEntries []regapi.Entry, reportSet map[regapi.ID]bool, linter
 		}
 	}
 
+	appendConformanceFindings(result, checkBindingConformance(cfg.catalog, manifestMap, entryDataMap, cfg.nsFilters), lcache.catalogStrict, cfg.minSeverity)
+	appendMissingContractUses(result, cfg.catalog, entryDataMap, reportSet, cfg.minSeverity)
 	sortLintResults(result)
 	return result
 }
 
-func lintOneEntry(entry regapi.Entry, data entryData, linter *lint.Linter, manifestMap map[regapi.ID]*io.Manifest, minSev severity, lcache lintCache, fps lintFingerprints) *entryResult {
+func lintOneEntry(entry regapi.Entry, data entryData, linter *lint.Linter, manifestMap map[regapi.ID]*io.Manifest, resolution importResolution, minSev severity, lcache lintCache, fps lintFingerprints) *entryResult {
 	if data.Source == "" {
 		return nil
 	}
@@ -657,15 +866,26 @@ func lintOneEntry(entry regapi.Entry, data entryData, linter *lint.Linter, manif
 	}
 
 	imports := make(map[string]*io.Manifest)
-	for alias, importID := range data.Imports {
+	var importDiags []diag.Diagnostic
+	aliases := make([]string, 0, len(data.Imports))
+	for alias := range data.Imports {
+		aliases = append(aliases, alias)
+	}
+	sort.Strings(aliases)
+	for _, alias := range aliases {
+		importID := data.Imports[alias]
 		if importID.NS == "" {
 			if manifest := linter.BuiltinManifest(importID.Name); manifest != nil {
 				imports[alias] = manifest
+			} else if !slices.Contains(lcache.builtinModules, importID.Name) {
+				importDiags = append(importDiags, unresolvedImportDiagnostic(entryID, alias, importID))
 			}
 			continue
 		}
-		if manifest, ok := manifestMap[importID]; ok {
+		if manifest, ok := manifestMap[importID]; ok && manifest != nil {
 			imports[alias] = manifest
+		} else if resolution.definitelyMissing(importID) {
+			importDiags = append(importDiags, unresolvedImportDiagnostic(entryID, alias, importID))
 		}
 	}
 
@@ -695,6 +915,7 @@ func lintOneEntry(entry regapi.Entry, data entryData, linter *lint.Linter, manif
 	if len(requireDiags) > 0 {
 		lintResult.Diagnostics = append(requireDiags, lintResult.Diagnostics...)
 	}
+	lintResult.Diagnostics = append(importDiags, lintResult.Diagnostics...)
 
 	if lintResult.Manifest != nil && !typecheckCacheHit {
 		lintSaveTypecheckCache(lcache, entry, data, fps.typecheck[entry.ID], fps.typeDeps[entry.ID], lintResult.Manifest, typeDiags)
@@ -742,6 +963,15 @@ func lintOneEntry(entry regapi.Entry, data entryData, linter *lint.Linter, manif
 	}
 
 	return er
+}
+
+func unresolvedImportDiagnostic(entryID, alias string, importID regapi.ID) diag.Diagnostic {
+	return diag.Diagnostic{
+		Position: diag.Position{File: entryID, Line: 1, Column: 1},
+		Code:     diag.ErrNoHandler,
+		Severity: diag.SeverityWarning,
+		Message:  fmt.Sprintf("declared import %q cannot resolve %s at runtime", alias, importID.String()),
+	}
 }
 
 // parseErrorResult reports a syntax error the same way a type error is
@@ -812,7 +1042,7 @@ func lintRequireDeclarations(stmts []ast.Stmt, entryID string, data entryData, b
 	}
 
 	collector := diag.NewCollector(entryID)
-	walkRequireStmts(stmts, func(call *ast.FuncCallExpr, moduleName string) {
+	checkRequire := func(call *ast.FuncCallExpr, moduleName string) {
 		if _, ok := declared[moduleName]; ok {
 			return
 		}
@@ -821,115 +1051,319 @@ func lintRequireDeclarations(stmts []ast.Stmt, entryID string, data entryData, b
 		}
 		collector.Add(call, diag.ErrNoHandler,
 			"require(%q) is not declared in _index.yaml imports or modules", moduleName)
-	})
+	}
+
+	if data.Method == "" {
+		walkRequireStmts(stmts, checkRequire)
+		return collector.All()
+	}
+
+	// Index definitions without entering their bodies. A field is identified by its
+	// name, regardless of the receiver spelling: aliases are ordinary references.
+	defs := map[string][]*ast.FunctionExpr{}
+	tables := map[string]bool{}
+	add := func(key string, fn *ast.FunctionExpr) {
+		if key != "" && fn != nil {
+			defs[key] = append(defs[key], fn)
+		}
+	}
+	var index func([]ast.Stmt)
+	index = func(body []ast.Stmt) {
+		walkRequireNodes(body, nil, func(stmt ast.Stmt) {
+			switch v := stmt.(type) {
+			case *ast.FuncDefStmt:
+				if v.Name == nil {
+					return
+				}
+				if v.Name.Method != "" {
+					if id, ok := v.Name.Receiver.(*ast.IdentExpr); ok {
+						tables[id.Value] = true
+					}
+					add("field:"+v.Name.Method, v.Func)
+					return
+				}
+				if attr, ok := v.Name.Func.(*ast.AttrGetExpr); ok {
+					if id, ok := attr.Object.(*ast.IdentExpr); ok {
+						tables[id.Value] = true
+					}
+					add("field:"+ast.KeyName(attr.Key), v.Func)
+				} else if id, ok := v.Name.Func.(*ast.IdentExpr); ok {
+					add("local:"+id.Value, v.Func)
+				}
+			case *ast.LocalAssignStmt:
+				for i, name := range v.Names {
+					if i < len(v.Exprs) {
+						if _, ok := v.Exprs[i].(*ast.TableExpr); ok {
+							tables[name] = true
+						}
+						indexBinding(name, v.Exprs[i], add)
+					}
+				}
+			case *ast.AssignStmt:
+				for i, lhs := range v.Lhs {
+					if i >= len(v.Rhs) {
+						break
+					}
+					switch name := lhs.(type) {
+					case *ast.IdentExpr:
+						if _, ok := v.Rhs[i].(*ast.TableExpr); ok {
+							tables[name.Value] = true
+						}
+						indexBinding(name.Value, v.Rhs[i], add)
+					case *ast.AttrGetExpr:
+						add("field:"+ast.KeyName(name.Key), functionValue(v.Rhs[i]))
+					}
+				}
+			}
+		}, nil)
+	}
+	index(stmts)
+	indexed := map[*ast.FunctionExpr]bool{}
+	for {
+		var pending []*ast.FunctionExpr
+		for _, functions := range defs {
+			for _, fn := range functions {
+				if !indexed[fn] {
+					indexed[fn] = true
+					pending = append(pending, fn)
+				}
+			}
+		}
+		if len(pending) == 0 {
+			break
+		}
+		for _, fn := range pending {
+			index(fn.Stmts)
+		}
+	}
+
+	roots := defs["field:"+data.Method]
+	roots = append(append([]*ast.FunctionExpr(nil), roots...), defs["local:"+data.Method]...)
+	if len(roots) == 0 {
+		walkRequireStmts(stmts, checkRequire)
+		return collector.All()
+	}
+
+	seen := map[*ast.FunctionExpr]bool{}
+	queue := append([]*ast.FunctionExpr(nil), roots...)
+	enqueueFields := func() {
+		for name, fns := range defs {
+			if strings.HasPrefix(name, "field:") {
+				queue = append(queue, fns...)
+			}
+		}
+	}
+	// The chunk executes for every entry. Definition targets are not references;
+	// only the code around them can enqueue another function.
+	scan := func(body []ast.Stmt, top bool) {
+		walkRequireNodes(body, checkRequire, func(stmt ast.Stmt) {
+			if ret, ok := stmt.(*ast.ReturnStmt); ok && !top {
+				for _, value := range ret.Exprs {
+					if id, ok := value.(*ast.IdentExpr); ok && tables[id.Value] {
+						enqueueFields()
+					}
+				}
+			}
+			if assign, ok := stmt.(*ast.LocalAssignStmt); ok {
+				for i, name := range assign.Names {
+					if i < len(assign.Exprs) {
+						if source, ok := assign.Exprs[i].(*ast.IdentExpr); ok && tables[source.Value] {
+							tables[name] = true
+						}
+					}
+				}
+			}
+		}, func(expr ast.Expr) {
+			var key string
+			switch e := expr.(type) {
+			case *ast.IdentExpr:
+				key = "local:" + e.Value
+			case *ast.AttrGetExpr:
+				if _, constant := e.Key.(*ast.StringExpr); !constant {
+					key = "field:*"
+				} else if name := ast.KeyName(e.Key); name != "" {
+					key = "field:" + name
+				} else {
+					key = "field:*"
+				}
+			case *ast.FuncCallExpr:
+				if e.Method != "" {
+					key = "field:" + e.Method
+				}
+				// A function table passed to unknown code can expose any member.
+				for _, arg := range e.Args {
+					if id, ok := arg.(*ast.IdentExpr); ok && tables[id.Value] {
+						key = "field:*"
+					}
+				}
+			case *ast.FunctionExpr:
+				if !top {
+					queue = append(queue, e)
+				}
+			}
+			if key == "field:*" {
+				enqueueFields()
+			} else {
+				queue = append(queue, defs[key]...)
+			}
+		})
+	}
+	scan(stmts, true)
+	for len(queue) != 0 {
+		fn := queue[0]
+		queue = queue[1:]
+		if seen[fn] || fn == nil {
+			continue
+		}
+		seen[fn] = true
+		scan(fn.Stmts, false)
+	}
 	return collector.All()
 }
 
-func walkRequireStmts(stmts []ast.Stmt, visit func(*ast.FuncCallExpr, string)) {
-	for _, stmt := range stmts {
-		walkRequireStmt(stmt, visit)
+func functionValue(expr ast.Expr) *ast.FunctionExpr {
+	if fn, ok := expr.(*ast.FunctionExpr); ok {
+		return fn
+	}
+	switch expr.(type) {
+	case nil, *ast.NumberExpr, *ast.StringExpr, *ast.TrueExpr, *ast.FalseExpr, *ast.NilExpr, *ast.TableExpr:
+		return nil
+	}
+	// An expression can produce a function (for example, M.run = factory()).
+	// Keep its evaluation as a root without guessing the returned function.
+	return &ast.FunctionExpr{Stmts: []ast.Stmt{&ast.ReturnStmt{Exprs: []ast.Expr{expr}}}}
+}
+
+func indexBinding(name string, expr ast.Expr, add func(string, *ast.FunctionExpr)) {
+	add("local:"+name, functionValue(expr))
+	if table, ok := expr.(*ast.TableExpr); ok {
+		for _, field := range table.Fields {
+			add("field:"+ast.KeyName(field.Key), functionValue(field.Value))
+		}
 	}
 }
 
-func walkRequireStmt(stmt ast.Stmt, visit func(*ast.FuncCallExpr, string)) {
+func walkRequireStmts(stmts []ast.Stmt, visit func(*ast.FuncCallExpr, string)) {
+	walkRequireNodes(stmts, visit, nil, nil)
+}
+
+func walkRequireNodes(stmts []ast.Stmt, visit func(*ast.FuncCallExpr, string), onStmt func(ast.Stmt), onExpr func(ast.Expr)) {
+	for _, stmt := range stmts {
+		walkRequireStmt(stmt, visit, onStmt, onExpr)
+	}
+}
+
+func walkRequireStmt(stmt ast.Stmt, visit func(*ast.FuncCallExpr, string), onStmt func(ast.Stmt), onExpr func(ast.Expr)) {
 	if stmt == nil {
 		return
 	}
 
+	if onStmt != nil {
+		onStmt(stmt)
+	}
 	switch s := stmt.(type) {
 	case *ast.AssignStmt:
-		for _, expr := range s.Lhs {
-			walkRequireExpr(expr, visit)
+		if onExpr == nil {
+			for _, expr := range s.Lhs {
+				walkRequireExpr(expr, visit, onStmt, onExpr)
+			}
 		}
 		for _, expr := range s.Rhs {
-			walkRequireExpr(expr, visit)
+			walkRequireExpr(expr, visit, onStmt, onExpr)
 		}
 	case *ast.LocalAssignStmt:
 		for _, expr := range s.Exprs {
-			walkRequireExpr(expr, visit)
+			walkRequireExpr(expr, visit, onStmt, onExpr)
 		}
 	case *ast.FuncCallStmt:
-		walkRequireExpr(s.Expr, visit)
+		walkRequireExpr(s.Expr, visit, onStmt, onExpr)
 	case *ast.DoBlockStmt:
-		walkRequireStmts(s.Stmts, visit)
+		walkRequireNodes(s.Stmts, visit, onStmt, onExpr)
 	case *ast.WhileStmt:
-		walkRequireExpr(s.Condition, visit)
-		walkRequireStmts(s.Stmts, visit)
+		walkRequireExpr(s.Condition, visit, onStmt, onExpr)
+		walkRequireNodes(s.Stmts, visit, onStmt, onExpr)
 	case *ast.RepeatStmt:
-		walkRequireStmts(s.Stmts, visit)
-		walkRequireExpr(s.Condition, visit)
+		walkRequireNodes(s.Stmts, visit, onStmt, onExpr)
+		walkRequireExpr(s.Condition, visit, onStmt, onExpr)
 	case *ast.IfStmt:
-		walkRequireExpr(s.Condition, visit)
-		walkRequireStmts(s.Then, visit)
-		walkRequireStmts(s.Else, visit)
+		walkRequireExpr(s.Condition, visit, onStmt, onExpr)
+		walkRequireNodes(s.Then, visit, onStmt, onExpr)
+		walkRequireNodes(s.Else, visit, onStmt, onExpr)
 	case *ast.NumberForStmt:
-		walkRequireExpr(s.Init, visit)
-		walkRequireExpr(s.Limit, visit)
-		walkRequireExpr(s.Step, visit)
-		walkRequireStmts(s.Stmts, visit)
+		walkRequireExpr(s.Init, visit, onStmt, onExpr)
+		walkRequireExpr(s.Limit, visit, onStmt, onExpr)
+		walkRequireExpr(s.Step, visit, onStmt, onExpr)
+		walkRequireNodes(s.Stmts, visit, onStmt, onExpr)
 	case *ast.GenericForStmt:
 		for _, expr := range s.Exprs {
-			walkRequireExpr(expr, visit)
+			walkRequireExpr(expr, visit, onStmt, onExpr)
 		}
-		walkRequireStmts(s.Stmts, visit)
+		walkRequireNodes(s.Stmts, visit, onStmt, onExpr)
 	case *ast.FuncDefStmt:
-		if s.Func != nil {
-			walkRequireStmts(s.Func.Stmts, visit)
+		if s.Func != nil && onStmt == nil && onExpr == nil {
+			walkRequireNodes(s.Func.Stmts, visit, onStmt, onExpr)
 		}
 	case *ast.ReturnStmt:
 		for _, expr := range s.Exprs {
-			walkRequireExpr(expr, visit)
+			walkRequireExpr(expr, visit, onStmt, onExpr)
 		}
 	}
 }
 
-func walkRequireExpr(expr ast.Expr, visit func(*ast.FuncCallExpr, string)) {
+func walkRequireExpr(expr ast.Expr, visit func(*ast.FuncCallExpr, string), onStmt func(ast.Stmt), onExpr func(ast.Expr)) {
 	if expr == nil {
 		return
 	}
 
+	if onExpr != nil {
+		onExpr(expr)
+	}
 	switch e := expr.(type) {
 	case *ast.FuncCallExpr:
 		if ident, ok := e.Func.(*ast.IdentExpr); ok && ident.Value == "require" && e.Receiver == nil && e.Method == "" && len(e.Args) > 0 {
 			if mod, ok := e.Args[0].(*ast.StringExpr); ok && mod.Value != "" {
-				visit(e, mod.Value)
+				if visit != nil {
+					visit(e, mod.Value)
+				}
 			}
 		}
-		walkRequireExpr(e.Func, visit)
-		walkRequireExpr(e.Receiver, visit)
+		walkRequireExpr(e.Func, visit, onStmt, onExpr)
+		walkRequireExpr(e.Receiver, visit, onStmt, onExpr)
 		for _, arg := range e.Args {
-			walkRequireExpr(arg, visit)
+			walkRequireExpr(arg, visit, onStmt, onExpr)
 		}
 	case *ast.AttrGetExpr:
-		walkRequireExpr(e.Object, visit)
-		walkRequireExpr(e.Key, visit)
+		walkRequireExpr(e.Object, visit, onStmt, onExpr)
+		walkRequireExpr(e.Key, visit, onStmt, onExpr)
 	case *ast.TableExpr:
 		for _, field := range e.Fields {
-			walkRequireExpr(field.Key, visit)
-			walkRequireExpr(field.Value, visit)
+			walkRequireExpr(field.Key, visit, onStmt, onExpr)
+			walkRequireExpr(field.Value, visit, onStmt, onExpr)
 		}
 	case *ast.FunctionExpr:
-		walkRequireStmts(e.Stmts, visit)
+		if onStmt == nil && onExpr == nil {
+			walkRequireNodes(e.Stmts, visit, onStmt, onExpr)
+		}
 	case *ast.LogicalOpExpr:
-		walkRequireExpr(e.Lhs, visit)
-		walkRequireExpr(e.Rhs, visit)
+		walkRequireExpr(e.Lhs, visit, onStmt, onExpr)
+		walkRequireExpr(e.Rhs, visit, onStmt, onExpr)
 	case *ast.RelationalOpExpr:
-		walkRequireExpr(e.Lhs, visit)
-		walkRequireExpr(e.Rhs, visit)
+		walkRequireExpr(e.Lhs, visit, onStmt, onExpr)
+		walkRequireExpr(e.Rhs, visit, onStmt, onExpr)
 	case *ast.ArithmeticOpExpr:
-		walkRequireExpr(e.Lhs, visit)
-		walkRequireExpr(e.Rhs, visit)
+		walkRequireExpr(e.Lhs, visit, onStmt, onExpr)
+		walkRequireExpr(e.Rhs, visit, onStmt, onExpr)
 	case *ast.StringConcatOpExpr:
-		walkRequireExpr(e.Lhs, visit)
-		walkRequireExpr(e.Rhs, visit)
+		walkRequireExpr(e.Lhs, visit, onStmt, onExpr)
+		walkRequireExpr(e.Rhs, visit, onStmt, onExpr)
 	case *ast.UnaryMinusOpExpr:
-		walkRequireExpr(e.Expr, visit)
+		walkRequireExpr(e.Expr, visit, onStmt, onExpr)
 	case *ast.UnaryNotOpExpr:
-		walkRequireExpr(e.Expr, visit)
+		walkRequireExpr(e.Expr, visit, onStmt, onExpr)
 	case *ast.UnaryLenOpExpr:
-		walkRequireExpr(e.Expr, visit)
+		walkRequireExpr(e.Expr, visit, onStmt, onExpr)
 	case *ast.UnaryBNotOpExpr:
-		walkRequireExpr(e.Expr, visit)
+		walkRequireExpr(e.Expr, visit, onStmt, onExpr)
 	}
 }
 

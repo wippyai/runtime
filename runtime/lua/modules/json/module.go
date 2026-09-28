@@ -70,6 +70,19 @@ func decodeFunc(l *lua.LState) int {
 	if str == "" {
 		return invalidInputError(l, "empty string is not valid JSON")
 	}
+	if l.GetTop() >= 2 {
+		target, ok := l.Get(2).(*lua.LType)
+		if !ok {
+			return invalidInputError(l, "$: expected type value")
+		}
+		value, err := decodeTypedString(string(str), target, l)
+		if err != nil {
+			return invalidInputError(l, err.Error())
+		}
+		l.Push(value)
+		l.Push(lua.LNil)
+		return 2
+	}
 
 	value, err := Decode([]byte(str))
 	if err != nil {

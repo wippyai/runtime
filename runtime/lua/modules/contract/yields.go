@@ -3,6 +3,7 @@
 package contract
 
 import (
+	"errors"
 	"sync"
 
 	lua "github.com/wippyai/go-lua"
@@ -114,38 +115,68 @@ func (y *CallYield) CmdID() dispatcher.CommandID   { return contract.Call }
 func (y *CallYield) Release()                      { ReleaseCallYield(y) }
 
 // HandleResult converts call response to Lua values.
+func outputArity(instance contract.Instance, method string) int {
+	count := 1
+	if instance != nil {
+		if arity, ok := instance.(interface{ OutputArity(string) int }); ok {
+			count = arity.OutputArity(method)
+		} else {
+			for _, definition := range instance.Implements() {
+				if declared, methodErr := definition.Method(method); methodErr == nil && declared != nil {
+					if len(declared.OutputSchemas) > 0 {
+						count = len(declared.OutputSchemas)
+					}
+					break
+				}
+			}
+		}
+	}
+	if count < 1 {
+		return 1
+	}
+	return count
+}
+
 func (y *CallYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
-	if err != nil {
-		luaErr := lua.WrapErrorWithLua(l, err, "call failed").
+	count := outputArity(y.Instance, y.Method)
+	failure := func(cause error, message string) []lua.LValue {
+		luaErr := lua.WrapErrorWithLua(l, cause, message).
 			WithKind(lua.Internal).
 			WithRetryable(false)
-		return []lua.LValue{lua.LNil, luaErr}
+		return future.ResultValues(count, nil, luaErr)
+	}
+	if err != nil {
+		return failure(err, "call failed")
 	}
 	if data == nil {
-		luaErr := lua.NewLuaError(l, "no response received").
-			WithKind(lua.Internal).
-			WithRetryable(false)
-		return []lua.LValue{lua.LNil, luaErr}
+		return failure(errors.New("no response received"), "call failed")
 	}
 	resp, ok := data.(contract.CallResult)
 	if !ok {
-		luaErr := lua.NewLuaError(l, "invalid response type").
-			WithKind(lua.Internal).
-			WithRetryable(false)
-		return []lua.LValue{lua.LNil, luaErr}
+		return failure(errors.New("invalid response type"), "call failed")
 	}
 	if resp.Error != nil {
 		luaErr := lua.WrapErrorWithLua(l, resp.Error, "")
-		return []lua.LValue{lua.LNil, luaErr}
+		return future.ResultValues(count, nil, luaErr)
+	}
+	if count > 1 {
+		values := make([]lua.LValue, count)
+		for index := 0; index < count; index++ {
+			if index < len(resp.Values) {
+				converted, convErr := luaconv.GoToLua(resp.Values[index])
+				if convErr != nil {
+					return failure(convErr, "result conversion failed")
+				}
+				values[index] = converted
+			}
+		}
+		return future.ResultValues(count, values, nil)
 	}
 	lv, convErr := luaconv.GoToLua(resp.Value)
 	if convErr != nil {
-		luaErr := lua.WrapErrorWithLua(l, convErr, "result conversion failed").
-			WithKind(lua.Internal).
-			WithRetryable(false)
-		return []lua.LValue{lua.LNil, luaErr}
+		return failure(convErr, "result conversion failed")
 	}
-	return []lua.LValue{lv, lua.LNil}
+	return future.ResultValues(count, []lua.LValue{lv}, nil)
 }
 
 // AsyncCallYield wraps AsyncCallCmd for Lua.
@@ -183,22 +214,22 @@ func (y *AsyncCallYield) HandleResult(l *lua.LState, data any, err error) []lua.
 		luaErr := lua.WrapErrorWithLua(l, err, "async call failed").
 			WithKind(lua.Internal).
 			WithRetryable(false)
-		return []lua.LValue{lua.LNil, luaErr}
+		return future.ResultValues(1, nil, luaErr)
 	}
 	resp, ok := data.(contract.AsyncCallResult)
 	if !ok {
 		luaErr := lua.NewLuaError(l, "invalid response type").
 			WithKind(lua.Internal).
 			WithRetryable(false)
-		return []lua.LValue{lua.LNil, luaErr}
+		return future.ResultValues(1, nil, luaErr)
 	}
 	if resp.Error != nil {
 		luaErr := lua.WrapErrorWithLua(l, resp.Error, "async call error").
 			WithKind(lua.Internal).
 			WithRetryable(false)
-		return []lua.LValue{lua.LNil, luaErr}
+		return future.ResultValues(1, nil, luaErr)
 	}
-	return []lua.LValue{value.NewTypedUserData(l, y.Future, future.TypeName), lua.LNil}
+	return future.ResultValues(1, []lua.LValue{value.NewTypedUserData(l, y.Future, future.TypeName)}, nil)
 }
 
 // AsyncCancelYield wraps AsyncCancelCmd for Lua.

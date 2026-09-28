@@ -20,6 +20,21 @@ var dateTableType = typ.NewRecord().
 	Field("isdst", typ.Boolean).
 	Build()
 
+// dateFuncType overloads os.date: "*t" and "!*t" return a date table, every
+// other format and no format return the formatted string.
+var dateFuncType = typ.NewUnion(
+	typ.Func().
+		Param("format", typ.NewUnion(typ.LiteralString("*t"), typ.LiteralString("!*t"))).
+		OptParam("timestamp", typ.Number).
+		Returns(dateTableType).
+		Build(),
+	typ.Func().
+		OptParam("format", typ.String).
+		OptParam("timestamp", typ.Number).
+		Returns(typ.String).
+		Build(),
+)
+
 // ModuleTypes returns the type manifest for the os module.
 func ModuleTypes() *io.Manifest {
 	m := io.NewManifest("os")
@@ -28,20 +43,13 @@ func ModuleTypes() *io.Manifest {
 
 	moduleFieldsType := typ.NewRecord().
 		Field("platform", typ.String).
+		Field("date", dateFuncType).
 		Build()
 
 	moduleMethodsType := typ.NewInterface("os", []typ.Method{
 		{
 			Name: "time",
 			Type: typ.Func().OptParam("table", typ.Any).Returns(typ.Number).Build(),
-		},
-		{
-			Name: "date",
-			Type: typ.Func().
-				OptParam("format", typ.String).
-				OptParam("timestamp", typ.Number).
-				Returns(typ.NewUnion(typ.String, dateTableType)).
-				Build(),
 		},
 		{
 			Name: "clock",

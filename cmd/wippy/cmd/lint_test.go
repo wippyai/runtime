@@ -5,8 +5,15 @@ package cmd
 import (
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/spf13/cobra"
+	"github.com/wippyai/runtime/api/boot"
+	"github.com/wippyai/runtime/boot/deps/lock"
+	"github.com/wippyai/runtime/cmd/internal/entries"
 
 	"github.com/wippyai/go-lua/compiler/ast"
 	"github.com/wippyai/go-lua/compiler/parse"
@@ -21,6 +28,7 @@ import (
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	transcoder "github.com/wippyai/runtime/system/payload"
 	payloadjson "github.com/wippyai/runtime/system/payload/json"
+	"go.uber.org/zap"
 )
 
 // ambientRequireBuiltins assembles the require allowlist the same way
@@ -109,7 +117,203 @@ func TestExpandLuaEntriesByImports_IncludesDeps(t *testing.T) {
 	}
 }
 
+func TestLintLoadsDeclaredReplacementComponentManifest(t *testing.T) {
+	ctx := setupLoaderContext(t)
+	root := t.TempDir()
+	appDir := filepath.Join(root, "app")
+	componentDir := filepath.Join(root, "component")
+	for _, dir := range []string{appDir, filepath.Join(componentDir, "src")} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	appYAML := `version: "1.0"
+namespace: app
+entries:
+  - name: dependency
+    kind: ns.dependency
+    component: acme/types
+    version: "*"
+  - name: consumer
+    kind: library.lua
+    imports:
+      types: acme.types:types
+    source: |
+      local types = require("types")
+      local id: string = types.db_id()
+      return id
+`
+	componentYAML := `version: "1.0"
+namespace: acme.types
+entries:
+  - name: types
+    kind: library.lua
+    source: |
+      local M = {}
+      function M.db_id(): string
+        return "db-1"
+      end
+      return M
+`
+	for path, source := range map[string]string{
+		filepath.Join(appDir, "_index.yaml"):              appYAML,
+		filepath.Join(componentDir, "src", "_index.yaml"): componentYAML,
+	} {
+		if err := os.WriteFile(path, []byte(source), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	lockPath := filepath.Join(root, lock.DefaultFilename)
+	lockObj, err := lock.New(lockPath, lock.WithWorkspaceReplacements([]lock.Replacement{{From: "acme/types", To: "component"}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lockObj.SetDirectories(lock.Directories{Src: "app", Modules: ".wippy"})
+	if err := lockObj.Write(); err != nil {
+		t.Fatal(err)
+	}
+
+	locked, err := loadEntriesFromLockPaths(ctx, lockObj, zap.NewNop())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := len(filterLuaEntries(locked, nil)); got != 1 {
+		t.Fatalf("lock paths alone load %d Lua entries, want only the consumer", got)
+	}
+	loaded, err := loadLintEntriesFromLock(ctx, lockPath, lockObj, zap.NewNop())
+	if err != nil {
+		t.Fatal(err)
+	}
+	allLua := filterLuaEntries(loaded, nil)
+	selected := filterLuaEntries(loaded, []string{"app"})
+	expanded, reportSet := expandLuaEntriesByImports(allLua, selected)
+	if len(expanded) != 2 || !reportSet[registry.NewID("app", "consumer")] {
+		t.Fatalf("expanded imports = %d, report set = %v", len(expanded), reportSet)
+	}
+	linter, lcache := createLinter(ctx, false)
+	result := lintEntries(expanded, reportSet, linter, lcache, lintConfig{minSeverity: severityError, workers: 1}, nil)
+	if result.ErrorCount != 0 {
+		t.Fatalf("consumer should use component manifest, got diagnostics: %+v", result.Diagnostics)
+	}
+}
+
+func TestLintReportsUnresolvedDeclaredImport(t *testing.T) {
+	entry := makeLuaSourceEntry(registry.NewID("app", "consumer"),
+		map[string]registry.ID{"missing": registry.NewID("acme.types", "missing")},
+		`local missing = require("missing"); return missing.db_id()`)
+	linter, lcache := createLinter(setupLoaderContext(t), false)
+	result := lintEntries([]registry.Entry{entry}, nil, linter, lcache,
+		lintConfig{minSeverity: severityWarning, workers: 1}, nil)
+	for _, diagnostic := range result.Diagnostics {
+		if strings.Contains(diagnostic.Message, `declared import "missing" cannot resolve acme.types:missing at runtime`) {
+			if diagnostic.Severity != "warning" || result.ErrorCount != 0 {
+				t.Fatalf("unresolved import should be a warning: %+v", result.Diagnostics)
+			}
+			return
+		}
+	}
+	t.Fatalf("missing import was silently dropped: %+v", result.Diagnostics)
+}
+
+func TestLintDoesNotRequireTypeManifestForRuntimeEntry(t *testing.T) {
+	ctx := setupLoaderContext(t)
+	root := makeLuaSourceEntry(registry.NewID("app", "consumer"),
+		map[string]registry.ID{
+			"untyped":  registry.NewID("app", "untyped"),
+			"resource": registry.NewID("app", "resource"),
+		}, `local u = require("untyped"); local r = require("resource"); return {u, r}`)
+	untyped := makeLuaSourceEntry(registry.NewID("app", "untyped"), nil, "")
+	resource := registry.Entry{ID: registry.NewID("app", "resource"), Kind: registry.Kind("db.sql.sqlite")}
+	linter, lcache := createLinter(ctx, false)
+	result := lintEntries([]registry.Entry{root, untyped}, nil, linter, lcache,
+		lintConfig{minSeverity: severityWarning, workers: 1, imports: newImportResolution([]registry.Entry{root, untyped, resource}, false)}, nil)
+	for _, diagnostic := range result.Diagnostics {
+		if strings.Contains(diagnostic.Message, "declared import") {
+			t.Fatalf("present runtime entries need no type manifest: %+v", result.Diagnostics)
+		}
+	}
+}
+
+func TestLintDefersMissingImportWhenLockSourceIsUnavailable(t *testing.T) {
+	root := makeLuaSourceEntry(registry.NewID("app", "consumer"),
+		map[string]registry.ID{
+			"client":  registry.NewID("userspace.dataflow", "client"),
+			"sibling": registry.NewID("app", "sibling"),
+		}, `return {require("client"), require("sibling")}`)
+	linter, lcache := createLinter(setupLoaderContext(t), false)
+	result := lintEntries([]registry.Entry{root}, nil, linter, lcache,
+		lintConfig{minSeverity: severityWarning, workers: 1, imports: newImportResolution([]registry.Entry{root}, true)}, nil)
+	for _, diagnostic := range result.Diagnostics {
+		if strings.Contains(diagnostic.Message, "declared import") {
+			t.Fatalf("unavailable lock source does not prove an import is missing: %+v", result.Diagnostics)
+		}
+	}
+}
+
+func TestLintLoadsAppImportFromSiblingHarnessLock(t *testing.T) {
+	ctx := setupLoaderContext(t)
+	root := t.TempDir()
+	appDir := filepath.Join(root, "src")
+	testDir := filepath.Join(root, "test")
+	for _, dir := range []string{appDir, testDir} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for path, source := range map[string]string{
+		filepath.Join(appDir, "_index.yaml"): `version: "1.0"
+namespace: acme
+entries:
+  - name: consumer
+    kind: library.lua
+    imports:
+      wait_for_boot: app:wait_for_boot
+    source: |
+      local wait_for_boot = require("wait_for_boot")
+      return wait_for_boot
+`,
+		filepath.Join(testDir, "_index.yaml"): `version: "1.0"
+namespace: app
+entries:
+  - name: wait_for_boot
+    kind: library.lua
+    source: |
+      return { run = function() return true end }
+`,
+		filepath.Join(testDir, lock.DefaultFilename): "directories:\n  src: .\n  modules: .wippy\n",
+	} {
+		if err := os.WriteFile(path, []byte(source), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rootEntries, err := entries.LoadEntriesFromModuleLoadPaths(ctx,
+		[]lock.ModuleLoadPath{{Path: appDir, Root: true}}, zap.NewNop())
+	if err != nil {
+		t.Fatal(err)
+	}
+	supplemental, err := loadSupplementalAppImports(ctx, filepath.Join(root, lock.DefaultFilename), rootEntries, zap.NewNop())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(supplemental) != 1 || supplemental[0].ID != registry.NewID("app", "wait_for_boot") {
+		t.Fatalf("supplemental app entries = %+v", supplemental)
+	}
+	expanded, reportSet := expandLuaEntriesByImports(filterLuaEntries(append(rootEntries, supplemental...), nil), filterLuaEntries(rootEntries, nil))
+	linter, lcache := createLinter(ctx, false)
+	result := lintEntries(expanded, reportSet, linter, lcache,
+		lintConfig{minSeverity: severityWarning, workers: 1, imports: newImportResolution(append(rootEntries, supplemental...), false)}, nil)
+	for _, diagnostic := range result.Diagnostics {
+		if strings.Contains(diagnostic.Message, "declared import") {
+			t.Fatalf("sibling harness import did not resolve: %+v", result.Diagnostics)
+		}
+	}
+}
+
 func runRequireDeclarations(t *testing.T, source string, imports map[string]registry.ID, builtins []string) []string {
+	return runRequireDeclarationsWithMethod(t, source, "", imports, builtins)
+}
+
+func runRequireDeclarationsWithMethod(t *testing.T, source string, method string, imports map[string]registry.ID, builtins []string) []string {
 	t.Helper()
 	stmts, err := parse.ParseString(source, "ns.test:entry")
 	if err != nil {
@@ -122,7 +326,7 @@ func runRequireDeclarations(t *testing.T, source string, imports map[string]regi
 	for _, b := range builtins {
 		builtinSet[b] = struct{}{}
 	}
-	diags := lintRequireDeclarations(stmts, "ns.test:entry", entryData{Imports: imports}, builtinSet)
+	diags := lintRequireDeclarations(stmts, "ns.test:entry", entryData{Imports: imports, Method: method}, builtinSet)
 	msgs := make([]string, 0, len(diags))
 	for _, d := range diags {
 		msgs = append(msgs, d.Message)
@@ -214,12 +418,166 @@ func TestLintRequireDeclarations_NonAmbientRegisteredModuleMustBeDeclared(t *tes
 	}
 }
 
+func TestLintRequireDeclarations_SharedSourceDifferentMethods(t *testing.T) {
+	source := `
+local M = {}
+
+function M.first()
+    return "clean"
+end
+
+function M.second()
+    local dep = require("only_in_second")
+    return dep.run()
+end
+
+return M
+`
+	// Entry 1 selects method "first" and does not declare "only_in_second".
+	// The require is only inside M.second, so it must not be reported for "first".
+	firstMsgs := runRequireDeclarationsWithMethod(t, source, "first", nil, nil)
+	if len(firstMsgs) != 0 {
+		t.Fatalf("expected no diagnostics for method 'first', got %v", firstMsgs)
+	}
+
+	// Entry 2 selects method "second" and declares "only_in_second".
+	secondMsgs := runRequireDeclarationsWithMethod(t, source, "second",
+		map[string]registry.ID{"only_in_second": registry.NewID("ns.pkg", "only_in_second")}, nil)
+	if len(secondMsgs) != 0 {
+		t.Fatalf("expected no diagnostics for method 'second' with declared import, got %v", secondMsgs)
+	}
+
+	// Entry 2 without declaring "only_in_second" must report it.
+	secondUndeclared := runRequireDeclarationsWithMethod(t, source, "second", nil, nil)
+	if len(secondUndeclared) != 1 || !strings.Contains(secondUndeclared[0], `require("only_in_second")`) {
+		t.Fatalf("expected diagnostic for undeclared require in method 'second', got %v", secondUndeclared)
+	}
+}
+
+func TestLintRequireDeclarations_ReachableHelperUndeclaredReported(t *testing.T) {
+	source := `
+local M = {}
+
+local function helper()
+    return require("undeclared_helper")
+end
+
+function M.first()
+    return helper()
+end
+
+function M.second()
+    return "clean"
+end
+
+return M
+`
+	// Method "first" calls helper(), so require("undeclared_helper") is reachable and must be reported.
+	firstMsgs := runRequireDeclarationsWithMethod(t, source, "first", nil, nil)
+	if len(firstMsgs) != 1 || !strings.Contains(firstMsgs[0], `require("undeclared_helper")`) {
+		t.Fatalf("expected undeclared require in helper to be reported for method 'first', got %v", firstMsgs)
+	}
+
+	// Method "second" does not reach helper(), so it must remain clean.
+	secondMsgs := runRequireDeclarationsWithMethod(t, source, "second", nil, nil)
+	if len(secondMsgs) != 0 {
+		t.Fatalf("expected no diagnostics for method 'second', got %v", secondMsgs)
+	}
+}
+
+func TestLintRequireDeclarations_ReachableModuleHelperUndeclaredReported(t *testing.T) {
+	source := `
+local M = {}
+
+function M.helper()
+    return require("undeclared_m_helper")
+end
+
+function M.first()
+    return M.helper()
+end
+
+function M.second()
+    return "clean"
+end
+
+return M
+`
+	firstMsgs := runRequireDeclarationsWithMethod(t, source, "first", nil, nil)
+	if len(firstMsgs) != 1 || !strings.Contains(firstMsgs[0], `require("undeclared_m_helper")`) {
+		t.Fatalf("expected undeclared require in M.helper to be reported for method 'first', got %v", firstMsgs)
+	}
+
+	secondMsgs := runRequireDeclarationsWithMethod(t, source, "second", nil, nil)
+	if len(secondMsgs) != 0 {
+		t.Fatalf("expected no diagnostics for method 'second', got %v", secondMsgs)
+	}
+}
+
+func TestLintRequireDeclarations_TopLevelRequireAppliesToMethod(t *testing.T) {
+	source := `
+local top = require("undeclared_top")
+local M = {}
+function M.first() return "clean" end
+return M
+`
+	firstMsgs := runRequireDeclarationsWithMethod(t, source, "first", nil, nil)
+	if len(firstMsgs) != 1 || !strings.Contains(firstMsgs[0], `require("undeclared_top")`) {
+		t.Fatalf("expected top-level require to be reported for method 'first', got %v", firstMsgs)
+	}
+}
+
+func TestLintRequireDeclarations_ReferencesReachHelpers(t *testing.T) {
+	tests := []struct{ name, source, want string }{
+		{"callback", `local M = {}
+function M.helper() return require("callback_dep") end
+function M.first() return pcall(M.helper) end
+return M`, "callback_dep"},
+		{"local callback", `local M = {}
+local function helper() return require("local_callback_dep") end
+function M.first() return run(helper) end
+return M`, "local_callback_dep"},
+		{"dynamic table", `local M = {}
+local t = {helper = function() return require("table_dep") end}
+function M.first(name) return t[name]() end
+return M`, "table_dep"},
+		{"returned function", `local M = {}
+local function helper() return require("returned_dep") end
+function M.first() return helper end
+return M`, "returned_dep"},
+		{"table alias", `local M = {}
+function M.helper() return require("alias_dep") end
+function M.first() local alias = M; return alias.helper() end
+return M`, "alias_dep"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			msgs := runRequireDeclarationsWithMethod(t, tt.source, "first", nil, nil)
+			if len(msgs) != 1 || !strings.Contains(msgs[0], tt.want) {
+				t.Fatalf("expected undeclared %s, got %v", tt.want, msgs)
+			}
+		})
+	}
+}
+
+func TestLintRequireDeclarations_FactoryBoundMethod(t *testing.T) {
+	source := `local api = {}
+local function factory() return function() return "ok" end end
+api.first = factory()
+function api.second() return require("second_only") end
+return api`
+	msgs := runRequireDeclarationsWithMethod(t, source, "first", nil, nil)
+	if len(msgs) != 0 {
+		t.Fatalf("unselected method reached from factory binding: %v", msgs)
+	}
+}
+
 func TestLintOneEntryRendersParseErrors(t *testing.T) {
 	typeChecker := code.NewTypeChecker(code.TypeCheckConfig{Enabled: true, Strict: true}, nil)
 	linter := lint.New(typeChecker, lint.NewRegistry())
 	entry := registry.Entry{ID: registry.NewID("app", "broken"), Kind: luaapi.Library}
 	data := entryData{Source: "local M = {}\nlocal interface = 1\nreturn M\n"}
-	result := lintOneEntry(entry, data, linter, map[registry.ID]*io.Manifest{}, severityWarning, lintCache{}, lintFingerprints{})
+	result := lintOneEntry(entry, data, linter, map[registry.ID]*io.Manifest{}, importResolution{}, severityWarning, lintCache{}, lintFingerprints{})
 	if result == nil || result.errors != 1 || len(result.diagnostics) != 1 {
 		t.Fatalf("parse failure must produce exactly one error, got %+v", result)
 	}
@@ -310,5 +668,38 @@ func TestParseErrorResultUsesSafeFallbackPositions(t *testing.T) {
 				t.Fatalf("rich parse code = %q, want %s", richDiagnosticCode(result.rich[0]), parseErrorCode)
 			}
 		})
+	}
+}
+
+// --strict is written into lua.type_system, where every checker reads it.
+func TestApplyTypeSystemFlags_StrictOverridesConfig(t *testing.T) {
+	strict := func(cfg boot.Config) bool {
+		return cfg.Sub("lua").Sub("type_system").GetBool("strict", false)
+	}
+	newCmd := func() *cobra.Command {
+		cmd := &cobra.Command{}
+		cmd.Flags().Bool("strict", false, "")
+		return cmd
+	}
+
+	base := boot.NewConfig(boot.WithSection("lua", map[string]any{"type_system.strict": true}))
+	if !strict(applyTypeSystemFlags(newCmd(), base)) {
+		t.Fatal("without the flag the configured value stands")
+	}
+
+	cmd := newCmd()
+	if err := cmd.Flags().Set("strict", "false"); err != nil {
+		t.Fatal(err)
+	}
+	if strict(applyTypeSystemFlags(cmd, base)) {
+		t.Fatal("--strict=false overrides the configured value")
+	}
+
+	cmd = newCmd()
+	if err := cmd.Flags().Set("strict", "true"); err != nil {
+		t.Fatal(err)
+	}
+	if !strict(applyTypeSystemFlags(cmd, boot.NewConfig())) {
+		t.Fatal("--strict selects strict mode")
 	}
 }

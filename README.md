@@ -195,7 +195,7 @@ profiler:
 lua:
   type_system:
     enabled: true
-    strict: false
+    strict: false # true: use strict type-checking semantics; any behaves as unknown (wippy lint --strict)
   cache:
     enabled: true
     dir: .wippy/cache/lua
