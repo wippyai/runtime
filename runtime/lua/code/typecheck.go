@@ -3,6 +3,7 @@
 package code
 
 import (
+	"maps"
 	"sync"
 
 	"github.com/wippyai/go-lua/compiler/ast"
@@ -176,6 +177,8 @@ func (tc *TypeChecker) IsStrict() bool {
 
 // BuiltinManifest returns the manifest for a builtin module by name.
 func (tc *TypeChecker) BuiltinManifest(name string) *io.Manifest {
+	tc.checkMu.Lock()
+	defer tc.checkMu.Unlock()
 	if tc.env == nil {
 		return nil
 	}
@@ -184,7 +187,7 @@ func (tc *TypeChecker) BuiltinManifest(name string) *io.Manifest {
 
 // AddBuiltin adds a module to the type checker's built-in environment
 func (tc *TypeChecker) AddBuiltin(mod *api.ModuleDef) {
-	if tc.env == nil || mod == nil || mod.Types == nil {
+	if mod == nil || mod.Types == nil {
 		return
 	}
 	if manifest := mod.Types(); manifest != nil {
@@ -194,29 +197,34 @@ func (tc *TypeChecker) AddBuiltin(mod *api.ModuleDef) {
 
 // AddBuiltinManifest adds a module manifest to the type checker's built-in environment.
 func (tc *TypeChecker) AddBuiltinManifest(name string, manifest *io.Manifest) {
-	if tc.env == nil || name == "" || manifest == nil {
+	if name == "" || manifest == nil {
 		return
 	}
-	tc.env.Manifests[name] = manifest
+	tc.checkMu.Lock()
+	defer tc.checkMu.Unlock()
+	if tc.env == nil {
+		return
+	}
+
+	manifests := maps.Clone(tc.env.Manifests)
+	manifests[name] = manifest
+	tc.env = newBuiltinEnvironment(manifests, tc.env.Options)
 	tc.db.Connect(name, manifest)
-	if manifest.Export != nil {
-		tc.env.Modules[name] = manifest.Export
-		tc.env.GlobalTypes[name] = manifest.Export
-	}
-	for gname, t := range manifest.AllGlobals() {
-		tc.env.Modules[gname] = t
-		tc.env.GlobalTypes[gname] = t
-	}
+	tc.rebuildChecker()
 }
 
 // BuildEnv creates an environment with all builtin modules
 func (tc *TypeChecker) BuildEnv() *scope.State {
+	tc.checkMu.Lock()
+	defer tc.checkMu.Unlock()
 	return tc.env.TypeScope
 }
 
 // GlobalTypes returns the map of global symbol names to their types.
 // This includes stdlib functions and builtin module exports.
 func (tc *TypeChecker) GlobalTypes() map[string]typ.Type {
+	tc.checkMu.Lock()
+	defer tc.checkMu.Unlock()
 	return tc.env.GlobalTypes
 }
 
@@ -229,6 +237,8 @@ func (tc *TypeChecker) Clone() *TypeChecker {
 // WithConfig creates a copy with a different configuration and its own
 // db.DB. Used by the linter to enable checking with custom settings.
 func (tc *TypeChecker) WithConfig(cfg TypeCheckConfig) *TypeChecker {
+	tc.checkMu.Lock()
+	defer tc.checkMu.Unlock()
 	env := *tc.env
 	env.Options = cfg.Check
 	clone := &TypeChecker{
@@ -246,11 +256,14 @@ func (tc *TypeChecker) WithConfig(cfg TypeCheckConfig) *TypeChecker {
 // ClearCache removes memoized results from the type checker.
 // Use for batch operations where memoization between files isn't needed.
 func (tc *TypeChecker) ClearCache() {
-	if tc == nil || tc.checker == nil {
+	if tc == nil {
 		return
 	}
 	tc.checkMu.Lock()
 	defer tc.checkMu.Unlock()
+	if tc.checker == nil {
+		return
+	}
 	tc.checker.ClearCache()
 }
 

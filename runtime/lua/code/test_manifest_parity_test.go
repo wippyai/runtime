@@ -20,14 +20,14 @@ import (
 // checker is tested against APIs that do not exist.
 func TestCheckerTestManifestsMatchRuntimeModules(t *testing.T) {
 	cases := []struct {
-		name    string
 		runtime *io.Manifest
 		test    *io.Manifest
+		name    string
 	}{
-		{"channel", engine.ChannelModuleTypes(), testutil.ChannelManifest()},
-		{"time", time.ModuleTypes(), testutil.TimeManifest()},
-		{"funcs", funcs.ModuleTypes(), testutil.FuncsManifest()},
-		{"process", process.ModuleTypes(), testutil.ProcessManifest()},
+		{engine.ChannelModuleTypes(), testutil.ChannelManifest(), "channel"},
+		{time.ModuleTypes(), testutil.TimeManifest(), "time"},
+		{funcs.ModuleTypes(), testutil.FuncsManifest(), "funcs"},
+		{process.ModuleTypes(), testutil.ProcessManifest(), "process"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

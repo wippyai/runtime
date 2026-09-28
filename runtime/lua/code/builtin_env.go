@@ -3,6 +3,8 @@
 package code
 
 import (
+	"sort"
+
 	"github.com/wippyai/go-lua/compiler/check"
 	"github.com/wippyai/go-lua/compiler/check/scope"
 	"github.com/wippyai/go-lua/compiler/stdlib"
@@ -36,13 +38,7 @@ type BuiltinEnvironment struct {
 // NewBuiltinEnvironment builds the checker environment for builtin modules
 // under the given type-checking semantics.
 func NewBuiltinEnvironment(mods []*api.ModuleDef, options check.Options) *BuiltinEnvironment {
-	env := &BuiltinEnvironment{
-		Manifests:   make(map[string]*io.Manifest),
-		Modules:     make(map[string]typ.Type),
-		GlobalTypes: make(map[string]typ.Type),
-		Options:     options,
-	}
-	manifests := make([]*io.Manifest, 0, len(mods))
+	manifests := make(map[string]*io.Manifest, len(mods))
 	for _, mod := range mods {
 		if mod == nil || mod.Types == nil || mod.Name == "" {
 			continue
@@ -51,17 +47,38 @@ func NewBuiltinEnvironment(mods []*api.ModuleDef, options check.Options) *Builti
 		if manifest == nil {
 			continue
 		}
-		env.Manifests[mod.Name] = manifest
-		manifests = append(manifests, manifest)
+		manifests[mod.Name] = manifest
+	}
+	return newBuiltinEnvironment(manifests, options)
+}
+
+// newBuiltinEnvironment derives both namespaces from the current manifests.
+// Starting with a fresh builtin scope removes replaced and ambiguous names.
+func newBuiltinEnvironment(manifests map[string]*io.Manifest, options check.Options) *BuiltinEnvironment {
+	env := &BuiltinEnvironment{
+		Manifests:   manifests,
+		Modules:     make(map[string]typ.Type),
+		GlobalTypes: make(map[string]typ.Type),
+		Options:     options,
+	}
+	names := make([]string, 0, len(manifests))
+	for name := range manifests {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	moduleManifests := make([]*io.Manifest, 0, len(manifests))
+	for _, name := range names {
+		manifest := manifests[name]
+		moduleManifests = append(moduleManifests, manifest)
 		if manifest.Export != nil {
-			env.Modules[mod.Name] = manifest.Export
+			env.Modules[name] = manifest.Export
 		}
 		for name, t := range manifest.AllGlobals() {
 			env.Modules[name] = t
 		}
 	}
 
-	env.TypeScope = scope.NewWithBuiltins().WithModuleTypes(manifests)
+	env.TypeScope = scope.NewWithBuiltins().WithModuleTypes(moduleManifests)
 	for name, t := range stdlib.Library() {
 		env.GlobalTypes[name] = t
 	}
