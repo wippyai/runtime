@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/wippyai/go-lua/compiler/ast"
+	"github.com/wippyai/go-lua/compiler/parse"
 	"github.com/wippyai/go-lua/types/diag"
 	"github.com/wippyai/go-lua/types/io"
 	api "github.com/wippyai/runtime/api/contract"
@@ -136,6 +138,65 @@ func decodeContractEntry(data payload.Payload, target any) error {
 func buildCatalogManifest(c *contractCatalog) (*io.Manifest, []contractmod.ManifestDiagnostic) {
 	manifest, diagnostics := contractmod.BuildTypedCatalogManifest(c.definitions, c.bindings, c.resources)
 	return manifest, append(c.diagnostics, diagnostics...)
+}
+
+func appendMissingContractUses(result *LintResult, catalog *contractCatalog, data map[regapi.ID]entryData, reportSet map[regapi.ID]bool, minSeverity severity) {
+	if result == nil || catalog == nil || severityWarning < minSeverity {
+		return
+	}
+	for entryID, entry := range data {
+		if !shouldReport(reportSet, entryID) || entry.Source == "" {
+			continue
+		}
+		statements, err := parse.ParseString(entry.Source, entryID.String())
+		if err != nil {
+			continue
+		}
+		aliases := map[string]bool{}
+		walkRequireNodes(statements, nil, func(stmt ast.Stmt) {
+			assignment, ok := stmt.(*ast.LocalAssignStmt)
+			if !ok {
+				return
+			}
+			for index, name := range assignment.Names {
+				if index >= len(assignment.Exprs) {
+					continue
+				}
+				call, ok := assignment.Exprs[index].(*ast.FuncCallExpr)
+				if !ok || len(call.Args) != 1 {
+					continue
+				}
+				fn, ok := call.Func.(*ast.IdentExpr)
+				module, literal := call.Args[0].(*ast.StringExpr)
+				if ok && literal && fn.Value == "require" && module.Value == "contract" {
+					aliases[name] = true
+				}
+			}
+		}, nil)
+		walkRequireNodes(statements, nil, nil, func(expr ast.Expr) {
+			call, ok := expr.(*ast.FuncCallExpr)
+			if !ok || len(call.Args) == 0 {
+				return
+			}
+			field, ok := call.Func.(*ast.AttrGetExpr)
+			if !ok || ast.KeyName(field.Key) != "get" {
+				return
+			}
+			object, ok := field.Object.(*ast.IdentExpr)
+			if !ok || !aliases[object.Value] {
+				return
+			}
+			literal, ok := call.Args[0].(*ast.StringExpr)
+			if !ok || catalog.definitions[literal.Value] != nil {
+				return
+			}
+			message := "contract definition unavailable in this lint catalog: " + literal.Value
+			line, column := call.Line(), call.Column()
+			result.Diagnostics = append(result.Diagnostics, Diagnostic{EntryID: entryID.String(), Code: "C0004", Severity: "warning", Message: message, Line: line, Column: column})
+			result.RichDiagnostics = append(result.RichDiagnostics, RichDiagnostic{EntryID: entryID.String(), displayCode: "C0004", Diag: diag.Diagnostic{Position: diag.Position{File: entryID.String(), Line: line, Column: column}, Message: message, Severity: diag.SeverityWarning}})
+			result.WarningCount++
+		})
+	}
 }
 
 func (c *contractCatalog) selectedBoundFunction(functionID regapi.ID, filters []string) bool {

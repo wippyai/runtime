@@ -36,6 +36,14 @@ func TestOuterFailureReturnIsExcludedFromOutputConformance(t *testing.T) {
 	}
 }
 
+func TestUnknownSuccessReturnDoesNotReintroduceFailureValue(t *testing.T) {
+	source := `local function handle() if broken then return {bad=true}, "failure" end return fetch(), nil end return {handle=handle}`
+	actual, proved := literalSuccessReturnType(source, "handle", 0, 1)
+	if !proved || !containsUnverifiable(actual) {
+		t.Fatalf("dynamic success must remain an unknown success fact: %v %v", actual, proved)
+	}
+}
+
 func TestOuterErrorDiagnosticNamesSchemaAdjustedSlot(t *testing.T) {
 	findings := conformanceFixtureOutputs(`{"type":"string"}`, []string{`{"type":"string"}`, `{"type":"number"}`}, typ.Func().Param("request", typ.String).Returns(typ.String, typ.Number, typ.Boolean).Build())
 	for _, finding := range findings {
@@ -201,5 +209,13 @@ func TestLiteralReturnProvesRequiredFieldAbsenceDespiteUnknownAggregate(t *testi
 	nested := `local function handle(filter) local function helper() return {success=false} end return unknown_call(filter) end return {handle=handle}`
 	if missing := missingRequiredLiteralReturnField(nested, "handle", expected); missing != "" {
 		t.Fatalf("nested function is not the implementation return: %q", missing)
+	}
+}
+
+func TestLiteralFailureReturnDoesNotProveMissingSuccessField(t *testing.T) {
+	expected := typ.NewRecord().Field("good", typ.Boolean).Build()
+	source := `local function handle() if broken then return {bad=true}, "failure" end return unknown_call() end return {handle=handle}`
+	if missing := missingRequiredLiteralReturnField(source, "handle", expected, 1); missing != "" {
+		t.Fatalf("failure return was treated as success: %q", missing)
 	}
 }

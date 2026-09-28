@@ -112,6 +112,9 @@ func checkBindingConformance(catalog *contractCatalog, manifests map[regapi.ID]*
 							add(path, "cannot verify input constraint from unknown/any or incomplete schema evidence", false)
 						}
 						if containsUnverifiable(projection.Type) || containsUnverifiable(accepted) {
+							if projection.Coverage == contractmod.SchemaComplete {
+								add(path, "cannot verify input constraint from unknown/any implementation evidence", false)
+							}
 							continue
 						}
 						if !subtype.IsSubtype(projection.Type, accepted) {
@@ -137,7 +140,7 @@ func checkBindingConformance(catalog *contractCatalog, manifests map[regapi.ID]*
 						actual = success
 					}
 					if containsUnverifiable(actual) {
-						if missing := missingRequiredLiteralReturnField(data[functionID].Source, functionMethod, projection.Type); missing != "" {
+						if missing := missingRequiredLiteralReturnField(data[functionID].Source, functionMethod, projection.Type, len(method.OutputSchemas)); missing != "" {
 							add(path+"/required", "successful result may omit required output field "+fmt.Sprintf("%q", missing), true)
 						}
 						add(path, "cannot verify successful output from unknown/any implementation evidence", false)
@@ -261,10 +264,10 @@ func literalSuccessReturnType(source, method string, outputIndex, errorIndex int
 		return nil, false
 	}
 	var members []typ.Type
-	seen, valid := false, true
+	seen := false
 	walkRequireNodes(body, nil, func(stmt ast.Stmt) {
 		ret, ok := stmt.(*ast.ReturnStmt)
-		if !ok || !valid {
+		if !ok {
 			return
 		}
 		seen = true
@@ -274,7 +277,7 @@ func literalSuccessReturnType(source, method string, outputIndex, errorIndex int
 				return
 			case *ast.NilExpr:
 			default:
-				valid = false
+				members = append(members, typ.Unknown)
 				return
 			}
 		}
@@ -284,13 +287,19 @@ func literalSuccessReturnType(source, method string, outputIndex, errorIndex int
 		}
 		value, ok := literalReturnType(ret.Exprs[outputIndex])
 		if !ok {
-			valid = false
+			members = append(members, typ.Unknown)
 			return
 		}
 		members = append(members, value)
 	}, nil)
-	if !valid || !seen || len(members) == 0 {
+	if !seen {
 		return nil, false
+	}
+	if _, complete := body[len(body)-1].(*ast.ReturnStmt); !complete {
+		members = append(members, typ.Nil)
+	}
+	if len(members) == 0 {
+		return typ.Never, true
 	}
 	return typ.NewUnion(members...), true
 }
@@ -327,7 +336,7 @@ func literalReturnType(expr ast.Expr) (typ.Type, bool) {
 // A literal table returned by the configured function is direct evidence for
 // required-field absence even when imported calls make the checked aggregate
 // return type unknown. Nested functions are not traversed.
-func missingRequiredLiteralReturnField(source, method string, expected typ.Type) string {
+func missingRequiredLiteralReturnField(source, method string, expected typ.Type, errorSlot ...int) string {
 	want, ok := typ.UnwrapAnnotated(expected).(*typ.Record)
 	if !ok || source == "" || method == "" {
 		return ""
@@ -366,6 +375,11 @@ func missingRequiredLiteralReturnField(source, method string, expected typ.Type)
 		ret, ok := stmt.(*ast.ReturnStmt)
 		if !ok || len(ret.Exprs) == 0 {
 			return
+		}
+		if len(errorSlot) != 0 && len(ret.Exprs) > errorSlot[0] {
+			if _, success := ret.Exprs[errorSlot[0]].(*ast.NilExpr); !success {
+				return
+			}
 		}
 		table, ok := ret.Exprs[0].(*ast.TableExpr)
 		if !ok {

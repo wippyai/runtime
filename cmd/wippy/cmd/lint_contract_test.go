@@ -41,6 +41,23 @@ func TestCatalogManifestTypesOrdinaryLintEntries(t *testing.T) {
 	}
 }
 
+func TestLiteralMissingContractUseSiteWarning(t *testing.T) {
+	catalog := collectContractCatalog(nil)
+	entry := makeLuaEntry(regapi.NewID("sample", "caller"), map[string]regapi.ID{"contract": regapi.NewID("", "contract")})
+	entry.Data = payload.NewPayload(map[string]any{"source": "local contract = require(\"contract\")\nlocal d = contract.get(\"missing:id\")\nreturn {}", "imports": map[string]regapi.ID{"contract": regapi.NewID("", "contract")}}, payload.Golang)
+	checker := code.NewTypeCheckerWithManifests(code.TypeCheckConfig{Enabled: true, Strict: true}, nil, map[string]*io.Manifest{"contract": catalog.manifest})
+	result := lintEntries([]regapi.Entry{entry}, map[regapi.ID]bool{entry.ID: true}, lint.New(checker, lint.NewRegistry()), lintCache{}, lintConfig{catalog: catalog, minSeverity: severityWarning, workers: 1, imports: newImportResolution([]regapi.Entry{entry}, false)}, nil)
+	if result.ErrorCount != 0 {
+		t.Fatalf("generic get fallback lost: %+v", result.Diagnostics)
+	}
+	for _, diagnostic := range result.Diagnostics {
+		if diagnostic.EntryID == entry.ID.String() && diagnostic.Severity == "warning" && diagnostic.Line == 2 && strings.Contains(diagnostic.Message, "definition unavailable in this lint catalog") {
+			return
+		}
+	}
+	t.Fatalf("missing use-site warning: %+v", result.Diagnostics)
+}
+
 func TestContractCatalogReadsAllKindsAndFingerprintsRawConstraints(t *testing.T) {
 	definition := contractEntry("sample:svc", di.Definition, `{"methods":[{"name":"run","input_schemas":[{"format":"application/schema+json","definition":{"type":"string","minLength":2}}]}]}`)
 	binding := contractEntry("sample:binding", di.Binding, `{"contracts":[{"contract":"sample:svc","methods":{"run":"impl:run"}}]}`)
