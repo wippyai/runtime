@@ -525,8 +525,8 @@ github.com/tree-sitter/tree-sitter-javascript v0.25.0 h1:ZkWETb66/w8cc13yhfnNuHO
 github.com/tree-sitter/tree-sitter-javascript v0.25.0/go.mod h1:lmGD1EJdCA+v0S1u2fFgepMg/opzSg/4pgFym2FPGAs=
 github.com/tree-sitter/tree-sitter-json v0.24.8 h1:tV5rMkihgtiOe14a9LHfDY5kzTl5GNUYe6carZBn0fQ=
 github.com/tree-sitter/tree-sitter-json v0.24.8/go.mod h1:F351KK0KGvCaYbZ5zxwx/gWWvZhIDl0eMtn+1r+gQbo=
-github.com/tree-sitter/tree-sitter-php v0.24.2 h1:yy+COnaaHUNDTKODfNbHhVRD4mQpFELTnBK9+EhpO+w=
-github.com/tree-sitter/tree-sitter-php v0.24.2/go.mod h1:cEzabPRy4doSxaP9CF9u4FXc3L9Q3Mek3XPVCfqJQRw=
+github.com/tree-sitter/tree-sitter-php v0.25.0 h1:CD1jAhhKObyBNV6Rhlf5YlYoGEa1MsAVaZ2vD7wFdYA=
+github.com/tree-sitter/tree-sitter-php v0.25.0/go.mod h1:cEzabPRy4doSxaP9CF9u4FXc3L9Q3Mek3XPVCfqJQRw=
 github.com/tree-sitter/tree-sitter-python v0.25.0 h1:O6XD9v8U1LOcRc3cNj9nM7XufrtEBezE6VrpRrHZDf0=
 github.com/tree-sitter/tree-sitter-python v0.25.0/go.mod h1:cpdthSy/Yoa28aJFBscFHlGiU+cnSiSh1kuDVtI8YeM=
 github.com/tree-sitter/tree-sitter-ruby v0.23.1 h1:T/NKHUA+iVbHM440hFx+lzVOzS4dV6z8Qw8ai+72bYo=
@@ -542,12 +542,8 @@ github.com/u-root/uio v0.0.0-20240224005618-d2acac8f3701 h1:pyC9PaHYZFgEKFdlp3G8
 github.com/u-root/uio v0.0.0-20240224005618-d2acac8f3701/go.mod h1:P3a5rG4X7tI17Nn3aOIAYr5HbIMukwXG0urG0WuL8OA=
 github.com/vishvananda/netns v0.0.5 h1:DfiHV+j8bA32MFM7bfEunvT8IAqQ/NzSJHtcmW5zdEY=
 github.com/vishvananda/netns v0.0.5/go.mod h1:SpkAiCQRtJ6TvvxPnOSyH3BMl6unz3xZlaprSwhNNJM=
-github.com/wippyai/go-lua v1.5.25-0.20260928192401-eed112db8d3e h1:kWsIhshfRJMfKm7sHyqt1uAPpF5aQg9tFy4aG3qEeZU=
-github.com/wippyai/go-lua v1.5.25-0.20260928192401-eed112db8d3e/go.mod h1:cwD+390gJgx9cs+Zamby/lch5csqPV9RN1aDEfx/27M=
 github.com/wippyai/go-lua v1.6.0 h1:QhT/5D10fsevaCWQ00wNRjHLSOL9LN3li4AqK2+8oqk=
 github.com/wippyai/go-lua v1.6.0/go.mod h1:cwD+390gJgx9cs+Zamby/lch5csqPV9RN1aDEfx/27M=
-github.com/wippyai/go-lua v1.5.24 h1:eGn50Qfajomt5aNRmaUBhjmq/f1p+bL8ZqqQ4jy95WI=
-github.com/wippyai/go-lua v1.5.24/go.mod h1:cwD+390gJgx9cs+Zamby/lch5csqPV9RN1aDEfx/27M=
 github.com/wippyai/module-registry-proto-go v0.0.2-0.20260908140534-f6e2910c835f h1:AoKS058roqnsHXaJ8Gww7ODz14qJqOK5QBeoALvcq6I=
 github.com/wippyai/module-registry-proto-go v0.0.2-0.20260908140534-f6e2910c835f/go.mod h1:p4ihYQKRQuqRVLxaH1YL0IEnkz4zKdyfVADOwvA5Tno=
 github.com/wippyai/tree-sitter-markdown v0.0.3 h1:u6e53+hzPSS848Xhm+I48SwtvWQHrC21wDrogdwCwuc=
