@@ -11,7 +11,10 @@ import (
 	"github.com/wippyai/runtime/api/boot"
 )
 
-const workspaceReplacementPrefix = "replacements."
+const (
+	workspaceReplacementPrefix = "replacements."
+	workspaceUnpackModulesKey  = "options.unpack_modules"
+)
 
 // WithWorkspaceConfig applies the effective .wippy.yaml workspace settings to
 // a lock without making them part of the persisted lock data.
@@ -22,8 +25,31 @@ func WithWorkspaceConfig(cfg boot.Config) Option {
 			return err
 		}
 		l.workspaceOverlay = append([]Replacement(nil), replacements...)
+		unpack, err := WorkspaceUnpackModules(cfg)
+		if err != nil {
+			return err
+		}
+		l.unpackOverride = unpack
 		return nil
 	}
+}
+
+// WorkspaceUnpackModules reads options.unpack_modules from the effective
+// runtime config, including --set overrides. Nil means the lock file value
+// applies.
+func WorkspaceUnpackModules(cfg boot.Config) (*bool, error) {
+	if cfg == nil {
+		return nil, nil
+	}
+	raw, ok := cfg.Get(workspaceUnpackModulesKey)
+	if !ok || raw == nil {
+		return nil, nil
+	}
+	unpack, ok := raw.(bool)
+	if !ok {
+		return nil, fmt.Errorf("%s must be a boolean, got %T", workspaceUnpackModulesKey, raw)
+	}
+	return &unpack, nil
 }
 
 // WorkspaceReplacements reads the effective workspace replacement map from

@@ -133,10 +133,11 @@ func prepareRunDependencies(
 	// Download and verify the candidate graph before publishing it. Unpacked
 	// directories are refreshed only after the lock is committed, by the normal
 	// lock loader, so a failed preparation cannot replace the active sources.
-	options := lockObj.GetOptions()
-	lockObj.SetOptions(lock.Options{})
+	override := lockObj.UnpackModulesOverride()
+	packed := false
+	lockObj.SetUnpackModulesOverride(&packed)
 	err = entries.EnsureModulesInstalledFromLock(ctx, lockObj, logger.Named("modules"), client)
-	lockObj.SetOptions(options)
+	lockObj.SetUnpackModulesOverride(override)
 	if err != nil {
 		return NewEnsureModulesInstalledError(err)
 	}
@@ -235,6 +236,7 @@ func resolveRunDependencies(
 		Hub:                   provider,
 		LockPath:              lockObj.Path(),
 		WorkspaceReplacements: lockObj.GetReplacements(),
+		UnpackModules:         lockObj.UnpackModulesOverride(),
 	})
 	if err != nil {
 		return nil, NewBuildDependencyGraphError(err)

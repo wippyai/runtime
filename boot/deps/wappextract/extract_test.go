@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -423,4 +424,169 @@ func (i trackingFileInfo) IsDir() bool {
 
 func (i trackingFileInfo) Sys() any {
 	return nil
+}
+
+func TestExtractWappToDirReplacesExistingDestination(t *testing.T) {
+	dir := t.TempDir()
+	wappPath := filepath.Join(dir, "mod.wapp")
+	writeTestWapp(t, wappPath, []wapp.Entry{{
+		ID:   wapp.NewID("app", "svc"),
+		Kind: "service",
+		Data: map[string]any{"ok": true},
+	}}, nil)
+
+	targetDir := filepath.Join(dir, "mod")
+	if err := os.MkdirAll(targetDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	stalePath := filepath.Join(targetDir, "stale.lua")
+	if err := os.WriteFile(stalePath, []byte("return false"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := ExtractWappToDirKeepSource(wappPath, targetDir); err != nil {
+		t.Fatalf("ExtractWappToDirKeepSource failed: %v", err)
+	}
+	if _, err := os.Stat(stalePath); !os.IsNotExist(err) {
+		t.Fatalf("stale file stat err = %v, want not exist", err)
+	}
+	if _, err := os.Stat(filepath.Join(targetDir, "_index.yaml")); err != nil {
+		t.Fatalf("extracted index missing: %v", err)
+	}
+	assertOnlyEntries(t, dir, "mod", "mod.wapp")
+}
+
+func TestExtractWappToDirKeepSourceWithPrepareFailureKeepsPrevious(t *testing.T) {
+	dir := t.TempDir()
+	wappPath := filepath.Join(dir, "mod.wapp")
+	writeTestWapp(t, wappPath, []wapp.Entry{{
+		ID:   wapp.NewID("app", "svc"),
+		Kind: "service",
+		Data: map[string]any{"ok": true},
+	}}, nil)
+
+	targetDir := filepath.Join(dir, "mod")
+	if err := os.MkdirAll(targetDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	previousPath := filepath.Join(targetDir, "previous.lua")
+	if err := os.WriteFile(previousPath, []byte("return true"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	var prepared string
+	err := ExtractWappToDirKeepSourceWith(wappPath, targetDir, func(tree string) error {
+		prepared = tree
+		if _, err := os.Stat(filepath.Join(tree, "_index.yaml")); err != nil {
+			t.Fatalf("prepare ran before extraction: %v", err)
+		}
+		return os.ErrPermission
+	})
+	if err == nil {
+		t.Fatal("expected prepare failure")
+	}
+	if prepared == targetDir {
+		t.Fatal("prepare must run on the staged tree")
+	}
+	if _, err := os.Stat(previousPath); err != nil {
+		t.Fatalf("previous tree should remain: %v", err)
+	}
+	assertOnlyEntries(t, dir, "mod", "mod.wapp")
+}
+
+func assertOnlyEntries(t *testing.T, dir string, want ...string) {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		got = append(got, entry.Name())
+	}
+	if len(got) != len(want) {
+		t.Fatalf("entries = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("entries = %v, want %v", got, want)
+		}
+	}
+}
+
+func failRenames(t *testing.T, fail func(oldpath, newpath string) bool) {
+	t.Helper()
+	previous := renameDir
+	renameDir = func(oldpath, newpath string) error {
+		if fail(oldpath, newpath) {
+			return &os.LinkError{Op: "rename", Old: oldpath, New: newpath, Err: os.ErrPermission}
+		}
+		return previous(oldpath, newpath)
+	}
+	t.Cleanup(func() { renameDir = previous })
+}
+
+func TestExtractWappToDirActivationFailureRestoresPrevious(t *testing.T) {
+	dir := t.TempDir()
+	wappPath := filepath.Join(dir, "mod.wapp")
+	writeTestWapp(t, wappPath, []wapp.Entry{{
+		ID:   wapp.NewID("app", "svc"),
+		Kind: "service",
+		Data: map[string]any{"ok": true},
+	}}, nil)
+	targetDir := filepath.Join(dir, "mod")
+	if err := os.MkdirAll(targetDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	previousPath := filepath.Join(targetDir, "previous.lua")
+	if err := os.WriteFile(previousPath, []byte("return true"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	failRenames(t, func(oldpath, _ string) bool {
+		return strings.Contains(filepath.Base(oldpath), ".extract-")
+	})
+
+	err := ExtractWappToDirKeepSource(wappPath, targetDir)
+	if err == nil || !strings.Contains(err.Error(), "activate extracted directory") {
+		t.Fatalf("err = %v, want activation failure", err)
+	}
+	if _, err := os.Stat(previousPath); err != nil {
+		t.Fatalf("previous tree must be restored: %v", err)
+	}
+	assertOnlyEntries(t, dir, "mod", "mod.wapp")
+}
+
+func TestExtractWappToDirRestoreFailureKeepsBackup(t *testing.T) {
+	dir := t.TempDir()
+	wappPath := filepath.Join(dir, "mod.wapp")
+	writeTestWapp(t, wappPath, []wapp.Entry{{
+		ID:   wapp.NewID("app", "svc"),
+		Kind: "service",
+		Data: map[string]any{"ok": true},
+	}}, nil)
+	targetDir := filepath.Join(dir, "mod")
+	if err := os.MkdirAll(targetDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(targetDir, "previous.lua"), []byte("return true"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	failRenames(t, func(oldpath, newpath string) bool {
+		return newpath == targetDir
+	})
+
+	err := ExtractWappToDirKeepSource(wappPath, targetDir)
+	if err == nil || !strings.Contains(err.Error(), "restore previous directory") {
+		t.Fatalf("err = %v, want restore failure", err)
+	}
+	backups, globErr := filepath.Glob(filepath.Join(dir, ".mod.backup-*"))
+	if globErr != nil || len(backups) != 1 {
+		t.Fatalf("backups = %v, %v; want one", backups, globErr)
+	}
+	if !strings.Contains(err.Error(), backups[0]) {
+		t.Fatalf("err = %v, want backup path %s", err, backups[0])
+	}
+	if _, err := os.Stat(filepath.Join(backups[0], "previous.lua")); err != nil {
+		t.Fatalf("backup must keep the previous tree: %v", err)
+	}
 }

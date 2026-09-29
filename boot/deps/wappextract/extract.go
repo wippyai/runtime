@@ -3,6 +3,7 @@
 package wappextract
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -20,17 +21,23 @@ import (
 // _index.yaml files and source files. After extraction, the .wapp file is
 // removed.
 func ExtractWappToDir(wappPath, targetDir string) error {
-	return extractWappToDir(wappPath, targetDir, true)
+	return extractWappToDir(wappPath, targetDir, true, nil)
 }
 
 // ExtractWappToDirKeepSource extracts a .wapp file without removing the
 // source .wapp. Use this when another step must complete before the packed
 // artifact can be safely discarded.
 func ExtractWappToDirKeepSource(wappPath, targetDir string) error {
-	return extractWappToDir(wappPath, targetDir, false)
+	return extractWappToDir(wappPath, targetDir, false, nil)
 }
 
-func extractWappToDir(wappPath, targetDir string, removeSource bool) error {
+// ExtractWappToDirKeepSourceWith extracts like ExtractWappToDirKeepSource and
+// runs prepare on the extracted tree before it replaces targetDir.
+func ExtractWappToDirKeepSourceWith(wappPath, targetDir string, prepare func(dir string) error) error {
+	return extractWappToDir(wappPath, targetDir, false, prepare)
+}
+
+func extractWappToDir(wappPath, targetDir string, removeSource bool, prepare func(string) error) error {
 	if targetDir == "" {
 		return fmt.Errorf("target directory is empty")
 	}
@@ -51,6 +58,11 @@ func extractWappToDir(wappPath, targetDir string, removeSource bool) error {
 
 	if err := extractWappToDirContents(wappPath, tmpDir); err != nil {
 		return err
+	}
+	if prepare != nil {
+		if err := prepare(tmpDir); err != nil {
+			return fmt.Errorf("prepare extracted directory: %w", err)
+		}
 	}
 	if err := replaceDirectory(targetDir, tmpDir); err != nil {
 		return err
@@ -150,6 +162,8 @@ func extractWappToDirContents(wappPath, targetDir string) error {
 	return nil
 }
 
+var renameDir = RenameDir
+
 func replaceDirectory(targetDir, replacementDir string) error {
 	parent := filepath.Dir(targetDir)
 	base := filepath.Base(targetDir)
@@ -165,7 +179,7 @@ func replaceDirectory(targetDir, replacementDir string) error {
 			_ = os.RemoveAll(backupDir)
 			return fmt.Errorf("prepare backup directory: %w", err)
 		}
-		if err := os.Rename(targetDir, backupDir); err != nil {
+		if err := renameDir(targetDir, backupDir); err != nil {
 			_ = os.RemoveAll(backupDir)
 			return fmt.Errorf("move existing directory aside: %w", err)
 		}
@@ -173,11 +187,14 @@ func replaceDirectory(targetDir, replacementDir string) error {
 		return fmt.Errorf("stat target directory: %w", err)
 	}
 
-	if err := os.Rename(replacementDir, targetDir); err != nil {
+	if err := renameDir(replacementDir, targetDir); err != nil {
+		err = fmt.Errorf("activate extracted directory: %w", err)
 		if backupDir != "" {
-			_ = os.Rename(backupDir, targetDir)
+			if restoreErr := renameDir(backupDir, targetDir); restoreErr != nil {
+				return errors.Join(err, fmt.Errorf("restore previous directory from %s: %w", backupDir, restoreErr))
+			}
 		}
-		return fmt.Errorf("activate extracted directory: %w", err)
+		return err
 	}
 
 	if backupDir != "" {
