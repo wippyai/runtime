@@ -340,14 +340,11 @@ func TestTypeChecker_AddBuiltinManifest(t *testing.T) {
 
 	tc.AddBuiltinManifest("custom", customMod)
 
-	// Clone to get fresh checker with updated base scope
-	tc2 := tc.Clone()
-
 	source := `
 local x: number = custom.double(21)
 return x
 `
-	_, diags, err := tc2.Check(source, "test.lua", nil)
+	_, diags, err := tc.Check(source, "test.lua", nil)
 	require.NoError(t, err)
 
 	for _, d := range diags {

@@ -8,6 +8,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/cobra"
+	"github.com/wippyai/runtime/api/boot"
+
 	"github.com/wippyai/go-lua/compiler/ast"
 	"github.com/wippyai/go-lua/compiler/parse"
 	"github.com/wippyai/go-lua/types/diag"
@@ -310,5 +313,38 @@ func TestParseErrorResultUsesSafeFallbackPositions(t *testing.T) {
 				t.Fatalf("rich parse code = %q, want %s", richDiagnosticCode(result.rich[0]), parseErrorCode)
 			}
 		})
+	}
+}
+
+// --strict-any is written into lua.type_system, where every checker reads it.
+func TestApplyTypeSystemFlags_StrictAnyOverridesConfig(t *testing.T) {
+	strictAny := func(cfg boot.Config) bool {
+		return cfg.Sub("lua").Sub("type_system").GetBool("strict_any", false)
+	}
+	newCmd := func() *cobra.Command {
+		cmd := &cobra.Command{}
+		cmd.Flags().Bool("strict-any", false, "")
+		return cmd
+	}
+
+	base := boot.NewConfig(boot.WithSection("lua", map[string]any{"type_system.strict_any": true}))
+	if !strictAny(applyTypeSystemFlags(newCmd(), base)) {
+		t.Fatal("without the flag the configured value stands")
+	}
+
+	cmd := newCmd()
+	if err := cmd.Flags().Set("strict-any", "false"); err != nil {
+		t.Fatal(err)
+	}
+	if strictAny(applyTypeSystemFlags(cmd, base)) {
+		t.Fatal("--strict-any=false overrides the configured value")
+	}
+
+	cmd = newCmd()
+	if err := cmd.Flags().Set("strict-any", "true"); err != nil {
+		t.Fatal(err)
+	}
+	if !strictAny(applyTypeSystemFlags(cmd, boot.NewConfig())) {
+		t.Fatal("--strict-any selects strict any")
 	}
 }
