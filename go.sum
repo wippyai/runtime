@@ -546,6 +546,8 @@ github.com/wippyai/go-lua v1.5.25-0.20260928192401-eed112db8d3e h1:kWsIhshfRJMfK
 github.com/wippyai/go-lua v1.5.25-0.20260928192401-eed112db8d3e/go.mod h1:cwD+390gJgx9cs+Zamby/lch5csqPV9RN1aDEfx/27M=
 github.com/wippyai/go-lua v1.6.0 h1:QhT/5D10fsevaCWQ00wNRjHLSOL9LN3li4AqK2+8oqk=
 github.com/wippyai/go-lua v1.6.0/go.mod h1:cwD+390gJgx9cs+Zamby/lch5csqPV9RN1aDEfx/27M=
+github.com/wippyai/go-lua v1.5.24 h1:eGn50Qfajomt5aNRmaUBhjmq/f1p+bL8ZqqQ4jy95WI=
+github.com/wippyai/go-lua v1.5.24/go.mod h1:cwD+390gJgx9cs+Zamby/lch5csqPV9RN1aDEfx/27M=
 github.com/wippyai/module-registry-proto-go v0.0.2-0.20260908140534-f6e2910c835f h1:AoKS058roqnsHXaJ8Gww7ODz14qJqOK5QBeoALvcq6I=
 github.com/wippyai/module-registry-proto-go v0.0.2-0.20260908140534-f6e2910c835f/go.mod h1:p4ihYQKRQuqRVLxaH1YL0IEnkz4zKdyfVADOwvA5Tno=
 github.com/wippyai/tree-sitter-markdown v0.0.3 h1:u6e53+hzPSS848Xhm+I48SwtvWQHrC21wDrogdwCwuc=

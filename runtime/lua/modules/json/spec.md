@@ -68,6 +68,25 @@ Decodes a JSON string into a Lua value.
 - JSON arrays → 1-indexed Lua tables
 - JSON objects → Lua tables with string keys
 
+### decode(str: string, target: type) → target, error
+
+Decodes JSON and validates the result against a Lua type value. After checking
+the error, the result has the requested type.
+
+```lua
+type User = {id: string, nickname: string?}
+local user, err = json.decode('{"id":"u1","nickname":null}', User)
+if err then return nil, err end
+local id: string = user.id
+```
+
+Success always returns a non-nil value. Top-level JSON `null` returns
+`nil, error` even for a nullable target; nullable fields and array elements
+remain valid. The one-argument form still decodes `null` to nil.
+
+Invalid type arguments, malformed JSON, type mismatches, and top-level `null`
+return a structured `errors.INVALID` error with `retryable = false`.
+
 ### validate(schema: table | string, data: any) → boolean, error
 
 Validates a Lua value against a JSON Schema.

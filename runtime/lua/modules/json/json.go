@@ -10,8 +10,10 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"slices"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/kaptinlin/jsonschema"
@@ -45,8 +47,13 @@ var (
 	jsonValuePool = sync.Pool{
 		New: func() any { return &jsonValue{} },
 	}
-	visitedPool = sync.Pool{
-		New: func() any { return make(map[*lua.LTable]bool, 16) },
+	encodeStatePool = sync.Pool{
+		New: func() any {
+			return &encodeState{
+				visited: make(map[*lua.LTable]bool, 16),
+				entries: make([]objectEntry, 0, 64),
+			}
+		},
 	}
 	// Pool for JSON writing buffers
 	bufferPool = sync.Pool{
@@ -54,9 +61,60 @@ var (
 	}
 )
 
-func getJSONValue(lv lua.LValue, visited map[*lua.LTable]bool, depth int, options *EncodeOptions) *jsonValue {
+// encodeState is shared by every value of one Encode call. entries is a stack:
+// each object sorts its own hash keys in a segment above its parent's segment.
+type encodeState struct {
+	visited map[*lua.LTable]bool
+	entries []objectEntry
+}
+
+// objectEntry is one hash key of a table being written as a JSON object.
+// rank orders entries whose written keys are equal: Strdict keys first, then
+// Dict string, number and boolean keys.
+type objectEntry struct {
+	value lua.LValue
+	key   string
+	rank  uint8
+}
+
+const (
+	rankStrdict uint8 = iota
+	rankDictString
+	rankDictNumber
+	rankDictBool
+)
+
+func compareObjectEntries(a, b objectEntry) int {
+	if c := strings.Compare(a.key, b.key); c != 0 {
+		return c
+	}
+	return int(a.rank) - int(b.rank)
+}
+
+// maxInsertionSortEntries is the object width up to which entries are sorted
+// by insertion; typical objects are narrow, and insertion sort is cheaper than
+// slices.SortFunc on short slices.
+const maxInsertionSortEntries = 12
+
+func sortObjectEntries(entries []objectEntry) {
+	if len(entries) > maxInsertionSortEntries {
+		slices.SortFunc(entries, compareObjectEntries)
+		return
+	}
+	for i := 1; i < len(entries); i++ {
+		entry := entries[i]
+		j := i
+		for j > 0 && compareObjectEntries(entry, entries[j-1]) < 0 {
+			entries[j] = entries[j-1]
+			j--
+		}
+		entries[j] = entry
+	}
+}
+
+func getJSONValue(lv lua.LValue, state *encodeState, depth int, options *EncodeOptions) *jsonValue {
 	jv := jsonValuePool.Get().(*jsonValue)
-	*jv = jsonValue{lv, visited, options, depth}
+	*jv = jsonValue{lv, state, options, depth}
 	return jv
 }
 
@@ -65,15 +123,29 @@ func putJSONValue(jv *jsonValue) {
 	jsonValuePool.Put(jv)
 }
 
-func getVisitedMap() map[*lua.LTable]bool {
-	return visitedPool.Get().(map[*lua.LTable]bool)
+func getEncodeState() *encodeState {
+	return encodeStatePool.Get().(*encodeState)
 }
 
-func putVisitedMap(visited map[*lua.LTable]bool) {
-	for k := range visited {
-		delete(visited, k)
+// maxPooledEntries bounds the entries capacity a pooled state keeps, so one
+// very wide object does not pin a large backing array in the pool.
+const maxPooledEntries = 4096
+
+// resetEncodeState drops every reference the state holds and reports whether
+// it is small enough to return to the pool. Each object clears its segment
+// before popping it, so only an encode that failed mid-object leaves entries
+// below len; everything between len and cap is already zeroed.
+func resetEncodeState(state *encodeState) bool {
+	clear(state.visited)
+	clear(state.entries)
+	state.entries = state.entries[:0]
+	return cap(state.entries) <= maxPooledEntries
+}
+
+func putEncodeState(state *encodeState) {
+	if resetEncodeState(state) {
+		encodeStatePool.Put(state)
 	}
-	visitedPool.Put(visited)
 }
 
 func getBuffer() *bytes.Buffer {
@@ -169,10 +241,14 @@ func EncodeWithOptions(value lua.LValue, options *EncodeOptions) ([]byte, error)
 		options.MaxDepth = DefaultMaxDepth
 	}
 
-	visited := getVisitedMap()
-	defer putVisitedMap(visited)
+	state := getEncodeState()
+	defer putEncodeState(state)
 
-	jv := getJSONValue(value, visited, 0, options)
+	return encodeWithState(value, options, state)
+}
+
+func encodeWithState(value lua.LValue, options *EncodeOptions, state *encodeState) ([]byte, error) {
+	jv := getJSONValue(value, state, 0, options)
 	b, err := json.Marshal(jv)
 	putJSONValue(jv)
 	return b, err
@@ -180,7 +256,7 @@ func EncodeWithOptions(value lua.LValue, options *EncodeOptions) ([]byte, error)
 
 type jsonValue struct {
 	LValue  lua.LValue
-	visited map[*lua.LTable]bool
+	state   *encodeState
 	options *EncodeOptions
 	depth   int
 }
@@ -233,11 +309,11 @@ func isInteger(n lua.LNumber) bool {
 
 // marshalTableDirect writes JSON directly without intermediate Go structures
 func (j *jsonValue) marshalTableDirect(table *lua.LTable) ([]byte, error) {
-	if j.visited[table] {
+	if j.state.visited[table] {
 		return nil, errNested
 	}
-	j.visited[table] = true
-	defer delete(j.visited, table)
+	j.state.visited[table] = true
+	defer delete(j.state.visited, table)
 
 	buf := getBuffer()
 	defer putBuffer(buf)
@@ -430,46 +506,53 @@ func (j *jsonValue) writeObjectDirect(buf *bytes.Buffer, table *lua.LTable, maxN
 		}
 	}
 
-	// Write string keys
+	// Hash keys are written in ascending byte order so equal tables encode to
+	// identical bytes; Go map iteration order is randomized per traversal.
+	// Nested objects push their segments above this one while it is written.
+	start := len(j.state.entries)
+	entries := j.state.entries
+
 	if table.Strdict != nil {
 		for key, value := range table.Strdict {
 			if value != lua.LNil {
-				if err := writeKeyValue(key, value); err != nil {
-					return nil, err
-				}
+				entries = append(entries, objectEntry{key: key, value: value, rank: rankStrdict})
 			}
 		}
 	}
 
-	// Write non-numeric Dict keys
 	if table.Dict != nil {
 		for key, value := range table.Dict {
-			if value != lua.LNil {
-				var keyStr string
-				isNumericKey := false
-
-				if num, ok := key.(lua.LNumber); ok {
-					if isInteger(num) && num > 0 {
-						isNumericKey = true // Skip, already handled above
-					} else {
-						keyStr = strconv.FormatFloat(float64(num), 'f', -1, 64)
-					}
-				} else if s, ok := key.(lua.LString); ok {
-					keyStr = string(s)
-				} else if b, ok := key.(lua.LBool); ok {
-					keyStr = strconv.FormatBool(bool(b))
-				} else {
-					continue
+			if value == lua.LNil {
+				continue
+			}
+			switch k := key.(type) {
+			case lua.LNumber:
+				if isInteger(k) && k > 0 {
+					continue // written with the numeric keys above
 				}
-
-				if !isNumericKey {
-					if err := writeKeyValue(keyStr, value); err != nil {
-						return nil, err
-					}
-				}
+				entries = append(entries, objectEntry{
+					key: strconv.FormatFloat(float64(k), 'f', -1, 64), value: value, rank: rankDictNumber,
+				})
+			case lua.LString:
+				entries = append(entries, objectEntry{key: string(k), value: value, rank: rankDictString})
+			case lua.LBool:
+				entries = append(entries, objectEntry{key: strconv.FormatBool(bool(k)), value: value, rank: rankDictBool})
 			}
 		}
 	}
+
+	j.state.entries = entries
+	own := entries[start:]
+	sortObjectEntries(own)
+
+	for i := range own {
+		if err := writeKeyValue(own[i].key, own[i].value); err != nil {
+			return nil, err
+		}
+	}
+
+	clear(j.state.entries[start:])
+	j.state.entries = j.state.entries[:start]
 
 	buf.WriteByte('}')
 	result := make([]byte, buf.Len())
@@ -522,7 +605,7 @@ func (j *jsonValue) writeValueOptimized(buf *bytes.Buffer, value lua.LValue) err
 		return nil
 	default:
 		// Complex types: use existing safe recursive approach
-		childJSON := getJSONValue(value, j.visited, j.depth+1, j.options)
+		childJSON := getJSONValue(value, j.state, j.depth+1, j.options)
 		childBytes, err := childJSON.MarshalJSON()
 		putJSONValue(childJSON)
 		if err != nil {
