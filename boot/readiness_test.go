@@ -141,6 +141,19 @@ func TestReadiness_GateFail(t *testing.T) {
 	assert.Equal(t, int64(0), r.Pending())
 }
 
+func TestGateWaitObservesOnlyItsOwnCompletion(t *testing.T) {
+	r := NewReadiness()
+	boot := r.RegisterGate("boot")
+	other := r.RegisterGate("other")
+	other.Fail(assert.AnError)
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	require.ErrorIs(t, boot.Wait(ctx), context.Canceled)
+	boot.Ready()
+	require.NoError(t, boot.Wait(t.Context()))
+	require.ErrorIs(t, other.Wait(t.Context()), assert.AnError)
+}
+
 func TestReadiness_RestartNeverPassesFailedGate(t *testing.T) {
 	r := NewReadiness()
 	gate := r.RegisterGate("app:bootloader")

@@ -20,6 +20,7 @@ import (
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/api/topology"
+	sysprocess "github.com/wippyai/runtime/system/process"
 	"github.com/wippyai/runtime/system/scheduler/affinity"
 )
 
@@ -386,6 +387,9 @@ func (s *Scheduler) Terminate(pid pid.PID) error {
 	if ref == nil || !ref.pid.Equal(pid) {
 		return process.ErrProcessNotFound
 	}
+	if !ref.lifecycle.requestTermination() {
+		return process.ErrProcessNotFound
+	}
 	ref.terminate()
 	return nil
 }
@@ -399,6 +403,13 @@ func (s *Scheduler) completeNoPool(proc *Processor, result *process.StepOutput, 
 }
 
 func (s *Scheduler) finishProcessor(proc *Processor, result *process.StepOutput, err error, allowPool bool) {
+	// A process may finish its current Step normally after Terminate canceled
+	// its context. Preserve the accepted termination through the supervisor's
+	// EXIT event, even when the process handles cancellation and returns nil.
+	if ref := proc.sig.Load(); ref != nil && ref.lifecycle.finish() {
+		result = nil
+		err = sysprocess.ErrTerminated
+	}
 	res := &runtime.Result{Error: err}
 	if result != nil && result.Result() != nil {
 		res.Value = result.Result()

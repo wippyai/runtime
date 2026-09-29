@@ -8,6 +8,7 @@ import (
 )
 
 var (
+	ErrNoCompletionGate = apierror.New(apierror.Internal, "startup completion gate unavailable").WithRetryable(apierror.False)
 	ErrNoRelayNode      = apierror.New(apierror.Internal, "no relay node in context").WithRetryable(apierror.False)
 	ErrNoTopology       = apierror.New(apierror.Internal, "no topology in context").WithRetryable(apierror.False)
 	ErrNoProcessManager = apierror.New(apierror.Internal, "no process manager in context").WithRetryable(apierror.False)
