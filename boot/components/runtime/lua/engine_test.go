@@ -404,11 +404,11 @@ func TestEngineSettings_UnresolvableIdentityFallback(t *testing.T) {
 }
 
 func TestL10EngineTypeSystemStrictAny(t *testing.T) {
-	if resolveEngineSettings(boot.NewConfig(), zap.NewNop()).TypeCheck.Check.StrictAny {
+	if resolveEngineSettings(boot.NewConfig(), zap.NewNop()).TypeCheck.Check.Strict {
 		t.Fatal("any is gradual by default")
 	}
 	cfg := boot.NewConfig(boot.WithSection("lua", map[string]any{"type_system.strict_any": true}))
-	if !resolveEngineSettings(cfg, zap.NewNop()).TypeCheck.Check.StrictAny {
+	if !resolveEngineSettings(cfg, zap.NewNop()).TypeCheck.Check.Strict {
 		t.Fatal("lua.type_system.strict_any selects strict any")
 	}
 }
