@@ -146,6 +146,11 @@ func runLintCacheHarness(t *testing.T, count int, chain bool) {
 	runtimeDuration := time.Since(runtimeStarted)
 	runtimeAfter := cacheFileModTimes(t, dir)
 	require.Equal(t, after, runtimeAfter, "runtime must consume lint artifacts without rewriting them")
+	stats := manager.CacheStats()
+	require.Positive(t, stats.CompileHits)
+	require.Zero(t, stats.CompileMisses)
+	require.Positive(t, stats.TypecheckHits)
+	require.Zero(t, stats.TypecheckMisses)
 
 	shape := "fan-in"
 	if chain {

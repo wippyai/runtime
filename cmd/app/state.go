@@ -35,6 +35,8 @@ func receiptPath(state string) string { return filepath.Join(recoveryPath(state)
 
 func cachePath(state string) string { return filepath.Join(state, cacheDir) }
 
+func luaCachePath(state string) string { return filepath.Join(cachePath(state), "lua") }
+
 func legacyArtifactVendorPath(state string) string {
 	return filepath.Join(state, legacyCacheDir, "vendor")
 }

@@ -106,6 +106,10 @@ type (
 		builtinHash             string
 		toolchainIdentity       string
 		cacheCfg                cache.Config
+		compileCacheHits        atomic.Uint64
+		compileCacheMisses      atomic.Uint64
+		typecheckCacheHits      atomic.Uint64
+		typecheckCacheMisses    atomic.Uint64
 		revision                atomic.Uint64
 		invalidationSeq         atomic.Uint64
 		invalidationWaitTimeout time.Duration
@@ -121,6 +125,15 @@ type (
 		TypeCheck               TypeCheckConfig
 	}
 )
+
+// CacheStats reports persistent Lua cache reads performed by this manager.
+// Disabled cache stages do not count as misses.
+type CacheStats struct {
+	CompileHits     uint64 `json:"compile_hits"`
+	CompileMisses   uint64 `json:"compile_misses"`
+	TypecheckHits   uint64 `json:"typecheck_hits"`
+	TypecheckMisses uint64 `json:"typecheck_misses"`
+}
 
 // NewCodeManager creates a new code manager instance
 func NewCodeManager(log *zap.Logger, bus event.Bus, cfg Config) (*Manager, error) {

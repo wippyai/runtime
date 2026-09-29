@@ -4,6 +4,7 @@ package cmd
 
 import (
 	"os"
+	"sync/atomic"
 
 	glua "github.com/wippyai/go-lua"
 	"github.com/wippyai/go-lua/compiler/ast"
@@ -24,6 +25,26 @@ type lintCache struct {
 	typecheckHash   string
 	builtinModules  []string
 	cfg             cache.Config
+	stats           *lintCacheStats
+}
+
+type lintCacheStats struct {
+	compileHits     atomic.Uint64
+	compileMisses   atomic.Uint64
+	typecheckHits   atomic.Uint64
+	typecheckMisses atomic.Uint64
+}
+
+func (stats *lintCacheStats) snapshot() code.CacheStats {
+	if stats == nil {
+		return code.CacheStats{}
+	}
+	return code.CacheStats{
+		CompileHits:     stats.compileHits.Load(),
+		CompileMisses:   stats.compileMisses.Load(),
+		TypecheckHits:   stats.typecheckHits.Load(),
+		TypecheckMisses: stats.typecheckMisses.Load(),
+	}
 }
 
 type lintFingerprints struct {
@@ -175,31 +196,24 @@ func lintLoadTypecheckCache(lcache lintCache, id regapi.ID, fingerprint string) 
 	}
 	key := lintTypecheckCacheKey(fingerprint)
 	entry, ok, err := lcache.store.Get(key)
-	if err != nil || !ok || entry == nil {
-		return nil, nil, false
+	if err == nil && ok && entry != nil && entry.Meta.SchemaVersion == cache.SchemaVersion &&
+		entry.Meta.TypecheckFingerprint == fingerprint && entry.Meta.EntryID == id.String() && len(entry.Manifest) > 0 {
+		if manifest, valid := cache.DecodeManifestSafe(entry.Manifest); valid {
+			if lcache.stats != nil {
+				lcache.stats.typecheckHits.Add(1)
+			}
+			diags := entry.Diagnostics
+			if diags == nil {
+				diags = []diag.Diagnostic{}
+			}
+			return manifest, diags, true
+		}
 	}
-	if entry.Meta.SchemaVersion != cache.SchemaVersion {
-		lintDeleteCacheKey(lcache, key)
-		return nil, nil, false
+	lintDeleteCacheKey(lcache, key)
+	if lcache.stats != nil {
+		lcache.stats.typecheckMisses.Add(1)
 	}
-	if entry.Meta.TypecheckFingerprint != fingerprint || entry.Meta.EntryID != id.String() {
-		lintDeleteCacheKey(lcache, key)
-		return nil, nil, false
-	}
-	if len(entry.Manifest) == 0 {
-		lintDeleteCacheKey(lcache, key)
-		return nil, nil, false
-	}
-	manifest, ok := cache.DecodeManifestSafe(entry.Manifest)
-	if !ok {
-		lintDeleteCacheKey(lcache, key)
-		return nil, nil, false
-	}
-	diags := entry.Diagnostics
-	if diags == nil {
-		diags = []diag.Diagnostic{}
-	}
-	return manifest, diags, true
+	return nil, nil, false
 }
 
 func lintSaveTypecheckCache(lcache lintCache, entry regapi.Entry, data entryData, fingerprint string, deps []cache.DepMeta, manifest *io.Manifest, diagnostics []diag.Diagnostic) {
@@ -241,10 +255,16 @@ func lintEnsureCompileCache(lcache lintCache, entry regapi.Entry, data entryData
 			if cacheEntry.Meta.SchemaVersion != cache.SchemaVersion {
 				lintDeleteCacheKey(lcache, key)
 			} else if cacheEntry.Meta.CompileFingerprint == fingerprint && cacheEntry.Meta.EntryID == entry.ID.String() && len(cacheEntry.Proto) > 0 {
+				if lcache.stats != nil {
+					lcache.stats.compileHits.Add(1)
+				}
 				return
 			} else if cacheEntry.Meta.CompileFingerprint != "" || cacheEntry.Meta.EntryID != "" {
 				lintDeleteCacheKey(lcache, key)
 			}
+		}
+		if lcache.stats != nil {
+			lcache.stats.compileMisses.Add(1)
 		}
 	}
 	if !lintCacheAllowsWrite(lcache) {

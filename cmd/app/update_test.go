@@ -12,6 +12,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/boot/deps/lock"
+	"github.com/wippyai/runtime/runtime/lua/code/cache"
 )
 
 // updateState seeds a state whose current deployment is the shipped bundle.
@@ -32,6 +33,15 @@ func TestUpdateSelectsTheVerifiedCandidate(t *testing.T) {
 	run := func(_ context.Context, dir string, args []string) error {
 		commands = append(commands, args)
 		directories = append(directories, dir)
+		if args[len(args)-1] == "lint" {
+			staging := args[1]
+			fingerprint := "updated-pack-compile"
+			store := cache.NewDiskStore(luaCachePath(staging))
+			require.NoError(t, store.Put(cache.CompileKey(fingerprint), &cache.Entry{
+				Meta:  cache.Meta{SchemaVersion: cache.SchemaVersion, CompileFingerprint: fingerprint, EntryID: "bee.updated"},
+				Proto: []byte("proto"),
+			}))
+		}
 		return nil
 	}
 
@@ -61,6 +71,10 @@ func TestUpdateSelectsTheVerifiedCandidate(t *testing.T) {
 	_, err = executable.Bundle.existing(filepath.Join(selected, lock.DefaultFilename))
 	require.NoError(t, err)
 	require.FileExists(t, filepath.Join(deployment, lock.DefaultFilename), "the previous deployment stays in place")
+	updatedCache, ok, err := cache.NewDiskStore(luaCachePath(state)).Get(cache.CompileKey("updated-pack-compile"))
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, []byte("proto"), updatedCache.Proto)
 
 	entries, err := os.ReadDir(deploymentsPath(state))
 	require.NoError(t, err)

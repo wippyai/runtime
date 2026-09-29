@@ -4,6 +4,8 @@ package lua
 
 import (
 	"context"
+	"encoding/json"
+	"os"
 	"path/filepath"
 
 	"github.com/wippyai/go-lua/compiler/check"
@@ -38,6 +40,8 @@ var toolchainIdentityResolver = code.ToolchainIdentity
 
 func Engine() boot.Component {
 	var funcs *funclua.Manager
+	var codeManager *code.Manager
+	var luaLogger *zap.Logger
 	var started bool
 
 	return boot.New(boot.P{
@@ -52,16 +56,18 @@ func Engine() boot.Component {
 			}
 
 			logger := logapi.GetLogger(ctx)
+			luaLogger = logger.Named("lua")
 			bus := event.GetBus(ctx)
 			handlers := bootpkg.GetHandlerRegistry(ctx)
-			settings := resolveEngineSettings(boot.GetConfig(ctx), logger.Named("lua"))
+			settings := resolveEngineSettings(boot.GetConfig(ctx), luaLogger)
 			settings.Modules = []*luaapi.ModuleDef{
 				ostime.Module,
 				processmod.Module,
 				engine.ChannelModule,
 			}
 
-			codeManager, err := code.NewCodeManager(logger.Named("lua"), bus, settings)
+			var err error
+			codeManager, err = code.NewCodeManager(luaLogger, bus, settings)
 			if err != nil {
 				return ctx, err
 			}
@@ -106,11 +112,21 @@ func Engine() boot.Component {
 			return nil
 		},
 		Stop: func(_ context.Context) error {
-			if funcs == nil || !started {
-				return nil
+			if funcs != nil && started {
+				funcs.Stop()
+				started = false
 			}
-			funcs.Stop()
-			started = false
+			if codeManager != nil {
+				if path := os.Getenv("WIPPY_LUA_CACHE_STATS_FILE"); path != "" {
+					data, err := json.Marshal(codeManager.CacheStats())
+					if err == nil {
+						err = os.WriteFile(path, data, 0o600)
+					}
+					if err != nil && luaLogger != nil {
+						luaLogger.Warn("lua cache stats write failed", zap.String("path", path), zap.Error(err))
+					}
+				}
+			}
 			return nil
 		},
 	})

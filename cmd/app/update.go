@@ -86,6 +86,9 @@ func updateDeployment(ctx context.Context, e Executable, l Launch, deployment st
 	if err := verifyCandidate(e, candidate); err != nil {
 		return err
 	}
+	if err := mergeLuaCache(luaCachePath(staging), luaCachePath(l.State)); err != nil {
+		return NewUpdateError("cache", err)
+	}
 	if err := os.Rename(candidate, selected); err != nil {
 		return NewUpdateError("select", err)
 	}
