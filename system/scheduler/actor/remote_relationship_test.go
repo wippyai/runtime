@@ -21,6 +21,7 @@ import (
 	"github.com/wippyai/runtime/api/topology"
 	"github.com/wippyai/runtime/cluster/internode"
 	syspayload "github.com/wippyai/runtime/system/payload"
+	sysprocess "github.com/wippyai/runtime/system/process"
 	sysrelay "github.com/wippyai/runtime/system/relay"
 	"github.com/wippyai/runtime/system/scheduler"
 	systopology "github.com/wippyai/runtime/system/topology"
@@ -252,6 +253,40 @@ func TestRemoteMonitorReceivesExitValue(t *testing.T) {
 	assert.Equal(t, "last checkpoint", event.Result.Value.Data())
 
 	requireNoTopologyRequests(t, worker)
+}
+
+func TestRemoteMonitorAndLinkReceiveTerminationDuringStep(t *testing.T) {
+	nodes := newTwoNodes(t)
+	worker := &terminateDuringStepProcess{entered: make(chan struct{})}
+	target := pid.PID{Node: "node-b", Host: "workers", UniqID: "terminated-step"}
+	_, err := nodes.sched.Submit(context.Background(), target, worker, "", nil)
+	require.NoError(t, err)
+	select {
+	case <-worker.entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("process did not enter its step")
+	}
+	require.NoError(t, nodes.topoA.Monitor(nodes.watcher, target))
+	require.NoError(t, nodes.topoA.Link(nodes.watcher, target))
+	require.NoError(t, nodes.sched.Terminate(target))
+
+	kinds := make(map[topology.Kind]bool)
+	for range 2 {
+		event := nodes.nextExit(t)
+		kinds[event.Kind] = true
+		require.Equal(t, target.String(), event.From.String())
+		require.NotNil(t, event.Result)
+		require.Nil(t, event.Result.Value)
+		// Wire errors preserve kind, message and retry metadata rather than
+		// Go sentinel identity. The supervisor must still see a failure.
+		require.EqualError(t, event.Result.Error, sysprocess.ErrTerminated.Error())
+		var rich apierror.Rich
+		require.ErrorAs(t, event.Result.Error, &rich)
+		require.Equal(t, sysprocess.ErrTerminated.Kind(), rich.Kind())
+		require.Equal(t, sysprocess.ErrTerminated.Retryable(), rich.Retryable())
+	}
+	require.True(t, kinds[topology.Exit])
+	require.True(t, kinds[topology.LinkDown])
 }
 
 func TestRemoteLinkReceivesLinkDownOnCrash(t *testing.T) {
