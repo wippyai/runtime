@@ -26,10 +26,10 @@ type signalRef struct {
 	// terminate cancels this incarnation's context. It stays bound to the
 	// incarnation after its pooled slot is reused.
 	terminate context.CancelFunc
+	lifecycle *signalLifecycle
 	pid       pid.PID
 	source    registry.ID
 	gen       uint64
-	lifecycle *signalLifecycle
 }
 
 // signalLifecycle is shared by signal snapshots across an in-place upgrade.

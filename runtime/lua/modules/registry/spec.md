@@ -351,11 +351,23 @@ Returned by `registry.snapshot()`, `registry.snapshot_at()`, and `history:snapsh
 | Method | Signature | Returns | Notes |
 |--------|-----------|---------|-------|
 | entries | () | table[], error | All entries in snapshot |
+| state | () | table, error | Entries, ownership provenance, and selected module resolution |
 | get | (id: string) | table, error | Single entry by ID |
 | namespace | (ns: string) | table[] | Entries in namespace |
 | find | (filter: table) | table[] | Search entries |
 | changes | () | Changes | Create changeset |
 | version | () | Version | Snapshot version |
+
+#### snapshot:state() → table, error
+
+Returns the captured registry state after applying the snapshot's visibility filter.
+The result contains `entries`, whose `registry` field holds `owner` and `root`,
+and `provenance`, keyed by entry ID. Each provenance record contains `module`
+and `root`, plus `version` and `digest` when its owner is in the selected module
+resolution. The result also contains `resolution` when available.
+
+The provenance map supports released Keeper consumers and describes the same
+visible entries as `entries`. Each call returns fresh tables.
 
 #### snapshot:entries() → table[], error
 
