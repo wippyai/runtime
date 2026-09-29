@@ -176,6 +176,7 @@ func runInstall(cmd *cobra.Command, args []string) error {
 		wappPath string
 		dirPath  string
 		module   string
+		digest   string
 	}
 	var pendingExtractions []pendingExtraction
 	var installedModules []lock.Module
@@ -205,6 +206,7 @@ func runInstall(cmd *cobra.Command, args []string) error {
 						wappPath: resolved.Path,
 						dirPath:  dirPath,
 						module:   moduleRef,
+						digest:   module.Hash,
 					})
 				}
 				cached++
@@ -224,6 +226,7 @@ func runInstall(cmd *cobra.Command, args []string) error {
 							wappPath: wappPath,
 							dirPath:  dirPath,
 							module:   moduleRef,
+							digest:   module.Hash,
 						})
 					}
 					logger.Info("module already installed, skipping download",
@@ -271,10 +274,15 @@ func runInstall(cmd *cobra.Command, args []string) error {
 			return NewDownloadModuleError(moduleRef, fmt.Errorf("verify downloaded WAPP: %w", err))
 		}
 		if shouldUnpack {
+			digest := module.Hash
+			if downloadInfo.Digest != "" {
+				digest = downloadInfo.Digest
+			}
 			pendingExtractions = append(pendingExtractions, pendingExtraction{
 				wappPath: wappPath,
 				dirPath:  dirPath,
 				module:   moduleRef,
+				digest:   digest,
 			})
 		}
 
@@ -289,7 +297,10 @@ func runInstall(cmd *cobra.Command, args []string) error {
 	}
 
 	for _, pending := range pendingExtractions {
-		if err := entries.ExtractWappToDirKeepSource(pending.wappPath, pending.dirPath); err != nil {
+		if hub.ExtractedModuleCurrent(pending.wappPath, pending.dirPath, pending.digest) {
+			continue
+		}
+		if err := hub.ExtractModuleDir(pending.wappPath, pending.dirPath, pending.digest); err != nil {
 			return NewExtractModuleError(pending.module, err)
 		}
 	}

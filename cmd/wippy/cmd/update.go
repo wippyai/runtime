@@ -233,6 +233,7 @@ func resolveUpdatedWorkspaceDependencies(
 		Hub:                   provider,
 		LockPath:              lockObj.Path(),
 		WorkspaceReplacements: lockObj.GetReplacements(),
+		UnpackModules:         lockObj.UnpackModulesOverride(),
 	})
 	if err != nil {
 		return nil, NewBuildDependencyGraphError(err)

@@ -16,6 +16,7 @@ const DefaultFilename = "wippy.lock"
 
 // Lock represents a lock file with operations for reading, writing, and querying.
 type Lock struct {
+	unpackOverride   *bool
 	path             string
 	workspaceOverlay []Replacement
 	data             File
@@ -30,6 +31,15 @@ type Option func(*Lock) error
 func WithWorkspaceReplacements(replacements []Replacement) Option {
 	return func(l *Lock) error {
 		l.workspaceOverlay = append([]Replacement(nil), replacements...)
+		return nil
+	}
+}
+
+// WithUnpackModulesOverride sets a non-persistent unpack mode. Nil keeps the
+// lock file value.
+func WithUnpackModulesOverride(unpack *bool) Option {
+	return func(l *Lock) error {
+		l.unpackOverride = unpack
 		return nil
 	}
 }
@@ -320,7 +330,22 @@ func (l *Lock) SetOptions(opts Options) {
 
 // ShouldUnpackModules returns whether modules should be extracted from .wapp files.
 func (l *Lock) ShouldUnpackModules() bool {
+	if l.unpackOverride != nil {
+		return *l.unpackOverride
+	}
 	return l.data.Options.UnpackModules
+}
+
+// UnpackModulesOverride returns the non-persistent unpack mode, or nil when
+// the lock file value applies.
+func (l *Lock) UnpackModulesOverride() *bool {
+	return l.unpackOverride
+}
+
+// SetUnpackModulesOverride sets a non-persistent unpack mode. Nil restores the
+// lock file value.
+func (l *Lock) SetUnpackModulesOverride(unpack *bool) {
+	l.unpackOverride = unpack
 }
 
 // GetVendorPath returns the vendor directory path relative to modules dir.

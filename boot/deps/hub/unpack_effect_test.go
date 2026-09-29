@@ -304,3 +304,49 @@ func assertNoLifecycleDirectories(t *testing.T, parent string) {
 		assert.Empty(t, matches, pattern)
 	}
 }
+
+func TestVerifyExtractedModuleAcceptsEquivalentDigestForms(t *testing.T) {
+	target := t.TempDir()
+	writeTreeMarker(t, target, "current")
+	hexDigest := "d1cbd9fa675e0641817a25fe67ae2ad8cd3ffba0ec6244b83e8ef433d903898e"
+
+	require.NoError(t, writeExtractedModuleMeta(target, "sha256:"+hexDigest, 17))
+	require.NoError(t, verifyExtractedModule(target, hexDigest, 17))
+	require.NoError(t, verifyExtractedModule(target, "SHA256:"+hexDigest, 17))
+
+	require.NoError(t, writeExtractedModuleMeta(target, hexDigest, 17))
+	require.NoError(t, verifyExtractedModule(target, "sha256:"+hexDigest, 17))
+	require.Error(t, verifyExtractedModule(target, "sha256:"+hexDigest[:63]+"0", 17))
+}
+
+func TestExtractedModuleCurrentRejectsChangedTree(t *testing.T) {
+	dir := t.TempDir()
+	wappPath := filepath.Join(dir, "mod.wapp")
+	require.NoError(t, os.WriteFile(wappPath, []byte("artifact"), 0o600))
+	target := filepath.Join(dir, "mod")
+	writeTreeMarker(t, target, "current")
+	require.NoError(t, writeExtractedModuleMeta(target, "sha256:abc", uint64(len("artifact"))))
+
+	assert.True(t, ExtractedModuleCurrent(wappPath, target, "abc"))
+	assert.False(t, ExtractedModuleCurrent(wappPath, target, ""))
+	assert.False(t, ExtractedModuleCurrent(wappPath, target, "sha256:def"))
+	writeTreeMarker(t, target, "changed")
+	assert.False(t, ExtractedModuleCurrent(wappPath, target, "abc"))
+}
+
+func TestDependencyHandlerUnpackModulesOverride(t *testing.T) {
+	lockPath := filepath.Join(t.TempDir(), lock.DefaultFilename)
+	lockObj, err := lock.New(lockPath)
+	require.NoError(t, err)
+	lockObj.SetOptions(lock.Options{UnpackModules: true})
+	require.NoError(t, lockObj.Write())
+
+	handler, err := NewDependencyHandler(DependencyHandlerOptions{LockPath: lockPath, Logger: zap.NewNop()})
+	require.NoError(t, err)
+	assert.True(t, handler.shouldUnpackModules())
+
+	packed := false
+	handler, err = NewDependencyHandler(DependencyHandlerOptions{LockPath: lockPath, Logger: zap.NewNop(), UnpackModules: &packed})
+	require.NoError(t, err)
+	assert.False(t, handler.shouldUnpackModules())
+}

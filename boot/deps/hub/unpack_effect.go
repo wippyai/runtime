@@ -15,6 +15,7 @@ import (
 	regapi "github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/boot/deps/graph"
 	"github.com/wippyai/runtime/boot/deps/lock"
+	"github.com/wippyai/runtime/boot/deps/wappextract"
 )
 
 // stagedModuleDirectory is private to one directive expansion. Planning reads
@@ -83,7 +84,7 @@ type moduleFilesystemOps struct {
 
 func (ops moduleFilesystemOps) withDefaults() moduleFilesystemOps {
 	if ops.rename == nil {
-		ops.rename = os.Rename
+		ops.rename = wappextract.RenameDir
 	}
 	if ops.removeAll == nil {
 		ops.removeAll = os.RemoveAll

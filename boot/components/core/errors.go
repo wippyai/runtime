@@ -24,6 +24,10 @@ func NewWorkspaceReplacementsError(cause error) apierror.Error {
 	return apierror.New(apierror.Internal, "failed to load workspace replacements").WithCause(cause)
 }
 
+func NewWorkspaceOptionsError(cause error) apierror.Error {
+	return apierror.New(apierror.Internal, "failed to load workspace options").WithCause(cause)
+}
+
 func NewHistoryPathError(cause error) apierror.Error {
 	return apierror.New(apierror.Internal, "failed to resolve history path").WithCause(cause)
 }

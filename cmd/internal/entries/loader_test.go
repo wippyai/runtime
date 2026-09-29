@@ -1209,6 +1209,45 @@ func TestEnsureModulesInstalledRefreshesUnpackedModuleFromVerifiedWapp(t *testin
 	require.NoError(t, err)
 }
 
+func TestEnsureModulesInstalledReusesCurrentUnpackedModule(t *testing.T) {
+	tmpDir := t.TempDir()
+	lockObj, err := lock.New(filepath.Join(tmpDir, lock.DefaultFilename))
+	require.NoError(t, err)
+	lockObj.SetOptions(lock.Options{UnpackModules: true})
+
+	vendorDir := filepath.Join(tmpDir, ".wippy", "vendor", "acme")
+	require.NoError(t, os.MkdirAll(vendorDir, 0o755))
+	packPath := createTestWappFile(t, vendorDir, "ui-v1.0.0", []wapp.Entry{
+		{ID: wapp.NewID("acme.ui", "entry"), Kind: "code.lua", Data: "return true"},
+	})
+	data, err := os.ReadFile(packPath)
+	require.NoError(t, err)
+	sum := sha256.Sum256(data)
+	lockObj.SetModule(lock.Module{
+		Name:    "acme/ui",
+		Version: "v1.0.0",
+		Hash:    hex.EncodeToString(sum[:]),
+	})
+
+	extractedDir := filepath.Join(vendorDir, "ui")
+	require.NoError(t, ensureModulesInstalledFromLock(context.Background(), lockObj, zap.NewNop()))
+	first, err := os.Stat(extractedDir)
+	require.NoError(t, err)
+
+	require.NoError(t, ensureModulesInstalledFromLock(context.Background(), lockObj, zap.NewNop()))
+	second, err := os.Stat(extractedDir)
+	require.NoError(t, err)
+	require.True(t, os.SameFile(first, second), "unchanged module must not be activated again")
+
+	entries, err := os.ReadDir(vendorDir)
+	require.NoError(t, err)
+	names := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		names = append(names, entry.Name())
+	}
+	require.Equal(t, []string{"ui", "ui-v1.0.0.wapp"}, names)
+}
+
 func TestPackedModuleLoadPathIgnoresExtractedDirectory(t *testing.T) {
 	tmpDir := t.TempDir()
 	lockObj, err := lock.New(filepath.Join(tmpDir, lock.DefaultFilename))

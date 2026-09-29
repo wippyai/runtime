@@ -58,3 +58,40 @@ replacements:
 	require.Equal(t, "./workspace", replacement.To)
 	require.Len(t, lockObj.GetReplacements(), 1)
 }
+
+func TestWithWorkspaceConfigOverridesUnpackModulesWithoutPersisting(t *testing.T) {
+	lockPath := filepath.Join(t.TempDir(), DefaultFilename)
+	lockObj, err := New(lockPath)
+	require.NoError(t, err)
+	lockObj.SetOptions(Options{UnpackModules: true})
+	require.NoError(t, lockObj.Write())
+
+	cfg := boot.NewConfig(boot.WithSection("options", map[string]any{"unpack_modules": false}))
+	lockObj, err = New(lockPath, WithWorkspaceConfig(cfg))
+	require.NoError(t, err)
+	require.False(t, lockObj.ShouldUnpackModules())
+	require.True(t, lockObj.GetOptions().UnpackModules)
+
+	require.NoError(t, lockObj.Write())
+	persisted, err := New(lockPath)
+	require.NoError(t, err)
+	require.True(t, persisted.ShouldUnpackModules())
+
+	lockObj.SetUnpackModulesOverride(nil)
+	require.True(t, lockObj.ShouldUnpackModules())
+}
+
+func TestWithWorkspaceConfigKeepsLockUnpackModulesWhenUnset(t *testing.T) {
+	lockObj, err := New(filepath.Join(t.TempDir(), DefaultFilename))
+	require.NoError(t, err)
+	lockObj.SetOptions(Options{UnpackModules: true})
+
+	require.NoError(t, WithWorkspaceConfig(boot.NewConfig())(lockObj))
+	require.True(t, lockObj.ShouldUnpackModules())
+}
+
+func TestWithWorkspaceConfigRejectsNonBoolUnpackModules(t *testing.T) {
+	cfg := boot.NewConfig(boot.WithSection("options", map[string]any{"unpack_modules": "no"}))
+	_, err := New(filepath.Join(t.TempDir(), DefaultFilename), WithWorkspaceConfig(cfg))
+	require.ErrorContains(t, err, "options.unpack_modules must be a boolean")
+}

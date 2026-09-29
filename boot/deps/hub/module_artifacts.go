@@ -468,6 +468,32 @@ func writeExtractedModuleMeta(dirPath, digest string, size uint64) error {
 	}
 	return os.WriteFile(filepath.Join(dirPath, extractedModuleMeta), data, 0600)
 }
+
+// ExtractModuleDir replaces targetDir with the tree of the verified artifact
+// at wappPath and records the artifact identity in the tree.
+func ExtractModuleDir(wappPath, targetDir, digest string) error {
+	info, err := os.Stat(wappPath)
+	if err != nil {
+		return err
+	}
+	return wappextract.ExtractWappToDirKeepSourceWith(wappPath, targetDir, func(dir string) error {
+		return writeExtractedModuleMeta(dir, digest, uint64(info.Size()))
+	})
+}
+
+// ExtractedModuleCurrent reports whether targetDir holds the unchanged tree
+// that ExtractModuleDir extracted from the artifact at wappPath.
+func ExtractedModuleCurrent(wappPath, targetDir, digest string) bool {
+	if digest == "" {
+		return false
+	}
+	info, err := os.Stat(wappPath)
+	if err != nil {
+		return false
+	}
+	return verifyExtractedModule(targetDir, digest, uint64(info.Size())) == nil
+}
+
 func verifyExtractedModule(dirPath, expectedDigest string, expectedSize uint64) error {
 	if expectedDigest == "" && expectedSize == 0 {
 		return nil
@@ -480,7 +506,7 @@ func verifyExtractedModule(dirPath, expectedDigest string, expectedSize uint64) 
 	if err := yaml.Unmarshal(data, &meta); err != nil {
 		return NewArtifactIOError("read extracted module metadata", "", err)
 	}
-	if expectedDigest != "" && !strings.EqualFold(meta.Digest, expectedDigest) {
+	if expectedDigest != "" && !artifactDigestsEqual(meta.Digest, expectedDigest) {
 		return NewArtifactContentError(fmt.Sprintf("digest mismatch: expected %s, got %s", expectedDigest, meta.Digest), map[string]any{"expected": expectedDigest, "got": meta.Digest})
 	}
 	if expectedSize > 0 && meta.Size != expectedSize {

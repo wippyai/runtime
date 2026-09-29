@@ -34,6 +34,7 @@ type DependencyHandlerOptions struct {
 	Resolver              regapi.DependencyResolver
 	Artifacts             *artifact.Registry
 	Logger                *zap.Logger
+	UnpackModules         *bool
 	LockPath              string
 	VendorDir             string
 	ArtifactRoot          string
@@ -105,7 +106,9 @@ func NewDependencyHandler(opts DependencyHandlerOptions) (*DependencyHandler, er
 	var lockObj *lock.Lock
 	if lockPath != "" {
 		var err error
-		lockObj, err = lock.New(lockPath, lock.WithWorkspaceReplacements(opts.WorkspaceReplacements))
+		lockObj, err = lock.New(lockPath,
+			lock.WithWorkspaceReplacements(opts.WorkspaceReplacements),
+			lock.WithUnpackModulesOverride(opts.UnpackModules))
 		if err != nil {
 			return nil, err
 		}

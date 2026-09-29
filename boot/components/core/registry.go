@@ -267,6 +267,11 @@ func newDependencyHandler(
 		return nil, NewWorkspaceReplacementsError(err)
 	}
 	opts.WorkspaceReplacements = workspaceReplacements
+	unpackModules, err := lock.WorkspaceUnpackModules(cfg)
+	if err != nil {
+		return nil, NewWorkspaceOptionsError(err)
+	}
+	opts.UnpackModules = unpackModules
 
 	if registryCfg != nil {
 		opts.ResolveTimeout = registryCfg.GetDuration(RegistryDependencyResolveTimeout, 0)

@@ -24,7 +24,6 @@ import (
 	"github.com/wippyai/runtime/boot/deps/hub"
 	"github.com/wippyai/runtime/boot/deps/lock"
 	"github.com/wippyai/runtime/boot/deps/packentries"
-	"github.com/wippyai/runtime/boot/deps/wappextract"
 	"github.com/wippyai/runtime/cmd/internal/hubclient"
 	embedpkg "github.com/wippyai/runtime/service/fs/embed"
 	registrymigration "github.com/wippyai/runtime/system/registry/migration"
@@ -222,8 +221,11 @@ func ensureModulesInstalledFromLockWithClient(
 			}
 			if shouldUnpack {
 				dirPath := filepath.Join(vendorPath, lock.ModulePath(name))
+				if hub.ExtractedModuleCurrent(wappPath, dirPath, mod.Hash) {
+					continue
+				}
 				logger.Info("refreshing unpacked module from verified archive", zap.String("module", mod.Name))
-				if err := wappextract.ExtractWappToDirKeepSource(wappPath, dirPath); err != nil {
+				if err := hub.ExtractModuleDir(wappPath, dirPath, mod.Hash); err != nil {
 					return NewExtractModuleError(mod.Name, err)
 				}
 			}
@@ -312,7 +314,7 @@ func ensureModulesInstalledFromLockWithClient(
 		}
 		if shouldUnpack {
 			dirPath := filepath.Join(vendorPath, lock.ModulePath(name))
-			if err := wappextract.ExtractWappToDirKeepSource(fullWappPath, dirPath); err != nil {
+			if err := hub.ExtractModuleDir(fullWappPath, dirPath, mod.Hash); err != nil {
 				return NewExtractModuleError(moduleRef, err)
 			}
 		}
