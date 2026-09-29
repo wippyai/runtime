@@ -360,6 +360,16 @@ func (w *Worker) executeOne(proc *Processor) {
 
 	// Step the process
 	err := stepper.Step(events, &proc.output)
+	// Decide cancellation at the step boundary, before stats or completion
+	// cleanup can run. A cancelled step may return Done with no error (or a
+	// normal-exit error); neither is a normal process exit. Later termination
+	// requests must not overwrite the outcome already decided here.
+	if proc.ctx != nil && proc.ctx.Err() != nil {
+		err = sysprocess.ErrTerminated
+		if a, ok := stepper.(interface{ Abort() }); ok {
+			a.Abort()
+		}
+	}
 	proc.steps.Add(1)
 
 	// Snapshot process stats when collection is enabled
