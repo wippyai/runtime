@@ -8,6 +8,7 @@ import (
 	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -24,10 +25,10 @@ const maxEmbeddedLuaCacheBytes = 1 << 30
 // LuaCacheSeed is a compressed cache snapshot created while assembling an
 // application. The archive digest covers every embedded cache file.
 type LuaCacheSeed struct {
-	Archive           []byte
 	Digest            string
 	SchemaVersion     string
 	ToolchainIdentity string
+	Archive           []byte
 }
 
 // LuaCacheIdentity returns the cache schema and toolchain identity linked into
@@ -85,31 +86,8 @@ func seedLuaCache(state string, seed *LuaCacheSeed) error {
 	if err := unpackLuaCacheSeed(seed.Archive, staging); err != nil {
 		return err
 	}
-	entriesDir := filepath.Join(staging, "v1", "entries")
-	entries, err := os.ReadDir(entriesDir)
-	if os.IsNotExist(err) {
-		return writeLuaCacheSeedMarker(marker, digest)
-	}
-	if err != nil {
-		return fmt.Errorf("read embedded cache entries: %w", err)
-	}
-	seedStore := cache.NewDiskStore(staging)
-	cacheStore := cache.NewDiskStore(directory)
-	for _, entryDir := range entries {
-		if !entryDir.IsDir() || entryDir.Type()&os.ModeSymlink != 0 || !isCacheKey(entryDir.Name()) {
-			return fmt.Errorf("invalid embedded cache entry %q", entryDir.Name())
-		}
-		key := entryDir.Name()
-		entry, ok, err := seedStore.Get(key)
-		if err != nil || !ok || !validEmbeddedCacheEntry(key, entry) {
-			return fmt.Errorf("invalid embedded cache entry %q", key)
-		}
-		if existing, ok, err := cacheStore.Get(key); err == nil && ok && validEmbeddedCacheEntry(key, existing) {
-			continue
-		}
-		if err := cacheStore.Put(key, entry); err != nil {
-			return fmt.Errorf("install embedded cache entry %q: %w", key, err)
-		}
+	if err := mergeLuaCache(staging, directory); err != nil {
+		return fmt.Errorf("install embedded Lua cache: %w", err)
 	}
 	if err := writeLuaCacheSeedMarker(marker, digest); err != nil {
 		return err
@@ -137,10 +115,10 @@ func mergeLuaCache(source, destination string) error {
 		}
 		key := entryDir.Name()
 		entry, ok, err := sourceStore.Get(key)
-		if err != nil || !ok || !validEmbeddedCacheEntry(key, entry) {
+		if err != nil || !ok || !validLuaCacheEntry(key, entry) {
 			return fmt.Errorf("invalid Lua cache entry %q", key)
 		}
-		if existing, ok, err := destinationStore.Get(key); err == nil && ok && validEmbeddedCacheEntry(key, existing) {
+		if existing, ok, err := destinationStore.Get(key); err == nil && ok && validLuaCacheEntry(key, existing) {
 			continue
 		}
 		if err := destinationStore.Put(key, entry); err != nil {
@@ -150,7 +128,7 @@ func mergeLuaCache(source, destination string) error {
 	return nil
 }
 
-func validEmbeddedCacheEntry(key string, entry *cache.Entry) bool {
+func validLuaCacheEntry(key string, entry *cache.Entry) bool {
 	if entry == nil || entry.Meta.SchemaVersion != cache.SchemaVersion {
 		return false
 	}
@@ -164,7 +142,7 @@ func isCacheKey(key string) bool {
 		return false
 	}
 	for _, c := range key {
-		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
 			return false
 		}
 	}
@@ -181,7 +159,7 @@ func unpackLuaCacheSeed(archive []byte, destination string) error {
 	var total int64
 	for {
 		header, err := reader.Next()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			return nil
 		}
 		if err != nil {

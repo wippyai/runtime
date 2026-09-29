@@ -52,6 +52,74 @@ func TestSeedLuaCacheRejectsDigestAndIdentityMismatch(t *testing.T) {
 	seed.ToolchainIdentity = "different-toolchain"
 	require.ErrorContains(t, seedLuaCache(state, &seed), "identity mismatch")
 	require.NoDirExists(t, luaCachePath(state))
+
+	seed, _, _ = testLuaCacheSeed(t)
+	seed.SchemaVersion = "different-schema"
+	require.ErrorContains(t, seedLuaCache(state, &seed), "identity mismatch")
+	require.NoDirExists(t, luaCachePath(state))
+}
+
+func TestSeedLuaCachePreservesExistingEntriesAndIsRepeatable(t *testing.T) {
+	state := t.TempDir()
+	seed, compileKey, typecheckKey := testLuaCacheSeed(t)
+	require.NoError(t, seedLuaCache(state, &seed))
+	store := cache.NewDiskStore(luaCachePath(state))
+	entry, found, err := store.Get(compileKey)
+	require.NoError(t, err)
+	require.True(t, found)
+	entry.Meta.CreatedAt = time.Unix(42, 0).UTC()
+	require.NoError(t, store.Put(compileKey, entry))
+
+	// Remove the marker to exercise merging rather than only its fast path.
+	marker := filepath.Join(luaCachePath(state), ".seed-"+hex.EncodeToString(sha256Bytes(seed.Archive)))
+	require.NoError(t, os.Remove(marker))
+	require.NoError(t, seedLuaCache(state, &seed))
+	require.NoError(t, seedLuaCache(state, &seed))
+	preserved, found, err := store.Get(compileKey)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, entry.Meta.CreatedAt, preserved.Meta.CreatedAt)
+	_, found, err = store.Get(typecheckKey)
+	require.NoError(t, err)
+	require.True(t, found)
+}
+
+func TestSeedLuaCacheRejectsCorruptEntriesWithoutMarkingInstalled(t *testing.T) {
+	seed, compileKey, _ := testLuaCacheSeed(t)
+	staging := t.TempDir()
+	require.NoError(t, unpackLuaCacheSeed(seed.Archive, staging))
+	require.NoError(t, os.WriteFile(filepath.Join(staging, "v1", "entries", compileKey, "proto.luac"), []byte("corrupt"), 0o600))
+	seed.Archive = makeLuaCacheArchive(t, staging)
+	seed.Digest = "sha256:" + hex.EncodeToString(sha256Bytes(seed.Archive))
+	state := t.TempDir()
+	require.ErrorContains(t, seedLuaCache(state, &seed), "invalid Lua cache entry")
+	markers, err := filepath.Glob(filepath.Join(luaCachePath(state), ".seed-*"))
+	require.NoError(t, err)
+	require.Empty(t, markers, "a failed installation must remain retryable")
+}
+
+func TestUnpackLuaCacheSeedRejectsUnsafeEntries(t *testing.T) {
+	key := cache.CompileKey("fingerprint")
+	for _, tc := range []struct {
+		name string
+		kind byte
+	}{
+		{name: "../escape", kind: tar.TypeReg},
+		{name: "/escape", kind: tar.TypeReg},
+		{name: "v1/entries/invalid/meta.json", kind: tar.TypeReg},
+		{name: "v1/entries/" + key + "/unexpected", kind: tar.TypeReg},
+		{name: "v1/entries/" + key + "/proto.luac", kind: tar.TypeSymlink},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var archive bytes.Buffer
+			gz := gzip.NewWriter(&archive)
+			writer := tar.NewWriter(gz)
+			require.NoError(t, writer.WriteHeader(&tar.Header{Name: tc.name, Typeflag: tc.kind, Linkname: "../escape"}))
+			require.NoError(t, writer.Close())
+			require.NoError(t, gz.Close())
+			require.Error(t, unpackLuaCacheSeed(archive.Bytes(), t.TempDir()))
+		})
+	}
 }
 
 func testLuaCacheSeed(t *testing.T) (LuaCacheSeed, string, string) {

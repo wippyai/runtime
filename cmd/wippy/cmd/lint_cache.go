@@ -21,11 +21,11 @@ import (
 type lintCache struct {
 	store           cache.Store
 	requireBuiltins map[string]struct{}
+	stats           *lintCacheStats
 	builtinHash     string
 	typecheckHash   string
 	builtinModules  []string
 	cfg             cache.Config
-	stats           *lintCacheStats
 }
 
 type lintCacheStats struct {

@@ -88,6 +88,28 @@ func TestUpdateSelectsTheVerifiedCandidate(t *testing.T) {
 	require.Equal(t, expected, names)
 }
 
+func TestUpdateCacheMergeFailureDoesNotRejectVerifiedCandidate(t *testing.T) {
+	state, executable, deployment := updateState(t)
+	require.NoError(t, os.MkdirAll(cachePath(state), 0o700))
+	// A cache write failure must not change deployment acceptance semantics.
+	require.NoError(t, os.WriteFile(luaCachePath(state), []byte("not a directory"), 0o600))
+	run := func(_ context.Context, _ string, args []string) error {
+		if args[len(args)-1] == "lint" {
+			store := cache.NewDiskStore(luaCachePath(args[1]))
+			require.NoError(t, store.Put(cache.CompileKey("updated"), &cache.Entry{
+				Meta:  cache.Meta{CompileFingerprint: "updated", EntryID: "app:main"},
+				Proto: []byte("proto"),
+			}))
+		}
+		return nil
+	}
+	require.NoError(t, updateDeployment(t.Context(), executable, Launch{State: state, Op: OpUpdate}, deployment, run))
+	record, found, err := readCurrent(state)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, deploymentsDir+"/update-1", record.Directory)
+}
+
 func TestUpdateNumbersCandidatesInOrder(t *testing.T) {
 	state, executable, deployment := updateState(t)
 	run := func(context.Context, string, []string) error { return nil }
