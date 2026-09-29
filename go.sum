@@ -317,8 +317,8 @@ github.com/kaptinlin/jsonschema v0.9.10 h1:dnMgwshay3YVUjFEHn6Bnf5oZ3LE1iQAL4iB2
 github.com/kaptinlin/jsonschema v0.9.10/go.mod h1:ZgmK1hBhK8zmScMktiE+DRr3U3POBHupO4TvnFntel0=
 github.com/kisielk/errcheck v1.5.0/go.mod h1:pFxgyoBC7bSaBwPgfKdkLd5X25qrDl4LWUI2bnpBCr8=
 github.com/kisielk/gotool v1.0.0/go.mod h1:XhKaO+MFFWcvkIS/tQcRk01m1F5IRFswLeQ+oQHNcck=
-github.com/klauspost/compress v1.20.0 h1:a3C1ke2ohxFymNlb2HWAHjDeKCI90scRskErZkR0ezA=
-github.com/klauspost/compress v1.20.0/go.mod h1:LUdAzn7YLVvxLpc7y3V1m40wESHTgc1422pwwBSKYuI=
+github.com/klauspost/compress v1.20.1 h1:T7kKElXUMXrUJ2E9QhQhxFtcK5rPyLdsGZvdbLMPdiQ=
+github.com/klauspost/compress v1.20.1/go.mod h1:LUdAzn7YLVvxLpc7y3V1m40wESHTgc1422pwwBSKYuI=
 github.com/konsorten/go-windows-terminal-sequences v1.0.1/go.mod h1:T0+1ngSBFLxvqU3pZ+m/2kptfBszLMUkC4ZK/EgS/cQ=
 github.com/kortschak/wol v0.0.0-20200729010619-da482cc4850a h1:+RR6SqnTkDLWyICxS1xpjCi/3dhyV+TgZwA6Ww3KncQ=
 github.com/kortschak/wol v0.0.0-20200729010619-da482cc4850a/go.mod h1:YTtCCM3ryyfiu4F7t8HQ1mxvp1UBdWM2r6Xa+nGWvDk=
@@ -542,12 +542,8 @@ github.com/u-root/uio v0.0.0-20240224005618-d2acac8f3701 h1:pyC9PaHYZFgEKFdlp3G8
 github.com/u-root/uio v0.0.0-20240224005618-d2acac8f3701/go.mod h1:P3a5rG4X7tI17Nn3aOIAYr5HbIMukwXG0urG0WuL8OA=
 github.com/vishvananda/netns v0.0.5 h1:DfiHV+j8bA32MFM7bfEunvT8IAqQ/NzSJHtcmW5zdEY=
 github.com/vishvananda/netns v0.0.5/go.mod h1:SpkAiCQRtJ6TvvxPnOSyH3BMl6unz3xZlaprSwhNNJM=
-github.com/wippyai/go-lua v1.5.25-0.20260928192401-eed112db8d3e h1:kWsIhshfRJMfKm7sHyqt1uAPpF5aQg9tFy4aG3qEeZU=
-github.com/wippyai/go-lua v1.5.25-0.20260928192401-eed112db8d3e/go.mod h1:cwD+390gJgx9cs+Zamby/lch5csqPV9RN1aDEfx/27M=
 github.com/wippyai/go-lua v1.6.0 h1:QhT/5D10fsevaCWQ00wNRjHLSOL9LN3li4AqK2+8oqk=
 github.com/wippyai/go-lua v1.6.0/go.mod h1:cwD+390gJgx9cs+Zamby/lch5csqPV9RN1aDEfx/27M=
-github.com/wippyai/go-lua v1.5.24 h1:eGn50Qfajomt5aNRmaUBhjmq/f1p+bL8ZqqQ4jy95WI=
-github.com/wippyai/go-lua v1.5.24/go.mod h1:cwD+390gJgx9cs+Zamby/lch5csqPV9RN1aDEfx/27M=
 github.com/wippyai/module-registry-proto-go v0.0.2-0.20260908140534-f6e2910c835f h1:AoKS058roqnsHXaJ8Gww7ODz14qJqOK5QBeoALvcq6I=
 github.com/wippyai/module-registry-proto-go v0.0.2-0.20260908140534-f6e2910c835f/go.mod h1:p4ihYQKRQuqRVLxaH1YL0IEnkz4zKdyfVADOwvA5Tno=
 github.com/wippyai/tree-sitter-markdown v0.0.3 h1:u6e53+hzPSS848Xhm+I48SwtvWQHrC21wDrogdwCwuc=
