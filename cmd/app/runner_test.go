@@ -109,6 +109,7 @@ func TestPlanOverridesSelectStateCommandAndArguments(t *testing.T) {
 	require.Equal(t, filepath.Join(explicit, deploymentsDir, executable.Bundle.ID(), "wippy.lock"), record.options.LockFile)
 	require.Equal(t, historyPath(explicit), record.options.Overrides.GetString("registry.history_path", ""))
 	require.Equal(t, cachePath(explicit), record.options.Overrides.GetString("registry.dependency_vendor_dir", ""))
+	require.Equal(t, luaCachePath(explicit), record.options.Overrides.GetString("lua.cache.dir", ""))
 	require.NoDirExists(t, planned)
 }
 
@@ -227,6 +228,7 @@ func TestPreparedConfigCannotRedirectHistoryOrCache(t *testing.T) {
 	require.Equal(t, "sqlite", overrides.GetString("registry.history_type", ""))
 	require.True(t, overrides.GetBool("registry.enable_history", false))
 	require.Equal(t, cachePath(state), overrides.GetString("registry.dependency_vendor_dir", ""))
+	require.Equal(t, luaCachePath(state), overrides.GetString("lua.cache.dir", ""))
 	require.True(t, overrides.GetBool("cluster.enabled", false))
 }
 

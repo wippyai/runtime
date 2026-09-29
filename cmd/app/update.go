@@ -5,6 +5,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -85,6 +86,11 @@ func updateDeployment(ctx context.Context, e Executable, l Launch, deployment st
 	}
 	if err := verifyCandidate(e, candidate); err != nil {
 		return err
+	}
+	if err := mergeLuaCache(luaCachePath(staging), luaCachePath(l.State)); err != nil {
+		// Cached artifacts only shorten the next boot. A verified deployment
+		// must remain selectable when the optional cache cannot be retained.
+		fmt.Fprintf(os.Stderr, "%s: warmed Lua cache skipped after update: %v\n", e.Name, err)
 	}
 	if err := os.Rename(candidate, selected); err != nil {
 		return NewUpdateError("select", err)

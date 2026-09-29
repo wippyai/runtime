@@ -67,29 +67,35 @@ func (cm *Manager) loadTypecheckCache(id registry.ID, fingerprint string) (*io.M
 	key := cm.typecheckCacheKey(fingerprint)
 	entry, ok, err := cm.cacheStore.Get(key)
 	if err != nil || !ok || entry == nil {
+		cm.typecheckCacheMisses.Add(1)
 		return nil, nil, false
 	}
 	if entry.Meta.SchemaVersion != cache.SchemaVersion {
 		cm.deleteCacheKey(key)
+		cm.typecheckCacheMisses.Add(1)
 		return nil, nil, false
 	}
 	if entry.Meta.TypecheckFingerprint != fingerprint || entry.Meta.EntryID != id.String() {
 		cm.deleteCacheKey(key)
+		cm.typecheckCacheMisses.Add(1)
 		return nil, nil, false
 	}
 	if len(entry.Manifest) == 0 {
 		cm.deleteCacheKey(key)
+		cm.typecheckCacheMisses.Add(1)
 		return nil, nil, false
 	}
 	manifest, ok := cache.DecodeManifestSafe(entry.Manifest)
 	if !ok {
 		cm.deleteCacheKey(key)
+		cm.typecheckCacheMisses.Add(1)
 		return nil, nil, false
 	}
 	diags := entry.Diagnostics
 	if diags == nil {
 		diags = []diag.Diagnostic{}
 	}
+	cm.typecheckCacheHits.Add(1)
 	return manifest, diags, true
 }
 
@@ -133,25 +139,31 @@ func (cm *Manager) loadCompileCache(id registry.ID, fingerprint string) (*glua.F
 	key := cm.compileCacheKey(fingerprint)
 	entry, ok, err := cm.cacheStore.Get(key)
 	if err != nil || !ok || entry == nil {
+		cm.compileCacheMisses.Add(1)
 		return nil, false
 	}
 	if entry.Meta.SchemaVersion != cache.SchemaVersion {
 		cm.deleteCacheKey(key)
+		cm.compileCacheMisses.Add(1)
 		return nil, false
 	}
 	if entry.Meta.CompileFingerprint != fingerprint || entry.Meta.EntryID != id.String() {
 		cm.deleteCacheKey(key)
+		cm.compileCacheMisses.Add(1)
 		return nil, false
 	}
 	if len(entry.Proto) == 0 {
 		cm.deleteCacheKey(key)
+		cm.compileCacheMisses.Add(1)
 		return nil, false
 	}
 	proto, err := bytecode.Undump(entry.Proto)
 	if err != nil {
 		cm.deleteCacheKey(key)
+		cm.compileCacheMisses.Add(1)
 		return nil, false
 	}
+	cm.compileCacheHits.Add(1)
 	return proto, true
 }
 
@@ -299,6 +311,19 @@ func (cm *Manager) CacheStore() cache.Store {
 // CacheConfig exposes the cache configuration.
 func (cm *Manager) CacheConfig() cache.Config {
 	return cm.cacheConfig()
+}
+
+// CacheStats returns the persistent cache hit and miss counts.
+func (cm *Manager) CacheStats() CacheStats {
+	if cm == nil {
+		return CacheStats{}
+	}
+	return CacheStats{
+		CompileHits:     cm.compileCacheHits.Load(),
+		CompileMisses:   cm.compileCacheMisses.Load(),
+		TypecheckHits:   cm.typecheckCacheHits.Load(),
+		TypecheckMisses: cm.typecheckCacheMisses.Load(),
+	}
 }
 
 // BuiltinManifestHash returns the built-in manifest hash used for cache keys.

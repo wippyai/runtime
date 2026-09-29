@@ -129,6 +129,9 @@ func operate(ctx context.Context, e Executable, l Launch, prepare func(context.C
 	if err != nil {
 		return err
 	}
+	if err := seedLuaCache(l.State, e.LuaCacheSeed); err != nil {
+		return NewApplicationStateError("install embedded Lua cache", luaCachePath(l.State), err)
+	}
 	if l.Op == OpUpdate {
 		return updateDeployment(ctx, e, l, deployment, childRunner)
 	}
@@ -158,7 +161,7 @@ func operate(ctx context.Context, e Executable, l Launch, prepare func(context.C
 		LockFile:    lockPath,
 		ConfigFiles: files,
 		Components:  e.Components,
-		Overrides:   pin(hosted, history, cachePath(l.State)),
+		Overrides:   pin(hosted, history, cachePath(l.State), luaCachePath(l.State)),
 	})
 }
 
@@ -172,13 +175,14 @@ func runtimeArgs(l Launch) []string {
 	return append([]string{"run", "--silent", "--", l.Command}, l.Args...)
 }
 
-// pin layers the host's configuration under the settings the runner owns, so
-// the registry history and the artifact cache stay where the state holds them.
-func pin(config boot.Config, history, cache string) boot.Config {
+// pin layers host configuration under the history and cache paths the runner owns.
+func pin(config boot.Config, history, cache, luaCache string) boot.Config {
 	return bootconfig.Merge(config, boot.NewConfig(boot.WithSection("registry", map[string]any{
 		"enable_history":        true,
 		"history_type":          "sqlite",
 		"history_path":          history,
 		"dependency_vendor_dir": cache,
+	}), boot.WithSection("lua", map[string]any{
+		"cache.dir": luaCache,
 	})))
 }

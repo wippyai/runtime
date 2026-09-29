@@ -12,6 +12,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/boot/deps/lock"
+	"github.com/wippyai/runtime/runtime/lua/code/cache"
 )
 
 // updateState seeds a state whose current deployment is the shipped bundle.
@@ -32,6 +33,15 @@ func TestUpdateSelectsTheVerifiedCandidate(t *testing.T) {
 	run := func(_ context.Context, dir string, args []string) error {
 		commands = append(commands, args)
 		directories = append(directories, dir)
+		if args[len(args)-1] == "lint" {
+			staging := args[1]
+			fingerprint := "updated-pack-compile"
+			store := cache.NewDiskStore(luaCachePath(staging))
+			require.NoError(t, store.Put(cache.CompileKey(fingerprint), &cache.Entry{
+				Meta:  cache.Meta{SchemaVersion: cache.SchemaVersion, CompileFingerprint: fingerprint, EntryID: "bee.updated"},
+				Proto: []byte("proto"),
+			}))
+		}
 		return nil
 	}
 
@@ -61,6 +71,10 @@ func TestUpdateSelectsTheVerifiedCandidate(t *testing.T) {
 	_, err = executable.Bundle.existing(filepath.Join(selected, lock.DefaultFilename))
 	require.NoError(t, err)
 	require.FileExists(t, filepath.Join(deployment, lock.DefaultFilename), "the previous deployment stays in place")
+	updatedCache, ok, err := cache.NewDiskStore(luaCachePath(state)).Get(cache.CompileKey("updated-pack-compile"))
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, []byte("proto"), updatedCache.Proto)
 
 	entries, err := os.ReadDir(deploymentsPath(state))
 	require.NoError(t, err)
@@ -72,6 +86,28 @@ func TestUpdateSelectsTheVerifiedCandidate(t *testing.T) {
 	slices.Sort(names)
 	slices.Sort(expected)
 	require.Equal(t, expected, names)
+}
+
+func TestUpdateCacheMergeFailureDoesNotRejectVerifiedCandidate(t *testing.T) {
+	state, executable, deployment := updateState(t)
+	require.NoError(t, os.MkdirAll(cachePath(state), 0o700))
+	// A cache write failure must not change deployment acceptance semantics.
+	require.NoError(t, os.WriteFile(luaCachePath(state), []byte("not a directory"), 0o600))
+	run := func(_ context.Context, _ string, args []string) error {
+		if args[len(args)-1] == "lint" {
+			store := cache.NewDiskStore(luaCachePath(args[1]))
+			require.NoError(t, store.Put(cache.CompileKey("updated"), &cache.Entry{
+				Meta:  cache.Meta{CompileFingerprint: "updated", EntryID: "app:main"},
+				Proto: []byte("proto"),
+			}))
+		}
+		return nil
+	}
+	require.NoError(t, updateDeployment(t.Context(), executable, Launch{State: state, Op: OpUpdate}, deployment, run))
+	record, found, err := readCurrent(state)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, deploymentsDir+"/update-1", record.Directory)
 }
 
 func TestUpdateNumbersCandidatesInOrder(t *testing.T) {

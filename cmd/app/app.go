@@ -46,12 +46,13 @@ import (
 //
 // The declaration order below follows the memory layout the runtime pins.
 type Executable struct {
-	Data       map[string]string
-	Host       Host
-	Name       string
-	Command    string
-	Bundle     Bundle
-	Components []boot.Component
+	Data         map[string]string
+	Host         Host
+	Name         string
+	Command      string
+	Bundle       Bundle
+	LuaCacheSeed *LuaCacheSeed
+	Components   []boot.Component
 }
 
 var applicationName = regexp.MustCompile(`^[a-z][a-z0-9_-]*$`)

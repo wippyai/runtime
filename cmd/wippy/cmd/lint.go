@@ -295,7 +295,22 @@ func runLint(cmd *cobra.Command, _ []string) error {
 			return err
 		}
 	}
+	if err := writeLintCacheStats(lcache); err != nil {
+		return err
+	}
 	return outputResults(result, opts)
+}
+
+func writeLintCacheStats(lcache lintCache) error {
+	path := os.Getenv("WIPPY_LUA_LINT_CACHE_STATS_FILE")
+	if path == "" || lcache.stats == nil {
+		return nil
+	}
+	data, err := stdjson.Marshal(lcache.stats.snapshot())
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0o600)
 }
 
 // applyTypeSystemFlags writes the type-system flags given on the command line
@@ -450,7 +465,7 @@ func createLinter(ctx context.Context, enableRules bool) (*lint.Linter, lintCach
 		registry = lint.NewRegistry()
 	}
 
-	lcache := lintCache{}
+	lcache := lintCache{stats: &lintCacheStats{}}
 	if cm != nil {
 		lcache.store = cm.CacheStore()
 		lcache.cfg = cm.CacheConfig()
