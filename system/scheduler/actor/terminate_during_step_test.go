@@ -28,9 +28,9 @@ type terminateDuringStepProcess struct {
 // cancelledOutcomeProcess exercises outputs that a cancellation-aware engine
 // can produce when its executing step is interrupted.
 type cancelledOutcomeProcess struct {
+	err error
 	terminateDuringStepProcess
 	status process.StepStatus
-	err    error
 }
 
 func (p *cancelledOutcomeProcess) Step(_ []process.Event, out *process.StepOutput) error {
@@ -54,18 +54,18 @@ func (p *cancelledOutcomeProcess) Step(_ []process.Event, out *process.StepOutpu
 
 func TestTerminateDuringStepOverridesCancelledOutcome(t *testing.T) {
 	for _, tc := range []struct {
+		err    error
 		name   string
 		status process.StepStatus
-		err    error
 	}{
-		{"done with value", process.StepDone, nil},
-		{"continue", process.StepContinue, nil},
-		{"idle", process.StepIdle, nil},
-		{"yield", process.StepYield, nil},
-		{"upgrade", process.StepUpgrade, nil},
-		{"context error", process.StepDone, context.Canceled},
-		{"normal exit error", process.StepDone, supervisor.ErrExit},
-		{"step error", process.StepDone, errors.New("interrupted step")},
+		{name: "done with value", status: process.StepDone},
+		{name: "continue", status: process.StepContinue},
+		{name: "idle", status: process.StepIdle},
+		{name: "yield", status: process.StepYield},
+		{name: "upgrade", status: process.StepUpgrade},
+		{name: "context error", status: process.StepDone, err: context.Canceled},
+		{name: "normal exit error", status: process.StepDone, err: supervisor.ErrExit},
+		{name: "step error", status: process.StepDone, err: errors.New("interrupted step")},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			completed := make(chan *runtime.Result, 1)
@@ -188,12 +188,12 @@ func (*completedOutcomeProcess) Close() {}
 
 func TestTerminationAfterCompletionDecisionPreservesOutcome(t *testing.T) {
 	for _, tc := range []struct {
-		name string
 		err  error
+		name string
 	}{
-		{"return", nil},
-		{"step error", errors.New("completed with error")},
-		{"normal exit", supervisor.ErrExit},
+		{name: "return"},
+		{name: "step error", err: errors.New("completed with error")},
+		{name: "normal exit", err: supervisor.ErrExit},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			completed := make(chan *runtime.Result, 1)
