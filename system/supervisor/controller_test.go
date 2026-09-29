@@ -858,6 +858,89 @@ func TestController_StopAndRestart(t *testing.T) {
 	}
 }
 
+type pausedStartContext struct {
+	context.Context
+	entered chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (ctx *pausedStartContext) Done() <-chan struct{} {
+	ctx.once.Do(func() {
+		close(ctx.entered)
+		<-ctx.release
+	})
+	return ctx.Context.Done()
+}
+
+func TestController_CancelStartDuringRegistration(t *testing.T) {
+	for _, mode := range []supervisor.StartupMode{supervisor.StartupRequired, supervisor.StartupComplete} {
+		t.Run(string(mode), func(t *testing.T) {
+			svc := &completionService{
+				started: make(chan struct{}), complete: make(chan error, 1), status: make(chan any),
+			}
+			ctrl := NewController(t.Context(), svc, supervisor.LifecycleConfig{
+				Startup: mode, StartTimeout: time.Second,
+			}, nil)
+			defer ctrl.close()
+			parent, cancel := context.WithTimeout(t.Context(), time.Second)
+			defer cancel()
+			ctx := &pausedStartContext{
+				Context: parent, entered: make(chan struct{}), release: make(chan struct{}),
+			}
+			done := make(chan error, 1)
+			go func() { done <- ctrl.startContext(ctx) }()
+			select {
+			case <-ctx.entered:
+			case <-time.After(time.Second):
+				t.Fatal("start did not reach cancellation registration")
+			}
+
+			// Desired is already Running, but neither cancellation function has
+			// been published. Replay shutdown's snapshot/cancel in this gap.
+			ctrl.cancelStart()
+			close(ctx.release)
+			select {
+			case err := <-done:
+				require.ErrorIs(t, err, context.Canceled)
+			case <-time.After(time.Second):
+				t.Fatal("start missed shutdown's cancellation")
+			}
+			select {
+			case <-svc.started:
+				t.Fatal("controller started a service after startup cancellation")
+			default:
+			}
+		})
+	}
+}
+
+func TestController_CancelStartBeforeRegistration(t *testing.T) {
+	for _, mode := range []supervisor.StartupMode{supervisor.StartupRequired, supervisor.StartupComplete} {
+		t.Run(string(mode), func(t *testing.T) {
+			svc := &completionService{
+				started: make(chan struct{}), complete: make(chan error, 1), status: make(chan any),
+			}
+			ctrl := NewController(t.Context(), svc, supervisor.LifecycleConfig{
+				Startup: mode, StartTimeout: time.Second,
+			}, nil)
+			defer ctrl.close()
+
+			// Shutdown can reach a controller before its queued start has
+			// published either the service-start or completion-wait cancel.
+			ctrl.cancelStart()
+			ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+			defer cancel()
+			require.ErrorIs(t, ctrl.startContext(ctx), context.Canceled)
+			select {
+			case <-svc.started:
+				t.Fatal("controller started a service after startup cancellation")
+			default:
+			}
+		})
+	}
+}
+
 func TestController_GracefulShutdown(t *testing.T) {
 	var shutdownStarted, shutdownCompleted sync.WaitGroup
 	shutdownStarted.Add(1)
