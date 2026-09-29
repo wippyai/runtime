@@ -70,7 +70,7 @@ func decodeFunc(l *lua.LState) int {
 	if str == "" {
 		return invalidInputError(l, "empty string is not valid JSON")
 	}
-	if l.GetTop() >= 2 {
+	if l.GetTop() >= 2 && l.Get(2) != lua.LNil {
 		target, ok := l.Get(2).(*lua.LType)
 		if !ok {
 			return invalidInputError(l, "$: expected type value")
