@@ -62,16 +62,8 @@ var resolutionType = typ.NewRecord().
 	Field("modules", typ.NewArray(resolvedModuleType)).
 	Build()
 
-var provenanceType = typ.NewRecord().
-	Field("module", typ.String).
-	Field("root", typ.Boolean).
-	OptField("version", typ.String).
-	OptField("digest", typ.String).
-	Build()
-
 var stateType = typ.NewRecord().
 	Field("entries", typ.NewArray(stateEntryType)).
-	Field("provenance", typ.NewMap(typ.String, provenanceType)).
 	OptField("resolution", resolutionType).
 	Build()
 

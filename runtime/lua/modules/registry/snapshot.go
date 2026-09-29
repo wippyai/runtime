@@ -25,9 +25,8 @@ type Snapshot struct {
 }
 
 // snapshotState returns the entry state and selected module graph captured by
-// this snapshot. Entry registry metadata is represented with each entry. The
-// provenance map keeps released Keeper versions compatible with this state API;
-// both shapes are derived from the same captured entries and visibility filter.
+// this snapshot. Entry registry metadata is represented with each entry so
+// callers cannot associate ownership with a different snapshot or entry.
 func snapshotState(l *lua.LState) int {
 	snap := checkSnapshot(l)
 	if snap == nil {
@@ -38,13 +37,6 @@ func snapshotState(l *lua.LState) int {
 	}
 
 	entries := l.CreateTable(len(snap.entries), 0)
-	provenance := l.CreateTable(0, max(1, len(snap.entries)))
-	versions := make(map[string]regapi.ResolvedModule)
-	if snap.state.Resolution != nil {
-		for _, module := range snap.state.Resolution.Modules {
-			versions[module.Name] = module
-		}
-	}
 	idx := 1
 	for _, entry := range snap.entries {
 		if snap.overlayOwner == "" && !security.IsAllowed(l.Context(), "registry.get", entry.ID.String(), nil) {
@@ -60,20 +52,11 @@ func snapshotState(l *lua.LState) int {
 			return 2
 		}
 		entries.RawSetInt(idx, entryTable)
-		record := l.CreateTable(0, 4)
-		record.RawSetString("module", lua.LString(entry.Registry.Owner))
-		record.RawSetString("root", lua.LBool(entry.Registry.Root))
-		if module, ok := versions[entry.Registry.Owner]; ok {
-			record.RawSetString("version", lua.LString(module.Version))
-			record.RawSetString("digest", lua.LString(module.Digest))
-		}
-		provenance.RawSetString(entry.ID.String(), record)
 		idx++
 	}
 
-	result := l.CreateTable(0, 3)
+	result := l.CreateTable(0, 2)
 	result.RawSetString("entries", entries)
-	result.RawSetString("provenance", provenance)
 	if snap.state.Resolution != nil {
 		result.RawSetString("resolution", resolutionToLuaTable(l, snap.state.Resolution))
 	}
