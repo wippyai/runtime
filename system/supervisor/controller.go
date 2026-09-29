@@ -40,19 +40,21 @@ type ctrlOp struct {
 
 // Controller manages the lifecycle of a service.
 type Controller struct {
-	runStart      time.Time
-	service       supervisor.Service
-	root          context.Context
-	ctx           context.Context
-	securityErr   error
-	stateChanged  chan struct{}
-	onStateChange func(supervisor.Status, any)
-	cancel        context.CancelFunc
-	ops           chan ctrlOp
-	startCancel   context.CancelFunc
-	state         *internalState
-	config        supervisor.LifecycleConfig
-	startMu       sync.Mutex
+	runStart         time.Time
+	service          supervisor.Service
+	root             context.Context
+	ctx              context.Context
+	securityErr      error
+	stateChanged     chan struct{}
+	onStateChange    func(supervisor.Status, any)
+	cancel           context.CancelFunc
+	ops              chan ctrlOp
+	startCancel      context.CancelFunc
+	completionCancel context.CancelFunc
+	state            *internalState
+	config           supervisor.LifecycleConfig
+	startMu          sync.Mutex
+	startStopped     bool
 }
 
 // NewController creates a new service lifecycle controller with the specified configuration.
@@ -111,12 +113,46 @@ func (c *Controller) startContext(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	c.startMu.Lock()
+	if c.startStopped {
+		c.startMu.Unlock()
+		return context.Canceled
+	}
 	c.state.setDesiredStatus(supervisor.StatusRunning)
+	c.startMu.Unlock()
 	if c.securityErr != nil {
 		c.updateState(supervisor.StatusExited, c.securityErr)
 		return c.securityErr
 	}
-	return c.runCommand(ctrlOp{kind: ctrlStart, ctx: ctx})
+	if c.config.Startup == supervisor.StartupComplete {
+		waitCtx, cancel := context.WithCancel(ctx)
+		stopPropagation := context.AfterFunc(c.ctx, cancel)
+		c.startMu.Lock()
+		c.completionCancel = cancel
+		if c.startStopped {
+			cancel()
+		}
+		c.startMu.Unlock()
+		defer func() {
+			stopPropagation()
+			cancel()
+			c.startMu.Lock()
+			c.completionCancel = nil
+			c.startMu.Unlock()
+		}()
+		ctx = waitCtx
+	}
+	if err := c.runCommand(ctrlOp{kind: ctrlStart, ctx: ctx}); err != nil {
+		return err
+	}
+	if c.config.Startup == supervisor.StartupComplete {
+		waiter, ok := c.service.(interface{ WaitCompletion(context.Context) error })
+		if !ok {
+			return ErrStartupCompletionUnsupported
+		}
+		return waiter.WaitCompletion(ctx)
+	}
+	return nil
 }
 
 // Stop gracefully stops the service and transitions it to the stopped state.
@@ -145,10 +181,17 @@ func (c *Controller) StopContext(ctx context.Context) error {
 
 func (c *Controller) cancelStart() {
 	c.startMu.Lock()
+	// Supervisor shutdown and retirement are final for this controller.
+	// Remember them even if a queued start has not registered its cancel yet.
+	c.startStopped = true
 	cancel := c.startCancel
+	completionCancel := c.completionCancel
 	c.startMu.Unlock()
 	if cancel != nil {
 		cancel()
+	}
+	if completionCancel != nil {
+		completionCancel()
 	}
 }
 
@@ -160,10 +203,15 @@ func (c *Controller) close() {
 	c.cancel()
 }
 
-func (c *Controller) setStartCancel(cancel context.CancelFunc) {
+func (c *Controller) setStartCancel(cancel context.CancelFunc) bool {
 	c.startMu.Lock()
+	defer c.startMu.Unlock()
+	if c.startStopped {
+		cancel()
+		return false
+	}
 	c.startCancel = cancel
-	c.startMu.Unlock()
+	return true
 }
 
 func (c *Controller) clearStartCancel() {
@@ -314,7 +362,13 @@ func (c *Controller) supervise() {
 				if op.ctx != nil {
 					stopStartPropagation = context.AfterFunc(op.ctx, cancel)
 				}
-				c.setStartCancel(cancel)
+				if !c.setStartCancel(cancel) {
+					if stopStartPropagation != nil {
+						stopStartPropagation()
+					}
+					err = context.Canceled
+					break
+				}
 				detailsCh, sErr := c.tryStart(ctx, cancel)
 				if stopStartPropagation != nil {
 					stopStartPropagation()

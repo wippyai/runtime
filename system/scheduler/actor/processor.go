@@ -26,9 +26,41 @@ type signalRef struct {
 	// terminate cancels this incarnation's context. It stays bound to the
 	// incarnation after its pooled slot is reused.
 	terminate context.CancelFunc
+	lifecycle *signalLifecycle
 	pid       pid.PID
 	source    registry.ID
 	gen       uint64
+}
+
+// signalLifecycle is shared by signal snapshots across an in-place upgrade.
+// Its state orders an accepted Terminate against completion of that PID.
+type signalLifecycle struct {
+	state atomic.Uint32
+}
+
+const (
+	signalActive uint32 = iota
+	signalTerminating
+	signalComplete
+)
+
+func (l *signalLifecycle) requestTermination() bool {
+	for {
+		switch l.state.Load() {
+		case signalComplete:
+			return false
+		case signalTerminating:
+			return true
+		case signalActive:
+			if l.state.CompareAndSwap(signalActive, signalTerminating) {
+				return true
+			}
+		}
+	}
+}
+
+func (l *signalLifecycle) finish() bool {
+	return l.state.Swap(signalComplete) == signalTerminating
 }
 
 type inspectorRef struct {
@@ -101,6 +133,11 @@ type Processor struct {
 // lifecycle scans. Source is optional; PID identity is not.
 func (p *Processor) publishSignalRef(terminate context.CancelFunc) {
 	ref := &signalRef{pid: p.pid, gen: p.gen.Load(), terminate: terminate}
+	if previous := p.sig.Load(); previous != nil && previous.pid.Equal(ref.pid) && previous.gen == ref.gen {
+		ref.lifecycle = previous.lifecycle
+	} else {
+		ref.lifecycle = &signalLifecycle{}
+	}
 	if p.ctx != nil {
 		ref.source, _ = runtime.GetFrameID(p.ctx)
 	}

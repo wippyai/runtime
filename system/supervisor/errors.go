@@ -11,7 +11,8 @@ import (
 )
 
 var (
-	ErrStartTimeout = apierror.New(apierror.Timeout, "service start timed out").WithRetryable(apierror.True)
+	ErrStartTimeout                 = apierror.New(apierror.Timeout, "service start timed out").WithRetryable(apierror.True)
+	ErrStartupCompletionUnsupported = apierror.New(apierror.Invalid, "startup: complete service cannot report completion").WithRetryable(apierror.False)
 )
 
 func NewServiceNotFoundError(serviceID string) apierror.Error {

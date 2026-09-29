@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 
 	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/payload"
@@ -27,10 +28,12 @@ type Service struct {
 	statusCh      chan any
 	detachFn      context.CancelFunc
 	gate          *bootpkg.Gate
+	completion    *bootpkg.Gate
 	supervisorPID pid.PID
 	childPID      pid.PID
 	id            registry.ID
 	config        supervisorapi.ServiceConfig
+	completionMu  sync.RWMutex
 }
 
 // NewService creates a new process service instance.
@@ -45,6 +48,17 @@ func NewService(id registry.ID, config supervisorapi.ServiceConfig, pidGen proce
 // SetGate attaches a boot readiness gate to the service.
 func (svc *Service) SetGate(gate *bootpkg.Gate) {
 	svc.gate = gate
+}
+
+// WaitCompletion makes a startup: complete service a real dependency barrier.
+func (svc *Service) WaitCompletion(ctx context.Context) error {
+	svc.completionMu.RLock()
+	completion := svc.completion
+	svc.completionMu.RUnlock()
+	if completion == nil {
+		return ErrNoCompletionGate
+	}
+	return completion.Wait(ctx)
 }
 
 // Start initiates the supervised process and begins monitoring.
@@ -119,8 +133,18 @@ func (svc *Service) Start(ctx context.Context) (<-chan any, error) {
 	svc.childPID = childPID
 	svc.statusCh = make(chan any, 1)
 
+	// Dependency barriers apply to this run; the application readiness gate
+	// keeps its original, one-shot result across replacements and restarts.
+	var completion *bootpkg.Gate
+	if svc.config.Lifecycle.Startup == supervisor.StartupComplete || svc.gate != nil {
+		completion = bootpkg.NewReadiness().RegisterGate(svc.id.String())
+	}
+	svc.completionMu.Lock()
+	svc.completion = completion
+	svc.completionMu.Unlock()
+
 	// Start monitor goroutine
-	go svc.monitorLoop(ctx, monitorCh)
+	go svc.monitorLoop(ctx, monitorCh, completion)
 
 	return svc.statusCh, nil
 }
@@ -145,6 +169,10 @@ func (svc *Service) Stop(ctx context.Context) error {
 	if svc.gate != nil {
 		svc.gate.Fail(fmt.Errorf("service stopped before completion"))
 	}
+	svc.completionMu.RLock()
+	completion := svc.completion
+	svc.completionMu.RUnlock()
+	completion.Fail(fmt.Errorf("service stopped before completion"))
 
 	node := relay.GetNode(ctx)
 	if node == nil {
@@ -166,7 +194,7 @@ func (svc *Service) Stop(ctx context.Context) error {
 }
 
 // monitorLoop listens for topology exit events and reports them via status channel.
-func (svc *Service) monitorLoop(ctx context.Context, ch <-chan *relay.Package) {
+func (svc *Service) monitorLoop(ctx context.Context, ch <-chan *relay.Package, completion *bootpkg.Gate) {
 	defer close(svc.statusCh)
 	defer func() {
 		if svc.detachFn != nil {
@@ -177,6 +205,7 @@ func (svc *Service) monitorLoop(ctx context.Context, ch <-chan *relay.Package) {
 	for {
 		select {
 		case <-ctx.Done():
+			completion.Fail(ctx.Err())
 			if svc.gate != nil {
 				svc.gate.Fail(ctx.Err())
 			}
@@ -184,6 +213,7 @@ func (svc *Service) monitorLoop(ctx context.Context, ch <-chan *relay.Package) {
 
 		case pkg, ok := <-ch:
 			if !ok {
+				completion.Fail(fmt.Errorf("relay monitor channel closed"))
 				if svc.gate != nil {
 					svc.gate.Fail(fmt.Errorf("relay monitor channel closed"))
 				}
@@ -205,6 +235,7 @@ func (svc *Service) monitorLoop(ctx context.Context, ch <-chan *relay.Package) {
 					}
 
 					if event.Kind == topologyapi.Exit && event.Result != nil && event.Result.Error == nil {
+						completion.Ready()
 						if svc.gate != nil {
 							svc.gate.Ready()
 						}
@@ -213,13 +244,14 @@ func (svc *Service) monitorLoop(ctx context.Context, ch <-chan *relay.Package) {
 						default:
 						}
 					} else {
+						var gateErr error
+						if event.Result != nil && event.Result.Error != nil {
+							gateErr = event.Result.Error
+						} else {
+							gateErr = errors.New("process exited without return result")
+						}
+						completion.Fail(gateErr)
 						if svc.gate != nil {
-							var gateErr error
-							if event.Result != nil && event.Result.Error != nil {
-								gateErr = event.Result.Error
-							} else {
-								gateErr = errors.New("process exited without return result")
-							}
 							svc.gate.Fail(gateErr)
 						}
 						if event.Result != nil && event.Result.Error != nil {

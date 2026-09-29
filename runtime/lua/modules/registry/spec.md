@@ -351,11 +351,19 @@ Returned by `registry.snapshot()`, `registry.snapshot_at()`, and `history:snapsh
 | Method | Signature | Returns | Notes |
 |--------|-----------|---------|-------|
 | entries | () | table[], error | All entries in snapshot |
+| state | () | table, error | Entries with registry metadata and selected module resolution |
 | get | (id: string) | table, error | Single entry by ID |
 | namespace | (ns: string) | table[] | Entries in namespace |
 | find | (filter: table) | table[] | Search entries |
 | changes | () | Changes | Create changeset |
 | version | () | Version | Snapshot version |
+
+#### snapshot:state() → table, error
+
+Returns the captured registry state after applying the snapshot's visibility filter.
+The result contains `entries`, whose `registry` field holds `owner` and `root`.
+It also contains `resolution` when available, including the selected modules'
+versions and digests. Each call returns fresh tables.
 
 #### snapshot:entries() → table[], error
 

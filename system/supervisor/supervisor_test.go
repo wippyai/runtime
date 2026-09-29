@@ -793,6 +793,45 @@ func TestSupervisor_StopCancelsFailedAutoStartRetryTransition(t *testing.T) {
 	require.Equal(t, int32(1), attempts.Load(), "service retried after supervisor stop")
 }
 
+func TestSupervisor_StopCancelsStartupCompletionWait(t *testing.T) {
+	h := newTestHarness(t)
+	h.start(context.Background())
+	boot := &completionService{
+		started: make(chan struct{}), complete: make(chan error, 1), status: make(chan any),
+	}
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxBegin})
+	h.sup.handleEvent(event.Event{
+		System: supervisor.System, Kind: supervisor.ServiceRegister, Path: "boot",
+		Data: &supervisor.Entry{
+			Service: boot,
+			Config: supervisor.LifecycleConfig{
+				AutoStart: true, Startup: supervisor.StartupComplete,
+				StartTimeout: time.Second, StopTimeout: time.Second,
+			},
+		},
+	})
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxCommit})
+	select {
+	case <-boot.started:
+	case <-time.After(time.Second):
+		t.Fatal("boot service did not start")
+	}
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	stopped := make(chan error, 1)
+	go func() { stopped <- h.sup.StopContext(shutdownCtx) }()
+	select {
+	case err := <-stopped:
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		// Release the original implementation's stuck transition before failing.
+		boot.complete <- nil
+		<-stopped
+		t.Fatal("shutdown remained blocked behind startup completion wait")
+	}
+}
+
 func TestSupervisor_StopCancelsAutoStartWhileStartInProgress(t *testing.T) {
 	h := newTestHarness(t)
 	ctx := context.Background()

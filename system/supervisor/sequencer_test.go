@@ -12,8 +12,99 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	supervisorapi "github.com/wippyai/runtime/api/supervisor"
 	"go.uber.org/zap"
 )
+
+type completionService struct {
+	started  chan struct{}
+	complete chan error
+	status   chan any
+	once     sync.Once
+}
+
+func (s *completionService) Start(context.Context) (<-chan any, error) {
+	s.once.Do(func() { close(s.started) })
+	return s.status, nil
+}
+
+func (s *completionService) Stop(context.Context) error { return nil }
+
+func (s *completionService) WaitCompletion(ctx context.Context) error {
+	select {
+	case err := <-s.complete:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func TestSequencerWaitsForCompleteDependencyBeforeStartingDependent(t *testing.T) {
+	boot := &completionService{
+		started: make(chan struct{}), complete: make(chan error, 1), status: make(chan any),
+	}
+	config := supervisorapi.LifecycleConfig{
+		Startup: supervisorapi.StartupComplete,
+	}
+	config.InitDefaults()
+	controller := NewController(t.Context(), boot, config, nil)
+	events := make(chan operationEvent, 1)
+	dependent := newTestController("dependent", events)
+	done := make(chan error, 1)
+	go func() {
+		done <- newSequencer(zap.NewNop()).transition(t.Context(),
+			operation{id: "boot", controller: controller, kind: opStart},
+			operation{id: "dependent", controller: dependent, kind: opStart,
+				dependencies: []string{"boot"}},
+		)
+	}()
+
+	select {
+	case <-boot.started:
+	case <-time.After(time.Second):
+		t.Fatal("boot service did not start")
+	}
+	select {
+	case event := <-events:
+		t.Fatalf("dependent started before boot completion: %v", event)
+	case <-time.After(100 * time.Millisecond):
+	}
+	boot.complete <- nil
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("dependent did not start after boot completion")
+	}
+	require.Equal(t, "dependent", (<-events).id)
+}
+
+func TestSequencerBlocksDependentWhenCompletionFails(t *testing.T) {
+	boot := &completionService{
+		started: make(chan struct{}), complete: make(chan error, 1), status: make(chan any),
+	}
+	config := supervisorapi.LifecycleConfig{
+		Startup: supervisorapi.StartupComplete,
+	}
+	config.InitDefaults()
+	controller := NewController(t.Context(), boot, config, nil)
+	events := make(chan operationEvent, 1)
+	dependent := newTestController("dependent", events)
+	bootErr := errors.New("migration failed")
+	boot.complete <- bootErr
+
+	err := newSequencer(zap.NewNop()).transition(t.Context(),
+		operation{id: "boot", controller: controller, kind: opStart},
+		operation{id: "dependent", controller: dependent, kind: opStart,
+			dependencies: []string{"boot"}},
+	)
+	require.ErrorIs(t, err, bootErr)
+	select {
+	case event := <-events:
+		t.Fatalf("dependent started after boot failure: %v", event)
+	default:
+	}
+}
 
 type operationEvent struct {
 	id      string

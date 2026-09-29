@@ -117,6 +117,7 @@ func TestSnapshotStateReturnsDetachedRegistryMetadataAndResolution(t *testing.T)
 		assert(first.entries[2].registry.owner == "org/module")
 		assert(first.entries[2].registry.root == false)
 		assert(first.entries[2].root == nil)
+		assert(first.provenance == nil)
 		assert(first.resolution.digest == "sha256:resolution")
 		assert(first.resolution.roots[1].component == "org/module")
 		assert(first.resolution.modules[1].version == "1.2.3")
@@ -130,6 +131,7 @@ func TestSnapshotStateReturnsDetachedRegistryMetadataAndResolution(t *testing.T)
 		assert(second_err == nil)
 		assert(second.entries[2].registry.owner == "org/module")
 		assert(second.entries[1].registry.root == true)
+		assert(second.provenance == nil)
 		assert(second.resolution.modules[1].version == "1.2.3")
 	`)
 }
@@ -152,6 +154,7 @@ func TestSnapshotStateFiltersEntriesWithMetadata(t *testing.T) {
 		assert(err == nil and #state.entries == 1)
 		assert(state.entries[1].id == "app:visible")
 		assert(state.entries[1].registry.owner == "org/visible")
+		assert(state.provenance == nil)
 	`)
 }
 
