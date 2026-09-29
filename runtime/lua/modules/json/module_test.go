@@ -138,6 +138,24 @@ func TestDecodeObject(t *testing.T) {
 	}
 }
 
+func TestDecodeIgnoresTrailingNilFromMultiReturn(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	bindJSON(l)
+
+	err := l.DoString(`
+		local function body()
+			return '{"name":"test"}', nil
+		end
+		local result, err = json.decode(body())
+		if err ~= nil then error(err) end
+		if result.name ~= "test" then error("name mismatch") end
+	`)
+	if err != nil {
+		t.Errorf("decode trailing nil test failed: %v", err)
+	}
+}
+
 func TestDecodeArray(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
