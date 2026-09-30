@@ -562,9 +562,14 @@ func makeSnapshotAt(log *zap.Logger) lua.LGoFunc {
 			l.Push(err)
 			return 2
 		}
+		metadata, resolutionErr := historicalMetadata(hist, foundVersion)
+		if resolutionErr != nil {
+			log.Warn("historical snapshot resolution unavailable", zap.Error(resolutionErr))
+		}
 
 		snap := &Snapshot{
 			reg:     reg,
+			state:   metadata,
 			version: foundVersion,
 			entries: state,
 			log:     log,

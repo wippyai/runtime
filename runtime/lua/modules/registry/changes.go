@@ -463,9 +463,7 @@ func planToLuaTable(l *lua.LState, plan *regapi.Plan) (*lua.LTable, error) {
 	result.RawSetString("changes", changesTable)
 	result.RawSetString("history", historyTable)
 	result.RawSetString("effects", effects)
-	if plan.Resolution != nil {
-		result.RawSetString("resolution", resolutionToLuaTable(l, plan.Resolution))
-	}
+	setVisibleResolution(l, result, plan.Resolution)
 	return result, nil
 }
 

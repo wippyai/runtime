@@ -362,8 +362,28 @@ Returned by `registry.snapshot()`, `registry.snapshot_at()`, and `history:snapsh
 
 Returns the captured registry state after applying the snapshot's visibility filter.
 The result contains `entries`, whose `registry` field holds `owner` and `root`.
-It also contains `resolution` when available, including the selected modules'
-versions and digests. Each call returns fresh tables.
+It also contains `resolution` when recorded and permitted by
+`registry.resolution.get` (resource `""`). This registry-wide read action gates the
+entire table, including lock pins, in snapshot state and plan results. Denial
+omits `resolution` without an error; entry reads still use `registry.get`.
+Permission is evaluated on each export, including previously captured and
+historical snapshots. Each call returns fresh tables.
+
+`resolution.modules` is what runs now: the effective module selection for the
+snapshot's registry version. `resolution.lock = { root_module: string,
+modules: Module[], digest: string }` is what the deployment lock pins: its root
+application component and the exact installed modules, with the same module
+identity fields as `resolution.modules`. The two module lists can differ after
+a live update. `lock.digest` is a deterministic SHA-256 of the canonical pinned
+root and modules, independent of the live selection. The record is nil when no
+lock-selected deployment is recorded. The application need not have an
+`ns.dependency` entry pointing to itself. This replaces the unreleased
+`resolution.deployment` field.
+
+`registry.snapshot_at(id)` and `history:snapshot_at(version)` include the
+resolution recorded for that version, rather than the current live graph.
+Histories predating recorded resolutions omit the table. A failure reading this
+additive metadata is logged and omits the table, preserving historical entry reads.
 
 #### snapshot:entries() → table[], error
 

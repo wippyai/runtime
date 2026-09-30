@@ -57,9 +57,7 @@ func snapshotState(l *lua.LState) int {
 
 	result := l.CreateTable(0, 2)
 	result.RawSetString("entries", entries)
-	if snap.state.Resolution != nil {
-		result.RawSetString("resolution", resolutionToLuaTable(l, snap.state.Resolution))
-	}
+	setVisibleResolution(l, result, snap.state.Resolution)
 
 	l.Push(result)
 	l.Push(lua.LNil)

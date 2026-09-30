@@ -13,15 +13,28 @@ var idType = typ.NewRecord().
 	Field("name", typ.String).
 	Build()
 
-// Entry type represents an author-facing registry entry. dependency_root is a
-// write-side control used when declaring a deployment root; registry-owned
-// metadata is exposed only by the snapshot state API.
+// Entry is the ordinary read shape; registry-owned metadata is exposed only
+// by state and plan. Write inputs accept a separate optional root control.
 var entryType = typ.NewRecord().
 	Field("id", typ.String).
 	Field("kind", typ.String).
 	Field("meta", typ.NewMap(typ.String, typ.Any)).
-	Field("data", typ.Any).
-	Field("dependency_root", typ.Boolean).
+	OptField("data", typ.Any).
+	Build()
+
+// Input shape is deliberately separate from Entry: reads always have string
+// IDs and meta, while writes also accept table IDs and may omit meta.
+var entryInputType = typ.NewRecord().
+	Field("id", typ.NewUnion(typ.String, idType)).
+	Field("kind", typ.String).
+	OptField("meta", typ.NewMap(typ.String, typ.Any)).
+	OptField("data", typ.Any).
+	OptField("dependency_root", typ.Boolean).
+	Build()
+
+var operationType = typ.NewRecord().
+	Field("kind", typ.String).
+	Field("entry", entryType).
 	Build()
 
 var entryMetadataType = typ.NewRecord().
@@ -33,7 +46,7 @@ var stateEntryType = typ.NewRecord().
 	Field("id", typ.String).
 	Field("kind", typ.String).
 	Field("meta", typ.NewMap(typ.String, typ.Any)).
-	Field("data", typ.Any).
+	OptField("data", typ.Any).
 	Field("registry", entryMetadataType).
 	Build()
 
@@ -53,10 +66,17 @@ var resolvedModuleType = typ.NewRecord().
 	OptField("protected", typ.Boolean).
 	Build()
 
+var lockType = typ.NewRecord().
+	Field("root_module", typ.String).
+	Field("modules", typ.NewArray(resolvedModuleType)).
+	Field("digest", typ.String).
+	Build()
+
 var resolutionType = typ.NewRecord().
 	Field("digest", typ.String).
 	Field("input_digest", typ.String).
 	OptField("baseline_digest", typ.String).
+	OptField("lock", lockType).
 	Field("roots", typ.NewArray(dependencyRootType)).
 	OptField("references", typ.NewArray(dependencyRootType)).
 	Field("modules", typ.NewArray(resolvedModuleType)).
@@ -103,9 +123,9 @@ func init() {
 
 	// Changes type (self-referential via create/update/delete, references versionType)
 	changesType = typ.NewInterface("registry.Changes", []typ.Method{
-		{Name: "ops", Type: typ.Func().Param("self", typ.Self).Returns(typ.NewArray(typ.Any)).Build()},
-		{Name: "create", Type: typ.Func().Param("self", typ.Self).Param("op", typ.Any).Returns(typ.Self, typ.NewOptional(typ.LuaError)).Build()},
-		{Name: "update", Type: typ.Func().Param("self", typ.Self).Param("op", typ.Any).Returns(typ.Self, typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "ops", Type: typ.Func().Param("self", typ.Self).Returns(typ.NewArray(operationType), typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "create", Type: typ.Func().Param("self", typ.Self).Param("op", entryInputType).Returns(typ.Self, typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "update", Type: typ.Func().Param("self", typ.Self).Param("op", entryInputType).Returns(typ.Self, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "delete", Type: typ.Func().Param("self", typ.Self).Param("op_or_ops", typ.Any).Returns(typ.Self, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "plan", Type: typ.Func().Param("self", typ.Self).Returns(planType, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "apply", Type: typ.Func().Param("self", typ.Self).Returns(versionType, typ.NewOptional(typ.LuaError)).Build()},
@@ -113,13 +133,13 @@ func init() {
 
 	// Snapshot type (references changesType and versionType)
 	snapshotType = typ.NewInterface("registry.Snapshot", []typ.Method{
-		{Name: "entries", Type: typ.Func().Param("self", typ.Self).Returns(typ.NewArray(entryType)).Build()},
+		{Name: "entries", Type: typ.Func().Param("self", typ.Self).Returns(typ.NewArray(entryType), typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "state", Type: typ.Func().Param("self", typ.Self).Returns(stateType, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "get", Type: typ.Func().Param("self", typ.Self).Param("key", typ.String).Returns(entryType, typ.NewOptional(typ.LuaError)).Build()},
-		{Name: "namespace", Type: typ.Func().Param("self", typ.Self).Param("ns", typ.String).Returns(typ.NewArray(entryType)).Build()},
-		{Name: "find", Type: typ.Func().Param("self", typ.Self).Param("query", typ.Any).Returns(typ.NewArray(entryType)).Build()},
+		{Name: "namespace", Type: typ.Func().Param("self", typ.Self).Param("ns", typ.String).Returns(typ.NewArray(entryType), typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "find", Type: typ.Func().Param("self", typ.Self).Param("query", typ.Any).Returns(typ.NewArray(entryType), typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "changes", Type: typ.Func().Param("self", typ.Self).Returns(changesType, typ.NewOptional(typ.LuaError)).Build()},
-		{Name: "version", Type: typ.Func().Param("self", typ.Self).Returns(versionType).Build()},
+		{Name: "version", Type: typ.Func().Param("self", typ.Self).Returns(versionType, typ.NewOptional(typ.LuaError)).Build()},
 	})
 
 	// History type (references versionType and snapshotType)
@@ -151,7 +171,7 @@ func ModuleTypes() *typio.Manifest {
 		{Name: "versions", Type: typ.Func().Returns(typ.NewArray(versionType), typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "history", Type: typ.Func().Returns(historyType, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "apply_version", Type: typ.Func().Param("version", versionType).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
-		{Name: "build_delta", Type: typ.Func().Param("from", versionType).Param("to", versionType).Returns(typ.Any, typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "build_delta", Type: typ.Func().Param("from", typ.NewArray(entryInputType)).Param("to", typ.NewArray(entryInputType)).Returns(typ.NewArray(operationType), typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "overlay", Type: typ.Func().Param("id", typ.String).Returns(snapshotType, typ.NewOptional(typ.LuaError)).Build()},
 	})
 

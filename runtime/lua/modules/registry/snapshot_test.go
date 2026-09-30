@@ -122,6 +122,7 @@ func TestSnapshotStateReturnsDetachedRegistryMetadataAndResolution(t *testing.T)
 		assert(first.resolution.roots[1].component == "org/module")
 		assert(first.resolution.modules[1].version == "1.2.3")
 		assert(first.resolution.modules[1].size_bytes == 42)
+		assert(first.resolution.lock == nil)
 
 		first.entries[2].registry.owner = "forged/module"
 		first.entries[1].registry.root = false
@@ -133,6 +134,31 @@ func TestSnapshotStateReturnsDetachedRegistryMetadataAndResolution(t *testing.T)
 		assert(second.entries[1].registry.root == true)
 		assert(second.provenance == nil)
 		assert(second.resolution.modules[1].version == "1.2.3")
+	`)
+}
+
+func TestSnapshotStateSeparatesDeploymentBaselineFromLiveSelection(t *testing.T) {
+	baseline := regapi.ResolvedModule{Name: "org/app", Version: "1.0.0", VersionID: "baseline-id",
+		Source: "hub", Digest: "sha256:baseline", SizeBytes: 42, Protected: true}
+	selected := baseline
+	selected.Version, selected.VersionID, selected.Digest = "2.0.0", "live-id", "sha256:live"
+	snap := &Snapshot{state: regapi.StateMetadata{Resolution: &regapi.DependencyResolution{
+		Deployment: &regapi.Deployment{Root: "org/app", Modules: []regapi.ResolvedModule{baseline}},
+		Modules:    []regapi.ResolvedModule{selected},
+	}}, log: zap.NewNop()}
+	runSnapshotState(setupContextWithTranscoder(), t, snap, `
+		local first = assert(snap:state())
+		local baseline = first.resolution.lock.modules[1]
+		assert(first.resolution.lock.root_module == "org/app")
+		assert(baseline.version == "1.0.0" and baseline.version_id == "baseline-id")
+		assert(baseline.source == "hub" and baseline.digest == "sha256:baseline")
+		assert(baseline.size_bytes == 42 and baseline.protected == true)
+		assert(first.resolution.modules[1].version == "2.0.0")
+		baseline.version = "forged"
+		assert(first.resolution.modules[1].version == "2.0.0")
+		local second = assert(snap:state())
+		assert(second.resolution.lock.modules[1].version == "1.0.0")
+		assert(second.resolution.modules[1].version == "2.0.0")
 	`)
 }
 
