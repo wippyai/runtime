@@ -124,6 +124,14 @@ func TestStandaloneNames_IndependentScopesAndPrecedence(t *testing.T) {
 	got, found := local.Lookup("same")
 	require.True(t, found)
 	require.True(t, p3.Equal(got))
+	for scope, owner := range map[topology.RegistrationMode]pid.PID{
+		topology.Local: p1, topology.Eventual: p2, topology.Consistent: p3, topology.Strong: p3,
+	} {
+		got, found, err := topology.LookupScopedPID(ctx, "same", scope)
+		require.NoError(t, err)
+		require.True(t, found)
+		require.True(t, owner.Equal(got))
+	}
 	_, err = global.RegisterScope(ctx, "same", p1, globalapi.Consistent)
 	require.ErrorIs(t, err, globalapi.ErrNameAlreadyRegistered)
 	// Global removal exposes, rather than revokes, the weaker bindings.
@@ -133,6 +141,9 @@ func TestStandaloneNames_IndependentScopesAndPrecedence(t *testing.T) {
 	got, found = local.Lookup("same")
 	require.True(t, found)
 	require.True(t, p2.Equal(got))
+	_, found, err = topology.LookupScopedPID(ctx, "same", topology.Strong)
+	require.NoError(t, err)
+	require.False(t, found, "exact global lookup must not return the eventual owner")
 	require.True(t, eventual.Unregister("same"))
 	got, found = local.Lookup("same")
 	require.True(t, found)
@@ -237,8 +248,12 @@ func TestStandaloneNames_LuaSurfaceAndPermissions(t *testing.T) {
             assert(ok, tostring(err))
             local owner, lookup_err = process.registry.lookup("lua-scope")
             assert(owner == process.pid(), tostring(lookup_err))
+            owner, lookup_err = process.registry.lookup("lua-scope", scope)
+            assert(owner == process.pid(), tostring(lookup_err))
             ok, err = process.registry.unregister("lua-scope", scope)
             assert(ok, tostring(err))
+            owner, lookup_err = process.registry.lookup("lua-scope", scope)
+            assert(owner == nil and lookup_err:kind() == "NotFound", tostring(lookup_err))
         end
     `))
 				return
