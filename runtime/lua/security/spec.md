@@ -153,6 +153,7 @@ Resource identifiers follow the format `namespace:name` and are used to scope pe
 ### Registry
 - `registry.apply` - Apply registry changes
 - `registry.get` - Access specific registry entries (entry ID as resource)
+- `registry.resolution.get` - Read the entire dependency resolution, including `resolution.lock`, in snapshot state, historical snapshots, and plan results (empty string as resource). Denial omits `resolution` without an error; entry visibility remains controlled by `registry.get`.
 - `registry.apply_version` - Apply specific registry versions
 
 ### System Information

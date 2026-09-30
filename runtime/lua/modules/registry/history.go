@@ -3,6 +3,8 @@
 package registry
 
 import (
+	"errors"
+
 	lua "github.com/wippyai/go-lua"
 	regapi "github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
@@ -133,9 +135,14 @@ func historySnapshotAt(l *lua.LState) int {
 		l.Push(err)
 		return 2
 	}
+	metadata, resolutionErr := historicalMetadata(history.hist, version)
+	if resolutionErr != nil {
+		history.log.Warn("historical snapshot resolution unavailable", zap.Error(resolutionErr))
+	}
 
 	snap := &Snapshot{
 		reg:     history.reg,
+		state:   metadata,
 		version: version,
 		entries: state,
 		log:     history.log,
@@ -144,6 +151,24 @@ func historySnapshotAt(l *lua.LState) int {
 	value.PushTypedUserData(l, snap, typeSnapshot)
 	l.Push(lua.LNil)
 	return 2
+}
+
+// historicalMetadata reads the graph recorded for this version, never the
+// live graph or a newly solved selection. Legacy histories can lack a graph;
+// storage failures must not be treated as legacy absence.
+func historicalMetadata(history regapi.History, version regapi.Version) (regapi.StateMetadata, error) {
+	store, ok := history.(regapi.ResolutionHistory)
+	if !ok {
+		return regapi.StateMetadata{}, nil
+	}
+	resolution, err := store.GetDependencyResolution(version)
+	if errors.Is(err, regapi.ErrDependencyResolutionNotFound) {
+		return regapi.StateMetadata{}, nil
+	}
+	if err != nil {
+		return regapi.StateMetadata{}, err
+	}
+	return regapi.StateMetadata{Resolution: resolution.Canonical()}, nil
 }
 
 // checkHistory checks if the first argument is a History userdata

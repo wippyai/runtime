@@ -122,7 +122,7 @@ func TestSnapshotStateReturnsDetachedRegistryMetadataAndResolution(t *testing.T)
 		assert(first.resolution.roots[1].component == "org/module")
 		assert(first.resolution.modules[1].version == "1.2.3")
 		assert(first.resolution.modules[1].size_bytes == 42)
-		assert(first.resolution.deployment == nil)
+		assert(first.resolution.lock == nil)
 
 		first.entries[2].registry.owner = "forged/module"
 		first.entries[1].registry.root = false
@@ -148,8 +148,8 @@ func TestSnapshotStateSeparatesDeploymentBaselineFromLiveSelection(t *testing.T)
 	}}, log: zap.NewNop()}
 	runSnapshotState(setupContextWithTranscoder(), t, snap, `
 		local first = assert(snap:state())
-		local baseline = first.resolution.deployment.modules[1]
-		assert(first.resolution.deployment.root == "org/app")
+		local baseline = first.resolution.lock.modules[1]
+		assert(first.resolution.lock.root_module == "org/app")
 		assert(baseline.version == "1.0.0" and baseline.version_id == "baseline-id")
 		assert(baseline.source == "hub" and baseline.digest == "sha256:baseline")
 		assert(baseline.size_bytes == 42 and baseline.protected == true)
@@ -157,7 +157,7 @@ func TestSnapshotStateSeparatesDeploymentBaselineFromLiveSelection(t *testing.T)
 		baseline.version = "forged"
 		assert(first.resolution.modules[1].version == "2.0.0")
 		local second = assert(snap:state())
-		assert(second.resolution.deployment.modules[1].version == "1.0.0")
+		assert(second.resolution.lock.modules[1].version == "1.0.0")
 		assert(second.resolution.modules[1].version == "2.0.0")
 	`)
 }

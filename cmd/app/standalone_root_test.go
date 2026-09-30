@@ -111,16 +111,16 @@ func TestSeededStandaloneRootVisibleInLuaSnapshot(t *testing.T) {
         local first = assert(snapshot:state())
         assert(#first.resolution.roots == 1)
 
-        assert(first.resolution.deployment ~= nil, "lock-selected standalone root is absent from Lua inventory")
-        assert(first.resolution.deployment.root == "acme/app")
-        assert(first.resolution.deployment.modules[1].name == "acme/app")
-        assert(first.resolution.deployment.modules[1].version == "1.0.0")
-        assert(first.resolution.deployment.modules[1].digest == first.resolution.modules[1].digest)
-        first.resolution.deployment.root = "forged/root"
-        first.resolution.deployment.modules[1].version = "999.0.0"
+        assert(first.resolution.lock ~= nil, "lock-selected standalone root is absent from Lua inventory")
+        assert(first.resolution.lock.root_module == "acme/app")
+        assert(first.resolution.lock.modules[1].name == "acme/app")
+        assert(first.resolution.lock.modules[1].version == "1.0.0")
+        assert(first.resolution.lock.modules[1].digest == first.resolution.modules[1].digest)
+        first.resolution.lock.root_module = "forged/root"
+        first.resolution.lock.modules[1].version = "999.0.0"
         local second = assert(snapshot:state())
-        assert(second.resolution.deployment.root == "acme/app")
-        assert(second.resolution.deployment.modules[1].version == "1.0.0")
+        assert(second.resolution.lock.root_module == "acme/app")
+        assert(second.resolution.lock.modules[1].version == "1.0.0")
     `))
 	require.Equal(t, "acme/app", captured.Registry.Resolution.Deployment.Root)
 }

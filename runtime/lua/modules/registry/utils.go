@@ -3,6 +3,8 @@
 package registry
 
 import (
+	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -14,6 +16,7 @@ import (
 	regapi "github.com/wippyai/runtime/api/registry"
 	luaconv "github.com/wippyai/runtime/runtime/lua/engine/payload"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
+	"github.com/wippyai/runtime/runtime/security"
 )
 
 // luaTableToEntry converts a Lua table to a registry entry
@@ -146,6 +149,15 @@ func stateEntryToLuaTable(l *lua.LState, entry regapi.Entry) (*lua.LTable, error
 	return entryTable, nil
 }
 
+// setVisibleResolution gates the entire graph, including the lock pins.
+// Entry-scoped get/apply and overlay permissions do not grant this read.
+// Evaluate at export time, even for captured snapshots.
+func setVisibleResolution(l *lua.LState, table *lua.LTable, resolution *regapi.DependencyResolution) {
+	if resolution != nil && security.IsAllowed(l.Context(), "registry.resolution.get", "", nil) {
+		table.RawSetString("resolution", resolutionToLuaTable(l, resolution))
+	}
+}
+
 func resolutionToLuaTable(l *lua.LState, resolution *regapi.DependencyResolution) *lua.LTable {
 	table := l.CreateTable(0, 7)
 	table.RawSetString("digest", lua.LString(resolution.Digest))
@@ -158,10 +170,15 @@ func resolutionToLuaTable(l *lua.LState, resolution *regapi.DependencyResolution
 		table.RawSetString("references", dependencyRootsToLuaTable(l, resolution.References))
 	}
 	if resolution.Deployment != nil {
-		deployment := l.CreateTable(0, 2)
-		deployment.RawSetString("root", lua.LString(resolution.Deployment.Root))
-		deployment.RawSetString("modules", resolvedModulesToLuaTable(l, resolution.Deployment.Modules))
-		table.RawSetString("deployment", deployment)
+		// Hash only the canonical lock pins, independently of the live graph.
+		pins := resolution.Deployment.Canonical()
+		encoded, _ := json.Marshal(pins) // Deployment contains only JSON-safe primitives.
+		digest := sha256.Sum256(encoded)
+		lock := l.CreateTable(0, 3)
+		lock.RawSetString("root_module", lua.LString(pins.Root))
+		lock.RawSetString("modules", resolvedModulesToLuaTable(l, pins.Modules))
+		lock.RawSetString("digest", lua.LString(fmt.Sprintf("sha256:%x", digest)))
+		table.RawSetString("lock", lock)
 	}
 	table.RawSetString("modules", resolvedModulesToLuaTable(l, resolution.Modules))
 	return table
