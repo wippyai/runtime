@@ -79,25 +79,27 @@ func TestRegistryLookup_ExactScopeDoesNotFallThrough(t *testing.T) {
 					}
 					local.SetEventualRegistry(eventual)
 				case "EVENTUAL":
-					if failure == "absent name" {
+					switch failure {
+					case "absent name":
 						eventual.entries = nil
-					} else if failure == "registry error" {
+					case "registry error":
 						eventual.lookupErr = errors.New("selected registry failed")
 						wantKind = "Internal"
 					}
 				default:
-					if failure == "absent name" {
+					switch failure {
+					case "absent name":
 						_, err = global.Unregister(context.Background(), "service")
 						require.NoError(t, err)
-					} else if failure == "registry error" {
+					case "registry error":
 						global.lookupErr = errors.New("selected registry failed")
 						wantKind = "Internal"
 					}
 				}
-				if !(scope == "EVENTUAL" && failure == "absent registry") {
+				if scope != "EVENTUAL" || failure != "absent registry" {
 					topology.WithEventualRegistry(l.Context(), eventual)
 				}
-				if !((scope == "CONSISTENT" || scope == "STRONG") && failure == "absent registry") {
+				if (scope != "CONSISTENT" && scope != "STRONG") || failure != "absent registry" {
 					globalapi.WithRegistry(l.Context(), global)
 				}
 				require.NoError(t, l.DoString(fmt.Sprintf(`
