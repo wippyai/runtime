@@ -99,6 +99,8 @@ func HashNodeWithProto(node *Node, proto *glua.FunctionProto) string {
 // the final runtime configuration as part of the runtime.Dependency wrapper.
 type MemoryGraph struct {
 	graph                 *graph.Graph[registry.ID, Edge]
+	fingerprints          *fingerprintCache
+	unversioned           int
 	nodes                 map[registry.ID]*Node
 	nodeLevels            map[registry.ID]int
 	dependentsCache       map[registry.ID][]*Node
@@ -111,6 +113,7 @@ type MemoryGraph struct {
 func NewMemoryGraph() *MemoryGraph {
 	return &MemoryGraph{
 		graph:           graph.New[registry.ID, Edge](),
+		fingerprints:    &fingerprintCache{},
 		nodes:           make(map[registry.ID]*Node),
 		nodeLevels:      make(map[registry.ID]int),
 		dependentsCache: make(map[registry.ID][]*Node),
@@ -130,6 +133,8 @@ func (m *MemoryGraph) Snapshot() *MemoryGraph {
 	}
 	return &MemoryGraph{
 		graph:           m.graph.Clone(),
+		fingerprints:    m.fingerprints,
+		unversioned:     m.unversioned,
 		nodes:           nodes,
 		nodeLevels:      levels,
 		dependentsCache: make(map[registry.ID][]*Node),
@@ -155,9 +160,13 @@ func (m *MemoryGraph) snapshotReachable(entrypoint registry.ID, preloads []regis
 	}
 
 	snapshot := NewMemoryGraph()
+	snapshot.fingerprints = m.fingerprints
 	for id := range ids {
 		snapshot.graph.AddNode(id)
 		snapshot.nodes[id] = cloneNode(m.nodes[id])
+		if !versionedNode(snapshot.nodes[id]) {
+			snapshot.unversioned++
+		}
 		snapshot.nodeLevels[id] = m.nodeLevels[id]
 	}
 	for id := range ids {
@@ -246,6 +255,7 @@ func (m *MemoryGraph) SetManifestIfRevision(id registry.ID, revision uint64, man
 
 // invalidateCacheLocked marks all caches as invalid. Must be called with mu held.
 func (m *MemoryGraph) invalidateCacheLocked() {
+	m.fingerprints = &fingerprintCache{}
 	m.cacheValid = false
 	m.dependencyLevelsCache = nil
 	for k := range m.dependentsCache {
@@ -308,6 +318,9 @@ func (m *MemoryGraph) AddNode(n *Node) error {
 
 	m.graph.AddNode(n.ID)
 	m.nodes[n.ID] = n
+	if !versionedNode(n) {
+		m.unversioned++
+	}
 	m.nodeLevels[n.ID] = 0
 	m.invalidateCacheLocked()
 	return nil
@@ -365,6 +378,12 @@ func (m *MemoryGraph) UpdateNode(n *Node, deps []Import) error {
 	}
 
 	m.graph = nextGraph
+	if !versionedNode(m.nodes[n.ID]) {
+		m.unversioned--
+	}
+	if !versionedNode(n) {
+		m.unversioned++
+	}
 	m.nodes[n.ID] = n
 	m.recomputeLevelsLocked()
 	m.invalidateCacheLocked()
@@ -392,6 +411,9 @@ func (m *MemoryGraph) RemoveNode(id registry.ID) error {
 		return err
 	}
 
+	if !versionedNode(m.nodes[id]) {
+		m.unversioned--
+	}
 	delete(m.nodes, id)
 	delete(m.nodeLevels, id)
 	m.recomputeLevelsLocked()
