@@ -438,7 +438,7 @@ so a removed observer does not block Strong names forever.
 - `Internal` — registry not available, raft not ready, or transport error.
 - `StrongRegistrationTimeoutError` / `StrongConflictError` — `STRONG` specifically (observer timeout or an existing global owner).
 
-### process.registry.lookup(name: string) -> string, error
+### process.registry.lookup(name: string, scope?: number) -> string, error
 
 Looks up a PID by registered name. The global binding takes precedence, then
 EVENTUAL, then LOCAL. If a higher scope cannot be read, lookup can still return
@@ -446,14 +446,37 @@ an available lower-scope binding. If no scope resolves the name, it reports the
 first lookup failure rather than claiming the name is absent. Cancellation of
 the caller's context always stops lookup.
 
+An explicit `scope` searches only that namespace, with no fallback on absence,
+an unavailable registry, or a lookup failure. `LOCAL` reads only this node's own
+table, not a parent registry. `EVENTUAL` reads the eventual registry.
+`CONSISTENT` and `STRONG` select the same global ownership namespace: they differ
+in registration protocol, not namespace. Neither selector upgrades read
+freshness or proves that a binding was registered with `STRONG`.
+
 | Param | Type | Required | Default | Notes |
 |-------|------|----------|---------|-------|
 | name | string | yes | - | Registered name |
+| scope | number | no | nil | `process.registry.LOCAL`, `EVENTUAL`, `CONSISTENT`, or `STRONG`; omitted/nil preserves default precedence |
 
 **Returns:** `string` - PID string, or `nil, error` if not found
 
-**Errors (strings):**
-- `"name not registered"`
+**Errors (kinds):**
+- `NotFound` — name absent from the selected namespace, or all namespaces for default lookup.
+- `Invalid` — scope is not one of the four numeric constants.
+- `Unavailable` — the explicitly selected registry is unavailable.
+- Lookup failures and caller cancellation are returned as errors.
+
+Resolve a scoped name to a PID before sending:
+
+```lua
+local pid, err = process.registry.lookup("cache", process.registry.LOCAL)
+if not pid then return nil, err end
+return process.send(pid, "get", {key = "example"})
+```
+
+The PID identifies the resolved process, not a name lease. Sending to it does
+not re-resolve the name or attach its ownership fence; ownership may change
+after lookup. Unqualified `process.send(name, ...)` remains unchanged.
 
 ### process.registry.unregister(name: string) -> boolean
 

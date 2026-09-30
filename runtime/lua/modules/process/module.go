@@ -4,6 +4,7 @@ package process
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -783,6 +784,26 @@ func registryLookup(l *lua.LState) int {
 	}
 
 	name := l.CheckString(1)
+	if l.GetTop() >= 2 && l.Get(2) != lua.LNil {
+		number, ok := l.Get(2).(lua.LNumber)
+		if !ok || (number != lua.LNumber(topology.Local) && number != lua.LNumber(topology.Eventual) &&
+			number != lua.LNumber(topology.Consistent) && number != lua.LNumber(topology.Strong)) {
+			return pushProcessError(l, lua.LNil, newProcessError(l, lua.Invalid, "scope must be process.registry.LOCAL|EVENTUAL|CONSISTENT|STRONG"))
+		}
+		p, found, err := topology.LookupScopedPID(ctx, name, topology.RegistrationMode(number))
+		if err != nil {
+			kind := lua.Internal
+			if errors.Is(err, topology.ErrNameRegistryUnavailable) {
+				kind = lua.Unavailable
+			}
+			return pushProcessError(l, lua.LNil, wrapProcessError(l, err, "", kind))
+		}
+		if !found {
+			return pushProcessError(l, lua.LNil, newProcessError(l, lua.NotFound, "name not registered"))
+		}
+		l.Push(lua.LString(p.String()))
+		return 1
+	}
 	checked := false
 	var firstErr error
 

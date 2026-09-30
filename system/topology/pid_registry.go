@@ -211,6 +211,7 @@ func (r *PIDRegistry) Lookup(name string) (pid.PID, bool) {
 }
 
 var _ topology.ContextPIDRegistry = (*PIDRegistry)(nil)
+var _ topology.LocalPIDRegistry = (*PIDRegistry)(nil)
 
 // LookupContext preserves precedence among available scopes and caller lifetime
 // through parent registries. If no scope resolves the name, the first lookup

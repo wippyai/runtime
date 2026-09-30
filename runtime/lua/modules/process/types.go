@@ -129,6 +129,7 @@ var registryMethodsType = typ.NewInterface("process.registry", []typ.Method{
 		Build()},
 	{Name: "lookup", Type: typ.Func().
 		Param("name", typ.String).
+		OptParam("scope", typ.Number).
 		Returns(typ.String, typ.NewOptional(typ.LuaError)).
 		Build()},
 	{Name: "unregister", Type: typ.Func().
