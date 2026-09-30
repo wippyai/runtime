@@ -190,7 +190,7 @@ linters:
     paths:
       - .github
       - .git
-      - third_party$
+      - ^internal/thirdparty/
       - builtin$
       - examples$
       - github.com/yuin/gopher-lua
@@ -204,7 +204,7 @@ formatters:
     paths:
       - .github
       - .git
-      - third_party$
+      - ^internal/thirdparty/
       - builtin$
       - examples$
 issues:

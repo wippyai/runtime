@@ -253,4 +253,4 @@ replace github.com/mattn/go-sqlite3 => github.com/rqlite/go-sqlite3 v1.50.0
 
 tool go.uber.org/mock/mockgen
 
-replace github.com/charmbracelet/x/ansi => ./third_party/ansi
+replace github.com/charmbracelet/x/ansi => ./internal/thirdparty/ansi
