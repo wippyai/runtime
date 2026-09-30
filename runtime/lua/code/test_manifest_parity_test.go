@@ -3,6 +3,7 @@
 package code_test
 
 import (
+	"slices"
 	"sort"
 	"testing"
 
@@ -27,7 +28,7 @@ func TestCheckerTestManifestsMatchRuntimeModules(t *testing.T) {
 		{engine.ChannelModuleTypes(), testutil.ChannelManifest(), "channel"},
 		{time.ModuleTypes(), testutil.TimeManifest(), "time"},
 		{funcs.ModuleTypes(), testutil.FuncsManifest(), "funcs"},
-		{process.ModuleTypes(), testutil.ProcessManifest(), "process"},
+		{process.ModuleTypes(), scopedProcessCheckerManifest(t), "process"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -48,6 +49,48 @@ func TestCheckerTestManifestsMatchRuntimeModules(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// The pinned go-lua fixture predates the optional lookup scope. Extend only
+// that signature with an independent expectation; all other fixture types
+// still participate in the exact parity comparison above.
+func scopedProcessCheckerManifest(t *testing.T) *io.Manifest {
+	t.Helper()
+	m := testutil.ProcessManifest()
+	found := false
+	export := typ.Rewrite(m.Export, func(value typ.Type) (typ.Type, bool) {
+		iface, ok := value.(*typ.Interface)
+		if !ok || iface.Name != "process.registry" {
+			return value, false
+		}
+		methods := slices.Clone(iface.Methods)
+		for i, method := range methods {
+			if method.Name == "lookup" {
+				methods[i].Type = typ.Func().Param("name", typ.String).
+					OptParam("scope", typ.Number).
+					Returns(typ.String, typ.NewOptional(typ.LuaError)).Build()
+				found = true
+			}
+		}
+		return typ.NewInterface(iface.Name, methods), true
+	})
+	if !found {
+		t.Fatal("checker fixture is missing process.registry.lookup")
+	}
+	m.SetExport(export)
+	return m
+}
+
+func TestScopedProcessCheckerManifestDoesNotMutateSharedFixture(t *testing.T) {
+	before := testutil.ProcessManifest()
+	scoped := scopedProcessCheckerManifest(t)
+	after := testutil.ProcessManifest()
+	if !typ.TypeEquals(before.Export, after.Export) {
+		t.Fatal("scoped fixture mutated the shared go-lua types")
+	}
+	if typ.TypeEquals(scoped.Export, before.Export) {
+		t.Fatal("scoped fixture did not extend the lookup signature")
 	}
 }
 

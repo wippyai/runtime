@@ -2,6 +2,8 @@
 
 // Package globalreg provides the API for the distributed global name registry.
 // Global names are unique across the entire cluster, backed by Raft consensus.
+// Standalone runtimes implement the same interface over serialized local KV,
+// with the local node as the only Strong observer and no Raft transport.
 package global
 
 import (
@@ -52,7 +54,8 @@ type RegisterOutcome struct {
 	// ExistingPID is set on conflict (name already taken by a different PID).
 	ExistingPID pid.PID
 	// Epoch is the Raft log index that established authoritativeness
-	// (Active for Strong; first-write index for Consistent).
+	// (Active for Strong; first-write index for Consistent). It is zero on
+	// standalone runtimes, which do not provide a durable Raft fencing token.
 	Epoch uint64
 	// State is meaningful for Strong; for Consistent it is always
 	// RegisterStateActive on success.
@@ -121,7 +124,8 @@ func DefaultResolve(_ string, existing, _ pid.PID) pid.PID {
 
 type (
 	// Registry provides cluster-wide name registration with strong consistency.
-	// All write operations go through Raft; reads are served from the local replica.
+	// Clustered writes go through Raft and reads use the local replica. Standalone
+	// writes use serialized local KV and reads use its published snapshot.
 	Registry interface {
 		// Register associates a name with a PID at scope Consistent:
 		// Raft-committed singleton. Retained as a convenience; new callers

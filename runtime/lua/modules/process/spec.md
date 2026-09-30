@@ -385,6 +385,20 @@ lookup checks global, then EVENTUAL, then LOCAL; registering at one scope does
 not revoke or prevent a binding at another. CONSISTENT and STRONG share the
 global ownership record, so they still conflict with each other.
 
+When clustering is disabled (the default), all four scopes work on the single
+runtime node. EVENTUAL uses the same registry without gossip peers; CONSISTENT
+and STRONG use the existing global registry over serialized, in-memory local KV.
+STRONG still waits for its committed outcome to be observed, with self as the
+only observer. Scope independence, lookup precedence and permissions do not
+change. No additional configuration or Lua API is required.
+
+Standalone registrations are process-lifetime state, not a durable cluster log.
+The Go registration outcome's Raft epoch is zero on this backend; it must not
+be used as a durable fencing token. The Lua return shape remains unchanged.
+Enabling clustering selects the clustered backends on the next boot; this does
+not live-migrate registrations. An enabled cluster with unavailable transport
+or consensus never falls back to a separate standalone naming authority.
+
 ### process.registry.register(name: string, pid?: string, scope?: number) -> boolean, error
 
 Registers a name, optionally pointing at a foreign PID and/or at a wider scope.
@@ -424,7 +438,7 @@ so a removed observer does not block Strong names forever.
 - `Internal` — registry not available, raft not ready, or transport error.
 - `StrongRegistrationTimeoutError` / `StrongConflictError` — `STRONG` specifically (observer timeout or an existing global owner).
 
-### process.registry.lookup(name: string) -> string, error
+### process.registry.lookup(name: string, scope?: number) -> string, error
 
 Looks up a PID by registered name. The global binding takes precedence, then
 EVENTUAL, then LOCAL. If a higher scope cannot be read, lookup can still return
@@ -432,14 +446,37 @@ an available lower-scope binding. If no scope resolves the name, it reports the
 first lookup failure rather than claiming the name is absent. Cancellation of
 the caller's context always stops lookup.
 
+An explicit `scope` searches only that namespace, with no fallback on absence,
+an unavailable registry, or a lookup failure. `LOCAL` reads only this node's own
+table, not a parent registry. `EVENTUAL` reads the eventual registry.
+`CONSISTENT` and `STRONG` select the same global ownership namespace: they differ
+in registration protocol, not namespace. Neither selector upgrades read
+freshness or proves that a binding was registered with `STRONG`.
+
 | Param | Type | Required | Default | Notes |
 |-------|------|----------|---------|-------|
 | name | string | yes | - | Registered name |
+| scope | number | no | nil | `process.registry.LOCAL`, `EVENTUAL`, `CONSISTENT`, or `STRONG`; omitted/nil preserves default precedence |
 
 **Returns:** `string` - PID string, or `nil, error` if not found
 
-**Errors (strings):**
-- `"name not registered"`
+**Errors (kinds):**
+- `NotFound` — name absent from the selected namespace, or all namespaces for default lookup.
+- `Invalid` — scope is not one of the four numeric constants.
+- `Unavailable` — the explicitly selected registry is unavailable.
+- Lookup failures and caller cancellation are returned as errors.
+
+Resolve a scoped name to a PID before sending:
+
+```lua
+local pid, err = process.registry.lookup("cache", process.registry.LOCAL)
+if not pid then return nil, err end
+return process.send(pid, "get", {key = "example"})
+```
+
+The PID identifies the resolved process, not a name lease. Sending to it does
+not re-resolve the name or attach its ownership fence; ownership may change
+after lookup. Unqualified `process.send(name, ...)` remains unchanged.
 
 ### process.registry.unregister(name: string) -> boolean
 

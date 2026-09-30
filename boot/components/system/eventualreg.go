@@ -32,28 +32,36 @@ func EventualReg() boot.Component {
 			if logger == nil {
 				return ctx, ErrLoggerNotAvailable
 			}
-			m := clusterapi.GetMembership(ctx)
-			if m == nil {
-				logger.Debug("eventualreg: cluster disabled, skipping")
-				return ctx, nil
-			}
-			memSvc, ok := m.(*membership.Service)
-			if !ok {
-				return ctx, fmt.Errorf("eventualreg: membership service has unexpected type %T", m)
+			node := relayapi.GetNode(ctx)
+			if node == nil {
+				return ctx, ErrRelayNotAvailable
 			}
 			cfg := eventual.Config{
-				LocalNodeID:      memSvc.LocalNode().ID,
-				Peers:            &membershipPeerInventory{m: memSvc},
+				LocalNodeID:      node.ID(),
 				MetricsCollector: metricsapi.GetCollector(ctx),
 				Logger:           logger,
 				Bus:              eventapi.GetBus(ctx),
-				Sender:           &eventualRegSender{m: memSvc},
 				// The router still delivers EVENTUAL's own conflict notifications.
 				Revoker: relayapi.GetRouter(ctx),
 			}
+			var memSvc *membership.Service
+			if m := clusterapi.GetMembership(ctx); m != nil {
+				var ok bool
+				memSvc, ok = m.(*membership.Service)
+				if !ok {
+					return ctx, fmt.Errorf("eventualreg: membership service has unexpected type %T", m)
+				}
+				cfg.LocalNodeID = memSvc.LocalNode().ID
+				cfg.Peers = &membershipPeerInventory{m: memSvc}
+				cfg.Sender = &eventualRegSender{m: memSvc}
+			} else if bootCfg := boot.GetConfig(ctx); bootCfg != nil && bootCfg.Sub(ClusterName).GetBool(ClusterEnabled, false) {
+				return ctx, fmt.Errorf("eventualreg: cluster enabled but membership not available")
+			}
 			svc = eventual.NewService(cfg)
-			if err := memSvc.RegisterUserDelegate(eventual.NewDelegate(svc, logger)); err != nil {
-				return ctx, fmt.Errorf("eventualreg: register delegate: %w", err)
+			if memSvc != nil {
+				if err := memSvc.RegisterUserDelegate(eventual.NewDelegate(svc, logger)); err != nil {
+					return ctx, fmt.Errorf("eventualreg: register delegate: %w", err)
+				}
 			}
 			if pidReg := topology.GetRegistry(ctx); pidReg != nil {
 				if setter, ok := pidReg.(interface {

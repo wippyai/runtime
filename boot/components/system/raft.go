@@ -88,9 +88,6 @@ func GetKVRaftEngine(ctx context.Context) *systemkv.RaftEngine {
 	return eng
 }
 
-// Raft returns a boot component that initializes the Raft consensus layer
-// and the global registry service. Raft is only active when the cluster
-// is enabled and raft is explicitly enabled in config.
 // loadClientRegistry wires the kv-backed name registry on a node that runs no
 // raft Node (cluster.raft.role=client / raft.enabled=false). Such a node has no
 // FSM, so it forwards every kv op over the relay to a raft member it picks from
@@ -169,6 +166,9 @@ func loadClientRegistry(ctx context.Context, raftCfg boot.Config, logger *zap.Lo
 	return ctx, nil
 }
 
+// Raft composes the global name registry. Enabled clusters use Raft server or
+// forwarding-client backends; disabled clusters use the standalone KV backend
+// without starting any Raft node or cluster transport.
 func Raft() boot.Component {
 	var raftNode *sysraft.Node
 	var memberHandler *sysraft.MembershipHandler
@@ -183,6 +183,7 @@ func Raft() boot.Component {
 	var useKVRegistry bool
 	var bootstrapExpect int
 	var globalDissemTombstoneRetention time.Duration
+	var standalone *standaloneRegistry
 
 	return boot.New(boot.P{
 		Name:      RaftName,
@@ -191,8 +192,10 @@ func Raft() boot.Component {
 			logger = logapi.GetLogger(ctx).Named("raft")
 			cfg := boot.GetConfig(ctx)
 
-			if cfg == nil {
-				return ctx, nil
+			if cfg == nil || !cfg.Sub(ClusterName).GetBool(ClusterEnabled, false) {
+				var err error
+				ctx, standalone, err = loadStandaloneRegistry(ctx, logger)
+				return ctx, err
 			}
 
 			// Raft config lives under cluster.raft.* — enabling cluster
@@ -436,6 +439,9 @@ func Raft() boot.Component {
 			return ctx, nil
 		},
 		Start: func(ctx context.Context) error {
+			if standalone != nil {
+				return standalone.Start(ctx)
+			}
 			if raftNode == nil {
 				return nil
 			}
@@ -614,7 +620,10 @@ func Raft() boot.Component {
 			logger.Info("raft node started")
 			return nil
 		},
-		Stop: func(_ context.Context) error {
+		Stop: func(ctx context.Context) error {
+			if standalone != nil {
+				return standalone.Stop(ctx)
+			}
 			if nodeLeftSub != nil {
 				nodeLeftSub.Close()
 			}
