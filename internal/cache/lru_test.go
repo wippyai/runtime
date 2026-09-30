@@ -104,6 +104,24 @@ func TestLRUEviction(t *testing.T) {
 	})
 }
 
+func TestEvictOldest(t *testing.T) {
+	var evicted []string
+	cache := New[string, int](WithOnEvict(func(key string, _ int) { evicted = append(evicted, key) }))
+	cache.EvictOldest()
+	_ = cache.Set("a", 1)
+	_ = cache.Set("b", 2)
+	cache.Get("a")
+	cache.EvictOldest()
+	if _, ok := cache.Get("b"); ok || len(evicted) != 1 || evicted[0] != "b" {
+		t.Fatalf("wrong eviction: %v", evicted)
+	}
+	cache.Close()
+	cache.EvictOldest()
+	if len(evicted) != 1 {
+		t.Fatalf("closed cache fired eviction callback: %v", evicted)
+	}
+}
+
 func TestTTL(t *testing.T) {
 	t.Run("expiration", func(t *testing.T) {
 		cache := New[string, int](WithTTL(50 * time.Millisecond))

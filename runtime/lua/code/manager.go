@@ -97,6 +97,7 @@ type (
 	Manager struct {
 		bus                     event.Bus
 		cacheStore              cache.Store
+		compileBytes            *compileBytesCache
 		log                     *zap.Logger
 		memGraph                *MemoryGraph
 		compiler                *Compiler
@@ -106,6 +107,7 @@ type (
 		builtinHash             string
 		toolchainIdentity       string
 		cacheCfg                cache.Config
+		cacheWriteWarning       sync.Once
 		compileCacheHits        atomic.Uint64
 		compileCacheMisses      atomic.Uint64
 		typecheckCacheHits      atomic.Uint64
@@ -126,7 +128,8 @@ type (
 	}
 )
 
-// CacheStats reports persistent Lua cache reads performed by this manager.
+// CacheStats reports Lua artifact cache hits and misses for this manager.
+// Compile hits include reads served from resident dumped bytes.
 // Disabled cache stages do not count as misses.
 type CacheStats struct {
 	CompileHits     uint64 `json:"compile_hits"`
@@ -160,6 +163,10 @@ func NewCodeManager(log *zap.Logger, bus event.Bus, cfg Config) (*Manager, error
 		invalidationWaitTimeout: cfg.InvalidationWaitTimeout,
 	}
 	if cacheCfg.Enabled {
+		cm.compileBytes = newCompileBytesCache(
+			int(min(cacheCfg.MaxBytes, int64(defaultCompileMemoryBytes))),
+			cacheCfg.MaxEntries,
+		)
 		cm.cacheStore = cache.NewBoundedDiskStore(
 			cacheCfg.Dir, cacheCfg.MaxBytes, cacheCfg.MaxEntries, cacheCfg.PruneInterval,
 		)

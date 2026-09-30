@@ -176,6 +176,12 @@ func runtimeFingerprintMemo(memGraph *MemoryGraph, id registry.ID, memo map[regi
 	if err != nil {
 		return "", err
 	}
+	shared := memGraph.fingerprintMemo()
+	context := fingerprintContext{toolchain: toolchainIdentity}
+	if result, ok := shared.get(runtimeStage, node, context); ok {
+		memo[id] = result.fingerprint
+		return result.fingerprint, nil
+	}
 	deps, _ := memGraph.GetDependenciesWithAliases(id)
 	depFPs := make([]cache.DepFingerprint, 0, len(deps))
 	for _, dep := range deps {
@@ -198,6 +204,7 @@ func runtimeFingerprintMemo(memGraph *MemoryGraph, id registry.ID, memo map[regi
 		node.Version.Revision,
 		depFPs,
 	)
+	shared.put(runtimeStage, node, context, fp, nil)
 	memo[id] = fp
 	return fp, nil
 }

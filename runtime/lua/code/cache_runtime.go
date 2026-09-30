@@ -9,6 +9,7 @@ import (
 	"github.com/wippyai/go-lua/types/io"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/runtime/lua/code/cache"
+	"go.uber.org/zap"
 )
 
 func (cm *Manager) cacheConfig() cache.Config {
@@ -123,18 +124,25 @@ func (cm *Manager) saveTypecheckCache(node *Node, fingerprint string, deps []cac
 			SourceHash:           nodeContentHash(node),
 			BuiltinHash:          cm.builtinHash,
 			TypecheckConfigHash:  cm.typeCfgHash,
-			Deps:                 deps,
+			Deps:                 append([]cache.DepMeta(nil), deps...),
 		},
 		Manifest:    manifestBytes,
 		Diagnostics: diagnostics,
 	}
-	_ = cm.cacheStore.Put(cm.typecheckCacheKey(fingerprint), entry)
+	cm.putCacheEntry(cm.typecheckCacheKey(fingerprint), entry)
 }
 
 func (cm *Manager) loadCompileCache(id registry.ID, fingerprint string) (*glua.FunctionProto, bool) {
 	cfg := cm.cacheConfig()
 	if !cfg.CompileEnabled || !cm.cacheAllowsRead() {
 		return nil, false
+	}
+	memoryKey := compileBytesKey{id: id, fingerprint: fingerprint}
+	if data, ok := cm.compileBytes.get(memoryKey); ok {
+		if proto, err := bytecode.Undump(data); err == nil {
+			cm.compileCacheHits.Add(1)
+			return proto, true
+		}
 	}
 	key := cm.compileCacheKey(fingerprint)
 	entry, ok, err := cm.cacheStore.Get(key)
@@ -163,6 +171,7 @@ func (cm *Manager) loadCompileCache(id registry.ID, fingerprint string) (*glua.F
 		cm.compileCacheMisses.Add(1)
 		return nil, false
 	}
+	cm.compileBytes.put(memoryKey, entry.Proto)
 	cm.compileCacheHits.Add(1)
 	return proto, true
 }
@@ -187,11 +196,12 @@ func (cm *Manager) saveCompileCache(node *Node, fingerprint string, deps []cache
 			Kind:               node.Kind,
 			Method:             node.Method,
 			SourceHash:         nodeContentHash(node),
-			Deps:               deps,
+			Deps:               append([]cache.DepMeta(nil), deps...),
 		},
 		Proto: data,
 	}
-	_ = cm.cacheStore.Put(cm.compileCacheKey(fingerprint), entry)
+	cm.putCacheEntry(cm.compileCacheKey(fingerprint), entry)
+	cm.compileBytes.put(compileBytesKey{id: node.ID, fingerprint: fingerprint}, data)
 }
 
 func (cm *Manager) compileFingerprint(id registry.ID) (string, []cache.DepMeta, error) {
@@ -205,7 +215,7 @@ func (cm *Manager) compileFingerprintFromGraph(memGraph *MemoryGraph, id registr
 	if err != nil {
 		return "", nil, err
 	}
-	return fp, meta[id], nil
+	return fp, append([]cache.DepMeta(nil), meta[id]...), nil
 }
 
 func (cm *Manager) compileFingerprintMemo(memGraph *MemoryGraph, id registry.ID, memo map[registry.ID]string, meta map[registry.ID][]cache.DepMeta) (string, error) {
@@ -215,6 +225,13 @@ func (cm *Manager) compileFingerprintMemo(memGraph *MemoryGraph, id registry.ID,
 	node, err := memGraph.GetNode(id)
 	if err != nil {
 		return "", err
+	}
+	shared := memGraph.fingerprintMemo()
+	context := fingerprintContext{toolchain: cm.toolchainIdentity}
+	if result, ok := shared.get(compileStage, node, context); ok {
+		memo[id] = result.fingerprint
+		meta[id] = result.deps
+		return result.fingerprint, nil
 	}
 	deps, _ := memGraph.GetDependenciesWithAliases(id)
 	depFPs := make([]cache.DepFingerprint, 0, len(deps))
@@ -237,6 +254,7 @@ func (cm *Manager) compileFingerprintMemo(memGraph *MemoryGraph, id registry.ID,
 		})
 	}
 	fp := CompileFingerprint(cm.toolchainIdentity, node.ID.String(), node.Kind, nodeContentHash(node), node.Method, depFPs)
+	shared.put(compileStage, node, context, fp, depMeta)
 	memo[id] = fp
 	meta[id] = depMeta
 	return fp, nil
@@ -253,7 +271,7 @@ func (cm *Manager) typecheckFingerprintFromGraph(memGraph *MemoryGraph, id regis
 	if err != nil {
 		return "", nil, err
 	}
-	return fp, meta[id], nil
+	return fp, append([]cache.DepMeta(nil), meta[id]...), nil
 }
 
 func (cm *Manager) typecheckFingerprintMemo(memGraph *MemoryGraph, id registry.ID, memo map[registry.ID]string, meta map[registry.ID][]cache.DepMeta) (string, error) {
@@ -263,6 +281,13 @@ func (cm *Manager) typecheckFingerprintMemo(memGraph *MemoryGraph, id registry.I
 	node, err := memGraph.GetNode(id)
 	if err != nil {
 		return "", err
+	}
+	shared := memGraph.fingerprintMemo()
+	context := fingerprintContext{toolchain: cm.toolchainIdentity, typeConfig: cm.typeCfgHash, builtins: cm.builtinHash}
+	if result, ok := shared.get(typecheckStage, node, context); ok {
+		memo[id] = result.fingerprint
+		meta[id] = result.deps
+		return result.fingerprint, nil
 	}
 	deps, _ := memGraph.GetDependenciesWithAliases(id)
 	depFPs := make([]cache.DepFingerprint, 0, len(deps))
@@ -285,6 +310,7 @@ func (cm *Manager) typecheckFingerprintMemo(memGraph *MemoryGraph, id registry.I
 		})
 	}
 	fp := TypecheckFingerprint(cm.toolchainIdentity, node.ID.String(), node.Kind, nodeContentHash(node), node.Method, cm.typeCfgHash, cm.builtinHash, depFPs)
+	shared.put(typecheckStage, node, context, fp, depMeta)
 	memo[id] = fp
 	meta[id] = depMeta
 	return fp, nil
@@ -313,7 +339,7 @@ func (cm *Manager) CacheConfig() cache.Config {
 	return cm.cacheConfig()
 }
 
-// CacheStats returns the persistent cache hit and miss counts.
+// CacheStats returns the artifact cache hit and miss counts.
 func (cm *Manager) CacheStats() CacheStats {
 	if cm == nil {
 		return CacheStats{}
@@ -350,4 +376,15 @@ func (cm *Manager) ToolchainIdentity() string {
 		return ""
 	}
 	return cm.toolchainIdentity
+}
+
+// Warn once per manager if a cache that passed the startup probe later stops
+// accepting writes. Recompilation remains usable and the cause stays visible.
+func (cm *Manager) putCacheEntry(key string, entry *cache.Entry) {
+	if err := cm.cacheStore.Put(key, entry); err != nil {
+		cm.cacheWriteWarning.Do(func() {
+			cm.log.Warn("lua persistent cache write failed; subsequent boots may recompile",
+				zap.String("dir", cm.cacheConfig().Dir), zap.Error(err))
+		})
+	}
 }

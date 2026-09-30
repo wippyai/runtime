@@ -75,32 +75,34 @@ func (b *StateBuilder) ValidateOperation(state StateMap, op registry.Operation) 
 	return nil
 }
 
-// ApplyOperation applies a single operation to the state and returns the new state
+// ApplyOperation returns a shallow map snapshot without changing the input.
+// Transaction runners retain previous states for rollback and isolation.
 func (b *StateBuilder) ApplyOperation(state StateMap, op registry.Operation) (StateMap, error) {
 	if err := b.ValidateOperation(state, op); err != nil {
 		return state, NewInvalidOperationError(err)
 	}
-
 	newState := CopyStateMap(state)
-
-	switch op.Kind {
-	case registry.EntryCreate:
-		newState[op.Entry.ID] = op.Entry
-	case registry.EntryUpdate:
-		newState[op.Entry.ID] = op.Entry
-	case registry.EntryDelete:
-		if _, ok := newState[op.Entry.ID]; ok {
-			delete(newState, op.Entry.ID)
-		} else {
-			b.log.Warn("Attempted to delete non-existent entry",
-				zap.String("namespace", op.Entry.ID.NS),
-				zap.String("name", op.Entry.ID.Name))
-		}
-	default:
-		return nil, NewUnknownOperationKindError(op.Kind)
-	}
-
+	applyValidatedOperation(newState, op)
 	return newState, nil
+}
+
+// applyReplayOperation mutates only the private map owned by BuildState. No
+// intermediate maps escape replay, so copying them per operation is unnecessary.
+func (b *StateBuilder) applyReplayOperation(state StateMap, op registry.Operation) error {
+	if err := b.ValidateOperation(state, op); err != nil {
+		return NewInvalidOperationError(err)
+	}
+	applyValidatedOperation(state, op)
+	return nil
+}
+
+func applyValidatedOperation(state StateMap, op registry.Operation) {
+	switch op.Kind {
+	case registry.EntryCreate, registry.EntryUpdate:
+		state[op.Entry.ID] = op.Entry
+	case registry.EntryDelete:
+		delete(state, op.Entry.ID)
+	}
 }
 
 // GetInverseOperation returns the inverse of the given operation using OriginalEntry
@@ -139,12 +141,11 @@ func (b *StateBuilder) BuildState(history registry.History, targetVersion regist
 		var replayApplyErr error
 		err := replayer.ReplayChanges(context.Background(), targetVersion, func(changes registry.ChangeSet) error {
 			for _, operation := range changes {
-				newState, applyErr := b.ApplyOperation(state, operation)
+				applyErr := b.applyReplayOperation(state, operation)
 				if applyErr != nil {
 					replayApplyErr = NewApplyOperationError(targetVersion.String(), operation.Entry.ID.String(), applyErr)
 					return replayApplyErr
 				}
-				state = newState
 			}
 			return nil
 		})
@@ -211,11 +212,10 @@ func (b *StateBuilder) BuildState(history registry.History, targetVersion regist
 			return nil, NewGetChangesetError(first.String(), err)
 		}
 		for _, operation := range changeSet {
-			newState, err := b.ApplyOperation(state, operation)
+			err := b.applyReplayOperation(state, operation)
 			if err != nil {
 				return nil, NewApplyOperationError(first.String(), operation.Entry.ID.String(), err)
 			}
-			state = newState
 		}
 	}
 
@@ -228,11 +228,10 @@ func (b *StateBuilder) BuildState(history registry.History, targetVersion regist
 		}
 
 		for _, operation := range changeSet {
-			newState, err := b.ApplyOperation(state, operation)
+			err := b.applyReplayOperation(state, operation)
 			if err != nil {
 				return nil, NewApplyOperationError(ver.String(), operation.Entry.ID.String(), err)
 			}
-			state = newState
 		}
 	}
 

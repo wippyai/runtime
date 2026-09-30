@@ -260,6 +260,16 @@ func (c *Cache[K, V]) evictOldest() {
 	}
 }
 
+// EvictOldest removes the least recently used entry, invoking the eviction
+// callback. It is a no-op when the cache is empty or closed.
+func (c *Cache[K, V]) EvictOldest() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !c.closed {
+		c.evictOldest()
+	}
+}
+
 // Close shuts down the cleanup goroutine
 func (c *Cache[K, V]) Close() {
 	c.mu.Lock()
