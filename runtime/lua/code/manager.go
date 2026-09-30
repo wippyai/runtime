@@ -190,9 +190,34 @@ func NewCodeManager(log *zap.Logger, bus event.Bus, cfg Config) (*Manager, error
 				return nil
 			}
 
-			// Type check if enabled
+			var compileFP string
+			var compileDeps []cache.DepMeta
+			if fingerprint, err := cm.compileFingerprintMemo(memGraph, node.ID, memo.compile, memo.compileMeta); err == nil {
+				compileFP = fingerprint
+				compileDeps = memo.compileMeta[node.ID]
+			}
+			// Compiled artifacts already retain their declaration contracts. Keep
+			// warm boots free of parsing/analysis when diagnostics are disabled.
+			resolveDeclarations := false
+			if !typeChecker.IsEnabled() {
+				if compileFP != "" {
+					if proto, ok := cm.loadCompileCache(node.ID, compileFP); ok {
+						if manifest, ok := cache.DecodeManifestSafe(proto.TypeInfo); ok {
+							node.Manifest = manifest
+							cm.memGraph.SetManifestIfRevision(node.ID, node.Version.Revision, manifest)
+						}
+						return proto, nil
+					}
+				}
+				if err := parseOnce(); err != nil {
+					return nil, err
+				}
+				resolveDeclarations = ast.HasTypeSyntax(chunk)
+			}
+
+			// Declarations are runtime contracts independently of static diagnostics.
 			var diagnostics []diag.Diagnostic
-			if typeChecker.IsEnabled() && node.Source != "" {
+			if (typeChecker.IsEnabled() || resolveDeclarations) && node.Source != "" {
 				var tcDeps []cache.DepMeta
 				var tcFP string
 				if fingerprint, err := cm.typecheckFingerprintMemo(
@@ -246,19 +271,13 @@ func NewCodeManager(log *zap.Logger, bus event.Bus, cfg Config) (*Manager, error
 					}
 				}
 
-				if HasErrors(diagnostics) && typeChecker.IsStrict() {
+				if typeChecker.IsEnabled() && HasErrors(diagnostics) && typeChecker.IsStrict() {
 					return nil, NewTypeCheckDiagnosticError(node.ID, diagnostics)
 				}
 			}
 
-			var compileFP string
-			var compileDeps []cache.DepMeta
-			if fingerprint, err := cm.compileFingerprintMemo(
-				memGraph, node.ID, memo.compile, memo.compileMeta,
-			); err == nil {
-				compileFP = fingerprint
-				compileDeps = memo.compileMeta[node.ID]
-				if proto, ok := cm.loadCompileCache(node.ID, fingerprint); ok {
+			if compileFP != "" && typeChecker.IsEnabled() {
+				if proto, ok := cm.loadCompileCache(node.ID, compileFP); ok {
 					if node.Manifest != nil && len(proto.TypeInfo) == 0 {
 						if data, err := node.Manifest.Encode(); err == nil {
 							proto.SetTypeInfo(data)
