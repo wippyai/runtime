@@ -385,6 +385,20 @@ lookup checks global, then EVENTUAL, then LOCAL; registering at one scope does
 not revoke or prevent a binding at another. CONSISTENT and STRONG share the
 global ownership record, so they still conflict with each other.
 
+When clustering is disabled (the default), all four scopes work on the single
+runtime node. EVENTUAL uses the same registry without gossip peers; CONSISTENT
+and STRONG use the existing global registry over serialized, in-memory local KV.
+STRONG still waits for its committed outcome to be observed, with self as the
+only observer. Scope independence, lookup precedence and permissions do not
+change. No additional configuration or Lua API is required.
+
+Standalone registrations are process-lifetime state, not a durable cluster log.
+The Go registration outcome's Raft epoch is zero on this backend; it must not
+be used as a durable fencing token. The Lua return shape remains unchanged.
+Enabling clustering selects the clustered backends on the next boot; this does
+not live-migrate registrations. An enabled cluster with unavailable transport
+or consensus never falls back to a separate standalone naming authority.
+
 ### process.registry.register(name: string, pid?: string, scope?: number) -> boolean, error
 
 Registers a name, optionally pointing at a foreign PID and/or at a wider scope.
