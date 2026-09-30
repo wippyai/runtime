@@ -34,14 +34,23 @@ func bootProto(b *testing.B) *glua.FunctionProto {
 // BenchmarkBootCompileCache1400 reads 700 units twice, as different isolates do.
 // Disk artifacts are warm; each iteration starts with a new manager.
 func BenchmarkBootCompileCache1400(b *testing.B) {
+	benchmarkBootCompileCache(b, 700)
+}
+
+func BenchmarkBootCompileCache20000(b *testing.B) {
+	benchmarkBootCompileCache(b, 10_000)
+}
+
+func benchmarkBootCompileCache(b *testing.B, count int) {
+	b.Helper()
 	cfg := cache.Config{Enabled: true, CompileEnabled: true, Mode: cache.ModeReadWrite, Dir: b.TempDir(), ToolchainIdentity: "bench"}.Normalize()
 	store := cache.NewBoundedDiskStore(cfg.Dir, cfg.MaxBytes, cfg.MaxEntries, cfg.PruneInterval)
 	data, err := bytecode.Dump(bootProto(b))
 	if err != nil {
 		b.Fatal(err)
 	}
-	ids := make([]registry.ID, 700)
-	fps := make([]string, 700)
+	ids := make([]registry.ID, count)
+	fps := make([]string, count)
 	for i := range ids {
 		ids[i] = registry.NewID("bee", fmt.Sprintf("unit%04d", i))
 		fps[i] = cache.HashStrings(ids[i].String())
@@ -70,6 +79,15 @@ func BenchmarkBootCompileCache1400(b *testing.B) {
 // BenchmarkBootFingerprints1400 models 700 entrypoints importing 12 shared
 // libraries, with source hashes already recorded by registry revision on main.
 func BenchmarkBootFingerprints1400(b *testing.B) {
+	benchmarkBootFingerprints(b, 700)
+}
+
+func BenchmarkBootFingerprints20000(b *testing.B) {
+	benchmarkBootFingerprints(b, 10_000)
+}
+
+func benchmarkBootFingerprints(b *testing.B, count int) {
+	b.Helper()
 	cm := &Manager{memGraph: NewMemoryGraph(), toolchainIdentity: "bench", typeCfgHash: "types", builtinHash: "builtins"}
 	libs := make([]registry.ID, 12)
 	for i := range libs {
@@ -80,7 +98,7 @@ func BenchmarkBootFingerprints1400(b *testing.B) {
 			b.Fatal(err)
 		}
 	}
-	ids := make([]registry.ID, 700)
+	ids := make([]registry.ID, count)
 	for i := range ids {
 		ids[i] = registry.NewID("bee", fmt.Sprintf("unit%04d", i))
 		node := &Node{ID: ids[i], Kind: api.Function, Source: "return 1", Method: "main", Version: Version{Revision: uint64(i + 13)}}

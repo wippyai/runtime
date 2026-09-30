@@ -16,10 +16,10 @@ type fingerprintContext struct {
 }
 
 type fingerprintResult struct {
-	revision    uint64
 	context     fingerprintContext
 	fingerprint string
 	deps        []cache.DepMeta
+	revision    uint64
 }
 
 type fingerprintStage uint8
@@ -35,8 +35,8 @@ const (
 // dependents even when their own revisions haven't changed. Each stage retains
 // at most one result per node; configuration changes replace that result.
 type fingerprintCache struct {
-	mu     sync.RWMutex
 	stages [3]map[registry.ID]fingerprintResult
+	mu     sync.RWMutex
 }
 
 func (m *MemoryGraph) fingerprintMemo() *fingerprintCache {

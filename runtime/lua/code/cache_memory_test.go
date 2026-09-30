@@ -4,6 +4,7 @@ package code
 
 import (
 	"errors"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -19,8 +20,8 @@ import (
 
 type countingCacheStore struct {
 	entry    *cache.Entry
-	reads    atomic.Int32
 	writeErr error
+	reads    atomic.Int32
 }
 
 func (s *countingCacheStore) Get(string) (*cache.Entry, bool, error) {
@@ -28,6 +29,24 @@ func (s *countingCacheStore) Get(string) (*cache.Entry, bool, error) {
 	return s.entry, s.entry != nil, nil
 }
 func (s *countingCacheStore) Put(string, *cache.Entry) error { return s.writeErr }
+
+func TestCompileBytesCacheTenThousandEntries(t *testing.T) {
+	cm, err := NewCodeManager(zap.NewNop(), nil, Config{Cache: cache.Config{
+		Enabled: true, CompileEnabled: true, Dir: t.TempDir(), ToolchainIdentity: "test",
+	}})
+	require.NoError(t, err)
+	for i := 0; i < 10_000; i++ {
+		key := compileBytesKey{id: registry.NewID("large", fmt.Sprintf("unit%d", i)), fingerprint: "same-content"}
+		cm.compileBytes.put(key, []byte("small-bytecode"))
+	}
+	for i := 0; i < 10_000; i++ {
+		key := compileBytesKey{id: registry.NewID("large", fmt.Sprintf("unit%d", i)), fingerprint: "same-content"}
+		data, ok := cm.compileBytes.get(key)
+		require.True(t, ok, "entry %d evicted despite fitting the byte and configured entry budgets", i)
+		require.Equal(t, "small-bytecode", string(data))
+	}
+	require.LessOrEqual(t, cm.compileBytes.bytes, defaultCompileMemoryBytes)
+}
 
 func TestCompileByteCacheIsolation(t *testing.T) {
 	cm, err := NewCodeManager(zap.NewNop(), nil, Config{Cache: cache.Config{Enabled: true, CompileEnabled: true, TypecheckEnabled: true, Mode: cache.ModeReadWrite, Dir: t.TempDir(), ToolchainIdentity: "test"}})
@@ -84,10 +103,10 @@ func TestCompileBytesCacheBoundsAndLRU(t *testing.T) {
 	require.False(t, ok)
 	c.put(key("d"), []byte("dddddd"))
 	require.Equal(t, 6, c.bytes)
-	require.Len(t, c.entries, 1)
+	require.Equal(t, 1, c.entries.Len())
 	c.put(key("oversize"), []byte("oversize"))
 	require.Equal(t, 6, c.bytes)
-	require.Len(t, c.entries, 1)
+	require.Equal(t, 1, c.entries.Len())
 }
 
 func TestCompileBytesCacheConcurrent(t *testing.T) {
@@ -106,7 +125,7 @@ func TestCompileBytesCacheConcurrent(t *testing.T) {
 	}
 	wg.Wait()
 	require.LessOrEqual(t, c.bytes, 64)
-	require.LessOrEqual(t, len(c.entries), 4)
+	require.LessOrEqual(t, c.entries.Len(), 4)
 }
 
 func TestPersistentCacheWriteFailureWarnsOnce(t *testing.T) {
@@ -134,15 +153,15 @@ func TestPersistentCacheWriteFailureWarnsOnce(t *testing.T) {
 func TestCompileBytesRejectInvalidArtifacts(t *testing.T) {
 	id := registry.NewID("bee", "module")
 	for _, tc := range []struct {
+		data []byte
 		name string
 		meta cache.Meta
-		data []byte
 	}{
-		{"schema", cache.Meta{SchemaVersion: cache.SchemaVersion + 1, EntryID: id.String(), CompileFingerprint: "fp"}, []byte("invalid")},
-		{"identity", cache.Meta{SchemaVersion: cache.SchemaVersion, EntryID: "other:module", CompileFingerprint: "fp"}, []byte("invalid")},
-		{"fingerprint", cache.Meta{SchemaVersion: cache.SchemaVersion, EntryID: id.String(), CompileFingerprint: "other"}, []byte("invalid")},
-		{"empty", cache.Meta{SchemaVersion: cache.SchemaVersion, EntryID: id.String(), CompileFingerprint: "fp"}, nil},
-		{"corrupt", cache.Meta{SchemaVersion: cache.SchemaVersion, EntryID: id.String(), CompileFingerprint: "fp"}, []byte("invalid")},
+		{name: "schema", meta: cache.Meta{SchemaVersion: cache.SchemaVersion + 1, EntryID: id.String(), CompileFingerprint: "fp"}, data: []byte("invalid")},
+		{name: "identity", meta: cache.Meta{SchemaVersion: cache.SchemaVersion, EntryID: "other:module", CompileFingerprint: "fp"}, data: []byte("invalid")},
+		{name: "fingerprint", meta: cache.Meta{SchemaVersion: cache.SchemaVersion, EntryID: id.String(), CompileFingerprint: "other"}, data: []byte("invalid")},
+		{name: "empty", meta: cache.Meta{SchemaVersion: cache.SchemaVersion, EntryID: id.String(), CompileFingerprint: "fp"}},
+		{name: "corrupt", meta: cache.Meta{SchemaVersion: cache.SchemaVersion, EntryID: id.String(), CompileFingerprint: "fp"}, data: []byte("invalid")},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			cm, err := NewCodeManager(zap.NewNop(), nil, Config{Cache: cache.Config{Enabled: true, CompileEnabled: true, Mode: cache.ModeReadOnly, Dir: t.TempDir(), ToolchainIdentity: "test"}})
@@ -151,7 +170,7 @@ func TestCompileBytesRejectInvalidArtifacts(t *testing.T) {
 			proto, ok := cm.loadCompileCache(id, "fp")
 			require.False(t, ok)
 			require.Nil(t, proto)
-			require.Empty(t, cm.compileBytes.entries)
+			require.Zero(t, cm.compileBytes.entries.Len())
 			require.EqualValues(t, 1, cm.CacheStats().CompileMisses)
 		})
 	}

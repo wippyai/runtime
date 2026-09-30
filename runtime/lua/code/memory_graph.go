@@ -100,11 +100,11 @@ func HashNodeWithProto(node *Node, proto *glua.FunctionProto) string {
 type MemoryGraph struct {
 	graph                 *graph.Graph[registry.ID, Edge]
 	fingerprints          *fingerprintCache
-	unversioned           int
 	nodes                 map[registry.ID]*Node
 	nodeLevels            map[registry.ID]int
 	dependentsCache       map[registry.ID][]*Node
 	dependencyLevelsCache [][]*Node
+	unversioned           int
 	mu                    sync.RWMutex
 	cacheValid            bool
 }

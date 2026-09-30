@@ -98,7 +98,6 @@ type (
 		bus                     event.Bus
 		cacheStore              cache.Store
 		compileBytes            *compileBytesCache
-		cacheWriteWarning       sync.Once
 		log                     *zap.Logger
 		memGraph                *MemoryGraph
 		compiler                *Compiler
@@ -108,6 +107,7 @@ type (
 		builtinHash             string
 		toolchainIdentity       string
 		cacheCfg                cache.Config
+		cacheWriteWarning       sync.Once
 		compileCacheHits        atomic.Uint64
 		compileCacheMisses      atomic.Uint64
 		typecheckCacheHits      atomic.Uint64
@@ -165,7 +165,7 @@ func NewCodeManager(log *zap.Logger, bus event.Bus, cfg Config) (*Manager, error
 	if cacheCfg.Enabled {
 		cm.compileBytes = newCompileBytesCache(
 			int(min(cacheCfg.MaxBytes, int64(defaultCompileMemoryBytes))),
-			min(cacheCfg.MaxEntries, defaultCompileMemoryEntries),
+			cacheCfg.MaxEntries,
 		)
 		cm.cacheStore = cache.NewBoundedDiskStore(
 			cacheCfg.Dir, cacheCfg.MaxBytes, cacheCfg.MaxEntries, cacheCfg.PruneInterval,

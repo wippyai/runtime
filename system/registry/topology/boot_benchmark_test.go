@@ -32,7 +32,16 @@ func (h *bootHistory) ReplayChanges(ctx context.Context, _ registry.Version, app
 
 // BenchmarkBootReplay700 models Bee's registry distributed over 35 changesets.
 func BenchmarkBootReplay700(b *testing.B) {
-	changes := make(registry.ChangeSet, 700)
+	benchmarkBootReplay(b, 700)
+}
+
+func BenchmarkBootReplay10000(b *testing.B) {
+	benchmarkBootReplay(b, 10_000)
+}
+
+func benchmarkBootReplay(b *testing.B, count int) {
+	b.Helper()
+	changes := make(registry.ChangeSet, count)
 	for i := range changes {
 		changes[i] = registry.Operation{Kind: registry.EntryCreate, Entry: registry.Entry{ID: registry.NewID("bee", fmt.Sprintf("entry%04d", i)), Kind: "lua.library"}}
 	}
@@ -43,7 +52,7 @@ func BenchmarkBootReplay700(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		state, err := builder.BuildState(h, target)
-		if err != nil || len(state) != 700 {
+		if err != nil || len(state) != count {
 			b.Fatalf("state: %d, %v", len(state), err)
 		}
 	}
