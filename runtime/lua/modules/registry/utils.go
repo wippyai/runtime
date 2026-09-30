@@ -147,7 +147,7 @@ func stateEntryToLuaTable(l *lua.LState, entry regapi.Entry) (*lua.LTable, error
 }
 
 func resolutionToLuaTable(l *lua.LState, resolution *regapi.DependencyResolution) *lua.LTable {
-	table := l.CreateTable(0, 6)
+	table := l.CreateTable(0, 7)
 	table.RawSetString("digest", lua.LString(resolution.Digest))
 	table.RawSetString("input_digest", lua.LString(resolution.InputDigest))
 	if resolution.BaselineDigest != "" {
@@ -157,9 +157,19 @@ func resolutionToLuaTable(l *lua.LState, resolution *regapi.DependencyResolution
 	if len(resolution.References) > 0 {
 		table.RawSetString("references", dependencyRootsToLuaTable(l, resolution.References))
 	}
+	if resolution.Deployment != nil {
+		deployment := l.CreateTable(0, 2)
+		deployment.RawSetString("root", lua.LString(resolution.Deployment.Root))
+		deployment.RawSetString("modules", resolvedModulesToLuaTable(l, resolution.Deployment.Modules))
+		table.RawSetString("deployment", deployment)
+	}
+	table.RawSetString("modules", resolvedModulesToLuaTable(l, resolution.Modules))
+	return table
+}
 
-	modules := l.CreateTable(len(resolution.Modules), 0)
-	for i, module := range resolution.Modules {
+func resolvedModulesToLuaTable(l *lua.LState, resolved []regapi.ResolvedModule) *lua.LTable {
+	modules := l.CreateTable(len(resolved), 0)
+	for i, module := range resolved {
 		item := l.CreateTable(0, 7)
 		item.RawSetString("name", lua.LString(module.Name))
 		item.RawSetString("version", lua.LString(module.Version))
@@ -180,8 +190,7 @@ func resolutionToLuaTable(l *lua.LState, resolution *regapi.DependencyResolution
 		}
 		modules.RawSetInt(i+1, item)
 	}
-	table.RawSetString("modules", modules)
-	return table
+	return modules
 }
 
 func dependencyRootsToLuaTable(l *lua.LState, roots []regapi.DependencyRoot) *lua.LTable {

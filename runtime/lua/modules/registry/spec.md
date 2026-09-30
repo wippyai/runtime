@@ -365,6 +365,19 @@ The result contains `entries`, whose `registry` field holds `owner` and `root`.
 It also contains `resolution` when available, including the selected modules'
 versions and digests. Each call returns fresh tables.
 
+For a standalone deployment, `resolution.deployment` contains `root` (the
+lock-selected application component) and `modules` (its immutable shipped
+baseline, with the same identity fields as `resolution.modules`). The application
+need not have an `ns.dependency` entry pointing to itself. This record is absent
+when no standalone deployment baseline is recorded. `resolution.modules` remains
+the effective live selection, which can differ from the shipped baseline.
+
+An authorized registry writer can replace the implicit application root by
+creating an `ns.dependency` overlay for that component through the existing
+registry change API. Later updates change that overlay; deleting it reveals the
+lock-selected baseline again. The deployment record identifies the application
+but grants no publication authority and is not itself a mutable registry entry.
+
 #### snapshot:entries() → table[], error
 
 Returns all entries in the snapshot.

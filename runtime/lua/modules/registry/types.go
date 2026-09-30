@@ -53,10 +53,16 @@ var resolvedModuleType = typ.NewRecord().
 	OptField("protected", typ.Boolean).
 	Build()
 
+var deploymentType = typ.NewRecord().
+	Field("root", typ.String).
+	Field("modules", typ.NewArray(resolvedModuleType)).
+	Build()
+
 var resolutionType = typ.NewRecord().
 	Field("digest", typ.String).
 	Field("input_digest", typ.String).
 	OptField("baseline_digest", typ.String).
+	OptField("deployment", deploymentType).
 	Field("roots", typ.NewArray(dependencyRootType)).
 	OptField("references", typ.NewArray(dependencyRootType)).
 	Field("modules", typ.NewArray(resolvedModuleType)).
