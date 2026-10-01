@@ -77,6 +77,11 @@ func (h *DependencyHandler) offlineModules(resolution *regapi.DependencyResoluti
 		capacity += len(h.deployment.Modules)
 	}
 	modules := make([]regapi.ResolvedModule, 0, capacity)
+	// Committed selections are authoritative; the locked provider uses later
+	// baseline records only for releases absent from the committed graph.
+	if resolution != nil {
+		modules = append(modules, resolution.Modules...)
+	}
 	if h != nil && h.lock != nil {
 		for _, locked := range h.lock.GetModules() {
 			modules = append(modules, regapi.ResolvedModule{
@@ -86,11 +91,6 @@ func (h *DependencyHandler) offlineModules(resolution *regapi.DependencyResoluti
 		}
 	} else if h != nil && h.deployment != nil {
 		modules = append(modules, h.deployment.Modules...)
-	}
-	// The provider keeps the last record for each release. A stored selection
-	// must retain its complete identity when the lock also lists that release.
-	if resolution != nil {
-		modules = append(modules, resolution.Modules...)
 	}
 	return modules
 }
