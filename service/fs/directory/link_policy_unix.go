@@ -72,7 +72,7 @@ func resolveLinkTarget(path string) (string, error) {
 }
 
 // OpenSSH misc.c safe_path ownership/mode rule, applied through filesystem root.
-func checkSafeLinkFacts(path string, mode uint32, uid uint32) error {
+func checkSafeLinkFacts(path string, mode fs.FileMode, uid uint32) error {
 	if uid != 0 && uid != uint32(os.Getuid()) {
 		return fmt.Errorf("owner_safe: %s: owner uid %d is neither process uid %d nor root", path, uid, os.Getuid())
 	}
@@ -119,7 +119,7 @@ func (d *FS) openOwnerSafe(name string) (file *os.File, refusal error) {
 		if regular && st.Mode&unix.S_IFMT != unix.S_IFREG {
 			return fmt.Errorf("owner_safe: %s: not a regular file", path)
 		}
-		return checkSafeLinkFacts(path, uint32(st.Mode), st.Uid)
+		return checkSafeLinkFacts(path, fs.FileMode(st.Mode), st.Uid)
 	}
 	if err := check(current, "/", false); err != nil {
 		return nil, err

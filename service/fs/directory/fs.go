@@ -26,11 +26,11 @@ const (
 
 // FS implements both ReadFS and WriteFS interfaces.
 type FS struct {
-	ownerSafe bool
 	root      *os.Root
 	dirPath   string // original path for error messages
 	mode      fs.FileMode
 	closed    atomic.Bool
+	ownerSafe bool
 }
 
 // RootPath returns the absolute host path backing this filesystem.

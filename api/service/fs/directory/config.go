@@ -15,18 +15,18 @@ const Kind registry.Kind = "fs.directory"
 
 // Config represents configuration for a filesystem directory
 type Config struct {
-	Directory  string `json:"directory"`
-	Mode       string `json:"mode"`
-	Type       string `json:"type"`
-	Base       string `json:"base"`
+	Directory string `json:"directory"`
+	Mode      string `json:"mode"`
+	Type      string `json:"type"`
+	Base      string `json:"base"`
+	// LinkPolicy optionally admits owner-safe external regular files for reads.
+	LinkPolicy string `json:"link_policy,omitempty"`
 	parsedMode fs.FileMode
 	AutoInit   bool `json:"auto_init"`
 	// ReadOnly refuses every mutation at the filesystem boundary, whatever
 	// the mode says: no writable open, creation, truncation, removal,
 	// rename, directory creation or metadata change goes through.
 	ReadOnly bool `json:"readonly"`
-	// LinkPolicy optionally admits owner-safe external regular files for reads.
-	LinkPolicy string `json:"link_policy,omitempty"`
 }
 
 const (

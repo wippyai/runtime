@@ -13,9 +13,9 @@ import (
 // CreateFSConfig is a config for CreateFS.
 type CreateFSConfig struct {
 	DirPath    string
+	LinkPolicy string
 	Mode       fs.FileMode
 	AutoInit   bool
-	LinkPolicy string
 	ReadOnly   bool
 }
 
