@@ -346,12 +346,13 @@ func (h *DependencyHandler) expand(
 		desiredDepEntries = append(desiredDepEntries, dep.entry)
 	}
 
-	desiredRoots := dependencyDefinitions(h.solverDependencies(desiredDeps, mutableModules))
+	solverDeps := h.solverDependencies(desiredDeps, mutableModules)
+	desiredRoots := dependencyDefinitions(solverDeps)
 	resolved, err := h.resolveEffectiveModules(ctx, desiredRoots, lockedVersions, h.currentResolution(ctx))
 	if err != nil {
 		return regapi.DirectiveResult{}, err
 	}
-	for _, ref := range h.solverDependencies(desiredDeps, mutableModules) {
+	for _, ref := range solverDeps {
 		selected, ok := selectedModuleVersion(resolved, ref.definition.Component)
 		if !ok || !storedVersionSatisfies(selected, ref.definition.Version) {
 			return regapi.DirectiveResult{}, NewStoredResolutionError("folded dependency reference is not satisfied by the selection", map[string]any{
@@ -481,11 +482,8 @@ func (h *DependencyHandler) expand(
 	if err != nil {
 		return regapi.DirectiveResult{}, err
 	}
-	for _, dep := range finalDeps {
-		selected, ok := selectedModuleVersion(resolved, dep.definition.Component)
-		if !ok || !storedVersionSatisfies(selected, dep.definition.Version) {
-			return regapi.DirectiveResult{}, NewDependencyEntryInvalidError(dep.entry.ID.String(), "selected module does not satisfy materialized declaration", dep.definition.Component)
-		}
+	if err := validateMaterializedDependencies(ctx, finalState, resolved, transcoder); err != nil {
+		return regapi.DirectiveResult{}, err
 	}
 	selectedResolution, err := h.resolutionForSnapshot(ctx, finalState, rootDeps, refDeps, resolved, transcoder)
 	if err != nil {
@@ -665,6 +663,7 @@ func (h *DependencyHandler) ReconcileResolution(
 			replacingOwners[dep.definition.Component] = struct{}{}
 		}
 	}
+	solverDeps := h.solverDependencies(desiredDeps, replacingOwners)
 	var resolved []ResolvedModule
 	effectiveResolution := resolution.Canonical()
 	if refreshReason != "" {
@@ -684,7 +683,7 @@ func (h *DependencyHandler) ReconcileResolution(
 				zap.String("stored_baseline_digest", resolution.BaselineDigest),
 				zap.String("deployment_baseline_digest", baselineDigest),
 				zap.String("stored_resolution_digest", resolution.Digest))
-			resolved, err = h.refreshResolvedModules(ctx, current, transcoder, resolution, h.solverDependencies(desiredDeps, replacingOwners))
+			resolved, err = h.refreshResolvedModules(ctx, current, transcoder, resolution, solverDeps)
 			if err != nil {
 				return regapi.DirectiveResult{}, err
 			}
@@ -698,6 +697,7 @@ func (h *DependencyHandler) ReconcileResolution(
 			return regapi.DirectiveResult{}, err
 		}
 		desiredDeps = append(append([]desiredDependency(nil), rootDeps...), refDeps...)
+		solverDeps = desiredDeps
 		if got := dependencyInputDigest(rootDeps); got != resolution.InputDigest {
 			return regapi.DirectiveResult{}, NewStoredResolutionError("stored dependency input digest does not match declarations", map[string]any{
 				"stored":  resolution.InputDigest,
@@ -709,7 +709,7 @@ func (h *DependencyHandler) ReconcileResolution(
 			return regapi.DirectiveResult{}, err
 		}
 	}
-	for _, root := range h.solverDependencies(desiredDeps, replacingOwners) {
+	for _, root := range solverDeps {
 		selected, ok := selectedModuleVersion(resolved, root.definition.Component)
 		if !ok || !storedVersionSatisfies(selected, root.definition.Version) {
 			return regapi.DirectiveResult{}, NewStoredResolutionError("selected module does not satisfy its declaration", map[string]any{
@@ -760,6 +760,25 @@ func (h *DependencyHandler) ReconcileResolution(
 			touched[module] = struct{}{}
 		} else if _, replacement := h.replacementPath(module); !replacement && !h.hasCurrentUnpackedModule(mod) {
 			touched[module] = struct{}{}
+		}
+	}
+	if refreshReason != "" {
+		// Lock/cache identity alone cannot prove that the target contains the
+		// selected owner's declarations: history replays over source entries.
+		// Reload owners whose old declarations were released from the solve.
+		retained := make(map[string]struct{}, len(solverDeps))
+		for _, dep := range solverDeps {
+			retained[idKey(dep.entry.ID)] = struct{}{}
+		}
+		for _, dep := range desiredDeps {
+			if _, keep := retained[idKey(dep.entry.ID)]; keep {
+				continue
+			}
+			owner := entryModule(dep.entry)
+			if _, selected := desiredModules[owner]; selected {
+				touched[owner] = struct{}{}
+				mutable[owner] = struct{}{}
+			}
 		}
 	}
 	controlled, err := h.reconciliationControlledModules(ctx, current, target, transcoder, desiredModules)
@@ -844,6 +863,9 @@ func (h *DependencyHandler) ReconcileResolution(
 	if refreshReason != "" {
 		finalDeps, err := h.collectSnapshotDependencies(ctx, combined, transcoder)
 		if err != nil {
+			return regapi.DirectiveResult{}, err
+		}
+		if err := validateMaterializedDependencies(ctx, combined, resolved, transcoder); err != nil {
 			return regapi.DirectiveResult{}, err
 		}
 		if dependencyInputDigest(finalDeps) != dependencyInputDigest(snapshotDeps) {

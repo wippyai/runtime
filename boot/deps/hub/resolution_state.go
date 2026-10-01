@@ -166,6 +166,33 @@ func selectedModuleVersion(modules []ResolvedModule, component string) (string, 
 	}
 	return "", false
 }
+
+// validateMaterializedDependencies checks roots and the selected artifacts'
+// transitive declarations, not just the root partition recorded in history.
+func validateMaterializedDependencies(ctx context.Context, state regapi.State, modules []ResolvedModule, transcoder payload.Transcoder) error {
+	selected := make(map[string]string, len(modules))
+	for _, mod := range modules {
+		selected[mod.Org+"/"+mod.Name] = mod.Version
+	}
+	for _, entry := range state {
+		if entry.Kind != regapi.NamespaceDependency {
+			continue
+		}
+		if _, owned := selected[entryModule(entry)]; !owned && !isRootDependency(entry) {
+			continue // Unrelated owners are outside this graph's authority.
+		}
+		definition, err := decodeDependency(ctx, transcoder, entry)
+		if err != nil {
+			return err
+		}
+		version, ok := selected[definition.Component]
+		if !ok || !storedVersionSatisfies(version, definition.Version) {
+			return NewDependencyEntryInvalidError(entry.ID.String(), "selected module does not satisfy materialized declaration", definition.Component)
+		}
+	}
+	return nil
+}
+
 func dependencyResolution(roots, references []desiredDependency, modules []ResolvedModule) *regapi.DependencyResolution {
 	resolved := &regapi.DependencyResolution{
 		InputDigest: dependencyInputDigest(roots),
@@ -338,14 +365,30 @@ func (h *DependencyHandler) collectSnapshotDependencies(
 	return deps, nil
 }
 
-// solverDependencies leaves package-owned deployment declarations to the
-// selected package's manifest when its deployment root is explicitly selected.
+// solverDependencies leaves declarations throughout a replaced deployment's
+// owned dependency closure to the selected packages' manifests.
 // Independent host and history roots continue to constrain the whole graph.
 func (h *DependencyHandler) solverDependencies(deps []desiredDependency, replacing map[string]struct{}) []desiredDependency {
 	selectedOwners := make(map[string]struct{})
+	children := make(map[string][]string)
+	var pending []string
 	for _, dep := range deps {
+		if owner := entryModule(dep.entry); owner != "" {
+			children[owner] = append(children[owner], dep.definition.Component)
+		}
 		if _, changed := replacing[dep.definition.Component]; changed && h.isDeploymentRoot(dep.definition.Component) {
-			selectedOwners[dep.definition.Component] = struct{}{}
+			if _, selected := selectedOwners[dep.definition.Component]; !selected {
+				selectedOwners[dep.definition.Component] = struct{}{}
+				pending = append(pending, dep.definition.Component)
+			}
+		}
+	}
+	for i := 0; i < len(pending); i++ {
+		for _, child := range children[pending[i]] {
+			if _, selected := selectedOwners[child]; !selected {
+				selectedOwners[child] = struct{}{}
+				pending = append(pending, child)
+			}
 		}
 	}
 	result := make([]desiredDependency, 0, len(deps))
