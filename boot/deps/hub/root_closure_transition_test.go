@@ -21,13 +21,13 @@ import (
 	"go.uber.org/zap"
 )
 
-type beeRootClosureDependency struct {
+type rootClosureDependency struct {
 	Component string `json:"component"`
 	Version   string `json:"version"`
 }
 
-// A Bee release changes both the application and its nested pack versions.
-func TestBeeDeploymentRootUpdateChangesNestedVersions(t *testing.T) {
+// A deployment root release changes both the application and its nested pack versions.
+func TestDeploymentRootUpdateChangesNestedVersions(t *testing.T) {
 	ctx := newTestContext()
 	directory := t.TempDir()
 	lockPath := filepath.Join(directory, "wippy.lock")
@@ -42,10 +42,10 @@ func TestBeeDeploymentRootUpdateChangesNestedVersions(t *testing.T) {
 			entries := []wapp.Entry{{ID: wapp.NewID("acme."+name, "definition"), Kind: regapi.NamespaceDefinition}}
 			if name == "app" {
 				entries = append(entries, wapp.Entry{ID: wapp.NewID(workerID.NS, workerID.Name),
-					Kind: regapi.NamespaceDependency, Data: beeRootClosureDependency{"acme/worker", version}})
+					Kind: regapi.NamespaceDependency, Data: rootClosureDependency{"acme/worker", version}})
 				if version == "1.0.0" {
 					entries = append(entries, wapp.Entry{ID: wapp.NewID(obsoleteID.NS, obsoleteID.Name),
-						Kind: regapi.NamespaceDependency, Data: beeRootClosureDependency{"acme/obsolete", version}})
+						Kind: regapi.NamespaceDependency, Data: rootClosureDependency{"acme/obsolete", version}})
 				}
 			}
 			selected := selection{"acme/" + name, version}
@@ -110,16 +110,16 @@ modules:
 	require.NoError(t, err)
 	baseline := regapi.State{
 		ownedEntry(regapi.Entry{ID: obsoleteID, Kind: regapi.NamespaceDependency, Registry: regapi.EntryMetadata{Root: true},
-			Data: payload.New(beeRootClosureDependency{"acme/obsolete", "1.0.0"})}, "acme/app"),
+			Data: payload.New(rootClosureDependency{"acme/obsolete", "1.0.0"})}, "acme/app"),
 		ownedEntry(regapi.Entry{ID: regapi.NewID("acme.obsolete", "definition"), Kind: regapi.NamespaceDefinition}, "acme/obsolete"),
 		ownedEntry(regapi.Entry{ID: workerID, Kind: regapi.NamespaceDependency,
 			Registry: regapi.EntryMetadata{Root: true},
-			Data:     payload.New(beeRootClosureDependency{"acme/worker", "1.0.0"})}, "acme/app"),
+			Data:     payload.New(rootClosureDependency{"acme/worker", "1.0.0"})}, "acme/app"),
 		ownedEntry(regapi.Entry{ID: regapi.NewID("acme.app", "definition"), Kind: regapi.NamespaceDefinition}, "acme/app"),
 		ownedEntry(regapi.Entry{ID: regapi.NewID("acme.worker", "definition"), Kind: regapi.NamespaceDefinition}, "acme/worker"),
 	}
 	root := regapi.Entry{ID: regapi.NewID("deployment.packages", "application"), Kind: regapi.NamespaceDependency,
-		Data: payload.New(beeRootClosureDependency{"acme/app", "2.0.0"})}
+		Data: payload.New(rootClosureDependency{"acme/app", "2.0.0"})}
 	result, err := handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryUpdate, Entry: root}, baseline)
 	require.NoError(t, err, "the new application owns the nested 2.0.0 declaration; its old 1.0.0 declaration cannot constrain the new closure")
 	require.NotNil(t, result.Resolution)
@@ -128,16 +128,16 @@ modules:
 
 	t.Run("independent root still constrains selection", func(t *testing.T) {
 		independent := regapi.Entry{ID: regapi.NewID("host.modules", "worker"), Kind: regapi.NamespaceDependency,
-			Data: payload.New(beeRootClosureDependency{"acme/worker", "1.0.0"})}
+			Data: payload.New(rootClosureDependency{"acme/worker", "1.0.0"})}
 		_, err := handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: root}, append(baseline, independent))
 		require.ErrorContains(t, err, "dependency resolution failed")
 	})
 	t.Run("nested update does not release its own constraint", func(t *testing.T) {
 		changed := ownedEntry(regapi.Entry{ID: workerID, Kind: regapi.NamespaceDependency,
 			Registry: regapi.EntryMetadata{Root: true}}, "acme/app")
-		changed.Data = payload.New(beeRootClosureDependency{"acme/worker", "2.0.0"})
+		changed.Data = payload.New(rootClosureDependency{"acme/worker", "2.0.0"})
 		parent := regapi.Entry{ID: root.ID, Kind: regapi.NamespaceDependency,
-			Data: payload.New(beeRootClosureDependency{"acme/app", "1.0.0"})}
+			Data: payload.New(rootClosureDependency{"acme/app", "1.0.0"})}
 		_, err := handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryUpdate, Entry: changed}, append(baseline, parent))
 		require.ErrorContains(t, err, "dependency resolution failed")
 	})
