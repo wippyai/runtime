@@ -49,7 +49,7 @@ func TestOwnerSafeLinks(t *testing.T) {
 		return d
 	}
 	d := makeFS("owner_safe")
-	assertRefused := func(reason, path string) {
+	assertRefused := func(t *testing.T, reason, path string) {
 		t.Helper()
 		for _, read := range []func() error{
 			func() error { _, err := fs.Stat(d, "login"); return err },
@@ -63,7 +63,7 @@ func TestOwnerSafeLinks(t *testing.T) {
 			func() error { _, err := fs.ReadFile(d, "login"); return err },
 		} {
 			err := read()
-			if err == nil || !strings.Contains(err.Error(), reason) || !strings.Contains(err.Error(), path) {
+			if err == nil || !strings.Contains(err.Error(), "owner_safe:") || !strings.Contains(err.Error(), reason) || !strings.Contains(err.Error(), path) {
 				t.Fatalf("want %q and %q: %v", reason, path, err)
 			}
 		}
@@ -90,34 +90,34 @@ func TestOwnerSafeLinks(t *testing.T) {
 		t.Run(fmt.Sprintf("target-%o", mode), func(t *testing.T) {
 			os.Chmod(target, mode)
 			defer os.Chmod(target, 0600)
-			assertRefused("group/other-writable", target)
+			assertRefused(t, "group/other-writable", target)
 		})
 	}
 	for _, mode := range []os.FileMode{0720, 0702, os.ModeSticky | 0777} {
 		t.Run(fmt.Sprintf("parent-%o", mode), func(t *testing.T) {
 			os.Chmod(store, mode)
 			defer os.Chmod(store, 0700)
-			assertRefused("group/other-writable", store)
+			assertRefused(t, "group/other-writable", store)
 		})
 	}
 	t.Run("nonregular", func(t *testing.T) {
 		os.Remove(link)
 		os.Symlink(store, link)
 		defer func() { os.Remove(link); os.Symlink(target, link) }()
-		assertRefused("not a regular file", store)
+		assertRefused(t, "not a regular file", store)
 	})
 	t.Run("dangling", func(t *testing.T) {
 		os.Remove(link)
 		missing := filepath.Join(store, "missing")
 		os.Symlink(missing, link)
 		defer func() { os.Remove(link); os.Symlink(target, link) }()
-		assertRefused("no such file", missing)
+		assertRefused(t, "no such file", missing)
 	})
 	t.Run("loop", func(t *testing.T) {
 		os.Remove(link)
 		os.Symlink("login", link)
 		defer func() { os.Remove(link); os.Symlink(target, link) }()
-		assertRefused("symlink loop", link)
+		assertRefused(t, "symlink loop", link)
 	})
 	t.Run("depth", func(t *testing.T) {
 		os.Remove(link)
@@ -130,7 +130,7 @@ func TestOwnerSafeLinks(t *testing.T) {
 			}
 			os.Symlink(dest, filepath.Join(store, fmt.Sprintf("chain%d", i)))
 		}
-		assertRefused("symlink depth", store)
+		assertRefused(t, "symlink depth", store)
 	})
 	t.Run("writes-contained", func(t *testing.T) {
 		w := d.(*FS)
@@ -211,7 +211,7 @@ func TestOwnerSafeLinks(t *testing.T) {
 		}
 		os.Chown(target, 12345, -1)
 		defer os.Chown(target, 0, -1)
-		assertRefused("owner uid", target)
+		assertRefused(t, "owner uid", target)
 	})
 }
 
