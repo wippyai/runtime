@@ -25,6 +25,8 @@ type Config struct {
 	// the mode says: no writable open, creation, truncation, removal,
 	// rename, directory creation or metadata change goes through.
 	ReadOnly bool `json:"readonly"`
+	// LinkPolicy optionally admits owner-safe external regular files for reads.
+	LinkPolicy string `json:"link_policy,omitempty"`
 }
 
 const (
@@ -50,6 +52,10 @@ func (c *Config) Validate() error {
 
 	if c.Base != "" && c.Base != BaseProject && c.Base != BaseModule {
 		return NewInvalidBaseError(c.Base)
+	}
+
+	if c.LinkPolicy != "" && c.LinkPolicy != "contained" && c.LinkPolicy != "owner_safe" {
+		return fmt.Errorf("invalid link_policy %q: expected contained or owner_safe", c.LinkPolicy)
 	}
 
 	if c.ReadOnly && c.AutoInit {

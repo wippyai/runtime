@@ -26,10 +26,11 @@ const (
 
 // FS implements both ReadFS and WriteFS interfaces.
 type FS struct {
-	root    *os.Root
-	dirPath string // original path for error messages
-	mode    fs.FileMode
-	closed  atomic.Bool
+	ownerSafe bool
+	root      *os.Root
+	dirPath   string // original path for error messages
+	mode      fs.FileMode
+	closed    atomic.Bool
 }
 
 // RootPath returns the absolute host path backing this filesystem.
@@ -130,6 +131,9 @@ func (d *FS) Open(name string) (fs.File, error) {
 	}
 
 	f, err := d.root.Open(norm)
+	if err != nil && d.ownerSafe {
+		f, err = d.openOwnerSafe(norm)
+	}
 	if err != nil {
 		return nil, &fs.PathError{
 			Op:   "open",
@@ -195,6 +199,9 @@ func (d *FS) OpenFile(name string, flag int, perm fs.FileMode) (fsapi.File, erro
 		return nil, err
 	}
 	f, err := d.root.OpenFile(norm, flag, perm)
+	if err != nil && d.ownerSafe && flag == os.O_RDONLY {
+		f, err = d.openOwnerSafe(norm)
+	}
 	if err != nil {
 		return nil, &fs.PathError{Op: "open", Path: name, Err: err}
 	}
@@ -237,6 +244,14 @@ func (d *FS) Stat(name string) (fs.FileInfo, error) {
 	}
 
 	info, err := d.root.Stat(norm)
+	if err != nil && d.ownerSafe {
+		var f *os.File
+		f, err = d.openOwnerSafe(norm)
+		if err == nil {
+			info, err = f.Stat()
+			_ = f.Close()
+		}
+	}
 	if err != nil {
 		return nil, &fs.PathError{
 			Op:   "stat",
