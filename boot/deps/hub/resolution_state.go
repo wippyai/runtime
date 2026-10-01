@@ -337,6 +337,26 @@ func (h *DependencyHandler) collectSnapshotDependencies(
 	}
 	return deps, nil
 }
+
+// solverDependencies leaves package-owned deployment declarations to the
+// selected package's manifest when its deployment root is explicitly selected.
+// Independent host and history roots continue to constrain the whole graph.
+func (h *DependencyHandler) solverDependencies(deps []desiredDependency, replacing map[string]struct{}) []desiredDependency {
+	selectedOwners := make(map[string]struct{})
+	for _, dep := range deps {
+		if _, changed := replacing[dep.definition.Component]; changed && h.isDeploymentRoot(dep.definition.Component) {
+			selectedOwners[dep.definition.Component] = struct{}{}
+		}
+	}
+	result := make([]desiredDependency, 0, len(deps))
+	for _, dep := range deps {
+		if _, selected := selectedOwners[entryModule(dep.entry)]; !selected {
+			result = append(result, dep)
+		}
+	}
+	return result
+}
+
 func dependencyDefinitions(deps []desiredDependency) []DependencyDefinition {
 	roots := make([]DependencyDefinition, 0, len(deps))
 	for _, dep := range deps {
@@ -566,4 +586,14 @@ func mergeLinkDependencies(explicitDeps, moduleEntries []regapi.Entry) []regapi.
 	}
 
 	return merged
+}
+
+func retainedDependencyEntries(entries []regapi.Entry, reloaded map[string]struct{}) []regapi.Entry {
+	retained := make([]regapi.Entry, 0, len(entries))
+	for _, entry := range entries {
+		if _, replaced := reloaded[entryModule(entry)]; !replaced {
+			retained = append(retained, entry)
+		}
+	}
+	return retained
 }

@@ -334,17 +334,24 @@ func (h *DependencyHandler) expand(
 		}
 	}
 
+	mutableModules, err := h.operationModules(ctx, op, snapshot, transcoder)
+	if err != nil {
+		return regapi.DirectiveResult{}, err
+	}
+	for module := range extraMutable {
+		mutableModules[module] = struct{}{}
+	}
 	desiredDepEntries := make([]regapi.Entry, 0, len(desiredDeps))
 	for _, dep := range desiredDeps {
 		desiredDepEntries = append(desiredDepEntries, dep.entry)
 	}
 
-	desiredRoots := dependencyDefinitions(desiredDeps)
+	desiredRoots := dependencyDefinitions(h.solverDependencies(desiredDeps, mutableModules))
 	resolved, err := h.resolveEffectiveModules(ctx, desiredRoots, lockedVersions, h.currentResolution(ctx))
 	if err != nil {
 		return regapi.DirectiveResult{}, err
 	}
-	for _, ref := range refDeps {
+	for _, ref := range h.solverDependencies(desiredDeps, mutableModules) {
 		selected, ok := selectedModuleVersion(resolved, ref.definition.Component)
 		if !ok || !storedVersionSatisfies(selected, ref.definition.Version) {
 			return regapi.DirectiveResult{}, NewStoredResolutionError("folded dependency reference is not satisfied by the selection", map[string]any{
@@ -382,13 +389,6 @@ func (h *DependencyHandler) expand(
 		strictModules = append(strictModules, module)
 	}
 	sort.Strings(strictModules)
-	mutableModules, err := h.operationModules(ctx, op, snapshot, transcoder)
-	if err != nil {
-		return regapi.DirectiveResult{}, err
-	}
-	for module := range extraMutable {
-		mutableModules[module] = struct{}{}
-	}
 	touchedModules := stringSet(strictModules)
 	for module := range mutableModules {
 		touchedModules[module] = struct{}{}
@@ -401,7 +401,7 @@ func (h *DependencyHandler) expand(
 		return regapi.DirectiveResult{}, err
 	}
 	defer func() { _ = unpackPlan.cleanup() }()
-	linkDeps := mergeLinkDependencies(desiredDepEntries, moduleEntries)
+	linkDeps := mergeLinkDependencies(retainedDependencyEntries(desiredDepEntries, touchedModules), moduleEntries)
 
 	combined := make([]regapi.Entry, 0, len(snapshot)+len(moduleEntries))
 	for _, e := range snapshot {
@@ -472,7 +472,22 @@ func (h *DependencyHandler) expand(
 	// The graph describes the state this operation produces; its baseline
 	// binding must be computed over that state, never over the one being left,
 	// or a later version transition sees a digest that names the wrong side.
-	selectedResolution, err := h.resolutionForSnapshot(ctx, applyOperationToState(snapshot, op), rootDeps, refDeps, resolved, transcoder)
+	finalState := applyOperationToState(combined, op)
+	finalDeps, err := h.collectSnapshotDependencies(ctx, finalState, transcoder)
+	if err != nil {
+		return regapi.DirectiveResult{}, err
+	}
+	rootDeps, refDeps, err = foldRootDependencyComponents(finalDeps, fresh, true)
+	if err != nil {
+		return regapi.DirectiveResult{}, err
+	}
+	for _, dep := range finalDeps {
+		selected, ok := selectedModuleVersion(resolved, dep.definition.Component)
+		if !ok || !storedVersionSatisfies(selected, dep.definition.Version) {
+			return regapi.DirectiveResult{}, NewDependencyEntryInvalidError(dep.entry.ID.String(), "selected module does not satisfy materialized declaration", dep.definition.Component)
+		}
+	}
+	selectedResolution, err := h.resolutionForSnapshot(ctx, finalState, rootDeps, refDeps, resolved, transcoder)
 	if err != nil {
 		return regapi.DirectiveResult{}, err
 	}
@@ -644,6 +659,12 @@ func (h *DependencyHandler) ReconcileResolution(
 		return regapi.DirectiveResult{}, err
 	}
 
+	replacingOwners := make(map[string]struct{})
+	if refreshReason != "" {
+		for _, dep := range desiredDeps {
+			replacingOwners[dep.definition.Component] = struct{}{}
+		}
+	}
 	var resolved []ResolvedModule
 	effectiveResolution := resolution.Canonical()
 	if refreshReason != "" {
@@ -663,7 +684,7 @@ func (h *DependencyHandler) ReconcileResolution(
 				zap.String("stored_baseline_digest", resolution.BaselineDigest),
 				zap.String("deployment_baseline_digest", baselineDigest),
 				zap.String("stored_resolution_digest", resolution.Digest))
-			resolved, err = h.refreshResolvedModules(ctx, current, transcoder, resolution, desiredDeps)
+			resolved, err = h.refreshResolvedModules(ctx, current, transcoder, resolution, h.solverDependencies(desiredDeps, replacingOwners))
 			if err != nil {
 				return regapi.DirectiveResult{}, err
 			}
@@ -688,7 +709,7 @@ func (h *DependencyHandler) ReconcileResolution(
 			return regapi.DirectiveResult{}, err
 		}
 	}
-	for _, root := range desiredDeps {
+	for _, root := range h.solverDependencies(desiredDeps, replacingOwners) {
 		selected, ok := selectedModuleVersion(resolved, root.definition.Component)
 		if !ok || !storedVersionSatisfies(selected, root.definition.Version) {
 			return regapi.DirectiveResult{}, NewStoredResolutionError("selected module does not satisfy its declaration", map[string]any{
@@ -774,7 +795,7 @@ func (h *DependencyHandler) ReconcileResolution(
 	pipeline := build.New(
 		stages.Override(stages.WithMissingOverrideEntriesIgnored()),
 		stages.Disable(),
-		stages.Link(stages.WithDependencies(mergeLinkDependencies(desiredDepEntries, moduleEntries)), stages.WithStrictRequirementModules(sortedSetKeys(touched))),
+		stages.Link(stages.WithDependencies(mergeLinkDependencies(retainedDependencyEntries(desiredDepEntries, touched), moduleEntries)), stages.WithStrictRequirementModules(sortedSetKeys(touched))),
 		stages.Override(stages.WithMissingOverrideEntriesIgnored()),
 	)
 	if err := pipeline.Execute(ctx, &combined); err != nil {
@@ -819,6 +840,22 @@ func (h *DependencyHandler) ReconcileResolution(
 	}
 	if packEffect != nil {
 		effects = append(effects, packEffect)
+	}
+	if refreshReason != "" {
+		finalDeps, err := h.collectSnapshotDependencies(ctx, combined, transcoder)
+		if err != nil {
+			return regapi.DirectiveResult{}, err
+		}
+		if dependencyInputDigest(finalDeps) != dependencyInputDigest(snapshotDeps) {
+			rootDeps, refDeps, err = foldRootDependencyComponents(finalDeps, nil, false)
+			if err != nil {
+				return regapi.DirectiveResult{}, err
+			}
+			effectiveResolution, err = h.resolutionForSnapshot(ctx, combined, rootDeps, refDeps, resolved, transcoder)
+			if err != nil {
+				return regapi.DirectiveResult{}, err
+			}
+		}
 	}
 	return regapi.DirectiveResult{
 		Applied:    true,
