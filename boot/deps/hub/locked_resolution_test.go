@@ -20,6 +20,37 @@ import (
 
 const lockedResolutionDigest = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
+func TestOfflineManifestProviderPreservesStoredReleaseMetadata(t *testing.T) {
+	stored := regapi.ResolvedModule{Name: "acme/lib", Version: "v1.0.0", VersionID: "published-id",
+		Source: moduleSourceHub, Digest: "sha256:" + lockedResolutionDigest, SizeBytes: 17, Protected: true}
+	for _, test := range []struct {
+		name     string
+		embedded bool
+	}{{"lock", false}, {"embedded_deployment", true}} {
+		t.Run(test.name, func(t *testing.T) {
+			handler := lockedResolutionHandler(t, []lock.Module{
+				{Name: "acme/lib", Version: "1.0.0", Hash: stored.Digest},
+				{Name: "acme/lib", Version: "2.0.0", Hash: stored.Digest},
+			})
+			if test.embedded {
+				handler.lock = nil
+				handler.deployment = &regapi.Deployment{Modules: []regapi.ResolvedModule{
+					{Name: stored.Name, Version: "1.0.0", Source: stored.Source, Digest: stored.Digest},
+					{Name: stored.Name, Version: "2.0.0", Source: stored.Source, Digest: stored.Digest},
+				}}
+			}
+			provider, ok := newLockedManifestProvider(handler, handler.offlineModules(&regapi.DependencyResolution{
+				Modules: []regapi.ResolvedModule{stored},
+			})).(*lockedManifestProvider)
+			require.True(t, ok)
+			require.Equal(t, ResolvedModule{Org: "acme", Name: "lib", Version: stored.Version, VersionID: stored.VersionID,
+				Source: stored.Source, Digest: stored.Digest, SizeBytes: stored.SizeBytes, Protected: stored.Protected},
+				provider.modules[stored.Name]["1.0.0"])
+			require.Contains(t, provider.modules[stored.Name], "2.0.0", "other deployment releases remain available offline")
+		})
+	}
+}
+
 func lockedResolutionHandler(t *testing.T, modules []lock.Module) *DependencyHandler {
 	t.Helper()
 	lockObj, err := lock.New(filepath.Join(t.TempDir(), "wippy.lock"))

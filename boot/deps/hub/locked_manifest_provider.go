@@ -44,6 +44,11 @@ func newLockedManifestProvider(
 			versions = make(map[string]ResolvedModule)
 			provider.modules[selected.Name] = versions
 		}
+		// offlineModules puts committed selections before baseline fallbacks.
+		// Keep the first record's exact artifact identity and metadata.
+		if _, exists := versions[strings.TrimPrefix(selected.Version, "v")]; exists {
+			continue
+		}
 		versions[strings.TrimPrefix(selected.Version, "v")] = ResolvedModule{
 			Org:       name.Organization,
 			Name:      name.Module,
@@ -84,6 +89,7 @@ func (p *lockedManifestProvider) GetManifest(ctx context.Context, org, module, c
 		VersionID:    mod.VersionID,
 		Digest:       mod.Digest,
 		SizeBytes:    mod.SizeBytes,
+		Protected:    mod.Protected,
 		Dependencies: deps,
 	}, nil
 }

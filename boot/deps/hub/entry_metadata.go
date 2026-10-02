@@ -77,6 +77,8 @@ func (h *DependencyHandler) offlineModules(resolution *regapi.DependencyResoluti
 		capacity += len(h.deployment.Modules)
 	}
 	modules := make([]regapi.ResolvedModule, 0, capacity)
+	// Committed selections are authoritative; the locked provider uses later
+	// baseline records only for releases absent from the committed graph.
 	if resolution != nil {
 		modules = append(modules, resolution.Modules...)
 	}

@@ -4,6 +4,13 @@
 
 Registry operations for entries, snapshots, and versioning. Storage, nondeterministic.
 
+A dependency update that selects a deployment root package replaces that
+package's owned dependency closure with declarations from the selected artifacts.
+Their previous version pins do not constrain the replacement closure. Host and
+history roots remain independent constraints. The committed resolution records
+the materialized declarations and their deployment baseline; cached history
+supports undo, redo, and offline restart through the same registry APIs.
+
 ## Loading
 
 ```lua
