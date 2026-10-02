@@ -29,8 +29,9 @@ type rootClosureDependency struct {
 	Version   string `json:"version"`
 }
 
-// A deployment root release changes both the application and its nested pack versions.
-func TestDeploymentRootUpdateChangesNestedVersions(t *testing.T) {
+// A deployment root release must publish nested definitions with their selected
+// versions, while leaving independent resident modules untouched.
+func TestDeploymentRootUpdateChangesNestedVersionsAndDefinitions(t *testing.T) {
 	for _, preserveObsolete := range []bool{false, true} {
 		t.Run(fmt.Sprintf("independent_obsolete_root=%t", preserveObsolete), func(t *testing.T) {
 			testDeploymentRootClosure(t, preserveObsolete)
@@ -51,7 +52,8 @@ func testDeploymentRootClosure(t *testing.T, preserveObsolete bool) {
 	digests := make(map[selection]string)
 	for _, version := range []string{"1.0.0", "2.0.0"} {
 		for _, name := range []string{"app", "worker", "obsolete", "helper"} {
-			entries := []wapp.Entry{{ID: wapp.NewID("acme."+name, "definition"), Kind: regapi.NamespaceDefinition}}
+			entries := []wapp.Entry{{ID: wapp.NewID("acme."+name, "definition"), Kind: regapi.NamespaceDefinition,
+				Data: map[string]any{"source": "return " + version}}}
 			if name == "app" {
 				entries = append(entries, wapp.Entry{ID: wapp.NewID(workerID.NS, workerID.Name),
 					Kind: regapi.NamespaceDependency, Data: rootClosureDependency{"acme/worker", version}})
@@ -165,21 +167,29 @@ modules:
 	baseline := regapi.State{
 		ownedEntry(regapi.Entry{ID: obsoleteID, Kind: regapi.NamespaceDependency, Registry: regapi.EntryMetadata{Root: true},
 			Data: payload.New(rootClosureDependency{"acme/obsolete", "1.0.0"})}, "acme/app"),
-		ownedEntry(regapi.Entry{ID: regapi.NewID("acme.obsolete", "definition"), Kind: regapi.NamespaceDefinition}, "acme/obsolete"),
+		ownedEntry(regapi.Entry{ID: regapi.NewID("acme.obsolete", "definition"), Kind: regapi.NamespaceDefinition,
+			Data: payload.New(map[string]any{"source": "resident independent source"})}, "acme/obsolete"),
 		ownedEntry(regapi.Entry{ID: workerID, Kind: regapi.NamespaceDependency,
 			Registry: regapi.EntryMetadata{Root: true},
 			Data:     payload.New(rootClosureDependency{"acme/worker", "1.0.0"})}, "acme/app"),
-		ownedEntry(regapi.Entry{ID: regapi.NewID("acme.app", "definition"), Kind: regapi.NamespaceDefinition}, "acme/app"),
-		ownedEntry(regapi.Entry{ID: regapi.NewID("acme.worker", "definition"), Kind: regapi.NamespaceDefinition}, "acme/worker"),
+		ownedEntry(regapi.Entry{ID: regapi.NewID("acme.app", "definition"), Kind: regapi.NamespaceDefinition,
+			Data: payload.New(map[string]any{"source": "return 1.0.0"})}, "acme/app"),
+		ownedEntry(regapi.Entry{ID: regapi.NewID("acme.worker", "definition"), Kind: regapi.NamespaceDefinition,
+			Data: payload.New(map[string]any{"source": "return 1.0.0"})}, "acme/worker"),
 		ownedEntry(regapi.Entry{ID: helperID, Kind: regapi.NamespaceDependency, Registry: regapi.EntryMetadata{Root: true},
 			Data: payload.New(rootClosureDependency{"acme/helper", "1.0.0"})}, "acme/worker"),
-		ownedEntry(regapi.Entry{ID: regapi.NewID("acme.helper", "definition"), Kind: regapi.NamespaceDefinition}, "acme/helper"),
+		ownedEntry(regapi.Entry{ID: regapi.NewID("acme.helper", "definition"), Kind: regapi.NamespaceDefinition,
+			Data: payload.New(map[string]any{"source": "return 1.0.0"})}, "acme/helper"),
 	}
 	root := regapi.Entry{ID: regapi.NewID("deployment.packages", "application"), Kind: regapi.NamespaceDependency,
 		Data: payload.New(rootClosureDependency{"acme/app", "2.0.0"})}
 	previousRoot := root
 	previousRoot.Data = payload.New(rootClosureDependency{"acme/app", "1.0.0"})
 	baseline = append(baseline, previousRoot)
+	if preserveObsolete {
+		baseline = append(baseline, regapi.Entry{ID: regapi.NewID("host.modules", "obsolete"), Kind: regapi.NamespaceDependency,
+			Data: payload.New(rootClosureDependency{"acme/obsolete", "1.0.0"})})
+	}
 	result, err := handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryUpdate, Entry: root}, baseline)
 	require.NoError(t, err, "the new application owns the nested 2.0.0 declaration; its old 1.0.0 declaration cannot constrain the new closure")
 	require.NotNil(t, result.Resolution)
@@ -247,9 +257,10 @@ modules:
 		})
 	}
 	if preserveObsolete {
-		independent := regapi.Entry{ID: regapi.NewID("host.modules", "obsolete"), Kind: regapi.NamespaceDependency,
-			Data: payload.New(rootClosureDependency{"acme/obsolete", "1.0.0"})}
-		v0, err = reg.Apply(ctx, regapi.ChangeSet{{Kind: regapi.EntryCreate, Entry: independent}})
+		resident, err := reg.GetEntry(regapi.NewID("acme.obsolete", "definition"))
+		require.NoError(t, err)
+		resident.Data = payload.New(map[string]any{"source": "resident independent source"})
+		v0, err = reg.Apply(ctx, regapi.ChangeSet{{Kind: regapi.EntryUpdate, Entry: resident}})
 		require.NoError(t, err)
 	}
 	assertRejectedUpdate := func(t *testing.T, changes regapi.ChangeSet, message string) {
@@ -294,6 +305,17 @@ modules:
 	v1, err := reg.Apply(ctx, regapi.ChangeSet{{Kind: regapi.EntryUpdate, Entry: root}})
 	require.NoError(t, err)
 	assertSelected := func(reg *registryimpl.Reg, expected string) {
+		for _, module := range []string{"app", "worker", "helper"} {
+			snapshot := reg.Snapshot()
+			index := slices.IndexFunc(snapshot.Entries, func(entry regapi.Entry) bool {
+				return entry.ID == regapi.NewID("acme."+module, "definition")
+			})
+			require.NotEqual(t, -1, index)
+			entry := snapshot.Entries[index]
+			var data map[string]any
+			require.NoError(t, payload.GetTranscoder(ctx).Unmarshal(entry.Data, &data))
+			require.Equal(t, "return "+expected, data["source"], "selected %s must publish its definition", module)
+		}
 		require.Equal(t, expected, snapshotModuleVersion(t, reg, "acme/app"))
 		require.Equal(t, expected, snapshotModuleVersion(t, reg, "acme/worker"))
 		require.Equal(t, expected, snapshotModuleVersion(t, reg, "acme/helper"))
@@ -312,8 +334,13 @@ modules:
 			require.Error(t, obsoleteError)
 			_, err := reg.GetEntry(regapi.NewID("acme.obsolete", "definition"))
 			if preserveObsolete {
-				require.NoError(t, err, "the independent history installation retains the module, not the old app's declaration")
+				require.NoError(t, err, "the independent installation retains the module, not the old app's declaration")
 				require.Equal(t, "1.0.0", snapshotModuleVersion(t, reg, "acme/obsolete"))
+				entry, err := reg.GetEntry(regapi.NewID("acme.obsolete", "definition"))
+				require.NoError(t, err)
+				var data map[string]any
+				require.NoError(t, payload.GetTranscoder(ctx).Unmarshal(entry.Data, &data))
+				require.Equal(t, "resident independent source", data["source"], "untouched independent module must retain its resident definition")
 			} else {
 				require.Error(t, err)
 			}
@@ -357,13 +384,17 @@ modules:
 		return fmt.Errorf("network disabled")
 	}
 	restarted := newRegistry()
-	loadCtx := regapi.WithRegistry(regapi.WithDependencyAccess(ctx, regapi.DependencyAccessVerifiedOffline), restarted)
+	loadCtx := regapi.WithRegistry(regapi.WithDependencyAccess(newTestContext(), regapi.DependencyAccessVerifiedOffline), restarted)
 	err = restarted.LoadState(loadCtx, baseline, v1)
 	require.NoError(t, err, "%+v", apierror.BuildChain(err))
 	assertSelected(restarted, "2.0.0")
 	reopenedResolution, err := history.GetDependencyResolution(v1)
 	require.NoError(t, err)
 	require.Equal(t, unchanged, reopenedResolution, "offline replay must retain the exact stored checkpoint")
+	require.NoError(t, restarted.ApplyVersion(loadCtx, v0))
+	assertSelected(restarted, "1.0.0")
+	require.NoError(t, restarted.ApplyVersion(loadCtx, v1))
+	assertSelected(restarted, "2.0.0")
 }
 
 func TestSolverDependenciesPreservesIndependentConstraints(t *testing.T) {

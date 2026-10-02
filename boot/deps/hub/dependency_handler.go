@@ -372,9 +372,17 @@ func (h *DependencyHandler) expand(
 		}
 	}
 	_, installedDigests := h.currentModuleIdentities(ctx)
+	// Lock versions also seed the solver for packs that are not resident yet.
+	// Diff against resident selections so those packs still get materialized.
+	installedVersions := make(map[string]string, len(lockedVersions))
+	for _, resident := range snapshot {
+		if module := entryModule(resident); module != "" {
+			installedVersions[module] = lockedVersions[module]
+		}
+	}
 	strictModules := touchedModuleIdentities(
 		resolved,
-		lockedVersions,
+		installedVersions,
 		installedDigests,
 		opComponent,
 	)
@@ -433,7 +441,9 @@ func (h *DependencyHandler) expand(
 	additional, err := (operationPlanner{resolver: h.resolver}).plan(snapshot, combined, operationPlanOptions{
 		originalKey:       idKey(op.Entry.ID),
 		controlledModules: controlledModules,
-		mutableModules:    mutableModules,
+		// The resolution diff also makes changed child packs mutable. Their
+		// selected artifacts must publish definitions alongside their identities.
+		mutableModules: touchedModules,
 	})
 	if err != nil {
 		return regapi.DirectiveResult{}, err
@@ -893,7 +903,7 @@ func (h *DependencyHandler) ReconcileResolution(
 const replacementZeroVersion = "0.0.0"
 
 // touchedModuleIdentities returns the resolved modules this operation actually
-// affects: those new or version-changed relative to the snapshot, plus the
+// affects: those new or version/digest-changed relative to the snapshot, plus the
 // module of the dependency entry being changed in this operation. Modules
 // already installed at the same version that this operation does not target are
 // trusted — they were validated when installed — and are excluded from strict
@@ -912,7 +922,9 @@ func touchedModuleIdentities(
 		}
 		name := mod.Org + "/" + mod.Name
 		version, known := installedVersions[name]
-		digestMatches := mod.Digest == "" || artifactDigestsEqual(installedDigests[name], mod.Digest)
+		// Learning a previously unrecorded digest does not change a resident
+		// selection. Only a known content identity can prove a digest change.
+		digestMatches := mod.Digest == "" || installedDigests[name] == "" || artifactDigestsEqual(installedDigests[name], mod.Digest)
 		if !known || version != mod.Version || !digestMatches || name == opComponent {
 			names = append(names, name)
 		}
