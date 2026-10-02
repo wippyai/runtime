@@ -998,3 +998,11 @@ print("Inserted ID:", result.last_insert_id)
 -- Release database
 db:release()
 ```
+
+## SQLite error codes
+
+SQL operations return their native error message and cause. For SQLite driver
+errors, `err:details()` also includes `sqlite_code` (the numeric primary SQLite
+result code) and `sqlite_extended_code` (the numeric extended result code).
+These fields are absent for other errors. For example, a foreign-key violation
+returns `sqlite_code = 19` and `sqlite_extended_code = 787`.
