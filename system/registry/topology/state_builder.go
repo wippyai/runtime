@@ -86,6 +86,17 @@ func (b *StateBuilder) ApplyOperation(state StateMap, op registry.Operation) (St
 	return newState, nil
 }
 
+// ApplyOperationToPrivateState validates and changes a caller-owned working map.
+// The caller must keep its rollback snapshot separate and never publish this
+// map until the transaction commits. Public ApplyOperation retains isolation.
+func (b *StateBuilder) ApplyOperationToPrivateState(state StateMap, op registry.Operation) error {
+	if err := b.ValidateOperation(state, op); err != nil {
+		return NewInvalidOperationError(err)
+	}
+	applyValidatedOperation(state, op)
+	return nil
+}
+
 // applyReplayOperation mutates only the private map owned by BuildState. No
 // intermediate maps escape replay, so copying them per operation is unnecessary.
 func (b *StateBuilder) applyReplayOperation(state StateMap, op registry.Operation) error {
