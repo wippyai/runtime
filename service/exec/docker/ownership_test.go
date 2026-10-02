@@ -48,7 +48,13 @@ func TestOwnershipLabelsExistOnFailedCreate(t *testing.T) {
 			defer executor.Close()
 			proc, err := executor.NewProcess("true", execapi.ProcessOptions{Env: map[string]string{"OWNER": "bee", "NODE": "node-1", "STATE": "state-1", "ATTEMPT": "attempt-1"}})
 			require.NoError(t, err)
-			process := proc.(*Process)
+			var process *Process
+			switch selected := proc.(type) {
+			case *Process:
+				process = selected
+			default:
+				t.Fatalf("unexpected Docker process %T", proc)
+			}
 			process.startTimeout = 25 * time.Millisecond
 			err = process.Start()
 			require.Error(t, err)
