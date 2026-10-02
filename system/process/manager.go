@@ -55,6 +55,12 @@ func (m *Manager) Start(ctx context.Context, start *api.Start) (pid.PID, error) 
 	if !ok {
 		return pid.PID{}, NewInvalidHostError(start.HostID)
 	}
+	if start.Admission != nil {
+		acceptor, ok := host.(api.AdmissionHost)
+		if !ok || !acceptor.AcceptsAdmission() {
+			return pid.PID{}, ErrAdmissionUnsupported
+		}
+	}
 
 	// Apply the registered frame-context resolvers (e.g. the network overlay)
 	// generically; the manager stays agnostic of any specific subsystem.

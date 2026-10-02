@@ -12,6 +12,8 @@ var (
 	ErrHostNotRunning     = apierror.New(apierror.Unavailable, "host is not running").WithRetryable(apierror.False)
 	ErrHostShuttingDown   = apierror.New(apierror.Unavailable, "host is shutting down").WithRetryable(apierror.False)
 	ErrHostAlreadyRunning = apierror.New(apierror.Conflict, "host already running").WithRetryable(apierror.False)
+
+	ErrAdmissionFactoryRequired = apierror.New(apierror.Invalid, "admitted process requires a factory").WithRetryable(apierror.False)
 )
 
 func NewDecodeConfigError(cause error) apierror.Error {

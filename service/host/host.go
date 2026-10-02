@@ -83,9 +83,13 @@ func (h *Host) Run(ctx context.Context, start *process.Start) (pid.PID, error) {
 
 	processName := processName(start)
 
-	// Shortcut: if name specified and already exists, route directly to existing process
+	// Shortcut: if name specified and already exists, route directly to existing process.
+	// An admitted program never routes elsewhere: it must run or fail.
 	if processName != "" && h.pidReg != nil {
 		if existingPID, ok := h.pidReg.Lookup(processName); ok {
+			if start.Admission != nil {
+				return pid.PID{}, errors.Join(topology.NameAlreadyRegisteredError(existingPID), rollbackUnconsumedAttachments(start.Context))
+			}
 			if err := rollbackUnconsumedAttachments(start.Context); err != nil {
 				return existingPID, err
 			}
@@ -99,7 +103,7 @@ func (h *Host) Run(ctx context.Context, start *process.Start) (pid.PID, error) {
 		}
 	}
 
-	proc, meta, err := h.factory.Create(start.Source)
+	proc, meta, err := h.createProcess(start)
 	if err != nil {
 		return pid.PID{}, err
 	}
@@ -143,7 +147,7 @@ func (h *Host) Run(ctx context.Context, start *process.Start) (pid.PID, error) {
 		}
 
 		// Handle spawn-or-signal: if name taken, route messages to existing process
-		if errors.Is(err, topology.ErrNameAlreadyRegistered) {
+		if errors.Is(err, topology.ErrNameAlreadyRegistered) && start.Admission == nil {
 			if existingPID, ok := topology.GetExistingPID(err); ok {
 				return h.handleNameTaken(existingPID, start)
 			}
@@ -163,6 +167,24 @@ func (h *Host) Run(ctx context.Context, start *process.Start) (pid.PID, error) {
 		zap.String("method", method))
 
 	return processID, nil
+}
+
+// createProcess builds the process from the start's admission, or from the
+// registry entry it names.
+func (h *Host) createProcess(start *process.Start) (process.Process, *process.Meta, error) {
+	admission := start.Admission
+	if admission == nil {
+		return h.factory.Create(start.Source)
+	}
+	if admission.Factory == nil {
+		return nil, nil, ErrAdmissionFactoryRequired
+	}
+	proc, err := admission.Factory()
+	if err != nil {
+		return nil, nil, err
+	}
+	meta := admission.Meta
+	return proc, &meta, nil
 }
 
 func rollbackUnconsumedAttachments(pairs []ctxapi.Pair) error {
@@ -218,6 +240,9 @@ func (h *Host) Terminate(_ context.Context, processID pid.PID) error {
 }
 
 func (h *Host) AcceptsFrameAttachments() bool { return true }
+
+// AcceptsAdmission implements process.AdmissionHost.
+func (h *Host) AcceptsAdmission() bool { return true }
 
 // Send implements relay.Receiver.
 func (h *Host) Send(pkg *relay.Package) error {

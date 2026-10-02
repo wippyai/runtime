@@ -12,6 +12,7 @@ import (
 var (
 	ErrTerminated                  = apierror.New(apiprocess.Internal, "process terminated")
 	ErrFrameAttachmentsUnsupported = apierror.New(apiprocess.InvalidState, "process host does not accept frame attachments").WithRetryable(apierror.False)
+	ErrAdmissionUnsupported        = apierror.New(apiprocess.InvalidState, "process host does not accept admitted processes").WithRetryable(apierror.False)
 )
 
 // UnknownCommandError indicates an unregistered command.
