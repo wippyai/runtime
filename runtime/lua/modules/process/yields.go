@@ -9,6 +9,7 @@ import (
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/process"
+	secapi "github.com/wippyai/runtime/api/security"
 )
 
 // SendYield wraps SendCmd for Lua.
@@ -105,6 +106,7 @@ func (y *SpawnYield) HandleResult(l *lua.LState, data any, err error) []lua.LVal
 		luaErr := lua.WrapErrorWithLua(l, resp.Error, "")
 		return []lua.LValue{lua.LNil, luaErr}
 	}
+	secapi.GrantProcessSend(l.Context(), resp.PID)
 	return []lua.LValue{lua.LString(resp.PID.String()), lua.LNil}
 }
 

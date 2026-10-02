@@ -17,6 +17,7 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/runtime"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
+	secapi "github.com/wippyai/runtime/api/security"
 	"github.com/wippyai/runtime/api/topology"
 	"github.com/wippyai/runtime/api/topology/namereg/global"
 	runtimelua "github.com/wippyai/runtime/runtime/lua"
@@ -173,7 +174,21 @@ func resolvePID(l *lua.LState, pidOrName string, permission string, senderPID pi
 			strings.TrimPrefix(permission, "process."), pidOrName)
 	}
 
+	// A capability-restricted process may only address PIDs the runtime
+	// handed to it; a PID string it made up is refused.
+	if grants := secapi.GetProcessSendGrants(l.Context()); grants != nil && !grants.Holds(resolved.PID) {
+		return sysprocess.ResolvedDestination{}, runtimelua.NewNotAllowedError(
+			strings.TrimPrefix(permission, "process."), pidOrName)
+	}
+
 	return resolved, nil
+}
+
+// pushAcquiredPID pushes a PID the runtime hands to the process, granting it
+// to a capability-restricted process.
+func pushAcquiredPID(l *lua.LState, p pidapi.PID) {
+	secapi.GrantProcessSend(l.Context(), p)
+	l.Push(lua.LString(p.String()))
 }
 
 func createPayloadsFromArgs(l *lua.LState) payload.Payloads {
@@ -801,7 +816,7 @@ func registryLookup(l *lua.LState) int {
 		if !found {
 			return pushProcessError(l, lua.LNil, newProcessError(l, lua.NotFound, "name not registered"))
 		}
-		l.Push(lua.LString(p.String()))
+		pushAcquiredPID(l, p)
 		return 1
 	}
 	checked := false
@@ -818,7 +833,7 @@ func registryLookup(l *lua.LState) int {
 			if ctx.Err() != nil {
 				return pushProcessError(l, lua.LNil, wrapProcessError(l, ctx.Err(), "", lua.Internal))
 			}
-			l.Push(lua.LString(res.PID.String()))
+			pushAcquiredPID(l, res.PID)
 			return 1
 		}
 	}
@@ -836,7 +851,7 @@ func registryLookup(l *lua.LState) int {
 			if ctx.Err() != nil {
 				return pushProcessError(l, lua.LNil, wrapProcessError(l, ctx.Err(), "", lua.Internal))
 			}
-			l.Push(lua.LString(res.PID.String()))
+			pushAcquiredPID(l, res.PID)
 			return 1
 		}
 	}
@@ -856,7 +871,7 @@ func registryLookup(l *lua.LState) int {
 			if ctx.Err() != nil {
 				return pushProcessError(l, lua.LNil, wrapProcessError(l, ctx.Err(), "", lua.Internal))
 			}
-			l.Push(lua.LString(p.String()))
+			pushAcquiredPID(l, p)
 			return 1
 		}
 	}
