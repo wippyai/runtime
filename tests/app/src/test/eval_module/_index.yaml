@@ -1,0 +1,97 @@
+# SPDX-License-Identifier: MPL-2.0
+
+version: "1.0"
+namespace: app.test.eval_module
+
+entries:
+  - name: sleeper
+    kind: process.lua
+    meta:
+      comment: Child process an eval spawns; exits after a short sleep
+    source: file://sleeper.lua
+    method: main
+    modules:
+      - time
+
+  - name: spawn_result
+    kind: function.lua
+    meta:
+      type: test
+      suite: eval_module
+      description: eval.spawn runs source as a process and reports its result
+    source: file://spawn_result.lua
+    method: main
+    modules:
+      - eval
+      - time
+    imports:
+      assert: app.lib:assert
+
+  - name: program_lifecycle
+    kind: function.lua
+    meta:
+      type: test
+      suite: eval_module
+      description: eval.compile, Program:spawn, Program:evict
+    source: file://program_lifecycle.lua
+    method: main
+    modules:
+      - eval
+      - time
+    imports:
+      assert: app.lib:assert
+
+  - name: send_capabilities
+    kind: function.lua
+    meta:
+      type: test
+      suite: eval_module
+      description: eval code addresses only PIDs handed to it
+    source: file://send_capabilities.lua
+    method: main
+    modules:
+      - eval
+      - time
+    imports:
+      assert: app.lib:assert
+
+  - name: limits
+    kind: function.lua
+    meta:
+      type: test
+      suite: eval_module
+      description: eval limits max_steps and tick_budget
+    source: file://limits.lua
+    method: main
+    modules:
+      - eval
+      - time
+    imports:
+      assert: app.lib:assert
+
+  - name: child_limit
+    kind: function.lua
+    meta:
+      type: test
+      suite: eval_module
+      description: eval max_children bounds running children and frees slots on exit
+    source: file://child_limit.lua
+    method: main
+    modules:
+      - eval
+      - time
+    imports:
+      assert: app.lib:assert
+
+  - name: admission_errors
+    kind: function.lua
+    meta:
+      type: test
+      suite: eval_module
+      description: eval rejects invalid options and policies
+    source: file://admission_errors.lua
+    method: main
+    modules:
+      - eval
+    imports:
+      assert: app.lib:assert

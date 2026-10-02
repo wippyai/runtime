@@ -10,4 +10,6 @@ var (
 	ErrDispatcherNotFound          = apierror.New(apierror.Internal, "dispatcher not found in context").WithRetryable(apierror.False)
 	ErrDispatcherRegistrarNotFound = apierror.New(apierror.Internal, "dispatcher registrar not found in context").WithRetryable(apierror.False)
 	ErrCodeManagerNotFound         = apierror.New(apierror.Internal, "code manager not found in context").WithRetryable(apierror.False)
+	ErrProcessManagerNotFound      = apierror.New(apierror.Internal, "process manager not found in context").WithRetryable(apierror.False)
+	ErrFrameResolversNotFound      = apierror.New(apierror.Internal, "frame resolvers not found in context").WithRetryable(apierror.False)
 )
