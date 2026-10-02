@@ -90,7 +90,7 @@ func NewModule(opts Options) *luaapi.ModuleDef {
 		Description: "Registry operations for entries, snapshots, and versioning",
 		Class:       []string{luaapi.ClassNondeterministic, luaapi.ClassStorage},
 		Build: func() (*lua.LTable, []luaapi.YieldType) {
-			mod := lua.CreateTable(0, 11)
+			mod := lua.CreateTable(0, 13)
 			mod.RawSetString("get", lua.LGoFunc(registryGet))
 			mod.RawSetString("find", lua.LGoFunc(registryFind))
 			mod.RawSetString("parse_id", lua.LGoFunc(parseID))
@@ -102,6 +102,8 @@ func NewModule(opts Options) *luaapi.ModuleDef {
 			mod.RawSetString("apply_version", lua.LGoFunc(registryApplyVersion))
 			mod.RawSetString("build_delta", makeBuildDelta(opts.Log))
 			mod.RawSetString("overlay", lua.LGoFunc(registryOverlay))
+			mod.RawSetString("history_backend", lua.LGoFunc(registryHistoryBackend))
+			mod.RawSetString("use_remote_history", lua.LGoFunc(registryUseRemoteHistory))
 			mod.Immutable = true
 			return mod, nil
 		},

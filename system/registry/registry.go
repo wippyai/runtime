@@ -180,8 +180,8 @@ func (r *Reg) publishSnapshot() {
 // --- StateWriter Interface Implementation ---
 
 func (r *Reg) Apply(ctx context.Context, changes registry.ChangeSet) (registry.Version, error) {
-	r.applyMu.Lock()
-	defer r.applyMu.Unlock()
+	r.lockApply()
+	defer r.unlockApply()
 	return r.applyLocked(ctx, changes, nil)
 }
 
@@ -226,8 +226,8 @@ func (r *Reg) patchDepIndex(ops registry.ChangeSet) {
 }
 
 func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
-	r.applyMu.Lock()
-	defer r.applyMu.Unlock()
+	r.lockApply()
+	defer r.unlockApply()
 
 	var (
 		snapshot    registry.State
@@ -594,8 +594,8 @@ func (r *Reg) collectBackwardChangesets(path []registry.Version, targetVersion r
 // For v0 (empty history): applies baseline directly
 // For v1+: replays changesets v1..targetVersion on top of baseline, then applies final state once
 func (r *Reg) LoadState(ctx context.Context, baseline registry.State, targetVersion registry.Version) error {
-	r.applyMu.Lock()
-	defer r.applyMu.Unlock()
+	r.lockApply()
+	defer r.unlockApply()
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -959,6 +959,22 @@ func (r *Reg) Current() (registry.Version, error) {
 
 func (r *Reg) History() registry.History {
 	return r.history
+}
+
+// lockApply takes applyMu and starts one history transaction.
+func (r *Reg) lockApply() {
+	r.applyMu.Lock()
+	if transactional, ok := r.history.(registry.TransactionalHistory); ok {
+		transactional.BeginTransaction()
+	}
+}
+
+// unlockApply ends the history transaction and releases applyMu.
+func (r *Reg) unlockApply() {
+	if transactional, ok := r.history.(registry.TransactionalHistory); ok {
+		transactional.EndTransaction()
+	}
+	r.applyMu.Unlock()
 }
 
 // RegisterDependencyPattern adds a pattern for dependency extraction.
