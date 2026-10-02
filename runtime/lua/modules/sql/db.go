@@ -91,7 +91,7 @@ func sqlGet(l *lua.LState) int {
 	res, dbRes, err := rtresource.AcquireRegistryResource(ctx, reg, resID, resource.ModeNormal)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.WrapErrorWithLua(l, err, "acquire resource"))
+		l.Push(wrapSQLError(l, err, "acquire resource"))
 		return 2
 	}
 
