@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -72,7 +73,7 @@ func TestMissingOwnershipSourceRefusesBeforeCreate(t *testing.T) {
 	defer executor.Close()
 	_, err = executor.NewProcess("true", execapi.ProcessOptions{})
 	require.ErrorContains(t, err, "label source OWNER")
-	for _, value := range []string{"", "bad\x00value", string(make([]byte, 4097))} {
+	for _, value := range []string{"", "bad\x00value", strings.Repeat("x", 4097)} {
 		_, err = executor.NewProcess("true", execapi.ProcessOptions{Env: map[string]string{"OWNER": value}})
 		require.ErrorContains(t, err, "label source OWNER")
 	}
