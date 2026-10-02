@@ -3,6 +3,7 @@
 package directory
 
 import (
+	"fmt"
 	"io/fs"
 
 	fsapi "github.com/wippyai/runtime/api/fs"
@@ -11,10 +12,11 @@ import (
 
 // CreateFSConfig is a config for CreateFS.
 type CreateFSConfig struct {
-	DirPath  string
-	Mode     fs.FileMode
-	AutoInit bool
-	ReadOnly bool
+	DirPath    string
+	LinkPolicy string
+	Mode       fs.FileMode
+	AutoInit   bool
+	ReadOnly   bool
 }
 
 // FactoryAPI defines the interface for creating filesystem instances.
@@ -33,6 +35,9 @@ func NewFactory() *Factory {
 
 // CreateFS creates a new directory filesystem.
 func (f *Factory) CreateFS(cfg CreateFSConfig) (fsapi.FS, error) {
+	if cfg.LinkPolicy != "" && cfg.LinkPolicy != "contained" && cfg.LinkPolicy != "owner_safe" {
+		return nil, fmt.Errorf("invalid link_policy %q: expected contained or owner_safe", cfg.LinkPolicy)
+	}
 	if cfg.ReadOnly && cfg.AutoInit {
 		return nil, dirapi.ErrReadOnlyAutoInit
 	}
@@ -41,6 +46,7 @@ func (f *Factory) CreateFS(cfg CreateFSConfig) (fsapi.FS, error) {
 	if err != nil {
 		return nil, err
 	}
+	filesystem.ownerSafe = cfg.LinkPolicy == "owner_safe" && ownerSafeSupported
 	if cfg.ReadOnly {
 		return fsapi.NewReadOnlyFS(filesystem), nil
 	}

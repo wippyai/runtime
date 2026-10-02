@@ -380,7 +380,12 @@ func fsExists(l *lua.LState) int {
 	}
 	_, err = fs.fs.Stat(resolved)
 	l.Push(lua.LBool(err == nil))
-	l.Push(lua.LNil)
+	var refusal interface{ LinkPolicyRefusal() bool }
+	if errors.As(err, &refusal) && refusal.LinkPolicyRefusal() {
+		l.Push(wrapFilesystemError(l, err, "exists refused", lua.PermissionDenied))
+	} else {
+		l.Push(lua.LNil)
+	}
 	return 2
 }
 

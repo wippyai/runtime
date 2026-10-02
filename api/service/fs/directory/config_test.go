@@ -225,3 +225,13 @@ func TestConfig_FileMode(t *testing.T) {
 		})
 	}
 }
+
+func TestConfigLinkPolicy(t *testing.T) {
+	for _, policy := range []string{"", "contained", "owner_safe"} {
+		var c Config
+		require.NoError(t, json.Unmarshal([]byte(`{"directory":".","link_policy":"`+policy+`"}`), &c))
+		require.NoError(t, c.Validate())
+		assert.Equal(t, policy, c.LinkPolicy)
+	}
+	require.Error(t, (&Config{Directory: ".", LinkPolicy: "unsafe"}).Validate())
+}
