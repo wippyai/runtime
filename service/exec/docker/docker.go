@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
@@ -38,6 +39,7 @@ var (
 
 // Executor implements exec.ProcessExecutor for Docker containers
 type Executor struct {
+	labelsFromEnv    map[string]string
 	log              *zap.Logger
 	cli              *client.Client
 	tmpfs            map[string]string
@@ -78,6 +80,7 @@ func NewDockerExecutor(log *zap.Logger, config *execapi.DockerExecutorConfig) (*
 	}
 
 	return &Executor{
+		labelsFromEnv:    maps.Clone(config.LabelsFromEnv),
 		log:              log,
 		cli:              cli,
 		image:            config.Image,
@@ -107,6 +110,14 @@ func (e *Executor) NewProcess(cmd string, options execapi.ProcessOptions) (execa
 	}
 	if options.Confine != nil {
 		return nil, execapi.ErrConfineUnsupported
+	}
+	labels := make(map[string]string, len(e.labelsFromEnv))
+	for label, source := range e.labelsFromEnv {
+		value := options.Env[source]
+		if value == "" || len(value) > 4096 || strings.IndexByte(value, 0) >= 0 {
+			return nil, fmt.Errorf("Docker label source %s is missing, empty or invalid", source)
+		}
+		labels[label] = value
 	}
 	if err := validateProcessMountTargets(e.volumes, options.Mounts); err != nil {
 		return nil, err
@@ -142,6 +153,7 @@ func (e *Executor) NewProcess(cmd string, options execapi.ProcessOptions) (execa
 	}
 
 	process := &Process{
+		labels:          labels,
 		log:             e.log,
 		cli:             e.cli,
 		image:           e.image,
@@ -183,6 +195,7 @@ func (e *Executor) Close() error {
 
 // Process represents a Docker container process
 type Process struct {
+	labels          map[string]string
 	waitCtx         context.Context
 	stdinWriter     io.WriteCloser
 	stdinCloser     interface{ CloseWrite() error }
@@ -268,6 +281,7 @@ func (p *Process) Start() error {
 	}
 
 	config := &container.Config{
+		Labels:       p.labels,
 		Image:        p.image,
 		Cmd:          p.cmd,
 		Env:          p.env,

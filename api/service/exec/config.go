@@ -2,6 +2,8 @@
 
 package exec
 
+import "fmt"
+
 // NativeExecutorConfig defines configuration for native process execution
 type NativeExecutorConfig struct {
 	// Default environment variables (always extended, never replaced)
@@ -23,6 +25,9 @@ type NativeExecutorConfig struct {
 
 // DockerExecutorConfig defines configuration for Docker container execution
 type DockerExecutorConfig struct {
+	// LabelsFromEnv selects nonsecret per-process environment identities to
+	// copy into container labels at creation. Every selected source is required.
+	LabelsFromEnv    map[string]string `json:"labels_from_env,omitempty"`
 	DefaultEnv       map[string]string `json:"default_env"`
 	Tmpfs            map[string]string `json:"tmpfs"`
 	Host             string            `json:"host"`
@@ -65,6 +70,14 @@ func (c *NativeExecutorConfig) Validate() error {
 func (c *DockerExecutorConfig) Validate() error {
 	if c.Image == "" {
 		return ErrImageRequired
+	}
+	if len(c.LabelsFromEnv) > 64 {
+		return fmt.Errorf("Docker ownership label mapping exceeds 64 entries")
+	}
+	for label, source := range c.LabelsFromEnv {
+		if label == "" || len(label) > 256 || containsNUL(label) || !validConfinementEnvName(source) {
+			return fmt.Errorf("invalid Docker ownership label mapping")
+		}
 	}
 	return nil
 }
