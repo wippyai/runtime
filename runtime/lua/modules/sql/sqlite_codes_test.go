@@ -1,3 +1,5 @@
+//go:build cgo
+
 // SPDX-License-Identifier: MPL-2.0
 
 package sql
@@ -23,17 +25,18 @@ func TestSQLiteCodesAtLuaBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
+	ctx := t.Context()
 	for _, statement := range []string{"PRAGMA foreign_keys=ON", "CREATE TABLE parent(id INTEGER PRIMARY KEY)", "CREATE TABLE child(id INTEGER REFERENCES parent(id) DEFERRABLE INITIALLY DEFERRED)", "CREATE TRIGGER rejected BEFORE INSERT ON parent BEGIN SELECT RAISE(ABORT, 'rejected by trigger'); END"} {
-		if _, err := db.Exec(statement); err != nil {
+		if _, err := db.ExecContext(ctx, statement); err != nil {
 			t.Fatal(err)
 		}
 	}
-	_, statementErr := db.Exec("INSERT INTO parent VALUES(1)")
-	tx, err := db.Begin()
+	_, statementErr := db.ExecContext(ctx, "INSERT INTO parent VALUES(1)")
+	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tx.Exec("INSERT INTO child VALUES(1)"); err != nil {
+	if _, err := tx.ExecContext(ctx, "INSERT INTO child VALUES(1)"); err != nil {
 		t.Fatal(err)
 	}
 	commitErr := tx.Commit()
@@ -43,23 +46,23 @@ func TestSQLiteCodesAtLuaBoundary(t *testing.T) {
 			t.Fatalf("expected SQLite error, got %v", native)
 		}
 		handlers := []struct {
-			name     string
 			yield    errorResult
 			response any
+			name     string
 		}{
-			{"query", &QueryYield{}, sqlapi.QueryResponse{Error: native}},
-			{"execute", &ExecuteYield{}, sqlapi.ExecuteResponse{Error: native}},
-			{"prepare", &PrepareYield{}, sqlapi.PrepareResponse{Error: native}},
-			{"begin", &BeginYield{}, sqlapi.BeginResponse{Error: native}},
-			{"stmt query", &StmtQueryYield{}, sqlapi.QueryResponse{Error: native}},
-			{"stmt execute", &StmtExecuteYield{}, sqlapi.ExecuteResponse{Error: native}},
-			{"stmt close", &StmtCloseYield{}, nil},
-			{"tx query", &TxQueryYield{}, sqlapi.QueryResponse{Error: native}},
-			{"tx execute", &TxExecuteYield{}, sqlapi.ExecuteResponse{Error: native}},
-			{"savepoint", &TxSavepointYield{}, sqlapi.ExecuteResponse{Error: native}},
-			{"tx prepare", &TxPrepareYield{}, sqlapi.PrepareResponse{Error: native}},
-			{"tx commit", &TxCommitYield{}, nil},
-			{"tx rollback", &TxRollbackYield{}, nil},
+			{&QueryYield{}, sqlapi.QueryResponse{Error: native}, "query"},
+			{&ExecuteYield{}, sqlapi.ExecuteResponse{Error: native}, "execute"},
+			{&PrepareYield{}, sqlapi.PrepareResponse{Error: native}, "prepare"},
+			{&BeginYield{}, sqlapi.BeginResponse{Error: native}, "begin"},
+			{&StmtQueryYield{}, sqlapi.QueryResponse{Error: native}, "stmt query"},
+			{&StmtExecuteYield{}, sqlapi.ExecuteResponse{Error: native}, "stmt execute"},
+			{&StmtCloseYield{}, nil, "stmt close"},
+			{&TxQueryYield{}, sqlapi.QueryResponse{Error: native}, "tx query"},
+			{&TxExecuteYield{}, sqlapi.ExecuteResponse{Error: native}, "tx execute"},
+			{&TxSavepointYield{}, sqlapi.ExecuteResponse{Error: native}, "savepoint"},
+			{&TxPrepareYield{}, sqlapi.PrepareResponse{Error: native}, "tx prepare"},
+			{&TxCommitYield{}, nil, "tx commit"},
+			{&TxRollbackYield{}, nil, "tx rollback"},
 		}
 		for _, handler := range handlers {
 			t.Run(fmt.Sprintf("%d/%s", driver.ExtendedCode, handler.name), func(t *testing.T) {
@@ -91,24 +94,23 @@ func TestSQLiteCodesAtLuaBoundary(t *testing.T) {
 	}
 }
 
-func TestSQLWrappingPreservesMetadata(t *testing.T) {
+func TestSQLWrappingPreservesSQLiteMetadata(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	cause := lua.NewError("driver error").WithKind(lua.Unavailable).WithRetryable(true).WithDetails(map[string]any{"operation_id": "original"})
-	wrapped := wrapSQLError(l, cause, "query")
-	if wrapped.Kind() != lua.Unavailable || wrapped.Details()["operation_id"] != "original" {
-		t.Fatalf("lost metadata: %v", wrapped)
-	}
-	if _, ok := wrapped.Details()["sqlite_code"]; ok {
-		t.Fatal("non-SQLite error acquired SQLite codes")
-	}
 	native := sqlite3.Error{Code: sqlite3.ErrConstraint, ExtendedCode: sqlite3.ErrConstraintForeignKey}
-	enriched := lua.WrapError(native, "driver").WithKind(lua.Invalid).WithDetails(map[string]any{"operation_id": "original"})
-	wrapped = wrapSQLError(l, enriched, "query")
-	if wrapped.Kind() != lua.Invalid || wrapped.Details()["operation_id"] != "original" || wrapped.Details()["sqlite_extended_code"] != 787 {
+	enriched := lua.WrapError(native, "driver").WithKind(lua.Invalid).WithRetryable(false).
+		WithDetails(map[string]any{"operation_id": "original"})
+	wrapped := wrapSQLError(l, enriched, "query")
+	if wrapped.Kind() != lua.Invalid || wrapped.Retryable() != lua.TernaryFalse || wrapped.Details()["operation_id"] != "original" || wrapped.Details()["sqlite_code"] != 19 || wrapped.Details()["sqlite_extended_code"] != 787 {
 		t.Fatalf("lost metadata: %v", wrapped.Details())
 	}
 	if _, ok := enriched.Details()["sqlite_code"]; ok {
 		t.Fatal("input metadata mutated")
+	}
+	if _, ok := enriched.Details()["sqlite_extended_code"]; ok {
+		t.Fatal("input metadata mutated")
+	}
+	if !errors.Is(wrapped, native) {
+		t.Fatal("native cause was lost")
 	}
 }

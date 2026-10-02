@@ -6,6 +6,7 @@ import (
 	"errors"
 	"testing"
 
+	lua "github.com/wippyai/go-lua"
 	apierror "github.com/wippyai/runtime/api/error"
 )
 
@@ -77,5 +78,39 @@ func TestNewInvalidParametersTypeError(t *testing.T) {
 	expectedMsg := "parameters must be a table, got string"
 	if err.Error() != expectedMsg {
 		t.Errorf("expected %s, got %s", expectedMsg, err.Error())
+	}
+}
+
+func TestSQLWrappingPreservesNonSQLiteMetadata(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+
+	cause := lua.NewError("driver error").WithKind(lua.Unavailable).WithRetryable(true).
+		WithDetails(map[string]any{"operation_id": "original"})
+	wrapped := wrapSQLError(l, cause, "query")
+	if wrapped.Kind() != lua.Unavailable || wrapped.Retryable() != lua.TernaryTrue || wrapped.Details()["operation_id"] != "original" {
+		t.Fatalf("lost metadata: %v", wrapped)
+	}
+	if !errors.Is(wrapped, cause) {
+		t.Fatal("original cause was lost")
+	}
+	if _, ok := wrapped.Details()["sqlite_code"]; ok {
+		t.Fatal("non-SQLite error acquired SQLite code")
+	}
+	if _, ok := wrapped.Details()["sqlite_extended_code"]; ok {
+		t.Fatal("non-SQLite error acquired extended SQLite code")
+	}
+	wrapped.Details()["operation_id"] = "changed"
+	if cause.Details()["operation_id"] != "original" {
+		t.Fatal("input metadata mutated")
+	}
+}
+
+func TestSQLWrappingNilError(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+
+	if wrapped := wrapSQLError(l, nil, "query"); wrapped != nil {
+		t.Fatalf("nil cause acquired an error: %v", wrapped)
 	}
 }

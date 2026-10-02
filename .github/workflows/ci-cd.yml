@@ -87,6 +87,11 @@ jobs:
           SKIP_DOCKER_TESTS: "1"
         run: make test
 
+      - name: Run SQL module tests without CGO
+        env:
+          CGO_ENABLED: "0"
+        run: go test -count=1 ./runtime/lua/modules/sql
+
   test-native-exec:
     name: Native exec (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
