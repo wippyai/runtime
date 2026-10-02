@@ -405,7 +405,15 @@ func Cluster() boot.Component {
 
 			return ctx, nil
 		},
-		Start: func(ctx context.Context) error {
+		Start: func(ctx context.Context) (result error) {
+			logger.Info("Boot phase", zap.String("phase", "mesh_start"), zap.String("stage", "begin"))
+			defer func() {
+				stage := "end"
+				if result != nil {
+					stage = "failed"
+				}
+				logger.Info("Boot phase", zap.String("phase", "mesh_start"), zap.String("stage", stage))
+			}()
 			lifecycle.Lock()
 			defer lifecycle.Unlock()
 			if err := ctx.Err(); err != nil {
