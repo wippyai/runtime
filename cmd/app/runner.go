@@ -136,11 +136,17 @@ func operate(ctx context.Context, e Executable, l Launch, prepare func(context.C
 	}
 	bootPhase(e, "deployment_verify_seed", "end")
 	bootPhase(e, "lua_cache_seed", "begin")
-	if err := seedLuaCache(l.State, e.LuaCacheSeed); err != nil {
+	embeddedCache, err := seedLuaCache(e.LuaCacheSeed)
+	if err != nil {
 		bootPhase(e, "lua_cache_seed", "failed")
-		return NewApplicationStateError("install embedded Lua cache", luaCachePath(l.State), err)
+		fmt.Fprintf(os.Stderr, "%s: embedded Lua cache unavailable; using persistent cache or compilation: %v\n", e.Name, err)
 	}
-	bootPhase(e, "lua_cache_seed", "end")
+	if err == nil {
+		bootPhase(e, "lua_cache_seed", "end")
+	}
+	if embeddedCache != nil {
+		hosted = bootconfig.Merge(hosted, boot.NewConfig(boot.WithSection("lua", map[string]any{"cache.embedded": embeddedCache})))
+	}
 	if l.Op == OpUpdate {
 		return updateDeployment(ctx, e, l, deployment, childRunner)
 	}

@@ -22,23 +22,28 @@ import (
 	"github.com/wippyai/runtime/runtime/lua/code/cache"
 )
 
-func TestSeedLuaCacheInstallsVerifiedCompileAndTypecheckEntries(t *testing.T) {
-	state := t.TempDir()
+func TestSeedLuaCacheUsesVerifiedEntriesWithoutDiskInstallation(t *testing.T) {
 	seed, compileKey, typecheckKey := testLuaCacheSeed(t)
-	require.NoError(t, seedLuaCache(state, &seed))
-
-	store := cache.NewDiskStore(luaCachePath(state))
+	store, err := seedLuaCache(&seed)
+	require.NoError(t, err)
 	compileEntry, ok, err := store.Get(compileKey)
 	require.NoError(t, err)
 	require.True(t, ok)
 	require.Equal(t, []byte("proto"), compileEntry.Proto)
+	compileEntry.Proto[0] = 0
+	compileEntry.Meta.Deps = append(compileEntry.Meta.Deps, cache.DepMeta{ID: "changed"})
+	again, ok, err := store.Get(compileKey)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, []byte("proto"), again.Proto)
+	require.Empty(t, again.Meta.Deps)
 	typecheckEntry, ok, err := store.Get(typecheckKey)
 	require.NoError(t, err)
 	require.True(t, ok)
 	require.NotEmpty(t, typecheckEntry.Manifest)
-
-	marker := filepath.Join(luaCachePath(state), ".seed-"+hex.EncodeToString(sha256Bytes(seed.Archive)))
-	require.FileExists(t, marker)
+	_, ok, err = store.Get(cache.CompileKey("absent"))
+	require.NoError(t, err)
+	require.False(t, ok)
 }
 
 func TestMergeLuaCacheMovesVerifiedEntriesAndReplacesCorruptDerivedData(t *testing.T) {
@@ -63,60 +68,47 @@ func TestMergeLuaCacheMovesVerifiedEntriesAndReplacesCorruptDerivedData(t *testi
 }
 
 func TestSeedLuaCacheRejectsDigestAndIdentityMismatch(t *testing.T) {
-	seed, _, _ := testLuaCacheSeed(t)
-	state := t.TempDir()
-	seed.Archive = append(seed.Archive, 0)
-	require.ErrorContains(t, seedLuaCache(state, &seed), "digest mismatch")
-	require.NoDirExists(t, luaCachePath(state))
-
-	seed, _, _ = testLuaCacheSeed(t)
-	seed.ToolchainIdentity = "different-toolchain"
-	require.ErrorContains(t, seedLuaCache(state, &seed), "identity mismatch")
-	require.NoDirExists(t, luaCachePath(state))
-
-	seed, _, _ = testLuaCacheSeed(t)
-	seed.SchemaVersion = "different-schema"
-	require.ErrorContains(t, seedLuaCache(state, &seed), "identity mismatch")
-	require.NoDirExists(t, luaCachePath(state))
+	for _, mismatch := range []string{"digest", "toolchain", "schema"} {
+		t.Run(mismatch, func(t *testing.T) {
+			seed, _, _ := testLuaCacheSeed(t)
+			switch mismatch {
+			case "digest":
+				seed.Archive = append(seed.Archive, 0)
+			case "toolchain":
+				seed.ToolchainIdentity = "different"
+			case "schema":
+				seed.SchemaVersion = "different"
+			}
+			store, err := seedLuaCache(&seed)
+			require.Error(t, err)
+			require.Nil(t, store)
+		})
+	}
 }
 
-func TestSeedLuaCachePreservesExistingEntriesAndIsRepeatable(t *testing.T) {
-	state := t.TempDir()
-	seed, compileKey, typecheckKey := testLuaCacheSeed(t)
-	require.NoError(t, seedLuaCache(state, &seed))
-	store := cache.NewDiskStore(luaCachePath(state))
-	entry, found, err := store.Get(compileKey)
-	require.NoError(t, err)
-	require.True(t, found)
-	entry.Meta.CreatedAt = time.Unix(42, 0).UTC()
-	require.NoError(t, store.Put(compileKey, entry))
-
-	// Remove the marker to exercise merging rather than only its fast path.
-	marker := filepath.Join(luaCachePath(state), ".seed-"+hex.EncodeToString(sha256Bytes(seed.Archive)))
-	require.NoError(t, os.Remove(marker))
-	require.NoError(t, seedLuaCache(state, &seed))
-	require.NoError(t, seedLuaCache(state, &seed))
-	preserved, found, err := store.Get(compileKey)
-	require.NoError(t, err)
-	require.True(t, found)
-	require.Equal(t, entry.Meta.CreatedAt, preserved.Meta.CreatedAt)
-	_, found, err = store.Get(typecheckKey)
-	require.NoError(t, err)
-	require.True(t, found)
-}
-
-func TestSeedLuaCacheRejectsCorruptEntriesWithoutMarkingInstalled(t *testing.T) {
+func TestSeedLuaCacheSkipsInvalidMetadataLazily(t *testing.T) {
 	seed, compileKey, _ := testLuaCacheSeed(t)
 	staging := t.TempDir()
 	require.NoError(t, unpackLuaCacheSeed(seed.Archive, staging))
-	require.NoError(t, os.WriteFile(filepath.Join(staging, "v1", "entries", compileKey, "proto.luac"), []byte("corrupt"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(staging, "v1", "entries", compileKey, "meta.json"), []byte("corrupt"), 0o600))
 	seed.Archive = makeLuaCacheArchive(t, staging)
 	seed.Digest = "sha256:" + hex.EncodeToString(sha256Bytes(seed.Archive))
-	state := t.TempDir()
-	require.ErrorContains(t, seedLuaCache(state, &seed), "invalid Lua cache entry")
-	markers, err := filepath.Glob(filepath.Join(luaCachePath(state), ".seed-*"))
+	store, err := seedLuaCache(&seed)
+	require.NoError(t, err, "adoption must not decode every entry")
+	_, found, err := store.Get(compileKey)
 	require.NoError(t, err)
-	require.Empty(t, markers, "a failed installation must remain retryable")
+	require.False(t, found, "invalid metadata must be a cache miss")
+}
+
+// Only update-cache merge tests need a materialized archive.
+func unpackLuaCacheSeed(archive []byte, destination string) error {
+	return readLuaCacheArchive(archive, func(name string, data []byte) error {
+		target := filepath.Join(destination, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
+			return err
+		}
+		return os.WriteFile(target, data, 0o600)
+	})
 }
 
 func TestUnpackLuaCacheSeedRejectsUnsafeEntries(t *testing.T) {
@@ -171,7 +163,7 @@ func testLuaCacheSeed(t *testing.T) (LuaCacheSeed, string, string) {
 	return LuaCacheSeed{Archive: archive, Digest: "sha256:" + hex.EncodeToString(hash[:]), SchemaVersion: schema, ToolchainIdentity: toolchain}, cache.CompileKey(compileFP), cache.TypecheckKey(typecheckFP)
 }
 
-func makeLuaCacheArchive(t *testing.T, root string) []byte {
+func makeLuaCacheArchive(t testing.TB, root string) []byte {
 	t.Helper()
 	var output bytes.Buffer
 	gz := gzip.NewWriter(&output)
@@ -222,4 +214,41 @@ func makeLuaCacheArchive(t *testing.T, root string) []byte {
 func sha256Bytes(data []byte) []byte {
 	hash := sha256.Sum256(data)
 	return hash[:]
+}
+
+func TestSeedLuaCacheRejectsDuplicateAndTruncatedArchives(t *testing.T) {
+	seed, key, _ := testLuaCacheSeed(t)
+	var archive bytes.Buffer
+	gz := gzip.NewWriter(&archive)
+	writer := tar.NewWriter(gz)
+	name := "v1/entries/" + key + "/meta.json"
+	for range 2 {
+		require.NoError(t, writer.WriteHeader(&tar.Header{Name: name, Typeflag: tar.TypeReg}))
+	}
+	require.NoError(t, writer.Close())
+	require.NoError(t, gz.Close())
+	seed.Archive = archive.Bytes()
+	seed.Digest = "sha256:" + hex.EncodeToString(sha256Bytes(seed.Archive))
+	store, err := seedLuaCache(&seed)
+	require.ErrorContains(t, err, "duplicate")
+	require.Nil(t, store)
+	seed.Archive = seed.Archive[:len(seed.Archive)/2]
+	seed.Digest = "sha256:" + hex.EncodeToString(sha256Bytes(seed.Archive))
+	store, err = seedLuaCache(&seed)
+	require.Error(t, err)
+	require.Nil(t, store)
+}
+
+func TestReadLuaCacheArchiveRejectsOversizedContentsBeforeReading(t *testing.T) {
+	var archive bytes.Buffer
+	gz := gzip.NewWriter(&archive)
+	writer := tar.NewWriter(gz)
+	require.NoError(t, writer.WriteHeader(&tar.Header{
+		Name:     "v1/entries/" + cache.CompileKey("oversized") + "/proto.luac",
+		Typeflag: tar.TypeReg, Size: maxEmbeddedLuaCacheBytes + 1,
+	}))
+	// Deliberately omit the body: rejection must happen before allocating it.
+	require.NoError(t, gz.Close())
+	err := readLuaCacheArchive(archive.Bytes(), func(string, []byte) error { t.Fatal("oversized contents reached the cache"); return nil })
+	require.ErrorContains(t, err, "exceed")
 }

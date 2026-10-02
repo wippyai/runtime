@@ -292,6 +292,24 @@ shutdown:
   timeout: 30s
 ```
 
+Native applications may ship a `cmd/app.LuaCacheSeed`. Startup checks its
+SHA-256 archive digest, cache schema and linked Lua toolchain identity, then
+uses its immutable entries from memory without installing entry files in the
+state directory. Metadata and artifacts are decoded when requested; source,
+dependency and type-check fingerprints still have to match. A rejected seed or
+entry falls back to the persistent cache or compilation. Newly compiled entries
+remain in the configured disk cache; cache modes and stage switches still apply.
+The bounded archive parser rejects unsafe paths, links, duplicates and oversized
+contents. The embedded set is authenticated as a whole, so its immutable files
+are not individually rehashed. Native hosts can supply the same read-only layer
+through `code.Config.EmbeddedCache`; `lua.cache.embedded` is a typed host override,
+not a YAML setting.
+
+Hosts implementing `app.BootLogger` receive deployment, Lua seed, artifact seed
+and runtime-start phase records before the event bus exists. Mesh startup and
+independent owner-service starts report begin/end/failed records through the
+runtime logger. These diagnostics do not change readiness or permissions.
+
 ### Runtime configuration composition
 
 Dependency ranges remain `ns.dependency` registry entries and exact portable

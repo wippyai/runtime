@@ -163,6 +163,9 @@ func resolveEngineSettings(cfg boot.Config, logger *zap.Logger) code.Config {
 		)
 
 		luaCfg := cfg.Sub("lua")
+		if embedded, ok := luaCfg.Get("cache.embedded"); ok {
+			settings.EmbeddedCache, _ = embedded.(cache.Reader)
+		}
 		settings.InvalidationWaitTimeout = luaCfg.GetDuration("invalidation_wait_timeout", settings.InvalidationWaitTimeout)
 
 		typeSystemCfg := luaCfg.Sub("type_system")

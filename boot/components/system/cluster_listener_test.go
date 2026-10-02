@@ -30,6 +30,7 @@ import (
 	"github.com/wippyai/runtime/system/relay"
 	"github.com/wippyai/runtime/system/topology"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest/observer"
 )
 
 func TestClusterBootPublishesOnlyRetainedListener(t *testing.T) {
@@ -78,7 +79,8 @@ func checkClusterBootListener(t *testing.T, offlineSeed bool, source any, wantLo
 	defer cancel()
 	ctx := ctxapi.WithAppContext(base, ctxapi.NewAppContext())
 	ctx = boot.WithConfig(ctx, cfg)
-	ctx = logsapi.WithLogger(ctx, zap.NewNop())
+	logCore, phases := observer.New(zap.InfoLevel)
+	ctx = logsapi.WithLogger(ctx, zap.New(logCore))
 	ctx = event.WithBus(ctx, eventbus.NewBus())
 	ctx = payloadapi.WithTranscoder(ctx, payload.NewTranscoder())
 	relayNode := relay.NewNode("listener-proof")
@@ -103,6 +105,18 @@ func checkClusterBootListener(t *testing.T, offlineSeed bool, source any, wantLo
 	defer stop.Stop(ctx)
 	startErr := component.(boot.Starter).Start(ctx)
 	require.NoError(t, startErr)
+	meshPhases := phases.FilterMessage("Boot phase").All()
+	require.Len(t, meshPhases, 2)
+	require.Equal(t, "mesh_start", meshPhases[0].ContextMap()["phase"])
+	require.Equal(t, "begin", meshPhases[0].ContextMap()["stage"])
+	require.Equal(t, "end", meshPhases[1].ContextMap()["stage"])
+	cancelled, cancelStart := context.WithCancel(ctx)
+	cancelStart()
+	require.ErrorIs(t, component.(boot.Starter).Start(cancelled), context.Canceled)
+	meshPhases = phases.FilterMessage("Boot phase").All()
+	require.Len(t, meshPhases, 4)
+	require.Equal(t, "failed", meshPhases[3].ContextMap()["stage"])
+
 	node := membership.LocalNode()
 	port, err := strconv.Atoi(node.Meta[internode.MetadataPort])
 	require.NoError(t, err)

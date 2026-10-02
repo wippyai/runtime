@@ -121,6 +121,8 @@ type (
 
 	// Config defines initialization parameters
 	Config struct {
+		// EmbeddedCache is an authenticated, immutable cache supplied by the host.
+		EmbeddedCache           cache.Reader
 		Modules                 []*api.ModuleDef
 		Cache                   cache.Config
 		InvalidationWaitTimeout time.Duration
@@ -170,6 +172,9 @@ func NewCodeManager(log *zap.Logger, bus event.Bus, cfg Config) (*Manager, error
 		cm.cacheStore = cache.NewBoundedDiskStore(
 			cacheCfg.Dir, cacheCfg.MaxBytes, cacheCfg.MaxEntries, cacheCfg.PruneInterval,
 		)
+		if cfg.EmbeddedCache != nil {
+			cm.cacheStore = cache.NewLayeredStore(cfg.EmbeddedCache, cm.cacheStore)
+		}
 	}
 
 	// Create compiler with a callback that can access cm.memGraph for dependency manifests

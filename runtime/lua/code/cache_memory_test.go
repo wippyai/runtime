@@ -175,3 +175,67 @@ func TestCompileBytesRejectInvalidArtifacts(t *testing.T) {
 		})
 	}
 }
+
+func TestEmbeddedCompileMismatchIsRecompiledAndReplaced(t *testing.T) {
+	cfg := Config{Cache: cache.Config{Enabled: true, CompileEnabled: true, Dir: t.TempDir(), ToolchainIdentity: "test"}}
+	original, err := NewCodeManager(zap.NewNop(), nil, cfg)
+	require.NoError(t, err)
+	id := registry.NewID("test", "entry")
+	node := Node{ID: id, Kind: api.Library, Source: `return "valid"`}
+	require.NoError(t, original.AddNode(nil, node, nil))
+	_, err = original.Compile(id, nil)
+	require.NoError(t, err)
+	fingerprint, _, err := original.compileFingerprint(id)
+	require.NoError(t, err)
+	cfg.Cache.Dir = t.TempDir()
+	cfg.EmbeddedCache = &countingCacheStore{entry: &cache.Entry{
+		Meta:  cache.Meta{SchemaVersion: cache.SchemaVersion, EntryID: id.String(), CompileFingerprint: fingerprint},
+		Proto: []byte("invalid bytecode"),
+	}}
+	restored, err := NewCodeManager(zap.NewNop(), nil, cfg)
+	require.NoError(t, err)
+	require.NoError(t, restored.AddNode(nil, node, nil))
+	compiled, err := restored.Compile(id, nil)
+	require.NoError(t, err)
+	require.Equal(t, "valid", executeCompiledString(t, compiled.Main))
+	require.Positive(t, restored.CacheStats().CompileMisses)
+	proto, ok := restored.loadCompileCache(id, fingerprint)
+	require.True(t, ok, "the rejected embedded artifact must be replaced")
+	require.Equal(t, "valid", executeCompiledString(t, proto))
+}
+
+func TestEmbeddedCacheHonorsCacheModes(t *testing.T) {
+	cfg := Config{Cache: cache.Config{Enabled: true, CompileEnabled: true, Dir: t.TempDir(), ToolchainIdentity: "test"}}
+	producer, err := NewCodeManager(zap.NewNop(), nil, cfg)
+	require.NoError(t, err)
+	id := registry.NewID("test", "modes")
+	node := Node{ID: id, Kind: api.Library, Source: `return "embedded"`}
+	require.NoError(t, producer.AddNode(nil, node, nil))
+	compiled, err := producer.Compile(id, nil)
+	require.NoError(t, err)
+	fp, _, err := producer.compileFingerprint(id)
+	require.NoError(t, err)
+	data, err := bytecode.Dump(compiled.Main)
+	require.NoError(t, err)
+	for _, mode := range []cache.Mode{cache.ModeReadOnly, cache.ModeOff} {
+		t.Run(string(mode), func(t *testing.T) {
+			seed := &countingCacheStore{entry: &cache.Entry{Meta: cache.Meta{SchemaVersion: cache.SchemaVersion, EntryID: id.String(), CompileFingerprint: fp}, Proto: data}}
+			cfg.Cache.Dir = t.TempDir()
+			cfg.Cache.Mode = mode
+			cfg.EmbeddedCache = seed
+			cm, err := NewCodeManager(zap.NewNop(), nil, cfg)
+			require.NoError(t, err)
+			require.NoError(t, cm.AddNode(nil, node, nil))
+			_, err = cm.Compile(id, nil)
+			require.NoError(t, err)
+			if mode == cache.ModeReadOnly {
+				require.Positive(t, seed.reads.Load())
+				require.Positive(t, cm.CacheStats().CompileHits)
+			} else {
+				require.Zero(t, seed.reads.Load())
+				require.Zero(t, cm.CacheStats().CompileHits)
+			}
+			require.NoDirExists(t, cfg.Cache.Dir+"/v1/entries")
+		})
+	}
+}
