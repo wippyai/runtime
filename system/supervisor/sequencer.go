@@ -146,6 +146,7 @@ func (sp *sequencer) processStartOperations(ctx context.Context, operations []op
 				go forwardStartStateChanges(ctx, doneWatching, notifier.startStateChanged(), stateChangedCh)
 			}
 			go func(op operation) {
+				sp.logger.Info("Boot phase", zap.String("phase", "owner_service_start"), zap.String("stage", "begin"), zap.String("owner", op.id))
 				sp.logger.Info("starting service",
 					zap.String("service_id", op.id))
 
@@ -156,12 +157,14 @@ func (sp *sequencer) processStartOperations(ctx context.Context, operations []op
 					err = op.controller.Start()
 				}
 				if err != nil {
+					sp.logger.Info("Boot phase", zap.String("phase", "owner_service_start"), zap.String("stage", "failed"), zap.String("owner", op.id))
 					resultCh <- startResult{
 						serviceID: op.id,
 						err:       NewServiceStartError(op.id, err),
 					}
 					return
 				}
+				sp.logger.Info("Boot phase", zap.String("phase", "owner_service_start"), zap.String("stage", "end"), zap.String("owner", op.id))
 				resultCh <- startResult{serviceID: op.id}
 			}(op)
 		}

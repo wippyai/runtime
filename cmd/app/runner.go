@@ -121,24 +121,42 @@ func operate(ctx context.Context, e Executable, l Launch, prepare func(context.C
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	bootPhase(e, "deployment_select", "begin")
 	deployment, err := selectDeployment(e, l)
 	if err != nil {
+		bootPhase(e, "deployment_select", "failed")
 		return err
 	}
+	bootPhase(e, "deployment_select", "end")
+	bootPhase(e, "deployment_verify_seed", "begin")
 	lockPath, err := e.Bundle.Seed(deployment)
 	if err != nil {
+		bootPhase(e, "deployment_verify_seed", "failed")
 		return err
 	}
-	if err := seedLuaCache(l.State, e.LuaCacheSeed); err != nil {
-		return NewApplicationStateError("install embedded Lua cache", luaCachePath(l.State), err)
+	bootPhase(e, "deployment_verify_seed", "end")
+	bootPhase(e, "lua_cache_seed", "begin")
+	embeddedCache, err := seedLuaCache(e.LuaCacheSeed)
+	if err != nil {
+		bootPhase(e, "lua_cache_seed", "failed")
+		fmt.Fprintf(os.Stderr, "%s: embedded Lua cache unavailable; using persistent cache or compilation: %v\n", e.Name, err)
+	}
+	if err == nil {
+		bootPhase(e, "lua_cache_seed", "end")
+	}
+	if embeddedCache != nil {
+		hosted = bootconfig.Merge(hosted, boot.NewConfig(boot.WithSection("lua", map[string]any{"cache.embedded": embeddedCache})))
 	}
 	if l.Op == OpUpdate {
 		return updateDeployment(ctx, e, l, deployment, childRunner)
 	}
+	bootPhase(e, "artifact_cache_seed", "begin")
 	skipped, err := seedCache(l.State, deployment, e.Bundle)
 	if err != nil {
+		bootPhase(e, "artifact_cache_seed", "failed")
 		return err
 	}
+	bootPhase(e, "artifact_cache_seed", "end")
 	for _, failure := range skipped {
 		// A retained deployment only shortens startup. The launch continues on
 		// the deployments that remain readable, and each skipped source is
@@ -156,6 +174,7 @@ func operate(ctx context.Context, e Executable, l Launch, prepare func(context.C
 	if err != nil {
 		return err
 	}
+	bootPhase(e, "runtime_boot", "begin")
 	return execute(ctx, cmd.ExecuteOptions{
 		Args:        runtimeArgs(l),
 		LockFile:    lockPath,

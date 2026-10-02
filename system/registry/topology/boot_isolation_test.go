@@ -39,6 +39,58 @@ func TestApplyOperationBranchIsolation(t *testing.T) {
 	require.Len(t, left, 1)
 }
 
+func TestPrivateStateOperationPreservesValidationAndSeparateSnapshots(t *testing.T) {
+	builder := NewStateBuilder(zap.NewNop(), nil)
+	a := registry.Entry{ID: registry.NewID("bee", "a"), Kind: "old"}
+	root := StateMap{a.ID: a}
+	working := CopyStateMap(root)
+	updated := a
+	updated.Meta = map[string]any{"revision": 2}
+	require.NoError(t, builder.ApplyOperationToPrivateState(working, registry.Operation{Kind: registry.EntryUpdate, Entry: updated}))
+	require.Equal(t, a, root[a.ID])
+	require.Equal(t, updated, working[a.ID])
+	invalid := updated
+	invalid.Kind = "changed-kind"
+	require.Error(t, builder.ApplyOperationToPrivateState(working, registry.Operation{Kind: registry.EntryUpdate, Entry: invalid}))
+	require.Equal(t, updated, working[a.ID])
+	require.Error(t, builder.ApplyOperationToPrivateState(working, registry.Operation{Kind: registry.EntryCreate, Entry: a}))
+	require.Equal(t, updated, working[a.ID])
+	require.NoError(t, builder.ApplyOperationToPrivateState(working, registry.Operation{Kind: registry.EntryDelete, Entry: a}))
+	require.Empty(t, working)
+	require.Equal(t, a, root[a.ID])
+}
+
+func BenchmarkPrivateBootStateOperations(b *testing.B) {
+	entries := makeTestEntries(1000)
+	builder := NewStateBuilder(zap.NewNop(), nil)
+	for _, private := range []bool{false, true} {
+		name := "snapshots"
+		if private {
+			name = "private"
+		}
+		b.Run(name, func(b *testing.B) {
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				state := make(StateMap, len(entries))
+				for _, entry := range entries {
+					op := registry.Operation{Kind: registry.EntryCreate, Entry: entry}
+					if private {
+						if err := builder.ApplyOperationToPrivateState(state, op); err != nil {
+							b.Fatal(err)
+						}
+					} else {
+						var err error
+						state, err = builder.ApplyOperation(state, op)
+						if err != nil {
+							b.Fatal(err)
+						}
+					}
+				}
+			}
+		})
+	}
+}
+
 func TestBuildStateReplayIsolationAndValidation(t *testing.T) {
 	builder := NewStateBuilder(zap.NewNop(), nil)
 	a := registry.Entry{ID: registry.NewID("bee", "a"), Kind: "lua.library"}

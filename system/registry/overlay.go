@@ -195,7 +195,7 @@ func (r *Reg) applyOverlayLocked(ctx context.Context, owner string, expectedGene
 			return 0, err
 		}
 	}
-	if err := r.validateOverlayComposition(effective, candidateOwners, candidateShadows); err != nil {
+	if err := r.validateOverlayCompositionWithChanges(effective, candidateOwners, candidateShadows, transition); err != nil {
 		return 0, err
 	}
 
@@ -239,7 +239,7 @@ func (r *Reg) validateRemovedOverlayDependencies(before, after registry.StateMap
 	if len(deleted) == 0 {
 		return nil
 	}
-	return topology.VisitDependencies(before, r.resolver, func(source, target registry.ID) error {
+	return r.visitOverlayDependencies(before, registry.ChangeSet{}, func(source, target registry.ID) error {
 		if _, survives := after[source]; !survives {
 			return nil
 		}
@@ -305,10 +305,21 @@ func (r *Reg) validateOverlayKind(id registry.ID, kind registry.Kind) error {
 // dependency graph. A shadowed entry is exempt as a target: the durable entry
 // is still resident, only its content is process-local.
 func (r *Reg) validateOverlayComposition(effective registry.StateMap, owners map[registry.ID]string, shadows map[registry.ID]overlayShadow) error {
+	return r.validateOverlayCompositionWithChanges(effective, owners, shadows, nil)
+}
+
+func (r *Reg) visitOverlayDependencies(state registry.StateMap, changes registry.ChangeSet, visit func(source, target registry.ID) error) error {
+	if changes != nil && r.depIndex != nil {
+		return r.depIndex.VisitDependencies(state, changes, r.resolver, visit)
+	}
+	return topology.VisitDependencies(state, r.resolver, visit)
+}
+
+func (r *Reg) validateOverlayCompositionWithChanges(effective registry.StateMap, owners map[registry.ID]string, shadows map[registry.ID]overlayShadow, changes registry.ChangeSet) error {
 	if len(owners) == 0 {
 		return nil
 	}
-	return topology.VisitDependencies(effective, r.resolver, func(source, target registry.ID) error {
+	return r.visitOverlayDependencies(effective, changes, func(source, target registry.ID) error {
 		sourceOwner, sourceOverlay := owners[source]
 		targetOwner, targetOverlay := owners[target]
 		_, targetShadow := shadows[target]

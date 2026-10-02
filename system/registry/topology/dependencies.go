@@ -12,20 +12,41 @@ import (
 // adjacency list. It is the low-allocation path for validation and auditing;
 // callers that need materialized edges should use ResolveDependencies.
 func VisitDependencies(state registry.StateMap, resolver registry.DependencyResolver, visit func(source, target registry.ID) error) error {
-	var (
-		keysBySource  map[registry.ID]entryDepKeys
-		needGroups    bool
-		needNamespace bool
-	)
+	keysBySource := make(map[registry.ID]entryDepKeys)
 	for id, entry := range state {
 		keys := extractDepKeys(entry, resolver)
 		if len(keys.direct)+len(keys.groups)+len(keys.ns) == 0 {
 			continue
 		}
-		if keysBySource == nil {
-			keysBySource = make(map[registry.ID]entryDepKeys)
-		}
 		keysBySource[id] = keys
+	}
+	return visitDependencyKeys(state, keysBySource, visit)
+}
+
+// VisitDependencies validates a candidate state using this index's committed
+// declarations and the complete candidate changeset. Membership for groups and
+// namespaces comes from the candidate state; failed candidates never mutate the
+// committed index. The caller serializes index access with registry mutation.
+func (d *DepIndex) VisitDependencies(state registry.StateMap, changes registry.ChangeSet, resolver registry.DependencyResolver, visit func(source, target registry.ID) error) error {
+	keys := make(map[registry.ID]entryDepKeys, len(d.ownDeps)+len(changes))
+	for id, declared := range d.ownDeps {
+		if _, present := state[id]; present {
+			keys[id] = declared
+		}
+	}
+	for _, change := range changes {
+		if entry, present := state[change.Entry.ID]; present {
+			keys[entry.ID] = extractDepKeys(entry, resolver)
+		} else {
+			delete(keys, change.Entry.ID)
+		}
+	}
+	return visitDependencyKeys(state, keys, visit)
+}
+
+func visitDependencyKeys(state registry.StateMap, keysBySource map[registry.ID]entryDepKeys, visit func(source, target registry.ID) error) error {
+	var needGroups, needNamespace bool
+	for _, keys := range keysBySource {
 		needGroups = needGroups || len(keys.groups) != 0
 		needNamespace = needNamespace || len(keys.ns) != 0
 	}

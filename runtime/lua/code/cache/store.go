@@ -19,9 +19,14 @@ type Entry struct {
 	Meta        Meta
 }
 
+// Reader retrieves cache entries without requiring writable storage.
+type Reader interface {
+	Get(key string) (*Entry, bool, error)
+}
+
 // Store defines read/write behavior for cache entries.
 type Store interface {
-	Get(key string) (*Entry, bool, error)
+	Reader
 	Put(key string, entry *Entry) error
 }
 

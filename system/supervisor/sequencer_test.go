@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 	supervisorapi "github.com/wippyai/runtime/api/supervisor"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest/observer"
 )
 
 type completionService struct {
@@ -1084,4 +1085,31 @@ func TestSequencer_StopPartialLevelFailure(t *testing.T) {
 	require.True(t, serviceA.stopCalled, "ServiceA should have been stopped")
 	require.True(t, serviceB.stopCalled, "ServiceB should have been stopped")
 	require.True(t, serviceC.stopCalled, "ServiceC should have been stopped")
+}
+
+func TestOwnerServiceBootPhasesReportSuccessAndFailure(t *testing.T) {
+	for _, fail := range []bool{false, true} {
+		core, logs := observer.New(zap.InfoLevel)
+		events := make(chan operationEvent, 1)
+		var controller controllable = newTestController("owner", events)
+		if fail {
+			controller = &startFailingControllable{id: "owner", eventCh: events, err: errors.New("start failed")}
+		}
+		err := newSequencer(zap.New(core)).transition(t.Context(), operation{id: "owner", kind: opStart, controller: controller})
+		if fail {
+			require.Error(t, err)
+		} else {
+			require.NoError(t, err)
+		}
+		phases := logs.FilterMessage("Boot phase").All()
+		require.Len(t, phases, 2)
+		require.Equal(t, "owner_service_start", phases[0].ContextMap()["phase"])
+		require.Equal(t, "owner", phases[0].ContextMap()["owner"])
+		require.Equal(t, "begin", phases[0].ContextMap()["stage"])
+		expected := "end"
+		if fail {
+			expected = "failed"
+		}
+		require.Equal(t, expected, phases[1].ContextMap()["stage"])
+	}
 }

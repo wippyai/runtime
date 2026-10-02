@@ -8,6 +8,7 @@ import (
 	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -38,61 +39,70 @@ func LuaCacheIdentity() (schema, toolchain string, err error) {
 	return code.CacheSchemaVersion(), toolchain, err
 }
 
-func seedLuaCache(state string, seed *LuaCacheSeed) error {
+// seedLuaCache authenticates the complete embedded set once, then indexes its
+// bytes in memory. Entry metadata is decoded on demand; no entry is installed,
+// rehashed, or pruned on disk. The runtime still checks fingerprints and decodes
+// artifacts before use, falling back to compilation on a mismatch.
+func seedLuaCache(seed *LuaCacheSeed) (cache.Reader, error) {
 	if seed == nil || len(seed.Archive) == 0 {
-		return nil
+		return nil, nil
 	}
 	if len(seed.Archive) > maxEmbeddedLuaCacheBytes {
-		return fmt.Errorf("embedded archive exceeds %d bytes", maxEmbeddedLuaCacheBytes)
+		return nil, fmt.Errorf("embedded archive exceeds %d bytes", maxEmbeddedLuaCacheBytes)
 	}
 	schema, toolchain, err := LuaCacheIdentity()
 	if err != nil {
-		return fmt.Errorf("read runtime Lua cache identity: %w", err)
+		return nil, fmt.Errorf("read runtime Lua cache identity: %w", err)
 	}
 	if seed.SchemaVersion != schema || seed.ToolchainIdentity != toolchain {
-		return fmt.Errorf("embedded cache identity mismatch (schema %q, toolchain %q)", seed.SchemaVersion, seed.ToolchainIdentity)
+		return nil, fmt.Errorf("embedded cache identity mismatch (schema %q, toolchain %q)", seed.SchemaVersion, seed.ToolchainIdentity)
 	}
 	hash := sha256.Sum256(seed.Archive)
-	digest := "sha256:" + hex.EncodeToString(hash[:])
-	if seed.Digest != digest {
-		return fmt.Errorf("embedded cache digest mismatch")
+	if seed.Digest != "sha256:"+hex.EncodeToString(hash[:]) {
+		return nil, fmt.Errorf("embedded cache digest mismatch")
 	}
+	store := embeddedLuaCache{files: make(map[string][]byte)}
+	if err := readLuaCacheArchive(seed.Archive, func(name string, data []byte) error {
+		if _, exists := store.files[name]; exists {
+			return fmt.Errorf("duplicate embedded cache file %q", name)
+		}
+		store.files[name] = data
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	return &store, nil
+}
 
-	directory := luaCachePath(state)
-	if err := os.MkdirAll(directory, 0o700); err != nil {
-		return err
-	}
-	marker := filepath.Join(directory, ".seed-"+hex.EncodeToString(hash[:]))
-	if info, err := os.Lstat(marker); err == nil {
-		if !info.Mode().IsRegular() {
-			return fmt.Errorf("cache seed marker is not a regular file")
-		}
-		data, err := os.ReadFile(marker)
-		if err != nil {
-			return err
-		}
-		if string(data) == digest {
-			return nil
-		}
-	} else if !os.IsNotExist(err) {
-		return err
-	}
+type embeddedLuaCache struct{ files map[string][]byte }
 
-	staging, err := os.MkdirTemp(directory, ".seed-stage-")
-	if err != nil {
-		return err
+func (s *embeddedLuaCache) Get(key string) (*cache.Entry, bool, error) {
+	if !isCacheKey(key) {
+		return nil, false, nil
 	}
-	defer func() { _ = os.RemoveAll(staging) }()
-	if err := unpackLuaCacheSeed(seed.Archive, staging); err != nil {
-		return err
+	prefix := "v1/entries/" + key + "/"
+	var meta cache.Meta
+	if err := json.Unmarshal(s.files[prefix+"meta.json"], &meta); err != nil {
+		return nil, false, nil
 	}
-	if err := mergeLuaCache(staging, directory); err != nil {
-		return fmt.Errorf("install embedded Lua cache: %w", err)
+	entry := &cache.Entry{Meta: meta}
+	// The archive digest authenticates these immutable bytes, including metadata.
+	// Unlike mutable disk files, they need no individual hash check on each read.
+	if meta.ProtoHash != "" {
+		entry.Proto = bytes.Clone(s.files[prefix+"proto.luac"])
 	}
-	if err := writeLuaCacheSeedMarker(marker, digest); err != nil {
-		return err
+	if meta.ManifestHash != "" {
+		entry.Manifest = bytes.Clone(s.files[prefix+"manifest.bin"])
 	}
-	return nil
+	if meta.DiagnosticsHash != "" {
+		if err := json.Unmarshal(s.files[prefix+"diags.json"], &entry.Diagnostics); err != nil {
+			return nil, false, nil
+		}
+	}
+	if !validLuaCacheEntry(key, entry) {
+		return nil, false, nil
+	}
+	return entry, true, nil
 }
 
 func mergeLuaCache(source, destination string) error {
@@ -104,7 +114,8 @@ func mergeLuaCache(source, destination string) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(destination, 0o700); err != nil {
+	destinationEntries := filepath.Join(destination, "v1", "entries")
+	if err := os.MkdirAll(destinationEntries, 0o700); err != nil {
 		return err
 	}
 	sourceStore := cache.NewDiskStore(source)
@@ -121,11 +132,18 @@ func mergeLuaCache(source, destination string) error {
 		if existing, ok, err := destinationStore.Get(key); err == nil && ok && validLuaCacheEntry(key, existing) {
 			continue
 		}
-		if err := destinationStore.Put(key, entry); err != nil {
+		// The archive already supplied the exact hashed files in private staging.
+		// Adopt that directory after verification instead of rewriting each file
+		// and pruning the growing store after every batch of individual puts.
+		target := filepath.Join(destinationEntries, key)
+		if err := os.RemoveAll(target); err != nil {
+			return fmt.Errorf("remove invalid derived cache entry %q: %w", key, err)
+		}
+		if err := os.Rename(filepath.Join(entriesDir, key), target); err != nil {
 			return fmt.Errorf("merge Lua cache entry %q: %w", key, err)
 		}
 	}
-	return nil
+	return destinationStore.Prune()
 }
 
 func validLuaCacheEntry(key string, entry *cache.Entry) bool {
@@ -149,7 +167,7 @@ func isCacheKey(key string) bool {
 	return true
 }
 
-func unpackLuaCacheSeed(archive []byte, destination string) error {
+func readLuaCacheArchive(archive []byte, consume func(string, []byte) error) error {
 	gz, err := gzip.NewReader(bytes.NewReader(archive))
 	if err != nil {
 		return fmt.Errorf("open embedded cache archive: %w", err)
@@ -180,33 +198,25 @@ func unpackLuaCacheSeed(archive []byte, destination string) error {
 			if len(parts) > 3 || header.Size != 0 {
 				return fmt.Errorf("invalid embedded cache directory %q", header.Name)
 			}
-			if err := os.MkdirAll(filepath.Join(destination, filepath.FromSlash(name)), 0o700); err != nil {
-				return err
-			}
 			continue
 		}
 		if header.Typeflag != tar.TypeReg || len(parts) != 4 || !allowedCacheFile(parts[3]) || header.Size < 0 {
 			return fmt.Errorf("invalid embedded cache file %q", header.Name)
 		}
-		if total+header.Size > maxEmbeddedLuaCacheBytes {
+		if header.Size > maxEmbeddedLuaCacheBytes-total {
 			return fmt.Errorf("embedded cache files exceed %d bytes", maxEmbeddedLuaCacheBytes)
 		}
 		total += header.Size
-		filePath := filepath.Join(destination, filepath.FromSlash(name))
-		if err := os.MkdirAll(filepath.Dir(filePath), 0o700); err != nil {
-			return err
-		}
-		file, err := os.OpenFile(filePath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+
+		data, err := io.ReadAll(io.LimitReader(reader, header.Size))
 		if err != nil {
 			return err
 		}
-		_, copyErr := io.CopyN(file, reader, header.Size)
-		closeErr := file.Close()
-		if copyErr != nil {
-			return copyErr
+		if int64(len(data)) != header.Size {
+			return io.ErrUnexpectedEOF
 		}
-		if closeErr != nil {
-			return closeErr
+		if err := consume(name, data); err != nil {
+			return err
 		}
 	}
 }
@@ -218,25 +228,4 @@ func allowedCacheFile(name string) bool {
 	default:
 		return false
 	}
-}
-
-func writeLuaCacheSeedMarker(marker, digest string) error {
-	tmp, err := os.CreateTemp(filepath.Dir(marker), ".seed-marker-")
-	if err != nil {
-		return err
-	}
-	tmpPath := tmp.Name()
-	defer func() { _ = os.Remove(tmpPath) }()
-	if _, err := io.WriteString(tmp, digest); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Sync(); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmpPath, marker)
 }

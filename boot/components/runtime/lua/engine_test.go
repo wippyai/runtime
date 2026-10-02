@@ -23,6 +23,7 @@ import (
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	bootpkg "github.com/wippyai/runtime/boot"
 	"github.com/wippyai/runtime/internal/cachedir"
+	"github.com/wippyai/runtime/runtime/lua/code/cache"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest/observer"
 )
@@ -411,4 +412,18 @@ func TestL10EngineTypeSystemStrictAny(t *testing.T) {
 	if !resolveEngineSettings(cfg, zap.NewNop()).TypeCheck.Check.Strict {
 		t.Fatal("lua.type_system.strict_any selects strict any")
 	}
+}
+
+func TestEngineSettingsAcceptHostEmbeddedCache(t *testing.T) {
+	embedded := cache.NewDiskStore(t.TempDir())
+	cfg := boot.NewConfig(boot.WithSection("lua", map[string]any{
+		"cache.dir": t.TempDir(), "cache.embedded": embedded,
+	}))
+	settings := resolveEngineSettings(cfg, zap.NewNop())
+	require.Same(t, embedded, settings.EmbeddedCache)
+	cfg = boot.NewConfig(boot.WithSection("lua", map[string]any{
+		"cache.dir": t.TempDir(), "cache.embedded": "untyped external value",
+	}))
+	settings = resolveEngineSettings(cfg, zap.NewNop())
+	require.Nil(t, settings.EmbeddedCache)
 }

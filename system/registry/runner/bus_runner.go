@@ -24,6 +24,13 @@ type runnerBuilder interface {
 	BuildDelta(registry.State, registry.State) (registry.ChangeSet, error)
 }
 
+// privateStateBuilder can update the runner's unshared transaction map without
+// copying it after every accepted entry. The initial and rollback maps are
+// separate; entry delivery and acceptance still precede every state change.
+type privateStateBuilder interface {
+	ApplyOperationToPrivateState(registry.StateMap, registry.Operation) error
+}
+
 // BusRunner executes registry operations sequentially through an event bus, handling
 // state transitions, rollbacks, and error handling. It maintains operation order
 // and provides transactional semantics through the event bus.
@@ -498,7 +505,7 @@ func (br *BusRunner) applyOperation(
 	if mode == registry.DispatchInternal {
 		// with entry events we dont propagate any events and handle them internally
 		// use registry.entry for dynamic configs
-		newState, err := br.builder.ApplyOperation(state, op)
+		newState, err := br.applyPrivateStateOperation(state, op)
 		if err != nil {
 			return state, NewApplyChangeError(err)
 		}
@@ -535,7 +542,7 @@ func (br *BusRunner) applyOperation(
 			zap.String("system", result.Event.System),
 			zap.String("kind", result.Event.Kind))
 
-		newState, err := br.builder.ApplyOperation(state, op)
+		newState, err := br.applyPrivateStateOperation(state, op)
 		if err != nil {
 			return state, NewApplyChangeError(err)
 		}
@@ -558,6 +565,13 @@ func (br *BusRunner) applyOperation(
 		zap.Duration("timeout", br.waitTimeout),
 		zap.String("hint", "raise or clear registry.event_wait_timeout when the handler legitimately needs longer"))
 	return state, NewEventHandlerTimeoutError(br.waitTimeout, op.Entry.ID, op.Entry.Kind)
+}
+
+func (br *BusRunner) applyPrivateStateOperation(state registry.StateMap, op registry.Operation) (registry.StateMap, error) {
+	if builder, ok := br.builder.(privateStateBuilder); ok {
+		return state, builder.ApplyOperationToPrivateState(state, op)
+	}
+	return br.builder.ApplyOperation(state, op)
 }
 
 func (br *BusRunner) rollback(
