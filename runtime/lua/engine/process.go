@@ -621,17 +621,29 @@ func (p *Process) Init(ctx context.Context, method string, input payload.Payload
 		}
 	}
 
-	// Create main task
-	p.mainTask = p.createTask(fn)
-
 	// Convert input payloads to Lua values as arguments
-	if len(input) > 0 {
-		args := make([]lua.LValue, 0, len(input))
-		for _, pl := range input {
+	validateArguments := p.factory.validateArguments && !fn.IsG && len(fn.Proto.ArgumentInfo) > 0
+	args := make([]lua.LValue, 0, len(input))
+	for i, pl := range input {
+		if validateArguments {
+			value, err := transcodeArgumentToLua(ctx, pl)
+			if err != nil {
+				return argumentConversionError(i, err)
+			}
+			args = append(args, value)
+		} else {
 			args = append(args, transcodeToLua(ctx, pl))
 		}
-		p.mainTask.Resumed = args
 	}
+	if validateArguments {
+		if err := fn.Proto.CheckArguments(p.state, args); err != nil {
+			return toAPIError(err)
+		}
+	}
+
+	// No method body has run when argument validation fails.
+	p.mainTask = p.createTask(fn)
+	p.mainTask.Resumed = args
 
 	return nil
 }
@@ -2052,26 +2064,9 @@ func (p *Process) clearExecution() {
 
 // transcodeToLua converts a payload to Lua value using context transcoder.
 func transcodeToLua(ctx context.Context, pl payload.Payload) lua.LValue {
-	if pl == nil {
-		return lua.LNil
-	}
-
-	// Already a Lua value
-	if pl.Format() == payload.Lua {
-		if lv, ok := pl.Data().(lua.LValue); ok {
-			return lv
-		}
-	}
-
-	// Try transcoding via context transcoder
-	dtt := payload.GetTranscoder(ctx)
-	if dtt != nil {
-		transcoded, err := dtt.Transcode(pl, payload.Lua)
-		if err == nil {
-			if lv, ok := transcoded.Data().(lua.LValue); ok {
-				return lv
-			}
-		}
+	value, err := transcodeArgumentToLua(ctx, pl)
+	if err == nil {
+		return value
 	}
 
 	return lua.LNil
