@@ -104,7 +104,8 @@ func mergeLuaCache(source, destination string) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(destination, 0o700); err != nil {
+	destinationEntries := filepath.Join(destination, "v1", "entries")
+	if err := os.MkdirAll(destinationEntries, 0o700); err != nil {
 		return err
 	}
 	sourceStore := cache.NewDiskStore(source)
@@ -121,11 +122,18 @@ func mergeLuaCache(source, destination string) error {
 		if existing, ok, err := destinationStore.Get(key); err == nil && ok && validLuaCacheEntry(key, existing) {
 			continue
 		}
-		if err := destinationStore.Put(key, entry); err != nil {
+		// The archive already supplied the exact hashed files in private staging.
+		// Adopt that directory after verification instead of rewriting each file
+		// and pruning the growing store after every batch of individual puts.
+		target := filepath.Join(destinationEntries, key)
+		if err := os.RemoveAll(target); err != nil {
+			return fmt.Errorf("remove invalid derived cache entry %q: %w", key, err)
+		}
+		if err := os.Rename(filepath.Join(entriesDir, key), target); err != nil {
 			return fmt.Errorf("merge Lua cache entry %q: %w", key, err)
 		}
 	}
-	return nil
+	return destinationStore.Prune()
 }
 
 func validLuaCacheEntry(key string, entry *cache.Entry) bool {

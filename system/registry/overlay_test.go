@@ -24,6 +24,33 @@ func newOverlayTestRegistry(t *testing.T) (*Reg, *historymem.Storage) {
 	return reg, history
 }
 
+type overlayCountingResolver struct {
+	regapi.DependencyResolver
+	calls map[regapi.ID]int
+}
+
+func (r *overlayCountingResolver) Extract(entry regapi.Entry) []string {
+	r.calls[entry.ID]++
+	return r.DependencyResolver.Extract(entry)
+}
+
+func TestOverlayValidationReusesCommittedDependencyDeclarations(t *testing.T) {
+	resolver := &overlayCountingResolver{DependencyResolver: topology.NewResolver(), calls: map[regapi.ID]int{}}
+	reg := NewRegistry(historymem.New(), NewTestRunner(), topology.NewStateBuilder(zap.NewNop(), resolver), resolver, zap.NewNop())
+	base := regapi.Entry{ID: regapi.NewID("app", "unchanged"), Kind: regapi.EntryKind}
+	require.NoError(t, reg.LoadState(context.Background(), regapi.State{base}, version.FromParent(nil, regapi.RootVersion)))
+	clear(resolver.calls)
+	live := regapi.Entry{ID: regapi.NewID("live", "admission"), Kind: regapi.EntryKind, Data: payload.New("current")}
+	generation, err := reg.ApplyOverlay(context.Background(), "owner:a", 0, regapi.ChangeSet{{Kind: regapi.EntryCreate, Entry: live}})
+	require.NoError(t, err)
+	require.Zero(t, resolver.calls[base.ID], "an unrelated admission must not decode every unchanged registry entry")
+	clear(resolver.calls)
+	live.Data = payload.New("revoked")
+	_, err = reg.ApplyOverlay(context.Background(), "owner:a", generation, regapi.ChangeSet{{Kind: regapi.EntryUpdate, Entry: live}})
+	require.NoError(t, err)
+	require.Zero(t, resolver.calls[base.ID])
+}
+
 func newOverlayTestRegistryWithRunner(t *testing.T) (*Reg, *historymem.Storage, *TestRunner) {
 	t.Helper()
 	history := historymem.New()

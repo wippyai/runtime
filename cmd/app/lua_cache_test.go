@@ -41,6 +41,27 @@ func TestSeedLuaCacheInstallsVerifiedCompileAndTypecheckEntries(t *testing.T) {
 	require.FileExists(t, marker)
 }
 
+func TestMergeLuaCacheMovesVerifiedEntriesAndReplacesCorruptDerivedData(t *testing.T) {
+	seed, compileKey, _ := testLuaCacheSeed(t)
+	staging, destination := t.TempDir(), t.TempDir()
+	require.NoError(t, unpackLuaCacheSeed(seed.Archive, staging))
+	sourcePath := filepath.Join(staging, "v1", "entries", compileKey)
+	before, err := os.Stat(sourcePath)
+	require.NoError(t, err)
+	targetPath := filepath.Join(destination, "v1", "entries", compileKey)
+	require.NoError(t, os.MkdirAll(targetPath, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(targetPath, "meta.json"), []byte("corrupt"), 0o600))
+	require.NoError(t, mergeLuaCache(staging, destination))
+	after, err := os.Stat(targetPath)
+	require.NoError(t, err)
+	require.True(t, os.SameFile(before, after), "verified entry must be adopted without rewriting every cache file")
+	require.NoDirExists(t, sourcePath)
+	entry, found, err := cache.NewDiskStore(destination).Get(compileKey)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, []byte("proto"), entry.Proto)
+}
+
 func TestSeedLuaCacheRejectsDigestAndIdentityMismatch(t *testing.T) {
 	seed, _, _ := testLuaCacheSeed(t)
 	state := t.TempDir()
