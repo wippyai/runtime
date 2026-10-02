@@ -51,6 +51,17 @@ func TestOverlayValidationReusesCommittedDependencyDeclarations(t *testing.T) {
 	require.Zero(t, resolver.calls[base.ID])
 }
 
+func TestOverlayValidationRefreshesAfterDependencyPatternRegistration(t *testing.T) {
+	reg, _ := newOverlayTestRegistry(t)
+	base := regapi.Entry{ID: regapi.NewID("app", "base"), Kind: regapi.EntryKind,
+		Data: payload.New(map[string]any{"late": "live:admission"})}
+	require.NoError(t, reg.LoadState(context.Background(), regapi.State{base}, version.FromParent(nil, regapi.RootVersion)))
+	require.NoError(t, reg.RegisterDependencyPattern(regapi.DependencyPattern{Path: "data.late"}))
+	live := regapi.Entry{ID: regapi.NewID("live", "admission"), Kind: regapi.EntryKind}
+	_, err := reg.ApplyOverlay(context.Background(), "owner:a", 0, regapi.ChangeSet{{Kind: regapi.EntryCreate, Entry: live}})
+	require.Error(t, err, "new dependency declarations must participate in admission immediately")
+}
+
 func newOverlayTestRegistryWithRunner(t *testing.T) (*Reg, *historymem.Storage, *TestRunner) {
 	t.Helper()
 	history := historymem.New()

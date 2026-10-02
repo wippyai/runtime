@@ -964,10 +964,16 @@ func (r *Reg) History() registry.History {
 // RegisterDependencyPattern adds a pattern for dependency extraction.
 // Implements registry.Registry interface.
 func (r *Reg) RegisterDependencyPattern(pattern registry.DependencyPattern) error {
+	r.applyMu.Lock()
+	defer r.applyMu.Unlock()
 	if r.resolver == nil {
 		return ErrDependencyResolverNotInit
 	}
-	return r.resolver.RegisterPattern(pattern)
+	if err := r.resolver.RegisterPattern(pattern); err != nil {
+		return err
+	}
+	r.depIndex = nil
+	return nil
 }
 
 // --- Helper Functions ---
