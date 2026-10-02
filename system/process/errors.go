@@ -13,6 +13,8 @@ var (
 	ErrTerminated                  = apierror.New(apiprocess.Internal, "process terminated")
 	ErrFrameAttachmentsUnsupported = apierror.New(apiprocess.InvalidState, "process host does not accept frame attachments").WithRetryable(apierror.False)
 	ErrAdmissionUnsupported        = apierror.New(apiprocess.InvalidState, "process host does not accept admitted processes").WithRetryable(apierror.False)
+	// ErrInvalidHost reports a start on a host that cannot run processes.
+	ErrInvalidHost = apierror.New(apiprocess.Internal, "host does not implement process.Host").WithRetryable(apierror.False)
 )
 
 // UnknownCommandError indicates an unregistered command.
@@ -76,9 +78,7 @@ func NewProcessCreateError(err error) apierror.Error {
 
 // NewInvalidHostError creates an error for host that doesn't implement process.Host.
 func NewInvalidHostError(hostID string) apierror.Error {
-	return apierror.New(apiprocess.Internal, "host does not implement process.Host").
-		WithRetryable(apierror.False).
-		WithDetails(attrs.NewBagFrom(map[string]any{"host_id": hostID}))
+	return apierror.SetDetails(ErrInvalidHost, attrs.NewBagFrom(map[string]any{"host_id": hostID}))
 }
 
 // NewSubscriberError creates an error for event subscriber failures.

@@ -204,7 +204,7 @@ func processPID(l *lua.LState) int {
 	if !ok {
 		return 2
 	}
-	l.Push(lua.LString(pid.String()))
+	pushAcquiredPID(l, pid)
 	return 1
 }
 

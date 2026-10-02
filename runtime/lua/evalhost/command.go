@@ -28,6 +28,13 @@ type CompileCmd struct {
 	Imports       map[string]registry.ID // Registry entries to import (alias -> ID)
 	ImportModules map[string][]string    // Per-import privileged modules (alias -> module names) usable only inside that import
 	AllowClasses  []string               // Additional classes to allow (e.g., "process")
+	// AllowModules names modules allowed regardless of their classes.
+	AllowModules []string
+	// ExplicitModules loads exactly Modules; an empty list loads none instead
+	// of every module the class rules allow.
+	ExplicitModules bool
+	// Strict fails compilation on type errors.
+	Strict bool
 }
 
 func (c CompileCmd) CmdID() dispatcher.CommandID {
