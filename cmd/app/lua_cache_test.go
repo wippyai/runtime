@@ -51,8 +51,14 @@ func TestMergeLuaCacheMovesVerifiedEntriesAndReplacesCorruptDerivedData(t *testi
 	staging, destination := t.TempDir(), t.TempDir()
 	require.NoError(t, unpackLuaCacheSeed(seed.Archive, staging))
 	sourcePath := filepath.Join(staging, "v1", "entries", compileKey)
-	before, err := os.Stat(sourcePath)
+	// Windows path-based Stat loads file identity lazily in SameFile. Capture
+	// it through a handle while the source exists, then close before renaming.
+	source, err := os.Open(sourcePath)
 	require.NoError(t, err)
+	before, statErr := source.Stat()
+	closeErr := source.Close()
+	require.NoError(t, statErr)
+	require.NoError(t, closeErr)
 	targetPath := filepath.Join(destination, "v1", "entries", compileKey)
 	require.NoError(t, os.MkdirAll(targetPath, 0o700))
 	require.NoError(t, os.WriteFile(filepath.Join(targetPath, "meta.json"), []byte("corrupt"), 0o600))
