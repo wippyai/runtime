@@ -15,6 +15,10 @@ const (
 	StepDone
 	StepYield   // has yields to dispatch, wait for completions
 	StepUpgrade // process requested upgrade, worker handles swap
+	// StepPreempted reports that the process used up its preemption budget
+	// and is ready to continue. The scheduler dispatches the step's yields
+	// and runs the process again after other ready work.
+	StepPreempted
 )
 
 // MaxYields is the maximum yields per step that fit in the fixed buffer.
@@ -95,6 +99,12 @@ func (o *StepOutput) WaitForYields() {
 // Continue marks process as ready to continue (default).
 func (o *StepOutput) Continue() {
 	o.status = StepContinue
+}
+
+// Preempt marks process as preempted: ready to continue once other ready
+// work has had a turn.
+func (o *StepOutput) Preempt() {
+	o.status = StepPreempted
 }
 
 // Reset clears output for reuse.

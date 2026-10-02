@@ -398,7 +398,7 @@ func (w *Worker) executeOne(proc *Processor) {
 	if status != process.StepDone {
 		yields := proc.output.Yields()
 		if len(yields) > 0 {
-			w.dispatchYields(proc.ctx, proc, yields)
+			w.dispatchYields(proc.ctx, proc, yields, status == process.StepPreempted)
 			return
 		}
 	}
@@ -419,6 +419,12 @@ func (w *Worker) executeOne(proc *Processor) {
 		// Push to local deque - same worker will pick it up next iteration.
 		// No wake needed since we're the active worker.
 		w.local.Push(proc)
+
+	case process.StepPreempted:
+		if !proc.casState(StateRunning, StateReady) {
+			return
+		}
+		w.scheduler.requeuePreempted(proc)
 
 	case process.StepYield:
 		if !proc.casState(StateRunning, StateBlocked) {
@@ -555,7 +561,9 @@ func (w *Worker) executeOne(proc *Processor) {
 // dispatchYields sends all yields to handlers.
 // Processor state is StateRunning during this call.
 // CompleteYield sets wakeup flag instead of re-queueing while Running.
-func (w *Worker) dispatchYields(ctx context.Context, proc *Processor, yields []process.Yield) {
+// A preempted process stays runnable and is requeued; otherwise it blocks
+// until a completion wakes it.
+func (w *Worker) dispatchYields(ctx context.Context, proc *Processor, yields []process.Yield, preempted bool) {
 	for _, y := range yields {
 		handler := w.scheduler.getHandler(y.Cmd)
 		if handler == nil {
@@ -573,6 +581,13 @@ func (w *Worker) dispatchYields(ctx context.Context, proc *Processor, yields []p
 				Error: err,
 			})
 		}
+	}
+
+	if preempted {
+		if proc.casState(StateRunning, StateReady) {
+			w.scheduler.requeuePreempted(proc)
+		}
+		return
 	}
 
 	// Atomically transition to final state.

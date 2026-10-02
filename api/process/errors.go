@@ -20,6 +20,9 @@ const (
 var (
 	ErrMaxProcessesExceeded = apierror.New(LimitExceeded, "max processes limit exceeded").WithRetryable(apierror.False)
 
+	// ErrStepLimitExceeded fails a process that exceeds its max_steps option.
+	ErrStepLimitExceeded = apierror.New(apierror.RateLimited, "process step limit exceeded").WithRetryable(apierror.False)
+
 	ErrProcessClosed = apierror.New(InvalidState, "process closed").WithRetryable(apierror.False)
 
 	ErrProcessNotFound = apierror.New(NotFound, "process not found").WithRetryable(apierror.False)

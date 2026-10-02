@@ -14,6 +14,7 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	secapi "github.com/wippyai/runtime/api/security"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	"github.com/wippyai/runtime/runtime/security"
@@ -85,6 +86,11 @@ func parseSpawnerOptions(l *lua.LState, idx int) attrs.Bag {
 		}
 		options.Set(string(key), value.ToGoAny(v))
 	})
+
+	if _, err := luaapi.ExecutionBudgetsFromOptions(options, "process spawn options"); err != nil {
+		l.ArgError(idx, err.Error())
+		return nil
+	}
 
 	if net := options.GetString(netapi.OptionKeyNetwork, ""); net != "" {
 		if !security.IsAllowed(l.Context(), "network.select", net, nil) {

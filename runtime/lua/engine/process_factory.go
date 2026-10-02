@@ -49,6 +49,7 @@ type processConfig struct {
 	excludeModules []string
 	extraModules   []*luaapi.ModuleDef
 	buildMode      code.AccessMode
+	budgets        luaapi.ExecutionBudgets
 }
 
 func newProcessConfig() *processConfig {
@@ -107,6 +108,14 @@ func WithModules(mods ...*luaapi.ModuleDef) FactoryOption {
 	}
 }
 
+// WithExecutionBudgets sets the execution options (tick_budget, max_steps)
+// of the processes the factory creates.
+func WithExecutionBudgets(budgets luaapi.ExecutionBudgets) FactoryOption {
+	return func(c *processConfig) {
+		c.budgets = budgets
+	}
+}
+
 // WithFilter sets a custom filter function.
 // Return (true, nil) to include, (false, nil) to exclude, (false, err) to fail.
 func WithFilter(fn func(name string, classes []string) (bool, error)) FactoryOption {
@@ -152,6 +161,7 @@ func (f *ProcessFactory) CreateFactory(id registry.ID, opts ...FactoryOption) (p
 	factoryCfg := FactoryConfig{
 		Proto:         compiled.Main,
 		ModuleBinders: binders,
+		Budgets:       cfg.budgets,
 	}
 
 	factory := NewFactory(factoryCfg)
@@ -372,6 +382,7 @@ type FactoryConfig struct {
 	Script        string
 	ScriptName    string
 	ModuleBinders []ModuleBinder
+	Budgets       luaapi.ExecutionBudgets
 }
 
 // Factory creates Lua processes with shared configuration.
@@ -382,6 +393,7 @@ type Factory struct {
 	script        string
 	scriptName    string
 	moduleBinders []ModuleBinder
+	budgets       luaapi.ExecutionBudgets
 }
 
 // NewFactory creates a ProcessFactory for Lua processes.
@@ -393,6 +405,7 @@ func NewFactory(cfg FactoryConfig) process.FactoryFunc {
 		scriptName:    cfg.ScriptName,
 		moduleBinders: cfg.ModuleBinders,
 		stateOpts:     cfg.StateOptions,
+		budgets:       cfg.Budgets,
 	}
 	return f.Create
 }
@@ -405,11 +418,12 @@ func (f *Factory) Create() (process.Process, error) {
 	}
 
 	proc := &Process{
-		threads:  make([]*Task, 0, 4),
-		queue:    NewTaskQueue(),
-		yieldBuf: make([]*Task, 0, 4),
-		factory:  f,
-		state:    state,
+		threads:      make([]*Task, 0, 4),
+		queue:        NewTaskQueue(),
+		yieldBuf:     make([]*Task, 0, 4),
+		factory:      f,
+		state:        state,
+		entryBudgets: f.budgets,
 	}
 
 	if f.proto != nil {

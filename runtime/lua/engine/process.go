@@ -19,6 +19,7 @@ import (
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/api/runtime"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/api/runtime/resource"
 	"github.com/wippyai/runtime/api/topology"
@@ -29,6 +30,17 @@ import (
 // processPool holds reusable Process structs with pre-allocated slices
 var processPool = sync.Pool{
 	New: func() any { return nil },
+}
+
+// DefaultActorTickBudget is the tick budget of a preemptible actor whose
+// tick_budget option is unset or zero.
+const DefaultActorTickBudget int64 = 512
+
+// WithProcessExecutionBudgets sets the process entry's execution options.
+func WithProcessExecutionBudgets(budgets luaapi.ExecutionBudgets) ProcessOption {
+	return func(p *Process) {
+		p.entryBudgets = budgets
+	}
 }
 
 // ProcessOption configures a Process.
@@ -120,7 +132,15 @@ type Process struct {
 	externalTasks     []*Task
 	outTasks          []*Task
 	threads           []*Task
-	yieldSeq          uint64
+	// deferred holds runnable tasks that did not finish within this step's
+	// preemption budget; they run again in the next step.
+	deferred []*Task
+	yieldSeq uint64
+	// entryBudgets are the execution options of the process entry; spawn
+	// options override them at Init.
+	entryBudgets luaapi.ExecutionBudgets
+	budgets      luaapi.ExecutionBudgets
+	steps        uint64
 	// epoch is the monotonic incarnation counter. Incremented on every
 	// Init / clearExecution / Close drain and on Abort. Producers stamp
 	// every SubscriptionFrame with the epoch they were registered under;
@@ -130,6 +150,9 @@ type Process struct {
 	flushingMessages bool
 	trapLinks        bool
 	upgradable       bool
+	// preemptive is set by schedulers that run the process again after it
+	// reports StepPreempted.
+	preemptive bool
 }
 
 // queuedMessage stores a message waiting to be delivered
@@ -541,6 +564,13 @@ func (p *Process) Init(ctx context.Context, method string, input payload.Payload
 	p.mainTask = nil
 	p.pendingYields = nil
 
+	budgets, err := p.executionBudgets(ctx)
+	if err != nil {
+		return err
+	}
+	p.budgets = budgets
+	p.steps = 0
+
 	// Set context for this execution
 	p.ctx = ctx
 	p.state.SetContext(ctx)
@@ -701,6 +731,13 @@ func (p *Process) extractMethod(method string) error {
 // events contains yield completions and messages from the scheduler.
 // out is the scheduler-owned buffer where the process writes yields and status.
 func (p *Process) Step(events []process.Event, out *process.StepOutput) error {
+	if err := p.chargeStep(); err != nil {
+		p.clearExecution()
+		out.Done(nil)
+		return err
+	}
+	p.state.SetTickBudget(p.stepTickBudget())
+
 	// Collect messages from events
 	var messages []*relay.Package
 	for _, ev := range events {
@@ -798,6 +835,14 @@ func (p *Process) Step(events []process.Event, out *process.StepOutput) error {
 		}
 	}
 
+	// Tasks that ran out of the step's budget run again next step.
+	preempted := len(p.deferred) > 0
+	for _, task := range p.deferred {
+		p.queue.Push(task)
+	}
+	clear(p.deferred)
+	p.deferred = p.deferred[:0]
+
 	// Check for upgrade request
 	if p.upgradeRequest != nil {
 		req := p.upgradeRequest
@@ -846,6 +891,8 @@ func (p *Process) Step(events []process.Event, out *process.StepOutput) error {
 
 	// Determine status
 	switch {
+	case preempted:
+		out.Preempt()
 	case yieldCount == 0 && !p.queue.IsEmpty():
 		out.Continue()
 	case yieldCount == 0 && len(p.threads) > 0:
@@ -868,6 +915,41 @@ func (p *Process) Step(events []process.Event, out *process.StepOutput) error {
 		out.WaitForYields()
 	}
 
+	return nil
+}
+
+// EnablePreemption implements process.Preemptible. Each step may then run
+// the actor's tick budget of VM ticks (backward jumps, loop iterations and
+// calls) before the running coroutine is preempted at a safepoint and the
+// step reports StepPreempted.
+func (p *Process) EnablePreemption() {
+	p.preemptive = true
+}
+
+// stepTickBudget returns the VM tick budget for one step; -1 is unlimited.
+func (p *Process) stepTickBudget() int64 {
+	if !p.preemptive {
+		return -1
+	}
+	switch budget := p.budgets.TickBudget; {
+	case budget < 0:
+		return -1
+	case budget == 0:
+		return DefaultActorTickBudget
+	default:
+		return budget
+	}
+}
+
+// chargeStep counts a step against the max_steps option.
+func (p *Process) chargeStep() error {
+	if p.budgets.MaxSteps == 0 {
+		return nil
+	}
+	p.steps++
+	if p.steps > p.budgets.MaxSteps {
+		return process.ErrStepLimitExceeded
+	}
 	return nil
 }
 
@@ -1709,7 +1791,11 @@ func (p *Process) vmStep(tasks ...*Task) ([]*Task, error) {
 			continue
 		}
 
-		if task.State != lua.ResumeYield {
+		if task.State != lua.ResumeYield && task.State != lua.ResumePreempted {
+			continue
+		}
+		if p.state.TickBudget() == 0 {
+			p.deferred = append(p.deferred, task)
 			continue
 		}
 
@@ -1760,6 +1846,8 @@ func (p *Process) vmStep(tasks ...*Task) ([]*Task, error) {
 				return nil, nil
 			}
 			p.removeTask(task)
+		case lua.ResumePreempted:
+			p.deferred = append(p.deferred, task)
 		case lua.ResumeError:
 			p.removeTask(task)
 		}
@@ -1805,6 +1893,8 @@ func (p *Process) killAllThreads() {
 	}
 	p.threads = p.threads[:0]
 	p.queue.Drain()
+	clear(p.deferred)
+	p.deferred = p.deferred[:0]
 }
 
 // handleSpawnRequest checks if yielded values contain a SpawnRequest and handles it.
@@ -1894,6 +1984,8 @@ func (p *Process) Close() {
 	p.yieldBuf = p.yieldBuf[:0]
 	p.externalTasks = p.externalTasks[:0]
 	p.outTasks = p.outTasks[:0]
+	clear(p.deferred)
+	p.deferred = p.deferred[:0]
 	p.clearMessageQueue()
 
 	// Clear all references
@@ -1924,9 +2016,28 @@ func (p *Process) Close() {
 	p.upgradable = false
 	p.pendingOutdated = nil
 	p.linkDownError = nil
+	p.entryBudgets = luaapi.ExecutionBudgets{}
+	p.budgets = luaapi.ExecutionBudgets{}
+	p.steps = 0
+	p.preemptive = false
 
 	// Return to pool
 	processPool.Put(p)
+}
+
+// executionBudgets resolves the execution options for this execution: the
+// entry's options, overridden by the spawn options in the frame context.
+func (p *Process) executionBudgets(ctx context.Context) (luaapi.ExecutionBudgets, error) {
+	budgets := p.entryBudgets
+	options, ok := runtime.GetFrameLifecycleOptions(ctx).(attrs.Attributes)
+	if !ok || options == nil {
+		return budgets, nil
+	}
+	spawn, err := luaapi.ExecutionBudgetsFromOptions(options, "process spawn options")
+	if err != nil {
+		return budgets, err
+	}
+	return budgets.Override(spawn), nil
 }
 
 // SyncExecute runs the script directly without coroutines or scheduler.
@@ -2019,6 +2130,8 @@ func (p *Process) clearExecution() {
 
 	// Drain queue
 	p.queue.Drain()
+	clear(p.deferred)
+	p.deferred = p.deferred[:0]
 
 	// Clear main task reference and result
 	p.mainTask = nil
