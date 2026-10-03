@@ -70,6 +70,12 @@ func (q *InjectQueue) Pop() *Processor {
 	return proc
 }
 
+// IsEmpty reports whether no processor is queued. Only safe to call from the
+// single consumer.
+func (q *InjectQueue) IsEmpty() bool {
+	return q.tail.next.Load() == nil
+}
+
 // Drain pops all available processors into dst, returns count.
 // Useful for batch processing.
 func (q *InjectQueue) Drain(dst []*Processor) int {

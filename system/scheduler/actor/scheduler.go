@@ -114,6 +114,7 @@ type Scheduler struct {
 	retiredStolen    atomic.Uint64
 	queueSize        int
 	nextID           atomic.Uint64
+	parked           atomic.Int32
 	phase            atomic.Uint32
 	collectStats     atomic.Bool
 	started          bool
@@ -241,15 +242,6 @@ func (s *Scheduler) enablePreemption(p process.Process) {
 	if pp, ok := p.(process.Preemptible); ok {
 		pp.EnablePreemption()
 	}
-}
-
-// requeuePreempted makes a preempted processor runnable behind other ready
-// work. The global queue is FIFO and shared, so an idle worker can pick it up
-// while this worker serves its local and injected work first.
-func (s *Scheduler) requeuePreempted(proc *Processor) {
-	proc.lastWorker.Store(noWorkerAffinity)
-	s.global.Push(proc)
-	s.wakeAny()
 }
 
 func (s *Scheduler) wakeAll() {
