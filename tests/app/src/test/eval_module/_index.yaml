@@ -187,3 +187,17 @@ entries:
       - time
     imports:
       assert: app.lib:assert
+
+  - name: ungated_modules
+    kind: function.lua
+    meta:
+      type: test
+      suite: eval_module
+      description: modules without their own permission check obey an eval's explicit deny
+    source: file://ungated_modules.lua
+    method: main
+    modules:
+      - eval
+      - time
+    imports:
+      assert: app.lib:assert
