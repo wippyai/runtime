@@ -120,6 +120,14 @@ func (s *ExecutionScope) Kind() ExecutionKind {
 	return s.kind
 }
 
+// Owned returns the number of registered owned children that have not
+// completed.
+func (s *ExecutionScope) Owned() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.owned)
+}
+
 // Reserve registers a child about to start. The returned pairs go into the
 // child's frame: they mark the child owned and hold its registration as an
 // attachment, rolled back if the child is not admitted and released when the

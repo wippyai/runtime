@@ -223,9 +223,7 @@ func (h *Host) Run(ctx context.Context, start *process.Start) (pid.PID, error) {
 		frameCtx, securityErr = securitysys.WithSecurityConfigE(frameCtx, meta.Security)
 		if securityErr != nil {
 			proc.Close()
-			if fc := ctxapi.FrameFromContext(frameCtx); fc != nil {
-				ctxapi.ReleaseFrameContext(fc)
-			}
+			abandonFrame(frameCtx)
 			return pid.PID{}, fmt.Errorf("resolve process security: %w", securityErr)
 		}
 	}
@@ -237,9 +235,7 @@ func (h *Host) Run(ctx context.Context, start *process.Start) (pid.PID, error) {
 
 	if _, err = h.scheduler.Submit(frameCtx, processID, proc, method, start.Input); err != nil {
 		proc.Close()
-		if fc := ctxapi.FrameFromContext(frameCtx); fc != nil {
-			ctxapi.ReleaseFrameContext(fc)
-		}
+		abandonFrame(frameCtx)
 		return pid.PID{}, err
 	}
 
@@ -423,3 +419,12 @@ func (h *Host) closeDone() {
 }
 
 var _ process.Host = (*Host)(nil)
+
+// abandonFrame ends the execution of a process that never completed: the
+// processes it owns end with it, and its frame is released.
+func abandonFrame(ctx context.Context) {
+	ctxapi.CompleteFrame(ctx)
+	if fc := ctxapi.FrameFromContext(ctx); fc != nil {
+		ctxapi.ReleaseFrameContext(fc)
+	}
+}
