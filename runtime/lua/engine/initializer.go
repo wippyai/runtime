@@ -43,6 +43,8 @@ func DeferInitializer(l *lua.LState, init Initializer) {
 // It implements lua.LValue so the state's registry can hold it.
 type initializerList struct {
 	items []Initializer
+	// onComplete callbacks run once, when the last initializer completes.
+	onComplete []func()
 	// done counts completed initializers; started reports that advance has
 	// handed out items[done] in the current run.
 	done    int
@@ -51,6 +53,18 @@ type initializerList struct {
 
 func (*initializerList) String() string       { return "<initializers>" }
 func (*initializerList) Type() lua.LValueType { return lua.LTUserData }
+
+// OnInitialized registers fn to run when l's deferred initializers have all
+// completed, before the entry chunk runs. It does not run if none are
+// registered with DeferInitializer.
+func OnInitialized(l *lua.LState, fn func()) {
+	list := initializersOf(l)
+	if list == nil {
+		list = &initializerList{}
+		l.G.Registry.RawSetString(initializersRegistryKey, list)
+	}
+	list.onComplete = append(list.onComplete, fn)
+}
 
 func initializersOf(l *lua.LState) *initializerList {
 	list, _ := l.G.Registry.RawGetString(initializersRegistryKey).(*initializerList)
@@ -76,6 +90,7 @@ func (list *initializerList) advance(l *lua.LState) int {
 		if item.Done != nil {
 			item.Done(l.Get(1))
 		}
+		list.finishIfDone()
 	}
 	list.started = list.done < len(list.items)
 	if !list.started {
@@ -105,6 +120,16 @@ func (list *initializerList) runSync(l *lua.LState) error {
 		if item.Done != nil {
 			item.Done(result)
 		}
+		list.finishIfDone()
 	}
 	return nil
+}
+
+func (list *initializerList) finishIfDone() {
+	if list.done < len(list.items) {
+		return
+	}
+	for _, fn := range list.onComplete {
+		fn()
+	}
 }

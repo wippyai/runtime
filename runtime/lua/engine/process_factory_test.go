@@ -501,3 +501,32 @@ func runProcess(t *testing.T, proc *Process, want float64) {
 		t.Fatalf("expected %v, got %v", want, output.Result().Data())
 	}
 }
+
+// Every chunk environment decides its import aliases when library
+// initialization completes: a sibling library's _G export under an alias name
+// does not override the import in an earlier library, whether or not that
+// library looked up a global while it initialized.
+func TestSiblingGlobalExportDoesNotOverrideEarlierLibraryImport(t *testing.T) {
+	for name, aSource := range map[string]string{
+		"no top-level lookup":   `return { get = function() return c.v end }`,
+		"top-level global read": `local _ = tostring return { get = function() return c.v end }`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			aID, bID, cID, mainID := registry.NewID("t", "a"), registry.NewID("t", "b"), registry.NewID("t", "c"), registry.NewID("t", "main")
+			compiled := &code.CompiledMain{
+				MainID: mainID,
+				Imports: map[registry.ID][]code.Import{
+					aID:    {{ID: cID, Alias: "c"}},
+					mainID: {{ID: aID, Alias: "a"}, {ID: bID, Alias: "b"}},
+				},
+				Dependencies: []code.CompiledProto{
+					{Name: "c", Node: &code.Node{ID: cID}, Proto: compileTestProto(t, `return { v = 42 }`)},
+					{Name: "a", Node: &code.Node{ID: aID}, Proto: compileTestProto(t, aSource)},
+					{Name: "b", Node: &code.Node{ID: bID}, Proto: compileTestProto(t, `_G.c = { v = 99 } return {}`)},
+				},
+			}
+			proc := newDependencyProcess(t, compiled, `return { main = function() return a.get() end }`, 0)
+			runProcess(t, proc, 42)
+		})
+	}
+}
