@@ -56,6 +56,9 @@ type frameContext struct {
 	refcount   atomic.Int32
 	sealed     atomic.Bool
 	writers    atomic.Int32
+	// continuation marks the frame of a later code incarnation; its
+	// Execution values belong to the execution's frame, which closes them.
+	continuation bool
 }
 
 type frameContextRef struct {
@@ -406,31 +409,31 @@ func PropagatedPairs(ctx context.Context) []Pair {
 // ContinueFrameContext opens the frame of the next code incarnation of the
 // execution running in ctx, as when a process upgrades: a fork of the
 // execution's frame that also carries its Execution values, holding a
-// reference on that frame until it is released. An execution without a frame
-// has no values to carry and continues in a new root frame.
+// reference on that frame until it is released. The values stay owned by the
+// execution's frame: releasing the continuation does not close them. An
+// execution without a frame has no values to carry and continues in a new
+// root frame.
 func ContinueFrameContext(ctx context.Context) (context.Context, FrameContext, error) {
 	fc := FrameFromContext(ctx)
 	if fc == nil {
 		next, nfc := OpenFrameContext(ctx)
 		return next, nfc, nil
 	}
+	// The previous incarnation has finished with the execution's frame; it
+	// is sealed so the continuation is always a fork, never the frame itself.
+	fc.Seal()
 	var carried []Pair
-	var invalid bool
 	fc.Iterate(func(key, value any) {
-		k, ok := key.(*Key)
-		if !ok || !k.Execution || k.Inherit {
-			return
+		if k, ok := key.(*Key); ok && k.Execution && !k.Inherit {
+			carried = append(carried, Pair{Key: key, Value: value})
 		}
-		if _, ok := value.(Closer); ok {
-			invalid = true
-			return
-		}
-		carried = append(carried, Pair{Key: key, Value: value})
 	})
-	if invalid {
-		return ctx, nil, ErrExecutionValueCloser
-	}
 	next, nfc := OpenFrameContext(ctx)
+	if ref, ok := nfc.(*frameContextRef); ok {
+		if frame := ref.resolveFrame(); frame != nil {
+			frame.continuation = true
+		}
+	}
 	if len(carried) > 0 {
 		if err := nfc.SetMultiple(carried...); err != nil {
 			ReleaseFrameContext(nfc)
@@ -511,11 +514,17 @@ func releaseFrame(f *frameContext, expectedGeneration uint64) {
 
 	// refcount == 0 means exclusive access, no lock needed
 	var closers []Closer
-	for _, v := range f.valuesSnapshot() {
-		if closer, ok := v.(Closer); ok {
-			closers = append(closers, closer)
+	for k, v := range f.valuesSnapshot() {
+		closer, ok := v.(Closer)
+		if !ok {
+			continue
 		}
+		if key, isKey := k.(*Key); isKey && key.Execution && f.continuation {
+			continue
+		}
+		closers = append(closers, closer)
 	}
+	f.continuation = false
 	values := make(frameValues, 8)
 	f.values.Store(&values)
 	parent := f.parent

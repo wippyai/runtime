@@ -19,8 +19,8 @@ type (
 		// Execution marks a value that belongs to the execution running in
 		// the frame rather than to the code it runs: ContinueFrameContext
 		// carries it to the frame of the next code incarnation (a process
-		// upgrade), and nothing else receives it. An execution value must not
-		// be a Closer, since every frame continuing the execution shares it.
+		// upgrade), and nothing else receives it. The frame that set it owns
+		// it: a Closer value is closed when that frame is reclaimed.
 		Execution bool
 	}
 

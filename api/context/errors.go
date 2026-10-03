@@ -12,9 +12,6 @@ var (
 	ErrNoFrameContext = apierror.New(apierror.Invalid, "no frame context available").WithRetryable(apierror.False)
 	ErrNoAppContext   = apierror.New(apierror.Invalid, "no app context available").WithRetryable(apierror.False)
 	ErrFrameSealed    = apierror.New(apierror.Invalid, "frame is sealed").WithRetryable(apierror.False)
-	// ErrExecutionValueCloser reports an execution value that owns a
-	// resource; frames continuing an execution cannot share it.
-	ErrExecutionValueCloser = apierror.New(apierror.Invalid, "execution value must not be a Closer").WithRetryable(apierror.False)
 )
 
 // NewFrameSealedError creates an error for attempting to set a key in a sealed frame.

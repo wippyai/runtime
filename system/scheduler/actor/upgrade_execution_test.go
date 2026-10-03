@@ -19,7 +19,10 @@ import (
 
 var (
 	testExecutionKey = &ctxapi.Key{Name: "test.execution", Execution: true}
-	testLocalKey     = &ctxapi.Key{Name: "test.local"}
+	// testPortKey holds an execution value that owns a resource, as a
+	// terminal port does.
+	testPortKey  = &ctxapi.Key{Name: "test.port", Execution: true}
+	testLocalKey = &ctxapi.Key{Name: "test.local"}
 )
 
 // countingCloser records how often the frame holding it is reclaimed.
@@ -100,12 +103,14 @@ func TestUpgradeContinuesTheExecution(t *testing.T) {
 
 	self := pidapi.PID{UniqID: "upgrader"}
 	root := &countingCloser{}
+	port := &countingCloser{}
 	rootCtx, fc := ctxapi.OpenFrameContext(appCtx)
 	if err := fc.SetMultiple(
 		ctxapi.Pair{Key: runtime.FrameIDKey, Value: registry.NewID("app", "first")},
 		ctxapi.Pair{Key: runtime.FramePIDKey, Value: self},
 		ctxapi.Pair{Key: testExecutionKey, Value: "execution"},
 		ctxapi.Pair{Key: testLocalKey, Value: root},
+		ctxapi.Pair{Key: testPortKey, Value: port},
 	); err != nil {
 		t.Fatal(err)
 	}
@@ -145,5 +150,8 @@ func TestUpgradeContinuesTheExecution(t *testing.T) {
 	}
 	if got := root.closed.Load(); got != 1 {
 		t.Fatalf("the execution frame is reclaimed once after completion, got %d", got)
+	}
+	if got := port.closed.Load(); got != 1 {
+		t.Fatalf("an execution resource is closed once, by the execution's frame, got %d", got)
 	}
 }

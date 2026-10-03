@@ -4,13 +4,15 @@ package context
 
 import (
 	"context"
-	"errors"
 	"testing"
 )
 
-type closeRecorder struct{}
+type closeRecorder struct{ closed int }
 
-func (*closeRecorder) Close() error { return nil }
+func (c *closeRecorder) Close() error {
+	c.closed++
+	return nil
+}
 
 func TestContinueFrameContext(t *testing.T) {
 	execKey := &Key{Name: "test.execution", Execution: true}
@@ -51,17 +53,31 @@ func TestContinueFrameContext(t *testing.T) {
 	ReleaseFrameContext(fc)
 }
 
-func TestContinueFrameContextRejectsExecutionCloser(t *testing.T) {
+func TestContinueFrameContextLeavesExecutionValuesToTheirFrame(t *testing.T) {
 	execKey := &Key{Name: "test.execution.closer", Execution: true}
 	ctx, fc := OpenFrameContext(context.Background())
-	defer ReleaseFrameContext(fc)
-	if err := fc.Set(execKey, &closeRecorder{}); err != nil {
+	port := &closeRecorder{}
+	if err := fc.Set(execKey, port); err != nil {
 		t.Fatal(err)
 	}
-	fc.Seal()
 
-	if _, _, err := ContinueFrameContext(ctx); !errors.Is(err, ErrExecutionValueCloser) {
-		t.Fatalf("an execution value owning a resource cannot be shared by two frames, got %v", err)
+	_, nfc, err := ContinueFrameContext(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !fc.IsSealed() {
+		t.Error("the execution frame is sealed once its code continues elsewhere")
+	}
+	if v, _ := nfc.Get(execKey); v != port {
+		t.Fatal("the continuation refers to the execution's value")
+	}
+	ReleaseFrameContext(nfc)
+	if port.closed != 0 {
+		t.Fatal("releasing a continuation leaves the execution's value open")
+	}
+	ReleaseFrameContext(fc)
+	if port.closed != 1 {
+		t.Fatalf("the execution's frame closes its value once, got %d", port.closed)
 	}
 }
 
