@@ -5,19 +5,19 @@ package actor
 import (
 	"context"
 	"errors"
-	"github.com/wippyai/runtime/api/dispatcher"
-	"github.com/wippyai/runtime/api/relay"
-	"github.com/wippyai/runtime/system/scheduler"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/payload"
 	pidapi "github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/relay"
 	apiruntime "github.com/wippyai/runtime/api/runtime"
+	"github.com/wippyai/runtime/system/scheduler"
 )
 
 // closeCountingProcess counts Close calls.
