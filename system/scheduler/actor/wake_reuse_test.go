@@ -38,7 +38,10 @@ func TestStaleWakeDoesNotTransitionReusedSlot(t *testing.T) {
 		if got := ProcessState(proc.state.Load()) & stateMask; got != StateBlocked {
 			t.Fatalf("round %d: stale wake moved the reused slot to %s", i, StateName(got))
 		}
-		for s.global.Pop() != nil { //nolint:revive // drains the queue
+		for {
+			if s.global.Pop() == nil {
+				break
+			}
 		}
 	}
 }
