@@ -52,7 +52,7 @@ func programSpawn(l *lua.LState) int {
 	return spawnProgram(l, "", program)
 }
 
-// programEvict is Program:evict() -> true, err.
+// programEvict is Program:evict() -> evicted, err.
 func programEvict(l *lua.LState) int {
 	program, ok := programArg(l, 1)
 	if !ok {

@@ -92,7 +92,8 @@ func moduleSpawn(l *lua.LState) int {
 	return pushError(l, lua.Invalid, "eval.spawn requires source string or eval.Program")
 }
 
-// moduleEvict is eval.evict(program) -> true, err.
+// moduleEvict is eval.evict(program) -> evicted, err; evicted is false when
+// the program was not cached.
 func moduleEvict(l *lua.LState) int {
 	program, ok := programArg(l, 1)
 	if !ok {
@@ -149,10 +150,11 @@ func evict(l *lua.LState, program apihost.EvalProgram) int {
 	if host == nil {
 		return n
 	}
-	if _, err := host.Evict(ctx, program); err != nil {
+	evicted, err := host.Evict(ctx, program)
+	if err != nil {
 		return pushWrapped(l, err)
 	}
-	l.Push(lua.LTrue)
+	l.Push(lua.LBool(evicted))
 	l.Push(lua.LNil)
 	return 2
 }

@@ -50,7 +50,11 @@ local function main()
 
 	local evicted, eerr = program:evict()
 	assert.is_nil(eerr, "evict succeeds")
-	assert.eq(evicted, true, "evict returns true")
+	assert.eq(evicted, true, "evict returns true for a cached program")
+
+	local again, aerr = program:evict()
+	assert.is_nil(aerr, "evicting an evicted program succeeds")
+	assert.eq(again, false, "evict returns false for a program that is not cached")
 
 	local gone, gerr = program:spawn({ monitor_only = true })
 	assert.is_nil(gone, "spawn after evict fails")
