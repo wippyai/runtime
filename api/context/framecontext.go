@@ -33,6 +33,10 @@ type FrameContext interface {
 	// Used for propagating context to child processes or tasks.
 	InheritablePairs() []Pair
 
+	// ProcessPairs returns all key-value pairs marked with Process: true.
+	// Used to carry values owned by a process across an in-place upgrade.
+	ProcessPairs() []Pair
+
 	// Seal marks this frame as immutable.
 	Seal()
 
@@ -190,6 +194,16 @@ func (f *frameContext) InheritablePairs() []Pair {
 	return pairs
 }
 
+func (f *frameContext) ProcessPairs() []Pair {
+	var pairs []Pair
+	for k, v := range f.valuesSnapshot() {
+		if ctxKey, ok := k.(*Key); ok && ctxKey.Process {
+			pairs = append(pairs, Pair{Key: k, Value: v})
+		}
+	}
+	return pairs
+}
+
 func (f *frameContext) Seal() {
 	if f.sealed.Swap(true) {
 		return
@@ -272,6 +286,14 @@ func (r *frameContextRef) InheritablePairs() []Pair {
 		return nil
 	}
 	return frame.InheritablePairs()
+}
+
+func (r *frameContextRef) ProcessPairs() []Pair {
+	frame := r.resolveFrame()
+	if frame == nil {
+		return nil
+	}
+	return frame.ProcessPairs()
 }
 
 func (r *frameContextRef) Seal() {

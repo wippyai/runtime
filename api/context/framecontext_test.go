@@ -1004,3 +1004,73 @@ func TestPropagatedPairs_PropagatorReturnsNil(t *testing.T) {
 		t.Errorf("expected 0 pairs when propagator returns nil, got %d", len(pairs))
 	}
 }
+
+func pairSet(pairs []Pair) map[any]any {
+	out := make(map[any]any, len(pairs))
+	for _, p := range pairs {
+		out[p.Key] = p.Value
+	}
+	return out
+}
+
+func TestKey_ProcessIsIndependentOfInherit(t *testing.T) {
+	processKey := &Key{Name: "test.process", Process: true}
+	bothKey := &Key{Name: "test.both", Process: true, Inherit: true}
+	inheritKey := &Key{Name: "test.inherit", Inherit: true}
+	plainKey := &Key{Name: "test.plain"}
+
+	_, fc := OpenFrameContext(NewRootContext())
+	defer fc.Close()
+	if err := fc.SetMultiple(
+		Pair{Key: processKey, Value: "p"},
+		Pair{Key: bothKey, Value: "b"},
+		Pair{Key: inheritKey, Value: "i"},
+		Pair{Key: plainKey, Value: "x"},
+	); err != nil {
+		t.Fatalf("SetMultiple: %v", err)
+	}
+
+	got := pairSet(fc.ProcessPairs())
+	if len(got) != 2 || got[processKey] != "p" || got[bothKey] != "b" {
+		t.Errorf("ProcessPairs = %v, want process and both keys", got)
+	}
+	got = pairSet(fc.InheritablePairs())
+	if len(got) != 2 || got[bothKey] != "b" || got[inheritKey] != "i" {
+		t.Errorf("InheritablePairs = %v, want both and inherit keys", got)
+	}
+}
+
+func TestProcessPairs_NotInheritedByChildren(t *testing.T) {
+	processKey := &Key{Name: "test.process", Process: true}
+
+	parent, ref := OpenFrameContext(NewRootContext())
+	defer ref.Close()
+	if err := ref.Set(processKey, "p"); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+	ref.Seal()
+	if got := pairSet(FrameFromContext(parent).ProcessPairs()); got[processKey] != "p" {
+		t.Errorf("ProcessPairs = %v, want process key", got)
+	}
+
+	child, childRef := OpenFrameContext(parent)
+	defer childRef.Close()
+	if FrameFromContext(child).Has(processKey) {
+		t.Error("child frame inherited a process value")
+	}
+	if got := childRef.ProcessPairs(); len(got) != 0 {
+		t.Errorf("child ProcessPairs = %v, want empty", got)
+	}
+}
+
+func TestProcessPairs_ReleasedFrameIsEmpty(t *testing.T) {
+	processKey := &Key{Name: "test.process", Process: true}
+	_, ref := OpenFrameContext(NewRootContext())
+	if err := ref.Set(processKey, "p"); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+	_ = ref.Close()
+	if got := ref.ProcessPairs(); len(got) != 0 {
+		t.Errorf("released ProcessPairs = %v, want empty", got)
+	}
+}

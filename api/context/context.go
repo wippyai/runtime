@@ -11,9 +11,14 @@ type (
 	// Key represents a context key used for storing and retrieving values.
 	// When Inherit is true, the value will be automatically copied to new frames
 	// created from sealed parent frames.
+	// When Process is true, the value belongs to the process incarnation: an
+	// in-place upgrade carries it to the replacement frame. Process is independent
+	// of Inherit; a process value is not copied to child frames unless Inherit is
+	// also set.
 	Key struct {
 		Name    string
 		Inherit bool
+		Process bool
 	}
 
 	// Pair represents a key-value pair for batch operations.

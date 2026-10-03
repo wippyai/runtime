@@ -402,3 +402,94 @@ func equalIDs(a, b []registry.ID) bool {
 	}
 	return true
 }
+
+// upgradeProbe snapshots the frame values visible to its Init.
+type upgradeProbe struct {
+	seen chan map[any]any
+	keys []any
+}
+
+func (p *upgradeProbe) Init(ctx context.Context, _ string, _ payload.Payloads) error {
+	values := make(map[any]any, len(p.keys))
+	if fc := ctxapi.FrameFromContext(ctx); fc != nil {
+		for _, k := range p.keys {
+			if v, ok := fc.Get(k); ok {
+				values[k] = v
+			}
+		}
+	}
+	p.seen <- values
+	return nil
+}
+func (p *upgradeProbe) Step(_ []process.Event, out *process.StepOutput) error {
+	out.Done(nil)
+	return nil
+}
+func (*upgradeProbe) Send(*relay.Package) error { return nil }
+func (*upgradeProbe) Close()                    {}
+
+// TestUpgradeCarriesProcessValues upgrades a process in place and verifies the
+// replacement frame holds the process-owned values and none of the others.
+func TestUpgradeCarriesProcessValues(t *testing.T) {
+	reg := scheduler.NewRegistry()
+	reg.Register(CmdComplete, CompleteHandler())
+	reg.Register(CmdYield, YieldHandler())
+	s := NewScheduler(reg, WithWorkers(1))
+	s.Start()
+	defer testStopScheduler(s)
+
+	processKey := &ctxapi.Key{Name: "test.process_value", Process: true}
+	plainKey := &ctxapi.Key{Name: "test.plain_value"}
+	selfPID := pidapi.PID{UniqID: "upgrade-carry"}
+	options := map[string]any{"upgradable": true}
+
+	probe := &upgradeProbe{
+		seen: make(chan map[any]any, 1),
+		keys: []any{runtime.FramePIDKey, runtime.FrameLifecycleOptionsKey, processKey, plainKey},
+	}
+	ctx := ctxapi.WithAppContext(context.Background(), ctxapi.NewAppContext())
+	process.WithFactory(ctx, &mockFactory{
+		createFunc: func(registry.ID) (process.Process, *process.Meta, error) {
+			return probe, &process.Meta{Method: "main"}, nil
+		},
+	})
+
+	frameCtx, _ := ctxapi.OpenFrameContext(ctx)
+	src := registry.NewID("app", "carry")
+	if err := runtime.SetFrameID(frameCtx, src); err != nil {
+		t.Fatalf("SetFrameID: %v", err)
+	}
+	if err := ctxapi.FrameFromContext(frameCtx).SetMultiple(
+		ctxapi.Pair{Key: runtime.FramePIDKey, Value: selfPID},
+		ctxapi.Pair{Key: runtime.FrameLifecycleOptionsKey, Value: options},
+		ctxapi.Pair{Key: processKey, Value: "owned"},
+		ctxapi.Pair{Key: plainKey, Value: "dropped"},
+	); err != nil {
+		t.Fatalf("SetMultiple: %v", err)
+	}
+	ctxapi.FrameFromContext(frameCtx).Seal()
+
+	upgrader := &UpgradeProcess{upgradeReq: &process.UpgradeRequest{}}
+	if _, err := s.Submit(frameCtx, selfPID, upgrader, "", nil); err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+
+	var seen map[any]any
+	select {
+	case seen = <-probe.seen:
+	case <-time.After(2 * time.Second):
+		t.Fatal("upgraded process did not initialize")
+	}
+	if seen[runtime.FramePIDKey] != selfPID {
+		t.Errorf("pid = %v, want %v", seen[runtime.FramePIDKey], selfPID)
+	}
+	if got, ok := seen[runtime.FrameLifecycleOptionsKey].(map[string]any); !ok || got["upgradable"] != true {
+		t.Errorf("lifecycle options = %v, want carried options", seen[runtime.FrameLifecycleOptionsKey])
+	}
+	if seen[processKey] != "owned" {
+		t.Errorf("process value = %v, want owned", seen[processKey])
+	}
+	if v, ok := seen[plainKey]; ok {
+		t.Errorf("plain value carried across upgrade: %v", v)
+	}
+}
