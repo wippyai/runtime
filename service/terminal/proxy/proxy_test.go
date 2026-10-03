@@ -88,11 +88,11 @@ func TestProxyBoundsRetainedScrollbackByViewportWidth(t *testing.T) {
 		24,
 	)
 	require.NoError(t, err)
-	require.Equal(t, 256, proxy.screen.Scrollback())
+	require.Equal(t, 256, proxy.historyLimit())
 
 	wide, err := New(&testProcess{input: make(chan []byte, 1)}, &testSurface{}, execapi.MaxPTYDimension, 4)
 	require.NoError(t, err)
-	require.Equal(t, 1, wide.screen.Scrollback())
+	require.Equal(t, 1, wide.historyLimit())
 }
 
 func TestProxyPrimaryScreenWheelPresentsBoundedHistory(t *testing.T) {
@@ -176,11 +176,11 @@ func TestProxyResizeClampsHistoryAndReboundsItsCellBudget(t *testing.T) {
 	require.Positive(t, proxy.historyLen())
 
 	require.NoError(t, proxy.handle(ttyapi.Event{Type: "resize", Width: execapi.MaxPTYDimension, Height: 4}))
-	require.Equal(t, 1, proxy.screen.Scrollback())
-	require.LessOrEqual(t, proxy.historyLen(), proxy.screen.Scrollback())
+	require.Equal(t, 1, proxy.historyLimit())
+	require.LessOrEqual(t, proxy.historyLen(), proxy.historyLimit())
 
 	require.NoError(t, proxy.handle(ttyapi.Event{Type: "resize", Width: 80, Height: 4}))
-	require.Equal(t, 256, proxy.screen.Scrollback())
+	require.Equal(t, 256, proxy.historyLimit())
 }
 
 func TestProxyNarrowResizeBoundsOverwideHistoryByCellBudget(t *testing.T) {
@@ -191,7 +191,7 @@ func TestProxyNarrowResizeBoundsOverwideHistoryByCellBudget(t *testing.T) {
 	require.Equal(t, 1, proxy.historyLen())
 
 	require.NoError(t, proxy.handle(ttyapi.Event{Type: "resize", Width: 80, Height: 1}))
-	require.Equal(t, maxScrollbackLines, proxy.screen.Scrollback())
+	require.Equal(t, maxScrollbackLines, proxy.historyLimit())
 	require.LessOrEqual(t, proxy.historyLen(), maxScrollbackLines)
 	require.LessOrEqual(t, proxy.historyLen()*80, scrollbackCellBudget)
 }
@@ -264,7 +264,9 @@ func BenchmarkProxyOutputScrollback(b *testing.B) {
 		b.Run(limit.name, func(b *testing.B) {
 			proxy, err := New(&testProcess{input: make(chan []byte, 1)}, &testSurface{}, 80, 24)
 			require.NoError(b, err)
-			proxy.screen.SetScrollback(limit.lines)
+			proxy.screenMu.Lock()
+			proxy.screen.NormalBuffer().Lines.SetMaxLength(proxy.screen.Rows() + limit.lines)
+			proxy.screenMu.Unlock()
 			b.ReportAllocs()
 			b.ResetTimer()
 			for range b.N {
@@ -878,4 +880,45 @@ func (p *Proxy) historyLen() int {
 	p.screenMu.Lock()
 	defer p.screenMu.Unlock()
 	return p.historyLenLocked()
+}
+
+func (p *Proxy) historyLimit() int {
+	p.screenMu.Lock()
+	defer p.screenMu.Unlock()
+	return p.historyLimitLocked()
+}
+
+func TestProxyNarrowResizeWithFullHistoryReflowsWithinBounds(t *testing.T) {
+	process := &testProcess{stdout: io.NopCloser(strings.NewReader("")), input: make(chan []byte, 1)}
+	proxy, err := New(process, &testSurface{}, 80, 2)
+	require.NoError(t, err)
+	row := strings.Repeat("x", 80) + "\r\n"
+	for range 2 * maxScrollbackLines {
+		_, err = proxy.writeOutput([]byte(row))
+		require.NoError(t, err)
+	}
+	require.Equal(t, maxScrollbackLines, proxy.historyLen())
+
+	for _, width := range []int{10, 2, 80, 3} {
+		require.NotPanics(t, func() {
+			require.NoError(t, proxy.handle(ttyapi.Event{Type: "resize", Width: width, Height: 2}))
+		})
+		require.LessOrEqual(t, proxy.historyLen(), scrollbackSize(width))
+		require.LessOrEqual(t, proxy.historyLen()*width, scrollbackCellBudget)
+	}
+}
+
+func TestProxyNarrowResizeOfFullPTYKeepsEmulatorConsistent(t *testing.T) {
+	process := &testProcess{stdout: io.NopCloser(strings.NewReader("")), input: make(chan []byte, 1)}
+	proxy, err := New(process, &testSurface{}, 1024, 256)
+	require.NoError(t, err)
+	row := strings.Repeat("x", 1024) + "\r\n"
+	for range 256 {
+		_, err = proxy.writeOutput([]byte(row))
+		require.NoError(t, err)
+	}
+	require.NotPanics(t, func() {
+		require.NoError(t, proxy.handle(ttyapi.Event{Type: "resize", Width: 2, Height: 256}))
+	})
+	require.LessOrEqual(t, proxy.historyLen(), scrollbackSize(2))
 }

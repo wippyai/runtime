@@ -8,9 +8,9 @@ import (
 	"sync/atomic"
 	"unicode/utf8"
 
+	xterm "github.com/gitpod-io/xterm-go"
 	execapi "github.com/wippyai/runtime/api/service/exec"
 	ttyapi "github.com/wippyai/runtime/api/tty"
-	"github.com/wippyai/runtime/internal/term/vt"
 )
 
 const (
@@ -47,8 +47,12 @@ func (p *Proxy) handle(event ttyapi.Event) error {
 		}
 		p.screenMu.Lock()
 		p.height.Store(int64(event.Height))
-		p.screen.SetScrollback(scrollbackSize(event.Width))
+		// Widening multiplies the cells of every retained line, so history is
+		// bounded for the new width first. The emulator then reflows within
+		// its reflow capacity and history is bounded again for the new rows.
+		p.boundHistoryLocked(event.Width)
 		p.screen.Resize(event.Width, event.Height)
+		p.boundHistoryLocked(event.Width)
 		p.syncModesLocked()
 		p.viewOffset = min(p.viewOffset, p.historyLenLocked())
 		p.screenMu.Unlock()
@@ -228,33 +232,33 @@ func modifier(event ttyapi.Event) int {
 // tracking protocol and coordinate encoding. Public coordinates are one-based,
 // as the wire protocols are.
 func (p *Proxy) encodeMouse(event ttyapi.Event) string {
-	core := vt.CoreMouseEvent{
+	core := xterm.CoreMouseEvent{
 		Col: event.X, Row: event.Y, Shift: event.Shift, Alt: event.Alt, Ctrl: event.Ctrl,
 	}
 	switch event.Button {
 	case "none":
-		core.Button = vt.MouseButtonNone
+		core.Button = xterm.MouseButtonNone
 	case "left":
-		core.Button = vt.MouseButtonLeft
+		core.Button = xterm.MouseButtonLeft
 	case "middle":
-		core.Button = vt.MouseButtonMiddle
+		core.Button = xterm.MouseButtonMiddle
 	case "right":
-		core.Button = vt.MouseButtonRight
+		core.Button = xterm.MouseButtonRight
 	case "wheel_up":
-		core.Button, core.Action = vt.MouseButtonWheel, vt.MouseActionUp
+		core.Button, core.Action = xterm.MouseButtonWheel, xterm.MouseActionUp
 	case "wheel_down":
-		core.Button, core.Action = vt.MouseButtonWheel, vt.MouseActionDown
+		core.Button, core.Action = xterm.MouseButtonWheel, xterm.MouseActionDown
 	default:
 		return ""
 	}
-	if core.Button != vt.MouseButtonWheel {
+	if core.Button != xterm.MouseButtonWheel {
 		switch event.Action {
 		case "press":
-			core.Action = vt.MouseActionDown
+			core.Action = xterm.MouseActionDown
 		case "release":
-			core.Action = vt.MouseActionUp
+			core.Action = xterm.MouseActionUp
 		case "motion":
-			core.Action = vt.MouseActionMove
+			core.Action = xterm.MouseActionMove
 		default:
 			return ""
 		}
@@ -319,7 +323,7 @@ func (p *Proxy) syncModesLocked() {
 func (p *Proxy) installModeHandlers() {
 	for _, final := range []byte{'h', 'l'} {
 		enabled := final == 'h'
-		p.screen.RegisterCsiHandler(vt.FunctionIdentifier{Prefix: '?', Final: final}, func(params *vt.Params) bool {
+		p.screen.RegisterCsiHandler(xterm.FunctionIdentifier{Prefix: '?', Final: final}, func(params *xterm.Params) bool {
 			for i := 0; i < params.Length; i++ {
 				if params.Params[i] == modeAlternateScroll {
 					p.input.altScroll.Store(enabled)
