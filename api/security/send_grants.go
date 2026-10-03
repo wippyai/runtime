@@ -12,8 +12,10 @@ import (
 
 // sendGrantsKey holds a restricted process's send grants. Frames forked from
 // it, including child processes, inherit a copy: a process spawned by a
-// restricted process is restricted to what its spawner could address.
-var sendGrantsKey = &ctxapi.Key{Name: "security.process_send_grants", Inherit: true}
+// restricted process is restricted to what its spawner could address. As an
+// execution value, the grants are shared by every code incarnation of the
+// process.
+var sendGrantsKey = &ctxapi.Key{Name: "security.process_send_grants", Inherit: true, Execution: true}
 
 // ProcessSendGrants is the set of PIDs a capability-restricted process may
 // address besides its parent. It contains only PIDs the runtime handed to the
