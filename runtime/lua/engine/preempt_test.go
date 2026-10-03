@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -99,6 +100,48 @@ func TestProcessNegativeTickBudgetRunsStepToCompletion(t *testing.T) {
 	}
 	if output.Status() != process.StepDone {
 		t.Fatalf("expected StepDone in one step, got %v", output.Status())
+	}
+}
+
+func TestProcessTickBudgetBoundaries(t *testing.T) {
+	const script = `
+		local s = 0
+		for i = 1, 100000 do s = s + i end
+		return s
+	`
+	t.Run("max int64 runs the step to completion", func(t *testing.T) {
+		proc := initPreemptProcess(t, script, math.MaxInt64)
+		var output process.StepOutput
+		if err := proc.Step(nil, &output); err != nil {
+			t.Fatal(err)
+		}
+		if output.Status() != process.StepDone {
+			t.Fatalf("expected StepDone in one step, got %v", output.Status())
+		}
+	})
+	t.Run("budget of one makes progress", func(t *testing.T) {
+		proc := initPreemptProcess(t, `return 7`, 1)
+		if v, _ := stepPreempted(t, proc, 100); lua.LVAsNumber(v) != 7 {
+			t.Fatalf("expected 7, got %v", v)
+		}
+	})
+}
+
+// A budget that runs out exactly as the last task ends neither loses the
+// result nor reports a preemption with nothing left to run.
+func TestProcessBudgetExhaustedAtTaskEnd(t *testing.T) {
+	const script = `
+		local function f(n) return n + 1 end
+		local s = 0
+		for i = 1, 5 do s = f(s) end
+		return s
+	`
+	for budget := int64(1); budget <= 40; budget++ {
+		proc := initPreemptProcess(t, script, budget)
+		v, _ := stepPreempted(t, proc, 1000)
+		if lua.LVAsNumber(v) != 5 {
+			t.Fatalf("budget %d: expected 5, got %v", budget, v)
+		}
 	}
 }
 
