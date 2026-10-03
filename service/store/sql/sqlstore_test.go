@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "github.com/rqlite/go-sqlite3"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

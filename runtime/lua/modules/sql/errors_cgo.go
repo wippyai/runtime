@@ -7,7 +7,7 @@ package sql
 import (
 	"errors"
 
-	"github.com/mattn/go-sqlite3"
+	"github.com/rqlite/go-sqlite3"
 	lua "github.com/wippyai/go-lua"
 )
 

@@ -40,7 +40,6 @@ require (
 	github.com/kaptinlin/jsonschema v0.9.10
 	github.com/klauspost/compress v1.20.1
 	github.com/lib/pq v1.12.3
-	github.com/mattn/go-sqlite3 v1.14.50
 	github.com/microcosm-cc/bluemonday v1.0.27
 	github.com/moby/moby/api v1.56.0
 	github.com/moby/moby/client v0.6.0
@@ -48,6 +47,7 @@ require (
 	github.com/pelletier/go-toml/v2 v2.4.3
 	github.com/prometheus/client_golang v1.24.1
 	github.com/rabbitmq/amqp091-go v1.15.0
+	github.com/rqlite/go-sqlite3 v1.50.0
 	github.com/sergi/go-diff v1.4.0
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.12.1
@@ -232,6 +232,5 @@ require (
 
 // rqlite preserves SQLite TEXT/BLOB storage types in pre-update hooks.
 // Keep the canonical import path so extensions share one driver registration.
-replace github.com/mattn/go-sqlite3 => github.com/rqlite/go-sqlite3 v1.50.0
 
 tool go.uber.org/mock/mockgen
