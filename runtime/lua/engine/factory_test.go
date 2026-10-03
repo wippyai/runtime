@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	lua "github.com/wippyai/go-lua"
+	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/registry"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/code"
@@ -781,8 +783,20 @@ func TestFactory_ModuleAliasing_LuaLibrary(t *testing.T) {
 		t.Fatalf("factory() failed: %v", err)
 	}
 
-	// Verify the alias is set correctly in the Lua state
+	// Library chunks run in the first step of the process.
 	luaProc := proc.(*Process)
+	defer luaProc.Close()
+	frameCtx, _ := ctxapi.OpenFrameContext(context.Background())
+	if err := luaProc.Init(frameCtx, "main", nil); err != nil {
+		t.Fatalf("Init failed: %v", err)
+	}
+	var output process.StepOutput
+	if err := luaProc.Step(nil, &output); err != nil {
+		t.Fatalf("Step failed: %v", err)
+	}
+	if v, _ := output.Result().Data().(lua.LValue); v == nil || v.String() != "from_utils" {
+		t.Fatalf("expected the entry point to read the library marker, got %v", output.Result().Data())
+	}
 	state := luaProc.State()
 
 	// Imports are scoped to the chunk environment, not the shared _G.

@@ -624,19 +624,31 @@ func (p *Process) Init(ctx context.Context, method string, input payload.Payload
 	var fn *lua.LFunction
 	var bootstrap []lua.LValue
 
-	if method != "" {
+	inits := initializersOf(p.state)
+	pending := inits.pending()
+	if method != "" && !pending {
 		fn = p.exported[method]
-		if fn == nil {
-			// The module chunk runs inside the main task so its execution is
-			// scheduled and budgeted like any other Lua code.
-			module, err := p.loadMain()
-			if err != nil {
-				return err
-			}
-			fn = p.state.LoadProto(moduleBootstrapProto)
-			bootstrap = []lua.LValue{module, p.exportFunction(), lua.LString(method)}
+	}
+	if fn == nil && (method != "" || pending) {
+		// The module chunk and the initializers it depends on run inside the
+		// main task so their execution is scheduled and budgeted like any
+		// other Lua code.
+		chunk, err := p.loadMain()
+		if err != nil {
+			return err
 		}
-	} else {
+		fn = p.state.LoadProto(entryBootstrapProto)
+		advance := p.state.NewFunction(func(*lua.LState) int { return 0 })
+		if inits != nil {
+			inits.begin()
+			advance = p.state.NewFunction(inits.advance)
+		}
+		export, name := lua.LValue(lua.LFalse), lua.LValue(lua.LFalse)
+		if method != "" {
+			export, name = p.exportFunction(), lua.LString(method)
+		}
+		bootstrap = []lua.LValue{chunk, advance, export, name}
+	} else if fn == nil {
 		var err error
 		if fn, err = p.loadMain(); err != nil {
 			return err
@@ -659,13 +671,24 @@ func (p *Process) Init(ctx context.Context, method string, input payload.Payload
 	return nil
 }
 
-// moduleBootstrapProto runs a module chunk and calls the exported method with
-// the process input. It receives the chunk function, the export function and
-// the method name ahead of the input arguments.
-var moduleBootstrapProto = mustCompileBootstrap(`
-local chunk, export, method = ...
-return export(method, (chunk()))(select(4, ...))
-`, "=module_bootstrap")
+// entryBootstrapProto runs the deferred initializers, then the entry chunk. It
+// receives the chunk function, the initializer iterator, the export function
+// and the method name, followed by the process input. A false method runs the
+// chunk itself with the input; otherwise the chunk returns the module the
+// method is exported from. The code uses no global, so guest code cannot
+// change it.
+var entryBootstrapProto = mustCompileBootstrap(`
+return (function(chunk, advance, export, method, ...)
+	local init = advance()
+	while init do
+		init = advance(init())
+	end
+	if not method then
+		return chunk(...)
+	end
+	return export(method, (chunk()))(...)
+end)(...)
+`, "=entry_bootstrap")
 
 func mustCompileBootstrap(source, name string) *lua.FunctionProto {
 	proto, err := lua.CompileString(source, name)

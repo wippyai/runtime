@@ -268,12 +268,10 @@ func (f *ProcessFactory) isolationBinder(
 				env := buildChunkEnv(l, base, compiled.Imports[id], valueByNode)
 				fn := l.LoadProto(dep.Proto)
 				fn.Env = env
-				l.Push(fn)
-				if err := l.PCall(0, 1, nil); err != nil {
-					return fmt.Errorf("failed to load dependency %s: %w", dep.Name, toAPIError(err))
-				}
-				valueByNode[id] = l.Get(-1)
-				l.Pop(1)
+				DeferInitializer(l, Initializer{
+					Fn:   fn,
+					Done: func(result lua.LValue) { valueByNode[id] = result },
+				})
 			}
 		}
 
@@ -296,19 +294,27 @@ func (f *ProcessFactory) isolationBinder(
 func buildChunkEnv(l *lua.LState, base *lua.LTable, imports []code.Import, valueByNode map[registry.ID]lua.LValue) *lua.LTable {
 	env := l.NewTable()
 
-	resolved := make(map[string]lua.LValue, len(imports))
+	// Library values appear in valueByNode as their initializers complete, so
+	// imports resolve at lookup time. Imports sharing an alias resolve to the
+	// last one that has a value.
+	aliasIDs := make(map[string][]registry.ID, len(imports))
 	baseHadAlias := make(map[string]bool, len(imports))
 	for _, imp := range imports {
-		v, ok := valueByNode[imp.ID]
-		if !ok {
-			continue
-		}
 		alias := imp.Alias
 		if alias == "" {
 			alias = imp.ID.Name
 		}
-		resolved[alias] = v
+		aliasIDs[alias] = append(aliasIDs[alias], imp.ID)
 		baseHadAlias[alias] = base.RawGetString(alias) != lua.LNil
+	}
+	resolve := func(alias string) (lua.LValue, bool) {
+		ids := aliasIDs[alias]
+		for i := len(ids) - 1; i >= 0; i-- {
+			if v, ok := valueByNode[ids[i]]; ok {
+				return v, true
+			}
+		}
+		return nil, false
 	}
 
 	mt := l.NewTable()
@@ -322,7 +328,7 @@ func buildChunkEnv(l *lua.LState, base *lua.LTable, imports []code.Import, value
 			s.Push(baseValue)
 			return 1
 		}
-		if v, ok := resolved[name]; ok {
+		if v, ok := resolve(name); ok {
 			s.Push(v)
 			return 1
 		}
@@ -337,7 +343,7 @@ func buildChunkEnv(l *lua.LState, base *lua.LTable, imports []code.Import, value
 
 	env.RawSetString("require", l.NewFunction(func(s *lua.LState) int {
 		name := s.CheckString(1)
-		if v, ok := resolved[name]; ok {
+		if v, ok := resolve(name); ok {
 			s.Push(v)
 			return 1
 		}
