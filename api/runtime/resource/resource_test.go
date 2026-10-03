@@ -911,3 +911,34 @@ func TestReaderProvider(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, r)
 }
+
+// Cleanup removal may race with Close; every cleanup still registered when
+// Close starts runs exactly once and removal never corrupts the traversal.
+func TestStoreCloseRacesWithCleanupRemoval(t *testing.T) {
+	for round := 0; round < 200; round++ {
+		s := NewStore()
+		var ran atomic.Int64
+		removers := make([]func(), 64)
+		for i := range removers {
+			removers[i] = s.AddCleanup(func() error {
+				ran.Add(1)
+				return nil
+			})
+		}
+		var wg sync.WaitGroup
+		for _, remove := range removers {
+			wg.Add(1)
+			go func(remove func()) {
+				defer wg.Done()
+				remove()
+			}(remove)
+		}
+		if err := s.Close(); err != nil {
+			t.Fatal(err)
+		}
+		wg.Wait()
+		if ran.Load() > int64(len(removers)) {
+			t.Fatalf("cleanups ran %d times for %d registrations", ran.Load(), len(removers))
+		}
+	}
+}

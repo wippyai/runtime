@@ -114,7 +114,19 @@ func (s *Store) Close() error {
 		return nil
 	}
 	s.closed = true
-	node := s.tail
+	// Detach every cleanup under the lock, newest first, so a concurrent
+	// remover sees detached nodes and the cleanups run without the lock.
+	cleanups := make([]func() error, 0, s.count)
+	for n := s.tail; n != nil; {
+		next := n.prev
+		if n.fn != nil {
+			cleanups = append(cleanups, n.fn)
+		}
+		n.prev = nil
+		n.next = nil
+		n.fn = nil
+		n = next
+	}
 	s.head = nil
 	s.tail = nil
 	s.count = 0
@@ -124,18 +136,10 @@ func (s *Store) Close() error {
 	s.mu.Unlock()
 
 	var firstErr error
-	for n := node; n != nil; {
-		fn := n.fn
-		next := n.prev
-		n.prev = nil
-		n.next = nil
-		n.fn = nil
-		if fn != nil {
-			if err := fn(); err != nil && firstErr == nil {
-				firstErr = err
-			}
+	for _, fn := range cleanups {
+		if err := fn(); err != nil && firstErr == nil {
+			firstErr = err
 		}
-		n = next
 	}
 
 	s.table.Reset()
