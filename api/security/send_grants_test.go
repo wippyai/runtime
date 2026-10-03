@@ -46,5 +46,12 @@ func TestProcessSendGrantsFrame(t *testing.T) {
 
 	forked, cfc := ctxapi.ForkFrameContext(restricted)
 	defer ctxapi.ReleaseFrameContext(cfc)
-	require.Nil(t, GetProcessSendGrants(forked), "grants are not inherited by forked frames")
+	inherited := GetProcessSendGrants(forked)
+	require.NotNil(t, inherited, "a forked frame stays restricted")
+	require.NotSame(t, grants, inherited, "a forked frame gets its own copy")
+	require.True(t, inherited.Holds(child), "the copy holds what the spawner held")
+
+	later := pid.PID{Host: "app:host", UniqID: "later"}
+	inherited.Grant(later)
+	require.False(t, grants.Holds(later), "acquisitions after the fork stay with the forked frame")
 }

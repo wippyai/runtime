@@ -9,15 +9,17 @@ import (
 	"github.com/wippyai/runtime/api/pid"
 )
 
-// sendGrantsKey holds a restricted process's send grants. It is not
-// inherited: children start with their own grants.
-var sendGrantsKey = &ctxapi.Key{Name: "security.process_send_grants"}
+// sendGrantsKey holds a restricted process's send grants. Frames forked from
+// it, including child processes, inherit a copy: a process spawned by a
+// restricted process is restricted to what its spawner could address.
+var sendGrantsKey = &ctxapi.Key{Name: "security.process_send_grants", Inherit: true}
 
 // ProcessSendGrants is the set of PIDs a capability-restricted process may
-// address. It contains only PIDs the runtime handed to the process (itself,
-// its parent, processes it spawned, senders of messages it received,
-// registry lookup results), so a PID string the process made up is never in
-// it. Grants are owned by one process and used from its execution only.
+// address besides its parent. It contains only PIDs the runtime handed to the
+// process (itself, processes it spawned, senders of messages it received,
+// registry lookup results) or its spawner held, so a PID string the process
+// made up is never in it. Grants are owned by one process and used from its
+// execution only.
 type ProcessSendGrants struct {
 	pids map[grantKey]struct{}
 }
@@ -49,6 +51,16 @@ func (g *ProcessSendGrants) Grant(p pid.PID) {
 func (g *ProcessSendGrants) Holds(p pid.PID) bool {
 	_, ok := g.pids[keyOf(p)]
 	return ok
+}
+
+// Clone implements ctxapi.Cloner: a forked frame gets an independent copy,
+// so acquisitions after the fork stay with the process that made them.
+func (g *ProcessSendGrants) Clone() any {
+	c := &ProcessSendGrants{pids: make(map[grantKey]struct{}, len(g.pids))}
+	for k := range g.pids {
+		c.pids[k] = struct{}{}
+	}
+	return c
 }
 
 func keyOf(p pid.PID) grantKey {

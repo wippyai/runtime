@@ -8,9 +8,11 @@ import (
 
 	"github.com/stretchr/testify/require"
 	lua "github.com/wippyai/go-lua"
+	"github.com/wippyai/runtime/api/attrs"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/process"
+	"github.com/wippyai/runtime/api/runtime"
 	secapi "github.com/wippyai/runtime/api/security"
 	systemtopology "github.com/wippyai/runtime/system/topology"
 )
@@ -99,4 +101,18 @@ func TestRegistryLookupIsGranted(t *testing.T) {
 	require.NoError(t, l.DoString(`found = process.registry.lookup("worker")`))
 	require.Equal(t, grantsOther.String(), l.GetGlobal("found").String())
 	require.True(t, grants.Holds(grantsOther))
+}
+
+func TestRestrictedProcessMayAddressItsParent(t *testing.T) {
+	l, self := newLuaWithPID(t)
+	grants := secapi.NewProcessSendGrants(self)
+	fc := ctxapi.FrameFromContext(l.Context())
+	require.NoError(t, fc.SetMultiple(
+		secapi.ProcessSendGrantsPair(grants),
+		ctxapi.Pair{Key: runtime.FrameLifecycleOptionsKey, Value: attrs.Attributes(attrs.Bag{process.ProcessParentKey: grantsParent})},
+	))
+	_, err := resolvePID(l, grantsParent.String(), "process.send", self)
+	require.NoError(t, err, "the parent is always addressable")
+	_, err = resolvePID(l, grantsOther.String(), "process.send", self)
+	require.ErrorContains(t, err, "not allowed to send")
 }

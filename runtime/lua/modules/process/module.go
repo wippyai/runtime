@@ -174,14 +174,29 @@ func resolvePID(l *lua.LState, pidOrName string, permission string, senderPID pi
 			strings.TrimPrefix(permission, "process."), pidOrName)
 	}
 
-	// A capability-restricted process may only address PIDs the runtime
-	// handed to it; a PID string it made up is refused.
-	if grants := secapi.GetProcessSendGrants(l.Context()); grants != nil && !grants.Holds(resolved.PID) {
+	// A capability-restricted process may only address its parent and PIDs
+	// the runtime handed to it; a PID string it made up is refused.
+	if grants := secapi.GetProcessSendGrants(l.Context()); grants != nil &&
+		!grants.Holds(resolved.PID) && !isParent(l.Context(), resolved.PID) {
 		return sysprocess.ResolvedDestination{}, runtimelua.NewNotAllowedError(
 			strings.TrimPrefix(permission, "process."), pidOrName)
 	}
 
 	return resolved, nil
+}
+
+// isParent reports whether p spawned the process in ctx.
+func isParent(ctx context.Context, p pidapi.PID) bool {
+	options, ok := runtime.GetFrameLifecycleOptions(ctx).(attrs.Attributes)
+	if !ok || options == nil {
+		return false
+	}
+	parent, ok := options.Get(process.ProcessParentKey)
+	if !ok {
+		return false
+	}
+	parentPID, ok := parent.(pidapi.PID)
+	return ok && parentPID.Node == p.Node && parentPID.Host == p.Host && parentPID.UniqID == p.UniqID
 }
 
 // pushAcquiredPID pushes a PID the runtime hands to the process, granting it
