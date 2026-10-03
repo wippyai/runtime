@@ -142,18 +142,15 @@ func (*waitingProcess) Close()                    {}
 // incarnation is dropped by the queue (TestA03StaleCompletionDoesNotEnqueue)
 // instead of reaching the processor's next user.
 func TestStaleYieldCompletionDoesNotWakeReusedProcessor(t *testing.T) {
-	received := make(chan dispatcher.ResultReceiver, 1)
+	receivers := make(chan dispatcher.ResultReceiver, 2)
 	reg := scheduler.NewRegistry()
 	reg.Register(CmdYield, dispatcher.HandlerFunc(func(_ context.Context, _ dispatcher.Command, _ uint64, r dispatcher.ResultReceiver) error {
-		select {
-		case received <- r:
-		default:
-		}
+		receivers <- r
 		return nil
 	}))
 	reg.Register(CmdComplete, CompleteHandler())
-	done := make(chan struct{}, 1)
-	lc := &testLifecycle{onComplete: func(context.Context, pidapi.PID, *apiruntime.Result) { done <- struct{}{} }}
+	completions := make(chan string, 2)
+	lc := &testLifecycle{onComplete: func(_ context.Context, id pidapi.PID, _ *apiruntime.Result) { completions <- id.UniqID }}
 	sched := NewScheduler(reg, WithWorkers(1), WithLifecycle(lc))
 	sched.Start()
 	defer testStopScheduler(sched)
@@ -162,20 +159,28 @@ func TestStaleYieldCompletionDoesNotWakeReusedProcessor(t *testing.T) {
 	if _, err := sched.Submit(ctx, pidapi.PID{UniqID: "a"}, &waitingProcess{}, "", nil); err != nil {
 		t.Fatal(err)
 	}
-	var receiver dispatcher.ResultReceiver
-	select {
-	case receiver = <-received:
-	case <-time.After(5 * time.Second):
-		t.Fatal("yield was not dispatched")
-	}
-	completer, ok := receiver.(*process.YieldCompleter)
+	stale, ok := receive(t, receivers, "first yield").(*process.YieldCompleter)
 	if !ok {
-		t.Fatalf("handlers complete through the incarnation's completer, got %T", receiver)
+		t.Fatal("handlers complete through the incarnation's completer")
 	}
 	cancel()
-	<-done
+	if got := <-completions; got != "a" {
+		t.Fatalf("completed %q, want a", got)
+	}
 
-	// After completion the processor may serve another process; the old
-	// completer stays bound to the finished incarnation.
-	completer.CompleteYield(7, nil, nil)
+	// The next process, which may reuse the finished one's processor slot,
+	// waits on its own tag 7; the finished incarnation's completer is inert.
+	next := &waitingProcess{}
+	if _, err := sched.Submit(context.Background(), pidapi.PID{UniqID: "b"}, next, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	fresh := receive(t, receivers, "second yield")
+	stale.CompleteYield(7, nil, nil)
+	fresh.CompleteYield(7, nil, nil)
+	if got := <-completions; got != "b" {
+		t.Fatalf("completed %q, want b", got)
+	}
+	if got := next.steps.Load(); got != 2 {
+		t.Fatalf("the next process took %d steps, want 2: the stale completion cost it a step", got)
+	}
 }
