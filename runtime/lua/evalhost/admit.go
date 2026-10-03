@@ -553,19 +553,19 @@ func evalFrame(name string, parent pid.PID, policy apihost.EvalPolicy) []ctxapi.
 }
 
 // binder loads the program's admitted modules, imports and bindings into a
-// new process state.
+// new process state. Imports run as initializers of the process, before the
+// program and under the same budget.
 func (a *Admitter) binder(entry *admitEntry) engine.ModuleBinder {
 	return func(l *lua.LState) error {
 		for _, mod := range entry.modules {
 			l.SetGlobal(mod.Name, engine.ModuleValue(mod))
 		}
 		for _, imp := range entry.imports {
-			l.Push(l.NewFunctionFromProto(imp.proto))
-			if err := l.PCall(0, 1, nil); err != nil {
-				return NewImportError(imp.alias, imp.id, err)
-			}
-			l.SetGlobal(imp.alias, l.Get(-1))
-			l.Pop(1)
+			alias := imp.alias
+			engine.DeferInitializer(l, engine.Initializer{
+				Fn:   l.NewFunctionFromProto(imp.proto),
+				Done: func(result lua.LValue) { l.SetGlobal(alias, result) },
+			})
 		}
 		for _, b := range entry.policy.Bindings {
 			v, err := payloadconv.GoToLua(b.Value)

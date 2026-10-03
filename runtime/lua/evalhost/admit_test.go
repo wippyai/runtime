@@ -343,9 +343,46 @@ func TestAdmitterSpawnRunsAdmittedImportRevision(t *testing.T) {
 	proc, err := starter.start.Admission.Factory()
 	require.NoError(t, err)
 	defer proc.Close()
+	frame, _ := ctxapi.OpenFrameContext(context.Background())
+	require.NoError(t, proc.Init(frame, "main", nil))
+	var output process.StepOutput
+	require.NoError(t, proc.Step(nil, &output), "imports run before the program")
 	lib, ok := proc.(*engine.Process).State().GetGlobal("lib").(*lua.LTable)
 	require.True(t, ok, "the import is bound")
 	require.Equal(t, "1", lib.RawGetString("value").String(), "a program runs the library revision it was admitted with")
+}
+
+func TestAdmitterImportRunsUnderTheEvalBudget(t *testing.T) {
+	a, starter := newTestAdmitter(t)
+	a.host.WithImportLoader(func(registry.ID) (string, error) { return `while true do end`, nil })
+	ctx, _ := ownerContext(t)
+	policy := apihost.EvalPolicy{
+		Imports:    []apihost.EvalImport{{Alias: "lib", Source: registry.NewID("app", "lib")}},
+		TickBudget: 100,
+	}
+
+	_, err := a.Spawn(ctx, apihost.EvalSpawnSpec{SourceCode: admitSource, Parent: admitParent, Policy: policy})
+	require.NoError(t, err)
+	created := make(chan process.Process, 1)
+	go func() {
+		proc, createErr := starter.start.Admission.Factory()
+		require.NoError(t, createErr)
+		created <- proc
+	}()
+	var proc process.Process
+	select {
+	case proc = <-created:
+	case <-time.After(5 * time.Second):
+		t.Fatal("creating the eval process ran its import")
+	}
+	defer proc.Close()
+
+	proc.(process.Preemptible).EnablePreemption()
+	frame, _ := ctxapi.OpenFrameContext(context.Background())
+	require.NoError(t, proc.Init(frame, "main", nil))
+	var output process.StepOutput
+	require.NoError(t, proc.Step(nil, &output))
+	require.Equal(t, process.StepPreempted, output.Status(), "the import is preempted like the program")
 }
 
 func TestAdmitterTypedCompileKnowsBindingsAndImports(t *testing.T) {
