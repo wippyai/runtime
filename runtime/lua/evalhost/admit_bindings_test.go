@@ -97,3 +97,12 @@ func TestHashPolicyDistinguishesNumberKinds(t *testing.T) {
 	require.Equal(t, hashOf(map[string]any{"a": int64(1), "b": "x"}), hashOf(map[string]any{"b": "x", "a": int64(1)}))
 	require.NotEqual(t, hashOf([]any{"a", "b"}), hashOf([]any{"ab"}))
 }
+
+func TestCopyBindingsAcceptsRepeatedEmptyTables(t *testing.T) {
+	spare := make([]any, 0, 8)
+	empty := map[string]any{}
+	_, err := copyBindings([]apihost.EvalBinding{
+		{Name: "a", Value: []any{spare, spare, empty, empty}},
+	})
+	require.NoError(t, err)
+}

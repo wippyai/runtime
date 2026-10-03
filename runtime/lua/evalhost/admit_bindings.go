@@ -74,7 +74,7 @@ func (w *bindingWalker) copy(v any, path string, depth int) (any, error) {
 	case float32:
 		return float64(x), nil
 	case []any:
-		if err := w.enter(path, depth, unsafe.Pointer(unsafe.SliceData(x)), cap(x)); err != nil {
+		if err := w.enter(path, depth, unsafe.Pointer(unsafe.SliceData(x)), len(x)); err != nil {
 			return nil, err
 		}
 		out := make([]any, len(x))
