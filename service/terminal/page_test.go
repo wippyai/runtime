@@ -4,14 +4,21 @@ package terminal
 
 import (
 	"bytes"
-	"image/color"
+	"strings"
 	"testing"
 
-	"github.com/charmbracelet/x/ansi"
-	vt "github.com/charmbracelet/x/vt"
+	xterm "github.com/gitpod-io/xterm-go"
 	"github.com/stretchr/testify/require"
 	ttyapi "github.com/wippyai/runtime/api/tty"
+	"github.com/wippyai/runtime/internal/term/text"
 )
+
+func screenCell(screen *xterm.Terminal, x, y int) *xterm.CellData {
+	cell := xterm.NewCellData()
+	buf := screen.Buffer()
+	buf.Lines.Get(buf.YBase+y).LoadCell(x, cell)
+	return cell
+}
 
 func TestPageSurvivesPhysicalPresentation(t *testing.T) {
 	for _, synchronized := range []bool{false, true} {
@@ -20,8 +27,7 @@ func TestPageSurvivesPhysicalPresentation(t *testing.T) {
 			renderer := NewPageRenderer(6, page)
 			var output bytes.Buffer
 			surface := NewSurface(&output, ttyapi.SurfaceOptions{Synchronized: synchronized})
-			screen := vt.NewEmulator(6, 2)
-			defer screen.Close()
+			screen := xterm.New(xterm.WithCols(6), xterm.WithRows(2))
 			paint := func(rows []string) {
 				output.Reset()
 				_, err := surface.Present(ttyapi.Frame{Rows: rows})
@@ -34,30 +40,31 @@ func TestPageSurvivesPhysicalPresentation(t *testing.T) {
 			_, bg := page.Colors()
 			for y := range 2 {
 				for x := range 6 {
-					cell := screen.CellAt(x, y)
-					if cell.Width == 0 {
+					cell := screenCell(screen, x, y)
+					if cell.GetWidth() == 0 {
 						continue
 					}
-					require.NotNil(t, cell.Style.Bg, "cell (%d,%d)", x, y)
-					require.Equal(t, color.RGBAModel.Convert(bg), color.RGBAModel.Convert(cell.Style.Bg), "cell (%d,%d)", x, y)
+					require.True(t, cell.IsBgRGB(), "cell (%d,%d)", x, y)
+					wantR, wantG, wantB, _ := bg.RGBA()
+					require.Equal(t, int(wantR>>8)<<16|int(wantG>>8)<<8|int(wantB>>8), cell.GetBgColor(), "cell (%d,%d)", x, y)
 				}
 			}
-			require.Equal(t, "f", screen.CellAt(5, 0).Content)
-			require.Equal(t, "X", screen.CellAt(5, 1).Content)
+			require.Equal(t, "f", screenCell(screen, 5, 0).GetChars())
+			require.Equal(t, "X", screenCell(screen, 5, 1).GetChars())
 			paint([]string{renderer.RenderRow("x")})
-			require.Equal(t, "x", screen.CellAt(0, 0).Content)
+			require.Equal(t, "x", screenCell(screen, 0, 0).GetChars())
 			for x := range 6 {
-				require.Equal(t, " ", screen.CellAt(x, 1).Content)
+				require.Empty(t, strings.TrimSpace(screenCell(screen, x, 1).GetChars()))
 			}
 			paint(rows)
-			require.Equal(t, "f", screen.CellAt(5, 0).Content, "full-width repaint must not scroll")
+			require.Equal(t, "f", screenCell(screen, 5, 0).GetChars(), "full-width repaint must not scroll")
 		})
 	}
 }
 
 func TestPageRendererClipsWideCellsAndKeepsPaintedBlanks(t *testing.T) {
 	r := NewPageRenderer(3, ttyapi.Page{Foreground: "#102030", Background: "#f0e0d0"})
-	require.Equal(t, "a界", ansi.Strip(r.RenderRow("a界"))) // whole wide cell fits
-	require.Equal(t, "ab ", ansi.Strip(r.RenderRow("ab界")))
-	require.Equal(t, "   ", ansi.Strip(r.RenderRow("")))
+	require.Equal(t, "a界", text.Strip(r.RenderRow("a界"))) // whole wide cell fits
+	require.Equal(t, "ab ", text.Strip(r.RenderRow("ab界")))
+	require.Equal(t, "   ", text.Strip(r.RenderRow("")))
 }
