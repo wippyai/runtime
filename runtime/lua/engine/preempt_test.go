@@ -363,8 +363,12 @@ func TestProcessMaxStepsReleasesDeliveredMessages(t *testing.T) {
 		return s
 	`
 	entry := luaapi.ExecutionBudgets{TickBudget: 100, TickBudgetSet: true, MaxSteps: 1, MaxStepsSet: true}
-	proc, err := initWithSpawnOptions(t, script, entry, nil)
-	if err != nil {
+	// The test closes the process itself to observe the lease release, so it
+	// does not use initWithSpawnOptions, which closes it at cleanup.
+	proc := mustNewProcess(t, WithScript(script, "preempt.lua"), WithProcessExecutionBudgets(entry))
+	proc.EnablePreemption()
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	if err := proc.Init(ctx, "", nil); err != nil {
 		t.Fatal(err)
 	}
 	var output process.StepOutput
@@ -380,7 +384,7 @@ func TestProcessMaxStepsReleasesDeliveredMessages(t *testing.T) {
 	pkg.Messages = append(pkg.Messages, msg)
 
 	output.Reset()
-	err = proc.Step([]process.Event{{Type: process.EventMessage, Data: pkg}}, &output)
+	err := proc.Step([]process.Event{{Type: process.EventMessage, Data: pkg}}, &output)
 	if !errors.Is(err, process.ErrStepLimitExceeded) {
 		t.Fatalf("expected ErrStepLimitExceeded, got %v", err)
 	}
