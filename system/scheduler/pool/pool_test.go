@@ -5,6 +5,7 @@ package pool
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -892,3 +893,50 @@ func TestExecutor_Hooks_OnStepError(t *testing.T) {
 
 var _ dispatcher.ResultReceiver = (*Executor)(nil)
 var _ relay.Receiver = (*Executor)(nil)
+
+func TestExecutorCancellationReportsCause(t *testing.T) {
+	for _, status := range []process.StepStatus{process.StepIdle, process.StepYield, process.StepContinue} {
+		t.Run(fmt.Sprint(status), func(t *testing.T) {
+			ctx, cancel := context.WithCancelCause(context.Background())
+			defer cancel(nil)
+			proc := &mockProcess{stepFunc: func(_ []process.Event, out *process.StepOutput) error {
+				cancel(process.ErrOwnerEnded)
+				switch status {
+				case process.StepIdle:
+					out.Idle()
+				case process.StepYield:
+					out.WaitForYields()
+				case process.StepContinue:
+					out.Yield(&mockCommand{id: 1}, 1)
+					out.Continue()
+				}
+				return nil
+			}}
+			d := newMockDispatcher()
+			d.Register(1, dispatcher.HandlerFunc(func(context.Context, dispatcher.Command, uint64, dispatcher.ResultReceiver) error { return nil }))
+			var hooked *runtime.Result
+			e := NewExecutor(d).WithExecutionHooks(ExecutionHooks{OnComplete: func(_ context.Context, result *runtime.Result) { hooked = result }})
+			result := e.Run(ctx, proc, "main", nil)
+			require.ErrorIs(t, result.Error, process.ErrOwnerEnded)
+			require.Same(t, result, hooked)
+		})
+	}
+}
+
+func TestExecutorCancelledErrorReportsCause(t *testing.T) {
+	for _, phase := range []string{"init", "step"} {
+		t.Run(phase, func(t *testing.T) {
+			ctx, cancel := context.WithCancelCause(context.Background())
+			defer cancel(nil)
+			interrupted := func() error { cancel(process.ErrOwnerEnded); return ctx.Err() }
+			proc := &mockProcess{}
+			if phase == "init" {
+				proc.initFunc = func(context.Context, string, payload.Payloads) error { return interrupted() }
+			} else {
+				proc.stepFunc = func([]process.Event, *process.StepOutput) error { return interrupted() }
+			}
+			result := NewExecutor(newMockDispatcher()).Run(ctx, proc, "main", nil)
+			require.ErrorIs(t, result.Error, process.ErrOwnerEnded)
+		})
+	}
+}

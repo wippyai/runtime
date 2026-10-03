@@ -41,6 +41,12 @@ local function main()
 	assert.is_nil(ferr, "spawn of failing code succeeds")
 	result = wait_exit(events, failing)
 	assert.not_nil(result.error, "failure is reported in the exit result")
+
+ local terminated, terr = eval.spawn("return { main = function() while true do end end }", { monitor_only = true })
+ assert.is_nil(terr, "eval for explicit termination starts")
+ assert.ok(process.terminate(terminated), "explicit termination succeeds")
+ result = wait_exit(events, terminated)
+ assert.contains(tostring(result.error), "process terminated", "explicit termination keeps its error")
 	return true
 end
 

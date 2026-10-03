@@ -29,6 +29,7 @@ local function main()
 		assert.eq(selected.channel, events, "the lifetime stops the spinner")
 		if selected.value.kind == process.event.EXIT and selected.value.from == spinner then
 			assert.not_nil(selected.value.result.error, "the spinner fails when its lifetime ends")
+			assert.contains(tostring(selected.value.result.error), "context deadline exceeded", "lifetime reports its deadline")
 			assert.ok(time.now():sub(started):seconds() < 8, "it stops at the configured lifetime")
 			return true
 		end

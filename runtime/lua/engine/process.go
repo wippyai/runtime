@@ -826,7 +826,7 @@ func (p *Process) Step(events []process.Event, out *process.StepOutput) error {
 		if err != nil {
 			p.clearExecution()
 			out.Done(nil)
-			return toAPIError(err)
+			return toExecutionError(p.ctx, err)
 		}
 
 		// Process subscribe yields (outer layer) - may add tasks to queue
@@ -835,7 +835,7 @@ func (p *Process) Step(events []process.Event, out *process.StepOutput) error {
 		if err != nil {
 			p.clearExecution()
 			out.Done(nil)
-			return toAPIError(err)
+			return toExecutionError(p.ctx, err)
 		}
 
 		// Sync p.externalTasks with local externalTasks after processSubscribeYields
@@ -899,7 +899,7 @@ func (p *Process) Step(events []process.Event, out *process.StepOutput) error {
 		execErr := p.execErr
 		p.clearExecution()
 		out.Done(result)
-		return toAPIError(execErr)
+		return toExecutionError(p.ctx, execErr)
 	}
 
 	// Initialize pendingYields map if needed
@@ -2096,7 +2096,7 @@ func (p *Process) SyncExecute(ctx context.Context, args ...lua.LValue) (lua.LVal
 	p.state.SetContext(ctx)
 
 	if err := initializersOf(p.state).runSync(p.state); err != nil {
-		return lua.LNil, toAPIError(err)
+		return lua.LNil, toExecutionError(ctx, err)
 	}
 
 	// Load function from proto
@@ -2108,7 +2108,7 @@ func (p *Process) SyncExecute(ctx context.Context, args ...lua.LValue) (lua.LVal
 		NRet:    1,
 		Protect: true,
 	}, args...); err != nil {
-		return lua.LNil, toAPIError(err)
+		return lua.LNil, toExecutionError(ctx, err)
 	}
 
 	// Get result
@@ -2340,4 +2340,14 @@ func toAPIError(err error) error {
 		return builder.WithCause(toAPIError(inner))
 	}
 	return builder
+}
+
+// toExecutionError preserves cancellation causes that the Lua VM reports as text.
+func toExecutionError(ctx context.Context, err error) error {
+	if err != nil && ctx != nil {
+		if cause := context.Cause(ctx); cause != nil {
+			return cause
+		}
+	}
+	return toAPIError(err)
 }

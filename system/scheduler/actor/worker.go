@@ -381,7 +381,7 @@ func (w *Worker) executeOne(proc *Processor) {
 			a.Abort()
 		}
 		proc.queue.Close()
-		w.scheduler.complete(proc, nil, sysprocess.ErrTerminated)
+		w.scheduler.complete(proc, nil, actorCancellationError(proc.ctx))
 		return
 	}
 
@@ -398,7 +398,7 @@ func (w *Worker) executeOne(proc *Processor) {
 	// normal-exit error); neither is a normal process exit. Later termination
 	// requests must not overwrite the outcome already decided here.
 	if proc.ctx != nil && proc.ctx.Err() != nil {
-		err = sysprocess.ErrTerminated
+		err = actorCancellationError(proc.ctx)
 		if a, ok := stepper.(interface{ Abort() }); ok {
 			a.Abort()
 		}
@@ -642,4 +642,13 @@ func (w *Worker) dispatchYields(ctx context.Context, proc *Processor, yields []p
 			w.local.Push(proc)
 		}
 	}
+}
+
+func actorCancellationError(ctx context.Context) error {
+	if ctx != nil {
+		if cause := context.Cause(ctx); cause != nil && cause != context.Canceled { //nolint:errorlint // Only bare cancellation maps to the legacy termination error.
+			return cause
+		}
+	}
+	return sysprocess.ErrTerminated
 }

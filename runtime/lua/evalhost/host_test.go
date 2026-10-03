@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	lua "github.com/wippyai/go-lua"
+	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/registry"
 	"go.uber.org/zap"
 )
@@ -312,4 +313,18 @@ func TestHost_Run_WithImports_InvalidSource(t *testing.T) {
 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to import")
+}
+
+func TestEvalRunCancellationReportsCause(t *testing.T) {
+	ctx, cancel := context.WithCancelCause(context.Background())
+	cancel(process.ErrOwnerEnded)
+	h := NewHost(zap.NewNop(), safeModulesProvider())
+	_, err := h.Run(ctx, RunCmd{Source: "return 1"})
+	require.ErrorIs(t, err, process.ErrOwnerEnded)
+}
+
+func TestYieldCollectorCancellationReportsCause(t *testing.T) {
+	ctx, cancel := context.WithCancelCause(context.Background())
+	cancel(process.ErrOwnerEnded)
+	require.ErrorIs(t, newYieldCollector(1).Wait(ctx), process.ErrOwnerEnded)
 }

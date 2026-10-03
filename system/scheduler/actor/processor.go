@@ -26,7 +26,7 @@ import (
 type signalRef struct {
 	// terminate cancels this incarnation's context. It stays bound to the
 	// incarnation after its pooled slot is reused.
-	terminate context.CancelFunc
+	terminate context.CancelCauseFunc
 	pid       pid.PID
 	source    registry.ID
 	gen       uint64
@@ -85,7 +85,7 @@ type Processor struct {
 	stats     atomic.Pointer[attrs.Bag]
 	resultCh  chan *runtime.Result
 	scheduler *Scheduler
-	cancel    context.CancelFunc
+	cancel    context.CancelCauseFunc
 	queue     *process.EventQueue
 	sig       atomic.Pointer[signalRef]
 	// completer receives yield completions for the current incarnation. It is
@@ -153,7 +153,7 @@ func (p *Processor) releaseIncarnation() {
 // publishSignalRef publishes immutable identity, generation and the
 // incarnation's context cancel for message delivery, termination and
 // lifecycle scans. Source is optional; PID identity is not.
-func (p *Processor) publishSignalRef(terminate context.CancelFunc) {
+func (p *Processor) publishSignalRef(terminate context.CancelCauseFunc) {
 	ref := &signalRef{pid: p.pid, gen: p.gen.Load(), terminate: terminate}
 	if p.ctx != nil {
 		ref.source, _ = runtime.GetFrameID(p.ctx)
