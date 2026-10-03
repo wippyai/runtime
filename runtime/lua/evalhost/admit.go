@@ -438,8 +438,12 @@ func (a *Admitter) Spawn(ctx context.Context, spec apihost.EvalSpawnSpec) (pid.P
 	// it never outlives that execution, however the execution ends. A
 	// detached eval has no owner, so its lifetime is bounded instead.
 	var lifetime time.Duration
+	frame := evalFrame(entry.frameName, spec.Parent, policy)
 	if spec.LinkMode == apihost.EvalLinkDetached {
 		lifetime = a.detachedLifetime
+		// What a detached eval starts ends with it, so its lifetime bounds
+		// them too.
+		frame = append(frame, process.OwnsChildrenPair())
 	} else {
 		options.Set(process.ProcessOwnedKey, true)
 	}
@@ -451,7 +455,7 @@ func (a *Admitter) Spawn(ctx context.Context, spec apihost.EvalSpawnSpec) (pid.P
 		Options: options,
 		// The eval starts from a clean frame: only values meant to cross
 		// into another process, such as trace context, follow it.
-		Context: append(evalFrame(entry.frameName, spec.Parent, policy), ctxapi.PropagatorPairs(ctx)...),
+		Context: append(frame, ctxapi.PropagatorPairs(ctx)...),
 		Admission: &process.Admission{
 			Factory: engine.NewFactory(engine.FactoryConfig{
 				Proto:         entry.program.Proto(),

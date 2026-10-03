@@ -115,6 +115,13 @@ func IsOwned(ctx context.Context) bool {
 	return fc.Has(ownedKey)
 }
 
+// OwnsChildrenPair marks the execution of a process as the owner of every
+// process it starts, though no execution owns it. Those processes end when
+// it ends.
+func OwnsChildrenPair() ctxapi.Pair {
+	return ctxapi.Pair{Key: ownedKey, Value: true}
+}
+
 // Kind returns the kind of execution the scope belongs to.
 func (s *ExecutionScope) Kind() ExecutionKind {
 	return s.kind

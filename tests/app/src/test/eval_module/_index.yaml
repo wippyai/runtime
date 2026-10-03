@@ -165,3 +165,25 @@ entries:
       - time
     imports:
       assert: app.lib:assert
+
+  - name: detach_launcher
+    kind: process.lua
+    meta:
+      comment: Unowned process that detaches an eval which starts a long-running child
+    source: file://detach_launcher.lua
+    method: main
+    modules:
+      - eval
+
+  - name: detached_lifetime
+    kind: function.lua
+    meta:
+      type: test
+      suite: eval_module
+      description: processes a detached eval starts end with the eval
+    source: file://detached_lifetime.lua
+    method: main
+    modules:
+      - time
+    imports:
+      assert: app.lib:assert

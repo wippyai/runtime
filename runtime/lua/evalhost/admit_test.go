@@ -473,3 +473,18 @@ func TestAdmitterSpawnCarriesOnlyCrossProcessCallerValues(t *testing.T) {
 	}
 	require.Equal(t, "span-context", trace, "the eval continues the caller's trace")
 }
+
+func TestAdmitterDetachedEvalOwnsWhatItStarts(t *testing.T) {
+	a, starter := newTestAdmitter(t)
+	ctx, _ := ownerContext(t)
+	_, err := a.Spawn(ctx, apihost.EvalSpawnSpec{
+		SourceCode: admitSource, Parent: admitParent, LinkMode: apihost.EvalLinkDetached,
+		Policy: apihost.EvalPolicy{AllowDetached: true, Modules: []string{"process"}},
+	})
+	require.NoError(t, err)
+
+	frameCtx, fc := ctxapi.OpenFrameContext(context.Background())
+	defer ctxapi.ReleaseFrameContext(fc)
+	require.NoError(t, fc.SetMultiple(starter.start.Context...))
+	require.True(t, process.IsOwned(frameCtx), "processes a detached eval starts end with it, so its lifetime bounds them")
+}
