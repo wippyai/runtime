@@ -298,14 +298,28 @@ func buildChunkEnv(l *lua.LState, base *lua.LTable, imports []code.Import, value
 	// imports resolve at lookup time. Imports sharing an alias resolve to the
 	// last one that has a value.
 	aliasIDs := make(map[string][]registry.ID, len(imports))
-	baseHadAlias := make(map[string]bool, len(imports))
 	for _, imp := range imports {
 		alias := imp.Alias
 		if alias == "" {
 			alias = imp.ID.Name
 		}
 		aliasIDs[alias] = append(aliasIDs[alias], imp.ID)
-		baseHadAlias[alias] = base.RawGetString(alias) != lua.LNil
+	}
+
+	// An alias that already exists in the base when the chunk first looks up a
+	// global is an import: the declared import wins over it. The chunk's own
+	// dependencies have run by then, so a library's explicit _G export under an
+	// alias name does not override the import, while helpers installed
+	// afterwards resolve through the base.
+	var baseHadAlias map[string]bool
+	snapshot := func() {
+		if baseHadAlias != nil {
+			return
+		}
+		baseHadAlias = make(map[string]bool, len(aliasIDs))
+		for alias := range aliasIDs {
+			baseHadAlias[alias] = base.RawGetString(alias) != lua.LNil
+		}
 	}
 	resolve := func(alias string) (lua.LValue, bool) {
 		ids := aliasIDs[alias]
@@ -319,6 +333,7 @@ func buildChunkEnv(l *lua.LState, base *lua.LTable, imports []code.Import, value
 
 	mt := l.NewTable()
 	mt.RawSetString("__index", l.NewFunction(func(s *lua.LState) int {
+		snapshot()
 		name := s.CheckString(2)
 		baseValue := base.RawGetString(name)
 		if baseValue != lua.LNil && !baseHadAlias[name] {
@@ -342,6 +357,7 @@ func buildChunkEnv(l *lua.LState, base *lua.LTable, imports []code.Import, value
 	l.SetMetatable(env, mt)
 
 	env.RawSetString("require", l.NewFunction(func(s *lua.LState) int {
+		snapshot()
 		name := s.CheckString(1)
 		if v, ok := resolve(name); ok {
 			s.Push(v)

@@ -410,6 +410,43 @@ func compileTestProto(t *testing.T, source string) *lua.FunctionProto {
 	return fn.Proto
 }
 
+// A library that assigns _G under the alias it is imported as does not
+// override the declared import: the alias resolves the same through the
+// environment and through require.
+func TestLibraryGlobalExportDoesNotOverrideImportAlias(t *testing.T) {
+	id := registry.NewID("test", "c")
+	mainID := registry.NewID("test", "main")
+	compiled := &code.CompiledMain{
+		MainID:  mainID,
+		Imports: map[registry.ID][]code.Import{mainID: {{ID: id, Alias: "c"}}},
+		Dependencies: []code.CompiledProto{{Name: "c", Node: &code.Node{ID: id}, Proto: compileTestProto(t,
+			`_G.c = { v = 99 } _G.other = 7 return { v = 42 }`)}},
+	}
+	proc := newDependencyProcess(t, compiled, `
+		return { main = function() return c.v * 1000 + require("c").v + other end }
+	`, 0)
+	runProcess(t, proc, 42049)
+}
+
+// A global installed after the environment is in use stays visible even when
+// it shares a name with an import alias.
+func TestDynamicGlobalOverridesImportAliasAfterInitialization(t *testing.T) {
+	id := registry.NewID("test", "dsl")
+	mainID := registry.NewID("test", "main")
+	compiled := &code.CompiledMain{
+		MainID:  mainID,
+		Imports: map[registry.ID][]code.Import{mainID: {{ID: id, Alias: "dsl"}}},
+		Dependencies: []code.CompiledProto{{Name: "dsl", Node: &code.Node{ID: id}, Proto: compileTestProto(t,
+			`return { with = function(fn) _G.dsl = function() return 5 end local r = fn() _G.dsl = nil return r end }`)}},
+	}
+	proc := newDependencyProcess(t, compiled, `
+		return { main = function()
+			return require("dsl").with(function() return dsl() end)
+		end }
+	`, 0)
+	runProcess(t, proc, 5)
+}
+
 // SyncExecute initializes the process's libraries before it runs the chunk.
 func TestSyncExecuteRunsPendingInitializers(t *testing.T) {
 	id := registry.NewID("test", "c")
@@ -448,5 +485,19 @@ func TestSyncExecuteInitializerErrorKeepsKind(t *testing.T) {
 	_, err := proc.SyncExecute(context.Background())
 	if err == nil || apierror.BuildChain(err).Root().Kind != string(apierror.Invalid) {
 		t.Fatalf("expected an Invalid error from the library, got %v", err)
+	}
+}
+
+func runProcess(t *testing.T, proc *Process, want float64) {
+	t.Helper()
+	if err := proc.Init(frameContext(), "main", nil); err != nil {
+		t.Fatal(err)
+	}
+	var output process.StepOutput
+	if err := proc.Step(nil, &output); err != nil {
+		t.Fatal(err)
+	}
+	if v, _ := output.Result().Data().(lua.LValue); float64(lua.LVAsNumber(v)) != want {
+		t.Fatalf("expected %v, got %v", want, output.Result().Data())
 	}
 }
