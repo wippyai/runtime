@@ -533,6 +533,29 @@ func TestProcessStepCountContinuesAcrossResume(t *testing.T) {
 	}
 }
 
+func TestProcessStepsUsedCountsStepsWithoutLimit(t *testing.T) {
+	script := `
+		local s = 0
+		for i = 1, 100000 do s = s + i end
+		return s
+	`
+	entry := luaapi.ExecutionBudgets{TickBudget: 100, TickBudgetSet: true}
+	proc, err := initWithSpawnOptions(t, script, entry, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var output process.StepOutput
+	for i := 0; i < 3; i++ {
+		output.Reset()
+		if err := proc.Step(nil, &output); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := proc.StepsUsed(); got != 3 {
+		t.Fatalf("expected 3 steps used, got %d", got)
+	}
+}
+
 type upgradeFactory struct {
 	create func() (process.Process, *process.Meta, error)
 }

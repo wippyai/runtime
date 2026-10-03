@@ -976,13 +976,11 @@ func (p *Process) stepTickBudget() int64 {
 	}
 }
 
-// chargeStep counts a step against the max_steps option.
+// chargeStep counts a step and fails it when the count exceeds a non-zero
+// max_steps option.
 func (p *Process) chargeStep() error {
-	if p.budgets.MaxSteps == 0 {
-		return nil
-	}
 	p.steps++
-	if p.steps > p.budgets.MaxSteps {
+	if p.budgets.MaxSteps != 0 && p.steps > p.budgets.MaxSteps {
 		return process.ErrStepLimitExceeded
 	}
 	return nil
