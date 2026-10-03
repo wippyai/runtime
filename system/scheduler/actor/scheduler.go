@@ -202,11 +202,13 @@ func (s *Scheduler) Stop(ctx context.Context) {
 	case <-s.drainCh:
 		// All processes completed gracefully
 	case <-waitCtx.Done():
-		// Timeout - cancel all process contexts to unblock stuck processes
+		// Timeout - cancel all process contexts to unblock stuck processes.
+		// A processor may be starting or completing concurrently, so act
+		// only through its published incarnation, as Terminate does.
 		s.byPID.Range(func(_, value any) bool {
 			proc := value.(*Processor)
-			if proc.cancel != nil {
-				proc.cancel()
+			if ref := proc.sig.Load(); ref != nil {
+				ref.terminate()
 			}
 			proc.queue.Close()
 			return true
