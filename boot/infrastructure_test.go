@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/boot"
 	ctxapi "github.com/wippyai/runtime/api/context"
+	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/event"
 	logapi "github.com/wippyai/runtime/api/logs"
 	"github.com/wippyai/runtime/api/metrics"
@@ -21,6 +22,23 @@ import (
 	"github.com/wippyai/runtime/system/logs"
 	"go.uber.org/zap"
 )
+
+func TestBootstrapRejectsRemovedNativeExtensions(t *testing.T) {
+	for _, config := range []map[string]any{
+		{"enabled": true, "paths": []string{"./plugin.so"}},
+		{"enabled": false},
+		{"paths": []string{}},
+	} {
+		cfg := boot.NewConfig(boot.WithSection("extensions", config))
+		ctx, err := NewBootstrapContextWithParent(context.Background(), zap.NewNop(), cfg)
+		require.Nil(t, ctx, "reject removed configuration before allocating infrastructure")
+		require.ErrorContains(t, err, "native Go extensions are no longer supported")
+		var structured apierror.Error
+		require.ErrorAs(t, err, &structured)
+		require.Equal(t, apierror.Invalid, structured.Kind())
+		require.Equal(t, apierror.False, structured.Retryable())
+	}
+}
 
 type recordingLogManager struct {
 	started bool
