@@ -16,14 +16,15 @@ import (
 var ErrChildLimitExceeded = apierror.New(LimitExceeded, "process child limit exceeded").WithRetryable(apierror.False)
 
 var (
-	// childSlotsKey holds a process's child limit. It is not inherited: a
-	// child's own limit is set by whoever admits it.
-	childSlotsKey = &ctxapi.Key{Name: "process.child_slots", Execution: true}
+	// childSlotsKey holds a process's child limit. Processes it starts share
+	// the limit: it bounds the whole tree of processes started under it, so
+	// a child cannot start more than its ancestor was allowed.
+	childSlotsKey = &ctxapi.Key{Name: "process.child_slots", Inherit: true, Execution: true}
 	childSlotKey  = &ctxapi.Key{Name: "process.child_slot"}
 )
 
-// ChildSlots bounds how many child processes a process may have running at
-// once. A spawn reserves a slot as a frame attachment of the child: it is
+// ChildSlots bounds how many child processes a process and its descendants
+// may have running at once. A spawn reserves a slot as a frame attachment of the child: it is
 // released when the child completes, or rolled back when the spawn fails.
 type ChildSlots struct {
 	limit int64

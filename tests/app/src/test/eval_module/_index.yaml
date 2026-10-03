@@ -142,3 +142,26 @@ entries:
       - time
     imports:
       assert: app.lib:assert
+
+  - name: fanout
+    kind: process.lua
+    meta:
+      comment: Child an eval spawns; starts sleepers until refused
+    source: file://fanout.lua
+    method: main
+    modules:
+      - process
+
+  - name: descendant_limit
+    kind: function.lua
+    meta:
+      type: test
+      suite: eval_module
+      description: max_children bounds the processes an eval's descendants start
+    source: file://descendant_limit.lua
+    method: main
+    modules:
+      - eval
+      - time
+    imports:
+      assert: app.lib:assert

@@ -66,13 +66,16 @@ func TestChildSlotResolverIgnoresUnlimitedAndNonSpawnFrames(t *testing.T) {
 	require.Zero(t, slots.InUse())
 }
 
-func TestChildSlotsAreNotInherited(t *testing.T) {
+func TestChildSlotsAreSharedByDescendants(t *testing.T) {
 	slots := NewChildSlots(1)
 	forked, fc := ctxapi.ForkFrameContext(limitedContext(t, slots))
 	defer ctxapi.ReleaseFrameContext(fc)
 	pairs, err := ChildSlotResolver(forked, childSpawnOptions())
 	require.NoError(t, err)
-	require.Empty(t, pairs)
+	require.Len(t, pairs, 1, "a forked frame draws on its ancestor's limit")
+	require.Equal(t, 1, slots.InUse())
+	_, err = ChildSlotResolver(forked, childSpawnOptions())
+	require.ErrorIs(t, err, ErrChildLimitExceeded)
 }
 
 func TestChildSlotReleasedWhenChildCompletes(t *testing.T) {
