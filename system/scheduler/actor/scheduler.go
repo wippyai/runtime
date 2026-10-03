@@ -399,15 +399,7 @@ func (s *Scheduler) Submit(ctx context.Context, pid pid.PID, p process.Process, 
 		}
 	}
 
-	// Cancellation must also wake an actor parked without incoming messages.
-	// Capture only queue identity/generation: Processor objects are pooled.
-	q, gen := proc.queue, proc.gen.Load()
-	stopWake := context.AfterFunc(procCtx, func() {
-		if q.Push(process.Event{Type: process.EventMessage}, gen) {
-			s.WakeProcessor(q, gen)
-		}
-	})
-	proc.cancel = func() { stopWake(); cancel() }
+	s.wakeOnCancel(proc, procCtx, cancel)
 
 	// A pooled processor can still be referenced by a stale queue entry from
 	// its previous incarnation; Ready is published only once it is initialized.
@@ -416,6 +408,30 @@ func (s *Scheduler) Submit(ctx context.Context, pid pid.PID, p process.Process, 
 	s.wakeAny()
 
 	return proc, nil
+}
+
+// wakeOnCancel makes cancellation of the incarnation's context wake an actor
+// parked without incoming messages. It captures only queue identity and
+// generation, because Processor objects are pooled.
+func (s *Scheduler) wakeOnCancel(proc *Processor, ctx context.Context, cancel context.CancelFunc) {
+	q, gen := proc.queue, proc.gen.Load()
+	stopWake := context.AfterFunc(ctx, func() {
+		if q.Push(process.Event{Type: process.EventMessage}, gen) {
+			s.WakeProcessor(q, gen)
+		}
+	})
+	proc.cancel = func() { stopWake(); cancel() }
+}
+
+// uncount removes a processor from the live count and tells a draining Stop
+// when none remain.
+func (s *Scheduler) uncount() {
+	if s.processorCount.Add(-1) == 0 && s.isStopping() {
+		select {
+		case s.drainCh <- struct{}{}:
+		default:
+		}
+	}
 }
 
 // Terminate forcibly terminates a process by PID.
@@ -456,12 +472,7 @@ func (s *Scheduler) finishProcessor(proc *Processor, result *process.StepOutput,
 
 	stopping := s.isStopping()
 	if !proc.pooled {
-		if s.processorCount.Add(-1) == 0 && stopping {
-			select {
-			case s.drainCh <- struct{}{}:
-			default:
-			}
-		}
+		s.uncount()
 	}
 
 	if proc.resultCh != nil {
@@ -523,6 +534,7 @@ func (s *Scheduler) CreateProcessor(ctx context.Context, pid pid.PID, p process.
 	s.processorCount.Add(1)
 	s.byPID.Store(pid.String(), proc)
 	s.byQueue.Store(proc.queue, proc)
+	s.wakeOnCancel(proc, procCtx, cancel)
 	// Ready is published only once the processor is initialized; see Submit.
 	proc.state.Store(int32(StateReady))
 
@@ -530,7 +542,6 @@ func (s *Scheduler) CreateProcessor(ctx context.Context, pid pid.PID, p process.
 }
 
 func (s *Scheduler) ReleaseProcessor(proc *Processor) {
-	s.processorCount.Add(-1)
 	proc.sig.Store(nil)
 	proc.inspector.Store(nil)
 	s.byPID.Delete(proc.pid.String())
@@ -541,6 +552,7 @@ func (s *Scheduler) ReleaseProcessor(proc *Processor) {
 	if proc.Process != nil {
 		proc.Process.Close()
 	}
+	s.uncount()
 }
 
 // Send implements relay.Receiver. Routes package to target process.
