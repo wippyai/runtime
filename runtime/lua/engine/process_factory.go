@@ -299,10 +299,13 @@ func (f *ProcessFactory) isolationBinder(
 // through a scoped require) and falls back to the shared safe base for standard
 // globals via its metatable.
 //
-// A runtime-installed DSL global may temporarily shadow an import alias when
-// that global did not exist in the base environment at chunk creation time. This
-// preserves the old shared-_G migration DSL behavior without leaking declared
-// imports into _G. Undeclared modules resolve to nil and require fails closed.
+// An alias is an import when the base environment holds a value under that
+// name at the moment the environment is sealed: after library initialization
+// completes, or at the first lookup if that comes earlier. A global installed
+// under an alias name before sealing is shadowed by the import; one installed
+// afterwards, such as the migration DSL's helpers, stays visible through the
+// base without leaking declared imports into _G. Undeclared modules resolve to
+// nil and require fails closed.
 func buildChunkEnv(l *lua.LState, base *lua.LTable, imports []code.Import, valueByNode map[registry.ID]lua.LValue) (*lua.LTable, func()) {
 	env := l.NewTable()
 
