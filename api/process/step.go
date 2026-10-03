@@ -111,6 +111,7 @@ func (o *StepOutput) Preempt() {
 func (o *StepOutput) Reset() {
 	o.buf[0] = Yield{}
 	o.buf[1] = Yield{}
+	clear(o.ext)
 	o.ext = o.ext[:0]
 	o.count = 0
 	o.status = StepContinue
