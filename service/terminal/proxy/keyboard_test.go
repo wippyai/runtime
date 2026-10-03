@@ -4,59 +4,77 @@ package proxy
 
 import (
 	"fmt"
+	"strconv"
+	"strings"
 	"testing"
 
-	uv "github.com/charmbracelet/ultraviolet"
-	"github.com/charmbracelet/x/ansi"
 	"github.com/stretchr/testify/require"
 	ttyapi "github.com/wippyai/runtime/api/tty"
 )
 
-func TestKittyFunctionalKeysRoundTrip(t *testing.T) {
-	keys := map[string]rune{
-		"left": uv.KeyLeft, "right": uv.KeyRight, "up": uv.KeyUp, "down": uv.KeyDown,
-		"home": uv.KeyHome, "end": uv.KeyEnd, "insert": uv.KeyInsert, "delete": uv.KeyDelete,
-		"pgup": uv.KeyPgUp, "pgdown": uv.KeyPgDown,
-		"f1": uv.KeyF1, "f2": uv.KeyF2, "f3": uv.KeyF3, "f4": uv.KeyF4,
-		"f5": uv.KeyF5, "f6": uv.KeyF6, "f7": uv.KeyF7, "f8": uv.KeyF8,
-		"f9": uv.KeyF9, "f10": uv.KeyF10, "f11": uv.KeyF11, "f12": uv.KeyF12,
+// decodeCSI parses a complete CSI key report: number, optional modifier and
+// event-type parameters, and a final byte.
+func decodeCSI(t *testing.T, seq string) (number, mods, eventType int, final byte) {
+	t.Helper()
+	require.True(t, strings.HasPrefix(seq, "\x1b["), "%q", seq)
+	body := seq[2 : len(seq)-1]
+	final = seq[len(seq)-1]
+	number, mods, eventType = 1, 1, 1
+	if body == "" {
+		return
 	}
-	for name, code := range keys {
-		for flags := 1; flags <= ansi.KittyAllFlags; flags++ {
+	fields := strings.Split(body, ";")
+	var err error
+	if fields[0] != "" {
+		number, err = strconv.Atoi(fields[0])
+		require.NoError(t, err, "%q", seq)
+	}
+	if len(fields) > 1 {
+		parts := strings.Split(fields[1], ":")
+		mods, err = strconv.Atoi(parts[0])
+		require.NoError(t, err, "%q", seq)
+		if len(parts) > 1 {
+			eventType, err = strconv.Atoi(parts[1])
+			require.NoError(t, err, "%q", seq)
+		}
+		require.LessOrEqual(t, len(parts), 2, "%q", seq)
+	}
+	require.LessOrEqual(t, len(fields), 2, "%q", seq)
+	return
+}
+
+func TestKittyFunctionalKeysRoundTrip(t *testing.T) {
+	keys := map[string]struct {
+		number int
+		final  byte
+	}{
+		"left": {1, 'D'}, "right": {1, 'C'}, "up": {1, 'A'}, "down": {1, 'B'},
+		"home": {1, 'H'}, "end": {1, 'F'}, "insert": {2, '~'}, "delete": {3, '~'},
+		"pgup": {5, '~'}, "pgdown": {6, '~'},
+		"f1": {1, 'P'}, "f2": {1, 'Q'}, "f3": {13, '~'}, "f4": {1, 'S'},
+		"f5": {15, '~'}, "f6": {17, '~'}, "f7": {18, '~'}, "f8": {19, '~'},
+		"f9": {20, '~'}, "f10": {21, '~'}, "f11": {23, '~'}, "f12": {24, '~'},
+	}
+	for name, want := range keys {
+		for flags := 1; flags <= kittyAllFlags; flags++ {
 			for mods := 0; mods < 8; mods++ {
 				for _, action := range []string{"press", "release"} {
 					t.Run(fmt.Sprintf("%s/%d/%d/%s", name, flags, mods, action), func(t *testing.T) {
 						event := ttyapi.Event{Type: "key", KeyType: name, Key: name, Action: action,
 							Shift: mods&1 != 0, Alt: mods&2 != 0, Ctrl: mods&4 != 0}
 						seq := encodeKittyKey(event, flags)
-						if action == "release" && flags&ansi.KittyReportEventTypes == 0 {
+						if action == "release" && flags&kittyReportEventTypes == 0 {
 							require.Empty(t, seq)
 							return
 						}
-						var decoder uv.EventDecoder
-						n, decoded := decoder.Decode([]byte(seq))
-						require.Equal(t, len(seq), n)
-						key, ok := decoded.(uv.KeyEvent)
-						require.True(t, ok, "%q decoded as %T", seq, decoded)
-						require.Equal(t, code, key.Key().Code)
-						var expectedMod uv.KeyMod
-						if event.Shift {
-							expectedMod |= uv.ModShift
-						}
-						if event.Alt {
-							expectedMod |= uv.ModAlt
-						}
-						if event.Ctrl {
-							expectedMod |= uv.ModCtrl
-						}
-						require.Equal(t, expectedMod, key.Key().Mod)
-						// The pinned decoder drops release types for tilde keys;
-						// check their event-type parameter on the wire below.
-						if action == "release" && seq[len(seq)-1] != '~' {
-							require.IsType(t, uv.KeyReleaseEvent{}, decoded)
-						}
+						number, gotMods, eventType, final := decodeCSI(t, seq)
+						require.Equal(t, want.number, number, "%q", seq)
+						require.Equal(t, want.final, final, "%q", seq)
+						require.Equal(t, 1+mods, gotMods, "%q", seq)
 						if action == "release" {
-							require.Contains(t, seq, ":3")
+							require.Equal(t, 3, eventType, "%q", seq)
+						} else {
+							require.Equal(t, 1, eventType, "%q", seq)
 						}
 					})
 				}
@@ -78,7 +96,7 @@ func TestKittyControlCompatibility(t *testing.T) {
 
 func TestKittyKeyboardNegotiationEncodesArrowsAndRelease(t *testing.T) {
 	var state keyboardState
-	state.push(ansi.KittyDisambiguateEscapeCodes | ansi.KittyReportEventTypes)
+	state.push(kittyDisambiguateEscapeCodes | kittyReportEventTypes)
 	press, handled := state.encode(ttyapi.Event{Type: "key", KeyType: "down", Action: "press"})
 	require.True(t, handled)
 	require.Equal(t, "\x1b[1;1:1B", press)
@@ -96,4 +114,33 @@ func TestModifyOtherKeysEncodesModifiedRunes(t *testing.T) {
 	sequence, handled := state.encode(ttyapi.Event{Type: "key", KeyType: "runes", Key: "x", Ctrl: true, Action: "press"})
 	require.True(t, handled)
 	require.Equal(t, "\x1b[27;5;120~", sequence)
+}
+
+func TestKittyKeyboardNegotiationThroughEmulator(t *testing.T) {
+	proxy, process := newModeProxy(t)
+	proxy.feed(t, "\x1b[>3u\x1b[?u")
+	go func() { _ = proxy.copyResponsesOnce() }()
+	require.Equal(t, "\x1b[?3u", string(<-process.input))
+
+	require.NoError(t, proxy.handle(ttyapi.Event{Type: "key", KeyType: "down", Action: "press"}))
+	require.Equal(t, "\x1b[1;1:1B", string(<-process.input))
+
+	proxy.feed(t, "\x1b[<u\x1b[?u")
+	go func() { _ = proxy.copyResponsesOnce() }()
+	require.Equal(t, "\x1b[?0u", string(<-process.input))
+}
+
+func TestModifyOtherKeysNegotiationThroughEmulator(t *testing.T) {
+	proxy, process := newModeProxy(t)
+	proxy.feed(t, "\x1b[>4;2m")
+	require.NoError(t, proxy.handle(ttyapi.Event{Type: "key", KeyType: "runes", Key: "x", Ctrl: true, Action: "press"}))
+	require.Equal(t, "\x1b[27;5;120~", string(<-process.input))
+}
+
+func (p *Proxy) copyResponsesOnce() error {
+	data, ok := p.responses.next()
+	if !ok {
+		return nil
+	}
+	return p.writeBytes(data)
 }
