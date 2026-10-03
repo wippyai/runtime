@@ -127,7 +127,7 @@ func TestDetachFromCallerRejectsUnavailableCaller(t *testing.T) {
 	require.ErrorIs(t, err, context.Canceled)
 }
 
-func TestWaitForShutdownSignalStartsShutdownOnCallerCancellation(t *testing.T) {
+func TestWaitForShutdownStartsShutdownOnCallerCancellation(t *testing.T) {
 	caller, cancel := context.WithCancel(context.Background())
 	runtime, err := detachFromCaller(caller)
 	require.NoError(t, err)
@@ -136,7 +136,7 @@ func TestWaitForShutdownSignalStartsShutdownOnCallerCancellation(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		waitForShutdownSignal(runtime, make(chan os.Signal, 1), zap.NewNop(), nil)
+		waitForShutdown(runtime, newTestShutdownSources(), zap.NewNop(), nil)
 		close(done)
 	}()
 	cancel()

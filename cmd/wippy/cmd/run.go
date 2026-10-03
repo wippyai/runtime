@@ -281,11 +281,11 @@ func runWithUseCase(cmd *cobra.Command, args []string, useCase string) (result e
 	}
 
 	runtimeShutdown := &runShutdown{}
-	var sigChan chan os.Signal
+	var sources *shutdownSources
 	defer func() {
 		runtimeShutdown.deferCleanup(ctx, &result, loader, logger, silentLogs)
-		if sigChan != nil {
-			signal.Stop(sigChan)
+		if sources != nil {
+			sources.stop()
 		}
 	}()
 
@@ -300,7 +300,7 @@ func runWithUseCase(cmd *cobra.Command, args []string, useCase string) (result e
 	}
 	logger.Info("components loaded successfully")
 
-	sigChan = setupSupervisorSignalChannel(ctx)
+	sources = setupShutdownSources(ctx)
 
 	err = loader.Start(ctx)
 	if err != nil {
@@ -343,7 +343,7 @@ func runWithUseCase(cmd *cobra.Command, args []string, useCase string) (result e
 			}
 		}
 
-		shutdown, err := launchExecUntilShutdown(ctx, sigChan, logger, execSpec, execHost, args)
+		shutdown, err := launchExecUntilShutdown(ctx, sources, logger, execSpec, execHost, args)
 		if err != nil {
 			return err
 		}
@@ -352,7 +352,7 @@ func runWithUseCase(cmd *cobra.Command, args []string, useCase string) (result e
 		}
 	}
 
-	waitForShutdownSignal(ctx, sigChan, logger, nil)
+	waitForShutdown(ctx, sources, logger, nil)
 	return ctx.Err()
 }
 
@@ -1068,7 +1068,7 @@ func launchExecProcess(ctx context.Context, logger *zap.Logger, execSpec, hostID
 // launchExecUntilShutdown keeps the runtime's shutdown signal observable while
 // a command process is running. Cancellation is followed by normal loader
 // shutdown, which drains the command host and stops services in order.
-func launchExecUntilShutdown(ctx context.Context, sigChan chan os.Signal, logger *zap.Logger, execSpec, hostID string, args []string) (bool, error) {
+func launchExecUntilShutdown(ctx context.Context, sources *shutdownSources, logger *zap.Logger, execSpec, hostID string, args []string) (bool, error) {
 	execCtx, stopExecSignals := newExecSignalContext(ctx)
 	defer stopExecSignals()
 
@@ -1086,15 +1086,20 @@ func launchExecUntilShutdown(ctx context.Context, sigChan chan os.Signal, logger
 			logger.Info("exec interrupted", zap.String("signal", "SIGINT"))
 		}
 		return false, nil
-	case sig := <-sigChan:
+	case sig := <-sources.signals:
 		stopExecSignals()
 		<-done
-		handleShutdownSignal(ctx, sigChan, logger, sig, nil)
+		startShutdown(ctx, sources, logger, shutdownCause{kind: causeSignal, signal: sig}, nil)
+		return true, nil
+	case <-sources.requests:
+		stopExecSignals()
+		<-done
+		startShutdown(ctx, sources, logger, shutdownCause{kind: causeRequest}, nil)
 		return true, nil
 	case <-callerCancellation(ctx):
 		stopExecSignals()
 		<-done
-		handleCallerCancellation(ctx, sigChan, logger)
+		startShutdown(ctx, sources, logger, shutdownCause{kind: causeCallerCancellation}, nil)
 		return true, nil
 	}
 }
@@ -1200,59 +1205,33 @@ func waitForHostRunning(ctx context.Context, hostID string) error {
 	}
 }
 
-// setupSupervisorSignalChannel wires OS termination signals into supervisor
-// signal handling.
-func setupSupervisorSignalChannel(ctx context.Context) chan os.Signal {
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-	supervisorapi.SetSignalChannel(ctx, sigChan)
-	return sigChan
+// setupShutdownSources wires OS termination signals and the supervisor's
+// programmatic shutdown requests into separate channels.
+func setupShutdownSources(ctx context.Context) *shutdownSources {
+	sources := &shutdownSources{
+		signals:   make(chan os.Signal, 1),
+		requests:  make(chan struct{}, 1),
+		forceExit: func() { os.Exit(1) },
+	}
+	signal.Notify(sources.signals, syscall.SIGINT, syscall.SIGTERM)
+	supervisorapi.SetShutdownRequestChannel(ctx, sources.requests)
+	return sources
 }
 
-// waitForShutdownSignal handles first-signal graceful shutdown and second-signal
-// forced process termination.
-func waitForShutdownSignal(ctx context.Context, sigChan chan os.Signal, logger *zap.Logger, onFirstSignal func()) {
-	var sig os.Signal
+// waitForShutdown blocks until the graceful shutdown starts, which the first of
+// an OS signal, a shutdown request or the caller's cancellation does. onFirstSignal
+// runs when that first trigger is an OS signal.
+func waitForShutdown(ctx context.Context, sources *shutdownSources, logger *zap.Logger, onFirstSignal func()) {
+	var cause shutdownCause
 	select {
 	case <-ctx.Done():
 		return
 	case <-callerCancellation(ctx):
-		handleCallerCancellation(ctx, sigChan, logger)
-		return
-	case sig = <-sigChan:
+		cause = shutdownCause{kind: causeCallerCancellation}
+	case <-sources.requests:
+		cause = shutdownCause{kind: causeRequest}
+	case sig := <-sources.signals:
+		cause = shutdownCause{kind: causeSignal, signal: sig}
 	}
-	handleShutdownSignal(ctx, sigChan, logger, sig, onFirstSignal)
-}
-
-func handleShutdownSignal(ctx context.Context, sigChan chan os.Signal, logger *zap.Logger, sig os.Signal, onFirstSignal func()) {
-	logger.Info("received shutdown signal", zap.String("signal", sig.String()))
-	if onFirstSignal != nil {
-		onFirstSignal()
-	}
-	armForceExit(ctx, sigChan, logger)
-}
-
-// handleCallerCancellation starts the graceful shutdown that a first signal
-// starts; a signal after it forces exit.
-func handleCallerCancellation(ctx context.Context, sigChan chan os.Signal, logger *zap.Logger) {
-	logger.Info("caller context canceled")
-	armForceExit(ctx, sigChan, logger)
-}
-
-// armForceExit makes the next signal terminate the process while the graceful
-// shutdown proceeds.
-func armForceExit(ctx context.Context, sigChan chan os.Signal, logger *zap.Logger) {
-	go func() {
-		select {
-		case <-ctx.Done():
-			return
-		case <-sigChan:
-			logger.Error("force exit")
-			os.Exit(1)
-		}
-	}()
-
-	if !silentLogs {
-		logger.Info("shutting down (press Ctrl+C again to force exit)")
-	}
+	startShutdown(ctx, sources, logger, cause, onFirstSignal)
 }

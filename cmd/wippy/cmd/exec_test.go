@@ -167,7 +167,7 @@ func TestExecSignalContext_DoesNotReactToSupervisorChannel(t *testing.T) {
 
 	app := ctxapi.NewAppContext()
 	supervisorCtx := ctxapi.WithAppContext(context.Background(), app)
-	supervisorapi.SetSignalChannel(supervisorCtx, make(chan os.Signal, 1))
+	supervisorapi.SetShutdownRequestChannel(supervisorCtx, make(chan struct{}, 1))
 	supervisorapi.TriggerShutdown(supervisorCtx, 0)
 
 	select {

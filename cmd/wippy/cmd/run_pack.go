@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/signal"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -693,8 +692,8 @@ func runPackEntriesWithShutdown(
 	hostID string,
 	runtimeShutdown *runShutdown,
 ) (result error) {
-	sigChan := setupSupervisorSignalChannel(ctx)
-	defer signal.Stop(sigChan)
+	sources := setupShutdownSources(ctx)
+	defer sources.stop()
 
 	appCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -734,7 +733,7 @@ func runPackEntriesWithShutdown(
 			}
 		}
 
-		shutdown, err := launchExecUntilShutdown(appCtx, sigChan, logger, entryID, hostID, args)
+		shutdown, err := launchExecUntilShutdown(appCtx, sources, logger, entryID, hostID, args)
 		if err != nil {
 			return err
 		}
@@ -743,7 +742,7 @@ func runPackEntriesWithShutdown(
 		}
 	}
 
-	waitForShutdownSignal(appCtx, sigChan, logger, nil)
+	waitForShutdown(appCtx, sources, logger, nil)
 	return appCtx.Err()
 }
 

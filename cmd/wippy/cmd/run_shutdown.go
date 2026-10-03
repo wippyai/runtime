@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/signal"
 	"sync"
 
 	bootpkg "github.com/wippyai/runtime/boot"
@@ -62,4 +63,76 @@ func detachFromCaller(caller context.Context) (context.Context, error) {
 func callerCancellation(ctx context.Context) <-chan struct{} {
 	done, _ := ctx.Value(callerCancellationKey{}).(<-chan struct{})
 	return done
+}
+
+// shutdownSources carries what starts and escalates the graceful shutdown.
+// OS termination signals and programmatic shutdown requests arrive on separate
+// channels because only a signal from the user may force exit.
+type shutdownSources struct {
+	signals   chan os.Signal
+	requests  chan struct{}
+	forceExit func()
+}
+
+// stop releases the OS signal subscription.
+func (s *shutdownSources) stop() {
+	signal.Stop(s.signals)
+}
+
+type shutdownCauseKind int
+
+const (
+	causeSignal shutdownCauseKind = iota
+	causeRequest
+	causeCallerCancellation
+)
+
+// shutdownCause is the trigger that began the graceful shutdown.
+type shutdownCause struct {
+	signal os.Signal
+	kind   shutdownCauseKind
+}
+
+// startShutdown begins the graceful shutdown for its first trigger and arms
+// the force exit. When several triggers are ready together, a pending OS
+// signal is the first trigger, so the signal that accompanies a request is
+// never taken for a second one. onFirstSignal runs only for an OS signal.
+func startShutdown(ctx context.Context, sources *shutdownSources, logger *zap.Logger, cause shutdownCause, onFirstSignal func()) {
+	if cause.kind != causeSignal {
+		select {
+		case sig := <-sources.signals:
+			cause = shutdownCause{kind: causeSignal, signal: sig}
+		default:
+		}
+	}
+	switch cause.kind {
+	case causeSignal:
+		logger.Info("received shutdown signal", zap.String("signal", cause.signal.String()))
+		if onFirstSignal != nil {
+			onFirstSignal()
+		}
+	case causeRequest:
+		logger.Info("shutdown requested")
+	case causeCallerCancellation:
+		logger.Info("caller context canceled")
+	}
+	armForceExit(ctx, sources, logger)
+}
+
+// armForceExit makes the next OS signal terminate the process while the
+// graceful shutdown proceeds. Shutdown requests never force exit.
+func armForceExit(ctx context.Context, sources *shutdownSources, logger *zap.Logger) {
+	go func() {
+		select {
+		case <-ctx.Done():
+			return
+		case <-sources.signals:
+			logger.Error("force exit")
+			sources.forceExit()
+		}
+	}()
+
+	if !silentLogs {
+		logger.Info("shutting down (press Ctrl+C again to force exit)")
+	}
 }
