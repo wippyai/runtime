@@ -246,7 +246,7 @@ func (w *Worker) signal() bool {
 
 // localDispatchQuantum bounds preference for the cache-hot local continuation.
 // Fair turns rotate through injected wakeups, global submissions and the oldest
-// local continuation. This is cooperative dispatch fairness, not guest preemption.
+// local continuation.
 const localDispatchQuantum = 32
 
 func (w *Worker) takeFairWork() *Processor {

@@ -83,6 +83,19 @@ func (p *preemptWithPendingYieldProcess) Step(_ []process.Event, out *process.St
 func (*preemptWithPendingYieldProcess) Send(*relay.Package) error { return nil }
 func (*preemptWithPendingYieldProcess) Close()                    {}
 
+// newPingLifecycle returns a lifecycle whose channel closes when the process
+// with pid "ping" completes.
+func newPingLifecycle() (*testLifecycle, <-chan struct{}) {
+	done := make(chan struct{})
+	return &testLifecycle{
+		onComplete: func(_ context.Context, pid pidapi.PID, _ *runtime.Result) {
+			if pid.UniqID == "ping" {
+				close(done)
+			}
+		},
+	}, done
+}
+
 func newPreemptTestScheduler(workers int, lc *testLifecycle, opts ...Option) *Scheduler {
 	registry := scheduler.NewRegistry()
 	registry.Register(CmdComplete, CompleteHandler())
@@ -116,14 +129,7 @@ func TestSchedulerEnablesPreemptionForPreemptibleProcesses(t *testing.T) {
 // A preempted process goes behind other ready work: on a single worker a
 // process that keeps yielding completes while a spinning process runs.
 func TestPreemptedProcessYieldsWorkerToReadyProcesses(t *testing.T) {
-	var pingDone atomic.Bool
-	lc := &testLifecycle{
-		onComplete: func(_ context.Context, pid pidapi.PID, _ *runtime.Result) {
-			if pid.UniqID == "ping" {
-				pingDone.Store(true)
-			}
-		},
-	}
+	lc, pingDone := newPingLifecycle()
 	sched := newPreemptTestScheduler(1, lc)
 	sched.Start()
 	defer testStopScheduler(sched)
@@ -138,11 +144,9 @@ func TestPreemptedProcessYieldsWorkerToReadyProcesses(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	deadline := time.Now().Add(5 * time.Second)
-	for !pingDone.Load() && time.Now().Before(deadline) {
-		time.Sleep(time.Millisecond)
-	}
-	if !pingDone.Load() {
+	select {
+	case <-pingDone:
+	case <-time.After(5 * time.Second):
 		t.Fatalf("ready process starved by preempted process (%d spin steps)", spin.steps.Load())
 	}
 }
@@ -179,9 +183,9 @@ func TestPreemptedProcessIsQueuedBehindLocalReadyWork(t *testing.T) {
 }
 
 func TestPreemptedProcessRunsAgainWithPendingYields(t *testing.T) {
-	var done atomic.Bool
+	done := make(chan struct{})
 	lc := &testLifecycle{
-		onComplete: func(context.Context, pidapi.PID, *runtime.Result) { done.Store(true) },
+		onComplete: func(context.Context, pidapi.PID, *runtime.Result) { close(done) },
 	}
 	sched := newPreemptTestScheduler(1, lc)
 	sched.Start()
@@ -191,11 +195,9 @@ func TestPreemptedProcessRunsAgainWithPendingYields(t *testing.T) {
 	if _, err := sched.Submit(context.Background(), testPID(), p, "", nil); err != nil {
 		t.Fatal(err)
 	}
-	deadline := time.Now().Add(2 * time.Second)
-	for !done.Load() && time.Now().Before(deadline) {
-		time.Sleep(time.Millisecond)
-	}
-	if !done.Load() {
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
 		t.Fatalf("preempted process with a pending yield was not run again (%d steps)", p.steps.Load())
 	}
 }
@@ -212,16 +214,21 @@ func (p *upgradeSource) ResumeStepCount(n uint64) { p.used = n }
 
 // upgradeTarget records how the scheduler prepared it as an upgrade replacement.
 type upgradeTarget struct {
-	stop        chan struct{}
-	options     atomic.Value
-	resumed     atomic.Uint64
-	enabled     atomic.Bool
-	initialized atomic.Bool
-	spinning    bool
+	stop    chan struct{}
+	options atomic.Value
+	// counted closes when the scheduler calls ResumeStepCount, the last
+	// preparation step of an upgrade replacement.
+	counted  chan struct{}
+	resumed  atomic.Uint64
+	enabled  atomic.Bool
+	spinning bool
+}
+
+func newUpgradeTarget() *upgradeTarget {
+	return &upgradeTarget{counted: make(chan struct{})}
 }
 
 func (p *upgradeTarget) Init(ctx context.Context, _ string, _ payload.Payloads) error {
-	p.initialized.Store(true)
 	if opts := runtime.GetFrameLifecycleOptions(ctx); opts != nil {
 		p.options.Store(opts)
 	}
@@ -231,6 +238,7 @@ func (p *upgradeTarget) EnablePreemption() { p.enabled.Store(true) }
 func (p *upgradeTarget) StepsUsed() uint64 { return p.resumed.Load() }
 func (p *upgradeTarget) ResumeStepCount(used uint64) {
 	p.resumed.Store(used)
+	close(p.counted)
 }
 func (p *upgradeTarget) Step(_ []process.Event, out *process.StepOutput) error {
 	if p.spinning {
@@ -251,7 +259,7 @@ func (*upgradeTarget) Send(*relay.Package) error { return nil }
 func (*upgradeTarget) Close()                    {}
 
 // upgradeInto submits an upgrade source whose replacement is target and waits
-// until the replacement is initialized.
+// until the scheduler has initialized it and carried the step count over.
 func upgradeInto(ctx context.Context, t *testing.T, sched *Scheduler, source process.Process, target *upgradeTarget) {
 	t.Helper()
 	appCtx := ctxapi.WithAppContext(ctx, ctxapi.NewAppContext())
@@ -265,11 +273,9 @@ func upgradeInto(ctx context.Context, t *testing.T, sched *Scheduler, source pro
 	if _, err := sched.Submit(frameCtx, pidapi.PID{UniqID: "upgrader"}, source, "", nil); err != nil {
 		t.Fatal(err)
 	}
-	deadline := time.Now().Add(5 * time.Second)
-	for !target.initialized.Load() && time.Now().Before(deadline) {
-		time.Sleep(time.Millisecond)
-	}
-	if !target.initialized.Load() {
+	select {
+	case <-target.counted:
+	case <-time.After(5 * time.Second):
 		t.Fatal("upgrade replacement was not initialized")
 	}
 }
@@ -279,7 +285,7 @@ func TestUpgradeReplacementIsPreemptionEnabled(t *testing.T) {
 	sched.Start()
 	defer testStopScheduler(sched)
 
-	target := &upgradeTarget{}
+	target := newUpgradeTarget()
 	source := &upgradeSource{UpgradeProcess: UpgradeProcess{upgradeReq: &process.UpgradeRequest{Source: registry.NewID("app", "next")}}}
 	upgradeInto(context.Background(), t, sched, source, target)
 	if !target.enabled.Load() {
@@ -289,19 +295,13 @@ func TestUpgradeReplacementIsPreemptionEnabled(t *testing.T) {
 
 // An actor that upgrades into a spinning definition still yields its worker.
 func TestUpgradeIntoSpinningActorYieldsWorker(t *testing.T) {
-	var pingDone atomic.Bool
-	lc := &testLifecycle{
-		onComplete: func(_ context.Context, pid pidapi.PID, _ *runtime.Result) {
-			if pid.UniqID == "ping" {
-				pingDone.Store(true)
-			}
-		},
-	}
+	lc, pingDone := newPingLifecycle()
 	sched := newPreemptTestScheduler(1, lc)
 	sched.Start()
 	defer testStopScheduler(sched)
 
-	target := &upgradeTarget{spinning: true, stop: make(chan struct{})}
+	target := newUpgradeTarget()
+	target.spinning, target.stop = true, make(chan struct{})
 	defer close(target.stop)
 	source := &upgradeSource{UpgradeProcess: UpgradeProcess{upgradeReq: &process.UpgradeRequest{Source: registry.NewID("app", "next")}}}
 	upgradeInto(context.Background(), t, sched, source, target)
@@ -309,11 +309,9 @@ func TestUpgradeIntoSpinningActorYieldsWorker(t *testing.T) {
 	if _, err := sched.Submit(context.Background(), pidapi.PID{UniqID: "ping"}, &pingProcess{rounds: 20}, "", nil); err != nil {
 		t.Fatal(err)
 	}
-	deadline := time.Now().Add(5 * time.Second)
-	for !pingDone.Load() && time.Now().Before(deadline) {
-		time.Sleep(time.Millisecond)
-	}
-	if !pingDone.Load() {
+	select {
+	case <-pingDone:
+	case <-time.After(5 * time.Second):
 		t.Fatal("ready process starved by the upgraded actor")
 	}
 }
@@ -328,7 +326,7 @@ func TestUpgradeKeepsSpawnLifecycleOptions(t *testing.T) {
 	if err := fc.Set(runtime.FrameLifecycleOptionsKey, attrs.Attributes(spawn)); err != nil {
 		t.Fatal(err)
 	}
-	target := &upgradeTarget{}
+	target := newUpgradeTarget()
 	source := &upgradeSource{UpgradeProcess: UpgradeProcess{upgradeReq: &process.UpgradeRequest{Source: registry.NewID("app", "next")}}}
 	upgradeInto(ctx, t, sched, source, target)
 
@@ -343,16 +341,12 @@ func TestUpgradeCarriesStepCount(t *testing.T) {
 	sched.Start()
 	defer testStopScheduler(sched)
 
-	target := &upgradeTarget{}
+	target := newUpgradeTarget()
 	source := &upgradeSource{
 		UpgradeProcess: UpgradeProcess{upgradeReq: &process.UpgradeRequest{Source: registry.NewID("app", "next")}},
 		used:           41,
 	}
 	upgradeInto(context.Background(), t, sched, source, target)
-	deadline := time.Now().Add(5 * time.Second)
-	for target.resumed.Load() == 0 && time.Now().Before(deadline) {
-		time.Sleep(time.Millisecond)
-	}
 	if got := target.resumed.Load(); got != 41 {
 		t.Fatalf("expected 41 steps carried to the replacement, got %d", got)
 	}

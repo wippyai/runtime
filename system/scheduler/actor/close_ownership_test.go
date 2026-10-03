@@ -82,7 +82,8 @@ func TestFailedUpgradeClosesProcessOnce(t *testing.T) {
 			case <-time.After(5 * time.Second):
 				t.Fatal("actor did not complete")
 			}
-			time.Sleep(50 * time.Millisecond)
+			// Stopping joins the workers, so every Close has happened.
+			testStopScheduler(sched)
 			closes := source.closed.Load()
 			if target != nil {
 				closes += target.closed.Load()

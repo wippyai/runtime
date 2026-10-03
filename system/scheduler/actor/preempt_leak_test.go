@@ -20,11 +20,20 @@ import (
 // preemptNProcess reports StepPreempted n times, then completes.
 type preemptNProcess struct {
 	closed *atomic.Int64
-	left   int
+	// started, when set, receives a value on the first step.
+	started chan<- struct{}
+	left    int
+	began   bool
 }
 
 func (*preemptNProcess) Init(context.Context, string, payload.Payloads) error { return nil }
 func (p *preemptNProcess) Step(_ []process.Event, out *process.StepOutput) error {
+	if !p.began {
+		p.began = true
+		if p.started != nil {
+			p.started <- struct{}{}
+		}
+	}
 	if p.left == 0 {
 		out.Done(nil)
 		return nil
@@ -53,14 +62,15 @@ func settledGoroutines(t *testing.T, want int) int {
 func TestPreemptCyclesReleaseEveryProcessAndGoroutine(t *testing.T) {
 	baseline := settledGoroutines(t, 0)
 
-	var completed, closed atomic.Int64
+	const total = 3000
+	var closed atomic.Int64
+	completed := make(chan struct{}, total)
 	lc := &testLifecycle{
-		onComplete: func(context.Context, pidapi.PID, *apiruntime.Result) { completed.Add(1) },
+		onComplete: func(context.Context, pidapi.PID, *apiruntime.Result) { completed <- struct{}{} },
 	}
 	sched := newPreemptTestScheduler(4, lc)
 	sched.Start()
 
-	const total = 3000
 	for i := 0; i < total; i++ {
 		p := &preemptNProcess{closed: &closed, left: i % 7}
 		id := pidapi.PID{UniqID: fmt.Sprintf("p%d", i)}
@@ -69,28 +79,26 @@ func TestPreemptCyclesReleaseEveryProcessAndGoroutine(t *testing.T) {
 		}
 	}
 
-	deadline := time.Now().Add(20 * time.Second)
-	for completed.Load() < total && time.Now().Before(deadline) {
-		time.Sleep(5 * time.Millisecond)
-	}
-	if got := completed.Load(); got != total {
-		t.Fatalf("completed %d of %d", got, total)
-	}
-	deadline = time.Now().Add(5 * time.Second)
-	for closed.Load() < total && time.Now().Before(deadline) {
-		time.Sleep(5 * time.Millisecond)
-	}
-	if got := closed.Load(); got != total {
-		t.Fatalf("closed %d of %d processes", got, total)
+	timeout := time.After(20 * time.Second)
+	for i := 0; i < total; i++ {
+		select {
+		case <-completed:
+		case <-timeout:
+			t.Fatalf("completed %d of %d", i, total)
+		}
 	}
 
 	// Idle workers are the only parked ones, each counted once.
-	deadline = time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(5 * time.Second)
 	for sched.parked.Load() != 4 && time.Now().Before(deadline) {
 		time.Sleep(5 * time.Millisecond)
 	}
 	if got := sched.parked.Load(); got != 4 {
 		t.Fatalf("expected 4 parked workers while idle, got %d", got)
+	}
+	// A parked worker has returned from its last step, so every Close ran.
+	if got := closed.Load(); got != total {
+		t.Fatalf("closed %d of %d processes", got, total)
 	}
 
 	testStopScheduler(sched)
@@ -108,13 +116,16 @@ func TestStopClosesPreemptingProcesses(t *testing.T) {
 	sched := newPreemptTestScheduler(2, &testLifecycle{})
 	sched.Start()
 	const total = 20
+	started := make(chan struct{}, total)
 	for i := 0; i < total; i++ {
-		p := &preemptNProcess{closed: &closed, left: 1 << 30}
+		p := &preemptNProcess{closed: &closed, left: 1 << 30, started: started}
 		if _, err := sched.Submit(context.Background(), pidapi.PID{UniqID: fmt.Sprintf("s%d", i)}, p, "", nil); err != nil {
 			t.Fatal(err)
 		}
 	}
-	time.Sleep(50 * time.Millisecond)
+	for i := 0; i < total; i++ {
+		<-started
+	}
 	testStopScheduler(sched)
 	if got := closed.Load(); got != total {
 		t.Fatalf("closed %d of %d processes at stop", got, total)

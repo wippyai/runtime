@@ -26,8 +26,10 @@ const (
 // MaxSteps bounds the number of scheduler steps the actor may take; zero is
 // unlimited and exceeding it fails the actor with process.ErrStepLimitExceeded.
 type ExecutionBudgets struct {
-	TickBudget    int64
-	MaxSteps      uint64
+	TickBudget int64
+	MaxSteps   uint64
+	// TickBudgetSet and MaxStepsSet report that the option was given, so an
+	// explicit zero overrides a lower-precedence value.
 	TickBudgetSet bool
 	MaxStepsSet   bool
 }
