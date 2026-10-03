@@ -87,10 +87,18 @@ type (
 
 	// PolicyEntry represents a policy registration payload.
 	PolicyEntry struct {
-		Policy Policy
-		Groups []registry.ID
-		// Applied receives the owning registry result after the mutation is visible.
+		// Applied is set by PolicyApplier for an admitted, nonserialized request.
+		// It receives the owning registry result after the mutation is visible.
 		Applied chan<- error `json:"-" yaml:"-"`
+		Policy  Policy
+		Groups  []registry.ID
+	}
+
+	// PolicyApplier admits mutations to the owning registry and waits until the
+	// policy and its group membership are visible. Cancellation or owner shutdown
+	// releases pending callers; event observers are not policy owners.
+	PolicyApplier interface {
+		ApplyPolicy(ctx context.Context, id registry.ID, kind event.Kind, entry *PolicyEntry) error
 	}
 
 	// Registry defines the core interface for accessing security policies.

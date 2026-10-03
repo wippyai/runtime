@@ -5,6 +5,7 @@ package security
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sync"
 
 	"github.com/wippyai/runtime/api/security"
@@ -17,13 +18,22 @@ import (
 
 // PolicyRegistry implements the Registry interface to manage security policies
 type PolicyRegistry struct {
-	ctx        context.Context
-	bus        event.Bus
-	logger     *zap.Logger
-	subscriber *eventbus.Subscriber
-	policies   sync.Map
-	groups     sync.Map
-	groupMu    sync.Mutex
+	ctx          context.Context
+	cancel       context.CancelFunc
+	bus          event.Bus
+	logger       *zap.Logger
+	applications map[chan<- error]policyApplication
+	subscriber   *eventbus.Subscriber
+	policies     sync.Map
+	groups       sync.Map
+	groupMu      sync.Mutex
+	lifecycleMu  sync.Mutex // Serializes Start and the complete Stop barrier.
+	mu           sync.Mutex // Lifecycle, application admission and mutation serialization.
+}
+
+type policyApplication struct {
+	ctx   context.Context
+	owner context.Context
 }
 
 // NewPolicyRegistry creates a new policy registry with the given event bus and logger
@@ -32,15 +42,23 @@ func NewPolicyRegistry(bus event.Bus, logger *zap.Logger) *PolicyRegistry {
 		logger = zap.NewNop()
 	}
 	return &PolicyRegistry{
-		bus:      bus,
-		logger:   logger,
-		policies: sync.Map{},
-		groups:   sync.Map{},
+		bus:          bus,
+		logger:       logger,
+		policies:     sync.Map{},
+		groups:       sync.Map{},
+		applications: make(map[chan<- error]policyApplication),
 	}
 }
 
 func (r *PolicyRegistry) Start(ctx context.Context) error {
-	r.ctx = ctx
+	r.lifecycleMu.Lock()
+	defer r.lifecycleMu.Unlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.subscriber != nil {
+		return ErrRegistryStarted
+	}
+	r.ctx, r.cancel = context.WithCancel(ctx)
 
 	sub, err := eventbus.NewSubscriber(
 		r.ctx,
@@ -50,6 +68,7 @@ func (r *PolicyRegistry) Start(ctx context.Context) error {
 		r.handleEvent,
 	)
 	if err != nil {
+		r.cancel()
 		return NewSubscriberError(err)
 	}
 	r.subscriber = sub
@@ -58,27 +77,113 @@ func (r *PolicyRegistry) Start(ctx context.Context) error {
 }
 
 func (r *PolicyRegistry) Stop() error {
-	if r.subscriber != nil {
-		r.subscriber.Close()
-		r.subscriber = nil
+	r.lifecycleMu.Lock()
+	defer r.lifecycleMu.Unlock()
+	r.mu.Lock()
+	if r.cancel != nil {
+		r.cancel()
+	}
+	sub := r.subscriber
+	r.subscriber = nil
+	r.mu.Unlock()
+	if sub != nil {
+		sub.Close()
 	}
 	return nil
 }
 
-func (r *PolicyRegistry) handleEvent(e event.Event) {
-	var err error
-	switch e.Kind {
-	case security.PolicyRegister:
-		err = r.registerPolicy(e)
-	case security.PolicyUpdate:
-		err = r.updatePolicy(e)
-	case security.PolicyDelete:
-		err = r.deletePolicy(e)
-	default:
-		err = fmt.Errorf("unknown policy event kind: %s", e.Kind)
+// ApplyPolicy binds the acknowledgement to this owner, not to arbitrary bus
+// subscribers. The bus remains the single ordered mutation path.
+func (r *PolicyRegistry) ApplyPolicy(ctx context.Context, id registry.ID, kind event.Kind, entry *security.PolicyEntry) error {
+	if err := ctx.Err(); err != nil {
+		return err
 	}
-	if entry, ok := e.Data.(*security.PolicyEntry); ok && entry.Applied != nil {
-		entry.Applied <- err
+	if entry == nil {
+		return ErrInvalidPolicyPayload
+	}
+	switch kind {
+	case security.PolicyRegister, security.PolicyUpdate:
+		if entry.Policy == nil || entry.Policy.ID() != id {
+			return ErrInvalidPolicyPayload
+		}
+	case security.PolicyDelete:
+	default:
+		return ErrInvalidPolicyPayload
+	}
+	applied := make(chan error, 1)
+	r.mu.Lock()
+	if r.subscriber == nil || r.ctx.Err() != nil {
+		r.mu.Unlock()
+		return ErrRegistryStopped
+	}
+	owner := r.ctx
+	r.applications[applied] = policyApplication{ctx: ctx, owner: owner}
+	r.mu.Unlock()
+	defer func() {
+		r.mu.Lock()
+		delete(r.applications, applied)
+		r.mu.Unlock()
+	}()
+
+	// Snapshot the request without attaching transient waiters to stored policies
+	// or modifying the factory's payload.
+	payload := &security.PolicyEntry{Applied: applied, Policy: entry.Policy, Groups: slices.Clone(entry.Groups)}
+	r.bus.Send(ctx, event.Event{System: security.System, Kind: kind, Path: id.String(), Data: payload})
+	var busDone <-chan struct{}
+	if lifecycle, ok := r.bus.(interface{ Done() <-chan struct{} }); ok {
+		busDone = lifecycle.Done()
+	}
+	select {
+	case err := <-applied:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-owner.Done():
+		return ErrRegistryStopped
+	case <-busDone:
+		return ErrRegistryStopped
+	}
+}
+
+func (r *PolicyRegistry) handleEvent(e event.Event) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	entry, acknowledged := e.Data.(*security.PolicyEntry)
+	acknowledged = acknowledged && entry != nil && entry.Applied != nil
+	var err error
+	if acknowledged {
+		application, ok := r.applications[entry.Applied]
+		if !ok {
+			// Only the admitting owner may apply or answer this request. This
+			// also discards late events after their caller has been released.
+			return
+		}
+		switch {
+		case application.owner != r.ctx || application.owner.Err() != nil:
+			err = ErrRegistryStopped
+		case application.ctx.Err() != nil:
+			err = application.ctx.Err()
+		}
+	}
+	if err == nil {
+		switch e.Kind {
+		case security.PolicyRegister:
+			err = r.registerPolicy(e)
+		case security.PolicyUpdate:
+			err = r.updatePolicy(e)
+		case security.PolicyDelete:
+			err = r.deletePolicy(e)
+		default:
+			err = fmt.Errorf("unknown policy event kind: %s", e.Kind)
+		}
+	}
+	if acknowledged {
+		// A canceled caller may have gone away, and malformed external events
+		// must not block the owner with an unread acknowledgement channel.
+		select {
+		case entry.Applied <- err:
+		default:
+		}
 	}
 	if err != nil {
 		r.logger.Error("policy mutation failed", zap.String("policy", e.Path), zap.Error(err))
@@ -87,16 +192,16 @@ func (r *PolicyRegistry) handleEvent(e event.Event) {
 
 func (r *PolicyRegistry) registerPolicy(e event.Event) error {
 	entry, ok := e.Data.(*security.PolicyEntry)
-	if !ok {
+	if !ok || entry == nil || entry.Policy == nil {
 		r.logger.Error("invalid policy payload",
 			zap.String("policy", e.Path),
 			zap.String("type", fmt.Sprintf("%T", e.Data)))
-		return fmt.Errorf("invalid policy payload: %s", e.Path)
+		return ErrInvalidPolicyPayload
 	}
 
 	policyID := entry.Policy.ID()
 
-	r.policies.Store(policyID, entry)
+	r.policies.Store(policyID, &security.PolicyEntry{Policy: entry.Policy, Groups: slices.Clone(entry.Groups)})
 
 	for _, groupID := range entry.Groups {
 		r.addPolicyToGroup(groupID, policyID)
@@ -110,11 +215,11 @@ func (r *PolicyRegistry) registerPolicy(e event.Event) error {
 
 func (r *PolicyRegistry) updatePolicy(e event.Event) error {
 	entry, ok := e.Data.(*security.PolicyEntry)
-	if !ok {
+	if !ok || entry == nil || entry.Policy == nil {
 		r.logger.Error("invalid policy update payload",
 			zap.String("policy", e.Path),
 			zap.String("type", fmt.Sprintf("%T", e.Data)))
-		return fmt.Errorf("invalid policy update payload: %s", e.Path)
+		return ErrInvalidPolicyPayload
 	}
 
 	policyID := entry.Policy.ID()
@@ -123,7 +228,7 @@ func (r *PolicyRegistry) updatePolicy(e event.Event) error {
 	if !exists {
 		r.logger.Error("policy not found for update",
 			zap.String("policy", policyID.String()))
-		return fmt.Errorf("policy not found for update: %s", e.Path)
+		return fmt.Errorf("policy not found for update: %s: %w", e.Path, security.ErrPolicyNotFound)
 	}
 
 	existing, ok := existingVal.(*security.PolicyEntry)
@@ -159,7 +264,7 @@ func (r *PolicyRegistry) updatePolicy(e event.Event) error {
 		}
 	}
 
-	r.policies.Store(policyID, entry)
+	r.policies.Store(policyID, &security.PolicyEntry{Policy: entry.Policy, Groups: slices.Clone(entry.Groups)})
 
 	r.logger.Debug("policy updated",
 		zap.String("policy", policyID.String()),
@@ -174,7 +279,7 @@ func (r *PolicyRegistry) deletePolicy(e event.Event) error {
 	if !exists {
 		r.logger.Warn("policy not found for deletion",
 			zap.String("policy", policyID.String()))
-		return fmt.Errorf("policy not found for deletion: %s", e.Path)
+		return fmt.Errorf("policy not found for deletion: %s: %w", e.Path, security.ErrPolicyNotFound)
 	}
 
 	existing, ok := existingVal.(*security.PolicyEntry)
@@ -319,3 +424,4 @@ func (r *PolicyRegistry) ListPolicies() []registry.ID {
 }
 
 var _ security.Registry = (*PolicyRegistry)(nil)
+var _ security.PolicyApplier = (*PolicyRegistry)(nil)

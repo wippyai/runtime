@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: MPL-2.0
+
 package policy
 
 import (
 	"context"
-	"errors"
 	"testing"
+	"time"
 
+	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/security"
@@ -15,33 +17,57 @@ import (
 	"go.uber.org/zap"
 )
 
-type canceledDeliveryBus struct {
+type policyDeliveryBus struct {
 	event.Bus
-	cancel context.CancelFunc
+	beforeSend func()
 }
 
-func (b *canceledDeliveryBus) Send(ctx context.Context, e event.Event) {
-	if e.System == security.System {
-		b.cancel()
-		return
+func (b *policyDeliveryBus) Send(ctx context.Context, e event.Event) {
+	if e.System == security.System && b.beforeSend != nil {
+		b.beforeSend()
 	}
 	b.Bus.Send(ctx, e)
+}
+
+func readinessEntry() registry.Entry {
+	return registry.Entry{ID: registry.NewID("test", "first_request"), Kind: policyapi.Policy}
+}
+
+func startPolicyOwner(t *testing.T, bus event.Bus) *policyregistry.PolicyRegistry {
+	t.Helper()
+	owner := policyregistry.NewPolicyRegistry(bus, zap.NewNop())
+	require.NoError(t, owner.Start(context.Background()))
+	t.Cleanup(func() { require.NoError(t, owner.Stop()) })
+	return owner
+}
+
+func awaitPolicyResult(t *testing.T, done <-chan error) error {
+	t.Helper()
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(time.Second):
+		t.Fatal("policy operation did not resolve")
+		return nil
+	}
 }
 
 func TestManagerNeverAcknowledgesUndeliveredPolicy(t *testing.T) {
 	for _, operation := range []string{"add", "update", "delete"} {
 		t.Run(operation, func(t *testing.T) {
+			bus := eventbus.NewBus()
+			t.Cleanup(bus.Stop)
+			wrapped := &policyDeliveryBus{Bus: bus}
+			owner := startPolicyOwner(t, wrapped)
+			manager := NewManager(owner, &mockFactory{}, zap.NewNop())
+			entry := readinessEntry()
+			if operation != "add" {
+				require.NoError(t, manager.Add(context.Background(), entry))
+			}
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
-			bus := &canceledDeliveryBus{Bus: eventbus.NewBus(), cancel: cancel}
-			pending := make(chan event.Event, 1)
-			id, err := bus.Subscribe(ctx, security.System, pending)
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer bus.Unsubscribe(context.Background(), id)
-			manager := NewManager(bus, &mockFactory{}, zap.NewNop())
-			entry := registry.Entry{ID: registry.NewID("test", "first_request"), Kind: policyapi.Policy}
+			wrapped.beforeSend = cancel
+			var err error
 			switch operation {
 			case "add":
 				err = manager.Add(ctx, entry)
@@ -50,53 +76,112 @@ func TestManagerNeverAcknowledgesUndeliveredPolicy(t *testing.T) {
 			case "delete":
 				err = manager.Delete(ctx, entry)
 			}
-			if !errors.Is(err, context.Canceled) {
-				t.Fatalf("%s acknowledged an undelivered policy: %v", operation, err)
+			require.ErrorIs(t, err, context.Canceled)
+			_, err = owner.GetPolicy(entry.ID)
+			if operation == "add" {
+				require.ErrorIs(t, err, security.ErrPolicyNotFound)
+			} else {
+				require.NoError(t, err)
 			}
 		})
 	}
 }
 
 func TestManagerCompletionIncludesPolicyVisibility(t *testing.T) {
-	ctx := context.Background()
 	bus := eventbus.NewBus()
-	owner := policyregistry.NewPolicyRegistry(bus, zap.NewNop())
-	if err := owner.Start(ctx); err != nil {
-		t.Fatal(err)
-	}
-	defer owner.Stop()
-	manager := NewManager(bus, &mockFactory{}, zap.NewNop())
-	entry := registry.Entry{ID: registry.NewID("test", "first_request"), Kind: policyapi.Policy}
-	if err := manager.Add(ctx, entry); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := owner.GetPolicy(entry.ID); err != nil {
-		t.Fatalf("first lookup after add: %v", err)
-	}
-	if err := manager.Update(ctx, entry); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := owner.GetPolicy(entry.ID); err != nil {
-		t.Fatalf("first lookup after update: %v", err)
-	}
-	if err := manager.Delete(ctx, entry); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := owner.GetPolicy(entry.ID); !errors.Is(err, security.ErrPolicyNotFound) {
-		t.Fatalf("first lookup after delete: %v", err)
-	}
-	if err := manager.Update(ctx, entry); err == nil || err.Error() != "policy not found for update: test:first_request" {
-		t.Fatalf("update owner failure was lost: %v", err)
-	}
-	if err := manager.Delete(ctx, entry); err == nil || err.Error() != "policy not found for deletion: test:first_request" {
-		t.Fatalf("delete owner failure was lost: %v", err)
-	}
+	t.Cleanup(bus.Stop)
+	owner := startPolicyOwner(t, bus)
+	group := registry.NewID("test", "old_group")
+	factory := &mockFactory{createFunc: func(_ context.Context, entry registry.Entry) (*security.PolicyEntry, error) {
+		return &security.PolicyEntry{Policy: &mockPolicy{id: entry.ID}, Groups: []registry.ID{group}}, nil
+	}}
+	manager := NewManager(owner, factory, zap.NewNop())
+	entry := readinessEntry()
+	require.NoError(t, manager.Add(context.Background(), entry))
+	_, err := owner.GetPolicy(entry.ID)
+	require.NoError(t, err)
+	scope, err := owner.GetPolicyGroup(group)
+	require.NoError(t, err)
+	require.True(t, scope.Contains(entry.ID))
+	oldGroup := group
+	group = registry.NewID("test", "new_group")
+	require.NoError(t, manager.Update(context.Background(), entry))
+	_, err = owner.GetPolicyGroup(oldGroup)
+	require.ErrorIs(t, err, security.ErrGroupNotFound)
+	scope, err = owner.GetPolicyGroup(group)
+	require.NoError(t, err)
+	require.True(t, scope.Contains(entry.ID))
+	require.NoError(t, manager.Delete(context.Background(), entry))
+	_, err = owner.GetPolicy(entry.ID)
+	require.ErrorIs(t, err, security.ErrPolicyNotFound)
+	_, err = owner.GetPolicyGroup(group)
+	require.ErrorIs(t, err, security.ErrGroupNotFound)
+	require.ErrorIs(t, manager.Update(context.Background(), entry), security.ErrPolicyNotFound)
+	require.ErrorIs(t, manager.Delete(context.Background(), entry), security.ErrPolicyNotFound)
 }
 
-func TestManagerRefusesAbsentPolicyOwner(t *testing.T) {
-	manager := NewManager(eventbus.NewBus(), &mockFactory{}, zap.NewNop())
-	entry := registry.Entry{ID: registry.NewID("test", "first_request"), Kind: policyapi.Policy}
-	if err := manager.Add(context.Background(), entry); err == nil || err.Error() != "security policy registry is not subscribed" {
-		t.Fatalf("missing owner failure was lost: %v", err)
+func TestManagerRejectsMissingOwnerEvenWithObserver(t *testing.T) {
+	bus := eventbus.NewBus()
+	t.Cleanup(bus.Stop)
+	observed := make(chan event.Event, 1)
+	id, err := bus.Subscribe(context.Background(), security.System, observed)
+	require.NoError(t, err)
+	t.Cleanup(func() { bus.Unsubscribe(context.Background(), id) })
+	manager := NewManager(nil, &mockFactory{}, zap.NewNop())
+	done := make(chan error, 1)
+	go func() { done <- manager.Add(context.Background(), readinessEntry()) }()
+	require.ErrorIs(t, awaitPolicyResult(t, done), security.ErrRegistryNotFound)
+	require.Empty(t, observed)
+}
+
+func TestManagerRejectsStoppedOwnerAtSend(t *testing.T) {
+	bus := eventbus.NewBus()
+	t.Cleanup(bus.Stop)
+	wrapped := &policyDeliveryBus{Bus: bus}
+	owner := startPolicyOwner(t, wrapped)
+	wrapped.beforeSend = func() { _ = owner.Stop() }
+	manager := NewManager(owner, &mockFactory{}, zap.NewNop())
+	done := make(chan error, 1)
+	go func() { done <- manager.Add(context.Background(), readinessEntry()) }()
+	require.ErrorIs(t, awaitPolicyResult(t, done), policyregistry.ErrRegistryStopped)
+	_, err := owner.GetPolicy(readinessEntry().ID)
+	require.ErrorIs(t, err, security.ErrPolicyNotFound)
+}
+
+func TestManagerCancellationDoesNotWaitForUnrelatedDelivery(t *testing.T) {
+	bus := eventbus.NewBus()
+	t.Cleanup(bus.Stop)
+	entered := make(chan struct{})
+	wrapped := &policyDeliveryBus{Bus: bus, beforeSend: func() { close(entered) }}
+	owner := startPolicyOwner(t, wrapped)
+	observerCtx, releaseObserver := context.WithCancel(context.Background())
+	defer releaseObserver()
+	unread := make(chan event.Event)
+	_, err := bus.Subscribe(observerCtx, "blocked", unread)
+	require.NoError(t, err)
+	bus.Send(observerCtx, event.Event{System: "blocked"})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	manager := NewManager(owner, &mockFactory{}, zap.NewNop())
+	done := make(chan error, 1)
+	go func() { done <- manager.Add(ctx, readinessEntry()) }()
+	select {
+	case <-entered:
+	case <-time.After(time.Second):
+		t.Fatal("did not reach policy publication")
 	}
+	cancel()
+	require.ErrorIs(t, awaitPolicyResult(t, done), context.Canceled)
+	_, err = owner.GetPolicy(readinessEntry().ID)
+	require.ErrorIs(t, err, security.ErrPolicyNotFound)
+}
+
+func TestManagerRejectsStoppedBus(t *testing.T) {
+	bus := eventbus.NewBus()
+	owner := startPolicyOwner(t, bus)
+	bus.Stop()
+	manager := NewManager(owner, &mockFactory{}, zap.NewNop())
+	done := make(chan error, 1)
+	go func() { done <- manager.Add(context.Background(), readinessEntry()) }()
+	require.ErrorIs(t, awaitPolicyResult(t, done), policyregistry.ErrRegistryStopped)
 }

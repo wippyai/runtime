@@ -49,12 +49,13 @@ func (m *mockPolicy) Evaluate(_ security.Actor, _, _ string, _ attrs.Bag) securi
 
 func setupManagerTest(t *testing.T) (*Manager, *eventbus.Bus) {
 	bus := eventbus.NewBus()
+	t.Cleanup(bus.Stop)
 	factory := &mockFactory{}
 	logger := zap.NewNop()
 	owner := policyregistry.NewPolicyRegistry(bus, logger)
 	require.NoError(t, owner.Start(context.Background()))
 	t.Cleanup(func() { require.NoError(t, owner.Stop()) })
-	manager := NewManager(bus, factory, logger)
+	manager := NewManager(owner, factory, logger)
 	return manager, bus
 }
 
@@ -255,7 +256,7 @@ func TestManager_Add_FactoryError(t *testing.T) {
 		},
 	}
 	logger := zap.NewNop()
-	manager := NewManager(bus, factory, logger)
+	manager := NewManager(nil, factory, logger)
 
 	eventCh := make(chan event.Event, 10)
 	subID, err := bus.Subscribe(ctx, security.System, eventCh)
@@ -287,7 +288,7 @@ func TestManager_Update_FactoryError(t *testing.T) {
 		},
 	}
 	logger := zap.NewNop()
-	manager := NewManager(bus, factory, logger)
+	manager := NewManager(nil, factory, logger)
 
 	eventCh := make(chan event.Event, 10)
 	subID, err := bus.Subscribe(ctx, security.System, eventCh)

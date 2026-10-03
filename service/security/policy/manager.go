@@ -4,7 +4,6 @@ package policy
 
 import (
 	"context"
-	"errors"
 
 	policyapi "github.com/wippyai/runtime/api/service/security/policy"
 
@@ -17,13 +16,13 @@ import (
 // Manager handles security policy registration and lifecycle
 type Manager struct {
 	log     *zap.Logger
-	bus     event.Bus
+	owner   security.PolicyApplier
 	factory FactoryAPI
 }
 
 // NewManager creates a new policy manager
 func NewManager(
-	bus event.Bus,
+	owner security.PolicyApplier,
 	factory FactoryAPI,
 	logger *zap.Logger,
 ) *Manager {
@@ -32,7 +31,7 @@ func NewManager(
 	}
 	return &Manager{
 		log:     logger,
-		bus:     bus,
+		owner:   owner,
 		factory: factory,
 	}
 }
@@ -95,16 +94,8 @@ func (m *Manager) applyPolicy(ctx context.Context, id registry.ID, kind event.Ki
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if !m.bus.HasSubscribers(security.System, kind) {
-		return errors.New("security policy registry is not subscribed")
+	if m.owner == nil {
+		return security.ErrRegistryNotFound
 	}
-	applied := make(chan error, 1)
-	entry.Applied = applied
-	m.bus.Send(ctx, event.Event{System: security.System, Kind: kind, Path: id.String(), Data: entry})
-	select {
-	case err := <-applied:
-		return err
-	case <-ctx.Done():
-		return ctx.Err()
-	}
+	return m.owner.ApplyPolicy(ctx, id, kind, entry)
 }
