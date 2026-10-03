@@ -67,6 +67,9 @@ func (r *ChannelResult) GetUpdates() []*TaskUpdate {
 }
 
 func (r *ChannelResult) reset() {
+	clear(r.Updates)
+	clear(r.Block)
+	clear(r.Release)
 	r.Yields = false
 	r.Updates = r.Updates[:0]
 	r.Block = r.Block[:0]
@@ -588,5 +591,6 @@ func ReleaseResult(r *ChannelResult) {
 			releaseTaskUpdate(u)
 		}
 	}
+	r.reset()
 	resultPool.Put(r)
 }
