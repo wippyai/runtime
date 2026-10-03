@@ -9,6 +9,8 @@ import (
 )
 
 var (
+	ErrNativeExtensionsRemoved = apierror.New(apierror.Invalid, "native Go extensions are no longer supported; remove the extensions configuration section").WithRetryable(apierror.False)
+
 	ErrAppContextNotInitialized = apierror.New(apierror.Internal, "app context not initialized").WithRetryable(apierror.False)
 
 	ErrLoggerNotInitialized = apierror.New(apierror.Internal, "logger not initialized").WithRetryable(apierror.False)

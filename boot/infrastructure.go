@@ -69,6 +69,9 @@ func NewBootstrapContextWithParent(parent context.Context, logger *zap.Logger, c
 	if err := parent.Err(); err != nil {
 		return nil, err
 	}
+	if cfg != nil && len(cfg.Sub("extensions").Keys()) > 0 {
+		return nil, ErrNativeExtensionsRemoved
+	}
 	// Create AppContext and attach config
 	appCtx := contextapi.NewAppContext()
 	ctx := contextapi.WithAppContext(parent, appCtx)
