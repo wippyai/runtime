@@ -25,8 +25,11 @@ type Store struct {
 	// Nodes are appended at tail; Close walks tail->head for LIFO order.
 	head, tail *cleanupNode
 	count      int
-	mu         sync.Mutex
-	closed     bool
+	// epoch counts closes: a lease belongs to the epoch of the store use it
+	// was acquired in, and is inert once the store is closed and pooled.
+	epoch  uint64
+	mu     sync.Mutex
+	closed bool
 }
 
 var storePool = sync.Pool{
@@ -114,6 +117,7 @@ func (s *Store) Close() error {
 		return nil
 	}
 	s.closed = true
+	s.epoch++
 	// Detach every cleanup under the lock, newest first, so a concurrent
 	// remover sees detached nodes and the cleanups run without the lock.
 	cleanups := make([]func() error, 0, s.count)

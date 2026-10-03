@@ -942,3 +942,48 @@ func TestStoreCloseRacesWithCleanupRemoval(t *testing.T) {
 		}
 	}
 }
+
+func TestAcquireRegistryResource_StaleLeaseIsInertAfterStoreReuse(t *testing.T) {
+	ctx, fc := ctxapi.OpenFrameContext(context.Background())
+	defer ctxapi.ReleaseFrameContext(fc)
+	id := registry.ParseID("test:resource")
+
+	reused := false
+	for attempt := 0; attempt < 200 && !reused; attempt++ {
+		first := NewStore()
+		oldCtx, ofc := ctxapi.OpenFrameContext(ctx)
+		require.NoError(t, SetStore(oldCtx, first))
+		oldReg := &leaseTestRegistry{value: "old"}
+		stale, _, err := AcquireRegistryResource(oldCtx, oldReg, id, apiresource.ModeNormal)
+		require.NoError(t, err)
+		require.NoError(t, first.Close())
+		ctxapi.ReleaseFrameContext(ofc)
+
+		second := NewStore()
+		if second != first {
+			require.NoError(t, second.Close())
+			continue
+		}
+		reused = true
+		newCtx, nfc := ctxapi.OpenFrameContext(ctx)
+		require.NoError(t, SetStore(newCtx, second))
+		newReg := &leaseTestRegistry{value: "new"}
+		current, _, err := AcquireRegistryResource(newCtx, newReg, id, apiresource.ModeNormal)
+		require.NoError(t, err)
+
+		_, err = stale.Get()
+		assert.ErrorIs(t, err, apiresource.ErrReleased, "a lease of a closed store never reaches the store's next user")
+		stale.Release()
+		assert.Equal(t, int64(0), newReg.releases.Load(), "releasing a stale lease leaves the next user's resource alone")
+		got, err := current.Get()
+		require.NoError(t, err)
+		assert.Equal(t, "new", got)
+
+		current.Release()
+		require.NoError(t, second.Close())
+		ctxapi.ReleaseFrameContext(nfc)
+	}
+	if !reused {
+		t.Skip("store pool did not hand the store back")
+	}
+}
