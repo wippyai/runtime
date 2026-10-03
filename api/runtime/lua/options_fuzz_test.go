@@ -198,7 +198,7 @@ func addOptionSeeds(f *testing.F) {
 			f.Add(kind, i, uint64(i), float64(i), "100", kind+1, i, uint64(i), float64(i), "7")
 		}
 		f.Add(kind, int64(5), uint64(math.MaxUint64), math.NaN(), "1.5", kind, int64(-5), uint64(1)<<63, math.Inf(1), "1e3")
-		f.Add(kind, int64(5), uint64(5), 0.5, "", kind, int64(5), uint64(5), -0.0, "99999999999999999999")
+		f.Add(kind, int64(5), uint64(5), 0.5, "", kind, int64(5), uint64(5), math.Copysign(0, -1), "99999999999999999999")
 	}
 }
 
@@ -290,9 +290,10 @@ func FuzzEntryExecutionBudgets(f *testing.F) {
 		raw := scalars[int(outer)%len(scalars)]
 		_, err = EntryExecutionBudgets(attrs.Bag{entryOptionsMetaKey: raw})
 		switch raw.(type) {
-		case map[string]any, attrs.Bag:
-			if err != nil {
-				t.Fatalf("map meta.options rejected: %v", err)
+		case map[string]any:
+			// The only map among the candidates holds the unknown key "v".
+			if err == nil {
+				t.Fatal("meta.options with an unknown field accepted")
 			}
 		case nil:
 			if err != nil {

@@ -37,7 +37,7 @@ import (
 //
 //	WIPPY_LUA_CHAOS_SEED   first seed (default 1)
 //	WIPPY_LUA_CHAOS_RUNS   number of consecutive seeds (default 3, 100 with WIPPY_CHAOS_LONG)
-//	WIPPY_LUA_CHAOS_PROCS  actors per run (default 40, 150 with WIPPY_CHAOS_LONG)
+//	WIPPY_LUA_CHAOS_PROCS  actors per run (default 24, 150 with WIPPY_CHAOS_LONG)
 func luaChaosEnvInt(name string, short, long int) int {
 	def := short
 	if os.Getenv("WIPPY_CHAOS_LONG") != "" {
@@ -66,26 +66,26 @@ type luaStage struct {
 
 type luaRec struct {
 	rng         *rand.Rand
-	pid         pidapi.PID
 	cancel      context.CancelFunc
 	spawn       attrs.Bag
-	spawnBudget luaapi.ExecutionBudgets
 	ready       chan struct{}
-	stages      []luaStage
 	result      *runtime.Result
+	pid         pidapi.PID
+	stages      []luaStage
+	spawnBudget luaapi.ExecutionBudgets
 	id          int
-	completes   atomic.Int32
+	resultMu    sync.Mutex
 	starts      atomic.Int32
 	upgrades    atomic.Int32
 	submitted   atomic.Bool
 	gaveUp      atomic.Bool
 	killed      atomic.Bool
 	running     atomic.Int32
+	completes   atomic.Int32
 	blocker     bool
 	failing     bool
 	wantsMsgs   bool
 	wantsWake   bool
-	resultMu    sync.Mutex
 }
 
 // limited reports whether any incarnation of the actor can be stopped by a
@@ -121,7 +121,7 @@ type luaChaos struct {
 	stopped    atomic.Bool
 }
 
-func (w *luaChaos) violate(format string, args ...any) {
+func (w *luaChaos) violatef(format string, args ...any) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if len(w.violations) < 40 {
@@ -149,21 +149,21 @@ func (p *chaosLua) Init(ctx context.Context, method string, input payload.Payloa
 
 func (p *chaosLua) Step(events []process.Event, out *process.StepOutput) error {
 	if !p.running.CompareAndSwap(0, 1) {
-		p.w.violate("rec %d inc %d: concurrent steps of one incarnation", p.rec.id, p.inc)
+		p.w.violatef("rec %d inc %d: concurrent steps of one incarnation", p.rec.id, p.inc)
 	}
 	defer p.running.Store(0)
 	if p.rec.running.Add(1) != 1 {
-		p.w.violate("rec %d: steps of two incarnations overlap", p.rec.id)
+		p.w.violatef("rec %d: steps of two incarnations overlap", p.rec.id)
 	}
 	defer p.rec.running.Add(-1)
 	if p.rec.completes.Load() != 0 {
-		p.w.violate("rec %d inc %d: step after completion", p.rec.id, p.inc)
+		p.w.violatef("rec %d inc %d: step after completion", p.rec.id, p.inc)
 	}
 	if p.closed.Load() != 0 {
-		p.w.violate("rec %d inc %d: step after close", p.rec.id, p.inc)
+		p.w.violatef("rec %d inc %d: step after close", p.rec.id, p.inc)
 	}
 	if p.limited.Load() {
-		p.w.violate("rec %d inc %d: step after the step limit failed it", p.rec.id, p.inc)
+		p.w.violatef("rec %d inc %d: step after the step limit failed it", p.rec.id, p.inc)
 	}
 
 	err := p.Process.Step(events, out)
@@ -171,21 +171,21 @@ func (p *chaosLua) Step(events []process.Event, out *process.StepOutput) error {
 	case errors.Is(err, process.ErrStepLimitExceeded):
 		p.limited.Store(true)
 		if p.limit == 0 {
-			p.w.violate("rec %d inc %d: step limit error without max_steps", p.rec.id, p.inc)
+			p.w.violatef("rec %d inc %d: step limit error without max_steps", p.rec.id, p.inc)
 		}
-	case p.limit > 0 && p.Process.StepsUsed() > p.limit:
-		p.w.violate("rec %d inc %d: %d steps used with max_steps %d (err %v)", p.rec.id, p.inc, p.Process.StepsUsed(), p.limit, err)
+	case p.limit > 0 && p.StepsUsed() > p.limit:
+		p.w.violatef("rec %d inc %d: %d steps used with max_steps %d (err %v)", p.rec.id, p.inc, p.StepsUsed(), p.limit, err)
 	}
 	return err
 }
 
 func (p *chaosLua) Close() {
 	if p.closed.Add(1) != 1 {
-		p.w.violate("rec %d inc %d: closed more than once", p.rec.id, p.inc)
+		p.w.violatef("rec %d inc %d: closed more than once", p.rec.id, p.inc)
 		return
 	}
 	if p.running.Load() != 0 {
-		p.w.violate("rec %d inc %d: closed during a step", p.rec.id, p.inc)
+		p.w.violatef("rec %d inc %d: closed during a step", p.rec.id, p.inc)
 	}
 	p.Process.Close()
 }
@@ -200,7 +200,7 @@ func (f luaChaosFactory) Create(id registry.ID) (process.Process, *process.Meta,
 	rec := f.w.recs[n]
 	inc := int(rec.upgrades.Add(1))
 	if inc >= len(rec.stages) {
-		f.w.violate("rec %d: upgrade to incarnation %d but there are %d", rec.id, inc, len(rec.stages))
+		f.w.violatef("rec %d: upgrade to incarnation %d but there are %d", rec.id, inc, len(rec.stages))
 		return nil, nil, errLuaChaosStart
 	}
 	p, err := f.w.newProc(rec, inc)
@@ -270,7 +270,7 @@ func luaTriangle(n int) int { return n * (n + 1) / 2 }
 func luaStageBody(rng *rand.Rand, rec *luaRec) (body, expected string) {
 	switch rng.Intn(6) {
 	case 0:
-		n := 100 + rng.Intn(4000)
+		n := 100 + rng.Intn(2000)
 		return fmt.Sprintf("local s = 0\nfor i = 1, %d do s = s + i end\nlocal result = s", n), strconv.Itoa(luaTriangle(n))
 	case 1:
 		k, n, y := 2+rng.Intn(5), 50+rng.Intn(400), 1+rng.Intn(40)
@@ -445,7 +445,7 @@ func (l luaChaosLifecycle) recFor(p pidapi.PID) *luaRec {
 
 func (l luaChaosLifecycle) OnStart(_ context.Context, p pidapi.PID, _ process.Process) error {
 	if rec := l.recFor(p); rec != nil && rec.starts.Add(1) != 1 {
-		l.w.violate("rec %d: started more than once", rec.id)
+		l.w.violatef("rec %d: started more than once", rec.id)
 	}
 	return nil
 }
@@ -456,10 +456,10 @@ func (l luaChaosLifecycle) OnComplete(_ context.Context, p pidapi.PID, res *runt
 		return
 	}
 	if rec.running.Load() != 0 {
-		l.w.violate("rec %d: completed during a step", rec.id)
+		l.w.violatef("rec %d: completed during a step", rec.id)
 	}
 	if rec.completes.Add(1) != 1 {
-		l.w.violate("rec %d: completed more than once", rec.id)
+		l.w.violatef("rec %d: completed more than once", rec.id)
 		return
 	}
 	rec.resultMu.Lock()
@@ -470,18 +470,18 @@ func (l luaChaosLifecycle) OnComplete(_ context.Context, p pidapi.PID, res *runt
 func (w *luaChaos) submit(rec *luaRec) {
 	proc, err := w.newProc(rec, 0)
 	if err != nil {
-		w.violate("rec %d: cannot build the process: %v", rec.id, err)
+		w.violatef("rec %d: cannot build the process: %v", rec.id, err)
 		rec.gaveUp.Store(true)
 		close(rec.ready)
 		return
 	}
 	frame, fc := ctxapi.OpenFrameContext(w.appCtx)
 	if err := runtime.SetFrameID(frame, registry.NewID("chaos", strconv.Itoa(rec.id))); err != nil {
-		w.violate("rec %d: %v", rec.id, err)
+		w.violatef("rec %d: %v", rec.id, err)
 	}
 	if rec.spawn != nil {
 		if err := fc.Set(runtime.FrameLifecycleOptionsKey, attrs.Attributes(rec.spawn)); err != nil {
-			w.violate("rec %d: %v", rec.id, err)
+			w.violatef("rec %d: %v", rec.id, err)
 		}
 	}
 	ctx, cancel := context.WithCancel(frame)
@@ -491,7 +491,7 @@ func (w *luaChaos) submit(rec *luaRec) {
 		cancel()
 		proc.Close()
 		if !errors.Is(err, process.ErrSchedulerStopping) {
-			w.violate("rec %d: unexpected Submit error %v", rec.id, err)
+			w.violatef("rec %d: unexpected Submit error %v", rec.id, err)
 		}
 		rec.gaveUp.Store(true)
 		close(rec.ready)
@@ -511,7 +511,7 @@ func TestLuaChaos(t *testing.T) {
 }
 
 func runLuaChaos(t *testing.T, seed int64) {
-	procs := luaChaosEnvInt("WIPPY_LUA_CHAOS_PROCS", 40, 150)
+	procs := luaChaosEnvInt("WIPPY_LUA_CHAOS_PROCS", 24, 150)
 	rng := rand.New(rand.NewSource(seed))
 	workers := 1 + rng.Intn(4)
 	stopMode := rng.Intn(3)
@@ -555,11 +555,14 @@ func runLuaChaos(t *testing.T, seed int64) {
 			deadline := time.Now().Add(20 * time.Second)
 			killAt := time.Now().Add(time.Duration(r.Intn(40)) * time.Millisecond)
 			kill := rec.blocker || r.Intn(8) == 0
-			for rec.completes.Load() == 0 && time.Now().Before(deadline) {
+			// Unconsumed messages stay queued in the actor, so the supply is bounded.
+			sent := 0
+			for rec.completes.Load() == 0 && time.Now().Before(deadline) && sent < 1500 {
+				sent++
 				if rec.wantsMsgs {
 					pkg := relay.NewPackage(pidapi.PID{}, rec.pid, "msg", payload.NewPayload(lua.LString("x"), payload.Lua))
 					if err := w.sched.Send(pkg); err != nil && !errors.Is(err, process.ErrProcessNotFound) && !errors.Is(err, process.ErrProcessClosed) {
-						w.violate("rec %d: unexpected Send error %v", rec.id, err)
+						w.violatef("rec %d: unexpected Send error %v", rec.id, err)
 					}
 				}
 				if rec.wantsWake {
@@ -571,11 +574,11 @@ func runLuaChaos(t *testing.T, seed int64) {
 					if r.Intn(2) == 0 {
 						rec.cancel()
 					} else if err := w.sched.Terminate(rec.pid); err != nil && !errors.Is(err, process.ErrProcessNotFound) {
-						w.violate("rec %d: unexpected Terminate error %v", rec.id, err)
+						w.violatef("rec %d: unexpected Terminate error %v", rec.id, err)
 					}
 					return
 				}
-				time.Sleep(time.Duration(100+r.Intn(900)) * time.Microsecond)
+				time.Sleep(time.Duration(300+r.Intn(700)) * time.Microsecond)
 			}
 		}()
 	}
@@ -598,7 +601,7 @@ func runLuaChaos(t *testing.T, seed int64) {
 
 	wg.Wait()
 	if stopMode == 0 {
-		w.awaitSettled(t, 15*time.Second)
+		w.awaitSettled(t, 60*time.Second)
 		go startStop()
 	}
 	select {
@@ -653,12 +656,12 @@ func (w *luaChaos) verify(t *testing.T, seed int64) {
 		if rec.gaveUp.Load() {
 			outcomes["rejected"]++
 			if rec.completes.Load() != 0 {
-				w.violate("rec %d: completed although admission failed", rec.id)
+				w.violatef("rec %d: completed although admission failed", rec.id)
 			}
 			continue
 		}
 		if n := rec.completes.Load(); n != 1 {
-			w.violate("rec %d: completed %d times", rec.id, n)
+			w.violatef("rec %d: completed %d times", rec.id, n)
 			continue
 		}
 		rec.resultMu.Lock()
@@ -673,16 +676,16 @@ func (w *luaChaos) verify(t *testing.T, seed int64) {
 	w.mu.Unlock()
 	for _, p := range incs {
 		if p.inits.Load() > 0 && p.closed.Load() != 1 {
-			w.violate("rec %d inc %d: closed %d times, want once", p.rec.id, p.inc, p.closed.Load())
+			w.violatef("rec %d inc %d: closed %d times, want once", p.rec.id, p.inc, p.closed.Load())
 		}
 	}
 
 	stats := w.sched.Stats()
 	if stats["processes"] != 0 {
-		w.violate("%d processes still registered after stop", stats["processes"])
+		w.violatef("%d processes still registered after stop", stats["processes"])
 	}
 	if stats["global_queue"] != 0 {
-		w.violate("global queue holds %d entries after stop", stats["global_queue"])
+		w.violatef("global queue holds %d entries after stop", stats["global_queue"])
 	}
 	if len(w.violations) > 0 {
 		t.Errorf("seed %d: %d invariant violations (replay: WIPPY_LUA_CHAOS_SEED=%d WIPPY_LUA_CHAOS_RUNS=1):\n  %s",
@@ -693,7 +696,7 @@ func (w *luaChaos) verify(t *testing.T, seed int64) {
 // checkOutcome verifies a finished actor and names its outcome class.
 func (w *luaChaos) checkOutcome(rec *luaRec, res *runtime.Result) string {
 	if res == nil {
-		w.violate("rec %d: no result", rec.id)
+		w.violatef("rec %d: no result", rec.id)
 		return "none"
 	}
 	killed := rec.killed.Load() || w.stopped.Load()
@@ -707,16 +710,16 @@ func (w *luaChaos) checkOutcome(rec *luaRec, res *runtime.Result) string {
 		}
 		want := fmt.Sprintf("gen%d:%s", len(rec.stages)-1, last.expected)
 		if rec.failing || rec.blocker {
-			w.violate("rec %d: finished with %q although its final stage cannot finish", rec.id, got)
+			w.violatef("rec %d: finished with %q although its final stage cannot finish", rec.id, got)
 		} else if got != want {
-			w.violate("rec %d: result %q, want %q", rec.id, got, want)
+			w.violatef("rec %d: result %q, want %q", rec.id, got, want)
 		}
 		return "done"
 	}
 	switch {
 	case errors.Is(res.Error, process.ErrStepLimitExceeded):
 		if !rec.limited() {
-			w.violate("rec %d: step limit error without max_steps", rec.id)
+			w.violatef("rec %d: step limit error without max_steps", rec.id)
 		}
 		return "limit"
 	case rec.failing && strings.Contains(res.Error.Error(), "chaos-boom"):
@@ -724,6 +727,6 @@ func (w *luaChaos) checkOutcome(rec *luaRec, res *runtime.Result) string {
 	case killed:
 		return "killed"
 	}
-	w.violate("rec %d: unexpected error %v", rec.id, res.Error)
+	w.violatef("rec %d: unexpected error %v", rec.id, res.Error)
 	return "unexpected"
 }

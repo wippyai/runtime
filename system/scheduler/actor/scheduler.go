@@ -399,7 +399,7 @@ func (s *Scheduler) Submit(ctx context.Context, pid pid.PID, p process.Process, 
 		}
 	}
 
-	s.wakeOnCancel(proc, procCtx, cancel)
+	s.wakeOnCancel(procCtx, proc, cancel)
 
 	// A pooled processor can still be referenced by a stale queue entry from
 	// its previous incarnation; Ready is published only once it is initialized.
@@ -413,7 +413,7 @@ func (s *Scheduler) Submit(ctx context.Context, pid pid.PID, p process.Process, 
 // wakeOnCancel makes cancellation of the incarnation's context wake an actor
 // parked without incoming messages. It captures only queue identity and
 // generation, because Processor objects are pooled.
-func (s *Scheduler) wakeOnCancel(proc *Processor, ctx context.Context, cancel context.CancelFunc) {
+func (s *Scheduler) wakeOnCancel(ctx context.Context, proc *Processor, cancel context.CancelFunc) {
 	q, gen := proc.queue, proc.gen.Load()
 	stopWake := context.AfterFunc(ctx, func() {
 		if q.Push(process.Event{Type: process.EventMessage}, gen) {
@@ -534,7 +534,7 @@ func (s *Scheduler) CreateProcessor(ctx context.Context, pid pid.PID, p process.
 	s.processorCount.Add(1)
 	s.byPID.Store(pid.String(), proc)
 	s.byQueue.Store(proc.queue, proc)
-	s.wakeOnCancel(proc, procCtx, cancel)
+	s.wakeOnCancel(procCtx, proc, cancel)
 	// Ready is published only once the processor is initialized; see Submit.
 	proc.state.Store(int32(StateReady))
 

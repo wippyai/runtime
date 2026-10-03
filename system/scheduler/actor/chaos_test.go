@@ -118,29 +118,29 @@ type chaosOp struct {
 type chaosRec struct {
 	result       *apiruntime.Result
 	rng          *rand.Rand
-	plans        [][]chaosOp
-	pid          pidapi.PID
 	cancelParent context.CancelFunc
 	ready        chan struct{}
-	maxSteps     uint64
+	pid          pidapi.PID
+	plans        [][]chaosOp
+	failUpgrade  int
 	need         int64
 	id           int
 	stepsRun     atomic.Uint64
 	msgs         atomic.Int64
-	completes    atomic.Int32
-	starts       atomic.Int32
-	running      atomic.Int32
-	upgrades     atomic.Int32
+	maxSteps     uint64
+	resultMu     sync.Mutex
 	killed       atomic.Bool
+	upgrades     atomic.Int32
+	running      atomic.Int32
 	submitted    atomic.Bool
 	gaveUp       atomic.Bool
-	failUpgrade  int
+	starts       atomic.Int32
+	completes    atomic.Int32
 	failStart    bool
 	deaf         bool
 	blocker      bool
 	pooled       bool
 	failUpInit   bool
-	resultMu     sync.Mutex
 }
 
 func (r *chaosRec) expectsLimit() bool { return r.maxSteps > 0 }
@@ -157,7 +157,7 @@ type chaosWorld struct {
 	stopped    atomic.Bool
 }
 
-func (w *chaosWorld) violate(format string, args ...any) {
+func (w *chaosWorld) violatef(format string, args ...any) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if len(w.violations) < 40 {
@@ -175,18 +175,18 @@ func (w *chaosWorld) track(p *chaosProc) {
 type chaosProc struct {
 	w           *chaosWorld
 	rec         *chaosRec
-	plan        []chaosOp
 	rng         *rand.Rand
 	outstanding map[uint64]struct{}
-	inits       atomic.Int32
-	closed      atomic.Int32
-	running     atomic.Int32
+	plan        []chaosOp
 	steps       uint64
 	nextTag     uint64
 	waitTag     uint64
 	pc          int
 	ph          int
 	inc         int
+	closed      atomic.Int32
+	running     atomic.Int32
+	inits       atomic.Int32
 	preempt     bool
 	limited     bool
 }
@@ -203,7 +203,7 @@ func (p *chaosProc) ResumeStepCount(used uint64) { p.steps = used }
 
 func (p *chaosProc) Init(context.Context, string, payload.Payloads) error {
 	if p.inits.Add(1) != 1 {
-		p.w.violate("rec %d inc %d: Init called more than once", p.rec.id, p.inc)
+		p.w.violatef("rec %d inc %d: Init called more than once", p.rec.id, p.inc)
 	}
 	if p.rec.failUpInit && p.inc > 0 {
 		return errChaosStart
@@ -213,10 +213,10 @@ func (p *chaosProc) Init(context.Context, string, payload.Payloads) error {
 
 func (p *chaosProc) Close() {
 	if p.closed.Add(1) != 1 {
-		p.w.violate("rec %d inc %d: closed more than once", p.rec.id, p.inc)
+		p.w.violatef("rec %d inc %d: closed more than once", p.rec.id, p.inc)
 	}
 	if p.running.Load() != 0 {
-		p.w.violate("rec %d inc %d: closed during a step", p.rec.id, p.inc)
+		p.w.violatef("rec %d inc %d: closed during a step", p.rec.id, p.inc)
 	}
 }
 
@@ -232,22 +232,22 @@ func isCancelEvent(data any) bool {
 func (p *chaosProc) Step(events []process.Event, out *process.StepOutput) error {
 	rec := p.rec
 	if !p.running.CompareAndSwap(0, 1) {
-		p.w.violate("rec %d inc %d: concurrent steps of one incarnation", rec.id, p.inc)
+		p.w.violatef("rec %d inc %d: concurrent steps of one incarnation", rec.id, p.inc)
 	}
 	defer p.running.Store(0)
 	if rec.running.Add(1) != 1 {
-		p.w.violate("rec %d: steps of two incarnations overlap", rec.id)
+		p.w.violatef("rec %d: steps of two incarnations overlap", rec.id)
 	}
 	defer rec.running.Add(-1)
 
 	if rec.completes.Load() != 0 {
-		p.w.violate("rec %d inc %d: step after completion", rec.id, p.inc)
+		p.w.violatef("rec %d inc %d: step after completion", rec.id, p.inc)
 	}
 	if p.closed.Load() != 0 {
-		p.w.violate("rec %d inc %d: step after close", rec.id, p.inc)
+		p.w.violatef("rec %d inc %d: step after close", rec.id, p.inc)
 	}
 	if p.limited {
-		p.w.violate("rec %d inc %d: step after the step limit failed it", rec.id, p.inc)
+		p.w.violatef("rec %d inc %d: step after the step limit failed it", rec.id, p.inc)
 	}
 
 	p.steps++
@@ -257,7 +257,7 @@ func (p *chaosProc) Step(events []process.Event, out *process.StepOutput) error 
 	}
 	total := rec.stepsRun.Add(1)
 	if rec.maxSteps > 0 && total > rec.maxSteps {
-		p.w.violate("rec %d: %d steps ran with max_steps %d", rec.id, total, rec.maxSteps)
+		p.w.violatef("rec %d: %d steps ran with max_steps %d", rec.id, total, rec.maxSteps)
 	}
 
 	cancelled := false
@@ -282,7 +282,7 @@ func (p *chaosProc) Step(events []process.Event, out *process.StepOutput) error 
 func (p *chaosProc) absorb(e process.Event) {
 	rec := p.rec
 	if _, ok := p.outstanding[e.Tag]; !ok {
-		p.w.violate("rec %d inc %d: completion for tag %d that is not outstanding (data %#v)", rec.id, p.inc, e.Tag, e.Data)
+		p.w.violatef("rec %d inc %d: completion for tag %d that is not outstanding (data %#v)", rec.id, p.inc, e.Tag, e.Data)
 		return
 	}
 	delete(p.outstanding, e.Tag)
@@ -291,7 +291,7 @@ func (p *chaosProc) absorb(e process.Event) {
 	}
 	tok, ok := e.Data.(chaosToken)
 	if !ok || tok.rec != rec.id || tok.inc != p.inc || tok.tag != e.Tag {
-		p.w.violate("rec %d inc %d: completion %#v delivered to the wrong yield (tag %d)", rec.id, p.inc, e.Data, e.Tag)
+		p.w.violatef("rec %d inc %d: completion %#v delivered to the wrong yield (tag %d)", rec.id, p.inc, e.Data, e.Tag)
 	}
 }
 
@@ -393,7 +393,7 @@ func (f chaosFactory) Create(id registry.ID) (process.Process, *process.Meta, er
 		return nil, nil, errChaosStart
 	}
 	if inc >= len(rec.plans) {
-		f.w.violate("rec %d: upgrade to incarnation %d but the plan has %d", rec.id, inc, len(rec.plans))
+		f.w.violatef("rec %d: upgrade to incarnation %d but the plan has %d", rec.id, inc, len(rec.plans))
 		return nil, nil, errChaosStart
 	}
 	return f.w.newProc(rec, inc), &process.Meta{Method: "main"}, nil
@@ -445,7 +445,7 @@ func (l chaosLifecycle) OnStart(_ context.Context, p pidapi.PID, _ process.Proce
 		return nil
 	}
 	if rec.starts.Add(1) != 1 {
-		l.w.violate("rec %d: started more than once", rec.id)
+		l.w.violatef("rec %d: started more than once", rec.id)
 	}
 	if rec.failStart {
 		return errChaosStart
@@ -459,10 +459,10 @@ func (l chaosLifecycle) OnComplete(_ context.Context, p pidapi.PID, res *apirunt
 		return
 	}
 	if rec.running.Load() != 0 {
-		l.w.violate("rec %d: completed during a step", rec.id)
+		l.w.violatef("rec %d: completed during a step", rec.id)
 	}
 	if rec.completes.Add(1) != 1 {
-		l.w.violate("rec %d: completed more than once", rec.id)
+		l.w.violatef("rec %d: completed more than once", rec.id)
 		return
 	}
 	rec.resultMu.Lock()
@@ -522,13 +522,13 @@ func chaosPlanFor(rng *rand.Rand, rec *chaosRec) {
 				plan = append(plan, chaosOp{kind: opUpgrade})
 			}
 		} else {
-			switch {
-			case kind == 4:
+			switch kind {
+			case 4:
 				plan = append(plan, chaosOp{kind: opFail})
-			case kind == 5:
+			case 5:
 				rec.blocker = true
 				plan = append(plan, chaosOp{kind: opNever})
-			case kind == 6:
+			case 6:
 				rec.need = int64(50 + rng.Intn(400))
 				plan = append(plan, chaosOp{kind: opWaitMsg, n: int(rec.need)}, chaosOp{kind: opFinish})
 			default:
@@ -572,10 +572,10 @@ func (w *chaosWorld) submit(rec *chaosRec) {
 		switch {
 		case errors.Is(err, process.ErrSchedulerStopping), errors.Is(err, process.ErrMaxProcessesExceeded), errors.Is(err, errChaosStart):
 		default:
-			w.violate("rec %d: unexpected Submit error %v", rec.id, err)
+			w.violatef("rec %d: unexpected Submit error %v", rec.id, err)
 		}
 		if rec.completes.Load() != 0 {
-			w.violate("rec %d: completed although Submit failed", rec.id)
+			w.violatef("rec %d: completed although Submit failed", rec.id)
 		}
 		rec.gaveUp.Store(true)
 		close(rec.ready)
@@ -597,7 +597,7 @@ func (w *chaosWorld) submitPooled(rec *chaosRec) {
 	if err != nil {
 		proc.Close()
 		if !errors.Is(err, process.ErrSchedulerStopping) && !errors.Is(err, process.ErrMaxProcessesExceeded) {
-			w.violate("rec %d: unexpected CreateProcessor error %v", rec.id, err)
+			w.violatef("rec %d: unexpected CreateProcessor error %v", rec.id, err)
 		}
 		rec.gaveUp.Store(true)
 		close(rec.ready)
@@ -616,7 +616,7 @@ func (w *chaosWorld) submitPooled(rec *chaosRec) {
 	select {
 	case <-results:
 	case <-time.After(30 * time.Second):
-		w.violate("rec %d: pooled execution did not complete", rec.id)
+		w.violatef("rec %d: pooled execution did not complete", rec.id)
 	}
 	w.sched.ReleaseProcessor(pr)
 }
@@ -628,7 +628,7 @@ func (w *chaosWorld) allowedSendError(err error) bool {
 func (w *chaosWorld) send(rec *chaosRec) {
 	err := w.sched.Send(&relay.Package{Target: rec.pid, Messages: []*relay.Message{{Topic: "chaos"}}})
 	if !w.allowedSendError(err) {
-		w.violate("rec %d: unexpected Send error %v", rec.id, err)
+		w.violatef("rec %d: unexpected Send error %v", rec.id, err)
 	}
 }
 
@@ -697,7 +697,6 @@ func runSchedulerChaos(t *testing.T, seed int64) {
 
 	var wg sync.WaitGroup
 	for _, rec := range w.recs {
-		rec := rec
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -729,7 +728,7 @@ func runSchedulerChaos(t *testing.T, seed int64) {
 				if r.Intn(2) == 0 {
 					rec.cancelParent()
 				} else if err := w.sched.Terminate(rec.pid); err != nil && !errors.Is(err, process.ErrProcessNotFound) {
-					w.violate("rec %d: unexpected Terminate error %v", rec.id, err)
+					w.violatef("rec %d: unexpected Terminate error %v", rec.id, err)
 				}
 			}
 		}()
@@ -744,7 +743,7 @@ func runSchedulerChaos(t *testing.T, seed int64) {
 			for i := 0; i < 20; i++ {
 				time.Sleep(time.Duration(r.Intn(4000)) * time.Microsecond)
 				if err := w.sched.ResizeWorkers(1 + r.Intn(6)); err != nil && !errors.Is(err, process.ErrSchedulerStopping) {
-					w.violate("unexpected ResizeWorkers error %v", err)
+					w.violatef("unexpected ResizeWorkers error %v", err)
 				}
 			}
 		}()
@@ -762,7 +761,7 @@ func runSchedulerChaos(t *testing.T, seed int64) {
 		w.sched.Stop(ctx)
 		cancel()
 		if stopMode != 2 && time.Since(started) > stopTimeout-time.Second {
-			w.violate("Stop took %v, close to its %v deadline", time.Since(started), stopTimeout)
+			w.violatef("Stop took %v, close to its %v deadline", time.Since(started), stopTimeout)
 		}
 		close(stopDone)
 	}
@@ -831,12 +830,12 @@ func (w *chaosWorld) verify(t *testing.T, seed int64) {
 		if rec.gaveUp.Load() {
 			rejected++
 			if completes != 0 {
-				w.violate("rec %d: completed although admission failed", rec.id)
+				w.violatef("rec %d: completed although admission failed", rec.id)
 			}
 			continue
 		}
 		if completes != 1 {
-			w.violate("rec %d: completed %d times (starts %d)", rec.id, completes, starts)
+			w.violatef("rec %d: completed %d times (starts %d)", rec.id, completes, starts)
 			continue
 		}
 		rec.resultMu.Lock()
@@ -853,39 +852,39 @@ func (w *chaosWorld) verify(t *testing.T, seed int64) {
 	w.mu.Unlock()
 	for _, p := range incs {
 		if p.inits.Load() > 0 && p.closed.Load() != 1 {
-			w.violate("rec %d inc %d: closed %d times, want once", p.rec.id, p.inc, p.closed.Load())
+			w.violatef("rec %d inc %d: closed %d times, want once", p.rec.id, p.inc, p.closed.Load())
 		}
 	}
 
 	s := w.sched
 	if n := s.parked.Load(); n != 0 {
-		w.violate("parked counter = %d after stop", n)
+		w.violatef("parked counter = %d after stop", n)
 	}
 	for _, wk := range s.workerSnapshot() {
 		if wk.parked.Load() {
-			w.violate("worker %d still counted as parked", wk.id)
+			w.violatef("worker %d still counted as parked", wk.id)
 		}
 	}
 	if n := s.processorCount.Load(); n != 0 {
-		w.violate("processor count = %d after stop", n)
+		w.violatef("processor count = %d after stop", n)
 	}
 	s.admitMu.Lock()
 	if s.admitting != 0 {
-		w.violate("admissions in flight = %d after stop", s.admitting)
+		w.violatef("admissions in flight = %d after stop", s.admitting)
 	}
 	s.admitMu.Unlock()
 	n := 0
 	s.byPID.Range(func(_, _ any) bool { n++; return true })
 	if n != 0 {
-		w.violate("%d processors still registered by pid", n)
+		w.violatef("%d processors still registered by pid", n)
 	}
 	n = 0
 	s.byQueue.Range(func(_, _ any) bool { n++; return true })
 	if n != 0 {
-		w.violate("%d processors still registered by queue", n)
+		w.violatef("%d processors still registered by queue", n)
 	}
 	if l := s.global.Len(); l > 0 {
-		w.violate("global queue holds %d entries after stop", l)
+		w.violatef("global queue holds %d entries after stop", l)
 	}
 
 	if len(w.violations) > 0 {
@@ -898,7 +897,7 @@ func (w *chaosWorld) verify(t *testing.T, seed int64) {
 // events that hit it allow.
 func (w *chaosWorld) checkOutcome(rec *chaosRec, res *apiruntime.Result) {
 	if res == nil {
-		w.violate("rec %d: no result", rec.id)
+		w.violatef("rec %d: no result", rec.id)
 		return
 	}
 	err := res.Error
@@ -911,40 +910,40 @@ func (w *chaosWorld) checkOutcome(rec *chaosRec, res *apiruntime.Result) {
 			tok, ok = res.Value.Data().(chaosToken)
 		}
 		if !ok || tok.rec != rec.id || tok.inc != len(rec.plans)-1 {
-			w.violate("rec %d: result %v does not come from the final incarnation %d", rec.id, res.Value, len(rec.plans)-1)
+			w.violatef("rec %d: result %v does not come from the final incarnation %d", rec.id, res.Value, len(rec.plans)-1)
 		}
 		last := rec.plans[len(rec.plans)-1]
 		if k := last[len(last)-1].kind; k == opFail || k == opNever {
-			w.violate("rec %d: finished although its plan ends with kind %d", rec.id, k)
+			w.violatef("rec %d: finished although its plan ends with kind %d", rec.id, k)
 		}
 	case errors.Is(err, process.ErrStepLimitExceeded):
 		if !rec.expectsLimit() {
-			w.violate("rec %d: step limit error without max_steps", rec.id)
+			w.violatef("rec %d: step limit error without max_steps", rec.id)
 		}
 	case errors.Is(err, errChaosFail):
 		last := rec.plans[len(rec.plans)-1]
 		if last[len(last)-1].kind != opFail {
-			w.violate("rec %d: planned failure but plan does not fail", rec.id)
+			w.violatef("rec %d: planned failure but plan does not fail", rec.id)
 		}
 	case errors.Is(err, sysprocess.ErrTerminated), errors.Is(err, errChaosCancel), errors.Is(err, context.Canceled):
 		if !killed {
-			w.violate("rec %d: terminated without a terminate or stop (%v)", rec.id, err)
+			w.violatef("rec %d: terminated without a terminate or stop (%v)", rec.id, err)
 		}
 	case errors.Is(err, errChaosStart):
 		if rec.failUpgrade == 0 && !rec.failUpInit {
-			w.violate("rec %d: upgrade failure without injected failure (%v)", rec.id, err)
+			w.violatef("rec %d: upgrade failure without injected failure (%v)", rec.id, err)
 		}
 	default:
-		w.violate("rec %d: unexpected error %v", rec.id, err)
+		w.violatef("rec %d: unexpected error %v", rec.id, err)
 	}
 	if err != nil && !killed && !rec.expectsLimit() && rec.failUpgrade == 0 && !rec.failUpInit {
 		last := rec.plans[len(rec.plans)-1]
 		if last[len(last)-1].kind != opFail {
-			w.violate("rec %d: unprovoked failure %v", rec.id, err)
+			w.violatef("rec %d: unprovoked failure %v", rec.id, err)
 		}
 	}
 	if err == nil && rec.blocker && !killed {
-		w.violate("rec %d: blocker finished", rec.id)
+		w.violatef("rec %d: blocker finished", rec.id)
 	}
 }
 
