@@ -340,3 +340,27 @@ func TestRootPackMetadataLeavesRuntimeMetadataToThePack(t *testing.T) {
 	require.Equal(t, "acme.desk", metadata["namespace"])
 	require.NoError(t, addPackRuntimeMetadata(metadata, root))
 }
+
+func TestPackRootModulesIncludeTheApplicationIdentity(t *testing.T) {
+	root := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(root, "wippy.yaml"), []byte(
+		"organization: acme\nmodule: desk\ntype: application\nversion: 0.3.0\n"), 0o644))
+
+	roots, err := packRootModules([]string{"hub/deployed"}, root)
+	require.NoError(t, err)
+	require.Equal(t, []string{"hub/deployed", "acme/desk"}, roots)
+
+	selected, err := resolvePackModule("acme/desk", []lock.ModuleLoadPath{
+		{Path: filepath.Join(root, "src"), Root: true},
+		{Path: filepath.Join(root, ".wippy", "vendor", "wippy", "migration"), Module: "wippy/migration"},
+	}, roots)
+	require.NoError(t, err)
+	require.Equal(t, "acme/desk", selected.Module)
+	require.Equal(t, filepath.Join(root, "src"), selected.Path)
+}
+
+func TestPackRootModulesWithoutAnIdentifiedManifestAreTheLockRoots(t *testing.T) {
+	roots, err := packRootModules([]string{"hub/deployed"}, t.TempDir())
+	require.NoError(t, err)
+	require.Equal(t, []string{"hub/deployed"}, roots)
+}
