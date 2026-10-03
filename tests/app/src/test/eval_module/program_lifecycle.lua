@@ -4,15 +4,23 @@
 local assert = require("assert")
 local time = require("time")
 
-local function wait_value(events, pid)
+-- wait_values collects the exit values of pids, which may exit in any order.
+local function wait_values(events, pids)
+	local values, pending = {}, #pids
 	local timeout = time.after("5s")
-	while true do
+	while pending > 0 do
 		local selected = channel.select { events:case_receive(), timeout:case_receive() }
 		assert.eq(selected.channel, events, "eval process exit received")
-		if selected.value.kind == process.event.EXIT and selected.value.from == pid then
-			return selected.value.result.value
+		if selected.value.kind == process.event.EXIT then
+			for i, pid in ipairs(pids) do
+				if selected.value.from == pid and values[i] == nil then
+					values[i] = selected.value.result.value
+					pending = pending - 1
+				end
+			end
 		end
 	end
+	return values
 end
 
 local function main()
@@ -32,8 +40,9 @@ local function main()
 
 	local first = program:spawn({ input = 1, monitor_only = true })
 	local second = eval.spawn(program, { input = 10, monitor_only = true })
-	assert.eq(wait_value(events, first), 2, "first spawn of the program")
-	assert.eq(wait_value(events, second), 11, "second spawn of the program")
+	local values = wait_values(events, { first, second })
+	assert.eq(values[1], 2, "first spawn of the program")
+	assert.eq(values[2], 11, "second spawn of the program")
 
 	local mismatch, merr = program:spawn({ modules = { "json" }, monitor_only = true })
 	assert.is_nil(mismatch, "spawn with a different policy fails")
