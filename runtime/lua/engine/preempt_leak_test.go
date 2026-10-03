@@ -295,14 +295,11 @@ func TestSchedulerLuaActorExitsReleaseEverything(t *testing.T) {
 			}
 		}
 	}
-	deadline := time.Now().Add(5 * time.Second)
-	for closed.Load() < total && time.Now().Before(deadline) {
-		time.Sleep(5 * time.Millisecond)
-	}
+	// Stopping joins the workers, so every Close has happened.
+	executor.Stop()
 	if got := closed.Load(); got != total {
 		t.Fatalf("closed %d of %d actors", got, total)
 	}
-	executor.Stop()
 	if got := settleGoroutines(baseline); got > baseline {
 		t.Fatalf("goroutines grew from %d to %d", baseline, got)
 	}
