@@ -11,25 +11,25 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 	"github.com/wippyai/runtime/api/auth"
 	bootauth "github.com/wippyai/runtime/boot/deps/auth"
+	"github.com/wippyai/runtime/cmd/internal/style"
 	"golang.org/x/term"
 )
 
 var (
-	authLabelStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("14"))
-	authSuccessStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("10")).Bold(true)
-	authErrorStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Bold(true)
-	authInfoStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("12"))
-	authDimStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+	authLabelStyle   = style.New().Bold(true).Foreground(14)
+	authSuccessStyle = style.New().Foreground(10).Bold(true)
+	authErrorStyle   = style.New().Foreground(9).Bold(true)
+	authInfoStyle    = style.New().Foreground(12)
+	authDimStyle     = style.New().Foreground(8)
 )
 
 // authPrintf prints formatted output with optional styling for console mode.
-func authPrintf(console bool, format string, style lipgloss.Style, args ...any) {
+func authPrintf(console bool, format string, st style.Style, args ...any) {
 	if console {
-		styled := style.Render(fmt.Sprintf(format, args...))
+		styled := st.Render(fmt.Sprintf(format, args...))
 		fmt.Println(styled)
 	} else {
 		fmt.Printf(format+"\n", args...)
@@ -37,7 +37,7 @@ func authPrintf(console bool, format string, style lipgloss.Style, args ...any) 
 }
 
 // authPrintField prints a label: value pair with appropriate styling.
-func authPrintField(console bool, label, value string, valueStyle lipgloss.Style) {
+func authPrintField(console bool, label, value string, valueStyle style.Style) {
 	if console {
 		fmt.Printf("%s %s\n", authLabelStyle.Render(label), valueStyle.Render(value))
 	} else {

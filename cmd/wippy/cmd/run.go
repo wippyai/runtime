@@ -15,7 +15,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 	"github.com/wippyai/runtime/api/boot"
 	ctxapi "github.com/wippyai/runtime/api/context"
@@ -35,6 +34,7 @@ import (
 	"github.com/wippyai/runtime/cmd/internal/banner"
 	"github.com/wippyai/runtime/cmd/internal/bootconfig"
 	"github.com/wippyai/runtime/cmd/internal/entries"
+	"github.com/wippyai/runtime/cmd/internal/style"
 	embedpkg "github.com/wippyai/runtime/service/fs/embed"
 	terminalservice "github.com/wippyai/runtime/service/terminal"
 	securitysys "github.com/wippyai/runtime/system/security"
@@ -642,9 +642,9 @@ func runList(cmd *cobra.Command, _ []string) error {
 		return nil
 	}
 
-	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("12"))
-	nameStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("10"))
-	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+	titleStyle := style.New().Bold(true).Foreground(12)
+	nameStyle := style.New().Bold(true).Foreground(10)
+	dimStyle := style.New().Foreground(8)
 
 	fmt.Println(titleStyle.Render("Available commands:"))
 	fmt.Println()

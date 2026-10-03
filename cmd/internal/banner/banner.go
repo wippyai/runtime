@@ -8,8 +8,8 @@ import (
 	"math/rand/v2"
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
 	"github.com/wippyai/runtime/api/version"
+	"github.com/wippyai/runtime/cmd/internal/style"
 )
 
 // GradientTheme defines a 3-step gradient color theme.
@@ -103,16 +103,16 @@ func PrintWithTheme(silent bool, theme GradientTheme) {
 		buildDate = buildDate[:idx]
 	}
 
-	logo1 := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(fmt.Sprintf("%d", theme.Logo1)))
-	logo2 := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(fmt.Sprintf("%d", theme.Logo2)))
-	logo3 := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(fmt.Sprintf("%d", theme.Logo3)))
-	titleStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(fmt.Sprintf("%d", theme.Title)))
-	urlStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(fmt.Sprintf("%d", theme.URL)))
-	versionStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(fmt.Sprintf("%d", theme.Version)))
+	logo1 := style.New().Bold(true).Foreground(theme.Logo1)
+	logo2 := style.New().Bold(true).Foreground(theme.Logo2)
+	logo3 := style.New().Bold(true).Foreground(theme.Logo3)
+	titleStyle := style.New().Foreground(theme.Title)
+	urlStyle := style.New().Foreground(theme.URL)
+	versionStyle := style.New().Foreground(theme.Version)
 	if theme.VersionBold {
 		versionStyle = versionStyle.Bold(true)
 	}
-	companyStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(fmt.Sprintf("%d", theme.Company)))
+	companyStyle := style.New().Foreground(theme.Company)
 	if theme.CompanyBold {
 		companyStyle = companyStyle.Bold(true)
 	}

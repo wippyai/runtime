@@ -8,7 +8,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/boot"
@@ -16,6 +15,7 @@ import (
 	regapi "github.com/wippyai/runtime/api/registry"
 	appinit "github.com/wippyai/runtime/cmd/internal/app"
 	clilogger "github.com/wippyai/runtime/cmd/internal/logger"
+	"github.com/wippyai/runtime/cmd/internal/style"
 	"github.com/wippyai/runtime/system/registry/finder"
 	"go.uber.org/zap"
 	"gopkg.in/yaml.v3"
@@ -348,8 +348,8 @@ func outputEntriesYAML(entries []regapi.Entry, includeRegistryMeta bool) error {
 func outputEntriesTable(entries []regapi.Entry) {
 	if len(entries) == 0 {
 		if console {
-			style := lipgloss.NewStyle().Foreground(lipgloss.Color("11")).Bold(true)
-			fmt.Println(style.Render("No entries found"))
+			noEntries := style.New().Foreground(11).Bold(true)
+			fmt.Println(noEntries.Render("No entries found"))
 		} else {
 			fmt.Println("No entries found")
 		}
@@ -377,10 +377,10 @@ func outputEntriesTable(entries []regapi.Entry) {
 	}
 
 	// Styles for console mode
-	headerStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("14"))
-	idStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("12"))
-	kindStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
-	countStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("10")).Bold(true)
+	headerStyle := style.New().Bold(true).Foreground(14)
+	idStyle := style.New().Foreground(12)
+	kindStyle := style.New().Foreground(8)
+	countStyle := style.New().Foreground(10).Bold(true)
 
 	// Print header
 	if console {
@@ -388,8 +388,8 @@ func outputEntriesTable(entries []regapi.Entry) {
 			headerStyle.Render(fmt.Sprintf("%-*s", maxID, "ID")),
 			headerStyle.Render(fmt.Sprintf("%-*s", maxKind, "KIND")))
 		fmt.Printf("%s  %s\n",
-			lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Render(strings.Repeat("─", maxID)),
-			lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Render(strings.Repeat("─", maxKind)))
+			style.New().Foreground(8).Render(strings.Repeat("─", maxID)),
+			style.New().Foreground(8).Render(strings.Repeat("─", maxKind)))
 	} else {
 		fmt.Printf("%-*s  %-*s\n", maxID, "ID", maxKind, "KIND")
 		fmt.Printf("%s  %s\n", strings.Repeat("-", maxID), strings.Repeat("-", maxKind))
@@ -453,11 +453,11 @@ func outputEntryYAML(entry *regapi.Entry, dataMap map[string]any) error {
 }
 
 func outputEntryTable(entry *regapi.Entry, dataMap map[string]any) {
-	labelStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("14"))
-	valueStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("15"))
-	keyStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("12"))
-	sectionStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("11"))
-	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+	labelStyle := style.New().Bold(true).Foreground(14)
+	valueStyle := style.New().Foreground(15)
+	keyStyle := style.New().Foreground(12)
+	sectionStyle := style.New().Bold(true).Foreground(11)
+	dimStyle := style.New().Foreground(8)
 
 	if console {
 		fmt.Printf("%s %s\n", labelStyle.Render("ID:"), valueStyle.Render(entry.ID.String()))
