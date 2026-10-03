@@ -240,6 +240,21 @@ func (q *EventQueue) admitPackageLocked(pkg *relay.Package) bool {
 	if len(original) == 0 {
 		return true
 	}
+	// Ordinary traffic needs neither topic accounting nor compaction. Keep
+	// its existing package slice; bounded traffic still follows the full
+	// admission path, including inherited limits and overflow tombstones.
+	if len(q.messageTopics) == 0 {
+		bounded := false
+		for _, msg := range original {
+			if msg != nil && (msg.MaxItems > 0 || msg.MaxBytes > 0) {
+				bounded = true
+				break
+			}
+		}
+		if !bounded {
+			return true
+		}
+	}
 
 	accepted := make([]*relay.Message, 0, len(original)+1)
 	for _, msg := range original {

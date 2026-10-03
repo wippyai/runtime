@@ -115,9 +115,11 @@ func channelSelectFunc(l *lua.LState) int {
 						return -1
 					}
 					l.Push(res[0])
+					ReleaseResult(result)
 					return 1
 				}
 			}
+			ReleaseResult(result)
 		}
 	}
 
@@ -129,11 +131,8 @@ func channelSelectFunc(l *lua.LState) int {
 		return 1
 	}
 
-	nNext := &ChannelResult{
-		Yields:  true,
-		Block:   make([]*Channel, 0, len(selectOp.Cases)),
-		Release: make([]*Channel, 0),
-	}
+	nNext := acquireResult()
+	nNext.Yields = true
 
 	for _, caseOp := range selectOp.Cases {
 		var m *ChannelResult
@@ -144,6 +143,7 @@ func channelSelectFunc(l *lua.LState) int {
 		}
 		nNext.Block = append(nNext.Block, m.Block...)
 		nNext.Release = append(nNext.Release, m.Release...)
+		ReleaseResult(m)
 	}
 
 	l.Push(nNext)
@@ -183,6 +183,7 @@ func channelSend(l *lua.LState) int {
 		l.Push(result)
 		return -1
 	}
+	defer ReleaseResult(result)
 	updates := result.GetUpdates()
 	if len(updates) > 0 {
 		if updates[0].Error != nil {
@@ -210,6 +211,7 @@ func channelReceive(l *lua.LState) int {
 		l.Push(result)
 		return -1
 	}
+	defer ReleaseResult(result)
 	updates := result.GetUpdates()
 	if len(updates) > 0 {
 		res := updates[0].GetResult()
@@ -236,6 +238,7 @@ func channelClose(l *lua.LState) int {
 		l.Push(result)
 		return -1
 	}
+	ReleaseResult(result)
 	return 0
 }
 
